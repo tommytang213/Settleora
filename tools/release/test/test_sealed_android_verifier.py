@@ -179,6 +179,20 @@ class SealedAndroidVerifierTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "terminate at the central directory"):
                 VERIFIER.preflight_aab(source.fileno())
 
+    def test_aab_preflight_rejects_local_version_mismatch(self):
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as output:
+            entry = zipfile.ZipInfo("entry", date_time=(1981, 1, 1, 1, 1, 2))
+            entry.compress_type = zipfile.ZIP_DEFLATED
+            output.writestr(entry, b"content")
+        mutated = bytearray(archive.getvalue())
+        struct.pack_into("<H", mutated, 4, struct.unpack_from("<H", mutated, 4)[0] + 1)
+        with tempfile.TemporaryFile() as source:
+            source.write(mutated)
+            source.seek(0)
+            with self.assertRaisesRegex(ValueError, "local header metadata"):
+                VERIFIER.preflight_aab(source.fileno())
+
     def test_aab_preflight_rejects_archive_comment(self):
         archive = io.BytesIO()
         with zipfile.ZipFile(archive, "w") as output:

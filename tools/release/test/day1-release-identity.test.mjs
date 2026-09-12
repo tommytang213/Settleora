@@ -22,7 +22,7 @@ import {
   validatePublicationRunDocument,
   validatePublicationRunUrl,
 } from '../day1-release-identity.mjs';
-import { assertCleanCompletion, assertCommitHasNoSymlinks, canonicalAndroidInput, canonicalManifestPath, canonicalReleaseNotesInput, canonicalWebInput, copyBoundedFile, deterministicAndroidRebuildProjection, parseCanonicalJson, parseSingleApkSigner, retainReleaseNotes, safeInput, sanitizedErrorMessage, toolchainTreeDigest, verificationRegistryReference } from '../day1-release-identity-cli.mjs';
+import { assertCleanCompletion, assertCommitHasNoSymlinks, canonicalAndroidInput, canonicalManifestPath, canonicalReleaseNotesInput, canonicalWebInput, copyBoundedFile, deterministicAndroidRebuildProjection, parseCanonicalJson, parseSingleApkSigner, retainReleaseNotes, safeInput, sanitizedErrorMessage, startToolchainMutationGuard, toolchainTreeDigest, verificationRegistryReference } from '../day1-release-identity-cli.mjs';
 
 const d = (character) => `sha256:${character.repeat(64)}`;
 const producerJson = (value) => `${JSON.stringify(value, null, 2)}\n`;
@@ -112,6 +112,7 @@ function fixture(t) {
       flutter: { algorithm: 'sha256(canonical-stable-toolchain-tree-v1)', sha256: '8'.repeat(64), fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
       android: { algorithm: 'sha256(canonical-stable-toolchain-tree-v1)', sha256: '9'.repeat(64), fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
     },
+    signingInput: { kind: 'explicit-debug-keystore-sha256-v1', sha256: '7'.repeat(64) },
     artifacts: {
       apk: { path: 'apps/mobile/build/app/outputs/flutter-apk/app-release.apk', size: readFileSync(apkPath).length, sha256: sha256(readFileSync(apkPath)) },
       aab: { path: 'apps/mobile/build/app/outputs/bundle/release/app-release.aab', size: readFileSync(aabPath).length, sha256: sha256(readFileSync(aabPath)) },
@@ -173,6 +174,7 @@ test('builds a deterministic canonical identity and excludes generatedAt from it
   assert.equal(first.migrations.entries[1].files.length, 2);
   assert.equal(first.migrations.stateClaim, 'repository-source-only-not-applied');
   assert.equal(first.migrations.runtimeInventory, 'compiled-ef-metadata-v1');
+  assert.equal(first.android.signingInputSha256, '7'.repeat(64));
   assert.equal(first.android.outputMetadataSha256, sha256(readFileSync(f.paths.outputMetadataPath)));
   assert.equal(first.rollback.artifactAvailabilityProvesDatabaseSchemaFileRollbackSafety, false);
   assert.deepEqual(first.dependencyImages.map((image) => image.name), ['caddy', 'postgres', 'rabbitmq']);
@@ -474,6 +476,19 @@ test('toolchain inventory rejects direct and chained symlinks into excluded dire
   symlinkSync('../.git', path.join(root, 'alias/bridge'));
   symlinkSync('alias/bridge/tool', path.join(root, 'chained-link'));
   assert.throws(() => toolchainTreeDigest(root, 'fixture toolchain', ['.git']), /symlink into an excluded directory/);
+});
+
+test('toolchain mutation guard fails closed on a write during the guarded window', (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), 'release-toolchain-guard-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const toolchain = path.join(root, 'toolchain');
+  const state = path.join(root, 'state');
+  mkdirSync(toolchain);
+  mkdirSync(state);
+  writeFileSync(path.join(toolchain, 'compiler'), 'before');
+  const guard = startToolchainMutationGuard([{ root: toolchain, excludedPrefixes: [] }], state);
+  writeFileSync(path.join(toolchain, 'compiler'), 'after');
+  assert.throws(() => guard.finish(), /toolchain changed/);
 });
 
 test('Android rebuild projection normalizes only raw retained artifact identities', (t) => {

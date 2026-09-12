@@ -40,6 +40,7 @@ node tools/release/day1-release-identity-cli.mjs collect-android \
   --flutter /trusted/flutter/bin/flutter \
   --android-sdk-root /trusted/Android/Sdk \
   --java-home /trusted/jdk \
+  --debug-keystore /trusted/debug.keystore \
   --output /workspace/logs/settleora-android-preflight/<source-sha>
 ```
 
@@ -54,14 +55,16 @@ node tools/release/day1-release-identity-cli.mjs assemble \
   --output /workspace/logs/settleora-release-candidates/<candidate-id>/release-identity-manifest.json \
   --flutter /trusted/flutter/bin/flutter \
   --android-sdk-root /trusted/Android/Sdk \
-  --java-home /trusted/jdk
+  --java-home /trusted/jdk \
+  --debug-keystore /trusted/debug.keystore
 
 node tools/release/day1-release-identity-cli.mjs validate \
   --manifest /workspace/logs/settleora-release-candidates/<candidate-id>/release-identity-manifest.json \
   --input /workspace/logs/settleora-release-candidates/<candidate-id>/inputs.json \
   --flutter /trusted/flutter/bin/flutter \
   --android-sdk-root /trusted/Android/Sdk \
-  --java-home /trusted/jdk
+  --java-home /trusted/jdk \
+  --debug-keystore /trusted/debug.keystore
 ```
 
 Assembly also performs `npm ci` through the protected system npm installation and
@@ -85,6 +88,11 @@ Gradle wrapper distribution SHA-256 prevents distribution substitution.
 The stable-content inventories exclude only tool-owned runtime metadata (`.git`,
 Flutter's lock/internal Gradle state, and Android's `.knownPackages` marker), none
 of which supplies build executables, libraries, packages, or platform content.
+An independent inotify guard covers every non-excluded toolchain directory from
+before the initial inventory through both builds and the final inventory; any
+mutation or event-queue overflow fails closed. An explicitly supplied debug
+keystore is copied into a private controlled user home and its SHA-256 is bound
+to Android provenance without retaining the signing input itself.
 Assembly and validation resolve `apksigner`
 only below the separately supplied trusted SDK root and verify both the APK and
 AAB debug certificate and rejects additional APK or AAB signers. Validation always recollects source, registry, web,
@@ -113,7 +121,8 @@ metadata entries must use their producer's fixed raw-DEFLATE settings. Thus an
 exact-source rebuild rejects a repacked bundle with the same expanded signed
 payload, including a same-method archive made with another compression level.
 Local entry spans must also be mutually contiguous from byte zero through the
-central directory, leaving no unbound interstitial archive bytes.
+central directory, leaving no unbound interstitial archive bytes. The local
+version-needed field must exactly match its bound central-directory counterpart.
 Assembly also copies the bounded release-note input into canonical retained
 `release-notes.md`; validation never depends on the caller's original path.
 

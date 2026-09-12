@@ -361,6 +361,7 @@ def preflight_aab(descriptor: int) -> tuple[int, str, str]:
         local_name_size, local_extra_size = struct.unpack_from("<HH", local_header, 26) if len(local_header) == 30 else (0, 0)
         local_name = os.pread(descriptor, local_name_size, local_offset + 30) if len(local_header) == 30 else b""
         if len(local_header) != 30 or local_header[:4] != b"PK\x03\x04" \
+                or local_header[4:6] != central[position + 6:position + 8] \
                 or struct.unpack_from("<HH", local_header, 6) != (flags, compression) \
                 or struct.unpack_from("<HH", local_header, 10) != (modified_time, modified_date) \
                 or struct.unpack_from("<III", local_header, 14) != struct.unpack_from("<III", central, position + 16) \

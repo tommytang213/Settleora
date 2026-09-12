@@ -528,7 +528,7 @@ function collectAndroid(repoRoot, input, source) {
   if (!provenanceFile.bytes.equals(Buffer.from(canonicalJson(provenance), 'utf8'))) {
     fail('Android build provenance must use its unique canonical serialization');
   }
-  assertKeys(provenance, ['schema', 'source', 'commands', 'toolchains', 'artifacts'], 'Android build provenance');
+  assertKeys(provenance, ['schema', 'source', 'commands', 'toolchains', 'signingInput', 'artifacts'], 'Android build provenance');
   assertKeys(provenance.source, ['commit', 'tree'], 'Android build provenance source');
   assertKeys(provenance.artifacts, ['apk', 'aab', 'r8MappingSha256', 'outputMetadataSha256'], 'Android build provenance artifacts');
   const { commit, tree } = source;
@@ -539,6 +539,9 @@ function collectAndroid(repoRoot, input, source) {
     fail('Android build provenance command mismatch');
   }
   assertKeys(provenance.toolchains, ['flutter', 'android'], 'Android build provenance toolchains');
+  assertKeys(provenance.signingInput, ['kind', 'sha256'], 'Android build provenance signing input');
+  if (provenance.signingInput.kind !== 'explicit-debug-keystore-sha256-v1') fail('Android build provenance signing-input kind mismatch');
+  hexDigest(provenance.signingInput.sha256, 'Android build provenance signing-input SHA-256');
   for (const [name, inventory] of Object.entries(provenance.toolchains)) {
     assertKeys(inventory, ['algorithm', 'sha256', 'fileCount', 'directoryCount', 'symlinkCount', 'totalBytes'], `Android ${name} toolchain inventory`);
     if (inventory.algorithm !== 'sha256(canonical-stable-toolchain-tree-v1)') fail(`Android ${name} toolchain inventory algorithm mismatch`);
@@ -560,6 +563,7 @@ function collectAndroid(repoRoot, input, source) {
     r8Minified: true,
     r8MappingSha256: sha256(mapping.bytes),
     signingState: sourceMetadata.signingState,
+    signingInputSha256: provenance.signingInput.sha256,
     signerCertificateSha256: hexDigest(input.signerCertificateSha256, 'Android signer certificate SHA-256'),
     apk: { path: 'apps/mobile/build/app/outputs/flutter-apk/app-release.apk', size: apk.size, sha256: sha256(apk.bytes) },
     aab: { path: 'apps/mobile/build/app/outputs/bundle/release/app-release.aab', size: aab.size, sha256: sha256(aab.bytes) },
@@ -675,7 +679,7 @@ export function validateManifest(manifest, repoRoot) {
     if (manifest.userWeb.buildTools[name] !== sourceWebPackageLock.packages?.[`node_modules/${name}`]?.version) fail(`userWeb.buildTools.${name} does not match the captured source lock`);
   }
   if (manifest.android?.source?.commit !== manifest.source.commit || manifest.android?.source?.tree !== manifest.source.tree) fail('Android source/tree mismatch');
-  assertKeys(manifest.android, ['source', 'semanticVersion', 'buildNumber', 'applicationId', 'r8Minified', 'r8MappingSha256', 'signingState', 'signerCertificateSha256', 'apk', 'aab', 'outputMetadataSha256', 'buildProvenanceSha256'], 'android');
+  assertKeys(manifest.android, ['source', 'semanticVersion', 'buildNumber', 'applicationId', 'r8Minified', 'r8MappingSha256', 'signingState', 'signingInputSha256', 'signerCertificateSha256', 'apk', 'aab', 'outputMetadataSha256', 'buildProvenanceSha256'], 'android');
   assertKeys(manifest.android.source, ['commit', 'tree'], 'android.source');
   assertKeys(manifest.android.apk, ['path', 'size', 'sha256'], 'android.apk');
   assertKeys(manifest.android.aab, ['path', 'size', 'sha256'], 'android.aab');
@@ -688,6 +692,7 @@ export function validateManifest(manifest, repoRoot) {
   }
   if (manifest.android.r8Minified !== true) fail('Android R8/minification assertion is required');
   hexDigest(manifest.android.r8MappingSha256, 'android.r8MappingSha256');
+  hexDigest(manifest.android.signingInputSha256, 'android.signingInputSha256');
   hexDigest(manifest.android.signerCertificateSha256, 'android.signerCertificateSha256');
   hexDigest(manifest.android.outputMetadataSha256, 'android.outputMetadataSha256');
   hexDigest(manifest.android.buildProvenanceSha256, 'android.buildProvenanceSha256');
