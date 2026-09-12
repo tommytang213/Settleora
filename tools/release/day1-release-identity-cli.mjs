@@ -449,22 +449,27 @@ export function toolchainTreeDigest(root, label, excludedPrefixes = [], excluded
   let symlinkCount = 0;
   let entryCount = 1;
   let totalBytes = 0;
-  const walk = (directory, depth) => {
+  const activeDirectories = new Set();
+  const walk = (directory, depth, logicalDirectory = '') => {
     if (depth > 64) throw new Error(`${label} exceeds its directory-depth boundary`);
+    const directoryMetadata = statSync(directory);
+    const directoryIdentity = `${directoryMetadata.dev}:${directoryMetadata.ino}`;
+    if (activeDirectories.has(directoryIdentity)) throw new Error(`${label} contains a directory-symlink cycle`);
+    activeDirectories.add(directoryIdentity);
     const entries = readdirSync(directory, { withFileTypes: true })
       .sort((left, right) => Buffer.from(left.name).compare(Buffer.from(right.name)));
-    for (const entry of entries) {
+    try { for (const entry of entries) {
       entryCount += 1;
       if (entryCount > 250_000) throw new Error(`${label} exceeds its total-entry boundary`);
       const target = path.join(directory, entry.name);
-      const relative = path.relative(absoluteRoot, target).split(path.sep).join('/');
+      const relative = logicalDirectory ? `${logicalDirectory}/${entry.name}` : entry.name;
       if (!relative || relative.startsWith('../') || path.isAbsolute(relative)) throw new Error(`${label} contains an unsafe path`);
       if (excluded(relative)) continue;
       const metadata = lstatSync(target);
       if (metadata.isDirectory()) {
         directoryCount += 1;
         if (directoryCount > 100_000) throw new Error(`${label} exceeds its directory-count boundary`);
-        walk(target, depth + 1);
+        walk(target, depth + 1, relative);
       } else if (metadata.isSymbolicLink()) {
         symlinkCount += 1;
         if (symlinkCount > 100_000) throw new Error(`${label} exceeds its symlink-count boundary`);
@@ -496,6 +501,11 @@ export function toolchainTreeDigest(root, label, excludedPrefixes = [], excluded
           totalBytes += bytes.length;
           if (fileCount > 100_000 || totalBytes > 12 * 1024 * 1024 * 1024) throw new Error(`${label} exceeds its inventory boundary`);
           records.push(`protected-external-file\0${relative}\0${resolvedMetadata.mode & 0o111 ? 'x' : '-'}\0${bytes.length}\0${createHash('sha256').update(bytes).digest('hex')}\n`);
+        } else if (realResolvedExternal && resolvedMetadata.isDirectory()) {
+          records.push(`protected-external-directory-link\0${relative}\0${link}\n`);
+          directoryCount += 1;
+          if (directoryCount > 100_000) throw new Error(`${label} exceeds its directory-count boundary`);
+          walk(realResolved, depth + 1, relative);
         } else {
           records.push(`link\0${relative}\0${link}\n`);
         }
@@ -526,10 +536,10 @@ export function toolchainTreeDigest(root, label, excludedPrefixes = [], excluded
       } else {
         throw new Error(`${label} contains an unsupported filesystem entry`);
       }
-    }
+    } } finally { activeDirectories.delete(directoryIdentity); }
   };
   walk(absoluteRoot, 0);
-  return { algorithm: protectedExternalSymlinks ? 'sha256(canonical-protected-runtime-tree-v1)' : 'sha256(canonical-stable-toolchain-tree-v3)', sha256: createHash('sha256').update(records.join('')).digest('hex'), excludedPaths: canonicalExcludedPaths, fileCount, directoryCount, symlinkCount, totalBytes };
+  return { algorithm: protectedExternalSymlinks ? 'sha256(canonical-protected-runtime-tree-v2)' : 'sha256(canonical-stable-toolchain-tree-v3)', sha256: createHash('sha256').update(records.join('')).digest('hex'), excludedPaths: canonicalExcludedPaths, fileCount, directoryCount, symlinkCount, totalBytes };
 }
 
 function makeTreeReadOnly(root, label) {
@@ -539,6 +549,21 @@ function makeTreeReadOnly(root, label) {
     if (metadata.isDirectory()) {
       for (const entry of readdirSync(candidate)) visit(path.join(candidate, entry));
       chmodSync(candidate, 0o555);
+    } else if (metadata.isFile()) {
+      chmodSync(candidate, metadata.mode & 0o111 ? 0o555 : 0o444);
+    } else {
+      throw new Error(`${label} contains an unsupported filesystem entry`);
+    }
+  };
+  visit(root);
+}
+
+function makeRegularFilesReadOnly(root, label) {
+  const visit = (candidate) => {
+    const metadata = lstatSync(candidate);
+    if (metadata.isSymbolicLink()) throw new Error(`${label} contains an unexpected symlink`);
+    if (metadata.isDirectory()) {
+      for (const entry of readdirSync(candidate)) visit(path.join(candidate, entry));
     } else if (metadata.isFile()) {
       chmodSync(candidate, metadata.mode & 0o111 ? 0o555 : 0o444);
     } else {
@@ -595,6 +620,7 @@ function relativeFilesMatching(root, expression) {
 
 const guardedToolchainRunner = String.raw`
 import ctypes
+import hashlib
 import json
 import os
 import select
@@ -602,8 +628,9 @@ import struct
 import subprocess
 import sys
 import time
+import stat
 
-configuration, commands, cwd = sys.argv[1:4]
+configuration, commands, cwd, captures_json = sys.argv[1:5]
 libc = ctypes.CDLL(None, use_errno=True)
 fd = libc.inotify_init1(os.O_CLOEXEC | os.O_NONBLOCK)
 if fd < 0:
@@ -616,8 +643,41 @@ def excluded(relative, prefixes, transient_bases):
         return True
     return any(relative.startswith(base + ".tmp.") and relative[len(base) + 5:].isdigit() for base in transient_bases)
 
+def tree_digest(root, prefixes, transient_bases):
+    digest = hashlib.sha256()
+    def record(kind, relative, extra=""):
+        digest.update((kind + "\0" + (relative or ".") + extra + "\n").encode("utf-8"))
+    def visit(directory, logical):
+        record("dir", logical)
+        for entry in sorted(os.scandir(directory), key=lambda item: os.fsencode(item.name)):
+            relative = (logical + "/" + entry.name).strip("/")
+            if excluded(relative, prefixes, transient_bases):
+                continue
+            metadata = os.stat(entry.path, follow_symlinks=False)
+            if stat.S_ISLNK(metadata.st_mode):
+                record("link", relative, "\0" + os.readlink(entry.path))
+            elif stat.S_ISDIR(metadata.st_mode):
+                visit(entry.path, relative)
+            elif stat.S_ISREG(metadata.st_mode):
+                file_digest = hashlib.sha256()
+                with open(entry.path, "rb", buffering=0) as stream:
+                    while True:
+                        chunk = stream.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        file_digest.update(chunk)
+                after = os.stat(entry.path, follow_symlinks=False)
+                if (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns) != (metadata.st_dev, metadata.st_ino, metadata.st_size, metadata.st_mtime_ns, metadata.st_ctime_ns):
+                    raise RuntimeError("guarded tree changed during inventory")
+                record("file", relative, "\0" + str(metadata.st_size) + "\0" + file_digest.hexdigest())
+            else:
+                raise RuntimeError("guarded tree contains an unsupported entry")
+    visit(root, "")
+    return digest.hexdigest()
+
 try:
-    for item in json.loads(configuration):
+    configuration_items = json.loads(configuration)
+    for item in configuration_items:
         root = os.path.realpath(item["root"])
         label = item["label"]
         prefixes = item["excludedPrefixes"]
@@ -631,6 +691,9 @@ try:
             if watch < 0:
                 raise OSError(ctypes.get_errno(), "inotify_add_watch failed")
             watches[watch] = (label, relative_directory, prefixes, transient_bases)
+    for item in configuration_items:
+        if tree_digest(os.path.realpath(item["root"]), item["excludedPrefixes"], item.get("excludedTransientBases", [])) != item["expectedGuardDigest"]:
+            raise RuntimeError(item["label"] + " changed before its authenticated guard was installed")
     changed = None
     passed_descriptors = [3]
     try:
@@ -666,7 +729,9 @@ try:
                         changed = label + ":" + (relative or ".") + ":0x" + format(event_mask, "x")
                 if len(data) < 65536:
                     break
-    for values in json.loads(commands):
+    command_values = json.loads(commands)
+    captures = json.loads(captures_json)
+    for command_index, values in enumerate(command_values):
         process = subprocess.Popen(["/proc/self/fd/3", *values], executable="/proc/self/fd/3", cwd=cwd, pass_fds=tuple(passed_descriptors))
         while process.poll() is None:
             drain(0.05)
@@ -675,37 +740,110 @@ try:
                 process.wait()
                 raise RuntimeError("Android toolchain changed while release artifacts were built: " + changed)
         drain(0)
+        if changed:
+            raise RuntimeError("Android toolchain changed while release artifacts were built: " + changed)
+        if process.returncode != 0:
+            raise subprocess.CalledProcessError(process.returncode, values)
+        if command_index == len(command_values) - 1:
+            for capture in captures:
+                source_fd = os.open(capture["source"], os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+                try:
+                    opened = os.fstat(source_fd)
+                    if not stat.S_ISREG(opened.st_mode) or opened.st_size < 1 or opened.st_size > capture["maxBytes"]:
+                        raise RuntimeError(capture["label"] + " exceeds its evidence boundary")
+                    target_fd = os.open(capture["target"], os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o444)
+                    try:
+                        total = 0
+                        while True:
+                            data = os.read(source_fd, 1024 * 1024)
+                            if not data:
+                                break
+                            total += len(data)
+                            if total > capture["maxBytes"]:
+                                raise RuntimeError(capture["label"] + " exceeds its evidence size limit")
+                            offset = 0
+                            while offset < len(data):
+                                offset += os.write(target_fd, data[offset:])
+                    finally:
+                        os.close(target_fd)
+                    after = os.fstat(source_fd)
+                    current = os.lstat(capture["source"])
+                    if (total != opened.st_size or after.st_dev != opened.st_dev or after.st_ino != opened.st_ino
+                            or after.st_size != opened.st_size or after.st_mtime_ns != opened.st_mtime_ns
+                            or after.st_ctime_ns != opened.st_ctime_ns or current.st_dev != opened.st_dev
+                            or current.st_ino != opened.st_ino or current.st_size != opened.st_size
+                            or current.st_mtime_ns != opened.st_mtime_ns or current.st_ctime_ns != opened.st_ctime_ns):
+                        raise RuntimeError(capture["label"] + " changed while its descriptor was sealed")
+                finally:
+                    os.close(source_fd)
         quiet_deadline = time.monotonic() + 2.0
         while time.monotonic() < quiet_deadline:
             drain(min(0.05, quiet_deadline - time.monotonic()))
         if changed:
             raise RuntimeError("Android toolchain changed while release artifacts were built: " + changed)
-        if process.returncode != 0:
-            raise subprocess.CalledProcessError(process.returncode, values)
+    for item in configuration_items:
+        if tree_digest(os.path.realpath(item["root"]), item["excludedPrefixes"], item.get("excludedTransientBases", [])) != item["expectedGuardDigest"]:
+            raise RuntimeError(item["label"] + " changed before the authenticated guard completed")
 finally:
     os.close(fd)
 `;
 
+function guardedTreeDigest(root, excludedPrefixes = [], excludedTransientBases = []) {
+  const excluded = (relative) => excludedPrefixes.some((prefix) => relative === prefix || relative.startsWith(`${prefix}/`))
+    || excludedTransientBases.some((base) => relative.startsWith(`${base}.tmp.`) && /^[0-9]+$/u.test(relative.slice(base.length + 5)));
+  const digest = createHash('sha256');
+  const record = (kind, relative, extra = '') => digest.update(`${kind}\0${relative || '.'}${extra}\n`);
+  const visit = (directory, logical) => {
+    record('dir', logical);
+    for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) => Buffer.from(left.name).compare(Buffer.from(right.name)))) {
+      const relative = logical ? `${logical}/${entry.name}` : entry.name;
+      if (excluded(relative)) continue;
+      const target = path.join(directory, entry.name);
+      const before = lstatSync(target, { bigint: true });
+      if (before.isSymbolicLink()) record('link', relative, `\0${readlinkSync(target)}`);
+      else if (before.isDirectory()) visit(target, relative);
+      else if (before.isFile()) {
+        const bytes = readFileSync(target);
+        const after = lstatSync(target, { bigint: true });
+        if (after.dev !== before.dev || after.ino !== before.ino || after.size !== before.size || after.mtimeNs !== before.mtimeNs || after.ctimeNs !== before.ctimeNs) {
+          throw new Error('Guarded tree changed during inventory');
+        }
+        record('file', relative, `\0${before.size}\0${createHash('sha256').update(bytes).digest('hex')}`);
+      } else throw new Error('Guarded tree contains an unsupported entry');
+    }
+  };
+  visit(path.resolve(root), '');
+  return digest.digest('hex');
+}
+
 function executeGuardedCommands(configuration, executable, inputs, commands, options) {
+  const authenticatedConfiguration = configuration.map((item) => ({
+    ...item,
+    expectedGuardDigest: guardedTreeDigest(item.root, item.excludedPrefixes, item.excludedTransientBases ?? []),
+  }));
   const tools = [executable, ...inputs];
   const descriptors = tools.map((tool) => openSync(tool.path, constants.O_RDONLY | constants.O_NOFOLLOW));
   try {
     for (const [index, tool] of tools.entries()) revalidateToolDescriptor(tool, descriptors[index], index === 0 ? 'Guarded executable' : 'Guarded executable input');
-    execFileSync(releaseCommand('python'), ['-I', '-S', '-c', guardedToolchainRunner, JSON.stringify(configuration), JSON.stringify(commands), options.cwd], {
+    const result = execFileSync(releaseCommand('python'), ['-I', '-S', '-c', guardedToolchainRunner, JSON.stringify(authenticatedConfiguration), JSON.stringify(commands), options.cwd, JSON.stringify(options.captures ?? [])], {
       cwd: '/usr/bin',
       env: options.env,
-      stdio: ['ignore', 'inherit', 'inherit', ...descriptors],
+      encoding: options.encoding,
+      maxBuffer: options.maxBuffer,
+      stdio: [...(options.stdio ?? ['ignore', 'inherit', 'inherit']).slice(0, 3), ...descriptors],
     });
     for (const [index, tool] of tools.entries()) revalidateToolDescriptor(tool, descriptors[index], index === 0 ? 'Guarded executable' : 'Guarded executable input');
+    return result;
   } finally {
     for (const descriptor of descriptors) closeSync(descriptor);
   }
 }
 
-function executeGuardedFlutter(flutter, commandSets, cwd, configuration) {
+function executeGuardedFlutter(flutter, commandSets, cwd, configuration, captures = []) {
   executeGuardedCommands(configuration, flutter.dart, [flutter.snapshot], commandSets.map((values) => ['/proc/self/fd/4', ...values]), {
     cwd,
     env: flutter.environment,
+    captures,
   });
 }
 
@@ -1105,6 +1243,7 @@ function collectAndroidUnsafe(options, emit = true) {
   try {
     assertCommitHasNoSymlinks(sourceBefore.commit, 'Android');
     materializeExactTree(sourceBefore.commit, snapshotRoot, 'Android');
+    makeRegularFilesReadOnly(snapshotRoot, 'Android exact-source snapshot');
     const buildCaches = path.join(snapshotContainer, 'build-caches');
     mkdirSync(buildCaches, { recursive: false, mode: 0o700 });
     const pubCache = path.join(buildCaches, 'pub');
@@ -1127,6 +1266,14 @@ function collectAndroidUnsafe(options, emit = true) {
       { label: 'flutter', root: flutter.root, excludedPrefixes: ['.git', 'bin/cache/lockfile', 'packages/flutter_tools/gradle/.gradle', ...flutterMutableMetadata], excludedTransientBases: flutterMutableMetadata },
       { label: 'android', root: androidSdkRoot, excludedPrefixes: ['.knownPackages'] },
     ];
+    const sourceGeneratedPaths = [
+      'apps/mobile/.dart_tool',
+      'apps/mobile/.flutter-plugins-dependencies',
+      'apps/mobile/android/.gradle',
+      'apps/mobile/android/local.properties',
+      'apps/mobile/build',
+    ];
+    const sourceGuard = { label: 'android-exact-source', root: snapshotRoot, excludedPrefixes: sourceGeneratedPaths };
     const toolchainsBefore = {
       flutter: toolchainTreeDigest(flutter.root, 'Flutter SDK', toolchainConfiguration[0].excludedPrefixes, toolchainConfiguration[0].excludedTransientBases),
       android: toolchainTreeDigest(androidSdkRoot, 'Android SDK', toolchainConfiguration[1].excludedPrefixes),
@@ -1150,7 +1297,7 @@ function collectAndroidUnsafe(options, emit = true) {
     executeGuardedFlutter(flutter, [
       ['pub', 'get'],
       ['build', 'apk', '--release', '--no-pub'],
-    ], mobileRoot, [...toolchainConfiguration, { label: 'android-signing-home', root: path.join(buildHome, '.android'), excludedPrefixes: [] }]);
+    ], mobileRoot, [...toolchainConfiguration, sourceGuard, { label: 'android-signing-home', root: path.join(buildHome, '.android'), excludedPrefixes: [] }]);
     const gradleModules = path.join(prefetchGradleHome, 'caches', 'modules-2');
     const gradleWrapper = path.join(prefetchGradleHome, 'wrapper');
     if (!lstatSync(gradleModules, { throwIfNoEntry: false })?.isDirectory() || !lstatSync(gradleWrapper, { throwIfNoEntry: false })?.isDirectory()) {
@@ -1194,17 +1341,32 @@ function collectAndroidUnsafe(options, emit = true) {
     };
     const offlineGuardConfiguration = [
       ...toolchainConfiguration,
+      sourceGuard,
       { label: 'pub-cache', root: pubCache, excludedPrefixes: pubExcludedBuildPaths },
       { label: 'gradle-modules-cache', root: runtimeModules, excludedPrefixes: ['gc.properties', 'modules-2.lock'] },
       { label: 'gradle-wrapper-distribution', root: runtimeWrapper, excludedPrefixes: runtimeWrapperLockPaths },
       { label: 'android-signing-home', root: path.join(buildHome, '.android'), excludedPrefixes: [] },
     ];
+    const runtimeGradleMutablePaths = ['.tmp', 'caches/8.14.4', 'caches/build-cache-1', 'caches/jars-9', 'caches/journal-1', 'caches/modules-2/gc.properties', 'caches/modules-2/modules-2.lock', 'caches/transforms-4', 'daemon', 'native', 'notifications', 'workers', ...runtimeWrapperLockPaths.map((entry) => `wrapper/${entry}`)];
+    offlineGuardConfiguration.push({ label: 'gradle-runtime-home', root: runtimeGradleHome, excludedPrefixes: runtimeGradleMutablePaths });
+    const files = {
+      apk: ['apps/mobile/build/app/outputs/flutter-apk/app-release.apk', 'app-release.apk'],
+      aab: ['apps/mobile/build/app/outputs/bundle/release/app-release.aab', 'app-release.aab'],
+      mapping: ['apps/mobile/build/app/outputs/mapping/release/mapping.txt', 'mapping.txt'],
+      metadata: ['apps/mobile/build/app/outputs/apk/release/output-metadata.json', 'output-metadata.json'],
+    };
+    const rawMetadataTarget = path.join(output, '.raw-output-metadata.json');
     executeGuardedFlutter(flutter, [
       ['clean'],
       ['pub', 'get', '--offline'],
       ['build', 'apk', '--release', '--no-pub'],
       ['build', 'appbundle', '--release', '--no-pub'],
-    ], mobileRoot, offlineGuardConfiguration);
+    ], mobileRoot, offlineGuardConfiguration, [
+      { source: path.join(snapshotRoot, files.apk[0]), target: path.join(output, files.apk[1]), maxBytes: maxAndroidArtifactBytes, label: 'Android APK' },
+      { source: path.join(snapshotRoot, files.aab[0]), target: path.join(output, files.aab[1]), maxBytes: maxAndroidArtifactBytes, label: 'Android AAB' },
+      { source: path.join(snapshotRoot, files.mapping[0]), target: path.join(output, files.mapping[1]), maxBytes: maxAndroidMappingBytes, label: 'Android R8 mapping' },
+      { source: path.join(snapshotRoot, files.metadata[0]), target: rawMetadataTarget, maxBytes: maxAndroidMetadataBytes, label: 'Android output metadata' },
+    ]);
     const toolchainsAfter = {
       flutter: toolchainTreeDigest(flutter.root, 'Flutter SDK', toolchainConfiguration[0].excludedPrefixes, toolchainConfiguration[0].excludedTransientBases),
       android: toolchainTreeDigest(androidSdkRoot, 'Android SDK', toolchainConfiguration[1].excludedPrefixes),
@@ -1225,26 +1387,20 @@ function collectAndroidUnsafe(options, emit = true) {
       || debugKeystoreCertificateSha256(javaHome, path.join(buildHome, '.android', 'debug.keystore')) !== signingCertificateSha256) {
       throw new Error('Copied Android debug signing identity changed during collection');
     }
-    const files = {
-      apk: ['apps/mobile/build/app/outputs/flutter-apk/app-release.apk', 'app-release.apk'],
-      aab: ['apps/mobile/build/app/outputs/bundle/release/app-release.aab', 'app-release.aab'],
-      mapping: ['apps/mobile/build/app/outputs/mapping/release/mapping.txt', 'mapping.txt'],
-      metadata: ['apps/mobile/build/app/outputs/apk/release/output-metadata.json', 'output-metadata.json'],
-    };
     assertOwnedEvidenceDirectory(output);
     copiedIdentities = {
-      apk: copyBoundedFile(path.join(snapshotRoot, files.apk[0]), path.join(output, files.apk[1]), maxAndroidArtifactBytes, 'Android APK'),
-      aab: copyBoundedFile(path.join(snapshotRoot, files.aab[0]), path.join(output, files.aab[1]), maxAndroidArtifactBytes, 'Android AAB'),
-      mapping: copyBoundedFile(path.join(snapshotRoot, files.mapping[0]), path.join(output, files.mapping[1]), maxAndroidMappingBytes, 'Android R8 mapping'),
+      apk: ((identity) => ({ size: identity.size, sha256: identity.sha256 }))(trustedFile(path.join(output, files.apk[1]), 'app-release.apk', 'captured Android APK')),
+      aab: ((identity) => ({ size: identity.size, sha256: identity.sha256 }))(trustedFile(path.join(output, files.aab[1]), 'app-release.aab', 'captured Android AAB')),
+      mapping: ((identity) => ({ size: identity.size, sha256: identity.sha256 }))(trustedFile(path.join(output, files.mapping[1]), 'mapping.txt', 'captured Android R8 mapping')),
       toolchains: toolchainsBefore,
       dependencyCaches,
       gradleVerificationMetadataSha256: createHash('sha256').update(gitExec(['show', `${sourceBefore.commit}:apps/mobile/android/gradle/verification-metadata.xml`], { cwd: repoRoot })).digest('hex'),
       apksignerJarSha256: apksignerJar.sha256,
-      toolchainMutationGuard: { algorithm: 'linux-inotify-authenticated-runner-v2', flutterExcludedTransientBases: [...flutterMutableMetadata].sort((left, right) => Buffer.from(left).compare(Buffer.from(right))), pubExcludedBuildPaths, gradleWrapperLockPaths: runtimeWrapperLockPaths, queueOverflowFailsClosed: true },
+      toolchainMutationGuard: { algorithm: 'linux-inotify-authenticated-runner-v3', flutterExcludedTransientBases: [...flutterMutableMetadata].sort((left, right) => Buffer.from(left).compare(Buffer.from(right))), pubExcludedBuildPaths, gradleWrapperLockPaths: runtimeWrapperLockPaths, sourceGeneratedPaths, runtimeGradleMutablePaths, outputsCapturedBeforeGuardExit: true, queueOverflowFailsClosed: true },
       signingInputSha256: debugKeystore.sha256,
       signingCertificateSha256,
     };
-    const outputMetadataBytes = safeBytes(path.join(snapshotRoot, files.metadata[0]), 'Android output metadata');
+    const outputMetadataBytes = safeBytes(rawMetadataTarget, 'captured Android output metadata');
     let outputMetadata;
     try {
       assertUniqueJsonMembers(outputMetadataBytes.toString('utf8'));
@@ -1255,6 +1411,7 @@ function collectAndroidUnsafe(options, emit = true) {
     const canonicalOutputMetadata = Buffer.from(canonicalJson(outputMetadata), 'utf8');
     if (canonicalOutputMetadata.length > maxAndroidMetadataBytes) throw new Error('Android output metadata exceeds its evidence size limit');
     writeFileSync(path.join(output, files.metadata[1]), canonicalOutputMetadata, { flag: 'wx', mode: 0o444 });
+    rmSync(rawMetadataTarget, { force: false });
     copiedIdentities.outputMetadata = { size: canonicalOutputMetadata.length, sha256: createHash('sha256').update(canonicalOutputMetadata).digest('hex') };
   } finally {
     const metadata = lstatSync(snapshotContainer, { throwIfNoEntry: false });
@@ -1462,13 +1619,23 @@ export function collectCompiledMigrationIds(privateParent) {
       stdio: ['ignore', 'ignore', 'pipe'],
       maxBuffer: 16 * 1024 * 1024,
     });
-    const stdout = executeSealedTool(dotnet, [path.join(output, 'Settleora.EfMigrationInventory.dll')], {
-      cwd: output,
-      env: dotnetEnvironment,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      maxBuffer: 4 * 1024 * 1024,
-    });
+    makeTreeReadOnly(output, 'Published EF migration inventory closure');
+    const publishedIdentity = toolchainTreeDigest(output, 'Published EF migration inventory closure');
+    let stdout;
+    try {
+      stdout = executeGuardedCommands(
+        [{ label: 'published-ef-migration-closure', root: output, excludedPrefixes: [] }],
+        dotnet,
+        [],
+        [[path.join(output, 'Settleora.EfMigrationInventory.dll')]],
+        { cwd: output, env: dotnetEnvironment, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 4 * 1024 * 1024 },
+      );
+      if (canonicalJson(toolchainTreeDigest(output, 'Published EF migration inventory closure')) !== canonicalJson(publishedIdentity)) {
+        throw new Error('Published EF migration inventory closure changed during execution');
+      }
+    } finally {
+      makeTreeOwnerWritable(output);
+    }
     const marker = 'SETTLEORA_MIGRATIONS_JSON:';
     const records = stdout.split(/\r?\n/u).filter((line) => line.startsWith(marker));
     if (records.length !== 1) throw new Error('Compiled EF migration inventory output is ambiguous');

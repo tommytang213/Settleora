@@ -156,6 +156,12 @@ function decodeStaticScriptEscapesForScan(text) {
     .replace(/\\x([0-9A-Fa-f]{2})/gu, (_escape, digits) => String.fromCharCode(Number.parseInt(digits, 16)));
 }
 
+function removeScriptEscapeBoundariesForScan(text) {
+  // A credential prefix split by an otherwise invalid or deliberately partial
+  // JavaScript escape must still be visible to the conservative public scan.
+  return text.replace(/\\(?:u\{[0-9A-Fa-f]{0,6}\}?|u[0-9A-Fa-f]{0,4}|x[0-9A-Fa-f]{0,2}|.)?/gu, '');
+}
+
 function git(args) {
   return execFileSync('/usr/bin/git', ['--no-replace-objects', ...args], {
     cwd: repoRoot,
@@ -327,6 +333,7 @@ export function scanPublicArtifact(files) {
     }
     const text = file.contents.toString('utf8');
     const decodedScriptText = decodeStaticScriptEscapesForScan(text);
+    const collapsedScriptText = removeScriptEscapeBoundariesForScan(text);
     let decodedJsonText;
     let candidate;
     try {
@@ -358,7 +365,8 @@ export function scanPublicArtifact(files) {
       decodedJsonText = JSON.stringify(candidate);
     }
     for (const pattern of unsafeContentPatterns) {
-      if (pattern.test(text) || pattern.test(decodedScriptText) || (decodedJsonText !== undefined && pattern.test(decodedJsonText))) {
+      if (pattern.test(text) || pattern.test(decodedScriptText) || pattern.test(collapsedScriptText)
+        || (decodedJsonText !== undefined && pattern.test(decodedJsonText))) {
         throw new Error(`Potential sensitive or host-specific material in ${file.path}`);
       }
     }

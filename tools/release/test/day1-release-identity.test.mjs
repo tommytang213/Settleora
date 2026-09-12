@@ -11,6 +11,7 @@ import {
   collectMigrations,
   computeIdentityDigest,
   containsSensitiveMaterial,
+  parseGradleVerificationMetadata,
   sha256,
   validateRegistryDocument,
   validateRegistryRevision,
@@ -63,7 +64,14 @@ function fixture(t) {
   write(root, `${migrationRoot}/20260102000000_SourceOnly.Designer.cs`, '[Migration("20260102000000_SourceOnly")]\npartial class SourceOnly {}\n');
   write(root, 'apps/web-user/package-lock.json', '{"lockfileVersion":3,"packages":{"node_modules/typescript":{"version":"5.0.0"},"node_modules/vite":{"version":"7.0.0"}}}\n');
   write(root, 'apps/mobile/pubspec.yaml', 'version: 1.2.3+45\n');
-  const gradleVerificationMetadata = write(root, 'apps/mobile/android/gradle/verification-metadata.xml', '<verification-metadata/>\n');
+  const gradleVerificationMetadata = write(root, 'apps/mobile/android/gradle/verification-metadata.xml', [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<verification-metadata xmlns="https://schema.gradle.org/dependency-verification" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://schema.gradle.org/dependency-verification https://schema.gradle.org/dependency-verification/dependency-verification-1.3.xsd">',
+    '  <configuration><verify-metadata>true</verify-metadata><verify-signatures>false</verify-signatures></configuration>',
+    '  <components><component group="example" name="fixture" version="1"><artifact name="fixture.jar"><sha256 value="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" origin="Fixture"/></artifact></component></components>',
+    '</verification-metadata>',
+    '',
+  ].join('\n'));
   write(root, 'apps/mobile/android/app/build.gradle.kts', [
     'android {',
     '  defaultConfig { applicationId = "com.example.mobile" }',
@@ -112,7 +120,7 @@ function fixture(t) {
     toolchains: {
       flutter: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: '8'.repeat(64), excludedPaths: ['.git', 'bin/cache/lockfile', 'bin/cache/runtime.stamp', 'packages/flutter_tools/gradle/.gradle'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
       android: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: '9'.repeat(64), excludedPaths: ['.knownPackages'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
-      java: { algorithm: 'sha256(canonical-protected-runtime-tree-v1)', sha256: 'd'.repeat(64), excludedPaths: [], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
+      java: { algorithm: 'sha256(canonical-protected-runtime-tree-v2)', sha256: 'd'.repeat(64), excludedPaths: [], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
     },
     dependencyCaches: {
       pub: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: 'a'.repeat(64), excludedPaths: ['hosted/pub.dev/jni-1.0.0/android/.cxx'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
@@ -121,7 +129,16 @@ function fixture(t) {
     },
     gradleVerificationMetadataSha256: sha256(readFileSync(gradleVerificationMetadata)),
     verificationTools: { apksignerJarSha256: 'c'.repeat(64) },
-    toolchainMutationGuard: { algorithm: 'linux-inotify-authenticated-runner-v2', flutterExcludedTransientBases: ['bin/cache/runtime.stamp'], pubExcludedBuildPaths: ['hosted/pub.dev/jni-1.0.0/android/.cxx'], gradleWrapperLockPaths: ['dists/gradle-8.14-all/c2qonpi39x1mddn7hk5gh9iqj/gradle-8.14-all.zip.lck'], queueOverflowFailsClosed: true },
+    toolchainMutationGuard: {
+      algorithm: 'linux-inotify-authenticated-runner-v3',
+      flutterExcludedTransientBases: ['bin/cache/runtime.stamp'],
+      pubExcludedBuildPaths: ['hosted/pub.dev/jni-1.0.0/android/.cxx'],
+      gradleWrapperLockPaths: ['dists/gradle-8.14-all/c2qonpi39x1mddn7hk5gh9iqj/gradle-8.14-all.zip.lck'],
+      sourceGeneratedPaths: ['apps/mobile/.dart_tool', 'apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/.gradle', 'apps/mobile/android/local.properties', 'apps/mobile/build'],
+      runtimeGradleMutablePaths: ['.tmp', 'caches/8.14.4', 'caches/build-cache-1', 'caches/jars-9', 'caches/journal-1', 'caches/modules-2/gc.properties', 'caches/modules-2/modules-2.lock', 'caches/transforms-4', 'daemon', 'native', 'notifications', 'workers', 'wrapper/dists/gradle-8.14-all/c2qonpi39x1mddn7hk5gh9iqj/gradle-8.14-all.zip.lck'],
+      outputsCapturedBeforeGuardExit: true,
+      queueOverflowFailsClosed: true,
+    },
     signingInput: { kind: 'explicit-debug-keystore-sha256-v1', sha256: '7'.repeat(64), certificateSha256: '3'.repeat(64) },
     artifacts: {
       apk: { path: 'apps/mobile/build/app/outputs/flutter-apk/app-release.apk', size: readFileSync(apkPath).length, sha256: sha256(readFileSync(apkPath)) },
@@ -530,6 +547,22 @@ test('toolchain inventory rejects symlinks into transient exclusions', (t) => {
   assert.throws(() => toolchainTreeDigest(root, 'fixture toolchain', [], ['bin/cache/runtime.stamp']), /symlink into an excluded directory/);
 });
 
+test('protected runtime inventory binds external directory symlink contents', (t) => {
+  const parent = mkdtempSync(path.join(tmpdir(), 'release-protected-runtime-'));
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const root = path.join(parent, 'runtime');
+  const external = path.join(parent, 'external-docs');
+  mkdirSync(root);
+  mkdirSync(external);
+  write(external, 'runtime.jar', 'first identity');
+  symlinkSync(external, path.join(root, 'docs'));
+  const before = toolchainTreeDigest(root, 'protected fixture', [], [], true);
+  writeFileSync(path.join(external, 'runtime.jar'), 'second identity');
+  const after = toolchainTreeDigest(root, 'protected fixture', [], [], true);
+  assert.notEqual(after.sha256, before.sha256);
+  assert.equal(after.algorithm, 'sha256(canonical-protected-runtime-tree-v2)');
+});
+
 test('toolchain mutation guard fails closed on a write during the guarded window', (t) => {
   const root = mkdtempSync(path.join(tmpdir(), 'release-toolchain-guard-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -770,6 +803,7 @@ test('published schema requires role-specific image provenance', () => {
   assert.equal(schema.$defs.releaseNoteSummary.pattern.includes('github_pat_'), true);
   assert.equal(schema.$defs.releaseNoteSummary.pattern.includes('/home/'), true);
   assert.deepEqual(schema.properties.userWeb.required, ['schema', 'source', 'dependencyLock', 'buildTools', 'artifact']);
+  for (const name of ['node', 'npm', 'typescript', 'vite']) assert.equal(schema.properties.userWeb.properties.buildTools.properties[name].$ref, '#/$defs/publicText');
   assert.equal(schema.$defs.dependencyImage.properties.sourceComposePath.const, 'infra/docker-compose.truenas-lan.image.yml');
   assert.deepEqual(schema.properties.dependencyImages.allOf.map((rule) => ({
     role: rule.contains.properties.name.const,
@@ -784,33 +818,13 @@ test('published schema requires role-specific image provenance', () => {
 
 test('repository Gradle verification metadata is checksum-only without trust bypasses', () => {
   const metadata = readFileSync(new URL('../../../apps/mobile/android/gradle/verification-metadata.xml', import.meta.url), 'utf8');
-  assert.equal(metadata.includes('<!--') || metadata.includes('-->') || metadata.includes('--!>'), false);
-  const configurations = [...metadata.matchAll(/<configuration>\s*<verify-metadata>(true|false)<\/verify-metadata>\s*<verify-signatures>(true|false)<\/verify-signatures>\s*<\/configuration>/gu)];
-  assert.equal(configurations.length, 1);
-  assert.deepEqual(configurations[0].slice(1), ['true', 'false']);
-  assert.equal([...metadata.matchAll(/<verify-metadata>/gu)].length, 1);
-  assert.equal([...metadata.matchAll(/<verify-signatures>/gu)].length, 1);
-  assert.doesNotMatch(metadata, /<(?:trusted-|ignored-|pgp|repository|key-server)/iu);
-  const componentOpenCount = [...metadata.matchAll(/<component\s/gu)].length;
-  const artifactOpenCount = [...metadata.matchAll(/<artifact\s/gu)].length;
-  const identities = new Set();
-  let observedComponents = 0;
-  let observedArtifacts = 0;
-  for (const component of metadata.matchAll(/<component group="([^"<>&]+)" name="([^"<>&]+)" version="([^"<>&]+)">([\s\S]*?)<\/component>/gu)) {
-    observedComponents += 1;
-    let body = component[4];
-    for (const artifact of body.matchAll(/<artifact name="([^"<>&]+)">\s*<sha256 value="([0-9a-f]{64})" origin="([^"<>&]+)"\/>\s*<\/artifact>/gu)) {
-      observedArtifacts += 1;
-      const identity = canonicalJson([component[1], component[2], component[3], artifact[1]]);
-      assert.equal(identities.has(identity), false);
-      identities.add(identity);
-      body = body.replace(artifact[0], '');
-    }
-    assert.equal(body.trim(), '');
-  }
-  assert.equal(observedComponents, componentOpenCount);
-  assert.equal(observedArtifacts, artifactOpenCount);
-  assert.ok(observedArtifacts > 1000);
+  const parsed = parseGradleVerificationMetadata(metadata);
+  assert.ok(parsed.componentCount > 100);
+  assert.ok(parsed.artifactCount > 1000);
+  assert.throws(() => parseGradleVerificationMetadata(metadata.replace(
+    '<configuration>',
+    '<?verification verify-metadata="true"?><configuration><x:verify-metadata>false</x:verify-metadata>',
+  )), /unsupported XML constructs|noncanonical/);
 });
 
 test('retained manifest JSON requires one canonical unambiguous serialization', () => {

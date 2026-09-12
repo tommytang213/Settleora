@@ -193,6 +193,49 @@ function publicText(value, label) {
   return value;
 }
 
+export function parseGradleVerificationMetadata(value) {
+  if (typeof value !== 'string' || Buffer.byteLength(value, 'utf8') > 16 * 1024 * 1024 || value.includes('\0')) {
+    fail('Gradle verification metadata exceeds its parsing boundary');
+  }
+  const prefix = '<?xml version="1.0" encoding="UTF-8"?>\n<verification-metadata xmlns="https://schema.gradle.org/dependency-verification" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://schema.gradle.org/dependency-verification https://schema.gradle.org/dependency-verification/dependency-verification-1.3.xsd">';
+  const suffix = '</verification-metadata>\n';
+  if (!value.startsWith(prefix) || !value.endsWith(suffix)) fail('Gradle verification metadata root is not canonical');
+  const body = value.slice(prefix.length, -suffix.length);
+  if (body.includes('<?') || body.includes('<!') || body.includes('&')) fail('Gradle verification metadata contains unsupported XML constructs');
+  const configuration = /^\s*<configuration>\s*<verify-metadata>true<\/verify-metadata>\s*<verify-signatures>false<\/verify-signatures>\s*<\/configuration>\s*<components>/u.exec(body);
+  if (!configuration || !body.endsWith('</components>\n')) fail('Gradle verification metadata configuration is not canonical checksum-only policy');
+  const components = body.slice(configuration[0].length, -'</components>\n'.length);
+  const componentPattern = /\s*<component group="([^"<>&]+)" name="([^"<>&]+)" version="([^"<>&]+)">([\s\S]*?)<\/component>/gyu;
+  const artifactPattern = /\s*<artifact name="([^"<>&]+)">\s*<sha256 value="([0-9a-f]{64})" origin="([^"<>&]+)"\/>\s*<\/artifact>/gyu;
+  const identities = new Set();
+  let componentCount = 0;
+  let artifactCount = 0;
+  let offset = 0;
+  while (offset < components.length) {
+    if (components.slice(offset).trim() === '') break;
+    componentPattern.lastIndex = offset;
+    const component = componentPattern.exec(components);
+    if (!component) fail('Gradle verification metadata contains a noncanonical component');
+    componentCount += 1;
+    let artifactOffset = 0;
+    artifactPattern.lastIndex = 0;
+    while (artifactOffset < component[4].length) {
+      if (component[4].slice(artifactOffset).trim() === '') break;
+      artifactPattern.lastIndex = artifactOffset;
+      const artifact = artifactPattern.exec(component[4]);
+      if (!artifact) fail('Gradle verification metadata contains a noncanonical artifact');
+      const identity = canonicalJson([component[1], component[2], component[3], artifact[1]]);
+      if (identities.has(identity)) fail('Gradle verification metadata contains a duplicate artifact identity');
+      identities.add(identity);
+      artifactCount += 1;
+      artifactOffset = artifactPattern.lastIndex;
+    }
+    offset = componentPattern.lastIndex;
+  }
+  if (componentCount < 1 || artifactCount < 1) fail('Gradle verification metadata is empty');
+  return { componentCount, artifactCount };
+}
+
 function releaseNoteSummary(value, label) {
   publicText(value, label);
   if (value.length > 500 || !RELEASE_NOTE_SUMMARY.test(value)) {
@@ -475,7 +518,7 @@ function collectWeb(repoRoot, input, source) {
     fail('User-web canonical build/security evidence is incomplete');
   }
   assertKeys(manifest.buildTools, ['node', 'npm', 'typescript', 'vite'], 'userWeb buildTools');
-  for (const name of ['node', 'npm', 'typescript', 'vite']) string(manifest.buildTools[name], `userWeb buildTools.${name}`);
+  for (const name of ['node', 'npm', 'typescript', 'vite']) publicText(manifest.buildTools[name], `userWeb buildTools.${name}`);
   const sourceLock = JSON.parse(lock.bytes);
   for (const name of ['typescript', 'vite']) {
     if (manifest.buildTools[name] !== sourceLock.packages?.[`node_modules/${name}`]?.version) fail(`User-web ${name} build-tool version mismatch`);
@@ -545,11 +588,16 @@ function collectAndroid(repoRoot, input, source) {
     !== hexDigest(input.verificationToolSha256, 'Observed Android apksigner JAR SHA-256')) {
     fail('Android signature verifier does not match build-time toolchain provenance');
   }
-  assertKeys(provenance.toolchainMutationGuard, ['algorithm', 'flutterExcludedTransientBases', 'pubExcludedBuildPaths', 'gradleWrapperLockPaths', 'queueOverflowFailsClosed'], 'Android build provenance toolchain mutation guard');
-  if (provenance.toolchainMutationGuard.algorithm !== 'linux-inotify-authenticated-runner-v2' || provenance.toolchainMutationGuard.queueOverflowFailsClosed !== true
+  assertKeys(provenance.toolchainMutationGuard, ['algorithm', 'flutterExcludedTransientBases', 'pubExcludedBuildPaths', 'gradleWrapperLockPaths', 'sourceGeneratedPaths', 'runtimeGradleMutablePaths', 'outputsCapturedBeforeGuardExit', 'queueOverflowFailsClosed'], 'Android build provenance toolchain mutation guard');
+  if (provenance.toolchainMutationGuard.algorithm !== 'linux-inotify-authenticated-runner-v3' || provenance.toolchainMutationGuard.queueOverflowFailsClosed !== true
+    || provenance.toolchainMutationGuard.outputsCapturedBeforeGuardExit !== true
     || !Array.isArray(provenance.toolchainMutationGuard.flutterExcludedTransientBases)
     || !Array.isArray(provenance.toolchainMutationGuard.pubExcludedBuildPaths)
     || !Array.isArray(provenance.toolchainMutationGuard.gradleWrapperLockPaths)
+    || canonicalJson(provenance.toolchainMutationGuard.sourceGeneratedPaths) !== canonicalJson(['apps/mobile/.dart_tool', 'apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/.gradle', 'apps/mobile/android/local.properties', 'apps/mobile/build'])
+    || canonicalJson(provenance.toolchainMutationGuard.runtimeGradleMutablePaths.slice(0, 12)) !== canonicalJson(['.tmp', 'caches/8.14.4', 'caches/build-cache-1', 'caches/jars-9', 'caches/journal-1', 'caches/modules-2/gc.properties', 'caches/modules-2/modules-2.lock', 'caches/transforms-4', 'daemon', 'native', 'notifications', 'workers'])
+    || provenance.toolchainMutationGuard.runtimeGradleMutablePaths.length !== 13
+    || provenance.toolchainMutationGuard.runtimeGradleMutablePaths[12] !== `wrapper/${provenance.toolchainMutationGuard.gradleWrapperLockPaths[0]}`
     || canonicalJson([...provenance.toolchainMutationGuard.flutterExcludedTransientBases].sort()) !== canonicalJson(provenance.toolchainMutationGuard.flutterExcludedTransientBases)) {
     fail('Android build provenance toolchain mutation guard mismatch');
   }
@@ -562,7 +610,7 @@ function collectAndroid(repoRoot, input, source) {
   }
   for (const [name, inventory] of Object.entries({ ...provenance.toolchains, ...provenance.dependencyCaches })) {
     assertKeys(inventory, ['algorithm', 'sha256', 'excludedPaths', 'fileCount', 'directoryCount', 'symlinkCount', 'totalBytes'], `Android ${name} toolchain inventory`);
-    const expectedAlgorithm = name === 'java' ? 'sha256(canonical-protected-runtime-tree-v1)' : 'sha256(canonical-stable-toolchain-tree-v3)';
+    const expectedAlgorithm = name === 'java' ? 'sha256(canonical-protected-runtime-tree-v2)' : 'sha256(canonical-stable-toolchain-tree-v3)';
     if (inventory.algorithm !== expectedAlgorithm) fail(`Android ${name} toolchain inventory algorithm mismatch`);
     if (!Array.isArray(inventory.excludedPaths) || canonicalJson([...inventory.excludedPaths].sort()) !== canonicalJson(inventory.excludedPaths)
       || inventory.excludedPaths.some((entry) => typeof entry !== 'string' || !entry || entry.startsWith('/') || entry.includes('\\') || entry.split('/').some((part) => !part || part === '.' || part === '..'))) {
@@ -596,6 +644,7 @@ function collectAndroid(repoRoot, input, source) {
     fail('Android pub-cache exclusions exceed the collector-owned build-directory allowlist');
   }
   const verificationMetadata = exactTrackedFile(repoRoot, 'apps/mobile/android/gradle/verification-metadata.xml', 'Gradle verification metadata', commit);
+  parseGradleVerificationMetadata(verificationMetadata.bytes.toString('utf8'));
   if (hexDigest(provenance.gradleVerificationMetadataSha256, 'Gradle verification metadata SHA-256') !== sha256(verificationMetadata.bytes)) {
     fail('Android Gradle verification metadata source mismatch');
   }
@@ -732,7 +781,7 @@ export function validateManifest(manifest, repoRoot) {
   if (manifest.userWeb.dependencyLock.sha256 !== sha256(sourceWebLock.bytes)
     || manifest.userWeb.dependencyLock.lockfileVersion !== sourceLockfileVersion) fail('User-web dependency lock does not match the captured source commit');
   const sourceWebPackageLock = JSON.parse(sourceWebLock.bytes);
-  for (const name of ['node', 'npm', 'typescript', 'vite']) string(manifest.userWeb.buildTools[name], `userWeb.buildTools.${name}`);
+  for (const name of ['node', 'npm', 'typescript', 'vite']) publicText(manifest.userWeb.buildTools[name], `userWeb.buildTools.${name}`);
   for (const name of ['typescript', 'vite']) {
     if (manifest.userWeb.buildTools[name] !== sourceWebPackageLock.packages?.[`node_modules/${name}`]?.version) fail(`userWeb.buildTools.${name} does not match the captured source lock`);
   }

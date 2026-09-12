@@ -61,6 +61,9 @@ jobs:
       - name: Test CI routing and workflow policy
         run: node --test tools/ci/test/*.test.mjs
 
+      - name: Validate release identity fail-closed tooling
+        run: npm run validate:release-identity
+
   full-validation:
     name: Validate API and generated artifacts
     needs: classify

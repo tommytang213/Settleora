@@ -122,6 +122,11 @@ test('full and mobile validation commands remain unweakened', () => {
   );
 });
 
+test('required scaffold classifier runs the fail-closed release identity suite', () => {
+  const classify = workflow('scaffold-validation.yml').jobs.classify;
+  assert.equal(classify.steps.some((step) => step.run === 'npm run validate:release-identity'), true);
+});
+
 test('iOS build procedure is reusable, manual, pinned, and simulator-only', () => {
   const scaffold = workflow('scaffold-validation.yml');
   const caller = scaffold.jobs['ios-validation'];
