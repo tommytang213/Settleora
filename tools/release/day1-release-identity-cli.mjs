@@ -1270,6 +1270,7 @@ function collectAndroidUnsafe(options, emit = true) {
       'apps/mobile/.dart_tool',
       'apps/mobile/.flutter-plugins-dependencies',
       'apps/mobile/android/.gradle',
+      'apps/mobile/android/app/src/main/java',
       'apps/mobile/android/local.properties',
       'apps/mobile/build',
       'apps/mobile/ios/Flutter/.last_build_id',
