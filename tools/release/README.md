@@ -87,7 +87,8 @@ pub and Gradle use fresh private caches and a bounded environment. The committed
 Gradle wrapper distribution SHA-256 prevents distribution substitution.
 The stable-content inventories exclude only tool-owned runtime metadata (`.git`,
 Flutter's lock, pre-existing top-level cache `.stamp`/`.realm` markers and
-internal Gradle state, plus Android's `.knownPackages` marker), none of which
+their numeric `.tmp.<pid>` atomic-write siblings, internal Gradle state, plus
+Android's `.knownPackages` marker), none of which
 supplies build executables, libraries, packages, or platform content. New cache
 markers are not silently excluded.
 An independent inotify guard covers every non-excluded toolchain directory from

@@ -492,8 +492,9 @@ test('toolchain mutation guard fails closed on a write during the guarded window
 
   const runtimeMarker = path.join(toolchain, 'runtime.stamp');
   writeFileSync(runtimeMarker, 'before');
-  const excludedGuard = startToolchainMutationGuard([{ label: 'fixture', root: toolchain, excludedPrefixes: ['runtime.stamp'] }], state);
+  const excludedGuard = startToolchainMutationGuard([{ label: 'fixture', root: toolchain, excludedPrefixes: ['runtime.stamp'], excludedTransientBases: ['runtime.stamp'] }], state);
   writeFileSync(runtimeMarker, 'after');
+  writeFileSync(path.join(toolchain, 'runtime.stamp.tmp.123'), 'atomic update');
   assert.doesNotThrow(() => excludedGuard.finish());
 });
 

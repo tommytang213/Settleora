@@ -527,23 +527,26 @@ def marker(path, contents=b"1\n"):
     os.write(descriptor, contents)
     os.close(descriptor)
 
-def excluded(relative, prefixes):
-    return any(relative == prefix or relative.startswith(prefix + "/") for prefix in prefixes)
+def excluded(relative, prefixes, transient_bases):
+    if any(relative == prefix or relative.startswith(prefix + "/") for prefix in prefixes):
+        return True
+    return any(relative.startswith(base + ".tmp.") and relative[len(base) + 5:].isdigit() for base in transient_bases)
 
 try:
     for item in json.loads(configuration):
         root = os.path.realpath(item["root"])
         label = item["label"]
         prefixes = item["excludedPrefixes"]
+        transient_bases = item.get("excludedTransientBases", [])
         for directory, names, _ in os.walk(root, topdown=True, followlinks=False):
             relative_directory = os.path.relpath(directory, root).replace(os.sep, "/")
             relative_directory = "" if relative_directory == "." else relative_directory
-            names[:] = [name for name in names if not excluded((relative_directory + "/" + name).strip("/"), prefixes)]
+            names[:] = [name for name in names if not excluded((relative_directory + "/" + name).strip("/"), prefixes, transient_bases)]
             encoded = os.fsencode(directory)
             watch = libc.inotify_add_watch(fd, encoded, mask)
             if watch < 0:
                 raise OSError(ctypes.get_errno(), "inotify_add_watch failed")
-            watches[watch] = (label, relative_directory, prefixes)
+            watches[watch] = (label, relative_directory, prefixes, transient_bases)
     marker(ready)
     changed = None
     while True:
@@ -566,10 +569,10 @@ try:
                     if context is None:
                         changed = "watcher:unknown-watch-event"
                         continue
-                    label, relative_directory, prefixes = context
+                    label, relative_directory, prefixes, transient_bases = context
                     name = os.fsdecode(raw_name)
                     relative = (relative_directory + "/" + name).strip("/")
-                    if not excluded(relative, prefixes):
+                    if not excluded(relative, prefixes, transient_bases):
                         changed = label + ":" + (relative or ".") + ":0x" + format(event_mask, "x")
                 if len(data) < 65536:
                     break
@@ -993,7 +996,7 @@ function collectAndroidUnsafe(options, emit = true) {
       .filter((entry) => entry.isFile() && !entry.isSymbolicLink() && /^[A-Za-z0-9._-]+\.(?:stamp|realm)$/u.test(entry.name))
       .map((entry) => `bin/cache/${entry.name}`);
     const toolchainConfiguration = [
-      { label: 'flutter', root: flutter.root, excludedPrefixes: ['.git', 'bin/cache/lockfile', 'packages/flutter_tools/gradle/.gradle', ...flutterMutableMetadata] },
+      { label: 'flutter', root: flutter.root, excludedPrefixes: ['.git', 'bin/cache/lockfile', 'packages/flutter_tools/gradle/.gradle', ...flutterMutableMetadata], excludedTransientBases: flutterMutableMetadata },
       { label: 'android', root: androidSdkRoot, excludedPrefixes: ['.knownPackages'] },
     ];
     mutationGuard = startToolchainMutationGuard(toolchainConfiguration, snapshotContainer);
