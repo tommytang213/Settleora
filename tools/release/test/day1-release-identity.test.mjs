@@ -398,12 +398,10 @@ test('release-note retention enforces the declared root and bounded filename', (
   assert.throws(() => retainReleaseNotes({ releaseNotes: { evidenceRoot: f.evidenceRoot, path: outside } }, path.join(f.evidenceRoot, 'copy.md')), /inside its declared evidence root/);
   const wrongName = write(f.evidenceRoot, '.env', 'ordinary text\n');
   assert.throws(() => retainReleaseNotes({ releaseNotes: { evidenceRoot: f.evidenceRoot, path: wrongName } }, path.join(f.evidenceRoot, 'copy.md')), /bounded release-notes\.md filename/);
-  const retainedRoot = mkdtempSync('/workspace/logs/.r03-release-note-test-');
-  t.after(() => rmSync(retainedRoot, { recursive: true, force: true }));
-  const boundedNote = write(retainedRoot, 'release-notes.md', 'candidate notes\n');
-  const retained = path.join(retainedRoot, 'retained.md');
-  retainReleaseNotes({ releaseNotes: { evidenceRoot: retainedRoot, path: boundedNote } }, retained);
-  assert.equal(readFileSync(retained, 'utf8'), 'candidate notes\n');
+  assert.throws(
+    () => retainReleaseNotes({ releaseNotes: { evidenceRoot: f.evidenceRoot, path: f.paths.notesPath } }, path.join(f.evidenceRoot, 'retained.md')),
+    /within \/workspace\/logs/,
+  );
 });
 
 test('snapshot inputs reject tracked symlinks and Android copies enforce pre-copy bounds', (t) => {
