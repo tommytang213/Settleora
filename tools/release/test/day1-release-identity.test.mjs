@@ -22,7 +22,7 @@ import {
   validatePublicationRunDocument,
   validatePublicationRunUrl,
 } from '../day1-release-identity.mjs';
-import { assertCleanCompletion, assertCommitHasNoSymlinks, canonicalAndroidInput, canonicalManifestPath, canonicalReleaseNotesInput, canonicalWebInput, copyBoundedFile, deterministicAndroidRebuildProjection, parseCanonicalJson, parseSingleApkSigner, retainReleaseNotes, safeInput, sanitizedErrorMessage, startToolchainMutationGuard, toolchainTreeDigest, verificationRegistryReference } from '../day1-release-identity-cli.mjs';
+import { assertCleanCompletion, assertCommitHasNoSymlinks, canonicalAndroidInput, canonicalManifestPath, canonicalReleaseNotesInput, canonicalWebInput, copyBoundedFile, deterministicAndroidRebuildProjection, parseCanonicalJson, parseSingleApkSigner, retainReleaseNotes, runToolchainMutationGuardFixture, safeInput, sanitizedErrorMessage, toolchainTreeDigest, verificationRegistryReference } from '../day1-release-identity-cli.mjs';
 
 const d = (character) => `sha256:${character.repeat(64)}`;
 const producerJson = (value) => `${JSON.stringify(value, null, 2)}\n`;
@@ -63,6 +63,7 @@ function fixture(t) {
   write(root, `${migrationRoot}/20260102000000_SourceOnly.Designer.cs`, '[Migration("20260102000000_SourceOnly")]\npartial class SourceOnly {}\n');
   write(root, 'apps/web-user/package-lock.json', '{"lockfileVersion":3,"packages":{"node_modules/typescript":{"version":"5.0.0"},"node_modules/vite":{"version":"7.0.0"}}}\n');
   write(root, 'apps/mobile/pubspec.yaml', 'version: 1.2.3+45\n');
+  const gradleVerificationMetadata = write(root, 'apps/mobile/android/gradle/verification-metadata.xml', '<verification-metadata/>\n');
   write(root, 'apps/mobile/android/app/build.gradle.kts', [
     'android {',
     '  defaultConfig { applicationId = "com.example.mobile" }',
@@ -70,7 +71,7 @@ function fixture(t) {
     '}',
     '',
   ].join('\n'));
-  git(root, ['add', 'infra/docker-compose.truenas-lan.image.yml', migrationRoot, 'apps/web-user/package-lock.json', 'apps/mobile/pubspec.yaml', 'apps/mobile/android/app/build.gradle.kts']);
+  git(root, ['add', 'infra/docker-compose.truenas-lan.image.yml', migrationRoot, 'apps/web-user/package-lock.json', 'apps/mobile/pubspec.yaml', 'apps/mobile/android/app/build.gradle.kts', 'apps/mobile/android/gradle/verification-metadata.xml']);
   git(root, ['-c', 'user.name=Settleora Test', '-c', 'user.email=test@example.invalid', 'commit', '--quiet', '-m', 'fixture base']);
   const rollbackCommit = git(root, ['rev-parse', 'HEAD']);
   write(root, 'README.md', 'candidate source\n');
@@ -107,12 +108,18 @@ function fixture(t) {
   const notesPath = write(evidenceRoot, 'release-notes.md', '# Candidate\nBounded test evidence.\n');
   const buildProvenancePath = write(evidenceRoot, 'build-provenance.json', canonicalJson({
     schema: 'settleora.android-exact-source-build.v1', source: { commit, tree },
-    commands: ['flutter clean', 'flutter build apk --release', 'flutter build appbundle --release'],
+    commands: ['flutter pub get (dependency prefetch)', 'flutter build apk --release --no-pub (dependency prefetch)', 'flutter clean (offline)', 'flutter pub get --offline', 'flutter build apk --release --no-pub (offline)', 'flutter build appbundle --release --no-pub (offline)'],
     toolchains: {
       flutter: { algorithm: 'sha256(canonical-stable-toolchain-tree-v2)', sha256: '8'.repeat(64), excludedPaths: ['.git', 'bin/cache/runtime.stamp'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
       android: { algorithm: 'sha256(canonical-stable-toolchain-tree-v2)', sha256: '9'.repeat(64), excludedPaths: ['.knownPackages'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
     },
-    toolchainMutationGuard: { algorithm: 'linux-inotify-nonexcluded-tree-v1', flutterExcludedTransientBases: ['bin/cache/runtime.stamp'], queueOverflowFailsClosed: true },
+    dependencyCaches: {
+      pub: { algorithm: 'sha256(canonical-stable-toolchain-tree-v2)', sha256: 'a'.repeat(64), excludedPaths: [], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
+      gradleModules: { algorithm: 'sha256(canonical-stable-toolchain-tree-v2)', sha256: 'b'.repeat(64), excludedPaths: [], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
+    },
+    gradleVerificationMetadataSha256: sha256(readFileSync(gradleVerificationMetadata)),
+    verificationTools: { apksignerJarSha256: 'c'.repeat(64) },
+    toolchainMutationGuard: { algorithm: 'linux-inotify-authenticated-runner-v2', flutterExcludedTransientBases: ['bin/cache/runtime.stamp'], pubExcludedBuildPaths: [], queueOverflowFailsClosed: true },
     signingInput: { kind: 'explicit-debug-keystore-sha256-v1', sha256: '7'.repeat(64) },
     artifacts: {
       apk: { path: 'apps/mobile/build/app/outputs/flutter-apk/app-release.apk', size: readFileSync(apkPath).length, sha256: sha256(readFileSync(apkPath)) },
@@ -149,6 +156,7 @@ function fixture(t) {
       buildProvenancePath,
       signerCertificateSha256: '3'.repeat(64),
       embeddedR8MappingSha256: sha256(readFileSync(mappingPath)),
+      verificationToolSha256: 'c'.repeat(64),
     },
     releaseNotes: { evidenceRoot, path: notesPath, source: 'bounded-input/release-notes.md', candidateSummary: 'Fixture candidate only.' },
     rollback: {
@@ -483,20 +491,30 @@ test('toolchain mutation guard fails closed on a write during the guarded window
   const root = mkdtempSync(path.join(tmpdir(), 'release-toolchain-guard-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const toolchain = path.join(root, 'toolchain');
-  const state = path.join(root, 'state');
   mkdirSync(toolchain);
-  mkdirSync(state);
   writeFileSync(path.join(toolchain, 'compiler'), 'before');
-  const guard = startToolchainMutationGuard([{ label: 'fixture', root: toolchain, excludedPrefixes: [] }], state);
-  writeFileSync(path.join(toolchain, 'compiler'), 'after');
-  assert.throws(() => guard.finish(), /toolchain changed/);
+  const compiler = path.join(toolchain, 'compiler');
+  assert.throws(() => runToolchainMutationGuardFixture(
+    [{ label: 'fixture', root: toolchain, excludedPrefixes: [] }],
+    `open(${JSON.stringify(compiler)}, "w", encoding="utf-8").write("after")`,
+  ), /toolchain changed/);
 
   const runtimeMarker = path.join(toolchain, 'runtime.stamp');
   writeFileSync(runtimeMarker, 'before');
-  const excludedGuard = startToolchainMutationGuard([{ label: 'fixture', root: toolchain, excludedPrefixes: ['runtime.stamp'], excludedTransientBases: ['runtime.stamp'] }], state);
-  writeFileSync(runtimeMarker, 'after');
-  writeFileSync(path.join(toolchain, 'runtime.stamp.tmp.123'), 'atomic update');
-  assert.doesNotThrow(() => excludedGuard.finish());
+  assert.doesNotThrow(() => runToolchainMutationGuardFixture(
+    [{ label: 'fixture', root: toolchain, excludedPrefixes: ['runtime.stamp'], excludedTransientBases: ['runtime.stamp'] }],
+    `open(${JSON.stringify(runtimeMarker)}, "w", encoding="utf-8").write("after"); open(${JSON.stringify(path.join(toolchain, 'runtime.stamp.tmp.123'))}, "w", encoding="utf-8").write("atomic update")`,
+  ));
+});
+
+test('toolchain mutation guard cannot report success after its build child kills it', (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), 'release-toolchain-guard-kill-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  write(root, 'compiler', 'trusted bytes');
+  assert.throws(() => runToolchainMutationGuardFixture(
+    [{ label: 'fixture', root, excludedPrefixes: [] }],
+    'import os, signal; os.kill(os.getppid(), signal.SIGKILL)',
+  ), /Command failed|SIGKILL/);
 });
 
 test('Android rebuild projection normalizes only raw retained artifact identities', (t) => {

@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import importlib.util
 import io
@@ -18,6 +19,52 @@ SPEC.loader.exec_module(VERIFIER)
 
 
 class SealedAndroidVerifierTests(unittest.TestCase):
+    def test_aab_signature_control_digest_rejects_resigned_extra_metadata(self):
+        payload = b"exact payload"
+        payload_digest = base64.b64encode(hashlib.sha256(payload).digest()).decode("ascii")
+
+        def artifact(extra_manifest_attribute=""):
+            manifest = (
+                "Manifest-Version: 1.0\r\n"
+                "Built-By: Signflinger\r\n"
+                "Created-By: Signflinger\r\n"
+                f"{extra_manifest_attribute}"
+                "\r\n"
+                "Name: base/payload\r\n"
+                f"SHA-256-Digest: {payload_digest}\r\n\r\n"
+            ).encode("ascii")
+            manifest_section = manifest.split(b"\r\n\r\n", 1)[1]
+            sf = (
+                "Signature-Version: 1.0\r\n"
+                "Created-By: Signflinger\r\n"
+                f"SHA-256-Digest-Manifest: {base64.b64encode(hashlib.sha256(manifest).digest()).decode('ascii')}\r\n\r\n"
+                "Name: base/payload\r\n"
+                f"SHA-256-Digest: {base64.b64encode(hashlib.sha256(manifest_section).digest()).decode('ascii')}\r\n\r\n"
+            ).encode("ascii")
+            archive = io.BytesIO()
+            with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=1) as output:
+                for name, contents in (
+                    ("base/payload", payload),
+                    ("META-INF/MANIFEST.MF", manifest),
+                    ("META-INF/ANDROIDD.SF", sf),
+                    ("META-INF/ANDROIDD.RSA", b"bounded certificate block"),
+                ):
+                    entry = zipfile.ZipInfo(name, date_time=(1981, 1, 1, 1, 1, 2))
+                    entry.compress_type = zipfile.ZIP_DEFLATED
+                    entry._compresslevel = 1
+                    output.writestr(entry, contents)
+            return archive.getvalue()
+
+        with tempfile.TemporaryFile() as source:
+            source.write(artifact())
+            source.seek(0)
+            self.assertRegex(VERIFIER.canonical_aab_signature_control_digest(source.fileno()), r"^[0-9a-f]{64}$")
+        with tempfile.TemporaryFile() as source:
+            source.write(artifact("Release-Claim: injected\r\n"))
+            source.seek(0)
+            with self.assertRaisesRegex(ValueError, "main attributes are not canonical"):
+                VERIFIER.canonical_aab_signature_control_digest(source.fileno())
+
     def test_unsigned_count_ignores_directory_and_signature_control_records(self):
         verification = "\n".join(
             (
@@ -272,8 +319,12 @@ class SealedAndroidVerifierTests(unittest.TestCase):
         self.assertNotEqual(compressed_identity(1), compressed_identity(9))
 
     def test_apk_signing_block_rejects_unknown_ids(self):
-        def artifact(identifiers):
-            pairs = b"".join(struct.pack("<QI", 4, identifier) for identifier in identifiers)
+        def artifact(identifiers, values=None):
+            values = values or {}
+            pairs = b"".join(
+                struct.pack("<QI", 4 + len(values.get(identifier, b"")), identifier) + values.get(identifier, b"")
+                for identifier in identifiers
+            )
             block_size = len(pairs) + 24
             block = struct.pack("<Q", block_size) + pairs + struct.pack("<Q", block_size) + VERIFIER.APK_SIGNING_BLOCK_MAGIC
             eocd = b"PK\x05\x06" + struct.pack("<HHHHIIH", 0, 0, 0, 0, 0, len(block), 0)
@@ -287,6 +338,11 @@ class SealedAndroidVerifierTests(unittest.TestCase):
             source.write(artifact((*VERIFIER.EXPECTED_APK_SIGNING_BLOCK_IDS, 0xDEADBEEF)))
             source.seek(0)
             with self.assertRaisesRegex(ValueError, "unexpected ID inventory"):
+                VERIFIER.apk_signing_block_ids(source.fileno())
+        with tempfile.TemporaryFile() as source:
+            source.write(artifact(VERIFIER.EXPECTED_APK_SIGNING_BLOCK_IDS, {0x42726577: b"\0\1"}))
+            source.seek(0)
+            with self.assertRaisesRegex(ValueError, "padding is not canonical zero bytes"):
                 VERIFIER.apk_signing_block_ids(source.fileno())
 
     def test_aab_preflight_rejects_multiline_entry_name(self):

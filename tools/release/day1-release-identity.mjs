@@ -528,27 +528,34 @@ function collectAndroid(repoRoot, input, source) {
   if (!provenanceFile.bytes.equals(Buffer.from(canonicalJson(provenance), 'utf8'))) {
     fail('Android build provenance must use its unique canonical serialization');
   }
-  assertKeys(provenance, ['schema', 'source', 'commands', 'toolchains', 'toolchainMutationGuard', 'signingInput', 'artifacts'], 'Android build provenance');
+  assertKeys(provenance, ['schema', 'source', 'commands', 'toolchains', 'dependencyCaches', 'gradleVerificationMetadataSha256', 'verificationTools', 'toolchainMutationGuard', 'signingInput', 'artifacts'], 'Android build provenance');
   assertKeys(provenance.source, ['commit', 'tree'], 'Android build provenance source');
   assertKeys(provenance.artifacts, ['apk', 'aab', 'r8MappingSha256', 'outputMetadataSha256'], 'Android build provenance artifacts');
   const { commit, tree } = source;
   if (provenance.schema !== 'settleora.android-exact-source-build.v1' || provenance.source?.commit !== commit || provenance.source?.tree !== tree) {
     fail('Android build provenance source mismatch');
   }
-  if (canonicalJson(provenance.commands) !== canonicalJson(['flutter clean', 'flutter build apk --release', 'flutter build appbundle --release'])) {
+  if (canonicalJson(provenance.commands) !== canonicalJson(['flutter pub get (dependency prefetch)', 'flutter build apk --release --no-pub (dependency prefetch)', 'flutter clean (offline)', 'flutter pub get --offline', 'flutter build apk --release --no-pub (offline)', 'flutter build appbundle --release --no-pub (offline)'])) {
     fail('Android build provenance command mismatch');
   }
   assertKeys(provenance.toolchains, ['flutter', 'android'], 'Android build provenance toolchains');
-  assertKeys(provenance.toolchainMutationGuard, ['algorithm', 'flutterExcludedTransientBases', 'queueOverflowFailsClosed'], 'Android build provenance toolchain mutation guard');
-  if (provenance.toolchainMutationGuard.algorithm !== 'linux-inotify-nonexcluded-tree-v1' || provenance.toolchainMutationGuard.queueOverflowFailsClosed !== true
+  assertKeys(provenance.dependencyCaches, ['pub', 'gradleModules'], 'Android build provenance dependency caches');
+  assertKeys(provenance.verificationTools, ['apksignerJarSha256'], 'Android build provenance verification tools');
+  if (hexDigest(provenance.verificationTools.apksignerJarSha256, 'Android apksigner JAR SHA-256')
+    !== hexDigest(input.verificationToolSha256, 'Observed Android apksigner JAR SHA-256')) {
+    fail('Android signature verifier does not match build-time toolchain provenance');
+  }
+  assertKeys(provenance.toolchainMutationGuard, ['algorithm', 'flutterExcludedTransientBases', 'pubExcludedBuildPaths', 'queueOverflowFailsClosed'], 'Android build provenance toolchain mutation guard');
+  if (provenance.toolchainMutationGuard.algorithm !== 'linux-inotify-authenticated-runner-v2' || provenance.toolchainMutationGuard.queueOverflowFailsClosed !== true
     || !Array.isArray(provenance.toolchainMutationGuard.flutterExcludedTransientBases)
+    || !Array.isArray(provenance.toolchainMutationGuard.pubExcludedBuildPaths)
     || canonicalJson([...provenance.toolchainMutationGuard.flutterExcludedTransientBases].sort()) !== canonicalJson(provenance.toolchainMutationGuard.flutterExcludedTransientBases)) {
     fail('Android build provenance toolchain mutation guard mismatch');
   }
   assertKeys(provenance.signingInput, ['kind', 'sha256'], 'Android build provenance signing input');
   if (provenance.signingInput.kind !== 'explicit-debug-keystore-sha256-v1') fail('Android build provenance signing-input kind mismatch');
   hexDigest(provenance.signingInput.sha256, 'Android build provenance signing-input SHA-256');
-  for (const [name, inventory] of Object.entries(provenance.toolchains)) {
+  for (const [name, inventory] of Object.entries({ ...provenance.toolchains, ...provenance.dependencyCaches })) {
     assertKeys(inventory, ['algorithm', 'sha256', 'excludedPaths', 'fileCount', 'directoryCount', 'symlinkCount', 'totalBytes'], `Android ${name} toolchain inventory`);
     if (inventory.algorithm !== 'sha256(canonical-stable-toolchain-tree-v2)') fail(`Android ${name} toolchain inventory algorithm mismatch`);
     if (!Array.isArray(inventory.excludedPaths) || canonicalJson([...inventory.excludedPaths].sort()) !== canonicalJson(inventory.excludedPaths)
@@ -560,8 +567,15 @@ function collectAndroid(repoRoot, input, source) {
       fail(`Android ${name} toolchain inventory is invalid`);
     }
   }
+  const verificationMetadata = exactTrackedFile(repoRoot, 'apps/mobile/android/gradle/verification-metadata.xml', 'Gradle verification metadata', commit);
+  if (hexDigest(provenance.gradleVerificationMetadataSha256, 'Gradle verification metadata SHA-256') !== sha256(verificationMetadata.bytes)) {
+    fail('Android Gradle verification metadata source mismatch');
+  }
   if (canonicalJson(provenance.toolchainMutationGuard.flutterExcludedTransientBases) !== canonicalJson(provenance.toolchains.flutter.excludedPaths.filter((entry) => /\.(?:stamp|realm)$/u.test(entry)))) {
     fail('Android Flutter mutation-guard exclusions do not match the toolchain inventory');
+  }
+  if (canonicalJson(provenance.toolchainMutationGuard.pubExcludedBuildPaths) !== canonicalJson(provenance.dependencyCaches.pub.excludedPaths)) {
+    fail('Android pub-cache mutation-guard exclusions do not match the dependency inventory');
   }
   const element = metadata.elements?.find((candidate) => candidate.outputFile === path.basename(input.apkPath));
   if (!element) fail('Android APK is absent from output metadata');
@@ -758,7 +772,7 @@ function assertInput(input) {
   assertKeys(input.apiImage, ['repository', 'configuredTag', 'indexDigest', 'platformDigest', 'ociRevision', 'publicationRunUrl'], 'input.apiImage');
   for (const [index, image] of input.dependencyImages?.entries?.() ?? []) assertKeys(image, ['name', 'repository', 'configuredTag', 'indexDigest', 'platformDigest', 'sourceComposePath', 'os', 'architecture'], `input.dependencyImages.${index}`, ['name', 'repository', 'configuredTag', 'indexDigest', 'platformDigest', 'sourceComposePath']);
   assertKeys(input.userWeb, ['evidenceRoot', 'manifestPath'], 'input.userWeb');
-  assertKeys(input.android, ['evidenceRoot', 'apkPath', 'aabPath', 'mappingPath', 'outputMetadataPath', 'buildProvenancePath', 'signerCertificateSha256', 'embeddedR8MappingSha256', 'expected'], 'input.android', ['evidenceRoot', 'apkPath', 'aabPath', 'mappingPath', 'outputMetadataPath', 'buildProvenancePath', 'signerCertificateSha256', 'embeddedR8MappingSha256']);
+  assertKeys(input.android, ['evidenceRoot', 'apkPath', 'aabPath', 'mappingPath', 'outputMetadataPath', 'buildProvenancePath', 'signerCertificateSha256', 'embeddedR8MappingSha256', 'verificationToolSha256', 'expected'], 'input.android', ['evidenceRoot', 'apkPath', 'aabPath', 'mappingPath', 'outputMetadataPath', 'buildProvenancePath', 'signerCertificateSha256', 'embeddedR8MappingSha256', 'verificationToolSha256']);
   if (input.android.expected !== undefined) {
     assertKeys(input.android.expected, ['apk', 'aab'], 'input.android.expected', []);
     for (const kind of ['apk', 'aab']) if (input.android.expected[kind] !== undefined) assertKeys(input.android.expected[kind], ['size', 'sha256'], `input.android.expected.${kind}`);

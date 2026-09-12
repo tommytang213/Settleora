@@ -17,6 +17,14 @@ pluginManagement {
     }
 }
 
+// Release-evidence collectors set this project property only after a
+// checksum-verified dependency cache has been populated. Keeping the switch in
+// source makes the offline boundary explicit and replayable without rewriting
+// the generated Gradle wrapper.
+if (providers.gradleProperty("settleoraReleaseOffline").orNull == "true") {
+    gradle.startParameter.isOffline = true
+}
+
 plugins {
     id("dev.flutter.flutter-plugin-loader") version "1.0.0"
     id("com.android.application") version "8.11.1" apply false

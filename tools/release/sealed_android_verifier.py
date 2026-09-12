@@ -2,6 +2,8 @@
 """Verify Android artifacts from a write-sealed Linux memfd snapshot."""
 
 import argparse
+import base64
+import binascii
 import fcntl
 import hashlib
 import json
@@ -24,6 +26,7 @@ MAX_VERIFIER_ENTRIES = 200_000
 MAX_AAB_ENTRY_BYTES = 256 * 1024 * 1024
 MAX_AAB_EXPANDED_BYTES = 512 * 1024 * 1024
 MAX_AAB_CENTRAL_DIRECTORY_BYTES = 64 * 1024 * 1024
+MAX_SIGNATURE_CONTROL_BYTES = 4 * 1024 * 1024
 SIGNATURE_CONTROL = re.compile(r"^META-INF/(?:MANIFEST\.MF|[^/]+\.(?:SF|RSA|DSA|EC))$")
 APK_SIGNING_BLOCK_MAGIC = b"APK Sig Block 42"
 EXPECTED_APK_SIGNING_BLOCK_IDS = {0x7109871A, 0x504B4453, 0x42726577}
@@ -198,6 +201,118 @@ def canonical_zip_payload_digest(descriptor: int) -> tuple[str, int, list[str]]:
     return identity.hexdigest(), len(records), sorted(signature_controls)
 
 
+def _jar_sections(contents: bytes, label: str) -> list[tuple[bytes, dict[str, str]]]:
+    if len(contents) < 1 or len(contents) > MAX_SIGNATURE_CONTROL_BYTES or not contents.endswith(b"\r\n\r\n"):
+        raise ValueError(f"Android AAB {label} is not a bounded canonical JAR control file")
+    raw_sections = [section + b"\r\n\r\n" for section in contents[:-4].split(b"\r\n\r\n")]
+    parsed: list[tuple[bytes, dict[str, str]]] = []
+    for raw_section in raw_sections:
+        logical: list[bytes] = []
+        for line in raw_section[:-4].split(b"\r\n"):
+            if line.startswith(b" "):
+                if not logical:
+                    raise ValueError(f"Android AAB {label} starts with an invalid continuation")
+                logical[-1] += line[1:]
+            else:
+                logical.append(line)
+        attributes: dict[str, str] = {}
+        for line in logical:
+            if b": " not in line:
+                raise ValueError(f"Android AAB {label} contains malformed attributes")
+            raw_key, raw_value = line.split(b": ", 1)
+            try:
+                key = raw_key.decode("ascii")
+                value = raw_value.decode("utf-8", "strict")
+            except UnicodeError as error:
+                raise ValueError(f"Android AAB {label} attributes are not canonical text") from error
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]*", key) or key in attributes:
+                raise ValueError(f"Android AAB {label} contains duplicate or invalid attributes")
+            attributes[key] = value
+        parsed.append((raw_section, attributes))
+    return parsed
+
+
+def _sha256_base64(contents: bytes) -> str:
+    return base64.b64encode(hashlib.sha256(contents).digest()).decode("ascii")
+
+
+def _validated_digest(value: str, label: str) -> None:
+    try:
+        decoded = base64.b64decode(value, validate=True)
+    except (binascii.Error, ValueError) as error:
+        raise ValueError(f"Android AAB {label} is not canonical base64") from error
+    if len(decoded) != hashlib.sha256().digest_size or base64.b64encode(decoded).decode("ascii") != value:
+        raise ValueError(f"Android AAB {label} is not a SHA-256 digest")
+
+
+def canonical_aab_signature_control_digest(descriptor: int) -> str:
+    """Validate all JAR controls and hash their complete deterministic meaning."""
+    with os.fdopen(os.dup(descriptor), "rb") as artifact_file, zipfile.ZipFile(artifact_file) as bundle:
+        names = sorted(info.filename for info in bundle.infolist() if SIGNATURE_CONTROL.fullmatch(info.filename))
+        if names != ["META-INF/ANDROIDD.RSA", "META-INF/ANDROIDD.SF", "META-INF/MANIFEST.MF"]:
+            raise ValueError("Android AAB signature-control filenames are not the expected complete set")
+        manifest = bundle.read("META-INF/MANIFEST.MF")
+        signature_file = bundle.read("META-INF/ANDROIDD.SF")
+        if len(bundle.read("META-INF/ANDROIDD.RSA")) > MAX_SIGNATURE_CONTROL_BYTES:
+            raise ValueError("Android AAB certificate block exceeds its bounded control limit")
+        manifest_sections = _jar_sections(manifest, "manifest")
+        signature_sections = _jar_sections(signature_file, "signature file")
+        if manifest_sections[0][1] != {"Manifest-Version": "1.0", "Built-By": "Signflinger", "Created-By": "Signflinger"}:
+            raise ValueError("Android AAB manifest main attributes are not canonical")
+        signature_main = signature_sections[0][1]
+        if set(signature_main) != {"Signature-Version", "Created-By", "SHA-256-Digest-Manifest"} \
+                or signature_main["Signature-Version"] != "1.0" or signature_main["Created-By"] != "Signflinger":
+            raise ValueError("Android AAB signature-file main attributes are not canonical")
+        _validated_digest(signature_main["SHA-256-Digest-Manifest"], "manifest digest")
+        if signature_main["SHA-256-Digest-Manifest"] != _sha256_base64(manifest):
+            raise ValueError("Android AAB signature file does not bind the complete manifest")
+
+        controls = set(names)
+        archive_names = [info.filename for info in bundle.infolist() if info.filename not in controls]
+        manifest_records: dict[str, tuple[bytes, str]] = {}
+        for raw_section, attributes in manifest_sections[1:]:
+            if set(attributes) != {"Name", "SHA-256-Digest"} or attributes["Name"] in manifest_records:
+                raise ValueError("Android AAB manifest sections are not canonical")
+            name = attributes["Name"]
+            _validated_digest(attributes["SHA-256-Digest"], "entry digest")
+            raw_entry = bundle.read(name)
+            if attributes["SHA-256-Digest"] != _sha256_base64(raw_entry):
+                raise ValueError("Android AAB manifest entry digest mismatch")
+            normalized = raw_entry
+            if name == "BUNDLE-METADATA/com.android.tools/r8.json":
+                metadata = json.loads(raw_entry)
+                if not isinstance(metadata, dict) or not isinstance(metadata.get("compilation"), dict) \
+                        or not isinstance(metadata["compilation"].get("buildTimeNs"), int):
+                    raise ValueError("Android AAB R8 metadata cannot be canonically normalized")
+                metadata["compilation"] = dict(metadata["compilation"])
+                del metadata["compilation"]["buildTimeNs"]
+                normalized = json.dumps(metadata, separators=(",", ":"), sort_keys=True).encode("utf-8")
+            manifest_records[name] = (raw_section, _sha256_base64(normalized))
+        if sorted(manifest_records) != sorted(archive_names):
+            raise ValueError("Android AAB manifest does not bind the complete archive entry set")
+
+        signature_records: dict[str, str] = {}
+        for _, attributes in signature_sections[1:]:
+            if set(attributes) != {"Name", "SHA-256-Digest"} or attributes["Name"] in signature_records:
+                raise ValueError("Android AAB signature-file sections are not canonical")
+            name = attributes["Name"]
+            _validated_digest(attributes["SHA-256-Digest"], "manifest-section digest")
+            raw_manifest_section = manifest_records.get(name, (None, None))[0]
+            if raw_manifest_section is None or attributes["SHA-256-Digest"] != _sha256_base64(raw_manifest_section):
+                raise ValueError("Android AAB signature file does not bind a complete manifest section")
+            signature_records[name] = attributes["SHA-256-Digest"]
+        if sorted(signature_records) != sorted(manifest_records):
+            raise ValueError("Android AAB signature file does not bind every manifest section")
+
+        deterministic = {
+            "algorithm": "sha256(canonical-aab-jar-controls-v1)",
+            "certificateBlockEntry": "META-INF/ANDROIDD.RSA",
+            "manifestEntries": [{"name": name, "normalizedSha256Base64": manifest_records[name][1]} for name in sorted(manifest_records)],
+            "signatureFileEntry": "META-INF/ANDROIDD.SF",
+        }
+        return hashlib.sha256(json.dumps(deterministic, separators=(",", ":"), sort_keys=True).encode("utf-8")).hexdigest()
+
+
 def apk_signing_block_ids(descriptor: int) -> list[str]:
     """Parse and constrain the complete APK Signing Block ID inventory."""
     metadata = os.fstat(descriptor)
@@ -230,7 +345,11 @@ def apk_signing_block_ids(descriptor: int) -> list[str]:
         pair_size = struct.unpack_from("<Q", block, position)[0]
         if pair_size < 4 or position + 8 + pair_size > pairs_end:
             raise ValueError("Android APK signing block pair size is invalid")
-        identifiers.append(struct.unpack_from("<I", block, position + 8)[0])
+        identifier = struct.unpack_from("<I", block, position + 8)[0]
+        value = block[position + 12:position + 8 + pair_size]
+        if identifier == 0x42726577 and any(value):
+            raise ValueError("Android APK verity padding is not canonical zero bytes")
+        identifiers.append(identifier)
         position += 8 + pair_size
     if position != pairs_end or len(identifiers) != len(set(identifiers)):
         raise ValueError("Android APK signing block IDs are malformed or duplicated")
@@ -486,6 +605,7 @@ def main() -> None:
                 [java_path, "-Duser.language=en", "-Duser.country=US", "sun.security.tools.jarsigner.Main", "-verify", "-verbose", "-certs", held_path],
                 (descriptor,),
             ))
+            result["signatureControlTreeSha256"] = canonical_aab_signature_control_digest(descriptor)
             if result["contentEntryCount"] != expected_aab_entries:
                 raise ValueError("Android jarsigner entry inventory differs from the sealed ZIP directory")
             certificate = run(

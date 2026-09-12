@@ -76,29 +76,39 @@ trusted. Executable source snapshots are materialized directly from committed
 Git blobs so export attributes cannot omit or rewrite inputs. They reject tracked symlinks, and web artifact
 walking is bounded by file, byte, directory-count, and directory-depth limits.
 
-`collect-android` cleans generated state, invokes the two fixed release-build commands, and writes a
+`collect-android` prefetches dependencies, cleans generated state, invokes the two fixed offline release-build commands, and writes a
 source/tree/artifact attestation. Assembly always performs that collection itself
 inside the canonical candidate directory, so it cannot accept caller-selected
 stale Android binaries. The collector captures the Flutter SDK's Dart executable
 and Flutter tool snapshot, invokes both through held read-only descriptors, and
 revalidates their device, inode, size, timestamps, and SHA-256 after every command.
-Flutter and Android SDK content inventories are compared across the build, while
-pub and Gradle use fresh private caches and a bounded environment. The committed
-Gradle wrapper distribution SHA-256 prevents distribution substitution.
+Flutter and Android SDK content inventories are compared across the build. Pub
+packages are checksum-bound by `pubspec.lock`; Gradle plugins and modules are
+checksum-bound by the committed `gradle/verification-metadata.xml`; and the
+Gradle wrapper distribution remains bound by its committed SHA-256. The
+collector performs one guarded online prefetch, inventories the resulting pub
+and Gradle module caches, copies the Gradle cache without lock/GC state, and
+runs the retained APK/AAB builds with Dart pub and Gradle both in offline mode.
+The dependency trees are read-only during those builds, except for the exact
+`.cxx` native-build directories generated inside the `jni` pub package; all
+non-excluded cache paths are continuously watched and rehashed.
 The stable-content inventories exclude only tool-owned runtime metadata (`.git`,
 Flutter's lock, pre-existing top-level cache `.stamp`/`.realm` markers and
 their numeric `.tmp.<pid>` atomic-write siblings, internal Gradle state, plus
 Android's `.knownPackages` marker), none of which
 supplies build executables, libraries, packages, or platform content. New cache
 markers are not silently excluded.
-An independent inotify guard covers every non-excluded toolchain directory from
-before the initial inventory through both builds and the final inventory; any
-mutation or event-queue overflow fails closed. An explicitly supplied debug
+An independent inotify runner installs every watch before it starts its build
+children, owns those children, and exits nonzero on any mutation, queue
+overflow, child failure, or premature termination. There are no writable marker
+files that a same-UID build child can forge. The offline release-build window
+also watches the bound dependency caches. An explicitly supplied debug
 keystore is copied into a private controlled user home and its SHA-256 is bound
 to Android provenance without retaining the signing input itself.
 The v2 toolchain-tree record includes its exact sorted exclusion inventory, and
-the Android provenance binds the inotify algorithm, transient-marker subset and
-fail-closed queue-overflow policy.
+the Android provenance binds toolchain and dependency-cache identities, Gradle
+verification-metadata identity, the authenticated-runner algorithm,
+transient-marker/build-directory subsets, and fail-closed queue-overflow policy.
 Assembly and validation resolve `apksigner`
 only below the separately supplied trusted SDK root and verify both the APK and
 AAB debug certificate and rejects additional APK or AAB signers. Validation always recollects source, registry, web,
@@ -128,7 +138,14 @@ exact-source rebuild rejects a repacked bundle with the same expanded signed
 payload, including a same-method archive made with another compression level.
 Local entry spans must also be mutually contiguous from byte zero through the
 central directory, leaving no unbound interstitial archive bytes. The local
-version-needed field must exactly match its bound central-directory counterpart.
+version-needed field must exactly match its bound central-directory
+counterpart. APK signing-block parsing additionally requires the unauthenticated
+verity-padding value to be entirely zero. For AABs, the verifier parses every
+expanded manifest and signature-file attribute, rejects extra or duplicate
+metadata, proves complete entry/section digest coverage, and compares a
+deterministic signature-control tree that normalizes only R8 build time; the
+certificate block is still cryptographically verified against the single bound
+debug signer.
 Assembly also copies the bounded release-note input into canonical retained
 `release-notes.md`; validation never depends on the caller's original path.
 
