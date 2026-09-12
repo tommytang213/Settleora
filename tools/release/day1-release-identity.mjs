@@ -455,7 +455,7 @@ function collectAndroid(repoRoot, input, source) {
   }
   assertKeys(provenance.toolchains, ['flutter', 'android'], 'Android build provenance toolchains');
   for (const [name, inventory] of Object.entries(provenance.toolchains)) {
-    assertKeys(inventory, ['algorithm', 'sha256', 'fileCount', 'totalBytes'], `Android ${name} toolchain inventory`);
+    assertKeys(inventory, ['algorithm', 'sha256', 'fileCount', 'directoryCount', 'symlinkCount', 'totalBytes'], `Android ${name} toolchain inventory`);
     if (inventory.algorithm !== 'sha256(canonical-stable-toolchain-tree-v1)') fail(`Android ${name} toolchain inventory algorithm mismatch`);
     hexDigest(inventory.sha256, `Android ${name} toolchain inventory SHA-256`);
     if (!Number.isSafeInteger(inventory.fileCount) || inventory.fileCount < 1 || !Number.isSafeInteger(inventory.totalBytes) || inventory.totalBytes < 1) {
@@ -520,6 +520,14 @@ export function validateManifest(manifest, repoRoot) {
   validateCandidateId(manifest.source.candidateId);
   sha40(manifest.source?.tree, 'source.tree');
   if (manifest.source.exactSource !== true || manifest.source.cleanTrackedCheckout !== true) fail('Source exact/clean assertions are required');
+  if (!repoRoot) fail('Repository context is required to validate source and rollback identity');
+  try {
+    git(repoRoot, ['cat-file', '-e', `${manifest.source.commit}^{commit}`]);
+    if (git(repoRoot, ['rev-parse', `${manifest.source.commit}^{tree}`]) !== manifest.source.tree) fail('Source tree does not belong to the source commit');
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Source tree does not belong to the source commit') throw error;
+    fail('Source commit must exist in the repository context');
+  }
   const apiRepository = 'ghcr.io/tommytang213/settleora-api';
   validateImage(manifest.apiImage, 'apiImage', manifest.source.commit, undefined, apiRepository);
   if (manifest.apiImage.publicationRunUrl === undefined) fail('API image publication run provenance is required');
@@ -591,7 +599,6 @@ export function validateManifest(manifest, repoRoot) {
   if (manifest.rollback.safetyCaveat !== 'Artifact availability does not prove database, schema, or file rollback safety.') fail('Rollback safety caveat text is required');
   validateImage(manifest.rollback.apiImage, 'rollback.apiImage', manifest.rollback.sourceCommit, undefined, apiRepository);
   if (manifest.rollback.apiImage.publicationRunUrl === undefined) fail('Rollback API image publication run provenance is required');
-  if (!repoRoot) fail('Repository context is required to validate rollback ancestry');
   try {
     git(repoRoot, ['cat-file', '-e', `${manifest.rollback.sourceCommit}^{commit}`]);
     if (manifest.rollback.sourceCommit === manifest.source.commit) fail('Rollback source must be prior to the candidate source');

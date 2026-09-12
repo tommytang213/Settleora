@@ -46,6 +46,7 @@ function protectedSystemCommand(candidate, expectedName) {
 const gitCommand = protectedSystemCommand('/usr/bin/git', 'git');
 const buildxCommand = protectedSystemCommand('/usr/libexec/docker/cli-plugins/docker-buildx', 'docker-buildx');
 const ghCommand = protectedSystemCommand('/usr/bin/gh', 'gh');
+const pythonCommand = protectedSystemCommand('/usr/bin/python3', 'python3');
 // Import-only unit-test execution must remain portable to hosted runners whose
 // setup-node installation has no /usr/bin/node. Direct collector execution is
 // still fail-closed on the selected runtime and every ancestor.
@@ -53,6 +54,7 @@ const systemNodeCommand = invokedDirectly
   ? protectedSystemCommand(lstatSync('/usr/bin/node', { throwIfNoEntry: false }) ? '/usr/bin/node' : process.execPath, 'node')
   : null;
 let npmRuntimeChecked = false;
+let pythonRuntimeChecked = false;
 const npmExec = (values, options = {}) => {
   if (!npmRuntimeChecked) {
     protectedSystemCommand('/usr/bin/npm', 'npm');
@@ -498,6 +500,12 @@ function sealedAndroidVerification(kind, artifact, tools, javaPath) {
   const toolDescriptors = [];
   let result;
   try {
+    if (!pythonRuntimeChecked) {
+      const pythonRuntimeName = path.basename(realpathSync(pythonCommand));
+      if (!/^python3\.[0-9]+$/u.test(pythonRuntimeName)) throw new Error('System Python runtime identity is invalid');
+      assertSystemRuntime(`/usr/lib/${pythonRuntimeName}`, 'system Python standard library');
+      pythonRuntimeChecked = true;
+    }
     descriptor = openSync(absolute, constants.O_RDONLY | constants.O_NOFOLLOW);
     const opened = fstatSync(descriptor);
     const current = lstatSync(absolute);
@@ -509,7 +517,7 @@ function sealedAndroidVerification(kind, artifact, tools, javaPath) {
       if (!toolOpened.isFile() || toolOpened.dev !== tool.dev || toolOpened.ino !== tool.ino || toolCurrent.isSymbolicLink() || toolCurrent.dev !== tool.dev || toolCurrent.ino !== tool.ino || realpathSync(tool.path) !== tool.path) throw new Error(`Android ${kind.toUpperCase()} verifier executable changed before use`);
       toolDescriptors.push(toolDescriptor);
     }
-    result = JSON.parse(execFileSync('/usr/bin/python3', ['-I', '-S', '-', kind, javaPath, ...tools.map((tool) => tool.sha256)], {
+    result = JSON.parse(execFileSync(pythonCommand, ['-I', '-S', '-', kind, javaPath, ...tools.map((tool) => tool.sha256)], {
       encoding: 'utf8',
       input: committedVerifierHelper,
       stdio: ['pipe', 'pipe', 'pipe', descriptor, ...toolDescriptors],
@@ -1098,16 +1106,22 @@ export function main(argv = process.argv.slice(2)) {
 }
 
 if (invokedDirectly) {
-  if (realpathSync('/proc/self/exe') !== realpathSync(systemNodeCommand)) {
+  const cleanRuntimeMarker = 'SETTLEORA_RELEASE_CLEAN_NODE';
+  if (process.env[cleanRuntimeMarker] !== '1') {
     try {
       execFileSync(systemNodeCommand, [fileURLToPath(import.meta.url), ...process.argv.slice(2)], {
         stdio: 'inherit',
-        env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', ...(process.env.GH_TOKEN ? { GH_TOKEN: process.env.GH_TOKEN } : {}) },
+        env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', [cleanRuntimeMarker]: '1', ...(process.env.GH_TOKEN ? { GH_TOKEN: process.env.GH_TOKEN } : {}) },
       });
     } catch (error) {
       process.exitCode = Number.isInteger(error?.status) ? error.status : 1;
     }
   } else {
+    const allowedEnvironment = new Set(['PATH', 'LANG', 'LC_ALL', cleanRuntimeMarker, 'GH_TOKEN']);
+    if (realpathSync('/proc/self/exe') !== realpathSync(systemNodeCommand)
+      || Object.keys(process.env).some((name) => !allowedEnvironment.has(name))) {
+      throw new Error('Release collector did not start in its bounded protected Node environment');
+    }
     main();
   }
 }

@@ -108,8 +108,8 @@ function fixture(t) {
     schema: 'settleora.android-exact-source-build.v1', source: { commit, tree },
     commands: ['flutter clean', 'flutter build apk --release', 'flutter build appbundle --release'],
     toolchains: {
-      flutter: { algorithm: 'sha256(canonical-stable-toolchain-tree-v1)', sha256: '8'.repeat(64), fileCount: 1, totalBytes: 1 },
-      android: { algorithm: 'sha256(canonical-stable-toolchain-tree-v1)', sha256: '9'.repeat(64), fileCount: 1, totalBytes: 1 },
+      flutter: { algorithm: 'sha256(canonical-stable-toolchain-tree-v1)', sha256: '8'.repeat(64), fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
+      android: { algorithm: 'sha256(canonical-stable-toolchain-tree-v1)', sha256: '9'.repeat(64), fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
     },
     artifacts: {
       apk: { path: 'apps/mobile/build/app/outputs/flutter-apk/app-release.apk', size: readFileSync(apkPath).length, sha256: sha256(readFileSync(apkPath)) },
@@ -436,6 +436,15 @@ test('direct validation rejects empty migrations, noncanonical artifacts and unp
     },
   });
   assert.throws(() => validateManifest(wrongRollback, f.root), /existing prior ancestor/);
+
+  const wrongTree = resign({
+    ...original,
+    source: { ...original.source, tree: '7'.repeat(40) },
+    migrations: { ...original.migrations, source: { ...original.migrations.source, tree: '7'.repeat(40) } },
+    userWeb: { ...original.userWeb, source: { ...original.userWeb.source, tree: '7'.repeat(40) } },
+    android: { ...original.android, source: { ...original.android.source, tree: '7'.repeat(40) } },
+  });
+  assert.throws(() => validateManifest(wrongTree, f.root), /does not belong to the source commit/);
 });
 
 test('release execution uses protected system runtimes and bypasses user plugin configuration', () => {
@@ -444,9 +453,12 @@ test('release execution uses protected system runtimes and bypasses user plugin 
   assert.match(cliSource, /const systemNodeCommand = invokedDirectly/);
   assert.match(cliSource, /protectedSystemCommand\(lstatSync\('\/usr\/bin\/node', \{ throwIfNoEntry: false \}\) \? '\/usr\/bin\/node' : process\.execPath, 'node'\)/);
   assert.match(cliSource, /protectedSystemCommand\('\/usr\/bin\/npm', 'npm'\)/);
+  assert.match(cliSource, /protectedSystemCommand\('\/usr\/bin\/python3', 'python3'\)/);
+  assert.match(cliSource, /assertSystemRuntime\(`\/usr\/lib\/\$\{pythonRuntimeName\}`/);
   assert.match(cliSource, /protectedSystemCommand\('\/usr\/libexec\/docker\/cli-plugins\/docker-buildx', 'docker-buildx'\)/);
   assert.match(cliSource, /\['fsck', '--strict', '--no-dangling', '--no-progress', processSource\.commit\]/);
   assert.match(cliSource, /GH_CONFIG_DIR: '\/nonexistent'/);
   assert.match(cliSource, /BUILDX_CONFIG: path\.join\(dockerConfig, 'buildx'\)/);
+  assert.match(cliSource, /SETTLEORA_RELEASE_CLEAN_NODE/);
   assert.doesNotMatch(cliSource, /process\.env\.npm_execpath/);
 });
