@@ -589,7 +589,11 @@ test('published schema requires role-specific image provenance', () => {
   assert.equal(schema.properties.retention.properties.canonicalEvidenceDirectory.const, '/workspace/logs/settleora-release-candidates/{source.candidateId}');
   assert.equal(schema.properties.source.properties.candidateId.pattern, '^(?!.*\\.\\.)[A-Za-z0-9][A-Za-z0-9._-]*$');
   assert.equal(schema.properties.generatedAt.format, 'date-time');
-  const timestampPatterns = schema.properties.generatedAt.anyOf.map((entry) => new RegExp(entry.pattern));
+  const timestampPatterns = [
+    /^[0-9]{4}-(?:(?:01|03|05|07|08|10|12)-(?:0[1-9]|[12][0-9]|3[01])|(?:04|06|09|11)-(?:0[1-9]|[12][0-9]|30)|02-(?:0[1-9]|1[0-9]|2[0-8]))T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$/,
+    /^(?:(?:[0-9]{2}(?:0[48]|[2468][048]|[13579][26]))|(?:(?:[02468][048]|[13579][26])00))-02-29T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$/,
+  ];
+  assert.deepEqual(schema.properties.generatedAt.anyOf.map((entry) => entry.pattern), timestampPatterns.map((pattern) => pattern.source));
   const matchesTimestamp = (value) => timestampPatterns.some((pattern) => pattern.test(value));
   assert.equal(matchesTimestamp('2026-09-12T09:21:35Z'), true);
   assert.equal(matchesTimestamp('2024-02-29T23:59:59Z'), true);
