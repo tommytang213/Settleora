@@ -83,6 +83,69 @@ const unsafeContentPatterns = [
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const canonicalJson = (value) => `${JSON.stringify(value, null, 2)}\n`;
 
+function assertUniqueJsonMembers(text) {
+  let offset = 0;
+  const whitespace = () => { while (/\s/u.test(text[offset] ?? '')) offset += 1; };
+  const stringValue = () => {
+    const start = offset;
+    if (text[offset] !== '"') throw new Error('Expected JSON string');
+    offset += 1;
+    while (offset < text.length) {
+      if (text[offset] === '\\') {
+        offset += 2;
+      } else if (text[offset] === '"') {
+        offset += 1;
+        return JSON.parse(text.slice(start, offset));
+      } else {
+        offset += 1;
+      }
+    }
+    throw new Error('Unterminated JSON string');
+  };
+  const value = () => {
+    whitespace();
+    if (text[offset] === '{') {
+      offset += 1;
+      whitespace();
+      const keys = new Set();
+      if (text[offset] === '}') { offset += 1; return; }
+      while (true) {
+        const key = stringValue();
+        if (keys.has(key)) throw new Error('Duplicate JSON member');
+        keys.add(key);
+        whitespace();
+        if (text[offset] !== ':') throw new Error('Expected JSON member delimiter');
+        offset += 1;
+        value();
+        whitespace();
+        if (text[offset] === '}') { offset += 1; return; }
+        if (text[offset] !== ',') throw new Error('Expected JSON member separator');
+        offset += 1;
+        whitespace();
+      }
+    }
+    if (text[offset] === '[') {
+      offset += 1;
+      whitespace();
+      if (text[offset] === ']') { offset += 1; return; }
+      while (true) {
+        value();
+        whitespace();
+        if (text[offset] === ']') { offset += 1; return; }
+        if (text[offset] !== ',') throw new Error('Expected JSON array separator');
+        offset += 1;
+      }
+    }
+    if (text[offset] === '"') { stringValue(); return; }
+    const primitive = /^(?:-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null)/u.exec(text.slice(offset));
+    if (!primitive) throw new Error('Expected JSON value');
+    offset += primitive[0].length;
+  };
+  value();
+  whitespace();
+  if (offset !== text.length) throw new Error('Unexpected trailing JSON content');
+}
+
 function git(args) {
   return execFileSync('/usr/bin/git', ['--no-replace-objects', ...args], {
     cwd: repoRoot,
@@ -254,8 +317,21 @@ export function scanPublicArtifact(files) {
     }
     const text = file.contents.toString('utf8');
     let decodedJsonText;
+    let candidate;
     try {
-      const candidate = JSON.parse(text);
+      candidate = JSON.parse(text);
+    } catch {
+      // Non-JSON web assets still receive the raw-text scan below.
+    }
+    if (candidate !== undefined) {
+      try {
+        assertUniqueJsonMembers(text);
+      } catch (error) {
+        if (error instanceof Error && error.message === 'Duplicate JSON member') {
+          throw new Error(`Duplicate JSON members are not allowed in public artifact: ${file.path}`);
+        }
+        throw new Error(`JSON artifact could not be inspected unambiguously: ${file.path}`);
+      }
       if (
         candidate
         && typeof candidate === 'object'
@@ -269,8 +345,6 @@ export function scanPublicArtifact(files) {
         throw new Error(`Source-map payload is not allowed in public artifact: ${file.path}`);
       }
       decodedJsonText = JSON.stringify(candidate);
-    } catch (error) {
-      if (error instanceof Error && error.message.startsWith('Source-map payload')) throw error;
     }
     for (const pattern of unsafeContentPatterns) {
       if (pattern.test(text) || (decodedJsonText !== undefined && pattern.test(decodedJsonText))) {

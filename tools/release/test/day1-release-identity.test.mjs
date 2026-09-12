@@ -22,7 +22,7 @@ import {
   validatePublicationRunDocument,
   validatePublicationRunUrl,
 } from '../day1-release-identity.mjs';
-import { assertCleanCompletion, assertCommitHasNoSymlinks, canonicalAndroidInput, canonicalManifestPath, canonicalReleaseNotesInput, canonicalWebInput, copyBoundedFile, deterministicAndroidRebuildProjection, parseCanonicalJson, parseSingleApkSigner, retainReleaseNotes, safeInput, toolchainTreeDigest } from '../day1-release-identity-cli.mjs';
+import { assertCleanCompletion, assertCommitHasNoSymlinks, canonicalAndroidInput, canonicalManifestPath, canonicalReleaseNotesInput, canonicalWebInput, copyBoundedFile, deterministicAndroidRebuildProjection, parseCanonicalJson, parseSingleApkSigner, retainReleaseNotes, safeInput, toolchainTreeDigest, verificationRegistryReference } from '../day1-release-identity-cli.mjs';
 
 const d = (character) => `sha256:${character.repeat(64)}`;
 const producerJson = (value) => `${JSON.stringify(value, null, 2)}\n`;
@@ -497,6 +497,12 @@ test('validates registry index/platform linkage and API revision from fixture do
   assert.throws(() => validateSelectedPlatformDocument(image, { ...selected, image: { ...selected.image, rootfs: { type: 'layers', diff_ids: [] } } }, platform), /not a runnable/);
 });
 
+test('retained registry validation uses only immutable index references', () => {
+  const image = { repository: 'docker.io/library/postgres', configuredTag: 'postgres:16-alpine', indexDigest: d('a') };
+  assert.equal(verificationRegistryReference(image, false), 'docker.io/library/postgres:16-alpine');
+  assert.equal(verificationRegistryReference(image, true), `docker.io/library/postgres@${d('a')}`);
+});
+
 test('direct validation rejects empty migrations, noncanonical artifacts and unproved rollback ancestry', (t) => {
   const f = fixture(t);
   const original = buildManifest(f.root, f.input);
@@ -716,8 +722,8 @@ test('release execution uses protected system runtimes and bypasses user plugin 
   assert.doesNotMatch(cliSource, /\['fsck'/);
   assert.match(cliSource, /GH_CONFIG_DIR: '\/nonexistent'/);
   assert.match(cliSource, /BUILDX_CONFIG: path\.join\(dockerConfig, 'buildx'\)/);
-  assert.match(cliSource, /const configuredRecord = inspectRecord\(configuredReference\)/);
-  assert.match(cliSource, /validateRegistryDocument\(image, configuredRecord\.manifest/);
+  assert.match(cliSource, /const reference = verificationRegistryReference\(image, retained\)/);
+  assert.match(cliSource, /validateRegistryDocument\(image, inspectRecord\(reference\)\.manifest/);
   assert.match(cliSource, /HOME: npmHome/);
   assert.match(cliSource, /npm_config_userconfig: npmUserConfig/);
   assert.match(cliSource, /ImportDirectoryBuildProps=false/);
@@ -728,6 +734,9 @@ test('release execution uses protected system runtimes and bypasses user plugin 
   assert.match(cliSource, /deterministicAndroidRebuildProjection\(rebuilt, retained\)/);
   assert.match(cliSource, /collectedAndroidInput\([^;]*androidValidation, rebuiltSignature\)/s);
   assert.match(cliSource, /SETTLEORA_RELEASE_CLEAN_NODE/);
+  assert.match(cliSource, /process\.execve\(systemNodeCommand/);
+  assert.match(cliSource, /verifyLiveRegistryNetwork\(initialInput, retained\)/);
+  assert.doesNotMatch(cliSource.slice(cliSource.indexOf('process.execve(systemNodeCommand')), /GH_TOKEN/);
   assert.doesNotMatch(cliSource, /process\.env\.npm_execpath/);
   const apiDockerfile = readFileSync(new URL('../../../services/api/Dockerfile', import.meta.url), 'utf8');
   assert.match(apiDockerfile, /COPY services\/api\/src\/Settleora\.Api\/packages\.lock\.json services\/api\/src\/Settleora\.Api\//);

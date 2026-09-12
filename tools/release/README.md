@@ -13,6 +13,11 @@ Assembly and validation require `gh` access to read the canonical GitHub Actions
 publication-run URL, its job record, and its authenticated provider log. They
 fail unless the exact index digest is both published for the exact-SHA tag and
 reported as the successful build action output for the exact-source push run.
+Authenticated provider and registry checks run before any dependency-controlled
+web or Android build. The collector then replaces itself with a credential-free
+bounded process, so build children cannot recover `GH_TOKEN` from a live parent.
+Assembly resolves configured tags to establish the candidate; later validation
+uses only the retained immutable index and platform digest references.
 
 The identity digest is SHA-256 over canonical, recursively key-sorted JSON after
 removing only `generatedAt` and `identityDigest`. Thus collection time may vary

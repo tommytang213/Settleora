@@ -248,6 +248,10 @@ test('manifest rejects symlinks, malformed names, source maps and sensitive cont
       path.join(f.dist, 'config.txt'),
       ['{"value":"github_pat_\\u004111AA22BB33CC44DD55EE66FF77"}'].join(''),
     ), /Potential sensitive/],
+    ['duplicate JSON member hiding a Unicode-escaped token', (f) => writeFileSync(
+      path.join(f.dist, 'config.txt'),
+      ['{"claim":"github_pat_\\u004111AA22BB33CC44DD55EE66FF77","claim":"safe"}'].join(''),
+    ), /Duplicate JSON members/],
     ['bearer token', (f) => writeFileSync(
       path.join(f.dist, 'config.txt'),
       ['Authorization: Bearer ', 'abcdefghijklmnop'].join(''),

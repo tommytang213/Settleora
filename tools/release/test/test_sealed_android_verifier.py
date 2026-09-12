@@ -136,7 +136,9 @@ class SealedAndroidVerifierTests(unittest.TestCase):
     def test_aab_preflight_rejects_excessive_declared_expansion(self):
         archive = io.BytesIO()
         with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as output:
-            output.writestr("expanded", b"0" * 4096)
+            entry = zipfile.ZipInfo("expanded", date_time=(1981, 1, 1, 1, 1, 2))
+            entry.compress_type = zipfile.ZIP_DEFLATED
+            output.writestr(entry, b"0" * 4096)
         archive.seek(0)
         prior = VERIFIER.MAX_AAB_ENTRY_BYTES
         VERIFIER.MAX_AAB_ENTRY_BYTES = 1024
@@ -182,6 +184,17 @@ class SealedAndroidVerifierTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "entry comments"):
                 VERIFIER.preflight_aab(source.fileno())
 
+    def test_aab_preflight_rejects_noncanonical_entry_timestamp(self):
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, "w") as output:
+            entry = zipfile.ZipInfo("entry", date_time=(2026, 9, 12, 12, 0, 0))
+            output.writestr(entry, b"content")
+        with tempfile.TemporaryFile() as source:
+            source.write(archive.getvalue())
+            source.seek(0)
+            with self.assertRaisesRegex(ValueError, "timestamps are not canonical"):
+                VERIFIER.preflight_aab(source.fileno())
+
     def test_apk_signing_block_rejects_unknown_ids(self):
         def artifact(identifiers):
             pairs = b"".join(struct.pack("<QI", 4, identifier) for identifier in identifiers)
@@ -203,7 +216,8 @@ class SealedAndroidVerifierTests(unittest.TestCase):
     def test_aab_preflight_rejects_multiline_entry_name(self):
         archive = io.BytesIO()
         with zipfile.ZipFile(archive, "w") as output:
-            output.writestr("\nbase/assets/payload", b"content")
+            entry = zipfile.ZipInfo("\nbase/assets/payload", date_time=(1981, 1, 1, 1, 1, 2))
+            output.writestr(entry, b"content")
         with tempfile.TemporaryFile() as source:
             source.write(archive.getvalue())
             source.seek(0)

@@ -200,6 +200,10 @@ function registryReference(image) {
   return `${image.repository}:${image.configuredTag.slice(prefix.length)}`;
 }
 
+export function verificationRegistryReference(image, retained) {
+  return retained ? `${image.repository}@${image.indexDigest}` : registryReference(image);
+}
+
 function inspect(reference, format) {
   const home = mkdtempSync('/workspace/logs/.settleora-buildx-');
   try {
@@ -222,15 +226,26 @@ function inspectRecord(reference) {
   return inspect(reference, '{{json .}}');
 }
 
-function verifyLiveRegistry(input, retained = false) {
+const registryPreflightMarker = 'SETTLEORA_RELEASE_REGISTRY_PREFLIGHT';
+function registryPreflightIdentity(input, retained) {
+  return createHash('sha256').update(canonicalJson({
+    retained,
+    registryResolutionMode: input.registryResolutionMode,
+    platform: input.platform,
+    source: input.source,
+    apiImage: input.apiImage,
+    dependencyImages: input.dependencyImages,
+    rollback: input.rollback,
+  })).digest('hex');
+}
+
+function verifyLiveRegistryNetwork(input, retained = false) {
   if (input.registryResolutionMode !== 'live-read-only') throw new Error('CLI requires registryResolutionMode=live-read-only');
   const platform = input.platform;
   const verify = (image, label, revision) => {
     const configuredReference = registryReference(image);
-    const configuredRecord = inspectRecord(configuredReference);
-    validateRegistryDocument(image, configuredRecord.manifest, platform, `${label} configured tag`);
-    const reference = retained ? `${image.repository}@${image.indexDigest}` : configuredReference;
-    if (retained) validateRegistryDocument(image, inspectRecord(reference).manifest, platform, `${label} immutable digest`);
+    const reference = verificationRegistryReference(image, retained);
+    validateRegistryDocument(image, inspectRecord(reference).manifest, platform, `${label} ${retained ? 'immutable digest' : 'configured tag'}`);
     const selected = inspectRecord(`${image.repository}@${image.platformDigest}`);
     validateSelectedPlatformDocument(image, selected, platform, label);
     if (revision) {
@@ -256,6 +271,12 @@ function verifyLiveRegistry(input, retained = false) {
   verifyPublication(input.apiImage, input.source.commit, 'apiImage');
   for (const image of input.dependencyImages) verify(image, `dependencyImages.${image.name}`);
   verifyPublication(input.rollback.apiImage, input.rollback.sourceCommit, 'rollback.apiImage');
+}
+
+function verifyLiveRegistry(input, retained = false) {
+  if (process.env[registryPreflightMarker] !== registryPreflightIdentity(input, retained)) {
+    throw new Error('Live registry evidence was not preflighted before the credential-free build phase');
+  }
 }
 
 function trustedFile(candidate, expectedName, label, executable = false) {
@@ -1222,15 +1243,22 @@ if (invokedDirectly) {
   const cleanRuntimeMarker = 'SETTLEORA_RELEASE_CLEAN_NODE';
   if (process.env[cleanRuntimeMarker] !== '1') {
     try {
-      execFileSync(systemNodeCommand, [fileURLToPath(import.meta.url), ...process.argv.slice(2)], {
-        stdio: 'inherit',
-        env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', [cleanRuntimeMarker]: '1', ...(process.env.GH_TOKEN ? { GH_TOKEN: process.env.GH_TOKEN } : {}) },
+      const initialOptions = args(process.argv.slice(2));
+      let registryIdentity;
+      if (initialOptions.command === 'assemble' || initialOptions.command === 'validate') {
+        const initialInput = safeInput(initialOptions.input, 'Evidence input');
+        const retained = initialOptions.command === 'validate';
+        verifyLiveRegistryNetwork(initialInput, retained);
+        registryIdentity = registryPreflightIdentity(initialInput, retained);
+      }
+      process.execve(systemNodeCommand, [systemNodeCommand, fileURLToPath(import.meta.url), ...process.argv.slice(2)], {
+        PATH: '/usr/bin:/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', [cleanRuntimeMarker]: '1', ...(registryIdentity ? { [registryPreflightMarker]: registryIdentity } : {}),
       });
     } catch (error) {
       process.exitCode = Number.isInteger(error?.status) ? error.status : 1;
     }
   } else {
-    const allowedEnvironment = new Set(['PATH', 'LANG', 'LC_ALL', cleanRuntimeMarker, 'GH_TOKEN']);
+    const allowedEnvironment = new Set(['PATH', 'LANG', 'LC_ALL', cleanRuntimeMarker, registryPreflightMarker]);
     if (realpathSync('/proc/self/exe') !== realpathSync(systemNodeCommand)
       || Object.keys(process.env).some((name) => !allowedEnvironment.has(name))) {
       throw new Error('Release collector did not start in its bounded protected Node environment');
