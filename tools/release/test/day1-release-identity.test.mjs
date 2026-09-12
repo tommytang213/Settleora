@@ -82,7 +82,7 @@ function fixture(t) {
   const apkPath = write(evidenceRoot, 'app-release.apk', 'apk bytes\n');
   const aabPath = write(evidenceRoot, 'app-release.aab', 'aab bytes\n');
   const mappingPath = write(evidenceRoot, 'mapping.txt', '# compiler: R8\nminified mapping\n');
-  const outputMetadataPath = write(evidenceRoot, 'output-metadata.json', JSON.stringify({
+  const outputMetadataPath = write(evidenceRoot, 'output-metadata.json', canonicalJson({
     applicationId: 'com.example.mobile',
     elements: [{ outputFile: 'app-release.apk', versionName: '1.2.3', versionCode: 45 }],
   }));
@@ -116,6 +116,7 @@ function fixture(t) {
       apk: { path: 'apps/mobile/build/app/outputs/flutter-apk/app-release.apk', size: readFileSync(apkPath).length, sha256: sha256(readFileSync(apkPath)) },
       aab: { path: 'apps/mobile/build/app/outputs/bundle/release/app-release.aab', size: readFileSync(aabPath).length, sha256: sha256(readFileSync(aabPath)) },
       r8MappingSha256: sha256(readFileSync(mappingPath)),
+      outputMetadataSha256: sha256(readFileSync(outputMetadataPath)),
     },
   }));
   const input = {
@@ -159,7 +160,7 @@ function fixture(t) {
     },
   };
   bindCompiledMigrationIds(input, ['20260101000000_Initial', '20260102000000_SourceOnly']);
-  return { root, evidenceRoot, input, commit, tree, paths: { apkPath, webManifestPath, notesPath } };
+  return { root, evidenceRoot, input, commit, tree, paths: { apkPath, outputMetadataPath, webManifestPath, notesPath } };
 }
 
 test('builds a deterministic canonical identity and excludes generatedAt from its digest', (t) => {
@@ -172,6 +173,7 @@ test('builds a deterministic canonical identity and excludes generatedAt from it
   assert.equal(first.migrations.entries[1].files.length, 2);
   assert.equal(first.migrations.stateClaim, 'repository-source-only-not-applied');
   assert.equal(first.migrations.runtimeInventory, 'compiled-ef-metadata-v1');
+  assert.equal(first.android.outputMetadataSha256, sha256(readFileSync(f.paths.outputMetadataPath)));
   assert.equal(first.rollback.artifactAvailabilityProvesDatabaseSchemaFileRollbackSafety, false);
   assert.deepEqual(first.dependencyImages.map((image) => image.name), ['caddy', 'postgres', 'rabbitmq']);
   assert.doesNotThrow(() => validateManifest(first, f.root));
@@ -271,6 +273,10 @@ test('rejects web source and Android artifact mismatches', (t) => {
   assert.throws(() => buildManifest(f.root, { ...f.input, android: { ...f.input.android, expected } }), /APK identity mismatch/);
   const expectedAab = { aab: { size: 1, sha256: '8'.repeat(64) } };
   assert.throws(() => buildManifest(f.root, { ...f.input, android: { ...f.input.android, expected: expectedAab } }), /AAB identity mismatch/);
+  const canonicalMetadata = readFileSync(f.paths.outputMetadataPath, 'utf8');
+  writeFileSync(f.paths.outputMetadataPath, `{"applicationId":"wrong",${canonicalMetadata.slice(1)}`);
+  assert.throws(() => buildManifest(f.root, f.input), /unique canonical serialization/);
+  writeFileSync(f.paths.outputMetadataPath, canonicalMetadata);
   const provenance = JSON.parse(readFileSync(f.input.android.buildProvenancePath));
   provenance.unbound = true;
   writeFileSync(f.input.android.buildProvenancePath, canonicalJson(provenance));
@@ -471,6 +477,10 @@ test('Android rebuild projection normalizes only raw retained artifact identitie
   rebuilt.identityDigest = computeIdentityDigest(rebuilt);
   assert.deepEqual(deterministicAndroidRebuildProjection(rebuilt, retained), retained);
 
+  rebuilt.android.outputMetadataSha256 = 'd'.repeat(64);
+  rebuilt.identityDigest = computeIdentityDigest(rebuilt);
+  assert.notDeepEqual(deterministicAndroidRebuildProjection(rebuilt, retained), retained);
+  rebuilt.android.outputMetadataSha256 = retained.android.outputMetadataSha256;
   rebuilt.android.applicationId = 'invalid.application';
   rebuilt.identityDigest = computeIdentityDigest(rebuilt);
   assert.notDeepEqual(deterministicAndroidRebuildProjection(rebuilt, retained), retained);
@@ -622,6 +632,7 @@ test('published schema requires role-specific image provenance', () => {
   ]);
   assert.equal(schema.properties.android.properties.apk.$ref, '#/$defs/apkFile');
   assert.equal(schema.properties.android.properties.aab.$ref, '#/$defs/aabFile');
+  assert.equal(schema.properties.android.properties.outputMetadataSha256.$ref, '#/$defs/hexSha256');
   assert.equal(schema.properties.android.properties.semanticVersion.pattern, '^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$');
   assert.equal(schema.properties.android.properties.buildNumber.pattern, '^[1-9][0-9]*$');
   assert.equal(schema.properties.android.properties.applicationId.pattern, '^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+$');

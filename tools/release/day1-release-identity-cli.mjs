@@ -22,7 +22,7 @@ import {
   validateSelectedPlatformDocument,
   validateManifest,
 } from './day1-release-identity.mjs';
-import { assertTrackedWorktreeMatchesHead, createUserWebDistManifest } from '../ci/user-web-dist-manifest.mjs';
+import { assertTrackedWorktreeMatchesHead, assertUniqueJsonMembers, createUserWebDistManifest } from '../ci/user-web-dist-manifest.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const invokedDirectly = Boolean(process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url));
@@ -897,7 +897,18 @@ function collectAndroidUnsafe(options, emit = true) {
       mapping: copyBoundedFile(path.join(snapshotRoot, files.mapping[0]), path.join(output, files.mapping[1]), maxAndroidMappingBytes, 'Android R8 mapping'),
       toolchains: toolchainsBefore,
     };
-    copyBoundedFile(path.join(snapshotRoot, files.metadata[0]), path.join(output, files.metadata[1]), maxAndroidMetadataBytes, 'Android output metadata');
+    const outputMetadataBytes = safeBytes(path.join(snapshotRoot, files.metadata[0]), 'Android output metadata');
+    let outputMetadata;
+    try {
+      assertUniqueJsonMembers(outputMetadataBytes.toString('utf8'));
+      outputMetadata = JSON.parse(outputMetadataBytes);
+    } catch {
+      throw new Error('Android output metadata must be unambiguous JSON');
+    }
+    const canonicalOutputMetadata = Buffer.from(canonicalJson(outputMetadata), 'utf8');
+    if (canonicalOutputMetadata.length > maxAndroidMetadataBytes) throw new Error('Android output metadata exceeds its evidence size limit');
+    writeFileSync(path.join(output, files.metadata[1]), canonicalOutputMetadata, { flag: 'wx', mode: 0o444 });
+    copiedIdentities.outputMetadata = { size: canonicalOutputMetadata.length, sha256: createHash('sha256').update(canonicalOutputMetadata).digest('hex') };
   } finally {
     const metadata = lstatSync(snapshotContainer, { throwIfNoEntry: false });
     if (metadata?.isDirectory() && !metadata.isSymbolicLink()) rmSync(snapshotContainer, { recursive: true, force: false, maxRetries: 5, retryDelay: 200 });
@@ -921,7 +932,7 @@ function collectAndroidUnsafe(options, emit = true) {
   const provenance = {
     schema: 'settleora.android-exact-source-build.v1', source,
     commands: ['flutter clean', 'flutter build apk --release', 'flutter build appbundle --release'],
-    artifacts: { apk: artifact('apk'), aab: artifact('aab'), r8MappingSha256: copiedIdentities.mapping.sha256 },
+    artifacts: { apk: artifact('apk'), aab: artifact('aab'), r8MappingSha256: copiedIdentities.mapping.sha256, outputMetadataSha256: copiedIdentities.outputMetadata.sha256 },
     toolchains: copiedIdentities.toolchains,
   };
   writeFileSync(path.join(output, 'build-provenance.json'), canonicalJson(provenance), { flag: 'wx', mode: 0o444 });

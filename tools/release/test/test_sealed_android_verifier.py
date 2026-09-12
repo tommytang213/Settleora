@@ -184,6 +184,18 @@ class SealedAndroidVerifierTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "entry comments"):
                 VERIFIER.preflight_aab(source.fileno())
 
+    def test_aab_preflight_rejects_entry_extra_fields(self):
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, "w") as output:
+            entry = zipfile.ZipInfo("entry", date_time=(1981, 1, 1, 1, 1, 2))
+            entry.extra = b"\x01\x00\x02\x00xx"
+            output.writestr(entry, b"content")
+        with tempfile.TemporaryFile() as source:
+            source.write(archive.getvalue())
+            source.seek(0)
+            with self.assertRaisesRegex(ValueError, "extra fields"):
+                VERIFIER.preflight_aab(source.fileno())
+
     def test_aab_preflight_rejects_noncanonical_entry_timestamp(self):
         archive = io.BytesIO()
         with zipfile.ZipFile(archive, "w") as output:

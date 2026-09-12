@@ -344,16 +344,19 @@ def preflight_aab(descriptor: int) -> int:
         if len(central) - position < 46 or central[position:position + 4] != b"PK\x01\x02":
             raise ValueError("Android bundle central directory is malformed")
         name_size, extra_size, comment_size = struct.unpack_from("<HHH", central, position + 28)
-        if comment_size != 0:
-            raise ValueError("Android bundle entry comments are not accepted")
+        if comment_size != 0 or extra_size != 0:
+            raise ValueError("Android bundle entry comments and extra fields are not accepted")
         modified_time, modified_date = struct.unpack_from("<HH", central, position + 12)
         if (modified_time, modified_date) != (EXPECTED_ANDROID_ZIP_DOS_TIME, EXPECTED_ANDROID_ZIP_DOS_DATE):
             raise ValueError("Android bundle entry timestamps are not canonical")
         local_offset = struct.unpack_from("<I", central, position + 42)[0]
         local_header = os.pread(descriptor, 30, local_offset)
+        local_name_size, local_extra_size = struct.unpack_from("<HH", local_header, 26) if len(local_header) == 30 else (0, 0)
+        local_name = os.pread(descriptor, local_name_size, local_offset + 30) if len(local_header) == 30 else b""
         if len(local_header) != 30 or local_header[:4] != b"PK\x03\x04" \
-                or struct.unpack_from("<HH", local_header, 10) != (modified_time, modified_date):
-            raise ValueError("Android bundle local and central timestamps disagree")
+                or struct.unpack_from("<HH", local_header, 10) != (modified_time, modified_date) \
+                or local_extra_size != 0 or local_name != central[position + 46:position + 46 + name_size]:
+            raise ValueError("Android bundle local header metadata is not canonical")
         entry_name = central[position + 46:position + 46 + name_size]
         if any(byte < 0x20 or byte == 0x7F for byte in entry_name):
             raise ValueError("Android bundle entry path contains control characters")

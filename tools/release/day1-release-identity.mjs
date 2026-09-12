@@ -522,6 +522,7 @@ function collectAndroid(repoRoot, input, source) {
   if (hexDigest(input.embeddedR8MappingSha256, 'Android embedded R8 mapping SHA-256') !== sha256(mapping.bytes)) fail('Android R8 mapping does not match the signed AAB');
   const metadataFile = exactRegularFile(input.outputMetadataPath, 'Android output metadata', input.evidenceRoot);
   const metadata = JSON.parse(metadataFile.bytes);
+  if (!metadataFile.bytes.equals(Buffer.from(canonicalJson(metadata), 'utf8'))) fail('Android output metadata must use its unique canonical serialization');
   const provenanceFile = exactRegularFile(input.buildProvenancePath, 'Android build provenance', input.evidenceRoot);
   const provenance = JSON.parse(provenanceFile.bytes);
   if (!provenanceFile.bytes.equals(Buffer.from(canonicalJson(provenance), 'utf8'))) {
@@ -529,7 +530,7 @@ function collectAndroid(repoRoot, input, source) {
   }
   assertKeys(provenance, ['schema', 'source', 'commands', 'toolchains', 'artifacts'], 'Android build provenance');
   assertKeys(provenance.source, ['commit', 'tree'], 'Android build provenance source');
-  assertKeys(provenance.artifacts, ['apk', 'aab', 'r8MappingSha256'], 'Android build provenance artifacts');
+  assertKeys(provenance.artifacts, ['apk', 'aab', 'r8MappingSha256', 'outputMetadataSha256'], 'Android build provenance artifacts');
   const { commit, tree } = source;
   if (provenance.schema !== 'settleora.android-exact-source-build.v1' || provenance.source?.commit !== commit || provenance.source?.tree !== tree) {
     fail('Android build provenance source mismatch');
@@ -562,9 +563,10 @@ function collectAndroid(repoRoot, input, source) {
     signerCertificateSha256: hexDigest(input.signerCertificateSha256, 'Android signer certificate SHA-256'),
     apk: { path: 'apps/mobile/build/app/outputs/flutter-apk/app-release.apk', size: apk.size, sha256: sha256(apk.bytes) },
     aab: { path: 'apps/mobile/build/app/outputs/bundle/release/app-release.aab', size: aab.size, sha256: sha256(aab.bytes) },
+    outputMetadataSha256: sha256(metadataFile.bytes),
     buildProvenanceSha256: sha256(provenanceFile.bytes),
   };
-  if (canonicalJson(provenance.artifacts) !== canonicalJson({ apk: result.apk, aab: result.aab, r8MappingSha256: result.r8MappingSha256 })) {
+  if (canonicalJson(provenance.artifacts) !== canonicalJson({ apk: result.apk, aab: result.aab, r8MappingSha256: result.r8MappingSha256, outputMetadataSha256: result.outputMetadataSha256 })) {
     fail('Android build provenance artifact mismatch');
   }
   for (const kind of ['apk', 'aab']) {
@@ -673,7 +675,7 @@ export function validateManifest(manifest, repoRoot) {
     if (manifest.userWeb.buildTools[name] !== sourceWebPackageLock.packages?.[`node_modules/${name}`]?.version) fail(`userWeb.buildTools.${name} does not match the captured source lock`);
   }
   if (manifest.android?.source?.commit !== manifest.source.commit || manifest.android?.source?.tree !== manifest.source.tree) fail('Android source/tree mismatch');
-  assertKeys(manifest.android, ['source', 'semanticVersion', 'buildNumber', 'applicationId', 'r8Minified', 'r8MappingSha256', 'signingState', 'signerCertificateSha256', 'apk', 'aab', 'buildProvenanceSha256'], 'android');
+  assertKeys(manifest.android, ['source', 'semanticVersion', 'buildNumber', 'applicationId', 'r8Minified', 'r8MappingSha256', 'signingState', 'signerCertificateSha256', 'apk', 'aab', 'outputMetadataSha256', 'buildProvenanceSha256'], 'android');
   assertKeys(manifest.android.source, ['commit', 'tree'], 'android.source');
   assertKeys(manifest.android.apk, ['path', 'size', 'sha256'], 'android.apk');
   assertKeys(manifest.android.aab, ['path', 'size', 'sha256'], 'android.aab');
@@ -687,6 +689,7 @@ export function validateManifest(manifest, repoRoot) {
   if (manifest.android.r8Minified !== true) fail('Android R8/minification assertion is required');
   hexDigest(manifest.android.r8MappingSha256, 'android.r8MappingSha256');
   hexDigest(manifest.android.signerCertificateSha256, 'android.signerCertificateSha256');
+  hexDigest(manifest.android.outputMetadataSha256, 'android.outputMetadataSha256');
   hexDigest(manifest.android.buildProvenanceSha256, 'android.buildProvenanceSha256');
   for (const artifact of [manifest.android.apk, manifest.android.aab]) if (!Number.isSafeInteger(artifact.size) || artifact.size < 1) fail('Android artifact size is invalid');
   hexDigest(manifest.android?.apk?.sha256, 'android.apk.sha256');

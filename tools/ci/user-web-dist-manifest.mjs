@@ -83,7 +83,7 @@ const unsafeContentPatterns = [
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const canonicalJson = (value) => `${JSON.stringify(value, null, 2)}\n`;
 
-function assertUniqueJsonMembers(text) {
+export function assertUniqueJsonMembers(text) {
   let offset = 0;
   const whitespace = () => { while (/\s/u.test(text[offset] ?? '')) offset += 1; };
   const stringValue = () => {

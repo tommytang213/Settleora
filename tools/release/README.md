@@ -103,8 +103,10 @@ artifact identities. Both builds use the same commit-derived private workspace
 path under `/workspace/logs`; this removes absolute temporary paths from Flutter
 native outputs while an existing workspace fails closed instead of being reused.
 APK, AAB, mapping, and output-metadata sizes are checked on stable descriptors
-before copying, and their hashes are computed incrementally from those same
-bounded streams.
+before retention. Output metadata is rejected if ambiguous, retained in unique
+canonical JSON, and its full SHA-256 is bound through both Android provenance
+and the manifest so the independent rebuild must match it. AAB preflight rejects
+central or local ZIP extra fields because they are not signed payload identity.
 Assembly also copies the bounded release-note input into canonical retained
 `release-notes.md`; validation never depends on the caller's original path.
 
