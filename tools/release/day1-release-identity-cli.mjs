@@ -1281,6 +1281,8 @@ function collectAndroidUnsafe(options, emit = true) {
       'apps/mobile/windows',
     ];
     const sourceGuard = { label: 'android-exact-source', root: snapshotRoot, excludedPrefixes: sourceGeneratedPaths };
+    const prefetchSourceGeneratedPaths = [...sourceGeneratedPaths, 'apps/mobile/android/gradle/wrapper/gradle-wrapper.jar', 'apps/mobile/android/gradlew', 'apps/mobile/android/gradlew.bat'];
+    const prefetchSourceGuard = { label: 'android-exact-source', root: snapshotRoot, excludedPrefixes: prefetchSourceGeneratedPaths };
     const toolchainsBefore = {
       flutter: toolchainTreeDigest(flutter.root, 'Flutter SDK', toolchainConfiguration[0].excludedPrefixes, toolchainConfiguration[0].excludedTransientBases),
       android: toolchainTreeDigest(androidSdkRoot, 'Android SDK', toolchainConfiguration[1].excludedPrefixes),
@@ -1304,7 +1306,15 @@ function collectAndroidUnsafe(options, emit = true) {
     executeGuardedFlutter(flutter, [
       ['pub', 'get'],
       ['build', 'apk', '--release', '--no-pub'],
-    ], mobileRoot, [...toolchainConfiguration, sourceGuard, { label: 'android-signing-home', root: path.join(buildHome, '.android'), excludedPrefixes: [] }]);
+    ], mobileRoot, [...toolchainConfiguration, prefetchSourceGuard, { label: 'android-signing-home', root: path.join(buildHome, '.android'), excludedPrefixes: [] }]);
+    for (const [relativeGenerated, expectedName, executable] of [
+      ['apps/mobile/android/gradle/wrapper/gradle-wrapper.jar', 'gradle-wrapper.jar', false],
+      ['apps/mobile/android/gradlew', 'gradlew', true],
+      ['apps/mobile/android/gradlew.bat', 'gradlew.bat', false],
+    ]) {
+      const generated = trustedFile(path.join(snapshotRoot, relativeGenerated), expectedName, `generated Android ${expectedName}`, executable);
+      chmodSync(generated.path, executable ? 0o555 : 0o444);
+    }
     const gradleModules = path.join(prefetchGradleHome, 'caches', 'modules-2');
     const gradleWrapper = path.join(prefetchGradleHome, 'wrapper');
     if (!lstatSync(gradleModules, { throwIfNoEntry: false })?.isDirectory() || !lstatSync(gradleWrapper, { throwIfNoEntry: false })?.isDirectory()) {
@@ -1403,7 +1413,7 @@ function collectAndroidUnsafe(options, emit = true) {
       dependencyCaches,
       gradleVerificationMetadataSha256: createHash('sha256').update(gitExec(['show', `${sourceBefore.commit}:apps/mobile/android/gradle/verification-metadata.xml`], { cwd: repoRoot })).digest('hex'),
       apksignerJarSha256: apksignerJar.sha256,
-      toolchainMutationGuard: { algorithm: 'linux-inotify-authenticated-runner-v3', flutterExcludedTransientBases: [...flutterMutableMetadata].sort((left, right) => Buffer.from(left).compare(Buffer.from(right))), pubExcludedBuildPaths, gradleWrapperLockPaths: runtimeWrapperLockPaths, sourceGeneratedPaths, runtimeGradleMutablePaths, outputsCapturedBeforeGuardExit: true, queueOverflowFailsClosed: true },
+      toolchainMutationGuard: { algorithm: 'linux-inotify-authenticated-runner-v3', flutterExcludedTransientBases: [...flutterMutableMetadata].sort((left, right) => Buffer.from(left).compare(Buffer.from(right))), pubExcludedBuildPaths, gradleWrapperLockPaths: runtimeWrapperLockPaths, prefetchSourceGeneratedPaths, sourceGeneratedPaths, runtimeGradleMutablePaths, outputsCapturedBeforeGuardExit: true, queueOverflowFailsClosed: true },
       signingInputSha256: debugKeystore.sha256,
       signingCertificateSha256,
     };

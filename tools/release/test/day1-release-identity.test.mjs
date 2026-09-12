@@ -135,6 +135,7 @@ function fixture(t) {
       pubExcludedBuildPaths: ['hosted/pub.dev/jni-1.0.0/android/.cxx'],
       gradleWrapperLockPaths: ['dists/gradle-8.14-all/c2qonpi39x1mddn7hk5gh9iqj/gradle-8.14-all.zip.lck'],
       sourceGeneratedPaths: ['apps/mobile/.dart_tool', 'apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/.gradle', 'apps/mobile/android/app/src/main/java', 'apps/mobile/android/local.properties', 'apps/mobile/build', 'apps/mobile/ios', 'apps/mobile/lib/.dart_tool', 'apps/mobile/linux', 'apps/mobile/macos', 'apps/mobile/web', 'apps/mobile/windows'],
+      prefetchSourceGeneratedPaths: ['apps/mobile/.dart_tool', 'apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/.gradle', 'apps/mobile/android/app/src/main/java', 'apps/mobile/android/local.properties', 'apps/mobile/build', 'apps/mobile/ios', 'apps/mobile/lib/.dart_tool', 'apps/mobile/linux', 'apps/mobile/macos', 'apps/mobile/web', 'apps/mobile/windows', 'apps/mobile/android/gradle/wrapper/gradle-wrapper.jar', 'apps/mobile/android/gradlew', 'apps/mobile/android/gradlew.bat'],
       runtimeGradleMutablePaths: ['.tmp', 'caches/8.14.4', 'caches/build-cache-1', 'caches/jars-9', 'caches/journal-1', 'caches/modules-2/gc.properties', 'caches/modules-2/modules-2.lock', 'caches/transforms-4', 'daemon', 'native', 'notifications', 'workers', 'wrapper/dists/gradle-8.14-all/c2qonpi39x1mddn7hk5gh9iqj/gradle-8.14-all.zip.lck'],
       outputsCapturedBeforeGuardExit: true,
       queueOverflowFailsClosed: true,
