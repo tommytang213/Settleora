@@ -248,6 +248,9 @@ function exactTrackedFile(repoRoot, relative, label, sourceCommit) {
     stdio: ['ignore', 'pipe', 'pipe'],
     maxBuffer: Math.max(file.size + 1024 * 1024, 2 * 1024 * 1024),
   });
+  const oid = git(repoRoot, ['rev-parse', `${sourceCommit}:${relative}`]);
+  const actualOid = createHash('sha1').update(`blob ${committed.length}\0`).update(committed).digest('hex');
+  if (actualOid !== oid) fail(`${label} committed Git blob identity mismatch`);
   if (!file.bytes.equals(committed)) fail(`${label} does not match the captured source blob`);
   return file;
 }
@@ -279,9 +282,8 @@ export function validateRegistryDocument(image, document, platform, label = 'reg
   const matches = document.manifests.filter((entry) => (
     entry?.platform?.os === platform.os
     && entry?.platform?.architecture === platform.architecture
-    && entry?.digest === image.platformDigest
   ));
-  if (matches.length !== 1) fail(`${label} registry platform/digest relationship mismatch`);
+  if (matches.length !== 1 || matches[0].digest !== image.platformDigest) fail(`${label} registry platform/digest relationship mismatch`);
   return true;
 }
 
@@ -304,8 +306,8 @@ export function validateSelectedPlatformDocument(image, record, platform, label 
 export function collectMigrations(repoRoot, expectedDigest, capturedCommit = git(repoRoot, ['rev-parse', 'HEAD']), compiledRuntimeIds) {
   const relativeRoot = 'services/api/src/Settleora.Api/Persistence/Migrations';
   sha40(capturedCommit, 'migration captured source commit');
-  const names = execFileSync('/usr/bin/git', ['--no-replace-objects', 'ls-tree', '-r', '-z', '--name-only', `${capturedCommit}:${relativeRoot}`], { cwd: repoRoot, stdio: ['ignore', 'pipe', 'pipe'] })
-    .toString('utf8').split('\0').filter(Boolean);
+  const names = new TextDecoder('utf-8', { fatal: true }).decode(execFileSync('/usr/bin/git', ['--no-replace-objects', 'ls-tree', '-r', '-z', '--name-only', `${capturedCommit}:${relativeRoot}`], { cwd: repoRoot, stdio: ['ignore', 'pipe', 'pipe'] }))
+    .split('\0').filter(Boolean);
   const unexpected = names.filter((name) => {
     const basename = path.posix.basename(name);
     return name.endsWith('.cs') && basename !== 'SettleoraDbContextModelSnapshot.cs' && !/^(\d{14}_[A-Za-z0-9_]+)(?:\.Designer)?\.cs$/u.test(basename);
@@ -507,7 +509,7 @@ function collectReleaseNotes(input) {
   return { source: input.source, sha256: sha256(file.bytes), size: file.size, candidateSummary: input.candidateSummary };
 }
 
-export function validateManifest(manifest) {
+export function validateManifest(manifest, repoRoot) {
   assertKeys(manifest, ['schema', 'identityDigestAlgorithm', 'identityDigest', 'generatedAt', 'source', 'apiImage', 'dependencyImages', 'migrations', 'userWeb', 'android', 'releaseNotes', 'rollback', 'retention'], 'manifest');
   if (manifest.schema !== SCHEMA) fail('Unsupported Day 1 release-identity schema');
   if (manifest.identityDigestAlgorithm !== DIGEST_ALGORITHM) fail('Unsupported identity-digest algorithm');
@@ -535,8 +537,10 @@ export function validateManifest(manifest) {
   assertKeys(manifest.migrations.source, ['commit', 'tree'], 'migrations.source');
   if (manifest.migrations.runtimeInventory !== 'compiled-ef-metadata-v1' || manifest.migrations.ordering !== 'migration-id-byte-order-v1' || manifest.migrations.setDigestAlgorithm !== 'sha256(canonical-json-v1:migration-entries)') fail('Migration algorithm mismatch');
   if (manifest.migrations.source.commit !== manifest.source.commit || manifest.migrations.source.tree !== manifest.source.tree) fail('Migration source mismatch');
+  if (!Array.isArray(manifest.migrations.entries) || manifest.migrations.entries.length < 1
+    || !Number.isSafeInteger(manifest.migrations.count) || manifest.migrations.count < 1) fail('Migration entries must be a non-empty array with a positive count');
   let priorMigration = '';
-  for (const [index, entry] of manifest.migrations.entries?.entries?.() ?? []) {
+  for (const [index, entry] of manifest.migrations.entries.entries()) {
     assertKeys(entry, ['id', 'files'], `migrations.entries.${index}`);
     if (!/^\d{14}_[A-Za-z0-9_]+$/u.test(entry.id) || entry.id <= priorMigration) fail('Migration IDs must be valid and strictly ordered');
     priorMigration = entry.id;
@@ -566,6 +570,8 @@ export function validateManifest(manifest) {
   assertKeys(manifest.android.source, ['commit', 'tree'], 'android.source');
   assertKeys(manifest.android.apk, ['path', 'size', 'sha256'], 'android.apk');
   assertKeys(manifest.android.aab, ['path', 'size', 'sha256'], 'android.aab');
+  if (manifest.android.apk.path !== 'apps/mobile/build/app/outputs/flutter-apk/app-release.apk'
+    || manifest.android.aab.path !== 'apps/mobile/build/app/outputs/bundle/release/app-release.aab') fail('Android artifact paths must be canonical release outputs');
   for (const key of ['semanticVersion', 'buildNumber', 'applicationId']) string(manifest.android[key], `android.${key}`);
   if (manifest.android.r8Minified !== true) fail('Android R8/minification assertion is required');
   hexDigest(manifest.android.r8MappingSha256, 'android.r8MappingSha256');
@@ -585,6 +591,15 @@ export function validateManifest(manifest) {
   if (manifest.rollback.safetyCaveat !== 'Artifact availability does not prove database, schema, or file rollback safety.') fail('Rollback safety caveat text is required');
   validateImage(manifest.rollback.apiImage, 'rollback.apiImage', manifest.rollback.sourceCommit, undefined, apiRepository);
   if (manifest.rollback.apiImage.publicationRunUrl === undefined) fail('Rollback API image publication run provenance is required');
+  if (!repoRoot) fail('Repository context is required to validate rollback ancestry');
+  try {
+    git(repoRoot, ['cat-file', '-e', `${manifest.rollback.sourceCommit}^{commit}`]);
+    if (manifest.rollback.sourceCommit === manifest.source.commit) fail('Rollback source must be prior to the candidate source');
+    git(repoRoot, ['merge-base', '--is-ancestor', manifest.rollback.sourceCommit, manifest.source.commit]);
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Rollback source must be prior to the candidate source') throw error;
+    fail('Rollback source must be an existing prior ancestor of the candidate source');
+  }
   if (manifest.retention?.canonicalEvidenceDirectory !== `/workspace/logs/settleora-release-candidates/${manifest.source.candidateId}`) {
     fail('Retention directory must exactly bind the candidate ID under the approved external root');
   }
@@ -672,5 +687,5 @@ export function buildManifest(repoRoot, input) {
     },
   };
   manifest.identityDigest = computeIdentityDigest(manifest);
-  return validateManifest(manifest);
+  return validateManifest(manifest, repoRoot);
 }

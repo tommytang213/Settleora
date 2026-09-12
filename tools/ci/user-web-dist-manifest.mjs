@@ -28,35 +28,29 @@ const maxPublicArtifactDirectories = 10_000;
 const maxPublicArtifactDepth = 64;
 
 export function currentNpmVersion() {
-  if (realpathSync('/proc/self/exe') !== realpathSync(process.execPath)) throw new Error('Current Node executable identity is inconsistent');
-  const installRoot = realpathSync(path.resolve(path.dirname(process.execPath), '..'));
-  const npmCli = path.resolve(path.dirname(process.execPath), '../lib/node_modules/npm/bin/npm-cli.js');
-  if (!npmCli.startsWith(`${installRoot}${path.sep}`) || path.basename(npmCli) !== 'npm-cli.js') throw new Error('npm CLI is outside the current Node installation');
-  const descriptor = openSync(npmCli, constants.O_RDONLY | constants.O_NOFOLLOW);
+  const candidates = [
+    path.resolve(path.dirname(process.execPath), '../lib/node_modules/npm/package.json'),
+    '/usr/lib/node_modules/npm/package.json',
+    '/usr/share/nodejs/npm/package.json',
+  ];
+  const packageFile = candidates.find((candidate) => existsSync(candidate));
+  if (!packageFile) throw new Error('npm package metadata is unavailable');
+  const descriptor = openSync(packageFile, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
     const opened = fstatSync(descriptor);
-    const current = lstatSync(npmCli);
-    if (!opened.isFile() || opened.size < 1 || opened.size > 2 * 1024 * 1024 || current.isSymbolicLink()
-      || current.dev !== opened.dev || current.ino !== opened.ino || realpathSync(npmCli) !== npmCli) throw new Error('npm CLI is not a stable bounded file');
+    const current = lstatSync(packageFile);
+    if (!opened.isFile() || opened.size < 1 || opened.size > 1024 * 1024 || current.isSymbolicLink()
+      || current.dev !== opened.dev || current.ino !== opened.ino
+      || realpathSync(packageFile) !== packageFile) throw new Error('npm metadata is not a stable bounded file');
     const bytes = Buffer.alloc(opened.size);
     for (let offset = 0; offset < opened.size;) {
       const count = readSync(descriptor, bytes, offset, opened.size - offset, offset);
       if (count < 1) throw new Error('npm CLI descriptor ended before its declared size');
       offset += count;
     }
-    const before = sha256(bytes);
-    const version = execFileSync('/proc/self/exe', ['/proc/self/fd/3', '--version'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe', descriptor],
-    }).trim();
-    const after = lstatSync(npmCli);
-    if (after.isSymbolicLink() || after.dev !== opened.dev || after.ino !== opened.ino) throw new Error('npm CLI path changed during version collection');
-    for (let offset = 0; offset < opened.size;) {
-      const count = readSync(descriptor, bytes, offset, opened.size - offset, offset);
-      if (count < 1) throw new Error('npm CLI descriptor changed size during version collection');
-      offset += count;
-    }
-    if (sha256(bytes) !== before) throw new Error('npm CLI bytes changed during version collection');
+    const after = fstatSync(descriptor);
+    if (after.size !== opened.size || after.mtimeMs !== opened.mtimeMs || after.ctimeMs !== opened.ctimeMs) throw new Error('npm metadata changed during version collection');
+    const version = JSON.parse(bytes.toString('utf8')).version;
     if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/u.test(version)) throw new Error('npm version is invalid');
     return version;
   } finally {

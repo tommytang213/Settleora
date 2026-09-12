@@ -26,6 +26,8 @@ canonical assembly destination:
 install -d -m 700 /workspace/logs/settleora-android-preflight
 node tools/release/day1-release-identity-cli.mjs collect-android \
   --flutter /trusted/flutter/bin/flutter \
+  --android-sdk-root /trusted/Android/Sdk \
+  --java-home /trusted/jdk \
   --output /workspace/logs/settleora-android-preflight/<source-sha>
 ```
 
@@ -45,11 +47,12 @@ node tools/release/day1-release-identity-cli.mjs assemble \
 node tools/release/day1-release-identity-cli.mjs validate \
   --manifest /workspace/logs/settleora-release-candidates/<candidate-id>/release-identity-manifest.json \
   --input /workspace/logs/settleora-release-candidates/<candidate-id>/inputs.json \
+  --flutter /trusted/flutter/bin/flutter \
   --android-sdk-root /trusted/Android/Sdk \
   --java-home /trusted/jdk
 ```
 
-Assembly also performs `npm ci` through the protected system npm executable and
+Assembly also performs `npm ci` through the protected system npm installation and
 the canonical user-web build with a bounded environment and private cache in a
 disposable exact-source snapshot, then retains the R02 package manifest and `dist/` under
 the candidate directory. Validation repeats that exact-source web build and
@@ -82,7 +85,9 @@ migration, web-lock and mobile-config reads are compared with the initially
 captured source commit rather than a later movable `HEAD`.
 Android collection is staged under the private candidate directory and removed
 on assembly failure before promotion to canonical evidence. Validation accepts
-only that candidate's canonical retained `release-identity-manifest.json`.
+only that candidate's canonical retained `release-identity-manifest.json` and
+performs a second exact-source Android APK/AAB build before accepting retained
+artifact identities.
 APK, AAB, mapping, and output-metadata sizes are checked on stable descriptors
 before copying, and their hashes are computed incrementally from those same
 bounded streams.

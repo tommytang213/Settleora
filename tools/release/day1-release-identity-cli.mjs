@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
-import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readlinkSync, readSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
+import { closeSync, constants, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readlinkSync, readSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -43,43 +43,17 @@ function protectedSystemCommand(candidate, expectedName) {
 }
 
 const gitCommand = protectedSystemCommand('/usr/bin/git', 'git');
-const dockerCommand = protectedSystemCommand('/usr/bin/docker', 'docker');
+const buildxCommand = protectedSystemCommand('/usr/libexec/docker/cli-plugins/docker-buildx', 'docker-buildx');
 const ghCommand = protectedSystemCommand('/usr/bin/gh', 'gh');
-const currentNodeTarget = realpathSync('/proc/self/exe');
-if (currentNodeTarget !== realpathSync(process.execPath)) throw new Error('Current Node executable identity is inconsistent');
-const nodeInstallRoot = realpathSync(path.resolve(path.dirname(process.execPath), '..'));
-const npmCli = path.resolve(path.dirname(process.execPath), '../lib/node_modules/npm/bin/npm-cli.js');
-if (!npmCli.startsWith(`${nodeInstallRoot}${path.sep}`) || path.basename(npmCli) !== 'npm-cli.js') throw new Error('npm CLI is outside the current Node installation');
-const npmCliDescriptor = openSync(npmCli, constants.O_RDONLY | constants.O_NOFOLLOW);
-const npmCliOpened = fstatSync(npmCliDescriptor);
-const npmCliCurrent = lstatSync(npmCli);
-if (!npmCliOpened.isFile() || npmCliCurrent.isSymbolicLink() || npmCliCurrent.dev !== npmCliOpened.dev || npmCliCurrent.ino !== npmCliOpened.ino || realpathSync(npmCli) !== npmCli) {
-  throw new Error('npm CLI is not a stable regular file in the current Node installation');
-}
-if (npmCliOpened.size < 1 || npmCliOpened.size > 2 * 1024 * 1024) throw new Error('npm CLI has unsafe size');
-function descriptorSha256(descriptor, size) {
-  const hash = createHash('sha256');
-  const buffer = Buffer.alloc(64 * 1024);
-  for (let offset = 0; offset < size;) {
-    const count = readSync(descriptor, buffer, 0, Math.min(buffer.length, size - offset), offset);
-    if (count < 1) throw new Error('npm CLI descriptor ended before its declared size');
-    hash.update(buffer.subarray(0, count));
-    offset += count;
-  }
-  return hash.digest('hex');
-}
-const npmCliSha256 = descriptorSha256(npmCliDescriptor, npmCliOpened.size);
+const systemNodeCommand = protectedSystemCommand('/usr/bin/node', 'node');
+let npmRuntimeChecked = false;
 const npmExec = (values, options = {}) => {
-  const current = lstatSync(npmCli);
-  if (current.isSymbolicLink() || current.dev !== npmCliOpened.dev || current.ino !== npmCliOpened.ino) throw new Error('npm CLI path changed before use');
-  const inheritedStdio = options.stdio === 'inherit'
-    ? ['inherit', 'inherit', 'inherit', npmCliDescriptor]
-    : ['ignore', 'pipe', 'pipe', npmCliDescriptor];
-  const result = execFileSync('/proc/self/exe', ['/proc/self/fd/3', ...values], { ...options, stdio: inheritedStdio });
-  const after = lstatSync(npmCli);
-  if (after.isSymbolicLink() || after.dev !== npmCliOpened.dev || after.ino !== npmCliOpened.ino) throw new Error('npm CLI path changed during use');
-  if (descriptorSha256(npmCliDescriptor, npmCliOpened.size) !== npmCliSha256) throw new Error('npm CLI bytes changed during use');
-  return result;
+  if (!npmRuntimeChecked) {
+    protectedSystemCommand('/usr/bin/npm', 'npm');
+    assertSystemRuntime('/usr/lib/node_modules/npm', 'system npm runtime');
+    npmRuntimeChecked = true;
+  }
+  return execFileSync('/usr/bin/npm', values, options);
 };
 const gitExec = (args, options) => execFileSync(gitCommand, ['--no-replace-objects', ...args], options);
 const replacementRefs = gitExec(['for-each-ref', '--format=%(refname)', 'refs/replace'], { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -98,6 +72,9 @@ const committedVerifierHelper = gitExec(['show', `${processSource.commit}:tools/
   stdio: ['ignore', 'pipe', 'pipe'],
   maxBuffer: 1024 * 1024,
 });
+const gitBlobObjectId = (contents) => createHash('sha1').update(`blob ${contents.length}\0`).update(contents).digest('hex');
+const committedVerifierOid = gitExec(['rev-parse', `${processSource.commit}:tools/release/sealed_android_verifier.py`], { cwd: repoRoot, encoding: 'utf8' }).trim();
+if (gitBlobObjectId(committedVerifierHelper) !== committedVerifierOid) throw new Error('Committed verifier Git blob identity mismatch');
 
 function args(values) {
   const result = { command: values[0] };
@@ -156,10 +133,21 @@ function registryReference(image) {
 }
 
 function inspect(reference, format) {
-  return JSON.parse(execFileSync(dockerCommand, ['buildx', 'imagetools', 'inspect', reference, '--format', format], {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  }));
+  const home = mkdtempSync('/workspace/logs/.settleora-buildx-');
+  try {
+    const metadata = lstatSync(home);
+    if (!metadata.isDirectory() || metadata.uid !== process.getuid() || (metadata.mode & 0o077) !== 0) throw new Error('Private Buildx configuration directory could not be established');
+    const dockerConfig = path.join(home, '.docker');
+    mkdirSync(dockerConfig, { mode: 0o700 });
+    return JSON.parse(execFileSync(buildxCommand, ['imagetools', 'inspect', reference, '--format', format], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', HOME: home, DOCKER_CONFIG: dockerConfig, BUILDX_CONFIG: path.join(dockerConfig, 'buildx') },
+    }));
+  } finally {
+    const metadata = lstatSync(home, { throwIfNoEntry: false });
+    if (metadata?.isDirectory() && !metadata.isSymbolicLink() && metadata.uid === process.getuid()) rmSync(home, { recursive: true, force: false });
+  }
 }
 
 function inspectRecord(reference) {
@@ -183,11 +171,13 @@ function verifyLiveRegistry(input, retained = false) {
   const verifyPublication = (image, sourceCommit, label) => {
     const reference = verify(image, label, sourceCommit);
     const publication = validatePublicationRunUrl(image.publicationRunUrl, sourceCommit);
-    const run = JSON.parse(execFileSync(ghCommand, ['api', `repos/tommytang213/Settleora/actions/runs/${publication.runId}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
+    const ghEnvironment = { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', GH_HOST: 'github.com', GH_CONFIG_DIR: '/nonexistent', ...(process.env.GH_TOKEN ? { GH_TOKEN: process.env.GH_TOKEN } : {}) };
+    const ghApi = (endpoint, options = {}) => execFileSync(ghCommand, ['api', '--hostname', 'github.com', endpoint], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: ghEnvironment, ...options });
+    const run = JSON.parse(ghApi(`repos/tommytang213/Settleora/actions/runs/${publication.runId}`));
     validatePublicationRunDocument(publication, run, sourceCommit);
-    const jobs = JSON.parse(execFileSync(ghCommand, ['api', `repos/tommytang213/Settleora/actions/runs/${publication.runId}/jobs?per_page=100`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
+    const jobs = JSON.parse(ghApi(`repos/tommytang213/Settleora/actions/runs/${publication.runId}/jobs?per_page=100`));
     const jobId = validatePublicationJobDocument(jobs, sourceCommit);
-    const jobLog = execFileSync(ghCommand, ['api', `repos/tommytang213/Settleora/actions/jobs/${jobId}/logs`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 32 * 1024 * 1024 });
+    const jobLog = ghApi(`repos/tommytang213/Settleora/actions/jobs/${jobId}/logs`, { maxBuffer: 32 * 1024 * 1024 });
     validatePublicationJobLog(jobLog, image, sourceCommit);
     const provenance = inspect(reference, '{{json .Provenance.SLSA}}');
     validatePublicationProvenance(publication, provenance, sourceCommit);
@@ -352,20 +342,29 @@ function toolchainTreeDigest(root, label, excludedPrefixes = []) {
   if (!rootMetadata?.isDirectory() || rootMetadata.isSymbolicLink() || realpathSync(absoluteRoot) !== absoluteRoot) throw new Error(`${label} root is not a stable directory`);
   const records = [];
   let fileCount = 0;
+  let directoryCount = 1;
+  let symlinkCount = 0;
+  let entryCount = 1;
   let totalBytes = 0;
   const walk = (directory, depth) => {
     if (depth > 64) throw new Error(`${label} exceeds its directory-depth boundary`);
     const entries = readdirSync(directory, { withFileTypes: true })
       .sort((left, right) => Buffer.from(left.name).compare(Buffer.from(right.name)));
     for (const entry of entries) {
+      entryCount += 1;
+      if (entryCount > 250_000) throw new Error(`${label} exceeds its total-entry boundary`);
       const target = path.join(directory, entry.name);
       const relative = path.relative(absoluteRoot, target).split(path.sep).join('/');
       if (!relative || relative.startsWith('../') || path.isAbsolute(relative)) throw new Error(`${label} contains an unsafe path`);
       if (excludedPrefixes.some((prefix) => relative === prefix || relative.startsWith(`${prefix}/`))) continue;
       const metadata = lstatSync(target);
       if (metadata.isDirectory()) {
+        directoryCount += 1;
+        if (directoryCount > 100_000) throw new Error(`${label} exceeds its directory-count boundary`);
         walk(target, depth + 1);
       } else if (metadata.isSymbolicLink()) {
+        symlinkCount += 1;
+        if (symlinkCount > 100_000) throw new Error(`${label} exceeds its symlink-count boundary`);
         const link = readlinkSync(target);
         const resolved = path.resolve(path.dirname(target), link);
         if (path.relative(absoluteRoot, resolved).startsWith('..') || path.isAbsolute(path.relative(absoluteRoot, resolved))) throw new Error(`${label} contains an external symlink`);
@@ -400,16 +399,16 @@ function toolchainTreeDigest(root, label, excludedPrefixes = []) {
     }
   };
   walk(absoluteRoot, 0);
-  return { algorithm: 'sha256(canonical-stable-toolchain-tree-v1)', sha256: createHash('sha256').update(records.join('')).digest('hex'), fileCount, totalBytes };
+  return { algorithm: 'sha256(canonical-stable-toolchain-tree-v1)', sha256: createHash('sha256').update(records.join('')).digest('hex'), fileCount, directoryCount, symlinkCount, totalBytes };
 }
 
-function assertSystemRuntime(root) {
+function assertSystemRuntime(root, label = 'Java runtime') {
   const visited = new Set();
   const assertProtectedAncestorChain = (missing) => {
     let existing = path.dirname(missing);
     while (!lstatSync(existing, { throwIfNoEntry: false })) {
       const parent = path.dirname(existing);
-      if (parent === existing) throw new Error('Java runtime broken symlink has no protected ancestor');
+      if (parent === existing) throw new Error(`${label} broken symlink has no protected ancestor`);
       existing = parent;
     }
     const assertChain = (candidate) => {
@@ -418,7 +417,7 @@ function assertSystemRuntime(root) {
         cursor = path.join(cursor, part);
         const metadata = lstatSync(cursor);
         if (metadata.uid !== 0 || (!metadata.isSymbolicLink() && (metadata.mode & 0o022) !== 0)) {
-          throw new Error('Java runtime broken symlink target is not protected by system-owned ancestors');
+          throw new Error(`${label} broken symlink target is not protected by system-owned ancestors`);
         }
       }
     };
@@ -428,7 +427,7 @@ function assertSystemRuntime(root) {
   const visit = (candidate) => {
     const metadata = lstatSync(candidate);
     if (metadata.isSymbolicLink()) {
-      if (metadata.uid !== 0) throw new Error('Java runtime symlink is not system-controlled');
+      if (metadata.uid !== 0) throw new Error(`${label} symlink is not system-controlled`);
       let target;
       try {
         target = realpathSync(candidate);
@@ -443,16 +442,31 @@ function assertSystemRuntime(root) {
       }
       return visit(target);
     }
-    if (metadata.uid !== 0 || (metadata.mode & 0o022) !== 0) throw new Error('Java runtime must be root-owned and not writable by the invoking user, group, or others');
+    if (metadata.uid !== 0 || (metadata.mode & 0o022) !== 0) throw new Error(`${label} must be root-owned and not writable by the invoking user, group, or others`);
     const key = `${metadata.dev}:${metadata.ino}`;
     if (visited.has(key)) return;
     visited.add(key);
     if (metadata.isDirectory()) {
       for (const entry of readdirSync(candidate)) visit(path.join(candidate, entry));
     } else if (!metadata.isFile()) {
-      throw new Error('Java runtime contains an unsupported filesystem entry');
+      throw new Error(`${label} contains an unsupported filesystem entry`);
     }
   };
+  let ancestor = path.resolve(root);
+  while (true) {
+    const metadata = lstatSync(ancestor);
+    if (metadata.uid !== 0 || (!metadata.isSymbolicLink() && (metadata.mode & 0o022) !== 0)) throw new Error(`${label} root is not protected by system-owned ancestors`);
+    if (ancestor === '/') break;
+    ancestor = path.dirname(ancestor);
+  }
+  const resolvedRoot = realpathSync(root);
+  ancestor = resolvedRoot;
+  while (true) {
+    const metadata = lstatSync(ancestor);
+    if (metadata.uid !== 0 || (metadata.mode & 0o022) !== 0) throw new Error(`${label} resolved root is not protected by system-owned ancestors`);
+    if (ancestor === '/') break;
+    ancestor = path.dirname(ancestor);
+  }
   visit(root);
 }
 
@@ -533,8 +547,8 @@ export function verifyAndroidSignature(input, options) {
 }
 
 export function assertCommitHasNoSymlinks(commit, label, root = repoRoot) {
-  const records = gitExec(['ls-tree', '-r', '-z', commit], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] })
-    .toString('utf8').split('\0').filter(Boolean);
+  const records = new TextDecoder('utf-8', { fatal: true }).decode(gitExec(['ls-tree', '-r', '-z', commit], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] }))
+    .split('\0').filter(Boolean);
   if (records.some((record) => record.startsWith('120000 '))) throw new Error(`${label} source snapshot contains a tracked symlink`);
 }
 
@@ -580,9 +594,12 @@ export function copyBoundedFile(source, target, maxBytes, label) {
 }
 
 function materializeExactTree(commit, destination, label) {
-  const records = gitExec(['ls-tree', '-r', '-z', commit], { cwd: repoRoot, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 })
-    .toString('utf8').split('\0').filter(Boolean);
+  const listing = gitExec(['ls-tree', '-r', '-z', commit], { cwd: repoRoot, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 });
+  const records = new TextDecoder('utf-8', { fatal: true }).decode(listing).split('\0').filter(Boolean);
   if (records.length === 0) throw new Error(`${label} source tree is empty`);
+  if (records.length > 100_000) throw new Error(`${label} source tree exceeds its file-count boundary`);
+  let totalBytes = 0;
+  const directories = new Set();
   for (const record of records) {
     const match = /^(100644|100755) blob ([0-9a-f]{40,64})\t(.+)$/u.exec(record);
     if (!match) throw new Error(`${label} source tree contains an unsupported entry`);
@@ -590,8 +607,13 @@ function materializeExactTree(commit, destination, label) {
     if (relative.includes('\\') || relative.split('/').some((part) => !part || part === '.' || part === '..')) throw new Error(`${label} source tree contains an unsafe path`);
     const target = path.resolve(destination, relative);
     if (path.relative(destination, target).startsWith('..') || path.isAbsolute(path.relative(destination, target))) throw new Error(`${label} source tree escapes its snapshot`);
+    for (let directory = path.posix.dirname(relative); directory !== '.'; directory = path.posix.dirname(directory)) directories.add(directory);
+    if (directories.size > 100_000) throw new Error(`${label} source tree exceeds its directory-count boundary`);
     mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
     const bytes = gitExec(['cat-file', 'blob', match[2]], { cwd: repoRoot, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: maxAndroidArtifactBytes });
+    if (gitBlobObjectId(bytes) !== match[2]) throw new Error(`${label} source Git blob identity mismatch`);
+    totalBytes += bytes.length;
+    if (totalBytes > 4 * 1024 * 1024 * 1024) throw new Error(`${label} source tree exceeds its aggregate-byte boundary`);
     writeFileSync(target, bytes, { flag: 'wx', mode: match[1] === '100755' ? 0o755 : 0o644 });
   }
 }
@@ -760,7 +782,17 @@ function collectAndroidUnsafe(options, emit = true) {
 }
 
 function collectAndroid(options, emit = true) {
-  return collectAndroidUnsafe(options, emit);
+  const output = path.resolve(options.output ?? '');
+  const existed = lstatSync(output, { throwIfNoEntry: false }) !== undefined;
+  try {
+    return collectAndroidUnsafe(options, emit);
+  } catch (error) {
+    const metadata = lstatSync(output, { throwIfNoEntry: false });
+    if (!existed && metadata?.isDirectory() && !metadata.isSymbolicLink() && metadata.uid === process.getuid()) {
+      rmSync(output, { recursive: true, force: false, maxRetries: 5, retryDelay: 200 });
+    }
+    throw error;
+  }
 }
 
 function assertNoSymlinkAncestors(candidate) {
@@ -926,10 +958,10 @@ export function main(argv = process.argv.slice(2)) {
  try {
   const options = args(argv);
   if (options.command === 'collect-android') {
-    if (!options.flutter || !options.output) throw new Error('collect-android requires --flutter and --output');
+    if (!options.flutter || !options['android-sdk-root'] || !options['java-home'] || !options.output) throw new Error('collect-android requires --flutter, --android-sdk-root, --java-home and --output');
     collectAndroid(options);
   } else if (options.command === 'assemble') {
-    if (!options.input || !options.output || !options.flutter) throw new Error('assemble requires --input, --output and --flutter');
+    if (!options.input || !options.output || !options.flutter || !options['android-sdk-root'] || !options['java-home']) throw new Error('assemble requires --input, --output, --flutter, --android-sdk-root and --java-home');
     let supplied = safeInput(options.input, 'Evidence input');
     const candidateRoot = canonicalCandidateDirectory(supplied);
     assertOwnedEvidenceDirectory(candidateRoot);
@@ -987,7 +1019,7 @@ export function main(argv = process.argv.slice(2)) {
       throw error;
     }
   } else if (options.command === 'validate') {
-    if (!options.manifest || !options.input) throw new Error('validate requires --manifest and --input for independent recollection');
+    if (!options.manifest || !options.input || !options.flutter || !options['android-sdk-root'] || !options['java-home']) throw new Error('validate requires --manifest, --input, --flutter, --android-sdk-root and --java-home for independent recollection');
     const requestedManifest = path.resolve(options.manifest);
     const requestedCandidateRoot = path.dirname(requestedManifest);
     if (path.dirname(requestedCandidateRoot) !== '/workspace/logs/settleora-release-candidates'
@@ -995,10 +1027,11 @@ export function main(argv = process.argv.slice(2)) {
     validateCandidateId(path.basename(requestedCandidateRoot));
     assertOwnedEvidenceDirectory(requestedCandidateRoot);
     const initialManifestBytes = safeBytes(options.manifest, 'Manifest');
-    const manifest = validateManifest(JSON.parse(initialManifestBytes.toString('utf8')));
+    const manifest = validateManifest(JSON.parse(initialManifestBytes.toString('utf8')), repoRoot);
     canonicalManifestPath(manifest, options.manifest);
     const supplied = bindCompiledMigrationIds(safeInput(options.input, 'Evidence input'), collectCompiledMigrationIds(requestedCandidateRoot));
     const webValidation = path.join(canonicalCandidateDirectory(supplied), `.web-validation-${randomUUID()}`);
+    const androidValidation = path.join(canonicalCandidateDirectory(supplied), `.android-validation-${randomUUID()}`);
     try {
       const canonicalInputs = canonicalReleaseNotesInput(canonicalWebInput(supplied));
       const unsignedInput = canonicalAndroidInput(canonicalInputs, { certificate: '0'.repeat(64), embeddedR8MappingSha256: '0'.repeat(64) });
@@ -1006,7 +1039,10 @@ export function main(argv = process.argv.slice(2)) {
       const retainedInput = canonicalAndroidInput(canonicalInputs, signature);
       const retained = buildManifest(repoRoot, retainedInput);
       collectWebExactSource(webValidation);
-      const rebuiltInput = canonicalAndroidInput(collectedWebInput(canonicalReleaseNotesInput(supplied), webValidation), signature);
+      collectAndroid({ ...options, output: androidValidation }, false);
+      const rebuiltAndroidUnsigned = collectedAndroidInput(collectedWebInput(canonicalReleaseNotesInput(supplied), webValidation), androidValidation, { certificate: '0'.repeat(64), embeddedR8MappingSha256: '0'.repeat(64) });
+      const rebuiltSignature = verifyAndroidSignature(rebuiltAndroidUnsigned, options);
+      const rebuiltInput = collectedAndroidInput(collectedWebInput(canonicalReleaseNotesInput(supplied), webValidation), androidValidation, rebuiltSignature);
       const rebuilt = buildManifest(repoRoot, rebuiltInput);
       verifyLiveRegistry(retainedInput, true);
       const retainedAfterRebuild = buildManifest(repoRoot, retainedInput);
@@ -1020,6 +1056,8 @@ export function main(argv = process.argv.slice(2)) {
     } finally {
       const metadata = lstatSync(webValidation, { throwIfNoEntry: false });
       if (metadata?.isDirectory() && !metadata.isSymbolicLink()) rmSync(webValidation, { recursive: true, force: false });
+      const androidMetadata = lstatSync(androidValidation, { throwIfNoEntry: false });
+      if (androidMetadata?.isDirectory() && !androidMetadata.isSymbolicLink()) rmSync(androidValidation, { recursive: true, force: false });
     }
     process.stdout.write(`${JSON.stringify({ status: 'valid', identityDigest: computeIdentityDigest(manifest) })}\n`);
   } else {
@@ -1032,5 +1070,16 @@ export function main(argv = process.argv.slice(2)) {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  main();
+  if (realpathSync('/proc/self/exe') !== realpathSync(systemNodeCommand)) {
+    try {
+      execFileSync(systemNodeCommand, [fileURLToPath(import.meta.url), ...process.argv.slice(2)], {
+        stdio: 'inherit',
+        env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', ...(process.env.GH_TOKEN ? { GH_TOKEN: process.env.GH_TOKEN } : {}) },
+      });
+    } catch (error) {
+      process.exitCode = Number.isInteger(error?.status) ? error.status : 1;
+    }
+  } else {
+    main();
+  }
 }

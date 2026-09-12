@@ -173,7 +173,7 @@ test('builds a deterministic canonical identity and excludes generatedAt from it
   assert.equal(first.migrations.runtimeInventory, 'compiled-ef-metadata-v1');
   assert.equal(first.rollback.artifactAvailabilityProvesDatabaseSchemaFileRollbackSafety, false);
   assert.deepEqual(first.dependencyImages.map((image) => image.name), ['caddy', 'postgres', 'rabbitmq']);
-  assert.doesNotThrow(() => validateManifest(first));
+  assert.doesNotThrow(() => validateManifest(first, f.root));
   assert.throws(() => buildManifest(f.root, JSON.parse(JSON.stringify(f.input))), /Compiled EF runtime migration inventory is required/);
   assert.throws(() => buildManifest(f.root, { ...f.input, generatedAt: 'unknown' }), /normalized RFC 3339 UTC timestamp/);
   const webManifest = JSON.parse(readFileSync(f.paths.webManifestPath));
@@ -303,17 +303,17 @@ test('rejects symlinked evidence and a tampered manifest identity digest', (t) =
   assert.throws(() => buildManifest(f.root, { ...f.input, releaseNotes: { ...f.input.releaseNotes, path: link } }), /must not use symlinks/);
   const manifest = buildManifest(f.root, f.input);
   manifest.android.apk.sha256 = '9'.repeat(64);
-  assert.throws(() => validateManifest(manifest), /Identity digest mismatch/);
+  assert.throws(() => validateManifest(manifest, f.root), /Identity digest mismatch/);
   const extra = buildManifest(f.root, f.input);
   extra.apiImage.unexpected = 'must-not-pass';
-  assert.throws(() => validateManifest(extra), /unexpected properties/);
+  assert.throws(() => validateManifest(extra, f.root), /unexpected properties/);
   const missingCaveat = buildManifest(f.root, f.input);
   delete missingCaveat.rollback.safetyCaveat;
   missingCaveat.identityDigest = computeIdentityDigest(missingCaveat);
-  assert.throws(() => validateManifest(missingCaveat), /missing required properties/);
+  assert.throws(() => validateManifest(missingCaveat, f.root), /missing required properties/);
   const missingRequired = buildManifest(f.root, f.input);
   delete missingRequired.source.tree;
-  assert.throws(() => validateManifest(missingRequired), /missing required properties/);
+  assert.throws(() => validateManifest(missingRequired, f.root), /missing required properties/);
 });
 
 test('rejects a non-ancestor rollback and an R8 mapping not bound to the AAB', (t) => {
@@ -404,18 +404,47 @@ test('validates registry index/platform linkage and API revision from fixture do
   assert.equal(validateRegistryRevision(image, { config: { Labels: { 'org.opencontainers.image.revision': 'c'.repeat(40) } } }, 'c'.repeat(40)), true);
   assert.throws(() => validateRegistryDocument(image, { ...document, digest: d('d') }, platform), /index digest mismatch/);
   assert.throws(() => validateRegistryDocument(image, { ...document, manifests: [{ digest: d('e'), platform }] }, platform), /platform\/digest relationship mismatch/);
+  assert.throws(() => validateRegistryDocument(image, { ...document, manifests: [document.manifests[0], { digest: d('e'), platform }] }, platform), /platform\/digest relationship mismatch/);
   assert.throws(() => validateRegistryRevision(image, { config: { Labels: { 'org.opencontainers.image.revision': 'f'.repeat(40) } } }, 'c'.repeat(40)), /OCI revision mismatch/);
   const selected = { manifest: { digest: image.platformDigest }, image: { os: 'linux', architecture: 'amd64', rootfs: { type: 'layers', diff_ids: [d('d')] }, config: {} } };
   assert.equal(validateSelectedPlatformDocument(image, selected, platform), true);
   assert.throws(() => validateSelectedPlatformDocument(image, { ...selected, image: { ...selected.image, rootfs: { type: 'layers', diff_ids: [] } } }, platform), /not a runnable/);
 });
 
-test('npm execution is sealed to the current Node installation and an opened script descriptor', () => {
+test('direct validation rejects empty migrations, noncanonical artifacts and unproved rollback ancestry', (t) => {
+  const f = fixture(t);
+  const original = buildManifest(f.root, f.input);
+  assert.throws(() => validateManifest(original), /Repository context is required/);
+
+  const resign = (manifest) => ({ ...manifest, identityDigest: computeIdentityDigest(manifest) });
+  const emptyMigrations = resign({
+    ...original,
+    migrations: { ...original.migrations, entries: [], count: 0, setSha256: sha256(Buffer.from('[]\n')) },
+  });
+  assert.throws(() => validateManifest(emptyMigrations, f.root), /non-empty array/);
+
+  const wrongPath = resign({ ...original, android: { ...original.android, apk: { ...original.android.apk, path: 'elsewhere.apk' } } });
+  assert.throws(() => validateManifest(wrongPath, f.root), /canonical release outputs/);
+
+  const nonexistent = '9'.repeat(40);
+  const wrongRollback = resign({
+    ...original,
+    rollback: {
+      ...original.rollback,
+      sourceCommit: nonexistent,
+      apiImage: { ...original.rollback.apiImage, configuredTag: `sha-${nonexistent}`, ociRevision: nonexistent },
+    },
+  });
+  assert.throws(() => validateManifest(wrongRollback, f.root), /existing prior ancestor/);
+});
+
+test('release execution uses protected system runtimes and bypasses user plugin configuration', () => {
   const cliSource = readFileSync(new URL('../day1-release-identity-cli.mjs', import.meta.url), 'utf8');
   assert.match(cliSource, /realpathSync\('\/proc\/self\/exe'\)/);
-  assert.match(cliSource, /constants\.O_RDONLY \| constants\.O_NOFOLLOW/);
-  assert.match(cliSource, /'\/proc\/self\/fd\/3'/);
-  assert.match(cliSource, /current\.dev !== npmCliOpened\.dev \|\| current\.ino !== npmCliOpened\.ino/);
-  assert.match(cliSource, /descriptorSha256\(npmCliDescriptor, npmCliOpened\.size\) !== npmCliSha256/);
+  assert.match(cliSource, /protectedSystemCommand\('\/usr\/bin\/node', 'node'\)/);
+  assert.match(cliSource, /protectedSystemCommand\('\/usr\/bin\/npm', 'npm'\)/);
+  assert.match(cliSource, /protectedSystemCommand\('\/usr\/libexec\/docker\/cli-plugins\/docker-buildx', 'docker-buildx'\)/);
+  assert.match(cliSource, /GH_CONFIG_DIR: '\/nonexistent'/);
+  assert.match(cliSource, /BUILDX_CONFIG: path\.join\(dockerConfig, 'buildx'\)/);
   assert.doesNotMatch(cliSource, /process\.env\.npm_execpath/);
 });
