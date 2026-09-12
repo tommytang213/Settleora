@@ -87,7 +87,9 @@ Android collection is staged under the private candidate directory and removed
 on assembly failure before promotion to canonical evidence. Validation accepts
 only that candidate's canonical retained `release-identity-manifest.json` and
 performs a second exact-source Android APK/AAB build before accepting retained
-artifact identities.
+artifact identities. Both builds use the same commit-derived private workspace
+path under `/workspace/logs`; this removes absolute temporary paths from Flutter
+native outputs while an existing workspace fails closed instead of being reused.
 APK, AAB, mapping, and output-metadata sizes are checked on stable descriptors
 before copying, and their hashes are computed incrementally from those same
 bounded streams.

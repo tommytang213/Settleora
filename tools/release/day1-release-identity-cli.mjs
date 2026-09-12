@@ -710,8 +710,10 @@ function collectAndroidUnsafe(options, emit = true) {
   };
   assertTrackedWorktreeMatchesHead(repoRoot);
   if (gitExec(['status', '--porcelain=v1', '--untracked-files=all'], { cwd: repoRoot, encoding: 'utf8' }).trim()) throw new Error('Android build requires a clean exact-source checkout');
-  const snapshotContainer = path.join(output, `.settleora-android-source-${randomUUID()}`);
+  const snapshotContainer = path.join('/workspace/logs', `.settleora-android-exact-source-${sourceBefore.commit}`);
   const snapshotRoot = path.join(snapshotContainer, 'source');
+  assertNoSymlinkAncestors(snapshotContainer);
+  if (lstatSync(snapshotContainer, { throwIfNoEntry: false })) throw new Error('Deterministic Android build workspace already exists');
   mkdirSync(snapshotContainer, { recursive: false, mode: 0o700 });
   mkdirSync(snapshotRoot, { recursive: false, mode: 0o700 });
   let copiedIdentities;
