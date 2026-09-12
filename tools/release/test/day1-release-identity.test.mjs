@@ -134,7 +134,7 @@ function fixture(t) {
       flutterExcludedTransientBases: ['bin/cache/runtime.stamp'],
       pubExcludedBuildPaths: ['hosted/pub.dev/jni-1.0.0/android/.cxx'],
       gradleWrapperLockPaths: ['dists/gradle-8.14-all/c2qonpi39x1mddn7hk5gh9iqj/gradle-8.14-all.zip.lck'],
-      sourceGeneratedPaths: ['apps/mobile/.dart_tool', 'apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/.gradle', 'apps/mobile/android/app/src/main/java', 'apps/mobile/android/local.properties', 'apps/mobile/build', 'apps/mobile/ios/Flutter/.last_build_id', 'apps/mobile/ios/Flutter/Generated.xcconfig', 'apps/mobile/ios/Flutter/ephemeral', 'apps/mobile/ios/Flutter/flutter_export_environment.sh', 'apps/mobile/lib/.dart_tool', 'apps/mobile/linux/flutter/ephemeral', 'apps/mobile/macos/Flutter/ephemeral', 'apps/mobile/windows/flutter/ephemeral'],
+      sourceGeneratedPaths: ['apps/mobile/.dart_tool', 'apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/.gradle', 'apps/mobile/android/app/src/main/java', 'apps/mobile/android/local.properties', 'apps/mobile/build', 'apps/mobile/ios', 'apps/mobile/lib/.dart_tool', 'apps/mobile/linux', 'apps/mobile/macos', 'apps/mobile/web', 'apps/mobile/windows'],
       runtimeGradleMutablePaths: ['.tmp', 'caches/8.14.4', 'caches/build-cache-1', 'caches/jars-9', 'caches/journal-1', 'caches/modules-2/gc.properties', 'caches/modules-2/modules-2.lock', 'caches/transforms-4', 'daemon', 'native', 'notifications', 'workers', 'wrapper/dists/gradle-8.14-all/c2qonpi39x1mddn7hk5gh9iqj/gradle-8.14-all.zip.lck'],
       outputsCapturedBeforeGuardExit: true,
       queueOverflowFailsClosed: true,

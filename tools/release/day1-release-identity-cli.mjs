@@ -1273,14 +1273,12 @@ function collectAndroidUnsafe(options, emit = true) {
       'apps/mobile/android/app/src/main/java',
       'apps/mobile/android/local.properties',
       'apps/mobile/build',
-      'apps/mobile/ios/Flutter/.last_build_id',
-      'apps/mobile/ios/Flutter/Generated.xcconfig',
-      'apps/mobile/ios/Flutter/ephemeral',
-      'apps/mobile/ios/Flutter/flutter_export_environment.sh',
+      'apps/mobile/ios',
       'apps/mobile/lib/.dart_tool',
-      'apps/mobile/linux/flutter/ephemeral',
-      'apps/mobile/macos/Flutter/ephemeral',
-      'apps/mobile/windows/flutter/ephemeral',
+      'apps/mobile/linux',
+      'apps/mobile/macos',
+      'apps/mobile/web',
+      'apps/mobile/windows',
     ];
     const sourceGuard = { label: 'android-exact-source', root: snapshotRoot, excludedPrefixes: sourceGeneratedPaths };
     const toolchainsBefore = {
