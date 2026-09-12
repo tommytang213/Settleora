@@ -253,6 +253,7 @@ export function scanPublicArtifact(files) {
       throw new Error(`Unsafe public artifact path: ${file.path}`);
     }
     const text = file.contents.toString('utf8');
+    let decodedJsonText;
     try {
       const candidate = JSON.parse(text);
       if (
@@ -267,11 +268,14 @@ export function scanPublicArtifact(files) {
       ) {
         throw new Error(`Source-map payload is not allowed in public artifact: ${file.path}`);
       }
+      decodedJsonText = JSON.stringify(candidate);
     } catch (error) {
       if (error instanceof Error && error.message.startsWith('Source-map payload')) throw error;
     }
     for (const pattern of unsafeContentPatterns) {
-      if (pattern.test(text)) throw new Error(`Potential sensitive or host-specific material in ${file.path}`);
+      if (pattern.test(text) || (decodedJsonText !== undefined && pattern.test(decodedJsonText))) {
+        throw new Error(`Potential sensitive or host-specific material in ${file.path}`);
+      }
     }
   }
 }
