@@ -584,6 +584,9 @@ test('published schema requires role-specific image provenance', () => {
   ]);
   assert.equal(schema.properties.android.properties.apk.$ref, '#/$defs/apkFile');
   assert.equal(schema.properties.android.properties.aab.$ref, '#/$defs/aabFile');
+  assert.equal(schema.properties.android.properties.semanticVersion.pattern, '^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$');
+  assert.equal(schema.properties.android.properties.buildNumber.pattern, '^[1-9][0-9]*$');
+  assert.equal(schema.properties.android.properties.applicationId.pattern, '^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+$');
   assert.equal(schema.$defs.apkFile.allOf[1].properties.path.const, 'apps/mobile/build/app/outputs/flutter-apk/app-release.apk');
   assert.equal(schema.$defs.aabFile.allOf[1].properties.path.const, 'apps/mobile/build/app/outputs/bundle/release/app-release.aab');
   assert.equal(schema.properties.retention.properties.canonicalEvidenceDirectory.const, '/workspace/logs/settleora-release-candidates/{source.candidateId}');
@@ -602,6 +605,12 @@ test('published schema requires role-specific image provenance', () => {
   assert.equal(schema.properties.migrations.properties.entries.items.properties.id.pattern, '^[0-9]{14}_[A-Za-z0-9_]+$');
   assert.equal(schema.properties.migrations.properties.entries.items.properties.files.items.$ref, '#/$defs/migrationFile');
   assert.equal(schema.$defs.migrationFile.allOf[1].properties.path.pattern, '^services/api/src/Settleora\\.Api/Persistence/Migrations/[0-9]{14}_[A-Za-z0-9_]+(?:\\.Designer)?\\.cs$');
+  assert.equal(schema.$defs.note.properties.source.$ref, '#/$defs/safeLabel');
+  assert.equal(schema.$defs.note.properties.candidateSummary.$ref, '#/$defs/releaseNoteSummary');
+  assert.equal(schema.$defs.releaseNoteSummary.minLength, 1);
+  assert.equal(schema.$defs.releaseNoteSummary.maxLength, 500);
+  assert.equal(schema.$defs.releaseNoteSummary.pattern.includes('github_pat_'), true);
+  assert.equal(schema.$defs.releaseNoteSummary.pattern.includes('/home/'), true);
   assert.deepEqual(schema.properties.userWeb.required, ['schema', 'source', 'dependencyLock', 'buildTools', 'artifact']);
   assert.equal(schema.$defs.dependencyImage.properties.sourceComposePath.const, 'infra/docker-compose.truenas-lan.image.yml');
   assert.deepEqual(schema.properties.dependencyImages.allOf.map((rule) => ({
