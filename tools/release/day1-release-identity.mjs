@@ -103,6 +103,12 @@ function safeLabel(value, label) {
   return value;
 }
 
+function safePublicLabel(value, label) {
+  safeLabel(value, label);
+  if (containsSensitiveMaterial(value)) fail(`${label} contains potentially sensitive material`);
+  return value;
+}
+
 export function validateCandidateId(value) {
   string(value, 'source.candidateId');
   if (value === '.' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(value) || value.includes('..')) {
@@ -558,7 +564,7 @@ function collectAndroid(repoRoot, input, source) {
 
 function collectReleaseNotes(input) {
   const file = exactRegularFile(input.path, 'release-note evidence', input.evidenceRoot);
-  safeLabel(input.source, 'releaseNotes.source');
+  safePublicLabel(input.source, 'releaseNotes.source');
   releaseNoteSummary(input.candidateSummary, 'releaseNotes.candidateSummary');
   if (file.size === 0) fail('Release-note evidence must not be empty');
   if (containsSensitiveMaterial(file.bytes.toString('utf8'))) fail('Release-note evidence contains potentially sensitive material');
@@ -674,7 +680,7 @@ export function validateManifest(manifest, repoRoot) {
   if (manifest.android.signingState !== 'debug-signing-non-store-ready') fail('Android signing state must be recorded honestly');
   if (manifest.rollback?.artifactAvailabilityProvesDatabaseSchemaFileRollbackSafety !== false) fail('Rollback safety caveat must be false');
   assertKeys(manifest.releaseNotes, ['source', 'sha256', 'size', 'candidateSummary'], 'releaseNotes');
-  safeLabel(manifest.releaseNotes.source, 'releaseNotes.source');
+  safePublicLabel(manifest.releaseNotes.source, 'releaseNotes.source');
   hexDigest(manifest.releaseNotes.sha256, 'releaseNotes.sha256');
   if (!Number.isSafeInteger(manifest.releaseNotes.size) || manifest.releaseNotes.size < 1) fail('Release-note size is invalid');
   releaseNoteSummary(manifest.releaseNotes.candidateSummary, 'releaseNotes.candidateSummary');

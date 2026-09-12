@@ -592,6 +592,12 @@ function sealedAndroidVerification(kind, artifact, tools, javaPath) {
   }
   if (!Number.isSafeInteger(result.size) || result.size < 1 || !/^[0-9a-f]{64}$/u.test(result.sha256)) throw new Error(`Android ${kind.toUpperCase()} sealed snapshot identity is invalid`);
   if (!Number.isSafeInteger(result.payloadEntryCount) || result.payloadEntryCount < 1 || !/^[0-9a-f]{64}$/u.test(result.payloadTreeSha256)) throw new Error(`Android ${kind.toUpperCase()} canonical payload identity is invalid`);
+  if (!Array.isArray(result.signatureControlEntries)
+    || result.signatureControlEntries.some((entry) => typeof entry !== 'string' || !/^META-INF\/(?:MANIFEST\.MF|[^/]+\.(?:SF|RSA|DSA|EC))$/u.test(entry))
+    || new Set(result.signatureControlEntries).size !== result.signatureControlEntries.length
+    || canonicalJson([...result.signatureControlEntries].sort()) !== canonicalJson(result.signatureControlEntries)) {
+    throw new Error(`Android ${kind.toUpperCase()} signature-control inventory is invalid`);
+  }
   return result;
 }
 
@@ -630,8 +636,8 @@ export function verifyAndroidSignature(input, options) {
     apk,
     aab,
     payloads: {
-      apk: { sha256: apkObservation.payloadTreeSha256, count: apkObservation.payloadEntryCount },
-      aab: { sha256: aabObservation.payloadTreeSha256, count: aabObservation.payloadEntryCount },
+      apk: { sha256: apkObservation.payloadTreeSha256, count: apkObservation.payloadEntryCount, signatureControls: apkObservation.signatureControlEntries },
+      aab: { sha256: aabObservation.payloadTreeSha256, count: aabObservation.payloadEntryCount, signatureControls: aabObservation.signatureControlEntries },
     },
   };
 }

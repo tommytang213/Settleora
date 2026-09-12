@@ -69,6 +69,24 @@ class SealedAndroidVerifierTests(unittest.TestCase):
         self.assertEqual(identity(archive(b"same", b"one")), identity(archive(b"same", b"two")))
         self.assertNotEqual(identity(archive(b"same", b"one")), identity(archive(b"changed", b"one")))
 
+    def test_payload_identity_binds_complete_signature_control_names(self):
+        def identity(extra: bool) -> tuple[str, int, list[str]]:
+            output = io.BytesIO()
+            with zipfile.ZipFile(output, "w") as bundle:
+                bundle.writestr("payload.txt", b"same")
+                bundle.writestr("META-INF/CERT.SF", b"signature")
+                if extra:
+                    bundle.writestr("META-INF/EXTRA.SF", b"unparsable")
+            with tempfile.TemporaryFile() as source:
+                source.write(output.getvalue())
+                source.seek(0)
+                return VERIFIER.canonical_zip_payload_digest(source.fileno())
+
+        baseline = identity(False)
+        altered = identity(True)
+        self.assertEqual(baseline[:2], altered[:2])
+        self.assertNotEqual(baseline[2], altered[2])
+
     def test_payload_digest_normalizes_only_r8_build_duration(self):
         def archive(duration: int, checksum: str) -> bytes:
             output = io.BytesIO()

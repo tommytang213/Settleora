@@ -129,9 +129,10 @@ def bounded_zip_entry_digest(bundle: zipfile.ZipFile, name: str, limit: int, lab
     return digest.hexdigest()
 
 
-def canonical_zip_payload_digest(descriptor: int) -> tuple[str, int]:
-    """Hash canonical entry names, sizes and contents, excluding signer-control records."""
+def canonical_zip_payload_digest(descriptor: int) -> tuple[str, int, list[str]]:
+    """Hash payload bytes and separately bind the complete signer-control name set."""
     records: list[tuple[bytes, int, str]] = []
+    signature_controls: list[str] = []
     total = 0
     with os.fdopen(os.dup(descriptor), "rb") as artifact_file, zipfile.ZipFile(artifact_file) as bundle:
         infos = bundle.infolist()
@@ -150,6 +151,7 @@ def canonical_zip_payload_digest(descriptor: int) -> tuple[str, int]:
                     or any(part in (b"", b".", b"..") for part in name.rstrip(b"/").split(b"/")):
                 raise ValueError("Android archive payload path is not canonical")
             if SIGNATURE_CONTROL.fullmatch(info.filename):
+                signature_controls.append(info.filename)
                 continue
             if info.file_size < 0 or info.file_size > MAX_AAB_ENTRY_BYTES:
                 raise ValueError("Android archive payload entry exceeds its expanded-size limit")
@@ -188,7 +190,7 @@ def canonical_zip_payload_digest(descriptor: int) -> tuple[str, int]:
         identity.update(b"\0")
         identity.update(digest.encode("ascii"))
         identity.update(b"\n")
-    return identity.hexdigest(), len(records)
+    return identity.hexdigest(), len(records), sorted(signature_controls)
 
 
 def sealed_snapshot(source_descriptor: int) -> tuple[int, int, str]:
@@ -344,7 +346,7 @@ def main() -> None:
         expected_aab_entries = preflight_aab(descriptor) if arguments.kind == "aab" else None
         held_path = f"/proc/self/fd/{descriptor}"
         result: dict[str, object] = {"size": size, "sha256": digest}
-        result["payloadTreeSha256"], result["payloadEntryCount"] = canonical_zip_payload_digest(descriptor)
+        result["payloadTreeSha256"], result["payloadEntryCount"], result["signatureControlEntries"] = canonical_zip_payload_digest(descriptor)
         if arguments.kind == "apk":
             result["verificationOutput"] = run(
                 [java_path, "-Xmx1024M", "-jar", f"/proc/self/fd/{tool_descriptors[0]}", "verify", "--verbose", "--print-certs", held_path],

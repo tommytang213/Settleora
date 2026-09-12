@@ -645,6 +645,10 @@ test('direct manifest validation rejects cross-role image fields and unsafe rele
   manifest.releaseNotes.candidateSummary = 'Day 1 candidate: web & Android';
   manifest.identityDigest = computeIdentityDigest(manifest);
   assert.throws(() => validateManifest(manifest, f.root), /bounded ordinary single-line release-summary text/);
+  manifest.releaseNotes.candidateSummary = 'Fixture candidate only.';
+  manifest.releaseNotes.source = `ghp_${'A'.repeat(20)}`;
+  manifest.identityDigest = computeIdentityDigest(manifest);
+  assert.throws(() => validateManifest(manifest, f.root), /potentially sensitive material/);
 });
 
 test('release execution uses protected system runtimes and bypasses user plugin configuration', () => {
