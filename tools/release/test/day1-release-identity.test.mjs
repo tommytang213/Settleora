@@ -784,7 +784,7 @@ test('published schema requires role-specific image provenance', () => {
 
 test('repository Gradle verification metadata is checksum-only without trust bypasses', () => {
   const metadata = readFileSync(new URL('../../../apps/mobile/android/gradle/verification-metadata.xml', import.meta.url), 'utf8');
-  assert.doesNotMatch(metadata, /<!--|-->/u);
+  assert.equal(metadata.includes('<!--') || metadata.includes('-->') || metadata.includes('--!>'), false);
   const configurations = [...metadata.matchAll(/<configuration>\s*<verify-metadata>(true|false)<\/verify-metadata>\s*<verify-signatures>(true|false)<\/verify-signatures>\s*<\/configuration>/gu)];
   assert.equal(configurations.length, 1);
   assert.deepEqual(configurations[0].slice(1), ['true', 'false']);
