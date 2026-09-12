@@ -624,6 +624,7 @@ import hashlib
 import json
 import os
 import select
+import signal
 import struct
 import subprocess
 import sys
@@ -732,11 +733,11 @@ try:
     command_values = json.loads(commands)
     captures = json.loads(captures_json)
     for command_index, values in enumerate(command_values):
-        process = subprocess.Popen(["/proc/self/fd/3", *values], executable="/proc/self/fd/3", cwd=cwd, pass_fds=tuple(passed_descriptors))
+        process = subprocess.Popen(["/proc/self/fd/3", *values], executable="/proc/self/fd/3", cwd=cwd, pass_fds=tuple(passed_descriptors), start_new_session=True)
         while process.poll() is None:
             drain(0.05)
             if changed:
-                process.kill()
+                os.killpg(process.pid, signal.SIGKILL)
                 process.wait()
                 raise RuntimeError("Android toolchain changed while release artifacts were built: " + changed)
         drain(0)
@@ -1365,7 +1366,9 @@ function collectAndroidUnsafe(options, emit = true) {
       { label: 'gradle-wrapper-distribution', root: runtimeWrapper, excludedPrefixes: runtimeWrapperLockPaths },
       { label: 'android-signing-home', root: path.join(buildHome, '.android'), excludedPrefixes: [] },
     ];
-    const runtimeGradleMutablePaths = ['.tmp', 'caches/8.14.4', 'caches/build-cache-1', 'caches/jars-9', 'caches/journal-1', 'caches/modules-2/gc.properties', 'caches/modules-2/modules-2.lock', 'caches/transforms-4', 'daemon', 'native', 'notifications', 'workers', ...runtimeWrapperLockPaths.map((entry) => `wrapper/${entry}`)];
+    const gradleRuntimeVersion = /^dists\/gradle-([0-9.]+)-(?:all|bin)\//u.exec(runtimeWrapperLockPaths[0])?.[1];
+    if (!gradleRuntimeVersion) throw new Error('Gradle runtime version could not be derived from the sealed wrapper');
+    const runtimeGradleMutablePaths = ['.tmp', `caches/${gradleRuntimeVersion}`, 'caches/build-cache-1', 'caches/jars-9', 'caches/journal-1', 'caches/modules-2/gc.properties', 'caches/modules-2/modules-2.lock', 'caches/transforms-4', 'daemon', 'native', 'notifications', 'workers', ...runtimeWrapperLockPaths.map((entry) => `wrapper/${entry}`)];
     offlineGuardConfiguration.push({ label: 'gradle-runtime-home', root: runtimeGradleHome, excludedPrefixes: runtimeGradleMutablePaths });
     const files = {
       apk: ['apps/mobile/build/app/outputs/flutter-apk/app-release.apk', 'app-release.apk'],
