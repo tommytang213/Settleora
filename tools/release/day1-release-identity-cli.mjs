@@ -689,11 +689,17 @@ function collectWebExactSource(output) {
   if (lstatSync(absolute, { throwIfNoEntry: false })) throw new Error('User-web evidence output directory must not already exist');
   return exactSourceSnapshot('web', path.dirname(absolute), (snapshot, source) => {
     const webRoot = path.join(snapshot, 'apps/web-user');
+    const npmHome = path.join(snapshot, '.release-npm-home');
+    const npmUserConfig = path.join(npmHome, 'userconfig');
+    mkdirSync(npmHome, { recursive: false, mode: 0o700 });
+    writeFileSync(npmUserConfig, '', { flag: 'wx', mode: 0o600 });
     const npmEnvironment = {
       PATH: '/usr/bin:/bin',
       LANG: 'C.UTF-8',
       LC_ALL: 'C.UTF-8',
+      HOME: npmHome,
       npm_config_cache: path.join(snapshot, '.release-npm-cache'),
+      npm_config_userconfig: npmUserConfig,
       npm_config_audit: 'false',
       npm_config_fund: 'false',
     };
@@ -962,13 +968,14 @@ export function collectCompiledMigrationIds(privateParent) {
       DOTNET_CLI_TELEMETRY_OPTOUT: '1',
       NUGET_PACKAGES: packages,
     };
-    executeSealedTool(dotnet, ['restore', project, '--locked-mode', '--configfile', nugetConfig, '--packages', packages, '--verbosity', 'quiet'], {
+    const isolatedMsbuildProperties = ['-p:ImportDirectoryBuildProps=false', '-p:ImportDirectoryBuildTargets=false'];
+    executeSealedTool(dotnet, ['restore', project, '--locked-mode', '--configfile', nugetConfig, '--packages', packages, '--verbosity', 'quiet', ...isolatedMsbuildProperties], {
       cwd: snapshot,
       env: dotnetEnvironment,
       stdio: ['ignore', 'ignore', 'pipe'],
       maxBuffer: 16 * 1024 * 1024,
     });
-    executeSealedTool(dotnet, ['publish', project, '--configuration', 'Release', '--output', output, '--no-self-contained', '--no-restore', '--verbosity', 'quiet'], {
+    executeSealedTool(dotnet, ['publish', project, '--configuration', 'Release', '--output', output, '--no-self-contained', '--no-restore', '--verbosity', 'quiet', ...isolatedMsbuildProperties], {
       cwd: snapshot,
       env: dotnetEnvironment,
       stdio: ['ignore', 'ignore', 'pipe'],

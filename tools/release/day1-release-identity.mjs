@@ -555,6 +555,7 @@ export function validateManifest(manifest, repoRoot) {
     if (image.sourceComposePath !== DEPENDENCY_COMPOSE_PATH) fail(`dependencyImages.${image.name} source Compose path mismatch`);
     const expectedTag = configuredImage(repoRoot, image.sourceComposePath, dependencyServices[image.name], manifest.source.commit, false);
     validateImage(image, `dependencyImages.${image.name}`, undefined, expectedTag, dependencyRepositories[image.name]);
+    if (image.os !== manifest.apiImage.os || image.architecture !== manifest.apiImage.architecture) fail(`dependencyImages.${image.name} platform mismatch`);
     safeLabel(image.sourceComposePath, `dependencyImages.${image.name}.sourceComposePath`);
   }
   if (expectedDependencies.size) fail('Missing dependency image');
@@ -593,6 +594,15 @@ export function validateManifest(manifest, repoRoot) {
   hexDigest(manifest.userWeb.artifact.treeSha256, 'userWeb.artifact.treeSha256');
   if (!Number.isSafeInteger(manifest.userWeb.artifact.fileCount) || manifest.userWeb.artifact.fileCount < 1 || !Number.isSafeInteger(manifest.userWeb.artifact.totalBytes) || manifest.userWeb.artifact.totalBytes < 1) fail('User-web aggregate values are invalid');
   if (manifest.userWeb.source?.commit !== manifest.source.commit || manifest.userWeb.source?.tree !== manifest.source.tree) fail('User-web source/tree mismatch');
+  const sourceWebLock = committedTrackedFile(repoRoot, 'apps/web-user/package-lock.json', 'userWeb dependency lock', manifest.source.commit);
+  let sourceLockfileVersion;
+  try {
+    sourceLockfileVersion = JSON.parse(sourceWebLock.bytes).lockfileVersion;
+  } catch {
+    fail('Captured user-web dependency lock is not valid JSON');
+  }
+  if (manifest.userWeb.dependencyLock.sha256 !== sha256(sourceWebLock.bytes)
+    || manifest.userWeb.dependencyLock.lockfileVersion !== sourceLockfileVersion) fail('User-web dependency lock does not match the captured source commit');
   if (manifest.android?.source?.commit !== manifest.source.commit || manifest.android?.source?.tree !== manifest.source.tree) fail('Android source/tree mismatch');
   assertKeys(manifest.android, ['source', 'semanticVersion', 'buildNumber', 'applicationId', 'r8Minified', 'r8MappingSha256', 'signingState', 'signerCertificateSha256', 'apk', 'aab', 'buildProvenanceSha256'], 'android');
   assertKeys(manifest.android.source, ['commit', 'tree'], 'android.source');
@@ -618,6 +628,7 @@ export function validateManifest(manifest, repoRoot) {
   assertKeys(manifest.rollback, ['sourceCommit', 'apiImage', 'artifactAvailabilityProvesDatabaseSchemaFileRollbackSafety', 'safetyCaveat'], 'rollback');
   if (manifest.rollback.safetyCaveat !== 'Artifact availability does not prove database, schema, or file rollback safety.') fail('Rollback safety caveat text is required');
   validateImage(manifest.rollback.apiImage, 'rollback.apiImage', manifest.rollback.sourceCommit, undefined, apiRepository);
+  if (manifest.rollback.apiImage.os !== manifest.apiImage.os || manifest.rollback.apiImage.architecture !== manifest.apiImage.architecture) fail('Rollback API image platform mismatch');
   if (manifest.rollback.apiImage.publicationRunUrl === undefined) fail('Rollback API image publication run provenance is required');
   try {
     git(repoRoot, ['cat-file', '-e', `${manifest.rollback.sourceCommit}^{commit}`]);

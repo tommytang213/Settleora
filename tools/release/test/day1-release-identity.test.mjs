@@ -439,6 +439,22 @@ test('direct validation rejects empty migrations, noncanonical artifacts and unp
   wrongComposePath.identityDigest = computeIdentityDigest(wrongComposePath);
   assert.throws(() => validateManifest(wrongComposePath, f.root), /source Compose path mismatch/);
 
+  const wrongDependencyPlatform = structuredClone(original);
+  wrongDependencyPlatform.dependencyImages[0].architecture = 'arm64';
+  wrongDependencyPlatform.identityDigest = computeIdentityDigest(wrongDependencyPlatform);
+  assert.throws(() => validateManifest(wrongDependencyPlatform, f.root), /platform mismatch/);
+
+  const wrongRollbackPlatform = structuredClone(original);
+  wrongRollbackPlatform.rollback.apiImage.os = 'windows';
+  wrongRollbackPlatform.identityDigest = computeIdentityDigest(wrongRollbackPlatform);
+  assert.throws(() => validateManifest(wrongRollbackPlatform, f.root), /platform mismatch/);
+
+  const wrongWebLock = structuredClone(original);
+  wrongWebLock.userWeb.dependencyLock.sha256 = '6'.repeat(64);
+  wrongWebLock.userWeb.dependencyLock.lockfileVersion = 999;
+  wrongWebLock.identityDigest = computeIdentityDigest(wrongWebLock);
+  assert.throws(() => validateManifest(wrongWebLock, f.root), /captured source commit/);
+
   const wrongPath = resign({ ...original, android: { ...original.android, apk: { ...original.android.apk, path: 'elsewhere.apk' } } });
   assert.throws(() => validateManifest(wrongPath, f.root), /canonical release outputs/);
 
@@ -470,6 +486,7 @@ test('published schema requires role-specific image provenance', () => {
   assert.equal(schema.properties.apiImage.$ref, '#/$defs/apiImage');
   assert.equal(schema.properties.rollback.properties.apiImage.$ref, '#/$defs/apiImage');
   assert.equal(schema.properties.dependencyImages.items.$ref, '#/$defs/dependencyImage');
+  assert.equal(schema.$defs.dependencyImage.properties.sourceComposePath.const, 'infra/docker-compose.truenas-lan.image.yml');
   assert.deepEqual(schema.properties.dependencyImages.allOf.map((rule) => ({
     role: rule.contains.properties.name.const,
     minimum: rule.minContains,
@@ -493,6 +510,10 @@ test('release execution uses protected system runtimes and bypasses user plugin 
   assert.match(cliSource, /\['fsck', '--strict', '--no-dangling', '--no-progress', processSource\.commit\]/);
   assert.match(cliSource, /GH_CONFIG_DIR: '\/nonexistent'/);
   assert.match(cliSource, /BUILDX_CONFIG: path\.join\(dockerConfig, 'buildx'\)/);
+  assert.match(cliSource, /HOME: npmHome/);
+  assert.match(cliSource, /npm_config_userconfig: npmUserConfig/);
+  assert.match(cliSource, /ImportDirectoryBuildProps=false/);
+  assert.match(cliSource, /ImportDirectoryBuildTargets=false/);
   assert.match(cliSource, /SETTLEORA_RELEASE_CLEAN_NODE/);
   assert.doesNotMatch(cliSource, /process\.env\.npm_execpath/);
 });
