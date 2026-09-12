@@ -341,6 +341,7 @@ def preflight_aab(descriptor: int) -> tuple[int, str, str]:
         raise ValueError("Android bundle central directory changed during preflight")
     position = 0
     parsed_entries = 0
+    expected_local_offset = 0
     layout_identity = hashlib.sha256()
     while position < len(central):
         if len(central) - position < 46 or central[position:position + 4] != b"PK\x01\x02":
@@ -353,6 +354,9 @@ def preflight_aab(descriptor: int) -> tuple[int, str, str]:
         if (modified_time, modified_date) != (EXPECTED_ANDROID_ZIP_DOS_TIME, EXPECTED_ANDROID_ZIP_DOS_DATE):
             raise ValueError("Android bundle entry timestamps are not canonical")
         local_offset = struct.unpack_from("<I", central, position + 42)[0]
+        compressed_size = struct.unpack_from("<I", central, position + 20)[0]
+        if local_offset != expected_local_offset:
+            raise ValueError("Android bundle local entry spans are not mutually contiguous")
         local_header = os.pread(descriptor, 30, local_offset)
         local_name_size, local_extra_size = struct.unpack_from("<HH", local_header, 26) if len(local_header) == 30 else (0, 0)
         local_name = os.pread(descriptor, local_name_size, local_offset + 30) if len(local_header) == 30 else b""
@@ -362,6 +366,7 @@ def preflight_aab(descriptor: int) -> tuple[int, str, str]:
                 or struct.unpack_from("<III", local_header, 14) != struct.unpack_from("<III", central, position + 16) \
                 or local_extra_size != 0 or local_name != central[position + 46:position + 46 + name_size]:
             raise ValueError("Android bundle local header metadata is not canonical")
+        expected_local_offset = local_offset + 30 + local_name_size + local_extra_size + compressed_size
         entry_name = central[position + 46:position + 46 + name_size]
         if any(byte < 0x20 or byte == 0x7F for byte in entry_name):
             raise ValueError("Android bundle entry path contains control characters")
@@ -390,6 +395,8 @@ def preflight_aab(descriptor: int) -> tuple[int, str, str]:
             raise ValueError("Android bundle central directory exceeds its evidence limit")
     if parsed_entries != total_entries:
         raise ValueError("Android bundle central-directory count does not match its end record")
+    if expected_local_offset != central_offset:
+        raise ValueError("Android bundle local entry spans do not terminate at the central directory")
     total = 0
     count = 0
     compressed_payload_identity = hashlib.sha256()

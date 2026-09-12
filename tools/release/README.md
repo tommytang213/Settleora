@@ -112,6 +112,8 @@ spans of deterministic payload entries. The varying signed-control and R8
 metadata entries must use their producer's fixed raw-DEFLATE settings. Thus an
 exact-source rebuild rejects a repacked bundle with the same expanded signed
 payload, including a same-method archive made with another compression level.
+Local entry spans must also be mutually contiguous from byte zero through the
+central directory, leaving no unbound interstitial archive bytes.
 Assembly also copies the bounded release-note input into canonical retained
 `release-notes.md`; validation never depends on the caller's original path.
 

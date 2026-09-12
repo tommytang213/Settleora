@@ -161,6 +161,24 @@ class SealedAndroidVerifierTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "not contiguous"):
                 VERIFIER.preflight_aab(source.fileno())
 
+    def test_aab_preflight_rejects_bytes_between_entries_and_central_directory(self):
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as output:
+            entry = zipfile.ZipInfo("entry", date_time=(1981, 1, 1, 1, 1, 2))
+            entry.compress_type = zipfile.ZIP_DEFLATED
+            output.writestr(entry, b"content")
+        mutated = bytearray(archive.getvalue())
+        eocd_offset = mutated.rfind(b"PK\x05\x06")
+        central_offset = struct.unpack_from("<I", mutated, eocd_offset + 16)[0]
+        gap = b"unbound-interstitial-bytes"
+        mutated[central_offset:central_offset] = gap
+        struct.pack_into("<I", mutated, eocd_offset + len(gap) + 16, central_offset + len(gap))
+        with tempfile.TemporaryFile() as source:
+            source.write(mutated)
+            source.seek(0)
+            with self.assertRaisesRegex(ValueError, "terminate at the central directory"):
+                VERIFIER.preflight_aab(source.fileno())
+
     def test_aab_preflight_rejects_archive_comment(self):
         archive = io.BytesIO()
         with zipfile.ZipFile(archive, "w") as output:
