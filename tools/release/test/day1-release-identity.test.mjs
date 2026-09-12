@@ -486,7 +486,7 @@ test('toolchain mutation guard fails closed on a write during the guarded window
   mkdirSync(toolchain);
   mkdirSync(state);
   writeFileSync(path.join(toolchain, 'compiler'), 'before');
-  const guard = startToolchainMutationGuard([{ root: toolchain, excludedPrefixes: [] }], state);
+  const guard = startToolchainMutationGuard([{ label: 'fixture', root: toolchain, excludedPrefixes: [] }], state);
   writeFileSync(path.join(toolchain, 'compiler'), 'after');
   assert.throws(() => guard.finish(), /toolchain changed/);
 });

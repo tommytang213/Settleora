@@ -522,9 +522,9 @@ if fd < 0:
 mask = 0x00000002 | 0x00000004 | 0x00000008 | 0x00000040 | 0x00000080 | 0x00000100 | 0x00000200 | 0x00000400 | 0x00000800 | 0x00004000
 watches = {}
 
-def marker(path):
+def marker(path, contents=b"1\n"):
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW, 0o400)
-    os.write(descriptor, b"1\n")
+    os.write(descriptor, contents)
     os.close(descriptor)
 
 def excluded(relative, prefixes):
@@ -533,6 +533,7 @@ def excluded(relative, prefixes):
 try:
     for item in json.loads(configuration):
         root = os.path.realpath(item["root"])
+        label = item["label"]
         prefixes = item["excludedPrefixes"]
         for directory, names, _ in os.walk(root, topdown=True, followlinks=False):
             relative_directory = os.path.relpath(directory, root).replace(os.sep, "/")
@@ -542,9 +543,9 @@ try:
             watch = libc.inotify_add_watch(fd, encoded, mask)
             if watch < 0:
                 raise OSError(ctypes.get_errno(), "inotify_add_watch failed")
-            watches[watch] = (root, relative_directory, prefixes)
+            watches[watch] = (label, relative_directory, prefixes)
     marker(ready)
-    changed = False
+    changed = None
     while True:
         readable, _, _ = select.select([fd], [], [], 0.05)
         if readable:
@@ -559,21 +560,21 @@ try:
                     raw_name = data[position + 16:position + 16 + name_size].split(b"\0", 1)[0]
                     position += 16 + name_size
                     if event_mask & 0x00004000:
-                        changed = True
+                        changed = "watcher:inotify-queue-overflow"
                         continue
                     context = watches.get(watch)
                     if context is None:
-                        changed = True
+                        changed = "watcher:unknown-watch-event"
                         continue
-                    _, relative_directory, prefixes = context
+                    label, relative_directory, prefixes = context
                     name = os.fsdecode(raw_name)
                     relative = (relative_directory + "/" + name).strip("/")
                     if not excluded(relative, prefixes):
-                        changed = True
+                        changed = label + ":" + (relative or ".") + ":0x" + format(event_mask, "x")
                 if len(data) < 65536:
                     break
         if changed and not os.path.exists(dirty):
-            marker(dirty)
+            marker(dirty, (changed + "\n").encode("utf-8"))
         if os.path.exists(stop):
             marker(stopped)
             break
@@ -618,7 +619,10 @@ export function startToolchainMutationGuard(configuration, stateRoot) {
         waitFor(paths.stopped, 'completion', true);
         stopped = true;
       }
-      if (lstatSync(paths.dirty, { throwIfNoEntry: false })) throw new Error('Android toolchain changed while release artifacts were built');
+      if (lstatSync(paths.dirty, { throwIfNoEntry: false })) {
+        const detail = readFileSync(paths.dirty, 'utf8').trim();
+        throw new Error(`Android toolchain changed while release artifacts were built: ${detail}`);
+      }
     },
   };
 }
@@ -986,8 +990,8 @@ function collectAndroidUnsafe(options, emit = true) {
     const copiedKeystore = copyBoundedFile(debugKeystore.path, path.join(buildHome, '.android', 'debug.keystore'), maxAndroidDebugKeystoreBytes, 'Android debug signing keystore');
     if (copiedKeystore.sha256 !== debugKeystore.sha256) throw new Error('Android debug signing keystore snapshot identity mismatch');
     const toolchainConfiguration = [
-      { root: flutter.root, excludedPrefixes: ['.git', 'bin/cache/lockfile', 'packages/flutter_tools/gradle/.gradle'] },
-      { root: androidSdkRoot, excludedPrefixes: ['.knownPackages'] },
+      { label: 'flutter', root: flutter.root, excludedPrefixes: ['.git', 'bin/cache/lockfile', 'packages/flutter_tools/gradle/.gradle'] },
+      { label: 'android', root: androidSdkRoot, excludedPrefixes: ['.knownPackages'] },
     ];
     mutationGuard = startToolchainMutationGuard(toolchainConfiguration, snapshotContainer);
     const toolchainsBefore = {
