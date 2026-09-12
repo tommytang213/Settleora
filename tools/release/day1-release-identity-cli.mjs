@@ -434,6 +434,9 @@ function executeSealedFlutter(flutter, values, cwd) {
 
 export function toolchainTreeDigest(root, label, excludedPrefixes = []) {
   const absoluteRoot = path.resolve(root);
+  const canonicalExcludedPaths = [...new Set(excludedPrefixes)].sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
+  if (canonicalExcludedPaths.some((entry) => typeof entry !== 'string' || !entry || entry.startsWith('/') || entry.includes('\\')
+    || entry.split('/').some((part) => !part || part === '.' || part === '..'))) throw new Error(`${label} exclusion inventory contains an unsafe path`);
   const rootMetadata = lstatSync(absoluteRoot, { throwIfNoEntry: false });
   if (!rootMetadata?.isDirectory() || rootMetadata.isSymbolicLink() || realpathSync(absoluteRoot) !== absoluteRoot) throw new Error(`${label} root is not a stable directory`);
   const records = [];
@@ -452,7 +455,7 @@ export function toolchainTreeDigest(root, label, excludedPrefixes = []) {
       const target = path.join(directory, entry.name);
       const relative = path.relative(absoluteRoot, target).split(path.sep).join('/');
       if (!relative || relative.startsWith('../') || path.isAbsolute(relative)) throw new Error(`${label} contains an unsafe path`);
-      if (excludedPrefixes.some((prefix) => relative === prefix || relative.startsWith(`${prefix}/`))) continue;
+      if (canonicalExcludedPaths.some((prefix) => relative === prefix || relative.startsWith(`${prefix}/`))) continue;
       const metadata = lstatSync(target);
       if (metadata.isDirectory()) {
         directoryCount += 1;
@@ -468,7 +471,7 @@ export function toolchainTreeDigest(root, label, excludedPrefixes = []) {
         const realResolved = realpathSync(target);
         const realResolvedRelative = path.relative(absoluteRoot, realResolved).split(path.sep).join('/');
         if (realResolvedRelative.startsWith('..') || path.isAbsolute(realResolvedRelative)) throw new Error(`${label} contains an external symlink`);
-        if (excludedPrefixes.some((prefix) => resolvedRelative === prefix || resolvedRelative.startsWith(`${prefix}/`)
+        if (canonicalExcludedPaths.some((prefix) => resolvedRelative === prefix || resolvedRelative.startsWith(`${prefix}/`)
           || realResolvedRelative === prefix || realResolvedRelative.startsWith(`${prefix}/`))) {
           throw new Error(`${label} contains a symlink into an excluded directory`);
         }
@@ -503,7 +506,7 @@ export function toolchainTreeDigest(root, label, excludedPrefixes = []) {
     }
   };
   walk(absoluteRoot, 0);
-  return { algorithm: 'sha256(canonical-stable-toolchain-tree-v1)', sha256: createHash('sha256').update(records.join('')).digest('hex'), fileCount, directoryCount, symlinkCount, totalBytes };
+  return { algorithm: 'sha256(canonical-stable-toolchain-tree-v2)', sha256: createHash('sha256').update(records.join('')).digest('hex'), excludedPaths: canonicalExcludedPaths, fileCount, directoryCount, symlinkCount, totalBytes };
 }
 
 const toolchainMutationWatcher = String.raw`
@@ -1041,6 +1044,7 @@ function collectAndroidUnsafe(options, emit = true) {
       aab: copyBoundedFile(path.join(snapshotRoot, files.aab[0]), path.join(output, files.aab[1]), maxAndroidArtifactBytes, 'Android AAB'),
       mapping: copyBoundedFile(path.join(snapshotRoot, files.mapping[0]), path.join(output, files.mapping[1]), maxAndroidMappingBytes, 'Android R8 mapping'),
       toolchains: toolchainsBefore,
+      toolchainMutationGuard: { algorithm: 'linux-inotify-nonexcluded-tree-v1', flutterExcludedTransientBases: [...flutterMutableMetadata].sort((left, right) => Buffer.from(left).compare(Buffer.from(right))), queueOverflowFailsClosed: true },
       signingInputSha256: debugKeystore.sha256,
     };
     const outputMetadataBytes = safeBytes(path.join(snapshotRoot, files.metadata[0]), 'Android output metadata');
@@ -1084,6 +1088,7 @@ function collectAndroidUnsafe(options, emit = true) {
     commands: ['flutter clean', 'flutter build apk --release', 'flutter build appbundle --release'],
     artifacts: { apk: artifact('apk'), aab: artifact('aab'), r8MappingSha256: copiedIdentities.mapping.sha256, outputMetadataSha256: copiedIdentities.outputMetadata.sha256 },
     toolchains: copiedIdentities.toolchains,
+    toolchainMutationGuard: copiedIdentities.toolchainMutationGuard,
     signingInput: { kind: 'explicit-debug-keystore-sha256-v1', sha256: copiedIdentities.signingInputSha256 },
   };
   writeFileSync(path.join(output, 'build-provenance.json'), canonicalJson(provenance), { flag: 'wx', mode: 0o444 });

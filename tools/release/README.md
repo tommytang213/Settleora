@@ -96,6 +96,9 @@ before the initial inventory through both builds and the final inventory; any
 mutation or event-queue overflow fails closed. An explicitly supplied debug
 keystore is copied into a private controlled user home and its SHA-256 is bound
 to Android provenance without retaining the signing input itself.
+The v2 toolchain-tree record includes its exact sorted exclusion inventory, and
+the Android provenance binds the inotify algorithm, transient-marker subset and
+fail-closed queue-overflow policy.
 Assembly and validation resolve `apksigner`
 only below the separately supplied trusted SDK root and verify both the APK and
 AAB debug certificate and rejects additional APK or AAB signers. Validation always recollects source, registry, web,

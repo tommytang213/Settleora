@@ -109,9 +109,10 @@ function fixture(t) {
     schema: 'settleora.android-exact-source-build.v1', source: { commit, tree },
     commands: ['flutter clean', 'flutter build apk --release', 'flutter build appbundle --release'],
     toolchains: {
-      flutter: { algorithm: 'sha256(canonical-stable-toolchain-tree-v1)', sha256: '8'.repeat(64), fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
-      android: { algorithm: 'sha256(canonical-stable-toolchain-tree-v1)', sha256: '9'.repeat(64), fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
+      flutter: { algorithm: 'sha256(canonical-stable-toolchain-tree-v2)', sha256: '8'.repeat(64), excludedPaths: ['.git', 'bin/cache/runtime.stamp'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
+      android: { algorithm: 'sha256(canonical-stable-toolchain-tree-v2)', sha256: '9'.repeat(64), excludedPaths: ['.knownPackages'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
     },
+    toolchainMutationGuard: { algorithm: 'linux-inotify-nonexcluded-tree-v1', flutterExcludedTransientBases: ['bin/cache/runtime.stamp'], queueOverflowFailsClosed: true },
     signingInput: { kind: 'explicit-debug-keystore-sha256-v1', sha256: '7'.repeat(64) },
     artifacts: {
       apk: { path: 'apps/mobile/build/app/outputs/flutter-apk/app-release.apk', size: readFileSync(apkPath).length, sha256: sha256(readFileSync(apkPath)) },

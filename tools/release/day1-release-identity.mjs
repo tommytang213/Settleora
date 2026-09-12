@@ -528,7 +528,7 @@ function collectAndroid(repoRoot, input, source) {
   if (!provenanceFile.bytes.equals(Buffer.from(canonicalJson(provenance), 'utf8'))) {
     fail('Android build provenance must use its unique canonical serialization');
   }
-  assertKeys(provenance, ['schema', 'source', 'commands', 'toolchains', 'signingInput', 'artifacts'], 'Android build provenance');
+  assertKeys(provenance, ['schema', 'source', 'commands', 'toolchains', 'toolchainMutationGuard', 'signingInput', 'artifacts'], 'Android build provenance');
   assertKeys(provenance.source, ['commit', 'tree'], 'Android build provenance source');
   assertKeys(provenance.artifacts, ['apk', 'aab', 'r8MappingSha256', 'outputMetadataSha256'], 'Android build provenance artifacts');
   const { commit, tree } = source;
@@ -539,16 +539,29 @@ function collectAndroid(repoRoot, input, source) {
     fail('Android build provenance command mismatch');
   }
   assertKeys(provenance.toolchains, ['flutter', 'android'], 'Android build provenance toolchains');
+  assertKeys(provenance.toolchainMutationGuard, ['algorithm', 'flutterExcludedTransientBases', 'queueOverflowFailsClosed'], 'Android build provenance toolchain mutation guard');
+  if (provenance.toolchainMutationGuard.algorithm !== 'linux-inotify-nonexcluded-tree-v1' || provenance.toolchainMutationGuard.queueOverflowFailsClosed !== true
+    || !Array.isArray(provenance.toolchainMutationGuard.flutterExcludedTransientBases)
+    || canonicalJson([...provenance.toolchainMutationGuard.flutterExcludedTransientBases].sort()) !== canonicalJson(provenance.toolchainMutationGuard.flutterExcludedTransientBases)) {
+    fail('Android build provenance toolchain mutation guard mismatch');
+  }
   assertKeys(provenance.signingInput, ['kind', 'sha256'], 'Android build provenance signing input');
   if (provenance.signingInput.kind !== 'explicit-debug-keystore-sha256-v1') fail('Android build provenance signing-input kind mismatch');
   hexDigest(provenance.signingInput.sha256, 'Android build provenance signing-input SHA-256');
   for (const [name, inventory] of Object.entries(provenance.toolchains)) {
-    assertKeys(inventory, ['algorithm', 'sha256', 'fileCount', 'directoryCount', 'symlinkCount', 'totalBytes'], `Android ${name} toolchain inventory`);
-    if (inventory.algorithm !== 'sha256(canonical-stable-toolchain-tree-v1)') fail(`Android ${name} toolchain inventory algorithm mismatch`);
+    assertKeys(inventory, ['algorithm', 'sha256', 'excludedPaths', 'fileCount', 'directoryCount', 'symlinkCount', 'totalBytes'], `Android ${name} toolchain inventory`);
+    if (inventory.algorithm !== 'sha256(canonical-stable-toolchain-tree-v2)') fail(`Android ${name} toolchain inventory algorithm mismatch`);
+    if (!Array.isArray(inventory.excludedPaths) || canonicalJson([...inventory.excludedPaths].sort()) !== canonicalJson(inventory.excludedPaths)
+      || inventory.excludedPaths.some((entry) => typeof entry !== 'string' || !entry || entry.startsWith('/') || entry.includes('\\') || entry.split('/').some((part) => !part || part === '.' || part === '..'))) {
+      fail(`Android ${name} toolchain exclusion inventory is invalid`);
+    }
     hexDigest(inventory.sha256, `Android ${name} toolchain inventory SHA-256`);
     if (!Number.isSafeInteger(inventory.fileCount) || inventory.fileCount < 1 || !Number.isSafeInteger(inventory.totalBytes) || inventory.totalBytes < 1) {
       fail(`Android ${name} toolchain inventory is invalid`);
     }
+  }
+  if (canonicalJson(provenance.toolchainMutationGuard.flutterExcludedTransientBases) !== canonicalJson(provenance.toolchains.flutter.excludedPaths.filter((entry) => /\.(?:stamp|realm)$/u.test(entry)))) {
+    fail('Android Flutter mutation-guard exclusions do not match the toolchain inventory');
   }
   const element = metadata.elements?.find((candidate) => candidate.outputFile === path.basename(input.apkPath));
   if (!element) fail('Android APK is absent from output metadata');
