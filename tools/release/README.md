@@ -82,10 +82,11 @@ inside the canonical candidate directory, so it cannot accept caller-selected
 stale Android binaries. The collector captures the Flutter SDK's Dart executable
 and Flutter tool snapshot, invokes both through held read-only descriptors, and
 revalidates their device, inode, size, timestamps, and SHA-256 after every command.
-Flutter and Android SDK content inventories are compared across the build. Pub
+Flutter, Android SDK, and selected root-protected JDK content inventories are compared across the build. Pub
 packages are checksum-bound by `pubspec.lock`; Gradle plugins and modules are
 checksum-bound by the committed `gradle/verification-metadata.xml`; and the
-Gradle wrapper distribution remains bound by its committed SHA-256. The
+Gradle wrapper distribution remains bound by its committed SHA-256 and by the
+complete copied runtime-distribution inventory. The
 collector performs one guarded online prefetch, inventories the resulting pub
 and Gradle module caches, copies the Gradle cache without lock/GC state, and
 runs the retained APK/AAB builds with Dart pub and Gradle both in offline mode.
@@ -102,9 +103,11 @@ An independent inotify runner installs every watch before it starts its build
 children, owns those children, and exits nonzero on any mutation, queue
 overflow, child failure, or premature termination. There are no writable marker
 files that a same-UID build child can forge. The offline release-build window
-also watches the bound dependency caches. An explicitly supplied debug
-keystore is copied into a private controlled user home and its SHA-256 is bound
-to Android provenance without retaining the signing input itself.
+also watches the bound dependency caches, copied Gradle distribution, and
+signing home. An explicitly supplied debug keystore is copied into a private
+controlled user home; its SHA-256 and derived certificate SHA-256 are bound to
+Android provenance without retaining the signing input itself. The signer
+observed on both artifacts must equal that copied-key certificate.
 The v3 toolchain-tree record includes its exact sorted exclusion inventory and
 recognizes only numeric atomic-update siblings of those bound Flutter markers;
 the Android provenance binds toolchain and dependency-cache identities, Gradle
@@ -140,8 +143,11 @@ payload, including a same-method archive made with another compression level.
 Local entry spans must also be mutually contiguous from byte zero through the
 central directory, leaving no unbound interstitial archive bytes. The local
 version-needed field must exactly match its bound central-directory
-counterpart. APK signing-block parsing additionally requires the unauthenticated
-verity-padding value to be entirely zero. For AABs, the verifier parses every
+counterpart. APK verification hashes every deterministic byte outside the
+cryptographic signing block after normalizing only the EOCD offset patched by
+signing, and separately binds ordered compressed entry bytes. APK signing-block
+parsing additionally requires the unauthenticated verity-padding value to be
+entirely zero. For AABs, the verifier parses every
 expanded manifest and signature-file attribute, rejects extra or duplicate
 metadata, proves complete entry/section digest coverage, and compares a
 deterministic signature-control tree that normalizes only R8 build time; the

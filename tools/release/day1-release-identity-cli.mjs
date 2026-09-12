@@ -148,6 +148,7 @@ export function safeInput(candidate, label) {
   if (containsSensitiveMaterial(text)) {
     throw new Error(`${label} contains potentially sensitive material`);
   }
+  assertUniqueJsonMembers(text);
   const parsed = JSON.parse(text);
   if (containsSensitiveMaterial(canonicalJson(parsed))) {
     throw new Error(`${label} contains potentially sensitive material after JSON decoding`);
@@ -432,7 +433,7 @@ function executeSealedFlutter(flutter, values, cwd) {
   }, [flutter.snapshot]);
 }
 
-export function toolchainTreeDigest(root, label, excludedPrefixes = [], excludedTransientBases = []) {
+export function toolchainTreeDigest(root, label, excludedPrefixes = [], excludedTransientBases = [], protectedExternalSymlinks = false) {
   const absoluteRoot = path.resolve(root);
   const canonicalExcludedPaths = [...new Set(excludedPrefixes)].sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
   const canonicalTransientBases = [...new Set(excludedTransientBases)].sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
@@ -470,15 +471,34 @@ export function toolchainTreeDigest(root, label, excludedPrefixes = [], excluded
         const link = readlinkSync(target);
         const resolved = path.resolve(path.dirname(target), link);
         const resolvedRelative = path.relative(absoluteRoot, resolved).split(path.sep).join('/');
-        if (resolvedRelative.startsWith('..') || path.isAbsolute(resolvedRelative)) throw new Error(`${label} contains an external symlink`);
-        const realResolved = realpathSync(target);
+        const resolvedExternal = resolvedRelative.startsWith('..') || path.isAbsolute(resolvedRelative);
+        if (resolvedExternal && !protectedExternalSymlinks) throw new Error(`${label} contains an external symlink`);
+        let realResolved;
+        try {
+          realResolved = realpathSync(target);
+        } catch (error) {
+          if (protectedExternalSymlinks && error?.code === 'ENOENT') {
+            records.push(`broken-protected-link\0${relative}\0${link}\n`);
+            continue;
+          }
+          throw error;
+        }
         const realResolvedRelative = path.relative(absoluteRoot, realResolved).split(path.sep).join('/');
-        if (realResolvedRelative.startsWith('..') || path.isAbsolute(realResolvedRelative)) throw new Error(`${label} contains an external symlink`);
-        if (canonicalExcludedPaths.some((prefix) => resolvedRelative === prefix || resolvedRelative.startsWith(`${prefix}/`)
-          || realResolvedRelative === prefix || realResolvedRelative.startsWith(`${prefix}/`))) {
+        const realResolvedExternal = realResolvedRelative.startsWith('..') || path.isAbsolute(realResolvedRelative);
+        if (realResolvedExternal && !protectedExternalSymlinks) throw new Error(`${label} contains an external symlink`);
+        if ((!resolvedExternal && excluded(resolvedRelative)) || (!realResolvedExternal && excluded(realResolvedRelative))) {
           throw new Error(`${label} contains a symlink into an excluded directory`);
         }
-        records.push(`link\0${relative}\0${link}\n`);
+        const resolvedMetadata = statSync(realResolved);
+        if (realResolvedExternal && resolvedMetadata.isFile()) {
+          const bytes = readFileSync(realResolved);
+          fileCount += 1;
+          totalBytes += bytes.length;
+          if (fileCount > 100_000 || totalBytes > 12 * 1024 * 1024 * 1024) throw new Error(`${label} exceeds its inventory boundary`);
+          records.push(`protected-external-file\0${relative}\0${resolvedMetadata.mode & 0o111 ? 'x' : '-'}\0${bytes.length}\0${createHash('sha256').update(bytes).digest('hex')}\n`);
+        } else {
+          records.push(`link\0${relative}\0${link}\n`);
+        }
       } else if (metadata.isFile()) {
         fileCount += 1;
         totalBytes += metadata.size;
@@ -509,7 +529,7 @@ export function toolchainTreeDigest(root, label, excludedPrefixes = [], excluded
     }
   };
   walk(absoluteRoot, 0);
-  return { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: createHash('sha256').update(records.join('')).digest('hex'), excludedPaths: canonicalExcludedPaths, fileCount, directoryCount, symlinkCount, totalBytes };
+  return { algorithm: protectedExternalSymlinks ? 'sha256(canonical-protected-runtime-tree-v1)' : 'sha256(canonical-stable-toolchain-tree-v3)', sha256: createHash('sha256').update(records.join('')).digest('hex'), excludedPaths: canonicalExcludedPaths, fileCount, directoryCount, symlinkCount, totalBytes };
 }
 
 function makeTreeReadOnly(root, label) {
@@ -751,6 +771,31 @@ function assertSystemRuntime(root, label = 'Java runtime') {
   visit(root);
 }
 
+function debugKeystoreCertificateSha256(javaHome, keystorePath) {
+  const java = trustedTool(path.join(javaHome, 'bin', 'java'), 'java', 'Java runtime');
+  const keystore = trustedFile(keystorePath, 'debug.keystore', 'copied Android debug signing keystore');
+  const javaDescriptor = openVerifiedTool(java, 'Java runtime');
+  const keystoreDescriptor = openVerifiedTool(keystore, 'copied Android debug signing keystore');
+  try {
+    const certificate = execFileSync(java.path, [
+      '-Duser.language=en', '-Duser.country=US', 'sun.security.tools.keytool.Main',
+      '-exportcert', '-keystore', '/proc/self/fd/3', '-storepass', 'android', '-alias', 'androiddebugkey',
+    ], {
+      cwd: '/usr/bin',
+      env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' },
+      stdio: ['ignore', 'pipe', 'pipe', keystoreDescriptor],
+      maxBuffer: 1024 * 1024,
+    });
+    if (!Buffer.isBuffer(certificate) || certificate.length < 1 || certificate.length > 1024 * 1024) throw new Error('Android debug signing certificate exceeds its evidence boundary');
+    return createHash('sha256').update(certificate).digest('hex');
+  } finally {
+    revalidateToolDescriptor(keystore, keystoreDescriptor, 'copied Android debug signing keystore');
+    revalidateToolDescriptor(java, javaDescriptor, 'Java runtime');
+    closeSync(keystoreDescriptor);
+    closeSync(javaDescriptor);
+  }
+}
+
 export function parseSingleApkSigner(output) {
   const apkDigests = [...output.matchAll(/Signer #(\d+) certificate SHA-256 digest:\s*([0-9a-f]{64})/giu)];
   const apkNames = [...output.matchAll(/Signer #(\d+) certificate DN:\s*(.+)$/gmu)];
@@ -800,8 +845,10 @@ function sealedAndroidVerification(kind, artifact, tools, javaPath) {
   }
   if (!Number.isSafeInteger(result.size) || result.size < 1 || !/^[0-9a-f]{64}$/u.test(result.sha256)) throw new Error(`Android ${kind.toUpperCase()} sealed snapshot identity is invalid`);
   if (!Number.isSafeInteger(result.payloadEntryCount) || result.payloadEntryCount < 1 || !/^[0-9a-f]{64}$/u.test(result.payloadTreeSha256)) throw new Error(`Android ${kind.toUpperCase()} canonical payload identity is invalid`);
-  if (kind === 'aab' && (!/^[0-9a-f]{64}$/u.test(result.archiveLayoutSha256) || !/^[0-9a-f]{64}$/u.test(result.compressedPayloadTreeSha256)
-    || !/^[0-9a-f]{64}$/u.test(result.signatureControlTreeSha256))) throw new Error('Android AAB archive representation identity is invalid');
+  if (!/^[0-9a-f]{64}$/u.test(result.archiveLayoutSha256) || !/^[0-9a-f]{64}$/u.test(result.compressedPayloadTreeSha256)) {
+    throw new Error(`Android ${kind.toUpperCase()} archive representation identity is invalid`);
+  }
+  if (kind === 'aab' && !/^[0-9a-f]{64}$/u.test(result.signatureControlTreeSha256)) throw new Error('Android AAB signature-control identity is invalid');
   if (!Array.isArray(result.signatureControlEntries)
     || result.signatureControlEntries.some((entry) => typeof entry !== 'string' || !/^META-INF\/(?:MANIFEST\.MF|[^/]+\.(?:SF|RSA|DSA|EC))$/u.test(entry))
     || new Set(result.signatureControlEntries).size !== result.signatureControlEntries.length
@@ -853,7 +900,7 @@ export function verifyAndroidSignature(input, options) {
     aab,
     verificationTools: { apksignerJarSha256: apksignerJar.sha256 },
     payloads: {
-      apk: { sha256: apkObservation.payloadTreeSha256, count: apkObservation.payloadEntryCount, signatureControls: apkObservation.signatureControlEntries, signingBlockIds: apkObservation.apkSigningBlockIds },
+      apk: { sha256: apkObservation.payloadTreeSha256, count: apkObservation.payloadEntryCount, signatureControls: apkObservation.signatureControlEntries, signingBlockIds: apkObservation.apkSigningBlockIds, archiveLayoutSha256: apkObservation.archiveLayoutSha256, compressedPayloadTreeSha256: apkObservation.compressedPayloadTreeSha256 },
       aab: { sha256: aabObservation.payloadTreeSha256, count: aabObservation.payloadEntryCount, signatureControls: aabObservation.signatureControlEntries, signatureControlTreeSha256: aabObservation.signatureControlTreeSha256, archiveLayoutSha256: aabObservation.archiveLayoutSha256, compressedPayloadTreeSha256: aabObservation.compressedPayloadTreeSha256 },
     },
   };
@@ -868,8 +915,8 @@ export function assertCommitHasNoSymlinks(commit, label, root = repoRoot) {
 export function deterministicAndroidRebuildProjection(rebuilt, retained) {
   const projected = structuredClone(rebuilt);
   // Raw ZIP/signature bytes remain authoritative retained identities. A clean
-  // rebuild proves the separately verified canonical payload, signer, R8 and
-  // toolchain identities; those checks occur before this narrow projection.
+  // rebuild proves the separately verified deterministic archive representation,
+  // canonical payload, signer, R8 and toolchain identities before this projection.
   projected.android.apk = retained.android.apk;
   projected.android.aab = retained.android.aab;
   projected.android.buildProvenanceSha256 = retained.android.buildProvenanceSha256;
@@ -1056,6 +1103,8 @@ function collectAndroidUnsafe(options, emit = true) {
     mkdirSync(path.join(buildHome, '.android'), { recursive: false, mode: 0o700 });
     const copiedKeystore = copyBoundedFile(debugKeystore.path, path.join(buildHome, '.android', 'debug.keystore'), maxAndroidDebugKeystoreBytes, 'Android debug signing keystore');
     if (copiedKeystore.sha256 !== debugKeystore.sha256) throw new Error('Android debug signing keystore snapshot identity mismatch');
+    const signingCertificateSha256 = debugKeystoreCertificateSha256(javaHome, path.join(buildHome, '.android', 'debug.keystore'));
+    makeTreeReadOnly(path.join(buildHome, '.android'), 'Android debug signing home');
     const flutterMutableMetadata = readdirSync(path.join(flutter.root, 'bin/cache'), { withFileTypes: true })
       .filter((entry) => entry.isFile() && !entry.isSymbolicLink() && /^[A-Za-z0-9._-]+\.(?:stamp|realm)$/u.test(entry.name))
       .map((entry) => `bin/cache/${entry.name}`);
@@ -1066,6 +1115,7 @@ function collectAndroidUnsafe(options, emit = true) {
     const toolchainsBefore = {
       flutter: toolchainTreeDigest(flutter.root, 'Flutter SDK', toolchainConfiguration[0].excludedPrefixes, toolchainConfiguration[0].excludedTransientBases),
       android: toolchainTreeDigest(androidSdkRoot, 'Android SDK', toolchainConfiguration[1].excludedPrefixes),
+      java: toolchainTreeDigest(javaHome, 'Java runtime', [], [], true),
     };
     const buildEnvironment = {
       PATH: '/usr/bin:/bin',
@@ -1085,7 +1135,7 @@ function collectAndroidUnsafe(options, emit = true) {
     executeGuardedFlutter(flutter, [
       ['pub', 'get'],
       ['build', 'apk', '--release', '--no-pub'],
-    ], mobileRoot, toolchainConfiguration);
+    ], mobileRoot, [...toolchainConfiguration, { label: 'android-signing-home', root: path.join(buildHome, '.android'), excludedPrefixes: [] }]);
     const gradleModules = path.join(prefetchGradleHome, 'caches', 'modules-2');
     const gradleWrapper = path.join(prefetchGradleHome, 'wrapper');
     if (!lstatSync(gradleModules, { throwIfNoEntry: false })?.isDirectory() || !lstatSync(gradleWrapper, { throwIfNoEntry: false })?.isDirectory()) {
@@ -1096,13 +1146,10 @@ function collectAndroidUnsafe(options, emit = true) {
       || !/^hosted\/pub\.dev\/jni-[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?\/android\/\.cxx$/u.test(pubExcludedBuildPaths[0])) {
       throw new Error('Android pub-cache native-build exclusion does not match the exact locked jni package');
     }
-    const dependencyCaches = {
-      pub: toolchainTreeDigest(pubCache, 'Dart pub dependency cache', pubExcludedBuildPaths),
-      gradleModules: toolchainTreeDigest(gradleModules, 'Gradle module dependency cache', ['gc.properties', 'modules-2.lock']),
-    };
     makeTreeReadOnly(pubCache, 'Dart pub dependency cache');
     for (const relativePath of pubExcludedBuildPaths) makeTreeOwnerWritable(path.join(pubCache, relativePath));
     cpSync(gradleWrapper, path.join(runtimeGradleHome, 'wrapper'), { recursive: true, errorOnExist: true, force: false, preserveTimestamps: true });
+    const runtimeWrapper = path.join(runtimeGradleHome, 'wrapper');
     const runtimeModules = path.join(runtimeGradleHome, 'caches', 'modules-2');
     mkdirSync(path.dirname(runtimeModules), { recursive: false, mode: 0o700 });
     cpSync(gradleModules, runtimeModules, {
@@ -1114,6 +1161,12 @@ function collectAndroidUnsafe(options, emit = true) {
     });
     makeTreeReadOnly(runtimeModules, 'Gradle runtime module dependency cache');
     chmodSync(runtimeModules, 0o700);
+    makeTreeReadOnly(runtimeWrapper, 'Gradle runtime wrapper distribution');
+    const dependencyCaches = {
+      pub: toolchainTreeDigest(pubCache, 'Dart pub dependency cache', pubExcludedBuildPaths),
+      gradleModules: toolchainTreeDigest(runtimeModules, 'Gradle runtime module dependency cache', ['gc.properties', 'modules-2.lock']),
+      gradleWrapper: toolchainTreeDigest(runtimeWrapper, 'Gradle runtime wrapper distribution'),
+    };
     flutter.environment = {
       ...buildEnvironment,
       GRADLE_USER_HOME: runtimeGradleHome,
@@ -1123,6 +1176,8 @@ function collectAndroidUnsafe(options, emit = true) {
       ...toolchainConfiguration,
       { label: 'pub-cache', root: pubCache, excludedPrefixes: pubExcludedBuildPaths },
       { label: 'gradle-modules-cache', root: runtimeModules, excludedPrefixes: ['gc.properties', 'modules-2.lock'] },
+      { label: 'gradle-wrapper-distribution', root: runtimeWrapper, excludedPrefixes: [] },
+      { label: 'android-signing-home', root: path.join(buildHome, '.android'), excludedPrefixes: [] },
     ];
     executeGuardedFlutter(flutter, [
       ['clean'],
@@ -1133,17 +1188,23 @@ function collectAndroidUnsafe(options, emit = true) {
     const toolchainsAfter = {
       flutter: toolchainTreeDigest(flutter.root, 'Flutter SDK', toolchainConfiguration[0].excludedPrefixes, toolchainConfiguration[0].excludedTransientBases),
       android: toolchainTreeDigest(androidSdkRoot, 'Android SDK', toolchainConfiguration[1].excludedPrefixes),
+      java: toolchainTreeDigest(javaHome, 'Java runtime', [], [], true),
     };
-    for (const name of ['flutter', 'android']) {
+    for (const name of ['flutter', 'android', 'java']) {
       if (canonicalJson(toolchainsAfter[name]) !== canonicalJson(toolchainsBefore[name])) {
         throw new Error(`Android ${name} toolchain changed during collection: ${toolchainsBefore[name].sha256} -> ${toolchainsAfter[name].sha256}`);
       }
     }
     if (canonicalJson(toolchainTreeDigest(pubCache, 'Dart pub dependency cache', pubExcludedBuildPaths)) !== canonicalJson(dependencyCaches.pub)
-      || canonicalJson(toolchainTreeDigest(runtimeModules, 'Gradle runtime module dependency cache', ['gc.properties', 'modules-2.lock'])) !== canonicalJson(dependencyCaches.gradleModules)) {
+      || canonicalJson(toolchainTreeDigest(runtimeModules, 'Gradle runtime module dependency cache', ['gc.properties', 'modules-2.lock'])) !== canonicalJson(dependencyCaches.gradleModules)
+      || canonicalJson(toolchainTreeDigest(runtimeWrapper, 'Gradle runtime wrapper distribution')) !== canonicalJson(dependencyCaches.gradleWrapper)) {
       throw new Error('Android immutable dependency cache changed during offline release builds');
     }
     if (trustedFile(debugKeystore.path, 'debug.keystore', 'Android debug signing keystore').sha256 !== debugKeystore.sha256) throw new Error('Android debug signing keystore changed during collection');
+    if (trustedFile(path.join(buildHome, '.android', 'debug.keystore'), 'debug.keystore', 'copied Android debug signing keystore').sha256 !== copiedKeystore.sha256
+      || debugKeystoreCertificateSha256(javaHome, path.join(buildHome, '.android', 'debug.keystore')) !== signingCertificateSha256) {
+      throw new Error('Copied Android debug signing identity changed during collection');
+    }
     const files = {
       apk: ['apps/mobile/build/app/outputs/flutter-apk/app-release.apk', 'app-release.apk'],
       aab: ['apps/mobile/build/app/outputs/bundle/release/app-release.aab', 'app-release.aab'],
@@ -1161,6 +1222,7 @@ function collectAndroidUnsafe(options, emit = true) {
       apksignerJarSha256: apksignerJar.sha256,
       toolchainMutationGuard: { algorithm: 'linux-inotify-authenticated-runner-v2', flutterExcludedTransientBases: [...flutterMutableMetadata].sort((left, right) => Buffer.from(left).compare(Buffer.from(right))), pubExcludedBuildPaths, queueOverflowFailsClosed: true },
       signingInputSha256: debugKeystore.sha256,
+      signingCertificateSha256,
     };
     const outputMetadataBytes = safeBytes(path.join(snapshotRoot, files.metadata[0]), 'Android output metadata');
     let outputMetadata;
@@ -1206,7 +1268,7 @@ function collectAndroidUnsafe(options, emit = true) {
     gradleVerificationMetadataSha256: copiedIdentities.gradleVerificationMetadataSha256,
     verificationTools: { apksignerJarSha256: copiedIdentities.apksignerJarSha256 },
     toolchainMutationGuard: copiedIdentities.toolchainMutationGuard,
-    signingInput: { kind: 'explicit-debug-keystore-sha256-v1', sha256: copiedIdentities.signingInputSha256 },
+    signingInput: { kind: 'explicit-debug-keystore-sha256-v1', sha256: copiedIdentities.signingInputSha256, certificateSha256: copiedIdentities.signingCertificateSha256 },
   };
   writeFileSync(path.join(output, 'build-provenance.json'), canonicalJson(provenance), { flag: 'wx', mode: 0o444 });
   const result = { status: 'collected', output, source };

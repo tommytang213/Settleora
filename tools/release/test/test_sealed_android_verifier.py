@@ -153,6 +153,17 @@ class SealedAndroidVerifierTests(unittest.TestCase):
         self.assertEqual(identity(archive(1, "same")), identity(archive(2, "same")))
         self.assertNotEqual(identity(archive(1, "same")), identity(archive(1, "changed")))
 
+    def test_payload_digest_rejects_duplicate_r8_members(self):
+        output = io.BytesIO()
+        duplicate = b'{"compilation":{"numberOfThreads":999},"compilation":{"buildTimeNs":1,"numberOfThreads":6}}'
+        with zipfile.ZipFile(output, "w") as bundle:
+            bundle.writestr("BUNDLE-METADATA/com.android.tools/r8.json", duplicate)
+        with tempfile.TemporaryFile() as source:
+            source.write(output.getvalue())
+            source.seek(0)
+            with self.assertRaisesRegex(ValueError, "duplicate JSON object member"):
+                VERIFIER.canonical_zip_payload_digest(source.fileno())
+
     def test_streamed_jarsigner_output_is_bounded(self):
         prior = VERIFIER.MAX_VERIFIER_OUTPUT_BYTES
         VERIFIER.MAX_VERIFIER_OUTPUT_BYTES = 8
@@ -344,6 +355,34 @@ class SealedAndroidVerifierTests(unittest.TestCase):
             source.seek(0)
             with self.assertRaisesRegex(ValueError, "padding is not canonical zero bytes"):
                 VERIFIER.apk_signing_block_ids(source.fileno())
+
+    def test_apk_representation_binds_zip_order_and_compression(self):
+        def artifact(names: tuple[str, ...], compression: int) -> bytes:
+            archive = io.BytesIO()
+            with zipfile.ZipFile(archive, "w") as output:
+                for name in names:
+                    entry = zipfile.ZipInfo(name, date_time=(1981, 1, 1, 1, 1, 2))
+                    entry.compress_type = compression
+                    output.writestr(entry, b"same expanded payload" * 100)
+            raw = archive.getvalue()
+            eocd_offset = raw.rfind(b"PK\x05\x06")
+            central_offset = struct.unpack_from("<I", raw, eocd_offset + 16)[0]
+            pairs = b"".join(struct.pack("<QI", 4, identifier) for identifier in VERIFIER.EXPECTED_APK_SIGNING_BLOCK_IDS)
+            block_size = len(pairs) + 24
+            block = struct.pack("<Q", block_size) + pairs + struct.pack("<Q", block_size) + VERIFIER.APK_SIGNING_BLOCK_MAGIC
+            result = bytearray(raw[:central_offset] + block + raw[central_offset:])
+            struct.pack_into("<I", result, eocd_offset + len(block) + 16, central_offset + len(block))
+            return bytes(result)
+
+        def identity(data: bytes) -> tuple[str, str]:
+            with tempfile.TemporaryFile() as source:
+                source.write(data)
+                source.seek(0)
+                return VERIFIER.apk_representation(source.fileno())[1:]
+
+        baseline = identity(artifact(("a", "b"), zipfile.ZIP_DEFLATED))
+        self.assertNotEqual(baseline, identity(artifact(("b", "a"), zipfile.ZIP_DEFLATED)))
+        self.assertNotEqual(baseline, identity(artifact(("a", "b"), zipfile.ZIP_STORED)))
 
     def test_aab_preflight_rejects_multiline_entry_name(self):
         archive = io.BytesIO()

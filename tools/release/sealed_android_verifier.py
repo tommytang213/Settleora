@@ -34,6 +34,19 @@ EXPECTED_ANDROID_ZIP_DOS_TIME = 0x0821
 EXPECTED_ANDROID_ZIP_DOS_DATE = 0x0221
 
 
+def unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("Android R8 metadata contains a duplicate JSON object member")
+        result[key] = value
+    return result
+
+
+def parse_unique_json(contents: bytes) -> object:
+    return json.loads(contents, object_pairs_hook=unique_json_object)
+
+
 def run(command: list[str], descriptors: tuple[int, ...], limit: int = 4 * 1024 * 1024, executable: str | None = None) -> str:
     process = subprocess.Popen(command, executable=executable, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, pass_fds=descriptors)
     assert process.stdout is not None
@@ -180,7 +193,7 @@ def canonical_zip_payload_digest(descriptor: int) -> tuple[str, int, list[str]]:
             record_digest = digest.hexdigest()
             if info.filename == "BUNDLE-METADATA/com.android.tools/r8.json":
                 with bundle.open(info) as entry:
-                    metadata = json.loads(entry.read(MAX_R8_METADATA_BYTES + 1))
+                    metadata = parse_unique_json(entry.read(MAX_R8_METADATA_BYTES + 1))
                 if not isinstance(metadata, dict) or not isinstance(metadata.get("compilation"), dict) \
                         or not isinstance(metadata["compilation"].get("buildTimeNs"), int):
                     raise ValueError("Android R8 metadata cannot be canonically normalized")
@@ -280,7 +293,7 @@ def canonical_aab_signature_control_digest(descriptor: int) -> str:
                 raise ValueError("Android AAB manifest entry digest mismatch")
             normalized = raw_entry
             if name == "BUNDLE-METADATA/com.android.tools/r8.json":
-                metadata = json.loads(raw_entry)
+                metadata = parse_unique_json(raw_entry)
                 if not isinstance(metadata, dict) or not isinstance(metadata.get("compilation"), dict) \
                         or not isinstance(metadata["compilation"].get("buildTimeNs"), int):
                     raise ValueError("Android AAB R8 metadata cannot be canonically normalized")
@@ -313,7 +326,7 @@ def canonical_aab_signature_control_digest(descriptor: int) -> str:
         return hashlib.sha256(json.dumps(deterministic, separators=(",", ":"), sort_keys=True).encode("utf-8")).hexdigest()
 
 
-def apk_signing_block_ids(descriptor: int) -> list[str]:
+def apk_signing_block(descriptor: int) -> tuple[list[str], int, int, int, int]:
     """Parse and constrain the complete APK Signing Block ID inventory."""
     metadata = os.fstat(descriptor)
     tail_size = min(metadata.st_size, 65_557)
@@ -355,7 +368,59 @@ def apk_signing_block_ids(descriptor: int) -> list[str]:
         raise ValueError("Android APK signing block IDs are malformed or duplicated")
     if set(identifiers) != EXPECTED_APK_SIGNING_BLOCK_IDS:
         raise ValueError("Android APK signing block contains an unexpected ID inventory")
-    return sorted(f"{identifier:08x}" for identifier in identifiers)
+    return sorted(f"{identifier:08x}" for identifier in identifiers), block_start, central_offset, absolute_eocd_offset, comment_size
+
+
+def apk_signing_block_ids(descriptor: int) -> list[str]:
+    """Return the constrained signing-block IDs for focused callers/tests."""
+    return apk_signing_block(descriptor)[0]
+
+
+def apk_representation(descriptor: int) -> tuple[list[str], str, str]:
+    """Bind every deterministic APK byte outside the cryptographic signing block."""
+    identifiers, block_start, central_offset, eocd_offset, comment_size = apk_signing_block(descriptor)
+    if comment_size != 0:
+        raise ValueError("Android APK ZIP comments are not accepted")
+    prefix = os.pread(descriptor, block_start, 0)
+    central = os.pread(descriptor, eocd_offset - central_offset, central_offset)
+    eocd = bytearray(os.pread(descriptor, 22, eocd_offset))
+    if len(prefix) != block_start or len(central) != eocd_offset - central_offset or len(eocd) != 22:
+        raise ValueError("Android APK deterministic representation changed during inspection")
+    # Signing inserts the block before the central directory and patches only
+    # this EOCD offset; normalize that one signature-size-dependent field.
+    eocd[16:20] = b"\0\0\0\0"
+    layout = hashlib.sha256()
+    layout.update(prefix)
+    layout.update(central)
+    layout.update(eocd)
+
+    compressed = hashlib.sha256()
+    with os.fdopen(os.dup(descriptor), "rb") as artifact_file, zipfile.ZipFile(artifact_file) as archive:
+        for index, info in enumerate(archive.infolist()):
+            local_header = os.pread(descriptor, 30, info.header_offset)
+            if len(local_header) != 30 or local_header[:4] != b"PK\x03\x04":
+                raise ValueError("Android APK local entry header is malformed")
+            name_size, extra_size = struct.unpack_from("<HH", local_header, 26)
+            data_offset = info.header_offset + 30 + name_size + extra_size
+            remaining = info.compress_size
+            digest = hashlib.sha256()
+            observed = 0
+            while remaining:
+                chunk = os.pread(descriptor, min(1024 * 1024, remaining), data_offset + observed)
+                if not chunk:
+                    raise ValueError("Android APK compressed entry changed during inspection")
+                digest.update(chunk)
+                observed += len(chunk)
+                remaining -= len(chunk)
+            compressed.update(str(index).encode("ascii"))
+            compressed.update(b"\0")
+            compressed.update(info.filename.encode("utf-8", "strict"))
+            compressed.update(b"\0")
+            compressed.update(str(info.compress_size).encode("ascii"))
+            compressed.update(b"\0")
+            compressed.update(digest.hexdigest().encode("ascii"))
+            compressed.update(b"\n")
+    return identifiers, layout.hexdigest(), compressed.hexdigest()
 
 
 def sealed_snapshot(source_descriptor: int) -> tuple[int, int, str]:
@@ -593,7 +658,7 @@ def main() -> None:
         result: dict[str, object] = {"size": size, "sha256": digest}
         result["payloadTreeSha256"], result["payloadEntryCount"], result["signatureControlEntries"] = canonical_zip_payload_digest(descriptor)
         if arguments.kind == "apk":
-            result["apkSigningBlockIds"] = apk_signing_block_ids(descriptor)
+            result["apkSigningBlockIds"], result["archiveLayoutSha256"], result["compressedPayloadTreeSha256"] = apk_representation(descriptor)
             result["verificationOutput"] = run(
                 [java_path, "-Xmx1024M", "-jar", f"/proc/self/fd/{tool_descriptors[0]}", "verify", "--verbose", "--print-certs", held_path],
                 (descriptor, *tool_descriptors),

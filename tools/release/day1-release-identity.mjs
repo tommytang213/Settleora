@@ -538,8 +538,8 @@ function collectAndroid(repoRoot, input, source) {
   if (canonicalJson(provenance.commands) !== canonicalJson(['flutter pub get (dependency prefetch)', 'flutter build apk --release --no-pub (dependency prefetch)', 'flutter clean (offline)', 'flutter pub get --offline', 'flutter build apk --release --no-pub (offline)', 'flutter build appbundle --release --no-pub (offline)'])) {
     fail('Android build provenance command mismatch');
   }
-  assertKeys(provenance.toolchains, ['flutter', 'android'], 'Android build provenance toolchains');
-  assertKeys(provenance.dependencyCaches, ['pub', 'gradleModules'], 'Android build provenance dependency caches');
+  assertKeys(provenance.toolchains, ['flutter', 'android', 'java'], 'Android build provenance toolchains');
+  assertKeys(provenance.dependencyCaches, ['pub', 'gradleModules', 'gradleWrapper'], 'Android build provenance dependency caches');
   assertKeys(provenance.verificationTools, ['apksignerJarSha256'], 'Android build provenance verification tools');
   if (hexDigest(provenance.verificationTools.apksignerJarSha256, 'Android apksigner JAR SHA-256')
     !== hexDigest(input.verificationToolSha256, 'Observed Android apksigner JAR SHA-256')) {
@@ -552,12 +552,17 @@ function collectAndroid(repoRoot, input, source) {
     || canonicalJson([...provenance.toolchainMutationGuard.flutterExcludedTransientBases].sort()) !== canonicalJson(provenance.toolchainMutationGuard.flutterExcludedTransientBases)) {
     fail('Android build provenance toolchain mutation guard mismatch');
   }
-  assertKeys(provenance.signingInput, ['kind', 'sha256'], 'Android build provenance signing input');
+  assertKeys(provenance.signingInput, ['kind', 'sha256', 'certificateSha256'], 'Android build provenance signing input');
   if (provenance.signingInput.kind !== 'explicit-debug-keystore-sha256-v1') fail('Android build provenance signing-input kind mismatch');
   hexDigest(provenance.signingInput.sha256, 'Android build provenance signing-input SHA-256');
+  if (hexDigest(provenance.signingInput.certificateSha256, 'Android build provenance signing certificate SHA-256')
+    !== hexDigest(input.signerCertificateSha256, 'Observed Android signer certificate SHA-256')) {
+    fail('Android signed artifact certificate does not match the copied signing input');
+  }
   for (const [name, inventory] of Object.entries({ ...provenance.toolchains, ...provenance.dependencyCaches })) {
     assertKeys(inventory, ['algorithm', 'sha256', 'excludedPaths', 'fileCount', 'directoryCount', 'symlinkCount', 'totalBytes'], `Android ${name} toolchain inventory`);
-    if (inventory.algorithm !== 'sha256(canonical-stable-toolchain-tree-v3)') fail(`Android ${name} toolchain inventory algorithm mismatch`);
+    const expectedAlgorithm = name === 'java' ? 'sha256(canonical-protected-runtime-tree-v1)' : 'sha256(canonical-stable-toolchain-tree-v3)';
+    if (inventory.algorithm !== expectedAlgorithm) fail(`Android ${name} toolchain inventory algorithm mismatch`);
     if (!Array.isArray(inventory.excludedPaths) || canonicalJson([...inventory.excludedPaths].sort()) !== canonicalJson(inventory.excludedPaths)
       || inventory.excludedPaths.some((entry) => typeof entry !== 'string' || !entry || entry.startsWith('/') || entry.includes('\\') || entry.split('/').some((part) => !part || part === '.' || part === '..'))) {
       fail(`Android ${name} toolchain exclusion inventory is invalid`);
@@ -575,8 +580,14 @@ function collectAndroid(repoRoot, input, source) {
   if (canonicalJson(provenance.toolchains.android.excludedPaths) !== canonicalJson(['.knownPackages'])) {
     fail('Android SDK toolchain exclusions exceed the collector-owned allowlist');
   }
+  if (canonicalJson(provenance.toolchains.java.excludedPaths) !== canonicalJson([])) {
+    fail('Android Java toolchain exclusions are not accepted');
+  }
   if (canonicalJson(provenance.dependencyCaches.gradleModules.excludedPaths) !== canonicalJson(['gc.properties', 'modules-2.lock'])) {
     fail('Android Gradle-cache exclusions exceed the collector-owned allowlist');
+  }
+  if (canonicalJson(provenance.dependencyCaches.gradleWrapper.excludedPaths) !== canonicalJson([])) {
+    fail('Android Gradle wrapper exclusions are not accepted');
   }
   if (provenance.dependencyCaches.pub.excludedPaths.length !== 1
     || !/^hosted\/pub\.dev\/jni-[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?\/android\/\.cxx$/u.test(provenance.dependencyCaches.pub.excludedPaths[0])) {
