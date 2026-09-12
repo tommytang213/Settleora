@@ -23,6 +23,7 @@ MAX_VERIFIER_ENTRIES = 200_000
 MAX_AAB_ENTRY_BYTES = 256 * 1024 * 1024
 MAX_AAB_EXPANDED_BYTES = 512 * 1024 * 1024
 MAX_AAB_CENTRAL_DIRECTORY_BYTES = 64 * 1024 * 1024
+SIGNATURE_CONTROL = re.compile(r"^META-INF/(?:MANIFEST\.MF|[^/]+\.(?:SF|RSA|DSA|EC))$")
 
 
 def run(command: list[str], descriptors: tuple[int, ...], limit: int = 4 * 1024 * 1024, executable: str | None = None) -> str:
@@ -126,6 +127,55 @@ def bounded_zip_entry_digest(bundle: zipfile.ZipFile, name: str, limit: int, lab
     if size != info.file_size:
         raise ValueError(f"{label} size changed during inspection")
     return digest.hexdigest()
+
+
+def canonical_zip_payload_digest(descriptor: int) -> tuple[str, int]:
+    """Hash canonical entry names, sizes and contents, excluding signer-control records."""
+    records: list[tuple[bytes, int, str]] = []
+    total = 0
+    with os.fdopen(os.dup(descriptor), "rb") as artifact_file, zipfile.ZipFile(artifact_file) as bundle:
+        infos = bundle.infolist()
+        if len(infos) < 1 or len(infos) > MAX_VERIFIER_ENTRIES:
+            raise ValueError("Android archive exceeds its payload entry-count limit")
+        seen: set[bytes] = set()
+        for info in infos:
+            try:
+                name = info.filename.encode("utf-8", "strict")
+            except UnicodeError as error:
+                raise ValueError("Android archive contains a non-UTF-8 payload path") from error
+            if name in seen:
+                raise ValueError("Android archive contains a duplicate payload path")
+            seen.add(name)
+            if any(byte < 0x20 or byte == 0x7F for byte in name) or name.startswith(b"/") or b"\\" in name \
+                    or any(part in (b"", b".", b"..") for part in name.rstrip(b"/").split(b"/")):
+                raise ValueError("Android archive payload path is not canonical")
+            if SIGNATURE_CONTROL.fullmatch(info.filename):
+                continue
+            if info.file_size < 0 or info.file_size > MAX_AAB_ENTRY_BYTES:
+                raise ValueError("Android archive payload entry exceeds its expanded-size limit")
+            total += info.file_size
+            if total > MAX_AAB_EXPANDED_BYTES:
+                raise ValueError("Android archive payload exceeds its aggregate expanded-size limit")
+            digest = hashlib.sha256()
+            observed = 0
+            with bundle.open(info) as entry:
+                while chunk := entry.read(1024 * 1024):
+                    observed += len(chunk)
+                    if observed > info.file_size:
+                        raise ValueError("Android archive payload entry exceeded its declared size")
+                    digest.update(chunk)
+            if observed != info.file_size:
+                raise ValueError("Android archive payload entry changed size during inspection")
+            records.append((name, info.file_size, digest.hexdigest()))
+    identity = hashlib.sha256()
+    for name, size, digest in sorted(records):
+        identity.update(name)
+        identity.update(b"\0")
+        identity.update(str(size).encode("ascii"))
+        identity.update(b"\0")
+        identity.update(digest.encode("ascii"))
+        identity.update(b"\n")
+    return identity.hexdigest(), len(records)
 
 
 def sealed_snapshot(source_descriptor: int) -> tuple[int, int, str]:
@@ -281,6 +331,7 @@ def main() -> None:
         expected_aab_entries = preflight_aab(descriptor) if arguments.kind == "aab" else None
         held_path = f"/proc/self/fd/{descriptor}"
         result: dict[str, object] = {"size": size, "sha256": digest}
+        result["payloadTreeSha256"], result["payloadEntryCount"] = canonical_zip_payload_digest(descriptor)
         if arguments.kind == "apk":
             result["verificationOutput"] = run(
                 [java_path, "-Xmx1024M", "-jar", f"/proc/self/fd/{tool_descriptors[0]}", "verify", "--verbose", "--print-certs", held_path],

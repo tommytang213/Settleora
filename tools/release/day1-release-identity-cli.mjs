@@ -511,6 +511,7 @@ function sealedAndroidVerification(kind, artifact, tools, javaPath) {
     if (descriptor !== undefined) closeSync(descriptor);
   }
   if (!Number.isSafeInteger(result.size) || result.size < 1 || !/^[0-9a-f]{64}$/u.test(result.sha256)) throw new Error(`Android ${kind.toUpperCase()} sealed snapshot identity is invalid`);
+  if (!Number.isSafeInteger(result.payloadEntryCount) || result.payloadEntryCount < 1 || !/^[0-9a-f]{64}$/u.test(result.payloadTreeSha256)) throw new Error(`Android ${kind.toUpperCase()} canonical payload identity is invalid`);
   return result;
 }
 
@@ -543,7 +544,16 @@ export function verifyAndroidSignature(input, options) {
     const expected = input.android.expected?.[kind];
     if (expected && (expected.size !== identity.size || expected.sha256 !== identity.sha256)) throw new Error(`Android ${kind.toUpperCase()} identity mismatch during signature verification`);
   }
-  return { certificate, embeddedR8MappingSha256: aabObservation.embeddedR8MappingSha256, apk, aab };
+  return {
+    certificate,
+    embeddedR8MappingSha256: aabObservation.embeddedR8MappingSha256,
+    apk,
+    aab,
+    payloads: {
+      apk: { sha256: apkObservation.payloadTreeSha256, count: apkObservation.payloadEntryCount },
+      aab: { sha256: aabObservation.payloadTreeSha256, count: aabObservation.payloadEntryCount },
+    },
+  };
 }
 
 export function assertCommitHasNoSymlinks(commit, label, root = repoRoot) {
@@ -1042,7 +1052,12 @@ export function main(argv = process.argv.slice(2)) {
       collectAndroid({ ...options, output: androidValidation }, false);
       const rebuiltAndroidUnsigned = collectedAndroidInput(collectedWebInput(canonicalReleaseNotesInput(supplied), webValidation), androidValidation, { certificate: '0'.repeat(64), embeddedR8MappingSha256: '0'.repeat(64) });
       const rebuiltSignature = verifyAndroidSignature(rebuiltAndroidUnsigned, options);
-      const rebuiltInput = collectedAndroidInput(collectedWebInput(canonicalReleaseNotesInput(supplied), webValidation), androidValidation, rebuiltSignature);
+      if (canonicalJson(rebuiltSignature.payloads) !== canonicalJson(signature.payloads)
+        || rebuiltSignature.certificate !== signature.certificate
+        || rebuiltSignature.embeddedR8MappingSha256 !== signature.embeddedR8MappingSha256) {
+        throw new Error('Retained Android signed payload differs from the exact-source rebuild');
+      }
+      const rebuiltInput = canonicalAndroidInput(collectedWebInput(canonicalReleaseNotesInput(supplied), webValidation), signature);
       const rebuilt = buildManifest(repoRoot, rebuiltInput);
       verifyLiveRegistry(retainedInput, true);
       const retainedAfterRebuild = buildManifest(repoRoot, retainedInput);

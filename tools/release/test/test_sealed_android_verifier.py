@@ -51,6 +51,23 @@ class SealedAndroidVerifierTests(unittest.TestCase):
                 hashlib.sha256(payload).hexdigest(),
             )
 
+    def test_payload_digest_ignores_signature_metadata_but_binds_content(self):
+        def archive(payload: bytes, signature: bytes) -> bytes:
+            output = io.BytesIO()
+            with zipfile.ZipFile(output, "w") as bundle:
+                bundle.writestr("payload.txt", payload)
+                bundle.writestr("META-INF/CERT.SF", signature)
+            return output.getvalue()
+
+        def identity(data: bytes) -> tuple[str, int]:
+            with tempfile.TemporaryFile() as source:
+                source.write(data)
+                source.seek(0)
+                return VERIFIER.canonical_zip_payload_digest(source.fileno())
+
+        self.assertEqual(identity(archive(b"same", b"one")), identity(archive(b"same", b"two")))
+        self.assertNotEqual(identity(archive(b"same", b"one")), identity(archive(b"changed", b"one")))
+
     def test_streamed_jarsigner_output_is_bounded(self):
         prior = VERIFIER.MAX_VERIFIER_OUTPUT_BYTES
         VERIFIER.MAX_VERIFIER_OUTPUT_BYTES = 8
