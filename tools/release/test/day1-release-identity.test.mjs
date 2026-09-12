@@ -565,6 +565,7 @@ test('published schema requires role-specific image provenance', () => {
   ]);
   assert.equal(schema.$defs.apiImage.properties.repository.const, 'ghcr.io/tommytang213/settleora-api');
   assert.equal(schema.$defs.apiImage.properties.configuredTag.pattern, '^sha-[0-9a-f]{40}$');
+  assert.equal(schema.$defs.apiImage.properties.publicationRunUrl.pattern, '^https://github\\.com/tommytang213/Settleora/actions/runs/[1-9][0-9]*$');
   assert.equal(schema.$defs.dependencyImage.properties.configuredTag.pattern, '^(?!(?:.*:)?(?:main|latest)$).+$');
   assert.deepEqual(schema.properties.dependencyImages.prefixItems.map((item) => item.allOf[1].properties.configuredTag.const), [
     'caddy:2.11.4-alpine',
@@ -577,6 +578,10 @@ test('published schema requires role-specific image provenance', () => {
   assert.equal(schema.$defs.aabFile.allOf[1].properties.path.const, 'apps/mobile/build/app/outputs/bundle/release/app-release.aab');
   assert.equal(schema.properties.retention.properties.canonicalEvidenceDirectory.const, '/workspace/logs/settleora-release-candidates/{source.candidateId}');
   assert.equal(schema.properties.source.properties.candidateId.pattern, '^(?!.*\\.\\.)[A-Za-z0-9][A-Za-z0-9._-]*$');
+  assert.equal(schema.properties.generatedAt.format, 'date-time');
+  assert.equal(schema.properties.migrations.properties.entries.items.properties.id.pattern, '^[0-9]{14}_[A-Za-z0-9_]+$');
+  assert.equal(schema.properties.migrations.properties.entries.items.properties.files.items.$ref, '#/$defs/migrationFile');
+  assert.equal(schema.$defs.migrationFile.allOf[1].properties.path.pattern, '^services/api/src/Settleora\\.Api/Persistence/Migrations/[0-9]{14}_[A-Za-z0-9_]+(?:\\.Designer)?\\.cs$');
   assert.deepEqual(schema.properties.userWeb.required, ['schema', 'source', 'dependencyLock', 'buildTools', 'artifact']);
   assert.equal(schema.$defs.dependencyImage.properties.sourceComposePath.const, 'infra/docker-compose.truenas-lan.image.yml');
   assert.deepEqual(schema.properties.dependencyImages.allOf.map((rule) => ({
