@@ -24,6 +24,7 @@ import {
 import { assertTrackedWorktreeMatchesHead, createUserWebDistManifest } from '../ci/user-web-dist-manifest.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const invokedDirectly = Boolean(process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url));
 function protectedSystemCommand(candidate, expectedName) {
   const command = path.resolve(candidate);
   const resolved = realpathSync(command);
@@ -45,7 +46,12 @@ function protectedSystemCommand(candidate, expectedName) {
 const gitCommand = protectedSystemCommand('/usr/bin/git', 'git');
 const buildxCommand = protectedSystemCommand('/usr/libexec/docker/cli-plugins/docker-buildx', 'docker-buildx');
 const ghCommand = protectedSystemCommand('/usr/bin/gh', 'gh');
-const systemNodeCommand = protectedSystemCommand('/usr/bin/node', 'node');
+// Import-only unit-test execution must remain portable to hosted runners whose
+// setup-node installation has no /usr/bin/node. Direct collector execution is
+// still fail-closed on the selected runtime and every ancestor.
+const systemNodeCommand = invokedDirectly
+  ? protectedSystemCommand(lstatSync('/usr/bin/node', { throwIfNoEntry: false }) ? '/usr/bin/node' : process.execPath, 'node')
+  : null;
 let npmRuntimeChecked = false;
 const npmExec = (values, options = {}) => {
   if (!npmRuntimeChecked) {
@@ -1091,7 +1097,7 @@ export function main(argv = process.argv.slice(2)) {
  }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (invokedDirectly) {
   if (realpathSync('/proc/self/exe') !== realpathSync(systemNodeCommand)) {
     try {
       execFileSync(systemNodeCommand, [fileURLToPath(import.meta.url), ...process.argv.slice(2)], {

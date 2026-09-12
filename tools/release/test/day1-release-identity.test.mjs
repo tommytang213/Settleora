@@ -441,7 +441,8 @@ test('direct validation rejects empty migrations, noncanonical artifacts and unp
 test('release execution uses protected system runtimes and bypasses user plugin configuration', () => {
   const cliSource = readFileSync(new URL('../day1-release-identity-cli.mjs', import.meta.url), 'utf8');
   assert.match(cliSource, /realpathSync\('\/proc\/self\/exe'\)/);
-  assert.match(cliSource, /protectedSystemCommand\('\/usr\/bin\/node', 'node'\)/);
+  assert.match(cliSource, /const systemNodeCommand = invokedDirectly/);
+  assert.match(cliSource, /protectedSystemCommand\(lstatSync\('\/usr\/bin\/node', \{ throwIfNoEntry: false \}\) \? '\/usr\/bin\/node' : process\.execPath, 'node'\)/);
   assert.match(cliSource, /protectedSystemCommand\('\/usr\/bin\/npm', 'npm'\)/);
   assert.match(cliSource, /protectedSystemCommand\('\/usr\/libexec\/docker\/cli-plugins\/docker-buildx', 'docker-buildx'\)/);
   assert.match(cliSource, /\['fsck', '--strict', '--no-dangling', '--no-progress', processSource\.commit\]/);
