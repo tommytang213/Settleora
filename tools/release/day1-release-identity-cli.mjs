@@ -578,6 +578,21 @@ function relativeDirectoriesNamed(root, expectedName) {
   return result.sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
 }
 
+function relativeFilesMatching(root, expression) {
+  const result = [];
+  const visit = (candidate, relative) => {
+    for (const entry of readdirSync(candidate, { withFileTypes: true })) {
+      const childRelative = relative ? `${relative}/${entry.name}` : entry.name;
+      if (entry.isSymbolicLink()) throw new Error('Dependency cache contains a symlinked entry');
+      if (entry.isDirectory()) visit(path.join(candidate, entry.name), childRelative);
+      else if (entry.isFile() && expression.test(childRelative)) result.push(childRelative);
+      else if (!entry.isFile()) throw new Error('Dependency cache contains an unsupported entry');
+    }
+  };
+  visit(root, '');
+  return result.sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
+}
+
 const guardedToolchainRunner = String.raw`
 import ctypes
 import json
@@ -1150,6 +1165,10 @@ function collectAndroidUnsafe(options, emit = true) {
     for (const relativePath of pubExcludedBuildPaths) makeTreeOwnerWritable(path.join(pubCache, relativePath));
     cpSync(gradleWrapper, path.join(runtimeGradleHome, 'wrapper'), { recursive: true, errorOnExist: true, force: false, preserveTimestamps: true });
     const runtimeWrapper = path.join(runtimeGradleHome, 'wrapper');
+    const runtimeWrapperLockPaths = relativeFilesMatching(runtimeWrapper, /\.zip\.lck$/u);
+    if (runtimeWrapperLockPaths.length !== 1 || !/^dists\/gradle-[0-9.]+-(?:all|bin)\/[a-z0-9]+\/gradle-[0-9.]+-(?:all|bin)\.zip\.lck$/u.test(runtimeWrapperLockPaths[0])) {
+      throw new Error('Gradle runtime wrapper lock-file inventory is not the expected bounded shape');
+    }
     const runtimeModules = path.join(runtimeGradleHome, 'caches', 'modules-2');
     mkdirSync(path.dirname(runtimeModules), { recursive: false, mode: 0o700 });
     cpSync(gradleModules, runtimeModules, {
@@ -1162,10 +1181,11 @@ function collectAndroidUnsafe(options, emit = true) {
     makeTreeReadOnly(runtimeModules, 'Gradle runtime module dependency cache');
     chmodSync(runtimeModules, 0o700);
     makeTreeReadOnly(runtimeWrapper, 'Gradle runtime wrapper distribution');
+    chmodSync(path.join(runtimeWrapper, runtimeWrapperLockPaths[0]), 0o600);
     const dependencyCaches = {
       pub: toolchainTreeDigest(pubCache, 'Dart pub dependency cache', pubExcludedBuildPaths),
       gradleModules: toolchainTreeDigest(runtimeModules, 'Gradle runtime module dependency cache', ['gc.properties', 'modules-2.lock']),
-      gradleWrapper: toolchainTreeDigest(runtimeWrapper, 'Gradle runtime wrapper distribution'),
+      gradleWrapper: toolchainTreeDigest(runtimeWrapper, 'Gradle runtime wrapper distribution', runtimeWrapperLockPaths),
     };
     flutter.environment = {
       ...buildEnvironment,
@@ -1176,7 +1196,7 @@ function collectAndroidUnsafe(options, emit = true) {
       ...toolchainConfiguration,
       { label: 'pub-cache', root: pubCache, excludedPrefixes: pubExcludedBuildPaths },
       { label: 'gradle-modules-cache', root: runtimeModules, excludedPrefixes: ['gc.properties', 'modules-2.lock'] },
-      { label: 'gradle-wrapper-distribution', root: runtimeWrapper, excludedPrefixes: [] },
+      { label: 'gradle-wrapper-distribution', root: runtimeWrapper, excludedPrefixes: runtimeWrapperLockPaths },
       { label: 'android-signing-home', root: path.join(buildHome, '.android'), excludedPrefixes: [] },
     ];
     executeGuardedFlutter(flutter, [
@@ -1197,7 +1217,7 @@ function collectAndroidUnsafe(options, emit = true) {
     }
     if (canonicalJson(toolchainTreeDigest(pubCache, 'Dart pub dependency cache', pubExcludedBuildPaths)) !== canonicalJson(dependencyCaches.pub)
       || canonicalJson(toolchainTreeDigest(runtimeModules, 'Gradle runtime module dependency cache', ['gc.properties', 'modules-2.lock'])) !== canonicalJson(dependencyCaches.gradleModules)
-      || canonicalJson(toolchainTreeDigest(runtimeWrapper, 'Gradle runtime wrapper distribution')) !== canonicalJson(dependencyCaches.gradleWrapper)) {
+      || canonicalJson(toolchainTreeDigest(runtimeWrapper, 'Gradle runtime wrapper distribution', runtimeWrapperLockPaths)) !== canonicalJson(dependencyCaches.gradleWrapper)) {
       throw new Error('Android immutable dependency cache changed during offline release builds');
     }
     if (trustedFile(debugKeystore.path, 'debug.keystore', 'Android debug signing keystore').sha256 !== debugKeystore.sha256) throw new Error('Android debug signing keystore changed during collection');
@@ -1220,7 +1240,7 @@ function collectAndroidUnsafe(options, emit = true) {
       dependencyCaches,
       gradleVerificationMetadataSha256: createHash('sha256').update(gitExec(['show', `${sourceBefore.commit}:apps/mobile/android/gradle/verification-metadata.xml`], { cwd: repoRoot })).digest('hex'),
       apksignerJarSha256: apksignerJar.sha256,
-      toolchainMutationGuard: { algorithm: 'linux-inotify-authenticated-runner-v2', flutterExcludedTransientBases: [...flutterMutableMetadata].sort((left, right) => Buffer.from(left).compare(Buffer.from(right))), pubExcludedBuildPaths, queueOverflowFailsClosed: true },
+      toolchainMutationGuard: { algorithm: 'linux-inotify-authenticated-runner-v2', flutterExcludedTransientBases: [...flutterMutableMetadata].sort((left, right) => Buffer.from(left).compare(Buffer.from(right))), pubExcludedBuildPaths, gradleWrapperLockPaths, queueOverflowFailsClosed: true },
       signingInputSha256: debugKeystore.sha256,
       signingCertificateSha256,
     };

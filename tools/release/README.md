@@ -86,7 +86,8 @@ Flutter, Android SDK, and selected root-protected JDK content inventories are co
 packages are checksum-bound by `pubspec.lock`; Gradle plugins and modules are
 checksum-bound by the committed `gradle/verification-metadata.xml`; and the
 Gradle wrapper distribution remains bound by its committed SHA-256 and by the
-complete copied runtime-distribution inventory. The
+complete copied runtime-distribution inventory. Only its single non-executable
+`.zip.lck` coordination file is excluded and left writable. The
 collector performs one guarded online prefetch, inventories the resulting pub
 and Gradle module caches, copies the Gradle cache without lock/GC state, and
 runs the retained APK/AAB builds with Dart pub and Gradle both in offline mode.

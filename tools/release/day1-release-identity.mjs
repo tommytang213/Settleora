@@ -545,10 +545,11 @@ function collectAndroid(repoRoot, input, source) {
     !== hexDigest(input.verificationToolSha256, 'Observed Android apksigner JAR SHA-256')) {
     fail('Android signature verifier does not match build-time toolchain provenance');
   }
-  assertKeys(provenance.toolchainMutationGuard, ['algorithm', 'flutterExcludedTransientBases', 'pubExcludedBuildPaths', 'queueOverflowFailsClosed'], 'Android build provenance toolchain mutation guard');
+  assertKeys(provenance.toolchainMutationGuard, ['algorithm', 'flutterExcludedTransientBases', 'pubExcludedBuildPaths', 'gradleWrapperLockPaths', 'queueOverflowFailsClosed'], 'Android build provenance toolchain mutation guard');
   if (provenance.toolchainMutationGuard.algorithm !== 'linux-inotify-authenticated-runner-v2' || provenance.toolchainMutationGuard.queueOverflowFailsClosed !== true
     || !Array.isArray(provenance.toolchainMutationGuard.flutterExcludedTransientBases)
     || !Array.isArray(provenance.toolchainMutationGuard.pubExcludedBuildPaths)
+    || !Array.isArray(provenance.toolchainMutationGuard.gradleWrapperLockPaths)
     || canonicalJson([...provenance.toolchainMutationGuard.flutterExcludedTransientBases].sort()) !== canonicalJson(provenance.toolchainMutationGuard.flutterExcludedTransientBases)) {
     fail('Android build provenance toolchain mutation guard mismatch');
   }
@@ -586,8 +587,9 @@ function collectAndroid(repoRoot, input, source) {
   if (canonicalJson(provenance.dependencyCaches.gradleModules.excludedPaths) !== canonicalJson(['gc.properties', 'modules-2.lock'])) {
     fail('Android Gradle-cache exclusions exceed the collector-owned allowlist');
   }
-  if (canonicalJson(provenance.dependencyCaches.gradleWrapper.excludedPaths) !== canonicalJson([])) {
-    fail('Android Gradle wrapper exclusions are not accepted');
+  if (provenance.dependencyCaches.gradleWrapper.excludedPaths.length !== 1
+    || !/^dists\/gradle-[0-9.]+-(?:all|bin)\/[a-z0-9]+\/gradle-[0-9.]+-(?:all|bin)\.zip\.lck$/u.test(provenance.dependencyCaches.gradleWrapper.excludedPaths[0])) {
+    fail('Android Gradle wrapper exclusions exceed the single lock-file allowlist');
   }
   if (provenance.dependencyCaches.pub.excludedPaths.length !== 1
     || !/^hosted\/pub\.dev\/jni-[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?\/android\/\.cxx$/u.test(provenance.dependencyCaches.pub.excludedPaths[0])) {
@@ -602,6 +604,9 @@ function collectAndroid(repoRoot, input, source) {
   }
   if (canonicalJson(provenance.toolchainMutationGuard.pubExcludedBuildPaths) !== canonicalJson(provenance.dependencyCaches.pub.excludedPaths)) {
     fail('Android pub-cache mutation-guard exclusions do not match the dependency inventory');
+  }
+  if (canonicalJson(provenance.toolchainMutationGuard.gradleWrapperLockPaths) !== canonicalJson(provenance.dependencyCaches.gradleWrapper.excludedPaths)) {
+    fail('Android Gradle-wrapper mutation-guard exclusions do not match the dependency inventory');
   }
   const element = metadata.elements?.find((candidate) => candidate.outputFile === path.basename(input.apkPath));
   if (!element) fail('Android APK is absent from output metadata');
