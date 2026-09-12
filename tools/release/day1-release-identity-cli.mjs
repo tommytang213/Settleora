@@ -397,7 +397,7 @@ function executeSealedFlutter(flutter, values, cwd) {
   }, [flutter.snapshot]);
 }
 
-function toolchainTreeDigest(root, label, excludedPrefixes = []) {
+export function toolchainTreeDigest(root, label, excludedPrefixes = []) {
   const absoluteRoot = path.resolve(root);
   const rootMetadata = lstatSync(absoluteRoot, { throwIfNoEntry: false });
   if (!rootMetadata?.isDirectory() || rootMetadata.isSymbolicLink() || realpathSync(absoluteRoot) !== absoluteRoot) throw new Error(`${label} root is not a stable directory`);
@@ -428,7 +428,15 @@ function toolchainTreeDigest(root, label, excludedPrefixes = []) {
         if (symlinkCount > 100_000) throw new Error(`${label} exceeds its symlink-count boundary`);
         const link = readlinkSync(target);
         const resolved = path.resolve(path.dirname(target), link);
-        if (path.relative(absoluteRoot, resolved).startsWith('..') || path.isAbsolute(path.relative(absoluteRoot, resolved))) throw new Error(`${label} contains an external symlink`);
+        const resolvedRelative = path.relative(absoluteRoot, resolved).split(path.sep).join('/');
+        if (resolvedRelative.startsWith('..') || path.isAbsolute(resolvedRelative)) throw new Error(`${label} contains an external symlink`);
+        const realResolved = realpathSync(target);
+        const realResolvedRelative = path.relative(absoluteRoot, realResolved).split(path.sep).join('/');
+        if (realResolvedRelative.startsWith('..') || path.isAbsolute(realResolvedRelative)) throw new Error(`${label} contains an external symlink`);
+        if (excludedPrefixes.some((prefix) => resolvedRelative === prefix || resolvedRelative.startsWith(`${prefix}/`)
+          || realResolvedRelative === prefix || realResolvedRelative.startsWith(`${prefix}/`))) {
+          throw new Error(`${label} contains a symlink into an excluded directory`);
+        }
         records.push(`link\0${relative}\0${link}\n`);
       } else if (metadata.isFile()) {
         fileCount += 1;
@@ -628,6 +636,18 @@ export function assertCommitHasNoSymlinks(commit, label, root = repoRoot) {
   const records = new TextDecoder('utf-8', { fatal: true }).decode(gitExec(['ls-tree', '-r', '-z', commit], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] }))
     .split('\0').filter(Boolean);
   if (records.some((record) => record.startsWith('120000 '))) throw new Error(`${label} source snapshot contains a tracked symlink`);
+}
+
+export function deterministicAndroidRebuildProjection(rebuilt, retained) {
+  const projected = structuredClone(rebuilt);
+  // Raw ZIP/signature bytes remain authoritative retained identities. A clean
+  // rebuild proves the separately verified canonical payload, signer, R8 and
+  // toolchain identities; those checks occur before this narrow projection.
+  projected.android.apk = retained.android.apk;
+  projected.android.aab = retained.android.aab;
+  projected.android.buildProvenanceSha256 = retained.android.buildProvenanceSha256;
+  projected.identityDigest = computeIdentityDigest(projected);
+  return projected;
 }
 
 export function copyBoundedFile(source, target, maxBytes, label) {
@@ -1019,7 +1039,7 @@ export function collectCompiledMigrationIds(privateParent) {
       DOTNET_CLI_TELEMETRY_OPTOUT: '1',
       NUGET_PACKAGES: packages,
     };
-    const isolatedMsbuildProperties = ['-p:ImportDirectoryBuildProps=false', '-p:ImportDirectoryBuildTargets=false', '-p:ImportDirectoryPackagesProps=false'];
+    const isolatedMsbuildProperties = ['-noAutoResponse', '-p:ImportDirectoryBuildProps=false', '-p:ImportDirectoryBuildTargets=false', '-p:ImportDirectoryPackagesProps=false'];
     executeSealedTool(dotnet, ['restore', project, '--locked-mode', '--configfile', nugetConfig, '--packages', packages, '--verbosity', 'quiet', ...isolatedMsbuildProperties], {
       cwd: snapshot,
       env: dotnetEnvironment,
@@ -1150,12 +1170,13 @@ export function main(argv = process.argv.slice(2)) {
       }
       const rebuiltInput = collectedAndroidInput(collectedWebInput(canonicalReleaseNotesInput(supplied), webValidation), androidValidation, rebuiltSignature);
       const rebuilt = buildManifest(repoRoot, rebuiltInput);
+      const rebuiltDeterministicProjection = deterministicAndroidRebuildProjection(rebuilt, retained);
       verifyLiveRegistry(retainedInput, true);
       const retainedAfterRebuild = buildManifest(repoRoot, retainedInput);
       assertCleanCompletion(repoRoot, 'Source changed before validation completed');
       if (canonicalJson({ ...retained, generatedAt: manifest.generatedAt }) !== canonicalJson(manifest)
         || canonicalJson({ ...retainedAfterRebuild, generatedAt: manifest.generatedAt }) !== canonicalJson(manifest)
-        || canonicalJson({ ...rebuilt, generatedAt: manifest.generatedAt }) !== canonicalJson(manifest)) {
+        || canonicalJson({ ...rebuiltDeterministicProjection, generatedAt: manifest.generatedAt }) !== canonicalJson(manifest)) {
         throw new Error('Manifest differs from independently recollected evidence');
       }
       if (!safeBytes(options.manifest, 'Manifest').equals(initialManifestBytes)) throw new Error('Canonical manifest changed during validation');

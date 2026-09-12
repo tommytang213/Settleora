@@ -22,7 +22,7 @@ import {
   validatePublicationRunDocument,
   validatePublicationRunUrl,
 } from '../day1-release-identity.mjs';
-import { assertCleanCompletion, assertCommitHasNoSymlinks, canonicalAndroidInput, canonicalManifestPath, canonicalReleaseNotesInput, canonicalWebInput, copyBoundedFile, parseSingleApkSigner, retainReleaseNotes, safeInput } from '../day1-release-identity-cli.mjs';
+import { assertCleanCompletion, assertCommitHasNoSymlinks, canonicalAndroidInput, canonicalManifestPath, canonicalReleaseNotesInput, canonicalWebInput, copyBoundedFile, deterministicAndroidRebuildProjection, parseSingleApkSigner, retainReleaseNotes, safeInput, toolchainTreeDigest } from '../day1-release-identity-cli.mjs';
 
 const d = (character) => `sha256:${character.repeat(64)}`;
 
@@ -419,6 +419,34 @@ test('snapshot inputs reject tracked symlinks and Android copies enforce pre-cop
   assert.throws(() => copyBoundedFile(oversized, path.join(f.evidenceRoot, 'copy.bin'), 8, 'Android test'), /evidence boundary/);
 });
 
+test('toolchain inventory rejects direct and chained symlinks into excluded directories', (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), 'release-toolchain-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  write(root, '.git/tool', 'excluded executable bytes\n');
+  symlinkSync('.git/tool', path.join(root, 'direct-link'));
+  assert.throws(() => toolchainTreeDigest(root, 'fixture toolchain', ['.git']), /symlink into an excluded directory/);
+  rmSync(path.join(root, 'direct-link'));
+  mkdirSync(path.join(root, 'alias'));
+  symlinkSync('../.git', path.join(root, 'alias/bridge'));
+  symlinkSync('alias/bridge/tool', path.join(root, 'chained-link'));
+  assert.throws(() => toolchainTreeDigest(root, 'fixture toolchain', ['.git']), /symlink into an excluded directory/);
+});
+
+test('Android rebuild projection normalizes only raw retained artifact identities', (t) => {
+  const f = fixture(t);
+  const retained = buildManifest(f.root, f.input);
+  const rebuilt = structuredClone(retained);
+  rebuilt.android.apk = { ...rebuilt.android.apk, size: rebuilt.android.apk.size + 1, sha256: 'a'.repeat(64) };
+  rebuilt.android.aab = { ...rebuilt.android.aab, size: rebuilt.android.aab.size + 1, sha256: 'b'.repeat(64) };
+  rebuilt.android.buildProvenanceSha256 = 'c'.repeat(64);
+  rebuilt.identityDigest = computeIdentityDigest(rebuilt);
+  assert.deepEqual(deterministicAndroidRebuildProjection(rebuilt, retained), retained);
+
+  rebuilt.android.applicationId = 'invalid.application';
+  rebuilt.identityDigest = computeIdentityDigest(rebuilt);
+  assert.notDeepEqual(deterministicAndroidRebuildProjection(rebuilt, retained), retained);
+});
+
 test('provenance collection rejects Git replacement refs', (t) => {
   const f = fixture(t);
   git(f.root, ['replace', f.commit, `${f.commit}^`]);
@@ -536,6 +564,13 @@ test('published schema requires role-specific image provenance', () => {
     { base: '#/$defs/dependencyImage', role: 'rabbitmq', repository: 'docker.io/library/rabbitmq' },
   ]);
   assert.equal(schema.$defs.apiImage.properties.repository.const, 'ghcr.io/tommytang213/settleora-api');
+  assert.equal(schema.$defs.apiImage.properties.configuredTag.pattern, '^sha-[0-9a-f]{40}$');
+  assert.equal(schema.$defs.dependencyImage.properties.configuredTag.pattern, '^(?!(?:.*:)?(?:main|latest)$).+$');
+  assert.deepEqual(schema.properties.dependencyImages.prefixItems.map((item) => item.allOf[1].properties.configuredTag.const), [
+    'caddy:2.11.4-alpine',
+    'postgres:16-alpine',
+    'rabbitmq:3.13-management-alpine',
+  ]);
   assert.equal(schema.properties.android.properties.apk.$ref, '#/$defs/apkFile');
   assert.equal(schema.properties.android.properties.aab.$ref, '#/$defs/aabFile');
   assert.equal(schema.$defs.apkFile.allOf[1].properties.path.const, 'apps/mobile/build/app/outputs/flutter-apk/app-release.apk');
@@ -578,7 +613,9 @@ test('release execution uses protected system runtimes and bypasses user plugin 
   assert.match(cliSource, /ImportDirectoryBuildProps=false/);
   assert.match(cliSource, /ImportDirectoryBuildTargets=false/);
   assert.match(cliSource, /ImportDirectoryPackagesProps=false/);
+  assert.match(cliSource, /const isolatedMsbuildProperties = \['-noAutoResponse'/);
   assert.match(cliSource, /Retained Android toolchain provenance differs from the exact-source rebuild/);
+  assert.match(cliSource, /deterministicAndroidRebuildProjection\(rebuilt, retained\)/);
   assert.match(cliSource, /collectedAndroidInput\([^;]*androidValidation, rebuiltSignature\)/s);
   assert.match(cliSource, /SETTLEORA_RELEASE_CLEAN_NODE/);
   assert.doesNotMatch(cliSource, /process\.env\.npm_execpath/);
