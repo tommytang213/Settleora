@@ -263,6 +263,14 @@ test('rejects web source and Android artifact mismatches', (t) => {
   const expectedAab = { aab: { size: 1, sha256: '8'.repeat(64) } };
   assert.throws(() => buildManifest(f.root, { ...f.input, android: { ...f.input.android, expected: expectedAab } }), /AAB identity mismatch/);
   const provenance = JSON.parse(readFileSync(f.input.android.buildProvenancePath));
+  provenance.unbound = true;
+  writeFileSync(f.input.android.buildProvenancePath, JSON.stringify(provenance));
+  assert.throws(() => buildManifest(f.root, f.input), /Android build provenance has unexpected properties/);
+  delete provenance.unbound;
+  provenance.source.unbound = true;
+  writeFileSync(f.input.android.buildProvenancePath, JSON.stringify(provenance));
+  assert.throws(() => buildManifest(f.root, f.input), /Android build provenance source has unexpected properties/);
+  delete provenance.source.unbound;
   provenance.source.tree = '6'.repeat(40);
   writeFileSync(f.input.android.buildProvenancePath, JSON.stringify(provenance));
   assert.throws(() => buildManifest(f.root, f.input), /Android build provenance source mismatch/);
@@ -392,6 +400,8 @@ test('safe inputs reject URL query credentials and completion rejects untracked 
   assert.throws(() => safeInput(inputPath, 'Evidence input'), /potentially sensitive material/);
   const oversizedInput = write(f.evidenceRoot, 'oversized-input.json', 'x'.repeat((4 * 1024 * 1024) + 1));
   assert.throws(() => safeInput(oversizedInput, 'Evidence input'), /evidence size limit/);
+  const encodedToken = write(f.evidenceRoot, 'encoded-token.json', '{"releaseNotes":{"source":"github_pat_\\u0041BCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"}}');
+  assert.throws(() => safeInput(encodedToken, 'Evidence input'), /after JSON decoding/);
   assert.doesNotThrow(() => assertCleanCompletion(f.root, 'source changed'));
   write(f.root, 'untracked-after-registry.txt', 'race\n');
   assert.throws(() => assertCleanCompletion(f.root, 'source changed'), /source changed/);
@@ -579,6 +589,12 @@ test('published schema requires role-specific image provenance', () => {
   assert.equal(schema.properties.retention.properties.canonicalEvidenceDirectory.const, '/workspace/logs/settleora-release-candidates/{source.candidateId}');
   assert.equal(schema.properties.source.properties.candidateId.pattern, '^(?!.*\\.\\.)[A-Za-z0-9][A-Za-z0-9._-]*$');
   assert.equal(schema.properties.generatedAt.format, 'date-time');
+  const timestampPatterns = schema.properties.generatedAt.anyOf.map((entry) => new RegExp(entry.pattern));
+  const matchesTimestamp = (value) => timestampPatterns.some((pattern) => pattern.test(value));
+  assert.equal(matchesTimestamp('2026-09-12T09:21:35Z'), true);
+  assert.equal(matchesTimestamp('2024-02-29T23:59:59Z'), true);
+  assert.equal(matchesTimestamp('2100-02-29T00:00:00Z'), false);
+  assert.equal(matchesTimestamp('2026-99-99T25:61:61Z'), false);
   assert.equal(schema.properties.migrations.properties.entries.items.properties.id.pattern, '^[0-9]{14}_[A-Za-z0-9_]+$');
   assert.equal(schema.properties.migrations.properties.entries.items.properties.files.items.$ref, '#/$defs/migrationFile');
   assert.equal(schema.$defs.migrationFile.allOf[1].properties.path.pattern, '^services/api/src/Settleora\\.Api/Persistence/Migrations/[0-9]{14}_[A-Za-z0-9_]+(?:\\.Designer)?\\.cs$');

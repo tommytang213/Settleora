@@ -147,7 +147,11 @@ export function safeInput(candidate, label) {
   if (containsSensitiveMaterial(text)) {
     throw new Error(`${label} contains potentially sensitive material`);
   }
-  return JSON.parse(text);
+  const parsed = JSON.parse(text);
+  if (containsSensitiveMaterial(canonicalJson(parsed))) {
+    throw new Error(`${label} contains potentially sensitive material after JSON decoding`);
+  }
+  return parsed;
 }
 
 function safeBytes(candidate, label) {

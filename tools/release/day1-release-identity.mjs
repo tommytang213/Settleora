@@ -495,6 +495,9 @@ function collectAndroid(repoRoot, input, source) {
   const metadata = JSON.parse(metadataFile.bytes);
   const provenanceFile = exactRegularFile(input.buildProvenancePath, 'Android build provenance', input.evidenceRoot);
   const provenance = JSON.parse(provenanceFile.bytes);
+  assertKeys(provenance, ['schema', 'source', 'commands', 'toolchains', 'artifacts'], 'Android build provenance');
+  assertKeys(provenance.source, ['commit', 'tree'], 'Android build provenance source');
+  assertKeys(provenance.artifacts, ['apk', 'aab', 'r8MappingSha256'], 'Android build provenance artifacts');
   const { commit, tree } = source;
   if (provenance.schema !== 'settleora.android-exact-source-build.v1' || provenance.source?.commit !== commit || provenance.source?.tree !== tree) {
     fail('Android build provenance source mismatch');
