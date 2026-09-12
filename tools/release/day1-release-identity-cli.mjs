@@ -622,6 +622,7 @@ function sealedAndroidVerification(kind, artifact, tools, javaPath) {
   }
   if (!Number.isSafeInteger(result.size) || result.size < 1 || !/^[0-9a-f]{64}$/u.test(result.sha256)) throw new Error(`Android ${kind.toUpperCase()} sealed snapshot identity is invalid`);
   if (!Number.isSafeInteger(result.payloadEntryCount) || result.payloadEntryCount < 1 || !/^[0-9a-f]{64}$/u.test(result.payloadTreeSha256)) throw new Error(`Android ${kind.toUpperCase()} canonical payload identity is invalid`);
+  if (kind === 'aab' && !/^[0-9a-f]{64}$/u.test(result.archiveLayoutSha256)) throw new Error('Android AAB archive-layout identity is invalid');
   if (!Array.isArray(result.signatureControlEntries)
     || result.signatureControlEntries.some((entry) => typeof entry !== 'string' || !/^META-INF\/(?:MANIFEST\.MF|[^/]+\.(?:SF|RSA|DSA|EC))$/u.test(entry))
     || new Set(result.signatureControlEntries).size !== result.signatureControlEntries.length
@@ -670,7 +671,7 @@ export function verifyAndroidSignature(input, options) {
     aab,
     payloads: {
       apk: { sha256: apkObservation.payloadTreeSha256, count: apkObservation.payloadEntryCount, signatureControls: apkObservation.signatureControlEntries, signingBlockIds: apkObservation.apkSigningBlockIds },
-      aab: { sha256: aabObservation.payloadTreeSha256, count: aabObservation.payloadEntryCount, signatureControls: aabObservation.signatureControlEntries },
+      aab: { sha256: aabObservation.payloadTreeSha256, count: aabObservation.payloadEntryCount, signatureControls: aabObservation.signatureControlEntries, archiveLayoutSha256: aabObservation.archiveLayoutSha256 },
     },
   };
 }
@@ -1124,6 +1125,13 @@ export function collectCompiledMigrationIds(privateParent) {
   });
 }
 
+export function sanitizedErrorMessage(error) {
+  const raw = error instanceof Error ? error.message : String(error);
+  if (containsSensitiveMaterial(raw)) return 'Release identity operation failed; sensitive details were suppressed';
+  const normalized = raw.replace(/[\u0000-\u001f\u007f]+/gu, ' ').trim();
+  return normalized.slice(0, 2048) || 'Release identity operation failed';
+}
+
 export function main(argv = process.argv.slice(2)) {
  try {
   const options = args(argv);
@@ -1245,7 +1253,7 @@ export function main(argv = process.argv.slice(2)) {
     throw new Error('Command must be assemble or validate');
   }
   } catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
+  console.error(sanitizedErrorMessage(error));
   process.exitCode = 1;
  }
 }
@@ -1266,6 +1274,7 @@ if (invokedDirectly) {
         PATH: '/usr/bin:/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', [cleanRuntimeMarker]: '1', ...(registryIdentity ? { [registryPreflightMarker]: registryIdentity } : {}),
       });
     } catch (error) {
+      console.error(sanitizedErrorMessage(error));
       process.exitCode = Number.isInteger(error?.status) ? error.status : 1;
     }
   } else {

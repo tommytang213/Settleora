@@ -119,7 +119,7 @@ function safePublicLabel(value, label) {
 
 export function validateCandidateId(value) {
   string(value, 'source.candidateId');
-  if (value === '.' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(value) || value.includes('..')) {
+  if (Buffer.byteLength(value, 'utf8') > 255 || value === '.' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(value) || value.includes('..')) {
     fail('source.candidateId must be a single safe evidence-directory name');
   }
   return value;

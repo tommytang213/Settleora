@@ -313,7 +313,7 @@ def sealed_executable_snapshot(source_descriptor: int) -> tuple[int, str]:
         os.close(source_fd)
 
 
-def preflight_aab(descriptor: int) -> int:
+def preflight_aab(descriptor: int) -> tuple[int, str]:
     metadata = os.fstat(descriptor)
     tail_size = min(metadata.st_size, 65_557)
     tail = os.pread(descriptor, tail_size, metadata.st_size - tail_size)
@@ -340,6 +340,7 @@ def preflight_aab(descriptor: int) -> int:
         raise ValueError("Android bundle central directory changed during preflight")
     position = 0
     parsed_entries = 0
+    layout_identity = hashlib.sha256()
     while position < len(central):
         if len(central) - position < 46 or central[position:position + 4] != b"PK\x01\x02":
             raise ValueError("Android bundle central directory is malformed")
@@ -354,6 +355,7 @@ def preflight_aab(descriptor: int) -> int:
         local_name_size, local_extra_size = struct.unpack_from("<HH", local_header, 26) if len(local_header) == 30 else (0, 0)
         local_name = os.pread(descriptor, local_name_size, local_offset + 30) if len(local_header) == 30 else b""
         if len(local_header) != 30 or local_header[:4] != b"PK\x03\x04" \
+                or struct.unpack_from("<HH", local_header, 6) != struct.unpack_from("<HH", central, position + 8) \
                 or struct.unpack_from("<HH", local_header, 10) != (modified_time, modified_date) \
                 or local_extra_size != 0 or local_name != central[position + 46:position + 46 + name_size]:
             raise ValueError("Android bundle local header metadata is not canonical")
@@ -362,6 +364,21 @@ def preflight_aab(descriptor: int) -> int:
             raise ValueError("Android bundle entry path contains control characters")
         if entry_name.startswith(b"/") or b"\\" in entry_name or any(part in (b"", b".", b"..") for part in entry_name.rstrip(b"/").split(b"/")):
             raise ValueError("Android bundle entry path is not a canonical relative path")
+        # Bind central-directory order and the representation metadata that is
+        # expected to survive deterministic re-signing. Expanded payload bytes
+        # and signature-control names are bound separately.
+        layout_fields = struct.unpack_from("<6H3I5H2I", central, position + 4)
+        layout_identity.update(str(parsed_entries).encode("ascii"))
+        layout_identity.update(b"\0")
+        layout_identity.update(entry_name)
+        layout_identity.update(b"\0")
+        layout_identity.update(b",".join(str(field).encode("ascii") for field in (
+            layout_fields[0], layout_fields[1], layout_fields[2],
+            layout_fields[3], layout_fields[4], layout_fields[5],
+            layout_fields[11], layout_fields[12], layout_fields[13],
+            layout_fields[14],
+        )))
+        layout_identity.update(b"\n")
         position += 46 + name_size + extra_size + comment_size
         parsed_entries += 1
         if parsed_entries > MAX_VERIFIER_ENTRIES or position > len(central):
@@ -382,7 +399,7 @@ def preflight_aab(descriptor: int) -> int:
                 raise ValueError("Android bundle exceeds its aggregate expanded-size limit")
     if count != total_entries:
         raise ValueError("Android bundle central-directory entry count changed during inspection")
-    return total_entries
+    return total_entries, layout_identity.hexdigest()
 
 
 def main() -> None:
@@ -403,7 +420,7 @@ def main() -> None:
             tool_descriptors.append(tool_descriptor)
             if observed_digest != expected_digest:
                 raise ValueError("Android verifier tool snapshot differs from its trusted bytes")
-        expected_aab_entries = preflight_aab(descriptor) if arguments.kind == "aab" else None
+        aab_preflight = preflight_aab(descriptor) if arguments.kind == "aab" else None
         held_path = f"/proc/self/fd/{descriptor}"
         result: dict[str, object] = {"size": size, "sha256": digest}
         result["payloadTreeSha256"], result["payloadEntryCount"], result["signatureControlEntries"] = canonical_zip_payload_digest(descriptor)
@@ -414,6 +431,8 @@ def main() -> None:
                 (descriptor, *tool_descriptors),
             )
         else:
+            assert aab_preflight is not None
+            expected_aab_entries, result["archiveLayoutSha256"] = aab_preflight
             result.update(inspect_jar_signatures(
                 [java_path, "-Duser.language=en", "-Duser.country=US", "sun.security.tools.jarsigner.Main", "-verify", "-verbose", "-certs", held_path],
                 (descriptor,),

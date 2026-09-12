@@ -22,7 +22,7 @@ import {
   validatePublicationRunDocument,
   validatePublicationRunUrl,
 } from '../day1-release-identity.mjs';
-import { assertCleanCompletion, assertCommitHasNoSymlinks, canonicalAndroidInput, canonicalManifestPath, canonicalReleaseNotesInput, canonicalWebInput, copyBoundedFile, deterministicAndroidRebuildProjection, parseCanonicalJson, parseSingleApkSigner, retainReleaseNotes, safeInput, toolchainTreeDigest, verificationRegistryReference } from '../day1-release-identity-cli.mjs';
+import { assertCleanCompletion, assertCommitHasNoSymlinks, canonicalAndroidInput, canonicalManifestPath, canonicalReleaseNotesInput, canonicalWebInput, copyBoundedFile, deterministicAndroidRebuildProjection, parseCanonicalJson, parseSingleApkSigner, retainReleaseNotes, safeInput, sanitizedErrorMessage, toolchainTreeDigest, verificationRegistryReference } from '../day1-release-identity-cli.mjs';
 
 const d = (character) => `sha256:${character.repeat(64)}`;
 const producerJson = (value) => `${JSON.stringify(value, null, 2)}\n`;
@@ -386,6 +386,13 @@ test('rejects broad credential forms before retained evidence can be built', (t)
   assert.throws(() => buildManifest(f.root, f.input), /potentially sensitive material/);
 });
 
+test('sanitizes bounded operator-visible collector failures', () => {
+  assert.equal(sanitizedErrorMessage(new Error('registry request failed')), 'registry request failed');
+  assert.equal(sanitizedErrorMessage(new Error('registry\nrequest\tfailed')), 'registry request failed');
+  assert.equal(sanitizedErrorMessage(new Error(`token=${'a'.repeat(24)}`)), 'Release identity operation failed; sensitive details were suppressed');
+  assert.equal(sanitizedErrorMessage(new Error('x'.repeat(4096))).length, 2048);
+});
+
 test('preserves expected Android identities and derives retained canonical paths', (t) => {
   const f = fixture(t);
   const expected = { apk: { size: 123, sha256: '8'.repeat(64) }, aab: { size: 456, sha256: '9'.repeat(64) } };
@@ -403,6 +410,8 @@ test('preserves expected Android identities and derives retained canonical paths
   assert.throws(() => canonicalAndroidInput(nested, signature), /single safe evidence-directory name/);
   const dot = { ...input, source: { ...input.source, candidateId: '.' }, retention: { ...input.retention, canonicalEvidenceDirectory: '/workspace/logs/settleora-release-candidates/.' } };
   assert.throws(() => canonicalAndroidInput(dot, signature), /single safe evidence-directory name/);
+  const tooLong = 'a'.repeat(256);
+  assert.throws(() => canonicalAndroidInput({ ...input, source: { ...input.source, candidateId: tooLong } }, signature), /single safe evidence-directory name/);
   const manifestPath = `${input.retention.canonicalEvidenceDirectory}/release-identity-manifest.json`;
   assert.equal(canonicalManifestPath(input, manifestPath), manifestPath);
   assert.throws(() => canonicalManifestPath(input, `${f.evidenceRoot}/manifest-copy.json`), /canonical retained candidate manifest/);
@@ -640,6 +649,7 @@ test('published schema requires role-specific image provenance', () => {
   assert.equal(schema.$defs.aabFile.allOf[1].properties.path.const, 'apps/mobile/build/app/outputs/bundle/release/app-release.aab');
   assert.equal(schema.properties.retention.properties.canonicalEvidenceDirectory.const, '/workspace/logs/settleora-release-candidates/{source.candidateId}');
   assert.equal(schema.properties.source.properties.candidateId.pattern, '^(?!.*\\.\\.)[A-Za-z0-9][A-Za-z0-9._-]*$');
+  assert.equal(schema.properties.source.properties.candidateId.maxLength, 255);
   assert.equal(schema.properties.generatedAt.format, 'date-time');
   const timestampPatterns = [
     /^[0-9]{4}-(?:(?:01|03|05|07|08|10|12)-(?:0[1-9]|[12][0-9]|3[01])|(?:04|06|09|11)-(?:0[1-9]|[12][0-9]|30)|02-(?:0[1-9]|1[0-9]|2[0-8]))T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$/,

@@ -207,6 +207,23 @@ class SealedAndroidVerifierTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "timestamps are not canonical"):
                 VERIFIER.preflight_aab(source.fileno())
 
+    def test_aab_layout_identity_binds_compression_and_entry_order(self):
+        def identity(compression: int, names: tuple[str, ...]) -> str:
+            archive = io.BytesIO()
+            with zipfile.ZipFile(archive, "w") as output:
+                for name in names:
+                    entry = zipfile.ZipInfo(name, date_time=(1981, 1, 1, 1, 1, 2))
+                    entry.compress_type = compression
+                    output.writestr(entry, b"identical expanded content")
+            with tempfile.TemporaryFile() as source:
+                source.write(archive.getvalue())
+                source.seek(0)
+                return VERIFIER.preflight_aab(source.fileno())[1]
+
+        baseline = identity(zipfile.ZIP_DEFLATED, ("a", "b"))
+        self.assertNotEqual(baseline, identity(zipfile.ZIP_STORED, ("a", "b")))
+        self.assertNotEqual(baseline, identity(zipfile.ZIP_DEFLATED, ("b", "a")))
+
     def test_apk_signing_block_rejects_unknown_ids(self):
         def artifact(identifiers):
             pairs = b"".join(struct.pack("<QI", 4, identifier) for identifier in identifiers)
