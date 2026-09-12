@@ -753,6 +753,32 @@ test('published schema requires role-specific image provenance', () => {
   ]);
 });
 
+test('repository Gradle verification metadata is checksum-only without trust bypasses', () => {
+  const metadata = readFileSync(new URL('../../../apps/mobile/android/gradle/verification-metadata.xml', import.meta.url), 'utf8');
+  assert.match(metadata, /<verify-metadata>true<\/verify-metadata>\s*<verify-signatures>false<\/verify-signatures>/u);
+  assert.doesNotMatch(metadata, /<(?:trusted-|ignored-|pgp|repository|key-server)/iu);
+  const componentOpenCount = [...metadata.matchAll(/<component\s/gu)].length;
+  const artifactOpenCount = [...metadata.matchAll(/<artifact\s/gu)].length;
+  const identities = new Set();
+  let observedComponents = 0;
+  let observedArtifacts = 0;
+  for (const component of metadata.matchAll(/<component group="([^"<>&]+)" name="([^"<>&]+)" version="([^"<>&]+)">([\s\S]*?)<\/component>/gu)) {
+    observedComponents += 1;
+    let body = component[4];
+    for (const artifact of body.matchAll(/<artifact name="([^"<>&]+)">\s*<sha256 value="([0-9a-f]{64})" origin="([^"<>&]+)"\/>\s*<\/artifact>/gu)) {
+      observedArtifacts += 1;
+      const identity = canonicalJson([component[1], component[2], component[3], artifact[1]]);
+      assert.equal(identities.has(identity), false);
+      identities.add(identity);
+      body = body.replace(artifact[0], '');
+    }
+    assert.equal(body.trim(), '');
+  }
+  assert.equal(observedComponents, componentOpenCount);
+  assert.equal(observedArtifacts, artifactOpenCount);
+  assert.ok(observedArtifacts > 1000);
+});
+
 test('retained manifest JSON requires one canonical unambiguous serialization', () => {
   const canonical = Buffer.from(canonicalJson({ identityDigest: 'a'.repeat(64), source: { commit: 'b'.repeat(40) } }));
   assert.deepEqual(parseCanonicalJson(canonical, 'Manifest'), {
