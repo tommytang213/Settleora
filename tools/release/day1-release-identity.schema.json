@@ -37,7 +37,7 @@
     "hexSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "sourcePair": { "type": "object", "additionalProperties": false, "required": ["commit", "tree"], "properties": { "commit": { "$ref": "#/$defs/sha40" }, "tree": { "$ref": "#/$defs/sha40" } } },
     "file": { "type": "object", "additionalProperties": false, "required": ["path", "size", "sha256"], "properties": { "path": { "type": "string" }, "size": { "type": "integer", "minimum": 1 }, "sha256": { "$ref": "#/$defs/hexSha256" } } },
-    "migrationFile": { "allOf": [{ "$ref": "#/$defs/file" }, { "properties": { "path": { "pattern": "^services/api/src/Settleora\\.Api/Persistence/Migrations/[0-9]{14}_[A-Za-z0-9_]+(?:\\.Designer)?\\.cs$" } } }] },
+    "migrationFile": { "allOf": [{ "$ref": "#/$defs/file" }, { "properties": { "path": { "pattern": "^(?!.*\\.\\.)services/api/src/Settleora\\.Api/Persistence/Migrations/(?:[A-Za-z0-9][A-Za-z0-9._+:-]*/)*[0-9]{14}_[A-Za-z0-9_]+(?:\\.Designer)?\\.cs$" } } }] },
     "apkFile": { "allOf": [{ "$ref": "#/$defs/file" }, { "properties": { "path": { "const": "apps/mobile/build/app/outputs/flutter-apk/app-release.apk" } } }] },
     "aabFile": { "allOf": [{ "$ref": "#/$defs/file" }, { "properties": { "path": { "const": "apps/mobile/build/app/outputs/bundle/release/app-release.aab" } } }] },
     "safeLabel": { "type": "string", "pattern": "^(?!.*\\.\\.)[A-Za-z0-9][A-Za-z0-9._/+:-]*$" },

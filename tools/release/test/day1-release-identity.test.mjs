@@ -94,7 +94,7 @@ function fixture(t) {
     dependencyLock: { path: 'apps/web-user/package-lock.json', sha256: sha256(lockBytes), lockfileVersion: 3 },
     buildTools: { node: 'v22.0.0', npm: '10.0.0', typescript: '5.0.0', vite: '7.0.0' },
     artifact: {
-      root: 'fixture-dist',
+      root: 'apps/web-user/dist',
       treeDigestAlgorithm: 'sha256(canonical-file-records-v1)',
       treeSha256: sha256(`${webRecord.sha256}  ${webRecord.size}  ${webRecord.path}\n`),
       fileCount: 1,
@@ -247,6 +247,11 @@ test('rejects web source and Android artifact mismatches', (t) => {
   writeFileSync(path.join(f.evidenceRoot, 'dist/index.html'), `${'author'}${'ization'} = ${'a'.repeat(16)}\n`);
   assert.throws(() => buildManifest(f.root, f.input), /Potential sensitive/);
   writeFileSync(path.join(f.evidenceRoot, 'dist/index.html'), '<!doctype html>\n');
+  web.artifact.root = 'fabricated/dist';
+  writeFileSync(f.paths.webManifestPath, JSON.stringify(web));
+  assert.throws(() => buildManifest(f.root, f.input), /User-web artifact root mismatch/);
+  web.artifact.root = 'apps/web-user/dist';
+  writeFileSync(f.paths.webManifestPath, JSON.stringify(web));
   const buildTools = web.buildTools;
   web.buildTools = {};
   writeFileSync(f.paths.webManifestPath, JSON.stringify(web));
@@ -402,6 +407,8 @@ test('safe inputs reject URL query credentials and completion rejects untracked 
   assert.throws(() => safeInput(oversizedInput, 'Evidence input'), /evidence size limit/);
   const encodedToken = write(f.evidenceRoot, 'encoded-token.json', '{"releaseNotes":{"source":"github_pat_\\u0041BCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"}}');
   assert.throws(() => safeInput(encodedToken, 'Evidence input'), /after JSON decoding/);
+  const quotedAssignment = write(f.evidenceRoot, 'quoted-assignment.json', '{"PASSWORD":"abcdefgh"}');
+  assert.throws(() => safeInput(quotedAssignment, 'Evidence input'), /potentially sensitive material/);
   assert.doesNotThrow(() => assertCleanCompletion(f.root, 'source changed'));
   write(f.root, 'untracked-after-registry.txt', 'race\n');
   assert.throws(() => assertCleanCompletion(f.root, 'source changed'), /source changed/);
@@ -604,7 +611,7 @@ test('published schema requires role-specific image provenance', () => {
   assert.equal(matchesTimestamp('2026-99-99T25:61:61Z'), false);
   assert.equal(schema.properties.migrations.properties.entries.items.properties.id.pattern, '^[0-9]{14}_[A-Za-z0-9_]+$');
   assert.equal(schema.properties.migrations.properties.entries.items.properties.files.items.$ref, '#/$defs/migrationFile');
-  assert.equal(schema.$defs.migrationFile.allOf[1].properties.path.pattern, '^services/api/src/Settleora\\.Api/Persistence/Migrations/[0-9]{14}_[A-Za-z0-9_]+(?:\\.Designer)?\\.cs$');
+  assert.equal(schema.$defs.migrationFile.allOf[1].properties.path.pattern, '^(?!.*\\.\\.)services/api/src/Settleora\\.Api/Persistence/Migrations/(?:[A-Za-z0-9][A-Za-z0-9._+:-]*/)*[0-9]{14}_[A-Za-z0-9_]+(?:\\.Designer)?\\.cs$');
   assert.equal(schema.$defs.note.properties.source.$ref, '#/$defs/safeLabel');
   assert.equal(schema.$defs.note.properties.candidateSummary.$ref, '#/$defs/releaseNoteSummary');
   assert.equal(schema.$defs.releaseNoteSummary.minLength, 1);
@@ -622,6 +629,22 @@ test('published schema requires role-specific image provenance', () => {
     { role: 'postgres', minimum: 1, maximum: 1 },
     { role: 'rabbitmq', minimum: 1, maximum: 1 },
   ]);
+});
+
+test('direct manifest validation rejects cross-role image fields and unsafe release summaries', (t) => {
+  const f = fixture(t);
+  const manifest = buildManifest(f.root, f.input);
+  manifest.apiImage.name = 'api';
+  manifest.identityDigest = computeIdentityDigest(manifest);
+  assert.throws(() => validateManifest(manifest, f.root), /apiImage has unexpected properties/);
+  delete manifest.apiImage.name;
+  manifest.dependencyImages[0].ociRevision = f.commit;
+  manifest.identityDigest = computeIdentityDigest(manifest);
+  assert.throws(() => validateManifest(manifest, f.root), /dependencyImages\.caddy has unexpected properties/);
+  delete manifest.dependencyImages[0].ociRevision;
+  manifest.releaseNotes.candidateSummary = 'Day 1 candidate: web & Android';
+  manifest.identityDigest = computeIdentityDigest(manifest);
+  assert.throws(() => validateManifest(manifest, f.root), /bounded ordinary single-line release-summary text/);
 });
 
 test('release execution uses protected system runtimes and bypasses user plugin configuration', () => {

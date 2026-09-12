@@ -21,6 +21,7 @@ const SHA40 = /^[0-9a-f]{40}$/u;
 const SHA256 = /^sha256:[0-9a-f]{64}$/u;
 const HEX256 = /^[0-9a-f]{64}$/u;
 const SAFE_LABEL = /^[A-Za-z0-9][A-Za-z0-9._/+:-]*$/u;
+const RELEASE_NOTE_SUMMARY = /^[A-Za-z0-9][A-Za-z0-9 .,'()_+/-]*$/u;
 const MIGRATION_FILE = /^(\d{14}_[A-Za-z0-9_]+)\.cs$/u;
 const DEPENDENCY_COMPOSE_PATH = 'infra/docker-compose.truenas-lan.image.yml';
 const runtimeMigrationIdsSymbol = Symbol('settleora.compiled-runtime-migration-ids');
@@ -30,7 +31,7 @@ const SENSITIVE_MATERIAL_PATTERNS = [
   /\bAIza[0-9A-Za-z_-]{24,}\b/u,
   /\b(?:gh(?:p|o|u|s|r)_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{12,})\b/u,
   /\bxox[baprs]-[A-Za-z0-9-]{20,}\b/u,
-  /\b(?:(?:[A-Za-z_][A-Za-z0-9_]*)?(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTHORIZATION)|authorization|x-goog-api-key)\b\s*[:=]\s*(?![A-Za-z_$][A-Za-z0-9_$]*\.)["']?[A-Za-z0-9._~+/-]{8,}/iu,
+  /\b(?:(?:[A-Za-z_][A-Za-z0-9_]*)?(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTHORIZATION)|authorization|x-goog-api-key)\b["']?\s*[:=]\s*(?![A-Za-z_$][A-Za-z0-9_$]*\.)["']?[A-Za-z0-9._~+/-]{8,}/iu,
   /\bbearer\s+[A-Za-z0-9._~+/-]{12,}/iu,
   /["'](?:client_secret|private_key|refresh_token)["']\s*:/iu,
   /(?::_authToken|_auth|npmAuthToken)\s*[:=]\s*[^\s"']+/iu,
@@ -174,6 +175,14 @@ function publicText(value, label) {
   string(value, label);
   if (/(?:\/home\/|\/tmp\/|\\Users\\)/u.test(value) || containsSensitiveMaterial(value)) {
     fail(`${label} contains host-specific or potentially sensitive material`);
+  }
+  return value;
+}
+
+function releaseNoteSummary(value, label) {
+  publicText(value, label);
+  if (value.length > 500 || !RELEASE_NOTE_SUMMARY.test(value)) {
+    fail(`${label} must be bounded ordinary single-line release-summary text`);
   }
   return value;
 }
@@ -381,7 +390,10 @@ export function collectMigrations(repoRoot, expectedDigest, capturedCommit = git
 }
 
 function validateImage(image, label, sourceCommit, expectedTag, expectedRepository) {
-  assertKeys(image, ['repository', 'configuredTag', 'indexDigest', 'platformDigest', 'os', 'architecture', 'name', 'sourceComposePath', 'ociRevision', 'publicationRunUrl'], label, ['repository', 'configuredTag', 'indexDigest', 'platformDigest', 'os', 'architecture']);
+  const roleKeys = sourceCommit === undefined
+    ? ['repository', 'configuredTag', 'indexDigest', 'platformDigest', 'os', 'architecture', 'name', 'sourceComposePath']
+    : ['repository', 'configuredTag', 'indexDigest', 'platformDigest', 'os', 'architecture', 'ociRevision', 'publicationRunUrl'];
+  assertKeys(image, roleKeys, label);
   string(image.repository, `${label}.repository`);
   string(image.configuredTag, `${label}.configuredTag`);
   digest(image.indexDigest, `${label}.indexDigest`);
@@ -441,7 +453,7 @@ function collectWeb(repoRoot, input, source) {
   if (manifest.artifact.treeDigestAlgorithm !== 'sha256(canonical-file-records-v1)' || !Array.isArray(manifest.artifact.files)) {
     fail('User-web canonical file records are required');
   }
-  safeLabel(manifest.artifact.root, 'userWeb artifact root');
+  if (safeLabel(manifest.artifact.root, 'userWeb artifact root') !== 'apps/web-user/dist') fail('User-web artifact root mismatch');
   if (!manifest.buildTools || typeof manifest.buildTools !== 'object' || manifest.publicArtifactChecks?.symlinksRejected !== true || manifest.publicArtifactChecks?.sourceMapsRejected !== true || manifest.publicArtifactChecks?.sensitiveMaterialScan !== 'passed') {
     fail('User-web canonical build/security evidence is incomplete');
   }
@@ -547,7 +559,7 @@ function collectAndroid(repoRoot, input, source) {
 function collectReleaseNotes(input) {
   const file = exactRegularFile(input.path, 'release-note evidence', input.evidenceRoot);
   safeLabel(input.source, 'releaseNotes.source');
-  publicText(input.candidateSummary, 'releaseNotes.candidateSummary');
+  releaseNoteSummary(input.candidateSummary, 'releaseNotes.candidateSummary');
   if (file.size === 0) fail('Release-note evidence must not be empty');
   if (containsSensitiveMaterial(file.bytes.toString('utf8'))) fail('Release-note evidence contains potentially sensitive material');
   return { source: input.source, sha256: sha256(file.bytes), size: file.size, candidateSummary: input.candidateSummary };
@@ -665,7 +677,7 @@ export function validateManifest(manifest, repoRoot) {
   safeLabel(manifest.releaseNotes.source, 'releaseNotes.source');
   hexDigest(manifest.releaseNotes.sha256, 'releaseNotes.sha256');
   if (!Number.isSafeInteger(manifest.releaseNotes.size) || manifest.releaseNotes.size < 1) fail('Release-note size is invalid');
-  publicText(manifest.releaseNotes.candidateSummary, 'releaseNotes.candidateSummary');
+  releaseNoteSummary(manifest.releaseNotes.candidateSummary, 'releaseNotes.candidateSummary');
   assertKeys(manifest.rollback, ['sourceCommit', 'apiImage', 'artifactAvailabilityProvesDatabaseSchemaFileRollbackSafety', 'safetyCaveat'], 'rollback');
   if (manifest.rollback.safetyCaveat !== 'Artifact availability does not prove database, schema, or file rollback safety.') fail('Rollback safety caveat text is required');
   validateImage(manifest.rollback.apiImage, 'rollback.apiImage', manifest.rollback.sourceCommit, undefined, apiRepository);
