@@ -15,6 +15,7 @@ import { assertTrackedWorktreeMatchesHead, collectFiles, scanPublicArtifact } fr
 
 export const SCHEMA = 'settleora.day1-release-identity.v1';
 export const DIGEST_ALGORITHM = 'sha256(canonical-json-v1;excludes=generatedAt,identityDigest)';
+export const RETENTION_DIRECTORY_TEMPLATE = '/workspace/logs/settleora-release-candidates/{source.candidateId}';
 
 const SHA40 = /^[0-9a-f]{40}$/u;
 const SHA256 = /^sha256:[0-9a-f]{64}$/u;
@@ -415,6 +416,11 @@ function configuredImage(repoRoot, sourcePath, service, capturedCommit, requireW
 function collectWeb(repoRoot, input, source) {
   const file = exactRegularFile(input.manifestPath, 'userWeb manifest', input.evidenceRoot);
   const manifest = JSON.parse(file.bytes);
+  assertKeys(manifest, ['schema', 'source', 'dependencyLock', 'buildTools', 'artifact', 'publicArtifactChecks'], 'userWeb retained manifest');
+  assertKeys(manifest.source, ['commit', 'tree'], 'userWeb retained source');
+  assertKeys(manifest.dependencyLock, ['path', 'sha256', 'lockfileVersion'], 'userWeb retained dependencyLock');
+  assertKeys(manifest.artifact, ['root', 'treeDigestAlgorithm', 'treeSha256', 'fileCount', 'totalBytes', 'files'], 'userWeb retained artifact');
+  assertKeys(manifest.publicArtifactChecks, ['symlinksRejected', 'sourceMapsRejected', 'sensitiveMaterialScan'], 'userWeb retained publicArtifactChecks');
   if (manifest.schema !== 'settleora.user-web-dist-manifest.v1') fail('Unsupported user-web manifest schema');
   if (manifest.source?.commit !== source.commit || manifest.source?.tree !== source.tree) fail('User-web source/tree mismatch');
   const lock = exactTrackedFile(repoRoot, 'apps/web-user/package-lock.json', 'userWeb dependency lock', source.commit);
@@ -449,6 +455,7 @@ function collectWeb(repoRoot, input, source) {
   const canonicalFiles = collectFiles(distRoot);
   scanPublicArtifact(canonicalFiles);
   const declared = manifest.artifact.files.map((entry) => {
+    assertKeys(entry, ['path', 'size', 'sha256'], 'userWeb retained artifact file');
     safeLabel(entry.path, 'userWeb artifact path');
     return entry;
   }).sort((left, right) => Buffer.from(left.path).compare(Buffer.from(right.path)));
@@ -669,7 +676,7 @@ export function validateManifest(manifest, repoRoot) {
     if (error instanceof Error && error.message === 'Rollback source must be prior to the candidate source') throw error;
     fail('Rollback source must be an existing prior ancestor of the candidate source');
   }
-  if (manifest.retention?.canonicalEvidenceDirectory !== `/workspace/logs/settleora-release-candidates/${manifest.source.candidateId}`) {
+  if (manifest.retention?.canonicalEvidenceDirectory !== RETENTION_DIRECTORY_TEMPLATE) {
     fail('Retention directory must exactly bind the candidate ID under the approved external root');
   }
   assertKeys(manifest.retention, ['canonicalEvidenceDirectory', 'policy', 'apiRegistryIdentity'], 'retention');
@@ -710,6 +717,9 @@ function assertInput(input) {
 export function buildManifest(repoRoot, input) {
   assertInput(input);
   const source = collectSource(repoRoot, input.source);
+  if (input.retention.canonicalEvidenceDirectory !== `/workspace/logs/settleora-release-candidates/${source.candidateId}`) {
+    fail('Retention input directory must exactly bind the candidate ID under the approved external root');
+  }
   const platform = { os: string(input.platform?.os, 'platform.os'), architecture: string(input.platform?.architecture, 'platform.architecture') };
   const apiRepository = 'ghcr.io/tommytang213/settleora-api';
   const apiImage = validateImage(withPlatform(input.apiImage, platform, 'apiImage'), 'apiImage', source.commit, undefined, apiRepository);
@@ -751,7 +761,7 @@ export function buildManifest(repoRoot, input) {
       safetyCaveat: 'Artifact availability does not prove database, schema, or file rollback safety.',
     },
     retention: {
-      canonicalEvidenceDirectory: string(input.retention.canonicalEvidenceDirectory, 'retention.canonicalEvidenceDirectory'),
+      canonicalEvidenceDirectory: RETENTION_DIRECTORY_TEMPLATE,
       policy: publicText(input.retention.policy, 'retention.policy'),
       apiRegistryIdentity: publicText(input.retention.apiRegistryIdentity, 'retention.apiRegistryIdentity'),
     },

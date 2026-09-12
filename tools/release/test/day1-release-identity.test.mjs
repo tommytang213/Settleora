@@ -253,6 +253,11 @@ test('rejects web source and Android artifact mismatches', (t) => {
   assert.throws(() => buildManifest(f.root, f.input), /missing required properties/);
   web.buildTools = buildTools;
   writeFileSync(f.paths.webManifestPath, JSON.stringify(web));
+  web.unbound = true;
+  writeFileSync(f.paths.webManifestPath, JSON.stringify(web));
+  assert.throws(() => buildManifest(f.root, f.input), /unexpected properties/);
+  delete web.unbound;
+  writeFileSync(f.paths.webManifestPath, JSON.stringify(web));
   const expected = { apk: { size: 1, sha256: '8'.repeat(64) } };
   assert.throws(() => buildManifest(f.root, { ...f.input, android: { ...f.input.android, expected } }), /APK identity mismatch/);
   const expectedAab = { aab: { size: 1, sha256: '8'.repeat(64) } };
@@ -487,6 +492,12 @@ test('direct validation rejects empty migrations, noncanonical artifacts and unp
   const wrongPath = resign({ ...original, android: { ...original.android, apk: { ...original.android.apk, path: 'elsewhere.apk' } } });
   assert.throws(() => validateManifest(wrongPath, f.root), /canonical release outputs/);
 
+  const wrongRetention = resign({
+    ...original,
+    retention: { ...original.retention, canonicalEvidenceDirectory: '/workspace/logs/settleora-release-candidates/different-candidate' },
+  });
+  assert.throws(() => validateManifest(wrongRetention, f.root), /exactly bind the candidate ID/);
+
   const nonexistent = '9'.repeat(40);
   const wrongRollback = resign({
     ...original,
@@ -525,6 +536,11 @@ test('published schema requires role-specific image provenance', () => {
     { base: '#/$defs/dependencyImage', role: 'rabbitmq', repository: 'docker.io/library/rabbitmq' },
   ]);
   assert.equal(schema.$defs.apiImage.properties.repository.const, 'ghcr.io/tommytang213/settleora-api');
+  assert.equal(schema.properties.android.properties.apk.$ref, '#/$defs/apkFile');
+  assert.equal(schema.properties.android.properties.aab.$ref, '#/$defs/aabFile');
+  assert.equal(schema.$defs.apkFile.allOf[1].properties.path.const, 'apps/mobile/build/app/outputs/flutter-apk/app-release.apk');
+  assert.equal(schema.$defs.aabFile.allOf[1].properties.path.const, 'apps/mobile/build/app/outputs/bundle/release/app-release.aab');
+  assert.equal(schema.properties.retention.properties.canonicalEvidenceDirectory.const, '/workspace/logs/settleora-release-candidates/{source.candidateId}');
   assert.equal(schema.properties.source.properties.candidateId.pattern, '^(?!.*\\.\\.)[A-Za-z0-9][A-Za-z0-9._-]*$');
   assert.deepEqual(schema.properties.userWeb.required, ['schema', 'source', 'dependencyLock', 'buildTools', 'artifact']);
   assert.equal(schema.$defs.dependencyImage.properties.sourceComposePath.const, 'infra/docker-compose.truenas-lan.image.yml');
@@ -555,6 +571,8 @@ test('release execution uses protected system runtimes and bypasses user plugin 
   assert.doesNotMatch(cliSource, /\['fsck'/);
   assert.match(cliSource, /GH_CONFIG_DIR: '\/nonexistent'/);
   assert.match(cliSource, /BUILDX_CONFIG: path\.join\(dockerConfig, 'buildx'\)/);
+  assert.match(cliSource, /const configuredRecord = inspectRecord\(configuredReference\)/);
+  assert.match(cliSource, /validateRegistryDocument\(image, configuredRecord\.manifest/);
   assert.match(cliSource, /HOME: npmHome/);
   assert.match(cliSource, /npm_config_userconfig: npmUserConfig/);
   assert.match(cliSource, /ImportDirectoryBuildProps=false/);

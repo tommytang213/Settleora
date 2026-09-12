@@ -10,6 +10,7 @@ import {
   canonicalJson,
   computeIdentityDigest,
   containsSensitiveMaterial,
+  RETENTION_DIRECTORY_TEMPLATE,
   validateCandidateId,
   validatePublicationJobDocument,
   validatePublicationJobLog,
@@ -212,9 +213,11 @@ function verifyLiveRegistry(input, retained = false) {
   if (input.registryResolutionMode !== 'live-read-only') throw new Error('CLI requires registryResolutionMode=live-read-only');
   const platform = input.platform;
   const verify = (image, label, revision) => {
-    const reference = retained ? `${image.repository}@${image.indexDigest}` : registryReference(image);
-    const record = inspectRecord(reference);
-    validateRegistryDocument(image, record.manifest, platform, label);
+    const configuredReference = registryReference(image);
+    const configuredRecord = inspectRecord(configuredReference);
+    validateRegistryDocument(image, configuredRecord.manifest, platform, `${label} configured tag`);
+    const reference = retained ? `${image.repository}@${image.indexDigest}` : configuredReference;
+    if (retained) validateRegistryDocument(image, inspectRecord(reference).manifest, platform, `${label} immutable digest`);
     const selected = inspectRecord(`${image.repository}@${image.platformDigest}`);
     validateSelectedPlatformDocument(image, selected, platform, label);
     if (revision) {
@@ -965,7 +968,7 @@ function safeOutput(input, candidate) {
 function canonicalCandidateDirectory(input) {
   const candidateId = validateCandidateId(input.source?.candidateId);
   const expected = `/workspace/logs/settleora-release-candidates/${candidateId}`;
-  if (input.retention?.canonicalEvidenceDirectory !== expected) throw new Error('Retention directory must exactly bind the candidate ID before collection');
+  if (![expected, RETENTION_DIRECTORY_TEMPLATE].includes(input.retention?.canonicalEvidenceDirectory)) throw new Error('Retention directory must exactly bind the candidate ID before collection');
   return expected;
 }
 
