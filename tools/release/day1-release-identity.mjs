@@ -567,6 +567,20 @@ function collectAndroid(repoRoot, input, source) {
       fail(`Android ${name} toolchain inventory is invalid`);
     }
   }
+  const allowedFlutterExclusion = /^(?:\.git|bin\/cache\/lockfile|packages\/flutter_tools\/gradle\/\.gradle|bin\/cache\/[A-Za-z0-9._-]+\.(?:stamp|realm))$/u;
+  if (provenance.toolchains.flutter.excludedPaths.some((entry) => !allowedFlutterExclusion.test(entry))
+    || !['.git', 'bin/cache/lockfile', 'packages/flutter_tools/gradle/.gradle'].every((entry) => provenance.toolchains.flutter.excludedPaths.includes(entry))) {
+    fail('Android Flutter toolchain exclusions exceed the collector-owned allowlist');
+  }
+  if (canonicalJson(provenance.toolchains.android.excludedPaths) !== canonicalJson(['.knownPackages'])) {
+    fail('Android SDK toolchain exclusions exceed the collector-owned allowlist');
+  }
+  if (canonicalJson(provenance.dependencyCaches.gradleModules.excludedPaths) !== canonicalJson(['gc.properties', 'modules-2.lock'])) {
+    fail('Android Gradle-cache exclusions exceed the collector-owned allowlist');
+  }
+  if (provenance.dependencyCaches.pub.excludedPaths.some((entry) => !/^hosted\/pub\.dev\/[A-Za-z0-9_.+-]+\/android\/\.cxx$/u.test(entry))) {
+    fail('Android pub-cache exclusions exceed the collector-owned build-directory allowlist');
+  }
   const verificationMetadata = exactTrackedFile(repoRoot, 'apps/mobile/android/gradle/verification-metadata.xml', 'Gradle verification metadata', commit);
   if (hexDigest(provenance.gradleVerificationMetadataSha256, 'Gradle verification metadata SHA-256') !== sha256(verificationMetadata.bytes)) {
     fail('Android Gradle verification metadata source mismatch');

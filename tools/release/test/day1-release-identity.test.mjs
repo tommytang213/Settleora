@@ -110,12 +110,12 @@ function fixture(t) {
     schema: 'settleora.android-exact-source-build.v1', source: { commit, tree },
     commands: ['flutter pub get (dependency prefetch)', 'flutter build apk --release --no-pub (dependency prefetch)', 'flutter clean (offline)', 'flutter pub get --offline', 'flutter build apk --release --no-pub (offline)', 'flutter build appbundle --release --no-pub (offline)'],
     toolchains: {
-      flutter: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: '8'.repeat(64), excludedPaths: ['.git', 'bin/cache/runtime.stamp'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
+      flutter: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: '8'.repeat(64), excludedPaths: ['.git', 'bin/cache/lockfile', 'bin/cache/runtime.stamp', 'packages/flutter_tools/gradle/.gradle'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
       android: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: '9'.repeat(64), excludedPaths: ['.knownPackages'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
     },
     dependencyCaches: {
       pub: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: 'a'.repeat(64), excludedPaths: [], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
-      gradleModules: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: 'b'.repeat(64), excludedPaths: [], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
+      gradleModules: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: 'b'.repeat(64), excludedPaths: ['gc.properties', 'modules-2.lock'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
     },
     gradleVerificationMetadataSha256: sha256(readFileSync(gradleVerificationMetadata)),
     verificationTools: { apksignerJarSha256: 'c'.repeat(64) },
@@ -300,6 +300,20 @@ test('rejects web source and Android artifact mismatches', (t) => {
   provenance.source.tree = '6'.repeat(40);
   writeFileSync(f.input.android.buildProvenancePath, canonicalJson(provenance));
   assert.throws(() => buildManifest(f.root, f.input), /Android build provenance source mismatch/);
+});
+
+test('rejects Android provenance that broadens collector-owned cache exclusions', (t) => {
+  const f = fixture(t);
+  const provenance = JSON.parse(readFileSync(f.input.android.buildProvenancePath));
+  provenance.dependencyCaches.gradleModules.excludedPaths = ['files-2.1', 'gc.properties', 'modules-2.lock'];
+  writeFileSync(f.input.android.buildProvenancePath, canonicalJson(provenance));
+  assert.throws(() => buildManifest(f.root, f.input), /Gradle-cache exclusions exceed/);
+
+  provenance.dependencyCaches.gradleModules.excludedPaths = ['gc.properties', 'modules-2.lock'];
+  provenance.dependencyCaches.pub.excludedPaths = ['hosted/pub.dev/package-1.0.0/lib'];
+  provenance.toolchainMutationGuard.pubExcludedBuildPaths = provenance.dependencyCaches.pub.excludedPaths;
+  writeFileSync(f.input.android.buildProvenancePath, canonicalJson(provenance));
+  assert.throws(() => buildManifest(f.root, f.input), /pub-cache exclusions exceed/);
 });
 
 test('rejects hidden tracked-source changes and nonconforming migration sources', (t) => {

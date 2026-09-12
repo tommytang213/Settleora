@@ -8,6 +8,7 @@ import pathlib
 import struct
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 import zipfile
 
 
@@ -19,6 +20,27 @@ SPEC.loader.exec_module(VERIFIER)
 
 
 class SealedAndroidVerifierTests(unittest.TestCase):
+    def test_repository_gradle_verification_metadata_is_checksum_only(self):
+        metadata_path = pathlib.Path(__file__).parents[3] / "apps/mobile/android/gradle/verification-metadata.xml"
+        root = ET.parse(metadata_path).getroot()
+        namespace = {"v": "https://schema.gradle.org/dependency-verification"}
+        configuration = root.find("v:configuration", namespace)
+        self.assertIsNotNone(configuration)
+        self.assertEqual(configuration.findtext("v:verify-metadata", namespaces=namespace), "true")
+        self.assertEqual(configuration.findtext("v:verify-signatures", namespaces=namespace), "false")
+        self.assertEqual({child.tag.rsplit("}", 1)[-1] for child in configuration}, {"verify-metadata", "verify-signatures"})
+        identities = set()
+        for component in root.findall("v:components/v:component", namespace):
+            for artifact in component.findall("v:artifact", namespace):
+                identity = (component.get("group"), component.get("name"), component.get("version"), artifact.get("name"))
+                self.assertNotIn(identity, identities)
+                identities.add(identity)
+                checksums = list(artifact)
+                self.assertEqual(len(checksums), 1)
+                self.assertEqual(checksums[0].tag.rsplit("}", 1)[-1], "sha256")
+                self.assertRegex(checksums[0].get("value", ""), r"^[0-9a-f]{64}$")
+        self.assertGreater(len(identities), 1000)
+
     def test_aab_signature_control_digest_rejects_resigned_extra_metadata(self):
         payload = b"exact payload"
         payload_digest = base64.b64encode(hashlib.sha256(payload).digest()).decode("ascii")
