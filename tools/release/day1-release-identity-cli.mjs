@@ -44,9 +44,15 @@ function protectedSystemCommand(candidate, expectedName) {
 }
 
 const gitCommand = protectedSystemCommand('/usr/bin/git', 'git');
-const buildxCommand = protectedSystemCommand('/usr/libexec/docker/cli-plugins/docker-buildx', 'docker-buildx');
-const ghCommand = protectedSystemCommand('/usr/bin/gh', 'gh');
-const pythonCommand = protectedSystemCommand('/usr/bin/python3', 'python3');
+let buildxCommand;
+let ghCommand;
+let pythonCommand;
+const releaseCommand = (name) => {
+  if (name === 'buildx') return buildxCommand ??= protectedSystemCommand('/usr/libexec/docker/cli-plugins/docker-buildx', 'docker-buildx');
+  if (name === 'gh') return ghCommand ??= protectedSystemCommand('/usr/bin/gh', 'gh');
+  if (name === 'python') return pythonCommand ??= protectedSystemCommand('/usr/bin/python3', 'python3');
+  throw new Error(`Unknown release command ${name}`);
+};
 // Import-only unit-test execution must remain portable to hosted runners whose
 // setup-node installation has no /usr/bin/node. Direct collector execution is
 // still fail-closed on the selected runtime and every ancestor.
@@ -152,7 +158,7 @@ function inspect(reference, format) {
     if (!metadata.isDirectory() || metadata.uid !== process.getuid() || (metadata.mode & 0o077) !== 0) throw new Error('Private Buildx configuration directory could not be established');
     const dockerConfig = path.join(home, '.docker');
     mkdirSync(dockerConfig, { mode: 0o700 });
-    return JSON.parse(execFileSync(buildxCommand, ['imagetools', 'inspect', reference, '--format', format], {
+    return JSON.parse(execFileSync(releaseCommand('buildx'), ['imagetools', 'inspect', reference, '--format', format], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', HOME: home, DOCKER_CONFIG: dockerConfig, BUILDX_CONFIG: path.join(dockerConfig, 'buildx') },
@@ -185,7 +191,7 @@ function verifyLiveRegistry(input, retained = false) {
     const reference = verify(image, label, sourceCommit);
     const publication = validatePublicationRunUrl(image.publicationRunUrl, sourceCommit);
     const ghEnvironment = { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', GH_HOST: 'github.com', GH_CONFIG_DIR: '/nonexistent', ...(process.env.GH_TOKEN ? { GH_TOKEN: process.env.GH_TOKEN } : {}) };
-    const ghApi = (endpoint, options = {}) => execFileSync(ghCommand, ['api', '--hostname', 'github.com', endpoint], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: ghEnvironment, ...options });
+    const ghApi = (endpoint, options = {}) => execFileSync(releaseCommand('gh'), ['api', '--hostname', 'github.com', endpoint], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: ghEnvironment, ...options });
     const run = JSON.parse(ghApi(`repos/tommytang213/Settleora/actions/runs/${publication.runId}`));
     validatePublicationRunDocument(publication, run, sourceCommit);
     const jobs = JSON.parse(ghApi(`repos/tommytang213/Settleora/actions/runs/${publication.runId}/jobs?per_page=100`));
@@ -500,8 +506,9 @@ function sealedAndroidVerification(kind, artifact, tools, javaPath) {
   const toolDescriptors = [];
   let result;
   try {
+    const selectedPythonCommand = releaseCommand('python');
     if (!pythonRuntimeChecked) {
-      const pythonRuntimeName = path.basename(realpathSync(pythonCommand));
+      const pythonRuntimeName = path.basename(realpathSync(selectedPythonCommand));
       if (!/^python3\.[0-9]+$/u.test(pythonRuntimeName)) throw new Error('System Python runtime identity is invalid');
       assertSystemRuntime(`/usr/lib/${pythonRuntimeName}`, 'system Python standard library');
       pythonRuntimeChecked = true;
@@ -517,7 +524,7 @@ function sealedAndroidVerification(kind, artifact, tools, javaPath) {
       if (!toolOpened.isFile() || toolOpened.dev !== tool.dev || toolOpened.ino !== tool.ino || toolCurrent.isSymbolicLink() || toolCurrent.dev !== tool.dev || toolCurrent.ino !== tool.ino || realpathSync(tool.path) !== tool.path) throw new Error(`Android ${kind.toUpperCase()} verifier executable changed before use`);
       toolDescriptors.push(toolDescriptor);
     }
-    result = JSON.parse(execFileSync(pythonCommand, ['-I', '-S', '-', kind, javaPath, ...tools.map((tool) => tool.sha256)], {
+    result = JSON.parse(execFileSync(selectedPythonCommand, ['-I', '-S', '-', kind, javaPath, ...tools.map((tool) => tool.sha256)], {
       encoding: 'utf8',
       input: committedVerifierHelper,
       stdio: ['pipe', 'pipe', 'pipe', descriptor, ...toolDescriptors],

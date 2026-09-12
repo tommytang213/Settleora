@@ -423,6 +423,22 @@ test('direct validation rejects empty migrations, noncanonical artifacts and unp
   });
   assert.throws(() => validateManifest(emptyMigrations, f.root), /non-empty array/);
 
+  const fictitiousMigrations = structuredClone(original);
+  fictitiousMigrations.migrations.entries[0].files[0].sha256 = '7'.repeat(64);
+  fictitiousMigrations.migrations.setSha256 = sha256(canonicalJson(fictitiousMigrations.migrations.entries));
+  fictitiousMigrations.identityDigest = computeIdentityDigest(fictitiousMigrations);
+  assert.throws(() => validateManifest(fictitiousMigrations, f.root), /captured source commit/);
+
+  const wrongDependencyTag = structuredClone(original);
+  wrongDependencyTag.dependencyImages.find((image) => image.name === 'postgres').configuredTag = 'postgres:15-alpine';
+  wrongDependencyTag.identityDigest = computeIdentityDigest(wrongDependencyTag);
+  assert.throws(() => validateManifest(wrongDependencyTag, f.root), /configured tag mismatch/);
+
+  const wrongComposePath = structuredClone(original);
+  wrongComposePath.dependencyImages[0].sourceComposePath = 'another-compose.yml';
+  wrongComposePath.identityDigest = computeIdentityDigest(wrongComposePath);
+  assert.throws(() => validateManifest(wrongComposePath, f.root), /source Compose path mismatch/);
+
   const wrongPath = resign({ ...original, android: { ...original.android, apk: { ...original.android.apk, path: 'elsewhere.apk' } } });
   assert.throws(() => validateManifest(wrongPath, f.root), /canonical release outputs/);
 
@@ -445,6 +461,15 @@ test('direct validation rejects empty migrations, noncanonical artifacts and unp
     android: { ...original.android, source: { ...original.android.source, tree: '7'.repeat(40) } },
   });
   assert.throws(() => validateManifest(wrongTree, f.root), /does not belong to the source commit/);
+});
+
+test('published schema requires role-specific image provenance', () => {
+  const schema = JSON.parse(readFileSync(new URL('../day1-release-identity.schema.json', import.meta.url), 'utf8'));
+  assert.deepEqual(schema.$defs.apiImage.required, ['repository', 'configuredTag', 'indexDigest', 'platformDigest', 'os', 'architecture', 'ociRevision', 'publicationRunUrl']);
+  assert.deepEqual(schema.$defs.dependencyImage.required, ['name', 'repository', 'configuredTag', 'indexDigest', 'platformDigest', 'os', 'architecture', 'sourceComposePath']);
+  assert.equal(schema.properties.apiImage.$ref, '#/$defs/apiImage');
+  assert.equal(schema.properties.rollback.properties.apiImage.$ref, '#/$defs/apiImage');
+  assert.equal(schema.properties.dependencyImages.items.$ref, '#/$defs/dependencyImage');
 });
 
 test('release execution uses protected system runtimes and bypasses user plugin configuration', () => {

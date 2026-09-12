@@ -21,6 +21,7 @@ const SHA256 = /^sha256:[0-9a-f]{64}$/u;
 const HEX256 = /^[0-9a-f]{64}$/u;
 const SAFE_LABEL = /^[A-Za-z0-9][A-Za-z0-9._/+:-]*$/u;
 const MIGRATION_FILE = /^(\d{14}_[A-Za-z0-9_]+)\.cs$/u;
+const DEPENDENCY_COMPOSE_PATH = 'infra/docker-compose.truenas-lan.image.yml';
 const runtimeMigrationIdsSymbol = Symbol('settleora.compiled-runtime-migration-ids');
 const SENSITIVE_MATERIAL_PATTERNS = [
   /-----BEGIN [^-\r\n]*PRIVATE KEY[^-\r\n]*-----/u,
@@ -239,19 +240,24 @@ function git(root, args) {
   return execFileSync('/usr/bin/git', ['--no-replace-objects', ...args], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 }
 
-function exactTrackedFile(repoRoot, relative, label, sourceCommit) {
+function committedTrackedFile(repoRoot, relative, label, sourceCommit) {
   safeLabel(relative, `${label} path`);
   sha40(sourceCommit, `${label} source commit`);
-  const file = exactRegularFile(path.join(repoRoot, relative), label, repoRoot);
   const committed = execFileSync('/usr/bin/git', ['--no-replace-objects', 'show', `${sourceCommit}:${relative}`], {
     cwd: repoRoot,
     stdio: ['ignore', 'pipe', 'pipe'],
-    maxBuffer: Math.max(file.size + 1024 * 1024, 2 * 1024 * 1024),
+    maxBuffer: 258 * 1024 * 1024,
   });
   const oid = git(repoRoot, ['rev-parse', `${sourceCommit}:${relative}`]);
   const actualOid = createHash('sha1').update(`blob ${committed.length}\0`).update(committed).digest('hex');
   if (actualOid !== oid) fail(`${label} committed Git blob identity mismatch`);
-  if (!file.bytes.equals(committed)) fail(`${label} does not match the captured source blob`);
+  return { bytes: committed, size: committed.length };
+}
+
+function exactTrackedFile(repoRoot, relative, label, sourceCommit) {
+  const file = exactRegularFile(path.join(repoRoot, relative), label, repoRoot);
+  const committed = committedTrackedFile(repoRoot, relative, label, sourceCommit);
+  if (!file.bytes.equals(committed.bytes)) fail(`${label} does not match the captured source blob`);
   return file;
 }
 
@@ -303,7 +309,7 @@ export function validateSelectedPlatformDocument(image, record, platform, label 
   return true;
 }
 
-export function collectMigrations(repoRoot, expectedDigest, capturedCommit = git(repoRoot, ['rev-parse', 'HEAD']), compiledRuntimeIds) {
+function migrationEntriesAtCommit(repoRoot, capturedCommit) {
   const relativeRoot = 'services/api/src/Settleora.Api/Persistence/Migrations';
   sha40(capturedCommit, 'migration captured source commit');
   const names = new TextDecoder('utf-8', { fatal: true }).decode(execFileSync('/usr/bin/git', ['--no-replace-objects', 'ls-tree', '-r', '-z', '--name-only', `${capturedCommit}:${relativeRoot}`], { cwd: repoRoot, stdio: ['ignore', 'pipe', 'pipe'] }))
@@ -320,18 +326,26 @@ export function collectMigrations(repoRoot, expectedDigest, capturedCommit = git
     .sort();
   if (ids.length === 0) fail('No repository migrations found');
   if (new Set(ids).size !== ids.length) fail('Duplicate migration IDs exist in repository source');
+  return ids.map((id) => ({
+    id,
+    files: names.filter((name) => path.posix.basename(name) === `${id}.cs` || path.posix.basename(name) === `${id}.Designer.cs`).sort().map((name) => {
+      const relative = `${relativeRoot}/${name}`;
+      const file = committedTrackedFile(repoRoot, relative, `migration ${id}`, capturedCommit);
+      return { path: relative, sha256: sha256(file.bytes), size: file.size };
+    }),
+  }));
+}
+
+export function collectMigrations(repoRoot, expectedDigest, capturedCommit = git(repoRoot, ['rev-parse', 'HEAD']), compiledRuntimeIds) {
+  const entries = migrationEntriesAtCommit(repoRoot, capturedCommit);
+  const ids = entries.map((entry) => entry.id);
   if (!Array.isArray(compiledRuntimeIds) || compiledRuntimeIds.length === 0) fail('Compiled EF runtime migration inventory is required');
   const runtimeIds = new Set(compiledRuntimeIds);
   if (runtimeIds.size !== compiledRuntimeIds.length) fail('Duplicate EF runtime migration IDs exist in compiled metadata');
   if (canonicalJson([...runtimeIds].sort()) !== canonicalJson(ids)) fail('Migration filename inventory differs from EF runtime migration attributes');
-  const entries = ids.map((id) => ({
-    id,
-    files: names.filter((name) => path.posix.basename(name) === `${id}.cs` || path.posix.basename(name) === `${id}.Designer.cs`).sort().map((name) => {
-      const relative = `${relativeRoot}/${name}`;
-      const file = exactTrackedFile(repoRoot, relative, `migration ${id}`, capturedCommit);
-      return { path: relative, sha256: sha256(file.bytes), size: file.size };
-    }),
-  }));
+  for (const entry of entries) {
+    for (const file of entry.files) exactTrackedFile(repoRoot, file.path, `migration ${entry.id}`, capturedCommit);
+  }
   const setSha256 = sha256(canonicalJson(entries));
   if (expectedDigest && expectedDigest !== setSha256) fail(`Migration-set digest mismatch: expected ${expectedDigest}, found ${setSha256}`);
   return {
@@ -365,9 +379,10 @@ function validateImage(image, label, sourceCommit, expectedTag, expectedReposito
   return image;
 }
 
-function configuredImage(repoRoot, sourcePath, service, capturedCommit) {
+function configuredImage(repoRoot, sourcePath, service, capturedCommit, requireWorktree = true) {
   safeLabel(sourcePath, 'dependency sourceComposePath');
-  const lines = exactTrackedFile(repoRoot, sourcePath, 'dependency Compose source', capturedCommit).bytes.toString('utf8').split(/\r?\n/u);
+  const reader = requireWorktree ? exactTrackedFile : committedTrackedFile;
+  const lines = reader(repoRoot, sourcePath, 'dependency Compose source', capturedCommit).bytes.toString('utf8').split(/\r?\n/u);
   const start = lines.findIndex((line) => line === `  ${service}:`);
   if (start < 0) fail(`Could not find service ${service} in ${sourcePath}`);
   for (let index = start + 1; index < lines.length && !/^  [A-Za-z0-9_-]+:\s*$/u.test(lines[index]); index += 1) {
@@ -534,9 +549,12 @@ export function validateManifest(manifest, repoRoot) {
   if (!Array.isArray(manifest.dependencyImages) || manifest.dependencyImages.length !== 3) fail('Exactly three dependency images are required');
   const expectedDependencies = new Set(['caddy', 'postgres', 'rabbitmq']);
   const dependencyRepositories = { postgres: 'docker.io/library/postgres', rabbitmq: 'docker.io/library/rabbitmq', caddy: 'docker.io/library/caddy' };
+  const dependencyServices = { postgres: 'postgres', rabbitmq: 'rabbitmq', caddy: 'ingress' };
   for (const image of manifest.dependencyImages) {
     if (!expectedDependencies.delete(image.name)) fail(`Unexpected or duplicate dependency image ${image.name}`);
-    validateImage(image, `dependencyImages.${image.name}`, undefined, undefined, dependencyRepositories[image.name]);
+    if (image.sourceComposePath !== DEPENDENCY_COMPOSE_PATH) fail(`dependencyImages.${image.name} source Compose path mismatch`);
+    const expectedTag = configuredImage(repoRoot, image.sourceComposePath, dependencyServices[image.name], manifest.source.commit, false);
+    validateImage(image, `dependencyImages.${image.name}`, undefined, expectedTag, dependencyRepositories[image.name]);
     safeLabel(image.sourceComposePath, `dependencyImages.${image.name}.sourceComposePath`);
   }
   if (expectedDependencies.size) fail('Missing dependency image');
@@ -563,6 +581,8 @@ export function validateManifest(manifest, repoRoot) {
   hexDigest(manifest.migrations?.setSha256, 'migrations.setSha256');
   if (manifest.migrations.count !== manifest.migrations.entries?.length) fail('Migration count mismatch');
   if (sha256(canonicalJson(manifest.migrations.entries)) !== manifest.migrations.setSha256) fail('Migration-set content mismatch');
+  const sourceMigrationEntries = migrationEntriesAtCommit(repoRoot, manifest.source.commit);
+  if (canonicalJson(manifest.migrations.entries) !== canonicalJson(sourceMigrationEntries)) fail('Migration entries do not match the captured source commit');
   if (manifest.userWeb?.schema !== 'settleora.user-web-dist-manifest.v1') fail('Canonical R02 user-web schema is required');
   assertKeys(manifest.userWeb, ['schema', 'source', 'dependencyLock', 'artifact'], 'userWeb');
   assertKeys(manifest.userWeb.source, ['commit', 'tree'], 'userWeb.source');
@@ -656,6 +676,7 @@ export function buildManifest(repoRoot, input) {
   const dependencyImages = [...input.dependencyImages]
     .sort((left, right) => left.name.localeCompare(right.name))
     .map((image) => {
+      if (image.sourceComposePath !== DEPENDENCY_COMPOSE_PATH) fail(`dependencyImages.${image.name} source Compose path mismatch`);
       const expectedTag = configuredImage(repoRoot, image.sourceComposePath, services[image.name], source.commit);
       return validateImage(withPlatform(image, platform, `dependencyImages.${image.name}`), `dependencyImages.${image.name}`, undefined, expectedTag, repositories[image.name]);
     });
