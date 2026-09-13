@@ -17,7 +17,7 @@ function expectOfficialRefusal(packet, name, mutate) {
   cpSync(path.join(packet, 'package'), root, { recursive: true });
   const valuesPath = path.join(root, 'templates/test_values/render-values.yaml');
   const values = YAML.parse(readFileSync(valuesPath, 'utf8'));
-  mutate(values);
+  mutate(values, root);
   writeFileSync(valuesPath, JSON.stringify(values), { mode: 0o600 });
   const result = spawnSync('docker', [
     'run', '--platform', 'linux/amd64', '--rm', '-e', 'FAKE_ENV=1',
@@ -38,8 +38,12 @@ try {
   expectOfficialRefusal(packet, 'network-injection', (values) => {
     values.network.networks = [{ name: 'bridge', containers: [{ name: 'postgres', config: {} }] }];
   });
-  expectOfficialRefusal(packet, 'image-injection', (values) => {
+  expectOfficialRefusal(packet, 'image-injection', (values, root) => {
     values.images = { api_image: { repository: 'invalid.local/override', tag: 'latest' } };
+    const ixValuesPath = path.join(root, 'ix_values.yaml');
+    const ixValues = YAML.parse(readFileSync(ixValuesPath, 'utf8'));
+    ixValues.images = values.images;
+    writeFileSync(ixValuesPath, JSON.stringify(ixValues), { mode: 0o600 });
   });
   process.stdout.write('Official renderer refused undeclared network and image overrides.\n');
 } finally {
