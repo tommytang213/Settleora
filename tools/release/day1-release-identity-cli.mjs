@@ -435,13 +435,18 @@ function executeSealedFlutter(flutter, values, cwd) {
   }, [flutter.snapshot]);
 }
 
-export function toolchainTreeDigest(root, label, excludedPrefixes = [], excludedTransientBases = [], protectedExternalSymlinks = false) {
+export function toolchainTreeDigest(root, label, excludedPrefixes = [], excludedTransientBases = [], protectedExternalSymlinks = false, excludedBasenames = []) {
   const absoluteRoot = path.resolve(root);
-  const canonicalExcludedPaths = [...new Set(excludedPrefixes)].sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
+  const canonicalExcludedPrefixes = [...new Set(excludedPrefixes)].sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
+  const canonicalExcludedBasenames = [...new Set(excludedBasenames)].sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
+  const canonicalExcludedPaths = [...canonicalExcludedPrefixes, ...canonicalExcludedBasenames.map((name) => `**/${name}`)]
+    .sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
   const canonicalTransientBases = [...new Set(excludedTransientBases)].sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
-  if ([...canonicalExcludedPaths, ...canonicalTransientBases].some((entry) => typeof entry !== 'string' || !entry || entry.startsWith('/') || entry.includes('\\')
+  if ([...canonicalExcludedPrefixes, ...canonicalTransientBases].some((entry) => typeof entry !== 'string' || !entry || entry.startsWith('/') || entry.includes('\\')
     || entry.split('/').some((part) => !part || part === '.' || part === '..'))) throw new Error(`${label} exclusion inventory contains an unsafe path`);
-  const excluded = (relative) => canonicalExcludedPaths.some((prefix) => relative === prefix || relative.startsWith(`${prefix}/`))
+  if (canonicalExcludedBasenames.some((entry) => typeof entry !== 'string' || !/^[A-Za-z0-9._+-]+$/u.test(entry))) throw new Error(`${label} basename exclusion inventory is invalid`);
+  const excluded = (relative) => canonicalExcludedPrefixes.some((prefix) => relative === prefix || relative.startsWith(`${prefix}/`))
+    || canonicalExcludedBasenames.includes(path.posix.basename(relative))
     || canonicalTransientBases.some((base) => (relative.startsWith(`${base}.tmp.`) && /^[0-9]+$/u.test(relative.slice(base.length + 5)))
       || (relative.startsWith(`${base}-`) && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:\/.*)?$/u.test(relative.slice(base.length + 1))));
   const rootMetadata = lstatSync(absoluteRoot, { throwIfNoEntry: false });
@@ -1710,6 +1715,8 @@ function collectAndroidUnsafe(options, emit = true) {
       || !/^hosted\/pub\.dev\/jni-[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?\/android\/\.cxx$/u.test(pubExcludedBuildPaths[0])) {
       throw new Error('Android pub-cache native-build exclusion does not match the exact locked jni package');
     }
+    const pubIdentityExcludedPaths = [...pubExcludedBuildPaths, '_temp', 'active_roots', 'hosted/pub.dev/.cache']
+      .sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
     makeTreeReadOnly(pubCache, 'Dart pub dependency cache');
     for (const relativePath of pubExcludedBuildPaths) makeTreeOwnerWritable(path.join(pubCache, relativePath));
     const runtimeWrapper = gradleWrapper;
@@ -1726,6 +1733,13 @@ function collectAndroidUnsafe(options, emit = true) {
       throw new Error('Gradle native runtime lock-file inventory is not the expected bounded shape');
     }
     const runtimeModules = gradleModules;
+    const gradleModuleMetadataPaths = readdirSync(runtimeModules, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink() && /^metadata-[0-9.]+$/u.test(entry.name))
+      .map((entry) => entry.name)
+      .sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
+    if (gradleModuleMetadataPaths.length !== 1) throw new Error('Gradle module-cache metadata inventory is not the expected bounded shape');
+    const gradleModuleIdentityExcludedPaths = ['gc.properties', ...gradleModuleMetadataPaths, 'modules-2.lock']
+      .sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
     makeTreeReadOnly(runtimeModules, 'Gradle runtime module dependency cache');
     chmodSync(runtimeModules, 0o700);
     for (const relativeMutable of ['gc.properties', 'modules-2.lock']) {
@@ -1816,9 +1830,9 @@ function collectAndroidUnsafe(options, emit = true) {
     const preStabilizationKotlinDslScriptBases = preStabilizationScriptNames.map((entry) => `${scriptPrefix}/${entry}`);
     const gradleExecutableCacheExcludedPaths = [...runtimeGradleMutablePaths, 'caches/modules-2', 'wrapper'];
     const dependencyCaches = {
-      pub: toolchainTreeDigest(pubCache, 'Dart pub dependency cache', pubExcludedBuildPaths),
-      gradleExecutableCaches: toolchainTreeDigest(runtimeGradleHome, 'Gradle executable caches', gradleExecutableCacheExcludedPaths),
-      gradleModules: toolchainTreeDigest(runtimeModules, 'Gradle runtime module dependency cache', ['gc.properties', 'modules-2.lock']),
+      pub: toolchainTreeDigest(pubCache, 'Dart pub dependency cache', pubIdentityExcludedPaths),
+      gradleExecutableCaches: toolchainTreeDigest(runtimeGradleHome, 'Gradle executable caches', gradleExecutableCacheExcludedPaths, [], false, ['metadata.bin']),
+      gradleModules: toolchainTreeDigest(runtimeModules, 'Gradle runtime module dependency cache', gradleModuleIdentityExcludedPaths),
       gradleWrapper: toolchainTreeDigest(runtimeWrapper, 'Gradle runtime wrapper distribution', runtimeWrapperLockPaths),
     };
     flutter.environment = {
@@ -1885,9 +1899,9 @@ function collectAndroidUnsafe(options, emit = true) {
         throw new Error(`Android ${name} toolchain changed during collection: ${toolchainsBefore[name].sha256} -> ${toolchainsAfter[name].sha256}`);
       }
     }
-    if (canonicalJson(toolchainTreeDigest(pubCache, 'Dart pub dependency cache', pubExcludedBuildPaths)) !== canonicalJson(dependencyCaches.pub)
-      || canonicalJson(toolchainTreeDigest(runtimeGradleHome, 'Gradle executable caches', gradleExecutableCacheExcludedPaths)) !== canonicalJson(dependencyCaches.gradleExecutableCaches)
-      || canonicalJson(toolchainTreeDigest(runtimeModules, 'Gradle runtime module dependency cache', ['gc.properties', 'modules-2.lock'])) !== canonicalJson(dependencyCaches.gradleModules)
+    if (canonicalJson(toolchainTreeDigest(pubCache, 'Dart pub dependency cache', pubIdentityExcludedPaths)) !== canonicalJson(dependencyCaches.pub)
+      || canonicalJson(toolchainTreeDigest(runtimeGradleHome, 'Gradle executable caches', gradleExecutableCacheExcludedPaths, [], false, ['metadata.bin'])) !== canonicalJson(dependencyCaches.gradleExecutableCaches)
+      || canonicalJson(toolchainTreeDigest(runtimeModules, 'Gradle runtime module dependency cache', gradleModuleIdentityExcludedPaths)) !== canonicalJson(dependencyCaches.gradleModules)
       || canonicalJson(toolchainTreeDigest(runtimeWrapper, 'Gradle runtime wrapper distribution', runtimeWrapperLockPaths)) !== canonicalJson(dependencyCaches.gradleWrapper)) {
       throw new Error('Android immutable dependency cache changed during offline release builds');
     }

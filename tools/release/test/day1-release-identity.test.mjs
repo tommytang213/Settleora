@@ -123,9 +123,9 @@ function fixture(t) {
       java: { algorithm: 'sha256(canonical-protected-runtime-tree-v2)', sha256: 'd'.repeat(64), excludedPaths: [], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
     },
     dependencyCaches: {
-      pub: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: 'a'.repeat(64), excludedPaths: ['hosted/pub.dev/jni-1.0.0/android/.cxx'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
-      gradleExecutableCaches: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: 'f'.repeat(64), excludedPaths: ['.tmp', 'android', 'caches/8.14/dependencies-accessors/gc.properties', 'caches/8.14/file-changes', 'caches/8.14/fileContent', 'caches/8.14/fileHashes', 'caches/8.14/gc.properties', 'caches/8.14/generated-gradle-jars/generated-gradle-jars.lock', 'caches/8.14/groovy-dsl/gc.properties', 'caches/8.14/javaCompile', 'caches/8.14/jvms', 'caches/8.14/kotlin-dsl/gc.properties', 'caches/8.14/md-rule', 'caches/8.14/md-supplier', 'caches/8.14/transforms/gc.properties', 'caches/CACHEDIR.TAG', 'caches/build-cache-1', 'caches/gc.properties', 'caches/jars-9/jars-9.lock', 'caches/journal-1', 'caches/keyrings', 'caches/modules-2', 'daemon', 'kotlin-profile', 'native/0.2.7/x86_64-linux-gnu/libgradle-fileevents.so.lock', 'notifications', 'workers', 'wrapper', 'wrapper/dists/gradle-8.14-all/c2qonpi39x1mddn7hk5gh9iqj/gradle-8.14-all.zip.lck'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
-      gradleModules: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: 'b'.repeat(64), excludedPaths: ['gc.properties', 'modules-2.lock'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
+      pub: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: 'a'.repeat(64), excludedPaths: ['_temp', 'active_roots', 'hosted/pub.dev/.cache', 'hosted/pub.dev/jni-1.0.0/android/.cxx'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
+      gradleExecutableCaches: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: 'f'.repeat(64), excludedPaths: ['**/metadata.bin', '.tmp', 'android', 'caches/8.14/dependencies-accessors/gc.properties', 'caches/8.14/file-changes', 'caches/8.14/fileContent', 'caches/8.14/fileHashes', 'caches/8.14/gc.properties', 'caches/8.14/generated-gradle-jars/generated-gradle-jars.lock', 'caches/8.14/groovy-dsl/gc.properties', 'caches/8.14/javaCompile', 'caches/8.14/jvms', 'caches/8.14/kotlin-dsl/gc.properties', 'caches/8.14/md-rule', 'caches/8.14/md-supplier', 'caches/8.14/transforms/gc.properties', 'caches/CACHEDIR.TAG', 'caches/build-cache-1', 'caches/gc.properties', 'caches/jars-9/jars-9.lock', 'caches/journal-1', 'caches/keyrings', 'caches/modules-2', 'daemon', 'kotlin-profile', 'native/0.2.7/x86_64-linux-gnu/libgradle-fileevents.so.lock', 'notifications', 'workers', 'wrapper', 'wrapper/dists/gradle-8.14-all/c2qonpi39x1mddn7hk5gh9iqj/gradle-8.14-all.zip.lck'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
+      gradleModules: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: 'b'.repeat(64), excludedPaths: ['gc.properties', 'metadata-2.107', 'modules-2.lock'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
       gradleWrapper: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: 'e'.repeat(64), excludedPaths: ['dists/gradle-8.14-all/c2qonpi39x1mddn7hk5gh9iqj/gradle-8.14-all.zip.lck'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
     },
     gradleVerificationMetadataSha256: sha256(readFileSync(gradleVerificationMetadata)),
@@ -354,18 +354,18 @@ test('rejects web source and Android artifact mismatches', (t) => {
 test('rejects Android provenance that broadens collector-owned cache exclusions', (t) => {
   const f = fixture(t);
   const provenance = JSON.parse(readFileSync(f.input.android.buildProvenancePath));
-  provenance.dependencyCaches.gradleModules.excludedPaths = ['files-2.1', 'gc.properties', 'modules-2.lock'];
+  provenance.dependencyCaches.gradleModules.excludedPaths = ['files-2.1', 'gc.properties', 'metadata-2.107', 'modules-2.lock'];
   writeFileSync(f.input.android.buildProvenancePath, canonicalJson(provenance));
   assert.throws(() => buildManifest(f.root, f.input), /Gradle-cache exclusions exceed/);
 
-  provenance.dependencyCaches.gradleModules.excludedPaths = ['gc.properties', 'modules-2.lock'];
+  provenance.dependencyCaches.gradleModules.excludedPaths = ['gc.properties', 'metadata-2.107', 'modules-2.lock'];
   provenance.dependencyCaches.pub.excludedPaths = ['hosted/pub.dev/package-1.0.0/lib'];
   provenance.toolchainMutationGuard.pubExcludedBuildPaths = provenance.dependencyCaches.pub.excludedPaths;
   writeFileSync(f.input.android.buildProvenancePath, canonicalJson(provenance));
   assert.throws(() => buildManifest(f.root, f.input), /pub-cache exclusions exceed/);
 
-  provenance.dependencyCaches.pub.excludedPaths = ['hosted/pub.dev/jni-1.0.0/android/.cxx'];
-  provenance.toolchainMutationGuard.pubExcludedBuildPaths = provenance.dependencyCaches.pub.excludedPaths;
+  provenance.dependencyCaches.pub.excludedPaths = ['_temp', 'active_roots', 'hosted/pub.dev/.cache', 'hosted/pub.dev/jni-1.0.0/android/.cxx'];
+  provenance.toolchainMutationGuard.pubExcludedBuildPaths = ['hosted/pub.dev/jni-1.0.0/android/.cxx'];
   provenance.toolchains.java.excludedPaths = ['conf'];
   writeFileSync(f.input.android.buildProvenancePath, canonicalJson(provenance));
   assert.throws(() => buildManifest(f.root, f.input), /Java toolchain exclusions/);
@@ -613,6 +613,22 @@ test('protected runtime inventory binds external directory symlink contents', (t
   const after = toolchainTreeDigest(root, 'protected fixture', [], [], true);
   assert.notEqual(after.sha256, before.sha256);
   assert.equal(after.algorithm, 'sha256(canonical-protected-runtime-tree-v2)');
+});
+
+test('dependency inventory excludes declared volatile metadata but binds payload bytes', (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), 'release-dependency-payload-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  write(root, 'files-2.1/library.jar', 'trusted dependency payload');
+  write(root, 'files-2.1/metadata.bin', 'volatile path metadata one');
+  write(root, 'active_roots/session', 'volatile active root one');
+  const before = toolchainTreeDigest(root, 'dependency payload fixture', ['active_roots'], [], false, ['metadata.bin']);
+  write(root, 'files-2.1/metadata.bin', 'volatile path metadata two');
+  write(root, 'active_roots/session', 'volatile active root two');
+  const afterVolatileChange = toolchainTreeDigest(root, 'dependency payload fixture', ['active_roots'], [], false, ['metadata.bin']);
+  assert.deepEqual(afterVolatileChange, before);
+  assert.deepEqual(before.excludedPaths, ['**/metadata.bin', 'active_roots']);
+  write(root, 'files-2.1/library.jar', 'tampered dependency payload');
+  assert.notEqual(toolchainTreeDigest(root, 'dependency payload fixture', ['active_roots'], [], false, ['metadata.bin']).sha256, before.sha256);
 });
 
 test('toolchain mutation guard fails closed on a write during the guarded window', (t) => {
