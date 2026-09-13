@@ -116,7 +116,7 @@ function fixture(t) {
   const notesPath = write(evidenceRoot, 'release-notes.md', '# Candidate\nBounded test evidence.\n');
   const buildProvenancePath = write(evidenceRoot, 'build-provenance.json', canonicalJson({
     schema: 'settleora.android-exact-source-build.v1', source: { commit, tree },
-    commands: ['flutter pub get (dependency prefetch)', 'flutter build apk --release --no-pub (dependency prefetch)', 'flutter clean (offline)', 'flutter pub get --offline', 'flutter build apk --release --no-pub (offline cache prime)', 'flutter build apk --release --no-pub (offline)', 'flutter build appbundle --release --no-pub (offline)'],
+    commands: ['flutter pub get (dependency prefetch)', 'flutter build apk --release --no-pub (dependency prefetch)', 'flutter clean (offline)', 'flutter pub get --offline', 'flutter build apk --release --no-pub (offline)', 'flutter build appbundle --release --no-pub (offline)'],
     toolchains: {
       flutter: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: '8'.repeat(64), excludedPaths: ['.git', 'bin/cache/lockfile', 'bin/cache/runtime.stamp', 'packages/flutter_tools/gradle/.gradle'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
       android: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: '9'.repeat(64), excludedPaths: ['.knownPackages'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
@@ -124,6 +124,7 @@ function fixture(t) {
     },
     dependencyCaches: {
       pub: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: 'a'.repeat(64), excludedPaths: ['hosted/pub.dev/jni-1.0.0/android/.cxx'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
+      gradleExecutableCaches: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: 'f'.repeat(64), excludedPaths: ['.tmp', 'android', 'caches/8.14/dependencies-accessors/gc.properties', 'caches/8.14/file-changes', 'caches/8.14/fileContent', 'caches/8.14/fileHashes', 'caches/8.14/gc.properties', 'caches/8.14/generated-gradle-jars/generated-gradle-jars.lock', 'caches/8.14/groovy-dsl/gc.properties', 'caches/8.14/javaCompile', 'caches/8.14/jvms', 'caches/8.14/kotlin-dsl/gc.properties', 'caches/8.14/md-rule', 'caches/8.14/md-supplier', 'caches/8.14/transforms/gc.properties', 'caches/CACHEDIR.TAG', 'caches/build-cache-1', 'caches/gc.properties', 'caches/jars-9/jars-9.lock', 'caches/journal-1', 'caches/keyrings', 'caches/modules-2', 'daemon', 'kotlin-profile', 'native', 'notifications', 'workers', 'wrapper', 'wrapper/dists/gradle-8.14-all/c2qonpi39x1mddn7hk5gh9iqj/gradle-8.14-all.zip.lck'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
       gradleModules: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: 'b'.repeat(64), excludedPaths: ['gc.properties', 'modules-2.lock'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
       gradleWrapper: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: 'e'.repeat(64), excludedPaths: ['dists/gradle-8.14-all/c2qonpi39x1mddn7hk5gh9iqj/gradle-8.14-all.zip.lck'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
     },

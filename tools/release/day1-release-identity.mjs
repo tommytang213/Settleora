@@ -578,11 +578,11 @@ function collectAndroid(repoRoot, input, source) {
   if (provenance.schema !== 'settleora.android-exact-source-build.v1' || provenance.source?.commit !== commit || provenance.source?.tree !== tree) {
     fail('Android build provenance source mismatch');
   }
-  if (canonicalJson(provenance.commands) !== canonicalJson(['flutter pub get (dependency prefetch)', 'flutter build apk --release --no-pub (dependency prefetch)', 'flutter clean (offline)', 'flutter pub get --offline', 'flutter build apk --release --no-pub (offline cache prime)', 'flutter build apk --release --no-pub (offline)', 'flutter build appbundle --release --no-pub (offline)'])) {
+  if (canonicalJson(provenance.commands) !== canonicalJson(['flutter pub get (dependency prefetch)', 'flutter build apk --release --no-pub (dependency prefetch)', 'flutter clean (offline)', 'flutter pub get --offline', 'flutter build apk --release --no-pub (offline)', 'flutter build appbundle --release --no-pub (offline)'])) {
     fail('Android build provenance command mismatch');
   }
   assertKeys(provenance.toolchains, ['flutter', 'android', 'java'], 'Android build provenance toolchains');
-  assertKeys(provenance.dependencyCaches, ['pub', 'gradleModules', 'gradleWrapper'], 'Android build provenance dependency caches');
+  assertKeys(provenance.dependencyCaches, ['pub', 'gradleExecutableCaches', 'gradleModules', 'gradleWrapper'], 'Android build provenance dependency caches');
   assertKeys(provenance.verificationTools, ['apksignerJarSha256'], 'Android build provenance verification tools');
   if (hexDigest(provenance.verificationTools.apksignerJarSha256, 'Android apksigner JAR SHA-256')
     !== hexDigest(input.verificationToolSha256, 'Observed Android apksigner JAR SHA-256')) {
@@ -639,6 +639,11 @@ function collectAndroid(repoRoot, input, source) {
   }
   if (canonicalJson(provenance.dependencyCaches.gradleModules.excludedPaths) !== canonicalJson(['gc.properties', 'modules-2.lock'])) {
     fail('Android Gradle-cache exclusions exceed the collector-owned allowlist');
+  }
+  const expectedGradleExecutableCacheExclusions = [...new Set([...expectedRuntimeGradleMutablePaths, 'caches/modules-2', 'wrapper'])]
+    .sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
+  if (canonicalJson(provenance.dependencyCaches.gradleExecutableCaches.excludedPaths) !== canonicalJson(expectedGradleExecutableCacheExclusions)) {
+    fail('Android Gradle executable-cache exclusions exceed the collector-owned allowlist');
   }
   if (provenance.dependencyCaches.gradleWrapper.excludedPaths.length !== 1
     || !/^dists\/gradle-[0-9.]+-(?:all|bin)\/[a-z0-9]+\/gradle-[0-9.]+-(?:all|bin)\.zip\.lck$/u.test(provenance.dependencyCaches.gradleWrapper.excludedPaths[0])) {

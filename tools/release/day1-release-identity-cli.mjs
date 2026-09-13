@@ -1234,8 +1234,19 @@ function collectWebExactSource(output) {
       npm_config_audit: 'false',
       npm_config_fund: 'false',
     };
-    npmExec(['ci'], { cwd: webRoot, env: npmEnvironment, stdio: 'inherit' });
-    npmExec(['run', 'build'], { cwd: webRoot, env: npmEnvironment, stdio: 'inherit' });
+    makeRegularFilesReadOnly(snapshot, 'User-web exact-source snapshot');
+    const webGeneratedPaths = ['.release-npm-cache', '.release-npm-home', 'apps/web-user/dist', 'apps/web-user/node_modules'];
+    const webSourceGuard = { label: 'web-exact-source', root: snapshot, excludedPrefixes: webGeneratedPaths };
+    const node = trustedTool('/usr/bin/node', 'node', 'system Node.js');
+    const npmCli = trustedTool(realpathSync('/usr/bin/npm'), 'npm-cli.js', 'system npm CLI');
+    assertSystemRuntime('/usr/lib/node_modules/npm', 'system npm runtime');
+    executeGuardedCommands(
+      [webSourceGuard],
+      node,
+      [npmCli],
+      [['/proc/self/fd/4', 'ci'], ['/proc/self/fd/4', 'run', 'build']],
+      { cwd: webRoot, env: npmEnvironment, stdio: ['ignore', 'inherit', 'inherit'] },
+    );
     const lock = JSON.parse(readFileSync(path.join(webRoot, 'package-lock.json'), 'utf8'));
     const version = (name) => {
       const value = lock.packages?.[`node_modules/${name}`]?.version;
@@ -1406,10 +1417,26 @@ function collectAndroidUnsafe(options, emit = true) {
       `caches/${gradleRuntimeVersion}/transforms/gc.properties`,
       'caches/jars-9/jars-9.lock',
     ];
+    for (const relativeCache of sealedGradleExecutableCachePaths) {
+      const sourceCache = path.join(prefetchGradleHome, relativeCache);
+      const runtimeCache = path.join(runtimeGradleHome, relativeCache);
+      if (!lstatSync(sourceCache, { throwIfNoEntry: false })?.isDirectory()) throw new Error(`Android guarded dependency prefetch did not produce Gradle ${relativeCache}`);
+      mkdirSync(path.dirname(runtimeCache), { recursive: true, mode: 0o700 });
+      cpSync(sourceCache, runtimeCache, { recursive: true, errorOnExist: true, force: false, preserveTimestamps: true });
+      makeTreeReadOnly(runtimeCache, `Gradle runtime executable cache ${relativeCache}`);
+    }
+    for (const relativeMutable of sealedGradleExecutableMutablePaths) {
+      const mutableFile = path.join(runtimeGradleHome, relativeMutable);
+      if (!lstatSync(mutableFile, { throwIfNoEntry: false })?.isFile()) throw new Error(`Gradle executable-cache coordination file is missing: ${relativeMutable}`);
+      chmodSync(mutableFile, 0o600);
+    }
     makeTreeReadOnly(runtimeWrapper, 'Gradle runtime wrapper distribution');
     chmodSync(path.join(runtimeWrapper, runtimeWrapperLockPaths[0]), 0o600);
+    const runtimeGradleMutablePaths = ['.tmp', 'caches/CACHEDIR.TAG', 'caches/build-cache-1', `caches/${gradleRuntimeVersion}/file-changes`, `caches/${gradleRuntimeVersion}/fileContent`, `caches/${gradleRuntimeVersion}/fileHashes`, `caches/${gradleRuntimeVersion}/gc.properties`, `caches/${gradleRuntimeVersion}/javaCompile`, `caches/${gradleRuntimeVersion}/jvms`, `caches/${gradleRuntimeVersion}/md-rule`, `caches/${gradleRuntimeVersion}/md-supplier`, ...sealedGradleExecutableMutablePaths, 'caches/gc.properties', 'caches/journal-1', 'caches/keyrings', 'caches/modules-2', 'android', 'daemon', 'kotlin-profile', 'native', 'notifications', 'workers', ...runtimeWrapperLockPaths.map((entry) => `wrapper/${entry}`)];
+    const gradleExecutableCacheExcludedPaths = [...runtimeGradleMutablePaths, 'caches/modules-2', 'wrapper'];
     const dependencyCaches = {
       pub: toolchainTreeDigest(pubCache, 'Dart pub dependency cache', pubExcludedBuildPaths),
+      gradleExecutableCaches: toolchainTreeDigest(runtimeGradleHome, 'Gradle executable caches', gradleExecutableCacheExcludedPaths),
       gradleModules: toolchainTreeDigest(runtimeModules, 'Gradle runtime module dependency cache', ['gc.properties', 'modules-2.lock']),
       gradleWrapper: toolchainTreeDigest(runtimeWrapper, 'Gradle runtime wrapper distribution', runtimeWrapperLockPaths),
     };
@@ -1425,15 +1452,8 @@ function collectAndroidUnsafe(options, emit = true) {
       { label: 'gradle-modules-cache', root: runtimeModules, excludedPrefixes: ['gc.properties', 'modules-2.lock'] },
       { label: 'gradle-wrapper-distribution', root: runtimeWrapper, excludedPrefixes: runtimeWrapperLockPaths },
       { label: 'android-signing-home', root: path.join(buildHome, '.android'), excludedPrefixes: [] },
+      { label: 'gradle-runtime-home', root: runtimeGradleHome, excludedPrefixes: runtimeGradleMutablePaths },
     ];
-    const runtimeGradleMutablePaths = ['.tmp', 'caches/CACHEDIR.TAG', 'caches/build-cache-1', `caches/${gradleRuntimeVersion}/file-changes`, `caches/${gradleRuntimeVersion}/fileContent`, `caches/${gradleRuntimeVersion}/fileHashes`, `caches/${gradleRuntimeVersion}/gc.properties`, `caches/${gradleRuntimeVersion}/javaCompile`, `caches/${gradleRuntimeVersion}/jvms`, `caches/${gradleRuntimeVersion}/md-rule`, `caches/${gradleRuntimeVersion}/md-supplier`, ...sealedGradleExecutableMutablePaths, 'caches/gc.properties', 'caches/journal-1', 'caches/keyrings', 'caches/modules-2', 'android', 'daemon', 'kotlin-profile', 'native', 'notifications', 'workers', ...runtimeWrapperLockPaths.map((entry) => `wrapper/${entry}`)];
-    // The copied cache can contain no version-scoped payload before the prime,
-    // so Gradle may need to create the version directory itself. This broader
-    // exclusion exists only for the disposable prime; the retained builds use
-    // the exact runtimeGradleMutablePaths list after executable caches are sealed.
-    const primingRuntimeGradleMutablePaths = [...runtimeGradleMutablePaths, `caches/${gradleRuntimeVersion}`, ...sealedGradleExecutableCachePaths];
-    const runtimeGradlePrimeGuard = { label: 'gradle-runtime-home', root: runtimeGradleHome, excludedPrefixes: primingRuntimeGradleMutablePaths };
-    offlineGuardConfiguration.push(runtimeGradlePrimeGuard);
     const files = {
       apk: ['apps/mobile/build/app/outputs/flutter-apk/app-release.apk', 'app-release.apk'],
       aab: ['apps/mobile/build/app/outputs/bundle/release/app-release.aab', 'app-release.aab'],
@@ -1444,18 +1464,7 @@ function collectAndroidUnsafe(options, emit = true) {
     executeGuardedFlutter(flutter, [
       ['clean'],
       ['pub', 'get', '--offline'],
-      ['build', 'apk', '--release', '--no-pub'],
     ], mobileRoot, offlineGuardConfiguration);
-    for (const relativeCache of sealedGradleExecutableCachePaths) {
-      const runtimeCache = path.join(runtimeGradleHome, relativeCache);
-      if (!lstatSync(runtimeCache, { throwIfNoEntry: false })?.isDirectory()) throw new Error(`Android offline cache prime did not produce Gradle ${relativeCache}`);
-      makeTreeReadOnly(runtimeCache, `Gradle runtime executable cache ${relativeCache}`);
-    }
-    for (const relativeMutable of sealedGradleExecutableMutablePaths) {
-      const mutableFile = path.join(runtimeGradleHome, relativeMutable);
-      if (!lstatSync(mutableFile, { throwIfNoEntry: false })?.isFile()) throw new Error(`Gradle executable-cache coordination file is missing: ${relativeMutable}`);
-      chmodSync(mutableFile, 0o600);
-    }
     const sealedGeneratedInputPaths = [
       'apps/mobile/.dart_tool/package_config.json',
       'apps/mobile/.flutter-plugins-dependencies',
@@ -1470,10 +1479,9 @@ function collectAndroidUnsafe(options, emit = true) {
     const dartToolRoot = path.join(mobileRoot, '.dart_tool');
     const dartToolExcludedPaths = readdirSync(dartToolRoot).filter((entry) => entry !== 'package_config.json').sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
     const buildGuardConfiguration = [
-      ...offlineGuardConfiguration.filter((entry) => entry !== sourceGuard && entry !== runtimeGradlePrimeGuard),
+      ...offlineGuardConfiguration.filter((entry) => entry !== sourceGuard),
       { label: 'android-exact-source-build', root: snapshotRoot, excludedPrefixes: buildSourceGeneratedPaths },
       { label: 'android-generated-package-config', root: dartToolRoot, excludedPrefixes: dartToolExcludedPaths },
-      { label: 'gradle-runtime-home', root: runtimeGradleHome, excludedPrefixes: runtimeGradleMutablePaths },
     ];
     const clearBuildOutputs = () => {
       for (const relativeOutput of ['apps/mobile/build', 'apps/mobile/android/build']) {
@@ -1509,6 +1517,7 @@ function collectAndroidUnsafe(options, emit = true) {
       }
     }
     if (canonicalJson(toolchainTreeDigest(pubCache, 'Dart pub dependency cache', pubExcludedBuildPaths)) !== canonicalJson(dependencyCaches.pub)
+      || canonicalJson(toolchainTreeDigest(runtimeGradleHome, 'Gradle executable caches', gradleExecutableCacheExcludedPaths)) !== canonicalJson(dependencyCaches.gradleExecutableCaches)
       || canonicalJson(toolchainTreeDigest(runtimeModules, 'Gradle runtime module dependency cache', ['gc.properties', 'modules-2.lock'])) !== canonicalJson(dependencyCaches.gradleModules)
       || canonicalJson(toolchainTreeDigest(runtimeWrapper, 'Gradle runtime wrapper distribution', runtimeWrapperLockPaths)) !== canonicalJson(dependencyCaches.gradleWrapper)) {
       throw new Error('Android immutable dependency cache changed during offline release builds');
@@ -1569,7 +1578,7 @@ function collectAndroidUnsafe(options, emit = true) {
   const artifact = (kind) => ({ path: files[kind][0], ...copiedIdentities[kind] });
   const provenance = {
     schema: 'settleora.android-exact-source-build.v1', source,
-    commands: ['flutter pub get (dependency prefetch)', 'flutter build apk --release --no-pub (dependency prefetch)', 'flutter clean (offline)', 'flutter pub get --offline', 'flutter build apk --release --no-pub (offline cache prime)', 'flutter build apk --release --no-pub (offline)', 'flutter build appbundle --release --no-pub (offline)'],
+      commands: ['flutter pub get (dependency prefetch)', 'flutter build apk --release --no-pub (dependency prefetch)', 'flutter clean (offline)', 'flutter pub get --offline', 'flutter build apk --release --no-pub (offline)', 'flutter build appbundle --release --no-pub (offline)'],
     artifacts: { apk: artifact('apk'), aab: artifact('aab'), r8MappingSha256: copiedIdentities.mapping.sha256, outputMetadataSha256: copiedIdentities.outputMetadata.sha256 },
     toolchains: copiedIdentities.toolchains,
     dependencyCaches: copiedIdentities.dependencyCaches,

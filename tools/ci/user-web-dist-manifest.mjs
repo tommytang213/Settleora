@@ -164,7 +164,9 @@ function removeScriptEscapeBoundariesForScan(text) {
 
 function decodeHtmlEntitiesForScan(text) {
   const named = new Map([['amp', '&'], ['apos', "'"], ['gt', '>'], ['lt', '<'], ['quot', '"']]);
-  return text.replace(/&(?:#([0-9]{1,7})|#x([0-9A-Fa-f]{1,6})|([A-Za-z]{2,8}));/gu, (entity, decimal, hexadecimal, name) => {
+  // HTML accepts semicolonless numeric references. Named references remain
+  // semicolon-required so an ordinary ampersand word is not rewritten.
+  return text.replace(/&(?:#([0-9]{1,7});?|#x([0-9A-Fa-f]{1,6});?|([A-Za-z]{2,8});)/gu, (entity, decimal, hexadecimal, name) => {
     const value = decimal !== undefined
       ? Number.parseInt(decimal, 10)
       : hexadecimal !== undefined
