@@ -195,8 +195,14 @@ function canonicalBuildMaterials(materials, label = 'apiImage.buildMaterials') {
 
 export function validatePublicationProvenance(publication, provenance, sourceCommit, image) {
   const builder = provenance?.runDetails?.builder?.id;
-  const vcs = provenance?.buildDefinition?.externalParameters?.request?.root?.request?.args;
-  if (typeof builder !== 'string' || !builder.startsWith(`${publication.url}/attempts/`) || !/^[1-9][0-9]*$/u.test(builder.slice(`${publication.url}/attempts/`.length)) || vcs?.['vcs:revision'] !== sourceCommit || vcs?.['vcs:source'] !== 'https://github.com/tommytang213/Settleora') {
+  const root = provenance?.buildDefinition?.externalParameters?.request?.root;
+  const vcs = root?.request?.args;
+  if (typeof builder !== 'string' || !builder.startsWith(`${publication.url}/attempts/`) || !/^[1-9][0-9]*$/u.test(builder.slice(`${publication.url}/attempts/`.length))
+    || root?.configSource?.path !== 'Dockerfile'
+    || vcs?.['vcs:revision'] !== sourceCommit || vcs?.['vcs:source'] !== 'https://github.com/tommytang213/Settleora'
+    || vcs?.['vcs:localdir:context'] !== '.' || vcs?.['vcs:localdir:dockerfile'] !== 'services/api'
+    || vcs?.['label:org.opencontainers.image.revision'] !== sourceCommit
+    || vcs?.['label:org.opencontainers.image.source'] !== 'https://github.com/tommytang213/Settleora') {
     fail('API image publication provenance attestation mismatch');
   }
   const resolved = provenance?.buildDefinition?.resolvedDependencies?.map((material) => ({
