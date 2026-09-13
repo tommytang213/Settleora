@@ -2118,8 +2118,8 @@ function committedModuleSource(relativePath) {
   return working.toString('utf8');
 }
 
-function replaceClosureToken(source, token, replacement, label) {
-  if (source.split(token).length !== 2) throw new Error(`Release collector closure token is ambiguous: ${label}`);
+function replaceClosureToken(source, token, replacement, label, expectedOccurrences = 1) {
+  if (source.split(token).length !== expectedOccurrences + 1) throw new Error(`Release collector closure token is ambiguous: ${label}`);
   return source.replace(token, replacement);
 }
 
@@ -2133,15 +2133,15 @@ function sealedCollectorClosure() {
   manifestSource = replaceClosureToken(manifestSource, "'../ci/user-web-dist-manifest.mjs'", JSON.stringify(webUrl), 'manifest web import');
   const manifestUrl = `data:text/javascript;base64,${Buffer.from(manifestSource).toString('base64')}`;
   let cliSource = committedModuleSource('tools/release/day1-release-identity-cli.mjs');
-  cliSource = replaceClosureToken(cliSource, "'./day1-release-identity.mjs'", JSON.stringify(manifestUrl), 'CLI manifest import');
-  cliSource = replaceClosureToken(cliSource, "'../ci/user-web-dist-manifest.mjs'", JSON.stringify(webUrl), 'CLI web import');
+  cliSource = replaceClosureToken(cliSource, "'./day1-release-identity.mjs'", JSON.stringify(manifestUrl), 'CLI manifest import', 2);
+  cliSource = replaceClosureToken(cliSource, "'../ci/user-web-dist-manifest.mjs'", JSON.stringify(webUrl), 'CLI web import', 2);
   cliSource = replaceClosureToken(cliSource,
     "const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');",
-    `const repoRoot = ${JSON.stringify(repoRoot)};`, 'CLI repository root');
+    `const repoRoot = ${JSON.stringify(repoRoot)};`, 'CLI repository root', 2);
   cliSource = replaceClosureToken(cliSource,
     "const invokedDirectly = Boolean(process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url));",
-    'const invokedDirectly = true;', 'CLI direct execution');
-  return replaceClosureToken(cliSource, 'const sealedRuntime = false;', 'const sealedRuntime = true;', 'sealed runtime');
+    'const invokedDirectly = true;', 'CLI direct execution', 2);
+  return replaceClosureToken(cliSource, 'const sealedRuntime = false;', 'const sealedRuntime = true;', 'sealed runtime', 2);
 }
 
 if (invokedDirectly) {
