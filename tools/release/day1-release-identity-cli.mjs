@@ -1313,6 +1313,7 @@ function collectAndroidUnsafe(options, emit = true) {
       'apps/mobile/android/.gradle',
       'apps/mobile/android/.kotlin',
       'apps/mobile/android/app/src/main/java',
+      'apps/mobile/android/build',
       'apps/mobile/android/local.properties',
       'apps/mobile/build',
       'apps/mobile/ios',
@@ -1449,16 +1450,22 @@ function collectAndroidUnsafe(options, emit = true) {
       { label: 'android-generated-package-config', root: dartToolRoot, excludedPrefixes: dartToolExcludedPaths },
       { label: 'gradle-runtime-home', root: runtimeGradleHome, excludedPrefixes: runtimeGradleMutablePaths },
     ];
-    const primedBuildOutput = path.join(mobileRoot, 'build');
-    const primedBuildMetadata = lstatSync(primedBuildOutput, { throwIfNoEntry: false });
-    if (!primedBuildMetadata?.isDirectory() || primedBuildMetadata.isSymbolicLink()) throw new Error('Android offline cache prime did not produce a bounded build directory');
-    rmSync(primedBuildOutput, { recursive: true, force: false, maxRetries: 5, retryDelay: 200 });
+    const clearBuildOutputs = () => {
+      for (const relativeOutput of ['apps/mobile/build', 'apps/mobile/android/build']) {
+        const generatedOutput = path.join(snapshotRoot, relativeOutput);
+        const metadata = lstatSync(generatedOutput, { throwIfNoEntry: false });
+        if (!metadata?.isDirectory() || metadata.isSymbolicLink()) throw new Error(`Android build did not produce a bounded output directory: ${relativeOutput}`);
+        rmSync(generatedOutput, { recursive: true, force: false, maxRetries: 5, retryDelay: 200 });
+      }
+    };
+    clearBuildOutputs();
     executeGuardedFlutter(flutter, [
       ['build', 'apk', '--release', '--no-pub'],
     ], mobileRoot, buildGuardConfiguration, [
       { source: path.join(snapshotRoot, files.apk[0]), target: path.join(output, files.apk[1]), maxBytes: maxAndroidArtifactBytes, label: 'Android APK' },
       { source: path.join(snapshotRoot, files.metadata[0]), target: rawMetadataTarget, maxBytes: maxAndroidMetadataBytes, label: 'Android output metadata' },
     ]);
+    clearBuildOutputs();
     executeGuardedFlutter(flutter, [
       ['build', 'appbundle', '--release', '--no-pub'],
     ], mobileRoot, buildGuardConfiguration, [
