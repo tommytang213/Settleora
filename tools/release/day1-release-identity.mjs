@@ -591,7 +591,7 @@ function collectAndroid(repoRoot, input, source) {
   assertKeys(provenance.toolchainMutationGuard, ['algorithm', 'flutterExcludedTransientBases', 'pubExcludedBuildPaths', 'gradleWrapperLockPaths', 'prefetchSourceGeneratedPaths', 'sourceGeneratedPaths', 'sealedGeneratedInputPaths', 'sealedGradleExecutableCachePaths', 'runtimeGradleMutablePaths', 'outputsCapturedBeforeGuardExit', 'queueOverflowFailsClosed'], 'Android build provenance toolchain mutation guard');
   const guardedWrapperLock = Array.isArray(provenance.toolchainMutationGuard.gradleWrapperLockPaths) ? provenance.toolchainMutationGuard.gradleWrapperLockPaths[0] : '';
   const guardedGradleVersion = /^dists\/gradle-([0-9.]+)-(?:all|bin)\//u.exec(guardedWrapperLock)?.[1];
-  const expectedRuntimeGradleMutablePaths = ['.tmp', `caches/${guardedGradleVersion ?? ''}`, 'caches/CACHEDIR.TAG', 'caches/build-cache-1', 'caches/gc.properties', 'caches/journal-1', 'caches/keyrings', 'caches/modules-2', 'android', 'daemon', 'kotlin-profile', 'native', 'notifications', 'workers', `wrapper/${guardedWrapperLock}`];
+  const expectedRuntimeGradleMutablePaths = ['.tmp', `caches/${guardedGradleVersion ?? ''}`, 'caches/CACHEDIR.TAG', 'caches/build-cache-1', 'caches/gc.properties', 'caches/jars-9/jars-9.lock', 'caches/journal-1', 'caches/keyrings', 'caches/modules-2', 'android', 'daemon', 'kotlin-profile', 'native', 'notifications', 'workers', `wrapper/${guardedWrapperLock}`];
   if (provenance.toolchainMutationGuard.algorithm !== 'linux-inotify-authenticated-runner-v3' || provenance.toolchainMutationGuard.queueOverflowFailsClosed !== true
     || provenance.toolchainMutationGuard.outputsCapturedBeforeGuardExit !== true
     || !Array.isArray(provenance.toolchainMutationGuard.flutterExcludedTransientBases)

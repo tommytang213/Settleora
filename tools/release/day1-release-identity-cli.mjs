@@ -1410,7 +1410,7 @@ function collectAndroidUnsafe(options, emit = true) {
       { label: 'gradle-wrapper-distribution', root: runtimeWrapper, excludedPrefixes: runtimeWrapperLockPaths },
       { label: 'android-signing-home', root: path.join(buildHome, '.android'), excludedPrefixes: [] },
     ];
-    const runtimeGradleMutablePaths = ['.tmp', `caches/${gradleRuntimeVersion}`, 'caches/CACHEDIR.TAG', 'caches/build-cache-1', 'caches/gc.properties', 'caches/journal-1', 'caches/keyrings', 'caches/modules-2', 'android', 'daemon', 'kotlin-profile', 'native', 'notifications', 'workers', ...runtimeWrapperLockPaths.map((entry) => `wrapper/${entry}`)];
+    const runtimeGradleMutablePaths = ['.tmp', `caches/${gradleRuntimeVersion}`, 'caches/CACHEDIR.TAG', 'caches/build-cache-1', 'caches/gc.properties', 'caches/jars-9/jars-9.lock', 'caches/journal-1', 'caches/keyrings', 'caches/modules-2', 'android', 'daemon', 'kotlin-profile', 'native', 'notifications', 'workers', ...runtimeWrapperLockPaths.map((entry) => `wrapper/${entry}`)];
     const primingRuntimeGradleMutablePaths = [...runtimeGradleMutablePaths, ...sealedGradleExecutableCaches.map((entry) => `caches/${entry}`)];
     const runtimeGradlePrimeGuard = { label: 'gradle-runtime-home', root: runtimeGradleHome, excludedPrefixes: primingRuntimeGradleMutablePaths };
     offlineGuardConfiguration.push(runtimeGradlePrimeGuard);
@@ -1430,6 +1430,11 @@ function collectAndroidUnsafe(options, emit = true) {
       const runtimeCache = path.join(runtimeGradleHome, 'caches', cacheName);
       if (!lstatSync(runtimeCache, { throwIfNoEntry: false })?.isDirectory()) throw new Error(`Android offline cache prime did not produce Gradle ${cacheName}`);
       makeTreeReadOnly(runtimeCache, `Gradle runtime executable cache ${cacheName}`);
+      if (cacheName === 'jars-9') {
+        const lockPath = path.join(runtimeCache, 'jars-9.lock');
+        if (!lstatSync(lockPath, { throwIfNoEntry: false })?.isFile()) throw new Error('Gradle generated-JAR cache lock is missing');
+        chmodSync(lockPath, 0o600);
+      }
     }
     const sealedGeneratedInputPaths = [
       'apps/mobile/.dart_tool/package_config.json',
