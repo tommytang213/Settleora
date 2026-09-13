@@ -1301,10 +1301,9 @@ function collectAndroidUnsafe(options, emit = true) {
     mkdirSync(buildCaches, { recursive: false, mode: 0o700 });
     const pubCache = path.join(buildCaches, 'pub');
     const prefetchGradleHome = path.join(buildCaches, 'gradle-prefetch');
-    const runtimeGradleHome = path.join(buildCaches, 'gradle-runtime');
+    const runtimeGradleHome = prefetchGradleHome;
     mkdirSync(pubCache, { recursive: false, mode: 0o700 });
     mkdirSync(prefetchGradleHome, { recursive: false, mode: 0o700 });
-    mkdirSync(runtimeGradleHome, { recursive: false, mode: 0o700 });
     const buildHome = path.join(snapshotContainer, 'home');
     mkdirSync(buildHome, { recursive: false, mode: 0o700 });
     mkdirSync(path.join(buildHome, '.android'), { recursive: false, mode: 0o700 });
@@ -1382,23 +1381,14 @@ function collectAndroidUnsafe(options, emit = true) {
     }
     makeTreeReadOnly(pubCache, 'Dart pub dependency cache');
     for (const relativePath of pubExcludedBuildPaths) makeTreeOwnerWritable(path.join(pubCache, relativePath));
-    cpSync(gradleWrapper, path.join(runtimeGradleHome, 'wrapper'), { recursive: true, errorOnExist: true, force: false, preserveTimestamps: true });
-    const runtimeWrapper = path.join(runtimeGradleHome, 'wrapper');
+    const runtimeWrapper = gradleWrapper;
     const runtimeWrapperLockPaths = relativeFilesMatching(runtimeWrapper, /\.zip\.lck$/u);
     if (runtimeWrapperLockPaths.length !== 1 || !/^dists\/gradle-[0-9.]+-(?:all|bin)\/[a-z0-9]+\/gradle-[0-9.]+-(?:all|bin)\.zip\.lck$/u.test(runtimeWrapperLockPaths[0])) {
       throw new Error('Gradle runtime wrapper lock-file inventory is not the expected bounded shape');
     }
     const gradleRuntimeVersion = /^dists\/gradle-([0-9.]+)-(?:all|bin)\//u.exec(runtimeWrapperLockPaths[0])?.[1];
     if (!gradleRuntimeVersion) throw new Error('Gradle runtime version could not be derived from the sealed wrapper');
-    const runtimeModules = path.join(runtimeGradleHome, 'caches', 'modules-2');
-    mkdirSync(path.dirname(runtimeModules), { recursive: false, mode: 0o700 });
-    cpSync(gradleModules, runtimeModules, {
-      recursive: true,
-      errorOnExist: true,
-      force: false,
-      preserveTimestamps: true,
-      filter: (source) => !['gc.properties', 'modules-2.lock'].includes(path.basename(source)),
-    });
+    const runtimeModules = gradleModules;
     makeTreeReadOnly(runtimeModules, 'Gradle runtime module dependency cache');
     chmodSync(runtimeModules, 0o700);
     const sealedGradleExecutableCachePaths = [
@@ -1418,11 +1408,8 @@ function collectAndroidUnsafe(options, emit = true) {
       'caches/jars-9/jars-9.lock',
     ];
     for (const relativeCache of sealedGradleExecutableCachePaths) {
-      const sourceCache = path.join(prefetchGradleHome, relativeCache);
       const runtimeCache = path.join(runtimeGradleHome, relativeCache);
-      if (!lstatSync(sourceCache, { throwIfNoEntry: false })?.isDirectory()) throw new Error(`Android guarded dependency prefetch did not produce Gradle ${relativeCache}`);
-      mkdirSync(path.dirname(runtimeCache), { recursive: true, mode: 0o700 });
-      cpSync(sourceCache, runtimeCache, { recursive: true, errorOnExist: true, force: false, preserveTimestamps: true });
+      if (!lstatSync(runtimeCache, { throwIfNoEntry: false })?.isDirectory()) throw new Error(`Android guarded dependency prefetch did not produce Gradle ${relativeCache}`);
       makeTreeReadOnly(runtimeCache, `Gradle runtime executable cache ${relativeCache}`);
     }
     for (const relativeMutable of sealedGradleExecutableMutablePaths) {

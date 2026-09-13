@@ -119,8 +119,8 @@ inventory, and generated Android registrant are made read-only and added to the
 authenticated build guard. The guarded exact-source dependency prefetch
 produces the version-scoped dependency-accessor, generated-JAR, Groovy DSL,
 Kotlin DSL, and transformed-artifact caches plus the shared generated-JAR
-cache. Those caches are copied into the isolated runtime home, sealed before
-any retained build, bound by a dedicated dependency-cache inventory, and
+cache. Those caches are sealed in that isolated home before any retained
+build, bound by a dedicated dependency-cache inventory, and
 included in the whole-home guard. Only their exact required lock or
 garbage-collection coordination files remain writable; every other
 version-scoped Gradle path is guarded and an unexpected executable cache
