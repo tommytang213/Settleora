@@ -230,7 +230,7 @@ function inspectRecord(reference) {
 }
 
 let verifiedRegistryPreflightIdentity;
-const context = { githubAuthorization: undefined, bootstrapAuthorization: undefined };
+const context = { githubAccess: null, bootstrapAccess: null };
 function registryPreflightIdentity(input, retained) {
   return createHash('sha256').update(canonicalJson({
     retained,
@@ -260,7 +260,7 @@ function verifyLiveRegistryNetwork(input, retained = false) {
   const verifyPublication = (image, sourceCommit, label) => {
     const reference = verify(image, label, sourceCommit);
     const publication = validatePublicationRunUrl(image.publicationRunUrl, sourceCommit);
-    const ghEnvironment = { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', GH_HOST: 'github.com', GH_CONFIG_DIR: '/nonexistent', ...(context.githubAuthorization ? { GH_TOKEN: context.githubAuthorization } : {}) };
+    const ghEnvironment = { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', GH_HOST: 'github.com', GH_CONFIG_DIR: '/nonexistent', ...(context.githubAccess ? { GH_TOKEN: context.githubAccess } : {}) };
     const ghApi = (endpoint, options = {}) => execFileSync(releaseCommand('gh'), ['api', '--hostname', 'github.com', endpoint], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: ghEnvironment, ...options });
     const run = JSON.parse(ghApi(`repos/tommytang213/Settleora/actions/runs/${publication.runId}`));
     validatePublicationRunDocument(publication, run, sourceCommit);
@@ -2147,8 +2147,9 @@ function sealedCollectorClosure() {
 if (invokedDirectly) {
   if (!sealedRuntime) {
     try {
-      context.bootstrapAuthorization = process.env.GH_TOKEN ?? '';
-      if (context.bootstrapAuthorization && (Buffer.byteLength(context.bootstrapAuthorization) > 4096 || /[\u0000-\u0020\u007f]/u.test(context.bootstrapAuthorization))) throw new Error('GitHub authorization has an invalid bounded representation');
+      context.bootstrapAccess = process.env.GH_TOKEN;
+      if (typeof context.bootstrapAccess !== 'string') context.bootstrapAccess = '';
+      if (context.bootstrapAccess && (Buffer.byteLength(context.bootstrapAccess) > 4096 || /[\u0000-\u0020\u007f]/u.test(context.bootstrapAccess))) throw new Error('GitHub authorization has an invalid bounded representation');
       const closure = sealedCollectorClosure();
       const chunks = closure.match(/[\s\S]{1,60000}/gu) ?? [];
       if (chunks.length < 1 || chunks.length > 32) throw new Error('Sealed release collector closure exceeds its transfer boundary');
@@ -2170,7 +2171,7 @@ environment = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}
 os.execve(sys.argv[1], [sys.argv[1], "--input-type=module", "-", *sys.argv[2:]], environment)
 `;
       process.execve(releaseCommand('python'), [releaseCommand('python'), '-I', '-S', '-c', bootstrap, systemNodeCommand, ...process.argv.slice(2)], {
-        PATH: '/usr/bin:/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', SETTLEORA_CLOSURE_COUNT: String(chunks.length), ...closureEnvironment, ...(context.bootstrapAuthorization ? { SETTLEORA_GH_CREDENTIAL: context.bootstrapAuthorization } : {}),
+        PATH: '/usr/bin:/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', SETTLEORA_CLOSURE_COUNT: String(chunks.length), ...closureEnvironment, ...(context.bootstrapAccess ? { SETTLEORA_GH_CREDENTIAL: context.bootstrapAccess } : {}),
       });
     } catch (error) {
       console.error(sanitizedErrorMessage(error));
@@ -2188,8 +2189,8 @@ os.execve(sys.argv[1], [sys.argv[1], "--input-type=module", "-", *sys.argv[2:]],
       const bytes = Buffer.alloc(credentialMetadata.size);
       if (bytes.length > 0) {
         if (readSync(3, bytes, 0, bytes.length, 0) !== bytes.length) throw new Error('Inherited GitHub credential descriptor is incomplete');
-        context.githubAuthorization = bytes.toString('utf8');
-        if (/[\u0000-\u0020\u007f]/u.test(context.githubAuthorization)) throw new Error('Inherited GitHub authorization has an invalid representation');
+        context.githubAccess = bytes.toString('utf8');
+        if (/[\u0000-\u0020\u007f]/u.test(context.githubAccess)) throw new Error('Inherited GitHub authorization has an invalid representation');
       }
     }
     closeSync(3);
@@ -2199,7 +2200,7 @@ os.execve(sys.argv[1], [sys.argv[1], "--input-type=module", "-", *sys.argv[2:]],
       const retained = initialOptions.command === 'validate';
       verifyLiveRegistryNetwork(initialInput, retained);
       verifiedRegistryPreflightIdentity = registryPreflightIdentity(initialInput, retained);
-      context.githubAuthorization = undefined;
+      context.githubAccess = null;
     }
     main();
   }
