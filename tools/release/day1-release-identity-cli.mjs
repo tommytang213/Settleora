@@ -737,7 +737,7 @@ try:
             watch = libc.inotify_add_watch(fd, encoded, mask)
             if watch < 0:
                 raise OSError(ctypes.get_errno(), "inotify_add_watch failed")
-            watches[watch] = (label, relative_directory, prefixes, transient_bases)
+            watches.setdefault(watch, []).append((label, relative_directory, prefixes, transient_bases))
     for item in configuration_items:
         if tree_digest(os.path.realpath(item["root"]), item["excludedPrefixes"], item.get("excludedTransientBases", [])) != item["expectedGuardDigest"]:
             raise RuntimeError(item["label"] + " changed before its authenticated guard was installed")
@@ -765,15 +765,16 @@ try:
                     if event_mask & 0x00004000:
                         changed = "watcher:inotify-queue-overflow"
                         continue
-                    context = watches.get(watch)
-                    if context is None:
+                    contexts = watches.get(watch)
+                    if contexts is None:
                         changed = "watcher:unknown-watch-event"
                         continue
-                    label, relative_directory, prefixes, transient_bases = context
                     name = os.fsdecode(raw_name)
-                    relative = (relative_directory + "/" + name).strip("/")
-                    if not excluded(relative, prefixes, transient_bases):
-                        changed = label + ":" + (relative or ".") + ":0x" + format(event_mask, "x")
+                    for label, relative_directory, prefixes, transient_bases in contexts:
+                        relative = (relative_directory + "/" + name).strip("/")
+                        if not excluded(relative, prefixes, transient_bases):
+                            changed = label + ":" + (relative or ".") + ":0x" + format(event_mask, "x")
+                            break
                 if len(data) < 65536:
                     break
     command_values = json.loads(commands)
