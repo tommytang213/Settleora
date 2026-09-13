@@ -819,6 +819,9 @@ try:
                 raise RuntimeError("guarded command left an unreapable descendant process")
             time.sleep(0.01)
     for command_index, values in enumerate(command_values):
+        for output_fd in command_output_descriptors[command_index]:
+            os.ftruncate(output_fd, 0)
+            os.lseek(output_fd, 0, os.SEEK_SET)
         process = subprocess.Popen(["/proc/self/fd/3", *values], executable="/proc/self/fd/3", cwd=cwd, pass_fds=tuple([*passed_descriptors, *command_output_descriptors[command_index]]), start_new_session=True)
         while process.poll() is None:
             drain(0.05)
@@ -1029,6 +1032,12 @@ export function runGuardedOutputDescriptorFixture(configuration, outputPath) {
     const delayedReopen = `import os, time
 guard_pid = os.getppid()
 with open(f"/proc/{guard_pid}/stat", "r", encoding="ascii") as stat_file: node_pid = int(stat_file.read().split()[3])
+try:
+    prewrite = os.open(f"/proc/{node_pid}/fd/${descriptor}", os.O_WRONLY)
+    os.write(prewrite, b"untrusted prewrite" * 1000)
+    os.close(prewrite)
+except OSError:
+    pass
 child = os.fork()
 if child == 0:
     os.setsid()

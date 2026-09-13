@@ -953,6 +953,7 @@ test('release execution uses protected system runtimes and bypasses user plugin 
   assert.match(cliSource, /pass_fds=tuple\(\[\*passed_descriptors, \*command_output_descriptors\[command_index\]\]\)/);
   assert.match(cliSource, /libc\.prctl\(36, 1, 0, 0, 0\)/);
   assert.match(cliSource, /def terminate_orphaned_descendants\(\):/);
+  assert.match(cliSource, /os\.ftruncate\(output_fd, 0\)/);
   assert.match(cliSource, /watches\.setdefault\(watch, \[\]\)\.append/);
   assert.match(cliSource, /if source_fd != 0:\n    os\.close\(source_fd\)/);
   assert.match(cliSource, /if authorization_fd != 3:\n    os\.close\(authorization_fd\)/);
