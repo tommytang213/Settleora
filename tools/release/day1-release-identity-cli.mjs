@@ -1388,7 +1388,7 @@ function collectAndroidUnsafe(options, emit = true) {
     });
     makeTreeReadOnly(runtimeModules, 'Gradle runtime module dependency cache');
     chmodSync(runtimeModules, 0o700);
-    const sealedGradleExecutableCaches = [gradleRuntimeVersion, 'jars-9'];
+    const sealedGradleExecutableCaches = ['jars-9'];
     makeTreeReadOnly(runtimeWrapper, 'Gradle runtime wrapper distribution');
     chmodSync(path.join(runtimeWrapper, runtimeWrapperLockPaths[0]), 0o600);
     const dependencyCaches = {
@@ -1409,7 +1409,7 @@ function collectAndroidUnsafe(options, emit = true) {
       { label: 'gradle-wrapper-distribution', root: runtimeWrapper, excludedPrefixes: runtimeWrapperLockPaths },
       { label: 'android-signing-home', root: path.join(buildHome, '.android'), excludedPrefixes: [] },
     ];
-    const runtimeGradleMutablePaths = ['.tmp', 'caches/CACHEDIR.TAG', 'caches/build-cache-1', 'caches/gc.properties', 'caches/journal-1', 'caches/keyrings', 'caches/modules-2', 'android', 'daemon', 'kotlin-profile', 'native', 'notifications', 'workers', ...runtimeWrapperLockPaths.map((entry) => `wrapper/${entry}`)];
+    const runtimeGradleMutablePaths = ['.tmp', `caches/${gradleRuntimeVersion}`, 'caches/CACHEDIR.TAG', 'caches/build-cache-1', 'caches/gc.properties', 'caches/journal-1', 'caches/keyrings', 'caches/modules-2', 'android', 'daemon', 'kotlin-profile', 'native', 'notifications', 'workers', ...runtimeWrapperLockPaths.map((entry) => `wrapper/${entry}`)];
     const primingRuntimeGradleMutablePaths = [...runtimeGradleMutablePaths, ...sealedGradleExecutableCaches.map((entry) => `caches/${entry}`)];
     const runtimeGradlePrimeGuard = { label: 'gradle-runtime-home', root: runtimeGradleHome, excludedPrefixes: primingRuntimeGradleMutablePaths };
     offlineGuardConfiguration.push(runtimeGradlePrimeGuard);

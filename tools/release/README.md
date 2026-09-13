@@ -116,9 +116,9 @@ verification-metadata identity, the authenticated-runner algorithm,
 transient-marker/build-directory subsets, and fail-closed queue-overflow policy.
 After offline package generation, the exact package configuration, plugin
 inventory, and generated Android registrant are made read-only and added to the
-authenticated build guard. Dependency-bearing Gradle version, transformed
-artifact, and generated-JAR caches are copied from the guarded prefetch, sealed,
-and included in the whole-home guard instead of being treated as mutable state.
+authenticated build guard. The generated-JAR cache is primed, sealed, and
+included in the whole-home guard; an unexpected top-level transformed-artifact
+cache is not excluded and therefore fails the authenticated build guard.
 Assembly and validation resolve `apksigner`
 only below the separately supplied trusted SDK root and verify both the APK and
 AAB debug certificate and rejects additional APK or AAB signers. Validation always recollects source, registry, web,
