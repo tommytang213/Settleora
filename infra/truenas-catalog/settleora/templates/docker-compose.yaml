@@ -85,7 +85,7 @@
      render. Its hostpath schema currently checks existence only, so obtain the
      authoritative real path and reject every symlink component here. The
      context-free official offline renderer exercises the lexical fallback. #}
-  {% if values.ix_context.get("app_name") %}
+  {% if values.get("ix_context", {}).get("app_name") %}
     {% set dataset_stat = tpl.client.client.call("filesystem.stat", dataset) %}
     {% if not dataset_stat or dataset_stat.type != "DIRECTORY" or dataset_stat.realpath != dataset %}
       {% do tpl.funcs.fail("Every live TrueNAS dataset must be a canonical, non-symlinked directory") %}
