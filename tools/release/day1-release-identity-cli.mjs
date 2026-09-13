@@ -1734,7 +1734,7 @@ function collectAndroidUnsafe(options, emit = true) {
   return result;
 }
 
-function collectAndroid(options, emit = true) {
+export function collectAndroid(options, emit = true) {
   const output = path.resolve(options.output ?? '');
   const existed = lstatSync(output, { throwIfNoEntry: false }) !== undefined;
   try {
