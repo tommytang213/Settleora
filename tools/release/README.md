@@ -13,6 +13,9 @@ Assembly and validation require `gh` access to read the canonical GitHub Actions
 publication-run URL, its job record, and its authenticated provider log. They
 fail unless the exact index digest is both published for the exact-SHA tag and
 reported as the successful build action output for the exact-source push run.
+The authenticated SLSA provenance must also bind the Dockerfile frontend and
+the resolved .NET SDK and ASP.NET runtime base-image digests recorded as API
+build materials; a source/tag/image match without those build inputs is rejected.
 Direct CLI execution builds a descriptor-fed closure from the exact committed
 collector modules and starts it under the protected system Node with a bounded
 environment. That sealed child performs authenticated provider and registry
@@ -75,7 +78,8 @@ disposable exact-source snapshot. The installed `node_modules` tree is then
 inventoried, write-sealed with internal symlink confinement, and continuously
 guarded through the build. Vite's runner config loader avoids emitting a
 temporary config bundle beside tracked source. A bounded canonical copy of every output file is
-streamed to an unlinked held descriptor before the runner exits; only those
+streamed to a held anonymous descriptor and write-sealed by the guarded runner
+before the collector consumes it; only those
 captured bytes produce the retained R02 manifest and `dist/`. Validation repeats that exact-source web build and
 compares it with the retained identity, so caller-authored source claims are not
 trusted. Executable source snapshots are materialized directly from committed
@@ -120,9 +124,10 @@ recognizes only numeric atomic-update siblings of those bound Flutter markers;
 the Android provenance binds toolchain and dependency-cache identities, Gradle
 verification-metadata identity, the authenticated-runner algorithm,
 transient-marker/build-directory subsets, and fail-closed queue-overflow policy.
-After the guarded dependency prefetch, the exact package configuration, plugin
-inventory, and generated Android registrant are made read-only and added to the
-authenticated build guard. The guarded exact-source dependency prefetch
+Immediately after the guarded dependency-resolution phase, the exact package
+configuration, plugin inventory, and generated Android registrant are made
+read-only and added to the authenticated guard before the first APK build. The
+guarded exact-source dependency prefetch
 produces the version-scoped dependency-accessor, generated-JAR, Groovy DSL,
 Kotlin DSL, and transformed-artifact caches plus the shared generated-JAR
 cache. Those caches are sealed in that isolated home before any retained
@@ -186,6 +191,11 @@ deterministic signature-control tree that binds signature-file section order
 and normalizes only the lexical R8 build-time integer value; the
 certificate block is still cryptographically verified against the single bound
 debug signer.
+Each retained APK, AAB, output-metadata file, and R8 mapping is copied first to
+a dedicated anonymous descriptor, write-sealed before the build guard returns,
+then copied into the candidate directory. The AAB deterministic identity also
+binds the raw manifest and signature-file entry-section serialization while
+normalizing only that documented R8 value.
 Assembly also copies the bounded release-note input into canonical retained
 `release-notes.md`; validation never depends on the caller's original path.
 

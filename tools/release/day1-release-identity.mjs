@@ -176,11 +176,35 @@ export function validatePublicationJobLog(log, image, sourceCommit) {
   return true;
 }
 
-export function validatePublicationProvenance(publication, provenance, sourceCommit) {
+function canonicalBuildMaterials(materials, label = 'apiImage.buildMaterials') {
+  if (!Array.isArray(materials) || materials.length !== 3) fail(`${label} must contain the three resolved Docker build materials`);
+  const result = materials.map((material, index) => {
+    assertKeys(material, ['uri', 'digest'], `${label}.${index}`);
+    const uri = publicText(material.uri, `${label}.${index}.uri`);
+    digest(material.digest, `${label}.${index}.digest`);
+    return { uri, digest: material.digest };
+  }).sort((left, right) => Buffer.from(left.uri).compare(Buffer.from(right.uri)));
+  const expected = [
+    'pkg:docker/docker/dockerfile@1',
+    'pkg:docker/mcr.microsoft.com/dotnet/aspnet@9.0?platform=linux%2Famd64',
+    'pkg:docker/mcr.microsoft.com/dotnet/sdk@9.0?platform=linux%2Famd64',
+  ];
+  if (result.some((material, index) => material.uri !== expected[index])) fail(`${label} contains unexpected or missing Docker build material identities`);
+  return result;
+}
+
+export function validatePublicationProvenance(publication, provenance, sourceCommit, image) {
   const builder = provenance?.runDetails?.builder?.id;
   const vcs = provenance?.buildDefinition?.externalParameters?.request?.root?.configSource?.request?.args;
   if (typeof builder !== 'string' || !builder.startsWith(`${publication.url}/attempts/`) || !/^[1-9][0-9]*$/u.test(builder.slice(`${publication.url}/attempts/`.length)) || vcs?.['vcs:revision'] !== sourceCommit || vcs?.['vcs:source'] !== 'https://github.com/tommytang213/Settleora') {
     fail('API image publication provenance attestation mismatch');
+  }
+  const resolved = provenance?.buildDefinition?.resolvedDependencies?.map((material) => ({
+    uri: material?.uri,
+    digest: typeof material?.digest?.sha256 === 'string' ? `sha256:${material.digest.sha256}` : undefined,
+  }));
+  if (canonicalJson(canonicalBuildMaterials(resolved, 'publication resolvedDependencies')) !== canonicalJson(canonicalBuildMaterials(image?.buildMaterials))) {
+    fail('API image publication resolved build-material mismatch');
   }
   return true;
 }
@@ -257,6 +281,7 @@ function withPlatform(image, platform, label) {
   for (const key of ['name', 'sourceComposePath', 'ociRevision', 'publicationRunUrl']) {
     if (image[key] !== undefined) result[key] = key === 'name' || key === 'sourceComposePath' ? safeLabel(image[key], `${label}.${key}`) : publicText(image[key], `${label}.${key}`);
   }
+  if (image.buildMaterials !== undefined) result.buildMaterials = canonicalBuildMaterials(image.buildMaterials, `${label}.buildMaterials`);
   return result;
 }
 
@@ -449,7 +474,7 @@ export function collectMigrations(repoRoot, expectedDigest, capturedCommit = git
 function validateImage(image, label, sourceCommit, expectedTag, expectedRepository) {
   const roleKeys = sourceCommit === undefined
     ? ['repository', 'configuredTag', 'indexDigest', 'platformDigest', 'os', 'architecture', 'name', 'sourceComposePath']
-    : ['repository', 'configuredTag', 'indexDigest', 'platformDigest', 'os', 'architecture', 'ociRevision', 'publicationRunUrl'];
+    : ['repository', 'configuredTag', 'indexDigest', 'platformDigest', 'os', 'architecture', 'ociRevision', 'publicationRunUrl', 'buildMaterials'];
   assertKeys(image, roleKeys, label);
   string(image.repository, `${label}.repository`);
   string(image.configuredTag, `${label}.configuredTag`);
@@ -462,6 +487,7 @@ function validateImage(image, label, sourceCommit, expectedTag, expectedReposito
   if (expectedTag && image.configuredTag !== expectedTag) fail(`${label} configured tag mismatch`);
   if (/(?:^|:)(?:main|latest)$/u.test(image.configuredTag)) fail(`${label} floating tag is not authoritative`);
   if (sourceCommit) {
+    canonicalBuildMaterials(image.buildMaterials, `${label}.buildMaterials`);
     if (image.configuredTag !== `sha-${sourceCommit}`) fail('API image tag must be exactly sha-<source commit>');
     if (image.ociRevision !== sourceCommit) fail('API image OCI revision mismatch');
     if (image.publicationRunUrl !== undefined) validatePublicationRunUrl(image.publicationRunUrl, sourceCommit);
@@ -731,6 +757,11 @@ function collectReleaseNotes(input) {
   releaseNoteSummary(input.candidateSummary, 'releaseNotes.candidateSummary');
   if (file.size === 0) fail('Release-note evidence must not be empty');
   if (containsSensitiveMaterial(file.bytes.toString('utf8'))) fail('Release-note evidence contains potentially sensitive material');
+  try {
+    scanPublicArtifact([{ path: 'release-notes.md', contents: file.bytes }]);
+  } catch {
+    fail('Release-note evidence contains rendered potentially sensitive material');
+  }
   return { source: input.source, sha256: sha256(file.bytes), size: file.size, candidateSummary: input.candidateSummary };
 }
 
@@ -885,7 +916,7 @@ function assertInput(input) {
   assertKeys(input, ['generatedAt', 'registryResolutionMode', 'platform', 'source', 'apiImage', 'dependencyImages', 'expectedMigrationSetSha256', 'userWeb', 'android', 'releaseNotes', 'rollback', 'retention'], 'input', ['generatedAt', 'registryResolutionMode', 'platform', 'source', 'apiImage', 'dependencyImages', 'userWeb', 'android', 'releaseNotes', 'rollback', 'retention']);
   assertKeys(input.platform, ['os', 'architecture'], 'input.platform');
   assertKeys(input.source, ['repository', 'commit', 'tree', 'candidateId'], 'input.source');
-  assertKeys(input.apiImage, ['repository', 'configuredTag', 'indexDigest', 'platformDigest', 'ociRevision', 'publicationRunUrl'], 'input.apiImage');
+  assertKeys(input.apiImage, ['repository', 'configuredTag', 'indexDigest', 'platformDigest', 'ociRevision', 'publicationRunUrl', 'buildMaterials'], 'input.apiImage');
   for (const [index, image] of input.dependencyImages?.entries?.() ?? []) assertKeys(image, ['name', 'repository', 'configuredTag', 'indexDigest', 'platformDigest', 'sourceComposePath', 'os', 'architecture'], `input.dependencyImages.${index}`, ['name', 'repository', 'configuredTag', 'indexDigest', 'platformDigest', 'sourceComposePath']);
   assertKeys(input.userWeb, ['evidenceRoot', 'manifestPath'], 'input.userWeb');
   assertKeys(input.android, ['evidenceRoot', 'apkPath', 'aabPath', 'mappingPath', 'outputMetadataPath', 'buildProvenancePath', 'signerCertificateSha256', 'embeddedR8MappingSha256', 'verificationToolSha256', 'expected'], 'input.android', ['evidenceRoot', 'apkPath', 'aabPath', 'mappingPath', 'outputMetadataPath', 'buildProvenancePath', 'signerCertificateSha256', 'embeddedR8MappingSha256', 'verificationToolSha256']);
@@ -895,7 +926,7 @@ function assertInput(input) {
   }
   assertKeys(input.releaseNotes, ['evidenceRoot', 'path', 'source', 'candidateSummary'], 'input.releaseNotes');
   assertKeys(input.rollback, ['sourceCommit', 'apiImage'], 'input.rollback');
-  assertKeys(input.rollback.apiImage, ['repository', 'configuredTag', 'indexDigest', 'platformDigest', 'ociRevision', 'publicationRunUrl'], 'input.rollback.apiImage');
+  assertKeys(input.rollback.apiImage, ['repository', 'configuredTag', 'indexDigest', 'platformDigest', 'ociRevision', 'publicationRunUrl', 'buildMaterials'], 'input.rollback.apiImage');
   assertKeys(input.retention, ['canonicalEvidenceDirectory', 'policy', 'apiRegistryIdentity'], 'input.retention');
   if (!Array.isArray(input.dependencyImages) || input.dependencyImages.length !== 3) fail('Input requires exactly three dependency images');
 }

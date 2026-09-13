@@ -300,7 +300,7 @@ def canonical_aab_signature_control_digest(descriptor: int) -> str:
 
         controls = set(names)
         archive_names = [info.filename for info in bundle.infolist() if info.filename not in controls]
-        manifest_records: dict[str, tuple[bytes, str]] = {}
+        manifest_records: dict[str, tuple[bytes, str, str]] = {}
         manifest_section_order: list[str] = []
         for raw_section, attributes in manifest_sections[1:]:
             if set(attributes) != {"Name", "SHA-256-Digest"} or attributes["Name"] in manifest_records:
@@ -313,12 +313,14 @@ def canonical_aab_signature_control_digest(descriptor: int) -> str:
             normalized = raw_entry
             if name == "BUNDLE-METADATA/com.android.tools/r8.json":
                 normalized = normalize_r8_build_time(raw_entry)
-            manifest_records[name] = (raw_section, _sha256_base64(normalized))
+            normalized_digest = _sha256_base64(normalized)
+            normalized_section = raw_section.replace(attributes["SHA-256-Digest"].encode("ascii"), normalized_digest.encode("ascii"), 1)
+            manifest_records[name] = (raw_section, normalized_digest, hashlib.sha256(normalized_section).hexdigest())
             manifest_section_order.append(name)
         if sorted(manifest_records) != sorted(archive_names):
             raise ValueError("Android AAB manifest does not bind the complete archive entry set")
 
-        signature_records: dict[str, str] = {}
+        signature_records: dict[str, tuple[str, str]] = {}
         signature_section_order: list[str] = []
         for _, attributes in signature_sections[1:]:
             if set(attributes) != {"Name", "SHA-256-Digest"} or attributes["Name"] in signature_records:
@@ -328,7 +330,16 @@ def canonical_aab_signature_control_digest(descriptor: int) -> str:
             raw_manifest_section = manifest_records.get(name, (None, None))[0]
             if raw_manifest_section is None or attributes["SHA-256-Digest"] != _sha256_base64(raw_manifest_section):
                 raise ValueError("Android AAB signature file does not bind a complete manifest section")
-            signature_records[name] = attributes["SHA-256-Digest"]
+            normalized_manifest_section_digest = _sha256_base64(
+                manifest_records[name][0].replace(
+                    manifest_sections[1 + manifest_section_order.index(name)][1]["SHA-256-Digest"].encode("ascii"),
+                    manifest_records[name][1].encode("ascii"), 1,
+                )
+            )
+            normalized_signature_section = signature_sections[1 + len(signature_section_order)][0].replace(
+                attributes["SHA-256-Digest"].encode("ascii"), normalized_manifest_section_digest.encode("ascii"), 1,
+            )
+            signature_records[name] = (attributes["SHA-256-Digest"], hashlib.sha256(normalized_signature_section).hexdigest())
             signature_section_order.append(name)
         if sorted(signature_records) != sorted(manifest_records):
             raise ValueError("Android AAB signature file does not bind every manifest section")
@@ -336,7 +347,7 @@ def canonical_aab_signature_control_digest(descriptor: int) -> str:
         deterministic = {
             "algorithm": "sha256(canonical-aab-jar-controls-v1)",
             "certificateBlockEntry": "META-INF/ANDROIDD.RSA",
-            "manifestEntries": [{"name": name, "normalizedSha256Base64": manifest_records[name][1]} for name in sorted(manifest_records)],
+            "manifestEntries": [{"name": name, "normalizedSha256Base64": manifest_records[name][1], "normalizedControlSectionSha256": manifest_records[name][2], "normalizedSignatureSectionSha256": signature_records[name][1]} for name in sorted(manifest_records)],
             "manifestSectionOrder": manifest_section_order,
             "signatureFileEntry": "META-INF/ANDROIDD.SF",
             "signatureFileSectionOrder": signature_section_order,

@@ -168,6 +168,11 @@ function fixture(t) {
       platformDigest: d('b'),
       ociRevision: commit,
       publicationRunUrl: 'https://github.com/tommytang213/Settleora/actions/runs/1',
+      buildMaterials: [
+        { uri: 'pkg:docker/docker/dockerfile@1', digest: d('2') },
+        { uri: 'pkg:docker/mcr.microsoft.com/dotnet/aspnet@9.0?platform=linux%2Famd64', digest: d('3') },
+        { uri: 'pkg:docker/mcr.microsoft.com/dotnet/sdk@9.0?platform=linux%2Famd64', digest: d('4') },
+      ],
     },
     dependencyImages: [
       { name: 'postgres', repository: 'docker.io/library/postgres', configuredTag: 'postgres:16-alpine', indexDigest: d('c'), platformDigest: d('d'), sourceComposePath: 'infra/docker-compose.truenas-lan.image.yml' },
@@ -189,7 +194,11 @@ function fixture(t) {
     releaseNotes: { evidenceRoot, path: notesPath, source: 'bounded-input/release-notes.md', candidateSummary: 'Fixture candidate only.' },
     rollback: {
       sourceCommit: rollbackCommit,
-      apiImage: { repository: 'ghcr.io/tommytang213/settleora-api', configuredTag: `sha-${rollbackCommit}`, indexDigest: d('5'), platformDigest: d('6'), ociRevision: rollbackCommit, publicationRunUrl: 'https://github.com/tommytang213/Settleora/actions/runs/2' },
+      apiImage: { repository: 'ghcr.io/tommytang213/settleora-api', configuredTag: `sha-${rollbackCommit}`, indexDigest: d('5'), platformDigest: d('6'), ociRevision: rollbackCommit, publicationRunUrl: 'https://github.com/tommytang213/Settleora/actions/runs/2', buildMaterials: [
+        { uri: 'pkg:docker/docker/dockerfile@1', digest: d('2') },
+        { uri: 'pkg:docker/mcr.microsoft.com/dotnet/aspnet@9.0?platform=linux%2Famd64', digest: d('3') },
+        { uri: 'pkg:docker/mcr.microsoft.com/dotnet/sdk@9.0?platform=linux%2Famd64', digest: d('4') },
+      ] },
     },
     retention: {
       canonicalEvidenceDirectory: `/workspace/logs/settleora-release-candidates/day1-${commit.slice(0, 12)}`,
@@ -245,10 +254,13 @@ test('rejects source, API revision, API digest and floating-tag mismatches', (t)
   const publicationLog = `pushing manifest for ghcr.io/tommytang213/settleora-api:sha-${f.commit}@${f.input.apiImage.indexDigest} done\n  "containerimage.digest": "${f.input.apiImage.indexDigest}"\n`;
   assert.equal(validatePublicationJobLog(publicationLog, f.input.apiImage, f.commit), true);
   assert.throws(() => validatePublicationJobLog(publicationLog.replaceAll(f.input.apiImage.indexDigest, d('9')), f.input.apiImage, f.commit), /publication log digest mismatch/);
-  const provenance = { runDetails: { builder: { id: `${publication.url}/attempts/1` } }, buildDefinition: { externalParameters: { request: { root: { configSource: { request: { args: { 'vcs:revision': f.commit, 'vcs:source': 'https://github.com/tommytang213/Settleora' } } } } } } } };
-  assert.equal(validatePublicationProvenance(publication, provenance, f.commit), true);
+  const provenance = { runDetails: { builder: { id: `${publication.url}/attempts/1` } }, buildDefinition: { resolvedDependencies: f.input.apiImage.buildMaterials.map((material) => ({ uri: material.uri, digest: { sha256: material.digest.slice(7) } })), externalParameters: { request: { root: { configSource: { request: { args: { 'vcs:revision': f.commit, 'vcs:source': 'https://github.com/tommytang213/Settleora' } } } } } } } };
+  assert.equal(validatePublicationProvenance(publication, provenance, f.commit, f.input.apiImage), true);
+  const wrongMaterials = structuredClone(provenance);
+  wrongMaterials.buildDefinition.resolvedDependencies[0].digest.sha256 = '9'.repeat(64);
+  assert.throws(() => validatePublicationProvenance(publication, wrongMaterials, f.commit, f.input.apiImage), /resolved build-material mismatch/);
   provenance.runDetails.builder.id = 'https://github.com/other/repo/actions/runs/1/attempts/1';
-  assert.throws(() => validatePublicationProvenance(publication, provenance, f.commit), /provenance attestation mismatch/);
+  assert.throws(() => validatePublicationProvenance(publication, provenance, f.commit, f.input.apiImage), /provenance attestation mismatch/);
   const rollback = structuredClone(f.input.rollback);
   delete rollback.apiImage.publicationRunUrl;
   assert.throws(() => buildManifest(f.root, { ...f.input, rollback }), /publicationRunUrl/);
@@ -513,6 +525,9 @@ test('safe inputs reject URL query credentials and completion rejects untracked 
   assert.throws(() => safeInput(discardedEncodedToken, 'Evidence input'), /Duplicate JSON member/);
   const quotedAssignment = write(f.evidenceRoot, 'quoted-assignment.json', '{"PASSWORD":"abcdefgh"}');
   assert.throws(() => safeInput(quotedAssignment, 'Evidence input'), /potentially sensitive material/);
+  writeFileSync(f.paths.notesPath, `Candidate notes: ghp&#95;${'A'.repeat(36)}\n`);
+  assert.throws(() => buildManifest(f.root, f.input), /rendered potentially sensitive material/);
+  writeFileSync(f.paths.notesPath, 'Fixture release notes.\n');
   assert.doesNotThrow(() => assertCleanCompletion(f.root, 'source changed'));
   write(f.root, 'untracked-after-registry.txt', 'race\n');
   assert.throws(() => assertCleanCompletion(f.root, 'source changed'), /source changed/);
@@ -753,7 +768,7 @@ test('direct validation rejects empty migrations, noncanonical artifacts and unp
 
 test('published schema requires role-specific image provenance', () => {
   const schema = JSON.parse(readFileSync(new URL('../day1-release-identity.schema.json', import.meta.url), 'utf8'));
-  assert.deepEqual(schema.$defs.apiImage.required, ['repository', 'configuredTag', 'indexDigest', 'platformDigest', 'os', 'architecture', 'ociRevision', 'publicationRunUrl']);
+  assert.deepEqual(schema.$defs.apiImage.required, ['repository', 'configuredTag', 'indexDigest', 'platformDigest', 'os', 'architecture', 'ociRevision', 'publicationRunUrl', 'buildMaterials']);
   assert.deepEqual(schema.$defs.dependencyImage.required, ['name', 'repository', 'configuredTag', 'indexDigest', 'platformDigest', 'os', 'architecture', 'sourceComposePath']);
   assert.equal(schema.properties.apiImage.$ref, '#/$defs/apiImage');
   assert.equal(schema.properties.rollback.properties.apiImage.$ref, '#/$defs/apiImage');

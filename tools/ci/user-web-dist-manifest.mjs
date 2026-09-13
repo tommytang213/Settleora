@@ -174,7 +174,7 @@ function decodeHtmlEntitiesForScan(text) {
     ['lt', '<'], ['equals', '='], ['gt', '>'], ['quest', '?'], ['commat', '@'], ['lsqb', '['],
     ['bsol', '\\'], ['rsqb', ']'], ['Hat', '^'], ['lowbar', '_'], ['grave', '`'], ['lbrace', '{'],
     ['lbrack', '['], ['midast', '*'], ['rbrace', '}'], ['rbrack', ']'], ['lcub', '{'], ['verbar', '|'],
-    ['vert', '|'], ['rcub', '}'],
+    ['vert', '|'], ['fjlig', 'fj'], ['rcub', '}'],
   ]);
   // HTML accepts semicolonless numeric references. Named references remain
   // semicolon-required so an ordinary ampersand word is not rewritten.
@@ -373,6 +373,9 @@ export function scanPublicArtifact(files) {
     const collapsedScriptText = removeScriptEscapeBoundariesForScan(text);
     const decodedHtmlText = decodeHtmlEntitiesForScan(text);
     const decodedCssText = decodeCssEscapesForScan(text);
+    const decodedHtmlScriptText = decodeStaticScriptEscapesForScan(decodedHtmlText);
+    const collapsedHtmlScriptText = removeScriptEscapeBoundariesForScan(decodedHtmlText);
+    const decodedHtmlCssText = decodeCssEscapesForScan(decodedHtmlText);
     let decodedJsonText;
     let candidate;
     try {
@@ -405,6 +408,7 @@ export function scanPublicArtifact(files) {
     }
     for (const pattern of unsafeContentPatterns) {
       if (pattern.test(text) || pattern.test(decodedScriptText) || pattern.test(collapsedScriptText) || pattern.test(decodedHtmlText) || pattern.test(decodedCssText)
+        || pattern.test(decodedHtmlScriptText) || pattern.test(collapsedHtmlScriptText) || pattern.test(decodedHtmlCssText)
         || (decodedJsonText !== undefined && pattern.test(decodedJsonText))) {
         throw new Error(`Potential sensitive or host-specific material in ${file.path}`);
       }

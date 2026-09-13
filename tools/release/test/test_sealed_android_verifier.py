@@ -99,6 +99,40 @@ class SealedAndroidVerifierTests(unittest.TestCase):
         self.assertNotEqual(identity(False), identity(True))
         self.assertNotEqual(identity(False), identity(False, True))
 
+    def test_aab_signature_control_digest_binds_raw_entry_sections(self):
+        payload = b"payload"
+
+        def identity(fold_manifest_name: bool, fold_signature_name: bool) -> str:
+            manifest_name = b"Name: base/\r\n payload" if fold_manifest_name else b"Name: base/payload"
+            manifest_section = (
+                manifest_name + b"\r\nSHA-256-Digest: "
+                + base64.b64encode(hashlib.sha256(payload).digest()) + b"\r\n\r\n"
+            )
+            manifest = b"Manifest-Version: 1.0\r\nBuilt-By: Signflinger\r\nCreated-By: Signflinger\r\n\r\n" + manifest_section
+            signature_name = b"Name: base/\r\n payload" if fold_signature_name else b"Name: base/payload"
+            signature_section = (
+                signature_name + b"\r\nSHA-256-Digest: "
+                + base64.b64encode(hashlib.sha256(manifest_section).digest()) + b"\r\n\r\n"
+            )
+            signature = (
+                b"Signature-Version: 1.0\r\nCreated-By: Signflinger\r\nSHA-256-Digest-Manifest: "
+                + base64.b64encode(hashlib.sha256(manifest).digest()) + b"\r\n\r\n" + signature_section
+            )
+            archive = io.BytesIO()
+            with zipfile.ZipFile(archive, "w") as output:
+                output.writestr("base/payload", payload)
+                output.writestr("META-INF/MANIFEST.MF", manifest)
+                output.writestr("META-INF/ANDROIDD.SF", signature)
+                output.writestr("META-INF/ANDROIDD.RSA", b"certificate")
+            with tempfile.TemporaryFile() as source:
+                source.write(archive.getvalue())
+                source.seek(0)
+                return VERIFIER.canonical_aab_signature_control_digest(source.fileno())
+
+        canonical = identity(False, False)
+        self.assertNotEqual(canonical, identity(True, False))
+        self.assertNotEqual(canonical, identity(False, True))
+
     def test_aab_signature_control_digest_rejects_reordered_main_section(self):
         payload = b"payload"
         payload_digest = base64.b64encode(hashlib.sha256(payload).digest())

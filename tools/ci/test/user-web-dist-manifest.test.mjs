@@ -288,6 +288,14 @@ test('manifest rejects symlinks, malformed names, source maps and sensitive cont
       path.join(f.dist, 'encoded.html'),
       `<div data-value="github&UnderBar;pat_${'A'.repeat(20)}"></div>`,
     ), /Potential sensitive/],
+    ['HTML multi-character named entity inside token suffix', (f) => writeFileSync(
+      path.join(f.dist, 'encoded.html'),
+      `<div data-value="github_pat_${'A'.repeat(10)}&fjlig;${'A'.repeat(8)}"></div>`,
+    ), /Potential sensitive/],
+    ['HTML entities composed with JavaScript escapes', (f) => writeFileSync(
+      path.join(f.dist, 'encoded.html'),
+      `<button onclick="const value='github_pat_${'&#92;u0041'.repeat(20)}'"></button>`,
+    ), /Potential sensitive/],
     ['CSS hex-escaped token', (f) => writeFileSync(
       path.join(f.dist, 'app.css'),
       `.credential{--value:"github_pat_${'\\41 '.repeat(20)}"}`,
