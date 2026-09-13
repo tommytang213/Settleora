@@ -112,7 +112,14 @@ test('rendered topology preserves R11, R12, private services, datasets, and migr
   for (const service of ['api', 'migrate', 'postgres', 'rabbitmq']) assert.equal(compose.services[service].ports, undefined);
   assert.equal(compose.services.api.depends_on.migrate.condition, 'service_completed_successfully');
   assert.equal(compose.services.migrate.depends_on.postgres.condition, 'service_healthy');
-  assert.deepEqual(compose.services.api.healthcheck, { disable: true });
+  assert.equal(compose.services.api.healthcheck.test[0], 'CMD-SHELL');
+  assert.match(compose.services.api.healthcheck.test[1], /\/health\/ready/);
+  assert.doesNotMatch(compose.services.api.healthcheck.test[1], /curl/);
+  assert.equal(compose.services.ingress.depends_on.api.condition, 'service_healthy');
+  assert.equal(compose.services.api.environment.Auth__Passkeys__RelyingPartyId, fixtureConfig.hostname);
+  assert.equal(compose.services.api.environment.Auth__Passkeys__AllowedOrigins__0, `https://${fixtureConfig.hostname}:${fixtureConfig.httpsPort}`);
+  assert.deepEqual(compose.services.api.entrypoint, ['/bin/sh', '/usr/local/bin/settleora-api-entrypoint.sh']);
+  assert.match(compose.configs['settleora-api-entrypoint'].content, /\.settleora-write-probe/);
   assert.equal(compose.services.api.environment.HOME, '/var/lib/settleora');
   assert.deepEqual(compose.services.ingress.entrypoint, ['/bin/sh', '/usr/local/bin/settleora-caddy-entrypoint.sh']);
   assert.match(compose.configs['settleora-caddy-entrypoint'].content, /cp \/usr\/bin\/caddy \/tmp\/settleora-caddy/);
@@ -204,6 +211,12 @@ test('topology negative matrix rejects exposure, unsupported services, identity 
     (c) => { c.services.postgres.image = identity.images.rabbitmq; },
     (c) => { c.services.rabbitmq.image = identity.images.caddy; },
     (c) => { c.services.api.healthcheck = { test: ['CMD', 'curl'] }; },
+    (c) => { c.services.api.healthcheck.test[1] = c.services.api.healthcheck.test[1].replace('/health/ready', '/health'); },
+    (c) => { c.services.ingress.depends_on.api.condition = 'service_started'; },
+    (c) => { delete c.services.api.environment.Auth__Passkeys__RelyingPartyId; },
+    (c) => { c.services.api.environment.Auth__Passkeys__AllowedOrigins__0 = 'https://localhost'; },
+    (c) => { delete c.services.api.entrypoint; },
+    (c) => { c.configs['settleora-api-entrypoint'].content = 'exec dotnet Settleora.Api.dll'; },
     (c) => { delete c.services.ingress.entrypoint; },
     (c) => { c.configs['settleora-caddy-entrypoint'].content = 'exec /usr/bin/caddy'; },
     (c) => { c.configs['settleora-migrate-entrypoint'].content = 'exit 0'; },

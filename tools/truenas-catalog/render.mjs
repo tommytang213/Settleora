@@ -85,6 +85,20 @@ case "$mode" in
 esac
 `.replaceAll('$', () => '$$');
 
+const API_ENTRYPOINT = `#!/bin/sh
+set -eu
+[ "$(id -u)" = "999" ] && [ "$(id -g)" = "999" ] || { echo >&2 "API startup refused: expected runtime UID/GID 999."; exit 64; }
+data_path=/var/lib/settleora
+[ -d "$data_path" ] && [ -r "$data_path" ] && [ -w "$data_path" ] && [ -x "$data_path" ] || { echo >&2 "API startup refused: the private storage dataset must grant UID/GID 999 read, write, and traverse access."; exit 65; }
+probe="$data_path/.settleora-write-probe-$$"
+trap 'rm -f "$probe"' EXIT HUP INT TERM
+umask 077
+: > "$probe" || { echo >&2 "API startup refused: the private storage dataset is not writable by UID/GID 999."; exit 66; }
+rm -f "$probe"
+trap - EXIT HUP INT TERM
+exec dotnet Settleora.Api.dll "$@"
+`.replaceAll('$', () => '$$');
+
 function fail(message) {
   throw new Error(message);
 }
@@ -299,6 +313,7 @@ function baseService(image, networks, restart = 'unless-stopped') {
 export function renderCompose(identity, config) {
   validateConfig(config);
   const connection = `Host=postgres;Port=5432;Database=${config.postgres.database};Username=${config.postgres.user};Password=${config.postgres.password}`;
+  const passkeyOrigin = config.httpsPort === 443 ? `https://${config.hostname}` : `https://${config.hostname}:${config.httpsPort}`;
   const compose = {
     services: {
       ingress: {
@@ -309,7 +324,7 @@ export function renderCompose(identity, config) {
         security_opt: ['no-new-privileges=true'],
         entrypoint: ['/bin/sh', '/usr/local/bin/settleora-caddy-entrypoint.sh'],
         command: ['run', '--config', '/etc/caddy/Caddyfile', '--adapter', 'caddyfile'],
-        depends_on: { api: { condition: 'service_started' } },
+        depends_on: { api: { condition: 'service_healthy' } },
         ports: [{ target: 8443, published: String(config.httpsPort), protocol: 'tcp', mode: 'ingress', host_ip: config.bindAddress }],
         configs: [
           { source: 'settleora-caddyfile', target: '/etc/caddy/Caddyfile', mode: 292 },
@@ -331,15 +346,18 @@ export function renderCompose(identity, config) {
       api: {
         ...baseService(identity.images.api, ['ingress', 'backend']),
         cap_drop: ['ALL'],
+        entrypoint: ['/bin/sh', '/usr/local/bin/settleora-api-entrypoint.sh'],
         expose: ['8080/tcp'],
         environment: {
           ASPNETCORE_ENVIRONMENT: 'Production', ASPNETCORE_URLS: 'http://+:8080', HOME: '/var/lib/settleora', Settleora__Database__ConnectionString: connection,
+          Auth__Passkeys__RelyingPartyId: config.hostname, Auth__Passkeys__AllowedOrigins__0: passkeyOrigin,
           Settleora__RabbitMq__HostName: 'rabbitmq', Settleora__RabbitMq__Port: '5672', Settleora__RabbitMq__UserName: config.rabbitmq.user,
           Settleora__RabbitMq__Password: config.rabbitmq.password, Settleora__RabbitMq__VirtualHost: '/', Settleora__Storage__Provider: 'Local', Settleora__Storage__RootPath: '/var/lib/settleora/storage',
         },
         depends_on: { migrate: { condition: 'service_completed_successfully' }, postgres: { condition: 'service_healthy' }, rabbitmq: { condition: 'service_healthy' } },
+        configs: [{ source: 'settleora-api-entrypoint', target: '/usr/local/bin/settleora-api-entrypoint.sh', mode: 365 }],
         volumes: [{ type: 'bind', source: config.storage.apiDataset, target: '/var/lib/settleora', read_only: false, bind: { create_host_path: false, propagation: 'rprivate' } }],
-        healthcheck: { disable: true },
+        healthcheck: { test: ['CMD-SHELL', "/bin/bash -c '{ printf \"GET /health/ready HTTP/1.1\\r\\nHost: 127.0.0.1\\r\\nConnection: close\\r\\n\\r\\n\" >&0; grep \"HTTP\" | grep -q \"200\"; } 0<>/dev/tcp/127.0.0.1/8080'"], interval: '30s', timeout: '5s', retries: 5, start_period: '15s' },
       },
       postgres: {
         ...baseService(identity.images.postgres, ['backend']),
@@ -365,6 +383,7 @@ export function renderCompose(identity, config) {
       'settleora-tls-certificate': { content: '-----BEGIN CERTIFICATE-----\nREDACTED_FAKE_CERTIFICATE_CHAIN\n-----END CERTIFICATE-----\n' },
       'settleora-tls-private-key': { content: '-----BEGIN PRIVATE KEY-----\nREDACTED_FAKE_PRIVATE_KEY\n-----END PRIVATE KEY-----\n' },
       'settleora-migrate-entrypoint': { content: MIGRATE_ENTRYPOINT },
+      'settleora-api-entrypoint': { content: API_ENTRYPOINT },
       'settleora-rabbitmq-entrypoint': { content: RABBITMQ_IDENTITY_GUARD },
     },
     'x-settleora-release': officialValues(identity, config).release_identity,
@@ -392,8 +411,15 @@ export function validateTopology(compose, identity, config) {
   const ingressPorts = publishedPorts(compose.services.ingress);
   if (ingressPorts.length !== 1 || ingressPorts[0].host_ip !== config.bindAddress || ingressPorts[0].target !== 8443 || ingressPorts[0].protocol !== 'tcp') fail('Ingress publication is unsafe');
   if (compose.services.api.image !== compose.services.migrate.image) fail('API and migrate image identity mismatch');
-  if (compose.services.api.healthcheck?.disable !== true) fail('API healthcheck must not require an unavailable runtime client');
+  const apiHealth = compose.services.api.healthcheck?.test;
+  if (!Array.isArray(apiHealth) || apiHealth[0] !== 'CMD-SHELL' || !apiHealth[1]?.includes('/bin/bash') || !apiHealth[1]?.includes('/health/ready') || apiHealth[1]?.includes('curl')) fail('API dependency-aware readiness healthcheck is missing');
   if (compose.services.api.environment?.HOME !== '/var/lib/settleora') fail('API data-protection key home is not persistent');
+  const passkeyOrigin = config.httpsPort === 443 ? `https://${config.hostname}` : `https://${config.hostname}:${config.httpsPort}`;
+  if (compose.services.api.environment?.Auth__Passkeys__RelyingPartyId !== config.hostname || compose.services.api.environment?.Auth__Passkeys__AllowedOrigins__0 !== passkeyOrigin) fail('Passkey relying-party identity is not bound to the private HTTPS origin');
+  if (compose.services.ingress.depends_on?.api?.condition !== 'service_healthy') fail('Ingress API-readiness gate is missing');
+  if (canonicalJson(compose.services.api.entrypoint) !== canonicalJson(['/bin/sh', '/usr/local/bin/settleora-api-entrypoint.sh'])) fail('API storage preflight entrypoint is missing');
+  const apiEntrypoint = String(compose.configs?.['settleora-api-entrypoint']?.content ?? '').replaceAll('$$', '$');
+  for (const required of ['id -u', 'id -g', '[ -r "$data_path" ]', '[ -w "$data_path" ]', '[ -x "$data_path" ]', '.settleora-write-probe-$', 'exec dotnet Settleora.Api.dll']) if (!apiEntrypoint.includes(required)) fail('API UID/GID 999 storage preflight is incomplete');
   if (canonicalJson(compose.services.ingress.entrypoint) !== canonicalJson(['/bin/sh', '/usr/local/bin/settleora-caddy-entrypoint.sh']) || compose.services.ingress.healthcheck?.test?.[1] !== '/tmp/settleora-caddy') fail('Ingress does not preserve capability-free Caddy startup');
   const caddyEntrypoint = String(compose.configs?.['settleora-caddy-entrypoint']?.content ?? '').replaceAll('$$', '$');
   for (const required of ['cp /usr/bin/caddy /tmp/settleora-caddy', 'chmod 0555 /tmp/settleora-caddy', 'exec /tmp/settleora-caddy "$@"']) if (!caddyEntrypoint.includes(required)) fail('Capability-free Caddy entrypoint is incomplete');

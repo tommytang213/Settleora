@@ -162,6 +162,20 @@ case "$mode" in
 esac
 {% endset %}
 
+{% set api_entrypoint %}#!/bin/sh
+set -eu
+[ "$(id -u)" = "999" ] && [ "$(id -g)" = "999" ] || { echo >&2 "API startup refused: expected runtime UID/GID 999."; exit 64; }
+data_path=/var/lib/settleora
+[ -d "$data_path" ] && [ -r "$data_path" ] && [ -w "$data_path" ] && [ -x "$data_path" ] || { echo >&2 "API startup refused: the private storage dataset must grant UID/GID 999 read, write, and traverse access."; exit 65; }
+probe="$data_path/.settleora-write-probe-$$"
+trap 'rm -f "$probe"' EXIT HUP INT TERM
+umask 077
+: > "$probe" || { echo >&2 "API startup refused: the private storage dataset is not writable by UID/GID 999."; exit 66; }
+rm -f "$probe"
+trap - EXIT HUP INT TERM
+exec dotnet Settleora.Api.dll "$@"
+{% endset %}
+
 {% set ingress = tpl.add_container(values.consts.caddy_container_name, "caddy_image") %}
 {% do ingress.set_user(1000, 1000) %}
 {% do ingress.set_read_only(true) %}
@@ -190,10 +204,18 @@ esac
 {% do migrate.add_network(backend_net) %}
 
 {% set api = tpl.add_container(values.consts.api_container_name, "api_image") %}
-{% do api.healthcheck.disable() %}
+{% do api.set_entrypoint(["/bin/sh", "/usr/local/bin/settleora-api-entrypoint.sh"]) %}
+{% do api.healthcheck.set_test("http", {"port": 8080, "path": "/health/ready"}) %}
+{% do api.configs.add("settleora-api-entrypoint", api_entrypoint, "/usr/local/bin/settleora-api-entrypoint.sh", "0555") %}
 {% do api.environment.add_env("ASPNETCORE_ENVIRONMENT", "Production") %}
 {% do api.environment.add_env("ASPNETCORE_URLS", "http://+:8080") %}
 {% do api.environment.add_env("HOME", "/var/lib/settleora") %}
+{% do api.environment.add_env("Auth__Passkeys__RelyingPartyId", values.network.hostname) %}
+{% if values.network.https_port == 443 %}
+  {% do api.environment.add_env("Auth__Passkeys__AllowedOrigins__0", "https://" ~ values.network.hostname) %}
+{% else %}
+  {% do api.environment.add_env("Auth__Passkeys__AllowedOrigins__0", "https://" ~ values.network.hostname ~ ":" ~ values.network.https_port) %}
+{% endif %}
 {% do api.environment.add_env("Settleora__Database__ConnectionString", "Host=postgres;Port=5432;Database=" ~ values.settleora.postgres_database ~ ";Username=" ~ values.settleora.postgres_user ~ ";Password=" ~ values.settleora.postgres_password) %}
 {% do api.environment.add_env("Settleora__RabbitMq__HostName", "rabbitmq") %}
 {% do api.environment.add_env("Settleora__RabbitMq__Port", "5672") %}
@@ -239,7 +261,7 @@ esac
 {% do api.depends.add_dependency(values.consts.migrate_container_name, "service_completed_successfully") %}
 {% do api.depends.add_dependency(values.consts.postgres_container_name, "service_healthy") %}
 {% do api.depends.add_dependency(values.consts.rabbitmq_container_name, "service_healthy") %}
-{% do ingress.depends.add_dependency(values.consts.api_container_name, "service_started") %}
+{% do ingress.depends.add_dependency(values.consts.api_container_name, "service_healthy") %}
 
 {% set rendered = tpl.render() %}
 {% do rendered.networks[ingress_net].update({"internal": true}) %}

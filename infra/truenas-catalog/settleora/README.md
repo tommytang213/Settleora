@@ -22,6 +22,11 @@ hostname. This repository cannot prove that live trust relationship.
 Before install or upgrade, verify a coordinated backup of PostgreSQL, API local
 file storage and its ASP.NET data-protection key ring, RabbitMQ state where
 required, and app configuration/secrets.
+The API local-storage dataset must already grant runtime UID/GID `999:999`
+read, write, and traverse access through its ownership or ACL. The API performs
+a bounded write probe before launch and fails closed without that access; this
+five-service package intentionally does not add a privileged permissions
+container or change dataset ownership.
 PostgreSQL and RabbitMQ initialization credentials and the RabbitMQ node name
 are immutable package fields after installation; changing persisted identities
 requires a separately reviewed credential/state migration. In `validate-only`
