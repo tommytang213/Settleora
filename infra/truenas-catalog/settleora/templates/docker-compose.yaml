@@ -1,4 +1,41 @@
+{# Replaced exactly once by the repository materializer. A release lock lives
+   in template source so middleware-preserved undeclared values cannot replace
+   both the expected and effective image/config identities. #}
+{% set release_lock = __SETTLEORA_RELEASE_LOCK__ %}
 {% set tpl = ix_lib.base.render.Render(values) %}
+
+{% set allowed_top_level = ["TZ", "acknowledgements", "consts", "images", "ix_certificates", "ix_context", "ix_volumes", "network", "release_identity", "resources", "settleora", "skip_id_variables", "storage"] %}
+{% for value_key in values.keys() %}
+  {% if value_key not in allowed_top_level %}
+    {% do tpl.funcs.fail("Unsupported top-level package input") %}
+  {% endif %}
+{% endfor %}
+{% for value_key in values.settleora.keys() %}
+  {% if value_key not in ["deployment_mode", "migration_mode", "postgres_database", "postgres_password", "postgres_user", "rabbitmq_node_hostname", "rabbitmq_password", "rabbitmq_user"] %}
+    {% do tpl.funcs.fail("Unsupported Settleora package input") %}
+  {% endif %}
+{% endfor %}
+{% for value_key in values.network.keys() %}
+  {% if value_key not in ["bind_address", "certificate_id", "hostname", "https_port"] %}
+    {% do tpl.funcs.fail("Unsupported network package input") %}
+  {% endif %}
+{% endfor %}
+{% for value_key in values.storage.keys() %}
+  {% if value_key not in ["api_storage_dataset", "postgres_dataset", "rabbitmq_dataset"] %}
+    {% do tpl.funcs.fail("Unsupported storage package input") %}
+  {% endif %}
+{% endfor %}
+{% for value_key in values.acknowledgements.keys() %}
+  {% if value_key not in ["backup_before_upgrade", "lan_only", "rollback_limit"] %}
+    {% do tpl.funcs.fail("Unsupported acknowledgement package input") %}
+  {% endif %}
+{% endfor %}
+{% if values.images != release_lock.images or values.consts != release_lock.consts or values.resources != release_lock.resources or values.release_identity != release_lock.release_identity or values.TZ != release_lock.TZ or values.skip_id_variables != release_lock.skip_id_variables %}
+  {% do tpl.funcs.fail("Materialized release lock mismatch") %}
+{% endif %}
+{% if values.get("ix_volumes", {}) %}
+  {% do tpl.funcs.fail("Undeclared TrueNAS-managed volumes are unsupported") %}
+{% endif %}
 
 {% if values.settleora.deployment_mode != "lan-private" %}
   {% do tpl.funcs.fail("Only lan-private deployment mode is supported") %}

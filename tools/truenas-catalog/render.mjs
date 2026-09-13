@@ -448,6 +448,8 @@ export function validateStaticTree(root = packageSource) {
   for (const forbidden of ['force-allow-destructive', 'public registration', 'worker-ocr', 'web-admin', 'web-user', 'minio', 'oidc', 'passkey', 'mfa', 'additional_envs']) {
     if (text.toLowerCase().includes(forbidden)) fail('questions.yaml exposes unsupported behavior');
   }
+  const template = readFileSync(path.join(root, 'templates/docker-compose.yaml'), 'utf8');
+  if (template.split('__SETTLEORA_RELEASE_LOCK__').length !== 2) fail('Template release-lock marker must occur exactly once');
   const library = path.join(root, 'templates/library/base_v2_3_11');
   if (!lstatSync(library).isDirectory()) fail('Pinned official TrueNAS library is missing');
   const libraryIdentity = directoryContentIdentity(library);
@@ -495,6 +497,18 @@ export function materialize({ manifest, expectedIdentityDigest, config, output, 
   baseValues.images = imageValues(identity);
   baseValues.release_identity = officialValues(identity, config).release_identity;
   writeFileSync(path.join(packageRoot, 'ix_values.yaml'), canonicalJson(baseValues), { mode: 0o600 });
+  const templatePath = path.join(packageRoot, 'templates/docker-compose.yaml');
+  const template = readFileSync(templatePath, 'utf8');
+  const releaseLock = canonicalJson({
+    TZ: baseValues.TZ,
+    consts: baseValues.consts,
+    images: baseValues.images,
+    release_identity: baseValues.release_identity,
+    resources: baseValues.resources,
+    skip_id_variables: baseValues.skip_id_variables,
+  });
+  if (template.split('__SETTLEORA_RELEASE_LOCK__').length !== 2) fail('Materialized template release-lock marker is invalid');
+  writeFileSync(templatePath, template.replace('__SETTLEORA_RELEASE_LOCK__', releaseLock), { mode: 0o600 });
   const testValues = officialValues(identity, config);
   mkdirSync(path.join(packageRoot, 'templates/test_values'), { recursive: true, mode: 0o700 });
   writeFileSync(path.join(packageRoot, 'templates/test_values/render-values.yaml'), canonicalJson(testValues), { mode: 0o600 });

@@ -34,12 +34,14 @@ test('official TrueNAS 25.10 package skeleton uses current Docker Apps layout an
   const app = YAML.parse(readFileSync(path.join(packageSource, 'app.yaml'), 'utf8'));
   const values = YAML.parse(readFileSync(path.join(packageSource, 'ix_values.yaml'), 'utf8'));
   const questions = YAML.parse(readFileSync(path.join(packageSource, 'questions.yaml'), 'utf8'));
+  const template = readFileSync(path.join(packageSource, 'templates/docker-compose.yaml'), 'utf8');
   assert.equal(app.lib_version, OFFICIAL_LIBRARY_VERSION);
   assert.equal(app.lib_version_hash, OFFICIAL_LIBRARY_HASH);
   assert.equal(app.screenshots.length, 0);
   assert.match(OFFICIAL_APPS_COMMIT, /^[0-9a-f]{40}$/);
   assert.match(OFFICIAL_LIBRARY_CONTENT_HASH, /^[0-9a-f]{64}$/);
   assert.equal(values.resources.limits.memory, 4096);
+  assert.equal(template.split('__SETTLEORA_RELEASE_LOCK__').length, 2);
   const bindPattern = questions.questions.find((question) => question.variable === 'network').schema.attrs.find((attr) => attr.variable === 'bind_address').schema.valid_chars;
   assert.equal(new RegExp(bindPattern).test('192.168.50.10'), true);
   assert.equal(new RegExp(bindPattern).test('10.999.999.999'), false);
@@ -87,6 +89,7 @@ test('deterministic materialization repeats byte-identical package and compose i
   assert.equal(readFileSync(path.join(first.output, 'install-plan.json'), 'utf8'), readFileSync(path.join(second.output, 'install-plan.json'), 'utf8'));
   assert.equal(readFileSync(path.join(first.output, 'rendered/docker-compose.yaml'), 'utf8'), readFileSync(path.join(second.output, 'rendered/docker-compose.yaml'), 'utf8'));
   assert.deepEqual(first.plan.materializedPackage, second.plan.materializedPackage);
+  assert.doesNotMatch(readFileSync(path.join(first.packageRoot, 'templates/docker-compose.yaml'), 'utf8'), /__SETTLEORA_RELEASE_LOCK__/u);
   assert.equal(first.plan.actions.published, false);
   assert.equal(first.plan.actions.deployed, false);
   assert.equal(first.plan.applicationRelease.commit, syntheticManifest().source.commit);
