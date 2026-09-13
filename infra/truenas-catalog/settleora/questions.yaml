@@ -31,12 +31,18 @@ questions:
             type: string
             required: true
             default: settleora
+            min_length: 1
+            max_length: 63
+            valid_chars: "^[A-Za-z_][A-Za-z0-9_]{0,62}$"
         - variable: postgres_user
           label: PostgreSQL User
           schema:
             type: string
             required: true
             default: settleora
+            min_length: 1
+            max_length: 63
+            valid_chars: "^[A-Za-z_][A-Za-z0-9_]{0,62}$"
         - variable: postgres_password
           label: PostgreSQL Password
           description: Supply an externally managed secret. It is never printed by repository tooling.
@@ -45,12 +51,18 @@ questions:
             required: true
             private: true
             default: ""
+            min_length: 16
+            max_length: 128
+            valid_chars: "^[A-Za-z0-9._~-]+$"
         - variable: rabbitmq_user
           label: RabbitMQ User
           schema:
             type: string
             required: true
             default: settleora
+            min_length: 1
+            max_length: 63
+            valid_chars: "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,62}$"
         - variable: rabbitmq_password
           label: RabbitMQ Password
           description: Supply an externally managed secret. It is never printed by repository tooling.
@@ -59,6 +71,9 @@ questions:
             required: true
             private: true
             default: ""
+            min_length: 16
+            max_length: 128
+            valid_chars: "^[A-Za-z0-9._~-]+$"
         - variable: rabbitmq_node_hostname
           label: Stable RabbitMQ Node Hostname
           description: Keep this unchanged after RabbitMQ data exists. Changing it does not migrate broker state.
@@ -66,6 +81,9 @@ questions:
             type: string
             required: true
             default: settleora-rabbitmq
+            min_length: 1
+            max_length: 63
+            valid_chars: "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
         - variable: migration_mode
           label: Migration Mode
           description: Destructive migration mode is intentionally unavailable.

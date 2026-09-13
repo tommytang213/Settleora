@@ -1,13 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
 import {
   OFFICIAL_APPS_COMMIT,
   OFFICIAL_LIBRARY_HASH,
+  OFFICIAL_LIBRARY_CONTENT_HASH,
   OFFICIAL_LIBRARY_VERSION,
   SECRET_MARKERS,
   consumeReleaseIdentity,
@@ -17,6 +18,7 @@ import {
   safeReadJson,
   sha256,
   validateConfig,
+  validateStaticTree,
   validateTopology,
 } from '../render.mjs';
 import { clone, fixtureConfig, repoRoot, syntheticManifest } from './helpers.mjs';
@@ -32,7 +34,16 @@ test('official TrueNAS 25.10 package skeleton uses current Docker Apps layout an
   assert.equal(app.lib_version_hash, OFFICIAL_LIBRARY_HASH);
   assert.equal(app.screenshots.length, 0);
   assert.match(OFFICIAL_APPS_COMMIT, /^[0-9a-f]{40}$/);
+  assert.match(OFFICIAL_LIBRARY_CONTENT_HASH, /^[0-9a-f]{64}$/);
   assert.ok(readFileSync(path.join(packageSource, 'templates/library/base_v2_3_11/container.py'), 'utf8').includes('"platform": "linux/amd64"'));
+});
+
+test('pinned official TrueNAS library content fails closed on byte drift', () => {
+  const root = path.join(temp(), 'package');
+  cpSync(packageSource, root, { recursive: true });
+  const target = path.join(root, 'templates/library/base_v2_3_11/container.py');
+  writeFileSync(target, `${readFileSync(target, 'utf8')}\n# drift\n`);
+  assert.throws(() => validateStaticTree(root), /library content mismatch/);
 });
 
 test('semantic R03 consumer creates immutable selected-platform runtime references', () => {
@@ -59,6 +70,7 @@ test('deterministic materialization repeats byte-identical package and compose i
   assert.match(first.plan.packageSource.repositoryCommit, /^[0-9a-f]{40}$/);
   assert.match(first.plan.packageSource.repositoryTree, /^[0-9a-f]{40}$/);
   assert.match(first.plan.packageSource.contentSha256, /^[0-9a-f]{64}$/);
+  assert.equal(first.plan.packageSource.trackedAtCommit, true);
 });
 
 test('rendered topology preserves R11, R12, private services, datasets, and migration failure gating', () => {
@@ -89,6 +101,8 @@ test('bounded form/config negative matrix fails closed', () => {
     ['missing certificate', (c) => { c.certificateRef = ''; }],
     ['missing postgres secret', (c) => { c.postgres.password = ''; }],
     ['missing rabbit secret', (c) => { c.rabbitmq.password = ''; }],
+    ['non-fixture postgres secret', (c) => { c.postgres.password = 'ActualOperatorSecret123'; }],
+    ['non-fixture rabbit secret', (c) => { c.rabbitmq.password = 'ActualOperatorSecret123'; }],
     ['missing postgres dataset', (c) => { c.storage.postgresDataset = ''; }],
     ['missing rabbit dataset', (c) => { c.storage.rabbitmqDataset = ''; }],
     ['missing storage dataset', (c) => { c.storage.apiDataset = ''; }],

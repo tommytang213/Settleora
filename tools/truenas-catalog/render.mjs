@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import {
   cpSync,
   lstatSync,
@@ -21,6 +21,7 @@ export const PACKAGE_SCHEMA = 'settleora.truenas-install-plan.v1';
 export const OFFICIAL_APPS_COMMIT = '3b61e3ebd9476e54d065dc5b8d3db00dd6f187bb';
 export const OFFICIAL_LIBRARY_VERSION = '2.3.11';
 export const OFFICIAL_LIBRARY_HASH = '874636814efb275e5276ea9d709b7cd665fed42bb1d50328e853d9253a2e1229';
+export const OFFICIAL_LIBRARY_CONTENT_HASH = '6fd56b7d10733a47d7edf87dc78fac5be8ee8e445e6597350319bd5fe4541684';
 export const SUPPORTED_PLATFORM = Object.freeze({ os: 'linux', architecture: 'amd64' });
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
@@ -105,6 +106,9 @@ export function validateConfig(config) {
   boundedString(config.rabbitmq.nodeHostname, 'rabbitmq.nodeHostname', /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u, 63);
   for (const [label, secret] of [['postgres.password', config.postgres.password], ['rabbitmq.password', config.rabbitmq.password]]) {
     boundedString(secret, label, /^[^\s\r\n\u0000]{16,256}$/u, 256);
+  }
+  if (config.postgres.password !== SECRET_MARKERS[0] || config.rabbitmq.password !== SECRET_MARKERS[1]) {
+    fail('Offline evidence rendering accepts only the documented redacted secret fixtures');
   }
   const datasets = Object.values(config.storage);
   for (const dataset of datasets) {
@@ -336,15 +340,22 @@ export function validateTopology(compose, identity, config) {
   return compose;
 }
 
-function validateStaticTree(root = packageSource) {
+function treeRecords(root) {
+  const records = [];
   const walk = (directory) => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
       const current = path.join(directory, entry.name);
       if (entry.isSymbolicLink() || (!entry.isDirectory() && !entry.isFile())) fail('Package source contains a symlink or special file');
       if (entry.isDirectory()) walk(current);
+      else records.push({ path: path.relative(root, current), sha256: sha256(readFileSync(current)), size: lstatSync(current).size });
     }
   };
   walk(root);
+  return records;
+}
+
+export function validateStaticTree(root = packageSource) {
+  treeRecords(root);
   const app = YAML.parse(readFileSync(path.join(root, 'app.yaml'), 'utf8'));
   exactKeys(app, ['app_version', 'capabilities', 'categories', 'date_added', 'description', 'home', 'host_mounts', 'icon', 'keywords', 'lib_version', 'lib_version_hash', 'maintainers', 'name', 'run_as_context', 'screenshots', 'sources', 'title', 'train', 'version'], 'app.yaml');
   if (app.name !== 'settleora' || app.title !== 'Settleora' || app.train !== 'community' || app.lib_version !== OFFICIAL_LIBRARY_VERSION || app.lib_version_hash !== OFFICIAL_LIBRARY_HASH || app.screenshots.length !== 0) fail('app.yaml metadata is invalid');
@@ -356,6 +367,8 @@ function validateStaticTree(root = packageSource) {
   }
   const library = path.join(root, 'templates/library/base_v2_3_11');
   if (!lstatSync(library).isDirectory()) fail('Pinned official TrueNAS library is missing');
+  const libraryRecords = treeRecords(library);
+  if (libraryRecords.length !== 78 || sha256(canonicalJson(libraryRecords)) !== OFFICIAL_LIBRARY_CONTENT_HASH) fail('Pinned official TrueNAS library content mismatch');
 }
 
 function safeOutputRoot(output) {
@@ -374,25 +387,20 @@ function safeOutputRoot(output) {
 }
 
 function packageSourceIdentity() {
-  const records = [];
-  const walk = (directory) => {
-    for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
-      const absolute = path.join(directory, entry.name);
-      if (entry.isDirectory()) walk(absolute);
-      else records.push({ path: path.relative(packageSource, absolute), sha256: sha256(readFileSync(absolute)), size: lstatSync(absolute).size });
-    }
-  };
-  walk(packageSource);
+  const records = treeRecords(packageSource);
   const commit = execFileSync('git', ['--no-replace-objects', 'rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim();
   const tree = execFileSync('git', ['--no-replace-objects', 'rev-parse', 'HEAD^{tree}'], { cwd: repoRoot, encoding: 'utf8' }).trim();
   const tracked = execFileSync('git', ['--no-replace-objects', 'ls-tree', '-r', '--name-only', 'HEAD', '--', 'infra/truenas-catalog/settleora'], { cwd: repoRoot, encoding: 'utf8' }).trim().split('\n').filter(Boolean);
-  return { path: 'infra/truenas-catalog/settleora', repositoryCommit: commit, repositoryTree: tree, trackedAtCommit: tracked.length === records.length, contentSha256: sha256(canonicalJson(records)), fileCount: records.length };
+  const cleanAgainstHead = spawnSync('git', ['--no-replace-objects', 'diff', '--quiet', 'HEAD', '--', 'infra/truenas-catalog/settleora'], { cwd: repoRoot }).status === 0;
+  return { path: 'infra/truenas-catalog/settleora', repositoryCommit: commit, repositoryTree: tree, trackedAtCommit: tracked.length === records.length && cleanAgainstHead, contentSha256: sha256(canonicalJson(records)), fileCount: records.length };
 }
 
 export function materialize({ manifest, config, output, sourceRepo = repoRoot }) {
   validateStaticTree();
   const identity = consumeReleaseIdentity(manifest, sourceRepo);
   validateConfig(config);
+  const sourceIdentity = packageSourceIdentity();
+  if (!sourceIdentity.trackedAtCommit) fail('Package source must exactly match the current repository commit');
   const root = safeOutputRoot(output);
   const packageRoot = path.join(root, 'package');
   cpSync(packageSource, packageRoot, { recursive: true, dereference: false, errorOnExist: true });
@@ -415,7 +423,7 @@ export function materialize({ manifest, config, output, sourceRepo = repoRoot })
   const plan = {
     schema: PACKAGE_SCHEMA,
     package: { name: 'settleora', version: app.version, appVersion: app.app_version, officialAppsCommit: OFFICIAL_APPS_COMMIT, libraryVersion: OFFICIAL_LIBRARY_VERSION, libraryHash: OFFICIAL_LIBRARY_HASH },
-    packageSource: packageSourceIdentity(),
+    packageSource: sourceIdentity,
     applicationRelease: { candidateId: identity.manifest.source.candidateId, commit: identity.manifest.source.commit, tree: identity.manifest.source.tree, identityDigest: identity.manifest.identityDigest },
     runtime: { platform: 'linux/amd64', digestAuthority: 'selected-platform-manifest', images: identity.images, indexDigests: { api: identity.manifest.apiImage.indexDigest, caddy: dependency(identity.manifest, 'caddy').indexDigest, postgres: dependency(identity.manifest, 'postgres').indexDigest, rabbitmq: dependency(identity.manifest, 'rabbitmq').indexDigest } },
     sanitizedConfigSha256: configDigest,
