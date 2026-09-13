@@ -9,6 +9,11 @@
 {% if not tpl.funcs.match_regex(values.network.hostname, "^(?=.{1,253}$)(?!.*\\.\\.)(?!localhost$)(?!.*\\.localhost$)[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$") or "." not in values.network.hostname %}
   {% do tpl.funcs.fail("An exact private fully qualified HTTPS hostname is required") %}
 {% endif %}
+{% for hostname_label in values.network.hostname.split(".") %}
+  {% if not tpl.funcs.match_regex(hostname_label, "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$") %}
+    {% do tpl.funcs.fail("Every private HTTPS hostname label must be a valid DNS label") %}
+  {% endif %}
+{% endfor %}
 {% if not values.network.certificate_id or values.network.certificate_id not in values.ix_certificates %}
   {% do tpl.funcs.fail("An externally managed TrueNAS TLS certificate reference is required") %}
 {% endif %}
@@ -35,6 +40,14 @@
 {% if values.storage.postgres_dataset == values.storage.rabbitmq_dataset or values.storage.postgres_dataset == values.storage.api_storage_dataset or values.storage.rabbitmq_dataset == values.storage.api_storage_dataset %}
   {% do tpl.funcs.fail("PostgreSQL, RabbitMQ, and API storage datasets must be distinct") %}
 {% endif %}
+{% set datasets = [values.storage.postgres_dataset, values.storage.rabbitmq_dataset, values.storage.api_storage_dataset] %}
+{% for dataset in datasets %}
+  {% for other_dataset in datasets %}
+    {% if dataset != other_dataset and dataset.startswith(other_dataset ~ "/") %}
+      {% do tpl.funcs.fail("PostgreSQL, RabbitMQ, and API storage datasets must not be nested") %}
+    {% endif %}
+  {% endfor %}
+{% endfor %}
 {% if not values.acknowledgements.lan_only or not values.acknowledgements.backup_before_upgrade or not values.acknowledgements.rollback_limit %}
   {% do tpl.funcs.fail("All LAN, backup, and rollback acknowledgements are required") %}
 {% endif %}
@@ -85,13 +98,43 @@ fi
 exec /usr/local/bin/docker-entrypoint.sh "$@"
 {% endset %}
 
+{% set caddy_entrypoint %}#!/bin/sh
+set -eu
+# Copying the capability-bearing image binary into private tmpfs drops its
+# low-port file capability before capability-free startup on port 8443.
+cp /usr/bin/caddy /tmp/settleora-caddy
+chmod 0555 /tmp/settleora-caddy
+exec /tmp/settleora-caddy "$@"
+{% endset %}
+
+{% set migrate_entrypoint %}#!/bin/sh
+set -eu
+mode="${1:?A migration mode is required}"
+case "$mode" in
+  validate-only)
+    dotnet Settleora.Api.dll migrate-database --mode=validate-only
+    exec dotnet Settleora.Api.dll migrate-database --mode=check-only
+    ;;
+  managed-auto|apply-safe|manual|check-only)
+    exec dotnet Settleora.Api.dll migrate-database --mode="$mode"
+    ;;
+  *)
+    echo >&2 "Unsupported or destructive migration mode"
+    exit 64
+    ;;
+esac
+{% endset %}
+
 {% set ingress = tpl.add_container(values.consts.caddy_container_name, "caddy_image") %}
 {% do ingress.set_user(1000, 1000) %}
 {% do ingress.set_read_only(true) %}
 {% do ingress.restart.set_policy("no") %}
-{% do ingress.healthcheck.set_custom_test(["CMD", "caddy", "validate", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]) %}
+{% do ingress.set_entrypoint(["/bin/sh", "/usr/local/bin/settleora-caddy-entrypoint.sh"]) %}
+{% do ingress.set_command(["run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]) %}
+{% do ingress.healthcheck.set_custom_test(["CMD", "/tmp/settleora-caddy", "validate", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]) %}
 {% do ingress.add_network(ingress_net) %}
 {% do ingress.configs.add("settleora-caddyfile", caddyfile, "/etc/caddy/Caddyfile", "0444") %}
+{% do ingress.configs.add("settleora-caddy-entrypoint", caddy_entrypoint, "/usr/local/bin/settleora-caddy-entrypoint.sh", "0555") %}
 {% do ingress.configs.add("settleora-tls-certificate", cert.certificate, "/run/settleora-tls/tls.crt", "0444") %}
 {% do ingress.configs.add("settleora-tls-private-key", cert.privatekey, "/run/settleora-tls/tls.key", "0400") %}
 {% do ingress.add_storage("/config", {"type": "tmpfs", "tmpfs_config": {"mode": "0700", "uid": 1000, "gid": 1000}}) %}
@@ -101,7 +144,9 @@ exec /usr/local/bin/docker-entrypoint.sh "$@"
 {% set migrate = tpl.add_container(values.consts.migrate_container_name, "api_image") %}
 {% do migrate.restart.set_policy("no") %}
 {% do migrate.healthcheck.disable() %}
-{% do migrate.set_command(["migrate-database", "--mode=" ~ values.settleora.migration_mode]) %}
+{% do migrate.set_entrypoint(["/bin/sh", "/usr/local/bin/settleora-migrate-entrypoint.sh"]) %}
+{% do migrate.set_command([values.settleora.migration_mode]) %}
+{% do migrate.configs.add("settleora-migrate-entrypoint", migrate_entrypoint, "/usr/local/bin/settleora-migrate-entrypoint.sh", "0555") %}
 {% do migrate.environment.add_env("ASPNETCORE_ENVIRONMENT", "Production") %}
 {% do migrate.environment.add_env("Settleora__Database__ConnectionString", "Host=postgres;Port=5432;Database=" ~ values.settleora.postgres_database ~ ";Username=" ~ values.settleora.postgres_user ~ ";Password=" ~ values.settleora.postgres_password) %}
 {% do migrate.environment.add_env("SETTLEORA_DATABASE_MIGRATION_MODE", values.settleora.migration_mode) %}

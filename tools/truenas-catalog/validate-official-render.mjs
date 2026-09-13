@@ -29,6 +29,9 @@ for (const [name, expectedImage] of Object.entries(expectedImages)) {
 }
 if (compose.services.api.healthcheck?.disable !== true) fail('Official API healthcheck requires an unavailable runtime client');
 if (compose.services.api.environment?.HOME !== '/var/lib/settleora') fail('Official API data-protection key home is not persistent');
+if (canonicalJson(compose.services.ingress.entrypoint) !== canonicalJson(['/bin/sh', '/usr/local/bin/settleora-caddy-entrypoint.sh']) || compose.services.ingress.healthcheck?.test?.[1] !== '/tmp/settleora-caddy') fail('Official ingress does not preserve capability-free Caddy startup');
+const caddyEntrypoint = String(compose.configs?.['settleora-caddy-entrypoint']?.content ?? '').replaceAll('$$', '$');
+for (const required of ['cp /usr/bin/caddy /tmp/settleora-caddy', 'chmod 0555 /tmp/settleora-caddy', 'exec /tmp/settleora-caddy "$@"']) if (!caddyEntrypoint.includes(required)) fail('Official capability-free Caddy entrypoint is incomplete');
 const port = compose.services.ingress.ports?.[0];
 if (compose.services.ingress.ports?.length !== 1 || port.target !== 8443 || port.protocol !== 'tcp' || port.host_ip !== plan.networks.bindAddress || Number(port.published) !== plan.networks.httpsPort) fail('Official ingress publication mismatch');
 const octets = String(port.host_ip).split('.').map(Number);
@@ -36,6 +39,8 @@ if (octets.length !== 4 || octets.some((value) => !Number.isInteger(value) || va
   || !(octets[0] === 10 || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) || (octets[0] === 192 && octets[1] === 168))) fail('Official ingress is not bound to RFC1918');
 if (compose.services.api.image !== compose.services.migrate.image) fail('Official API/migrate image mismatch');
 if (compose.services.api.depends_on?.migrate?.condition !== 'service_completed_successfully') fail('Official migration-success gate missing');
+const migrateEntrypoint = String(compose.configs?.['settleora-migrate-entrypoint']?.content ?? '').replaceAll('$$', '$');
+for (const required of ['validate-only)', '--mode=validate-only', '--mode=check-only', 'managed-auto|apply-safe|manual|check-only)']) if (!migrateEntrypoint.includes(required)) fail('Official migration startup gate is incomplete');
 if (compose.services.migrate.depends_on?.postgres?.condition !== 'service_healthy') fail('Official migration PostgreSQL gate missing');
 if (compose.services.api.depends_on?.postgres?.condition !== 'service_healthy' || compose.services.api.depends_on?.rabbitmq?.condition !== 'service_healthy') fail('Official API dependency gate missing');
 if (compose.services.rabbitmq.environment?.RABBITMQ_NODENAME !== `rabbit@${compose.services.rabbitmq.hostname}`) fail('Official RabbitMQ identity mismatch');

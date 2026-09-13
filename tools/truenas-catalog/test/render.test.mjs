@@ -43,6 +43,10 @@ test('official TrueNAS 25.10 package skeleton uses current Docker Apps layout an
   const bindPattern = questions.questions.find((question) => question.variable === 'network').schema.attrs.find((attr) => attr.variable === 'bind_address').schema.valid_chars;
   assert.equal(new RegExp(bindPattern).test('192.168.50.10'), true);
   assert.equal(new RegExp(bindPattern).test('10.999.999.999'), false);
+  const settleoraFields = questions.questions.find((question) => question.variable === 'settleora').schema.attrs;
+  for (const variable of ['postgres_database', 'postgres_user', 'postgres_password', 'rabbitmq_user', 'rabbitmq_password', 'rabbitmq_node_hostname']) {
+    assert.equal(settleoraFields.find((field) => field.variable === variable).schema.immutable, true, `${variable} must be immutable after initialization`);
+  }
   assert.ok(readFileSync(path.join(packageSource, 'templates/library/base_v2_3_11/container.py'), 'utf8').includes('"platform": "linux/amd64"'));
 });
 
@@ -107,6 +111,9 @@ test('rendered topology preserves R11, R12, private services, datasets, and migr
   assert.equal(compose.services.migrate.depends_on.postgres.condition, 'service_healthy');
   assert.deepEqual(compose.services.api.healthcheck, { disable: true });
   assert.equal(compose.services.api.environment.HOME, '/var/lib/settleora');
+  assert.deepEqual(compose.services.ingress.entrypoint, ['/bin/sh', '/usr/local/bin/settleora-caddy-entrypoint.sh']);
+  assert.match(compose.configs['settleora-caddy-entrypoint'].content, /cp \/usr\/bin\/caddy \/tmp\/settleora-caddy/);
+  assert.match(compose.configs['settleora-migrate-entrypoint'].content, /validate-only\)[\s\S]*--mode=validate-only[\s\S]*--mode=check-only/);
   assert.equal(compose.services.rabbitmq.hostname, fixtureConfig.rabbitmq.nodeHostname);
   assert.equal(compose.services.rabbitmq.environment.RABBITMQ_NODENAME, `rabbit@${fixtureConfig.rabbitmq.nodeHostname}`);
   assert.match(compose.configs['settleora-rabbitmq-entrypoint'].content, /persisted_nodename/);
@@ -123,6 +130,8 @@ test('bounded form/config negative matrix fails closed', () => {
     ['loopback ingress', (c) => { c.bindAddress = '127.0.0.1'; }],
     ['public ingress', (c) => { c.bindAddress = '203.0.113.10'; }],
     ['missing hostname', (c) => { c.hostname = ''; }],
+    ['invalid hostname label edge', (c) => { c.hostname = 'api.-private.home.arpa'; }],
+    ['oversized hostname label', (c) => { c.hostname = `${'a'.repeat(64)}.home.arpa`; }],
     ['documentation hostname', (c) => { c.hostname = 'settleora.example.com'; }],
     ['missing certificate', (c) => { c.certificateRef = ''; }],
     ['missing postgres secret', (c) => { c.postgres.password = ''; }],
@@ -136,6 +145,7 @@ test('bounded form/config negative matrix fails closed', () => {
     ['dataset dot alias', (c) => { c.storage.apiDataset = `${c.storage.postgresDataset}/.`; }],
     ['dataset repeated-slash alias', (c) => { c.storage.apiDataset = c.storage.postgresDataset.replace('/settleora/', '/settleora//'); }],
     ['duplicate datasets', (c) => { c.storage.apiDataset = c.storage.postgresDataset; }],
+    ['nested datasets', (c) => { c.storage.apiDataset = `${c.storage.postgresDataset}/api`; }],
     ['missing rabbit identity', (c) => { c.rabbitmq.nodeHostname = ''; }],
     ['destructive migration', (c) => { c.migrationMode = 'force-allow-destructive'; }],
     ['missing LAN acknowledgement', (c) => { c.acknowledgements.lanOnly = false; }],
@@ -191,6 +201,9 @@ test('topology negative matrix rejects exposure, unsupported services, identity 
     (c) => { c.services.postgres.image = identity.images.rabbitmq; },
     (c) => { c.services.rabbitmq.image = identity.images.caddy; },
     (c) => { c.services.api.healthcheck = { test: ['CMD', 'curl'] }; },
+    (c) => { delete c.services.ingress.entrypoint; },
+    (c) => { c.configs['settleora-caddy-entrypoint'].content = 'exec /usr/bin/caddy'; },
+    (c) => { c.configs['settleora-migrate-entrypoint'].content = 'exit 0'; },
     (c) => { delete c.services.api.environment.HOME; },
     (c) => { delete c.services.api.depends_on.migrate; },
     (c) => { c.services.api.depends_on.migrate.condition = 'service_started'; },

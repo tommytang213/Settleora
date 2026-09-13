@@ -60,6 +60,31 @@ fi
 exec /usr/local/bin/docker-entrypoint.sh "$@"
 `.replaceAll('$', () => '$$');
 
+const CADDY_ENTRYPOINT = `#!/bin/sh
+set -eu
+cp /usr/bin/caddy /tmp/settleora-caddy
+chmod 0555 /tmp/settleora-caddy
+exec /tmp/settleora-caddy "$@"
+`.replaceAll('$', () => '$$');
+
+const MIGRATE_ENTRYPOINT = `#!/bin/sh
+set -eu
+mode="${'${1:?A migration mode is required}'}"
+case "$mode" in
+  validate-only)
+    dotnet Settleora.Api.dll migrate-database --mode=validate-only
+    exec dotnet Settleora.Api.dll migrate-database --mode=check-only
+    ;;
+  managed-auto|apply-safe|manual|check-only)
+    exec dotnet Settleora.Api.dll migrate-database --mode="$mode"
+    ;;
+  *)
+    echo >&2 "Unsupported or destructive migration mode"
+    exit 64
+    ;;
+esac
+`.replaceAll('$', () => '$$');
+
 function fail(message) {
   throw new Error(message);
 }
@@ -116,6 +141,7 @@ export function validateConfig(config) {
   if (!Number.isSafeInteger(config.httpsPort) || config.httpsPort < 1 || config.httpsPort > 65535) fail('httpsPort is invalid');
   const hostname = boundedString(config.hostname, 'hostname', /^(?!.*\.\.)(?!.*(?:^|\.)localhost$)[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$/u, 253);
   if (!hostname.includes('.') || /(?:^|\.)(?:example|example\.(?:com|net|org)|invalid|test)$/iu.test(hostname)) fail('hostname must be an exact non-documentation private FQDN');
+  if (hostname.split('.').some((label) => !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/u.test(label))) fail('hostname contains an invalid DNS label');
   boundedString(String(config.certificateRef), 'certificateRef', /^[1-9][0-9]*$/u, 20);
   exactKeys(config.postgres, ['database', 'user', 'password'], 'config.postgres');
   exactKeys(config.rabbitmq, ['user', 'password', 'nodeHostname'], 'config.rabbitmq');
@@ -133,6 +159,7 @@ export function validateConfig(config) {
   }
   const datasets = Object.values(config.storage).map(canonicalDataset);
   if (new Set(datasets).size !== datasets.length) fail('datasets must resolve to distinct paths');
+  if (datasets.some((dataset, index) => datasets.some((other, otherIndex) => index !== otherIndex && dataset.startsWith(`${other}/`)))) fail('datasets must not be nested');
   if (!SAFE_MIGRATION_MODES.has(config.migrationMode)) fail('Unsupported or destructive migration mode');
   if (Object.values(config.acknowledgements).some((value) => value !== true)) fail('All safety acknowledgements are required');
   return config;
@@ -280,21 +307,26 @@ export function renderCompose(identity, config) {
         cap_drop: ['ALL'],
         read_only: true,
         security_opt: ['no-new-privileges=true'],
+        entrypoint: ['/bin/sh', '/usr/local/bin/settleora-caddy-entrypoint.sh'],
+        command: ['run', '--config', '/etc/caddy/Caddyfile', '--adapter', 'caddyfile'],
         depends_on: { api: { condition: 'service_started' } },
         ports: [{ target: 8443, published: String(config.httpsPort), protocol: 'tcp', mode: 'ingress', host_ip: config.bindAddress }],
         configs: [
           { source: 'settleora-caddyfile', target: '/etc/caddy/Caddyfile', mode: 292 },
+          { source: 'settleora-caddy-entrypoint', target: '/usr/local/bin/settleora-caddy-entrypoint.sh', mode: 365 },
           { source: 'settleora-tls-certificate', target: '/run/settleora-tls/tls.crt', mode: 292 },
           { source: 'settleora-tls-private-key', target: '/run/settleora-tls/tls.key', mode: 256 },
         ],
         tmpfs: ['/config:mode=0700,uid=1000,gid=1000', '/data:mode=0700,uid=1000,gid=1000', '/tmp:mode=0700,uid=1000,gid=1000'],
-        healthcheck: { test: ['CMD', 'caddy', 'validate', '--config', '/etc/caddy/Caddyfile', '--adapter', 'caddyfile'], interval: '30s', timeout: '5s', retries: 5, start_period: '15s' },
+        healthcheck: { test: ['CMD', '/tmp/settleora-caddy', 'validate', '--config', '/etc/caddy/Caddyfile', '--adapter', 'caddyfile'], interval: '30s', timeout: '5s', retries: 5, start_period: '15s' },
       },
       migrate: {
         ...baseService(identity.images.api, ['backend'], 'no'),
-        command: ['migrate-database', `--mode=${config.migrationMode}`],
+        entrypoint: ['/bin/sh', '/usr/local/bin/settleora-migrate-entrypoint.sh'],
+        command: [config.migrationMode],
         environment: { ASPNETCORE_ENVIRONMENT: 'Production', Settleora__Database__ConnectionString: connection, SETTLEORA_DATABASE_MIGRATION_MODE: config.migrationMode },
         depends_on: { postgres: { condition: 'service_healthy' } },
+        configs: [{ source: 'settleora-migrate-entrypoint', target: '/usr/local/bin/settleora-migrate-entrypoint.sh', mode: 365 }],
       },
       api: {
         ...baseService(identity.images.api, ['ingress', 'backend']),
@@ -329,8 +361,10 @@ export function renderCompose(identity, config) {
     networks: { edge: {}, ingress: { internal: true }, backend: { internal: true } },
     configs: {
       'settleora-caddyfile': { content: `{\n  admin off\n  auto_https off\n  log default {\n    level ERROR\n    format filter {\n      wrap json\n      fields { request delete }\n    }\n  }\n}\nhttps://${config.hostname}:8443 {\n  tls /run/settleora-tls/tls.crt /run/settleora-tls/tls.key\n  reverse_proxy api:8080\n}\n` },
+      'settleora-caddy-entrypoint': { content: CADDY_ENTRYPOINT },
       'settleora-tls-certificate': { content: '-----BEGIN CERTIFICATE-----\nREDACTED_FAKE_CERTIFICATE_CHAIN\n-----END CERTIFICATE-----\n' },
       'settleora-tls-private-key': { content: '-----BEGIN PRIVATE KEY-----\nREDACTED_FAKE_PRIVATE_KEY\n-----END PRIVATE KEY-----\n' },
+      'settleora-migrate-entrypoint': { content: MIGRATE_ENTRYPOINT },
       'settleora-rabbitmq-entrypoint': { content: RABBITMQ_IDENTITY_GUARD },
     },
     'x-settleora-release': officialValues(identity, config).release_identity,
@@ -360,7 +394,12 @@ export function validateTopology(compose, identity, config) {
   if (compose.services.api.image !== compose.services.migrate.image) fail('API and migrate image identity mismatch');
   if (compose.services.api.healthcheck?.disable !== true) fail('API healthcheck must not require an unavailable runtime client');
   if (compose.services.api.environment?.HOME !== '/var/lib/settleora') fail('API data-protection key home is not persistent');
+  if (canonicalJson(compose.services.ingress.entrypoint) !== canonicalJson(['/bin/sh', '/usr/local/bin/settleora-caddy-entrypoint.sh']) || compose.services.ingress.healthcheck?.test?.[1] !== '/tmp/settleora-caddy') fail('Ingress does not preserve capability-free Caddy startup');
+  const caddyEntrypoint = String(compose.configs?.['settleora-caddy-entrypoint']?.content ?? '').replaceAll('$$', '$');
+  for (const required of ['cp /usr/bin/caddy /tmp/settleora-caddy', 'chmod 0555 /tmp/settleora-caddy', 'exec /tmp/settleora-caddy "$@"']) if (!caddyEntrypoint.includes(required)) fail('Capability-free Caddy entrypoint is incomplete');
   if (compose.services.api.depends_on?.migrate?.condition !== 'service_completed_successfully') fail('API migration-success gate is missing');
+  const migrateEntrypoint = String(compose.configs?.['settleora-migrate-entrypoint']?.content ?? '').replaceAll('$$', '$');
+  for (const required of ['validate-only)', '--mode=validate-only', '--mode=check-only', 'managed-auto|apply-safe|manual|check-only)']) if (!migrateEntrypoint.includes(required)) fail('Migration startup gate is incomplete');
   if (compose.services.migrate.depends_on?.postgres?.condition !== 'service_healthy') fail('Migration PostgreSQL-readiness gate is missing');
   if (compose.services.api.depends_on?.postgres?.condition !== 'service_healthy' || compose.services.api.depends_on?.rabbitmq?.condition !== 'service_healthy') fail('API dependency-readiness gate is missing');
   if (compose.services.rabbitmq.hostname !== config.rabbitmq.nodeHostname || compose.services.rabbitmq.environment?.RABBITMQ_NODENAME !== `rabbit@${config.rabbitmq.nodeHostname}`) fail('RabbitMQ persistence identity is contradictory');

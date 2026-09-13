@@ -22,6 +22,11 @@ hostname. This repository cannot prove that live trust relationship.
 Before install or upgrade, verify a coordinated backup of PostgreSQL, API local
 file storage and its ASP.NET data-protection key ring, RabbitMQ state where
 required, and app configuration/secrets.
+PostgreSQL and RabbitMQ initialization credentials and the RabbitMQ node name
+are immutable package fields after installation; changing persisted identities
+requires a separately reviewed credential/state migration. In `validate-only`
+mode, the migration job validates metadata and then runs `check-only`, so a
+pending migration still blocks API startup.
 Rolling back only an image after a schema or file-interpretation change may not
 restore compatibility; matching database and file-storage backups can be
 required. Automatic rollback is not promised.
