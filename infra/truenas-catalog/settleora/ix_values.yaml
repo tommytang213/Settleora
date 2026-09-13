@@ -26,7 +26,7 @@ consts:
 resources:
   limits:
     cpus: 4.0
-    memory: 4294967296
+    memory: 4096
   gpus:
     use_all_gpus: false
     kfd_device_exists: false

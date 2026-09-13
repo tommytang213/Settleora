@@ -16,6 +16,7 @@ for (const [name, service] of Object.entries(compose.services)) {
   if (service.platform !== 'linux/amd64') fail(`${name} platform mismatch`);
   if (!service.image?.includes('@sha256:') || /:(?:main|latest)(?:@|$)/u.test(service.image)) fail(`${name} image is not immutable`);
   if (name !== 'ingress' && (service.ports?.length ?? 0) !== 0) fail(`${name} unexpectedly publishes a port`);
+  if (service.deploy?.resources?.limits?.memory !== '4096M') fail(`${name} memory limit mismatch`);
 }
 const port = compose.services.ingress.ports?.[0];
 if (compose.services.ingress.ports?.length !== 1 || port.target !== 8443 || port.protocol !== 'tcp' || port.host_ip !== plan.networks.bindAddress || Number(port.published) !== plan.networks.httpsPort) fail('Official ingress publication mismatch');

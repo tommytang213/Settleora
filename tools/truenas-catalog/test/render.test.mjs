@@ -31,11 +31,17 @@ test('official TrueNAS 25.10 package skeleton uses current Docker Apps layout an
     assert.ok(readFileSync(path.join(packageSource, file)).length > 0);
   }
   const app = YAML.parse(readFileSync(path.join(packageSource, 'app.yaml'), 'utf8'));
+  const values = YAML.parse(readFileSync(path.join(packageSource, 'ix_values.yaml'), 'utf8'));
+  const questions = YAML.parse(readFileSync(path.join(packageSource, 'questions.yaml'), 'utf8'));
   assert.equal(app.lib_version, OFFICIAL_LIBRARY_VERSION);
   assert.equal(app.lib_version_hash, OFFICIAL_LIBRARY_HASH);
   assert.equal(app.screenshots.length, 0);
   assert.match(OFFICIAL_APPS_COMMIT, /^[0-9a-f]{40}$/);
   assert.match(OFFICIAL_LIBRARY_CONTENT_HASH, /^[0-9a-f]{64}$/);
+  assert.equal(values.resources.limits.memory, 4096);
+  const bindPattern = questions.questions.find((question) => question.variable === 'network').schema.attrs.find((attr) => attr.variable === 'bind_address').schema.valid_chars;
+  assert.equal(new RegExp(bindPattern).test('192.168.50.10'), true);
+  assert.equal(new RegExp(bindPattern).test('10.999.999.999'), false);
   assert.ok(readFileSync(path.join(packageSource, 'templates/library/base_v2_3_11/container.py'), 'utf8').includes('"platform": "linux/amd64"'));
 });
 
