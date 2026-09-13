@@ -72,7 +72,11 @@ test('user-web lane builds an exact source head and uploads only bounded package
   const packageStep = stepsFor(job).find((step) => step.id === 'package');
   assert.match(packageStep.run, /--staging "\$package_evidence_dir"/);
   assert.match(packageStep.run, /package_evidence_dir=\$package_evidence_dir/);
-  assert.match(manifestHelper, /\['ls-tree', '-rz', '--full-tree', 'HEAD'\]/);
+  assert.match(manifestHelper, /\['--no-replace-objects', 'ls-tree', '-rz', '--full-tree', 'HEAD'\]/);
+  assert.match(manifestHelper, /Git replacement refs are not allowed/);
+  assert.match(manifestHelper, /const packageFile = candidates\.find/);
+  assert.match(manifestHelper, /JSON\.parse\(bytes\.toString\('utf8'\)\)\.version/);
+  assert.doesNotMatch(manifestHelper, /process\.env\.npm_execpath|\/usr\/bin\/npm/);
   assert.match(manifestHelper, /const record = output\.subarray\(start, end\)/);
   assert.match(manifestHelper, /const relative = record\.subarray\(tab \+ 1\)/);
   assert.match(manifestHelper, /createHash\('sha1'\)[\s\S]*`blob \$\{contents\.length\}\\0`/);
@@ -116,6 +120,14 @@ test('full and mobile validation commands remain unweakened', () => {
     packageJson.scripts['validate:mobile'],
     `node tools/doctor-validation.mjs --mobile && cd apps/mobile && ${sharedMobileReleaseGate}`,
   );
+});
+
+test('required scaffold classifier runs the fail-closed release identity suite exactly once', () => {
+  const classify = workflow('scaffold-validation.yml').jobs.classify;
+  assert.equal(classify.steps.some((step) => step.run === 'npm run validate:release-identity'), false);
+  const bridge = read('tools/ci/test/release-identity.test.mjs');
+  assert.match(bridge, /import '\.\.\/\.\.\/release\/test\/day1-release-identity\.test\.mjs';/);
+  assert.match(bridge, /execFileSync\('python3', \['-m', 'unittest', 'discover', '-s', 'tools\/release\/test'/);
 });
 
 test('iOS build procedure is reusable, manual, pinned, and simulator-only', () => {

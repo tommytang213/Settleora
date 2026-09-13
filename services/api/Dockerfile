@@ -4,7 +4,8 @@ FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
 COPY services/api/src/Settleora.Api/Settleora.Api.csproj services/api/src/Settleora.Api/
-RUN dotnet restore services/api/src/Settleora.Api/Settleora.Api.csproj
+COPY services/api/src/Settleora.Api/packages.lock.json services/api/src/Settleora.Api/
+RUN dotnet restore services/api/src/Settleora.Api/Settleora.Api.csproj --locked-mode
 
 COPY services/api/src/Settleora.Api/ services/api/src/Settleora.Api/
 RUN dotnet publish services/api/src/Settleora.Api/Settleora.Api.csproj \

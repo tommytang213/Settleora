@@ -14,6 +14,9 @@ const mobileAndIosExactPaths = new Set([
   'tools/ci/scaffold-validation-changes.mjs',
   'tools/ci/test/scaffold-validation-changes.test.mjs',
   'tools/ci/test/ci-workflow-policy.test.mjs',
+  'tools/release/day1-release-identity-cli.mjs',
+  'tools/release/day1-release-identity.mjs',
+  'tools/release/sealed_android_verifier.py',
   'codemagic.yaml',
 ]);
 const mobileOnlyExactPaths = new Set([
@@ -31,6 +34,8 @@ const webUserExactPaths = new Set([
   'tools/ci/test/scaffold-validation-changes.test.mjs',
   'tools/ci/test/ci-workflow-policy.test.mjs',
   'tools/ci/test/user-web-dist-manifest.test.mjs',
+  'tools/release/day1-release-identity-cli.mjs',
+  'tools/release/day1-release-identity.mjs',
 ]);
 const gitCommand = (args) => execFileSync('git', args, {
   encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60_000,
