@@ -440,7 +440,8 @@ export function toolchainTreeDigest(root, label, excludedPrefixes = [], excluded
   if ([...canonicalExcludedPaths, ...canonicalTransientBases].some((entry) => typeof entry !== 'string' || !entry || entry.startsWith('/') || entry.includes('\\')
     || entry.split('/').some((part) => !part || part === '.' || part === '..'))) throw new Error(`${label} exclusion inventory contains an unsafe path`);
   const excluded = (relative) => canonicalExcludedPaths.some((prefix) => relative === prefix || relative.startsWith(`${prefix}/`))
-    || canonicalTransientBases.some((base) => relative.startsWith(`${base}.tmp.`) && /^[0-9]+$/u.test(relative.slice(base.length + 5)));
+    || canonicalTransientBases.some((base) => (relative.startsWith(`${base}.tmp.`) && /^[0-9]+$/u.test(relative.slice(base.length + 5)))
+      || (relative.startsWith(`${base}-`) && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:\/.*)?$/u.test(relative.slice(base.length + 1))));
   const rootMetadata = lstatSync(absoluteRoot, { throwIfNoEntry: false });
   if (!rootMetadata?.isDirectory() || rootMetadata.isSymbolicLink() || realpathSync(absoluteRoot) !== absoluteRoot) throw new Error(`${label} root is not a stable directory`);
   const records = [];
@@ -623,6 +624,7 @@ import ctypes
 import hashlib
 import json
 import os
+import re
 import select
 import signal
 import struct
@@ -642,7 +644,11 @@ watches = {}
 def excluded(relative, prefixes, transient_bases):
     if any(relative == prefix or relative.startswith(prefix + "/") for prefix in prefixes):
         return True
-    return any(relative.startswith(base + ".tmp.") and relative[len(base) + 5:].isdigit() for base in transient_bases)
+    return any(
+        (relative.startswith(base + ".tmp.") and relative[len(base) + 5:].isdigit())
+        or (relative.startswith(base + "-") and re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:/.*)?", relative[len(base) + 1:]) is not None)
+        for base in transient_bases
+    )
 
 def tree_digest(root, prefixes, transient_bases):
     digest = hashlib.sha256()
@@ -807,7 +813,8 @@ finally:
 
 function guardedTreeDigest(root, excludedPrefixes = [], excludedTransientBases = []) {
   const excluded = (relative) => excludedPrefixes.some((prefix) => relative === prefix || relative.startsWith(`${prefix}/`))
-    || excludedTransientBases.some((base) => relative.startsWith(`${base}.tmp.`) && /^[0-9]+$/u.test(relative.slice(base.length + 5)));
+    || excludedTransientBases.some((base) => (relative.startsWith(`${base}.tmp.`) && /^[0-9]+$/u.test(relative.slice(base.length + 5)))
+      || (relative.startsWith(`${base}-`) && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:\/.*)?$/u.test(relative.slice(base.length + 1))));
   const digest = createHash('sha256');
   let entryCount = 1;
   let totalBytes = 0;
@@ -1412,6 +1419,13 @@ function collectAndroidUnsafe(options, emit = true) {
       `caches/${gradleRuntimeVersion}/transforms/gc.properties`,
       'caches/jars-9/jars-9.lock',
     ];
+    const kotlinAccessorsRoot = path.join(runtimeGradleHome, `caches/${gradleRuntimeVersion}/kotlin-dsl/accessors`);
+    const kotlinAccessorNames = readdirSync(kotlinAccessorsRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && /^[0-9a-f]{32}$/u.test(entry.name))
+      .map((entry) => entry.name)
+      .sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
+    if (kotlinAccessorNames.length < 1) throw new Error('Android guarded dependency prefetch did not produce a stable Kotlin DSL accessor identity');
+    const gradleKotlinDslTransientBases = kotlinAccessorNames.map((entry) => `caches/${gradleRuntimeVersion}/kotlin-dsl/accessors/${entry}`);
     for (const relativeCache of sealedGradleExecutableCachePaths) {
       const runtimeCache = path.join(runtimeGradleHome, relativeCache);
       if (!lstatSync(runtimeCache, { throwIfNoEntry: false })?.isDirectory()) throw new Error(`Android guarded dependency prefetch did not produce Gradle ${relativeCache}`);
@@ -1422,6 +1436,7 @@ function collectAndroidUnsafe(options, emit = true) {
       if (!lstatSync(mutableFile, { throwIfNoEntry: false })?.isFile()) throw new Error(`Gradle executable-cache coordination file is missing: ${relativeMutable}`);
       chmodSync(mutableFile, 0o600);
     }
+    chmodSync(kotlinAccessorsRoot, 0o700);
     makeTreeReadOnly(runtimeWrapper, 'Gradle runtime wrapper distribution');
     chmodSync(path.join(runtimeWrapper, runtimeWrapperLockPaths[0]), 0o600);
     const runtimeGradleMutablePaths = ['.tmp', 'caches/CACHEDIR.TAG', 'caches/build-cache-1', `caches/${gradleRuntimeVersion}/file-changes`, `caches/${gradleRuntimeVersion}/fileContent`, `caches/${gradleRuntimeVersion}/fileHashes`, `caches/${gradleRuntimeVersion}/gc.properties`, `caches/${gradleRuntimeVersion}/javaCompile`, `caches/${gradleRuntimeVersion}/jvms`, `caches/${gradleRuntimeVersion}/md-rule`, `caches/${gradleRuntimeVersion}/md-supplier`, ...sealedGradleExecutableMutablePaths, 'caches/gc.properties', 'caches/journal-1', 'caches/keyrings', 'caches/modules-2', 'android', 'daemon', 'kotlin-profile', 'native', 'notifications', 'workers', ...runtimeWrapperLockPaths.map((entry) => `wrapper/${entry}`)];
@@ -1444,7 +1459,7 @@ function collectAndroidUnsafe(options, emit = true) {
       { label: 'gradle-modules-cache', root: runtimeModules, excludedPrefixes: ['gc.properties', 'modules-2.lock'] },
       { label: 'gradle-wrapper-distribution', root: runtimeWrapper, excludedPrefixes: runtimeWrapperLockPaths },
       { label: 'android-signing-home', root: path.join(buildHome, '.android'), excludedPrefixes: [] },
-      { label: 'gradle-runtime-home', root: runtimeGradleHome, excludedPrefixes: runtimeGradleMutablePaths },
+      { label: 'gradle-runtime-home', root: runtimeGradleHome, excludedPrefixes: runtimeGradleMutablePaths, excludedTransientBases: gradleKotlinDslTransientBases },
     ];
     const files = {
       apk: ['apps/mobile/build/app/outputs/flutter-apk/app-release.apk', 'app-release.apk'],
@@ -1524,7 +1539,7 @@ function collectAndroidUnsafe(options, emit = true) {
       dependencyCaches,
       gradleVerificationMetadataSha256: createHash('sha256').update(gitExec(['show', `${sourceBefore.commit}:apps/mobile/android/gradle/verification-metadata.xml`], { cwd: repoRoot })).digest('hex'),
       apksignerJarSha256: apksignerJar.sha256,
-      toolchainMutationGuard: { algorithm: 'linux-inotify-authenticated-runner-v3', flutterExcludedTransientBases: [...flutterMutableMetadata].sort((left, right) => Buffer.from(left).compare(Buffer.from(right))), pubExcludedBuildPaths, gradleWrapperLockPaths: runtimeWrapperLockPaths, prefetchSourceGeneratedPaths, sourceGeneratedPaths, sealedGeneratedInputPaths, sealedGradleExecutableCachePaths, runtimeGradleMutablePaths, outputsCapturedBeforeGuardExit: true, queueOverflowFailsClosed: true },
+      toolchainMutationGuard: { algorithm: 'linux-inotify-authenticated-runner-v3', flutterExcludedTransientBases: [...flutterMutableMetadata].sort((left, right) => Buffer.from(left).compare(Buffer.from(right))), pubExcludedBuildPaths, gradleWrapperLockPaths: runtimeWrapperLockPaths, gradleKotlinDslTransientBases, prefetchSourceGeneratedPaths, sourceGeneratedPaths, sealedGeneratedInputPaths, sealedGradleExecutableCachePaths, runtimeGradleMutablePaths, outputsCapturedBeforeGuardExit: true, queueOverflowFailsClosed: true },
       signingInputSha256: debugKeystore.sha256,
       signingCertificateSha256,
     };

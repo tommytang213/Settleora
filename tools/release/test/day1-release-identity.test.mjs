@@ -135,6 +135,7 @@ function fixture(t) {
       flutterExcludedTransientBases: ['bin/cache/runtime.stamp'],
       pubExcludedBuildPaths: ['hosted/pub.dev/jni-1.0.0/android/.cxx'],
       gradleWrapperLockPaths: ['dists/gradle-8.14-all/c2qonpi39x1mddn7hk5gh9iqj/gradle-8.14-all.zip.lck'],
+      gradleKotlinDslTransientBases: ['caches/8.14/kotlin-dsl/accessors/0123456789abcdef0123456789abcdef'],
       sourceGeneratedPaths: ['apps/mobile/.dart_tool', 'apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/.gradle', 'apps/mobile/android/.kotlin', 'apps/mobile/android/app/src/main/java', 'apps/mobile/android/build', 'apps/mobile/android/local.properties', 'apps/mobile/build', 'apps/mobile/ios', 'apps/mobile/lib/.dart_tool', 'apps/mobile/linux', 'apps/mobile/macos', 'apps/mobile/web', 'apps/mobile/windows'],
       prefetchSourceGeneratedPaths: ['apps/mobile/.dart_tool', 'apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/.gradle', 'apps/mobile/android/.kotlin', 'apps/mobile/android/app/src/main/java', 'apps/mobile/android/build', 'apps/mobile/android/local.properties', 'apps/mobile/build', 'apps/mobile/ios', 'apps/mobile/lib/.dart_tool', 'apps/mobile/linux', 'apps/mobile/macos', 'apps/mobile/web', 'apps/mobile/windows', 'apps/mobile/android/gradle/wrapper/gradle-wrapper.jar', 'apps/mobile/android/gradlew', 'apps/mobile/android/gradlew.bat'],
       sealedGeneratedInputPaths: ['apps/mobile/.dart_tool/package_config.json', 'apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/app/src/main/java'],
@@ -549,6 +550,10 @@ test('toolchain inventory rejects symlinks into transient exclusions', (t) => {
   write(root, 'bin/cache/runtime.stamp.tmp.123', 'mutable executable bytes\n');
   symlinkSync('bin/cache/runtime.stamp.tmp.123', path.join(root, 'tool-link'));
   assert.throws(() => toolchainTreeDigest(root, 'fixture toolchain', [], ['bin/cache/runtime.stamp']), /symlink into an excluded directory/);
+  rmSync(path.join(root, 'tool-link'));
+  write(root, 'gradle/accessor-12345678-1234-1234-1234-123456789abc/classes.bin', 'mutable accessor bytes\n');
+  symlinkSync('gradle/accessor-12345678-1234-1234-1234-123456789abc/classes.bin', path.join(root, 'tool-link'));
+  assert.throws(() => toolchainTreeDigest(root, 'fixture toolchain', [], ['gradle/accessor']), /symlink into an excluded directory/);
 });
 
 test('protected runtime inventory binds external directory symlink contents', (t) => {

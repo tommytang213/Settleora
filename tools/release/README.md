@@ -124,7 +124,10 @@ build, bound by a dedicated dependency-cache inventory, and
 included in the whole-home guard. Only their exact required lock or
 garbage-collection coordination files remain writable; every other
 version-scoped Gradle path is guarded and an unexpected executable cache
-therefore fails closed. The retained builds remove only prior build outputs;
+therefore fails closed. Kotlin DSL may create a UUID-suffixed temporary
+accessor beside an already authenticated accessor; only those exact recorded
+sibling bases are transient, while every stable accessor remains read-only and
+guarded. The retained builds remove only prior build outputs;
 they reuse those sealed generated inputs so Gradle cannot introduce a new
 Kotlin DSL accessor identity between prefetch and evidence capture.
 Assembly and validation resolve `apksigner`
