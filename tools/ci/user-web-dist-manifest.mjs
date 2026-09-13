@@ -166,16 +166,19 @@ function decodeHtmlEntitiesForScan(text) {
   // Complete HTML named-reference subset whose decoded value is ASCII
   // punctuation, including every character that can reshape an ASCII secret.
   const named = new Map([
-    ['Tab', '\t'], ['NewLine', '\n'], ['excl', '!'], ['quot', '"'], ['num', '#'], ['dollar', '$'],
+    ['Tab', '\t'], ['NewLine', '\n'], ['AMP', '&'], ['GT', '>'], ['LT', '<'], ['QUOT', '"'],
+    ['DiacriticalGrave', '`'], ['UnderBar', '_'], ['VerticalLine', '|'],
+    ['excl', '!'], ['quot', '"'], ['num', '#'], ['dollar', '$'],
     ['percnt', '%'], ['amp', '&'], ['apos', "'"], ['lpar', '('], ['rpar', ')'], ['ast', '*'],
     ['plus', '+'], ['comma', ','], ['period', '.'], ['sol', '/'], ['colon', ':'], ['semi', ';'],
     ['lt', '<'], ['equals', '='], ['gt', '>'], ['quest', '?'], ['commat', '@'], ['lsqb', '['],
-    ['bsol', '\\'], ['rsqb', ']'], ['Hat', '^'], ['lowbar', '_'], ['grave', '`'], ['lcub', '{'],
-    ['verbar', '|'], ['rcub', '}'],
+    ['bsol', '\\'], ['rsqb', ']'], ['Hat', '^'], ['lowbar', '_'], ['grave', '`'], ['lbrace', '{'],
+    ['lbrack', '['], ['midast', '*'], ['rbrace', '}'], ['rbrack', ']'], ['lcub', '{'], ['verbar', '|'],
+    ['vert', '|'], ['rcub', '}'],
   ]);
   // HTML accepts semicolonless numeric references. Named references remain
   // semicolon-required so an ordinary ampersand word is not rewritten.
-  return text.replace(/&(?:#([0-9]+);?|#x([0-9A-Fa-f]+);?|([A-Za-z]{2,8});)/gu, (entity, decimal, hexadecimal, name) => {
+  return text.replace(/&(?:#([0-9]+);?|#x([0-9A-Fa-f]+);?|([A-Za-z][A-Za-z0-9]{1,31});)/gu, (entity, decimal, hexadecimal, name) => {
     const value = decimal !== undefined
       ? Number.parseInt(decimal, 10)
       : hexadecimal !== undefined
