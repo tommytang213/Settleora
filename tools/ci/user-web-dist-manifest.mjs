@@ -163,7 +163,16 @@ function removeScriptEscapeBoundariesForScan(text) {
 }
 
 function decodeHtmlEntitiesForScan(text) {
-  const named = new Map([['amp', '&'], ['apos', "'"], ['gt', '>'], ['lt', '<'], ['quot', '"']]);
+  // Complete HTML named-reference subset whose decoded value is ASCII
+  // punctuation, including every character that can reshape an ASCII secret.
+  const named = new Map([
+    ['Tab', '\t'], ['NewLine', '\n'], ['excl', '!'], ['quot', '"'], ['num', '#'], ['dollar', '$'],
+    ['percnt', '%'], ['amp', '&'], ['apos', "'"], ['lpar', '('], ['rpar', ')'], ['ast', '*'],
+    ['plus', '+'], ['comma', ','], ['period', '.'], ['sol', '/'], ['colon', ':'], ['semi', ';'],
+    ['lt', '<'], ['equals', '='], ['gt', '>'], ['quest', '?'], ['commat', '@'], ['lsqb', '['],
+    ['bsol', '\\'], ['rsqb', ']'], ['Hat', '^'], ['lowbar', '_'], ['grave', '`'], ['lcub', '{'],
+    ['verbar', '|'], ['rcub', '}'],
+  ]);
   // HTML accepts semicolonless numeric references. Named references remain
   // semicolon-required so an ordinary ampersand word is not rewritten.
   return text.replace(/&(?:#([0-9]+);?|#x([0-9A-Fa-f]+);?|([A-Za-z]{2,8});)/gu, (entity, decimal, hexadecimal, name) => {
@@ -173,7 +182,7 @@ function decodeHtmlEntitiesForScan(text) {
         ? Number.parseInt(hexadecimal, 16)
         : undefined;
     if (value !== undefined) return value <= 0x10ffff && !(value >= 0xd800 && value <= 0xdfff) ? String.fromCodePoint(value) : entity;
-    return named.get(name.toLowerCase()) ?? entity;
+    return named.get(name) ?? named.get(name.toLowerCase()) ?? entity;
   });
 }
 

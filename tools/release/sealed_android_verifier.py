@@ -281,6 +281,9 @@ def canonical_aab_signature_control_digest(descriptor: int) -> str:
         signature_sections = _jar_sections(signature_file, "signature file")
         if manifest_sections[0][1] != {"Manifest-Version": "1.0", "Built-By": "Signflinger", "Created-By": "Signflinger"}:
             raise ValueError("Android AAB manifest main attributes are not canonical")
+        expected_manifest_main = b"Manifest-Version: 1.0\r\nBuilt-By: Signflinger\r\nCreated-By: Signflinger\r\n\r\n"
+        if manifest_sections[0][0] != expected_manifest_main:
+            raise ValueError("Android AAB manifest main section serialization is not canonical")
         signature_main = signature_sections[0][1]
         if set(signature_main) != {"Signature-Version", "Created-By", "SHA-256-Digest-Manifest"} \
                 or signature_main["Signature-Version"] != "1.0" or signature_main["Created-By"] != "Signflinger":
@@ -288,6 +291,12 @@ def canonical_aab_signature_control_digest(descriptor: int) -> str:
         _validated_digest(signature_main["SHA-256-Digest-Manifest"], "manifest digest")
         if signature_main["SHA-256-Digest-Manifest"] != _sha256_base64(manifest):
             raise ValueError("Android AAB signature file does not bind the complete manifest")
+        expected_signature_main = (
+            b"Signature-Version: 1.0\r\nCreated-By: Signflinger\r\nSHA-256-Digest-Manifest: "
+            + signature_main["SHA-256-Digest-Manifest"].encode("ascii") + b"\r\n\r\n"
+        )
+        if signature_sections[0][0] != expected_signature_main:
+            raise ValueError("Android AAB signature-file main section serialization is not canonical")
 
         controls = set(names)
         archive_names = [info.filename for info in bundle.infolist() if info.filename not in controls]

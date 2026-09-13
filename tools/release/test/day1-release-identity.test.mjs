@@ -899,7 +899,10 @@ test('release execution uses protected system runtimes and bypasses user plugin 
   assert.match(cliSource, /realpathSync\('\/proc\/self\/exe'\)/);
   assert.match(cliSource, /const systemNodeCommand = invokedDirectly/);
   assert.match(cliSource, /const closure = sealedCollectorClosure\(\)/);
-  assert.match(cliSource, /os\.memfd_create\("settleora-release-collector", 0\)/);
+  assert.match(cliSource, /os\.MFD_CLOEXEC \| os\.MFD_ALLOW_SEALING/);
+  assert.match(cliSource, /fcntl\.F_SEAL_WRITE \| fcntl\.F_SEAL_GROW \| fcntl\.F_SEAL_SHRINK \| fcntl\.F_SEAL_SEAL/);
+  assert.match(cliSource, /if source_fd != 0:\n    os\.close\(source_fd\)/);
+  assert.match(cliSource, /if authorization_fd != 3:\n    os\.close\(authorization_fd\)/);
   assert.match(cliSource, /process\.execve\(releaseCommand\('python'\)/);
   assert.match(cliSource, /verifiedRegistryPreflightIdentity = registryPreflightIdentity/);
   assert.doesNotMatch(cliSource, /SETTLEORA_RELEASE_REGISTRY_PREFLIGHT/);

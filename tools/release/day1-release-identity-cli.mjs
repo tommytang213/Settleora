@@ -2154,19 +2154,27 @@ if (invokedDirectly) {
       const chunks = closure.match(/[\s\S]{1,60000}/gu) ?? [];
       if (chunks.length < 1 || chunks.length > 32) throw new Error('Sealed release collector closure exceeds its transfer boundary');
       const closureEnvironment = Object.fromEntries(chunks.map((value, index) => [`SETTLEORA_CLOSURE_${String(index).padStart(3, '0')}`, value]));
-      const bootstrap = `
-import os, sys
+const bootstrap = `
+import fcntl, os, sys
 count = int(os.environ.pop("SETTLEORA_CLOSURE_COUNT"))
 source = "".join(os.environ.pop("SETTLEORA_CLOSURE_" + str(index).zfill(3)) for index in range(count)).encode("utf-8")
 authorization_bytes = os.environ.pop("SETTLEORA_GH_CREDENTIAL", "").encode("utf-8")
-source_fd = os.memfd_create("settleora-release-collector", 0)
-os.write(source_fd, source)
-os.lseek(source_fd, 0, os.SEEK_SET)
+def sealed_memfd(name, contents):
+    descriptor = os.memfd_create(name, os.MFD_CLOEXEC | os.MFD_ALLOW_SEALING)
+    os.write(descriptor, contents)
+    fcntl.fcntl(descriptor, fcntl.F_ADD_SEALS, fcntl.F_SEAL_WRITE | fcntl.F_SEAL_GROW | fcntl.F_SEAL_SHRINK | fcntl.F_SEAL_SEAL)
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    return descriptor
+source_fd = sealed_memfd("settleora-release-collector", source)
 os.dup2(source_fd, 0)
-authorization_fd = os.memfd_create("settleora-github-authorization", 0)
-os.write(authorization_fd, authorization_bytes)
-os.lseek(authorization_fd, 0, os.SEEK_SET)
+os.set_inheritable(0, True)
+if source_fd != 0:
+    os.close(source_fd)
+authorization_fd = sealed_memfd("settleora-github-authorization", authorization_bytes)
 os.dup2(authorization_fd, 3)
+os.set_inheritable(3, True)
+if authorization_fd != 3:
+    os.close(authorization_fd)
 environment = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}
 os.execve(sys.argv[1], [sys.argv[1], "--input-type=module", "-", *sys.argv[2:]], environment)
 `;
