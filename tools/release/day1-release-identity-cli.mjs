@@ -1550,7 +1550,7 @@ function collectAndroidUnsafe(options, emit = true) {
       'flutter_build',
       'hooks_runner',
     ])].sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
-    const prefetchBuildGeneratedPaths = prefetchSourceGeneratedPaths.filter((entry) => !['apps/mobile/.dart_tool', 'apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/app/src/main/java'].includes(entry));
+    const prefetchBuildGeneratedPaths = prefetchSourceGeneratedPaths.filter((entry) => !['apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/app/src/main/java'].includes(entry));
     executeGuardedFlutter(flutter, [
       ['build', 'apk', '--release', '--no-pub'],
     ], mobileRoot, [
