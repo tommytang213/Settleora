@@ -54,9 +54,18 @@ if (compose.services.rabbitmq.environment?.RABBITMQ_NODENAME !== `rabbit@${compo
 const rabbitGuard = String(compose.configs?.['settleora-rabbitmq-entrypoint']?.content ?? '').replaceAll('$$', '$');
 for (const required of ['expected_nodename="rabbit@$(hostname -s)"', 'RABBITMQ_MNESIA_BASE', 'persisted_nodename', 'exit 64', 'exit 65', 'exit 66']) if (!rabbitGuard.includes(required)) fail('Official RabbitMQ identity guard is incomplete');
 const internalNetworks = Object.entries(compose.networks ?? {}).filter(([, network]) => network?.internal === true && network?.labels?.['tn.network.internal'] === 'true').map(([name]) => name);
-if (internalNetworks.length !== 2 || compose.networks.edge?.internal === true || compose.networks.edge?.labels?.['tn.network.internal'] === 'true') fail('Official private network topology mismatch');
+const ingressNetwork = internalNetworks.filter((name) => name === 'ingress' || name.endsWith('-ingress'));
+const backendNetwork = internalNetworks.filter((name) => name === 'backend' || name.endsWith('-backend'));
+if (internalNetworks.length !== 2 || ingressNetwork.length !== 1 || backendNetwork.length !== 1 || ingressNetwork[0] === backendNetwork[0]
+  || !compose.networks.edge || compose.networks.edge?.internal === true || compose.networks.edge?.labels?.['tn.network.internal'] === 'true') fail('Official private network topology mismatch');
 const memberships = (service) => Object.keys(service.networks ?? {}).sort();
-const expectedMemberships = { ingress: ['edge', 'ingress'], api: ['backend', 'ingress'], migrate: ['backend'], postgres: ['backend'], rabbitmq: ['backend'] };
+const expectedMemberships = {
+  ingress: ['edge', ingressNetwork[0]].sort(),
+  api: [backendNetwork[0], ingressNetwork[0]].sort(),
+  migrate: [backendNetwork[0]],
+  postgres: [backendNetwork[0]],
+  rabbitmq: [backendNetwork[0]],
+};
 for (const [service, expected] of Object.entries(expectedMemberships)) {
   if (canonicalJson(memberships(compose.services[service])) !== canonicalJson(expected)) fail(`Official ${service} network boundary mismatch`);
 }
