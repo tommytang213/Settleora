@@ -114,6 +114,11 @@ recognizes only numeric atomic-update siblings of those bound Flutter markers;
 the Android provenance binds toolchain and dependency-cache identities, Gradle
 verification-metadata identity, the authenticated-runner algorithm,
 transient-marker/build-directory subsets, and fail-closed queue-overflow policy.
+After offline package generation, the exact package configuration, plugin
+inventory, and generated Android registrant are made read-only and added to the
+authenticated build guard. Dependency-bearing Gradle version, transformed
+artifact, and generated-JAR caches are copied from the guarded prefetch, sealed,
+and included in the whole-home guard instead of being treated as mutable state.
 Assembly and validation resolve `apksigner`
 only below the separately supplied trusted SDK root and verify both the APK and
 AAB debug certificate and rejects additional APK or AAB signers. Validation always recollects source, registry, web,
@@ -131,8 +136,9 @@ performs a second exact-source Android APK/AAB build before accepting retained
 artifact identities. Both builds use the same commit-derived private workspace
 path under `/workspace/logs`; this removes absolute temporary paths from Flutter
 native outputs while an existing workspace fails closed instead of being reused.
-APK, AAB, mapping, and output-metadata sizes are checked on stable descriptors
-before retention. Output metadata is rejected if ambiguous, retained in unique
+APK/output-metadata and AAB/mapping outputs are captured through stable
+`O_NOFOLLOW` descriptors immediately after their respective producing command
+and before that command's authenticated runner exits. Output metadata is rejected if ambiguous, retained in unique
 canonical JSON, and its full SHA-256 is bound through both Android provenance
 and the manifest so the independent rebuild must match it. AAB preflight rejects
 central or local ZIP extra fields because they are not signed payload identity.
@@ -151,7 +157,8 @@ parsing additionally requires the unauthenticated verity-padding value to be
 entirely zero. For AABs, the verifier parses every
 expanded manifest and signature-file attribute, rejects extra or duplicate
 metadata, proves complete entry/section digest coverage, and compares a
-deterministic signature-control tree that normalizes only R8 build time; the
+deterministic signature-control tree that binds signature-file section order
+and normalizes only the lexical R8 build-time integer value; the
 certificate block is still cryptographically verified against the single bound
 debug signer.
 Assembly also copies the bounded release-note input into canonical retained

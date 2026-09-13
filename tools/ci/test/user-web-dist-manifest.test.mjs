@@ -268,6 +268,10 @@ test('manifest rejects symlinks, malformed names, source maps and sensitive cont
       path.join(f.dist, 'app.js'),
       ['const value = "github\\_pat_', 'AAAAAAAAAAAAAAAAAAAAAAAA";'].join(''),
     ), /Potential sensitive/],
+    ['HTML numeric entities inside token suffix', (f) => writeFileSync(
+      path.join(f.dist, 'encoded.html'),
+      '<div data-value="github_pat_&#65;&#65;&#65;&#65;&#65;&#65;&#65;&#65;&#65;&#65;&#65;&#65;&#65;&#65;&#65;&#65;&#65;&#65;&#65;&#65;"></div>',
+    ), /Potential sensitive/],
     ['bearer token', (f) => writeFileSync(
       path.join(f.dist, 'config.txt'),
       ['Authorization: Bearer ', 'abcdefghijklmnop'].join(''),

@@ -65,6 +65,39 @@ class SealedAndroidVerifierTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "main attributes are not canonical"):
                 VERIFIER.canonical_aab_signature_control_digest(source.fileno())
 
+    def test_aab_signature_control_digest_binds_signature_section_order(self):
+        payloads = {"base/a": b"a", "base/b": b"b"}
+        sections = [
+            f"Name: {name}\r\nSHA-256-Digest: {base64.b64encode(hashlib.sha256(payload).digest()).decode('ascii')}\r\n\r\n".encode("ascii")
+            for name, payload in payloads.items()
+        ]
+        manifest = b"Manifest-Version: 1.0\r\nBuilt-By: Signflinger\r\nCreated-By: Signflinger\r\n\r\n" + b"".join(sections)
+
+        def identity(reverse: bool) -> str:
+            ordered = list(reversed(sections)) if reverse else sections
+            signature_sections = b"".join(
+                b"Name: " + section.split(b"\r\n", 1)[0].split(b": ", 1)[1] + b"\r\nSHA-256-Digest: "
+                + base64.b64encode(hashlib.sha256(section).digest()) + b"\r\n\r\n"
+                for section in ordered
+            )
+            signature = (
+                b"Signature-Version: 1.0\r\nCreated-By: Signflinger\r\nSHA-256-Digest-Manifest: "
+                + base64.b64encode(hashlib.sha256(manifest).digest()) + b"\r\n\r\n" + signature_sections
+            )
+            archive = io.BytesIO()
+            with zipfile.ZipFile(archive, "w") as output:
+                for name, payload in payloads.items():
+                    output.writestr(name, payload)
+                output.writestr("META-INF/MANIFEST.MF", manifest)
+                output.writestr("META-INF/ANDROIDD.SF", signature)
+                output.writestr("META-INF/ANDROIDD.RSA", b"certificate")
+            with tempfile.TemporaryFile() as source:
+                source.write(archive.getvalue())
+                source.seek(0)
+                return VERIFIER.canonical_aab_signature_control_digest(source.fileno())
+
+        self.assertNotEqual(identity(False), identity(True))
+
     def test_unsigned_count_ignores_directory_and_signature_control_records(self):
         verification = "\n".join(
             (
@@ -152,6 +185,20 @@ class SealedAndroidVerifierTests(unittest.TestCase):
 
         self.assertEqual(identity(archive(1, "same")), identity(archive(2, "same")))
         self.assertNotEqual(identity(archive(1, "same")), identity(archive(1, "changed")))
+
+    def test_payload_digest_preserves_r8_json_representation(self):
+        def identity(metadata: bytes) -> tuple[str, int, list[str]]:
+            output = io.BytesIO()
+            with zipfile.ZipFile(output, "w") as bundle:
+                bundle.writestr("BUNDLE-METADATA/com.android.tools/r8.json", metadata)
+            with tempfile.TemporaryFile() as source:
+                source.write(output.getvalue())
+                source.seek(0)
+                return VERIFIER.canonical_zip_payload_digest(source.fileno())
+
+        compact = b'{"compilation":{"buildTimeNs":1,"numberOfThreads":6}}'
+        reordered = b'{ "compilation": { "numberOfThreads": 6, "buildTimeNs": 2 } }'
+        self.assertNotEqual(identity(compact), identity(reordered))
 
     def test_payload_digest_rejects_duplicate_r8_members(self):
         output = io.BytesIO()

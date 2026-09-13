@@ -162,6 +162,19 @@ function removeScriptEscapeBoundariesForScan(text) {
   return text.replace(/\\/gu, '');
 }
 
+function decodeHtmlEntitiesForScan(text) {
+  const named = new Map([['amp', '&'], ['apos', "'"], ['gt', '>'], ['lt', '<'], ['quot', '"']]);
+  return text.replace(/&(?:#([0-9]{1,7})|#x([0-9A-Fa-f]{1,6})|([A-Za-z]{2,8}));/gu, (entity, decimal, hexadecimal, name) => {
+    const value = decimal !== undefined
+      ? Number.parseInt(decimal, 10)
+      : hexadecimal !== undefined
+        ? Number.parseInt(hexadecimal, 16)
+        : undefined;
+    if (value !== undefined) return value <= 0x10ffff && !(value >= 0xd800 && value <= 0xdfff) ? String.fromCodePoint(value) : entity;
+    return named.get(name.toLowerCase()) ?? entity;
+  });
+}
+
 function git(args) {
   return execFileSync('/usr/bin/git', ['--no-replace-objects', ...args], {
     cwd: repoRoot,
@@ -334,6 +347,7 @@ export function scanPublicArtifact(files) {
     const text = file.contents.toString('utf8');
     const decodedScriptText = decodeStaticScriptEscapesForScan(text);
     const collapsedScriptText = removeScriptEscapeBoundariesForScan(text);
+    const decodedHtmlText = decodeHtmlEntitiesForScan(text);
     let decodedJsonText;
     let candidate;
     try {
@@ -365,7 +379,7 @@ export function scanPublicArtifact(files) {
       decodedJsonText = JSON.stringify(candidate);
     }
     for (const pattern of unsafeContentPatterns) {
-      if (pattern.test(text) || pattern.test(decodedScriptText) || pattern.test(collapsedScriptText)
+      if (pattern.test(text) || pattern.test(decodedScriptText) || pattern.test(collapsedScriptText) || pattern.test(decodedHtmlText)
         || (decodedJsonText !== undefined && pattern.test(decodedJsonText))) {
         throw new Error(`Potential sensitive or host-specific material in ${file.path}`);
       }

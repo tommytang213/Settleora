@@ -47,6 +47,20 @@ def parse_unique_json(contents: bytes) -> object:
     return json.loads(contents, object_pairs_hook=unique_json_object)
 
 
+def normalize_r8_build_time(contents: bytes) -> bytes:
+    """Preserve every R8 metadata byte except the one unstable integer value."""
+    metadata = parse_unique_json(contents)
+    if not isinstance(metadata, dict) or not isinstance(metadata.get("compilation"), dict) \
+            or not isinstance(metadata["compilation"].get("buildTimeNs"), int):
+        raise ValueError("Android R8 metadata cannot be canonically normalized")
+    pattern = re.compile(rb'("buildTimeNs"\s*:\s*)-?(?:0|[1-9][0-9]*)')
+    matches = list(pattern.finditer(contents))
+    if len(matches) != 1:
+        raise ValueError("Android R8 metadata must contain one lexical buildTimeNs integer")
+    start, end = matches[0].span()
+    return contents[:start] + matches[0].group(1) + b"0" + contents[end:]
+
+
 def run(command: list[str], descriptors: tuple[int, ...], limit: int = 4 * 1024 * 1024, executable: str | None = None) -> str:
     process = subprocess.Popen(command, executable=executable, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, pass_fds=descriptors)
     assert process.stdout is not None
@@ -193,13 +207,8 @@ def canonical_zip_payload_digest(descriptor: int) -> tuple[str, int, list[str]]:
             record_digest = digest.hexdigest()
             if info.filename == "BUNDLE-METADATA/com.android.tools/r8.json":
                 with bundle.open(info) as entry:
-                    metadata = parse_unique_json(entry.read(MAX_R8_METADATA_BYTES + 1))
-                if not isinstance(metadata, dict) or not isinstance(metadata.get("compilation"), dict) \
-                        or not isinstance(metadata["compilation"].get("buildTimeNs"), int):
-                    raise ValueError("Android R8 metadata cannot be canonically normalized")
-                metadata["compilation"] = dict(metadata["compilation"])
-                del metadata["compilation"]["buildTimeNs"]
-                normalized = json.dumps(metadata, separators=(",", ":"), sort_keys=True).encode("utf-8")
+                    raw_metadata = entry.read(MAX_R8_METADATA_BYTES + 1)
+                normalized = normalize_r8_build_time(raw_metadata)
                 record_size = len(normalized)
                 record_digest = hashlib.sha256(normalized).hexdigest()
             records.append((name, record_size, record_digest))
@@ -293,18 +302,13 @@ def canonical_aab_signature_control_digest(descriptor: int) -> str:
                 raise ValueError("Android AAB manifest entry digest mismatch")
             normalized = raw_entry
             if name == "BUNDLE-METADATA/com.android.tools/r8.json":
-                metadata = parse_unique_json(raw_entry)
-                if not isinstance(metadata, dict) or not isinstance(metadata.get("compilation"), dict) \
-                        or not isinstance(metadata["compilation"].get("buildTimeNs"), int):
-                    raise ValueError("Android AAB R8 metadata cannot be canonically normalized")
-                metadata["compilation"] = dict(metadata["compilation"])
-                del metadata["compilation"]["buildTimeNs"]
-                normalized = json.dumps(metadata, separators=(",", ":"), sort_keys=True).encode("utf-8")
+                normalized = normalize_r8_build_time(raw_entry)
             manifest_records[name] = (raw_section, _sha256_base64(normalized))
         if sorted(manifest_records) != sorted(archive_names):
             raise ValueError("Android AAB manifest does not bind the complete archive entry set")
 
         signature_records: dict[str, str] = {}
+        signature_section_order: list[str] = []
         for _, attributes in signature_sections[1:]:
             if set(attributes) != {"Name", "SHA-256-Digest"} or attributes["Name"] in signature_records:
                 raise ValueError("Android AAB signature-file sections are not canonical")
@@ -314,6 +318,7 @@ def canonical_aab_signature_control_digest(descriptor: int) -> str:
             if raw_manifest_section is None or attributes["SHA-256-Digest"] != _sha256_base64(raw_manifest_section):
                 raise ValueError("Android AAB signature file does not bind a complete manifest section")
             signature_records[name] = attributes["SHA-256-Digest"]
+            signature_section_order.append(name)
         if sorted(signature_records) != sorted(manifest_records):
             raise ValueError("Android AAB signature file does not bind every manifest section")
 
@@ -322,6 +327,7 @@ def canonical_aab_signature_control_digest(descriptor: int) -> str:
             "certificateBlockEntry": "META-INF/ANDROIDD.RSA",
             "manifestEntries": [{"name": name, "normalizedSha256Base64": manifest_records[name][1]} for name in sorted(manifest_records)],
             "signatureFileEntry": "META-INF/ANDROIDD.SF",
+            "signatureFileSectionOrder": signature_section_order,
         }
         return hashlib.sha256(json.dumps(deterministic, separators=(",", ":"), sort_keys=True).encode("utf-8")).hexdigest()
 

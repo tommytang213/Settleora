@@ -761,8 +761,8 @@ try:
             raise RuntimeError("Android toolchain changed while release artifacts were built: " + changed)
         if process.returncode != 0:
             raise subprocess.CalledProcessError(process.returncode, values)
-        if command_index == len(command_values) - 1:
-            for capture in captures:
+        for capture in captures:
+            if capture.get("afterCommand", len(command_values) - 1) == command_index:
                 source_fd = os.open(capture["source"], os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
                 try:
                     opened = os.fstat(source_fd)
@@ -1198,7 +1198,10 @@ function exactSourceSnapshot(prefix, privateParent, callback) {
     return callback(snapshot, source);
   } finally {
     const metadata = lstatSync(container, { throwIfNoEntry: false });
-    if (metadata?.isDirectory() && !metadata.isSymbolicLink()) rmSync(container, { recursive: true, force: false, maxRetries: 5, retryDelay: 200 });
+    if (metadata?.isDirectory() && !metadata.isSymbolicLink()) {
+      makeTreeOwnerWritable(container);
+      rmSync(container, { recursive: true, force: false, maxRetries: 5, retryDelay: 200 });
+    }
     const after = {
       commit: gitExec(['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
       tree: gitExec(['rev-parse', 'HEAD^{tree}'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
@@ -1372,6 +1375,8 @@ function collectAndroidUnsafe(options, emit = true) {
     if (runtimeWrapperLockPaths.length !== 1 || !/^dists\/gradle-[0-9.]+-(?:all|bin)\/[a-z0-9]+\/gradle-[0-9.]+-(?:all|bin)\.zip\.lck$/u.test(runtimeWrapperLockPaths[0])) {
       throw new Error('Gradle runtime wrapper lock-file inventory is not the expected bounded shape');
     }
+    const gradleRuntimeVersion = /^dists\/gradle-([0-9.]+)-(?:all|bin)\//u.exec(runtimeWrapperLockPaths[0])?.[1];
+    if (!gradleRuntimeVersion) throw new Error('Gradle runtime version could not be derived from the sealed wrapper');
     const runtimeModules = path.join(runtimeGradleHome, 'caches', 'modules-2');
     mkdirSync(path.dirname(runtimeModules), { recursive: false, mode: 0o700 });
     cpSync(gradleModules, runtimeModules, {
@@ -1383,6 +1388,14 @@ function collectAndroidUnsafe(options, emit = true) {
     });
     makeTreeReadOnly(runtimeModules, 'Gradle runtime module dependency cache');
     chmodSync(runtimeModules, 0o700);
+    const sealedGradleExecutableCaches = [gradleRuntimeVersion, 'jars-9', 'transforms-4'];
+    for (const cacheName of sealedGradleExecutableCaches) {
+      const sourceCache = path.join(prefetchGradleHome, 'caches', cacheName);
+      if (!lstatSync(sourceCache, { throwIfNoEntry: false })?.isDirectory()) throw new Error(`Android dependency prefetch did not produce Gradle ${cacheName}`);
+      const runtimeCache = path.join(runtimeGradleHome, 'caches', cacheName);
+      cpSync(sourceCache, runtimeCache, { recursive: true, errorOnExist: true, force: false, preserveTimestamps: true });
+      makeTreeReadOnly(runtimeCache, `Gradle runtime executable cache ${cacheName}`);
+    }
     makeTreeReadOnly(runtimeWrapper, 'Gradle runtime wrapper distribution');
     chmodSync(path.join(runtimeWrapper, runtimeWrapperLockPaths[0]), 0o600);
     const dependencyCaches = {
@@ -1403,9 +1416,7 @@ function collectAndroidUnsafe(options, emit = true) {
       { label: 'gradle-wrapper-distribution', root: runtimeWrapper, excludedPrefixes: runtimeWrapperLockPaths },
       { label: 'android-signing-home', root: path.join(buildHome, '.android'), excludedPrefixes: [] },
     ];
-    const gradleRuntimeVersion = /^dists\/gradle-([0-9.]+)-(?:all|bin)\//u.exec(runtimeWrapperLockPaths[0])?.[1];
-    if (!gradleRuntimeVersion) throw new Error('Gradle runtime version could not be derived from the sealed wrapper');
-    const runtimeGradleMutablePaths = ['.tmp', `caches/${gradleRuntimeVersion}`, 'caches/CACHEDIR.TAG', 'caches/build-cache-1', 'caches/gc.properties', 'caches/jars-9', 'caches/journal-1', 'caches/keyrings', 'caches/modules-2', 'caches/transforms-4', 'android', 'daemon', 'kotlin-profile', 'native', 'notifications', 'workers', ...runtimeWrapperLockPaths.map((entry) => `wrapper/${entry}`)];
+    const runtimeGradleMutablePaths = ['.tmp', 'caches/CACHEDIR.TAG', 'caches/build-cache-1', 'caches/gc.properties', 'caches/journal-1', 'caches/keyrings', 'caches/modules-2', 'android', 'daemon', 'kotlin-profile', 'native', 'notifications', 'workers', ...runtimeWrapperLockPaths.map((entry) => `wrapper/${entry}`)];
     offlineGuardConfiguration.push({ label: 'gradle-runtime-home', root: runtimeGradleHome, excludedPrefixes: runtimeGradleMutablePaths });
     const files = {
       apk: ['apps/mobile/build/app/outputs/flutter-apk/app-release.apk', 'app-release.apk'],
@@ -1417,13 +1428,36 @@ function collectAndroidUnsafe(options, emit = true) {
     executeGuardedFlutter(flutter, [
       ['clean'],
       ['pub', 'get', '--offline'],
+    ], mobileRoot, offlineGuardConfiguration);
+    const sealedGeneratedInputPaths = [
+      'apps/mobile/.dart_tool/package_config.json',
+      'apps/mobile/.flutter-plugins-dependencies',
+      'apps/mobile/android/app/src/main/java',
+    ];
+    for (const relativeInput of sealedGeneratedInputPaths) {
+      const absoluteInput = path.join(snapshotRoot, relativeInput);
+      if (!lstatSync(absoluteInput, { throwIfNoEntry: false })) throw new Error(`Android generated build input is missing: ${relativeInput}`);
+      makeTreeReadOnly(absoluteInput, `Android generated build input ${relativeInput}`);
+    }
+    const buildSourceGeneratedPaths = sourceGeneratedPaths.filter((entry) => !['apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/app/src/main/java'].includes(entry));
+    const dartToolRoot = path.join(mobileRoot, '.dart_tool');
+    const dartToolExcludedPaths = readdirSync(dartToolRoot).filter((entry) => entry !== 'package_config.json').sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
+    const buildGuardConfiguration = [
+      ...offlineGuardConfiguration.filter((entry) => entry !== sourceGuard),
+      { label: 'android-exact-source-build', root: snapshotRoot, excludedPrefixes: buildSourceGeneratedPaths },
+      { label: 'android-generated-package-config', root: dartToolRoot, excludedPrefixes: dartToolExcludedPaths },
+    ];
+    executeGuardedFlutter(flutter, [
       ['build', 'apk', '--release', '--no-pub'],
-      ['build', 'appbundle', '--release', '--no-pub'],
-    ], mobileRoot, offlineGuardConfiguration, [
+    ], mobileRoot, buildGuardConfiguration, [
       { source: path.join(snapshotRoot, files.apk[0]), target: path.join(output, files.apk[1]), maxBytes: maxAndroidArtifactBytes, label: 'Android APK' },
+      { source: path.join(snapshotRoot, files.metadata[0]), target: rawMetadataTarget, maxBytes: maxAndroidMetadataBytes, label: 'Android output metadata' },
+    ]);
+    executeGuardedFlutter(flutter, [
+      ['build', 'appbundle', '--release', '--no-pub'],
+    ], mobileRoot, buildGuardConfiguration, [
       { source: path.join(snapshotRoot, files.aab[0]), target: path.join(output, files.aab[1]), maxBytes: maxAndroidArtifactBytes, label: 'Android AAB' },
       { source: path.join(snapshotRoot, files.mapping[0]), target: path.join(output, files.mapping[1]), maxBytes: maxAndroidMappingBytes, label: 'Android R8 mapping' },
-      { source: path.join(snapshotRoot, files.metadata[0]), target: rawMetadataTarget, maxBytes: maxAndroidMetadataBytes, label: 'Android output metadata' },
     ]);
     const toolchainsAfter = {
       flutter: toolchainTreeDigest(flutter.root, 'Flutter SDK', toolchainConfiguration[0].excludedPrefixes, toolchainConfiguration[0].excludedTransientBases),
@@ -1454,7 +1488,7 @@ function collectAndroidUnsafe(options, emit = true) {
       dependencyCaches,
       gradleVerificationMetadataSha256: createHash('sha256').update(gitExec(['show', `${sourceBefore.commit}:apps/mobile/android/gradle/verification-metadata.xml`], { cwd: repoRoot })).digest('hex'),
       apksignerJarSha256: apksignerJar.sha256,
-      toolchainMutationGuard: { algorithm: 'linux-inotify-authenticated-runner-v3', flutterExcludedTransientBases: [...flutterMutableMetadata].sort((left, right) => Buffer.from(left).compare(Buffer.from(right))), pubExcludedBuildPaths, gradleWrapperLockPaths: runtimeWrapperLockPaths, prefetchSourceGeneratedPaths, sourceGeneratedPaths, runtimeGradleMutablePaths, outputsCapturedBeforeGuardExit: true, queueOverflowFailsClosed: true },
+      toolchainMutationGuard: { algorithm: 'linux-inotify-authenticated-runner-v3', flutterExcludedTransientBases: [...flutterMutableMetadata].sort((left, right) => Buffer.from(left).compare(Buffer.from(right))), pubExcludedBuildPaths, gradleWrapperLockPaths: runtimeWrapperLockPaths, prefetchSourceGeneratedPaths, sourceGeneratedPaths, sealedGeneratedInputPaths, sealedGradleExecutableCachePaths: sealedGradleExecutableCaches.map((entry) => `caches/${entry}`), runtimeGradleMutablePaths, outputsCapturedBeforeGuardExit: true, queueOverflowFailsClosed: true },
       signingInputSha256: debugKeystore.sha256,
       signingCertificateSha256,
     };
@@ -1665,18 +1699,36 @@ export function collectCompiledMigrationIds(privateParent) {
       NUGET_PACKAGES: packages,
     };
     const isolatedMsbuildProperties = ['-noAutoResponse', '-p:ImportDirectoryBuildProps=false', '-p:ImportDirectoryBuildTargets=false', '-p:ImportDirectoryPackagesProps=false'];
-    executeSealedTool(dotnet, ['restore', project, '--locked-mode', '--configfile', nugetConfig, '--packages', packages, '--verbosity', 'quiet', ...isolatedMsbuildProperties], {
-      cwd: snapshot,
-      env: dotnetEnvironment,
-      stdio: ['ignore', 'ignore', 'pipe'],
-      maxBuffer: 16 * 1024 * 1024,
-    });
-    executeSealedTool(dotnet, ['publish', project, '--configuration', 'Release', '--output', output, '--no-self-contained', '--no-restore', '--verbosity', 'quiet', ...isolatedMsbuildProperties], {
-      cwd: snapshot,
-      env: dotnetEnvironment,
-      stdio: ['ignore', 'ignore', 'pipe'],
-      maxBuffer: 16 * 1024 * 1024,
-    });
+    makeRegularFilesReadOnly(snapshot, 'Migration exact-source snapshot');
+    const migrationGeneratedPaths = [
+      '.release-ef-migration-output',
+      '.release-nuget-packages',
+      '.release-dotnet-home',
+      'services/api/src/Settleora.Api/bin',
+      'services/api/src/Settleora.Api/obj',
+      'tools/release/ef-migration-inventory/bin',
+      'tools/release/ef-migration-inventory/obj',
+    ];
+    const migrationSourceGuard = { label: 'migration-exact-source', root: snapshot, excludedPrefixes: migrationGeneratedPaths };
+    executeGuardedCommands(
+      [migrationSourceGuard],
+      dotnet,
+      [],
+      [['restore', project, '--locked-mode', '--configfile', nugetConfig, '--packages', packages, '--verbosity', 'quiet', ...isolatedMsbuildProperties]],
+      { cwd: snapshot, env: dotnetEnvironment, stdio: ['ignore', 'ignore', 'pipe'], maxBuffer: 16 * 1024 * 1024 },
+    );
+    makeTreeReadOnly(packages, 'Restored migration package closure');
+    const restoredPackageIdentity = toolchainTreeDigest(packages, 'Restored migration package closure');
+    executeGuardedCommands(
+      [migrationSourceGuard, { label: 'restored-migration-packages', root: packages, excludedPrefixes: [] }],
+      dotnet,
+      [],
+      [['publish', project, '--configuration', 'Release', '--output', output, '--no-self-contained', '--no-restore', '--verbosity', 'quiet', ...isolatedMsbuildProperties]],
+      { cwd: snapshot, env: dotnetEnvironment, stdio: ['ignore', 'ignore', 'pipe'], maxBuffer: 16 * 1024 * 1024 },
+    );
+    if (canonicalJson(toolchainTreeDigest(packages, 'Restored migration package closure')) !== canonicalJson(restoredPackageIdentity)) {
+      throw new Error('Restored migration package closure changed during compilation');
+    }
     makeTreeReadOnly(output, 'Published EF migration inventory closure');
     const publishedIdentity = toolchainTreeDigest(output, 'Published EF migration inventory closure');
     let stdout;
