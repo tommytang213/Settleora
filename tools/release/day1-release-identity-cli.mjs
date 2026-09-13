@@ -1388,7 +1388,7 @@ function collectAndroidUnsafe(options, emit = true) {
     });
     makeTreeReadOnly(runtimeModules, 'Gradle runtime module dependency cache');
     chmodSync(runtimeModules, 0o700);
-    const sealedGradleExecutableCaches = [gradleRuntimeVersion, 'jars-9', 'transforms-4'];
+    const sealedGradleExecutableCaches = [gradleRuntimeVersion, 'jars-9'];
     makeTreeReadOnly(runtimeWrapper, 'Gradle runtime wrapper distribution');
     chmodSync(path.join(runtimeWrapper, runtimeWrapperLockPaths[0]), 0o600);
     const dependencyCaches = {
