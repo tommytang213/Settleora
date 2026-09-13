@@ -1545,7 +1545,10 @@ function collectAndroidUnsafe(options, emit = true) {
       makeTreeReadOnly(absoluteInput, `Android generated build input ${relativeInput}`);
     }
     const dartToolRoot = path.join(mobileRoot, '.dart_tool');
-    const dartToolExcludedPaths = readdirSync(dartToolRoot).filter((entry) => entry !== 'package_config.json').sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
+    const dartToolExcludedPaths = [...new Set([
+      ...readdirSync(dartToolRoot).filter((entry) => entry !== 'package_config.json'),
+      'flutter_build',
+    ])].sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
     const prefetchBuildGeneratedPaths = prefetchSourceGeneratedPaths.filter((entry) => !['apps/mobile/.dart_tool', 'apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/app/src/main/java'].includes(entry));
     executeGuardedFlutter(flutter, [
       ['build', 'apk', '--release', '--no-pub'],
