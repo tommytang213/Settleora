@@ -1389,13 +1389,6 @@ function collectAndroidUnsafe(options, emit = true) {
     makeTreeReadOnly(runtimeModules, 'Gradle runtime module dependency cache');
     chmodSync(runtimeModules, 0o700);
     const sealedGradleExecutableCaches = [gradleRuntimeVersion, 'jars-9', 'transforms-4'];
-    for (const cacheName of sealedGradleExecutableCaches) {
-      const sourceCache = path.join(prefetchGradleHome, 'caches', cacheName);
-      if (!lstatSync(sourceCache, { throwIfNoEntry: false })?.isDirectory()) throw new Error(`Android dependency prefetch did not produce Gradle ${cacheName}`);
-      const runtimeCache = path.join(runtimeGradleHome, 'caches', cacheName);
-      cpSync(sourceCache, runtimeCache, { recursive: true, errorOnExist: true, force: false, preserveTimestamps: true });
-      makeTreeReadOnly(runtimeCache, `Gradle runtime executable cache ${cacheName}`);
-    }
     makeTreeReadOnly(runtimeWrapper, 'Gradle runtime wrapper distribution');
     chmodSync(path.join(runtimeWrapper, runtimeWrapperLockPaths[0]), 0o600);
     const dependencyCaches = {
@@ -1417,7 +1410,9 @@ function collectAndroidUnsafe(options, emit = true) {
       { label: 'android-signing-home', root: path.join(buildHome, '.android'), excludedPrefixes: [] },
     ];
     const runtimeGradleMutablePaths = ['.tmp', 'caches/CACHEDIR.TAG', 'caches/build-cache-1', 'caches/gc.properties', 'caches/journal-1', 'caches/keyrings', 'caches/modules-2', 'android', 'daemon', 'kotlin-profile', 'native', 'notifications', 'workers', ...runtimeWrapperLockPaths.map((entry) => `wrapper/${entry}`)];
-    offlineGuardConfiguration.push({ label: 'gradle-runtime-home', root: runtimeGradleHome, excludedPrefixes: runtimeGradleMutablePaths });
+    const primingRuntimeGradleMutablePaths = [...runtimeGradleMutablePaths, ...sealedGradleExecutableCaches.map((entry) => `caches/${entry}`)];
+    const runtimeGradlePrimeGuard = { label: 'gradle-runtime-home', root: runtimeGradleHome, excludedPrefixes: primingRuntimeGradleMutablePaths };
+    offlineGuardConfiguration.push(runtimeGradlePrimeGuard);
     const files = {
       apk: ['apps/mobile/build/app/outputs/flutter-apk/app-release.apk', 'app-release.apk'],
       aab: ['apps/mobile/build/app/outputs/bundle/release/app-release.aab', 'app-release.aab'],
@@ -1428,7 +1423,13 @@ function collectAndroidUnsafe(options, emit = true) {
     executeGuardedFlutter(flutter, [
       ['clean'],
       ['pub', 'get', '--offline'],
+      ['build', 'apk', '--release', '--no-pub'],
     ], mobileRoot, offlineGuardConfiguration);
+    for (const cacheName of sealedGradleExecutableCaches) {
+      const runtimeCache = path.join(runtimeGradleHome, 'caches', cacheName);
+      if (!lstatSync(runtimeCache, { throwIfNoEntry: false })?.isDirectory()) throw new Error(`Android offline cache prime did not produce Gradle ${cacheName}`);
+      makeTreeReadOnly(runtimeCache, `Gradle runtime executable cache ${cacheName}`);
+    }
     const sealedGeneratedInputPaths = [
       'apps/mobile/.dart_tool/package_config.json',
       'apps/mobile/.flutter-plugins-dependencies',
@@ -1443,10 +1444,15 @@ function collectAndroidUnsafe(options, emit = true) {
     const dartToolRoot = path.join(mobileRoot, '.dart_tool');
     const dartToolExcludedPaths = readdirSync(dartToolRoot).filter((entry) => entry !== 'package_config.json').sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
     const buildGuardConfiguration = [
-      ...offlineGuardConfiguration.filter((entry) => entry !== sourceGuard),
+      ...offlineGuardConfiguration.filter((entry) => entry !== sourceGuard && entry !== runtimeGradlePrimeGuard),
       { label: 'android-exact-source-build', root: snapshotRoot, excludedPrefixes: buildSourceGeneratedPaths },
       { label: 'android-generated-package-config', root: dartToolRoot, excludedPrefixes: dartToolExcludedPaths },
+      { label: 'gradle-runtime-home', root: runtimeGradleHome, excludedPrefixes: runtimeGradleMutablePaths },
     ];
+    const primedBuildOutput = path.join(mobileRoot, 'build');
+    const primedBuildMetadata = lstatSync(primedBuildOutput, { throwIfNoEntry: false });
+    if (!primedBuildMetadata?.isDirectory() || primedBuildMetadata.isSymbolicLink()) throw new Error('Android offline cache prime did not produce a bounded build directory');
+    rmSync(primedBuildOutput, { recursive: true, force: false, maxRetries: 5, retryDelay: 200 });
     executeGuardedFlutter(flutter, [
       ['build', 'apk', '--release', '--no-pub'],
     ], mobileRoot, buildGuardConfiguration, [
@@ -1530,7 +1536,7 @@ function collectAndroidUnsafe(options, emit = true) {
   const artifact = (kind) => ({ path: files[kind][0], ...copiedIdentities[kind] });
   const provenance = {
     schema: 'settleora.android-exact-source-build.v1', source,
-    commands: ['flutter pub get (dependency prefetch)', 'flutter build apk --release --no-pub (dependency prefetch)', 'flutter clean (offline)', 'flutter pub get --offline', 'flutter build apk --release --no-pub (offline)', 'flutter build appbundle --release --no-pub (offline)'],
+    commands: ['flutter pub get (dependency prefetch)', 'flutter build apk --release --no-pub (dependency prefetch)', 'flutter clean (offline)', 'flutter pub get --offline', 'flutter build apk --release --no-pub (offline cache prime)', 'flutter build apk --release --no-pub (offline)', 'flutter build appbundle --release --no-pub (offline)'],
     artifacts: { apk: artifact('apk'), aab: artifact('aab'), r8MappingSha256: copiedIdentities.mapping.sha256, outputMetadataSha256: copiedIdentities.outputMetadata.sha256 },
     toolchains: copiedIdentities.toolchains,
     dependencyCaches: copiedIdentities.dependencyCaches,
