@@ -90,14 +90,28 @@ set -eu
 [ "$(id -u)" = "999" ] && [ "$(id -g)" = "999" ] || { echo >&2 "API startup refused: expected runtime UID/GID 999."; exit 64; }
 data_path=/var/lib/settleora/storage
 [ -d "$data_path" ] && [ -r "$data_path" ] && [ -w "$data_path" ] && [ -x "$data_path" ] || { echo >&2 "API startup refused: the private storage dataset must grant UID/GID 999 read, write, and traverse access."; exit 65; }
-probe="$data_path/.settleora-write-probe-$$"
-trap 'rm -f "$probe"' EXIT HUP INT TERM
 umask 077
+probe_dir="$(mktemp -d "$data_path/.settleora-write-probe.XXXXXXXXXX")" || { echo >&2 "API startup refused: the private storage dataset is not writable by UID/GID 999."; exit 66; }
+probe="$probe_dir/probe"
+cleanup_probe() {
+  rm -f -- "$probe"
+  rmdir -- "$probe_dir" 2>/dev/null || true
+}
+trap cleanup_probe EXIT HUP INT TERM
 : > "$probe" || { echo >&2 "API startup refused: the private storage dataset is not writable by UID/GID 999."; exit 66; }
-rm -f "$probe"
+cleanup_probe
 trap - EXIT HUP INT TERM
-mkdir -p "$data_path/.settleora-home"
-chmod 0700 "$data_path/.settleora-home"
+home_path="$data_path/.settleora-home"
+[ ! -L "$home_path" ] || { echo >&2 "API startup refused: the persistent HOME path must not be a symlink."; exit 67; }
+if [ -e "$home_path" ]; then
+  [ -d "$home_path" ] || { echo >&2 "API startup refused: the persistent HOME path must be a directory."; exit 67; }
+else
+  mkdir -m 0700 -- "$home_path" || { echo >&2 "API startup refused: the persistent HOME directory could not be created."; exit 67; }
+fi
+data_real="$(readlink -f -- "$data_path")" || { echo >&2 "API startup refused: the private storage dataset cannot be canonicalized."; exit 68; }
+home_real="$(readlink -f -- "$home_path")" || { echo >&2 "API startup refused: the persistent HOME path cannot be canonicalized."; exit 68; }
+[ "$home_real" = "$data_real/.settleora-home" ] || { echo >&2 "API startup refused: the persistent HOME path escapes the private storage dataset."; exit 68; }
+chmod 0700 -- "$home_path"
 exec dotnet Settleora.Api.dll "$@"
 `.replaceAll('$', () => '$$');
 
@@ -305,6 +319,7 @@ export function officialValues(identity, config) {
         privatekey: '-----BEGIN PRIVATE KEY-----\nREDACTED_FAKE_PRIVATE_KEY\n-----END PRIVATE KEY-----\n',
       },
     },
+    ix_certificate_authorities: {},
   };
 }
 
@@ -421,7 +436,7 @@ export function validateTopology(compose, identity, config) {
   if (compose.services.ingress.depends_on?.api?.condition !== 'service_healthy') fail('Ingress API-readiness gate is missing');
   if (canonicalJson(compose.services.api.entrypoint) !== canonicalJson(['/bin/sh', '/usr/local/bin/settleora-api-entrypoint.sh'])) fail('API storage preflight entrypoint is missing');
   const apiEntrypoint = String(compose.configs?.['settleora-api-entrypoint']?.content ?? '').replaceAll('$$', '$');
-  for (const required of ['data_path=/var/lib/settleora/storage', 'id -u', 'id -g', '[ -r "$data_path" ]', '[ -w "$data_path" ]', '[ -x "$data_path" ]', '.settleora-write-probe-$', 'mkdir -p "$data_path/.settleora-home"', 'chmod 0700 "$data_path/.settleora-home"', 'exec dotnet Settleora.Api.dll']) if (!apiEntrypoint.includes(required)) fail('API UID/GID 999 storage preflight is incomplete');
+  for (const required of ['data_path=/var/lib/settleora/storage', 'id -u', 'id -g', '[ -r "$data_path" ]', '[ -w "$data_path" ]', '[ -x "$data_path" ]', 'mktemp -d "$data_path/.settleora-write-probe.XXXXXXXXXX"', '[ ! -L "$home_path" ]', 'readlink -f -- "$data_path"', '[ "$home_real" = "$data_real/.settleora-home" ]', 'chmod 0700 -- "$home_path"', 'exec dotnet Settleora.Api.dll']) if (!apiEntrypoint.includes(required)) fail('API UID/GID 999 storage preflight is incomplete');
   if (canonicalJson(compose.services.ingress.entrypoint) !== canonicalJson(['/bin/sh', '/usr/local/bin/settleora-caddy-entrypoint.sh']) || compose.services.ingress.healthcheck?.test?.[1] !== '/tmp/settleora-caddy') fail('Ingress does not preserve capability-free Caddy startup');
   const caddyEntrypoint = String(compose.configs?.['settleora-caddy-entrypoint']?.content ?? '').replaceAll('$$', '$');
   for (const required of ['cp /usr/bin/caddy /tmp/settleora-caddy', 'chmod 0555 /tmp/settleora-caddy', 'exec /tmp/settleora-caddy "$@"']) if (!caddyEntrypoint.includes(required)) fail('Capability-free Caddy entrypoint is incomplete');

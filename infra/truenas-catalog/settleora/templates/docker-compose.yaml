@@ -4,7 +4,7 @@
 {% set release_lock = __SETTLEORA_RELEASE_LOCK__ %}
 {% set tpl = ix_lib.base.render.Render(values) %}
 
-{% set allowed_top_level = ["TZ", "acknowledgements", "consts", "images", "ix_certificates", "ix_context", "ix_volumes", "network", "release_identity", "resources", "settleora", "skip_id_variables", "storage"] %}
+{% set allowed_top_level = ["TZ", "acknowledgements", "consts", "images", "ix_certificate_authorities", "ix_certificates", "ix_context", "ix_volumes", "network", "release_identity", "resources", "settleora", "skip_id_variables", "storage"] %}
 {% for value_key in values.keys() %}
   {% if value_key not in allowed_top_level %}
     {% do tpl.funcs.fail("Unsupported top-level package input") %}
@@ -35,6 +35,9 @@
 {% endif %}
 {% if values.get("ix_volumes", {}) %}
   {% do tpl.funcs.fail("Undeclared TrueNAS-managed volumes are unsupported") %}
+{% endif %}
+{% if values.get("ix_certificate_authorities", {}) %}
+  {% do tpl.funcs.fail("Undeclared TrueNAS certificate authorities are unsupported") %}
 {% endif %}
 
 {% if values.settleora.deployment_mode != "lan-private" %}
@@ -190,14 +193,28 @@ set -eu
 [ "$(id -u)" = "999" ] && [ "$(id -g)" = "999" ] || { echo >&2 "API startup refused: expected runtime UID/GID 999."; exit 64; }
 data_path=/var/lib/settleora/storage
 [ -d "$data_path" ] && [ -r "$data_path" ] && [ -w "$data_path" ] && [ -x "$data_path" ] || { echo >&2 "API startup refused: the private storage dataset must grant UID/GID 999 read, write, and traverse access."; exit 65; }
-probe="$data_path/.settleora-write-probe-$$"
-trap 'rm -f "$probe"' EXIT HUP INT TERM
 umask 077
+probe_dir="$(mktemp -d "$data_path/.settleora-write-probe.XXXXXXXXXX")" || { echo >&2 "API startup refused: the private storage dataset is not writable by UID/GID 999."; exit 66; }
+probe="$probe_dir/probe"
+cleanup_probe() {
+  rm -f -- "$probe"
+  rmdir -- "$probe_dir" 2>/dev/null || true
+}
+trap cleanup_probe EXIT HUP INT TERM
 : > "$probe" || { echo >&2 "API startup refused: the private storage dataset is not writable by UID/GID 999."; exit 66; }
-rm -f "$probe"
+cleanup_probe
 trap - EXIT HUP INT TERM
-mkdir -p "$data_path/.settleora-home"
-chmod 0700 "$data_path/.settleora-home"
+home_path="$data_path/.settleora-home"
+[ ! -L "$home_path" ] || { echo >&2 "API startup refused: the persistent HOME path must not be a symlink."; exit 67; }
+if [ -e "$home_path" ]; then
+  [ -d "$home_path" ] || { echo >&2 "API startup refused: the persistent HOME path must be a directory."; exit 67; }
+else
+  mkdir -m 0700 -- "$home_path" || { echo >&2 "API startup refused: the persistent HOME directory could not be created."; exit 67; }
+fi
+data_real="$(readlink -f -- "$data_path")" || { echo >&2 "API startup refused: the private storage dataset cannot be canonicalized."; exit 68; }
+home_real="$(readlink -f -- "$home_path")" || { echo >&2 "API startup refused: the persistent HOME path cannot be canonicalized."; exit 68; }
+[ "$home_real" = "$data_real/.settleora-home" ] || { echo >&2 "API startup refused: the persistent HOME path escapes the private storage dataset."; exit 68; }
+chmod 0700 -- "$home_path"
 exec dotnet Settleora.Api.dll "$@"
 {% endset %}
 

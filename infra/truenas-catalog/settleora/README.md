@@ -24,12 +24,15 @@ file storage and its ASP.NET data-protection key ring, RabbitMQ state where
 required, and app configuration/secrets.
 The API local-storage dataset must already grant runtime UID/GID `999:999`
 read, write, and traverse access through its ownership or ACL. The API performs
-a bounded write probe before launch and fails closed without that access; this
+a randomly named, atomically created write-probe directory before launch and
+fails closed without that access; this
 five-service package intentionally does not add a privileged permissions
 container or change dataset ownership.
 The existing Day 1 API dataset remains mounted at `/var/lib/settleora/storage`;
 the package persists ASP.NET data-protection state beneath its private
-`.settleora-home` directory without relocating existing stored files. All three
+`.settleora-home` directory without relocating existing stored files. Startup
+refuses a symlinked, non-directory, or canonically escaping persistent HOME.
+All three
 dataset mappings are immutable after installation. Live TrueNAS lifecycle
 renders also resolve each host path through `filesystem.stat` and refuse
 symlinked, aliased, non-directory, duplicate, or nested role paths.

@@ -45,10 +45,13 @@ try {
     ixValues.images = values.images;
     writeFileSync(ixValuesPath, JSON.stringify(ixValues), { mode: 0o600 });
   });
+  expectOfficialRefusal(packet, 'certificate-authority-injection', (values) => {
+    values.ix_certificate_authorities = { unexpected: { certificate: 'REDACTED_FAKE_CA' } };
+  });
   expectOfficialRefusal(packet, 'live-context-without-filesystem-authority', (values) => {
     values.ix_context = { app_name: 'settleora', is_install: true };
   });
-  process.stdout.write('Official renderer refused undeclared network/image overrides and an unresolvable live dataset context.\n');
+  process.stdout.write('Official renderer accepted normalized empty certificate authorities and refused undeclared network/image/CA overrides plus an unresolvable live dataset context.\n');
 } finally {
   rmSync(tempRoot, { recursive: true, force: true });
 }

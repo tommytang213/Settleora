@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
@@ -149,6 +149,40 @@ test('default HTTPS port uses the canonical passkey origin without an explicit p
   const compose = renderCompose(identity, config);
   assert.equal(compose.services.api.environment.Auth__Passkeys__RelyingPartyId, config.hostname);
   assert.equal(compose.services.api.environment.Auth__Passkeys__AllowedOrigins__0, `https://${config.hostname}`);
+});
+
+test('API dataset preflight does not follow restored probe or HOME symlinks', () => {
+  const root = temp();
+  const protectedFile = path.join(root, 'protected');
+  const outsideHome = path.join(root, 'outside-home');
+  writeFileSync(protectedFile, 'preserve-me');
+  mkdirSync(outsideHome);
+  chmodSync(outsideHome, 0o755);
+  symlinkSync('protected', path.join(root, '.settleora-write-probe-11'));
+  symlinkSync('outside-home', path.join(root, '.settleora-home'));
+
+  const identity = consumeReleaseIdentity(syntheticManifest(), syntheticManifest().identityDigest);
+  const entrypoint = renderCompose(identity, fixtureConfig).configs['settleora-api-entrypoint'].content
+    .replaceAll('$$', '$')
+    .replace('[ "$(id -u)" = "999" ] && [ "$(id -g)" = "999" ] || { echo >&2 "API startup refused: expected runtime UID/GID 999."; exit 64; }', ':')
+    .replace('data_path=/var/lib/settleora/storage', `data_path=${root}`)
+    .replace('exec dotnet Settleora.Api.dll "$@"', 'exit 0');
+  const script = path.join(temp(), 'entrypoint.sh');
+  writeFileSync(script, entrypoint, { mode: 0o700 });
+
+  const refused = spawnSync('/bin/sh', [script], { encoding: 'utf8' });
+  assert.equal(refused.status, 67);
+  assert.match(refused.stderr, /must not be a symlink/);
+  assert.equal(readFileSync(protectedFile, 'utf8'), 'preserve-me');
+  assert.equal(statSync(outsideHome).mode & 0o777, 0o755);
+
+  unlinkSync(path.join(root, '.settleora-home'));
+  const accepted = spawnSync('/bin/sh', [script], { encoding: 'utf8' });
+  assert.equal(accepted.status, 0, accepted.stderr);
+  assert.equal(readFileSync(protectedFile, 'utf8'), 'preserve-me');
+  assert.equal(statSync(path.join(root, '.settleora-home')).isDirectory(), true);
+  assert.equal(statSync(path.join(root, '.settleora-home')).mode & 0o777, 0o700);
+  assert.deepEqual(readdirSync(root).filter((name) => name.startsWith('.settleora-write-probe.')), []);
 });
 
 test('bounded form/config negative matrix fails closed', () => {
