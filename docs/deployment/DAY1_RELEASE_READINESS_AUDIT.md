@@ -53,8 +53,8 @@ remain R05. iOS signing, App Store Connect processing, and TestFlight
 availability/install remain external/manual; current TrueNAS acceptance is
 blocked on the repository gaps, and production/staging exposure is unavailable.
 
-With the #1195 R12, #1198 R10, #1201 mobile-portability, #1205 R02 and #1209 R01 repository slices, the 69 evaluated
-capabilities comprise 26 `implemented`, 19 `partial`, 7 `documentation-only`, 5 `externally-gated`, 5
+With the #1195 R12, #1198 R10, #1201 mobile-portability, #1205 R02, #1209 R01 and #1214 R03 repository slices, the 69 evaluated
+capabilities comprise 28 `implemented`, 17 `partial`, 7 `documentation-only`, 5 `externally-gated`, 5
 `unavailable`, 5 `blocked`, 1 `superseded`, and 1 `later-day`.
 
 Method:
