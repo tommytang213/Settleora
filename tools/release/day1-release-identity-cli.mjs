@@ -1548,6 +1548,7 @@ function collectAndroidUnsafe(options, emit = true) {
     const dartToolExcludedPaths = [...new Set([
       ...readdirSync(dartToolRoot).filter((entry) => entry !== 'package_config.json'),
       'flutter_build',
+      'hooks_runner',
     ])].sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
     const prefetchBuildGeneratedPaths = prefetchSourceGeneratedPaths.filter((entry) => !['apps/mobile/.dart_tool', 'apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/app/src/main/java'].includes(entry));
     executeGuardedFlutter(flutter, [
