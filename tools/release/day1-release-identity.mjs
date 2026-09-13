@@ -195,7 +195,7 @@ function canonicalBuildMaterials(materials, label = 'apiImage.buildMaterials') {
 
 export function validatePublicationProvenance(publication, provenance, sourceCommit, image) {
   const builder = provenance?.runDetails?.builder?.id;
-  const vcs = provenance?.buildDefinition?.externalParameters?.request?.root?.configSource?.request?.args;
+  const vcs = provenance?.buildDefinition?.externalParameters?.request?.root?.request?.args;
   if (typeof builder !== 'string' || !builder.startsWith(`${publication.url}/attempts/`) || !/^[1-9][0-9]*$/u.test(builder.slice(`${publication.url}/attempts/`.length)) || vcs?.['vcs:revision'] !== sourceCommit || vcs?.['vcs:source'] !== 'https://github.com/tommytang213/Settleora') {
     fail('API image publication provenance attestation mismatch');
   }
