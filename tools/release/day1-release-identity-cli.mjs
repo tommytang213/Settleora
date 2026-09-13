@@ -1427,7 +1427,11 @@ function collectAndroidUnsafe(options, emit = true) {
       { label: 'android-signing-home', root: path.join(buildHome, '.android'), excludedPrefixes: [] },
     ];
     const runtimeGradleMutablePaths = ['.tmp', 'caches/CACHEDIR.TAG', 'caches/build-cache-1', `caches/${gradleRuntimeVersion}/file-changes`, `caches/${gradleRuntimeVersion}/fileContent`, `caches/${gradleRuntimeVersion}/fileHashes`, `caches/${gradleRuntimeVersion}/gc.properties`, `caches/${gradleRuntimeVersion}/javaCompile`, `caches/${gradleRuntimeVersion}/jvms`, `caches/${gradleRuntimeVersion}/md-rule`, `caches/${gradleRuntimeVersion}/md-supplier`, ...sealedGradleExecutableMutablePaths, 'caches/gc.properties', 'caches/journal-1', 'caches/keyrings', 'caches/modules-2', 'android', 'daemon', 'kotlin-profile', 'native', 'notifications', 'workers', ...runtimeWrapperLockPaths.map((entry) => `wrapper/${entry}`)];
-    const primingRuntimeGradleMutablePaths = [...runtimeGradleMutablePaths, ...sealedGradleExecutableCachePaths];
+    // The copied cache can contain no version-scoped payload before the prime,
+    // so Gradle may need to create the version directory itself. This broader
+    // exclusion exists only for the disposable prime; the retained builds use
+    // the exact runtimeGradleMutablePaths list after executable caches are sealed.
+    const primingRuntimeGradleMutablePaths = [...runtimeGradleMutablePaths, `caches/${gradleRuntimeVersion}`, ...sealedGradleExecutableCachePaths];
     const runtimeGradlePrimeGuard = { label: 'gradle-runtime-home', root: runtimeGradleHome, excludedPrefixes: primingRuntimeGradleMutablePaths };
     offlineGuardConfiguration.push(runtimeGradlePrimeGuard);
     const files = {
