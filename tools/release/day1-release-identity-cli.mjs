@@ -1212,7 +1212,7 @@ function exactSourceSnapshot(prefix, privateParent, callback) {
   }
 }
 
-function collectWebExactSource(output) {
+export function collectWebExactSource(output) {
   const absolute = path.resolve(output);
   const relative = path.relative('/workspace/logs', absolute);
   if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) throw new Error('User-web evidence output must remain under /workspace/logs');
