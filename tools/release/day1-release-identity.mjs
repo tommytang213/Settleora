@@ -600,7 +600,10 @@ function collectAndroid(repoRoot, input, source) {
     || !Array.isArray(provenance.toolchainMutationGuard.gradleWrapperLockPaths)
     || !Array.isArray(provenance.toolchainMutationGuard.gradleKotlinDslTransientBases)
     || provenance.toolchainMutationGuard.gradleKotlinDslTransientBases.length < 1
-    || provenance.toolchainMutationGuard.gradleKotlinDslTransientBases.some((entry) => !new RegExp(`^caches/${guardedGradleVersion?.replaceAll('.', '\\.') ?? ''}/kotlin-dsl/accessors/[0-9a-f]{32}$`, 'u').test(entry))
+    || provenance.toolchainMutationGuard.gradleKotlinDslTransientBases.some((entry) => {
+      const match = /^caches\/([0-9.]+)\/kotlin-dsl\/accessors\/[0-9a-f]{32}$/u.exec(entry);
+      return !match || match[1] !== guardedGradleVersion;
+    })
     || canonicalJson([...provenance.toolchainMutationGuard.gradleKotlinDslTransientBases].sort()) !== canonicalJson(provenance.toolchainMutationGuard.gradleKotlinDslTransientBases)
     || canonicalJson(provenance.toolchainMutationGuard.sourceGeneratedPaths) !== canonicalJson(['apps/mobile/.dart_tool', 'apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/.gradle', 'apps/mobile/android/.kotlin', 'apps/mobile/android/app/src/main/java', 'apps/mobile/android/build', 'apps/mobile/android/local.properties', 'apps/mobile/build', 'apps/mobile/ios', 'apps/mobile/lib/.dart_tool', 'apps/mobile/linux', 'apps/mobile/macos', 'apps/mobile/web', 'apps/mobile/windows'])
     || canonicalJson(provenance.toolchainMutationGuard.prefetchSourceGeneratedPaths) !== canonicalJson([...provenance.toolchainMutationGuard.sourceGeneratedPaths, 'apps/mobile/android/gradle/wrapper/gradle-wrapper.jar', 'apps/mobile/android/gradlew', 'apps/mobile/android/gradlew.bat'])

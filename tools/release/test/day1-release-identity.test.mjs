@@ -352,6 +352,11 @@ test('rejects Android provenance that broadens collector-owned cache exclusions'
 
   provenance.dependencyCaches.gradleWrapper.excludedPaths = ['dists/gradle-8.14-all/c2qonpi39x1mddn7hk5gh9iqj/gradle-8.14-all.zip.lck'];
   provenance.toolchainMutationGuard.gradleWrapperLockPaths = provenance.dependencyCaches.gradleWrapper.excludedPaths;
+  provenance.toolchainMutationGuard.gradleKotlinDslTransientBases = ['caches/8.15/kotlin-dsl/accessors/0123456789abcdef0123456789abcdef'];
+  writeFileSync(f.input.android.buildProvenancePath, canonicalJson(provenance));
+  assert.throws(() => buildManifest(f.root, f.input), /mutation guard mismatch/);
+
+  provenance.toolchainMutationGuard.gradleKotlinDslTransientBases = ['caches/8.14/kotlin-dsl/accessors/0123456789abcdef0123456789abcdef'];
   provenance.signingInput.certificateSha256 = '4'.repeat(64);
   writeFileSync(f.input.android.buildProvenancePath, canonicalJson(provenance));
   assert.throws(() => buildManifest(f.root, f.input), /certificate does not match/);
