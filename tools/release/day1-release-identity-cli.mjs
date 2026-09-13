@@ -657,7 +657,7 @@ import sys
 import time
 import stat
 
-configuration, commands, cwd, captures_json, sealed_outputs_json = sys.argv[1:6]
+configuration, commands, cwd, captures_json, sealed_outputs_json, passed_inputs_json = sys.argv[1:7]
 libc = ctypes.CDLL(None, use_errno=True)
 fd = libc.inotify_init1(os.O_CLOEXEC | os.O_NONBLOCK)
 if fd < 0:
@@ -743,14 +743,11 @@ try:
             raise RuntimeError(item["label"] + " changed before its authenticated guard was installed")
     changed = None
     sealed_outputs = json.loads(sealed_outputs_json)
-    passed_descriptors = []
-    for candidate_fd in range(3, 64):
-        try:
-            os.fstat(candidate_fd)
-            if candidate_fd not in sealed_outputs:
-                passed_descriptors.append(candidate_fd)
-        except OSError:
-            pass
+    passed_descriptors = json.loads(passed_inputs_json)
+    if any(not isinstance(candidate_fd, int) or candidate_fd < 3 or candidate_fd >= 64 or candidate_fd in sealed_outputs for candidate_fd in passed_descriptors):
+        raise RuntimeError("guarded executable descriptor allowlist is invalid")
+    for candidate_fd in passed_descriptors:
+        os.fstat(candidate_fd)
     def drain(timeout):
         global changed
         readable, _, _ = select.select([fd], [], [], timeout)
@@ -918,7 +915,8 @@ function executeGuardedCommands(configuration, executable, inputs, commands, opt
     const captures = (options.captures ?? []).map((capture) => capture.outputDescriptorIndex === undefined
       ? capture
       : { ...capture, targetFd: inheritedOutputDescriptors[capture.outputDescriptorIndex], target: undefined });
-    const result = execFileSync(releaseCommand('python'), ['-I', '-S', '-c', guardedToolchainRunner, JSON.stringify(authenticatedConfiguration), JSON.stringify(commands), options.cwd, JSON.stringify(captures), JSON.stringify(options.sealOutputDescriptors ? inheritedOutputDescriptors : [])], {
+    const inheritedInputDescriptors = descriptors.map((_descriptor, index) => 3 + index);
+    const result = execFileSync(releaseCommand('python'), ['-I', '-S', '-c', guardedToolchainRunner, JSON.stringify(authenticatedConfiguration), JSON.stringify(commands), options.cwd, JSON.stringify(captures), JSON.stringify(options.sealOutputDescriptors ? inheritedOutputDescriptors : []), JSON.stringify(inheritedInputDescriptors)], {
       cwd: '/usr/bin',
       env: options.env,
       encoding: options.encoding,

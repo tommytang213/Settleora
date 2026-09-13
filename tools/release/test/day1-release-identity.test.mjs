@@ -928,7 +928,9 @@ test('release execution uses protected system runtimes and bypasses user plugin 
   assert.match(cliSource, /const closure = sealedCollectorClosure\(\)/);
   assert.match(cliSource, /os\.MFD_CLOEXEC \| os\.MFD_ALLOW_SEALING/);
   assert.match(cliSource, /fcntl\.F_SEAL_WRITE \| fcntl\.F_SEAL_GROW \| fcntl\.F_SEAL_SHRINK \| fcntl\.F_SEAL_SEAL/);
-  assert.match(cliSource, /if candidate_fd not in sealed_outputs:\n\s+passed_descriptors\.append\(candidate_fd\)/);
+  assert.match(cliSource, /passed_descriptors = json\.loads\(passed_inputs_json\)/);
+  assert.match(cliSource, /candidate_fd in sealed_outputs for candidate_fd in passed_descriptors/);
+  assert.match(cliSource, /const inheritedInputDescriptors = descriptors\.map/);
   assert.match(cliSource, /if source_fd != 0:\n    os\.close\(source_fd\)/);
   assert.match(cliSource, /if authorization_fd != 3:\n    os\.close\(authorization_fd\)/);
   assert.match(cliSource, /process\.execve\(releaseCommand\('python'\)/);
