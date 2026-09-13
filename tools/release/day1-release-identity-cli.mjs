@@ -659,6 +659,8 @@ import stat
 
 configuration, commands, cwd, captures_json, sealed_outputs_json, passed_inputs_json, output_descriptors_json, command_outputs_json = sys.argv[1:9]
 libc = ctypes.CDLL(None, use_errno=True)
+if libc.prctl(4, 0, 0, 0, 0) != 0 or libc.prctl(36, 1, 0, 0, 0) != 0:
+    raise OSError(ctypes.get_errno(), "guarded process dumpability control failed")
 fd = libc.inotify_init1(os.O_CLOEXEC | os.O_NONBLOCK)
 if fd < 0:
     raise OSError(ctypes.get_errno(), "inotify_init1 failed")
@@ -791,6 +793,31 @@ try:
             or len(set(flattened_command_outputs)) != len(flattened_command_outputs)):
         raise RuntimeError("guarded command output descriptor allowlist is invalid")
     captures = json.loads(captures_json)
+    def terminate_orphaned_descendants():
+        deadline = time.monotonic() + 2.0
+        children_path = "/proc/self/task/" + str(os.getpid()) + "/children"
+        while True:
+            with open(children_path, "r", encoding="ascii") as children_file:
+                children = [int(value) for value in children_file.read().split()]
+            for child_pid in children:
+                try:
+                    os.kill(child_pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            while True:
+                try:
+                    reaped, _ = os.waitpid(-1, os.WNOHANG)
+                except ChildProcessError:
+                    reaped = 0
+                if reaped <= 0:
+                    break
+            with open(children_path, "r", encoding="ascii") as children_file:
+                remaining = children_file.read().split()
+            if not remaining:
+                return
+            if time.monotonic() >= deadline:
+                raise RuntimeError("guarded command left an unreapable descendant process")
+            time.sleep(0.01)
     for command_index, values in enumerate(command_values):
         process = subprocess.Popen(["/proc/self/fd/3", *values], executable="/proc/self/fd/3", cwd=cwd, pass_fds=tuple([*passed_descriptors, *command_output_descriptors[command_index]]), start_new_session=True)
         while process.poll() is None:
@@ -804,6 +831,7 @@ try:
             raise RuntimeError("Android toolchain changed while release artifacts were built: " + changed)
         if process.returncode != 0:
             raise subprocess.CalledProcessError(process.returncode, values)
+        terminate_orphaned_descendants()
         for capture in captures:
             if capture.get("afterCommand", len(command_values) - 1) == command_index:
                 source_fd = os.open(capture["source"], os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
@@ -851,6 +879,7 @@ try:
             drain(min(0.05, quiet_deadline - time.monotonic()))
         if changed:
             raise RuntimeError("Android toolchain changed while release artifacts were built: " + changed)
+        terminate_orphaned_descendants()
     for output_fd in sealed_outputs:
         fcntl.fcntl(output_fd, fcntl.F_ADD_SEALS, fcntl.F_SEAL_WRITE | fcntl.F_SEAL_GROW | fcntl.F_SEAL_SHRINK | fcntl.F_SEAL_SEAL)
         required_seals = fcntl.F_SEAL_WRITE | fcntl.F_SEAL_GROW | fcntl.F_SEAL_SHRINK | fcntl.F_SEAL_SEAL
@@ -997,8 +1026,29 @@ export function runGuardedOutputDescriptorFixture(configuration, outputPath) {
   const python = trustedTool(pythonPath, path.basename(pythonPath), 'system Python');
   const descriptor = openSync(outputPath, constants.O_CREAT | constants.O_EXCL | constants.O_RDWR | constants.O_NOFOLLOW, 0o600);
   try {
+    const delayedReopen = `import os, time
+guard_pid = os.getppid()
+with open(f"/proc/{guard_pid}/stat", "r", encoding="ascii") as stat_file: node_pid = int(stat_file.read().split()[3])
+child = os.fork()
+if child == 0:
+    os.setsid()
+    time.sleep(3.2)
+    try:
+        reopened = os.open(f"/proc/{node_pid}/fd/${descriptor}", os.O_WRONLY)
+        os.write(reopened, b"forged output")
+        os.close(reopened)
+    except OSError:
+        pass
+    os._exit(0)`;
     executeGuardedCommands(configuration, python, [], [
-      ['-I', '-S', '-c', 'import os\ntry: os.fstat(4)\nexcept OSError: pass\nelse: raise RuntimeError("output descriptor leaked to non-writer command")'],
+      ['-I', '-S', '-c', `import os
+try: os.fstat(4)
+except OSError: pass
+else: raise RuntimeError("output descriptor leaked to non-writer command")
+try: reopened = os.open(f"/proc/{os.getppid()}/fd/4", os.O_WRONLY)
+except OSError: pass
+else: os.close(reopened); raise RuntimeError("output descriptor reopened from guard process")
+${delayedReopen}`],
       ['-I', '-S', '-c', 'import os; os.write(4, b"guarded output")'],
     ], {
       cwd: '/usr/bin',

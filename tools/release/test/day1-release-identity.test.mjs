@@ -645,7 +645,7 @@ test('toolchain mutation guard retains one authenticated identity across phases'
   assert.throws(() => runToolchainMutationGuardFixture(configuration, 'pass'), /changed before its authenticated guard was installed/);
 });
 
-test('toolchain mutation guard passes a bounded output descriptor only to its writer command', (t) => {
+test('toolchain mutation guard isolates a writer descriptor and reaps detached non-writers', (t) => {
   const root = mkdtempSync(path.join(tmpdir(), 'release-toolchain-output-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   writeFileSync(path.join(root, 'compiler'), 'trusted bytes');
@@ -951,6 +951,8 @@ test('release execution uses protected system runtimes and bypasses user plugin 
   assert.match(cliSource, /const inheritedInputDescriptors = descriptors\.map/);
   assert.match(cliSource, /const commandOutputDescriptors = \(options\.commandOutputDescriptorIndexes/);
   assert.match(cliSource, /pass_fds=tuple\(\[\*passed_descriptors, \*command_output_descriptors\[command_index\]\]\)/);
+  assert.match(cliSource, /libc\.prctl\(36, 1, 0, 0, 0\)/);
+  assert.match(cliSource, /def terminate_orphaned_descendants\(\):/);
   assert.match(cliSource, /watches\.setdefault\(watch, \[\]\)\.append/);
   assert.match(cliSource, /if source_fd != 0:\n    os\.close\(source_fd\)/);
   assert.match(cliSource, /if authorization_fd != 3:\n    os\.close\(authorization_fd\)/);
