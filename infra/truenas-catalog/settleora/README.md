@@ -27,6 +27,12 @@ read, write, and traverse access through its ownership or ACL. The API performs
 a bounded write probe before launch and fails closed without that access; this
 five-service package intentionally does not add a privileged permissions
 container or change dataset ownership.
+The existing Day 1 API dataset remains mounted at `/var/lib/settleora/storage`;
+the package persists ASP.NET data-protection state beneath its private
+`.settleora-home` directory without relocating existing stored files. All three
+dataset mappings are immutable after installation. Live TrueNAS lifecycle
+renders also resolve each host path through `filesystem.stat` and refuse
+symlinked, aliased, non-directory, duplicate, or nested role paths.
 PostgreSQL and RabbitMQ initialization credentials and the RabbitMQ node name
 are immutable package fields after installation; changing persisted identities
 requires a separately reviewed credential/state migration. In `validate-only`

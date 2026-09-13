@@ -45,7 +45,10 @@ try {
     ixValues.images = values.images;
     writeFileSync(ixValuesPath, JSON.stringify(ixValues), { mode: 0o600 });
   });
-  process.stdout.write('Official renderer refused undeclared network and image overrides.\n');
+  expectOfficialRefusal(packet, 'live-context-without-filesystem-authority', (values) => {
+    values.ix_context = { app_name: 'settleora', is_install: true };
+  });
+  process.stdout.write('Official renderer refused undeclared network/image overrides and an unresolvable live dataset context.\n');
 } finally {
   rmSync(tempRoot, { recursive: true, force: true });
 }

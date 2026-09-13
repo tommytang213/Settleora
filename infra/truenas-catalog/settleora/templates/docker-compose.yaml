@@ -78,8 +78,24 @@
   {% do tpl.funcs.fail("PostgreSQL, RabbitMQ, and API storage datasets must be distinct") %}
 {% endif %}
 {% set datasets = [values.storage.postgres_dataset, values.storage.rabbitmq_dataset, values.storage.api_storage_dataset] %}
+{% set canonical_datasets = [] %}
 {% for dataset in datasets %}
-  {% for other_dataset in datasets %}
+  {% set canonical_dataset = dataset %}
+  {# TrueNAS middleware reserves and injects ix_context for every lifecycle
+     render. Its hostpath schema currently checks existence only, so obtain the
+     authoritative real path and reject every symlink component here. The
+     context-free official offline renderer exercises the lexical fallback. #}
+  {% if values.ix_context.get("app_name") %}
+    {% set dataset_stat = tpl.client.client.call("filesystem.stat", dataset) %}
+    {% if not dataset_stat or dataset_stat.type != "DIRECTORY" or dataset_stat.realpath != dataset %}
+      {% do tpl.funcs.fail("Every live TrueNAS dataset must be a canonical, non-symlinked directory") %}
+    {% endif %}
+    {% set canonical_dataset = dataset_stat.realpath %}
+  {% endif %}
+  {% do canonical_datasets.append(canonical_dataset) %}
+{% endfor %}
+{% for dataset in canonical_datasets %}
+  {% for other_dataset in canonical_datasets %}
     {% if dataset != other_dataset and dataset.startswith(other_dataset ~ "/") %}
       {% do tpl.funcs.fail("PostgreSQL, RabbitMQ, and API storage datasets must not be nested") %}
     {% endif %}
@@ -165,7 +181,7 @@ esac
 {% set api_entrypoint %}#!/bin/sh
 set -eu
 [ "$(id -u)" = "999" ] && [ "$(id -g)" = "999" ] || { echo >&2 "API startup refused: expected runtime UID/GID 999."; exit 64; }
-data_path=/var/lib/settleora
+data_path=/var/lib/settleora/storage
 [ -d "$data_path" ] && [ -r "$data_path" ] && [ -w "$data_path" ] && [ -x "$data_path" ] || { echo >&2 "API startup refused: the private storage dataset must grant UID/GID 999 read, write, and traverse access."; exit 65; }
 probe="$data_path/.settleora-write-probe-$$"
 trap 'rm -f "$probe"' EXIT HUP INT TERM
@@ -173,6 +189,8 @@ umask 077
 : > "$probe" || { echo >&2 "API startup refused: the private storage dataset is not writable by UID/GID 999."; exit 66; }
 rm -f "$probe"
 trap - EXIT HUP INT TERM
+mkdir -p "$data_path/.settleora-home"
+chmod 0700 "$data_path/.settleora-home"
 exec dotnet Settleora.Api.dll "$@"
 {% endset %}
 
@@ -209,7 +227,7 @@ exec dotnet Settleora.Api.dll "$@"
 {% do api.configs.add("settleora-api-entrypoint", api_entrypoint, "/usr/local/bin/settleora-api-entrypoint.sh", "0555") %}
 {% do api.environment.add_env("ASPNETCORE_ENVIRONMENT", "Production") %}
 {% do api.environment.add_env("ASPNETCORE_URLS", "http://+:8080") %}
-{% do api.environment.add_env("HOME", "/var/lib/settleora") %}
+{% do api.environment.add_env("HOME", "/var/lib/settleora/storage/.settleora-home") %}
 {% do api.environment.add_env("Auth__Passkeys__RelyingPartyId", values.network.hostname) %}
 {% if values.network.https_port == 443 %}
   {% do api.environment.add_env("Auth__Passkeys__AllowedOrigins__0", "https://" ~ values.network.hostname) %}
@@ -229,7 +247,7 @@ exec dotnet Settleora.Api.dll "$@"
 {% do api.add_network(backend_net) %}
 {% set api_storage = tpl.funcs.copy_dict(host_storage) %}
 {% do api_storage.host_path_config.update({"path": values.storage.api_storage_dataset}) %}
-{% do api.add_storage("/var/lib/settleora", api_storage) %}
+{% do api.add_storage("/var/lib/settleora/storage", api_storage) %}
 
 {% set postgres = tpl.add_container(values.consts.postgres_container_name, "postgres_image") %}
 {% do postgres.clear_caps() %}

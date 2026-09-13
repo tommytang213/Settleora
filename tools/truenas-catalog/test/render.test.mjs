@@ -49,6 +49,12 @@ test('official TrueNAS 25.10 package skeleton uses current Docker Apps layout an
   for (const variable of ['postgres_database', 'postgres_user', 'postgres_password', 'rabbitmq_user', 'rabbitmq_password', 'rabbitmq_node_hostname']) {
     assert.equal(settleoraFields.find((field) => field.variable === variable).schema.immutable, true, `${variable} must be immutable after initialization`);
   }
+  const storageFields = questions.questions.find((question) => question.variable === 'storage').schema.attrs;
+  for (const variable of ['postgres_dataset', 'rabbitmq_dataset', 'api_storage_dataset']) {
+    assert.equal(storageFields.find((field) => field.variable === variable).schema.immutable, true, `${variable} must be immutable after initialization`);
+  }
+  assert.match(template, /filesystem\.stat/);
+  assert.match(template, /dataset_stat\.realpath != dataset/);
   assert.ok(readFileSync(path.join(packageSource, 'templates/library/base_v2_3_11/container.py'), 'utf8').includes('"platform": "linux/amd64"'));
 });
 
@@ -120,7 +126,8 @@ test('rendered topology preserves R11, R12, private services, datasets, and migr
   assert.equal(compose.services.api.environment.Auth__Passkeys__AllowedOrigins__0, `https://${fixtureConfig.hostname}:${fixtureConfig.httpsPort}`);
   assert.deepEqual(compose.services.api.entrypoint, ['/bin/sh', '/usr/local/bin/settleora-api-entrypoint.sh']);
   assert.match(compose.configs['settleora-api-entrypoint'].content, /\.settleora-write-probe/);
-  assert.equal(compose.services.api.environment.HOME, '/var/lib/settleora');
+  assert.equal(compose.services.api.environment.HOME, '/var/lib/settleora/storage/.settleora-home');
+  assert.equal(compose.services.api.volumes[0].target, '/var/lib/settleora/storage');
   assert.deepEqual(compose.services.ingress.entrypoint, ['/bin/sh', '/usr/local/bin/settleora-caddy-entrypoint.sh']);
   assert.match(compose.configs['settleora-caddy-entrypoint'].content, /cp \/usr\/bin\/caddy \/tmp\/settleora-caddy/);
   assert.match(compose.configs['settleora-migrate-entrypoint'].content, /validate-only\)[\s\S]*--mode=validate-only[\s\S]*--mode=check-only/);
@@ -231,6 +238,7 @@ test('topology negative matrix rejects exposure, unsupported services, identity 
     (c) => { c.configs['settleora-caddy-entrypoint'].content = 'exec /usr/bin/caddy'; },
     (c) => { c.configs['settleora-migrate-entrypoint'].content = 'exit 0'; },
     (c) => { delete c.services.api.environment.HOME; },
+    (c) => { c.services.api.volumes[0].target = '/var/lib/settleora'; },
     (c) => { delete c.services.api.depends_on.migrate; },
     (c) => { c.services.api.depends_on.migrate.condition = 'service_started'; },
     (c) => { delete c.services.migrate.depends_on.postgres; },

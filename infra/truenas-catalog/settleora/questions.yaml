@@ -159,18 +159,21 @@ questions:
           schema:
             type: hostpath
             required: true
+            immutable: true
         - variable: rabbitmq_dataset
           label: RabbitMQ Dataset
           description: Private persistent host-path dataset bound to the stable node identity.
           schema:
             type: hostpath
             required: true
+            immutable: true
         - variable: api_storage_dataset
           label: API Local Storage Dataset
           description: Contains sensitive file bytes and ASP.NET data-protection keys. Before install, grant runtime UID/GID 999 read, write, and traverse access; startup fails closed if that access is absent. Keep the dataset private, backed up, and unexposed by SMB, NFS, or HTTP.
           schema:
             type: hostpath
             required: true
+            immutable: true
 
   - variable: acknowledgements
     label: ""
