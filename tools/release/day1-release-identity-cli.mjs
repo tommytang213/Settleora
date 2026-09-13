@@ -1453,10 +1453,6 @@ function collectAndroidUnsafe(options, emit = true) {
       metadata: ['apps/mobile/build/app/outputs/apk/release/output-metadata.json', 'output-metadata.json'],
     };
     const rawMetadataTarget = path.join(output, '.raw-output-metadata.json');
-    executeGuardedFlutter(flutter, [
-      ['clean'],
-      ['pub', 'get', '--offline'],
-    ], mobileRoot, offlineGuardConfiguration);
     const sealedGeneratedInputPaths = [
       'apps/mobile/.dart_tool/package_config.json',
       'apps/mobile/.flutter-plugins-dependencies',
@@ -1570,7 +1566,7 @@ function collectAndroidUnsafe(options, emit = true) {
   const artifact = (kind) => ({ path: files[kind][0], ...copiedIdentities[kind] });
   const provenance = {
     schema: 'settleora.android-exact-source-build.v1', source,
-      commands: ['flutter pub get (dependency prefetch)', 'flutter build apk --release --no-pub (dependency prefetch)', 'flutter clean (offline)', 'flutter pub get --offline', 'flutter build apk --release --no-pub (offline)', 'flutter build appbundle --release --no-pub (offline)'],
+      commands: ['flutter pub get (dependency prefetch)', 'flutter build apk --release --no-pub (dependency prefetch)', 'flutter build apk --release --no-pub (offline)', 'flutter build appbundle --release --no-pub (offline)'],
     artifacts: { apk: artifact('apk'), aab: artifact('aab'), r8MappingSha256: copiedIdentities.mapping.sha256, outputMetadataSha256: copiedIdentities.outputMetadata.sha256 },
     toolchains: copiedIdentities.toolchains,
     dependencyCaches: copiedIdentities.dependencyCaches,

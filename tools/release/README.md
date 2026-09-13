@@ -114,7 +114,7 @@ recognizes only numeric atomic-update siblings of those bound Flutter markers;
 the Android provenance binds toolchain and dependency-cache identities, Gradle
 verification-metadata identity, the authenticated-runner algorithm,
 transient-marker/build-directory subsets, and fail-closed queue-overflow policy.
-After offline package generation, the exact package configuration, plugin
+After the guarded dependency prefetch, the exact package configuration, plugin
 inventory, and generated Android registrant are made read-only and added to the
 authenticated build guard. The guarded exact-source dependency prefetch
 produces the version-scoped dependency-accessor, generated-JAR, Groovy DSL,
@@ -124,7 +124,9 @@ build, bound by a dedicated dependency-cache inventory, and
 included in the whole-home guard. Only their exact required lock or
 garbage-collection coordination files remain writable; every other
 version-scoped Gradle path is guarded and an unexpected executable cache
-therefore fails closed.
+therefore fails closed. The retained builds remove only prior build outputs;
+they reuse those sealed generated inputs so Gradle cannot introduce a new
+Kotlin DSL accessor identity between prefetch and evidence capture.
 Assembly and validation resolve `apksigner`
 only below the separately supplied trusted SDK root and verify both the APK and
 AAB debug certificate and rejects additional APK or AAB signers. Validation always recollects source, registry, web,
