@@ -1388,6 +1388,13 @@ function collectAndroidUnsafe(options, emit = true) {
     }
     makeTreeReadOnly(pubCache, 'Dart pub dependency cache');
     for (const relativePath of pubExcludedBuildPaths) makeTreeOwnerWritable(path.join(pubCache, relativePath));
+    flutter.environment = {
+      ...buildEnvironment,
+      ORG_GRADLE_PROJECT_settleoraReleaseOffline: 'true',
+    };
+    executeGuardedFlutter(flutter, [
+      ['build', 'apk', '--release', '--no-pub'],
+    ], mobileRoot, [...toolchainConfiguration, prefetchSourceGuard, { label: 'pub-cache', root: pubCache, excludedPrefixes: pubExcludedBuildPaths }, { label: 'android-signing-home', root: path.join(buildHome, '.android'), excludedPrefixes: [] }]);
     const runtimeWrapper = gradleWrapper;
     const runtimeWrapperLockPaths = relativeFilesMatching(runtimeWrapper, /\.zip\.lck$/u);
     if (runtimeWrapperLockPaths.length !== 1 || !/^dists\/gradle-[0-9.]+-(?:all|bin)\/[a-z0-9]+\/gradle-[0-9.]+-(?:all|bin)\.zip\.lck$/u.test(runtimeWrapperLockPaths[0])) {
@@ -1581,7 +1588,7 @@ function collectAndroidUnsafe(options, emit = true) {
   const artifact = (kind) => ({ path: files[kind][0], ...copiedIdentities[kind] });
   const provenance = {
     schema: 'settleora.android-exact-source-build.v1', source,
-      commands: ['flutter pub get (dependency prefetch)', 'flutter build apk --release --no-pub (dependency prefetch)', 'flutter build apk --release --no-pub (offline)', 'flutter build appbundle --release --no-pub (offline)'],
+      commands: ['flutter pub get (dependency prefetch)', 'flutter build apk --release --no-pub (dependency prefetch)', 'flutter build apk --release --no-pub (offline cache stabilization)', 'flutter build apk --release --no-pub (offline)', 'flutter build appbundle --release --no-pub (offline)'],
     artifacts: { apk: artifact('apk'), aab: artifact('aab'), r8MappingSha256: copiedIdentities.mapping.sha256, outputMetadataSha256: copiedIdentities.outputMetadata.sha256 },
     toolchains: copiedIdentities.toolchains,
     dependencyCaches: copiedIdentities.dependencyCaches,

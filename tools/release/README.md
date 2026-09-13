@@ -127,7 +127,8 @@ version-scoped Gradle path is guarded and an unexpected executable cache
 therefore fails closed. Kotlin DSL may create a UUID-suffixed temporary
 accessor beside an already authenticated accessor; only those exact recorded
 sibling bases are transient, while every stable accessor remains read-only and
-guarded. The retained builds remove only prior build outputs;
+guarded. One guarded, non-retained offline build stabilizes the offline Gradle
+model before that sealing step. The retained builds remove only prior build outputs;
 they reuse those sealed generated inputs so Gradle cannot introduce a new
 Kotlin DSL accessor identity between prefetch and evidence capture.
 Assembly and validation resolve `apksigner`

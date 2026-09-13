@@ -116,7 +116,7 @@ function fixture(t) {
   const notesPath = write(evidenceRoot, 'release-notes.md', '# Candidate\nBounded test evidence.\n');
   const buildProvenancePath = write(evidenceRoot, 'build-provenance.json', canonicalJson({
     schema: 'settleora.android-exact-source-build.v1', source: { commit, tree },
-    commands: ['flutter pub get (dependency prefetch)', 'flutter build apk --release --no-pub (dependency prefetch)', 'flutter build apk --release --no-pub (offline)', 'flutter build appbundle --release --no-pub (offline)'],
+    commands: ['flutter pub get (dependency prefetch)', 'flutter build apk --release --no-pub (dependency prefetch)', 'flutter build apk --release --no-pub (offline cache stabilization)', 'flutter build apk --release --no-pub (offline)', 'flutter build appbundle --release --no-pub (offline)'],
     toolchains: {
       flutter: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: '8'.repeat(64), excludedPaths: ['.git', 'bin/cache/lockfile', 'bin/cache/runtime.stamp', 'packages/flutter_tools/gradle/.gradle'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
       android: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: '9'.repeat(64), excludedPaths: ['.knownPackages'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },

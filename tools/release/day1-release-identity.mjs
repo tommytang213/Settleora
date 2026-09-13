@@ -578,7 +578,7 @@ function collectAndroid(repoRoot, input, source) {
   if (provenance.schema !== 'settleora.android-exact-source-build.v1' || provenance.source?.commit !== commit || provenance.source?.tree !== tree) {
     fail('Android build provenance source mismatch');
   }
-  if (canonicalJson(provenance.commands) !== canonicalJson(['flutter pub get (dependency prefetch)', 'flutter build apk --release --no-pub (dependency prefetch)', 'flutter build apk --release --no-pub (offline)', 'flutter build appbundle --release --no-pub (offline)'])) {
+  if (canonicalJson(provenance.commands) !== canonicalJson(['flutter pub get (dependency prefetch)', 'flutter build apk --release --no-pub (dependency prefetch)', 'flutter build apk --release --no-pub (offline cache stabilization)', 'flutter build apk --release --no-pub (offline)', 'flutter build appbundle --release --no-pub (offline)'])) {
     fail('Android build provenance command mismatch');
   }
   assertKeys(provenance.toolchains, ['flutter', 'android', 'java'], 'Android build provenance toolchains');
