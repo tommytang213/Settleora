@@ -645,7 +645,7 @@ test('toolchain mutation guard retains one authenticated identity across phases'
   assert.throws(() => runToolchainMutationGuardFixture(configuration, 'pass'), /changed before its authenticated guard was installed/);
 });
 
-test('toolchain mutation guard passes its bounded output descriptor to the build child', (t) => {
+test('toolchain mutation guard passes a bounded output descriptor only to its writer command', (t) => {
   const root = mkdtempSync(path.join(tmpdir(), 'release-toolchain-output-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   writeFileSync(path.join(root, 'compiler'), 'trusted bytes');
@@ -947,9 +947,10 @@ test('release execution uses protected system runtimes and bypasses user plugin 
   assert.match(cliSource, /os\.MFD_CLOEXEC \| os\.MFD_ALLOW_SEALING/);
   assert.match(cliSource, /fcntl\.F_SEAL_WRITE \| fcntl\.F_SEAL_GROW \| fcntl\.F_SEAL_SHRINK \| fcntl\.F_SEAL_SEAL/);
   assert.match(cliSource, /passed_descriptors = json\.loads\(passed_inputs_json\)/);
-  assert.match(cliSource, /any\(output_fd not in passed_descriptors for output_fd in sealed_outputs\)/);
+  assert.match(cliSource, /any\(output_fd not in output_descriptors for output_fd in sealed_outputs\)/);
   assert.match(cliSource, /const inheritedInputDescriptors = descriptors\.map/);
-  assert.match(cliSource, /const inheritedChildDescriptors = \[\.\.\.inheritedInputDescriptors, \.\.\.inheritedOutputDescriptors\]/);
+  assert.match(cliSource, /const commandOutputDescriptors = \(options\.commandOutputDescriptorIndexes/);
+  assert.match(cliSource, /pass_fds=tuple\(\[\*passed_descriptors, \*command_output_descriptors\[command_index\]\]\)/);
   assert.match(cliSource, /watches\.setdefault\(watch, \[\]\)\.append/);
   assert.match(cliSource, /if source_fd != 0:\n    os\.close\(source_fd\)/);
   assert.match(cliSource, /if authorization_fd != 3:\n    os\.close\(authorization_fd\)/);

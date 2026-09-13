@@ -657,7 +657,7 @@ import sys
 import time
 import stat
 
-configuration, commands, cwd, captures_json, sealed_outputs_json, passed_inputs_json = sys.argv[1:7]
+configuration, commands, cwd, captures_json, sealed_outputs_json, passed_inputs_json, output_descriptors_json, command_outputs_json = sys.argv[1:9]
 libc = ctypes.CDLL(None, use_errno=True)
 fd = libc.inotify_init1(os.O_CLOEXEC | os.O_NONBLOCK)
 if fd < 0:
@@ -744,11 +744,14 @@ try:
     changed = None
     sealed_outputs = json.loads(sealed_outputs_json)
     passed_descriptors = json.loads(passed_inputs_json)
-    if (any(not isinstance(candidate_fd, int) or candidate_fd < 3 or candidate_fd >= 64 for candidate_fd in passed_descriptors)
+    output_descriptors = json.loads(output_descriptors_json)
+    if (any(not isinstance(candidate_fd, int) or candidate_fd < 3 or candidate_fd >= 64 for candidate_fd in [*passed_descriptors, *output_descriptors])
             or len(set(passed_descriptors)) != len(passed_descriptors)
-            or any(output_fd not in passed_descriptors for output_fd in sealed_outputs)):
+            or len(set(output_descriptors)) != len(output_descriptors)
+            or any(output_fd in passed_descriptors for output_fd in output_descriptors)
+            or any(output_fd not in output_descriptors for output_fd in sealed_outputs)):
         raise RuntimeError("guarded executable descriptor allowlist is invalid")
-    for candidate_fd in passed_descriptors:
+    for candidate_fd in [*passed_descriptors, *output_descriptors]:
         os.fstat(candidate_fd)
     def drain(timeout):
         global changed
@@ -780,9 +783,16 @@ try:
                 if len(data) < 65536:
                     break
     command_values = json.loads(commands)
+    command_output_descriptors = json.loads(command_outputs_json)
+    flattened_command_outputs = [descriptor for descriptors in command_output_descriptors for descriptor in descriptors]
+    if (len(command_output_descriptors) != len(command_values)
+            or any(not isinstance(descriptors, list) for descriptors in command_output_descriptors)
+            or any(descriptor not in output_descriptors for descriptor in flattened_command_outputs)
+            or len(set(flattened_command_outputs)) != len(flattened_command_outputs)):
+        raise RuntimeError("guarded command output descriptor allowlist is invalid")
     captures = json.loads(captures_json)
     for command_index, values in enumerate(command_values):
-        process = subprocess.Popen(["/proc/self/fd/3", *values], executable="/proc/self/fd/3", cwd=cwd, pass_fds=tuple(passed_descriptors), start_new_session=True)
+        process = subprocess.Popen(["/proc/self/fd/3", *values], executable="/proc/self/fd/3", cwd=cwd, pass_fds=tuple([*passed_descriptors, *command_output_descriptors[command_index]]), start_new_session=True)
         while process.poll() is None:
             drain(0.05)
             if changed:
@@ -919,8 +929,9 @@ function executeGuardedCommands(configuration, executable, inputs, commands, opt
       ? capture
       : { ...capture, targetFd: inheritedOutputDescriptors[capture.outputDescriptorIndex], target: undefined });
     const inheritedInputDescriptors = descriptors.map((_descriptor, index) => 3 + index);
-    const inheritedChildDescriptors = [...inheritedInputDescriptors, ...inheritedOutputDescriptors];
-    const result = execFileSync(releaseCommand('python'), ['-I', '-S', '-c', guardedToolchainRunner, JSON.stringify(authenticatedConfiguration), JSON.stringify(commands), options.cwd, JSON.stringify(captures), JSON.stringify(options.sealOutputDescriptors ? inheritedOutputDescriptors : []), JSON.stringify(inheritedChildDescriptors)], {
+    const commandOutputDescriptors = (options.commandOutputDescriptorIndexes ?? commands.map(() => []))
+      .map((indexes) => indexes.map((index) => inheritedOutputDescriptors[index]));
+    const result = execFileSync(releaseCommand('python'), ['-I', '-S', '-c', guardedToolchainRunner, JSON.stringify(authenticatedConfiguration), JSON.stringify(commands), options.cwd, JSON.stringify(captures), JSON.stringify(options.sealOutputDescriptors ? inheritedOutputDescriptors : []), JSON.stringify(inheritedInputDescriptors), JSON.stringify(inheritedOutputDescriptors), JSON.stringify(commandOutputDescriptors)], {
       cwd: '/usr/bin',
       env: options.env,
       encoding: options.encoding,
@@ -986,10 +997,14 @@ export function runGuardedOutputDescriptorFixture(configuration, outputPath) {
   const python = trustedTool(pythonPath, path.basename(pythonPath), 'system Python');
   const descriptor = openSync(outputPath, constants.O_CREAT | constants.O_EXCL | constants.O_RDWR | constants.O_NOFOLLOW, 0o600);
   try {
-    executeGuardedCommands(configuration, python, [], [['-I', '-S', '-c', 'import os; os.write(4, b"guarded output")']], {
+    executeGuardedCommands(configuration, python, [], [
+      ['-I', '-S', '-c', 'import os\ntry: os.fstat(4)\nexcept OSError: pass\nelse: raise RuntimeError("output descriptor leaked to non-writer command")'],
+      ['-I', '-S', '-c', 'import os; os.write(4, b"guarded output")'],
+    ], {
       cwd: '/usr/bin',
       env: { PATH: '/usr/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' },
       outputDescriptors: [descriptor],
+      commandOutputDescriptorIndexes: [[], [0]],
     });
   } finally {
     closeSync(descriptor);
@@ -1398,7 +1413,7 @@ while (written < payload.length) written += writeSync(${captureFd}, payload, wri
         node,
         [npmCli],
         [['/proc/self/fd/4', 'run', 'build', '--', '--configLoader', 'runner'], ['--input-type=module', '--eval', captureProgram, path.join(webRoot, 'dist')]],
-        { cwd: webRoot, env: npmEnvironment, stdio: ['ignore', 'inherit', 'inherit'], outputDescriptors: [captureDescriptor], sealOutputDescriptors: sealedRuntime },
+        { cwd: webRoot, env: npmEnvironment, stdio: ['ignore', 'inherit', 'inherit'], outputDescriptors: [captureDescriptor], commandOutputDescriptorIndexes: [[], [0]], sealOutputDescriptors: sealedRuntime },
       );
       if (canonicalJson(toolchainTreeDigest(nodeModules, 'User-web installed dependency tree')) !== canonicalJson(nodeModulesIdentity)) throw new Error('User-web installed dependency tree changed during build');
       const metadata = fstatSync(captureDescriptor);
