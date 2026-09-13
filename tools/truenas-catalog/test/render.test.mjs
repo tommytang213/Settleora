@@ -46,12 +46,13 @@ test('official TrueNAS 25.10 package skeleton uses current Docker Apps layout an
   assert.ok(readFileSync(path.join(packageSource, 'templates/library/base_v2_3_11/container.py'), 'utf8').includes('"platform": "linux/amd64"'));
 });
 
-test('official-render semantic validator accepts only fixed descriptor input', () => {
+test('official-render validators accept only fixed descriptor and package-relative input', () => {
   const source = readFileSync(path.join(repoRoot, 'tools/truenas-catalog/validate-official-render.mjs'), 'utf8');
   assert.match(source, /readFileSync\(3, 'utf8'\)/u);
   assert.match(source, /readFileSync\(4, 'utf8'\)/u);
   assert.doesNotMatch(source, /readFileSync\([^34]/u);
   assert.doesNotMatch(source, /process\.argv\.slice/u);
+  assert.match(source, /directoryContentIdentity\('package'\)/u);
 });
 
 test('pinned official TrueNAS library content fails closed on byte drift', () => {
@@ -184,6 +185,9 @@ test('topology negative matrix rejects exposure, unsupported services, identity 
     (c) => { c.services.migrate.ports = [{ published: '9999', target: 9999 }]; },
     (c) => { c.services['web-admin'] = clone(c.services.api); },
     (c) => { c.services.api.image = identity.images.caddy; },
+    (c) => { c.services.ingress.image = identity.images.postgres; },
+    (c) => { c.services.postgres.image = identity.images.rabbitmq; },
+    (c) => { c.services.rabbitmq.image = identity.images.caddy; },
     (c) => { delete c.services.api.depends_on.migrate; },
     (c) => { c.services.api.depends_on.migrate.condition = 'service_started'; },
     (c) => { delete c.services.migrate.depends_on.postgres; },

@@ -351,9 +351,13 @@ export function validateTopology(compose, identity, config) {
     if (service.platform !== 'linux/amd64') fail(`${name} uses the wrong runtime platform`);
     if (!service.image.includes('@sha256:') || /:(?:main|latest)(?:@|$)/u.test(service.image)) fail(`${name} image is mutable-only`);
   }
+  const expectedImages = { api: identity.images.api, ingress: identity.images.caddy, migrate: identity.images.api, postgres: identity.images.postgres, rabbitmq: identity.images.rabbitmq };
+  for (const [name, expectedImage] of Object.entries(expectedImages)) {
+    if (compose.services[name].image !== expectedImage) fail(`${name} image does not match the R03-selected runtime identity`);
+  }
   const ingressPorts = publishedPorts(compose.services.ingress);
   if (ingressPorts.length !== 1 || ingressPorts[0].host_ip !== config.bindAddress || ingressPorts[0].target !== 8443 || ingressPorts[0].protocol !== 'tcp') fail('Ingress publication is unsafe');
-  if (compose.services.api.image !== compose.services.migrate.image || compose.services.api.image !== identity.images.api) fail('API and migrate image identity mismatch');
+  if (compose.services.api.image !== compose.services.migrate.image) fail('API and migrate image identity mismatch');
   if (compose.services.api.depends_on?.migrate?.condition !== 'service_completed_successfully') fail('API migration-success gate is missing');
   if (compose.services.migrate.depends_on?.postgres?.condition !== 'service_healthy') fail('Migration PostgreSQL-readiness gate is missing');
   if (compose.services.api.depends_on?.postgres?.condition !== 'service_healthy' || compose.services.api.depends_on?.rabbitmq?.condition !== 'service_healthy') fail('API dependency-readiness gate is missing');

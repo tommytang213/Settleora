@@ -1,9 +1,16 @@
 import { readFileSync } from 'node:fs';
 import YAML from 'yaml';
 import { canonicalJson } from '../release/day1-release-identity.mjs';
-import { PACKAGE_SCHEMA, sha256 } from './render.mjs';
+import { directoryContentIdentity, PACKAGE_SCHEMA, sha256 } from './render.mjs';
 
 const fail = (message) => { throw new Error(message); };
+const preflight = process.argv.length === 3 && process.argv[2] === '--preflight';
+if (preflight) {
+  const plan = JSON.parse(readFileSync(4, 'utf8'));
+  if (plan.schema !== PACKAGE_SCHEMA) fail('Install-plan schema mismatch');
+  if (canonicalJson(directoryContentIdentity('package')) !== canonicalJson(plan.materializedPackage)) fail('Materialized package identity mismatch');
+  process.stdout.write(`${canonicalJson({ schema: 'settleora.truenas-materialized-package-validation.v1', packageSha256: plan.materializedPackage.sha256 })}`);
+} else {
 if (process.argv.length !== 2) fail('Official-render validation accepts input only on fixed file descriptors');
 const compose = YAML.parse(readFileSync(3, 'utf8'));
 const plan = JSON.parse(readFileSync(4, 'utf8'));
@@ -15,6 +22,10 @@ for (const [name, service] of Object.entries(compose.services)) {
   if (!service.image?.includes('@sha256:') || /:(?:main|latest)(?:@|$)/u.test(service.image)) fail(`${name} image is not immutable`);
   if (name !== 'ingress' && (service.ports?.length ?? 0) !== 0) fail(`${name} unexpectedly publishes a port`);
   if (service.deploy?.resources?.limits?.memory !== '4096M') fail(`${name} memory limit mismatch`);
+}
+const expectedImages = { api: plan.runtime?.images?.api, ingress: plan.runtime?.images?.caddy, migrate: plan.runtime?.images?.api, postgres: plan.runtime?.images?.postgres, rabbitmq: plan.runtime?.images?.rabbitmq };
+for (const [name, expectedImage] of Object.entries(expectedImages)) {
+  if (typeof expectedImage !== 'string' || compose.services[name].image !== expectedImage) fail(`${name} image does not match the R03-selected runtime identity`);
 }
 const port = compose.services.ingress.ports?.[0];
 if (compose.services.ingress.ports?.length !== 1 || port.target !== 8443 || port.protocol !== 'tcp' || port.host_ip !== plan.networks.bindAddress || Number(port.published) !== plan.networks.httpsPort) fail('Official ingress publication mismatch');
@@ -39,3 +50,4 @@ const caddy = String(compose.configs?.['settleora-caddyfile']?.content ?? '');
 if (!caddy.includes('auto_https off') || !caddy.includes(`https://${plan.tls.hostname}:8443`) || !caddy.includes('tls /run/settleora-tls/tls.crt /run/settleora-tls/tls.key') || !caddy.includes('reverse_proxy api:8080') || caddy.includes('acme') || caddy.includes('http://')) fail('Official private TLS topology mismatch');
 if (compose['x-settleora-release']?.identity_digest !== plan.applicationRelease.identityDigest) fail('Official release mapping mismatch');
 process.stdout.write(`${canonicalJson({ schema: 'settleora.truenas-official-render-validation.v1', composeSha256: sha256(canonicalJson(compose)), services: names, publishedPorts: 1, platform: 'linux/amd64', realSecretsIncluded: false, published: false, deployed: false })}`);
+}
