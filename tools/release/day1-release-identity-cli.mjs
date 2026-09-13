@@ -2134,10 +2134,10 @@ function sealedCollectorClosure() {
   const manifestUrl = `data:text/javascript;base64,${Buffer.from(manifestSource).toString('base64')}`;
   let cliSource = committedModuleSource('tools/release/day1-release-identity-cli.mjs');
   cliSource = replaceClosureToken(cliSource, "'./day1-release-identity.mjs'", JSON.stringify(manifestUrl), 'CLI manifest import', 2);
-  cliSource = replaceClosureToken(cliSource, "'../ci/user-web-dist-manifest.mjs'", JSON.stringify(webUrl), 'CLI web import', 2);
+  cliSource = replaceClosureToken(cliSource, "'../ci/user-web-dist-manifest.mjs'", JSON.stringify(webUrl), 'CLI web import', 3);
   cliSource = replaceClosureToken(cliSource,
     "const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');",
-    `const repoRoot = ${JSON.stringify(repoRoot)};`, 'CLI repository root', 2);
+    `const repoRoot = ${JSON.stringify(repoRoot)};`, 'CLI repository root', 3);
   cliSource = replaceClosureToken(cliSource,
     "const invokedDirectly = Boolean(process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url));",
     'const invokedDirectly = true;', 'CLI direct execution', 2);
