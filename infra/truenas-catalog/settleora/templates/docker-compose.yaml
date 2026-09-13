@@ -83,14 +83,21 @@
   {% set canonical_dataset = dataset %}
   {# TrueNAS middleware reserves and injects ix_context for every lifecycle
      render. Its hostpath schema currently checks existence only, so obtain the
-     authoritative real path and reject every symlink component here. The
+     authoritative identity of every path prefix and reject symlinks here. In
+     TrueNAS 25.10.7, filesystem.stat canonicalizes realpath only when the
+     inspected entry itself is a symlink, so checking only the leaf is unsafe.
+     The
      context-free official offline renderer exercises the lexical fallback. #}
   {% if values.get("ix_context", {}).get("app_name") %}
-    {% set dataset_stat = tpl.client.client.call("filesystem.stat", dataset) %}
-    {% if not dataset_stat or dataset_stat.type != "DIRECTORY" or dataset_stat.realpath != dataset %}
-      {% do tpl.funcs.fail("Every live TrueNAS dataset must be a canonical, non-symlinked directory") %}
-    {% endif %}
-    {% set canonical_dataset = dataset_stat.realpath %}
+    {% set path_prefix = namespace(value="") %}
+    {% for path_segment in dataset.split("/") if path_segment %}
+      {% set path_prefix.value = path_prefix.value ~ "/" ~ path_segment %}
+      {% set prefix_stat = tpl.client.client.call("filesystem.stat", path_prefix.value) %}
+      {% if not prefix_stat or prefix_stat.type != "DIRECTORY" or prefix_stat.realpath != path_prefix.value %}
+        {% do tpl.funcs.fail("Every live TrueNAS dataset path component must be a canonical, non-symlinked directory") %}
+      {% endif %}
+    {% endfor %}
+    {% set canonical_dataset = path_prefix.value %}
   {% endif %}
   {% do canonical_datasets.append(canonical_dataset) %}
 {% endfor %}

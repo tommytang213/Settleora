@@ -54,7 +54,8 @@ test('official TrueNAS 25.10 package skeleton uses current Docker Apps layout an
     assert.equal(storageFields.find((field) => field.variable === variable).schema.immutable, true, `${variable} must be immutable after initialization`);
   }
   assert.match(template, /filesystem\.stat/);
-  assert.match(template, /dataset_stat\.realpath != dataset/);
+  assert.match(template, /for path_segment in dataset\.split/);
+  assert.match(template, /prefix_stat\.realpath != path_prefix\.value/);
   assert.ok(readFileSync(path.join(packageSource, 'templates/library/base_v2_3_11/container.py'), 'utf8').includes('"platform": "linux/amd64"'));
 });
 
