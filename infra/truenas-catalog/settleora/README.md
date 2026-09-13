@@ -6,6 +6,10 @@ materialized only from a semantically validated
 image digests at runtime. It is not a catalog publication, live install,
 deployment, backup, restore, or production-readiness claim.
 
+Repository materialization also requires the manifest's expected identity
+digest as a detached caller-supplied trust anchor. A manifest cannot replace
+its image index/platform relationships merely by recomputing its own digest.
+
 The package exposes only exact-host private HTTPS through Caddy. API HTTP,
 PostgreSQL, RabbitMQ AMQP/management, migration, and all storage stay private.
 The package contains no web/admin/OCR-worker service, public mode, automatic

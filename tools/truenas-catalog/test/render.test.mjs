@@ -5,6 +5,7 @@ import { cpSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'n
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
+import { canonicalJson } from '../../release/day1-release-identity.mjs';
 import {
   OFFICIAL_APPS_COMMIT,
   OFFICIAL_LIBRARY_HASH,
@@ -55,7 +56,7 @@ test('pinned official TrueNAS library content fails closed on byte drift', () =>
 
 test('semantic R03 consumer creates immutable selected-platform runtime references', () => {
   const manifest = syntheticManifest();
-  const identity = consumeReleaseIdentity(manifest);
+  const identity = consumeReleaseIdentity(manifest, manifest.identityDigest);
   assert.match(identity.images.api, new RegExp(`:${manifest.apiImage.configuredTag}@${manifest.apiImage.platformDigest}$`));
   for (const image of Object.values(identity.images)) {
     assert.match(image, /@sha256:[0-9a-f]{64}$/);
@@ -65,8 +66,9 @@ test('semantic R03 consumer creates immutable selected-platform runtime referenc
 
 test('deterministic materialization repeats byte-identical package and compose identities', () => {
   const root = temp();
-  const first = materialize({ manifest: syntheticManifest(), config: clone(fixtureConfig), output: path.join(root, 'one') });
-  const second = materialize({ manifest: syntheticManifest(), config: clone(fixtureConfig), output: path.join(root, 'two') });
+  const manifest = syntheticManifest();
+  const first = materialize({ manifest, expectedIdentityDigest: manifest.identityDigest, config: clone(fixtureConfig), output: path.join(root, 'one') });
+  const second = materialize({ manifest, expectedIdentityDigest: manifest.identityDigest, config: clone(fixtureConfig), output: path.join(root, 'two') });
   assert.equal(first.packetSha256, second.packetSha256);
   assert.equal(first.plan.renderedComposeSha256, second.plan.renderedComposeSha256);
   assert.equal(readFileSync(path.join(first.output, 'install-plan.json'), 'utf8'), readFileSync(path.join(second.output, 'install-plan.json'), 'utf8'));
@@ -86,7 +88,8 @@ test('deterministic materialization repeats byte-identical package and compose i
 });
 
 test('rendered topology preserves R11, R12, private services, datasets, and migration failure gating', () => {
-  const identity = consumeReleaseIdentity(syntheticManifest());
+  const manifest = syntheticManifest();
+  const identity = consumeReleaseIdentity(manifest, manifest.identityDigest);
   const compose = renderCompose(identity, fixtureConfig);
   assert.deepEqual(Object.keys(compose.services).sort(), ['api', 'ingress', 'migrate', 'postgres', 'rabbitmq']);
   assert.equal(compose.services.ingress.ports.length, 1);
@@ -147,13 +150,24 @@ test('R03 source, identity, mutable reference, and platform mismatches fail clos
   ];
   for (const mutate of cases) {
     const manifest = syntheticManifest();
+    const expectedIdentityDigest = manifest.identityDigest;
     mutate(manifest);
-    assert.throws(() => consumeReleaseIdentity(manifest));
+    assert.throws(() => consumeReleaseIdentity(manifest, expectedIdentityDigest));
   }
+  const forged = syntheticManifest();
+  const trustedDigest = forged.identityDigest;
+  forged.apiImage.indexDigest = `sha256:${'1'.repeat(64)}`;
+  forged.apiImage.platformDigest = `sha256:${'2'.repeat(64)}`;
+  const digestInput = clone(forged);
+  delete digestInput.generatedAt;
+  delete digestInput.identityDigest;
+  forged.identityDigest = sha256(canonicalJson(digestInput));
+  assert.throws(() => consumeReleaseIdentity(forged, trustedDigest), /detached expected digest/);
 });
 
 test('topology negative matrix rejects exposure, unsupported services, identity drift, and start-order drift', () => {
-  const identity = consumeReleaseIdentity(syntheticManifest());
+  const manifest = syntheticManifest();
+  const identity = consumeReleaseIdentity(manifest, manifest.identityDigest);
   const base = renderCompose(identity, fixtureConfig);
   const cases = [
     (c) => { c.services.api.ports = [{ published: '8080', target: 8080 }]; },
@@ -190,7 +204,8 @@ test('input and output boundary rejects symlinks, special files, and existing ou
   assert.throws(() => safeReadJson(fifo, 'config'));
   const existing = path.join(root, 'existing');
   writeFileSync(existing, 'occupied');
-  assert.throws(() => materialize({ manifest: syntheticManifest(), config: fixtureConfig, output: existing }));
+  const manifest = syntheticManifest();
+  assert.throws(() => materialize({ manifest, expectedIdentityDigest: manifest.identityDigest, config: fixtureConfig, output: existing }));
 });
 
 test('CLI success and refusal output never discloses secret values or private dataset paths', () => {
@@ -199,7 +214,8 @@ test('CLI success and refusal output never discloses secret values or private da
   const configPath = path.join(root, 'config.json');
   writeFileSync(manifestPath, JSON.stringify(syntheticManifest()));
   writeFileSync(configPath, JSON.stringify(fixtureConfig));
-  const result = spawnSync(process.execPath, ['tools/truenas-catalog/render.mjs', '--manifest', manifestPath, '--config', configPath, '--output', path.join(root, 'packet')], { cwd: repoRoot, encoding: 'utf8' });
+  const expectedDigest = syntheticManifest().identityDigest;
+  const result = spawnSync(process.execPath, ['tools/truenas-catalog/render.mjs', '--manifest', manifestPath, '--expected-identity-digest', expectedDigest, '--config', configPath, '--output', path.join(root, 'packet')], { cwd: repoRoot, encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
   const logs = result.stdout + result.stderr;
   for (const marker of SECRET_MARKERS) assert.doesNotMatch(logs, new RegExp(marker));
@@ -209,21 +225,22 @@ test('CLI success and refusal output never discloses secret values or private da
   invalid.postgres.password = SECRET_MARKERS[0];
   invalid.bindAddress = '0.0.0.0';
   writeFileSync(configPath, JSON.stringify(invalid));
-  const refused = spawnSync(process.execPath, ['tools/truenas-catalog/render.mjs', '--manifest', manifestPath, '--config', configPath, '--output', path.join(root, 'refused')], { cwd: repoRoot, encoding: 'utf8' });
+  const refused = spawnSync(process.execPath, ['tools/truenas-catalog/render.mjs', '--manifest', manifestPath, '--expected-identity-digest', expectedDigest, '--config', configPath, '--output', path.join(root, 'refused')], { cwd: repoRoot, encoding: 'utf8' });
   assert.notEqual(refused.status, 0);
   assert.doesNotMatch(refused.stdout + refused.stderr, new RegExp(SECRET_MARKERS[0]));
-  const privateMissing = spawnSync(process.execPath, ['tools/truenas-catalog/render.mjs', '--manifest', '/mnt/PRIVATE_POOL/secret.json', '--config', configPath, '--output', path.join(root, 'missing')], { cwd: repoRoot, encoding: 'utf8' });
+  const privateMissing = spawnSync(process.execPath, ['tools/truenas-catalog/render.mjs', '--manifest', '/mnt/PRIVATE_POOL/secret.json', '--expected-identity-digest', expectedDigest, '--config', configPath, '--output', path.join(root, 'missing')], { cwd: repoRoot, encoding: 'utf8' });
   assert.notEqual(privateMissing.status, 0);
   assert.doesNotMatch(privateMissing.stdout + privateMissing.stderr, /PRIVATE_POOL|secret\.json|\/mnt\//);
   const malformedPath = path.join(root, 'malformed.json');
   writeFileSync(malformedPath, '{"password":"SENSITIVE_FRAGMENT"');
-  const malformed = spawnSync(process.execPath, ['tools/truenas-catalog/render.mjs', '--manifest', malformedPath, '--config', configPath, '--output', path.join(root, 'malformed')], { cwd: repoRoot, encoding: 'utf8' });
+  const malformed = spawnSync(process.execPath, ['tools/truenas-catalog/render.mjs', '--manifest', malformedPath, '--expected-identity-digest', expectedDigest, '--config', configPath, '--output', path.join(root, 'malformed')], { cwd: repoRoot, encoding: 'utf8' });
   assert.notEqual(malformed.status, 0);
   assert.doesNotMatch(malformed.stdout + malformed.stderr, /SENSITIVE_FRAGMENT|malformed\.json/);
 });
 
 test('offline rendered Compose is accepted structurally by Docker Compose without pulling or starting images', () => {
-  const identity = consumeReleaseIdentity(syntheticManifest());
+  const manifest = syntheticManifest();
+  const identity = consumeReleaseIdentity(manifest, manifest.identityDigest);
   const compose = renderCompose(identity, fixtureConfig);
   const root = temp();
   const file = path.join(root, 'compose.yaml');

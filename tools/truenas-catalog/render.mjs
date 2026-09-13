@@ -183,8 +183,10 @@ function immutableImage(image, tag) {
   return `${image.repository}:${tag}@${image.platformDigest}`;
 }
 
-export function consumeReleaseIdentity(input, sourceRepo = repoRoot) {
+export function consumeReleaseIdentity(input, expectedIdentityDigest, sourceRepo = repoRoot) {
+  if (!/^[0-9a-f]{64}$/u.test(expectedIdentityDigest ?? '')) fail('A detached expected R03 identity digest is required');
   const manifest = validateManifest(input, sourceRepo);
+  if (manifest.identityDigest !== expectedIdentityDigest) fail('R03 identity does not match the detached expected digest');
   if (manifest.apiImage.os !== SUPPORTED_PLATFORM.os || manifest.apiImage.architecture !== SUPPORTED_PLATFORM.architecture) {
     fail('R03 platform is not supported by the current TrueNAS renderer');
   }
@@ -431,9 +433,9 @@ function packageSourceIdentity() {
   return { path: 'infra/truenas-catalog/settleora', repositoryCommit: commit, repositoryTree: tree, trackedAtCommit: tracked.length === records.length && cleanAgainstHead, contentSha256: sha256(canonicalJson(records)), fileCount: records.length };
 }
 
-export function materialize({ manifest, config, output, sourceRepo = repoRoot }) {
+export function materialize({ manifest, expectedIdentityDigest, config, output, sourceRepo = repoRoot }) {
   validateStaticTree();
-  const identity = consumeReleaseIdentity(manifest, sourceRepo);
+  const identity = consumeReleaseIdentity(manifest, expectedIdentityDigest, sourceRepo);
   validateConfig(config);
   const sourceIdentity = packageSourceIdentity();
   if (!sourceIdentity.trackedAtCommit) fail('Package source must exactly match the current repository commit');
@@ -487,15 +489,15 @@ function args(argv) {
     if (!key?.startsWith('--') || value === undefined) fail('Arguments must use --name value pairs');
     parsed[key.slice(2)] = value;
   }
-  for (const required of ['manifest', 'config', 'output']) if (!parsed[required]) fail(`--${required} is required`);
-  const extra = Object.keys(parsed).filter((key) => !['manifest', 'config', 'output', 'source-repo'].includes(key));
+  for (const required of ['manifest', 'expected-identity-digest', 'config', 'output']) if (!parsed[required]) fail(`--${required} is required`);
+  const extra = Object.keys(parsed).filter((key) => !['manifest', 'expected-identity-digest', 'config', 'output', 'source-repo'].includes(key));
   if (extra.length) fail('Unsupported argument');
   return parsed;
 }
 
 export function main(argv = process.argv.slice(2)) {
   const options = args(argv);
-  const result = materialize({ manifest: safeReadJson(options.manifest, 'manifest'), config: safeReadJson(options.config, 'config'), output: options.output, sourceRepo: options['source-repo'] ? realpathSync(options['source-repo']) : repoRoot });
+  const result = materialize({ manifest: safeReadJson(options.manifest, 'manifest'), expectedIdentityDigest: options['expected-identity-digest'], config: safeReadJson(options.config, 'config'), output: options.output, sourceRepo: options['source-repo'] ? realpathSync(options['source-repo']) : repoRoot });
   process.stdout.write(`${canonicalJson({ schema: PACKAGE_SCHEMA, packetSha256: result.packetSha256, renderedComposeSha256: result.plan.renderedComposeSha256, realSecretsIncluded: false, published: false, deployed: false })}`);
 }
 
