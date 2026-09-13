@@ -1531,12 +1531,19 @@ function collectAndroidUnsafe(options, emit = true) {
       `caches/${gradleRuntimeVersion}/transforms/gc.properties`,
       'caches/jars-9/jars-9.lock',
     ];
-    const kotlinAccessorsRoot = path.join(runtimeGradleHome, `caches/${gradleRuntimeVersion}/kotlin-dsl/accessors`);
-    const preStabilizationAccessorNames = readdirSync(kotlinAccessorsRoot, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory() && /^[0-9a-f]{32}$/u.test(entry.name))
+    const stableKotlinIdentityNames = (root, label) => {
+      const entries = readdirSync(root, { withFileTypes: true });
+      if (entries.some((entry) => !entry.isDirectory() || !/^[0-9a-f]{32}$/u.test(entry.name))) throw new Error(`${label} contains an unexpected entry`);
+      return entries
       .map((entry) => entry.name)
       .sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
+    };
+    const kotlinAccessorsRoot = path.join(runtimeGradleHome, `caches/${gradleRuntimeVersion}/kotlin-dsl/accessors`);
+    const preStabilizationAccessorNames = stableKotlinIdentityNames(kotlinAccessorsRoot, 'Gradle Kotlin DSL accessor cache');
     if (preStabilizationAccessorNames.length < 1) throw new Error('Android guarded dependency prefetch did not produce a stable Kotlin DSL accessor identity');
+    const kotlinScriptsRoot = path.join(runtimeGradleHome, `caches/${gradleRuntimeVersion}/kotlin-dsl/scripts`);
+    const preStabilizationScriptNames = stableKotlinIdentityNames(kotlinScriptsRoot, 'Gradle Kotlin DSL script cache');
+    if (preStabilizationScriptNames.length < 1) throw new Error('Android guarded dependency prefetch did not produce a stable Kotlin DSL script identity');
     for (const relativeCache of sealedGradleExecutableCachePaths) {
       const runtimeCache = path.join(runtimeGradleHome, relativeCache);
       if (!lstatSync(runtimeCache, { throwIfNoEntry: false })?.isDirectory()) throw new Error(`Android guarded dependency prefetch did not produce Gradle ${relativeCache}`);
@@ -1548,10 +1555,12 @@ function collectAndroidUnsafe(options, emit = true) {
       chmodSync(mutableFile, 0o600);
     }
     chmodSync(kotlinAccessorsRoot, 0o700);
+    chmodSync(kotlinScriptsRoot, 0o700);
     makeTreeReadOnly(runtimeWrapper, 'Gradle runtime wrapper distribution');
     chmodSync(path.join(runtimeWrapper, runtimeWrapperLockPaths[0]), 0o600);
     const runtimeGradleMutablePaths = ['.tmp', 'caches/CACHEDIR.TAG', 'caches/build-cache-1', `caches/${gradleRuntimeVersion}/file-changes`, `caches/${gradleRuntimeVersion}/fileContent`, `caches/${gradleRuntimeVersion}/fileHashes`, `caches/${gradleRuntimeVersion}/gc.properties`, `caches/${gradleRuntimeVersion}/javaCompile`, `caches/${gradleRuntimeVersion}/jvms`, `caches/${gradleRuntimeVersion}/md-rule`, `caches/${gradleRuntimeVersion}/md-supplier`, ...sealedGradleExecutableMutablePaths, 'caches/gc.properties', 'caches/journal-1', 'caches/keyrings', 'caches/modules-2', 'android', 'daemon', 'kotlin-profile', 'native', 'notifications', 'workers', ...runtimeWrapperLockPaths.map((entry) => `wrapper/${entry}`)];
     const accessorPrefix = `caches/${gradleRuntimeVersion}/kotlin-dsl/accessors`;
+    const scriptPrefix = `caches/${gradleRuntimeVersion}/kotlin-dsl/scripts`;
     flutter.environment = {
       ...buildEnvironment,
       ORG_GRADLE_PROJECT_settleoraReleaseOffline: 'true',
@@ -1562,22 +1571,29 @@ function collectAndroidUnsafe(options, emit = true) {
       ...toolchainConfiguration,
       prefetchSourceGuard,
       { label: 'pub-cache', root: pubCache, excludedPrefixes: pubExcludedBuildPaths },
-      { label: 'gradle-stabilization-home', root: runtimeGradleHome, excludedPrefixes: [...runtimeGradleMutablePaths, accessorPrefix] },
+      { label: 'gradle-stabilization-home', root: runtimeGradleHome, excludedPrefixes: [...runtimeGradleMutablePaths, accessorPrefix, scriptPrefix] },
       ...preStabilizationAccessorNames.map((entry) => ({ label: `gradle-existing-accessor-${entry}`, root: path.join(kotlinAccessorsRoot, entry), excludedPrefixes: [] })),
+      ...preStabilizationScriptNames.map((entry) => ({ label: `gradle-existing-script-${entry}`, root: path.join(kotlinScriptsRoot, entry), excludedPrefixes: [] })),
       { label: 'android-signing-home', root: path.join(buildHome, '.android'), excludedPrefixes: [] },
     ]);
-    const kotlinAccessorNames = readdirSync(kotlinAccessorsRoot, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory() && /^[0-9a-f]{32}$/u.test(entry.name))
-      .map((entry) => entry.name)
-      .sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
+    const kotlinAccessorNames = stableKotlinIdentityNames(kotlinAccessorsRoot, 'Gradle stabilized Kotlin DSL accessor cache');
     if (preStabilizationAccessorNames.some((entry) => !kotlinAccessorNames.includes(entry))
       || kotlinAccessorNames.length > preStabilizationAccessorNames.length + 4) {
       throw new Error('Android offline stabilization produced an unexpected Kotlin DSL accessor inventory');
     }
     makeTreeReadOnly(kotlinAccessorsRoot, 'Gradle stabilized Kotlin DSL accessors');
     chmodSync(kotlinAccessorsRoot, 0o700);
+    const kotlinScriptNames = stableKotlinIdentityNames(kotlinScriptsRoot, 'Gradle stabilized Kotlin DSL script cache');
+    if (preStabilizationScriptNames.some((entry) => !kotlinScriptNames.includes(entry))
+      || kotlinScriptNames.length > preStabilizationScriptNames.length + 4) {
+      throw new Error('Android offline stabilization produced an unexpected Kotlin DSL script inventory');
+    }
+    makeTreeReadOnly(kotlinScriptsRoot, 'Gradle stabilized Kotlin DSL scripts');
+    chmodSync(kotlinScriptsRoot, 0o700);
     const gradleKotlinDslTransientBases = kotlinAccessorNames.map((entry) => `${accessorPrefix}/${entry}`);
     const preStabilizationKotlinDslAccessorBases = preStabilizationAccessorNames.map((entry) => `${accessorPrefix}/${entry}`);
+    const gradleKotlinDslScriptTransientBases = kotlinScriptNames.map((entry) => `${scriptPrefix}/${entry}`);
+    const preStabilizationKotlinDslScriptBases = preStabilizationScriptNames.map((entry) => `${scriptPrefix}/${entry}`);
     const gradleExecutableCacheExcludedPaths = [...runtimeGradleMutablePaths, 'caches/modules-2', 'wrapper'];
     const dependencyCaches = {
       pub: toolchainTreeDigest(pubCache, 'Dart pub dependency cache', pubExcludedBuildPaths),
@@ -1597,7 +1613,7 @@ function collectAndroidUnsafe(options, emit = true) {
       { label: 'gradle-modules-cache', root: runtimeModules, excludedPrefixes: ['gc.properties', 'modules-2.lock'] },
       { label: 'gradle-wrapper-distribution', root: runtimeWrapper, excludedPrefixes: runtimeWrapperLockPaths },
       { label: 'android-signing-home', root: path.join(buildHome, '.android'), excludedPrefixes: [] },
-      { label: 'gradle-runtime-home', root: runtimeGradleHome, excludedPrefixes: runtimeGradleMutablePaths, excludedTransientBases: gradleKotlinDslTransientBases },
+      { label: 'gradle-runtime-home', root: runtimeGradleHome, excludedPrefixes: runtimeGradleMutablePaths, excludedTransientBases: [...gradleKotlinDslTransientBases, ...gradleKotlinDslScriptTransientBases] },
     ];
     const files = {
       apk: ['apps/mobile/build/app/outputs/flutter-apk/app-release.apk', 'app-release.apk'],
@@ -1677,7 +1693,7 @@ function collectAndroidUnsafe(options, emit = true) {
       dependencyCaches,
       gradleVerificationMetadataSha256: createHash('sha256').update(gitExec(['show', `${sourceBefore.commit}:apps/mobile/android/gradle/verification-metadata.xml`], { cwd: repoRoot })).digest('hex'),
       apksignerJarSha256: apksignerJar.sha256,
-      toolchainMutationGuard: { algorithm: 'linux-inotify-authenticated-runner-v3', flutterExcludedTransientBases: [...flutterMutableMetadata].sort((left, right) => Buffer.from(left).compare(Buffer.from(right))), pubExcludedBuildPaths, gradleWrapperLockPaths: runtimeWrapperLockPaths, gradleKotlinDslTransientBases, preStabilizationKotlinDslAccessorBases, prefetchSourceGeneratedPaths, sourceGeneratedPaths, sealedGeneratedInputPaths, sealedGradleExecutableCachePaths, runtimeGradleMutablePaths, outputsCapturedBeforeGuardExit: true, queueOverflowFailsClosed: true },
+      toolchainMutationGuard: { algorithm: 'linux-inotify-authenticated-runner-v3', flutterExcludedTransientBases: [...flutterMutableMetadata].sort((left, right) => Buffer.from(left).compare(Buffer.from(right))), pubExcludedBuildPaths, gradleWrapperLockPaths: runtimeWrapperLockPaths, gradleKotlinDslTransientBases, preStabilizationKotlinDslAccessorBases, gradleKotlinDslScriptTransientBases, preStabilizationKotlinDslScriptBases, prefetchSourceGeneratedPaths, sourceGeneratedPaths, sealedGeneratedInputPaths, sealedGradleExecutableCachePaths, runtimeGradleMutablePaths, outputsCapturedBeforeGuardExit: true, queueOverflowFailsClosed: true },
       signingInputSha256: debugKeystore.sha256,
       signingCertificateSha256,
     };

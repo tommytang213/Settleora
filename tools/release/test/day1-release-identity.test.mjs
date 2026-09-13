@@ -137,6 +137,8 @@ function fixture(t) {
       gradleWrapperLockPaths: ['dists/gradle-8.14-all/c2qonpi39x1mddn7hk5gh9iqj/gradle-8.14-all.zip.lck'],
       gradleKotlinDslTransientBases: ['caches/8.14/kotlin-dsl/accessors/0123456789abcdef0123456789abcdef'],
       preStabilizationKotlinDslAccessorBases: ['caches/8.14/kotlin-dsl/accessors/0123456789abcdef0123456789abcdef'],
+      gradleKotlinDslScriptTransientBases: ['caches/8.14/kotlin-dsl/scripts/abcdef0123456789abcdef0123456789'],
+      preStabilizationKotlinDslScriptBases: ['caches/8.14/kotlin-dsl/scripts/abcdef0123456789abcdef0123456789'],
       sourceGeneratedPaths: ['apps/mobile/.dart_tool', 'apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/.gradle', 'apps/mobile/android/.kotlin', 'apps/mobile/android/app/src/main/java', 'apps/mobile/android/build', 'apps/mobile/android/local.properties', 'apps/mobile/build', 'apps/mobile/ios', 'apps/mobile/lib/.dart_tool', 'apps/mobile/linux', 'apps/mobile/macos', 'apps/mobile/web', 'apps/mobile/windows'],
       prefetchSourceGeneratedPaths: ['apps/mobile/.dart_tool', 'apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/.gradle', 'apps/mobile/android/.kotlin', 'apps/mobile/android/app/src/main/java', 'apps/mobile/android/build', 'apps/mobile/android/local.properties', 'apps/mobile/build', 'apps/mobile/ios', 'apps/mobile/lib/.dart_tool', 'apps/mobile/linux', 'apps/mobile/macos', 'apps/mobile/web', 'apps/mobile/windows', 'apps/mobile/android/gradle/wrapper/gradle-wrapper.jar', 'apps/mobile/android/gradlew', 'apps/mobile/android/gradlew.bat'],
       sealedGeneratedInputPaths: ['apps/mobile/.dart_tool/package_config.json', 'apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/app/src/main/java'],

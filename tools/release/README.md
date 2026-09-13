@@ -132,9 +132,9 @@ therefore fails closed. Kotlin DSL may create a UUID-suffixed temporary
 accessor beside an already authenticated accessor; only those exact recorded
 sibling bases are transient, while every stable accessor remains read-only and
 guarded. One guarded, non-retained offline build stabilizes the offline Gradle
-model before that sealing step. Every pre-existing accessor is sealed and
-individually guarded during stabilization; only a bounded set of newly created,
-strictly named accessor identities may be added before the final whole-cache
+model before that sealing step. Every pre-existing accessor and compiled-script
+identity is sealed and individually guarded during stabilization; only a bounded
+set of newly created, strictly named identities may be added before the final whole-cache
 inventory and seal. The retained builds remove only prior build outputs;
 they reuse those sealed generated inputs so Gradle cannot introduce a new
 Kotlin DSL accessor identity between prefetch and evidence capture.
