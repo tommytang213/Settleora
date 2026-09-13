@@ -646,11 +646,17 @@ def excluded(relative, prefixes, transient_bases):
 
 def tree_digest(root, prefixes, transient_bases):
     digest = hashlib.sha256()
+    entry_count = 1
+    total_bytes = 0
     def record(kind, relative, extra=""):
         digest.update((kind + "\0" + (relative or ".") + extra + "\n").encode("utf-8"))
     def visit(directory, logical):
+        nonlocal entry_count, total_bytes
         record("dir", logical)
         for entry in sorted(os.scandir(directory), key=lambda item: os.fsencode(item.name)):
+            entry_count += 1
+            if entry_count > 250000:
+                raise RuntimeError("guarded tree exceeds its entry boundary")
             relative = (logical + "/" + entry.name).strip("/")
             if excluded(relative, prefixes, transient_bases):
                 continue
@@ -660,15 +666,25 @@ def tree_digest(root, prefixes, transient_bases):
             elif stat.S_ISDIR(metadata.st_mode):
                 visit(entry.path, relative)
             elif stat.S_ISREG(metadata.st_mode):
+                total_bytes += metadata.st_size
+                if total_bytes > 12 * 1024 * 1024 * 1024:
+                    raise RuntimeError("guarded tree exceeds its byte boundary")
                 file_digest = hashlib.sha256()
-                with open(entry.path, "rb", buffering=0) as stream:
+                file_fd = os.open(entry.path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+                try:
+                    opened = os.fstat(file_fd)
+                    if (opened.st_dev, opened.st_ino, opened.st_size, opened.st_mtime_ns, opened.st_ctime_ns) != (metadata.st_dev, metadata.st_ino, metadata.st_size, metadata.st_mtime_ns, metadata.st_ctime_ns):
+                        raise RuntimeError("guarded tree changed before inventory")
                     while True:
-                        chunk = stream.read(1024 * 1024)
+                        chunk = os.read(file_fd, 1024 * 1024)
                         if not chunk:
                             break
                         file_digest.update(chunk)
-                after = os.stat(entry.path, follow_symlinks=False)
-                if (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns) != (metadata.st_dev, metadata.st_ino, metadata.st_size, metadata.st_mtime_ns, metadata.st_ctime_ns):
+                    after = os.fstat(file_fd)
+                finally:
+                    os.close(file_fd)
+                current = os.stat(entry.path, follow_symlinks=False)
+                if (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns) != (metadata.st_dev, metadata.st_ino, metadata.st_size, metadata.st_mtime_ns, metadata.st_ctime_ns) or (current.st_dev, current.st_ino, current.st_size, current.st_mtime_ns, current.st_ctime_ns) != (metadata.st_dev, metadata.st_ino, metadata.st_size, metadata.st_mtime_ns, metadata.st_ctime_ns):
                     raise RuntimeError("guarded tree changed during inventory")
                 record("file", relative, "\0" + str(stat.S_IMODE(metadata.st_mode)) + "\0" + str(metadata.st_size) + "\0" + file_digest.hexdigest())
             else:
@@ -793,10 +809,14 @@ function guardedTreeDigest(root, excludedPrefixes = [], excludedTransientBases =
   const excluded = (relative) => excludedPrefixes.some((prefix) => relative === prefix || relative.startsWith(`${prefix}/`))
     || excludedTransientBases.some((base) => relative.startsWith(`${base}.tmp.`) && /^[0-9]+$/u.test(relative.slice(base.length + 5)));
   const digest = createHash('sha256');
+  let entryCount = 1;
+  let totalBytes = 0;
   const record = (kind, relative, extra = '') => digest.update(`${kind}\0${relative || '.'}${extra}\n`);
   const visit = (directory, logical) => {
     record('dir', logical);
     for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) => Buffer.from(left.name).compare(Buffer.from(right.name)))) {
+      entryCount += 1;
+      if (entryCount > 250_000) throw new Error('Guarded tree exceeds its entry boundary');
       const relative = logical ? `${logical}/${entry.name}` : entry.name;
       if (excluded(relative)) continue;
       const target = path.join(directory, entry.name);
@@ -804,12 +824,29 @@ function guardedTreeDigest(root, excludedPrefixes = [], excludedTransientBases =
       if (before.isSymbolicLink()) record('link', relative, `\0${readlinkSync(target)}`);
       else if (before.isDirectory()) visit(target, relative);
       else if (before.isFile()) {
-        const bytes = readFileSync(target);
-        const after = lstatSync(target, { bigint: true });
-        if (after.dev !== before.dev || after.ino !== before.ino || after.size !== before.size || after.mtimeNs !== before.mtimeNs || after.ctimeNs !== before.ctimeNs) {
-          throw new Error('Guarded tree changed during inventory');
+        totalBytes += Number(before.size);
+        if (!Number.isSafeInteger(totalBytes) || totalBytes > 12 * 1024 * 1024 * 1024) throw new Error('Guarded tree exceeds its byte boundary');
+        const descriptor = openSync(target, constants.O_RDONLY | constants.O_NOFOLLOW);
+        try {
+          const fileDigest = createHash('sha256');
+          const buffer = Buffer.allocUnsafe(1024 * 1024);
+          let offset = 0n;
+          while (true) {
+            const count = readSync(descriptor, buffer, 0, buffer.length, null);
+            if (count === 0) break;
+            offset += BigInt(count);
+            fileDigest.update(buffer.subarray(0, count));
+          }
+          const after = fstatSync(descriptor, { bigint: true });
+          const current = lstatSync(target, { bigint: true });
+          if (offset !== before.size || after.dev !== before.dev || after.ino !== before.ino || after.size !== before.size
+            || after.mtimeNs !== before.mtimeNs || after.ctimeNs !== before.ctimeNs || current.isSymbolicLink()
+            || current.dev !== before.dev || current.ino !== before.ino || current.size !== before.size
+            || current.mtimeNs !== before.mtimeNs || current.ctimeNs !== before.ctimeNs) throw new Error('Guarded tree changed during inventory');
+          record('file', relative, `\0${before.mode & 0o7777n}\0${before.size}\0${fileDigest.digest('hex')}`);
+        } finally {
+          closeSync(descriptor);
         }
-        record('file', relative, `\0${before.mode & 0o7777n}\0${before.size}\0${createHash('sha256').update(bytes).digest('hex')}`);
       } else throw new Error('Guarded tree contains an unsupported entry');
     }
   };

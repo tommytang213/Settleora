@@ -264,6 +264,10 @@ test('manifest rejects symlinks, malformed names, source maps and sensitive cont
       path.join(f.dist, 'app.js'),
       ['const value = "github_pat_\\', 'AAAAAAAAAAAAAAAAAAAAAAAA";'].join(''),
     ), /Potential sensitive/],
+    ['JavaScript unknown escape inside token prefix', (f) => writeFileSync(
+      path.join(f.dist, 'app.js'),
+      ['const value = "github\\_pat_', 'AAAAAAAAAAAAAAAAAAAAAAAA";'].join(''),
+    ), /Potential sensitive/],
     ['bearer token', (f) => writeFileSync(
       path.join(f.dist, 'config.txt'),
       ['Authorization: Bearer ', 'abcdefghijklmnop'].join(''),

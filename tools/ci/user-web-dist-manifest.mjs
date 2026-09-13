@@ -159,7 +159,7 @@ function decodeStaticScriptEscapesForScan(text) {
 function removeScriptEscapeBoundariesForScan(text) {
   // A credential prefix split by an otherwise invalid or deliberately partial
   // JavaScript escape must still be visible to the conservative public scan.
-  return text.replace(/\\(?:u\{[0-9A-Fa-f]{0,6}\}?|u[0-9A-Fa-f]{0,4}|x[0-9A-Fa-f]{0,2}|.)?/gu, '');
+  return text.replace(/\\/gu, '');
 }
 
 function git(args) {
