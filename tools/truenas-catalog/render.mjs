@@ -83,6 +83,27 @@ function boundedString(value, label, pattern, max = 255) {
   return value;
 }
 
+function canonicalDataset(value) {
+  boundedString(value, 'dataset', /^\/mnt\/[A-Za-z0-9._/-]+$/u, 1024);
+  if (path.posix.normalize(value) !== value || value.includes('..') || value.endsWith('/') || value === '/mnt') fail('dataset path is ambiguous');
+  let cursor = '/';
+  for (const segment of value.split('/').filter(Boolean)) {
+    cursor = path.join(cursor, segment);
+    try {
+      if (lstatSync(cursor).isSymbolicLink()) fail('dataset path contains a symbolic-link component');
+    } catch (error) {
+      if (error?.code === 'ENOENT') break;
+      throw error;
+    }
+  }
+  try {
+    return realpathSync(value);
+  } catch (error) {
+    if (error?.code === 'ENOENT') return value;
+    throw error;
+  }
+}
+
 export function validateConfig(config) {
   exactKeys(config, ['deploymentMode', 'bindAddress', 'httpsPort', 'hostname', 'certificateRef', 'postgres', 'rabbitmq', 'storage', 'migrationMode', 'acknowledgements'], 'config');
   if (config.deploymentMode !== 'lan-private') fail('Only lan-private deployment mode is supported');
@@ -110,12 +131,8 @@ export function validateConfig(config) {
   if (config.postgres.password !== SECRET_MARKERS[0] || config.rabbitmq.password !== SECRET_MARKERS[1]) {
     fail('Offline evidence rendering accepts only the documented redacted secret fixtures');
   }
-  const datasets = Object.values(config.storage);
-  for (const dataset of datasets) {
-    boundedString(dataset, 'dataset', /^\/mnt\/[A-Za-z0-9._/-]+$/u, 1024);
-    if (dataset.includes('..') || dataset.endsWith('/') || dataset === '/mnt') fail('dataset path is ambiguous');
-  }
-  if (new Set(datasets).size !== datasets.length) fail('datasets must be distinct');
+  const datasets = Object.values(config.storage).map(canonicalDataset);
+  if (new Set(datasets).size !== datasets.length) fail('datasets must resolve to distinct paths');
   if (!SAFE_MIGRATION_MODES.has(config.migrationMode)) fail('Unsupported or destructive migration mode');
   if (Object.values(config.acknowledgements).some((value) => value !== true)) fail('All safety acknowledgements are required');
   return config;

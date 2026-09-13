@@ -107,6 +107,8 @@ test('bounded form/config negative matrix fails closed', () => {
     ['missing rabbit dataset', (c) => { c.storage.rabbitmqDataset = ''; }],
     ['missing storage dataset', (c) => { c.storage.apiDataset = ''; }],
     ['dataset traversal', (c) => { c.storage.apiDataset = '/mnt/pool/../escape'; }],
+    ['dataset dot alias', (c) => { c.storage.apiDataset = `${c.storage.postgresDataset}/.`; }],
+    ['dataset repeated-slash alias', (c) => { c.storage.apiDataset = c.storage.postgresDataset.replace('/settleora/', '/settleora//'); }],
     ['duplicate datasets', (c) => { c.storage.apiDataset = c.storage.postgresDataset; }],
     ['missing rabbit identity', (c) => { c.rabbitmq.nodeHostname = ''; }],
     ['destructive migration', (c) => { c.migrationMode = 'force-allow-destructive'; }],

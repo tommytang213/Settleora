@@ -28,7 +28,7 @@
   {% do tpl.funcs.fail("Unsupported or destructive migration mode") %}
 {% endif %}
 {% for dataset in [values.storage.postgres_dataset, values.storage.rabbitmq_dataset, values.storage.api_storage_dataset] %}
-  {% if not tpl.funcs.match_regex(dataset, "^/mnt/[A-Za-z0-9._/-]+$") or ".." in dataset %}
+  {% if not tpl.funcs.match_regex(dataset, "^/mnt/[A-Za-z0-9._/-]+$") or ".." in dataset or "//" in dataset or "/./" in dataset or dataset.endswith("/.") %}
     {% do tpl.funcs.fail("Every dataset must be an unambiguous TrueNAS /mnt host path") %}
   {% endif %}
 {% endfor %}
