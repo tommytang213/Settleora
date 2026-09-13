@@ -445,10 +445,11 @@ export function toolchainTreeDigest(root, label, excludedPrefixes = [], excluded
   if ([...canonicalExcludedPrefixes, ...canonicalTransientBases].some((entry) => typeof entry !== 'string' || !entry || entry.startsWith('/') || entry.includes('\\')
     || entry.split('/').some((part) => !part || part === '.' || part === '..'))) throw new Error(`${label} exclusion inventory contains an unsafe path`);
   if (canonicalExcludedBasenames.some((entry) => typeof entry !== 'string' || !/^[A-Za-z0-9._+-]+$/u.test(entry))) throw new Error(`${label} basename exclusion inventory is invalid`);
-  const excluded = (relative) => canonicalExcludedPrefixes.some((prefix) => relative === prefix || relative.startsWith(`${prefix}/`))
-    || canonicalExcludedBasenames.includes(path.posix.basename(relative))
+  const excludedByPath = (relative) => canonicalExcludedPrefixes.some((prefix) => relative === prefix || relative.startsWith(`${prefix}/`))
     || canonicalTransientBases.some((base) => (relative.startsWith(`${base}.tmp.`) && /^[0-9]+$/u.test(relative.slice(base.length + 5)))
       || (relative.startsWith(`${base}-`) && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:\/.*)?$/u.test(relative.slice(base.length + 1))));
+  const excludedByBasename = (relative) => canonicalExcludedBasenames.includes(path.posix.basename(relative));
+  const excluded = (relative) => excludedByPath(relative) || excludedByBasename(relative);
   const rootMetadata = lstatSync(absoluteRoot, { throwIfNoEntry: false });
   if (!rootMetadata?.isDirectory() || rootMetadata.isSymbolicLink() || realpathSync(absoluteRoot) !== absoluteRoot) throw new Error(`${label} root is not a stable directory`);
   const records = [];
@@ -472,8 +473,12 @@ export function toolchainTreeDigest(root, label, excludedPrefixes = [], excluded
       const target = path.join(directory, entry.name);
       const relative = logicalDirectory ? `${logicalDirectory}/${entry.name}` : entry.name;
       if (!relative || relative.startsWith('../') || path.isAbsolute(relative)) throw new Error(`${label} contains an unsafe path`);
-      if (excluded(relative)) continue;
+      if (excludedByPath(relative)) continue;
       const metadata = lstatSync(target);
+      if (excludedByBasename(relative)) {
+        if (!metadata.isFile() || metadata.isSymbolicLink()) throw new Error(`${label} basename exclusion matched a non-regular file`);
+        continue;
+      }
       if (metadata.isDirectory()) {
         directoryCount += 1;
         if (directoryCount > 100_000) throw new Error(`${label} exceeds its directory-count boundary`);

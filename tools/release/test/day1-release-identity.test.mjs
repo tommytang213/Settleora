@@ -629,6 +629,12 @@ test('dependency inventory excludes declared volatile metadata but binds payload
   assert.deepEqual(before.excludedPaths, ['**/metadata.bin', 'active_roots']);
   write(root, 'files-2.1/library.jar', 'tampered dependency payload');
   assert.notEqual(toolchainTreeDigest(root, 'dependency payload fixture', ['active_roots'], [], false, ['metadata.bin']).sha256, before.sha256);
+  mkdirSync(path.join(root, 'transforms/metadata.bin'), { recursive: true });
+  write(root, 'transforms/metadata.bin/payload.jar', 'payload hidden by a directory basename');
+  assert.throws(
+    () => toolchainTreeDigest(root, 'dependency payload fixture', ['active_roots'], [], false, ['metadata.bin']),
+    /basename exclusion matched a non-regular file/,
+  );
 });
 
 test('toolchain mutation guard fails closed on a write during the guarded window', (t) => {
