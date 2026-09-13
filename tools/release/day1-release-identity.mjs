@@ -614,7 +614,7 @@ function collectAndroid(repoRoot, input, source) {
     !== hexDigest(input.verificationToolSha256, 'Observed Android apksigner JAR SHA-256')) {
     fail('Android signature verifier does not match build-time toolchain provenance');
   }
-  assertKeys(provenance.toolchainMutationGuard, ['algorithm', 'flutterExcludedTransientBases', 'pubExcludedBuildPaths', 'gradleWrapperLockPaths', 'gradleNativeLockPaths', 'gradleKotlinDslTransientBases', 'preStabilizationKotlinDslAccessorBases', 'gradleKotlinDslScriptTransientBases', 'preStabilizationKotlinDslScriptBases', 'prefetchSourceGeneratedPaths', 'sourceGeneratedPaths', 'sealedGeneratedInputPaths', 'sealedGradleExecutableCachePaths', 'runtimeGradleMutablePaths', 'outputsCapturedBeforeGuardExit', 'queueOverflowFailsClosed'], 'Android build provenance toolchain mutation guard');
+  assertKeys(provenance.toolchainMutationGuard, ['algorithm', 'flutterExcludedTransientBases', 'pubExcludedBuildPaths', 'gradleWrapperLockPaths', 'gradleNativeLockPaths', 'gradleKotlinDslTransientBases', 'preStabilizationKotlinDslAccessorBases', 'gradleKotlinDslScriptTransientBases', 'preStabilizationKotlinDslScriptBases', 'prefetchSourceGeneratedPaths', 'sourceGeneratedPaths', 'sealedGeneratedInputPaths', 'dartToolExcludedPaths', 'sealedGradleExecutableCachePaths', 'runtimeGradleMutablePaths', 'outputsCapturedBeforeGuardExit', 'outputsWriteSealedBeforeGuardExit', 'queueOverflowFailsClosed'], 'Android build provenance toolchain mutation guard');
   const guardedWrapperLock = Array.isArray(provenance.toolchainMutationGuard.gradleWrapperLockPaths) ? provenance.toolchainMutationGuard.gradleWrapperLockPaths[0] : '';
   const guardedGradleVersion = /^dists\/gradle-([0-9.]+)-(?:all|bin)\//u.exec(guardedWrapperLock)?.[1];
   const guardedNativeLocks = Array.isArray(provenance.toolchainMutationGuard.gradleNativeLockPaths) ? provenance.toolchainMutationGuard.gradleNativeLockPaths : [];
@@ -622,6 +622,7 @@ function collectAndroid(repoRoot, input, source) {
   const expectedSealedGradleExecutableCachePaths = [`caches/${guardedGradleVersion ?? ''}/dependencies-accessors`, `caches/${guardedGradleVersion ?? ''}/generated-gradle-jars`, `caches/${guardedGradleVersion ?? ''}/groovy-dsl`, `caches/${guardedGradleVersion ?? ''}/kotlin-dsl`, `caches/${guardedGradleVersion ?? ''}/transforms`, 'caches/jars-9'];
   if (provenance.toolchainMutationGuard.algorithm !== 'linux-inotify-authenticated-runner-v3' || provenance.toolchainMutationGuard.queueOverflowFailsClosed !== true
     || provenance.toolchainMutationGuard.outputsCapturedBeforeGuardExit !== true
+    || provenance.toolchainMutationGuard.outputsWriteSealedBeforeGuardExit !== true
     || !Array.isArray(provenance.toolchainMutationGuard.flutterExcludedTransientBases)
     || !Array.isArray(provenance.toolchainMutationGuard.pubExcludedBuildPaths)
     || !Array.isArray(provenance.toolchainMutationGuard.gradleWrapperLockPaths)
@@ -652,7 +653,8 @@ function collectAndroid(repoRoot, input, source) {
     || canonicalJson([...provenance.toolchainMutationGuard.preStabilizationKotlinDslScriptBases].sort()) !== canonicalJson(provenance.toolchainMutationGuard.preStabilizationKotlinDslScriptBases)
     || canonicalJson(provenance.toolchainMutationGuard.sourceGeneratedPaths) !== canonicalJson(['apps/mobile/.dart_tool', 'apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/.gradle', 'apps/mobile/android/.kotlin', 'apps/mobile/android/app/src/main/java', 'apps/mobile/android/build', 'apps/mobile/android/local.properties', 'apps/mobile/build', 'apps/mobile/ios', 'apps/mobile/lib/.dart_tool', 'apps/mobile/linux', 'apps/mobile/macos', 'apps/mobile/web', 'apps/mobile/windows'])
     || canonicalJson(provenance.toolchainMutationGuard.prefetchSourceGeneratedPaths) !== canonicalJson([...provenance.toolchainMutationGuard.sourceGeneratedPaths, 'apps/mobile/android/gradle/wrapper/gradle-wrapper.jar', 'apps/mobile/android/gradlew', 'apps/mobile/android/gradlew.bat'])
-    || canonicalJson(provenance.toolchainMutationGuard.sealedGeneratedInputPaths) !== canonicalJson(['apps/mobile/.dart_tool/package_config.json', 'apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/app/src/main/java'])
+    || canonicalJson(provenance.toolchainMutationGuard.sealedGeneratedInputPaths) !== canonicalJson(['apps/mobile/.dart_tool/package_config.json', 'apps/mobile/.dart_tool/package_graph.json', 'apps/mobile/.dart_tool/version', 'apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/app/src/main/java'])
+    || canonicalJson(provenance.toolchainMutationGuard.dartToolExcludedPaths) !== canonicalJson(['flutter_build', 'hooks_runner'])
     || canonicalJson(provenance.toolchainMutationGuard.sealedGradleExecutableCachePaths) !== canonicalJson(expectedSealedGradleExecutableCachePaths)
     || canonicalJson(provenance.toolchainMutationGuard.runtimeGradleMutablePaths) !== canonicalJson(expectedRuntimeGradleMutablePaths)
     || canonicalJson([...provenance.toolchainMutationGuard.flutterExcludedTransientBases].sort()) !== canonicalJson(provenance.toolchainMutationGuard.flutterExcludedTransientBases)) {

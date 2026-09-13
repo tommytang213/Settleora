@@ -1536,6 +1536,8 @@ function collectAndroidUnsafe(options, emit = true) {
     ], mobileRoot, [...toolchainConfiguration, prefetchSourceGuard, { label: 'android-signing-home', root: path.join(buildHome, '.android'), excludedPrefixes: [] }]);
     const sealedGeneratedInputPaths = [
       'apps/mobile/.dart_tool/package_config.json',
+      'apps/mobile/.dart_tool/package_graph.json',
+      'apps/mobile/.dart_tool/version',
       'apps/mobile/.flutter-plugins-dependencies',
       'apps/mobile/android/app/src/main/java',
     ];
@@ -1545,11 +1547,7 @@ function collectAndroidUnsafe(options, emit = true) {
       makeTreeReadOnly(absoluteInput, `Android generated build input ${relativeInput}`);
     }
     const dartToolRoot = path.join(mobileRoot, '.dart_tool');
-    const dartToolExcludedPaths = [...new Set([
-      ...readdirSync(dartToolRoot).filter((entry) => entry !== 'package_config.json'),
-      'flutter_build',
-      'hooks_runner',
-    ])].sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
+    const dartToolExcludedPaths = ['flutter_build', 'hooks_runner'];
     const prefetchBuildGeneratedPaths = prefetchSourceGeneratedPaths.filter((entry) => !['apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/app/src/main/java'].includes(entry));
     executeGuardedFlutter(flutter, [
       ['build', 'apk', '--release', '--no-pub'],
@@ -1773,7 +1771,7 @@ function collectAndroidUnsafe(options, emit = true) {
       dependencyCaches,
       gradleVerificationMetadataSha256: createHash('sha256').update(gitExec(['show', `${sourceBefore.commit}:apps/mobile/android/gradle/verification-metadata.xml`], { cwd: repoRoot })).digest('hex'),
       apksignerJarSha256: apksignerJar.sha256,
-      toolchainMutationGuard: { algorithm: 'linux-inotify-authenticated-runner-v3', flutterExcludedTransientBases: [...flutterMutableMetadata].sort((left, right) => Buffer.from(left).compare(Buffer.from(right))), pubExcludedBuildPaths, gradleWrapperLockPaths: runtimeWrapperLockPaths, gradleNativeLockPaths, gradleKotlinDslTransientBases, preStabilizationKotlinDslAccessorBases, gradleKotlinDslScriptTransientBases, preStabilizationKotlinDslScriptBases, prefetchSourceGeneratedPaths, sourceGeneratedPaths, sealedGeneratedInputPaths, sealedGradleExecutableCachePaths, runtimeGradleMutablePaths, outputsCapturedBeforeGuardExit: true, queueOverflowFailsClosed: true },
+      toolchainMutationGuard: { algorithm: 'linux-inotify-authenticated-runner-v3', flutterExcludedTransientBases: [...flutterMutableMetadata].sort((left, right) => Buffer.from(left).compare(Buffer.from(right))), pubExcludedBuildPaths, gradleWrapperLockPaths: runtimeWrapperLockPaths, gradleNativeLockPaths, gradleKotlinDslTransientBases, preStabilizationKotlinDslAccessorBases, gradleKotlinDslScriptTransientBases, preStabilizationKotlinDslScriptBases, prefetchSourceGeneratedPaths, sourceGeneratedPaths, sealedGeneratedInputPaths, dartToolExcludedPaths, sealedGradleExecutableCachePaths, runtimeGradleMutablePaths, outputsCapturedBeforeGuardExit: true, outputsWriteSealedBeforeGuardExit: true, queueOverflowFailsClosed: true },
       signingInputSha256: debugKeystore.sha256,
       signingCertificateSha256,
     };

@@ -125,7 +125,7 @@ the Android provenance binds toolchain and dependency-cache identities, Gradle
 verification-metadata identity, the authenticated-runner algorithm,
 transient-marker/build-directory subsets, and fail-closed queue-overflow policy.
 Immediately after the guarded dependency-resolution phase, the exact package
-configuration, plugin inventory, and generated Android registrant are made
+configuration, package graph, Flutter version marker, plugin inventory, and generated Android registrant are made
 read-only and added to the authenticated guard before the first APK build. The
 guarded exact-source dependency prefetch
 produces the version-scoped dependency-accessor, generated-JAR, Groovy DSL,

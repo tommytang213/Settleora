@@ -142,10 +142,12 @@ function fixture(t) {
       preStabilizationKotlinDslScriptBases: ['caches/8.14/kotlin-dsl/scripts/abcdef0123456789abcdef0123456789'],
       sourceGeneratedPaths: ['apps/mobile/.dart_tool', 'apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/.gradle', 'apps/mobile/android/.kotlin', 'apps/mobile/android/app/src/main/java', 'apps/mobile/android/build', 'apps/mobile/android/local.properties', 'apps/mobile/build', 'apps/mobile/ios', 'apps/mobile/lib/.dart_tool', 'apps/mobile/linux', 'apps/mobile/macos', 'apps/mobile/web', 'apps/mobile/windows'],
       prefetchSourceGeneratedPaths: ['apps/mobile/.dart_tool', 'apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/.gradle', 'apps/mobile/android/.kotlin', 'apps/mobile/android/app/src/main/java', 'apps/mobile/android/build', 'apps/mobile/android/local.properties', 'apps/mobile/build', 'apps/mobile/ios', 'apps/mobile/lib/.dart_tool', 'apps/mobile/linux', 'apps/mobile/macos', 'apps/mobile/web', 'apps/mobile/windows', 'apps/mobile/android/gradle/wrapper/gradle-wrapper.jar', 'apps/mobile/android/gradlew', 'apps/mobile/android/gradlew.bat'],
-      sealedGeneratedInputPaths: ['apps/mobile/.dart_tool/package_config.json', 'apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/app/src/main/java'],
+      sealedGeneratedInputPaths: ['apps/mobile/.dart_tool/package_config.json', 'apps/mobile/.dart_tool/package_graph.json', 'apps/mobile/.dart_tool/version', 'apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/app/src/main/java'],
+      dartToolExcludedPaths: ['flutter_build', 'hooks_runner'],
       sealedGradleExecutableCachePaths: ['caches/8.14/dependencies-accessors', 'caches/8.14/generated-gradle-jars', 'caches/8.14/groovy-dsl', 'caches/8.14/kotlin-dsl', 'caches/8.14/transforms', 'caches/jars-9'],
       runtimeGradleMutablePaths: ['.tmp', 'caches/CACHEDIR.TAG', 'caches/build-cache-1', 'caches/8.14/file-changes', 'caches/8.14/fileContent', 'caches/8.14/fileHashes', 'caches/8.14/gc.properties', 'caches/8.14/javaCompile', 'caches/8.14/jvms', 'caches/8.14/md-rule', 'caches/8.14/md-supplier', 'caches/8.14/dependencies-accessors/gc.properties', 'caches/8.14/generated-gradle-jars/generated-gradle-jars.lock', 'caches/8.14/groovy-dsl/gc.properties', 'caches/8.14/kotlin-dsl/gc.properties', 'caches/8.14/transforms/gc.properties', 'caches/jars-9/jars-9.lock', 'caches/gc.properties', 'caches/journal-1', 'caches/keyrings', 'caches/modules-2', 'android', 'daemon', 'kotlin-profile', 'notifications', 'workers', 'native/0.2.7/x86_64-linux-gnu/libgradle-fileevents.so.lock', 'wrapper/dists/gradle-8.14-all/c2qonpi39x1mddn7hk5gh9iqj/gradle-8.14-all.zip.lck'],
       outputsCapturedBeforeGuardExit: true,
+      outputsWriteSealedBeforeGuardExit: true,
       queueOverflowFailsClosed: true,
     },
     signingInput: { kind: 'explicit-debug-keystore-sha256-v1', sha256: '7'.repeat(64), certificateSha256: '3'.repeat(64) },
@@ -373,6 +375,16 @@ test('rejects Android provenance that broadens collector-owned cache exclusions'
   assert.throws(() => buildManifest(f.root, f.input), /mutation guard mismatch/);
 
   provenance.toolchainMutationGuard.gradleKotlinDslTransientBases = ['caches/8.14/kotlin-dsl/accessors/0123456789abcdef0123456789abcdef'];
+  provenance.toolchainMutationGuard.outputsWriteSealedBeforeGuardExit = false;
+  writeFileSync(f.input.android.buildProvenancePath, canonicalJson(provenance));
+  assert.throws(() => buildManifest(f.root, f.input), /mutation guard mismatch/);
+
+  provenance.toolchainMutationGuard.outputsWriteSealedBeforeGuardExit = true;
+  provenance.toolchainMutationGuard.dartToolExcludedPaths.push('package_config.json');
+  writeFileSync(f.input.android.buildProvenancePath, canonicalJson(provenance));
+  assert.throws(() => buildManifest(f.root, f.input), /mutation guard mismatch/);
+
+  provenance.toolchainMutationGuard.dartToolExcludedPaths.pop();
   provenance.signingInput.certificateSha256 = '4'.repeat(64);
   writeFileSync(f.input.android.buildProvenancePath, canonicalJson(provenance));
   assert.throws(() => buildManifest(f.root, f.input), /certificate does not match/);
