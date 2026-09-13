@@ -23,7 +23,7 @@ import {
   validatePublicationRunDocument,
   validatePublicationRunUrl,
 } from '../day1-release-identity.mjs';
-import { assertCleanCompletion, assertCommitHasNoSymlinks, canonicalAndroidInput, canonicalManifestPath, canonicalReleaseNotesInput, canonicalWebInput, copyBoundedFile, deterministicAndroidRebuildProjection, parseCanonicalJson, parseSingleApkSigner, retainReleaseNotes, runToolchainMutationGuardFixture, safeInput, sanitizedErrorMessage, toolchainTreeDigest, verificationRegistryReference } from '../day1-release-identity-cli.mjs';
+import { assertCleanCompletion, assertCommitHasNoSymlinks, canonicalAndroidInput, canonicalManifestPath, canonicalReleaseNotesInput, canonicalWebInput, copyBoundedFile, deterministicAndroidRebuildProjection, parseCanonicalJson, parseSingleApkSigner, retainReleaseNotes, runGuardedOutputDescriptorFixture, runToolchainMutationGuardFixture, safeInput, sanitizedErrorMessage, toolchainTreeDigest, verificationRegistryReference } from '../day1-release-identity-cli.mjs';
 
 const d = (character) => `sha256:${character.repeat(64)}`;
 const producerJson = (value) => `${JSON.stringify(value, null, 2)}\n`;
@@ -645,6 +645,17 @@ test('toolchain mutation guard retains one authenticated identity across phases'
   assert.throws(() => runToolchainMutationGuardFixture(configuration, 'pass'), /changed before its authenticated guard was installed/);
 });
 
+test('toolchain mutation guard passes its bounded output descriptor to the build child', (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), 'release-toolchain-output-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  writeFileSync(path.join(root, 'compiler'), 'trusted bytes');
+  const output = path.join(root, 'captured-output');
+  assert.equal(
+    runGuardedOutputDescriptorFixture([{ label: 'fixture', root, excludedPrefixes: ['captured-output'] }], output),
+    'guarded output',
+  );
+});
+
 test('toolchain mutation guard cannot report success after its build child kills it', (t) => {
   const root = mkdtempSync(path.join(tmpdir(), 'release-toolchain-guard-kill-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -936,8 +947,9 @@ test('release execution uses protected system runtimes and bypasses user plugin 
   assert.match(cliSource, /os\.MFD_CLOEXEC \| os\.MFD_ALLOW_SEALING/);
   assert.match(cliSource, /fcntl\.F_SEAL_WRITE \| fcntl\.F_SEAL_GROW \| fcntl\.F_SEAL_SHRINK \| fcntl\.F_SEAL_SEAL/);
   assert.match(cliSource, /passed_descriptors = json\.loads\(passed_inputs_json\)/);
-  assert.match(cliSource, /candidate_fd in sealed_outputs for candidate_fd in passed_descriptors/);
+  assert.match(cliSource, /any\(output_fd not in passed_descriptors for output_fd in sealed_outputs\)/);
   assert.match(cliSource, /const inheritedInputDescriptors = descriptors\.map/);
+  assert.match(cliSource, /const inheritedChildDescriptors = \[\.\.\.inheritedInputDescriptors, \.\.\.inheritedOutputDescriptors\]/);
   assert.match(cliSource, /watches\.setdefault\(watch, \[\]\)\.append/);
   assert.match(cliSource, /if source_fd != 0:\n    os\.close\(source_fd\)/);
   assert.match(cliSource, /if authorization_fd != 3:\n    os\.close\(authorization_fd\)/);

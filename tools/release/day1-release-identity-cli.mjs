@@ -744,7 +744,9 @@ try:
     changed = None
     sealed_outputs = json.loads(sealed_outputs_json)
     passed_descriptors = json.loads(passed_inputs_json)
-    if any(not isinstance(candidate_fd, int) or candidate_fd < 3 or candidate_fd >= 64 or candidate_fd in sealed_outputs for candidate_fd in passed_descriptors):
+    if (any(not isinstance(candidate_fd, int) or candidate_fd < 3 or candidate_fd >= 64 for candidate_fd in passed_descriptors)
+            or len(set(passed_descriptors)) != len(passed_descriptors)
+            or any(output_fd not in passed_descriptors for output_fd in sealed_outputs)):
         raise RuntimeError("guarded executable descriptor allowlist is invalid")
     for candidate_fd in passed_descriptors:
         os.fstat(candidate_fd)
@@ -917,7 +919,8 @@ function executeGuardedCommands(configuration, executable, inputs, commands, opt
       ? capture
       : { ...capture, targetFd: inheritedOutputDescriptors[capture.outputDescriptorIndex], target: undefined });
     const inheritedInputDescriptors = descriptors.map((_descriptor, index) => 3 + index);
-    const result = execFileSync(releaseCommand('python'), ['-I', '-S', '-c', guardedToolchainRunner, JSON.stringify(authenticatedConfiguration), JSON.stringify(commands), options.cwd, JSON.stringify(captures), JSON.stringify(options.sealOutputDescriptors ? inheritedOutputDescriptors : []), JSON.stringify(inheritedInputDescriptors)], {
+    const inheritedChildDescriptors = [...inheritedInputDescriptors, ...inheritedOutputDescriptors];
+    const result = execFileSync(releaseCommand('python'), ['-I', '-S', '-c', guardedToolchainRunner, JSON.stringify(authenticatedConfiguration), JSON.stringify(commands), options.cwd, JSON.stringify(captures), JSON.stringify(options.sealOutputDescriptors ? inheritedOutputDescriptors : []), JSON.stringify(inheritedChildDescriptors)], {
       cwd: '/usr/bin',
       env: options.env,
       encoding: options.encoding,
@@ -976,6 +979,22 @@ export function runToolchainMutationGuardFixture(configuration, script) {
     cwd: '/usr/bin',
     env: { PATH: '/usr/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' },
   });
+}
+
+export function runGuardedOutputDescriptorFixture(configuration, outputPath) {
+  const pythonPath = realpathSync(releaseCommand('python'));
+  const python = trustedTool(pythonPath, path.basename(pythonPath), 'system Python');
+  const descriptor = openSync(outputPath, constants.O_CREAT | constants.O_EXCL | constants.O_RDWR | constants.O_NOFOLLOW, 0o600);
+  try {
+    executeGuardedCommands(configuration, python, [], [['-I', '-S', '-c', 'import os; os.write(4, b"guarded output")']], {
+      cwd: '/usr/bin',
+      env: { PATH: '/usr/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' },
+      outputDescriptors: [descriptor],
+    });
+  } finally {
+    closeSync(descriptor);
+  }
+  return readFileSync(outputPath, 'utf8');
 }
 
 function assertSystemRuntime(root, label = 'Java runtime') {
