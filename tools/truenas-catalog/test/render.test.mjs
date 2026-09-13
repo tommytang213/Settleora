@@ -151,7 +151,7 @@ test('default HTTPS port uses the canonical passkey origin without an explicit p
   assert.equal(compose.services.api.environment.Auth__Passkeys__AllowedOrigins__0, `https://${config.hostname}`);
 });
 
-test('API dataset preflight does not follow restored probe or HOME symlinks', () => {
+test('API dataset and key-ring preflight does not follow restored probe or state symlinks', () => {
   const root = temp();
   const protectedFile = path.join(root, 'protected');
   const outsideHome = path.join(root, 'outside-home');
@@ -177,12 +177,22 @@ test('API dataset preflight does not follow restored probe or HOME symlinks', ()
   assert.equal(statSync(outsideHome).mode & 0o777, 0o755);
 
   unlinkSync(path.join(root, '.settleora-home'));
+  mkdirSync(path.join(root, '.settleora-home', '.aspnet'), { recursive: true });
+  symlinkSync('../../outside-home', path.join(root, '.settleora-home', '.aspnet', 'DataProtection-Keys'));
+  const keysRefused = spawnSync('/bin/sh', [script], { encoding: 'utf8' });
+  assert.equal(keysRefused.status, 70);
+  assert.match(keysRefused.stderr, /key path must not be a symlink/);
+  assert.equal(statSync(outsideHome).mode & 0o777, 0o755);
+
+  unlinkSync(path.join(root, '.settleora-home', '.aspnet', 'DataProtection-Keys'));
   const accepted = spawnSync('/bin/sh', [script], { encoding: 'utf8' });
   assert.equal(accepted.status, 0, accepted.stderr);
   assert.equal(readFileSync(protectedFile, 'utf8'), 'preserve-me');
   assert.equal(statSync(path.join(root, '.settleora-home')).isDirectory(), true);
   assert.equal(statSync(path.join(root, '.settleora-home')).mode & 0o777, 0o700);
+  assert.equal(statSync(path.join(root, '.settleora-home', '.aspnet', 'DataProtection-Keys')).mode & 0o777, 0o700);
   assert.deepEqual(readdirSync(root).filter((name) => name.startsWith('.settleora-write-probe.')), []);
+  assert.deepEqual(readdirSync(path.join(root, '.settleora-home', '.aspnet', 'DataProtection-Keys')).filter((name) => name.startsWith('.settleora-write-probe.')), []);
 });
 
 test('bounded form/config negative matrix fails closed', () => {

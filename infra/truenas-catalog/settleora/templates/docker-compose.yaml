@@ -215,6 +215,28 @@ data_real="$(readlink -f -- "$data_path")" || { echo >&2 "API startup refused: t
 home_real="$(readlink -f -- "$home_path")" || { echo >&2 "API startup refused: the persistent HOME path cannot be canonicalized."; exit 68; }
 [ "$home_real" = "$data_real/.settleora-home" ] || { echo >&2 "API startup refused: the persistent HOME path escapes the private storage dataset."; exit 68; }
 chmod 0700 -- "$home_path"
+aspnet_path="$home_path/.aspnet"
+[ ! -L "$aspnet_path" ] || { echo >&2 "API startup refused: the ASP.NET state path must not be a symlink."; exit 69; }
+if [ -e "$aspnet_path" ]; then
+  [ -d "$aspnet_path" ] || { echo >&2 "API startup refused: the ASP.NET state path must be a directory."; exit 69; }
+else
+  mkdir -m 0700 -- "$aspnet_path" || { echo >&2 "API startup refused: the ASP.NET state directory could not be created."; exit 69; }
+fi
+aspnet_real="$(readlink -f -- "$aspnet_path")" || { echo >&2 "API startup refused: the ASP.NET state path cannot be canonicalized."; exit 69; }
+[ "$aspnet_real" = "$home_real/.aspnet" ] || { echo >&2 "API startup refused: the ASP.NET state path escapes persistent HOME."; exit 69; }
+chmod 0700 -- "$aspnet_path"
+keys_path="$aspnet_path/DataProtection-Keys"
+[ ! -L "$keys_path" ] || { echo >&2 "API startup refused: the data-protection key path must not be a symlink."; exit 70; }
+if [ -e "$keys_path" ]; then
+  [ -d "$keys_path" ] || { echo >&2 "API startup refused: the data-protection key path must be a directory."; exit 70; }
+else
+  mkdir -m 0700 -- "$keys_path" || { echo >&2 "API startup refused: the data-protection key directory could not be created."; exit 70; }
+fi
+keys_real="$(readlink -f -- "$keys_path")" || { echo >&2 "API startup refused: the data-protection key path cannot be canonicalized."; exit 70; }
+[ "$keys_real" = "$aspnet_real/DataProtection-Keys" ] || { echo >&2 "API startup refused: the data-protection key path escapes persistent HOME."; exit 70; }
+chmod 0700 -- "$keys_path"
+keys_probe_dir="$(mktemp -d "$keys_path/.settleora-write-probe.XXXXXXXXXX")" || { echo >&2 "API startup refused: the data-protection key directory is not writable by UID/GID 999."; exit 71; }
+rmdir -- "$keys_probe_dir" || { echo >&2 "API startup refused: the data-protection key write probe could not be removed."; exit 71; }
 exec dotnet Settleora.Api.dll "$@"
 {% endset %}
 

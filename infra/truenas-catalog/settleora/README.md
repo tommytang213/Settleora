@@ -31,7 +31,9 @@ container or change dataset ownership.
 The existing Day 1 API dataset remains mounted at `/var/lib/settleora/storage`;
 the package persists ASP.NET data-protection state beneath its private
 `.settleora-home` directory without relocating existing stored files. Startup
-refuses a symlinked, non-directory, or canonically escaping persistent HOME.
+refuses symlinked, non-directory, or canonically escaping persistent HOME,
+ASP.NET state, and data-protection key paths, then probes the actual key
+directory for UID/GID `999:999` write access.
 All three
 dataset mappings are immutable after installation. Live TrueNAS lifecycle
 renders also resolve each host path through `filesystem.stat` and refuse

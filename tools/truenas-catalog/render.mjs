@@ -112,6 +112,28 @@ data_real="$(readlink -f -- "$data_path")" || { echo >&2 "API startup refused: t
 home_real="$(readlink -f -- "$home_path")" || { echo >&2 "API startup refused: the persistent HOME path cannot be canonicalized."; exit 68; }
 [ "$home_real" = "$data_real/.settleora-home" ] || { echo >&2 "API startup refused: the persistent HOME path escapes the private storage dataset."; exit 68; }
 chmod 0700 -- "$home_path"
+aspnet_path="$home_path/.aspnet"
+[ ! -L "$aspnet_path" ] || { echo >&2 "API startup refused: the ASP.NET state path must not be a symlink."; exit 69; }
+if [ -e "$aspnet_path" ]; then
+  [ -d "$aspnet_path" ] || { echo >&2 "API startup refused: the ASP.NET state path must be a directory."; exit 69; }
+else
+  mkdir -m 0700 -- "$aspnet_path" || { echo >&2 "API startup refused: the ASP.NET state directory could not be created."; exit 69; }
+fi
+aspnet_real="$(readlink -f -- "$aspnet_path")" || { echo >&2 "API startup refused: the ASP.NET state path cannot be canonicalized."; exit 69; }
+[ "$aspnet_real" = "$home_real/.aspnet" ] || { echo >&2 "API startup refused: the ASP.NET state path escapes persistent HOME."; exit 69; }
+chmod 0700 -- "$aspnet_path"
+keys_path="$aspnet_path/DataProtection-Keys"
+[ ! -L "$keys_path" ] || { echo >&2 "API startup refused: the data-protection key path must not be a symlink."; exit 70; }
+if [ -e "$keys_path" ]; then
+  [ -d "$keys_path" ] || { echo >&2 "API startup refused: the data-protection key path must be a directory."; exit 70; }
+else
+  mkdir -m 0700 -- "$keys_path" || { echo >&2 "API startup refused: the data-protection key directory could not be created."; exit 70; }
+fi
+keys_real="$(readlink -f -- "$keys_path")" || { echo >&2 "API startup refused: the data-protection key path cannot be canonicalized."; exit 70; }
+[ "$keys_real" = "$aspnet_real/DataProtection-Keys" ] || { echo >&2 "API startup refused: the data-protection key path escapes persistent HOME."; exit 70; }
+chmod 0700 -- "$keys_path"
+keys_probe_dir="$(mktemp -d "$keys_path/.settleora-write-probe.XXXXXXXXXX")" || { echo >&2 "API startup refused: the data-protection key directory is not writable by UID/GID 999."; exit 71; }
+rmdir -- "$keys_probe_dir" || { echo >&2 "API startup refused: the data-protection key write probe could not be removed."; exit 71; }
 exec dotnet Settleora.Api.dll "$@"
 `.replaceAll('$', () => '$$');
 
@@ -436,7 +458,7 @@ export function validateTopology(compose, identity, config) {
   if (compose.services.ingress.depends_on?.api?.condition !== 'service_healthy') fail('Ingress API-readiness gate is missing');
   if (canonicalJson(compose.services.api.entrypoint) !== canonicalJson(['/bin/sh', '/usr/local/bin/settleora-api-entrypoint.sh'])) fail('API storage preflight entrypoint is missing');
   const apiEntrypoint = String(compose.configs?.['settleora-api-entrypoint']?.content ?? '').replaceAll('$$', '$');
-  for (const required of ['data_path=/var/lib/settleora/storage', 'id -u', 'id -g', '[ -r "$data_path" ]', '[ -w "$data_path" ]', '[ -x "$data_path" ]', 'mktemp -d "$data_path/.settleora-write-probe.XXXXXXXXXX"', '[ ! -L "$home_path" ]', 'readlink -f -- "$data_path"', '[ "$home_real" = "$data_real/.settleora-home" ]', 'chmod 0700 -- "$home_path"', 'exec dotnet Settleora.Api.dll']) if (!apiEntrypoint.includes(required)) fail('API UID/GID 999 storage preflight is incomplete');
+  for (const required of ['data_path=/var/lib/settleora/storage', 'id -u', 'id -g', '[ -r "$data_path" ]', '[ -w "$data_path" ]', '[ -x "$data_path" ]', 'mktemp -d "$data_path/.settleora-write-probe.XXXXXXXXXX"', '[ ! -L "$home_path" ]', 'readlink -f -- "$data_path"', '[ "$home_real" = "$data_real/.settleora-home" ]', '[ ! -L "$aspnet_path" ]', '[ "$aspnet_real" = "$home_real/.aspnet" ]', '[ ! -L "$keys_path" ]', '[ "$keys_real" = "$aspnet_real/DataProtection-Keys" ]', 'mktemp -d "$keys_path/.settleora-write-probe.XXXXXXXXXX"', 'chmod 0700 -- "$home_path"', 'exec dotnet Settleora.Api.dll']) if (!apiEntrypoint.includes(required)) fail('API UID/GID 999 storage preflight is incomplete');
   if (canonicalJson(compose.services.ingress.entrypoint) !== canonicalJson(['/bin/sh', '/usr/local/bin/settleora-caddy-entrypoint.sh']) || compose.services.ingress.healthcheck?.test?.[1] !== '/tmp/settleora-caddy') fail('Ingress does not preserve capability-free Caddy startup');
   const caddyEntrypoint = String(compose.configs?.['settleora-caddy-entrypoint']?.content ?? '').replaceAll('$$', '$');
   for (const required of ['cp /usr/bin/caddy /tmp/settleora-caddy', 'chmod 0555 /tmp/settleora-caddy', 'exec /tmp/settleora-caddy "$@"']) if (!caddyEntrypoint.includes(required)) fail('Capability-free Caddy entrypoint is incomplete');
