@@ -55,9 +55,11 @@ const rabbitGuard = String(compose.configs?.['settleora-rabbitmq-entrypoint']?.c
 for (const required of ['expected_nodename="rabbit@$(hostname -s)"', 'RABBITMQ_MNESIA_BASE', 'persisted_nodename', 'exit 64', 'exit 65', 'exit 66']) if (!rabbitGuard.includes(required)) fail('Official RabbitMQ identity guard is incomplete');
 const internalNetworks = Object.entries(compose.networks ?? {}).filter(([, network]) => network?.internal === true && network?.labels?.['tn.network.internal'] === 'true').map(([name]) => name);
 if (internalNetworks.length !== 2 || compose.networks.edge?.internal === true || compose.networks.edge?.labels?.['tn.network.internal'] === 'true') fail('Official private network topology mismatch');
-const memberships = (service) => Object.keys(service.networks ?? {});
-if (!memberships(compose.services.ingress).includes('edge') || memberships(compose.services.ingress).length !== 2) fail('Official ingress network boundary mismatch');
-if (memberships(compose.services.api).length !== 2 || memberships(compose.services.postgres).length !== 1 || memberships(compose.services.rabbitmq).length !== 1 || memberships(compose.services.migrate).length !== 1) fail('Official backend network boundary mismatch');
+const memberships = (service) => Object.keys(service.networks ?? {}).sort();
+const expectedMemberships = { ingress: ['edge', 'ingress'], api: ['backend', 'ingress'], migrate: ['backend'], postgres: ['backend'], rabbitmq: ['backend'] };
+for (const [service, expected] of Object.entries(expectedMemberships)) {
+  if (canonicalJson(memberships(compose.services[service])) !== canonicalJson(expected)) fail(`Official ${service} network boundary mismatch`);
+}
 const targets = Object.values(compose.services).flatMap((service) => service.volumes ?? []).map((volume) => volume.target);
 for (const target of ['/var/lib/postgresql/data', '/var/lib/rabbitmq', '/var/lib/settleora/storage']) if (!targets.includes(target)) fail('Official dataset mapping missing');
 const caddy = String(compose.configs?.['settleora-caddyfile']?.content ?? '');

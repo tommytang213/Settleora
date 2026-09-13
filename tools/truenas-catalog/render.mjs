@@ -474,6 +474,11 @@ export function validateTopology(compose, identity, config) {
   }
   if (!compose.networks?.ingress?.internal || !compose.networks?.backend?.internal) fail('Backend networks must be internal');
   if (compose.networks?.edge?.internal) fail('Ingress edge network cannot be internal');
+  const memberships = (service) => Array.isArray(service.networks) ? [...service.networks].sort() : Object.keys(service.networks ?? {}).sort();
+  const expectedMemberships = { ingress: ['edge', 'ingress'], api: ['backend', 'ingress'], migrate: ['backend'], postgres: ['backend'], rabbitmq: ['backend'] };
+  for (const [service, expected] of Object.entries(expectedMemberships)) {
+    if (canonicalJson(memberships(compose.services[service])) !== canonicalJson(expected)) fail(`${service} network boundary is unsafe`);
+  }
   if (publishedPorts(compose.services.api).length || publishedPorts(compose.services.postgres).length || publishedPorts(compose.services.rabbitmq).length || publishedPorts(compose.services.migrate).length) fail('Private service exposure detected');
   const caddy = String(compose.configs?.['settleora-caddyfile']?.content ?? '');
   if (!caddy.includes(`https://${config.hostname}:8443`) || !caddy.includes('auto_https off') || !caddy.includes('tls /run/settleora-tls/tls.crt /run/settleora-tls/tls.key') || !caddy.includes('reverse_proxy api:8080')) fail('Private HTTPS topology is incomplete');

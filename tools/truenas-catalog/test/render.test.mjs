@@ -53,6 +53,8 @@ test('official TrueNAS 25.10 package skeleton uses current Docker Apps layout an
   for (const variable of ['postgres_dataset', 'rabbitmq_dataset', 'api_storage_dataset']) {
     assert.equal(storageFields.find((field) => field.variable === variable).schema.immutable, true, `${variable} must be immutable after initialization`);
   }
+  const networkFields = questions.questions.find((question) => question.variable === 'network').schema.attrs;
+  assert.equal(networkFields.find((field) => field.variable === 'hostname').schema.immutable, true, 'passkey relying-party hostname must be immutable after installation');
   assert.match(template, /filesystem\.stat/);
   assert.match(template, /for path_segment in dataset\.split/);
   assert.match(template, /prefix_stat\.realpath != path_prefix\.value/);
@@ -289,6 +291,9 @@ test('topology negative matrix rejects exposure, unsupported services, identity 
     (c) => { delete c.services.migrate.depends_on.postgres; },
     (c) => { c.services.rabbitmq.environment.RABBITMQ_NODENAME = 'rabbit@other'; },
     (c) => { c.networks.backend.internal = false; },
+    (c) => { c.services.ingress.networks = ['edge', 'backend']; },
+    (c) => { c.services.api.networks = ['ingress', 'edge']; },
+    (c) => { c.services.postgres.networks = ['ingress']; },
     (c) => { c.services.ingress.ports[0].host_ip = '0.0.0.0'; },
     (c) => { c.configs['settleora-caddyfile'].content = 'http://api:8080'; },
     (c) => { c.services.api.volumes = []; },

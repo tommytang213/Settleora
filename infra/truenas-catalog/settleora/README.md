@@ -17,7 +17,10 @@ certificate management, or destructive-migration option.
 
 The selected TrueNAS certificate must be externally managed and trusted by the
 operator's clients, and its SAN must exactly contain the configured private
-hostname. This repository cannot prove that live trust relationship.
+hostname. The hostname is immutable after installation because it is the
+passkey relying-party identity; changing it requires separately planned user
+re-enrollment. This repository cannot prove the live certificate trust
+relationship.
 
 Before install or upgrade, verify a coordinated backup of PostgreSQL, API local
 file storage and its ASP.NET data-protection key ring, RabbitMQ state where
