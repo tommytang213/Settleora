@@ -1390,7 +1390,22 @@ function collectAndroidUnsafe(options, emit = true) {
     });
     makeTreeReadOnly(runtimeModules, 'Gradle runtime module dependency cache');
     chmodSync(runtimeModules, 0o700);
-    const sealedGradleExecutableCaches = ['jars-9'];
+    const sealedGradleExecutableCachePaths = [
+      `caches/${gradleRuntimeVersion}/dependencies-accessors`,
+      `caches/${gradleRuntimeVersion}/generated-gradle-jars`,
+      `caches/${gradleRuntimeVersion}/groovy-dsl`,
+      `caches/${gradleRuntimeVersion}/kotlin-dsl`,
+      `caches/${gradleRuntimeVersion}/transforms`,
+      'caches/jars-9',
+    ];
+    const sealedGradleExecutableMutablePaths = [
+      `caches/${gradleRuntimeVersion}/dependencies-accessors/gc.properties`,
+      `caches/${gradleRuntimeVersion}/generated-gradle-jars/generated-gradle-jars.lock`,
+      `caches/${gradleRuntimeVersion}/groovy-dsl/gc.properties`,
+      `caches/${gradleRuntimeVersion}/kotlin-dsl/gc.properties`,
+      `caches/${gradleRuntimeVersion}/transforms/gc.properties`,
+      'caches/jars-9/jars-9.lock',
+    ];
     makeTreeReadOnly(runtimeWrapper, 'Gradle runtime wrapper distribution');
     chmodSync(path.join(runtimeWrapper, runtimeWrapperLockPaths[0]), 0o600);
     const dependencyCaches = {
@@ -1411,8 +1426,8 @@ function collectAndroidUnsafe(options, emit = true) {
       { label: 'gradle-wrapper-distribution', root: runtimeWrapper, excludedPrefixes: runtimeWrapperLockPaths },
       { label: 'android-signing-home', root: path.join(buildHome, '.android'), excludedPrefixes: [] },
     ];
-    const runtimeGradleMutablePaths = ['.tmp', `caches/${gradleRuntimeVersion}`, 'caches/CACHEDIR.TAG', 'caches/build-cache-1', 'caches/gc.properties', 'caches/jars-9/jars-9.lock', 'caches/journal-1', 'caches/keyrings', 'caches/modules-2', 'android', 'daemon', 'kotlin-profile', 'native', 'notifications', 'workers', ...runtimeWrapperLockPaths.map((entry) => `wrapper/${entry}`)];
-    const primingRuntimeGradleMutablePaths = [...runtimeGradleMutablePaths, ...sealedGradleExecutableCaches.map((entry) => `caches/${entry}`)];
+    const runtimeGradleMutablePaths = ['.tmp', 'caches/CACHEDIR.TAG', 'caches/build-cache-1', `caches/${gradleRuntimeVersion}/file-changes`, `caches/${gradleRuntimeVersion}/fileContent`, `caches/${gradleRuntimeVersion}/fileHashes`, `caches/${gradleRuntimeVersion}/gc.properties`, `caches/${gradleRuntimeVersion}/javaCompile`, `caches/${gradleRuntimeVersion}/jvms`, `caches/${gradleRuntimeVersion}/md-rule`, `caches/${gradleRuntimeVersion}/md-supplier`, ...sealedGradleExecutableMutablePaths, 'caches/gc.properties', 'caches/journal-1', 'caches/keyrings', 'caches/modules-2', 'android', 'daemon', 'kotlin-profile', 'native', 'notifications', 'workers', ...runtimeWrapperLockPaths.map((entry) => `wrapper/${entry}`)];
+    const primingRuntimeGradleMutablePaths = [...runtimeGradleMutablePaths, ...sealedGradleExecutableCachePaths];
     const runtimeGradlePrimeGuard = { label: 'gradle-runtime-home', root: runtimeGradleHome, excludedPrefixes: primingRuntimeGradleMutablePaths };
     offlineGuardConfiguration.push(runtimeGradlePrimeGuard);
     const files = {
@@ -1427,15 +1442,15 @@ function collectAndroidUnsafe(options, emit = true) {
       ['pub', 'get', '--offline'],
       ['build', 'apk', '--release', '--no-pub'],
     ], mobileRoot, offlineGuardConfiguration);
-    for (const cacheName of sealedGradleExecutableCaches) {
-      const runtimeCache = path.join(runtimeGradleHome, 'caches', cacheName);
-      if (!lstatSync(runtimeCache, { throwIfNoEntry: false })?.isDirectory()) throw new Error(`Android offline cache prime did not produce Gradle ${cacheName}`);
-      makeTreeReadOnly(runtimeCache, `Gradle runtime executable cache ${cacheName}`);
-      if (cacheName === 'jars-9') {
-        const lockPath = path.join(runtimeCache, 'jars-9.lock');
-        if (!lstatSync(lockPath, { throwIfNoEntry: false })?.isFile()) throw new Error('Gradle generated-JAR cache lock is missing');
-        chmodSync(lockPath, 0o600);
-      }
+    for (const relativeCache of sealedGradleExecutableCachePaths) {
+      const runtimeCache = path.join(runtimeGradleHome, relativeCache);
+      if (!lstatSync(runtimeCache, { throwIfNoEntry: false })?.isDirectory()) throw new Error(`Android offline cache prime did not produce Gradle ${relativeCache}`);
+      makeTreeReadOnly(runtimeCache, `Gradle runtime executable cache ${relativeCache}`);
+    }
+    for (const relativeMutable of sealedGradleExecutableMutablePaths) {
+      const mutableFile = path.join(runtimeGradleHome, relativeMutable);
+      if (!lstatSync(mutableFile, { throwIfNoEntry: false })?.isFile()) throw new Error(`Gradle executable-cache coordination file is missing: ${relativeMutable}`);
+      chmodSync(mutableFile, 0o600);
     }
     const sealedGeneratedInputPaths = [
       'apps/mobile/.dart_tool/package_config.json',
@@ -1508,7 +1523,7 @@ function collectAndroidUnsafe(options, emit = true) {
       dependencyCaches,
       gradleVerificationMetadataSha256: createHash('sha256').update(gitExec(['show', `${sourceBefore.commit}:apps/mobile/android/gradle/verification-metadata.xml`], { cwd: repoRoot })).digest('hex'),
       apksignerJarSha256: apksignerJar.sha256,
-      toolchainMutationGuard: { algorithm: 'linux-inotify-authenticated-runner-v3', flutterExcludedTransientBases: [...flutterMutableMetadata].sort((left, right) => Buffer.from(left).compare(Buffer.from(right))), pubExcludedBuildPaths, gradleWrapperLockPaths: runtimeWrapperLockPaths, prefetchSourceGeneratedPaths, sourceGeneratedPaths, sealedGeneratedInputPaths, sealedGradleExecutableCachePaths: sealedGradleExecutableCaches.map((entry) => `caches/${entry}`), runtimeGradleMutablePaths, outputsCapturedBeforeGuardExit: true, queueOverflowFailsClosed: true },
+      toolchainMutationGuard: { algorithm: 'linux-inotify-authenticated-runner-v3', flutterExcludedTransientBases: [...flutterMutableMetadata].sort((left, right) => Buffer.from(left).compare(Buffer.from(right))), pubExcludedBuildPaths, gradleWrapperLockPaths: runtimeWrapperLockPaths, prefetchSourceGeneratedPaths, sourceGeneratedPaths, sealedGeneratedInputPaths, sealedGradleExecutableCachePaths, runtimeGradleMutablePaths, outputsCapturedBeforeGuardExit: true, queueOverflowFailsClosed: true },
       signingInputSha256: debugKeystore.sha256,
       signingCertificateSha256,
     };
