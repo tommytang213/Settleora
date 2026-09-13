@@ -589,6 +589,9 @@ function collectAndroid(repoRoot, input, source) {
     fail('Android signature verifier does not match build-time toolchain provenance');
   }
   assertKeys(provenance.toolchainMutationGuard, ['algorithm', 'flutterExcludedTransientBases', 'pubExcludedBuildPaths', 'gradleWrapperLockPaths', 'prefetchSourceGeneratedPaths', 'sourceGeneratedPaths', 'runtimeGradleMutablePaths', 'outputsCapturedBeforeGuardExit', 'queueOverflowFailsClosed'], 'Android build provenance toolchain mutation guard');
+  const guardedWrapperLock = Array.isArray(provenance.toolchainMutationGuard.gradleWrapperLockPaths) ? provenance.toolchainMutationGuard.gradleWrapperLockPaths[0] : '';
+  const guardedGradleVersion = /^dists\/gradle-([0-9.]+)-(?:all|bin)\//u.exec(guardedWrapperLock)?.[1];
+  const expectedRuntimeGradleMutablePaths = ['.tmp', `caches/${guardedGradleVersion ?? ''}`, 'caches/CACHEDIR.TAG', 'caches/build-cache-1', 'caches/gc.properties', 'caches/jars-9', 'caches/journal-1', 'caches/keyrings', 'caches/modules-2', 'caches/transforms-4', 'daemon', 'native', 'notifications', 'workers', `wrapper/${guardedWrapperLock}`];
   if (provenance.toolchainMutationGuard.algorithm !== 'linux-inotify-authenticated-runner-v3' || provenance.toolchainMutationGuard.queueOverflowFailsClosed !== true
     || provenance.toolchainMutationGuard.outputsCapturedBeforeGuardExit !== true
     || !Array.isArray(provenance.toolchainMutationGuard.flutterExcludedTransientBases)
@@ -596,11 +599,7 @@ function collectAndroid(repoRoot, input, source) {
     || !Array.isArray(provenance.toolchainMutationGuard.gradleWrapperLockPaths)
     || canonicalJson(provenance.toolchainMutationGuard.sourceGeneratedPaths) !== canonicalJson(['apps/mobile/.dart_tool', 'apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/.gradle', 'apps/mobile/android/.kotlin', 'apps/mobile/android/app/src/main/java', 'apps/mobile/android/local.properties', 'apps/mobile/build', 'apps/mobile/ios', 'apps/mobile/lib/.dart_tool', 'apps/mobile/linux', 'apps/mobile/macos', 'apps/mobile/web', 'apps/mobile/windows'])
     || canonicalJson(provenance.toolchainMutationGuard.prefetchSourceGeneratedPaths) !== canonicalJson([...provenance.toolchainMutationGuard.sourceGeneratedPaths, 'apps/mobile/android/gradle/wrapper/gradle-wrapper.jar', 'apps/mobile/android/gradlew', 'apps/mobile/android/gradlew.bat'])
-    || !/^caches\/[0-9.]+$/u.test(provenance.toolchainMutationGuard.runtimeGradleMutablePaths[1])
-    || canonicalJson([provenance.toolchainMutationGuard.runtimeGradleMutablePaths[0], ...provenance.toolchainMutationGuard.runtimeGradleMutablePaths.slice(2, 12)]) !== canonicalJson(['.tmp', 'caches/CACHEDIR.TAG', 'caches/build-cache-1', 'caches/jars-9', 'caches/journal-1', 'caches/modules-2', 'caches/transforms-4', 'daemon', 'native', 'notifications', 'workers'])
-    || provenance.toolchainMutationGuard.runtimeGradleMutablePaths.length !== 13
-    || provenance.toolchainMutationGuard.runtimeGradleMutablePaths[12] !== `wrapper/${provenance.toolchainMutationGuard.gradleWrapperLockPaths[0]}`
-    || provenance.toolchainMutationGuard.runtimeGradleMutablePaths[1].slice('caches/'.length) !== /^dists\/gradle-([0-9.]+)-(?:all|bin)\//u.exec(provenance.toolchainMutationGuard.gradleWrapperLockPaths[0])?.[1]
+    || canonicalJson(provenance.toolchainMutationGuard.runtimeGradleMutablePaths) !== canonicalJson(expectedRuntimeGradleMutablePaths)
     || canonicalJson([...provenance.toolchainMutationGuard.flutterExcludedTransientBases].sort()) !== canonicalJson(provenance.toolchainMutationGuard.flutterExcludedTransientBases)) {
     fail('Android build provenance toolchain mutation guard mismatch');
   }
