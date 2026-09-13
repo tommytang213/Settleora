@@ -256,8 +256,15 @@ test('rejects source, API revision, API digest and floating-tag mismatches', (t)
   const publicationLog = `pushing manifest for ghcr.io/tommytang213/settleora-api:sha-${f.commit}@${f.input.apiImage.indexDigest} done\n  "containerimage.digest": "${f.input.apiImage.indexDigest}"\n`;
   assert.equal(validatePublicationJobLog(publicationLog, f.input.apiImage, f.commit), true);
   assert.throws(() => validatePublicationJobLog(publicationLog.replaceAll(f.input.apiImage.indexDigest, d('9')), f.input.apiImage, f.commit), /publication log digest mismatch/);
-  const provenance = { runDetails: { builder: { id: `${publication.url}/attempts/1` } }, buildDefinition: { resolvedDependencies: f.input.apiImage.buildMaterials.map((material) => ({ uri: material.uri, digest: { sha256: material.digest.slice(7) } })), externalParameters: { request: { root: { configSource: { request: { args: { 'vcs:revision': f.commit, 'vcs:source': 'https://github.com/tommytang213/Settleora' } } } } } } } };
+  const provenance = { runDetails: { builder: { id: `${publication.url}/attempts/1` } }, buildDefinition: { resolvedDependencies: f.input.apiImage.buildMaterials.map((material) => ({ uri: material.uri, digest: { sha256: material.digest.slice(7) } })), externalParameters: { request: { root: { configSource: { path: 'Dockerfile' }, request: { args: { 'vcs:revision': f.commit, 'vcs:source': 'https://github.com/tommytang213/Settleora', 'vcs:localdir:context': '.', 'vcs:localdir:dockerfile': 'services/api', 'label:org.opencontainers.image.revision': f.commit, 'label:org.opencontainers.image.source': 'https://github.com/tommytang213/Settleora' } } } } } } };
   assert.equal(validatePublicationProvenance(publication, provenance, f.commit, f.input.apiImage), true);
+  const misplacedVcs = structuredClone(provenance);
+  misplacedVcs.buildDefinition.externalParameters.request.root.configSource.request = misplacedVcs.buildDefinition.externalParameters.request.root.request;
+  delete misplacedVcs.buildDefinition.externalParameters.request.root.request;
+  assert.throws(() => validatePublicationProvenance(publication, misplacedVcs, f.commit, f.input.apiImage), /provenance attestation mismatch/);
+  const wrongDockerfile = structuredClone(provenance);
+  wrongDockerfile.buildDefinition.externalParameters.request.root.request.args['vcs:localdir:dockerfile'] = '.';
+  assert.throws(() => validatePublicationProvenance(publication, wrongDockerfile, f.commit, f.input.apiImage), /provenance attestation mismatch/);
   const wrongMaterials = structuredClone(provenance);
   wrongMaterials.buildDefinition.resolvedDependencies[0].digest.sha256 = '9'.repeat(64);
   assert.throws(() => validatePublicationProvenance(publication, wrongMaterials, f.commit, f.input.apiImage), /resolved build-material mismatch/);
