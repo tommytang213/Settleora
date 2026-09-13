@@ -1,0 +1,197 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import YAML from 'yaml';
+import {
+  OFFICIAL_APPS_COMMIT,
+  OFFICIAL_LIBRARY_HASH,
+  OFFICIAL_LIBRARY_VERSION,
+  SECRET_MARKERS,
+  consumeReleaseIdentity,
+  materialize,
+  packageSource,
+  renderCompose,
+  safeReadJson,
+  sha256,
+  validateConfig,
+  validateTopology,
+} from '../render.mjs';
+import { clone, fixtureConfig, repoRoot, syntheticManifest } from './helpers.mjs';
+
+const temp = () => mkdtempSync(path.join(os.tmpdir(), 'settleora-r04-'));
+
+test('official TrueNAS 25.10 package skeleton uses current Docker Apps layout and bounded metadata', () => {
+  for (const file of ['app.yaml', 'item.yaml', 'ix_values.yaml', 'questions.yaml', 'README.md', 'templates/docker-compose.yaml']) {
+    assert.ok(readFileSync(path.join(packageSource, file)).length > 0);
+  }
+  const app = YAML.parse(readFileSync(path.join(packageSource, 'app.yaml'), 'utf8'));
+  assert.equal(app.lib_version, OFFICIAL_LIBRARY_VERSION);
+  assert.equal(app.lib_version_hash, OFFICIAL_LIBRARY_HASH);
+  assert.equal(app.screenshots.length, 0);
+  assert.match(OFFICIAL_APPS_COMMIT, /^[0-9a-f]{40}$/);
+  assert.ok(readFileSync(path.join(packageSource, 'templates/library/base_v2_3_11/container.py'), 'utf8').includes('"platform": "linux/amd64"'));
+});
+
+test('semantic R03 consumer creates immutable selected-platform runtime references', () => {
+  const manifest = syntheticManifest();
+  const identity = consumeReleaseIdentity(manifest);
+  assert.match(identity.images.api, new RegExp(`:${manifest.apiImage.configuredTag}@${manifest.apiImage.platformDigest}$`));
+  for (const image of Object.values(identity.images)) {
+    assert.match(image, /@sha256:[0-9a-f]{64}$/);
+    assert.doesNotMatch(image, /:(?:main|latest)(?:@|$)/);
+  }
+});
+
+test('deterministic materialization repeats byte-identical package and compose identities', () => {
+  const root = temp();
+  const first = materialize({ manifest: syntheticManifest(), config: clone(fixtureConfig), output: path.join(root, 'one') });
+  const second = materialize({ manifest: syntheticManifest(), config: clone(fixtureConfig), output: path.join(root, 'two') });
+  assert.equal(first.packetSha256, second.packetSha256);
+  assert.equal(first.plan.renderedComposeSha256, second.plan.renderedComposeSha256);
+  assert.equal(readFileSync(path.join(first.output, 'install-plan.json'), 'utf8'), readFileSync(path.join(second.output, 'install-plan.json'), 'utf8'));
+  assert.equal(readFileSync(path.join(first.output, 'rendered/docker-compose.yaml'), 'utf8'), readFileSync(path.join(second.output, 'rendered/docker-compose.yaml'), 'utf8'));
+  assert.equal(first.plan.actions.published, false);
+  assert.equal(first.plan.actions.deployed, false);
+  assert.equal(first.plan.applicationRelease.commit, syntheticManifest().source.commit);
+  assert.match(first.plan.packageSource.repositoryCommit, /^[0-9a-f]{40}$/);
+  assert.match(first.plan.packageSource.repositoryTree, /^[0-9a-f]{40}$/);
+  assert.match(first.plan.packageSource.contentSha256, /^[0-9a-f]{64}$/);
+});
+
+test('rendered topology preserves R11, R12, private services, datasets, and migration failure gating', () => {
+  const identity = consumeReleaseIdentity(syntheticManifest());
+  const compose = renderCompose(identity, fixtureConfig);
+  assert.deepEqual(Object.keys(compose.services).sort(), ['api', 'ingress', 'migrate', 'postgres', 'rabbitmq']);
+  assert.equal(compose.services.ingress.ports.length, 1);
+  for (const service of ['api', 'migrate', 'postgres', 'rabbitmq']) assert.equal(compose.services[service].ports, undefined);
+  assert.equal(compose.services.api.depends_on.migrate.condition, 'service_completed_successfully');
+  assert.equal(compose.services.migrate.depends_on.postgres.condition, 'service_healthy');
+  assert.equal(compose.services.rabbitmq.hostname, fixtureConfig.rabbitmq.nodeHostname);
+  assert.equal(compose.services.rabbitmq.environment.RABBITMQ_NODENAME, `rabbit@${fixtureConfig.rabbitmq.nodeHostname}`);
+  assert.match(compose.configs['settleora-rabbitmq-entrypoint'].content, /persisted_nodename/);
+  assert.equal(compose.networks.ingress.internal, true);
+  assert.equal(compose.networks.backend.internal, true);
+  assert.equal(compose.networks.edge.internal, undefined);
+  assert.match(compose.configs['settleora-caddyfile'].content, /auto_https off/);
+});
+
+test('bounded form/config negative matrix fails closed', () => {
+  const cases = [
+    ['public mode', (c) => { c.deploymentMode = 'public'; }],
+    ['wildcard ingress', (c) => { c.bindAddress = '0.0.0.0'; }],
+    ['loopback ingress', (c) => { c.bindAddress = '127.0.0.1'; }],
+    ['public ingress', (c) => { c.bindAddress = '203.0.113.10'; }],
+    ['missing hostname', (c) => { c.hostname = ''; }],
+    ['documentation hostname', (c) => { c.hostname = 'settleora.example.com'; }],
+    ['missing certificate', (c) => { c.certificateRef = ''; }],
+    ['missing postgres secret', (c) => { c.postgres.password = ''; }],
+    ['missing rabbit secret', (c) => { c.rabbitmq.password = ''; }],
+    ['missing postgres dataset', (c) => { c.storage.postgresDataset = ''; }],
+    ['missing rabbit dataset', (c) => { c.storage.rabbitmqDataset = ''; }],
+    ['missing storage dataset', (c) => { c.storage.apiDataset = ''; }],
+    ['dataset traversal', (c) => { c.storage.apiDataset = '/mnt/pool/../escape'; }],
+    ['duplicate datasets', (c) => { c.storage.apiDataset = c.storage.postgresDataset; }],
+    ['missing rabbit identity', (c) => { c.rabbitmq.nodeHostname = ''; }],
+    ['destructive migration', (c) => { c.migrationMode = 'force-allow-destructive'; }],
+    ['missing LAN acknowledgement', (c) => { c.acknowledgements.lanOnly = false; }],
+    ['missing backup acknowledgement', (c) => { c.acknowledgements.backupBeforeUpgrade = false; }],
+    ['missing rollback acknowledgement', (c) => { c.acknowledgements.rollbackLimit = false; }],
+    ['unsupported injection', (c) => { c.webAdmin = true; }],
+  ];
+  for (const [name, mutate] of cases) {
+    const config = clone(fixtureConfig);
+    mutate(config);
+    assert.throws(() => validateConfig(config), undefined, name);
+  }
+});
+
+test('R03 source, identity, mutable reference, and platform mismatches fail closed', () => {
+  const cases = [
+    (m) => { m.identityDigest = '0'.repeat(64); },
+    (m) => { m.source.tree = '0'.repeat(40); },
+    (m) => { m.apiImage.configuredTag = 'main'; },
+    (m) => { m.apiImage.platformDigest = 'sha256:' + '0'.repeat(64); },
+    (m) => { m.apiImage.architecture = 'arm64'; },
+    (m) => { m.dependencyImages[0].architecture = 'arm64'; },
+  ];
+  for (const mutate of cases) {
+    const manifest = syntheticManifest();
+    mutate(manifest);
+    assert.throws(() => consumeReleaseIdentity(manifest));
+  }
+});
+
+test('topology negative matrix rejects exposure, unsupported services, identity drift, and start-order drift', () => {
+  const identity = consumeReleaseIdentity(syntheticManifest());
+  const base = renderCompose(identity, fixtureConfig);
+  const cases = [
+    (c) => { c.services.api.ports = [{ published: '8080', target: 8080 }]; },
+    (c) => { c.services.postgres.ports = [{ published: '5432', target: 5432 }]; },
+    (c) => { c.services.rabbitmq.ports = [{ published: '15672', target: 15672 }]; },
+    (c) => { c.services.migrate.ports = [{ published: '9999', target: 9999 }]; },
+    (c) => { c.services['web-admin'] = clone(c.services.api); },
+    (c) => { c.services.api.image = identity.images.caddy; },
+    (c) => { delete c.services.api.depends_on.migrate; },
+    (c) => { c.services.api.depends_on.migrate.condition = 'service_started'; },
+    (c) => { delete c.services.migrate.depends_on.postgres; },
+    (c) => { c.services.rabbitmq.environment.RABBITMQ_NODENAME = 'rabbit@other'; },
+    (c) => { c.networks.backend.internal = false; },
+    (c) => { c.services.ingress.ports[0].host_ip = '0.0.0.0'; },
+    (c) => { c.configs['settleora-caddyfile'].content = 'http://api:8080'; },
+    (c) => { c.services.api.volumes = []; },
+  ];
+  for (const mutate of cases) {
+    const compose = clone(base);
+    mutate(compose);
+    assert.throws(() => validateTopology(compose, identity, fixtureConfig));
+  }
+});
+
+test('input and output boundary rejects symlinks, special files, and existing outputs', () => {
+  const root = temp();
+  const regular = path.join(root, 'input.json');
+  writeFileSync(regular, '{}');
+  const link = path.join(root, 'link.json');
+  symlinkSync(regular, link);
+  assert.throws(() => safeReadJson(link, 'config'));
+  const fifo = path.join(root, 'fifo');
+  execFileSync('mkfifo', [fifo]);
+  assert.throws(() => safeReadJson(fifo, 'config'));
+  const existing = path.join(root, 'existing');
+  writeFileSync(existing, 'occupied');
+  assert.throws(() => materialize({ manifest: syntheticManifest(), config: fixtureConfig, output: existing }));
+});
+
+test('CLI success and refusal output never discloses secret values or private dataset paths', () => {
+  const root = temp();
+  const manifestPath = path.join(root, 'manifest.json');
+  const configPath = path.join(root, 'config.json');
+  writeFileSync(manifestPath, JSON.stringify(syntheticManifest()));
+  writeFileSync(configPath, JSON.stringify(fixtureConfig));
+  const result = spawnSync(process.execPath, ['tools/truenas-catalog/render.mjs', '--manifest', manifestPath, '--config', configPath, '--output', path.join(root, 'packet')], { cwd: repoRoot, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  const logs = result.stdout + result.stderr;
+  for (const marker of SECRET_MARKERS) assert.doesNotMatch(logs, new RegExp(marker));
+  assert.doesNotMatch(logs, /\/mnt\//);
+  assert.deepEqual(JSON.parse(result.stdout), { schema: 'settleora.truenas-install-plan.v1', packetSha256: JSON.parse(result.stdout).packetSha256, renderedComposeSha256: JSON.parse(result.stdout).renderedComposeSha256, realSecretsIncluded: false, published: false, deployed: false });
+  const invalid = clone(fixtureConfig);
+  invalid.postgres.password = SECRET_MARKERS[0];
+  invalid.bindAddress = '0.0.0.0';
+  writeFileSync(configPath, JSON.stringify(invalid));
+  const refused = spawnSync(process.execPath, ['tools/truenas-catalog/render.mjs', '--manifest', manifestPath, '--config', configPath, '--output', path.join(root, 'refused')], { cwd: repoRoot, encoding: 'utf8' });
+  assert.notEqual(refused.status, 0);
+  assert.doesNotMatch(refused.stdout + refused.stderr, new RegExp(SECRET_MARKERS[0]));
+});
+
+test('offline rendered Compose is accepted structurally by Docker Compose without pulling or starting images', () => {
+  const identity = consumeReleaseIdentity(syntheticManifest());
+  const compose = renderCompose(identity, fixtureConfig);
+  const root = temp();
+  const file = path.join(root, 'compose.yaml');
+  writeFileSync(file, JSON.stringify(compose));
+  execFileSync('docker', ['compose', '-f', file, 'config', '--quiet'], { cwd: repoRoot, stdio: 'pipe' });
+  assert.equal(sha256(readFileSync(file)), sha256(JSON.stringify(compose)));
+});

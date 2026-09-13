@@ -1,0 +1,28 @@
+{
+  "deploymentMode": "lan-private",
+  "bindAddress": "192.168.50.10",
+  "httpsPort": 8443,
+  "hostname": "settleora.lan.redacted-domain.local",
+  "certificateRef": 1,
+  "postgres": {
+    "database": "settleora",
+    "user": "settleora",
+    "password": "REDACTED_FAKE_POSTGRES_PASSWORD"
+  },
+  "rabbitmq": {
+    "user": "settleora",
+    "password": "REDACTED_FAKE_RABBITMQ_PASSWORD",
+    "nodeHostname": "settleora-rabbitmq"
+  },
+  "storage": {
+    "postgresDataset": "/mnt/REDACTED_POOL/apps/settleora/postgres",
+    "rabbitmqDataset": "/mnt/REDACTED_POOL/apps/settleora/rabbitmq",
+    "apiDataset": "/mnt/REDACTED_POOL/apps/settleora/api-storage"
+  },
+  "migrationMode": "managed-auto",
+  "acknowledgements": {
+    "lanOnly": true,
+    "backupBeforeUpgrade": true,
+    "rollbackLimit": true
+  }
+}

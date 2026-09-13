@@ -1,0 +1,173 @@
+groups:
+  - name: Settleora Configuration
+    description: Configure the private-LAN Settleora application.
+  - name: Network Configuration
+    description: Configure the single private HTTPS ingress.
+  - name: Storage Configuration
+    description: Select private persistent TrueNAS datasets.
+  - name: Safety Acknowledgements
+    description: Confirm the LAN-only, backup, and rollback limits.
+
+questions:
+  - variable: settleora
+    label: ""
+    group: Settleora Configuration
+    schema:
+      type: dict
+      attrs:
+        - variable: deployment_mode
+          label: Deployment Mode
+          description: Only private LAN deployment is supported by this unpublished package.
+          schema:
+            type: string
+            required: true
+            default: lan-private
+            enum:
+              - value: lan-private
+                description: Private LAN only
+        - variable: postgres_database
+          label: PostgreSQL Database
+          schema:
+            type: string
+            required: true
+            default: settleora
+        - variable: postgres_user
+          label: PostgreSQL User
+          schema:
+            type: string
+            required: true
+            default: settleora
+        - variable: postgres_password
+          label: PostgreSQL Password
+          description: Supply an externally managed secret. It is never printed by repository tooling.
+          schema:
+            type: string
+            required: true
+            private: true
+            default: ""
+        - variable: rabbitmq_user
+          label: RabbitMQ User
+          schema:
+            type: string
+            required: true
+            default: settleora
+        - variable: rabbitmq_password
+          label: RabbitMQ Password
+          description: Supply an externally managed secret. It is never printed by repository tooling.
+          schema:
+            type: string
+            required: true
+            private: true
+            default: ""
+        - variable: rabbitmq_node_hostname
+          label: Stable RabbitMQ Node Hostname
+          description: Keep this unchanged after RabbitMQ data exists. Changing it does not migrate broker state.
+          schema:
+            type: string
+            required: true
+            default: settleora-rabbitmq
+        - variable: migration_mode
+          label: Migration Mode
+          description: Destructive migration mode is intentionally unavailable.
+          schema:
+            type: string
+            required: true
+            default: managed-auto
+            enum:
+              - value: managed-auto
+                description: Apply only migrations classified as safe
+              - value: apply-safe
+                description: Explicitly apply only migrations classified as safe
+              - value: manual
+                description: Do not apply and fail when migrations are pending
+              - value: check-only
+                description: Check only and fail when migrations are pending
+              - value: validate-only
+                description: Validate connectivity and migration metadata only
+
+  - variable: network
+    label: ""
+    group: Network Configuration
+    schema:
+      type: dict
+      attrs:
+        - variable: bind_address
+          label: Exact RFC1918 Bind Address
+          description: One private IPv4 address assigned to the intended TrueNAS LAN interface; wildcard and loopback addresses are refused.
+          schema:
+            type: string
+            required: true
+            default: ""
+        - variable: https_port
+          label: HTTPS Host Port
+          schema:
+            type: int
+            min: 1
+            max: 65535
+            required: true
+            default: 8443
+        - variable: hostname
+          label: Exact Private HTTPS Hostname
+          description: Must exactly match the trusted certificate SAN and private DNS record.
+          schema:
+            type: string
+            required: true
+            default: ""
+        - variable: certificate_id
+          label: Externally Managed Trusted TLS Certificate
+          description: Select a TrueNAS-managed certificate chain and private-key reference. No ACME or certificate automation is included.
+          schema:
+            type: int
+            required: true
+            $ref:
+              - definitions/certificate
+
+  - variable: storage
+    label: ""
+    group: Storage Configuration
+    schema:
+      type: dict
+      attrs:
+        - variable: postgres_dataset
+          label: PostgreSQL Dataset
+          description: Private persistent host-path dataset; do not expose it as a share.
+          schema:
+            type: hostpath
+            required: true
+        - variable: rabbitmq_dataset
+          label: RabbitMQ Dataset
+          description: Private persistent host-path dataset bound to the stable node identity.
+          schema:
+            type: hostpath
+            required: true
+        - variable: api_storage_dataset
+          label: API Local Storage Dataset
+          description: Contains sensitive file bytes and must not be exposed directly by SMB, NFS, or HTTP.
+          schema:
+            type: hostpath
+            required: true
+
+  - variable: acknowledgements
+    label: ""
+    group: Safety Acknowledgements
+    schema:
+      type: dict
+      attrs:
+        - variable: lan_only
+          label: I acknowledge this package is LAN-only
+          schema:
+            type: boolean
+            required: true
+            default: false
+        - variable: backup_before_upgrade
+          label: I will verify a consistent backup before install or upgrade migrations
+          schema:
+            type: boolean
+            required: true
+            default: false
+        - variable: rollback_limit
+          label: I understand an image rollback may require matching PostgreSQL and file-storage backups
+          schema:
+            type: boolean
+            required: true
+            default: false

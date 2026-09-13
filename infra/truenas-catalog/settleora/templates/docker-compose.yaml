@@ -1,0 +1,157 @@
+{% set tpl = ix_lib.base.render.Render(values) %}
+
+{% if values.settleora.deployment_mode != "lan-private" %}
+  {% do tpl.funcs.fail("Only lan-private deployment mode is supported") %}
+{% endif %}
+{% if not tpl.funcs.match_regex(values.network.bind_address, "^(10\\.(?:0|[1-9][0-9]{0,2})\\.(?:0|[1-9][0-9]{0,2})\\.(?:0|[1-9][0-9]{0,2})|172\\.(?:1[6-9]|2[0-9]|3[01])\\.(?:0|[1-9][0-9]{0,2})\\.(?:0|[1-9][0-9]{0,2})|192\\.168\\.(?:0|[1-9][0-9]{0,2})\\.(?:0|[1-9][0-9]{0,2}))$") %}
+  {% do tpl.funcs.fail("The ingress bind address must be one canonical RFC1918 IPv4 address") %}
+{% endif %}
+{% if not tpl.funcs.match_regex(values.network.hostname, "^(?=.{1,253}$)(?!.*\\.\\.)(?!localhost$)(?!.*\\.localhost$)[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$") or "." not in values.network.hostname %}
+  {% do tpl.funcs.fail("An exact private fully qualified HTTPS hostname is required") %}
+{% endif %}
+{% if not values.network.certificate_id or values.network.certificate_id not in values.ix_certificates %}
+  {% do tpl.funcs.fail("An externally managed TrueNAS TLS certificate reference is required") %}
+{% endif %}
+{% if not values.settleora.postgres_password or not values.settleora.rabbitmq_password %}
+  {% do tpl.funcs.fail("PostgreSQL and RabbitMQ secret inputs are required") %}
+{% endif %}
+{% if not tpl.funcs.match_regex(values.settleora.rabbitmq_node_hostname, "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$") %}
+  {% do tpl.funcs.fail("The stable RabbitMQ node hostname is invalid") %}
+{% endif %}
+{% if values.settleora.migration_mode not in ["managed-auto", "apply-safe", "manual", "check-only", "validate-only"] %}
+  {% do tpl.funcs.fail("Unsupported or destructive migration mode") %}
+{% endif %}
+{% for dataset in [values.storage.postgres_dataset, values.storage.rabbitmq_dataset, values.storage.api_storage_dataset] %}
+  {% if not tpl.funcs.match_regex(dataset, "^/mnt/[A-Za-z0-9._/-]+$") or ".." in dataset %}
+    {% do tpl.funcs.fail("Every dataset must be an unambiguous TrueNAS /mnt host path") %}
+  {% endif %}
+{% endfor %}
+{% if not values.acknowledgements.lan_only or not values.acknowledgements.backup_before_upgrade or not values.acknowledgements.rollback_limit %}
+  {% do tpl.funcs.fail("All LAN, backup, and rollback acknowledgements are required") %}
+{% endif %}
+
+{% set ingress_net = tpl.networks.create_internal("ingress") %}
+{% set backend_net = tpl.networks.create_internal("backend") %}
+{% set cert = values.ix_certificates[values.network.certificate_id] %}
+{% set host_storage = {"type": "host_path", "read_only": false, "host_path_config": {"create_host_path": false, "propagation": "rprivate"}} %}
+
+{% set caddyfile %}{
+  admin off
+  auto_https off
+  log default {
+    level ERROR
+    format filter {
+      wrap json
+      fields { request delete }
+    }
+  }
+}
+https://{{ values.network.hostname }}:8443 {
+  tls /run/settleora-tls/tls.crt /run/settleora-tls/tls.key
+  reverse_proxy api:8080
+}
+{% endset %}
+
+{% set rabbit_entrypoint %}#!/bin/sh
+set -eu
+expected_nodename="rabbit@$(hostname -s)"
+configured_nodename="${RABBITMQ_NODENAME:?RABBITMQ_NODENAME is required for persistent RabbitMQ data}"
+[ "$configured_nodename" = "$expected_nodename" ] || { echo >&2 "RabbitMQ persistence identity refused: configured node name does not match the container hostname."; exit 64; }
+mnesia_base="${RABBITMQ_MNESIA_BASE:-/var/lib/rabbitmq/mnesia}"
+if [ -d "$mnesia_base" ]; then
+  persisted_nodename=""
+  for candidate in "$mnesia_base"/rabbit@*; do
+    [ -d "$candidate" ] || continue
+    candidate_nodename="${candidate##*/}"
+    case "$candidate_nodename" in
+      *-plugins-expand)
+        if [ -d "${candidate%-plugins-expand}" ] && [ ! -e "$candidate/schema.DAT" ] && [ ! -e "$candidate/node-type.txt" ] && [ ! -d "$candidate/msg_stores" ]; then continue; fi
+        ;;
+    esac
+    [ -z "$persisted_nodename" ] || [ "$persisted_nodename" = "$candidate_nodename" ] || { echo >&2 "RabbitMQ persistence identity refused: the data path contains more than one node database."; exit 65; }
+    persisted_nodename="$candidate_nodename"
+  done
+  [ -z "$persisted_nodename" ] || [ "$persisted_nodename" = "$configured_nodename" ] || { echo >&2 "RabbitMQ persistence identity refused: the configured node does not match the persisted node database."; exit 66; }
+fi
+exec /usr/local/bin/docker-entrypoint.sh "$@"
+{% endset %}
+
+{% set ingress = tpl.add_container(values.consts.caddy_container_name, "caddy_image") %}
+{% do ingress.set_user(1000, 1000) %}
+{% do ingress.set_read_only(true) %}
+{% do ingress.restart.set_policy("no") %}
+{% do ingress.healthcheck.set_custom_test(["CMD", "caddy", "validate", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]) %}
+{% do ingress.add_network(ingress_net) %}
+{% do ingress.add_port({"bind_mode": "published", "port_number": values.network.https_port, "container_port": values.consts.internal_https_port, "host_ips": [values.network.bind_address], "protocol": "tcp"}) %}
+{% do ingress.configs.add("settleora-caddyfile", caddyfile, "/etc/caddy/Caddyfile", "0444") %}
+{% do ingress.configs.add("settleora-tls-certificate", cert.certificate, "/run/settleora-tls/tls.crt", "0444") %}
+{% do ingress.configs.add("settleora-tls-private-key", cert.privatekey, "/run/settleora-tls/tls.key", "0400") %}
+{% do ingress.add_storage("/config", {"type": "tmpfs", "tmpfs_config": {"mode": "0700", "uid": 1000, "gid": 1000}}) %}
+{% do ingress.add_storage("/data", {"type": "tmpfs", "tmpfs_config": {"mode": "0700", "uid": 1000, "gid": 1000}}) %}
+{% do ingress.add_storage("/tmp", {"type": "tmpfs", "tmpfs_config": {"mode": "0700", "uid": 1000, "gid": 1000}}) %}
+
+{% set migrate = tpl.add_container(values.consts.migrate_container_name, "api_image") %}
+{% do migrate.restart.set_policy("no") %}
+{% do migrate.healthcheck.disable() %}
+{% do migrate.set_command(["migrate-database", "--mode=" ~ values.settleora.migration_mode]) %}
+{% do migrate.environment.add_env("ASPNETCORE_ENVIRONMENT", "Production") %}
+{% do migrate.environment.add_env("Settleora__Database__ConnectionString", "Host=postgres;Port=5432;Database=" ~ values.settleora.postgres_database ~ ";Username=" ~ values.settleora.postgres_user ~ ";Password=" ~ values.settleora.postgres_password) %}
+{% do migrate.environment.add_env("SETTLEORA_DATABASE_MIGRATION_MODE", values.settleora.migration_mode) %}
+{% do migrate.add_network(backend_net) %}
+
+{% set api = tpl.add_container(values.consts.api_container_name, "api_image") %}
+{% do api.healthcheck.set_test("curl", {"port": 8080, "path": "/health"}) %}
+{% do api.environment.add_env("ASPNETCORE_ENVIRONMENT", "Production") %}
+{% do api.environment.add_env("ASPNETCORE_URLS", "http://+:8080") %}
+{% do api.environment.add_env("Settleora__Database__ConnectionString", "Host=postgres;Port=5432;Database=" ~ values.settleora.postgres_database ~ ";Username=" ~ values.settleora.postgres_user ~ ";Password=" ~ values.settleora.postgres_password) %}
+{% do api.environment.add_env("Settleora__RabbitMq__HostName", "rabbitmq") %}
+{% do api.environment.add_env("Settleora__RabbitMq__Port", "5672") %}
+{% do api.environment.add_env("Settleora__RabbitMq__UserName", values.settleora.rabbitmq_user) %}
+{% do api.environment.add_env("Settleora__RabbitMq__Password", values.settleora.rabbitmq_password) %}
+{% do api.environment.add_env("Settleora__RabbitMq__VirtualHost", "/") %}
+{% do api.environment.add_env("Settleora__Storage__Provider", "Local") %}
+{% do api.environment.add_env("Settleora__Storage__RootPath", values.consts.storage_root) %}
+{% do api.add_port({"bind_mode": "exposed", "port_number": 8080, "container_port": 8080}) %}
+{% do api.add_network(ingress_net) %}
+{% do api.add_network(backend_net) %}
+{% set api_storage = tpl.funcs.copy_dict(host_storage) %}
+{% do api_storage.host_path_config.update({"path": values.storage.api_storage_dataset}) %}
+{% do api.add_storage(values.consts.storage_root, api_storage) %}
+
+{% set postgres = tpl.add_container(values.consts.postgres_container_name, "postgres_image") %}
+{% do postgres.clear_caps() %}
+{% do postgres.healthcheck.set_test("postgres", {"user": values.settleora.postgres_user, "db": values.settleora.postgres_database, "port": 5432}) %}
+{% do postgres.environment.add_env("POSTGRES_DB", values.settleora.postgres_database) %}
+{% do postgres.environment.add_env("POSTGRES_USER", values.settleora.postgres_user) %}
+{% do postgres.environment.add_env("POSTGRES_PASSWORD", values.settleora.postgres_password) %}
+{% do postgres.add_network(backend_net) %}
+{% set postgres_storage = tpl.funcs.copy_dict(host_storage) %}
+{% do postgres_storage.host_path_config.update({"path": values.storage.postgres_dataset}) %}
+{% do postgres.add_storage("/var/lib/postgresql/data", postgres_storage) %}
+
+{% set rabbitmq = tpl.add_container(values.consts.rabbitmq_container_name, "rabbitmq_image") %}
+{% do rabbitmq.clear_caps() %}
+{% do rabbitmq.set_hostname(values.settleora.rabbitmq_node_hostname) %}
+{% do rabbitmq.set_entrypoint(["/bin/sh", "/usr/local/bin/settleora-rabbitmq-entrypoint.sh"]) %}
+{% do rabbitmq.set_command(["rabbitmq-server"]) %}
+{% do rabbitmq.healthcheck.set_custom_test(["CMD", "rabbitmq-diagnostics", "ping"]) %}
+{% do rabbitmq.environment.add_env("RABBITMQ_DEFAULT_USER", values.settleora.rabbitmq_user) %}
+{% do rabbitmq.environment.add_env("RABBITMQ_DEFAULT_PASS", values.settleora.rabbitmq_password) %}
+{% do rabbitmq.environment.add_env("RABBITMQ_NODENAME", "rabbit@" ~ values.settleora.rabbitmq_node_hostname) %}
+{% do rabbitmq.add_network(backend_net) %}
+{% do rabbitmq.configs.add("settleora-rabbitmq-entrypoint", rabbit_entrypoint, "/usr/local/bin/settleora-rabbitmq-entrypoint.sh", "0555") %}
+{% set rabbitmq_storage = tpl.funcs.copy_dict(host_storage) %}
+{% do rabbitmq_storage.host_path_config.update({"path": values.storage.rabbitmq_dataset}) %}
+{% do rabbitmq.add_storage("/var/lib/rabbitmq", rabbitmq_storage) %}
+
+{% do migrate.depends.add_dependency(values.consts.postgres_container_name, "service_healthy") %}
+{% do api.depends.add_dependency(values.consts.migrate_container_name, "service_completed_successfully") %}
+{% do api.depends.add_dependency(values.consts.postgres_container_name, "service_healthy") %}
+{% do api.depends.add_dependency(values.consts.rabbitmq_container_name, "service_healthy") %}
+{% do ingress.depends.add_dependency(values.consts.api_container_name, "service_started") %}
+
+{% set rendered = tpl.render() %}
+{% do rendered.networks.update({"edge": {}}) %}
+{% do rendered.services.ingress.networks.update({"edge": {"gw_priority": 1}}) %}
+{% do rendered.update({"x-settleora-release": values.release_identity}) %}
+{{ rendered | tojson }}
