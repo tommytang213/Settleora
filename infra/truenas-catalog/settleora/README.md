@@ -20,7 +20,8 @@ operator's clients, and its SAN must exactly contain the configured private
 hostname. This repository cannot prove that live trust relationship.
 
 Before install or upgrade, verify a coordinated backup of PostgreSQL, API local
-file storage, RabbitMQ state where required, and app configuration/secrets.
+file storage and its ASP.NET data-protection key ring, RabbitMQ state where
+required, and app configuration/secrets.
 Rolling back only an image after a schema or file-interpretation change may not
 restore compatibility; matching database and file-storage backups can be
 required. Automatic rollback is not promised.

@@ -19,21 +19,21 @@ maintainers:
     url: https://github.com/tommytang213/Settleora
 name: settleora
 run_as_context:
-  - description: Container [api] runs as root user and group.
-    gid: 0
-    group_name: root
-    uid: 0
-    user_name: root
+  - description: Container [api] runs as the non-root settleora user and group.
+    gid: 999
+    group_name: settleora
+    uid: 999
+    user_name: settleora
   - description: Container [ingress] runs as non-root user and group.
     gid: 1000
     group_name: unknown
     uid: 1000
     user_name: unknown
-  - description: Container [migrate] runs as root user and group.
-    gid: 0
-    group_name: root
-    uid: 0
-    user_name: root
+  - description: Container [migrate] runs as the non-root settleora user and group.
+    gid: 999
+    group_name: settleora
+    uid: 999
+    user_name: settleora
   - description: Container [postgres] runs as root user and group.
     gid: 0
     group_name: root

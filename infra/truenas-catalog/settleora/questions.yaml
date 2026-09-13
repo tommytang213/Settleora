@@ -161,7 +161,7 @@ questions:
             required: true
         - variable: api_storage_dataset
           label: API Local Storage Dataset
-          description: Contains sensitive file bytes and must not be exposed directly by SMB, NFS, or HTTP.
+          description: Contains sensitive file bytes and ASP.NET data-protection keys; keep it private, backed up, and unexposed by SMB, NFS, or HTTP.
           schema:
             type: hostpath
             required: true

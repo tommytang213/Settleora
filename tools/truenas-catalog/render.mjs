@@ -301,13 +301,13 @@ export function renderCompose(identity, config) {
         cap_drop: ['ALL'],
         expose: ['8080/tcp'],
         environment: {
-          ASPNETCORE_ENVIRONMENT: 'Production', ASPNETCORE_URLS: 'http://+:8080', Settleora__Database__ConnectionString: connection,
+          ASPNETCORE_ENVIRONMENT: 'Production', ASPNETCORE_URLS: 'http://+:8080', HOME: '/var/lib/settleora', Settleora__Database__ConnectionString: connection,
           Settleora__RabbitMq__HostName: 'rabbitmq', Settleora__RabbitMq__Port: '5672', Settleora__RabbitMq__UserName: config.rabbitmq.user,
           Settleora__RabbitMq__Password: config.rabbitmq.password, Settleora__RabbitMq__VirtualHost: '/', Settleora__Storage__Provider: 'Local', Settleora__Storage__RootPath: '/var/lib/settleora/storage',
         },
         depends_on: { migrate: { condition: 'service_completed_successfully' }, postgres: { condition: 'service_healthy' }, rabbitmq: { condition: 'service_healthy' } },
-        volumes: [{ type: 'bind', source: config.storage.apiDataset, target: '/var/lib/settleora/storage', read_only: false, bind: { create_host_path: false, propagation: 'rprivate' } }],
-        healthcheck: { test: ['CMD', 'curl', '--request', 'GET', '--silent', '--output', '/dev/null', '--show-error', '--fail', 'http://127.0.0.1:8080/health'], interval: '30s', timeout: '5s', retries: 5, start_period: '15s' },
+        volumes: [{ type: 'bind', source: config.storage.apiDataset, target: '/var/lib/settleora', read_only: false, bind: { create_host_path: false, propagation: 'rprivate' } }],
+        healthcheck: { disable: true },
       },
       postgres: {
         ...baseService(identity.images.postgres, ['backend']),
@@ -358,6 +358,8 @@ export function validateTopology(compose, identity, config) {
   const ingressPorts = publishedPorts(compose.services.ingress);
   if (ingressPorts.length !== 1 || ingressPorts[0].host_ip !== config.bindAddress || ingressPorts[0].target !== 8443 || ingressPorts[0].protocol !== 'tcp') fail('Ingress publication is unsafe');
   if (compose.services.api.image !== compose.services.migrate.image) fail('API and migrate image identity mismatch');
+  if (compose.services.api.healthcheck?.disable !== true) fail('API healthcheck must not require an unavailable runtime client');
+  if (compose.services.api.environment?.HOME !== '/var/lib/settleora') fail('API data-protection key home is not persistent');
   if (compose.services.api.depends_on?.migrate?.condition !== 'service_completed_successfully') fail('API migration-success gate is missing');
   if (compose.services.migrate.depends_on?.postgres?.condition !== 'service_healthy') fail('Migration PostgreSQL-readiness gate is missing');
   if (compose.services.api.depends_on?.postgres?.condition !== 'service_healthy' || compose.services.api.depends_on?.rabbitmq?.condition !== 'service_healthy') fail('API dependency-readiness gate is missing');
@@ -373,7 +375,7 @@ export function validateTopology(compose, identity, config) {
   if (!caddy.includes(`https://${config.hostname}:8443`) || !caddy.includes('auto_https off') || !caddy.includes('tls /run/settleora-tls/tls.crt /run/settleora-tls/tls.key') || !caddy.includes('reverse_proxy api:8080')) fail('Private HTTPS topology is incomplete');
   if (caddy.includes('acme') || caddy.includes('http://')) fail('Automatic or HTTP-only ingress is unsupported');
   const volumeTargets = Object.values(compose.services).flatMap((service) => service.volumes ?? []).map((volume) => volume.target);
-  for (const required of ['/var/lib/postgresql/data', '/var/lib/rabbitmq', '/var/lib/settleora/storage']) if (!volumeTargets.includes(required)) fail('Required persistent dataset mapping is missing');
+  for (const required of ['/var/lib/postgresql/data', '/var/lib/rabbitmq', '/var/lib/settleora']) if (!volumeTargets.includes(required)) fail('Required persistent dataset mapping is missing');
   return compose;
 }
 

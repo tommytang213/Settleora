@@ -24,7 +24,8 @@ const requiredPaths = [
   "infra/truenas-catalog/settleora/app.yaml",
   "infra/truenas-catalog/settleora/questions.yaml",
   "infra/truenas-catalog/settleora/templates/docker-compose.yaml",
-  "tools/truenas-catalog/render.mjs"
+  "tools/truenas-catalog/render.mjs",
+  "tools/truenas-catalog/validate-official-fixture.mjs"
 ];
 
 const missing = requiredPaths.filter((path) => !existsSync(resolve(path)));

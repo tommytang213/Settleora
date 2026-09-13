@@ -108,9 +108,10 @@ exec /usr/local/bin/docker-entrypoint.sh "$@"
 {% do migrate.add_network(backend_net) %}
 
 {% set api = tpl.add_container(values.consts.api_container_name, "api_image") %}
-{% do api.healthcheck.set_test("curl", {"port": 8080, "path": "/health"}) %}
+{% do api.healthcheck.disable() %}
 {% do api.environment.add_env("ASPNETCORE_ENVIRONMENT", "Production") %}
 {% do api.environment.add_env("ASPNETCORE_URLS", "http://+:8080") %}
+{% do api.environment.add_env("HOME", "/var/lib/settleora") %}
 {% do api.environment.add_env("Settleora__Database__ConnectionString", "Host=postgres;Port=5432;Database=" ~ values.settleora.postgres_database ~ ";Username=" ~ values.settleora.postgres_user ~ ";Password=" ~ values.settleora.postgres_password) %}
 {% do api.environment.add_env("Settleora__RabbitMq__HostName", "rabbitmq") %}
 {% do api.environment.add_env("Settleora__RabbitMq__Port", "5672") %}
@@ -124,7 +125,7 @@ exec /usr/local/bin/docker-entrypoint.sh "$@"
 {% do api.add_network(backend_net) %}
 {% set api_storage = tpl.funcs.copy_dict(host_storage) %}
 {% do api_storage.host_path_config.update({"path": values.storage.api_storage_dataset}) %}
-{% do api.add_storage(values.consts.storage_root, api_storage) %}
+{% do api.add_storage("/var/lib/settleora", api_storage) %}
 
 {% set postgres = tpl.add_container(values.consts.postgres_container_name, "postgres_image") %}
 {% do postgres.clear_caps() %}
@@ -159,6 +160,8 @@ exec /usr/local/bin/docker-entrypoint.sh "$@"
 {% do ingress.depends.add_dependency(values.consts.api_container_name, "service_started") %}
 
 {% set rendered = tpl.render() %}
+{% do rendered.networks[ingress_net].update({"internal": true}) %}
+{% do rendered.networks[backend_net].update({"internal": true}) %}
 {# TrueNAS 25.10.x lacks port.validate_ports and its singular fallback can hang
    over websocket (truenas/apps#5276). Preserve the official Compose shape
    without calling that incompatible helper; Docker still fails closed if the

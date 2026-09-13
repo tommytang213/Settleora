@@ -105,6 +105,8 @@ test('rendered topology preserves R11, R12, private services, datasets, and migr
   for (const service of ['api', 'migrate', 'postgres', 'rabbitmq']) assert.equal(compose.services[service].ports, undefined);
   assert.equal(compose.services.api.depends_on.migrate.condition, 'service_completed_successfully');
   assert.equal(compose.services.migrate.depends_on.postgres.condition, 'service_healthy');
+  assert.deepEqual(compose.services.api.healthcheck, { disable: true });
+  assert.equal(compose.services.api.environment.HOME, '/var/lib/settleora');
   assert.equal(compose.services.rabbitmq.hostname, fixtureConfig.rabbitmq.nodeHostname);
   assert.equal(compose.services.rabbitmq.environment.RABBITMQ_NODENAME, `rabbit@${fixtureConfig.rabbitmq.nodeHostname}`);
   assert.match(compose.configs['settleora-rabbitmq-entrypoint'].content, /persisted_nodename/);
@@ -188,6 +190,8 @@ test('topology negative matrix rejects exposure, unsupported services, identity 
     (c) => { c.services.ingress.image = identity.images.postgres; },
     (c) => { c.services.postgres.image = identity.images.rabbitmq; },
     (c) => { c.services.rabbitmq.image = identity.images.caddy; },
+    (c) => { c.services.api.healthcheck = { test: ['CMD', 'curl'] }; },
+    (c) => { delete c.services.api.environment.HOME; },
     (c) => { delete c.services.api.depends_on.migrate; },
     (c) => { c.services.api.depends_on.migrate.condition = 'service_started'; },
     (c) => { delete c.services.migrate.depends_on.postgres; },

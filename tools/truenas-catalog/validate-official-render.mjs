@@ -27,6 +27,8 @@ const expectedImages = { api: plan.runtime?.images?.api, ingress: plan.runtime?.
 for (const [name, expectedImage] of Object.entries(expectedImages)) {
   if (typeof expectedImage !== 'string' || compose.services[name].image !== expectedImage) fail(`${name} image does not match the R03-selected runtime identity`);
 }
+if (compose.services.api.healthcheck?.disable !== true) fail('Official API healthcheck requires an unavailable runtime client');
+if (compose.services.api.environment?.HOME !== '/var/lib/settleora') fail('Official API data-protection key home is not persistent');
 const port = compose.services.ingress.ports?.[0];
 if (compose.services.ingress.ports?.length !== 1 || port.target !== 8443 || port.protocol !== 'tcp' || port.host_ip !== plan.networks.bindAddress || Number(port.published) !== plan.networks.httpsPort) fail('Official ingress publication mismatch');
 const octets = String(port.host_ip).split('.').map(Number);
@@ -39,13 +41,13 @@ if (compose.services.api.depends_on?.postgres?.condition !== 'service_healthy' |
 if (compose.services.rabbitmq.environment?.RABBITMQ_NODENAME !== `rabbit@${compose.services.rabbitmq.hostname}`) fail('Official RabbitMQ identity mismatch');
 const rabbitGuard = String(compose.configs?.['settleora-rabbitmq-entrypoint']?.content ?? '').replaceAll('$$', '$');
 for (const required of ['expected_nodename="rabbit@$(hostname -s)"', 'RABBITMQ_MNESIA_BASE', 'persisted_nodename', 'exit 64', 'exit 65', 'exit 66']) if (!rabbitGuard.includes(required)) fail('Official RabbitMQ identity guard is incomplete');
-const internalNetworks = Object.entries(compose.networks ?? {}).filter(([, network]) => network?.labels?.['tn.network.internal'] === 'true').map(([name]) => name);
-if (internalNetworks.length !== 2 || compose.networks.edge?.labels?.['tn.network.internal'] === 'true') fail('Official private network topology mismatch');
+const internalNetworks = Object.entries(compose.networks ?? {}).filter(([, network]) => network?.internal === true && network?.labels?.['tn.network.internal'] === 'true').map(([name]) => name);
+if (internalNetworks.length !== 2 || compose.networks.edge?.internal === true || compose.networks.edge?.labels?.['tn.network.internal'] === 'true') fail('Official private network topology mismatch');
 const memberships = (service) => Object.keys(service.networks ?? {});
 if (!memberships(compose.services.ingress).includes('edge') || memberships(compose.services.ingress).length !== 2) fail('Official ingress network boundary mismatch');
 if (memberships(compose.services.api).length !== 2 || memberships(compose.services.postgres).length !== 1 || memberships(compose.services.rabbitmq).length !== 1 || memberships(compose.services.migrate).length !== 1) fail('Official backend network boundary mismatch');
 const targets = Object.values(compose.services).flatMap((service) => service.volumes ?? []).map((volume) => volume.target);
-for (const target of ['/var/lib/postgresql/data', '/var/lib/rabbitmq', '/var/lib/settleora/storage']) if (!targets.includes(target)) fail('Official dataset mapping missing');
+for (const target of ['/var/lib/postgresql/data', '/var/lib/rabbitmq', '/var/lib/settleora']) if (!targets.includes(target)) fail('Official dataset mapping missing');
 const caddy = String(compose.configs?.['settleora-caddyfile']?.content ?? '');
 if (!caddy.includes('auto_https off') || !caddy.includes(`https://${plan.tls.hostname}:8443`) || !caddy.includes('tls /run/settleora-tls/tls.crt /run/settleora-tls/tls.key') || !caddy.includes('reverse_proxy api:8080') || caddy.includes('acme') || caddy.includes('http://')) fail('Official private TLS topology mismatch');
 if (compose['x-settleora-release']?.identity_digest !== plan.applicationRelease.identityDigest) fail('Official release mapping mismatch');
