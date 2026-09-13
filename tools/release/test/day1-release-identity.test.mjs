@@ -23,7 +23,7 @@ import {
   validatePublicationRunDocument,
   validatePublicationRunUrl,
 } from '../day1-release-identity.mjs';
-import { assertCleanCompletion, assertCommitHasNoSymlinks, canonicalAndroidInput, canonicalManifestPath, canonicalReleaseNotesInput, canonicalWebInput, copyBoundedFile, deterministicAndroidRebuildProjection, parseCanonicalJson, parseSingleApkSigner, retainReleaseNotes, runGuardedOutputDescriptorFixture, runToolchainMutationGuardFixture, safeInput, sanitizedErrorMessage, toolchainTreeDigest, verificationRegistryReference } from '../day1-release-identity-cli.mjs';
+import { assertCleanCompletion, assertCommitHasNoSymlinks, canonicalAndroidInput, canonicalManifestPath, canonicalReleaseNotesInput, canonicalWebInput, copyBoundedFile, deterministicAndroidRebuildProjection, parseCanonicalJson, parseSingleApkSigner, retainReleaseNotes, runGuardedFailureDescendantFixture, runGuardedOutputDescriptorFixture, runToolchainMutationGuardFixture, safeInput, sanitizedErrorMessage, toolchainTreeDigest, verificationRegistryReference } from '../day1-release-identity-cli.mjs';
 
 const d = (character) => `sha256:${character.repeat(64)}`;
 const producerJson = (value) => `${JSON.stringify(value, null, 2)}\n`;
@@ -656,6 +656,16 @@ test('toolchain mutation guard isolates a writer descriptor and reaps detached n
   );
 });
 
+test('toolchain mutation guard reaps detached descendants after command failure', (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), 'release-toolchain-failure-child-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  writeFileSync(path.join(root, 'compiler'), 'trusted bytes');
+  assert.equal(runGuardedFailureDescendantFixture(
+    [{ label: 'fixture', root, excludedPrefixes: ['survived'] }],
+    path.join(root, 'survived'),
+  ), true);
+});
+
 test('toolchain mutation guard cannot report success after its build child kills it', (t) => {
   const root = mkdtempSync(path.join(tmpdir(), 'release-toolchain-guard-kill-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -953,6 +963,8 @@ test('release execution uses protected system runtimes and bypasses user plugin 
   assert.match(cliSource, /pass_fds=tuple\(\[\*passed_descriptors, \*command_output_descriptors\[command_index\]\]\)/);
   assert.match(cliSource, /libc\.prctl\(36, 1, 0, 0, 0\)/);
   assert.match(cliSource, /def terminate_orphaned_descendants\(\):/);
+  assert.match(cliSource, /def direct_child_pids\(\):/);
+  assert.doesNotMatch(cliSource, /\/proc\/self\/task\/.*\/children/);
   assert.match(cliSource, /os\.ftruncate\(output_fd, 0\)/);
   assert.match(cliSource, /watches\.setdefault\(watch, \[\]\)\.append/);
   assert.match(cliSource, /if source_fd != 0:\n    os\.close\(source_fd\)/);

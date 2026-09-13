@@ -793,12 +793,24 @@ try:
             or len(set(flattened_command_outputs)) != len(flattened_command_outputs)):
         raise RuntimeError("guarded command output descriptor allowlist is invalid")
     captures = json.loads(captures_json)
+    def direct_child_pids():
+        result = []
+        own_pid = os.getpid()
+        for name in os.listdir("/proc"):
+            if not name.isdigit():
+                continue
+            try:
+                with open("/proc/" + name + "/stat", "r", encoding="ascii") as stat_file:
+                    fields = stat_file.read().rsplit(")", 1)[1].split()
+                if len(fields) >= 2 and int(fields[1]) == own_pid:
+                    result.append(int(name))
+            except (FileNotFoundError, ProcessLookupError, PermissionError, ValueError, IndexError):
+                continue
+        return result
     def terminate_orphaned_descendants():
         deadline = time.monotonic() + 2.0
-        children_path = "/proc/self/task/" + str(os.getpid()) + "/children"
         while True:
-            with open(children_path, "r", encoding="ascii") as children_file:
-                children = [int(value) for value in children_file.read().split()]
+            children = direct_child_pids()
             for child_pid in children:
                 try:
                     os.kill(child_pid, signal.SIGKILL)
@@ -811,8 +823,7 @@ try:
                     reaped = 0
                 if reaped <= 0:
                     break
-            with open(children_path, "r", encoding="ascii") as children_file:
-                remaining = children_file.read().split()
+            remaining = direct_child_pids()
             if not remaining:
                 return
             if time.monotonic() >= deadline:
@@ -892,7 +903,11 @@ try:
         if tree_digest(os.path.realpath(item["root"]), item["excludedPrefixes"], item.get("excludedTransientBases", [])) != item["expectedGuardDigest"]:
             raise RuntimeError(item["label"] + " changed before the authenticated guard completed")
 finally:
-    os.close(fd)
+    try:
+        if "terminate_orphaned_descendants" in locals():
+            terminate_orphaned_descendants()
+    finally:
+        os.close(fd)
 `;
 
 function guardedTreeDigest(root, excludedPrefixes = [], excludedTransientBases = []) {
@@ -1069,6 +1084,31 @@ ${delayedReopen}`],
     closeSync(descriptor);
   }
   return readFileSync(outputPath, 'utf8');
+}
+
+export function runGuardedFailureDescendantFixture(configuration, markerPath) {
+  const pythonPath = realpathSync(releaseCommand('python'));
+  const python = trustedTool(pythonPath, path.basename(pythonPath), 'system Python');
+  const script = `import os, time
+child = os.fork()
+if child == 0:
+    os.setsid()
+    time.sleep(0.5)
+    with open(${JSON.stringify(markerPath)}, "w", encoding="utf-8") as marker: marker.write("survived")
+    os._exit(0)
+os._exit(7)`;
+  let rejected = false;
+  try {
+    executeGuardedCommands(configuration, python, [], [['-I', '-S', '-c', script]], {
+      cwd: '/usr/bin',
+      env: { PATH: '/usr/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' },
+    });
+  } catch {
+    rejected = true;
+  }
+  if (!rejected) throw new Error('Guarded failing-command fixture unexpectedly succeeded');
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 700);
+  return !lstatSync(markerPath, { throwIfNoEntry: false });
 }
 
 function assertSystemRuntime(root, label = 'Java runtime') {
