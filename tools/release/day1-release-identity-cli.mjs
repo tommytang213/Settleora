@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
-import { chmodSync, closeSync, constants, cpSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readlinkSync, readSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
+import { chmodSync, closeSync, constants, cpSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readlinkSync, readSync, readdirSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -574,6 +574,27 @@ function makeRegularFilesReadOnly(root, label) {
   visit(root);
 }
 
+function makeTreeReadOnlyWithInternalSymlinks(root, label) {
+  const absoluteRoot = realpathSync(root);
+  const visit = (candidate) => {
+    const metadata = lstatSync(candidate);
+    if (metadata.isSymbolicLink()) {
+      const resolved = realpathSync(candidate);
+      const relative = path.relative(absoluteRoot, resolved);
+      if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) throw new Error(`${label} contains an external symlink`);
+      return;
+    }
+    if (metadata.isDirectory()) {
+      for (const entry of readdirSync(candidate)) visit(path.join(candidate, entry));
+      chmodSync(candidate, 0o555);
+      return;
+    }
+    if (!metadata.isFile()) throw new Error(`${label} contains an unsupported filesystem entry`);
+    chmodSync(candidate, metadata.mode & 0o111 ? 0o555 : 0o444);
+  };
+  visit(absoluteRoot);
+}
+
 function makeTreeOwnerWritable(root) {
   const visit = (candidate) => {
     const metadata = lstatSync(candidate);
@@ -718,12 +739,13 @@ try:
         if tree_digest(os.path.realpath(item["root"]), item["excludedPrefixes"], item.get("excludedTransientBases", [])) != item["expectedGuardDigest"]:
             raise RuntimeError(item["label"] + " changed before its authenticated guard was installed")
     changed = None
-    passed_descriptors = [3]
-    try:
-        os.fstat(4)
-        passed_descriptors.append(4)
-    except OSError:
-        pass
+    passed_descriptors = []
+    for candidate_fd in range(3, 64):
+        try:
+            os.fstat(candidate_fd)
+            passed_descriptors.append(candidate_fd)
+        except OSError:
+            pass
     def drain(timeout):
         global changed
         readable, _, _ = select.select([fd], [], [], timeout)
@@ -876,7 +898,7 @@ function executeGuardedCommands(configuration, executable, inputs, commands, opt
       env: options.env,
       encoding: options.encoding,
       maxBuffer: options.maxBuffer,
-      stdio: [...(options.stdio ?? ['ignore', 'inherit', 'inherit']).slice(0, 3), ...descriptors],
+      stdio: [...(options.stdio ?? ['ignore', 'inherit', 'inherit']).slice(0, 3), ...descriptors, ...(options.outputDescriptors ?? [])],
     });
     for (const [index, tool] of tools.entries()) revalidateToolDescriptor(tool, descriptors[index], index === 0 ? 'Guarded executable' : 'Guarded executable input');
     return result;
@@ -1242,7 +1264,7 @@ export function collectWebExactSource(output) {
       npm_config_fund: 'false',
     };
     makeRegularFilesReadOnly(snapshot, 'User-web exact-source snapshot');
-    const webGeneratedPaths = ['.release-npm-cache', '.release-npm-home', 'apps/web-user/dist', 'apps/web-user/node_modules'];
+    const webGeneratedPaths = ['.release-captured-web-dist', '.release-npm-cache', '.release-npm-home', 'apps/web-user/dist', 'apps/web-user/node_modules'];
     const webSourceGuard = { label: 'web-exact-source', root: snapshot, excludedPrefixes: webGeneratedPaths };
     const node = trustedTool('/usr/bin/node', 'node', 'system Node.js');
     const npmCli = trustedTool(realpathSync('/usr/bin/npm'), 'npm-cli.js', 'system npm CLI');
@@ -1251,9 +1273,98 @@ export function collectWebExactSource(output) {
       [webSourceGuard],
       node,
       [npmCli],
-      [['/proc/self/fd/4', 'ci'], ['/proc/self/fd/4', 'run', 'build']],
+      [['/proc/self/fd/4', 'ci']],
       { cwd: webRoot, env: npmEnvironment, stdio: ['ignore', 'inherit', 'inherit'] },
     );
+    const nodeModules = path.join(webRoot, 'node_modules');
+    makeTreeReadOnlyWithInternalSymlinks(nodeModules, 'User-web installed dependency tree');
+    const nodeModulesIdentity = toolchainTreeDigest(nodeModules, 'User-web installed dependency tree');
+    const capturePath = path.join(snapshot, `.release-web-capture-${randomUUID()}`);
+    const captureDescriptor = openSync(capturePath, constants.O_CREAT | constants.O_EXCL | constants.O_RDWR | constants.O_NOFOLLOW, 0o600);
+    unlinkSync(capturePath);
+    let capturedBytes;
+    try {
+      const captureFd = 3 + 2;
+      const captureProgram = `
+import { lstatSync, openSync, closeSync, readSync, readdirSync, writeSync } from 'node:fs';
+import path from 'node:path';
+const root = path.resolve(process.argv[1]);
+const files = [];
+let directories = 1;
+let total = 0;
+const visit = (directory, logical = '', depth = 0) => {
+  if (depth > 64 || directories > 10000) throw new Error('web capture exceeds its directory boundary');
+  for (const entry of readdirSync(directory, { withFileTypes: true }).sort((a, b) => Buffer.from(a.name).compare(Buffer.from(b.name)))) {
+    const relative = logical ? logical + '/' + entry.name : entry.name;
+    const target = path.join(directory, entry.name);
+    const metadata = lstatSync(target);
+    if (metadata.isSymbolicLink()) throw new Error('web capture rejects symlinks');
+    if (metadata.isDirectory()) { directories += 1; visit(target, relative, depth + 1); continue; }
+    if (!metadata.isFile() || files.length >= 10000 || metadata.size > 32 * 1024 * 1024) throw new Error('web capture exceeds its file boundary');
+    total += metadata.size;
+    if (total > 128 * 1024 * 1024) throw new Error('web capture exceeds its byte boundary');
+    const fd = openSync(target, 0x20000);
+    try {
+      const bytes = Buffer.alloc(metadata.size);
+      let offset = 0;
+      while (offset < bytes.length) { const count = readSync(fd, bytes, offset, bytes.length - offset, offset); if (!count) throw new Error('web capture changed during read'); offset += count; }
+      const after = lstatSync(target);
+      if (after.dev !== metadata.dev || after.ino !== metadata.ino || after.size !== metadata.size || after.mtimeMs !== metadata.mtimeMs || after.ctimeMs !== metadata.ctimeMs) throw new Error('web capture changed during read');
+      files.push({ path: relative, size: metadata.size, base64: bytes.toString('base64') });
+    } finally { closeSync(fd); }
+  }
+};
+visit(root);
+files.sort((a, b) => Buffer.from(a.path).compare(Buffer.from(b.path)));
+const payload = Buffer.from(JSON.stringify(files));
+let written = 0;
+while (written < payload.length) written += writeSync(${captureFd}, payload, written, payload.length - written);
+`;
+      executeGuardedCommands(
+        [webSourceGuard, { label: 'web-installed-dependencies', root: nodeModules, excludedPrefixes: [] }],
+        node,
+        [npmCli],
+        [['/proc/self/fd/4', 'run', 'build'], ['--input-type=module', '--eval', captureProgram, path.join(webRoot, 'dist')]],
+        { cwd: webRoot, env: npmEnvironment, stdio: ['ignore', 'inherit', 'inherit'], outputDescriptors: [captureDescriptor] },
+      );
+      if (canonicalJson(toolchainTreeDigest(nodeModules, 'User-web installed dependency tree')) !== canonicalJson(nodeModulesIdentity)) throw new Error('User-web installed dependency tree changed during build');
+      const metadata = fstatSync(captureDescriptor);
+      if (!metadata.isFile() || metadata.size < 2 || metadata.size > 180 * 1024 * 1024) throw new Error('User-web captured package exceeds its evidence boundary');
+      capturedBytes = Buffer.alloc(metadata.size);
+      let offset = 0;
+      while (offset < capturedBytes.length) {
+        const count = readSync(captureDescriptor, capturedBytes, offset, capturedBytes.length - offset, offset);
+        if (!count) throw new Error('User-web captured package is incomplete');
+        offset += count;
+      }
+    } finally {
+      closeSync(captureDescriptor);
+    }
+    assertUniqueJsonMembers(capturedBytes.toString('utf8'));
+    const capturedFiles = JSON.parse(capturedBytes);
+    if (!Array.isArray(capturedFiles) || capturedFiles.length < 1 || capturedFiles.length > 10_000) throw new Error('User-web captured file inventory is invalid');
+    const capturedDist = path.join(snapshot, '.release-captured-web-dist');
+    mkdirSync(capturedDist, { recursive: false, mode: 0o700 });
+    let capturedTotalBytes = 0;
+    let previousCapturedPath = '';
+    for (const record of capturedFiles) {
+      if (!record || canonicalJson(Object.keys(record).sort()) !== canonicalJson(['base64', 'path', 'size'])
+        || typeof record.path !== 'string' || !record.path || record.path.startsWith('/') || record.path.includes('\\')
+        || record.path.split('/').some((part) => !part || part === '.' || part === '..')
+        || (previousCapturedPath && Buffer.from(previousCapturedPath).compare(Buffer.from(record.path)) >= 0)
+        || !Number.isSafeInteger(record.size) || record.size < 0 || record.size > 32 * 1024 * 1024
+        || typeof record.base64 !== 'string') throw new Error('User-web captured file record is invalid');
+      const bytes = Buffer.from(record.base64, 'base64');
+      if (bytes.length !== record.size || bytes.toString('base64') !== record.base64) throw new Error('User-web captured file encoding is invalid');
+      capturedTotalBytes += bytes.length;
+      if (capturedTotalBytes > 128 * 1024 * 1024) throw new Error('User-web captured files exceed their aggregate boundary');
+      const target = path.resolve(capturedDist, ...record.path.split('/'));
+      const targetRelative = path.relative(capturedDist, target);
+      if (!targetRelative || targetRelative === '..' || targetRelative.startsWith(`..${path.sep}`) || path.isAbsolute(targetRelative)) throw new Error('User-web captured file escaped its evidence root');
+      mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
+      writeFileSync(target, bytes, { flag: 'wx', mode: 0o444 });
+      previousCapturedPath = record.path;
+    }
     const lock = JSON.parse(readFileSync(path.join(webRoot, 'package-lock.json'), 'utf8'));
     const version = (name) => {
       const value = lock.packages?.[`node_modules/${name}`]?.version;
@@ -1261,7 +1372,8 @@ export function collectWebExactSource(output) {
       return value;
     };
     createUserWebDistManifest({
-      dist: path.join(webRoot, 'dist'),
+      repositoryRoot: snapshot,
+      dist: capturedDist,
       staging: absolute,
       expectedSourceSha: source.commit,
       provenance: {
@@ -1388,13 +1500,6 @@ function collectAndroidUnsafe(options, emit = true) {
     }
     makeTreeReadOnly(pubCache, 'Dart pub dependency cache');
     for (const relativePath of pubExcludedBuildPaths) makeTreeOwnerWritable(path.join(pubCache, relativePath));
-    flutter.environment = {
-      ...buildEnvironment,
-      ORG_GRADLE_PROJECT_settleoraReleaseOffline: 'true',
-    };
-    executeGuardedFlutter(flutter, [
-      ['build', 'apk', '--release', '--no-pub'],
-    ], mobileRoot, [...toolchainConfiguration, prefetchSourceGuard, { label: 'pub-cache', root: pubCache, excludedPrefixes: pubExcludedBuildPaths }, { label: 'android-signing-home', root: path.join(buildHome, '.android'), excludedPrefixes: [] }]);
     const runtimeWrapper = gradleWrapper;
     const runtimeWrapperLockPaths = relativeFilesMatching(runtimeWrapper, /\.zip\.lck$/u);
     if (runtimeWrapperLockPaths.length !== 1 || !/^dists\/gradle-[0-9.]+-(?:all|bin)\/[a-z0-9]+\/gradle-[0-9.]+-(?:all|bin)\.zip\.lck$/u.test(runtimeWrapperLockPaths[0])) {
@@ -1427,12 +1532,11 @@ function collectAndroidUnsafe(options, emit = true) {
       'caches/jars-9/jars-9.lock',
     ];
     const kotlinAccessorsRoot = path.join(runtimeGradleHome, `caches/${gradleRuntimeVersion}/kotlin-dsl/accessors`);
-    const kotlinAccessorNames = readdirSync(kotlinAccessorsRoot, { withFileTypes: true })
+    const preStabilizationAccessorNames = readdirSync(kotlinAccessorsRoot, { withFileTypes: true })
       .filter((entry) => entry.isDirectory() && /^[0-9a-f]{32}$/u.test(entry.name))
       .map((entry) => entry.name)
       .sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
-    if (kotlinAccessorNames.length < 1) throw new Error('Android guarded dependency prefetch did not produce a stable Kotlin DSL accessor identity');
-    const gradleKotlinDslTransientBases = kotlinAccessorNames.map((entry) => `caches/${gradleRuntimeVersion}/kotlin-dsl/accessors/${entry}`);
+    if (preStabilizationAccessorNames.length < 1) throw new Error('Android guarded dependency prefetch did not produce a stable Kotlin DSL accessor identity');
     for (const relativeCache of sealedGradleExecutableCachePaths) {
       const runtimeCache = path.join(runtimeGradleHome, relativeCache);
       if (!lstatSync(runtimeCache, { throwIfNoEntry: false })?.isDirectory()) throw new Error(`Android guarded dependency prefetch did not produce Gradle ${relativeCache}`);
@@ -1447,6 +1551,33 @@ function collectAndroidUnsafe(options, emit = true) {
     makeTreeReadOnly(runtimeWrapper, 'Gradle runtime wrapper distribution');
     chmodSync(path.join(runtimeWrapper, runtimeWrapperLockPaths[0]), 0o600);
     const runtimeGradleMutablePaths = ['.tmp', 'caches/CACHEDIR.TAG', 'caches/build-cache-1', `caches/${gradleRuntimeVersion}/file-changes`, `caches/${gradleRuntimeVersion}/fileContent`, `caches/${gradleRuntimeVersion}/fileHashes`, `caches/${gradleRuntimeVersion}/gc.properties`, `caches/${gradleRuntimeVersion}/javaCompile`, `caches/${gradleRuntimeVersion}/jvms`, `caches/${gradleRuntimeVersion}/md-rule`, `caches/${gradleRuntimeVersion}/md-supplier`, ...sealedGradleExecutableMutablePaths, 'caches/gc.properties', 'caches/journal-1', 'caches/keyrings', 'caches/modules-2', 'android', 'daemon', 'kotlin-profile', 'native', 'notifications', 'workers', ...runtimeWrapperLockPaths.map((entry) => `wrapper/${entry}`)];
+    const accessorPrefix = `caches/${gradleRuntimeVersion}/kotlin-dsl/accessors`;
+    flutter.environment = {
+      ...buildEnvironment,
+      ORG_GRADLE_PROJECT_settleoraReleaseOffline: 'true',
+    };
+    executeGuardedFlutter(flutter, [
+      ['build', 'apk', '--release', '--no-pub'],
+    ], mobileRoot, [
+      ...toolchainConfiguration,
+      prefetchSourceGuard,
+      { label: 'pub-cache', root: pubCache, excludedPrefixes: pubExcludedBuildPaths },
+      { label: 'gradle-stabilization-home', root: runtimeGradleHome, excludedPrefixes: [...runtimeGradleMutablePaths, accessorPrefix] },
+      ...preStabilizationAccessorNames.map((entry) => ({ label: `gradle-existing-accessor-${entry}`, root: path.join(kotlinAccessorsRoot, entry), excludedPrefixes: [] })),
+      { label: 'android-signing-home', root: path.join(buildHome, '.android'), excludedPrefixes: [] },
+    ]);
+    const kotlinAccessorNames = readdirSync(kotlinAccessorsRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && /^[0-9a-f]{32}$/u.test(entry.name))
+      .map((entry) => entry.name)
+      .sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
+    if (preStabilizationAccessorNames.some((entry) => !kotlinAccessorNames.includes(entry))
+      || kotlinAccessorNames.length > preStabilizationAccessorNames.length + 4) {
+      throw new Error('Android offline stabilization produced an unexpected Kotlin DSL accessor inventory');
+    }
+    makeTreeReadOnly(kotlinAccessorsRoot, 'Gradle stabilized Kotlin DSL accessors');
+    chmodSync(kotlinAccessorsRoot, 0o700);
+    const gradleKotlinDslTransientBases = kotlinAccessorNames.map((entry) => `${accessorPrefix}/${entry}`);
+    const preStabilizationKotlinDslAccessorBases = preStabilizationAccessorNames.map((entry) => `${accessorPrefix}/${entry}`);
     const gradleExecutableCacheExcludedPaths = [...runtimeGradleMutablePaths, 'caches/modules-2', 'wrapper'];
     const dependencyCaches = {
       pub: toolchainTreeDigest(pubCache, 'Dart pub dependency cache', pubExcludedBuildPaths),
@@ -1546,7 +1677,7 @@ function collectAndroidUnsafe(options, emit = true) {
       dependencyCaches,
       gradleVerificationMetadataSha256: createHash('sha256').update(gitExec(['show', `${sourceBefore.commit}:apps/mobile/android/gradle/verification-metadata.xml`], { cwd: repoRoot })).digest('hex'),
       apksignerJarSha256: apksignerJar.sha256,
-      toolchainMutationGuard: { algorithm: 'linux-inotify-authenticated-runner-v3', flutterExcludedTransientBases: [...flutterMutableMetadata].sort((left, right) => Buffer.from(left).compare(Buffer.from(right))), pubExcludedBuildPaths, gradleWrapperLockPaths: runtimeWrapperLockPaths, gradleKotlinDslTransientBases, prefetchSourceGeneratedPaths, sourceGeneratedPaths, sealedGeneratedInputPaths, sealedGradleExecutableCachePaths, runtimeGradleMutablePaths, outputsCapturedBeforeGuardExit: true, queueOverflowFailsClosed: true },
+      toolchainMutationGuard: { algorithm: 'linux-inotify-authenticated-runner-v3', flutterExcludedTransientBases: [...flutterMutableMetadata].sort((left, right) => Buffer.from(left).compare(Buffer.from(right))), pubExcludedBuildPaths, gradleWrapperLockPaths: runtimeWrapperLockPaths, gradleKotlinDslTransientBases, preStabilizationKotlinDslAccessorBases, prefetchSourceGeneratedPaths, sourceGeneratedPaths, sealedGeneratedInputPaths, sealedGradleExecutableCachePaths, runtimeGradleMutablePaths, outputsCapturedBeforeGuardExit: true, queueOverflowFailsClosed: true },
       signingInputSha256: debugKeystore.sha256,
       signingCertificateSha256,
     };

@@ -71,10 +71,10 @@ class SealedAndroidVerifierTests(unittest.TestCase):
             f"Name: {name}\r\nSHA-256-Digest: {base64.b64encode(hashlib.sha256(payload).digest()).decode('ascii')}\r\n\r\n".encode("ascii")
             for name, payload in payloads.items()
         ]
-        manifest = b"Manifest-Version: 1.0\r\nBuilt-By: Signflinger\r\nCreated-By: Signflinger\r\n\r\n" + b"".join(sections)
-
-        def identity(reverse: bool) -> str:
-            ordered = list(reversed(sections)) if reverse else sections
+        def identity(signature_reverse: bool, manifest_reverse: bool = False) -> str:
+            manifest_order = list(reversed(sections)) if manifest_reverse else sections
+            manifest = b"Manifest-Version: 1.0\r\nBuilt-By: Signflinger\r\nCreated-By: Signflinger\r\n\r\n" + b"".join(manifest_order)
+            ordered = list(reversed(manifest_order)) if signature_reverse else manifest_order
             signature_sections = b"".join(
                 b"Name: " + section.split(b"\r\n", 1)[0].split(b": ", 1)[1] + b"\r\nSHA-256-Digest: "
                 + base64.b64encode(hashlib.sha256(section).digest()) + b"\r\n\r\n"
@@ -97,6 +97,7 @@ class SealedAndroidVerifierTests(unittest.TestCase):
                 return VERIFIER.canonical_aab_signature_control_digest(source.fileno())
 
         self.assertNotEqual(identity(False), identity(True))
+        self.assertNotEqual(identity(False), identity(False, True))
 
     def test_unsigned_count_ignores_directory_and_signature_control_records(self):
         verification = "\n".join(

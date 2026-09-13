@@ -69,14 +69,17 @@ node tools/release/day1-release-identity-cli.mjs validate \
 
 Assembly also performs `npm ci` through the protected system npm installation and
 the canonical user-web build with a bounded environment and private cache in a
-disposable exact-source snapshot, then retains the R02 package manifest and `dist/` under
-the candidate directory. Validation repeats that exact-source web build and
+disposable exact-source snapshot. The installed `node_modules` tree is then
+inventoried, write-sealed with internal symlink confinement, and continuously
+guarded through the build. A bounded canonical copy of every output file is
+streamed to an unlinked held descriptor before the runner exits; only those
+captured bytes produce the retained R02 manifest and `dist/`. Validation repeats that exact-source web build and
 compares it with the retained identity, so caller-authored source claims are not
 trusted. Executable source snapshots are materialized directly from committed
 Git blobs so export attributes cannot omit or rewrite inputs. They reject tracked symlinks, and web artifact
 walking is bounded by file, byte, directory-count, and directory-depth limits.
 
-`collect-android` prefetches dependencies, cleans generated state, invokes the two fixed offline release-build commands, and writes a
+`collect-android` prefetches dependencies, stabilizes the offline Gradle model, removes prior build outputs, invokes the two fixed offline release-build commands, and writes a
 source/tree/artifact attestation. Assembly always performs that collection itself
 inside the canonical candidate directory, so it cannot accept caller-selected
 stale Android binaries. The collector captures the Flutter SDK's Dart executable
@@ -128,7 +131,10 @@ therefore fails closed. Kotlin DSL may create a UUID-suffixed temporary
 accessor beside an already authenticated accessor; only those exact recorded
 sibling bases are transient, while every stable accessor remains read-only and
 guarded. One guarded, non-retained offline build stabilizes the offline Gradle
-model before that sealing step. The retained builds remove only prior build outputs;
+model before that sealing step. Every pre-existing accessor is sealed and
+individually guarded during stabilization; only a bounded set of newly created,
+strictly named accessor identities may be added before the final whole-cache
+inventory and seal. The retained builds remove only prior build outputs;
 they reuse those sealed generated inputs so Gradle cannot introduce a new
 Kotlin DSL accessor identity between prefetch and evidence capture.
 Assembly and validation resolve `apksigner`

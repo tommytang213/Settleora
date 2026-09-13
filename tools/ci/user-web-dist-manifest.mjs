@@ -166,7 +166,7 @@ function decodeHtmlEntitiesForScan(text) {
   const named = new Map([['amp', '&'], ['apos', "'"], ['gt', '>'], ['lt', '<'], ['quot', '"']]);
   // HTML accepts semicolonless numeric references. Named references remain
   // semicolon-required so an ordinary ampersand word is not rewritten.
-  return text.replace(/&(?:#([0-9]{1,7});?|#x([0-9A-Fa-f]{1,6});?|([A-Za-z]{2,8});)/gu, (entity, decimal, hexadecimal, name) => {
+  return text.replace(/&(?:#([0-9]+);?|#x([0-9A-Fa-f]+);?|([A-Za-z]{2,8});)/gu, (entity, decimal, hexadecimal, name) => {
     const value = decimal !== undefined
       ? Number.parseInt(decimal, 10)
       : hexadecimal !== undefined
@@ -390,7 +390,8 @@ export function scanPublicArtifact(files) {
 }
 
 export function createUserWebDistManifest({
-  dist = path.join(repoRoot, 'apps/web-user/dist'),
+  repositoryRoot = repoRoot,
+  dist = path.join(repositoryRoot, 'apps/web-user/dist'),
   output,
   staging,
   expectedSourceSha,
@@ -400,7 +401,7 @@ export function createUserWebDistManifest({
   const stagingAbsolute = staging ? path.resolve(staging) : undefined;
   const outputAbsolute = path.resolve(output ?? (stagingAbsolute
     ? path.join(stagingAbsolute, 'user-web-dist-manifest.json')
-    : path.join(repoRoot, 'apps/web-user/user-web-dist-manifest.json')));
+    : path.join(repositoryRoot, 'apps/web-user/user-web-dist-manifest.json')));
   const artifactRoot = artifactRootLabel(distAbsolute, provenance);
   if (lstatSync(distAbsolute).isSymbolicLink()) throw new Error(`User-web dist root must not be a symlink: ${distAbsolute}`);
   if (!statSync(distAbsolute).isDirectory()) throw new Error(`User-web dist is not a directory: ${distAbsolute}`);
@@ -427,7 +428,7 @@ export function createUserWebDistManifest({
     throw new Error(`Source checkout mismatch: expected ${expectedSourceSha}, found ${source.commit}`);
   }
 
-  const lockPath = path.join(repoRoot, 'apps/web-user/package-lock.json');
+  const lockPath = path.join(repositoryRoot, 'apps/web-user/package-lock.json');
   const lockBytes = readFileSync(lockPath);
   const lock = JSON.parse(lockBytes);
   const fileEntries = files.map((file) => ({

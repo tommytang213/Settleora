@@ -122,9 +122,12 @@ test('full and mobile validation commands remain unweakened', () => {
   );
 });
 
-test('required scaffold classifier runs the fail-closed release identity suite', () => {
+test('required scaffold classifier runs the fail-closed release identity suite exactly once', () => {
   const classify = workflow('scaffold-validation.yml').jobs.classify;
-  assert.equal(classify.steps.some((step) => step.run === 'npm run validate:release-identity'), true);
+  assert.equal(classify.steps.some((step) => step.run === 'npm run validate:release-identity'), false);
+  const bridge = read('tools/ci/test/release-identity.test.mjs');
+  assert.match(bridge, /import '\.\.\/\.\.\/release\/test\/day1-release-identity\.test\.mjs';/);
+  assert.match(bridge, /execFileSync\('python3', \['-m', 'unittest', 'discover', '-s', 'tools\/release\/test'/);
 });
 
 test('iOS build procedure is reusable, manual, pinned, and simulator-only', () => {
