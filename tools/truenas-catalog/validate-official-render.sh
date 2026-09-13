@@ -4,8 +4,10 @@ set -f
 
 packet_root=${1:-}
 [ -n "$packet_root" ] || { echo >&2 "Usage: validate-official-render.sh <materialized-packet-root>"; exit 2; }
+[ ! -L "$packet_root" ] || { echo >&2 "Materialized packet root must not be a symbolic link"; exit 2; }
 [ -d "$packet_root/package" ] || { echo >&2 "Materialized package directory is missing"; exit 2; }
 [ -f "$packet_root/install-plan.json" ] || { echo >&2 "Install plan is missing"; exit 2; }
+[ ! -L "$packet_root/install-plan.json" ] || { echo >&2 "Install plan must not be a symbolic link"; exit 2; }
 
 validator_image='ghcr.io/truenas/apps_validation@sha256:9363207f4456a2522bc1aee7bc8d62378c5594b3781319f3331910662e0c49ae'
 
@@ -30,7 +32,9 @@ docker run --platform linux/amd64 --rm \
   "$validator_image" \
   0644 /workspace/package/templates/rendered/docker-compose.yaml
 
+[ -f "$packet_root/package/templates/rendered/docker-compose.yaml" ] || { echo >&2 "Official rendered Compose file is missing"; exit 2; }
+[ ! -L "$packet_root/package/templates/rendered/docker-compose.yaml" ] || { echo >&2 "Official rendered Compose file must not be a symbolic link"; exit 2; }
 docker compose -f "$packet_root/package/templates/rendered/docker-compose.yaml" config --quiet
 node tools/truenas-catalog/validate-official-render.mjs \
-  "$packet_root/package/templates/rendered/docker-compose.yaml" \
-  "$packet_root/install-plan.json"
+  3< "$packet_root/package/templates/rendered/docker-compose.yaml" \
+  4< "$packet_root/install-plan.json"

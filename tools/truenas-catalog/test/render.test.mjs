@@ -46,6 +46,14 @@ test('official TrueNAS 25.10 package skeleton uses current Docker Apps layout an
   assert.ok(readFileSync(path.join(packageSource, 'templates/library/base_v2_3_11/container.py'), 'utf8').includes('"platform": "linux/amd64"'));
 });
 
+test('official-render semantic validator accepts only fixed descriptor input', () => {
+  const source = readFileSync(path.join(repoRoot, 'tools/truenas-catalog/validate-official-render.mjs'), 'utf8');
+  assert.match(source, /readFileSync\(3, 'utf8'\)/u);
+  assert.match(source, /readFileSync\(4, 'utf8'\)/u);
+  assert.doesNotMatch(source, /readFileSync\([^34]/u);
+  assert.doesNotMatch(source, /process\.argv\.slice/u);
+});
+
 test('pinned official TrueNAS library content fails closed on byte drift', () => {
   const root = path.join(temp(), 'package');
   cpSync(packageSource, root, { recursive: true });

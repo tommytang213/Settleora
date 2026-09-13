@@ -1,14 +1,12 @@
 import { readFileSync } from 'node:fs';
-import path from 'node:path';
 import YAML from 'yaml';
 import { canonicalJson } from '../release/day1-release-identity.mjs';
 import { PACKAGE_SCHEMA, sha256 } from './render.mjs';
 
 const fail = (message) => { throw new Error(message); };
-const [composeArg, planArg] = process.argv.slice(2);
-if (!composeArg || !planArg) fail('Usage: validate-official-render.mjs <compose> <install-plan>');
-const compose = YAML.parse(readFileSync(path.resolve(composeArg), 'utf8'));
-const plan = JSON.parse(readFileSync(path.resolve(planArg), 'utf8'));
+if (process.argv.length !== 2) fail('Official-render validation accepts input only on fixed file descriptors');
+const compose = YAML.parse(readFileSync(3, 'utf8'));
+const plan = JSON.parse(readFileSync(4, 'utf8'));
 if (plan.schema !== PACKAGE_SCHEMA) fail('Install-plan schema mismatch');
 const names = Object.keys(compose.services ?? {}).sort();
 if (canonicalJson(names) !== canonicalJson(['api', 'ingress', 'migrate', 'postgres', 'rabbitmq'])) fail('Official render service set mismatch');
