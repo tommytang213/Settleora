@@ -1324,7 +1324,7 @@ while (written < payload.length) written += writeSync(${captureFd}, payload, wri
         [webSourceGuard, { label: 'web-installed-dependencies', root: nodeModules, excludedPrefixes: [] }],
         node,
         [npmCli],
-        [['/proc/self/fd/4', 'run', 'build'], ['--input-type=module', '--eval', captureProgram, path.join(webRoot, 'dist')]],
+        [['/proc/self/fd/4', 'run', 'build', '--', '--configLoader', 'runner'], ['--input-type=module', '--eval', captureProgram, path.join(webRoot, 'dist')]],
         { cwd: webRoot, env: npmEnvironment, stdio: ['ignore', 'inherit', 'inherit'], outputDescriptors: [captureDescriptor] },
       );
       if (canonicalJson(toolchainTreeDigest(nodeModules, 'User-web installed dependency tree')) !== canonicalJson(nodeModulesIdentity)) throw new Error('User-web installed dependency tree changed during build');

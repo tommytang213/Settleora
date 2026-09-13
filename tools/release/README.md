@@ -71,7 +71,8 @@ Assembly also performs `npm ci` through the protected system npm installation an
 the canonical user-web build with a bounded environment and private cache in a
 disposable exact-source snapshot. The installed `node_modules` tree is then
 inventoried, write-sealed with internal symlink confinement, and continuously
-guarded through the build. A bounded canonical copy of every output file is
+guarded through the build. Vite's runner config loader avoids emitting a
+temporary config bundle beside tracked source. A bounded canonical copy of every output file is
 streamed to an unlinked held descriptor before the runner exits; only those
 captured bytes produce the retained R02 manifest and `dist/`. Validation repeats that exact-source web build and
 compares it with the retained identity, so caller-authored source claims are not
