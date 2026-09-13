@@ -267,6 +267,16 @@ def _validated_digest(value: str, label: str) -> None:
         raise ValueError(f"Android AAB {label} is not a SHA-256 digest")
 
 
+def _replace_control_digest(raw_section: bytes, old_digest: str, new_digest: str, label: str) -> bytes:
+    old_line = b"SHA-256-Digest: " + old_digest.encode("ascii")
+    lines = raw_section[:-4].split(b"\r\n")
+    matches = [index for index, line in enumerate(lines) if line.startswith(b"SHA-256-Digest:")]
+    if len(matches) != 1 or lines[matches[0]] != old_line:
+        raise ValueError(f"Android AAB {label} digest attribute serialization is not canonical")
+    lines[matches[0]] = b"SHA-256-Digest: " + new_digest.encode("ascii")
+    return b"\r\n".join(lines) + b"\r\n\r\n"
+
+
 def canonical_aab_signature_control_digest(descriptor: int) -> str:
     """Validate all JAR controls and hash their complete deterministic meaning."""
     with os.fdopen(os.dup(descriptor), "rb") as artifact_file, zipfile.ZipFile(artifact_file) as bundle:
@@ -314,7 +324,7 @@ def canonical_aab_signature_control_digest(descriptor: int) -> str:
             if name == "BUNDLE-METADATA/com.android.tools/r8.json":
                 normalized = normalize_r8_build_time(raw_entry)
             normalized_digest = _sha256_base64(normalized)
-            normalized_section = raw_section.replace(attributes["SHA-256-Digest"].encode("ascii"), normalized_digest.encode("ascii"), 1)
+            normalized_section = _replace_control_digest(raw_section, attributes["SHA-256-Digest"], normalized_digest, "manifest-section")
             manifest_records[name] = (raw_section, normalized_digest, hashlib.sha256(normalized_section).hexdigest())
             manifest_section_order.append(name)
         if sorted(manifest_records) != sorted(archive_names):
@@ -330,14 +340,17 @@ def canonical_aab_signature_control_digest(descriptor: int) -> str:
             raw_manifest_section = manifest_records.get(name, (None, None))[0]
             if raw_manifest_section is None or attributes["SHA-256-Digest"] != _sha256_base64(raw_manifest_section):
                 raise ValueError("Android AAB signature file does not bind a complete manifest section")
-            normalized_manifest_section_digest = _sha256_base64(
-                manifest_records[name][0].replace(
-                    manifest_sections[1 + manifest_section_order.index(name)][1]["SHA-256-Digest"].encode("ascii"),
-                    manifest_records[name][1].encode("ascii"), 1,
-                )
-            )
-            normalized_signature_section = signature_sections[1 + len(signature_section_order)][0].replace(
-                attributes["SHA-256-Digest"].encode("ascii"), normalized_manifest_section_digest.encode("ascii"), 1,
+            normalized_manifest_section_digest = _sha256_base64(_replace_control_digest(
+                manifest_records[name][0],
+                manifest_sections[1 + manifest_section_order.index(name)][1]["SHA-256-Digest"],
+                manifest_records[name][1],
+                "manifest-section",
+            ))
+            normalized_signature_section = _replace_control_digest(
+                signature_sections[1 + len(signature_section_order)][0],
+                attributes["SHA-256-Digest"],
+                normalized_manifest_section_digest,
+                "signature-file section",
             )
             signature_records[name] = (attributes["SHA-256-Digest"], hashlib.sha256(normalized_signature_section).hexdigest())
             signature_section_order.append(name)

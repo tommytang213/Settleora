@@ -159,6 +159,32 @@ class SealedAndroidVerifierTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "main section serialization is not canonical"):
                 VERIFIER.canonical_aab_signature_control_digest(source.fileno())
 
+    def test_aab_signature_control_digest_rejects_folded_digest_attribute(self):
+        payload = b"payload"
+        payload_digest = base64.b64encode(hashlib.sha256(payload).digest())
+        manifest_section = (
+            b"Name: base/payload\r\nSHA-256-Digest: "
+            + payload_digest[:20] + b"\r\n " + payload_digest[20:] + b"\r\n\r\n"
+        )
+        manifest = b"Manifest-Version: 1.0\r\nBuilt-By: Signflinger\r\nCreated-By: Signflinger\r\n\r\n" + manifest_section
+        signature = (
+            b"Signature-Version: 1.0\r\nCreated-By: Signflinger\r\nSHA-256-Digest-Manifest: "
+            + base64.b64encode(hashlib.sha256(manifest).digest()) + b"\r\n\r\n"
+            b"Name: base/payload\r\nSHA-256-Digest: "
+            + base64.b64encode(hashlib.sha256(manifest_section).digest()) + b"\r\n\r\n"
+        )
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, "w") as output:
+            output.writestr("base/payload", payload)
+            output.writestr("META-INF/MANIFEST.MF", manifest)
+            output.writestr("META-INF/ANDROIDD.SF", signature)
+            output.writestr("META-INF/ANDROIDD.RSA", b"certificate")
+        with tempfile.TemporaryFile() as source:
+            source.write(archive.getvalue())
+            source.seek(0)
+            with self.assertRaisesRegex(ValueError, "digest attribute serialization is not canonical"):
+                VERIFIER.canonical_aab_signature_control_digest(source.fileno())
+
     def test_unsigned_count_ignores_directory_and_signature_control_records(self):
         verification = "\n".join(
             (

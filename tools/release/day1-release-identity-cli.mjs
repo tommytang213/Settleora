@@ -742,11 +742,13 @@ try:
         if tree_digest(os.path.realpath(item["root"]), item["excludedPrefixes"], item.get("excludedTransientBases", [])) != item["expectedGuardDigest"]:
             raise RuntimeError(item["label"] + " changed before its authenticated guard was installed")
     changed = None
+    sealed_outputs = json.loads(sealed_outputs_json)
     passed_descriptors = []
     for candidate_fd in range(3, 64):
         try:
             os.fstat(candidate_fd)
-            passed_descriptors.append(candidate_fd)
+            if candidate_fd not in sealed_outputs:
+                passed_descriptors.append(candidate_fd)
         except OSError:
             pass
     def drain(timeout):
@@ -779,7 +781,6 @@ try:
                     break
     command_values = json.loads(commands)
     captures = json.loads(captures_json)
-    sealed_outputs = json.loads(sealed_outputs_json)
     for command_index, values in enumerate(command_values):
         process = subprocess.Popen(["/proc/self/fd/3", *values], executable="/proc/self/fd/3", cwd=cwd, pass_fds=tuple(passed_descriptors), start_new_session=True)
         while process.poll() is None:
