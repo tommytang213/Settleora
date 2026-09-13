@@ -13,9 +13,11 @@ Assembly and validation require `gh` access to read the canonical GitHub Actions
 publication-run URL, its job record, and its authenticated provider log. They
 fail unless the exact index digest is both published for the exact-SHA tag and
 reported as the successful build action output for the exact-source push run.
-Authenticated provider and registry checks run before any dependency-controlled
-web or Android build. The collector then replaces itself with a credential-free
-bounded process, so build children cannot recover `GH_TOKEN` from a live parent.
+Direct CLI execution builds a descriptor-fed closure from the exact committed
+collector modules and starts it under the protected system Node with a bounded
+environment. That sealed child performs authenticated provider and registry
+checks itself before any dependency-controlled web or Android build; every build
+child receives a separately constructed credential-free environment.
 Assembly resolves configured tags to establish the candidate; later validation
 uses only the retained immutable index and platform digest references.
 
@@ -138,6 +140,10 @@ set of newly created, strictly named identities may be added before the final wh
 inventory and seal. The retained builds remove only prior build outputs;
 they reuse those sealed generated inputs so Gradle cannot introduce a new
 Kotlin DSL accessor identity between prefetch and evidence capture.
+Extracted Gradle native libraries are inventoried and sealed as executable
+inputs; only their bounded lock-file paths remain mutable. Dependency
+verification metadata is strict only for this Linux collector, so its
+host-specific AAPT2 identity does not constrain ordinary builds on other hosts.
 Assembly and validation resolve `apksigner`
 only below the separately supplied trusted SDK root and verify both the APK and
 AAB debug certificate and rejects additional APK or AAB signers. Validation always recollects source, registry, web,

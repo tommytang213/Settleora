@@ -17,10 +17,18 @@ pluginManagement {
     }
 }
 
-// Release-evidence collectors set this project property only after a
-// checksum-verified dependency cache has been populated. Keeping the switch in
-// source makes the offline boundary explicit and replayable without rewriting
-// the generated Gradle wrapper.
+// Dependency verification metadata is the Linux release-evidence collector's
+// authenticated dependency allowlist. Other hosts keep their ordinary Gradle
+// behavior so the Linux-only AAPT2 checksum cannot break macOS/Windows builds.
+gradle.startParameter.dependencyVerificationMode =
+    if (providers.gradleProperty("settleoraReleaseEvidence").orNull == "true") {
+        org.gradle.api.artifacts.verification.DependencyVerificationMode.STRICT
+    } else {
+        org.gradle.api.artifacts.verification.DependencyVerificationMode.OFF
+    }
+
+// Release-evidence collectors enable offline mode after the checksum-verified
+// dependency cache has been populated.
 if (providers.gradleProperty("settleoraReleaseOffline").orNull == "true") {
     gradle.startParameter.isOffline = true
 }

@@ -26,6 +26,7 @@ import { assertTrackedWorktreeMatchesHead, assertUniqueJsonMembers, createUserWe
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const invokedDirectly = Boolean(process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url));
+const sealedRuntime = false;
 function protectedSystemCommand(candidate, expectedName) {
   const command = path.resolve(candidate);
   const resolved = realpathSync(command);
@@ -228,7 +229,8 @@ function inspectRecord(reference) {
   return inspect(reference, '{{json .}}');
 }
 
-const registryPreflightMarker = 'SETTLEORA_RELEASE_REGISTRY_PREFLIGHT';
+let verifiedRegistryPreflightIdentity;
+let githubCredential;
 function registryPreflightIdentity(input, retained) {
   return createHash('sha256').update(canonicalJson({
     retained,
@@ -258,7 +260,7 @@ function verifyLiveRegistryNetwork(input, retained = false) {
   const verifyPublication = (image, sourceCommit, label) => {
     const reference = verify(image, label, sourceCommit);
     const publication = validatePublicationRunUrl(image.publicationRunUrl, sourceCommit);
-    const ghEnvironment = { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', GH_HOST: 'github.com', GH_CONFIG_DIR: '/nonexistent', ...(process.env.GH_TOKEN ? { GH_TOKEN: process.env.GH_TOKEN } : {}) };
+    const ghEnvironment = { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', GH_HOST: 'github.com', GH_CONFIG_DIR: '/nonexistent', ...(githubCredential ? { GH_TOKEN: githubCredential } : {}) };
     const ghApi = (endpoint, options = {}) => execFileSync(releaseCommand('gh'), ['api', '--hostname', 'github.com', endpoint], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: ghEnvironment, ...options });
     const run = JSON.parse(ghApi(`repos/tommytang213/Settleora/actions/runs/${publication.runId}`));
     validatePublicationRunDocument(publication, run, sourceCommit);
@@ -276,7 +278,7 @@ function verifyLiveRegistryNetwork(input, retained = false) {
 }
 
 function verifyLiveRegistry(input, retained = false) {
-  if (process.env[registryPreflightMarker] !== registryPreflightIdentity(input, retained)) {
+  if (verifiedRegistryPreflightIdentity !== registryPreflightIdentity(input, retained)) {
     throw new Error('Live registry evidence was not preflighted before the credential-free build phase');
   }
 }
@@ -1473,6 +1475,7 @@ function collectAndroidUnsafe(options, emit = true) {
       PUB_CACHE: pubCache,
       GRADLE_USER_HOME: prefetchGradleHome,
       GRADLE_OPTS: `-Dorg.gradle.daemon=false -Duser.home=${buildHome}`,
+      ORG_GRADLE_PROJECT_settleoraReleaseEvidence: 'true',
     };
     flutter.environment = buildEnvironment;
     const mobileRoot = path.join(snapshotRoot, 'apps/mobile');
@@ -1507,6 +1510,12 @@ function collectAndroidUnsafe(options, emit = true) {
     }
     const gradleRuntimeVersion = /^dists\/gradle-([0-9.]+)-(?:all|bin)\//u.exec(runtimeWrapperLockPaths[0])?.[1];
     if (!gradleRuntimeVersion) throw new Error('Gradle runtime version could not be derived from the sealed wrapper');
+    const runtimeNative = path.join(runtimeGradleHome, 'native');
+    const gradleNativeLockPaths = relativeFilesMatching(runtimeNative, /\.lock$/u);
+    if (gradleNativeLockPaths.length < 1 || gradleNativeLockPaths.length > 16
+      || gradleNativeLockPaths.some((entry) => !/^(?:jansi\/[0-9.]+\/[A-Za-z0-9._-]+\/libjansi\.so|[0-9a-f]{64}\/[A-Za-z0-9._-]+\/libnative-platform(?:-curses)?\.so|[0-9.]+\/[A-Za-z0-9._-]+\/libgradle-fileevents\.so)\.lock$/u.test(entry))) {
+      throw new Error('Gradle native runtime lock-file inventory is not the expected bounded shape');
+    }
     const runtimeModules = gradleModules;
     makeTreeReadOnly(runtimeModules, 'Gradle runtime module dependency cache');
     chmodSync(runtimeModules, 0o700);
@@ -1558,7 +1567,9 @@ function collectAndroidUnsafe(options, emit = true) {
     chmodSync(kotlinScriptsRoot, 0o700);
     makeTreeReadOnly(runtimeWrapper, 'Gradle runtime wrapper distribution');
     chmodSync(path.join(runtimeWrapper, runtimeWrapperLockPaths[0]), 0o600);
-    const runtimeGradleMutablePaths = ['.tmp', 'caches/CACHEDIR.TAG', 'caches/build-cache-1', `caches/${gradleRuntimeVersion}/file-changes`, `caches/${gradleRuntimeVersion}/fileContent`, `caches/${gradleRuntimeVersion}/fileHashes`, `caches/${gradleRuntimeVersion}/gc.properties`, `caches/${gradleRuntimeVersion}/javaCompile`, `caches/${gradleRuntimeVersion}/jvms`, `caches/${gradleRuntimeVersion}/md-rule`, `caches/${gradleRuntimeVersion}/md-supplier`, ...sealedGradleExecutableMutablePaths, 'caches/gc.properties', 'caches/journal-1', 'caches/keyrings', 'caches/modules-2', 'android', 'daemon', 'kotlin-profile', 'native', 'notifications', 'workers', ...runtimeWrapperLockPaths.map((entry) => `wrapper/${entry}`)];
+    makeTreeReadOnly(runtimeNative, 'Gradle native runtime cache');
+    for (const relativeLock of gradleNativeLockPaths) chmodSync(path.join(runtimeNative, relativeLock), 0o600);
+    const runtimeGradleMutablePaths = ['.tmp', 'caches/CACHEDIR.TAG', 'caches/build-cache-1', `caches/${gradleRuntimeVersion}/file-changes`, `caches/${gradleRuntimeVersion}/fileContent`, `caches/${gradleRuntimeVersion}/fileHashes`, `caches/${gradleRuntimeVersion}/gc.properties`, `caches/${gradleRuntimeVersion}/javaCompile`, `caches/${gradleRuntimeVersion}/jvms`, `caches/${gradleRuntimeVersion}/md-rule`, `caches/${gradleRuntimeVersion}/md-supplier`, ...sealedGradleExecutableMutablePaths, 'caches/gc.properties', 'caches/journal-1', 'caches/keyrings', 'caches/modules-2', 'android', 'daemon', 'kotlin-profile', 'notifications', 'workers', ...gradleNativeLockPaths.map((entry) => `native/${entry}`), ...runtimeWrapperLockPaths.map((entry) => `wrapper/${entry}`)];
     const accessorPrefix = `caches/${gradleRuntimeVersion}/kotlin-dsl/accessors`;
     const scriptPrefix = `caches/${gradleRuntimeVersion}/kotlin-dsl/scripts`;
     flutter.environment = {
@@ -1693,7 +1704,7 @@ function collectAndroidUnsafe(options, emit = true) {
       dependencyCaches,
       gradleVerificationMetadataSha256: createHash('sha256').update(gitExec(['show', `${sourceBefore.commit}:apps/mobile/android/gradle/verification-metadata.xml`], { cwd: repoRoot })).digest('hex'),
       apksignerJarSha256: apksignerJar.sha256,
-      toolchainMutationGuard: { algorithm: 'linux-inotify-authenticated-runner-v3', flutterExcludedTransientBases: [...flutterMutableMetadata].sort((left, right) => Buffer.from(left).compare(Buffer.from(right))), pubExcludedBuildPaths, gradleWrapperLockPaths: runtimeWrapperLockPaths, gradleKotlinDslTransientBases, preStabilizationKotlinDslAccessorBases, gradleKotlinDslScriptTransientBases, preStabilizationKotlinDslScriptBases, prefetchSourceGeneratedPaths, sourceGeneratedPaths, sealedGeneratedInputPaths, sealedGradleExecutableCachePaths, runtimeGradleMutablePaths, outputsCapturedBeforeGuardExit: true, queueOverflowFailsClosed: true },
+      toolchainMutationGuard: { algorithm: 'linux-inotify-authenticated-runner-v3', flutterExcludedTransientBases: [...flutterMutableMetadata].sort((left, right) => Buffer.from(left).compare(Buffer.from(right))), pubExcludedBuildPaths, gradleWrapperLockPaths: runtimeWrapperLockPaths, gradleNativeLockPaths, gradleKotlinDslTransientBases, preStabilizationKotlinDslAccessorBases, gradleKotlinDslScriptTransientBases, preStabilizationKotlinDslScriptBases, prefetchSourceGeneratedPaths, sourceGeneratedPaths, sealedGeneratedInputPaths, sealedGradleExecutableCachePaths, runtimeGradleMutablePaths, outputsCapturedBeforeGuardExit: true, queueOverflowFailsClosed: true },
       signingInputSha256: debugKeystore.sha256,
       signingCertificateSha256,
     };
@@ -2068,7 +2079,8 @@ export function main(argv = process.argv.slice(2)) {
         throw new Error('Retained Android toolchain provenance differs from the exact-source rebuild');
       }
       if (canonicalJson(retainedProvenance.dependencyCaches) !== canonicalJson(rebuiltProvenance.dependencyCaches)
-        || retainedProvenance.gradleVerificationMetadataSha256 !== rebuiltProvenance.gradleVerificationMetadataSha256) {
+        || retainedProvenance.gradleVerificationMetadataSha256 !== rebuiltProvenance.gradleVerificationMetadataSha256
+        || canonicalJson(retainedProvenance.toolchainMutationGuard) !== canonicalJson(rebuiltProvenance.toolchainMutationGuard)) {
         throw new Error('Retained Android dependency provenance differs from the exact-source rebuild');
       }
       const rebuiltInput = collectedAndroidInput(collectedWebInput(canonicalReleaseNotesInput(supplied), webValidation), androidValidation, rebuiltSignature);
@@ -2099,30 +2111,95 @@ export function main(argv = process.argv.slice(2)) {
  }
 }
 
+function committedModuleSource(relativePath) {
+  const working = readFileSync(path.join(repoRoot, relativePath));
+  const committed = gitExec(['show', `${processCommit}:${relativePath}`], { cwd: repoRoot, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 4 * 1024 * 1024 });
+  if (!working.equals(committed)) throw new Error(`Release collector module differs from exact source: ${relativePath}`);
+  return working.toString('utf8');
+}
+
+function replaceClosureToken(source, token, replacement, label) {
+  if (source.split(token).length !== 2) throw new Error(`Release collector closure token is ambiguous: ${label}`);
+  return source.replace(token, replacement);
+}
+
+function sealedCollectorClosure() {
+  let webSource = committedModuleSource('tools/ci/user-web-dist-manifest.mjs');
+  webSource = replaceClosureToken(webSource,
+    "const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');",
+    `const repoRoot = ${JSON.stringify(repoRoot)};`, 'web repository root');
+  const webUrl = `data:text/javascript;base64,${Buffer.from(webSource).toString('base64')}`;
+  let manifestSource = committedModuleSource('tools/release/day1-release-identity.mjs');
+  manifestSource = replaceClosureToken(manifestSource, "'../ci/user-web-dist-manifest.mjs'", JSON.stringify(webUrl), 'manifest web import');
+  const manifestUrl = `data:text/javascript;base64,${Buffer.from(manifestSource).toString('base64')}`;
+  let cliSource = committedModuleSource('tools/release/day1-release-identity-cli.mjs');
+  cliSource = replaceClosureToken(cliSource, "'./day1-release-identity.mjs'", JSON.stringify(manifestUrl), 'CLI manifest import');
+  cliSource = replaceClosureToken(cliSource, "'../ci/user-web-dist-manifest.mjs'", JSON.stringify(webUrl), 'CLI web import');
+  cliSource = replaceClosureToken(cliSource,
+    "const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');",
+    `const repoRoot = ${JSON.stringify(repoRoot)};`, 'CLI repository root');
+  cliSource = replaceClosureToken(cliSource,
+    "const invokedDirectly = Boolean(process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url));",
+    'const invokedDirectly = true;', 'CLI direct execution');
+  return replaceClosureToken(cliSource, 'const sealedRuntime = false;', 'const sealedRuntime = true;', 'sealed runtime');
+}
+
 if (invokedDirectly) {
-  const cleanRuntimeMarker = 'SETTLEORA_RELEASE_CLEAN_NODE';
-  if (process.env[cleanRuntimeMarker] !== '1') {
+  if (!sealedRuntime) {
     try {
-      const initialOptions = args(process.argv.slice(2));
-      let registryIdentity;
-      if (initialOptions.command === 'assemble' || initialOptions.command === 'validate') {
-        const initialInput = safeInput(initialOptions.input, 'Evidence input');
-        const retained = initialOptions.command === 'validate';
-        verifyLiveRegistryNetwork(initialInput, retained);
-        registryIdentity = registryPreflightIdentity(initialInput, retained);
-      }
-      process.execve(systemNodeCommand, [systemNodeCommand, fileURLToPath(import.meta.url), ...process.argv.slice(2)], {
-        PATH: '/usr/bin:/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', [cleanRuntimeMarker]: '1', ...(registryIdentity ? { [registryPreflightMarker]: registryIdentity } : {}),
+      const credential = process.env.GH_TOKEN ?? '';
+      if (credential && (Buffer.byteLength(credential) > 4096 || /[\u0000-\u0020\u007f]/u.test(credential))) throw new Error('GitHub credential has an invalid bounded representation');
+      const closure = sealedCollectorClosure();
+      const chunks = closure.match(/[\s\S]{1,60000}/gu) ?? [];
+      if (chunks.length < 1 || chunks.length > 32) throw new Error('Sealed release collector closure exceeds its transfer boundary');
+      const closureEnvironment = Object.fromEntries(chunks.map((value, index) => [`SETTLEORA_CLOSURE_${String(index).padStart(3, '0')}`, value]));
+      const bootstrap = `
+import os, sys
+count = int(os.environ.pop("SETTLEORA_CLOSURE_COUNT"))
+source = "".join(os.environ.pop("SETTLEORA_CLOSURE_" + str(index).zfill(3)) for index in range(count)).encode("utf-8")
+credential = os.environ.pop("SETTLEORA_GH_CREDENTIAL", "").encode("utf-8")
+source_fd = os.memfd_create("settleora-release-collector", 0)
+os.write(source_fd, source)
+os.lseek(source_fd, 0, os.SEEK_SET)
+os.dup2(source_fd, 0)
+credential_fd = os.memfd_create("settleora-github-credential", 0)
+os.write(credential_fd, credential)
+os.lseek(credential_fd, 0, os.SEEK_SET)
+os.dup2(credential_fd, 3)
+environment = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}
+os.execve(sys.argv[1], [sys.argv[1], "--input-type=module", "-", *sys.argv[2:]], environment)
+`;
+      process.execve(releaseCommand('python'), [releaseCommand('python'), '-I', '-S', '-c', bootstrap, systemNodeCommand, ...process.argv.slice(2)], {
+        PATH: '/usr/bin:/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', SETTLEORA_CLOSURE_COUNT: String(chunks.length), ...closureEnvironment, ...(credential ? { SETTLEORA_GH_CREDENTIAL: credential } : {}),
       });
     } catch (error) {
       console.error(sanitizedErrorMessage(error));
       process.exitCode = Number.isInteger(error?.status) ? error.status : 1;
     }
   } else {
-    const allowedEnvironment = new Set(['PATH', 'LANG', 'LC_ALL', cleanRuntimeMarker, registryPreflightMarker]);
+    const allowedEnvironment = new Set(['PATH', 'LANG', 'LC_ALL']);
     if (realpathSync('/proc/self/exe') !== realpathSync(systemNodeCommand)
       || Object.keys(process.env).some((name) => !allowedEnvironment.has(name))) {
       throw new Error('Release collector did not start in its bounded protected Node environment');
+    }
+    const credentialMetadata = fstatSync(3);
+    if (credentialMetadata.isFile()) {
+      if (credentialMetadata.size > 4096) throw new Error('Inherited GitHub credential descriptor exceeds its boundary');
+      const bytes = Buffer.alloc(credentialMetadata.size);
+      if (bytes.length > 0) {
+        if (readSync(3, bytes, 0, bytes.length, 0) !== bytes.length) throw new Error('Inherited GitHub credential descriptor is incomplete');
+        githubCredential = bytes.toString('utf8');
+        if (/[\u0000-\u0020\u007f]/u.test(githubCredential)) throw new Error('Inherited GitHub credential has an invalid representation');
+      }
+    }
+    closeSync(3);
+    const initialOptions = args(process.argv.slice(2));
+    if (initialOptions.command === 'assemble' || initialOptions.command === 'validate') {
+      const initialInput = safeInput(initialOptions.input, 'Evidence input');
+      const retained = initialOptions.command === 'validate';
+      verifyLiveRegistryNetwork(initialInput, retained);
+      verifiedRegistryPreflightIdentity = registryPreflightIdentity(initialInput, retained);
+      githubCredential = undefined;
     }
     main();
   }

@@ -124,7 +124,7 @@ function fixture(t) {
     },
     dependencyCaches: {
       pub: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: 'a'.repeat(64), excludedPaths: ['hosted/pub.dev/jni-1.0.0/android/.cxx'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
-      gradleExecutableCaches: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: 'f'.repeat(64), excludedPaths: ['.tmp', 'android', 'caches/8.14/dependencies-accessors/gc.properties', 'caches/8.14/file-changes', 'caches/8.14/fileContent', 'caches/8.14/fileHashes', 'caches/8.14/gc.properties', 'caches/8.14/generated-gradle-jars/generated-gradle-jars.lock', 'caches/8.14/groovy-dsl/gc.properties', 'caches/8.14/javaCompile', 'caches/8.14/jvms', 'caches/8.14/kotlin-dsl/gc.properties', 'caches/8.14/md-rule', 'caches/8.14/md-supplier', 'caches/8.14/transforms/gc.properties', 'caches/CACHEDIR.TAG', 'caches/build-cache-1', 'caches/gc.properties', 'caches/jars-9/jars-9.lock', 'caches/journal-1', 'caches/keyrings', 'caches/modules-2', 'daemon', 'kotlin-profile', 'native', 'notifications', 'workers', 'wrapper', 'wrapper/dists/gradle-8.14-all/c2qonpi39x1mddn7hk5gh9iqj/gradle-8.14-all.zip.lck'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
+      gradleExecutableCaches: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: 'f'.repeat(64), excludedPaths: ['.tmp', 'android', 'caches/8.14/dependencies-accessors/gc.properties', 'caches/8.14/file-changes', 'caches/8.14/fileContent', 'caches/8.14/fileHashes', 'caches/8.14/gc.properties', 'caches/8.14/generated-gradle-jars/generated-gradle-jars.lock', 'caches/8.14/groovy-dsl/gc.properties', 'caches/8.14/javaCompile', 'caches/8.14/jvms', 'caches/8.14/kotlin-dsl/gc.properties', 'caches/8.14/md-rule', 'caches/8.14/md-supplier', 'caches/8.14/transforms/gc.properties', 'caches/CACHEDIR.TAG', 'caches/build-cache-1', 'caches/gc.properties', 'caches/jars-9/jars-9.lock', 'caches/journal-1', 'caches/keyrings', 'caches/modules-2', 'daemon', 'kotlin-profile', 'native/0.2.7/x86_64-linux-gnu/libgradle-fileevents.so.lock', 'notifications', 'workers', 'wrapper', 'wrapper/dists/gradle-8.14-all/c2qonpi39x1mddn7hk5gh9iqj/gradle-8.14-all.zip.lck'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
       gradleModules: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: 'b'.repeat(64), excludedPaths: ['gc.properties', 'modules-2.lock'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
       gradleWrapper: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: 'e'.repeat(64), excludedPaths: ['dists/gradle-8.14-all/c2qonpi39x1mddn7hk5gh9iqj/gradle-8.14-all.zip.lck'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
     },
@@ -135,6 +135,7 @@ function fixture(t) {
       flutterExcludedTransientBases: ['bin/cache/runtime.stamp'],
       pubExcludedBuildPaths: ['hosted/pub.dev/jni-1.0.0/android/.cxx'],
       gradleWrapperLockPaths: ['dists/gradle-8.14-all/c2qonpi39x1mddn7hk5gh9iqj/gradle-8.14-all.zip.lck'],
+      gradleNativeLockPaths: ['0.2.7/x86_64-linux-gnu/libgradle-fileevents.so.lock'],
       gradleKotlinDslTransientBases: ['caches/8.14/kotlin-dsl/accessors/0123456789abcdef0123456789abcdef'],
       preStabilizationKotlinDslAccessorBases: ['caches/8.14/kotlin-dsl/accessors/0123456789abcdef0123456789abcdef'],
       gradleKotlinDslScriptTransientBases: ['caches/8.14/kotlin-dsl/scripts/abcdef0123456789abcdef0123456789'],
@@ -143,7 +144,7 @@ function fixture(t) {
       prefetchSourceGeneratedPaths: ['apps/mobile/.dart_tool', 'apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/.gradle', 'apps/mobile/android/.kotlin', 'apps/mobile/android/app/src/main/java', 'apps/mobile/android/build', 'apps/mobile/android/local.properties', 'apps/mobile/build', 'apps/mobile/ios', 'apps/mobile/lib/.dart_tool', 'apps/mobile/linux', 'apps/mobile/macos', 'apps/mobile/web', 'apps/mobile/windows', 'apps/mobile/android/gradle/wrapper/gradle-wrapper.jar', 'apps/mobile/android/gradlew', 'apps/mobile/android/gradlew.bat'],
       sealedGeneratedInputPaths: ['apps/mobile/.dart_tool/package_config.json', 'apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/app/src/main/java'],
       sealedGradleExecutableCachePaths: ['caches/8.14/dependencies-accessors', 'caches/8.14/generated-gradle-jars', 'caches/8.14/groovy-dsl', 'caches/8.14/kotlin-dsl', 'caches/8.14/transforms', 'caches/jars-9'],
-      runtimeGradleMutablePaths: ['.tmp', 'caches/CACHEDIR.TAG', 'caches/build-cache-1', 'caches/8.14/file-changes', 'caches/8.14/fileContent', 'caches/8.14/fileHashes', 'caches/8.14/gc.properties', 'caches/8.14/javaCompile', 'caches/8.14/jvms', 'caches/8.14/md-rule', 'caches/8.14/md-supplier', 'caches/8.14/dependencies-accessors/gc.properties', 'caches/8.14/generated-gradle-jars/generated-gradle-jars.lock', 'caches/8.14/groovy-dsl/gc.properties', 'caches/8.14/kotlin-dsl/gc.properties', 'caches/8.14/transforms/gc.properties', 'caches/jars-9/jars-9.lock', 'caches/gc.properties', 'caches/journal-1', 'caches/keyrings', 'caches/modules-2', 'android', 'daemon', 'kotlin-profile', 'native', 'notifications', 'workers', 'wrapper/dists/gradle-8.14-all/c2qonpi39x1mddn7hk5gh9iqj/gradle-8.14-all.zip.lck'],
+      runtimeGradleMutablePaths: ['.tmp', 'caches/CACHEDIR.TAG', 'caches/build-cache-1', 'caches/8.14/file-changes', 'caches/8.14/fileContent', 'caches/8.14/fileHashes', 'caches/8.14/gc.properties', 'caches/8.14/javaCompile', 'caches/8.14/jvms', 'caches/8.14/md-rule', 'caches/8.14/md-supplier', 'caches/8.14/dependencies-accessors/gc.properties', 'caches/8.14/generated-gradle-jars/generated-gradle-jars.lock', 'caches/8.14/groovy-dsl/gc.properties', 'caches/8.14/kotlin-dsl/gc.properties', 'caches/8.14/transforms/gc.properties', 'caches/jars-9/jars-9.lock', 'caches/gc.properties', 'caches/journal-1', 'caches/keyrings', 'caches/modules-2', 'android', 'daemon', 'kotlin-profile', 'notifications', 'workers', 'native/0.2.7/x86_64-linux-gnu/libgradle-fileevents.so.lock', 'wrapper/dists/gradle-8.14-all/c2qonpi39x1mddn7hk5gh9iqj/gradle-8.14-all.zip.lck'],
       outputsCapturedBeforeGuardExit: true,
       queueOverflowFailsClosed: true,
     },
@@ -852,6 +853,10 @@ test('repository Gradle verification metadata is checksum-only without trust byp
     '<configuration>',
     '<?verification verify-metadata="true"?><configuration><x:verify-metadata>false</x:verify-metadata>',
   )), /unsupported XML constructs|noncanonical/);
+  const settings = readFileSync(new URL('../../../apps/mobile/android/settings.gradle.kts', import.meta.url), 'utf8');
+  assert.match(settings, /settleoraReleaseEvidence/);
+  assert.match(settings, /DependencyVerificationMode\.STRICT/);
+  assert.match(settings, /DependencyVerificationMode\.OFF/);
 });
 
 test('retained manifest JSON requires one canonical unambiguous serialization', () => {
@@ -893,6 +898,11 @@ test('release execution uses protected system runtimes and bypasses user plugin 
   const cliSource = readFileSync(new URL('../day1-release-identity-cli.mjs', import.meta.url), 'utf8');
   assert.match(cliSource, /realpathSync\('\/proc\/self\/exe'\)/);
   assert.match(cliSource, /const systemNodeCommand = invokedDirectly/);
+  assert.match(cliSource, /const closure = sealedCollectorClosure\(\)/);
+  assert.match(cliSource, /os\.memfd_create\("settleora-release-collector", 0\)/);
+  assert.match(cliSource, /process\.execve\(releaseCommand\('python'\)/);
+  assert.match(cliSource, /verifiedRegistryPreflightIdentity = registryPreflightIdentity/);
+  assert.doesNotMatch(cliSource, /SETTLEORA_RELEASE_REGISTRY_PREFLIGHT/);
   assert.match(cliSource, /protectedSystemCommand\(lstatSync\('\/usr\/bin\/node', \{ throwIfNoEntry: false \}\) \? '\/usr\/bin\/node' : process\.execPath, 'node'\)/);
   assert.match(cliSource, /protectedSystemCommand\('\/usr\/bin\/npm', 'npm'\)/);
   assert.match(cliSource, /protectedSystemCommand\('\/usr\/bin\/python3', 'python3'\)/);
@@ -916,10 +926,9 @@ test('release execution uses protected system runtimes and bypasses user plugin 
   assert.match(cliSource, /Retained Android toolchain provenance differs from the exact-source rebuild/);
   assert.match(cliSource, /deterministicAndroidRebuildProjection\(rebuilt, retained\)/);
   assert.match(cliSource, /collectedAndroidInput\([^;]*androidValidation, rebuiltSignature\)/s);
-  assert.match(cliSource, /SETTLEORA_RELEASE_CLEAN_NODE/);
-  assert.match(cliSource, /process\.execve\(systemNodeCommand/);
+  assert.match(cliSource, /const sealedRuntime = false/);
   assert.match(cliSource, /verifyLiveRegistryNetwork\(initialInput, retained\)/);
-  assert.doesNotMatch(cliSource.slice(cliSource.indexOf('process.execve(systemNodeCommand')), /GH_TOKEN/);
+  assert.match(cliSource, /const allowedEnvironment = new Set\(\['PATH', 'LANG', 'LC_ALL'\]\)/);
   assert.doesNotMatch(cliSource, /process\.env\.npm_execpath/);
   const apiDockerfile = readFileSync(new URL('../../../services/api/Dockerfile', import.meta.url), 'utf8');
   assert.match(apiDockerfile, /COPY services\/api\/src\/Settleora\.Api\/packages\.lock\.json services\/api\/src\/Settleora\.Api\//);
