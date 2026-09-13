@@ -855,10 +855,11 @@ function guardedTreeDigest(root, excludedPrefixes = [], excludedTransientBases =
 }
 
 function executeGuardedCommands(configuration, executable, inputs, commands, options) {
-  const authenticatedConfiguration = configuration.map((item) => ({
-    ...item,
-    expectedGuardDigest: guardedTreeDigest(item.root, item.excludedPrefixes, item.excludedTransientBases ?? []),
-  }));
+  const authenticatedConfiguration = configuration.map((item) => {
+    const expectedGuardDigest = item.expectedGuardDigest ?? guardedTreeDigest(item.root, item.excludedPrefixes, item.excludedTransientBases ?? []);
+    item.expectedGuardDigest = expectedGuardDigest;
+    return { ...item, expectedGuardDigest };
+  });
   const tools = [executable, ...inputs];
   const descriptors = tools.map((tool) => openSync(tool.path, constants.O_RDONLY | constants.O_NOFOLLOW));
   try {

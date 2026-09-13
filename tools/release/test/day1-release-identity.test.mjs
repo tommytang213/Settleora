@@ -586,6 +586,16 @@ test('toolchain mutation guard fails closed on a write during the guarded window
   ));
 });
 
+test('toolchain mutation guard retains one authenticated identity across phases', (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), 'release-toolchain-phases-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  writeFileSync(path.join(root, 'compiler'), 'first');
+  const configuration = [{ label: 'fixture', root, excludedPrefixes: [] }];
+  assert.doesNotThrow(() => runToolchainMutationGuardFixture(configuration, 'pass'));
+  writeFileSync(path.join(root, 'compiler'), 'second');
+  assert.throws(() => runToolchainMutationGuardFixture(configuration, 'pass'), /changed before its authenticated guard was installed/);
+});
+
 test('toolchain mutation guard cannot report success after its build child kills it', (t) => {
   const root = mkdtempSync(path.join(tmpdir(), 'release-toolchain-guard-kill-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
