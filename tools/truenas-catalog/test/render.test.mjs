@@ -133,6 +133,16 @@ test('rendered topology preserves R11, R12, private services, datasets, and migr
   assert.match(compose.configs['settleora-caddyfile'].content, /auto_https off/);
 });
 
+test('default HTTPS port uses the canonical passkey origin without an explicit port', () => {
+  const manifest = syntheticManifest();
+  const identity = consumeReleaseIdentity(manifest, manifest.identityDigest);
+  const config = clone(fixtureConfig);
+  config.httpsPort = 443;
+  const compose = renderCompose(identity, config);
+  assert.equal(compose.services.api.environment.Auth__Passkeys__RelyingPartyId, config.hostname);
+  assert.equal(compose.services.api.environment.Auth__Passkeys__AllowedOrigins__0, `https://${config.hostname}`);
+});
+
 test('bounded form/config negative matrix fails closed', () => {
   const cases = [
     ['public mode', (c) => { c.deploymentMode = 'public'; }],
