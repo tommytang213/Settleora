@@ -800,8 +800,8 @@ try:
             if not name.isdigit():
                 continue
             try:
-                with open("/proc/" + name + "/stat", "r", encoding="ascii") as stat_file:
-                    fields = stat_file.read().rsplit(")", 1)[1].split()
+                with open("/proc/" + name + "/stat", "rb") as stat_file:
+                    fields = stat_file.read().rsplit(b")", 1)[1].split()
                 if len(fields) >= 2 and int(fields[1]) == own_pid:
                     result.append(int(name))
             except (FileNotFoundError, ProcessLookupError, PermissionError, ValueError, IndexError):
@@ -1055,7 +1055,9 @@ except OSError:
     pass
 child = os.fork()
 if child == 0:
+    import ctypes
     os.setsid()
+    ctypes.CDLL(None).prctl(15, b"\\xfforphan", 0, 0, 0)
     time.sleep(3.2)
     try:
         reopened = os.open(f"/proc/{node_pid}/fd/${descriptor}", os.O_WRONLY)

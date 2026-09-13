@@ -645,7 +645,7 @@ test('toolchain mutation guard retains one authenticated identity across phases'
   assert.throws(() => runToolchainMutationGuardFixture(configuration, 'pass'), /changed before its authenticated guard was installed/);
 });
 
-test('toolchain mutation guard isolates a writer descriptor and reaps detached non-writers', (t) => {
+test('toolchain mutation guard isolates a writer descriptor and reaps detached non-ASCII-named non-writers', (t) => {
   const root = mkdtempSync(path.join(tmpdir(), 'release-toolchain-output-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   writeFileSync(path.join(root, 'compiler'), 'trusted bytes');
