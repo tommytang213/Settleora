@@ -657,8 +657,10 @@ import sys
 import time
 import stat
 
-configuration, commands, cwd, captures_json, sealed_outputs_json, passed_inputs_json = sys.argv[1:7]
+configuration, commands, cwd, captures_json, sealed_outputs_json, passed_inputs_json, output_descriptors_json, command_outputs_json = sys.argv[1:9]
 libc = ctypes.CDLL(None, use_errno=True)
+if libc.prctl(4, 0, 0, 0, 0) != 0 or libc.prctl(36, 1, 0, 0, 0) != 0:
+    raise OSError(ctypes.get_errno(), "guarded process dumpability control failed")
 fd = libc.inotify_init1(os.O_CLOEXEC | os.O_NONBLOCK)
 if fd < 0:
     raise OSError(ctypes.get_errno(), "inotify_init1 failed")
@@ -744,9 +746,14 @@ try:
     changed = None
     sealed_outputs = json.loads(sealed_outputs_json)
     passed_descriptors = json.loads(passed_inputs_json)
-    if any(not isinstance(candidate_fd, int) or candidate_fd < 3 or candidate_fd >= 64 or candidate_fd in sealed_outputs for candidate_fd in passed_descriptors):
+    output_descriptors = json.loads(output_descriptors_json)
+    if (any(not isinstance(candidate_fd, int) or candidate_fd < 3 or candidate_fd >= 64 for candidate_fd in [*passed_descriptors, *output_descriptors])
+            or len(set(passed_descriptors)) != len(passed_descriptors)
+            or len(set(output_descriptors)) != len(output_descriptors)
+            or any(output_fd in passed_descriptors for output_fd in output_descriptors)
+            or any(output_fd not in output_descriptors for output_fd in sealed_outputs)):
         raise RuntimeError("guarded executable descriptor allowlist is invalid")
-    for candidate_fd in passed_descriptors:
+    for candidate_fd in [*passed_descriptors, *output_descriptors]:
         os.fstat(candidate_fd)
     def drain(timeout):
         global changed
@@ -778,9 +785,55 @@ try:
                 if len(data) < 65536:
                     break
     command_values = json.loads(commands)
+    command_output_descriptors = json.loads(command_outputs_json)
+    flattened_command_outputs = [descriptor for descriptors in command_output_descriptors for descriptor in descriptors]
+    if (len(command_output_descriptors) != len(command_values)
+            or any(not isinstance(descriptors, list) for descriptors in command_output_descriptors)
+            or any(descriptor not in output_descriptors for descriptor in flattened_command_outputs)
+            or len(set(flattened_command_outputs)) != len(flattened_command_outputs)):
+        raise RuntimeError("guarded command output descriptor allowlist is invalid")
     captures = json.loads(captures_json)
+    def direct_child_pids():
+        result = []
+        own_pid = os.getpid()
+        for name in os.listdir("/proc"):
+            if not name.isdigit():
+                continue
+            try:
+                with open("/proc/" + name + "/stat", "rb") as stat_file:
+                    fields = stat_file.read().rsplit(b")", 1)[1].split()
+                if len(fields) >= 2 and int(fields[1]) == own_pid:
+                    result.append(int(name))
+            except (FileNotFoundError, ProcessLookupError, PermissionError, ValueError, IndexError):
+                continue
+        return result
+    def terminate_orphaned_descendants():
+        deadline = time.monotonic() + 2.0
+        while True:
+            children = direct_child_pids()
+            for child_pid in children:
+                try:
+                    os.kill(child_pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            while True:
+                try:
+                    reaped, _ = os.waitpid(-1, os.WNOHANG)
+                except ChildProcessError:
+                    reaped = 0
+                if reaped <= 0:
+                    break
+            remaining = direct_child_pids()
+            if not remaining:
+                return
+            if time.monotonic() >= deadline:
+                raise RuntimeError("guarded command left an unreapable descendant process")
+            time.sleep(0.01)
     for command_index, values in enumerate(command_values):
-        process = subprocess.Popen(["/proc/self/fd/3", *values], executable="/proc/self/fd/3", cwd=cwd, pass_fds=tuple(passed_descriptors), start_new_session=True)
+        for output_fd in command_output_descriptors[command_index]:
+            os.ftruncate(output_fd, 0)
+            os.lseek(output_fd, 0, os.SEEK_SET)
+        process = subprocess.Popen(["/proc/self/fd/3", *values], executable="/proc/self/fd/3", cwd=cwd, pass_fds=tuple([*passed_descriptors, *command_output_descriptors[command_index]]), start_new_session=True)
         while process.poll() is None:
             drain(0.05)
             if changed:
@@ -792,6 +845,7 @@ try:
             raise RuntimeError("Android toolchain changed while release artifacts were built: " + changed)
         if process.returncode != 0:
             raise subprocess.CalledProcessError(process.returncode, values)
+        terminate_orphaned_descendants()
         for capture in captures:
             if capture.get("afterCommand", len(command_values) - 1) == command_index:
                 source_fd = os.open(capture["source"], os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
@@ -839,6 +893,7 @@ try:
             drain(min(0.05, quiet_deadline - time.monotonic()))
         if changed:
             raise RuntimeError("Android toolchain changed while release artifacts were built: " + changed)
+        terminate_orphaned_descendants()
     for output_fd in sealed_outputs:
         fcntl.fcntl(output_fd, fcntl.F_ADD_SEALS, fcntl.F_SEAL_WRITE | fcntl.F_SEAL_GROW | fcntl.F_SEAL_SHRINK | fcntl.F_SEAL_SEAL)
         required_seals = fcntl.F_SEAL_WRITE | fcntl.F_SEAL_GROW | fcntl.F_SEAL_SHRINK | fcntl.F_SEAL_SEAL
@@ -848,7 +903,11 @@ try:
         if tree_digest(os.path.realpath(item["root"]), item["excludedPrefixes"], item.get("excludedTransientBases", [])) != item["expectedGuardDigest"]:
             raise RuntimeError(item["label"] + " changed before the authenticated guard completed")
 finally:
-    os.close(fd)
+    try:
+        if "terminate_orphaned_descendants" in locals():
+            terminate_orphaned_descendants()
+    finally:
+        os.close(fd)
 `;
 
 function guardedTreeDigest(root, excludedPrefixes = [], excludedTransientBases = []) {
@@ -917,7 +976,9 @@ function executeGuardedCommands(configuration, executable, inputs, commands, opt
       ? capture
       : { ...capture, targetFd: inheritedOutputDescriptors[capture.outputDescriptorIndex], target: undefined });
     const inheritedInputDescriptors = descriptors.map((_descriptor, index) => 3 + index);
-    const result = execFileSync(releaseCommand('python'), ['-I', '-S', '-c', guardedToolchainRunner, JSON.stringify(authenticatedConfiguration), JSON.stringify(commands), options.cwd, JSON.stringify(captures), JSON.stringify(options.sealOutputDescriptors ? inheritedOutputDescriptors : []), JSON.stringify(inheritedInputDescriptors)], {
+    const commandOutputDescriptors = (options.commandOutputDescriptorIndexes ?? commands.map(() => []))
+      .map((indexes) => indexes.map((index) => inheritedOutputDescriptors[index]));
+    const result = execFileSync(releaseCommand('python'), ['-I', '-S', '-c', guardedToolchainRunner, JSON.stringify(authenticatedConfiguration), JSON.stringify(commands), options.cwd, JSON.stringify(captures), JSON.stringify(options.sealOutputDescriptors ? inheritedOutputDescriptors : []), JSON.stringify(inheritedInputDescriptors), JSON.stringify(inheritedOutputDescriptors), JSON.stringify(commandOutputDescriptors)], {
       cwd: '/usr/bin',
       env: options.env,
       encoding: options.encoding,
@@ -976,6 +1037,80 @@ export function runToolchainMutationGuardFixture(configuration, script) {
     cwd: '/usr/bin',
     env: { PATH: '/usr/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' },
   });
+}
+
+export function runGuardedOutputDescriptorFixture(configuration, outputPath) {
+  const pythonPath = realpathSync(releaseCommand('python'));
+  const python = trustedTool(pythonPath, path.basename(pythonPath), 'system Python');
+  const descriptor = openSync(outputPath, constants.O_CREAT | constants.O_EXCL | constants.O_RDWR | constants.O_NOFOLLOW, 0o600);
+  try {
+    const delayedReopen = `import os, time
+guard_pid = os.getppid()
+with open(f"/proc/{guard_pid}/stat", "r", encoding="ascii") as stat_file: node_pid = int(stat_file.read().split()[3])
+try:
+    prewrite = os.open(f"/proc/{node_pid}/fd/${descriptor}", os.O_WRONLY)
+    os.write(prewrite, b"untrusted prewrite" * 1000)
+    os.close(prewrite)
+except OSError:
+    pass
+child = os.fork()
+if child == 0:
+    import ctypes
+    os.setsid()
+    ctypes.CDLL(None).prctl(15, b"\\xfforphan", 0, 0, 0)
+    time.sleep(3.2)
+    try:
+        reopened = os.open(f"/proc/{node_pid}/fd/${descriptor}", os.O_WRONLY)
+        os.write(reopened, b"forged output")
+        os.close(reopened)
+    except OSError:
+        pass
+    os._exit(0)`;
+    executeGuardedCommands(configuration, python, [], [
+      ['-I', '-S', '-c', `import os
+try: os.fstat(4)
+except OSError: pass
+else: raise RuntimeError("output descriptor leaked to non-writer command")
+try: reopened = os.open(f"/proc/{os.getppid()}/fd/4", os.O_WRONLY)
+except OSError: pass
+else: os.close(reopened); raise RuntimeError("output descriptor reopened from guard process")
+${delayedReopen}`],
+      ['-I', '-S', '-c', 'import os; os.write(4, b"guarded output")'],
+    ], {
+      cwd: '/usr/bin',
+      env: { PATH: '/usr/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' },
+      outputDescriptors: [descriptor],
+      commandOutputDescriptorIndexes: [[], [0]],
+    });
+  } finally {
+    closeSync(descriptor);
+  }
+  return readFileSync(outputPath, 'utf8');
+}
+
+export function runGuardedFailureDescendantFixture(configuration, markerPath) {
+  const pythonPath = realpathSync(releaseCommand('python'));
+  const python = trustedTool(pythonPath, path.basename(pythonPath), 'system Python');
+  const script = `import os, time
+child = os.fork()
+if child == 0:
+    os.setsid()
+    time.sleep(0.5)
+    with open(${JSON.stringify(markerPath)}, "w", encoding="utf-8") as marker: marker.write("survived")
+    os._exit(0)
+os._exit(7)`;
+  let rejected = false;
+  try {
+    executeGuardedCommands(configuration, python, [], [['-I', '-S', '-c', script]], {
+      cwd: '/usr/bin',
+      env: { PATH: '/usr/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' },
+    });
+  } catch {
+    rejected = true;
+  }
+  if (!rejected) throw new Error('Guarded failing-command fixture unexpectedly succeeded');
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 700);
+  return !lstatSync(markerPath, { throwIfNoEntry: false });
 }
 
 function assertSystemRuntime(root, label = 'Java runtime') {
@@ -1379,7 +1514,7 @@ while (written < payload.length) written += writeSync(${captureFd}, payload, wri
         node,
         [npmCli],
         [['/proc/self/fd/4', 'run', 'build', '--', '--configLoader', 'runner'], ['--input-type=module', '--eval', captureProgram, path.join(webRoot, 'dist')]],
-        { cwd: webRoot, env: npmEnvironment, stdio: ['ignore', 'inherit', 'inherit'], outputDescriptors: [captureDescriptor], sealOutputDescriptors: sealedRuntime },
+        { cwd: webRoot, env: npmEnvironment, stdio: ['ignore', 'inherit', 'inherit'], outputDescriptors: [captureDescriptor], commandOutputDescriptorIndexes: [[], [0]], sealOutputDescriptors: sealedRuntime },
       );
       if (canonicalJson(toolchainTreeDigest(nodeModules, 'User-web installed dependency tree')) !== canonicalJson(nodeModulesIdentity)) throw new Error('User-web installed dependency tree changed during build');
       const metadata = fstatSync(captureDescriptor);
