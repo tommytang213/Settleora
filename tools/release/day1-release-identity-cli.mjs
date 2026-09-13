@@ -1279,7 +1279,7 @@ export function collectWebExactSource(output) {
     const nodeModules = path.join(webRoot, 'node_modules');
     makeTreeReadOnlyWithInternalSymlinks(nodeModules, 'User-web installed dependency tree');
     const nodeModulesIdentity = toolchainTreeDigest(nodeModules, 'User-web installed dependency tree');
-    const capturePath = path.join(snapshot, `.release-web-capture-${randomUUID()}`);
+    const capturePath = path.join(path.dirname(absolute), `.release-web-capture-${randomUUID()}`);
     const captureDescriptor = openSync(capturePath, constants.O_CREAT | constants.O_EXCL | constants.O_RDWR | constants.O_NOFOLLOW, 0o600);
     unlinkSync(capturePath);
     let capturedBytes;
