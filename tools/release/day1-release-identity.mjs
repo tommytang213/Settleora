@@ -697,10 +697,12 @@ function collectAndroid(repoRoot, input, source) {
   if (canonicalJson(provenance.toolchains.java.excludedPaths) !== canonicalJson([])) {
     fail('Android Java toolchain exclusions are not accepted');
   }
-  if (canonicalJson(provenance.dependencyCaches.gradleModules.excludedPaths) !== canonicalJson(['gc.properties', 'modules-2.lock'])) {
+  if (provenance.dependencyCaches.gradleModules.excludedPaths.length !== 3
+    || canonicalJson(provenance.dependencyCaches.gradleModules.excludedPaths.filter((entry) => !/^metadata-[0-9.]+$/u.test(entry))) !== canonicalJson(['gc.properties', 'modules-2.lock'])
+    || provenance.dependencyCaches.gradleModules.excludedPaths.filter((entry) => /^metadata-[0-9.]+$/u.test(entry)).length !== 1) {
     fail('Android Gradle-cache exclusions exceed the collector-owned allowlist');
   }
-  const expectedGradleExecutableCacheExclusions = [...new Set([...expectedRuntimeGradleMutablePaths, 'caches/modules-2', 'wrapper'])]
+  const expectedGradleExecutableCacheExclusions = [...new Set([...expectedRuntimeGradleMutablePaths, 'caches/modules-2', 'wrapper', '**/metadata.bin'])]
     .sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
   if (canonicalJson(provenance.dependencyCaches.gradleExecutableCaches.excludedPaths) !== canonicalJson(expectedGradleExecutableCacheExclusions)) {
     fail('Android Gradle executable-cache exclusions exceed the collector-owned allowlist');
@@ -709,9 +711,12 @@ function collectAndroid(repoRoot, input, source) {
     || !/^dists\/gradle-[0-9.]+-(?:all|bin)\/[a-z0-9]+\/gradle-[0-9.]+-(?:all|bin)\.zip\.lck$/u.test(provenance.dependencyCaches.gradleWrapper.excludedPaths[0])) {
     fail('Android Gradle wrapper exclusions exceed the single lock-file allowlist');
   }
-  if (provenance.dependencyCaches.pub.excludedPaths.length !== 1
-    || !/^hosted\/pub\.dev\/jni-[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?\/android\/\.cxx$/u.test(provenance.dependencyCaches.pub.excludedPaths[0])) {
-    fail('Android pub-cache exclusions exceed the collector-owned build-directory allowlist');
+  const pubNativeBuildExclusions = provenance.dependencyCaches.pub.excludedPaths
+    .filter((entry) => /^hosted\/pub\.dev\/jni-[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?\/android\/\.cxx$/u.test(entry));
+  if (canonicalJson(provenance.dependencyCaches.pub.excludedPaths.filter((entry) => !pubNativeBuildExclusions.includes(entry)))
+      !== canonicalJson(['_temp', 'active_roots', 'hosted/pub.dev/.cache'])
+    || pubNativeBuildExclusions.length !== 1) {
+    fail('Android pub-cache exclusions exceed the collector-owned volatile-metadata and build-directory allowlist');
   }
   const verificationMetadata = exactTrackedFile(repoRoot, 'apps/mobile/android/gradle/verification-metadata.xml', 'Gradle verification metadata', commit);
   parseGradleVerificationMetadata(verificationMetadata.bytes.toString('utf8'));
@@ -721,8 +726,8 @@ function collectAndroid(repoRoot, input, source) {
   if (canonicalJson(provenance.toolchainMutationGuard.flutterExcludedTransientBases) !== canonicalJson(provenance.toolchains.flutter.excludedPaths.filter((entry) => /\.(?:stamp|realm)$/u.test(entry)))) {
     fail('Android Flutter mutation-guard exclusions do not match the toolchain inventory');
   }
-  if (canonicalJson(provenance.toolchainMutationGuard.pubExcludedBuildPaths) !== canonicalJson(provenance.dependencyCaches.pub.excludedPaths)) {
-    fail('Android pub-cache mutation-guard exclusions do not match the dependency inventory');
+  if (canonicalJson(provenance.toolchainMutationGuard.pubExcludedBuildPaths) !== canonicalJson(pubNativeBuildExclusions)) {
+    fail('Android pub-cache mutation-guard exclusions do not match the native-build inventory');
   }
   if (canonicalJson(provenance.toolchainMutationGuard.gradleWrapperLockPaths) !== canonicalJson(provenance.dependencyCaches.gradleWrapper.excludedPaths)) {
     fail('Android Gradle-wrapper mutation-guard exclusions do not match the dependency inventory');
