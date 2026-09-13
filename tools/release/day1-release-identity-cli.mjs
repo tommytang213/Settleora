@@ -1454,6 +1454,7 @@ function collectAndroidUnsafe(options, emit = true) {
       for (const relativeOutput of ['apps/mobile/build', 'apps/mobile/android/build']) {
         const generatedOutput = path.join(snapshotRoot, relativeOutput);
         const metadata = lstatSync(generatedOutput, { throwIfNoEntry: false });
+        if (!metadata && relativeOutput === 'apps/mobile/android/build') continue;
         if (!metadata?.isDirectory() || metadata.isSymbolicLink()) throw new Error(`Android build did not produce a bounded output directory: ${relativeOutput}`);
         rmSync(generatedOutput, { recursive: true, force: false, maxRetries: 5, retryDelay: 200 });
       }
