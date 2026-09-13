@@ -38,6 +38,12 @@ docker run --platform linux/amd64 --rm \
   -v "$work_root:/workspace:rw" \
   --entrypoint /bin/chmod \
   "$validator_image" \
+  0777 /workspace/package/templates/rendered
+
+docker run --platform linux/amd64 --rm \
+  -v "$work_root:/workspace:rw" \
+  --entrypoint /bin/chmod \
+  "$validator_image" \
   0644 /workspace/package/templates/rendered/docker-compose.yaml
 
 [ -f "$work_root/package/templates/rendered/docker-compose.yaml" ] || { echo >&2 "Official rendered Compose file is missing"; exit 2; }
