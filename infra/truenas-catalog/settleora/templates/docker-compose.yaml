@@ -91,7 +91,6 @@ exec /usr/local/bin/docker-entrypoint.sh "$@"
 {% do ingress.restart.set_policy("no") %}
 {% do ingress.healthcheck.set_custom_test(["CMD", "caddy", "validate", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]) %}
 {% do ingress.add_network(ingress_net) %}
-{% do ingress.add_port({"bind_mode": "published", "port_number": values.network.https_port, "container_port": values.consts.internal_https_port, "host_ips": [values.network.bind_address], "protocol": "tcp"}) %}
 {% do ingress.configs.add("settleora-caddyfile", caddyfile, "/etc/caddy/Caddyfile", "0444") %}
 {% do ingress.configs.add("settleora-tls-certificate", cert.certificate, "/run/settleora-tls/tls.crt", "0444") %}
 {% do ingress.configs.add("settleora-tls-private-key", cert.privatekey, "/run/settleora-tls/tls.key", "0400") %}
@@ -160,6 +159,11 @@ exec /usr/local/bin/docker-entrypoint.sh "$@"
 {% do ingress.depends.add_dependency(values.consts.api_container_name, "service_started") %}
 
 {% set rendered = tpl.render() %}
+{# TrueNAS 25.10.x lacks port.validate_ports and its singular fallback can hang
+   over websocket (truenas/apps#5276). Preserve the official Compose shape
+   without calling that incompatible helper; Docker still fails closed if the
+   exact address/port is unavailable during a future manually gated install. #}
+{% do rendered.services.ingress.update({"ports": [{"host_ip": values.network.bind_address, "mode": "ingress", "protocol": "tcp", "published": values.network.https_port, "target": values.consts.internal_https_port}]}) %}
 {% do rendered.networks.update({"edge": {}}) %}
 {% do rendered.services.ingress.networks.update({"edge": {"gw_priority": 1}}) %}
 {% do rendered.update({"x-settleora-release": values.release_identity}) %}

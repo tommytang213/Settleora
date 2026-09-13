@@ -140,13 +140,27 @@ export function validateConfig(config) {
 
 export function safeReadJson(file, label) {
   const absolute = path.resolve(file);
-  const stat = lstatSync(absolute);
+  let stat;
+  try {
+    stat = lstatSync(absolute);
+  } catch {
+    fail(`${label} is unavailable`);
+  }
   if (!stat.isFile() || stat.isSymbolicLink() || stat.size < 2 || stat.size > MAX_INPUT_BYTES) fail(`${label} must be a bounded regular file`);
-  const descriptor = openSync(absolute, constants.O_RDONLY | constants.O_NOFOLLOW);
+  let descriptor;
+  try {
+    descriptor = openSync(absolute, constants.O_RDONLY | constants.O_NOFOLLOW);
+  } catch {
+    fail(`${label} could not be opened safely`);
+  }
   try {
     const current = lstatSync(absolute);
     if (current.dev !== stat.dev || current.ino !== stat.ino || current.size !== stat.size) fail(`${label} changed while opening`);
-    return JSON.parse(readFileSync(descriptor, 'utf8'));
+    try {
+      return JSON.parse(readFileSync(descriptor, 'utf8'));
+    } catch {
+      fail(`${label} is not valid JSON`);
+    }
   } finally {
     closeSync(descriptor);
   }
@@ -371,6 +385,11 @@ function treeRecords(root) {
   return records;
 }
 
+export function directoryContentIdentity(root) {
+  const records = treeRecords(root);
+  return { sha256: sha256(canonicalJson(records)), fileCount: records.length };
+}
+
 export function validateStaticTree(root = packageSource) {
   treeRecords(root);
   const app = YAML.parse(readFileSync(path.join(root, 'app.yaml'), 'utf8'));
@@ -384,8 +403,8 @@ export function validateStaticTree(root = packageSource) {
   }
   const library = path.join(root, 'templates/library/base_v2_3_11');
   if (!lstatSync(library).isDirectory()) fail('Pinned official TrueNAS library is missing');
-  const libraryRecords = treeRecords(library);
-  if (libraryRecords.length !== 78 || sha256(canonicalJson(libraryRecords)) !== OFFICIAL_LIBRARY_CONTENT_HASH) fail('Pinned official TrueNAS library content mismatch');
+  const libraryIdentity = directoryContentIdentity(library);
+  if (libraryIdentity.fileCount !== 78 || libraryIdentity.sha256 !== OFFICIAL_LIBRARY_CONTENT_HASH) fail('Pinned official TrueNAS library content mismatch');
 }
 
 function safeOutputRoot(output) {
@@ -437,10 +456,12 @@ export function materialize({ manifest, config, output, sourceRepo = repoRoot })
   const composeBytes = canonicalJson(compose);
   writeFileSync(path.join(root, 'rendered/docker-compose.yaml'), composeBytes, { mode: 0o600 });
   const configDigest = sha256(canonicalJson({ ...config, postgres: { ...config.postgres, password: '<redacted>' }, rabbitmq: { ...config.rabbitmq, password: '<redacted>' } }));
+  const materializedPackage = directoryContentIdentity(packageRoot);
   const plan = {
     schema: PACKAGE_SCHEMA,
     package: { name: 'settleora', version: app.version, appVersion: app.app_version, officialAppsCommit: OFFICIAL_APPS_COMMIT, libraryVersion: OFFICIAL_LIBRARY_VERSION, libraryHash: OFFICIAL_LIBRARY_HASH },
     packageSource: sourceIdentity,
+    materializedPackage,
     applicationRelease: { candidateId: identity.manifest.source.candidateId, commit: identity.manifest.source.commit, tree: identity.manifest.source.tree, identityDigest: identity.manifest.identityDigest },
     runtime: { platform: 'linux/amd64', digestAuthority: 'selected-platform-manifest', images: identity.images, indexDigests: { api: identity.manifest.apiImage.indexDigest, caddy: dependency(identity.manifest, 'caddy').indexDigest, postgres: dependency(identity.manifest, 'postgres').indexDigest, rabbitmq: dependency(identity.manifest, 'rabbitmq').indexDigest } },
     sanitizedConfigSha256: configDigest,
@@ -455,7 +476,7 @@ export function materialize({ manifest, config, output, sourceRepo = repoRoot })
   };
   const planBytes = canonicalJson(plan);
   writeFileSync(path.join(root, 'install-plan.json'), planBytes, { mode: 0o600 });
-  return { output: root, packageRoot, compose, plan, packetSha256: sha256(planBytes + composeBytes) };
+  return { output: root, packageRoot, compose, plan, packetSha256: sha256(planBytes + composeBytes + canonicalJson(materializedPackage)) };
 }
 
 function args(argv) {
@@ -482,7 +503,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   try {
     main();
   } catch (error) {
-    process.stderr.write(`TrueNAS catalog render refused: ${error instanceof Error ? error.message : 'unknown error'}\n`);
+    process.stderr.write('TrueNAS catalog render refused: invalid or unsafe input\n');
     process.exitCode = 1;
   }
 }

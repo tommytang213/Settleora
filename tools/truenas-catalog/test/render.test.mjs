@@ -12,6 +12,7 @@ import {
   OFFICIAL_LIBRARY_VERSION,
   SECRET_MARKERS,
   consumeReleaseIdentity,
+  directoryContentIdentity,
   materialize,
   packageSource,
   renderCompose,
@@ -64,6 +65,7 @@ test('deterministic materialization repeats byte-identical package and compose i
   assert.equal(first.plan.renderedComposeSha256, second.plan.renderedComposeSha256);
   assert.equal(readFileSync(path.join(first.output, 'install-plan.json'), 'utf8'), readFileSync(path.join(second.output, 'install-plan.json'), 'utf8'));
   assert.equal(readFileSync(path.join(first.output, 'rendered/docker-compose.yaml'), 'utf8'), readFileSync(path.join(second.output, 'rendered/docker-compose.yaml'), 'utf8'));
+  assert.deepEqual(first.plan.materializedPackage, second.plan.materializedPackage);
   assert.equal(first.plan.actions.published, false);
   assert.equal(first.plan.actions.deployed, false);
   assert.equal(first.plan.applicationRelease.commit, syntheticManifest().source.commit);
@@ -71,6 +73,10 @@ test('deterministic materialization repeats byte-identical package and compose i
   assert.match(first.plan.packageSource.repositoryTree, /^[0-9a-f]{40}$/);
   assert.match(first.plan.packageSource.contentSha256, /^[0-9a-f]{64}$/);
   assert.equal(first.plan.packageSource.trackedAtCommit, true);
+  const tampered = path.join(root, 'tampered-package');
+  cpSync(first.packageRoot, tampered, { recursive: true });
+  writeFileSync(path.join(tampered, 'README.md'), `${readFileSync(path.join(tampered, 'README.md'), 'utf8')}drift\n`);
+  assert.notEqual(directoryContentIdentity(tampered).sha256, first.plan.materializedPackage.sha256);
 });
 
 test('rendered topology preserves R11, R12, private services, datasets, and migration failure gating', () => {
@@ -200,6 +206,14 @@ test('CLI success and refusal output never discloses secret values or private da
   const refused = spawnSync(process.execPath, ['tools/truenas-catalog/render.mjs', '--manifest', manifestPath, '--config', configPath, '--output', path.join(root, 'refused')], { cwd: repoRoot, encoding: 'utf8' });
   assert.notEqual(refused.status, 0);
   assert.doesNotMatch(refused.stdout + refused.stderr, new RegExp(SECRET_MARKERS[0]));
+  const privateMissing = spawnSync(process.execPath, ['tools/truenas-catalog/render.mjs', '--manifest', '/mnt/PRIVATE_POOL/secret.json', '--config', configPath, '--output', path.join(root, 'missing')], { cwd: repoRoot, encoding: 'utf8' });
+  assert.notEqual(privateMissing.status, 0);
+  assert.doesNotMatch(privateMissing.stdout + privateMissing.stderr, /PRIVATE_POOL|secret\.json|\/mnt\//);
+  const malformedPath = path.join(root, 'malformed.json');
+  writeFileSync(malformedPath, '{"password":"SENSITIVE_FRAGMENT"');
+  const malformed = spawnSync(process.execPath, ['tools/truenas-catalog/render.mjs', '--manifest', malformedPath, '--config', configPath, '--output', path.join(root, 'malformed')], { cwd: repoRoot, encoding: 'utf8' });
+  assert.notEqual(malformed.status, 0);
+  assert.doesNotMatch(malformed.stdout + malformed.stderr, /SENSITIVE_FRAGMENT|malformed\.json/);
 });
 
 test('offline rendered Compose is accepted structurally by Docker Compose without pulling or starting images', () => {
