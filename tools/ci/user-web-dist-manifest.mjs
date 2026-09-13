@@ -1,9 +1,14 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import {
+  closeSync,
+  constants,
   existsSync,
+  fstatSync,
   lstatSync,
   mkdirSync,
+  openSync,
+  readSync,
   readFileSync,
   readlinkSync,
   readdirSync,
@@ -16,6 +21,42 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const shaPattern = /^[0-9a-f]{40}$/;
+const maxPublicArtifactFileBytes = 32 * 1024 * 1024;
+const maxPublicArtifactTotalBytes = 128 * 1024 * 1024;
+const maxPublicArtifactFiles = 10_000;
+const maxPublicArtifactDirectories = 10_000;
+const maxPublicArtifactDepth = 64;
+
+export function currentNpmVersion() {
+  const candidates = [
+    path.resolve(path.dirname(process.execPath), '../lib/node_modules/npm/package.json'),
+    '/usr/lib/node_modules/npm/package.json',
+    '/usr/share/nodejs/npm/package.json',
+  ];
+  const packageFile = candidates.find((candidate) => existsSync(candidate));
+  if (!packageFile) throw new Error('npm package metadata is unavailable');
+  const descriptor = openSync(packageFile, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const opened = fstatSync(descriptor);
+    const current = lstatSync(packageFile);
+    if (!opened.isFile() || opened.size < 1 || opened.size > 1024 * 1024 || current.isSymbolicLink()
+      || current.dev !== opened.dev || current.ino !== opened.ino
+      || realpathSync(packageFile) !== packageFile) throw new Error('npm metadata is not a stable bounded file');
+    const bytes = Buffer.alloc(opened.size);
+    for (let offset = 0; offset < opened.size;) {
+      const count = readSync(descriptor, bytes, offset, opened.size - offset, offset);
+      if (count < 1) throw new Error('npm CLI descriptor ended before its declared size');
+      offset += count;
+    }
+    const after = fstatSync(descriptor);
+    if (after.size !== opened.size || after.mtimeMs !== opened.mtimeMs || after.ctimeMs !== opened.ctimeMs) throw new Error('npm metadata changed during version collection');
+    const version = JSON.parse(bytes.toString('utf8')).version;
+    if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/u.test(version)) throw new Error('npm version is invalid');
+    return version;
+  } finally {
+    closeSync(descriptor);
+  }
+}
 const unsafePathPatterns = [
   /(^|\/)(?:\.git|\.hg|\.svn|\.bzr|_darcs)(?:\/|$)/i,
   /(^|\/)\.env($|[./-])/i,
@@ -31,7 +72,7 @@ const unsafeContentPatterns = [
   /\bsk-[A-Za-z0-9]{20,}\b/,
   /\b(?:gh(?:p|o|u|s|r)_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/,
   /\bxox[baprs]-[A-Za-z0-9-]{20,}\b/,
-  /\b(?:(?:[A-Za-z_][A-Za-z0-9_]*)?(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTHORIZATION)|authorization|x-goog-api-key)\b\s*[:=]\s*(?![A-Za-z_$][A-Za-z0-9_$]*\.)["']?[A-Za-z0-9._~+/-]{8,}/i,
+  /\b(?:(?:[A-Za-z_][A-Za-z0-9_]*)?(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTHORIZATION)|authorization|x-goog-api-key)\b["']?\s*[:=]\s*(?![A-Za-z_$][A-Za-z0-9_$]*\.)["']?[A-Za-z0-9._~+/-]{8,}/i,
   /\bbearer\s+[A-Za-z0-9._~+/-]{12,}/i,
   /["'](?:client_secret|private_key|refresh_token)["']\s*:/i,
   /(?::_authToken|_auth|npmAuthToken)\s*[:=]\s*[^\s"']+/i,
@@ -42,8 +83,102 @@ const unsafeContentPatterns = [
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const canonicalJson = (value) => `${JSON.stringify(value, null, 2)}\n`;
 
+export function assertUniqueJsonMembers(text) {
+  let offset = 0;
+  const whitespace = () => { while (/\s/u.test(text[offset] ?? '')) offset += 1; };
+  const stringValue = () => {
+    const start = offset;
+    if (text[offset] !== '"') throw new Error('Expected JSON string');
+    offset += 1;
+    while (offset < text.length) {
+      if (text[offset] === '\\') {
+        offset += 2;
+      } else if (text[offset] === '"') {
+        offset += 1;
+        return JSON.parse(text.slice(start, offset));
+      } else {
+        offset += 1;
+      }
+    }
+    throw new Error('Unterminated JSON string');
+  };
+  const value = () => {
+    whitespace();
+    if (text[offset] === '{') {
+      offset += 1;
+      whitespace();
+      const keys = new Set();
+      if (text[offset] === '}') { offset += 1; return; }
+      while (true) {
+        const key = stringValue();
+        if (keys.has(key)) throw new Error('Duplicate JSON member');
+        keys.add(key);
+        whitespace();
+        if (text[offset] !== ':') throw new Error('Expected JSON member delimiter');
+        offset += 1;
+        value();
+        whitespace();
+        if (text[offset] === '}') { offset += 1; return; }
+        if (text[offset] !== ',') throw new Error('Expected JSON member separator');
+        offset += 1;
+        whitespace();
+      }
+    }
+    if (text[offset] === '[') {
+      offset += 1;
+      whitespace();
+      if (text[offset] === ']') { offset += 1; return; }
+      while (true) {
+        value();
+        whitespace();
+        if (text[offset] === ']') { offset += 1; return; }
+        if (text[offset] !== ',') throw new Error('Expected JSON array separator');
+        offset += 1;
+      }
+    }
+    if (text[offset] === '"') { stringValue(); return; }
+    const primitive = /^(?:-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null)/u.exec(text.slice(offset));
+    if (!primitive) throw new Error('Expected JSON value');
+    offset += primitive[0].length;
+  };
+  value();
+  whitespace();
+  if (offset !== text.length) throw new Error('Unexpected trailing JSON content');
+}
+
+function decodeStaticScriptEscapesForScan(text) {
+  return text
+    .replace(/\\u\{([0-9A-Fa-f]{1,6})\}/gu, (escape, digits) => {
+      const value = Number.parseInt(digits, 16);
+      return value <= 0x10ffff ? String.fromCodePoint(value) : escape;
+    })
+    .replace(/\\u([0-9A-Fa-f]{4})/gu, (_escape, digits) => String.fromCharCode(Number.parseInt(digits, 16)))
+    .replace(/\\x([0-9A-Fa-f]{2})/gu, (_escape, digits) => String.fromCharCode(Number.parseInt(digits, 16)));
+}
+
+function removeScriptEscapeBoundariesForScan(text) {
+  // A credential prefix split by an otherwise invalid or deliberately partial
+  // JavaScript escape must still be visible to the conservative public scan.
+  return text.replace(/\\/gu, '');
+}
+
+function decodeHtmlEntitiesForScan(text) {
+  const named = new Map([['amp', '&'], ['apos', "'"], ['gt', '>'], ['lt', '<'], ['quot', '"']]);
+  // HTML accepts semicolonless numeric references. Named references remain
+  // semicolon-required so an ordinary ampersand word is not rewritten.
+  return text.replace(/&(?:#([0-9]{1,7});?|#x([0-9A-Fa-f]{1,6});?|([A-Za-z]{2,8});)/gu, (entity, decimal, hexadecimal, name) => {
+    const value = decimal !== undefined
+      ? Number.parseInt(decimal, 10)
+      : hexadecimal !== undefined
+        ? Number.parseInt(hexadecimal, 16)
+        : undefined;
+    if (value !== undefined) return value <= 0x10ffff && !(value >= 0xd800 && value <= 0xdfff) ? String.fromCodePoint(value) : entity;
+    return named.get(name.toLowerCase()) ?? entity;
+  });
+}
+
 function git(args) {
-  return execFileSync('git', args, {
+  return execFileSync('/usr/bin/git', ['--no-replace-objects', ...args], {
     cwd: repoRoot,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -56,6 +191,12 @@ const gitBlobObjectId = (contents) => createHash('sha1')
   .digest('hex');
 
 export function assertTrackedWorktreeMatchesHead(root = repoRoot) {
+  const replacements = execFileSync('/usr/bin/git', ['--no-replace-objects', 'for-each-ref', '--format=%(refname)', 'refs/replace'], {
+    cwd: root,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim();
+  if (replacements) throw new Error('Git replacement refs are not allowed for provenance collection');
   const rootBytes = Buffer.from(root);
   const verifiedDirectories = new Set(['']);
   const displayPath = (relative) => JSON.stringify(relative.toString('utf8'));
@@ -77,7 +218,7 @@ export function assertTrackedWorktreeMatchesHead(root = repoRoot) {
       verifiedDirectories.add(key);
     }
   };
-  const output = execFileSync('git', ['ls-tree', '-rz', '--full-tree', 'HEAD'], {
+  const output = execFileSync('/usr/bin/git', ['--no-replace-objects', 'ls-tree', '-rz', '--full-tree', 'HEAD'], {
     cwd: root,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -142,40 +283,89 @@ function artifactRootLabel(distAbsolute, provenance) {
   return label;
 }
 
-function collectFiles(distRoot) {
+export function collectFiles(distRoot) {
   const files = [];
-  const visit = (directory) => {
+  let totalBytes = 0;
+  let directoryCount = 0;
+  const visit = (directory, depth) => {
+    if (depth > maxPublicArtifactDepth) throw new Error('User-web dist exceeds its directory-depth limit');
+    directoryCount += 1;
+    if (directoryCount > maxPublicArtifactDirectories) throw new Error('User-web dist exceeds its directory-count limit');
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const absolute = path.join(directory, entry.name);
       const metadata = lstatSync(absolute);
       if (metadata.isSymbolicLink()) throw new Error(`Symlinks are not allowed in user-web dist: ${absolute}`);
       if (metadata.isDirectory()) {
-        visit(absolute);
+        visit(absolute, depth + 1);
       } else if (metadata.isFile()) {
+        if (files.length >= maxPublicArtifactFiles) throw new Error('User-web dist exceeds its file-count limit');
         const relative = path.relative(distRoot, absolute).split(path.sep).join('/');
         if (!relative || relative.startsWith('/') || relative.split('/').includes('..') || /[\r\n\0]/u.test(relative)) {
           throw new Error(`Unsafe dist path: ${JSON.stringify(relative)}`);
         }
-        const contents = readFileSync(absolute);
-        if (contents.length !== metadata.size) throw new Error(`User-web dist changed while reading: ${absolute}`);
+        let descriptor;
+        let contents;
+        try {
+          descriptor = openSync(absolute, constants.O_RDONLY | constants.O_NOFOLLOW);
+          const opened = fstatSync(descriptor);
+          if (!opened.isFile() || !Number.isSafeInteger(opened.size) || opened.size < 0 || opened.size > maxPublicArtifactFileBytes) {
+            throw new Error(`User-web dist file exceeds its evidence size limit: ${absolute}`);
+          }
+          if (!Number.isSafeInteger(totalBytes + opened.size) || totalBytes + opened.size > maxPublicArtifactTotalBytes) {
+            throw new Error('User-web dist exceeds its aggregate evidence size limit');
+          }
+          contents = Buffer.allocUnsafe(opened.size);
+          let offset = 0;
+          while (offset < opened.size) {
+            const count = readSync(descriptor, contents, offset, opened.size - offset, null);
+            if (count === 0) throw new Error(`User-web dist changed while reading: ${absolute}`);
+            offset += count;
+          }
+          const extra = Buffer.allocUnsafe(1);
+          if (readSync(descriptor, extra, 0, 1, null) !== 0) throw new Error(`User-web dist changed while reading: ${absolute}`);
+          const current = lstatSync(absolute);
+          if (!opened.isFile() || current.isSymbolicLink() || current.dev !== opened.dev || current.ino !== opened.ino || realpathSync(absolute) !== absolute || contents.length !== opened.size) {
+            throw new Error(`User-web dist changed while reading: ${absolute}`);
+          }
+        } finally {
+          if (descriptor !== undefined) closeSync(descriptor);
+        }
+        totalBytes += contents.length;
         files.push({ absolute, path: relative, size: contents.length, contents });
       } else {
         throw new Error(`Only regular files are allowed in user-web dist: ${absolute}`);
       }
     }
   };
-  visit(distRoot);
+  visit(distRoot, 0);
   return files.sort((left, right) => Buffer.from(left.path).compare(Buffer.from(right.path)));
 }
 
-function scanPublicArtifact(files) {
+export function scanPublicArtifact(files) {
   for (const file of files) {
     if (unsafePathPatterns.some((pattern) => pattern.test(file.path))) {
       throw new Error(`Unsafe public artifact path: ${file.path}`);
     }
     const text = file.contents.toString('utf8');
+    const decodedScriptText = decodeStaticScriptEscapesForScan(text);
+    const collapsedScriptText = removeScriptEscapeBoundariesForScan(text);
+    const decodedHtmlText = decodeHtmlEntitiesForScan(text);
+    let decodedJsonText;
+    let candidate;
     try {
-      const candidate = JSON.parse(text);
+      candidate = JSON.parse(text);
+    } catch {
+      // Non-JSON web assets still receive the raw-text scan below.
+    }
+    if (candidate !== undefined) {
+      try {
+        assertUniqueJsonMembers(text);
+      } catch (error) {
+        if (error instanceof Error && error.message === 'Duplicate JSON member') {
+          throw new Error(`Duplicate JSON members are not allowed in public artifact: ${file.path}`);
+        }
+        throw new Error(`JSON artifact could not be inspected unambiguously: ${file.path}`);
+      }
       if (
         candidate
         && typeof candidate === 'object'
@@ -188,11 +378,13 @@ function scanPublicArtifact(files) {
       ) {
         throw new Error(`Source-map payload is not allowed in public artifact: ${file.path}`);
       }
-    } catch (error) {
-      if (error instanceof Error && error.message.startsWith('Source-map payload')) throw error;
+      decodedJsonText = JSON.stringify(candidate);
     }
     for (const pattern of unsafeContentPatterns) {
-      if (pattern.test(text)) throw new Error(`Potential sensitive or host-specific material in ${file.path}`);
+      if (pattern.test(text) || pattern.test(decodedScriptText) || pattern.test(collapsedScriptText) || pattern.test(decodedHtmlText)
+        || (decodedJsonText !== undefined && pattern.test(decodedJsonText))) {
+        throw new Error(`Potential sensitive or host-specific material in ${file.path}`);
+      }
     }
   }
 }
@@ -254,7 +446,7 @@ export function createUserWebDistManifest({
     },
     buildTools: provenance?.buildTools ?? {
       node: process.version,
-      npm: execFileSync('npm', ['--version'], { encoding: 'utf8' }).trim(),
+      npm: currentNpmVersion(),
       typescript: packageVersion(lock, 'typescript'),
       vite: packageVersion(lock, 'vite'),
     },

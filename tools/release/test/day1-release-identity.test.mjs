@@ -1,0 +1,924 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import {
+  buildManifest,
+  bindCompiledMigrationIds,
+  canonicalJson,
+  collectMigrations,
+  computeIdentityDigest,
+  containsSensitiveMaterial,
+  parseGradleVerificationMetadata,
+  sha256,
+  validateRegistryDocument,
+  validateRegistryRevision,
+  validateSelectedPlatformDocument,
+  validateManifest,
+  validatePublicationJobDocument,
+  validatePublicationJobLog,
+  validatePublicationProvenance,
+  validatePublicationRunDocument,
+  validatePublicationRunUrl,
+} from '../day1-release-identity.mjs';
+import { assertCleanCompletion, assertCommitHasNoSymlinks, canonicalAndroidInput, canonicalManifestPath, canonicalReleaseNotesInput, canonicalWebInput, copyBoundedFile, deterministicAndroidRebuildProjection, parseCanonicalJson, parseSingleApkSigner, retainReleaseNotes, runToolchainMutationGuardFixture, safeInput, sanitizedErrorMessage, toolchainTreeDigest, verificationRegistryReference } from '../day1-release-identity-cli.mjs';
+
+const d = (character) => `sha256:${character.repeat(64)}`;
+const producerJson = (value) => `${JSON.stringify(value, null, 2)}\n`;
+
+function write(root, relative, contents) {
+  const absolute = path.join(root, relative);
+  mkdirSync(path.dirname(absolute), { recursive: true });
+  writeFileSync(absolute, contents);
+  return absolute;
+}
+
+function git(root, args) {
+  return execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
+}
+
+function fixture(t) {
+  const root = mkdtempSync(path.join(tmpdir(), 'release-identity-'));
+  const evidenceRoot = mkdtempSync(path.join(tmpdir(), 'release-identity-evidence-'));
+  t.after(() => {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(evidenceRoot, { recursive: true, force: true });
+  });
+  git(root, ['init', '--quiet']);
+  write(root, 'infra/docker-compose.truenas-lan.image.yml', [
+    'services:',
+    '  ingress:',
+    '    image: caddy:2.11.4-alpine',
+    '  postgres:',
+    '    image: postgres:16-alpine',
+    '  rabbitmq:',
+    '    image: rabbitmq:3.13-management-alpine',
+    '',
+  ].join('\n'));
+  const migrationRoot = 'services/api/src/Settleora.Api/Persistence/Migrations';
+  write(root, `${migrationRoot}/20260101000000_Initial.cs`, 'public partial class Initial : Migration {}\n');
+  write(root, `${migrationRoot}/20260101000000_Initial.Designer.cs`, '[Migration("20260101000000_Initial")]\npartial class Initial {}\n');
+  write(root, `${migrationRoot}/20260102000000_SourceOnly.cs`, 'public partial class SourceOnly : Migration {}\n');
+  write(root, `${migrationRoot}/20260102000000_SourceOnly.Designer.cs`, '[Migration("20260102000000_SourceOnly")]\npartial class SourceOnly {}\n');
+  write(root, 'apps/web-user/package-lock.json', '{"lockfileVersion":3,"packages":{"node_modules/typescript":{"version":"5.0.0"},"node_modules/vite":{"version":"7.0.0"}}}\n');
+  write(root, 'apps/mobile/pubspec.yaml', 'version: 1.2.3+45\n');
+  const gradleVerificationMetadata = write(root, 'apps/mobile/android/gradle/verification-metadata.xml', [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<verification-metadata xmlns="https://schema.gradle.org/dependency-verification" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://schema.gradle.org/dependency-verification https://schema.gradle.org/dependency-verification/dependency-verification-1.3.xsd">',
+    '  <configuration><verify-metadata>true</verify-metadata><verify-signatures>false</verify-signatures></configuration>',
+    '  <components><component group="example" name="fixture" version="1"><artifact name="fixture.jar"><sha256 value="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" origin="Fixture"/></artifact></component></components>',
+    '</verification-metadata>',
+    '',
+  ].join('\n'));
+  write(root, 'apps/mobile/android/app/build.gradle.kts', [
+    'android {',
+    '  defaultConfig { applicationId = "com.example.mobile" }',
+    '  buildTypes { release { isMinifyEnabled = true; signingConfig = signingConfigs.getByName("debug") } }',
+    '}',
+    '',
+  ].join('\n'));
+  git(root, ['add', 'infra/docker-compose.truenas-lan.image.yml', migrationRoot, 'apps/web-user/package-lock.json', 'apps/mobile/pubspec.yaml', 'apps/mobile/android/app/build.gradle.kts', 'apps/mobile/android/gradle/verification-metadata.xml']);
+  git(root, ['-c', 'user.name=Settleora Test', '-c', 'user.email=test@example.invalid', 'commit', '--quiet', '-m', 'fixture base']);
+  const rollbackCommit = git(root, ['rev-parse', 'HEAD']);
+  write(root, 'README.md', 'candidate source\n');
+  git(root, ['add', 'README.md']);
+  git(root, ['-c', 'user.name=Settleora Test', '-c', 'user.email=test@example.invalid', 'commit', '--quiet', '-m', 'fixture candidate']);
+  const commit = git(root, ['rev-parse', 'HEAD']);
+  const tree = git(root, ['rev-parse', 'HEAD^{tree}']);
+
+  const apkPath = write(evidenceRoot, 'app-release.apk', 'apk bytes\n');
+  const aabPath = write(evidenceRoot, 'app-release.aab', 'aab bytes\n');
+  const mappingPath = write(evidenceRoot, 'mapping.txt', '# compiler: R8\nminified mapping\n');
+  const outputMetadataPath = write(evidenceRoot, 'output-metadata.json', canonicalJson({
+    applicationId: 'com.example.mobile',
+    elements: [{ outputFile: 'app-release.apk', versionName: '1.2.3', versionCode: 45 }],
+  }));
+  const webFile = write(evidenceRoot, 'dist/index.html', '<!doctype html>\n');
+  const webRecord = { path: 'index.html', size: readFileSync(webFile).length, sha256: sha256(readFileSync(webFile)) };
+  const lockBytes = readFileSync(path.join(root, 'apps/web-user/package-lock.json'));
+  const webManifestPath = write(evidenceRoot, 'user-web-dist-manifest.json', producerJson({
+    schema: 'settleora.user-web-dist-manifest.v1',
+    source: { commit, tree },
+    dependencyLock: { path: 'apps/web-user/package-lock.json', sha256: sha256(lockBytes), lockfileVersion: 3 },
+    buildTools: { node: 'v22.0.0', npm: '10.0.0', typescript: '5.0.0', vite: '7.0.0' },
+    artifact: {
+      root: 'apps/web-user/dist',
+      treeDigestAlgorithm: 'sha256(canonical-file-records-v1)',
+      treeSha256: sha256(`${webRecord.sha256}  ${webRecord.size}  ${webRecord.path}\n`),
+      fileCount: 1,
+      totalBytes: webRecord.size,
+      files: [webRecord],
+    },
+    publicArtifactChecks: { symlinksRejected: true, sourceMapsRejected: true, sensitiveMaterialScan: 'passed' },
+  }));
+  const notesPath = write(evidenceRoot, 'release-notes.md', '# Candidate\nBounded test evidence.\n');
+  const buildProvenancePath = write(evidenceRoot, 'build-provenance.json', canonicalJson({
+    schema: 'settleora.android-exact-source-build.v1', source: { commit, tree },
+    commands: ['flutter pub get (dependency prefetch)', 'flutter build apk --release --no-pub (dependency prefetch)', 'flutter build apk --release --no-pub (offline cache stabilization)', 'flutter build apk --release --no-pub (offline)', 'flutter build appbundle --release --no-pub (offline)'],
+    toolchains: {
+      flutter: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: '8'.repeat(64), excludedPaths: ['.git', 'bin/cache/lockfile', 'bin/cache/runtime.stamp', 'packages/flutter_tools/gradle/.gradle'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
+      android: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: '9'.repeat(64), excludedPaths: ['.knownPackages'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
+      java: { algorithm: 'sha256(canonical-protected-runtime-tree-v2)', sha256: 'd'.repeat(64), excludedPaths: [], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
+    },
+    dependencyCaches: {
+      pub: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: 'a'.repeat(64), excludedPaths: ['hosted/pub.dev/jni-1.0.0/android/.cxx'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
+      gradleExecutableCaches: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: 'f'.repeat(64), excludedPaths: ['.tmp', 'android', 'caches/8.14/dependencies-accessors/gc.properties', 'caches/8.14/file-changes', 'caches/8.14/fileContent', 'caches/8.14/fileHashes', 'caches/8.14/gc.properties', 'caches/8.14/generated-gradle-jars/generated-gradle-jars.lock', 'caches/8.14/groovy-dsl/gc.properties', 'caches/8.14/javaCompile', 'caches/8.14/jvms', 'caches/8.14/kotlin-dsl/gc.properties', 'caches/8.14/md-rule', 'caches/8.14/md-supplier', 'caches/8.14/transforms/gc.properties', 'caches/CACHEDIR.TAG', 'caches/build-cache-1', 'caches/gc.properties', 'caches/jars-9/jars-9.lock', 'caches/journal-1', 'caches/keyrings', 'caches/modules-2', 'daemon', 'kotlin-profile', 'native', 'notifications', 'workers', 'wrapper', 'wrapper/dists/gradle-8.14-all/c2qonpi39x1mddn7hk5gh9iqj/gradle-8.14-all.zip.lck'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
+      gradleModules: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: 'b'.repeat(64), excludedPaths: ['gc.properties', 'modules-2.lock'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
+      gradleWrapper: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: 'e'.repeat(64), excludedPaths: ['dists/gradle-8.14-all/c2qonpi39x1mddn7hk5gh9iqj/gradle-8.14-all.zip.lck'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
+    },
+    gradleVerificationMetadataSha256: sha256(readFileSync(gradleVerificationMetadata)),
+    verificationTools: { apksignerJarSha256: 'c'.repeat(64) },
+    toolchainMutationGuard: {
+      algorithm: 'linux-inotify-authenticated-runner-v3',
+      flutterExcludedTransientBases: ['bin/cache/runtime.stamp'],
+      pubExcludedBuildPaths: ['hosted/pub.dev/jni-1.0.0/android/.cxx'],
+      gradleWrapperLockPaths: ['dists/gradle-8.14-all/c2qonpi39x1mddn7hk5gh9iqj/gradle-8.14-all.zip.lck'],
+      gradleKotlinDslTransientBases: ['caches/8.14/kotlin-dsl/accessors/0123456789abcdef0123456789abcdef'],
+      sourceGeneratedPaths: ['apps/mobile/.dart_tool', 'apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/.gradle', 'apps/mobile/android/.kotlin', 'apps/mobile/android/app/src/main/java', 'apps/mobile/android/build', 'apps/mobile/android/local.properties', 'apps/mobile/build', 'apps/mobile/ios', 'apps/mobile/lib/.dart_tool', 'apps/mobile/linux', 'apps/mobile/macos', 'apps/mobile/web', 'apps/mobile/windows'],
+      prefetchSourceGeneratedPaths: ['apps/mobile/.dart_tool', 'apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/.gradle', 'apps/mobile/android/.kotlin', 'apps/mobile/android/app/src/main/java', 'apps/mobile/android/build', 'apps/mobile/android/local.properties', 'apps/mobile/build', 'apps/mobile/ios', 'apps/mobile/lib/.dart_tool', 'apps/mobile/linux', 'apps/mobile/macos', 'apps/mobile/web', 'apps/mobile/windows', 'apps/mobile/android/gradle/wrapper/gradle-wrapper.jar', 'apps/mobile/android/gradlew', 'apps/mobile/android/gradlew.bat'],
+      sealedGeneratedInputPaths: ['apps/mobile/.dart_tool/package_config.json', 'apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/app/src/main/java'],
+      sealedGradleExecutableCachePaths: ['caches/8.14/dependencies-accessors', 'caches/8.14/generated-gradle-jars', 'caches/8.14/groovy-dsl', 'caches/8.14/kotlin-dsl', 'caches/8.14/transforms', 'caches/jars-9'],
+      runtimeGradleMutablePaths: ['.tmp', 'caches/CACHEDIR.TAG', 'caches/build-cache-1', 'caches/8.14/file-changes', 'caches/8.14/fileContent', 'caches/8.14/fileHashes', 'caches/8.14/gc.properties', 'caches/8.14/javaCompile', 'caches/8.14/jvms', 'caches/8.14/md-rule', 'caches/8.14/md-supplier', 'caches/8.14/dependencies-accessors/gc.properties', 'caches/8.14/generated-gradle-jars/generated-gradle-jars.lock', 'caches/8.14/groovy-dsl/gc.properties', 'caches/8.14/kotlin-dsl/gc.properties', 'caches/8.14/transforms/gc.properties', 'caches/jars-9/jars-9.lock', 'caches/gc.properties', 'caches/journal-1', 'caches/keyrings', 'caches/modules-2', 'android', 'daemon', 'kotlin-profile', 'native', 'notifications', 'workers', 'wrapper/dists/gradle-8.14-all/c2qonpi39x1mddn7hk5gh9iqj/gradle-8.14-all.zip.lck'],
+      outputsCapturedBeforeGuardExit: true,
+      queueOverflowFailsClosed: true,
+    },
+    signingInput: { kind: 'explicit-debug-keystore-sha256-v1', sha256: '7'.repeat(64), certificateSha256: '3'.repeat(64) },
+    artifacts: {
+      apk: { path: 'apps/mobile/build/app/outputs/flutter-apk/app-release.apk', size: readFileSync(apkPath).length, sha256: sha256(readFileSync(apkPath)) },
+      aab: { path: 'apps/mobile/build/app/outputs/bundle/release/app-release.aab', size: readFileSync(aabPath).length, sha256: sha256(readFileSync(aabPath)) },
+      r8MappingSha256: sha256(readFileSync(mappingPath)),
+      outputMetadataSha256: sha256(readFileSync(outputMetadataPath)),
+    },
+  }));
+  const input = {
+    generatedAt: '2026-09-11T12:00:00Z',
+    registryResolutionMode: 'live-read-only',
+    platform: { os: 'linux', architecture: 'amd64' },
+    source: { repository: 'tommytang213/Settleora', commit, tree, candidateId: `day1-${commit.slice(0, 12)}` },
+    apiImage: {
+      repository: 'ghcr.io/tommytang213/settleora-api',
+      configuredTag: `sha-${commit}`,
+      indexDigest: d('a'),
+      platformDigest: d('b'),
+      ociRevision: commit,
+      publicationRunUrl: 'https://github.com/tommytang213/Settleora/actions/runs/1',
+    },
+    dependencyImages: [
+      { name: 'postgres', repository: 'docker.io/library/postgres', configuredTag: 'postgres:16-alpine', indexDigest: d('c'), platformDigest: d('d'), sourceComposePath: 'infra/docker-compose.truenas-lan.image.yml' },
+      { name: 'rabbitmq', repository: 'docker.io/library/rabbitmq', configuredTag: 'rabbitmq:3.13-management-alpine', indexDigest: d('e'), platformDigest: d('f'), sourceComposePath: 'infra/docker-compose.truenas-lan.image.yml' },
+      { name: 'caddy', repository: 'docker.io/library/caddy', configuredTag: 'caddy:2.11.4-alpine', indexDigest: d('0'), platformDigest: d('1'), sourceComposePath: 'infra/docker-compose.truenas-lan.image.yml' },
+    ],
+    userWeb: { evidenceRoot, manifestPath: webManifestPath },
+    android: {
+      evidenceRoot,
+      apkPath,
+      aabPath,
+      mappingPath,
+      outputMetadataPath,
+      buildProvenancePath,
+      signerCertificateSha256: '3'.repeat(64),
+      embeddedR8MappingSha256: sha256(readFileSync(mappingPath)),
+      verificationToolSha256: 'c'.repeat(64),
+    },
+    releaseNotes: { evidenceRoot, path: notesPath, source: 'bounded-input/release-notes.md', candidateSummary: 'Fixture candidate only.' },
+    rollback: {
+      sourceCommit: rollbackCommit,
+      apiImage: { repository: 'ghcr.io/tommytang213/settleora-api', configuredTag: `sha-${rollbackCommit}`, indexDigest: d('5'), platformDigest: d('6'), ociRevision: rollbackCommit, publicationRunUrl: 'https://github.com/tommytang213/Settleora/actions/runs/2' },
+    },
+    retention: {
+      canonicalEvidenceDirectory: `/workspace/logs/settleora-release-candidates/day1-${commit.slice(0, 12)}`,
+      policy: 'Retain through R04 and Day 1 acceptance; deletion is a separate manual action.',
+      apiRegistryIdentity: 'ghcr.io immutable digest plus GitHub Actions run',
+    },
+  };
+  bindCompiledMigrationIds(input, ['20260101000000_Initial', '20260102000000_SourceOnly']);
+  return { root, evidenceRoot, input, commit, tree, paths: { apkPath, outputMetadataPath, webManifestPath, notesPath } };
+}
+
+test('builds a deterministic canonical identity and excludes generatedAt from its digest', (t) => {
+  const f = fixture(t);
+  const first = buildManifest(f.root, f.input);
+  const second = buildManifest(f.root, { ...f.input, generatedAt: '2026-09-11T12:01:00Z' });
+  assert.equal(first.identityDigest, second.identityDigest);
+  assert.equal(first.identityDigest, computeIdentityDigest(first));
+  assert.equal(first.migrations.count, 2);
+  assert.equal(first.migrations.entries[1].files.length, 2);
+  assert.equal(first.migrations.stateClaim, 'repository-source-only-not-applied');
+  assert.equal(first.migrations.runtimeInventory, 'compiled-ef-metadata-v1');
+  assert.equal(first.android.signingInputSha256, '7'.repeat(64));
+  assert.equal(first.android.outputMetadataSha256, sha256(readFileSync(f.paths.outputMetadataPath)));
+  assert.equal(first.rollback.artifactAvailabilityProvesDatabaseSchemaFileRollbackSafety, false);
+  assert.deepEqual(first.dependencyImages.map((image) => image.name), ['caddy', 'postgres', 'rabbitmq']);
+  assert.doesNotThrow(() => validateManifest(first, f.root));
+  assert.throws(() => buildManifest(f.root, JSON.parse(JSON.stringify(f.input))), /Compiled EF runtime migration inventory is required/);
+  assert.throws(() => buildManifest(f.root, { ...f.input, generatedAt: 'unknown' }), /normalized RFC 3339 UTC timestamp/);
+  const webManifest = JSON.parse(readFileSync(f.paths.webManifestPath));
+  webManifest.buildTools.node = 'v22.999.0';
+  writeFileSync(f.paths.webManifestPath, producerJson(webManifest));
+  assert.notEqual(buildManifest(f.root, f.input).identityDigest, first.identityDigest);
+});
+
+test('rejects source, API revision, API digest and floating-tag mismatches', (t) => {
+  const f = fixture(t);
+  assert.throws(() => buildManifest(f.root, { ...f.input, source: { ...f.input.source, commit: '9'.repeat(40) } }), /Source commit mismatch/);
+  assert.throws(() => buildManifest(f.root, { ...f.input, source: { ...f.input.source, tree: '9'.repeat(40) } }), /Source tree mismatch/);
+  assert.throws(() => buildManifest(f.root, { ...f.input, apiImage: { ...f.input.apiImage, ociRevision: '8'.repeat(40) } }), /OCI revision mismatch/);
+  assert.throws(() => buildManifest(f.root, { ...f.input, apiImage: { ...f.input.apiImage, indexDigest: 'not-a-digest' } }), /immutable sha256 digest/);
+  assert.throws(() => buildManifest(f.root, { ...f.input, apiImage: { ...f.input.apiImage, configuredTag: 'main' } }), /floating tag is not authoritative/);
+  assert.throws(() => buildManifest(f.root, { ...f.input, apiImage: { ...f.input.apiImage, publicationRunUrl: 'not-a-run' } }), /canonical GitHub Actions run URL/);
+  assert.throws(() => buildManifest(f.root, { ...f.input, apiImage: { ...f.input.apiImage, publicationRunUrl: 'https://github.com/other/repo/actions/runs/1' } }), /canonical GitHub Actions run URL/);
+  assert.deepEqual(validatePublicationRunUrl(f.input.apiImage.publicationRunUrl, f.commit), { url: f.input.apiImage.publicationRunUrl, runId: '1' });
+  const publication = validatePublicationRunUrl(f.input.apiImage.publicationRunUrl, f.commit);
+  const run = { html_url: publication.url, head_repository: { full_name: 'tommytang213/Settleora' }, head_sha: f.commit, head_branch: 'main', event: 'push', conclusion: 'success', path: '.github/workflows/api-image-ghcr.yml' };
+  assert.equal(validatePublicationRunDocument(publication, run, f.commit), true);
+  assert.throws(() => validatePublicationRunDocument(publication, { ...run, head_sha: '0'.repeat(40) }, f.commit), /publication run provenance mismatch/);
+  assert.throws(() => validatePublicationRunDocument(publication, { ...run, head_branch: 'v1.0.0' }, f.commit), /publication run provenance mismatch/);
+  const jobs = { total_count: 1, jobs: [{ id: 123, name: 'Publish API image', conclusion: 'success', steps: [{ name: 'Build and publish API image', conclusion: 'success' }] }] };
+  assert.equal(validatePublicationJobDocument(jobs, f.commit), 123);
+  assert.throws(() => validatePublicationJobDocument({ ...jobs, jobs: [{ ...jobs.jobs[0], conclusion: 'failure' }] }, f.commit), /publication job provenance mismatch/);
+  const publicationLog = `pushing manifest for ghcr.io/tommytang213/settleora-api:sha-${f.commit}@${f.input.apiImage.indexDigest} done\n  "containerimage.digest": "${f.input.apiImage.indexDigest}"\n`;
+  assert.equal(validatePublicationJobLog(publicationLog, f.input.apiImage, f.commit), true);
+  assert.throws(() => validatePublicationJobLog(publicationLog.replaceAll(f.input.apiImage.indexDigest, d('9')), f.input.apiImage, f.commit), /publication log digest mismatch/);
+  const provenance = { runDetails: { builder: { id: `${publication.url}/attempts/1` } }, buildDefinition: { externalParameters: { request: { root: { configSource: { request: { args: { 'vcs:revision': f.commit, 'vcs:source': 'https://github.com/tommytang213/Settleora' } } } } } } } };
+  assert.equal(validatePublicationProvenance(publication, provenance, f.commit), true);
+  provenance.runDetails.builder.id = 'https://github.com/other/repo/actions/runs/1/attempts/1';
+  assert.throws(() => validatePublicationProvenance(publication, provenance, f.commit), /provenance attestation mismatch/);
+  const rollback = structuredClone(f.input.rollback);
+  delete rollback.apiImage.publicationRunUrl;
+  assert.throws(() => buildManifest(f.root, { ...f.input, rollback }), /publicationRunUrl/);
+});
+
+test('rejects dependency tag/platform/digest and migration-set mismatches', (t) => {
+  const f = fixture(t);
+  const deps = f.input.dependencyImages.map((image) => ({ ...image }));
+  deps[0].configuredTag = 'postgres:15-alpine';
+  assert.throws(() => buildManifest(f.root, { ...f.input, dependencyImages: deps }), /configured tag mismatch/);
+  const wrongRepository = f.input.dependencyImages.map((image) => ({ ...image }));
+  wrongRepository[0].repository = 'example.invalid/library/postgres';
+  assert.throws(() => buildManifest(f.root, { ...f.input, dependencyImages: wrongRepository }), /repository mismatch/);
+  const sameDigest = f.input.dependencyImages.map((image) => ({ ...image }));
+  sameDigest[1].platformDigest = sameDigest[1].indexDigest;
+  assert.throws(() => buildManifest(f.root, { ...f.input, dependencyImages: sameDigest }), /must remain distinct/);
+  assert.throws(() => buildManifest(f.root, { ...f.input, expectedMigrationSetSha256: '7'.repeat(64) }), /Migration-set digest mismatch/);
+  const wrongPlatform = f.input.dependencyImages.map((image) => ({ ...image }));
+  wrongPlatform[2].architecture = 'arm64';
+  assert.throws(() => buildManifest(f.root, { ...f.input, dependencyImages: wrongPlatform }), /architecture mismatch/);
+});
+
+test('rejects web source and Android artifact mismatches', (t) => {
+  const f = fixture(t);
+  const web = JSON.parse(readFileSync(f.paths.webManifestPath));
+  const canonicalWeb = readFileSync(f.paths.webManifestPath, 'utf8');
+  writeFileSync(f.paths.webManifestPath, canonicalWeb.replace('{\n', `{\n  "source": {"commit":"${'8'.repeat(40)}","tree":"${'9'.repeat(40)}"},\n`));
+  assert.throws(() => buildManifest(f.root, f.input), /unique producer-canonical serialization/);
+  web.source.commit = '7'.repeat(40);
+  writeFileSync(f.paths.webManifestPath, producerJson(web));
+  assert.throws(() => buildManifest(f.root, f.input), /User-web source\/tree mismatch/);
+  web.source.commit = f.commit;
+  web.dependencyLock.lockfileVersion = 2;
+  writeFileSync(f.paths.webManifestPath, producerJson(web));
+  assert.throws(() => buildManifest(f.root, f.input), /lockfile version mismatch/);
+  web.dependencyLock.lockfileVersion = 3;
+  writeFileSync(f.paths.webManifestPath, producerJson(web));
+  write(f.evidenceRoot, 'dist/omitted.js', 'omitted\n');
+  assert.throws(() => buildManifest(f.root, f.input), /file list is incomplete/);
+  rmSync(path.join(f.evidenceRoot, 'dist/omitted.js'));
+  writeFileSync(path.join(f.evidenceRoot, 'dist/index.html'), `${'author'}${'ization'} = ${'a'.repeat(16)}\n`);
+  assert.throws(() => buildManifest(f.root, f.input), /Potential sensitive/);
+  writeFileSync(path.join(f.evidenceRoot, 'dist/index.html'), '<!doctype html>\n');
+  web.artifact.root = 'fabricated/dist';
+  writeFileSync(f.paths.webManifestPath, producerJson(web));
+  assert.throws(() => buildManifest(f.root, f.input), /User-web artifact root mismatch/);
+  web.artifact.root = 'apps/web-user/dist';
+  writeFileSync(f.paths.webManifestPath, producerJson(web));
+  const buildTools = web.buildTools;
+  web.buildTools = {};
+  writeFileSync(f.paths.webManifestPath, producerJson(web));
+  assert.throws(() => buildManifest(f.root, f.input), /missing required properties/);
+  web.buildTools = buildTools;
+  writeFileSync(f.paths.webManifestPath, producerJson(web));
+  web.unbound = true;
+  writeFileSync(f.paths.webManifestPath, producerJson(web));
+  assert.throws(() => buildManifest(f.root, f.input), /unexpected properties/);
+  delete web.unbound;
+  writeFileSync(f.paths.webManifestPath, producerJson(web));
+  const expected = { apk: { size: 1, sha256: '8'.repeat(64) } };
+  assert.throws(() => buildManifest(f.root, { ...f.input, android: { ...f.input.android, expected } }), /APK identity mismatch/);
+  const expectedAab = { aab: { size: 1, sha256: '8'.repeat(64) } };
+  assert.throws(() => buildManifest(f.root, { ...f.input, android: { ...f.input.android, expected: expectedAab } }), /AAB identity mismatch/);
+  const canonicalMetadata = readFileSync(f.paths.outputMetadataPath, 'utf8');
+  writeFileSync(f.paths.outputMetadataPath, `{"applicationId":"wrong",${canonicalMetadata.slice(1)}`);
+  assert.throws(() => buildManifest(f.root, f.input), /unique canonical serialization/);
+  writeFileSync(f.paths.outputMetadataPath, canonicalMetadata);
+  const provenance = JSON.parse(readFileSync(f.input.android.buildProvenancePath));
+  provenance.unbound = true;
+  writeFileSync(f.input.android.buildProvenancePath, canonicalJson(provenance));
+  assert.throws(() => buildManifest(f.root, f.input), /Android build provenance has unexpected properties/);
+  delete provenance.unbound;
+  provenance.source.unbound = true;
+  writeFileSync(f.input.android.buildProvenancePath, canonicalJson(provenance));
+  assert.throws(() => buildManifest(f.root, f.input), /Android build provenance source has unexpected properties/);
+  delete provenance.source.unbound;
+  provenance.source.tree = '6'.repeat(40);
+  writeFileSync(f.input.android.buildProvenancePath, canonicalJson(provenance));
+  assert.throws(() => buildManifest(f.root, f.input), /Android build provenance source mismatch/);
+});
+
+test('rejects Android provenance that broadens collector-owned cache exclusions', (t) => {
+  const f = fixture(t);
+  const provenance = JSON.parse(readFileSync(f.input.android.buildProvenancePath));
+  provenance.dependencyCaches.gradleModules.excludedPaths = ['files-2.1', 'gc.properties', 'modules-2.lock'];
+  writeFileSync(f.input.android.buildProvenancePath, canonicalJson(provenance));
+  assert.throws(() => buildManifest(f.root, f.input), /Gradle-cache exclusions exceed/);
+
+  provenance.dependencyCaches.gradleModules.excludedPaths = ['gc.properties', 'modules-2.lock'];
+  provenance.dependencyCaches.pub.excludedPaths = ['hosted/pub.dev/package-1.0.0/lib'];
+  provenance.toolchainMutationGuard.pubExcludedBuildPaths = provenance.dependencyCaches.pub.excludedPaths;
+  writeFileSync(f.input.android.buildProvenancePath, canonicalJson(provenance));
+  assert.throws(() => buildManifest(f.root, f.input), /pub-cache exclusions exceed/);
+
+  provenance.dependencyCaches.pub.excludedPaths = ['hosted/pub.dev/jni-1.0.0/android/.cxx'];
+  provenance.toolchainMutationGuard.pubExcludedBuildPaths = provenance.dependencyCaches.pub.excludedPaths;
+  provenance.toolchains.java.excludedPaths = ['conf'];
+  writeFileSync(f.input.android.buildProvenancePath, canonicalJson(provenance));
+  assert.throws(() => buildManifest(f.root, f.input), /Java toolchain exclusions/);
+
+  provenance.toolchains.java.excludedPaths = [];
+  provenance.dependencyCaches.gradleWrapper.excludedPaths = ['dists'];
+  writeFileSync(f.input.android.buildProvenancePath, canonicalJson(provenance));
+  assert.throws(() => buildManifest(f.root, f.input), /Gradle wrapper exclusions/);
+
+  provenance.dependencyCaches.gradleWrapper.excludedPaths = ['dists/gradle-8.14-all/c2qonpi39x1mddn7hk5gh9iqj/gradle-8.14-all.zip.lck'];
+  provenance.toolchainMutationGuard.gradleWrapperLockPaths = provenance.dependencyCaches.gradleWrapper.excludedPaths;
+  provenance.toolchainMutationGuard.gradleKotlinDslTransientBases = ['caches/8.15/kotlin-dsl/accessors/0123456789abcdef0123456789abcdef'];
+  writeFileSync(f.input.android.buildProvenancePath, canonicalJson(provenance));
+  assert.throws(() => buildManifest(f.root, f.input), /mutation guard mismatch/);
+
+  provenance.toolchainMutationGuard.gradleKotlinDslTransientBases = ['caches/8.14/kotlin-dsl/accessors/0123456789abcdef0123456789abcdef'];
+  provenance.signingInput.certificateSha256 = '4'.repeat(64);
+  writeFileSync(f.input.android.buildProvenancePath, canonicalJson(provenance));
+  assert.throws(() => buildManifest(f.root, f.input), /certificate does not match/);
+});
+
+test('rejects hidden tracked-source changes and nonconforming migration sources', (t) => {
+  const f = fixture(t);
+  git(f.root, ['update-index', '--assume-unchanged', 'apps/mobile/pubspec.yaml']);
+  writeFileSync(path.join(f.root, 'apps/mobile/pubspec.yaml'), 'version: 9.9.9+99\n');
+  assert.throws(() => buildManifest(f.root, f.input), /differs from HEAD/);
+  git(f.root, ['update-index', '--no-assume-unchanged', 'apps/mobile/pubspec.yaml']);
+  writeFileSync(path.join(f.root, 'apps/mobile/pubspec.yaml'), 'version: 1.2.3+45\n');
+  write(f.root, 'services/api/src/Settleora.Api/Persistence/Migrations/CustomMigration.cs', '[Migration("20260103000000_Custom")]\n');
+  git(f.root, ['add', 'services/api/src/Settleora.Api/Persistence/Migrations/CustomMigration.cs']);
+  git(f.root, ['-c', 'user.name=Settleora Test', '-c', 'user.email=test@example.invalid', 'commit', '--quiet', '-m', 'invalid migration fixture']);
+  assert.throws(() => collectMigrations(f.root, undefined, undefined, ['20260101000000_Initial', '20260102000000_SourceOnly']), /Unrecognized migration source files/);
+});
+
+test('rejects ambiguous Android build provenance serialization', (t) => {
+  const f = fixture(t);
+  const canonical = readFileSync(f.input.android.buildProvenancePath, 'utf8');
+  const conflictingSource = JSON.stringify({ commit: '0'.repeat(40), tree: '1'.repeat(40) });
+  writeFileSync(f.input.android.buildProvenancePath, `{"source":${conflictingSource},${canonical.slice(1)}`);
+  assert.throws(() => buildManifest(f.root, f.input), /unique canonical serialization/);
+});
+
+test('binds migration bytes to the initially captured source commit', (t) => {
+  const f = fixture(t);
+  const migration = path.join(f.root, 'services/api/src/Settleora.Api/Persistence/Migrations/20260101000000_Initial.cs');
+  writeFileSync(migration, 'different migration bytes\n');
+  git(f.root, ['add', 'services/api/src/Settleora.Api/Persistence/Migrations/20260101000000_Initial.cs']);
+  git(f.root, ['-c', 'user.name=Settleora Test', '-c', 'user.email=test@example.invalid', 'commit', '--quiet', '-m', 'move mutable head']);
+  assert.throws(() => collectMigrations(f.root, undefined, f.commit, ['20260101000000_Initial', '20260102000000_SourceOnly']), /captured source blob/);
+});
+
+test('migration inventory includes normalized nested source paths', (t) => {
+  const f = fixture(t);
+  const root = 'services/api/src/Settleora.Api/Persistence/Migrations';
+  write(f.root, `${root}/nested/20260103000000_Nested.cs`, 'public partial class Nested : Migration {}\n');
+  write(f.root, `${root}/nested/20260103000000_Nested.Designer.cs`, '[Migration("20260103000000_Nested")] partial class Nested {}\n');
+  git(f.root, ['add', `${root}/nested/20260103000000_Nested.cs`, `${root}/nested/20260103000000_Nested.Designer.cs`]);
+  git(f.root, ['-c', 'user.name=Settleora Test', '-c', 'user.email=test@example.invalid', 'commit', '--quiet', '-m', 'nested migration fixture']);
+  const migrations = collectMigrations(f.root, undefined, undefined, ['20260101000000_Initial', '20260102000000_SourceOnly', '20260103000000_Nested']);
+  assert.equal(migrations.count, 3);
+  assert.ok(migrations.entries.at(-1).files.some((file) => file.path === `${root}/nested/20260103000000_Nested.cs`));
+});
+
+test('migration inventory rejects duplicate compiled runtime IDs', (t) => {
+  const f = fixture(t);
+  assert.throws(() => collectMigrations(f.root, undefined, undefined, ['20260101000000_Initial', '20260101000000_Initial']), /Duplicate EF runtime migration IDs/);
+});
+
+test('rejects symlinked evidence and a tampered manifest identity digest', (t) => {
+  const f = fixture(t);
+  const link = path.join(f.evidenceRoot, 'linked-notes.md');
+  symlinkSync(f.paths.notesPath, link);
+  assert.throws(() => buildManifest(f.root, { ...f.input, releaseNotes: { ...f.input.releaseNotes, path: link } }), /must not use symlinks/);
+  const manifest = buildManifest(f.root, f.input);
+  manifest.android.apk.sha256 = '9'.repeat(64);
+  assert.throws(() => validateManifest(manifest, f.root), /Identity digest mismatch/);
+  const extra = buildManifest(f.root, f.input);
+  extra.apiImage.unexpected = 'must-not-pass';
+  assert.throws(() => validateManifest(extra, f.root), /unexpected properties/);
+  const missingCaveat = buildManifest(f.root, f.input);
+  delete missingCaveat.rollback.safetyCaveat;
+  missingCaveat.identityDigest = computeIdentityDigest(missingCaveat);
+  assert.throws(() => validateManifest(missingCaveat, f.root), /missing required properties/);
+  const missingRequired = buildManifest(f.root, f.input);
+  delete missingRequired.source.tree;
+  assert.throws(() => validateManifest(missingRequired, f.root), /missing required properties/);
+  for (const [field, value] of [['semanticVersion', '9.9.9'], ['buildNumber', '999'], ['applicationId', 'com.example.forged'], ['signingState', 'release-signing']]) {
+    const changedMetadata = buildManifest(f.root, f.input);
+    changedMetadata.android[field] = value;
+    changedMetadata.identityDigest = computeIdentityDigest(changedMetadata);
+    assert.throws(() => validateManifest(changedMetadata, f.root), new RegExp(`android\\.${field} does not match the captured source commit`));
+  }
+});
+
+test('rejects a non-ancestor rollback and an R8 mapping not bound to the AAB', (t) => {
+  const f = fixture(t);
+  assert.throws(() => buildManifest(f.root, { ...f.input, rollback: { ...f.input.rollback, sourceCommit: f.commit, apiImage: { ...f.input.rollback.apiImage, configuredTag: `sha-${f.commit}`, ociRevision: f.commit } } }), /prior to the candidate/);
+  assert.throws(() => buildManifest(f.root, { ...f.input, android: { ...f.input.android, embeddedR8MappingSha256: '8'.repeat(64) } }), /does not match the signed AAB/);
+});
+
+test('rejects broad credential forms before retained evidence can be built', (t) => {
+  const f = fixture(t);
+  const tokenUrl = `https://github.com/actions/runs/1?access_token=${['gho', 'A'.repeat(30)].join('_')}`;
+  assert.equal(containsSensitiveMaterial(tokenUrl), true);
+  for (const sensitive of [
+    ['to', 'ken=abcdefgh'].join(''),
+    ['pass', 'word=abcdefgh'].join(''),
+    ['Bearer', ' abcdefghijklmnop'].join(''),
+    ['AKIA', 'A'.repeat(16)].join(''),
+    `{"${['client', 'secret'].join('_')}":"placeholder"}`,
+  ]) assert.equal(containsSensitiveMaterial(sensitive), true);
+  assert.throws(() => buildManifest(f.root, { ...f.input, apiImage: { ...f.input.apiImage, publicationRunUrl: tokenUrl } }), /potentially sensitive material/);
+  writeFileSync(f.paths.notesPath, `candidate notes\n${tokenUrl}\n`);
+  assert.throws(() => buildManifest(f.root, f.input), /potentially sensitive material/);
+});
+
+test('sanitizes bounded operator-visible collector failures', () => {
+  assert.equal(sanitizedErrorMessage(new Error('registry request failed')), 'registry request failed');
+  assert.equal(sanitizedErrorMessage(new Error('registry\nrequest\tfailed')), 'registry request failed');
+  assert.equal(sanitizedErrorMessage(new Error(`token=${'a'.repeat(24)}`)), 'Release identity operation failed; sensitive details were suppressed');
+  assert.equal(sanitizedErrorMessage(new Error('x'.repeat(4096))).length, 2048);
+});
+
+test('preserves expected Android identities and derives retained canonical paths', (t) => {
+  const f = fixture(t);
+  const expected = { apk: { size: 123, sha256: '8'.repeat(64) }, aab: { size: 456, sha256: '9'.repeat(64) } };
+  const input = { ...f.input, android: { ...f.input.android, expected } };
+  const signature = { certificate: 'a'.repeat(64), embeddedR8MappingSha256: 'b'.repeat(64) };
+  const canonical = canonicalAndroidInput(input, signature);
+  const androidRoot = `${input.retention.canonicalEvidenceDirectory}/android`;
+  assert.deepEqual(canonical.android.expected, expected);
+  assert.equal(canonical.android.evidenceRoot, androidRoot);
+  assert.equal(canonical.android.apkPath, `${androidRoot}/app-release.apk`);
+  assert.equal(canonical.android.aabPath, `${androidRoot}/app-release.aab`);
+  const traversal = { ...input, source: { ...input.source, candidateId: '../../../../tmp/x' }, retention: { ...input.retention, canonicalEvidenceDirectory: '/workspace/logs/settleora-release-candidates/../../../../tmp/x' } };
+  assert.throws(() => canonicalAndroidInput(traversal, signature), /single safe evidence-directory name/);
+  const nested = { ...input, source: { ...input.source, candidateId: 'nested/name' }, retention: { ...input.retention, canonicalEvidenceDirectory: '/workspace/logs/settleora-release-candidates/nested/name' } };
+  assert.throws(() => canonicalAndroidInput(nested, signature), /single safe evidence-directory name/);
+  const dot = { ...input, source: { ...input.source, candidateId: '.' }, retention: { ...input.retention, canonicalEvidenceDirectory: '/workspace/logs/settleora-release-candidates/.' } };
+  assert.throws(() => canonicalAndroidInput(dot, signature), /single safe evidence-directory name/);
+  const tooLong = 'a'.repeat(256);
+  assert.throws(() => canonicalAndroidInput({ ...input, source: { ...input.source, candidateId: tooLong } }, signature), /single safe evidence-directory name/);
+  const manifestPath = `${input.retention.canonicalEvidenceDirectory}/release-identity-manifest.json`;
+  assert.equal(canonicalManifestPath(input, manifestPath), manifestPath);
+  assert.throws(() => canonicalManifestPath(input, `${f.evidenceRoot}/manifest-copy.json`), /canonical retained candidate manifest/);
+  assert.equal(canonicalWebInput(input).userWeb.manifestPath, `${input.retention.canonicalEvidenceDirectory}/web/user-web-dist-manifest.json`);
+  assert.equal(canonicalReleaseNotesInput(input).releaseNotes.path, `${input.retention.canonicalEvidenceDirectory}/release-notes.md`);
+});
+
+test('accepts exactly one debug APK signer and rejects additional signers', () => {
+  const digest = 'a'.repeat(64);
+  const single = `Signer #1 certificate DN: CN=Android Debug, O=Android, C=US\nSigner #1 certificate SHA-256 digest: ${digest}\n`;
+  assert.equal(parseSingleApkSigner(single), digest);
+  assert.throws(() => parseSingleApkSigner(`${single}Signer #2 certificate DN: CN=Other\nSigner #2 certificate SHA-256 digest: ${'b'.repeat(64)}\n`), /APK signature observation mismatch/);
+});
+
+test('safe inputs reject URL query credentials and completion rejects untracked files', (t) => {
+  const f = fixture(t);
+  const inputPath = write(f.evidenceRoot, 'unsafe-input.json', JSON.stringify({ publicationRunUrl: `https://example.invalid/?access_token=${['gho', 'A'.repeat(30)].join('_')}` }));
+  assert.throws(() => safeInput(inputPath, 'Evidence input'), /potentially sensitive material/);
+  const oversizedInput = write(f.evidenceRoot, 'oversized-input.json', 'x'.repeat((4 * 1024 * 1024) + 1));
+  assert.throws(() => safeInput(oversizedInput, 'Evidence input'), /evidence size limit/);
+  const encodedToken = write(f.evidenceRoot, 'encoded-token.json', '{"releaseNotes":{"source":"github_pat_\\u0041BCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"}}');
+  assert.throws(() => safeInput(encodedToken, 'Evidence input'), /after JSON decoding/);
+  const discardedEncodedToken = write(f.evidenceRoot, 'duplicate-encoded-token.json', '{"policy":"github_pat_\\u0041BCDEFGHIJKLMNOPQRSTUVWXYZ0123456789","policy":"ordinary retention"}');
+  assert.throws(() => safeInput(discardedEncodedToken, 'Evidence input'), /Duplicate JSON member/);
+  const quotedAssignment = write(f.evidenceRoot, 'quoted-assignment.json', '{"PASSWORD":"abcdefgh"}');
+  assert.throws(() => safeInput(quotedAssignment, 'Evidence input'), /potentially sensitive material/);
+  assert.doesNotThrow(() => assertCleanCompletion(f.root, 'source changed'));
+  write(f.root, 'untracked-after-registry.txt', 'race\n');
+  assert.throws(() => assertCleanCompletion(f.root, 'source changed'), /source changed/);
+});
+
+test('release-note retention enforces the declared root and bounded filename', (t) => {
+  const f = fixture(t);
+  const outside = write(f.root, 'release-notes.md', 'outside notes\n');
+  assert.throws(() => retainReleaseNotes({ releaseNotes: { evidenceRoot: f.evidenceRoot, path: outside } }, path.join(f.evidenceRoot, 'copy.md')), /inside its declared evidence root/);
+  const wrongName = write(f.evidenceRoot, '.env', 'ordinary text\n');
+  assert.throws(() => retainReleaseNotes({ releaseNotes: { evidenceRoot: f.evidenceRoot, path: wrongName } }, path.join(f.evidenceRoot, 'copy.md')), /bounded release-notes\.md filename/);
+  assert.throws(
+    () => retainReleaseNotes({ releaseNotes: { evidenceRoot: f.evidenceRoot, path: f.paths.notesPath } }, path.join(f.evidenceRoot, 'retained.md')),
+    /within \/workspace\/logs/,
+  );
+});
+
+test('snapshot inputs reject tracked symlinks and Android copies enforce pre-copy bounds', (t) => {
+  const f = fixture(t);
+  symlinkSync('README.md', path.join(f.root, 'tracked-link'));
+  git(f.root, ['add', 'tracked-link']);
+  git(f.root, ['-c', 'user.name=Settleora Test', '-c', 'user.email=test@example.invalid', 'commit', '--quiet', '-m', 'tracked symlink fixture']);
+  assert.throws(() => assertCommitHasNoSymlinks(git(f.root, ['rev-parse', 'HEAD']), 'test', f.root), /tracked symlink/);
+  const oversized = write(f.evidenceRoot, 'oversized.bin', '0123456789abcdef');
+  assert.throws(() => copyBoundedFile(oversized, path.join(f.evidenceRoot, 'copy.bin'), 8, 'Android test'), /evidence boundary/);
+});
+
+test('toolchain inventory rejects direct and chained symlinks into excluded directories', (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), 'release-toolchain-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  write(root, '.git/tool', 'excluded executable bytes\n');
+  symlinkSync('.git/tool', path.join(root, 'direct-link'));
+  assert.throws(() => toolchainTreeDigest(root, 'fixture toolchain', ['.git']), /symlink into an excluded directory/);
+  rmSync(path.join(root, 'direct-link'));
+  mkdirSync(path.join(root, 'alias'));
+  symlinkSync('../.git', path.join(root, 'alias/bridge'));
+  symlinkSync('alias/bridge/tool', path.join(root, 'chained-link'));
+  assert.throws(() => toolchainTreeDigest(root, 'fixture toolchain', ['.git']), /symlink into an excluded directory/);
+});
+
+test('toolchain inventory rejects symlinks into transient exclusions', (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), 'release-toolchain-transient-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  write(root, 'bin/cache/runtime.stamp.tmp.123', 'mutable executable bytes\n');
+  symlinkSync('bin/cache/runtime.stamp.tmp.123', path.join(root, 'tool-link'));
+  assert.throws(() => toolchainTreeDigest(root, 'fixture toolchain', [], ['bin/cache/runtime.stamp']), /symlink into an excluded directory/);
+  rmSync(path.join(root, 'tool-link'));
+  write(root, 'gradle/accessor-12345678-1234-1234-1234-123456789abc/classes.bin', 'mutable accessor bytes\n');
+  symlinkSync('gradle/accessor-12345678-1234-1234-1234-123456789abc/classes.bin', path.join(root, 'tool-link'));
+  assert.throws(() => toolchainTreeDigest(root, 'fixture toolchain', [], ['gradle/accessor']), /symlink into an excluded directory/);
+});
+
+test('protected runtime inventory binds external directory symlink contents', (t) => {
+  const parent = mkdtempSync(path.join(tmpdir(), 'release-protected-runtime-'));
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const root = path.join(parent, 'runtime');
+  const external = path.join(parent, 'external-docs');
+  mkdirSync(root);
+  mkdirSync(external);
+  write(external, 'runtime.jar', 'first identity');
+  symlinkSync(external, path.join(root, 'docs'));
+  const before = toolchainTreeDigest(root, 'protected fixture', [], [], true);
+  writeFileSync(path.join(external, 'runtime.jar'), 'second identity');
+  const after = toolchainTreeDigest(root, 'protected fixture', [], [], true);
+  assert.notEqual(after.sha256, before.sha256);
+  assert.equal(after.algorithm, 'sha256(canonical-protected-runtime-tree-v2)');
+});
+
+test('toolchain mutation guard fails closed on a write during the guarded window', (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), 'release-toolchain-guard-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const toolchain = path.join(root, 'toolchain');
+  mkdirSync(toolchain);
+  writeFileSync(path.join(toolchain, 'compiler'), 'before');
+  const compiler = path.join(toolchain, 'compiler');
+  assert.throws(() => runToolchainMutationGuardFixture(
+    [{ label: 'fixture', root: toolchain, excludedPrefixes: [] }],
+    `open(${JSON.stringify(compiler)}, "w", encoding="utf-8").write("after")`,
+  ), /toolchain changed/);
+
+  const runtimeMarker = path.join(toolchain, 'runtime.stamp');
+  writeFileSync(runtimeMarker, 'before');
+  assert.doesNotThrow(() => runToolchainMutationGuardFixture(
+    [{ label: 'fixture', root: toolchain, excludedPrefixes: ['runtime.stamp'], excludedTransientBases: ['runtime.stamp'] }],
+    `open(${JSON.stringify(runtimeMarker)}, "w", encoding="utf-8").write("after"); open(${JSON.stringify(path.join(toolchain, 'runtime.stamp.tmp.123'))}, "w", encoding="utf-8").write("atomic update")`,
+  ));
+});
+
+test('toolchain mutation guard retains one authenticated identity across phases', (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), 'release-toolchain-phases-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  writeFileSync(path.join(root, 'compiler'), 'first');
+  const configuration = [{ label: 'fixture', root, excludedPrefixes: [] }];
+  assert.doesNotThrow(() => runToolchainMutationGuardFixture(configuration, 'pass'));
+  writeFileSync(path.join(root, 'compiler'), 'second');
+  assert.throws(() => runToolchainMutationGuardFixture(configuration, 'pass'), /changed before its authenticated guard was installed/);
+});
+
+test('toolchain mutation guard cannot report success after its build child kills it', (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), 'release-toolchain-guard-kill-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  write(root, 'compiler', 'trusted bytes');
+  assert.throws(() => runToolchainMutationGuardFixture(
+    [{ label: 'fixture', root, excludedPrefixes: [] }],
+    'import os, signal; os.kill(os.getppid(), signal.SIGKILL)',
+  ), /Command failed|SIGKILL/);
+});
+
+test('Android rebuild projection normalizes only raw retained artifact identities', (t) => {
+  const f = fixture(t);
+  const retained = buildManifest(f.root, f.input);
+  const rebuilt = structuredClone(retained);
+  rebuilt.android.apk = { ...rebuilt.android.apk, size: rebuilt.android.apk.size + 1, sha256: 'a'.repeat(64) };
+  rebuilt.android.aab = { ...rebuilt.android.aab, size: rebuilt.android.aab.size + 1, sha256: 'b'.repeat(64) };
+  rebuilt.android.buildProvenanceSha256 = 'c'.repeat(64);
+  rebuilt.identityDigest = computeIdentityDigest(rebuilt);
+  assert.deepEqual(deterministicAndroidRebuildProjection(rebuilt, retained), retained);
+
+  rebuilt.android.outputMetadataSha256 = 'd'.repeat(64);
+  rebuilt.identityDigest = computeIdentityDigest(rebuilt);
+  assert.notDeepEqual(deterministicAndroidRebuildProjection(rebuilt, retained), retained);
+  rebuilt.android.outputMetadataSha256 = retained.android.outputMetadataSha256;
+  rebuilt.android.applicationId = 'invalid.application';
+  rebuilt.identityDigest = computeIdentityDigest(rebuilt);
+  assert.notDeepEqual(deterministicAndroidRebuildProjection(rebuilt, retained), retained);
+});
+
+test('provenance collection rejects Git replacement refs', (t) => {
+  const f = fixture(t);
+  git(f.root, ['replace', f.commit, `${f.commit}^`]);
+  assert.throws(() => assertCleanCompletion(f.root, 'source changed'), /replacement refs/);
+});
+
+test('validates registry index/platform linkage and API revision from fixture documents', () => {
+  const image = { indexDigest: d('a'), platformDigest: d('b'), ociRevision: 'c'.repeat(40) };
+  const platform = { os: 'linux', architecture: 'amd64' };
+  const document = { digest: d('a'), manifests: [{ digest: d('b'), platform }] };
+  assert.equal(validateRegistryDocument(image, document, platform), true);
+  assert.equal(validateRegistryRevision(image, { config: { Labels: { 'org.opencontainers.image.revision': 'c'.repeat(40) } } }, 'c'.repeat(40)), true);
+  assert.throws(() => validateRegistryDocument(image, { ...document, digest: d('d') }, platform), /index digest mismatch/);
+  assert.throws(() => validateRegistryDocument(image, { ...document, manifests: [{ digest: d('e'), platform }] }, platform), /platform\/digest relationship mismatch/);
+  assert.throws(() => validateRegistryDocument(image, { ...document, manifests: [document.manifests[0], { digest: d('e'), platform }] }, platform), /platform\/digest relationship mismatch/);
+  assert.throws(() => validateRegistryRevision(image, { config: { Labels: { 'org.opencontainers.image.revision': 'f'.repeat(40) } } }, 'c'.repeat(40)), /OCI revision mismatch/);
+  const selected = { manifest: { digest: image.platformDigest }, image: { os: 'linux', architecture: 'amd64', rootfs: { type: 'layers', diff_ids: [d('d')] }, config: {} } };
+  assert.equal(validateSelectedPlatformDocument(image, selected, platform), true);
+  assert.throws(() => validateSelectedPlatformDocument(image, { ...selected, image: { ...selected.image, rootfs: { type: 'layers', diff_ids: [] } } }, platform), /not a runnable/);
+});
+
+test('retained registry validation uses only immutable index references', () => {
+  const image = { repository: 'docker.io/library/postgres', configuredTag: 'postgres:16-alpine', indexDigest: d('a') };
+  assert.equal(verificationRegistryReference(image, false), 'docker.io/library/postgres:16-alpine');
+  assert.equal(verificationRegistryReference(image, true), `docker.io/library/postgres@${d('a')}`);
+});
+
+test('direct validation rejects empty migrations, noncanonical artifacts and unproved rollback ancestry', (t) => {
+  const f = fixture(t);
+  const original = buildManifest(f.root, f.input);
+  assert.throws(() => validateManifest(original), /Repository context is required/);
+
+  const resign = (manifest) => ({ ...manifest, identityDigest: computeIdentityDigest(manifest) });
+  const emptyMigrations = resign({
+    ...original,
+    migrations: { ...original.migrations, entries: [], count: 0, setSha256: sha256(Buffer.from('[]\n')) },
+  });
+  assert.throws(() => validateManifest(emptyMigrations, f.root), /non-empty array/);
+
+  const fictitiousMigrations = structuredClone(original);
+  fictitiousMigrations.migrations.entries[0].files[0].sha256 = '7'.repeat(64);
+  fictitiousMigrations.migrations.setSha256 = sha256(canonicalJson(fictitiousMigrations.migrations.entries));
+  fictitiousMigrations.identityDigest = computeIdentityDigest(fictitiousMigrations);
+  assert.throws(() => validateManifest(fictitiousMigrations, f.root), /captured source commit/);
+
+  const wrongDependencyTag = structuredClone(original);
+  wrongDependencyTag.dependencyImages.find((image) => image.name === 'postgres').configuredTag = 'postgres:15-alpine';
+  wrongDependencyTag.identityDigest = computeIdentityDigest(wrongDependencyTag);
+  assert.throws(() => validateManifest(wrongDependencyTag, f.root), /configured tag mismatch/);
+
+  const wrongComposePath = structuredClone(original);
+  wrongComposePath.dependencyImages[0].sourceComposePath = 'another-compose.yml';
+  wrongComposePath.identityDigest = computeIdentityDigest(wrongComposePath);
+  assert.throws(() => validateManifest(wrongComposePath, f.root), /source Compose path mismatch/);
+
+  const wrongDependencyPlatform = structuredClone(original);
+  wrongDependencyPlatform.dependencyImages[0].architecture = 'arm64';
+  wrongDependencyPlatform.identityDigest = computeIdentityDigest(wrongDependencyPlatform);
+  assert.throws(() => validateManifest(wrongDependencyPlatform, f.root), /platform mismatch/);
+
+  const unsafePlatform = structuredClone(original);
+  for (const image of [unsafePlatform.apiImage, ...unsafePlatform.dependencyImages, unsafePlatform.rollback.apiImage]) image.os = 'password:abcdefgh';
+  unsafePlatform.identityDigest = computeIdentityDigest(unsafePlatform);
+  assert.throws(() => validateManifest(unsafePlatform, f.root), /safe canonical OCI platform name/);
+
+  const reorderedDependencies = structuredClone(original);
+  reorderedDependencies.dependencyImages.reverse();
+  reorderedDependencies.identityDigest = computeIdentityDigest(reorderedDependencies);
+  assert.throws(() => validateManifest(reorderedDependencies, f.root), /canonical caddy, postgres, rabbitmq order/);
+
+  const wrongRollbackPlatform = structuredClone(original);
+  wrongRollbackPlatform.rollback.apiImage.os = 'windows';
+  wrongRollbackPlatform.identityDigest = computeIdentityDigest(wrongRollbackPlatform);
+  assert.throws(() => validateManifest(wrongRollbackPlatform, f.root), /platform mismatch/);
+
+  const wrongWebLock = structuredClone(original);
+  wrongWebLock.userWeb.dependencyLock.sha256 = '6'.repeat(64);
+  wrongWebLock.userWeb.dependencyLock.lockfileVersion = 999;
+  wrongWebLock.identityDigest = computeIdentityDigest(wrongWebLock);
+  assert.throws(() => validateManifest(wrongWebLock, f.root), /captured source commit/);
+
+  const wrongPath = resign({ ...original, android: { ...original.android, apk: { ...original.android.apk, path: 'elsewhere.apk' } } });
+  assert.throws(() => validateManifest(wrongPath, f.root), /canonical release outputs/);
+
+  const wrongRetention = resign({
+    ...original,
+    retention: { ...original.retention, canonicalEvidenceDirectory: '/workspace/logs/settleora-release-candidates/different-candidate' },
+  });
+  assert.throws(() => validateManifest(wrongRetention, f.root), /exactly bind the candidate ID/);
+
+  const nonexistent = '9'.repeat(40);
+  const wrongRollback = resign({
+    ...original,
+    rollback: {
+      ...original.rollback,
+      sourceCommit: nonexistent,
+      apiImage: { ...original.rollback.apiImage, configuredTag: `sha-${nonexistent}`, ociRevision: nonexistent },
+    },
+  });
+  assert.throws(() => validateManifest(wrongRollback, f.root), /existing prior ancestor/);
+
+  const wrongTree = resign({
+    ...original,
+    source: { ...original.source, tree: '7'.repeat(40) },
+    migrations: { ...original.migrations, source: { ...original.migrations.source, tree: '7'.repeat(40) } },
+    userWeb: { ...original.userWeb, source: { ...original.userWeb.source, tree: '7'.repeat(40) } },
+    android: { ...original.android, source: { ...original.android.source, tree: '7'.repeat(40) } },
+  });
+  assert.throws(() => validateManifest(wrongTree, f.root), /does not belong to the source commit/);
+});
+
+test('published schema requires role-specific image provenance', () => {
+  const schema = JSON.parse(readFileSync(new URL('../day1-release-identity.schema.json', import.meta.url), 'utf8'));
+  assert.deepEqual(schema.$defs.apiImage.required, ['repository', 'configuredTag', 'indexDigest', 'platformDigest', 'os', 'architecture', 'ociRevision', 'publicationRunUrl']);
+  assert.deepEqual(schema.$defs.dependencyImage.required, ['name', 'repository', 'configuredTag', 'indexDigest', 'platformDigest', 'os', 'architecture', 'sourceComposePath']);
+  assert.equal(schema.properties.apiImage.$ref, '#/$defs/apiImage');
+  assert.equal(schema.properties.rollback.properties.apiImage.$ref, '#/$defs/apiImage');
+  assert.equal(schema.properties.dependencyImages.items, false);
+  assert.deepEqual(schema.properties.dependencyImages.prefixItems.map((item) => ({
+    base: item.allOf[0].$ref,
+    role: item.allOf[1].properties.name.const,
+    repository: item.allOf[1].properties.repository.const,
+  })), [
+    { base: '#/$defs/dependencyImage', role: 'caddy', repository: 'docker.io/library/caddy' },
+    { base: '#/$defs/dependencyImage', role: 'postgres', repository: 'docker.io/library/postgres' },
+    { base: '#/$defs/dependencyImage', role: 'rabbitmq', repository: 'docker.io/library/rabbitmq' },
+  ]);
+  assert.equal(schema.$defs.apiImage.properties.repository.const, 'ghcr.io/tommytang213/settleora-api');
+  assert.equal(schema.$defs.apiImage.properties.configuredTag.pattern, '^sha-[0-9a-f]{40}$');
+  assert.equal(schema.$defs.apiImage.properties.publicationRunUrl.pattern, '^https://github\\.com/tommytang213/Settleora/actions/runs/[1-9][0-9]*$');
+  assert.deepEqual(schema.$defs.apiImage.properties.os, { $ref: '#/$defs/ociPlatformName' });
+  assert.deepEqual(schema.$defs.apiImage.properties.architecture, { $ref: '#/$defs/ociPlatformName' });
+  assert.deepEqual(schema.$defs.dependencyImage.properties.os, { $ref: '#/$defs/ociPlatformName' });
+  assert.deepEqual(schema.$defs.dependencyImage.properties.architecture, { $ref: '#/$defs/ociPlatformName' });
+  const ociPlatformNamePattern = /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/u;
+  assert.equal(schema.$defs.ociPlatformName.pattern, ociPlatformNamePattern.source);
+  assert.equal(ociPlatformNamePattern.test(''), false);
+  assert.equal(ociPlatformNamePattern.test('amd64'), true);
+  assert.equal(schema.$defs.dependencyImage.properties.configuredTag.pattern, '^(?!(?:.*:)?(?:main|latest)$).+$');
+  assert.deepEqual(schema.properties.dependencyImages.prefixItems.map((item) => item.allOf[1].properties.configuredTag.const), [
+    'caddy:2.11.4-alpine',
+    'postgres:16-alpine',
+    'rabbitmq:3.13-management-alpine',
+  ]);
+  assert.equal(schema.properties.android.properties.apk.$ref, '#/$defs/apkFile');
+  assert.equal(schema.properties.android.properties.aab.$ref, '#/$defs/aabFile');
+  assert.equal(schema.properties.android.properties.outputMetadataSha256.$ref, '#/$defs/hexSha256');
+  assert.equal(schema.properties.android.properties.semanticVersion.pattern, '^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$');
+  assert.equal(schema.properties.android.properties.buildNumber.pattern, '^[1-9][0-9]*$');
+  assert.equal(schema.properties.android.properties.applicationId.pattern, '^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+$');
+  assert.equal(schema.$defs.apkFile.allOf[1].properties.path.const, 'apps/mobile/build/app/outputs/flutter-apk/app-release.apk');
+  assert.equal(schema.$defs.aabFile.allOf[1].properties.path.const, 'apps/mobile/build/app/outputs/bundle/release/app-release.aab');
+  assert.equal(schema.properties.retention.properties.canonicalEvidenceDirectory.const, '/workspace/logs/settleora-release-candidates/{source.candidateId}');
+  assert.equal(schema.properties.source.properties.candidateId.pattern, '^(?!.*\\.\\.)[A-Za-z0-9][A-Za-z0-9._-]*$');
+  assert.equal(schema.properties.source.properties.candidateId.maxLength, 255);
+  assert.equal(schema.properties.generatedAt.format, 'date-time');
+  const timestampPatterns = [
+    /^[0-9]{4}-(?:(?:01|03|05|07|08|10|12)-(?:0[1-9]|[12][0-9]|3[01])|(?:04|06|09|11)-(?:0[1-9]|[12][0-9]|30)|02-(?:0[1-9]|1[0-9]|2[0-8]))T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$/,
+    /^(?:(?:[0-9]{2}(?:0[48]|[2468][048]|[13579][26]))|(?:(?:[02468][048]|[13579][26])00))-02-29T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$/,
+  ];
+  assert.deepEqual(schema.properties.generatedAt.anyOf.map((entry) => entry.pattern), timestampPatterns.map((pattern) => pattern.source));
+  const matchesTimestamp = (value) => timestampPatterns.some((pattern) => pattern.test(value));
+  assert.equal(matchesTimestamp('2026-09-12T09:21:35Z'), true);
+  assert.equal(matchesTimestamp('2024-02-29T23:59:59Z'), true);
+  assert.equal(matchesTimestamp('2100-02-29T00:00:00Z'), false);
+  assert.equal(matchesTimestamp('2026-99-99T25:61:61Z'), false);
+  assert.equal(schema.properties.migrations.properties.entries.items.properties.id.pattern, '^[0-9]{14}_[A-Za-z0-9_]+$');
+  assert.match(schema.$comment, /MUST also run the repository-owned validateManifest semantic validator/);
+  assert.equal(schema.properties.migrations.properties.entries.items.properties.files.items.$ref, '#/$defs/migrationFile');
+  assert.equal(schema.$defs.migrationFile.allOf[1].properties.path.pattern, '^(?!.*\\.\\.)services/api/src/Settleora\\.Api/Persistence/Migrations/(?:[A-Za-z0-9][A-Za-z0-9._+:-]*/)*[0-9]{14}_[A-Za-z0-9_]+(?:\\.Designer)?\\.cs$');
+  assert.equal(schema.$defs.note.properties.source.$ref, '#/$defs/safeLabel');
+  const safeLabelPattern = /^(?!.*\.\.)(?!.*(?:AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{24,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{12,}|xox[baprs]-[A-Za-z0-9-]{20,}))(?!(?:.*(?:[Aa][Pp][Ii][_-]?[Kk][Ee][Yy]|[Tt][Oo][Kk][Ee][Nn]|[Ss][Ee][Cc][Rr][Ee][Tt]|[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]|[Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll]|[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn]|[Xx]-[Gg][Oo][Oo][Gg]-[Aa][Pp][Ii]-[Kk][Ee][Yy]):[A-Za-z0-9._/+:-]{8,}))[A-Za-z0-9][A-Za-z0-9._/+:-]*$/u;
+  assert.equal(schema.$defs.safeLabel.pattern, safeLabelPattern.source);
+  const matchesSafeLabel = (value) => safeLabelPattern.test(value);
+  assert.equal(matchesSafeLabel('release-notes.md'), true);
+  assert.equal(matchesSafeLabel('issue:974'), true);
+  const assignmentDelimiter = ':';
+  for (const credentialAssignment of ['PASSWORD', 'API_KEY', 'authorization'].map((key) => `${key}${assignmentDelimiter}${'a'.repeat(8)}`)) {
+    assert.equal(matchesSafeLabel(credentialAssignment), false);
+  }
+  assert.equal(schema.properties.retention.properties.policy.$ref, '#/$defs/publicText');
+  assert.equal(schema.properties.retention.properties.apiRegistryIdentity.$ref, '#/$defs/publicText');
+  const publicTextSchema = JSON.stringify(schema.$defs.publicText);
+  assert.equal(publicTextSchema.includes('[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]'), true);
+  assert.equal(publicTextSchema.includes('/home/'), true);
+  assert.equal(schema.$defs.note.properties.candidateSummary.$ref, '#/$defs/releaseNoteSummary');
+  assert.equal(schema.$defs.releaseNoteSummary.minLength, 1);
+  assert.equal(schema.$defs.releaseNoteSummary.maxLength, 500);
+  assert.equal(schema.$defs.releaseNoteSummary.pattern.includes('github_pat_'), true);
+  assert.equal(schema.$defs.releaseNoteSummary.pattern.includes('/home/'), true);
+  assert.deepEqual(schema.properties.userWeb.required, ['schema', 'source', 'dependencyLock', 'buildTools', 'artifact']);
+  for (const name of ['node', 'npm', 'typescript', 'vite']) assert.equal(schema.properties.userWeb.properties.buildTools.properties[name].$ref, '#/$defs/publicText');
+  assert.equal(schema.$defs.dependencyImage.properties.sourceComposePath.const, 'infra/docker-compose.truenas-lan.image.yml');
+  assert.deepEqual(schema.properties.dependencyImages.allOf.map((rule) => ({
+    role: rule.contains.properties.name.const,
+    minimum: rule.minContains,
+    maximum: rule.maxContains,
+  })), [
+    { role: 'caddy', minimum: 1, maximum: 1 },
+    { role: 'postgres', minimum: 1, maximum: 1 },
+    { role: 'rabbitmq', minimum: 1, maximum: 1 },
+  ]);
+});
+
+test('repository Gradle verification metadata is checksum-only without trust bypasses', () => {
+  const metadata = readFileSync(new URL('../../../apps/mobile/android/gradle/verification-metadata.xml', import.meta.url), 'utf8');
+  const parsed = parseGradleVerificationMetadata(metadata);
+  assert.ok(parsed.componentCount > 100);
+  assert.ok(parsed.artifactCount > 1000);
+  assert.throws(() => parseGradleVerificationMetadata(metadata.replace(
+    '<configuration>',
+    '<?verification verify-metadata="true"?><configuration><x:verify-metadata>false</x:verify-metadata>',
+  )), /unsupported XML constructs|noncanonical/);
+});
+
+test('retained manifest JSON requires one canonical unambiguous serialization', () => {
+  const canonical = Buffer.from(canonicalJson({ identityDigest: 'a'.repeat(64), source: { commit: 'b'.repeat(40) } }));
+  assert.deepEqual(parseCanonicalJson(canonical, 'Manifest'), {
+    identityDigest: 'a'.repeat(64),
+    source: { commit: 'b'.repeat(40) },
+  });
+  const duplicate = Buffer.from(`{"source":{"commit":"${'c'.repeat(40)}"},"source":{"commit":"${'b'.repeat(40)}"},"identityDigest":"${'a'.repeat(64)}"}\n`);
+  assert.throws(() => parseCanonicalJson(duplicate, 'Manifest'), /unique canonical serialization/);
+  assert.throws(() => parseCanonicalJson(Buffer.from('{"source": {}}\n'), 'Manifest'), /unique canonical serialization/);
+});
+
+test('direct manifest validation rejects cross-role image fields and unsafe release summaries', (t) => {
+  const f = fixture(t);
+  const manifest = buildManifest(f.root, f.input);
+  manifest.apiImage.name = 'api';
+  manifest.identityDigest = computeIdentityDigest(manifest);
+  assert.throws(() => validateManifest(manifest, f.root), /apiImage has unexpected properties/);
+  delete manifest.apiImage.name;
+  manifest.dependencyImages[0].ociRevision = f.commit;
+  manifest.identityDigest = computeIdentityDigest(manifest);
+  assert.throws(() => validateManifest(manifest, f.root), /dependencyImages\.caddy has unexpected properties/);
+  delete manifest.dependencyImages[0].ociRevision;
+  manifest.releaseNotes.candidateSummary = 'Day 1 candidate: web & Android';
+  manifest.identityDigest = computeIdentityDigest(manifest);
+  assert.throws(() => validateManifest(manifest, f.root), /bounded ordinary single-line release-summary text/);
+  manifest.releaseNotes.candidateSummary = 'Fixture candidate only.';
+  manifest.releaseNotes.source = `ghp_${'A'.repeat(20)}`;
+  manifest.identityDigest = computeIdentityDigest(manifest);
+  assert.throws(() => validateManifest(manifest, f.root), /potentially sensitive material/);
+  manifest.releaseNotes.source = 'release-notes.md';
+  manifest.retention.policy = ['PASS', 'WORD:', 'abcdefgh'].join('');
+  manifest.identityDigest = computeIdentityDigest(manifest);
+  assert.throws(() => validateManifest(manifest, f.root), /host-specific or potentially sensitive material/);
+});
+
+test('release execution uses protected system runtimes and bypasses user plugin configuration', () => {
+  const cliSource = readFileSync(new URL('../day1-release-identity-cli.mjs', import.meta.url), 'utf8');
+  assert.match(cliSource, /realpathSync\('\/proc\/self\/exe'\)/);
+  assert.match(cliSource, /const systemNodeCommand = invokedDirectly/);
+  assert.match(cliSource, /protectedSystemCommand\(lstatSync\('\/usr\/bin\/node', \{ throwIfNoEntry: false \}\) \? '\/usr\/bin\/node' : process\.execPath, 'node'\)/);
+  assert.match(cliSource, /protectedSystemCommand\('\/usr\/bin\/npm', 'npm'\)/);
+  assert.match(cliSource, /protectedSystemCommand\('\/usr\/bin\/python3', 'python3'\)/);
+  assert.match(cliSource, /assertSystemRuntime\(`\/usr\/lib\/\$\{pythonRuntimeName\}`/);
+  assert.match(cliSource, /assertSystemRuntime\('\/usr\/lib\/dotnet', 'system \.NET runtime'\)/);
+  assert.match(cliSource, /protectedSystemCommand\('\/usr\/libexec\/docker\/cli-plugins\/docker-buildx', 'docker-buildx'\)/);
+  assert.match(cliSource, /gitObjectId\('commit', processCommitBytes\) !== processCommit/);
+  assert.match(cliSource, /gitObjectId\('tree', processTreeBytes\) !== processTree/);
+  assert.match(cliSource, /gitObjectId\('tree', treeBytes\) !== treeId/);
+  assert.doesNotMatch(cliSource, /\['fsck'/);
+  assert.match(cliSource, /GH_CONFIG_DIR: '\/nonexistent'/);
+  assert.match(cliSource, /BUILDX_CONFIG: path\.join\(dockerConfig, 'buildx'\)/);
+  assert.match(cliSource, /const reference = verificationRegistryReference\(image, retained\)/);
+  assert.match(cliSource, /validateRegistryDocument\(image, inspectRecord\(reference\)\.manifest/);
+  assert.match(cliSource, /HOME: npmHome/);
+  assert.match(cliSource, /npm_config_userconfig: npmUserConfig/);
+  assert.match(cliSource, /ImportDirectoryBuildProps=false/);
+  assert.match(cliSource, /ImportDirectoryBuildTargets=false/);
+  assert.match(cliSource, /ImportDirectoryPackagesProps=false/);
+  assert.match(cliSource, /const isolatedMsbuildProperties = \['-noAutoResponse'/);
+  assert.match(cliSource, /Retained Android toolchain provenance differs from the exact-source rebuild/);
+  assert.match(cliSource, /deterministicAndroidRebuildProjection\(rebuilt, retained\)/);
+  assert.match(cliSource, /collectedAndroidInput\([^;]*androidValidation, rebuiltSignature\)/s);
+  assert.match(cliSource, /SETTLEORA_RELEASE_CLEAN_NODE/);
+  assert.match(cliSource, /process\.execve\(systemNodeCommand/);
+  assert.match(cliSource, /verifyLiveRegistryNetwork\(initialInput, retained\)/);
+  assert.doesNotMatch(cliSource.slice(cliSource.indexOf('process.execve(systemNodeCommand')), /GH_TOKEN/);
+  assert.doesNotMatch(cliSource, /process\.env\.npm_execpath/);
+  const apiDockerfile = readFileSync(new URL('../../../services/api/Dockerfile', import.meta.url), 'utf8');
+  assert.match(apiDockerfile, /COPY services\/api\/src\/Settleora\.Api\/packages\.lock\.json services\/api\/src\/Settleora\.Api\//);
+  assert.match(apiDockerfile, /dotnet restore services\/api\/src\/Settleora\.Api\/Settleora\.Api\.csproj --locked-mode/);
+});

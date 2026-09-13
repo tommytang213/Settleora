@@ -1,16 +1,20 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, openSync, closeSync, readFileSync, rmSync, symlinkSync, truncateSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { assertTrackedWorktreeMatchesHead, createUserWebDistManifest } from '../user-web-dist-manifest.mjs';
+import { assertTrackedWorktreeMatchesHead, collectFiles, createUserWebDistManifest, currentNpmVersion } from '../user-web-dist-manifest.mjs';
 
 const provenance = {
   source: { commit: 'a'.repeat(40), tree: 'b'.repeat(40) },
   buildTools: { node: 'v22.0.0', npm: '10.0.0', typescript: '5.9.3', vite: '8.1.0' },
   artifactRoot: 'test-fixture/dist',
 };
+
+test('npm version collection uses the sealed current Node installation', () => {
+  assert.match(currentNpmVersion(), /^\d+\.\d+\.\d+/u);
+});
 
 function fixture(t) {
   const root = mkdtempSync(path.join(tmpdir(), 'web-dist-manifest-'));
@@ -88,6 +92,15 @@ test('manifest is stable, sorted, bounded and contains no raw environment', (t) 
   assert.doesNotMatch(firstBytes.toString(), /process\.env|\/tmp\/web-dist-manifest-|PATH|HOME/);
 });
 
+test('retained web files are rejected from metadata before oversized allocation', (t) => {
+  const f = fixture(t);
+  const oversized = path.join(f.dist, 'oversized.bin');
+  const descriptor = openSync(oversized, 'wx');
+  closeSync(descriptor);
+  truncateSync(oversized, 32 * 1024 * 1024 + 1);
+  assert.throws(() => collectFiles(f.dist), /file exceeds its evidence size limit/);
+});
+
 test('staged package evidence is an isolated exact snapshot', (t) => {
   const f = fixture(t);
   const staging = path.join(f.root, 'package-evidence');
@@ -152,6 +165,16 @@ test('manifest rejects an empty dist tree', (t) => {
   );
 });
 
+test('manifest bounds dist directory depth before recursive traversal', (t) => {
+  const f = fixture(t);
+  let directory = f.dist;
+  for (let depth = 0; depth < 65; depth += 1) {
+    directory = path.join(directory, 'd');
+    mkdirSync(directory);
+  }
+  assert.throws(() => collectFiles(f.dist), /directory-depth limit/);
+});
+
 test('manifest rejects symlinks, malformed names, source maps and sensitive content', (t) => {
   const cases = [
     ['symlink', (f) => symlinkSync(path.join(f.dist, 'index.html'), path.join(f.dist, 'linked.html')), /Symlinks are not allowed/],
@@ -204,6 +227,54 @@ test('manifest rejects symlinks, malformed names, source maps and sensitive cont
     ['standalone credential assignment', (f) => writeFileSync(
       path.join(f.dist, 'config.txt'),
       ['TO', 'KEN=abcdefghijklmnop'].join(''),
+    ), /Potential sensitive/],
+    ['quoted JSON credential assignment', (f) => writeFileSync(
+      path.join(f.dist, 'config.txt'),
+      ['{"PASS', 'WORD":"abcdefghijklmnop"}'].join(''),
+    ), /Potential sensitive/],
+    ['quoted JSON API-key assignment', (f) => writeFileSync(
+      path.join(f.dist, 'config.txt'),
+      ['{"API_', 'KEY":"abcdefghijklmnop"}'].join(''),
+    ), /Potential sensitive/],
+    ['quoted JSON authorization assignment', (f) => writeFileSync(
+      path.join(f.dist, 'config.txt'),
+      ['{"author', 'ization":"abcdefghijklmnop"}'].join(''),
+    ), /Potential sensitive/],
+    ['JSON Unicode-escaped credential assignment', (f) => writeFileSync(
+      path.join(f.dist, 'config.txt'),
+      ['{"PASS', 'WORD":"abc\\u0064efghijklmnop"}'].join(''),
+    ), /Potential sensitive/],
+    ['JSON Unicode-escaped token', (f) => writeFileSync(
+      path.join(f.dist, 'config.txt'),
+      ['{"value":"github_pat_\\u004111AA22BB33CC44DD55EE66FF77"}'].join(''),
+    ), /Potential sensitive/],
+    ['duplicate JSON member hiding a Unicode-escaped token', (f) => writeFileSync(
+      path.join(f.dist, 'config.txt'),
+      ['{"claim":"github_pat_\\u004111AA22BB33CC44DD55EE66FF77","claim":"safe"}'].join(''),
+    ), /Duplicate JSON members/],
+    ['JavaScript Unicode-escaped token', (f) => writeFileSync(
+      path.join(f.dist, 'app.js'),
+      ['const value = "github_pat_\\u004111AA22BB33CC44DD55EE66FF77";'].join(''),
+    ), /Potential sensitive/],
+    ['JavaScript hex-escaped credential assignment', (f) => writeFileSync(
+      path.join(f.dist, 'app.js'),
+      ['const config = { "PASS\\x57ORD": "abcdefghijklmnop" };'].join(''),
+    ), /Potential sensitive/],
+    ['JavaScript partial escape inside token prefix', (f) => writeFileSync(
+      path.join(f.dist, 'app.js'),
+      ['const value = "github_pat_\\', 'AAAAAAAAAAAAAAAAAAAAAAAA";'].join(''),
+    ), /Potential sensitive/],
+    ['JavaScript unknown escape inside token prefix', (f) => writeFileSync(
+      path.join(f.dist, 'app.js'),
+      ['const value = "github\\_pat_', 'AAAAAAAAAAAAAAAAAAAAAAAA";'].join(''),
+    ), /Potential sensitive/],
+    ['HTML numeric entities inside token suffix', (f) => writeFileSync(
+      path.join(f.dist, 'encoded.html'),
+      '<div data-value="github_pat_&#65;&#65;&#65;&#65;&#65;&#65;&#65;&#65;&#65;&#65;&#65;&#65;&#65;&#65;&#65;&#65;&#65;&#65;&#65;&#65;"></div>',
+    ), /Potential sensitive/],
+    ['HTML semicolonless numeric entities inside token suffix', (f) => writeFileSync(
+      path.join(f.dist, 'encoded.html'),
+      '<div data-value="github_pat_&#65&#65&#65&#65&#65&#65&#65&#65&#65&#65&#65&#65&#65&#65&#65&#65&#65&#65&#65&#65"></div>',
     ), /Potential sensitive/],
     ['bearer token', (f) => writeFileSync(
       path.join(f.dist, 'config.txt'),
