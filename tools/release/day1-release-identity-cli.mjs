@@ -1391,6 +1391,11 @@ function collectAndroidUnsafe(options, emit = true) {
     const runtimeModules = gradleModules;
     makeTreeReadOnly(runtimeModules, 'Gradle runtime module dependency cache');
     chmodSync(runtimeModules, 0o700);
+    for (const relativeMutable of ['gc.properties', 'modules-2.lock']) {
+      const mutableFile = path.join(runtimeModules, relativeMutable);
+      if (!lstatSync(mutableFile, { throwIfNoEntry: false })?.isFile()) throw new Error(`Gradle module-cache coordination file is missing: ${relativeMutable}`);
+      chmodSync(mutableFile, 0o600);
+    }
     const sealedGradleExecutableCachePaths = [
       `caches/${gradleRuntimeVersion}/dependencies-accessors`,
       `caches/${gradleRuntimeVersion}/generated-gradle-jars`,
