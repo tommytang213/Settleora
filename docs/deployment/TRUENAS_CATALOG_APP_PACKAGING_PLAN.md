@@ -189,7 +189,7 @@ sees the supporting runbook before live backup or restore work.
 Environment and secret storage caveats:
 
 - Do not store real secrets in repository docs or example files.
-- Do not show generated secrets in issue comments, screenshots, reports, or
+- Do not show operator-supplied private secrets in issue comments, screenshots, reports, or
   health output.
 - Do not expose raw env files through admin UI, support bundles, or logs.
 - Do not place sensitive app files in a public SMB/NFS/HTTP share for app

@@ -135,7 +135,7 @@ Day 1 backup/restore planning is defined in [TrueNAS backup/restore consistency 
 - PostgreSQL database.
 - API local file storage dataset.
 - RabbitMQ data if queued work must survive restart/restore.
-- App configuration and generated secrets.
+- App configuration and operator-supplied private secrets.
 - The external TLS certificate chain/private key or a secure re-provisioning
   record; private keys remain outside the app repository and ordinary reports.
 
