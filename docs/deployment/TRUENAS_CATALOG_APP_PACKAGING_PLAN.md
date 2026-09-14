@@ -234,7 +234,7 @@ Expected behavior:
 
 Safe catalog implementation and live-acceptance evidence should include:
 
-- TrueNAS version, with current live-acceptance target `25.10.7` where applicable.
+- TrueNAS version, with current live-acceptance target `25.10.1` where applicable.
 - Catalog app version and Settleora image tag/digest or commit SHA.
 - Redacted app form screenshots.
 - Redacted dataset role mapping.

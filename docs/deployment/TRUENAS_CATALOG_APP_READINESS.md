@@ -45,8 +45,10 @@ Required app qualities:
 
 The unpublished TrueNAS form includes the bounded R04 subset:
 
-- Exact RFC1918 ingress bind, private TLS hostname, HTTPS port, and external
-  certificate/key paths; direct API HTTP must remain un-published.
+- Exact RFC1918 ingress bind, private TLS hostname, HTTPS port, and one
+  TrueNAS-managed certificate reference; the template derives the chain and
+  private-key paths from the selected certificate, and direct API HTTP remains
+  un-published.
 - Fixed private deployment mode and release-controlled API environment.
 - PostgreSQL database name, user, externally supplied private password, and immutable data dataset.
 - RabbitMQ user, externally supplied private password, stable immutable node hostname, and immutable data dataset.
@@ -60,7 +62,17 @@ Do not expose form fields that imply unsupported runtime behavior, such as OIDC 
 
 ## Secrets
 
-The unpublished skeleton requires externally managed PostgreSQL and RabbitMQ secrets through private form fields; it does not generate, retain, or report real values. Secrets must not be committed to the repo, shown in screenshots, printed in reports, or embedded in generated docs. The redacted fixtures and development values in `infra/env/.env.example` are examples only and are not acceptable for a persistent maintainer LAN deployment. Live secret provisioning remains an R05/manual operator action.
+The unpublished skeleton requires externally managed PostgreSQL and RabbitMQ
+secrets through private form fields; repository fixtures, renderer outputs, and
+reports do not contain or retain real values. A live TrueNAS install necessarily
+retains the operator-supplied values in its protected app configuration so it
+can render later starts and upgrades, and that private configuration belongs in
+the operator's secure backup set. Secrets must not be committed to the repo,
+shown in screenshots, printed in reports, or embedded in generated docs. The
+redacted fixtures and development values in `infra/env/.env.example` are
+examples only and are not acceptable for a persistent maintainer LAN
+deployment. Live secret provisioning and protected retention remain R05/manual
+operator actions.
 
 ## Network And Exposure Policy
 
@@ -152,7 +164,7 @@ Health checks must not leak connection strings, storage paths, passwords, queue 
 
 Attach or record:
 
-- TrueNAS version, current live-acceptance target `25.10.7`.
+- TrueNAS version, current live-acceptance target `25.10.1`.
 - App version or commit SHA.
 - App form screenshots with secrets redacted.
 - Dataset/volume mapping summary.
@@ -171,7 +183,7 @@ Attach or record:
 Repository slices 1–3 are complete in the unpublished R04 skeleton: first-class migration gating, metadata/release mapping, and the bounded private form schema. Remaining slices are:
 
 1. Backup/restore runbook execution and manual evidence: PostgreSQL plus file storage consistency, key material, RabbitMQ state where required, and app configuration.
-2. Maintainer TrueNAS install/upgrade evidence on `25.10.7`: capture failure presentation, health/readiness, rollback limits, private DNS/TLS, and physical-client smoke evidence under R05/#975.
+2. Maintainer TrueNAS install/upgrade evidence on `25.10.1`: capture failure presentation, health/readiness, rollback limits, private DNS/TLS, and physical-client smoke evidence under R05/#975.
 3. Catalog publication only after its separate manual gates and all required acceptance evidence pass.
 4. Future service expansion: add OCR worker, web user portal, and web admin portal only after their runtime implementations exist and pass their own gates.
 
