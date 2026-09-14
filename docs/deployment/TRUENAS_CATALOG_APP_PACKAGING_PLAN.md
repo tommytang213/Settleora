@@ -180,8 +180,11 @@ disclosure.
 | App config/secrets | TrueNAS app secret/config store | Yes | Must be backed up securely and never committed or pasted into reports. |
 
 PostgreSQL metadata and API local file bytes are a consistency pair. The R04
-form and supporting documentation warn that restoring only one side can create
-missing bytes, orphaned bytes, or broken attachment/proof/QR access.
+supporting documentation warns that restoring only one side can create missing
+bytes, orphaned bytes, or broken attachment/proof/QR access. The current form
+requires a consistent pre-migration backup acknowledgement but does not repeat
+that detailed one-sided-restore warning; R05 form review must verify the operator
+sees the supporting runbook before live backup or restore work.
 
 Environment and secret storage caveats:
 

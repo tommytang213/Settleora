@@ -2,7 +2,7 @@
 
 ## Status
 
-This runbook defines the deployment-level backup and restore consistency plan for the current Day 1 TrueNAS LAN Docker posture. It is operator guidance and evidence structure only. Install, upgrade, unsafe-migration blocking, failed-start recovery, rollback limitation, health-check, and operator-evidence expectations are planned in [Self-hosted install/upgrade orchestration](SELF_HOSTED_INSTALL_UPGRADE_ORCHESTRATION.md). Future catalog app metadata, form fields, dataset mappings, image tags, upgrade/rollback notes, and operator stop conditions are planned in [TrueNAS catalog app packaging plan](TRUENAS_CATALOG_APP_PACKAGING_PLAN.md). Public, reverse-proxy/TLS, trusted private access, and admin exposure requirements are defined separately in [Self-hosting exposure guardrails](SELF_HOSTING_EXPOSURE_GUARDRAILS.md).
+This runbook defines the deployment-level backup and restore consistency plan for the current Day 1 TrueNAS LAN Docker posture. It is operator guidance and evidence structure only. The repository contains an unpublished TrueNAS catalog package skeleton, but install, upgrade, unsafe-migration blocking, failed-start recovery, rollback limitation, health-check, and operator evidence remain manual R05/#975 work described in [Self-hosted install/upgrade orchestration](SELF_HOSTED_INSTALL_UPGRADE_ORCHESTRATION.md). Current catalog app metadata, form fields, dataset mappings, immutable image identities, upgrade/rollback notes, operator stop conditions, and remaining live/publication gaps are documented in [TrueNAS catalog app packaging plan](TRUENAS_CATALOG_APP_PACKAGING_PLAN.md). Public, reverse-proxy/TLS, trusted private access, and admin exposure requirements are defined separately in [Self-hosting exposure guardrails](SELF_HOSTING_EXPOSURE_GUARDRAILS.md).
 
 It does not implement backup automation, execute a backup, execute a restore, mutate TrueNAS datasets, change Docker/Compose behavior, change runtime configuration, or approve production or public exposure. Any real restore against maintainer or production-like data requires a manual deployment/storage/privacy gate before execution.
 
@@ -38,7 +38,7 @@ Back up or snapshot the following as one consistency set whenever preserving an 
 | Private environment/config file | Private copy of `infra/env/.env.truenas-lan` or equivalent TrueNAS app settings | Yes, securely. | Required to reconnect restored services. Contains secrets and must never be committed, pasted into issue comments, or shown unredacted in screenshots. |
 | TLS certificate chain/private key or re-provisioning record | Operator-controlled external TLS source | Preserve securely or re-provision through the issuing CA. | The key is secret material. Never place it in repository backups/reports. Restored files must be readable by ingress UID/GID `1000:1000`; the certificate SAN, configured hostname, DNS result, and device trust chain must still agree. |
 | API image or commit reference | Image tag/digest or repo commit SHA | Record with backup evidence. | Needed to know which runtime and migration set created the data. Prefer immutable image digests or exact commit SHAs in operator notes. |
-| Compose/app package version | `infra/docker-compose.truenas-lan.yml`, `infra/docker-compose.truenas-lan.image.yml`, or future catalog app version | Record with backup evidence. | Needed to reconstruct service wiring and mount paths. |
+| Compose/app package version | `infra/docker-compose.truenas-lan.yml`, `infra/docker-compose.truenas-lan.image.yml`, or the unpublished catalog app version | Record with backup evidence. | Needed to reconstruct service wiring and mount paths. Repository presence is not live install/publication evidence. |
 
 PostgreSQL and API local file storage must be treated as coupled. Restoring a database snapshot without the matching file-storage snapshot can leave file metadata pointing at missing or mismatched bytes. Restoring file bytes without the matching database can leave orphaned bytes or unavailable attachments.
 
@@ -237,7 +237,7 @@ This runbook does not complete TrueNAS backup/restore readiness by itself. Remai
 
 - Maintainer-run restore evidence on an approved TrueNAS environment.
 - Backup automation or catalog-app backup hooks, if later scoped and manually gated.
-- Backup-before-upgrade enforcement for the future catalog app.
+- Live backup-before-upgrade enforcement for the unpublished catalog app skeleton.
 - Rollback strategy after migrations have changed schema.
 - Public/admin exposure review before any internet-routable deployment.
 - Product-level import/export/local backup and admin backup surfaces tracked separately from this deployment runbook.
