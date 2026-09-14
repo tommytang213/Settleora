@@ -72,6 +72,12 @@ try {
   expectOfficialPostRenderRefusal(packet, 'entrypoint-content-injection', (compose) => {
     compose.configs['settleora-api-entrypoint'].content = `exit 0\n${compose.configs['settleora-api-entrypoint'].content}`;
   });
+  expectOfficialPostRenderRefusal(packet, 'caddyfile-behavior-drift', (compose) => {
+    compose.configs['settleora-caddyfile'].content = compose.configs['settleora-caddyfile'].content.replace('reverse_proxy api:8080', 'reverse_proxy api:8081 # reverse_proxy api:8080');
+  });
+  expectOfficialPostRenderRefusal(packet, 'api-readiness-bypass', (compose) => {
+    compose.services.api.healthcheck.test = ['CMD-SHELL', 'exit 0; # /bin/bash /health/ready'];
+  });
   expectOfficialRefusal(packet, 'network-injection', (values) => {
     values.network.networks = [{ name: 'bridge', containers: [{ name: 'postgres', config: {} }] }];
   });
@@ -88,7 +94,7 @@ try {
   expectOfficialRefusal(packet, 'live-context-without-filesystem-authority', (values) => {
     values.ix_context = { app_name: 'settleora', is_install: true };
   });
-  process.stdout.write('Official renderer accepted normalized empty certificate authorities and refused undeclared network/image/CA overrides, entrypoint/config isolation drift, plus an unresolvable live dataset context.\n');
+  process.stdout.write('Official renderer accepted normalized empty certificate authorities and refused undeclared network/image/CA overrides, entrypoint/Caddyfile/health/config isolation drift, plus an unresolvable live dataset context.\n');
 } finally {
   rmSync(tempRoot, { recursive: true, force: true });
 }

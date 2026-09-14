@@ -82,6 +82,7 @@ test('official-render validators accept only fixed descriptors and package-relat
   assert.match(source, /dependency environment mismatch/u);
   assert.match(source, /config isolation mismatch/u);
   assert.match(source, /config content does not match the trusted direct render/u);
+  assert.match(source, /healthcheck does not match the trusted render contract/u);
   assert.match(source, /readFileSync\(5, 'utf8'\)/u);
   assert.match(source, /readFileSync\(6, 'utf8'\)/u);
   assert.match(source, /readFileSync\(7\)/u);

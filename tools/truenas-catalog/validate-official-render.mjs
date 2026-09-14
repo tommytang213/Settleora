@@ -44,8 +44,6 @@ const expectedImages = { api: plan.runtime?.images?.api, ingress: plan.runtime?.
 for (const [name, expectedImage] of Object.entries(expectedImages)) {
   if (typeof expectedImage !== 'string' || compose.services[name].image !== expectedImage) fail(`${name} image does not match the R03-selected runtime identity`);
 }
-const apiHealth = compose.services.api.healthcheck?.test;
-if (!Array.isArray(apiHealth) || apiHealth[0] !== 'CMD-SHELL' || !apiHealth[1]?.includes('/bin/bash') || !apiHealth[1]?.includes('/health/ready') || apiHealth[1]?.includes('curl')) fail('Official API dependency-aware readiness healthcheck is missing');
 if (compose.services.api.environment?.HOME !== '/var/lib/settleora/storage/.settleora-home') fail('Official API data-protection key home is not persistent within the existing storage layout');
 const privateHostname = privateValues.network?.hostname;
 const privateHttpsPort = privateValues.network?.https_port;
@@ -53,6 +51,20 @@ const passkeyOrigin = privateHttpsPort === 443 ? `https://${privateHostname}` : 
 if (compose.services.api.environment?.Auth__Passkeys__RelyingPartyId !== privateHostname || compose.services.api.environment?.Auth__Passkeys__AllowedOrigins__0 !== passkeyOrigin) fail('Official passkey relying-party identity mismatch');
 const privateSettleora = privateValues.settleora ?? {};
 const connection = `Host=postgres;Port=5432;Database=${privateSettleora.postgres_database};Username=${privateSettleora.postgres_user};Password=${privateSettleora.postgres_password}`;
+const withOfficialStartInterval = (healthcheck) => ({ ...healthcheck, start_interval: '2s' });
+const expectedHealthchecks = {
+  api: withOfficialStartInterval(directCompose.services?.api?.healthcheck ?? {}),
+  ingress: withOfficialStartInterval(directCompose.services?.ingress?.healthcheck ?? {}),
+  migrate: { disable: true },
+  postgres: {
+    interval: '30s', retries: 5, start_interval: '2s', start_period: '15s', timeout: '5s',
+    test: ['CMD', 'pg_isready', '-h', '127.0.0.1', '-p', '5432', '-U', privateSettleora.postgres_user, '-d', privateSettleora.postgres_database],
+  },
+  rabbitmq: withOfficialStartInterval(directCompose.services?.rabbitmq?.healthcheck ?? {}),
+};
+for (const [service, expected] of Object.entries(expectedHealthchecks)) {
+  if (canonicalJson(compose.services[service].healthcheck ?? {}) !== canonicalJson(expected)) fail(`Official ${service} healthcheck does not match the trusted render contract`);
+}
 const commonEnvironment = { NVIDIA_VISIBLE_DEVICES: 'void', TZ: 'Etc/UTC', UMASK: '002', UMASK_SET: '002' };
 const expectedEnvironment = {
   api: {
@@ -75,7 +87,7 @@ const normalizedConfigContent = (document, name) => {
   if (typeof content !== 'string') fail(`Rendered ${name} config content is missing`);
   return content.replaceAll('$$', '$');
 };
-for (const name of ['settleora-api-entrypoint', 'settleora-caddy-entrypoint', 'settleora-migrate-entrypoint', 'settleora-rabbitmq-entrypoint']) {
+for (const name of ['settleora-api-entrypoint', 'settleora-caddy-entrypoint', 'settleora-caddyfile', 'settleora-migrate-entrypoint', 'settleora-rabbitmq-entrypoint']) {
   if (normalizedConfigContent(compose, name) !== normalizedConfigContent(directCompose, name)) fail(`Official ${name} config content does not match the trusted direct render`);
 }
 if (compose.services.ingress.depends_on?.api?.condition !== 'service_healthy') fail('Official ingress API-readiness gate missing');
