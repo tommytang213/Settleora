@@ -70,14 +70,16 @@ test('official TrueNAS 25.10 package skeleton uses current Docker Apps layout an
   assert.ok(readFileSync(path.join(packageSource, 'templates/library/base_v2_3_11/container.py'), 'utf8').includes('"platform": "linux/amd64"'));
 });
 
-test('official-render validators accept only fixed descriptor and package-relative input', () => {
+test('official-render validators accept only fixed descriptors and package-relative input', () => {
   const source = readFileSync(path.join(repoRoot, 'tools/truenas-catalog/validate-official-render.mjs'), 'utf8');
   assert.match(source, /readFileSync\(3, 'utf8'\)/u);
   assert.match(source, /readFileSync\(4, 'utf8'\)/u);
-  assert.doesNotMatch(source, /readFileSync\([^34]/u);
+  assert.doesNotMatch(source, /readFileSync\([^345]/u);
   assert.doesNotMatch(source, /process\.argv\.slice/u);
   assert.match(source, /directoryContentIdentity\('package'\)/u);
-  assert.match(source, /sha256\(volume\.source\) !== plan\.datasetSourceSha256\?\.\[service\]/u);
+  assert.match(source, /volume\.source !== expectedSources\[service\]/u);
+  assert.match(source, /security context mismatch/u);
+  assert.match(source, /readFileSync\(5, 'utf8'\)/u);
 });
 
 test('pinned official TrueNAS library content fails closed on byte drift', () => {
@@ -128,9 +130,13 @@ test('deterministic materialization repeats byte-identical package and compose i
   assert.equal(first.plan.actions.published, false);
   assert.equal(first.plan.actions.deployed, false);
   assert.equal(first.plan.applicationRelease.commit, syntheticManifest().source.commit);
-  assert.equal(first.plan.datasetSourceSha256.api, sha256(fixtureConfig.storage.apiDataset));
-  assert.equal(first.plan.datasetSourceSha256.postgres, sha256(fixtureConfig.storage.postgresDataset));
-  assert.equal(first.plan.datasetSourceSha256.rabbitmq, sha256(fixtureConfig.storage.rabbitmqDataset));
+  assert.equal(first.plan.networks.privateBindAddressIncluded, false);
+  assert.equal(first.plan.tls.hostnameIncludedInPlan, false);
+  assert.equal(first.plan.privateValidation.pathsIncludedInPlan, false);
+  assert.equal(first.plan.datasetSourceSha256, undefined);
+  assert.doesNotMatch(readFileSync(path.join(first.output, 'install-plan.json'), 'utf8'), /192\.168\.50\.10|REDACTED_POOL|settleora\.lan\.redacted-domain\.local/u);
+  assert.equal(statSync(path.join(first.output, 'private-validation-values.yaml')).mode & 0o777, 0o600);
+  assert.throws(() => statSync(path.join(first.packageRoot, 'templates/test_values')));
   assert.match(first.plan.packageSource.repositoryCommit, /^[0-9a-f]{40}$/);
   assert.match(first.plan.packageSource.repositoryTree, /^[0-9a-f]{40}$/);
   assert.match(first.plan.packageSource.contentSha256, /^[0-9a-f]{64}$/);
@@ -163,12 +169,16 @@ test('rendered topology preserves R11, R12, private services, datasets, and migr
   assert.equal(compose.services.api.volumes[0].target, '/var/lib/settleora/storage');
   assert.deepEqual(compose.services.ingress.entrypoint, ['/bin/sh', '/usr/local/bin/settleora-caddy-entrypoint.sh']);
   assert.match(compose.configs['settleora-caddy-entrypoint'].content, /cp \/usr\/bin\/caddy \/tmp\/settleora-caddy/);
+  assert.match(compose.configs['settleora-caddy-entrypoint'].content, /rm -f -- \/tmp\/settleora-caddy/);
   assert.deepEqual(compose.services.ingress.volumes, [{ type: 'volume', source: 'settleora-caddy-bin', target: '/tmp', read_only: false, volume: { nocopy: false } }]);
   assert.deepEqual(compose.volumes['settleora-caddy-bin'], {});
   assert.match(compose.configs['settleora-migrate-entrypoint'].content, /validate-only\)[\s\S]*--mode=validate-only[\s\S]*--mode=check-only/);
   assert.equal(compose.services.rabbitmq.hostname, fixtureConfig.rabbitmq.nodeHostname);
   assert.equal(compose.services.rabbitmq.environment.RABBITMQ_NODENAME, `rabbit@${fixtureConfig.rabbitmq.nodeHostname}`);
-  assert.match(compose.configs['settleora-rabbitmq-entrypoint'].content, /persisted_nodename/);
+  const rabbitGuard = compose.configs['settleora-rabbitmq-entrypoint'].content.replaceAll('$$', '$');
+  assert.match(rabbitGuard, /persisted_nodename/);
+  assert.match(rabbitGuard, /\[ ! -L "\$mnesia_base" \]/);
+  assert.match(rabbitGuard, /\[ ! -L "\$candidate" \]/);
   assert.equal(compose.networks.ingress.internal, true);
   assert.equal(compose.networks.backend.internal, true);
   assert.equal(compose.networks.edge.internal, undefined);
@@ -334,6 +344,10 @@ test('topology negative matrix rejects exposure, unsupported services, identity 
     (c) => { c.services.ingress.image = identity.images.postgres; },
     (c) => { c.services.postgres.image = identity.images.rabbitmq; },
     (c) => { c.services.rabbitmq.image = identity.images.caddy; },
+    (c) => { delete c.services.ingress.read_only; },
+    (c) => { c.services.api.cap_drop = []; },
+    (c) => { c.services.migrate.privileged = true; },
+    (c) => { c.services.postgres.cap_add = ['SYS_ADMIN']; },
     (c) => { c.services.api.healthcheck = { test: ['CMD', 'curl'] }; },
     (c) => { c.services.api.healthcheck.test[1] = c.services.api.healthcheck.test[1].replace('/health/ready', '/health'); },
     (c) => { c.services.ingress.depends_on.api.condition = 'service_started'; },

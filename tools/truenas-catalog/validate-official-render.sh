@@ -10,12 +10,15 @@ packet_root=$(realpath -e -- "$packet_root")
 [ -d "$packet_root/package" ] || { echo >&2 "Materialized package directory is missing"; exit 2; }
 [ -f "$packet_root/install-plan.json" ] || { echo >&2 "Install plan is missing"; exit 2; }
 [ ! -L "$packet_root/install-plan.json" ] || { echo >&2 "Install plan must not be a symbolic link"; exit 2; }
+[ -f "$packet_root/private-validation-values.yaml" ] || { echo >&2 "Private validation input is missing"; exit 2; }
+[ ! -L "$packet_root/private-validation-values.yaml" ] || { echo >&2 "Private validation input must not be a symbolic link"; exit 2; }
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 (cd "$packet_root" && node "$script_dir/validate-official-render.mjs" --preflight 4< install-plan.json)
 work_root=$(mktemp -d)
 trap 'rm -rf -- "$work_root"' EXIT HUP INT TERM
 cp -a -- "$packet_root/package" "$work_root/package"
+cp -- "$packet_root/private-validation-values.yaml" "$work_root/private-validation-values.yaml"
 
 validator_image='ghcr.io/truenas/apps_validation@sha256:9363207f4456a2522bc1aee7bc8d62378c5594b3781319f3331910662e0c49ae'
 
@@ -32,7 +35,7 @@ docker run --platform linux/amd64 --rm \
   "$validator_image" \
   apps_render_app render \
   --path /workspace/package \
-  --values /workspace/package/templates/test_values/render-values.yaml
+  --values /workspace/private-validation-values.yaml
 
 docker run --platform linux/amd64 --rm \
   -v "$work_root:/workspace:rw" \
@@ -51,4 +54,5 @@ docker run --platform linux/amd64 --rm \
 docker compose -f "$work_root/package/templates/rendered/docker-compose.yaml" config --quiet
 node "$script_dir/validate-official-render.mjs" \
   3< "$work_root/package/templates/rendered/docker-compose.yaml" \
-  4< "$packet_root/install-plan.json"
+  4< "$packet_root/install-plan.json" \
+  5< "$packet_root/private-validation-values.yaml"

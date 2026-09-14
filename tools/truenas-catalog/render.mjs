@@ -44,10 +44,20 @@ expected_nodename="rabbit@$(hostname -s)"
 configured_nodename="${'${RABBITMQ_NODENAME:?RABBITMQ_NODENAME is required for persistent RabbitMQ data}'}"
 [ "$configured_nodename" = "$expected_nodename" ] || { echo >&2 "RabbitMQ persistence identity refused: configured node name does not match the container hostname."; exit 64; }
 mnesia_base="${'${RABBITMQ_MNESIA_BASE:-/var/lib/rabbitmq/mnesia}'}"
-if [ -d "$mnesia_base" ]; then
+[ "$mnesia_base" = "/var/lib/rabbitmq/mnesia" ] || { echo >&2 "RabbitMQ persistence identity refused: the Mnesia base path is not the persistent dataset path."; exit 67; }
+[ ! -L "/var/lib/rabbitmq" ] && [ -d "/var/lib/rabbitmq" ] || { echo >&2 "RabbitMQ persistence identity refused: the persistent data path is unsafe."; exit 67; }
+data_real="$(readlink -f -- /var/lib/rabbitmq)" || { echo >&2 "RabbitMQ persistence identity refused: the persistent data path cannot be canonicalized."; exit 67; }
+[ "$data_real" = "/var/lib/rabbitmq" ] || { echo >&2 "RabbitMQ persistence identity refused: the persistent data path escapes its mount."; exit 67; }
+if [ -e "$mnesia_base" ] || [ -L "$mnesia_base" ]; then
+  [ ! -L "$mnesia_base" ] && [ -d "$mnesia_base" ] || { echo >&2 "RabbitMQ persistence identity refused: the Mnesia path is unsafe."; exit 67; }
+  mnesia_real="$(readlink -f -- "$mnesia_base")" || { echo >&2 "RabbitMQ persistence identity refused: the Mnesia path cannot be canonicalized."; exit 67; }
+  [ "$mnesia_real" = "$data_real/mnesia" ] || { echo >&2 "RabbitMQ persistence identity refused: the Mnesia path escapes the persistent dataset."; exit 67; }
   persisted_nodename=""
   for candidate in "$mnesia_base"/rabbit@*; do
-    [ -d "$candidate" ] || continue
+    if [ ! -e "$candidate" ] && [ ! -L "$candidate" ]; then continue; fi
+    [ ! -L "$candidate" ] && [ -d "$candidate" ] || { echo >&2 "RabbitMQ persistence identity refused: a node database path is unsafe."; exit 67; }
+    candidate_real="$(readlink -f -- "$candidate")" || { echo >&2 "RabbitMQ persistence identity refused: a node database path cannot be canonicalized."; exit 67; }
+    case "$candidate_real" in "$mnesia_real"/rabbit@*) ;; *) echo >&2 "RabbitMQ persistence identity refused: a node database escapes the persistent dataset."; exit 67;; esac
     candidate_nodename="${'${candidate##*/}'}"
     case "$candidate_nodename" in
       *-plugins-expand)
@@ -64,6 +74,11 @@ exec /usr/local/bin/docker-entrypoint.sh "$@"
 
 const CADDY_ENTRYPOINT = `#!/bin/sh
 set -eu
+[ ! -L /tmp/settleora-caddy ] || { echo >&2 "Caddy startup refused: the prior scratch executable is unsafe."; exit 64; }
+if [ -e /tmp/settleora-caddy ]; then
+  [ -f /tmp/settleora-caddy ] && [ "$(stat -c %u -- /tmp/settleora-caddy)" = "$(id -u)" ] || { echo >&2 "Caddy startup refused: the prior scratch executable is unsafe."; exit 64; }
+  rm -f -- /tmp/settleora-caddy || { echo >&2 "Caddy startup refused: the prior scratch executable could not be removed."; exit 64; }
+fi
 cp /usr/bin/caddy /tmp/settleora-caddy
 chmod 0555 /tmp/settleora-caddy
 exec /tmp/settleora-caddy "$@"
@@ -361,7 +376,7 @@ export function officialValues(identity, config) {
 }
 
 function baseService(image, networks, restart = 'unless-stopped') {
-  return { image, platform: 'linux/amd64', restart, networks };
+  return { image, platform: 'linux/amd64', restart, networks, cap_drop: ['ALL'], security_opt: ['no-new-privileges=true'], privileged: false };
 }
 
 export function renderCompose(identity, config) {
@@ -416,12 +431,14 @@ export function renderCompose(identity, config) {
       },
       postgres: {
         ...baseService(identity.images.postgres, ['backend']),
+        cap_drop: undefined,
         environment: { POSTGRES_DB: config.postgres.database, POSTGRES_USER: config.postgres.user, POSTGRES_PASSWORD: config.postgres.password },
         volumes: [{ type: 'bind', source: config.storage.postgresDataset, target: '/var/lib/postgresql/data', read_only: false, bind: { create_host_path: false, propagation: 'rprivate' } }],
         healthcheck: { test: ['CMD-SHELL', `pg_isready -U '${config.postgres.user}' -d '${config.postgres.database}' -h 127.0.0.1 -p 5432`], interval: '30s', timeout: '5s', retries: 5, start_period: '15s' },
       },
       rabbitmq: {
         ...baseService(identity.images.rabbitmq, ['backend']),
+        cap_drop: undefined,
         hostname: config.rabbitmq.nodeHostname,
         entrypoint: ['/bin/sh', '/usr/local/bin/settleora-rabbitmq-entrypoint.sh'],
         command: ['rabbitmq-server'],
@@ -464,6 +481,17 @@ export function validateTopology(compose, identity, config) {
   for (const [name, expectedImage] of Object.entries(expectedImages)) {
     if (compose.services[name].image !== expectedImage) fail(`${name} image does not match the R03-selected runtime identity`);
   }
+  const securityContext = (service) => Object.fromEntries(['user', 'read_only', 'cap_add', 'cap_drop', 'security_opt', 'privileged', 'pid', 'ipc'].filter((key) => service[key] !== undefined).map((key) => [key, service[key]]));
+  const expectedSecurityContexts = {
+    api: { cap_drop: ['ALL'], security_opt: ['no-new-privileges=true'], privileged: false },
+    ingress: { user: '1000:1000', read_only: true, cap_drop: ['ALL'], security_opt: ['no-new-privileges=true'], privileged: false },
+    migrate: { cap_drop: ['ALL'], security_opt: ['no-new-privileges=true'], privileged: false },
+    postgres: { security_opt: ['no-new-privileges=true'], privileged: false },
+    rabbitmq: { security_opt: ['no-new-privileges=true'], privileged: false },
+  };
+  for (const [name, expected] of Object.entries(expectedSecurityContexts)) {
+    if (canonicalJson(securityContext(compose.services[name])) !== canonicalJson(expected)) fail(`${name} security context mismatch`);
+  }
   const ingressPorts = publishedPorts(compose.services.ingress);
   if (ingressPorts.length !== 1 || ingressPorts[0].host_ip !== config.bindAddress || ingressPorts[0].target !== 8443 || ingressPorts[0].protocol !== 'tcp') fail('Ingress publication is unsafe');
   if (compose.services.api.image !== compose.services.migrate.image) fail('API and migrate image identity mismatch');
@@ -478,7 +506,7 @@ export function validateTopology(compose, identity, config) {
   for (const required of ['data_path=/var/lib/settleora/storage', 'id -u', 'id -g', '[ -r "$data_path" ]', '[ -w "$data_path" ]', '[ -x "$data_path" ]', 'mktemp -d "$data_path/.settleora-write-probe.XXXXXXXXXX"', '[ ! -L "$home_path" ]', 'readlink -f -- "$data_path"', '[ "$home_real" = "$data_real/.settleora-home" ]', '[ ! -L "$aspnet_path" ]', '[ "$aspnet_real" = "$home_real/.aspnet" ]', '[ ! -L "$keys_path" ]', '[ "$keys_real" = "$aspnet_real/DataProtection-Keys" ]', 'unsafe stale data-protection write probe', 'stat -c %u -- "$stale_probe"', 'every restored data-protection key entry must be a readable regular non-link file', 'trap cleanup_keys_probe EXIT HUP INT TERM', 'mktemp "$keys_path/.settleora-write-probe.XXXXXXXXXX"', 'exec dotnet Settleora.Api.dll']) if (!apiEntrypoint.includes(required)) fail('API UID/GID 999 storage preflight is incomplete');
   if (canonicalJson(compose.services.ingress.entrypoint) !== canonicalJson(['/bin/sh', '/usr/local/bin/settleora-caddy-entrypoint.sh']) || compose.services.ingress.healthcheck?.test?.[1] !== '/tmp/settleora-caddy') fail('Ingress does not preserve capability-free Caddy startup');
   const caddyEntrypoint = String(compose.configs?.['settleora-caddy-entrypoint']?.content ?? '').replaceAll('$$', '$');
-  for (const required of ['cp /usr/bin/caddy /tmp/settleora-caddy', 'chmod 0555 /tmp/settleora-caddy', 'exec /tmp/settleora-caddy "$@"']) if (!caddyEntrypoint.includes(required)) fail('Capability-free Caddy entrypoint is incomplete');
+  for (const required of ['[ ! -L /tmp/settleora-caddy ]', 'stat -c %u -- /tmp/settleora-caddy', 'rm -f -- /tmp/settleora-caddy', 'cp /usr/bin/caddy /tmp/settleora-caddy', 'chmod 0555 /tmp/settleora-caddy', 'exec /tmp/settleora-caddy "$@"']) if (!caddyEntrypoint.includes(required)) fail('Capability-free Caddy entrypoint is incomplete');
   if (compose.services.api.depends_on?.migrate?.condition !== 'service_completed_successfully') fail('API migration-success gate is missing');
   const migrateEntrypoint = String(compose.configs?.['settleora-migrate-entrypoint']?.content ?? '').replaceAll('$$', '$');
   for (const required of ['validate-only)', '--mode=validate-only', '--mode=check-only', 'managed-auto|apply-safe|manual|check-only)']) if (!migrateEntrypoint.includes(required)) fail('Migration startup gate is incomplete');
@@ -486,7 +514,7 @@ export function validateTopology(compose, identity, config) {
   if (compose.services.api.depends_on?.postgres?.condition !== 'service_healthy' || compose.services.api.depends_on?.rabbitmq?.condition !== 'service_healthy') fail('API dependency-readiness gate is missing');
   if (compose.services.rabbitmq.hostname !== config.rabbitmq.nodeHostname || compose.services.rabbitmq.environment?.RABBITMQ_NODENAME !== `rabbit@${config.rabbitmq.nodeHostname}`) fail('RabbitMQ persistence identity is contradictory');
   const rabbitGuard = String(compose.configs?.['settleora-rabbitmq-entrypoint']?.content ?? '').replaceAll('$$', '$');
-  for (const required of ['expected_nodename="rabbit@$(hostname -s)"', 'RABBITMQ_MNESIA_BASE', 'persisted_nodename', 'exit 64', 'exit 65', 'exit 66']) {
+  for (const required of ['expected_nodename="rabbit@$(hostname -s)"', 'RABBITMQ_MNESIA_BASE', '[ ! -L "$mnesia_base" ]', 'readlink -f -- "$mnesia_base"', '[ ! -L "$candidate" ]', 'persisted_nodename', 'exit 64', 'exit 65', 'exit 66', 'exit 67']) {
     if (!rabbitGuard.includes(required)) fail('RabbitMQ persistence identity guard is incomplete');
   }
   if (!compose.networks?.ingress?.internal || !compose.networks?.backend?.internal) fail('Backend networks must be internal');
@@ -617,13 +645,12 @@ export function materialize({ manifest, expectedIdentityDigest, config, output, 
   if (template.split('__SETTLEORA_RELEASE_LOCK__').length !== 2) fail('Materialized template release-lock marker is invalid');
   writeFileSync(templatePath, template.replace('__SETTLEORA_RELEASE_LOCK__', releaseLock), { mode: 0o600 });
   const testValues = officialValues(identity, config);
-  mkdirSync(path.join(packageRoot, 'templates/test_values'), { recursive: true, mode: 0o700 });
-  writeFileSync(path.join(packageRoot, 'templates/test_values/render-values.yaml'), canonicalJson(testValues), { mode: 0o600 });
   const compose = renderCompose(identity, config);
   mkdirSync(path.join(root, 'rendered'), { mode: 0o700 });
   const composeBytes = canonicalJson(compose);
   writeFileSync(path.join(root, 'rendered/docker-compose.yaml'), composeBytes, { mode: 0o600 });
-  const configDigest = sha256(canonicalJson({ ...config, postgres: { ...config.postgres, password: '<redacted>' }, rabbitmq: { ...config.rabbitmq, password: '<redacted>' } }));
+  const privateValuesPath = path.join(root, 'private-validation-values.yaml');
+  writeFileSync(privateValuesPath, canonicalJson(testValues), { mode: 0o600 });
   const materializedPackage = directoryContentIdentity(packageRoot);
   const plan = {
     schema: PACKAGE_SCHEMA,
@@ -632,18 +659,13 @@ export function materialize({ manifest, expectedIdentityDigest, config, output, 
     materializedPackage,
     applicationRelease: { candidateId: identity.manifest.source.candidateId, commit: identity.manifest.source.commit, tree: identity.manifest.source.tree, identityDigest: identity.manifest.identityDigest },
     runtime: { platform: 'linux/amd64', digestAuthority: 'selected-platform-manifest', images: identity.images, indexDigests: { api: identity.manifest.apiImage.indexDigest, caddy: dependency(identity.manifest, 'caddy').indexDigest, postgres: dependency(identity.manifest, 'postgres').indexDigest, rabbitmq: dependency(identity.manifest, 'rabbitmq').indexDigest } },
-    sanitizedConfigSha256: configDigest,
     renderedComposeSha256: sha256(composeBytes),
     services: REQUIRED_SERVICES,
-    networks: { bindAddress: config.bindAddress, httpsPort: config.httpsPort, edge: 'ingress-publication-only', ingress: 'internal', backend: 'internal' },
+    networks: { httpsPort: config.httpsPort, edge: 'ingress-publication-only', ingress: 'internal', backend: 'internal', privateBindAddressIncluded: false },
     datasets: ['api-storage', 'postgres', 'rabbitmq'],
-    datasetSourceSha256: {
-      api: sha256(config.storage.apiDataset),
-      postgres: sha256(config.storage.postgresDataset),
-      rabbitmq: sha256(config.storage.rabbitmqDataset),
-    },
+    privateValidation: { inputIncludedInPlan: false, pathsIncludedInPlan: false },
     migration: { firstClassJob: true, mode: config.migrationMode, postgresReadinessGate: true, apiSuccessGate: true, imageMatchesApi: true },
-    tls: { externalCertificateReference: true, hostname: config.hostname, exactHostname: true, automaticCertificateManagement: false, httpOnlyIngress: false },
+    tls: { externalCertificateReference: true, exactHostname: true, hostnameIncludedInPlan: false, automaticCertificateManagement: false, httpOnlyIngress: false },
     secrets: { realSecretsIncluded: false, logValues: false },
     actions: { published: false, deployed: false, hostMutated: false, migrationApplied: false },
   };

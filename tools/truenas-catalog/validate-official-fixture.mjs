@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,15 +14,17 @@ const validatorImage = 'ghcr.io/truenas/apps_validation@sha256:9363207f4456a2522
 
 function expectOfficialRefusal(packet, name, mutate) {
   const root = path.join(tempRoot, name);
-  cpSync(path.join(packet, 'package'), root, { recursive: true });
-  const valuesPath = path.join(root, 'templates/test_values/render-values.yaml');
+  mkdirSync(root);
+  cpSync(path.join(packet, 'package'), path.join(root, 'package'), { recursive: true });
+  const valuesPath = path.join(root, 'private-validation-values.yaml');
+  cpSync(path.join(packet, 'private-validation-values.yaml'), valuesPath);
   const values = YAML.parse(readFileSync(valuesPath, 'utf8'));
   mutate(values, root);
   writeFileSync(valuesPath, JSON.stringify(values), { mode: 0o600 });
   const result = spawnSync('docker', [
     'run', '--platform', 'linux/amd64', '--rm', '-e', 'FAKE_ENV=1',
-    '-v', `${root}:/workspace/package:rw`, '-v', '/var/run/docker.sock:/var/run/docker.sock:ro',
-    validatorImage, 'apps_render_app', 'render', '--path', '/workspace/package', '--values', '/workspace/package/templates/test_values/render-values.yaml',
+    '-v', `${root}:/workspace:rw`, '-v', '/var/run/docker.sock:/var/run/docker.sock:ro',
+    validatorImage, 'apps_render_app', 'render', '--path', '/workspace/package', '--values', '/workspace/private-validation-values.yaml',
   ], { cwd: repoRoot, encoding: 'utf8' });
   assert.notEqual(result.status, 0, `${name} must be refused by the official renderer`);
   const output = result.stdout + result.stderr;
@@ -40,7 +42,7 @@ try {
   });
   expectOfficialRefusal(packet, 'image-injection', (values, root) => {
     values.images = { api_image: { repository: 'invalid.local/override', tag: 'latest' } };
-    const ixValuesPath = path.join(root, 'ix_values.yaml');
+    const ixValuesPath = path.join(root, 'package/ix_values.yaml');
     const ixValues = YAML.parse(readFileSync(ixValuesPath, 'utf8'));
     ixValues.images = values.images;
     writeFileSync(ixValuesPath, JSON.stringify(ixValues), { mode: 0o600 });

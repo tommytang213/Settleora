@@ -146,10 +146,20 @@ expected_nodename="rabbit@$(hostname -s)"
 configured_nodename="${RABBITMQ_NODENAME:?RABBITMQ_NODENAME is required for persistent RabbitMQ data}"
 [ "$configured_nodename" = "$expected_nodename" ] || { echo >&2 "RabbitMQ persistence identity refused: configured node name does not match the container hostname."; exit 64; }
 mnesia_base="${RABBITMQ_MNESIA_BASE:-/var/lib/rabbitmq/mnesia}"
-if [ -d "$mnesia_base" ]; then
+[ "$mnesia_base" = "/var/lib/rabbitmq/mnesia" ] || { echo >&2 "RabbitMQ persistence identity refused: the Mnesia base path is not the persistent dataset path."; exit 67; }
+[ ! -L "/var/lib/rabbitmq" ] && [ -d "/var/lib/rabbitmq" ] || { echo >&2 "RabbitMQ persistence identity refused: the persistent data path is unsafe."; exit 67; }
+data_real="$(readlink -f -- /var/lib/rabbitmq)" || { echo >&2 "RabbitMQ persistence identity refused: the persistent data path cannot be canonicalized."; exit 67; }
+[ "$data_real" = "/var/lib/rabbitmq" ] || { echo >&2 "RabbitMQ persistence identity refused: the persistent data path escapes its mount."; exit 67; }
+if [ -e "$mnesia_base" ] || [ -L "$mnesia_base" ]; then
+  [ ! -L "$mnesia_base" ] && [ -d "$mnesia_base" ] || { echo >&2 "RabbitMQ persistence identity refused: the Mnesia path is unsafe."; exit 67; }
+  mnesia_real="$(readlink -f -- "$mnesia_base")" || { echo >&2 "RabbitMQ persistence identity refused: the Mnesia path cannot be canonicalized."; exit 67; }
+  [ "$mnesia_real" = "$data_real/mnesia" ] || { echo >&2 "RabbitMQ persistence identity refused: the Mnesia path escapes the persistent dataset."; exit 67; }
   persisted_nodename=""
   for candidate in "$mnesia_base"/rabbit@*; do
-    [ -d "$candidate" ] || continue
+    if [ ! -e "$candidate" ] && [ ! -L "$candidate" ]; then continue; fi
+    [ ! -L "$candidate" ] && [ -d "$candidate" ] || { echo >&2 "RabbitMQ persistence identity refused: a node database path is unsafe."; exit 67; }
+    candidate_real="$(readlink -f -- "$candidate")" || { echo >&2 "RabbitMQ persistence identity refused: a node database path cannot be canonicalized."; exit 67; }
+    case "$candidate_real" in "$mnesia_real"/rabbit@*) ;; *) echo >&2 "RabbitMQ persistence identity refused: a node database escapes the persistent dataset."; exit 67;; esac
     candidate_nodename="${candidate##*/}"
     case "$candidate_nodename" in
       *-plugins-expand)
@@ -169,6 +179,11 @@ set -eu
 # Copying the capability-bearing image binary into the private executable
 # scratch volume drops its low-port file capability before capability-free
 # startup on port 8443.
+[ ! -L /tmp/settleora-caddy ] || { echo >&2 "Caddy startup refused: the prior scratch executable is unsafe."; exit 64; }
+if [ -e /tmp/settleora-caddy ]; then
+  [ -f /tmp/settleora-caddy ] && [ "$(stat -c %u -- /tmp/settleora-caddy)" = "$(id -u)" ] || { echo >&2 "Caddy startup refused: the prior scratch executable is unsafe."; exit 64; }
+  rm -f -- /tmp/settleora-caddy || { echo >&2 "Caddy startup refused: the prior scratch executable could not be removed."; exit 64; }
+fi
 cp /usr/bin/caddy /tmp/settleora-caddy
 chmod 0555 /tmp/settleora-caddy
 exec /tmp/settleora-caddy "$@"
