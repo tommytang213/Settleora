@@ -373,5 +373,11 @@ exec dotnet Settleora.Api.dll "$@"
 {% do rendered.services.ingress.update({"ports": [{"host_ip": values.network.bind_address, "mode": "ingress", "protocol": "tcp", "published": values.network.https_port, "target": values.consts.internal_https_port}]}) %}
 {% do rendered.networks.update({"edge": {}}) %}
 {% do rendered.services.ingress.networks.update({"edge": {"gw_priority": 1}}) %}
+{% set ingress_note = "### Container: [ingress]\n\n#### Joined networks\n\n- " ~ ingress_net ~ "\n\n" %}
+{% if ingress_note not in rendered["x-notes"] %}
+  {% do tpl.funcs.fail("Official ingress operator metadata shape changed") %}
+{% endif %}
+{% set ingress_note_with_edge = "### Container: [ingress]\n\n#### Joined networks\n\n- edge\n- " ~ ingress_net ~ "\n\n" %}
+{% do rendered.update({"x-notes": rendered["x-notes"].replace(ingress_note, ingress_note_with_edge)}) %}
 {% do rendered.update({"x-settleora-release": values.release_identity}) %}
 {{ rendered | tojson }}

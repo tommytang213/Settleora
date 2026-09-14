@@ -205,6 +205,19 @@ for (const [service, expected] of Object.entries(expectedServiceConfigs)) {
 if (canonicalJson(Object.keys(compose.configs ?? {}).sort()) !== canonicalJson(['settleora-api-entrypoint', 'settleora-caddy-entrypoint', 'settleora-caddyfile', 'settleora-migrate-entrypoint', 'settleora-rabbitmq-entrypoint', 'settleora-tls-certificate', 'settleora-tls-private-key'])) fail('Official config set mismatch');
 const certificate = privateValues.ix_certificates?.[String(privateValues.network?.certificate_id)];
 if (compose.configs?.['settleora-tls-certificate']?.content !== certificate?.certificate || compose.configs?.['settleora-tls-private-key']?.content !== certificate?.privatekey) fail('Official ingress TLS config content mismatch');
+const applicationReleaseKeys = ['candidateId', 'commit', 'identityDigest', 'tree'];
+const runtimeKeys = ['digestAuthority', 'images', 'indexDigests', 'platform'];
+const runtimeRoleKeys = ['api', 'caddy', 'postgres', 'rabbitmq'];
+if (canonicalJson(Object.keys(plan.applicationRelease ?? {}).sort()) !== canonicalJson(applicationReleaseKeys)
+  || canonicalJson(Object.keys(plan.runtime ?? {}).sort()) !== canonicalJson(runtimeKeys)
+  || canonicalJson(Object.keys(plan.runtime?.images ?? {}).sort()) !== canonicalJson(runtimeRoleKeys)
+  || canonicalJson(Object.keys(plan.runtime?.indexDigests ?? {}).sort()) !== canonicalJson(runtimeRoleKeys)
+  || !/^day1-[0-9a-f]{12}$/u.test(plan.applicationRelease?.candidateId ?? '')
+  || !/^[0-9a-f]{40}$/u.test(plan.applicationRelease?.commit ?? '') || !/^[0-9a-f]{40}$/u.test(plan.applicationRelease?.tree ?? '')
+  || !/^[0-9a-f]{64}$/u.test(plan.applicationRelease?.identityDigest ?? '') || plan.runtime?.platform !== 'linux/amd64'
+  || plan.runtime?.digestAuthority !== 'selected-platform-manifest'
+  || Object.values(plan.runtime?.indexDigests ?? {}).some((digest) => !/^sha256:[0-9a-f]{64}$/u.test(digest))
+  || Object.values(plan.runtime?.images ?? {}).some((reference) => typeof reference !== 'string' || !reference.includes('@sha256:'))) fail('Install-plan release authority is incomplete');
 const expectedReleaseMapping = {
   api_index_digest: plan.runtime?.indexDigests?.api,
   application_source_commit: plan.applicationRelease?.commit,
@@ -219,7 +232,7 @@ if (canonicalJson(compose['x-settleora-release']) !== canonicalJson(expectedRele
   || canonicalJson(directCompose['x-settleora-release']) !== canonicalJson(expectedReleaseMapping)) fail('Official release mapping mismatch');
 const noteContainer = (name, networks, user = 'unknown', group = 'unknown') => `### Container: [${name}]\n\n#### Joined networks\n\n${networks.map((network) => `- ${network}`).join('\n')}\n\n#### Running user/group(s)\n\n- User: ${user}\n- Group: ${group}\n- Supplementary Groups: apps\n\n---\n\n`;
 const appTitle = privateValues.ix_context?.app_metadata?.title || '<app_name>';
-const expectedNotes = `# ${appTitle}\n\n## Security\n\n**Read the following security precautions to ensure that you wish to continue using this application.**\n\n---\n\n${noteContainer('api', [ingressNetwork[0], backendNetwork[0]])}${noteContainer('ingress', [ingressNetwork[0]], '1000', '1000')}${noteContainer('migrate', [backendNetwork[0]])}${noteContainer('postgres', [backendNetwork[0]])}${noteContainer('rabbitmq', [backendNetwork[0]])}## Bug Reports and Feature Requests\n\nIf you find a bug in this app or have an idea for a new feature, please file an issue at\nhttps://github.com/truenas/apps\n`;
+const expectedNotes = `# ${appTitle}\n\n## Security\n\n**Read the following security precautions to ensure that you wish to continue using this application.**\n\n---\n\n${noteContainer('api', [ingressNetwork[0], backendNetwork[0]])}${noteContainer('ingress', ['edge', ingressNetwork[0]], '1000', '1000')}${noteContainer('migrate', [backendNetwork[0]])}${noteContainer('postgres', [backendNetwork[0]])}${noteContainer('rabbitmq', [backendNetwork[0]])}## Bug Reports and Feature Requests\n\nIf you find a bug in this app or have an idea for a new feature, please file an issue at\nhttps://github.com/truenas/apps\n`;
 if (compose['x-action-required'] !== false || canonicalJson(compose['x-portals']) !== canonicalJson([]) || compose['x-notes'] !== expectedNotes) fail('Official operator metadata contract mismatch');
 process.stdout.write(`${canonicalJson({ schema: 'settleora.truenas-official-render-validation.v1', composeSha256: sha256(canonicalJson(compose)), services: names, publishedPorts: 1, platform: 'linux/amd64', realSecretsIncluded: false, published: false, deployed: false })}`);
 }

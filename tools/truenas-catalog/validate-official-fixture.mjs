@@ -51,9 +51,12 @@ function expectOfficialPostRenderRefusal(packet, name, mutate) {
   const directComposePath = path.join(root, 'trusted-direct-compose.yaml');
   cpSync(path.join(packet, 'rendered/docker-compose.yaml'), directComposePath);
   const directCompose = YAML.parse(readFileSync(directComposePath, 'utf8'));
+  const planPath = path.join(root, 'install-plan.json');
+  const plan = JSON.parse(readFileSync(path.join(packet, 'install-plan.json'), 'utf8'));
   const originalDirectCompose = JSON.stringify(directCompose);
-  mutate(compose, directCompose);
+  mutate(compose, directCompose, plan);
   writeFileSync(composePath, YAML.stringify(compose), { mode: 0o600 });
+  writeFileSync(planPath, JSON.stringify(plan), { mode: 0o600 });
   const privateRenderIdentityPath = path.join(root, 'private-render-identity.json');
   if (JSON.stringify(directCompose) === originalDirectCompose) {
     cpSync(path.join(packet, 'private-render-identity.json'), privateRenderIdentityPath);
@@ -63,7 +66,7 @@ function expectOfficialPostRenderRefusal(packet, name, mutate) {
     writeFileSync(privateRenderIdentityPath, JSON.stringify({ schema: 'settleora.truenas-private-render-identity.v1', renderedComposeSha256: sha256(directBytes) }), { mode: 0o600 });
   }
   const result = spawnSync('bash', ['-c', 'node "$1" 3< "$2" 4< "$3" 5< "$4" 6< "$5" 7< "$6"', 'bash',
-    path.join(moduleDir, 'validate-official-render.mjs'), composePath, path.join(packet, 'install-plan.json'), path.join(packet, 'private-validation-values.yaml'),
+    path.join(moduleDir, 'validate-official-render.mjs'), composePath, planPath, path.join(packet, 'private-validation-values.yaml'),
     privateRenderIdentityPath, directComposePath,
   ], { cwd: repoRoot, encoding: 'utf8' });
   assert.notEqual(result.status, 0, `${name} must be refused by the official post-render validator`);
@@ -138,6 +141,11 @@ try {
   expectOfficialPostRenderRefusal(packet, 'shared-release-source-drift', (compose, directCompose) => {
     compose['x-settleora-release'].application_source_commit = '0'.repeat(40);
     directCompose['x-settleora-release'].application_source_commit = '0'.repeat(40);
+  });
+  expectOfficialPostRenderRefusal(packet, 'missing-plan-release-field', (compose, directCompose, plan) => {
+    delete plan.applicationRelease.candidateId;
+    delete compose['x-settleora-release'].candidate_id;
+    delete directCompose['x-settleora-release'].candidate_id;
   });
   expectOfficialPostRenderRefusal(packet, 'operator-action-drift', (compose) => { compose['x-action-required'] = true; });
   expectOfficialPostRenderRefusal(packet, 'operator-portal-injection', (compose) => { compose['x-portals'] = [{ name: 'Untrusted', scheme: 'https', host: 'example.invalid' }]; });
