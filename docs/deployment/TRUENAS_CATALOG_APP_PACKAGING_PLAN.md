@@ -132,8 +132,7 @@ future published form:
 | API bind address | Text/select | Required private host/LAN interface | Must reject wildcard, loopback, malformed, and non-RFC1918 selections. |
 | Private HTTPS hostname | Text | Required | Exact private DNS name present in the certificate SAN; no wildcard default. |
 | External base URL | Read-only/derived | Private HTTPS origin | Derive from the approved hostname and port; do not permit LAN HTTP. |
-| TLS certificate chain | External file/secret mount | Required | Operator-managed trusted chain; never embed it in catalog metadata or reports. |
-| TLS private key | External secret mount | Required | Operator-managed key with restricted permissions; never display or log it. |
+| TLS certificate | TrueNAS-managed certificate reference | Required | The form exposes one `definitions/certificate` selector; the template derives and internally mounts its trusted chain and private key. Certificate lifecycle remains operator-managed, and key material must never be displayed, logged, or embedded in catalog metadata or reports. |
 | Environment/profile | Select | Release-policy value | Do not expose development-only defaults as production guidance. |
 | PostgreSQL dataset | Dataset path picker | Operator-selected | Persistent, private, writable by the app runtime. |
 | PostgreSQL database/user | Text/generated | App-specific values | Avoid default/demo names where practical for persistent installs. |
