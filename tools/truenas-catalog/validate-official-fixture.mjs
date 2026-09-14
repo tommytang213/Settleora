@@ -87,6 +87,18 @@ try {
   expectOfficialPostRenderRefusal(packet, 'api-command-injection', (compose) => {
     compose.services.api.command = ['migrate-database', '--mode=force-allow-destructive'];
   });
+  expectOfficialPostRenderRefusal(packet, 'host-alias-injection', (compose) => {
+    compose.services.ingress.extra_hosts = ['api:192.168.1.99'];
+  });
+  expectOfficialPostRenderRefusal(packet, 'restart-policy-drift', (compose) => {
+    compose.services.api.restart = 'no';
+  });
+  expectOfficialPostRenderRefusal(packet, 'cpu-limit-drift', (compose) => {
+    delete compose.services.api.deploy.resources.limits.cpus;
+  });
+  expectOfficialPostRenderRefusal(packet, 'ingress-tmpfs-drift', (compose) => {
+    compose.services.ingress.tmpfs = ['/config:gid=1000,mode=0700,uid=1000'];
+  });
   expectOfficialRefusal(packet, 'network-injection', (values) => {
     values.network.networks = [{ name: 'bridge', containers: [{ name: 'postgres', config: {} }] }];
   });
@@ -103,7 +115,7 @@ try {
   expectOfficialRefusal(packet, 'live-context-without-filesystem-authority', (values) => {
     values.ix_context = { app_name: 'settleora', is_install: true };
   });
-  process.stdout.write('Official renderer accepted normalized empty certificate authorities and refused undeclared network/image/CA overrides, entrypoint/command/Caddyfile/health/config isolation drift, plus an unresolvable live dataset context.\n');
+  process.stdout.write('Official renderer accepted normalized empty certificate authorities and refused undeclared network/image/CA overrides, complete service-contract drift, plus an unresolvable live dataset context.\n');
 } finally {
   rmSync(tempRoot, { recursive: true, force: true });
 }

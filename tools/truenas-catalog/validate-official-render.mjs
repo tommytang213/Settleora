@@ -23,11 +23,23 @@ if (plan.schema !== PACKAGE_SCHEMA) fail('Install-plan schema mismatch');
 if (privateRenderIdentity.schema !== 'settleora.truenas-private-render-identity.v1' || privateRenderIdentity.renderedComposeSha256 !== sha256(directRenderedCompose)) fail('Private rendered Compose identity mismatch');
 const names = Object.keys(compose.services ?? {}).sort();
 if (canonicalJson(names) !== canonicalJson(['api', 'ingress', 'migrate', 'postgres', 'rabbitmq'])) fail('Official render service set mismatch');
+const expectedTopLevelKeys = ['configs', 'networks', 'services', 'volumes', 'x-action-required', 'x-notes', 'x-portals', 'x-settleora-release'];
+if (canonicalJson(Object.keys(compose).sort()) !== canonicalJson(expectedTopLevelKeys)) fail('Official render top-level contract mismatch');
+const expectedServiceKeys = {
+  api: ['cap_drop', 'configs', 'depends_on', 'deploy', 'entrypoint', 'environment', 'expose', 'group_add', 'healthcheck', 'image', 'networks', 'platform', 'privileged', 'restart', 'security_opt', 'stdin_open', 'tty', 'volumes'],
+  ingress: ['cap_drop', 'command', 'configs', 'depends_on', 'deploy', 'entrypoint', 'environment', 'group_add', 'healthcheck', 'image', 'networks', 'platform', 'ports', 'privileged', 'read_only', 'restart', 'security_opt', 'stdin_open', 'tmpfs', 'tty', 'user', 'volumes'],
+  migrate: ['cap_drop', 'command', 'configs', 'depends_on', 'deploy', 'entrypoint', 'environment', 'group_add', 'healthcheck', 'image', 'networks', 'platform', 'privileged', 'restart', 'security_opt', 'stdin_open', 'tty'],
+  postgres: ['deploy', 'environment', 'group_add', 'healthcheck', 'image', 'networks', 'platform', 'privileged', 'restart', 'security_opt', 'stdin_open', 'tty', 'volumes'],
+  rabbitmq: ['command', 'configs', 'deploy', 'entrypoint', 'environment', 'group_add', 'healthcheck', 'hostname', 'image', 'networks', 'platform', 'privileged', 'restart', 'security_opt', 'stdin_open', 'tty', 'volumes'],
+};
 for (const [name, service] of Object.entries(compose.services)) {
+  if (canonicalJson(Object.keys(service).sort()) !== canonicalJson(expectedServiceKeys[name])) fail(`${name} service field contract mismatch`);
   if (service.platform !== 'linux/amd64') fail(`${name} platform mismatch`);
   if (!service.image?.includes('@sha256:') || /:(?:main|latest)(?:@|$)/u.test(service.image)) fail(`${name} image is not immutable`);
   if (name !== 'ingress' && (service.ports?.length ?? 0) !== 0) fail(`${name} unexpectedly publishes a port`);
-  if (service.deploy?.resources?.limits?.memory !== '4096M') fail(`${name} memory limit mismatch`);
+  if (canonicalJson(service.deploy) !== canonicalJson({ resources: { limits: { cpus: '4', memory: '4096M' } } })) fail(`${name} resource limit contract mismatch`);
+  if (canonicalJson(service.group_add) !== canonicalJson([568]) || service.stdin_open !== false || service.tty !== false) fail(`${name} official runtime defaults mismatch`);
+  if (service.restart !== directCompose.services?.[name]?.restart) fail(`${name} restart policy mismatch`);
 }
 const securityContext = (service) => Object.fromEntries(['user', 'read_only', 'cap_add', 'cap_drop', 'security_opt', 'privileged', 'pid', 'ipc'].filter((key) => service[key] !== undefined).map((key) => [key, service[key]]));
 const expectedSecurityContexts = {
@@ -47,6 +59,7 @@ for (const [name, expectedImage] of Object.entries(expectedImages)) {
 const serviceInvocation = (service) => ({ entrypoint: service.entrypoint ?? null, command: service.command ?? null });
 for (const name of names) {
   if (canonicalJson(serviceInvocation(compose.services[name])) !== canonicalJson(serviceInvocation(directCompose.services?.[name] ?? {}))) fail(`Official ${name} invocation does not match the trusted direct render`);
+  if (canonicalJson(compose.services[name].depends_on ?? null) !== canonicalJson(directCompose.services?.[name]?.depends_on ?? null)) fail(`Official ${name} dependency contract does not match the trusted direct render`);
 }
 if (compose.services.api.environment?.HOME !== '/var/lib/settleora/storage/.settleora-home') fail('Official API data-protection key home is not persistent within the existing storage layout');
 const privateHostname = privateValues.network?.hostname;
@@ -131,6 +144,17 @@ const expectedMemberships = {
 for (const [service, expected] of Object.entries(expectedMemberships)) {
   if (canonicalJson(memberships(compose.services[service])) !== canonicalJson(expected)) fail(`Official ${service} network boundary mismatch`);
 }
+const expectedNetworkAttachments = {
+  ingress: { edge: { gw_priority: 1 }, [ingressNetwork[0]]: {} },
+  api: { [backendNetwork[0]]: {}, [ingressNetwork[0]]: {} },
+  migrate: { [backendNetwork[0]]: {} },
+  postgres: { [backendNetwork[0]]: {} },
+  rabbitmq: { [backendNetwork[0]]: {} },
+};
+for (const [service, expected] of Object.entries(expectedNetworkAttachments)) {
+  if (canonicalJson(compose.services[service].networks) !== canonicalJson(expected)) fail(`Official ${service} network attachment contract mismatch`);
+}
+if (canonicalJson(Object.keys(compose.networks).sort()) !== canonicalJson(['edge', backendNetwork[0], ingressNetwork[0]].sort())) fail('Official network set mismatch');
 const expectedTargets = { api: '/var/lib/settleora/storage', postgres: '/var/lib/postgresql/data', rabbitmq: '/var/lib/rabbitmq' };
 const expectedSources = { api: privateValues.storage?.api_storage_dataset, postgres: privateValues.storage?.postgres_dataset, rabbitmq: privateValues.storage?.rabbitmq_dataset };
 const datasetSources = [];
@@ -147,6 +171,9 @@ const ingressScratch = ingressVolumes[0];
 if (ingressVolumes.length !== 1 || ingressScratch?.type !== 'volume' || ingressScratch?.source !== 'settleora-caddy-bin' || ingressScratch?.target !== '/tmp' || ingressScratch?.read_only !== false || ingressScratch?.volume?.nocopy !== false
   || canonicalJson(compose.volumes?.['settleora-caddy-bin']) !== canonicalJson({}) || (compose.services.migrate.volumes?.length ?? 0) !== 0 || new Set(datasetSources).size !== 3
   || datasetSources.some((source, index) => datasetSources.some((other, otherIndex) => index !== otherIndex && source.startsWith(`${other}/`)))) fail('Official persistent dataset ownership or separation mismatch');
+if (canonicalJson(Object.keys(compose.volumes ?? {})) !== canonicalJson(['settleora-caddy-bin'])
+  || canonicalJson(compose.services.ingress.tmpfs) !== canonicalJson(['/config:gid=1000,mode=0700,uid=1000', '/data:gid=1000,mode=0700,uid=1000'])
+  || canonicalJson(compose.services.api.expose) !== canonicalJson(['8080/tcp'])) fail('Official ephemeral storage or internal API exposure contract mismatch');
 const caddy = String(compose.configs?.['settleora-caddyfile']?.content ?? '');
 if (!caddy.includes('auto_https off') || !caddy.includes(`https://${privateHostname}:8443`) || !caddy.includes('tls /run/settleora-tls/tls.crt /run/settleora-tls/tls.key') || !caddy.includes('reverse_proxy api:8080') || caddy.includes('acme') || caddy.includes('http://')) fail('Official private TLS topology mismatch');
 const expectedIngressConfigs = [
@@ -166,6 +193,7 @@ const expectedServiceConfigs = {
 for (const [service, expected] of Object.entries(expectedServiceConfigs)) {
   if (canonicalJson(compose.services[service].configs ?? []) !== canonicalJson(expected)) fail(`Official ${service} config isolation mismatch`);
 }
+if (canonicalJson(Object.keys(compose.configs ?? {}).sort()) !== canonicalJson(['settleora-api-entrypoint', 'settleora-caddy-entrypoint', 'settleora-caddyfile', 'settleora-migrate-entrypoint', 'settleora-rabbitmq-entrypoint', 'settleora-tls-certificate', 'settleora-tls-private-key'])) fail('Official config set mismatch');
 const certificate = privateValues.ix_certificates?.[String(privateValues.network?.certificate_id)];
 if (compose.configs?.['settleora-tls-certificate']?.content !== certificate?.certificate || compose.configs?.['settleora-tls-private-key']?.content !== certificate?.privatekey) fail('Official ingress TLS config content mismatch');
 if (compose['x-settleora-release']?.identity_digest !== plan.applicationRelease.identityDigest) fail('Official release mapping mismatch');
