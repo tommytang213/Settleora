@@ -19,9 +19,13 @@ visible blocker, not permission to infer behavior.
 The [program architecture](../../PROGRAM_ARCHITECTURE.md) remains authoritative:
 API/domain services own server-mode lifecycle mutation acceptance,
 authorization, dependency checks, policy application, status transitions, and
-audit. Clients own presentation only. File bytes remain behind the storage
-abstraction, financial truth remains API/domain-owned, and workers do not
-directly mutate core business tables.
+audit, and server-mode clients own presentation rather than accepted domain
+state. In local-only mode, the local app data store and its local domain
+boundary may accept locally authoritative records under the
+[local/server authority audit](../architecture/LOCAL_SERVER_MODE_AUTHORITY_BOUNDARY_AUDIT.md);
+that authority must not cross into server records by implication. File bytes
+remain behind the storage abstraction, server financial truth remains
+API/domain-owned, and workers do not directly mutate core business tables.
 
 ## Canonical Shared Vocabulary
 
@@ -79,7 +83,7 @@ Every child row must keep these questions separate:
 | Mutation-eligibility effect | Which future mutations remain allowed, become blocked, or need a different workflow. |
 | Reversibility | Whether the exact transition is reversible and what evidence supports that classification. |
 | Re-entry / reactivation eligibility | Named target state, actor, revalidation, blockers, and whether re-entry is distinct from restore. |
-| Dependency evidence | Cited dependent records, history, files, settlements, sessions, audit, sync/import/restore state, backup/export/snapshot/replica copies and their disposition, or an explicit evidence gap. |
+| Dependency evidence | Cited dependent records, history, files, settlements, sessions, notifications and retained notification history, audit, sync/import/restore state, backup/export/snapshot/replica copies and their disposition, or an explicit evidence gap. |
 | Persisted lifecycle metadata | Applicability and cited requirements for authoritative timestamps, actor, reason, restoration, purge/disposal, version/concurrency, and other lifecycle metadata. |
 | Idempotency / replay / concurrency | Required idempotency key or equivalent, duplicate/replay outcome, retry result, and authoritative concurrent-conflict behavior for the transition. |
 | Retention classification | Current cited class/rule, unresolved classification, holds, and clock trigger; never an invented duration. |
@@ -160,7 +164,9 @@ policy_row:
   hard_delete_eligibility:
     status: "<eligible/ineligible/unresolved>"
     target_classification: "<dependency-free draft/non-authoritative temporary/orphan/other or unresolved>"
-    conditions: ["<dependency, authority, audit, confirmation, concurrency, and gate conditions>"]
+    conditions: ["<dependency, authority, audit, concurrency, and gate conditions>"]
+    consequence_warning: "<required wording/evidence, not user-initiated, or unresolved>"
+    explicit_confirmation: "<required mechanism/evidence when user-initiated, not user-initiated, or unresolved>"
   purge_disposal_eligibility:
     status: "<eligible/ineligible/unresolved>"
     conditions: ["<retention, dependency including retained copies, authority, and policy conditions>"]
@@ -252,8 +258,9 @@ Every Wave 2 child must:
 - Keep API/domain services authoritative for money, lifecycle mutation,
   settlement state, revision impact, authorization, and audit.
 - Cite settlement, payment, allocation/residual, revision, participant, payer,
-  split, report, recurring-occurrence, file, sync/import/restore, and audit
-  dependencies where applicable; an unknown dependency is a blocker.
+  split, report, recurring-occurrence, file, notification and retained
+  notification history, sync/import/restore, and audit dependencies where
+  applicable; an unknown dependency is a blocker.
 - Do not assume destructive deletion or purge eligibility for confirmed,
   settled, shared, revision-dependent, or otherwise authoritative history.
 - Keep conditional hard delete for positively dependency-free drafts separate
