@@ -102,6 +102,9 @@ test('deterministic materialization repeats byte-identical package and compose i
   assert.equal(first.plan.actions.published, false);
   assert.equal(first.plan.actions.deployed, false);
   assert.equal(first.plan.applicationRelease.commit, syntheticManifest().source.commit);
+  assert.equal(first.plan.datasetSourceSha256.api, sha256(fixtureConfig.storage.apiDataset));
+  assert.equal(first.plan.datasetSourceSha256.postgres, sha256(fixtureConfig.storage.postgresDataset));
+  assert.equal(first.plan.datasetSourceSha256.rabbitmq, sha256(fixtureConfig.storage.rabbitmqDataset));
   assert.match(first.plan.packageSource.repositoryCommit, /^[0-9a-f]{40}$/);
   assert.match(first.plan.packageSource.repositoryTree, /^[0-9a-f]{40}$/);
   assert.match(first.plan.packageSource.contentSha256, /^[0-9a-f]{64}$/);
@@ -129,10 +132,13 @@ test('rendered topology preserves R11, R12, private services, datasets, and migr
   assert.equal(compose.services.api.environment.Auth__Passkeys__AllowedOrigins__0, `https://${fixtureConfig.hostname}:${fixtureConfig.httpsPort}`);
   assert.deepEqual(compose.services.api.entrypoint, ['/bin/sh', '/usr/local/bin/settleora-api-entrypoint.sh']);
   assert.match(compose.configs['settleora-api-entrypoint'].content, /\.settleora-write-probe/);
+  assert.doesNotMatch(compose.configs['settleora-api-entrypoint'].content, /chmod 0700 -- "\$(?:home|aspnet|keys)_path"/);
   assert.equal(compose.services.api.environment.HOME, '/var/lib/settleora/storage/.settleora-home');
   assert.equal(compose.services.api.volumes[0].target, '/var/lib/settleora/storage');
   assert.deepEqual(compose.services.ingress.entrypoint, ['/bin/sh', '/usr/local/bin/settleora-caddy-entrypoint.sh']);
   assert.match(compose.configs['settleora-caddy-entrypoint'].content, /cp \/usr\/bin\/caddy \/tmp\/settleora-caddy/);
+  assert.deepEqual(compose.services.ingress.volumes, [{ type: 'volume', source: 'settleora-caddy-bin', target: '/tmp', read_only: false, volume: { nocopy: false } }]);
+  assert.equal(compose.volumes['settleora-caddy-bin'].labels['tn.volume.type'], 'temporary');
   assert.match(compose.configs['settleora-migrate-entrypoint'].content, /validate-only\)[\s\S]*--mode=validate-only[\s\S]*--mode=check-only/);
   assert.equal(compose.services.rabbitmq.hostname, fixtureConfig.rabbitmq.nodeHostname);
   assert.equal(compose.services.rabbitmq.environment.RABBITMQ_NODENAME, `rabbit@${fixtureConfig.rabbitmq.nodeHostname}`);
@@ -180,6 +186,8 @@ test('API dataset and key-ring preflight does not follow restored probe or state
 
   unlinkSync(path.join(root, '.settleora-home'));
   mkdirSync(path.join(root, '.settleora-home', '.aspnet'), { recursive: true });
+  chmodSync(path.join(root, '.settleora-home'), 0o750);
+  chmodSync(path.join(root, '.settleora-home', '.aspnet'), 0o750);
   symlinkSync('../../outside-home', path.join(root, '.settleora-home', '.aspnet', 'DataProtection-Keys'));
   const keysRefused = spawnSync('/bin/sh', [script], { encoding: 'utf8' });
   assert.equal(keysRefused.status, 70);
@@ -187,12 +195,16 @@ test('API dataset and key-ring preflight does not follow restored probe or state
   assert.equal(statSync(outsideHome).mode & 0o777, 0o755);
 
   unlinkSync(path.join(root, '.settleora-home', '.aspnet', 'DataProtection-Keys'));
+  mkdirSync(path.join(root, '.settleora-home', '.aspnet', 'DataProtection-Keys'));
+  chmodSync(path.join(root, '.settleora-home', '.aspnet', 'DataProtection-Keys'), 0o750);
+  writeFileSync(path.join(root, '.settleora-home', '.aspnet', 'DataProtection-Keys', '.settleora-write-probe.interrupted'), '');
   const accepted = spawnSync('/bin/sh', [script], { encoding: 'utf8' });
   assert.equal(accepted.status, 0, accepted.stderr);
   assert.equal(readFileSync(protectedFile, 'utf8'), 'preserve-me');
   assert.equal(statSync(path.join(root, '.settleora-home')).isDirectory(), true);
-  assert.equal(statSync(path.join(root, '.settleora-home')).mode & 0o777, 0o700);
-  assert.equal(statSync(path.join(root, '.settleora-home', '.aspnet', 'DataProtection-Keys')).mode & 0o777, 0o700);
+  assert.equal(statSync(path.join(root, '.settleora-home')).mode & 0o777, 0o750, 'existing ACL-managed directory mode must not be rewritten');
+  assert.equal(statSync(path.join(root, '.settleora-home', '.aspnet')).mode & 0o777, 0o750, 'existing ACL-managed ASP.NET directory mode must not be rewritten');
+  assert.equal(statSync(path.join(root, '.settleora-home', '.aspnet', 'DataProtection-Keys')).mode & 0o777, 0o750, 'existing ACL-managed key directory mode must not be rewritten');
   assert.deepEqual(readdirSync(root).filter((name) => name.startsWith('.settleora-write-probe.')), []);
   assert.deepEqual(readdirSync(path.join(root, '.settleora-home', '.aspnet', 'DataProtection-Keys')).filter((name) => name.startsWith('.settleora-write-probe.')), []);
 
@@ -207,6 +219,12 @@ test('API dataset and key-ring preflight does not follow restored probe or state
   const unreadableKeyRefused = spawnSync('/bin/sh', [script], { encoding: 'utf8' });
   assert.equal(unreadableKeyRefused.status, 72);
   chmodSync(unreadableKey, 0o600);
+  const unsafeProbe = path.join(keys, '.settleora-write-probe.not-empty');
+  writeFileSync(unsafeProbe, 'not-a-probe');
+  const unsafeProbeRefused = spawnSync('/bin/sh', [script], { encoding: 'utf8' });
+  assert.equal(unsafeProbeRefused.status, 71);
+  assert.match(unsafeProbeRefused.stderr, /unsafe stale data-protection write probe/);
+  assert.equal(readFileSync(unsafeProbe, 'utf8'), 'not-a-probe');
 });
 
 test('bounded form/config negative matrix fails closed', () => {
@@ -220,6 +238,9 @@ test('bounded form/config negative matrix fails closed', () => {
     ['oversized hostname label', (c) => { c.hostname = `${'a'.repeat(64)}.home.arpa`; }],
     ['documentation hostname', (c) => { c.hostname = 'settleora.example.com'; }],
     ['IPv4 passkey hostname', (c) => { c.hostname = '192.168.50.20'; }],
+    ['short IPv4 passkey hostname', (c) => { c.hostname = '192.168'; }],
+    ['octal IPv4 passkey hostname', (c) => { c.hostname = '0300.0250.1.1'; }],
+    ['hex IPv4 passkey hostname', (c) => { c.hostname = '0xc0.0xa8.1.1'; }],
     ['missing certificate', (c) => { c.certificateRef = ''; }],
     ['missing postgres secret', (c) => { c.postgres.password = ''; }],
     ['missing rabbit secret', (c) => { c.rabbitmq.password = ''; }],
@@ -313,6 +334,8 @@ test('topology negative matrix rejects exposure, unsupported services, identity 
     (c) => { c.services.api.volumes = clone(c.services.postgres.volumes); },
     (c) => { c.services.postgres.volumes = []; c.services.api.volumes.push(base.services.postgres.volumes[0]); },
     (c) => { c.services.migrate.volumes = clone(c.services.rabbitmq.volumes); },
+    (c) => { c.services.ingress.volumes = []; },
+    (c) => { c.volumes['settleora-caddy-bin'].labels['tn.volume.type'] = 'persistent'; },
   ];
   for (const mutate of cases) {
     const compose = clone(base);
