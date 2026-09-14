@@ -430,7 +430,7 @@ export function renderCompose(identity, config) {
       },
     },
     networks: { edge: {}, ingress: { internal: true }, backend: { internal: true } },
-    volumes: { 'settleora-caddy-bin': { labels: { 'tn.volume.type': 'temporary' } } },
+    volumes: { 'settleora-caddy-bin': {} },
     configs: {
       'settleora-caddyfile': { content: `{\n  admin off\n  auto_https off\n  log default {\n    level ERROR\n    format filter {\n      wrap json\n      fields { request delete }\n    }\n  }\n}\nhttps://${config.hostname}:8443 {\n  tls /run/settleora-tls/tls.crt /run/settleora-tls/tls.key\n  reverse_proxy api:8080\n}\n` },
       'settleora-caddy-entrypoint': { content: CADDY_ENTRYPOINT },
@@ -509,7 +509,7 @@ export function validateTopology(compose, identity, config) {
   }
   const ingressVolumes = compose.services.ingress.volumes ?? [];
   if (ingressVolumes.length !== 1 || ingressVolumes[0]?.type !== 'volume' || ingressVolumes[0]?.source !== 'settleora-caddy-bin' || ingressVolumes[0]?.target !== '/tmp' || ingressVolumes[0]?.read_only !== false || ingressVolumes[0]?.volume?.nocopy !== false
-    || compose.volumes?.['settleora-caddy-bin']?.labels?.['tn.volume.type'] !== 'temporary' || (compose.services.migrate.volumes?.length ?? 0) !== 0) fail('Scratch volume or persistent dataset ownership is unsafe');
+    || canonicalJson(compose.volumes?.['settleora-caddy-bin']) !== canonicalJson({}) || (compose.services.migrate.volumes?.length ?? 0) !== 0) fail('Scratch volume or persistent dataset ownership is unsafe');
   return compose;
 }
 

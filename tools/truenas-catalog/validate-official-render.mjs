@@ -82,8 +82,8 @@ for (const [service, target] of Object.entries(expectedTargets)) {
 }
 const ingressVolumes = compose.services.ingress.volumes ?? [];
 const ingressScratch = ingressVolumes[0];
-if (ingressVolumes.length !== 1 || ingressScratch?.type !== 'volume' || ingressScratch?.target !== '/tmp' || ingressScratch?.read_only !== false || ingressScratch?.volume?.nocopy !== false
-  || typeof ingressScratch?.source !== 'string' || compose.volumes?.[ingressScratch.source]?.labels?.['tn.volume.type'] !== 'temporary' || (compose.services.migrate.volumes?.length ?? 0) !== 0 || new Set(datasetSources).size !== 3
+if (ingressVolumes.length !== 1 || ingressScratch?.type !== 'volume' || ingressScratch?.source !== 'settleora-caddy-bin' || ingressScratch?.target !== '/tmp' || ingressScratch?.read_only !== false || ingressScratch?.volume?.nocopy !== false
+  || canonicalJson(compose.volumes?.['settleora-caddy-bin']) !== canonicalJson({}) || (compose.services.migrate.volumes?.length ?? 0) !== 0 || new Set(datasetSources).size !== 3
   || datasetSources.some((source, index) => datasetSources.some((other, otherIndex) => index !== otherIndex && source.startsWith(`${other}/`)))) fail('Official persistent dataset ownership or separation mismatch');
 const caddy = String(compose.configs?.['settleora-caddyfile']?.content ?? '');
 if (!caddy.includes('auto_https off') || !caddy.includes(`https://${plan.tls.hostname}:8443`) || !caddy.includes('tls /run/settleora-tls/tls.crt /run/settleora-tls/tls.key') || !caddy.includes('reverse_proxy api:8080') || caddy.includes('acme') || caddy.includes('http://')) fail('Official private TLS topology mismatch');

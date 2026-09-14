@@ -58,6 +58,7 @@ test('official TrueNAS 25.10 package skeleton uses current Docker Apps layout an
   assert.match(template, /filesystem\.stat/);
   assert.match(template, /for path_segment in dataset\.split/);
   assert.match(template, /prefix_stat\.realpath != path_prefix\.value/);
+  assert.match(template, /temp_config\("settleora-caddy-bin"\)/);
   assert.ok(readFileSync(path.join(packageSource, 'templates/library/base_v2_3_11/container.py'), 'utf8').includes('"platform": "linux/amd64"'));
 });
 
@@ -138,7 +139,7 @@ test('rendered topology preserves R11, R12, private services, datasets, and migr
   assert.deepEqual(compose.services.ingress.entrypoint, ['/bin/sh', '/usr/local/bin/settleora-caddy-entrypoint.sh']);
   assert.match(compose.configs['settleora-caddy-entrypoint'].content, /cp \/usr\/bin\/caddy \/tmp\/settleora-caddy/);
   assert.deepEqual(compose.services.ingress.volumes, [{ type: 'volume', source: 'settleora-caddy-bin', target: '/tmp', read_only: false, volume: { nocopy: false } }]);
-  assert.equal(compose.volumes['settleora-caddy-bin'].labels['tn.volume.type'], 'temporary');
+  assert.deepEqual(compose.volumes['settleora-caddy-bin'], {});
   assert.match(compose.configs['settleora-migrate-entrypoint'].content, /validate-only\)[\s\S]*--mode=validate-only[\s\S]*--mode=check-only/);
   assert.equal(compose.services.rabbitmq.hostname, fixtureConfig.rabbitmq.nodeHostname);
   assert.equal(compose.services.rabbitmq.environment.RABBITMQ_NODENAME, `rabbit@${fixtureConfig.rabbitmq.nodeHostname}`);
@@ -335,7 +336,7 @@ test('topology negative matrix rejects exposure, unsupported services, identity 
     (c) => { c.services.postgres.volumes = []; c.services.api.volumes.push(base.services.postgres.volumes[0]); },
     (c) => { c.services.migrate.volumes = clone(c.services.rabbitmq.volumes); },
     (c) => { c.services.ingress.volumes = []; },
-    (c) => { c.volumes['settleora-caddy-bin'].labels['tn.volume.type'] = 'persistent'; },
+    (c) => { c.volumes['settleora-caddy-bin'].driver = 'local'; },
   ];
   for (const mutate of cases) {
     const compose = clone(base);
