@@ -75,6 +75,9 @@ exec /usr/local/bin/docker-entrypoint.sh "$@"
 
 const CADDY_ENTRYPOINT = `#!/bin/sh
 set -eu
+# Copying the capability-bearing image binary into the private executable
+# scratch volume drops its low-port file capability before capability-free
+# startup on port 8443.
 [ ! -L /tmp/settleora-caddy ] || { echo >&2 "Caddy startup refused: the prior scratch executable is unsafe."; exit 64; }
 if [ -e /tmp/settleora-caddy ]; then
   [ -f /tmp/settleora-caddy ] && [ "$(stat -c %u -- /tmp/settleora-caddy)" = "$(id -u)" ] || { echo >&2 "Caddy startup refused: the prior scratch executable is unsafe."; exit 64; }

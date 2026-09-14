@@ -69,6 +69,9 @@ try {
   expectOfficialPostRenderRefusal(packet, 'tls-cross-service-mount', (compose) => {
     compose.services.postgres.configs = [{ mode: 256, source: 'settleora-tls-private-key', target: '/tmp/leaked-key' }];
   });
+  expectOfficialPostRenderRefusal(packet, 'entrypoint-content-injection', (compose) => {
+    compose.configs['settleora-api-entrypoint'].content = `exit 0\n${compose.configs['settleora-api-entrypoint'].content}`;
+  });
   expectOfficialRefusal(packet, 'network-injection', (values) => {
     values.network.networks = [{ name: 'bridge', containers: [{ name: 'postgres', config: {} }] }];
   });
@@ -85,7 +88,7 @@ try {
   expectOfficialRefusal(packet, 'live-context-without-filesystem-authority', (values) => {
     values.ix_context = { app_name: 'settleora', is_install: true };
   });
-  process.stdout.write('Official renderer accepted normalized empty certificate authorities and refused undeclared network/image/CA overrides plus an unresolvable live dataset context.\n');
+  process.stdout.write('Official renderer accepted normalized empty certificate authorities and refused undeclared network/image/CA overrides, entrypoint/config isolation drift, plus an unresolvable live dataset context.\n');
 } finally {
   rmSync(tempRoot, { recursive: true, force: true });
 }

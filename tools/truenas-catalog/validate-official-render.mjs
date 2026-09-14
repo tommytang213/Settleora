@@ -18,6 +18,7 @@ const plan = JSON.parse(readFileSync(4, 'utf8'));
 const privateValues = YAML.parse(readFileSync(5, 'utf8'));
 const privateRenderIdentity = JSON.parse(readFileSync(6, 'utf8'));
 const directRenderedCompose = readFileSync(7);
+const directCompose = YAML.parse(directRenderedCompose.toString('utf8'));
 if (plan.schema !== PACKAGE_SCHEMA) fail('Install-plan schema mismatch');
 if (privateRenderIdentity.schema !== 'settleora.truenas-private-render-identity.v1' || privateRenderIdentity.renderedComposeSha256 !== sha256(directRenderedCompose)) fail('Private rendered Compose identity mismatch');
 const names = Object.keys(compose.services ?? {}).sort();
@@ -69,12 +70,20 @@ const expectedEnvironment = {
 for (const [service, expected] of Object.entries(expectedEnvironment)) {
   if (canonicalJson(compose.services[service].environment ?? {}) !== canonicalJson(expected)) fail(`Official ${service} dependency environment mismatch`);
 }
+const normalizedConfigContent = (document, name) => {
+  const content = document.configs?.[name]?.content;
+  if (typeof content !== 'string') fail(`Rendered ${name} config content is missing`);
+  return content.replaceAll('$$', '$');
+};
+for (const name of ['settleora-api-entrypoint', 'settleora-caddy-entrypoint', 'settleora-migrate-entrypoint', 'settleora-rabbitmq-entrypoint']) {
+  if (normalizedConfigContent(compose, name) !== normalizedConfigContent(directCompose, name)) fail(`Official ${name} config content does not match the trusted direct render`);
+}
 if (compose.services.ingress.depends_on?.api?.condition !== 'service_healthy') fail('Official ingress API-readiness gate missing');
 if (canonicalJson(compose.services.api.entrypoint) !== canonicalJson(['/bin/sh', '/usr/local/bin/settleora-api-entrypoint.sh'])) fail('Official API storage preflight entrypoint is missing');
-const apiEntrypoint = String(compose.configs?.['settleora-api-entrypoint']?.content ?? '').replaceAll('$$', '$');
+const apiEntrypoint = normalizedConfigContent(compose, 'settleora-api-entrypoint');
 for (const required of ['data_path=/var/lib/settleora/storage', 'id -u', 'id -g', '[ -r "$data_path" ]', '[ -w "$data_path" ]', '[ -x "$data_path" ]', 'mktemp -d "$data_path/.settleora-write-probe.XXXXXXXXXX"', '[ ! -L "$home_path" ]', 'readlink -f -- "$data_path"', '[ "$home_real" = "$data_real/.settleora-home" ]', '[ ! -L "$aspnet_path" ]', '[ "$aspnet_real" = "$home_real/.aspnet" ]', '[ ! -L "$keys_path" ]', '[ "$keys_real" = "$aspnet_real/DataProtection-Keys" ]', 'unsafe stale data-protection write probe', 'stat -c %u -- "$stale_probe"', 'every restored data-protection key entry must be a readable regular non-link file', 'trap cleanup_keys_probe EXIT HUP INT TERM', 'mktemp "$keys_path/.settleora-write-probe.XXXXXXXXXX"', 'exec dotnet Settleora.Api.dll']) if (!apiEntrypoint.includes(required)) fail('Official API UID/GID 999 storage preflight is incomplete');
 if (canonicalJson(compose.services.ingress.entrypoint) !== canonicalJson(['/bin/sh', '/usr/local/bin/settleora-caddy-entrypoint.sh']) || compose.services.ingress.healthcheck?.test?.[1] !== '/tmp/settleora-caddy') fail('Official ingress does not preserve capability-free Caddy startup');
-const caddyEntrypoint = String(compose.configs?.['settleora-caddy-entrypoint']?.content ?? '').replaceAll('$$', '$');
+const caddyEntrypoint = normalizedConfigContent(compose, 'settleora-caddy-entrypoint');
 for (const required of ['[ ! -L /tmp/settleora-caddy ]', 'stat -c %u -- /tmp/settleora-caddy', 'rm -f -- /tmp/settleora-caddy', 'cp /usr/bin/caddy /tmp/settleora-caddy', 'chmod 0555 /tmp/settleora-caddy', 'exec /tmp/settleora-caddy "$@"']) if (!caddyEntrypoint.includes(required)) fail('Official capability-free Caddy entrypoint is incomplete');
 const port = compose.services.ingress.ports?.[0];
 if (compose.services.ingress.ports?.length !== 1 || port.target !== 8443 || port.protocol !== 'tcp' || port.host_ip !== privateValues.network?.bind_address || Number(port.published) !== privateHttpsPort) fail('Official ingress publication mismatch');
@@ -83,12 +92,12 @@ if (octets.length !== 4 || octets.some((value) => !Number.isInteger(value) || va
   || !(octets[0] === 10 || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) || (octets[0] === 192 && octets[1] === 168))) fail('Official ingress is not bound to RFC1918');
 if (compose.services.api.image !== compose.services.migrate.image) fail('Official API/migrate image mismatch');
 if (compose.services.api.depends_on?.migrate?.condition !== 'service_completed_successfully') fail('Official migration-success gate missing');
-const migrateEntrypoint = String(compose.configs?.['settleora-migrate-entrypoint']?.content ?? '').replaceAll('$$', '$');
+const migrateEntrypoint = normalizedConfigContent(compose, 'settleora-migrate-entrypoint');
 for (const required of ['validate-only)', '--mode=validate-only', '--mode=check-only', 'managed-auto|apply-safe|manual|check-only)']) if (!migrateEntrypoint.includes(required)) fail('Official migration startup gate is incomplete');
 if (compose.services.migrate.depends_on?.postgres?.condition !== 'service_healthy') fail('Official migration PostgreSQL gate missing');
 if (compose.services.api.depends_on?.postgres?.condition !== 'service_healthy' || compose.services.api.depends_on?.rabbitmq?.condition !== 'service_healthy') fail('Official API dependency gate missing');
 if (compose.services.rabbitmq.environment?.RABBITMQ_NODENAME !== `rabbit@${compose.services.rabbitmq.hostname}`) fail('Official RabbitMQ identity mismatch');
-const rabbitGuard = String(compose.configs?.['settleora-rabbitmq-entrypoint']?.content ?? '').replaceAll('$$', '$');
+const rabbitGuard = normalizedConfigContent(compose, 'settleora-rabbitmq-entrypoint');
 for (const required of ['expected_nodename="rabbit@$(hostname -s)"', 'RABBITMQ_MNESIA_BASE', '[ ! -L "$mnesia_base" ]', 'readlink -f -- "$mnesia_base"', '[ ! -L "$candidate" ]', 'persisted_nodename', 'exit 64', 'exit 65', 'exit 66', 'exit 67']) if (!rabbitGuard.includes(required)) fail('Official RabbitMQ identity guard is incomplete');
 const internalNetworks = Object.entries(compose.networks ?? {}).filter(([, network]) => network?.internal === true && network?.labels?.['tn.network.internal'] === 'true').map(([name]) => name);
 const ingressNetwork = internalNetworks.filter((name) => name === 'ingress' || name.endsWith('-ingress'));
