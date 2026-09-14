@@ -33,13 +33,14 @@ another merely because a UI has one generic button.
 | --- | --- | --- |
 | **archive** | Remove a record from ordinary active views or workflows while preserving the authoritative record and required history. A domain must decide whether and how it can re-enter. | Archive is not purge. It is not proof that reads, mutations, dependencies, or retention duties all stop. |
 | **trash** | A user-visible holding or review concept for content that has been logically removed and may be restorable or awaiting a separate disposition decision. It need not be an internal state name. | Trash is not automatically terminal disposal and does not itself authorize a retention timer or purge. |
-| **restore** | Request or perform an authorized transition from a non-terminal inactive condition toward a specifically named eligible state after current policy is re-evaluated. | Restore is not silent reactivation. The target state, actor, preconditions, dependency checks, conflicts, and post-restore eligibility must be explicit. |
+| **restore** | Request or perform an authorized record-lifecycle transition from a non-terminal inactive condition toward a specifically named eligible state after current policy is re-evaluated. | Restore is not silent reactivation. The target state, actor, preconditions, dependency checks, conflicts, and post-restore eligibility must be explicit. Local backup restore, server consistency-set restore, and product import/export restore are separate recovery or portability operations governed by the [local/server import/export boundaries](../architecture/LOCAL_SERVER_IMPORT_EXPORT_BOUNDARIES.md), not this record-lifecycle term. |
 | **cancel** | Stop or withdraw a workflow from further ordinary progression under domain rules while preserving required facts and evidence. | Cancel is not necessarily delete, archive, revoke, or purge, and need not erase earlier transitions. |
 | **revoke** | Invalidate a grant, credential, session, factor, invitation, link, or other authority so it cannot be used as previously authorized. | Revoke is not physical deletion or automatic account disablement. Evidence may need retention even though reusable material must be unusable. |
 | **disable** | Prevent use, entry, or policy eligibility for a subject or capability, commonly through a reversible administrative or policy condition. | Disable is not necessarily revoke. Whether existing grants or sessions are revoked is a separate domain decision. |
 | **expire** | End validity because a defined time or policy condition was reached, rather than because an actor necessarily initiated the transition. | Expire may be policy- or time-driven and is not automatically revoke, archive, trash, or purge. |
 | **quarantine** | Isolate or restrict a subject because validation, safety, policy, integrity, or review is unresolved. Ordinary access or processing is constrained. | Quarantine is not ordinary archive. Release, rejection, retention, and disposal each require their own authorized outcome. |
-| **purge** | Terminally dispose of the eligible target content or record material that a domain policy explicitly permits to be destroyed. Required bounded tombstone or audit evidence may remain where policy requires it. | Purge is not an ordinary user-visible delete. It is irreversible for the disposed target and requires explicit authority, retention eligibility, dependency proof, audit, confirmation where applicable, and every manual/destructive gate. |
+| **purge** | Terminally dispose of the eligible target content or record material that a domain policy explicitly permits to be destroyed. Required bounded tombstone or audit evidence may remain where policy requires it. | Purge is not an ordinary user-visible delete or hard delete. It is irreversible for the disposed target and always requires a separate action, consequence warning, explicit confirmation, authority, retention eligibility, dependency proof, audit, policy controls, and every manual/destructive gate. |
+| **hard / physical delete** | Immediately and physically remove an eligible target rather than placing it in archive or Trash or waiting for a later purge workflow. Day 1 authority permits this only as a conditional outcome for positively dependency-free drafts or bounded non-authoritative temporary/orphan material where domain policy allows it. | Hard delete is not archive, Trash, or purge. It requires explicit domain eligibility, actor and authority, consequence warning, confirmation when user-initiated, complete dependency proof, audit, concurrency handling, and every applicable manual/destructive gate; an unresolved dependency makes it ineligible. |
 | **temporary cleanup** | Remove positively identified non-authoritative scratch, cache, staging, or failed temporary material under a bounded cleanup policy. | Temporary cleanup is not permission to delete authoritative records, accepted business data, required history, or material with an unresolved link. |
 | **orphan cleanup** | Reconcile or remove a positively proven unreferenced or inconsistent resource after proving that no authoritative record or required dependency relies on it. | Orphan cleanup is not permission to treat an unknown, inaccessible, or weakly linked record as disposable. Missing evidence blocks cleanup. |
 
@@ -68,6 +69,8 @@ Every child row must keep these questions separate:
 | Field | What the child must record |
 | --- | --- |
 | Domain / record family | Exact subject governed by the row, including whether it is a root, dependent record, relationship, material, or projection. |
+| Authority mode / workspace | Exact local-only or server workspace and authority boundary. Use separate rows whenever authority, transition acceptance, or runtime-acceptance behavior differs. |
+| Decision authority and implementation evidence | Cite current policy/architecture authority separately from source, test, runtime, issue, or PR evidence. Pin revisions or record live-state verification for issue/PR sources; implementation evidence does not create policy authority. |
 | User-visible action | Exact proposed wording and surface, or `not user-visible`. Do not derive state names from the wording. |
 | Internal state / transition | Source state, requested transition, target state or outcome, and the authoritative component that accepts it. |
 | Actor / authority | Who may request, approve, deny, or execute the transition, and which API/domain/policy boundary is authoritative. |
@@ -76,31 +79,43 @@ Every child row must keep these questions separate:
 | Mutation-eligibility effect | Which future mutations remain allowed, become blocked, or need a different workflow. |
 | Reversibility | Whether the exact transition is reversible and what evidence supports that classification. |
 | Re-entry / reactivation eligibility | Named target state, actor, revalidation, blockers, and whether re-entry is distinct from restore. |
-| Dependency evidence | Cited dependent records, history, files, settlements, sessions, audit, sync/import/restore state, or an explicit evidence gap. |
+| Dependency evidence | Cited dependent records, history, files, settlements, sessions, audit, sync/import/restore state, backup/export/snapshot/replica copies and their disposition, or an explicit evidence gap. |
+| Persisted lifecycle metadata | Applicability and cited requirements for authoritative timestamps, actor, reason, restoration, purge/disposal, version/concurrency, and other lifecycle metadata. |
+| Idempotency / replay / concurrency | Required idempotency key or equivalent, duplicate/replay outcome, retry result, and authoritative concurrent-conflict behavior for the transition. |
 | Retention classification | Current cited class/rule, unresolved classification, holds, and clock trigger; never an invented duration. |
-| Purge / disposal eligibility | `eligible`, `ineligible`, or `unresolved`, with cited conditions and required manual/destructive gate. Retention expiry alone is insufficient. |
+| Hard-delete eligibility | `eligible`, `ineligible`, or `unresolved`, separately from purge, with cited target classification, dependency proof, authority, audit, confirmation posture, and required manual/destructive gate. |
+| Purge / disposal eligibility | `eligible`, `ineligible`, or `unresolved`, with cited conditions, separate-action consequence warning, explicit confirmation, and required manual/destructive gate. Retention expiry alone is insufficient. |
 | Audit evidence | Required success, denial, blocked-attempt, actor, subject, reason, correlation, and transition evidence, bounded to safe metadata. |
 | Privacy / redaction | Data that must be suppressed, minimized, encrypted/protected, or shown only to an authorized audience. |
 | Client-presentation implication | Required wording, readout, unavailable/blocked state, warning, confirmation, refresh, accessibility, or conflict presentation without client-side authority. |
 | Unresolved product choice | Stable reference to a complete open-choice record, or `none` only when current authority answers the question. |
 | Implementation status | Truthful evidence state such as `documented-only`, `unimplemented`, `partial`, or `implemented`, with source/test/runtime citations. |
 | Follow-up lane / owner | Canonical domain lane and focused owner/issue; do not assign implementation to the synthesis task. |
-| Manual-gate posture | Exact product, destructive, security, storage/privacy, money, schema, API/OpenAPI, UI/Figma, deployment, or operational gate that applies. |
+| Manual-gate posture | Exact product, destructive, security, storage/privacy, money, schema, API/OpenAPI, UI/Figma, deployment, or operational gate; `pending`, `satisfied`, `not-required`, or `unresolved` status; approval evidence; and blocked downstream work. A required gate defaults to `pending`, never implicitly satisfied. |
 | Runtime-acceptance evidence | Exact automated, integration, hostile/concurrency, migration, UI, operational, or manual evidence later required; planning text is never runtime proof. |
 
 ## Reusable Child Row Schema
 
 Create one entry for each materially different transition. Do not combine
-distinct roots, dependent records, relationship rows, file objects, or reusable
-security material merely to shorten the matrix. Use `unresolved` plus an
-open-choice record when current authority is insufficient.
+distinct roots, dependent records, relationship rows, file objects, reusable
+security material, or local-only and server authority modes merely to shorten
+the matrix. Authority mode is part of row identity: use separate rows whenever
+the authority boundary, transition acceptance, or runtime-acceptance behavior
+differs. Use `unresolved` plus an open-choice record when current authority is
+insufficient.
 
 ```yaml
 policy_row:
   row_id: "<child-owned stable id>"
   domain_record_family: "<exact record, relationship, material, or projection>"
-  sources:
-    - "<current authoritative document/section, source path, test, issue, or PR>"
+  authority_mode_workspace: "<local-only/server and exact workspace boundary>"
+  decision_authority:
+    sources:
+      - "<current policy/architecture document and exact section>"
+    issue_pr_live_state_verification:
+      - "<issue/PR, pinned revision or verification timestamp, and current state>"
+  implementation_evidence:
+    - "<separate source/test/runtime citation and exact revision>"
   user_visible_action:
     wording: "<exact label or not user-visible>"
     surface: "<surface or not applicable>"
@@ -126,16 +141,32 @@ policy_row:
     required_revalidation: ["<current checks>"]
     blockers: ["<dependency, hold, conflict, lockout, or policy blocker>"]
   dependency_evidence:
-    required_checks: ["<dependency categories and citations>"]
+    required_checks: ["<dependency categories and citations, including backup/export/snapshot/replica disposition where applicable>"]
     missing_evidence: ["<unknowns; empty only when proven complete>"]
+  persisted_lifecycle_metadata:
+    applicability: "<applicable/not-applicable/unresolved with reason>"
+    required_fields: ["<timestamp/actor/reason/restoration/disposal/version or other cited fields>"]
+    evidence: ["<authority citation or open-choice ref>"]
+  idempotency_replay_concurrency:
+    idempotency_key_or_equivalent: "<requirement or unresolved>"
+    duplicate_or_replay_outcome: "<authoritative result or unresolved>"
+    retry_result: "<result returned after timeout/retry or unresolved>"
+    concurrency_conflict: "<authoritative stale/racing-transition outcome or unresolved>"
   retention_note_classification:
     classification: "<cited class or unresolved>"
     clock_or_trigger: "<cited trigger; do not invent duration>"
     holds_or_exceptions:
       - "<holds/exceptions>"
+  hard_delete_eligibility:
+    status: "<eligible/ineligible/unresolved>"
+    target_classification: "<dependency-free draft/non-authoritative temporary/orphan/other or unresolved>"
+    conditions: ["<dependency, authority, audit, confirmation, concurrency, and gate conditions>"]
   purge_disposal_eligibility:
     status: "<eligible/ineligible/unresolved>"
-    conditions: ["<retention, dependency, authority, confirmation conditions>"]
+    conditions: ["<retention, dependency including retained copies, authority, and policy conditions>"]
+    separate_action: "<required; cite planned boundary or unresolved>"
+    consequence_warning: "<required wording/evidence or unresolved>"
+    explicit_confirmation: "<required mechanism/evidence or unresolved>"
   audit_note:
     required_events:
       - "<success/denial/blocked-attempt categories>"
@@ -160,6 +191,9 @@ policy_row:
   manual_gate:
     required: "<yes/no/unresolved>"
     gate_and_owner: "<exact gate and decision owner>"
+    status: "<pending/satisfied/not-required/unresolved; required defaults to pending>"
+    approval_evidence: ["<exact approval reference; empty while pending>"]
+    downstream_work_blocked: ["<issue/lane/transition blocked until satisfaction>"]
   validation_evidence_required:
     - "<exact future validation and runtime-acceptance evidence>"
 ```
@@ -198,7 +232,12 @@ Every Wave 2 child must:
 - use the shared vocabulary without collapsing distinct actions;
 - provide all reusable-row fields for every in-scope transition;
 - cite current authority and distinguish documented intent, implemented
-  runtime, and required acceptance evidence;
+  runtime, and required acceptance evidence; issue/PR evidence must carry a
+  pinned revision or live-state verification;
+- split local-only and server rows whenever their authority or acceptance
+  behavior differs;
+- define idempotency/replay, concurrency, retry result, and persisted lifecycle
+  metadata applicability for every mutation transition;
 - record contradictions and missing evidence as open choices;
 - leave unrelated domains to their source children; and
 - split implementation follow-ups by canonical lane and preserve every
@@ -217,6 +256,8 @@ Every Wave 2 child must:
   dependencies where applicable; an unknown dependency is a blocker.
 - Do not assume destructive deletion or purge eligibility for confirmed,
   settled, shared, revision-dependent, or otherwise authoritative history.
+- Keep conditional hard delete for positively dependency-free drafts separate
+  from retention/admin/Trash purge; missing dependency evidence blocks both.
 
 ### #719 — File Objects And Attachment Links
 
@@ -285,6 +326,15 @@ may assemble and normalize the Wave 2 outputs under these rules:
 - implementation recommendations retain their original canonical lane, owner,
   dependency order, reviewer tier, and manual-gate posture; and
 - planning or synthesis evidence never becomes a runtime-support claim.
+
+After #961, the existing graph continues through
+[#722](https://github.com/tommytang213/Settleora/issues/722) for the
+contract/schema split, [#723](https://github.com/tommytang213/Settleora/issues/723)
+for the separately approved manual/Figma reference, and
+[#724](https://github.com/tommytang213/Settleora/issues/724) for the
+retention/dependency policy. A merged synthesis does not authorize scheduling
+cross-record lifecycle runtime ahead of those applicable downstream outputs
+and gates.
 
 #717 closes only after #960, all four Wave 2 children, and #961 merge and are
 reconciled under their live close rules. #716 remains open unless its separate
