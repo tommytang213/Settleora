@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { fixtureConfig, repoRoot, syntheticManifest } from './test/helpers.mjs';
-import { materialize, SECRET_MARKERS } from './render.mjs';
+import { materialize, SECRET_MARKERS, sha256 } from './render.mjs';
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'settleora-r04-official-'));
@@ -48,11 +48,23 @@ function expectOfficialPostRenderRefusal(packet, name, mutate) {
   ], { cwd: repoRoot, stdio: 'pipe' });
   const composePath = path.join(root, 'package/templates/rendered/docker-compose.yaml');
   const compose = YAML.parse(readFileSync(composePath, 'utf8'));
-  mutate(compose);
+  const directComposePath = path.join(root, 'trusted-direct-compose.yaml');
+  cpSync(path.join(packet, 'rendered/docker-compose.yaml'), directComposePath);
+  const directCompose = YAML.parse(readFileSync(directComposePath, 'utf8'));
+  const originalDirectCompose = JSON.stringify(directCompose);
+  mutate(compose, directCompose);
   writeFileSync(composePath, YAML.stringify(compose), { mode: 0o600 });
+  const privateRenderIdentityPath = path.join(root, 'private-render-identity.json');
+  if (JSON.stringify(directCompose) === originalDirectCompose) {
+    cpSync(path.join(packet, 'private-render-identity.json'), privateRenderIdentityPath);
+  } else {
+    const directBytes = JSON.stringify(directCompose);
+    writeFileSync(directComposePath, directBytes, { mode: 0o600 });
+    writeFileSync(privateRenderIdentityPath, JSON.stringify({ schema: 'settleora.truenas-private-render-identity.v1', renderedComposeSha256: sha256(directBytes) }), { mode: 0o600 });
+  }
   const result = spawnSync('bash', ['-c', 'node "$1" 3< "$2" 4< "$3" 5< "$4" 6< "$5" 7< "$6"', 'bash',
     path.join(moduleDir, 'validate-official-render.mjs'), composePath, path.join(packet, 'install-plan.json'), path.join(packet, 'private-validation-values.yaml'),
-    path.join(packet, 'private-render-identity.json'), path.join(packet, 'rendered/docker-compose.yaml'),
+    privateRenderIdentityPath, directComposePath,
   ], { cwd: repoRoot, encoding: 'utf8' });
   assert.notEqual(result.status, 0, `${name} must be refused by the official post-render validator`);
   const output = result.stdout + result.stderr;
@@ -123,6 +135,13 @@ try {
   for (const [field, mutate] of Object.entries(releaseMutations)) {
     expectOfficialPostRenderRefusal(packet, `release-${field}-drift`, (compose) => mutate(compose['x-settleora-release']));
   }
+  expectOfficialPostRenderRefusal(packet, 'shared-release-source-drift', (compose, directCompose) => {
+    compose['x-settleora-release'].application_source_commit = '0'.repeat(40);
+    directCompose['x-settleora-release'].application_source_commit = '0'.repeat(40);
+  });
+  expectOfficialPostRenderRefusal(packet, 'operator-action-drift', (compose) => { compose['x-action-required'] = true; });
+  expectOfficialPostRenderRefusal(packet, 'operator-portal-injection', (compose) => { compose['x-portals'] = [{ name: 'Untrusted', scheme: 'https', host: 'example.invalid' }]; });
+  expectOfficialPostRenderRefusal(packet, 'operator-notes-drift', (compose) => { compose['x-notes'] += '\nUntrusted operator instruction.'; });
   expectOfficialRefusal(packet, 'network-injection', (values) => {
     values.network.networks = [{ name: 'bridge', containers: [{ name: 'postgres', config: {} }] }];
   });

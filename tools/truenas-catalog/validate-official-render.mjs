@@ -205,6 +205,21 @@ for (const [service, expected] of Object.entries(expectedServiceConfigs)) {
 if (canonicalJson(Object.keys(compose.configs ?? {}).sort()) !== canonicalJson(['settleora-api-entrypoint', 'settleora-caddy-entrypoint', 'settleora-caddyfile', 'settleora-migrate-entrypoint', 'settleora-rabbitmq-entrypoint', 'settleora-tls-certificate', 'settleora-tls-private-key'])) fail('Official config set mismatch');
 const certificate = privateValues.ix_certificates?.[String(privateValues.network?.certificate_id)];
 if (compose.configs?.['settleora-tls-certificate']?.content !== certificate?.certificate || compose.configs?.['settleora-tls-private-key']?.content !== certificate?.privatekey) fail('Official ingress TLS config content mismatch');
-if (canonicalJson(compose['x-settleora-release']) !== canonicalJson(directCompose['x-settleora-release'])) fail('Official release mapping mismatch');
+const expectedReleaseMapping = {
+  api_index_digest: plan.runtime?.indexDigests?.api,
+  application_source_commit: plan.applicationRelease?.commit,
+  application_source_tree: plan.applicationRelease?.tree,
+  candidate_id: plan.applicationRelease?.candidateId,
+  identity_digest: plan.applicationRelease?.identityDigest,
+  platform: plan.runtime?.platform,
+  runtime_digest_authority: plan.runtime?.digestAuthority,
+  schema: 'settleora.day1-release-identity.v1',
+};
+if (canonicalJson(compose['x-settleora-release']) !== canonicalJson(expectedReleaseMapping)
+  || canonicalJson(directCompose['x-settleora-release']) !== canonicalJson(expectedReleaseMapping)) fail('Official release mapping mismatch');
+const noteContainer = (name, networks, user = 'unknown', group = 'unknown') => `### Container: [${name}]\n\n#### Joined networks\n\n${networks.map((network) => `- ${network}`).join('\n')}\n\n#### Running user/group(s)\n\n- User: ${user}\n- Group: ${group}\n- Supplementary Groups: apps\n\n---\n\n`;
+const appTitle = privateValues.ix_context?.app_metadata?.title || '<app_name>';
+const expectedNotes = `# ${appTitle}\n\n## Security\n\n**Read the following security precautions to ensure that you wish to continue using this application.**\n\n---\n\n${noteContainer('api', [ingressNetwork[0], backendNetwork[0]])}${noteContainer('ingress', [ingressNetwork[0]], '1000', '1000')}${noteContainer('migrate', [backendNetwork[0]])}${noteContainer('postgres', [backendNetwork[0]])}${noteContainer('rabbitmq', [backendNetwork[0]])}## Bug Reports and Feature Requests\n\nIf you find a bug in this app or have an idea for a new feature, please file an issue at\nhttps://github.com/truenas/apps\n`;
+if (compose['x-action-required'] !== false || canonicalJson(compose['x-portals']) !== canonicalJson([]) || compose['x-notes'] !== expectedNotes) fail('Official operator metadata contract mismatch');
 process.stdout.write(`${canonicalJson({ schema: 'settleora.truenas-official-render-validation.v1', composeSha256: sha256(canonicalJson(compose)), services: names, publishedPorts: 1, platform: 'linux/amd64', realSecretsIncluded: false, published: false, deployed: false })}`);
 }
