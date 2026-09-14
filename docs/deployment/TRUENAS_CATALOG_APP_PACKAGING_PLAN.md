@@ -2,14 +2,17 @@
 
 ## Status
 
-This document is the packaging plan for a future polished Settleora TrueNAS
-catalog app. It is planning and runbook guidance only. It does not implement a
-catalog app, publish catalog metadata, publish container images, change Docker
-or Compose behavior, change environment defaults, deploy to production, approve
-public exposure, or expose admin surfaces.
+This document records the packaging requirements and remaining publication/live
+acceptance work for a polished Settleora TrueNAS catalog app. R04/#1232 and
+[PR #1233](https://github.com/tommytang213/Settleora/pull/1233) implement a
+repository-only, unpublished TrueNAS 25.10.x Docker Apps skeleton at
+`infra/truenas-catalog/settleora/`. The implementation does not publish a
+catalog or container image, change a live environment, deploy, approve public
+exposure, or expose admin surfaces.
 
-Current runnable TrueNAS-oriented evidence remains the LAN Docker path in
-[TrueNAS LAN Docker testing](TRUENAS_LAN_DOCKER_TESTING.md). Catalog readiness
+Current runnable TrueNAS-oriented evidence includes the LAN Docker path in
+[TrueNAS LAN Docker testing](TRUENAS_LAN_DOCKER_TESTING.md) and deterministic
+direct plus pinned-official rendering of the unpublished skeleton. Catalog readiness
 acceptance criteria remain in
 [TrueNAS catalog app readiness](TRUENAS_CATALOG_APP_READINESS.md). Backup,
 restore, rollback, and redaction evidence are covered by
@@ -23,10 +26,10 @@ Exposure decisions are governed by
 
 ## Purpose And Boundaries
 
-The future catalog app should let a maintainer install, configure, update, back
-up, restore, and validate Settleora on TrueNAS without hand-assembling service
-wiring. The first catalog target is LAN/self-hosting first, not public internet
-hosting.
+The completed unpublished skeleton and any future polished catalog app should
+let a maintainer install, configure, update, back up, restore, and validate
+Settleora on TrueNAS without hand-assembling service wiring. The first catalog
+target is LAN/self-hosting first, not public internet hosting.
 
 This plan covers:
 
@@ -38,9 +41,9 @@ This plan covers:
 - Image tag, upgrade, migration, and rollback planning.
 - Operator warnings, stop conditions, and future manual gates.
 
-This plan does not approve:
+This plan and the R04 skeleton do not approve:
 
-- TrueNAS catalog implementation or publishing.
+- TrueNAS catalog publication or live installation.
 - Container image publishing.
 - Production deployment.
 - Reverse proxy, TLS, public DNS, or public tunnel setup.
@@ -73,8 +76,8 @@ catalog publishing.
 
 ## Catalog Metadata Plan
 
-A future catalog implementation should define the following metadata before any
-publication:
+The R04 skeleton defines the following metadata baseline. It must be reviewed
+again before any publication:
 
 | Field | Planned value or rule |
 | --- | --- |
@@ -97,8 +100,10 @@ or user data.
 
 ## Image Sources And Tags
 
-The current repo has Dockerfile and compose evidence, but no catalog-published
-image guarantee. A future catalog package should use a reviewed registry policy:
+The current repo has Dockerfile, Compose, and unpublished catalog-render evidence,
+but no catalog-published image guarantee. The R04 materializer consumes the R03
+manifest and selects the exact Linux/amd64 platform digests; a future published
+catalog release must retain that reviewed registry policy:
 
 - Primary image source should be GitHub Container Registry unless release
   policy approves another registry.
@@ -116,7 +121,9 @@ selector.
 
 ## User-Facing Configuration Fields
 
-The future catalog form should expose only supported behavior. Suggested fields:
+The R04 form exposes only its supported private-LAN behavior. The following
+table remains the governing field policy for the unpublished skeleton and any
+future published form:
 
 | Field | Type | Default/posture | Notes |
 | --- | --- | --- | --- |
@@ -125,14 +132,13 @@ The future catalog form should expose only supported behavior. Suggested fields:
 | API bind address | Text/select | Required private host/LAN interface | Must reject wildcard, loopback, malformed, and non-RFC1918 selections. |
 | Private HTTPS hostname | Text | Required | Exact private DNS name present in the certificate SAN; no wildcard default. |
 | External base URL | Read-only/derived | Private HTTPS origin | Derive from the approved hostname and port; do not permit LAN HTTP. |
-| TLS certificate chain | External file/secret mount | Required | Operator-managed trusted chain; never embed it in catalog metadata or reports. |
-| TLS private key | External secret mount | Required | Operator-managed key with restricted permissions; never display or log it. |
+| TLS certificate | TrueNAS-managed certificate reference | Required | The form exposes one `definitions/certificate` selector; the template derives and internally mounts its trusted chain and private key. Certificate lifecycle remains operator-managed, and key material must never be displayed, logged, or embedded in catalog metadata or reports. |
 | Environment/profile | Select | Release-policy value | Do not expose development-only defaults as production guidance. |
 | PostgreSQL dataset | Dataset path picker | Operator-selected | Persistent, private, writable by the app runtime. |
 | PostgreSQL database/user | Text/generated | App-specific values | Avoid default/demo names where practical for persistent installs. |
-| PostgreSQL password | Generated secret or secret input | Generated | Must not be displayed in logs, screenshots, reports, or docs. |
+| PostgreSQL password | Private secret input | Required, immutable, empty default | R04 requires an externally managed value; it must not be displayed in logs, screenshots, reports, or docs. |
 | RabbitMQ dataset | Dataset path picker | Operator-selected | Persistent and private if queued work/state should survive upgrades. |
-| RabbitMQ user/password | Generated secret or secret input | Generated | Management UI remains private/disabled by default. |
+| RabbitMQ user/password | Text user plus private secret input | `settleora` user; required immutable password with empty default | R04 requires an externally managed password; management UI remains private/disabled by default. |
 | API storage dataset | Dataset path picker | Operator-selected | Stores sensitive receipt, proof, QR, and attachment bytes. |
 | API storage mount path | Advanced text | `/var/lib/settleora/storage` | Keep stable across upgrades unless a reviewed migration plan exists. |
 | Migration mode | Select | `managed-auto` | Include `manual`, `check-only`, `validate-only`, `apply-safe`; hide or heavily warn on `force-allow-destructive`. |
@@ -140,8 +146,9 @@ The future catalog form should expose only supported behavior. Suggested fields:
 | LAN-only warning acknowledgement | Checkbox | Required | Confirms no public exposure is approved by the catalog install. |
 | Admin exposure protection | Future manual-gated select | Not exposed now | Later choices may include LAN, VPN, Cloudflare Access-style gate, or equivalent protection after implementation review. |
 
-The catalog does not yet implement these fields; R12 only supplies the Compose
-contract they must preserve. Do not expose fields for unsupported runtime slices such as OIDC provider setup,
+R04 implements the bounded private-LAN, certificate reference, dataset,
+credential, migration-mode, and acknowledgement subset while preserving the R12
+Compose contract. Do not expose fields for unsupported runtime slices such as OIDC provider setup,
 passkeys, MFA policy, push/email provider delivery, web/admin portal URLs, OCR
 worker enablement, MinIO/S3 storage, public registration, automatic certificate
 issuance/renewal, another proxy tier, or public exposure until those features
@@ -172,14 +179,17 @@ disclosure.
 | Backup/export location | Operator-selected private dataset | Future/manual-gated | Stores encrypted/private operator backups or exports if later implemented. |
 | App config/secrets | TrueNAS app secret/config store | Yes | Must be backed up securely and never committed or pasted into reports. |
 
-PostgreSQL metadata and API local file bytes are a consistency pair. A future
-catalog implementation must warn that restoring only one side can create missing
-bytes, orphaned bytes, or broken attachment/proof/QR access.
+PostgreSQL metadata and API local file bytes are a consistency pair. The R04
+supporting documentation warns that restoring only one side can create missing
+bytes, orphaned bytes, or broken attachment/proof/QR access. The current form
+requires a consistent pre-migration backup acknowledgement but does not repeat
+that detailed one-sided-restore warning; R05 form review must verify the operator
+sees the supporting runbook before live backup or restore work.
 
 Environment and secret storage caveats:
 
 - Do not store real secrets in repository docs or example files.
-- Do not show generated secrets in issue comments, screenshots, reports, or
+- Do not show operator-supplied private secrets in issue comments, screenshots, reports, or
   health output.
 - Do not expose raw env files through admin UI, support bundles, or logs.
 - Do not place sensitive app files in a public SMB/NFS/HTTP share for app
@@ -224,9 +234,9 @@ Expected behavior:
   storage roots, private dataset paths, queue internals, object keys, raw
   exceptions, tokens, or user data.
 
-Safe catalog implementation evidence should include:
+Safe catalog implementation and live-acceptance evidence should include:
 
-- TrueNAS version, with current target `25.10.1` where applicable.
+- TrueNAS version, with current live-acceptance target `25.10.1` where applicable.
 - Catalog app version and Settleora image tag/digest or commit SHA.
 - Redacted app form screenshots.
 - Redacted dataset role mapping.
@@ -278,7 +288,7 @@ Rollback limits:
 
 ## Operator Warnings And Stop Conditions
 
-Future catalog work must stop and escalate if any of these would occur without
+Further catalog work must stop and escalate if any of these would occur without
 an explicit manual gate:
 
 - Public internet exposure.
@@ -308,28 +318,30 @@ manual gates are complete.
 
 | Track | Current status | Must remain separate from |
 | --- | --- | --- |
-| LAN Docker testing | Existing docs and compose templates support trusted LAN testing. | Catalog implementation, catalog publishing, production deployment, public/admin exposure. |
-| Catalog readiness | Existing checklist describes polished app qualities and gaps. | Claiming the app exists or is published. |
-| Catalog packaging plan | This document defines metadata, form, dataset, topology, validation, upgrade, and warnings. | Catalog YAML/app implementation or image publishing. |
-| Catalog implementation | Future manual-gated task. | Public exposure, production deployment, and catalog publishing unless explicitly scoped. |
+| LAN Docker testing | Existing docs and compose templates support trusted LAN testing. | Catalog publishing, production deployment, public/admin exposure. |
+| Catalog readiness | The unpublished R04 skeleton and checklist describe repository package evidence plus remaining polished-app gaps. | Claiming the app is published or live-accepted. |
+| Catalog packaging plan | This document defines metadata, form, dataset, topology, validation, upgrade, and warnings; R04 implements the bounded skeleton. | Image/catalog publishing or live host mutation. |
+| Catalog implementation | R04 repository skeleton complete and unpublished; live acceptance remains R05/#975. | Public exposure, production deployment, and catalog publishing unless explicitly scoped. |
 | Catalog publishing | Future release/manual-gated task. | Implementation branches that only draft package files. |
 | Production deployment | Future manual-gated task. | LAN testing and catalog packaging. |
-| Private LAN HTTPS ingress | Implemented in the LAN Compose templates; catalog wiring and live proof remain future work. | Public exposure, certificate automation, production deployment. |
+| Private LAN HTTPS ingress | Implemented in the LAN Compose templates and R04 catalog wiring; live DNS/certificate/host/device proof remains R05/#975. | Public exposure, certificate automation, production deployment. |
 | Public exposure / additional proxy or TLS automation | Future manual-gated task. | Safe private LAN ingress and admin exposure protection planning. |
 
 Closing a planning issue may mean this document is accepted as a plan. It must
-not be treated as completing the future catalog package, publishing path,
+not be treated as completing the polished/live-accepted catalog package, publishing path,
 production deployment, or exposure gates.
 
 ## Next Implementation Candidates
 
-Future issues should be split narrowly:
+Remaining work should be split narrowly and must not be auto-started:
 
-1. Draft TrueNAS app metadata and form schema without publishing.
-2. Implement catalog install/upgrade migration job wiring and failure surfacing.
-3. Add catalog dataset/secret mapping with generated-secret handling.
-4. Add catalog render/install validation evidence on an approved TrueNAS target.
-5. Add backup-before-upgrade and rollback evidence after a restore test exists.
-6. Add OCR worker, user web, or admin web workloads only after those runtimes
+1. Collect explicit R05 live install/upgrade, migration-gate, health, and private-client evidence on an approved TrueNAS target.
+2. Collect backup-before-upgrade plus bounded restore/rollback evidence under the manual data/host gates.
+3. Establish a separately approved catalog publication path only after live acceptance.
+4. Add secret generation/rotation only through a separately reviewed
+   secret-management design. The live R04 TrueNAS form accepts externally
+   managed secrets; the offline materializer accepts only its fixed sanitized
+   markers and does not generate secrets.
+5. Add OCR worker, user web, or admin web workloads only after those runtimes
    exist and pass their own manual gates.
-7. Publish catalog app only through an explicit release/catalog gate.
+6. Publish the catalog app only through an explicit release/catalog gate.

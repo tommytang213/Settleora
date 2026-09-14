@@ -4,7 +4,7 @@
 
 This runbook is a LAN-only testing foundation for running the current Settleora server stack on a TrueNAS / TrueNAS SCALE-style host. The maintainer-reported target version is TrueNAS `25.10.1`.
 
-This is not a production deployment guide, not public exposure approval, and not a completed TrueNAS catalog app. Public internet exposure is blocked until the auth/session/security, storage/privacy, admin exposure, deployment, backup/restore, and manual release gates in the Day 1 acceptance package have passed. First-install, routine-upgrade, unsafe-migration blocking, failed-start recovery, rollback limits, health checks, and operator evidence are planned in [Self-hosted install/upgrade orchestration](SELF_HOSTED_INSTALL_UPGRADE_ORCHESTRATION.md). Future catalog metadata, form fields, dataset mappings, image tags, upgrade/rollback notes, and operator warnings are planned in [TrueNAS catalog app packaging plan](TRUENAS_CATALOG_APP_PACKAGING_PLAN.md). Exposure-mode planning for LAN, trusted VPN/private access, Cloudflare Access-style protection, reverse proxy/TLS, admin surfaces, and future public access is defined in [Self-hosting exposure guardrails](SELF_HOSTING_EXPOSURE_GUARDRAILS.md).
+This is not a production deployment guide and does not approve public exposure. The repository now includes an unpublished TrueNAS catalog package skeleton under `infra/truenas-catalog/settleora/`; repository render validation is complete, but no live install, upgrade, publication, or acceptance is claimed. Public internet exposure is blocked until the auth/session/security, storage/privacy, admin exposure, deployment, backup/restore, and manual release gates in the Day 1 acceptance package have passed. First-install, routine-upgrade, unsafe-migration blocking, failed-start recovery, rollback limits, health checks, and operator evidence remain manual R05/#975 work described in [Self-hosted install/upgrade orchestration](SELF_HOSTED_INSTALL_UPGRADE_ORCHESTRATION.md). Current catalog metadata, form fields, dataset mappings, immutable image identities, upgrade/rollback notes, operator warnings, and remaining gaps are documented in [TrueNAS catalog app packaging plan](TRUENAS_CATALOG_APP_PACKAGING_PLAN.md). Exposure-mode planning for LAN, trusted VPN/private access, Cloudflare Access-style protection, reverse proxy/TLS, admin surfaces, and future public access is defined in [Self-hosting exposure guardrails](SELF_HOSTING_EXPOSURE_GUARDRAILS.md).
 
 ## Current Repo Deployment Shape
 
@@ -32,7 +32,7 @@ The compose stack defines these services:
 | `postgres` | `postgres:16-alpine` | API-owned relational database. | The LAN compose package does not publish PostgreSQL by default. Never expose it to the internet. |
 | `rabbitmq` | `rabbitmq:3.13-management-alpine` | Queue foundation for async jobs and future workers. | The LAN compose package does not publish AMQP or the management UI by default. Never expose either to the internet. |
 
-The repo does not currently provide a running OCR worker container, web user portal container, web admin portal container, MinIO/S3 service, TLS issuance/renewal automation, TrueNAS catalog metadata, or TrueNAS app form schema. `services/worker-ocr`, `apps/web-user`, and `apps/web-admin` are placeholders. The LAN package includes a bounded private Caddy ingress only; it is not a public or production proxy package.
+The repo does not currently provide a running OCR worker container, web user portal container, web admin portal container, MinIO/S3 service, or TLS issuance/renewal automation. `services/worker-ocr`, `apps/web-user`, and `apps/web-admin` are placeholders. The unpublished R04 skeleton supplies TrueNAS catalog metadata and an app form for the existing five-service topology; it is not published, live-installed, or production-approved. The LAN package includes a bounded private Caddy ingress only; it is not a public or production proxy package.
 
 The current storage provider is local file storage configured through `Settleora__Storage__Provider=Local` and `Settleora__Storage__RootPath`. File metadata lives in PostgreSQL; file bytes go through the API storage abstraction. Do not expose storage directories directly through SMB/NFS/web shares for app access.
 
@@ -83,7 +83,7 @@ For TrueNAS LAN testing, create or choose datasets before running the stack. The
 
 Do not publish the API storage dataset directly through SMB, NFS, HTTP, or a public file share for app access. Settleora file access must go through the API storage abstraction and API authorization checks.
 
-Use [TrueNAS backup/restore consistency runbook](TRUENAS_BACKUP_RESTORE_RUNBOOK.md) for the PostgreSQL, RabbitMQ, API local file storage, app configuration, migration-state, restore-validation, and redaction evidence path. Use [Self-hosted install/upgrade orchestration](SELF_HOSTED_INSTALL_UPGRADE_ORCHESTRATION.md) for first-install, upgrade, unsafe-migration blocking, failed-start recovery, rollback limitation, health-check, and operator-evidence expectations. Use [TrueNAS catalog app packaging plan](TRUENAS_CATALOG_APP_PACKAGING_PLAN.md) for future catalog-specific metadata, form, dataset, topology, image, upgrade, rollback, and stop-condition planning. These documents are planning guidance only and do not execute backup, restore, catalog implementation, or catalog publishing operations.
+Use [TrueNAS backup/restore consistency runbook](TRUENAS_BACKUP_RESTORE_RUNBOOK.md) for the PostgreSQL, RabbitMQ, API local file storage, app configuration, migration-state, restore-validation, and redaction evidence path. Use [Self-hosted install/upgrade orchestration](SELF_HOSTED_INSTALL_UPGRADE_ORCHESTRATION.md) for first-install, upgrade, unsafe-migration blocking, failed-start recovery, rollback limitation, health-check, and operator-evidence expectations. Use [TrueNAS catalog app packaging plan](TRUENAS_CATALOG_APP_PACKAGING_PLAN.md) for the implemented unpublished metadata, form, dataset, topology, immutable-image, upgrade, rollback, and stop-condition contract plus its remaining live/publication gaps. These documents and the repository package do not execute backup, restore, catalog publication, or live-host operations.
 
 ## Environment Variables
 
@@ -545,7 +545,7 @@ Manual gates and report fields:
 
 ## Current Blockers For Polished LAN Hosting
 
-- No TrueNAS catalog app package exists yet; the planning path is documented in [TrueNAS catalog app packaging plan](TRUENAS_CATALOG_APP_PACKAGING_PLAN.md).
+- The unpublished TrueNAS catalog package skeleton exists and renders offline, but catalog publication and maintainer-run install/upgrade acceptance are still pending under R05/#975; see [TrueNAS catalog app packaging plan](TRUENAS_CATALOG_APP_PACKAGING_PLAN.md).
 - `infra/docker-compose.truenas-lan.yml` is a practical LAN Docker package path, but maintainer-run TrueNAS evidence is still pending.
 - No polished production install/upgrade orchestration exists beyond the current LAN package's first-class `migrate` service.
 - The backup/restore consistency runbook exists, but no automation or current

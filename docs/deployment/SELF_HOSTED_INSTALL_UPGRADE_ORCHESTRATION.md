@@ -4,15 +4,17 @@
 
 This document defines the planned operator orchestration for Settleora
 self-hosted install and upgrade flows. It is a planning and runbook document
-only. It does not implement install automation, upgrade automation, migration
-automation, rollback automation, backup automation, restore automation, catalog
-packaging, catalog publishing, image publishing, Docker or Compose behavior,
+only. It does not itself mutate or extend the repository's unpublished catalog
+package, and it does not implement install automation, upgrade automation,
+migration automation, rollback automation, backup automation, restore
+automation, catalog publishing, image publishing, Docker or Compose behavior,
 runtime API behavior, schema migrations, production deployment, public
 exposure, reverse proxy/TLS configuration, or admin exposure.
 
-Current runnable evidence remains the trusted LAN Docker path in
-[TrueNAS LAN Docker testing](TRUENAS_LAN_DOCKER_TESTING.md). Future polished
-TrueNAS catalog packaging is planned in
+Current runnable evidence includes the trusted LAN Docker path in
+[TrueNAS LAN Docker testing](TRUENAS_LAN_DOCKER_TESTING.md). The repository also
+contains an unpublished TrueNAS catalog package skeleton that renders offline;
+its current contract and remaining publication/live gaps are documented in
 [TrueNAS catalog app packaging plan](TRUENAS_CATALOG_APP_PACKAGING_PLAN.md).
 Backup and restore consistency is planned in
 [TrueNAS backup/restore consistency runbook](TRUENAS_BACKUP_RESTORE_RUNBOOK.md).
@@ -23,13 +25,13 @@ Exposure defaults and public/admin stop conditions are governed by
 
 The goal is to define how a self-hosted operator should reason about first
 install, routine upgrade, unsafe migration blocking, failed startup, rollback
-limits, health checks, and evidence collection before a future implementation or
-catalog task automates any part of the flow.
+limits, health checks, and evidence collection before a future live-install or
+automation task operates any part of the flow.
 
 This plan covers:
 
-- First install flow for the current LAN Docker package and a future catalog
-  app.
+- First install flow for the current LAN Docker package and the unpublished
+  catalog package skeleton.
 - Routine upgrade flow using versioned images or source-built artifacts.
 - Migration mode selection and safe migration blocking.
 - Image tag/update expectations.
@@ -40,8 +42,9 @@ This plan covers:
 - Operator evidence and redaction rules.
 - Private service exposure defaults.
 - Stop conditions that require a manual decision.
-- Clear separation between current LAN Docker testing, future catalog app work,
-  production deployment, public exposure, and runtime implementation.
+- Clear separation between current LAN Docker testing, the unpublished catalog
+  package, future live/catalog-publication work, production deployment, public
+  exposure, and runtime implementation.
 
 This plan does not approve:
 
@@ -60,7 +63,7 @@ This plan does not approve:
 | Track | Current status | Orchestration meaning |
 | --- | --- | --- |
 | LAN Docker package | Current trusted-LAN testing path using `infra/docker-compose.truenas-lan.yml` and `infra/docker-compose.truenas-lan.image.yml`. | Operators can follow documented commands manually. This is not production readiness or catalog publishing. |
-| Future catalog app | Planned package with form fields, datasets, image tags, install/upgrade hooks, and warnings. | This document defines desired flow semantics before implementation. |
+| Unpublished catalog package skeleton | The checked-in source is intentionally non-installable until the R04 materializer replaces its invalid image sentinels and release lock from a validated R03 identity. | Offline render validation is complete. R05 must materialize and review an exact package as described below; publication and maintainer-run install/upgrade acceptance remain manual gates. |
 | Production deployment | Future manual-gated track. | Not approved by this plan. Requires release, security, backup/restore, rollback, exposure, and acceptance evidence. |
 | Public/user exposure | Future manual-gated track. | Not approved by this plan. LAN/private defaults remain authoritative. |
 | Runtime implementation | Current API and migration runner behavior only. | This plan does not change code, migrations, Docker, or deployment behavior. |
@@ -87,15 +90,72 @@ tier, TLS automation, or catalog publishing.
 
 ## First Install Flow
 
+### Catalog materialization handoff
+
+The checked-in `infra/truenas-catalog/settleora/` directory is render-only
+source, not an installable app. Its image values and release-lock sentinel must
+not be edited by hand. R04's materializer accepts only its fixed sanitized
+validation password markers; it rejects real operator secrets. Real values are
+entered and retained later through the live TrueNAS private form/configuration
+path, never through this offline command.
+
+From a clean checkout of the exact reviewed R04 implementation merge, with the
+separate retained R03 application source also clean and exact, R05 obtains a
+candidate package only after these explicit preflights and materialization:
+
+```sh
+R03_SOURCE=/absolute/path/to/clean-retained-r03-application-source
+R03_MANIFEST=/absolute/path/to/day1-13c8eaaedf83/release-identity-manifest.json
+R04_OUTPUT=/absolute/path/to/new-protected-r04-output
+test "$(git rev-parse HEAD)" = 3b0a78bc9883b643e889d28d5b43adcdbd47bd19
+test "$(git rev-parse HEAD^{tree})" = d2122b86b22884c609048c02975fc9077831c832
+test -z "$(git status --porcelain=v1 --untracked-files=all)"
+test "$(git -C "$R03_SOURCE" rev-parse HEAD)" = 13c8eaaedf83a29194befcde6c37c428da3300e6
+test "$(git -C "$R03_SOURCE" rev-parse HEAD^{tree})" = 00395fb3e8843989f40d26c5152dde2f5bedfbf4
+test -z "$(git -C "$R03_SOURCE" status --porcelain=v1 --untracked-files=all)"
+node tools/truenas-catalog/render.mjs \
+  --manifest "$R03_MANIFEST" \
+  --expected-identity-digest 624e846e691573defa856d8976c9c997b6720039f81782e3c823a00794a9b63a \
+  --config tools/truenas-catalog/test/fixtures/sanitized-config.json \
+  --source-repo "$R03_SOURCE" \
+  --output "$R04_OUTPUT"
+```
+
+Set each absolute path variable for the operator's protected workspace;
+`R03_MANIFEST` must name the retained `day1-13c8eaaedf83` manifest, and none of
+these files belongs in the repository. `R04_OUTPUT` must not already exist. The
+R04 renderer source and R03 application source are separate authorities. The
+renderer confirms that the R03 commit exists with the manifest's tree, but it
+does not itself prove either checkout's current HEAD or cleanliness; the
+explicit preflights above are therefore mandatory. Stop if any preflight,
+semantic identity, detached digest, selected Linux/amd64 image provenance,
+package tracking, or topology validation fails.
+
+Only `<output>/package/` is the materialized app-package handoff for the live
+TrueNAS review. Confirm its identity against `<output>/install-plan.json` and
+retain the exact R03 manifest/detached digest plus R04 commit/tree in redacted
+evidence before import. The public install plan and console summary omit
+password values and private paths. The complete output packet contains only the
+fixed redacted password markers, but its `private-validation-values.yaml` and
+`rendered/docker-compose.yaml` also contain private-shaped fixture host/dataset
+values, so keep it as mode-restricted operator evidence, never upload or attach
+it, redact derived logs, and securely dispose of transient copies after the
+reviewed handoff. TrueNAS then collects and retains real live form values through
+its protected app configuration; the repository command does not accept live
+secrets or publish, import, install, start, or migrate the app.
+
 A safe first install should follow this order:
 
-1. Select the install track: current LAN Docker package or future catalog app.
+1. Select the install track: current LAN Docker package or an exact reviewed
+   materialized catalog `package/` handoff. Never import the checked-in skeleton
+   directly.
 2. Confirm the environment remains trusted LAN/private access only.
 3. Create persistent private datasets for PostgreSQL, RabbitMQ, and API local
    file storage.
 4. Create or capture private app configuration through the supported env file
-   or future catalog form. Use generated secrets; never use example placeholder
-   values for persistent data.
+   or current catalog form. Use externally managed private secrets with no
+   example/default value; never use example placeholder values for persistent
+   data. The current catalog form does not generate secrets.
 5. Select one RFC1918 host interface and exact private hostname, then supply an
    external trusted certificate/key readable by ingress UID/GID `1000:1000`.
 6. Select the image/source version and record the commit SHA, image tag, and
@@ -161,7 +221,7 @@ Operators should prefer immutable or traceable version references:
   map to the same Settleora source revision.
 - Branch-preview or commit tags are acceptable only for clearly labeled testing
   installs.
-- If a future catalog app offers an update selector, it should show the target
+- If a future published catalog/update surface offers an update selector, it should show the target
   app version, image tag/digest, migration expectation, backup requirement, and
   rollback warning before the operator proceeds.
 
@@ -283,7 +343,7 @@ redacted subset needed for review:
 
 - Install or upgrade timestamp and timezone.
 - TrueNAS version when applicable.
-- Deployment track: LAN Docker package or future catalog app.
+- Deployment track: LAN Docker package or unpublished catalog package skeleton.
 - Source commit SHA, app package version, image tag, and image digest where
   available.
 - Migration mode and sanitized migration result.
@@ -356,7 +416,7 @@ Accepting this plan may close a planning gap for install/upgrade orchestration.
 It must not be treated as completing:
 
 - A production deployment guide.
-- TrueNAS catalog app implementation or publishing.
+- TrueNAS catalog publication, live installation, or live acceptance.
 - Backup, restore, rollback, install, or upgrade automation.
 - Image publishing or release automation.
 - Public user exposure or admin exposure.
@@ -364,6 +424,8 @@ It must not be treated as completing:
 - Maintainer TrueNAS install/upgrade evidence.
 - Day 1 acceptance, release readiness, or production readiness.
 
-Future implementation issues should be split narrowly across catalog form/hooks,
-image publishing, backup-before-upgrade enforcement, rollback evidence,
-failure-surfacing UI, maintainer-run install evidence, and exposure review.
+Future implementation issues should be split narrowly across live catalog
+installation/upgrade evidence, separately reviewed secret generation or
+rotation, catalog/image publishing, backup-before-upgrade enforcement, rollback
+evidence, failure-surfacing UI, maintainer-run install evidence, and exposure
+review.

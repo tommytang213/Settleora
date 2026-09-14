@@ -2,9 +2,9 @@
 
 ## Status
 
-This document defines the Day 1 target for a polished Settleora TrueNAS app/catalog-style package. It is a readiness plan and acceptance checklist, not evidence that the package exists. The focused packaging plan for app metadata, form fields, dataset mappings, topology, image tags, upgrade/rollback warnings, and operator stop conditions is [TrueNAS catalog app packaging plan](TRUENAS_CATALOG_APP_PACKAGING_PLAN.md). Install/upgrade orchestration, unsafe-migration blocking, failed-start recovery, rollback limits, health checks, image update flow, and operator evidence are planned in [Self-hosted install/upgrade orchestration](SELF_HOSTED_INSTALL_UPGRADE_ORCHESTRATION.md). Exposure-mode guardrails for LAN, trusted VPN/private access, Cloudflare Access-style protection, reverse proxy/TLS, admin surfaces, and future public access are defined in [Self-hosting exposure guardrails](SELF_HOSTING_EXPOSURE_GUARDRAILS.md).
+This document defines the Day 1 target and remaining acceptance work for a polished Settleora TrueNAS app/catalog-style package. R04/#1232 and [PR #1233](https://github.com/tommytang213/Settleora/pull/1233) now provide a repository-only, unpublished TrueNAS 25.10.x Docker Apps skeleton with metadata, questions, deterministic materialization, and pinned official rendering. That is package-source evidence, not catalog publication, live install, backup/restore, or production readiness. The focused packaging requirements remain in [TrueNAS catalog app packaging plan](TRUENAS_CATALOG_APP_PACKAGING_PLAN.md). Install/upgrade orchestration, unsafe-migration blocking, failed-start recovery, rollback limits, health checks, image update flow, and operator evidence are planned in [Self-hosted install/upgrade orchestration](SELF_HOSTED_INSTALL_UPGRADE_ORCHESTRATION.md). Exposure-mode guardrails for LAN, trusted VPN/private access, Cloudflare Access-style protection, reverse proxy/TLS, admin surfaces, and future public access are defined in [Self-hosting exposure guardrails](SELF_HOSTING_EXPOSURE_GUARDRAILS.md).
 
-Current repo evidence supports a Docker/Compose LAN testing foundation through `infra/docker-compose.yml`, `infra/docker-compose.truenas-lan.yml`, `infra/docker-compose.truenas-lan.image.yml`, `infra/env/.env.truenas-lan.example`, and `services/api/Dockerfile`. The LAN package now includes a first-class API-hosted migration runner service for managed/default and manual/pro schema-control modes. TrueNAS catalog metadata, app form schema, backup/rollback automation, screenshots, and maintainer-run install evidence remain pending.
+Current repo evidence includes the existing Docker/Compose LAN testing foundation and `infra/truenas-catalog/settleora/`. The unpublished skeleton consumes a semantically validated R03 identity plus detached expected digest, selects immutable Linux/amd64 API/PostgreSQL/RabbitMQ/Caddy identities, renders only ingress/migrate/API/PostgreSQL/RabbitMQ, publishes only exact-RFC1918 HTTPS, and retains R11/R12 persistence and private-transport rules. Backup/restore execution, catalog publication, screenshots, and maintainer-run TrueNAS install/upgrade evidence remain pending under R05/#975 and manual gates.
 
 ## Day 1 Definition Of Polished TrueNAS App
 
@@ -31,26 +31,28 @@ Required app qualities:
 
 | Component | Day 1 catalog expectation | Current repo state |
 | --- | --- | --- |
-| API | Required app workload, built from `services/api/Dockerfile` or a versioned image. | Dockerfile exists; source-build and image-based LAN compose templates exist. |
-| Migration runner | Required install/upgrade schema gate before API startup. | API image supports `migrate-database`; LAN compose runs a private one-shot `migrate` service before API startup. |
-| PostgreSQL | Required private dependency with persistent dataset. | Compose uses `postgres:16-alpine` and a named volume. |
-| RabbitMQ | Required private dependency while API readiness checks queue connectivity and future workers use jobs. | Compose uses `rabbitmq:3.13-management-alpine` and a named volume; management port is published in development compose. |
-| Local file storage | Required persistent dataset mounted into the API container. | API supports local storage config; the LAN compose package mounts `SETTLEORA_API_STORAGE_HOST_PATH` at `SETTLEORA_STORAGE_ROOT`. |
+| API | Required app workload, built from `services/api/Dockerfile` or a versioned image. | The unpublished skeleton uses the R03-selected immutable Linux/amd64 API identity and keeps API HTTP private. |
+| Migration runner | Required install/upgrade schema gate before API startup. | The skeleton runs the same immutable API image as a private one-shot `migrate` service and gates API startup on success. |
+| PostgreSQL | Required private dependency with persistent dataset. | The skeleton uses the R03-selected immutable Linux/amd64 identity and an immutable operator-selected private dataset. |
+| RabbitMQ | Required private dependency while API readiness checks queue connectivity and future workers use jobs. | The skeleton uses the R03-selected immutable identity, private dataset, stable node name, and R11 fail-closed persistence guard; no AMQP or management port is published. |
+| Local file storage | Required persistent dataset mounted into the API container. | The skeleton requires an immutable private dataset and validates UID/GID `999:999`, canonical path, no-follow, and data-protection-key access before API launch. |
 | OCR worker | Future optional/required depending on OCR runtime slice. | Placeholder only. |
 | Web user portal | Future app workload if implemented. | Placeholder only. |
 | Web admin portal | Future app workload if implemented and protected. | Placeholder only. |
-| Private ingress/TLS | Required exact-interface HTTPS workload using operator-external trusted TLS. | Implemented in LAN Compose with Caddy; live/certificate/catalog proof remains pending. |
+| Private ingress/TLS | Required exact-interface HTTPS workload using operator-external trusted TLS. | Implemented in LAN Compose and the unpublished catalog skeleton with Caddy; real DNS/certificate/client and TrueNAS proof remains pending. |
 
 ## App Configuration Form
 
-A future TrueNAS app form should include:
+The unpublished TrueNAS form includes the bounded R04 subset:
 
-- Exact RFC1918 ingress bind, private TLS hostname, HTTPS port, and external
-  certificate/key paths; direct API HTTP must remain un-published.
-- API environment, with a Day 1 default chosen by release policy.
-- PostgreSQL database name, user, generated password, and data dataset.
-- RabbitMQ user, generated password, vhost if supported, and data dataset.
-- API storage dataset and in-container mount path.
+- Exact RFC1918 ingress bind, private TLS hostname, HTTPS port, and one
+  TrueNAS-managed certificate reference; the template derives the chain and
+  private-key paths from the selected certificate, and direct API HTTP remains
+  un-published.
+- Fixed private deployment mode and release-controlled API environment.
+- PostgreSQL database name, user, externally supplied private password, and immutable data dataset.
+- RabbitMQ user, externally supplied private password, stable immutable node hostname, and immutable data dataset.
+- Immutable API storage dataset and fixed in-container mount path.
 - Migration mode, defaulting to managed safe auto-apply for easy LAN install, with manual/check-only and explicit apply modes for professional hosters.
 - Optional external URL/base URL only after server-mode/mobile clients require it and security gates approve the semantics.
 - Session lifetime settings only if exposed with safe documented bounds from `services/api/README.md`.
@@ -60,12 +62,28 @@ Do not expose form fields that imply unsupported runtime behavior, such as OIDC 
 
 ## Secrets
 
-The catalog app should generate strong default secrets for:
+The unpublished skeleton requires externally managed PostgreSQL and RabbitMQ
+secrets through private form fields. The repository materializer is an offline
+validation/package-construction tool only: it accepts the two fixed redacted
+password markers and rejects real-looking operator secrets. Its public
+`install-plan.json` and console summary contain no password values or private
+paths. The complete validation packet still contains the redacted password
+markers and private-shaped fixture host/dataset values in
+`private-validation-values.yaml` and `rendered/docker-compose.yaml`; keep that
+packet in protected evidence storage, never attach or share it, redact any
+extracted evidence, and securely dispose of transient copies after the reviewed
+`package/` handoff is complete.
 
-- `POSTGRES_PASSWORD`
-- `RABBITMQ_DEFAULT_PASS`
-
-Secrets must not be committed to the repo, shown in screenshots, printed in reports, or embedded in generated docs. The development values in `infra/env/.env.example` are examples only and are not acceptable for a persistent maintainer LAN deployment.
+A live TrueNAS install necessarily retains the operator-supplied values in its
+protected app configuration so it can render later starts and upgrades, and
+that private configuration belongs in the operator's secure backup set. Secrets
+must not be committed to the repo, shown in screenshots, printed in reports, or
+embedded in generated docs. The redacted fixtures and development values in
+`infra/env/.env.example` are examples only and are not acceptable for a
+persistent maintainer LAN deployment. Real values are entered and retained only
+through the live TrueNAS private form/configuration path. Live secret
+provisioning, protected validation-packet handling and disposal, and protected
+TrueNAS retention remain R05/manual operator actions.
 
 ## Network And Exposure Policy
 
@@ -109,17 +127,17 @@ Supported modes:
 - `apply-safe`: explicit safe apply mode for operators who want to run the migration job directly.
 - `manual` / `check-only`: professional hoster modes; report pending migrations and exit non-zero without applying.
 - `validate-only`: checks PostgreSQL connectivity and migration metadata.
-- `force-allow-destructive`: dangerous override for explicitly reviewed and backed-up destructive changes.
+- `force-allow-destructive`: API-level dangerous override only; the R04 catalog form intentionally does not expose it.
 
 The current safety policy blocks known destructive operations such as dropping tables/columns, EF operations marked destructive, and raw SQL containing destructive/unclassified tokens. This is a conservative package guard, not a substitute for migration review, backup policy, or rollback planning.
 
-A catalog app follow-up still must define:
+Live acceptance and later operational work still must prove or define:
 
-- Backup-before-upgrade requirements for PostgreSQL and file storage.
+- Enforcement and evidence for backup-before-upgrade requirements for PostgreSQL and file storage beyond the package acknowledgement.
 - How failed or blocked migrations are surfaced in TrueNAS app UI/logs.
 - How the app behaves if API image and database schema versions do not match.
 - How to roll back the app image safely when migrations have already changed schema.
-- Whether RabbitMQ state can be discarded during upgrades or must be preserved.
+- The operator decision and evidence for whether RabbitMQ state can be discarded during an upgrade or must be preserved.
 
 ## Backup And Restore
 
@@ -128,7 +146,7 @@ Day 1 backup/restore planning is defined in [TrueNAS backup/restore consistency 
 - PostgreSQL database.
 - API local file storage dataset.
 - RabbitMQ data if queued work must survive restart/restore.
-- App configuration and generated secrets.
+- App configuration and operator-supplied private secrets.
 - The external TLS certificate chain/private key or a secure re-provisioning
   record; private keys remain outside the app repository and ordinary reports.
 
@@ -157,7 +175,7 @@ Health checks must not leak connection strings, storage paths, passwords, queue 
 
 Attach or record:
 
-- TrueNAS version, expected target `25.10.1`.
+- TrueNAS version, current live-acceptance target `25.10.1`.
 - App version or commit SHA.
 - App form screenshots with secrets redacted.
 - Dataset/volume mapping summary.
@@ -173,22 +191,18 @@ Attach or record:
 
 ## Implementation Slices
 
-Recommended follow-up slices:
+Repository slices 1–3 are complete in the unpublished R04 skeleton: first-class migration gating, metadata/release mapping, and the bounded private form schema. Remaining slices are:
 
-1. Migration/install runner hardening: wire the existing `migrate-database` command into TrueNAS catalog install/upgrade hooks, define backup prerequisite, failure recovery, and validation steps.
-2. TrueNAS app metadata draft: app name, description, icon/screenshot placeholders, source/license/no-warranty text, version mapping, and release note structure.
-3. TrueNAS form schema draft: ports, datasets, generated secrets, environment defaults, storage path, and LAN-only warnings.
-4. Backup/restore runbook and manual test package: PostgreSQL plus file storage consistency evidence.
-5. Security exposure review: LAN/VPN/reverse-proxy/Cloudflare Access guidance, admin surface protection, and public exposure stop conditions.
-6. Maintainer TrueNAS install evidence: run the app on TrueNAS `25.10.1`, capture health/readiness/mobile smoke evidence, and update the Day 1 acceptance package.
-7. Future service expansion: add OCR worker, web user portal, and web admin portal only after their runtime implementations exist and pass their own gates.
+1. Backup/restore runbook execution and manual evidence: PostgreSQL plus file storage consistency, key material, RabbitMQ state where required, and app configuration.
+2. Maintainer TrueNAS install/upgrade evidence on `25.10.1`: capture failure presentation, health/readiness, rollback limits, private DNS/TLS, and physical-client smoke evidence under R05/#975.
+3. Catalog publication only after its separate manual gates and all required acceptance evidence pass.
+4. Future service expansion: add OCR worker, web user portal, and web admin portal only after their runtime implementations exist and pass their own gates.
 
 ## Current Day 1 Gaps
 
 - Actual TrueNAS install evidence is pending.
-- Polished catalog app package is pending.
-- The catalog packaging plan exists in [TrueNAS catalog app packaging plan](TRUENAS_CATALOG_APP_PACKAGING_PLAN.md), but catalog implementation and publishing remain pending manual-gated follow-ups.
-- First-class migration command and LAN compose service exist; TrueNAS catalog hook wiring, backup-before-migrate enforcement, rollback strategy, and maintainer-visible failure UI remain pending.
+- The repository-only unpublished skeleton exists and passes deterministic direct and pinned official TrueNAS rendering; catalog publication and a polished operator listing remain pending manual-gated work.
+- First-class migration command and catalog/Compose service wiring exist; live backup-before-migrate evidence, rollback rehearsal, and maintainer-visible TrueNAS failure UI remain pending.
 - Backup/restore evidence is pending.
 - Public exposure and admin exposure are blocked by manual gates.
 - Web/admin/OCR worker runtime packaging is pending because those services are placeholders.
