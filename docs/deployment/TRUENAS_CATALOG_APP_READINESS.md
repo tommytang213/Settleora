@@ -63,15 +63,23 @@ Do not expose form fields that imply unsupported runtime behavior, such as OIDC 
 ## Secrets
 
 The unpublished skeleton requires externally managed PostgreSQL and RabbitMQ
-secrets through private form fields; repository fixtures, renderer outputs, and
-reports do not contain or retain real values. A live TrueNAS install necessarily
-retains the operator-supplied values in its protected app configuration so it
-can render later starts and upgrades, and that private configuration belongs in
-the operator's secure backup set. Secrets must not be committed to the repo,
-shown in screenshots, printed in reports, or embedded in generated docs. The
-redacted fixtures and development values in `infra/env/.env.example` are
-examples only and are not acceptable for a persistent maintainer LAN
-deployment. Live secret provisioning and protected retention remain R05/manual
+secrets through private form fields. Repository fixtures, the public
+`install-plan.json`, and the renderer's console summary contain no real secret
+values or private paths. A materialization run that uses real R05 configuration
+is nevertheless secret-bearing: its `private-validation-values.yaml` and
+`rendered/docker-compose.yaml` contain the supplied passwords and private
+host/dataset values. Keep the complete output packet in protected operator
+storage, never attach or share it, redact any extracted evidence, and securely
+dispose of transient copies after the reviewed `package/` handoff is complete.
+
+A live TrueNAS install necessarily retains the operator-supplied values in its
+protected app configuration so it can render later starts and upgrades, and
+that private configuration belongs in the operator's secure backup set. Secrets
+must not be committed to the repo, shown in screenshots, printed in reports, or
+embedded in generated docs. The redacted fixtures and development values in
+`infra/env/.env.example` are examples only and are not acceptable for a
+persistent maintainer LAN deployment. Live secret provisioning, protected
+packet handling and disposal, and protected TrueNAS retention remain R05/manual
 operator actions.
 
 ## Network And Exposure Policy
