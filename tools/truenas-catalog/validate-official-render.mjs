@@ -44,6 +44,10 @@ const expectedImages = { api: plan.runtime?.images?.api, ingress: plan.runtime?.
 for (const [name, expectedImage] of Object.entries(expectedImages)) {
   if (typeof expectedImage !== 'string' || compose.services[name].image !== expectedImage) fail(`${name} image does not match the R03-selected runtime identity`);
 }
+const serviceInvocation = (service) => ({ entrypoint: service.entrypoint ?? null, command: service.command ?? null });
+for (const name of names) {
+  if (canonicalJson(serviceInvocation(compose.services[name])) !== canonicalJson(serviceInvocation(directCompose.services?.[name] ?? {}))) fail(`Official ${name} invocation does not match the trusted direct render`);
+}
 if (compose.services.api.environment?.HOME !== '/var/lib/settleora/storage/.settleora-home') fail('Official API data-protection key home is not persistent within the existing storage layout');
 const privateHostname = privateValues.network?.hostname;
 const privateHttpsPort = privateValues.network?.https_port;

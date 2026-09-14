@@ -78,6 +78,15 @@ try {
   expectOfficialPostRenderRefusal(packet, 'api-readiness-bypass', (compose) => {
     compose.services.api.healthcheck.test = ['CMD-SHELL', 'exit 0; # /bin/bash /health/ready'];
   });
+  expectOfficialPostRenderRefusal(packet, 'migrate-entrypoint-bypass', (compose) => {
+    compose.services.migrate.entrypoint = ['/bin/true'];
+  });
+  expectOfficialPostRenderRefusal(packet, 'rabbitmq-entrypoint-bypass', (compose) => {
+    compose.services.rabbitmq.entrypoint = ['/usr/local/bin/docker-entrypoint.sh'];
+  });
+  expectOfficialPostRenderRefusal(packet, 'api-command-injection', (compose) => {
+    compose.services.api.command = ['migrate-database', '--mode=force-allow-destructive'];
+  });
   expectOfficialRefusal(packet, 'network-injection', (values) => {
     values.network.networks = [{ name: 'bridge', containers: [{ name: 'postgres', config: {} }] }];
   });
@@ -94,7 +103,7 @@ try {
   expectOfficialRefusal(packet, 'live-context-without-filesystem-authority', (values) => {
     values.ix_context = { app_name: 'settleora', is_install: true };
   });
-  process.stdout.write('Official renderer accepted normalized empty certificate authorities and refused undeclared network/image/CA overrides, entrypoint/Caddyfile/health/config isolation drift, plus an unresolvable live dataset context.\n');
+  process.stdout.write('Official renderer accepted normalized empty certificate authorities and refused undeclared network/image/CA overrides, entrypoint/command/Caddyfile/health/config isolation drift, plus an unresolvable live dataset context.\n');
 } finally {
   rmSync(tempRoot, { recursive: true, force: true });
 }
