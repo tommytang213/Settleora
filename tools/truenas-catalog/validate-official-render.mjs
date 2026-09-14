@@ -115,7 +115,8 @@ if (canonicalJson(compose.services.ingress.entrypoint) !== canonicalJson(['/bin/
 const caddyEntrypoint = normalizedConfigContent(compose, 'settleora-caddy-entrypoint');
 for (const required of ['[ ! -L /tmp/settleora-caddy ]', 'stat -c %u -- /tmp/settleora-caddy', 'rm -f -- /tmp/settleora-caddy', 'cp /usr/bin/caddy /tmp/settleora-caddy', 'chmod 0555 /tmp/settleora-caddy', 'exec /tmp/settleora-caddy "$@"']) if (!caddyEntrypoint.includes(required)) fail('Official capability-free Caddy entrypoint is incomplete');
 const port = compose.services.ingress.ports?.[0];
-if (compose.services.ingress.ports?.length !== 1 || port.target !== 8443 || port.protocol !== 'tcp' || port.host_ip !== privateValues.network?.bind_address || Number(port.published) !== privateHttpsPort) fail('Official ingress publication mismatch');
+const expectedIngressPort = { host_ip: privateValues.network?.bind_address, mode: 'ingress', protocol: 'tcp', published: Number(privateHttpsPort), target: 8443 };
+if (compose.services.ingress.ports?.length !== 1 || canonicalJson(port) !== canonicalJson(expectedIngressPort)) fail('Official ingress publication mismatch');
 const octets = String(port.host_ip).split('.').map(Number);
 if (octets.length !== 4 || octets.some((value) => !Number.isInteger(value) || value < 0 || value > 255)
   || !(octets[0] === 10 || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) || (octets[0] === 192 && octets[1] === 168))) fail('Official ingress is not bound to RFC1918');
@@ -155,20 +156,28 @@ for (const [service, expected] of Object.entries(expectedNetworkAttachments)) {
   if (canonicalJson(compose.services[service].networks) !== canonicalJson(expected)) fail(`Official ${service} network attachment contract mismatch`);
 }
 if (canonicalJson(Object.keys(compose.networks).sort()) !== canonicalJson(['edge', backendNetwork[0], ingressNetwork[0]].sort())) fail('Official network set mismatch');
+const expectedNetworks = {
+  edge: {},
+  [backendNetwork[0]]: { enable_ipv6: false, external: false, internal: true, labels: { 'tn.network.internal': 'true' }, name: backendNetwork[0] },
+  [ingressNetwork[0]]: { enable_ipv6: false, external: false, internal: true, labels: { 'tn.network.internal': 'true' }, name: ingressNetwork[0] },
+};
+if (canonicalJson(compose.networks) !== canonicalJson(expectedNetworks)) fail('Official network definition contract mismatch');
 const expectedTargets = { api: '/var/lib/settleora/storage', postgres: '/var/lib/postgresql/data', rabbitmq: '/var/lib/rabbitmq' };
 const expectedSources = { api: privateValues.storage?.api_storage_dataset, postgres: privateValues.storage?.postgres_dataset, rabbitmq: privateValues.storage?.rabbitmq_dataset };
 const datasetSources = [];
 for (const [service, target] of Object.entries(expectedTargets)) {
   const volumes = compose.services[service].volumes ?? [];
   const volume = volumes[0];
-  if (volumes.length !== 1 || volume?.type !== 'bind' || volume?.target !== target || volume?.read_only !== false || volume?.bind?.create_host_path !== false || volume?.bind?.propagation !== 'rprivate'
+  const expectedVolume = { bind: { create_host_path: false, propagation: 'rprivate' }, read_only: false, source: expectedSources[service], target, type: 'bind' };
+  if (volumes.length !== 1 || canonicalJson(volume) !== canonicalJson(expectedVolume)
     || typeof volume?.source !== 'string' || !/^\/mnt\/[A-Za-z0-9._/-]+$/u.test(volume.source) || path.posix.normalize(volume.source) !== volume.source || volume.source.includes('..') || volume.source.endsWith('/')) fail(`Official ${service} dataset mapping mismatch`);
   if (volume.source !== expectedSources[service]) fail(`Official ${service} dataset source does not match its private configured role`);
   datasetSources.push(volume.source);
 }
 const ingressVolumes = compose.services.ingress.volumes ?? [];
 const ingressScratch = ingressVolumes[0];
-if (ingressVolumes.length !== 1 || ingressScratch?.type !== 'volume' || ingressScratch?.source !== 'settleora-caddy-bin' || ingressScratch?.target !== '/tmp' || ingressScratch?.read_only !== false || ingressScratch?.volume?.nocopy !== false
+const expectedIngressScratch = { read_only: false, source: 'settleora-caddy-bin', target: '/tmp', type: 'volume', volume: { nocopy: false } };
+if (ingressVolumes.length !== 1 || canonicalJson(ingressScratch) !== canonicalJson(expectedIngressScratch)
   || canonicalJson(compose.volumes?.['settleora-caddy-bin']) !== canonicalJson({}) || (compose.services.migrate.volumes?.length ?? 0) !== 0 || new Set(datasetSources).size !== 3
   || datasetSources.some((source, index) => datasetSources.some((other, otherIndex) => index !== otherIndex && source.startsWith(`${other}/`)))) fail('Official persistent dataset ownership or separation mismatch');
 if (canonicalJson(Object.keys(compose.volumes ?? {})) !== canonicalJson(['settleora-caddy-bin'])
@@ -196,6 +205,6 @@ for (const [service, expected] of Object.entries(expectedServiceConfigs)) {
 if (canonicalJson(Object.keys(compose.configs ?? {}).sort()) !== canonicalJson(['settleora-api-entrypoint', 'settleora-caddy-entrypoint', 'settleora-caddyfile', 'settleora-migrate-entrypoint', 'settleora-rabbitmq-entrypoint', 'settleora-tls-certificate', 'settleora-tls-private-key'])) fail('Official config set mismatch');
 const certificate = privateValues.ix_certificates?.[String(privateValues.network?.certificate_id)];
 if (compose.configs?.['settleora-tls-certificate']?.content !== certificate?.certificate || compose.configs?.['settleora-tls-private-key']?.content !== certificate?.privatekey) fail('Official ingress TLS config content mismatch');
-if (compose['x-settleora-release']?.identity_digest !== plan.applicationRelease.identityDigest) fail('Official release mapping mismatch');
+if (canonicalJson(compose['x-settleora-release']) !== canonicalJson(directCompose['x-settleora-release'])) fail('Official release mapping mismatch');
 process.stdout.write(`${canonicalJson({ schema: 'settleora.truenas-official-render-validation.v1', composeSha256: sha256(canonicalJson(compose)), services: names, publishedPorts: 1, platform: 'linux/amd64', realSecretsIncluded: false, published: false, deployed: false })}`);
 }

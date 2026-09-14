@@ -99,6 +99,30 @@ try {
   expectOfficialPostRenderRefusal(packet, 'ingress-tmpfs-drift', (compose) => {
     compose.services.ingress.tmpfs = ['/config:gid=1000,mode=0700,uid=1000'];
   });
+  expectOfficialPostRenderRefusal(packet, 'ingress-port-mode-drift', (compose) => {
+    compose.services.ingress.ports[0].mode = 'host';
+  });
+  expectOfficialPostRenderRefusal(packet, 'network-definition-injection', (compose) => {
+    const internal = Object.keys(compose.networks).find((name) => name !== 'edge');
+    compose.networks[internal].driver_opts = { 'com.docker.network.bridge.enable_ip_masquerade': 'true' };
+  });
+  expectOfficialPostRenderRefusal(packet, 'dataset-bind-injection', (compose) => {
+    compose.services.api.volumes[0].bind.selinux = 'z';
+  });
+  const releaseMutations = {
+    schema: (release) => { release.schema = 'settleora.day1-release-identity.v0'; },
+    candidate: (release) => { release.candidate_id = 'day1-untrusted'; },
+    source: (release) => { release.application_source_commit = '0'.repeat(40); },
+    tree: (release) => { release.application_source_tree = '0'.repeat(40); },
+    platform: (release) => { release.platform = 'linux/arm64'; },
+    index: (release) => { release.api_index_digest = `sha256:${'0'.repeat(64)}`; },
+    authority: (release) => { release.runtime_digest_authority = 'mutable-tag'; },
+    identity: (release) => { release.identity_digest = '0'.repeat(64); },
+    extra: (release) => { release.untrusted_override = 'refused'; },
+  };
+  for (const [field, mutate] of Object.entries(releaseMutations)) {
+    expectOfficialPostRenderRefusal(packet, `release-${field}-drift`, (compose) => mutate(compose['x-settleora-release']));
+  }
   expectOfficialRefusal(packet, 'network-injection', (values) => {
     values.network.networks = [{ name: 'bridge', containers: [{ name: 'postgres', config: {} }] }];
   });
