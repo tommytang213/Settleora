@@ -149,10 +149,10 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 | B13 | Generated contracts/clients as inputs | `implemented` | OpenAPI plus `packages/client-web/src/generated/` and `packages/client-dart/lib/generated/` | `validate:clients` regenerates to temp and hashes current files; automatic non-doc CI. These are source inputs, not deployable artifacts | #1185; no release-artifact claim |
 | B14 | Checksums/digests/version identity across artifacts | `implemented` | `tools/release/`; GHCR exact-SHA publication; R02 web manifest; mobile `1.0.0+1` | Completed R03 generated and independently revalidated external final-main candidate `day1-13c8eaaedf83`, binding source/tree, immutable API/dependency index and selected-platform digests, repository-source-only migrations, exact-source web and APK/AAB identities, release notes, rollback artifact caveat, and retention | #1214/PRs #1215/#1228/#1229/#1230; evidence is not deployment or store readiness |
 | C01 | Supported self-host targets | `partial` | deployment docs, LAN Compose files, and unpublished catalog skeleton | Trusted LAN/TrueNAS is the prepared target; the skeleton is repository-validated but no current live install, published catalog, production/public target, or polished acceptance is claimed | R05/R09 |
-| C02 | Environment example and secret boundary | `partial` | `infra/env/.env.truenas-lan.example` | Required variables and placeholders are documented; real values remain operator-managed. No catalog form, secret generation, rotation, or validation UI exists | R04; secret mutation is manual-gated |
+| C02 | Environment example and secret boundary | `partial` | `infra/env/.env.truenas-lan.example`; `infra/truenas-catalog/settleora/questions.yaml` | Required variables and placeholders are documented, and the unpublished catalog form accepts private externally managed password inputs without defaults. Secret generation, rotation, live validation UI, and real values remain absent/operator-managed | Completed R04 repository form; R05/#975 retain live secret handling and secret mutation is manual-gated |
 | C03 | PostgreSQL/RabbitMQ/storage persistence | `implemented` | both LAN Compose files; `infra/rabbitmq/settleora-entrypoint.sh`; focused validator | [PR #1190](https://github.com/tommytang213/Settleora/pull/1190) requires one stable hostname/nodename, refuses missing, mismatched, multiple, or ambiguous persisted identities, and proves durable marker queue/message continuity over repeated recreation plus non-destructive pre-change identity adoption in both variants | Completed R11/#1189; live TrueNAS use remains within R05 |
 | C04 | Health/readiness/bootstrap checks | `implemented` | API `/health`, `/health/ready`, bootstrap endpoint; LAN guide | #483 recorded HTTP 200 liveness/readiness with postgres/rabbitmq/storage `ok`; bootstrap/sign-in was intentionally not exercised | #483 is closed bounded evidence; R05 owns future self-host smoke, while #975 only consumes it |
-| C05 | First install and migration ordering | `partial` | LAN Compose `migrate` one-shot plus `service_completed_successfully`; install guide | Runner supports managed/safe/manual/check/validate/danger modes. Commands are manual; no catalog hook or polished installer exists | R04 |
+| C05 | First install and migration ordering | `partial` | LAN Compose and catalog `migrate` one-shot plus `service_completed_successfully`; install guide | Runner supports managed/safe/manual/check/validate/danger modes. R04 supplies a first-class unpublished catalog migration gate but not a live TrueNAS install, polished operator workflow, or applied-migration proof | Completed R04 repository hook; R05/#975 retain live acceptance |
 | C06 | Upgrade orchestration | `documentation-only` | `SELF_HOSTED_INSTALL_UPGRADE_ORCHESTRATION.md` | Ordering, image identity, backup prerequisite, stop conditions, and health checks are plans only | R05 |
 | C07 | Rollback/recovery | `documentation-only` | install/upgrade and backup/restore docs | Limits are truthful: image-only rollback may be incompatible after schema/file changes; no automatic rollback or rehearsal evidence | R05 |
 | C08 | Backup/restore consistency | `documentation-only` | `TRUENAS_BACKUP_RESTORE_RUNBOOK.md` | PostgreSQL/files/RabbitMQ/config consistency and restore order are documented; no backup automation or maintainer-run restore proof | R05 |
@@ -199,7 +199,7 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 | API OCI image | `services/api/Dockerfile`; GHCR workflow | Final R03 source `13c8eaae...`: exact tag `sha-13c8eaaedf83a29194befcde6c37c428da3300e6`, index `sha256:f23a8001...`, selected Linux/amd64 manifest `sha256:13ecfac4...`, matching OCI revision; floating `:main` is not authority | Published by normal `main` workflow run `34768309210`; GHCR retention is not defined in repo | Immutable final-main publication identity is proven; promotion and registry retention remain partial |
 | Local Compose package | `infra/docker-compose.yml` | repository YAML plus example env | Source only | Development-only |
 | TrueNAS source package | `docker-compose.truenas-lan.yml` | repository YAML plus private operator env | Source only | Stable broker identity and fail-closed private HTTPS transport are implemented; live acceptance remains incomplete |
-| TrueNAS image package | `docker-compose.truenas-lan.image.yml` | operator-set exact image recommended; default remains `:main`; external R03 candidate records immutable API, PostgreSQL, RabbitMQ and Caddy index plus selected Linux/amd64 manifest digests | Compose source plus retained R03 evidence; no deployment mutation | Exact candidate identities are proven, but R04 still owns immutable package selection and R05 owns live acceptance |
+| TrueNAS image package | `docker-compose.truenas-lan.image.yml`; unpublished catalog materializer | legacy Compose defaults to operator-selected `:main`; the R04 package consumes the external R03 candidate and selects immutable API, PostgreSQL, RabbitMQ and Caddy index plus Linux/amd64 manifest digests | Compose and unpublished catalog source plus retained R03/R04 evidence; no publication or deployment mutation | Immutable catalog-package selection is implemented; R05 owns live acceptance |
 | User web | Vite plus R02 canonical manifest | Final-main R03 output: three files/426,988 bytes, tree digest `sha256:6bf6cd64...`, bound to source/tree and lock digest | Web-affecting PR artifacts retain staged output/manifest for 14 days; the external R03 candidate retains both final-main `web/dist/` and its canonical manifest for independent validation | Exact-source build/provenance and bounded final-main candidate retention are implemented; serving, product completeness and protected-push packaging remain incomplete |
 | Admin web | none | none | none | Unavailable |
 | Android debug APK | Flutter | `apps/mobile/build/app/outputs/flutter-apk/app-debug.apk` | Local ignored output only | Local build evidence only |
@@ -213,9 +213,9 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 | Environment/target | Package | Exposure | Data/migration | Evidence | Status |
 | --- | --- | --- | --- | --- | --- |
 | Developer Compose | `infra/docker-compose.yml` | API and dependency ports exposed locally | named volumes; API startup does not migrate | automatic config/image build on non-doc PRs | `implemented` for development only |
-| Trusted LAN/TrueNAS source build | LAN build Compose | exact RFC1918 HTTPS bind; API HTTP internal; proxy separated from backend dependencies | bind mounts; stable fail-closed RabbitMQ identity; one-shot guarded migrate before API | #1190 broker proof; #1195 disposable HTTPS/config proof; historical #483 TrueNAS `25.10.4` | `partial`; live R04/R05 acceptance remains |
-| Trusted LAN/TrueNAS image | LAN image Compose | same fail-closed private HTTPS posture | stable broker identity and ordering; API plus PostgreSQL/RabbitMQ images use floating tags by default | #1190 broker proof; #1195 disposable HTTPS/config proof; external R03 exact-digest candidate | `partial`; R04 immutable selection and live R05 acceptance remain |
-| Polished TrueNAS catalog | no package | planned LAN/private default | planned forms/hooks/datasets/backups | docs #486/#487 only | `unavailable` |
+| Trusted LAN/TrueNAS source build | LAN build Compose | exact RFC1918 HTTPS bind; API HTTP internal; proxy separated from backend dependencies | bind mounts; stable fail-closed RabbitMQ identity; one-shot guarded migrate before API | #1190 broker proof; #1195 disposable HTTPS/config proof; historical #483 TrueNAS `25.10.4` | `partial`; live R05 acceptance remains |
+| Trusted LAN/TrueNAS image | LAN image Compose | same fail-closed private HTTPS posture | stable broker identity and ordering; legacy Compose images use floating tags by default | #1190 broker proof; #1195 disposable HTTPS/config proof; external R03 exact-digest candidate | `partial`; R04 immutable catalog selection is complete and live R05 acceptance remains |
+| Unpublished TrueNAS catalog skeleton | `infra/truenas-catalog/settleora/` | exact RFC1918 HTTPS and externally managed trusted certificate reference | bounded form, three private datasets, first-class migration gate, immutable R03-derived images; no backup automation | merged R04 direct/official render, negatives, determinism, CI/scanners, and independent review | `implemented` as repository package source only; publishing, live install, polished acceptance, backup/restore, and rollback proof remain R05/#975 |
 | Staging | none | undefined | undefined | none | `unavailable` |
 | Production/public | none | no supported path; any future action is manual-gated and has no public/admin default | destructive and backup gates | none | `unavailable` until repository/product prerequisites exist; then externally gated |
 
@@ -482,8 +482,8 @@ Recommendation IDs are audit outputs only; no child issue is created here.
 3. **New focused repository recommendations:** completed R10 supplies the
    reconciled dependency graph and completed R02 supplies deterministic
    user-web package evidence and completed R01 supplies Android release hashes.
-   completed R03 now binds a final-main Android/web/API/dependency/migration
-   identity candidate, so R04 is the next dependency-safe repository recommendation.
+   completed R03 binds a final-main Android/web/API/dependency/migration
+   identity candidate, and completed R04 consumes it in the unpublished package.
 4. **External/manual acceptance:** R05 TrueNAS upgrade/restore/rollback, R06 iOS
    signed/TestFlight/device, R07 Android identity/signing/Play/device, and R09
    any production/exposure action; #975 consumes the final evidence.
@@ -493,9 +493,9 @@ Recommendation IDs are audit outputs only; no child issue is created here.
 Dependency summary:
 
 ```text
-completed #1189/R11 --------+---------------------------> R04 -> R05 --+
-completed #1195/R12 --------+---------------------------> R04 -> R05 --+--> #975
-completed R10 -> completed R02 web package -> completed R03 -> R04 -+
+completed #1189/R11 --------+-----------------> completed R04 -> R05 --+
+completed #1195/R12 --------+-----------------> completed R04 -> R05 --+--> #975
+completed R10 -> completed R02 -> completed R03 -> completed R04 -+
 completed #970 -> completed R01 Android compile -> completed R03/R07+
 #373 user web -> R08; #964 -> admin runtime -> R13 -------------------+
 R12 + domain reviews -> R09 production/exposure ---------------------+
@@ -504,10 +504,9 @@ complete Day 1 + #975 acceptance -------------------------------> #946 (later da
 
 ### Possible next dependency-safe logical task for GPT review
 
-If separately selected, R04 is now the dependency-safe repository recommendation
-for GPT review because completed R03 supplies immutable final-main candidate
-identity and completed R12 supplies the private transport baseline. R04 remains
-an unpublished catalog/render-validation task. Autonomous queue activation
+R04 is complete as an unpublished repository package/render-validation slice.
+The remaining TrueNAS work is the separately selected, manual/external R05 and
+#975 acceptance path; this task did not activate it. Autonomous queue activation
 remains disabled, so no successor was started.
 
 ## 13. Final Day 1 readiness statement
