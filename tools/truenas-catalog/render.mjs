@@ -22,6 +22,8 @@ export const OFFICIAL_APPS_COMMIT = '3b61e3ebd9476e54d065dc5b8d3db00dd6f187bb';
 export const OFFICIAL_LIBRARY_VERSION = '2.3.11';
 export const OFFICIAL_LIBRARY_HASH = '874636814efb275e5276ea9d709b7cd665fed42bb1d50328e853d9253a2e1229';
 export const OFFICIAL_LIBRARY_CONTENT_HASH = '6fd56b7d10733a47d7edf87dc78fac5be8ee8e445e6597350319bd5fe4541684';
+export const OFFICIAL_LIBRARY_LICENSE_HASH = 'e3a994d82e644b03a792a930f574002658412f62407f5fee083f2555c5f23118';
+export const PINNED_ICON_COMMIT = '71786f94e39f27b89f4b07efb00532d7fc356079';
 export const SUPPORTED_PLATFORM = Object.freeze({ os: 'linux', architecture: 'amd64' });
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
@@ -537,6 +539,9 @@ export function validateStaticTree(root = packageSource) {
   const app = YAML.parse(readFileSync(path.join(root, 'app.yaml'), 'utf8'));
   exactKeys(app, ['app_version', 'capabilities', 'categories', 'date_added', 'description', 'home', 'host_mounts', 'icon', 'keywords', 'lib_version', 'lib_version_hash', 'maintainers', 'name', 'run_as_context', 'screenshots', 'sources', 'title', 'train', 'version'], 'app.yaml');
   if (app.name !== 'settleora' || app.title !== 'Settleora' || app.train !== 'community' || app.lib_version !== OFFICIAL_LIBRARY_VERSION || app.lib_version_hash !== OFFICIAL_LIBRARY_HASH || app.screenshots.length !== 0) fail('app.yaml metadata is invalid');
+  const item = YAML.parse(readFileSync(path.join(root, 'item.yaml'), 'utf8'));
+  const expectedIcon = `https://raw.githubusercontent.com/tommytang213/Settleora/${PINNED_ICON_COMMIT}/apps/mobile/web/icons/Icon-512.png`;
+  if (app.icon !== expectedIcon || item.icon_url !== expectedIcon) fail('Catalog icon must use the reviewed immutable source commit');
   const questions = YAML.parse(readFileSync(path.join(root, 'questions.yaml'), 'utf8'));
   exactKeys(questions, ['groups', 'questions'], 'questions.yaml');
   const text = readFileSync(path.join(root, 'questions.yaml'), 'utf8');
@@ -549,6 +554,13 @@ export function validateStaticTree(root = packageSource) {
   if (!lstatSync(library).isDirectory()) fail('Pinned official TrueNAS library is missing');
   const libraryIdentity = directoryContentIdentity(library);
   if (libraryIdentity.fileCount !== 78 || libraryIdentity.sha256 !== OFFICIAL_LIBRARY_CONTENT_HASH) fail('Pinned official TrueNAS library content mismatch');
+  const licensePath = path.join(root, 'templates/library/LICENSE.LGPL-3.0');
+  const noticePath = path.join(root, 'templates/library/THIRD_PARTY_NOTICES.md');
+  if (sha256(readFileSync(licensePath)) !== OFFICIAL_LIBRARY_LICENSE_HASH) fail('Pinned official TrueNAS library license mismatch');
+  const notice = readFileSync(noticePath, 'utf8');
+  for (const required of [OFFICIAL_APPS_COMMIT, OFFICIAL_LIBRARY_VERSION, OFFICIAL_LIBRARY_HASH, OFFICIAL_LIBRARY_CONTENT_HASH, 'Modifications: none', 'LICENSE.LGPL-3.0']) {
+    if (!notice.includes(required)) fail('Pinned official TrueNAS library notice is incomplete');
+  }
 }
 
 function safeOutputRoot(output) {

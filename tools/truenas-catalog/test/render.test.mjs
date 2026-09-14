@@ -10,7 +10,9 @@ import {
   OFFICIAL_APPS_COMMIT,
   OFFICIAL_LIBRARY_HASH,
   OFFICIAL_LIBRARY_CONTENT_HASH,
+  OFFICIAL_LIBRARY_LICENSE_HASH,
   OFFICIAL_LIBRARY_VERSION,
+  PINNED_ICON_COMMIT,
   SECRET_MARKERS,
   consumeReleaseIdentity,
   directoryContentIdentity,
@@ -40,6 +42,12 @@ test('official TrueNAS 25.10 package skeleton uses current Docker Apps layout an
   assert.equal(app.screenshots.length, 0);
   assert.match(OFFICIAL_APPS_COMMIT, /^[0-9a-f]{40}$/);
   assert.match(OFFICIAL_LIBRARY_CONTENT_HASH, /^[0-9a-f]{64}$/);
+  assert.match(OFFICIAL_LIBRARY_LICENSE_HASH, /^[0-9a-f]{64}$/);
+  const expectedIcon = `https://raw.githubusercontent.com/tommytang213/Settleora/${PINNED_ICON_COMMIT}/apps/mobile/web/icons/Icon-512.png`;
+  assert.equal(app.icon, expectedIcon);
+  assert.equal(YAML.parse(readFileSync(path.join(packageSource, 'item.yaml'), 'utf8')).icon_url, expectedIcon);
+  assert.match(readFileSync(path.join(packageSource, 'templates/library/THIRD_PARTY_NOTICES.md'), 'utf8'), /Modifications: none/u);
+  assert.equal(sha256(readFileSync(path.join(packageSource, 'templates/library/LICENSE.LGPL-3.0'))), OFFICIAL_LIBRARY_LICENSE_HASH);
   assert.equal(values.resources.limits.memory, 4096);
   assert.equal(template.split('__SETTLEORA_RELEASE_LOCK__').length, 2);
   const bindPattern = questions.questions.find((question) => question.variable === 'network').schema.attrs.find((attr) => attr.variable === 'bind_address').schema.valid_chars;
@@ -78,6 +86,22 @@ test('pinned official TrueNAS library content fails closed on byte drift', () =>
   const target = path.join(root, 'templates/library/base_v2_3_11/container.py');
   writeFileSync(target, `${readFileSync(target, 'utf8')}\n# drift\n`);
   assert.throws(() => validateStaticTree(root), /library content mismatch/);
+});
+
+test('third-party license and immutable icon provenance fail closed on drift', () => {
+  const licenseRoot = path.join(temp(), 'license-package');
+  cpSync(packageSource, licenseRoot, { recursive: true });
+  const license = path.join(licenseRoot, 'templates/library/LICENSE.LGPL-3.0');
+  writeFileSync(license, `${readFileSync(license, 'utf8')}drift\n`);
+  assert.throws(() => validateStaticTree(licenseRoot), /library license mismatch/);
+
+  const iconRoot = path.join(temp(), 'icon-package');
+  cpSync(packageSource, iconRoot, { recursive: true });
+  const itemPath = path.join(iconRoot, 'item.yaml');
+  const item = YAML.parse(readFileSync(itemPath, 'utf8'));
+  item.icon_url = 'https://raw.githubusercontent.com/tommytang213/Settleora/main/apps/mobile/web/icons/Icon-512.png';
+  writeFileSync(itemPath, YAML.stringify(item));
+  assert.throws(() => validateStaticTree(iconRoot), /icon must use the reviewed immutable source commit/);
 });
 
 test('semantic R03 consumer creates immutable selected-platform runtime references', () => {

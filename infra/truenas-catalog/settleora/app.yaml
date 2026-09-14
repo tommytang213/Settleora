@@ -6,7 +6,7 @@ date_added: "2026-09-14"
 description: Self-hosted expense, shared-bill, and settlement management for a private LAN.
 home: https://github.com/tommytang213/Settleora
 host_mounts: []
-icon: https://raw.githubusercontent.com/tommytang213/Settleora/main/apps/mobile/web/icons/Icon-512.png
+icon: https://raw.githubusercontent.com/tommytang213/Settleora/71786f94e39f27b89f4b07efb00532d7fc356079/apps/mobile/web/icons/Icon-512.png
 keywords:
   - finance
   - productivity

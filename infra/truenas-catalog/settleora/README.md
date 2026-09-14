@@ -57,3 +57,6 @@ tracker. The project is licensed under the PolyForm Noncommercial License
 1.0.0; commercial use requires separate written permission. The software is
 provided without warranty and at the operator's own risk. See the repository
 README, LICENSE, deployment runbooks, and security policy for the full posture.
+The unmodified TrueNAS Apps template library bundled under `templates/library/`
+retains its upstream LGPL-3.0 license; see the adjacent third-party notice and
+license copy for its immutable source and content identities.
