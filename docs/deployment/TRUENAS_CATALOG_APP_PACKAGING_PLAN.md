@@ -2,14 +2,17 @@
 
 ## Status
 
-This document is the packaging plan for a future polished Settleora TrueNAS
-catalog app. It is planning and runbook guidance only. It does not implement a
-catalog app, publish catalog metadata, publish container images, change Docker
-or Compose behavior, change environment defaults, deploy to production, approve
-public exposure, or expose admin surfaces.
+This document records the packaging requirements and remaining publication/live
+acceptance work for a polished Settleora TrueNAS catalog app. R04/#1232 and
+[PR #1233](https://github.com/tommytang213/Settleora/pull/1233) implement a
+repository-only, unpublished TrueNAS 25.10.x Docker Apps skeleton at
+`infra/truenas-catalog/settleora/`. The implementation does not publish a
+catalog or container image, change a live environment, deploy, approve public
+exposure, or expose admin surfaces.
 
-Current runnable TrueNAS-oriented evidence remains the LAN Docker path in
-[TrueNAS LAN Docker testing](TRUENAS_LAN_DOCKER_TESTING.md). Catalog readiness
+Current runnable TrueNAS-oriented evidence includes the LAN Docker path in
+[TrueNAS LAN Docker testing](TRUENAS_LAN_DOCKER_TESTING.md) and deterministic
+direct plus pinned-official rendering of the unpublished skeleton. Catalog readiness
 acceptance criteria remain in
 [TrueNAS catalog app readiness](TRUENAS_CATALOG_APP_READINESS.md). Backup,
 restore, rollback, and redaction evidence are covered by
@@ -38,9 +41,9 @@ This plan covers:
 - Image tag, upgrade, migration, and rollback planning.
 - Operator warnings, stop conditions, and future manual gates.
 
-This plan does not approve:
+This plan and the R04 skeleton do not approve:
 
-- TrueNAS catalog implementation or publishing.
+- TrueNAS catalog publication or live installation.
 - Container image publishing.
 - Production deployment.
 - Reverse proxy, TLS, public DNS, or public tunnel setup.
@@ -97,8 +100,10 @@ or user data.
 
 ## Image Sources And Tags
 
-The current repo has Dockerfile and compose evidence, but no catalog-published
-image guarantee. A future catalog package should use a reviewed registry policy:
+The current repo has Dockerfile, Compose, and unpublished catalog-render evidence,
+but no catalog-published image guarantee. The R04 materializer consumes the R03
+manifest and selects the exact Linux/amd64 platform digests; a future published
+catalog release must retain that reviewed registry policy:
 
 - Primary image source should be GitHub Container Registry unless release
   policy approves another registry.
@@ -116,7 +121,9 @@ selector.
 
 ## User-Facing Configuration Fields
 
-The future catalog form should expose only supported behavior. Suggested fields:
+The R04 form exposes only its supported private-LAN behavior. The following
+table remains the governing field policy for the unpublished skeleton and any
+future published form:
 
 | Field | Type | Default/posture | Notes |
 | --- | --- | --- | --- |
@@ -140,8 +147,9 @@ The future catalog form should expose only supported behavior. Suggested fields:
 | LAN-only warning acknowledgement | Checkbox | Required | Confirms no public exposure is approved by the catalog install. |
 | Admin exposure protection | Future manual-gated select | Not exposed now | Later choices may include LAN, VPN, Cloudflare Access-style gate, or equivalent protection after implementation review. |
 
-The catalog does not yet implement these fields; R12 only supplies the Compose
-contract they must preserve. Do not expose fields for unsupported runtime slices such as OIDC provider setup,
+R04 implements the bounded private-LAN, certificate reference, dataset,
+credential, migration-mode, and acknowledgement subset while preserving the R12
+Compose contract. Do not expose fields for unsupported runtime slices such as OIDC provider setup,
 passkeys, MFA policy, push/email provider delivery, web/admin portal URLs, OCR
 worker enablement, MinIO/S3 storage, public registration, automatic certificate
 issuance/renewal, another proxy tier, or public exposure until those features
@@ -226,7 +234,7 @@ Expected behavior:
 
 Safe catalog implementation evidence should include:
 
-- TrueNAS version, with current target `25.10.1` where applicable.
+- TrueNAS version, with current live-acceptance target `25.10.7` where applicable.
 - Catalog app version and Settleora image tag/digest or commit SHA.
 - Redacted app form screenshots.
 - Redacted dataset role mapping.
@@ -278,7 +286,7 @@ Rollback limits:
 
 ## Operator Warnings And Stop Conditions
 
-Future catalog work must stop and escalate if any of these would occur without
+Further catalog work must stop and escalate if any of these would occur without
 an explicit manual gate:
 
 - Public internet exposure.
