@@ -52,19 +52,22 @@ const passkeyOrigin = privateHttpsPort === 443 ? `https://${privateHostname}` : 
 if (compose.services.api.environment?.Auth__Passkeys__RelyingPartyId !== privateHostname || compose.services.api.environment?.Auth__Passkeys__AllowedOrigins__0 !== passkeyOrigin) fail('Official passkey relying-party identity mismatch');
 const privateSettleora = privateValues.settleora ?? {};
 const connection = `Host=postgres;Port=5432;Database=${privateSettleora.postgres_database};Username=${privateSettleora.postgres_user};Password=${privateSettleora.postgres_password}`;
+const commonEnvironment = { NVIDIA_VISIBLE_DEVICES: 'void', TZ: 'Etc/UTC', UMASK: '002', UMASK_SET: '002' };
 const expectedEnvironment = {
   api: {
+    ...commonEnvironment,
     ASPNETCORE_ENVIRONMENT: 'Production', ASPNETCORE_URLS: 'http://+:8080', HOME: '/var/lib/settleora/storage/.settleora-home', Settleora__Database__ConnectionString: connection,
     Auth__Passkeys__RelyingPartyId: privateHostname, Auth__Passkeys__AllowedOrigins__0: passkeyOrigin,
     Settleora__RabbitMq__HostName: 'rabbitmq', Settleora__RabbitMq__Port: '5672', Settleora__RabbitMq__UserName: privateSettleora.rabbitmq_user,
     Settleora__RabbitMq__Password: privateSettleora.rabbitmq_password, Settleora__RabbitMq__VirtualHost: '/', Settleora__Storage__Provider: 'Local', Settleora__Storage__RootPath: '/var/lib/settleora/storage',
   },
-  migrate: { ASPNETCORE_ENVIRONMENT: 'Production', Settleora__Database__ConnectionString: connection, SETTLEORA_DATABASE_MIGRATION_MODE: privateSettleora.migration_mode },
-  postgres: { POSTGRES_DB: privateSettleora.postgres_database, POSTGRES_USER: privateSettleora.postgres_user, POSTGRES_PASSWORD: privateSettleora.postgres_password },
-  rabbitmq: { RABBITMQ_DEFAULT_USER: privateSettleora.rabbitmq_user, RABBITMQ_DEFAULT_PASS: privateSettleora.rabbitmq_password, RABBITMQ_NODENAME: `rabbit@${privateSettleora.rabbitmq_node_hostname}` },
+  ingress: { ...commonEnvironment },
+  migrate: { ...commonEnvironment, ASPNETCORE_ENVIRONMENT: 'Production', Settleora__Database__ConnectionString: connection, SETTLEORA_DATABASE_MIGRATION_MODE: privateSettleora.migration_mode },
+  postgres: { ...commonEnvironment, POSTGRES_DB: privateSettleora.postgres_database, POSTGRES_USER: privateSettleora.postgres_user, POSTGRES_PASSWORD: privateSettleora.postgres_password },
+  rabbitmq: { ...commonEnvironment, RABBITMQ_DEFAULT_USER: privateSettleora.rabbitmq_user, RABBITMQ_DEFAULT_PASS: privateSettleora.rabbitmq_password, RABBITMQ_NODENAME: `rabbit@${privateSettleora.rabbitmq_node_hostname}` },
 };
 for (const [service, expected] of Object.entries(expectedEnvironment)) {
-  for (const [key, value] of Object.entries(expected)) if (compose.services[service].environment?.[key] !== value) fail(`Official ${service} dependency environment mismatch`);
+  if (canonicalJson(compose.services[service].environment ?? {}) !== canonicalJson(expected)) fail(`Official ${service} dependency environment mismatch`);
 }
 if (compose.services.ingress.depends_on?.api?.condition !== 'service_healthy') fail('Official ingress API-readiness gate missing');
 if (canonicalJson(compose.services.api.entrypoint) !== canonicalJson(['/bin/sh', '/usr/local/bin/settleora-api-entrypoint.sh'])) fail('Official API storage preflight entrypoint is missing');
@@ -128,6 +131,16 @@ const expectedIngressConfigs = [
   { mode: 256, source: 'settleora-tls-private-key', target: '/run/settleora-tls/tls.key' },
 ];
 if (canonicalJson(compose.services.ingress.configs) !== canonicalJson(expectedIngressConfigs)) fail('Official ingress TLS config mounts mismatch');
+const expectedServiceConfigs = {
+  api: [{ mode: 365, source: 'settleora-api-entrypoint', target: '/usr/local/bin/settleora-api-entrypoint.sh' }],
+  ingress: expectedIngressConfigs,
+  migrate: [{ mode: 365, source: 'settleora-migrate-entrypoint', target: '/usr/local/bin/settleora-migrate-entrypoint.sh' }],
+  postgres: [],
+  rabbitmq: [{ mode: 365, source: 'settleora-rabbitmq-entrypoint', target: '/usr/local/bin/settleora-rabbitmq-entrypoint.sh' }],
+};
+for (const [service, expected] of Object.entries(expectedServiceConfigs)) {
+  if (canonicalJson(compose.services[service].configs ?? []) !== canonicalJson(expected)) fail(`Official ${service} config isolation mismatch`);
+}
 const certificate = privateValues.ix_certificates?.[String(privateValues.network?.certificate_id)];
 if (compose.configs?.['settleora-tls-certificate']?.content !== certificate?.certificate || compose.configs?.['settleora-tls-private-key']?.content !== certificate?.privatekey) fail('Official ingress TLS config content mismatch');
 if (compose['x-settleora-release']?.identity_digest !== plan.applicationRelease.identityDigest) fail('Official release mapping mismatch');

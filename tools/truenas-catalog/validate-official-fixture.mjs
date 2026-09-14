@@ -32,11 +32,43 @@ function expectOfficialRefusal(packet, name, mutate) {
   assert.doesNotMatch(output, /\/mnt\//u);
 }
 
+function expectOfficialPostRenderRefusal(packet, name, mutate) {
+  const root = path.join(tempRoot, name);
+  mkdirSync(root);
+  cpSync(path.join(packet, 'package'), path.join(root, 'package'), { recursive: true });
+  cpSync(path.join(packet, 'private-validation-values.yaml'), path.join(root, 'private-validation-values.yaml'));
+  execFileSync('docker', [
+    'run', '--platform', 'linux/amd64', '--rm', '-e', 'FAKE_ENV=1',
+    '-v', `${root}:/workspace:rw`, '-v', '/var/run/docker.sock:/var/run/docker.sock:ro',
+    validatorImage, 'apps_render_app', 'render', '--path', '/workspace/package', '--values', '/workspace/private-validation-values.yaml',
+  ], { cwd: repoRoot, stdio: 'pipe' });
+  execFileSync('docker', [
+    'run', '--platform', 'linux/amd64', '--rm', '-v', `${root}:/workspace:rw`, '--entrypoint', '/bin/chmod',
+    validatorImage, '0666', '/workspace/package/templates/rendered/docker-compose.yaml',
+  ], { cwd: repoRoot, stdio: 'pipe' });
+  const composePath = path.join(root, 'package/templates/rendered/docker-compose.yaml');
+  const compose = YAML.parse(readFileSync(composePath, 'utf8'));
+  mutate(compose);
+  writeFileSync(composePath, YAML.stringify(compose), { mode: 0o600 });
+  const result = spawnSync('bash', ['-c', 'node "$1" 3< "$2" 4< "$3" 5< "$4" 6< "$5" 7< "$6"', 'bash',
+    path.join(moduleDir, 'validate-official-render.mjs'), composePath, path.join(packet, 'install-plan.json'), path.join(packet, 'private-validation-values.yaml'),
+    path.join(packet, 'private-render-identity.json'), path.join(packet, 'rendered/docker-compose.yaml'),
+  ], { cwd: repoRoot, encoding: 'utf8' });
+  assert.notEqual(result.status, 0, `${name} must be refused by the official post-render validator`);
+  const output = result.stdout + result.stderr;
+  for (const secret of SECRET_MARKERS) assert.doesNotMatch(output, new RegExp(secret));
+  assert.doesNotMatch(output, /\/mnt\//u);
+}
+
 try {
   const manifest = syntheticManifest();
   const packet = path.join(tempRoot, 'packet');
   materialize({ manifest, expectedIdentityDigest: manifest.identityDigest, config: structuredClone(fixtureConfig), output: packet });
   execFileSync('bash', [path.join(moduleDir, 'validate-official-render.sh'), packet], { cwd: repoRoot, stdio: 'inherit' });
+  expectOfficialPostRenderRefusal(packet, 'unexpected-environment', (compose) => { compose.services.api.environment.UNSUPPORTED_INJECTION = 'refused'; });
+  expectOfficialPostRenderRefusal(packet, 'tls-cross-service-mount', (compose) => {
+    compose.services.postgres.configs = [{ mode: 256, source: 'settleora-tls-private-key', target: '/tmp/leaked-key' }];
+  });
   expectOfficialRefusal(packet, 'network-injection', (values) => {
     values.network.networks = [{ name: 'bridge', containers: [{ name: 'postgres', config: {} }] }];
   });
