@@ -58,6 +58,12 @@ jobs:
       - name: Validate scaffold paths
         run: npm run validate:scaffold
 
+      - name: Validate unpublished TrueNAS catalog package
+        run: npm run validate:truenas-catalog
+
+      - name: Validate official TrueNAS render
+        run: npm run validate:truenas-catalog:official
+
       - name: Test CI routing and workflow policy
         run: node --test tools/ci/test/*.test.mjs
 

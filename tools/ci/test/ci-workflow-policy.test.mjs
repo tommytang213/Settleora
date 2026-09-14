@@ -34,6 +34,8 @@ test('scaffold orchestration preserves the stable fail-closed aggregate', () => 
     assert.equal(classify.outputs[output], `\${{ steps.changes.outputs.${output} }}`);
   }
   assert.ok(runCommands(classify).includes('npm run validate:scaffold'));
+  assert.ok(runCommands(classify).includes('npm run validate:truenas-catalog'));
+  assert.ok(runCommands(classify).includes('npm run validate:truenas-catalog:official'));
   assert.ok(runCommands(classify).includes('node --test tools/ci/test/*.test.mjs'));
 
   const aggregate = scaffold.jobs.aggregate;

@@ -1,0 +1,36 @@
+# Fail-closed source sentinel. The repository materializer replaces every image
+# value only after semantic validation of an R03 release-identity manifest.
+images:
+  api_image:
+    repository: invalid.local/settleora-r03-manifest-required
+    tag: manifest-required
+  caddy_image:
+    repository: invalid.local/caddy-r03-manifest-required
+    tag: manifest-required
+  postgres_image:
+    repository: invalid.local/postgres-r03-manifest-required
+    tag: manifest-required
+  rabbitmq_image:
+    repository: invalid.local/rabbitmq-r03-manifest-required
+    tag: manifest-required
+
+consts:
+  api_container_name: api
+  caddy_container_name: ingress
+  migrate_container_name: migrate
+  postgres_container_name: postgres
+  rabbitmq_container_name: rabbitmq
+  storage_root: /var/lib/settleora/storage
+  internal_https_port: 8443
+
+resources:
+  limits:
+    cpus: 4.0
+    memory: 4096
+  gpus:
+    use_all_gpus: false
+    kfd_device_exists: false
+    nvidia_gpu_selection: {}
+
+TZ: Etc/UTC
+skip_id_variables: true
