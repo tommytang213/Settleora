@@ -44,7 +44,7 @@ function expectOfficialPostRenderRefusal(packet, name, mutate) {
   ], { cwd: repoRoot, stdio: 'pipe' });
   execFileSync('docker', [
     'run', '--platform', 'linux/amd64', '--rm', '-v', `${root}:/workspace:rw`, '--entrypoint', '/bin/chmod',
-    validatorImage, '0666', '/workspace/package/templates/rendered/docker-compose.yaml',
+    validatorImage, '-R', '0777', '/workspace/package/templates/rendered',
   ], { cwd: repoRoot, stdio: 'pipe' });
   const composePath = path.join(root, 'package/templates/rendered/docker-compose.yaml');
   const compose = YAML.parse(readFileSync(composePath, 'utf8'));
