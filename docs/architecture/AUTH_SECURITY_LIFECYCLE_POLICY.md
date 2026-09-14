@@ -171,13 +171,13 @@ shared-template fields without repeating unsafe boilerplate:
 | --- | --- | --- | --- | --- |
 | `AUTH-LC-SES-001` | Current access session — **Sign out** | Current account requests `active → revoked`; `AuthSessionRuntimeService` executes with `user_sign_out`. | Current access credential stops authenticating; its linked refresh family/credentials and other active sessions in that family are revoked. Other independent families remain usable. Roles are unchanged. | Irreversible for that session; sign in creates new authority. Implemented and idempotent for the post-validation already-revoked race. Evidence: `SignOutEndpoints`, `AuthSessionRuntimeService`, `SessionRevocationEndpointTests`. Owner #338. |
 | `AUTH-LC-SES-002` | Selected owned access session — **Revoke session** | Current account requests an owned session `active → revoked`; not-owned/missing/already-terminal targets use a non-disclosing unavailable result. | Target access credential and linked family authority stop working; unrelated session families remain usable. Authorization records are unchanged. | Irreversible for the target; reauthentication creates a new session. Implemented; target ownership and current-session self-revoke are tested. Owner #338/#774. |
-| `AUTH-LC-SES-003` | All account sessions — **Sign out all sessions** | Current account requests every eligible active access session `→ revoked`; linked active family/refresh authority is revoked. | All current bearer and refresh continuity for the account stops. Account, identities, password/factors, and roles remain. | Irreversible for existing sessions; later sign-in is possible if another credential and policy allow it. Implemented, including zero-active-session success. Owner #338. |
+| `AUTH-LC-SES-003` | Account sessions — **Sign out all sessions** | Current account requests each unexpired active access session selected by `RevokeActiveSessionsForAccountAsync` `→ revoked`; the service revokes refresh families discovered through credentials linked to those selected sessions. | Selected bearer sessions and discovered family continuity stop. A valid refresh credential whose only linked access session is already expired is not discovered by this query and can remain usable; account, identities, password/factors, and roles remain. | Irreversible for selected sessions; later sign-in is possible. Implemented but cascade completeness is partial under `AUTH-LC-CHOICE-013`; owner #338. |
 | `AUTH-LC-SES-004` | Access session — not user-initiated: **Expired** | Server validation observes `ExpiresAtUtc` reached; the row can remain stored even if its status is still `active` until another path materializes status. | Credential cannot authenticate or authorize; expiry does not revoke unrelated sessions or change roles. | Irreversible for that session. Source-defined validity from `Settleora:Auth:Sessions`; no expiry cleanup exists. Owner #338/#1059. |
 | `AUTH-LC-REF-001` | Refresh credential — not user-visible: **Rotate** | Valid `active` credential is atomically consumed as `rotated`, linked to a new credential/session in the same active family. | Old refresh material cannot refresh; new access/refresh authority is usable. Rotation does not extend family absolute expiry or change roles. | Irreversible for predecessor; retry with predecessor is replay, not success replay. Implemented with relational transaction/conditional consume tests. Owner #338; future sender constraint #1059. |
 | `AUTH-LC-REF-002` | Refresh credential/family — user sees generic **Sign in again** after detected reuse | Reuse of rotated/consumed/revoked material marks linkable family authority `replayed` and revokes family-linked active sessions/credentials. Unknown material stays generic without a resolved subject. | Every active access session and refresh credential linked to the identified family becomes unusable; unrelated families remain unless separately revoked. | Irreversible for that family. Implemented for linkable replay; abuse/notification consumers remain separate. Owner #338. |
 | `AUTH-LC-REF-003` | Refresh credential/family — user sees generic **Sign in again** after expiry | Server time observes credential idle/absolute expiry or family absolute expiry and materializes expired family/credential plus revoked family-linked access authority under the matched path. | Identified family continuity stops; unrelated families and role assignments remain. | Irreversible for that family. Implemented; no cleanup/retention period follows from expiry. Owner #338/#1059. |
-| `AUTH-LC-PWD-001` | Local password credential — **Change password** | Current account proves current password; API replaces verifier fields in the same active credential row. This is replacement, not credential revocation. | New password works; old password fails. Reviewed current flow preserves the current session and revokes other session authority according to `CurrentAccountPasswordChangeService`; roles/identity link remain. | Not reversible; user may change again. Implemented API, no complete client surface. Evidence: `AuthCredentialWorkflowService`, `CurrentAccountPasswordChangeService`, `CurrentAccountPasswordChangeEndpointTests`. Owner #339/#774. |
-| `AUTH-LC-PWD-002` | Local password/reset material — **Reset password** | A valid pending reset request is consumed; API replaces the active password verifier, revokes other outstanding reset requests, and revokes all active sessions. | New password can sign in; old password and all prior sessions/refresh families stop working. Identity and role assignments remain. | Not reversible; a later reset creates new material. Implemented core, delivery default-disabled. Owner #339/#773. |
+| `AUTH-LC-PWD-001` | Local password credential — **Change password** | Current account proves current password; API replaces verifier fields in the same active credential row. This is replacement, not credential revocation. | New password works; old password fails. Current flow preserves the current session and invokes account-session revocation excluding it; only selected unexpired sessions and families discovered through them are revoked, so the refresh-lineage limitation in `AUTH-LC-CHOICE-013` applies. Roles/identity link remain. | Not reversible; user may change again. Implemented API, incomplete cascade/client surface. Evidence: `AuthCredentialWorkflowService`, `CurrentAccountPasswordChangeService`, `CurrentAccountPasswordChangeEndpointTests`. Owner #339/#338/#774. |
+| `AUTH-LC-PWD-002` | Local password/reset material — **Reset password** | A valid pending reset request is consumed; API replaces the active password verifier, revokes other outstanding reset requests, and invokes account-session revocation without excluding a session. | New password works and old password fails. Selected unexpired access sessions and refresh families discovered through them stop; refresh authority linked only through an already-expired access session can remain usable under `AUTH-LC-CHOICE-013`. Identity and role assignments remain. | Not reversible; a later reset creates new material. Implemented core with incomplete cascade; delivery default-disabled. Owner #339/#338/#773. |
 | `AUTH-LC-PWD-003` | Local password credential — **Disable credential** | Proposed reversible administrative `active → disabled`; schema supports the target, but no current endpoint/service performs it. | Verification refuses disabled credentials. Existing-session, alternate-method, and reset effects are unresolved. | Conditionally re-enableable only after recovery/lockout policy; unimplemented and blocked by `AUTH-LC-CHOICE-002`. Owner #788/#339. |
 | `AUTH-LC-PWD-004` | Local password credential — **Revoke credential** | Proposed terminal `active/disabled → revoked`; schema supports the target, but no current endpoint/service performs it. | Verifier stops future password sign-in; exact existing-session and fallback effects are unresolved. | Irreversible for that verifier; replacement requires a distinct proofed workflow. Blocked by `AUTH-LC-CHOICE-002`. Owner #788/#339. |
 | `AUTH-LC-ACC-001` | Auth account — **Disable account** | Proposed administrative `active → disabled`; schema supports status/`DisabledAtUtc`, but no mutation runtime exists. | Current validation, sign-in, refresh, password-reset completion, passkey, and MFA services reject unavailable accounts. Whether disable must transactionally revoke all sessions/material is unresolved; roles remain assignments but are ineligible while account is disabled. | Conditionally reversible only through explicit re-enable. Requires last-owner and alternate-auth recovery proof. Blocked by `AUTH-LC-CHOICE-001`; owner #788/#785. |
@@ -212,37 +212,50 @@ shared-template fields without repeating unsafe boilerplate:
 | `AUTH-LC-RST-004` | Password-reset request — generic **Link unavailable** | Reuse of consumed/revoked/replaced material changes matched request `→ suspicious_replay`; policy/account failure may revoke outstanding requests. | No credential or session authority is granted. Public response stays generic. | Terminal for the material. Implemented in part; retry/guess limiting and disposition remain unresolved. Owners #339 and `REC-AUTH-ABUSE-001`. |
 | `AUTH-LC-RST-005` | Pending password-reset requests — not user-visible: **Revoke outstanding reset links** | Account/policy failure or successful completion can change other pending requests `→ revoked`; this is separate from suspicious replay. | Revoked material cannot reset a password; it does not itself replace the credential. | Terminal for each request. Implemented on current paths; trigger completeness/retention remain `AUTH-LC-CHOICE-007`. Owner #339. |
 | `AUTH-LC-INV-001` | Invitation — **Accept invitation** | Valid pending invitation is transactionally changed `→ accepted` after policy, secret, account, and credential checks. | Invitation becomes single-use; accepted account gets only the approved `user` role. The invitation is not a session and does not sign the user in. | Terminal for invitation; rollback logic restores pending only if account-creation persistence fails. Implemented runtime, capability/provider default-off. Owner #784. |
-| `AUTH-LC-INV-002` | Pending invitation — **Resend invitation** | Still-pending invitation keeps `pending`; server rotates the stored secret hash before new raw delivery material leaves the boundary. | Prior link stops redeeming; new link may redeem until expiry. No account/session/role changes occur. | Old material is irreversibly replaced. Implemented; delivery state must not claim sent without provider proof. Owner #784. |
+| `AUTH-LC-INV-002` | Pending invitation — **Resend invitation** with ready requested delivery | When delivery is requested, readiness passes, and composition succeeds, the invitation remains `pending`; server commits a rotated secret hash before handing new raw material to delivery. | Prior link stops redeeming; only the newly delivered link may redeem until expiry. No account/session/role changes occur. | Old material is irreversibly replaced. Implemented; send outcome remains separately truthful. Owner #784. |
 | `AUTH-LC-INV-003` | Pending invitation — **Revoke invitation** | Authorized owner/admin changes `pending → revoked`, records actor/time, and sets current cleanup eligibility. | Link stops redeeming immediately. No accepted account, credential, session, identity, or role is removed. | Terminal. Implemented. Owner #784. |
 | `AUTH-LC-INV-004` | Pending invitation — **Expired invitation** | Server time changes `pending → expired` lazily/on bounded lifecycle cleanup; public redemption remains generic. | Link cannot redeem; no account/session/role change. | Terminal. Implemented. Owner #784. |
 | `AUTH-LC-INV-005` | Terminal invitation — not ordinary UI: **retention cleanup** | Current runtime physically deletes accepted/revoked/expired rows after `CleanupEligibleAtUtc` and writes aggregate cleanup audit. | Deletion does not alter an already accepted account, but removes row-level invitation evidence. | Irreversible current behavior; not endorsed as settled Day 1 purge authority. Blocked for policy acceptance by `AUTH-LC-CHOICE-008`; owner #784/#724. |
+| `AUTH-LC-INV-006` | Pending invitation — **Resend invitation** without ready requested delivery | When delivery is not requested, readiness fails, or composition is unavailable, the invitation stays `pending`, `UpdatedAtUtc` changes, delivery state is recorded, and the existing secret hash is not rotated. | Existing link remains redeemable until its original expiry; no new material is emitted and no account/session/role change occurs. | No credential lifecycle replacement occurs. Implemented and tested; client must show the returned non-sent delivery state and must not claim the old link was revoked. Owner #784. |
 | `AUTH-LC-POL-001` | General auth security policy — **Change security policy** | Schema supports draft/active/retired versions, but current `AuthSecurityPolicyService` is read/default focused and no general mutation API exists. | A future active version governs later eligibility; it must not silently delete factors, revive authority, or lock out owners. | Unimplemented; old versions must be retired/retained, not silently overwritten. `AUTH-LC-CHOICE-011`; owners #394/#465/#785. |
 | `AUTH-LC-POL-002` | Invitation policy — **Change invitation policy** | Authorized mutation retires the current active row and creates a new active version. | New invitations/acceptance use the active policy and bounded grace rules; existing accounts/sessions are unchanged. | Implemented version replacement; old policy remains retired. `AUTH-LC-CHOICE-011`; owner #784/#785. |
 | `AUTH-LC-AUD-001` | Auth audit events — not user-removable: **Retain security evidence** | Append bounded event evidence; later retention expiry is a condition, not deletion. No current audit purge/read/export runtime exists. | Audit rows never authenticate or authorize. Account/factor/session revocation must not erase their evidence. | Events are immutable evidence; correction is additive. Retention/disposal blocked by `AUTH-LC-CHOICE-009`; owners #721/#724/#774/#973. |
 
 ### 5.2 Per-Row Template Completion
 
-The following evidence keys keep citations concise without making them generic
-authority. Each mapped key is part of that exact row:
+The following evidence keys keep citations concise without conflating policy
+authority with implementation. Each mapped key is part of that exact row; the
+text before **Implementation** is decision authority, while the source/test
+list after it is evidence only:
 
-- `E-SESSION`: [credential/session design](AUTH_CREDENTIALS_SESSIONS_AUDIT_DESIGN.md),
-  `AuthSessionRuntimeService`, `AuthRefreshSessionRuntimeService`, and session,
+- `E-SESSION`: the shared template plus
+  [credential/session design](AUTH_CREDENTIALS_SESSIONS_AUDIT_DESIGN.md).
+  **Implementation:** `AuthSessionRuntimeService`,
+  `AuthRefreshSessionRuntimeService`, and session,
   refresh-rotation, password-change, and password-reset endpoint tests.
-- `E-IDENTITY`: [identity foundation](AUTH_IDENTITY_FOUNDATION.md),
-  `AuthAccount`, `AuthIdentity`, `SystemRoleAssignment`, current account/identity
+- `E-IDENTITY`: the shared template plus
+  [identity foundation](AUTH_IDENTITY_FOUNDATION.md).
+  **Implementation:** `AuthAccount`, `AuthIdentity`, `SystemRoleAssignment`, current account/identity
   resolution, bootstrap/invitation source, and authorization tests.
-- `E-FACTOR`: [MFA/passkey architecture](AUTH_MFA_PASSKEY_ARCHITECTURE.md),
+- `E-FACTOR`: the shared template,
+  [MFA/passkey architecture](AUTH_MFA_PASSKEY_ARCHITECTURE.md), and
   [MFA/passkey policy audit](AUTH_MFA_PASSKEY_POLICY_AUDIT.md),
-  `PasskeyRuntimeService`, `MfaRuntimeService`, `AuthSecurityPolicyService`, and
+  with unresolved choices in this policy controlling conflicts.
+  **Implementation:** `PasskeyRuntimeService`, `MfaRuntimeService`,
+  `AuthSecurityPolicyService`, and
   `AuthMfaPasskeySecurityRegressionTests`.
-- `E-RESET`: the password-reset sections in
+- `E-RESET`: the shared template and password-reset sections in
   [identity foundation](AUTH_IDENTITY_FOUNDATION.md) and
-  [credential/session design](AUTH_CREDENTIALS_SESSIONS_AUDIT_DESIGN.md),
+  [credential/session design](AUTH_CREDENTIALS_SESSIONS_AUDIT_DESIGN.md).
+  **Implementation:**
   `LocalPasswordResetService`, its audit writers, and reset/redaction tests.
-- `E-INVITE`: [invitation policy audit](AUTH_INVITATION_POLICY_AUDIT_READINESS.md),
+- `E-INVITE`: the shared template and
+  [invitation policy audit](AUTH_INVITATION_POLICY_AUDIT_READINESS.md).
+  **Implementation:**
   invitation management/acceptance/policy/cleanup services and focused tests.
-- `E-AUDIT`: the current audit model/writers, redaction tests, the
+- `E-AUDIT`: the shared template, the
   [Day 1 scope](../prd/MVP_DAY1_SCOPE.md), and `AUTH-LC-CHOICE-009`.
+  **Implementation:** current audit model/writers and redaction tests.
 
 Notation in this table is normative: `HD` is hard-delete eligibility and `P`
 is purge/disposal eligibility. `HD=no; P=unresolved` means the lifecycle action
@@ -260,13 +273,13 @@ set on the immediately preceding named row, not an omitted gate decision.
 | --- | --- | --- | --- | --- | --- | --- |
 | `AUTH-LC-SES-001` | Template + `E-SESSION`; current source/tested | Hide from active-session use; no mutation except terminal read; new sign-in only | Idempotent terminal race; retry=current; family cascade transactional | Session class §5.3; HD=no; P=unresolved | Success/denial/family transition, no credential; refresh/show current sign-out | `CHOICE-010`; implemented; #338/auth; `G-RET`,`G-PRIV`,`G-DEST`; revoke/family/redaction tests |
 | `AUTH-LC-SES-002` | Template + `E-SESSION`; current source/tested | Owner-bounded read; terminal target cannot mutate; new sign-in only | Missing/not-owned/terminal stays non-disclosing; concurrent revoke tested | Session class §5.3; HD=no; P=unresolved | Actor/target/outcome, no credential; refresh selected-session list | `CHOICE-010`; implemented; #338/#774 auth/client; `G-RET`,`G-PRIV`,`G-DEST`; ownership/race tests |
-| `AUTH-LC-SES-003` | Template + `E-SESSION`; current source/tested | All prior sessions excluded; no old-session mutation; new sign-in only | Zero-active is success; repeated request needs new auth; transaction guards cascade | Session class §5.3; HD=no; P=unresolved | Actor/account/count/outcome, no credential; show all-session loss | `CHOICE-010`; implemented; #338; `G-RET`,`G-PRIV`,`G-DEST`; all/zero/concurrency tests |
+| `AUTH-LC-SES-003` | Template + `E-SESSION`; current source/tested | Selected unexpired sessions excluded; undiscovered refresh lineage may remain; new sign-in only | Zero-selected is success; transaction covers selected rows/families but cascade completeness is partial | Session class §5.3; HD=no; P=unresolved | Actor/account/count/outcome, no credential; do not promise every refresh is revoked | `CHOICE-010/013`; partial; #338; `G-AUTH`,`G-RET`,`G-PRIV`,`G-DEST`; expired-session-linked refresh regression required |
 | `AUTH-LC-SES-004` | Template + `E-SESSION`; current validation source | Exclude when expired even if stored status is active; new sign-in only | Repeated validation denies; status-materialization race unresolved | Session class §5.3; HD=no; P=unresolved | Expiry denial if safely attributable; generic client reauth | `CHOICE-010`; partial lazy state; #338/#1059; `G-RET`,`G-PRIV`,`G-DEST`; time/race/cleanup tests |
 | `AUTH-LC-REF-001` | Template + `E-SESSION`; current source/tested | Predecessor excluded; replacement remains eligible; no predecessor re-entry | Conditional consume is atomic; predecessor retry is replay | Refresh class §5.3; HD=no; P=unresolved | Rotation lineage/outcome, never raw/hash; client stores only immediate replacement boundary | `CHOICE-010/012`; implemented; #338/#1059; `G-AUTH`,`G-RET`,`G-PRIV`,`G-DEST`; atomic race/no-secret tests |
 | `AUTH-LC-REF-002` | Template + `E-SESSION`; current source/tested | Replayed family excluded; only independent new sign-in can re-enter | Linkable replay cascades; unknown stays generic; concurrent result tested by family cases | Refresh class §5.3; HD=no; P=unresolved | Replay/family safe IDs and outcome; generic reauth | `CHOICE-010`; implemented; #338; `G-AUTH`,`G-RET`,`G-PRIV`,`G-DEST`; linkable/unknown/family tests |
 | `AUTH-LC-REF-003` | Template + `E-SESSION`; current source/tested | Expired family excluded; new sign-in only | Repeated attempt denies; matched family expiry cascade transactional | Refresh class §5.3; HD=no; P=unresolved | Expiry category, no material/hash; generic reauth | `CHOICE-010`; implemented; #338/#1059; `G-RET`,`G-PRIV`,`G-DEST`; clock/family tests |
-| `AUTH-LC-PWD-001` | Template + `E-SESSION`; current source/tested | Current credential remains active with new verifier; later change/reset allowed | Same-password/current-proof results defined; replacement + other-session revoke transactional | Password class §5.3; HD=no; P=unresolved | Change/denial/session revoke; never old/new/verifier; refresh and warn other sessions | `CHOICE-012`; implemented; #339/#774; `G-AUTH`,`G-CLIENT`; proof/race/session/no-secret tests |
-| `AUTH-LC-PWD-002` | Template + `E-RESET`; current source/tested | New verifier active; old sessions/reset material excluded; later reset allowed | Request single-consume; replay generic; replacement/session cascade transactional | Password/reset classes §5.3; HD=no; P=unresolved | Consume/change/session events, no material/password; require sign-in | `CHOICE-007/012`; implemented core; #339/#773; `G-AUTH`,`G-PROV`,`G-RET`,`G-PRIV`; concurrency/redaction tests |
+| `AUTH-LC-PWD-001` | Template + `E-SESSION`; current source/tested | Current credential remains active with new verifier; current session remains; undiscovered refresh lineage may remain | Same-password/current-proof results defined; verifier + selected-session transaction is atomic, cascade completeness partial | Password class §5.3; HD=no; P=unresolved | Change/denial/selected revoke; never old/new/verifier; do not promise every other refresh ended | `CHOICE-012/013`; partial cascade; #339/#338/#774; `G-AUTH`,`G-CLIENT`; proof/race/expired-linkage/no-secret tests |
+| `AUTH-LC-PWD-002` | Template + `E-RESET`; current source/tested | New verifier active; reset requests and selected sessions excluded; undiscovered refresh lineage may remain | Request single-consume; replay generic; transaction guards replacement/selected cascade, not complete lineage discovery | Password/reset classes §5.3; HD=no; P=unresolved | Consume/change/selected revoke, no material/password; require sign-in without promising universal refresh revoke | `CHOICE-007/012/013`; partial cascade; #339/#338/#773; `G-AUTH`,`G-PROV`,`G-RET`,`G-PRIV`; concurrent completion/expired-linkage/redaction tests |
 | `AUTH-LC-PWD-003` | Template + `E-IDENTITY`; schema only | Disabled verifier excluded; allowed admin/re-enable/reset mutations unresolved | Idempotency/retry/concurrency unresolved; block mutation | Password class §5.3; HD=no; P=unresolved | Required success/denial/actor/reason, no verifier; unavailable UI | `CHOICE-002`; unimplemented; #788/#339; `G-AUTH`,`G-LOCK`,`G-SCHEMA`,`G-CONTRACT`,`G-CLIENT`,`G-PRIV`; full lockout/session tests |
 | `AUTH-LC-PWD-004` | Template + `E-IDENTITY`; schema only | Revoked verifier excluded; no re-entry; replacement is distinct | Idempotency/retry/concurrency unresolved; block mutation | Password class §5.3; HD=no; P=unresolved | Required revoke/denial, no verifier; unavailable UI | `CHOICE-002`; unimplemented; #788/#339; same gates as PWD-003; terminal/session/material tests |
 | `AUTH-LC-ACC-001` | Template + `E-IDENTITY`; schema/consumer evidence | Disabled account restricted; re-enable only explicit; dependent mutation unresolved | Idempotency/retry/atomic cascade/last-owner race unresolved | Account class §5.3; HD=no; P=unresolved | Required actor/reason/prior-new/denials; blocked admin UI | `CHOICE-001`; unimplemented; #788/#785; `G-AUTH`,`G-LOCK`,`G-SCHEMA`,`G-CONTRACT`,`G-CLIENT`,`G-PRIV`; last-owner/cascade tests |
@@ -301,10 +314,11 @@ set on the immediately preceding named row, not an omitted gate decision.
 | `AUTH-LC-RST-004` | Template + `E-RESET`; current source/tested in part | Suspicious-replay request excluded; broader response separate | Reuse generic; guessing/rate/concurrent classification incomplete | Reset class §5.3; HD=no; P=unresolved | Replay/denial without identifiers/material; generic failure | `CHOICE-007`; partial; #339/REC-ABUSE; `G-AUTH`,`G-RET`,`G-PRIV`,`G-EXPOSE`; guessing/replay tests |
 | `AUTH-LC-RST-005` | Template + `E-RESET`; current source/tested paths | Revoked pending requests excluded; new issuance per policy | Set-based revoke in current transaction; trigger/race completeness unresolved | Reset class §5.3; HD=no; P=unresolved | Revoke reason/count safe metadata, no material; no distinct public disclosure | `CHOICE-007`; implemented bounded paths; #339/#724; `G-AUTH`,`G-RET`,`G-PRIV`,`G-DEST`; trigger/race tests |
 | `AUTH-LC-INV-001` | Template + `E-INVITE`; current source/tested | Accepted invitation excluded; created account independently readable/usable | Single acceptance; relational transaction; compensating rollback tested/required | Invite class §5.3; HD=no for action; P=unresolved | Accept/denial safe IDs/categories, no contact/material; generic public result | `CHOICE-008`; implemented/default-off; #784; `G-AUTH`,`G-PROV`,`G-EXPOSE`,`G-RET`,`G-PRIV`,`G-DEST`; single-use/rollback tests |
-| `AUTH-LC-INV-002` | Template + `E-INVITE`; current source/tested | Same pending row remains; old material excluded | Rotation transactional; repeat uses newest material; delivery retry must preserve provider truth | Invite class §5.3; HD=no; P=unresolved | Resend/delivery category, no contact/material/hash; never claim sent without proof | `CHOICE-008`; implemented/default-off provider; #784; same gates as INV-001; rotation/provider/race tests |
+| `AUTH-LC-INV-002` | Template + `E-INVITE`; current source/tested | Same pending row remains; old material excluded only on ready requested-delivery path | Hash commit precedes send; retry uses latest committed material; delivery result remains truthful | Invite class §5.3; HD=no; P=unresolved | Resend/delivery category, no contact/material/hash; show exact sent/failed result | `CHOICE-008`; implemented/default-off provider; #784; same gates as INV-001; rotation/provider/race tests |
 | `AUTH-LC-INV-003` | Template + `E-INVITE`; current source/tested | Revoked invitation excluded; no re-entry | Already-terminal result bounded; authorization/race tested/required | Invite class §5.3; HD=no for revoke; P=unresolved | Actor/subject/reason, no contact/material; refresh admin list | `CHOICE-008`; implemented; #784/#724; `G-AUTH`,`G-RET`,`G-PRIV`,`G-DEST`; authz/race tests |
 | `AUTH-LC-INV-004` | Template + `E-INVITE`; current source/tested | Expired invitation excluded; no re-entry | Lazy/batch expiry deterministic; repeated redemption generic | Invite class §5.3; HD=no for expiry; P=unresolved | Expiry/denial safe metadata, no material; generic public failure | `CHOICE-008`; implemented; #784/#724; `G-RET`,`G-PRIV`,`G-DEST`; clock/batch tests |
 | `AUTH-LC-INV-005` | Template + `E-INVITE`; current destructive source/tested | Row becomes unreadable; accepted account remains; no re-entry | Batch 50/order current; retries process survivors; cross-copy/hold concurrency unproved | Current HD=yes after 90-day marker; policy HD/P=unresolved, not authorized here | Aggregate counts/categories only; row evidence sufficiency unresolved; no ordinary UI | `CHOICE-008`; implemented fact/policy-blocked; #784/#724; `G-AUTH`,`G-RET`,`G-PRIV`,`G-DEST`; holds/copies/idempotency/disposal audit tests |
+| `AUTH-LC-INV-006` | Template + `E-INVITE`; current source/tested | Pending row and existing material remain eligible; later ready resend/accept/revoke allowed | Repeated non-ready resend updates state/audit but does not rotate; concurrency with accept/revoke needs terminal-state proof | Invite class §5.3; HD=no; P=unresolved | Non-sent delivery category, no contact/material/hash; explicitly do not claim replacement | `CHOICE-008`; implemented; #784; `G-AUTH`,`G-PROV`,`G-RET`,`G-PRIV`; no-rotation/provider/race tests |
 | `AUTH-LC-POL-001` | Template + `E-FACTOR`; schema/read only | Active/default read governs; mutation/re-entry/version retirement unresolved | Version/idempotency/effective-time/concurrency unresolved; block mutation | Policy class §5.3; HD=no; P=unresolved | Required actor/prior-new version/reason, no secret config; read-only/blocked UI | `CHOICE-011`; unimplemented mutation; #394/#465/#785; `G-AUTH`,`G-LOCK`,`G-SCHEMA`,`G-CONTRACT`,`G-CLIENT`,`G-RET`,`G-PRIV`; version/weakening tests |
 | `AUTH-LC-POL-002` | Template + `E-INVITE`; current source/tested | New active read governs; retired version retained; later change allowed | Version race/conditional mutation tested/required; retry returns current authoritative version | Policy class §5.3; HD=no; P=unresolved | Actor/version/prior-new/outcome, no unsafe config; refresh readout | `CHOICE-011`; implemented; #784/#785; `G-AUTH`,`G-LOCK`,`G-RET`,`G-PRIV`; race/grace/lockout tests |
 | `AUTH-LC-AUD-001` | Template + `E-AUDIT`; append writers/partial tests | Security-authorized read future; no row mutation/re-entry; correction additive | Writer retry/idempotency varies and complete inventory is unresolved | Audit class §5.3; HD=no; P=unresolved | Exact bounded audit contract; no secret/private payload; no ordinary removal UI | `CHOICE-009`; partial; #724/#774/#973; `G-AUTH`,`G-CONTRACT`,`G-CLIENT`,`G-RET`,`G-PRIV`,`G-DEST`; authz/pagination/hold/export/disposal tests |
@@ -328,7 +342,7 @@ validity` describes usability only; it is not a retention or disposal period.
 | `AUTH-LC-RCV-001`–`AUTH-LC-RCV-004` | Active salted verifiers are operational credential material. Consumed/replaced/revoked metadata retention is required for security review, but verifier retention duration is unresolved and never justified solely by hashing. | Batch/code IDs, counts, status and times, safe challenge/correlation linkage; never raw code, submitted code, verifier/hash/salt in read/audit. | Generation/use/revoke events exist; expiry runtime does not. | `AUTH-LC-CHOICE-005`; #775/#776 and `REC-AUTH-MFA-SIGNIN-001`. Accept display-once/no-redisplay, exact-one consumption, replacement/revoke race, depletion, expiry and verifier disposition. |
 | `AUTH-LC-CHL-001`–`AUTH-LC-CHL-007` | Source-defined short validity; terminal challenge retention/cleanup unresolved. | IDs, purpose/factor/status, bounded verifier/hash/context, attempts and terminal times/reason only while needed; no raw reusable challenge or full authenticator payload. | Passkey/MFA success/failure/step-up events exist; terminal-status coverage differs by flow as section 5.2 records. | `AUTH-LC-CHOICE-006`; #394, `REC-AUTH-MFA-SIGNIN-001`, `REC-AUTH-ABUSE-001`. Accept account/session/purpose binding, expiry, max attempts, replay, concurrent completion and cleanup. |
 | `AUTH-LC-RST-001`–`AUTH-LC-RST-005` | Link validity is source-defined by approved reset delivery options; terminal evidence retention and `CleanupEligibleAtUtc` use are unresolved. | Request/account/credential IDs where safe, purpose/status/hash version, issue/expiry/consume/revoke/replace/replay/check times, safe delivery/bucket/correlation categories; no raw material, exposed hash, identifier, email, provider payload, or new password. | Requested/issued/consumed/denied/replay/revocation/session-revoke audit exists; no cleanup. | `AUTH-LC-CHOICE-007`; #339/#724 plus `REC-AUTH-ABUSE-001`. Accept unknown/matched material, replacement, replay, expiry, account-disabled, concurrent completion, cleanup and redaction. |
-| `AUTH-LC-INV-001`–`AUTH-LC-INV-004` | Seven-day validity and 90-day cleanup eligibility are current source values, not generally approved retention policy. | Invitation ID, status, contact kind, masked display, target `user` role, actor/account IDs, lifecycle times, safe delivery/correlation categories; no raw link/secret/hash, full email, body, SMTP/provider payload. | Create/revoke/accept/delivery/cleanup events exist; public failures are bounded. | `AUTH-LC-CHOICE-008`; #784/#724. Accept rotation, single-use, rollback, policy disable/grace, provider truth, concurrency and row-level evidence requirements. |
+| `AUTH-LC-INV-001`–`AUTH-LC-INV-004`, `AUTH-LC-INV-006` | Seven-day validity and 90-day cleanup eligibility are current source values, not generally approved retention policy. | Invitation ID, status, contact kind, masked display, target `user` role, actor/account IDs, lifecycle times, safe delivery/correlation categories; no raw link/secret/hash, full email, body, SMTP/provider payload. | Create/revoke/accept/resend/delivery/cleanup events exist; public failures are bounded. | `AUTH-LC-CHOICE-008`; #784/#724. Accept conditional rotation/no-rotation, single-use, rollback, policy disable/grace, provider truth, concurrency and row-level evidence requirements. |
 | `AUTH-LC-INV-005` | Current runtime hard-deletes terminal rows after the 90-day eligibility timestamp. Policy classification is unresolved/manual decision required; retention expiry is not sufficient authority under the shared taxonomy. | Current aggregate audit keeps workflow, counts/status categories and timing bucket, but no row IDs. Whether that is sufficient evidence is unresolved. | `invitation.cleanup_completed` exists; no per-row disposal event or hold/copy proof. | `AUTH-LC-CHOICE-008`; focused #784/#724 auth-runtime and retention-policy follow-up, with destructive/security/privacy gates. Accept holds, dependencies, backups/replicas, dry-run, batch retry/idempotency, per-row/aggregate audit sufficiency and rollback boundaries before continued authorization. |
 | `AUTH-LC-POL-001`–`AUTH-LC-POL-002` | Active version is authoritative; retired policy evidence is operationally required, duration unresolved. | Policy ID/version, bounded modes/counts/status/effective/retired times, actor/reason/correlation; no keys/secrets or full unsafe configuration payload. | Invitation policy changes are audited; security policy is primarily read/runtime-default and has no general mutation proof. | `AUTH-LC-CHOICE-011`; #394/#465/#784/#785. Accept version race, safe-default fallback, weakening/last-owner gates, effective-time behavior, and session/factor impact. |
 | `AUTH-LC-AUD-001` | Policy-defined/configurable intent, but numeric duration, holds, read/export, retention clock and disposition are unresolved. Audit retention is separate from credential-material retention. | Only minimum actor/subject/action/outcome/time/correlation/request and bounded reason/transition metadata. Never credential material, local identifiers/emails without separate approval, request/response bodies, or provider/private payloads. | Substantial writers/redaction tests exist; complete lifecycle event inventory, authorized reads, export and purge do not. | `AUTH-LC-CHOICE-009`; #721/#724/#774/#973. Privacy/destructive/manual gate. Accept append-only correction, pagination/authz, hold, export redaction, disposal accounting and no-secret scans. |
@@ -353,6 +367,110 @@ another.
 | `G-PROV` | Yes / pending where referenced | Provider/delivery/configuration owner; #403/#773/#784 | None; pending | Email/provider claims, enabled delivery, credentials/configuration, or provider-specific payload handling |
 | `G-EXPOSE` | Yes / pending where referenced | Public/admin exposure; #777 or the private admin-entry owner | None; pending | Public registration/ceremony/reset/invitation exposure or a new admin lifecycle surface |
 
+### 5.5 Exact Surface, Metadata, And Disposition Fields
+
+This subsection completes the remaining reusable-schema fields for every exact
+row. Profiles are values, not defaults to be guessed:
+
+- `S-SELF-API`: existing authenticated API action; no complete shipped client
+  surface is claimed. If exposed, use section 5.1's exact wording.
+- `S-PUBLIC-API`: existing bounded anonymous/protocol API surface with generic
+  failure presentation; no broader public exposure is authorized.
+- `S-ADMIN-API`: existing private authenticated admin API action/readout; no
+  complete admin-web UI is claimed.
+- `S-PROTOCOL`: not a management control; existing sign-in, refresh, reset,
+  invitation, or ceremony protocol presents only the section 5.1 outcome.
+- `S-NOT-VISIBLE`: not user-visible; internal time, lineage, policy, cleanup,
+  or evidence transition.
+- `S-BLOCKED-SELF` / `S-BLOCKED-ADMIN`: proposed wording only; no current API
+  or UI exists and the referenced gates block exposure.
+
+Metadata applicability is `applicable` for every profile. `M-SESSION` requires
+session/account/status/issue/expiry/revoke/reason/actor/version fields;
+`M-REFRESH` family/credential/session IDs, status/lineage, issue/idle/absolute/
+consume/revoke/replay/reason/version fields; `M-PASSWORD` credential/account,
+status, verifier algorithm/version/parameters, create/update/disable/revoke
+times, actor/reason/version but never prior/current verifier material;
+`M-ACCOUNT`, `M-IDENTITY`, and `M-ROLE` require their stable subject IDs,
+bounded prior/new status or relationship/role, applicable timestamps,
+actor/reason/version; `M-PASSKEY`, `M-TOTP`, `M-RECOVERY`, and `M-CHALLENGE`
+require the safe fields enumerated in section 5.3 plus their status and terminal
+timestamps, actor/reason and version, excluding section 3 material;
+`M-RESET` and `M-INVITE` require their section 5.3 safe IDs/status/hash-version
+and lifecycle/delivery timestamps/categories but no raw material or exposed
+hash/contact; `M-POLICY` requires ID/version/status/effective/retired times and
+actor/reason/version; `M-AUDIT` requires bounded actor/subject/action/outcome/
+time/reason/correlation/request/transition metadata. A named field absent from
+current persistence is a gap, not a claim that the field exists.
+
+`D-ORDINARY` means hard-delete `ineligible`: target classification is an
+authoritative security record/material, conditions are not met, and consequence
+warning/confirmation are `not applicable` because this transition is not a
+delete. Purge is `unresolved`: a separate action is required; retention/hold,
+dependency/copy, authority, audit, retry/concurrency, warning, explicit
+confirmation if user-initiated, and `G-RET`/`G-PRIV`/`G-DEST` remain pending.
+`D-INVITE-CLEANUP` records current hard-delete fact only: target is an
+authoritative terminal invitation, current conditions are terminal status plus
+`CleanupEligibleAtUtc`, execution is automatic so no user warning/confirmation
+exists, and current code does not prove holds/copies. Continued hard-delete and
+purge policy remain `unresolved`, require a separate reviewed action/policy,
+warning and confirmation if ever user-initiated, and are blocked by
+`G-AUTH`/`G-RET`/`G-PRIV`/`G-DEST`.
+
+| Exact row | Exact surface profile | Metadata profile | Hard-delete / purge profile |
+| --- | --- | --- | --- |
+| `AUTH-LC-SES-001` | `S-SELF-API` | `M-SESSION` | `D-ORDINARY` |
+| `AUTH-LC-SES-002` | `S-SELF-API` | `M-SESSION` | `D-ORDINARY` |
+| `AUTH-LC-SES-003` | `S-SELF-API` | `M-SESSION` | `D-ORDINARY` |
+| `AUTH-LC-SES-004` | `S-PROTOCOL` | `M-SESSION` | `D-ORDINARY` |
+| `AUTH-LC-REF-001` | `S-PROTOCOL` | `M-REFRESH` | `D-ORDINARY` |
+| `AUTH-LC-REF-002` | `S-PROTOCOL` | `M-REFRESH` | `D-ORDINARY` |
+| `AUTH-LC-REF-003` | `S-PROTOCOL` | `M-REFRESH` | `D-ORDINARY` |
+| `AUTH-LC-PWD-001` | `S-SELF-API` | `M-PASSWORD` | `D-ORDINARY` |
+| `AUTH-LC-PWD-002` | `S-PUBLIC-API` | `M-PASSWORD` + `M-RESET` | `D-ORDINARY` |
+| `AUTH-LC-PWD-003` | `S-BLOCKED-ADMIN` | `M-PASSWORD` | `D-ORDINARY` |
+| `AUTH-LC-PWD-004` | `S-BLOCKED-ADMIN` | `M-PASSWORD` | `D-ORDINARY` |
+| `AUTH-LC-ACC-001` | `S-BLOCKED-ADMIN` | `M-ACCOUNT` | `D-ORDINARY` |
+| `AUTH-LC-ACC-002` | `S-BLOCKED-ADMIN` | `M-ACCOUNT` | `D-ORDINARY` |
+| `AUTH-LC-ID-001` | `S-BLOCKED-SELF`/`S-BLOCKED-ADMIN` | `M-IDENTITY` | `D-ORDINARY` |
+| `AUTH-LC-ROL-001` | `S-BLOCKED-ADMIN` | `M-ROLE` | `D-ORDINARY` |
+| `AUTH-LC-ROL-002` | `S-BLOCKED-ADMIN` | `M-ROLE` | `D-ORDINARY` |
+| `AUTH-LC-ROL-003` | `S-BLOCKED-ADMIN` | `M-ROLE` | `D-ORDINARY` |
+| `AUTH-LC-PKY-001` | `S-SELF-API` | `M-PASSKEY` | `D-ORDINARY` |
+| `AUTH-LC-PKY-002` | `S-BLOCKED-SELF`/`S-BLOCKED-ADMIN` | `M-PASSKEY` | `D-ORDINARY` |
+| `AUTH-LC-PKY-003` | `S-BLOCKED-SELF`/`S-BLOCKED-ADMIN` | `M-PASSKEY` | `D-ORDINARY` |
+| `AUTH-LC-TOTP-001` | `S-SELF-API` | `M-TOTP` | `D-ORDINARY` |
+| `AUTH-LC-TOTP-002` | `S-SELF-API` | `M-TOTP` | `D-ORDINARY` |
+| `AUTH-LC-TOTP-003` | `S-PROTOCOL` | `M-TOTP` | `D-ORDINARY` |
+| `AUTH-LC-TOTP-004` | `S-BLOCKED-SELF`/`S-BLOCKED-ADMIN` | `M-TOTP` | `D-ORDINARY` |
+| `AUTH-LC-TOTP-005` | `S-BLOCKED-SELF`/`S-BLOCKED-ADMIN` | `M-TOTP` | `D-ORDINARY` |
+| `AUTH-LC-TOTP-006` | `S-SELF-API` | `M-TOTP` | `D-ORDINARY` |
+| `AUTH-LC-RCV-001` | `S-SELF-API` | `M-RECOVERY` | `D-ORDINARY` |
+| `AUTH-LC-RCV-002` | `S-PROTOCOL` | `M-RECOVERY` | `D-ORDINARY` |
+| `AUTH-LC-RCV-003` | `S-SELF-API` | `M-RECOVERY` | `D-ORDINARY` |
+| `AUTH-LC-RCV-004` | `S-NOT-VISIBLE` | `M-RECOVERY` | `D-ORDINARY` |
+| `AUTH-LC-CHL-001` | `S-PROTOCOL` | `M-CHALLENGE` | `D-ORDINARY` |
+| `AUTH-LC-CHL-002` | `S-PROTOCOL` | `M-CHALLENGE` | `D-ORDINARY` |
+| `AUTH-LC-CHL-003` | `S-PROTOCOL` | `M-CHALLENGE` | `D-ORDINARY` |
+| `AUTH-LC-CHL-004` | `S-PROTOCOL` | `M-CHALLENGE` | `D-ORDINARY` |
+| `AUTH-LC-CHL-005` | `S-PROTOCOL` | `M-CHALLENGE` | `D-ORDINARY` |
+| `AUTH-LC-CHL-006` | `S-BLOCKED-SELF` | `M-CHALLENGE` | `D-ORDINARY` |
+| `AUTH-LC-CHL-007` | `S-PROTOCOL` | `M-CHALLENGE` | `D-ORDINARY` |
+| `AUTH-LC-RST-001` | `S-NOT-VISIBLE` | `M-RESET` | `D-ORDINARY` |
+| `AUTH-LC-RST-002` | `S-PUBLIC-API` | `M-RESET` | `D-ORDINARY` |
+| `AUTH-LC-RST-003` | `S-PUBLIC-API` | `M-RESET` | `D-ORDINARY` |
+| `AUTH-LC-RST-004` | `S-PUBLIC-API` | `M-RESET` | `D-ORDINARY` |
+| `AUTH-LC-RST-005` | `S-NOT-VISIBLE` | `M-RESET` | `D-ORDINARY` |
+| `AUTH-LC-INV-001` | `S-PUBLIC-API` | `M-INVITE` | `D-ORDINARY` |
+| `AUTH-LC-INV-002` | `S-ADMIN-API` | `M-INVITE` | `D-ORDINARY` |
+| `AUTH-LC-INV-003` | `S-ADMIN-API` | `M-INVITE` | `D-ORDINARY` |
+| `AUTH-LC-INV-004` | `S-PROTOCOL` | `M-INVITE` | `D-ORDINARY` |
+| `AUTH-LC-INV-005` | `S-NOT-VISIBLE` | `M-INVITE` | `D-INVITE-CLEANUP` |
+| `AUTH-LC-INV-006` | `S-ADMIN-API` | `M-INVITE` | `D-ORDINARY` |
+| `AUTH-LC-POL-001` | `S-BLOCKED-ADMIN` | `M-POLICY` | `D-ORDINARY` |
+| `AUTH-LC-POL-002` | `S-ADMIN-API` | `M-POLICY` | `D-ORDINARY` |
+| `AUTH-LC-AUD-001` | `S-NOT-VISIBLE` | `M-AUDIT` | `D-ORDINARY` |
+
 ## 6. Explicit Open Choices
 
 Each choice is blocked until its named owner records a reviewed decision. A
@@ -372,6 +490,7 @@ current runtime fact is not approval to broaden or perpetuate unsafe behavior.
 | `AUTH-LC-CHOICE-010` | How long are expired/revoked session, family, and token-hash lineage records retained for replay/investigation, and when may sensitive lookup hashes be compacted? (`SES-*`, `REF-*`) | Validity is defined; post-terminal retention and copy disposition are not. | Keep unusable; no cleanup. #338/#1059/#724; security/privacy/destructive gate. |
 | `AUTH-LC-CHOICE-011` | What mutation/version/effective-time/retention rules govern general security and invitation policy rows, and how do changes safely affect sessions/factors/owners? (`POL-001/002`) | Persisted shapes and invitation mutation exist; general security-policy mutation/lifecycle and complete cross-policy effects do not. | Use current safe read/default and bounded invitation mutation only. #394/#465/#784/#785; manual security/owner-lockout gate. |
 | `AUTH-LC-CHOICE-012` | Which immediate responses may contain access/refresh issuance material, TOTP setup material, or recovery-code display-once material, and what no-redisplay proof is required? | Current runtime/contracts return them, while several canonical documents prohibit them in all API responses. Runtime evidence cannot resolve normative policy. | No behavior change here. `REC-AUTH-DOC-DRIFT-001`; manual auth/security policy gate, then separate runtime/contract/client tasks if the decision changes behavior. |
+| `AUTH-LC-CHOICE-013` | Must account-wide session revocation query refresh families/credentials directly rather than discover them only through currently unexpired active access sessions, and what must “all sessions” promise? (`SES-003`, `PWD-001/002`) | `RevokeActiveSessionsForAccountAsync` filters access sessions by `ExpiresAtUtc > now` and derives family IDs only through credentials linked to those selected sessions. Current tests do not prove revocation of valid refresh authority linked only to an expired access session. | Describe current behavior as partial; do not promise universal refresh invalidation. Reuse #338/#339 in `auth-session-security`; manual auth/security gate before a focused runtime fix and later contract/client wording. |
 
 ## 7. Retention Posture By Family
 
@@ -445,6 +564,7 @@ existing #721 branch, PR, or merged equivalent. Existing owners are reused:
 
 | Recommendation | Existing owner / canonical lane | Focus and gate |
 | --- | --- | --- |
+| Account-wide refresh-family revocation completeness | #338/#339; `auth-session-security` | Resolve `AUTH-LC-CHOICE-013` so sign-out-all/change/reset wording matches exact lineage behavior; separate runtime first, then contract/client copy. Manual auth/security gate. |
 | Account/credential/identity/role lifecycle decisions | #788/#785/#787/#339; `auth-session-security`, later split schema/contract/admin UI lanes | Resolve choices 001–004 with last-owner/recovery safety. Manual auth/owner-lockout gates. |
 | Factor/passkey/recovery lifecycle and terminal material | #394/#775/#776/#465; `auth-session-security`, split schema/contract/client lanes | Resolve choice 005 without recreating merged runtime. Manual recovery/secret/security gates. |
 | Challenge retention/abuse | `REC-AUTH-MFA-SIGNIN-001` and `REC-AUTH-ABUSE-001`; docs decision then split runtime/config lanes | Resolve binding, expiry/replay/attempt and cleanup choices. Manual security/proxy gates. |
@@ -478,7 +598,7 @@ gate is pending.
 
 ## 11. Validation And Acceptance Contract
 
-This document must retain exactly 50 unique `AUTH-LC-*` transition rows and 12
+This document must retain exactly 51 unique `AUTH-LC-*` transition rows and 13
 unique `AUTH-LC-CHOICE-*` records, all required record families, valid relative
 links, exact source/test/symbol existence,
 secret-material exclusions, one-path scope, no runtime diff, shared-template
