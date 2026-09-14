@@ -37,6 +37,7 @@ another merely because a UI has one generic button.
 | --- | --- | --- |
 | **archive** | Remove a record from ordinary active views or workflows while preserving the authoritative record and required history. A domain must decide whether and how it can re-enter. | Archive is not purge. It is not proof that reads, mutations, dependencies, or retention duties all stop. |
 | **trash** | A user-visible holding or review concept for content that has been logically removed and may be restorable or awaiting a separate disposition decision. It need not be an internal state name. | Trash is not automatically terminal disposal and does not itself authorize a retention timer or purge. |
+| **soft delete** | Apply a retained logical-deletion state or marker that stops the domain-defined ordinary use without physically destroying the authoritative target. The domain child must name the exact state, read effect, dependencies, and restoration eligibility. | Soft delete is not automatically archive or placement in the user-visible Trash, and is never hard delete or purge. Those mappings require explicit domain evidence rather than a shared assumption. |
 | **restore** | Request or perform an authorized record-lifecycle transition from a non-terminal inactive condition toward a specifically named eligible state after current policy is re-evaluated. | Restore is not silent reactivation. The target state, actor, preconditions, dependency checks, conflicts, and post-restore eligibility must be explicit. Local backup restore, server consistency-set restore, and product import/export restore are separate recovery or portability operations governed by the [local/server import/export boundaries](../architecture/LOCAL_SERVER_IMPORT_EXPORT_BOUNDARIES.md), not this record-lifecycle term. |
 | **cancel** | Stop or withdraw a workflow from further ordinary progression under domain rules while preserving required facts and evidence. | Cancel is not necessarily delete, archive, revoke, or purge, and need not erase earlier transitions. |
 | **revoke** | Invalidate a grant, credential, session, factor, invitation, link, or other authority so it cannot be used as previously authorized. | Revoke is not physical deletion or automatic account disablement. Evidence may need retention even though reusable material must be unusable. |
@@ -95,7 +96,7 @@ Every child row must keep these questions separate:
 | Unresolved product choice | Stable reference to a complete open-choice record, or `none` only when current authority answers the question. |
 | Implementation status | Truthful evidence state such as `documented-only`, `unimplemented`, `partial`, or `implemented`, with source/test/runtime citations. |
 | Follow-up lane / owner | Canonical domain lane and focused owner/issue; do not assign implementation to the synthesis task. |
-| Manual-gate posture | Exact product, destructive, security, storage/privacy, money, schema, API/OpenAPI, UI/Figma, deployment, or operational gate; `pending`, `satisfied`, `not-required`, or `unresolved` status; approval evidence; and blocked downstream work. A required gate defaults to `pending`, never implicitly satisfied. |
+| Manual-gate posture | One separately identified entry for every applicable product, destructive, security, storage/privacy, money, schema, API/OpenAPI, UI/Figma, deployment, or operational gate. Each entry carries its own owner, `pending`, `satisfied`, `not-required`, or `unresolved` status, approval evidence, and blocked downstream work. Every required gate defaults to `pending`; satisfying one never satisfies another by implication. |
 | Runtime-acceptance evidence | Exact automated, integration, hostile/concurrency, migration, UI, operational, or manual evidence later required; planning text is never runtime proof. |
 
 ## Reusable Child Row Schema
@@ -174,10 +175,18 @@ policy_row:
     consequence_warning: "<required wording/evidence or unresolved>"
     explicit_confirmation: "<required mechanism/evidence or unresolved>"
   audit_note:
+    applicability: "<applicable/not-applicable/unresolved with authority evidence>"
     required_events:
       - "<success/denial/blocked-attempt categories>"
-    safe_metadata:
-      - "<bounded fields>"
+    actor: "<required/applicability and evidence>"
+    action: "<required/applicability and evidence>"
+    subject: "<required/applicability and evidence>"
+    timestamp: "<required/applicability and evidence>"
+    reason: "<required/applicability and evidence>"
+    correlation_id: "<required/applicability and evidence>"
+    transition_evidence: "<required/applicability and evidence>"
+    additional_safe_metadata:
+      - "<other bounded fields>"
   privacy_redaction_note:
     protections:
       - "<suppressed/minimized/protected data>"
@@ -194,12 +203,13 @@ policy_row:
   follow_up_owner_lane:
     owner_or_issue: "<focused owner/issue>"
     canonical_lane: "<lane>"
-  manual_gate:
-    required: "<yes/no/unresolved>"
-    gate_and_owner: "<exact gate and decision owner>"
-    status: "<pending/satisfied/not-required/unresolved; required defaults to pending>"
-    approval_evidence: ["<exact approval reference; empty while pending>"]
-    downstream_work_blocked: ["<issue/lane/transition blocked until satisfaction>"]
+  manual_gates:
+    - gate_id: "<stable id for one exact gate>"
+      required: "<yes/no/unresolved>"
+      gate_and_owner: "<exact gate and decision owner>"
+      status: "<pending/satisfied/not-required/unresolved; required defaults to pending>"
+      approval_evidence: ["<exact approval reference; empty while pending>"]
+      downstream_work_blocked: ["<issue/lane/transition blocked until this gate is satisfied>"]
   validation_evidence_required:
     - "<exact future validation and runtime-acceptance evidence>"
 ```
