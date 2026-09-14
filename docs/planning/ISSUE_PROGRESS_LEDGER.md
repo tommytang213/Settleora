@@ -1,5 +1,34 @@
 # Issue Progress Ledger
 
+### Issue #960 — Day 1 lifecycle policy taxonomy and child template (2026-09-15 HKT)
+
+- Live pre-implementation reconciliation found #960 `OPEN`, with no comments,
+  no existing preferred branch or PR, and no merged or abandoned equivalent
+  artifact. `docs/planning/DAY1_LIFECYCLE_POLICY_TEMPLATE.md` was absent. Closed
+  #410 is explicitly superseded by the #716/#717/#960-#961 lifecycle graph.
+- The merge carrying this entry adds
+  `docs/planning/DAY1_LIFECYCLE_POLICY_TEMPLATE.md` as the neutral shared
+  vocabulary, reusable child-row schema, explicit open-choice record,
+  child-output checklists, and #717/#961 synthesis rule. It makes no
+  domain-specific transition, retention, purge, restore, money, storage,
+  membership, or auth/security decision.
+- #960's repository artifact and ledger handoff are complete only when that
+  exact candidate merges. Close #960 only after exact-head validation,
+  independent/local/GitHub review and check evidence is recorded and #717 plus
+  #718/#719/#720/#721 reference the merged prerequisite.
+- #717 Wave 1 is complete only after this checkpoint merges. At that point
+  #718, #719, #720, and #721 are unblocked for their planning-only domain
+  outputs; they are not runtime-ready by implication and must not inherit one
+  another's policy decisions.
+- #961 remains blocked until all four Wave 2 children merge and reconcile.
+  #717 remains open for that synthesis, and #716 remains open under its
+  independent program close criteria.
+- This checkpoint makes no runtime-support claim and changes no API/OpenAPI,
+  generated client, schema/migration, UI/Figma, auth/security runtime,
+  storage/file bytes or privacy authorization, money/settlement logic,
+  Docker/CI/deployment/configuration, secret, purge, cleanup, or production
+  behavior.
+
 ### Issue #1232 — R04 unpublished TrueNAS catalog skeleton and deterministic render validation (2026-09-14 HKT)
 
 - Original logical task `20260914-0220` started from main `71786f94e39f27b89f4b07efb00532d7fc356079`. Retained implementation branch `infra/r04-truenas-catalog-skeleton-20260914-0220` produced [PR #1233](https://github.com/tommytang213/Settleora/pull/1233), reviewed source `31d58e06ccbb31fda079bf532aae8cb696606fea`, tree `d2122b86b22884c609048c02975fc9077831c832`, normally merged as `3b0a78bc9883b643e889d28d5b43adcdbd47bd19` without deleting the branch.
