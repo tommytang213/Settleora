@@ -338,7 +338,10 @@ Remaining work should be split narrowly and must not be auto-started:
 1. Collect explicit R05 live install/upgrade, migration-gate, health, and private-client evidence on an approved TrueNAS target.
 2. Collect backup-before-upgrade plus bounded restore/rollback evidence under the manual data/host gates.
 3. Establish a separately approved catalog publication path only after live acceptance.
-4. Add secret generation/rotation only through a separately reviewed secret-management design; R04 accepts external secrets and does not generate them.
+4. Add secret generation/rotation only through a separately reviewed
+   secret-management design. The live R04 TrueNAS form accepts externally
+   managed secrets; the offline materializer accepts only its fixed sanitized
+   markers and does not generate secrets.
 5. Add OCR worker, user web, or admin web workloads only after those runtimes
    exist and pass their own manual gates.
 6. Publish the catalog app only through an explicit release/catalog gate.
