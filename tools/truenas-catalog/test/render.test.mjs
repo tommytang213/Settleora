@@ -69,6 +69,7 @@ test('official-render validators accept only fixed descriptor and package-relati
   assert.doesNotMatch(source, /readFileSync\([^34]/u);
   assert.doesNotMatch(source, /process\.argv\.slice/u);
   assert.match(source, /directoryContentIdentity\('package'\)/u);
+  assert.match(source, /sha256\(volume\.source\) !== plan\.datasetSourceSha256\?\.\[service\]/u);
 });
 
 test('pinned official TrueNAS library content fails closed on byte drift', () => {

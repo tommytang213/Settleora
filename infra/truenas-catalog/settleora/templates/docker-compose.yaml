@@ -166,8 +166,9 @@ exec /usr/local/bin/docker-entrypoint.sh "$@"
 
 {% set caddy_entrypoint %}#!/bin/sh
 set -eu
-# Copying the capability-bearing image binary into private tmpfs drops its
-# low-port file capability before capability-free startup on port 8443.
+# Copying the capability-bearing image binary into the private executable
+# scratch volume drops its low-port file capability before capability-free
+# startup on port 8443.
 cp /usr/bin/caddy /tmp/settleora-caddy
 chmod 0555 /tmp/settleora-caddy
 exec /tmp/settleora-caddy "$@"
