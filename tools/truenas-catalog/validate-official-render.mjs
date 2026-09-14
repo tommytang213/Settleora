@@ -212,7 +212,9 @@ if (canonicalJson(Object.keys(plan.applicationRelease ?? {}).sort()) !== canonic
   || canonicalJson(Object.keys(plan.runtime ?? {}).sort()) !== canonicalJson(runtimeKeys)
   || canonicalJson(Object.keys(plan.runtime?.images ?? {}).sort()) !== canonicalJson(runtimeRoleKeys)
   || canonicalJson(Object.keys(plan.runtime?.indexDigests ?? {}).sort()) !== canonicalJson(runtimeRoleKeys)
-  || !/^day1-[0-9a-f]{12}$/u.test(plan.applicationRelease?.candidateId ?? '')
+  || typeof plan.applicationRelease?.candidateId !== 'string'
+  || plan.applicationRelease.candidateId.length > 255
+  || !/^(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(plan.applicationRelease.candidateId)
   || !/^[0-9a-f]{40}$/u.test(plan.applicationRelease?.commit ?? '') || !/^[0-9a-f]{40}$/u.test(plan.applicationRelease?.tree ?? '')
   || !/^[0-9a-f]{64}$/u.test(plan.applicationRelease?.identityDigest ?? '') || plan.runtime?.platform !== 'linux/amd64'
   || plan.runtime?.digestAuthority !== 'selected-platform-manifest'

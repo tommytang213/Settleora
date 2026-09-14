@@ -147,6 +147,11 @@ try {
     delete compose['x-settleora-release'].candidate_id;
     delete directCompose['x-settleora-release'].candidate_id;
   });
+  expectOfficialPostRenderRefusal(packet, 'unsafe-plan-candidate-id', (compose, directCompose, plan) => {
+    plan.applicationRelease.candidateId = 'unsafe..candidate';
+    compose['x-settleora-release'].candidate_id = 'unsafe..candidate';
+    directCompose['x-settleora-release'].candidate_id = 'unsafe..candidate';
+  });
   expectOfficialPostRenderRefusal(packet, 'operator-action-drift', (compose) => { compose['x-action-required'] = true; });
   expectOfficialPostRenderRefusal(packet, 'operator-portal-injection', (compose) => { compose['x-portals'] = [{ name: 'Untrusted', scheme: 'https', host: 'example.invalid' }]; });
   expectOfficialPostRenderRefusal(packet, 'operator-notes-drift', (compose) => { compose['x-notes'] += '\nUntrusted operator instruction.'; });
