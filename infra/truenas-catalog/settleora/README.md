@@ -19,7 +19,8 @@ The selected TrueNAS certificate must be externally managed and trusted by the
 operator's clients, and its SAN must exactly contain the configured private
 hostname. The hostname is immutable after installation because it is the
 passkey relying-party identity; changing it requires separately planned user
-re-enrollment. This repository cannot prove the live certificate trust
+re-enrollment. IP literals are refused because the relying-party identity must
+be a DNS name. This repository cannot prove the live certificate trust
 relationship.
 
 Before install or upgrade, verify a coordinated backup of PostgreSQL, API local
@@ -36,7 +37,8 @@ the package persists ASP.NET data-protection state beneath its private
 `.settleora-home` directory without relocating existing stored files. Startup
 refuses symlinked, non-directory, or canonically escaping persistent HOME,
 ASP.NET state, and data-protection key paths, then probes the actual key
-directory for UID/GID `999:999` write access.
+directory for UID/GID `999:999` write access. Existing key entries must be
+readable regular non-link files.
 All three
 dataset mappings are immutable after installation. Live TrueNAS lifecycle
 renders also resolve each host path through `filesystem.stat` and refuse

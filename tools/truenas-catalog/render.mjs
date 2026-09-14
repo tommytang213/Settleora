@@ -132,6 +132,10 @@ fi
 keys_real="$(readlink -f -- "$keys_path")" || { echo >&2 "API startup refused: the data-protection key path cannot be canonicalized."; exit 70; }
 [ "$keys_real" = "$aspnet_real/DataProtection-Keys" ] || { echo >&2 "API startup refused: the data-protection key path escapes persistent HOME."; exit 70; }
 chmod 0700 -- "$keys_path"
+for key_entry in "$keys_path"/* "$keys_path"/.[!.]* "$keys_path"/..?*; do
+  if [ ! -e "$key_entry" ] && [ ! -L "$key_entry" ]; then continue; fi
+  [ -f "$key_entry" ] && [ ! -L "$key_entry" ] && [ -r "$key_entry" ] || { echo >&2 "API startup refused: every restored data-protection key entry must be a readable regular non-link file."; exit 72; }
+done
 keys_probe_dir="$(mktemp -d "$keys_path/.settleora-write-probe.XXXXXXXXXX")" || { echo >&2 "API startup refused: the data-protection key directory is not writable by UID/GID 999."; exit 71; }
 rmdir -- "$keys_probe_dir" || { echo >&2 "API startup refused: the data-protection key write probe could not be removed."; exit 71; }
 exec dotnet Settleora.Api.dll "$@"
@@ -193,6 +197,7 @@ export function validateConfig(config) {
   if (!Number.isSafeInteger(config.httpsPort) || config.httpsPort < 1 || config.httpsPort > 65535) fail('httpsPort is invalid');
   const hostname = boundedString(config.hostname, 'hostname', /^(?!.*\.\.)(?!.*(?:^|\.)localhost$)[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$/u, 253);
   if (!hostname.includes('.') || /(?:^|\.)(?:example|example\.(?:com|net|org)|invalid|test)$/iu.test(hostname)) fail('hostname must be an exact non-documentation private FQDN');
+  if (/^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/u.test(hostname)) fail('hostname must be a DNS name, not an IP literal');
   if (hostname.split('.').some((label) => !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/u.test(label))) fail('hostname contains an invalid DNS label');
   boundedString(String(config.certificateRef), 'certificateRef', /^[1-9][0-9]*$/u, 20);
   exactKeys(config.postgres, ['database', 'user', 'password'], 'config.postgres');
@@ -458,7 +463,7 @@ export function validateTopology(compose, identity, config) {
   if (compose.services.ingress.depends_on?.api?.condition !== 'service_healthy') fail('Ingress API-readiness gate is missing');
   if (canonicalJson(compose.services.api.entrypoint) !== canonicalJson(['/bin/sh', '/usr/local/bin/settleora-api-entrypoint.sh'])) fail('API storage preflight entrypoint is missing');
   const apiEntrypoint = String(compose.configs?.['settleora-api-entrypoint']?.content ?? '').replaceAll('$$', '$');
-  for (const required of ['data_path=/var/lib/settleora/storage', 'id -u', 'id -g', '[ -r "$data_path" ]', '[ -w "$data_path" ]', '[ -x "$data_path" ]', 'mktemp -d "$data_path/.settleora-write-probe.XXXXXXXXXX"', '[ ! -L "$home_path" ]', 'readlink -f -- "$data_path"', '[ "$home_real" = "$data_real/.settleora-home" ]', '[ ! -L "$aspnet_path" ]', '[ "$aspnet_real" = "$home_real/.aspnet" ]', '[ ! -L "$keys_path" ]', '[ "$keys_real" = "$aspnet_real/DataProtection-Keys" ]', 'mktemp -d "$keys_path/.settleora-write-probe.XXXXXXXXXX"', 'chmod 0700 -- "$home_path"', 'exec dotnet Settleora.Api.dll']) if (!apiEntrypoint.includes(required)) fail('API UID/GID 999 storage preflight is incomplete');
+  for (const required of ['data_path=/var/lib/settleora/storage', 'id -u', 'id -g', '[ -r "$data_path" ]', '[ -w "$data_path" ]', '[ -x "$data_path" ]', 'mktemp -d "$data_path/.settleora-write-probe.XXXXXXXXXX"', '[ ! -L "$home_path" ]', 'readlink -f -- "$data_path"', '[ "$home_real" = "$data_real/.settleora-home" ]', '[ ! -L "$aspnet_path" ]', '[ "$aspnet_real" = "$home_real/.aspnet" ]', '[ ! -L "$keys_path" ]', '[ "$keys_real" = "$aspnet_real/DataProtection-Keys" ]', 'every restored data-protection key entry must be a readable regular non-link file', 'mktemp -d "$keys_path/.settleora-write-probe.XXXXXXXXXX"', 'chmod 0700 -- "$home_path"', 'exec dotnet Settleora.Api.dll']) if (!apiEntrypoint.includes(required)) fail('API UID/GID 999 storage preflight is incomplete');
   if (canonicalJson(compose.services.ingress.entrypoint) !== canonicalJson(['/bin/sh', '/usr/local/bin/settleora-caddy-entrypoint.sh']) || compose.services.ingress.healthcheck?.test?.[1] !== '/tmp/settleora-caddy') fail('Ingress does not preserve capability-free Caddy startup');
   const caddyEntrypoint = String(compose.configs?.['settleora-caddy-entrypoint']?.content ?? '').replaceAll('$$', '$');
   for (const required of ['cp /usr/bin/caddy /tmp/settleora-caddy', 'chmod 0555 /tmp/settleora-caddy', 'exec /tmp/settleora-caddy "$@"']) if (!caddyEntrypoint.includes(required)) fail('Capability-free Caddy entrypoint is incomplete');
@@ -483,8 +488,16 @@ export function validateTopology(compose, identity, config) {
   const caddy = String(compose.configs?.['settleora-caddyfile']?.content ?? '');
   if (!caddy.includes(`https://${config.hostname}:8443`) || !caddy.includes('auto_https off') || !caddy.includes('tls /run/settleora-tls/tls.crt /run/settleora-tls/tls.key') || !caddy.includes('reverse_proxy api:8080')) fail('Private HTTPS topology is incomplete');
   if (caddy.includes('acme') || caddy.includes('http://')) fail('Automatic or HTTP-only ingress is unsupported');
-  const volumeTargets = Object.values(compose.services).flatMap((service) => service.volumes ?? []).map((volume) => volume.target);
-  for (const required of ['/var/lib/postgresql/data', '/var/lib/rabbitmq', '/var/lib/settleora/storage']) if (!volumeTargets.includes(required)) fail('Required persistent dataset mapping is missing');
+  const expectedMounts = {
+    api: { source: config.storage.apiDataset, target: '/var/lib/settleora/storage' },
+    postgres: { source: config.storage.postgresDataset, target: '/var/lib/postgresql/data' },
+    rabbitmq: { source: config.storage.rabbitmqDataset, target: '/var/lib/rabbitmq' },
+  };
+  for (const [service, expected] of Object.entries(expectedMounts)) {
+    const volumes = compose.services[service].volumes ?? [];
+    if (volumes.length !== 1 || volumes[0].type !== 'bind' || volumes[0].source !== expected.source || volumes[0].target !== expected.target || volumes[0].read_only !== false || volumes[0].bind?.create_host_path !== false || volumes[0].bind?.propagation !== 'rprivate') fail(`${service} persistent dataset mapping is unsafe`);
+  }
+  if ((compose.services.ingress.volumes?.length ?? 0) !== 0 || (compose.services.migrate.volumes?.length ?? 0) !== 0) fail('Non-owning service received a persistent dataset');
   return compose;
 }
 

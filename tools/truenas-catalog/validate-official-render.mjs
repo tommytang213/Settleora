@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import YAML from 'yaml';
 import { canonicalJson } from '../release/day1-release-identity.mjs';
 import { directoryContentIdentity, PACKAGE_SCHEMA, sha256 } from './render.mjs';
@@ -35,7 +36,7 @@ if (compose.services.api.environment?.Auth__Passkeys__RelyingPartyId !== plan.tl
 if (compose.services.ingress.depends_on?.api?.condition !== 'service_healthy') fail('Official ingress API-readiness gate missing');
 if (canonicalJson(compose.services.api.entrypoint) !== canonicalJson(['/bin/sh', '/usr/local/bin/settleora-api-entrypoint.sh'])) fail('Official API storage preflight entrypoint is missing');
 const apiEntrypoint = String(compose.configs?.['settleora-api-entrypoint']?.content ?? '').replaceAll('$$', '$');
-for (const required of ['data_path=/var/lib/settleora/storage', 'id -u', 'id -g', '[ -r "$data_path" ]', '[ -w "$data_path" ]', '[ -x "$data_path" ]', 'mktemp -d "$data_path/.settleora-write-probe.XXXXXXXXXX"', '[ ! -L "$home_path" ]', 'readlink -f -- "$data_path"', '[ "$home_real" = "$data_real/.settleora-home" ]', '[ ! -L "$aspnet_path" ]', '[ "$aspnet_real" = "$home_real/.aspnet" ]', '[ ! -L "$keys_path" ]', '[ "$keys_real" = "$aspnet_real/DataProtection-Keys" ]', 'mktemp -d "$keys_path/.settleora-write-probe.XXXXXXXXXX"', 'chmod 0700 -- "$home_path"', 'exec dotnet Settleora.Api.dll']) if (!apiEntrypoint.includes(required)) fail('Official API UID/GID 999 storage preflight is incomplete');
+for (const required of ['data_path=/var/lib/settleora/storage', 'id -u', 'id -g', '[ -r "$data_path" ]', '[ -w "$data_path" ]', '[ -x "$data_path" ]', 'mktemp -d "$data_path/.settleora-write-probe.XXXXXXXXXX"', '[ ! -L "$home_path" ]', 'readlink -f -- "$data_path"', '[ "$home_real" = "$data_real/.settleora-home" ]', '[ ! -L "$aspnet_path" ]', '[ "$aspnet_real" = "$home_real/.aspnet" ]', '[ ! -L "$keys_path" ]', '[ "$keys_real" = "$aspnet_real/DataProtection-Keys" ]', 'every restored data-protection key entry must be a readable regular non-link file', 'mktemp -d "$keys_path/.settleora-write-probe.XXXXXXXXXX"', 'chmod 0700 -- "$home_path"', 'exec dotnet Settleora.Api.dll']) if (!apiEntrypoint.includes(required)) fail('Official API UID/GID 999 storage preflight is incomplete');
 if (canonicalJson(compose.services.ingress.entrypoint) !== canonicalJson(['/bin/sh', '/usr/local/bin/settleora-caddy-entrypoint.sh']) || compose.services.ingress.healthcheck?.test?.[1] !== '/tmp/settleora-caddy') fail('Official ingress does not preserve capability-free Caddy startup');
 const caddyEntrypoint = String(compose.configs?.['settleora-caddy-entrypoint']?.content ?? '').replaceAll('$$', '$');
 for (const required of ['cp /usr/bin/caddy /tmp/settleora-caddy', 'chmod 0555 /tmp/settleora-caddy', 'exec /tmp/settleora-caddy "$@"']) if (!caddyEntrypoint.includes(required)) fail('Official capability-free Caddy entrypoint is incomplete');
@@ -69,8 +70,17 @@ const expectedMemberships = {
 for (const [service, expected] of Object.entries(expectedMemberships)) {
   if (canonicalJson(memberships(compose.services[service])) !== canonicalJson(expected)) fail(`Official ${service} network boundary mismatch`);
 }
-const targets = Object.values(compose.services).flatMap((service) => service.volumes ?? []).map((volume) => volume.target);
-for (const target of ['/var/lib/postgresql/data', '/var/lib/rabbitmq', '/var/lib/settleora/storage']) if (!targets.includes(target)) fail('Official dataset mapping missing');
+const expectedTargets = { api: '/var/lib/settleora/storage', postgres: '/var/lib/postgresql/data', rabbitmq: '/var/lib/rabbitmq' };
+const datasetSources = [];
+for (const [service, target] of Object.entries(expectedTargets)) {
+  const volumes = compose.services[service].volumes ?? [];
+  const volume = volumes[0];
+  if (volumes.length !== 1 || volume?.type !== 'bind' || volume?.target !== target || volume?.read_only !== false || volume?.bind?.create_host_path !== false || volume?.bind?.propagation !== 'rprivate'
+    || typeof volume?.source !== 'string' || !/^\/mnt\/[A-Za-z0-9._/-]+$/u.test(volume.source) || path.posix.normalize(volume.source) !== volume.source || volume.source.includes('..') || volume.source.endsWith('/')) fail(`Official ${service} dataset mapping mismatch`);
+  datasetSources.push(volume.source);
+}
+if ((compose.services.ingress.volumes?.length ?? 0) !== 0 || (compose.services.migrate.volumes?.length ?? 0) !== 0 || new Set(datasetSources).size !== 3
+  || datasetSources.some((source, index) => datasetSources.some((other, otherIndex) => index !== otherIndex && source.startsWith(`${other}/`)))) fail('Official persistent dataset ownership or separation mismatch');
 const caddy = String(compose.configs?.['settleora-caddyfile']?.content ?? '');
 if (!caddy.includes('auto_https off') || !caddy.includes(`https://${plan.tls.hostname}:8443`) || !caddy.includes('tls /run/settleora-tls/tls.crt /run/settleora-tls/tls.key') || !caddy.includes('reverse_proxy api:8080') || caddy.includes('acme') || caddy.includes('http://')) fail('Official private TLS topology mismatch');
 if (compose['x-settleora-release']?.identity_digest !== plan.applicationRelease.identityDigest) fail('Official release mapping mismatch');

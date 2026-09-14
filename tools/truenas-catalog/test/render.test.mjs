@@ -195,6 +195,18 @@ test('API dataset and key-ring preflight does not follow restored probe or state
   assert.equal(statSync(path.join(root, '.settleora-home', '.aspnet', 'DataProtection-Keys')).mode & 0o777, 0o700);
   assert.deepEqual(readdirSync(root).filter((name) => name.startsWith('.settleora-write-probe.')), []);
   assert.deepEqual(readdirSync(path.join(root, '.settleora-home', '.aspnet', 'DataProtection-Keys')).filter((name) => name.startsWith('.settleora-write-probe.')), []);
+
+  const keys = path.join(root, '.settleora-home', '.aspnet', 'DataProtection-Keys');
+  symlinkSync('../../../protected', path.join(keys, 'key-restored.xml'));
+  const linkedKeyRefused = spawnSync('/bin/sh', [script], { encoding: 'utf8' });
+  assert.equal(linkedKeyRefused.status, 72);
+  assert.equal(readFileSync(protectedFile, 'utf8'), 'preserve-me');
+  unlinkSync(path.join(keys, 'key-restored.xml'));
+  const unreadableKey = path.join(keys, 'key-unreadable.xml');
+  writeFileSync(unreadableKey, '<key/>', { mode: 0o000 });
+  const unreadableKeyRefused = spawnSync('/bin/sh', [script], { encoding: 'utf8' });
+  assert.equal(unreadableKeyRefused.status, 72);
+  chmodSync(unreadableKey, 0o600);
 });
 
 test('bounded form/config negative matrix fails closed', () => {
@@ -207,6 +219,7 @@ test('bounded form/config negative matrix fails closed', () => {
     ['invalid hostname label edge', (c) => { c.hostname = 'api.-private.home.arpa'; }],
     ['oversized hostname label', (c) => { c.hostname = `${'a'.repeat(64)}.home.arpa`; }],
     ['documentation hostname', (c) => { c.hostname = 'settleora.example.com'; }],
+    ['IPv4 passkey hostname', (c) => { c.hostname = '192.168.50.20'; }],
     ['missing certificate', (c) => { c.certificateRef = ''; }],
     ['missing postgres secret', (c) => { c.postgres.password = ''; }],
     ['missing rabbit secret', (c) => { c.rabbitmq.password = ''; }],
@@ -297,6 +310,9 @@ test('topology negative matrix rejects exposure, unsupported services, identity 
     (c) => { c.services.ingress.ports[0].host_ip = '0.0.0.0'; },
     (c) => { c.configs['settleora-caddyfile'].content = 'http://api:8080'; },
     (c) => { c.services.api.volumes = []; },
+    (c) => { c.services.api.volumes = clone(c.services.postgres.volumes); },
+    (c) => { c.services.postgres.volumes = []; c.services.api.volumes.push(base.services.postgres.volumes[0]); },
+    (c) => { c.services.migrate.volumes = clone(c.services.rabbitmq.volumes); },
   ];
   for (const mutate of cases) {
     const compose = clone(base);

@@ -49,6 +49,9 @@
 {% if not tpl.funcs.match_regex(values.network.hostname, "^(?=.{1,253}$)(?!.*\\.\\.)(?!localhost$)(?!.*\\.localhost$)[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$") or "." not in values.network.hostname %}
   {% do tpl.funcs.fail("An exact private fully qualified HTTPS hostname is required") %}
 {% endif %}
+{% if tpl.funcs.match_regex(values.network.hostname, "^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}$") %}
+  {% do tpl.funcs.fail("The passkey relying-party hostname must be a DNS name, not an IP literal") %}
+{% endif %}
 {% for hostname_label in values.network.hostname.split(".") %}
   {% if not tpl.funcs.match_regex(hostname_label, "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$") %}
     {% do tpl.funcs.fail("Every private HTTPS hostname label must be a valid DNS label") %}
@@ -235,6 +238,10 @@ fi
 keys_real="$(readlink -f -- "$keys_path")" || { echo >&2 "API startup refused: the data-protection key path cannot be canonicalized."; exit 70; }
 [ "$keys_real" = "$aspnet_real/DataProtection-Keys" ] || { echo >&2 "API startup refused: the data-protection key path escapes persistent HOME."; exit 70; }
 chmod 0700 -- "$keys_path"
+for key_entry in "$keys_path"/* "$keys_path"/.[!.]* "$keys_path"/..?*; do
+  if [ ! -e "$key_entry" ] && [ ! -L "$key_entry" ]; then continue; fi
+  [ -f "$key_entry" ] && [ ! -L "$key_entry" ] && [ -r "$key_entry" ] || { echo >&2 "API startup refused: every restored data-protection key entry must be a readable regular non-link file."; exit 72; }
+done
 keys_probe_dir="$(mktemp -d "$keys_path/.settleora-write-probe.XXXXXXXXXX")" || { echo >&2 "API startup refused: the data-protection key directory is not writable by UID/GID 999."; exit 71; }
 rmdir -- "$keys_probe_dir" || { echo >&2 "API startup refused: the data-protection key write probe could not be removed."; exit 71; }
 exec dotnet Settleora.Api.dll "$@"
