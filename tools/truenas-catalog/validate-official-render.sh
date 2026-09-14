@@ -12,6 +12,10 @@ packet_root=$(realpath -e -- "$packet_root")
 [ ! -L "$packet_root/install-plan.json" ] || { echo >&2 "Install plan must not be a symbolic link"; exit 2; }
 [ -f "$packet_root/private-validation-values.yaml" ] || { echo >&2 "Private validation input is missing"; exit 2; }
 [ ! -L "$packet_root/private-validation-values.yaml" ] || { echo >&2 "Private validation input must not be a symbolic link"; exit 2; }
+[ -f "$packet_root/private-render-identity.json" ] || { echo >&2 "Private render identity is missing"; exit 2; }
+[ ! -L "$packet_root/private-render-identity.json" ] || { echo >&2 "Private render identity must not be a symbolic link"; exit 2; }
+[ -f "$packet_root/rendered/docker-compose.yaml" ] || { echo >&2 "Private direct render is missing"; exit 2; }
+[ ! -L "$packet_root/rendered/docker-compose.yaml" ] || { echo >&2 "Private direct render must not be a symbolic link"; exit 2; }
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 (cd "$packet_root" && node "$script_dir/validate-official-render.mjs" --preflight 4< install-plan.json)
@@ -55,4 +59,6 @@ docker compose -f "$work_root/package/templates/rendered/docker-compose.yaml" co
 node "$script_dir/validate-official-render.mjs" \
   3< "$work_root/package/templates/rendered/docker-compose.yaml" \
   4< "$packet_root/install-plan.json" \
-  5< "$packet_root/private-validation-values.yaml"
+  5< "$packet_root/private-validation-values.yaml" \
+  6< "$packet_root/private-render-identity.json" \
+  7< "$packet_root/rendered/docker-compose.yaml"

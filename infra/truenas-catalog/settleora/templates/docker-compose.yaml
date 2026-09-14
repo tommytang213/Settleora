@@ -157,7 +157,8 @@ if [ -e "$mnesia_base" ] || [ -L "$mnesia_base" ]; then
   persisted_nodename=""
   for candidate in "$mnesia_base"/rabbit@*; do
     if [ ! -e "$candidate" ] && [ ! -L "$candidate" ]; then continue; fi
-    [ ! -L "$candidate" ] && [ -d "$candidate" ] || { echo >&2 "RabbitMQ persistence identity refused: a node database path is unsafe."; exit 67; }
+    [ ! -L "$candidate" ] || { echo >&2 "RabbitMQ persistence identity refused: a node database path is unsafe."; exit 67; }
+    [ -d "$candidate" ] || continue
     candidate_real="$(readlink -f -- "$candidate")" || { echo >&2 "RabbitMQ persistence identity refused: a node database path cannot be canonicalized."; exit 67; }
     case "$candidate_real" in "$mnesia_real"/rabbit@*) ;; *) echo >&2 "RabbitMQ persistence identity refused: a node database escapes the persistent dataset."; exit 67;; esac
     candidate_nodename="${candidate##*/}"

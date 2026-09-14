@@ -55,7 +55,8 @@ if [ -e "$mnesia_base" ] || [ -L "$mnesia_base" ]; then
   persisted_nodename=""
   for candidate in "$mnesia_base"/rabbit@*; do
     if [ ! -e "$candidate" ] && [ ! -L "$candidate" ]; then continue; fi
-    [ ! -L "$candidate" ] && [ -d "$candidate" ] || { echo >&2 "RabbitMQ persistence identity refused: a node database path is unsafe."; exit 67; }
+    [ ! -L "$candidate" ] || { echo >&2 "RabbitMQ persistence identity refused: a node database path is unsafe."; exit 67; }
+    [ -d "$candidate" ] || continue
     candidate_real="$(readlink -f -- "$candidate")" || { echo >&2 "RabbitMQ persistence identity refused: a node database path cannot be canonicalized."; exit 67; }
     case "$candidate_real" in "$mnesia_real"/rabbit@*) ;; *) echo >&2 "RabbitMQ persistence identity refused: a node database escapes the persistent dataset."; exit 67;; esac
     candidate_nodename="${'${candidate##*/}'}"
@@ -651,6 +652,8 @@ export function materialize({ manifest, expectedIdentityDigest, config, output, 
   writeFileSync(path.join(root, 'rendered/docker-compose.yaml'), composeBytes, { mode: 0o600 });
   const privateValuesPath = path.join(root, 'private-validation-values.yaml');
   writeFileSync(privateValuesPath, canonicalJson(testValues), { mode: 0o600 });
+  const privateRenderIdentity = { schema: 'settleora.truenas-private-render-identity.v1', renderedComposeSha256: sha256(composeBytes) };
+  writeFileSync(path.join(root, 'private-render-identity.json'), canonicalJson(privateRenderIdentity), { mode: 0o600 });
   const materializedPackage = directoryContentIdentity(packageRoot);
   const plan = {
     schema: PACKAGE_SCHEMA,
@@ -659,7 +662,6 @@ export function materialize({ manifest, expectedIdentityDigest, config, output, 
     materializedPackage,
     applicationRelease: { candidateId: identity.manifest.source.candidateId, commit: identity.manifest.source.commit, tree: identity.manifest.source.tree, identityDigest: identity.manifest.identityDigest },
     runtime: { platform: 'linux/amd64', digestAuthority: 'selected-platform-manifest', images: identity.images, indexDigests: { api: identity.manifest.apiImage.indexDigest, caddy: dependency(identity.manifest, 'caddy').indexDigest, postgres: dependency(identity.manifest, 'postgres').indexDigest, rabbitmq: dependency(identity.manifest, 'rabbitmq').indexDigest } },
-    renderedComposeSha256: sha256(composeBytes),
     services: REQUIRED_SERVICES,
     networks: { httpsPort: config.httpsPort, edge: 'ingress-publication-only', ingress: 'internal', backend: 'internal', privateBindAddressIncluded: false },
     datasets: ['api-storage', 'postgres', 'rabbitmq'],
@@ -671,7 +673,7 @@ export function materialize({ manifest, expectedIdentityDigest, config, output, 
   };
   const planBytes = canonicalJson(plan);
   writeFileSync(path.join(root, 'install-plan.json'), planBytes, { mode: 0o600 });
-  return { output: root, packageRoot, compose, plan, packetSha256: sha256(planBytes + composeBytes + canonicalJson(materializedPackage)) };
+  return { output: root, packageRoot, compose, plan, privateRenderIdentity, packetSha256: sha256(planBytes + canonicalJson(materializedPackage)) };
 }
 
 function args(argv) {
@@ -691,7 +693,7 @@ function args(argv) {
 export function main(argv = process.argv.slice(2)) {
   const options = args(argv);
   const result = materialize({ manifest: safeReadJson(options.manifest, 'manifest'), expectedIdentityDigest: options['expected-identity-digest'], config: safeReadJson(options.config, 'config'), output: options.output, sourceRepo: options['source-repo'] ? realpathSync(options['source-repo']) : repoRoot });
-  process.stdout.write(`${canonicalJson({ schema: PACKAGE_SCHEMA, packetSha256: result.packetSha256, renderedComposeSha256: result.plan.renderedComposeSha256, realSecretsIncluded: false, published: false, deployed: false })}`);
+  process.stdout.write(`${canonicalJson({ schema: PACKAGE_SCHEMA, packetSha256: result.packetSha256, realSecretsIncluded: false, published: false, deployed: false })}`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

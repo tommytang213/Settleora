@@ -16,7 +16,10 @@ if (process.argv.length !== 2) fail('Official-render validation accepts input on
 const compose = YAML.parse(readFileSync(3, 'utf8'));
 const plan = JSON.parse(readFileSync(4, 'utf8'));
 const privateValues = YAML.parse(readFileSync(5, 'utf8'));
+const privateRenderIdentity = JSON.parse(readFileSync(6, 'utf8'));
+const directRenderedCompose = readFileSync(7);
 if (plan.schema !== PACKAGE_SCHEMA) fail('Install-plan schema mismatch');
+if (privateRenderIdentity.schema !== 'settleora.truenas-private-render-identity.v1' || privateRenderIdentity.renderedComposeSha256 !== sha256(directRenderedCompose)) fail('Private rendered Compose identity mismatch');
 const names = Object.keys(compose.services ?? {}).sort();
 if (canonicalJson(names) !== canonicalJson(['api', 'ingress', 'migrate', 'postgres', 'rabbitmq'])) fail('Official render service set mismatch');
 for (const [name, service] of Object.entries(compose.services)) {
@@ -47,6 +50,22 @@ const privateHostname = privateValues.network?.hostname;
 const privateHttpsPort = privateValues.network?.https_port;
 const passkeyOrigin = privateHttpsPort === 443 ? `https://${privateHostname}` : `https://${privateHostname}:${privateHttpsPort}`;
 if (compose.services.api.environment?.Auth__Passkeys__RelyingPartyId !== privateHostname || compose.services.api.environment?.Auth__Passkeys__AllowedOrigins__0 !== passkeyOrigin) fail('Official passkey relying-party identity mismatch');
+const privateSettleora = privateValues.settleora ?? {};
+const connection = `Host=postgres;Port=5432;Database=${privateSettleora.postgres_database};Username=${privateSettleora.postgres_user};Password=${privateSettleora.postgres_password}`;
+const expectedEnvironment = {
+  api: {
+    ASPNETCORE_ENVIRONMENT: 'Production', ASPNETCORE_URLS: 'http://+:8080', HOME: '/var/lib/settleora/storage/.settleora-home', Settleora__Database__ConnectionString: connection,
+    Auth__Passkeys__RelyingPartyId: privateHostname, Auth__Passkeys__AllowedOrigins__0: passkeyOrigin,
+    Settleora__RabbitMq__HostName: 'rabbitmq', Settleora__RabbitMq__Port: '5672', Settleora__RabbitMq__UserName: privateSettleora.rabbitmq_user,
+    Settleora__RabbitMq__Password: privateSettleora.rabbitmq_password, Settleora__RabbitMq__VirtualHost: '/', Settleora__Storage__Provider: 'Local', Settleora__Storage__RootPath: '/var/lib/settleora/storage',
+  },
+  migrate: { ASPNETCORE_ENVIRONMENT: 'Production', Settleora__Database__ConnectionString: connection, SETTLEORA_DATABASE_MIGRATION_MODE: privateSettleora.migration_mode },
+  postgres: { POSTGRES_DB: privateSettleora.postgres_database, POSTGRES_USER: privateSettleora.postgres_user, POSTGRES_PASSWORD: privateSettleora.postgres_password },
+  rabbitmq: { RABBITMQ_DEFAULT_USER: privateSettleora.rabbitmq_user, RABBITMQ_DEFAULT_PASS: privateSettleora.rabbitmq_password, RABBITMQ_NODENAME: `rabbit@${privateSettleora.rabbitmq_node_hostname}` },
+};
+for (const [service, expected] of Object.entries(expectedEnvironment)) {
+  for (const [key, value] of Object.entries(expected)) if (compose.services[service].environment?.[key] !== value) fail(`Official ${service} dependency environment mismatch`);
+}
 if (compose.services.ingress.depends_on?.api?.condition !== 'service_healthy') fail('Official ingress API-readiness gate missing');
 if (canonicalJson(compose.services.api.entrypoint) !== canonicalJson(['/bin/sh', '/usr/local/bin/settleora-api-entrypoint.sh'])) fail('Official API storage preflight entrypoint is missing');
 const apiEntrypoint = String(compose.configs?.['settleora-api-entrypoint']?.content ?? '').replaceAll('$$', '$');
@@ -102,6 +121,15 @@ if (ingressVolumes.length !== 1 || ingressScratch?.type !== 'volume' || ingressS
   || datasetSources.some((source, index) => datasetSources.some((other, otherIndex) => index !== otherIndex && source.startsWith(`${other}/`)))) fail('Official persistent dataset ownership or separation mismatch');
 const caddy = String(compose.configs?.['settleora-caddyfile']?.content ?? '');
 if (!caddy.includes('auto_https off') || !caddy.includes(`https://${privateHostname}:8443`) || !caddy.includes('tls /run/settleora-tls/tls.crt /run/settleora-tls/tls.key') || !caddy.includes('reverse_proxy api:8080') || caddy.includes('acme') || caddy.includes('http://')) fail('Official private TLS topology mismatch');
+const expectedIngressConfigs = [
+  { mode: 365, source: 'settleora-caddy-entrypoint', target: '/usr/local/bin/settleora-caddy-entrypoint.sh' },
+  { mode: 292, source: 'settleora-caddyfile', target: '/etc/caddy/Caddyfile' },
+  { mode: 292, source: 'settleora-tls-certificate', target: '/run/settleora-tls/tls.crt' },
+  { mode: 256, source: 'settleora-tls-private-key', target: '/run/settleora-tls/tls.key' },
+];
+if (canonicalJson(compose.services.ingress.configs) !== canonicalJson(expectedIngressConfigs)) fail('Official ingress TLS config mounts mismatch');
+const certificate = privateValues.ix_certificates?.[String(privateValues.network?.certificate_id)];
+if (compose.configs?.['settleora-tls-certificate']?.content !== certificate?.certificate || compose.configs?.['settleora-tls-private-key']?.content !== certificate?.privatekey) fail('Official ingress TLS config content mismatch');
 if (compose['x-settleora-release']?.identity_digest !== plan.applicationRelease.identityDigest) fail('Official release mapping mismatch');
 process.stdout.write(`${canonicalJson({ schema: 'settleora.truenas-official-render-validation.v1', composeSha256: sha256(canonicalJson(compose)), services: names, publishedPorts: 1, platform: 'linux/amd64', realSecretsIncluded: false, published: false, deployed: false })}`);
 }

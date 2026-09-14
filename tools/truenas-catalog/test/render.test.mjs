@@ -74,12 +74,14 @@ test('official-render validators accept only fixed descriptors and package-relat
   const source = readFileSync(path.join(repoRoot, 'tools/truenas-catalog/validate-official-render.mjs'), 'utf8');
   assert.match(source, /readFileSync\(3, 'utf8'\)/u);
   assert.match(source, /readFileSync\(4, 'utf8'\)/u);
-  assert.doesNotMatch(source, /readFileSync\([^345]/u);
+  assert.doesNotMatch(source, /readFileSync\([^34567]/u);
   assert.doesNotMatch(source, /process\.argv\.slice/u);
   assert.match(source, /directoryContentIdentity\('package'\)/u);
   assert.match(source, /volume\.source !== expectedSources\[service\]/u);
   assert.match(source, /security context mismatch/u);
   assert.match(source, /readFileSync\(5, 'utf8'\)/u);
+  assert.match(source, /readFileSync\(6, 'utf8'\)/u);
+  assert.match(source, /readFileSync\(7\)/u);
 });
 
 test('pinned official TrueNAS library content fails closed on byte drift', () => {
@@ -122,7 +124,7 @@ test('deterministic materialization repeats byte-identical package and compose i
   const first = materialize({ manifest, expectedIdentityDigest: manifest.identityDigest, config: clone(fixtureConfig), output: path.join(root, 'one') });
   const second = materialize({ manifest, expectedIdentityDigest: manifest.identityDigest, config: clone(fixtureConfig), output: path.join(root, 'two') });
   assert.equal(first.packetSha256, second.packetSha256);
-  assert.equal(first.plan.renderedComposeSha256, second.plan.renderedComposeSha256);
+  assert.equal(first.privateRenderIdentity.renderedComposeSha256, second.privateRenderIdentity.renderedComposeSha256);
   assert.equal(readFileSync(path.join(first.output, 'install-plan.json'), 'utf8'), readFileSync(path.join(second.output, 'install-plan.json'), 'utf8'));
   assert.equal(readFileSync(path.join(first.output, 'rendered/docker-compose.yaml'), 'utf8'), readFileSync(path.join(second.output, 'rendered/docker-compose.yaml'), 'utf8'));
   assert.deepEqual(first.plan.materializedPackage, second.plan.materializedPackage);
@@ -134,8 +136,10 @@ test('deterministic materialization repeats byte-identical package and compose i
   assert.equal(first.plan.tls.hostnameIncludedInPlan, false);
   assert.equal(first.plan.privateValidation.pathsIncludedInPlan, false);
   assert.equal(first.plan.datasetSourceSha256, undefined);
+  assert.equal(first.plan.renderedComposeSha256, undefined);
   assert.doesNotMatch(readFileSync(path.join(first.output, 'install-plan.json'), 'utf8'), /192\.168\.50\.10|REDACTED_POOL|settleora\.lan\.redacted-domain\.local/u);
   assert.equal(statSync(path.join(first.output, 'private-validation-values.yaml')).mode & 0o777, 0o600);
+  assert.equal(statSync(path.join(first.output, 'private-render-identity.json')).mode & 0o777, 0o600);
   assert.throws(() => statSync(path.join(first.packageRoot, 'templates/test_values')));
   assert.match(first.plan.packageSource.repositoryCommit, /^[0-9a-f]{40}$/);
   assert.match(first.plan.packageSource.repositoryTree, /^[0-9a-f]{40}$/);
@@ -183,6 +187,23 @@ test('rendered topology preserves R11, R12, private services, datasets, and migr
   assert.equal(compose.networks.backend.internal, true);
   assert.equal(compose.networks.edge.internal, undefined);
   assert.match(compose.configs['settleora-caddyfile'].content, /auto_https off/);
+});
+
+test('RabbitMQ identity guard skips regular auxiliary files but rejects symlinked node state', () => {
+  const identity = consumeReleaseIdentity(syntheticManifest(), syntheticManifest().identityDigest);
+  const compose = renderCompose(identity, fixtureConfig);
+  const root = temp();
+  const data = path.join(root, 'rabbitmq');
+  const mnesia = path.join(data, 'mnesia');
+  mkdirSync(mnesia, { recursive: true });
+  const shortHostname = execFileSync('hostname', ['-s'], { encoding: 'utf8' }).trim();
+  const script = compose.configs['settleora-rabbitmq-entrypoint'].content.replaceAll('$$', '$').replaceAll('/var/lib/rabbitmq', data).replace('exec /usr/local/bin/docker-entrypoint.sh "$@"', 'exec /bin/true');
+  const scriptPath = path.join(root, 'guard.sh');
+  writeFileSync(scriptPath, script, { mode: 0o700 });
+  writeFileSync(path.join(mnesia, `rabbit@${shortHostname}-feature_flags`), 'auxiliary-state');
+  execFileSync('/bin/sh', [scriptPath], { env: { ...process.env, RABBITMQ_NODENAME: `rabbit@${shortHostname}` } });
+  symlinkSync(path.join(root, 'outside'), path.join(mnesia, `rabbit@${shortHostname}`));
+  assert.throws(() => execFileSync('/bin/sh', [scriptPath], { env: { ...process.env, RABBITMQ_NODENAME: `rabbit@${shortHostname}` }, stdio: 'pipe' }));
 });
 
 test('default HTTPS port uses the canonical passkey origin without an explicit port', () => {
@@ -412,7 +433,7 @@ test('CLI success and refusal output never discloses secret values or private da
   const logs = result.stdout + result.stderr;
   for (const marker of SECRET_MARKERS) assert.doesNotMatch(logs, new RegExp(marker));
   assert.doesNotMatch(logs, /\/mnt\//);
-  assert.deepEqual(JSON.parse(result.stdout), { schema: 'settleora.truenas-install-plan.v1', packetSha256: JSON.parse(result.stdout).packetSha256, renderedComposeSha256: JSON.parse(result.stdout).renderedComposeSha256, realSecretsIncluded: false, published: false, deployed: false });
+  assert.deepEqual(JSON.parse(result.stdout), { schema: 'settleora.truenas-install-plan.v1', packetSha256: JSON.parse(result.stdout).packetSha256, realSecretsIncluded: false, published: false, deployed: false });
   const invalid = clone(fixtureConfig);
   invalid.postgres.password = SECRET_MARKERS[0];
   invalid.bindAddress = '0.0.0.0';
