@@ -63,14 +63,16 @@ Do not expose form fields that imply unsupported runtime behavior, such as OIDC 
 ## Secrets
 
 The unpublished skeleton requires externally managed PostgreSQL and RabbitMQ
-secrets through private form fields. Repository fixtures, the public
-`install-plan.json`, and the renderer's console summary contain no real secret
-values or private paths. A materialization run that uses real R05 configuration
-is nevertheless secret-bearing: its `private-validation-values.yaml` and
-`rendered/docker-compose.yaml` contain the supplied passwords and private
-host/dataset values. Keep the complete output packet in protected operator
-storage, never attach or share it, redact any extracted evidence, and securely
-dispose of transient copies after the reviewed `package/` handoff is complete.
+secrets through private form fields. The repository materializer is an offline
+validation/package-construction tool only: it accepts the two fixed redacted
+password markers and rejects real-looking operator secrets. Its public
+`install-plan.json` and console summary contain no password values or private
+paths. The complete validation packet still contains the redacted password
+markers and private-shaped fixture host/dataset values in
+`private-validation-values.yaml` and `rendered/docker-compose.yaml`; keep that
+packet in protected evidence storage, never attach or share it, redact any
+extracted evidence, and securely dispose of transient copies after the reviewed
+`package/` handoff is complete.
 
 A live TrueNAS install necessarily retains the operator-supplied values in its
 protected app configuration so it can render later starts and upgrades, and
@@ -78,9 +80,10 @@ that private configuration belongs in the operator's secure backup set. Secrets
 must not be committed to the repo, shown in screenshots, printed in reports, or
 embedded in generated docs. The redacted fixtures and development values in
 `infra/env/.env.example` are examples only and are not acceptable for a
-persistent maintainer LAN deployment. Live secret provisioning, protected
-packet handling and disposal, and protected TrueNAS retention remain R05/manual
-operator actions.
+persistent maintainer LAN deployment. Real values are entered and retained only
+through the live TrueNAS private form/configuration path. Live secret
+provisioning, protected validation-packet handling and disposal, and protected
+TrueNAS retention remain R05/manual operator actions.
 
 ## Network And Exposure Policy
 

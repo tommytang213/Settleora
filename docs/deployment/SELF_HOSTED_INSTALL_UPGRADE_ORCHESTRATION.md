@@ -94,37 +94,55 @@ tier, TLS automation, or catalog publishing.
 
 The checked-in `infra/truenas-catalog/settleora/` directory is render-only
 source, not an installable app. Its image values and release-lock sentinel must
-not be edited by hand. From the exact reviewed R04 source, R05 obtains a
-candidate package with:
+not be edited by hand. R04's materializer accepts only its fixed sanitized
+validation password markers; it rejects real operator secrets. Real values are
+entered and retained later through the live TrueNAS private form/configuration
+path, never through this offline command.
+
+From a clean checkout of the exact reviewed R04 implementation merge, with the
+separate retained R03 application source also clean and exact, R05 obtains a
+candidate package only after these explicit preflights and materialization:
 
 ```sh
+R03_SOURCE=/absolute/path/to/clean-retained-r03-application-source
+R03_MANIFEST=/absolute/path/to/day1-13c8eaaedf83/release-identity-manifest.json
+R04_OUTPUT=/absolute/path/to/new-protected-r04-output
+test "$(git rev-parse HEAD)" = 3b0a78bc9883b643e889d28d5b43adcdbd47bd19
+test "$(git rev-parse HEAD^{tree})" = d2122b86b22884c609048c02975fc9077831c832
+test -z "$(git status --porcelain=v1 --untracked-files=all)"
+test "$(git -C "$R03_SOURCE" rev-parse HEAD)" = 13c8eaaedf83a29194befcde6c37c428da3300e6
+test "$(git -C "$R03_SOURCE" rev-parse HEAD^{tree})" = 00395fb3e8843989f40d26c5152dde2f5bedfbf4
+test -z "$(git -C "$R03_SOURCE" status --porcelain=v1 --untracked-files=all)"
 node tools/truenas-catalog/render.mjs \
-  --manifest <protected-r03-manifest.json> \
-  --expected-identity-digest <detached-64-hex-r03-identity-digest> \
-  --config <protected-r05-private-config.json> \
-  --source-repo <clean-retained-r03-application-source-root> \
-  --output <new-protected-output-directory>
+  --manifest "$R03_MANIFEST" \
+  --expected-identity-digest 624e846e691573defa856d8976c9c997b6720039f81782e3c823a00794a9b63a \
+  --config tools/truenas-catalog/test/fixtures/sanitized-config.json \
+  --source-repo "$R03_SOURCE" \
+  --output "$R04_OUTPUT"
 ```
 
-The output directory must not already exist. The R04 renderer source and clean
-R03 application source are separate authorities: `--source-repo` must resolve
-to the exact application commit/tree named by the manifest, while the command
-runs from the exact reviewed R04 package source. Stop if semantic identity,
-detached digest, selected Linux/amd64 image provenance, source cleanliness,
+Set each absolute path variable for the operator's protected workspace;
+`R03_MANIFEST` must name the retained `day1-13c8eaaedf83` manifest, and none of
+these files belongs in the repository. `R04_OUTPUT` must not already exist. The
+R04 renderer source and R03 application source are separate authorities. The
+renderer confirms that the R03 commit exists with the manifest's tree, but it
+does not itself prove either checkout's current HEAD or cleanliness; the
+explicit preflights above are therefore mandatory. Stop if any preflight,
+semantic identity, detached digest, selected Linux/amd64 image provenance,
 package tracking, or topology validation fails.
 
 Only `<output>/package/` is the materialized app-package handoff for the live
 TrueNAS review. Confirm its identity against `<output>/install-plan.json` and
 retain the exact R03 manifest/detached digest plus R04 commit/tree in redacted
-evidence before import. The public install plan and console summary omit real
-secrets and private paths, but the complete output packet is private:
-`private-validation-values.yaml` and `rendered/docker-compose.yaml` contain the
-supplied passwords and private host/dataset values. Store the packet with mode-
-restricted operator evidence, never upload or attach it, redact derived logs,
-and securely dispose of transient copies after the reviewed handoff. TrueNAS
-then collects/retains live form values through its protected app configuration;
-the repository command does not publish, import, install, start, or migrate the
-app.
+evidence before import. The public install plan and console summary omit
+password values and private paths. The complete output packet contains only the
+fixed redacted password markers, but its `private-validation-values.yaml` and
+`rendered/docker-compose.yaml` also contain private-shaped fixture host/dataset
+values, so keep it as mode-restricted operator evidence, never upload or attach
+it, redact derived logs, and securely dispose of transient copies after the
+reviewed handoff. TrueNAS then collects and retains real live form values through
+its protected app configuration; the repository command does not accept live
+secrets or publish, import, install, start, or migrate the app.
 
 A safe first install should follow this order:
 
