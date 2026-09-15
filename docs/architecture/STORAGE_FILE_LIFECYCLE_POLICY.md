@@ -79,7 +79,13 @@ Current source proves the following, and no more:
   Each bill, proof, and QR upload also buffers the multipart file into a managed
   `byte[]` before metadata reservation and retains that copy through validation
   and provider write; ordinary garbage collection, not explicit zeroization or
-  a deterministic release time, controls its disposal. A caught
+  a deterministic release time, controls its disposal. Each handler calls
+  `ReadFormAsync` first, so framework multipart buffering may also stage an
+  above-threshold body in a server temporary file; no repository `FormOptions`
+  override or application crash-cleanup evidence defines that copy's lifecycle.
+  Cancellation or another thrown exception during `MarkActiveAsync` after the
+  provider write bypasses the unsuccessful-result branch in every handler, so
+  activation commit/state can be unknown with complete bytes and no link. A caught
   `DbUpdateException` during association save triggers a best-effort attempt to
   change the now-active object to `deleted`, but each handler ignores that
   lifecycle result. Cancellation and other exception types bypass that catch
