@@ -103,7 +103,8 @@ the manual security decision open.
 
 ## 4. Row Contract And Common Rules
 
-The two matrices in section 5 together form each policy row. These common
+The three synchronized matrices in sections 5.1, 5.2, and 5.5 together form
+each policy row. These common
 values apply to every row unless its cell states otherwise, satisfying the
 shared-template fields without repeating unsafe boilerplate:
 
