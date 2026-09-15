@@ -73,8 +73,10 @@ Current source proves the following, and no more:
   table is not proof that an object is unreferenced.
 - Storage-write failure marks a reserved object `upload_failed`, but the local
   provider may already have created partial bytes and the endpoint does not
-  remove them. Association-save failure changes the now-active object to
-  `deleted` but retains bytes. No cleanup runner reconciles either case.
+  remove them. Association-save failure triggers a best-effort attempt to
+  change the now-active object to `deleted`, but each handler ignores that
+  lifecycle result; an active unlinked object can remain, and any bytes remain.
+  No cleanup runner reconciles either case.
 - Current file lifecycle audit proves success events only for upload start,
   completion, failure, logical deletion, and metadata `purged`. It records a
   bounded file ID, purpose, prior/new status, provider category, timestamp, and
@@ -180,7 +182,7 @@ not new purposes.
 
 ## 5. Common Policy-Row Contract
 
-The matrices in sections 6.1 through 6.3 together complete every reusable-row
+The matrices in sections 6.1 through 6.5 together complete every reusable-row
 field from #960. These common values apply to every row unless a cell narrows
 them:
 
@@ -303,6 +305,61 @@ Purge/disposal status is `unresolved` and blocked, except that it is
 restore, re-link, or candidate classification. A user-initiated future terminal
 action requires a separate consequence warning and explicit confirmation;
 automated temporary cleanup must be non-user-initiated and policy-bounded.
+
+### 6.4 Per-row Unresolved-choice References
+
+Every transition has an explicit choice set. `none` would mean current
+authority answers all row questions; no row qualifies for `none` at this
+planning checkpoint.
+
+| Row ID | Unresolved choice refs |
+| --- | --- |
+| `FILE-LC-OBJ-001` | `FILE-LC-CHOICE-004` |
+| `FILE-LC-OBJ-002` | `FILE-LC-CHOICE-003`, `FILE-LC-CHOICE-004` |
+| `FILE-LC-OBJ-003` | `FILE-LC-CHOICE-004` |
+| `FILE-LC-OBJ-004` | `FILE-LC-CHOICE-003` |
+| `FILE-LC-OBJ-005` | `FILE-LC-CHOICE-003` |
+| `FILE-LC-OBJ-006` | `FILE-LC-CHOICE-001`, `FILE-LC-CHOICE-002`, `FILE-LC-CHOICE-004`, `FILE-LC-CHOICE-008` |
+| `FILE-LC-OBJ-007` | `FILE-LC-CHOICE-001`, `FILE-LC-CHOICE-002`, `FILE-LC-CHOICE-003`, `FILE-LC-CHOICE-008` |
+| `FILE-LC-OBJ-008` | `FILE-LC-CHOICE-001`, `FILE-LC-CHOICE-004`, `FILE-LC-CHOICE-008` |
+| `FILE-LC-OBJ-009` | `FILE-LC-CHOICE-001`, `FILE-LC-CHOICE-004`, `FILE-LC-CHOICE-008` |
+| `FILE-LC-LINK-001` | `FILE-LC-CHOICE-004` |
+| `FILE-LC-LINK-002` | `FILE-LC-CHOICE-002`, `FILE-LC-CHOICE-004` |
+| `FILE-LC-LINK-003` | `FILE-LC-CHOICE-002`, `FILE-LC-CHOICE-004` |
+| `FILE-LC-LINK-004` | `FILE-LC-CHOICE-002` |
+| `FILE-LC-CLN-001` | `FILE-LC-CHOICE-001`, `FILE-LC-CHOICE-004` |
+| `FILE-LC-CLN-002` | `FILE-LC-CHOICE-001`, `FILE-LC-CHOICE-004` |
+| `FILE-LC-CLN-003` | `FILE-LC-CHOICE-001`, `FILE-LC-CHOICE-005`, `FILE-LC-CHOICE-007` |
+| `FILE-LC-LOCAL-001` | `FILE-LC-CHOICE-007` |
+
+### 6.5 Per-row Manual-gate Mapping And Registry
+
+Each gate is independent. `pending` means this policy supplies no approval;
+satisfying one gate never satisfies another. Approval evidence is `none` for
+every pending gate.
+
+| Row ID(s) | Applicable gate IDs |
+| --- | --- |
+| `FILE-LC-OBJ-001..003`, `FILE-LC-LINK-001`, `FILE-LC-CLN-001` | `FILE-LC-GATE-001`, `002`, `003`, `006`, `007` |
+| `FILE-LC-OBJ-004..005` | `FILE-LC-GATE-001`, `002`, `003`, `006`, `007`, `008` |
+| `FILE-LC-OBJ-006..008`, `FILE-LC-LINK-002..004` | `FILE-LC-GATE-001`, `002`, `003`, `004`, `005`, `006`, `008` |
+| `FILE-LC-OBJ-009`, `FILE-LC-CLN-002` | `FILE-LC-GATE-001`, `002`, `003`, `005`, `006`, `007`, `008`, `009`, `010` |
+| `FILE-LC-CLN-003` | `FILE-LC-GATE-001`, `002`, `003`, `005`, `006`, `007`, `008` |
+| `FILE-LC-LOCAL-001` | `FILE-LC-GATE-005`, `006`, `011` |
+
+| Gate ID | Required scope; owner | Status / approval evidence | Downstream work blocked |
+| --- | --- | --- | --- |
+| `FILE-LC-GATE-001` | Storage/file privacy and authorization policy/runtime; #966/#341/#1062 with human privacy authority. Required for any affected server behavior. | `pending`; none. | Object/link/read/upload/quarantine/cleanup runtime. |
+| `FILE-LC-GATE-002` | Persistence/schema/migration; #722 schema lane after #961. Required when lifecycle fields, constraints, reference registry, or state meaning changes. | `pending`; none. | New restore, disposition, idempotency, reference-proof, and provider-outcome persistence. |
+| `FILE-LC-GATE-003` | API/OpenAPI/generated clients; #722 contract/API lanes after #961. Required for any new/changed endpoint or generated surface. | `pending`; none. | Restore, lifecycle status, quarantine, maintenance, cleanup, and disposition APIs/clients. |
+| `FILE-LC-GATE-004` | Product Trash/restore wording and Figma; #723 with human product/UX approval. Required for user-visible inactive/restore/terminal action. | `pending`; none. | Client Trash, restore, blocked-state, warning, and confirmation UI. |
+| `FILE-LC-GATE-005` | Destructive cleanup/disposal decision; human product/data owner and operator, with #724 technical evidence. Required before physical byte or local authoritative-copy deletion. | `pending`; none. | `OBJ-009` and any destructive `CLN-001..003`/`LOCAL-001` outcome. |
+| `FILE-LC-GATE-006` | Retention, dependency, hold, tombstone, and audit policy; #724 with human trust/privacy decisions. Required for clocks, eligibility, or evidence disposal. | `pending`; none. | Expiry, orphan proof, cleanup scheduling, restore eligibility, and terminal disposition. |
+| `FILE-LC-GATE-007` | Provider/configuration and operational behavior; deployment/operator owner after storage policy. Required for provider probes, deletion, leases, or scanner integration. | `pending`; none. | Provider reconciliation, cleanup executor, scanner, and physical outcome proof. |
+| `FILE-LC-GATE-008` | Privacy-vault/security/key/recovery behavior; #343/#966 and human security/privacy authority. Required when protected content or recovery is affected. | `pending`; none. | Vault-file restore, quarantine inspection, cleanup, copy disposition, and no-downgrade acceptance. |
+| `FILE-LC-GATE-009` | Admin/public exposure; #466/#467/#964 with human exposure approval. Required for maintenance/admin read or action surfaces. | `pending`; none. | Admin lifecycle metadata, blocked-attempt, cleanup, and disposition controls. |
+| `FILE-LC-GATE-010` | Production maintenance/deployment operation; operator/human release authority. Required before live cleanup or purge execution. | `pending`; none. | Scheduled/manual production cleanup, byte deletion, and provider reconciliation. |
+| `FILE-LC-GATE-011` | Local platform storage/privacy and user-discard behavior; #971/#358 with human platform/privacy authority. Required for local scratch/cache/offline deletion. | `pending`; none. | Local-only cleanup, offline acknowledgment, secure-cache retention, and device acceptance. |
 
 ## 7. Inactive Read And Restore Contract
 
