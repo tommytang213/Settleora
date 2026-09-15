@@ -378,7 +378,8 @@ every pending gate.
 | `FILE-LC-CLN-001` | `FILE-LC-GATE-001`, `002`, `003`, `005`, `006`, `007`, `010` |
 | `FILE-LC-OBJ-004..005` | `FILE-LC-GATE-001`, `002`, `003`, `006`, `007`, `008` |
 | `FILE-LC-OBJ-010` | `FILE-LC-GATE-001`, `002`, `003`, `004`, `006`, `007`, `008` |
-| `FILE-LC-OBJ-006..008`, `FILE-LC-LINK-002..004`, `FILE-LC-LINK-007..010` | `FILE-LC-GATE-001`, `002`, `003`, `004`, `005`, `006`, `008` |
+| `FILE-LC-OBJ-006..007`, `FILE-LC-LINK-002..004`, `FILE-LC-LINK-007..010` | `FILE-LC-GATE-001`, `002`, `003`, `004`, `006`, `008` |
+| `FILE-LC-OBJ-008` | `FILE-LC-GATE-001`, `002`, `003`, `005`, `006`, `007`, `008` |
 | `FILE-LC-OBJ-009` | `FILE-LC-GATE-001`, `002`, `003`, `004`, `005`, `006`, `007`, `008`, `009`, `010` |
 | `FILE-LC-CLN-002` | `FILE-LC-GATE-001`, `002`, `003`, `005`, `006`, `007`, `008`, `009`, `010` |
 | `FILE-LC-CLN-003` | `FILE-LC-GATE-001`, `002`, `003`, `005`, `006`, `007`, `008`, `010` |
@@ -490,7 +491,7 @@ set or the object transition cannot commit.
 | --- | --- |
 | Byte write fails before metadata reservation | Current server pattern reserves metadata first. For any future alternate pattern, no accepted row/link exists; bounded temporary cleanup may target only the exact operation-owned bytes after proving they are non-authoritative. |
 | Metadata exists but byte write fails | Keep/mark `upload_failed`; ordinary reads stop. Reconcile whether zero, partial, or complete bytes exist before retry or cleanup. |
-| Bytes exist but activation/link completion fails | Do not serve. If activation itself fails after the provider write, current proof/QR handlers can leave bytes with a `pending` object. Later association failure compensation may instead leave `upload_failed`, `deleted`, or an active unlinked object. Record the exact step and retry identity; reconcile before any provider deletion. |
+| Bytes exist but activation/link completion fails | Do not serve. If activation fails after provider write, the bill handler attempts `pending → upload_failed` but ignores that result, so `upload_failed` or `pending` can remain; proof/QR return without that attempt and can leave `pending`. If activation succeeded but association save fails, all three handlers attempt `active → deleted` and ignore the result, so the outcome is `deleted` or active-unlinked, not `upload_failed`. Record the exact step and retry identity; reconcile before any provider deletion. |
 | One link is removed | Make that link inactive. Do not infer byte deletion. Recalculate reference/hold evidence across all link and history categories. |
 | Zero references are observed | Mark only a derived orphan candidate after querying the complete registered reference set in a consistent snapshot. Repeat immediately before disposal. Absence in one table is insufficient. |
 | Multiple references exist | Object-wide logical removal or disposal is blocked unless every authoritative link/domain owner accepts its own transition. One unlink affects only that link. |
