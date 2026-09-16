@@ -48,7 +48,7 @@ While Settleora has no production deployment, a task explicitly marked as a PR/m
   reconciled ephemeral branch and disposable clean worktree after every policy
   gate passes.
 
-Dev-stage auto-merge does not allow direct pushes to `main`, force pushes, skipped validation, skipped CI, dirty or stale PRs, changed-head merges, or merges for production/security/destructive/manual-gated work.
+Dev-stage auto-merge does not allow direct pushes to `main`, force pushes, skipped validation, skipped CI, dirty or stale PRs, changed-head merges, or merges for production, security-critical runtime or accepted-semantics, destructive, or otherwise manual-gated work.
 
 Manual gates are still required for production deploys, mobile store releases, public/admin exposure changes, destructive migrations or destructive data operations, branch deletion/cleanup outside the exact issue #947 `ephemeral_cleanup_v1` standing authority above, force-like history changes, secrets/auth config changes, auth/session/security-critical runtime work, storage/file privacy/authz runtime or accepted-semantics changes, file-byte operations, money/settlement calculation authority changes, schema migrations, CI/deployment infrastructure changes, reducing Day 1 scope, replacing architecture direction, and any task that explicitly says PR-only or human-merge-only.
 

@@ -358,7 +358,7 @@ Settleora is currently in development stage with no production deployment. Futur
   exact reviewed source branch SHA if GitHub auto-deleted it despite no explicit
   deletion request.
 
-Dev-stage auto-merge never means direct push to `main`, force push, skipped validation, skipped GitHub CI, merge of a dirty/stale/unstable/changed-head PR, or auto-merge of production, security, destructive, or otherwise manual-gated work.
+Dev-stage auto-merge never means direct push to `main`, force push, skipped validation, skipped GitHub CI, merge of a dirty/stale/unstable/changed-head PR, or auto-merge of production, security-critical runtime or accepted-semantics, destructive, or otherwise manual-gated work.
 
 Manual gates remain required for production deploys, mobile store releases, public/admin exposure changes, destructive migrations or destructive data operations, branch deletion/cleanup, force-like history changes, secrets/auth config changes, auth/session/security-critical runtime work, storage/file privacy/authz work that meets the manual-gate rule above, file-byte operations, money/settlement calculation authority changes, schema migrations, CI/deployment infrastructure changes, reducing Day 1 scope, replacing architecture direction, and any task that explicitly says PR-only or human-merge-only.
 
