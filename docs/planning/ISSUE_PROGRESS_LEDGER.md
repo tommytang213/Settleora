@@ -29,6 +29,13 @@
   alerts were zero. Fully paginated final review inventory covered 38 issue
   comments, 147 review submissions, 267 inline comments, and 156 threads with
   zero unresolved threads.
+- Durable execution evidence is indexed by continuation task `20260916-1812`
+  under the accepted logical task `20260915-2340`. Its required external task
+  report is
+  `/workspace/logs/settleora-codex-report-20260916-1812-issue-719-continuation-six-hosted-findings.md`;
+  that same-task report is finalized only after this hygiene PR, external
+  issue/Project reconciliation, and closure complete, so the path is the
+  reference while terminal outcome fields remain pending.
 - This policy merge implements no runtime lifecycle behavior. Existing
   canonical owners remain responsible for implementation and acceptance:
   #722 for API/contract/schema split, #723 for manual-gated Trash/restore/purge
