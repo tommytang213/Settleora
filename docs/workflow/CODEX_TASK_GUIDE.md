@@ -274,11 +274,38 @@ Manual gates must be explicit. Trigger and report a manual gate for CI workflow
 changes, deployment/Docker/release infrastructure, production deploy, public or
 admin exposure, mobile store release, signing, secrets/credentials/tokens,
 OpenAPI contracts, generated clients, auth/session/security-critical runtime,
-storage/privacy/file-byte authorization, money/settlement/payment/bill
+storage/file privacy/authz runtime or accepted-semantics changes, file-byte
+operations, money/settlement/payment/bill
 calculation authority, schema/migrations, destructive data operations, Day 1
 scope reduction, architecture direction replacement, branch deletion/cleanup,
 force-like history changes, or any task marked PR-only, human-merge-only, or
 manual-gated.
+
+Storage/privacy/authz subject matter does not create a manual gate by itself. A task
+may use the normal exact-head development-stage merge path when its tracked
+changes are documentation, planning, factual reconciliation, or audit evidence
+only and it changes no runtime behavior; accepted authorization/privacy
+semantics; product requirement or decision; architecture direction; Day 1
+scope; file bytes or cleanup/purge/disposal; schema, migration, API, OpenAPI,
+generated-client, UI, or Figma behavior; provider/storage-backend,
+encryption/key-management, secret, or configuration state; public/admin
+exposure; deployment, production, or release state; or task-specific
+human/manual gate. Eligible examples include factual storage completeness
+audits, source-versus-doc reconciliation, lifecycle policy docs that record
+current behavior and unresolved choices without deciding them, docs-only
+storage/privacy/authz planning, and docs-only evidence/hygiene.
+
+Human approval remains mandatory for storage/file privacy/authz runtime
+behavior; access or authorization semantics; privacy decisions that change
+accepted behavior; file-byte operations; physical cleanup, purge, or disposal;
+provider or storage-backend configuration; encryption or key management;
+secret/config changes; destructive operations; public/admin exposure;
+production operations, deployment, or release; unresolved
+privacy/security/product decisions that the task resolves, changes, or requires
+to proceed; requirement changes; architecture
+replacement or direction changes; Day 1 scope changes; and explicit PR-only or
+human-merge-only tasks. This documentation-only qualification does not create
+an exemption from any unrelated manual gate listed above.
 
 Source branches are retained by default:
 
@@ -331,9 +358,9 @@ Settleora is currently in development stage with no production deployment. Futur
   exact reviewed source branch SHA if GitHub auto-deleted it despite no explicit
   deletion request.
 
-Dev-stage auto-merge never means direct push to `main`, force push, skipped validation, skipped GitHub CI, merge of a dirty/stale/unstable/changed-head PR, or auto-merge of production, security, destructive, or otherwise manual-gated work.
+Dev-stage auto-merge never means direct push to `main`, force push, skipped validation, skipped GitHub CI, merge of a dirty/stale/unstable/changed-head PR, or auto-merge of production, security-critical runtime or accepted-semantics, destructive, or otherwise manual-gated work.
 
-Manual gates remain required for production deploys, mobile store releases, public/admin exposure changes, destructive migrations or destructive data operations, branch deletion/cleanup, force-like history changes, secrets/auth config changes, auth/session/security-critical runtime work, storage/file privacy/authz changes, money/settlement calculation authority changes, schema migrations, CI/deployment infrastructure changes, reducing Day 1 scope, replacing architecture direction, and any task that explicitly says PR-only or human-merge-only.
+Manual gates remain required for production deploys, mobile store releases, public/admin exposure changes, destructive migrations or destructive data operations, branch deletion/cleanup, force-like history changes, secrets/auth config changes, auth/session/security-critical runtime work, storage/file privacy/authz work that meets the manual-gate rule above, file-byte operations, money/settlement calculation authority changes, schema migrations, CI/deployment infrastructure changes, reducing Day 1 scope, replacing architecture direction, and any task that explicitly says PR-only or human-merge-only.
 
 ## Standard Report Planning Outcome
 

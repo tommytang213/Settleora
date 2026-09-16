@@ -61,19 +61,21 @@ Future PR/merge-gate tasks may auto-merge to `main` only while the project remai
 - Merge is a normal GitHub merge commit unless the task explicitly says otherwise.
 - Source branch is not deleted unless the human explicitly requests deletion.
 
-This policy does not permit direct pushes to `main`, force pushes, skipped validation, skipped GitHub CI, dirty or stale PRs, changed-head merges, production/security/destructive/manual-gated auto-merges, or branch deletion.
+This policy does not permit direct pushes to `main`, force pushes, skipped validation, skipped GitHub CI, dirty or stale PRs, changed-head merges, production, security-critical runtime or accepted-semantics, destructive, or manual-gated auto-merges, or branch deletion.
 
 ## Stop Rules
 
-Stop immediately when a task touches or requires backend/API behavior, OpenAPI or generated clients, auth/session/security, database schema or migrations, settlement/payment/bill calculation logic, storage/file privacy policy, Docker/deployment/env config, production secrets, or unclear branch divergence.
+Stop immediately when a task touches or requires backend/API behavior, OpenAPI or generated clients, auth/session/security, database schema or migrations, settlement/payment/bill calculation logic, storage/file privacy/authz runtime behavior or accepted semantics, file-byte operations, Docker/deployment/env config, production secrets, or unclear branch divergence. Do not stop solely because a task is documentation-only storage/privacy/authz factual reconciliation, planning, audit, policy, or evidence work that satisfies the qualification below.
 
 ## Human Review Boundaries
 
 Humans must review:
 
-- This policy-update PR itself, because it changes the previous blanket `main` merge rule.
+- The original AI V3 bootstrap policy-update PR covered by this document,
+  because it changed the previous blanket `main` merge rule.
 - Any branch protection or repository settings.
-- Backend/API/schema/money/security/deployment changes.
+- Backend/API/schema/money/deployment changes and security-critical runtime or
+  accepted-semantics changes.
 - Scope reductions or milestone changes.
 - Any task where validation cannot run or the scope guard fails.
 - Any task that explicitly says PR-only or human-merge-only.
@@ -89,4 +91,32 @@ Humans must review:
 - Configure branch protection in GitHub.
 - Decide which CI checks are required for `ai/integration`.
 - Decide whether any future controller script may auto-merge eligible `ai/integration` PRs.
-- Keep manual gates for production deploys, mobile store releases, public/admin exposure changes, destructive migrations or destructive data operations, branch deletion/cleanup, force-like history changes, secrets/auth config changes, auth/session/security-critical runtime work, storage/file privacy/authz changes, money/settlement calculation authority changes, schema migrations, CI/deployment infrastructure changes, reducing Day 1 scope, replacing architecture direction, and PR-only or human-merge-only tasks.
+- Keep manual gates for production deploys, mobile store releases, public/admin exposure changes, destructive migrations or destructive data operations, branch deletion/cleanup, force-like history changes, secrets/auth config changes, auth/session/security-critical runtime work, storage/file privacy/authz runtime or accepted-semantics changes, file-byte operations, money/settlement calculation authority changes, schema migrations, CI/deployment infrastructure changes, reducing Day 1 scope, replacing architecture direction, and PR-only or human-merge-only tasks.
+
+## Documentation-Only Storage/Privacy/Authz Qualification
+
+A task is not human-gated solely because it concerns storage, files, privacy,
+or authz when its tracked changes are documentation, planning, factual
+reconciliation, or audit evidence only and it changes no runtime behavior;
+accepted authorization/privacy semantics; product requirement or decision;
+architecture direction; Day 1 scope; file bytes or cleanup/purge/disposal;
+schema, migration, API, OpenAPI, generated-client, UI, or Figma behavior;
+provider/storage-backend, encryption/key-management, secret, or configuration
+state; public/admin exposure; deployment, production, or release state; or
+task-specific human/manual gate. Factual storage completeness audits,
+source-versus-doc reconciliation, lifecycle policy docs that record current
+behavior and unresolved choices without deciding them, docs-only
+storage/privacy/authz planning, and docs-only evidence/hygiene may use the normal
+exact-head development-stage merge path.
+
+Human approval remains mandatory for storage/file privacy/authz runtime
+behavior; access or authorization semantics; privacy decisions that change
+accepted behavior; file-byte operations; physical cleanup, purge, or disposal;
+provider or storage-backend configuration; encryption or key management;
+secret/config changes; destructive operations; public/admin exposure;
+production operations, deployment, or release; unresolved
+privacy/security/product decisions that the task resolves, changes, or requires
+to proceed; requirement changes; architecture
+replacement or direction changes; Day 1 scope changes; and explicit PR-only or
+human-merge-only tasks. This qualification does not weaken any unrelated
+manual gate above.
