@@ -87,14 +87,16 @@ The policy uses four evidence classes:
   removes the bill from ordinary future-bill lists. No current general bill-workflow
   endpoint implements cancellation; no endpoint implements finalization,
   status-`archived`, reopening, or hard deletion.
-- `MVP_DAY1_SCOPE.md` requires a bill-level manual FX snapshot to be retained as
-  financial truth when original and settlement/display currency differ. Current
-  bill schema and runtime implement same-currency behavior and no such snapshot
-  family. Future implementation must preserve original/converted amounts and
-  currencies, manual rate, direction, effective/as-of date, source/override
-  identity, precision/policy version, and audit; later rate changes may never
-  recalculate accepted history. This accepted requirement does not authorize an
-  FX formula or choose a storage/API shape.
+- `MVP_DAY1_SCOPE.md` and `DAY1_MANUAL_FX_SNAPSHOT_MONEY_POLICY.md` require a
+  bill-level manual FX snapshot to be retained as financial truth when original
+  and target/share currency differ. Current bill schema and runtime implement
+  same-currency behavior and no such snapshot family. Future implementation
+  must preserve original/target amounts and currencies, canonical rate
+  direction, effective/as-of date, manual source/reason, actor/review basis,
+  precision and policy/calculation identity, and audit; later rate changes may
+  never recalculate accepted history. This accepted requirement does not
+  authorize an FX formula or choose a storage/API shape. Open #352 remains the
+  canonical implementation owner and retains its manual money and Figma gates.
 - Items have `DeletedAtUtc`; bill roots, splits, participants, payers, and
   adjustments do not expose a generic delete lifecycle. Revision application
   mutates the active participant share/status rows in place and synchronizes
@@ -353,7 +355,7 @@ row unless a cell says otherwise:
 | `FIN-COMP-006` | Active bill payer confirmation basis — no separate user action at creation | Payer creation records the creating actor; self-created payer facts start `confirmed` with confirmation time, while facts created for another payer start `pending_confirmation`. | **Implemented current initialization fact.** `ExpenseBillPayerConfirmationPolicy.ApplyCreatedBy`; personal/group/recurring/import creation callers and tests. Later active-payer acceptance authority/effect remains `FIN-CHOICE-020..023`. |
 | `FIN-COMP-007` | Pending active bill payer — proposed **Confirm payer contribution** | No post-creation active-payer transition is accepted today. Availability, exact actor, effect on bill confirmation/settlement selection, audit, and retry remain blocked. | **Persistence/status only; runtime unimplemented.** `ExpenseBillPayerConfirmationStatuses.Confirmed` and timestamps are evidence, not an endpoint. `FIN-CHOICE-020/021/023`; `G-PRODUCT/G-MONEY`. |
 | `FIN-COMP-008` | Pending active bill payer — proposed **Reject payer contribution** | No active-payer rejection transition is accepted today. Availability, actor, immutable action basis, bill-root/selection effect, and correction/re-entry are independently blocked. | **Persistence/status only; runtime unimplemented.** `ExpenseBillPayerConfirmationStatuses.Rejected` and timestamp; `FIN-CHOICE-022/023/030..032`; `G-PRODUCT/G-MONEY`. |
-| `FIN-FX-001` | Converted bill’s bill-level manual FX snapshot — **Record exchange-rate snapshot** / historical **Rate retained** | A later accepted converted-bill create or revision must atomically retain original amount/currency, converted amount/currency, manual rate/direction, effective/as-of date, source/override identity, precision and policy version. Once accepted, that snapshot is immutable financial truth; correction creates a reviewed successor/new bill fact rather than recalculating history. | **Documented accepted requirement; runtime/schema unimplemented.** `MVP_DAY1_SCOPE.md` “Money handling”; settlement architectures’ same-currency boundary and frozen-snapshot requirements. Current bill runtime remains same-currency. Exact persistence/API/UI work belongs to #722 after #961 and requires `G-MONEY/G-SCHEMA/G-CONTRACT/G-CLIENT`; this row defines no formula. |
+| `FIN-FX-001` | Converted bill’s bill-level manual FX snapshot — **Record exchange-rate snapshot** / historical **Rate retained** | A later accepted converted-bill create or revision must atomically retain original/target amounts and currencies, manual rate in canonical `original_to_target` direction, effective/as-of date, manual source/reason, actor/review basis, precision and policy/calculation identity. Once accepted, that snapshot is immutable financial truth; correction creates a reviewed successor/new bill fact rather than recalculating history. | **Documented accepted requirement; runtime/schema unimplemented.** `MVP_DAY1_SCOPE.md` “Money handling”; `DAY1_MANUAL_FX_SNAPSHOT_MONEY_POLICY.md`; settlement architectures’ same-currency boundary. Current bill runtime remains same-currency. Open #352 owns focused implementation and its manual money/Figma gates; it must consume #961 synthesis and coordinate any #722 split. This row defines no new formula. |
 | `FIN-PART-001` | Bill participant `partially_settled` — proposed dependent settlement projection | No transition is accepted today; settlement runtime does not assign this supported participant status or `SettledAtUtc`. | **Status/schema only; runtime unimplemented.** `ExpenseBillParticipantStatuses.PartiallySettled`; `FIN-CHOICE-024`; `G-PRODUCT/G-MONEY`. |
 | `FIN-PART-002` | Bill participant `settled` — proposed dependent settlement projection | No transition is accepted today; settlement finality comes from retained settlement records, not this inert field by implication. | **Status/schema only; runtime unimplemented.** `ExpenseBillParticipantStatuses.Settled`; `ExpenseBillParticipant.SettledAtUtc`; `FIN-CHOICE-024`; `G-PRODUCT/G-MONEY`. |
 | `FIN-PART-003` | Bill participant `waived` — proposed dependent settlement projection | No transition is accepted today; no current participant-status write authorizes waiver or changes a balance. | **Status/schema only; runtime unimplemented.** `ExpenseBillParticipantStatuses.Waived`; `FIN-CHOICE-024`; `G-PRODUCT/G-MONEY`. |
@@ -468,7 +470,7 @@ row unless a cell says otherwise:
 | `FIN-BILL-001/002` | `FIN-CHOICE-001/009/010` | Partial | #722 split: money-settlement-payment runtime; schema-migrations and OpenAPI/generated-client only if required; UI via #723 | `G-MONEY/G-PRODUCT/G-RET/G-CLIENT/G-PRIV/G-DEST`, and conditional `G-SCHEMA/G-CONTRACT`; dependency graph, stale auth/state, concurrent archive/restore, report/history tests. |
 | `FIN-BILL-003..010` | `FIN-CHOICE-003/004/025/026/029/010` | Implemented/partial/unimplemented by row | Existing bill/revision owners, then #722/#724 split | `G-MONEY/G-PRODUCT/G-RET/G-PRIV/G-DEST`, conditional `G-CONTRACT/G-CLIENT/G-SCHEMA`; transition/history, future-update concurrency, cancelled re-entry, finalized/status-archive distinction, retention, copy-disposition, and dependency tests. |
 | `FIN-COMP-001..008` | `FIN-CHOICE-002/005/020..023/030..032/010` | Partial/unimplemented by row | #722 money runtime plus schema if tombstone/version fields; #724 retention | `G-MONEY/G-PRODUCT/G-RET/G-PRIV/G-DEST`, conditional `G-SCHEMA/G-CONTRACT/G-CLIENT`; active-payer availability/actor/basis/effect/correction, positive dependency, component inventory, removed-payer and snapshot coverage, redacted audit, deterministic rebuild tests. |
-| `FIN-FX-001` | `FIN-CHOICE-010` (retention only; required snapshot semantics are already accepted) | Documented accepted requirement; runtime/schema unimplemented | #961 synthesis then #722 money/schema/API split; UI via #723; retention via #724 | `G-MONEY/G-SCHEMA/G-CONTRACT/G-CLIENT/G-RET/G-PRIV/G-DEST`; exact snapshot/version linkage, decimal/rounding policy, immutable history, correction, authorization, audit, and golden recalculation-refusal tests. |
+| `FIN-FX-001` | `FIN-CHOICE-010` (retention only; required snapshot semantics are already accepted) | Documented accepted requirement; runtime/schema unimplemented | Existing #352 after #961 synthesis, coordinated with #722 money/schema/API split, #723 Figma/UI, and #724 retention | `G-MONEY/G-SCHEMA/G-CONTRACT/G-CLIENT/G-RET/G-PRIV/G-DEST`; #352 manual money/Figma gates; exact snapshot/version linkage, decimal/rounding policy, immutable history, correction, authorization, audit, and golden recalculation-refusal tests. |
 | `FIN-PART-001..005` | `FIN-CHOICE-024/010` | Status/schema only; runtime unimplemented | #961 synthesis then #722 money/schema/API split | `G-MONEY/G-PRODUCT/G-RET/G-PRIV`, conditional `G-SCHEMA/G-CONTRACT/G-CLIENT`; mapping-or-deprecation decision, golden projection/history tests, no formula duplication. |
 | `FIN-REV-001..010` | `FIN-CHOICE-006/015..019/027/028/034/010` | Implemented/partial/unimplemented by row | Existing revision lane; #722/#724 follow-ups | `G-MONEY/G-PRODUCT/G-RET/G-PRIV/G-DEST`, conditional `G-CONTRACT/G-CLIENT/G-SCHEMA`; any changed rejection authority, new cancellation, payer-rejection, or settled-impact behavior remains pending; actor/concurrency/snapshot/hash/payer/history tests. |
 | `FIN-RECON-001/002` | `FIN-CHOICE-010` | Implemented current fact | Existing reconciliation/reporting owner; retention via #724 | `G-RET/G-PRIV/G-DEST`, conditional `G-MONEY/G-PRODUCT/G-CONTRACT/G-CLIENT` only for changed semantics; personal/group authority, all-state, same-state audit, concurrency, report/search/export tests. |
@@ -620,6 +622,10 @@ No new issue is created by #718 because live owners already exist:
   terminology but cannot resolve the open choices.
 - #722 owns the post-synthesis split into focused money runtime,
   schema/migration, API/OpenAPI/generated-client, and client issues.
+- Existing #352 remains the canonical focused owner for Day 1 manual bill-level
+  FX snapshot implementation and its manual money/Figma gates. It must consume
+  #961 synthesis and coordinate with #722/#723/#724 rather than being duplicated
+  or treated as implemented by this policy.
 - #723 owns separately approved lifecycle UX/Figma behavior.
 - #724 owns cross-domain retention, holds, dependency proof, tombstones, and
   terminal disposition planning.
@@ -640,6 +646,7 @@ All source citations below refer to repository commit
 | --- | --- | --- |
 | `PROGRAM_ARCHITECTURE.md` | Authority Boundaries; Money Rules; Audit Coverage Rules | API/domain financial authority, decimal/currency/rounding, bounded audit |
 | `docs/prd/MVP_DAY1_SCOPE.md` | Money handling; Expenses and bills; Settlement workflow; Soft delete and archive | Bill-level manual FX snapshot as accepted financial truth, archive/restore intent, retained history, draft-only conditional hard-delete concept, no ordinary financial deletion |
+| `docs/architecture/DAY1_MANUAL_FX_SNAPSHOT_MONEY_POLICY.md`; #352 | Day 1 Scope; Snapshot Model; Money Authority And Rounding; Review And Affected-User Policy | Canonical manual snapshot fields/direction, immutable accepted truth, affected-user review, no provider refresh/recalculation, open focused implementation and manual money/Figma gates |
 | `docs/architecture/EXPENSE_BILL_SPLIT_SETTLEMENT_ARCHITECTURE.md` | Bill Lifecycle And Statuses; Settlement Workflow; Audit Rules | Intended states and distinct bill/participant/settlement concepts |
 | `docs/architecture/SETTLEMENT_RUNTIME_ARCHITECTURE.md` | Status Transitions; Balance Projection; Validation Expectations | Explicit settlement transition and rebuild requirements |
 | `docs/architecture/SETTLEMENT_BASKET_RESIDUAL_ARCHITECTURE.md` | Core Principles; Suggested Data Model; Balance Projection Rules | Concrete lines, allocations/residuals, deterministic explainability |
