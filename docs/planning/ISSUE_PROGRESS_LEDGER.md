@@ -1,5 +1,68 @@
 # Issue Progress Ledger
 
+### Issue #719 — File metadata retention and reactivation lifecycle policy (2026-09-16 HKT)
+
+- Same logical task `20260915-2340` completed through retained source branch
+  `docs/719-storage-file-lifecycle-policy-20260915-2340` and
+  [PR #1239](https://github.com/tommytang213/Settleora/pull/1239).
+  Exact reviewed source `e6459a0750cb9c50b4cc662455e4e4efd5e2ddfe`
+  (tree `ada3d66ba71cb939e83a0f5d1e13770b03b72a38`) normally merged
+  as `373148485314e3d8a8b56e8ef331b3f6a58f9d58` from expected main
+  `7661841ef61143388bfef20bea202484093144f9`; the source branch remains
+  retained.
+- `docs/architecture/STORAGE_FILE_LIFECYCLE_POLICY.md` is the source-grounded
+  planning policy for current file-object, receipt/supporting attachment,
+  settlement-proof, payment-QR, package/import/export, cleanup, local-copy,
+  reactivation, reference, retention, and terminal-disposition behavior. It
+  distinguishes current facts from future acceptance requirements, preserves
+  API/domain authorization authority, treats browser/mobile copies as
+  non-authoritative, keeps workers non-authoritative for core metadata, and
+  does not equate logical `purged` metadata with physical byte disposal.
+- Convergence incorporated all 33 hosted findings, including the original six
+  required corrections and the final retained-storage capacity correction for
+  bill receipt/supporting attachments. Final exact-head validation passed the
+  validation doctor, docs, 24-path scaffold, diff/scope and sensitive-material
+  guards, 33/33 deterministic policy assertions, and API-local 1,520/1,520
+  with zero failed or skipped. Fresh Gemini `strong_independent`, local Codex,
+  and hosted GitHub Codex reviews reported zero material findings. All 22
+  GitHub checks/scanners were passing or expected-skip; branch code-scanning
+  alerts were zero. Fully paginated final review inventory covered 38 issue
+  comments, 147 review submissions, 267 inline comments, and 156 threads with
+  zero unresolved threads.
+- Durable execution evidence is indexed by continuation task `20260916-1812`
+  under the accepted logical task `20260915-2340`. Its required external task
+  report is
+  `/workspace/logs/settleora-codex-report-20260916-1812-issue-719-continuation-six-hosted-findings.md`;
+  that same-task report is finalized only after this hygiene PR, external
+  issue/Project reconciliation, and closure complete, so the path is the
+  reference while terminal outcome fields remain pending.
+- This policy merge implements no runtime lifecycle behavior. Existing
+  canonical owners remain responsible for implementation and acceptance:
+  #722 for API/contract/schema split, #723 for manual-gated Trash/restore/purge
+  UX, #724 for retention/dependency/terminal disposition, and #966 for storage
+  and file-privacy completeness. Numeric retention, quota, cleanup, purge,
+  provider, encryption/key, privacy/product, and destructive-operation choices
+  remain unresolved where the policy records them; none was silently decided.
+- #719 may close after this same-task ledger hygiene and the required issue,
+  parent, dependency, and Project reconciliation. #717 and #716 remain open.
+  #961 remains blocked until #718, #719, #720, and #721 are all complete;
+  currently #718 and #720 remain open while #721 is complete. No sibling or
+  successor implementation was started.
+- Live pre-hygiene readback records #719 as `OPEN`. Its Settleora Day 1
+  Execution Board item is `Blocked`, with Initial MD `2`, Man-days Remaining
+  `2`, Blocking Gate `Technical Design`, Gate Owner `Mixed`, and Forecast
+  Status `Blocked`; Progress and Actual Done Date have no current value and are
+  therefore unverified/not set, not zero or complete. After this exact hygiene
+  candidate merges, same-task external reconciliation must set the completed
+  fields, read them back, and only then close #719. This paragraph records the
+  pre-reconciliation state and does not itself perform or anticipate that
+  mutation.
+- This checkpoint changes only planning documentation. It makes no runtime,
+  API/OpenAPI/generated-client, schema/migration, UI/Figma, authorization or
+  privacy semantics, file-byte, provider/configuration, encryption/key/secret,
+  money/settlement, cleanup/purge, deployment/release/production, public/admin
+  exposure, R05/#1235, or autonomous-queue change.
+
 ### Issue #960 — Day 1 lifecycle policy taxonomy and child template (2026-09-15 HKT)
 
 - Live pre-implementation reconciliation found #960 `OPEN`, with no comments,
