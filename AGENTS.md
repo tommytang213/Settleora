@@ -50,7 +50,31 @@ While Settleora has no production deployment, a task explicitly marked as a PR/m
 
 Dev-stage auto-merge does not allow direct pushes to `main`, force pushes, skipped validation, skipped CI, dirty or stale PRs, changed-head merges, or merges for production/security/destructive/manual-gated work.
 
-Manual gates are still required for production deploys, mobile store releases, public/admin exposure changes, destructive migrations or destructive data operations, branch deletion/cleanup outside the exact issue #947 `ephemeral_cleanup_v1` standing authority above, force-like history changes, secrets/auth config changes, auth/session/security-critical runtime work, storage/file privacy/authz changes, money/settlement calculation authority changes, schema migrations, CI/deployment infrastructure changes, reducing Day 1 scope, replacing architecture direction, and any task that explicitly says PR-only or human-merge-only.
+Manual gates are still required for production deploys, mobile store releases, public/admin exposure changes, destructive migrations or destructive data operations, branch deletion/cleanup outside the exact issue #947 `ephemeral_cleanup_v1` standing authority above, force-like history changes, secrets/auth config changes, auth/session/security-critical runtime work, storage/file privacy/authz runtime or accepted-semantics changes, file-byte operations, money/settlement calculation authority changes, schema migrations, CI/deployment infrastructure changes, reducing Day 1 scope, replacing architecture direction, and any task that explicitly says PR-only or human-merge-only.
+
+A task is not human-gated solely because it concerns storage, files, privacy, or
+authz when its tracked changes are documentation, planning, factual
+reconciliation, or audit evidence only and it changes none of the following:
+runtime behavior; accepted authorization/privacy semantics; product
+requirements or decisions; architecture direction; Day 1 scope; file bytes or
+cleanup/purge/disposal; schema, migrations, APIs, OpenAPI, generated clients,
+UI, or Figma behavior; provider/storage-backend, encryption/key-management,
+secret, or configuration state; public/admin exposure; deployment, production,
+or release state; or any other task-specific human/manual gate. Factual storage
+completeness audits, source-versus-doc reconciliation, lifecycle policy docs
+that record current behavior and unresolved choices without deciding them,
+docs-only storage/privacy planning, and docs-only evidence/hygiene may therefore
+use the normal exact-head development-stage merge path.
+
+Human approval remains mandatory for storage/file privacy/authz runtime
+behavior; access or authorization semantics; privacy decisions that change
+accepted behavior; file-byte operations; physical cleanup, purge, or disposal;
+provider or storage-backend configuration; encryption or key management;
+secret/config changes; destructive operations; public/admin exposure;
+production operations, deployment, or release; unresolved
+privacy/security/product decisions; requirement changes; architecture
+replacement or direction changes; Day 1 scope changes; and explicit PR-only or
+human-merge-only tasks. All unrelated manual gates above remain unchanged.
 
 Task PRs may also be eligible for auto-merge into `ai/integration` after the scope guard, requested validation, CI, AI review, and QA all pass.
 

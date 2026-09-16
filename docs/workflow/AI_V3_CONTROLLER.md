@@ -58,7 +58,31 @@ The controller may auto-merge normal queued milestone task PRs only into `ai/int
 
 For `main`, auto-merge is allowed only for a task explicitly marked as a development-stage PR/merge gate. Before merging, the merge gate must confirm a clean worktree before validation and immediately before merge, source branch head SHA, expected `origin/main` starting SHA, PR base/head/head SHA, changed-file scope, required local validation, GitHub CI on the exact PR head, clean mergeability, unchanged PR head immediately before merge, and absence of manual gates. The merge must be a normal GitHub merge commit unless the task explicitly says otherwise, and the source branch must not be deleted unless the human explicitly requests deletion.
 
-Main auto-merge remains blocked for direct pushes, force pushes, skipped validation, skipped GitHub CI, dirty/stale/unstable/changed-head PRs, production deploys, mobile store releases, public/admin exposure changes, destructive migrations or destructive data operations, branch deletion/cleanup, force-like history changes, secrets/auth config changes, auth/session/security-critical runtime work, storage/file privacy/authz changes, money/settlement calculation authority changes, schema migrations, CI/deployment infrastructure changes, reducing Day 1 scope, replacing architecture direction, and any task that explicitly says PR-only or human-merge-only.
+Main auto-merge remains blocked for direct pushes, force pushes, skipped validation, skipped GitHub CI, dirty/stale/unstable/changed-head PRs, production deploys, mobile store releases, public/admin exposure changes, destructive migrations or destructive data operations, branch deletion/cleanup, force-like history changes, secrets/auth config changes, auth/session/security-critical runtime work, storage/file privacy/authz runtime or accepted-semantics changes, file-byte operations, money/settlement calculation authority changes, schema migrations, CI/deployment infrastructure changes, reducing Day 1 scope, replacing architecture direction, and any task that explicitly says PR-only or human-merge-only.
+
+Storage/privacy subject matter alone does not block auto-merge. A task may use
+the normal exact-head development-stage merge path when its tracked changes are
+documentation, planning, factual reconciliation, or audit evidence only and it
+changes no runtime behavior; accepted authorization/privacy semantics; product
+requirement or decision; architecture direction; Day 1 scope; file bytes or
+cleanup/purge/disposal; schema, migration, API, OpenAPI, generated-client, UI,
+or Figma behavior; provider/storage-backend, encryption/key-management, secret,
+or configuration state; public/admin exposure; deployment, production, or
+release state; or task-specific human/manual gate. This includes factual
+storage completeness audits, source-versus-doc reconciliation, lifecycle policy
+docs that record current behavior and unresolved choices without deciding them,
+docs-only storage/privacy planning, and docs-only evidence/hygiene.
+
+Auto-merge remains blocked pending human approval for storage/file
+privacy/authz runtime behavior; access or authorization semantics; privacy
+decisions that change accepted behavior; file-byte operations; physical
+cleanup, purge, or disposal; provider or storage-backend configuration;
+encryption or key management; secret/config changes; destructive operations;
+public/admin exposure; production operations, deployment, or release;
+unresolved privacy/security/product decisions; requirement changes;
+architecture replacement or direction changes; Day 1 scope changes; and
+explicit PR-only or human-merge-only tasks. Unrelated manual gates remain
+unchanged.
 
 Auto-merge is blocked when the task branch marks itself human-gated, records a stop reason, records a forbidden change, marks the selected queue item as human-required or non-auto-mergable, records blocked/failed validation language in `.ai/qa-report.md` or `.ai/task-queue.json`, has unresolved `CHANGES_REQUESTED`, has Codex review suggestions from `chatgpt-codex-connector[bot]`, or cannot be inspected unambiguously. The run log records the precise `autoMergeBlockReason` for these stops instead of relying on the merge command to fail.
 
