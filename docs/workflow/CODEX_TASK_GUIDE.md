@@ -281,7 +281,7 @@ scope reduction, architecture direction replacement, branch deletion/cleanup,
 force-like history changes, or any task marked PR-only, human-merge-only, or
 manual-gated.
 
-Storage/privacy subject matter does not create a manual gate by itself. A task
+Storage/privacy/authz subject matter does not create a manual gate by itself. A task
 may use the normal exact-head development-stage merge path when its tracked
 changes are documentation, planning, factual reconciliation, or audit evidence
 only and it changes no runtime behavior; accepted authorization/privacy
@@ -293,7 +293,7 @@ exposure; deployment, production, or release state; or task-specific
 human/manual gate. Eligible examples include factual storage completeness
 audits, source-versus-doc reconciliation, lifecycle policy docs that record
 current behavior and unresolved choices without deciding them, docs-only
-storage/privacy planning, and docs-only evidence/hygiene.
+storage/privacy/authz planning, and docs-only evidence/hygiene.
 
 Human approval remains mandatory for storage/file privacy/authz runtime
 behavior; access or authorization semantics; privacy decisions that change
@@ -301,7 +301,8 @@ accepted behavior; file-byte operations; physical cleanup, purge, or disposal;
 provider or storage-backend configuration; encryption or key management;
 secret/config changes; destructive operations; public/admin exposure;
 production operations, deployment, or release; unresolved
-privacy/security/product decisions; requirement changes; architecture
+privacy/security/product decisions that the task resolves, changes, or requires
+to proceed; requirement changes; architecture
 replacement or direction changes; Day 1 scope changes; and explicit PR-only or
 human-merge-only tasks. This documentation-only qualification does not create
 an exemption from any unrelated manual gate listed above.

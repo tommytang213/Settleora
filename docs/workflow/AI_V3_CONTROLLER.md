@@ -79,7 +79,8 @@ decisions that change accepted behavior; file-byte operations; physical
 cleanup, purge, or disposal; provider or storage-backend configuration;
 encryption or key management; secret/config changes; destructive operations;
 public/admin exposure; production operations, deployment, or release;
-unresolved privacy/security/product decisions; requirement changes;
+unresolved privacy/security/product decisions that the task resolves, changes,
+or requires to proceed; requirement changes;
 architecture replacement or direction changes; Day 1 scope changes; and
 explicit PR-only or human-merge-only tasks. Unrelated manual gates remain
 unchanged.

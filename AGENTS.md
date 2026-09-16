@@ -63,7 +63,7 @@ secret, or configuration state; public/admin exposure; deployment, production,
 or release state; or any other task-specific human/manual gate. Factual storage
 completeness audits, source-versus-doc reconciliation, lifecycle policy docs
 that record current behavior and unresolved choices without deciding them,
-docs-only storage/privacy planning, and docs-only evidence/hygiene may therefore
+docs-only storage/privacy/authz planning, and docs-only evidence/hygiene may therefore
 use the normal exact-head development-stage merge path.
 
 Human approval remains mandatory for storage/file privacy/authz runtime
@@ -72,7 +72,8 @@ accepted behavior; file-byte operations; physical cleanup, purge, or disposal;
 provider or storage-backend configuration; encryption or key management;
 secret/config changes; destructive operations; public/admin exposure;
 production operations, deployment, or release; unresolved
-privacy/security/product decisions; requirement changes; architecture
+privacy/security/product decisions that the task resolves, changes, or requires
+to proceed; requirement changes; architecture
 replacement or direction changes; Day 1 scope changes; and explicit PR-only or
 human-merge-only tasks. All unrelated manual gates above remain unchanged.
 

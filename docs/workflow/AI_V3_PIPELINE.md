@@ -92,7 +92,7 @@ Humans must review:
 - Decide whether any future controller script may auto-merge eligible `ai/integration` PRs.
 - Keep manual gates for production deploys, mobile store releases, public/admin exposure changes, destructive migrations or destructive data operations, branch deletion/cleanup, force-like history changes, secrets/auth config changes, auth/session/security-critical runtime work, storage/file privacy/authz runtime or accepted-semantics changes, file-byte operations, money/settlement calculation authority changes, schema migrations, CI/deployment infrastructure changes, reducing Day 1 scope, replacing architecture direction, and PR-only or human-merge-only tasks.
 
-## Documentation-Only Storage/Privacy Qualification
+## Documentation-Only Storage/Privacy/Authz Qualification
 
 A task is not human-gated solely because it concerns storage, files, privacy,
 or authz when its tracked changes are documentation, planning, factual
@@ -105,7 +105,7 @@ state; public/admin exposure; deployment, production, or release state; or
 task-specific human/manual gate. Factual storage completeness audits,
 source-versus-doc reconciliation, lifecycle policy docs that record current
 behavior and unresolved choices without deciding them, docs-only
-storage/privacy planning, and docs-only evidence/hygiene may use the normal
+storage/privacy/authz planning, and docs-only evidence/hygiene may use the normal
 exact-head development-stage merge path.
 
 Human approval remains mandatory for storage/file privacy/authz runtime
@@ -114,7 +114,8 @@ accepted behavior; file-byte operations; physical cleanup, purge, or disposal;
 provider or storage-backend configuration; encryption or key management;
 secret/config changes; destructive operations; public/admin exposure;
 production operations, deployment, or release; unresolved
-privacy/security/product decisions; requirement changes; architecture
+privacy/security/product decisions that the task resolves, changes, or requires
+to proceed; requirement changes; architecture
 replacement or direction changes; Day 1 scope changes; and explicit PR-only or
 human-merge-only tasks. This qualification does not weaken any unrelated
 manual gate above.
