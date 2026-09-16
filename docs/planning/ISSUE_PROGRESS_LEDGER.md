@@ -41,6 +41,15 @@
   #961 remains blocked until #718, #719, #720, and #721 are all complete;
   currently #718 and #720 remain open while #721 is complete. No sibling or
   successor implementation was started.
+- Live pre-hygiene readback records #719 as `OPEN`. Its Settleora Day 1
+  Execution Board item is `Blocked`, with Initial MD `2`, Man-days Remaining
+  `2`, Blocking Gate `Technical Design`, Gate Owner `Mixed`, and Forecast
+  Status `Blocked`; Progress and Actual Done Date have no current value and are
+  therefore unverified/not set, not zero or complete. After this exact hygiene
+  candidate merges, same-task external reconciliation must set the completed
+  fields, read them back, and only then close #719. This paragraph records the
+  pre-reconciliation state and does not itself perform or anticipate that
+  mutation.
 - This checkpoint changes only planning documentation. It makes no runtime,
   API/OpenAPI/generated-client, schema/migration, UI/Figma, authorization or
   privacy semantics, file-byte, provider/configuration, encryption/key/secret,
