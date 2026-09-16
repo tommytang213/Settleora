@@ -345,7 +345,7 @@ row unless a cell says otherwise:
 | `FIN-REC-001/002` | `FIN-CHOICE-011/010` | Partial | #722 money runtime; #724 retention; #723 UI | `G-MONEY/G-PRODUCT/G-RET/G-CLIENT/G-PRIV/G-DEST`, conditional `G-SCHEMA/G-CONTRACT`; generated-history and schedule-policy tests. |
 | `FIN-REC-003/004` | `FIN-CHOICE-012/010` | Partial/unimplemented | Recurring owner through #722 split | `G-MONEY/G-PRODUCT/G-RET/G-CLIENT/G-PRIV/G-DEST`; skip/cancel/re-entry remains pending; uniqueness/replay/generated-bill independence tests. |
 | `FIN-DER-001/002` | `FIN-CHOICE-009/010` | Implemented read/partial policy | Report/balance owner after #961 synthesis; UI separately | `G-MONEY/G-PRODUCT/G-RET/G-CLIENT/G-PRIV/G-DEST` for future accepted semantics/retention; conditional `G-CONTRACT`. Golden rebuild, archive presentation, inconsistent-source fail-closed tests. |
-| `LOCAL-*` | `FIN-CHOICE-013` | Unimplemented | sync-import-export-restore plus local/mobile and money lanes, after #961/#722 split | `G-MONEY`, `G-SYNC`, `G-PRIV`, `G-PRODUCT`, conditional `G-SCHEMA/G-CONTRACT/G-CLIENT`; offline conflict, replay, encryption/backup, server acceptance tests. |
+| `LOCAL-*` | `FIN-CHOICE-013` | Unimplemented | sync-import-export-restore plus local/mobile and money lanes, after #961/#722 split | `G-MONEY/G-SYNC/G-PRIV/G-PRODUCT/G-RET/G-DEST`, conditional `G-SCHEMA/G-CONTRACT/G-CLIENT`; offline conflict, replay, retention/disposition, encryption/backup, server acceptance tests. |
 
 ### 5.5 Hard-delete and purge exact fields
 
@@ -366,12 +366,30 @@ all relevant gates; consequence warning and explicit confirmation are
 required for a user/admin-initiated destructive action. Nothing in this policy
 approves that action.
 
-`FIN-DER-*` request-time projections have no persisted target to purge.
-Disposable cache material is eligible only when positively proven
-non-authoritative and free of snapshot/export/audit duties; that cleanup does
-not affect source rows. `LOCAL-*` remains unresolved because current source
-does not prove which local material is authoritative, cached, backed up, or
-server-accepted.
+For `FIN-DER-*`, `hard_delete_eligibility.status = ineligible` because the
+current request-time projection is not a persisted lifecycle target;
+`target_classification = not-applicable request-time projection`; the
+conditions require proof that a future cache is non-authoritative and has no
+snapshot/export/audit duty; consequence warning and explicit confirmation are
+not applicable to the current projection. Its
+`purge_disposal_eligibility.status = unresolved` for any future persisted
+cache, with separate action required, the same positive non-authority/copy
+proof, `G-RET/G-PRIV/G-DEST`, and unresolved warning/confirmation until an
+actual user/admin disposal surface exists. Rebuilding or discarding a proven
+cache never affects source rows.
+
+For `LOCAL-*`, `hard_delete_eligibility.status = unresolved` and
+`target_classification = unresolved authoritative local record versus
+non-authoritative cache`. Conditions are an approved local authority model,
+complete dependency/copy/backup and server-acceptance inventory, current
+authorization, bounded audit, concurrency/retry proof, and
+`G-SYNC/G-PRIV/G-RET/G-DEST`; consequence warning and explicit confirmation
+remain unresolved. `purge_disposal_eligibility.status = unresolved`,
+`separate_action = required`, and uses those same conditions plus approved
+retention/hold expiry; consequence warning and explicit confirmation remain
+unresolved. Current source does not prove which local material is
+authoritative, cached, backed up, or server-accepted, so no local deletion or
+disposal is eligible by inference.
 
 ## 6. Explicit Open Choices
 
