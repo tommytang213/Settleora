@@ -61,7 +61,7 @@ Future PR/merge-gate tasks may auto-merge to `main` only while the project remai
 - Merge is a normal GitHub merge commit unless the task explicitly says otherwise.
 - Source branch is not deleted unless the human explicitly requests deletion.
 
-This policy does not permit direct pushes to `main`, force pushes, skipped validation, skipped GitHub CI, dirty or stale PRs, changed-head merges, production/security/destructive/manual-gated auto-merges, or branch deletion.
+This policy does not permit direct pushes to `main`, force pushes, skipped validation, skipped GitHub CI, dirty or stale PRs, changed-head merges, production, security-critical runtime or accepted-semantics, destructive, or manual-gated auto-merges, or branch deletion.
 
 ## Stop Rules
 
@@ -74,7 +74,8 @@ Humans must review:
 - The original AI V3 bootstrap policy-update PR covered by this document,
   because it changed the previous blanket `main` merge rule.
 - Any branch protection or repository settings.
-- Backend/API/schema/money/security/deployment changes.
+- Backend/API/schema/money/deployment changes and security-critical runtime or
+  accepted-semantics changes.
 - Scope reductions or milestone changes.
 - Any task where validation cannot run or the scope guard fails.
 - Any task that explicitly says PR-only or human-merge-only.
