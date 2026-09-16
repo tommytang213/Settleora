@@ -60,7 +60,7 @@ For `main`, auto-merge is allowed only for a task explicitly marked as a develop
 
 Main auto-merge remains blocked for direct pushes, force pushes, skipped validation, skipped GitHub CI, dirty/stale/unstable/changed-head PRs, production deploys, mobile store releases, public/admin exposure changes, destructive migrations or destructive data operations, branch deletion/cleanup, force-like history changes, secrets/auth config changes, auth/session/security-critical runtime work, storage/file privacy/authz runtime or accepted-semantics changes, file-byte operations, money/settlement calculation authority changes, schema migrations, CI/deployment infrastructure changes, reducing Day 1 scope, replacing architecture direction, and any task that explicitly says PR-only or human-merge-only.
 
-Storage/privacy subject matter alone does not block auto-merge. A task may use
+Storage/privacy/authz subject matter alone does not block auto-merge. A task may use
 the normal exact-head development-stage merge path when its tracked changes are
 documentation, planning, factual reconciliation, or audit evidence only and it
 changes no runtime behavior; accepted authorization/privacy semantics; product
@@ -71,7 +71,7 @@ or configuration state; public/admin exposure; deployment, production, or
 release state; or task-specific human/manual gate. This includes factual
 storage completeness audits, source-versus-doc reconciliation, lifecycle policy
 docs that record current behavior and unresolved choices without deciding them,
-docs-only storage/privacy planning, and docs-only evidence/hygiene.
+docs-only storage/privacy/authz planning, and docs-only evidence/hygiene.
 
 Auto-merge remains blocked pending human approval for storage/file
 privacy/authz runtime behavior; access or authorization semantics; privacy
@@ -96,7 +96,7 @@ After Codex returns, the controller compares `origin/<integrationBranch>` to the
 
 ## Human Stop Boundaries
 
-Stop for backend/API behavior, OpenAPI/generated-client changes, auth/session/security changes, database schema or migrations, settlement/payment/bill calculation logic, Docker/env/deployment/CI changes, secrets, ambiguous GitHub state, repeated validation failures, forbidden changed files, human-gated controller state, validation-blocked state, or UI testing readiness.
+Stop for backend/API behavior, OpenAPI/generated-client changes, auth/session/security changes, database schema or migrations, settlement/payment/bill calculation logic, Docker/env/deployment/CI changes, secrets, ambiguous GitHub state, repeated validation failures, forbidden changed files, human-gated controller state, validation-blocked state, or UI testing readiness. The only authz-related exception is qualifying documentation-only storage/file privacy/authz work under the complete `Auto-Merge Constraints` rule above; it does not exempt runtime or accepted-semantics changes or any unrelated auth/session/security gate.
 
 ## Logs And Reports
 
