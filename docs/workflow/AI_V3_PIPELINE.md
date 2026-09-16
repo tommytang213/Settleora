@@ -65,7 +65,7 @@ This policy does not permit direct pushes to `main`, force pushes, skipped valid
 
 ## Stop Rules
 
-Stop immediately when a task touches or requires backend/API behavior, OpenAPI or generated clients, auth/session/security, database schema or migrations, settlement/payment/bill calculation logic, storage/file privacy/authz runtime behavior or accepted semantics, file-byte operations, Docker/deployment/env config, production secrets, or unclear branch divergence. Do not stop solely because a task is documentation-only storage/privacy factual reconciliation, planning, audit, policy, or evidence work that satisfies the qualification below.
+Stop immediately when a task touches or requires backend/API behavior, OpenAPI or generated clients, auth/session/security, database schema or migrations, settlement/payment/bill calculation logic, storage/file privacy/authz runtime behavior or accepted semantics, file-byte operations, Docker/deployment/env config, production secrets, or unclear branch divergence. Do not stop solely because a task is documentation-only storage/privacy/authz factual reconciliation, planning, audit, policy, or evidence work that satisfies the qualification below.
 
 ## Human Review Boundaries
 
