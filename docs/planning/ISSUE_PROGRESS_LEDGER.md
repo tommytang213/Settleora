@@ -1,5 +1,73 @@
 # Issue Progress Ledger
 
+### Issue #961 — Day 1 lifecycle policy synthesis and implementation handoff (2026-09-17 HKT)
+
+- Logical task `20260917-1929` uses retained source branch
+  `docs/961-day1-lifecycle-policy-synthesis-20260917-1929` from exact starting
+  main `356485ab79814572bf05f10ac8190477b949253d` (tree
+  `376899b68217bc71a9fd69a198724c2ea7e1c26d`). Pre-mutation duplicate search
+  found no matching local/remote `961` branch, open/closed synthesis PR,
+  `DAY1_LIFECYCLE_POLICY_MATRIX.md`, recent synthesis commit, correlated
+  `.codex/reports/` artifact, or prior #961 start comment. The implementation
+  PR, exact reviewed head, merge SHA, and any required same-task hygiene PR are
+  intentionally `pending exact-head/merge evidence` until GitHub convergence;
+  they must replace this candidate wording after merge rather than be guessed.
+- [`DAY1_LIFECYCLE_POLICY_MATRIX.md`](DAY1_LIFECYCLE_POLICY_MATRIX.md) is the
+  consolidated planning index. Final merged child inventories are 117
+  financial rows / 80 choices / 9 gates, 68 storage rows / 8 choices / 12
+  gates, 26 membership rows / 17 choices / 11 gates, and 190 auth/security
+  rows / 13 choices / 11 gates. The matrix preserves original row IDs, source
+  ownership, current-fact versus accepted/future/unresolved classification,
+  user verbs, history/access/reactivation effects, retention/disposition,
+  audit/redaction, concurrency/idempotency, dependencies, manual gates, Day
+  scope, and canonical owners without copying each child row verbatim.
+- The completed source chain is #960 through PR #1237 (`3cc3330ba2175bb0` →
+  merge `a93409c306133ef7`), #718 through PRs #1243/#1244
+  (`391c99c737fd9141` → `70d8abf1ffdd247e`; hygiene
+  `097dfc23e2064acc`), #719 through PRs #1239/#1242
+  (`e6459a0750cb9c50` → `373148485314e3d8`; hygiene
+  `5d313cb2745b5c9b`), #720 through PRs #1245/#1246
+  (`6d6d6e36c9c66266` → `4a6810c4773d5b48`; hygiene/current main
+  `356485ab79814572`), and #721 through PR #1238 (`e94cc2005dd29c7d` →
+  `6981236c786a7914`). All five policy files and exact reviewed blobs are on
+  this task base.
+- The synthesis records 16 grouped provenance entries, 16 cross-domain
+  contradiction/gap entries, and 18 recommended focused packets. Every
+  child-defined open-choice family remains unresolved and every applicable
+  domain gate remains pending. No current defect is promoted to intended
+  behavior, no accepted Day 1 requirement is demoted because runtime is
+  missing, and no Day 2/later extension is pulled into Day 1.
+- Post-synthesis handoff is explicit: #722 remains a non-runnable planning
+  umbrella for duplicate search and focused domain runtime, schema/migration,
+  OpenAPI/generated-client, event/audit and client splits; #723 remains the
+  `figma:required`/`manual-gate` UX reference and is not started or approved;
+  #724 remains a non-runnable retention/dependency/disposition umbrella. The
+  matrix preferentially reuses existing focused owners and authorizes no
+  successor issue, branch, queue activation, runtime, or destructive work.
+- #717 becomes closable only after this exact #961 candidate merges and its
+  issue/Project/ledger hygiene completes. At that point the close evidence is
+  #960 plus all four domain policies plus the merged matrix/ledger handoff,
+  with remaining work explicitly owned elsewhere. #716 must stay open because
+  #722/#723/#724 and their focused Day 1 implementation, design, retention,
+  manual and destructive gates remain incomplete.
+- Project handling must preserve any live Initial MD value. #961 had no
+  Project item at pre-mutation readback; if safely added during post-merge
+  hygiene, the repository planning convention supports `2 MD` (`M`) because
+  this is final cross-domain docs synthesis plus exact-head PR/hygiene
+  convergence. #717's live Initial MD is `2` and must be preserved when its
+  status, remaining MD, progress, done date, gate and forecast fields are
+  reconciled after the close rule is satisfied.
+- This candidate changes exactly
+  `docs/planning/DAY1_LIFECYCLE_POLICY_MATRIX.md` and
+  `docs/planning/ISSUE_PROGRESS_LEDGER.md`. It does not claim runtime lifecycle
+  completion and changes no runtime, schema/migration, API/OpenAPI/generated
+  client, UI/Figma, accepted authorization/privacy, money/calculation,
+  storage/file byte, auth/security runtime, notification delivery,
+  sync/import/export/restore runtime, deployment/configuration, secret,
+  destructive operation, product requirement, architecture direction, or Day
+  1 scope. R05/#1235, #975, #946, #722 execution, #723 design execution, #724
+  execution, and the autonomous queue remain untouched.
+
 ### Issue #720 — Group membership and historical participant lifecycle policy (2026-09-17 HKT)
 
 - Same logical task `20260917-1335` completed its implementation through the
