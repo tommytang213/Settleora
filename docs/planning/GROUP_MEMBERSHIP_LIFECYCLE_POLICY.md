@@ -256,7 +256,7 @@ The #960 terms apply unchanged. In this policy:
   The same load-then-save class affects every group revision mutation after
   `LoadVisibleBillAsync`, group OCR apply after `LoadVisibleBillContextAsync`,
   and settlement payment claim after `SettlementPaymentClaimQuery` and group
-  authorization: concurrent removal can still allow revision/bill/OCR-derived
+  authorization. Concurrent removal can still allow revision/bill/OCR-derived
   item or payment/allocation/residual/request-state changes and their applicable
   audit/notifications to commit. The named paths do not use a
   membership-qualified save predicate. Future acceptance therefore requires
