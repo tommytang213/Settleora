@@ -171,7 +171,14 @@ The apply-preview endpoints are read-only validation previews for visible bill a
 
 The apply endpoints are explicit user actions guarded by stricter mutation rights than preview/list/read. Day 1 apply supports only `replace_draft_ocr_items`, rebuilds server-side preview validation at write time, preserves manual items, soft-replaces OCR-applied draft items from the same review, and records source markers on applied bill item candidates. It is limited to safe draft or draft-like one-participant/compatible-payer shapes and does not infer multi-participant split policy.
 
-Current OCR review runtime does not run OCR, enqueue worker jobs, store raw OCR full text, store receipt bytes, mutate settlement/payment/balance/proof/file/storage/OCR job/worker state, perform non-draft shared-bill revision apply, infer multi-participant splits, create thumbnails, or automatically finalize bills. Wider apply policy is tracked in [Receipt OCR review apply policy](RECEIPT_OCR_REVIEW_APPLY_POLICY.md).
+The current OCR review endpoints do not run OCR, enqueue worker jobs, store raw
+OCR full text or receipt bytes, mutate settlement/payment/balance/proof/file/
+storage/OCR job/worker state, infer multi-participant splits, or automatically
+finalize bills. Existing mobile intake can create an in-memory thumbnail, and
+existing server revision policy can route saved non-draft OCR changes through a
+formal revision proposal rather than this draft-only apply endpoint. Remaining
+client/visual non-draft apply work is tracked separately. Wider apply policy is
+tracked in [Receipt OCR review apply policy](RECEIPT_OCR_REVIEW_APPLY_POLICY.md).
 
 The mobile runtime at the time of this decision still uses the Latin-only ML
 Kit provider. The approved PaddleOCR/ONNX architecture, Global Core packaging,
@@ -260,10 +267,13 @@ OCR-derived review and apply paths must also validate file purpose, storage poli
 - No server OCR engine or OCR worker runtime yet.
 - No standalone receipt/OCR upload outside bill attachments yet.
 - No automatic OCR-to-bill finalization from OCR completion, queue visibility, preview success, apply availability, or generated client availability.
-- No non-draft shared-bill OCR revision apply.
+- This decision adds no non-draft shared-bill OCR revision behavior; existing
+  server revision routing remains partial and its remaining client/visual work
+  stays separately owned.
 - No multi-participant OCR-to-split inference.
 - No generic file, receipt, or OCR API outside bill attachments.
-- No receipt thumbnail generation yet.
+- This decision adds no thumbnail behavior; existing mobile in-memory thumbnail
+  generation remains credited and broader lifecycle/storage gaps stay separate.
 
 ## Future Decisions
 

@@ -93,9 +93,10 @@ only when explicitly scoped:
 - CI and device/emulator coverage required to prove the native plugin resolves
   and starts cleanly.
 
-#437 remains the native iOS/Android build validation gate. Provider work that
-requires native dependency changes must stop until #437's validation plan and
-commands are satisfied.
+The historical plan treated #437 as the future iOS/Android validation-planning
+dependency. #437 later closed as planning-only and never became native execution
+proof. Current PaddleOCR Android/iOS provider execution and acceptance belongs
+to #1247 and its focused native dependencies.
 
 This #436 docs packet must not change `apps/mobile/pubspec.yaml`, lockfiles,
 Android Gradle/Kotlin/Manifest files, iOS Podfile/CocoaPods/plist/Swift/Obj-C

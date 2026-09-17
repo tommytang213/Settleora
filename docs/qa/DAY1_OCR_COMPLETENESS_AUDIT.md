@@ -19,7 +19,9 @@ types that R8 reports. It does not add their Chinese, Devanagari, Japanese, or
 Korean model artifacts; current source still selects the bundled Latin
 recognizer. Exact-source debug APK, minified release APK, and minified release
 AAB builds passed. Android application identity, production signing, Play, and
-physical-device acceptance remain separate R07/#975 gates.
+physical-device acceptance remains #1247's OCR-specific execution scope and
+#975's broader evidence-reconciliation input; store/release acceptance remains
+the separate R07 gate.
 
 ## 1. Decision
 
@@ -31,7 +33,7 @@ duplicate guidance, explicit draft apply, and server-side non-draft revision
 routing. Those are separate capabilities and are not one claim that “OCR
 works.”
 
-This audit inventories **25 capabilities exactly once**: 9 `implemented`, 12
+This audit inventories **25 capabilities exactly once**: 8 `implemented`, 13
 `partial`, 1 `blocked`, 2 `externally-gated`, 1 `documentation-only`, and 0
 `unavailable`. No row is currently `superseded` or `later-day`; section 8 names
 superseded claims and later-day scope without manufacturing capability rows.
@@ -49,7 +51,9 @@ R01 is a compile/package gate, not a store-release gate. Android still uses
 debug signing and `com.example.mobile`; R07 owns those later identity/signing
 decisions. R03 may consume Android release evidence only after R01 and the
 already-completed R02 web package evidence. Final physical-device, platform,
-privacy, UI, and release acceptance remains #975.
+privacy and UI acceptance for the real OCR chain belongs to #1247. #975
+reconciles that evidence into broader Day 1 readiness; release acceptance is a
+separate R07/human gate.
 
 ## 2. Method and evidence rules
 
@@ -88,7 +92,7 @@ profile, reviewer tier, gates, dependency order, and close rule.
 | 1 | Image acquisition/import | `partial` | `receipt_image_intake.dart`; `bill_attachment_file_input.dart`; personal/group seams in `bill_list_screen.dart`; `bill_list_screen_test.dart`; concrete intake PR #108 and hardening PR #111 | Camera and gallery use `image_picker`; receipt file import uses the attachment picker; cancel and permission/input failure leave manual bill editing available. | No share-to-Settleora OS entry, offline intake queue, web/replacement normalization proof, or composed physical-device acceptance. | P01/#358 |
 | 2 | Image preprocessing/safety/normalization | `partial` | `receipt_image_artifact_processor.dart`, `receipt_image_normalization_policy.dart`, `receipt_intake_safety.dart`; `_processedReceiptAttachmentArtifact`/`_runReceiptOcrPreview`, both `_changeDraftAttachmentPurpose` implementations and upload loops in `bill_list_screen.dart`; existing-bill `_upload` in `bill_attachment_section.dart`; artifact tests; normalization/artifact PRs #212/#213 | JPEG/PNG/WebP intake bytes are decoded and re-encoded as normalized JPEG plus thumbnail in memory; that derivative becomes draft attachment/upload bytes on the processed create paths. Four live bypasses remain: ML Kit reads the derivative's inherited original `localPath`; failed/unsupported normalization leaves the original selection uploadable; existing-bill attachment upload forwards picked bytes directly; and changing a draft supporting attachment to receipt only relabels it. | OCR, saved-detail uploads, purpose changes and failed/unsupported normalization can bypass the derivative or normalized upload/storage policy. There is no orientation/crop/document-boundary/perspective/enhancement proof, explicit metadata-strip proof, encrypted cache, offline/replacement/web policy convergence, or API-policy acceptance. | P01/#358 |
 | 3 | Platform support and permission behavior | `partial` | Android manifest camera permission; iOS `Info.plist` and English purpose strings; `receipt_image_intake.dart`; intake/widget tests; PR #1169 preserved native purpose text | Android/iOS provider gating and bounded camera/photo denial copy exist; manual entry stays available. | No share extension/intent filter, complete limited-library/settings recovery, or real Android/iOS permission/device matrix. | P01/#358 |
-| 4 | On-device OCR provider selection | `implemented` | `pubspec.yaml`/lock; `mlkit_receipt_ocr_provider.dart`; `app_bootstrap.dart`; provider/parser tests; decision and #436 plans; seam PRs #104/#105 and concrete runtime PR #108 | Authenticated app bootstrap injects `MlKitReceiptOcrProvider`; Android/iOS use ML Kit behind `ReceiptOcrProvider`; tests may inject fake/unsupported providers; recognized text is parsed without routine logging. | No provider-selection gap. Native packaging and device acceptance remain separate rows. | E01/closed #436 |
+| 4 | On-device OCR provider runtime and canonical-provider transition | `partial` | `pubspec.yaml`/lock; `mlkit_receipt_ocr_provider.dart`; `app_bootstrap.dart`; provider/parser tests; approved PaddleOCR/ONNX decision; seam PRs #104/#105 and legacy runtime PR #108 | Authenticated app bootstrap currently injects the Latin-only `MlKitReceiptOcrProvider`; tests may inject fake/unsupported providers and recognized text is parsed without routine logging. Tommy approved PaddleOCR/ONNX as the replacement canonical architecture. | #1247 must replace the legacy ML Kit path with the accepted PaddleOCR provider/model/runtime, routing and Global Core packaging, then prove Android/iOS execution. Recording selection is not implementation. | P10/#1247; E01 is legacy evidence |
 | 5 | ML Kit native dependency/model/build behavior | `implemented` | `google_mlkit_text_recognition` 0.15.1 and commons 0.11.1; plugin Android `implementation` Latin plus `compileOnly` optional scripts; PR #1212 exact dependency, archive, mapping, size and build evidence | Latin remains the sole Settleora script selection. Debug and release runtime classpaths contain `com.google.mlkit:text-recognition:16.0.1` plus bundled common/model inputs, with no optional script recognizer artifacts. Eight exact R8 warnings cover only unreachable compile-only bridge arms. | Physical-device OCR and any future non-Latin provider/model decision remain outside this compile/package result. | P02/#1209 completed |
 | 6 | Android debug build | `implemented` | Android project plus release-readiness audit B08; root mobile validation/debug artifact history including #1169/#1202 | Debug APK compiles and provides a native test artifact. | Debug is not minified, signed for production, store-ready, or device OCR acceptance. R01 must preserve it as regression evidence. | E02/R01 regression |
 | 7 | Android release APK | `implemented` | PR #1212 exact source; `flutter build apk --release`; R8 mapping and archive inspection | `minifyReleaseWithR8` passes; release APK is 96,920,419 bytes, SHA-256 `1354cc0881fe6e14daf5287e8102b209e8b0e9306f48a1239c6675ed1fd8db8d`, with bundled Latin model/native pipeline evidence. | Still debug-signed with placeholder identity; no device/store acceptance. | P02/#1209 completed |
@@ -246,8 +250,8 @@ strict private vault runtime; AI categorization/reporting; full statement OCR;
 provider-family substitution outside the approved decision; unpinned native
 language models without size/offline evidence; and server batch/high-confidence OCR
 beyond the bounded complementary Day 1 handoff. Day 1 English UI does not make
-receipt recognition/parsing English-only; #740/#959 remains a Day 1 quality
-gate.
+receipt recognition/parsing English-only; #1247 owns the real provider/native
+acceptance chain while #740/#959 remain outcome/parser quality gates.
 
 ## 9. Dependency-safe execution order
 

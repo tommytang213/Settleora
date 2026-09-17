@@ -305,6 +305,7 @@ Future native validation reports must include:
   auth/security, storage, money, OCR runtime/native config, Docker/CI/deploy,
   secrets, UI, or Figma changed.
 
-Do not claim Day 1 OCR readiness until #437 native validation, #438
-fallback/reference gate, parser/review coverage, provider behavior, and parent
-#359 acceptance criteria are all satisfied through their proper scopes.
+This historical packet did not itself provide native validation. Current Day 1
+OCR readiness requires #1247's real PaddleOCR Android/iOS provider acceptance,
+#438 fallback/reference evidence, parser/review coverage, and the remaining
+#359 acceptance criteria through their proper scopes.
