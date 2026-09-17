@@ -43,17 +43,21 @@
   coverage; #967 ordinary draft editing/delegated ownership; #352 manual FX;
   #719 file/link/byte lifecycle; #720 membership/historical participants; and
   #721 auth/security. No owner was duplicated and no successor was started.
-- #718 may close only after this same-task ledger hygiene merges and the
-  required issue, #717, #716, #961, and Project reconciliation is recorded.
-  #717 and #716 remain open. #719 and #721 are complete; #720 remains open, so
-  #961 remains blocked. Queue activation remains disabled.
+- GitHub automatically closed #718 at `2026-09-17T05:09:49Z` when PR #1243
+  merged, before this ledger checkpoint was committed. That current `CLOSED`
+  state is not treated as proof that post-merge hygiene is complete: after this
+  hygiene merges, the same task must still record completion evidence on #718,
+  update #717 and #961, verify #716 and #720, and reconcile the Project. #717
+  and #716 remain open. #719 and #721 are complete; #720 remains open, so #961
+  remains blocked. Queue activation remains disabled.
 - Live pre-hygiene Project readback records #718 as `Blocked`, with Initial MD
   `2`, Man-days Remaining `2`, Blocking Gate `Technical Design`, Gate Owner
   `Mixed`, and Forecast Status `Blocked`; Progress and Actual Done Date are
   unset. After this hygiene candidate merges, same-task external reconciliation
   must set Status `Merged`, Man-days Remaining `0`, Progress `100`, and Actual
   Done Date `2026-09-17`, preserve Initial MD, and read the values back before
-  closure. This paragraph records pre-reconciliation state only.
+  declaring same-task hygiene complete. This paragraph records
+  pre-reconciliation state only.
 - This checkpoint changes only the issue-progress ledger. It makes no runtime,
   API/OpenAPI/generated-client, schema/migration, UI/Figma, calculation or
   money-authority, storage/file-byte, authorization/privacy, membership,
