@@ -1,5 +1,13 @@
 # OCR Native Build Validation Plan
 
+> **Historical and superseded:** This #437 packet records validation planning
+> for the legacy ML Kit provider. Tommy's 2026-09-18 PaddleOCR/ONNX Runtime
+> decision in [Mobile OCR implementation decision](MOBILE_OCR_IMPLEMENTATION_DECISION.md)
+> and [OCR architecture](OCR_ARCHITECTURE.md) is current authority. Past ML Kit
+> build evidence is historical baseline evidence only. Future Android/iOS OCR
+> validation must exercise the approved PaddleOCR model path and must not treat
+> the commands or future-tense wording below as current acceptance guidance.
+
 ## Purpose
 
 This docs/control packet records the #437 validation plan for proving the

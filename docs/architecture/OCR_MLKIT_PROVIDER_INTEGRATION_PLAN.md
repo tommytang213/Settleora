@@ -1,5 +1,13 @@
 # OCR ML Kit Provider Integration Plan
 
+> **Historical and superseded:** This #436 packet records the legacy ML Kit
+> slice. Tommy's 2026-09-18 PaddleOCR/ONNX Runtime decision in
+> [Mobile OCR implementation decision](MOBILE_OCR_IMPLEMENTATION_DECISION.md)
+> and [OCR architecture](OCR_ARCHITECTURE.md) is current authority. Nothing in
+> this file directs present or future work to retain, restore, or expand ML Kit.
+> Imperative and future-tense wording below describes the completed historical
+> plan only and must not be used as implementation guidance.
+
 ## Purpose
 
 This docs/control packet records the #436 boundary for the ML Kit on-device OCR
@@ -50,17 +58,16 @@ authorization, bill finalization, money, splits, settlements, storage access,
 status transitions, sync acceptance, and audit. In local-only mode, local OCR
 can support local draft creation only after user review or correction.
 
-## Day 1 Phase And Language Scope
+## Historical Day 1 Phase And Language Scope
 
-Phase 1 is Latin-script only unless Tommy explicitly approves broader
-multilingual assets. The current provider should continue to use the Latin text
-recognition path for the first Day 1 slice.
+The completed Phase 1 was Latin-script only under the decision in force at that
+time. The provider used the Latin text-recognition path for that historical
+slice. The approved PaddleOCR Global Core replaces this limitation for current
+work.
 
-Broader multilingual support remains an architecture goal, not silent Day 1
-dependency scope. Chinese, Japanese, Korean, Devanagari, or other script
-support must not be added by pulling native model packages, traineddata assets,
-or large bundled OCR assets without separate approval that names app-size,
-offline behavior, licensing, platform support, and validation impact.
+The historical plan required separate approval for broader multilingual
+assets. That approval is now recorded in the current PaddleOCR/ONNX decision,
+including app-size, offline, licensing, platform, and validation controls.
 
 Unsupported language or script handling must route to review-safe fallback or
 manual-entry behavior. Unsupported results must not finalize a bill, apply a
