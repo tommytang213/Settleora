@@ -5,6 +5,12 @@ import path from "node:path";
 export const catalogRelativePath = "apps/mobile/assets/receipt_ocr_models/catalog.json";
 const mobileRelativePath = "apps/mobile";
 const trustedCatalogSha256 = "846ebf2fd32974da8d916d086e64a335df663441d3eb997c90ea42cbb291cb46";
+const trustedLegalArtifacts = [
+  { path: "assets/receipt_ocr_models/LICENSE-APACHE-2.0.txt", bytes: 11376, sha256: "3840c5c0c61c294264d2dd77b8777be6ddd90121ef4e0e64abcd22edea581d6e" },
+  { path: "assets/receipt_ocr_models/LICENSE-ONNXRUNTIME-MIT.txt", bytes: 1073, sha256: "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c" },
+  { path: "assets/receipt_ocr_models/LICENSE-OPENCV-BSD-3-CLAUSE.txt", bytes: 2036, sha256: "b6ff3f1ec79c429ac916f4c5632251694603172383b7b6e35b9c4f04c61d971e" },
+  { path: "assets/receipt_ocr_models/NOTICE.md", bytes: 2091, sha256: "80ccabe2819503308b4722867ca0312ca58afce83c8dd7c3da980b823f4857ca" },
+];
 
 export function loadCatalog(repoRoot) {
   const catalogPath = path.join(repoRoot, catalogRelativePath);
@@ -70,8 +76,28 @@ export async function verifyCatalog(repoRoot) {
     );
   }
   await verifyAcceptanceContract(repoRoot, catalog, failures);
+  await verifyLegalArtifacts(repoRoot, failures);
   verifyFlutterAssetContract(repoRoot, catalog, failures);
   return { ok: failures.length === 0, failures, observedTotalBytes };
+}
+
+async function verifyLegalArtifacts(repoRoot, failures) {
+  for (const artifact of trustedLegalArtifacts) {
+    const relativePath = path.posix.join(mobileRelativePath, artifact.path);
+    const filePath = path.join(repoRoot, relativePath);
+    if (!existsSync(filePath) || !lstatSync(filePath).isFile()) {
+      failures.push(`${relativePath}: trusted legal artifact missing`);
+      continue;
+    }
+    const observedBytes = statSync(filePath).size;
+    if (observedBytes !== artifact.bytes) {
+      failures.push(`${relativePath}: trusted legal artifact byte size mismatch`);
+      continue;
+    }
+    if (await sha256File(filePath) !== artifact.sha256) {
+      failures.push(`${relativePath}: trusted legal artifact sha256 mismatch`);
+    }
+  }
 }
 
 function validateCatalogShape(catalog) {

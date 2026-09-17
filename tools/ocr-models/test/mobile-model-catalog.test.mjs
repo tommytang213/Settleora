@@ -102,6 +102,19 @@ test("verification rejects missing runtime license packaging", async (t) => {
   assert.match(result.failures.join("\n"), /OCR asset inventory does not match catalog/);
 });
 
+test("verification rejects changed runtime license bytes", async (t) => {
+  const temporaryRoot = copyVerificationFixture(t, "settleora-ocr-license-bytes-");
+  const licensePath = path.join(
+    temporaryRoot,
+    "apps/mobile/assets/receipt_ocr_models/LICENSE-ONNXRUNTIME-MIT.txt",
+  );
+  writeFileSync(licensePath, `${readFileSync(licensePath, "utf8")}changed\n`);
+
+  const result = await verifyCatalog(temporaryRoot);
+  assert.equal(result.ok, false);
+  assert.match(result.failures.join("\n"), /trusted legal artifact byte size mismatch/);
+});
+
 test("verification rejects drift in bound parser evidence", async (t) => {
   const temporaryRoot = copyVerificationFixture(t, "settleora-ocr-parser-");
   const parserPath = path.join(

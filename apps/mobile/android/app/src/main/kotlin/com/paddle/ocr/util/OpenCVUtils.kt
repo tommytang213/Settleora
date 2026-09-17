@@ -26,8 +26,8 @@ object OpenCVUtils {
         try {
             System.loadLibrary("opencv_java4")
             initialized = true
-        } catch (e: UnsatisfiedLinkError) {
-            Log.e("OpenCVUtils", "Failed to initialize OpenCV: ${e.message}")
+        } catch (_: UnsatisfiedLinkError) {
+            Log.e("OpenCVUtils", "OpenCV initialization failed")
         }
         return initialized
     }

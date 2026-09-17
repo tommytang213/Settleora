@@ -29,6 +29,19 @@ class ReceiptOcrCorpusInstrumentedTest {
         )
         val fixtures = manifest.getJSONArray("fixtures")
         assertEquals(101, fixtures.length())
+        val modelCatalog = JSONObject(
+            context.assets.open("flutter_assets/assets/receipt_ocr_models/catalog.json")
+                .bufferedReader()
+                .use { it.readText() },
+        )
+        val packVersions = modelCatalog.getJSONArray("packs").let { packs ->
+            buildMap {
+                for (index in 0 until packs.length()) {
+                    val pack = packs.getJSONObject(index)
+                    put(pack.getString("modelPackId"), pack.getString("modelVersion"))
+                }
+            }
+        }
 
         val engine = SettleoraPaddleOcrEngine(context)
         val scriptsWithExactMatches = mutableSetOf<String>()
@@ -45,6 +58,13 @@ class ReceiptOcrCorpusInstrumentedTest {
                     "paddleocr.ppocrv6.small.det",
                     result.detectionModelPackId,
                 )
+                assertEquals(
+                    packVersions[result.detectionModelPackId],
+                    result.detectionModelVersion,
+                )
+                result.blocks.forEach { block ->
+                    assertEquals(packVersions[block.modelPackId], block.modelVersion)
+                }
                 expectedPackFor(script)?.let { expectedPackId ->
                     val expectedTexts = scriptBearingExpectedTexts(
                         fixture.getJSONObject("expected"),
