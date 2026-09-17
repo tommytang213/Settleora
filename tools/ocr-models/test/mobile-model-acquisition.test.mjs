@@ -72,3 +72,17 @@ test("acquisition refuses to mix with an invalid existing pack", async () => {
   );
   assert.equal(readFileSync(modelPath, "utf8"), "wrong");
 });
+
+test("acquisition refuses an existing pack with unreviewed files", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "settleora-ocr-acquire-extra-"));
+  const pack = fixturePack();
+  const directory = path.join(root, "apps/mobile", pack.assetDirectory);
+  mkdirSync(directory, { recursive: true });
+  for (const file of pack.files) writeFileSync(path.join(directory, file.name), file.content);
+  writeFileSync(path.join(directory, "unreviewed.bin"), "unreviewed");
+
+  await assert.rejects(
+    () => acquirePack(root, pack, async () => { throw new Error("must not fetch"); }),
+    /refusing mixed replacement/,
+  );
+});

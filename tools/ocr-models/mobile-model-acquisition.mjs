@@ -1,7 +1,9 @@
 import {
   createWriteStream,
   existsSync,
+  lstatSync,
   mkdirSync,
+  readdirSync,
   renameSync,
   rmSync,
   statSync,
@@ -51,9 +53,23 @@ export async function acquirePack(repoRoot, pack, fetchImpl = globalThis.fetch) 
 }
 
 async function packDirectoryIsValid(directory, pack) {
+  const expectedNames = pack.files.map((file) => file.name).sort();
+  const entries = readdirSync(directory, { withFileTypes: true });
+  if (
+    entries.some((entry) => !entry.isFile()) ||
+    entries.map((entry) => entry.name).sort().join(",") !== expectedNames.join(",")
+  ) {
+    return false;
+  }
   for (const file of pack.files) {
     const candidate = path.join(directory, file.name);
-    if (!existsSync(candidate) || statSync(candidate).size !== file.bytes) return false;
+    if (
+      !existsSync(candidate) ||
+      !lstatSync(candidate).isFile() ||
+      statSync(candidate).size !== file.bytes
+    ) {
+      return false;
+    }
     if (await sha256File(candidate) !== file.sha256) return false;
   }
   return true;

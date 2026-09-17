@@ -61,10 +61,30 @@ test("verification rejects a partial model pack", async () => {
 
   const result = await verifyCatalog(temporaryRoot);
   assert.equal(result.ok, false);
-  assert.equal(result.failures.length, 3);
+  assert.equal(result.failures.length, 4);
+  assert.match(result.failures.join("\n"), /unexpected file inventory/);
   assert.match(result.failures.join("\n"), /inference\.onnx: missing/);
   assert.match(result.failures.join("\n"), /inference\.yml: missing/);
   assert.match(result.failures.join("\n"), /catalog total bytes/);
+});
+
+test("verification rejects unreviewed files in a model pack", async () => {
+  const temporaryRoot = mkdtempSync(path.join(tmpdir(), "settleora-ocr-extra-"));
+  const source = JSON.parse(readFileSync(path.join(repoRoot, catalogRelativePath), "utf8"));
+  const pack = source.packs[0];
+  cpSync(
+    path.join(repoRoot, "apps/mobile/assets/receipt_ocr_models"),
+    path.join(temporaryRoot, "apps/mobile/assets/receipt_ocr_models"),
+    { recursive: true },
+  );
+  writeFileSync(
+    path.join(temporaryRoot, "apps/mobile", pack.assetDirectory, "unreviewed.bin"),
+    "unreviewed",
+  );
+
+  const result = await verifyCatalog(temporaryRoot);
+  assert.equal(result.ok, false);
+  assert.match(result.failures.join("\n"), /unexpected file inventory/);
 });
 
 test("catalog rejects incompatible runtime metadata", () => {

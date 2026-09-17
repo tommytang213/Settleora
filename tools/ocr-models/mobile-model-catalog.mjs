@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
+import { createReadStream, existsSync, lstatSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
 export const catalogRelativePath = "apps/mobile/assets/receipt_ocr_models/catalog.json";
@@ -25,11 +25,29 @@ export async function verifyCatalog(repoRoot) {
   let observedTotalBytes = 0;
 
   for (const pack of catalog.packs) {
+    const packDirectory = path.join(repoRoot, mobileRelativePath, pack.assetDirectory);
+    if (existsSync(packDirectory)) {
+      const expectedNames = pack.files.map((file) => file.name).sort();
+      const entries = readdirSync(packDirectory, { withFileTypes: true });
+      const observedNames = entries.map((entry) => entry.name).sort();
+      if (
+        entries.some((entry) => !entry.isFile()) ||
+        observedNames.join(",") !== expectedNames.join(",")
+      ) {
+        failures.push(
+          `${path.posix.join(mobileRelativePath, pack.assetDirectory)}: unexpected file inventory`,
+        );
+      }
+    }
     for (const file of pack.files) {
       const relativePath = path.posix.join(mobileRelativePath, pack.assetDirectory, file.name);
       const filePath = path.join(repoRoot, relativePath);
       if (!existsSync(filePath)) {
         failures.push(`${relativePath}: missing`);
+        continue;
+      }
+      if (!lstatSync(filePath).isFile()) {
+        failures.push(`${relativePath}: must be a regular file`);
         continue;
       }
       const observedBytes = statSync(filePath).size;
