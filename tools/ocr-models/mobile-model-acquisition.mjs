@@ -10,11 +10,13 @@ import {
 } from "node:fs";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { isDeepStrictEqual } from "node:util";
 import path from "node:path";
 
-import { sha256File } from "./mobile-model-catalog.mjs";
+import { loadCatalog, sha256File } from "./mobile-model-catalog.mjs";
 
 export async function acquirePack(repoRoot, pack, fetchImpl = globalThis.fetch) {
+  assertTrustedPackIdentity(repoRoot, pack);
   const directory = path.join(repoRoot, "apps/mobile", pack.assetDirectory);
   if (existsSync(directory)) {
     if (await packDirectoryIsValid(directory, pack)) return "already_verified";
@@ -53,6 +55,14 @@ export async function acquirePack(repoRoot, pack, fetchImpl = globalThis.fetch) 
   } catch (error) {
     rmSync(staging, { recursive: true, force: true });
     throw error;
+  }
+}
+
+function assertTrustedPackIdentity(repoRoot, pack) {
+  const { catalog } = loadCatalog(repoRoot);
+  const trustedPack = catalog.packs.find((candidate) => candidate.modelPackId === pack?.modelPackId);
+  if (!trustedPack || !isDeepStrictEqual(pack, trustedPack)) {
+    throw new Error(`Model pack does not match the reviewed trusted catalog: ${pack?.modelPackId ?? "missing"}`);
   }
 }
 
