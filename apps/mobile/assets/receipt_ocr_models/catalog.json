@@ -15,6 +15,33 @@
     "iosBaseline": "onnxruntime-objc 1.24.x",
     "executionProviderBaseline": "CPU"
   },
+  "acceptanceContract": {
+    "status": "pending_native_provider_acceptance",
+    "fixtureCorpus": {
+      "path": "apps/mobile/test/fixtures/receipt_ocr",
+      "schemaVersion": 2,
+      "entryCount": 101,
+      "manifestSha256": "64f6adf480bae5ef4ec8c0129e27a7fe95e6e075208ca72fa1d96c5dcc8e56fc",
+      "treeDigestAlgorithm": "sha256-of-sorted-sha256sum-v1",
+      "treeSha256": "723440fae56f95f4071cd0f1cb76de399924002635a172e77d64920c6be08756"
+    },
+    "preprocessing": {
+      "files": [
+        {
+          "path": "apps/mobile/lib/receipt_ocr_capture/receipt_image_artifact_processor.dart",
+          "sha256": "cce7df5e27120d2909b1a12913c509da3aa2ede541bf9d2050af17ba2f4db532"
+        },
+        {
+          "path": "apps/mobile/lib/receipt_ocr_capture/receipt_image_normalization_policy.dart",
+          "sha256": "90484f4e78cfe50cd96b80f2e8ba9a1568392fe1089e7a57e35c4f9836fb08f8"
+        }
+      ]
+    },
+    "parser": {
+      "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_parser.dart",
+      "sha256": "929552df9498855578f351d7f54a295f1b7f8bcfaba3e5b27f98954b0417d892"
+    }
+  },
   "totalBundledBytes": 76580102,
   "packs": [
     {

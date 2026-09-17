@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -25,10 +25,13 @@ function fixturePack() {
   };
 }
 
-test("acquisition activates a complete verified pack in one directory rename", async () => {
+test("acquisition activates a complete verified pack in one directory rename", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "settleora-ocr-acquire-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
   const pack = fixturePack();
-  const fetchImpl = async (url) => {
+  const fetchImpl = async (url, options) => {
+    assert.equal(options.redirect, "follow");
+    assert.equal(options.signal instanceof AbortSignal, true);
     const file = pack.files.find((entry) => url.endsWith(entry.name));
     return new Response(file.content, { status: 200 });
   };
@@ -40,8 +43,9 @@ test("acquisition activates a complete verified pack in one directory rename", a
   assert.equal(await acquirePack(root, pack, async () => { throw new Error("must not fetch"); }), "already_verified");
 });
 
-test("acquisition rejects a catalog-controlled network destination", async () => {
+test("acquisition rejects a catalog-controlled network destination", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "settleora-ocr-acquire-origin-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
   const pack = fixturePack();
   pack.modelPackId = "paddleocr.attacker.pack";
   pack.sourceRepository = "attacker.invalid/models";
@@ -57,8 +61,9 @@ test("acquisition rejects a catalog-controlled network destination", async () =>
   assert.equal(fetched, false);
 });
 
-test("acquisition failure exposes no partial or mixed pack", async () => {
+test("acquisition failure exposes no partial or mixed pack", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "settleora-ocr-acquire-fail-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
   const pack = fixturePack();
   let calls = 0;
   const fetchImpl = async () => {
@@ -75,8 +80,44 @@ test("acquisition failure exposes no partial or mixed pack", async () => {
   assert.deepEqual(readdirSync(parent), []);
 });
 
-test("acquisition refuses to mix with an invalid existing pack", async () => {
+test("acquisition aborts an oversized response and removes staging", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "settleora-ocr-acquire-large-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const pack = fixturePack();
+  const oversized = Buffer.alloc(pack.files[0].bytes + 1, 0x61);
+
+  await assert.rejects(
+    () => acquirePack(root, pack, async () => new Response(oversized, { status: 200 })),
+    /exceeded expected byte count/,
+  );
+  const directory = path.join(root, "apps/mobile", pack.assetDirectory);
+  assert.equal(existsSync(directory), false);
+  assert.deepEqual(readdirSync(path.dirname(directory)), []);
+});
+
+test("acquisition propagates stream failure and removes staging", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "settleora-ocr-acquire-stream-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const pack = fixturePack();
+  const failedBody = new ReadableStream({
+    start(controller) {
+      controller.enqueue(pack.files[0].content.subarray(0, 2));
+      controller.error(new Error("stream failed"));
+    },
+  });
+
+  await assert.rejects(
+    () => acquirePack(root, pack, async () => new Response(failedBody, { status: 200 })),
+    /stream failed/,
+  );
+  const directory = path.join(root, "apps/mobile", pack.assetDirectory);
+  assert.equal(existsSync(directory), false);
+  assert.deepEqual(readdirSync(path.dirname(directory)), []);
+});
+
+test("acquisition refuses to mix with an invalid existing pack", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "settleora-ocr-acquire-existing-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
   const pack = fixturePack();
   const directory = path.join(root, "apps/mobile", pack.assetDirectory);
   const modelPath = path.join(directory, "inference.onnx");
@@ -90,8 +131,9 @@ test("acquisition refuses to mix with an invalid existing pack", async () => {
   assert.equal(readFileSync(modelPath, "utf8"), "wrong");
 });
 
-test("acquisition refuses an existing pack with unreviewed files", async () => {
+test("acquisition refuses an existing pack with unreviewed files", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "settleora-ocr-acquire-extra-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
   const pack = fixturePack();
   const directory = path.join(root, "apps/mobile", pack.assetDirectory);
   mkdirSync(directory, { recursive: true });

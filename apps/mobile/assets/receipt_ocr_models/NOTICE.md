@@ -16,6 +16,12 @@ fixture scripts:
 - PP-OCRv6 Small common Latin/Chinese/Japanese recognition;
 - PP-OCRv5 Mobile Arabic, Cyrillic, Devanagari, Korean, and Thai recognition.
 
+`catalog.json` binds the pending acceptance contract to the immutable fixture
+corpus plus the current preprocessing and parser source hashes. Its
+`pending_native_provider_acceptance` status is deliberate: route coverage is
+not an accuracy claim, and the status must not be promoted until the real
+Android and iOS provider lanes pass the bound corpus.
+
 The catalog does not claim Bengali, Tamil, or Telugu acceptance. Tamil and
 Telugu PP-OCRv5 candidates exist upstream but require separate deterministic
 fixture evidence before Global Core admission. No compatible official

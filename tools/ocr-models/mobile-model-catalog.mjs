@@ -4,7 +4,7 @@ import path from "node:path";
 
 export const catalogRelativePath = "apps/mobile/assets/receipt_ocr_models/catalog.json";
 const mobileRelativePath = "apps/mobile";
-const trustedCatalogSha256 = "1dfde4b54ae2d7ee890a7e09bacf45ad6a9dbee0c04a276b2eeef20fe2b3e9b9";
+const trustedCatalogSha256 = "846ebf2fd32974da8d916d086e64a335df663441d3eb997c90ea42cbb291cb46";
 
 export function loadCatalog(repoRoot) {
   const catalogPath = path.join(repoRoot, catalogRelativePath);
@@ -69,6 +69,8 @@ export async function verifyCatalog(repoRoot) {
       `catalog total bytes expected=${catalog.totalBundledBytes} actual=${observedTotalBytes}`,
     );
   }
+  await verifyAcceptanceContract(repoRoot, catalog, failures);
+  verifyFlutterAssetContract(repoRoot, catalog, failures);
   return { ok: failures.length === 0, failures, observedTotalBytes };
 }
 
@@ -98,6 +100,13 @@ function validateCatalogShape(catalog) {
     catalog.runtimeCompatibility?.executionProviderBaseline !== "CPU"
   ) {
     throw new Error("Unsupported OCR runtime compatibility metadata");
+  }
+  if (
+    catalog.acceptanceContract?.status !== "pending_native_provider_acceptance" ||
+    catalog.acceptanceContract?.fixtureCorpus?.treeDigestAlgorithm !==
+      "sha256-of-sorted-sha256sum-v1"
+  ) {
+    throw new Error("Unsupported OCR acceptance evidence contract");
   }
   if (!Number.isSafeInteger(catalog.totalBundledBytes) || catalog.totalBundledBytes <= 0) {
     throw new Error("Invalid OCR model catalog byte total");
@@ -146,6 +155,82 @@ function validateCatalogShape(catalog) {
   if (observedCatalogSha256 !== trustedCatalogSha256) {
     throw new Error("OCR model catalog does not match the reviewed trusted inventory");
   }
+}
+
+async function verifyAcceptanceContract(repoRoot, catalog, failures) {
+  const contract = catalog.acceptanceContract;
+  const corpus = contract.fixtureCorpus;
+  const corpusRoot = path.join(repoRoot, corpus.path);
+  const manifestPath = path.join(corpusRoot, "manifest.json");
+  if (!existsSync(manifestPath)) {
+    failures.push(`${corpus.path}/manifest.json: missing acceptance evidence`);
+  } else {
+    if (await sha256File(manifestPath) !== corpus.manifestSha256) {
+      failures.push(`${corpus.path}/manifest.json: acceptance manifest sha256 mismatch`);
+    }
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    if (
+      manifest.schema_version !== corpus.schemaVersion ||
+      manifest.fixtures?.length !== corpus.entryCount
+    ) {
+      failures.push(`${corpus.path}/manifest.json: acceptance schema/count mismatch`);
+    }
+    if (await sha256Tree(corpusRoot) !== corpus.treeSha256) {
+      failures.push(`${corpus.path}: acceptance fixture tree sha256 mismatch`);
+    }
+  }
+
+  for (const source of [...contract.preprocessing.files, contract.parser]) {
+    const sourcePath = path.join(repoRoot, source.path);
+    if (!existsSync(sourcePath) || !lstatSync(sourcePath).isFile()) {
+      failures.push(`${source.path}: bound acceptance source missing`);
+    } else if (await sha256File(sourcePath) !== source.sha256) {
+      failures.push(`${source.path}: bound acceptance source sha256 mismatch`);
+    }
+  }
+}
+
+function verifyFlutterAssetContract(repoRoot, catalog, failures) {
+  const pubspecPath = path.join(repoRoot, mobileRelativePath, "pubspec.yaml");
+  if (!existsSync(pubspecPath)) {
+    failures.push(`${mobileRelativePath}/pubspec.yaml: missing Flutter asset declaration`);
+    return;
+  }
+  const pubspec = readFileSync(pubspecPath, "utf8");
+  const observed = [...pubspec.matchAll(
+    /^    - (assets\/receipt_ocr_models\/\S+)\s*$/gm,
+  )].map((match) => match[1]).sort();
+  const expected = [
+    "assets/receipt_ocr_models/LICENSE-APACHE-2.0.txt",
+    "assets/receipt_ocr_models/NOTICE.md",
+    "assets/receipt_ocr_models/catalog.json",
+    ...catalog.packs.map((pack) => `${pack.assetDirectory}/`),
+  ].sort();
+  if (observed.join("\n") !== expected.join("\n")) {
+    failures.push(`${mobileRelativePath}/pubspec.yaml: OCR asset inventory does not match catalog`);
+  }
+}
+
+async function sha256Tree(root) {
+  const relativeFiles = collectRelativeFiles(root).sort();
+  const digest = createHash("sha256");
+  for (const relativeFile of relativeFiles) {
+    const fileSha256 = await sha256File(path.join(root, relativeFile));
+    digest.update(`${fileSha256}  ./${relativeFile.split(path.sep).join("/")}\n`);
+  }
+  return digest.digest("hex");
+}
+
+function collectRelativeFiles(root, relativeDirectory = "") {
+  const directory = path.join(root, relativeDirectory);
+  const files = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const relativeEntry = path.join(relativeDirectory, entry.name);
+    if (entry.isDirectory()) files.push(...collectRelativeFiles(root, relativeEntry));
+    else if (entry.isFile()) files.push(relativeEntry);
+    else throw new Error(`Acceptance fixture tree contains a non-regular entry: ${relativeEntry}`);
+  }
+  return files;
 }
 
 function validateInference(pack) {

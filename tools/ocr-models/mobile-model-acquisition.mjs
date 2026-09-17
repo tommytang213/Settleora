@@ -8,7 +8,8 @@ import {
   rmSync,
   statSync,
 } from "node:fs";
-import { finished } from "node:stream/promises";
+import { Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import path from "node:path";
 
 import { sha256File } from "./mobile-model-catalog.mjs";
@@ -32,11 +33,12 @@ export async function acquirePack(repoRoot, pack, fetchImpl = globalThis.fetch) 
       const target = path.join(staging, file.name);
       const response = await fetchImpl(trustedSourceUrl(pack.modelPackId, file.name), {
         redirect: "follow",
+        signal: AbortSignal.timeout(120_000),
       });
       if (!response.ok || !response.body) {
         throw new Error(`Unable to download ${pack.modelPackId}/${file.name}: ${response.status}`);
       }
-      await writeWebStream(response.body, target);
+      await writeWebStream(response.body, target, file.bytes);
       const observedBytes = statSync(target).size;
       const observedSha256 = await sha256File(target);
       if (observedBytes !== file.bytes || observedSha256 !== file.sha256) {
@@ -99,11 +101,18 @@ async function packDirectoryIsValid(directory, pack) {
   return true;
 }
 
-async function writeWebStream(body, target) {
+async function writeWebStream(body, target, expectedBytes) {
+  let observedBytes = 0;
+  const byteLimit = new Transform({
+    transform(chunk, _encoding, callback) {
+      observedBytes += chunk.length;
+      if (observedBytes > expectedBytes) {
+        callback(new Error(`Download exceeded expected byte count: ${expectedBytes}`));
+        return;
+      }
+      callback(null, chunk);
+    },
+  });
   const output = createWriteStream(target, { flags: "wx" });
-  for await (const chunk of body) {
-    if (!output.write(chunk)) await new Promise((resolve) => output.once("drain", resolve));
-  }
-  output.end();
-  await finished(output);
+  await pipeline(Readable.fromWeb(body), byteLimit, output);
 }
