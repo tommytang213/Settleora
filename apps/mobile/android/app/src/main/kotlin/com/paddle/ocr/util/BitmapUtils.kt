@@ -15,21 +15,31 @@
 package com.paddle.ocr.util
 
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import org.opencv.android.Utils
 import org.opencv.core.CvType
 import org.opencv.core.Mat
-import org.opencv.core.MatOfByte
-import org.opencv.imgcodecs.Imgcodecs
 import org.opencv.imgproc.Imgproc
 
 object BitmapUtils {
 
-    fun imdecodeBGR(imageBytes: ByteArray): Mat {
-        val encoded = MatOfByte(*imageBytes)
+    fun imdecodeBGR(imageBytes: ByteArray, sampleSize: Int = 1): Mat {
+        require(sampleSize > 0 && sampleSize and (sampleSize - 1) == 0) {
+            "sampleSize must be a positive power of two"
+        }
+        val bitmap = BitmapFactory.decodeByteArray(
+            imageBytes,
+            0,
+            imageBytes.size,
+            BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            },
+        ) ?: return Mat()
         return try {
-            Imgcodecs.imdecode(encoded, Imgcodecs.IMREAD_COLOR)
+            bitmapToBGRMat(bitmap)
         } finally {
-            encoded.release()
+            bitmap.recycle()
         }
     }
 
@@ -54,7 +64,11 @@ object BitmapUtils {
     }
 
     private fun bitmapToMat(bitmap: Bitmap, colorConversionCode: Int): Mat {
-        val bmp = bitmap.copy(Bitmap.Config.ARGB_8888, false)
+        val bmp = if (bitmap.config == Bitmap.Config.ARGB_8888) {
+            bitmap
+        } else {
+            bitmap.copy(Bitmap.Config.ARGB_8888, false)
+        }
         val rgba = Mat(bmp.height, bmp.width, CvType.CV_8UC4)
         val dst = Mat()
         return try {
@@ -65,7 +79,7 @@ object BitmapUtils {
             dst.release()
             throw t
         } finally {
-            bmp.recycle()
+            if (bmp !== bitmap) bmp.recycle()
             rgba.release()
         }
     }

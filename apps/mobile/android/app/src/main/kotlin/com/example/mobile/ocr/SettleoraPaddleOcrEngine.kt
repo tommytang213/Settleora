@@ -17,10 +17,11 @@ import com.paddle.ocr.util.OpenCVUtils
 /**
  * Settleora's Android PaddleOCR/ONNX Runtime boundary.
  *
- * Detection runs once. Every detected line is evaluated against the bundled
- * Global Core recognizers, then selected using confidence plus Unicode-script
- * evidence. That keeps mixed-script routing independent from phone locale and
- * avoids requiring a recognizer that is not installed to choose a route.
+ * Detection runs once. The always-available common recognizer runs first and
+ * supplies independent routing evidence. Only ambiguous lines are evaluated
+ * by the bounded specialist fallback set. This keeps mixed-script routing
+ * independent from phone locale and prevents a specialist from selecting
+ * itself using characters that it may have hallucinated.
  */
 class SettleoraPaddleOcrEngine(context: Context) {
     private val appContext = context.applicationContext
@@ -58,11 +59,15 @@ class SettleoraPaddleOcrEngine(context: Context) {
     }
 
     fun recognize(imageBytes: ByteArray): SettleoraOcrRunResult {
-        validateInputBounds(imageBytes)
-        val source = BitmapUtils.imdecodeBGR(imageBytes)
+        val sampleSize = validateInputBounds(imageBytes)
+        val source = BitmapUtils.imdecodeBGR(imageBytes, sampleSize)
         if (source.empty()) {
             source.release()
             throw OCRError.InvalidImage()
+        }
+        if (!ReceiptOcrInputLimits.acceptsDimensions(source.cols(), source.rows())) {
+            source.release()
+            throw OCRError.ImageTooLarge()
         }
 
         val totalStart = System.currentTimeMillis()
@@ -95,7 +100,11 @@ class SettleoraPaddleOcrEngine(context: Context) {
                 sourceNeedsRelease = false
             }
             if (crops.isNotEmpty()) {
+                val commonPack = packs.single { ScriptEvidence.COMMON in it.spec.acceptedScripts }
                 val candidatesByLine = List(crops.size) { mutableListOf<ScriptCandidate>() }
+                val evidenceByLine = MutableList(crops.size) {
+                    IndependentScriptEvidence(ScriptEvidence.NEUTRAL, 0.0)
+                }
                 val batches = crops.indices
                     .groupBy { index -> recognitionBatchCapacity(crops[index]) }
                     .flatMap { (capacity, indices) ->
@@ -103,47 +112,66 @@ class SettleoraPaddleOcrEngine(context: Context) {
                             .chunked(capacity)
                     }
 
-                for (pack in packs) {
-                    for (batchIndices in batches) {
-                        val batchStart = System.currentTimeMillis()
-                        val input = RecPreprocessor.preprocessBatch(
-                            batchIndices.map { index -> crops[index] },
+                fun recognizeBatch(pack: RecognizerPack, batchIndices: List<Int>) {
+                    val batchStart = System.currentTimeMillis()
+                    val input = RecPreprocessor.preprocessBatch(
+                        batchIndices.map { index -> crops[index] },
+                    )
+                    val decoded = sessions.runRecognitionDecoded(
+                        pack.spec.modelPackId,
+                        input.tensorData,
+                        input.shape,
+                        pack.characters,
+                    )
+                    recognitionTimeMs += System.currentTimeMillis() - batchStart
+                    check(decoded.size == batchIndices.size) {
+                        "Recognition batch size mismatch"
+                    }
+                    decoded.forEachIndexed { batchIndex, value ->
+                        val lineIndex = batchIndices[batchIndex]
+                        candidatesByLine[lineIndex] += ScriptCandidate(
+                            text = RecognizedTextNormalizer.normalize(
+                                value.first.trim(),
+                                pack.spec,
+                            ),
+                            confidence = value.second,
+                            pack = pack.spec,
                         )
-                        val decoded = sessions.runRecognitionDecoded(
-                            pack.spec.modelPackId,
-                            input.tensorData,
-                            input.shape,
-                            pack.characters,
-                        )
-                        recognitionTimeMs += System.currentTimeMillis() - batchStart
-                        check(decoded.size == batchIndices.size) {
-                            "Recognition batch size mismatch"
-                        }
-                        decoded.forEachIndexed { batchIndex, value ->
-                            val lineIndex = batchIndices[batchIndex]
-                            candidatesByLine[lineIndex] += ScriptCandidate(
-                                text = RecognizedTextNormalizer.normalize(
-                                    value.first.trim(),
-                                    pack.spec,
-                                ),
-                                confidence = value.second,
-                                pack = pack.spec,
-                            )
+                    }
+                }
+                for (batchIndices in batches) {
+                    recognizeBatch(commonPack, batchIndices)
+                }
+                candidatesByLine.forEachIndexed { index, candidates ->
+                    val commonCandidate = checkNotNull(candidates.singleOrNull()) {
+                        "Common recognizer did not produce exactly one line candidate"
+                    }
+                    evidenceByLine[index] = ScriptRouteSelector.evidenceFromCommon(commonCandidate)
+                }
+
+                val fallbackIndices = crops.indices.filter { index ->
+                    ScriptRouteSelector.requiresSpecialistFallback(evidenceByLine[index])
+                }.toSet()
+                if (fallbackIndices.isNotEmpty()) {
+                    for (pack in packs.filterNot { it === commonPack }) {
+                        for (batchIndices in batches) {
+                            val specialistBatch = batchIndices.filter { it in fallbackIndices }
+                            if (specialistBatch.isNotEmpty()) recognizeBatch(pack, specialistBatch)
                         }
                     }
                 }
 
                 candidatesByLine.forEachIndexed { index, candidates ->
-                    val accepted = ScriptRouteSelector.select(candidates)
+                    val accepted = ScriptRouteSelector.select(candidates, evidenceByLine[index])
                     if (accepted != null && accepted.confidence >= config.recScoreThresh) {
                         val (order, box) = validBoxes[index]
                         blocks += SettleoraOcrBlock(
                             text = accepted.text,
                             confidence = accepted.confidence,
-                                modelPackId = accepted.pack.modelPackId,
-                                modelVersion = accepted.pack.modelVersion,
-                                textDirection = textDirection(accepted.text),
-                                order = order,
+                            modelPackId = accepted.pack.modelPackId,
+                            modelVersion = accepted.pack.modelVersion,
+                            textDirection = textDirection(accepted.text),
+                            order = order,
                             points = box.points.map { point ->
                                 SettleoraOcrPoint(point.x, point.y)
                             },
@@ -170,7 +198,7 @@ class SettleoraPaddleOcrEngine(context: Context) {
 
     fun release() = sessions.release()
 
-    private fun validateInputBounds(imageBytes: ByteArray) {
+    private fun validateInputBounds(imageBytes: ByteArray): Int {
         if (imageBytes.isEmpty()) throw OCRError.InvalidImage()
         if (!ReceiptOcrInputLimits.acceptsEncodedSize(imageBytes.size)) {
             throw OCRError.ImageTooLarge()
@@ -181,9 +209,11 @@ class SettleoraPaddleOcrEngine(context: Context) {
         val width = bounds.outWidth
         val height = bounds.outHeight
         if (width <= 0 || height <= 0) throw OCRError.InvalidImage()
-        if (!ReceiptOcrInputLimits.acceptsDimensions(width, height)) {
+        val sampleSize = ReceiptOcrInputLimits.sampleSizeFor(width, height)
+        if (sampleSize == null) {
             throw OCRError.ImageTooLarge()
         }
+        return sampleSize
     }
 
     private fun recognitionBatchCapacity(crop: org.opencv.core.Mat): Int {

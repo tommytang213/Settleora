@@ -19,4 +19,12 @@ class ReceiptOcrInputLimitsTest {
         assertFalse(ReceiptOcrInputLimits.acceptsDimensions(8193, 1))
         assertFalse(ReceiptOcrInputLimits.acceptsDimensions(Int.MAX_VALUE, Int.MAX_VALUE))
     }
+
+    @Test
+    fun computesPowerOfTwoSampleForHighResolutionCameraImage() {
+        assertTrue(ReceiptOcrInputLimits.sampleSizeFor(4000, 3000) == 1)
+        assertTrue(ReceiptOcrInputLimits.sampleSizeFor(8000, 6000) == 2)
+        assertTrue(ReceiptOcrInputLimits.sampleSizeFor(16_000, 12_000) == 4)
+        assertTrue(ReceiptOcrInputLimits.sampleSizeFor(Int.MAX_VALUE, Int.MAX_VALUE) == null)
+    }
 }
