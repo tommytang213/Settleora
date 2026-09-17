@@ -81,8 +81,9 @@
   - PKT-17: #406/#971; PKT-18: #358/#406/#966/#971; and
   - PKT-19: #339/#774/#784/#973 plus completed #965 and focused decision owner
     #1277 for trusted-source/distributed abuse controls.
-- Thirty-five new issues, #1255-#1289, form the #722 hierarchy: #1255-#1277
-  are direct #722 sub-issues; #1278-#1282/#1288 are focused children of
+- Thirty-four new issues form the #722 hierarchy: the 22 issues #1255-#1273
+  and #1275-#1277 are direct #722 sub-issues (number #1274 is this ledger PR,
+  not an issue); #1278-#1282/#1288 are focused children of
   coordination-only #1272, and #1283-#1287/#1289 are focused children of
   coordination-only #1273. Each executable or decision-gated child records
   one canonical lane, goal, exact source rows and choice ranges, qualified
@@ -92,9 +93,10 @@
   fail-closed. #1272/#1273 authorize only issue/Project coordination. None
   carries `auto-ready`, `auto-bundle`, `codex:ready`, or
   `codex:running`; none was started.
-- Project readback is complete for all #1255-#1289: Status `Blocked`; all
-  focused children have Work Type
-  `feature`, Day Scope `Day 1`, Priority `P1`, Risk `manual-gate`, Progress
+- Project readback is complete for the 34 new issues: Status `Blocked`; the
+  runtime/schema/contract/presentation children have Work Type `feature`,
+  while decision-only #1275-#1277 have Work Type `docs`. Every item has Day
+  Scope `Day 1`, Priority `P1`, Risk `manual-gate`, Progress
   `0%`, Manual Gate `Yes`, confidence `Medium`, Planned Start `2026-09-17`,
   Forecast `Blocked`, and Bundle ID `soft-delete-lifecycle`. #1256 is `L`,
   Initial/Remaining MD `5`; every other new child is `M`, Initial/Remaining MD
@@ -104,9 +106,9 @@
   settlement (#1261/#1267), mobile-ui (#1272/#1278-#1282/#1288), and web-user
   (#1273/#1283-#1287/#1289).
   Validation is API for #1255-#1257, storage for #1258/#1259, migration for
-  #1260-#1265, openapi-client for #1266-#1271, docs-only for #1275-#1277,
-  mobile-ui for #1272/#1278-#1282/#1288, and full for
-  #1273/#1283-#1287/#1289. Figma is `Yes` for #1272/#1273 and every focused
+  #1260-#1265, openapi-client for #1266-#1271, docs-only for
+  #1272/#1273/#1275-#1277, mobile-ui for #1278-#1282/#1288, and full for
+  #1283-#1287/#1289. Figma is `Yes` for #1272/#1273 and every focused
   presentation child #1278-#1289; their gate/owner is Figma/Reference and
   Figma. All others are `No` with Security, Mixed, Storage/Privacy,
   Migration/Schema, or OpenAPI/API blockers and Mixed ownership.
