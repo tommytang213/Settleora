@@ -1,5 +1,13 @@
 # OCR Native Build Validation Plan
 
+> **Historical and superseded:** This #437 packet records validation planning
+> for the legacy ML Kit provider. Tommy's 2026-09-18 PaddleOCR/ONNX Runtime
+> decision in [Mobile OCR implementation decision](MOBILE_OCR_IMPLEMENTATION_DECISION.md)
+> and [OCR architecture](OCR_ARCHITECTURE.md) is current authority. Past ML Kit
+> build evidence is historical baseline evidence only. Future Android/iOS OCR
+> validation must exercise the approved PaddleOCR model path and must not treat
+> the commands or future-tense wording below as current acceptance guidance.
+
 ## Purpose
 
 This docs/control packet records the #437 validation plan for proving the
@@ -11,12 +19,13 @@ runtime OCR changes, parser changes, review UI changes, API/OpenAPI changes,
 generated-client changes, schema changes, storage/file-byte behavior, money or
 settlement logic, Docker/CI/deploy changes, secrets, or Figma/reference assets.
 
-#437 owns native iOS/Android build validation planning. #436 owns the ML Kit
-provider integration plan and is merged. #438 remains the Figma/reference gate
-for fallback, error, retry, offline, and manual-entry UX. #439 owns parser and
-review handoff test planning and is merged. #359 remains open until the
-remaining OCR children and gates are resolved. Full Day 1 OCR readiness cannot
-be claimed from #437 alone.
+This historical plan was produced by #437, which is now closed. #436 produced
+the superseded ML Kit integration plan, and #439 produced parser/review handoff
+planning. #438 remains the Figma/reference gate for fallback, error, retry,
+offline, and manual-entry UX. Current native PaddleOCR implementation and real
+Android/iOS provider acceptance are owned by #1247. #359 remains open until the
+remaining OCR children and gates are resolved; this historical planning packet
+is not evidence of Day 1 OCR readiness.
 
 ## Current Repo Inspection
 
@@ -199,11 +208,13 @@ same Flutter version, build mode, target platform, and branch base. At minimum:
 - List obvious ML Kit/model/resource entries found by artifact inspection.
 
 No hidden pass/fail size threshold is defined by current repo docs. Size deltas
-must be explicitly reviewed when ML Kit, language packs, model assets, native
-frameworks, or packaging changes add meaningful weight. Day 1 Latin-script OCR
-remains the default phase. Non-Latin language/model assets, additional ML Kit
-script packages, or bundled OCR model expansion require explicit approval that
-names platform support, offline behavior, app-size impact, and licensing.
+must be explicitly reviewed when language packs, model assets, native
+frameworks, or packaging changes add meaningful weight. The former Day 1
+Latin-only/ML Kit assumption is superseded by the approved PaddleOCR Global
+Core architecture and #1247 acceptance scope. The human approval recorded for
+that architecture authorizes its multilingual offline model assets; evidence
+must still name platform support, offline behavior, app-size impact, and
+licensing.
 
 ## Offline And Local-Only Behavior
 
@@ -297,6 +308,7 @@ Future native validation reports must include:
   auth/security, storage, money, OCR runtime/native config, Docker/CI/deploy,
   secrets, UI, or Figma changed.
 
-Do not claim Day 1 OCR readiness until #437 native validation, #438
-fallback/reference gate, parser/review coverage, provider behavior, and parent
-#359 acceptance criteria are all satisfied through their proper scopes.
+This historical packet did not itself provide native validation. Current Day 1
+OCR readiness requires #1247's real PaddleOCR Android/iOS provider acceptance,
+#438 fallback/reference evidence, parser/review coverage, and the remaining
+#359 acceptance criteria through their proper scopes.

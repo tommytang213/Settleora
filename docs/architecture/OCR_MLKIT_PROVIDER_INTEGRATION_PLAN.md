@@ -1,5 +1,13 @@
 # OCR ML Kit Provider Integration Plan
 
+> **Historical and superseded:** This #436 packet records the legacy ML Kit
+> slice. Tommy's 2026-09-18 PaddleOCR/ONNX Runtime decision in
+> [Mobile OCR implementation decision](MOBILE_OCR_IMPLEMENTATION_DECISION.md)
+> and [OCR architecture](OCR_ARCHITECTURE.md) is current authority. Nothing in
+> this file directs present or future work to retain, restore, or expand ML Kit.
+> Imperative and future-tense wording below describes the completed historical
+> plan only and must not be used as implementation guidance.
+
 ## Purpose
 
 This docs/control packet records the #436 boundary for the ML Kit on-device OCR
@@ -50,17 +58,16 @@ authorization, bill finalization, money, splits, settlements, storage access,
 status transitions, sync acceptance, and audit. In local-only mode, local OCR
 can support local draft creation only after user review or correction.
 
-## Day 1 Phase And Language Scope
+## Historical Day 1 Phase And Language Scope
 
-Phase 1 is Latin-script only unless Tommy explicitly approves broader
-multilingual assets. The current provider should continue to use the Latin text
-recognition path for the first Day 1 slice.
+The completed Phase 1 was Latin-script only under the decision in force at that
+time. The provider used the Latin text-recognition path for that historical
+slice. The approved PaddleOCR Global Core replaces this limitation for current
+work.
 
-Broader multilingual support remains an architecture goal, not silent Day 1
-dependency scope. Chinese, Japanese, Korean, Devanagari, or other script
-support must not be added by pulling native model packages, traineddata assets,
-or large bundled OCR assets without separate approval that names app-size,
-offline behavior, licensing, platform support, and validation impact.
+The historical plan required separate approval for broader multilingual
+assets. That approval is now recorded in the current PaddleOCR/ONNX decision,
+including app-size, offline, licensing, platform, and validation controls.
 
 Unsupported language or script handling must route to review-safe fallback or
 manual-entry behavior. Unsupported results must not finalize a bill, apply a
@@ -86,9 +93,10 @@ only when explicitly scoped:
 - CI and device/emulator coverage required to prove the native plugin resolves
   and starts cleanly.
 
-#437 remains the native iOS/Android build validation gate. Provider work that
-requires native dependency changes must stop until #437's validation plan and
-commands are satisfied.
+The historical plan treated #437 as the future iOS/Android validation-planning
+dependency. #437 later closed as planning-only and never became native execution
+proof. Current PaddleOCR Android/iOS provider execution and acceptance belongs
+to #1247 and its focused native dependencies.
 
 This #436 docs packet must not change `apps/mobile/pubspec.yaml`, lockfiles,
 Android Gradle/Kotlin/Manifest files, iOS Podfile/CocoaPods/plist/Swift/Obj-C
@@ -158,9 +166,11 @@ Required fake-provider coverage:
 
 Tests must align with
 [OCR parser and review handoff test plan](OCR_PARSER_REVIEW_HANDOFF_TEST_PLAN.md).
-Full provider/native end-to-end coverage remains blocked by provider
-implementation scope, #437 native validation, and #438 fallback/error/retry UI
-reference.
+When this ML Kit plan was written, full provider/native end-to-end coverage was
+deferred to the provider implementation, #437 native-validation planning, and
+#438 fallback/error/retry UI reference. #437 is now closed, and the approved
+PaddleOCR implementation plus real Android/iOS provider acceptance is owned by
+#1247 under the current canonical architecture.
 
 ## Failure, Rollback, And Fallback Boundaries
 
@@ -202,9 +212,10 @@ cd apps/mobile && /opt/flutter/bin/flutter analyze
 cd apps/mobile && /opt/flutter/bin/flutter test
 ```
 
-Native iOS/Android validation remains #437 scope and should add exact platform
-build, Gradle, CocoaPods, model-availability, app-size, and offline behavior
-checks when that gate is opened.
+Historically, native iOS/Android validation planning was assigned to #437. That
+issue is closed; #1247 now owns exact platform builds, native package and model
+availability, app-size evidence, offline behavior, and real-provider Android
+and iOS acceptance for the approved PaddleOCR architecture.
 
 OpenAPI/generated-client validation is not required for provider-only mobile
 work unless the future slice changes API contracts or generated client output.

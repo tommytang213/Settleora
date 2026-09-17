@@ -1,5 +1,125 @@
 # OCR Architecture
 
+## Approved provider and execution architecture (2026-09-18)
+
+Tommy approved PaddleOCR as Settleora's canonical OCR model family for the
+mobile, desktop, and self-hosted server directions. This decision supersedes
+the earlier deferred-provider and ML Kit-first language in this document and
+in `MOBILE_OCR_IMPLEMENTATION_DECISION.md`.
+
+- Mobile and desktop use PP-OCRv6 Small as the preferred common-script fast
+  path where corpus evidence proves support. PP-OCRv6 Medium is the preferred
+  self-hosted server common-script path where it is supported, compatible, and
+  acceptance-proven; its higher resource cost does not weaken that preference.
+- PP-OCRv5 mobile multilingual/script recognizers supply required scripts that
+  PP-OCRv6 does not adequately cover. The current upstream catalog includes
+  dedicated Thai, Arabic, Cyrillic, Devanagari, Tamil, and Telugu recognizers,
+  plus Korean and broad Latin models. The exact Settleora inventory is pinned
+  only after compatibility and acceptance evidence; upstream marketing or a
+  language-list entry is not acceptance evidence.
+- ONNX Runtime is the preferred cross-platform inference layer. CPU is the
+  correctness baseline and must remain viable. XNNPACK, Core ML, NNAPI, QNN,
+  CUDA, TensorRT, or OpenVINO may be used only when results remain acceptance
+  equivalent. A component that cannot run correctly through ONNX Runtime may
+  use the smallest compatible runtime adapter behind the same provider/model
+  contract without changing the PaddleOCR family decision.
+- Recognition emits text, geometry, confidence, script/model identity, and
+  available orientation/order metadata. Paddle-specific types stop at the
+  provider boundary. Settleora parsing independently derives merchant, date,
+  currency and its provenance, items, quantities, unit prices, totals, tax,
+  service, and discounts. OCR never becomes financial authority.
+
+Official PaddleOCR deployment references currently provide both an Android
+ONNX Runtime SDK/demo and an iOS Swift/ONNX Runtime demo for PP-OCRv6 Small,
+PP-OCRv6 Tiny, and PP-OCRv5 Mobile. Their sample requirements and versions are
+feasibility inputs, not Settleora dependency pins. Settleora model packages
+must record their own source URL, immutable version, hash, license, runtime
+format, preprocessing version, parser version, and acceptance evidence.
+
+## Global Core and Extended model packs
+
+`Global Core` is functionally available by default in a normal Settleora
+installation. Users do not choose a model before scanning a common-language
+receipt. Implementations may keep recognizers unloaded until routed and may
+package the default inventory as install-time components, but first-use
+offline scanning cannot depend on an unannounced network download.
+
+The target Global Core families are broad Latin (including English, Spanish,
+Portuguese, French, German, Italian, Dutch, Polish, Turkish, Vietnamese, and
+Indonesian/Malay), Simplified and Traditional Chinese, Japanese, Korean,
+Arabic-script coverage including proven Persian/Urdu variants, Devanagari,
+Bengali, Thai, Cyrillic, and major South Asian scripts including Tamil and
+Telugu when their selected packs pass Settleora acceptance. A family enters
+the shipped inventory only after exact model/runtime and deterministic fixture
+evidence is recorded. The #1247 corpus is mandatory and immutable; focused
+additional fixtures are required for newly claimed Global Core families that
+it does not represent.
+
+Long-tail languages use optional `Extended` packs. Packs are individually
+installable where practical and support Download all. Every pack is
+version-pinned, integrity-verified, offline after installation, rollbackable,
+and carries compatibility, source, license, and acceptance metadata. No silent
+upgrade may change accepted OCR behavior.
+
+Mixed-script receipts are required. Routing uses always-available image,
+script, text, and confidence evidence; it must not need the missing recognizer
+to decide which recognizer is required. Phone or user locale is not model
+truth, one document is not assumed to have one language, and one weak token
+must not decide currency or script.
+
+## Client and server execution boundary
+
+Mobile and desktop model management is local to each device. Server/Admin
+model management controls only self-hosted server OCR models. Admin cannot
+remotely install or remove client packs. A server may mirror verified packages
+for clients, but each client chooses whether to install or remove its optional
+packs. Managed-device/MDM control is not Day 1.
+
+The approved default direction is `Enhanced OCR`:
+
+```text
+receipt image
+  -> client OCR immediately (offline, low latency, provisional)
+  -> server enhanced OCR concurrently when enabled/reachable/authorized
+```
+
+Suggestion precedence is:
+
+```text
+user-reviewed or edited value
+  > validated server OCR suggestion
+  > client OCR suggestion
+  > no suggestion
+```
+
+A late server result never overwrites a reviewed/edited field. Server
+unavailability, timeout, failure, or missing model never blocks the client
+result. Meaningful conflicts remain reviewable. `Local-first` runs server OCR
+only for low confidence, an unsupported script, or explicit Improve scan;
+`Client-only` disables server enhancement. Receipt upload still follows
+existing authorization, privacy, and file rules.
+
+Server implementation is separately owned from #1247. Its model registry must
+support Global Core plus optional packs, selected/all download and update,
+optional-pack deletion, pins, sizes/status/versions, safe usage information,
+storage budgets, and retention. On-demand acquisition uses a stable
+`modelPackId + modelVersion + runtimeFormat` lock, trusted manifest,
+hash/signature and compatibility verification, atomic activation, bounded
+retry, job resume, and rollback. Global Core, pinned, active-job, or
+not-provably-safe packs cannot be evicted. Removing a pack removes model bytes
+only, never receipts, images, parsed results, bill/review/audit history, or
+other product records.
+
+## Model supply-chain and privacy contract
+
+OCR artifacts are a supply-chain surface. Each artifact requires a pinned
+identity/version, trusted source, checksum, signature where supported, license
+metadata, dependency/SBOM scanning where applicable, atomic activation and
+rollback, and reproducible evidence tied to model, runtime, preprocessing, and
+parser versions. Model-provider telemetry is disabled by default. Routine
+logs contain no raw receipt image or text; only bounded operational metadata is
+allowed.
+
 ## Purpose
 
 Settleora requires OCR to support receipt capture and expense creation. Receipt images can become useful expense drafts only after text, amounts, merchant names, dates, currencies, and other candidate fields are extracted and reviewed.
@@ -51,7 +171,19 @@ The apply-preview endpoints are read-only validation previews for visible bill a
 
 The apply endpoints are explicit user actions guarded by stricter mutation rights than preview/list/read. Day 1 apply supports only `replace_draft_ocr_items`, rebuilds server-side preview validation at write time, preserves manual items, soft-replaces OCR-applied draft items from the same review, and records source markers on applied bill item candidates. It is limited to safe draft or draft-like one-participant/compatible-payer shapes and does not infer multi-participant split policy.
 
-Current OCR review runtime does not run OCR, enqueue worker jobs, store raw OCR full text, store receipt bytes, mutate settlement/payment/balance/proof/file/storage/OCR job/worker state, perform non-draft shared-bill revision apply, infer multi-participant splits, create thumbnails, or automatically finalize bills. Wider apply policy is tracked in [Receipt OCR review apply policy](RECEIPT_OCR_REVIEW_APPLY_POLICY.md).
+The current OCR review endpoints do not run OCR, enqueue worker jobs, store raw
+OCR full text or receipt bytes, mutate settlement/payment/balance/proof/file/
+storage/OCR job/worker state, infer multi-participant splits, or automatically
+finalize bills. Existing mobile intake can create an in-memory thumbnail, and
+existing server revision policy can route saved non-draft OCR changes through a
+formal revision proposal rather than this draft-only apply endpoint. Remaining
+client/visual non-draft apply work is tracked separately. Wider apply policy is
+tracked in [Receipt OCR review apply policy](RECEIPT_OCR_REVIEW_APPLY_POLICY.md).
+
+The mobile runtime at the time of this decision still uses the Latin-only ML
+Kit provider. The approved PaddleOCR/ONNX architecture, Global Core packaging,
+automatic mixed-script routing, and real Android/iOS manifest acceptance are
+not implemented merely because this decision is recorded.
 
 ## OCR Paths
 
@@ -61,7 +193,9 @@ On-device OCR is a required mobile capability. It is used for offline receipt pr
 
 The mobile app uses on-device OCR to create draft or provisional extracted data from captured or imported receipts. Before the data becomes a final local record or a queued server-mode change, the user must be able to review and edit the extracted fields.
 
-On-device OCR implementation choices are intentionally deferred. Future implementation should avoid bundling excessively large OCR or ML assets unless that tradeoff is explicitly approved later.
+The on-device provider and model-family choice is the approved PaddleOCR/ONNX
+architecture above. Model sizes and runtime costs must be measured and
+reported; no unmeasured size claim or provider substitution is permitted.
 
 ### Server-side OCR Worker
 
@@ -127,23 +261,26 @@ OCR-derived review and apply paths must also validate file purpose, storage poli
 
 ## Non-goals For Current Milestone
 
-- No OCR package choice yet.
-- No Flutter OCR implementation yet.
+- Recording this decision does not itself implement or accept the PaddleOCR
+  mobile provider, packages, or models.
 - No Python OCR implementation yet.
 - No server OCR engine or OCR worker runtime yet.
 - No standalone receipt/OCR upload outside bill attachments yet.
 - No automatic OCR-to-bill finalization from OCR completion, queue visibility, preview success, apply availability, or generated client availability.
-- No non-draft shared-bill OCR revision apply.
+- This decision adds no non-draft shared-bill OCR revision behavior; existing
+  server revision routing remains partial and its remaining client/visual work
+  stays separately owned.
 - No multi-participant OCR-to-split inference.
 - No generic file, receipt, or OCR API outside bill attachments.
-- No receipt thumbnail generation yet.
+- This decision adds no thumbnail behavior; existing mobile in-memory thumbnail
+  generation remains credited and broader lifecycle/storage gaps stay separate.
 
 ## Future Decisions
 
-- On-device OCR technology choice for iOS and Android is tracked in
-  [Mobile OCR implementation decision](MOBILE_OCR_IMPLEMENTATION_DECISION.md).
-- Whether to use platform-native OCR APIs, Flutter plugins, or platform channels.
-- Server OCR engine choice.
+- Exact Settleora model artifact versions, hashes, conversion settings, and
+  Global Core pack inventory after corpus validation.
+- Exact platform adapter and execution-provider optimization after CPU
+  correctness is proven.
 - Confidence scoring model.
 - Receipt image retention rules.
 - Local cache encryption strategy.
