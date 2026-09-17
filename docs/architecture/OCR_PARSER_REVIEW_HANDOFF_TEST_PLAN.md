@@ -1,11 +1,17 @@
 # OCR Parser And Review Handoff Test Plan
 
+> Historical planning record. The task ownership and blocking statements below
+> describe the #436/#437/#439 ML Kit planning sequence and are not current OCR
+> authority. The canonical provider/runtime decision is
+> [Mobile OCR implementation decision](MOBILE_OCR_IMPLEMENTATION_DECISION.md),
+> and #1247 owns current real-provider mobile acceptance.
+
 ## Purpose
 
-This docs/control packet defines the required test coverage for future OCR
-parser and review handoff work under #439. It covers mobile parser fixtures,
-provider fake-result tests, review-preview handoff behavior, fallback states,
-redaction expectations, and authority boundaries.
+This docs/control packet defined the required test coverage for OCR parser and
+review handoff work under the now-completed #439. It covers mobile parser
+fixtures, provider fake-result tests, review-preview handoff behavior, fallback
+states, redaction expectations, and authority boundaries.
 
 This packet does not authorize runtime implementation. It must not add native
 OCR dependencies, OCR provider runtime, API behavior, OpenAPI contracts,
@@ -18,9 +24,9 @@ Figma/reference assets, or financial authority.
 - Child issue: #439 `OCR parser and review handoff tests`
 - Candidate ID: `D1-CAND-021`
 - Bundle ID: `ocr-1`
-- Related gates:
-  - #436 owns the provider integration slice.
-  - #437 owns native iOS/Android build validation.
+- Historical related gates:
+  - #436 produced the superseded ML Kit provider integration plan.
+  - #437 produced the superseded native iOS/Android validation plan.
   - #438 remains the UI/Figma/reference gate for fallback, retry, offline,
     and manual-entry UX. This packet must not implement or replace #438.
 
@@ -136,9 +142,9 @@ or explicit fixture contracts proving parser/provider output does not:
 - bypass API/domain authorization, group membership checks, storage access
   policy, sync acceptance, status transition policy, or settlement safety.
 
-If a future implementation intentionally crosses any of these boundaries, #439
-is no longer the right scope. Stop and create a separately gated runtime,
-OpenAPI, schema, storage, money, or UI task.
+If an implementation intentionally crosses any of these boundaries, this
+historical #439 plan is not the right scope. Stop and create a separately gated
+runtime, OpenAPI, schema, storage, money, or UI task.
 
 ## Safe Logging And Redaction
 
@@ -182,7 +188,7 @@ cd apps/mobile && /opt/flutter/bin/flutter test test/receipt_ocr_capture/receipt
 cd apps/mobile && /opt/flutter/bin/flutter test
 ```
 
-Mobile provider integration under #436 or native validation under #437:
+Current mobile provider and native acceptance under #1247:
 
 ```bash
 npm run doctor:mobile
@@ -203,22 +209,20 @@ npm run validate:clients
 npm run validate:api-local
 ```
 
-Do not run or rely on these broader commands as evidence that #439 authorized
-those changes; they belong to separately scoped tasks.
+Do not run or rely on these broader commands as evidence that the historical
+#439 task authorized those changes; they belong to separately scoped tasks.
 
-## Blocked Future E2E Coverage
+## Historical E2E Dependencies
 
-Full end-to-end OCR parser/provider/review coverage remains blocked until later
-provider and native validation work lands:
+At the time this plan was written, full end-to-end OCR
+parser/provider/review coverage depended on later provider and native work:
 
-- #436 must provide the concrete provider integration boundary before provider
-  E2E tests can exercise real recognized text from an OCR engine.
-- #437 must validate iOS/Android native build behavior, model availability,
-  platform constraints, and native failure paths before native OCR E2E is a
-  reliable acceptance signal.
+- #436 was expected to provide the concrete provider integration boundary.
+- #437 was expected to plan iOS/Android native build and model validation.
 - #438 must provide the UI/Figma/reference direction before fallback, retry,
   offline, and manual-entry UX implementation is judged visually complete.
 
-Until those land, #439 coverage should stay at parser fixtures, deterministic
-fake-provider results, review handoff contracts, and non-mutation/redaction
-proof.
+#436, #437, and #439 are now closed planning/history. Their fake-provider and
+parser evidence does not satisfy real-provider acceptance. #1247 owns the
+approved PaddleOCR implementation plus real Android/iOS image-to-preview
+acceptance; #438 continues to own the referenced UX gate.

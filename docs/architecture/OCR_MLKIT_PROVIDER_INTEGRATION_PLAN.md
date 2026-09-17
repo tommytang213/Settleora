@@ -166,9 +166,11 @@ Required fake-provider coverage:
 
 Tests must align with
 [OCR parser and review handoff test plan](OCR_PARSER_REVIEW_HANDOFF_TEST_PLAN.md).
-Full provider/native end-to-end coverage remains blocked by provider
-implementation scope, #437 native validation, and #438 fallback/error/retry UI
-reference.
+When this ML Kit plan was written, full provider/native end-to-end coverage was
+deferred to the provider implementation, #437 native-validation planning, and
+#438 fallback/error/retry UI reference. #437 is now closed, and the approved
+PaddleOCR implementation plus real Android/iOS provider acceptance is owned by
+#1247 under the current canonical architecture.
 
 ## Failure, Rollback, And Fallback Boundaries
 
@@ -210,9 +212,10 @@ cd apps/mobile && /opt/flutter/bin/flutter analyze
 cd apps/mobile && /opt/flutter/bin/flutter test
 ```
 
-Native iOS/Android validation remains #437 scope and should add exact platform
-build, Gradle, CocoaPods, model-availability, app-size, and offline behavior
-checks when that gate is opened.
+Historically, native iOS/Android validation planning was assigned to #437. That
+issue is closed; #1247 now owns exact platform builds, native package and model
+availability, app-size evidence, offline behavior, and real-provider Android
+and iOS acceptance for the approved PaddleOCR architecture.
 
 OpenAPI/generated-client validation is not required for provider-only mobile
 work unless the future slice changes API contracts or generated client output.
