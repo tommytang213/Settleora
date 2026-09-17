@@ -8,8 +8,9 @@ the earlier deferred-provider and ML Kit-first language in this document and
 in `MOBILE_OCR_IMPLEMENTATION_DECISION.md`.
 
 - Mobile and desktop use PP-OCRv6 Small as the preferred common-script fast
-  path where corpus evidence proves support. The self-hosted server may use
-  PP-OCRv6 Medium where its higher cost is justified.
+  path where corpus evidence proves support. PP-OCRv6 Medium is the preferred
+  self-hosted server common-script path where it is supported, compatible, and
+  acceptance-proven; its higher resource cost does not weaken that preference.
 - PP-OCRv5 mobile multilingual/script recognizers supply required scripts that
   PP-OCRv6 does not adequately cover. The current upstream catalog includes
   dedicated Thai, Arabic, Cyrillic, Devanagari, Tamil, and Telugu recognizers,
