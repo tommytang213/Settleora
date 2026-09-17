@@ -73,11 +73,15 @@
     remain exact owners for their narrower browser prerequisites;
   - PKT-15: #465/#466/#467/#964, all downstream of approved #723, #724, and
     separate public/admin-exposure approval before any readout or control;
-  - PKT-16: delivery/history owners #369/#774/#973 after exact source-event
-    producers #345/#350/#352/#967/#969/#972, #1255-#1259,
-    #338/#339/#1059/#1275, #785/#787/#788, #394/#775/#776/#1276, and
-    #339/#784/#1277 as applicable; notification output never becomes source
-    authority;
+  - PKT-16: #369 owns notification event coverage, #774 owns credential
+    activity/security-center readout planning, and #973 owns notification
+    completeness/delivery-history reconciliation. Source-event production is
+    a close-rule obligation of the separately admitted executable runtime
+    child for each transition, after its exact #967/#969/#972,
+    #1255-#1259, #338/#339/#1059/#1275, #785/#787/#788,
+    #394/#775/#776/#1276, or #784/#1277 planning/decision authority as
+    applicable. None of those docs/audit/decision owners is itself called a
+    runtime producer, and notification output never becomes source authority;
   - PKT-17: #406/#971; PKT-18: #358/#406/#966/#971; and
   - PKT-19: #339/#774/#784/#973 plus completed #965 and focused decision owner
     #1277 for trusted-source/distributed abuse controls.
