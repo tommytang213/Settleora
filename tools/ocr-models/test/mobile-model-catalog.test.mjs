@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -26,26 +26,20 @@ test("verification rejects changed model bytes", async () => {
   const temporaryRoot = mkdtempSync(path.join(tmpdir(), "settleora-ocr-catalog-"));
   const source = JSON.parse(readFileSync(path.join(repoRoot, catalogRelativePath), "utf8"));
   const pack = source.packs[0];
-  source.packs = [{
-    ...pack,
-    files: [
-      { ...pack.files[0], bytes: 7 },
-      { ...pack.files[1], bytes: 6 },
-    ],
-  }];
-  source.totalBundledBytes = 13;
-  const catalogPath = path.join(temporaryRoot, catalogRelativePath);
-  mkdirSync(path.dirname(catalogPath), { recursive: true });
-  writeFileSync(catalogPath, `${JSON.stringify(source)}\n`);
+  cpSync(
+    path.join(repoRoot, "apps/mobile/assets/receipt_ocr_models"),
+    path.join(temporaryRoot, "apps/mobile/assets/receipt_ocr_models"),
+    { recursive: true },
+  );
   const modelPath = path.join(
     temporaryRoot,
     "apps/mobile",
     pack.assetDirectory,
     pack.files[0].name,
   );
-  mkdirSync(path.dirname(modelPath), { recursive: true });
-  writeFileSync(modelPath, "changed");
-  writeFileSync(path.join(path.dirname(modelPath), pack.files[1].name), "config");
+  const changed = readFileSync(modelPath);
+  changed[0] ^= 0xff;
+  writeFileSync(modelPath, changed);
 
   const result = await verifyCatalog(temporaryRoot);
   assert.equal(result.ok, false);
@@ -55,11 +49,15 @@ test("verification rejects changed model bytes", async () => {
 test("verification rejects a partial model pack", async () => {
   const temporaryRoot = mkdtempSync(path.join(tmpdir(), "settleora-ocr-partial-"));
   const source = JSON.parse(readFileSync(path.join(repoRoot, catalogRelativePath), "utf8"));
-  source.packs = [source.packs[0]];
-  source.totalBundledBytes = source.packs[0].files.reduce((total, file) => total + file.bytes, 0);
-  const catalogPath = path.join(temporaryRoot, catalogRelativePath);
-  mkdirSync(path.dirname(catalogPath), { recursive: true });
-  writeFileSync(catalogPath, `${JSON.stringify(source)}\n`);
+  const pack = source.packs[0];
+  cpSync(
+    path.join(repoRoot, "apps/mobile/assets/receipt_ocr_models"),
+    path.join(temporaryRoot, "apps/mobile/assets/receipt_ocr_models"),
+    { recursive: true },
+  );
+  for (const file of pack.files) {
+    rmSync(path.join(temporaryRoot, "apps/mobile", pack.assetDirectory, file.name));
+  }
 
   const result = await verifyCatalog(temporaryRoot);
   assert.equal(result.ok, false);
@@ -78,4 +76,22 @@ test("catalog rejects incompatible runtime metadata", () => {
   writeFileSync(catalogPath, `${JSON.stringify(source)}\n`);
 
   assert.throws(() => loadCatalog(temporaryRoot), /Unsupported OCR runtime compatibility metadata/);
+});
+
+test("catalog rejects substituted provider, model, and ONNX metadata", () => {
+  const mutations = [
+    ["provider", (catalog) => { catalog.upstream.providerFamily = "OtherOCR"; }, /provider identity/],
+    ["model", (catalog) => { catalog.packs[0].modelName = "substituted_det"; }, /trusted inventory/],
+    ["opset", (catalog) => { catalog.packs[0].inference.opset = 15; }, /trusted inventory/],
+    ["pack", (catalog) => { catalog.packs.pop(); }, /trusted inventory/],
+  ];
+  for (const [name, mutate, expected] of mutations) {
+    const temporaryRoot = mkdtempSync(path.join(tmpdir(), `settleora-ocr-${name}-`));
+    const source = JSON.parse(readFileSync(path.join(repoRoot, catalogRelativePath), "utf8"));
+    mutate(source);
+    const catalogPath = path.join(temporaryRoot, catalogRelativePath);
+    mkdirSync(path.dirname(catalogPath), { recursive: true });
+    writeFileSync(catalogPath, `${JSON.stringify(source)}\n`);
+    assert.throws(() => loadCatalog(temporaryRoot), expected);
+  }
 });

@@ -65,6 +65,8 @@ flutter:
 
   assets:
     - assets/receipt_ocr_models/catalog.json
+    - assets/receipt_ocr_models/NOTICE.md
+    - assets/receipt_ocr_models/LICENSE-APACHE-2.0.txt
     - assets/receipt_ocr_models/ppocrv6-small-det/
     - assets/receipt_ocr_models/ppocrv6-small-rec/
     - assets/receipt_ocr_models/ppocrv5-arabic-rec/

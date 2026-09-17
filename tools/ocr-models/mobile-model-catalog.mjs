@@ -4,6 +4,7 @@ import path from "node:path";
 
 export const catalogRelativePath = "apps/mobile/assets/receipt_ocr_models/catalog.json";
 const mobileRelativePath = "apps/mobile";
+const trustedCatalogSha256 = "1dfde4b54ae2d7ee890a7e09bacf45ad6a9dbee0c04a276b2eeef20fe2b3e9b9";
 
 export function loadCatalog(repoRoot) {
   const catalogPath = path.join(repoRoot, catalogRelativePath);
@@ -42,6 +43,7 @@ export async function verifyCatalog(repoRoot) {
         failures.push(`${relativePath}: sha256 mismatch`);
       }
     }
+    verifyConfigurationContract(repoRoot, pack, failures);
   }
 
   if (observedTotalBytes !== catalog.totalBundledBytes) {
@@ -58,11 +60,24 @@ export function sourceUrl(pack, file) {
 
 function validateCatalogShape(catalog) {
   if (catalog.schemaVersion !== 1) throw new Error("Unsupported OCR model catalog schema");
+  if (
+    catalog.catalogId !== "settleora-mobile-ocr-global-core" ||
+    catalog.catalogVersion !== "2026.09.18.1"
+  ) {
+    throw new Error("Unexpected OCR model catalog identity");
+  }
   if (catalog.runtimeFormat !== "onnx") throw new Error("OCR model catalog must use ONNX");
   if (catalog.distribution !== "bundled_global_core") {
     throw new Error("Mobile OCR catalog must be bundled Global Core");
   }
   if (catalog.license !== "Apache-2.0") throw new Error("Unexpected OCR model license");
+  if (
+    catalog.upstream?.organization !== "PaddlePaddle" ||
+    catalog.upstream?.providerFamily !== "PaddleOCR" ||
+    catalog.upstream?.catalog !== "https://huggingface.co/PaddlePaddle"
+  ) {
+    throw new Error("Unexpected OCR model provider identity");
+  }
   if (
     catalog.runtimeCompatibility?.androidBaseline !== "onnxruntime-android 1.21.1" ||
     catalog.runtimeCompatibility?.iosBaseline !== "onnxruntime-objc 1.24.x" ||
@@ -113,6 +128,10 @@ function validateCatalogShape(catalog) {
       }
     }
   }
+  const observedCatalogSha256 = createHash("sha256").update(canonicalJson(catalog)).digest("hex");
+  if (observedCatalogSha256 !== trustedCatalogSha256) {
+    throw new Error("OCR model catalog does not match the reviewed trusted inventory");
+  }
 }
 
 function validateInference(pack) {
@@ -137,4 +156,42 @@ function validateInference(pack) {
   ) {
     throw new Error(`Recognition pack ${pack.modelPackId} has incompatible tensor metadata`);
   }
+}
+
+function verifyConfigurationContract(repoRoot, pack, failures) {
+  const configPath = path.join(repoRoot, mobileRelativePath, pack.assetDirectory, "inference.yml");
+  if (!existsSync(configPath)) return;
+  const config = readFileSync(configPath, "utf8");
+  const modelName = config.match(/^  model_name: (.+)$/m)?.[1];
+  if (modelName !== pack.modelName) {
+    failures.push(`${pack.assetDirectory}/inference.yml: model_name does not match catalog`);
+  }
+  if (pack.role === "detection") {
+    if (!/^  name: DBPostProcess$/m.test(config)) {
+      failures.push(`${pack.assetDirectory}/inference.yml: unsupported detection postprocess`);
+    }
+    return;
+  }
+  if (!/^  name: CTCLabelDecode$/m.test(config)) {
+    failures.push(`${pack.assetDirectory}/inference.yml: unsupported recognition postprocess`);
+  }
+  const dictionaryStart = config.search(/^  character_dict:\s*$/m);
+  const dictionary = dictionaryStart < 0
+    ? []
+    : config.slice(dictionaryStart).split("\n").filter((line) => line.startsWith("  - "));
+  if (dictionary.length + 2 !== pack.inference.outputClasses) {
+    failures.push(
+      `${pack.assetDirectory}/inference.yml: dictionary/classes expected=${pack.inference.outputClasses} actual=${dictionary.length + 2}`,
+    );
+  }
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map(
+      (key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`,
+    ).join(",")}}`;
+  }
+  return JSON.stringify(value);
 }

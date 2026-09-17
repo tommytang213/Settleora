@@ -22,6 +22,9 @@ fixture evidence before Global Core admission. No compatible official
 lightweight Bengali recognizer was identified at this catalog version; that
 unresolved coverage must not be represented as installed or supported.
 
+The complete applicable license is distributed beside this notice as
+`LICENSE-APACHE-2.0.txt` and is included in Settleora mobile artifacts.
+
 Upstream license: https://www.apache.org/licenses/LICENSE-2.0
 
 Upstream organization: https://huggingface.co/PaddlePaddle
