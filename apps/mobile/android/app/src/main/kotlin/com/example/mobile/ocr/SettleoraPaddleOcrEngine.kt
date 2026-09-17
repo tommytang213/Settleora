@@ -24,11 +24,7 @@ import com.paddle.ocr.util.OpenCVUtils
  */
 class SettleoraPaddleOcrEngine(context: Context) {
     private val appContext = context.applicationContext
-    private val config = PaddleOCRConfig(
-        detMaxSideLimit = 1600,
-        recScoreThresh = 0.1f,
-        recBatchSize = 4,
-    )
+    private val config = settleoraPaddleOcrConfig()
     private val sessions = ORTSessionManager(appContext, EngineConfig())
     private val detector: DetectionEngine
     private val packs: List<RecognizerPack>
@@ -69,6 +65,8 @@ class SettleoraPaddleOcrEngine(context: Context) {
         }
 
         val totalStart = System.currentTimeMillis()
+        var sourceNeedsRelease = true
+        val crops = mutableListOf<org.opencv.core.Mat>()
         return try {
             val detection = detector.detect(source)
             val sortedBoxes = BoxSorter.sortInReadingOrder(detection.boxes)
@@ -76,80 +74,80 @@ class SettleoraPaddleOcrEngine(context: Context) {
             var recognitionTimeMs = 0L
 
             val validBoxes = mutableListOf<Pair<Int, com.paddle.ocr.model.OCRBox>>()
-            val crops = mutableListOf<org.opencv.core.Mat>()
-            for ((order, box) in sortedBoxes.take(MAX_RECOGNITION_LINES).withIndex()) {
-                val fullResolutionCrop = QuadTextCrop.crop(source, box)
-                if (fullResolutionCrop.empty()) {
-                    fullResolutionCrop.release()
-                } else {
-                    val crop = try {
-                        RecPreprocessor.resizeForRecognition(fullResolutionCrop)
-                    } finally {
-                        fullResolutionCrop.release()
-                    }
-                    validBoxes += order to box
-                    crops += crop
-                }
-            }
             try {
-                if (crops.isNotEmpty()) {
-                    val candidatesByLine = List(crops.size) { mutableListOf<ScriptCandidate>() }
-                    val batches = crops.indices
-                        .groupBy { index -> recognitionBatchCapacity(crops[index]) }
-                        .flatMap { (capacity, indices) ->
-                            indices.sortedBy { index -> crops[index].cols().toDouble() / crops[index].rows() }
-                                .chunked(capacity)
+                for ((order, box) in sortedBoxes.take(MAX_RECOGNITION_LINES).withIndex()) {
+                    val fullResolutionCrop = QuadTextCrop.crop(source, box)
+                    if (fullResolutionCrop.empty()) {
+                        fullResolutionCrop.release()
+                    } else {
+                        val crop = try {
+                            RecPreprocessor.resizeForRecognition(fullResolutionCrop)
+                        } finally {
+                            fullResolutionCrop.release()
                         }
-
-                    for (pack in packs) {
-                        for (batchIndices in batches) {
-                            val batchStart = System.currentTimeMillis()
-                            val input = RecPreprocessor.preprocessBatch(
-                                batchIndices.map { index -> crops[index] },
-                            )
-                            val decoded = sessions.runRecognitionDecoded(
-                                pack.spec.modelPackId,
-                                input.tensorData,
-                                input.shape,
-                                pack.characters,
-                            )
-                            recognitionTimeMs += System.currentTimeMillis() - batchStart
-                            check(decoded.size == batchIndices.size) {
-                                "Recognition batch size mismatch"
-                            }
-                            decoded.forEachIndexed { batchIndex, value ->
-                                val lineIndex = batchIndices[batchIndex]
-                                candidatesByLine[lineIndex] += ScriptCandidate(
-                                    text = RecognizedTextNormalizer.normalize(
-                                        value.first.trim(),
-                                        pack.spec,
-                                    ),
-                                    confidence = value.second,
-                                    pack = pack.spec,
-                                )
-                            }
-                        }
-                    }
-
-                    candidatesByLine.forEachIndexed { index, candidates ->
-                        val accepted = ScriptRouteSelector.select(candidates)
-                        if (accepted != null && accepted.confidence >= config.recScoreThresh) {
-                            val (order, box) = validBoxes[index]
-                            blocks += SettleoraOcrBlock(
-                                text = accepted.text,
-                                confidence = accepted.confidence,
-                                modelPackId = accepted.pack.modelPackId,
-                                modelVersion = accepted.pack.modelVersion,
-                                order = order,
-                                points = box.points.map { point ->
-                                    SettleoraOcrPoint(point.x, point.y)
-                                },
-                            )
-                        }
+                        validBoxes += order to box
+                        crops += crop
                     }
                 }
             } finally {
-                crops.forEach { it.release() }
+                source.release()
+                sourceNeedsRelease = false
+            }
+            if (crops.isNotEmpty()) {
+                val candidatesByLine = List(crops.size) { mutableListOf<ScriptCandidate>() }
+                val batches = crops.indices
+                    .groupBy { index -> recognitionBatchCapacity(crops[index]) }
+                    .flatMap { (capacity, indices) ->
+                        indices.sortedBy { index -> crops[index].cols().toDouble() / crops[index].rows() }
+                            .chunked(capacity)
+                    }
+
+                for (pack in packs) {
+                    for (batchIndices in batches) {
+                        val batchStart = System.currentTimeMillis()
+                        val input = RecPreprocessor.preprocessBatch(
+                            batchIndices.map { index -> crops[index] },
+                        )
+                        val decoded = sessions.runRecognitionDecoded(
+                            pack.spec.modelPackId,
+                            input.tensorData,
+                            input.shape,
+                            pack.characters,
+                        )
+                        recognitionTimeMs += System.currentTimeMillis() - batchStart
+                        check(decoded.size == batchIndices.size) {
+                            "Recognition batch size mismatch"
+                        }
+                        decoded.forEachIndexed { batchIndex, value ->
+                            val lineIndex = batchIndices[batchIndex]
+                            candidatesByLine[lineIndex] += ScriptCandidate(
+                                text = RecognizedTextNormalizer.normalize(
+                                    value.first.trim(),
+                                    pack.spec,
+                                ),
+                                confidence = value.second,
+                                pack = pack.spec,
+                            )
+                        }
+                    }
+                }
+
+                candidatesByLine.forEachIndexed { index, candidates ->
+                    val accepted = ScriptRouteSelector.select(candidates)
+                    if (accepted != null && accepted.confidence >= config.recScoreThresh) {
+                        val (order, box) = validBoxes[index]
+                        blocks += SettleoraOcrBlock(
+                            text = accepted.text,
+                            confidence = accepted.confidence,
+                            modelPackId = accepted.pack.modelPackId,
+                            modelVersion = accepted.pack.modelVersion,
+                            order = order,
+                            points = box.points.map { point ->
+                                SettleoraOcrPoint(point.x, point.y)
+                            },
+                        )
+                    }
+                }
             }
 
             SettleoraOcrRunResult(
@@ -163,7 +161,8 @@ class SettleoraPaddleOcrEngine(context: Context) {
                 totalTimeMs = System.currentTimeMillis() - totalStart,
             )
         } finally {
-            source.release()
+            crops.forEach { it.release() }
+            if (sourceNeedsRelease) source.release()
         }
     }
 
@@ -258,6 +257,16 @@ class SettleoraPaddleOcrEngine(context: Context) {
         )
     }
 }
+
+internal fun settleoraPaddleOcrConfig() = PaddleOCRConfig(
+    detMaxSideLimit = 1600,
+    detThresh = 0.2f,
+    detBoxThresh = 0.45f,
+    detUnclipRatio = 1.4f,
+    detMaxCandidates = 3000,
+    recScoreThresh = 0.1f,
+    recBatchSize = 4,
+)
 
 data class SettleoraOcrRunResult(
     val blocks: List<SettleoraOcrBlock>,

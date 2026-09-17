@@ -202,6 +202,8 @@ function verifyFlutterAssetContract(repoRoot, catalog, failures) {
   )].map((match) => match[1]).sort();
   const expected = [
     "assets/receipt_ocr_models/LICENSE-APACHE-2.0.txt",
+    "assets/receipt_ocr_models/LICENSE-ONNXRUNTIME-MIT.txt",
+    "assets/receipt_ocr_models/LICENSE-OPENCV-BSD-3-CLAUSE.txt",
     "assets/receipt_ocr_models/NOTICE.md",
     "assets/receipt_ocr_models/catalog.json",
     ...catalog.packs.map((pack) => `${pack.assetDirectory}/`),

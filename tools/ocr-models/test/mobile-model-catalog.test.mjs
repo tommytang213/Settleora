@@ -88,6 +88,20 @@ test("verification rejects Flutter packaging drift", async (t) => {
   assert.match(result.failures.join("\n"), /OCR asset inventory does not match catalog/);
 });
 
+test("verification rejects missing runtime license packaging", async (t) => {
+  const temporaryRoot = copyVerificationFixture(t, "settleora-ocr-license-");
+  const pubspecPath = path.join(temporaryRoot, "apps/mobile/pubspec.yaml");
+  const pubspec = readFileSync(pubspecPath, "utf8").replace(
+    "    - assets/receipt_ocr_models/LICENSE-ONNXRUNTIME-MIT.txt\n",
+    "",
+  );
+  writeFileSync(pubspecPath, pubspec);
+
+  const result = await verifyCatalog(temporaryRoot);
+  assert.equal(result.ok, false);
+  assert.match(result.failures.join("\n"), /OCR asset inventory does not match catalog/);
+});
+
 test("verification rejects drift in bound parser evidence", async (t) => {
   const temporaryRoot = copyVerificationFixture(t, "settleora-ocr-parser-");
   const parserPath = path.join(

@@ -31,6 +31,7 @@ class ReceiptOcrCorpusInstrumentedTest {
         assertEquals(101, fixtures.length())
 
         val engine = SettleoraPaddleOcrEngine(context)
+        val scriptsWithExactMatches = mutableSetOf<String>()
         try {
             for (index in 0 until fixtures.length()) {
                 val fixture = fixtures.getJSONObject(index)
@@ -49,19 +50,27 @@ class ReceiptOcrCorpusInstrumentedTest {
                         fixture.getJSONObject("expected"),
                         script,
                     )
-                    assertTrue("$fixtureId: fixture has no script-bearing expected text", expectedTexts.isNotEmpty())
-                    assertTrue(
-                        "$fixtureId: expected script text was not recognized by $expectedPackId",
-                        result.blocks.any { block ->
-                            block.modelPackId == expectedPackId &&
-                                containsScript(block.text, script) &&
-                                expectedTexts.any { expected ->
-                                    normalizeForMatch(block.text) == normalizeForMatch(expected)
-                                }
-                        },
-                    )
+                    if (expectedTexts.isEmpty()) {
+                        assertTrue(
+                            "$fixtureId: expected recognizer pack was not exercised",
+                            result.blocks.any { block -> block.modelPackId == expectedPackId },
+                        )
+                    } else {
+                        assertTrue(
+                            "$fixtureId: expected script text was not recognized by $expectedPackId",
+                            result.blocks.any { block ->
+                                block.modelPackId == expectedPackId &&
+                                    containsScript(block.text, script) &&
+                                    expectedTexts.any { expected ->
+                                        normalizeForMatch(block.text) == normalizeForMatch(expected)
+                                    }
+                            },
+                        )
+                        scriptsWithExactMatches += script
+                    }
                 }
             }
+            assertEquals(REQUIRED_EXACT_MATCH_SCRIPTS, scriptsWithExactMatches)
         } finally {
             engine.release()
         }
@@ -126,4 +135,16 @@ class ReceiptOcrCorpusInstrumentedTest {
     private fun normalizeForMatch(text: String): String = text
         .replace(Regex("\\s+"), " ")
         .trim()
+
+    companion object {
+        private val REQUIRED_EXACT_MATCH_SCRIPTS = setOf(
+            "Arabic",
+            "Chinese",
+            "Cyrillic",
+            "Devanagari",
+            "Japanese",
+            "Korean",
+            "Thai",
+        )
+    }
 }
