@@ -1,5 +1,156 @@
 # Issue Progress Ledger
 
+### Issue #722 — Lifecycle implementation split and focused handoff (2026-09-17 HKT)
+
+- Logical task `20260917-2247` used retained source branch
+  `docs/722-lifecycle-implementation-split-hygiene-20260917-2247` from exact
+  starting main `9a994f7bba319fd1fc5a01ad2b7147f9afae5cf3` (tree
+  `28dddf8d2065d0eb6440dcaf06e542438220096d`). Main matched the generated
+  checkpoint after a normal fetch. The protected worktree was clean before the
+  branch was created. [Hygiene PR #1274](https://github.com/tommytang213/Settleora/pull/1274)
+  carries this one-file checkpoint; after exact-head convergence its reviewed
+  source head and normal merge SHA will be retained in task report
+  `/workspace/logs/settleora-codex-report-20260917-2247-issue-722-lifecycle-implementation-split.md`.
+- Live source prerequisites are complete: #961 remains CLOSED/reconciled through
+  PRs #1248/#1249, and #724 remains CLOSED/reconciled through policy PR #1251
+  and ledger PR #1254. #723 remains OPEN, `figma:required`, `manual-gate`, and
+  unstarted. #1252 (PKT-08) and #1253 (PKT-09) remain OPEN, unstarted, and
+  manually gated; #1253 also retains `danger-gate` and is never runner-eligible.
+- The pre-creation duplicate search covered all-state issues and exact close
+  rules, PRs, local/remote branches, recent/all commits, Project items, the
+  ledger and merged planning/architecture docs, and `.codex/reports/`. Open
+  umbrellas were not treated as exact owners merely because they named a
+  domain. Closed issues were reused only as completed prerequisites. No prior
+  exact #722 branch/PR or equivalent set of lifecycle schema/contract/runtime
+  children existed.
+- The complete 19-packet ownership map is:
+  - PKT-01: #345 bill lifecycle, #350 quantity claims, #352 manual FX, #967
+    bills/money completeness, #969 settlement completeness, and #972
+    recurrence completeness. The three completeness owners must name any
+    later executable backend slice; this handoff does not treat them as
+    runtime implementation permission;
+  - PKT-02: #1255 group-root archive/reactivate, #1256 membership/history
+    authorization, and #1257 group invitation-to-membership, with #976 as the
+    read-only completeness owner. Their exact Day 1 source mappings are
+    `GRP-002..003` / `MEM-CHOICE-001..002,009..011,013..014`,
+    `MEM-001..002,MEM-007..008,HIST-001..002` /
+    `MEM-CHOICE-001,005..007,009..011,014..015`, and `INV-001..005` /
+    `MEM-CHOICE-007,009..011,016`, respectively; Day 2 rows `MEM-003..006`
+    remain excluded;
+  - PKT-03: #1258 file-object logical lifecycle and #1259 subject-link
+    lifecycle, retaining #341/#966/#1062 boundaries;
+  - PKT-04: #338/#339/#1059, completed #965 reconciliation, and focused
+    decision owner #1275 for passkey completion-time session/credential
+    handoff;
+  - PKT-05: #785/#787/#788 and completed #965 reconciliation;
+  - PKT-06: #394/#775/#776 plus completed #413-#417/#501/#502 inputs, with
+    #465 retained only as admin UI; focused decision owners are #1275 for
+    passkey/session handoff and #1276 for password-primary MFA pending-flow
+    binding;
+  - PKT-07: completed #724;
+  - PKT-08: #1252; PKT-09: #1253;
+  - PKT-10: #1260 bill/revision, #1261 settlement, #1262 recurrence, #1263
+    group/membership/invitation, #1264 file-object/reconciliation, and #1265
+    file subject-link persistence families. #1263 uses the union of the exact
+    Day 1 PKT-02 rows and choices above, excluding `MEM-003..006`; exact auth
+    schema owners remain #501/#784/#1059 and the #785/#787/#788 split as
+    applicable;
+  - PKT-11: #1266 bill/revision, #1267 settlement, #1268 recurrence, #1269
+    group/membership/invitation, #1270 file-object/reconciliation, and #1271
+    file subject-link OpenAPI/generated-client families. #1269 uses the same
+    exact Day 1 PKT-02 source union as #1263; exact auth contract owners remain
+    #502/#784/#1059 and the #785/#787/#788 split as applicable;
+  - PKT-12: #723;
+  - PKT-13: coordination-only #1272, with focused mobile surfaces #1278
+    bill/revision, #1279 settlement/payment, #1280 recurrence, #1281
+    group/membership/invitation, #1282 file/attachment, and #1288
+    first-owner/account-security composition; existing #774/#776/#784/#1204
+    remain exact owners for their narrower mobile auth surfaces;
+  - PKT-14: coordination-only #1273, with focused user-web surfaces #1283
+    bill/revision, #1284 settlement/payment, #1285 recurrence, #1286
+    group/membership/invitation, #1287 file/attachment, and #1289
+    auth/session/account-security boundary; existing #339/#373/#774/#784
+    remain exact owners for their narrower browser prerequisites;
+  - PKT-15: #465/#466/#467/#964, all downstream of approved #723, #724, and
+    separate public/admin-exposure approval before any readout or control;
+  - PKT-16: #369 owns notification event coverage, #774 owns credential
+    activity/security-center readout planning, and #973 owns notification
+    completeness/delivery-history reconciliation. Source-event production is
+    a close-rule obligation of the separately admitted executable runtime
+    child for each transition, after its exact #967/#969/#972,
+    #1255-#1259, #338/#339/#1059/#1275, #785/#787/#788,
+    #394/#775/#776/#1276, or #784/#1277 planning/decision authority as
+    applicable. None of those docs/audit/decision owners is itself called a
+    runtime producer, and notification output never becomes source authority;
+  - PKT-17: #406/#971; PKT-18: #358/#406/#966/#971; and
+  - PKT-19: #339/#774/#784/#973 plus completed #965 and focused decision owner
+    #1277 for trusted-source/distributed abuse controls.
+- Thirty-four new issues form the #722 hierarchy: the 22 issues #1255-#1273
+  and #1275-#1277 are direct #722 sub-issues (number #1274 is this ledger PR,
+  not an issue); #1278-#1282/#1288 are focused children of
+  coordination-only #1272, and #1283-#1287/#1289 are focused children of
+  coordination-only #1273. Each executable or decision-gated child records
+  one canonical lane, goal, exact source rows and choice ranges, qualified
+  gates, prerequisites/order, path strategy, forbidden scope, validation,
+  `strong_independent` review, Figma/manual/runner posture, Day classification,
+  close rule, and the explicit rule that unresolved decisions remain
+  fail-closed. #1272/#1273 authorize only issue/Project coordination. None
+  carries `auto-ready`, `auto-bundle`, `codex:ready`, or
+  `codex:running`; none was started.
+- Project readback is complete for the 34 new issues: Status `Blocked`; the
+  runtime/schema/contract/presentation children have Work Type `feature`,
+  while decision-only #1275-#1277 have Work Type `docs`. Every item has Day
+  Scope `Day 1`, Priority `P1`, Risk `manual-gate`, Progress
+  `0%`, Manual Gate `Yes`, confidence `Medium`, Planned Start `2026-09-17`,
+  Forecast `Blocked`, and Bundle ID `soft-delete-lifecycle`. #1256 is `L`,
+  Initial/Remaining MD `5`; every other new child is `M`, Initial/Remaining MD
+  `2`. Coordination-only #1272/#1273 have Work Type `task`. Areas are auth
+  (#1255-#1257/#1263/#1269/#1275-#1277), storage
+  (#1258/#1259/#1264/#1265/#1270/#1271), bills (#1260/#1262/#1266/#1268),
+  settlement (#1261/#1267), mobile-ui (#1272/#1278-#1282/#1288), and web-user
+  (#1273/#1283-#1287/#1289).
+  Validation is API for #1255-#1257, storage for #1258/#1259, migration for
+  #1260-#1265, openapi-client for #1266-#1271, docs-only for
+  #1272/#1273/#1275-#1277, mobile-ui for #1278-#1282/#1288, and full for
+  #1283-#1287/#1289. Figma is `Yes` for #1272/#1273 and every focused
+  presentation child #1278-#1289; their gate/owner is Figma/Reference and
+  Figma. All others are `No` with Security, Mixed, Storage/Privacy,
+  Migration/Schema, or OpenAPI/API blockers and Mixed ownership.
+- Dependency order is source-domain approved semantics under one named runtime
+  authority -> #724 retention/dependency requirements where applicable -> its
+  exact PKT-10 additive schema family when needed -> its exact PKT-11 OpenAPI
+  contract -> repository-generated web/Dart clients -> runtime implementation
+  against those accepted artifacts -> one #723-approved focused
+  mobile/user-web surface. This separates accepted runtime authority from the
+  later runtime code step and matches #1255-#1259 prerequisites. PKT-15 admin
+  readouts/controls are separately downstream of approved #723, #724, and
+  public/admin-exposure approval. Source audit/event production precedes
+  notification delivery/history; sync/import/export/restore and client-copy
+  owners contribute evidence without becoming lifecycle authority. PKT-08
+  precedes PKT-09 for orphan/failed-upload disposition. Destructive migration,
+  provider bytes, replicas/backups, production maintenance, and actual purge
+  remain separately and explicitly human-approved.
+- #723 was not executed or changed. #1252/#1253 and every reused/new
+  implementation child remain unstarted. The 101-fixture OCR corpus under
+  `apps/mobile/test/fixtures/receipt_ocr/` was not touched or regenerated;
+  every focused presentation child requires any later OCR-related regression
+  to consume committed
+  `manifest.json` ground truth.
+- This hygiene candidate changes only
+  `docs/planning/ISSUE_PROGRESS_LEDGER.md`. It makes no runtime,
+  schema/migration, API/OpenAPI/generated-client, UI/Figma, file-byte/provider,
+  auth/security accepted-semantics, authorization/privacy, money/calculation,
+  notification delivery, sync/import/export/restore runtime, deployment,
+  production, secret/configuration, destructive, product-requirement,
+  architecture-direction, or Day 1 scope change. R05/#1235, #975, #946,
+  autonomous queue activation, and implementation execution remain untouched.
+- After this exact ledger head merges and external issue/Project readback is
+  reconfirmed, #722 may receive its complete handoff comment, move to Project
+  `Merged` with Initial MD preserved, Remaining MD `0`, Progress `100%`, done
+  date `2026-09-17`, no blocking gate, Assistant ownership and On Track
+  forecast, then close completed. #716 receives the final blocker map and
+  remains OPEN. #961 may receive concise handoff evidence but stays CLOSED.
+
 ### Issue #724 — Retention, dependency, and terminal-disposition planning (2026-09-17 HKT)
 
 - Logical task `20260917-2114` used retained source branch
