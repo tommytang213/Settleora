@@ -1,0 +1,258 @@
+{
+  "schemaVersion": 1,
+  "catalogId": "settleora-mobile-ocr-global-core",
+  "catalogVersion": "2026.09.18.1",
+  "runtimeFormat": "onnx",
+  "distribution": "bundled_global_core",
+  "license": "Apache-2.0",
+  "upstream": {
+    "organization": "PaddlePaddle",
+    "providerFamily": "PaddleOCR",
+    "catalog": "https://huggingface.co/PaddlePaddle"
+  },
+  "runtimeCompatibility": {
+    "androidBaseline": "onnxruntime-android 1.21.1",
+    "iosBaseline": "onnxruntime-objc 1.24.x",
+    "executionProviderBaseline": "CPU"
+  },
+  "acceptanceContract": {
+    "status": "pending_native_provider_acceptance",
+    "fixtureCorpus": {
+      "path": "apps/mobile/test/fixtures/receipt_ocr",
+      "schemaVersion": 2,
+      "entryCount": 101,
+      "manifestSha256": "64f6adf480bae5ef4ec8c0129e27a7fe95e6e075208ca72fa1d96c5dcc8e56fc",
+      "treeDigestAlgorithm": "sha256-of-sorted-sha256sum-v1",
+      "treeSha256": "723440fae56f95f4071cd0f1cb76de399924002635a172e77d64920c6be08756"
+    },
+    "preprocessing": {
+      "files": [
+        {
+          "path": "apps/mobile/lib/receipt_ocr_capture/receipt_image_artifact_processor.dart",
+          "sha256": "cce7df5e27120d2909b1a12913c509da3aa2ede541bf9d2050af17ba2f4db532"
+        },
+        {
+          "path": "apps/mobile/lib/receipt_ocr_capture/receipt_image_normalization_policy.dart",
+          "sha256": "90484f4e78cfe50cd96b80f2e8ba9a1568392fe1089e7a57e35c4f9836fb08f8"
+        }
+      ]
+    },
+    "parser": {
+      "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_parser.dart",
+      "sha256": "929552df9498855578f351d7f54a295f1b7f8bcfaba3e5b27f98954b0417d892"
+    }
+  },
+  "totalBundledBytes": 76580102,
+  "packs": [
+    {
+      "modelPackId": "paddleocr.ppocrv6.small.det",
+      "modelVersion": "28fe5895c24fd108c19eb3e8479f4ab385fbfc62",
+      "modelName": "PP-OCRv6_small_det",
+      "role": "detection",
+      "routeScripts": ["Any"],
+      "inference": {
+        "irVersion": 10,
+        "opset": 14,
+        "inputName": "x",
+        "inputChannels": 3,
+        "inputHeight": "dynamic",
+        "outputName": "fetch_name_0",
+        "outputChannels": 1
+      },
+      "assetDirectory": "assets/receipt_ocr_models/ppocrv6-small-det",
+      "sourceRepository": "PaddlePaddle/PP-OCRv6_small_det_onnx",
+      "files": [
+        {
+          "name": "inference.onnx",
+          "bytes": 9880512,
+          "sha256": "d73e0058b7a8086bbd57f3d10b8bcd4ff95363f67e06e2762b5e814fe9c9410e"
+        },
+        {
+          "name": "inference.yml",
+          "bytes": 885,
+          "sha256": "193f435274bf9f0b5f71a929bbfbcf148282df7e633b34e7c373e8f44741b516"
+        }
+      ]
+    },
+    {
+      "modelPackId": "paddleocr.ppocrv6.small.rec.common",
+      "modelVersion": "b8f84f0b80c529de40b4fbb3544b84fa7233a513",
+      "modelName": "PP-OCRv6_small_rec",
+      "role": "recognition",
+      "routeScripts": ["Latin", "HanSimplified", "HanTraditional", "Japanese"],
+      "inference": {
+        "irVersion": 6,
+        "opset": 11,
+        "inputName": "x",
+        "inputChannels": 3,
+        "inputHeight": 48,
+        "outputName": "fetch_name_0",
+        "outputClasses": 18710
+      },
+      "assetDirectory": "assets/receipt_ocr_models/ppocrv6-small-rec",
+      "sourceRepository": "PaddlePaddle/PP-OCRv6_small_rec_onnx",
+      "files": [
+        {
+          "name": "inference.onnx",
+          "bytes": 21159378,
+          "sha256": "5435fd747c9e0efe15a96d0b378d5bd157e9492ed8fd80edf08f30d02fa24634"
+        },
+        {
+          "name": "inference.yml",
+          "bytes": 150579,
+          "sha256": "ab078671bb49f06228eadccd34f1bb501e157f7a047095ffb943ba81512c77d1"
+        }
+      ]
+    },
+    {
+      "modelPackId": "paddleocr.ppocrv5.mobile.rec.arabic",
+      "modelVersion": "14aaedcd75825982689ecf5cd64ab33ee083215a",
+      "modelName": "arabic_PP-OCRv5_mobile_rec",
+      "role": "recognition",
+      "routeScripts": ["Arabic"],
+      "inference": {
+        "irVersion": 3,
+        "opset": 7,
+        "inputName": "x",
+        "inputChannels": 3,
+        "inputHeight": 48,
+        "outputName": "fetch_name_0",
+        "outputClasses": 749
+      },
+      "assetDirectory": "assets/receipt_ocr_models/ppocrv5-arabic-rec",
+      "sourceRepository": "PaddlePaddle/arabic_PP-OCRv5_mobile_rec_onnx",
+      "files": [
+        {
+          "name": "inference.onnx",
+          "bytes": 7998947,
+          "sha256": "799113ebf267fbe742deb99eb36e8d42c9ddc5291ceacf92add41b4d52a59110"
+        },
+        {
+          "name": "inference.yml",
+          "bytes": 6165,
+          "sha256": "21368419e6c016c31db55d316d59e11c128e1913e6e6fe10287084710043d3a6"
+        }
+      ]
+    },
+    {
+      "modelPackId": "paddleocr.ppocrv5.mobile.rec.cyrillic",
+      "modelVersion": "2cef88145434beb8afa9dd82d77d799eb1ad7b29",
+      "modelName": "cyrillic_PP-OCRv5_mobile_rec",
+      "role": "recognition",
+      "routeScripts": ["Cyrillic"],
+      "inference": {
+        "irVersion": 3,
+        "opset": 7,
+        "inputName": "x",
+        "inputChannels": 3,
+        "inputHeight": 48,
+        "outputName": "fetch_name_0",
+        "outputClasses": 852
+      },
+      "assetDirectory": "assets/receipt_ocr_models/ppocrv5-cyrillic-rec",
+      "sourceRepository": "PaddlePaddle/cyrillic_PP-OCRv5_mobile_rec_onnx",
+      "files": [
+        {
+          "name": "inference.onnx",
+          "bytes": 8048799,
+          "sha256": "5371ee1ddaa7983cc62d0818d99e982b6804638c85e4f960d59a574094e172e5"
+        },
+        {
+          "name": "inference.yml",
+          "bytes": 6991,
+          "sha256": "5c76cc91fa98410178a09f498db10050d0ec1634a660053d3005ab7be581f501"
+        }
+      ]
+    },
+    {
+      "modelPackId": "paddleocr.ppocrv5.mobile.rec.devanagari",
+      "modelVersion": "251aec19e36739540d35e2cc943f6aa7503b98e5",
+      "modelName": "devanagari_PP-OCRv5_mobile_rec",
+      "role": "recognition",
+      "routeScripts": ["Devanagari"],
+      "inference": {
+        "irVersion": 3,
+        "opset": 7,
+        "inputName": "x",
+        "inputChannels": 3,
+        "inputHeight": 48,
+        "outputName": "fetch_name_0",
+        "outputClasses": 570
+      },
+      "assetDirectory": "assets/receipt_ocr_models/ppocrv5-devanagari-rec",
+      "sourceRepository": "PaddlePaddle/devanagari_PP-OCRv5_mobile_rec_onnx",
+      "files": [
+        {
+          "name": "inference.onnx",
+          "bytes": 7912311,
+          "sha256": "cb789212ce96c69d3e74728ae4309d179281d68cb3945d0616b67cafab41c986"
+        },
+        {
+          "name": "inference.yml",
+          "bytes": 5027,
+          "sha256": "9bd172dd26440c8ce94d1cde5d5baea6aefdc7cf3c5c8492e0beedef656d4e54"
+        }
+      ]
+    },
+    {
+      "modelPackId": "paddleocr.ppocrv5.mobile.rec.korean",
+      "modelVersion": "5c6f574b8e2230adf4287b33e736d71b9fabd28e",
+      "modelName": "korean_PP-OCRv5_mobile_rec",
+      "role": "recognition",
+      "routeScripts": ["Korean"],
+      "inference": {
+        "irVersion": 3,
+        "opset": 7,
+        "inputName": "x",
+        "inputChannels": 3,
+        "inputHeight": 48,
+        "outputName": "fetch_name_0",
+        "outputClasses": 11947
+      },
+      "assetDirectory": "assets/receipt_ocr_models/ppocrv5-korean-rec",
+      "sourceRepository": "PaddlePaddle/korean_PP-OCRv5_mobile_rec_onnx",
+      "files": [
+        {
+          "name": "inference.onnx",
+          "bytes": 13418787,
+          "sha256": "92f0b7785e64fc9090106a241cf4c1eb97472824558272751b88a2a4476d3a08"
+        },
+        {
+          "name": "inference.yml",
+          "bytes": 96039,
+          "sha256": "f757fa1c40e99edcf27e9cce879b93eb2a51fa46f5ef39095689b8c37dd75998"
+        }
+      ]
+    },
+    {
+      "modelPackId": "paddleocr.ppocrv5.mobile.rec.thai",
+      "modelVersion": "1d4adbbafb1034a2fd6618498575b81ea7b69f69",
+      "modelName": "th_PP-OCRv5_mobile_rec",
+      "role": "recognition",
+      "routeScripts": ["Thai"],
+      "inference": {
+        "irVersion": 3,
+        "opset": 7,
+        "inputName": "x",
+        "inputChannels": 3,
+        "inputHeight": 48,
+        "outputName": "fetch_name_0",
+        "outputClasses": 526
+      },
+      "assetDirectory": "assets/receipt_ocr_models/ppocrv5-thai-rec",
+      "sourceRepository": "PaddlePaddle/th_PP-OCRv5_mobile_rec_onnx",
+      "files": [
+        {
+          "name": "inference.onnx",
+          "bytes": 7891015,
+          "sha256": "27618be66018f8598ac0a526a593f9f1cebf794e7eded93428e8fb016e537f5f"
+        },
+        {
+          "name": "inference.yml",
+          "bytes": 4667,
+          "sha256": "f6ba7fefc38ca1ff398ddafa75d67d16e0b3757c4e6c833adffee98a981766c9"
+        }
+      ]
+    }
+  ]
+}
