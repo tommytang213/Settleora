@@ -8,10 +8,16 @@
   `376899b68217bc71a9fd69a198724c2ea7e1c26d`). Pre-mutation duplicate search
   found no matching local/remote `961` branch, open/closed synthesis PR,
   `DAY1_LIFECYCLE_POLICY_MATRIX.md`, recent synthesis commit, correlated
-  `.codex/reports/` artifact, or prior #961 start comment. The implementation
-  PR, exact reviewed head, merge SHA, and any required same-task hygiene PR are
-  intentionally `pending exact-head/merge evidence` until GitHub convergence;
-  they must replace this candidate wording after merge rather than be guessed.
+  `.codex/reports/` artifact, or prior #961 start comment. Implementation
+  [PR #1248](https://github.com/tommytang213/Settleora/pull/1248) reviewed exact
+  source `a8f525a6c5fb0fa0930a14597cb20fb464574bf0` (tree
+  `255f8603e9da300798992ef90f4605cbea9bea48`) and normally merged as
+  `49624c6ba5dd900e8ba0d5425882cc7127b4544a`. The retained source branch is
+  unchanged. The final GitHub Codex review found no major issues; 14 checks
+  and scanners succeeded, 8 docs-only jobs skipped as expected, branch-scoped
+  code-scanning alerts were zero, and all 5 corrected review threads finished
+  resolved (0 unresolved). Fresh exact-head Gemini `cheap_independent` and
+  local Codex reviews passed with zero material findings.
 - [`DAY1_LIFECYCLE_POLICY_MATRIX.md`](DAY1_LIFECYCLE_POLICY_MATRIX.md) is the
   consolidated planning index. Final merged child inventories are 117
   financial rows / 80 choices / 9 gates, 68 storage rows / 8 choices / 12
@@ -45,10 +51,10 @@
   #724 remains a non-runnable retention/dependency/disposition umbrella. The
   matrix preferentially reuses existing focused owners and authorizes no
   successor issue, branch, queue activation, runtime, or destructive work.
-- #717 becomes closable only after this exact #961 candidate merges and its
-  issue/Project/ledger hygiene completes. At that point the close evidence is
-  #960 plus all four domain policies plus the merged matrix/ledger handoff,
-  with remaining work explicitly owned elsewhere. #716 must stay open because
+- #717 is closable after this same-task ledger correction and external
+  issue/Project hygiene complete. Its close evidence is #960 plus all four
+  domain policies plus PR #1248's merged matrix/ledger handoff, with remaining
+  work explicitly owned elsewhere. #716 must stay open because
   #722/#723/#724 and their focused Day 1 implementation, design, retention,
   manual and destructive gates remain incomplete.
 - Project handling must preserve any live Initial MD value. #961 had no
@@ -58,10 +64,11 @@
   convergence. #717's live Initial MD is `2` and must be preserved when its
   status, remaining MD, progress, done date, gate and forecast fields are
   reconciled after the close rule is satisfied.
-- This candidate changes exactly
-  `docs/planning/DAY1_LIFECYCLE_POLICY_MATRIX.md` and
-  `docs/planning/ISSUE_PROGRESS_LEDGER.md`. It does not claim runtime lifecycle
-  completion and changes no runtime, schema/migration, API/OpenAPI/generated
+- PR #1248 changed exactly `docs/planning/DAY1_LIFECYCLE_POLICY_MATRIX.md` and
+  `docs/planning/ISSUE_PROGRESS_LEDGER.md`; this same-task correction changes
+  only the ledger to bind that immutable merge evidence. Neither claims
+  runtime lifecycle completion and neither changes runtime, schema/migration,
+  API/OpenAPI/generated
   client, UI/Figma, accepted authorization/privacy, money/calculation,
   storage/file byte, auth/security runtime, notification delivery,
   sync/import/export/restore runtime, deployment/configuration, secret,
