@@ -23,6 +23,9 @@ const mobileOnlyExactPaths = new Set([
   'package.json',
   'tools/doctor-validation.mjs',
 ]);
+const mobileOnlyPatterns = [
+  /^tools\/ocr-models\//,
+];
 const webUserPatterns = [
   /^apps\/web-user\//,
   /^packages\/client-web\//,
@@ -92,7 +95,8 @@ export function classifyChanges(env, git = gitCommand) {
     const docsOnly = paths.every((p) => p === 'README.md' || docsPattern.test(p));
     const runIosValidation = paths.some((p) =>
       mobileAndIosExactPaths.has(p) || mobileAndIosPatterns.some((pattern) => pattern.test(p)));
-    const runMobileValidation = runIosValidation || paths.some((p) => mobileOnlyExactPaths.has(p));
+    const runMobileValidation = runIosValidation || paths.some((p) =>
+      mobileOnlyExactPaths.has(p) || mobileOnlyPatterns.some((pattern) => pattern.test(p)));
     const runWebUserValidation = paths.some((p) =>
       webUserExactPaths.has(p) || webUserPatterns.some((pattern) => pattern.test(p)));
     return {
