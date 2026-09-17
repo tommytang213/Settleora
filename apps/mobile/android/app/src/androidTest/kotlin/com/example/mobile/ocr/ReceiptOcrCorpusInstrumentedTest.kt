@@ -123,7 +123,7 @@ class ReceiptOcrCorpusInstrumentedTest {
         "Cyrillic" -> "paddleocr.ppocrv5.mobile.rec.cyrillic"
         "Devanagari" -> "paddleocr.ppocrv5.mobile.rec.devanagari"
         "Korean" -> "paddleocr.ppocrv5.mobile.rec.korean"
-        "Chinese", "Japanese" -> "paddleocr.ppocrv6.small.rec.common"
+        "Latin", "Chinese", "Japanese" -> "paddleocr.ppocrv6.small.rec.common"
         else -> null
     }
 
@@ -144,6 +144,7 @@ class ReceiptOcrCorpusInstrumentedTest {
             "Cyrillic" -> unicodeScript == Character.UnicodeScript.CYRILLIC
             "Devanagari" -> unicodeScript == Character.UnicodeScript.DEVANAGARI
             "Korean" -> unicodeScript == Character.UnicodeScript.HANGUL
+            "Latin" -> unicodeScript == Character.UnicodeScript.LATIN
             "Chinese" -> unicodeScript == Character.UnicodeScript.HAN
             "Japanese" -> unicodeScript == Character.UnicodeScript.HAN ||
                 unicodeScript == Character.UnicodeScript.HIRAGANA ||
@@ -164,6 +165,7 @@ class ReceiptOcrCorpusInstrumentedTest {
             "Devanagari",
             "Japanese",
             "Korean",
+            "Latin",
             "Thai",
         )
     }

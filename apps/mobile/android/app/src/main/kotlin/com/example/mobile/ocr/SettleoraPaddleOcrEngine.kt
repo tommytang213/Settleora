@@ -140,9 +140,10 @@ class SettleoraPaddleOcrEngine(context: Context) {
                         blocks += SettleoraOcrBlock(
                             text = accepted.text,
                             confidence = accepted.confidence,
-                            modelPackId = accepted.pack.modelPackId,
-                            modelVersion = accepted.pack.modelVersion,
-                            order = order,
+                                modelPackId = accepted.pack.modelPackId,
+                                modelVersion = accepted.pack.modelVersion,
+                                textDirection = textDirection(accepted.text),
+                                order = order,
                             points = box.points.map { point ->
                                 SettleoraOcrPoint(point.x, point.y)
                             },
@@ -152,7 +153,7 @@ class SettleoraPaddleOcrEngine(context: Context) {
             }
 
             SettleoraOcrRunResult(
-                blocks = blocks,
+                blocks = ReceiptBlockOrder.normalize(blocks),
                 detectionModelPackId = catalog.detection.modelPackId,
                 detectionModelVersion = catalog.detection.modelVersion,
                 runtime = RUNTIME_IDENTITY,
@@ -195,6 +196,12 @@ class SettleoraPaddleOcrEngine(context: Context) {
             else -> config.recBatchSize
         }
     }
+
+    private fun textDirection(text: String): String = if (
+        text.codePoints().anyMatch { codePoint ->
+            Character.UnicodeScript.of(codePoint) == Character.UnicodeScript.ARABIC
+        }
+    ) "rtl" else "ltr"
 
     private data class RecognizerPack(
         val spec: RecognizerSpec,
@@ -247,6 +254,7 @@ data class SettleoraOcrBlock(
     val confidence: Float,
     val modelPackId: String,
     val modelVersion: String,
+    val textDirection: String,
     val order: Int,
     val points: List<SettleoraOcrPoint>,
 ) {
@@ -255,6 +263,7 @@ data class SettleoraOcrBlock(
         "confidence" to confidence.toDouble(),
         "modelPackId" to modelPackId,
         "modelVersion" to modelVersion,
+        "textDirection" to textDirection,
         "order" to order,
         "points" to points.map { it.toChannelValue() },
     )
