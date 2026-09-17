@@ -1,5 +1,70 @@
 # Issue Progress Ledger
 
+### Issue #718 — Financial record archive and reactivation lifecycle policy (2026-09-17 HKT)
+
+- Same logical task `20260916-2332` completed its implementation through the
+  retained source branch
+  `docs/718-financial-record-lifecycle-policy-20260916-2332` and
+  [PR #1243](https://github.com/tommytang213/Settleora/pull/1243).
+  Exact reviewed source `391c99c737fd9141839e57ec283c17fa0577c769`
+  (tree `513b8c75eb7f9807f56e4b834f5ac126ed5ac90a`) normally merged
+  as `70d8abf1ffdd247ec3ab2b5816dccc0091dd3ba4` from expected main
+  `5d313cb2745b5c9b1239ce1196d1eb883eeba9f5`; the source branch remains
+  retained.
+- `docs/architecture/BILL_SETTLEMENT_RECORD_LIFECYCLE_POLICY.md` is the
+  provider-independent Day 1 planning policy for bill roots and revisions,
+  items/splits/participants/payers/adjustments, quantity claims, settlement
+  requests/lines/payments/allocations/residuals/proof relationships, recurring
+  templates/occurrences, reconciliation, local-only financial authority, and
+  deterministic balance/report/forecast outputs. Its 117 distinct lifecycle
+  rows separate implemented facts, documented accepted requirements, future
+  acceptance requirements, and 80 non-operative unresolved choices under 9
+  explicit manual gates.
+- Final exact-head `api-money` validation passed the validation doctor, docs,
+  24-path scaffold, API-local 1,520/1,520 with zero failed or skipped, exact
+  one-file scope, deterministic row/choice/gate and relative-link assertions,
+  sensitive-material scan, diff hygiene, and clean-tree proof. Fresh Gemini
+  `strong_independent` and local Codex reviews passed with high confidence and
+  zero findings. Hosted GitHub Codex completed on the exact head with no final
+  findings; all 22 checks/scanners converged as 14 successes and 8 expected
+  skips; branch code-scanning alerts were zero. Fully paginated final inventory
+  covered 10 issue comments, 7 review submissions, 47 inline comments, and 47
+  review threads, with all 47 resolved and zero unresolved.
+- The policy preserves API/domain financial authority, decimal/currency and
+  centralized-rounding boundaries, retained historical explainability, stable
+  or explicitly future-owned reference evidence, and fail-closed reactivation.
+  It introduces no formula, split/FX/rounding/residual/allocation rule, payment
+  acceptance rule, runtime lifecycle behavior, or accepted money decision.
+  Missing choices remain gated and non-operative.
+- Existing canonical owners remain responsible for later implementation and
+  acceptance: #961 synthesizes only after #720 completes; #722 owns focused
+  money/runtime/schema/API splits; #723 UI/Figma; #724 retention/disposition;
+  #350 quantity-claim implementation; #369/#973 claim-event notification
+  coverage; #967 ordinary draft editing/delegated ownership; #352 manual FX;
+  #719 file/link/byte lifecycle; #720 membership/historical participants; and
+  #721 auth/security. No owner was duplicated and no successor was started.
+- GitHub automatically closed #718 at `2026-09-17T05:09:49Z` when PR #1243
+  merged, before this ledger checkpoint was committed. That current `CLOSED`
+  state is not treated as proof that post-merge hygiene is complete: after this
+  hygiene merges, the same task must still record completion evidence on #718,
+  update #717 and #961, verify #716 and #720, and reconcile the Project. #717
+  and #716 remain open. #719 and #721 are complete; #720 remains open, so #961
+  remains blocked. Queue activation remains disabled.
+- Live pre-hygiene Project readback records #718 as `Blocked`, with Initial MD
+  `2`, Man-days Remaining `2`, Blocking Gate `Technical Design`, Gate Owner
+  `Mixed`, and Forecast Status `Blocked`; Progress and Actual Done Date are
+  unset. After this hygiene candidate merges, same-task external reconciliation
+  must set Status `Merged`, Man-days Remaining `0`, Progress `100`, and Actual
+  Done Date `2026-09-17`, preserve Initial MD, and read the values back before
+  declaring same-task hygiene complete. This paragraph records
+  pre-reconciliation state only.
+- This checkpoint changes only the issue-progress ledger. It makes no runtime,
+  API/OpenAPI/generated-client, schema/migration, UI/Figma, calculation or
+  money-authority, storage/file-byte, authorization/privacy, membership,
+  sync/import/restore, notification runtime, cleanup/purge, deployment/release,
+  production, secret/configuration, public/admin exposure, R05/#1235, #975,
+  #946, #720 implementation, #961 implementation, or autonomous-queue change.
+
 ### Issue #719 — File metadata retention and reactivation lifecycle policy (2026-09-16 HKT)
 
 - Same logical task `20260915-2340` completed through retained source branch
