@@ -1,5 +1,77 @@
 # Issue Progress Ledger
 
+### Issue #720 — Group membership and historical participant lifecycle policy (2026-09-17 HKT)
+
+- Same logical task `20260917-1335` completed its implementation through the
+  retained source branch
+  `docs/720-group-membership-lifecycle-policy-20260917-1335` and
+  [PR #1245](https://github.com/tommytang213/Settleora/pull/1245).
+  Exact reviewed source `6d6d6e36c9c662667c8b5fd65b51c270260504d4`
+  (tree `02d878d939a238840cd67d13dbcdc093d9c5f2f0`) normally merged
+  as `4a6810c4773d5b486d4fd27f9684ecaae1c447a2` from expected main
+  `097dfc23e2064acc413aba654690b829008e0c34`; the source branch remains
+  retained.
+- `docs/planning/GROUP_MEMBERSHIP_LIFECYCLE_POLICY.md` is the authoritative
+  Day 1 planning policy for active/archive/reactivate groups, active,
+  default-excluded, left, and removed/tombstoned memberships, group
+  invitations, temporary and local-only participant references, and retained
+  historical bill/settlement identity. Its 26 lifecycle rows keep future
+  selection, record access, notification eligibility, historical identity,
+  and reactivation distinct. Seventeen exact open choices remain
+  non-operative under 11 explicit downstream manual-gate categories.
+- The policy separates implemented current facts, documented accepted
+  requirements, future acceptance requirements, and unresolved
+  product/privacy/authorization choices. It records source-proven
+  membership/account/owner-floor, query-time roster and financial-read,
+  commit-time write, notification-recipient, import/sync, and historical
+  access contradictions without accepting them as desired behavior or
+  selecting new product, privacy, authorization, notification, money, or
+  Day 2 guest semantics.
+- Final exact-head `docs-only` validation passed the validation doctor,
+  documentation validator, 24-path scaffold validator, diff hygiene, exact
+  one-file allowlist, deterministic 26-row/17-choice/11-gate inventory,
+  relative-link/source-symbol checks, sensitive-material guard, and clean-tree
+  proof. Fresh Gemini `cheap_independent` and local Codex factual/mechanics/
+  authorization reviews passed exact head `6d6d6e36c9c662667c8b5fd65b51c270260504d4`
+  with high confidence and zero material findings. Gemini evidence is
+  `/workspace/logs/settleora-720-gemini-6d6d6e36/reviews/integrated/2026-09-17T104014Z-cheap_independent-3276753-1789641614777-gemini-integrated-review.json`;
+  local evidence is
+  `/workspace/logs/settleora-720-local-review-6d6d6e36/review-output.json`.
+- Hosted GitHub Codex completed on the exact source head and reported no major
+  issues. All 22 checks/scanners converged as 14 successes and 8 expected
+  docs-only skips; branch code-scanning alerts were zero. Fully paginated
+  final inventory covered 18 issue comments, 66 review submissions, 104
+  inline comments, and 52 review threads, with all 52 resolved and zero
+  unresolved.
+- Existing canonical owners remain responsible for every later decision and
+  implementation: #961 synthesis; #722 focused group/member runtime,
+  authorization, schema, API/OpenAPI, and generated-client splits; #723
+  UI/Figma wording and confirmations; #724 retention/disposition; #718
+  bill/settlement/money; #719 files/links/bytes; #721 account/identity/security;
+  and existing notification, sync/import/export/restore, invitation, and
+  temporary-participant/account-link owners. No duplicate issue or successor
+  implementation was started.
+- This ledger checkpoint is the required second docs-only PR because #720's
+  implementation contract allowed only the policy file. After this hygiene
+  candidate merges, same-task external reconciliation must post #720
+  completion evidence and close it, update #717 while keeping it open, verify
+  #716 remains open, and mark #961 dependency-eligible without starting it.
+  Queue activation remains disabled.
+- Live pre-hygiene Project readback records #720 as `Blocked`, with Initial MD
+  `1`, Man-days Remaining `1`, Blocking Gate `Technical Design`, Gate Owner
+  `Mixed`, and Forecast Status `Blocked`; Progress and Actual Done Date are
+  unset. After this hygiene candidate merges, external reconciliation must set
+  Status `Merged`, Man-days Remaining `0`, Progress `100`, Actual Done Date
+  `2026-09-17`, Blocking Gate `None`, Gate Owner `Assistant`, and Forecast
+  Status `On Track`, while preserving Initial MD `1`, then read all values back.
+- This checkpoint changes only `docs/planning/ISSUE_PROGRESS_LEDGER.md`. It
+  makes no runtime, accepted authorization/privacy, schema/migration,
+  API/OpenAPI/generated-client, UI/Figma, account-linking, notification
+  delivery, money/calculation/settlement, storage/file-byte, deployment,
+  secret/configuration, destructive/purge, production/release, public/admin,
+  Day 1 scope, or Day 2 guest change. R05/#1235, #975, #946, #961
+  implementation, and the autonomous queue remain untouched.
+
 ### Issue #718 — Financial record archive and reactivation lifecycle policy (2026-09-17 HKT)
 
 - Same logical task `20260916-2332` completed its implementation through the
