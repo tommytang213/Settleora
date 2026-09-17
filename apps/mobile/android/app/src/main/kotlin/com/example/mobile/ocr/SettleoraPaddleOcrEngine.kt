@@ -1,6 +1,7 @@
 package com.example.mobile.ocr
 
 import android.content.Context
+import android.graphics.BitmapFactory
 import com.paddle.ocr.EngineConfig
 import com.paddle.ocr.PaddleOCRConfig
 import com.paddle.ocr.engine.DetectionEngine
@@ -23,7 +24,11 @@ import com.paddle.ocr.util.OpenCVUtils
  */
 class SettleoraPaddleOcrEngine(context: Context) {
     private val appContext = context.applicationContext
-    private val config = PaddleOCRConfig(recScoreThresh = 0.1f, recBatchSize = 4)
+    private val config = PaddleOCRConfig(
+        detMaxSideLimit = 1600,
+        recScoreThresh = 0.1f,
+        recBatchSize = 4,
+    )
     private val sessions = ORTSessionManager(appContext, EngineConfig())
     private val detector: DetectionEngine
     private val packs: List<RecognizerPack>
@@ -56,7 +61,7 @@ class SettleoraPaddleOcrEngine(context: Context) {
     }
 
     fun recognize(imageBytes: ByteArray): SettleoraOcrRunResult {
-        if (imageBytes.isEmpty()) throw OCRError.InvalidImage()
+        validateInputBounds(imageBytes)
         val source = BitmapUtils.imdecodeBGR(imageBytes)
         if (source.empty()) {
             source.release()
@@ -73,10 +78,15 @@ class SettleoraPaddleOcrEngine(context: Context) {
             val validBoxes = mutableListOf<Pair<Int, com.paddle.ocr.model.OCRBox>>()
             val crops = mutableListOf<org.opencv.core.Mat>()
             for ((order, box) in sortedBoxes.take(MAX_RECOGNITION_LINES).withIndex()) {
-                val crop = QuadTextCrop.crop(source, box)
-                if (crop.empty()) {
-                    crop.release()
+                val fullResolutionCrop = QuadTextCrop.crop(source, box)
+                if (fullResolutionCrop.empty()) {
+                    fullResolutionCrop.release()
                 } else {
+                    val crop = try {
+                        RecPreprocessor.resizeForRecognition(fullResolutionCrop)
+                    } finally {
+                        fullResolutionCrop.release()
+                    }
                     validBoxes += order to box
                     crops += crop
                 }
@@ -159,6 +169,22 @@ class SettleoraPaddleOcrEngine(context: Context) {
 
     fun release() = sessions.release()
 
+    private fun validateInputBounds(imageBytes: ByteArray) {
+        if (imageBytes.isEmpty()) throw OCRError.InvalidImage()
+        if (!ReceiptOcrInputLimits.acceptsEncodedSize(imageBytes.size)) {
+            throw OCRError.ImageTooLarge()
+        }
+
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size, bounds)
+        val width = bounds.outWidth
+        val height = bounds.outHeight
+        if (width <= 0 || height <= 0) throw OCRError.InvalidImage()
+        if (!ReceiptOcrInputLimits.acceptsDimensions(width, height)) {
+            throw OCRError.ImageTooLarge()
+        }
+    }
+
     private fun recognitionBatchCapacity(crop: org.opencv.core.Mat): Int {
         val normalizedWidth = kotlin.math.ceil(48.0 * crop.cols() / crop.rows())
             .toInt()
@@ -180,7 +206,7 @@ class SettleoraPaddleOcrEngine(context: Context) {
         const val METHOD_RECOGNIZE = "recognize"
         const val RUNTIME_IDENTITY = "onnxruntime-android:1.21.1:cpu"
 
-        private const val MAX_RECOGNITION_LINES = 256
+        private const val MAX_RECOGNITION_LINES = 128
         private const val ASSET_ROOT = "flutter_assets/assets/receipt_ocr_models"
         private const val DETECTION_MODEL_PACK_ID = "paddleocr.ppocrv6.small.det"
         private const val DETECTION_MODEL_VERSION = "28fe5895c24fd108c19eb3e8479f4ab385fbfc62"

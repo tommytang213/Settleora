@@ -29,7 +29,9 @@ lightweight Bengali recognizer was identified at this catalog version; that
 unresolved coverage must not be represented as installed or supported.
 
 The complete applicable license is distributed beside this notice as
-`LICENSE-APACHE-2.0.txt` and is included in Settleora mobile artifacts.
+`LICENSE-APACHE-2.0.txt` and is included in Settleora mobile artifacts. The
+same artifact includes `LICENSE-ONNXRUNTIME-MIT.txt` and
+`LICENSE-OPENCV-BSD-3-CLAUSE.txt` for the native inference dependencies.
 
 Upstream license: https://www.apache.org/licenses/LICENSE-2.0
 

@@ -6,9 +6,12 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.atomic.AtomicBoolean
 
 class MainActivity : FlutterActivity() {
     private val ocrExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val ocrInFlight = AtomicBoolean(false)
 
     @Volatile
     private var destroyed = false
@@ -33,24 +36,35 @@ class MainActivity : FlutterActivity() {
                 result.error("invalid_image", "Receipt image bytes are required", null)
                 return@setMethodCallHandler
             }
+            if (!ocrInFlight.compareAndSet(false, true)) {
+                result.error("ocr_busy", "On-device receipt OCR is already running", null)
+                return@setMethodCallHandler
+            }
 
-            ocrExecutor.execute {
-                if (destroyed) return@execute
-                try {
-                    val engine = ocrEngine ?: SettleoraPaddleOcrEngine(applicationContext)
-                        .also { ocrEngine = it }
-                    val channelValue = engine.recognize(imageBytes).toChannelValue()
-                    runOnUiThread {
-                        if (!destroyed) result.success(channelValue)
-                    }
-                } catch (_: Throwable) {
-                    // Receipt bytes/text and local paths must never enter routine logs or errors.
-                    runOnUiThread {
-                        if (!destroyed) {
-                            result.error("ocr_failed", "On-device receipt OCR failed", null)
+            try {
+                ocrExecutor.execute {
+                    try {
+                        if (destroyed) return@execute
+                        val engine = ocrEngine ?: SettleoraPaddleOcrEngine(applicationContext)
+                            .also { ocrEngine = it }
+                        val channelValue = engine.recognize(imageBytes).toChannelValue()
+                        runOnUiThread {
+                            if (!destroyed) result.success(channelValue)
                         }
+                    } catch (_: Throwable) {
+                        // Receipt bytes/text and local paths must never enter routine logs or errors.
+                        runOnUiThread {
+                            if (!destroyed) {
+                                result.error("ocr_failed", "On-device receipt OCR failed", null)
+                            }
+                        }
+                    } finally {
+                        ocrInFlight.set(false)
                     }
                 }
+            } catch (_: RejectedExecutionException) {
+                ocrInFlight.set(false)
+                result.error("ocr_unavailable", "On-device receipt OCR is unavailable", null)
             }
         }
     }

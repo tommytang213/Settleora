@@ -28,20 +28,31 @@ data class RecPreprocessResult(
 
 object RecPreprocessor {
     private const val FIXED_HEIGHT = 48
-    private const val MAX_IMG_W = 3200
+    private const val MAX_IMG_W = 1600
+
+    fun resizeForRecognition(crop: Mat): Mat {
+        val h = crop.rows()
+        val w = crop.cols()
+        val aspectRatio = if (h > 0) w.toDouble() / h else 1.0
+        val newW = ceil(FIXED_HEIGHT * aspectRatio).toInt().coerceIn(1, MAX_IMG_W)
+        return Mat().also { dst ->
+            Imgproc.resize(
+                crop,
+                dst,
+                Size(newW.toDouble(), FIXED_HEIGHT.toDouble()),
+                0.0,
+                0.0,
+                Imgproc.INTER_LINEAR,
+            )
+        }
+    }
 
     fun preprocessBatch(crops: List<Mat>): RecPreprocessResult {
         // Bundled Paddle configs specify DecodeImage.img_mode=BGR. Keep that
         // channel order and resize to fixed height while preserving aspect ratio.
         val resizedMats = mutableListOf<Mat>()
         for (crop in crops) {
-            val h = crop.rows()
-            val w = crop.cols()
-            val aspectRatio = if (h > 0) w.toDouble() / h else 1.0
-            val newW = ceil(FIXED_HEIGHT * aspectRatio).toInt().coerceAtMost(MAX_IMG_W)
-            val dst = Mat()
-            Imgproc.resize(crop, dst, Size(newW.toDouble(), FIXED_HEIGHT.toDouble()), 0.0, 0.0, Imgproc.INTER_LINEAR)
-            resizedMats.add(dst)
+            resizedMats.add(resizeForRecognition(crop))
         }
 
         // Convert to float and normalize: (x / 255 - 0.5) / 0.5 = x / 127.5 - 1

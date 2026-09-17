@@ -13,7 +13,11 @@ Runtime dependencies:
 
 - ONNX Runtime Android 1.21.1 (MIT)
 - QuickBird Studios OpenCV Android 4.5.3 (Apache-2.0 wrapper; OpenCV 3-clause BSD)
-- Kotlin coroutines Android 1.9.0 (Apache-2.0)
+
+The mobile artifact includes the applicable ONNX Runtime MIT and OpenCV
+3-clause BSD license texts under `assets/receipt_ocr_models/`, together with
+the Apache License 2.0 text that covers the PaddleOCR models and QuickBird
+Studios OpenCV Android wrapper.
 
 No dependency enables provider telemetry. The adapter uses ONNX Runtime's CPU
 execution provider as the correctness baseline.
