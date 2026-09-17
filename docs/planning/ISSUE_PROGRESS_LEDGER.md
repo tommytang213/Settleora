@@ -7,8 +7,10 @@
   starting main `9a994f7bba319fd1fc5a01ad2b7147f9afae5cf3` (tree
   `28dddf8d2065d0eb6440dcaf06e542438220096d`). Main matched the generated
   checkpoint after a normal fetch. The protected worktree was clean before the
-  branch was created. The final ledger PR link is bound later in this same
-  entry before merge.
+  branch was created. [Hygiene PR #1274](https://github.com/tommytang213/Settleora/pull/1274)
+  carries this one-file checkpoint; its final exact reviewed source head and
+  normal merge SHA are retained in task report
+  `/workspace/logs/settleora-codex-report-20260917-2247-issue-722-lifecycle-implementation-split.md`.
 - Live source prerequisites are complete: #961 remains CLOSED/reconciled through
   PRs #1248/#1249, and #724 remains CLOSED/reconciled through policy PR #1251
   and ledger PR #1254. #723 remains OPEN, `figma:required`, `manual-gate`, and
