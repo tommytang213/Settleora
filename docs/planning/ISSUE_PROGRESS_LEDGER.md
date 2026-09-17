@@ -2,48 +2,73 @@
 
 ### Issue #724 — Retention, dependency, and terminal-disposition planning (2026-09-17 HKT)
 
-- Logical task `20260917-2114` uses retained source branch
+- Logical task `20260917-2114` used retained source branch
   `docs/724-pkt07-retention-dependency-policy-20260917-2114` from bound main
   `679b223d02ba7f1cffbe064fc8769ee57a57775d` (tree
-  `22c7023c4ce505fb57ee0c44872cc5dad32dcbab`). Main advanced after task
-  generation only through OCR fixture PR #1250; its 104 fixture paths do not
-  overlap lifecycle policy, planning, ledger, or workflow authority.
-- Pre-mutation search covered open/closed issues, PRs, local/remote branches,
-  recent commits, planning/architecture docs, the ledger, and
-  `.codex/reports/` for PKT-07, retention classes, holds, dependency proof,
-  tombstones, copy disposition, terminal disposition, purge eligibility, and
-  orphan/failed-upload reconciliation. No existing PKT-07 policy file,
-  focused equivalent, branch, PR, or merged output was found. #724 is reused
-  as the canonical planning owner. #966 remains the storage-completeness
-  umbrella, not a bounded orphan-reconciliation runtime contract; no focused
-  manual-only physical-disposition planning owner was found.
+  `22c7023c4ce505fb57ee0c44872cc5dad32dcbab`). Main had advanced from the
+  generated checkpoint only through unrelated OCR fixture PR #1250.
+  [PR #1251](https://github.com/tommytang213/Settleora/pull/1251) reviewed exact
+  head `73ef3451b45c02af307b4db4b0d5c76e17334170` (tree
+  `34a9dc09f99c957ad1722e0c799301cfa36e14e4`) and normally merged as
+  `098ef5f0d0c65ed00ace9f07d4f3fd878d5f9212`. Its policy blob is
+  `122f185b7d80e850fad3aab7caf048bb47528e5d`; the source branch remains
+  retained.
+- Pre- and post-merge searches covered open/closed issues, PRs, local/remote
+  branches, recent commits, planning/architecture docs, the ledger, and
+  `.codex/reports/` for PKT-07/08/09, retention classes, holds, dependency
+  proof, tombstones, copy/backup disposition, terminal disposition, purge,
+  and orphan/failed-upload reconciliation. No equivalent PKT-07 policy or
+  bounded PKT-08/PKT-09 owner was found. #966 remains a broad storage
+  completeness umbrella rather than either focused contract.
 - [`DAY1_LIFECYCLE_RETENTION_DEPENDENCY_POLICY.md`](DAY1_LIFECYCLE_RETENTION_DEPENDENCY_POLICY.md)
   defines six non-numeric classification states, eight independent hold
   categories, 16 source-owned domain-family mappings, a positive ten-part
   evidence snapshot contract, and 15 stable blocked-disposition reason IDs.
   Every one of the 118 #961 source choices remains semantically accounted for
   through exact ranges and source ownership; the exact child text remains
-  authoritative.
+  authoritative. One bounded local-review finding corrected cross-family
+  references; four hosted findings corrected irreversible revocation, PKT-02
+  routing, transient abuse-bucket classification, and saved financial draft
+  classification before final exact-head acceptance.
 - The policy preserves all 17 exact PKT-07 qualified gates as
   pending/unresolved. It chooses no duration, purge eligibility, statutory
   rule, provider deletion semantic, backup destruction, financial-history
   disposal, auth/security cleanup, privacy tradeoff, product decision, or Day
-  1 scope change. Unknown or stale evidence blocks disposition.
-- Focused handoff keeps each lane separate: existing owners are preferred for
-  retention-dependent financial, storage, auth/security, audit/notification,
-  sync/import/export/restore, and platform-copy work. After policy merge, a
-  fresh duplicate search must create a bounded PKT-08 reconciliation issue and
-  a separate manual-only PKT-09 planning/runbook issue only if those packets
-  remain materially unowned. No child is implemented or queued by this task.
-- #724 remains open until the policy is exact-head reviewed/merged, the final
-  focused-child map and dependency order are recorded, Project/ledger hygiene
-  is reconciled, and #716 receives its keep-open handoff. #716 stays open;
-  #722 remains non-runnable; #723 remains `figma:required` and `manual-gate`.
-- Planned docs-only validation is the repository doctor, docs validator,
-  scaffold validator, diff/allowlist/link/reference/redaction guards, and
-  deterministic choice/gate/reason/owner assertions, followed by fresh Gemini
-  `strong_independent`, local Codex factual/mechanics/privacy/destructive
-  review, and exact-head hosted review/check/thread convergence.
+  1 scope change. Unknown, stale, partial, or racing evidence blocks
+  disposition. Saved financial drafts remain financial-owner classified and
+  are never transient merely because no references were found.
+- Canonical reuse is recorded for PKT-01 (#350/#352/#967 plus existing
+  settlement/recurrence owners), PKT-02 (#784/#785 where exact, otherwise
+  #722's focused group/authz search), PKT-03 (#341/#966/#1062),
+  PKT-04/05/06/19 (#338/#339/#394/#465/#784/#785/#787/#788/#1059), PKT-16
+  (#369/#774/#973), PKT-17 (#406/#971), and PKT-18
+  (#358/#406/#971/#966). Fresh duplicate search created only
+  [#1252](https://github.com/tommytang213/Settleora/issues/1252) for PKT-08
+  candidate reconciliation and
+  [#1253](https://github.com/tommytang213/Settleora/issues/1253) for manual-only
+  PKT-09 physical-disposition planning. Both are #724 sub-issues with explicit
+  manual gates/non-goals and were not started or queued.
+- Project readback for #1252 is feature/storage/Day 1/P1/high/M, Initial and
+  Remaining MD `2`, progress `0%`, validation `storage`, Figma `No`, Manual
+  Gate `Yes`, status `Needs Technical Design`, Blocking Gate/Gate Owner
+  `Mixed`, confidence `Medium`, forecast `Blocked`, bundle
+  `soft-delete-lifecycle`. #1253 is docs/storage/Day 1/P1/manual-gate/M with
+  Initial and Remaining MD `2`, progress `0%`, validation `docs-only`, Figma
+  `No`, Manual Gate `Yes`, status `Needs Decision`, Blocking Gate `Mixed`,
+  Gate Owner `Tommy`, confidence `Medium`, forecast `Blocked`, and the same
+  bundle.
+- Final docs-only validation passed `npm run doctor:validation`,
+  `npm run validate:docs`, `npm run validate:scaffold`, `git diff --check`,
+  exact allowlist/redaction checks, and deterministic 16-family/118-choice,
+  17-pending-gate, 15-unique-blocker, lane, Day-scope, and owner assertions.
+  Fresh exact-head Gemini `strong_independent` and local Codex reviews passed
+  with high confidence and zero findings. The final PR head had 14 successful
+  checks/scanners and 8 expected docs-only skips, zero branch code-scanning
+  alerts, and all four review threads resolved (zero unresolved).
+- After this ledger-only hygiene merges and external handoffs are read back,
+  #724 satisfies its planning close rule and may close completed. #716 remains
+  open; #722 remains non-runnable and receives dependency links only; #723
+  remains `figma:required` and `manual-gate` with no design execution.
 - This task changes only the policy and ledger. It makes no runtime,
   schema/migration, API/OpenAPI/generated-client, UI/Figma, file-byte,
   provider, auth/security accepted-semantics, authorization/privacy, money,
