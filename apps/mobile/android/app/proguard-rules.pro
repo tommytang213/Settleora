@@ -11,3 +11,8 @@
 -dontwarn com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
 -dontwarn com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions$Builder
 -dontwarn com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
+
+# ONNX Runtime is invoked directly by the PaddleOCR adapter. Preserve its JNI
+# bridge and native-entry metadata in minified release builds.
+-keep class ai.onnxruntime.** { *; }
+-dontwarn ai.onnxruntime.**
