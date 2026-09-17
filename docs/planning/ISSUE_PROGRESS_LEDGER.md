@@ -32,11 +32,12 @@
   `6981236c786a7914`). All five policy files and exact reviewed blobs are on
   this task base.
 - The synthesis records 16 grouped provenance entries, 16 cross-domain
-  contradiction/gap entries, and 18 recommended focused packets. Every
-  child-defined open-choice family remains unresolved and every applicable
-  domain gate remains pending. No current defect is promoted to intended
-  behavior, no accepted Day 1 requirement is demoted because runtime is
-  missing, and no Day 2/later extension is pulled into Day 1.
+  contradiction/gap entries, a semantic preservation index for all 118 exact
+  child choices, and 19 recommended focused packets. Every child-defined open
+  choice remains unresolved, each packet carries domain-qualified gates, and
+  every applicable domain gate remains pending. No current defect is promoted
+  to intended behavior, no accepted Day 1 requirement is demoted because
+  runtime is missing, and no Day 2/later extension is pulled into Day 1.
 - Post-synthesis handoff is explicit: #722 remains a non-runnable planning
   umbrella for duplicate search and focused domain runtime, schema/migration,
   OpenAPI/generated-client, event/audit and client splits; #723 remains the
