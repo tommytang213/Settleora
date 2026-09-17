@@ -2,7 +2,32 @@
 
 ## Status
 
-Accepted candidate for the next implementation task.
+Superseded on 2026-09-18 HKT by Tommy's approved PaddleOCR/ONNX Runtime
+architecture for accepted logical task `20260918-0038` / issues #740 and #1247.
+
+The canonical mobile direction is now:
+
+- PaddleOCR is the only approved OCR model family for this implementation.
+- PP-OCRv6 Small is the preferred common-script mobile fast path where
+  acceptance evidence supports it.
+- PP-OCRv5 mobile multilingual/script recognizers cover required gaps,
+  including Arabic, Thai, Korean, Cyrillic, Devanagari, Tamil, and Telugu as
+  exact selected packs prove compatible and accurate.
+- ONNX Runtime is the preferred Android/iOS inference layer. CPU is the
+  correctness baseline; XNNPACK, Core ML, NNAPI, or other accelerators are
+  optional acceptance-equivalent optimizations.
+- Global Core is functionally available offline by default. Recognizers are
+  loaded/cached on demand; optional Extended packs are signed/versioned,
+  integrity-verified, pinned, rollbackable, and offline once installed.
+- Routing is automatic and mixed-script-aware. User locale is not model truth.
+- Provider results preserve text, geometry, confidence, script/model identity,
+  and available order/orientation metadata. Settleora parsing and preview stay
+  independent, provisional, editable, and non-authoritative for money.
+
+The approved architecture and server/client boundaries are authoritative in
+`OCR_ARCHITECTURE.md`. The remainder of this document is retained as the
+historical 2026-06-13 ML Kit evaluation and must not be used to choose or
+silently restore ML Kit as the canonical provider.
 
 The next Day 1 mobile OCR engine implementation should use
 `google_mlkit_text_recognition` behind the existing mobile
@@ -15,9 +40,40 @@ current Flutter app and Day 1 iOS/Android requirement, but the next
 implementation branch still needs real iOS and Android build validation because
 this decision branch intentionally does not add native dependencies.
 
-## Decision date
+## Superseding decision date
+
+2026-09-18 HKT.
+
+## Historical decision date
 
 2026-06-13 HKT.
+
+## Current technical feasibility checkpoint
+
+Current upstream PaddleOCR documentation provides Android and iOS ONNX Runtime
+sample deployments for PP-OCRv6 Small and PP-OCRv5 Mobile. The Android sample
+currently identifies ONNX Runtime 1.21.1, minSdk 26, JDK 17, and Kotlin 2.1 as
+its sample envelope; the iOS sample currently requires Xcode 16 and iOS 16.
+Those are upstream demo facts, not automatic Settleora dependency/target
+changes. The implementation must validate the repository's actual targets.
+
+The current upstream catalog reports PP-OCRv6 Small detection/recognition model
+sizes of approximately 9.6 MB and 20.4 MB before Settleora packaging. PP-OCRv5
+script recognizers are generally about 7.5-14 MB each in the published model
+catalog. Exact downloaded/exported bytes, runtime binary delta, memory, cold
+and warm latency, battery/CPU, and Android/iOS artifact deltas must be measured
+on pinned Settleora artifacts.
+
+The initial acceptance inventory must cover every script in the immutable
+#1247 manifest: Latin, Chinese, Japanese, Korean, Devanagari, Arabic, Thai, and
+Cyrillic. Broader Global Core claims require separate deterministic fixtures
+for unrepresented families such as Bengali, Tamil, and Telugu before those
+families are reported as accepted. Model support lists alone are insufficient.
+
+Model packaging and runtime must record model family/name/version, source,
+license, checksum/signature status, ONNX/ORT format and opset, runtime version,
+preprocessing version, dictionary/config identity, and corpus results. No
+provider telemetry or raw receipt content is allowed in routine diagnostics.
 
 ## Current repo state
 
