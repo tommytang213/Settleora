@@ -4,26 +4,25 @@ import com.example.mobile.ocr.SettleoraPaddleOcrEngine
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 class MainActivity : FlutterActivity() {
-    private val ocrScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val ocrMutex = Mutex()
+    private val ocrExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+
+    @Volatile
+    private var destroyed = false
     private var ocrEngine: SettleoraPaddleOcrEngine? = null
+    private var ocrChannel: MethodChannel? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        MethodChannel(
+        val channel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             SettleoraPaddleOcrEngine.CHANNEL_NAME,
-        ).setMethodCallHandler { call, result ->
+        )
+        ocrChannel = channel
+        channel.setMethodCallHandler { call, result ->
             if (call.method != SettleoraPaddleOcrEngine.METHOD_RECOGNIZE) {
                 result.notImplemented()
                 return@setMethodCallHandler
@@ -35,28 +34,38 @@ class MainActivity : FlutterActivity() {
                 return@setMethodCallHandler
             }
 
-            ocrScope.launch {
+            ocrExecutor.execute {
+                if (destroyed) return@execute
                 try {
-                    val channelValue = withContext(Dispatchers.IO) {
-                        ocrMutex.withLock {
-                            val engine = ocrEngine ?: SettleoraPaddleOcrEngine(applicationContext)
-                                .also { ocrEngine = it }
-                            engine.recognize(imageBytes).toChannelValue()
-                        }
+                    val engine = ocrEngine ?: SettleoraPaddleOcrEngine(applicationContext)
+                        .also { ocrEngine = it }
+                    val channelValue = engine.recognize(imageBytes).toChannelValue()
+                    runOnUiThread {
+                        if (!destroyed) result.success(channelValue)
                     }
-                    result.success(channelValue)
                 } catch (_: Throwable) {
                     // Receipt bytes/text and local paths must never enter routine logs or errors.
-                    result.error("ocr_failed", "On-device receipt OCR failed", null)
+                    runOnUiThread {
+                        if (!destroyed) {
+                            result.error("ocr_failed", "On-device receipt OCR failed", null)
+                        }
+                    }
                 }
             }
         }
     }
 
     override fun onDestroy() {
-        ocrEngine?.release()
-        ocrEngine = null
-        ocrScope.cancel()
+        destroyed = true
+        ocrChannel?.setMethodCallHandler(null)
+        ocrChannel = null
+        // Engine creation, inference, and release stay serialized on one thread.
+        // shutdown() drains an in-flight native call before the queued release.
+        ocrExecutor.execute {
+            ocrEngine?.release()
+            ocrEngine = null
+        }
+        ocrExecutor.shutdown()
         super.onDestroy()
     }
 }

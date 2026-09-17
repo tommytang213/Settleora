@@ -20,6 +20,7 @@ import ai.onnxruntime.OrtSession
 import android.content.Context
 import com.paddle.ocr.EngineConfig
 import com.paddle.ocr.model.OCRError
+import com.paddle.ocr.postprocess.CTCDecoder
 import java.nio.FloatBuffer
 
 class ORTSessionManager(
@@ -35,10 +36,6 @@ class ORTSessionManager(
     private var recInputName: String = "x"
     var coldLoadTimeMs: Long = 0
         private set
-
-    fun loadModels(detAssetPath: String, recAssetPath: String) {
-        loadModels(detAssetPath, mapOf(DEFAULT_RECOGNIZER_ID to recAssetPath))
-    }
 
     fun loadModels(detAssetPath: String, recAssetPaths: Map<String, String>) {
         require(recAssetPaths.isNotEmpty()) { "At least one recognition model is required" }
@@ -77,16 +74,13 @@ class ORTSessionManager(
         return runSession(ortEnv, session, detInputName, input, shape, "detection")
     }
 
-    fun runRecognition(input: FloatArray, shape: LongArray): Pair<FloatArray, LongArray> {
-        return runRecognition(DEFAULT_RECOGNIZER_ID, input, shape)
-    }
-
     @Synchronized
-    fun runRecognition(
+    fun runRecognitionDecoded(
         recognizerId: String,
         input: FloatArray,
         shape: LongArray,
-    ): Pair<FloatArray, LongArray> {
+        characterList: List<String>,
+    ): List<Pair<String, Float>> {
         val ortEnv = env
             ?: throw OCRError.ModelLoadFailed("recognition:$recognizerId", Exception("Environment not initialized"))
         if (activeRecognizerId != recognizerId) {
@@ -94,7 +88,37 @@ class ORTSessionManager(
         }
         val session = recSession
             ?: throw OCRError.ModelLoadFailed("recognition:$recognizerId", Exception("Session not initialized"))
-        return runSession(ortEnv, session, recInputName, input, shape, "recognition:$recognizerId")
+        val modelName = "recognition:$recognizerId"
+        val tensor = try {
+            OnnxTensor.createTensor(ortEnv, FloatBuffer.wrap(input), shape)
+        } catch (t: Throwable) {
+            throw OCRError.InferenceFailed(modelName, t)
+        }
+        val result = try {
+            try {
+                session.run(mapOf(recInputName to tensor))
+            } catch (t: Throwable) {
+                throw OCRError.InferenceFailed(modelName, t)
+            }
+        } finally {
+            tensor.close()
+        }
+
+        return try {
+            val outputName = session.outputNames.iterator().next()
+            val outputTensor = result.get(outputName)
+                .orElseThrow { Exception("No output tensor found") } as? OnnxTensor
+                ?: throw Exception("Output is not an ONNX tensor")
+            CTCDecoder.decode(
+                outputTensor.floatBuffer,
+                outputTensor.info.shape,
+                characterList,
+            )
+        } catch (t: Throwable) {
+            throw OCRError.InferenceFailed(modelName, t)
+        } finally {
+            result.close()
+        }
     }
 
     fun release() {
@@ -196,9 +220,5 @@ class ORTSessionManager(
         val output = FloatArray(duplicate.remaining())
         duplicate.get(output)
         return output
-    }
-
-    private companion object {
-        const val DEFAULT_RECOGNIZER_ID = "default"
     }
 }

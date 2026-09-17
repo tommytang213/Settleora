@@ -8,7 +8,6 @@ import com.paddle.ocr.engine.ORTSessionManager
 import com.paddle.ocr.model.ModelConfig
 import com.paddle.ocr.model.OCRError
 import com.paddle.ocr.postprocess.BoxSorter
-import com.paddle.ocr.postprocess.CTCDecoder
 import com.paddle.ocr.postprocess.QuadTextCrop
 import com.paddle.ocr.preprocess.RecPreprocessor
 import com.paddle.ocr.util.BitmapUtils
@@ -24,7 +23,7 @@ import com.paddle.ocr.util.OpenCVUtils
  */
 class SettleoraPaddleOcrEngine(context: Context) {
     private val appContext = context.applicationContext
-    private val config = PaddleOCRConfig(recScoreThresh = 0.1f)
+    private val config = PaddleOCRConfig(recScoreThresh = 0.1f, recBatchSize = 4)
     private val sessions = ORTSessionManager(appContext, EngineConfig())
     private val detector: DetectionEngine
     private val packs: List<RecognizerPack>
@@ -73,7 +72,7 @@ class SettleoraPaddleOcrEngine(context: Context) {
 
             val validBoxes = mutableListOf<Pair<Int, com.paddle.ocr.model.OCRBox>>()
             val crops = mutableListOf<org.opencv.core.Mat>()
-            for ((order, box) in sortedBoxes.withIndex()) {
+            for ((order, box) in sortedBoxes.take(MAX_RECOGNITION_LINES).withIndex()) {
                 val crop = QuadTextCrop.crop(source, box)
                 if (crop.empty()) {
                     crop.release()
@@ -84,30 +83,41 @@ class SettleoraPaddleOcrEngine(context: Context) {
             }
             try {
                 if (crops.isNotEmpty()) {
-                    val preprocessStart = System.currentTimeMillis()
-                    val input = RecPreprocessor.preprocessBatch(crops)
-                    recognitionTimeMs += System.currentTimeMillis() - preprocessStart
                     val candidatesByLine = List(crops.size) { mutableListOf<ScriptCandidate>() }
+                    val batches = crops.indices
+                        .groupBy { index -> recognitionBatchCapacity(crops[index]) }
+                        .flatMap { (capacity, indices) ->
+                            indices.sortedBy { index -> crops[index].cols().toDouble() / crops[index].rows() }
+                                .chunked(capacity)
+                        }
 
                     for (pack in packs) {
-                        val inferenceStart = System.currentTimeMillis()
-                        val (output, shape) = sessions.runRecognition(
-                            pack.spec.modelPackId,
-                            input.tensorData,
-                            input.shape,
-                        )
-                        val decoded = CTCDecoder.decode(output, shape, pack.characters)
-                        recognitionTimeMs += System.currentTimeMillis() - inferenceStart
-                        check(decoded.size == crops.size) { "Recognition batch size mismatch" }
-                        decoded.forEachIndexed { index, value ->
-                            candidatesByLine[index] += ScriptCandidate(
-                                text = RecognizedTextNormalizer.normalize(
-                                    value.first.trim(),
-                                    pack.spec,
-                                ),
-                                confidence = value.second,
-                                pack = pack.spec,
+                        for (batchIndices in batches) {
+                            val batchStart = System.currentTimeMillis()
+                            val input = RecPreprocessor.preprocessBatch(
+                                batchIndices.map { index -> crops[index] },
                             )
+                            val decoded = sessions.runRecognitionDecoded(
+                                pack.spec.modelPackId,
+                                input.tensorData,
+                                input.shape,
+                                pack.characters,
+                            )
+                            recognitionTimeMs += System.currentTimeMillis() - batchStart
+                            check(decoded.size == batchIndices.size) {
+                                "Recognition batch size mismatch"
+                            }
+                            decoded.forEachIndexed { batchIndex, value ->
+                                val lineIndex = batchIndices[batchIndex]
+                                candidatesByLine[lineIndex] += ScriptCandidate(
+                                    text = RecognizedTextNormalizer.normalize(
+                                        value.first.trim(),
+                                        pack.spec,
+                                    ),
+                                    confidence = value.second,
+                                    pack = pack.spec,
+                                )
+                            }
                         }
                     }
 
@@ -149,6 +159,17 @@ class SettleoraPaddleOcrEngine(context: Context) {
 
     fun release() = sessions.release()
 
+    private fun recognitionBatchCapacity(crop: org.opencv.core.Mat): Int {
+        val normalizedWidth = kotlin.math.ceil(48.0 * crop.cols() / crop.rows())
+            .toInt()
+            .coerceAtMost(3200)
+        return when {
+            normalizedWidth > 1280 -> 1
+            normalizedWidth > 640 -> minOf(2, config.recBatchSize)
+            else -> config.recBatchSize
+        }
+    }
+
     private data class RecognizerPack(
         val spec: RecognizerSpec,
         val characters: List<String>,
@@ -159,6 +180,7 @@ class SettleoraPaddleOcrEngine(context: Context) {
         const val METHOD_RECOGNIZE = "recognize"
         const val RUNTIME_IDENTITY = "onnxruntime-android:1.21.1:cpu"
 
+        private const val MAX_RECOGNITION_LINES = 256
         private const val ASSET_ROOT = "flutter_assets/assets/receipt_ocr_models"
         private const val DETECTION_MODEL_PACK_ID = "paddleocr.ppocrv6.small.det"
         private const val DETECTION_MODEL_VERSION = "28fe5895c24fd108c19eb3e8479f4ab385fbfc62"

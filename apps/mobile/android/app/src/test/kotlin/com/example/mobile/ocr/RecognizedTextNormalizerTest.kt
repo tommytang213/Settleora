@@ -26,6 +26,14 @@ class RecognizedTextNormalizerTest {
             "AED 38.85",
             RecognizedTextNormalizer.normalize("AED 38.85", arabicPack()),
         )
+        assertEquals(
+            "مرحبا ABC DEF",
+            RecognizedTextNormalizer.normalize("ABC DEF ابحرم", arabicPack()),
+        )
+        assertEquals(
+            "الإجمالي AED 38.85",
+            RecognizedTextNormalizer.normalize("AED 38.85 يلامجإلا", arabicPack()),
+        )
     }
 
     @Test

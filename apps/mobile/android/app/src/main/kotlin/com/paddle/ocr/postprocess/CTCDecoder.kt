@@ -14,10 +14,17 @@
 
 package com.paddle.ocr.postprocess
 
+import java.nio.FloatBuffer
+
 object CTCDecoder {
     private const val BLANK_IDX = 0
 
     fun decode(output: FloatArray, shape: LongArray, characterList: List<String>): List<Pair<String, Float>> {
+        return decode(FloatBuffer.wrap(output), shape, characterList)
+    }
+
+    fun decode(output: FloatBuffer, shape: LongArray, characterList: List<String>): List<Pair<String, Float>> {
+        val values = output.duplicate().apply { rewind() }
         val batchSize = shape[0].toInt()
         val timeSteps = shape[1].toInt()
         val numClasses = shape[2].toInt()
@@ -31,9 +38,9 @@ object CTCDecoder {
             for (t in 0 until timeSteps) {
                 val offset = baseOffset + t * numClasses
                 var maxIdx = 0
-                var maxVal = output[offset]
+                var maxVal = values.get(offset)
                 for (c in 1 until numClasses) {
-                    val v = output[offset + c]
+                    val v = values.get(offset + c)
                     if (v > maxVal) {
                         maxVal = v
                         maxIdx = c

@@ -2,6 +2,9 @@ package com.example.mobile.ocr
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.paddle.ocr.preprocess.RecPreprocessor
+import com.paddle.ocr.util.OpenCVUtils
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -27,7 +30,6 @@ class ReceiptOcrCorpusInstrumentedTest {
         val fixtures = manifest.getJSONArray("fixtures")
         assertEquals(101, fixtures.length())
 
-        val observedRoutes = mutableMapOf<String, MutableSet<String>>()
         val engine = SettleoraPaddleOcrEngine(context)
         try {
             for (index in 0 until fixtures.length()) {
@@ -42,28 +44,81 @@ class ReceiptOcrCorpusInstrumentedTest {
                     "paddleocr.ppocrv6.small.det",
                     result.detectionModelPackId,
                 )
-                observedRoutes.getOrPut(script) { mutableSetOf() }
-                    .addAll(result.blocks.map { it.modelPackId })
+                expectedPackFor(script)?.let { expectedPackId ->
+                    val expectedTexts = scriptBearingExpectedTexts(
+                        fixture.getJSONObject("expected"),
+                        script,
+                    )
+                    assertTrue("$fixtureId: fixture has no script-bearing expected text", expectedTexts.isNotEmpty())
+                    assertTrue(
+                        "$fixtureId: expected script text was not recognized by $expectedPackId",
+                        result.blocks.any { block ->
+                            block.modelPackId == expectedPackId &&
+                                containsScript(block.text, script) &&
+                                expectedTexts.any { expected ->
+                                    normalizeForMatch(block.text) == normalizeForMatch(expected)
+                                }
+                        },
+                    )
+                }
             }
         } finally {
             engine.release()
         }
-
-        assertRoute(observedRoutes, "Arabic", "paddleocr.ppocrv5.mobile.rec.arabic")
-        assertRoute(observedRoutes, "Thai", "paddleocr.ppocrv5.mobile.rec.thai")
-        assertRoute(observedRoutes, "Cyrillic", "paddleocr.ppocrv5.mobile.rec.cyrillic")
-        assertRoute(observedRoutes, "Devanagari", "paddleocr.ppocrv5.mobile.rec.devanagari")
-        assertRoute(observedRoutes, "Korean", "paddleocr.ppocrv5.mobile.rec.korean")
     }
 
-    private fun assertRoute(
-        observedRoutes: Map<String, Set<String>>,
-        script: String,
-        expectedPackId: String,
-    ) {
-        assertTrue(
-            "$script: expected routed model pack was not exercised",
-            observedRoutes[script]?.contains(expectedPackId) == true,
+    @Test
+    fun recognitionPreprocessingPreservesConfiguredBgrChannelOrder() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        assertTrue(OpenCVUtils.init(context))
+        val crop = org.opencv.core.Mat(
+            48,
+            2,
+            org.opencv.core.CvType.CV_8UC3,
+            org.opencv.core.Scalar(10.0, 20.0, 30.0),
         )
+        try {
+            val result = RecPreprocessor.preprocessBatch(listOf(crop))
+            val channelSize = 48 * 2
+            assertEquals((10.0 / 127.5 - 1.0), result.tensorData[0].toDouble(), 0.0001)
+            assertEquals((20.0 / 127.5 - 1.0), result.tensorData[channelSize].toDouble(), 0.0001)
+            assertEquals((30.0 / 127.5 - 1.0), result.tensorData[channelSize * 2].toDouble(), 0.0001)
+        } finally {
+            crop.release()
+        }
     }
+
+    private fun expectedPackFor(script: String): String? = when (script) {
+        "Arabic" -> "paddleocr.ppocrv5.mobile.rec.arabic"
+        "Thai" -> "paddleocr.ppocrv5.mobile.rec.thai"
+        "Cyrillic" -> "paddleocr.ppocrv5.mobile.rec.cyrillic"
+        "Devanagari" -> "paddleocr.ppocrv5.mobile.rec.devanagari"
+        "Korean" -> "paddleocr.ppocrv5.mobile.rec.korean"
+        else -> null
+    }
+
+    private fun scriptBearingExpectedTexts(expected: JSONObject, script: String): List<String> {
+        val values = mutableListOf(expected.getString("merchant"))
+        val items = expected.optJSONArray("items") ?: JSONArray()
+        for (index in 0 until items.length()) {
+            values += items.getJSONArray(index).getString(0)
+        }
+        return values.filter { containsScript(it, script) }
+    }
+
+    private fun containsScript(text: String, script: String): Boolean = text.codePoints().anyMatch { codePoint ->
+        val unicodeScript = Character.UnicodeScript.of(codePoint)
+        when (script) {
+            "Arabic" -> unicodeScript == Character.UnicodeScript.ARABIC
+            "Thai" -> unicodeScript == Character.UnicodeScript.THAI
+            "Cyrillic" -> unicodeScript == Character.UnicodeScript.CYRILLIC
+            "Devanagari" -> unicodeScript == Character.UnicodeScript.DEVANAGARI
+            "Korean" -> unicodeScript == Character.UnicodeScript.HANGUL
+            else -> false
+        }
+    }
+
+    private fun normalizeForMatch(text: String): String = text
+        .replace(Regex("\\s+"), " ")
+        .trim()
 }

@@ -37,8 +37,20 @@ internal object RecognizedTextNormalizer {
                 continue
             }
             var runEnd = runStart + 1
-            while (runEnd < logical.size && isForwardRunGrapheme(logical[runEnd])) {
-                runEnd++
+            while (runEnd < logical.size) {
+                if (isForwardRunGrapheme(logical[runEnd])) {
+                    runEnd++
+                    continue
+                }
+                if (
+                    logical[runEnd].isBlank() &&
+                    runEnd + 1 < logical.size &&
+                    isForwardRunGrapheme(logical[runEnd + 1])
+                ) {
+                    runEnd += 2
+                    continue
+                }
+                break
             }
             logical.subList(runStart, runEnd).reverse()
             runStart = runEnd
