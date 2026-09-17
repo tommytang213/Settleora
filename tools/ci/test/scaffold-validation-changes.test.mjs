@@ -65,6 +65,8 @@ for (const [filename, expected] of [
   ['tools/ci/test/user-web-dist-manifest.test.mjs', { docs: false, full: true, mobile: false, ios: false, web: true }],
   ['package.json', { docs: false, full: true, mobile: true, ios: false, web: false }],
   ['tools/doctor-validation.mjs', { docs: false, full: true, mobile: true, ios: false, web: false }],
+  ['tools/ocr-models/mobile-model-catalog.mjs', { docs: false, full: true, mobile: true, ios: false, web: false }],
+  ['tools/ocr-models/test/mobile-model-catalog.test.mjs', { docs: false, full: true, mobile: true, ios: false, web: false }],
   ['codemagic.yaml', { docs: false, full: true, mobile: true, ios: true, web: false }],
   ['services/api/source.cs', { docs: false, full: true, mobile: false, ios: false, web: false }],
 ]) {
