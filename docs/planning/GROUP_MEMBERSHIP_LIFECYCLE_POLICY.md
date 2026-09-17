@@ -29,8 +29,10 @@ Clients may present server results; hidden controls, route presence, cached
 membership, local lists, and stable IDs never confer authority. Local-only
 personal records may be authoritative within their local application/domain
 boundary, but accepted Day 1 authority explicitly excludes friends, groups,
-memberships, and server collaboration. The `LOCAL-*` rows therefore record
-non-applicability rather than inventing a local group lifecycle.
+memberships, and server collaboration. `LOCAL-GRP/MEM/HIST-*` therefore records
+group non-applicability rather than inventing a local group lifecycle;
+`LOCAL-PART-*` separately preserves accepted local person/participant candidate
+authority without creating server collaboration authority.
 
 [The financial lifecycle policy](../architecture/BILL_SETTLEMENT_RECORD_LIFECYCLE_POLICY.md)
 owns bill, split, payer, settlement, and money state. This policy owns only the
@@ -42,6 +44,12 @@ policy](../architecture/AUTH_SECURITY_LIFECYCLE_POLICY.md) owns accounts,
 identities, credentials, and sessions. Notification event production,
 delivery, preferences, and retained notification history remain in their
 notification lanes. None of those domains is redefined here.
+
+This policy records the **group-invitation relationship** only because it is a
+possible membership-entry dependency. Account-registration invitation state,
+one-time material, identity proof, credential/security behavior, and delivery
+remain #721/auth/identity/notification-owned. No `INV-*` row authorizes either
+group-invitation or account-invitation runtime.
 
 ## 2. Evidence Classification And Vocabulary
 
@@ -118,6 +126,13 @@ The #960 terms apply unchanged. In this policy:
   meaning; #720 requires them to remain distinct in this Day 1 lifecycle policy
   as future extensions, not to become Day 1 runtime scope. `MEM-003` through
   `MEM-006` therefore carry no implementation authority.
+- No group invitation entity, create/accept/decline/cancel/expire transition,
+  actor contract, endpoint, or acceptance test exists. Direct owner-add is the
+  only implemented membership-entry path; it is a current fact, not a decision
+  that invitations are unnecessary. Repository auth and notification authority
+  reserves invitation work and accepted `group.invite_created` /
+  `group.invite_accepted` in-app baselines. `MEM-CHOICE-016` keeps every
+  invitation actor, state effect, and membership-creation rule unresolved.
 
 ### 3.2 Historical financial references
 
@@ -139,6 +154,11 @@ The #960 terms apply unchanged. In this policy:
   the posting actor before materializing stored participants/payers and sending
   pending-participant notifications. Removal after preflight or future-bill
   creation can therefore enter new draft/activity without target revalidation.
+- Group CSV import-session GET and discard have a different revocation gap:
+  `LoadActorSessionAsync` binds only the stored account, auth-session, and
+  profile IDs. Neither path rechecks current group membership, so a removed
+  creator can still read persisted review data or discard the session.
+  `MEM-CHOICE-015` owns that access/mutation exception as well as confirmation.
 - Current group bill reads and most group settlement reads/mutations require
   current active group membership. Settlement candidate and request-create
   group-bill queries reject the entire bill unless its creator and **every**
@@ -172,6 +192,13 @@ The #960 terms apply unchanged. In this policy:
   claim/link runtime scope remains unimplemented and unresolved; fuller guest
   membership, governance, and participation polish remain Day 2. #720 records
   the preservation constraint and extension point without authorizing runtime.
+- Local-only authority separately permits a local person/temporary participant
+  identity and participant/share relationship as local candidate data. No exact
+  lifecycle representation is implemented. Such a reference is neither a
+  server account nor group membership, and any later server import/link is a
+  new acceptance that must preserve local provenance rather than silently
+  merge identities. `LOCAL-PART-001/002` and `MEM-CHOICE-017` preserve that
+  local identity/historical-reference handoff delegated by #718.
 - Current group membership transitions do not produce notifications.
   `NOTIFICATION_EVENT_TAXONOMY.md` nevertheless establishes an accepted,
   unimplemented in-app baseline for `group.membership_added`,
@@ -180,6 +207,10 @@ The #960 terms apply unchanged. In this policy:
   reauthorization, preferences/mute behavior, and optional email/push remain
   notification-owner concerns and cannot be inferred from list visibility,
   access, default selection, or membership status.
+- The same taxonomy reserves `group.invite_created` and
+  `group.invite_accepted` as accepted, unimplemented affected-recipient in-app
+  baselines. Notification read/archive never accepts, declines, cancels,
+  expires, or otherwise changes an invitation or membership.
 
 ## 4. Shared Reusable-Row Contract
 
@@ -187,10 +218,11 @@ Sections 5.1 through 5.5 are joined by stable row ID and together provide every
 field required by the #960 reusable schema. The following exact values apply to
 every row unless a cell overrides them:
 
-- **Authority mode/workspace:** `GRP-*`, `MEM-*`, `GUEST-*`, and `HIST-*` are
-  server mode inside one self-hosted workspace. `LOCAL-*` records the explicit
-  Day 1 local-only non-applicability boundary: local mode has no groups,
-  memberships, shared-group collaboration, or server-derived group authority.
+- **Authority mode/workspace:** `GRP-*`, `MEM-*`, `INV-*`, `GUEST-*`, and
+  `HIST-*` are server mode inside one self-hosted workspace. `LOCAL-GRP-*`,
+  `LOCAL-MEM-*`, and `LOCAL-HIST-*` record group non-applicability. In contrast,
+  `LOCAL-PART-*` is locally authoritative candidate/reference data inside the
+  local application/domain boundary and grants no server authority.
 - **Decision authority and live state:** `PROGRAM_ARCHITECTURE.md` authority,
   audit, client, and privacy boundaries; `MVP_DAY1_SCOPE.md` “Shared groups,”
   “Expenses and bills,” “Notifications,” and “Soft delete and archive”;
@@ -204,13 +236,16 @@ every row unless a cell overrides them:
   surface; `GRP-002/003` have no current surface and reserve future group
   settings/history; `MEM-001/002/007` use current group-member management;
   `MEM-003..006/008` have no current surface and reserve future membership
-  settings/history; `GUEST-001` has no current surface and reserves an approved
+  settings/history; `INV-*` has no current surface and reserves separately
+  approved invite, accept, decline, cancel, and expiry surfaces; `GUEST-001`
+  has no current surface and reserves an approved
   bill create/edit flow; `GUEST-002` has no current surface and reserves the
   accepted provenance-preserving claim/link extension whose runtime/release
   lane remains unresolved; `HIST-001/002` are not independent user actions and use only
-  separately authorized bill/settlement history surfaces; and `LOCAL-*` has no
-  action surface because group membership/collaboration is unsupported in Day 1
-  local mode. These surface names do not prove that a proposed control exists.
+  separately authorized bill/settlement history surfaces; `LOCAL-GRP/MEM/HIST-*`
+  has no surface because local group collaboration is unsupported; and
+  `LOCAL-PART-*` reserves a local personal-bill participant/reference surface,
+  not a server collaboration surface. These names prove no control exists.
 - **Preconditions:** authenticated current actor where user-visible; current
   actor authority; exact current group, membership, role, account/identity, and
   record state; last-owner safety; no duplicate/conflicting membership; current
@@ -230,9 +265,10 @@ every row unless a cell overrides them:
   and recheck authority/dependencies. UI freshness is never concurrency proof.
 - **Retention class:** group/membership identity and authoritative historical
   link rows are `MEMBERSHIP_HISTORY_RETAINED`; unimplemented guest placeholders
-  are `TEMPORARY_IDENTITY_UNRESOLVED`; local group/membership rows are
-  `LOCAL_GROUP_UNSUPPORTED` and have no lifecycle target. No duration is
-  invented.
+  and invitations are `TEMPORARY_IDENTITY_UNRESOLVED` and
+  `INVITATION_LIFECYCLE_UNRESOLVED`; local group/membership rows are
+  `LOCAL_GROUP_UNSUPPORTED`; local participant/reference candidates are
+  `LOCAL_PARTICIPANT_UNRESOLVED`. No duration is invented.
 - **Hard delete:** ineligible for history-bearing group/membership/participant
   identity rows. Any hypothetical dependency-free temporary placeholder is
   unresolved and still blocked by positive dependency/copy proof, retention,
@@ -280,6 +316,11 @@ every row unless a cell overrides them:
 | `MEM-006` | Left membership — proposed **Rejoin / reactivate membership** | Left → active or a new active relationship; representation unresolved | Future eligibility only after current acceptance; no retroactive selection | Revalidate group, actor, account, role, duplicates/conflicts, and record authorization | No replay; later events only after accepted state/policy | **Unresolved product/authz choice for the documented Day 2 extension.** No runtime or accepted in-place-versus-new rule; not Day 1 runtime. `MEM-CHOICE-004/011/014`. |
 | `MEM-007` | Active membership — **Remove member** | Active → removed tombstone; active owner/API; sequential last-owner guard is account-unaware, while owner-floor, actor-authority, and same-target prior-state are not atomic | Excluded from future active-member defaults, except already stored CSV/future-bill candidates can still materialize | Current group/member and most group bill/settlement paths fail closed; historical links remain stored | Accepted `group.membership_removed` in-app baseline for the affected recipient is unimplemented; historical/security eligibility remains separately unresolved | **Implemented current fact with viable-owner-floor, stale-actor, duplicate-success-audit, and zero-owner race gaps.** `RemoveMemberAsync`; `CountActiveOwnersAsync`; tests. |
 | `MEM-008` | Removed membership — proposed **Restore / reactivate member** | Removed → active or replacement relationship; requester, approver, and API executor authority are unresolved; no transition exists | No eligibility until separately accepted | No access restoration from stable row/ID alone | No notification restoration or replay | **Unresolved product/authz choice; current runtime blocks add and restore.** `MEM-CHOICE-005/006/007/011/014`. |
+| `INV-001` | Group invitation — proposed **Invite member** | No invitation → pending invitation; requester, eligible target, API executor, duplicate policy, and expiry basis unresolved | Pending invitation creates no membership or future-record eligibility | No group/record access from invitation or possession of invite material | Accepted `group.invite_created` affected-recipient in-app baseline is unimplemented | **Unresolved product/authz choice; runtime/schema absent.** Direct owner-add is not an invitation policy. `MEM-CHOICE-016`. |
+| `INV-002` | Pending invitation — proposed **Accept invitation** | Pending → accepted plus active membership or another approved result; accepting actor, target binding, role, and atomic effect unresolved | Future eligibility only after server acceptance creates an approved active relationship | No access before acceptance; accepted result receives only role/record-specific access | Accepted `group.invite_accepted` affected-recipient in-app baseline is unimplemented; no notification action performs acceptance | **Unresolved product/authz/identity choice; runtime absent.** `MEM-CHOICE-016`. |
+| `INV-003` | Pending invitation — proposed **Decline invitation** | Pending → declined; target actor, finality, re-invite, and reason policy unresolved | No membership or future eligibility | No group/record access | Exact decline event/recipient policy unresolved; no replay of create baseline | **Unresolved product/privacy choice; runtime absent.** `MEM-CHOICE-016`. |
+| `INV-004` | Pending invitation — proposed **Cancel invitation** | Pending → cancelled; inviter/owner/admin actor and race with acceptance unresolved | No membership or future eligibility | No group/record access | Exact cancellation event/recipient policy unresolved | **Unresolved product/authz choice; runtime absent.** `MEM-CHOICE-016`. |
+| `INV-005` | Pending invitation — proposed **Expire invitation** | Pending → expired; authoritative clock, server executor, and race policy unresolved | No membership or future eligibility | No group/record access | Exact expiry event/recipient policy unresolved | **Unresolved product/security choice; runtime absent.** `MEM-CHOICE-016`. |
 | `GUEST-001` | Temporary bill participant — proposed **Add temporary participant** on bill flow, not group governance | No reference → stable temporary identity/reference; eligible requester role is unresolved and API/domain would execute only after current bill/context authorization | Never a group-wide default by inference; only explicit permitted bill/context selection | Limited record-specific access, if any, must be explicitly authorized; no account/group authority | Only an approved safe contact/delivery model may notify; none exists | **Documented accepted Day 1 requirement; runtime/schema unimplemented and actor-blocked.** Current financial rows require `UserProfileId`. `MEM-CHOICE-008/015`. |
 | `GUEST-002` | Temporary reference — future **Claim / link account** | Unclaimed reference → linked account while retaining provenance; claimant, initiator, approver, canceller, and API decision authority are unresolved | Future eligibility comes from separately accepted membership/record inclusion | Linking does not rewrite history or grant unrelated access; token possession/placeholder creation confer no authority | No replay; future eligibility requires explicit policy and safe recipient resolution | **Documented accepted Day 1 lifecycle preservation requirement and actor-blocked extension point.** It authorizes no claim/link runtime; exact actors/release scope and fuller Day 2 guest governance remain `MEM-CHOICE-008`. |
 | `HIST-001` | Bill participant, payer, item split/assignment, revision identity — **not independently removable** | Membership change leaves accepted references unchanged; stored CSV/future-bill candidates can materialize without target revalidation | No automatic future selection follows from historical linkage | Read/mutation only through bill-specific current authorization; group revisions require every creator/owner/participant/payer active | Notify only when event-specific authorization independently permits it; future posting currently notifies stored pending participants | **Implemented persistence plus documented invariant and current coupling gaps.** Expense/revision/future/import sources; `MEM-CHOICE-006/015`. |
@@ -287,6 +328,8 @@ every row unless a cell overrides them:
 | `LOCAL-GRP-001` | Local-only group — **not available in Local Mode** | No transition: Day 1 local mode has no groups or shared-group collaboration | Not applicable | No local group access and no server access inference | Not applicable | **Documented accepted non-applicability.** `MVP_DAY1_SCOPE.md` and `AUTH_IDENTITY_FOUNDATION.md`; `MEM-CHOICE-012`. |
 | `LOCAL-MEM-001` | Local-only group membership — **not available in Local Mode** | No transition: Day 1 local mode has no group membership relationship | Not applicable | No local membership authority and no server access inference | Not applicable | **Documented accepted non-applicability.** Same sources; `MEM-CHOICE-012`. |
 | `LOCAL-HIST-001` | Local-only group historical participant reference — **not available in Local Mode** | No group-history transition exists; locally authoritative personal records remain outside this group-policy row | Not applicable | No group-history access authority; later server import is a new acceptance | No cross-boundary notification inference | **Documented accepted non-applicability for groups.** Generic local personal-record/import authority does not create groups; `MEM-CHOICE-012`. |
+| `LOCAL-PART-001` | Local-only personal-bill person/temporary participant — proposed **Record participant locally** | No local candidate → locally authoritative person/participant reference; exact local entity and actor surface unimplemented | Local personal-record inclusion only; never a server/group default | Local record visibility only under local app policy; no server account, group, payment-detail, settlement, or audit authority | Local presentation is not server notification eligibility | **Documented accepted local authority; exact lifecycle unimplemented.** `LOCAL_SERVER_MODE_AUTHORITY_BOUNDARY_AUDIT.md`; #718 `LOCAL-PART-001`; `MEM-CHOICE-017`. |
+| `LOCAL-PART-002` | Local-only participant reference — **Retain history / offer later import** | Local current reference → retained local historical reference; any server import/link creates a newly accepted server identity/reference without rewriting local provenance | No server future eligibility by implication | Local history remains local; server visibility/access begins only after separate server acceptance | No server notification or replay follows from local history/import candidate status | **Documented accepted local authority and future acceptance requirement.** Exact retention/import/link model remains `MEM-CHOICE-017`; no runtime is authorized here. |
 
 ### 5.2 Mutation eligibility, reversibility, re-entry, dependencies, and blockers
 
@@ -300,9 +343,11 @@ every row unless a cell overrides them:
 | `MEM-005/006` | Left blocks ordinary new participation; outstanding historical actions are separately authorized | Conditional; in-place versus new relationship unresolved | Target active membership or new relationship; revalidate actor, group, account/identity, role, owner floor, duplicates/conflicts, outstanding obligations, policy, and version | Historical bills/settlements, owner role, invites, recurring records, files, notification history, audit, sync/import/export copies. Departure/re-entry contract missing. |
 | `MEM-007` | Removed blocks current group/member and active-member-dependent operations; stored import/future candidates remain exceptions; row remains | Current transition has no restore; logical removal is not physical deletion | None in current runtime. Any future target requires all group/account/role/duplicate/owner/dependency/version checks | Owner guard is account-unaware/non-atomic; concurrent owners can remove to zero. Concurrent same-target removes can both emit success audit, and a stale-authority owner can commit. Missing atomic actor/target/viable-owner predicates, reason, version/idempotency, dependency impact, denial/conflict audit, and restore rule. |
 | `MEM-008` | No current mutation is eligible; duplicate row blocks add | Unresolved | Active membership or new relationship only after `MEM-CHOICE-005`; no requester, approver, or executor is authorized until that choice is decided; then revalidate every blocker named for `MEM-006` and why removal occurred | Removed row, prior role/audit, historical records, policy/disciplinary hold if any, account state, owner floor, notification history. No accepted restore actor or transition contract. |
+| `INV-001..005` | Pending invitation alone enables no group/member/record mutation; accept may create a membership only under a separately approved atomic contract | Decline/cancel/expire are terminal only if later policy says so; accept is not restore | Target accepted invitation plus approved active membership result; revalidate inviter/acceptor authority, target identity, group, role/owner rules, account state, duplicates/conflicts, expiry, block/unfriend policy, and version | Group/account/identity, membership tombstone/duplicate, role/owner floor, notification history, audit, delivery, block/unfriend, exports/backups. Every actor, terminal/re-invite rule, and accept-versus-cancel/expire race is missing. |
 | `GUEST-001/002` | Placeholder can affect only explicitly accepted bill participation; cannot govern group or act as account | Claim/link is not reversal and must retain provenance | Linked reference plus separately accepted account/membership; claimant, initiator, approver, canceller, and API decision authority are unresolved; token possession and placeholder creation confer none; after approval revalidate proof of control, duplicate/conflicting identity, record authorization, privacy, consent, and applicable friendship/direct-sharing/block/unfriend state | Bill/settlement links, contact data, invitations, account/identity, friendship/direct-sharing/block/unfriend state, audit, notifications, exports/backups. Exact actors, entity, proof, conflict, unlink, relationship-policy, and privacy rules missing. |
 | `HIST-001/002` | Membership transition cannot mutate historical money/identity; record-owner workflows remain separate | Not a membership reversal target | Not applicable; future membership re-entry never changes these rows | #718 financial graph; #719 files/links; #721 account/identity; notifications. Missing policy covers revision-wide all-member gates, account-unaware settlement counterparties, and confirmation/posting-time stored-reference revalidation. |
-| `LOCAL-*` | No local or server group/membership mutation is eligible | Not applicable for Day 1 local groups because the record family is unsupported | No re-entry target; a future scope change would require explicit product approval before a row could exist | Current no-groups/no-collaboration authority is complete for this policy. Generic local personal-record, backup, and import rules do not create a group dependency graph. |
+| `LOCAL-GRP/MEM/HIST-*` | No local or server group/membership mutation is eligible | Not applicable for Day 1 local groups because the record family is unsupported | No re-entry target; a future group scope change requires explicit product approval | Current no-groups/no-collaboration authority is complete; local personal-record rules create no group dependency graph. |
+| `LOCAL-PART-001/002` | Local application/domain may record and retain a local personal-bill participant/reference under local policy; it cannot mutate server truth | Local correction/re-entry semantics unresolved; retained history is not silently rewritten or linked | A later server import/link is a new acceptance: revalidate identity/provenance, consent, duplicate/conflict, record context, server authorization, and policy without inheriting group/account authority | Local record/history, backup/restore/export copies, identity/provenance, bill/share facts, import conflicts, and optional future server reference. Exact local entity, retention, correction, link/import, and conflict UX are missing. |
 
 ### 5.3 Metadata, retry/concurrency, retention/disposition, and audit
 
@@ -313,9 +358,11 @@ every row unless a cell overrides them:
 | `MEM-001/002` | Current composite ID, role/status, create/update time; no reason/version/idempotency/concurrency token. Duplicate-add check, actor authorization, target load, owner count, and write are separate. Same-target role writes last-write-win; repeated/simultaneous operations can emit multiple success audits; stale owners and two-owner demotions can commit. | Membership history retained; no hard delete; purge unresolved. | Current success audit is bounded. Add denial/conflict/replay, stale-actor, same-target conflict, same-state, and owner-floor race evidence need focused coverage. |
 | `MEM-003..006/008` | No current fields or operations. Future state needs entered/left/reactivated time, actor, bounded reason, prior role/state, operation/correlation identity, and version. | Retain every former relationship and history link. Hard delete ineligible; purge unresolved. | Audit state changes plus material blocked attempts without exposing reason narrative or private records. |
 | `MEM-007` | Current status and `UpdatedAtUtc`; no removed-at/actor/reason/version/idempotency/concurrency token. Sequential repeat fails after the first save, but simultaneous same-target removes can both update/audit; stale-owner authorization and two-owner removal can also commit. | Removed tombstone and dependencies retained; hard delete ineligible; purge unresolved/separate. | Current success audit is bounded. Add blocked/conflict/replay, stale-actor, duplicate-success-audit, same-target, and owner-floor race evidence later; never log request/contact/private payloads. |
+| `INV-*` | No persistence exists. Future invitation needs stable ID, group/target/inviter binding, role, state/timestamps, bounded expiry/cancel/decline basis, operation identity, expected version, and atomic accept-to-membership result. | `INVITATION_LIFECYCLE_UNRESOLVED`; history/notification-dependent evidence retained; hard delete and purge unresolved under #724. | Audit bounded create/accept/decline/cancel/expire success and material denials/races. Never log raw invite material, email/phone, delivery payload, credentials, or hidden group data. |
 | `GUEST-*` | No persistence exists. Future stable placeholder/reference ID must remain distinct from contact or account ID and retain create/link provenance, consent basis, version, and operation identity. | `TEMPORARY_IDENTITY_UNRESOLVED`; history-bearing reference hard delete ineligible. Any dependency-free draft placeholder and all purge remain unresolved. | Minimize contact/identity proof; never audit raw email/phone/invite token, identity proof, private bill data, or account-link payload. |
 | `HIST-*` | Financial rows retain their own IDs, user/profile links, states, and timestamps under #718. Membership transition must not update them. | `MEMBERSHIP_HISTORY_RETAINED`; hard delete ineligible; purge follows #718/#724 and destructive gates, never this policy alone. | Membership audit may name bounded dependency categories/counts, not money, notes, payment details, OCR, files, or private payloads. |
-| `LOCAL-*` | Persisted group/membership lifecycle metadata is not applicable because Day 1 local mode does not support these families. A later imported candidate receives a new server acceptance rather than inheriting group authority. | `LOCAL_GROUP_UNSUPPORTED`; there is no local group target to hard-delete or purge. Locally authoritative personal-record retention remains outside this policy. | No group lifecycle audit applies. Never represent local labels/cache/import metadata as server membership or audit authority. |
+| `LOCAL-GRP/MEM/HIST-*` | Group/membership metadata is not applicable because local mode does not support these families. | `LOCAL_GROUP_UNSUPPORTED`; no local group target exists. | No group lifecycle audit applies. Never present local labels as server membership or authority. |
+| `LOCAL-PART-*` | Exact persistence is unimplemented; future local identity/reference needs stable local ID, provenance, record link, local version, correction history, and any export/import correlation without a server-authority claim. | `LOCAL_PARTICIPANT_UNRESOLVED`; retain while local history/copies depend on it. Hard delete/purge require local retention/dependency policy and never follow from lack of server authority. | Local audit/provenance must minimize contact data and exclude credentials, raw import/link proof, money/private record payloads, and server authority claims. |
 
 ### 5.4 Implementation owner, unresolved choices, gates, and validation
 
@@ -328,13 +375,15 @@ every row unless a cell overrides them:
 | `MEM-005/006` | `MEM-CHOICE-004/006/007/010/011/014/015` | Documented Day 2 future extension; unimplemented and not Day 1 runtime | #961 synthesis must preserve the Day 2 boundary before any later focused group/member lane; #724 retention; #723 UI only when separately authorized | `G-PRODUCT/G-AUTHZ/G-PRIV/G-RET/G-CLIENT`, conditional `G-SCHEMA/G-CONTRACT`; self/admin actor, owner floor, outstanding-history, re-entry, replay, notification tests. |
 | `MEM-007` | `MEM-CHOICE-005/006/007/009/011/014/015` | Implemented removal with account-unaware and concurrency-unsafe actor/target/owner predicates; stored-reference exceptions remain; restoration absent; accepted removal notification unimplemented | Existing runtime then #722/#724; notification owner | Current fact needs no gate; changed semantics require `G-PRODUCT/G-AUTHZ/G-PRIV/G-RET`, conditional `G-SCHEMA/G-CONTRACT/G-CLIENT`; account-aware owner floor; stale-owner-at-commit; simultaneous same-target and two-owner removal; duplicate audit/replay; CSV/future posting after removal; dependency/history and notification evidence. |
 | `MEM-008` | `MEM-CHOICE-005/006/007/010/011/014/015` | Unimplemented, actor-unresolved, and fail-closed | #961 → #722/#723/#724 | `G-PRODUCT/G-AUTHZ/G-PRIV/G-RET/G-CLIENT`, conditional `G-SCHEMA/G-CONTRACT`; allowed/denied requester, approver, and API executor; reason/policy blocker, duplicate, owner/role, history, stale/replay tests. |
+| `INV-001..005` | `MEM-CHOICE-007/009/010/011/016` | Invitation lifecycle unimplemented; accepted create/accept notification baselines exist, but no state/entity/actor contract does | Existing invitation/auth/group/notification owners after #961; #722 contract/schema/API split; #723 UI; #724 retention | `G-PRODUCT/G-IDENTITY/G-AUTHZ/G-PRIV/G-RET/G-CLIENT`, conditional `G-SCHEMA/G-CONTRACT`; create/accept/decline/cancel/expire allowed/denied actors, target binding, role/owner, duplicate, expiry clock, accept-versus-cancel/expire race, idempotency, atomic membership/audit/notification, safe delivery/redaction, re-invite tests. |
 | `GUEST-*` | `MEM-CHOICE-008/009/010/011/015` | Day 1 temporary-reference and provenance-preserving later-link requirement unimplemented; creation and claim/link actors plus exact runtime scope unresolved; fuller guest governance Day 2 | Existing temporary-participant/account-link owners after #961; #723 UI; #724 retention | `G-PRODUCT/G-AUTHZ/G-PRIV/G-IDENTITY/G-RET/G-CLIENT`, conditional `G-SCHEMA/G-CONTRACT`; allowed/denied creator, claimant, initiator, approver, canceller, and API executor; token/placeholder grants no governance authority; proof/consent, friendship/direct-sharing/block/unfriend denials, duplicate/link conflict, immutable history, notification privacy tests. |
-| `HIST-*` | `MEM-CHOICE-006/007/009/015` | Persistence implemented; access policy incomplete; settlement and revision paths have all-member/account-state gaps; CSV confirmation and future posting can materialize stale stored references | #718 financial owner plus #722 authorization split; #724 retention; notification owner | `G-AUTHZ/G-PRIV/G-RET/G-MONEY/G-DEST` for changed behavior; immutable references; revision-wide former-member tests; settlement account-unavailable counterparty tests across candidate/basket/request/read/payment/proof/cancel/dispute/residual/balance; CSV confirmation and future-post target revalidation; notification/redaction tests. |
-| `LOCAL-*` | `MEM-CHOICE-012` | Documented non-applicability: local groups/memberships are unsupported | No implementation owner; any scope proposal returns to product architecture before #722/#723/#724 | No downstream gate is required to preserve the current unsupported boundary. A proposed local-group scope change would require `G-PRODUCT/G-AUTHZ/G-PRIV/G-SYNC` and conditional `G-SCHEMA/G-CONTRACT/G-CLIENT/G-RET/G-DEST`. |
+| `HIST-*` | `MEM-CHOICE-006/007/009/015` | Persistence implemented; access policy incomplete; settlement/revision gaps exist; import GET/discard omit post-removal membership checks; CSV confirmation/future posting can use stale references | #718 financial owner plus #722 authorization split; #724 retention; notification owner | `G-AUTHZ/G-PRIV/G-RET/G-MONEY/G-DEST` for changed behavior; immutable references; revision-wide and settlement account-state tests; removed import-session creator GET/discard denial; CSV confirmation and future-post target revalidation; notification/redaction tests. |
+| `LOCAL-GRP/MEM/HIST-*` | `MEM-CHOICE-012` | Documented non-applicability: local groups/memberships are unsupported | No implementation owner; any group scope proposal returns to product architecture | No gate preserves the current unsupported boundary. A proposed local-group change requires `G-PRODUCT/G-AUTHZ/G-PRIV/G-SYNC` and conditional `G-SCHEMA/G-CONTRACT/G-CLIENT/G-RET/G-DEST`. |
+| `LOCAL-PART-001/002` | `MEM-CHOICE-009/010/017` | Documented accepted local authority; exact participant/reference lifecycle, retention, and import/link handling unimplemented | Local personal-record/identity/import owners after #961; #723 only for approved UX; #724 retention | `G-PRODUCT/G-PRIV/G-RET/G-SYNC/G-CLIENT`, conditional `G-SCHEMA/G-CONTRACT/G-IDENTITY/G-DEST`; local create/correct/retain/history/copy tests; no server grant; explicit new-acceptance import/link; duplicate/conflict/provenance preservation; local deletion/retention and redaction evidence. |
 
 ### 5.5 Exact hard-delete and purge fields
 
-For `GRP-*`, `MEM-*`, and history-bearing `GUEST-*` and `HIST-*`
+For `GRP-*`, `MEM-*`, `INV-*`, and history-bearing `GUEST-*` and `HIST-*`
 rows, `hard_delete_eligibility.status = ineligible` when the subject is
 authoritative or history-bearing; `target_classification = group, membership,
 participant identity, or historical reference evidence`; conditions are
@@ -352,9 +401,12 @@ file/link, auth/identity, notification history, audit, sync/import/export,
 backup/snapshot/replica copies; current authority; bounded audit; retry and
 concurrency proof; consequence warning; explicit confirmation; and all
 applicable `G-RET/G-PRIV/G-DEST` gates. This policy approves none of them. For
-`LOCAL-*`, both hard-delete and purge eligibility are `not-applicable` because
-the Day 1 local group/membership/history target does not exist; this is not a
-claim that locally authoritative personal records are disposable.
+`LOCAL-GRP/MEM/HIST-*`, both hard-delete and purge eligibility are
+`not-applicable` because the Day 1 local group/membership/history target does
+not exist. `LOCAL-PART-*` instead remains `unresolved`: locally authoritative
+participant/reference data is not disposable merely because it lacks server
+authority, and local retention/dependency/copy proof plus applicable gates are
+required.
 
 ## 6. Explicit Open Choices
 
@@ -366,15 +418,17 @@ claim that locally authoritative personal records are disposable.
 | `MEM-CHOICE-004` | Server left membership and re-entry relationship | Is leaving self-service, owner-accepted, or another workflow, and does re-entry restore the row or create a new relationship? | Day 2 architecture names the state, but no left state, endpoint, metadata, or identity-history rule exists. | Do not implement leave/re-entry in Day 1; current membership remains unchanged. | #961 must preserve the Day 2 boundary; only a separately authorized later product/authz/schema lane may route to #722/#723/#724; `G-PRODUCT/G-AUTHZ`, conditional `G-SCHEMA/G-CONTRACT/G-CLIENT`. |
 | `MEM-CHOICE-005` | Server removed membership/tombstone and reactivation | Can a removed/tombstoned membership ever regain active participation; if so, who may request it, who must approve it, which server authority executes it, and is the result an in-place restore or a new relationship? | Current add rejects any existing removed row, no restore exists, and current owner/self/admin authority defines none of those actors. | Removed remains removed; no actor may request, approve, or execute restoration, and no new eligibility or access arises. | Tommy/product-authz via #722/#724; `G-PRODUCT/G-AUTHZ/G-RET`, conditional `G-SCHEMA/G-CONTRACT/G-CLIENT`. |
 | `MEM-CHOICE-006` | Server group membership plus bill/revision/settlement authorization | Which historical bill, revision, and settlement reads/mutations remain authorized after participation/account change; should one former creator/owner/participant/payer block every revision or settlement action; and when must target account availability block a counterparty workflow? | Revision operations require active membership for creator, owner, every participant and payer. Settlement paths use active membership but generally omit target account availability. Record-family historical policy is incomplete. | Preserve records and current fail-closed membership gates; do not infer access from history or treat account-unaware eligibility as accepted policy. Route changes to focused authorization/money owners. | #961 synthesis → focused group/financial authz owners; `G-AUTHZ/G-PRIV/G-MONEY`. |
-| `MEM-CHOICE-007` | Server membership-derived and record-specific notification eligibility | Beyond the accepted affected-recipient in-app baselines for membership add, role change, and removal, which historical, settlement, policy, and security events may notify default-excluded, left, removed, or archived-group participants? | The taxonomy decides those three baselines, but no producer exists and other recipient/state eligibility is not fully specified; notification remains distinct from access/defaulting. | Preserve the accepted baseline requirement but produce no new runtime notification until its focused implementation passes recipient, reauthorization, preference/mute, block/unfriend, and redaction gates; leave other cases unresolved. | Notification owner with group/authz owner; `G-PRODUCT/G-AUTHZ/G-PRIV`. |
+| `MEM-CHOICE-007` | Server invitation-, membership-, and record-specific notification eligibility | Beyond accepted invite create/accept and membership add/role-change/removal affected-recipient in-app baselines, which decline/cancel/expire, historical, settlement, policy, and security events may notify invited, default-excluded, left, removed, or archived-group people? | The taxonomy decides those baselines, but no producer exists and other recipient/state eligibility is unspecified; notification remains distinct from invitation action, access, and defaulting. | Preserve accepted baselines but produce no new runtime notification until focused recipient, reauthorization, preference/mute, block/unfriend, and redaction gates pass; leave other cases unresolved. | Notification owner with invitation/group/authz owners; `G-PRODUCT/G-AUTHZ/G-PRIV`. |
 | `MEM-CHOICE-008` | Server temporary participant identity, account link, relationship policy, and record access | What stable placeholder model and release scope apply; who may claim, initiate, approve, cancel, or execute a link; and what proof/consent, friendship/direct-sharing/block/unfriend, conflict, and unlink rules preserve history? | Day 1 requires minimal temporary participation and provenance-preserving later linking; current schema requires registered profiles and no claim/link runtime or actor contract exists; fuller guest membership/governance is Day 2. | Do not infer authority from token possession, placeholder creation, contact data, or account identity. Preserve the original reference and extension requirement, but expose no claim/link action until every actor and focused gate is approved. | Temporary-participant/account-link owners after #961; `G-PRODUCT/G-IDENTITY/G-AUTHZ/G-PRIV`, conditional `G-SCHEMA/G-CONTRACT/G-CLIENT`. |
 | `MEM-CHOICE-009` | Server group/membership/placeholder/history retention and copies | What retention clocks, holds, copy duties, and terminal purge eligibility apply to groups, memberships, placeholders, and historical links? | No authoritative duration or complete copy/dependency policy exists. | Retain; no physical delete or purge. | #724 plus domain owners; `G-RET/G-PRIV/G-DEST`. |
 | `MEM-CHOICE-010` | Server lifecycle presentation and client wording | What exact confirmation, blocked-state, archive, leave, removal, and reactivation wording is approved? | Source code and issue text do not constitute final Figma/product wording. | No new UI action or confirmation. | #723/Figma and Tommy; `G-PRODUCT/G-CLIENT`. |
 | `MEM-CHOICE-011` | Server group/membership mutation mechanics | What operation identity, expected version, and atomic actor-authority, target-prior-state, duplicate-absence, and owner-floor predicates govern retries/races, including stale-owner writes, same-target conflicts, and simultaneous owner demotion/removal? | Current entities have timestamps but no concurrency token/idempotency contract. Authorization, duplicate/target load, owner count, and write are separate, allowing stale actors, duplicate success audits, last-writer state, and zero owners. | Do not treat uncertain retries as replay or initial authorization as commit authority. Future writes must atomically prove actor, target prior state/absence, and owner floor or fail closed. | #722 API/schema owner; `G-AUTHZ`, conditional `G-SCHEMA/G-CONTRACT`. |
-| `MEM-CHOICE-012` | Local-only mode boundary versus server groups/memberships | Should a future product-scope decision ever introduce local groups/memberships, contrary to the current Day 1 no-groups/no-collaboration rule? | Current authority answers Day 1—unsupported—but does not authorize or design any later scope change. | Keep all `LOCAL-*` group rows not applicable; generic local personal-record or import authority creates no group/membership. | No current implementation lane. Any later scope proposal returns to Tommy/product architecture; `G-PRODUCT/G-AUTHZ/G-PRIV/G-SYNC` before technical planning. |
+| `MEM-CHOICE-012` | Local-only mode boundary versus server groups/memberships | Should a future product-scope decision ever introduce local groups/memberships, contrary to the current Day 1 no-groups/no-collaboration rule? | Current authority answers Day 1—unsupported—but does not authorize or design any later scope change. | Keep `LOCAL-GRP/MEM/HIST-*` group rows not applicable; local participant candidates under `LOCAL-PART-*` create no group/membership. | No current implementation lane. Any later group scope proposal returns to Tommy/product architecture; `G-PRODUCT/G-AUTHZ/G-PRIV/G-SYNC` before technical planning. |
 | `MEM-CHOICE-013` | Server group archive cascade over memberships | Does archiving a group alter membership states, and what happens to them on group reactivation? | No source establishes cascade semantics. | Preserve membership rows and do not auto-change or auto-reactivate any member. | Product/authz owner via #722; `G-PRODUCT/G-AUTHZ`. |
 | `MEM-CHOICE-014` | Server group owner continuity across membership transitions | How do archive, leave, default exclusion, removal, and re-entry preserve at least one account-available viable owner without granting stale authority, including under concurrent demotion/removal? | Current last-owner guard covers role demotion/removal only, counts account-unaware memberships, and is a non-atomic count-then-write vulnerable to a zero-owner race. | Block any new transition that would strand ownership; never restore old owner power automatically; do not describe the current sequential guard as concurrency-safe. | Product/authz owner via #722; `G-PRODUCT/G-AUTHZ`. |
-| `MEM-CHOICE-015` | Server group membership, temporary-participant creation authority, and future bill/context selection | Who may create a temporary participant; when may non-active/account-unavailable/temporary people be included; and what target revalidation is mandatory at ordinary create, future/recurring create-update-generate, CSV confirmation, and future-bill posting? | All group/future/recurring loaders omit target accounts. CSV confirmation and future posting recheck the actor but materialize stored targets after membership can change; future posting also emits participant notifications. No placeholder actor contract exists. | Authorize no temporary actor or new exception. Preserve current account-unaware and stale-reference behavior only as documented facts; do not broaden or label it accepted policy before focused product/authz/money/notification decisions. | Group/bill product-money-authz/notification owners after #961; `G-PRODUCT/G-AUTHZ/G-MONEY/G-PRIV`, conditional `G-SCHEMA/G-CONTRACT/G-CLIENT`. |
+| `MEM-CHOICE-015` | Server group membership, temporary-participant creation authority, import sessions, and future bill/context selection | Who may create a temporary participant; when may non-active/account-unavailable/temporary people be included; what target revalidation is mandatory at ordinary create, future-bill create/post, recurring create/update/generate, and CSV confirmation; and must import-session GET/discard revalidate group membership? | Group/future/recurring loaders omit target accounts. CSV confirmation and future posting can materialize stored targets after membership changes; posting emits participant notifications. Import GET/discard bind the stored actor/session IDs but do not recheck membership. No placeholder actor contract exists. | Authorize no temporary actor or new exception. Preserve current account-unaware, stale-reference, and revoked-creator import-session behavior only as facts; do not broaden or label them accepted policy before focused decisions. | Group/bill product-money-authz/notification owners after #961; `G-PRODUCT/G-AUTHZ/G-MONEY/G-PRIV`, conditional `G-SCHEMA/G-CONTRACT/G-CLIENT`. |
+| `MEM-CHOICE-016` | Server group invitations and membership entry | Who may create, accept, decline, cancel, or expire an invitation; how is the target bound; which role is offered; does acceptance atomically create an active membership; what are duplicate, tombstone, re-invite, expiry, delivery, and race rules? | Current runtime has direct owner-add only. No invitation entity/schema/API/actor contract exists, while auth docs reserve the slice and notification taxonomy accepts create/accept baselines. Neither source decides the lifecycle or whether invitation acceptance is required for a given membership-entry mode. | Expose no invitation action and infer no membership/access from invite material or notification. Keep direct owner-add as the implemented current fact only; do not call it the complete accepted entry model. | Invitation/group/auth/identity/notification owners after #961 via #722/#723/#724; `G-PRODUCT/G-IDENTITY/G-AUTHZ/G-PRIV/G-RET/G-CLIENT`, conditional `G-SCHEMA/G-CONTRACT`. |
+| `MEM-CHOICE-017` | Local-only person/temporary participant identity and historical reference | What local entity, actor surface, correction/history model, retention/disposition rule, and later server import/link acceptance preserve a local participant/share reference without silently merging identity or granting server authority? | Local authority permits local identities/candidates, and #718 delegates `LOCAL-PART-001` identity lifecycle here, but no exact persistence/runtime/retention/import contract exists. | Permit no server inference or silent identity merge. Treat the local reference as locally authoritative candidate/history data, retain provenance, and require any server import/link to be a new explicit acceptance. | Local personal-record/identity/import owners after #961 with #724 retention and #723 UX only when approved; `G-PRODUCT/G-PRIV/G-RET/G-SYNC/G-CLIENT`, conditional `G-IDENTITY/G-SCHEMA/G-CONTRACT/G-DEST`. |
 
 These choices do not block this documentation task because their safe posture
 preserves current behavior and history. Selecting an answer is a separate
@@ -389,7 +443,10 @@ notification, retention, sync, or destructive gate.
 | Default-excluded | Not selected by default; manual inclusion unresolved | Preserved | Record-specific; no unrelated future access | New uninvolved events no; other cases unresolved | Conditional to active after current checks |
 | Left | Hidden/disabled for future defaults | Preserved | Historical only where separately authorized | Future group activity no; historical/security unresolved | In-place versus new relationship unresolved |
 | Removed/tombstoned | Ineligible | Preserved | Current runtime generally fails closed | Accepted removal in-app baseline when affected is unimplemented; historical/security cases unresolved | No current path; eligibility unresolved |
+| Pending invitation | Ineligible until separately accepted membership creation | Invitation/audit provenance retained under future policy | No group/record access from invite material | Accepted create baseline unimplemented; read/archive is not acceptance | Accept/decline/cancel/expire are distinct unresolved transitions |
+| Accepted/declined/cancelled/expired invitation | Invitation no longer provides eligibility; only separately created active membership may | Invitation outcome/provenance retained under future policy | Invitation outcome alone grants no unrelated record access | Accepted accept baseline unimplemented; other event policy unresolved | Re-invite/re-entry and terminality unresolved |
 | Temporary reference | Never group-defaulted by inference | Stable reference/provenance preserved | Limited record-specific policy only | No approved generic delivery model | Later link must preserve provenance; exact runtime/release scope unresolved, fuller guest governance Day 2 |
+| Local-only participant/reference | Local personal-record use only; never a server/group default | Local identity, share, and provenance retained under local policy | Local record only; no server grant | No server notification inference | Server import/link is a new acceptance, never silent merge |
 | Archived group | No new group-wide defaults | Group/member/financial history preserved | Current deleted-group paths fail closed; future archive reads unresolved | New activity blocked; historical/security unresolved | Group-only reactivation; never cascade members |
 
 Historical linkage and future participation are orthogonal:
@@ -416,9 +473,9 @@ pending for downstream changes; satisfying one never satisfies another.
 
 | Gate ID | Required / status | Gate and owner | Downstream work blocked |
 | --- | --- | --- | --- |
-| `G-PRODUCT` | Yes / pending when an open choice selects behavior | Tommy/product owner | Archive, leave, exclusion, removal/reactivation, guest, wording, or future inclusion semantics not already accepted |
+| `G-PRODUCT` | Yes / pending when an open choice selects behavior | Tommy/product owner | Archive, leave, exclusion, removal/reactivation, invitation, guest/local participant, wording, or future inclusion semantics not already accepted |
 | `G-AUTHZ` | Yes / pending for changed accepted access/role semantics or runtime | Group/record authorization owner plus human review | Historical/future access, transition actors, role/owner continuity, notification acceptance |
-| `G-IDENTITY` | Yes / pending for guest/account linking | Auth/identity and privacy owners | Placeholder proof, claim/link, conflict, unlink, consent |
+| `G-IDENTITY` | Yes / pending for invitation targets, guest/account linking, or local/server identity acceptance | Auth/identity and privacy owners | Invite targeting/acceptance, placeholder proof, claim/link, conflict, unlink, consent |
 | `G-MONEY` | Yes / pending where financial eligibility/settlement semantics change | Bill/settlement owner plus human money review | Future participant inclusion, outstanding settlement access/mutation, financial-history effects |
 | `G-SCHEMA` | Conditional / pending if persistence changes | Focused schema/migration owner and human review | New statuses, metadata, placeholder/link/tombstone/version fields |
 | `G-CONTRACT` | Conditional / pending if API/OpenAPI/client changes | Focused API/OpenAPI/generated-client owner | New actions, state/result/error shapes, generated clients |
@@ -446,6 +503,10 @@ handoff:
   #719 retains files/links/bytes; #721 retains account/identity/security state;
   notification owners retain production/delivery/preferences/history;
   sync/import/export/restore owners retain local/server acceptance.
+- Existing invitation/auth/group/notification owners retain invitation
+  lifecycle, delivery, target-binding, and accept-to-membership authority.
+- Local personal-record/identity/import owners retain locally authoritative
+  participant/reference representation and new server-acceptance handling.
 - Day 1 requires stable temporary references and provenance-preserving later
   linking. Exact claim/link runtime scope remains unresolved, and fuller guest
   membership, governance, and participation polish remain Day 2. Search before
@@ -465,24 +526,28 @@ All repository citations refer to commit
 | `docs/architecture/STORAGE_FILE_LIFECYCLE_POLICY.md` | state models and ownership | File-object/link/byte lifecycle remains separate |
 | `docs/architecture/AUTH_SECURITY_LIFECYCLE_POLICY.md` | account/identity lifecycle boundaries | Account, identity, credential, session, and invitation state remains separate |
 | `docs/architecture/TEMPORARY_PARTICIPANT_CLAIM_LINK_FLOW.md` | `D1-CAND-019`; authority, identity, block/unfriend, provenance, denied/conflict rules | Accepted Day 1 lifecycle preservation/extension requirement; runtime unimplemented and exact release scope unresolved; fuller guest governance remains Day 2 |
+| `docs/architecture/LOCAL_SERVER_MODE_AUTHORITY_BOUNDARY_AUDIT.md` | mode matrix; boundary crossing; no silent merge | Local person/temporary identity may be local candidate data; it is not server authority and later import/link needs new acceptance |
+| `docs/architecture/BILL_SETTLEMENT_RECORD_LIFECYCLE_POLICY.md` | `LOCAL-PART-001` | Local participant/share identity lifecycle is delegated to #720 while financial relationship facts remain #718-owned |
+| `docs/architecture/AUTH_RUNTIME_CURRENT_USER_DESIGN.md` | current limitations and invitation exclusions | No invitation runtime exists; invitation/account/group-membership creation remains separately reviewed work |
 | `UserGroup`; `SettleoraDbContext.ConfigureUserGroup` | `DeletedAtUtc`, restrictive creator FK | Current inactive marker capability without archive transition semantics |
 | `GroupMembership`; `GroupMembershipStatuses`; `ConfigureGroupMembership` | composite key; `active`/`removed`; restrictive FKs | Current registered-user membership state/preservation |
 | `BusinessAuthorizationService.GetActiveActorMembershipAsync` | active membership, non-deleted profile/group checks | Current group access authority |
 | `GroupFoundationEndpoints` and tests | create/list/get/update; active/deleted filters | Current group runtime and no archive/reactivate endpoint |
 | `GroupMemberManagementEndpoints` and tests | `LoadActiveProfileWithAccountAsync`; `LoadActiveMembershipAsync`; `CountActiveOwnersAsync`; add/update/remove | Current mutations and tombstone; add omits `DisabledAtUtc`; actor authorization, target load/absence, owner count, and write are separate, so stale-owner, same-target last-writer/duplicate-audit, and zero-owner races remain possible |
 | `EfGroupMembershipAuditWriter` and audit tests | bounded safe metadata | Current success audit and redaction boundary |
-| `docs/architecture/NOTIFICATION_EVENT_TAXONOMY.md` | Friends, Groups, And Membership | Accepted affected-recipient in-app baselines for membership add, role-change, and removal; producer unimplemented |
+| `docs/architecture/NOTIFICATION_EVENT_TAXONOMY.md` | Friends, Groups, And Membership | Accepted affected-recipient in-app baselines for invite create/accept and membership add/role-change/remove; notification read/archive changes neither invitation nor membership |
 | OpenAPI `settleora.v1.yaml` | group/member paths and `GroupMembershipStatus` | Public current contract contains only active/removed membership |
 | `GroupBillEndpoints.LoadActiveGroupMemberIdsAsync` and create/read handlers | active membership payload and access checks, without target-account availability | Ordinary future group-bill participation and visibility use active membership; an account-unavailable active member remains selectable |
 | `FutureBillEndpoints.CreateFutureBillAsync`; `PostFutureBillAsync`; `LoadActiveGroupMemberIdsAsync` | create-time active-membership target loader; post-time actor check and stored participant/payer materialization | Target account availability is not checked; posting does not revalidate stored target memberships and may notify a participant removed after future-bill creation |
 | `RecurringBillEndpoints.CreateTemplateAsync`; `UpdateTemplateAsync`; `GenerateDraftAsync`; `LoadActiveGroupMemberIdsAsync` | active-membership target loading on template create/update and occurrence draft generation | Every current recurring group-bill selection path is target-account unaware |
 | `BillCsvImportEndpoints.ConfirmBillImportSessionAsync`; `CandidateJson`; import tests | confirmation actor check followed by stored-candidate deserialization | Confirmation does not revalidate every stored participant/payer, so membership removal after preflight can enter a new draft |
+| `BillCsvImportEndpoints.GetBillImportSessionAsync`; `DiscardBillImportSessionAsync`; `LoadActorSessionAsync` | stored account/session/profile match without group-membership predicate | A removed group-session creator can still read review data or discard the import session |
 | `ExpenseBillRevisionEndpoints.LoadVisibleBillAsync` and revision handlers | active group-membership predicates over creator, owner, every participant, and every payer | One former referenced person can block list/read/propose/review/apply operations for every otherwise eligible revision actor |
 | expense entities and `SettleoraDbContext` mappings | participants, item splits, payers; restrictive profile/bill FKs | Stable registered-profile historical financial references |
 | settlement entities and mappings | request/payment/party/group/source references; restrictive FKs | Stable settlement identity/reference graph |
 | `SettlementCandidateGroupBillQuery`; `SettlementRequestGroupBillQuery`; tests | active creator plus `All` participant/payer membership predicates | One former participant currently blocks the entire group-bill candidate/request path, even for otherwise active parties |
 | settlement candidate/basket/request/read/payment/proof/cancellation/dispute/residual/balance endpoints and tests | debtor/creditor active group-membership predicates and deleted-profile checks, without target `AuthAccount` availability | Current historical settlement access is narrower than intended future policy; an account-unavailable active counterparty can remain eligible while unable to act |
-| `services/api/README.md` | group/member foundation and absent behavior inventory | Current runtime explicitly lacks archive/restore, guest, default-excluded/left, notification, and billing-default behavior |
+| `services/api/README.md` | group/member foundation and absent behavior inventory | Current runtime explicitly lacks archive/restore, invitation, guest, default-excluded/left, membership notification, and billing-default behavior |
 
 The central source/prose divergence is deliberate in this record: accepted
 requirements preserve historical references and allow only separately
@@ -504,7 +569,9 @@ leaving, removal, group archive, or historical retention; infer access from
 membership or historical linkage; infer notifications from access; rewrite
 financial identity; cascade group reactivation to former members; restore a
 role without current owner/actor/account/conflict checks; link a guest without
-approved identity/privacy rules; or proceed without applicable product,
+approved identity/privacy rules; treat direct owner-add as proof of the complete
+invitation/entry policy; merge a local identity into server truth; or proceed
+without applicable product,
 authorization, privacy, identity, money, schema, contract, client, retention,
 sync, or destructive gates.
 
