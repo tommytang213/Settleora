@@ -1,0 +1,3390 @@
+{
+  "schema_version": 2,
+  "purpose": "End-to-end receipt OCR acceptance fixtures for Settleora, including currency ambiguity, locale formats, common receipt semantics/layouts, and degraded-image regressions.",
+  "rules": {
+    "authoritative_boundary": "Assert the final structured preview the user sees, not raw OCR character accuracy.",
+    "clean_fixture_policy": "Clean synthetic fixtures are strict: every expected field must match.",
+    "native_provider_policy": "At least one automated lane must invoke the real on-device OCR provider from an image file path; fake providers do not satisfy this gate.",
+    "known_gaps_are_not_xfail": "Do not mark unsupported languages/currencies as expected failures. A failing global fixture is an implementation gap.",
+    "currency_resolution_policy": "Currency assertions may include resolution source: explicit, context_inferred, default_fallback, or unresolved. Shared symbols must not be treated as globally unique.",
+    "ambiguous_symbol_policy": "Bare $, ¥, kr, and Rs require explicit markers, strong receipt context, configured fallback, or unresolved review state in that order.",
+    "distortion_policy": "Degraded fixtures retain the same core ground truth as their clean source. Merchant/date/currency/total are mandatory unless the source intentionally lacks that field."
+  },
+  "fixtures": [
+    {
+      "id": "existing_01_cloudcart_invoice_en_US",
+      "file": "english/existing_01_cloudcart_invoice_en_US.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "invoice",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "CloudCart Marketplace",
+        "date": "2025-04-17",
+        "currency": "USD",
+        "subtotal": "424.95",
+        "tax": "35.06",
+        "shipping": "9.99",
+        "total": "469.99",
+        "items": [
+          [
+            "ErgoPro Ergonomic Office Chair",
+            "199.99"
+          ],
+          [
+            "Nova 27\" Monitor (Full HD)",
+            "149.99"
+          ],
+          [
+            "CloudCart Wireless Keyboard",
+            "29.99"
+          ],
+          [
+            "CloudCart Wireless Mouse",
+            "24.99"
+          ],
+          [
+            "Premium Desk Mat (Large, Black)",
+            "19.99"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "existing_02_fiberwave_internet_en_US",
+      "file": "english/existing_02_fiberwave_internet_en_US.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "utility_bill",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "FiberWave Internet",
+        "date": "2025-03-05",
+        "currency": "USD",
+        "total": "64.18",
+        "items": [
+          [
+            "FiberWave 500 Mbps Internet (Unlimited Data)",
+            "59.99"
+          ],
+          [
+            "Wi-Fi Router Rental",
+            "7.00"
+          ],
+          [
+            "Loyalty Discount (12 Months)",
+            "-10.00"
+          ],
+          [
+            "Regulatory Recovery Fee",
+            "1.99"
+          ],
+          [
+            "State Sales Tax (6.25%)",
+            "4.31"
+          ],
+          [
+            "County Communications Fee (1.75%)",
+            "0.89"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "existing_03_blueriver_water_en_US",
+      "file": "english/existing_03_blueriver_water_en_US.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "utility_bill",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "BlueRiver Water Services",
+        "date": "2024-08-15",
+        "currency": "USD",
+        "total": "109.72",
+        "items": [
+          [
+            "Water Charge",
+            "45.00"
+          ],
+          [
+            "Sewer Charge",
+            "52.50"
+          ],
+          [
+            "Service Fee",
+            "8.00"
+          ],
+          [
+            "State Water Tax",
+            "2.64"
+          ],
+          [
+            "Local Utility Tax",
+            "1.58"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "existing_04_horizon_mobile_en_US",
+      "file": "english/existing_04_horizon_mobile_en_US.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "utility_bill",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "Horizon Mobile",
+        "date": "2025-04-10",
+        "currency": "USD",
+        "total": "82.17",
+        "items": [
+          [
+            "Horizon Unlimited Plan",
+            "60.00"
+          ],
+          [
+            "Data Add-on - 10 GB",
+            "10.00"
+          ],
+          [
+            "International Calls",
+            "4.50"
+          ],
+          [
+            "Taxes and Regulatory Fees",
+            "7.67"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "existing_05_northstar_gas_en_US",
+      "file": "english/existing_05_northstar_gas_en_US.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "utility_bill",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "NorthStar Gas Utility",
+        "date": "2025-04-10",
+        "currency": "USD",
+        "total": "86.27",
+        "items": [
+          [
+            "Customer Charge (per account)",
+            "15.00"
+          ],
+          [
+            "Delivery Charge",
+            "31.31"
+          ],
+          [
+            "Supply Charge",
+            "33.06"
+          ],
+          [
+            "State Gas Tax",
+            "2.13"
+          ],
+          [
+            "Local Utility Tax",
+            "0.77"
+          ],
+          [
+            "Environmental Program Fee",
+            "3.04"
+          ],
+          [
+            "Energy Assistance Surcharge",
+            "0.76"
+          ]
+        ],
+        "expected_review_condition": "printed total differs from visible charge-line arithmetic"
+      }
+    },
+    {
+      "id": "existing_06_metrogrid_electric_en_US",
+      "file": "english/existing_06_metrogrid_electric_en_US.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "utility_bill",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "MetroGrid Electric",
+        "date": "2025-04-10",
+        "currency": "USD",
+        "subtotal": "121.43",
+        "total": "121.43",
+        "items": [
+          [
+            "Customer Charge (Fixed)",
+            "12.00"
+          ],
+          [
+            "Energy Charge",
+            "68.57"
+          ],
+          [
+            "Supply Charge",
+            "26.91"
+          ],
+          [
+            "Public Purpose Programs",
+            "5.21"
+          ],
+          [
+            "Taxes and Fees",
+            "8.74"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "existing_07_citylight_utility_en_US",
+      "file": "english/existing_07_citylight_utility_en_US.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "utility_bill",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "CityLight Power & Water",
+        "date": "2025-03-05",
+        "currency": "USD",
+        "total": "162.47",
+        "items": [
+          [
+            "Electricity",
+            "97.96"
+          ],
+          [
+            "Water",
+            "49.50"
+          ],
+          [
+            "Wastewater Service",
+            "34.20"
+          ],
+          [
+            "City Utilities Tax (5%)",
+            "9.08"
+          ],
+          [
+            "State Energy Surcharge (1.5%)",
+            "2.73"
+          ],
+          [
+            "Account Credit",
+            "-31.00"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "existing_08_citypark_parking_en_US",
+      "file": "english/existing_08_citypark_parking_en_US.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "CityPark Parking",
+        "date": "2025-04-12",
+        "currency": "USD",
+        "total": "18.00",
+        "items": [
+          [
+            "Parking Fee",
+            "18.00"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "existing_09_healthfirst_pharmacy_en_US",
+      "file": "english/existing_09_healthfirst_pharmacy_en_US.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "HealthFirst Pharmacy",
+        "date": "2025-04-09",
+        "currency": "USD",
+        "subtotal": "25.67",
+        "tax": "1.41",
+        "total": "27.08",
+        "items": [
+          [
+            "Ibuprofen 200mg",
+            "7.99"
+          ],
+          [
+            "Allergy Relief",
+            "14.49"
+          ],
+          [
+            "Bandages (20 ct)",
+            "3.19"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "existing_10_luna_boutique_en_US",
+      "file": "english/existing_10_luna_boutique_en_US.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "Luna & Co. Boutique",
+        "date": null,
+        "currency": "USD",
+        "subtotal": "86.00",
+        "tax": "6.88",
+        "total": "92.88",
+        "items": [
+          [
+            "Floral Dress",
+            "48.00"
+          ],
+          [
+            "Sun Hat",
+            "22.00"
+          ],
+          [
+            "Statement Earrings",
+            "16.00"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "multilingual_01_uk_en_GB_GBP",
+      "file": "multilingual/multilingual_01_uk_en_GB_GBP.jpeg",
+      "locale": "en-GB",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Oak & Finch Café",
+        "date": "2026-09-17",
+        "currency": "GBP",
+        "subtotal": "15.50",
+        "tax": "3.10",
+        "total": "18.60",
+        "items": [
+          [
+            "Tea",
+            "3.20"
+          ],
+          [
+            "Sandwich",
+            "7.50"
+          ],
+          [
+            "Cake",
+            "4.80"
+          ]
+        ]
+      },
+      "acceptance": {
+        "clean_fixture": "All expected fields must match after image -> native OCR -> parser.",
+        "no_mock_provider": true,
+        "must_not_be_skipped_or_xfailed": true
+      }
+    },
+    {
+      "id": "multilingual_02_hk_zh_Hant_HKD",
+      "file": "multilingual/multilingual_02_hk_zh_Hant_HKD.jpeg",
+      "locale": "zh-HK",
+      "script": "Chinese",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "港灣茶餐廳",
+        "date": "2026-09-17",
+        "currency": "HKD",
+        "subtotal": "76.00",
+        "service": "7.60",
+        "total": "83.60",
+        "items": [
+          [
+            "叉燒飯",
+            "58.00"
+          ],
+          [
+            "凍檸茶",
+            "18.00"
+          ]
+        ]
+      },
+      "acceptance": {
+        "clean_fixture": "All expected fields must match after image -> native OCR -> parser.",
+        "no_mock_provider": true,
+        "must_not_be_skipped_or_xfailed": true
+      }
+    },
+    {
+      "id": "multilingual_03_tw_zh_Hant_TWD",
+      "file": "multilingual/multilingual_03_tw_zh_Hant_TWD.jpeg",
+      "locale": "zh-TW",
+      "script": "Chinese",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "台北好味食堂",
+        "date": "2026-09-17",
+        "currency": "TWD",
+        "subtotal": "150",
+        "tax": "8",
+        "service": "15",
+        "total": "173",
+        "items": [
+          [
+            "牛肉麵",
+            "120"
+          ],
+          [
+            "紅茶",
+            "30"
+          ]
+        ]
+      },
+      "acceptance": {
+        "clean_fixture": "All expected fields must match after image -> native OCR -> parser.",
+        "no_mock_provider": true,
+        "must_not_be_skipped_or_xfailed": true
+      }
+    },
+    {
+      "id": "multilingual_04_cn_zh_Hans_CNY",
+      "file": "multilingual/multilingual_04_cn_zh_Hans_CNY.jpeg",
+      "locale": "zh-CN",
+      "script": "Chinese",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "上海便利店",
+        "date": "2026-09-17",
+        "currency": "CNY",
+        "subtotal": "34.00",
+        "tax": "2.04",
+        "total": "36.04",
+        "items": [
+          [
+            "鲜肉包",
+            "26.00"
+          ],
+          [
+            "茉莉花茶",
+            "8.00"
+          ]
+        ]
+      },
+      "acceptance": {
+        "clean_fixture": "All expected fields must match after image -> native OCR -> parser.",
+        "no_mock_provider": true,
+        "must_not_be_skipped_or_xfailed": true
+      }
+    },
+    {
+      "id": "multilingual_05_jp_ja_JP_JPY",
+      "file": "multilingual/multilingual_05_jp_ja_JP_JPY.jpeg",
+      "locale": "ja-JP",
+      "script": "Japanese",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "東京カフェ",
+        "date": "2026-09-17",
+        "currency": "JPY",
+        "subtotal": "770",
+        "tax": "72",
+        "service": "80",
+        "discount": "-50",
+        "total": "872",
+        "items": [
+          [
+            "ラテ",
+            "450"
+          ],
+          [
+            "パン",
+            "320"
+          ]
+        ]
+      },
+      "acceptance": {
+        "clean_fixture": "All expected fields must match after image -> native OCR -> parser.",
+        "no_mock_provider": true,
+        "must_not_be_skipped_or_xfailed": true
+      }
+    },
+    {
+      "id": "multilingual_06_kr_ko_KR_KRW",
+      "file": "multilingual/multilingual_06_kr_ko_KR_KRW.jpeg",
+      "locale": "ko-KR",
+      "script": "Korean",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "서울마켓",
+        "date": "2026-09-17",
+        "currency": "KRW",
+        "subtotal": "14000",
+        "tax": "1400",
+        "total": "15400",
+        "items": [
+          [
+            "비빔밥",
+            "11000"
+          ],
+          [
+            "차",
+            "3000"
+          ]
+        ]
+      },
+      "acceptance": {
+        "clean_fixture": "All expected fields must match after image -> native OCR -> parser.",
+        "no_mock_provider": true,
+        "must_not_be_skipped_or_xfailed": true
+      }
+    },
+    {
+      "id": "multilingual_07_in_hi_IN_INR",
+      "file": "multilingual/multilingual_07_in_hi_IN_INR.jpeg",
+      "locale": "hi-IN",
+      "script": "Devanagari",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "दिल्ली भोजनालय",
+        "date": "2026-09-17",
+        "currency": "INR",
+        "subtotal": "330.00",
+        "tax": "16.50",
+        "service": "16.50",
+        "total": "363.00",
+        "items": [
+          [
+            "थाली",
+            "250.00"
+          ],
+          [
+            "लस्सी",
+            "80.00"
+          ]
+        ]
+      },
+      "acceptance": {
+        "clean_fixture": "All expected fields must match after image -> native OCR -> parser.",
+        "no_mock_provider": true,
+        "must_not_be_skipped_or_xfailed": true
+      }
+    },
+    {
+      "id": "multilingual_08_fr_fr_FR_EUR",
+      "file": "multilingual/multilingual_08_fr_fr_FR_EUR.jpeg",
+      "locale": "fr-FR",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Boulangerie Lumière",
+        "date": "2026-09-17",
+        "currency": "EUR",
+        "subtotal": "9.80",
+        "tax": "0.98",
+        "total": "10.78",
+        "items": [
+          [
+            "Baguette",
+            "2.20"
+          ],
+          [
+            "Croissant",
+            "3.10"
+          ],
+          [
+            "Café",
+            "4.50"
+          ]
+        ]
+      },
+      "acceptance": {
+        "clean_fixture": "All expected fields must match after image -> native OCR -> parser.",
+        "no_mock_provider": true,
+        "must_not_be_skipped_or_xfailed": true
+      }
+    },
+    {
+      "id": "multilingual_09_de_de_DE_EUR",
+      "file": "multilingual/multilingual_09_de_de_DE_EUR.jpeg",
+      "locale": "de-DE",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Berlin Markt",
+        "date": "2026-09-17",
+        "currency": "EUR",
+        "subtotal": "11.40",
+        "tax": "2.17",
+        "total": "13.57",
+        "items": [
+          [
+            "Currywurst",
+            "8.90"
+          ],
+          [
+            "Wasser",
+            "2.50"
+          ]
+        ]
+      },
+      "acceptance": {
+        "clean_fixture": "All expected fields must match after image -> native OCR -> parser.",
+        "no_mock_provider": true,
+        "must_not_be_skipped_or_xfailed": true
+      }
+    },
+    {
+      "id": "multilingual_10_mx_es_MX_MXN",
+      "file": "multilingual/multilingual_10_mx_es_MX_MXN.jpeg",
+      "locale": "es-MX",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Mercado Sol",
+        "date": "2026-09-17",
+        "currency": "MXN",
+        "subtotal": "125.00",
+        "tax": "20.00",
+        "total": "145.00",
+        "items": [
+          [
+            "Tacos",
+            "90.00"
+          ],
+          [
+            "Agua fresca",
+            "35.00"
+          ]
+        ]
+      },
+      "acceptance": {
+        "clean_fixture": "All expected fields must match after image -> native OCR -> parser.",
+        "no_mock_provider": true,
+        "must_not_be_skipped_or_xfailed": true
+      }
+    },
+    {
+      "id": "multilingual_11_br_pt_BR_BRL",
+      "file": "multilingual/multilingual_11_br_pt_BR_BRL.jpeg",
+      "locale": "pt-BR",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Mercado Aurora",
+        "date": "2026-09-17",
+        "currency": "BRL",
+        "subtotal": "40.90",
+        "service": "4.09",
+        "total": "44.99",
+        "items": [
+          [
+            "Prato feito",
+            "32.90"
+          ],
+          [
+            "Suco",
+            "8.00"
+          ]
+        ]
+      },
+      "acceptance": {
+        "clean_fixture": "All expected fields must match after image -> native OCR -> parser.",
+        "no_mock_provider": true,
+        "must_not_be_skipped_or_xfailed": true
+      }
+    },
+    {
+      "id": "multilingual_12_ae_ar_AE_AED",
+      "file": "multilingual/multilingual_12_ae_ar_AE_AED.jpeg",
+      "locale": "ar-AE",
+      "script": "Arabic",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "متجر النور",
+        "date": "2026-09-17",
+        "currency": "AED",
+        "subtotal": "37.00",
+        "tax": "1.85",
+        "total": "38.85",
+        "items": [
+          [
+            "شاورما",
+            "25.00"
+          ],
+          [
+            "عصير",
+            "12.00"
+          ]
+        ]
+      },
+      "acceptance": {
+        "clean_fixture": "All expected fields must match after image -> native OCR -> parser.",
+        "no_mock_provider": true,
+        "must_not_be_skipped_or_xfailed": true
+      }
+    },
+    {
+      "id": "multilingual_13_th_th_TH_THB",
+      "file": "multilingual/multilingual_13_th_th_TH_THB.jpeg",
+      "locale": "th-TH",
+      "script": "Thai",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "ร้านอาหารสยาม",
+        "date": "2026-09-17",
+        "currency": "THB",
+        "subtotal": "120.00",
+        "tax": "8.40",
+        "total": "128.40",
+        "items": [
+          [
+            "ผัดไทย",
+            "80.00"
+          ],
+          [
+            "ชาเย็น",
+            "40.00"
+          ]
+        ]
+      },
+      "acceptance": {
+        "clean_fixture": "All expected fields must match after image -> native OCR -> parser.",
+        "no_mock_provider": true,
+        "must_not_be_skipped_or_xfailed": true
+      }
+    },
+    {
+      "id": "multilingual_14_ru_ru_RU_RUB",
+      "file": "multilingual/multilingual_14_ru_ru_RU_RUB.jpeg",
+      "locale": "ru-RU",
+      "script": "Cyrillic",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Кафе Север",
+        "date": "2026-09-17",
+        "currency": "RUB",
+        "subtotal": "870.00",
+        "tax": "174.00",
+        "total": "1044.00",
+        "items": [
+          [
+            "Суп",
+            "350.00"
+          ],
+          [
+            "Пельмени",
+            "520.00"
+          ]
+        ]
+      },
+      "acceptance": {
+        "clean_fixture": "All expected fields must match after image -> native OCR -> parser.",
+        "no_mock_provider": true,
+        "must_not_be_skipped_or_xfailed": true
+      }
+    },
+    {
+      "id": "existing_11_bean_bloom_cafe_en_US",
+      "file": "english/existing_11_bean_bloom_cafe_en_US.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "Bean & Bloom Coffee Roasters",
+        "date": null,
+        "currency": "USD",
+        "subtotal": "17.20",
+        "tax": "1.42",
+        "total": "18.62",
+        "items": [
+          [
+            "Latte",
+            "4.75"
+          ],
+          [
+            "Avocado Toast",
+            "8.50"
+          ],
+          [
+            "Iced Green Tea",
+            "3.95"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "existing_12_freshmart_grocery_en_US",
+      "file": "english/existing_12_freshmart_grocery_en_US.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "FreshMart",
+        "date": "2025-04-12",
+        "currency": "USD",
+        "subtotal": "13.52",
+        "tax": "0.95",
+        "total": "14.47",
+        "items": [
+          [
+            "Bananas",
+            "1.25"
+          ],
+          [
+            "Organic Milk",
+            "3.49"
+          ],
+          [
+            "Whole Grain Bread",
+            "2.99"
+          ],
+          [
+            "Large Eggs",
+            "3.29"
+          ],
+          [
+            "Spring Mix",
+            "2.50"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "existing_13_ridge_restaurant_en_US",
+      "file": "english/existing_13_ridge_restaurant_en_US.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "restaurant_receipt",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "The Ridge Kitchen + Bar",
+        "date": "2025-04-11",
+        "currency": "USD",
+        "subtotal": "51.00",
+        "tax": "4.46",
+        "total": "55.46",
+        "items": [
+          {
+            "description": "Margherita Pizza",
+            "quantity": "1",
+            "line_total": "14.00"
+          },
+          {
+            "description": "Caesar Salad",
+            "quantity": "1",
+            "line_total": "11.00"
+          },
+          {
+            "description": "House Red (gls)",
+            "quantity": "2",
+            "line_total": "18.00"
+          },
+          {
+            "description": "Tiramisu",
+            "quantity": "1",
+            "line_total": "8.00"
+          }
+        ]
+      }
+    },
+    {
+      "id": "existing_14_westside_fuel_en_US",
+      "file": "english/existing_14_westside_fuel_en_US.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "fuel_receipt",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "Westside Fuel",
+        "date": "2025-04-10",
+        "currency": "USD",
+        "total": "45.22",
+        "items": [
+          {
+            "description": "Regular Unleaded",
+            "quantity": "12.563",
+            "unit_price": "3.599",
+            "line_total": "45.22"
+          }
+        ]
+      }
+    },
+    {
+      "id": "currency_01_hk_bare_dollar_context",
+      "file": "scenarios/currency/currency_01_hk_bare_dollar_context.jpeg",
+      "locale": "zh-HK",
+      "script": "Chinese",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Harbour Tea House",
+        "date": "2026-09-17",
+        "currency": "HKD",
+        "total": "33.00",
+        "items": [
+          [
+            "Milk Tea",
+            "18.00"
+          ],
+          [
+            "Pineapple Bun",
+            "12.00"
+          ]
+        ],
+        "subtotal": "30.00"
+      },
+      "expected_currency_resolution": {
+        "currency": "HKD",
+        "source": "context_inferred",
+        "confidence": "medium",
+        "evidence": [
+          "Hong Kong address",
+          "+852",
+          "Chinese HK receipt context"
+        ]
+      }
+    },
+    {
+      "id": "currency_02_us_bare_dollar_context",
+      "file": "scenarios/currency/currency_02_us_bare_dollar_context.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Pike Street Deli",
+        "date": "2026-09-17",
+        "currency": "USD",
+        "total": "18.20",
+        "items": [
+          [
+            "Sandwich",
+            "12.50"
+          ],
+          [
+            "Coffee",
+            "4.00"
+          ]
+        ],
+        "subtotal": "16.50"
+      },
+      "expected_currency_resolution": {
+        "currency": "USD",
+        "source": "context_inferred",
+        "confidence": "medium",
+        "evidence": [
+          "US state/ZIP",
+          "Sales Tax"
+        ]
+      }
+    },
+    {
+      "id": "currency_03_ca_bare_dollar_context",
+      "file": "scenarios/currency/currency_03_ca_bare_dollar_context.jpeg",
+      "locale": "en-CA",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Maple Corner Cafe",
+        "date": "2026-09-17",
+        "currency": "CAD",
+        "total": "11.02",
+        "items": [
+          [
+            "Coffee",
+            "4.25"
+          ],
+          [
+            "Bagel",
+            "5.50"
+          ]
+        ],
+        "subtotal": "9.75"
+      },
+      "expected_currency_resolution": {
+        "currency": "CAD",
+        "source": "context_inferred",
+        "confidence": "medium",
+        "evidence": [
+          "Canadian province/postal code",
+          "HST"
+        ]
+      }
+    },
+    {
+      "id": "currency_04_au_bare_dollar_context",
+      "file": "scenarios/currency/currency_04_au_bare_dollar_context.jpeg",
+      "locale": "en-AU",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Harbour Bakehouse",
+        "date": "2026-09-17",
+        "currency": "AUD",
+        "total": "20.18",
+        "items": [
+          [
+            "Flat White",
+            "5.50"
+          ],
+          [
+            "Toastie",
+            "13.00"
+          ]
+        ],
+        "subtotal": "18.50"
+      },
+      "expected_currency_resolution": {
+        "currency": "AUD",
+        "source": "context_inferred",
+        "confidence": "medium",
+        "evidence": [
+          "Australian state/postcode",
+          "ABN",
+          "GST"
+        ]
+      }
+    },
+    {
+      "id": "currency_05_sg_bare_dollar_context",
+      "file": "scenarios/currency/currency_05_sg_bare_dollar_context.jpeg",
+      "locale": "en-SG",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Orchard Kopi",
+        "date": "2026-09-17",
+        "currency": "SGD",
+        "total": "9.81",
+        "items": [
+          [
+            "Kopi",
+            "2.20"
+          ],
+          [
+            "Toast Set",
+            "6.80"
+          ]
+        ],
+        "subtotal": "9.00"
+      },
+      "expected_currency_resolution": {
+        "currency": "SGD",
+        "source": "context_inferred",
+        "confidence": "medium",
+        "evidence": [
+          "Singapore address",
+          "GST registration"
+        ]
+      }
+    },
+    {
+      "id": "currency_06_nz_bare_dollar_context",
+      "file": "scenarios/currency/currency_06_nz_bare_dollar_context.jpeg",
+      "locale": "en-NZ",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Auckland Corner",
+        "date": "2026-09-17",
+        "currency": "NZD",
+        "total": "14.13",
+        "items": [
+          [
+            "Pie",
+            "7.50"
+          ],
+          [
+            "Flat White",
+            "5.00"
+          ]
+        ],
+        "subtotal": "12.50"
+      },
+      "expected_currency_resolution": {
+        "currency": "NZD",
+        "source": "context_inferred",
+        "confidence": "medium",
+        "evidence": [
+          "New Zealand city/postcode",
+          "GST No"
+        ]
+      }
+    },
+    {
+      "id": "currency_07_mx_bare_dollar_context",
+      "file": "scenarios/currency/currency_07_mx_bare_dollar_context.jpeg",
+      "locale": "es-MX",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Mercado Centro",
+        "date": "2026-09-17",
+        "currency": "MXN",
+        "total": "145.00",
+        "items": [
+          [
+            "Tacos",
+            "90.00"
+          ],
+          [
+            "Agua",
+            "35.00"
+          ]
+        ],
+        "subtotal": "125.00"
+      },
+      "expected_currency_resolution": {
+        "currency": "MXN",
+        "source": "context_inferred",
+        "confidence": "medium",
+        "evidence": [
+          "Mexico city/state",
+          "IVA"
+        ]
+      }
+    },
+    {
+      "id": "currency_08_bare_dollar_fallback_hkd",
+      "file": "scenarios/currency/currency_08_bare_dollar_fallback_hkd.jpeg",
+      "locale": "en-XX",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": "HKD",
+      "expected": {
+        "merchant": "Corner Cafe",
+        "date": "2026-09-17",
+        "currency": "HKD",
+        "total": "10.00",
+        "items": [
+          [
+            "Latte",
+            "5.50"
+          ],
+          [
+            "Cake",
+            "4.50"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "HKD",
+        "source": "default_fallback",
+        "confidence": "low",
+        "evidence": [
+          "bare $ only",
+          "fallback=HKD"
+        ]
+      },
+      "notes": "Bare dollar has no location/currency clue. Must not silently assume USD."
+    },
+    {
+      "id": "currency_09_bare_dollar_fallback_usd",
+      "file": "scenarios/currency/currency_09_bare_dollar_fallback_usd.jpeg",
+      "locale": "en-XX",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "Corner Cafe",
+        "date": "2026-09-17",
+        "currency": "USD",
+        "total": "10.00",
+        "items": [
+          [
+            "Latte",
+            "5.50"
+          ],
+          [
+            "Cake",
+            "4.50"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "USD",
+        "source": "default_fallback",
+        "confidence": "low",
+        "evidence": [
+          "bare $ only",
+          "fallback=USD"
+        ]
+      },
+      "notes": "Bare dollar has no location/currency clue. Must not silently assume USD."
+    },
+    {
+      "id": "currency_10_bare_dollar_unresolved",
+      "file": "scenarios/currency/currency_10_bare_dollar_unresolved.jpeg",
+      "locale": "en-XX",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Corner Cafe",
+        "date": "2026-09-17",
+        "currency": null,
+        "total": "10.00",
+        "items": [
+          [
+            "Latte",
+            "5.50"
+          ],
+          [
+            "Cake",
+            "4.50"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": null,
+        "source": "unresolved",
+        "confidence": "none",
+        "evidence": [
+          "bare $ only"
+        ]
+      },
+      "notes": "Bare dollar has no location/currency clue. Must not silently assume USD."
+    },
+    {
+      "id": "currency_11_explicit_hk_symbol",
+      "file": "scenarios/currency/currency_11_explicit_hk_symbol.jpeg",
+      "locale": "en-XX",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Hong Kong Symbol Shop",
+        "date": "2026-09-17",
+        "currency": "HKD",
+        "total": "20.00",
+        "items": [
+          [
+            "Item A",
+            "12.00"
+          ],
+          [
+            "Item B",
+            "8.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "HKD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "HK$"
+        ]
+      }
+    },
+    {
+      "id": "currency_12_explicit_us_symbol",
+      "file": "scenarios/currency/currency_12_explicit_us_symbol.jpeg",
+      "locale": "en-XX",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "United States Symbol Shop",
+        "date": "2026-09-17",
+        "currency": "USD",
+        "total": "20.00",
+        "items": [
+          [
+            "Item A",
+            "12.00"
+          ],
+          [
+            "Item B",
+            "8.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "USD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "US$"
+        ]
+      }
+    },
+    {
+      "id": "currency_13_explicit_ca_symbol",
+      "file": "scenarios/currency/currency_13_explicit_ca_symbol.jpeg",
+      "locale": "en-XX",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Canada Symbol Shop",
+        "date": "2026-09-17",
+        "currency": "CAD",
+        "total": "20.00",
+        "items": [
+          [
+            "Item A",
+            "12.00"
+          ],
+          [
+            "Item B",
+            "8.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "CAD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "CA$"
+        ]
+      }
+    },
+    {
+      "id": "currency_14_explicit_au_symbol",
+      "file": "scenarios/currency/currency_14_explicit_au_symbol.jpeg",
+      "locale": "en-XX",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Australia Symbol Shop",
+        "date": "2026-09-17",
+        "currency": "AUD",
+        "total": "20.00",
+        "items": [
+          [
+            "Item A",
+            "12.00"
+          ],
+          [
+            "Item B",
+            "8.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "AUD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "A$"
+        ]
+      }
+    },
+    {
+      "id": "currency_15_explicit_sg_symbol",
+      "file": "scenarios/currency/currency_15_explicit_sg_symbol.jpeg",
+      "locale": "en-XX",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Singapore Symbol Shop",
+        "date": "2026-09-17",
+        "currency": "SGD",
+        "total": "20.00",
+        "items": [
+          [
+            "Item A",
+            "12.00"
+          ],
+          [
+            "Item B",
+            "8.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "SGD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "S$"
+        ]
+      }
+    },
+    {
+      "id": "currency_16_explicit_nz_symbol",
+      "file": "scenarios/currency/currency_16_explicit_nz_symbol.jpeg",
+      "locale": "en-XX",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "New Zealand Symbol Shop",
+        "date": "2026-09-17",
+        "currency": "NZD",
+        "total": "20.00",
+        "items": [
+          [
+            "Item A",
+            "12.00"
+          ],
+          [
+            "Item B",
+            "8.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "NZD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "NZ$"
+        ]
+      }
+    },
+    {
+      "id": "currency_17_explicit_tw_symbol",
+      "file": "scenarios/currency/currency_17_explicit_tw_symbol.jpeg",
+      "locale": "en-XX",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Taiwan Symbol Shop",
+        "date": "2026-09-17",
+        "currency": "TWD",
+        "total": "20.00",
+        "items": [
+          [
+            "Item A",
+            "12.00"
+          ],
+          [
+            "Item B",
+            "8.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "TWD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "NT$"
+        ]
+      }
+    },
+    {
+      "id": "currency_18_explicit_br_symbol",
+      "file": "scenarios/currency/currency_18_explicit_br_symbol.jpeg",
+      "locale": "en-XX",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Brazil Symbol Shop",
+        "date": "2026-09-17",
+        "currency": "BRL",
+        "total": "20.00",
+        "items": [
+          [
+            "Item A",
+            "12.00"
+          ],
+          [
+            "Item B",
+            "8.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "BRL",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "R$"
+        ]
+      }
+    },
+    {
+      "id": "currency_19_yen_japan_context",
+      "file": "scenarios/currency/currency_19_yen_japan_context.jpeg",
+      "locale": "ja-JP",
+      "script": "Japanese",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "東京食堂",
+        "date": "2026-09-17",
+        "currency": "JPY",
+        "total": "1180",
+        "items": [
+          [
+            "ラーメン",
+            "980"
+          ],
+          [
+            "お茶",
+            "200"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "JPY",
+        "source": "context_inferred",
+        "confidence": "medium",
+        "evidence": [
+          "Japanese script",
+          "Tokyo address",
+          "¥"
+        ]
+      }
+    },
+    {
+      "id": "currency_20_yen_china_context",
+      "file": "scenarios/currency/currency_20_yen_china_context.jpeg",
+      "locale": "zh-CN",
+      "script": "Chinese",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "上海面馆",
+        "date": "2026-09-17",
+        "currency": "CNY",
+        "total": "56.00",
+        "items": [
+          [
+            "牛肉面",
+            "48.00"
+          ],
+          [
+            "茶",
+            "8.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "CNY",
+        "source": "context_inferred",
+        "confidence": "medium",
+        "evidence": [
+          "Simplified Chinese",
+          "Shanghai address",
+          "¥"
+        ]
+      }
+    },
+    {
+      "id": "currency_21_yen_unresolved",
+      "file": "scenarios/currency/currency_21_yen_unresolved.jpeg",
+      "locale": "und",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Noodle Shop",
+        "date": "2026-09-17",
+        "currency": null,
+        "total": "60",
+        "items": [
+          [
+            "Noodles",
+            "50"
+          ],
+          [
+            "Tea",
+            "10"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": null,
+        "source": "unresolved",
+        "confidence": "none",
+        "evidence": [
+          "bare ¥ only"
+        ]
+      },
+      "notes": "Bare ¥ with no Japan/China clue must stay unresolved."
+    },
+    {
+      "id": "currency_22_kr_sweden_context",
+      "file": "scenarios/currency/currency_22_kr_sweden_context.jpeg",
+      "locale": "sv-SE",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Stockholm Cafe",
+        "date": "2026-09-17",
+        "currency": "SEK",
+        "total": "75",
+        "items": [
+          [
+            "Coffee",
+            "45"
+          ],
+          [
+            "Bread",
+            "30"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "SEK",
+        "source": "context_inferred",
+        "confidence": "medium",
+        "evidence": [
+          "Sweden/Stockholm",
+          "Moms",
+          "kr"
+        ]
+      }
+    },
+    {
+      "id": "currency_23_kr_norway_context",
+      "file": "scenarios/currency/currency_23_kr_norway_context.jpeg",
+      "locale": "nb-NO",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Oslo Bakeri",
+        "date": "2026-09-17",
+        "currency": "NOK",
+        "total": "75",
+        "items": [
+          [
+            "Coffee",
+            "45"
+          ],
+          [
+            "Bread",
+            "30"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "NOK",
+        "source": "context_inferred",
+        "confidence": "medium",
+        "evidence": [
+          "Norway/Oslo",
+          "MVA",
+          "kr"
+        ]
+      }
+    },
+    {
+      "id": "currency_24_kr_unresolved",
+      "file": "scenarios/currency/currency_24_kr_unresolved.jpeg",
+      "locale": "und",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Nordic Shop",
+        "date": "2026-09-17",
+        "currency": null,
+        "total": "45",
+        "items": [
+          [
+            "Item",
+            "45"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": null,
+        "source": "unresolved",
+        "confidence": "none",
+        "evidence": [
+          "kr only"
+        ]
+      }
+    },
+    {
+      "id": "currency_25_rs_india_context",
+      "file": "scenarios/currency/currency_25_rs_india_context.jpeg",
+      "locale": "en-IN",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Delhi Snacks",
+        "date": "2026-09-17",
+        "currency": "INR",
+        "total": "550.00",
+        "items": [
+          [
+            "Meal",
+            "450.00"
+          ],
+          [
+            "Tea",
+            "100.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "INR",
+        "source": "context_inferred",
+        "confidence": "medium",
+        "evidence": [
+          "India address",
+          "GSTIN",
+          "Rs"
+        ]
+      }
+    },
+    {
+      "id": "currency_26_rs_pakistan_context",
+      "file": "scenarios/currency/currency_26_rs_pakistan_context.jpeg",
+      "locale": "en-PK",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Karachi Grill",
+        "date": "2026-09-17",
+        "currency": "PKR",
+        "total": "550.00",
+        "items": [
+          [
+            "Meal",
+            "450.00"
+          ],
+          [
+            "Tea",
+            "100.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "PKR",
+        "source": "context_inferred",
+        "confidence": "medium",
+        "evidence": [
+          "Pakistan address",
+          "STRN",
+          "Rs"
+        ]
+      }
+    },
+    {
+      "id": "currency_27_rs_unresolved",
+      "file": "scenarios/currency/currency_27_rs_unresolved.jpeg",
+      "locale": "und",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Central Store",
+        "date": "2026-09-17",
+        "currency": null,
+        "total": "100.00",
+        "items": [
+          [
+            "Item",
+            "100.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": null,
+        "source": "unresolved",
+        "confidence": "none",
+        "evidence": [
+          "Rs only"
+        ]
+      }
+    },
+    {
+      "id": "locale_01_fr_decimal_comma",
+      "file": "scenarios/locale/locale_01_fr_decimal_comma.jpeg",
+      "locale": "fr-FR",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Bistro Lumière",
+        "date": "2026-09-17",
+        "currency": "EUR",
+        "subtotal": "11.70",
+        "tax": "1.17",
+        "total": "12.87",
+        "items": [
+          [
+            "Soupe",
+            "8.50"
+          ],
+          [
+            "Café",
+            "3.20"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "EUR",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "€"
+        ]
+      }
+    },
+    {
+      "id": "locale_02_de_thousands_decimal_comma",
+      "file": "scenarios/locale/locale_02_de_thousands_decimal_comma.jpeg",
+      "locale": "de-DE",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Berlin Technik",
+        "date": "2026-09-17",
+        "currency": "EUR",
+        "subtotal": "1234.56",
+        "tax": "234.57",
+        "total": "1469.13",
+        "items": [
+          [
+            "Monitor",
+            "1199.00"
+          ],
+          [
+            "Kabel",
+            "35.56"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "EUR",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "€",
+          "German decimal comma"
+        ]
+      }
+    },
+    {
+      "id": "locale_03_ch_apostrophe_thousands",
+      "file": "scenarios/locale/locale_03_ch_apostrophe_thousands.jpeg",
+      "locale": "de-CH",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Zürich Markt",
+        "date": "2026-09-17",
+        "currency": "CHF",
+        "subtotal": "1234.50",
+        "tax": "99.95",
+        "total": "1334.45",
+        "items": [
+          [
+            "Gerät",
+            "1199.50"
+          ],
+          [
+            "Zubehör",
+            "35.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "CHF",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "CHF",
+          "apostrophe thousands"
+        ]
+      }
+    },
+    {
+      "id": "locale_04_in_indian_grouping",
+      "file": "scenarios/locale/locale_04_in_indian_grouping.jpeg",
+      "locale": "en-IN",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Mumbai Electronics",
+        "date": "2026-09-17",
+        "currency": "INR",
+        "subtotal": "123456.78",
+        "tax": "22222.22",
+        "total": "145679.00",
+        "items": [
+          [
+            "Laptop",
+            "120000.00"
+          ],
+          [
+            "Mouse",
+            "3456.78"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "INR",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "₹",
+          "Indian digit grouping"
+        ]
+      }
+    },
+    {
+      "id": "locale_05_jp_no_decimals",
+      "file": "scenarios/locale/locale_05_jp_no_decimals.jpeg",
+      "locale": "ja-JP",
+      "script": "Japanese",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "大阪商店",
+        "date": "2026-09-17",
+        "currency": "JPY",
+        "subtotal": "1280",
+        "total": "1280",
+        "items": [
+          [
+            "弁当",
+            "980"
+          ],
+          [
+            "お茶",
+            "300"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "JPY",
+        "source": "context_inferred",
+        "confidence": "medium",
+        "evidence": [
+          "Japanese context",
+          "¥",
+          "zero-decimal"
+        ]
+      }
+    },
+    {
+      "id": "locale_06_kr_no_decimals",
+      "file": "scenarios/locale/locale_06_kr_no_decimals.jpeg",
+      "locale": "ko-KR",
+      "script": "Korean",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "서울식당",
+        "date": "2026-09-17",
+        "currency": "KRW",
+        "subtotal": "14000",
+        "tax": "1400",
+        "total": "15400",
+        "items": [
+          [
+            "비빔밥",
+            "11000"
+          ],
+          [
+            "차",
+            "3000"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "KRW",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "₩",
+          "zero-decimal"
+        ]
+      }
+    },
+    {
+      "id": "locale_07_kwd_three_decimals",
+      "file": "scenarios/locale/locale_07_kwd_three_decimals.jpeg",
+      "locale": "en-KW",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Kuwait Cafe",
+        "date": "2026-09-17",
+        "currency": "KWD",
+        "subtotal": "12.345",
+        "total": "12.345",
+        "items": [
+          [
+            "Meal",
+            "10.125"
+          ],
+          [
+            "Drink",
+            "2.220"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "KWD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "KWD",
+          "3 decimals"
+        ]
+      }
+    },
+    {
+      "id": "locale_08_bhd_three_decimals",
+      "file": "scenarios/locale/locale_08_bhd_three_decimals.jpeg",
+      "locale": "en-BH",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Manama Market",
+        "date": "2026-09-17",
+        "currency": "BHD",
+        "subtotal": "8.125",
+        "total": "8.125",
+        "items": [
+          [
+            "Item A",
+            "5.500"
+          ],
+          [
+            "Item B",
+            "2.625"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "BHD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "BHD",
+          "3 decimals"
+        ]
+      }
+    },
+    {
+      "id": "locale_09_ae_arabic_indic_digits",
+      "file": "scenarios/locale/locale_09_ae_arabic_indic_digits.jpeg",
+      "locale": "ar-AE",
+      "script": "Arabic",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "متجر دبي",
+        "date": "2026-09-17",
+        "currency": "AED",
+        "subtotal": "20.75",
+        "tax": "1.04",
+        "total": "21.79",
+        "items": [
+          [
+            "قهوة",
+            "12.50"
+          ],
+          [
+            "حلوى",
+            "8.25"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "AED",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "د.إ",
+          "Arabic-Indic digits",
+          "Arabic decimal separator"
+        ]
+      }
+    },
+    {
+      "id": "locale_10_pl_symbol_after",
+      "file": "scenarios/locale/locale_10_pl_symbol_after.jpeg",
+      "locale": "pl-PL",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Sklep Warszawa",
+        "date": "2026-09-17",
+        "currency": "PLN",
+        "subtotal": "47.50",
+        "tax": "10.93",
+        "total": "58.43",
+        "items": [
+          [
+            "Zupa",
+            "35.50"
+          ],
+          [
+            "Kawa",
+            "12.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "PLN",
+        "source": "context_inferred",
+        "confidence": "medium",
+        "evidence": [
+          "Polish zł",
+          "decimal comma"
+        ]
+      }
+    },
+    {
+      "id": "locale_11_tr_lira",
+      "file": "scenarios/locale/locale_11_tr_lira.jpeg",
+      "locale": "tr-TR",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "İstanbul Market",
+        "date": "2026-09-17",
+        "currency": "TRY",
+        "subtotal": "456.70",
+        "tax": "91.34",
+        "total": "548.04",
+        "items": [
+          [
+            "Yemek",
+            "400.00"
+          ],
+          [
+            "Çay",
+            "56.70"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "TRY",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "₺",
+          "decimal comma"
+        ]
+      }
+    },
+    {
+      "id": "locale_12_vn_dong",
+      "file": "scenarios/locale/locale_12_vn_dong.jpeg",
+      "locale": "vi-VN",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Quán Hà Nội",
+        "date": "2026-09-17",
+        "currency": "VND",
+        "subtotal": "200000",
+        "tax": "20000",
+        "total": "220000",
+        "items": [
+          [
+            "Phở",
+            "120000"
+          ],
+          [
+            "Cà phê",
+            "80000"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "VND",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "₫",
+          "dot thousands",
+          "zero-decimal"
+        ]
+      }
+    },
+    {
+      "id": "layout_01_restaurant_service_tax_tip",
+      "file": "scenarios/layout/layout_01_restaurant_service_tax_tip.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "Harbor Grill",
+        "date": "2026-09-17",
+        "currency": "USD",
+        "subtotal": "26.00",
+        "service": "2.60",
+        "tax": "2.36",
+        "tip": "5.00",
+        "total": "35.96",
+        "items": [
+          [
+            "Burger",
+            "18.00"
+          ],
+          [
+            "Beer",
+            "8.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "USD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "USD"
+        ]
+      }
+    },
+    {
+      "id": "layout_02_suggested_tip_not_actual",
+      "file": "scenarios/layout/layout_02_suggested_tip_not_actual.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "Downtown Bistro",
+        "date": "2026-09-17",
+        "currency": "USD",
+        "subtotal": "20.00",
+        "tax": "1.80",
+        "total": "21.80",
+        "items": [
+          [
+            "Pasta",
+            "20.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "USD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "USD"
+        ]
+      },
+      "notes": "Suggested tip rows are not actual charges and must not inflate total."
+    },
+    {
+      "id": "layout_03_weighted_produce",
+      "file": "scenarios/layout/layout_03_weighted_produce.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "Green Basket Market",
+        "date": "2026-09-17",
+        "currency": "USD",
+        "subtotal": "9.66",
+        "total": "9.66",
+        "items": [
+          {
+            "description": "Apples",
+            "quantity": "1.250",
+            "unit_price": "3.99",
+            "line_total": "4.99"
+          },
+          {
+            "description": "Tomatoes",
+            "quantity": "0.850",
+            "unit_price": "5.49",
+            "line_total": "4.67"
+          }
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "USD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "USD"
+        ]
+      }
+    },
+    {
+      "id": "layout_04_coupon_loyalty_discount",
+      "file": "scenarios/layout/layout_04_coupon_loyalty_discount.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "ValueMart",
+        "date": "2026-09-17",
+        "currency": "USD",
+        "subtotal": "10.00",
+        "discount": "-3.00",
+        "tax": "0.49",
+        "total": "7.49",
+        "items": [
+          [
+            "Cereal",
+            "6.00"
+          ],
+          [
+            "Milk",
+            "4.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "USD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "USD"
+        ]
+      }
+    },
+    {
+      "id": "layout_05_nested_modifiers",
+      "file": "scenarios/layout/layout_05_nested_modifiers.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "Burger Lab",
+        "date": "2026-09-17",
+        "currency": "USD",
+        "subtotal": "19.50",
+        "tax": "1.76",
+        "total": "21.26",
+        "items": [
+          {
+            "description": "Combo Meal",
+            "line_total": "15.00"
+          },
+          {
+            "description": "Extra Cheese",
+            "line_total": "1.50"
+          },
+          {
+            "description": "Iced Tea",
+            "line_total": "3.00"
+          }
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "USD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "USD"
+        ]
+      },
+      "notes": "Unpriced modifier lines must not become fake items with inferred amounts."
+    },
+    {
+      "id": "layout_06_wrapped_item_description",
+      "file": "scenarios/layout/layout_06_wrapped_item_description.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "Home Goods Depot",
+        "date": "2026-09-17",
+        "currency": "USD",
+        "subtotal": "37.49",
+        "tax": "3.28",
+        "total": "40.77",
+        "items": [
+          {
+            "description": "Premium Stainless Steel Water Bottle 1L - Blue",
+            "line_total": "24.99"
+          },
+          {
+            "description": "Replacement Filter Pack",
+            "line_total": "12.50"
+          }
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "USD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "USD"
+        ]
+      },
+      "notes": "Wrapped description should join with following priced line rather than becoming a separate item."
+    },
+    {
+      "id": "layout_07_multiple_tax_rates",
+      "file": "scenarios/layout/layout_07_multiple_tax_rates.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": "EUR",
+      "expected": {
+        "merchant": "Euro Deli",
+        "date": "2026-09-17",
+        "currency": "EUR",
+        "subtotal": "35.00",
+        "tax": "4.00",
+        "total": "39.00",
+        "items": [
+          [
+            "Food VAT 5% item",
+            "20.00"
+          ],
+          [
+            "Wine VAT 20% item",
+            "15.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "EUR",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "EUR"
+        ]
+      }
+    },
+    {
+      "id": "layout_08_tax_included",
+      "file": "scenarios/layout/layout_08_tax_included.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": "GBP",
+      "expected": {
+        "merchant": "London Books",
+        "date": "2026-09-17",
+        "currency": "GBP",
+        "tax": "4.00",
+        "total": "24.00",
+        "items": [
+          [
+            "Book",
+            "24.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "GBP",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "GBP"
+        ]
+      },
+      "notes": "Tax is informational/included; do not add it again to total."
+    },
+    {
+      "id": "layout_09_cash_tender_change",
+      "file": "scenarios/layout/layout_09_cash_tender_change.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "Quick Stop",
+        "date": "2026-09-17",
+        "currency": "USD",
+        "total": "5.50",
+        "items": [
+          [
+            "Snack",
+            "3.50"
+          ],
+          [
+            "Drink",
+            "2.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "USD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "USD"
+        ]
+      },
+      "notes": "Tender and change are payment metadata, not items or competing totals."
+    },
+    {
+      "id": "layout_10_card_auth_noise",
+      "file": "scenarios/layout/layout_10_card_auth_noise.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "Tech Kiosk",
+        "date": "2026-09-17",
+        "currency": "USD",
+        "total": "19.99",
+        "items": [
+          [
+            "Cable",
+            "19.99"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "USD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "USD"
+        ]
+      },
+      "notes": "Card/auth/terminal numbers must not be parsed as money or items."
+    },
+    {
+      "id": "layout_11_hotel_folio",
+      "file": "scenarios/layout/layout_11_hotel_folio.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "hotel_folio",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "Grand Bay Hotel",
+        "date": "2026-09-17",
+        "currency": "USD",
+        "subtotal": "388.00",
+        "discount": "-100.00",
+        "total": "288.00",
+        "items": [
+          [
+            "Room Night 09/15",
+            "180.00"
+          ],
+          [
+            "Room Night 09/16",
+            "180.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "USD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "USD"
+        ]
+      },
+      "notes": "Final payable is Amount Due after deposit, not raw subtotal."
+    },
+    {
+      "id": "layout_12_utility_previous_balance",
+      "file": "scenarios/layout/layout_12_utility_previous_balance.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "utility_bill",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "Metro Water",
+        "date": "2026-09-17",
+        "currency": "USD",
+        "total": "75.00",
+        "items": [
+          [
+            "Water Usage",
+            "45.00"
+          ],
+          [
+            "Sewer",
+            "30.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "USD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "USD"
+        ]
+      },
+      "notes": "Previous balance and payment should not be mistaken for current item lines or grand total."
+    },
+    {
+      "id": "layout_13_refund_negative_total",
+      "file": "scenarios/layout/layout_13_refund_negative_total.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "refund_receipt",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "Fashion Outlet Returns",
+        "date": "2026-09-17",
+        "currency": "USD",
+        "total": "-74.99",
+        "items": [
+          {
+            "description": "Returned Jacket",
+            "line_total": "-79.99"
+          },
+          {
+            "description": "Restocking Fee",
+            "line_total": "5.00"
+          }
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "USD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "USD"
+        ]
+      },
+      "notes": "Negative totals must remain signed; do not coerce to positive."
+    },
+    {
+      "id": "layout_14_split_payment",
+      "file": "scenarios/layout/layout_14_split_payment.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "Family Market",
+        "date": "2026-09-17",
+        "currency": "USD",
+        "total": "40.00",
+        "items": [
+          [
+            "Groceries",
+            "40.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "USD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "USD"
+        ]
+      },
+      "notes": "Split tender rows must not replace transaction total with 0 balance or individual payments."
+    },
+    {
+      "id": "layout_15_dual_currency_reference",
+      "file": "scenarios/layout/layout_15_dual_currency_reference.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": "HKD",
+      "expected": {
+        "merchant": "Airport Duty Free",
+        "date": "2026-09-17",
+        "currency": "HKD",
+        "total": "780.00",
+        "items": [
+          [
+            "Perfume",
+            "780.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "HKD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "primary total uses HK$",
+          "USD explicitly marked Reference"
+        ]
+      },
+      "notes": "Dual-currency display: reference conversion must not replace primary charged currency."
+    },
+    {
+      "id": "layout_16_dcc_explicit_usd_hk_location",
+      "file": "scenarios/layout/layout_16_dcc_explicit_usd_hk_location.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": "HKD",
+      "expected": {
+        "merchant": "Central Card Terminal",
+        "date": "2026-09-17",
+        "currency": "USD",
+        "total": "100.00",
+        "items": [
+          [
+            "Dinner",
+            "780.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "USD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "CARD CHARGED USD",
+          "DCC selected"
+        ]
+      },
+      "notes": "Explicit charged currency overrides location/default context."
+    },
+    {
+      "id": "layout_17_bilingual_duplicate_lines",
+      "file": "scenarios/layout/layout_17_bilingual_duplicate_lines.jpeg",
+      "locale": "zh-HK",
+      "script": "Chinese",
+      "document_type": "receipt",
+      "fallback_currency": "HKD",
+      "expected": {
+        "merchant": "港灣餐廳 Harbour Restaurant",
+        "date": "2026-09-17",
+        "currency": "HKD",
+        "subtotal": "86.00",
+        "service": "8.60",
+        "total": "94.60",
+        "items": [
+          [
+            "牛肉麵 Beef Noodle",
+            "68.00"
+          ],
+          [
+            "凍檸茶 Iced Lemon Tea",
+            "18.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "HKD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "HK$"
+        ]
+      },
+      "notes": "Bilingual text should not duplicate each line as two separate items."
+    },
+    {
+      "id": "layout_18_multiple_dates",
+      "file": "scenarios/layout/layout_18_multiple_dates.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "Order & Pickup Cafe",
+        "date": "2026-09-17",
+        "currency": "USD",
+        "total": "18.00",
+        "items": [
+          [
+            "Meal",
+            "18.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "USD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "USD"
+        ]
+      },
+      "notes": "Choose receipt/transaction date, not earlier order date when labels disambiguate."
+    },
+    {
+      "id": "layout_19_missing_date",
+      "file": "scenarios/layout/layout_19_missing_date.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "No Date Bakery",
+        "date": null,
+        "currency": "USD",
+        "total": "9.00",
+        "items": [
+          [
+            "Croissant",
+            "4.00"
+          ],
+          [
+            "Coffee",
+            "5.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "USD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "USD"
+        ]
+      },
+      "notes": "Do not hallucinate a date from other numbers."
+    },
+    {
+      "id": "layout_20_missing_merchant",
+      "file": "scenarios/layout/layout_20_missing_merchant.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": null,
+        "date": "2026-09-17",
+        "currency": "USD",
+        "total": "10.00",
+        "items": [
+          [
+            "Item",
+            "10.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "USD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "USD"
+        ]
+      },
+      "notes": "Address/phone must not be promoted to merchant when merchant is absent."
+    },
+    {
+      "id": "layout_21_numeric_noise",
+      "file": "scenarios/layout/layout_21_numeric_noise.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "Number World",
+        "date": "2026-09-17",
+        "currency": "USD",
+        "total": "12.00",
+        "items": [
+          [
+            "Meal",
+            "12.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "USD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "USD"
+        ]
+      },
+      "notes": "IDs, phone, store/register/table numbers, and time must not become item amounts."
+    },
+    {
+      "id": "layout_22_zero_total_full_discount",
+      "file": "scenarios/layout/layout_22_zero_total_full_discount.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "Promo Cafe",
+        "date": "2026-09-17",
+        "currency": "USD",
+        "subtotal": "5.00",
+        "discount": "-5.00",
+        "total": "0.00",
+        "items": [
+          [
+            "Coffee",
+            "5.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "USD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "USD"
+        ]
+      },
+      "notes": "Zero total is valid and must not be treated as missing amount."
+    },
+    {
+      "id": "layout_23_parking_entry_exit",
+      "file": "scenarios/layout/layout_23_parking_entry_exit.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "parking_receipt",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "City Garage",
+        "date": "2026-09-17",
+        "currency": "USD",
+        "total": "18.00",
+        "items": [
+          [
+            "Parking Fee",
+            "18.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "USD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "USD"
+        ]
+      },
+      "notes": "Times/duration should not be parsed as prices."
+    },
+    {
+      "id": "layout_24_taxi_toll_tip",
+      "file": "scenarios/layout/layout_24_taxi_toll_tip.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "transport_receipt",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "Metro Taxi",
+        "date": "2026-09-17",
+        "currency": "USD",
+        "total": "32.50",
+        "items": [
+          [
+            "Fare",
+            "24.50"
+          ],
+          [
+            "Toll",
+            "3.00"
+          ],
+          [
+            "Tip",
+            "5.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "USD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "USD"
+        ]
+      }
+    },
+    {
+      "id": "layout_25_ecommerce_shipping",
+      "file": "scenarios/layout/layout_25_ecommerce_shipping.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "invoice",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "Online Shop Invoice",
+        "date": "2026-09-17",
+        "currency": "USD",
+        "subtotal": "100.00",
+        "discount": "-20.00",
+        "shipping": "9.99",
+        "tax": "8.80",
+        "total": "118.79",
+        "items": [
+          [
+            "Headphones",
+            "120.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "USD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "USD"
+        ]
+      }
+    },
+    {
+      "id": "layout_26_pharmacy_rx_otc_numbers",
+      "file": "scenarios/layout/layout_26_pharmacy_rx_otc_numbers.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "pharmacy_receipt",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "Care Pharmacy",
+        "date": "2026-09-17",
+        "currency": "USD",
+        "subtotal": "19.99",
+        "tax": "0.64",
+        "total": "20.63",
+        "items": [
+          [
+            "Rx #483920 Amoxicillin 500mg",
+            "12.00"
+          ],
+          [
+            "Ibuprofen 200mg 24ct",
+            "7.99"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "USD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "USD"
+        ]
+      },
+      "notes": "Rx number, dosage, and count must remain description text, not quantities/prices unless structurally clear."
+    },
+    {
+      "id": "distortion_01_rotate90_freshmart",
+      "file": "distortions/distortion_01_rotate90_freshmart.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "FreshMart",
+        "date": "2025-04-12",
+        "currency": "USD",
+        "subtotal": "13.52",
+        "tax": "0.95",
+        "total": "14.47",
+        "items": [
+          [
+            "Bananas",
+            "1.25"
+          ],
+          [
+            "Organic Milk",
+            "3.49"
+          ],
+          [
+            "Whole Grain Bread",
+            "2.99"
+          ],
+          [
+            "Large Eggs",
+            "3.29"
+          ],
+          [
+            "Spring Mix",
+            "2.50"
+          ]
+        ]
+      },
+      "variant_of": "existing_12_freshmart_grocery_en_US",
+      "image_variant": "rotate 90 degrees"
+    },
+    {
+      "id": "distortion_02_rotate180_bean_bloom",
+      "file": "distortions/distortion_02_rotate180_bean_bloom.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "Bean & Bloom Coffee Roasters",
+        "date": null,
+        "currency": "USD",
+        "subtotal": "17.20",
+        "tax": "1.42",
+        "total": "18.62",
+        "items": [
+          [
+            "Latte",
+            "4.75"
+          ],
+          [
+            "Avocado Toast",
+            "8.50"
+          ],
+          [
+            "Iced Green Tea",
+            "3.95"
+          ]
+        ]
+      },
+      "variant_of": "existing_11_bean_bloom_cafe_en_US",
+      "image_variant": "rotate 180 degrees"
+    },
+    {
+      "id": "distortion_03_faded_hk_context",
+      "file": "distortions/distortion_03_faded_hk_context.jpeg",
+      "locale": "zh-HK",
+      "script": "Chinese",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Harbour Tea House",
+        "date": "2026-09-17",
+        "currency": "HKD",
+        "total": "33.00",
+        "items": [
+          [
+            "Milk Tea",
+            "18.00"
+          ],
+          [
+            "Pineapple Bun",
+            "12.00"
+          ]
+        ],
+        "subtotal": "30.00"
+      },
+      "expected_currency_resolution": {
+        "currency": "HKD",
+        "source": "context_inferred",
+        "confidence": "medium",
+        "evidence": [
+          "Hong Kong address",
+          "+852",
+          "Chinese HK receipt context"
+        ]
+      },
+      "variant_of": "currency_01_hk_bare_dollar_context",
+      "image_variant": "low contrast / faded thermal print"
+    },
+    {
+      "id": "distortion_04_blur_restaurant",
+      "file": "distortions/distortion_04_blur_restaurant.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "Harbor Grill",
+        "date": "2026-09-17",
+        "currency": "USD",
+        "subtotal": "26.00",
+        "service": "2.60",
+        "tax": "2.36",
+        "tip": "5.00",
+        "total": "35.96",
+        "items": [
+          [
+            "Burger",
+            "18.00"
+          ],
+          [
+            "Beer",
+            "8.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "USD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "USD"
+        ]
+      },
+      "variant_of": "layout_01_restaurant_service_tax_tip",
+      "image_variant": "mild blur"
+    },
+    {
+      "id": "distortion_05_jpeg_us_context",
+      "file": "distortions/distortion_05_jpeg_us_context.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": null,
+      "expected": {
+        "merchant": "Pike Street Deli",
+        "date": "2026-09-17",
+        "currency": "USD",
+        "total": "18.20",
+        "items": [
+          [
+            "Sandwich",
+            "12.50"
+          ],
+          [
+            "Coffee",
+            "4.00"
+          ]
+        ],
+        "subtotal": "16.50"
+      },
+      "expected_currency_resolution": {
+        "currency": "USD",
+        "source": "context_inferred",
+        "confidence": "medium",
+        "evidence": [
+          "US state/ZIP",
+          "Sales Tax"
+        ]
+      },
+      "variant_of": "currency_02_us_bare_dollar_context",
+      "image_variant": "heavy JPEG compression"
+    },
+    {
+      "id": "distortion_06_perspective_weighted",
+      "file": "distortions/distortion_06_perspective_weighted.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "receipt",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "Green Basket Market",
+        "date": "2026-09-17",
+        "currency": "USD",
+        "subtotal": "9.66",
+        "total": "9.66",
+        "items": [
+          {
+            "description": "Apples",
+            "quantity": "1.250",
+            "unit_price": "3.99",
+            "line_total": "4.99"
+          },
+          {
+            "description": "Tomatoes",
+            "quantity": "0.850",
+            "unit_price": "5.49",
+            "line_total": "4.67"
+          }
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "USD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "USD"
+        ]
+      },
+      "variant_of": "layout_03_weighted_produce",
+      "image_variant": "mild perspective skew"
+    },
+    {
+      "id": "distortion_07_shadow_hotel",
+      "file": "distortions/distortion_07_shadow_hotel.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "hotel_folio",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "Grand Bay Hotel",
+        "date": "2026-09-17",
+        "currency": "USD",
+        "subtotal": "388.00",
+        "discount": "-100.00",
+        "total": "288.00",
+        "items": [
+          [
+            "Room Night 09/15",
+            "180.00"
+          ],
+          [
+            "Room Night 09/16",
+            "180.00"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "USD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "USD"
+        ]
+      },
+      "notes": "Final payable is Amount Due after deposit, not raw subtotal.",
+      "variant_of": "layout_11_hotel_folio",
+      "image_variant": "uneven diagonal shadow"
+    },
+    {
+      "id": "distortion_08_close_crop_pharmacy",
+      "file": "distortions/distortion_08_close_crop_pharmacy.jpeg",
+      "locale": "en-US",
+      "script": "Latin",
+      "document_type": "pharmacy_receipt",
+      "fallback_currency": "USD",
+      "expected": {
+        "merchant": "Care Pharmacy",
+        "date": "2026-09-17",
+        "currency": "USD",
+        "subtotal": "19.99",
+        "tax": "0.64",
+        "total": "20.63",
+        "items": [
+          [
+            "Rx #483920 Amoxicillin 500mg",
+            "12.00"
+          ],
+          [
+            "Ibuprofen 200mg 24ct",
+            "7.99"
+          ]
+        ]
+      },
+      "expected_currency_resolution": {
+        "currency": "USD",
+        "source": "explicit",
+        "confidence": "high",
+        "evidence": [
+          "USD"
+        ]
+      },
+      "notes": "Rx number, dosage, and count must remain description text, not quantities/prices unless structurally clear.",
+      "variant_of": "layout_26_pharmacy_rx_otc_numbers",
+      "image_variant": "close crop with minimal margins"
+    }
+  ]
+}
