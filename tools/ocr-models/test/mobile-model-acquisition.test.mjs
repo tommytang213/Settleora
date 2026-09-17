@@ -14,7 +14,7 @@ function fixturePack() {
   const model = bytes("model-bytes");
   const config = bytes("config-bytes");
   return {
-    modelPackId: "paddleocr.test.pack",
+    modelPackId: "paddleocr.ppocrv6.small.det",
     modelVersion: "a".repeat(40),
     sourceRepository: "PaddlePaddle/test",
     assetDirectory: "assets/receipt_ocr_models/test-pack",
@@ -38,6 +38,23 @@ test("acquisition activates a complete verified pack in one directory rename", a
   assert.deepEqual(readdirSync(directory).sort(), ["inference.onnx", "inference.yml"]);
   assert.equal(readFileSync(path.join(directory, "inference.onnx"), "utf8"), "model-bytes");
   assert.equal(await acquirePack(root, pack, async () => { throw new Error("must not fetch"); }), "already_verified");
+});
+
+test("acquisition rejects a catalog-controlled network destination", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "settleora-ocr-acquire-origin-"));
+  const pack = fixturePack();
+  pack.modelPackId = "paddleocr.attacker.pack";
+  pack.sourceRepository = "attacker.invalid/models";
+  let fetched = false;
+
+  await assert.rejects(
+    () => acquirePack(root, pack, async () => {
+      fetched = true;
+      throw new Error("must not fetch");
+    }),
+    /no trusted acquisition endpoint/,
+  );
+  assert.equal(fetched, false);
 });
 
 test("acquisition failure exposes no partial or mixed pack", async () => {

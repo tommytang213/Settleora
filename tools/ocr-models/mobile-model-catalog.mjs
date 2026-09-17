@@ -72,10 +72,6 @@ export async function verifyCatalog(repoRoot) {
   return { ok: failures.length === 0, failures, observedTotalBytes };
 }
 
-export function sourceUrl(pack, file) {
-  return `https://huggingface.co/${pack.sourceRepository}/resolve/${pack.modelVersion}/${file.name}`;
-}
-
 function validateCatalogShape(catalog) {
   if (catalog.schemaVersion !== 1) throw new Error("Unsupported OCR model catalog schema");
   if (

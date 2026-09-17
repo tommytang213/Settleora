@@ -11,7 +11,7 @@ import {
 import { finished } from "node:stream/promises";
 import path from "node:path";
 
-import { sha256File, sourceUrl } from "./mobile-model-catalog.mjs";
+import { sha256File } from "./mobile-model-catalog.mjs";
 
 export async function acquirePack(repoRoot, pack, fetchImpl = globalThis.fetch) {
   const directory = path.join(repoRoot, "apps/mobile", pack.assetDirectory);
@@ -30,7 +30,9 @@ export async function acquirePack(repoRoot, pack, fetchImpl = globalThis.fetch) 
   try {
     for (const file of pack.files) {
       const target = path.join(staging, file.name);
-      const response = await fetchImpl(sourceUrl(pack, file), { redirect: "follow" });
+      const response = await fetchImpl(trustedSourceUrl(pack.modelPackId, file.name), {
+        redirect: "follow",
+      });
       if (!response.ok || !response.body) {
         throw new Error(`Unable to download ${pack.modelPackId}/${file.name}: ${response.status}`);
       }
@@ -49,6 +51,28 @@ export async function acquirePack(repoRoot, pack, fetchImpl = globalThis.fetch) 
   } catch (error) {
     rmSync(staging, { recursive: true, force: true });
     throw error;
+  }
+}
+
+// Keep every acquisition endpoint literal and reviewable. Catalog fields still
+// carry provenance metadata, but they never become a network destination.
+function trustedSourceUrl(modelPackId, fileName) {
+  switch (`${modelPackId}/${fileName}`) {
+    case "paddleocr.ppocrv6.small.det/inference.onnx": return "https://huggingface.co/PaddlePaddle/PP-OCRv6_small_det_onnx/resolve/28fe5895c24fd108c19eb3e8479f4ab385fbfc62/inference.onnx";
+    case "paddleocr.ppocrv6.small.det/inference.yml": return "https://huggingface.co/PaddlePaddle/PP-OCRv6_small_det_onnx/resolve/28fe5895c24fd108c19eb3e8479f4ab385fbfc62/inference.yml";
+    case "paddleocr.ppocrv6.small.rec.common/inference.onnx": return "https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec_onnx/resolve/b8f84f0b80c529de40b4fbb3544b84fa7233a513/inference.onnx";
+    case "paddleocr.ppocrv6.small.rec.common/inference.yml": return "https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec_onnx/resolve/b8f84f0b80c529de40b4fbb3544b84fa7233a513/inference.yml";
+    case "paddleocr.ppocrv5.mobile.rec.arabic/inference.onnx": return "https://huggingface.co/PaddlePaddle/arabic_PP-OCRv5_mobile_rec_onnx/resolve/14aaedcd75825982689ecf5cd64ab33ee083215a/inference.onnx";
+    case "paddleocr.ppocrv5.mobile.rec.arabic/inference.yml": return "https://huggingface.co/PaddlePaddle/arabic_PP-OCRv5_mobile_rec_onnx/resolve/14aaedcd75825982689ecf5cd64ab33ee083215a/inference.yml";
+    case "paddleocr.ppocrv5.mobile.rec.cyrillic/inference.onnx": return "https://huggingface.co/PaddlePaddle/cyrillic_PP-OCRv5_mobile_rec_onnx/resolve/2cef88145434beb8afa9dd82d77d799eb1ad7b29/inference.onnx";
+    case "paddleocr.ppocrv5.mobile.rec.cyrillic/inference.yml": return "https://huggingface.co/PaddlePaddle/cyrillic_PP-OCRv5_mobile_rec_onnx/resolve/2cef88145434beb8afa9dd82d77d799eb1ad7b29/inference.yml";
+    case "paddleocr.ppocrv5.mobile.rec.devanagari/inference.onnx": return "https://huggingface.co/PaddlePaddle/devanagari_PP-OCRv5_mobile_rec_onnx/resolve/251aec19e36739540d35e2cc943f6aa7503b98e5/inference.onnx";
+    case "paddleocr.ppocrv5.mobile.rec.devanagari/inference.yml": return "https://huggingface.co/PaddlePaddle/devanagari_PP-OCRv5_mobile_rec_onnx/resolve/251aec19e36739540d35e2cc943f6aa7503b98e5/inference.yml";
+    case "paddleocr.ppocrv5.mobile.rec.korean/inference.onnx": return "https://huggingface.co/PaddlePaddle/korean_PP-OCRv5_mobile_rec_onnx/resolve/5c6f574b8e2230adf4287b33e736d71b9fabd28e/inference.onnx";
+    case "paddleocr.ppocrv5.mobile.rec.korean/inference.yml": return "https://huggingface.co/PaddlePaddle/korean_PP-OCRv5_mobile_rec_onnx/resolve/5c6f574b8e2230adf4287b33e736d71b9fabd28e/inference.yml";
+    case "paddleocr.ppocrv5.mobile.rec.thai/inference.onnx": return "https://huggingface.co/PaddlePaddle/th_PP-OCRv5_mobile_rec_onnx/resolve/1d4adbbafb1034a2fd6618498575b81ea7b69f69/inference.onnx";
+    case "paddleocr.ppocrv5.mobile.rec.thai/inference.yml": return "https://huggingface.co/PaddlePaddle/th_PP-OCRv5_mobile_rec_onnx/resolve/1d4adbbafb1034a2fd6618498575b81ea7b69f69/inference.yml";
+    default: throw new Error(`Model artifact has no trusted acquisition endpoint: ${modelPackId}/${fileName}`);
   }
 }
 
