@@ -120,7 +120,7 @@ test('full and mobile validation commands remain unweakened', () => {
   const packageJson = JSON.parse(read('package.json'));
   assert.equal(
     packageJson.scripts['validate:mobile'],
-    `node tools/doctor-validation.mjs --mobile && cd apps/mobile && ${sharedMobileReleaseGate}`,
+    `npm run validate:ocr-models && node tools/doctor-validation.mjs --mobile && cd apps/mobile && ${sharedMobileReleaseGate}`,
   );
 });
 
