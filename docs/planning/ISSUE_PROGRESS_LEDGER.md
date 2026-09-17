@@ -28,7 +28,11 @@
     settlement/recurrence owners;
   - PKT-02: #1255 group-root archive/reactivate, #1256 membership/history
     authorization, and #1257 group invitation-to-membership, with #976 as the
-    read-only completeness owner;
+    read-only completeness owner. Their exact Day 1 source mappings are
+    `GRP-002..003` / `MEM-CHOICE-001..002,013`,
+    `MEM-001..002,MEM-007..008,HIST-001..002` /
+    `MEM-CHOICE-001,005..007,009,011,014..015`, and `INV-001..005` /
+    `MEM-CHOICE-016`, respectively; Day 2 rows `MEM-003..006` remain excluded;
   - PKT-03: #1258 file-object logical lifecycle and #1259 subject-link
     lifecycle, retaining #341/#966/#1062 boundaries;
   - PKT-04: #338/#339/#1059 and completed #965 reconciliation;
@@ -38,12 +42,15 @@
   - PKT-08: #1252; PKT-09: #1253;
   - PKT-10: #1260 bill/revision, #1261 settlement, #1262 recurrence, #1263
     group/membership/invitation, #1264 file-object/reconciliation, and #1265
-    file subject-link persistence families; exact auth schema owners remain
-    #501/#784/#1059 and the #785/#787/#788 split as applicable;
+    file subject-link persistence families. #1263 uses the union of the exact
+    Day 1 PKT-02 rows and choices above, excluding `MEM-003..006`; exact auth
+    schema owners remain #501/#784/#1059 and the #785/#787/#788 split as
+    applicable;
   - PKT-11: #1266 bill/revision, #1267 settlement, #1268 recurrence, #1269
     group/membership/invitation, #1270 file-object/reconciliation, and #1271
-    file subject-link OpenAPI/generated-client families; exact auth contract
-    owners remain #502/#784/#1059 and the #785/#787/#788 split as applicable;
+    file subject-link OpenAPI/generated-client families. #1269 uses the same
+    exact Day 1 PKT-02 source union as #1263; exact auth contract owners remain
+    #502/#784/#1059 and the #785/#787/#788 split as applicable;
   - PKT-12: #723; PKT-13: #1272 mobile; PKT-14: #1273 user web;
   - PKT-15: #465/#466/#467/#964;
   - PKT-16: #369/#774/#973 plus each source-domain event producer;
