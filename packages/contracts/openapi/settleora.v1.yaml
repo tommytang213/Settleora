@@ -18401,7 +18401,7 @@ components:
           oneOf:
             - $ref: "#/components/schemas/CurrencyCode"
             - type: "null"
-          description: Optional review-level currency. Required when any amount candidate is supplied.
+          description: Optional review-level currency. Required when a header or merchandise-line amount candidate is supplied; adjustment evidence carries its own required currency.
         subtotalAmount:
           oneOf:
             - $ref: "#/components/schemas/ReceiptOcrCandidateAmount"

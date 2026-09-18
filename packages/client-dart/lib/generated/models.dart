@@ -10048,7 +10048,7 @@ class ReceiptOcrReviewUpsertRequest {
   /// Optional candidate receipt date/time.
   final DateTime? receiptIssuedAtUtc;
   final bool _hasReceiptIssuedAtUtc;
-  /// Optional review-level currency. Required when any amount candidate is supplied.
+  /// Optional review-level currency. Required when a header or merchandise-line amount candidate is supplied; adjustment evidence carries its own required currency.
   final CurrencyCode? currency;
   final bool _hasCurrency;
   final ReceiptOcrCandidateAmount? subtotalAmount;

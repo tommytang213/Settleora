@@ -3416,7 +3416,7 @@ export interface ReceiptOcrReviewUpsertRequest {
    */
   receiptIssuedAtUtc?: string | null;
   /**
-   * Optional review-level currency. Required when any amount candidate is supplied.
+   * Optional review-level currency. Required when a header or merchandise-line amount candidate is supplied; adjustment evidence carries its own required currency.
    */
   currency?: CurrencyCode | null;
   subtotalAmount?: ReceiptOcrCandidateAmount | null;
