@@ -195,11 +195,11 @@ class SettleoraPaddleOcrEngine(context: Context) {
                     val rotatedOrientationCandidates = rotatedCandidatesByLine.map { candidates ->
                         ScriptRouteSelector.select(candidates) ?: candidates.first()
                     }
-                    val rotateDocument = ReceiptOrientationSelector.shouldRotate180(
+                    val reverseRecognition = ReceiptOrientationSelector.shouldRotate180(
                         uprightCandidates = uprightOrientationCandidates,
                         rotatedCandidates = rotatedOrientationCandidates,
                     )
-                    if (rotateDocument) {
+                    if (reverseRecognition) {
                         crops.indices.forEach { index ->
                             crops[index].release()
                             crops[index] = rotatedCrops[index]
@@ -207,6 +207,15 @@ class SettleoraPaddleOcrEngine(context: Context) {
                             candidatesByLine[index] += rotatedCandidatesByLine[index]
                         }
                     }
+                    val documentOrientation = ReceiptDocumentOrientation.select(
+                        lineDimensions = validBoxes.map { (_, box) ->
+                            val xs = box.points.map { it.x }
+                            val ys = box.points.map { it.y }
+                            (xs.maxOrNull()!! - xs.minOrNull()!!) to
+                                (ys.maxOrNull()!! - ys.minOrNull()!!)
+                        },
+                        reverseRecognition = reverseRecognition,
+                    )
 
                     candidatesByLine.forEachIndexed { index, candidates ->
                         val accepted = ScriptRouteSelector.select(candidates)
@@ -220,20 +229,11 @@ class SettleoraPaddleOcrEngine(context: Context) {
                                 textDirection = ReceiptBlockOrder.textDirection(accepted.text),
                                 order = order,
                                 points = box.points.map { point ->
-                                    if (rotateDocument) {
-                                        SettleoraOcrPoint(
-                                            (sourceWidth - 1f - point.x).coerceIn(
-                                                0f,
-                                                sourceWidth - 1f,
-                                            ),
-                                            (sourceHeight - 1f - point.y).coerceIn(
-                                                0f,
-                                                sourceHeight - 1f,
-                                            ),
-                                        )
-                                    } else {
-                                        SettleoraOcrPoint(point.x, point.y)
-                                    }
+                                    documentOrientation.transform(
+                                        SettleoraOcrPoint(point.x, point.y),
+                                        sourceWidth,
+                                        sourceHeight,
+                                    )
                                 },
                             )
                         }

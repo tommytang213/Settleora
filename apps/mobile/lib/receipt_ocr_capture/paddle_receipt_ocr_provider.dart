@@ -118,7 +118,8 @@ class PaddleReceiptOcrProvider implements ReceiptOcrProvider {
 }
 
 ReceiptOcrProvider defaultMobileReceiptOcrProvider() {
-  // Paddle remains explicitly injectable until the real-provider native
-  // acceptance gate records an accepted catalog/runtime identity.
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+    return const PaddleReceiptOcrProvider();
+  }
   return const MlKitReceiptOcrProvider();
 }
