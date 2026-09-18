@@ -33,6 +33,30 @@ internal object ScriptRouteSelector {
     private const val SCRIPT_MATCH_BONUS = 0.24
     private const val SPECIALIST_BIAS = 0.20
     private const val COMMON_NEUTRAL_BIAS = 0.03
+    private const val COMMON_FAST_PATH_CONFIDENCE = 0.90f
+
+    /**
+     * The always-available common recognizer is also the first routing stage.
+     * A line takes the fast path only when that stage produced strong common-
+     * script or numeric evidence. Ambiguous/blank/low-confidence lines get a
+     * bounded pass through the five specialist recognizers.
+     */
+    fun needsSpecialistFallback(commonCandidate: ScriptCandidate): Boolean {
+        if (commonCandidate.text.isBlank() ||
+            commonCandidate.confidence < COMMON_FAST_PATH_CONFIDENCE
+        ) {
+            return true
+        }
+        val codePoints = commonCandidate.text.codePoints().toArray()
+        val commonLetters = codePoints.count { codePoint ->
+            Character.isLetter(codePoint) && scriptOf(codePoint) == ScriptEvidence.COMMON
+        }
+        if (commonLetters >= MIN_COMMON_ROUTE_CHARACTERS) return false
+        return !(codePoints.any { codePoint -> Character.isDigit(codePoint) } &&
+            codePoints.none { codePoint ->
+                Character.isLetter(codePoint) && scriptOf(codePoint) != ScriptEvidence.COMMON
+            })
+    }
 
     fun select(candidates: Iterable<ScriptCandidate>): ScriptCandidate? = candidates
         .filter { it.text.isNotEmpty() }
@@ -81,4 +105,5 @@ internal object ScriptRouteSelector {
 
     private const val MIN_SPECIALIST_SCRIPT_CHARACTERS = 2
     private const val MIN_SPECIALIST_SCRIPT_SHARE_DENOMINATOR = 4
+    private const val MIN_COMMON_ROUTE_CHARACTERS = 2
 }

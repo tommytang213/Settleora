@@ -434,9 +434,40 @@ String _normalizeOcrLine(String value) {
   return normalized.trim();
 }
 
-final _supportedCurrencyCodes = settleoraSupportedCurrencies
-    .map((currency) => currency.code)
-    .toSet();
+// Recognition may preserve currency evidence that the authoritative API does
+// not yet accept for bill mutation. Keep that evidence separate from the
+// shared selectable/API-aligned currency policy so OCR never expands financial
+// authority as a side effect of recognizing a receipt.
+const _ocrRecognizedCurrencyCodes = <String>{
+  'AED',
+  'AUD',
+  'BHD',
+  'BRL',
+  'CAD',
+  'CHF',
+  'CNY',
+  'EUR',
+  'GBP',
+  'HKD',
+  'INR',
+  'JPY',
+  'KRW',
+  'KWD',
+  'MXN',
+  'NOK',
+  'NZD',
+  'PKR',
+  'PLN',
+  'RUB',
+  'SEK',
+  'SGD',
+  'THB',
+  'TRY',
+  'TWD',
+  'USD',
+  'VND',
+};
+final _supportedCurrencyCodes = _ocrRecognizedCurrencyCodes;
 final _currencyTokenPattern = [
   ..._supportedCurrencyCodes,
   r'HK$',
@@ -465,7 +496,7 @@ const _amountTokenPattern = r"-?\d+(?:[.,'’]\d+)*";
 
 String? _supportedCurrencyCode(String? value) {
   final normalized = settleoraNormalizeCurrencyCode(value);
-  return settleoraIsSupportedCurrency(normalized) ? normalized : null;
+  return _ocrRecognizedCurrencyCodes.contains(normalized) ? normalized : null;
 }
 
 bool _hasExplicitHongKongCurrencyMarker(String joined) {

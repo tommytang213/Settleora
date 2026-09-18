@@ -17,10 +17,10 @@ import com.paddle.ocr.util.OpenCVUtils
 /**
  * Settleora's Android PaddleOCR/ONNX Runtime boundary.
  *
- * Detection runs once. Every bundled Global Core recognizer evaluates every
- * detected line, and a fixed calibrated selector chooses the compatible result.
- * This correctness-first route is independent from phone locale and cannot be
- * suppressed by a confident hallucination from the common recognizer.
+ * Detection runs once. The always-available common recognizer routes strong
+ * common-script lines directly; only ambiguous lines receive a bounded pass
+ * through the five Global Core specialists. A fixed calibrated selector then
+ * chooses the compatible result without using phone locale.
  */
 class SettleoraPaddleOcrEngine(context: Context) {
     private val appContext = context.applicationContext
@@ -103,7 +103,7 @@ class SettleoraPaddleOcrEngine(context: Context) {
             }
             if (crops.isNotEmpty()) {
                 val candidatesByLine = List(crops.size) { mutableListOf<ScriptCandidate>() }
-                val batches = crops.indices
+                fun batchesFor(indices: Iterable<Int>) = indices
                     .groupBy { index -> recognitionBatchCapacity(crops[index]) }
                     .flatMap { (capacity, indices) ->
                         indices.sortedBy { index -> crops[index].cols().toDouble() / crops[index].rows() }
@@ -137,9 +137,25 @@ class SettleoraPaddleOcrEngine(context: Context) {
                         )
                     }
                 }
-                for (pack in packs) {
-                    for (batchIndices in batches) {
-                        recognizeBatch(pack, batchIndices)
+
+                val commonPack = packs.singleOrNull { pack ->
+                    ScriptEvidence.COMMON in pack.spec.acceptedScripts
+                } ?: error("Exactly one common recognition pack is required")
+                for (batchIndices in batchesFor(crops.indices)) {
+                    recognizeBatch(commonPack, batchIndices)
+                }
+                val fallbackIndices = candidatesByLine.indices.filter { lineIndex ->
+                    ScriptRouteSelector.needsSpecialistFallback(
+                        candidatesByLine[lineIndex].single(),
+                    )
+                }
+                if (fallbackIndices.isNotEmpty()) {
+                    val fallbackBatches = batchesFor(fallbackIndices)
+                    for (pack in packs) {
+                        if (pack === commonPack) continue
+                        for (batchIndices in fallbackBatches) {
+                            recognizeBatch(pack, batchIndices)
+                        }
                     }
                 }
 

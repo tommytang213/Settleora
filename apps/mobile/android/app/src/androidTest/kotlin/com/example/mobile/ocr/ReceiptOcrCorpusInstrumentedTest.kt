@@ -134,7 +134,12 @@ class ReceiptOcrCorpusInstrumentedTest {
         val values = mutableListOf(expected.getString("merchant"))
         val items = expected.optJSONArray("items") ?: JSONArray()
         for (index in 0 until items.length()) {
-            values += items.getJSONArray(index).getString(0)
+            val item = items.get(index)
+            values += when (item) {
+                is JSONArray -> item.getString(0)
+                is JSONObject -> item.getString("description")
+                else -> error("Unsupported manifest item representation")
+            }
         }
         return values.filter { containsScript(it, script) }
     }

@@ -68,19 +68,36 @@ void main() {
       _expectField(fixtureId, 'total', preview.total, expected);
 
       final expectedItems = (expected['items']! as List<Object?>)
-          .cast<List<Object?>>();
+          .map((item) => _ExpectedItem.fromManifest(item, fixtureId))
+          .toList(growable: false);
       expect(preview.items, hasLength(expectedItems.length), reason: fixtureId);
       for (var index = 0; index < expectedItems.length; index += 1) {
+        final expectedItem = expectedItems[index];
+        final actualItem = preview.items[index];
         expect(
-          _normalizedText(preview.items[index].description),
-          _normalizedText(expectedItems[index][0] as String),
+          _normalizedText(actualItem.description),
+          _normalizedText(expectedItem.description),
           reason: '$fixtureId item[$index].description',
         );
         expect(
-          preview.items[index].lineTotal,
-          expectedItems[index][1],
+          actualItem.lineTotal,
+          expectedItem.lineTotal,
           reason: '$fixtureId item[$index].lineTotal',
         );
+        if (expectedItem.quantity != null) {
+          expect(
+            actualItem.quantity,
+            expectedItem.quantity,
+            reason: '$fixtureId item[$index].quantity',
+          );
+        }
+        if (expectedItem.unitPrice != null) {
+          expect(
+            actualItem.unitPrice,
+            expectedItem.unitPrice,
+            reason: '$fixtureId item[$index].unitPrice',
+          );
+        }
       }
 
       if (currencyResolution != null) {
@@ -161,6 +178,55 @@ ReceiptOcrCurrencyProvenance _currencyProvenance(String source) {
     'unresolved' => ReceiptOcrCurrencyProvenance.unresolved,
     _ => throw StateError('Unknown manifest currency source'),
   };
+}
+
+class _ExpectedItem {
+  const _ExpectedItem({
+    required this.description,
+    required this.lineTotal,
+    this.quantity,
+    this.unitPrice,
+  });
+
+  factory _ExpectedItem.fromManifest(Object? value, String fixtureId) {
+    if (value case [final Object? description, final Object? lineTotal]) {
+      return _ExpectedItem(
+        description: description.toString(),
+        lineTotal: lineTotal.toString(),
+      );
+    }
+    if (value is Map<String, Object?>) {
+      const supportedKeys = {
+        'description',
+        'quantity',
+        'unit_price',
+        'line_total',
+      };
+      final unknownKeys = value.keys.toSet().difference(supportedKeys);
+      if (unknownKeys.isNotEmpty) {
+        throw StateError(
+          '$fixtureId item contains unvalidated keys: $unknownKeys',
+        );
+      }
+      final description = value['description'];
+      final lineTotal = value['line_total'];
+      if (description == null || lineTotal == null) {
+        throw StateError('$fixtureId item is missing required ground truth');
+      }
+      return _ExpectedItem(
+        description: description.toString(),
+        quantity: value['quantity']?.toString(),
+        unitPrice: value['unit_price']?.toString(),
+        lineTotal: lineTotal.toString(),
+      );
+    }
+    throw StateError('$fixtureId has an unsupported item representation');
+  }
+
+  final String description;
+  final String? quantity;
+  final String? unitPrice;
+  final String lineTotal;
 }
 
 class _AndroidAcceptanceFixtures {

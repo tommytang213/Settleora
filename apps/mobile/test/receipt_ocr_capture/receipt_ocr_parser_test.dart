@@ -6,8 +6,18 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_parser.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_provider.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
 import 'package:mobile/receipt_ocr_capture/unsupported_receipt_ocr_provider.dart';
+import 'package:mobile/ui/settleora_form_fields.dart';
 
 void main() {
+  test('selectable currencies remain aligned with API financial policy', () {
+    expect(
+      settleoraSupportedCurrencies.map((currency) => currency.code).toList(),
+      ['HKD', 'USD', 'EUR', 'GBP', 'JPY', 'KWD', 'BHD'],
+    );
+    expect(settleoraIsSupportedCurrency('AED'), isFalse);
+    expect(settleoraIsSupportedCurrency('THB'), isFalse);
+  });
+
   test('parser extracts provisional HKD receipt candidates', () {
     const parser = ReceiptOcrParser();
 

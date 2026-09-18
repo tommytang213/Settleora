@@ -5,6 +5,34 @@ import org.junit.Test
 
 class ScriptRouteSelectorTest {
     @Test
+    fun strongCommonTextUsesFastPathWithoutSpecialistInference() {
+        val common = candidate("common", ScriptEvidence.COMMON, "TOTAL 12.50", 0.94f)
+
+        assertEquals(false, ScriptRouteSelector.needsSpecialistFallback(common))
+    }
+
+    @Test
+    fun strongNumericTextUsesFastPathWithoutSpecialistInference() {
+        val common = candidate("common", ScriptEvidence.COMMON, "12.50", 0.96f)
+
+        assertEquals(false, ScriptRouteSelector.needsSpecialistFallback(common))
+    }
+
+    @Test
+    fun ambiguousCommonStageUsesBoundedSpecialistFallback() {
+        val common = candidate("common", ScriptEvidence.COMMON, "TOTAL", 0.52f)
+
+        assertEquals(true, ScriptRouteSelector.needsSpecialistFallback(common))
+    }
+
+    @Test
+    fun blankCommonStageUsesBoundedSpecialistFallback() {
+        val common = candidate("common", ScriptEvidence.COMMON, "", 0.99f)
+
+        assertEquals(true, ScriptRouteSelector.needsSpecialistFallback(common))
+    }
+
+    @Test
     fun calibratedSelectorPrefersScriptCompatibleCandidate() {
         val selected = ScriptRouteSelector.select(
             listOf(
