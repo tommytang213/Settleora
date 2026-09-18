@@ -8100,14 +8100,21 @@ void main() {
           .enabled,
       isTrue,
     );
-    await _selectCurrency(
-      tester,
-      find.byKey(const Key('group-bill-ocr-edit-currency')),
-      'HKD',
+    final receiptCurrencySelector = find.byKey(
+      const Key('group-bill-ocr-edit-currency'),
     );
-    await _selectCurrency(
-      tester,
-      find.byKey(const ValueKey('group-bill-ocr-item-currency-0')),
+    await tester.ensureVisible(receiptCurrencySelector);
+    await tester.tap(receiptCurrencySelector);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('No currency preference').last);
+    await tester.pumpAndSettle();
+    await _selectCurrency(tester, receiptCurrencySelector, 'HKD');
+    expect(
+      tester
+          .widget<CurrencySelector>(
+            find.byKey(const ValueKey('group-bill-ocr-item-currency-0')),
+          )
+          .value,
       'HKD',
     );
     await _setReceiptOcrSection(tester, 'group-bill', 'currency', true);

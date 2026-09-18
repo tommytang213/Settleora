@@ -2853,6 +2853,7 @@ class _ReceiptOcrEditableReviewFormState
   late final TextEditingController _dateController;
   late final TextEditingController _currencyController;
   final List<_ReceiptOcrEditableItemControllers> _itemControllers = [];
+  String? _fallbackCurrencyToPropagate;
   bool _syncScheduled = false;
 
   @override
@@ -2867,13 +2868,21 @@ class _ReceiptOcrEditableReviewFormState
     _currencyController = TextEditingController(
       text: widget.preview.currency ?? '',
     );
+    _rememberFallbackCurrency(widget.preview);
     _resetItemControllers(widget.preview.items);
   }
 
   @override
   void didUpdateWidget(covariant _ReceiptOcrEditableReviewForm oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (_controllersMatchPreview(widget.preview)) {
+    final controllersMatchIncoming = _controllersMatchPreview(widget.preview);
+    if (widget.preview.currencyProvenance ==
+        ReceiptOcrCurrencyProvenance.defaultFallback) {
+      _rememberFallbackCurrency(widget.preview);
+    } else if (!controllersMatchIncoming) {
+      _fallbackCurrencyToPropagate = null;
+    }
+    if (controllersMatchIncoming) {
       return;
     }
     if (_syncScheduled) {
@@ -2894,6 +2903,17 @@ class _ReceiptOcrEditableReviewFormState
         }
       });
     });
+  }
+
+  void _rememberFallbackCurrency(ReceiptOcrPreview preview) {
+    if (preview.currencyProvenance !=
+        ReceiptOcrCurrencyProvenance.defaultFallback) {
+      return;
+    }
+    final normalized = preview.currency?.trim().toUpperCase();
+    if (settleoraIsSupportedCurrency(normalized)) {
+      _fallbackCurrencyToPropagate = normalized;
+    }
   }
 
   @override
@@ -3043,18 +3063,14 @@ class _ReceiptOcrEditableReviewFormState
           enabled: widget.enabled,
           semanticLabel: 'Receipt currency selector',
           onChanged: (currency) {
-            final previousCurrency = _currencyController.text
-                .trim()
-                .toUpperCase();
             _currencyController.text = currency ?? '';
             final nextCurrency = currency?.trim().toUpperCase() ?? '';
-            if (widget.preview.currencyProvenance ==
-                    ReceiptOcrCurrencyProvenance.defaultFallback &&
-                previousCurrency.isNotEmpty &&
+            final fallbackCurrency = _fallbackCurrencyToPropagate;
+            if (fallbackCurrency != null &&
                 settleoraIsSupportedCurrency(nextCurrency)) {
               for (final item in _itemControllers) {
                 if (item.currency.text.trim().toUpperCase() ==
-                    previousCurrency) {
+                    fallbackCurrency) {
                   item.currency.text = nextCurrency;
                 }
               }

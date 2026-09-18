@@ -976,6 +976,10 @@ bool _isPaymentMetadataLine(String line) {
       _lineHasAmount(line)) {
     return true;
   }
+  if (RegExp(r'^(?:gift|prepaid)[ -]?card\b').hasMatch(normalized) &&
+      _lineHasAmount(line)) {
+    return true;
+  }
   if (RegExp(
     r'^(cash|change|card|visa|mastercard|master card|amex|american express)\b',
   ).hasMatch(normalized)) {

@@ -589,6 +589,8 @@ Total USD 5.00
       'Auth: 123456',
       'Payment USD 5.00',
       'Tender USD 5.00',
+      'Gift Card USD 5.00',
+      'Prepaid-Card USD 5.00',
     ]) {
       final punctuated = parser.parse('''
 Corner Cafe
