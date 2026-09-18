@@ -471,6 +471,7 @@ Total USD 27.00
     final addressed = parser.parse('''
 Pike Deli
 123 Main St
+Suite 2
 Seattle 98101
 Coffee USD 18.20
 Total USD 18.20

@@ -960,9 +960,12 @@ bool _isPaymentMetadataLine(String line) {
 bool _isContextualReceiptMetadataLine(List<String> lines, int index) {
   final line = lines[index];
   if (_isReceiptMetadataLine(line)) return true;
-  return _isCityPostalLine(line) &&
-      index > 0 &&
-      _isStreetAddressLine(lines[index - 1]);
+  if (!_isCityPostalLine(line) || index == 0) return false;
+  var addressIndex = index - 1;
+  while (addressIndex >= 0 && _isAddressContinuationLine(lines[addressIndex])) {
+    addressIndex -= 1;
+  }
+  return addressIndex >= 0 && _isStreetAddressLine(lines[addressIndex]);
 }
 
 bool _isStreetAddressLine(String line) => RegExp(
@@ -972,6 +975,11 @@ bool _isStreetAddressLine(String line) => RegExp(
 
 bool _isCityPostalLine(String line) => RegExp(
   r"^[a-z][a-z .'-]{1,40}\s+\d{5}(?:-\d{4})?$",
+  caseSensitive: false,
+).hasMatch(line.trim());
+
+bool _isAddressContinuationLine(String line) => RegExp(
+  r'^\s*(room|rm|suite|unit|shop|floor|fl|level|lvl|block|blk|building|bldg|tower)\b\s*[#-]?\s*(?:[a-z]?\d[\w-]*|[a-z])\s*$',
   caseSensitive: false,
 ).hasMatch(line.trim());
 

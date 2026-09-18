@@ -870,9 +870,12 @@ void main() {
         find.byKey(const Key('personal-bill-ocr-edit-currency')),
         'HKD',
       );
-      await _selectCurrency(
-        tester,
-        find.byKey(const ValueKey('personal-bill-ocr-item-currency-0')),
+      expect(
+        tester
+            .widget<CurrencySelector>(
+              find.byKey(const ValueKey('personal-bill-ocr-item-currency-0')),
+            )
+            .value,
         'HKD',
       );
       await _setReceiptOcrSection(tester, 'personal-bill', 'currency', true);
@@ -880,6 +883,17 @@ void main() {
       await _tapReceiptOcrApply(tester, 'personal-bill');
 
       expect(find.text('Suggestions applied'), findsOneWidget);
+      expect(
+        tester
+            .widget<CurrencySelector>(
+              find.descendant(
+                of: find.byKey(const Key('personal-bill-item-currency-0')),
+                matching: find.byType(CurrencySelector),
+              ),
+            )
+            .value,
+        'HKD',
+      );
     },
   );
 

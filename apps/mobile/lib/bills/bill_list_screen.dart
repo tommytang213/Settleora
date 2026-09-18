@@ -3044,7 +3044,22 @@ class _ReceiptOcrEditableReviewFormState
           enabled: widget.enabled,
           semanticLabel: 'Receipt currency selector',
           onChanged: (currency) {
+            final previousCurrency = _currencyController.text
+                .trim()
+                .toUpperCase();
             _currencyController.text = currency ?? '';
+            final nextCurrency = currency?.trim().toUpperCase() ?? '';
+            if (widget.preview.currencyProvenance ==
+                    ReceiptOcrCurrencyProvenance.defaultFallback &&
+                previousCurrency.isNotEmpty &&
+                settleoraIsSupportedCurrency(nextCurrency)) {
+              for (final item in _itemControllers) {
+                if (item.currency.text.trim().toUpperCase() ==
+                    previousCurrency) {
+                  item.currency.text = nextCurrency;
+                }
+              }
+            }
             _emitChanged(
               currencyProvenance: settleoraIsSupportedCurrency(currency)
                   ? ReceiptOcrCurrencyProvenance.explicit
