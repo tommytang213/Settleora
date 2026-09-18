@@ -411,6 +411,20 @@ ReceiptOcrReviewSaveRequest? _receiptOcrReviewSaveRequestFromPreview(
             unitPriceAmount: _nullableTrimmedText(item.unitPrice),
             lineTotalAmount: _nullableTrimmedText(item.lineTotal),
           ),
+      if (_nullableTrimmedText(preview.tip) case final tip?)
+        ReceiptOcrReviewLineSaveRequest(
+          text: 'Tip',
+          quantity: null,
+          unitPriceAmount: null,
+          lineTotalAmount: tip,
+        ),
+      if (_nullableTrimmedText(preview.shipping) case final shipping?)
+        ReceiptOcrReviewLineSaveRequest(
+          text: 'Shipping',
+          quantity: null,
+          unitPriceAmount: null,
+          lineTotalAmount: shipping,
+        ),
     ],
   );
 }
@@ -2853,6 +2867,8 @@ class _ReceiptOcrEditableReviewFormState
   late final TextEditingController _dateController;
   late final TextEditingController _currencyController;
   final List<_ReceiptOcrEditableItemControllers> _itemControllers = [];
+  final Map<_ReceiptOcrEditableItemControllers, String>
+  _propagatedItemCurrencies = {};
   String? _fallbackCurrencyToPropagate;
   bool _syncScheduled = false;
 
@@ -2881,6 +2897,7 @@ class _ReceiptOcrEditableReviewFormState
       _rememberFallbackCurrency(widget.preview);
     } else if (!controllersMatchIncoming) {
       _fallbackCurrencyToPropagate = null;
+      _propagatedItemCurrencies.clear();
     }
     if (controllersMatchIncoming) {
       return;
@@ -2972,6 +2989,15 @@ class _ReceiptOcrEditableReviewFormState
         for (final item in items)
           _ReceiptOcrEditableItemControllers(candidate: item),
       ]);
+    _propagatedItemCurrencies.clear();
+    final fallbackCurrency = _fallbackCurrencyToPropagate;
+    if (fallbackCurrency != null) {
+      for (final item in _itemControllers) {
+        if (item.currency.text.trim().toUpperCase() == fallbackCurrency) {
+          _propagatedItemCurrencies[item] = fallbackCurrency;
+        }
+      }
+    }
   }
 
   void _emitChanged({ReceiptOcrCurrencyProvenance? currencyProvenance}) {
@@ -3013,6 +3039,7 @@ class _ReceiptOcrEditableReviewFormState
     }
     setState(() {
       final removed = _itemControllers.removeAt(index);
+      _propagatedItemCurrencies.remove(removed);
       removed.dispose();
     });
     _emitChanged();
@@ -3065,14 +3092,15 @@ class _ReceiptOcrEditableReviewFormState
           onChanged: (currency) {
             _currencyController.text = currency ?? '';
             final nextCurrency = currency?.trim().toUpperCase() ?? '';
-            final fallbackCurrency = _fallbackCurrencyToPropagate;
-            if (fallbackCurrency != null &&
-                settleoraIsSupportedCurrency(nextCurrency)) {
-              for (final item in _itemControllers) {
-                if (item.currency.text.trim().toUpperCase() ==
-                    fallbackCurrency) {
-                  item.currency.text = nextCurrency;
+            if (settleoraIsSupportedCurrency(nextCurrency)) {
+              for (final entry in _propagatedItemCurrencies.entries.toList()) {
+                final item = entry.key;
+                if (item.currency.text.trim().toUpperCase() != entry.value) {
+                  _propagatedItemCurrencies.remove(item);
+                  continue;
                 }
+                item.currency.text = nextCurrency;
+                _propagatedItemCurrencies[item] = nextCurrency;
               }
             }
             _emitChanged(

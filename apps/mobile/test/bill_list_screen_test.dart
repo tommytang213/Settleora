@@ -477,12 +477,14 @@ void main() {
     expect(receiptRepository.lastSaveRequest?.lines.map((line) => line.text), [
       'Corrected milk',
       'Bread',
+      'Tip',
+      'Shipping',
     ]);
     expect(
       receiptRepository.lastSaveRequest?.lines.map(
         (line) => line.lineTotalAmount,
       ),
-      ['30.00', '18.00'],
+      ['30.00', '18.00', '3.00', '4.00'],
     );
     expect(find.text('Bill'), findsOneWidget);
     expect(
@@ -518,7 +520,7 @@ void main() {
     expect(find.text('Receipt review'), findsOneWidget);
     expect(find.text('Receipt totals'), findsOneWidget);
     expect(find.text('Review receipt lines'), findsOneWidget);
-    expect(find.text('2 lines'), findsOneWidget);
+    expect(find.text('4 lines'), findsOneWidget);
     expect(find.text('Grand total'), findsOneWidget);
     expect(find.text('10.80 USD'), findsWidgets);
     expect(find.text('Milk'), findsWidgets);
@@ -8109,13 +8111,14 @@ void main() {
     await tester.tap(find.text('No currency preference').last);
     await tester.pumpAndSettle();
     await _selectCurrency(tester, receiptCurrencySelector, 'HKD');
+    await _selectCurrency(tester, receiptCurrencySelector, 'EUR');
     expect(
       tester
           .widget<CurrencySelector>(
             find.byKey(const ValueKey('group-bill-ocr-item-currency-0')),
           )
           .value,
-      'HKD',
+      'EUR',
     );
     await _setReceiptOcrSection(tester, 'group-bill', 'currency', true);
     await _setReceiptOcrSection(tester, 'group-bill', 'items', true);
