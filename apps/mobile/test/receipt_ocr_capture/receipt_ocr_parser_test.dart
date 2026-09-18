@@ -642,6 +642,12 @@ Total USD 5.00
       'Prepaid-Card USD 5.00',
       'Paid by cash USD 5.00',
       'Paid cash USD 5.00',
+      'Credit Card USD 5.00',
+      'Debit Card USD 5.00',
+      'Credit-Card USD 5.00',
+      'Paid by credit card USD 5.00',
+      'Paid debit-card USD 5.00',
+      'Paid by card USD 5.00',
     ]) {
       final punctuated = parser.parse('''
 Corner Cafe

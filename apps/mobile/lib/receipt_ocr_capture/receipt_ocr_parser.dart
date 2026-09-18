@@ -1044,7 +1044,13 @@ bool _isPaymentMetadataLine(String line) {
       _lineHasAmount(line)) {
     return true;
   }
-  if (RegExp(r'^paid\s+(?:by\s+)?cash\b').hasMatch(normalized) &&
+  if (RegExp(
+        r'^paid\s+(?:by\s+)?(?:cash|card|credit[ -]?card|debit[ -]?card|visa|mastercard|master card|amex|american express)\b',
+      ).hasMatch(normalized) &&
+      _lineHasAmount(line)) {
+    return true;
+  }
+  if (RegExp(r'^(?:credit|debit)[ -]?card\b').hasMatch(normalized) &&
       _lineHasAmount(line)) {
     return true;
   }
