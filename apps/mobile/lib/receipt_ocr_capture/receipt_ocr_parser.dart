@@ -401,7 +401,7 @@ class ReceiptOcrParser {
       }
       wrappedDescriptionLines.clear();
       final lineTotal = _normalizeAmount(match.group(3)!, currency: currency);
-      if (description.length < 2 ||
+      if (!_hasSubstantiveItemDescription(description) ||
           lineTotal == null ||
           _isLikelyNonItemDescription(description) ||
           !_hasTraceableItemAmountToken(line, match.group(3)!)) {
@@ -907,7 +907,7 @@ bool _hasWholeUnitCurrencyContext(String line, String code) {
   final description = _cleanDescription(
     (codeBeforeAmount ?? amountBeforeCode)?.group(1) ?? '',
   );
-  return description.length >= 2 &&
+  return _hasSubstantiveItemDescription(description) &&
       _unicodeLetterPattern.hasMatch(description) &&
       !_isLikelyNonItemDescription(description) &&
       !_isReceiptMetadataLine(description);
@@ -949,7 +949,7 @@ bool _isPaymentMetadataLine(String line) {
   ).hasMatch(normalized)) {
     return _lineHasAmount(line) ||
         RegExp(
-          r'\b(payment|paid|tender|ending|approval|auth|card)\b',
+          r'\b(payment|paid|tender|ending|approval|auth|charged)\b',
         ).hasMatch(normalized);
   }
   return RegExp(
@@ -1181,6 +1181,7 @@ bool _isStrongWrappedItemDescription(String description) {
   if (hasCasedLetters) {
     if (words.length < 3 || description.length < 12) return false;
     if (letters == letters.toUpperCase()) return false;
+    if (!words.every(_isTitleCaseContinuationWord)) return false;
   } else if (_unicodeLetterPattern.allMatches(letters).length < 6) {
     // Scripts such as Arabic, Thai, and Han do not have letter case and may
     // not use spaces between words. Require enough letters instead of a
@@ -1191,6 +1192,25 @@ bool _isStrongWrappedItemDescription(String description) {
     r'^(?:item|description|item description|product|product description|details)$',
     caseSensitive: false,
   ).hasMatch(description.trim());
+}
+
+bool _isTitleCaseContinuationWord(String word) {
+  final letters = word.replaceAll(RegExp(r'[^\p{L}]', unicode: true), '');
+  if (letters.isEmpty) return true;
+  final first = String.fromCharCode(letters.runes.first);
+  return first == first.toUpperCase() && first != first.toLowerCase();
+}
+
+bool _hasSubstantiveItemDescription(String description) {
+  final letters = description.runes
+      .where(
+        (rune) => _unicodeLetterPattern.hasMatch(String.fromCharCode(rune)),
+      )
+      .toList(growable: false);
+  if (letters.length >= 2) return true;
+  // A single Han, Hangul, Kana, or other non-ASCII letter can be a complete
+  // product name; retain it when a traceable price is present.
+  return letters.length == 1 && letters.single > 0x7f;
 }
 
 bool _isPricedItemLine(String line) {
@@ -1205,7 +1225,7 @@ bool _isPricedItemLine(String line) {
   ).firstMatch(line);
   if (match == null) return false;
   final description = _cleanDescription(match.group(1)!);
-  return description.length >= 2 &&
+  return _hasSubstantiveItemDescription(description) &&
       !_isLikelyNonItemDescription(description) &&
       _hasTraceableItemAmountToken(line, match.group(3)!);
 }

@@ -2037,7 +2037,7 @@ class _SettleoraPersonalBillCreateScreenState
               _PersonalBillCreateItemControllers(
                   currency: _receiptOcrApplicableItemCurrency(
                     candidate.currency,
-                    _currencyController.text,
+                    preview.currency ?? _currencyController.text,
                   ),
                 )
                 ..name.text = candidate.description.trim()
@@ -6852,7 +6852,7 @@ class _SettleoraGroupBillCreateScreenState
               _GroupBillCreateItemControllers(
                 currency: _receiptOcrApplicableItemCurrency(
                   candidate.currency,
-                  _currencyController.text,
+                  preview.currency ?? _currencyController.text,
                 ),
               ),
             );
@@ -6863,10 +6863,13 @@ class _SettleoraGroupBillCreateScreenState
           item.quantityUnits.text = _receiptOcrAppliedQuantity(candidate);
           item.unitAmount.text = _receiptOcrAppliedUnitPrice(candidate);
           item.amount.text = candidate.lineTotal ?? '';
-          final itemCurrency = candidate.currency?.trim().toUpperCase();
+          final itemCurrency = _receiptOcrApplicableItemCurrency(
+            candidate.currency,
+            preview.currency ?? _currencyController.text,
+          );
           if (settleoraIsSupportedCurrency(itemCurrency) &&
               !item.currencyEditedByUser) {
-            item.setCurrencyFromBill(itemCurrency!);
+            item.setCurrencyFromBill(itemCurrency);
           }
         }
       }

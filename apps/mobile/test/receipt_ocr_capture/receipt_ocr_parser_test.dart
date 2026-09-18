@@ -603,6 +603,47 @@ Total USD 24.99
     expect(thai.items.single.description, 'ขวดน้ำสแตนเลสคุณภาพสูง สีฟ้า');
   });
 
+  test('parser does not join an unrelated slogan to a priced item', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Neighborhood Market
+Fresh food every day
+Milk USD 3.00
+Total USD 3.00
+''');
+
+    expect(preview.items.single.description, 'Milk');
+  });
+
+  test('parser preserves substantive one-glyph item descriptions', () {
+    const parser = ReceiptOcrParser();
+    final korean = parser.parse('''
+서울 찻집
+차 KRW 3500
+합계 KRW 3500
+''');
+    final han = parser.parse('''
+茶館
+茶 JPY 500
+合計 JPY 500
+''');
+
+    expect(korean.items.single.description, '차');
+    expect(han.items.single.description, '茶');
+  });
+
+  test('parser preserves Card merchant headings without payment evidence', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Card Factory
+Birthday Card USD 4.00
+Total USD 4.00
+''');
+
+    expect(preview.merchant, 'Card Factory');
+    expect(preview.items.single.description, 'Birthday Card');
+  });
+
   test('parser matches localized receipt labels without case sensitivity', () {
     const parser = ReceiptOcrParser();
     final german = parser.parse('''

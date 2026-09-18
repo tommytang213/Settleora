@@ -729,6 +729,89 @@ void main() {
   );
 
   testWidgets(
+    'personal OCR blank line currency applies with reviewed receipt currency',
+    (tester) async {
+      await useLargeSurface(tester);
+      final receiptOcrProvider = FakeReceiptOcrProvider(
+        const ReceiptOcrResult.extracted(
+          ReceiptOcrPreview(
+            merchant: 'Currency Cafe',
+            currency: 'USD',
+            currencyProvenance: ReceiptOcrCurrencyProvenance.explicit,
+            items: [
+              ReceiptOcrItemCandidate(description: 'Coffee', lineTotal: '5.00'),
+            ],
+          ),
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraPersonalBillCreateScreen(
+            repository: FakeBillRepository(),
+            attachmentRepository: FakeBillAttachmentRepository(),
+            attachmentFileInput: FakeBillAttachmentFileInput(
+              pickedFile: samplePickedAttachmentFile(
+                filename: 'receipt.png',
+                contentType: 'image/png',
+                bytes: samplePngBytes(width: 64, height: 64),
+              ),
+            ),
+            receiptOcrProvider: receiptOcrProvider,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await _selectCurrency(
+        tester,
+        find.byKey(const Key('personal-bill-currency')),
+        'HKD',
+      );
+      await tester.ensureVisible(
+        find.byKey(const Key('personal-bill-scan-receipt')),
+      );
+      await tester.tap(find.byKey(const Key('personal-bill-scan-receipt')));
+      await tester.pumpAndSettle();
+      final lineCurrency = find.byKey(
+        const ValueKey('personal-bill-ocr-item-currency-0'),
+      );
+      await tester.ensureVisible(lineCurrency);
+      await tester.tap(lineCurrency);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('No currency preference').last);
+      await tester.pumpAndSettle();
+      await _setReceiptOcrSection(tester, 'personal-bill', 'currency', false);
+      await _setReceiptOcrSection(tester, 'personal-bill', 'items', true);
+
+      await _tapReceiptOcrApply(tester, 'personal-bill');
+
+      expect(
+        tester
+            .widget<CurrencySelector>(
+              find.descendant(
+                of: find.byKey(const Key('personal-bill-currency')),
+                matching: find.byType(CurrencySelector),
+              ),
+            )
+            .value,
+        'HKD',
+      );
+      expect(
+        tester
+            .widget<CurrencySelector>(
+              find.descendant(
+                of: find.byKey(const Key('personal-bill-item-currency-0')),
+                matching: find.byType(CurrencySelector),
+              ),
+            )
+            .value,
+        'USD',
+      );
+    },
+  );
+
+  testWidgets(
     'personal OCR keeps blocked sections editable after partial apply',
     (tester) async {
       await useLargeSurface(tester);
