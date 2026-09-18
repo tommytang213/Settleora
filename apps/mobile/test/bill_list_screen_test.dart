@@ -16,6 +16,7 @@ import 'package:mobile/bills/bill_sync_controller.dart';
 import 'package:mobile/groups/group_repository.dart';
 import 'package:mobile/notifications/notification_repository.dart';
 import 'package:mobile/profile/profile_repository.dart';
+import 'package:mobile/receipt_ocr_capture/receipt_image_artifact_processor.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_image_intake.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_provider.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
@@ -4849,6 +4850,44 @@ void main() {
     );
   });
 
+  testWidgets('personal bill does not stage receipt when preparation throws', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final provider = FakeReceiptOcrProvider(
+      const ReceiptOcrResult.failed('must not run'),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraPersonalBillCreateScreen(
+          repository: FakeBillRepository(),
+          attachmentRepository: FakeBillAttachmentRepository(),
+          attachmentFileInput: FakeBillAttachmentFileInput(
+            pickedFile: samplePickedAttachmentFile(
+              filename: 'throws.png',
+              contentType: 'image/png',
+              bytes: samplePngBytes(width: 64, height: 64),
+            ),
+          ),
+          receiptImageArtifactProcessor:
+              const ThrowingReceiptImageArtifactProcessor(),
+          receiptOcrProvider: provider,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('personal-bill-scan-receipt')));
+    await tester.pumpAndSettle();
+
+    expect(provider.calls, 0);
+    expect(find.text('0 attachments selected'), findsOneWidget);
+    expect(
+      find.text('The receipt could not be selected. Try again.'),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('personal bill OCR failure keeps manual entry and supports retry', (
     tester,
   ) async {
@@ -7749,6 +7788,46 @@ void main() {
       find.text(
         'The selected receipt image could not be prepared. Choose another image or use manual entry.',
       ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('group bill does not stage receipt when preparation throws', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final provider = FakeReceiptOcrProvider(
+      const ReceiptOcrResult.failed('must not run'),
+    );
+    await _pumpGroupBillCreate(
+      tester,
+      repository: FakeBillRepository(),
+      groupRepository: FakeGroupRepository(
+        members: [sampleGroupMember(displayName: 'Alex')],
+      ),
+      attachmentRepository: FakeBillAttachmentRepository(),
+      attachmentFileInput: FakeBillAttachmentFileInput(
+        pickedFile: samplePickedAttachmentFile(
+          filename: 'throws.png',
+          contentType: 'image/png',
+          bytes: samplePngBytes(width: 64, height: 64),
+        ),
+      ),
+      receiptImageArtifactProcessor:
+          const ThrowingReceiptImageArtifactProcessor(),
+      receiptOcrProvider: provider,
+    );
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await _goToGroupBillCreateStep(tester, 'receiptItems');
+    await tester.tap(find.byKey(const Key('group-bill-scan-receipt')));
+    await tester.pumpAndSettle();
+
+    expect(provider.calls, 0);
+    expect(find.text('0 attachments selected'), findsOneWidget);
+    expect(
+      find.text('The receipt could not be selected. Try again.'),
       findsOneWidget,
     );
   });
@@ -12521,6 +12600,8 @@ Future<void> _pumpGroupBillCreate(
   FakeBillAttachmentRepository? attachmentRepository,
   FakeBillAttachmentFileInput? attachmentFileInput,
   ReceiptImageIntake? receiptImageIntake,
+  ReceiptImageArtifactProcessor receiptImageArtifactProcessor =
+      const ReceiptImageArtifactProcessor(),
   ReceiptOcrProvider? receiptOcrProvider,
   ReceiptOcrReviewRepository? receiptOcrReviewRepository,
 }) async {
@@ -12534,6 +12615,7 @@ Future<void> _pumpGroupBillCreate(
         attachmentRepository: attachmentRepository,
         attachmentFileInput: attachmentFileInput,
         receiptImageIntake: receiptImageIntake,
+        receiptImageArtifactProcessor: receiptImageArtifactProcessor,
         receiptOcrProvider: receiptOcrProvider,
         receiptOcrReviewRepository: receiptOcrReviewRepository,
       ),
@@ -13028,6 +13110,16 @@ class FakeReceiptImageIntake implements ReceiptImageIntake {
     }
 
     return pickedFile;
+  }
+}
+
+class ThrowingReceiptImageArtifactProcessor
+    extends ReceiptImageArtifactProcessor {
+  const ThrowingReceiptImageArtifactProcessor();
+
+  @override
+  ReceiptImageArtifactResult process(ReceiptImageArtifactRequest request) {
+    throw StateError('synthetic normalization failure');
   }
 }
 

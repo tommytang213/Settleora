@@ -110,6 +110,30 @@ void main() {
     expect(normalized?.exif.imageIfd.hasOrientation, isFalse);
   });
 
+  test('bounds large pixels before baking EXIF orientation', () {
+    final image = _sampleImage(2200, 110)..exif.imageIfd.orientation = 6;
+    final source = Uint8List.fromList(img.encodeJpg(image));
+
+    final result = processor.process(
+      ReceiptImageArtifactRequest(
+        sourceType: ReceiptImageSourceKind.capturedPhoto,
+        sourceContentType: 'image/jpeg',
+        sourceExtension: 'jpg',
+        sourceLabel: 'large-rotated-camera.jpg',
+        sourceBytes: source,
+      ),
+    );
+
+    expect(result.accepted, isTrue);
+    expect(result.width, lessThan(110));
+    expect(result.height, ReceiptImageArtifactProcessor.maxNormalizedDimension);
+    expect(result.reasonCodes, contains('normalized_dimensions_bounded'));
+    final normalized = img.decodeJpg(result.normalizedJpegBytes!);
+    expect(normalized?.width, result.width);
+    expect(normalized?.height, result.height);
+    expect(normalized?.exif.imageIfd.hasOrientation, isFalse);
+  });
+
   test('selects decoder from bytes when metadata and extension disagree', () {
     final result = processor.process(
       ReceiptImageArtifactRequest(

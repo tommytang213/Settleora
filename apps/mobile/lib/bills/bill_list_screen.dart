@@ -1665,18 +1665,6 @@ class _SettleoraPersonalBillCreateScreenState
       pickedFile,
       allowedContentTypes: allowedContentTypes,
     );
-    final draftAttachmentId = _nextDraftAttachmentId;
-    setState(() {
-      _draftAttachments.add(
-        _BillCreateDraftAttachment(
-          id: draftAttachmentId,
-          file: validatedFile,
-          purpose: purpose,
-        ),
-      );
-      _nextDraftAttachmentId += 1;
-    });
-
     if (purpose == SettleoraBillAttachmentPurposeValues.receipt) {
       final processedArtifact = _processedReceiptAttachmentArtifact(
         file: validatedFile,
@@ -1685,26 +1673,22 @@ class _SettleoraPersonalBillCreateScreenState
       );
       if (!processedArtifact.result.accepted) {
         setState(() {
-          _draftAttachments.removeWhere(
-            (attachment) => attachment.id == draftAttachmentId,
-          );
           _attachmentDraftError =
               'The selected receipt image could not be prepared. Choose another image or use manual entry.';
         });
         return;
       }
-      final index = _draftAttachments.indexWhere(
-        (attachment) => attachment.id == draftAttachmentId,
-      );
-      if (index >= 0) {
-        setState(() {
-          _draftAttachments[index] = _BillCreateDraftAttachment(
+      final draftAttachmentId = _nextDraftAttachmentId;
+      setState(() {
+        _draftAttachments.add(
+          _BillCreateDraftAttachment(
             id: draftAttachmentId,
             file: processedArtifact.file,
             purpose: purpose,
-          );
-        });
-      }
+          ),
+        );
+        _nextDraftAttachmentId += 1;
+      });
       final intakeSafetyReview = reviewReceiptIntakeSafety(
         ReceiptIntakeSafetyMetadata.fromPickedFile(
           sourceType: ReceiptIntakeSourceType.fileImport,
@@ -1720,7 +1704,20 @@ class _SettleoraPersonalBillCreateScreenState
         sourceDraftAttachmentId: draftAttachmentId,
         intakeSafetyReview: intakeSafetyReview,
       );
+      return;
     }
+
+    final draftAttachmentId = _nextDraftAttachmentId;
+    setState(() {
+      _draftAttachments.add(
+        _BillCreateDraftAttachment(
+          id: draftAttachmentId,
+          file: validatedFile,
+          purpose: purpose,
+        ),
+      );
+      _nextDraftAttachmentId += 1;
+    });
   }
 
   Future<SettleoraBillAttachmentPurpose?> _selectDraftAttachmentPurpose() {
@@ -6477,18 +6474,6 @@ class _SettleoraGroupBillCreateScreenState
       pickedFile,
       allowedContentTypes: allowedContentTypes,
     );
-    final draftAttachmentId = _nextDraftAttachmentId;
-    setState(() {
-      _draftAttachments.add(
-        _BillCreateDraftAttachment(
-          id: draftAttachmentId,
-          file: validatedFile,
-          purpose: purpose,
-        ),
-      );
-      _nextDraftAttachmentId += 1;
-    });
-
     if (purpose == SettleoraBillAttachmentPurposeValues.receipt) {
       final processedArtifact = _processedReceiptAttachmentArtifact(
         file: validatedFile,
@@ -6497,26 +6482,22 @@ class _SettleoraGroupBillCreateScreenState
       );
       if (!processedArtifact.result.accepted) {
         setState(() {
-          _draftAttachments.removeWhere(
-            (attachment) => attachment.id == draftAttachmentId,
-          );
           _attachmentDraftError =
               'The selected receipt image could not be prepared. Choose another image or use manual entry.';
         });
         return;
       }
-      final index = _draftAttachments.indexWhere(
-        (attachment) => attachment.id == draftAttachmentId,
-      );
-      if (index >= 0) {
-        setState(() {
-          _draftAttachments[index] = _BillCreateDraftAttachment(
+      final draftAttachmentId = _nextDraftAttachmentId;
+      setState(() {
+        _draftAttachments.add(
+          _BillCreateDraftAttachment(
             id: draftAttachmentId,
             file: processedArtifact.file,
             purpose: purpose,
-          );
-        });
-      }
+          ),
+        );
+        _nextDraftAttachmentId += 1;
+      });
       final intakeSafetyReview = reviewReceiptIntakeSafety(
         ReceiptIntakeSafetyMetadata.fromPickedFile(
           sourceType: ReceiptIntakeSourceType.fileImport,
@@ -6532,7 +6513,20 @@ class _SettleoraGroupBillCreateScreenState
         sourceDraftAttachmentId: draftAttachmentId,
         intakeSafetyReview: intakeSafetyReview,
       );
+      return;
     }
+
+    final draftAttachmentId = _nextDraftAttachmentId;
+    setState(() {
+      _draftAttachments.add(
+        _BillCreateDraftAttachment(
+          id: draftAttachmentId,
+          file: validatedFile,
+          purpose: purpose,
+        ),
+      );
+      _nextDraftAttachmentId += 1;
+    });
   }
 
   Future<void> _runReceiptOcrPreview(

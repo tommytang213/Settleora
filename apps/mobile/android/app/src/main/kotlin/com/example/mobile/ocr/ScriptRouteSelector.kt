@@ -62,7 +62,7 @@ internal object ScriptRouteSelector {
     fun score(candidate: ScriptCandidate): Double {
         val strongScripts = candidate.text.codePoints()
             .toArray()
-            .filter(Character::isLetter)
+            .filter { Character.isLetter(it) || Character.isDigit(it) }
             .map(::scriptOf)
             .filter { it != ScriptEvidence.NEUTRAL }
         val scripts = strongScripts.toSet()

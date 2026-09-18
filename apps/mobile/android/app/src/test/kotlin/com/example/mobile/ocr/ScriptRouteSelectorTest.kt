@@ -192,7 +192,7 @@ class ScriptRouteSelectorTest {
     }
 
     @Test
-    fun ArabicIndicDigitsAreNeutralForSpecialistCoverage() {
+    fun localNumeralsRemainSpecialistEvidence() {
         val selected = ScriptRouteSelector.select(
             listOf(
                 candidate("common", ScriptEvidence.COMMON, "12.50", 0.80f),
@@ -200,7 +200,25 @@ class ScriptRouteSelectorTest {
             ),
         )
 
-        assertEquals("common", selected?.pack?.modelPackId)
+        assertEquals("arabic", selected?.pack?.modelPackId)
+        assertEquals(
+            "devanagari",
+            ScriptRouteSelector.select(
+                listOf(
+                    candidate("common", ScriptEvidence.COMMON, "12.50", 0.80f),
+                    candidate("devanagari", ScriptEvidence.DEVANAGARI, "१२.५०", 0.99f),
+                ),
+            )?.pack?.modelPackId,
+        )
+        assertEquals(
+            "thai",
+            ScriptRouteSelector.select(
+                listOf(
+                    candidate("common", ScriptEvidence.COMMON, "12.50", 0.80f),
+                    candidate("thai", ScriptEvidence.THAI, "๑๒.๕๐", 0.99f),
+                ),
+            )?.pack?.modelPackId,
+        )
     }
 
     private fun candidate(

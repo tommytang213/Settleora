@@ -354,11 +354,14 @@ class ReceiptImageArtifactProcessor {
     reasonCodes.addAll(cacheReadiness.reasonCodes);
     warnings.add(cacheReadiness.message);
 
-    final orientedImage = img.bakeOrientation(decodedImage);
-    final normalizedImage = _boundedForOcr(orientedImage);
-    if (!identical(normalizedImage, orientedImage)) {
+    // Bound the decoded pixels before EXIF orientation can allocate a second
+    // full-resolution buffer. Rotation preserves the maximum dimension, so
+    // pre-orientation bounding keeps the normalized geometry contract intact.
+    final boundedImage = _boundedForOcr(decodedImage);
+    if (!identical(boundedImage, decodedImage)) {
       reasonCodes.add('normalized_dimensions_bounded');
     }
+    final normalizedImage = img.bakeOrientation(boundedImage);
     final jpegQuality = request.jpegQuality.clamp(1, 100).toInt();
     final normalizedBytes = Uint8List.fromList(
       img.encodeJpg(normalizedImage, quality: jpegQuality),
