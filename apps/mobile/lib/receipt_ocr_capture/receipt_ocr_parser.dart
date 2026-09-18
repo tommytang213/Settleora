@@ -82,9 +82,10 @@ class ReceiptOcrParser {
   }
 
   String? _detectMerchant(List<String> lines) {
-    for (final line in lines.take(5)) {
+    for (var index = 0; index < lines.length && index < 5; index += 1) {
+      final line = lines[index];
       if (_isAdministrativeLine(line) ||
-          _isReceiptMetadataLine(line) ||
+          _isContextualReceiptMetadataLine(lines, index) ||
           _lineHasAmount(line)) {
         continue;
       }
@@ -155,13 +156,12 @@ class ReceiptOcrParser {
     String? fallbackCurrency,
   }) {
     final joined = lines.join(' ').toUpperCase();
-    for (final code in _supportedCurrencyCodes) {
-      if (_hasExplicitCurrencyCode(lines, code)) {
-        return _ReceiptCurrencyDetection(
-          currency: code,
-          provenance: ReceiptOcrCurrencyProvenance.explicit,
-        );
-      }
+    final explicitCode = _rankedExplicitCurrencyCode(lines);
+    if (explicitCode != null) {
+      return _ReceiptCurrencyDetection(
+        currency: explicitCode,
+        provenance: ReceiptOcrCurrencyProvenance.explicit,
+      );
     }
 
     if (_hasExplicitHongKongCurrencyMarker(joined)) {
@@ -266,6 +266,47 @@ class ReceiptOcrParser {
     });
   }
 
+  String? _rankedExplicitCurrencyCode(List<String> lines) {
+    final candidates = _supportedCurrencyCodes
+        .where((code) => _hasExplicitCurrencyCode(lines, code))
+        .toList(growable: false);
+    if (candidates.isEmpty) return null;
+
+    final ranked =
+        candidates.map((code) {
+          var score = 0;
+          var firstLine = lines.length;
+          for (var index = 0; index < lines.length; index += 1) {
+            final line = lines[index];
+            if (!_hasExplicitCurrencyCode([line], code)) continue;
+            if (index < firstLine) firstLine = index;
+            final normalized = line.toLowerCase();
+            if (_hasTotalLabel(line, normalized)) {
+              score += 1000;
+            } else if (_hasSubtotalLabel(line, normalized) ||
+                _hasTaxLabel(line, normalized) ||
+                _hasServiceChargeLabel(line, normalized) ||
+                _hasActualTipChargeLabel(line, normalized) ||
+                _hasShippingLabel(line, normalized) ||
+                _hasDiscountLabel(line, normalized)) {
+              score += 200;
+            } else if (_isPaymentMetadataLine(line)) {
+              score += 1;
+            } else {
+              score += 100;
+            }
+          }
+          return (code: code, score: score, firstLine: firstLine);
+        }).toList()..sort((left, right) {
+          final scoreOrder = right.score.compareTo(left.score);
+          if (scoreOrder != 0) return scoreOrder;
+          final lineOrder = left.firstLine.compareTo(right.firstLine);
+          if (lineOrder != 0) return lineOrder;
+          return left.code.compareTo(right.code);
+        });
+    return ranked.first.code;
+  }
+
   _LabeledReceiptAmounts _extractLabeledAmounts(
     List<String> lines,
     String? currency,
@@ -326,7 +367,7 @@ class ReceiptOcrParser {
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       final line = lines[lineIndex];
       if (_isAdministrativeLine(line) ||
-          _isReceiptMetadataLine(line) ||
+          _isContextualReceiptMetadataLine(lines, lineIndex) ||
           (fuelItem != null && _isFuelMeasurementLine(line))) {
         wrappedDescriptionLines.clear();
         continue;
@@ -477,7 +518,7 @@ class ReceiptOcrParser {
         continue;
       }
       if (_isAdministrativeLine(line) ||
-          _isReceiptMetadataLine(line) ||
+          _isContextualReceiptMetadataLine(lines, lineIndex) ||
           _lineHasAmount(line) ||
           _detectDate([line]) != null) {
         continue;
@@ -890,16 +931,42 @@ bool _isAdministrativeLine(String line) {
       _hasShippingLabel(line, normalized) ||
       _hasDiscountLabel(line, normalized) ||
       _hasTotalLabel(line, normalized) ||
-      normalized.contains('cash') ||
-      normalized.contains('change') ||
-      normalized.contains('visa') ||
-      normalized.contains('mastercard') ||
-      normalized.contains('card') ||
-      normalized.contains('approval') ||
-      normalized.contains('invoice') ||
-      normalized.contains('receipt') ||
+      _isPaymentMetadataLine(line) ||
       normalized.contains('thank you');
 }
+
+bool _isPaymentMetadataLine(String line) {
+  final normalized = line.toLowerCase().trim();
+  if (RegExp(
+    r'^(cash|change|card|visa|mastercard|master card|amex|american express)\b',
+  ).hasMatch(normalized)) {
+    return _lineHasAmount(line) ||
+        RegExp(
+          r'\b(payment|paid|tender|ending|approval|auth|card)\b',
+        ).hasMatch(normalized);
+  }
+  return RegExp(
+    r'\b(card\s+(?:charged|payment|tender|ending|number|no)|charged\s+(?:to\s+)?card|approval\s*(?:code|no|#|number)|auth(?:orization)?\s*(?:code|no|#|number))\b',
+  ).hasMatch(normalized);
+}
+
+bool _isContextualReceiptMetadataLine(List<String> lines, int index) {
+  final line = lines[index];
+  if (_isReceiptMetadataLine(line)) return true;
+  return _isCityPostalLine(line) &&
+      index > 0 &&
+      _isStreetAddressLine(lines[index - 1]);
+}
+
+bool _isStreetAddressLine(String line) => RegExp(
+  r'\b\d{1,6}\s+[\w\s.#-]+\b(st|street|rd|road|ave|avenue|blvd|boulevard|lane|ln|drive|dr|way|plaza|building|tower|floor|fl|unit|suite|shop|room|rm)\b',
+  caseSensitive: false,
+).hasMatch(line);
+
+bool _isCityPostalLine(String line) => RegExp(
+  r"^[a-z][a-z .'-]{1,40}\s+\d{5}(?:-\d{4})?$",
+  caseSensitive: false,
+).hasMatch(line.trim());
 
 bool _isReceiptMetadataLine(String line) {
   final normalized = line.toLowerCase().trim();
@@ -916,7 +983,7 @@ bool _isReceiptMetadataLine(String line) {
       r'\b\d{1,6}\s+[\w\s.#-]+\b(st|street|rd|road|ave|avenue|blvd|boulevard|lane|ln|drive|dr|way|plaza|building|tower|floor|fl|unit|suite|shop|room|rm)\b',
     ),
     RegExp(
-      r'\b(room|rm|suite|unit|shop|floor|fl|level|lvl|block|blk|building|bldg|tower)\s*[#-]?\s*\w+\b',
+      r'\b(room|rm|suite|unit|shop|floor|fl|level|lvl|block|blk|building|bldg|tower)\b\s*[#-]?\s*(?:[a-z]?\d[\w-]*|[a-z])\b',
     ),
     RegExp(r'\b\d{1,2}\s*/\s*f\b'),
     RegExp(r'\b(p\.?\s*o\.?\s*box|po box)\b'),
@@ -930,9 +997,9 @@ bool _isReceiptMetadataLine(String line) {
     RegExp(r'\b(www\.|https?://|\.com\b|\.net\b|\.org\b|\.hk\b|@[\w.-]+\.)'),
     RegExp(r'\b(email|instagram|facebook|wechat|line id|twitter|xhs)\b'),
     RegExp(r'\b(tax\s*id|tin|gst\s*no|vat\s*no|business\s*no|br\s*no)\b'),
-    RegExp(r'\b(invoice|receipt|check|cheque|ticket)\s*(no|#|number|num)?\b'),
+    RegExp(r'^\s*(invoice|receipt|check|cheque|ticket)\s*(no|#|number|num)?\b'),
     RegExp(
-      r'\b(table|tbl|store|branch|cashier|server|staff|register|reg|terminal|term|till|pos|order|ord|reference|ref)\s*[:#-]?\s*[a-z0-9-]+\b',
+      r'\b(table|tbl|store|branch|cashier|server|staff|register|reg|terminal|term|till|pos|order|ord|reference|ref)\b\s*[:#-]?\s*[a-z0-9-]+\b',
     ),
     RegExp(
       r'\b(open|close|closed|served|powered by|thank you|welcome|visit again)\b',
@@ -1140,7 +1207,7 @@ bool _hasShippingLabel(String line, String normalized) {
   return _hasEnglishReceiptLabel(
     normalized,
     RegExp(
-      r'\b(shipping|delivery)(?:\s+(fee|charge))?\b',
+      r'\b(shipping|delivery)(?:\s+(fee|charge)|\s*(?:(?:&|and)\s*)?handling)?\b',
       caseSensitive: false,
     ),
   );

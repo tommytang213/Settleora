@@ -620,6 +620,90 @@ void main() {
   );
 
   testWidgets(
+    'personal OCR applies fractional measurements as line-total-only bill rows',
+    (tester) async {
+      await useLargeSurface(tester);
+      final receiptOcrProvider = FakeReceiptOcrProvider(
+        const ReceiptOcrResult.extracted(
+          ReceiptOcrPreview(
+            merchant: 'Fuel Stop',
+            currency: 'USD',
+            currencyProvenance: ReceiptOcrCurrencyProvenance.explicit,
+            items: [
+              ReceiptOcrItemCandidate(
+                description: 'Regular Fuel',
+                quantity: '12.563',
+                unitPrice: '3.499',
+                lineTotal: '43.96',
+                currency: 'USD',
+              ),
+            ],
+          ),
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraPersonalBillCreateScreen(
+            repository: FakeBillRepository(),
+            attachmentRepository: FakeBillAttachmentRepository(),
+            attachmentFileInput: FakeBillAttachmentFileInput(
+              pickedFile: samplePickedAttachmentFile(
+                filename: 'receipt.png',
+                contentType: 'image/png',
+                bytes: samplePngBytes(width: 64, height: 64),
+              ),
+            ),
+            receiptOcrProvider: receiptOcrProvider,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('personal-bill-scan-receipt')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('12.563'), findsWidgets);
+      expect(
+        tester
+            .widget<CheckboxListTile>(
+              find.byKey(const Key('personal-bill-ocr-apply-items')),
+            )
+            .onChanged,
+        isNotNull,
+      );
+      await _tapReceiptOcrApply(tester, 'personal-bill');
+
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('personal-bill-item-quantity-0')),
+            )
+            .controller
+            ?.text,
+        '1',
+      );
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('personal-bill-item-unit-amount-0')),
+            )
+            .controller
+            ?.text,
+        isEmpty,
+      );
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('personal-bill-item-amount-0')),
+            )
+            .controller
+            ?.text,
+        '43.96',
+      );
+    },
+  );
+
+  testWidgets(
     'personal OCR keeps blocked sections editable after partial apply',
     (tester) async {
       await useLargeSurface(tester);

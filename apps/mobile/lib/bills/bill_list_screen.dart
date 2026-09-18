@@ -2041,8 +2041,8 @@ class _SettleoraPersonalBillCreateScreenState
                   ),
                 )
                 ..name.text = candidate.description.trim()
-                ..quantity.text = candidate.quantity ?? '1'
-                ..unitAmount.text = candidate.unitPrice ?? ''
+                ..quantity.text = _receiptOcrAppliedQuantity(candidate)
+                ..unitAmount.text = _receiptOcrAppliedUnitPrice(candidate)
                 ..amount.text = candidate.lineTotal ?? '',
           ]);
       }
@@ -3826,7 +3826,12 @@ bool _receiptOcrItemsCanApply(ReceiptOcrPreview preview) {
     final parsedQuantity = quantity == null || quantity.isEmpty
         ? 1
         : _positiveWholeNumber(quantity);
-    if (quantity != null && quantity.isNotEmpty && parsedQuantity == null) {
+    final hasFractionalQuantity =
+        quantity != null && _isPositiveFractionalQuantity(quantity);
+    if (quantity != null &&
+        quantity.isNotEmpty &&
+        parsedQuantity == null &&
+        !hasFractionalQuantity) {
       return false;
     }
 
@@ -3841,6 +3846,13 @@ bool _receiptOcrItemsCanApply(ReceiptOcrPreview preview) {
     final parsedLineTotal = lineTotal.isEmpty
         ? null
         : _parseCurrencyAmount(lineTotal, applicableCurrency!);
+    if (hasFractionalQuantity) {
+      // The authoritative bill model accepts whole-number quantities only.
+      // Preserve the OCR measurement in the review preview, but apply the
+      // verified line total as one bill unit instead of changing bill math.
+      return parsedLineTotal != null &&
+          _currencyAmountIsPositive(parsedLineTotal);
+    }
     final amountsAreValid =
         (unitPrice.isEmpty ||
             (parsedUnitPrice != null &&
@@ -3857,6 +3869,20 @@ bool _receiptOcrItemsCanApply(ReceiptOcrPreview preview) {
           quantity: parsedQuantity!,
         );
   });
+}
+
+String _receiptOcrAppliedQuantity(ReceiptOcrItemCandidate candidate) {
+  final quantity = candidate.quantity?.trim();
+  return quantity != null && _isPositiveFractionalQuantity(quantity)
+      ? '1'
+      : (quantity == null || quantity.isEmpty ? '1' : quantity);
+}
+
+String _receiptOcrAppliedUnitPrice(ReceiptOcrItemCandidate candidate) {
+  final quantity = candidate.quantity?.trim();
+  return quantity != null && _isPositiveFractionalQuantity(quantity)
+      ? ''
+      : (candidate.unitPrice ?? '');
 }
 
 String _receiptOcrItemsApplyBlockReason(ReceiptOcrPreview preview) {
@@ -6830,8 +6856,8 @@ class _SettleoraGroupBillCreateScreenState
 
           final item = _itemControllers[index];
           item.name.text = candidate.description.trim();
-          item.quantityUnits.text = candidate.quantity ?? '1';
-          item.unitAmount.text = candidate.unitPrice ?? '';
+          item.quantityUnits.text = _receiptOcrAppliedQuantity(candidate);
+          item.unitAmount.text = _receiptOcrAppliedUnitPrice(candidate);
           item.amount.text = candidate.lineTotal ?? '';
           final itemCurrency = candidate.currency?.trim().toUpperCase();
           if (settleoraIsSupportedCurrency(itemCurrency) &&
@@ -17433,6 +17459,15 @@ int? _positiveWholeNumber(String value) {
   }
 
   return parsed;
+}
+
+bool _isPositiveFractionalQuantity(String value) {
+  final parsed = _parseExactDecimalAmount(value);
+  if (parsed == null || parsed.scale == 0 || parsed.value <= BigInt.zero) {
+    return false;
+  }
+  final wholeUnit = BigInt.from(10).pow(parsed.scale);
+  return parsed.value.remainder(wholeUnit) != BigInt.zero;
 }
 
 bool _lineTotalMatchesUnitAmount({

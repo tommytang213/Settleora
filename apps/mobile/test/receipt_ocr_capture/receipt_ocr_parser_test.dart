@@ -434,6 +434,67 @@ Total USD 29.99
 ''');
     expect(suffixed.shipping, '9.99');
     expect(suffixed.items.map((item) => item.description), ['Burger']);
+
+    final handling = parser.parse('''
+Harbor Grill
+Burger USD 18.00
+Shipping & Handling USD 4.50
+Shipping and Handling USD 4.50
+Total USD 27.00
+''');
+    expect(handling.shipping, '4.50');
+    expect(handling.items.map((item) => item.description), ['Burger']);
+  });
+
+  test('parser treats a city ZIP row as metadata only beside an address', () {
+    const parser = ReceiptOcrParser();
+    final addressed = parser.parse('''
+Pike Deli
+123 Main St
+Seattle 98101
+Coffee USD 18.20
+Total USD 18.20
+''');
+    final standalone = parser.parse('''
+Pike Deli
+Seattle 98101
+Total USD 98101.00
+''');
+
+    expect(addressed.merchant, 'Pike Deli');
+    expect(addressed.items.map((item) => item.description), ['Coffee']);
+    expect(standalone.items.map((item) => item.description), ['Seattle']);
+  });
+
+  test('parser preserves merchant headings containing card or invoice', () {
+    const parser = ReceiptOcrParser();
+    final cardMerchant = parser.parse('''
+Central Card Terminal
+Coffee USD 5.00
+Total USD 5.00
+''');
+    final invoiceMerchant = parser.parse('''
+Online Shop Invoice
+Cable USD 8.00
+Total USD 8.00
+''');
+
+    expect(cardMerchant.merchant, 'Central Card Terminal');
+    expect(invoiceMerchant.merchant, 'Online Shop Invoice');
+  });
+
+  test('parser ranks transaction currency above card conversion currency', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Coffee House
+Coffee USD 5.00
+Total USD 5.00
+Card charged EUR 4.60
+''');
+
+    expect(preview.currency, 'USD');
+    expect(preview.items.map((item) => item.description), ['Coffee']);
+    expect(preview.items.single.currency, 'USD');
   });
 
   test('parser separates charged tips and excludes suggested tip options', () {
