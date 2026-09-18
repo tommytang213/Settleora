@@ -588,6 +588,78 @@ void main() {
       expect(find.text('Corner Market'), findsNothing);
     });
 
+    testWidgets('shows same-currency header reconciliation separately', (
+      tester,
+    ) async {
+      await useLargeSurface(tester);
+      final route = sampleRoute();
+      final repository = FakeReceiptOcrReviewRepository(
+        reviewResponse: sampleReview(route),
+        previewResponse: samplePreview(
+          route,
+          summary: const ReceiptOcrReviewPreviewSummary(
+            lineCount: 1,
+            linesWithProposedTotalCount: 1,
+            linesMissingProposedTotalCount: 0,
+            adjustmentEvidenceCount: 2,
+            proposedLineTotalSumAmount: '10.00',
+            reconciledAdjustmentChargeTotalAmount: '2.00',
+            reconciledAdjustmentCreditTotalAmount: '0.50',
+            expectedHeaderTotalAmount: '12.30',
+          ),
+        ),
+      );
+
+      await pumpDetail(tester, repository: repository, route: route);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Preview changes'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Header reconciliation'), findsOneWidget);
+      expect(find.text('Evidence charges'), findsOneWidget);
+      expect(find.text('Evidence credits'), findsOneWidget);
+      expect(find.text('Expected total'), findsOneWidget);
+      expect(find.text('2.00 USD'), findsOneWidget);
+      expect(find.text('0.50 USD'), findsOneWidget);
+      expect(find.text('12.30 USD'), findsOneWidget);
+    });
+
+    testWidgets('shows cross-currency reconciliation as unavailable', (
+      tester,
+    ) async {
+      await useLargeSurface(tester);
+      final route = sampleRoute();
+      final repository = FakeReceiptOcrReviewRepository(
+        reviewResponse: sampleReview(route),
+        previewResponse: samplePreview(
+          route,
+          summary: const ReceiptOcrReviewPreviewSummary(
+            lineCount: 1,
+            linesWithProposedTotalCount: 1,
+            linesMissingProposedTotalCount: 0,
+            adjustmentEvidenceCount: 1,
+            proposedLineTotalSumAmount: '10.00',
+            expectedHeaderTotalAmount: null,
+          ),
+        ),
+      );
+
+      await pumpDetail(tester, repository: repository, route: route);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Preview changes'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Header reconciliation'), findsOneWidget);
+      expect(
+        find.text(
+          'Unavailable for mixed-currency or incomplete header evidence',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Evidence charges'), findsNothing);
+      expect(find.text('Expected total'), findsNothing);
+    });
+
     testWidgets('does not refresh queue after returning without mutation', (
       tester,
     ) async {
@@ -2752,6 +2824,7 @@ ReceiptOcrReviewApplyPreview samplePreview(
   bool canApply = true,
   List<ReceiptOcrReviewApplyPreviewIssueCode> blockedReasons = const [],
   List<ReceiptOcrReviewApplyPreviewIssueCode> warnings = const [],
+  ReceiptOcrReviewPreviewSummary? summary,
 }) {
   return ReceiptOcrReviewApplyPreview(
     reviewId: _reviewId,
@@ -2769,7 +2842,7 @@ ReceiptOcrReviewApplyPreview samplePreview(
     proposedDiscountAmount: null,
     proposedGrandTotalAmount: '10.80',
     proposedLines: const [],
-    summary: samplePreviewSummary(),
+    summary: summary ?? samplePreviewSummary(),
     canApply: canApply,
     blockedReasons: blockedReasons,
     warnings: warnings,
@@ -2802,6 +2875,8 @@ ReceiptOcrReviewPreviewSummary samplePreviewSummary() {
     linesWithProposedTotalCount: 1,
     linesMissingProposedTotalCount: 0,
     proposedLineTotalSumAmount: '10.00',
+    reconciledAdjustmentChargeTotalAmount: '0',
+    reconciledAdjustmentCreditTotalAmount: '0',
     expectedHeaderTotalAmount: '10.80',
   );
 }

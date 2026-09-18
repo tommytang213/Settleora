@@ -16800,6 +16800,16 @@ ReceiptOcrReviewSaveRequest _receiptOcrReviewSaveRequestFromSavedEdit(
             lineTotalAmount: _nullableTrimmedText(item.lineTotal),
           ),
     ],
+    adjustmentEvidence: [
+      for (final adjustment in review.adjustmentEvidence)
+        ReceiptOcrReviewAdjustmentSaveRequest(
+          kind: adjustment.kind,
+          originalLabel: adjustment.originalLabel,
+          amount: adjustment.amount,
+          currency: adjustment.currency,
+          direction: adjustment.direction,
+        ),
+    ],
   );
 }
 

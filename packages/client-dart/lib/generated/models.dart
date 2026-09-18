@@ -10661,7 +10661,7 @@ class ReceiptOcrReviewApplyPreviewSummaryResponse {
   final String? reconciledAdjustmentChargeTotalAmount;
   /// Sum of credit-direction adjustment evidence when every entry matches the review currency; null when cross-currency evidence prevents safe review-only reconciliation.
   final String? reconciledAdjustmentCreditTotalAmount;
-  /// Header total derived as subtotal plus tax plus service charge minus discount when subtotal is available.
+  /// Review-only header total derived as subtotal plus tax plus service charge minus discount, plus same-currency charge evidence and minus same-currency credit evidence, when subtotal and safe reconciliation inputs are available.
   final String? expectedHeaderTotalAmount;
 
   factory ReceiptOcrReviewApplyPreviewSummaryResponse.fromJson(JsonObject json) {

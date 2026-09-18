@@ -423,13 +423,19 @@ internal static class ReceiptOcrReviewEndpoints
         {
             var existingLines = review.Lines.ToArray();
             dbContext.Set<ReceiptOcrReviewLine>().RemoveRange(existingLines);
-            var existingAdjustments = review.Adjustments.ToArray();
-            dbContext.Set<ReceiptOcrReviewAdjustment>().RemoveRange(existingAdjustments);
+            if (submittedReview.AdjustmentEvidenceSupplied)
+            {
+                var existingAdjustments = review.Adjustments.ToArray();
+                dbContext.Set<ReceiptOcrReviewAdjustment>().RemoveRange(existingAdjustments);
+            }
         }
 
         ApplySubmittedReview(review, submittedReview, now);
         AddSubmittedLines(dbContext, review, submittedReview.Lines, now);
-        AddSubmittedAdjustments(dbContext, review, submittedReview.AdjustmentEvidence, now);
+        if (submittedReview.AdjustmentEvidenceSupplied)
+        {
+            AddSubmittedAdjustments(dbContext, review, submittedReview.AdjustmentEvidence, now);
+        }
 
         await WriteReviewAuditAsync(
             auditWriter,
@@ -1916,7 +1922,7 @@ internal static class ReceiptOcrReviewEndpoints
             var discountAmount = ReadOptionalMoney(root, "discountAmount", currencyCode, errors);
             var grandTotalAmount = ReadOptionalMoney(root, "grandTotalAmount", currencyCode, errors);
             var lines = ReadLines(root, currencyCode, errors);
-            var adjustmentEvidence = ReadAdjustments(root, errors);
+            var adjustmentEvidence = ReadAdjustments(root, errors, out var adjustmentEvidenceSupplied);
 
             var hasHeaderAmount = HeaderAmountProperties.Any(propertyName =>
                 root.TryGetProperty(propertyName, out var property) && property.ValueKind is not JsonValueKind.Null);
@@ -1949,7 +1955,8 @@ internal static class ReceiptOcrReviewEndpoints
                     discountAmount,
                     grandTotalAmount,
                     lines,
-                    adjustmentEvidence));
+                    adjustmentEvidence,
+                    adjustmentEvidenceSupplied));
         }
     }
 
@@ -2237,9 +2244,11 @@ internal static class ReceiptOcrReviewEndpoints
 
     private static IReadOnlyList<SubmittedReceiptOcrReviewAdjustment> ReadAdjustments(
         JsonElement root,
-        Dictionary<string, List<string>> errors)
+        Dictionary<string, List<string>> errors,
+        out bool supplied)
     {
-        if (!root.TryGetProperty("adjustmentEvidence", out var value) || value.ValueKind is JsonValueKind.Null)
+        supplied = root.TryGetProperty("adjustmentEvidence", out var value);
+        if (!supplied)
         {
             return [];
         }
@@ -3369,7 +3378,8 @@ internal static class ReceiptOcrReviewEndpoints
         decimal? DiscountAmount,
         decimal? GrandTotalAmount,
         IReadOnlyList<SubmittedReceiptOcrReviewLine> Lines,
-        IReadOnlyList<SubmittedReceiptOcrReviewAdjustment> AdjustmentEvidence);
+        IReadOnlyList<SubmittedReceiptOcrReviewAdjustment> AdjustmentEvidence,
+        bool AdjustmentEvidenceSupplied);
 
     private sealed record SubmittedReceiptOcrReviewLine(
         int SortOrder,

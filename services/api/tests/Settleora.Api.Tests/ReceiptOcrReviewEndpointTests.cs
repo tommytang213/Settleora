@@ -1096,6 +1096,68 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
     }
 
     [Fact]
+    public async Task LegacyUpdateWithoutAdjustmentEvidencePreservesItAndExplicitEmptyArrayClearsIt()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Legacy Adjustment OCR Owner");
+        var billId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            groupId: null,
+            ExpenseBillStatuses.Draft,
+            archivedAtUtc: null,
+            [ownerSession.UserProfileId],
+            [ownerSession.UserProfileId],
+            InitialTimestamp.AddMinutes(2));
+        var fileId = await SeedBillAttachmentAsync(
+            testFactory,
+            billId,
+            ownerSession.UserProfileId,
+            ExpenseBillAttachmentPurposes.Receipt,
+            FileObjectPurposes.ReceiptImage,
+            FileObjectStatuses.Active,
+            removedAtUtc: null);
+        using var client = testFactory.CreateClient();
+
+        using var createRequest = CreateJsonBearerRequest(
+            HttpMethod.Put,
+            PersonalOcrReviewPath(billId, fileId),
+            ownerSession.RawSessionToken,
+            AdjustmentEvidenceReviewJson());
+        using var createResponse = await client.SendAsync(createRequest);
+        var created = ReadReviewPayload(await createResponse.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        Assert.Equal(7, created.AdjustmentEvidence.Count);
+
+        using var legacyUpdateRequest = CreateJsonBearerRequest(
+            HttpMethod.Put,
+            PersonalOcrReviewPath(billId, fileId),
+            ownerSession.RawSessionToken,
+            ReplacementReviewJson());
+        using var legacyUpdateResponse = await client.SendAsync(legacyUpdateRequest);
+        var legacyUpdated = ReadReviewPayload(await legacyUpdateResponse.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.OK, legacyUpdateResponse.StatusCode);
+        Assert.Equal(
+            created.AdjustmentEvidence.Select(adjustment => adjustment.Id),
+            legacyUpdated.AdjustmentEvidence.Select(adjustment => adjustment.Id));
+
+        var explicitClearJson = ReplacementReviewJson().Replace(
+            "\"lines\": [",
+            "\"adjustmentEvidence\": [],\n  \"lines\": [",
+            StringComparison.Ordinal);
+        using var clearRequest = CreateJsonBearerRequest(
+            HttpMethod.Put,
+            PersonalOcrReviewPath(billId, fileId),
+            ownerSession.RawSessionToken,
+            explicitClearJson);
+        using var clearResponse = await client.SendAsync(clearRequest);
+        var cleared = ReadReviewPayload(await clearResponse.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.OK, clearResponse.StatusCode);
+        Assert.Empty(cleared.AdjustmentEvidence);
+    }
+
+    [Fact]
     public async Task TypedAdjustmentEvidenceRoundTripsReconcilesAndNeverBecomesBillTruth()
     {
         var testContext = CreateFactory();
@@ -2356,6 +2418,7 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
             """{"status":"provisional","source":"on_device","currency":"USD","lines":[{"text":"Latte","quantity":"0"}]}""",
             $$"""{"status":"provisional","source":"on_device","lines":[{{tooManyLines}}]}""",
             """{"status":"provisional","source":"on_device","adjustmentEvidence":[{"kind":"unknown","originalLabel":"Mystery","amount":"1","currency":"USD","direction":"charge"}]}""",
+            """{"status":"provisional","source":"on_device","adjustmentEvidence":null,"merchantText":"Cafe"}""",
             """{"status":"provisional","source":"on_device","adjustmentEvidence":[{"kind":"other","originalLabel":"Mystery","amount":"0","currency":"USD","direction":"charge"}]}""",
             """{"status":"provisional","source":"on_device","adjustmentEvidence":[{"kind":"credit","originalLabel":"Credit","amount":"1","currency":"USD","direction":"charge"}]}""",
             """{"status":"provisional","source":"on_device","adjustmentEvidence":[{"kind":"fee","originalLabel":"Fee","amount":"1","currency":"usd","direction":"charge"}]}""",

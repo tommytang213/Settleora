@@ -3671,7 +3671,7 @@ export interface ReceiptOcrReviewApplyPreviewSummaryResponse {
    */
   reconciledAdjustmentCreditTotalAmount: string | null;
   /**
-   * Header total derived as subtotal plus tax plus service charge minus discount when subtotal is available.
+   * Review-only header total derived as subtotal plus tax plus service charge minus discount, plus same-currency charge evidence and minus same-currency credit evidence, when subtotal and safe reconciliation inputs are available.
    */
   expectedHeaderTotalAmount: string | null;
 }

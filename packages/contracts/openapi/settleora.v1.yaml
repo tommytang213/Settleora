@@ -18892,7 +18892,7 @@ components:
           oneOf:
             - type: string
             - type: "null"
-          description: Header total derived as subtotal plus tax plus service charge minus discount when subtotal is available.
+          description: Review-only header total derived as subtotal plus tax plus service charge minus discount, plus same-currency charge evidence and minus same-currency credit evidence, when subtotal and safe reconciliation inputs are available.
     ReceiptOcrReviewApplyPreviewResponse:
       type: object
       description: Safe non-mutating bill-draft preview derived from one saved receipt OCR review. It exposes only proposed header fields, proposed line candidates, decimal-string summary totals, canApply, blockedReasons, warnings, and stable review/bill/file IDs. It excludes raw OCR full text, receipt bytes, storage object keys, provider paths, signed URLs, filenames, auth/session data, payment details, raw audit metadata, bill split/settlement/payment/balance internals, worker state, and unrelated users.

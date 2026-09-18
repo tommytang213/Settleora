@@ -2066,6 +2066,36 @@ class _PreviewSummary extends StatelessWidget {
               value:
                   '${preview.summary.adjustmentEvidenceCount} preserved • ${preview.summary.autoAppliedAdjustmentCount} auto-applied',
             ),
+            const SizedBox(height: 8),
+            Text(
+              'Header reconciliation',
+              style: Theme.of(context).textTheme.labelLarge,
+            ),
+            if (preview.summary.reconciledAdjustmentChargeTotalAmount == null ||
+                preview.summary.reconciledAdjustmentCreditTotalAmount == null ||
+                preview.summary.expectedHeaderTotalAmount == null)
+              const _KeyValueText(
+                label: 'Status',
+                value:
+                    'Unavailable for mixed-currency or incomplete header evidence',
+              )
+            else ...[
+              _KeyValueMoneyText(
+                label: 'Evidence charges',
+                amount: preview.summary.reconciledAdjustmentChargeTotalAmount,
+                currency: preview.proposedCurrency,
+              ),
+              _KeyValueMoneyText(
+                label: 'Evidence credits',
+                amount: preview.summary.reconciledAdjustmentCreditTotalAmount,
+                currency: preview.proposedCurrency,
+              ),
+              _KeyValueMoneyText(
+                label: 'Expected total',
+                amount: preview.summary.expectedHeaderTotalAmount,
+                currency: preview.proposedCurrency,
+              ),
+            ],
             if (preview.adjustmentEvidence.isNotEmpty)
               const Text(
                 'Adjustment evidence is reviewed separately and is not included in merchandise apply.',
