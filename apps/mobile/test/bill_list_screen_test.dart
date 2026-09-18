@@ -557,6 +557,45 @@ void main() {
     expect(find.textContaining('storage'), findsNothing);
   });
 
+  test('OCR adjustment adapter only emits API-valid positive magnitudes', () {
+    ReceiptOcrPreview preview({String? tip, String? shipping}) =>
+        ReceiptOcrPreview(
+          currency: 'USD',
+          tip: tip,
+          tipLabel: 'Driver gratuity',
+          shipping: shipping,
+          shippingLabel: 'Delivery fee',
+        );
+
+    expect(
+      receiptOcrAdjustmentEvidenceFromPreview(
+        preview(tip: '3.00', shipping: '4.00'),
+      ).map((adjustment) => adjustment.amount),
+      ['3.00', '4.00'],
+    );
+    expect(
+      receiptOcrAdjustmentEvidenceFromPreview(
+        preview(tip: '0.00', shipping: '-1.00'),
+      ),
+      isEmpty,
+      reason: 'Non-positive OCR evidence must not invalidate the save request.',
+    );
+    expect(
+      receiptOcrAdjustmentEvidenceFromPreview(
+        preview(tip: 'not-an-amount', shipping: '1.234'),
+      ),
+      isEmpty,
+      reason: 'Malformed or over-scale USD evidence stays preview-only.',
+    );
+    expect(
+      receiptOcrAdjustmentEvidenceFromPreview(
+        preview(tip: '1000000000000000.00'),
+      ),
+      isEmpty,
+      reason: 'Evidence above the API decimal(19,4) range is not submitted.',
+    );
+  });
+
   testWidgets(
     'personal OCR uses selected currency fallback and keeps currency editable',
     (tester) async {

@@ -414,28 +414,67 @@ ReceiptOcrReviewSaveRequest? _receiptOcrReviewSaveRequestFromPreview(
             lineTotalAmount: _nullableTrimmedText(item.lineTotal),
           ),
     ],
-    adjustmentEvidence: [
-      if (_nullableTrimmedText(preview.tip) case final tip?)
-        if (_nullableUppercaseCurrency(preview.currency) case final currency?)
-          ReceiptOcrReviewAdjustmentSaveRequest(
-            kind: ReceiptOcrReviewAdjustmentKindValues.tip,
-            originalLabel: _nullableTrimmedText(preview.tipLabel) ?? 'Tip',
-            amount: tip,
-            currency: currency,
-            direction: ReceiptOcrReviewAdjustmentDirectionValues.charge,
-          ),
-      if (_nullableTrimmedText(preview.shipping) case final shipping?)
-        if (_nullableUppercaseCurrency(preview.currency) case final currency?)
-          ReceiptOcrReviewAdjustmentSaveRequest(
-            kind: ReceiptOcrReviewAdjustmentKindValues.shipping,
-            originalLabel:
-                _nullableTrimmedText(preview.shippingLabel) ?? 'Shipping',
-            amount: shipping,
-            currency: currency,
-            direction: ReceiptOcrReviewAdjustmentDirectionValues.charge,
-          ),
-    ],
+    adjustmentEvidence: receiptOcrAdjustmentEvidenceFromPreview(preview),
   );
+}
+
+@visibleForTesting
+List<ReceiptOcrReviewAdjustmentSaveRequest>
+receiptOcrAdjustmentEvidenceFromPreview(ReceiptOcrPreview preview) {
+  final currency = _nullableUppercaseCurrency(preview.currency);
+  if (currency == null) {
+    return const [];
+  }
+
+  final adjustments = <ReceiptOcrReviewAdjustmentSaveRequest>[];
+  final tip = _nullableTrimmedText(preview.tip);
+  if (tip != null &&
+      receiptOcrAdjustmentMagnitudeCanPersist(tip, currency: currency)) {
+    adjustments.add(
+      ReceiptOcrReviewAdjustmentSaveRequest(
+        kind: ReceiptOcrReviewAdjustmentKindValues.tip,
+        originalLabel: _nullableTrimmedText(preview.tipLabel) ?? 'Tip',
+        amount: tip,
+        currency: currency,
+        direction: ReceiptOcrReviewAdjustmentDirectionValues.charge,
+      ),
+    );
+  }
+
+  final shipping = _nullableTrimmedText(preview.shipping);
+  if (shipping != null &&
+      receiptOcrAdjustmentMagnitudeCanPersist(shipping, currency: currency)) {
+    adjustments.add(
+      ReceiptOcrReviewAdjustmentSaveRequest(
+        kind: ReceiptOcrReviewAdjustmentKindValues.shipping,
+        originalLabel:
+            _nullableTrimmedText(preview.shippingLabel) ?? 'Shipping',
+        amount: shipping,
+        currency: currency,
+        direction: ReceiptOcrReviewAdjustmentDirectionValues.charge,
+      ),
+    );
+  }
+
+  return adjustments;
+}
+
+@visibleForTesting
+bool receiptOcrAdjustmentMagnitudeCanPersist(
+  String amount, {
+  required String currency,
+}) {
+  final parsed = _parseExactDecimalAmount(amount);
+  final scale = _currencyScale(currency);
+  if (parsed == null ||
+      parsed.value <= BigInt.zero ||
+      parsed.scale > scale ||
+      parsed.scale > 4) {
+    return false;
+  }
+
+  final normalizedValue = parsed.value * _bigIntPow10(4 - parsed.scale);
+  return normalizedValue <= BigInt.parse('9999999999999999999');
 }
 
 bool _receiptOcrItemHasReviewCandidate(ReceiptOcrItemCandidate item) {

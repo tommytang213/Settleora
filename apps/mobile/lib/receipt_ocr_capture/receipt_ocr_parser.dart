@@ -884,14 +884,26 @@ String _originalReceiptAdjustmentLabel(
   if (matches.isEmpty) return fallback;
 
   final amount = matches.last;
-  final withoutAmount =
-      '${line.substring(0, amount.start)} '
-      '${line.substring(amount.end)}';
-  final label = withoutAmount
-      .replaceAll(RegExp(_currencyTokenPattern, caseSensitive: false), ' ')
+  var beforeAmount = line.substring(0, amount.start);
+  var afterAmount = line.substring(amount.end);
+  beforeAmount = beforeAmount.replaceFirst(
+    RegExp(
+      '(?:^|\\s)(?:$_currencyTokenPattern)\\s*[:=]?\\s*\$',
+      caseSensitive: false,
+    ),
+    ' ',
+  );
+  afterAmount = afterAmount.replaceFirst(
+    RegExp(
+      '^\\s*[:=]?\\s*(?:$_currencyTokenPattern)(?=\\s|\$)\\s*',
+      caseSensitive: false,
+    ),
+    ' ',
+  );
+  final label = '$beforeAmount $afterAmount'
       .replaceAll(RegExp(r'\s+'), ' ')
       .trim()
-      .replaceAll(RegExp(r'^[^\p{L}]+|[^\p{L}]+$', unicode: true), '')
+      .replaceAll(RegExp(r'^[\s:;|=,-]+|[\s:;|=,-]+$'), '')
       .trim();
   if (label.isEmpty) return fallback;
 
@@ -1382,7 +1394,7 @@ bool _hasEnglishReceiptLabel(String normalized, RegExp labelPattern) {
   final trailingText = normalized.substring(amount.end).trim();
   final textBesideAmount = labelEndsBeforeAmount ? leadingText : trailingText;
   final compactLabel = textBesideAmount
-      .replaceAll(RegExp(r'[^\w\s-]'), ' ')
+      .replaceAll(RegExp(r'[^\w\s%.\-]'), ' ')
       .replaceAll(RegExp(r'\s+'), ' ')
       .trim();
 
@@ -1402,7 +1414,8 @@ bool _hasEnglishReceiptLabel(String normalized, RegExp labelPattern) {
       .replaceAll(RegExp(r'\s+'), ' ')
       .trim();
 
-  return remaining.isEmpty;
+  return remaining.isEmpty ||
+      RegExp(r'^\d{1,3}(?:\.\d+)?%$').hasMatch(remaining);
 }
 
 bool _hasJapaneseReceiptLabel(String line, List<String> labels) {

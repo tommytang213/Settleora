@@ -500,6 +500,29 @@ Total USD 20.00
     expect(combined.shipping, '2.00');
     expect(combined.shippingLabel, 'Shipping & Handling Fee');
     expect(combined.items.map((item) => item.description), ['Burger']);
+
+    final embeddedCurrencyCode = parser.parse('''
+Harbor Grill
+Burger USD 18.00
+Delivery USD 4.00
+Total USD 22.00
+''');
+    expect(embeddedCurrencyCode.shipping, '4.00');
+    expect(
+      embeddedCurrencyCode.shippingLabel,
+      'Delivery',
+      reason:
+          'TRY inside Delivery is printed label text, not a currency token.',
+    );
+
+    final percentageLabel = parser.parse('''
+Harbor Grill
+Burger USD 18.00
+Gratuity 18% USD 3.24
+Total USD 21.24
+''');
+    expect(percentageLabel.tip, '3.24');
+    expect(percentageLabel.tipLabel, 'Gratuity 18%');
   });
 
   test('parser treats a city ZIP row as metadata only beside an address', () {
