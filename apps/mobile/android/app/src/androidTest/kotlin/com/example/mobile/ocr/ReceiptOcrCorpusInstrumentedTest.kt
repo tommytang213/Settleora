@@ -1,5 +1,8 @@
 package com.example.mobile.ocr
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.paddle.ocr.preprocess.RecPreprocessor
@@ -10,6 +13,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.ByteArrayOutputStream
 
 /**
  * Real image/native provider guard for the immutable #1247 corpus.
@@ -94,6 +98,50 @@ class ReceiptOcrCorpusInstrumentedTest {
                 }
             }
             assertEquals(REQUIRED_EXACT_MATCH_SCRIPTS, scriptsWithExactMatches)
+        } finally {
+            engine.release()
+        }
+    }
+
+    @Test
+    fun realReceiptRotated270ProducesCompleteNativeRowOrder() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val assets = instrumentation.context.assets
+        val sourceBytes = assets.open("english/existing_12_freshmart_grocery_en_US.jpeg")
+            .use { it.readBytes() }
+        val source = BitmapFactory.decodeByteArray(sourceBytes, 0, sourceBytes.size)
+        val rotated = Bitmap.createBitmap(
+            source,
+            0,
+            0,
+            source.width,
+            source.height,
+            Matrix().apply { postRotate(270f) },
+            true,
+        )
+        val rotatedBytes = ByteArrayOutputStream().use { output ->
+            assertTrue(rotated.compress(Bitmap.CompressFormat.JPEG, 100, output))
+            output.toByteArray()
+        }
+        source.recycle()
+        rotated.recycle()
+
+        val engine = SettleoraPaddleOcrEngine(context)
+        try {
+            val result = engine.recognize(rotatedBytes)
+            val orderedText = result.blocks.joinToString("\n") { it.text }
+            val normalized = normalizeForMatch(orderedText)
+
+            assertTrue("270-degree receipt produced no OCR blocks", result.blocks.isNotEmpty())
+            assertTrue("merchant row was not recovered", normalized.contains("FreshMart"))
+            assertTrue("first item row was not recovered", normalized.contains("Bananas"))
+            assertTrue("grand total row was not recovered", normalized.contains("14.47"))
+            assertTrue(
+                "270-degree receipt rows were not returned in document order",
+                normalized.indexOf("FreshMart") < normalized.indexOf("Bananas") &&
+                    normalized.indexOf("Bananas") < normalized.lastIndexOf("14.47"),
+            )
         } finally {
             engine.release()
         }

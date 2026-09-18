@@ -1510,6 +1510,13 @@ class _SettleoraPersonalBillCreateScreenState
           artifactResult: processedArtifact.result,
         ),
       );
+      if (!processedArtifact.result.accepted) {
+        setState(() {
+          _attachmentDraftError =
+              'The selected receipt image could not be prepared. Choose another image or use manual entry.';
+        });
+        return;
+      }
       final draftAttachmentId = _nextDraftAttachmentId;
       setState(() {
         _draftAttachments.add(
@@ -1521,13 +1528,11 @@ class _SettleoraPersonalBillCreateScreenState
         );
         _nextDraftAttachmentId += 1;
       });
-      if (processedArtifact.result.accepted) {
-        await _runReceiptOcrPreview(
-          processedArtifact.file,
-          sourceDraftAttachmentId: draftAttachmentId,
-          intakeSafetyReview: intakeSafetyReview,
-        );
-      }
+      await _runReceiptOcrPreview(
+        processedArtifact.file,
+        sourceDraftAttachmentId: draftAttachmentId,
+        intakeSafetyReview: intakeSafetyReview,
+      );
     } on SettleoraBillAttachmentFileInputFailure catch (failure) {
       if (!mounted) {
         return;
@@ -1676,6 +1681,16 @@ class _SettleoraPersonalBillCreateScreenState
         sourceType: ReceiptIntakeSourceType.fileImport,
         processor: widget.receiptImageArtifactProcessor,
       );
+      if (!processedArtifact.result.accepted) {
+        setState(() {
+          _draftAttachments.removeWhere(
+            (attachment) => attachment.id == draftAttachmentId,
+          );
+          _attachmentDraftError =
+              'The selected receipt image could not be prepared. Choose another image or use manual entry.';
+        });
+        return;
+      }
       final index = _draftAttachments.indexWhere(
         (attachment) => attachment.id == draftAttachmentId,
       );
@@ -1698,13 +1713,11 @@ class _SettleoraPersonalBillCreateScreenState
           artifactResult: processedArtifact.result,
         ),
       );
-      if (processedArtifact.result.accepted) {
-        await _runReceiptOcrPreview(
-          processedArtifact.file,
-          sourceDraftAttachmentId: draftAttachmentId,
-          intakeSafetyReview: intakeSafetyReview,
-        );
-      }
+      await _runReceiptOcrPreview(
+        processedArtifact.file,
+        sourceDraftAttachmentId: draftAttachmentId,
+        intakeSafetyReview: intakeSafetyReview,
+      );
     }
   }
 
@@ -6235,6 +6248,13 @@ class _SettleoraGroupBillCreateScreenState
           artifactResult: processedArtifact.result,
         ),
       );
+      if (!processedArtifact.result.accepted) {
+        setState(() {
+          _attachmentDraftError =
+              'The selected receipt image could not be prepared. Choose another image or use manual entry.';
+        });
+        return;
+      }
       final draftAttachmentId = _nextDraftAttachmentId;
       setState(() {
         _draftAttachments.add(
@@ -6246,13 +6266,11 @@ class _SettleoraGroupBillCreateScreenState
         );
         _nextDraftAttachmentId += 1;
       });
-      if (processedArtifact.result.accepted) {
-        await _runReceiptOcrPreview(
-          processedArtifact.file,
-          sourceDraftAttachmentId: draftAttachmentId,
-          intakeSafetyReview: intakeSafetyReview,
-        );
-      }
+      await _runReceiptOcrPreview(
+        processedArtifact.file,
+        sourceDraftAttachmentId: draftAttachmentId,
+        intakeSafetyReview: intakeSafetyReview,
+      );
     } on SettleoraBillAttachmentFileInputFailure catch (failure) {
       if (!mounted) {
         return;
@@ -6401,6 +6419,16 @@ class _SettleoraGroupBillCreateScreenState
         sourceType: ReceiptIntakeSourceType.fileImport,
         processor: widget.receiptImageArtifactProcessor,
       );
+      if (!processedArtifact.result.accepted) {
+        setState(() {
+          _draftAttachments.removeWhere(
+            (attachment) => attachment.id == draftAttachmentId,
+          );
+          _attachmentDraftError =
+              'The selected receipt image could not be prepared. Choose another image or use manual entry.';
+        });
+        return;
+      }
       final index = _draftAttachments.indexWhere(
         (attachment) => attachment.id == draftAttachmentId,
       );
@@ -6423,13 +6451,11 @@ class _SettleoraGroupBillCreateScreenState
           artifactResult: processedArtifact.result,
         ),
       );
-      if (processedArtifact.result.accepted) {
-        await _runReceiptOcrPreview(
-          processedArtifact.file,
-          sourceDraftAttachmentId: draftAttachmentId,
-          intakeSafetyReview: intakeSafetyReview,
-        );
-      }
+      await _runReceiptOcrPreview(
+        processedArtifact.file,
+        sourceDraftAttachmentId: draftAttachmentId,
+        intakeSafetyReview: intakeSafetyReview,
+      );
     }
   }
 
