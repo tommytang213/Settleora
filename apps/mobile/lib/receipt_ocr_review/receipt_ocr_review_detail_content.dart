@@ -398,8 +398,7 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
     return headerControllers.any(
           (controller) => controller.text.trim().isNotEmpty,
         ) ||
-        _lineEditors.any((editors) => editors.hasAnyAmountCandidate) ||
-        _adjustmentEditors.isNotEmpty;
+        _lineEditors.any((editors) => editors.hasAnyAmountCandidate);
   }
 
   @override
@@ -573,7 +572,7 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
             const SizedBox(height: 8),
             for (var index = 0; index < _adjustmentEditors.length; index++)
               _AdjustmentEditCard(
-                key: ValueKey('receipt-review-edit-adjustment-card-$index'),
+                key: ObjectKey(_adjustmentEditors[index]),
                 index: index,
                 editors: _adjustmentEditors[index],
                 enabled: !isBusy,

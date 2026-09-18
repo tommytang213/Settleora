@@ -1202,6 +1202,101 @@ void main() {
       expect(saved.direction, ReceiptOcrReviewAdjustmentDirectionValues.credit);
     });
 
+    testWidgets('removing a middle adjustment preserves remaining row state', (
+      tester,
+    ) async {
+      await useLargeSurface(tester);
+      final route = sampleRoute();
+      final repository = FakeReceiptOcrReviewRepository(
+        reviewResponse: sampleReview(route, adjustments: sampleAdjustments()),
+      );
+
+      await pumpDetail(tester, repository: repository, route: route);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithIcon(IconButton, Icons.edit_outlined));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('receipt-review-edit-adjustment-remove-0')),
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('receipt-review-edit-adjustment-remove-0')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<DropdownButtonFormField<String>>(
+              find.byKey(
+                const ValueKey('receipt-review-edit-adjustment-kind-0'),
+              ),
+            )
+            .initialValue,
+        ReceiptOcrReviewAdjustmentKindValues.other,
+      );
+      expect(
+        editableTextValue(
+          tester,
+          const ValueKey('receipt-review-edit-adjustment-label-0'),
+        ),
+        'Unfamiliar receipt credit',
+      );
+
+      await tester.ensureVisible(
+        find.byKey(const Key('receipt-review-edit-save')),
+      );
+      await tester.tap(find.byKey(const Key('receipt-review-edit-save')));
+      await tester.pumpAndSettle();
+
+      final saved = repository.lastSaveRequest!.adjustmentEvidence.single;
+      expect(saved.kind, ReceiptOcrReviewAdjustmentKindValues.other);
+      expect(saved.originalLabel, 'Unfamiliar receipt credit');
+      expect(saved.direction, ReceiptOcrReviewAdjustmentDirectionValues.credit);
+    });
+
+    testWidgets('adjustment-only edit does not invent review currency', (
+      tester,
+    ) async {
+      await useLargeSurface(tester);
+      final route = sampleRoute();
+      final repository = FakeReceiptOcrReviewRepository(
+        reviewResponse: sampleReview(
+          route,
+          merchantText: null,
+          includeReceiptDate: false,
+          currency: null,
+          subtotalAmount: null,
+          taxAmount: null,
+          grandTotalAmount: null,
+          lines: const [],
+          adjustments: [sampleAdjustments().first],
+        ),
+      );
+
+      await pumpDetail(tester, repository: repository, route: route);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithIcon(IconButton, Icons.edit_outlined));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        editableTextForKey(
+          const ValueKey('receipt-review-edit-adjustment-label-0'),
+        ),
+        'Reviewed gratuity',
+      );
+      await tester.ensureVisible(
+        find.byKey(const Key('receipt-review-edit-save')),
+      );
+      await tester.tap(find.byKey(const Key('receipt-review-edit-save')));
+      await tester.pumpAndSettle();
+
+      expect(repository.saveCalls, 1);
+      expect(repository.lastSaveRequest!.currency, isNull);
+      expect(
+        repository.lastSaveRequest!.adjustmentEvidence.single.originalLabel,
+        'Reviewed gratuity',
+      );
+      expect(find.text('Required when amounts are present'), findsNothing);
+    });
+
     testWidgets('search filters loaded detail line candidates', (tester) async {
       await useLargeSurface(tester);
       final route = sampleRoute();

@@ -1404,6 +1404,53 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
     }
 
     [Fact]
+    public void OutOfRangeSubtotalLessReconciliationBlocksApply()
+    {
+        var review = new ReceiptOcrReview
+        {
+            Id = Guid.NewGuid(),
+            ExpenseBillId = Guid.NewGuid(),
+            FileObjectId = Guid.NewGuid(),
+            Status = ReceiptOcrReviewStatuses.Reviewed,
+            Source = ReceiptOcrReviewSources.OnDevice,
+            Currency = "USD",
+            GrandTotalAmount = 1m,
+            CreatedAtUtc = WriteTimestamp,
+            UpdatedAtUtc = WriteTimestamp
+        };
+        review.Lines.Add(new ReceiptOcrReviewLine
+        {
+            Id = Guid.NewGuid(),
+            ReceiptOcrReviewId = review.Id,
+            SortOrder = 0,
+            Text = "Merchandise",
+            LineTotalAmount = 1m,
+            CreatedAtUtc = WriteTimestamp,
+            UpdatedAtUtc = WriteTimestamp
+        });
+        review.Adjustments.Add(new ReceiptOcrReviewAdjustment
+        {
+            Id = Guid.NewGuid(),
+            ReceiptOcrReviewId = review.Id,
+            SortOrder = 0,
+            Kind = ReceiptOcrReviewAdjustmentKinds.Fee,
+            OriginalLabel = "Impossible fee",
+            Amount = 2m,
+            Currency = "USD",
+            Direction = ReceiptOcrReviewAdjustmentDirections.Charge,
+            CreatedAtUtc = WriteTimestamp,
+            UpdatedAtUtc = WriteTimestamp
+        });
+
+        var preview = ReceiptOcrReviewApplyPreviewResponse.From(review, "USD");
+
+        Assert.False(preview.CanApply);
+        Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.LineSumMismatch, preview.BlockedReasons);
+        Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.LineSumMismatch, preview.Warnings);
+        Assert.Null(preview.Summary.ExpectedHeaderTotalAmount);
+    }
+
+    [Fact]
     public async Task AdjustmentReconcilesGrandTotalWithoutSubtotalAndDoesNotBlockMerchandiseApply()
     {
         var testContext = CreateFactory();

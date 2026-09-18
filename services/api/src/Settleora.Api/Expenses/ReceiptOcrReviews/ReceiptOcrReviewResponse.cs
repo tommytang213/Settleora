@@ -285,8 +285,13 @@ internal sealed record ReceiptOcrReviewApplyPreviewResponse(
         if (TryCalculateProposedLineTotalSum(orderedLines, out var proposedLineTotalSum)
             && orderedLines.Length > 0)
         {
-            var comparisonAmount = GetLineSumComparisonAmount(review);
-            if (comparisonAmount.HasValue && NormalizeAmount(proposedLineTotalSum) != NormalizeAmount(comparisonAmount.Value))
+            var comparisonAmount = GetLineSumComparisonAmount(review, out var comparisonAmountOutOfRange);
+            if (comparisonAmountOutOfRange)
+            {
+                AddBlockedIssue(blockedReasons, warnings, ReceiptOcrReviewApplyPreviewIssueCodes.LineSumMismatch);
+            }
+            else if (comparisonAmount.HasValue
+                && NormalizeAmount(proposedLineTotalSum) != NormalizeAmount(comparisonAmount.Value))
             {
                 AddWarning(warnings, ReceiptOcrReviewApplyPreviewIssueCodes.LineSumMismatch);
             }
@@ -375,8 +380,11 @@ internal sealed record ReceiptOcrReviewApplyPreviewResponse(
         return true;
     }
 
-    private static decimal? GetLineSumComparisonAmount(ReceiptOcrReview review)
+    private static decimal? GetLineSumComparisonAmount(
+        ReceiptOcrReview review,
+        out bool outOfRange)
     {
+        outOfRange = false;
         if (review.SubtotalAmount.HasValue)
         {
             return review.SubtotalAmount.Value;
@@ -403,9 +411,13 @@ internal sealed record ReceiptOcrReviewApplyPreviewResponse(
                 : -adjustment.Amount;
         }
 
-        return merchandiseAmount is >= 0m and <= ReceiptOcrReviewConstraints.MoneyAmountMaxValue
-            ? NormalizeAmount(merchandiseAmount)
-            : null;
+        if (merchandiseAmount is < 0m or > ReceiptOcrReviewConstraints.MoneyAmountMaxValue)
+        {
+            outOfRange = true;
+            return null;
+        }
+
+        return NormalizeAmount(merchandiseAmount);
     }
 
     private static bool TryCalculateProposedLineTotalSum(
