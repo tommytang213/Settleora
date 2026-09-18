@@ -29,7 +29,7 @@
       "files": [
         {
           "path": "apps/mobile/lib/receipt_ocr_capture/receipt_image_artifact_processor.dart",
-          "sha256": "cce7df5e27120d2909b1a12913c509da3aa2ede541bf9d2050af17ba2f4db532"
+          "sha256": "3cc15cc9ad3977094d496a4e5481b9edfe2d8c19ad12734415989717b2c86221"
         },
         {
           "path": "apps/mobile/lib/receipt_ocr_capture/receipt_image_normalization_policy.dart",
