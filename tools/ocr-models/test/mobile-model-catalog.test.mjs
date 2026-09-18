@@ -41,6 +41,7 @@ test("native semantic binding covers the exact provider execution path", () => {
     "apps/mobile/pubspec.lock",
     "apps/mobile/android/app/build.gradle.kts",
     "apps/mobile/android/app/proguard-rules.pro",
+    "apps/mobile/android/app/src/release/kotlin/dev/flutter/plugins/integration_test/IntegrationTestPlugin.kt",
     "apps/mobile/android/gradle/verification-metadata.xml",
     "apps/mobile/android/settings.gradle.kts",
     "apps/mobile/android/app/src/androidTest/kotlin/com/example/mobile/ocr/ReceiptOcrCorpusInstrumentedTest.kt",

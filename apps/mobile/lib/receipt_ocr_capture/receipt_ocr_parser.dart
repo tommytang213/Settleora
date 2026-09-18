@@ -275,8 +275,14 @@ class ReceiptOcrParser {
     String? currency,
   ) {
     final items = <ReceiptOcrItemCandidate>[];
+    final fuelItem = _extractFuelItem(lines, currency);
+    if (fuelItem != null) {
+      items.add(fuelItem);
+    }
     for (final line in lines) {
-      if (_isAdministrativeLine(line) || _isReceiptMetadataLine(line)) {
+      if (_isAdministrativeLine(line) ||
+          _isReceiptMetadataLine(line) ||
+          (fuelItem != null && _isFuelMeasurementLine(line))) {
         continue;
       }
 
@@ -301,7 +307,11 @@ class ReceiptOcrParser {
       }
 
       final quantityMatch = RegExp(
-        r'^(.*?)\s+(\d{1,3})\s*[xX@]\s*(\d{1,6}(?:\.\d{1,3})?)$',
+        r'^(.*?)\s+(\d{1,6}(?:\.\d{1,3})?)\s*'
+        r'(?:kg|g|lb|lbs|oz|l|ml|gal|gallon|gallons)?\s*'
+        r'[xX@]\s*(\d{1,6}(?:\.\d{1,3})?)'
+        r'(?:\s*/\s*(?:kg|g|lb|lbs|oz|l|ml|gal|gallon|gallons))?$',
+        caseSensitive: false,
       ).firstMatch(description);
       if (quantityMatch != null) {
         final quantity = quantityMatch.group(2)!;
@@ -338,6 +348,63 @@ class ReceiptOcrParser {
 
     return items.take(40).toList(growable: false);
   }
+
+  ReceiptOcrItemCandidate? _extractFuelItem(
+    List<String> lines,
+    String? currency,
+  ) {
+    String? description;
+    String? quantity;
+    String? unitPrice;
+    String? lineTotal;
+    for (final line in lines) {
+      final fuel = RegExp(
+        r'^(?:FUEL|PRODUCT)\s*[:#-]?\s+(.+)$',
+        caseSensitive: false,
+      ).firstMatch(line);
+      if (fuel != null) {
+        description = _cleanDescription(fuel.group(1)!);
+        continue;
+      }
+      if (RegExp(
+        r'^(?:GALLONS?|LIT(?:ER|RE)S?)\b',
+        caseSensitive: false,
+      ).hasMatch(line)) {
+        quantity = _lastAmountInLine(line, currency: currency);
+        continue;
+      }
+      if (RegExp(
+        r'^(?:PRICE\s*/\s*(?:GAL|L)|UNIT\s+PRICE)\b',
+        caseSensitive: false,
+      ).hasMatch(line)) {
+        unitPrice = _lastAmountInLine(line, currency: currency);
+        continue;
+      }
+      if (_hasTotalLabel(line, line.toLowerCase())) {
+        lineTotal = _lastAmountInLine(line, currency: currency);
+      }
+    }
+    if (description == null ||
+        description.isEmpty ||
+        quantity == null ||
+        unitPrice == null ||
+        lineTotal == null) {
+      return null;
+    }
+    return ReceiptOcrItemCandidate(
+      description: description,
+      quantity: quantity,
+      unitPrice: unitPrice,
+      lineTotal: lineTotal,
+      currency: currency,
+      category: 'item_line',
+    );
+  }
+
+  bool _isFuelMeasurementLine(String line) => RegExp(
+    r'^(?:FUEL|PRODUCT|GALLONS?|LIT(?:ER|RE)S?|PRICE\s*/\s*(?:GAL|L)|UNIT\s+PRICE)\b',
+    caseSensitive: false,
+  ).hasMatch(line);
 
   int _countUnresolvedItemLikeLines(List<String> lines, {String? merchant}) {
     var count = 0;

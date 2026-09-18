@@ -4035,6 +4035,85 @@ void main() {
   );
 
   testWidgets(
+    'personal OCR preserves unsupported currency as evidence without applying it',
+    (tester) async {
+      await useLargeSurface(tester);
+      final receiptOcrProvider = FakeReceiptOcrProvider(
+        const ReceiptOcrResult.extracted(
+          ReceiptOcrPreview(
+            merchant: 'Dubai Cafe',
+            currency: 'AED',
+            currencyProvenance: ReceiptOcrCurrencyProvenance.explicit,
+            items: [
+              ReceiptOcrItemCandidate(
+                description: 'Coffee',
+                lineTotal: '12.50',
+                currency: 'AED',
+              ),
+            ],
+          ),
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraPersonalBillCreateScreen(
+            repository: FakeBillRepository(),
+            attachmentRepository: FakeBillAttachmentRepository(),
+            attachmentFileInput: FakeBillAttachmentFileInput(
+              pickedFile: samplePickedAttachmentFile(
+                filename: 'receipt.png',
+                contentType: 'image/png',
+                bytes: const [1],
+              ),
+            ),
+            receiptOcrProvider: receiptOcrProvider,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('personal-bill-scan-receipt')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('AED'), findsWidgets);
+      expect(
+        tester
+            .widget<CheckboxListTile>(
+              find.byKey(const Key('personal-bill-ocr-apply-currency')),
+            )
+            .value,
+        isFalse,
+      );
+
+      await _tapReceiptOcrApply(tester, 'personal-bill');
+
+      expect(
+        tester
+            .widget<CurrencySelector>(
+              find.descendant(
+                of: find.byKey(const Key('personal-bill-currency')),
+                matching: find.byType(CurrencySelector),
+              ),
+            )
+            .value,
+        'USD',
+      );
+      expect(
+        tester
+            .widget<CurrencySelector>(
+              find.descendant(
+                of: find.byKey(const Key('personal-bill-item-currency-0')),
+                matching: find.byType(CurrencySelector),
+              ),
+            )
+            .value,
+        'USD',
+      );
+    },
+  );
+
+  testWidgets(
     'personal OCR item replacement warning is visible when selected',
     (tester) async {
       await useLargeSurface(tester);

@@ -79,6 +79,49 @@ Card 25.50
     ]);
   });
 
+  test('parser preserves weighted quantity and unit-price evidence', () {
+    const parser = ReceiptOcrParser();
+
+    final preview = parser.parse('''
+Green Basket Market
+Date: 2026-09-17
+Apples 1.250 kg @ 3.99/kg USD 4.99
+Tomatoes 0.850 kg @ 5.49/kg USD 4.67
+Subtotal USD 9.66
+Total USD 9.66
+''');
+
+    expect(preview.items, hasLength(2));
+    expect(preview.items.first.description, 'Apples');
+    expect(preview.items.first.quantity, '1.250');
+    expect(preview.items.first.unitPrice, '3.99');
+    expect(preview.items.first.lineTotal, '4.99');
+    expect(preview.items.last.description, 'Tomatoes');
+    expect(preview.items.last.quantity, '0.850');
+    expect(preview.items.last.unitPrice, '5.49');
+    expect(preview.items.last.lineTotal, '4.67');
+  });
+
+  test('parser combines separate fuel measurement fields into one item', () {
+    const parser = ReceiptOcrParser();
+
+    final preview = parser.parse(r'''
+WESTSIDE FUEL
+DATE 04/10/2025 8:17 AM
+PUMP 4
+FUEL Regular Unleaded
+GALLONS 12.563
+PRICE/GAL $3.599
+TOTAL $45.22
+''', fallbackCurrency: 'USD');
+
+    expect(preview.items, hasLength(1));
+    expect(preview.items.single.description, 'Regular Unleaded');
+    expect(preview.items.single.quantity, '12.563');
+    expect(preview.items.single.unitPrice, '3.599');
+    expect(preview.items.single.lineTotal, '45.22');
+  });
+
   test('parser leaves symbol-only currency blank for review', () {
     const parser = ReceiptOcrParser();
 

@@ -189,11 +189,8 @@ class _ExpectedItem {
   });
 
   factory _ExpectedItem.fromManifest(Object? value, String fixtureId) {
-    if (value case [final Object? description, final Object? lineTotal]) {
-      return _ExpectedItem(
-        description: description.toString(),
-        lineTotal: lineTotal.toString(),
-      );
+    if (value case [final String description, final String lineTotal]) {
+      return _ExpectedItem(description: description, lineTotal: lineTotal);
     }
     if (value is Map<String, Object?>) {
       const supportedKeys = {
@@ -209,15 +206,20 @@ class _ExpectedItem {
         );
       }
       final description = value['description'];
+      final quantity = value['quantity'];
+      final unitPrice = value['unit_price'];
       final lineTotal = value['line_total'];
-      if (description == null || lineTotal == null) {
-        throw StateError('$fixtureId item is missing required ground truth');
+      if (description is! String ||
+          lineTotal is! String ||
+          (quantity != null && quantity is! String) ||
+          (unitPrice != null && unitPrice is! String)) {
+        throw StateError('$fixtureId item ground truth must use strings');
       }
       return _ExpectedItem(
-        description: description.toString(),
-        quantity: value['quantity']?.toString(),
-        unitPrice: value['unit_price']?.toString(),
-        lineTotal: lineTotal.toString(),
+        description: description,
+        quantity: quantity as String?,
+        unitPrice: unitPrice as String?,
+        lineTotal: lineTotal,
       );
     }
     throw StateError('$fixtureId has an unsupported item representation');

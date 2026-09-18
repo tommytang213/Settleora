@@ -39,10 +39,10 @@
     },
     "nativeSemantics": {
       "files": [
-        { "path": "apps/mobile/integration_test/receipt_ocr_real_provider_test.dart", "sha256": "4738e5d572f83141c1486fd13482bbd51ffdcd5f771968f89b0070e1905d8fbe" },
+        { "path": "apps/mobile/integration_test/receipt_ocr_real_provider_test.dart", "sha256": "428b9c90030523583567df56972fc1dff4773332085a4041fcdd3fb938b1f2d9" },
         { "path": "apps/mobile/lib/app/app_bootstrap.dart", "sha256": "bfc2ea06825d3b7162f6f08b68b0413e62320523b3c087a6abc27aecc8b1d875" },
         { "path": "apps/mobile/lib/app/server_mode_shell.dart", "sha256": "7bc1b89910d260c5652810265b8a9985896fe62e852f65aa24d44d5fa2d8459e" },
-        { "path": "apps/mobile/lib/bills/bill_list_screen.dart", "sha256": "cb3eb1b6911a2dc09155abe77ea2ade912e55d0d1daf6bb01ec1383b7ab7be80" },
+        { "path": "apps/mobile/lib/bills/bill_list_screen.dart", "sha256": "f360dbbb92e784720ac0b2818d2673a95eddc0e71fb02293b84bb90a27c16762" },
         { "path": "apps/mobile/lib/groups/group_list_screen.dart", "sha256": "62497fd2753850b88d93b1b0e40d2e982ba560209fb36321aa986b7d1fbdc473" },
         { "path": "apps/mobile/lib/main.dart", "sha256": "b91c1fe701d9412c3a85880186016609d8ba460d1f6584fa3b5be5873ab36b89" },
         { "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_provider.dart", "sha256": "ffb8da7258689dcf6c41a38a121898dd718a3a6e6b8b85a82412653634fd7a49" },
@@ -52,6 +52,7 @@
         { "path": "apps/mobile/pubspec.yaml", "sha256": "ae87b63fdc0c9b66a347a234d433e6979b1166d9e8a6effd2cba682393bd50b6" },
         { "path": "apps/mobile/pubspec.lock", "sha256": "7633d42eda1115dddbcc6609f4a9fa8aa4651a8f6623b6e8e5fde6eab6b0d0ff" },
         { "path": "apps/mobile/android/app/build.gradle.kts", "sha256": "661ae6ec2deca8588524234636865e33b288937dff71ccee3346187a28450646" },
+        { "path": "apps/mobile/android/app/src/release/kotlin/dev/flutter/plugins/integration_test/IntegrationTestPlugin.kt", "sha256": "8bd6fbbfbcdf38c85bbd433ef3cc78545f76a7079e4ed137a15de1decba91773" },
         { "path": "apps/mobile/android/app/proguard-rules.pro", "sha256": "2550ffdb55049da3641c917d30930ca5d0e1bfe71c1c9557308f7256ca6eb858" },
         { "path": "apps/mobile/android/gradle/verification-metadata.xml", "sha256": "fe2777c0201887c604794df4e5c215511225e5e31f0f0b2203c29fd1d0240ba6" },
         { "path": "apps/mobile/android/settings.gradle.kts", "sha256": "cf1e261794ec8843ebd64c26cfa9082e6e00750410decd071b74adbd49e6ec4b" },
@@ -87,7 +88,7 @@
     },
     "parser": {
       "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_parser.dart",
-      "sha256": "d97bc01e143bce4cdf11acc59f7ecb3bf98f8600451484a6b07c30603a7d89ea"
+      "sha256": "45146c062fd4aa13674e94d9b6ff54f2885b55143e262e7e0c902ccf48797645"
     }
   },
   "totalBundledBytes": 76580102,

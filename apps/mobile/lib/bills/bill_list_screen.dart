@@ -1896,6 +1896,7 @@ class _SettleoraPersonalBillCreateScreenState
               ReceiptOcrCurrencyProvenance.defaultFallback &&
           preview.currencyProvenance !=
               ReceiptOcrCurrencyProvenance.unresolved &&
+          settleoraIsSupportedCurrency(preview.currency) &&
           _shouldDefaultApplyReceiptOcrText(
             current: _currencyController.text,
             suggestion: preview.currency,
@@ -2005,9 +2006,8 @@ class _SettleoraPersonalBillCreateScreenState
 
       final currency = preview.currency?.trim().toUpperCase();
       if (_receiptOcrApplySelection.currency &&
-          currency != null &&
-          currency.isNotEmpty) {
-        _currencyController.text = currency;
+          settleoraIsSupportedCurrency(currency)) {
+        _currencyController.text = currency!;
       }
 
       if (_receiptOcrApplySelection.items && preview.items.isNotEmpty) {
@@ -2019,7 +2019,10 @@ class _SettleoraPersonalBillCreateScreenState
           ..addAll([
             for (final candidate in preview.items)
               _PersonalBillCreateItemControllers(
-                  currency: candidate.currency ?? _currencyController.text,
+                  currency: _receiptOcrApplicableItemCurrency(
+                    candidate.currency,
+                    _currencyController.text,
+                  ),
                 )
                 ..name.text = candidate.description.trim()
                 ..quantity.text = candidate.quantity ?? '1'
@@ -3723,7 +3726,7 @@ bool _receiptOcrSelectionHasAvailableSections(
 ) {
   return (selection.merchant && (preview.merchant ?? '').trim().isNotEmpty) ||
       (selection.date && (preview.receiptDate ?? '').trim().isNotEmpty) ||
-      (selection.currency && (preview.currency ?? '').trim().isNotEmpty) ||
+      (selection.currency && settleoraIsSupportedCurrency(preview.currency)) ||
       (selection.items && preview.items.isNotEmpty);
 }
 
@@ -3734,9 +3737,20 @@ _ReceiptOcrApplySelection _sanitizeReceiptOcrApplySelection(
   return _ReceiptOcrApplySelection(
     merchant: selection.merchant && (preview.merchant ?? '').trim().isNotEmpty,
     date: selection.date && (preview.receiptDate ?? '').trim().isNotEmpty,
-    currency: selection.currency && (preview.currency ?? '').trim().isNotEmpty,
+    currency:
+        selection.currency && settleoraIsSupportedCurrency(preview.currency),
     items: selection.items && preview.items.isNotEmpty,
   );
+}
+
+String _receiptOcrApplicableItemCurrency(
+  String? candidateCurrency,
+  String fallbackCurrency,
+) {
+  final normalizedCandidate = settleoraNormalizeCurrencyCode(candidateCurrency);
+  return settleoraIsSupportedCurrency(normalizedCandidate)
+      ? normalizedCandidate!
+      : fallbackCurrency.trim().toUpperCase();
 }
 
 typedef _ReceiptOcrTextNormalizer = String Function(String value);
@@ -6425,6 +6439,7 @@ class _SettleoraGroupBillCreateScreenState
               ReceiptOcrCurrencyProvenance.defaultFallback &&
           preview.currencyProvenance !=
               ReceiptOcrCurrencyProvenance.unresolved &&
+          settleoraIsSupportedCurrency(preview.currency) &&
           _shouldDefaultApplyReceiptOcrText(
             current: _currencyController.text,
             suggestion: preview.currency,
@@ -6630,10 +6645,9 @@ class _SettleoraGroupBillCreateScreenState
 
       final currency = preview.currency?.trim().toUpperCase();
       if (_receiptOcrApplySelection.currency &&
-          currency != null &&
-          currency.isNotEmpty) {
+          settleoraIsSupportedCurrency(currency)) {
         final previousCurrency = _currencyController.text.trim().toUpperCase();
-        _currencyController.text = currency;
+        _currencyController.text = currency!;
         for (final item in _itemControllers) {
           final itemCurrency = item.currency.text.trim().toUpperCase();
           if (!item.currencyEditedByUser &&
@@ -6649,7 +6663,10 @@ class _SettleoraGroupBillCreateScreenState
           if (index >= _itemControllers.length) {
             _itemControllers.add(
               _GroupBillCreateItemControllers(
-                currency: candidate.currency ?? _currencyController.text,
+                currency: _receiptOcrApplicableItemCurrency(
+                  candidate.currency,
+                  _currencyController.text,
+                ),
               ),
             );
           }
@@ -6660,10 +6677,9 @@ class _SettleoraGroupBillCreateScreenState
           item.unitAmount.text = candidate.unitPrice ?? '';
           item.amount.text = candidate.lineTotal ?? '';
           final itemCurrency = candidate.currency?.trim().toUpperCase();
-          if (itemCurrency != null &&
-              itemCurrency.isNotEmpty &&
+          if (settleoraIsSupportedCurrency(itemCurrency) &&
               !item.currencyEditedByUser) {
-            item.setCurrencyFromBill(itemCurrency);
+            item.setCurrencyFromBill(itemCurrency!);
           }
         }
       }
