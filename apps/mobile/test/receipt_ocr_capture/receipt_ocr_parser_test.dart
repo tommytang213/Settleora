@@ -549,13 +549,22 @@ Suggested Tip 20% USD 4.36
 Total USD 20.00
 ''');
 
-    expect(charged.tip, isNull);
-    expect(charged.items.map((item) => item.description), [
-      'Fare',
-      'Toll',
-      'Tip',
-    ]);
+    expect(charged.tip, '5.00');
+    expect(charged.items.map((item) => item.description), ['Fare', 'Toll']);
     expect(suggested.items.map((item) => item.description), ['Pasta']);
+  });
+
+  test('parser excludes a bare approval identifier from items', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Corner Cafe
+Coffee USD 5.00
+Approval 123456
+Total USD 5.00
+''');
+
+    expect(preview.items.map((item) => item.description), ['Coffee']);
+    expect(preview.total, '5.00');
   });
 
   test('parser joins a wrapped description to its following priced line', () {
@@ -714,6 +723,27 @@ Date: ٢٠٢٦-٠٩-١٧
     expect(preview.total, '21.79');
     expect(preview.items.map((item) => item.description), ['قهوة', 'حلوى']);
     expect(preview.items.map((item) => item.lineTotal), ['12.50', '8.25']);
+  });
+
+  test('parser normalizes Devanagari and Thai receipt digits', () {
+    const parser = ReceiptOcrParser();
+    final devanagari = parser.parse('''
+दिल्ली कैफे
+चाय INR १२.५०
+कुल INR १२.५०
+''');
+    final thai = parser.parse('''
+ร้านสยาม
+ชา THB ๑๒.๕๐
+ยอดสุทธิ THB ๑๒.๕๐
+''');
+
+    expect(devanagari.currency, 'INR');
+    expect(devanagari.items.single.lineTotal, '12.50');
+    expect(devanagari.total, '12.50');
+    expect(thai.currency, 'THB');
+    expect(thai.items.single.lineTotal, '12.50');
+    expect(thai.total, '12.50');
   });
 
   test('parser extracts bundled Global Core labels and dates', () {

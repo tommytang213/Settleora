@@ -111,6 +111,17 @@ class ReceiptBlockOrderTest {
     }
 
     @Test
+    fun shortArabicLabelOutranksSuffixIsoAmountWrittenWithArabicIndicDigits() {
+        val amount = block("٥٫٠٠ AED", "ltr", x = 10f)
+        val label = block("ش", "rtl", x = 100f)
+
+        assertEquals(
+            listOf("ش", "٥٫٠٠ AED"),
+            ReceiptBlockOrder.normalize(listOf(amount, label)).map { it.text },
+        )
+    }
+
+    @Test
     fun ArabicIndicAmountDoesNotReverseLatinItemRow() {
         val item = block("Tea", "ltr", x = 10f)
         val amount = block("١٢٫٥٠", "ltr", x = 100f)

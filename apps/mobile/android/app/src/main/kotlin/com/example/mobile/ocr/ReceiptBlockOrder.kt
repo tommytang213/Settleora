@@ -86,6 +86,6 @@ internal object ReceiptBlockOrder {
     }
 
     private val ISO_CURRENCY_AMOUNT = Regex(
-        """^[A-Za-z]{3}\s*[:=]?\s*-?\p{Nd}+(?:[.,'’\u066B\u066C]\p{Nd}+)*$""",
+        """^(?:[A-Za-z]{3}\s*[:=]?\s*-?\p{Nd}+(?:[.,'’\u066B\u066C]\p{Nd}+)*|-?\p{Nd}+(?:[.,'’\u066B\u066C]\p{Nd}+)*\s*[A-Za-z]{3})$""",
     )
 }

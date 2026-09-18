@@ -604,7 +604,11 @@ class _ReceiptCurrencyDetection {
 }
 
 String _normalizeOcrLine(String value) {
-  const digitSources = '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹';
+  const digitSources =
+      '٠١٢٣٤٥٦٧٨٩'
+      '۰۱۲۳۴۵۶۷۸۹'
+      '०१२३४५६७८९'
+      '๐๑๒๓๔๕๖๗๘๙';
   var normalized =
       _normalizeFullwidthOcrText(
             _normalizeArabicPresentationForms(value).replaceAll('\u0640', ''),
@@ -968,6 +972,11 @@ bool _isPaymentMetadataLine(String line) {
           r'\b(payment|paid|tender|ending|approval|auth|charged)\b',
         ).hasMatch(normalized);
   }
+  if (RegExp(
+    r'^(?:approval|auth(?:orization)?)\s+[a-z0-9-]*\d[a-z0-9-]*\b',
+  ).hasMatch(normalized)) {
+    return true;
+  }
   return RegExp(
     r'\b(card\s+(?:charged|payment|tender|ending|number|no)|charged\s+(?:to\s+)?card|approval\s*(?:code|no|#|number)|auth(?:orization)?\s*(?:code|no|#|number))\b',
   ).hasMatch(normalized);
@@ -1173,7 +1182,7 @@ bool _hasActualTipChargeLabel(String line, String normalized) {
   if (_isSuggestedTipLine(normalized)) return false;
   return _hasEnglishReceiptLabel(
     normalized,
-    RegExp(r'\b(?:actual\s+tip|gratuity)\b', caseSensitive: false),
+    RegExp(r'\b(?:actual\s+tip|gratuity|tip)\b', caseSensitive: false),
   );
 }
 
