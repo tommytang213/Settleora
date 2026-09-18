@@ -9822,6 +9822,122 @@ class ReceiptOcrReviewSourceValues {
 /// Decimal-safe non-negative candidate amount represented as a string. Exponent notation, locale formatting, symbols, and floating-point JSON numbers are not accepted.
 typedef ReceiptOcrCandidateAmount = String;
 
+/// Bounded non-item receipt adjustment evidence category. Unknown printed charges use other while preserving originalLabel.
+typedef ReceiptOcrReviewAdjustmentKind = String;
+class ReceiptOcrReviewAdjustmentKindValues {
+  const ReceiptOcrReviewAdjustmentKindValues._();
+  static const ReceiptOcrReviewAdjustmentKind tip = "tip";
+  static const ReceiptOcrReviewAdjustmentKind shipping = "shipping";
+  static const ReceiptOcrReviewAdjustmentKind fee = "fee";
+  static const ReceiptOcrReviewAdjustmentKind surcharge = "surcharge";
+  static const ReceiptOcrReviewAdjustmentKind deposit = "deposit";
+  static const ReceiptOcrReviewAdjustmentKind credit = "credit";
+  static const ReceiptOcrReviewAdjustmentKind other = "other";
+  static const Set<ReceiptOcrReviewAdjustmentKind> values = {tip, shipping, fee, surcharge, deposit, credit, other};
+}
+
+/// Explicit arithmetic direction for positive-magnitude adjustment evidence.
+typedef ReceiptOcrReviewAdjustmentDirection = String;
+class ReceiptOcrReviewAdjustmentDirectionValues {
+  const ReceiptOcrReviewAdjustmentDirectionValues._();
+  static const ReceiptOcrReviewAdjustmentDirection charge = "charge";
+  static const ReceiptOcrReviewAdjustmentDirection credit = "credit";
+  static const Set<ReceiptOcrReviewAdjustmentDirection> values = {charge, credit};
+}
+
+/// Bounded non-item OCR adjustment evidence. It is review evidence only, is not a merchandise line, and is not authority to create a bill adjustment.
+class ReceiptOcrReviewAdjustmentRequest {
+  const ReceiptOcrReviewAdjustmentRequest({
+    required this.kind,
+    required this.originalLabel,
+    required this.amount,
+    required this.currency,
+    required this.direction,
+  });
+
+  final ReceiptOcrReviewAdjustmentKind kind;
+  /// Bounded printed/original receipt label. Unknown labels retain their text and use kind other.
+  final String originalLabel;
+  /// Positive decimal-safe magnitude represented as a string.
+  final String amount;
+  final CurrencyCode currency;
+  final ReceiptOcrReviewAdjustmentDirection direction;
+
+  factory ReceiptOcrReviewAdjustmentRequest.fromJson(JsonObject json) {
+    return ReceiptOcrReviewAdjustmentRequest(
+      kind: json["kind"] as String,
+      originalLabel: json["originalLabel"] as String,
+      amount: json["amount"] as String,
+      currency: json["currency"] as String,
+      direction: json["direction"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "kind": kind,
+      "originalLabel": originalLabel,
+      "amount": amount,
+      "currency": currency,
+      "direction": direction,
+    };
+  }
+}
+
+/// Persisted non-item OCR adjustment evidence. It remains separate from merchandise proposals and is never implicitly applied as a bill item or bill adjustment.
+class ReceiptOcrReviewAdjustmentResponse {
+  const ReceiptOcrReviewAdjustmentResponse({
+    required this.id,
+    required this.sortOrder,
+    required this.kind,
+    required this.originalLabel,
+    required this.amount,
+    required this.currency,
+    required this.direction,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
+  });
+
+  final String id;
+  final int sortOrder;
+  final ReceiptOcrReviewAdjustmentKind kind;
+  final String originalLabel;
+  /// Persisted positive decimal-safe magnitude represented as a string.
+  final String amount;
+  final CurrencyCode currency;
+  final ReceiptOcrReviewAdjustmentDirection direction;
+  final DateTime createdAtUtc;
+  final DateTime updatedAtUtc;
+
+  factory ReceiptOcrReviewAdjustmentResponse.fromJson(JsonObject json) {
+    return ReceiptOcrReviewAdjustmentResponse(
+      id: json["id"] as String,
+      sortOrder: (json["sortOrder"] as num).toInt(),
+      kind: json["kind"] as String,
+      originalLabel: json["originalLabel"] as String,
+      amount: json["amount"] as String,
+      currency: json["currency"] as String,
+      direction: json["direction"] as String,
+      createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
+      updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "id": id,
+      "sortOrder": sortOrder,
+      "kind": kind,
+      "originalLabel": originalLabel,
+      "amount": amount,
+      "currency": currency,
+      "direction": direction,
+      "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
+      "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
+    };
+  }
+}
+
 /// One bounded OCR review line. Line text is reviewed/candidate text, not raw OCR full text. Amounts use the review-level currency and remain provisional.
 class ReceiptOcrReviewLineRequest {
   static const Object _unsetQuantity = Object();
@@ -9905,6 +10021,7 @@ class ReceiptOcrReviewUpsertRequest {
     Object? discountAmount = _unsetDiscountAmount,
     Object? grandTotalAmount = _unsetGrandTotalAmount,
     this.lines,
+    this.adjustmentEvidence,
   })
       : merchantText = identical(merchantText, _unsetMerchantText) ? null : merchantText as String?,
         _hasMerchantText = !identical(merchantText, _unsetMerchantText),
@@ -9931,7 +10048,7 @@ class ReceiptOcrReviewUpsertRequest {
   /// Optional candidate receipt date/time.
   final DateTime? receiptIssuedAtUtc;
   final bool _hasReceiptIssuedAtUtc;
-  /// Optional review-level currency. Required when any amount candidate is supplied.
+  /// Optional review-level currency. Required when a header or merchandise-line amount candidate is supplied; adjustment evidence carries its own required currency.
   final CurrencyCode? currency;
   final bool _hasCurrency;
   final ReceiptOcrCandidateAmount? subtotalAmount;
@@ -9947,6 +10064,8 @@ class ReceiptOcrReviewUpsertRequest {
   final bool _hasGrandTotalAmount;
   /// Optional bounded review lines. The server derives stable line order from array order.
   final List<ReceiptOcrReviewLineRequest>? lines;
+  /// Optional ordered non-item adjustment evidence. The server derives stable order from array order; entries are not merchandise and are not automatically applied as bill adjustments.
+  final List<ReceiptOcrReviewAdjustmentRequest>? adjustmentEvidence;
 
   factory ReceiptOcrReviewUpsertRequest.fromJson(JsonObject json) {
     return ReceiptOcrReviewUpsertRequest(
@@ -9977,6 +10096,7 @@ class ReceiptOcrReviewUpsertRequest {
           ? json["grandTotalAmount"] == null ? null : json["grandTotalAmount"] as String
           : _unsetGrandTotalAmount,
       lines: json["lines"] == null ? null : (json["lines"] as List<dynamic>).map((item) => ReceiptOcrReviewLineRequest.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      adjustmentEvidence: json["adjustmentEvidence"] == null ? null : (json["adjustmentEvidence"] as List<dynamic>).map((item) => ReceiptOcrReviewAdjustmentRequest.fromJson(JsonObject.from(item as Map))).toList(growable: false),
     );
   }
 
@@ -9990,6 +10110,7 @@ class ReceiptOcrReviewUpsertRequest {
     final discountAmountJsonValue = discountAmount;
     final grandTotalAmountJsonValue = grandTotalAmount;
     final linesJsonValue = lines;
+    final adjustmentEvidenceJsonValue = adjustmentEvidence;
 
     return {
       "status": status,
@@ -10003,6 +10124,7 @@ class ReceiptOcrReviewUpsertRequest {
       if (_hasDiscountAmount) "discountAmount": discountAmountJsonValue,
       if (_hasGrandTotalAmount) "grandTotalAmount": grandTotalAmountJsonValue,
       if (linesJsonValue != null) "lines": linesJsonValue.map((item) => item.toJson()).toList(growable: false),
+      if (adjustmentEvidenceJsonValue != null) "adjustmentEvidence": adjustmentEvidenceJsonValue.map((item) => item.toJson()).toList(growable: false),
     };
   }
 }
@@ -10170,6 +10292,7 @@ class ReceiptOcrReviewResponse {
     required this.discountAmount,
     required this.grandTotalAmount,
     required this.lines,
+    required this.adjustmentEvidence,
     required this.createdAtUtc,
     required this.updatedAtUtc,
   });
@@ -10193,6 +10316,7 @@ class ReceiptOcrReviewResponse {
   final String? discountAmount;
   final String? grandTotalAmount;
   final List<ReceiptOcrReviewLineResponse> lines;
+  final List<ReceiptOcrReviewAdjustmentResponse> adjustmentEvidence;
   final DateTime createdAtUtc;
   final DateTime updatedAtUtc;
 
@@ -10213,6 +10337,7 @@ class ReceiptOcrReviewResponse {
       discountAmount: json["discountAmount"] == null ? null : json["discountAmount"] as String,
       grandTotalAmount: json["grandTotalAmount"] == null ? null : json["grandTotalAmount"] as String,
       lines: (json["lines"] as List<dynamic>).map((item) => ReceiptOcrReviewLineResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      adjustmentEvidence: (json["adjustmentEvidence"] as List<dynamic>).map((item) => ReceiptOcrReviewAdjustmentResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
       createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
       updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
     );
@@ -10245,6 +10370,7 @@ class ReceiptOcrReviewResponse {
       "discountAmount": discountAmountJsonValue,
       "grandTotalAmount": grandTotalAmountJsonValue,
       "lines": lines.map((item) => item.toJson()).toList(growable: false),
+      "adjustmentEvidence": adjustmentEvidence.map((item) => item.toJson()).toList(growable: false),
       "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
       "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
     };
@@ -10450,7 +10576,9 @@ class ReceiptOcrReviewApplyPreviewIssueCodeValues {
   static const ReceiptOcrReviewApplyPreviewIssueCode lineTotalMismatch = "line_total_mismatch";
   static const ReceiptOcrReviewApplyPreviewIssueCode lineSumMismatch = "line_sum_mismatch";
   static const ReceiptOcrReviewApplyPreviewIssueCode headerTotalMismatch = "header_total_mismatch";
-  static const Set<ReceiptOcrReviewApplyPreviewIssueCode> values = {unsupportedReviewStatus, unsupportedReviewSource, missingCurrency, unsupportedCurrency, currencyMismatch, missingGrandTotal, emptyLineSet, lineTotalMissing, unsupportedLineState, lineTotalMismatch, lineSumMismatch, headerTotalMismatch};
+  static const ReceiptOcrReviewApplyPreviewIssueCode adjustmentsNotAutoApplied = "adjustments_not_auto_applied";
+  static const ReceiptOcrReviewApplyPreviewIssueCode adjustmentCurrencyNotReconciled = "adjustment_currency_not_reconciled";
+  static const Set<ReceiptOcrReviewApplyPreviewIssueCode> values = {unsupportedReviewStatus, unsupportedReviewSource, missingCurrency, unsupportedCurrency, currencyMismatch, missingGrandTotal, emptyLineSet, lineTotalMissing, unsupportedLineState, lineTotalMismatch, lineSumMismatch, headerTotalMismatch, adjustmentsNotAutoApplied, adjustmentCurrencyNotReconciled};
 }
 
 /// Safe proposed bill-item candidate derived from one bounded receipt OCR review line. It excludes bill-item IDs, split allocation input, raw OCR text, file bytes, storage/provider internals, payment details, and unrelated users.
@@ -10512,16 +10640,28 @@ class ReceiptOcrReviewApplyPreviewSummaryResponse {
     required this.lineCount,
     required this.linesWithProposedTotalCount,
     required this.linesMissingProposedTotalCount,
+    required this.adjustmentEvidenceCount,
+    required this.autoAppliedAdjustmentCount,
     required this.proposedLineTotalSumAmount,
+    required this.reconciledAdjustmentChargeTotalAmount,
+    required this.reconciledAdjustmentCreditTotalAmount,
     required this.expectedHeaderTotalAmount,
   });
 
   final int lineCount;
   final int linesWithProposedTotalCount;
   final int linesMissingProposedTotalCount;
+  /// Number of preserved non-item adjustment evidence entries.
+  final int adjustmentEvidenceCount;
+  /// Always zero in replace_draft_ocr_items; this contract does not authorize OCR-created bill adjustments.
+  final int autoAppliedAdjustmentCount;
   /// Sum of safely proposed line totals when at least one line total can be proposed.
   final String? proposedLineTotalSumAmount;
-  /// Header total derived as subtotal plus tax plus service charge minus discount when subtotal is available.
+  /// Sum of charge-direction adjustment evidence when every entry matches the review currency; null when cross-currency evidence prevents safe review-only reconciliation.
+  final String? reconciledAdjustmentChargeTotalAmount;
+  /// Sum of credit-direction adjustment evidence when every entry matches the review currency; null when cross-currency evidence prevents safe review-only reconciliation.
+  final String? reconciledAdjustmentCreditTotalAmount;
+  /// Review-only header total derived as subtotal plus tax plus service charge minus discount, plus same-currency charge evidence and minus same-currency credit evidence, when subtotal and safe reconciliation inputs are available.
   final String? expectedHeaderTotalAmount;
 
   factory ReceiptOcrReviewApplyPreviewSummaryResponse.fromJson(JsonObject json) {
@@ -10529,20 +10669,30 @@ class ReceiptOcrReviewApplyPreviewSummaryResponse {
       lineCount: (json["lineCount"] as num).toInt(),
       linesWithProposedTotalCount: (json["linesWithProposedTotalCount"] as num).toInt(),
       linesMissingProposedTotalCount: (json["linesMissingProposedTotalCount"] as num).toInt(),
+      adjustmentEvidenceCount: (json["adjustmentEvidenceCount"] as num).toInt(),
+      autoAppliedAdjustmentCount: (json["autoAppliedAdjustmentCount"] as num).toInt(),
       proposedLineTotalSumAmount: json["proposedLineTotalSumAmount"] == null ? null : json["proposedLineTotalSumAmount"] as String,
+      reconciledAdjustmentChargeTotalAmount: json["reconciledAdjustmentChargeTotalAmount"] == null ? null : json["reconciledAdjustmentChargeTotalAmount"] as String,
+      reconciledAdjustmentCreditTotalAmount: json["reconciledAdjustmentCreditTotalAmount"] == null ? null : json["reconciledAdjustmentCreditTotalAmount"] as String,
       expectedHeaderTotalAmount: json["expectedHeaderTotalAmount"] == null ? null : json["expectedHeaderTotalAmount"] as String,
     );
   }
 
   JsonObject toJson() {
     final proposedLineTotalSumAmountJsonValue = proposedLineTotalSumAmount;
+    final reconciledAdjustmentChargeTotalAmountJsonValue = reconciledAdjustmentChargeTotalAmount;
+    final reconciledAdjustmentCreditTotalAmountJsonValue = reconciledAdjustmentCreditTotalAmount;
     final expectedHeaderTotalAmountJsonValue = expectedHeaderTotalAmount;
 
     return {
       "lineCount": lineCount,
       "linesWithProposedTotalCount": linesWithProposedTotalCount,
       "linesMissingProposedTotalCount": linesMissingProposedTotalCount,
+      "adjustmentEvidenceCount": adjustmentEvidenceCount,
+      "autoAppliedAdjustmentCount": autoAppliedAdjustmentCount,
       "proposedLineTotalSumAmount": proposedLineTotalSumAmountJsonValue,
+      "reconciledAdjustmentChargeTotalAmount": reconciledAdjustmentChargeTotalAmountJsonValue,
+      "reconciledAdjustmentCreditTotalAmount": reconciledAdjustmentCreditTotalAmountJsonValue,
       "expectedHeaderTotalAmount": expectedHeaderTotalAmountJsonValue,
     };
   }
@@ -10566,6 +10716,7 @@ class ReceiptOcrReviewApplyPreviewResponse {
     required this.proposedDiscountAmount,
     required this.proposedGrandTotalAmount,
     required this.proposedLines,
+    required this.adjustmentEvidence,
     required this.summary,
     required this.canApply,
     required this.blockedReasons,
@@ -10593,6 +10744,8 @@ class ReceiptOcrReviewApplyPreviewResponse {
   final String? proposedDiscountAmount;
   final String? proposedGrandTotalAmount;
   final List<ReceiptOcrReviewApplyPreviewLineCandidateResponse> proposedLines;
+  /// Preserved non-item evidence shown separately from proposed merchandise lines. These entries are intentionally not auto-applied.
+  final List<ReceiptOcrReviewAdjustmentResponse> adjustmentEvidence;
   final ReceiptOcrReviewApplyPreviewSummaryResponse summary;
   /// True only when no blocking preview validation issue was derived.
   final bool canApply;
@@ -10620,6 +10773,7 @@ class ReceiptOcrReviewApplyPreviewResponse {
       proposedDiscountAmount: json["proposedDiscountAmount"] == null ? null : json["proposedDiscountAmount"] as String,
       proposedGrandTotalAmount: json["proposedGrandTotalAmount"] == null ? null : json["proposedGrandTotalAmount"] as String,
       proposedLines: (json["proposedLines"] as List<dynamic>).map((item) => ReceiptOcrReviewApplyPreviewLineCandidateResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      adjustmentEvidence: (json["adjustmentEvidence"] as List<dynamic>).map((item) => ReceiptOcrReviewAdjustmentResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
       summary: ReceiptOcrReviewApplyPreviewSummaryResponse.fromJson(JsonObject.from(json["summary"] as Map)),
       canApply: json["canApply"] as bool,
       blockedReasons: (json["blockedReasons"] as List<dynamic>).map((item) => item as String).toList(growable: false),
@@ -10656,6 +10810,7 @@ class ReceiptOcrReviewApplyPreviewResponse {
       "proposedDiscountAmount": proposedDiscountAmountJsonValue,
       "proposedGrandTotalAmount": proposedGrandTotalAmountJsonValue,
       "proposedLines": proposedLines.map((item) => item.toJson()).toList(growable: false),
+      "adjustmentEvidence": adjustmentEvidence.map((item) => item.toJson()).toList(growable: false),
       "summary": summary.toJson(),
       "canApply": canApply,
       "blockedReasons": blockedReasons,

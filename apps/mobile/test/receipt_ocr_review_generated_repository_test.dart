@@ -68,10 +68,19 @@ void main() {
       final route = ReceiptOcrReviewRoute.fromSummary(summary);
       final detail = await repository.getReview(route);
       expect(detail.lines.single.text, 'Milk');
+      expect(detail.adjustmentEvidence.single.kind, 'tip');
+      expect(detail.adjustmentEvidence.single.originalLabel, 'Driver gratuity');
+      expect(detail.adjustmentEvidence.single.direction, 'charge');
       expect(detail.updatedAtUtc, _updatedAtUtc);
 
       final preview = await repository.previewApply(route);
       expect(preview.canApply, isTrue);
+      expect(
+        preview.adjustmentEvidence.single.originalLabel,
+        'Driver gratuity',
+      );
+      expect(preview.summary.adjustmentEvidenceCount, 1);
+      expect(preview.summary.autoAppliedAdjustmentCount, 0);
       expect(preview.summary.expectedHeaderTotalAmount, '10.80');
 
       final result = await repository.applyReview(
@@ -132,6 +141,14 @@ void main() {
         expect(client.lastUpsertRequest?.currency, 'USD');
         expect(client.lastUpsertRequest?.lines?.single.text, 'Milk');
         expect(
+          client.lastUpsertRequest?.adjustmentEvidence?.single.kind,
+          'tip',
+        );
+        expect(
+          client.lastUpsertRequest?.adjustmentEvidence?.single.originalLabel,
+          'Driver gratuity',
+        );
+        expect(
           client.lastUpsertRequest?.toJson().keys,
           unorderedEquals([
             'status',
@@ -145,6 +162,7 @@ void main() {
             'discountAmount',
             'grandTotalAmount',
             'lines',
+            'adjustmentEvidence',
           ]),
         );
 
@@ -423,6 +441,19 @@ api.ReceiptOcrReviewResponse sampleApiReview() {
         updatedAtUtc: _updatedAtUtc,
       ),
     ],
+    adjustmentEvidence: [
+      api.ReceiptOcrReviewAdjustmentResponse(
+        id: _adjustmentId,
+        sortOrder: 0,
+        kind: api.ReceiptOcrReviewAdjustmentKindValues.tip,
+        originalLabel: 'Driver gratuity',
+        amount: '2.00',
+        currency: 'USD',
+        direction: api.ReceiptOcrReviewAdjustmentDirectionValues.charge,
+        createdAtUtc: _createdAtUtc,
+        updatedAtUtc: _updatedAtUtc,
+      ),
+    ],
     createdAtUtc: _createdAtUtc,
     updatedAtUtc: _updatedAtUtc,
   );
@@ -456,6 +487,15 @@ ReceiptOcrReviewSaveRequest sampleSaveRequest() {
         lineTotalAmount: '10.00',
       ),
     ],
+    adjustmentEvidence: const [
+      ReceiptOcrReviewAdjustmentSaveRequest(
+        kind: ReceiptOcrReviewAdjustmentKindValues.tip,
+        originalLabel: 'Driver gratuity',
+        amount: '2.00',
+        currency: 'USD',
+        direction: ReceiptOcrReviewAdjustmentDirectionValues.charge,
+      ),
+    ],
   );
 }
 
@@ -484,6 +524,19 @@ api.ReceiptOcrReviewApplyPreviewResponse sampleApiPreview() {
         unitPriceAmount: '10.00',
         lineTotalAmount: '10.00',
         proposedLineTotalAmount: '10.00',
+      ),
+    ],
+    adjustmentEvidence: [
+      api.ReceiptOcrReviewAdjustmentResponse(
+        id: _adjustmentId,
+        sortOrder: 0,
+        kind: api.ReceiptOcrReviewAdjustmentKindValues.tip,
+        originalLabel: 'Driver gratuity',
+        amount: '2.00',
+        currency: 'USD',
+        direction: api.ReceiptOcrReviewAdjustmentDirectionValues.charge,
+        createdAtUtc: _createdAtUtc,
+        updatedAtUtc: _updatedAtUtc,
       ),
     ],
     summary: sampleApiPreviewSummary(),
@@ -518,7 +571,11 @@ api.ReceiptOcrReviewApplyPreviewSummaryResponse sampleApiPreviewSummary() {
     lineCount: 1,
     linesWithProposedTotalCount: 1,
     linesMissingProposedTotalCount: 0,
+    adjustmentEvidenceCount: 1,
+    autoAppliedAdjustmentCount: 0,
     proposedLineTotalSumAmount: '10.00',
+    reconciledAdjustmentChargeTotalAmount: null,
+    reconciledAdjustmentCreditTotalAmount: null,
     expectedHeaderTotalAmount: '10.80',
   );
 }
@@ -529,6 +586,7 @@ const _billId = '22222222-2222-2222-2222-222222222222';
 const _groupId = '33333333-3333-3333-3333-333333333333';
 const _fileId = '44444444-4444-4444-4444-444444444444';
 const _lineId = '55555555-5555-5555-5555-555555555555';
+const _adjustmentId = '66666666-6666-6666-6666-666666666666';
 const _hiddenBody = {'detail': 'internal-detail'};
 final _createdAtUtc = DateTime.utc(2026, 5, 13, 12);
 final _updatedAtUtc = DateTime.utc(2026, 5, 13, 12, 30);

@@ -36,6 +36,7 @@ internal sealed record ReceiptOcrReviewResponse(
     string? DiscountAmount,
     string? GrandTotalAmount,
     IReadOnlyList<ReceiptOcrReviewLineResponse> Lines,
+    IReadOnlyList<ReceiptOcrReviewAdjustmentResponse> AdjustmentEvidence,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc)
 {
@@ -60,6 +61,11 @@ internal sealed record ReceiptOcrReviewResponse(
                 .OrderBy(line => line.SortOrder)
                 .Select(ReceiptOcrReviewLineResponse.From)
                 .ToArray(),
+            review.Adjustments
+                .OrderBy(adjustment => adjustment.SortOrder)
+                .ThenBy(adjustment => adjustment.Id)
+                .Select(ReceiptOcrReviewAdjustmentResponse.From)
+                .ToArray(),
             review.CreatedAtUtc,
             review.UpdatedAtUtc);
     }
@@ -67,6 +73,32 @@ internal sealed record ReceiptOcrReviewResponse(
     private static string? FormatAmount(decimal? amount)
     {
         return amount?.ToString("0.####", CultureInfo.InvariantCulture);
+    }
+}
+
+internal sealed record ReceiptOcrReviewAdjustmentResponse(
+    Guid Id,
+    int SortOrder,
+    string Kind,
+    string OriginalLabel,
+    string Amount,
+    string Currency,
+    string Direction,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset UpdatedAtUtc)
+{
+    public static ReceiptOcrReviewAdjustmentResponse From(ReceiptOcrReviewAdjustment adjustment)
+    {
+        return new ReceiptOcrReviewAdjustmentResponse(
+            adjustment.Id,
+            adjustment.SortOrder,
+            adjustment.Kind,
+            adjustment.OriginalLabel,
+            adjustment.Amount.ToString("0.####", CultureInfo.InvariantCulture),
+            adjustment.Currency,
+            adjustment.Direction,
+            adjustment.CreatedAtUtc,
+            adjustment.UpdatedAtUtc);
     }
 }
 
@@ -155,6 +187,7 @@ internal sealed record ReceiptOcrReviewApplyPreviewResponse(
     string? ProposedDiscountAmount,
     string? ProposedGrandTotalAmount,
     IReadOnlyList<ReceiptOcrReviewApplyPreviewLineCandidateResponse> ProposedLines,
+    IReadOnlyList<ReceiptOcrReviewAdjustmentResponse> AdjustmentEvidence,
     ReceiptOcrReviewApplyPreviewSummaryResponse Summary,
     bool CanApply,
     IReadOnlyList<string> BlockedReasons,
@@ -173,6 +206,18 @@ internal sealed record ReceiptOcrReviewApplyPreviewResponse(
             .ToArray();
         var blockedReasons = new List<string>();
         var warnings = new List<string>();
+
+        if (review.Adjustments.Count > 0)
+        {
+            AddWarning(warnings, ReceiptOcrReviewApplyPreviewIssueCodes.AdjustmentsNotAutoApplied);
+            if (review.Adjustments.Any(adjustment => !string.Equals(
+                    adjustment.Currency,
+                    review.Currency,
+                    StringComparison.Ordinal)))
+            {
+                AddWarning(warnings, ReceiptOcrReviewApplyPreviewIssueCodes.AdjustmentCurrencyNotReconciled);
+            }
+        }
 
         if (!ReceiptOcrReviewStatuses.IsSupported(review.Status))
         {
@@ -225,9 +270,14 @@ internal sealed record ReceiptOcrReviewApplyPreviewResponse(
             }
         }
 
-        if (TryCalculateExpectedHeaderTotal(review, out var expectedHeaderTotal)
-            && review.GrandTotalAmount.HasValue
-            && NormalizeAmount(expectedHeaderTotal) != NormalizeAmount(review.GrandTotalAmount.Value))
+        var hasExpectedHeaderTotal = TryCalculateExpectedHeaderTotal(
+            review,
+            out var expectedHeaderTotal,
+            out var expectedHeaderTotalOutOfRange);
+        if (expectedHeaderTotalOutOfRange
+            || (hasExpectedHeaderTotal
+                && review.GrandTotalAmount.HasValue
+                && NormalizeAmount(expectedHeaderTotal) != NormalizeAmount(review.GrandTotalAmount.Value)))
         {
             AddBlockedIssue(blockedReasons, warnings, ReceiptOcrReviewApplyPreviewIssueCodes.HeaderTotalMismatch);
         }
@@ -235,13 +285,13 @@ internal sealed record ReceiptOcrReviewApplyPreviewResponse(
         if (TryCalculateProposedLineTotalSum(orderedLines, out var proposedLineTotalSum)
             && orderedLines.Length > 0)
         {
-            var comparisonAmount = review.SubtotalAmount
-                ?? (!review.TaxAmount.HasValue
-                    && !review.ServiceChargeAmount.HasValue
-                    && !review.DiscountAmount.HasValue
-                        ? review.GrandTotalAmount
-                        : null);
-            if (comparisonAmount.HasValue && NormalizeAmount(proposedLineTotalSum) != NormalizeAmount(comparisonAmount.Value))
+            var comparisonAmount = GetLineSumComparisonAmount(review, out var comparisonAmountOutOfRange);
+            if (comparisonAmountOutOfRange)
+            {
+                AddBlockedIssue(blockedReasons, warnings, ReceiptOcrReviewApplyPreviewIssueCodes.LineSumMismatch);
+            }
+            else if (comparisonAmount.HasValue
+                && NormalizeAmount(proposedLineTotalSum) != NormalizeAmount(comparisonAmount.Value))
             {
                 AddWarning(warnings, ReceiptOcrReviewApplyPreviewIssueCodes.LineSumMismatch);
             }
@@ -264,6 +314,11 @@ internal sealed record ReceiptOcrReviewApplyPreviewResponse(
             FormatAmount(review.DiscountAmount),
             FormatAmount(review.GrandTotalAmount),
             proposedLines,
+            review.Adjustments
+                .OrderBy(adjustment => adjustment.SortOrder)
+                .ThenBy(adjustment => adjustment.Id)
+                .Select(ReceiptOcrReviewAdjustmentResponse.From)
+                .ToArray(),
             summary,
             blockedReasons.Count == 0,
             blockedReasons,
@@ -286,9 +341,13 @@ internal sealed record ReceiptOcrReviewApplyPreviewResponse(
         }
     }
 
-    private static bool TryCalculateExpectedHeaderTotal(ReceiptOcrReview review, out decimal expectedHeaderTotal)
+    private static bool TryCalculateExpectedHeaderTotal(
+        ReceiptOcrReview review,
+        out decimal expectedHeaderTotal,
+        out bool outOfRange)
     {
         expectedHeaderTotal = 0m;
+        outOfRange = false;
         if (!review.SubtotalAmount.HasValue)
         {
             return false;
@@ -298,14 +357,67 @@ internal sealed record ReceiptOcrReviewApplyPreviewResponse(
             + (review.TaxAmount ?? 0m)
             + (review.ServiceChargeAmount ?? 0m)
             - (review.DiscountAmount ?? 0m);
+        foreach (var adjustment in review.Adjustments)
+        {
+            if (!string.Equals(adjustment.Currency, review.Currency, StringComparison.Ordinal))
+            {
+                expectedHeaderTotal = 0m;
+                return false;
+            }
+
+            expectedHeaderTotal += adjustment.Direction is ReceiptOcrReviewAdjustmentDirections.Credit
+                ? -adjustment.Amount
+                : adjustment.Amount;
+        }
         if (expectedHeaderTotal < 0m || expectedHeaderTotal > ReceiptOcrReviewConstraints.MoneyAmountMaxValue)
         {
             expectedHeaderTotal = 0m;
+            outOfRange = true;
             return false;
         }
 
         expectedHeaderTotal = NormalizeAmount(expectedHeaderTotal);
         return true;
+    }
+
+    private static decimal? GetLineSumComparisonAmount(
+        ReceiptOcrReview review,
+        out bool outOfRange)
+    {
+        outOfRange = false;
+        if (review.SubtotalAmount.HasValue)
+        {
+            return review.SubtotalAmount.Value;
+        }
+
+        if (review.TaxAmount.HasValue
+            || review.ServiceChargeAmount.HasValue
+            || review.DiscountAmount.HasValue
+            || !review.GrandTotalAmount.HasValue)
+        {
+            return null;
+        }
+
+        var merchandiseAmount = review.GrandTotalAmount.Value;
+        foreach (var adjustment in review.Adjustments)
+        {
+            if (!string.Equals(adjustment.Currency, review.Currency, StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            merchandiseAmount += adjustment.Direction is ReceiptOcrReviewAdjustmentDirections.Credit
+                ? adjustment.Amount
+                : -adjustment.Amount;
+        }
+
+        if (merchandiseAmount is < 0m or > ReceiptOcrReviewConstraints.MoneyAmountMaxValue)
+        {
+            outOfRange = true;
+            return null;
+        }
+
+        return NormalizeAmount(merchandiseAmount);
     }
 
     private static bool TryCalculateProposedLineTotalSum(
@@ -470,7 +582,11 @@ internal sealed record ReceiptOcrReviewApplyPreviewSummaryResponse(
     int LineCount,
     int LinesWithProposedTotalCount,
     int LinesMissingProposedTotalCount,
+    int AdjustmentEvidenceCount,
+    int AutoAppliedAdjustmentCount,
     string? ProposedLineTotalSumAmount,
+    string? ReconciledAdjustmentChargeTotalAmount,
+    string? ReconciledAdjustmentCreditTotalAmount,
     string? ExpectedHeaderTotalAmount)
 {
     public static ReceiptOcrReviewApplyPreviewSummaryResponse From(
@@ -490,12 +606,29 @@ internal sealed record ReceiptOcrReviewApplyPreviewSummaryResponse(
             proposedLineTotalSum += proposedLineTotal;
         }
 
+        var canReconcileAdjustments = review.Adjustments.All(adjustment => string.Equals(
+            adjustment.Currency,
+            review.Currency,
+            StringComparison.Ordinal));
+        var reconciledAdjustments = canReconcileAdjustments
+            ? review.Adjustments.ToArray()
+            : [];
+        var adjustmentChargeTotal = reconciledAdjustments
+            .Where(adjustment => adjustment.Direction is ReceiptOcrReviewAdjustmentDirections.Charge)
+            .Sum(adjustment => adjustment.Amount);
+        var adjustmentCreditTotal = reconciledAdjustments
+            .Where(adjustment => adjustment.Direction is ReceiptOcrReviewAdjustmentDirections.Credit)
+            .Sum(adjustment => adjustment.Amount);
         var expectedHeaderTotalAmount = CalculateExpectedHeaderTotal(review);
         return new ReceiptOcrReviewApplyPreviewSummaryResponse(
             orderedLines.Count,
             linesWithTotal,
             orderedLines.Count - linesWithTotal,
+            review.Adjustments.Count,
+            0,
             linesWithTotal > 0 ? FormatAmount(NormalizeAmount(proposedLineTotalSum)) : null,
+            canReconcileAdjustments ? FormatAmount(NormalizeAmount(adjustmentChargeTotal)) : null,
+            canReconcileAdjustments ? FormatAmount(NormalizeAmount(adjustmentCreditTotal)) : null,
             expectedHeaderTotalAmount.HasValue ? FormatAmount(expectedHeaderTotalAmount.Value) : null);
     }
 
@@ -510,6 +643,17 @@ internal sealed record ReceiptOcrReviewApplyPreviewSummaryResponse(
             + (review.TaxAmount ?? 0m)
             + (review.ServiceChargeAmount ?? 0m)
             - (review.DiscountAmount ?? 0m);
+        foreach (var adjustment in review.Adjustments)
+        {
+            if (!string.Equals(adjustment.Currency, review.Currency, StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            expectedHeaderTotal += adjustment.Direction is ReceiptOcrReviewAdjustmentDirections.Credit
+                ? -adjustment.Amount
+                : adjustment.Amount;
+        }
         return expectedHeaderTotal is < 0m or > ReceiptOcrReviewConstraints.MoneyAmountMaxValue
             ? null
             : NormalizeAmount(expectedHeaderTotal);
