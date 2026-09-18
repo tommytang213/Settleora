@@ -353,6 +353,18 @@ Total $145.00''',
         currency: 'KWD',
         values: ['1.234', '2.345', '3.579', '0.000', '3.579'],
       ),
+      (
+        text:
+            'Kuwait Cafe\nCoffee KWD 1,234\nCake KWD 2,345\nSubtotal KWD 3,579\nTax KWD 0,000\nTotal KWD 3,579',
+        currency: 'KWD',
+        values: ['1.234', '2.345', '3.579', '0.000', '3.579'],
+      ),
+      (
+        text:
+            'Manama Cafe\nCoffee BHD 1,234\nCake BHD 2,345\nSubtotal BHD 3,579\nTax BHD 0,000\nTotal BHD 3,579',
+        currency: 'BHD',
+        values: ['1.234', '2.345', '3.579', '0.000', '3.579'],
+      ),
     ];
 
     for (final fixture in cases) {
@@ -385,7 +397,7 @@ Total USD 40.99
     expect(preview.items.map((item) => item.description), ['Burger', 'Beer']);
   });
 
-  test('parser keeps charged tip items and excludes suggested tip options', () {
+  test('parser separates charged tips and excludes suggested tip options', () {
     const parser = ReceiptOcrParser();
 
     final charged = parser.parse('''
@@ -403,12 +415,8 @@ Suggested Tip 20% USD 4.36
 Total USD 20.00
 ''');
 
-    expect(charged.tip, isNull);
-    expect(charged.items.map((item) => item.description), [
-      'Fare',
-      'Toll',
-      'Tip',
-    ]);
+    expect(charged.tip, '5.00');
+    expect(charged.items.map((item) => item.description), ['Fare', 'Toll']);
     expect(suggested.items.map((item) => item.description), ['Pasta']);
   });
 

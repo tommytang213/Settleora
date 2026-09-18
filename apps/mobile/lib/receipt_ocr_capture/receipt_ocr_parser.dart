@@ -744,8 +744,14 @@ String? _normalizeAmount(String value, {String? currency}) {
     final unsigned = normalized.startsWith('-')
         ? normalized.substring(1)
         : normalized;
-    if (RegExp(r'^\d{1,3}(?:,\d{2})*,\d{3}$').hasMatch(unsigned) ||
-        RegExp(r'^\d{1,3}(?:,\d{3})+$').hasMatch(unsigned)) {
+    final currencyScale = currency == null
+        ? null
+        : _currencyMinorUnitDigits(currency);
+    final looksGrouped =
+        RegExp(r'^\d{1,3}(?:,\d{2})*,\d{3}$').hasMatch(unsigned) ||
+        RegExp(r'^\d{1,3}(?:,\d{3})+$').hasMatch(unsigned);
+    final singleThreeDigitSeparator = ','.allMatches(unsigned).length == 1;
+    if (looksGrouped && !(currencyScale == 3 && singleThreeDigitSeparator)) {
       normalized = normalized.replaceAll(',', '');
     } else if (RegExp(r',\d{1,3}$').hasMatch(normalized)) {
       normalized = normalized.replaceAll(',', '.');
@@ -981,9 +987,10 @@ bool _hasServiceChargeLabel(String line, String normalized) {
 }
 
 bool _hasActualTipChargeLabel(String line, String normalized) {
+  if (_isSuggestedTipLine(normalized)) return false;
   return _hasEnglishReceiptLabel(
     normalized,
-    RegExp(r'\bactual\s+tip\b', caseSensitive: false),
+    RegExp(r'\b(?:actual\s+)?(?:tip|gratuity)\b', caseSensitive: false),
   );
 }
 
