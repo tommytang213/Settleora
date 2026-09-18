@@ -577,8 +577,8 @@ internal sealed record ReceiptOcrReviewApplyPreviewSummaryResponse(
             review.Adjustments.Count,
             0,
             linesWithTotal > 0 ? FormatAmount(NormalizeAmount(proposedLineTotalSum)) : null,
-            reconciledAdjustments.Length > 0 ? FormatAmount(NormalizeAmount(adjustmentChargeTotal)) : null,
-            reconciledAdjustments.Length > 0 ? FormatAmount(NormalizeAmount(adjustmentCreditTotal)) : null,
+            canReconcileAdjustments ? FormatAmount(NormalizeAmount(adjustmentChargeTotal)) : null,
+            canReconcileAdjustments ? FormatAmount(NormalizeAmount(adjustmentCreditTotal)) : null,
             expectedHeaderTotalAmount.HasValue ? FormatAmount(expectedHeaderTotalAmount.Value) : null);
     }
 

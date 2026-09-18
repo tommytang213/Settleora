@@ -705,6 +705,8 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         Assert.Equal(2, previewPayload.Summary.LinesWithProposedTotalCount);
         Assert.Equal(0, previewPayload.Summary.LinesMissingProposedTotalCount);
         Assert.Equal("10.25", previewPayload.Summary.ProposedLineTotalSumAmount);
+        Assert.Equal("0", previewPayload.Summary.ReconciledAdjustmentChargeTotalAmount);
+        Assert.Equal("0", previewPayload.Summary.ReconciledAdjustmentCreditTotalAmount);
         Assert.Equal("11.5", previewPayload.Summary.ExpectedHeaderTotalAmount);
 
         var reviewAfterPreview = await ReadReceiptOcrReviewAsync(testFactory, savedPayload.Id);

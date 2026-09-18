@@ -560,6 +560,15 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(OutlinedButton, 'Preview changes'));
       await tester.pumpAndSettle();
+      expect(find.text('Header reconciliation'), findsOneWidget);
+      expect(find.text('Evidence charges'), findsOneWidget);
+      expect(find.text('Evidence credits'), findsOneWidget);
+      expect(
+        find.text(
+          'Unavailable for mixed-currency or incomplete header evidence',
+        ),
+        findsNothing,
+      );
       await tester.tap(find.widgetWithText(FilledButton, 'Apply to draft'));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Apply'));
