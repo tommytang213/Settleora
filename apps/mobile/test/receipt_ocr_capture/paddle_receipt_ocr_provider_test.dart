@@ -7,9 +7,9 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_provider.dart';
 void main() {
   tearDown(() => debugDefaultTargetPlatformOverride = null);
 
-  test('Android defaults to the accepted Paddle provider', () {
+  test('Android retains the accepted provider until native evidence lands', () {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
-    expect(defaultMobileReceiptOcrProvider(), isA<PaddleReceiptOcrProvider>());
+    expect(defaultMobileReceiptOcrProvider(), isA<MlKitReceiptOcrProvider>());
   });
 
   test('non-Android platforms retain their accepted provider', () {
