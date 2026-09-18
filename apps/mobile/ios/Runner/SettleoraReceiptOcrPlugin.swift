@@ -30,7 +30,10 @@ final class SettleoraReceiptOcrPlugin: NSObject, FlutterPlugin {
         return
       }
       do {
-        result(FlutterStandardTypedData(bytes: try Data(contentsOf: FlutterAssetResolver.url(path))))
+        let fixture = Bundle.main.bundleURL
+          .appendingPathComponent("receipt_ocr_acceptance", isDirectory: true)
+          .appendingPathComponent(path)
+        result(FlutterStandardTypedData(bytes: try Data(contentsOf: fixture)))
       } catch {
         result(FlutterError(code: "fixture_unavailable", message: "OCR acceptance fixture unavailable", details: nil))
       }

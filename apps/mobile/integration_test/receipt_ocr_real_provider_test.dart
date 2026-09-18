@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -10,7 +11,7 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_provider.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
-  const fixtures = _AndroidAcceptanceFixtures();
+  const fixtures = _NativeAcceptanceFixtures();
   const provider = PaddleReceiptOcrProvider();
   const artifactProcessor = ReceiptImageArtifactProcessor();
 
@@ -126,7 +127,9 @@ void main() {
       expect(preview.blocks, isNotEmpty, reason: '$fixtureId OCR evidence');
       expect(
         preview.runEvidence?.runtime,
-        'onnxruntime-android:1.21.1:cpu',
+    Platform.isIOS
+        ? 'onnxruntime-objc:1.24.3:cpu'
+        : 'onnxruntime-android:1.21.1:cpu',
         reason: '$fixtureId runtime evidence',
       );
     }
@@ -231,8 +234,8 @@ class _ExpectedItem {
   final String lineTotal;
 }
 
-class _AndroidAcceptanceFixtures {
-  const _AndroidAcceptanceFixtures();
+class _NativeAcceptanceFixtures {
+  const _NativeAcceptanceFixtures();
 
   static const _channel = MethodChannel(
     'com.settleora.mobile/receipt_ocr_acceptance',

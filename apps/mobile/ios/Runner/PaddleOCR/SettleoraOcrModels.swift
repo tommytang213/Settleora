@@ -89,6 +89,13 @@ enum FlutterAssetResolver {
     if let path = Bundle.main.path(forResource: key, ofType: nil) {
       return URL(fileURLWithPath: path)
     }
+    let packagedRelativePath = asset.hasPrefix("assets/")
+      ? String(asset.dropFirst("assets/".count))
+      : asset
+    let packaged = Bundle.main.bundleURL.appendingPathComponent(packagedRelativePath)
+    if FileManager.default.fileExists(atPath: packaged.path) {
+      return packaged
+    }
     let appFramework = Bundle.main.bundleURL
       .appendingPathComponent("Frameworks/App.framework")
       .appendingPathComponent(key)

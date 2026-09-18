@@ -26,6 +26,8 @@
 		B10000000000000000000016 /* OpenCVImageBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000016 /* OpenCVImageBridge.mm */; };
 		B10000000000000000000017 /* PDBPolygonOffsetBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000017 /* PDBPolygonOffsetBridge.mm */; };
 		B10000000000000000000018 /* clipper.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000018 /* clipper.cpp */; };
+		B10000000000000000000019 /* ReceiptDocumentOrientation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000019 /* ReceiptDocumentOrientation.swift */; };
+		B10000000000000000000020 /* receipt_ocr_models in Resources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000020 /* receipt_ocr_models */; };
 		1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */; };
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
 		3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */; };
@@ -80,6 +82,8 @@
 		B20000000000000000000016 /* OpenCVImageBridge.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = "PaddleOCR/Engine/OpenCVImageBridge.mm"; sourceTree = "<group>"; };
 		B20000000000000000000017 /* PDBPolygonOffsetBridge.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = "PaddleOCR/Engine/PDBPolygonOffsetBridge.mm"; sourceTree = "<group>"; };
 		B20000000000000000000018 /* clipper.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = "PaddleOCR/ThirdParty/Clipper1/clipper.cpp"; sourceTree = "<group>"; };
+		B20000000000000000000019 /* ReceiptDocumentOrientation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PaddleOCR/ReceiptDocumentOrientation.swift"; sourceTree = "<group>"; };
+		B20000000000000000000020 /* receipt_ocr_models */ = {isa = PBXFileReference; lastKnownFileType = folder; name = receipt_ocr_models; path = ../../assets/receipt_ocr_models; sourceTree = "<group>"; };
 		1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GeneratedPluginRegistrant.h; sourceTree = "<group>"; };
 		1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GeneratedPluginRegistrant.m; sourceTree = "<group>"; };
 		331C807B294A618700263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
@@ -170,6 +174,8 @@
 				B20000000000000000000016 /* OpenCVImageBridge.mm */,
 				B20000000000000000000017 /* PDBPolygonOffsetBridge.mm */,
 				B20000000000000000000018 /* clipper.cpp */,
+				B20000000000000000000019 /* ReceiptDocumentOrientation.swift */,
+				B20000000000000000000020 /* receipt_ocr_models */,
 				97C146FA1CF9000F007C117D /* Main.storyboard */,
 				97C146FD1CF9000F007C117D /* Assets.xcassets */,
 				97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */,
@@ -214,6 +220,7 @@
 				97C146EC1CF9000F007C117D /* Resources */,
 				9705A1C41CF9048500538489 /* Embed Frameworks */,
 				3B06AD1E1E4923F5004D2608 /* Thin Binary */,
+				B30000000000000000000000 /* Copy OCR acceptance fixtures */,
 			);
 			buildRules = (
 			);
@@ -280,6 +287,7 @@
 				97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */,
 				97C146FC1CF9000F007C117D /* Main.storyboard in Resources */,
 				A11680012026091009450001 /* InfoPlist.strings in Resources */,
+				B10000000000000000000020 /* receipt_ocr_models in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -317,6 +325,22 @@
 			shellPath = /bin/sh;
 			shellScript = "/bin/sh \"$FLUTTER_ROOT/packages/flutter_tools/bin/xcode_backend.sh\" build";
 		};
+		B30000000000000000000000 /* Copy OCR acceptance fixtures */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"${SRCROOT}/../test/fixtures/receipt_ocr",
+			);
+			name = "Copy OCR acceptance fixtures";
+			outputPaths = (
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/receipt_ocr_acceptance",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if [ \"$CONFIGURATION\" = \"Debug\" ]; then\n  /usr/bin/ditto \"$SRCROOT/../test/fixtures/receipt_ocr\" \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/receipt_ocr_acceptance\"\nfi\n";
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -351,6 +375,7 @@
 				B10000000000000000000016 /* OpenCVImageBridge.mm in Sources */,
 				B10000000000000000000017 /* PDBPolygonOffsetBridge.mm in Sources */,
 				B10000000000000000000018 /* clipper.cpp in Sources */,
+				B10000000000000000000019 /* ReceiptDocumentOrientation.swift in Sources */,
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
 				7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */,

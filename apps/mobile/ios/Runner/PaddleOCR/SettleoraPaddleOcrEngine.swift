@@ -143,38 +143,54 @@ final class SettleoraPaddleOcrEngine {
       throw SettleoraOcrError.invalidCatalog
     }
     let recognitionStart = CFAbsoluteTimeGetCurrent()
-    var candidates = try await recognize(common, crops: crops).map { [$0] }
+    var uprightCandidates = try await recognize(common, crops: crops).map { [$0] }
     let rotatedCrops = try crops.map(rotate180)
-    let rotatedCommon = try await recognize(common, crops: rotatedCrops)
-    let rotateDocument = ReceiptOrientationSelector.shouldRotate180(
-      upright: candidates.compactMap(\.first),
-      rotated: rotatedCommon
-    )
-    let selectedCrops = rotateDocument ? rotatedCrops : crops
-    if rotateDocument {
-      for index in candidates.indices { candidates[index] = [rotatedCommon[index]] }
-    }
+    var rotatedCandidates = try await recognize(common, crops: rotatedCrops).map { [$0] }
 
-    // Correctness-first bounded routing: every verified specialist sees every
-    // detected crop, so a common-model hallucination cannot suppress Arabic,
-    // Thai, or another mandatory Global Core script.
+    // The common recognizer cannot establish orientation for specialist-only
+    // scripts. Probe the bounded catalog-pinned specialist set in both
+    // orientations before choosing the document direction.
     for recognizer in recognizers where recognizer.spec != common.spec {
-      let results = try await recognize(recognizer, crops: selectedCrops)
-      for index in results.indices { candidates[index].append(results[index]) }
+      let upright = try await recognize(recognizer, crops: crops)
+      let rotated = try await recognize(recognizer, crops: rotatedCrops)
+      for index in crops.indices {
+        uprightCandidates[index].append(upright[index])
+        rotatedCandidates[index].append(rotated[index])
+      }
     }
+    let uprightOrientationCandidates = uprightCandidates.map {
+      ScriptRouteSelector.select($0) ?? $0[0]
+    }
+    let rotatedOrientationCandidates = rotatedCandidates.map {
+      ScriptRouteSelector.select($0) ?? $0[0]
+    }
+    let rotateDocument = ReceiptOrientationSelector.shouldRotate180(
+      upright: uprightOrientationCandidates,
+      rotated: rotatedOrientationCandidates
+    )
+    let candidates = rotateDocument ? rotatedCandidates : uprightCandidates
+    let documentOrientation = ReceiptDocumentOrientation.select(
+      lineDimensions: boxes.map { box in
+        let xs = box.points.map { Double($0[0]) }
+        let ys = box.points.map { Double($0[1]) }
+        return (
+          width: (xs.max() ?? 0) - (xs.min() ?? 0),
+          height: (ys.max() ?? 0) - (ys.min() ?? 0)
+        )
+      },
+      reverseRecognition: rotateDocument
+    )
 
     var blocks: [SettleoraOcrBlock] = []
     for index in candidates.indices {
       guard let accepted = ScriptRouteSelector.select(candidates[index]),
             accepted.confidence >= 0.1 else { continue }
       let points = boxes[index].points.map { point -> SettleoraOcrPoint in
-        if rotateDocument {
-          return SettleoraOcrPoint(
-            x: Double(max(0, min(image.width - 1, image.width - 1 - Int(point[0])))),
-            y: Double(max(0, min(image.height - 1, image.height - 1 - Int(point[1]))))
-          )
-        }
-        return SettleoraOcrPoint(x: Double(point[0]), y: Double(point[1]))
+        documentOrientation.transform(
+          SettleoraOcrPoint(x: Double(point[0]), y: Double(point[1])),
+          sourceWidth: image.width,
+          sourceHeight: image.height
+        )
       }
       blocks.append(SettleoraOcrBlock(
         text: accepted.text,
