@@ -623,6 +623,13 @@ String _normalizeOcrLine(String value) {
     );
   }
   normalized = normalized.replaceAllMapped(
+    RegExp(
+      '([+-])\\s*($_currencyTokenPattern)\\s*(?=\\d)',
+      caseSensitive: false,
+    ),
+    (match) => '${match.group(2)} ${match.group(1)}',
+  );
+  normalized = normalized.replaceAllMapped(
     RegExp(r'(?<=\d)\u060c(?=\d{1,2}(?:\D|$))'),
     (_) => '.',
   );
@@ -723,7 +730,8 @@ final _currencyTokenPattern = [
   'د.إ',
   'دإ',
 ].map(RegExp.escape).join('|');
-const _amountTokenPattern = r"-?\d+(?:[.,'’]\d+)*";
+const _amountTokenPattern =
+    r"-?(?:\d{1,3}(?:[ \u00a0]\d{3})+(?:[.,]\d{1,3})?|\d+(?:[.,'’]\d+)*)";
 
 String? _supportedCurrencyCode(String? value) {
   final normalized = settleoraNormalizeCurrencyCode(value);
@@ -900,7 +908,7 @@ String _explicitCodeAmountPattern(String code) {
   }
   // A bare integer after a three-letter token is too weak: product/marketing
   // text such as `TRY 2` must not outrank an actual monetary symbol.
-  return r"-?\d+(?:[.,'’]\d+)+";
+  return r"-?(?:\d{1,3}(?:[ \u00a0]\d{3})+(?:[.,]\d{1,3})?|\d+(?:[.,'’]\d+)+)";
 }
 
 bool _hasWholeUnitCurrencyContext(String line, String code) {
@@ -964,6 +972,10 @@ bool _isAdministrativeLine(String line) {
 
 bool _isPaymentMetadataLine(String line) {
   final normalized = line.toLowerCase().trim();
+  if (RegExp(r'^(?:payment|tender)\b').hasMatch(normalized) &&
+      _lineHasAmount(line)) {
+    return true;
+  }
   if (RegExp(
     r'^(cash|change|card|visa|mastercard|master card|amex|american express)\b',
   ).hasMatch(normalized)) {
@@ -973,7 +985,7 @@ bool _isPaymentMetadataLine(String line) {
         ).hasMatch(normalized);
   }
   if (RegExp(
-    r'^(?:approval|auth(?:orization)?)\s+[a-z0-9-]*\d[a-z0-9-]*\b',
+    r'^(?:approval|auth(?:orization)?)\s*[:#=-]?\s*[a-z0-9-]*\d[a-z0-9-]*\b',
   ).hasMatch(normalized)) {
     return true;
   }
@@ -1267,7 +1279,7 @@ bool _hasShippingLabel(String line, String normalized) {
   return _hasEnglishReceiptLabel(
     normalized,
     RegExp(
-      r'\b(shipping|delivery)(?:\s+(fee|charge)|\s*(?:(?:&|and)\s*)?handling)?\b',
+      r'\b(shipping|delivery)(?:\s+(?:fee|charge)|\s*(?:(?:&|and)\s*)?handling(?:\s+(?:fee|charge))?)?\b',
       caseSensitive: false,
     ),
   );

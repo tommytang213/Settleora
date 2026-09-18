@@ -77,7 +77,7 @@ Card 25.50
     expect(preview.total, '25.50');
     expect(preview.items.map((item) => item.description), ['Pasta', 'Coffee']);
     expect(preview.reviewHints, [
-      'Detected tax/service/discount may explain why item totals differ from the grand total.',
+      'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
     ]);
   });
 
@@ -161,6 +161,15 @@ Total USD -74.99
     expect(preview.items.last.description, 'Restocking Fee');
     expect(preview.items.last.lineTotal, '5.00');
     expect(preview.total, '-74.99');
+
+    final symbolPrefixed = parser.parse(r'''
+Fashion Outlet Returns
+Returned Jacket -$79.99
+Total -$79.99
+''');
+    expect(symbolPrefixed.items.single.description, 'Returned Jacket');
+    expect(symbolPrefixed.items.single.lineTotal, '-79.99');
+    expect(symbolPrefixed.total, '-79.99');
   });
 
   test('parser leaves symbol-only currency blank for review', () {
@@ -477,6 +486,15 @@ Total USD 27.00
 ''');
     expect(handling.shipping, '4.50');
     expect(handling.items.map((item) => item.description), ['Burger']);
+
+    final combined = parser.parse('''
+Harbor Grill
+Burger USD 18.00
+Shipping & Handling Fee USD 2.00
+Total USD 20.00
+''');
+    expect(combined.shipping, '2.00');
+    expect(combined.items.map((item) => item.description), ['Burger']);
   });
 
   test('parser treats a city ZIP row as metadata only beside an address', () {
@@ -565,6 +583,38 @@ Total USD 5.00
 
     expect(preview.items.map((item) => item.description), ['Coffee']);
     expect(preview.total, '5.00');
+
+    for (final metadata in const [
+      'Approval: 123456',
+      'Auth: 123456',
+      'Payment USD 5.00',
+      'Tender USD 5.00',
+    ]) {
+      final punctuated = parser.parse('''
+Corner Cafe
+Coffee USD 5.00
+$metadata
+Total USD 5.00
+''');
+      expect(punctuated.items.map((item) => item.description), [
+        'Coffee',
+      ], reason: metadata);
+    }
+  });
+
+  test('parser preserves regular and nonbreaking space grouped amounts', () {
+    const parser = ReceiptOcrParser();
+    for (final separator in const [' ', '\u00a0']) {
+      final preview = parser.parse('''
+Paris Cafe
+Coffee EUR 1${separator}234,50
+Total EUR 1${separator}234,50
+''');
+      expect(preview.currency, 'EUR', reason: separator.codeUnits.toString());
+      expect(preview.items.single.description, 'Coffee');
+      expect(preview.items.single.lineTotal, '1234.50');
+      expect(preview.total, '1234.50');
+    }
   });
 
   test('parser joins a wrapped description to its following priced line', () {
@@ -1156,7 +1206,7 @@ Total HKD 24.00
       );
 
       expect(preview.reviewHints, [
-        'Detected tax/service/discount may explain why item totals differ from the grand total.',
+        'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
       ]);
       expect(
         preview.reviewHints,

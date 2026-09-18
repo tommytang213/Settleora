@@ -138,7 +138,7 @@ List<String> _receiptOcrReviewHints(ReceiptOcrPreview preview) {
         _hasReceiptOcrReferenceAdjustment(preview) &&
         !_receiptOcrAmountsClose(itemTotal, total)) {
       return const [
-        'Detected tax/service/discount may explain why item totals differ from the grand total.',
+        'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
       ];
     }
 
@@ -153,7 +153,7 @@ List<String> _receiptOcrReviewHints(ReceiptOcrPreview preview) {
   if (_hasReceiptOcrReferenceAdjustment(preview)) {
     if (!_receiptOcrAmountsClose(itemTotal, total)) {
       return const [
-        'Detected tax/service/discount may explain why item totals differ from the grand total.',
+        'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
       ];
     }
     return const [];
