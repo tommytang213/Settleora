@@ -1156,6 +1156,52 @@ void main() {
       },
     );
 
+    testWidgets('changing adjustment kind to credit refreshes direction', (
+      tester,
+    ) async {
+      await useLargeSurface(tester);
+      final route = sampleRoute();
+      final repository = FakeReceiptOcrReviewRepository(
+        reviewResponse: sampleReview(route, adjustments: sampleAdjustments()),
+      );
+
+      await pumpDetail(tester, repository: repository, route: route);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithIcon(IconButton, Icons.edit_outlined));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('receipt-review-edit-adjustment-kind-0')),
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('receipt-review-edit-adjustment-kind-0')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('credit').last);
+      await tester.pumpAndSettle();
+
+      final directionFinder = find.byKey(
+        const ValueKey('receipt-review-edit-adjustment-direction-0-credit'),
+      );
+      expect(directionFinder, findsOneWidget);
+      expect(
+        tester
+            .widget<DropdownButtonFormField<String>>(directionFinder)
+            .initialValue,
+        ReceiptOcrReviewAdjustmentDirectionValues.credit,
+      );
+
+      await tester.ensureVisible(
+        find.byKey(const Key('receipt-review-edit-save')),
+      );
+      await tester.tap(find.byKey(const Key('receipt-review-edit-save')));
+      await tester.pumpAndSettle();
+
+      expect(repository.saveCalls, 1);
+      final saved = repository.lastSaveRequest!.adjustmentEvidence.first;
+      expect(saved.kind, ReceiptOcrReviewAdjustmentKindValues.credit);
+      expect(saved.direction, ReceiptOcrReviewAdjustmentDirectionValues.credit);
+    });
+
     testWidgets('search filters loaded detail line candidates', (tester) async {
       await useLargeSurface(tester);
       final route = sampleRoute();

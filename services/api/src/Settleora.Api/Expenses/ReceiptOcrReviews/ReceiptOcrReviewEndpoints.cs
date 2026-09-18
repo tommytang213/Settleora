@@ -406,6 +406,14 @@ internal static class ReceiptOcrReviewEndpoints
             .SingleOrDefaultAsync(cancellationToken);
 
         var created = review is null;
+        if (created && !submittedReview.HasMeaningfulPayload)
+        {
+            return InvalidReceiptOcrReview(new Dictionary<string, string[]>(StringComparer.Ordinal)
+            {
+                ["body"] = ["At least one reviewed OCR field or line is required."]
+            });
+        }
+
         if (review is null)
         {
             review = new ReceiptOcrReview
@@ -1932,7 +1940,7 @@ internal static class ReceiptOcrReviewEndpoints
                 || hasHeaderAmount
                 || lines.Count > 0
                 || adjustmentEvidence.Count > 0;
-            if (!hasMeaningfulPayload)
+            if (!hasMeaningfulPayload && !adjustmentEvidenceSupplied)
             {
                 AddError(errors, "body", "At least one reviewed OCR field or line is required.");
             }
@@ -1956,7 +1964,8 @@ internal static class ReceiptOcrReviewEndpoints
                     grandTotalAmount,
                     lines,
                     adjustmentEvidence,
-                    adjustmentEvidenceSupplied));
+                    adjustmentEvidenceSupplied,
+                    hasMeaningfulPayload));
         }
     }
 
@@ -3379,7 +3388,8 @@ internal static class ReceiptOcrReviewEndpoints
         decimal? GrandTotalAmount,
         IReadOnlyList<SubmittedReceiptOcrReviewLine> Lines,
         IReadOnlyList<SubmittedReceiptOcrReviewAdjustment> AdjustmentEvidence,
-        bool AdjustmentEvidenceSupplied);
+        bool AdjustmentEvidenceSupplied,
+        bool HasMeaningfulPayload);
 
     private sealed record SubmittedReceiptOcrReviewLine(
         int SortOrder,

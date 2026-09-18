@@ -1076,7 +1076,9 @@ class _AdjustmentEditCard extends StatelessWidget {
               ],
             ),
             DropdownButtonFormField<String>(
-              key: ValueKey('receipt-review-edit-adjustment-direction-$index'),
+              key: ValueKey(
+                'receipt-review-edit-adjustment-direction-$index-${editors.direction}',
+              ),
               initialValue: editors.direction,
               decoration: const InputDecoration(labelText: 'Direction'),
               items: const [
