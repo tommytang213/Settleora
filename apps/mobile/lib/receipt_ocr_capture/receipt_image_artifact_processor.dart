@@ -123,12 +123,13 @@ class ReceiptImageArtifactProcessor {
 
   static const normalizedJpegContentType = 'image/jpeg';
   static const maxSourceBytes = 25 * 1024 * 1024;
+  static const maxDecodedDimension = 8192;
+  static const maxDecodedPixels = 16 * 1024 * 1024;
 
   ReceiptImageArtifactResult process(ReceiptImageArtifactRequest request) {
     final sourceContentType = _normalizedToken(request.sourceContentType);
     final sourceExtension = _normalizedExtension(request.sourceExtension);
     final sourceLabel = _safeSourceLabel(request.sourceLabel);
-    final sourceBytes = Uint8List.fromList(request.sourceBytes);
     final reasonCodes = <String>[];
     final warnings = <String>[
       'Receipt contents may include sensitive merchant, payment, location, or contact details. Review before saving or sharing.',
@@ -138,7 +139,7 @@ class ReceiptImageArtifactProcessor {
       originalRetainedByPolicy: originalRetainedByPolicy,
     );
 
-    if (sourceBytes.isEmpty) {
+    if (request.sourceBytes.isEmpty) {
       reasonCodes.add('empty_source_bytes');
       warnings.add('Receipt source bytes are empty.');
       return _rejectedResult(
@@ -152,7 +153,7 @@ class ReceiptImageArtifactProcessor {
       );
     }
 
-    if (sourceBytes.length > maxSourceBytes) {
+    if (request.sourceBytes.length > maxSourceBytes) {
       reasonCodes.add('source_exceeds_processing_limit');
       warnings.add('Receipt source bytes exceed the mobile processing limit.');
       return _rejectedResult(
@@ -212,17 +213,64 @@ class ReceiptImageArtifactProcessor {
       );
     }
 
-    final img.Image? decodedImage;
+    // Camera and picker APIs already return Uint8List. Reuse that buffer and
+    // only copy a generic List after its encoded size has been bounded.
+    final sourceBytes = request.sourceBytes is Uint8List
+        ? request.sourceBytes as Uint8List
+        : Uint8List.fromList(request.sourceBytes);
+    final decoder = _decoderFor(type);
+    final img.DecodeInfo? decodeInfo;
     try {
-      decodedImage = img.decodeImage(sourceBytes);
+      decodeInfo = decoder?.startDecode(sourceBytes);
     } catch (_) {
-      reasonCodes.add('image_decode_failed');
-      warnings.add('Receipt image bytes could not be decoded.');
+      return _decodeFailedResult(
+        request: request,
+        sourceContentType: sourceContentType,
+        sourceLabel: sourceLabel,
+        reasonCodes: reasonCodes,
+        warnings: warnings,
+        cacheReadiness: cacheReadiness,
+      );
+    }
+    if (decodeInfo == null || decodeInfo.width <= 0 || decodeInfo.height <= 0) {
+      return _decodeFailedResult(
+        request: request,
+        sourceContentType: sourceContentType,
+        sourceLabel: sourceLabel,
+        reasonCodes: reasonCodes,
+        warnings: warnings,
+        cacheReadiness: cacheReadiness,
+      );
+    }
+    if (decodeInfo.width > maxDecodedDimension ||
+        decodeInfo.height > maxDecodedDimension ||
+        decodeInfo.width > maxDecodedPixels ~/ decodeInfo.height) {
+      reasonCodes.add('image_dimensions_exceed_processing_limit');
+      warnings.add(
+        'Receipt image dimensions exceed the mobile processing limit.',
+      );
       return _rejectedResult(
         request: request,
         sourceContentType: sourceContentType,
         sourceLabel: sourceLabel,
         status: ReceiptImageArtifactStatus.unsupported,
+        reasonCodes: reasonCodes,
+        warnings: warnings,
+        cacheReadiness: cacheReadiness,
+      );
+    }
+
+    final img.Image? decodedImage;
+    try {
+      // Header validation above bounds the full-resolution allocation before
+      // a pixel buffer is materialized. Native OCR applies its own decode-time
+      // sampling independently to the normalized artifact.
+      decodedImage = decoder!.decodeFrame(0);
+    } catch (_) {
+      return _decodeFailedResult(
+        request: request,
+        sourceContentType: sourceContentType,
+        sourceLabel: sourceLabel,
         reasonCodes: reasonCodes,
         warnings: warnings,
         cacheReadiness: cacheReadiness,
@@ -280,6 +328,36 @@ class ReceiptImageArtifactProcessor {
       cacheReadiness: cacheReadiness,
     );
   }
+}
+
+img.Decoder? _decoderFor(_ReceiptArtifactFileType type) {
+  return switch (type) {
+    _ReceiptArtifactFileType.jpeg => img.JpegDecoder(),
+    _ReceiptArtifactFileType.png => img.PngDecoder(),
+    _ReceiptArtifactFileType.webp => img.WebPDecoder(),
+    _ => null,
+  };
+}
+
+ReceiptImageArtifactResult _decodeFailedResult({
+  required ReceiptImageArtifactRequest request,
+  required String sourceContentType,
+  required String sourceLabel,
+  required List<String> reasonCodes,
+  required List<String> warnings,
+  required ReceiptArtifactCacheReadiness cacheReadiness,
+}) {
+  reasonCodes.add('image_decode_failed');
+  warnings.add('Receipt image bytes could not be decoded.');
+  return _rejectedResult(
+    request: request,
+    sourceContentType: sourceContentType,
+    sourceLabel: sourceLabel,
+    status: ReceiptImageArtifactStatus.unsupported,
+    reasonCodes: reasonCodes,
+    warnings: warnings,
+    cacheReadiness: cacheReadiness,
+  );
 }
 
 ReceiptImageArtifactResult _rejectedResult({

@@ -103,6 +103,48 @@ void main() {
     expect(result.safeDiagnosticSummary, isNot(contains('/private/mobile')));
   });
 
+  test('rejects over-limit pixel dimensions before full image decode', () {
+    final source = _pngWithDeclaredDimensions(width: 5000, height: 4000);
+
+    final result = processor.process(
+      ReceiptImageArtifactRequest(
+        sourceType: ReceiptImageSourceKind.importedImage,
+        sourceContentType: 'image/png',
+        sourceExtension: 'png',
+        sourceLabel: 'compressed-large-receipt.png',
+        sourceBytes: source,
+      ),
+    );
+
+    expect(source.length, lessThan(1024));
+    expect(result.status, ReceiptImageArtifactStatus.unsupported);
+    expect(result.normalizedJpegBytes, isNull);
+    expect(result.thumbnailJpegBytes, isNull);
+    expect(
+      result.reasonCodes,
+      contains('image_dimensions_exceed_processing_limit'),
+    );
+    expect(result.reasonCodes, isNot(contains('image_decode_failed')));
+  });
+
+  test('rejects an over-limit single dimension before full decode', () {
+    final result = processor.process(
+      ReceiptImageArtifactRequest(
+        sourceType: ReceiptImageSourceKind.importedImage,
+        sourceContentType: 'image/png',
+        sourceExtension: 'png',
+        sourceLabel: 'too-wide-receipt.png',
+        sourceBytes: _pngWithDeclaredDimensions(width: 8193, height: 1),
+      ),
+    );
+
+    expect(result.status, ReceiptImageArtifactStatus.unsupported);
+    expect(
+      result.reasonCodes,
+      contains('image_dimensions_exceed_processing_limit'),
+    );
+  });
+
   test(
     'diagnostics avoid OCR text, receipt contents, paths, and private data',
     () {
@@ -139,6 +181,29 @@ Uint8List _pngBytes({required int width, required int height}) {
 
 Uint8List _jpegBytes({required int width, required int height}) {
   return Uint8List.fromList(img.encodeJpg(_sampleImage(width, height)));
+}
+
+Uint8List _pngWithDeclaredDimensions({
+  required int width,
+  required int height,
+}) {
+  final bytes = _pngBytes(width: 1, height: 1);
+  final data = ByteData.sublistView(bytes);
+  data.setUint32(16, width, Endian.big);
+  data.setUint32(20, height, Endian.big);
+  data.setUint32(29, _crc32(bytes.sublist(12, 29)), Endian.big);
+  return bytes;
+}
+
+int _crc32(List<int> bytes) {
+  var crc = 0xffffffff;
+  for (final byte in bytes) {
+    crc ^= byte;
+    for (var bit = 0; bit < 8; bit += 1) {
+      crc = (crc & 1) == 1 ? (crc >> 1) ^ 0xedb88320 : crc >> 1;
+    }
+  }
+  return (crc ^ 0xffffffff) & 0xffffffff;
 }
 
 img.Image _sampleImage(int width, int height) {
