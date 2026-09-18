@@ -260,13 +260,14 @@ ReceiptOcrPreview _copyReceiptOcrPreview(
   String? merchant,
   String? receiptDate,
   String? currency,
+  ReceiptOcrCurrencyProvenance? currencyProvenance,
   List<ReceiptOcrItemCandidate>? items,
 }) {
   return ReceiptOcrPreview(
     merchant: merchant ?? preview.merchant,
     receiptDate: receiptDate ?? preview.receiptDate,
     currency: currency ?? preview.currency,
-    currencyProvenance: preview.currencyProvenance,
+    currencyProvenance: currencyProvenance ?? preview.currencyProvenance,
     subtotal: preview.subtotal,
     tax: preview.tax,
     service: preview.service,
@@ -2938,13 +2939,14 @@ class _ReceiptOcrEditableReviewFormState
       ]);
   }
 
-  void _emitChanged() {
+  void _emitChanged({ReceiptOcrCurrencyProvenance? currencyProvenance}) {
     widget.onChanged(
       _copyReceiptOcrPreview(
         widget.preview,
         merchant: _merchantController.text,
         receiptDate: _dateController.text,
         currency: _currencyController.text,
+        currencyProvenance: currencyProvenance,
         items: [
           for (final item in _itemControllers)
             ReceiptOcrItemCandidate(
@@ -3027,7 +3029,11 @@ class _ReceiptOcrEditableReviewFormState
           semanticLabel: 'Receipt currency selector',
           onChanged: (currency) {
             _currencyController.text = currency ?? '';
-            _emitChanged();
+            _emitChanged(
+              currencyProvenance: settleoraIsSupportedCurrency(currency)
+                  ? ReceiptOcrCurrencyProvenance.explicit
+                  : ReceiptOcrCurrencyProvenance.unresolved,
+            );
           },
         ),
         const SizedBox(height: 12),
@@ -3292,7 +3298,7 @@ class _ReceiptOcrApplySelectionList extends StatelessWidget {
           label: 'Items',
           subtitle: _receiptOcrItemsCanApply(preview)
               ? _pluralCount(preview.items.length, 'suggested line')
-              : 'Resolve unsupported currency before applying',
+              : 'Resolve receipt currency before applying',
           selected: selection.items,
           enabled: _receiptOcrItemsCanApply(preview),
         ),
@@ -3753,6 +3759,12 @@ _ReceiptOcrApplySelection _sanitizeReceiptOcrApplySelection(
 
 bool _receiptOcrItemsCanApply(ReceiptOcrPreview preview) {
   if (preview.items.isEmpty) {
+    return false;
+  }
+
+  if (preview.currencyProvenance == ReceiptOcrCurrencyProvenance.unresolved ||
+      preview.currencyProvenance ==
+          ReceiptOcrCurrencyProvenance.defaultFallback) {
     return false;
   }
 

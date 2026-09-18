@@ -42,7 +42,7 @@
         { "path": "apps/mobile/integration_test/receipt_ocr_real_provider_test.dart", "sha256": "428b9c90030523583567df56972fc1dff4773332085a4041fcdd3fb938b1f2d9" },
         { "path": "apps/mobile/lib/app/app_bootstrap.dart", "sha256": "bfc2ea06825d3b7162f6f08b68b0413e62320523b3c087a6abc27aecc8b1d875" },
         { "path": "apps/mobile/lib/app/server_mode_shell.dart", "sha256": "7bc1b89910d260c5652810265b8a9985896fe62e852f65aa24d44d5fa2d8459e" },
-        { "path": "apps/mobile/lib/bills/bill_list_screen.dart", "sha256": "c686760aa2465c401e55323281ebd9a862cd68d9a0b09ea222025fa70e88c026" },
+        { "path": "apps/mobile/lib/bills/bill_list_screen.dart", "sha256": "891bfa7347ac14621cb02e557b7dbc1123e210d451d241f1103ccc5f003fc265" },
         { "path": "apps/mobile/lib/groups/group_list_screen.dart", "sha256": "62497fd2753850b88d93b1b0e40d2e982ba560209fb36321aa986b7d1fbdc473" },
         { "path": "apps/mobile/lib/main.dart", "sha256": "b91c1fe701d9412c3a85880186016609d8ba460d1f6584fa3b5be5873ab36b89" },
         { "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_provider.dart", "sha256": "ffb8da7258689dcf6c41a38a121898dd718a3a6e6b8b85a82412653634fd7a49" },

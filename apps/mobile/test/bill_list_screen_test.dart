@@ -4094,7 +4094,7 @@ void main() {
         isNull,
       );
       expect(
-        find.text('Resolve unsupported currency before applying'),
+        find.text('Resolve receipt currency before applying'),
         findsOneWidget,
       );
 
@@ -4139,6 +4139,98 @@ void main() {
             .controller
             ?.text,
         isEmpty,
+      );
+    },
+  );
+
+  testWidgets(
+    'personal OCR requires explicit resolution before applying currencyless items',
+    (tester) async {
+      await useLargeSurface(tester);
+      final receiptOcrProvider = FakeReceiptOcrProvider(
+        const ReceiptOcrResult.extracted(
+          ReceiptOcrPreview(
+            merchant: 'Nordic Cafe',
+            currencyProvenance: ReceiptOcrCurrencyProvenance.unresolved,
+            items: [
+              ReceiptOcrItemCandidate(
+                description: 'Coffee',
+                lineTotal: '12.50',
+              ),
+            ],
+          ),
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraPersonalBillCreateScreen(
+            repository: FakeBillRepository(),
+            attachmentRepository: FakeBillAttachmentRepository(),
+            attachmentFileInput: FakeBillAttachmentFileInput(
+              pickedFile: samplePickedAttachmentFile(
+                filename: 'receipt.png',
+                contentType: 'image/png',
+                bytes: const [1],
+              ),
+            ),
+            receiptOcrProvider: receiptOcrProvider,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('personal-bill-scan-receipt')));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<CheckboxListTile>(
+              find.byKey(const Key('personal-bill-ocr-apply-items')),
+            )
+            .onChanged,
+        isNull,
+      );
+
+      await _selectCurrency(
+        tester,
+        find.byKey(const Key('personal-bill-ocr-edit-currency')),
+        'USD',
+      );
+      await _selectCurrency(
+        tester,
+        find.byKey(const ValueKey('personal-bill-ocr-item-currency-0')),
+        'USD',
+      );
+      expect(
+        tester
+            .widget<CheckboxListTile>(
+              find.byKey(const Key('personal-bill-ocr-apply-items')),
+            )
+            .onChanged,
+        isNotNull,
+      );
+
+      await _setReceiptOcrSection(tester, 'personal-bill', 'items', true);
+      await _tapReceiptOcrApply(tester, 'personal-bill');
+
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('personal-bill-item-name-0')),
+            )
+            .controller
+            ?.text,
+        'Coffee',
+      );
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('personal-bill-item-amount-0')),
+            )
+            .controller
+            ?.text,
+        '12.50',
       );
     },
   );
@@ -7675,7 +7767,7 @@ void main() {
     );
   });
 
-  testWidgets('group OCR keeps unsupported-currency items out of bill fields', (
+  testWidgets('group OCR keeps unresolved-currency items out of bill fields', (
     tester,
   ) async {
     await useLargeSurface(tester);
@@ -7696,14 +7788,12 @@ void main() {
       receiptOcrProvider: FakeReceiptOcrProvider(
         const ReceiptOcrResult.extracted(
           ReceiptOcrPreview(
-            merchant: 'Dubai Cafe',
-            currency: 'AED',
-            currencyProvenance: ReceiptOcrCurrencyProvenance.explicit,
+            merchant: 'Nordic Cafe',
+            currencyProvenance: ReceiptOcrCurrencyProvenance.unresolved,
             items: [
               ReceiptOcrItemCandidate(
                 description: 'Coffee',
                 lineTotal: '12.50',
-                currency: 'AED',
               ),
             ],
           ),
@@ -7717,7 +7807,6 @@ void main() {
     await tester.tap(find.byKey(const Key('group-bill-scan-receipt')));
     await tester.pumpAndSettle();
 
-    expect(find.text('AED'), findsWidgets);
     expect(
       tester
           .widget<CheckboxListTile>(
@@ -7727,7 +7816,7 @@ void main() {
       isNull,
     );
     expect(
-      find.text('Resolve unsupported currency before applying'),
+      find.text('Resolve receipt currency before applying'),
       findsOneWidget,
     );
 
