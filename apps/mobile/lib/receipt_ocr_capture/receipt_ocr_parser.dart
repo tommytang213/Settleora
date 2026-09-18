@@ -1005,12 +1005,20 @@ bool _isStrongWrappedItemDescription(String description) {
       .split(RegExp(r'\s+'))
       .where((word) => _unicodeLetterPattern.hasMatch(word))
       .toList(growable: false);
-  if (words.length < 3 || description.length < 12) return false;
   final letters = description.replaceAll(
     RegExp(r'[^\p{L}]', unicode: true),
     '',
   );
-  if (letters.isNotEmpty && letters == letters.toUpperCase()) return false;
+  final hasCasedLetters = letters.toLowerCase() != letters.toUpperCase();
+  if (hasCasedLetters) {
+    if (words.length < 3 || description.length < 12) return false;
+    if (letters == letters.toUpperCase()) return false;
+  } else if (_unicodeLetterPattern.allMatches(letters).length < 6) {
+    // Scripts such as Arabic, Thai, and Han do not have letter case and may
+    // not use spaces between words. Require enough letters instead of a
+    // Latin-style word count while retaining the administrative-line guard.
+    return false;
+  }
   return !RegExp(
     r'^(?:item|description|item description|product|product description|details)$',
     caseSensitive: false,
@@ -1140,8 +1148,9 @@ bool _hasJapaneseReceiptLabel(String line, List<String> labels) {
 bool _hasLocalizedReceiptLabel(String line, List<String> labels) {
   final amount = RegExp(_amountTokenPattern).firstMatch(line);
   if (amount == null) return false;
+  final foldedLine = line.toLowerCase();
   return labels.any((label) {
-    final index = line.indexOf(label);
+    final index = foldedLine.indexOf(label.toLowerCase());
     return index >= 0 &&
         (index + label.length <= amount.start || index >= amount.end);
   });

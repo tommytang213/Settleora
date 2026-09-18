@@ -436,6 +436,48 @@ Total USD 37.49
     );
   });
 
+  test('parser preserves wrapped descriptions in caseless scripts', () {
+    const parser = ReceiptOcrParser();
+    final arabic = parser.parse('''
+متجر المنزل
+زجاجة مياه فولاذية ممتازة
+زرقاء AED 24.99
+الإجمالي AED 24.99
+''');
+    final thai = parser.parse('''
+ร้านของใช้
+ขวดน้ำสแตนเลสคุณภาพสูง
+สีฟ้า THB 249.00
+ยอดสุทธิ THB 249.00
+''');
+
+    expect(arabic.items.single.description, 'زجاجة مياه فولاذية ممتازة زرقاء');
+    expect(thai.items.single.description, 'ขวดน้ำสแตนเลสคุณภาพสูง สีฟ้า');
+  });
+
+  test('parser matches localized receipt labels without case sensitivity', () {
+    const parser = ReceiptOcrParser();
+    final german = parser.parse('''
+Köln Markt
+Kaffee EUR 8,00
+ZWISCHENSUMME EUR 8,00
+GESAMT EUR 8,00
+''');
+    final french = parser.parse('''
+Café Paris
+Croissant EUR 8,00
+SOUS-TOTAL EUR 8,00
+TOTAL EUR 8,00
+''');
+
+    expect(german.subtotal, '8.00');
+    expect(german.total, '8.00');
+    expect(german.items.map((item) => item.description), ['Kaffee']);
+    expect(french.subtotal, '8.00');
+    expect(french.total, '8.00');
+    expect(french.items.map((item) => item.description), ['Croissant']);
+  });
+
   test('parser does not prepend a receipt column header to an item', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse('''
