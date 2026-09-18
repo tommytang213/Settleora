@@ -5,31 +5,33 @@ import org.junit.Test
 
 class ScriptRouteSelectorTest {
     @Test
-    fun strongCommonTextUsesFastPathWithoutSpecialistInference() {
+    fun strongCommonTextStillGeneratesEverySpecialistProbe() {
         val common = candidate("common", ScriptEvidence.COMMON, "TOTAL 12.50", 0.94f)
+        val packs = listOf(
+            common.pack,
+            spec("arabic", ScriptEvidence.ARABIC),
+            spec("thai", ScriptEvidence.THAI),
+        )
 
-        assertEquals(false, ScriptRouteSelector.needsSpecialistFallback(common))
+        assertEquals(
+            listOf("arabic", "thai"),
+            ScriptRouteSelector.specialistPackIdsForLine(common, packs),
+        )
     }
 
     @Test
-    fun strongNumericTextUsesFastPathWithoutSpecialistInference() {
+    fun highConfidenceLatinHallucinationCannotSuppressArabicOrThaiProbe() {
         val common = candidate("common", ScriptEvidence.COMMON, "12.50", 0.96f)
+        val packs = listOf(
+            common.pack,
+            spec("arabic", ScriptEvidence.ARABIC),
+            spec("thai", ScriptEvidence.THAI),
+        )
 
-        assertEquals(false, ScriptRouteSelector.needsSpecialistFallback(common))
-    }
-
-    @Test
-    fun ambiguousCommonStageUsesBoundedSpecialistFallback() {
-        val common = candidate("common", ScriptEvidence.COMMON, "TOTAL", 0.52f)
-
-        assertEquals(true, ScriptRouteSelector.needsSpecialistFallback(common))
-    }
-
-    @Test
-    fun blankCommonStageUsesBoundedSpecialistFallback() {
-        val common = candidate("common", ScriptEvidence.COMMON, "", 0.99f)
-
-        assertEquals(true, ScriptRouteSelector.needsSpecialistFallback(common))
+        assertEquals(
+            listOf("arabic", "thai"),
+            ScriptRouteSelector.specialistPackIdsForLine(common, packs),
+        )
     }
 
     @Test
@@ -175,4 +177,7 @@ class ScriptRouteSelectorTest {
         confidence = confidence,
         pack = RecognizerSpec(id, "version", "model", "config", setOf(script)),
     )
+
+    private fun spec(id: String, script: ScriptEvidence) =
+        RecognizerSpec(id, "version", "model", "config", setOf(script))
 }

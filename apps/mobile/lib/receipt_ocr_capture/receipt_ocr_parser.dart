@@ -300,7 +300,6 @@ class ReceiptOcrParser {
       final lineTotal = _normalizeAmount(match.group(3)!, currency: currency);
       if (description.length < 2 ||
           lineTotal == null ||
-          lineTotal.startsWith('-') ||
           _isLikelyNonItemDescription(description) ||
           !_hasTraceableItemAmountToken(line, match.group(3)!)) {
         continue;

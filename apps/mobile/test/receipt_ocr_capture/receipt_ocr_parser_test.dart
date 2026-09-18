@@ -122,6 +122,25 @@ TOTAL $45.22
     expect(preview.items.single.lineTotal, '45.22');
   });
 
+  test('parser preserves signed refund item evidence', () {
+    const parser = ReceiptOcrParser();
+
+    final preview = parser.parse(r'''
+Fashion Outlet Returns
+Date: 2026-09-17
+Returned Jacket USD -79.99
+Restocking Fee USD 5.00
+Total USD -74.99
+''');
+
+    expect(preview.items, hasLength(2));
+    expect(preview.items.first.description, 'Returned Jacket');
+    expect(preview.items.first.lineTotal, '-79.99');
+    expect(preview.items.last.description, 'Restocking Fee');
+    expect(preview.items.last.lineTotal, '5.00');
+    expect(preview.total, '-74.99');
+  });
+
   test('parser leaves symbol-only currency blank for review', () {
     const parser = ReceiptOcrParser();
 

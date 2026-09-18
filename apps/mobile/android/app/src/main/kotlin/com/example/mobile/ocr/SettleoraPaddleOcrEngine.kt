@@ -144,18 +144,19 @@ class SettleoraPaddleOcrEngine(context: Context) {
                 for (batchIndices in batchesFor(crops.indices)) {
                     recognizeBatch(commonPack, batchIndices)
                 }
-                val fallbackIndices = candidatesByLine.indices.filter { lineIndex ->
-                    ScriptRouteSelector.needsSpecialistFallback(
-                        candidatesByLine[lineIndex].single(),
-                    )
+                val specialistsByLine = candidatesByLine.map { candidates ->
+                    ScriptRouteSelector.specialistPackIdsForLine(
+                        candidates.single(),
+                        packs.map { it.spec },
+                    ).toSet()
                 }
-                if (fallbackIndices.isNotEmpty()) {
-                    val fallbackBatches = batchesFor(fallbackIndices)
-                    for (pack in packs) {
-                        if (pack === commonPack) continue
-                        for (batchIndices in fallbackBatches) {
-                            recognizeBatch(pack, batchIndices)
-                        }
+                for (pack in packs) {
+                    if (pack === commonPack) continue
+                    val probeIndices = candidatesByLine.indices.filter { lineIndex ->
+                        pack.spec.modelPackId in specialistsByLine[lineIndex]
+                    }
+                    for (batchIndices in batchesFor(probeIndices)) {
+                        recognizeBatch(pack, batchIndices)
                     }
                 }
 
