@@ -610,6 +610,11 @@ void main() {
       isNull,
     );
     expect(receiptOcrQuantityCandidateForSave('2.5'), '2.5');
+    expect(
+      receiptOcrQuantityCandidateForSave('99999999999999.9999'),
+      '99999999999999.9999',
+    );
+    expect(receiptOcrQuantityCandidateForSave('100000000000000'), isNull);
     expect(receiptOcrQuantityCandidateForSave('0'), isNull);
     expect(receiptOcrQuantityCandidateForSave('-1'), isNull);
     expect(receiptOcrQuantityCandidateForSave('1.23456'), isNull);

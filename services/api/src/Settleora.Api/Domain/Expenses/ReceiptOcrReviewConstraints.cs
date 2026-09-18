@@ -15,7 +15,7 @@ public static class ReceiptOcrReviewConstraints
     public const decimal MoneyAmountMaxValue = 999_999_999_999_999.9999m;
     public const int QuantityPrecision = 18;
     public const int QuantityScale = 4;
-    public const decimal QuantityMaxValue = 999_999_999_999_999.9999m;
+    public const decimal QuantityMaxValue = 99_999_999_999_999.9999m;
     public const int MaxLineCount = 100;
     public const int MaxAdjustmentCount = 50;
 }

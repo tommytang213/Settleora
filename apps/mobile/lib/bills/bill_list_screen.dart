@@ -534,7 +534,7 @@ String? receiptOcrQuantityCandidateForSave(String? quantity) {
   }
 
   final normalizedValue = parsed.value * _bigIntPow10(4 - parsed.scale);
-  return normalizedValue <= BigInt.parse('9999999999999999999')
+  return normalizedValue <= BigInt.parse('999999999999999999')
       ? candidate
       : null;
 }

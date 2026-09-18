@@ -19,6 +19,9 @@ public sealed class ReceiptOcrReviewSchemaFoundationTests
         Assert.Equal(19, ReceiptOcrReviewConstraints.MoneyAmountPrecision);
         Assert.Equal(4, ReceiptOcrReviewConstraints.MoneyAmountScale);
         Assert.Equal(999999999999999.9999m, ReceiptOcrReviewConstraints.MoneyAmountMaxValue);
+        Assert.Equal(18, ReceiptOcrReviewConstraints.QuantityPrecision);
+        Assert.Equal(4, ReceiptOcrReviewConstraints.QuantityScale);
+        Assert.Equal(99999999999999.9999m, ReceiptOcrReviewConstraints.QuantityMaxValue);
         Assert.Equal(240, ReceiptOcrReviewConstraints.LineTextMaxLength);
         Assert.Equal(50, ReceiptOcrReviewConstraints.MaxAdjustmentCount);
         Assert.Equal(120, ReceiptOcrReviewConstraints.AdjustmentOriginalLabelMaxLength);
