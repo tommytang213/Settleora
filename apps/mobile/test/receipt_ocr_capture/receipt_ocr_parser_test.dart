@@ -124,6 +124,26 @@ TOTAL $45.22
     expect(preview.items.single.lineTotal, '45.22');
   });
 
+  test(
+    'parser quarantines an ambiguous fuel grand total with another item',
+    () {
+      const parser = ReceiptOcrParser();
+
+      final preview = parser.parse(r'''
+WESTSIDE FUEL
+FUEL Regular Unleaded
+GALLONS 10.000
+PRICE/GAL USD 3.000
+Snack USD 2.00
+TOTAL USD 32.00
+''');
+
+      expect(preview.items, hasLength(1));
+      expect(preview.items.single.description, 'Snack');
+      expect(preview.items.single.lineTotal, '2.00');
+    },
+  );
+
   test('parser preserves signed refund item evidence', () {
     const parser = ReceiptOcrParser();
 

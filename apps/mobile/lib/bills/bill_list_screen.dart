@@ -3873,6 +3873,10 @@ bool _receiptOcrItemsCanApply(ReceiptOcrPreview preview) {
 
 String _receiptOcrAppliedQuantity(ReceiptOcrItemCandidate candidate) {
   final quantity = candidate.quantity?.trim();
+  final wholeQuantity = quantity == null
+      ? null
+      : _positiveWholeNumber(quantity);
+  if (wholeQuantity != null) return wholeQuantity.toString();
   return quantity != null && _isPositiveFractionalQuantity(quantity)
       ? '1'
       : (quantity == null || quantity.isEmpty ? '1' : quantity);
@@ -17449,11 +17453,12 @@ _ExactDecimalAmount? _parseExactDecimalAmount(String value) {
 
 int? _positiveWholeNumber(String value) {
   final trimmed = value.trim();
-  if (!RegExp(r'^\d+$').hasMatch(trimmed)) {
+  final match = RegExp(r'^(\d+)(?:\.0+)?$').firstMatch(trimmed);
+  if (match == null) {
     return null;
   }
 
-  final parsed = int.tryParse(trimmed);
+  final parsed = int.tryParse(match.group(1)!);
   if (parsed == null || parsed <= 0) {
     return null;
   }

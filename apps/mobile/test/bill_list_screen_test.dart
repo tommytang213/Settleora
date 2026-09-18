@@ -637,6 +637,13 @@ void main() {
                 lineTotal: '43.96',
                 currency: 'USD',
               ),
+              ReceiptOcrItemCandidate(
+                description: 'Whole-unit bottle',
+                quantity: '2.0',
+                unitPrice: '5.00',
+                lineTotal: '10.00',
+                currency: 'USD',
+              ),
             ],
           ),
         ),
@@ -699,6 +706,24 @@ void main() {
             .controller
             ?.text,
         '43.96',
+      );
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('personal-bill-item-quantity-1')),
+            )
+            .controller
+            ?.text,
+        '2',
+      );
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('personal-bill-item-unit-amount-1')),
+            )
+            .controller
+            ?.text,
+        '5.00',
       );
     },
   );

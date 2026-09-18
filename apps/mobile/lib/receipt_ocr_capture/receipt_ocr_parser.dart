@@ -448,6 +448,13 @@ class ReceiptOcrParser {
       );
     }
 
+    if (fuelItem != null && items.length > 1) {
+      // A receipt grand total cannot safely serve as the fuel line total when
+      // another priced purchase is present. Keep the other traceable lines
+      // and leave the fuel measurement for explicit review.
+      items.remove(fuelItem);
+    }
+
     return items.take(40).toList(growable: false);
   }
 
