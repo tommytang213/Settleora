@@ -35,6 +35,7 @@ test("native semantic binding covers the exact provider execution path", () => {
     "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_provider.dart",
     "apps/mobile/lib/receipt_ocr_capture/paddle_receipt_ocr_provider.dart",
     "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_preview.dart",
+    "apps/mobile/lib/ui/settleora_form_fields.dart",
     "apps/mobile/pubspec.yaml",
     "apps/mobile/pubspec.lock",
     "apps/mobile/android/app/build.gradle.kts",
@@ -173,6 +174,19 @@ test("verification rejects drift in bound parser evidence", async (t) => {
     "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_parser.dart",
   );
   writeFileSync(parserPath, `${readFileSync(parserPath, "utf8")}\n// drift\n`);
+
+  const result = await verifyCatalog(temporaryRoot);
+  assert.equal(result.ok, false);
+  assert.match(result.failures.join("\n"), /bound acceptance source sha256 mismatch/);
+});
+
+test("verification rejects drift in parser currency policy", async (t) => {
+  const temporaryRoot = copyVerificationFixture(t, "settleora-ocr-currency-policy-");
+  const policyPath = path.join(
+    temporaryRoot,
+    "apps/mobile/lib/ui/settleora_form_fields.dart",
+  );
+  writeFileSync(policyPath, `${readFileSync(policyPath, "utf8")}\n// drift\n`);
 
   const result = await verifyCatalog(temporaryRoot);
   assert.equal(result.ok, false);
