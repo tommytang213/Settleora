@@ -64,6 +64,18 @@ class ScriptRouteSelectorTest {
         assertEquals("arabic", selected?.pack?.modelPackId)
     }
 
+    @Test
+    fun pureCommonTextCannotReceiveSpecialistBias() {
+        val selected = ScriptRouteSelector.select(
+            listOf(
+                candidate("common", ScriptEvidence.COMMON, "TOTAL 21.79", 0.82f),
+                candidate("arabic", ScriptEvidence.ARABIC, "T0TAL 21.79", 0.99f),
+            ),
+        )
+
+        assertEquals("common", selected?.pack?.modelPackId)
+    }
+
     private fun candidate(
         id: String,
         script: ScriptEvidence,

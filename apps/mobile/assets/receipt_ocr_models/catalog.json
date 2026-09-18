@@ -39,15 +39,35 @@
     },
     "nativeSemantics": {
       "files": [
+        { "path": "apps/mobile/lib/receipt_ocr_capture/paddle_receipt_ocr_provider.dart", "sha256": "05383fcbdd3a95ae09fb8f1ec9479272b285f948c5372bed32093fe0191bdfe8" },
+        { "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_preview.dart", "sha256": "2be62c3793f2ab8486f7115effc9eb2ef17b26a1df023abfc01e809cbe3687d7" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/MainActivity.kt", "sha256": "3ba5cc49748550a2bcbfda4d3610ca0b7c5fdaddfc34eecef5e1011101101b35" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/MobileOcrModelCatalog.kt", "sha256": "4445b1698aa56e08513f24c1f49a8029197184a45d069663a41896b7527566c5" },
         { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/SettleoraPaddleOcrEngine.kt", "sha256": "004116dd13590b831bbddb31a7f1c8e7f0f4c4fc234c0b7b04bbc9dc7d795777" },
-        { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ScriptRouteSelector.kt", "sha256": "e473956624edd637a79f3be3e16e9cb6dd1b2f0b4b888163ac4e2d5fe2be3b0a" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ScriptRouteSelector.kt", "sha256": "04c90248715593a99505a3dc01a8c9fb77518bb47fa8d854c6e241748d74e609" },
         { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/RecognizedTextNormalizer.kt", "sha256": "274f32c1223564d4f9bd4d061246782ed7c80a05a525c046c95ec6e5f5c30550" },
         { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ReceiptBlockOrder.kt", "sha256": "0b22b55135ec76fe203e9a0b5d4ac561e7b87853fc6b552f88a85c4e67a1ad9c" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ReceiptOcrInputLimits.kt", "sha256": "6bb365d0e8576e7a6d7bf5e2d63700a76bfa155e5193b4b015de78c816656a7b" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/EngineConfig.kt", "sha256": "886b7ef3dd4600ff92ff77c44643ce800e3f0da2d74de43112dbd79648ecdcda" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/PaddleOCRConfig.kt", "sha256": "ebe53f5f21e127857b7b947995a19b5baa966d996104daa5c36ac5c07affa7d5" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/engine/DetectionEngine.kt", "sha256": "b99dfce96cc2819e28a068e535fd096185b4abf41d1038079bf6836c8a1a985a" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/engine/ORTSessionManager.kt", "sha256": "09cd799337a912a5a1209fd3b85dc254af53b926edf22f734a17da39d4b596ce" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/model/ModelConfig.kt", "sha256": "e64e9262839b9e4da57d00a5cfef7ab3f81dcb5be1b96f47c4067449f306ddf0" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/model/OCRBox.kt", "sha256": "4db761a2e541db9145ba9512c4a5e8719ee70b09e241616525afcbf61abbcbc9" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/model/OCRError.kt", "sha256": "a2e6d1291bbf6fb302bc1933b9f5eb9a6221d765b1f37fe6598262bd40fbabb7" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/postprocess/BoxSorter.kt", "sha256": "d298db1421a7a0250db3c76627f640c13cccd66e4c6960116286a3b2399f7ccc" },
         { "path": "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/preprocess/DetPreprocessor.kt", "sha256": "9e16244a57d8d8be5aba3eff85c676d0b08282f396868fa244bf35dd572dcff8" },
         { "path": "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/preprocess/RecPreprocessor.kt", "sha256": "833048125b2f75cfab4ecb7d0e15cbb4e85ea1f45645e3ed71cbb1e785e46e39" },
         { "path": "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/postprocess/DBPostProcessor.kt", "sha256": "53923f88a025a4810d009223a79d15e9e27200673f40722ff0f9e105d2b12276" },
         { "path": "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/postprocess/CTCDecoder.kt", "sha256": "bf9bb517fd37f47234324ad70e89b6748b8a25a401b57ff2878fc059c46304e2" },
-        { "path": "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/postprocess/QuadTextCrop.kt", "sha256": "49f8889430ca8aeda4ef5e90f8de4b0e695696de64fdd97d8ed7421d21198109" }
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/postprocess/PolygonUnclip.kt", "sha256": "bc575aba1d0f7618473b87c64ca0a7d0219d3bbfe57f356fd2a51d1cc2703cdd" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/postprocess/QuadGeometry.kt", "sha256": "936674693f20b2120663fb33576a6ee9264c44b28e2a1e3a01dbab0d6023ded5" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/postprocess/QuadTextCrop.kt", "sha256": "49f8889430ca8aeda4ef5e90f8de4b0e695696de64fdd97d8ed7421d21198109" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/util/BitmapUtils.kt", "sha256": "95592fab011ca709ee881a8515b3cc7b8a79c2df69bfd3b9404aa51bc5d8f18b" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/util/ImageUtils.kt", "sha256": "205fd17a1dcfacdbbc8f5bb76e059aba7c0fffecfaff443812a1960272ecfbbe" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/util/MathUtils.kt", "sha256": "7465d79388376ccbbd4c575d1c03fe4524877db79cf92e74d3c35d1b7e22efd8" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/util/OpenCVUtils.kt", "sha256": "a0998194a93e32cf1edce0d6cf3f1dcc9a37801da4b547639c0d98a09ae4da79" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/util/YamlUtils.kt", "sha256": "d61f540ed2420dea704dc381d91eb5e154191817745a8ecb2f1e712d58938f1a" }
       ]
     },
     "parser": {

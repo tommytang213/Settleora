@@ -49,7 +49,8 @@ internal object ScriptRouteSelector {
         if (scripts.isEmpty()) {
             return candidate.confidence + if (isCommonPack) COMMON_NEUTRAL_BIAS else 0.0
         }
-        val compatible = scripts.all {
+        val containsDeclaredScript = scripts.any { it in candidate.pack.acceptedScripts }
+        val compatible = containsDeclaredScript && scripts.all {
             it in candidate.pack.acceptedScripts || (!isCommonPack && it == ScriptEvidence.COMMON)
         }
         val scriptAdjustment = if (compatible) {
