@@ -236,7 +236,7 @@ class ReceiptOcrParser {
       }
 
       final match = RegExp(
-        r'^(.+?)\s+(USD|HKD|EUR|GBP|JPY|AED|KWD|BHD|HK\$|US\$|\$|€|£|¥|د\.?إ)?\s*(-?\d{1,6}(?:,\d{3})*(?:\.\d{1,3})?|-?\d+\.\d{1,3})$',
+        r'^(.+?)\s+(USD|HKD|EUR|GBP|JPY|AED|KWD|BHD|HK\$|US\$|\$|€|£|¥|د\.?إ)?\s*(-?\d{1,6}(?:,\d{3})*(?:\.\d{1,3})?|-?\d+\.\d{1,3})(?:\s*(AED|د\.?إ))?$',
         caseSensitive: false,
       ).firstMatch(line);
       if (match == null) {
@@ -547,7 +547,7 @@ bool _hasTraceableItemAmountToken(String line, String amountToken) {
   }
 
   return RegExp(
-    r'(USD|HKD|EUR|GBP|JPY|KWD|BHD|HK\$|US\$|\$|€|£|¥)',
+    r'(USD|HKD|EUR|GBP|JPY|AED|KWD|BHD|HK\$|US\$|\$|€|£|¥|د\.?إ)',
     caseSensitive: false,
   ).hasMatch(line);
 }
@@ -632,7 +632,10 @@ bool _hasEnglishReceiptLabel(String normalized, RegExp labelPattern) {
   final remaining = compactLabel
       .replaceFirst(labelPattern, ' ')
       .replaceAll(
-        RegExp(r'\b(usd|hkd|eur|gbp|jpy|kwd|bhd)\b', caseSensitive: false),
+        RegExp(
+          r'\b(usd|hkd|eur|gbp|jpy|aed|kwd|bhd)\b',
+          caseSensitive: false,
+        ),
         ' ',
       )
       .replaceAll(RegExp(r'\s+'), ' ')

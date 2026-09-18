@@ -172,6 +172,26 @@ Date: ٢٠٢٦-٠٩-١٧
     expect(preview.total, '21.79');
   });
 
+  test('parser keeps whole-number AED item amounts traceable', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Dubai Cafe
+Coffee AED 5
+Cake 7 AED
+قهوة ٣ د.إ
+TOTAL AED 15
+''');
+
+    expect(preview.currency, 'AED');
+    expect(preview.items.map((item) => item.description), [
+      'Coffee',
+      'Cake',
+      'قهوة',
+    ]);
+    expect(preview.items.map((item) => item.lineTotal), ['5', '7', '3']);
+    expect(preview.total, '15');
+  });
+
   test('ambiguous dollar uses USD only when fallback is USD', () {
     const parser = ReceiptOcrParser();
 

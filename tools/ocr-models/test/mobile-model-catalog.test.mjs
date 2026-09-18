@@ -33,6 +33,7 @@ test("native semantic binding covers the exact provider execution path", () => {
     "apps/mobile/lib/receipt_ocr_capture/paddle_receipt_ocr_provider.dart",
     "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_preview.dart",
     "apps/mobile/pubspec.yaml",
+    "apps/mobile/pubspec.lock",
     "apps/mobile/android/app/build.gradle.kts",
     "apps/mobile/android/app/proguard-rules.pro",
     "apps/mobile/android/gradle/verification-metadata.xml",

@@ -1,8 +1,7 @@
 package com.example.mobile.ocr
 
 internal object ReceiptBlockOrder {
-    private const val MIN_VERTICAL_OVERLAP_RATIO = 0.35f
-    private const val MAX_CENTER_DISTANCE_RATIO = 0.50f
+    private const val MAX_CENTER_DISTANCE_RATIO = 0.75f
 
     fun normalize(blocks: List<SettleoraOcrBlock>): List<SettleoraOcrBlock> {
         val remaining = blocks.sortedBy(::topY)
@@ -34,11 +33,9 @@ internal object ReceiptBlockOrder {
     private fun sameRow(first: SettleoraOcrBlock, second: SettleoraOcrBlock): Boolean {
         val firstHeight = (bottomY(first) - topY(first)).coerceAtLeast(1f)
         val secondHeight = (bottomY(second) - topY(second)).coerceAtLeast(1f)
-        val overlap = minOf(bottomY(first), bottomY(second)) - maxOf(topY(first), topY(second))
-        if (overlap >= minOf(firstHeight, secondHeight) * MIN_VERTICAL_OVERLAP_RATIO) return true
         val firstCenter = topY(first) + firstHeight / 2f
         val secondCenter = topY(second) + secondHeight / 2f
         return kotlin.math.abs(firstCenter - secondCenter) <=
-            maxOf(firstHeight, secondHeight) * MAX_CENTER_DISTANCE_RATIO
+            minOf(firstHeight, secondHeight) * MAX_CENTER_DISTANCE_RATIO
     }
 }

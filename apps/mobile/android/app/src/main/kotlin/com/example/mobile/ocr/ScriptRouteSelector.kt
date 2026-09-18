@@ -31,12 +31,12 @@ internal object ScriptRouteSelector {
     // pack's declared script. This correctness-first policy cannot be bypassed
     // by a high-confidence hallucination from the common recognizer.
     private const val SCRIPT_MATCH_BONUS = 0.24
-    private const val SCRIPT_MISMATCH_PENALTY = 0.70
     private const val SPECIALIST_BIAS = 0.20
     private const val COMMON_NEUTRAL_BIAS = 0.03
 
     fun select(candidates: Iterable<ScriptCandidate>): ScriptCandidate? = candidates
         .filter { it.text.isNotEmpty() }
+        .filter { score(it).isFinite() }
         .maxByOrNull(::score)
 
     fun score(candidate: ScriptCandidate): Double {
@@ -47,19 +47,19 @@ internal object ScriptRouteSelector {
             .toSet()
         val isCommonPack = ScriptEvidence.COMMON in candidate.pack.acceptedScripts
         if (scripts.isEmpty()) {
-            return candidate.confidence + if (isCommonPack) COMMON_NEUTRAL_BIAS else 0.0
+            return if (isCommonPack) {
+                candidate.confidence + COMMON_NEUTRAL_BIAS
+            } else {
+                Double.NEGATIVE_INFINITY
+            }
         }
         val containsDeclaredScript = scripts.any { it in candidate.pack.acceptedScripts }
         val compatible = containsDeclaredScript && scripts.all {
             it in candidate.pack.acceptedScripts || (!isCommonPack && it == ScriptEvidence.COMMON)
         }
-        val scriptAdjustment = if (compatible) {
-            SCRIPT_MATCH_BONUS
-        } else {
-            -SCRIPT_MISMATCH_PENALTY
-        }
-        return candidate.confidence + scriptAdjustment +
-            if (!isCommonPack && compatible) SPECIALIST_BIAS else 0.0
+        if (!compatible) return Double.NEGATIVE_INFINITY
+        return candidate.confidence + SCRIPT_MATCH_BONUS +
+            if (!isCommonPack) SPECIALIST_BIAS else 0.0
     }
 
     private fun scriptOf(codePoint: Int): ScriptEvidence = when (codePoint) {

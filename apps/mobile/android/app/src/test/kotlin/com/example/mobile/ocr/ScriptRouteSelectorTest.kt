@@ -88,6 +88,19 @@ class ScriptRouteSelectorTest {
         assertEquals("common", selected?.pack?.modelPackId)
     }
 
+    @Test
+    fun incompatibleSpecialistCannotBypassCommonRejectionThreshold() {
+        val selected = ScriptRouteSelector.select(
+            listOf(
+                candidate("common", ScriptEvidence.COMMON, "TOTAL", 0.05f),
+                candidate("arabic", ScriptEvidence.ARABIC, "T0TAL", 1.0f),
+            ),
+        )
+
+        assertEquals("common", selected?.pack?.modelPackId)
+        assertEquals(0.05f, selected?.confidence)
+    }
+
     private fun candidate(
         id: String,
         script: ScriptEvidence,
