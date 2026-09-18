@@ -436,6 +436,22 @@ Total USD 37.49
     );
   });
 
+  test('parser preserves multiple wrapped description rows', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Home Goods Depot
+Premium Stainless
+Steel Water Bottle
+Blue USD 24.99
+Total USD 24.99
+''');
+
+    expect(
+      preview.items.single.description,
+      'Premium Stainless Steel Water Bottle Blue',
+    );
+  });
+
   test('parser preserves wrapped descriptions in caseless scripts', () {
     const parser = ReceiptOcrParser();
     final arabic = parser.parse('''

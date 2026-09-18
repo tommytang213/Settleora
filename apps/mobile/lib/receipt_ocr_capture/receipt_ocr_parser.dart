@@ -298,7 +298,7 @@ class ReceiptOcrParser {
     String? currency,
   ) {
     final items = <ReceiptOcrItemCandidate>[];
-    String? wrappedDescription;
+    final wrappedDescriptionLines = <String>[];
     final fuelItem = _extractFuelItem(lines, currency);
     if (fuelItem != null) {
       items.add(fuelItem);
@@ -308,7 +308,7 @@ class ReceiptOcrParser {
       if (_isAdministrativeLine(line) ||
           _isReceiptMetadataLine(line) ||
           (fuelItem != null && _isFuelMeasurementLine(line))) {
-        wrappedDescription = null;
+        wrappedDescriptionLines.clear();
         continue;
       }
 
@@ -320,23 +320,25 @@ class ReceiptOcrParser {
       ).firstMatch(line);
       if (match == null) {
         final cleaned = _cleanDescription(line);
-        final nextIsPricedItem =
-            lineIndex + 1 < lines.length &&
-            _isPricedItemLine(lines[lineIndex + 1]);
-        wrappedDescription =
-            nextIsPricedItem &&
-                _isWrappedItemDescriptionCandidate(cleaned) &&
-                _isStrongWrappedItemDescription(cleaned)
-            ? cleaned
-            : null;
+        if (lineIndex > 0 && _isWrappedItemDescriptionCandidate(cleaned)) {
+          wrappedDescriptionLines.add(cleaned);
+          // Keep the OCR continuation window bounded so unrelated earlier
+          // receipt copy cannot be pulled into a later priced row.
+          if (wrappedDescriptionLines.length > 3) {
+            wrappedDescriptionLines.removeAt(0);
+          }
+        } else {
+          wrappedDescriptionLines.clear();
+        }
         continue;
       }
 
       var description = _cleanDescription(match.group(1)!);
-      if (wrappedDescription != null) {
+      final wrappedDescription = wrappedDescriptionLines.join(' ');
+      if (_isStrongWrappedItemDescription(wrappedDescription)) {
         description = '$wrappedDescription $description';
       }
-      wrappedDescription = null;
+      wrappedDescriptionLines.clear();
       final lineTotal = _normalizeAmount(match.group(3)!, currency: currency);
       if (description.length < 2 ||
           lineTotal == null ||
