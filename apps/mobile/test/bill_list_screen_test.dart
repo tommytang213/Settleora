@@ -179,6 +179,8 @@ void main() {
           discount: '-2.00',
           tax: '0.00',
           service: '0.00',
+          tip: '3.00',
+          shipping: '4.00',
           total: '43.00',
           rawTextLineCount: 8,
           warnings: ['Review line totals before saving.'],
@@ -325,6 +327,11 @@ void main() {
     expect(find.text('Tax suggested: HKD 0.00 (review only)'), findsOneWidget);
     expect(
       find.text('Service charge suggested: HKD 0.00 (review only)'),
+      findsOneWidget,
+    );
+    expect(find.text('Tip suggested: HKD 3.00 (review only)'), findsOneWidget);
+    expect(
+      find.text('Shipping suggested: HKD 4.00 (review only)'),
       findsOneWidget,
     );
     expect(
@@ -561,7 +568,7 @@ void main() {
               pickedFile: samplePickedAttachmentFile(
                 filename: 'receipt.png',
                 contentType: 'image/png',
-                bytes: const [1, 2, 3],
+                bytes: samplePngBytes(width: 64, height: 64),
               ),
             ),
             receiptOcrProvider: receiptOcrProvider,
@@ -644,7 +651,7 @@ void main() {
             pickedFile: samplePickedAttachmentFile(
               filename: 'receipt.png',
               contentType: 'image/png',
-              bytes: const [1],
+              bytes: samplePngBytes(width: 64, height: 64),
             ),
           ),
           receiptOcrProvider: receiptOcrProvider,
@@ -737,7 +744,7 @@ void main() {
               pickedFile: samplePickedAttachmentFile(
                 filename: 'receipt.png',
                 contentType: 'image/png',
-                bytes: const [1, 2, 3],
+                bytes: samplePngBytes(width: 64, height: 64),
               ),
             ),
             receiptOcrProvider: FakeReceiptOcrProvider(
@@ -821,12 +828,12 @@ void main() {
                 samplePickedAttachmentFile(
                   filename: 'first-receipt.png',
                   contentType: 'image/png',
-                  bytes: const [1],
+                  bytes: samplePngBytes(width: 64, height: 64),
                 ),
                 samplePickedAttachmentFile(
                   filename: 'second-receipt.png',
                   contentType: 'image/png',
-                  bytes: const [2],
+                  bytes: samplePngBytes(width: 64, height: 64),
                 ),
               ],
             ),
@@ -916,7 +923,7 @@ void main() {
             pickedFile: samplePickedAttachmentFile(
               filename: 'receipt.png',
               contentType: 'image/png',
-              bytes: const [1, 2, 3],
+              bytes: samplePngBytes(width: 64, height: 64),
             ),
           ),
           receiptOcrProvider: receiptOcrProvider,
@@ -3200,7 +3207,7 @@ void main() {
             pickedFile: samplePickedAttachmentFile(
               filename: 'receipt.png',
               contentType: 'image/png',
-              bytes: const [1, 2, 3],
+              bytes: samplePngBytes(width: 64, height: 64),
             ),
           ),
           receiptOcrProvider: receiptOcrProvider,
@@ -3285,7 +3292,7 @@ void main() {
             pickedFile: samplePickedAttachmentFile(
               filename: 'receipt.png',
               contentType: 'image/png',
-              bytes: const [1, 2, 3],
+              bytes: samplePngBytes(width: 64, height: 64),
             ),
           ),
           receiptOcrProvider: receiptOcrProvider,
@@ -3389,7 +3396,7 @@ void main() {
               pickedFile: samplePickedAttachmentFile(
                 filename: 'receipt.png',
                 contentType: 'image/png',
-                bytes: const [1],
+                bytes: samplePngBytes(width: 64, height: 64),
               ),
             ),
             receiptOcrProvider: receiptOcrProvider,
@@ -3492,7 +3499,7 @@ void main() {
             pickedFile: samplePickedAttachmentFile(
               filename: 'receipt.png',
               contentType: 'image/png',
-              bytes: const [1, 2, 3],
+              bytes: samplePngBytes(width: 64, height: 64),
             ),
           ),
           receiptOcrProvider: receiptOcrProvider,
@@ -3591,7 +3598,7 @@ void main() {
               pickedFile: samplePickedAttachmentFile(
                 filename: 'receipt.png',
                 contentType: 'image/png',
-                bytes: const [1, 2, 3],
+                bytes: samplePngBytes(width: 64, height: 64),
               ),
             ),
             receiptOcrProvider: receiptOcrProvider,
@@ -3707,7 +3714,7 @@ void main() {
               pickedFile: samplePickedAttachmentFile(
                 filename: 'receipt.png',
                 contentType: 'image/png',
-                bytes: const [1, 2, 3],
+                bytes: samplePngBytes(width: 64, height: 64),
               ),
             ),
             receiptOcrProvider: receiptOcrProvider,
@@ -3808,7 +3815,7 @@ void main() {
               pickedFile: samplePickedAttachmentFile(
                 filename: 'receipt.png',
                 contentType: 'image/png',
-                bytes: const [1, 2, 3],
+                bytes: samplePngBytes(width: 64, height: 64),
               ),
             ),
             receiptOcrProvider: receiptOcrProvider,
@@ -3889,7 +3896,7 @@ void main() {
               pickedFile: samplePickedAttachmentFile(
                 filename: 'receipt.png',
                 contentType: 'image/png',
-                bytes: const [1, 2, 3],
+                bytes: samplePngBytes(width: 64, height: 64),
               ),
             ),
             receiptOcrProvider: receiptOcrProvider,
@@ -3982,7 +3989,7 @@ void main() {
               pickedFile: samplePickedAttachmentFile(
                 filename: 'receipt.png',
                 contentType: 'image/png',
-                bytes: const [1],
+                bytes: samplePngBytes(width: 64, height: 64),
               ),
             ),
             receiptOcrProvider: receiptOcrProvider,
@@ -4064,7 +4071,7 @@ void main() {
               pickedFile: samplePickedAttachmentFile(
                 filename: 'receipt.png',
                 contentType: 'image/png',
-                bytes: const [1],
+                bytes: samplePngBytes(width: 64, height: 64),
               ),
             ),
             receiptOcrProvider: receiptOcrProvider,
@@ -4171,7 +4178,7 @@ void main() {
               pickedFile: samplePickedAttachmentFile(
                 filename: 'receipt.png',
                 contentType: 'image/png',
-                bytes: const [1],
+                bytes: samplePngBytes(width: 64, height: 64),
               ),
             ),
             receiptOcrProvider: receiptOcrProvider,
@@ -4266,7 +4273,7 @@ void main() {
               pickedFile: samplePickedAttachmentFile(
                 filename: 'refund.png',
                 contentType: 'image/png',
-                bytes: const [1],
+                bytes: samplePngBytes(width: 64, height: 64),
               ),
             ),
             receiptOcrProvider: receiptOcrProvider,
@@ -4340,7 +4347,7 @@ void main() {
               pickedFile: samplePickedAttachmentFile(
                 filename: 'receipt.png',
                 contentType: 'image/png',
-                bytes: const [1],
+                bytes: samplePngBytes(width: 64, height: 64),
               ),
             ),
             receiptOcrProvider: receiptOcrProvider,
@@ -4502,6 +4509,42 @@ void main() {
     expect(find.text('0 attachments selected'), findsOneWidget);
   });
 
+  testWidgets('personal bill does not OCR a rejected image artifact', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final provider = FakeReceiptOcrProvider(
+      const ReceiptOcrResult.failed('must not run'),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraPersonalBillCreateScreen(
+          repository: FakeBillRepository(),
+          attachmentRepository: FakeBillAttachmentRepository(),
+          attachmentFileInput: FakeBillAttachmentFileInput(
+            pickedFile: samplePickedAttachmentFile(
+              filename: 'rejected.png',
+              contentType: 'image/png',
+              bytes: const [1, 2, 3],
+            ),
+          ),
+          receiptOcrProvider: provider,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('personal-bill-scan-receipt')));
+    await tester.pumpAndSettle();
+
+    expect(provider.calls, 0);
+    expect(
+      find.byKey(const Key('personal-bill-ocr-preview-panel')),
+      findsNothing,
+    );
+    expect(find.text('1 attachment selected'), findsOneWidget);
+  });
+
   testWidgets('personal bill OCR failure keeps manual entry and supports retry', (
     tester,
   ) async {
@@ -4521,7 +4564,7 @@ void main() {
             pickedFile: samplePickedAttachmentFile(
               filename: 'receipt.png',
               contentType: 'image/png',
-              bytes: const [3, 2, 1],
+              bytes: samplePngBytes(width: 64, height: 64),
             ),
           ),
           receiptOcrProvider: receiptOcrProvider,
@@ -4604,7 +4647,7 @@ void main() {
             pickedFile: samplePickedAttachmentFile(
               filename: 'receipt.jpg',
               contentType: 'image/jpeg',
-              bytes: const [8, 6, 7],
+              bytes: samplePngBytes(width: 64, height: 64),
               localPath: '/tmp/settleora-receipt.jpg',
             ),
           ),
@@ -4628,7 +4671,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
 
     expect(receiptOcrProvider.calls, 1);
-    expect(receiptOcrProvider.lastRequest?.bytes, const [8, 6, 7]);
+    expect(receiptOcrProvider.lastRequest?.bytes, isNotEmpty);
     expect(receiptOcrProvider.lastRequest?.contentType, 'image/jpeg');
     expect(
       receiptOcrProvider.lastRequest?.imagePath,
@@ -7303,7 +7346,7 @@ void main() {
         pickedFile: samplePickedAttachmentFile(
           filename: 'group-receipt.png',
           contentType: 'image/png',
-          bytes: const [9, 8, 7],
+          bytes: samplePngBytes(width: 64, height: 64),
         ),
       ),
       receiptOcrProvider: receiptOcrProvider,
@@ -7316,7 +7359,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(receiptOcrProvider.calls, 1);
-    expect(receiptOcrProvider.lastRequest?.bytes, const [9, 8, 7]);
+    expect(receiptOcrProvider.lastRequest?.bytes, isNotEmpty);
     expect(receiptOcrProvider.lastRequest?.fallbackCurrency, 'USD');
     expect(
       find.byKey(const Key('group-bill-ocr-preview-panel')),
@@ -7413,7 +7456,7 @@ void main() {
           pickedFile: samplePickedAttachmentFile(
             filename: 'group-receipt.png',
             contentType: 'image/png',
-            bytes: const [9, 8, 7],
+            bytes: samplePngBytes(width: 64, height: 64),
           ),
         ),
         receiptOcrProvider: receiptOcrProvider,
@@ -7528,7 +7571,7 @@ void main() {
         pickedFile: samplePickedAttachmentFile(
           filename: 'group-receipt.png',
           contentType: 'image/png',
-          bytes: const [9, 8, 7],
+          bytes: samplePngBytes(width: 64, height: 64),
         ),
       ),
       receiptOcrProvider: receiptOcrProvider,
@@ -7625,7 +7668,7 @@ void main() {
           pickedFile: samplePickedAttachmentFile(
             filename: 'group-receipt.png',
             contentType: 'image/png',
-            bytes: const [9],
+            bytes: samplePngBytes(width: 64, height: 64),
           ),
         ),
         receiptOcrProvider: receiptOcrProvider,
@@ -7860,7 +7903,7 @@ void main() {
         pickedFile: samplePickedAttachmentFile(
           filename: 'group-receipt.png',
           contentType: 'image/png',
-          bytes: const [9, 8, 7],
+          bytes: samplePngBytes(width: 64, height: 64),
         ),
       ),
       receiptOcrProvider: FakeReceiptOcrProvider(
@@ -7920,7 +7963,7 @@ void main() {
     );
   });
 
-  testWidgets('group OCR rejects inconsistent unit and line totals', (
+  testWidgets('group OCR requires consistent amounts and a nonempty name', (
     tester,
   ) async {
     await useLargeSurface(tester);
@@ -7935,7 +7978,7 @@ void main() {
         pickedFile: samplePickedAttachmentFile(
           filename: 'group-receipt.png',
           contentType: 'image/png',
-          bytes: const [9, 8, 7],
+          bytes: samplePngBytes(width: 64, height: 64),
         ),
       ),
       receiptOcrProvider: FakeReceiptOcrProvider(
@@ -7973,6 +8016,39 @@ void main() {
     );
     expect(find.text('Review item amounts before applying'), findsOneWidget);
 
+    await tester.enterText(
+      find.byKey(const ValueKey('group-bill-ocr-item-line-total-0')),
+      '10.00',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('group-bill-ocr-item-description-0')),
+      '',
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<CheckboxListTile>(
+            find.byKey(const Key('group-bill-ocr-apply-items')),
+          )
+          .onChanged,
+      isNull,
+    );
+
+    await tester.enterText(
+      find.byKey(const ValueKey('group-bill-ocr-item-description-0')),
+      'Coffee',
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<CheckboxListTile>(
+            find.byKey(const Key('group-bill-ocr-apply-items')),
+          )
+          .onChanged,
+      isNotNull,
+    );
+
+    await _setReceiptOcrSection(tester, 'group-bill', 'items', true);
     await _tapReceiptOcrApply(tester, 'group-bill');
 
     expect(
@@ -7982,7 +8058,7 @@ void main() {
           )
           .controller
           ?.text,
-      isEmpty,
+      'Coffee',
     );
     expect(
       tester
@@ -7991,7 +8067,7 @@ void main() {
           )
           .controller
           ?.text,
-      isEmpty,
+      '10.00',
     );
   });
 
@@ -8048,7 +8124,7 @@ void main() {
           pickedFile: samplePickedAttachmentFile(
             filename: 'shared-receipt.png',
             contentType: 'image/png',
-            bytes: const [4, 5, 6],
+            bytes: samplePngBytes(width: 64, height: 64),
           ),
         ),
         receiptOcrReviewRepository: receiptRepository,
@@ -8383,7 +8459,7 @@ void main() {
           pickedFile: samplePickedAttachmentFile(
             filename: 'shared-receipt.png',
             contentType: 'image/png',
-            bytes: const [4, 5, 6],
+            bytes: samplePngBytes(width: 64, height: 64),
           ),
         ),
         receiptOcrProvider: receiptOcrProvider,
@@ -8585,7 +8661,7 @@ void main() {
         pickedFile: samplePickedAttachmentFile(
           filename: 'shared-receipt.png',
           contentType: 'image/png',
-          bytes: const [4, 5, 6],
+          bytes: samplePngBytes(width: 64, height: 64),
         ),
       ),
       receiptOcrProvider: receiptOcrProvider,

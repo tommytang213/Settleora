@@ -226,6 +226,18 @@ Total $5.50
       preview.currencyProvenance,
       ReceiptOcrCurrencyProvenance.defaultFallback,
     );
+
+    final trailingInteger = parser.parse(r'''
+Corner Cafe
+TRY 2
+Latte $5.50
+Total $5.50
+''', fallbackCurrency: 'USD');
+    expect(trailingInteger.currency, 'USD');
+    expect(
+      trailingInteger.currencyProvenance,
+      ReceiptOcrCurrencyProvenance.defaultFallback,
+    );
   });
 
   test('parser resolves ambiguous symbols only from receipt context', () {
@@ -329,6 +341,18 @@ Total $145.00''',
         currency: 'VND',
         values: ['120000', '80000', '200000', '20000', '220000'],
       ),
+      (
+        text:
+            'Köln Markt\nGerät EUR 1.234\nKabel EUR 20.00\nSubtotal EUR 1.254\nTax EUR 0.00\nTotal EUR 1.254',
+        currency: 'EUR',
+        values: ['1234', '20.00', '1254', '0.00', '1254'],
+      ),
+      (
+        text:
+            'Kuwait Cafe\nCoffee KWD 1.234\nCake KWD 2.345\nSubtotal KWD 3.579\nTax KWD 0.000\nTotal KWD 3.579',
+        currency: 'KWD',
+        values: ['1.234', '2.345', '3.579', '0.000', '3.579'],
+      ),
     ];
 
     for (final fixture in cases) {
@@ -410,6 +434,18 @@ Total USD 37.49
         ),
       ),
     );
+  });
+
+  test('parser does not prepend a receipt column header to an item', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Corner Cafe
+ITEM DESCRIPTION
+Coffee USD 5.00
+Total USD 5.00
+''');
+
+    expect(preview.items.single.description, 'Coffee');
   });
 
   test('parser normalizes Arabic-Indic AED receipt values', () {

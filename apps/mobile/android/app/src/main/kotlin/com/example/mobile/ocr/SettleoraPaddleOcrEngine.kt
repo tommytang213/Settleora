@@ -171,31 +171,40 @@ class SettleoraPaddleOcrEngine(context: Context) {
                             batchIndices,
                         )
                     }
+                    // Orientation must not depend on the common recognizer for
+                    // scripts that recognizer cannot read. Probe the bounded,
+                    // catalog-pinned specialist set in both orientations before
+                    // choosing the document direction.
+                    for (pack in packs) {
+                        if (pack === commonPack) continue
+                        for (batchIndices in batchesFor(crops, crops.indices)) {
+                            recognizeBatch(pack, crops, candidatesByLine, batchIndices)
+                        }
+                        for (batchIndices in batchesFor(rotatedCrops, rotatedCrops.indices)) {
+                            recognizeBatch(
+                                pack,
+                                rotatedCrops,
+                                rotatedCandidatesByLine,
+                                batchIndices,
+                            )
+                        }
+                    }
+                    val uprightOrientationCandidates = candidatesByLine.map { candidates ->
+                        ScriptRouteSelector.select(candidates) ?: candidates.first()
+                    }
+                    val rotatedOrientationCandidates = rotatedCandidatesByLine.map { candidates ->
+                        ScriptRouteSelector.select(candidates) ?: candidates.first()
+                    }
                     val rotateDocument = ReceiptOrientationSelector.shouldRotate180(
-                        uprightCandidates = candidatesByLine.map { it.single() },
-                        rotatedCandidates = rotatedCandidatesByLine.map { it.single() },
+                        uprightCandidates = uprightOrientationCandidates,
+                        rotatedCandidates = rotatedOrientationCandidates,
                     )
                     if (rotateDocument) {
                         crops.indices.forEach { index ->
                             crops[index].release()
                             crops[index] = rotatedCrops[index]
                             candidatesByLine[index].clear()
-                            candidatesByLine[index] += rotatedCandidatesByLine[index].single()
-                        }
-                    }
-                    val specialistsByLine = candidatesByLine.map { candidates ->
-                        ScriptRouteSelector.specialistPackIdsForLine(
-                            candidates.single(),
-                            packs.map { it.spec },
-                        ).toSet()
-                    }
-                    for (pack in packs) {
-                        if (pack === commonPack) continue
-                        val probeIndices = candidatesByLine.indices.filter { lineIndex ->
-                            pack.spec.modelPackId in specialistsByLine[lineIndex]
-                        }
-                        for (batchIndices in batchesFor(crops, probeIndices)) {
-                            recognizeBatch(pack, crops, candidatesByLine, batchIndices)
+                            candidatesByLine[index] += rotatedCandidatesByLine[index]
                         }
                     }
 

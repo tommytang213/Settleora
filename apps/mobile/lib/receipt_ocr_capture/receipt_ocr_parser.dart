@@ -225,18 +225,24 @@ class ReceiptOcrParser {
       caseSensitive: false,
     );
     final codeBeforeAmount = RegExp(
-      "\\b$escapedCode\\b\\s*[:=]?\\s*$_amountTokenPattern\\s*\$",
+      "\\b$escapedCode\\b\\s*[:=]?\\s*${_explicitCodeAmountPattern(code)}\\s*\$",
       caseSensitive: false,
     );
     final amountBeforeCode = RegExp(
-      "$_amountTokenPattern\\s*\\b$escapedCode\\b\\s*\$",
+      "${_explicitCodeAmountPattern(code)}\\s*\\b$escapedCode\\b\\s*\$",
       caseSensitive: false,
     );
+    final wholeUnitCode = RegExp(
+      "(?:\\b$escapedCode\\b\\s*[:=]?\\s*-?\\d+|-?\\d+\\s*\\b$escapedCode\\b)\\s*\$",
+      caseSensitive: false,
+    );
+    final wholeUnitEvidenceCount = lines.where(wholeUnitCode.hasMatch).length;
 
     return lines.any((line) {
       return labelledCode.hasMatch(line) ||
           codeBeforeAmount.hasMatch(line) ||
-          amountBeforeCode.hasMatch(line);
+          amountBeforeCode.hasMatch(line) ||
+          wholeUnitEvidenceCount >= 2;
     });
   }
 
@@ -314,8 +320,13 @@ class ReceiptOcrParser {
       ).firstMatch(line);
       if (match == null) {
         final cleaned = _cleanDescription(line);
+        final nextIsPricedItem =
+            lineIndex + 1 < lines.length &&
+            _isPricedItemLine(lines[lineIndex + 1]);
         wrappedDescription =
-            lineIndex > 0 && _isWrappedItemDescriptionCandidate(cleaned)
+            nextIsPricedItem &&
+                _isWrappedItemDescriptionCandidate(cleaned) &&
+                _isStrongWrappedItemDescription(cleaned)
             ? cleaned
             : null;
         continue;
@@ -398,14 +409,16 @@ class ReceiptOcrParser {
         r'^(?:GALLONS?|LIT(?:ER|RE)S?)\b',
         caseSensitive: false,
       ).hasMatch(line)) {
-        quantity = _lastAmountInLine(line, currency: currency);
+        quantity = _lastAmountInLine(line);
         continue;
       }
       if (RegExp(
         r'^(?:PRICE\s*/\s*(?:GAL|L)|UNIT\s+PRICE)\b',
         caseSensitive: false,
       ).hasMatch(line)) {
-        unitPrice = _lastAmountInLine(line, currency: currency);
+        // Per-unit fuel rates commonly carry three decimal places even when
+        // the transaction currency has two minor digits.
+        unitPrice = _lastAmountInLine(line);
         continue;
       }
       if (_hasTotalLabel(line, line.toLowerCase())) {
@@ -739,9 +752,12 @@ String? _normalizeAmount(String value, {String? currency}) {
     final unsigned = normalized.startsWith('-')
         ? normalized.substring(1)
         : normalized;
-    final zeroDecimalCurrency = const {'JPY', 'KRW', 'VND'}.contains(currency);
+    final currencyScale = currency == null
+        ? null
+        : _currencyMinorUnitDigits(currency);
     if (RegExp(r'^\d{1,3}(?:\.\d{3})+$').hasMatch(unsigned) &&
-        (zeroDecimalCurrency || '.'.allMatches(unsigned).length > 1)) {
+        (currencyScale != null && currencyScale != 3 ||
+            '.'.allMatches(unsigned).length > 1)) {
       normalized = normalized.replaceAll('.', '');
     }
   }
@@ -749,6 +765,23 @@ String? _normalizeAmount(String value, {String? currency}) {
     return null;
   }
   return normalized;
+}
+
+String _explicitCodeAmountPattern(String code) {
+  if (const {'JPY', 'KRW', 'VND'}.contains(code)) {
+    return _amountTokenPattern;
+  }
+  // A bare integer after a three-letter token is too weak: product/marketing
+  // text such as `TRY 2` must not outrank an actual monetary symbol.
+  return r"-?\d+(?:[.,'’]\d+)+";
+}
+
+int _currencyMinorUnitDigits(String? currency) {
+  return switch (currency?.trim().toUpperCase()) {
+    'JPY' || 'KRW' || 'VND' => 0,
+    'KWD' || 'BHD' => 3,
+    _ => 2,
+  };
 }
 
 String _cleanDescription(String value) {
@@ -965,6 +998,23 @@ bool _isWrappedItemDescriptionCandidate(String description) {
     return false;
   }
   return _unicodeLetterPattern.allMatches(description).length >= 2;
+}
+
+bool _isStrongWrappedItemDescription(String description) {
+  final words = description
+      .split(RegExp(r'\s+'))
+      .where((word) => _unicodeLetterPattern.hasMatch(word))
+      .toList(growable: false);
+  if (words.length < 3 || description.length < 12) return false;
+  final letters = description.replaceAll(
+    RegExp(r'[^\p{L}]', unicode: true),
+    '',
+  );
+  if (letters.isNotEmpty && letters == letters.toUpperCase()) return false;
+  return !RegExp(
+    r'^(?:item|description|item description|product|product description|details)$',
+    caseSensitive: false,
+  ).hasMatch(description.trim());
 }
 
 bool _isPricedItemLine(String line) {

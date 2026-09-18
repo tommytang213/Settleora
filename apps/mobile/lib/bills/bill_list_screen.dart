@@ -1521,11 +1521,13 @@ class _SettleoraPersonalBillCreateScreenState
         );
         _nextDraftAttachmentId += 1;
       });
-      await _runReceiptOcrPreview(
-        processedArtifact.file,
-        sourceDraftAttachmentId: draftAttachmentId,
-        intakeSafetyReview: intakeSafetyReview,
-      );
+      if (processedArtifact.result.accepted) {
+        await _runReceiptOcrPreview(
+          processedArtifact.file,
+          sourceDraftAttachmentId: draftAttachmentId,
+          intakeSafetyReview: intakeSafetyReview,
+        );
+      }
     } on SettleoraBillAttachmentFileInputFailure catch (failure) {
       if (!mounted) {
         return;
@@ -1696,11 +1698,13 @@ class _SettleoraPersonalBillCreateScreenState
           artifactResult: processedArtifact.result,
         ),
       );
-      await _runReceiptOcrPreview(
-        processedArtifact.file,
-        sourceDraftAttachmentId: draftAttachmentId,
-        intakeSafetyReview: intakeSafetyReview,
-      );
+      if (processedArtifact.result.accepted) {
+        await _runReceiptOcrPreview(
+          processedArtifact.file,
+          sourceDraftAttachmentId: draftAttachmentId,
+          intakeSafetyReview: intakeSafetyReview,
+        );
+      }
     }
   }
 
@@ -3759,6 +3763,9 @@ bool _receiptOcrItemsCanApply(ReceiptOcrPreview preview) {
   }
 
   return preview.items.every((candidate) {
+    if (candidate.description.trim().isEmpty) {
+      return false;
+    }
     final itemCurrency = candidate.currency?.trim();
     if (itemCurrency != null &&
         itemCurrency.isNotEmpty &&
@@ -3952,6 +3959,18 @@ List<_ReceiptOcrReferenceCharge> _receiptOcrReferenceCharges(
       _ReceiptOcrReferenceCharge(
         label: 'Service charge suggested',
         amount: preview.service!.trim(),
+        currency: currency,
+      ),
+    if ((preview.tip ?? '').trim().isNotEmpty)
+      _ReceiptOcrReferenceCharge(
+        label: 'Tip suggested',
+        amount: preview.tip!.trim(),
+        currency: currency,
+      ),
+    if ((preview.shipping ?? '').trim().isNotEmpty)
+      _ReceiptOcrReferenceCharge(
+        label: 'Shipping suggested',
+        amount: preview.shipping!.trim(),
         currency: currency,
       ),
     if ((preview.total ?? '').trim().isNotEmpty)
@@ -6227,11 +6246,13 @@ class _SettleoraGroupBillCreateScreenState
         );
         _nextDraftAttachmentId += 1;
       });
-      await _runReceiptOcrPreview(
-        processedArtifact.file,
-        sourceDraftAttachmentId: draftAttachmentId,
-        intakeSafetyReview: intakeSafetyReview,
-      );
+      if (processedArtifact.result.accepted) {
+        await _runReceiptOcrPreview(
+          processedArtifact.file,
+          sourceDraftAttachmentId: draftAttachmentId,
+          intakeSafetyReview: intakeSafetyReview,
+        );
+      }
     } on SettleoraBillAttachmentFileInputFailure catch (failure) {
       if (!mounted) {
         return;
@@ -6402,11 +6423,13 @@ class _SettleoraGroupBillCreateScreenState
           artifactResult: processedArtifact.result,
         ),
       );
-      await _runReceiptOcrPreview(
-        processedArtifact.file,
-        sourceDraftAttachmentId: draftAttachmentId,
-        intakeSafetyReview: intakeSafetyReview,
-      );
+      if (processedArtifact.result.accepted) {
+        await _runReceiptOcrPreview(
+          processedArtifact.file,
+          sourceDraftAttachmentId: draftAttachmentId,
+          intakeSafetyReview: intakeSafetyReview,
+        );
+      }
     }
   }
 
