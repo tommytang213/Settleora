@@ -31,7 +31,7 @@ public sealed class SettleoraDbContextDesignTimeFactoryTests
 
         Assert.Equal("Npgsql.EntityFrameworkCore.PostgreSQL", dbContext.Database.ProviderName);
         Assert.Equal(connectionString, dbContext.Database.GetConnectionString());
-        Assert.Equal(55, dbContext.Model.GetEntityTypes().Count());
+        Assert.Equal(56, dbContext.Model.GetEntityTypes().Count());
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(AuthInvitation)));
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(AuthInvitationPolicy)));
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(AuthPasswordResetRequest)));
@@ -56,6 +56,7 @@ public sealed class SettleoraDbContextDesignTimeFactoryTests
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(BillCsvImportSession)));
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(ExpenseBillItemSplit)));
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(ReceiptOcrReview)));
+        Assert.NotNull(dbContext.Model.FindEntityType(typeof(ReceiptOcrReviewAdjustment)));
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(ReceiptOcrReviewAssignment)));
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(ReceiptOcrReviewLine)));
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(ExpenseBillRevision)));

@@ -18,6 +18,29 @@ class ReceiptOcrReviewSourceValues {
       'imported_reviewed_data';
 }
 
+typedef ReceiptOcrReviewAdjustmentKind = String;
+
+class ReceiptOcrReviewAdjustmentKindValues {
+  const ReceiptOcrReviewAdjustmentKindValues._();
+
+  static const ReceiptOcrReviewAdjustmentKind tip = 'tip';
+  static const ReceiptOcrReviewAdjustmentKind shipping = 'shipping';
+  static const ReceiptOcrReviewAdjustmentKind fee = 'fee';
+  static const ReceiptOcrReviewAdjustmentKind surcharge = 'surcharge';
+  static const ReceiptOcrReviewAdjustmentKind deposit = 'deposit';
+  static const ReceiptOcrReviewAdjustmentKind credit = 'credit';
+  static const ReceiptOcrReviewAdjustmentKind other = 'other';
+}
+
+typedef ReceiptOcrReviewAdjustmentDirection = String;
+
+class ReceiptOcrReviewAdjustmentDirectionValues {
+  const ReceiptOcrReviewAdjustmentDirectionValues._();
+
+  static const ReceiptOcrReviewAdjustmentDirection charge = 'charge';
+  static const ReceiptOcrReviewAdjustmentDirection credit = 'credit';
+}
+
 typedef ReceiptOcrReviewApplyPreviewIssueCode = String;
 
 class ReceiptOcrReviewApplyPreviewIssueCodeValues {
@@ -47,6 +70,10 @@ class ReceiptOcrReviewApplyPreviewIssueCodeValues {
       'line_sum_mismatch';
   static const ReceiptOcrReviewApplyPreviewIssueCode headerTotalMismatch =
       'header_total_mismatch';
+  static const ReceiptOcrReviewApplyPreviewIssueCode adjustmentsNotAutoApplied =
+      'adjustments_not_auto_applied';
+  static const ReceiptOcrReviewApplyPreviewIssueCode
+  adjustmentCurrencyNotReconciled = 'adjustment_currency_not_reconciled';
 }
 
 class ReceiptOcrReviewRoute {
@@ -116,6 +143,7 @@ class ReceiptOcrReviewDetail {
     required this.discountAmount,
     required this.grandTotalAmount,
     required this.lines,
+    this.adjustmentEvidence = const [],
     required this.createdAtUtc,
     required this.updatedAtUtc,
   });
@@ -135,6 +163,31 @@ class ReceiptOcrReviewDetail {
   final String? discountAmount;
   final String? grandTotalAmount;
   final List<ReceiptOcrReviewLine> lines;
+  final List<ReceiptOcrReviewAdjustment> adjustmentEvidence;
+  final DateTime createdAtUtc;
+  final DateTime updatedAtUtc;
+}
+
+class ReceiptOcrReviewAdjustment {
+  const ReceiptOcrReviewAdjustment({
+    required this.id,
+    required this.sortOrder,
+    required this.kind,
+    required this.originalLabel,
+    required this.amount,
+    required this.currency,
+    required this.direction,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
+  });
+
+  final String id;
+  final int sortOrder;
+  final ReceiptOcrReviewAdjustmentKind kind;
+  final String originalLabel;
+  final String amount;
+  final String currency;
+  final ReceiptOcrReviewAdjustmentDirection direction;
   final DateTime createdAtUtc;
   final DateTime updatedAtUtc;
 }
@@ -174,6 +227,7 @@ class ReceiptOcrReviewSaveRequest {
     required this.discountAmount,
     required this.grandTotalAmount,
     required this.lines,
+    this.adjustmentEvidence = const [],
   });
 
   final ReceiptOcrReviewStatus status;
@@ -187,6 +241,23 @@ class ReceiptOcrReviewSaveRequest {
   final String? discountAmount;
   final String? grandTotalAmount;
   final List<ReceiptOcrReviewLineSaveRequest> lines;
+  final List<ReceiptOcrReviewAdjustmentSaveRequest> adjustmentEvidence;
+}
+
+class ReceiptOcrReviewAdjustmentSaveRequest {
+  const ReceiptOcrReviewAdjustmentSaveRequest({
+    required this.kind,
+    required this.originalLabel,
+    required this.amount,
+    required this.currency,
+    required this.direction,
+  });
+
+  final ReceiptOcrReviewAdjustmentKind kind;
+  final String originalLabel;
+  final String amount;
+  final String currency;
+  final ReceiptOcrReviewAdjustmentDirection direction;
 }
 
 class ReceiptOcrReviewLineSaveRequest {
@@ -220,6 +291,7 @@ class ReceiptOcrReviewApplyPreview {
     required this.proposedDiscountAmount,
     required this.proposedGrandTotalAmount,
     required this.proposedLines,
+    this.adjustmentEvidence = const [],
     required this.summary,
     required this.canApply,
     required this.blockedReasons,
@@ -243,6 +315,7 @@ class ReceiptOcrReviewApplyPreview {
   final String? proposedDiscountAmount;
   final String? proposedGrandTotalAmount;
   final List<ReceiptOcrReviewPreviewLine> proposedLines;
+  final List<ReceiptOcrReviewAdjustment> adjustmentEvidence;
   final ReceiptOcrReviewPreviewSummary summary;
   final bool canApply;
   final List<ReceiptOcrReviewApplyPreviewIssueCode> blockedReasons;
@@ -276,14 +349,22 @@ class ReceiptOcrReviewPreviewSummary {
     required this.lineCount,
     required this.linesWithProposedTotalCount,
     required this.linesMissingProposedTotalCount,
+    this.adjustmentEvidenceCount = 0,
+    this.autoAppliedAdjustmentCount = 0,
     required this.proposedLineTotalSumAmount,
+    this.reconciledAdjustmentChargeTotalAmount,
+    this.reconciledAdjustmentCreditTotalAmount,
     required this.expectedHeaderTotalAmount,
   });
 
   final int lineCount;
   final int linesWithProposedTotalCount;
   final int linesMissingProposedTotalCount;
+  final int adjustmentEvidenceCount;
+  final int autoAppliedAdjustmentCount;
   final String? proposedLineTotalSumAmount;
+  final String? reconciledAdjustmentChargeTotalAmount;
+  final String? reconciledAdjustmentCreditTotalAmount;
   final String? expectedHeaderTotalAmount;
 }
 

@@ -147,6 +147,7 @@ public sealed class SettleoraDbContext : DbContext
         modelBuilder.Entity<BillCsvImportSession>(ConfigureBillCsvImportSession);
         modelBuilder.Entity<ExpenseBillAttachment>(ConfigureExpenseBillAttachment);
         modelBuilder.Entity<ReceiptOcrReview>(ConfigureReceiptOcrReview);
+        modelBuilder.Entity<ReceiptOcrReviewAdjustment>(ConfigureReceiptOcrReviewAdjustment);
         modelBuilder.Entity<ReceiptOcrReviewAssignment>(ConfigureReceiptOcrReviewAssignment);
         modelBuilder.Entity<ReceiptOcrReviewLine>(ConfigureReceiptOcrReviewLine);
         modelBuilder.Entity<ManualFinancialAccount>(ConfigureManualFinancialAccount);
@@ -3670,6 +3671,77 @@ public sealed class SettleoraDbContext : DbContext
             .WithMany(review => review.Lines)
             .HasForeignKey(line => line.ReceiptOcrReviewId)
             .HasConstraintName("fk_receipt_ocr_review_lines_reviews_review_id")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureReceiptOcrReviewAdjustment(EntityTypeBuilder<ReceiptOcrReviewAdjustment> entity)
+    {
+        entity.ToTable("receipt_ocr_review_adjustments", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_review_adjustments_sort_order_non_negative",
+                "sort_order >= 0");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_review_adjustments_kind",
+                "kind IN ('tip', 'shipping', 'fee', 'surcharge', 'deposit', 'credit', 'other')");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_review_adjustments_original_label_not_blank",
+                "length(btrim(original_label)) > 0");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_review_adjustments_amount_positive",
+                "amount > 0");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_review_adjustments_amount_upper_bound",
+                "amount <= 999999999999999.9999");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_review_adjustments_currency_uppercase_iso",
+                "currency ~ '^[A-Z]{3}$'");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_review_adjustments_direction",
+                "direction IN ('charge', 'credit')");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_review_adjustments_credit_kind_direction",
+                "kind <> 'credit' OR direction = 'credit'");
+        });
+
+        entity.HasKey(adjustment => adjustment.Id);
+
+        entity.Property(adjustment => adjustment.Id).HasColumnName("id");
+        entity.Property(adjustment => adjustment.ReceiptOcrReviewId).HasColumnName("receipt_ocr_review_id");
+        entity.Property(adjustment => adjustment.SortOrder).HasColumnName("sort_order").IsRequired();
+        entity.Property(adjustment => adjustment.Kind)
+            .HasColumnName("kind")
+            .HasMaxLength(ReceiptOcrReviewConstraints.AdjustmentKindMaxLength)
+            .IsRequired();
+        entity.Property(adjustment => adjustment.OriginalLabel)
+            .HasColumnName("original_label")
+            .HasMaxLength(ReceiptOcrReviewConstraints.AdjustmentOriginalLabelMaxLength)
+            .IsRequired();
+        entity.Property(adjustment => adjustment.Amount)
+            .HasColumnName("amount")
+            .HasPrecision(ReceiptOcrReviewConstraints.MoneyAmountPrecision, ReceiptOcrReviewConstraints.MoneyAmountScale)
+            .IsRequired();
+        entity.Property(adjustment => adjustment.Currency)
+            .HasColumnName("currency")
+            .HasMaxLength(ReceiptOcrReviewConstraints.CurrencyMaxLength)
+            .IsRequired();
+        entity.Property(adjustment => adjustment.Direction)
+            .HasColumnName("direction")
+            .HasMaxLength(ReceiptOcrReviewConstraints.AdjustmentDirectionMaxLength)
+            .IsRequired();
+        entity.Property(adjustment => adjustment.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+        entity.Property(adjustment => adjustment.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+
+        entity.HasIndex(adjustment => adjustment.ReceiptOcrReviewId)
+            .HasDatabaseName("ix_receipt_ocr_review_adjustments_review_id");
+        entity.HasIndex(adjustment => new { adjustment.ReceiptOcrReviewId, adjustment.SortOrder })
+            .IsUnique()
+            .HasDatabaseName("ux_receipt_ocr_review_adjustments_review_sort_order");
+
+        entity.HasOne(adjustment => adjustment.ReceiptOcrReview)
+            .WithMany(review => review.Adjustments)
+            .HasForeignKey(adjustment => adjustment.ReceiptOcrReviewId)
+            .HasConstraintName("fk_receipt_ocr_review_adjustments_reviews_review_id")
             .OnDelete(DeleteBehavior.Restrict);
     }
 

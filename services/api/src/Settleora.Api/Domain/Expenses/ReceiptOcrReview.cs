@@ -48,5 +48,7 @@ public sealed class ReceiptOcrReview
 
     public ICollection<ReceiptOcrReviewLine> Lines { get; } = new List<ReceiptOcrReviewLine>();
 
+    public ICollection<ReceiptOcrReviewAdjustment> Adjustments { get; } = new List<ReceiptOcrReviewAdjustment>();
+
     public ICollection<ReceiptOcrReviewAssignment> Assignments { get; } = new List<ReceiptOcrReviewAssignment>();
 }

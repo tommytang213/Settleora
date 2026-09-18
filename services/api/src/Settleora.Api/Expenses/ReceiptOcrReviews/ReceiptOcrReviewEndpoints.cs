@@ -92,7 +92,8 @@ internal static class ReceiptOcrReviewEndpoints
         "serviceChargeAmount",
         "discountAmount",
         "grandTotalAmount",
-        "lines"
+        "lines",
+        "adjustmentEvidence"
     ];
 
     private static readonly HashSet<string> AllowedLineProperties =
@@ -101,6 +102,15 @@ internal static class ReceiptOcrReviewEndpoints
         "quantity",
         "unitPriceAmount",
         "lineTotalAmount"
+    ];
+
+    private static readonly HashSet<string> AllowedAdjustmentProperties =
+    [
+        "kind",
+        "originalLabel",
+        "amount",
+        "currency",
+        "direction"
     ];
 
     private static readonly HashSet<string> AllowedQueueQueryProperties =
@@ -389,12 +399,21 @@ internal static class ReceiptOcrReviewEndpoints
         var now = timeProvider.GetUtcNow();
         var review = await dbContext.Set<ReceiptOcrReview>()
             .Include(candidate => candidate.Lines)
+            .Include(candidate => candidate.Adjustments)
             .Where(candidate => candidate.ExpenseBillId == billContext.BillId
                 && candidate.FileObjectId == attachment.FileObjectId
                 && candidate.RemovedAtUtc == null)
             .SingleOrDefaultAsync(cancellationToken);
 
         var created = review is null;
+        if (created && !submittedReview.HasMeaningfulPayload)
+        {
+            return InvalidReceiptOcrReview(new Dictionary<string, string[]>(StringComparer.Ordinal)
+            {
+                ["body"] = ["At least one reviewed OCR field or line is required."]
+            });
+        }
+
         if (review is null)
         {
             review = new ReceiptOcrReview
@@ -412,10 +431,19 @@ internal static class ReceiptOcrReviewEndpoints
         {
             var existingLines = review.Lines.ToArray();
             dbContext.Set<ReceiptOcrReviewLine>().RemoveRange(existingLines);
+            if (submittedReview.AdjustmentEvidenceSupplied)
+            {
+                var existingAdjustments = review.Adjustments.ToArray();
+                dbContext.Set<ReceiptOcrReviewAdjustment>().RemoveRange(existingAdjustments);
+            }
         }
 
         ApplySubmittedReview(review, submittedReview, now);
         AddSubmittedLines(dbContext, review, submittedReview.Lines, now);
+        if (submittedReview.AdjustmentEvidenceSupplied)
+        {
+            AddSubmittedAdjustments(dbContext, review, submittedReview.AdjustmentEvidence, now);
+        }
 
         await WriteReviewAuditAsync(
             auditWriter,
@@ -1902,6 +1930,7 @@ internal static class ReceiptOcrReviewEndpoints
             var discountAmount = ReadOptionalMoney(root, "discountAmount", currencyCode, errors);
             var grandTotalAmount = ReadOptionalMoney(root, "grandTotalAmount", currencyCode, errors);
             var lines = ReadLines(root, currencyCode, errors);
+            var adjustmentEvidence = ReadAdjustments(root, errors, out var adjustmentEvidenceSupplied);
 
             var hasHeaderAmount = HeaderAmountProperties.Any(propertyName =>
                 root.TryGetProperty(propertyName, out var property) && property.ValueKind is not JsonValueKind.Null);
@@ -1909,8 +1938,9 @@ internal static class ReceiptOcrReviewEndpoints
                 || receiptIssuedAtUtc.HasValue
                 || currency is not null
                 || hasHeaderAmount
-                || lines.Count > 0;
-            if (!hasMeaningfulPayload)
+                || lines.Count > 0
+                || adjustmentEvidence.Count > 0;
+            if (!hasMeaningfulPayload && !adjustmentEvidenceSupplied)
             {
                 AddError(errors, "body", "At least one reviewed OCR field or line is required.");
             }
@@ -1932,7 +1962,10 @@ internal static class ReceiptOcrReviewEndpoints
                     serviceChargeAmount,
                     discountAmount,
                     grandTotalAmount,
-                    lines));
+                    lines,
+                    adjustmentEvidence,
+                    adjustmentEvidenceSupplied,
+                    hasMeaningfulPayload));
         }
     }
 
@@ -1941,18 +1974,20 @@ internal static class ReceiptOcrReviewEndpoints
         string propertyName,
         Func<string?, bool> isSupported,
         string errorMessage,
-        Dictionary<string, List<string>> errors)
+        Dictionary<string, List<string>> errors,
+        string? errorPropertyName = null)
     {
+        var errorKey = errorPropertyName ?? propertyName;
         if (!root.TryGetProperty(propertyName, out var value) || value.ValueKind is not JsonValueKind.String)
         {
-            AddError(errors, propertyName, errorMessage);
+            AddError(errors, errorKey, errorMessage);
             return null;
         }
 
         var text = value.GetString();
         if (!isSupported(text))
         {
-            AddError(errors, propertyName, errorMessage);
+            AddError(errors, errorKey, errorMessage);
             return null;
         }
 
@@ -2216,6 +2251,181 @@ internal static class ReceiptOcrReviewEndpoints
         return lines;
     }
 
+    private static IReadOnlyList<SubmittedReceiptOcrReviewAdjustment> ReadAdjustments(
+        JsonElement root,
+        Dictionary<string, List<string>> errors,
+        out bool supplied)
+    {
+        supplied = root.TryGetProperty("adjustmentEvidence", out var value);
+        if (!supplied)
+        {
+            return [];
+        }
+
+        if (value.ValueKind is not JsonValueKind.Array)
+        {
+            AddError(errors, "adjustmentEvidence", "Adjustment evidence must be an array.");
+            return [];
+        }
+
+        var adjustmentCount = value.GetArrayLength();
+        if (adjustmentCount > ReceiptOcrReviewConstraints.MaxAdjustmentCount)
+        {
+            AddError(errors, "adjustmentEvidence", "Too many receipt OCR adjustment evidence entries were supplied.");
+            return [];
+        }
+
+        var adjustments = new List<SubmittedReceiptOcrReviewAdjustment>(adjustmentCount);
+        var sortOrder = 0;
+        foreach (var adjustmentElement in value.EnumerateArray())
+        {
+            var errorPrefix = $"adjustmentEvidence[{sortOrder}]";
+            if (adjustmentElement.ValueKind is not JsonValueKind.Object)
+            {
+                AddError(errors, errorPrefix, "Adjustment evidence must be an object.");
+                sortOrder++;
+                continue;
+            }
+
+            foreach (var property in adjustmentElement.EnumerateObject())
+            {
+                if (!AllowedAdjustmentProperties.Contains(property.Name))
+                {
+                    AddError(errors, $"{errorPrefix}.{property.Name}", "Field is not supported for receipt OCR adjustment evidence.");
+                }
+            }
+
+            var kind = ReadRequiredSupportedString(
+                adjustmentElement,
+                "kind",
+                ReceiptOcrReviewAdjustmentKinds.IsSupported,
+                "Adjustment kind is not supported.",
+                errors,
+                $"{errorPrefix}.kind");
+            var direction = ReadRequiredSupportedString(
+                adjustmentElement,
+                "direction",
+                ReceiptOcrReviewAdjustmentDirections.IsSupported,
+                "Adjustment direction is not supported.",
+                errors,
+                $"{errorPrefix}.direction");
+            var originalLabel = ReadRequiredAdjustmentLabel(adjustmentElement, errorPrefix, errors);
+            var currency = ReadRequiredAdjustmentCurrency(adjustmentElement, errorPrefix, errors, out var currencyCode);
+            var amount = ReadRequiredAdjustmentAmount(adjustmentElement, currencyCode, errorPrefix, errors);
+
+            if (kind is ReceiptOcrReviewAdjustmentKinds.Credit
+                && direction is not null
+                && direction is not ReceiptOcrReviewAdjustmentDirections.Credit)
+            {
+                AddError(errors, $"{errorPrefix}.direction", "Credit adjustment evidence must use credit direction.");
+            }
+
+            if (kind is not null
+                && direction is not null
+                && originalLabel is not null
+                && currency is not null
+                && amount.HasValue)
+            {
+                adjustments.Add(new SubmittedReceiptOcrReviewAdjustment(
+                    sortOrder,
+                    kind,
+                    originalLabel,
+                    amount.Value,
+                    currency,
+                    direction));
+            }
+
+            sortOrder++;
+        }
+
+        return adjustments;
+    }
+
+    private static string? ReadRequiredAdjustmentLabel(
+        JsonElement adjustment,
+        string errorPrefix,
+        Dictionary<string, List<string>> errors)
+    {
+        if (!adjustment.TryGetProperty("originalLabel", out var value) || value.ValueKind is not JsonValueKind.String)
+        {
+            AddError(errors, $"{errorPrefix}.originalLabel", "Original label is required.");
+            return null;
+        }
+
+        var label = value.GetString()?.Trim();
+        if (string.IsNullOrWhiteSpace(label)
+            || label.Length > ReceiptOcrReviewConstraints.AdjustmentOriginalLabelMaxLength)
+        {
+            AddError(errors, $"{errorPrefix}.originalLabel", "Original label is required and must be bounded.");
+            return null;
+        }
+
+        return label;
+    }
+
+    private static string? ReadRequiredAdjustmentCurrency(
+        JsonElement adjustment,
+        string errorPrefix,
+        Dictionary<string, List<string>> errors,
+        out CurrencyCode? currencyCode)
+    {
+        currencyCode = null;
+        if (!adjustment.TryGetProperty("currency", out var value)
+            || value.ValueKind is not JsonValueKind.String
+            || !CurrencyCode.TryCreate(value.GetString(), out var parsedCurrency))
+        {
+            AddError(errors, $"{errorPrefix}.currency", "Currency must be an uppercase three-letter code.");
+            return null;
+        }
+
+        var supportedResult = SupportedCurrencyPolicy.Default.ValidateSupported(parsedCurrency);
+        if (!supportedResult.Succeeded)
+        {
+            AddError(errors, $"{errorPrefix}.currency", supportedResult.Message);
+            return null;
+        }
+
+        currencyCode = parsedCurrency;
+        return parsedCurrency.Value;
+    }
+
+    private static decimal? ReadRequiredAdjustmentAmount(
+        JsonElement adjustment,
+        CurrencyCode? currencyCode,
+        string errorPrefix,
+        Dictionary<string, List<string>> errors)
+    {
+        if (!adjustment.TryGetProperty("amount", out var value) || value.ValueKind is not JsonValueKind.String)
+        {
+            AddError(errors, $"{errorPrefix}.amount", "Amount must be a plain positive base-10 decimal string.");
+            return null;
+        }
+
+        if (currencyCode is null)
+        {
+            return null;
+        }
+
+        var validationResult = MoneyAmount.TryParse(
+            value.GetString(),
+            currencyCode,
+            MoneyValidationOptions.Default with
+            {
+                AllowZero = false,
+                AmountField = $"{errorPrefix}.amount",
+                CurrencyField = $"{errorPrefix}.currency"
+            },
+            SupportedCurrencyPolicy.Default,
+            out var moneyAmount);
+        if (!validationResult.Succeeded)
+        {
+            AddError(errors, validationResult.Field, validationResult.Message);
+            return null;
+        }
+
+        return moneyAmount.Amount;
+    }
+
     private static string? ReadLineText(
         JsonElement line,
         string errorPrefix,
@@ -2417,6 +2627,7 @@ internal static class ReceiptOcrReviewEndpoints
     {
         var query = dbContext.Set<ReceiptOcrReview>()
             .Include(review => review.Lines)
+            .Include(review => review.Adjustments)
             .Where(review => review.ExpenseBillId == billContext.BillId
                 && review.FileObjectId == fileId
                 && review.GroupId == billContext.GroupId
@@ -2751,6 +2962,38 @@ internal static class ReceiptOcrReviewEndpoints
 
             review.Lines.Add(reviewLine);
             dbContext.Entry(reviewLine).State = EntityState.Added;
+        }
+
+        if (dbContext.Entry(review).State is EntityState.Unchanged or EntityState.Modified)
+        {
+            dbContext.Entry(review).State = EntityState.Modified;
+        }
+    }
+
+    private static void AddSubmittedAdjustments(
+        SettleoraDbContext dbContext,
+        ReceiptOcrReview review,
+        IReadOnlyList<SubmittedReceiptOcrReviewAdjustment> adjustments,
+        DateTimeOffset now)
+    {
+        foreach (var adjustment in adjustments)
+        {
+            var reviewAdjustment = new ReceiptOcrReviewAdjustment
+            {
+                Id = Guid.NewGuid(),
+                ReceiptOcrReviewId = review.Id,
+                SortOrder = adjustment.SortOrder,
+                Kind = adjustment.Kind,
+                OriginalLabel = adjustment.OriginalLabel,
+                Amount = adjustment.Amount,
+                Currency = adjustment.Currency,
+                Direction = adjustment.Direction,
+                CreatedAtUtc = now,
+                UpdatedAtUtc = now
+            };
+
+            review.Adjustments.Add(reviewAdjustment);
+            dbContext.Entry(reviewAdjustment).State = EntityState.Added;
         }
 
         if (dbContext.Entry(review).State is EntityState.Unchanged or EntityState.Modified)
@@ -3143,7 +3386,10 @@ internal static class ReceiptOcrReviewEndpoints
         decimal? ServiceChargeAmount,
         decimal? DiscountAmount,
         decimal? GrandTotalAmount,
-        IReadOnlyList<SubmittedReceiptOcrReviewLine> Lines);
+        IReadOnlyList<SubmittedReceiptOcrReviewLine> Lines,
+        IReadOnlyList<SubmittedReceiptOcrReviewAdjustment> AdjustmentEvidence,
+        bool AdjustmentEvidenceSupplied,
+        bool HasMeaningfulPayload);
 
     private sealed record SubmittedReceiptOcrReviewLine(
         int SortOrder,
@@ -3151,6 +3397,14 @@ internal static class ReceiptOcrReviewEndpoints
         decimal? Quantity,
         decimal? UnitPriceAmount,
         decimal? LineTotalAmount);
+
+    private sealed record SubmittedReceiptOcrReviewAdjustment(
+        int SortOrder,
+        string Kind,
+        string OriginalLabel,
+        decimal Amount,
+        string Currency,
+        string Direction);
 
     private sealed record ReceiptOcrReviewContext(
         Guid BillId,

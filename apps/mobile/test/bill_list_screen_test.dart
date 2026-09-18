@@ -1031,7 +1031,12 @@ void main() {
       billId: _createdBillId,
       fileId: _uploadedFileId,
     );
-    final receiptRepository = FakeReceiptOcrReviewRepository();
+    final receiptRepository = FakeReceiptOcrReviewRepository(
+      reviewDetail: sampleReceiptOcrReviewDetail(
+        route,
+        adjustments: sampleBillReviewAdjustments(),
+      ),
+    );
 
     await tester.pumpWidget(
       MaterialApp(
@@ -1186,6 +1191,15 @@ void main() {
     );
     expect(receiptRepository.lastSaveRequest?.currency, 'HKD');
     expect(receiptRepository.lastSaveRequest?.grandTotalAmount, '10.80');
+    expect(receiptRepository.lastSaveRequest?.adjustmentEvidence, hasLength(1));
+    expect(
+      receiptRepository
+          .lastSaveRequest
+          ?.adjustmentEvidence
+          .single
+          .originalLabel,
+      'Driver gratuity',
+    );
     expect(receiptRepository.lastSaveRequest?.lines.map((line) => line.text), [
       'Edited milk',
       'Tea',
@@ -12762,6 +12776,7 @@ ReceiptOcrReviewDetail sampleReceiptOcrReviewDetail(
   String lineText = 'Milk',
   String currency = 'USD',
   DateTime? updatedAtUtc,
+  List<ReceiptOcrReviewAdjustment> adjustments = const [],
 }) {
   return ReceiptOcrReviewDetail(
     id: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
@@ -12790,9 +12805,26 @@ ReceiptOcrReviewDetail sampleReceiptOcrReviewDetail(
         updatedAtUtc: _createdAtUtc,
       ),
     ],
+    adjustmentEvidence: adjustments,
     createdAtUtc: _createdAtUtc,
     updatedAtUtc: updatedAtUtc ?? _updatedAtUtc,
   );
+}
+
+List<ReceiptOcrReviewAdjustment> sampleBillReviewAdjustments() {
+  return [
+    ReceiptOcrReviewAdjustment(
+      id: 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
+      sortOrder: 0,
+      kind: ReceiptOcrReviewAdjustmentKindValues.tip,
+      originalLabel: 'Driver gratuity',
+      amount: '2.00',
+      currency: 'USD',
+      direction: ReceiptOcrReviewAdjustmentDirectionValues.charge,
+      createdAtUtc: _createdAtUtc,
+      updatedAtUtc: _updatedAtUtc,
+    ),
+  ];
 }
 
 ReceiptOcrReviewDetail sampleReceiptOcrReviewDetailFromRequest(
@@ -12823,6 +12855,20 @@ ReceiptOcrReviewDetail sampleReceiptOcrReviewDetailFromRequest(
           quantity: request.lines[index].quantity,
           unitPriceAmount: request.lines[index].unitPriceAmount,
           lineTotalAmount: request.lines[index].lineTotalAmount,
+          createdAtUtc: _createdAtUtc,
+          updatedAtUtc: _updatedAtUtc,
+        ),
+    ],
+    adjustmentEvidence: [
+      for (var index = 0; index < request.adjustmentEvidence.length; index += 1)
+        ReceiptOcrReviewAdjustment(
+          id: 'saved-adjustment-$index',
+          sortOrder: index,
+          kind: request.adjustmentEvidence[index].kind,
+          originalLabel: request.adjustmentEvidence[index].originalLabel,
+          amount: request.adjustmentEvidence[index].amount,
+          currency: request.adjustmentEvidence[index].currency,
+          direction: request.adjustmentEvidence[index].direction,
           createdAtUtc: _createdAtUtc,
           updatedAtUtc: _updatedAtUtc,
         ),
