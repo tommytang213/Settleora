@@ -8734,7 +8734,7 @@ void main() {
       );
       expect(
         find.text(
-          'Detected tax/service/discount may explain why item totals differ from the grand total.',
+          'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
         ),
         findsOneWidget,
       );
