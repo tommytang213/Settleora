@@ -272,7 +272,9 @@ ReceiptOcrPreview _copyReceiptOcrPreview(
     tax: preview.tax,
     service: preview.service,
     tip: preview.tip,
+    tipLabel: preview.tipLabel,
     shipping: preview.shipping,
+    shippingLabel: preview.shippingLabel,
     discount: preview.discount,
     total: preview.total,
     rawTextLineCount: preview.rawTextLineCount,
@@ -411,36 +413,28 @@ ReceiptOcrReviewSaveRequest? _receiptOcrReviewSaveRequestFromPreview(
             unitPriceAmount: _nullableTrimmedText(item.unitPrice),
             lineTotalAmount: _nullableTrimmedText(item.lineTotal),
           ),
-      if (_nullableTrimmedText(preview.tip) case final tip?)
-        _receiptOcrReferenceChargeSaveLine(
-          label: 'Tip',
-          amount: tip,
-          currency: preview.currency,
-        ),
-      if (_nullableTrimmedText(preview.shipping) case final shipping?)
-        _receiptOcrReferenceChargeSaveLine(
-          label: 'Shipping',
-          amount: shipping,
-          currency: preview.currency,
-        ),
     ],
-  );
-}
-
-ReceiptOcrReviewLineSaveRequest _receiptOcrReferenceChargeSaveLine({
-  required String label,
-  required String amount,
-  required String? currency,
-}) {
-  final normalizedCurrency = _nullableUppercaseCurrency(currency);
-  final formattedAmount = normalizedCurrency == null
-      ? amount
-      : '$normalizedCurrency $amount';
-  return ReceiptOcrReviewLineSaveRequest(
-    text: '[Reference only] $label: $formattedAmount',
-    quantity: null,
-    unitPriceAmount: null,
-    lineTotalAmount: null,
+    adjustmentEvidence: [
+      if (_nullableTrimmedText(preview.tip) case final tip?)
+        if (_nullableUppercaseCurrency(preview.currency) case final currency?)
+          ReceiptOcrReviewAdjustmentSaveRequest(
+            kind: ReceiptOcrReviewAdjustmentKindValues.tip,
+            originalLabel: _nullableTrimmedText(preview.tipLabel) ?? 'Tip',
+            amount: tip,
+            currency: currency,
+            direction: ReceiptOcrReviewAdjustmentDirectionValues.charge,
+          ),
+      if (_nullableTrimmedText(preview.shipping) case final shipping?)
+        if (_nullableUppercaseCurrency(preview.currency) case final currency?)
+          ReceiptOcrReviewAdjustmentSaveRequest(
+            kind: ReceiptOcrReviewAdjustmentKindValues.shipping,
+            originalLabel:
+                _nullableTrimmedText(preview.shippingLabel) ?? 'Shipping',
+            amount: shipping,
+            currency: currency,
+            direction: ReceiptOcrReviewAdjustmentDirectionValues.charge,
+          ),
+    ],
   );
 }
 

@@ -464,7 +464,9 @@ Total USD 40.99
 ''');
 
     expect(preview.shipping, '9.99');
+    expect(preview.shippingLabel, 'Shipping');
     expect(preview.tip, '5.00');
+    expect(preview.tipLabel, 'Actual Tip');
     expect(preview.items.map((item) => item.description), ['Burger', 'Beer']);
 
     final suffixed = parser.parse('''
@@ -475,6 +477,7 @@ Delivery Charge USD 2.00
 Total USD 29.99
 ''');
     expect(suffixed.shipping, '9.99');
+    expect(suffixed.shippingLabel, 'Shipping Fee');
     expect(suffixed.items.map((item) => item.description), ['Burger']);
 
     final handling = parser.parse('''
@@ -485,6 +488,7 @@ Shipping and Handling USD 4.50
 Total USD 27.00
 ''');
     expect(handling.shipping, '4.50');
+    expect(handling.shippingLabel, 'Shipping & Handling');
     expect(handling.items.map((item) => item.description), ['Burger']);
 
     final combined = parser.parse('''
@@ -494,6 +498,7 @@ Shipping & Handling Fee USD 2.00
 Total USD 20.00
 ''');
     expect(combined.shipping, '2.00');
+    expect(combined.shippingLabel, 'Shipping & Handling Fee');
     expect(combined.items.map((item) => item.description), ['Burger']);
   });
 

@@ -181,7 +181,9 @@ void main() {
           tax: '0.00',
           service: '0.00',
           tip: '3.00',
+          tipLabel: 'Driver gratuity',
           shipping: '4.00',
+          shippingLabel: 'Delivery fee',
           total: '43.00',
           rawTextLineCount: 8,
           warnings: ['Review line totals before saving.'],
@@ -477,27 +479,40 @@ void main() {
     expect(receiptRepository.lastSaveRequest?.lines.map((line) => line.text), [
       'Corrected milk',
       'Bread',
-      '[Reference only] Tip: USD 3.00',
-      '[Reference only] Shipping: USD 4.00',
     ]);
     expect(
       receiptRepository.lastSaveRequest?.lines.map(
         (line) => line.lineTotalAmount,
       ),
-      ['30.00', '18.00', null, null],
+      ['30.00', '18.00'],
     );
     expect(
-      receiptRepository.lastSaveRequest?.lines
-          .skip(2)
-          .every(
-            (line) =>
-                line.quantity == null &&
-                line.unitPriceAmount == null &&
-                line.lineTotalAmount == null,
-          ),
-      isTrue,
-      reason:
-          'Reference charges must remain non-applyable under the saved-review contract.',
+      receiptRepository.lastSaveRequest?.adjustmentEvidence.map(
+        (adjustment) => (
+          adjustment.kind,
+          adjustment.originalLabel,
+          adjustment.amount,
+          adjustment.currency,
+          adjustment.direction,
+        ),
+      ),
+      [
+        (
+          ReceiptOcrReviewAdjustmentKindValues.tip,
+          'Driver gratuity',
+          '3.00',
+          'USD',
+          ReceiptOcrReviewAdjustmentDirectionValues.charge,
+        ),
+        (
+          ReceiptOcrReviewAdjustmentKindValues.shipping,
+          'Delivery fee',
+          '4.00',
+          'USD',
+          ReceiptOcrReviewAdjustmentDirectionValues.charge,
+        ),
+      ],
+      reason: 'Tip and shipping must remain typed non-item review evidence.',
     );
     expect(find.text('Bill'), findsOneWidget);
     expect(
@@ -533,7 +548,7 @@ void main() {
     expect(find.text('Receipt review'), findsOneWidget);
     expect(find.text('Receipt totals'), findsOneWidget);
     expect(find.text('Review receipt lines'), findsOneWidget);
-    expect(find.text('4 lines'), findsOneWidget);
+    expect(find.text('2 lines'), findsOneWidget);
     expect(find.text('Grand total'), findsOneWidget);
     expect(find.text('10.80 USD'), findsWidgets);
     expect(find.text('Milk'), findsWidgets);

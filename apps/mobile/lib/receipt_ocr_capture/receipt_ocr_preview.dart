@@ -8,7 +8,9 @@ class ReceiptOcrPreview {
     this.tax,
     this.service,
     this.tip,
+    this.tipLabel,
     this.shipping,
+    this.shippingLabel,
     this.discount,
     this.total,
     this.rawTextLineCount = 0,
@@ -28,7 +30,9 @@ class ReceiptOcrPreview {
   final String? tax;
   final String? service;
   final String? tip;
+  final String? tipLabel;
   final String? shipping;
+  final String? shippingLabel;
   final String? discount;
   final String? total;
   final int rawTextLineCount;

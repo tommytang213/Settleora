@@ -68,7 +68,9 @@ class ReceiptOcrParser {
       tax: amounts.tax,
       service: amounts.service,
       tip: amounts.tip,
+      tipLabel: amounts.tipLabel,
       shipping: amounts.shipping,
+      shippingLabel: amounts.shippingLabel,
       discount: amounts.discount,
       total: amounts.total,
       rawTextLineCount: lines.length,
@@ -331,7 +333,9 @@ class ReceiptOcrParser {
     String? tax;
     String? service;
     String? tip;
+    String? tipLabel;
     String? shipping;
+    String? shippingLabel;
     String? discount;
     String? total;
 
@@ -350,8 +354,13 @@ class ReceiptOcrParser {
         service ??= amount;
       } else if (_hasActualTipChargeLabel(line, normalized)) {
         tip ??= amount;
+        tipLabel ??= _originalReceiptAdjustmentLabel(line, fallback: 'Tip');
       } else if (_hasShippingLabel(line, normalized)) {
         shipping ??= amount;
+        shippingLabel ??= _originalReceiptAdjustmentLabel(
+          line,
+          fallback: 'Shipping',
+        );
       } else if (_hasDiscountLabel(line, normalized)) {
         discount ??= amount;
       } else if (_hasTotalLabel(line, normalized)) {
@@ -364,7 +373,9 @@ class ReceiptOcrParser {
       tax: tax,
       service: service,
       tip: tip,
+      tipLabel: tipLabel,
       shipping: shipping,
+      shippingLabel: shippingLabel,
       discount: discount,
       total: total,
     );
@@ -575,7 +586,9 @@ class _LabeledReceiptAmounts {
     this.tax,
     this.service,
     this.tip,
+    this.tipLabel,
     this.shipping,
+    this.shippingLabel,
     this.discount,
     this.total,
   });
@@ -584,7 +597,9 @@ class _LabeledReceiptAmounts {
   final String? tax;
   final String? service;
   final String? tip;
+  final String? tipLabel;
   final String? shipping;
+  final String? shippingLabel;
   final String? discount;
   final String? total;
 }
@@ -857,6 +872,30 @@ String? _lastAmountInLine(String line, {String? currency}) {
   }
 
   return _normalizeAmount(matches.last.group(0)!, currency: currency);
+}
+
+String _originalReceiptAdjustmentLabel(
+  String line, {
+  required String fallback,
+}) {
+  final matches = RegExp(
+    '(?<![A-Za-z0-9])$_amountTokenPattern(?![A-Za-z0-9])',
+  ).allMatches(line).toList(growable: false);
+  if (matches.isEmpty) return fallback;
+
+  final amount = matches.last;
+  final withoutAmount =
+      '${line.substring(0, amount.start)} '
+      '${line.substring(amount.end)}';
+  final label = withoutAmount
+      .replaceAll(RegExp(_currencyTokenPattern, caseSensitive: false), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim()
+      .replaceAll(RegExp(r'^[^\p{L}]+|[^\p{L}]+$', unicode: true), '')
+      .trim();
+  if (label.isEmpty) return fallback;
+
+  return String.fromCharCodes(label.runes.take(120));
 }
 
 String? _normalizeAmount(String value, {String? currency}) {
