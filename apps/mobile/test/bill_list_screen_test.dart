@@ -4085,6 +4085,18 @@ void main() {
             .value,
         isFalse,
       );
+      expect(
+        tester
+            .widget<CheckboxListTile>(
+              find.byKey(const Key('personal-bill-ocr-apply-items')),
+            )
+            .onChanged,
+        isNull,
+      );
+      expect(
+        find.text('Resolve unsupported currency before applying'),
+        findsOneWidget,
+      );
 
       await _tapReceiptOcrApply(tester, 'personal-bill');
 
@@ -4109,6 +4121,24 @@ void main() {
             )
             .value,
         'USD',
+      );
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('personal-bill-item-name-0')),
+            )
+            .controller
+            ?.text,
+        isEmpty,
+      );
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('personal-bill-item-amount-0')),
+            )
+            .controller
+            ?.text,
+        isEmpty,
       );
     },
   );
@@ -7642,6 +7672,84 @@ void main() {
           .controller
           ?.text,
       'Manual tea',
+    );
+  });
+
+  testWidgets('group OCR keeps unsupported-currency items out of bill fields', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    await _pumpGroupBillCreate(
+      tester,
+      repository: FakeBillRepository(),
+      groupRepository: FakeGroupRepository(
+        members: [sampleGroupMember(displayName: 'Alex')],
+      ),
+      attachmentRepository: FakeBillAttachmentRepository(),
+      attachmentFileInput: FakeBillAttachmentFileInput(
+        pickedFile: samplePickedAttachmentFile(
+          filename: 'group-receipt.png',
+          contentType: 'image/png',
+          bytes: const [9, 8, 7],
+        ),
+      ),
+      receiptOcrProvider: FakeReceiptOcrProvider(
+        const ReceiptOcrResult.extracted(
+          ReceiptOcrPreview(
+            merchant: 'Dubai Cafe',
+            currency: 'AED',
+            currencyProvenance: ReceiptOcrCurrencyProvenance.explicit,
+            items: [
+              ReceiptOcrItemCandidate(
+                description: 'Coffee',
+                lineTotal: '12.50',
+                currency: 'AED',
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await _goToGroupBillCreateStep(tester, 'receiptItems');
+    await tester.tap(find.byKey(const Key('group-bill-scan-receipt')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('AED'), findsWidgets);
+    expect(
+      tester
+          .widget<CheckboxListTile>(
+            find.byKey(const Key('group-bill-ocr-apply-items')),
+          )
+          .onChanged,
+      isNull,
+    );
+    expect(
+      find.text('Resolve unsupported currency before applying'),
+      findsOneWidget,
+    );
+
+    await _tapReceiptOcrApply(tester, 'group-bill');
+
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const ValueKey('group-bill-item-name-0')),
+          )
+          .controller
+          ?.text,
+      isEmpty,
+    );
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const ValueKey('group-bill-item-amount-0')),
+          )
+          .controller
+          ?.text,
+      isEmpty,
     );
   });
 

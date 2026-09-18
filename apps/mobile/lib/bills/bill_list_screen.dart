@@ -1904,7 +1904,8 @@ class _SettleoraPersonalBillCreateScreenState
             normalize: _normalizeReceiptOcrCurrency,
           ),
       items:
-          preview.items.isNotEmpty && !_personalBillItemsHaveMeaningfulData(),
+          _receiptOcrItemsCanApply(preview) &&
+          !_personalBillItemsHaveMeaningfulData(),
     );
   }
 
@@ -2010,7 +2011,8 @@ class _SettleoraPersonalBillCreateScreenState
         _currencyController.text = currency!;
       }
 
-      if (_receiptOcrApplySelection.items && preview.items.isNotEmpty) {
+      if (_receiptOcrApplySelection.items &&
+          _receiptOcrItemsCanApply(preview)) {
         for (final item in _itemControllers) {
           item.dispose();
         }
@@ -3282,13 +3284,17 @@ class _ReceiptOcrApplySelectionList extends StatelessWidget {
           label: 'Currency',
           subtitle: preview.currency!.trim().toUpperCase(),
           selected: selection.currency,
+          enabled: settleoraIsSupportedCurrency(preview.currency),
         ),
       if (preview.items.isNotEmpty)
         _ReceiptOcrApplyOption(
           section: _ReceiptOcrApplySection.items,
           label: 'Items',
-          subtitle: _pluralCount(preview.items.length, 'suggested line'),
+          subtitle: _receiptOcrItemsCanApply(preview)
+              ? _pluralCount(preview.items.length, 'suggested line')
+              : 'Resolve unsupported currency before applying',
           selected: selection.items,
+          enabled: _receiptOcrItemsCanApply(preview),
         ),
     ];
 
@@ -3313,7 +3319,7 @@ class _ReceiptOcrApplySelectionList extends StatelessWidget {
             child: CheckboxListTile(
               key: Key('$keyPrefix-ocr-apply-${option.section.name}'),
               value: option.selected,
-              onChanged: enabled
+              onChanged: enabled && option.enabled
                   ? (value) => onChanged(
                       selection.copyWithSection(
                         option.section,
@@ -3656,12 +3662,14 @@ class _ReceiptOcrApplyOption {
     required this.label,
     required this.subtitle,
     required this.selected,
+    this.enabled = true,
   });
 
   final _ReceiptOcrApplySection section;
   final String label;
   final String subtitle;
   final bool selected;
+  final bool enabled;
 }
 
 enum _ReceiptOcrApplySection { merchant, date, currency, items }
@@ -3727,7 +3735,7 @@ bool _receiptOcrSelectionHasAvailableSections(
   return (selection.merchant && (preview.merchant ?? '').trim().isNotEmpty) ||
       (selection.date && (preview.receiptDate ?? '').trim().isNotEmpty) ||
       (selection.currency && settleoraIsSupportedCurrency(preview.currency)) ||
-      (selection.items && preview.items.isNotEmpty);
+      (selection.items && _receiptOcrItemsCanApply(preview));
 }
 
 _ReceiptOcrApplySelection _sanitizeReceiptOcrApplySelection(
@@ -3739,8 +3747,28 @@ _ReceiptOcrApplySelection _sanitizeReceiptOcrApplySelection(
     date: selection.date && (preview.receiptDate ?? '').trim().isNotEmpty,
     currency:
         selection.currency && settleoraIsSupportedCurrency(preview.currency),
-    items: selection.items && preview.items.isNotEmpty,
+    items: selection.items && _receiptOcrItemsCanApply(preview),
   );
+}
+
+bool _receiptOcrItemsCanApply(ReceiptOcrPreview preview) {
+  if (preview.items.isEmpty) {
+    return false;
+  }
+
+  final receiptCurrency = preview.currency?.trim();
+  if (receiptCurrency != null &&
+      receiptCurrency.isNotEmpty &&
+      !settleoraIsSupportedCurrency(receiptCurrency)) {
+    return false;
+  }
+
+  return preview.items.every((candidate) {
+    final itemCurrency = candidate.currency?.trim();
+    return itemCurrency == null ||
+        itemCurrency.isEmpty ||
+        settleoraIsSupportedCurrency(itemCurrency);
+  });
 }
 
 String _receiptOcrApplicableItemCurrency(
@@ -6446,7 +6474,9 @@ class _SettleoraGroupBillCreateScreenState
             defaultValue: _initialCurrency,
             normalize: _normalizeReceiptOcrCurrency,
           ),
-      items: preview.items.isNotEmpty && !_groupBillItemsHaveMeaningfulData(),
+      items:
+          _receiptOcrItemsCanApply(preview) &&
+          !_groupBillItemsHaveMeaningfulData(),
     );
   }
 
@@ -6657,7 +6687,8 @@ class _SettleoraGroupBillCreateScreenState
         }
       }
 
-      if (_receiptOcrApplySelection.items && preview.items.isNotEmpty) {
+      if (_receiptOcrApplySelection.items &&
+          _receiptOcrItemsCanApply(preview)) {
         for (var index = 0; index < preview.items.length; index += 1) {
           final candidate = preview.items[index];
           if (index >= _itemControllers.length) {
