@@ -152,7 +152,7 @@ class SettleoraPaddleOcrEngine(context: Context) {
                             confidence = accepted.confidence,
                             modelPackId = accepted.pack.modelPackId,
                             modelVersion = accepted.pack.modelVersion,
-                            textDirection = textDirection(accepted.text),
+                            textDirection = ReceiptBlockOrder.textDirection(accepted.text),
                             order = order,
                             points = box.points.map { point ->
                                 SettleoraOcrPoint(point.x, point.y)
@@ -207,24 +207,6 @@ class SettleoraPaddleOcrEngine(context: Context) {
             normalizedWidth > 640 -> minOf(2, config.recBatchSize)
             else -> config.recBatchSize
         }
-    }
-
-    private fun textDirection(text: String): String {
-        var rtlCount = 0
-        var ltrCount = 0
-        text.codePoints().forEach { codePoint ->
-            when (Character.UnicodeScript.of(codePoint)) {
-                Character.UnicodeScript.ARABIC,
-                Character.UnicodeScript.HEBREW,
-                -> rtlCount++
-                Character.UnicodeScript.LATIN,
-                Character.UnicodeScript.CYRILLIC,
-                Character.UnicodeScript.GREEK,
-                -> ltrCount++
-                else -> Unit
-            }
-        }
-        return if (rtlCount > ltrCount) "rtl" else "ltr"
     }
 
     private data class RecognizerPack(

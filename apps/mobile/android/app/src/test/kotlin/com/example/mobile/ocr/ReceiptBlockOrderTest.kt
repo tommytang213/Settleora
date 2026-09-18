@@ -88,6 +88,19 @@ class ReceiptBlockOrderTest {
         )
     }
 
+    @Test
+    fun ArabicIndicAmountDoesNotReverseLatinItemRow() {
+        val item = block("Tea", "ltr", x = 10f)
+        val amount = block("١٢٫٥٠", "ltr", x = 100f)
+
+        assertEquals(
+            listOf("Tea", "١٢٫٥٠"),
+            ReceiptBlockOrder.normalize(listOf(amount, item)).map { it.text },
+        )
+        assertEquals("ltr", ReceiptBlockOrder.textDirection("١٢٫٥٠"))
+        assertEquals("rtl", ReceiptBlockOrder.textDirection("الإجمالي ١٢٫٥٠"))
+    }
+
     private fun block(
         text: String,
         direction: String,
