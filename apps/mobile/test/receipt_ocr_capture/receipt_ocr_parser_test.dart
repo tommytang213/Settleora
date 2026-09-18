@@ -530,6 +530,35 @@ Total US$18.00
     expect(symbolPreview.currency, 'USD');
   });
 
+  test('currency codes require monetary or labelled context', () {
+    const parser = ReceiptOcrParser();
+
+    final marketingText = parser.parse(r'''
+Coffee Bar
+TRY OUR NEW LATTE
+Latte $5.50
+Total $5.50
+''', fallbackCurrency: 'USD');
+    final labelledCurrency = parser.parse('''
+Istanbul Cafe
+Currency: TRY
+Tea 120.00
+Total 120.00
+''');
+
+    expect(marketingText.currency, 'USD');
+    expect(
+      marketingText.currencyProvenance,
+      ReceiptOcrCurrencyProvenance.defaultFallback,
+    );
+    expect(marketingText.items.single.currency, 'USD');
+    expect(labelledCurrency.currency, 'TRY');
+    expect(
+      labelledCurrency.currencyProvenance,
+      ReceiptOcrCurrencyProvenance.explicit,
+    );
+  });
+
   test('parser ignores address header block and keeps real items', () {
     const parser = ReceiptOcrParser();
 

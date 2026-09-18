@@ -3777,9 +3777,43 @@ bool _receiptOcrItemsCanApply(ReceiptOcrPreview preview) {
 
   return preview.items.every((candidate) {
     final itemCurrency = candidate.currency?.trim();
-    return itemCurrency == null ||
-        itemCurrency.isEmpty ||
-        settleoraIsSupportedCurrency(itemCurrency);
+    if (itemCurrency != null &&
+        itemCurrency.isNotEmpty &&
+        !settleoraIsSupportedCurrency(itemCurrency)) {
+      return false;
+    }
+
+    final applicableCurrency = itemCurrency == null || itemCurrency.isEmpty
+        ? receiptCurrency
+        : itemCurrency;
+    if (!settleoraIsSupportedCurrency(applicableCurrency)) {
+      return false;
+    }
+
+    final quantity = candidate.quantity?.trim();
+    if (quantity != null &&
+        quantity.isNotEmpty &&
+        _positiveWholeNumber(quantity) == null) {
+      return false;
+    }
+
+    final unitPrice = candidate.unitPrice?.trim() ?? '';
+    final lineTotal = candidate.lineTotal?.trim() ?? '';
+    if (unitPrice.isEmpty && lineTotal.isEmpty) {
+      return false;
+    }
+    final parsedUnitPrice = unitPrice.isEmpty
+        ? null
+        : _parseCurrencyAmount(unitPrice, applicableCurrency!);
+    final parsedLineTotal = lineTotal.isEmpty
+        ? null
+        : _parseCurrencyAmount(lineTotal, applicableCurrency!);
+    return (unitPrice.isEmpty ||
+            (parsedUnitPrice != null &&
+                _currencyAmountIsPositive(parsedUnitPrice))) &&
+        (lineTotal.isEmpty ||
+            (parsedLineTotal != null &&
+                _currencyAmountIsPositive(parsedLineTotal)));
   });
 }
 

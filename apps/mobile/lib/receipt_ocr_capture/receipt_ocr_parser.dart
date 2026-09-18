@@ -148,19 +148,12 @@ class ReceiptOcrParser {
   }) {
     final joined = lines.join(' ').toUpperCase();
     for (final code in _supportedCurrencyCodes) {
-      if (RegExp('\\b$code\\b').hasMatch(joined)) {
+      if (_hasExplicitCurrencyCode(lines, code)) {
         return _ReceiptCurrencyDetection(
           currency: code,
           provenance: ReceiptOcrCurrencyProvenance.explicit,
         );
       }
-    }
-
-    if (RegExp(r'\bAED\b').hasMatch(joined)) {
-      return const _ReceiptCurrencyDetection(
-        currency: 'AED',
-        provenance: ReceiptOcrCurrencyProvenance.explicit,
-      );
     }
 
     if (_hasExplicitHongKongCurrencyMarker(joined)) {
@@ -221,6 +214,28 @@ class ReceiptOcrParser {
       );
     }
     return const _ReceiptCurrencyDetection();
+  }
+
+  bool _hasExplicitCurrencyCode(List<String> lines, String code) {
+    final escapedCode = RegExp.escape(code);
+    final labelledCode = RegExp(
+      '(?:CURRENCY|CURRENCY\\s+CODE|CURR)\\s*[:#=-]?\\s*\\b$escapedCode\\b',
+      caseSensitive: false,
+    );
+    final codeBeforeAmount = RegExp(
+      '\\b$escapedCode\\b\\s*[:=]?\\s*[-+]?\\d',
+      caseSensitive: false,
+    );
+    final amountBeforeCode = RegExp(
+      "[-+]?\\d[\\d.,'’\\s]*\\s\\b$escapedCode\\b",
+      caseSensitive: false,
+    );
+
+    return lines.any((line) {
+      return labelledCode.hasMatch(line) ||
+          codeBeforeAmount.hasMatch(line) ||
+          amountBeforeCode.hasMatch(line);
+    });
   }
 
   _LabeledReceiptAmounts _extractLabeledAmounts(
