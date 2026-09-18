@@ -1,6 +1,8 @@
 import 'receipt_ocr_preview.dart';
 import '../ui/settleora_form_fields.dart';
 
+final _unicodeLetterPattern = RegExp(r'\p{L}', unicode: true);
+
 class ReceiptOcrParser {
   const ReceiptOcrParser();
 
@@ -434,12 +436,8 @@ class ReceiptOcrParser {
       }
 
       final cleaned = _cleanDescription(line);
-      final letterCount = RegExp(
-        r'[A-Za-z\u3040-\u30ff\u3400-\u9fff]',
-      ).allMatches(cleaned).length;
-      if (cleaned.length >= 3 &&
-          letterCount >= 2 &&
-          !_isLikelyNonItemDescription(cleaned)) {
+      final letterCount = _unicodeLetterPattern.allMatches(cleaned).length;
+      if (letterCount >= 2 && !_isLikelyNonItemDescription(cleaned)) {
         count += 1;
       }
     }

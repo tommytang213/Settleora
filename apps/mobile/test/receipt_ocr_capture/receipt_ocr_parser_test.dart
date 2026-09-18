@@ -807,6 +807,40 @@ Thank you
     expect(preview.warnings, contains('No clear total amount was detected.'));
   });
 
+  test('parser warns about unresolved item rows in every Global Core script', () {
+    const parser = ReceiptOcrParser();
+    const unresolvedDescriptions = [
+      'Crème brûlée',
+      'Борщ домашний',
+      'خبز طازج',
+      'ताज़ी रोटी',
+      'তাজা রুটি',
+      'புதிய ரொட்டி',
+      'తాజా రొట్టె',
+      'ข้าวผัด',
+      '김치찌개',
+      '焼き魚',
+      '炒飯',
+    ];
+
+    for (final unresolvedDescription in unresolvedDescriptions) {
+      final preview = parser.parse('''
+Global Market
+Known item USD 4.00
+$unresolvedDescription
+Total USD 4.00
+''');
+
+      expect(
+        preview.warnings,
+        contains(
+          'Some OCR lines need manual review because no traceable line amount was found.',
+        ),
+        reason: 'missing warning for $unresolvedDescription',
+      );
+    }
+  });
+
   test('unsupported provider returns manual-entry fallback', () async {
     const provider = UnsupportedReceiptOcrProvider();
 
