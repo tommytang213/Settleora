@@ -477,14 +477,27 @@ void main() {
     expect(receiptRepository.lastSaveRequest?.lines.map((line) => line.text), [
       'Corrected milk',
       'Bread',
-      'Tip',
-      'Shipping',
+      '[Reference only] Tip: USD 3.00',
+      '[Reference only] Shipping: USD 4.00',
     ]);
     expect(
       receiptRepository.lastSaveRequest?.lines.map(
         (line) => line.lineTotalAmount,
       ),
-      ['30.00', '18.00', '3.00', '4.00'],
+      ['30.00', '18.00', null, null],
+    );
+    expect(
+      receiptRepository.lastSaveRequest?.lines
+          .skip(2)
+          .every(
+            (line) =>
+                line.quantity == null &&
+                line.unitPriceAmount == null &&
+                line.lineTotalAmount == null,
+          ),
+      isTrue,
+      reason:
+          'Reference charges must remain non-applyable under the saved-review contract.',
     );
     expect(find.text('Bill'), findsOneWidget);
     expect(

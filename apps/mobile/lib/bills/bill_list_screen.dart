@@ -412,20 +412,35 @@ ReceiptOcrReviewSaveRequest? _receiptOcrReviewSaveRequestFromPreview(
             lineTotalAmount: _nullableTrimmedText(item.lineTotal),
           ),
       if (_nullableTrimmedText(preview.tip) case final tip?)
-        ReceiptOcrReviewLineSaveRequest(
-          text: 'Tip',
-          quantity: null,
-          unitPriceAmount: null,
-          lineTotalAmount: tip,
+        _receiptOcrReferenceChargeSaveLine(
+          label: 'Tip',
+          amount: tip,
+          currency: preview.currency,
         ),
       if (_nullableTrimmedText(preview.shipping) case final shipping?)
-        ReceiptOcrReviewLineSaveRequest(
-          text: 'Shipping',
-          quantity: null,
-          unitPriceAmount: null,
-          lineTotalAmount: shipping,
+        _receiptOcrReferenceChargeSaveLine(
+          label: 'Shipping',
+          amount: shipping,
+          currency: preview.currency,
         ),
     ],
+  );
+}
+
+ReceiptOcrReviewLineSaveRequest _receiptOcrReferenceChargeSaveLine({
+  required String label,
+  required String amount,
+  required String? currency,
+}) {
+  final normalizedCurrency = _nullableUppercaseCurrency(currency);
+  final formattedAmount = normalizedCurrency == null
+      ? amount
+      : '$normalizedCurrency $amount';
+  return ReceiptOcrReviewLineSaveRequest(
+    text: '[Reference only] $label: $formattedAmount',
+    quantity: null,
+    unitPriceAmount: null,
+    lineTotalAmount: null,
   );
 }
 
