@@ -129,15 +129,17 @@ class ReceiptOcrParser {
         return _formatDate(year, first, second);
       }
 
-      final dayFirst = RegExp(
+      final separatedDate = RegExp(
         r'\b(\d{1,2})[.-](\d{1,2})[.-](20\d{2}|19\d{2})\b',
       ).firstMatch(line);
-      if (dayFirst != null) {
-        return _formatDate(
-          int.parse(dayFirst.group(3)!),
-          int.parse(dayFirst.group(2)!),
-          int.parse(dayFirst.group(1)!),
-        );
+      if (separatedDate != null) {
+        final first = int.parse(separatedDate.group(1)!);
+        final second = int.parse(separatedDate.group(2)!);
+        final year = int.parse(separatedDate.group(3)!);
+        if (first > 12) {
+          return _formatDate(year, second, first);
+        }
+        return _formatDate(year, first, second);
       }
     }
 
@@ -204,13 +206,24 @@ class ReceiptOcrParser {
       );
     }
 
-    if (joined.contains(r'$')) {
-      final normalizedFallback = _supportedCurrencyCode(fallbackCurrency);
+    final normalizedFallback = _supportedCurrencyCode(fallbackCurrency);
+    final ambiguousSymbolPresent = joined.contains(r'$') ||
+        joined.contains('¥') ||
+        RegExp(r'\bKR\b').hasMatch(joined) ||
+        RegExp(r'\bRS\b').hasMatch(joined);
+    if (ambiguousSymbolPresent) {
+      final fallbackMatchesSymbol = switch (normalizedFallback) {
+        'JPY' || 'CNY' => joined.contains('¥'),
+        'SEK' || 'NOK' || 'DKK' => RegExp(r'\bKR\b').hasMatch(joined),
+        'INR' || 'PKR' => RegExp(r'\bRS\b').hasMatch(joined),
+        null => false,
+        _ => joined.contains(r'$'),
+      };
       return _ReceiptCurrencyDetection(
-        currency: normalizedFallback,
+        currency: fallbackMatchesSymbol ? normalizedFallback : null,
         isSymbolOnly: true,
-        usedFallbackForSymbolOnly: normalizedFallback != null,
-        provenance: normalizedFallback == null
+        usedFallbackForSymbolOnly: fallbackMatchesSymbol,
+        provenance: !fallbackMatchesSymbol
             ? ReceiptOcrCurrencyProvenance.unresolved
             : ReceiptOcrCurrencyProvenance.defaultFallback,
       );
@@ -521,7 +534,7 @@ class _ReceiptCurrencyDetection {
 
 String _normalizeOcrLine(String value) {
   const digitSources = '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹';
-  var normalized = value
+  var normalized = _normalizeFullwidthOcrText(value)
       .replaceAll('\u066b', '.')
       .replaceAll('\u066c', ',')
       .replaceAll('\u00a0', ' ');
@@ -544,6 +557,21 @@ String _normalizeOcrLine(String value) {
     (match) => '${match.group(1)} ${match.group(3)} ${match.group(2)}',
   );
   return normalized.trim();
+}
+
+String _normalizeFullwidthOcrText(String value) {
+  return String.fromCharCodes(
+    value.runes.map((rune) {
+      if (rune == 0x3000) return 0x20;
+      if (rune >= 0xFF01 && rune <= 0xFF5E) return rune - 0xFEE0;
+      return switch (rune) {
+        0xFFE1 => 0x00A3,
+        0xFFE5 => 0x00A5,
+        0xFFE6 => 0x20A9,
+        _ => rune,
+      };
+    }),
+  );
 }
 
 // Recognition may preserve currency evidence that the authoritative API does

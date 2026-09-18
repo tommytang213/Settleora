@@ -2048,7 +2048,10 @@ class _SettleoraPersonalBillCreateScreenState
       }
 
       _itemListError = null;
-      _receiptOcrApplied = true;
+      _receiptOcrApplied = _receiptOcrSelectionFullyApplied(
+        preview,
+        _receiptOcrApplySelection,
+      );
     });
   }
 
@@ -3755,6 +3758,32 @@ bool _receiptOcrSelectionHasAvailableSections(
       (selection.date && (preview.receiptDate ?? '').trim().isNotEmpty) ||
       (selection.currency && settleoraIsSupportedCurrency(preview.currency)) ||
       (selection.items && _receiptOcrItemsCanApply(preview));
+}
+
+bool _receiptOcrSelectionFullyApplied(
+  ReceiptOcrPreview preview,
+  _ReceiptOcrApplySelection selection,
+) {
+  if ((preview.merchant ?? '').trim().isNotEmpty && !selection.merchant) {
+    return false;
+  }
+  if ((preview.receiptDate ?? '').trim().isNotEmpty && !selection.date) {
+    return false;
+  }
+  if ((preview.currency ?? '').trim().isNotEmpty &&
+      (!settleoraIsSupportedCurrency(preview.currency) ||
+          preview.currencyProvenance ==
+              ReceiptOcrCurrencyProvenance.defaultFallback ||
+          preview.currencyProvenance ==
+              ReceiptOcrCurrencyProvenance.unresolved ||
+          !selection.currency)) {
+    return false;
+  }
+  if (preview.items.isNotEmpty &&
+      (!_receiptOcrItemsCanApply(preview) || !selection.items)) {
+    return false;
+  }
+  return true;
 }
 
 bool _receiptOcrItemsCanApply(ReceiptOcrPreview preview) {
@@ -6815,7 +6844,10 @@ class _SettleoraGroupBillCreateScreenState
       _itemListError = null;
       _splitTotalError = null;
       _payerTotalError = null;
-      _receiptOcrApplied = true;
+      _receiptOcrApplied = _receiptOcrSelectionFullyApplied(
+        preview,
+        _receiptOcrApplySelection,
+      );
       _selectedStep = _GroupBillCreateStep.receiptItems;
     });
   }

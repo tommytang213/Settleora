@@ -212,6 +212,28 @@ Total $5.50
     );
   });
 
+  test('ambiguous yen kr and Rs markers use matching fallbacks', () {
+    const parser = ReceiptOcrParser();
+    final cases = <({String text, String fallback})>[
+      (text: 'Noodle Shop\nNoodles ¥60\nTotal ¥60', fallback: 'JPY'),
+      (text: 'Corner Shop\nBread kr 40.00\nTotal kr 40.00', fallback: 'SEK'),
+      (text: 'Tea Shop\nTea Rs 80.00\nTotal Rs 80.00', fallback: 'INR'),
+    ];
+
+    for (final fixture in cases) {
+      final preview = parser.parse(
+        fixture.text,
+        fallbackCurrency: fixture.fallback,
+      );
+      expect(preview.currency, fixture.fallback, reason: fixture.text);
+      expect(
+        preview.currencyProvenance,
+        ReceiptOcrCurrencyProvenance.defaultFallback,
+        reason: fixture.text,
+      );
+    }
+  });
+
   test('numeric marketing text does not masquerade as a currency amount', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse(r'''
@@ -615,6 +637,37 @@ Date: ٢٠٢٦-٠٩-١٧
       expect(preview.total, fixture.total);
       expect(preview.items, hasLength(1), reason: fixture.text);
     }
+  });
+
+  test('parser disambiguates dotted and dashed month-first dates', () {
+    const parser = ReceiptOcrParser();
+
+    expect(
+      parser.parse('Corner Cafe\nDate 09-17-2026\nTotal USD 5.00').receiptDate,
+      '2026-09-17',
+    );
+    expect(
+      parser.parse('Corner Cafe\nDate 09.17.2026\nTotal USD 5.00').receiptDate,
+      '2026-09-17',
+    );
+    expect(
+      parser.parse('Corner Cafe\nDate 17.09.2026\nTotal EUR 5.00').receiptDate,
+      '2026-09-17',
+    );
+  });
+
+  test('parser normalizes fullwidth CJK monetary glyphs', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('東京麺店\nラーメン ￥１，２００\n合計 ￥１，２００');
+
+    expect(preview.currency, 'JPY');
+    expect(
+      preview.currencyProvenance,
+      ReceiptOcrCurrencyProvenance.contextInferred,
+    );
+    expect(preview.items.single.description, 'ラーメン');
+    expect(preview.items.single.lineTotal, '1200');
+    expect(preview.total, '1200');
   });
 
   test('parser accepts native Arabic prefix currency and U+060C decimal', () {

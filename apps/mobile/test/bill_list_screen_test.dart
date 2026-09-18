@@ -619,6 +619,78 @@ void main() {
     },
   );
 
+  testWidgets(
+    'personal OCR keeps blocked sections editable after partial apply',
+    (tester) async {
+      await useLargeSurface(tester);
+      final receiptOcrProvider = FakeReceiptOcrProvider(
+        const ReceiptOcrResult.extracted(
+          ReceiptOcrPreview(
+            merchant: 'Fallback Cafe',
+            receiptDate: '2026-06-12',
+            currency: 'USD',
+            currencyProvenance: ReceiptOcrCurrencyProvenance.defaultFallback,
+            items: [
+              ReceiptOcrItemCandidate(
+                description: 'Coffee',
+                quantity: '1',
+                lineTotal: '12.00',
+                currency: 'USD',
+              ),
+            ],
+          ),
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraPersonalBillCreateScreen(
+            repository: FakeBillRepository(),
+            attachmentRepository: FakeBillAttachmentRepository(),
+            attachmentFileInput: FakeBillAttachmentFileInput(
+              pickedFile: samplePickedAttachmentFile(
+                filename: 'receipt.png',
+                contentType: 'image/png',
+                bytes: samplePngBytes(width: 64, height: 64),
+              ),
+            ),
+            receiptOcrProvider: receiptOcrProvider,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('personal-bill-scan-receipt')));
+      await tester.pumpAndSettle();
+
+      await _tapReceiptOcrApply(tester, 'personal-bill');
+
+      expect(find.text('Suggestions applied'), findsNothing);
+      expect(
+        tester
+            .widget<CurrencySelector>(
+              find.byKey(const Key('personal-bill-ocr-edit-currency')),
+            )
+            .enabled,
+        isTrue,
+      );
+      await _selectCurrency(
+        tester,
+        find.byKey(const Key('personal-bill-ocr-edit-currency')),
+        'HKD',
+      );
+      await _selectCurrency(
+        tester,
+        find.byKey(const ValueKey('personal-bill-ocr-item-currency-0')),
+        'HKD',
+      );
+      await _setReceiptOcrSection(tester, 'personal-bill', 'currency', true);
+      await _setReceiptOcrSection(tester, 'personal-bill', 'items', true);
+      await _tapReceiptOcrApply(tester, 'personal-bill');
+
+      expect(find.text('Suggestions applied'), findsOneWidget);
+    },
+  );
+
   testWidgets('personal OCR add remove and reset candidate rows', (
     tester,
   ) async {
@@ -7664,6 +7736,80 @@ void main() {
     expect(repository.submitGroupCalls, 1);
     expect(repository.lastGroupCreateDraft?.merchantName, 'Dim Sum House Ltd.');
     expect(repository.lastGroupCreateDraft?.items.single.amount, '76.00');
+  });
+
+  testWidgets('group OCR keeps blocked sections editable after partial apply', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final receiptOcrProvider = FakeReceiptOcrProvider(
+      const ReceiptOcrResult.extracted(
+        ReceiptOcrPreview(
+          merchant: 'Fallback Group Cafe',
+          receiptDate: '2026-06-12',
+          currency: 'USD',
+          currencyProvenance: ReceiptOcrCurrencyProvenance.defaultFallback,
+          items: [
+            ReceiptOcrItemCandidate(
+              description: 'Coffee',
+              quantity: '1',
+              lineTotal: '12.00',
+              currency: 'USD',
+            ),
+          ],
+        ),
+      ),
+    );
+
+    await _pumpGroupBillCreate(
+      tester,
+      repository: FakeBillRepository(),
+      groupRepository: FakeGroupRepository(
+        members: [sampleGroupMember(displayName: 'Alex')],
+      ),
+      attachmentRepository: FakeBillAttachmentRepository(),
+      attachmentFileInput: FakeBillAttachmentFileInput(
+        pickedFile: samplePickedAttachmentFile(
+          filename: 'group-receipt.png',
+          contentType: 'image/png',
+          bytes: samplePngBytes(width: 64, height: 64),
+        ),
+      ),
+      receiptOcrProvider: receiptOcrProvider,
+    );
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await _goToGroupBillCreateStep(tester, 'receiptItems');
+    await tester.tap(find.byKey(const Key('group-bill-scan-receipt')));
+    await tester.pumpAndSettle();
+
+    await _tapReceiptOcrApply(tester, 'group-bill');
+
+    expect(find.text('Suggestions applied'), findsNothing);
+    expect(
+      tester
+          .widget<CurrencySelector>(
+            find.byKey(const Key('group-bill-ocr-edit-currency')),
+          )
+          .enabled,
+      isTrue,
+    );
+    await _selectCurrency(
+      tester,
+      find.byKey(const Key('group-bill-ocr-edit-currency')),
+      'HKD',
+    );
+    await _selectCurrency(
+      tester,
+      find.byKey(const ValueKey('group-bill-ocr-item-currency-0')),
+      'HKD',
+    );
+    await _setReceiptOcrSection(tester, 'group-bill', 'currency', true);
+    await _setReceiptOcrSection(tester, 'group-bill', 'items', true);
+    await _tapReceiptOcrApply(tester, 'group-bill');
+
+    expect(find.text('Suggestions applied'), findsOneWidget);
   });
 
   testWidgets(

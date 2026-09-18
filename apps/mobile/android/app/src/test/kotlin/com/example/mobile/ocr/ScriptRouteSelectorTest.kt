@@ -47,6 +47,18 @@ class ScriptRouteSelectorTest {
     }
 
     @Test
+    fun ArabicPresentationFormsRemainSpecialistEvidence() {
+        val selected = ScriptRouteSelector.select(
+            listOf(
+                candidate("common", ScriptEvidence.COMMON, "TOTAL", 0.99f),
+                candidate("arabic", ScriptEvidence.ARABIC, "ﻣﺨﺵﻮﻋ", 0.82f),
+            ),
+        )
+
+        assertEquals("arabic", selected?.pack?.modelPackId)
+    }
+
+    @Test
     fun longHighConfidenceLatinHallucinationCannotSuppressSpecialist() {
         val selected = ScriptRouteSelector.select(
             listOf(
