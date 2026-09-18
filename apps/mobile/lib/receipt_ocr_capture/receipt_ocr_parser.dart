@@ -27,7 +27,7 @@ class ReceiptOcrParser {
       fallbackCurrency: fallbackCurrency,
     );
     final currency = currencyDetection.currency;
-    final amounts = _extractLabeledAmounts(lines);
+    final amounts = _extractLabeledAmounts(lines, currency);
     final itemCandidates = _extractItems(lines, currency);
     final merchant = _detectMerchant(lines);
     final unresolvedItemLines = _countUnresolvedItemLikeLines(
@@ -63,6 +63,8 @@ class ReceiptOcrParser {
       subtotal: amounts.subtotal,
       tax: amounts.tax,
       service: amounts.service,
+      tip: amounts.tip,
+      shipping: amounts.shipping,
       discount: amounts.discount,
       total: amounts.total,
       rawTextLineCount: lines.length,
@@ -167,12 +169,6 @@ class ReceiptOcrParser {
         provenance: ReceiptOcrCurrencyProvenance.explicit,
       );
     }
-    if (_hasHongKongContext(joined)) {
-      return const _ReceiptCurrencyDetection(
-        currency: 'HKD',
-        provenance: ReceiptOcrCurrencyProvenance.contextInferred,
-      );
-    }
     if (_hasExplicitUnitedStatesCurrencyMarker(joined)) {
       return const _ReceiptCurrencyDetection(
         currency: 'USD',
@@ -197,10 +193,19 @@ class ReceiptOcrParser {
         provenance: ReceiptOcrCurrencyProvenance.explicit,
       );
     }
-    if (joined.contains('¥')) {
-      return const _ReceiptCurrencyDetection(
-        currency: 'JPY',
+    final explicitSymbolCurrency = _explicitSymbolCurrency(joined);
+    if (explicitSymbolCurrency != null) {
+      return _ReceiptCurrencyDetection(
+        currency: explicitSymbolCurrency,
         provenance: ReceiptOcrCurrencyProvenance.explicit,
+      );
+    }
+
+    final contextualCurrency = _contextualCurrency(joined);
+    if (contextualCurrency != null) {
+      return _ReceiptCurrencyDetection(
+        currency: contextualCurrency,
+        provenance: ReceiptOcrCurrencyProvenance.contextInferred,
       );
     }
 
@@ -218,16 +223,21 @@ class ReceiptOcrParser {
     return const _ReceiptCurrencyDetection();
   }
 
-  _LabeledReceiptAmounts _extractLabeledAmounts(List<String> lines) {
+  _LabeledReceiptAmounts _extractLabeledAmounts(
+    List<String> lines,
+    String? currency,
+  ) {
     String? subtotal;
     String? tax;
     String? service;
+    String? tip;
+    String? shipping;
     String? discount;
     String? total;
 
     for (final line in lines) {
       final normalized = line.toLowerCase();
-      final amount = _lastAmountInLine(line);
+      final amount = _lastAmountInLine(line, currency: currency);
       if (amount == null) {
         continue;
       }
@@ -238,6 +248,10 @@ class ReceiptOcrParser {
         tax ??= amount;
       } else if (_hasServiceChargeLabel(line, normalized)) {
         service ??= amount;
+      } else if (_hasTipLabel(line, normalized)) {
+        tip ??= amount;
+      } else if (_hasShippingLabel(line, normalized)) {
+        shipping ??= amount;
       } else if (_hasDiscountLabel(line, normalized)) {
         discount ??= amount;
       } else if (_hasTotalLabel(line, normalized)) {
@@ -249,6 +263,8 @@ class ReceiptOcrParser {
       subtotal: subtotal,
       tax: tax,
       service: service,
+      tip: tip,
+      shipping: shipping,
       discount: discount,
       total: total,
     );
@@ -266,8 +282,8 @@ class ReceiptOcrParser {
 
       final match = RegExp(
         '^(.+?)\\s+($_currencyTokenPattern)?\\s*'
-        '(-?\\d{1,6}(?:,\\d{3})*(?:\\.\\d{1,3})?|-?\\d+\\.\\d{1,3})'
-        r'(?:\s*(AED|د\.إ))?$',
+        "($_amountTokenPattern)"
+        '(?:\\s*(?:$_currencyTokenPattern))?\$',
         caseSensitive: false,
       ).firstMatch(line);
       if (match == null) {
@@ -275,7 +291,7 @@ class ReceiptOcrParser {
       }
 
       final description = _cleanDescription(match.group(1)!);
-      final lineTotal = _normalizeAmount(match.group(3)!);
+      final lineTotal = _normalizeAmount(match.group(3)!, currency: currency);
       if (description.length < 2 ||
           lineTotal == null ||
           lineTotal.startsWith('-') ||
@@ -289,7 +305,10 @@ class ReceiptOcrParser {
       ).firstMatch(description);
       if (quantityMatch != null) {
         final quantity = quantityMatch.group(2)!;
-        final unitPrice = _normalizeAmount(quantityMatch.group(3)!);
+        final unitPrice = _normalizeAmount(
+          quantityMatch.group(3)!,
+          currency: currency,
+        );
         final cleanedName = _cleanDescription(quantityMatch.group(1)!);
         if (cleanedName.isNotEmpty) {
           items.add(
@@ -359,6 +378,8 @@ class _LabeledReceiptAmounts {
     this.subtotal,
     this.tax,
     this.service,
+    this.tip,
+    this.shipping,
     this.discount,
     this.total,
   });
@@ -366,6 +387,8 @@ class _LabeledReceiptAmounts {
   final String? subtotal;
   final String? tax;
   final String? service;
+  final String? tip;
+  final String? shipping;
   final String? discount;
   final String? total;
 }
@@ -418,13 +441,27 @@ final _currencyTokenPattern = [
   ..._supportedCurrencyCodes,
   r'HK$',
   r'US$',
+  r'CA$',
+  r'A$',
+  r'S$',
+  r'NZ$',
+  r'NT$',
+  r'R$',
   r'$',
   '€',
   '£',
   '¥',
+  '₹',
+  '₩',
+  '₺',
+  '₫',
+  'zł',
+  'kr',
+  'Rs',
   'د.إ',
   'دإ',
 ].map(RegExp.escape).join('|');
+const _amountTokenPattern = r"-?\d+(?:[.,'’]\d+)*";
 
 String? _supportedCurrencyCode(String? value) {
   final normalized = settleoraNormalizeCurrencyCode(value);
@@ -438,33 +475,148 @@ bool _hasExplicitHongKongCurrencyMarker(String joined) {
       RegExp(r'\bH\.?\s*K\.?\b').hasMatch(joined);
 }
 
-bool _hasHongKongContext(String joined) {
-  return RegExp(r'\bHONG\s+KONG\b').hasMatch(joined);
-}
-
 bool _hasExplicitUnitedStatesCurrencyMarker(String joined) {
   return joined.contains('US\$') ||
       RegExp(r'\bUSD?\s*\$').hasMatch(joined) ||
       RegExp(r'\b(US|U\.S\.|UNITED\s+STATES)\s+DOLLARS?\b').hasMatch(joined);
 }
 
+String? _explicitSymbolCurrency(String joined) {
+  const markers = <String, String>{
+    r'CA$': 'CAD',
+    r'NZ$': 'NZD',
+    r'NT$': 'TWD',
+    r'A$': 'AUD',
+    r'S$': 'SGD',
+    r'R$': 'BRL',
+    '₹': 'INR',
+    '₩': 'KRW',
+    '₺': 'TRY',
+    '₫': 'VND',
+  };
+  for (final marker in markers.entries) {
+    if (joined.contains(marker.key)) return marker.value;
+  }
+  return null;
+}
+
+String? _contextualCurrency(String joined) {
+  if (joined.contains(r'$')) {
+    if (RegExp(
+          r'\b(HONG\s+KONG|KOWLOON|CAUSEWAY\s+BAY|HK)\b',
+        ).hasMatch(joined) ||
+        joined.contains('+852')) {
+      return 'HKD';
+    }
+    if (RegExp(
+          r'\b(CANADA|TORONTO|VANCOUVER|ONTARIO|QUEBEC)\b',
+        ).hasMatch(joined) ||
+        RegExp(r'\bHST\b').hasMatch(joined) ||
+        RegExp(r'\b[A-Z]\d[A-Z][ -]?\d[A-Z]\d\b').hasMatch(joined)) {
+      return 'CAD';
+    }
+    if (RegExp(
+      r'\b(AUSTRALIA|SYDNEY|MELBOURNE|BRISBANE|NSW|VIC|QLD|ABN)\b',
+    ).hasMatch(joined)) {
+      return 'AUD';
+    }
+    if (RegExp(
+      r'\b(SINGAPORE|ORCHARD|GST\s*(REG|REGISTRATION))\b',
+    ).hasMatch(joined)) {
+      return 'SGD';
+    }
+    if (RegExp(
+      r'\b(NEW\s+ZEALAND|AUCKLAND|WELLINGTON|GST\s*NO)\b',
+    ).hasMatch(joined)) {
+      return 'NZD';
+    }
+    if (RegExp(
+      r'\b(MEXICO|MÉXICO|CDMX|CANCUN|CANCÚN|IVA)\b',
+    ).hasMatch(joined)) {
+      return 'MXN';
+    }
+    if (RegExp(
+          r'\b(UNITED\s+STATES|USA|SEATTLE|SALES\s+TAX)\b',
+        ).hasMatch(joined) ||
+        RegExp(r'\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\b').hasMatch(joined)) {
+      return 'USD';
+    }
+  }
+
+  if (joined.contains('¥')) {
+    if (RegExp(r'[\u3040-\u30ff]|東京|大阪|日本').hasMatch(joined)) {
+      return 'JPY';
+    }
+    if (RegExp(r'[\u4e00-\u9fff]').hasMatch(joined) &&
+        RegExp(r'(上海|北京|中国|人民幣|人民币)').hasMatch(joined)) {
+      return 'CNY';
+    }
+  }
+  if (RegExp(r'\bKR\b', caseSensitive: false).hasMatch(joined)) {
+    if (RegExp(r'\b(STOCKHOLM|SWEDEN|MOMS)\b').hasMatch(joined)) {
+      return 'SEK';
+    }
+    if (RegExp(r'\b(OSLO|NORWAY|MVA)\b').hasMatch(joined)) {
+      return 'NOK';
+    }
+  }
+  if (RegExp(r'\bRS\b', caseSensitive: false).hasMatch(joined)) {
+    if (RegExp(r'\b(INDIA|DELHI|MUMBAI|GSTIN)\b').hasMatch(joined)) {
+      return 'INR';
+    }
+    if (RegExp(r'\b(PAKISTAN|KARACHI|LAHORE|STRN)\b').hasMatch(joined)) {
+      return 'PKR';
+    }
+  }
+  if (joined.contains('ZŁ')) {
+    return 'PLN';
+  }
+  return null;
+}
+
 bool _lineHasAmount(String line) {
   return _lastAmountInLine(line) != null;
 }
 
-String? _lastAmountInLine(String line) {
+String? _lastAmountInLine(String line, {String? currency}) {
   final matches = RegExp(
-    r'(?<![A-Za-z0-9])-?\d{1,6}(?:,\d{3})*(?:\.\d{1,3})?(?![A-Za-z0-9])',
+    '(?<![A-Za-z0-9])$_amountTokenPattern(?![A-Za-z0-9])',
   ).allMatches(line).toList(growable: false);
   if (matches.isEmpty) {
     return null;
   }
 
-  return _normalizeAmount(matches.last.group(0)!);
+  return _normalizeAmount(matches.last.group(0)!, currency: currency);
 }
 
-String? _normalizeAmount(String value) {
-  final normalized = value.replaceAll(',', '').trim();
+String? _normalizeAmount(String value, {String? currency}) {
+  var normalized = value.replaceAll(RegExp(r"[\s'’]"), '').trim();
+  if (normalized.contains(',') && normalized.contains('.')) {
+    if (normalized.lastIndexOf(',') > normalized.lastIndexOf('.')) {
+      normalized = normalized.replaceAll('.', '').replaceAll(',', '.');
+    } else {
+      normalized = normalized.replaceAll(',', '');
+    }
+  } else if (normalized.contains(',')) {
+    final unsigned = normalized.startsWith('-')
+        ? normalized.substring(1)
+        : normalized;
+    if (RegExp(r'^\d{1,3}(?:,\d{2})*,\d{3}$').hasMatch(unsigned) ||
+        RegExp(r'^\d{1,3}(?:,\d{3})+$').hasMatch(unsigned)) {
+      normalized = normalized.replaceAll(',', '');
+    } else if (RegExp(r',\d{1,3}$').hasMatch(normalized)) {
+      normalized = normalized.replaceAll(',', '.');
+    }
+  } else if (normalized.contains('.')) {
+    final unsigned = normalized.startsWith('-')
+        ? normalized.substring(1)
+        : normalized;
+    final zeroDecimalCurrency = const {'JPY', 'KRW', 'VND'}.contains(currency);
+    if (RegExp(r'^\d{1,3}(?:\.\d{3})+$').hasMatch(unsigned) &&
+        (zeroDecimalCurrency || '.'.allMatches(unsigned).length > 1)) {
+      normalized = normalized.replaceAll('.', '');
+    }
+  }
   if (!RegExp(r'^-?\d+(?:\.\d{1,3})?$').hasMatch(normalized)) {
     return null;
   }
@@ -483,6 +635,8 @@ bool _isAdministrativeLine(String line) {
   return _hasSubtotalLabel(line, normalized) ||
       _hasTaxLabel(line, normalized) ||
       _hasServiceChargeLabel(line, normalized) ||
+      _hasTipLabel(line, normalized) ||
+      _hasShippingLabel(line, normalized) ||
       _hasDiscountLabel(line, normalized) ||
       _hasTotalLabel(line, normalized) ||
       normalized.contains('cash') ||
@@ -613,6 +767,11 @@ bool _hasSubtotalLabel(String line, String normalized) {
         'ยอดรวมย่อย',
         'Подытог',
         'подытог',
+        'Sous-total',
+        'Zwischensumme',
+        'Suma',
+        'Ara toplam',
+        'Tạm tính',
       ]);
 }
 
@@ -632,6 +791,11 @@ bool _hasTaxLabel(String line, String normalized) {
         'ภาษี',
         'НДС',
         'ндс',
+        'TVA',
+        'MwSt.',
+        'VAT',
+        'KDV',
+        'Thuế',
       ]);
 }
 
@@ -650,6 +814,20 @@ bool _hasServiceChargeLabel(String line, String normalized) {
         'Сервисный сбор',
         'сервисный сбор',
       ]);
+}
+
+bool _hasTipLabel(String line, String normalized) {
+  return _hasEnglishReceiptLabel(
+    normalized,
+    RegExp(r'\b(actual\s+)?tip\b', caseSensitive: false),
+  );
+}
+
+bool _hasShippingLabel(String line, String normalized) {
+  return _hasEnglishReceiptLabel(
+    normalized,
+    RegExp(r'\b(shipping|delivery)\b', caseSensitive: false),
+  );
 }
 
 bool _hasDiscountLabel(String line, String normalized) {
@@ -678,6 +856,10 @@ bool _hasTotalLabel(String line, String normalized) {
         'ยอดสุทธิ',
         'Итого',
         'итого',
+        'Gesamt',
+        'Razem',
+        'Toplam',
+        'Tổng',
       ]);
 }
 
@@ -687,9 +869,7 @@ bool _hasEnglishReceiptLabel(String normalized, RegExp labelPattern) {
     return false;
   }
 
-  final amount = RegExp(
-    r'-?\d{1,6}(?:,\d{3})*(?:\.\d{1,3})?',
-  ).firstMatch(normalized);
+  final amount = RegExp(_amountTokenPattern).firstMatch(normalized);
   if (amount == null) {
     return false;
   }
@@ -715,7 +895,10 @@ bool _hasEnglishReceiptLabel(String normalized, RegExp labelPattern) {
   final remaining = compactLabel
       .replaceFirst(labelPattern, ' ')
       .replaceAll(
-        RegExp(r'\b(usd|hkd|eur|gbp|jpy|aed|kwd|bhd)\b', caseSensitive: false),
+        RegExp(
+          '\\b(${_supportedCurrencyCodes.join('|')})\\b',
+          caseSensitive: false,
+        ),
         ' ',
       )
       .replaceAll(RegExp(r'\s+'), ' ')
@@ -725,7 +908,7 @@ bool _hasEnglishReceiptLabel(String normalized, RegExp labelPattern) {
 }
 
 bool _hasJapaneseReceiptLabel(String line, List<String> labels) {
-  final amount = RegExp(r'-?\d{1,6}(?:,\d{3})*(?:\.\d{1,3})?').firstMatch(line);
+  final amount = RegExp(_amountTokenPattern).firstMatch(line);
   if (amount == null) {
     return false;
   }
@@ -744,7 +927,7 @@ bool _hasJapaneseReceiptLabel(String line, List<String> labels) {
 }
 
 bool _hasLocalizedReceiptLabel(String line, List<String> labels) {
-  final amount = RegExp(r'-?\d{1,6}(?:,\d{3})*(?:\.\d{1,3})?').firstMatch(line);
+  final amount = RegExp(_amountTokenPattern).firstMatch(line);
   if (amount == null) return false;
   return labels.any((label) {
     final index = line.indexOf(label);

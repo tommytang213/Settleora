@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:mobile/receipt_ocr_capture/paddle_receipt_ocr_provider.dart';
+import 'package:mobile/receipt_ocr_capture/receipt_image_artifact_processor.dart';
+import 'package:mobile/receipt_ocr_capture/receipt_image_normalization_policy.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_provider.dart';
 
@@ -10,6 +12,7 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   const fixtures = _AndroidAcceptanceFixtures();
   const provider = PaddleReceiptOcrProvider();
+  const artifactProcessor = ReceiptImageArtifactProcessor();
 
   testWidgets('all 101 real images match complete preview truth', (
     WidgetTester tester,
@@ -25,17 +28,29 @@ void main() {
     for (final entry in entries) {
       final fixtureId = entry['id']! as String;
       final expected = entry['expected']! as Map<String, Object?>;
+      expect(
+        expected.keys.toSet().difference(_supportedExpectedKeys),
+        isEmpty,
+        reason: '$fixtureId contains unvalidated expected keys',
+      );
       final currencyResolution =
           entry['expected_currency_resolution'] as Map<String, Object?>?;
-      final fallbackCurrency =
-          currencyResolution?['source'] == 'default_fallback'
-          ? (currencyResolution?['currency'] as String?)
-          : null;
+      final artifact = artifactProcessor.process(
+        ReceiptImageArtifactRequest(
+          sourceType: ReceiptImageSourceKind.importedImage,
+          sourceContentType: 'image/jpeg',
+          sourceBytes: await fixtures.load(entry['file']! as String),
+          sourceExtension: 'jpeg',
+          sourceLabel: fixtureId,
+        ),
+      );
+      expect(artifact.accepted, isTrue, reason: fixtureId);
+      expect(artifact.normalizedJpegProduced, isTrue, reason: fixtureId);
       final result = await provider.extractReceipt(
         ReceiptOcrRequest(
-          bytes: await fixtures.load(entry['file']! as String),
-          contentType: 'image/jpeg',
-          fallbackCurrency: fallbackCurrency,
+          bytes: artifact.normalizedJpegBytes!,
+          contentType: artifact.normalizedContentType!,
+          fallbackCurrency: entry['fallback_currency'] as String?,
         ),
       );
 
@@ -47,6 +62,8 @@ void main() {
       _expectField(fixtureId, 'subtotal', preview.subtotal, expected);
       _expectField(fixtureId, 'tax', preview.tax, expected);
       _expectField(fixtureId, 'service', preview.service, expected);
+      _expectField(fixtureId, 'tip', preview.tip, expected);
+      _expectField(fixtureId, 'shipping', preview.shipping, expected);
       _expectField(fixtureId, 'discount', preview.discount, expected);
       _expectField(fixtureId, 'total', preview.total, expected);
 
@@ -73,15 +90,46 @@ void main() {
           reason: '$fixtureId currency provenance',
         );
       }
+      final expectedReviewCondition =
+          expected['expected_review_condition'] as String?;
+      if (expectedReviewCondition != null) {
+        expect(
+          expectedReviewCondition,
+          'printed total differs from visible charge-line arithmetic',
+          reason: '$fixtureId unsupported review condition',
+        );
+        expect(
+          preview.reviewHints,
+          contains(
+            'OCR item total differs from detected grand total. Review the receipt before applying.',
+          ),
+          reason: '$fixtureId review condition',
+        );
+      }
       expect(preview.blocks, isNotEmpty, reason: '$fixtureId OCR evidence');
       expect(
         preview.runEvidence?.runtime,
-        'onnxruntime-android-cpu',
+        'onnxruntime-android:1.21.1:cpu',
         reason: '$fixtureId runtime evidence',
       );
     }
   });
 }
+
+const _supportedExpectedKeys = <String>{
+  'merchant',
+  'date',
+  'currency',
+  'subtotal',
+  'tax',
+  'service',
+  'tip',
+  'shipping',
+  'discount',
+  'total',
+  'items',
+  'expected_review_condition',
+};
 
 void _expectField(
   String fixtureId,

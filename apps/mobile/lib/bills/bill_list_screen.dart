@@ -270,6 +270,8 @@ ReceiptOcrPreview _copyReceiptOcrPreview(
     subtotal: preview.subtotal,
     tax: preview.tax,
     service: preview.service,
+    tip: preview.tip,
+    shipping: preview.shipping,
     discount: preview.discount,
     total: preview.total,
     rawTextLineCount: preview.rawTextLineCount,

@@ -140,6 +140,139 @@ Total $5.50
     );
   });
 
+  test('parser resolves ambiguous symbols only from receipt context', () {
+    const parser = ReceiptOcrParser();
+    final cases = <({String text, String? currency})>[
+      (
+        text: r'''Pike Deli
+Seattle, WA 98101
+Total $18.20''',
+        currency: 'USD',
+      ),
+      (
+        text: r'''Maple Cafe
+Toronto ON
+HST
+Total $11.02''',
+        currency: 'CAD',
+      ),
+      (
+        text: r'''Bakehouse
+Sydney NSW
+ABN 123
+Total $20.18''',
+        currency: 'AUD',
+      ),
+      (
+        text: r'''Orchard Kopi
+Singapore
+GST Reg
+Total $9.81''',
+        currency: 'SGD',
+      ),
+      (
+        text: r'''Auckland Corner
+New Zealand
+GST No
+Total $14.13''',
+        currency: 'NZD',
+      ),
+      (
+        text: r'''Mercado
+Mexico CDMX
+IVA
+Total $145.00''',
+        currency: 'MXN',
+      ),
+      (text: '東京食堂\nラーメン ¥980\n合計 ¥1180', currency: 'JPY'),
+      (text: '上海面馆\n牛肉面 ¥48.00\n合计 ¥56.00', currency: 'CNY'),
+      (text: 'Noodle Shop\nNoodles ¥50\nTotal ¥60', currency: null),
+      (text: 'Stockholm Cafe\nMoms\nTotal 75 kr', currency: 'SEK'),
+      (text: 'Oslo Bakeri\nMVA\nTotal 75 kr', currency: 'NOK'),
+      (text: 'Nordic Shop\nTotal 45 kr', currency: null),
+      (text: 'Delhi Snacks\nGSTIN 123\nTotal Rs 550.00', currency: 'INR'),
+      (text: 'Karachi Grill\nSTRN 123\nTotal Rs 550.00', currency: 'PKR'),
+      (text: 'Central Store\nTotal Rs 100.00', currency: null),
+    ];
+
+    for (final fixture in cases) {
+      final preview = parser.parse(fixture.text);
+      expect(preview.currency, fixture.currency, reason: fixture.text);
+      expect(
+        preview.currencyProvenance,
+        fixture.currency == null
+            ? ReceiptOcrCurrencyProvenance.unresolved
+            : ReceiptOcrCurrencyProvenance.contextInferred,
+        reason: fixture.text,
+      );
+    }
+  });
+
+  test('parser normalizes supported locale amount conventions', () {
+    const parser = ReceiptOcrParser();
+    final cases = <({String text, String currency, List<String> values})>[
+      (
+        text:
+            'Bistro Lumière\nSoupe 8,50 €\nCafé 3,20 €\nSous-total 11,70 €\nTVA 1,17 €\nTotal 12,87 €',
+        currency: 'EUR',
+        values: ['8.50', '3.20', '11.70', '1.17', '12.87'],
+      ),
+      (
+        text:
+            'Berlin Technik\nMonitor 1.199,00 €\nKabel 35,56 €\nZwischensumme 1.234,56 €\nMwSt. 234,57 €\nGesamt 1.469,13 €',
+        currency: 'EUR',
+        values: ['1199.00', '35.56', '1234.56', '234.57', '1469.13'],
+      ),
+      (
+        text:
+            "Zürich Markt\nGerät CHF 1'199.50\nZubehör CHF 35.00\nSubtotal CHF 1'234.50\nMwSt. CHF 99.95\nTotal CHF 1'334.45",
+        currency: 'CHF',
+        values: ['1199.50', '35.00', '1234.50', '99.95', '1334.45'],
+      ),
+      (
+        text:
+            'Mumbai Electronics\nLaptop ₹ 1,20,000.00\nMouse ₹ 3,456.78\nSubtotal ₹ 1,23,456.78\nGST ₹ 22,222.22\nTotal ₹ 1,45,679.00',
+        currency: 'INR',
+        values: ['120000.00', '3456.78', '123456.78', '22222.22', '145679.00'],
+      ),
+      (
+        text:
+            'Quán Hà Nội\nPhở 120.000 ₫\nCà phê 80.000 ₫\nTạm tính 200.000 ₫\nThuế 20.000 ₫\nTổng 220.000 ₫',
+        currency: 'VND',
+        values: ['120000', '80000', '200000', '20000', '220000'],
+      ),
+    ];
+
+    for (final fixture in cases) {
+      final preview = parser.parse(fixture.text);
+      expect(preview.currency, fixture.currency, reason: fixture.text);
+      expect(
+        preview.items.map((item) => item.lineTotal),
+        fixture.values.take(2),
+      );
+      expect(preview.subtotal, fixture.values[2]);
+      expect(preview.tax, fixture.values[3]);
+      expect(preview.total, fixture.values[4]);
+    }
+  });
+
+  test('parser preserves actual tip and shipping preview values', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Harbor Grill
+Burger USD 18.00
+Beer USD 8.00
+Subtotal USD 26.00
+Shipping USD 9.99
+Actual Tip USD 5.00
+Total USD 40.99
+''');
+
+    expect(preview.shipping, '9.99');
+    expect(preview.tip, '5.00');
+    expect(preview.items.map((item) => item.description), ['Burger', 'Beer']);
+  });
+
   test('parser normalizes Arabic-Indic AED receipt values', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse('''

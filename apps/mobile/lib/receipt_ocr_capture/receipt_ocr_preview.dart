@@ -7,6 +7,8 @@ class ReceiptOcrPreview {
     this.subtotal,
     this.tax,
     this.service,
+    this.tip,
+    this.shipping,
     this.discount,
     this.total,
     this.rawTextLineCount = 0,
@@ -25,6 +27,8 @@ class ReceiptOcrPreview {
   final String? subtotal;
   final String? tax;
   final String? service;
+  final String? tip;
+  final String? shipping;
   final String? discount;
   final String? total;
   final int rawTextLineCount;
@@ -181,6 +185,8 @@ bool _hasReceiptOcrReferenceAdjustment(ReceiptOcrPreview preview) {
   final amounts = [
     _parseReceiptOcrReviewAmount(preview.tax),
     _parseReceiptOcrReviewAmount(preview.service),
+    _parseReceiptOcrReviewAmount(preview.tip),
+    _parseReceiptOcrReviewAmount(preview.shipping),
     _parseReceiptOcrReviewAmount(preview.discount),
   ];
   return amounts.any((amount) => amount != null && amount != 0);
