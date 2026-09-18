@@ -523,6 +523,27 @@ Total USD 21.24
 ''');
     expect(percentageLabel.tip, '3.24');
     expect(percentageLabel.tipLabel, 'Gratuity 18%');
+
+    final compactCurrencyMarker = parser.parse('''
+Harbor Grill
+Burger USD 18.00
+Delivery:\$4.00
+Total USD 22.00
+''');
+    expect(compactCurrencyMarker.shipping, '4.00');
+    expect(compactCurrencyMarker.shippingLabel, 'Delivery');
+
+    final emojiSuffix = List.filled(60, '😀').join();
+    final boundedUnicodeLabel = parser.parse('''
+Harbor Grill
+Burger USD 18.00
+Actual Tip $emojiSuffix USD 3.24
+Total USD 21.24
+''');
+    expect(boundedUnicodeLabel.tip, '3.24');
+    expect(boundedUnicodeLabel.tipLabel, isNotNull);
+    expect(boundedUnicodeLabel.tipLabel!.length, lessThanOrEqualTo(120));
+    expect(boundedUnicodeLabel.tipLabel!.runes.last, 0x1F600);
   });
 
   test('parser treats a city ZIP row as metadata only beside an address', () {

@@ -888,8 +888,9 @@ String _originalReceiptAdjustmentLabel(
   var afterAmount = line.substring(amount.end);
   beforeAmount = beforeAmount.replaceFirst(
     RegExp(
-      '(?:^|\\s)(?:$_currencyTokenPattern)\\s*[:=]?\\s*\$',
+      '(?<![\\p{L}\\p{N}])(?:$_currencyTokenPattern)\\s*[:=]?\\s*\$',
       caseSensitive: false,
+      unicode: true,
     ),
     ' ',
   );
@@ -907,7 +908,18 @@ String _originalReceiptAdjustmentLabel(
       .trim();
   if (label.isEmpty) return fallback;
 
-  return String.fromCharCodes(label.runes.take(120));
+  return _truncateUtf16WithoutSplitting(label, 120);
+}
+
+String _truncateUtf16WithoutSplitting(String value, int maxCodeUnits) {
+  if (value.length <= maxCodeUnits) return value;
+
+  var end = maxCodeUnits;
+  final lastIncluded = value.codeUnitAt(end - 1);
+  if (lastIncluded >= 0xD800 && lastIncluded <= 0xDBFF) {
+    end -= 1;
+  }
+  return value.substring(0, end);
 }
 
 String? _normalizeAmount(String value, {String? currency}) {
