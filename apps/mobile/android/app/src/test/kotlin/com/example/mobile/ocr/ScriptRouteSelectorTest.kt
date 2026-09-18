@@ -101,6 +101,18 @@ class ScriptRouteSelectorTest {
         assertEquals(0.05f, selected?.confidence)
     }
 
+    @Test
+    fun oneSpecialistGlyphCannotOverrideStrongCommonRecognition() {
+        val selected = ScriptRouteSelector.select(
+            listOf(
+                candidate("common", ScriptEvidence.COMMON, "TOTAL 12.50", 0.99f),
+                candidate("arabic", ScriptEvidence.ARABIC, "TOTAL 12.50 ا", 0.80f),
+            ),
+        )
+
+        assertEquals("common", selected?.pack?.modelPackId)
+    }
+
     private fun candidate(
         id: String,
         script: ScriptEvidence,

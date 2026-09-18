@@ -75,12 +75,15 @@ class SettleoraPaddleOcrEngine(context: Context) {
         return try {
             val detection = detector.detect(source)
             val sortedBoxes = BoxSorter.sortInReadingOrder(detection.boxes)
+            if (!ReceiptOcrInputLimits.acceptsDetectedLineCount(sortedBoxes.size)) {
+                throw OCRError.TooManyTextLines()
+            }
             val blocks = mutableListOf<SettleoraOcrBlock>()
             var recognitionTimeMs = 0L
 
             val validBoxes = mutableListOf<Pair<Int, com.paddle.ocr.model.OCRBox>>()
             try {
-                for ((order, box) in sortedBoxes.take(MAX_RECOGNITION_LINES).withIndex()) {
+                for ((order, box) in sortedBoxes.withIndex()) {
                     val fullResolutionCrop = QuadTextCrop.crop(source, box)
                     if (fullResolutionCrop.empty()) {
                         fullResolutionCrop.release()
@@ -206,11 +209,23 @@ class SettleoraPaddleOcrEngine(context: Context) {
         }
     }
 
-    private fun textDirection(text: String): String = if (
-        text.codePoints().anyMatch { codePoint ->
-            Character.UnicodeScript.of(codePoint) == Character.UnicodeScript.ARABIC
+    private fun textDirection(text: String): String {
+        var rtlCount = 0
+        var ltrCount = 0
+        text.codePoints().forEach { codePoint ->
+            when (Character.UnicodeScript.of(codePoint)) {
+                Character.UnicodeScript.ARABIC,
+                Character.UnicodeScript.HEBREW,
+                -> rtlCount++
+                Character.UnicodeScript.LATIN,
+                Character.UnicodeScript.CYRILLIC,
+                Character.UnicodeScript.GREEK,
+                -> ltrCount++
+                else -> Unit
+            }
         }
-    ) "rtl" else "ltr"
+        return if (rtlCount > ltrCount) "rtl" else "ltr"
+    }
 
     private data class RecognizerPack(
         val spec: RecognizerSpec,
@@ -222,7 +237,6 @@ class SettleoraPaddleOcrEngine(context: Context) {
         const val METHOD_RECOGNIZE = "recognize"
         const val RUNTIME_IDENTITY = "onnxruntime-android:1.21.1:cpu"
 
-        private const val MAX_RECOGNITION_LINES = 128
     }
 }
 

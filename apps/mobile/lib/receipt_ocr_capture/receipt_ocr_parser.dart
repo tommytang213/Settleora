@@ -366,8 +366,12 @@ String _normalizeOcrLine(String value) {
     );
   }
   normalized = normalized.replaceAllMapped(
-    RegExp(r'(?<=\d)\u060c(?=\d)'),
+    RegExp(r'(?<=\d)\u060c(?=\d{1,2}(?:\D|$))'),
     (_) => '.',
+  );
+  normalized = normalized.replaceAllMapped(
+    RegExp(r'(?<=\d)\u060c(?=\d)'),
+    (_) => ',',
   );
   normalized = normalized.replaceFirstMapped(
     RegExp(r'^(.*?)\s*(-?\d{1,6}(?:,\d{3})*(?:\.\d{1,3})?)\s*(د\.?إ)$'),

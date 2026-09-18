@@ -64,6 +64,30 @@ class ReceiptBlockOrderTest {
         assertEquals(listOf(0, 1, 2), ordered.map { it.row })
     }
 
+    @Test
+    fun progressiveSkewKeepsAdjacentBoxesOnOneRow() {
+        val first = block("ITEM", "ltr", x = 10f, y = 100f, height = 20f)
+        val second = block("NAME", "ltr", x = 50f, y = 107f, height = 20f)
+        val amount = block("12.50", "ltr", x = 100f, y = 114f, height = 20f)
+
+        val ordered = ReceiptBlockOrder.normalize(listOf(amount, first, second))
+
+        assertEquals(listOf("ITEM", "NAME", "12.50"), ordered.map { it.text })
+        assertEquals(listOf(0, 0, 0), ordered.map { it.row })
+    }
+
+    @Test
+    fun oneRtlTokenDoesNotReversePredominantlyLtrRow() {
+        val item = block("Tea", "ltr", x = 10f)
+        val brand = block("ش", "rtl", x = 60f)
+        val amount = block("12.50", "ltr", x = 100f)
+
+        assertEquals(
+            listOf("Tea", "ش", "12.50"),
+            ReceiptBlockOrder.normalize(listOf(amount, brand, item)).map { it.text },
+        )
+    }
+
     private fun block(
         text: String,
         direction: String,

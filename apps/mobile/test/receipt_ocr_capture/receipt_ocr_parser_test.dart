@@ -172,6 +172,14 @@ Date: ٢٠٢٦-٠٩-١٧
     expect(preview.total, '21.79');
   });
 
+  test('parser preserves U+060C thousands grouping', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('الإجمالي دإ١،٢٣٤');
+
+    expect(preview.currency, 'AED');
+    expect(preview.total, '1234');
+  });
+
   test('parser keeps whole-number AED item amounts traceable', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse('''

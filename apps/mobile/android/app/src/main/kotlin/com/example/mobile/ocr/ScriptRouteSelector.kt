@@ -40,11 +40,11 @@ internal object ScriptRouteSelector {
         .maxByOrNull(::score)
 
     fun score(candidate: ScriptCandidate): Double {
-        val scripts = candidate.text.codePoints()
+        val strongScripts = candidate.text.codePoints()
             .toArray()
             .map(::scriptOf)
             .filter { it != ScriptEvidence.NEUTRAL }
-            .toSet()
+        val scripts = strongScripts.toSet()
         val isCommonPack = ScriptEvidence.COMMON in candidate.pack.acceptedScripts
         if (scripts.isEmpty()) {
             return if (isCommonPack) {
@@ -53,10 +53,14 @@ internal object ScriptRouteSelector {
                 Double.NEGATIVE_INFINITY
             }
         }
-        val containsDeclaredScript = scripts.any { it in candidate.pack.acceptedScripts }
-        val compatible = containsDeclaredScript && scripts.all {
+        val compatibleScripts = scripts.all {
             it in candidate.pack.acceptedScripts || (!isCommonPack && it == ScriptEvidence.COMMON)
         }
+        val declaredCount = strongScripts.count { it in candidate.pack.acceptedScripts }
+        val hasMeaningfulDeclaredCoverage = isCommonPack ||
+            (declaredCount >= MIN_SPECIALIST_SCRIPT_CHARACTERS &&
+                declaredCount * MIN_SPECIALIST_SCRIPT_SHARE_DENOMINATOR >= strongScripts.size)
+        val compatible = compatibleScripts && hasMeaningfulDeclaredCoverage
         if (!compatible) return Double.NEGATIVE_INFINITY
         return candidate.confidence + SCRIPT_MATCH_BONUS +
             if (!isCommonPack) SPECIALIST_BIAS else 0.0
@@ -73,4 +77,7 @@ internal object ScriptRouteSelector {
         in 0x1100..0x11FF, in 0x3130..0x318F, in 0xAC00..0xD7AF -> ScriptEvidence.KOREAN
         else -> ScriptEvidence.NEUTRAL
     }
+
+    private const val MIN_SPECIALIST_SCRIPT_CHARACTERS = 2
+    private const val MIN_SPECIALIST_SCRIPT_SHARE_DENOMINATOR = 4
 }

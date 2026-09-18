@@ -28,7 +28,9 @@ test("native semantic binding covers the exact provider execution path", () => {
   const { catalog } = loadCatalog(repoRoot);
   const expected = [
     "apps/mobile/lib/app/app_bootstrap.dart",
+    "apps/mobile/lib/app/server_mode_shell.dart",
     "apps/mobile/lib/bills/bill_list_screen.dart",
+    "apps/mobile/lib/groups/group_list_screen.dart",
     "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_provider.dart",
     "apps/mobile/lib/receipt_ocr_capture/paddle_receipt_ocr_provider.dart",
     "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_preview.dart",
@@ -37,6 +39,7 @@ test("native semantic binding covers the exact provider execution path", () => {
     "apps/mobile/android/app/build.gradle.kts",
     "apps/mobile/android/app/proguard-rules.pro",
     "apps/mobile/android/gradle/verification-metadata.xml",
+    "apps/mobile/android/settings.gradle.kts",
     "apps/mobile/android/app/src/main/kotlin/com/example/mobile/MainActivity.kt",
     "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/MobileOcrModelCatalog.kt",
     "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/SettleoraPaddleOcrEngine.kt",

@@ -5,6 +5,7 @@ internal object ReceiptOcrInputLimits {
     private const val MAX_INPUT_PIXELS = 16_000_000L
     private const val MAX_INPUT_DIMENSION = 8192
     private const val MAX_SAMPLE_SIZE = 128
+    private const val MAX_RECOGNITION_LINES = 128
 
     fun acceptsEncodedSize(sizeBytes: Int): Boolean = sizeBytes in 1..MAX_INPUT_BYTES
 
@@ -13,6 +14,9 @@ internal object ReceiptOcrInputLimits {
         if (width > MAX_INPUT_DIMENSION || height > MAX_INPUT_DIMENSION) return false
         return width.toLong() * height.toLong() <= MAX_INPUT_PIXELS
     }
+
+    fun acceptsDetectedLineCount(lineCount: Int): Boolean =
+        lineCount in 0..MAX_RECOGNITION_LINES
 
     /** Returns an Android power-of-two decode sample that satisfies native limits. */
     fun sampleSizeFor(width: Int, height: Int): Int? {

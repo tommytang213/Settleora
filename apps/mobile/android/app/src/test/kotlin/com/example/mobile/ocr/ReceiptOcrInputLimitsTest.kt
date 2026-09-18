@@ -27,4 +27,10 @@ class ReceiptOcrInputLimitsTest {
         assertTrue(ReceiptOcrInputLimits.sampleSizeFor(16_000, 12_000) == 4)
         assertTrue(ReceiptOcrInputLimits.sampleSizeFor(Int.MAX_VALUE, Int.MAX_VALUE) == null)
     }
+
+    @Test
+    fun rejectsDetectedReceiptsThatWouldBeSilentlyTruncated() {
+        assertTrue(ReceiptOcrInputLimits.acceptsDetectedLineCount(128))
+        assertFalse(ReceiptOcrInputLimits.acceptsDetectedLineCount(129))
+    }
 }
