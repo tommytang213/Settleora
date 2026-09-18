@@ -3335,6 +3335,51 @@ export type ReceiptOcrReviewSource = "on_device" | "manual_entry" | "imported_re
 export type ReceiptOcrCandidateAmount = string;
 
 /**
+ * Bounded non-item receipt adjustment evidence category. Unknown printed charges use other while preserving originalLabel.
+ */
+export type ReceiptOcrReviewAdjustmentKind = "tip" | "shipping" | "fee" | "surcharge" | "deposit" | "credit" | "other";
+
+/**
+ * Explicit arithmetic direction for positive-magnitude adjustment evidence.
+ */
+export type ReceiptOcrReviewAdjustmentDirection = "charge" | "credit";
+
+/**
+ * Bounded non-item OCR adjustment evidence. It is review evidence only, is not a merchandise line, and is not authority to create a bill adjustment.
+ */
+export interface ReceiptOcrReviewAdjustmentRequest {
+  kind: ReceiptOcrReviewAdjustmentKind;
+  /**
+   * Bounded printed/original receipt label. Unknown labels retain their text and use kind other.
+   */
+  originalLabel: string;
+  /**
+   * Positive decimal-safe magnitude represented as a string.
+   */
+  amount: string;
+  currency: CurrencyCode;
+  direction: ReceiptOcrReviewAdjustmentDirection;
+}
+
+/**
+ * Persisted non-item OCR adjustment evidence. It remains separate from merchandise proposals and is never implicitly applied as a bill item or bill adjustment.
+ */
+export interface ReceiptOcrReviewAdjustmentResponse {
+  id: string;
+  sortOrder: number;
+  kind: ReceiptOcrReviewAdjustmentKind;
+  originalLabel: string;
+  /**
+   * Persisted positive decimal-safe magnitude represented as a string.
+   */
+  amount: string;
+  currency: CurrencyCode;
+  direction: ReceiptOcrReviewAdjustmentDirection;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+}
+
+/**
  * One bounded OCR review line. Line text is reviewed/candidate text, not raw OCR full text. Amounts use the review-level currency and remain provisional.
  */
 export interface ReceiptOcrReviewLineRequest {
@@ -3386,6 +3431,10 @@ export interface ReceiptOcrReviewUpsertRequest {
    * Optional bounded review lines. The server derives stable line order from array order.
    */
   lines?: ReceiptOcrReviewLineRequest[];
+  /**
+   * Optional ordered non-item adjustment evidence. The server derives stable order from array order; entries are not merchandise and are not automatically applied as bill adjustments.
+   */
+  adjustmentEvidence?: ReceiptOcrReviewAdjustmentRequest[];
 }
 
 /**
@@ -3475,6 +3524,7 @@ export interface ReceiptOcrReviewResponse {
   discountAmount: string | null;
   grandTotalAmount: string | null;
   lines: ReceiptOcrReviewLineResponse[];
+  adjustmentEvidence: ReceiptOcrReviewAdjustmentResponse[];
   createdAtUtc: string;
   updatedAtUtc: string;
 }
@@ -3569,7 +3619,7 @@ export interface ReceiptOcrReviewAssignmentResponse {
 /**
  * Bounded receipt OCR apply-preview validation issue code. Codes in blockedReasons make canApply false; codes in warnings may be informational or blocking.
  */
-export type ReceiptOcrReviewApplyPreviewIssueCode = "unsupported_review_status" | "unsupported_review_source" | "missing_currency" | "unsupported_currency" | "currency_mismatch" | "missing_grand_total" | "empty_line_set" | "line_total_missing" | "unsupported_line_state" | "line_total_mismatch" | "line_sum_mismatch" | "header_total_mismatch";
+export type ReceiptOcrReviewApplyPreviewIssueCode = "unsupported_review_status" | "unsupported_review_source" | "missing_currency" | "unsupported_currency" | "currency_mismatch" | "missing_grand_total" | "empty_line_set" | "line_total_missing" | "unsupported_line_state" | "line_total_mismatch" | "line_sum_mismatch" | "header_total_mismatch" | "adjustments_not_auto_applied" | "adjustment_currency_not_reconciled";
 
 /**
  * Safe proposed bill-item candidate derived from one bounded receipt OCR review line. It excludes bill-item IDs, split allocation input, raw OCR text, file bytes, storage/provider internals, payment details, and unrelated users.
@@ -3601,9 +3651,25 @@ export interface ReceiptOcrReviewApplyPreviewSummaryResponse {
   linesWithProposedTotalCount: number;
   linesMissingProposedTotalCount: number;
   /**
+   * Number of preserved non-item adjustment evidence entries.
+   */
+  adjustmentEvidenceCount: number;
+  /**
+   * Always zero in replace_draft_ocr_items; this contract does not authorize OCR-created bill adjustments.
+   */
+  autoAppliedAdjustmentCount: number;
+  /**
    * Sum of safely proposed line totals when at least one line total can be proposed.
    */
   proposedLineTotalSumAmount: string | null;
+  /**
+   * Sum of charge-direction adjustment evidence when every entry matches the review currency; null when cross-currency evidence prevents safe review-only reconciliation.
+   */
+  reconciledAdjustmentChargeTotalAmount: string | null;
+  /**
+   * Sum of credit-direction adjustment evidence when every entry matches the review currency; null when cross-currency evidence prevents safe review-only reconciliation.
+   */
+  reconciledAdjustmentCreditTotalAmount: string | null;
   /**
    * Header total derived as subtotal plus tax plus service charge minus discount when subtotal is available.
    */
@@ -3641,6 +3707,10 @@ export interface ReceiptOcrReviewApplyPreviewResponse {
   proposedDiscountAmount: string | null;
   proposedGrandTotalAmount: string | null;
   proposedLines: ReceiptOcrReviewApplyPreviewLineCandidateResponse[];
+  /**
+   * Preserved non-item evidence shown separately from proposed merchandise lines. These entries are intentionally not auto-applied.
+   */
+  adjustmentEvidence: ReceiptOcrReviewAdjustmentResponse[];
   summary: ReceiptOcrReviewApplyPreviewSummaryResponse;
   /**
    * True only when no blocking preview validation issue was derived.

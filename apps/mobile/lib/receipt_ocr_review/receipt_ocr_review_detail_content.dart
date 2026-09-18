@@ -163,6 +163,11 @@ class _ReceiptOcrReviewReadOnlyContent extends StatelessWidget {
             if (_hasAnyReviewCandidate(review)) ...[
               _ReceiptOcrReviewTotals(review: review),
               const SizedBox(height: 20),
+              _ReceiptOcrReviewAdjustments(
+                adjustments: review.adjustmentEvidence,
+              ),
+              if (review.adjustmentEvidence.isNotEmpty)
+                const SizedBox(height: 20),
               _ReceiptOcrReviewLines(lines: review.lines),
             ] else
               const SettleoraStatePanel(
@@ -223,6 +228,7 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
   late final TextEditingController _discountController;
   late final TextEditingController _grandTotalController;
   late final List<_ReceiptOcrReviewLineEditors> _lineEditors;
+  late final List<_ReceiptOcrReviewAdjustmentEditors> _adjustmentEditors;
 
   @override
   void initState() {
@@ -252,6 +258,12 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
       ]..sort((left, right) => left.sortOrder.compareTo(right.sortOrder)))
         _ReceiptOcrReviewLineEditors.fromLine(line),
     ];
+    _adjustmentEditors = [
+      for (final adjustment in [
+        ...review.adjustmentEvidence,
+      ]..sort((left, right) => left.sortOrder.compareTo(right.sortOrder)))
+        _ReceiptOcrReviewAdjustmentEditors.fromAdjustment(adjustment),
+    ];
   }
 
   @override
@@ -271,6 +283,9 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
     _discountController.dispose();
     _grandTotalController.dispose();
     for (final editors in _lineEditors) {
+      editors.dispose();
+    }
+    for (final editors in _adjustmentEditors) {
       editors.dispose();
     }
     super.dispose();
@@ -307,6 +322,19 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
     });
   }
 
+  void _addAdjustment() {
+    setState(() {
+      _adjustmentEditors.add(_ReceiptOcrReviewAdjustmentEditors.empty());
+    });
+  }
+
+  void _removeAdjustment(int index) {
+    setState(() {
+      final editors = _adjustmentEditors.removeAt(index);
+      editors.dispose();
+    });
+  }
+
   void _submit() {
     final form = _formKey.currentState;
     if (form == null || !form.validate()) {
@@ -329,6 +357,9 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
       discountAmount: _nullableText(_discountController.text),
       grandTotalAmount: _nullableText(_grandTotalController.text),
       lines: _lineEditors
+          .map((editors) => editors.toRequest())
+          .toList(growable: false),
+      adjustmentEvidence: _adjustmentEditors
           .map((editors) => editors.toRequest())
           .toList(growable: false),
     );
@@ -367,7 +398,8 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
     return headerControllers.any(
           (controller) => controller.text.trim().isNotEmpty,
         ) ||
-        _lineEditors.any((editors) => editors.hasAnyAmountCandidate);
+        _lineEditors.any((editors) => editors.hasAnyAmountCandidate) ||
+        _adjustmentEditors.isNotEmpty;
   }
 
   @override
@@ -512,6 +544,42 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
                   enabled: !isBusy,
                   onRemove: () => _removeLine(index),
                 ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Non-item adjustments',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                IconButton(
+                  key: const Key('receipt-review-edit-adjustment-add'),
+                  onPressed:
+                      isBusy ||
+                          _adjustmentEditors.length >=
+                              _maxReceiptOcrReviewAdjustmentCount
+                      ? null
+                      : _addAdjustment,
+                  tooltip: 'Add non-item adjustment',
+                  icon: const Icon(Icons.add),
+                ),
+              ],
+            ),
+            Text(
+              'These entries remain review evidence and are not automatically added to the bill.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            for (var index = 0; index < _adjustmentEditors.length; index++)
+              _AdjustmentEditCard(
+                key: ValueKey('receipt-review-edit-adjustment-card-$index'),
+                index: index,
+                editors: _adjustmentEditors[index],
+                enabled: !isBusy,
+                onChanged: () => setState(() {}),
+                onRemove: () => _removeAdjustment(index),
+              ),
             if (widget.saveFailure != null) ...[
               const SizedBox(height: 12),
               _InlineFailure(failure: widget.saveFailure!),
@@ -837,6 +905,216 @@ class _ReceiptOcrReviewLineEditors {
   }
 }
 
+class _ReceiptOcrReviewAdjustmentEditors {
+  _ReceiptOcrReviewAdjustmentEditors({
+    required this.kind,
+    required this.direction,
+    required String originalLabel,
+    required String amount,
+    required String currency,
+  }) : originalLabelController = TextEditingController(text: originalLabel),
+       amountController = TextEditingController(text: amount),
+       currencyController = TextEditingController(text: currency);
+
+  factory _ReceiptOcrReviewAdjustmentEditors.fromAdjustment(
+    ReceiptOcrReviewAdjustment adjustment,
+  ) {
+    return _ReceiptOcrReviewAdjustmentEditors(
+      kind: adjustment.kind,
+      direction: adjustment.direction,
+      originalLabel: adjustment.originalLabel,
+      amount: adjustment.amount,
+      currency: adjustment.currency,
+    );
+  }
+
+  factory _ReceiptOcrReviewAdjustmentEditors.empty() {
+    return _ReceiptOcrReviewAdjustmentEditors(
+      kind: ReceiptOcrReviewAdjustmentKindValues.other,
+      direction: ReceiptOcrReviewAdjustmentDirectionValues.charge,
+      originalLabel: '',
+      amount: '',
+      currency: '',
+    );
+  }
+
+  ReceiptOcrReviewAdjustmentKind kind;
+  ReceiptOcrReviewAdjustmentDirection direction;
+  final TextEditingController originalLabelController;
+  final TextEditingController amountController;
+  final TextEditingController currencyController;
+
+  ReceiptOcrReviewAdjustmentSaveRequest toRequest() {
+    return ReceiptOcrReviewAdjustmentSaveRequest(
+      kind: kind,
+      originalLabel: originalLabelController.text.trim(),
+      amount: amountController.text.trim(),
+      currency: currencyController.text.trim().toUpperCase(),
+      direction: direction,
+    );
+  }
+
+  void dispose() {
+    originalLabelController.dispose();
+    amountController.dispose();
+    currencyController.dispose();
+  }
+}
+
+class _AdjustmentEditCard extends StatelessWidget {
+  const _AdjustmentEditCard({
+    super.key,
+    required this.index,
+    required this.editors,
+    required this.enabled,
+    required this.onChanged,
+    required this.onRemove,
+  });
+
+  final int index;
+  final _ReceiptOcrReviewAdjustmentEditors editors;
+  final bool enabled;
+  final VoidCallback onChanged;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(child: Text('Adjustment ${index + 1}')),
+                IconButton(
+                  key: ValueKey('receipt-review-edit-adjustment-remove-$index'),
+                  onPressed: enabled ? onRemove : null,
+                  tooltip: 'Remove adjustment',
+                  icon: const Icon(Icons.remove_circle_outline),
+                ),
+              ],
+            ),
+            DropdownButtonFormField<String>(
+              key: ValueKey('receipt-review-edit-adjustment-kind-$index'),
+              initialValue: editors.kind,
+              decoration: const InputDecoration(labelText: 'Category'),
+              items:
+                  const [
+                        'tip',
+                        'shipping',
+                        'fee',
+                        'surcharge',
+                        'deposit',
+                        'credit',
+                        'other',
+                      ]
+                      .map(
+                        (value) =>
+                            DropdownMenuItem(value: value, child: Text(value)),
+                      )
+                      .toList(),
+              onChanged: enabled
+                  ? (value) {
+                      if (value != null) {
+                        editors.kind = value;
+                        if (value ==
+                            ReceiptOcrReviewAdjustmentKindValues.credit) {
+                          editors.direction =
+                              ReceiptOcrReviewAdjustmentDirectionValues.credit;
+                        }
+                        onChanged();
+                      }
+                    }
+                  : null,
+            ),
+            TextFormField(
+              key: ValueKey('receipt-review-edit-adjustment-label-$index'),
+              controller: editors.originalLabelController,
+              enabled: enabled,
+              decoration: const InputDecoration(labelText: 'Printed label'),
+              maxLength: 120,
+              validator: (value) => value == null || value.trim().isEmpty
+                  ? 'Printed label is required'
+                  : null,
+            ),
+            Row(
+              children: [
+                Expanded(
+                  flex: 2,
+                  child: TextFormField(
+                    key: ValueKey(
+                      'receipt-review-edit-adjustment-amount-$index',
+                    ),
+                    controller: editors.amountController,
+                    enabled: enabled,
+                    decoration: const InputDecoration(labelText: 'Amount'),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    maxLength: 22,
+                    validator: _positiveMoneyValidator,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: TextFormField(
+                    key: ValueKey(
+                      'receipt-review-edit-adjustment-currency-$index',
+                    ),
+                    controller: editors.currencyController,
+                    enabled: enabled,
+                    decoration: const InputDecoration(labelText: 'Currency'),
+                    textCapitalization: TextCapitalization.characters,
+                    maxLength: 3,
+                    validator: (value) =>
+                        RegExp(r'^[A-Za-z]{3}$').hasMatch(value?.trim() ?? '')
+                        ? null
+                        : 'Use 3 letters',
+                  ),
+                ),
+              ],
+            ),
+            DropdownButtonFormField<String>(
+              key: ValueKey('receipt-review-edit-adjustment-direction-$index'),
+              initialValue: editors.direction,
+              decoration: const InputDecoration(labelText: 'Direction'),
+              items: const [
+                DropdownMenuItem(value: 'charge', child: Text('Charge')),
+                DropdownMenuItem(value: 'credit', child: Text('Credit')),
+              ],
+              onChanged:
+                  !enabled ||
+                      editors.kind ==
+                          ReceiptOcrReviewAdjustmentKindValues.credit
+                  ? null
+                  : (value) {
+                      if (value != null) {
+                        editors.direction = value;
+                        onChanged();
+                      }
+                    },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String? _positiveMoneyValidator(String? value) {
+  final normalized = value?.trim();
+  if (normalized == null || normalized.isEmpty) {
+    return 'Amount is required';
+  }
+  if (!_receiptOcrMoneyPattern.hasMatch(normalized) ||
+      normalized == '0' ||
+      RegExp(r'^0\.0{1,4}$').hasMatch(normalized)) {
+    return 'Use a positive decimal amount';
+  }
+  return null;
+}
+
 String _lineSummary(ReceiptOcrReviewLine line) {
   final parts = [
     if (line.quantity != null) 'Qty ${line.quantity}',
@@ -858,7 +1136,8 @@ bool _hasAnyReviewCandidate(ReceiptOcrReviewDetail review) {
       review.serviceChargeAmount != null ||
       review.discountAmount != null ||
       review.grandTotalAmount != null ||
-      review.lines.isNotEmpty;
+      review.lines.isNotEmpty ||
+      review.adjustmentEvidence.isNotEmpty;
 }
 
 class _ReceiptOcrReviewHeader extends StatelessWidget {
@@ -1179,6 +1458,55 @@ class _ReceiptOcrReviewTotals extends StatelessWidget {
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ReceiptOcrReviewAdjustments extends StatelessWidget {
+  const _ReceiptOcrReviewAdjustments({required this.adjustments});
+
+  final List<ReceiptOcrReviewAdjustment> adjustments;
+
+  @override
+  Widget build(BuildContext context) {
+    if (adjustments.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final sorted = [...adjustments]
+      ..sort((left, right) => left.sortOrder.compareTo(right.sortOrder));
+    return Semantics(
+      container: true,
+      label: 'Non-item receipt adjustment evidence',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Non-item adjustments',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Preserved for review and reconciliation. These are not merchandise and are not automatically added to the bill.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 8),
+          for (final adjustment in sorted)
+            ListTile(
+              key: ValueKey('receipt-review-adjustment-${adjustment.id}'),
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(
+                adjustment.direction ==
+                        ReceiptOcrReviewAdjustmentDirectionValues.credit
+                    ? Icons.remove_circle_outline
+                    : Icons.add_circle_outline,
+              ),
+              title: Text(adjustment.originalLabel),
+              subtitle: Text('${adjustment.kind} • ${adjustment.direction}'),
+              trailing: Text('${adjustment.currency} ${adjustment.amount}'),
+            ),
+        ],
       ),
     );
   }
@@ -1733,6 +2061,15 @@ class _PreviewSummary extends StatelessWidget {
               amount: preview.proposedGrandTotalAmount,
               currency: preview.proposedCurrency,
             ),
+            _KeyValueText(
+              label: 'Non-item evidence',
+              value:
+                  '${preview.summary.adjustmentEvidenceCount} preserved • ${preview.summary.autoAppliedAdjustmentCount} auto-applied',
+            ),
+            if (preview.adjustmentEvidence.isNotEmpty)
+              const Text(
+                'Adjustment evidence is reviewed separately and is not included in merchandise apply.',
+              ),
             if (blockedReasons.isNotEmpty) ...[
               const SizedBox(height: 10),
               _IssueWrap(title: 'Blocking reasons', issues: blockedReasons),
@@ -1970,6 +2307,7 @@ String? _lineTextValidator(String? value) {
 
 const _receiptOcrDecimalMaxLength = 22;
 final _receiptOcrMoneyPattern = RegExp(r'^(0|[1-9][0-9]*)(\.[0-9]{1,4})?$');
+const _maxReceiptOcrReviewAdjustmentCount = 50;
 final _receiptOcrQuantityPattern = RegExp(
   r'^(?=.*[1-9])(?:0|[0-9]+)(?:\.[0-9]{1,4})?$',
 );

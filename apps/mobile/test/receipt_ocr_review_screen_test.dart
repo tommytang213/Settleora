@@ -1019,6 +1019,62 @@ void main() {
       semantics.dispose();
     });
 
+    testWidgets(
+      'shows non-item evidence separately and preserves reviewed edits',
+      (tester) async {
+        await useLargeSurface(tester);
+        final route = sampleRoute();
+        final repository = FakeReceiptOcrReviewRepository(
+          reviewResponse: sampleReview(route, adjustments: sampleAdjustments()),
+        );
+
+        await pumpDetail(tester, repository: repository, route: route);
+        await tester.pumpAndSettle();
+
+        expect(find.text('Non-item adjustments'), findsOneWidget);
+        expect(find.text('Driver gratuity'), findsOneWidget);
+        expect(find.text('Unfamiliar receipt credit'), findsOneWidget);
+        expect(
+          find.text(
+            'Preserved for review and reconciliation. These are not merchandise and are not automatically added to the bill.',
+          ),
+          findsOneWidget,
+        );
+
+        await tester.tap(find.widgetWithIcon(IconButton, Icons.edit_outlined));
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          editableTextForKey(
+            const ValueKey('receipt-review-edit-adjustment-label-0'),
+          ),
+          'Updated gratuity',
+        );
+        await tester.ensureVisible(
+          find.byKey(const ValueKey('receipt-review-edit-adjustment-remove-1')),
+        );
+        await tester.tap(
+          find.byKey(const ValueKey('receipt-review-edit-adjustment-remove-1')),
+        );
+        await tester.ensureVisible(
+          find.byKey(const Key('receipt-review-edit-save')),
+        );
+        await tester.tap(find.byKey(const Key('receipt-review-edit-save')));
+        await tester.pumpAndSettle();
+
+        expect(repository.saveCalls, 1);
+        expect(repository.lastSaveRequest?.adjustmentEvidence, hasLength(1));
+        final saved = repository.lastSaveRequest!.adjustmentEvidence.single;
+        expect(saved.kind, ReceiptOcrReviewAdjustmentKindValues.tip);
+        expect(saved.originalLabel, 'Updated gratuity');
+        expect(saved.amount, '2.00');
+        expect(saved.currency, 'USD');
+        expect(
+          saved.direction,
+          ReceiptOcrReviewAdjustmentDirectionValues.charge,
+        );
+      },
+    );
+
     testWidgets('search filters loaded detail line candidates', (tester) async {
       await useLargeSurface(tester);
       final route = sampleRoute();
@@ -2578,6 +2634,7 @@ ReceiptOcrReviewDetail sampleReview(
   String? taxAmount = '0.80',
   String? grandTotalAmount = '10.80',
   List<ReceiptOcrReviewLine>? lines,
+  List<ReceiptOcrReviewAdjustment> adjustments = const [],
 }) {
   return ReceiptOcrReviewDetail(
     id: _reviewId,
@@ -2597,9 +2654,37 @@ ReceiptOcrReviewDetail sampleReview(
     discountAmount: null,
     grandTotalAmount: grandTotalAmount,
     lines: lines ?? sampleLines(),
+    adjustmentEvidence: adjustments,
     createdAtUtc: _createdAtUtc,
     updatedAtUtc: _updatedAtUtc,
   );
+}
+
+List<ReceiptOcrReviewAdjustment> sampleAdjustments() {
+  return [
+    ReceiptOcrReviewAdjustment(
+      id: '66666666-6666-6666-6666-666666666666',
+      sortOrder: 0,
+      kind: ReceiptOcrReviewAdjustmentKindValues.tip,
+      originalLabel: 'Driver gratuity',
+      amount: '2.00',
+      currency: 'USD',
+      direction: ReceiptOcrReviewAdjustmentDirectionValues.charge,
+      createdAtUtc: _createdAtUtc,
+      updatedAtUtc: _updatedAtUtc,
+    ),
+    ReceiptOcrReviewAdjustment(
+      id: '77777777-7777-7777-7777-777777777777',
+      sortOrder: 1,
+      kind: ReceiptOcrReviewAdjustmentKindValues.other,
+      originalLabel: 'Unfamiliar receipt credit',
+      amount: '0.50',
+      currency: 'USD',
+      direction: ReceiptOcrReviewAdjustmentDirectionValues.credit,
+      createdAtUtc: _createdAtUtc,
+      updatedAtUtc: _updatedAtUtc,
+    ),
+  ];
 }
 
 List<ReceiptOcrReviewLine> sampleLines() {

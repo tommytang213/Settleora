@@ -14,6 +14,8 @@ public static class ReceiptOcrReviewApplyPreviewIssueCodes
     public const string LineTotalMismatch = "line_total_mismatch";
     public const string LineSumMismatch = "line_sum_mismatch";
     public const string HeaderTotalMismatch = "header_total_mismatch";
+    public const string AdjustmentsNotAutoApplied = "adjustments_not_auto_applied";
+    public const string AdjustmentCurrencyNotReconciled = "adjustment_currency_not_reconciled";
 
     private static readonly HashSet<string> SupportedValues =
     [
@@ -28,7 +30,9 @@ public static class ReceiptOcrReviewApplyPreviewIssueCodes
         UnsupportedLineState,
         LineTotalMismatch,
         LineSumMismatch,
-        HeaderTotalMismatch
+        HeaderTotalMismatch,
+        AdjustmentsNotAutoApplied,
+        AdjustmentCurrencyNotReconciled
     ];
 
     public static bool IsSupported(string? value)
