@@ -47,4 +47,50 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(counterclockwise.y, 74)
   }
 
+  func testSpecialistRoutingAcceptsOneSubstantiveGlyph() {
+    let arabic = RecognizerSpec(
+      modelPackID: "arabic",
+      modelVersion: "test",
+      modelPath: "/arabic.onnx",
+      configPath: "/arabic.yml",
+      acceptedScripts: [.arabic]
+    )
+    let presentationForm = ScriptCandidate(text: "\u{FE8E}", confidence: 0.9, pack: arabic)
+
+    XCTAssertTrue(ScriptRouteSelector.score(presentationForm).isFinite)
+  }
+
+  func testSpecialistRoutingRecognizesCyrillicExtendedLetters() {
+    let cyrillic = RecognizerSpec(
+      modelPackID: "cyrillic",
+      modelVersion: "test",
+      modelPath: "/cyrillic.onnx",
+      configPath: "/cyrillic.yml",
+      acceptedScripts: [.cyrillic]
+    )
+
+    XCTAssertTrue(
+      ScriptRouteSelector.score(
+        ScriptCandidate(text: "\u{A640}", confidence: 0.9, pack: cyrillic)
+      ).isFinite
+    )
+    XCTAssertTrue(
+      ScriptRouteSelector.score(
+        ScriptCandidate(text: "\u{1E030}", confidence: 0.9, pack: cyrillic)
+      ).isFinite
+    )
+  }
+
+  func testArabicPresentationFormsTriggerLogicalNormalization() {
+    let arabic = RecognizerSpec(
+      modelPackID: "arabic",
+      modelVersion: "test",
+      modelPath: "/arabic.onnx",
+      configPath: "/arabic.yml",
+      acceptedScripts: [.arabic]
+    )
+
+    XCTAssertEqual(RecognizedTextNormalizer.normalize("\u{FE8E}A", pack: arabic), "A\u{FE8E}")
+  }
+
 }

@@ -137,7 +137,7 @@ enum ScriptRouteSelector {
       candidate.pack.acceptedScripts.contains($0) || (!common && $0 == .common)
     }
     let declared = strong.filter(candidate.pack.acceptedScripts.contains).count
-    let meaningful = common || (declared >= 2 && declared * 4 >= strong.count)
+    let meaningful = common || (declared > 0 && declared * 4 >= strong.count)
     guard compatible && meaningful else { return -.infinity }
     return Double(candidate.confidence) + scriptMatchBonus + (common ? 0 : specialistBias)
   }
@@ -147,8 +147,10 @@ enum ScriptRouteSelector {
     case 0x0041...0x024F, 0x1E00...0x1EFF,
          0x3040...0x30FF, 0x31F0...0x31FF,
          0x3400...0x4DBF, 0x4E00...0x9FFF, 0xF900...0xFAFF: return .common
-    case 0x0600...0x06FF, 0x0750...0x077F, 0x08A0...0x08FF: return .arabic
-    case 0x0400...0x052F: return .cyrillic
+    case 0x0600...0x06FF, 0x0750...0x077F, 0x08A0...0x08FF,
+         0xFB50...0xFDFF, 0xFE70...0xFEFF: return .arabic
+    case 0x0400...0x052F, 0x1C80...0x1C8F, 0x2DE0...0x2DFF,
+         0xA640...0xA69F, 0x1E030...0x1E08F: return .cyrillic
     case 0x0900...0x097F: return .devanagari
     case 0x0E00...0x0E7F: return .thai
     case 0x1100...0x11FF, 0x3130...0x318F, 0xAC00...0xD7AF: return .korean
@@ -182,7 +184,10 @@ enum RecognizedTextNormalizer {
 
   private static func containsArabic(_ text: String) -> Bool {
     text.unicodeScalars.contains { (0x0600...0x06FF).contains($0.value) ||
-      (0x0750...0x077F).contains($0.value) || (0x08A0...0x08FF).contains($0.value) }
+      (0x0750...0x077F).contains($0.value) ||
+      (0x08A0...0x08FF).contains($0.value) ||
+      (0xFB50...0xFDFF).contains($0.value) ||
+      (0xFE70...0xFEFF).contains($0.value) }
   }
 
   private static func isForward(_ value: String) -> Bool {
