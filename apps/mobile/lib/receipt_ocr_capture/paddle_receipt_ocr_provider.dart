@@ -57,10 +57,11 @@ class PaddleReceiptOcrProvider implements ReceiptOcrProvider {
           .map(_blockEvidence)
           .whereType<ReceiptOcrBlockEvidence>()
           .toList(growable: false);
-      final text = evidence
-          .map((block) => block.text.trim())
-          .where((value) => value.isNotEmpty)
-          .join('\n');
+      final rows = <int, List<String>>{};
+      for (final block in evidence) {
+        (rows[block.row] ??= <String>[]).add(block.text.trim());
+      }
+      final text = rows.values.map((row) => row.join(' ')).join('\n');
       if (text.isEmpty) return _failed;
       return ReceiptOcrResult.extracted(
         parser.parse(
@@ -102,6 +103,7 @@ class PaddleReceiptOcrProvider implements ReceiptOcrProvider {
     return ReceiptOcrBlockEvidence(
       text: text.trim(),
       order: _order(block),
+      row: block['row'] is int ? block['row']! as int : _order(block),
       confidence: (block['confidence'] as num?)?.toDouble(),
       modelPackId: block['modelPackId'] as String?,
       modelVersion: block['modelVersion'] as String?,

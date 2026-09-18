@@ -63,6 +63,32 @@ void main() {
     expect(result.status, ReceiptOcrStatus.failed);
     expect(result.message, contains('manual'));
   });
+
+  test('provider reconstructs split LTR and RTL boxes by native row', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    final provider = PaddleReceiptOcrProvider(
+      channel: _FakeChannel({
+        'blocks': [
+          {'text': 'Corner Cafe', 'order': 0, 'row': 0},
+          {'text': 'Tea', 'order': 1, 'row': 1},
+          {'text': '12.50', 'order': 2, 'row': 1},
+          {'text': 'TOTAL', 'order': 3, 'row': 2},
+          {'text': '12.50', 'order': 4, 'row': 2},
+          {'text': 'الإجمالي', 'order': 5, 'row': 3, 'textDirection': 'rtl'},
+          {'text': 'دإ٢١،٧٩', 'order': 6, 'row': 3, 'textDirection': 'rtl'},
+        ],
+      }),
+    );
+
+    final result = await provider.extractReceipt(
+      ReceiptOcrRequest(bytes: const [1], contentType: 'image/jpeg'),
+    );
+
+    expect(result.preview?.items.single.description, 'Tea');
+    expect(result.preview?.items.single.lineTotal, '12.50');
+    expect(result.preview?.total, '21.79');
+    expect(result.preview?.currency, 'AED');
+  });
 }
 
 class _FakeChannel implements PaddleReceiptOcrChannel {

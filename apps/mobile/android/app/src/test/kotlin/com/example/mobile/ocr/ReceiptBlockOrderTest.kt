@@ -13,6 +13,7 @@ class ReceiptBlockOrderTest {
 
         assertEquals(listOf("المجموع", "12.50"), ordered.map { it.text })
         assertEquals(listOf(0, 1), ordered.map { it.order })
+        assertEquals(listOf(0, 0), ordered.map { it.row })
     }
 
     @Test
@@ -44,6 +45,10 @@ class ReceiptBlockOrderTest {
         assertEquals(
             listOf("FIRST", "SECOND"),
             ReceiptBlockOrder.normalize(listOf(second, first)).map { it.text },
+        )
+        assertEquals(
+            listOf(0, 1),
+            ReceiptBlockOrder.normalize(listOf(second, first)).map { it.row },
         )
     }
 

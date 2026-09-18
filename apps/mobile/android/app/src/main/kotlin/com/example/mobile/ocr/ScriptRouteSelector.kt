@@ -58,7 +58,8 @@ internal object ScriptRouteSelector {
         } else {
             -SCRIPT_MISMATCH_PENALTY
         }
-        return candidate.confidence + scriptAdjustment + if (isCommonPack) 0.0 else SPECIALIST_BIAS
+        return candidate.confidence + scriptAdjustment +
+            if (!isCommonPack && compatible) SPECIALIST_BIAS else 0.0
     }
 
     private fun scriptOf(codePoint: Int): ScriptEvidence = when (codePoint) {

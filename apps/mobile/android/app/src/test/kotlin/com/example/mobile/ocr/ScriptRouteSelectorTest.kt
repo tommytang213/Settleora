@@ -76,6 +76,18 @@ class ScriptRouteSelectorTest {
         assertEquals("common", selected?.pack?.modelPackId)
     }
 
+    @Test
+    fun incompatibleSpecialistCannotBeatLowConfidenceCommonText() {
+        val selected = ScriptRouteSelector.select(
+            listOf(
+                candidate("common", ScriptEvidence.COMMON, "TOTAL", 0.20f),
+                candidate("arabic", ScriptEvidence.ARABIC, "T0TAL", 0.99f),
+            ),
+        )
+
+        assertEquals("common", selected?.pack?.modelPackId)
+    }
+
     private fun candidate(
         id: String,
         script: ScriptEvidence,

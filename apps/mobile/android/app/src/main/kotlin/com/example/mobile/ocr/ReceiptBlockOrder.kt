@@ -8,6 +8,7 @@ internal object ReceiptBlockOrder {
         val remaining = blocks.sortedBy(::topY)
         val ordered = mutableListOf<SettleoraOcrBlock>()
         var index = 0
+        var rowIndex = 0
         while (index < remaining.size) {
             val rowAnchor = remaining[index]
             val row = mutableListOf<SettleoraOcrBlock>()
@@ -15,7 +16,13 @@ internal object ReceiptBlockOrder {
                 row += remaining[index++]
             }
             val rightToLeft = row.any { it.textDirection == "rtl" }
-            ordered += if (rightToLeft) row.sortedByDescending(::leftX) else row.sortedBy(::leftX)
+            val rowBlocks = if (rightToLeft) {
+                row.sortedByDescending(::leftX)
+            } else {
+                row.sortedBy(::leftX)
+            }
+            ordered += rowBlocks.map { it.copy(row = rowIndex) }
+            rowIndex++
         }
         return ordered.mapIndexed { order, block -> block.copy(order = order) }
     }

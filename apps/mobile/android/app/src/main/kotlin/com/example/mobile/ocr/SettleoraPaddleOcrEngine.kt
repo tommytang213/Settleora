@@ -265,6 +265,7 @@ data class SettleoraOcrBlock(
     val modelVersion: String,
     val textDirection: String,
     val order: Int,
+    val row: Int = 0,
     val points: List<SettleoraOcrPoint>,
 ) {
     fun toChannelValue(): Map<String, Any> = mapOf(
@@ -274,6 +275,7 @@ data class SettleoraOcrBlock(
         "modelVersion" to modelVersion,
         "textDirection" to textDirection,
         "order" to order,
+        "row" to row,
         "points" to points.map { it.toChannelValue() },
     )
 }

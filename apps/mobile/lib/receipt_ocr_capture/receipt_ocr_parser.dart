@@ -365,6 +365,10 @@ String _normalizeOcrLine(String value) {
       (index % 10).toString(),
     );
   }
+  normalized = normalized.replaceAllMapped(
+    RegExp(r'(?<=\d)\u060c(?=\d)'),
+    (_) => '.',
+  );
   normalized = normalized.replaceFirstMapped(
     RegExp(r'^(.*?)\s*(-?\d{1,6}(?:,\d{3})*(?:\.\d{1,3})?)\s*(د\.?إ)$'),
     (match) => '${match.group(1)} ${match.group(3)} ${match.group(2)}',

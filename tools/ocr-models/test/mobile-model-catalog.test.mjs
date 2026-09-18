@@ -24,6 +24,52 @@ test("committed mobile OCR catalog is pinned and internally consistent", async (
   assert.equal(result.ok, true, result.failures.join("\n"));
 });
 
+test("native semantic binding covers the exact provider execution path", () => {
+  const { catalog } = loadCatalog(repoRoot);
+  const expected = [
+    "apps/mobile/lib/app/app_bootstrap.dart",
+    "apps/mobile/lib/bills/bill_list_screen.dart",
+    "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_provider.dart",
+    "apps/mobile/lib/receipt_ocr_capture/paddle_receipt_ocr_provider.dart",
+    "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_preview.dart",
+    "apps/mobile/pubspec.yaml",
+    "apps/mobile/android/app/build.gradle.kts",
+    "apps/mobile/android/app/proguard-rules.pro",
+    "apps/mobile/android/gradle/verification-metadata.xml",
+    "apps/mobile/android/app/src/main/kotlin/com/example/mobile/MainActivity.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/MobileOcrModelCatalog.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/SettleoraPaddleOcrEngine.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ScriptRouteSelector.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/RecognizedTextNormalizer.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ReceiptBlockOrder.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ReceiptOcrInputLimits.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/EngineConfig.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/PaddleOCRConfig.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/engine/DetectionEngine.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/engine/ORTSessionManager.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/model/ModelConfig.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/model/OCRBox.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/model/OCRError.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/postprocess/BoxSorter.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/preprocess/DetPreprocessor.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/preprocess/RecPreprocessor.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/postprocess/DBPostProcessor.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/postprocess/CTCDecoder.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/postprocess/PolygonUnclip.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/postprocess/QuadGeometry.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/postprocess/QuadTextCrop.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/util/BitmapUtils.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/util/ImageUtils.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/util/MathUtils.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/util/OpenCVUtils.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/util/YamlUtils.kt",
+  ].sort();
+  const actual = catalog.acceptanceContract.nativeSemantics.files
+    .map((source) => source.path)
+    .sort();
+  assert.deepEqual(actual, expected);
+});
+
 test("verification rejects changed model bytes", async (t) => {
   const temporaryRoot = copyVerificationFixture(t, "settleora-ocr-catalog-");
   const source = JSON.parse(readFileSync(path.join(repoRoot, catalogRelativePath), "utf8"));

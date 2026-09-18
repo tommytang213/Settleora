@@ -64,6 +64,7 @@ class ReceiptOcrBlockEvidence {
   const ReceiptOcrBlockEvidence({
     required this.text,
     required this.order,
+    this.row = 0,
     this.confidence,
     this.modelPackId,
     this.modelVersion,
@@ -72,6 +73,7 @@ class ReceiptOcrBlockEvidence {
   });
   final String text;
   final int order;
+  final int row;
   final double? confidence;
   final String? modelPackId;
   final String? modelVersion;

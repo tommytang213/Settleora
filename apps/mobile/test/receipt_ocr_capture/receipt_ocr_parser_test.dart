@@ -163,6 +163,15 @@ Date: ٢٠٢٦-٠٩-١٧
     expect(preview.items.map((item) => item.lineTotal), ['12.50', '8.25']);
   });
 
+  test('parser accepts native Arabic prefix currency and U+060C decimal', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('الإجمالي دإ٢١،٧٩');
+
+    expect(preview.currency, 'AED');
+    expect(preview.currencyProvenance, ReceiptOcrCurrencyProvenance.explicit);
+    expect(preview.total, '21.79');
+  });
+
   test('ambiguous dollar uses USD only when fallback is USD', () {
     const parser = ReceiptOcrParser();
 
