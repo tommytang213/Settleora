@@ -167,11 +167,57 @@ class ReceiptImageArtifactProcessor {
       );
     }
 
-    final type = _receiptArtifactFileType(
+    // Camera and picker APIs already return Uint8List. Reuse that buffer and
+    // only copy a generic List after its encoded size has been bounded.
+    final sourceBytes = request.sourceBytes is Uint8List
+        ? request.sourceBytes as Uint8List
+        : Uint8List.fromList(request.sourceBytes);
+    final declaredType = _receiptArtifactFileType(
       mediaType: sourceContentType,
       extension: sourceExtension,
     );
-    if (type == _ReceiptArtifactFileType.pdf) {
+    final img.Decoder? decoder;
+    try {
+      decoder = img.findDecoderForData(sourceBytes);
+    } catch (_) {
+      if (declaredType == _ReceiptArtifactFileType.pdf) {
+        reasonCodes.add('pdf_document_not_image_normalized');
+        warnings.add(
+          'PDF is document-limited; this build does not extract PDF pages into receipt image bytes.',
+        );
+        return _rejectedResult(
+          request: request,
+          sourceContentType: sourceContentType,
+          sourceLabel: sourceLabel,
+          status: ReceiptImageArtifactStatus.limited,
+          reasonCodes: reasonCodes,
+          warnings: warnings,
+          cacheReadiness: cacheReadiness,
+        );
+      }
+      if (declaredType == _ReceiptArtifactFileType.heic) {
+        reasonCodes.add('heic_decoder_unavailable');
+        warnings.add('HEIC/HEIF receipt inputs are unsupported by this build.');
+        return _rejectedResult(
+          request: request,
+          sourceContentType: sourceContentType,
+          sourceLabel: sourceLabel,
+          status: ReceiptImageArtifactStatus.unsupported,
+          reasonCodes: reasonCodes,
+          warnings: warnings,
+          cacheReadiness: cacheReadiness,
+        );
+      }
+      return _decodeFailedResult(
+        request: request,
+        sourceContentType: sourceContentType,
+        sourceLabel: sourceLabel,
+        reasonCodes: reasonCodes,
+        warnings: warnings,
+        cacheReadiness: cacheReadiness,
+      );
+    }
+    if (decoder == null && declaredType == _ReceiptArtifactFileType.pdf) {
       reasonCodes.add('pdf_document_not_image_normalized');
       warnings.add(
         'PDF is document-limited; this build does not extract PDF pages into receipt image bytes.',
@@ -186,7 +232,7 @@ class ReceiptImageArtifactProcessor {
         cacheReadiness: cacheReadiness,
       );
     }
-    if (type == _ReceiptArtifactFileType.heic) {
+    if (decoder == null && declaredType == _ReceiptArtifactFileType.heic) {
       reasonCodes.add('heic_decoder_unavailable');
       warnings.add('HEIC/HEIF receipt inputs are unsupported by this build.');
       return _rejectedResult(
@@ -199,7 +245,7 @@ class ReceiptImageArtifactProcessor {
         cacheReadiness: cacheReadiness,
       );
     }
-    if (type == _ReceiptArtifactFileType.unknown) {
+    if (decoder == null) {
       reasonCodes.add('unknown_or_unsupported_file_type');
       warnings.add('Unknown receipt image inputs are manual-review only.');
       return _rejectedResult(
@@ -213,15 +259,27 @@ class ReceiptImageArtifactProcessor {
       );
     }
 
-    // Camera and picker APIs already return Uint8List. Reuse that buffer and
-    // only copy a generic List after its encoded size has been bounded.
-    final sourceBytes = request.sourceBytes is Uint8List
-        ? request.sourceBytes as Uint8List
-        : Uint8List.fromList(request.sourceBytes);
-    final decoder = _decoderFor(type);
+    final detectedType = _decoderType(decoder);
+    if (detectedType == _ReceiptArtifactFileType.unknown) {
+      reasonCodes.add('unknown_or_unsupported_file_type');
+      warnings.add('Unknown receipt image inputs are manual-review only.');
+      return _rejectedResult(
+        request: request,
+        sourceContentType: sourceContentType,
+        sourceLabel: sourceLabel,
+        status: ReceiptImageArtifactStatus.unsupported,
+        reasonCodes: reasonCodes,
+        warnings: warnings,
+        cacheReadiness: cacheReadiness,
+      );
+    }
+    if (declaredType != _ReceiptArtifactFileType.unknown &&
+        declaredType != detectedType) {
+      reasonCodes.add('source_metadata_type_mismatch');
+    }
     final img.DecodeInfo? decodeInfo;
     try {
-      decodeInfo = decoder?.startDecode(sourceBytes);
+      decodeInfo = decoder.startDecode(sourceBytes);
     } catch (_) {
       return _decodeFailedResult(
         request: request,
@@ -265,7 +323,7 @@ class ReceiptImageArtifactProcessor {
       // Header validation above bounds the full-resolution allocation before
       // a pixel buffer is materialized. Native OCR applies its own decode-time
       // sampling independently to the normalized artifact.
-      decodedImage = decoder!.decodeFrame(0);
+      decodedImage = decoder.decodeFrame(0);
     } catch (_) {
       return _decodeFailedResult(
         request: request,
@@ -295,12 +353,13 @@ class ReceiptImageArtifactProcessor {
     reasonCodes.addAll(cacheReadiness.reasonCodes);
     warnings.add(cacheReadiness.message);
 
+    final orientedImage = img.bakeOrientation(decodedImage);
     final jpegQuality = request.jpegQuality.clamp(1, 100).toInt();
     final normalizedBytes = Uint8List.fromList(
-      img.encodeJpg(decodedImage, quality: jpegQuality),
+      img.encodeJpg(orientedImage, quality: jpegQuality),
     );
     final thumbnailImage = _thumbnailFor(
-      decodedImage,
+      orientedImage,
       maxDimension: request.thumbnailMaxDimension,
     );
     final thumbnailBytes = Uint8List.fromList(
@@ -319,8 +378,8 @@ class ReceiptImageArtifactProcessor {
       sourceSizeBytes: sourceBytes.length,
       normalizedSizeBytes: normalizedBytes.length,
       thumbnailSizeBytes: thumbnailBytes.length,
-      width: decodedImage.width,
-      height: decodedImage.height,
+      width: orientedImage.width,
+      height: orientedImage.height,
       thumbnailWidth: thumbnailImage.width,
       thumbnailHeight: thumbnailImage.height,
       warnings: warnings.toList(growable: false),
@@ -330,13 +389,11 @@ class ReceiptImageArtifactProcessor {
   }
 }
 
-img.Decoder? _decoderFor(_ReceiptArtifactFileType type) {
-  return switch (type) {
-    _ReceiptArtifactFileType.jpeg => img.JpegDecoder(),
-    _ReceiptArtifactFileType.png => img.PngDecoder(),
-    _ReceiptArtifactFileType.webp => img.WebPDecoder(),
-    _ => null,
-  };
+_ReceiptArtifactFileType _decoderType(img.Decoder decoder) {
+  if (decoder is img.JpegDecoder) return _ReceiptArtifactFileType.jpeg;
+  if (decoder is img.PngDecoder) return _ReceiptArtifactFileType.png;
+  if (decoder is img.WebPDecoder) return _ReceiptArtifactFileType.webp;
+  return _ReceiptArtifactFileType.unknown;
 }
 
 ReceiptImageArtifactResult _decodeFailedResult({

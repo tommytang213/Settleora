@@ -44,6 +44,8 @@ android {
     }
 
     sourceSets {
+        getByName("main").assets.srcDir("../../assets")
+        getByName("debug").assets.srcDir("../../test/fixtures/receipt_ocr")
         getByName("androidTest").assets.srcDir("../../test/fixtures/receipt_ocr")
     }
 }
@@ -55,6 +57,9 @@ flutter {
 dependencies {
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.21.1")
     implementation("com.quickbirdstudios:opencv:4.5.3")
+    debugImplementation("androidx.test:runner:1.7.0")
+    debugImplementation("androidx.test:rules:1.7.0")
+    debugImplementation("androidx.test.espresso:espresso-core:3.7.0")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")

@@ -15,7 +15,10 @@ Runtime dependencies:
 - QuickBird Studios OpenCV Android 4.5.3 (Apache-2.0 wrapper; OpenCV 3-clause BSD)
 
 The mobile artifact includes the applicable ONNX Runtime MIT and OpenCV
-3-clause BSD license texts under `assets/receipt_ocr_models/`, together with
+3-clause BSD license texts under `assets/receipt_ocr_models/`. Android packages
+this directory as native application assets; it is intentionally not declared
+as a shared Flutter asset, so the Android-only provider slice does not add
+unused model bytes to iOS artifacts. These notices are shipped together with
 the Apache License 2.0 text that covers the PaddleOCR models and QuickBird
 Studios OpenCV Android wrapper.
 

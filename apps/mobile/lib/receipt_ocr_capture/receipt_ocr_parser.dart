@@ -90,8 +90,19 @@ class ReceiptOcrParser {
 
   String? _detectDate(List<String> lines) {
     for (final line in lines) {
+      final eastAsian = RegExp(
+        r'\b(20\d{2}|19\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日?',
+      ).firstMatch(line);
+      if (eastAsian != null) {
+        return _formatDate(
+          int.parse(eastAsian.group(1)!),
+          int.parse(eastAsian.group(2)!),
+          int.parse(eastAsian.group(3)!),
+        );
+      }
+
       final iso = RegExp(
-        r'\b(20\d{2}|19\d{2})[-/.](\d{1,2})[-/.](\d{1,2})\b',
+        r'\b(20\d{2}|19\d{2})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{1,2})\b',
       ).firstMatch(line);
       if (iso != null) {
         return _formatDate(
@@ -112,6 +123,17 @@ class ReceiptOcrParser {
           return _formatDate(year, second, first);
         }
         return _formatDate(year, first, second);
+      }
+
+      final dayFirst = RegExp(
+        r'\b(\d{1,2})[.-](\d{1,2})[.-](20\d{2}|19\d{2})\b',
+      ).firstMatch(line);
+      if (dayFirst != null) {
+        return _formatDate(
+          int.parse(dayFirst.group(3)!),
+          int.parse(dayFirst.group(2)!),
+          int.parse(dayFirst.group(1)!),
+        );
       }
     }
 
@@ -243,7 +265,9 @@ class ReceiptOcrParser {
       }
 
       final match = RegExp(
-        r'^(.+?)\s+(USD|HKD|EUR|GBP|JPY|AED|KWD|BHD|HK\$|US\$|\$|€|£|¥|د\.?إ)?\s*(-?\d{1,6}(?:,\d{3})*(?:\.\d{1,3})?|-?\d+\.\d{1,3})(?:\s*(AED|د\.?إ))?$',
+        '^(.+?)\\s+($_currencyTokenPattern)?\\s*'
+        '(-?\\d{1,6}(?:,\\d{3})*(?:\\.\\d{1,3})?|-?\\d+\\.\\d{1,3})'
+        r'(?:\s*(AED|د\.إ))?$',
         caseSensitive: false,
       ).firstMatch(line);
       if (match == null) {
@@ -390,6 +414,17 @@ String _normalizeOcrLine(String value) {
 final _supportedCurrencyCodes = settleoraSupportedCurrencies
     .map((currency) => currency.code)
     .toSet();
+final _currencyTokenPattern = [
+  ..._supportedCurrencyCodes,
+  r'HK$',
+  r'US$',
+  r'$',
+  '€',
+  '£',
+  '¥',
+  'د.إ',
+  'دإ',
+].map(RegExp.escape).join('|');
 
 String? _supportedCurrencyCode(String? value) {
   final normalized = settleoraNormalizeCurrencyCode(value);
@@ -481,7 +516,6 @@ bool _isReceiptMetadataLine(String line) {
     RegExp(r'\b\d{1,2}\s*/\s*f\b'),
     RegExp(r'\b(p\.?\s*o\.?\s*box|po box)\b'),
     RegExp(r'\b(zip|postal|postcode)\s*[:#-]?\s*[a-z0-9 -]{3,10}\b'),
-    RegExp(r'\b\d{5}(?:-\d{4})?\b'),
     RegExp(r'\b(tel|phone|fax|whatsapp|mobile|contact)\b'),
     RegExp(r'\b(?:\+?\d[\d ()-]{6,}\d)\b'),
     RegExp(r'\b(www\.|https?://|\.com\b|\.net\b|\.org\b|\.hk\b|@[\w.-]+\.)'),
@@ -558,7 +592,7 @@ bool _hasTraceableItemAmountToken(String line, String amountToken) {
   }
 
   return RegExp(
-    r'(USD|HKD|EUR|GBP|JPY|AED|KWD|BHD|HK\$|US\$|\$|€|£|¥|د\.?إ)',
+    '($_currencyTokenPattern)',
     caseSensitive: false,
   ).hasMatch(line);
 }
@@ -569,7 +603,17 @@ bool _hasSubtotalLabel(String line, String normalized) {
         RegExp(r'\bsub[\s-]?total\b', caseSensitive: false),
       ) ||
       _hasJapaneseReceiptLabel(line, const ['小計']) ||
-      _hasLocalizedReceiptLabel(line, const ['المجموع الفرعي']);
+      _hasLocalizedReceiptLabel(line, const [
+        'المجموع الفرعي',
+        '小计',
+        '小計',
+        '소계',
+        'उप-योग',
+        'उपयोग',
+        'ยอดรวมย่อย',
+        'Подытог',
+        'подытог',
+      ]);
 }
 
 bool _hasTaxLabel(String line, String normalized) {
@@ -578,7 +622,17 @@ bool _hasTaxLabel(String line, String normalized) {
         RegExp(r'\b(tax|vat|gst)\b', caseSensitive: false),
       ) ||
       _hasJapaneseReceiptLabel(line, const ['消費税', '税']) ||
-      _hasLocalizedReceiptLabel(line, const ['الضريبة']);
+      _hasLocalizedReceiptLabel(line, const [
+        'الضريبة',
+        '税额',
+        '稅額',
+        '부가세',
+        'जीएसटी',
+        'कर',
+        'ภาษี',
+        'НДС',
+        'ндс',
+      ]);
 }
 
 bool _hasServiceChargeLabel(String line, String normalized) {
@@ -586,7 +640,16 @@ bool _hasServiceChargeLabel(String line, String normalized) {
         normalized,
         RegExp(r'\bservice\s*(charge|fee)?\b', caseSensitive: false),
       ) ||
-      _hasJapaneseReceiptLabel(line, const ['サービス料']);
+      _hasJapaneseReceiptLabel(line, const ['サービス料']) ||
+      _hasLocalizedReceiptLabel(line, const [
+        '服務費',
+        '服务费',
+        '서비스료',
+        'सेवा शुल्क',
+        'ค่าบริการ',
+        'Сервисный сбор',
+        'сервисный сбор',
+      ]);
 }
 
 bool _hasDiscountLabel(String line, String normalized) {
@@ -606,7 +669,16 @@ bool _hasTotalLabel(String line, String normalized) {
         ),
       ) ||
       _hasJapaneseReceiptLabel(line, const ['合計']) ||
-      _hasLocalizedReceiptLabel(line, const ['الإجمالي']);
+      _hasLocalizedReceiptLabel(line, const [
+        'الإجمالي',
+        '合计',
+        '總計',
+        '합계',
+        'कुल',
+        'ยอดสุทธิ',
+        'Итого',
+        'итого',
+      ]);
 }
 
 bool _hasEnglishReceiptLabel(String normalized, RegExp labelPattern) {
@@ -643,10 +715,7 @@ bool _hasEnglishReceiptLabel(String normalized, RegExp labelPattern) {
   final remaining = compactLabel
       .replaceFirst(labelPattern, ' ')
       .replaceAll(
-        RegExp(
-          r'\b(usd|hkd|eur|gbp|jpy|aed|kwd|bhd)\b',
-          caseSensitive: false,
-        ),
+        RegExp(r'\b(usd|hkd|eur|gbp|jpy|aed|kwd|bhd)\b', caseSensitive: false),
         ' ',
       )
       .replaceAll(RegExp(r'\s+'), ' ')

@@ -163,6 +163,86 @@ Date: ٢٠٢٦-٠٩-١٧
     expect(preview.items.map((item) => item.lineTotal), ['12.50', '8.25']);
   });
 
+  test('parser extracts bundled Global Core labels and dates', () {
+    const parser = ReceiptOcrParser();
+    final cases =
+        <
+          ({
+            String text,
+            String date,
+            String subtotal,
+            String tax,
+            String? service,
+            String total,
+          })
+        >[
+          (
+            text:
+                '上海便利店\n日期: 2026年09月17日\n鲜肉包 CNY 26.00\n小计 CNY 26.00\n税额 CNY 2.04\n合计 CNY 28.04',
+            date: '2026-09-17',
+            subtotal: '26.00',
+            tax: '2.04',
+            service: null,
+            total: '28.04',
+          ),
+          (
+            text:
+                '台北好味食堂\n日期: 2026/09/17\n牛肉麵 TWD 120\n小計 TWD 120\n服務費 TWD 12\n稅額 TWD 6\n總計 TWD 138',
+            date: '2026-09-17',
+            subtotal: '120',
+            tax: '6',
+            service: '12',
+            total: '138',
+          ),
+          (
+            text:
+                '서울마켓\n날짜: 2026. 09. 17.\n비빔밥 KRW 11000\n소계 KRW 11000\n부가세 KRW 1100\n합계 KRW 12100',
+            date: '2026-09-17',
+            subtotal: '11000',
+            tax: '1100',
+            service: null,
+            total: '12100',
+          ),
+          (
+            text:
+                'दिल्ली भोजनालय\nदिनांक: 17/09/2026\nथाली INR 250.00\nउप-योग INR 250.00\nजीएसटी INR 12.50\nसेवा शुल्क INR 12.50\nकुल INR 275.00',
+            date: '2026-09-17',
+            subtotal: '250.00',
+            tax: '12.50',
+            service: '12.50',
+            total: '275.00',
+          ),
+          (
+            text:
+                'ร้านอาหารสยาม\nวันที่ 17/09/2026\nผัดไทย THB 80.00\nยอดรวมย่อย THB 80.00\nภาษี THB 5.60\nยอดสุทธิ THB 85.60',
+            date: '2026-09-17',
+            subtotal: '80.00',
+            tax: '5.60',
+            service: null,
+            total: '85.60',
+          ),
+          (
+            text:
+                'Кафе Север\nДата: 17.09.2026\nСуп RUB 350.00\nПодытог RUB 350.00\nНДС RUB 70.00\nИтого RUB 420.00',
+            date: '2026-09-17',
+            subtotal: '350.00',
+            tax: '70.00',
+            service: null,
+            total: '420.00',
+          ),
+        ];
+
+    for (final fixture in cases) {
+      final preview = parser.parse(fixture.text);
+      expect(preview.receiptDate, fixture.date, reason: fixture.text);
+      expect(preview.subtotal, fixture.subtotal);
+      expect(preview.tax, fixture.tax);
+      expect(preview.service, fixture.service);
+      expect(preview.total, fixture.total);
+      expect(preview.items, hasLength(1), reason: fixture.text);
+    }
+  });
+
   test('parser accepts native Arabic prefix currency and U+060C decimal', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse('الإجمالي دإ٢١،٧٩');

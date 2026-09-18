@@ -4,7 +4,7 @@ import path from "node:path";
 
 export const catalogRelativePath = "apps/mobile/assets/receipt_ocr_models/catalog.json";
 const mobileRelativePath = "apps/mobile";
-const trustedCatalogSha256 = "bff988d19a9fac17da48da62805fec2943124d6c4a84a78f80af9850f53ffcbe";
+const trustedCatalogSha256 = "f12439a6f95354741a0116ceb54f92853814033d18171f8c7428a40f5f72f253";
 const trustedLegalArtifacts = [
   { path: "assets/receipt_ocr_models/LICENSE-APACHE-2.0.txt", bytes: 11376, sha256: "3840c5c0c61c294264d2dd77b8777be6ddd90121ef4e0e64abcd22edea581d6e" },
   { path: "assets/receipt_ocr_models/LICENSE-ONNXRUNTIME-MIT.txt", bytes: 1073, sha256: "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c" },
@@ -77,7 +77,7 @@ export async function verifyCatalog(repoRoot) {
   }
   await verifyAcceptanceContract(repoRoot, catalog, failures);
   await verifyLegalArtifacts(repoRoot, failures);
-  verifyFlutterAssetContract(repoRoot, catalog, failures);
+  verifyAndroidAssetContract(repoRoot, failures);
   return { ok: failures.length === 0, failures, observedTotalBytes };
 }
 
@@ -222,26 +222,24 @@ async function verifyAcceptanceContract(repoRoot, catalog, failures) {
   }
 }
 
-function verifyFlutterAssetContract(repoRoot, catalog, failures) {
+function verifyAndroidAssetContract(repoRoot, failures) {
   const pubspecPath = path.join(repoRoot, mobileRelativePath, "pubspec.yaml");
   if (!existsSync(pubspecPath)) {
-    failures.push(`${mobileRelativePath}/pubspec.yaml: missing Flutter asset declaration`);
+    failures.push(`${mobileRelativePath}/pubspec.yaml: missing Flutter package declaration`);
     return;
   }
   const pubspec = readFileSync(pubspecPath, "utf8");
-  const observed = [...pubspec.matchAll(
-    /^    - (assets\/receipt_ocr_models\/\S+)\s*$/gm,
-  )].map((match) => match[1]).sort();
-  const expected = [
-    "assets/receipt_ocr_models/LICENSE-APACHE-2.0.txt",
-    "assets/receipt_ocr_models/LICENSE-ONNXRUNTIME-MIT.txt",
-    "assets/receipt_ocr_models/LICENSE-OPENCV-BSD-3-CLAUSE.txt",
-    "assets/receipt_ocr_models/NOTICE.md",
-    "assets/receipt_ocr_models/catalog.json",
-    ...catalog.packs.map((pack) => `${pack.assetDirectory}/`),
-  ].sort();
-  if (observed.join("\n") !== expected.join("\n")) {
-    failures.push(`${mobileRelativePath}/pubspec.yaml: OCR asset inventory does not match catalog`);
+  if (/^    - assets\/receipt_ocr_models\//m.test(pubspec)) {
+    failures.push(`${mobileRelativePath}/pubspec.yaml: Android OCR assets must not be shared with iOS`);
+  }
+  const gradlePath = path.join(repoRoot, mobileRelativePath, "android/app/build.gradle.kts");
+  if (!existsSync(gradlePath)) {
+    failures.push(`${mobileRelativePath}/android/app/build.gradle.kts: missing Android asset declaration`);
+    return;
+  }
+  const gradle = readFileSync(gradlePath, "utf8");
+  if (!gradle.includes('getByName("main").assets.srcDir("../../assets")')) {
+    failures.push(`${mobileRelativePath}/android/app/build.gradle.kts: OCR asset inventory is not Android-scoped`);
   }
 }
 

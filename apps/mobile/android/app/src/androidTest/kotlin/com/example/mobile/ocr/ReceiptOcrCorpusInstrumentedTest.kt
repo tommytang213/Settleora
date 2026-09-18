@@ -14,8 +14,11 @@ import org.junit.runner.RunWith
 /**
  * Real image/native provider guard for the immutable #1247 corpus.
  *
- * This test deliberately asserts provider output and routed model identities;
- * the Flutter image-to-preview field diff runner remains owned by #1301.
+ * This layer asserts native provider output and routed model identities. The
+ * executable `integration_test/receipt_ocr_real_provider_test.dart` feeds the
+ * same 101 real images through this engine, the production Dart provider, and
+ * the production parser, then compares every manifest preview field. Physical
+ * device execution and evidence collection remain owned by #1301.
  */
 @RunWith(AndroidJUnit4::class)
 class ReceiptOcrCorpusInstrumentedTest {
@@ -30,7 +33,7 @@ class ReceiptOcrCorpusInstrumentedTest {
         val fixtures = manifest.getJSONArray("fixtures")
         assertEquals(101, fixtures.length())
         val modelCatalog = JSONObject(
-            context.assets.open("flutter_assets/assets/receipt_ocr_models/catalog.json")
+            context.assets.open("receipt_ocr_models/catalog.json")
                 .bufferedReader()
                 .use { it.readText() },
         )

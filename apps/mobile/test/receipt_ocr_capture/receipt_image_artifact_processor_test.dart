@@ -67,6 +67,62 @@ void main() {
     expect(result.thumbnailHeight, 120);
   });
 
+  test('bakes JPEG EXIF orientation before native OCR', () {
+    final image = _sampleImage(120, 240)..exif.imageIfd.orientation = 6;
+    final source = Uint8List.fromList(img.encodeJpg(image));
+
+    final result = processor.process(
+      ReceiptImageArtifactRequest(
+        sourceType: ReceiptImageSourceKind.capturedPhoto,
+        sourceContentType: 'image/jpeg',
+        sourceExtension: 'jpg',
+        sourceLabel: 'portrait-camera.jpg',
+        sourceBytes: source,
+      ),
+    );
+
+    expect(result.accepted, isTrue);
+    expect(result.width, 240);
+    expect(result.height, 120);
+    final normalized = img.decodeJpg(result.normalizedJpegBytes!);
+    expect(normalized?.width, 240);
+    expect(normalized?.height, 120);
+    expect(normalized?.exif.imageIfd.hasOrientation, isFalse);
+  });
+
+  test('selects decoder from bytes when metadata and extension disagree', () {
+    final result = processor.process(
+      ReceiptImageArtifactRequest(
+        sourceType: ReceiptImageSourceKind.importedImage,
+        sourceContentType: 'image/jpeg',
+        sourceExtension: 'jpg',
+        sourceLabel: 'wrong-extension.jpg',
+        sourceBytes: _pngBytes(width: 64, height: 32),
+      ),
+    );
+
+    expect(result.accepted, isTrue);
+    expect(result.width, 64);
+    expect(result.height, 32);
+    expect(result.reasonCodes, contains('source_metadata_type_mismatch'));
+  });
+
+  test('rejects decodable image formats outside the receipt allowlist', () {
+    final result = processor.process(
+      ReceiptImageArtifactRequest(
+        sourceType: ReceiptImageSourceKind.importedImage,
+        sourceContentType: 'image/gif',
+        sourceExtension: 'gif',
+        sourceLabel: 'animated-receipt.gif',
+        sourceBytes: img.encodeGif(_sampleImage(32, 16)),
+      ),
+    );
+
+    expect(result.status, ReceiptImageArtifactStatus.unsupported);
+    expect(result.normalizedJpegBytes, isNull);
+    expect(result.reasonCodes, contains('unknown_or_unsupported_file_type'));
+  });
+
   test('marks PDF document input limited without page extraction', () {
     final result = processor.process(
       const ReceiptImageArtifactRequest(

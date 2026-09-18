@@ -14,7 +14,7 @@ internal data class MobileOcrModelCatalog(
     val recognizers: List<RecognizerSpec>,
 ) {
     companion object {
-        private const val ASSET_ROOT = "flutter_assets/assets/receipt_ocr_models"
+        private const val ASSET_ROOT = "receipt_ocr_models"
 
         fun load(context: Context): MobileOcrModelCatalog {
             val root = JSONObject(

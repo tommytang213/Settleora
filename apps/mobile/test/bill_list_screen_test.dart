@@ -11555,7 +11555,12 @@ Future<void> _chooseDropdownValue(
   await tester.ensureVisible(finder);
   await tester.tap(finder);
   await tester.pumpAndSettle();
-  await tester.tap(find.text(_currencyDropdownLabel(label)).hitTestable().last);
+  final option = find
+      .text(_currencyDropdownLabel(label), skipOffstage: false)
+      .last;
+  await tester.ensureVisible(option);
+  await tester.pumpAndSettle();
+  await tester.tap(option);
   await tester.pumpAndSettle();
 }
 

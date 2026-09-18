@@ -27,6 +27,7 @@ test("committed mobile OCR catalog is pinned and internally consistent", async (
 test("native semantic binding covers the exact provider execution path", () => {
   const { catalog } = loadCatalog(repoRoot);
   const expected = [
+    "apps/mobile/integration_test/receipt_ocr_real_provider_test.dart",
     "apps/mobile/lib/app/app_bootstrap.dart",
     "apps/mobile/lib/app/server_mode_shell.dart",
     "apps/mobile/lib/bills/bill_list_screen.dart",
@@ -42,6 +43,7 @@ test("native semantic binding covers the exact provider execution path", () => {
     "apps/mobile/android/app/proguard-rules.pro",
     "apps/mobile/android/gradle/verification-metadata.xml",
     "apps/mobile/android/settings.gradle.kts",
+    "apps/mobile/android/app/src/androidTest/kotlin/com/example/mobile/ocr/ReceiptOcrCorpusInstrumentedTest.kt",
     "apps/mobile/android/app/src/main/kotlin/com/example/mobile/MainActivity.kt",
     "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/MobileOcrModelCatalog.kt",
     "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/SettleoraPaddleOcrEngine.kt",
@@ -126,32 +128,29 @@ test("verification rejects unreviewed files in a model pack", async (t) => {
   assert.match(result.failures.join("\n"), /unexpected file inventory/);
 });
 
-test("verification rejects Flutter packaging drift", async (t) => {
-  const temporaryRoot = copyVerificationFixture(t, "settleora-ocr-pubspec-");
-  const pubspecPath = path.join(temporaryRoot, "apps/mobile/pubspec.yaml");
-  const pubspec = readFileSync(pubspecPath, "utf8").replace(
-    "    - assets/receipt_ocr_models/ppocrv5-thai-rec/\n",
+test("verification rejects Android packaging drift", async (t) => {
+  const temporaryRoot = copyVerificationFixture(t, "settleora-ocr-gradle-");
+  const gradlePath = path.join(temporaryRoot, "apps/mobile/android/app/build.gradle.kts");
+  const gradle = readFileSync(gradlePath, "utf8").replace(
+    '        getByName("main").assets.srcDir("../../assets")\n',
     "",
   );
-  writeFileSync(pubspecPath, pubspec);
+  writeFileSync(gradlePath, gradle);
 
   const result = await verifyCatalog(temporaryRoot);
   assert.equal(result.ok, false);
-  assert.match(result.failures.join("\n"), /OCR asset inventory does not match catalog/);
+  assert.match(result.failures.join("\n"), /OCR asset inventory is not Android-scoped/);
 });
 
-test("verification rejects missing runtime license packaging", async (t) => {
-  const temporaryRoot = copyVerificationFixture(t, "settleora-ocr-license-");
+test("verification rejects accidental shared iOS model packaging", async (t) => {
+  const temporaryRoot = copyVerificationFixture(t, "settleora-ocr-pubspec-");
   const pubspecPath = path.join(temporaryRoot, "apps/mobile/pubspec.yaml");
-  const pubspec = readFileSync(pubspecPath, "utf8").replace(
-    "    - assets/receipt_ocr_models/LICENSE-ONNXRUNTIME-MIT.txt\n",
-    "",
-  );
+  const pubspec = `${readFileSync(pubspecPath, "utf8")}\n  assets:\n    - assets/receipt_ocr_models/catalog.json\n`;
   writeFileSync(pubspecPath, pubspec);
 
   const result = await verifyCatalog(temporaryRoot);
   assert.equal(result.ok, false);
-  assert.match(result.failures.join("\n"), /OCR asset inventory does not match catalog/);
+  assert.match(result.failures.join("\n"), /Android OCR assets must not be shared with iOS/);
 });
 
 test("verification rejects changed runtime license bytes", async (t) => {

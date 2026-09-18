@@ -45,6 +45,8 @@ dependencies:
   image_picker: ^1.2.2
 
 dev_dependencies:
+  integration_test:
+    sdk: flutter
   flutter_test:
     sdk: flutter
 
@@ -63,19 +65,6 @@ flutter:
 
   generate: true
 
-  assets:
-    - assets/receipt_ocr_models/catalog.json
-    - assets/receipt_ocr_models/NOTICE.md
-    - assets/receipt_ocr_models/LICENSE-APACHE-2.0.txt
-    - assets/receipt_ocr_models/LICENSE-ONNXRUNTIME-MIT.txt
-    - assets/receipt_ocr_models/LICENSE-OPENCV-BSD-3-CLAUSE.txt
-    - assets/receipt_ocr_models/ppocrv6-small-det/
-    - assets/receipt_ocr_models/ppocrv6-small-rec/
-    - assets/receipt_ocr_models/ppocrv5-arabic-rec/
-    - assets/receipt_ocr_models/ppocrv5-cyrillic-rec/
-    - assets/receipt_ocr_models/ppocrv5-devanagari-rec/
-    - assets/receipt_ocr_models/ppocrv5-korean-rec/
-    - assets/receipt_ocr_models/ppocrv5-thai-rec/
 
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
