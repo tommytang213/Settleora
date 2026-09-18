@@ -392,26 +392,45 @@ ReceiptOcrReviewSaveRequest? _receiptOcrReviewSaveRequestFromPreview(
   if (preview == null || !_receiptOcrPreviewHasReviewCandidates(preview)) {
     return null;
   }
+  final currency = _nullableUppercaseCurrency(preview.currency);
 
   return ReceiptOcrReviewSaveRequest(
     status: ReceiptOcrReviewStatusValues.provisional,
     source: ReceiptOcrReviewSourceValues.onDevice,
     merchantText: _nullableTrimmedText(preview.merchant),
     receiptIssuedAtUtc: _parseReceiptOcrReviewDate(preview.receiptDate),
-    currency: _nullableUppercaseCurrency(preview.currency),
-    subtotalAmount: _nullableTrimmedText(preview.subtotal),
-    taxAmount: _nullableTrimmedText(preview.tax),
-    serviceChargeAmount: _nullableTrimmedText(preview.service),
-    discountAmount: _nullableTrimmedText(preview.discount),
-    grandTotalAmount: _nullableTrimmedText(preview.total),
+    currency: currency,
+    subtotalAmount: receiptOcrMoneyCandidateForSave(
+      preview.subtotal,
+      currency: currency,
+    ),
+    taxAmount: receiptOcrMoneyCandidateForSave(preview.tax, currency: currency),
+    serviceChargeAmount: receiptOcrMoneyCandidateForSave(
+      preview.service,
+      currency: currency,
+    ),
+    discountAmount: receiptOcrMoneyCandidateForSave(
+      preview.discount,
+      currency: currency,
+    ),
+    grandTotalAmount: receiptOcrMoneyCandidateForSave(
+      preview.total,
+      currency: currency,
+    ),
     lines: [
       for (final item in preview.items)
         if (_receiptOcrItemHasReviewCandidate(item))
           ReceiptOcrReviewLineSaveRequest(
             text: item.description.trim(),
-            quantity: _nullableTrimmedText(item.quantity),
-            unitPriceAmount: _nullableTrimmedText(item.unitPrice),
-            lineTotalAmount: _nullableTrimmedText(item.lineTotal),
+            quantity: receiptOcrQuantityCandidateForSave(item.quantity),
+            unitPriceAmount: receiptOcrMoneyCandidateForSave(
+              item.unitPrice,
+              currency: currency,
+            ),
+            lineTotalAmount: receiptOcrMoneyCandidateForSave(
+              item.lineTotal,
+              currency: currency,
+            ),
           ),
     ],
     adjustmentEvidence: receiptOcrAdjustmentEvidenceFromPreview(preview),
@@ -427,9 +446,12 @@ receiptOcrAdjustmentEvidenceFromPreview(ReceiptOcrPreview preview) {
   }
 
   final adjustments = <ReceiptOcrReviewAdjustmentSaveRequest>[];
-  final tip = _nullableTrimmedText(preview.tip);
-  if (tip != null &&
-      receiptOcrAdjustmentMagnitudeCanPersist(tip, currency: currency)) {
+  final tip = receiptOcrMoneyCandidateForSave(
+    preview.tip,
+    currency: currency,
+    allowZero: false,
+  );
+  if (tip != null) {
     adjustments.add(
       ReceiptOcrReviewAdjustmentSaveRequest(
         kind: ReceiptOcrReviewAdjustmentKindValues.tip,
@@ -441,9 +463,12 @@ receiptOcrAdjustmentEvidenceFromPreview(ReceiptOcrPreview preview) {
     );
   }
 
-  final shipping = _nullableTrimmedText(preview.shipping);
-  if (shipping != null &&
-      receiptOcrAdjustmentMagnitudeCanPersist(shipping, currency: currency)) {
+  final shipping = receiptOcrMoneyCandidateForSave(
+    preview.shipping,
+    currency: currency,
+    allowZero: false,
+  );
+  if (shipping != null) {
     adjustments.add(
       ReceiptOcrReviewAdjustmentSaveRequest(
         kind: ReceiptOcrReviewAdjustmentKindValues.shipping,
@@ -464,17 +489,54 @@ bool receiptOcrAdjustmentMagnitudeCanPersist(
   String amount, {
   required String currency,
 }) {
-  final parsed = _parseExactDecimalAmount(amount);
-  final scale = _currencyScale(currency);
+  return receiptOcrMoneyCandidateForSave(
+        amount,
+        currency: currency,
+        allowZero: false,
+      ) !=
+      null;
+}
+
+@visibleForTesting
+String? receiptOcrMoneyCandidateForSave(
+  String? amount, {
+  required String? currency,
+  bool allowZero = true,
+}) {
+  final normalizedCurrency = _nullableUppercaseCurrency(currency);
+  final candidate = _nullableTrimmedText(amount);
+  if (normalizedCurrency == null || candidate == null) {
+    return null;
+  }
+
+  final parsed = _parseExactDecimalAmount(candidate);
+  final scale = _currencyScale(normalizedCurrency);
   if (parsed == null ||
-      parsed.value <= BigInt.zero ||
+      parsed.value < BigInt.zero ||
+      (!allowZero && parsed.value == BigInt.zero) ||
       parsed.scale > scale ||
       parsed.scale > 4) {
-    return false;
+    return null;
   }
 
   final normalizedValue = parsed.value * _bigIntPow10(4 - parsed.scale);
-  return normalizedValue <= BigInt.parse('9999999999999999999');
+  return normalizedValue <= BigInt.parse('9999999999999999999')
+      ? candidate
+      : null;
+}
+
+@visibleForTesting
+String? receiptOcrQuantityCandidateForSave(String? quantity) {
+  final candidate = _nullableTrimmedText(quantity);
+  final parsed = candidate == null ? null : _parseExactDecimalAmount(candidate);
+  if (parsed == null || parsed.value <= BigInt.zero || parsed.scale > 4) {
+    return null;
+  }
+
+  final normalizedValue = parsed.value * _bigIntPow10(4 - parsed.scale);
+  return normalizedValue <= BigInt.parse('9999999999999999999')
+      ? candidate
+      : null;
 }
 
 bool _receiptOcrItemHasReviewCandidate(ReceiptOcrItemCandidate item) {

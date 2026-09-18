@@ -472,7 +472,11 @@ void main() {
     );
     expect(receiptRepository.lastSaveRequest?.currency, 'USD');
     expect(receiptRepository.lastSaveRequest?.subtotalAmount, '45.00');
-    expect(receiptRepository.lastSaveRequest?.discountAmount, '-2.00');
+    expect(
+      receiptRepository.lastSaveRequest?.discountAmount,
+      isNull,
+      reason: 'Signed OCR discounts remain visible locally but are not sent.',
+    );
     expect(receiptRepository.lastSaveRequest?.taxAmount, '0.00');
     expect(receiptRepository.lastSaveRequest?.serviceChargeAmount, '0.00');
     expect(receiptRepository.lastSaveRequest?.grandTotalAmount, '43.00');
@@ -594,6 +598,21 @@ void main() {
       isEmpty,
       reason: 'Evidence above the API decimal(19,4) range is not submitted.',
     );
+  });
+
+  test('OCR save adapter omits API-invalid money and quantity candidates', () {
+    expect(receiptOcrMoneyCandidateForSave('12.50', currency: 'USD'), '12.50');
+    expect(receiptOcrMoneyCandidateForSave('12.50', currency: 'AED'), isNull);
+    expect(receiptOcrMoneyCandidateForSave('-2.00', currency: 'USD'), isNull);
+    expect(receiptOcrMoneyCandidateForSave('1.234', currency: 'USD'), isNull);
+    expect(
+      receiptOcrMoneyCandidateForSave('1000000000000000.00', currency: 'USD'),
+      isNull,
+    );
+    expect(receiptOcrQuantityCandidateForSave('2.5'), '2.5');
+    expect(receiptOcrQuantityCandidateForSave('0'), isNull);
+    expect(receiptOcrQuantityCandidateForSave('-1'), isNull);
+    expect(receiptOcrQuantityCandidateForSave('1.23456'), isNull);
   });
 
   testWidgets(
@@ -4529,6 +4548,11 @@ void main() {
       expect(receiptRepository.saveCalls, 1);
       expect(receiptRepository.lastSaveRequest?.currency, isNull);
       expect(receiptRepository.lastSaveRequest?.lines.single.text, 'Coffee');
+      expect(
+        receiptRepository.lastSaveRequest?.lines.single.lineTotalAmount,
+        isNull,
+        reason: 'Money without an API-supported currency must remain local.',
+      );
     },
   );
 
