@@ -55,9 +55,15 @@ internal object ReceiptBlockOrder {
     private fun centerY(block: SettleoraOcrBlock): Float = topY(block) + height(block) / 2f
 
     private fun isPredominantlyRightToLeft(row: List<SettleoraOcrBlock>): Boolean {
-        val counts = row.map { strongDirectionCounts(it.text) }
+        val counts = row.map { rowDirectionCounts(it.text) }
             .fold(StrongDirectionCounts()) { total, next -> total + next }
         return counts.rtl > counts.ltr
+    }
+
+    private fun rowDirectionCounts(text: String): StrongDirectionCounts {
+        val normalized = text.trim()
+        if (ISO_CURRENCY_AMOUNT.matches(normalized)) return StrongDirectionCounts()
+        return strongDirectionCounts(text)
     }
 
     private fun strongDirectionCounts(text: String): StrongDirectionCounts {
@@ -78,4 +84,8 @@ internal object ReceiptBlockOrder {
         operator fun plus(other: StrongDirectionCounts) =
             StrongDirectionCounts(ltr = ltr + other.ltr, rtl = rtl + other.rtl)
     }
+
+    private val ISO_CURRENCY_AMOUNT = Regex(
+        """^[A-Za-z]{3}\s*[:=]?\s*-?\d+(?:[.,'’]\d+)*$""",
+    )
 }

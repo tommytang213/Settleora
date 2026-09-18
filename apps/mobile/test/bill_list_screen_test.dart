@@ -4323,6 +4323,11 @@ void main() {
     'personal OCR preserves unsupported currency as evidence without applying it',
     (tester) async {
       await useLargeSurface(tester);
+      final repository = FakeBillRepository(
+        createdDetail: sampleBillDetail(id: _createdBillId),
+      );
+      final attachmentRepository = FakeBillAttachmentRepository();
+      final receiptRepository = FakeReceiptOcrReviewRepository();
       final receiptOcrProvider = FakeReceiptOcrProvider(
         const ReceiptOcrResult.extracted(
           ReceiptOcrPreview(
@@ -4343,8 +4348,8 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: SettleoraPersonalBillCreateScreen(
-            repository: FakeBillRepository(),
-            attachmentRepository: FakeBillAttachmentRepository(),
+            repository: repository,
+            attachmentRepository: attachmentRepository,
             attachmentFileInput: FakeBillAttachmentFileInput(
               pickedFile: samplePickedAttachmentFile(
                 filename: 'receipt.png',
@@ -4353,6 +4358,7 @@ void main() {
               ),
             ),
             receiptOcrProvider: receiptOcrProvider,
+            receiptOcrReviewRepository: receiptRepository,
           ),
         ),
       );
@@ -4425,6 +4431,20 @@ void main() {
             ?.text,
         isEmpty,
       );
+
+      await tester.enterText(
+        find.byKey(const ValueKey('personal-bill-item-name-0')),
+        'Manual coffee',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('personal-bill-item-amount-0')),
+        '12.50',
+      );
+      await _tapSaveBill(tester);
+
+      expect(receiptRepository.saveCalls, 1);
+      expect(receiptRepository.lastSaveRequest?.currency, isNull);
+      expect(receiptRepository.lastSaveRequest?.lines.single.text, 'Coffee');
     },
   );
 

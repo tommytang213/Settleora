@@ -267,9 +267,12 @@ class ReceiptOcrParser {
   }
 
   String? _rankedExplicitCurrencyCode(List<String> lines) {
-    final candidates = _supportedCurrencyCodes
-        .where((code) => _hasExplicitCurrencyCode(lines, code))
-        .toList(growable: false);
+    final candidates = <String>{
+      ..._supportedCurrencyCodes.where(
+        (code) => _hasExplicitCurrencyCode(lines, code),
+      ),
+      ...lines.map(_explicitCurrencyFromLine).whereType<String>(),
+    }.toList(growable: false);
     if (candidates.isEmpty) return null;
 
     final ranked =
@@ -278,7 +281,10 @@ class ReceiptOcrParser {
           var firstLine = lines.length;
           for (var index = 0; index < lines.length; index += 1) {
             final line = lines[index];
-            if (!_hasExplicitCurrencyCode([line], code)) continue;
+            if (!_hasExplicitCurrencyCode([line], code) &&
+                _explicitCurrencyFromLine(line) != code) {
+              continue;
+            }
             if (index < firstLine) firstLine = index;
             final normalized = line.toLowerCase();
             if (_hasTotalLabel(line, normalized)) {
@@ -305,6 +311,16 @@ class ReceiptOcrParser {
           return left.code.compareTo(right.code);
         });
     return ranked.first.code;
+  }
+
+  String? _explicitCurrencyFromLine(String line) {
+    final normalized = line.toUpperCase();
+    if (_hasExplicitHongKongCurrencyMarker(normalized)) return 'HKD';
+    if (_hasExplicitUnitedStatesCurrencyMarker(normalized)) return 'USD';
+    if (normalized.contains('د.إ') || normalized.contains('دإ')) return 'AED';
+    if (normalized.contains('€')) return 'EUR';
+    if (normalized.contains('£')) return 'GBP';
+    return _explicitSymbolCurrency(normalized);
   }
 
   _LabeledReceiptAmounts _extractLabeledAmounts(

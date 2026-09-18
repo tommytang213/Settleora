@@ -289,6 +289,19 @@ Total $5.50
     );
   });
 
+  test('transaction symbols outrank later card conversion codes', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Corner Cafe
+Coffee €5.00
+Total €5.00
+Card charged USD 5.40
+''');
+
+    expect(preview.currency, 'EUR');
+    expect(preview.items.single.currency, 'EUR');
+  });
+
   test('parser resolves ambiguous symbols only from receipt context', () {
     const parser = ReceiptOcrParser();
     final cases = <({String text, String? currency})>[

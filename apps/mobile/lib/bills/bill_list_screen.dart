@@ -433,7 +433,9 @@ String? _nullableTrimmedText(String? value) {
 
 String? _nullableUppercaseCurrency(String? value) {
   final trimmed = value?.trim().toUpperCase();
-  if (trimmed == null || trimmed.isEmpty) {
+  if (trimmed == null ||
+      trimmed.isEmpty ||
+      !settleoraIsSupportedCurrency(trimmed)) {
     return null;
   }
 

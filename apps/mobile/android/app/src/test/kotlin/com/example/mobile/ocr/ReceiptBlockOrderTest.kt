@@ -89,6 +89,17 @@ class ReceiptBlockOrderTest {
     }
 
     @Test
+    fun shortArabicLabelOutranksAdjacentLatinCurrencyToken() {
+        val amount = block("AED 5.00", "ltr", x = 10f)
+        val label = block("ش", "rtl", x = 100f)
+
+        assertEquals(
+            listOf("ش", "AED 5.00"),
+            ReceiptBlockOrder.normalize(listOf(amount, label)).map { it.text },
+        )
+    }
+
+    @Test
     fun ArabicIndicAmountDoesNotReverseLatinItemRow() {
         val item = block("Tea", "ltr", x = 10f)
         val amount = block("١٢٫٥٠", "ltr", x = 100f)
