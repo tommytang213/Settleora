@@ -7,6 +7,25 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		B10000000000000000000000 /* SettleoraReceiptOcrPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000000 /* SettleoraReceiptOcrPlugin.swift */; };
+		B10000000000000000000001 /* SettleoraORTSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* SettleoraORTSessionManager.swift */; };
+		B10000000000000000000002 /* SettleoraOcrModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000002 /* SettleoraOcrModels.swift */; };
+		B10000000000000000000003 /* SettleoraPaddleOcrEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000003 /* SettleoraPaddleOcrEngine.swift */; };
+		B10000000000000000000004 /* ReceiptOcrOrdering.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000004 /* ReceiptOcrOrdering.swift */; };
+		B10000000000000000000005 /* BoxSorter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000005 /* BoxSorter.swift */; };
+		B10000000000000000000006 /* CTCDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000006 /* CTCDecoder.swift */; };
+		B10000000000000000000007 /* DBPostProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000007 /* DBPostProcess.swift */; };
+		B10000000000000000000008 /* DetectionEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000008 /* DetectionEngine.swift */; };
+		B10000000000000000000009 /* EncodedImageCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000009 /* EncodedImageCodec.swift */; };
+		B10000000000000000000010 /* InferenceConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000010 /* InferenceConfig.swift */; };
+		B10000000000000000000011 /* OCRParameterResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000011 /* OCRParameterResolver.swift */; };
+		B10000000000000000000012 /* Preprocessing.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000012 /* Preprocessing.swift */; };
+		B10000000000000000000013 /* QuadTextCrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000013 /* QuadTextCrop.swift */; };
+		B10000000000000000000014 /* RecPreprocessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000014 /* RecPreprocessor.swift */; };
+		B10000000000000000000015 /* OpenCVDBBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000015 /* OpenCVDBBridge.mm */; };
+		B10000000000000000000016 /* OpenCVImageBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000016 /* OpenCVImageBridge.mm */; };
+		B10000000000000000000017 /* PDBPolygonOffsetBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000017 /* PDBPolygonOffsetBridge.mm */; };
+		B10000000000000000000018 /* clipper.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000018 /* clipper.cpp */; };
 		1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */; };
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
 		3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */; };
@@ -42,6 +61,25 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		B20000000000000000000000 /* SettleoraReceiptOcrPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SettleoraReceiptOcrPlugin.swift"; sourceTree = "<group>"; };
+		B20000000000000000000001 /* SettleoraORTSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PaddleOCR/SettleoraORTSessionManager.swift"; sourceTree = "<group>"; };
+		B20000000000000000000002 /* SettleoraOcrModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PaddleOCR/SettleoraOcrModels.swift"; sourceTree = "<group>"; };
+		B20000000000000000000003 /* SettleoraPaddleOcrEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PaddleOCR/SettleoraPaddleOcrEngine.swift"; sourceTree = "<group>"; };
+		B20000000000000000000004 /* ReceiptOcrOrdering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PaddleOCR/ReceiptOcrOrdering.swift"; sourceTree = "<group>"; };
+		B20000000000000000000005 /* BoxSorter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PaddleOCR/Engine/BoxSorter.swift"; sourceTree = "<group>"; };
+		B20000000000000000000006 /* CTCDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PaddleOCR/Engine/CTCDecoder.swift"; sourceTree = "<group>"; };
+		B20000000000000000000007 /* DBPostProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PaddleOCR/Engine/DBPostProcess.swift"; sourceTree = "<group>"; };
+		B20000000000000000000008 /* DetectionEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PaddleOCR/Engine/DetectionEngine.swift"; sourceTree = "<group>"; };
+		B20000000000000000000009 /* EncodedImageCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PaddleOCR/Engine/EncodedImageCodec.swift"; sourceTree = "<group>"; };
+		B20000000000000000000010 /* InferenceConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PaddleOCR/Engine/InferenceConfig.swift"; sourceTree = "<group>"; };
+		B20000000000000000000011 /* OCRParameterResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PaddleOCR/Engine/OCRParameterResolver.swift"; sourceTree = "<group>"; };
+		B20000000000000000000012 /* Preprocessing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PaddleOCR/Engine/Preprocessing.swift"; sourceTree = "<group>"; };
+		B20000000000000000000013 /* QuadTextCrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PaddleOCR/Engine/QuadTextCrop.swift"; sourceTree = "<group>"; };
+		B20000000000000000000014 /* RecPreprocessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PaddleOCR/Engine/RecPreprocessor.swift"; sourceTree = "<group>"; };
+		B20000000000000000000015 /* OpenCVDBBridge.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = "PaddleOCR/Engine/OpenCVDBBridge.mm"; sourceTree = "<group>"; };
+		B20000000000000000000016 /* OpenCVImageBridge.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = "PaddleOCR/Engine/OpenCVImageBridge.mm"; sourceTree = "<group>"; };
+		B20000000000000000000017 /* PDBPolygonOffsetBridge.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = "PaddleOCR/Engine/PDBPolygonOffsetBridge.mm"; sourceTree = "<group>"; };
+		B20000000000000000000018 /* clipper.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = "PaddleOCR/ThirdParty/Clipper1/clipper.cpp"; sourceTree = "<group>"; };
 		1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GeneratedPluginRegistrant.h; sourceTree = "<group>"; };
 		1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GeneratedPluginRegistrant.m; sourceTree = "<group>"; };
 		331C807B294A618700263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
@@ -113,6 +151,25 @@
 		97C146F01CF9000F007C117D /* Runner */ = {
 			isa = PBXGroup;
 			children = (
+				B20000000000000000000000 /* SettleoraReceiptOcrPlugin.swift */,
+				B20000000000000000000001 /* SettleoraORTSessionManager.swift */,
+				B20000000000000000000002 /* SettleoraOcrModels.swift */,
+				B20000000000000000000003 /* SettleoraPaddleOcrEngine.swift */,
+				B20000000000000000000004 /* ReceiptOcrOrdering.swift */,
+				B20000000000000000000005 /* BoxSorter.swift */,
+				B20000000000000000000006 /* CTCDecoder.swift */,
+				B20000000000000000000007 /* DBPostProcess.swift */,
+				B20000000000000000000008 /* DetectionEngine.swift */,
+				B20000000000000000000009 /* EncodedImageCodec.swift */,
+				B20000000000000000000010 /* InferenceConfig.swift */,
+				B20000000000000000000011 /* OCRParameterResolver.swift */,
+				B20000000000000000000012 /* Preprocessing.swift */,
+				B20000000000000000000013 /* QuadTextCrop.swift */,
+				B20000000000000000000014 /* RecPreprocessor.swift */,
+				B20000000000000000000015 /* OpenCVDBBridge.mm */,
+				B20000000000000000000016 /* OpenCVImageBridge.mm */,
+				B20000000000000000000017 /* PDBPolygonOffsetBridge.mm */,
+				B20000000000000000000018 /* clipper.cpp */,
 				97C146FA1CF9000F007C117D /* Main.storyboard */,
 				97C146FD1CF9000F007C117D /* Assets.xcassets */,
 				97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */,
@@ -275,6 +332,25 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B10000000000000000000000 /* SettleoraReceiptOcrPlugin.swift in Sources */,
+				B10000000000000000000001 /* SettleoraORTSessionManager.swift in Sources */,
+				B10000000000000000000002 /* SettleoraOcrModels.swift in Sources */,
+				B10000000000000000000003 /* SettleoraPaddleOcrEngine.swift in Sources */,
+				B10000000000000000000004 /* ReceiptOcrOrdering.swift in Sources */,
+				B10000000000000000000005 /* BoxSorter.swift in Sources */,
+				B10000000000000000000006 /* CTCDecoder.swift in Sources */,
+				B10000000000000000000007 /* DBPostProcess.swift in Sources */,
+				B10000000000000000000008 /* DetectionEngine.swift in Sources */,
+				B10000000000000000000009 /* EncodedImageCodec.swift in Sources */,
+				B10000000000000000000010 /* InferenceConfig.swift in Sources */,
+				B10000000000000000000011 /* OCRParameterResolver.swift in Sources */,
+				B10000000000000000000012 /* Preprocessing.swift in Sources */,
+				B10000000000000000000013 /* QuadTextCrop.swift in Sources */,
+				B10000000000000000000014 /* RecPreprocessor.swift in Sources */,
+				B10000000000000000000015 /* OpenCVDBBridge.mm in Sources */,
+				B10000000000000000000016 /* OpenCVImageBridge.mm in Sources */,
+				B10000000000000000000017 /* PDBPolygonOffsetBridge.mm in Sources */,
+				B10000000000000000000018 /* clipper.cpp in Sources */,
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
 				7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */,
