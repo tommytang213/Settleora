@@ -200,6 +200,20 @@ TOTAL AED 15
     expect(preview.total, '15');
   });
 
+  test('parser treats an English-only AED code as explicit currency', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Dubai Cafe
+Coffee AED 5
+TOTAL AED 5
+''');
+
+    expect(preview.currency, 'AED');
+    expect(preview.currencyProvenance, ReceiptOcrCurrencyProvenance.explicit);
+    expect(preview.items.single.currency, 'AED');
+    expect(preview.total, '5');
+  });
+
   test('ambiguous dollar uses USD only when fallback is USD', () {
     const parser = ReceiptOcrParser();
 

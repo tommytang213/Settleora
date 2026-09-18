@@ -132,6 +132,13 @@ class ReceiptOcrParser {
       }
     }
 
+    if (RegExp(r'\bAED\b').hasMatch(joined)) {
+      return const _ReceiptCurrencyDetection(
+        currency: 'AED',
+        provenance: ReceiptOcrCurrencyProvenance.explicit,
+      );
+    }
+
     if (_hasExplicitHongKongCurrencyMarker(joined)) {
       return const _ReceiptCurrencyDetection(
         currency: 'HKD',

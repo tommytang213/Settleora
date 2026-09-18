@@ -43,6 +43,7 @@
         { "path": "apps/mobile/lib/app/server_mode_shell.dart", "sha256": "7bc1b89910d260c5652810265b8a9985896fe62e852f65aa24d44d5fa2d8459e" },
         { "path": "apps/mobile/lib/bills/bill_list_screen.dart", "sha256": "0bafd57cc19488e1677da8c28753e631d72673e5cfa160b42648330ee03aa774" },
         { "path": "apps/mobile/lib/groups/group_list_screen.dart", "sha256": "62497fd2753850b88d93b1b0e40d2e982ba560209fb36321aa986b7d1fbdc473" },
+        { "path": "apps/mobile/lib/main.dart", "sha256": "b91c1fe701d9412c3a85880186016609d8ba460d1f6584fa3b5be5873ab36b89" },
         { "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_provider.dart", "sha256": "ffb8da7258689dcf6c41a38a121898dd718a3a6e6b8b85a82412653634fd7a49" },
         { "path": "apps/mobile/lib/receipt_ocr_capture/paddle_receipt_ocr_provider.dart", "sha256": "fddb8fa2b720a32b4d1a3166d2eb8a37c9e950f2cb41358ed1e2983f66efa154" },
         { "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_preview.dart", "sha256": "8ccfe431731ccba20168c2cd39c3e8d38a9632bb6f531af9ea3d3beabc35360c" },
@@ -55,7 +56,7 @@
         { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/MainActivity.kt", "sha256": "3ba5cc49748550a2bcbfda4d3610ca0b7c5fdaddfc34eecef5e1011101101b35" },
         { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/MobileOcrModelCatalog.kt", "sha256": "4445b1698aa56e08513f24c1f49a8029197184a45d069663a41896b7527566c5" },
         { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/SettleoraPaddleOcrEngine.kt", "sha256": "eb896b119d28f588b662ab88533e4156ca00241f4cb4fc3b94e109722c5ec35d" },
-        { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ScriptRouteSelector.kt", "sha256": "365270850a2900e8dd69e00ba548f6397c26d48367aad290f0214739f10d05a0" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ScriptRouteSelector.kt", "sha256": "a699d138145da06f7eb354705328a841177ba33aa70f9e2af15f8111813544b2" },
         { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/RecognizedTextNormalizer.kt", "sha256": "274f32c1223564d4f9bd4d061246782ed7c80a05a525c046c95ec6e5f5c30550" },
         { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ReceiptBlockOrder.kt", "sha256": "a40979c4a428124b60356a3ccb94d1e1063d113a9c5f16f72a31038f2dc169fc" },
         { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ReceiptOcrInputLimits.kt", "sha256": "99cbc1237b7c4aa54842ccef0c8c9527465e5671c54cae420a3cec51ae816e78" },
@@ -83,7 +84,7 @@
     },
     "parser": {
       "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_parser.dart",
-      "sha256": "78d4ce16cc8c9c2ea4acf0ca852c7453030c7748b5c5137244276479da840d56"
+      "sha256": "805089d89f5fbbfb0d9df583d67f054fc84a61fe96251c3c0ea824965c6c2bbe"
     }
   },
   "totalBundledBytes": 76580102,

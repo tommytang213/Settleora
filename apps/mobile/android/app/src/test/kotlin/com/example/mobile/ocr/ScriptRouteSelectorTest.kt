@@ -113,6 +113,30 @@ class ScriptRouteSelectorTest {
         assertEquals("common", selected?.pack?.modelPackId)
     }
 
+    @Test
+    fun oneSpecialistGlyphAndCombiningMarkStillCannotOverrideCommon() {
+        val selected = ScriptRouteSelector.select(
+            listOf(
+                candidate("common", ScriptEvidence.COMMON, "TOTAL 12.50", 0.99f),
+                candidate("arabic", ScriptEvidence.ARABIC, "TOTAL 12.50 اَ", 0.80f),
+            ),
+        )
+
+        assertEquals("common", selected?.pack?.modelPackId)
+    }
+
+    @Test
+    fun ArabicIndicDigitsAreNeutralForSpecialistCoverage() {
+        val selected = ScriptRouteSelector.select(
+            listOf(
+                candidate("common", ScriptEvidence.COMMON, "12.50", 0.80f),
+                candidate("arabic", ScriptEvidence.ARABIC, "١٢٫٥٠", 0.99f),
+            ),
+        )
+
+        assertEquals("common", selected?.pack?.modelPackId)
+    }
+
     private fun candidate(
         id: String,
         script: ScriptEvidence,
