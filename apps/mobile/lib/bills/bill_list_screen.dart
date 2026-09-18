@@ -1962,10 +1962,6 @@ class _SettleoraPersonalBillCreateScreenState
 
     setState(() {
       _receiptOcrCorrectedPreview = preview;
-      _receiptOcrApplySelection = _sanitizeReceiptOcrApplySelection(
-        preview,
-        _receiptOcrApplySelection,
-      );
       _receiptOcrApplied = false;
     });
   }
@@ -3298,7 +3294,7 @@ class _ReceiptOcrApplySelectionList extends StatelessWidget {
           label: 'Items',
           subtitle: _receiptOcrItemsCanApply(preview)
               ? _pluralCount(preview.items.length, 'suggested line')
-              : 'Resolve receipt currency before applying',
+              : _receiptOcrItemsApplyBlockReason(preview),
           selected: selection.items,
           enabled: _receiptOcrItemsCanApply(preview),
         ),
@@ -3744,19 +3740,6 @@ bool _receiptOcrSelectionHasAvailableSections(
       (selection.items && _receiptOcrItemsCanApply(preview));
 }
 
-_ReceiptOcrApplySelection _sanitizeReceiptOcrApplySelection(
-  ReceiptOcrPreview preview,
-  _ReceiptOcrApplySelection selection,
-) {
-  return _ReceiptOcrApplySelection(
-    merchant: selection.merchant && (preview.merchant ?? '').trim().isNotEmpty,
-    date: selection.date && (preview.receiptDate ?? '').trim().isNotEmpty,
-    currency:
-        selection.currency && settleoraIsSupportedCurrency(preview.currency),
-    items: selection.items && _receiptOcrItemsCanApply(preview),
-  );
-}
-
 bool _receiptOcrItemsCanApply(ReceiptOcrPreview preview) {
   if (preview.items.isEmpty) {
     return false;
@@ -3791,9 +3774,10 @@ bool _receiptOcrItemsCanApply(ReceiptOcrPreview preview) {
     }
 
     final quantity = candidate.quantity?.trim();
-    if (quantity != null &&
-        quantity.isNotEmpty &&
-        _positiveWholeNumber(quantity) == null) {
+    final parsedQuantity = quantity == null || quantity.isEmpty
+        ? 1
+        : _positiveWholeNumber(quantity);
+    if (quantity != null && quantity.isNotEmpty && parsedQuantity == null) {
       return false;
     }
 
@@ -3808,13 +3792,35 @@ bool _receiptOcrItemsCanApply(ReceiptOcrPreview preview) {
     final parsedLineTotal = lineTotal.isEmpty
         ? null
         : _parseCurrencyAmount(lineTotal, applicableCurrency!);
-    return (unitPrice.isEmpty ||
+    final amountsAreValid =
+        (unitPrice.isEmpty ||
             (parsedUnitPrice != null &&
                 _currencyAmountIsPositive(parsedUnitPrice))) &&
         (lineTotal.isEmpty ||
             (parsedLineTotal != null &&
                 _currencyAmountIsPositive(parsedLineTotal)));
+    if (!amountsAreValid) return false;
+    return parsedUnitPrice == null ||
+        parsedLineTotal == null ||
+        _lineTotalMatchesUnitAmount(
+          unitAmount: parsedUnitPrice,
+          lineTotal: parsedLineTotal,
+          quantity: parsedQuantity!,
+        );
   });
+}
+
+String _receiptOcrItemsApplyBlockReason(ReceiptOcrPreview preview) {
+  final currency = preview.currency?.trim();
+  if (preview.currencyProvenance == ReceiptOcrCurrencyProvenance.unresolved ||
+      preview.currencyProvenance ==
+          ReceiptOcrCurrencyProvenance.defaultFallback ||
+      (currency != null &&
+          currency.isNotEmpty &&
+          !settleoraIsSupportedCurrency(currency))) {
+    return 'Resolve receipt currency before applying';
+  }
+  return 'Review item amounts before applying';
 }
 
 String _receiptOcrApplicableItemCurrency(
@@ -6591,10 +6597,6 @@ class _SettleoraGroupBillCreateScreenState
 
     setState(() {
       _receiptOcrCorrectedPreview = preview;
-      _receiptOcrApplySelection = _sanitizeReceiptOcrApplySelection(
-        preview,
-        _receiptOcrApplySelection,
-      );
       _receiptOcrApplied = false;
     });
   }

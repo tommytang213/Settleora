@@ -7920,6 +7920,81 @@ void main() {
     );
   });
 
+  testWidgets('group OCR rejects inconsistent unit and line totals', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    await _pumpGroupBillCreate(
+      tester,
+      repository: FakeBillRepository(),
+      groupRepository: FakeGroupRepository(
+        members: [sampleGroupMember(displayName: 'Alex')],
+      ),
+      attachmentRepository: FakeBillAttachmentRepository(),
+      attachmentFileInput: FakeBillAttachmentFileInput(
+        pickedFile: samplePickedAttachmentFile(
+          filename: 'group-receipt.png',
+          contentType: 'image/png',
+          bytes: const [9, 8, 7],
+        ),
+      ),
+      receiptOcrProvider: FakeReceiptOcrProvider(
+        const ReceiptOcrResult.extracted(
+          ReceiptOcrPreview(
+            merchant: 'Nordic Cafe',
+            currency: 'USD',
+            currencyProvenance: ReceiptOcrCurrencyProvenance.explicit,
+            items: [
+              ReceiptOcrItemCandidate(
+                description: 'Coffee',
+                quantity: '2',
+                unitPrice: '5.00',
+                lineTotal: '12.00',
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await _goToGroupBillCreateStep(tester, 'receiptItems');
+    await tester.tap(find.byKey(const Key('group-bill-scan-receipt')));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .widget<CheckboxListTile>(
+            find.byKey(const Key('group-bill-ocr-apply-items')),
+          )
+          .onChanged,
+      isNull,
+    );
+    expect(find.text('Review item amounts before applying'), findsOneWidget);
+
+    await _tapReceiptOcrApply(tester, 'group-bill');
+
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const ValueKey('group-bill-item-name-0')),
+          )
+          .controller
+          ?.text,
+      isEmpty,
+    );
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const ValueKey('group-bill-item-amount-0')),
+          )
+          .controller
+          ?.text,
+      isEmpty,
+    );
+  });
+
   testWidgets(
     'group bill OCR review cancel leaves draft unchanged and apply preserves assignments',
     (tester) async {

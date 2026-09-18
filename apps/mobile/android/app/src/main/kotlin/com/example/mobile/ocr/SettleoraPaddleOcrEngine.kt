@@ -13,6 +13,8 @@ import com.paddle.ocr.postprocess.QuadTextCrop
 import com.paddle.ocr.preprocess.RecPreprocessor
 import com.paddle.ocr.util.BitmapUtils
 import com.paddle.ocr.util.OpenCVUtils
+import org.opencv.core.Core
+import org.opencv.core.Mat
 
 /**
  * Settleora's Android PaddleOCR/ONNX Runtime boundary.
@@ -70,8 +72,10 @@ class SettleoraPaddleOcrEngine(context: Context) {
         }
 
         val totalStart = System.currentTimeMillis()
+        val sourceWidth = source.cols()
+        val sourceHeight = source.rows()
         var sourceNeedsRelease = true
-        val crops = mutableListOf<org.opencv.core.Mat>()
+        val crops = mutableListOf<Mat>()
         return try {
             val detection = detector.detect(source)
             val sortedBoxes = BoxSorter.sortInReadingOrder(detection.boxes)
@@ -103,17 +107,24 @@ class SettleoraPaddleOcrEngine(context: Context) {
             }
             if (crops.isNotEmpty()) {
                 val candidatesByLine = List(crops.size) { mutableListOf<ScriptCandidate>() }
-                fun batchesFor(indices: Iterable<Int>) = indices
-                    .groupBy { index -> recognitionBatchCapacity(crops[index]) }
+                fun batchesFor(sourceCrops: List<Mat>, indices: Iterable<Int>) = indices
+                    .groupBy { index -> recognitionBatchCapacity(sourceCrops[index]) }
                     .flatMap { (capacity, indices) ->
-                        indices.sortedBy { index -> crops[index].cols().toDouble() / crops[index].rows() }
+                        indices.sortedBy { index ->
+                            sourceCrops[index].cols().toDouble() / sourceCrops[index].rows()
+                        }
                             .chunked(capacity)
                     }
 
-                fun recognizeBatch(pack: RecognizerPack, batchIndices: List<Int>) {
+                fun recognizeBatch(
+                    pack: RecognizerPack,
+                    sourceCrops: List<Mat>,
+                    targetCandidates: List<MutableList<ScriptCandidate>>,
+                    batchIndices: List<Int>,
+                ) {
                     val batchStart = System.currentTimeMillis()
                     val input = RecPreprocessor.preprocessBatch(
-                        batchIndices.map { index -> crops[index] },
+                        batchIndices.map { index -> sourceCrops[index] },
                     )
                     val decoded = sessions.runRecognitionDecoded(
                         pack.spec.modelPackId,
@@ -127,7 +138,7 @@ class SettleoraPaddleOcrEngine(context: Context) {
                     }
                     decoded.forEachIndexed { batchIndex, value ->
                         val lineIndex = batchIndices[batchIndex]
-                        candidatesByLine[lineIndex] += ScriptCandidate(
+                        targetCandidates[lineIndex] += ScriptCandidate(
                             text = RecognizedTextNormalizer.normalize(
                                 value.first.trim(),
                                 pack.spec,
@@ -141,40 +152,86 @@ class SettleoraPaddleOcrEngine(context: Context) {
                 val commonPack = packs.singleOrNull { pack ->
                     ScriptEvidence.COMMON in pack.spec.acceptedScripts
                 } ?: error("Exactly one common recognition pack is required")
-                for (batchIndices in batchesFor(crops.indices)) {
-                    recognizeBatch(commonPack, batchIndices)
-                }
-                val specialistsByLine = candidatesByLine.map { candidates ->
-                    ScriptRouteSelector.specialistPackIdsForLine(
-                        candidates.single(),
-                        packs.map { it.spec },
-                    ).toSet()
-                }
-                for (pack in packs) {
-                    if (pack === commonPack) continue
-                    val probeIndices = candidatesByLine.indices.filter { lineIndex ->
-                        pack.spec.modelPackId in specialistsByLine[lineIndex]
-                    }
-                    for (batchIndices in batchesFor(probeIndices)) {
-                        recognizeBatch(pack, batchIndices)
-                    }
+                for (batchIndices in batchesFor(crops, crops.indices)) {
+                    recognizeBatch(commonPack, crops, candidatesByLine, batchIndices)
                 }
 
-                candidatesByLine.forEachIndexed { index, candidates ->
-                    val accepted = ScriptRouteSelector.select(candidates)
-                    if (accepted != null && accepted.confidence >= config.recScoreThresh) {
-                        val (order, box) = validBoxes[index]
-                        blocks += SettleoraOcrBlock(
-                            text = accepted.text,
-                            confidence = accepted.confidence,
-                            modelPackId = accepted.pack.modelPackId,
-                            modelVersion = accepted.pack.modelVersion,
-                            textDirection = ReceiptBlockOrder.textDirection(accepted.text),
-                            order = order,
-                            points = box.points.map { point ->
-                                SettleoraOcrPoint(point.x, point.y)
-                            },
+                val rotatedCrops = crops.map { crop ->
+                    Mat().also { rotated -> Core.rotate(crop, rotated, Core.ROTATE_180) }
+                }
+                val rotatedCandidatesByLine = List(crops.size) {
+                    mutableListOf<ScriptCandidate>()
+                }
+                try {
+                    for (batchIndices in batchesFor(rotatedCrops, rotatedCrops.indices)) {
+                        recognizeBatch(
+                            commonPack,
+                            rotatedCrops,
+                            rotatedCandidatesByLine,
+                            batchIndices,
                         )
+                    }
+                    val rotateDocument = ReceiptOrientationSelector.shouldRotate180(
+                        uprightCandidates = candidatesByLine.map { it.single() },
+                        rotatedCandidates = rotatedCandidatesByLine.map { it.single() },
+                    )
+                    if (rotateDocument) {
+                        crops.indices.forEach { index ->
+                            crops[index].release()
+                            crops[index] = rotatedCrops[index]
+                            candidatesByLine[index].clear()
+                            candidatesByLine[index] += rotatedCandidatesByLine[index].single()
+                        }
+                    }
+                    val specialistsByLine = candidatesByLine.map { candidates ->
+                        ScriptRouteSelector.specialistPackIdsForLine(
+                            candidates.single(),
+                            packs.map { it.spec },
+                        ).toSet()
+                    }
+                    for (pack in packs) {
+                        if (pack === commonPack) continue
+                        val probeIndices = candidatesByLine.indices.filter { lineIndex ->
+                            pack.spec.modelPackId in specialistsByLine[lineIndex]
+                        }
+                        for (batchIndices in batchesFor(crops, probeIndices)) {
+                            recognizeBatch(pack, crops, candidatesByLine, batchIndices)
+                        }
+                    }
+
+                    candidatesByLine.forEachIndexed { index, candidates ->
+                        val accepted = ScriptRouteSelector.select(candidates)
+                        if (accepted != null && accepted.confidence >= config.recScoreThresh) {
+                            val (order, box) = validBoxes[index]
+                            blocks += SettleoraOcrBlock(
+                                text = accepted.text,
+                                confidence = accepted.confidence,
+                                modelPackId = accepted.pack.modelPackId,
+                                modelVersion = accepted.pack.modelVersion,
+                                textDirection = ReceiptBlockOrder.textDirection(accepted.text),
+                                order = order,
+                                points = box.points.map { point ->
+                                    if (rotateDocument) {
+                                        SettleoraOcrPoint(
+                                            (sourceWidth - 1f - point.x).coerceIn(
+                                                0f,
+                                                sourceWidth - 1f,
+                                            ),
+                                            (sourceHeight - 1f - point.y).coerceIn(
+                                                0f,
+                                                sourceHeight - 1f,
+                                            ),
+                                        )
+                                    } else {
+                                        SettleoraOcrPoint(point.x, point.y)
+                                    }
+                                },
+                            )
+                        }
+                    }
+                } finally {
+                    rotatedCrops.forEachIndexed { index, rotated ->
+                        if (rotated !== crops[index]) rotated.release()
                     }
                 }
             }
@@ -215,7 +272,7 @@ class SettleoraPaddleOcrEngine(context: Context) {
         return sampleSize
     }
 
-    private fun recognitionBatchCapacity(crop: org.opencv.core.Mat): Int {
+    private fun recognitionBatchCapacity(crop: Mat): Int {
         val normalizedWidth = kotlin.math.ceil(48.0 * crop.cols() / crop.rows())
             .toInt()
             .coerceAtMost(3200)

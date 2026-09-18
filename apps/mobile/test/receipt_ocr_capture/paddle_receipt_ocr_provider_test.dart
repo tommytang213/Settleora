@@ -1,14 +1,15 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mobile/receipt_ocr_capture/mlkit_receipt_ocr_provider.dart';
 import 'package:mobile/receipt_ocr_capture/paddle_receipt_ocr_provider.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_provider.dart';
 
 void main() {
   tearDown(() => debugDefaultTargetPlatformOverride = null);
 
-  test('Android default provider is PaddleOCR', () {
+  test('Android keeps accepted provider default until native gate passes', () {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
-    expect(defaultMobileReceiptOcrProvider(), isA<PaddleReceiptOcrProvider>());
+    expect(defaultMobileReceiptOcrProvider(), isA<MlKitReceiptOcrProvider>());
   });
 
   test('provider sends image bytes and parses ordered native blocks', () async {

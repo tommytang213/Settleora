@@ -212,6 +212,22 @@ Total $5.50
     );
   });
 
+  test('numeric marketing text does not masquerade as a currency amount', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(r'''
+Corner Cafe
+TRY 2 FOR 1
+Latte $5.50
+Total $5.50
+''', fallbackCurrency: 'USD');
+
+    expect(preview.currency, 'USD');
+    expect(
+      preview.currencyProvenance,
+      ReceiptOcrCurrencyProvenance.defaultFallback,
+    );
+  });
+
   test('parser resolves ambiguous symbols only from receipt context', () {
     const parser = ReceiptOcrParser();
     final cases = <({String text, String? currency})>[
@@ -343,6 +359,57 @@ Total USD 40.99
     expect(preview.shipping, '9.99');
     expect(preview.tip, '5.00');
     expect(preview.items.map((item) => item.description), ['Burger', 'Beer']);
+  });
+
+  test('parser keeps charged tip items and excludes suggested tip options', () {
+    const parser = ReceiptOcrParser();
+
+    final charged = parser.parse('''
+Metro Taxi
+Fare USD 24.50
+Toll USD 3.00
+Tip USD 5.00
+Total USD 32.50
+''');
+    final suggested = parser.parse('''
+Downtown Bistro
+Pasta USD 20.00
+Suggested Tip 15% USD 3.27
+Suggested Tip 20% USD 4.36
+Total USD 20.00
+''');
+
+    expect(charged.tip, isNull);
+    expect(charged.items.map((item) => item.description), [
+      'Fare',
+      'Toll',
+      'Tip',
+    ]);
+    expect(suggested.items.map((item) => item.description), ['Pasta']);
+  });
+
+  test('parser joins a wrapped description to its following priced line', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Home Goods Depot
+Premium Stainless Steel
+Water Bottle 1L - Blue USD 24.99
+Replacement Filter Pack USD 12.50
+Total USD 37.49
+''');
+
+    expect(preview.items.map((item) => item.description), [
+      'Premium Stainless Steel Water Bottle 1L - Blue',
+      'Replacement Filter Pack',
+    ]);
+    expect(
+      preview.warnings,
+      isNot(
+        contains(
+          'Some OCR lines need manual review because no traceable line amount was found.',
+        ),
+      ),
+    );
   });
 
   test('parser normalizes Arabic-Indic AED receipt values', () {

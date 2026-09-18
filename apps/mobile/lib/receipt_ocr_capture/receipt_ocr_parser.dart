@@ -225,11 +225,11 @@ class ReceiptOcrParser {
       caseSensitive: false,
     );
     final codeBeforeAmount = RegExp(
-      '\\b$escapedCode\\b\\s*[:=]?\\s*[-+]?\\d',
+      "\\b$escapedCode\\b\\s*[:=]?\\s*$_amountTokenPattern\\s*\$",
       caseSensitive: false,
     );
     final amountBeforeCode = RegExp(
-      "[-+]?\\d[\\d.,'’\\s]*\\s\\b$escapedCode\\b",
+      "$_amountTokenPattern\\s*\\b$escapedCode\\b\\s*\$",
       caseSensitive: false,
     );
 
@@ -265,7 +265,7 @@ class ReceiptOcrParser {
         tax ??= amount;
       } else if (_hasServiceChargeLabel(line, normalized)) {
         service ??= amount;
-      } else if (_hasTipLabel(line, normalized)) {
+      } else if (_hasActualTipChargeLabel(line, normalized)) {
         tip ??= amount;
       } else if (_hasShippingLabel(line, normalized)) {
         shipping ??= amount;
@@ -292,14 +292,17 @@ class ReceiptOcrParser {
     String? currency,
   ) {
     final items = <ReceiptOcrItemCandidate>[];
+    String? wrappedDescription;
     final fuelItem = _extractFuelItem(lines, currency);
     if (fuelItem != null) {
       items.add(fuelItem);
     }
-    for (final line in lines) {
+    for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+      final line = lines[lineIndex];
       if (_isAdministrativeLine(line) ||
           _isReceiptMetadataLine(line) ||
           (fuelItem != null && _isFuelMeasurementLine(line))) {
+        wrappedDescription = null;
         continue;
       }
 
@@ -310,10 +313,19 @@ class ReceiptOcrParser {
         caseSensitive: false,
       ).firstMatch(line);
       if (match == null) {
+        final cleaned = _cleanDescription(line);
+        wrappedDescription =
+            lineIndex > 0 && _isWrappedItemDescriptionCandidate(cleaned)
+            ? cleaned
+            : null;
         continue;
       }
 
-      final description = _cleanDescription(match.group(1)!);
+      var description = _cleanDescription(match.group(1)!);
+      if (wrappedDescription != null) {
+        description = '$wrappedDescription $description';
+      }
+      wrappedDescription = null;
       final lineTotal = _normalizeAmount(match.group(3)!, currency: currency);
       if (description.length < 2 ||
           lineTotal == null ||
@@ -424,7 +436,8 @@ class ReceiptOcrParser {
 
   int _countUnresolvedItemLikeLines(List<String> lines, {String? merchant}) {
     var count = 0;
-    for (final line in lines) {
+    for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+      final line = lines[lineIndex];
       if (merchant != null && _cleanDescription(line) == merchant) {
         continue;
       }
@@ -436,6 +449,11 @@ class ReceiptOcrParser {
       }
 
       final cleaned = _cleanDescription(line);
+      if (lineIndex + 1 < lines.length &&
+          _isWrappedItemDescriptionCandidate(cleaned) &&
+          _isPricedItemLine(lines[lineIndex + 1])) {
+        continue;
+      }
       final letterCount = _unicodeLetterPattern.allMatches(cleaned).length;
       if (letterCount >= 2 && !_isLikelyNonItemDescription(cleaned)) {
         count += 1;
@@ -745,7 +763,8 @@ bool _isAdministrativeLine(String line) {
   return _hasSubtotalLabel(line, normalized) ||
       _hasTaxLabel(line, normalized) ||
       _hasServiceChargeLabel(line, normalized) ||
-      _hasTipLabel(line, normalized) ||
+      _hasActualTipChargeLabel(line, normalized) ||
+      _isSuggestedTipLine(normalized) ||
       _hasShippingLabel(line, normalized) ||
       _hasDiscountLabel(line, normalized) ||
       _hasTotalLabel(line, normalized) ||
@@ -926,11 +945,43 @@ bool _hasServiceChargeLabel(String line, String normalized) {
       ]);
 }
 
-bool _hasTipLabel(String line, String normalized) {
+bool _hasActualTipChargeLabel(String line, String normalized) {
   return _hasEnglishReceiptLabel(
     normalized,
-    RegExp(r'\b(actual\s+)?tip\b', caseSensitive: false),
+    RegExp(r'\bactual\s+tip\b', caseSensitive: false),
   );
+}
+
+bool _isSuggestedTipLine(String normalized) => RegExp(
+  r'\b(?:suggested|optional|recommended)\s+tip\b',
+).hasMatch(normalized);
+
+bool _isWrappedItemDescriptionCandidate(String description) {
+  if (description.length < 2 ||
+      _lineHasAmount(description) ||
+      _isAdministrativeLine(description) ||
+      _isReceiptMetadataLine(description) ||
+      _isLikelyNonItemDescription(description)) {
+    return false;
+  }
+  return _unicodeLetterPattern.allMatches(description).length >= 2;
+}
+
+bool _isPricedItemLine(String line) {
+  if (_isAdministrativeLine(line) || _isReceiptMetadataLine(line)) {
+    return false;
+  }
+  final match = RegExp(
+    '^(.+?)\\s+($_currencyTokenPattern)?\\s*'
+    '($_amountTokenPattern)'
+    '(?:\\s*(?:$_currencyTokenPattern))?\$',
+    caseSensitive: false,
+  ).firstMatch(line);
+  if (match == null) return false;
+  final description = _cleanDescription(match.group(1)!);
+  return description.length >= 2 &&
+      !_isLikelyNonItemDescription(description) &&
+      _hasTraceableItemAmountToken(line, match.group(3)!);
 }
 
 bool _hasShippingLabel(String line, String normalized) {
