@@ -24,61 +24,40 @@ internal data class ScriptCandidate(
     val pack: RecognizerSpec,
 )
 
-internal data class IndependentScriptEvidence(
-    val script: ScriptEvidence,
-    val confidence: Double,
-)
-
 internal object ScriptRouteSelector {
-    private const val STRONG_COMMON_CONFIDENCE = 0.90f
-    // Short cross-script glyphs are easy to misread as Latin lookalikes (for
-    // example Cyrillic "Суп" as "Cyn"), so short lines remain ambiguous.
-    private const val MIN_STRONG_SCRIPT_CHARACTERS = 4
+    // Confidence outputs from the broad and script-specific recognizers are not
+    // directly comparable. All recognizers run for every detected line, then a
+    // fixed, test-bound calibration rewards text that is compatible with the
+    // pack's declared script. This correctness-first policy cannot be bypassed
+    // by a high-confidence hallucination from the common recognizer.
+    private const val SCRIPT_MATCH_BONUS = 0.24
+    private const val SCRIPT_MISMATCH_PENALTY = 0.70
+    private const val SPECIALIST_BIAS = 0.20
+    private const val COMMON_NEUTRAL_BIAS = 0.03
 
-    /**
-     * Captures routing evidence from the always-available common recognizer
-     * before any specialist recognizer is run. Specialist output must never be
-     * allowed to manufacture the evidence used to select that same specialist.
-     */
-    fun evidenceFromCommon(candidate: ScriptCandidate): IndependentScriptEvidence {
-        var commonCharacters = 0
-        var otherCharacters = 0
-        candidate.text.codePoints().forEach { codePoint ->
-            when (scriptOf(codePoint)) {
-                ScriptEvidence.NEUTRAL -> Unit
-                ScriptEvidence.COMMON -> commonCharacters++
-                else -> otherCharacters++
-            }
-        }
-        val strong = candidate.confidence >= STRONG_COMMON_CONFIDENCE &&
-            commonCharacters >= MIN_STRONG_SCRIPT_CHARACTERS &&
-            otherCharacters == 0
-        return IndependentScriptEvidence(
-            script = if (strong) ScriptEvidence.COMMON else ScriptEvidence.NEUTRAL,
-            confidence = if (strong) candidate.confidence.toDouble() else 0.0,
-        )
-    }
-
-    fun requiresSpecialistFallback(evidence: IndependentScriptEvidence): Boolean =
-        evidence.script == ScriptEvidence.NEUTRAL
-
-    fun select(
-        candidates: Iterable<ScriptCandidate>,
-        evidence: IndependentScriptEvidence,
-    ): ScriptCandidate? = candidates
+    fun select(candidates: Iterable<ScriptCandidate>): ScriptCandidate? = candidates
         .filter { it.text.isNotEmpty() }
-        .maxByOrNull { score(it, evidence) }
+        .maxByOrNull(::score)
 
-    fun score(candidate: ScriptCandidate, evidence: IndependentScriptEvidence): Double {
-        if (evidence.script == ScriptEvidence.NEUTRAL) {
-            return candidate.confidence.toDouble()
+    fun score(candidate: ScriptCandidate): Double {
+        val scripts = candidate.text.codePoints()
+            .toArray()
+            .map(::scriptOf)
+            .filter { it != ScriptEvidence.NEUTRAL }
+            .toSet()
+        val isCommonPack = ScriptEvidence.COMMON in candidate.pack.acceptedScripts
+        if (scripts.isEmpty()) {
+            return candidate.confidence + if (isCommonPack) COMMON_NEUTRAL_BIAS else 0.0
         }
-        val routeAdjustment = if (evidence.script in candidate.pack.acceptedScripts) {
-            0.20 * evidence.confidence
+        val compatible = scripts.all {
+            it in candidate.pack.acceptedScripts || (!isCommonPack && it == ScriptEvidence.COMMON)
+        }
+        val scriptAdjustment = if (compatible) {
+            SCRIPT_MATCH_BONUS
         } else {
-            -0.55 * evidence.confidence
+            -SCRIPT_MISMATCH_PENALTY
         }
-        return candidate.confidence + routeAdjustment
+        return candidate.confidence + scriptAdjustment + if (isCommonPack) 0.0 else SPECIALIST_BIAS
     }
 
     private fun scriptOf(codePoint: Int): ScriptEvidence = when (codePoint) {

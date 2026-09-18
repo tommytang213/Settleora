@@ -128,6 +128,20 @@ test("verification rejects drift in bound parser evidence", async (t) => {
   assert.match(result.failures.join("\n"), /bound acceptance source sha256 mismatch/);
 });
 
+test("verification rejects drift in bound native OCR semantics", async (t) => {
+  const temporaryRoot = copyVerificationFixture(t, "settleora-ocr-native-");
+  const source = JSON.parse(readFileSync(path.join(repoRoot, catalogRelativePath), "utf8"));
+  const nativePath = path.join(
+    temporaryRoot,
+    source.acceptanceContract.nativeSemantics.files[0].path,
+  );
+  writeFileSync(nativePath, `${readFileSync(nativePath, "utf8")}\n// changed\n`);
+
+  const result = await verifyCatalog(temporaryRoot);
+  assert.equal(result.ok, false);
+  assert.match(result.failures.join("\n"), /bound acceptance source sha256 mismatch/);
+});
+
 test("catalog rejects incompatible runtime metadata", (t) => {
   const temporaryRoot = mkdtempSync(path.join(tmpdir(), "settleora-ocr-runtime-"));
   t.after(() => rmSync(temporaryRoot, { recursive: true, force: true }));
@@ -180,6 +194,14 @@ function copyVerificationFixture(t, prefix) {
     const target = path.join(temporaryRoot, relativePath);
     mkdirSync(path.dirname(target), { recursive: true });
     cpSync(path.join(repoRoot, relativePath), target);
+  }
+  const catalog = JSON.parse(
+    readFileSync(path.join(repoRoot, catalogRelativePath), "utf8"),
+  );
+  for (const source of catalog.acceptanceContract.nativeSemantics.files) {
+    const target = path.join(temporaryRoot, source.path);
+    mkdirSync(path.dirname(target), { recursive: true });
+    cpSync(path.join(repoRoot, source.path), target);
   }
   return temporaryRoot;
 }

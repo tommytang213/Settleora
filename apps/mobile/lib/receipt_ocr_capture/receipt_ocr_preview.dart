@@ -3,6 +3,7 @@ class ReceiptOcrPreview {
     this.merchant,
     this.receiptDate,
     this.currency,
+    this.currencyProvenance = ReceiptOcrCurrencyProvenance.explicit,
     this.subtotal,
     this.tax,
     this.service,
@@ -13,11 +14,14 @@ class ReceiptOcrPreview {
     this.category,
     this.warnings = const [],
     this.items = const [],
+    this.blocks = const [],
+    this.runEvidence,
   });
 
   final String? merchant;
   final String? receiptDate;
   final String? currency;
+  final ReceiptOcrCurrencyProvenance currencyProvenance;
   final String? subtotal;
   final String? tax;
   final String? service;
@@ -28,6 +32,8 @@ class ReceiptOcrPreview {
   final String? category;
   final List<String> warnings;
   final List<ReceiptOcrItemCandidate> items;
+  final List<ReceiptOcrBlockEvidence> blocks;
+  final ReceiptOcrRunEvidence? runEvidence;
 
   List<String> get reviewHints {
     return _receiptOcrReviewHints(this);
@@ -39,6 +45,49 @@ class ReceiptOcrPreview {
         currency != null ||
         items.isNotEmpty;
   }
+}
+
+enum ReceiptOcrCurrencyProvenance {
+  explicit,
+  contextInferred,
+  defaultFallback,
+  unresolved,
+}
+
+class ReceiptOcrPoint {
+  const ReceiptOcrPoint({required this.x, required this.y});
+  final double x;
+  final double y;
+}
+
+class ReceiptOcrBlockEvidence {
+  const ReceiptOcrBlockEvidence({
+    required this.text,
+    required this.order,
+    this.confidence,
+    this.modelPackId,
+    this.modelVersion,
+    this.textDirection,
+    this.points = const [],
+  });
+  final String text;
+  final int order;
+  final double? confidence;
+  final String? modelPackId;
+  final String? modelVersion;
+  final String? textDirection;
+  final List<ReceiptOcrPoint> points;
+}
+
+class ReceiptOcrRunEvidence {
+  const ReceiptOcrRunEvidence({
+    this.detectionModelPackId,
+    this.detectionModelVersion,
+    this.runtime,
+  });
+  final String? detectionModelPackId;
+  final String? detectionModelVersion;
+  final String? runtime;
 }
 
 class ReceiptOcrItemCandidate {

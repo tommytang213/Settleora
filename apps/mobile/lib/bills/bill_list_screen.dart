@@ -266,6 +266,7 @@ ReceiptOcrPreview _copyReceiptOcrPreview(
     merchant: merchant ?? preview.merchant,
     receiptDate: receiptDate ?? preview.receiptDate,
     currency: currency ?? preview.currency,
+    currencyProvenance: preview.currencyProvenance,
     subtotal: preview.subtotal,
     tax: preview.tax,
     service: preview.service,
@@ -276,6 +277,8 @@ ReceiptOcrPreview _copyReceiptOcrPreview(
     category: preview.category,
     warnings: preview.warnings,
     items: items ?? preview.items,
+    blocks: preview.blocks,
+    runEvidence: preview.runEvidence,
   );
 }
 
@@ -1886,12 +1889,17 @@ class _SettleoraPersonalBillCreateScreenState
         suggestion: preview.receiptDate,
         defaultValue: _initialBillDate,
       ),
-      currency: _shouldDefaultApplyReceiptOcrText(
-        current: _currencyController.text,
-        suggestion: preview.currency,
-        defaultValue: _initialCurrency,
-        normalize: _normalizeReceiptOcrCurrency,
-      ),
+      currency:
+          preview.currencyProvenance !=
+              ReceiptOcrCurrencyProvenance.defaultFallback &&
+          preview.currencyProvenance !=
+              ReceiptOcrCurrencyProvenance.unresolved &&
+          _shouldDefaultApplyReceiptOcrText(
+            current: _currencyController.text,
+            suggestion: preview.currency,
+            defaultValue: _initialCurrency,
+            normalize: _normalizeReceiptOcrCurrency,
+          ),
       items:
           preview.items.isNotEmpty && !_personalBillItemsHaveMeaningfulData(),
     );
@@ -6410,12 +6418,17 @@ class _SettleoraGroupBillCreateScreenState
         suggestion: preview.receiptDate,
         defaultValue: _initialBillDate,
       ),
-      currency: _shouldDefaultApplyReceiptOcrText(
-        current: _currencyController.text,
-        suggestion: preview.currency,
-        defaultValue: _initialCurrency,
-        normalize: _normalizeReceiptOcrCurrency,
-      ),
+      currency:
+          preview.currencyProvenance !=
+              ReceiptOcrCurrencyProvenance.defaultFallback &&
+          preview.currencyProvenance !=
+              ReceiptOcrCurrencyProvenance.unresolved &&
+          _shouldDefaultApplyReceiptOcrText(
+            current: _currencyController.text,
+            suggestion: preview.currency,
+            defaultValue: _initialCurrency,
+            normalize: _normalizeReceiptOcrCurrency,
+          ),
       items: preview.items.isNotEmpty && !_groupBillItemsHaveMeaningfulData(),
     );
   }

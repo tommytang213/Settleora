@@ -37,9 +37,22 @@
         }
       ]
     },
+    "nativeSemantics": {
+      "files": [
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/SettleoraPaddleOcrEngine.kt", "sha256": "004116dd13590b831bbddb31a7f1c8e7f0f4c4fc234c0b7b04bbc9dc7d795777" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ScriptRouteSelector.kt", "sha256": "e473956624edd637a79f3be3e16e9cb6dd1b2f0b4b888163ac4e2d5fe2be3b0a" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/RecognizedTextNormalizer.kt", "sha256": "274f32c1223564d4f9bd4d061246782ed7c80a05a525c046c95ec6e5f5c30550" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ReceiptBlockOrder.kt", "sha256": "0b22b55135ec76fe203e9a0b5d4ac561e7b87853fc6b552f88a85c4e67a1ad9c" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/preprocess/DetPreprocessor.kt", "sha256": "9e16244a57d8d8be5aba3eff85c676d0b08282f396868fa244bf35dd572dcff8" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/preprocess/RecPreprocessor.kt", "sha256": "833048125b2f75cfab4ecb7d0e15cbb4e85ea1f45645e3ed71cbb1e785e46e39" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/postprocess/DBPostProcessor.kt", "sha256": "53923f88a025a4810d009223a79d15e9e27200673f40722ff0f9e105d2b12276" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/postprocess/CTCDecoder.kt", "sha256": "bf9bb517fd37f47234324ad70e89b6748b8a25a401b57ff2878fc059c46304e2" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/postprocess/QuadTextCrop.kt", "sha256": "49f8889430ca8aeda4ef5e90f8de4b0e695696de64fdd97d8ed7421d21198109" }
+      ]
+    },
     "parser": {
       "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_parser.dart",
-      "sha256": "929552df9498855578f351d7f54a295f1b7f8bcfaba3e5b27f98954b0417d892"
+      "sha256": "9563c844efe46cf1c69365cbd02eaa8f782324add3b687247a1a15a7b15af02d"
     }
   },
   "totalBundledBytes": 76580102,

@@ -15,10 +15,23 @@ void main() {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
     final channel = _FakeChannel({
       'blocks': [
-        {'text': 'TOTAL 12.50', 'order': 2},
+        {
+          'text': 'TOTAL 12.50',
+          'order': 2,
+          'confidence': 0.91,
+          'modelPackId': 'common',
+          'modelVersion': 'v1',
+          'textDirection': 'ltr',
+          'points': [
+            {'x': 1.0, 'y': 2.0},
+          ],
+        },
         {'text': 'Corner Cafe', 'order': 0},
         {'text': 'Tea 12.50', 'order': 1},
       ],
+      'detectionModelPackId': 'detector',
+      'detectionModelVersion': 'v2',
+      'runtime': 'onnxruntime-android:1.21.1:cpu',
     });
     final provider = PaddleReceiptOcrProvider(channel: channel);
 
@@ -34,6 +47,11 @@ void main() {
     expect(result.status, ReceiptOcrStatus.extracted);
     expect(result.preview?.merchant, 'Corner Cafe');
     expect(result.preview?.total, '12.50');
+    expect(result.preview?.blocks, hasLength(3));
+    expect(result.preview?.blocks.last.modelPackId, 'common');
+    expect(result.preview?.blocks.last.points.single.x, 1.0);
+    expect(result.preview?.runEvidence?.detectionModelPackId, 'detector');
+    expect(result.preview?.runEvidence?.runtime, contains('onnxruntime'));
   });
 
   test('provider maps channel failures to bounded manual fallback', () async {

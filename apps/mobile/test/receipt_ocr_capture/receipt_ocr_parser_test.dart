@@ -25,6 +25,7 @@ Thank you
     expect(preview.merchant, 'Corner Market');
     expect(preview.receiptDate, '2026-06-12');
     expect(preview.currency, 'HKD');
+    expect(preview.currencyProvenance, ReceiptOcrCurrencyProvenance.explicit);
     expect(preview.subtotal, '43.00');
     expect(preview.tax, '0.00');
     expect(preview.total, '43.00');
@@ -79,6 +80,7 @@ Total $5.50
 ''');
 
     expect(preview.currency, isNull);
+    expect(preview.currencyProvenance, ReceiptOcrCurrencyProvenance.unresolved);
     expect(
       preview.warnings,
       contains(
@@ -109,6 +111,10 @@ Total $18.00
     expect(explicitCode.currency, 'HKD');
     expect(explicitSymbol.currency, 'HKD');
     expect(hongKongContext.currency, 'HKD');
+    expect(
+      hongKongContext.currencyProvenance,
+      ReceiptOcrCurrencyProvenance.contextInferred,
+    );
   });
 
   test('ambiguous dollar uses fallback currency instead of USD', () {
@@ -121,6 +127,10 @@ Total $5.50
 ''', fallbackCurrency: 'HKD');
 
     expect(preview.currency, 'HKD');
+    expect(
+      preview.currencyProvenance,
+      ReceiptOcrCurrencyProvenance.defaultFallback,
+    );
     expect(preview.items.single.currency, 'HKD');
     expect(
       preview.warnings,
@@ -128,6 +138,29 @@ Total $5.50
         'The receipt only shows a currency symbol. Using the current bill currency; review it before applying.',
       ),
     );
+  });
+
+  test('parser normalizes Arabic-Indic AED receipt values', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+متجر دبي
+Date: ٢٠٢٦-٠٩-١٧
+قهوة ١٢٫٥٠ د.إ
+حلوى ٨٫٢٥ د.إ
+المجموع الفرعي ٢٠٫٧٥ د.إ
+الضريبة ١٫٠٤ د.إ
+الإجمالي ٢١٫٧٩ د.إ
+''');
+
+    expect(preview.merchant, 'متجر دبي');
+    expect(preview.receiptDate, '2026-09-17');
+    expect(preview.currency, 'AED');
+    expect(preview.currencyProvenance, ReceiptOcrCurrencyProvenance.explicit);
+    expect(preview.subtotal, '20.75');
+    expect(preview.tax, '1.04');
+    expect(preview.total, '21.79');
+    expect(preview.items.map((item) => item.description), ['قهوة', 'حلوى']);
+    expect(preview.items.map((item) => item.lineTotal), ['12.50', '8.25']);
   });
 
   test('ambiguous dollar uses USD only when fallback is USD', () {

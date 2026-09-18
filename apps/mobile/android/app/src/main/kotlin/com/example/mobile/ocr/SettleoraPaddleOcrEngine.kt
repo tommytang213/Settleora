@@ -17,11 +17,10 @@ import com.paddle.ocr.util.OpenCVUtils
 /**
  * Settleora's Android PaddleOCR/ONNX Runtime boundary.
  *
- * Detection runs once. The always-available common recognizer runs first and
- * supplies independent routing evidence. Only ambiguous lines are evaluated
- * by the bounded specialist fallback set. This keeps mixed-script routing
- * independent from phone locale and prevents a specialist from selecting
- * itself using characters that it may have hallucinated.
+ * Detection runs once. Every bundled Global Core recognizer evaluates every
+ * detected line, and a fixed calibrated selector chooses the compatible result.
+ * This correctness-first route is independent from phone locale and cannot be
+ * suppressed by a confident hallucination from the common recognizer.
  */
 class SettleoraPaddleOcrEngine(context: Context) {
     private val appContext = context.applicationContext
@@ -100,11 +99,7 @@ class SettleoraPaddleOcrEngine(context: Context) {
                 sourceNeedsRelease = false
             }
             if (crops.isNotEmpty()) {
-                val commonPack = packs.single { ScriptEvidence.COMMON in it.spec.acceptedScripts }
                 val candidatesByLine = List(crops.size) { mutableListOf<ScriptCandidate>() }
-                val evidenceByLine = MutableList(crops.size) {
-                    IndependentScriptEvidence(ScriptEvidence.NEUTRAL, 0.0)
-                }
                 val batches = crops.indices
                     .groupBy { index -> recognitionBatchCapacity(crops[index]) }
                     .flatMap { (capacity, indices) ->
@@ -139,30 +134,14 @@ class SettleoraPaddleOcrEngine(context: Context) {
                         )
                     }
                 }
-                for (batchIndices in batches) {
-                    recognizeBatch(commonPack, batchIndices)
-                }
-                candidatesByLine.forEachIndexed { index, candidates ->
-                    val commonCandidate = checkNotNull(candidates.singleOrNull()) {
-                        "Common recognizer did not produce exactly one line candidate"
-                    }
-                    evidenceByLine[index] = ScriptRouteSelector.evidenceFromCommon(commonCandidate)
-                }
-
-                val fallbackIndices = crops.indices.filter { index ->
-                    ScriptRouteSelector.requiresSpecialistFallback(evidenceByLine[index])
-                }.toSet()
-                if (fallbackIndices.isNotEmpty()) {
-                    for (pack in packs.filterNot { it === commonPack }) {
-                        for (batchIndices in batches) {
-                            val specialistBatch = batchIndices.filter { it in fallbackIndices }
-                            if (specialistBatch.isNotEmpty()) recognizeBatch(pack, specialistBatch)
-                        }
+                for (pack in packs) {
+                    for (batchIndices in batches) {
+                        recognizeBatch(pack, batchIndices)
                     }
                 }
 
                 candidatesByLine.forEachIndexed { index, candidates ->
-                    val accepted = ScriptRouteSelector.select(candidates, evidenceByLine[index])
+                    val accepted = ScriptRouteSelector.select(candidates)
                     if (accepted != null && accepted.confidence >= config.recScoreThresh) {
                         val (order, box) = validBoxes[index]
                         blocks += SettleoraOcrBlock(

@@ -4,7 +4,7 @@ import path from "node:path";
 
 export const catalogRelativePath = "apps/mobile/assets/receipt_ocr_models/catalog.json";
 const mobileRelativePath = "apps/mobile";
-const trustedCatalogSha256 = "c300d5527448352e3cccb6e4dc92fe68407c129611debfc1e65b176215aa4ec8";
+const trustedCatalogSha256 = "23f022a7a65ad13110eda8529b5a55974add7ceb6d904aa27aee88dca3c20aa5";
 const trustedLegalArtifacts = [
   { path: "assets/receipt_ocr_models/LICENSE-APACHE-2.0.txt", bytes: 11376, sha256: "3840c5c0c61c294264d2dd77b8777be6ddd90121ef4e0e64abcd22edea581d6e" },
   { path: "assets/receipt_ocr_models/LICENSE-ONNXRUNTIME-MIT.txt", bytes: 1073, sha256: "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c" },
@@ -130,7 +130,9 @@ function validateCatalogShape(catalog) {
   if (
     catalog.acceptanceContract?.status !== "pending_native_provider_acceptance" ||
     catalog.acceptanceContract?.fixtureCorpus?.treeDigestAlgorithm !==
-      "sha256-of-sorted-sha256sum-v1"
+      "sha256-of-sorted-sha256sum-v1" ||
+    !Array.isArray(catalog.acceptanceContract?.nativeSemantics?.files) ||
+    catalog.acceptanceContract.nativeSemantics.files.length === 0
   ) {
     throw new Error("Unsupported OCR acceptance evidence contract");
   }
@@ -206,7 +208,11 @@ async function verifyAcceptanceContract(repoRoot, catalog, failures) {
     }
   }
 
-  for (const source of [...contract.preprocessing.files, contract.parser]) {
+  for (const source of [
+    ...contract.preprocessing.files,
+    ...contract.nativeSemantics.files,
+    contract.parser,
+  ]) {
     const sourcePath = path.join(repoRoot, source.path);
     if (!existsSync(sourcePath) || !lstatSync(sourcePath).isFile()) {
       failures.push(`${source.path}: bound acceptance source missing`);

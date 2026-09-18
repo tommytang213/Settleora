@@ -5,60 +5,63 @@ import org.junit.Test
 
 class ScriptRouteSelectorTest {
     @Test
-    fun neutralIndependentEvidenceUsesConfidenceWithoutSelfValidation() {
+    fun calibratedSelectorPrefersScriptCompatibleCandidate() {
         val selected = ScriptRouteSelector.select(
             listOf(
-                candidate("common", ScriptEvidence.COMMON, "ABCD", 0.70f),
-                candidate("arabic-low", ScriptEvidence.ARABIC, "الإجمالي", 0.69f),
+                candidate("common", ScriptEvidence.COMMON, "ABCD", 0.99f),
+                candidate("arabic", ScriptEvidence.ARABIC, "الإجمالي", 0.82f),
             ),
-            IndependentScriptEvidence(ScriptEvidence.NEUTRAL, 0.0),
+        )
+
+        assertEquals("arabic", selected?.pack?.modelPackId)
+    }
+
+    @Test
+    fun longHighConfidenceLatinHallucinationCannotSuppressSpecialist() {
+        val selected = ScriptRouteSelector.select(
+            listOf(
+                candidate("common", ScriptEvidence.COMMON, "TOTALAMOUNT", 0.99f),
+                candidate("thai", ScriptEvidence.THAI, "ยอดรวม", 0.82f),
+            ),
+        )
+
+        assertEquals("thai", selected?.pack?.modelPackId)
+    }
+
+    @Test
+    fun rejectsTextOutsidePackDeclaredScript() {
+        val selected = ScriptRouteSelector.select(
+            listOf(
+                candidate("common", ScriptEvidence.COMMON, "الإجمالي", 0.99f),
+                candidate("arabic", ScriptEvidence.ARABIC, "الإجمالي", 0.60f),
+            ),
+        )
+
+        assertEquals("arabic", selected?.pack?.modelPackId)
+    }
+
+    @Test
+    fun neutralNumericLineUsesCommonRecognizerCalibration() {
+        val selected = ScriptRouteSelector.select(
+            listOf(
+                candidate("common", ScriptEvidence.COMMON, "12.50", 0.80f),
+                candidate("arabic", ScriptEvidence.ARABIC, "12.50", 0.81f),
+            ),
         )
 
         assertEquals("common", selected?.pack?.modelPackId)
     }
 
     @Test
-    fun strongCommonEvidenceAvoidsSpecialistFallback() {
-        val evidence = ScriptRouteSelector.evidenceFromCommon(
-            candidate("common", ScriptEvidence.COMMON, "TOTAL", 0.95f),
-        )
-
-        assertEquals(ScriptEvidence.COMMON, evidence.script)
-        assertEquals(false, ScriptRouteSelector.requiresSpecialistFallback(evidence))
-    }
-
-    @Test
-    fun ambiguousCommonResultRequiresBoundedSpecialistFallback() {
-        val evidence = ScriptRouteSelector.evidenceFromCommon(
-            candidate("common", ScriptEvidence.COMMON, "T0TAL", 0.61f),
-        )
-
-        assertEquals(ScriptEvidence.NEUTRAL, evidence.script)
-        assertEquals(true, ScriptRouteSelector.requiresSpecialistFallback(evidence))
-    }
-
-    @Test
-    fun shortHighConfidenceLookalikeRemainsAmbiguous() {
-        val evidence = ScriptRouteSelector.evidenceFromCommon(
-            candidate("common", ScriptEvidence.COMMON, "Cyn", 0.99f),
-        )
-
-        assertEquals(ScriptEvidence.NEUTRAL, evidence.script)
-        assertEquals(true, ScriptRouteSelector.requiresSpecialistFallback(evidence))
-    }
-
-    @Test
-    fun independentCommonEvidenceSelectsCommonCandidate() {
-        val evidence = IndependentScriptEvidence(ScriptEvidence.COMMON, 0.95)
+    fun mixedScriptLineCanSelectSpecialistWithoutLocaleHint() {
         val selected = ScriptRouteSelector.select(
             listOf(
-                candidate("common", ScriptEvidence.COMMON, "TOTAL", 0.90f),
-                candidate("arabic", ScriptEvidence.ARABIC, "T0TAL", 0.99f),
+                candidate("common", ScriptEvidence.COMMON, "TOTAL 21.79", 0.97f),
+                candidate("arabic", ScriptEvidence.ARABIC, "TOTAL الإجمالي 21.79", 0.82f),
             ),
-            evidence,
         )
 
-        assertEquals("common", selected?.pack?.modelPackId)
+        assertEquals("arabic", selected?.pack?.modelPackId)
     }
 
     private fun candidate(
