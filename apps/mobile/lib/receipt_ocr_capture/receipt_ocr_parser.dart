@@ -137,13 +137,14 @@ class ReceiptOcrParser {
       }
 
       final separatedDateMatches = RegExp(
-        r'\b(\d{1,2})[.-](\d{1,2})[.-](20\d{2}|19\d{2})\b',
+        r'\b(\d{1,2})([.-])(\d{1,2})\2(20\d{2}|19\d{2})\b',
       ).allMatches(line);
       for (final separatedDate in separatedDateMatches) {
         final first = int.parse(separatedDate.group(1)!);
-        final second = int.parse(separatedDate.group(2)!);
-        final year = int.parse(separatedDate.group(3)!);
-        final formatted = first > 12
+        final separator = separatedDate.group(2)!;
+        final second = int.parse(separatedDate.group(3)!);
+        final year = int.parse(separatedDate.group(4)!);
+        final formatted = first > 12 || (separator == '.' && second <= 12)
             ? _formatDate(year, second, first)
             : _formatDate(year, first, second);
         if (formatted != null) return formatted;
@@ -1040,6 +1041,10 @@ bool _isPaymentMetadataLine(String line) {
     return true;
   }
   if (RegExp(r'^(?:gift|prepaid)[ -]?card\b').hasMatch(normalized) &&
+      _lineHasAmount(line)) {
+    return true;
+  }
+  if (RegExp(r'^paid\s+(?:by\s+)?cash\b').hasMatch(normalized) &&
       _lineHasAmount(line)) {
     return true;
   }

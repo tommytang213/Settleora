@@ -640,6 +640,8 @@ Total USD 5.00
       'Tender USD 5.00',
       'Gift Card USD 5.00',
       'Prepaid-Card USD 5.00',
+      'Paid by cash USD 5.00',
+      'Paid cash USD 5.00',
     ]) {
       final punctuated = parser.parse('''
 Corner Cafe
@@ -927,7 +929,7 @@ Date: ٢٠٢٦-٠٩-١٧
     }
   });
 
-  test('parser disambiguates dotted and dashed month-first dates', () {
+  test('parser disambiguates dotted day-first and dashed dates', () {
     const parser = ReceiptOcrParser();
 
     expect(
@@ -941,6 +943,10 @@ Date: ٢٠٢٦-٠٩-١٧
     expect(
       parser.parse('Corner Cafe\nDate 17.09.2026\nTotal EUR 5.00').receiptDate,
       '2026-09-17',
+    );
+    expect(
+      parser.parse('Corner Cafe\nDate 04.05.2026\nTotal EUR 5.00').receiptDate,
+      '2026-05-04',
     );
     expect(
       parser
