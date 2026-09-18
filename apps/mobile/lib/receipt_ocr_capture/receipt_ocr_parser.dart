@@ -921,6 +921,10 @@ bool _isReceiptMetadataLine(String line) {
     RegExp(r'\b\d{1,2}\s*/\s*f\b'),
     RegExp(r'\b(p\.?\s*o\.?\s*box|po box)\b'),
     RegExp(r'\b(zip|postal|postcode)\s*[:#-]?\s*[a-z0-9 -]{3,10}\b'),
+    RegExp(r"^[a-z .'-]+,\s*[a-z]{2}\s+\d{5}(?:-\d{4})?$"),
+    RegExp(
+      r'^\s*(date|dated|issued|printed|reprinted)\s*[:#-]?\s*\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}\b',
+    ),
     RegExp(r'\b(tel|phone|fax|whatsapp|mobile|contact)\b'),
     RegExp(r'\b(?:\+?\d[\d ()-]{6,}\d)\b'),
     RegExp(r'\b(www\.|https?://|\.com\b|\.net\b|\.org\b|\.hk\b|@[\w.-]+\.)'),
@@ -1135,7 +1139,10 @@ bool _isPricedItemLine(String line) {
 bool _hasShippingLabel(String line, String normalized) {
   return _hasEnglishReceiptLabel(
     normalized,
-    RegExp(r'\b(shipping|delivery)\b', caseSensitive: false),
+    RegExp(
+      r'\b(shipping|delivery)(?:\s+(fee|charge))?\b',
+      caseSensitive: false,
+    ),
   );
 }
 

@@ -234,6 +234,11 @@ Total $5.50
         reason: fixture.text,
       );
     }
+
+    final stateAndZip = parser.parse(r'''Pike Deli
+Seattle, WA 98101
+Total $18.20''');
+    expect(stateAndZip.items, isEmpty);
   });
 
   test('numeric marketing text does not masquerade as a currency amount', () {
@@ -419,6 +424,16 @@ Total USD 40.99
     expect(preview.shipping, '9.99');
     expect(preview.tip, '5.00');
     expect(preview.items.map((item) => item.description), ['Burger', 'Beer']);
+
+    final suffixed = parser.parse('''
+Harbor Grill
+Burger USD 18.00
+Shipping Fee USD 9.99
+Delivery Charge USD 2.00
+Total USD 29.99
+''');
+    expect(suffixed.shipping, '9.99');
+    expect(suffixed.items.map((item) => item.description), ['Burger']);
   });
 
   test('parser separates charged tips and excludes suggested tip options', () {
@@ -676,6 +691,9 @@ Date: ٢٠٢٦-٠٩-١٧
           .receiptDate,
       '2026-09-17',
     );
+    final missingMerchant = parser.parse('Date 09.17.2026\nTotal USD 5.00');
+    expect(missingMerchant.merchant, isNull);
+    expect(missingMerchant.receiptDate, '2026-09-17');
   });
 
   test('parser normalizes fullwidth CJK monetary glyphs', () {
