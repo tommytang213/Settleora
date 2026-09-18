@@ -1,3 +1,5 @@
+import 'package:unorm_dart/unorm_dart.dart' as unicode_normalization;
+
 import 'receipt_ocr_preview.dart';
 import '../ui/settleora_form_fields.dart';
 
@@ -98,22 +100,24 @@ class ReceiptOcrParser {
         r'\b(20\d{2}|19\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日?',
       ).firstMatch(line);
       if (eastAsian != null) {
-        return _formatDate(
+        final formatted = _formatDate(
           int.parse(eastAsian.group(1)!),
           int.parse(eastAsian.group(2)!),
           int.parse(eastAsian.group(3)!),
         );
+        if (formatted != null) return formatted;
       }
 
       final iso = RegExp(
         r'\b(20\d{2}|19\d{2})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{1,2})\b',
       ).firstMatch(line);
       if (iso != null) {
-        return _formatDate(
+        final formatted = _formatDate(
           int.parse(iso.group(1)!),
           int.parse(iso.group(2)!),
           int.parse(iso.group(3)!),
         );
+        if (formatted != null) return formatted;
       }
 
       final slash = RegExp(
@@ -123,10 +127,10 @@ class ReceiptOcrParser {
         final first = int.parse(slash.group(1)!);
         final second = int.parse(slash.group(2)!);
         final year = int.parse(slash.group(3)!);
-        if (first > 12) {
-          return _formatDate(year, second, first);
-        }
-        return _formatDate(year, first, second);
+        final formatted = first > 12
+            ? _formatDate(year, second, first)
+            : _formatDate(year, first, second);
+        if (formatted != null) return formatted;
       }
 
       final separatedDate = RegExp(
@@ -136,10 +140,10 @@ class ReceiptOcrParser {
         final first = int.parse(separatedDate.group(1)!);
         final second = int.parse(separatedDate.group(2)!);
         final year = int.parse(separatedDate.group(3)!);
-        if (first > 12) {
-          return _formatDate(year, second, first);
-        }
-        return _formatDate(year, first, second);
+        final formatted = first > 12
+            ? _formatDate(year, second, first)
+            : _formatDate(year, first, second);
+        if (formatted != null) return formatted;
       }
     }
 
@@ -207,7 +211,8 @@ class ReceiptOcrParser {
     }
 
     final normalizedFallback = _supportedCurrencyCode(fallbackCurrency);
-    final ambiguousSymbolPresent = joined.contains(r'$') ||
+    final ambiguousSymbolPresent =
+        joined.contains(r'$') ||
         joined.contains('¥') ||
         RegExp(r'\bKR\b').hasMatch(joined) ||
         RegExp(r'\bRS\b').hasMatch(joined);
@@ -255,7 +260,9 @@ class ReceiptOcrParser {
       return labelledCode.hasMatch(line) ||
           codeBeforeAmount.hasMatch(line) ||
           amountBeforeCode.hasMatch(line) ||
-          wholeUnitEvidenceCount >= 2;
+          wholeUnitEvidenceCount >= 2 ||
+          (wholeUnitCode.hasMatch(line) &&
+              _hasWholeUnitCurrencyContext(line, code));
     });
   }
 
@@ -534,10 +541,13 @@ class _ReceiptCurrencyDetection {
 
 String _normalizeOcrLine(String value) {
   const digitSources = '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹';
-  var normalized = _normalizeFullwidthOcrText(value)
-      .replaceAll('\u066b', '.')
-      .replaceAll('\u066c', ',')
-      .replaceAll('\u00a0', ' ');
+  var normalized =
+      _normalizeFullwidthOcrText(
+            _normalizeArabicPresentationForms(value).replaceAll('\u0640', ''),
+          )
+          .replaceAll('\u066b', '.')
+          .replaceAll('\u066c', ',')
+          .replaceAll('\u00a0', ' ');
   for (var index = 0; index < digitSources.length; index += 1) {
     normalized = normalized.replaceAll(
       digitSources[index],
@@ -557,6 +567,19 @@ String _normalizeOcrLine(String value) {
     (match) => '${match.group(1)} ${match.group(3)} ${match.group(2)}',
   );
   return normalized.trim();
+}
+
+String _normalizeArabicPresentationForms(String value) {
+  final normalized = StringBuffer();
+  for (final rune in value.runes) {
+    if ((rune >= 0xFB50 && rune <= 0xFDFF) ||
+        (rune >= 0xFE70 && rune <= 0xFEFF)) {
+      normalized.write(unicode_normalization.nfkc(String.fromCharCode(rune)));
+    } else {
+      normalized.writeCharCode(rune);
+    }
+  }
+  return normalized.toString();
 }
 
 String _normalizeFullwidthOcrText(String value) {
@@ -812,6 +835,36 @@ String _explicitCodeAmountPattern(String code) {
   return r"-?\d+(?:[.,'’]\d+)+";
 }
 
+bool _hasWholeUnitCurrencyContext(String line, String code) {
+  final normalized = line.toLowerCase();
+  if (_hasSubtotalLabel(line, normalized) ||
+      _hasTaxLabel(line, normalized) ||
+      _hasServiceChargeLabel(line, normalized) ||
+      _hasActualTipChargeLabel(line, normalized) ||
+      _hasShippingLabel(line, normalized) ||
+      _hasDiscountLabel(line, normalized) ||
+      _hasTotalLabel(line, normalized)) {
+    return true;
+  }
+
+  final escapedCode = RegExp.escape(code);
+  final codeBeforeAmount = RegExp(
+    '^(.+?)\\s+\\b$escapedCode\\b\\s*[:=]?\\s*-?\\d+\\s*\$',
+    caseSensitive: false,
+  ).firstMatch(line);
+  final amountBeforeCode = RegExp(
+    '^(.+?)\\s+-?\\d+\\s*\\b$escapedCode\\b\\s*\$',
+    caseSensitive: false,
+  ).firstMatch(line);
+  final description = _cleanDescription(
+    (codeBeforeAmount ?? amountBeforeCode)?.group(1) ?? '',
+  );
+  return description.length >= 2 &&
+      _unicodeLetterPattern.hasMatch(description) &&
+      !_isLikelyNonItemDescription(description) &&
+      !_isReceiptMetadataLine(description);
+}
+
 int _currencyMinorUnitDigits(String? currency) {
   return switch (currency?.trim().toUpperCase()) {
     'JPY' || 'KRW' || 'VND' => 0,
@@ -1018,7 +1071,7 @@ bool _hasActualTipChargeLabel(String line, String normalized) {
   if (_isSuggestedTipLine(normalized)) return false;
   return _hasEnglishReceiptLabel(
     normalized,
-    RegExp(r'\b(?:actual\s+)?(?:tip|gratuity)\b', caseSensitive: false),
+    RegExp(r'\b(?:actual\s+tip|gratuity)\b', caseSensitive: false),
   );
 }
 
@@ -1195,6 +1248,13 @@ bool _hasLocalizedReceiptLabel(String line, List<String> labels) {
 
 String? _formatDate(int year, int month, int day) {
   if (month < 1 || month > 12 || day < 1 || day > 31) {
+    return null;
+  }
+
+  final calendarDate = DateTime.utc(year, month, day);
+  if (calendarDate.year != year ||
+      calendarDate.month != month ||
+      calendarDate.day != day) {
     return null;
   }
 

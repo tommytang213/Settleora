@@ -59,6 +59,18 @@ class ScriptRouteSelectorTest {
     }
 
     @Test
+    fun pureSingleGlyphSpecialistItemRemainsValidEvidence() {
+        val selected = ScriptRouteSelector.select(
+            listOf(
+                candidate("common", ScriptEvidence.COMMON, "X", 0.99f),
+                candidate("korean", ScriptEvidence.KOREAN, "차", 0.82f),
+            ),
+        )
+
+        assertEquals("korean", selected?.pack?.modelPackId)
+    }
+
+    @Test
     fun longHighConfidenceLatinHallucinationCannotSuppressSpecialist() {
         val selected = ScriptRouteSelector.select(
             listOf(

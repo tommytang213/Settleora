@@ -79,7 +79,7 @@ internal object ScriptRouteSelector {
         }
         val declaredCount = strongScripts.count { it in candidate.pack.acceptedScripts }
         val hasMeaningfulDeclaredCoverage = isCommonPack ||
-            (declaredCount >= MIN_SPECIALIST_SCRIPT_CHARACTERS &&
+            (declaredCount > 0 &&
                 declaredCount * MIN_SPECIALIST_SCRIPT_SHARE_DENOMINATOR >= strongScripts.size)
         val compatible = compatibleScripts && hasMeaningfulDeclaredCoverage
         if (!compatible) return Double.NEGATIVE_INFINITY
@@ -104,6 +104,5 @@ internal object ScriptRouteSelector {
         else -> ScriptEvidence.NEUTRAL
     }
 
-    private const val MIN_SPECIALIST_SCRIPT_CHARACTERS = 2
     private const val MIN_SPECIALIST_SCRIPT_SHARE_DENOMINATOR = 4
 }

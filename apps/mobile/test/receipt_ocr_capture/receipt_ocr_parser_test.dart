@@ -437,8 +437,12 @@ Suggested Tip 20% USD 4.36
 Total USD 20.00
 ''');
 
-    expect(charged.tip, '5.00');
-    expect(charged.items.map((item) => item.description), ['Fare', 'Toll']);
+    expect(charged.tip, isNull);
+    expect(charged.items.map((item) => item.description), [
+      'Fare',
+      'Toll',
+      'Tip',
+    ]);
     expect(suggested.items.map((item) => item.description), ['Pasta']);
   });
 
@@ -654,6 +658,14 @@ Date: ٢٠٢٦-٠٩-١٧
       parser.parse('Corner Cafe\nDate 17.09.2026\nTotal EUR 5.00').receiptDate,
       '2026-09-17',
     );
+    expect(
+      parser
+          .parse(
+            'Corner Cafe\nDate 02.31.2026\nDate 09.17.2026\nTotal USD 5.00',
+          )
+          .receiptDate,
+      '2026-09-17',
+    );
   });
 
   test('parser normalizes fullwidth CJK monetary glyphs', () {
@@ -677,6 +689,16 @@ Date: ٢٠٢٦-٠٩-١٧
     expect(preview.currency, 'AED');
     expect(preview.currencyProvenance, ReceiptOcrCurrencyProvenance.explicit);
     expect(preview.total, '21.79');
+  });
+
+  test('parser compatibility-normalizes Arabic presentation forms', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('ﺍﻹﺟﻤﺎﻟﻲ ﺩ.ﺇ٥');
+
+    expect(preview.currency, 'AED');
+    expect(preview.currencyProvenance, ReceiptOcrCurrencyProvenance.explicit);
+    expect(preview.total, '5');
+    expect(preview.items, isEmpty);
   });
 
   test('parser preserves U+060C thousands grouping', () {
@@ -719,6 +741,16 @@ TOTAL AED 5
     expect(preview.currencyProvenance, ReceiptOcrCurrencyProvenance.explicit);
     expect(preview.items.single.currency, 'AED');
     expect(preview.total, '5');
+  });
+
+  test('single whole-unit coded item is explicit monetary evidence', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('Coffee USD 5');
+
+    expect(preview.currency, 'USD');
+    expect(preview.currencyProvenance, ReceiptOcrCurrencyProvenance.explicit);
+    expect(preview.items.single.description, 'Coffee');
+    expect(preview.items.single.lineTotal, '5');
   });
 
   test('ambiguous dollar uses USD only when fallback is USD', () {
