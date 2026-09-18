@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
@@ -19,16 +21,21 @@ class MlKitReceiptOcrProvider implements ReceiptOcrProvider {
       );
     }
 
-    final imagePath = request.imagePath?.trim();
-    if (imagePath == null || imagePath.isEmpty) {
+    if (request.bytes.isEmpty) {
       return const ReceiptOcrResult.failed(
         'The selected receipt image could not be prepared for reading. You can still enter the bill manually.',
       );
     }
 
     final textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
+    Directory? stagingDirectory;
     try {
-      final image = InputImage.fromFilePath(imagePath);
+      stagingDirectory = await Directory.systemTemp.createTemp(
+        'settleora-receipt-ocr-',
+      );
+      final stagedImage = File('${stagingDirectory.path}/receipt.jpg');
+      await stagedImage.writeAsBytes(request.bytes, flush: true);
+      final image = InputImage.fromFilePath(stagedImage.path);
       final recognizedText = await textRecognizer.processImage(image);
       final text = recognizedText.text.trim();
       if (text.isEmpty) {
@@ -45,7 +52,18 @@ class MlKitReceiptOcrProvider implements ReceiptOcrProvider {
         'Receipt reading failed. You can still enter the bill manually.',
       );
     } finally {
-      await textRecognizer.close();
+      try {
+        await textRecognizer.close();
+      } catch (_) {
+        // OCR teardown cannot replace the bounded recognition result.
+      }
+      if (stagingDirectory != null) {
+        try {
+          await stagingDirectory.delete(recursive: true);
+        } catch (_) {
+          // Best-effort disposal only; never surface local receipt paths.
+        }
+      }
     }
   }
 }

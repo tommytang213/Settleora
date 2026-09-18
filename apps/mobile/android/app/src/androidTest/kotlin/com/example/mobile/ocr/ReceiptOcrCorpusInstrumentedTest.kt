@@ -179,7 +179,8 @@ class ReceiptOcrCorpusInstrumentedTest {
     }
 
     private fun scriptBearingExpectedTexts(expected: JSONObject, script: String): List<String> {
-        val values = mutableListOf(expected.getString("merchant"))
+        val values = mutableListOf<String>()
+        (expected.opt("merchant") as? String)?.let(values::add)
         val items = expected.optJSONArray("items") ?: JSONArray()
         for (index in 0 until items.length()) {
             val item = items.get(index)

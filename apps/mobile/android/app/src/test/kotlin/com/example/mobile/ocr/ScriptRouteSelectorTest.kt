@@ -71,6 +71,18 @@ class ScriptRouteSelectorTest {
     }
 
     @Test
+    fun bundledCyrillicExtendedBLettersRouteToCyrillicPack() {
+        val selected = ScriptRouteSelector.select(
+            listOf(
+                candidate("common", ScriptEvidence.COMMON, "X", 0.99f),
+                candidate("cyrillic", ScriptEvidence.CYRILLIC, "Ꚙꚟ", 0.82f),
+            ),
+        )
+
+        assertEquals("cyrillic", selected?.pack?.modelPackId)
+    }
+
+    @Test
     fun longHighConfidenceLatinHallucinationCannotSuppressSpecialist() {
         val selected = ScriptRouteSelector.select(
             listOf(

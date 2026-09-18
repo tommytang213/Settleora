@@ -33,6 +33,7 @@ test("native semantic binding covers the exact provider execution path", () => {
     "apps/mobile/lib/bills/bill_list_screen.dart",
     "apps/mobile/lib/groups/group_list_screen.dart",
     "apps/mobile/lib/main.dart",
+    "apps/mobile/lib/receipt_ocr_capture/mlkit_receipt_ocr_provider.dart",
     "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_provider.dart",
     "apps/mobile/lib/receipt_ocr_capture/paddle_receipt_ocr_provider.dart",
     "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_preview.dart",

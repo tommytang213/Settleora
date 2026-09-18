@@ -96,10 +96,10 @@ class ReceiptOcrParser {
 
   String? _detectDate(List<String> lines) {
     for (final line in lines) {
-      final eastAsian = RegExp(
+      final eastAsianMatches = RegExp(
         r'\b(20\d{2}|19\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日?',
-      ).firstMatch(line);
-      if (eastAsian != null) {
+      ).allMatches(line);
+      for (final eastAsian in eastAsianMatches) {
         final formatted = _formatDate(
           int.parse(eastAsian.group(1)!),
           int.parse(eastAsian.group(2)!),
@@ -108,10 +108,10 @@ class ReceiptOcrParser {
         if (formatted != null) return formatted;
       }
 
-      final iso = RegExp(
+      final isoMatches = RegExp(
         r'\b(20\d{2}|19\d{2})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{1,2})\b',
-      ).firstMatch(line);
-      if (iso != null) {
+      ).allMatches(line);
+      for (final iso in isoMatches) {
         final formatted = _formatDate(
           int.parse(iso.group(1)!),
           int.parse(iso.group(2)!),
@@ -120,10 +120,10 @@ class ReceiptOcrParser {
         if (formatted != null) return formatted;
       }
 
-      final slash = RegExp(
+      final slashMatches = RegExp(
         r'\b(\d{1,2})/(\d{1,2})/(20\d{2}|19\d{2})\b',
-      ).firstMatch(line);
-      if (slash != null) {
+      ).allMatches(line);
+      for (final slash in slashMatches) {
         final first = int.parse(slash.group(1)!);
         final second = int.parse(slash.group(2)!);
         final year = int.parse(slash.group(3)!);
@@ -133,10 +133,10 @@ class ReceiptOcrParser {
         if (formatted != null) return formatted;
       }
 
-      final separatedDate = RegExp(
+      final separatedDateMatches = RegExp(
         r'\b(\d{1,2})[.-](\d{1,2})[.-](20\d{2}|19\d{2})\b',
-      ).firstMatch(line);
-      if (separatedDate != null) {
+      ).allMatches(line);
+      for (final separatedDate in separatedDateMatches) {
         final first = int.parse(separatedDate.group(1)!);
         final second = int.parse(separatedDate.group(2)!);
         final year = int.parse(separatedDate.group(3)!);

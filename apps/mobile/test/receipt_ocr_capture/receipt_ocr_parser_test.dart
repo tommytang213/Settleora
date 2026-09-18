@@ -9,6 +9,8 @@ import 'package:mobile/receipt_ocr_capture/unsupported_receipt_ocr_provider.dart
 import 'package:mobile/ui/settleora_form_fields.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('selectable currencies remain aligned with API financial policy', () {
     expect(
       settleoraSupportedCurrencies.map((currency) => currency.code).toList(),
@@ -666,6 +668,14 @@ Date: ٢٠٢٦-٠٩-١٧
           .receiptDate,
       '2026-09-17',
     );
+    expect(
+      parser
+          .parse(
+            'Corner Cafe\nDate 02.31.2026 Reprinted 09.17.2026\nTotal USD 5.00',
+          )
+          .receiptDate,
+      '2026-09-17',
+    );
   });
 
   test('parser normalizes fullwidth CJK monetary glyphs', () {
@@ -1107,16 +1117,19 @@ Total USD 4.00
     expect(result.message, contains('manual'));
   });
 
-  test('ml kit provider safely fails when no image path is supplied', () async {
-    const provider = MlKitReceiptOcrProvider();
+  test(
+    'ml kit provider safely fails for invalid encoded image bytes',
+    () async {
+      const provider = MlKitReceiptOcrProvider();
 
-    final result = await provider.extractReceipt(
-      ReceiptOcrRequest(bytes: const [1, 2, 3], contentType: 'image/jpeg'),
-    );
+      final result = await provider.extractReceipt(
+        ReceiptOcrRequest(bytes: const [1, 2, 3], contentType: 'image/jpeg'),
+      );
 
-    expect(result.status, ReceiptOcrStatus.failed);
-    expect(result.message, contains('manual'));
-  });
+      expect(result.status, ReceiptOcrStatus.failed);
+      expect(result.message, contains('manual'));
+    },
+  );
 
   test('fakeable provider can return structured preview', () async {
     final provider = _FakeReceiptOcrProvider(
