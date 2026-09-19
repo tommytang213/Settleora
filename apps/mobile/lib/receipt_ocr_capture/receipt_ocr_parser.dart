@@ -1105,7 +1105,7 @@ bool _hasCurrencyMetadataShape(String remainder) {
   final amountPattern = '(?:$_amountTokenPattern)';
   return RegExp(
     '^(?:[:#=\\-]\\s*)?'
-    '(?:$qualifierPattern\\s+){0,3}'
+    '(?:$qualifierPattern(?:\\s*[:#=\\-]\\s*|\\s+)){0,3}'
     '(?:$currencyPattern(?:\\s+$amountPattern)?|'
     '$amountPattern(?:\\s+$currencyPattern)?)'
     '\\s*\$',

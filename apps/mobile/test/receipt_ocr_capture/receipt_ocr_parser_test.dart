@@ -703,6 +703,12 @@ $referenceLine
       'Payment zł',
       'Payment Rs',
       'Payment \$',
+      'Reference currency: EUR',
+      'Payment currency= AED',
+      'DCC amount# GBP',
+      'Card charged- US\$',
+      'Conversion amount: HK\$',
+      'Tender currency: \$',
     ]) {
       final preview = parser.parse('''
 Corner Cafe
@@ -739,6 +745,10 @@ $metadataLine
       'Reference HK\$',
       'Payment €',
       'Payment zł',
+      'Reference currency: EUR',
+      'Payment currency= AED',
+      'DCC amount# GBP',
+      'Card charged- HK\$',
     ]) {
       final preview = parser.parse('''
 Corner Cafe
@@ -767,6 +777,7 @@ $metadataLine
       'Reference Currency Guide PLN 18.00',
       'Conversion Rate Book USD 20.00',
       'Tender Cash Box GBP 22.00',
+      'Payment Card-Reader EUR 24.00',
     ]) {
       final expectedCurrency = itemLine.split(
         ' ',
@@ -784,6 +795,22 @@ Total ${itemLine.split(' ').last}
         reason: itemLine,
       );
     }
+  });
+
+  test('context currency outranks internally separated metadata currency', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Hong Kong Cafe
+Coffee \$5.00
+Total \$5.00
+Reference currency: EUR
+''');
+
+    expect(preview.currency, 'HKD');
+    expect(
+      preview.currencyProvenance,
+      ReceiptOcrCurrencyProvenance.contextInferred,
+    );
   });
 
   test('parser separates charged tips and excludes suggested tip options', () {
