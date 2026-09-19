@@ -62,11 +62,12 @@ test("terminates detached descendants that ignore the graceful overflow signal",
   await withCapture(async ({ stdoutPath, stderrPath }) => {
     const descendantSource = "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)";
     const parentSource = [
-      "const { spawn } = require('node:child_process')",
-      `const child = spawn(process.execPath, ['-e', ${JSON.stringify(descendantSource)}], { stdio: 'ignore' })`,
-      "process.stdout.write(`${child.pid}\\n${'x'.repeat(1000)}`)",
-      "setInterval(() => {}, 1000)",
-    ].join(";");
+      "import('node:child_process').then(({ spawn }) => {",
+      `const child = spawn(process.execPath, ['-e', ${JSON.stringify(descendantSource)}], { stdio: 'ignore' });`,
+      "process.stdout.write(`${child.pid}\\n${'x'.repeat(1000)}`);",
+      "setInterval(() => {}, 1000);",
+      "})",
+    ].join("");
     const status = await runBoundedProcess({
       stdoutPath,
       stderrPath,
