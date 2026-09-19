@@ -24,7 +24,7 @@ function withLog(contents, callback) {
 
 function protocolLog(...messages) {
   return [
-    { type: "start", time: 0, protocolVersion: "0.1.1", runnerVersion: "test", pid: 1 },
+    { type: "start", time: 0, protocolVersion: "0.1.1", runnerVersion: null, pid: 1 },
     ...messages.map((message) => ({
       type: "print",
       time: 1,
@@ -51,6 +51,12 @@ function evidenceArgs(log, platform = "android") {
     "base-sha": "e4d4edd0d6854845cc67b00924f6d22af6a70688",
   };
 }
+
+test("accepts Flutter 3.44.8 start events with a null runner version", () => {
+  withLog(protocolLog(), (log) => {
+    assert.doesNotThrow(() => buildEvidence(evidenceArgs(log), repoRoot));
+  });
+});
 
 test("retains only the bounded native acceptance schema", () => {
   const acceptance = {

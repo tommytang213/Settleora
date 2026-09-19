@@ -96,7 +96,7 @@ function assertProtocolEvent(event) {
     case "start":
       assertExactKeys(event, ["type", "time", "protocolVersion", "runnerVersion", "pid"], name);
       assertType(event.protocolVersion, "string", `${name}.protocolVersion`);
-      assertType(event.runnerVersion, "string", `${name}.runnerVersion`);
+      assertType(event.runnerVersion, "string", `${name}.runnerVersion`, { nullable: true });
       boundedInteger(event.pid, `${name}.pid`);
       break;
     case "allSuites":
