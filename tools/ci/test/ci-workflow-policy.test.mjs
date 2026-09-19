@@ -196,10 +196,13 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
     assert.ok(runCommands(job).some((command) => command.includes('--test-status=')));
     assert.ok(runCommands(job).some((command) => command.includes('--runner-image=')));
     assert.ok(runCommands(job).some((command) => command.includes('--native-image=')));
+    assert.ok(runCommands(job).some((command) => command.includes('--stderr-log=')));
     assert.ok(runCommands(job).some((command) => command.includes('--base-app-bytes=')));
     assert.ok(runCommands(job).some((command) => command.includes('git archive')));
     assert.ok(runCommands(job).some((command) => command.includes('>"$RUNNER_TEMP/')));
     assert.equal(runCommands(job).some((command) => command.includes('| tee ')), false);
+    assert.ok(runCommands(job).some((command) => command.includes('--machine')));
+    assert.ok(runCommands(job).some((command) => command.includes('flutter build') && command.includes('--profile')));
     const upload = stepsFor(job).find((step) => step.uses?.startsWith('actions/upload-artifact@'));
     assert.equal(upload.with.path.endsWith('-ocr-acceptance.json'), true);
     assert.equal(upload.with['if-no-files-found'], 'error');

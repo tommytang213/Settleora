@@ -44,10 +44,16 @@ function boundedIdentity(value, name) {
   return token;
 }
 
+function assertExactKeys(value, allowed, name) {
+  const extras = Object.keys(value).filter((key) => !allowed.includes(key));
+  if (extras.length > 0) throw new Error(`${name} contains non-allowlisted fields`);
+}
+
 function latencySummary(value, name) {
   if (value == null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`${name} must be an object`);
   }
+  assertExactKeys(value, ["sampleCount", "cold", "warmP50", "warmP95", "max"], name);
   const summary = {
     sampleCount: boundedInteger(value.sampleCount, `${name}.sampleCount`),
     cold: positiveInteger(value.cold, `${name}.cold`),
@@ -76,18 +82,39 @@ function sanitizeEnvironment(args) {
   };
 }
 
-function assertSafeLog(log, manifest) {
-  const sensitiveValues = manifest.fixtures.flatMap((fixture) => {
-    const expected = fixture.expected ?? {};
-    return [
-      expected.merchant,
-      ...(Array.isArray(expected.items) ? expected.items.map((item) => item?.[0]) : []),
-    ];
-  }).filter((value) => typeof value === "string" && value.length >= 6);
-  const normalizedLog = log.toLocaleLowerCase("en-US");
-  if (sensitiveValues.some((value) => normalizedLog.includes(value.toLocaleLowerCase("en-US")))) {
-    throw new Error("Acceptance log contains receipt-derived text");
+function parseSafeRunnerLog(log, stderrLog) {
+  if (stderrLog.trim() !== "") {
+    throw new Error("Acceptance runner wrote non-protocol diagnostics");
   }
+  const allowedEventTypes = new Set([
+    "start", "allSuites", "suite", "group", "testStart", "testDone", "done",
+  ]);
+  const markerMessages = [];
+  for (const [index, line] of log.split(/\r?\n/).entries()) {
+    if (line === "") continue;
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      throw new Error(`Acceptance runner line ${index + 1} is not protocol JSON`);
+    }
+    if (event == null || typeof event !== "object" || Array.isArray(event)) {
+      throw new Error(`Acceptance runner line ${index + 1} is not a protocol event`);
+    }
+    if (event.type === "print") {
+      if (
+        typeof event.message !== "string" ||
+        (!event.message.startsWith("SETTLEORA_OCR_ACCEPTANCE=") &&
+          !event.message.startsWith("SETTLEORA_OCR_UI_SMOKE="))
+      ) {
+        throw new Error("Acceptance runner emitted non-allowlisted application output");
+      }
+      markerMessages.push(event.message);
+    } else if (!allowedEventTypes.has(event.type)) {
+      throw new Error("Acceptance runner emitted a non-allowlisted protocol event");
+    }
+  }
+  return markerMessages;
 }
 
 function sanitizeAcceptance(value, platform) {
@@ -97,6 +124,11 @@ function sanitizeAcceptance(value, platform) {
   if (value.platform !== platform || value.schemaVersion !== 1 || value.completed !== true) {
     throw new Error("Acceptance marker identity is invalid");
   }
+  assertExactKeys(value, [
+    "schemaVersion", "platform", "completed", "fixtureCount", "passedFixtureCount",
+    "mismatchCount", "mismatches", "runtime", "coldLoadTimeMs", "endToEndLatencyMs",
+    "nativeLatencyMs", "peakRssBytes", "perScript",
+  ], "acceptance marker");
   if (!Array.isArray(value.mismatches) || value.mismatches.length > 4096) {
     throw new Error("Acceptance mismatch evidence is not bounded");
   }
@@ -104,6 +136,7 @@ function sanitizeAcceptance(value, platform) {
     if (entry == null || typeof entry !== "object" || Array.isArray(entry)) {
       throw new Error(`mismatches[${index}] must be an object`);
     }
+    assertExactKeys(entry, ["fixtureId", "field"], `mismatches[${index}]`);
     return {
       fixtureId: boundedToken(entry.fixtureId, `mismatches[${index}].fixtureId`),
       field: boundedToken(entry.field, `mismatches[${index}].field`),
@@ -120,6 +153,7 @@ function sanitizeAcceptance(value, platform) {
       if (counts == null || typeof counts !== "object" || Array.isArray(counts)) {
         throw new Error(`perScript.${script} must be an object`);
       }
+      assertExactKeys(counts, ["total", "passed"], `perScript.${script}`);
       return [
         script,
         {
@@ -181,6 +215,11 @@ function sanitizeUiSmoke(value, platform) {
   ) {
     throw new Error("UI smoke marker identity is invalid");
   }
+  assertExactKeys(
+    value,
+    ["schemaVersion", "platform", "completed", "fixtureId", "previewPanel", "applyBoundaryVisible"],
+    "UI smoke marker",
+  );
   return {
     schemaVersion: 1,
     platform,
@@ -202,7 +241,7 @@ function parseMarker(lines, marker, sanitize, fallback) {
 }
 
 export function buildEvidence(args, repoRoot = process.cwd()) {
-  for (const required of ["log", "platform", "source-sha", "test-status", "runner-image", "os-runtime", "sdk-toolchain", "device", "native-image", "base-sha"]) {
+  for (const required of ["log", "stderr-log", "platform", "source-sha", "test-status", "runner-image", "os-runtime", "sdk-toolchain", "device", "native-image", "base-sha"]) {
     if (!args[required]) throw new Error(`Missing --${required}`);
   }
   if (!new Set(["android", "ios"]).has(args.platform)) {
@@ -214,8 +253,12 @@ export function buildEvidence(args, repoRoot = process.cwd()) {
   if (statSync(args.log).size > maxLogBytes) {
     throw new Error("Acceptance log exceeds the bounded parser limit");
   }
+  if (statSync(args["stderr-log"]).size > maxLogBytes) {
+    throw new Error("Acceptance stderr log exceeds the bounded parser limit");
+  }
   const log = readFileSync(args.log, "utf8");
-  const lines = log.split(/\r?\n/);
+  const stderrLog = readFileSync(args["stderr-log"], "utf8");
+  const lines = parseSafeRunnerLog(log, stderrLog);
   const acceptance = parseMarker(
     lines,
     "SETTLEORA_OCR_ACCEPTANCE=",
@@ -232,8 +275,6 @@ export function buildEvidence(args, repoRoot = process.cwd()) {
   const catalogPath = path.join(repoRoot, "apps/mobile/assets/receipt_ocr_models/catalog.json");
   const manifestPath = path.join(repoRoot, "apps/mobile/test/fixtures/receipt_ocr/manifest.json");
   const catalog = JSON.parse(readFileSync(catalogPath, "utf8"));
-  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-  assertSafeLog(log, manifest);
   const sha256 = (filePath) => createHash("sha256").update(readFileSync(filePath)).digest("hex");
   const fullBytes = parseOptionalBytes(args["full-bytes"]);
   const modelFreeBytes = parseOptionalBytes(args["model-free-bytes"]);

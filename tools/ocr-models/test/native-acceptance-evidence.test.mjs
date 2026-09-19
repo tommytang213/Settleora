@@ -15,15 +15,25 @@ function withLog(contents, callback) {
   try {
     const log = path.join(temporaryDirectory, "acceptance.log");
     writeFileSync(log, contents, { mode: 0o600 });
+    writeFileSync(`${log}.stderr`, "", { mode: 0o600 });
     return callback(log);
   } finally {
     rmSync(temporaryDirectory, { recursive: true, force: true });
   }
 }
 
+function protocolLog(...messages) {
+  return [
+    { type: "start", protocolVersion: "0.1.1" },
+    ...messages.map((message) => ({ type: "print", message })),
+    { type: "done", success: true },
+  ].map((event) => JSON.stringify(event)).join("\n") + "\n";
+}
+
 function evidenceArgs(log, platform = "android") {
   return {
     log,
+    "stderr-log": `${log}.stderr`,
     platform,
     "source-sha": sourceSha,
     "test-status": "0",
@@ -46,14 +56,13 @@ test("retains only the bounded native acceptance schema", () => {
     fixtureCount: 101,
     passedFixtureCount: 100,
     mismatchCount: 1,
-    mismatches: [{ fixtureId: "fixture_001", field: "items[0].description", rawText: "private" }],
+    mismatches: [{ fixtureId: "fixture_001", field: "items[0].description" }],
     runtime: "onnxruntime-android:1.21.1:cpu",
     coldLoadTimeMs: 25,
     endToEndLatencyMs: { sampleCount: 101, cold: 30, warmP50: 20, warmP95: 24, max: 30 },
     nativeLatencyMs: { sampleCount: 101, cold: 28, warmP50: 18, warmP95: 22, max: 28 },
     peakRssBytes: 123456,
-    perScript: { Latin: { total: 101, passed: 100, leaked: "private" } },
-    rawOcrText: "private",
+    perScript: { Latin: { total: 101, passed: 100 } },
   };
   const uiSmoke = {
     schemaVersion: 1,
@@ -62,10 +71,12 @@ test("retains only the bounded native acceptance schema", () => {
     fixtureId: "fixture_001",
     previewPanel: true,
     applyBoundaryVisible: true,
-    rawOcrText: "private",
   };
   withLog(
-    `SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify(acceptance)}\nSETTLEORA_OCR_UI_SMOKE=${JSON.stringify(uiSmoke)}\n`,
+    protocolLog(
+      `SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify(acceptance)}`,
+      `SETTLEORA_OCR_UI_SMOKE=${JSON.stringify(uiSmoke)}`,
+    ),
     (log) => {
       const evidence = buildEvidence(
         {
@@ -84,7 +95,7 @@ test("retains only the bounded native acceptance schema", () => {
       assert.equal(evidence.execution.testExitStatus, 0);
       assert.equal(evidence.execution.environment.device, "test-device");
       assert.equal(evidence.identities.baseAppSha, evidenceArgs(log)["base-sha"]);
-      assert.equal(JSON.stringify(evidence).includes("private"), false);
+      assert.deepEqual(Object.keys(evidence.acceptance.mismatches[0]), ["fixtureId", "field"]);
     },
   );
 });
@@ -132,17 +143,20 @@ test("CLI writes a bounded failure artifact before rejecting malformed markers",
   const temporaryDirectory = mkdtempSync(path.join(os.tmpdir(), "settleora-ocr-evidence-cli-"));
   try {
     const log = path.join(temporaryDirectory, "acceptance.log");
+    const stderrLog = `${log}.stderr`;
     const out = path.join(temporaryDirectory, "evidence.json");
     writeFileSync(
       log,
-      `SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({ schemaVersion: 1, platform: "android", completed: true, runtime: "private raw receipt text" })}\n`,
+      protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({ schemaVersion: 1, platform: "android", completed: true, runtime: "private raw receipt text" })}`),
       { mode: 0o600 },
     );
+    writeFileSync(stderrLog, "", { mode: 0o600 });
     const result = spawnSync(
       process.execPath,
       [
         path.join(repoRoot, "tools/ocr-models/native-acceptance-evidence.mjs"),
         `--log=${log}`,
+        `--stderr-log=${stderrLog}`,
         `--out=${out}`,
         "--platform=android",
         `--source-sha=${sourceSha}`,
@@ -167,7 +181,7 @@ test("CLI writes a bounded failure artifact before rejecting malformed markers",
 });
 
 test("produces bounded incomplete evidence when device execution emits no markers", () => {
-  withLog("device did not boot\n", (log) => {
+  withLog(protocolLog(), (log) => {
     const evidence = buildEvidence(evidenceArgs(log, "ios"), repoRoot);
     assert.deepEqual(evidence.acceptance, {
       schemaVersion: 1,
@@ -180,15 +194,27 @@ test("produces bounded incomplete evidence when device execution emits no marker
   });
 });
 
-test("rejects receipt-derived text and unresolved environment identity in captured logs", () => {
-  withLog("native diagnostic: CloudCart Marketplace\n", (log) => {
-    assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot), /receipt-derived text/);
+test("rejects all non-allowlisted application output and unresolved environment identity", () => {
+  withLog(protocolLog("native diagnostic: unexpected receipt text"), (log) => {
+    assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot), /non-allowlisted/);
   });
-  withLog("device did not boot\n", (log) => {
+  withLog(protocolLog(), (log) => {
     assert.throws(
       () => buildEvidence({ ...evidenceArgs(log), "runner-image": "unknown-unknown" }, repoRoot),
       /must be resolved/,
     );
+  });
+});
+
+test("rejects non-allowlisted marker fields before evidence can be accepted", () => {
+  const marker = {
+    schemaVersion: 1,
+    platform: "android",
+    completed: true,
+    rawOcrText: "private receipt text",
+  };
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify(marker)}`), (log) => {
+    assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot), /non-allowlisted fields/);
   });
 });
 
@@ -208,7 +234,7 @@ test("rejects unbounded marker tokens rather than retaining arbitrary OCR text",
     peakRssBytes: 1,
     perScript: {},
   };
-  withLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify(acceptance)}\n`, (log) => {
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify(acceptance)}`), (log) => {
     assert.throws(
       () => buildEvidence(evidenceArgs(log), repoRoot),
       /bounded evidence token/,
@@ -232,13 +258,13 @@ test("rejects contradictory aggregate counts and package measurements", () => {
     peakRssBytes: 1,
     perScript: { Latin: { total: 101, passed: 101 } },
   };
-  withLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify(acceptance)}\n`, (log) => {
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify(acceptance)}`), (log) => {
     assert.throws(
       () => buildEvidence(evidenceArgs(log), repoRoot),
       /internally inconsistent/,
     );
   });
-  withLog("device did not boot\n", (log) => {
+  withLog(protocolLog(), (log) => {
     assert.throws(
       () => buildEvidence(
         {
