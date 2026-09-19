@@ -64,8 +64,7 @@ test("verifies every catalog model and rejects concrete fixture paths in Android
 test("verifies every catalog model and rejects concrete fixture paths in iOS apps", () => {
   withPackageContract(({ root, model }) => {
     const app = path.join(root, "Runner.app");
-    const flutterAssets = path.join(app, "Frameworks/App.framework/flutter_assets");
-    const modelPath = path.join(flutterAssets, "assets/receipt_ocr_models/test-pack/model.onnx");
+    const modelPath = path.join(app, "receipt_ocr_models/test-pack/model.onnx");
     mkdirSync(path.dirname(modelPath), { recursive: true });
     writeFileSync(modelPath, model);
     assert.deepEqual(
@@ -73,7 +72,7 @@ test("verifies every catalog model and rejects concrete fixture paths in iOS app
       { modelFileCount: 1, fixtureFileCount: 102 },
     );
 
-    const fixturePath = path.join(flutterAssets, "script/fixture-0.png");
+    const fixturePath = path.join(app, "receipt_ocr_acceptance/script/fixture-0.png");
     mkdirSync(path.dirname(fixturePath), { recursive: true });
     writeFileSync(fixturePath, "fixture");
     assert.throws(

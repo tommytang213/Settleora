@@ -83,9 +83,11 @@ function verifyAndroidPackage(packagePath, contract, runCommand) {
 }
 
 function verifyIosPackage(packagePath, contract) {
-  const flutterAssets = path.join(packagePath, "Frameworks/App.framework/flutter_assets");
   for (const model of contract.models) {
-    const filePath = path.join(flutterAssets, ...model.relativePath.split("/"));
+    const packagedRelativePath = model.relativePath.startsWith("assets/")
+      ? model.relativePath.slice("assets/".length)
+      : model.relativePath;
+    const filePath = path.join(packagePath, ...packagedRelativePath.split("/"));
     const stat = lstatSync(filePath);
     if (!stat.isFile() || stat.isSymbolicLink()) {
       throw new Error(`Production iOS app model is not a regular file: ${model.relativePath}`);
@@ -93,7 +95,7 @@ function verifyIosPackage(packagePath, contract) {
     validateModel(readFileSync(filePath), model, model.relativePath);
   }
   for (const fixture of contract.fixtures) {
-    const filePath = path.join(flutterAssets, ...fixture.split("/"));
+    const filePath = path.join(packagePath, "receipt_ocr_acceptance", ...fixture.split("/"));
     try {
       lstatSync(filePath);
       throw new Error(`Production iOS app contains acceptance fixture ${fixture}`);
