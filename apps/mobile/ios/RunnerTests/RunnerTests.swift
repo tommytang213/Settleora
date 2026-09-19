@@ -94,7 +94,7 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(counterclockwise.y, 74)
   }
 
-  func testArabicRowOrderingTreatsIsoCurrencyAmountAsNeutral() {
+  func testArabicPresentationFormRowOrderingTreatsIsoCurrencyAmountAsNeutral() {
     let amount = SettleoraOcrBlock(
       text: "SAR 12.00",
       confidence: 0.9,
@@ -108,8 +108,9 @@ class RunnerTests: XCTestCase {
         SettleoraOcrPoint(x: 80, y: 30), SettleoraOcrPoint(x: 10, y: 30),
       ]
     )
+    let presentationDescription = "\u{FB59}\u{FB6A}\u{FDF2}"
     let description = SettleoraOcrBlock(
-      text: "خبز",
+      text: presentationDescription,
       confidence: 0.9,
       modelPackID: "arabic",
       modelVersion: "test",
@@ -124,7 +125,7 @@ class RunnerTests: XCTestCase {
 
     let ordered = ReceiptBlockOrder.normalize([amount, description])
 
-    XCTAssertEqual(ordered.map(\.text), ["خبز", "SAR 12.00"])
+    XCTAssertEqual(ordered.map(\.text), [presentationDescription, "SAR 12.00"])
     XCTAssertEqual(ordered.map(\.order), [0, 1])
     XCTAssertEqual(ordered.map(\.row), [0, 0])
   }

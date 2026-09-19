@@ -95,7 +95,13 @@ enum ReceiptBlockOrder {
       switch scalar.properties.generalCategory {
       case .uppercaseLetter, .lowercaseLetter, .titlecaseLetter, .modifierLetter, .otherLetter:
         let value = scalar.value
-        if (0x0590...0x08FF).contains(value) { rtl += 1 } else { ltr += 1 }
+        if (0x0590...0x08FF).contains(value) ||
+          (0xFB50...0xFDFF).contains(value) ||
+          (0xFE70...0xFEFF).contains(value) {
+          rtl += 1
+        } else {
+          ltr += 1
+        }
       default: break
       }
     }

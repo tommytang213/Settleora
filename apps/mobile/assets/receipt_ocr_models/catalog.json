@@ -107,7 +107,7 @@
         { "path": "apps/mobile/ios/Runner/PaddleOCR/Engine/QuadTextCrop.swift", "sha256": "a1843f75de5cf749514893308991d8120522335f9a11c4544d7c9eb4469c4f4d" },
         { "path": "apps/mobile/ios/Runner/PaddleOCR/Engine/RecPreprocessor.swift", "sha256": "69a1642b788a523e8754f56ee50c7c151bbc2102021d10b09392c7d0be2ff1ff" },
         { "path": "apps/mobile/ios/Runner/PaddleOCR/ReceiptDocumentOrientation.swift", "sha256": "1ec4ab12524f6dd02f354557301c6aacee5211bbf06adf422afc824d8170decd" },
-        { "path": "apps/mobile/ios/Runner/PaddleOCR/ReceiptOcrOrdering.swift", "sha256": "c6ea34fd70f21f8abbe2abb3db3134b0a58ecc221d77d2365690b47a6db15ffd" },
+        { "path": "apps/mobile/ios/Runner/PaddleOCR/ReceiptOcrOrdering.swift", "sha256": "4f83557452e0df4032ec83e1e8ff842619947b059a19174f6448d871d2bdb43e" },
         { "path": "apps/mobile/ios/Runner/PaddleOCR/SettleoraORTSessionManager.swift", "sha256": "f08afd41d7e301105e49e2e92677071c4ac1e995e84c63b07e345329a26208c8" },
         { "path": "apps/mobile/ios/Runner/PaddleOCR/SettleoraOcrModels.swift", "sha256": "0a1183da7657223bd30ca31befdcd0a39ed8016a296ff0d8677c4ca603b419a8" },
         { "path": "apps/mobile/ios/Runner/PaddleOCR/SettleoraPaddleOcrEngine.swift", "sha256": "181917d4ed064f9534e6bdccee8ac9c0402d5c4ec828a0fed47c5e7d8c1d4f51" },
