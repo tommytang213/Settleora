@@ -192,9 +192,12 @@ function sanitizeEnvironment(args) {
 }
 
 function parseSafeRunnerLog(log, stderrLog) {
-  if (stderrLog.trim() !== "") {
-    throw new Error("Acceptance runner wrote non-protocol diagnostics");
-  }
+  // Flutter and the native toolchains may write build/runtime diagnostics to
+  // stderr even when --machine stdout remains valid. Treat stderr as an
+  // untrusted, bounded input and deliberately discard it; it is never copied
+  // into the evidence artifact. Completion still requires valid stdout
+  // protocol markers and a zero test exit status.
+  void stderrLog;
   const allowedEventTypes = new Set([
     "start", "allSuites", "suite", "group", "testStart", "testDone", "done", "error",
   ]);

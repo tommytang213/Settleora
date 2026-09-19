@@ -281,6 +281,19 @@ test("discards bounded Flutter failure envelopes without retaining their text", 
   });
 });
 
+test("discards bounded stderr diagnostics without retaining their text", () => {
+  withLog(protocolLog(), (logPath) => {
+    writeFileSync(
+      `${logPath}.stderr`,
+      "private toolchain path and diagnostic text\n",
+      { mode: 0o600 },
+    );
+    const evidence = buildEvidence(evidenceArgs(logPath), repoRoot);
+    assert.equal(JSON.stringify(evidence).includes("private toolchain path"), false);
+    assert.equal(JSON.stringify(evidence).includes("diagnostic text"), false);
+  });
+});
+
 test("rejects non-print Flutter message types", () => {
   const log = protocolLog("SETTLEORA_OCR_ACCEPTANCE={}")
     .replace('"messageType":"print"', '"messageType":"skip"');
