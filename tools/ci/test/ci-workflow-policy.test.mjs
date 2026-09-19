@@ -162,6 +162,49 @@ test('iOS build procedure is reusable, manual, pinned, and simulator-only', () =
   assert.doesNotMatch(JSON.stringify(job), /continue-on-error|--no-fatal-warnings|\|\|\s*true/);
 });
 
+test('native OCR acceptance is exact-head, device-backed, and retains only bounded evidence', () => {
+  const native = workflow('mobile-ocr-native-acceptance.yml');
+  assert.deepEqual(native.on.pull_request.branches, ['main']);
+  assert.ok(native.on.workflow_dispatch);
+  assert.deepEqual(native.permissions, { contents: 'read' });
+  assert.equal(native.env.EXPECTED_HEAD, "${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || inputs.expected_head }}");
+
+  const expectedJobs = [
+    ['android-native-acceptance', 'ubuntu-latest', 'emulator-5554'],
+    ['ios-native-acceptance', 'macos-latest', 'steps.simulator.outputs.udid'],
+  ];
+  for (const [jobName, runner, device] of expectedJobs) {
+    const job = native.jobs[jobName];
+    assert.equal(job['runs-on'], runner);
+    assert.equal(job['timeout-minutes'], 360);
+    const checkout = stepsFor(job).find((step) => step.uses?.startsWith('actions/checkout@'));
+    assert.equal(checkout.with.ref, '${{ env.CANDIDATE_REF }}');
+    assert.ok(runCommands(job).some((command) => command.includes('git rev-parse HEAD')));
+    assert.ok(
+      runCommands(job).some(
+        (command) =>
+          command.includes('receipt_ocr_real_provider_test.dart') && command.includes(device),
+      ),
+    );
+    assert.ok(runCommands(job).some((command) => command.includes('native-acceptance-evidence.mjs')));
+    const upload = stepsFor(job).find((step) => step.uses?.startsWith('actions/upload-artifact@'));
+    assert.equal(upload.with.path.endsWith('-ocr-acceptance.json'), true);
+    assert.equal(upload.with['if-no-files-found'], 'error');
+    assert.equal(upload.with['retention-days'], 30);
+    assert.ok(runCommands(job).at(-1).includes('steps.acceptance.outputs.status'));
+  }
+
+  const serialized = JSON.stringify(native);
+  assert.doesNotMatch(serialized, /secrets\.|contents['"]?:['"]?write|deploy|release|receipt.*(?:jpg|jpeg|png)/i);
+  const collector = read('tools/ocr-models/native-acceptance-evidence.mjs');
+  assert.match(collector, /maxLogBytes/);
+  assert.match(collector, /maxMarkerBytes/);
+  assert.match(collector, /sanitizeAcceptance/);
+  assert.match(collector, /sanitizeUiSmoke/);
+  assert.doesNotMatch(collector, /rawText/);
+  assert.doesNotMatch(collector, /acceptance:\s*value|uiSmoke:\s*value/);
+});
+
 test('all repository workflow action references remain full-SHA pinned', () => {
   const workflowDir = path.join(repoRoot, '.github/workflows');
   for (const file of readdirSync(workflowDir).filter((name) => name.endsWith('.yml'))) {

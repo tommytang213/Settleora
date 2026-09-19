@@ -75,6 +75,10 @@ class PaddleReceiptOcrProvider implements ReceiptOcrProvider {
             detectionModelVersion:
                 response?['detectionModelVersion'] as String?,
             runtime: response?['runtime'] as String?,
+            coldLoadTimeMs: response?['coldLoadTimeMs'] as int?,
+            detectionTimeMs: response?['detectionTimeMs'] as int?,
+            recognitionTimeMs: response?['recognitionTimeMs'] as int?,
+            totalTimeMs: response?['totalTimeMs'] as int?,
           ),
         ),
       );

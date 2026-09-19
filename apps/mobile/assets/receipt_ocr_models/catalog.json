@@ -39,7 +39,7 @@
     },
     "nativeSemantics": {
       "files": [
-        { "path": "apps/mobile/integration_test/receipt_ocr_real_provider_test.dart", "sha256": "8841367846bdb72ddca9e080c9535a577fe8f96ab15638103a215cbacca1c8d7" },
+        { "path": "apps/mobile/integration_test/receipt_ocr_real_provider_test.dart", "sha256": "ab31410ec5826f9bc54e91fe08b9288731957202aee9bc2d8314ad818219682c" },
         { "path": "apps/mobile/lib/app/app_bootstrap.dart", "sha256": "bfc2ea06825d3b7162f6f08b68b0413e62320523b3c087a6abc27aecc8b1d875" },
         { "path": "apps/mobile/lib/app/server_mode_shell.dart", "sha256": "7bc1b89910d260c5652810265b8a9985896fe62e852f65aa24d44d5fa2d8459e" },
         { "path": "apps/mobile/lib/bills/bill_list_screen.dart", "sha256": "ac9cac9dd7db56e3a167e38cd17e7c7547e4c0aa4019298b3b95175b284feead" },
@@ -47,8 +47,8 @@
         { "path": "apps/mobile/lib/main.dart", "sha256": "b91c1fe701d9412c3a85880186016609d8ba460d1f6584fa3b5be5873ab36b89" },
         { "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_provider.dart", "sha256": "ffb8da7258689dcf6c41a38a121898dd718a3a6e6b8b85a82412653634fd7a49" },
         { "path": "apps/mobile/lib/receipt_ocr_capture/mlkit_receipt_ocr_provider.dart", "sha256": "a7f552b7e9601814e2fe2d6ed1b5d57b86678edd2438ccba8bcd3cb3e68ff9cb" },
-        { "path": "apps/mobile/lib/receipt_ocr_capture/paddle_receipt_ocr_provider.dart", "sha256": "51b4020df8ced32bfa2ee5cd5670969a988721e3a3b49fd0e4080bacd2adc559" },
-        { "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_preview.dart", "sha256": "f38abe35b5c9b4f4e6fa8c5c0c8355e02fa3153317a2b6c0305effa2ed9e5921" },
+        { "path": "apps/mobile/lib/receipt_ocr_capture/paddle_receipt_ocr_provider.dart", "sha256": "6698f08e53486c5aba80151fa5d43b6693289eec639ed894580c2a6ba97bcfcc" },
+        { "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_preview.dart", "sha256": "d23071322c3c293bdf085e3a2533c1ab41c85bc2a12798ab68a61d017328613a" },
         { "path": "apps/mobile/lib/ui/settleora_form_fields.dart", "sha256": "ff5669f541437bef62d562109573f32506273dd90593874c8ffcde6355145079" },
         { "path": "apps/mobile/pubspec.yaml", "sha256": "464d5a14eef19fbb966057d9f6eeed2d3fb99835c1d7be95140a9611c24afa12" },
         { "path": "apps/mobile/pubspec.lock", "sha256": "065007a0c8b90d527aff6306936a02cd527d30f03800cc8e4229e8273d3afcc7" },

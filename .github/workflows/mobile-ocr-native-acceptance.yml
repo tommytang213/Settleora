@@ -1,0 +1,227 @@
+name: Mobile OCR Native Acceptance
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/mobile-ocr-native-acceptance.yml"
+      - "apps/mobile/integration_test/receipt_ocr_real_provider_test.dart"
+      - "apps/mobile/android/**"
+      - "apps/mobile/ios/**"
+      - "apps/mobile/lib/receipt_ocr_capture/**"
+      - "apps/mobile/test/fixtures/receipt_ocr/**"
+      - "tools/ocr-models/native-acceptance-evidence.mjs"
+  workflow_dispatch:
+    inputs:
+      checkout_ref:
+        description: "Branch, tag, or SHA to validate."
+        required: true
+        type: string
+      expected_head:
+        description: "Exact commit SHA expected after checkout."
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  CANDIDATE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || inputs.checkout_ref }}
+  EXPECTED_HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || inputs.expected_head }}
+
+jobs:
+  android-native-acceptance:
+    name: Android 101-image real-provider acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ env.CANDIDATE_REF }}
+
+      - name: Verify exact candidate
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "22"
+
+      - name: Setup Java
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          channel: stable
+          flutter-version: "3.44.8"
+          cache: true
+
+      - name: Install dependencies
+        working-directory: apps/mobile
+        run: flutter pub get
+
+      - name: Start trusted Android emulator
+        shell: bash
+        run: |
+          sudo chmod 666 /dev/kvm
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "emulator" "system-images;android-35;google_apis;x86_64"
+          echo no | avdmanager create avd --force --name settleora-ocr --package "system-images;android-35;google_apis;x86_64"
+          nohup emulator -avd settleora-ocr -no-window -no-snapshot -noaudio -no-boot-anim -gpu swiftshader_indirect >"$RUNNER_TEMP/android-emulator.log" 2>&1 &
+          adb wait-for-device
+          for attempt in $(seq 1 120); do
+            test "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" && exit 0
+            sleep 2
+          done
+          exit 1
+
+      - name: Execute Android real-provider acceptance
+        id: acceptance
+        working-directory: apps/mobile
+        shell: bash
+        run: |
+          set +e
+          flutter test integration_test/receipt_ocr_real_provider_test.dart -d emulator-5554 --timeout 6h 2>&1 | tee "$RUNNER_TEMP/android-acceptance.log"
+          status=${PIPESTATUS[0]}
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Measure Android package and model payload delta
+        if: always()
+        id: package
+        working-directory: apps/mobile
+        shell: bash
+        run: |
+          flutter build apk --debug
+          full_bytes=$(stat -c %s build/app/outputs/flutter-apk/app-debug.apk)
+          find assets/receipt_ocr_models -mindepth 2 -type f -exec truncate -s 0 {} +
+          flutter build apk --debug
+          baseline_bytes=$(stat -c %s build/app/outputs/flutter-apk/app-debug.apk)
+          echo "full_bytes=$full_bytes" >> "$GITHUB_OUTPUT"
+          echo "baseline_bytes=$baseline_bytes" >> "$GITHUB_OUTPUT"
+
+      - name: Build bounded Android evidence
+        if: always()
+        working-directory: ${{ github.workspace }}
+        run: |
+          test -f "$RUNNER_TEMP/android-acceptance.log" || : >"$RUNNER_TEMP/android-acceptance.log"
+          node tools/ocr-models/native-acceptance-evidence.mjs \
+            --log="$RUNNER_TEMP/android-acceptance.log" \
+            --out="$RUNNER_TEMP/android-ocr-acceptance.json" \
+            --platform=android \
+            --source-sha="$EXPECTED_HEAD" \
+            --full-bytes="${{ steps.package.outputs.full_bytes }}" \
+            --baseline-bytes="${{ steps.package.outputs.baseline_bytes }}"
+
+      - name: Upload bounded Android evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: android-ocr-native-acceptance-${{ env.EXPECTED_HEAD }}
+          path: ${{ runner.temp }}/android-ocr-acceptance.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Enforce Android acceptance result
+        if: always()
+        run: test "${{ steps.acceptance.outputs.status }}" = "0"
+
+  ios-native-acceptance:
+    name: iOS 101-image real-provider acceptance
+    runs-on: macos-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ env.CANDIDATE_REF }}
+
+      - name: Verify exact candidate
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "22"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          channel: stable
+          flutter-version: "3.44.8"
+          cache: true
+
+      - name: Install dependencies and pods
+        working-directory: apps/mobile
+        run: |
+          flutter pub get
+          cd ios
+          pod install
+
+      - name: Boot trusted iOS simulator
+        id: simulator
+        shell: bash
+        run: |
+          udid=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for values in d.values() for x in values if x["name"].startswith("iPhone")))')
+          xcrun simctl boot "$udid" || true
+          xcrun simctl bootstatus "$udid" -b
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+
+      - name: Execute iOS real-provider acceptance
+        id: acceptance
+        working-directory: apps/mobile
+        shell: bash
+        run: |
+          set +e
+          flutter test integration_test/receipt_ocr_real_provider_test.dart -d "${{ steps.simulator.outputs.udid }}" --timeout 6h 2>&1 | tee "$RUNNER_TEMP/ios-acceptance.log"
+          status=${PIPESTATUS[0]}
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Measure iOS app and model payload delta
+        if: always()
+        id: package
+        working-directory: apps/mobile
+        shell: bash
+        run: |
+          flutter build ios --debug --simulator
+          full_bytes=$(find build/ios/iphonesimulator/Runner.app -type f -exec stat -f %z {} + | awk '{sum += $1} END {print sum}')
+          find assets/receipt_ocr_models -mindepth 2 -type f -exec truncate -s 0 {} +
+          flutter build ios --debug --simulator
+          baseline_bytes=$(find build/ios/iphonesimulator/Runner.app -type f -exec stat -f %z {} + | awk '{sum += $1} END {print sum}')
+          echo "full_bytes=$full_bytes" >> "$GITHUB_OUTPUT"
+          echo "baseline_bytes=$baseline_bytes" >> "$GITHUB_OUTPUT"
+
+      - name: Build bounded iOS evidence
+        if: always()
+        working-directory: ${{ github.workspace }}
+        run: |
+          test -f "$RUNNER_TEMP/ios-acceptance.log" || : >"$RUNNER_TEMP/ios-acceptance.log"
+          node tools/ocr-models/native-acceptance-evidence.mjs \
+            --log="$RUNNER_TEMP/ios-acceptance.log" \
+            --out="$RUNNER_TEMP/ios-ocr-acceptance.json" \
+            --platform=ios \
+            --source-sha="$EXPECTED_HEAD" \
+            --full-bytes="${{ steps.package.outputs.full_bytes }}" \
+            --baseline-bytes="${{ steps.package.outputs.baseline_bytes }}"
+
+      - name: Upload bounded iOS evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ios-ocr-native-acceptance-${{ env.EXPECTED_HEAD }}
+          path: ${{ runner.temp }}/ios-ocr-acceptance.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Enforce iOS acceptance result
+        if: always()
+        run: test "${{ steps.acceptance.outputs.status }}" = "0"
