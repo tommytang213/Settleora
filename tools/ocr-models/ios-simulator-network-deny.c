@@ -2,17 +2,31 @@
 #include <errno.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <string.h>
 #include <sys/socket.h>
+
+static bool settleora_is_ipv4_loopback(const struct in_addr *address) {
+  return (ntohl(address->s_addr) >> 24) == 127;
+}
 
 static bool settleora_is_external(const struct sockaddr *address) {
   if (address == NULL) return false;
   if (address->sa_family == AF_INET) {
     const struct sockaddr_in *ipv4 = (const struct sockaddr_in *)address;
-    return (ntohl(ipv4->sin_addr.s_addr) >> 24) != 127;
+    return !settleora_is_ipv4_loopback(&ipv4->sin_addr);
   }
   if (address->sa_family == AF_INET6) {
     const struct sockaddr_in6 *ipv6 = (const struct sockaddr_in6 *)address;
-    return !IN6_IS_ADDR_LOOPBACK(&ipv6->sin6_addr);
+    if (IN6_IS_ADDR_LOOPBACK(&ipv6->sin6_addr)) return false;
+    if (IN6_IS_ADDR_V4MAPPED(&ipv6->sin6_addr)) {
+      struct in_addr mapped_ipv4;
+      memcpy(
+          &mapped_ipv4.s_addr,
+          &ipv6->sin6_addr.s6_addr[12],
+          sizeof(mapped_ipv4.s_addr));
+      return !settleora_is_ipv4_loopback(&mapped_ipv4);
+    }
+    return true;
   }
   return false;
 }

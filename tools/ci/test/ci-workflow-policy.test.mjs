@@ -282,6 +282,8 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.match(iosNetworkDeny, /settleora_sendmsg/);
   assert.match(iosNetworkDeny, /settleora_connectx/);
   assert.match(iosNetworkDeny, /IN6_IS_ADDR_LOOPBACK/);
+  assert.match(iosNetworkDeny, /IN6_IS_ADDR_V4MAPPED/);
+  assert.match(iosNetworkDeny, /settleora_is_ipv4_loopback/);
   assert.ok(iosCommands.includes('verify-mobile-package.mjs --platform=ios'));
   assert.ok(iosCommands.includes('ios-production-symbols.txt'));
   assert.ok(iosCommands.includes('test -s Podfile.lock'));
