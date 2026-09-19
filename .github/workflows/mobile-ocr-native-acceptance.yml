@@ -244,15 +244,20 @@ jobs:
         run: |
           user_id=$(id -u)
           sudo pfctl -sr | grep -F 'anchor "com.apple/*"'
+          pf_token=
+          cleanup_firewall() {
+            cleanup_status=0
+            sudo pfctl -a com.apple/settleora-ocr -F rules >/dev/null || cleanup_status=$?
+            if test -n "$pf_token"; then
+              sudo pfctl -X "$pf_token" >/dev/null || cleanup_status=$?
+            fi
+            return "$cleanup_status"
+          }
+          trap cleanup_firewall EXIT
           pf_enable_output=$(sudo pfctl -E 2>&1)
           pf_token=$(printf '%s\n' "$pf_enable_output" | awk '/Token :/ {print $3}')
           test "$(printf '%s' "$pf_token" | tr -cd '0-9')" = "$pf_token"
           test -n "$pf_token"
-          cleanup_firewall() {
-            sudo pfctl -a com.apple/settleora-ocr -F rules >/dev/null
-            sudo pfctl -X "$pf_token" >/dev/null
-          }
-          trap cleanup_firewall EXIT
           sudo pfctl -s info | grep -F 'Status: Enabled'
           printf 'block drop out quick on ! lo0 proto { tcp udp } user %s\n' "$user_id" | sudo pfctl -a com.apple/settleora-ocr -f -
           sudo pfctl -a com.apple/settleora-ocr -sr | grep -F "user = $user_id"

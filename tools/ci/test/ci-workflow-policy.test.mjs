@@ -259,6 +259,9 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(iosCommands.includes('pfctl -a com.apple/settleora-ocr'));
   assert.ok(iosCommands.includes('pfctl -E'));
   assert.ok(iosCommands.includes('pfctl -X "$pf_token"'));
+  assert.ok(iosCommands.indexOf('trap cleanup_firewall EXIT') < iosCommands.indexOf('pf_enable_output=$(sudo pfctl -E'));
+  assert.ok(iosCommands.includes('pfctl -a com.apple/settleora-ocr -F rules >/dev/null || cleanup_status=$?'));
+  assert.ok(iosCommands.includes('pfctl -X "$pf_token" >/dev/null || cleanup_status=$?'));
   assert.ok(iosCommands.includes('block drop out quick on ! lo0 proto { tcp udp }'));
   assert.ok(iosCommands.includes('verify-mobile-package.mjs --platform=ios'));
   assert.ok(iosCommands.includes('ios-production-symbols.txt'));
