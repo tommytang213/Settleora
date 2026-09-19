@@ -90,14 +90,15 @@ jobs:
           test -x "$adb"
           echo no | "$avdmanager" create avd --force --name settleora-ocr --package "system-images;android-35;google_apis;x86_64"
           nohup "$emulator" -avd settleora-ocr -no-window -no-snapshot -noaudio -no-boot-anim -gpu swiftshader_indirect >"$RUNNER_TEMP/android-emulator.log" 2>&1 &
-          "$adb" wait-for-device
           for attempt in $(seq 1 120); do
-            if test "$("$adb" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1"; then
+            if test "$("$adb" get-state 2>/dev/null)" = "device" &&
+               test "$(timeout 5 "$adb" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1"; then
+              ready=1
               break
             fi
             sleep 2
           done
-          test "$("$adb" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1"
+          test "${ready:-0}" = "1"
           : "${ImageOS:?Hosted runner image OS is unavailable}"
           : "${ImageVersion:?Hosted runner image version is unavailable}"
           sanitize() { printf '%s' "$1" | tr -c 'A-Za-z0-9_.:\[\]-' '_'; }
