@@ -93,12 +93,15 @@ jobs:
           : "${ImageVersion:?Hosted runner image version is unavailable}"
           sanitize() { printf '%s' "$1" | tr -c 'A-Za-z0-9_.:\[\]-' '_'; }
           system_image_revision=$(sdkmanager --list_installed | awk -F'|' '$1 ~ /system-images;android-35;google_apis;x86_64/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}')
+          emulator_revision=$(sdkmanager --list_installed | awk -F'|' '$1 ~ /^[ \t]*emulator[ \t]*$/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}')
           test -n "$system_image_revision"
+          test "$system_image_revision" = "9"
+          test "$emulator_revision" = "37.2.10"
           echo "runner_image=$(sanitize "${ImageOS}-${ImageVersion}")" >> "$GITHUB_OUTPUT"
           echo "os_runtime=$(sanitize "android-api$(adb shell getprop ro.build.version.sdk | tr -d '\r')-$(adb shell getprop ro.build.id | tr -d '\r')-$(adb shell getprop ro.build.version.incremental | tr -d '\r')")" >> "$GITHUB_OUTPUT"
           echo "sdk_toolchain=$(sanitize "emulator-$(emulator -version | head -1 | awk '{print $3}')")" >> "$GITHUB_OUTPUT"
           echo "device=Android_Emulator_API_35_google_apis_x86_64" >> "$GITHUB_OUTPUT"
-          echo "native_image=$(sanitize "android-35-google_apis-x86_64-revision-${system_image_revision}")" >> "$GITHUB_OUTPUT"
+          echo "native_image=$(sanitize "android-35-google_apis-x86_64-revision-${system_image_revision}-emulator-${emulator_revision}")" >> "$GITHUB_OUTPUT"
 
       - name: Execute Android real-provider acceptance
         id: acceptance
@@ -118,12 +121,27 @@ jobs:
         working-directory: apps/mobile
         shell: bash
         run: |
-          flutter build apk --release
-          full_bytes=$(stat -c %s build/app/outputs/flutter-apk/app-release.apk)
-          find assets/receipt_ocr_models -mindepth 2 -type f -exec truncate -s 0 {} +
-          flutter build apk --release
-          model_free_bytes=$(stat -c %s build/app/outputs/flutter-apk/app-release.apk)
-          base_sha=7a6af8457cdd6eb64df91253a63801756f09d23d
+          candidate_dir="$RUNNER_TEMP/android-candidate-package"
+          mkdir -p "$candidate_dir"
+          git archive "$EXPECTED_HEAD" | tar -x -C "$candidate_dir"
+          (
+            cd "$candidate_dir/apps/mobile"
+            flutter pub get
+            flutter build apk --release
+          )
+          full_apk="$candidate_dir/apps/mobile/build/app/outputs/flutter-apk/app-release.apk"
+          full_bytes=$(stat -c %s "$full_apk")
+          ! unzip -l "$full_apk" | grep -F 'receipt_ocr_acceptance'
+          ! apkanalyzer dex packages "$full_apk" | grep -F 'dev.flutter.plugins.integration_test'
+          find "$candidate_dir/apps/mobile/assets/receipt_ocr_models" -mindepth 2 -type f -exec truncate -s 0 {} +
+          (
+            cd "$candidate_dir/apps/mobile"
+            flutter clean
+            flutter pub get
+            flutter build apk --release
+          )
+          model_free_bytes=$(stat -c %s "$full_apk")
+          base_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
           git cat-file -e "$base_sha^{commit}"
           base_dir="$RUNNER_TEMP/android-base-app"
           mkdir -p "$base_dir"
@@ -252,12 +270,33 @@ jobs:
         working-directory: apps/mobile
         shell: bash
         run: |
-          flutter build ios --release --no-codesign
-          full_bytes=$(find build/ios/iphoneos/Runner.app -type f -exec stat -f %z {} + | awk '{sum += $1} END {print sum}')
-          find assets/receipt_ocr_models -mindepth 2 -type f -exec truncate -s 0 {} +
-          flutter build ios --release --no-codesign
-          model_free_bytes=$(find build/ios/iphoneos/Runner.app -type f -exec stat -f %z {} + | awk '{sum += $1} END {print sum}')
-          base_sha=2cab34c454b279056d4e130977f93cce26d46ce0
+          candidate_dir="$RUNNER_TEMP/ios-candidate-package"
+          mkdir -p "$candidate_dir"
+          git archive "$EXPECTED_HEAD" | tar -x -C "$candidate_dir"
+          (
+            cd "$candidate_dir/apps/mobile"
+            flutter pub get
+            cd ios
+            pod install
+            cd ..
+            flutter build ios --release --no-codesign
+          )
+          full_app="$candidate_dir/apps/mobile/build/ios/iphoneos/Runner.app"
+          full_bytes=$(find "$full_app" -type f -exec stat -f %z {} + | awk '{sum += $1} END {print sum}')
+          ! find "$full_app" -path '*receipt_ocr_acceptance*' -print -quit | grep -q .
+          ! find "$full_app" -type f -print | grep -i 'integration.*test'
+          find "$candidate_dir/apps/mobile/assets/receipt_ocr_models" -mindepth 2 -type f -exec truncate -s 0 {} +
+          (
+            cd "$candidate_dir/apps/mobile"
+            flutter clean
+            flutter pub get
+            cd ios
+            pod install
+            cd ..
+            flutter build ios --release --no-codesign
+          )
+          model_free_bytes=$(find "$full_app" -type f -exec stat -f %z {} + | awk '{sum += $1} END {print sum}')
+          base_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
           git cat-file -e "$base_sha^{commit}"
           base_dir="$RUNNER_TEMP/ios-base-app"
           mkdir -p "$base_dir"

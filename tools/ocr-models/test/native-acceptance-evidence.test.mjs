@@ -42,9 +42,7 @@ function evidenceArgs(log, platform = "android") {
     "sdk-toolchain": "test-sdk-1",
     device: "test-device",
     "native-image": `${platform}-test-image-1`,
-    "base-sha": platform === "android"
-      ? "7a6af8457cdd6eb64df91253a63801756f09d23d"
-      : "2cab34c454b279056d4e130977f93cce26d46ce0",
+    "base-sha": "e4d4edd0d6854845cc67b00924f6d22af6a70688",
   };
 }
 
@@ -166,7 +164,7 @@ test("CLI writes a bounded failure artifact before rejecting malformed markers",
         "--sdk-toolchain=test-sdk-1",
         "--device=test-device",
         "--native-image=android-test-image-1",
-        "--base-sha=7a6af8457cdd6eb64df91253a63801756f09d23d",
+        "--base-sha=e4d4edd0d6854845cc67b00924f6d22af6a70688",
         "--require-complete=true",
       ],
       { cwd: repoRoot, encoding: "utf8" },
@@ -227,6 +225,14 @@ test("rejects extra fields on otherwise allowlisted machine-protocol events", ()
   })}\n`;
   withLog(injected, (log) => {
     assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot), /non-allowlisted fields/);
+  });
+});
+
+test("rejects duplicate bounded markers instead of trusting only the last marker", () => {
+  const raw = "SETTLEORA_OCR_ACCEPTANCE=private receipt text";
+  const later = "SETTLEORA_OCR_ACCEPTANCE={}";
+  withLog(protocolLog(raw, later), (log) => {
+    assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot), /duplicate bounded markers/);
   });
 });
 

@@ -53,7 +53,6 @@
         { "path": "apps/mobile/pubspec.yaml", "sha256": "464d5a14eef19fbb966057d9f6eeed2d3fb99835c1d7be95140a9611c24afa12" },
         { "path": "apps/mobile/pubspec.lock", "sha256": "065007a0c8b90d527aff6306936a02cd527d30f03800cc8e4229e8273d3afcc7" },
         { "path": "apps/mobile/android/app/build.gradle.kts", "sha256": "661ae6ec2deca8588524234636865e33b288937dff71ccee3346187a28450646" },
-        { "path": "apps/mobile/android/app/src/release/kotlin/dev/flutter/plugins/integration_test/IntegrationTestPlugin.kt", "sha256": "8bd6fbbfbcdf38c85bbd433ef3cc78545f76a7079e4ed137a15de1decba91773" },
         { "path": "apps/mobile/android/app/proguard-rules.pro", "sha256": "2550ffdb55049da3641c917d30930ca5d0e1bfe71c1c9557308f7256ca6eb858" },
         { "path": "apps/mobile/android/gradle/verification-metadata.xml", "sha256": "fe2777c0201887c604794df4e5c215511225e5e31f0f0b2203c29fd1d0240ba6" },
         { "path": "apps/mobile/android/settings.gradle.kts", "sha256": "cf1e261794ec8843ebd64c26cfa9082e6e00750410decd071b74adbd49e6ec4b" },

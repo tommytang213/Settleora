@@ -199,6 +199,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
     assert.ok(runCommands(job).some((command) => command.includes('--stderr-log=')));
     assert.ok(runCommands(job).some((command) => command.includes('--base-app-bytes=')));
     assert.ok(runCommands(job).some((command) => command.includes('git archive')));
+    assert.ok(runCommands(job).some((command) => command.includes('git archive "$EXPECTED_HEAD"')));
     assert.ok(runCommands(job).some((command) => command.includes('>"$RUNNER_TEMP/')));
     assert.equal(runCommands(job).some((command) => command.includes('| tee ')), false);
     assert.ok(runCommands(job).some((command) => command.includes('--machine')));
@@ -222,6 +223,11 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.match(collector, /sanitizeUiSmoke/);
   assert.doesNotMatch(collector, /rawText/);
   assert.doesNotMatch(collector, /acceptance:\s*value|uiSmoke:\s*value/);
+  const androidCommands = runCommands(native.jobs['android-native-acceptance']).join('\n');
+  assert.ok(androidCommands.includes('test "$system_image_revision" = "9"'));
+  assert.ok(androidCommands.includes('test "$emulator_revision" = "37.2.10"'));
+  assert.match(serialized, /receipt_ocr_acceptance/);
+  assert.match(serialized, /integration.*test/i);
 });
 
 test('all repository workflow action references remain full-SHA pinned', () => {

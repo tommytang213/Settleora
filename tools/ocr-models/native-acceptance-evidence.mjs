@@ -222,6 +222,11 @@ function parseSafeRunnerLog(log, stderrLog) {
       throw new Error("Acceptance runner emitted a non-allowlisted protocol event");
     }
   }
+  for (const marker of ["SETTLEORA_OCR_ACCEPTANCE=", "SETTLEORA_OCR_UI_SMOKE="]) {
+    if (markerMessages.filter((message) => message.startsWith(marker)).length > 1) {
+      throw new Error("Acceptance runner emitted duplicate bounded markers");
+    }
+  }
   return markerMessages;
 }
 
@@ -388,9 +393,7 @@ export function buildEvidence(args, repoRoot = process.cwd()) {
   const modelFreeBytes = parseOptionalBytes(args["model-free-bytes"]);
   const baseAppBytes = parseOptionalBytes(args["base-app-bytes"]);
   const testExitStatus = boundedInteger(Number(args["test-status"]), "test-status");
-  const expectedBaseSha = args.platform === "android"
-    ? "7a6af8457cdd6eb64df91253a63801756f09d23d"
-    : "2cab34c454b279056d4e130977f93cce26d46ce0";
+  const expectedBaseSha = "e4d4edd0d6854845cc67b00924f6d22af6a70688";
   if (args["base-sha"] !== expectedBaseSha) throw new Error("Base app SHA is invalid");
   if (fullBytes != null && modelFreeBytes != null && fullBytes < modelFreeBytes) {
     throw new Error("Bundled model package delta cannot be negative");
