@@ -34,9 +34,11 @@ class PaddleReceiptOcrProvider implements ReceiptOcrProvider {
 
   @override
   Future<ReceiptOcrResult> extractReceipt(ReceiptOcrRequest request) async {
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+    if (kIsWeb ||
+        (defaultTargetPlatform != TargetPlatform.android &&
+            defaultTargetPlatform != TargetPlatform.iOS)) {
       return const ReceiptOcrResult.unsupported(
-        'Paddle receipt reading is available on Android. You can still enter the bill manually.',
+        'Paddle receipt reading is available on Android and iOS. You can still enter the bill manually.',
       );
     }
     if (request.bytes.isEmpty) {
