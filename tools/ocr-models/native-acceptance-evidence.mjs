@@ -130,8 +130,11 @@ function assertProtocolEvent(event) {
       assertType(event.success, "boolean", `${name}.success`);
       break;
     case "print":
-      assertExactKeys(event, ["type", "time", "testID", "message"], name);
+      assertExactKeys(event, ["type", "time", "testID", "messageType", "message"], name);
       boundedInteger(event.testID, `${name}.testID`);
+      if (event.messageType !== "print") {
+        throw new Error(`${name}.messageType is invalid`);
+      }
       assertType(event.message, "string", `${name}.message`);
       break;
     default:

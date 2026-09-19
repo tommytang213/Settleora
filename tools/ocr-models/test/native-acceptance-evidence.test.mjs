@@ -25,7 +25,13 @@ function withLog(contents, callback) {
 function protocolLog(...messages) {
   return [
     { type: "start", time: 0, protocolVersion: "0.1.1", runnerVersion: "test", pid: 1 },
-    ...messages.map((message) => ({ type: "print", time: 1, testID: 1, message })),
+    ...messages.map((message) => ({
+      type: "print",
+      time: 1,
+      testID: 1,
+      messageType: "print",
+      message,
+    })),
     { type: "done", time: 2, success: true },
   ].map((event) => JSON.stringify(event)).join("\n") + "\n";
 }
@@ -225,6 +231,14 @@ test("rejects extra fields on otherwise allowlisted machine-protocol events", ()
   })}\n`;
   withLog(injected, (log) => {
     assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot), /non-allowlisted fields/);
+  });
+});
+
+test("rejects non-print Flutter message types", () => {
+  const log = protocolLog("SETTLEORA_OCR_ACCEPTANCE={}")
+    .replace('"messageType":"print"', '"messageType":"skip"');
+  withLog(log, (path) => {
+    assert.throws(() => buildEvidence(evidenceArgs(path), repoRoot), /messageType is invalid/);
   });
 });
 
