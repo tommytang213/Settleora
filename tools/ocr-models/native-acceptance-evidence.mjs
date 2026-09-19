@@ -202,6 +202,9 @@ function parseSafeRunnerLog(log, stderrLog) {
     "start", "allSuites", "suite", "group", "testStart", "testDone", "done", "error",
   ]);
   const markerMessages = [];
+  let startCount = 0;
+  let doneCount = 0;
+  let protocolSucceeded = false;
   for (const [index, line] of log.split(/\r?\n/).entries()) {
     if (line === "") continue;
     let event;
@@ -231,6 +234,17 @@ function parseSafeRunnerLog(log, stderrLog) {
       throw new Error(`Acceptance runner line ${index + 1} is not a protocol event`);
     }
     assertProtocolEvent(event);
+    if (event.type === "start") startCount += 1;
+    if (event.type === "done") {
+      doneCount += 1;
+      protocolSucceeded = event.success;
+    }
+    if (
+      (event.type === "error" && event.isFailure) ||
+      (event.type === "testDone" && event.result !== "success")
+    ) {
+      throw new Error("Acceptance runner reported a failed protocol event");
+    }
     if (event.type === "print") {
       if (
         typeof event.message !== "string" ||
@@ -248,6 +262,9 @@ function parseSafeRunnerLog(log, stderrLog) {
     if (markerMessages.filter((message) => message.startsWith(marker)).length > 1) {
       throw new Error("Acceptance runner emitted duplicate bounded markers");
     }
+  }
+  if (startCount !== 1 || doneCount !== 1 || !protocolSucceeded) {
+    throw new Error("Acceptance runner did not complete one successful protocol run");
   }
   return markerMessages;
 }

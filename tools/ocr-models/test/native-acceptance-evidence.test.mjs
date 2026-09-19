@@ -275,9 +275,23 @@ test("discards bounded Flutter failure envelopes without retaining their text", 
     `${errorEvent}\n{"type":"done","time":2,"success":false}`,
   );
   withLog(log, (logPath) => {
-    const evidence = buildEvidence(evidenceArgs(logPath), repoRoot);
-    assert.equal(JSON.stringify(evidence).includes("diagnostic text"), false);
-    assert.equal(JSON.stringify(evidence).includes("private local path"), false);
+    assert.throws(
+      () => buildEvidence(evidenceArgs(logPath), repoRoot),
+      /failed protocol event/,
+    );
+  });
+});
+
+test("rejects contradictory unsuccessful protocol completion", () => {
+  const log = protocolLog().replace(
+    '{"type":"done","time":2,"success":true}',
+    '{"type":"done","time":2,"success":false}',
+  );
+  withLog(log, (logPath) => {
+    assert.throws(
+      () => buildEvidence(evidenceArgs(logPath), repoRoot),
+      /did not complete one successful protocol run/,
+    );
   });
 });
 

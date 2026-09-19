@@ -19,8 +19,8 @@ test -x "$emulator"
 test -x "$adb"
 
 phase=verify_sdk_revisions
-system_image_revision=$("$sdkmanager" --list_installed | awk -F'|' '$1 ~ /system-images;android-35;google_apis;x86_64/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}')
-emulator_revision=$("$sdkmanager" --list_installed | awk -F'|' '$1 ~ /^[ \t]*emulator[ \t]*$/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}')
+system_image_revision=$("$sdkmanager" --list_installed 2>/dev/null | awk -F'|' '$1 ~ /system-images;android-35;google_apis;x86_64/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}')
+emulator_revision=$("$sdkmanager" --list_installed 2>/dev/null | awk -F'|' '$1 ~ /^[ \t]*emulator[ \t]*$/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}')
 test "$system_image_revision" = "9"
 test "$emulator_revision" = "37.2.10"
 phase=verify_device
@@ -28,9 +28,9 @@ test "$(timeout 5 "$adb" -s emulator-5554 get-state)" = "device"
 test "$(timeout 5 "$adb" -s emulator-5554 shell getprop sys.boot_completed | tr -d '\r')" = "1"
 
 phase=isolate_network
-timeout 5 "$adb" -s emulator-5554 shell cmd connectivity airplane-mode enable
-timeout 5 "$adb" -s emulator-5554 shell svc wifi disable
-timeout 5 "$adb" -s emulator-5554 shell svc data disable
+timeout 5 "$adb" -s emulator-5554 shell cmd connectivity airplane-mode enable >/dev/null 2>&1
+timeout 5 "$adb" -s emulator-5554 shell svc wifi disable >/dev/null 2>&1
+timeout 5 "$adb" -s emulator-5554 shell svc data disable >/dev/null 2>&1
 test "$(timeout 5 "$adb" -s emulator-5554 shell settings get global airplane_mode_on | tr -d '\r')" = "1"
 
 phase=emit_environment
