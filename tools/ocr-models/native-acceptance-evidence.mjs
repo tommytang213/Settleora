@@ -52,6 +52,7 @@ export function buildFailureEvidence(args) {
     execution: { testExitStatus, preflightFailurePhase },
     acceptance: { completed: false },
     uiSmoke: { completed: false },
+    diagnostics: extractFailureDiagnostics(args, platform),
     collectionFailure: "invalid_or_unavailable_bounded_evidence",
   };
 }
@@ -532,6 +533,41 @@ function parseDiagnostics(lines, platform) {
     }
     return sanitizeDiagnostic(JSON.parse(encoded), platform);
   });
+}
+
+function extractFailureDiagnostics(args, platform) {
+  if (platform == null || typeof args.log !== "string") return [];
+  let log;
+  try {
+    if (statSync(args.log).size > maxLogBytes) return [];
+    log = readFileSync(args.log, "utf8");
+  } catch {
+    return [];
+  }
+  const marker = "SETTLEORA_OCR_DIAGNOSTIC=";
+  const markerMessages = [];
+  for (const line of log.split(/\r?\n/)) {
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (
+      event != null &&
+      !Array.isArray(event) &&
+      event.type === "print" &&
+      typeof event.message === "string" &&
+      event.message.startsWith(marker)
+    ) {
+      markerMessages.push(event.message);
+    }
+  }
+  try {
+    return parseDiagnostics(markerMessages, platform);
+  } catch {
+    return [];
+  }
 }
 
 function parseMarker(lines, marker, sanitize, fallback) {

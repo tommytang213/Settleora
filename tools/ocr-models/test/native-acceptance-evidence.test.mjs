@@ -316,6 +316,7 @@ test("failure evidence retains bounded phase and status before environment colle
       execution: { testExitStatus: 20, preflightFailurePhase: "resolve_tools" },
       acceptance: { completed: false },
       uiSmoke: { completed: false },
+      diagnostics: [],
       collectionFailure: "invalid_or_unavailable_bounded_evidence",
     },
   );
@@ -338,6 +339,30 @@ test("failure evidence retains bounded phase and status before environment colle
     }).execution,
     { testExitStatus: 98, preflightFailurePhase: "build_network_isolation" },
   );
+});
+
+test("failure evidence recovers only bounded diagnostics from an otherwise invalid protocol", () => {
+  const diagnostic = {
+    schemaVersion: 1,
+    platform: "ios",
+    stage: "network_canary",
+    fixtureId: null,
+  };
+  const diagnosticEvent = JSON.stringify({
+    type: "print",
+    message: `SETTLEORA_OCR_DIAGNOSTIC=${JSON.stringify(diagnostic)}`,
+    privateField: "must not be retained",
+  });
+  withLog(`untrusted tool output\n${diagnosticEvent}\n`, (log) => {
+    const evidence = buildFailureEvidence({
+      ...evidenceArgs(log, "ios"),
+      "test-status": "1",
+    });
+    assert.deepEqual(evidence.diagnostics, [diagnostic]);
+    assert.equal(JSON.stringify(evidence).includes("privateField"), false);
+    assert.equal(JSON.stringify(evidence).includes("untrusted tool output"), false);
+    assert.equal(isCompleteEvidence(evidence), false);
+  });
 });
 
 test("rejects all non-allowlisted application output and unresolved environment identity", () => {
