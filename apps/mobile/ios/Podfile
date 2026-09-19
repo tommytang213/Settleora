@@ -40,7 +40,7 @@ target 'Runner' do
   # accelerators may only be enabled after acceptance-equivalence evidence.
   pod 'onnxruntime-objc', '1.24.3'
   pod 'Yams', '5.0.6'
-  pod 'OpenCV', '~> 4.3.0'
+  pod 'OpenCV', '4.3.0'
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
   target 'RunnerTests' do
