@@ -62,7 +62,7 @@ internal object ScriptRouteSelector {
     fun score(candidate: ScriptCandidate): Double {
         val strongScripts = candidate.text.codePoints()
             .toArray()
-            .filter(Character::isLetter)
+            .filter { Character.isLetter(it) || Character.isDigit(it) }
             .map(::scriptOf)
             .filter { it != ScriptEvidence.NEUTRAL }
         val scripts = strongScripts.toSet()
@@ -79,7 +79,7 @@ internal object ScriptRouteSelector {
         }
         val declaredCount = strongScripts.count { it in candidate.pack.acceptedScripts }
         val hasMeaningfulDeclaredCoverage = isCommonPack ||
-            (declaredCount >= MIN_SPECIALIST_SCRIPT_CHARACTERS &&
+            (declaredCount > 0 &&
                 declaredCount * MIN_SPECIALIST_SCRIPT_SHARE_DENOMINATOR >= strongScripts.size)
         val compatible = compatibleScripts && hasMeaningfulDeclaredCoverage
         if (!compatible) return Double.NEGATIVE_INFINITY
@@ -91,14 +91,23 @@ internal object ScriptRouteSelector {
         in 0x0041..0x024F, in 0x1E00..0x1EFF -> ScriptEvidence.COMMON
         in 0x3040..0x30FF, in 0x31F0..0x31FF -> ScriptEvidence.COMMON
         in 0x3400..0x4DBF, in 0x4E00..0x9FFF, in 0xF900..0xFAFF -> ScriptEvidence.COMMON
-        in 0x0600..0x06FF, in 0x0750..0x077F, in 0x08A0..0x08FF -> ScriptEvidence.ARABIC
-        in 0x0400..0x052F -> ScriptEvidence.CYRILLIC
+        in 0x0600..0x06FF,
+        in 0x0750..0x077F,
+        in 0x08A0..0x08FF,
+        in 0xFB50..0xFDFF,
+        in 0xFE70..0xFEFF,
+        -> ScriptEvidence.ARABIC
+        in 0x0400..0x052F,
+        in 0x1C80..0x1C8F,
+        in 0x2DE0..0x2DFF,
+        in 0xA640..0xA69F,
+        in 0x1E030..0x1E08F,
+        -> ScriptEvidence.CYRILLIC
         in 0x0900..0x097F -> ScriptEvidence.DEVANAGARI
         in 0x0E00..0x0E7F -> ScriptEvidence.THAI
         in 0x1100..0x11FF, in 0x3130..0x318F, in 0xAC00..0xD7AF -> ScriptEvidence.KOREAN
         else -> ScriptEvidence.NEUTRAL
     }
 
-    private const val MIN_SPECIALIST_SCRIPT_CHARACTERS = 2
     private const val MIN_SPECIALIST_SCRIPT_SHARE_DENOMINATOR = 4
 }

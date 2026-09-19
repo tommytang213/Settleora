@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 import 'package:mobile/bills/bill_attachment_file_input.dart';
 import 'package:mobile/bills/bill_attachment_repository.dart';
 import 'package:mobile/bills/bill_list_screen.dart';
@@ -1781,7 +1782,7 @@ void main() {
         pickedFile: samplePickedAttachmentFile(
           filename: 'C:\\Users\\secret\\receipt.png',
           contentType: 'image/png',
-          bytes: const [9, 8, 7],
+          bytes: samplePngBytes(width: 64, height: 64),
         ),
       );
 
@@ -1826,7 +1827,7 @@ void main() {
       );
       expect(attachmentRepository.lastUpload?.filename, 'receipt.png');
       expect(attachmentRepository.lastUpload?.contentType, 'image/png');
-      expect(attachmentRepository.lastUpload?.bytes, const [9, 8, 7]);
+      expect(attachmentRepository.lastUpload?.bytes, isNotEmpty);
       expect(attachmentRepository.listCalls, 3);
       expect(
         find.text(
@@ -2315,7 +2316,7 @@ void main() {
         pickedFile: samplePickedAttachmentFile(
           filename: 'group-receipt.png',
           contentType: 'image/png',
-          bytes: const [4, 5, 6],
+          bytes: samplePngBytes(width: 64, height: 64),
         ),
       );
 
@@ -2430,7 +2431,7 @@ void main() {
         pickedFile: samplePickedAttachmentFile(
           filename: 'group-receipt.png',
           contentType: 'image/png',
-          bytes: const [4, 5, 6],
+          bytes: samplePngBytes(width: 64, height: 64),
         ),
       );
 
@@ -2514,7 +2515,7 @@ void main() {
         pickedFile: samplePickedAttachmentFile(
           filename: 'group-receipt.png',
           contentType: 'image/png',
-          bytes: const [4, 5, 6],
+          bytes: samplePngBytes(width: 64, height: 64),
         ),
       );
 
@@ -4000,7 +4001,7 @@ void main() {
           samplePickedAttachmentFile(
             filename: 'C:\\Users\\secret\\receipt.png',
             contentType: 'image/png',
-            bytes: const [4, 5, 6],
+            bytes: samplePngBytes(width: 64, height: 64),
           ),
           samplePickedAttachmentFile(
             filename: 'support.pdf',
@@ -4052,7 +4053,7 @@ void main() {
         find.byKey(const ValueKey('group-bill-attachment-name-0')),
         findsOneWidget,
       );
-      expect(find.text('receipt.png'), findsOneWidget);
+      expect(find.text('receipt-normalized.jpg'), findsOneWidget);
       expect(find.text('support.pdf'), findsOneWidget);
       expect(find.text('Receipt'), findsOneWidget);
       expect(find.text('Supporting attachment'), findsOneWidget);
@@ -4068,13 +4069,13 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(find.text('image/png - 3 bytes'), findsOneWidget);
+      expect(find.textContaining('image/jpeg - '), findsOneWidget);
       expect(find.text('application/pdf - 4 bytes'), findsOneWidget);
       expect(
         find.bySemanticsLabel(
           RegExp(
-            'Selected bill attachment 1.*Filename: receipt.png.*'
-            'Content type: image/png.*Size: 3 bytes.*'
+            'Selected bill attachment 1.*Filename: receipt-normalized.jpg.*'
+            'Content type: image/jpeg.*Size: [1-9][0-9]* bytes.*'
             'Selected purpose: Receipt',
           ),
         ),
@@ -4185,7 +4186,7 @@ void main() {
       pickedFile: SettleoraPickedBillAttachmentFile(
         filename: '   ',
         contentType: 'image/png',
-        bytes: const [1, 2, 3],
+        bytes: samplePngBytes(width: 64, height: 64),
       ),
     );
 
@@ -4256,7 +4257,7 @@ void main() {
         samplePickedAttachmentFile(
           filename: 'duplicate-name.png',
           contentType: 'image/png',
-          bytes: const [1, 2, 3],
+          bytes: samplePngBytes(width: 64, height: 64),
         ),
         samplePickedAttachmentFile(
           filename: 'duplicate-name.png',
@@ -4385,12 +4386,12 @@ void main() {
           samplePickedAttachmentFile(
             filename: 'receipt.png',
             contentType: 'image/png',
-            bytes: const [1, 2, 3],
+            bytes: samplePngBytes(width: 64, height: 64),
           ),
           samplePickedAttachmentFile(
             filename: 'receipt.png',
             contentType: 'image/png',
-            bytes: const [4, 5, 6, 7],
+            bytes: samplePngBytes(width: 64, height: 64),
           ),
         ],
       );
@@ -4471,18 +4472,21 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('1 attachment selected'), findsOneWidget);
-      expect(find.text('receipt.png'), findsOneWidget);
+      expect(find.text('receipt-normalized.jpg'), findsOneWidget);
       expect(find.text('Receipt'), findsNothing);
       expect(find.text('Supporting attachment'), findsOneWidget);
-      expect(find.text('image/png - 4 bytes'), findsOneWidget);
+      expect(find.textContaining('image/jpeg - '), findsOneWidget);
 
       await _tapSaveGroupBill(tester);
 
       expect(billRepository.createGroupCalls, 1);
       expect(attachmentRepository.attachCalls, 1);
-      expect(attachmentRepository.uploads.single.filename, 'receipt.png');
-      expect(attachmentRepository.uploads.single.contentType, 'image/png');
-      expect(attachmentRepository.uploads.single.bytes, const [4, 5, 6, 7]);
+      expect(
+        attachmentRepository.uploads.single.filename,
+        'receipt-normalized.jpg',
+      );
+      expect(attachmentRepository.uploads.single.contentType, 'image/jpeg');
+      expect(attachmentRepository.uploads.single.bytes, isNotEmpty);
       expect(
         attachmentRepository.uploads.single.purpose,
         SettleoraBillAttachmentPurposeValues.supportingAttachment,
@@ -4501,7 +4505,7 @@ void main() {
         pickedFile: samplePickedAttachmentFile(
           filename: 'receipt.png',
           contentType: 'image/png',
-          bytes: const [1, 2, 3],
+          bytes: samplePngBytes(width: 64, height: 64),
         ),
       );
 
@@ -4564,7 +4568,7 @@ void main() {
           samplePickedAttachmentFile(
             filename: 'C:\\Users\\secret\\receipt.png',
             contentType: 'image/png',
-            bytes: const [4, 5, 6],
+            bytes: samplePngBytes(width: 64, height: 64),
           ),
           samplePickedAttachmentFile(
             filename: 'support.pdf',
@@ -4617,9 +4621,12 @@ void main() {
         _createdBillId,
       ]);
       expect(attachmentRepository.uploads[0].purpose, 'receipt');
-      expect(attachmentRepository.uploads[0].filename, 'receipt.png');
-      expect(attachmentRepository.uploads[0].contentType, 'image/png');
-      expect(attachmentRepository.uploads[0].bytes, const [4, 5, 6]);
+      expect(
+        attachmentRepository.uploads[0].filename,
+        'receipt-normalized.jpg',
+      );
+      expect(attachmentRepository.uploads[0].contentType, 'image/jpeg');
+      expect(attachmentRepository.uploads[0].bytes, isNotEmpty);
       expect(
         attachmentRepository.uploads[1].purpose,
         SettleoraBillAttachmentPurposeValues.supportingAttachment,
@@ -4686,7 +4693,7 @@ void main() {
         const Key('group-bill-attachment-purpose-receipt'),
       );
       expect(find.text('1 attachment selected'), findsOneWidget);
-      expect(find.text('cancelled-receipt.png'), findsOneWidget);
+      expect(find.text('cancelled-receipt-normalized.jpg'), findsOneWidget);
 
       await _discardGroupBillCreateDraft(tester);
       await tester.tap(find.byKey(const Key('group-bill-list-create')));
@@ -4695,21 +4702,21 @@ void main() {
 
       expect(find.text('0 attachments selected'), findsOneWidget);
       expect(find.text('No attachments selected'), findsOneWidget);
-      expect(find.text('cancelled-receipt.png'), findsNothing);
+      expect(find.text('cancelled-receipt-normalized.jpg'), findsNothing);
 
       await _fillMinimalGroupCreateForm(tester);
       await _addGroupDraftAttachment(
         tester,
         const Key('group-bill-attachment-purpose-receipt'),
       );
-      expect(find.text('uploaded-receipt.png'), findsOneWidget);
+      expect(find.text('uploaded-receipt-normalized.jpg'), findsOneWidget);
       await _tapSaveGroupBill(tester);
 
       expect(billRepository.createGroupCalls, 1);
       expect(attachmentRepository.attachCalls, 1);
       expect(
         attachmentRepository.uploads.single.filename,
-        'uploaded-receipt.png',
+        'uploaded-receipt-normalized.jpg',
       );
       expect(find.text('Group bill'), findsWidgets);
 
@@ -4862,7 +4869,7 @@ void main() {
         samplePickedAttachmentFile(
           filename: 'receipt.png',
           contentType: 'image/png',
-          bytes: const [4, 5, 6],
+          bytes: samplePngBytes(width: 64, height: 64),
         ),
         samplePickedAttachmentFile(
           filename: 'invoice.pdf',
@@ -4871,7 +4878,7 @@ void main() {
         samplePickedAttachmentFile(
           filename: 'counter-receipt.webp',
           contentType: 'image/webp',
-          bytes: const [11, 12],
+          bytes: samplePngBytes(width: 64, height: 64),
         ),
       ],
     );
@@ -4915,7 +4922,7 @@ void main() {
     expect(find.text('2 attachments selected'), findsOneWidget);
     expect(find.text('receipt.png'), findsNothing);
     expect(find.text('invoice.pdf'), findsOneWidget);
-    expect(find.text('counter-receipt.webp'), findsOneWidget);
+    expect(find.text('counter-receipt-normalized.jpg'), findsOneWidget);
 
     await _tapSaveGroupBill(tester);
 
@@ -4925,9 +4932,9 @@ void main() {
     expect(attachmentRepository.uploads[2].filename, 'invoice.pdf');
     expect(find.text('1 attachment selected'), findsOneWidget);
     expect(find.text('invoice.pdf'), findsNothing);
-    expect(find.text('counter-receipt.webp'), findsOneWidget);
+    expect(find.text('counter-receipt-normalized.jpg'), findsOneWidget);
     expect(find.text('Receipt'), findsOneWidget);
-    expect(find.text('image/webp - 2 bytes'), findsOneWidget);
+    expect(find.textContaining('image/jpeg - '), findsOneWidget);
     expect(
       find.byKey(const Key('group-bill-create-attachment-upload-failure')),
       findsOneWidget,
@@ -4940,9 +4947,12 @@ void main() {
     expect(attachmentRepository.attachCalls, 5);
     expect(attachmentRepository.uploadRoutes.last.groupId, _groupId);
     expect(attachmentRepository.uploadRoutes.last.billId, _createdBillId);
-    expect(attachmentRepository.uploads.last.filename, 'counter-receipt.webp');
-    expect(attachmentRepository.uploads.last.contentType, 'image/webp');
-    expect(attachmentRepository.uploads.last.bytes, const [11, 12]);
+    expect(
+      attachmentRepository.uploads.last.filename,
+      'counter-receipt-normalized.jpg',
+    );
+    expect(attachmentRepository.uploads.last.contentType, 'image/jpeg');
+    expect(attachmentRepository.uploads.last.bytes, isNotEmpty);
     expect(
       attachmentRepository.uploads.last.purpose,
       SettleoraBillAttachmentPurposeValues.receipt,
@@ -6042,15 +6052,30 @@ SettleoraBillAttachment sampleAttachment({
 SettleoraPickedBillAttachmentFile samplePickedAttachmentFile({
   String filename = 'support.pdf',
   String contentType = 'application/pdf',
-  List<int> bytes = const [1, 2, 3],
+  List<int>? bytes,
 }) {
   return pickedBillAttachmentFileFromBytes(
     filename: filename,
     contentType: contentType,
-    bytes: bytes,
+    bytes:
+        bytes ??
+        (contentType.startsWith('image/')
+            ? samplePngBytes(width: 64, height: 64)
+            : const [1, 2, 3]),
     allowedContentTypes:
         SettleoraBillAttachmentContentTypeValues.supportingAttachmentValues,
   );
+}
+
+List<int> samplePngBytes({required int width, required int height}) {
+  final image = img.Image(width: width, height: height);
+  for (final pixel in image) {
+    pixel
+      ..r = pixel.x % 255
+      ..g = pixel.y % 255
+      ..b = 96;
+  }
+  return img.encodePng(image);
 }
 
 ReceiptOcrReviewDetail sampleReceiptOcrReviewDetail(

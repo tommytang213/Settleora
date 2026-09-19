@@ -1141,6 +1141,11 @@ String receiptOcrReviewIssueLabel(ReceiptOcrReviewApplyPreviewIssueCode issue) {
       'Line sum mismatch',
     ReceiptOcrReviewApplyPreviewIssueCodeValues.headerTotalMismatch =>
       'Header total mismatch',
+    ReceiptOcrReviewApplyPreviewIssueCodeValues.adjustmentsNotAutoApplied =>
+      'Non-item adjustments are preserved but not automatically applied',
+    ReceiptOcrReviewApplyPreviewIssueCodeValues
+        .adjustmentCurrencyNotReconciled =>
+      'A non-item adjustment uses a different currency and is not included in header reconciliation',
     _ => _titleFromCode(issue),
   };
 }

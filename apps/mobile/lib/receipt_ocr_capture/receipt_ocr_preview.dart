@@ -1,3 +1,5 @@
+const int receiptOcrReviewLineLimit = 100;
+
 class ReceiptOcrPreview {
   const ReceiptOcrPreview({
     this.merchant,
@@ -8,7 +10,13 @@ class ReceiptOcrPreview {
     this.tax,
     this.service,
     this.tip,
+    this.tipLabel,
+    this.tipCurrency,
+    this.tipHasExplicitCurrencyEvidence = false,
     this.shipping,
+    this.shippingLabel,
+    this.shippingCurrency,
+    this.shippingHasExplicitCurrencyEvidence = false,
     this.discount,
     this.total,
     this.rawTextLineCount = 0,
@@ -28,7 +36,13 @@ class ReceiptOcrPreview {
   final String? tax;
   final String? service;
   final String? tip;
+  final String? tipLabel;
+  final String? tipCurrency;
+  final bool tipHasExplicitCurrencyEvidence;
   final String? shipping;
+  final String? shippingLabel;
+  final String? shippingCurrency;
+  final bool shippingHasExplicitCurrencyEvidence;
   final String? discount;
   final String? total;
   final int rawTextLineCount;
@@ -138,7 +152,7 @@ List<String> _receiptOcrReviewHints(ReceiptOcrPreview preview) {
         _hasReceiptOcrReferenceAdjustment(preview) &&
         !_receiptOcrAmountsClose(itemTotal, total)) {
       return const [
-        'Detected tax/service/discount may explain why item totals differ from the grand total.',
+        'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
       ];
     }
 
@@ -153,7 +167,7 @@ List<String> _receiptOcrReviewHints(ReceiptOcrPreview preview) {
   if (_hasReceiptOcrReferenceAdjustment(preview)) {
     if (!_receiptOcrAmountsClose(itemTotal, total)) {
       return const [
-        'Detected tax/service/discount may explain why item totals differ from the grand total.',
+        'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
       ];
     }
     return const [];
@@ -185,11 +199,34 @@ bool _hasReceiptOcrReferenceAdjustment(ReceiptOcrPreview preview) {
   final amounts = [
     _parseReceiptOcrReviewAmount(preview.tax),
     _parseReceiptOcrReviewAmount(preview.service),
-    _parseReceiptOcrReviewAmount(preview.tip),
-    _parseReceiptOcrReviewAmount(preview.shipping),
+    if (_adjustmentCurrencyMatchesReview(
+      reviewCurrency: preview.currency,
+      adjustmentCurrency: preview.tipCurrency,
+      hasExplicitCurrencyEvidence: preview.tipHasExplicitCurrencyEvidence,
+    ))
+      _parseReceiptOcrReviewAmount(preview.tip),
+    if (_adjustmentCurrencyMatchesReview(
+      reviewCurrency: preview.currency,
+      adjustmentCurrency: preview.shippingCurrency,
+      hasExplicitCurrencyEvidence: preview.shippingHasExplicitCurrencyEvidence,
+    ))
+      _parseReceiptOcrReviewAmount(preview.shipping),
     _parseReceiptOcrReviewAmount(preview.discount),
   ];
   return amounts.any((amount) => amount != null && amount != 0);
+}
+
+bool _adjustmentCurrencyMatchesReview({
+  required String? reviewCurrency,
+  required String? adjustmentCurrency,
+  required bool hasExplicitCurrencyEvidence,
+}) {
+  if (!hasExplicitCurrencyEvidence) return true;
+  final normalizedReview = reviewCurrency?.trim().toUpperCase();
+  final normalizedAdjustment = adjustmentCurrency?.trim().toUpperCase();
+  return normalizedReview != null &&
+      normalizedReview.isNotEmpty &&
+      normalizedAdjustment == normalizedReview;
 }
 
 bool _hasReviewAmountText(String? value) {

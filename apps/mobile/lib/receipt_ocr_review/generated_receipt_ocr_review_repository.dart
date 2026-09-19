@@ -358,6 +358,25 @@ ReceiptOcrReviewDetail _mapDetail(api.ReceiptOcrReviewResponse response) {
     discountAmount: response.discountAmount,
     grandTotalAmount: response.grandTotalAmount,
     lines: response.lines.map(_mapLine).toList(growable: false),
+    adjustmentEvidence: response.adjustmentEvidence
+        .map(_mapAdjustment)
+        .toList(growable: false),
+    createdAtUtc: response.createdAtUtc.toUtc(),
+    updatedAtUtc: response.updatedAtUtc.toUtc(),
+  );
+}
+
+ReceiptOcrReviewAdjustment _mapAdjustment(
+  api.ReceiptOcrReviewAdjustmentResponse response,
+) {
+  return ReceiptOcrReviewAdjustment(
+    id: response.id,
+    sortOrder: response.sortOrder,
+    kind: response.kind,
+    originalLabel: response.originalLabel,
+    amount: response.amount,
+    currency: response.currency,
+    direction: response.direction,
     createdAtUtc: response.createdAtUtc.toUtc(),
     updatedAtUtc: response.updatedAtUtc.toUtc(),
   );
@@ -391,6 +410,21 @@ api.ReceiptOcrReviewUpsertRequest _mapSaveRequest(
     discountAmount: request.discountAmount,
     grandTotalAmount: request.grandTotalAmount,
     lines: request.lines.map(_mapSaveLine).toList(growable: false),
+    adjustmentEvidence: request.adjustmentEvidence
+        .map(_mapSaveAdjustment)
+        .toList(growable: false),
+  );
+}
+
+api.ReceiptOcrReviewAdjustmentRequest _mapSaveAdjustment(
+  ReceiptOcrReviewAdjustmentSaveRequest request,
+) {
+  return api.ReceiptOcrReviewAdjustmentRequest(
+    kind: request.kind,
+    originalLabel: request.originalLabel,
+    amount: request.amount,
+    currency: request.currency,
+    direction: request.direction,
   );
 }
 
@@ -426,6 +460,9 @@ ReceiptOcrReviewApplyPreview _mapPreview(
     proposedLines: response.proposedLines
         .map(_mapPreviewLine)
         .toList(growable: false),
+    adjustmentEvidence: response.adjustmentEvidence
+        .map(_mapAdjustment)
+        .toList(growable: false),
     summary: _mapPreviewSummary(response.summary),
     canApply: response.canApply,
     blockedReasons: response.blockedReasons,
@@ -456,7 +493,13 @@ ReceiptOcrReviewPreviewSummary _mapPreviewSummary(
     lineCount: response.lineCount,
     linesWithProposedTotalCount: response.linesWithProposedTotalCount,
     linesMissingProposedTotalCount: response.linesMissingProposedTotalCount,
+    adjustmentEvidenceCount: response.adjustmentEvidenceCount,
+    autoAppliedAdjustmentCount: response.autoAppliedAdjustmentCount,
     proposedLineTotalSumAmount: response.proposedLineTotalSumAmount,
+    reconciledAdjustmentChargeTotalAmount:
+        response.reconciledAdjustmentChargeTotalAmount,
+    reconciledAdjustmentCreditTotalAmount:
+        response.reconciledAdjustmentCreditTotalAmount,
     expectedHeaderTotalAmount: response.expectedHeaderTotalAmount,
   );
 }

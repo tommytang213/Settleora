@@ -16,7 +16,9 @@ import 'package:mobile/bills/bill_sync_controller.dart';
 import 'package:mobile/groups/group_repository.dart';
 import 'package:mobile/notifications/notification_repository.dart';
 import 'package:mobile/profile/profile_repository.dart';
+import 'package:mobile/receipt_ocr_capture/receipt_image_artifact_processor.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_image_intake.dart';
+import 'package:mobile/receipt_ocr_capture/receipt_ocr_parser.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_provider.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
 import 'package:mobile/receipt_ocr_review/receipt_ocr_review_repository.dart';
@@ -99,7 +101,7 @@ void main() {
       pickedFile: samplePickedAttachmentFile(
         filename: 'receipt.png',
         contentType: 'image/png',
-        bytes: const [1, 2, 3],
+        bytes: samplePngBytes(width: 64, height: 64),
       ),
     );
 
@@ -179,6 +181,12 @@ void main() {
           discount: '-2.00',
           tax: '0.00',
           service: '0.00',
+          tip: '3.00',
+          tipLabel: 'Driver gratuity',
+          tipCurrency: 'XPF',
+          tipHasExplicitCurrencyEvidence: true,
+          shipping: '4.00',
+          shippingLabel: 'Delivery fee',
           total: '43.00',
           rawTextLineCount: 8,
           warnings: ['Review line totals before saving.'],
@@ -327,6 +335,11 @@ void main() {
       find.text('Service charge suggested: HKD 0.00 (review only)'),
       findsOneWidget,
     );
+    expect(find.text('Tip suggested: XPF 3.00 (review only)'), findsOneWidget);
+    expect(
+      find.text('Shipping suggested: HKD 4.00 (review only)'),
+      findsOneWidget,
+    );
     expect(
       find.text('Grand total suggested: HKD 43.00 (review only)'),
       findsOneWidget,
@@ -462,7 +475,11 @@ void main() {
     );
     expect(receiptRepository.lastSaveRequest?.currency, 'USD');
     expect(receiptRepository.lastSaveRequest?.subtotalAmount, '45.00');
-    expect(receiptRepository.lastSaveRequest?.discountAmount, '-2.00');
+    expect(
+      receiptRepository.lastSaveRequest?.discountAmount,
+      isNull,
+      reason: 'Signed OCR discounts remain visible locally but are not sent.',
+    );
     expect(receiptRepository.lastSaveRequest?.taxAmount, '0.00');
     expect(receiptRepository.lastSaveRequest?.serviceChargeAmount, '0.00');
     expect(receiptRepository.lastSaveRequest?.grandTotalAmount, '43.00');
@@ -474,7 +491,31 @@ void main() {
       receiptRepository.lastSaveRequest?.lines.map(
         (line) => line.lineTotalAmount,
       ),
-      ['30.00', '18.00'],
+      ['30.00', null],
+      reason:
+          'The second HKD line stays reviewable but its amount must not be relabeled as USD.',
+    );
+    expect(
+      receiptRepository.lastSaveRequest?.adjustmentEvidence.map(
+        (adjustment) => (
+          adjustment.kind,
+          adjustment.originalLabel,
+          adjustment.amount,
+          adjustment.currency,
+          adjustment.direction,
+        ),
+      ),
+      [
+        (
+          ReceiptOcrReviewAdjustmentKindValues.shipping,
+          'Delivery fee',
+          '4.00',
+          'USD',
+          ReceiptOcrReviewAdjustmentDirectionValues.charge,
+        ),
+      ],
+      reason:
+          'Unsupported explicit tip currency stays visible but is not relabeled; valid shipping remains typed non-item evidence.',
     );
     expect(find.text('Bill'), findsOneWidget);
     expect(
@@ -519,6 +560,158 @@ void main() {
     expect(find.textContaining('storage'), findsNothing);
   });
 
+  test('OCR adjustment adapter only emits API-valid positive magnitudes', () {
+    ReceiptOcrPreview preview({
+      String? tip,
+      String? tipCurrency,
+      bool tipHasExplicitCurrencyEvidence = false,
+      String? shipping,
+      String? shippingCurrency,
+      bool shippingHasExplicitCurrencyEvidence = false,
+    }) => ReceiptOcrPreview(
+      currency: 'USD',
+      tip: tip,
+      tipLabel: 'Driver gratuity',
+      tipCurrency: tipCurrency,
+      tipHasExplicitCurrencyEvidence: tipHasExplicitCurrencyEvidence,
+      shipping: shipping,
+      shippingLabel: 'Delivery fee',
+      shippingCurrency: shippingCurrency,
+      shippingHasExplicitCurrencyEvidence: shippingHasExplicitCurrencyEvidence,
+    );
+
+    expect(
+      receiptOcrAdjustmentEvidenceFromPreview(
+        preview(tip: '3.00', shipping: '4.00'),
+      ).map((adjustment) => adjustment.amount),
+      ['3.00', '4.00'],
+    );
+    expect(
+      receiptOcrAdjustmentEvidenceFromPreview(
+        preview(
+          tip: '3.00',
+          tipCurrency: 'EUR',
+          shipping: '4.00',
+          shippingCurrency: 'USD',
+        ),
+      ).map((adjustment) => adjustment.currency),
+      ['EUR', 'USD'],
+      reason: 'Explicit adjustment currencies must not inherit the receipt.',
+    );
+    expect(
+      receiptOcrAdjustmentEvidenceFromPreview(
+        preview(
+          tip: '3.00',
+          tipCurrency: 'XPF',
+          tipHasExplicitCurrencyEvidence: true,
+        ),
+      ),
+      isEmpty,
+      reason: 'Unsupported explicit currency evidence must not be relabeled.',
+    );
+    expect(
+      receiptOcrAdjustmentEvidenceFromPreview(
+        preview(tip: '0.00', shipping: '-1.00'),
+      ),
+      isEmpty,
+      reason: 'Non-positive OCR evidence must not invalidate the save request.',
+    );
+    expect(
+      receiptOcrAdjustmentEvidenceFromPreview(
+        preview(tip: 'not-an-amount', shipping: '1.234'),
+      ),
+      isEmpty,
+      reason: 'Malformed or over-scale USD evidence stays preview-only.',
+    );
+    expect(
+      receiptOcrAdjustmentEvidenceFromPreview(
+        preview(tip: '1000000000000000.00'),
+      ),
+      isEmpty,
+      reason: 'Evidence above the API decimal(19,4) range is not submitted.',
+    );
+  });
+
+  test('OCR save adapter omits API-invalid money and quantity candidates', () {
+    expect(receiptOcrMoneyCandidateForSave('12.50', currency: 'USD'), '12.50');
+    expect(receiptOcrMoneyCandidateForSave('12.50', currency: 'AED'), isNull);
+    expect(receiptOcrMoneyCandidateForSave('-2.00', currency: 'USD'), isNull);
+    expect(receiptOcrMoneyCandidateForSave('1.234', currency: 'USD'), isNull);
+    expect(
+      receiptOcrMoneyCandidateForSave('1000000000000000.00', currency: 'USD'),
+      isNull,
+    );
+    expect(receiptOcrQuantityCandidateForSave('2.5'), '2.5');
+    expect(
+      receiptOcrQuantityCandidateForSave('99999999999999.9999'),
+      '99999999999999.9999',
+    );
+    expect(receiptOcrQuantityCandidateForSave('100000000000000'), isNull);
+    expect(receiptOcrQuantityCandidateForSave('0'), isNull);
+    expect(receiptOcrQuantityCandidateForSave('-1'), isNull);
+    expect(receiptOcrQuantityCandidateForSave('1.23456'), isNull);
+  });
+
+  test('OCR save adapter preserves line currency boundaries and API limit', () {
+    final lines = receiptOcrReviewLinesFromPreview(
+      ReceiptOcrPreview(
+        currency: 'USD',
+        items: [
+          const ReceiptOcrItemCandidate(
+            description: 'Same currency',
+            quantity: '1',
+            unitPrice: '2.00',
+            lineTotal: '2.00',
+            currency: 'USD',
+          ),
+          const ReceiptOcrItemCandidate(
+            description: 'Different currency',
+            quantity: '1',
+            unitPrice: '3.00',
+            lineTotal: '3.00',
+            currency: 'EUR',
+          ),
+          for (var index = 0; index < receiptOcrReviewLineLimit; index += 1)
+            ReceiptOcrItemCandidate(
+              description: 'Extra $index',
+              lineTotal: '1.00',
+              currency: 'USD',
+            ),
+        ],
+      ),
+    );
+
+    expect(lines, hasLength(receiptOcrReviewLineLimit));
+    expect(lines.first.lineTotalAmount, '2.00');
+    expect(lines[1].text, 'Different currency');
+    expect(lines[1].quantity, '1');
+    expect(lines[1].unitPriceAmount, isNull);
+    expect(lines[1].lineTotalAmount, isNull);
+    expect(lines.last.text, 'Extra 97');
+  });
+
+  test(
+    'OCR parser-to-save omits money for explicit mismatched line currency',
+    () {
+      const parser = ReceiptOcrParser();
+      final preview = parser.parse('''
+Corner Cafe
+Imported tea 2 x 2.00 PLN 4.00
+Coffee USD 5.00
+Total USD 9.00
+''');
+      final lines = receiptOcrReviewLinesFromPreview(preview);
+
+      expect(preview.currency, 'USD');
+      expect(lines.first.text, 'Imported tea');
+      expect(lines.first.quantity, '2');
+      expect(lines.first.unitPriceAmount, isNull);
+      expect(lines.first.lineTotalAmount, isNull);
+      expect(lines.last.text, 'Coffee');
+      expect(lines.last.lineTotalAmount, '5.00');
+    },
+  );
+
   testWidgets(
     'personal OCR uses selected currency fallback and keeps currency editable',
     (tester) async {
@@ -561,7 +754,7 @@ void main() {
               pickedFile: samplePickedAttachmentFile(
                 filename: 'receipt.png',
                 contentType: 'image/png',
-                bytes: const [1, 2, 3],
+                bytes: samplePngBytes(width: 64, height: 64),
               ),
             ),
             receiptOcrProvider: receiptOcrProvider,
@@ -612,6 +805,284 @@ void main() {
     },
   );
 
+  testWidgets(
+    'personal OCR applies fractional measurements as line-total-only bill rows',
+    (tester) async {
+      await useLargeSurface(tester);
+      final receiptOcrProvider = FakeReceiptOcrProvider(
+        const ReceiptOcrResult.extracted(
+          ReceiptOcrPreview(
+            merchant: 'Fuel Stop',
+            currency: 'USD',
+            currencyProvenance: ReceiptOcrCurrencyProvenance.explicit,
+            items: [
+              ReceiptOcrItemCandidate(
+                description: 'Regular Fuel',
+                quantity: '12.563',
+                unitPrice: '3.499',
+                lineTotal: '43.96',
+                currency: 'USD',
+              ),
+              ReceiptOcrItemCandidate(
+                description: 'Whole-unit bottle',
+                quantity: '2.0',
+                unitPrice: '5.00',
+                lineTotal: '10.00',
+                currency: 'USD',
+              ),
+            ],
+          ),
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraPersonalBillCreateScreen(
+            repository: FakeBillRepository(),
+            attachmentRepository: FakeBillAttachmentRepository(),
+            attachmentFileInput: FakeBillAttachmentFileInput(
+              pickedFile: samplePickedAttachmentFile(
+                filename: 'receipt.png',
+                contentType: 'image/png',
+                bytes: samplePngBytes(width: 64, height: 64),
+              ),
+            ),
+            receiptOcrProvider: receiptOcrProvider,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('personal-bill-scan-receipt')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('12.563'), findsWidgets);
+      expect(
+        tester
+            .widget<CheckboxListTile>(
+              find.byKey(const Key('personal-bill-ocr-apply-items')),
+            )
+            .onChanged,
+        isNotNull,
+      );
+      await _tapReceiptOcrApply(tester, 'personal-bill');
+
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('personal-bill-item-quantity-0')),
+            )
+            .controller
+            ?.text,
+        '1',
+      );
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('personal-bill-item-unit-amount-0')),
+            )
+            .controller
+            ?.text,
+        isEmpty,
+      );
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('personal-bill-item-amount-0')),
+            )
+            .controller
+            ?.text,
+        '43.96',
+      );
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('personal-bill-item-quantity-1')),
+            )
+            .controller
+            ?.text,
+        '2',
+      );
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('personal-bill-item-unit-amount-1')),
+            )
+            .controller
+            ?.text,
+        '5.00',
+      );
+    },
+  );
+
+  testWidgets(
+    'personal OCR blank line currency applies with reviewed receipt currency',
+    (tester) async {
+      await useLargeSurface(tester);
+      final receiptOcrProvider = FakeReceiptOcrProvider(
+        const ReceiptOcrResult.extracted(
+          ReceiptOcrPreview(
+            merchant: 'Currency Cafe',
+            currency: 'USD',
+            currencyProvenance: ReceiptOcrCurrencyProvenance.explicit,
+            items: [
+              ReceiptOcrItemCandidate(description: 'Coffee', lineTotal: '5.00'),
+            ],
+          ),
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraPersonalBillCreateScreen(
+            repository: FakeBillRepository(),
+            attachmentRepository: FakeBillAttachmentRepository(),
+            attachmentFileInput: FakeBillAttachmentFileInput(
+              pickedFile: samplePickedAttachmentFile(
+                filename: 'receipt.png',
+                contentType: 'image/png',
+                bytes: samplePngBytes(width: 64, height: 64),
+              ),
+            ),
+            receiptOcrProvider: receiptOcrProvider,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await _selectCurrency(
+        tester,
+        find.byKey(const Key('personal-bill-currency')),
+        'HKD',
+      );
+      await tester.ensureVisible(
+        find.byKey(const Key('personal-bill-scan-receipt')),
+      );
+      await tester.tap(find.byKey(const Key('personal-bill-scan-receipt')));
+      await tester.pumpAndSettle();
+      final lineCurrency = find.byKey(
+        const ValueKey('personal-bill-ocr-item-currency-0'),
+      );
+      await tester.ensureVisible(lineCurrency);
+      await tester.tap(lineCurrency);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('No currency preference').last);
+      await tester.pumpAndSettle();
+      await _setReceiptOcrSection(tester, 'personal-bill', 'currency', false);
+      await _setReceiptOcrSection(tester, 'personal-bill', 'items', true);
+
+      await _tapReceiptOcrApply(tester, 'personal-bill');
+
+      expect(
+        tester
+            .widget<CurrencySelector>(
+              find.descendant(
+                of: find.byKey(const Key('personal-bill-currency')),
+                matching: find.byType(CurrencySelector),
+              ),
+            )
+            .value,
+        'HKD',
+      );
+      expect(
+        tester
+            .widget<CurrencySelector>(
+              find.descendant(
+                of: find.byKey(const Key('personal-bill-item-currency-0')),
+                matching: find.byType(CurrencySelector),
+              ),
+            )
+            .value,
+        'USD',
+      );
+    },
+  );
+
+  testWidgets(
+    'personal OCR keeps blocked sections editable after partial apply',
+    (tester) async {
+      await useLargeSurface(tester);
+      final receiptOcrProvider = FakeReceiptOcrProvider(
+        const ReceiptOcrResult.extracted(
+          ReceiptOcrPreview(
+            merchant: 'Fallback Cafe',
+            receiptDate: '2026-06-12',
+            currency: 'USD',
+            currencyProvenance: ReceiptOcrCurrencyProvenance.defaultFallback,
+            items: [
+              ReceiptOcrItemCandidate(
+                description: 'Coffee',
+                quantity: '1',
+                lineTotal: '12.00',
+                currency: 'USD',
+              ),
+            ],
+          ),
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraPersonalBillCreateScreen(
+            repository: FakeBillRepository(),
+            attachmentRepository: FakeBillAttachmentRepository(),
+            attachmentFileInput: FakeBillAttachmentFileInput(
+              pickedFile: samplePickedAttachmentFile(
+                filename: 'receipt.png',
+                contentType: 'image/png',
+                bytes: samplePngBytes(width: 64, height: 64),
+              ),
+            ),
+            receiptOcrProvider: receiptOcrProvider,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('personal-bill-scan-receipt')));
+      await tester.pumpAndSettle();
+
+      await _tapReceiptOcrApply(tester, 'personal-bill');
+
+      expect(find.text('Suggestions applied'), findsNothing);
+      expect(
+        tester
+            .widget<CurrencySelector>(
+              find.byKey(const Key('personal-bill-ocr-edit-currency')),
+            )
+            .enabled,
+        isTrue,
+      );
+      await _selectCurrency(
+        tester,
+        find.byKey(const Key('personal-bill-ocr-edit-currency')),
+        'HKD',
+      );
+      expect(
+        tester
+            .widget<CurrencySelector>(
+              find.byKey(const ValueKey('personal-bill-ocr-item-currency-0')),
+            )
+            .value,
+        'HKD',
+      );
+      await _setReceiptOcrSection(tester, 'personal-bill', 'currency', true);
+      await _setReceiptOcrSection(tester, 'personal-bill', 'items', true);
+      await _tapReceiptOcrApply(tester, 'personal-bill');
+
+      expect(find.text('Suggestions applied'), findsOneWidget);
+      expect(
+        tester
+            .widget<CurrencySelector>(
+              find.descendant(
+                of: find.byKey(const Key('personal-bill-item-currency-0')),
+                matching: find.byType(CurrencySelector),
+              ),
+            )
+            .value,
+        'HKD',
+      );
+    },
+  );
+
   testWidgets('personal OCR add remove and reset candidate rows', (
     tester,
   ) async {
@@ -644,7 +1115,7 @@ void main() {
             pickedFile: samplePickedAttachmentFile(
               filename: 'receipt.png',
               contentType: 'image/png',
-              bytes: const [1],
+              bytes: samplePngBytes(width: 64, height: 64),
             ),
           ),
           receiptOcrProvider: receiptOcrProvider,
@@ -737,7 +1208,7 @@ void main() {
               pickedFile: samplePickedAttachmentFile(
                 filename: 'receipt.png',
                 contentType: 'image/png',
-                bytes: const [1, 2, 3],
+                bytes: samplePngBytes(width: 64, height: 64),
               ),
             ),
             receiptOcrProvider: FakeReceiptOcrProvider(
@@ -821,12 +1292,12 @@ void main() {
                 samplePickedAttachmentFile(
                   filename: 'first-receipt.png',
                   contentType: 'image/png',
-                  bytes: const [1],
+                  bytes: samplePngBytes(width: 64, height: 64),
                 ),
                 samplePickedAttachmentFile(
                   filename: 'second-receipt.png',
                   contentType: 'image/png',
-                  bytes: const [2],
+                  bytes: samplePngBytes(width: 64, height: 64),
                 ),
               ],
             ),
@@ -916,7 +1387,7 @@ void main() {
             pickedFile: samplePickedAttachmentFile(
               filename: 'receipt.png',
               contentType: 'image/png',
-              bytes: const [1, 2, 3],
+              bytes: samplePngBytes(width: 64, height: 64),
             ),
           ),
           receiptOcrProvider: receiptOcrProvider,
@@ -1031,7 +1502,12 @@ void main() {
       billId: _createdBillId,
       fileId: _uploadedFileId,
     );
-    final receiptRepository = FakeReceiptOcrReviewRepository();
+    final receiptRepository = FakeReceiptOcrReviewRepository(
+      reviewDetail: sampleReceiptOcrReviewDetail(
+        route,
+        adjustments: sampleBillReviewAdjustments(),
+      ),
+    );
 
     await tester.pumpWidget(
       MaterialApp(
@@ -1137,6 +1613,11 @@ void main() {
       find.byKey(const Key('saved-ocr-review-ocr-edit-currency')),
       'HKD',
     );
+    expect(
+      find.textContaining('10.80 HKD'),
+      findsNothing,
+      reason: 'Changing currency must not relabel saved header evidence.',
+    );
     await tester.enterText(
       find.byKey(const ValueKey('saved-ocr-review-ocr-item-description-0')),
       'Edited milk',
@@ -1152,11 +1633,6 @@ void main() {
     await tester.enterText(
       find.byKey(const ValueKey('saved-ocr-review-ocr-item-line-total-0')),
       '22.00',
-    );
-    await _selectCurrency(
-      tester,
-      find.byKey(const ValueKey('saved-ocr-review-ocr-item-currency-0')),
-      'HKD',
     );
     await tester.tap(find.byKey(const Key('saved-ocr-review-ocr-add-item')));
     await tester.pumpAndSettle();
@@ -1185,7 +1661,16 @@ void main() {
       DateTime.utc(2026, 6, 14),
     );
     expect(receiptRepository.lastSaveRequest?.currency, 'HKD');
-    expect(receiptRepository.lastSaveRequest?.grandTotalAmount, '10.80');
+    expect(receiptRepository.lastSaveRequest?.grandTotalAmount, isNull);
+    expect(receiptRepository.lastSaveRequest?.adjustmentEvidence, hasLength(1));
+    expect(
+      receiptRepository
+          .lastSaveRequest
+          ?.adjustmentEvidence
+          .single
+          .originalLabel,
+      'Driver gratuity',
+    );
     expect(receiptRepository.lastSaveRequest?.lines.map((line) => line.text), [
       'Edited milk',
       'Tea',
@@ -1194,7 +1679,9 @@ void main() {
       receiptRepository.lastSaveRequest?.lines.map(
         (line) => line.lineTotalAmount,
       ),
-      ['22.00', '8.00'],
+      [null, '8.00'],
+      reason:
+          'Changing the review currency must not relabel saved header or line money.',
     );
     expect(find.text('Edited Market'), findsOneWidget);
     expect(find.text('Edited milk'), findsOneWidget);
@@ -3200,7 +3687,7 @@ void main() {
             pickedFile: samplePickedAttachmentFile(
               filename: 'receipt.png',
               contentType: 'image/png',
-              bytes: const [1, 2, 3],
+              bytes: samplePngBytes(width: 64, height: 64),
             ),
           ),
           receiptOcrProvider: receiptOcrProvider,
@@ -3285,7 +3772,7 @@ void main() {
             pickedFile: samplePickedAttachmentFile(
               filename: 'receipt.png',
               contentType: 'image/png',
-              bytes: const [1, 2, 3],
+              bytes: samplePngBytes(width: 64, height: 64),
             ),
           ),
           receiptOcrProvider: receiptOcrProvider,
@@ -3389,7 +3876,7 @@ void main() {
               pickedFile: samplePickedAttachmentFile(
                 filename: 'receipt.png',
                 contentType: 'image/png',
-                bytes: const [1],
+                bytes: samplePngBytes(width: 64, height: 64),
               ),
             ),
             receiptOcrProvider: receiptOcrProvider,
@@ -3492,7 +3979,7 @@ void main() {
             pickedFile: samplePickedAttachmentFile(
               filename: 'receipt.png',
               contentType: 'image/png',
-              bytes: const [1, 2, 3],
+              bytes: samplePngBytes(width: 64, height: 64),
             ),
           ),
           receiptOcrProvider: receiptOcrProvider,
@@ -3591,7 +4078,7 @@ void main() {
               pickedFile: samplePickedAttachmentFile(
                 filename: 'receipt.png',
                 contentType: 'image/png',
-                bytes: const [1, 2, 3],
+                bytes: samplePngBytes(width: 64, height: 64),
               ),
             ),
             receiptOcrProvider: receiptOcrProvider,
@@ -3707,7 +4194,7 @@ void main() {
               pickedFile: samplePickedAttachmentFile(
                 filename: 'receipt.png',
                 contentType: 'image/png',
-                bytes: const [1, 2, 3],
+                bytes: samplePngBytes(width: 64, height: 64),
               ),
             ),
             receiptOcrProvider: receiptOcrProvider,
@@ -3808,7 +4295,7 @@ void main() {
               pickedFile: samplePickedAttachmentFile(
                 filename: 'receipt.png',
                 contentType: 'image/png',
-                bytes: const [1, 2, 3],
+                bytes: samplePngBytes(width: 64, height: 64),
               ),
             ),
             receiptOcrProvider: receiptOcrProvider,
@@ -3889,7 +4376,7 @@ void main() {
               pickedFile: samplePickedAttachmentFile(
                 filename: 'receipt.png',
                 contentType: 'image/png',
-                bytes: const [1, 2, 3],
+                bytes: samplePngBytes(width: 64, height: 64),
               ),
             ),
             receiptOcrProvider: receiptOcrProvider,
@@ -3982,7 +4469,7 @@ void main() {
               pickedFile: samplePickedAttachmentFile(
                 filename: 'receipt.png',
                 contentType: 'image/png',
-                bytes: const [1],
+                bytes: samplePngBytes(width: 64, height: 64),
               ),
             ),
             receiptOcrProvider: receiptOcrProvider,
@@ -4038,6 +4525,11 @@ void main() {
     'personal OCR preserves unsupported currency as evidence without applying it',
     (tester) async {
       await useLargeSurface(tester);
+      final repository = FakeBillRepository(
+        createdDetail: sampleBillDetail(id: _createdBillId),
+      );
+      final attachmentRepository = FakeBillAttachmentRepository();
+      final receiptRepository = FakeReceiptOcrReviewRepository();
       final receiptOcrProvider = FakeReceiptOcrProvider(
         const ReceiptOcrResult.extracted(
           ReceiptOcrPreview(
@@ -4058,16 +4550,17 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: SettleoraPersonalBillCreateScreen(
-            repository: FakeBillRepository(),
-            attachmentRepository: FakeBillAttachmentRepository(),
+            repository: repository,
+            attachmentRepository: attachmentRepository,
             attachmentFileInput: FakeBillAttachmentFileInput(
               pickedFile: samplePickedAttachmentFile(
                 filename: 'receipt.png',
                 contentType: 'image/png',
-                bytes: const [1],
+                bytes: samplePngBytes(width: 64, height: 64),
               ),
             ),
             receiptOcrProvider: receiptOcrProvider,
+            receiptOcrReviewRepository: receiptRepository,
           ),
         ),
       );
@@ -4140,6 +4633,25 @@ void main() {
             ?.text,
         isEmpty,
       );
+
+      await tester.enterText(
+        find.byKey(const ValueKey('personal-bill-item-name-0')),
+        'Manual coffee',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('personal-bill-item-amount-0')),
+        '12.50',
+      );
+      await _tapSaveBill(tester);
+
+      expect(receiptRepository.saveCalls, 1);
+      expect(receiptRepository.lastSaveRequest?.currency, isNull);
+      expect(receiptRepository.lastSaveRequest?.lines.single.text, 'Coffee');
+      expect(
+        receiptRepository.lastSaveRequest?.lines.single.lineTotalAmount,
+        isNull,
+        reason: 'Money without an API-supported currency must remain local.',
+      );
     },
   );
 
@@ -4171,7 +4683,7 @@ void main() {
               pickedFile: samplePickedAttachmentFile(
                 filename: 'receipt.png',
                 contentType: 'image/png',
-                bytes: const [1],
+                bytes: samplePngBytes(width: 64, height: 64),
               ),
             ),
             receiptOcrProvider: receiptOcrProvider,
@@ -4266,7 +4778,7 @@ void main() {
               pickedFile: samplePickedAttachmentFile(
                 filename: 'refund.png',
                 contentType: 'image/png',
-                bytes: const [1],
+                bytes: samplePngBytes(width: 64, height: 64),
               ),
             ),
             receiptOcrProvider: receiptOcrProvider,
@@ -4311,6 +4823,84 @@ void main() {
   );
 
   testWidgets(
+    'personal OCR keeps over-limit item numbers as review-only evidence',
+    (tester) async {
+      await useLargeSurface(tester);
+      for (final candidate in const [
+        ReceiptOcrItemCandidate(
+          description: 'Over-limit quantity',
+          quantity: '100000000000000',
+          lineTotal: '12.50',
+          currency: 'USD',
+        ),
+        ReceiptOcrItemCandidate(
+          description: 'Over-limit amount',
+          quantity: '1',
+          lineTotal: '1000000000000000.00',
+          currency: 'USD',
+        ),
+      ]) {
+        final receiptOcrProvider = FakeReceiptOcrProvider(
+          ReceiptOcrResult.extracted(
+            ReceiptOcrPreview(
+              merchant: 'Boundary Store',
+              currency: 'USD',
+              currencyProvenance: ReceiptOcrCurrencyProvenance.explicit,
+              items: [candidate],
+            ),
+          ),
+        );
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: SettleoraPersonalBillCreateScreen(
+              repository: FakeBillRepository(),
+              attachmentRepository: FakeBillAttachmentRepository(),
+              attachmentFileInput: FakeBillAttachmentFileInput(
+                pickedFile: samplePickedAttachmentFile(
+                  filename: 'boundary.png',
+                  contentType: 'image/png',
+                  bytes: samplePngBytes(width: 64, height: 64),
+                ),
+              ),
+              receiptOcrProvider: receiptOcrProvider,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('personal-bill-scan-receipt')));
+        await tester.pumpAndSettle();
+
+        expect(find.text(candidate.description), findsWidgets);
+        expect(
+          tester
+              .widget<CheckboxListTile>(
+                find.byKey(const Key('personal-bill-ocr-apply-items')),
+              )
+              .onChanged,
+          isNull,
+          reason: candidate.description,
+        );
+        await _tapReceiptOcrApply(tester, 'personal-bill');
+        expect(
+          tester
+              .widget<TextFormField>(
+                find.byKey(const ValueKey('personal-bill-item-name-0')),
+              )
+              .controller
+              ?.text,
+          isEmpty,
+          reason: candidate.description,
+        );
+
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpAndSettle();
+      }
+    },
+  );
+
+  testWidgets(
     'personal OCR item replacement warning is visible when selected',
     (tester) async {
       await useLargeSurface(tester);
@@ -4340,7 +4930,7 @@ void main() {
               pickedFile: samplePickedAttachmentFile(
                 filename: 'receipt.png',
                 contentType: 'image/png',
-                bytes: const [1],
+                bytes: samplePngBytes(width: 64, height: 64),
               ),
             ),
             receiptOcrProvider: receiptOcrProvider,
@@ -4502,6 +5092,86 @@ void main() {
     expect(find.text('0 attachments selected'), findsOneWidget);
   });
 
+  testWidgets('personal bill rejects an unsafe image before OCR or upload', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final provider = FakeReceiptOcrProvider(
+      const ReceiptOcrResult.failed('must not run'),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraPersonalBillCreateScreen(
+          repository: FakeBillRepository(),
+          attachmentRepository: FakeBillAttachmentRepository(),
+          attachmentFileInput: FakeBillAttachmentFileInput(
+            pickedFile: samplePickedAttachmentFile(
+              filename: 'rejected.png',
+              contentType: 'image/png',
+              bytes: const [1, 2, 3],
+            ),
+          ),
+          receiptOcrProvider: provider,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('personal-bill-scan-receipt')));
+    await tester.pumpAndSettle();
+
+    expect(provider.calls, 0);
+    expect(
+      find.byKey(const Key('personal-bill-ocr-preview-panel')),
+      findsNothing,
+    );
+    expect(find.text('0 attachments selected'), findsOneWidget);
+    expect(
+      find.text(
+        'The selected receipt image could not be prepared. Choose another image or use manual entry.',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('personal bill does not stage receipt when preparation throws', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final provider = FakeReceiptOcrProvider(
+      const ReceiptOcrResult.failed('must not run'),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraPersonalBillCreateScreen(
+          repository: FakeBillRepository(),
+          attachmentRepository: FakeBillAttachmentRepository(),
+          attachmentFileInput: FakeBillAttachmentFileInput(
+            pickedFile: samplePickedAttachmentFile(
+              filename: 'throws.png',
+              contentType: 'image/png',
+              bytes: samplePngBytes(width: 64, height: 64),
+            ),
+          ),
+          receiptImageArtifactProcessor:
+              const ThrowingReceiptImageArtifactProcessor(),
+          receiptOcrProvider: provider,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('personal-bill-scan-receipt')));
+    await tester.pumpAndSettle();
+
+    expect(provider.calls, 0);
+    expect(find.text('0 attachments selected'), findsOneWidget);
+    expect(
+      find.text('The receipt could not be selected. Try again.'),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('personal bill OCR failure keeps manual entry and supports retry', (
     tester,
   ) async {
@@ -4521,7 +5191,7 @@ void main() {
             pickedFile: samplePickedAttachmentFile(
               filename: 'receipt.png',
               contentType: 'image/png',
-              bytes: const [3, 2, 1],
+              bytes: samplePngBytes(width: 64, height: 64),
             ),
           ),
           receiptOcrProvider: receiptOcrProvider,
@@ -4604,7 +5274,7 @@ void main() {
             pickedFile: samplePickedAttachmentFile(
               filename: 'receipt.jpg',
               contentType: 'image/jpeg',
-              bytes: const [8, 6, 7],
+              bytes: samplePngBytes(width: 64, height: 64),
               localPath: '/tmp/settleora-receipt.jpg',
             ),
           ),
@@ -4628,7 +5298,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
 
     expect(receiptOcrProvider.calls, 1);
-    expect(receiptOcrProvider.lastRequest?.bytes, const [8, 6, 7]);
+    expect(receiptOcrProvider.lastRequest?.bytes, isNotEmpty);
     expect(receiptOcrProvider.lastRequest?.contentType, 'image/jpeg');
     expect(
       receiptOcrProvider.lastRequest?.imagePath,
@@ -5037,7 +5707,7 @@ void main() {
       pickedFile: samplePickedAttachmentFile(
         filename: 'receipt.png',
         contentType: 'image/png',
-        bytes: const [4, 5, 6],
+        bytes: samplePngBytes(width: 64, height: 64),
       ),
     );
 
@@ -5669,7 +6339,7 @@ void main() {
         pickedFile: samplePickedAttachmentFile(
           filename: 'receipt.png',
           contentType: 'image/png',
-          bytes: const [4, 5, 6],
+          bytes: samplePngBytes(width: 64, height: 64),
         ),
       );
 
@@ -5703,7 +6373,7 @@ void main() {
       expect(repository.createCalls, 0);
       expect(attachmentRepository.attachCalls, 0);
       expect(find.text('1 attachment selected'), findsOneWidget);
-      expect(find.text('receipt.png'), findsOneWidget);
+      expect(find.text('receipt-normalized.jpg'), findsOneWidget);
       expect(find.text('Receipt'), findsOneWidget);
       expect(
         find.byKey(const ValueKey('personal-bill-attachment-purpose-menu-0')),
@@ -5719,7 +6389,7 @@ void main() {
       expect(find.text('Enter an amount greater than zero.'), findsOneWidget);
       expect(repository.createCalls, 0);
       expect(attachmentRepository.attachCalls, 0);
-      expect(find.text('receipt.png'), findsOneWidget);
+      expect(find.text('receipt-normalized.jpg'), findsOneWidget);
 
       await tester.enterText(
         find.byKey(const Key('personal-bill-item-amount-0')),
@@ -5730,7 +6400,7 @@ void main() {
       expect(find.text('Enter a valid positive amount.'), findsOneWidget);
       expect(repository.createCalls, 0);
       expect(attachmentRepository.attachCalls, 0);
-      expect(find.text('receipt.png'), findsOneWidget);
+      expect(find.text('receipt-normalized.jpg'), findsOneWidget);
 
       await tester.enterText(
         find.byKey(const Key('personal-bill-item-amount-0')),
@@ -5821,7 +6491,7 @@ void main() {
         pickedFile: samplePickedAttachmentFile(
           filename: 'C:\\Users\\secret\\local-receipt.png',
           contentType: 'image/png',
-          bytes: const [4, 5, 6],
+          bytes: samplePngBytes(width: 64, height: 64),
         ),
       );
 
@@ -5864,7 +6534,7 @@ void main() {
         SettleoraBillAttachmentContentTypeValues.receiptValues,
       );
       expect(find.text('1 attachment selected'), findsOneWidget);
-      expect(find.text('local-receipt.png'), findsOneWidget);
+      expect(find.text('local-receipt-normalized.jpg'), findsOneWidget);
       expect(find.text('Receipt'), findsOneWidget);
       expect(
         find.text(
@@ -5877,8 +6547,8 @@ void main() {
       expect(
         find.bySemanticsLabel(
           RegExp(
-            'Selected bill attachment 1.*Filename: local-receipt.png.*'
-            'Content type: image/png.*Size: 3 bytes.*'
+            'Selected bill attachment 1.*Filename: local-receipt-normalized.jpg.*'
+            'Content type: image/jpeg.*Size: [1-9][0-9]* bytes.*'
             'Selected purpose: Receipt',
           ),
         ),
@@ -5896,7 +6566,7 @@ void main() {
 
       expect(find.text('0 attachments selected'), findsOneWidget);
       expect(find.text('No attachments selected'), findsOneWidget);
-      expect(find.text('local-receipt.png'), findsNothing);
+      expect(find.text('local-receipt-normalized.jpg'), findsNothing);
       expect(find.text('Receipt'), findsNothing);
 
       await _tapSaveBill(tester);
@@ -5929,7 +6599,7 @@ void main() {
           samplePickedAttachmentFile(
             filename: 'C:\\Users\\secret\\receipt.png',
             contentType: 'image/png',
-            bytes: const [4, 5, 6],
+            bytes: samplePngBytes(width: 64, height: 64),
           ),
           samplePickedAttachmentFile(
             filename: 'support.pdf',
@@ -5974,9 +6644,12 @@ void main() {
         _createdBillId,
       ]);
       expect(attachmentRepository.uploads[0].purpose, 'receipt');
-      expect(attachmentRepository.uploads[0].filename, 'receipt.png');
-      expect(attachmentRepository.uploads[0].contentType, 'image/png');
-      expect(attachmentRepository.uploads[0].bytes, const [4, 5, 6]);
+      expect(
+        attachmentRepository.uploads[0].filename,
+        'receipt-normalized.jpg',
+      );
+      expect(attachmentRepository.uploads[0].contentType, 'image/jpeg');
+      expect(attachmentRepository.uploads[0].bytes, isNotEmpty);
       expect(
         attachmentRepository.uploads[1].purpose,
         SettleoraBillAttachmentPurposeValues.supportingAttachment,
@@ -6042,7 +6715,7 @@ void main() {
         const Key('personal-bill-attachment-purpose-receipt'),
       );
       expect(find.text('1 attachment selected'), findsOneWidget);
-      expect(find.text('cancelled-receipt.png'), findsOneWidget);
+      expect(find.text('cancelled-receipt-normalized.jpg'), findsOneWidget);
 
       await _discardPersonalBillCreateDraft(tester);
       await tester.tap(find.byKey(const Key('bill-list-create')));
@@ -6050,21 +6723,21 @@ void main() {
 
       expect(find.text('0 attachments selected'), findsOneWidget);
       expect(find.text('No attachments selected'), findsOneWidget);
-      expect(find.text('cancelled-receipt.png'), findsNothing);
+      expect(find.text('cancelled-receipt-normalized.jpg'), findsNothing);
 
       await _fillMinimalCreateForm(tester);
       await _addDraftAttachment(
         tester,
         const Key('personal-bill-attachment-purpose-receipt'),
       );
-      expect(find.text('uploaded-receipt.png'), findsOneWidget);
+      expect(find.text('uploaded-receipt-normalized.jpg'), findsOneWidget);
       await _tapSaveBill(tester);
 
       expect(repository.createCalls, 1);
       expect(attachmentRepository.attachCalls, 1);
       expect(
         attachmentRepository.uploads.single.filename,
-        'uploaded-receipt.png',
+        'uploaded-receipt-normalized.jpg',
       );
       expect(find.text('Bill'), findsOneWidget);
 
@@ -6163,12 +6836,12 @@ void main() {
           samplePickedAttachmentFile(
             filename: 'receipt.png',
             contentType: 'image/png',
-            bytes: const [1, 2, 3],
+            bytes: samplePngBytes(width: 64, height: 64),
           ),
           samplePickedAttachmentFile(
             filename: 'receipt.png',
             contentType: 'image/png',
-            bytes: const [4, 5, 6],
+            bytes: samplePngBytes(width: 64, height: 64),
           ),
         ],
       );
@@ -6198,18 +6871,18 @@ void main() {
       );
 
       expect(find.text('2 attachments selected'), findsOneWidget);
-      expect(find.text('receipt.png'), findsNWidgets(2));
+      expect(find.text('receipt-normalized.jpg'), findsNWidgets(2));
 
       await _tapSaveBill(tester);
 
       expect(repository.createCalls, 1);
       expect(attachmentRepository.attachCalls, 2);
       expect(attachmentRepository.uploads.map((upload) => upload.filename), [
-        'receipt.png',
-        'receipt.png',
+        'receipt-normalized.jpg',
+        'receipt-normalized.jpg',
       ]);
-      expect(attachmentRepository.uploads[0].bytes, const [1, 2, 3]);
-      expect(attachmentRepository.uploads[1].bytes, const [4, 5, 6]);
+      expect(attachmentRepository.uploads[0].bytes, isNotEmpty);
+      expect(attachmentRepository.uploads[1].bytes, isNotEmpty);
     },
   );
 
@@ -6226,12 +6899,12 @@ void main() {
           samplePickedAttachmentFile(
             filename: 'receipt.png',
             contentType: 'image/png',
-            bytes: const [1, 2, 3],
+            bytes: samplePngBytes(width: 64, height: 64),
           ),
           samplePickedAttachmentFile(
             filename: 'receipt.png',
             contentType: 'image/png',
-            bytes: const [4, 5, 6],
+            bytes: samplePngBytes(width: 64, height: 64),
           ),
         ],
       );
@@ -6312,18 +6985,21 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('1 attachment selected'), findsOneWidget);
-      expect(find.text('receipt.png'), findsOneWidget);
+      expect(find.text('receipt-normalized.jpg'), findsOneWidget);
       expect(find.text('Receipt'), findsOneWidget);
       expect(find.text('Supporting attachment'), findsNothing);
-      expect(find.text('image/png - 3 bytes'), findsOneWidget);
+      expect(find.textContaining('image/jpeg - '), findsOneWidget);
 
       await _tapSaveBill(tester);
 
       expect(repository.createCalls, 1);
       expect(attachmentRepository.attachCalls, 1);
-      expect(attachmentRepository.uploads.single.filename, 'receipt.png');
-      expect(attachmentRepository.uploads.single.contentType, 'image/png');
-      expect(attachmentRepository.uploads.single.bytes, const [4, 5, 6]);
+      expect(
+        attachmentRepository.uploads.single.filename,
+        'receipt-normalized.jpg',
+      );
+      expect(attachmentRepository.uploads.single.contentType, 'image/jpeg');
+      expect(attachmentRepository.uploads.single.bytes, isNotEmpty);
       expect(
         attachmentRepository.uploads.single.purpose,
         SettleoraBillAttachmentPurposeValues.receipt,
@@ -6407,7 +7083,7 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('1 attachment selected'), findsOneWidget);
-      expect(find.text('receipt.png'), findsOneWidget);
+      expect(find.text('receipt-normalized.jpg'), findsOneWidget);
     },
   );
 
@@ -6535,7 +7211,7 @@ void main() {
           samplePickedAttachmentFile(
             filename: 'receipt.png',
             contentType: 'image/png',
-            bytes: const [4, 5, 6],
+            bytes: samplePngBytes(width: 64, height: 64),
           ),
           samplePickedAttachmentFile(
             filename: 'invoice.pdf',
@@ -6544,7 +7220,7 @@ void main() {
           samplePickedAttachmentFile(
             filename: 'counter-receipt.webp',
             contentType: 'image/webp',
-            bytes: const [11, 12],
+            bytes: samplePngBytes(width: 64, height: 64),
           ),
         ],
       );
@@ -6583,7 +7259,7 @@ void main() {
       expect(find.text('2 attachments selected'), findsOneWidget);
       expect(find.text('receipt.png'), findsNothing);
       expect(find.text('invoice.pdf'), findsOneWidget);
-      expect(find.text('counter-receipt.webp'), findsOneWidget);
+      expect(find.text('counter-receipt-normalized.jpg'), findsOneWidget);
 
       await _tapSaveBill(tester);
 
@@ -6592,9 +7268,9 @@ void main() {
       expect(attachmentRepository.uploads[2].filename, 'invoice.pdf');
       expect(find.text('1 attachment selected'), findsOneWidget);
       expect(find.text('invoice.pdf'), findsNothing);
-      expect(find.text('counter-receipt.webp'), findsOneWidget);
+      expect(find.text('counter-receipt-normalized.jpg'), findsOneWidget);
       expect(find.text('Receipt'), findsOneWidget);
-      expect(find.text('image/webp - 2 bytes'), findsOneWidget);
+      expect(find.textContaining('image/jpeg - '), findsOneWidget);
       expect(
         find.byKey(const Key('personal-bill-create-attachment-upload-failure')),
         findsOneWidget,
@@ -6606,10 +7282,10 @@ void main() {
       expect(attachmentRepository.attachCalls, 5);
       expect(
         attachmentRepository.uploads.last.filename,
-        'counter-receipt.webp',
+        'counter-receipt-normalized.jpg',
       );
-      expect(attachmentRepository.uploads.last.contentType, 'image/webp');
-      expect(attachmentRepository.uploads.last.bytes, const [11, 12]);
+      expect(attachmentRepository.uploads.last.contentType, 'image/jpeg');
+      expect(attachmentRepository.uploads.last.bytes, isNotEmpty);
       expect(
         attachmentRepository.uploads.last.purpose,
         SettleoraBillAttachmentPurposeValues.receipt,
@@ -7074,7 +7750,7 @@ void main() {
       pickedFile: samplePickedAttachmentFile(
         filename: 'receipt.png',
         contentType: 'image/png',
-        bytes: const [4, 5, 6],
+        bytes: samplePngBytes(width: 64, height: 64),
       ),
     );
     final memberRepository = FakeGroupRepository(
@@ -7303,7 +7979,7 @@ void main() {
         pickedFile: samplePickedAttachmentFile(
           filename: 'group-receipt.png',
           contentType: 'image/png',
-          bytes: const [9, 8, 7],
+          bytes: samplePngBytes(width: 64, height: 64),
         ),
       ),
       receiptOcrProvider: receiptOcrProvider,
@@ -7316,7 +7992,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(receiptOcrProvider.calls, 1);
-    expect(receiptOcrProvider.lastRequest?.bytes, const [9, 8, 7]);
+    expect(receiptOcrProvider.lastRequest?.bytes, isNotEmpty);
     expect(receiptOcrProvider.lastRequest?.fallbackCurrency, 'USD');
     expect(
       find.byKey(const Key('group-bill-ocr-preview-panel')),
@@ -7356,6 +8032,87 @@ void main() {
           .controller
           ?.text,
       'Manual noodles',
+    );
+  });
+
+  testWidgets('group bill rejects an unsafe image before OCR or upload', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final receiptOcrProvider = FakeReceiptOcrProvider(
+      const ReceiptOcrResult.failed('must not run'),
+    );
+    await _pumpGroupBillCreate(
+      tester,
+      repository: FakeBillRepository(),
+      groupRepository: FakeGroupRepository(
+        members: [sampleGroupMember(displayName: 'Alex')],
+      ),
+      attachmentRepository: FakeBillAttachmentRepository(),
+      attachmentFileInput: FakeBillAttachmentFileInput(
+        pickedFile: samplePickedAttachmentFile(
+          filename: 'rejected.png',
+          contentType: 'image/png',
+          bytes: const [1, 2, 3],
+        ),
+      ),
+      receiptOcrProvider: receiptOcrProvider,
+    );
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await _goToGroupBillCreateStep(tester, 'receiptItems');
+    await tester.tap(find.byKey(const Key('group-bill-scan-receipt')));
+    await tester.pumpAndSettle();
+
+    expect(receiptOcrProvider.calls, 0);
+    expect(find.byKey(const Key('group-bill-ocr-preview-panel')), findsNothing);
+    expect(find.text('0 attachments selected'), findsOneWidget);
+    expect(
+      find.text(
+        'The selected receipt image could not be prepared. Choose another image or use manual entry.',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('group bill does not stage receipt when preparation throws', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final provider = FakeReceiptOcrProvider(
+      const ReceiptOcrResult.failed('must not run'),
+    );
+    await _pumpGroupBillCreate(
+      tester,
+      repository: FakeBillRepository(),
+      groupRepository: FakeGroupRepository(
+        members: [sampleGroupMember(displayName: 'Alex')],
+      ),
+      attachmentRepository: FakeBillAttachmentRepository(),
+      attachmentFileInput: FakeBillAttachmentFileInput(
+        pickedFile: samplePickedAttachmentFile(
+          filename: 'throws.png',
+          contentType: 'image/png',
+          bytes: samplePngBytes(width: 64, height: 64),
+        ),
+      ),
+      receiptImageArtifactProcessor:
+          const ThrowingReceiptImageArtifactProcessor(),
+      receiptOcrProvider: provider,
+    );
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await _goToGroupBillCreateStep(tester, 'receiptItems');
+    await tester.tap(find.byKey(const Key('group-bill-scan-receipt')));
+    await tester.pumpAndSettle();
+
+    expect(provider.calls, 0);
+    expect(find.text('0 attachments selected'), findsOneWidget);
+    expect(
+      find.text('The receipt could not be selected. Try again.'),
+      findsOneWidget,
     );
   });
 
@@ -7413,7 +8170,7 @@ void main() {
           pickedFile: samplePickedAttachmentFile(
             filename: 'group-receipt.png',
             contentType: 'image/png',
-            bytes: const [9, 8, 7],
+            bytes: samplePngBytes(width: 64, height: 64),
           ),
         ),
         receiptOcrProvider: receiptOcrProvider,
@@ -7528,7 +8285,7 @@ void main() {
         pickedFile: samplePickedAttachmentFile(
           filename: 'group-receipt.png',
           contentType: 'image/png',
-          bytes: const [9, 8, 7],
+          bytes: samplePngBytes(width: 64, height: 64),
         ),
       ),
       receiptOcrProvider: receiptOcrProvider,
@@ -7568,6 +8325,88 @@ void main() {
     expect(repository.submitGroupCalls, 1);
     expect(repository.lastGroupCreateDraft?.merchantName, 'Dim Sum House Ltd.');
     expect(repository.lastGroupCreateDraft?.items.single.amount, '76.00');
+  });
+
+  testWidgets('group OCR keeps blocked sections editable after partial apply', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final receiptOcrProvider = FakeReceiptOcrProvider(
+      const ReceiptOcrResult.extracted(
+        ReceiptOcrPreview(
+          merchant: 'Fallback Group Cafe',
+          receiptDate: '2026-06-12',
+          currency: 'USD',
+          currencyProvenance: ReceiptOcrCurrencyProvenance.defaultFallback,
+          items: [
+            ReceiptOcrItemCandidate(
+              description: 'Coffee',
+              quantity: '1',
+              lineTotal: '12.00',
+              currency: 'USD',
+            ),
+          ],
+        ),
+      ),
+    );
+
+    await _pumpGroupBillCreate(
+      tester,
+      repository: FakeBillRepository(),
+      groupRepository: FakeGroupRepository(
+        members: [sampleGroupMember(displayName: 'Alex')],
+      ),
+      attachmentRepository: FakeBillAttachmentRepository(),
+      attachmentFileInput: FakeBillAttachmentFileInput(
+        pickedFile: samplePickedAttachmentFile(
+          filename: 'group-receipt.png',
+          contentType: 'image/png',
+          bytes: samplePngBytes(width: 64, height: 64),
+        ),
+      ),
+      receiptOcrProvider: receiptOcrProvider,
+    );
+
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await _goToGroupBillCreateStep(tester, 'receiptItems');
+    await tester.tap(find.byKey(const Key('group-bill-scan-receipt')));
+    await tester.pumpAndSettle();
+
+    await _tapReceiptOcrApply(tester, 'group-bill');
+
+    expect(find.text('Suggestions applied'), findsNothing);
+    expect(
+      tester
+          .widget<CurrencySelector>(
+            find.byKey(const Key('group-bill-ocr-edit-currency')),
+          )
+          .enabled,
+      isTrue,
+    );
+    final receiptCurrencySelector = find.byKey(
+      const Key('group-bill-ocr-edit-currency'),
+    );
+    await tester.ensureVisible(receiptCurrencySelector);
+    await tester.tap(receiptCurrencySelector);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('No currency preference').last);
+    await tester.pumpAndSettle();
+    await _selectCurrency(tester, receiptCurrencySelector, 'HKD');
+    await _selectCurrency(tester, receiptCurrencySelector, 'EUR');
+    expect(
+      tester
+          .widget<CurrencySelector>(
+            find.byKey(const ValueKey('group-bill-ocr-item-currency-0')),
+          )
+          .value,
+      'EUR',
+    );
+    await _setReceiptOcrSection(tester, 'group-bill', 'currency', true);
+    await _setReceiptOcrSection(tester, 'group-bill', 'items', true);
+    await _tapReceiptOcrApply(tester, 'group-bill');
+
+    expect(find.text('Suggestions applied'), findsOneWidget);
   });
 
   testWidgets(
@@ -7625,7 +8464,7 @@ void main() {
           pickedFile: samplePickedAttachmentFile(
             filename: 'group-receipt.png',
             contentType: 'image/png',
-            bytes: const [9],
+            bytes: samplePngBytes(width: 64, height: 64),
           ),
         ),
         receiptOcrProvider: receiptOcrProvider,
@@ -7860,7 +8699,7 @@ void main() {
         pickedFile: samplePickedAttachmentFile(
           filename: 'group-receipt.png',
           contentType: 'image/png',
-          bytes: const [9, 8, 7],
+          bytes: samplePngBytes(width: 64, height: 64),
         ),
       ),
       receiptOcrProvider: FakeReceiptOcrProvider(
@@ -7920,7 +8759,7 @@ void main() {
     );
   });
 
-  testWidgets('group OCR rejects inconsistent unit and line totals', (
+  testWidgets('group OCR requires consistent amounts and a nonempty name', (
     tester,
   ) async {
     await useLargeSurface(tester);
@@ -7935,7 +8774,7 @@ void main() {
         pickedFile: samplePickedAttachmentFile(
           filename: 'group-receipt.png',
           contentType: 'image/png',
-          bytes: const [9, 8, 7],
+          bytes: samplePngBytes(width: 64, height: 64),
         ),
       ),
       receiptOcrProvider: FakeReceiptOcrProvider(
@@ -7973,6 +8812,39 @@ void main() {
     );
     expect(find.text('Review item amounts before applying'), findsOneWidget);
 
+    await tester.enterText(
+      find.byKey(const ValueKey('group-bill-ocr-item-line-total-0')),
+      '10.00',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('group-bill-ocr-item-description-0')),
+      '',
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<CheckboxListTile>(
+            find.byKey(const Key('group-bill-ocr-apply-items')),
+          )
+          .onChanged,
+      isNull,
+    );
+
+    await tester.enterText(
+      find.byKey(const ValueKey('group-bill-ocr-item-description-0')),
+      'Coffee',
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<CheckboxListTile>(
+            find.byKey(const Key('group-bill-ocr-apply-items')),
+          )
+          .onChanged,
+      isNotNull,
+    );
+
+    await _setReceiptOcrSection(tester, 'group-bill', 'items', true);
     await _tapReceiptOcrApply(tester, 'group-bill');
 
     expect(
@@ -7982,7 +8854,7 @@ void main() {
           )
           .controller
           ?.text,
-      isEmpty,
+      'Coffee',
     );
     expect(
       tester
@@ -7991,7 +8863,7 @@ void main() {
           )
           .controller
           ?.text,
-      isEmpty,
+      '10.00',
     );
   });
 
@@ -8048,7 +8920,7 @@ void main() {
           pickedFile: samplePickedAttachmentFile(
             filename: 'shared-receipt.png',
             contentType: 'image/png',
-            bytes: const [4, 5, 6],
+            bytes: samplePngBytes(width: 64, height: 64),
           ),
         ),
         receiptOcrReviewRepository: receiptRepository,
@@ -8154,7 +9026,7 @@ void main() {
       );
       expect(
         find.text(
-          'Detected tax/service/discount may explain why item totals differ from the grand total.',
+          'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
         ),
         findsOneWidget,
       );
@@ -8383,7 +9255,7 @@ void main() {
           pickedFile: samplePickedAttachmentFile(
             filename: 'shared-receipt.png',
             contentType: 'image/png',
-            bytes: const [4, 5, 6],
+            bytes: samplePngBytes(width: 64, height: 64),
           ),
         ),
         receiptOcrProvider: receiptOcrProvider,
@@ -8585,7 +9457,7 @@ void main() {
         pickedFile: samplePickedAttachmentFile(
           filename: 'shared-receipt.png',
           contentType: 'image/png',
-          bytes: const [4, 5, 6],
+          bytes: samplePngBytes(width: 64, height: 64),
         ),
       ),
       receiptOcrProvider: receiptOcrProvider,
@@ -10344,7 +11216,7 @@ void main() {
       pickedFile: samplePickedAttachmentFile(
         filename: 'C:\\Users\\secret\\receipt.png',
         contentType: 'image/png',
-        bytes: const [4, 5, 6],
+        bytes: samplePngBytes(width: 64, height: 64),
       ),
     );
 
@@ -10387,7 +11259,7 @@ void main() {
     );
     expect(attachmentRepository.lastUpload?.filename, 'receipt.png');
     expect(attachmentRepository.lastUpload?.contentType, 'image/png');
-    expect(attachmentRepository.lastUpload?.bytes, const [4, 5, 6]);
+    expect(attachmentRepository.lastUpload?.bytes, isNotEmpty);
     expect(attachmentRepository.listCalls, 3);
     expect(
       find.text('Receipt uploaded. Review OCR before applying it to a draft.'),
@@ -12020,6 +12892,8 @@ Future<void> _pumpGroupBillCreate(
   FakeBillAttachmentRepository? attachmentRepository,
   FakeBillAttachmentFileInput? attachmentFileInput,
   ReceiptImageIntake? receiptImageIntake,
+  ReceiptImageArtifactProcessor receiptImageArtifactProcessor =
+      const ReceiptImageArtifactProcessor(),
   ReceiptOcrProvider? receiptOcrProvider,
   ReceiptOcrReviewRepository? receiptOcrReviewRepository,
 }) async {
@@ -12033,6 +12907,7 @@ Future<void> _pumpGroupBillCreate(
         attachmentRepository: attachmentRepository,
         attachmentFileInput: attachmentFileInput,
         receiptImageIntake: receiptImageIntake,
+        receiptImageArtifactProcessor: receiptImageArtifactProcessor,
         receiptOcrProvider: receiptOcrProvider,
         receiptOcrReviewRepository: receiptOcrReviewRepository,
       ),
@@ -12527,6 +13402,16 @@ class FakeReceiptImageIntake implements ReceiptImageIntake {
     }
 
     return pickedFile;
+  }
+}
+
+class ThrowingReceiptImageArtifactProcessor
+    extends ReceiptImageArtifactProcessor {
+  const ThrowingReceiptImageArtifactProcessor();
+
+  @override
+  ReceiptImageArtifactResult process(ReceiptImageArtifactRequest request) {
+    throw StateError('synthetic normalization failure');
   }
 }
 
@@ -13166,13 +14051,17 @@ SettleoraBillAttachment sampleAttachment({
 SettleoraPickedBillAttachmentFile samplePickedAttachmentFile({
   String filename = 'support.pdf',
   String contentType = 'application/pdf',
-  List<int> bytes = const [1, 2, 3],
+  List<int>? bytes,
   String? localPath,
 }) {
   return pickedBillAttachmentFileFromBytes(
     filename: filename,
     contentType: contentType,
-    bytes: bytes,
+    bytes:
+        bytes ??
+        (contentType.startsWith('image/')
+            ? samplePngBytes(width: 64, height: 64)
+            : const [1, 2, 3]),
     localPath: localPath,
     allowedContentTypes:
         SettleoraBillAttachmentContentTypeValues.supportingAttachmentValues,
@@ -13196,6 +14085,7 @@ ReceiptOcrReviewDetail sampleReceiptOcrReviewDetail(
   String lineText = 'Milk',
   String currency = 'USD',
   DateTime? updatedAtUtc,
+  List<ReceiptOcrReviewAdjustment> adjustments = const [],
 }) {
   return ReceiptOcrReviewDetail(
     id: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
@@ -13224,9 +14114,26 @@ ReceiptOcrReviewDetail sampleReceiptOcrReviewDetail(
         updatedAtUtc: _createdAtUtc,
       ),
     ],
+    adjustmentEvidence: adjustments,
     createdAtUtc: _createdAtUtc,
     updatedAtUtc: updatedAtUtc ?? _updatedAtUtc,
   );
+}
+
+List<ReceiptOcrReviewAdjustment> sampleBillReviewAdjustments() {
+  return [
+    ReceiptOcrReviewAdjustment(
+      id: 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
+      sortOrder: 0,
+      kind: ReceiptOcrReviewAdjustmentKindValues.tip,
+      originalLabel: 'Driver gratuity',
+      amount: '2.00',
+      currency: 'USD',
+      direction: ReceiptOcrReviewAdjustmentDirectionValues.charge,
+      createdAtUtc: _createdAtUtc,
+      updatedAtUtc: _updatedAtUtc,
+    ),
+  ];
 }
 
 ReceiptOcrReviewDetail sampleReceiptOcrReviewDetailFromRequest(
@@ -13257,6 +14164,20 @@ ReceiptOcrReviewDetail sampleReceiptOcrReviewDetailFromRequest(
           quantity: request.lines[index].quantity,
           unitPriceAmount: request.lines[index].unitPriceAmount,
           lineTotalAmount: request.lines[index].lineTotalAmount,
+          createdAtUtc: _createdAtUtc,
+          updatedAtUtc: _updatedAtUtc,
+        ),
+    ],
+    adjustmentEvidence: [
+      for (var index = 0; index < request.adjustmentEvidence.length; index += 1)
+        ReceiptOcrReviewAdjustment(
+          id: 'saved-adjustment-$index',
+          sortOrder: index,
+          kind: request.adjustmentEvidence[index].kind,
+          originalLabel: request.adjustmentEvidence[index].originalLabel,
+          amount: request.adjustmentEvidence[index].amount,
+          currency: request.adjustmentEvidence[index].currency,
+          direction: request.adjustmentEvidence[index].direction,
           createdAtUtc: _createdAtUtc,
           updatedAtUtc: _updatedAtUtc,
         ),

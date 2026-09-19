@@ -29,7 +29,7 @@
       "files": [
         {
           "path": "apps/mobile/lib/receipt_ocr_capture/receipt_image_artifact_processor.dart",
-          "sha256": "d49dfe0e9b17f3a46bf065abac1c1623b16bd46fc93bc04abde0e808f7d8e3b9"
+          "sha256": "6125a883dab6d5b18cc9c8ce432b9795894a6a1fdbd33124d1be26c56ff7476a"
         },
         {
           "path": "apps/mobile/lib/receipt_ocr_capture/receipt_image_normalization_policy.dart",
@@ -39,31 +39,33 @@
     },
     "nativeSemantics": {
       "files": [
-        { "path": "apps/mobile/integration_test/receipt_ocr_real_provider_test.dart", "sha256": "428b9c90030523583567df56972fc1dff4773332085a4041fcdd3fb938b1f2d9" },
+        { "path": "apps/mobile/integration_test/receipt_ocr_real_provider_test.dart", "sha256": "2671a977b3914e5191c99d435c53a24d37f65d53bf2402f6f5af37892aa05c41" },
         { "path": "apps/mobile/lib/app/app_bootstrap.dart", "sha256": "bfc2ea06825d3b7162f6f08b68b0413e62320523b3c087a6abc27aecc8b1d875" },
         { "path": "apps/mobile/lib/app/server_mode_shell.dart", "sha256": "7bc1b89910d260c5652810265b8a9985896fe62e852f65aa24d44d5fa2d8459e" },
-        { "path": "apps/mobile/lib/bills/bill_list_screen.dart", "sha256": "6101dd22573eefbee70c41968e0626439f94e51c24b2f674cc97b5a7a5048074" },
+        { "path": "apps/mobile/lib/bills/bill_list_screen.dart", "sha256": "ac9cac9dd7db56e3a167e38cd17e7c7547e4c0aa4019298b3b95175b284feead" },
         { "path": "apps/mobile/lib/groups/group_list_screen.dart", "sha256": "62497fd2753850b88d93b1b0e40d2e982ba560209fb36321aa986b7d1fbdc473" },
         { "path": "apps/mobile/lib/main.dart", "sha256": "b91c1fe701d9412c3a85880186016609d8ba460d1f6584fa3b5be5873ab36b89" },
         { "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_provider.dart", "sha256": "ffb8da7258689dcf6c41a38a121898dd718a3a6e6b8b85a82412653634fd7a49" },
-        { "path": "apps/mobile/lib/receipt_ocr_capture/paddle_receipt_ocr_provider.dart", "sha256": "73ddbefd393f215732f175272beaf0e63289c3cbd94f3ea26c4ca8537074bb4f" },
-        { "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_preview.dart", "sha256": "5bff78014c04bce5a0ba08ec71d8a5596d6e5eb3f65d5e67ec1389339b34d5c1" },
+        { "path": "apps/mobile/lib/receipt_ocr_capture/mlkit_receipt_ocr_provider.dart", "sha256": "a7f552b7e9601814e2fe2d6ed1b5d57b86678edd2438ccba8bcd3cb3e68ff9cb" },
+        { "path": "apps/mobile/lib/receipt_ocr_capture/paddle_receipt_ocr_provider.dart", "sha256": "0684b05639df3c49bea9c21dd26932c724f851b7bce5619e8a1a38098532c631" },
+        { "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_preview.dart", "sha256": "f38abe35b5c9b4f4e6fa8c5c0c8355e02fa3153317a2b6c0305effa2ed9e5921" },
         { "path": "apps/mobile/lib/ui/settleora_form_fields.dart", "sha256": "ff5669f541437bef62d562109573f32506273dd90593874c8ffcde6355145079" },
-        { "path": "apps/mobile/pubspec.yaml", "sha256": "ae87b63fdc0c9b66a347a234d433e6979b1166d9e8a6effd2cba682393bd50b6" },
-        { "path": "apps/mobile/pubspec.lock", "sha256": "7633d42eda1115dddbcc6609f4a9fa8aa4651a8f6623b6e8e5fde6eab6b0d0ff" },
+        { "path": "apps/mobile/pubspec.yaml", "sha256": "464d5a14eef19fbb966057d9f6eeed2d3fb99835c1d7be95140a9611c24afa12" },
+        { "path": "apps/mobile/pubspec.lock", "sha256": "065007a0c8b90d527aff6306936a02cd527d30f03800cc8e4229e8273d3afcc7" },
         { "path": "apps/mobile/android/app/build.gradle.kts", "sha256": "661ae6ec2deca8588524234636865e33b288937dff71ccee3346187a28450646" },
         { "path": "apps/mobile/android/app/src/release/kotlin/dev/flutter/plugins/integration_test/IntegrationTestPlugin.kt", "sha256": "8bd6fbbfbcdf38c85bbd433ef3cc78545f76a7079e4ed137a15de1decba91773" },
         { "path": "apps/mobile/android/app/proguard-rules.pro", "sha256": "2550ffdb55049da3641c917d30930ca5d0e1bfe71c1c9557308f7256ca6eb858" },
         { "path": "apps/mobile/android/gradle/verification-metadata.xml", "sha256": "fe2777c0201887c604794df4e5c215511225e5e31f0f0b2203c29fd1d0240ba6" },
         { "path": "apps/mobile/android/settings.gradle.kts", "sha256": "cf1e261794ec8843ebd64c26cfa9082e6e00750410decd071b74adbd49e6ec4b" },
-        { "path": "apps/mobile/android/app/src/androidTest/kotlin/com/example/mobile/ocr/ReceiptOcrCorpusInstrumentedTest.kt", "sha256": "384404e206f702ca3c8ec71122ea3c67d79bcb9d956faf5181d29c04da9de9ea" },
+        { "path": "apps/mobile/android/app/src/androidTest/kotlin/com/example/mobile/ocr/ReceiptOcrCorpusInstrumentedTest.kt", "sha256": "d32a2e6150b4c1add86786b10e1b7d2ada51046de7df3d67b9b5b652c213f0c6" },
         { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/MainActivity.kt", "sha256": "97349e7d10c63b127041199ba6fcbfcb7b1818309935db8725ffba15152a5f5f" },
         { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/MobileOcrModelCatalog.kt", "sha256": "ddd18b4bb539c600588973421e96fb4969154a45c2b0d70454ad8d7d280b69b2" },
-        { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/SettleoraPaddleOcrEngine.kt", "sha256": "397a1682f9bd659b615d3560a799dfc8ea0a5d5e93a7709b7b711d895b68bcf6" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/SettleoraPaddleOcrEngine.kt", "sha256": "79fde4a2c6ef393911670068c1d900e1b47998ec2fa1ce6d1ccd1628fbce1255" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ReceiptDocumentOrientation.kt", "sha256": "9de568aea43c69b4946f1a7dcd01d75d16daf7f0d8364d892980551744a95ec0" },
         { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ReceiptOrientationSelector.kt", "sha256": "cc31a1f9a45c15d026fb25d39a36c0aeb70d1ac8eb1248cdc0ef8d6981f518de" },
-        { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ScriptRouteSelector.kt", "sha256": "843736a7458f5500cc8659792b0d323f7eb6784f47418b00c98dcdc6f95a6045" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ScriptRouteSelector.kt", "sha256": "a9c1e570489b2012d7f64db0c6e344d3fac7f459b0e6a9d6cc1d0cd04cd621c6" },
         { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/RecognizedTextNormalizer.kt", "sha256": "274f32c1223564d4f9bd4d061246782ed7c80a05a525c046c95ec6e5f5c30550" },
-        { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ReceiptBlockOrder.kt", "sha256": "a40979c4a428124b60356a3ccb94d1e1063d113a9c5f16f72a31038f2dc169fc" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ReceiptBlockOrder.kt", "sha256": "0261a7a1a04b6da653133767d07a6c168c2a9dd9dfacf34e2ce191386ada6871" },
         { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ReceiptOcrInputLimits.kt", "sha256": "99cbc1237b7c4aa54842ccef0c8c9527465e5671c54cae420a3cec51ae816e78" },
         { "path": "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/EngineConfig.kt", "sha256": "886b7ef3dd4600ff92ff77c44643ce800e3f0da2d74de43112dbd79648ecdcda" },
         { "path": "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/PaddleOCRConfig.kt", "sha256": "ebe53f5f21e127857b7b947995a19b5baa966d996104daa5c36ac5c07affa7d5" },
@@ -89,7 +91,7 @@
     },
     "parser": {
       "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_parser.dart",
-      "sha256": "d14722c72f6aa9d94bd1e865c86021aa2da9ad3509dcfbd247c2dadb866b47e8"
+      "sha256": "ed40d9c05828d0f1759ce896b8abe0839a8eb081944bd7dd7e0002fdf52daa43"
     }
   },
   "totalBundledBytes": 76580102,

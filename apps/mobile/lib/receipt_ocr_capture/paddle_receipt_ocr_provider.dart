@@ -120,7 +120,8 @@ class PaddleReceiptOcrProvider implements ReceiptOcrProvider {
 }
 
 ReceiptOcrProvider defaultMobileReceiptOcrProvider() {
-  // Paddle remains explicitly injectable until the real-provider native
-  // acceptance gate records an accepted catalog/runtime identity.
+  // Keep Paddle explicitly injectable until physical-device acceptance binds
+  // this catalog/runtime identity. The accepted production default changes in
+  // the evidence-gated follow-up, never merely because the adapter is present.
   return const MlKitReceiptOcrProvider();
 }

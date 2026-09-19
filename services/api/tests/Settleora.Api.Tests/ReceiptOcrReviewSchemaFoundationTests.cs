@@ -19,7 +19,24 @@ public sealed class ReceiptOcrReviewSchemaFoundationTests
         Assert.Equal(19, ReceiptOcrReviewConstraints.MoneyAmountPrecision);
         Assert.Equal(4, ReceiptOcrReviewConstraints.MoneyAmountScale);
         Assert.Equal(999999999999999.9999m, ReceiptOcrReviewConstraints.MoneyAmountMaxValue);
+        Assert.Equal(18, ReceiptOcrReviewConstraints.QuantityPrecision);
+        Assert.Equal(4, ReceiptOcrReviewConstraints.QuantityScale);
+        Assert.Equal(99999999999999.9999m, ReceiptOcrReviewConstraints.QuantityMaxValue);
         Assert.Equal(240, ReceiptOcrReviewConstraints.LineTextMaxLength);
+        Assert.Equal(50, ReceiptOcrReviewConstraints.MaxAdjustmentCount);
+        Assert.Equal(120, ReceiptOcrReviewConstraints.AdjustmentOriginalLabelMaxLength);
+
+        Assert.True(ReceiptOcrReviewAdjustmentKinds.IsSupported(ReceiptOcrReviewAdjustmentKinds.Tip));
+        Assert.True(ReceiptOcrReviewAdjustmentKinds.IsSupported(ReceiptOcrReviewAdjustmentKinds.Shipping));
+        Assert.True(ReceiptOcrReviewAdjustmentKinds.IsSupported(ReceiptOcrReviewAdjustmentKinds.Fee));
+        Assert.True(ReceiptOcrReviewAdjustmentKinds.IsSupported(ReceiptOcrReviewAdjustmentKinds.Surcharge));
+        Assert.True(ReceiptOcrReviewAdjustmentKinds.IsSupported(ReceiptOcrReviewAdjustmentKinds.Deposit));
+        Assert.True(ReceiptOcrReviewAdjustmentKinds.IsSupported(ReceiptOcrReviewAdjustmentKinds.Credit));
+        Assert.True(ReceiptOcrReviewAdjustmentKinds.IsSupported(ReceiptOcrReviewAdjustmentKinds.Other));
+        Assert.False(ReceiptOcrReviewAdjustmentKinds.IsSupported("tax"));
+        Assert.True(ReceiptOcrReviewAdjustmentDirections.IsSupported(ReceiptOcrReviewAdjustmentDirections.Charge));
+        Assert.True(ReceiptOcrReviewAdjustmentDirections.IsSupported(ReceiptOcrReviewAdjustmentDirections.Credit));
+        Assert.False(ReceiptOcrReviewAdjustmentDirections.IsSupported("negative"));
 
         Assert.True(ReceiptOcrReviewStatuses.IsSupported(ReceiptOcrReviewStatuses.Provisional));
         Assert.True(ReceiptOcrReviewStatuses.IsSupported(ReceiptOcrReviewStatuses.Reviewed));
@@ -112,6 +129,36 @@ public sealed class ReceiptOcrReviewSchemaFoundationTests
         AssertCheckConstraint(lineEntity, "ck_receipt_ocr_review_lines_text_not_blank", "length(btrim(text)) > 0");
         AssertCheckConstraint(lineEntity, "ck_receipt_ocr_review_lines_quantity_positive", "quantity IS NULL OR quantity > 0");
 
+        var adjustmentEntity = FindEntityType<ReceiptOcrReviewAdjustment>(dbContext);
+        var adjustmentStoreObject = StoreObjectIdentifier.Table("receipt_ocr_review_adjustments", null);
+
+        Assert.Equal("receipt_ocr_review_adjustments", adjustmentEntity.GetTableName());
+        AssertColumn(adjustmentEntity, adjustmentStoreObject, "Id", "id", isNullable: false);
+        AssertColumn(adjustmentEntity, adjustmentStoreObject, "ReceiptOcrReviewId", "receipt_ocr_review_id", isNullable: false);
+        AssertColumn(adjustmentEntity, adjustmentStoreObject, "SortOrder", "sort_order", isNullable: false);
+        AssertColumn(adjustmentEntity, adjustmentStoreObject, "Kind", "kind", isNullable: false, maxLength: 24);
+        AssertColumn(adjustmentEntity, adjustmentStoreObject, "OriginalLabel", "original_label", isNullable: false, maxLength: 120);
+        AssertColumn(
+            adjustmentEntity,
+            adjustmentStoreObject,
+            "Amount",
+            "amount",
+            isNullable: false,
+            precision: ReceiptOcrReviewConstraints.MoneyAmountPrecision,
+            scale: ReceiptOcrReviewConstraints.MoneyAmountScale);
+        AssertColumn(adjustmentEntity, adjustmentStoreObject, "Currency", "currency", isNullable: false, maxLength: 3);
+        AssertColumn(adjustmentEntity, adjustmentStoreObject, "Direction", "direction", isNullable: false, maxLength: 16);
+        AssertColumn(adjustmentEntity, adjustmentStoreObject, "CreatedAtUtc", "created_at_utc", isNullable: false);
+        AssertColumn(adjustmentEntity, adjustmentStoreObject, "UpdatedAtUtc", "updated_at_utc", isNullable: false);
+        AssertIndex(adjustmentEntity, "ux_receipt_ocr_review_adjustments_review_sort_order", ["ReceiptOcrReviewId", "SortOrder"], isUnique: true);
+        AssertForeignKey(adjustmentEntity, typeof(ReceiptOcrReview), ["ReceiptOcrReviewId"], DeleteBehavior.Restrict);
+        AssertCheckConstraint(adjustmentEntity, "ck_receipt_ocr_review_adjustments_kind", "kind IN ('tip', 'shipping', 'fee', 'surcharge', 'deposit', 'credit', 'other')");
+        AssertCheckConstraint(adjustmentEntity, "ck_receipt_ocr_review_adjustments_direction", "direction IN ('charge', 'credit')");
+        AssertCheckConstraint(adjustmentEntity, "ck_receipt_ocr_review_adjustments_credit_kind_direction", "kind <> 'credit' OR direction = 'credit'");
+        Assert.DoesNotContain(
+            adjustmentEntity.GetProperties().Select(property => property.GetColumnName(adjustmentStoreObject) ?? property.Name),
+            IsStorageOrRawOcrColumnName);
+
         var assignmentEntity = FindEntityType<ReceiptOcrReviewAssignment>(dbContext);
         var assignmentStoreObject = StoreObjectIdentifier.Table("receipt_ocr_review_assignments", null);
 
@@ -166,6 +213,9 @@ public sealed class ReceiptOcrReviewSchemaFoundationTests
         Assert.Contains(
             dbContext.Database.GetMigrations(),
             migration => migration.EndsWith("_AddReceiptOcrReviewAssignments", StringComparison.Ordinal));
+        Assert.Contains(
+            dbContext.Database.GetMigrations(),
+            migration => migration.EndsWith("_AddReceiptOcrReviewAdjustmentEvidence", StringComparison.Ordinal));
 
         var migration = new AddReceiptOcrReviewIntakeFoundation();
         Assert.DoesNotContain(
@@ -248,6 +298,27 @@ public sealed class ReceiptOcrReviewSchemaFoundationTests
             && index.Columns.SequenceEqual(["receipt_ocr_review_id", "assigned_to_user_profile_id"])
             && index.IsUnique
             && index.Filter == "assignment_status = 'needs_review'");
+
+        var adjustmentMigration = new AddReceiptOcrReviewAdjustmentEvidence();
+        Assert.DoesNotContain(
+            adjustmentMigration.UpOperations,
+            operation => operation is DropTableOperation
+                or DropColumnOperation
+                or DropIndexOperation
+                or DropForeignKeyOperation
+                or AlterColumnOperation
+                or SqlOperation);
+        var adjustmentCreateTable = Assert.Single(adjustmentMigration.UpOperations.OfType<CreateTableOperation>());
+        Assert.Equal("receipt_ocr_review_adjustments", adjustmentCreateTable.Name);
+        Assert.DoesNotContain(adjustmentCreateTable.Columns, column => IsStorageOrRawOcrColumnName(column.Name));
+        Assert.Contains(adjustmentCreateTable.ForeignKeys, foreignKey => foreignKey.PrincipalTable == "receipt_ocr_reviews"
+            && foreignKey.Columns.SequenceEqual(["receipt_ocr_review_id"])
+            && foreignKey.OnDelete == ReferentialAction.Restrict);
+        Assert.Contains(
+            adjustmentMigration.UpOperations.OfType<CreateIndexOperation>(),
+            index => index.Name == "ux_receipt_ocr_review_adjustments_review_sort_order"
+                && index.Columns.SequenceEqual(["receipt_ocr_review_id", "sort_order"])
+                && index.IsUnique);
     }
 
     private static SettleoraDbContext CreateDbContext()

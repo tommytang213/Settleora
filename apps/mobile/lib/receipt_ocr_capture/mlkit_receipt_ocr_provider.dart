@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:image/image.dart' as image_codec;
 
 import 'receipt_ocr_parser.dart';
 import 'receipt_ocr_provider.dart';
@@ -19,8 +20,7 @@ class MlKitReceiptOcrProvider implements ReceiptOcrProvider {
       );
     }
 
-    final imagePath = request.imagePath?.trim();
-    if (imagePath == null || imagePath.isEmpty) {
+    if (request.bytes.isEmpty) {
       return const ReceiptOcrResult.failed(
         'The selected receipt image could not be prepared for reading. You can still enter the bill manually.',
       );
@@ -28,7 +28,19 @@ class MlKitReceiptOcrProvider implements ReceiptOcrProvider {
 
     final textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
     try {
-      final image = InputImage.fromFilePath(imagePath);
+      final decoded = image_codec.decodeImage(
+        Uint8List.fromList(request.bytes),
+      );
+      if (decoded == null) {
+        return const ReceiptOcrResult.failed(
+          'The selected receipt image could not be prepared for reading. You can still enter the bill manually.',
+        );
+      }
+      final image = InputImage.fromBitmap(
+        bitmap: decoded.getBytes(order: image_codec.ChannelOrder.rgba),
+        width: decoded.width,
+        height: decoded.height,
+      );
       final recognizedText = await textRecognizer.processImage(image);
       final text = recognizedText.text.trim();
       if (text.isEmpty) {
@@ -45,7 +57,11 @@ class MlKitReceiptOcrProvider implements ReceiptOcrProvider {
         'Receipt reading failed. You can still enter the bill manually.',
       );
     } finally {
-      await textRecognizer.close();
+      try {
+        await textRecognizer.close();
+      } catch (_) {
+        // OCR teardown cannot replace the bounded recognition result.
+      }
     }
   }
 }

@@ -9,6 +9,8 @@ import 'package:mobile/receipt_ocr_capture/unsupported_receipt_ocr_provider.dart
 import 'package:mobile/ui/settleora_form_fields.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('selectable currencies remain aligned with API financial policy', () {
     expect(
       settleoraSupportedCurrencies.map((currency) => currency.code).toList(),
@@ -75,7 +77,7 @@ Card 25.50
     expect(preview.total, '25.50');
     expect(preview.items.map((item) => item.description), ['Pasta', 'Coffee']);
     expect(preview.reviewHints, [
-      'Detected tax/service/discount may explain why item totals differ from the grand total.',
+      'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
     ]);
   });
 
@@ -122,6 +124,26 @@ TOTAL $45.22
     expect(preview.items.single.lineTotal, '45.22');
   });
 
+  test(
+    'parser quarantines an ambiguous fuel grand total with another item',
+    () {
+      const parser = ReceiptOcrParser();
+
+      final preview = parser.parse(r'''
+WESTSIDE FUEL
+FUEL Regular Unleaded
+GALLONS 10.000
+PRICE/GAL USD 3.000
+Snack USD 2.00
+TOTAL USD 32.00
+''');
+
+      expect(preview.items, hasLength(1));
+      expect(preview.items.single.description, 'Snack');
+      expect(preview.items.single.lineTotal, '2.00');
+    },
+  );
+
   test('parser preserves signed refund item evidence', () {
     const parser = ReceiptOcrParser();
 
@@ -139,6 +161,15 @@ Total USD -74.99
     expect(preview.items.last.description, 'Restocking Fee');
     expect(preview.items.last.lineTotal, '5.00');
     expect(preview.total, '-74.99');
+
+    final symbolPrefixed = parser.parse(r'''
+Fashion Outlet Returns
+Returned Jacket -$79.99
+Total -$79.99
+''');
+    expect(symbolPrefixed.items.single.description, 'Returned Jacket');
+    expect(symbolPrefixed.items.single.lineTotal, '-79.99');
+    expect(symbolPrefixed.total, '-79.99');
   });
 
   test('parser leaves symbol-only currency blank for review', () {
@@ -212,6 +243,33 @@ Total $5.50
     );
   });
 
+  test('ambiguous yen kr and Rs markers use matching fallbacks', () {
+    const parser = ReceiptOcrParser();
+    final cases = <({String text, String fallback})>[
+      (text: 'Noodle Shop\nNoodles ¥60\nTotal ¥60', fallback: 'JPY'),
+      (text: 'Corner Shop\nBread kr 40.00\nTotal kr 40.00', fallback: 'SEK'),
+      (text: 'Tea Shop\nTea Rs 80.00\nTotal Rs 80.00', fallback: 'INR'),
+    ];
+
+    for (final fixture in cases) {
+      final preview = parser.parse(
+        fixture.text,
+        fallbackCurrency: fixture.fallback,
+      );
+      expect(preview.currency, fixture.fallback, reason: fixture.text);
+      expect(
+        preview.currencyProvenance,
+        ReceiptOcrCurrencyProvenance.defaultFallback,
+        reason: fixture.text,
+      );
+    }
+
+    final stateAndZip = parser.parse(r'''Pike Deli
+Seattle, WA 98101
+Total $18.20''');
+    expect(stateAndZip.items, isEmpty);
+  });
+
   test('numeric marketing text does not masquerade as a currency amount', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse(r'''
@@ -226,6 +284,31 @@ Total $5.50
       preview.currencyProvenance,
       ReceiptOcrCurrencyProvenance.defaultFallback,
     );
+
+    final trailingInteger = parser.parse(r'''
+Corner Cafe
+TRY 2
+Latte $5.50
+Total $5.50
+''', fallbackCurrency: 'USD');
+    expect(trailingInteger.currency, 'USD');
+    expect(
+      trailingInteger.currencyProvenance,
+      ReceiptOcrCurrencyProvenance.defaultFallback,
+    );
+  });
+
+  test('transaction symbols outrank later card conversion codes', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Corner Cafe
+Coffee €5.00
+Total €5.00
+Card charged USD 5.40
+''');
+
+    expect(preview.currency, 'EUR');
+    expect(preview.items.single.currency, 'EUR');
   });
 
   test('parser resolves ambiguous symbols only from receipt context', () {
@@ -329,6 +412,30 @@ Total $145.00''',
         currency: 'VND',
         values: ['120000', '80000', '200000', '20000', '220000'],
       ),
+      (
+        text:
+            'Köln Markt\nGerät EUR 1.234\nKabel EUR 20.00\nSubtotal EUR 1.254\nTax EUR 0.00\nTotal EUR 1.254',
+        currency: 'EUR',
+        values: ['1234', '20.00', '1254', '0.00', '1254'],
+      ),
+      (
+        text:
+            'Kuwait Cafe\nCoffee KWD 1.234\nCake KWD 2.345\nSubtotal KWD 3.579\nTax KWD 0.000\nTotal KWD 3.579',
+        currency: 'KWD',
+        values: ['1.234', '2.345', '3.579', '0.000', '3.579'],
+      ),
+      (
+        text:
+            'Kuwait Cafe\nCoffee KWD 1,234\nCake KWD 2,345\nSubtotal KWD 3,579\nTax KWD 0,000\nTotal KWD 3,579',
+        currency: 'KWD',
+        values: ['1.234', '2.345', '3.579', '0.000', '3.579'],
+      ),
+      (
+        text:
+            'Manama Cafe\nCoffee BHD 1,234\nCake BHD 2,345\nSubtotal BHD 3,579\nTax BHD 0,000\nTotal BHD 3,579',
+        currency: 'BHD',
+        values: ['1.234', '2.345', '3.579', '0.000', '3.579'],
+      ),
     ];
 
     for (final fixture in cases) {
@@ -357,11 +464,442 @@ Total USD 40.99
 ''');
 
     expect(preview.shipping, '9.99');
+    expect(preview.shippingLabel, 'Shipping');
+    expect(preview.shippingCurrency, 'USD');
     expect(preview.tip, '5.00');
+    expect(preview.tipLabel, 'Actual Tip');
+    expect(preview.tipCurrency, 'USD');
     expect(preview.items.map((item) => item.description), ['Burger', 'Beer']);
+
+    final suffixed = parser.parse('''
+Harbor Grill
+Burger USD 18.00
+Shipping Fee USD 9.99
+Delivery Charge USD 2.00
+Total USD 29.99
+''');
+    expect(suffixed.shipping, '9.99');
+    expect(suffixed.shippingLabel, 'Shipping Fee');
+    expect(suffixed.items.map((item) => item.description), ['Burger']);
+
+    final handling = parser.parse('''
+Harbor Grill
+Burger USD 18.00
+Shipping & Handling USD 4.50
+Shipping and Handling USD 4.50
+Total USD 27.00
+''');
+    expect(handling.shipping, '4.50');
+    expect(handling.shippingLabel, 'Shipping & Handling');
+    expect(handling.items.map((item) => item.description), ['Burger']);
+
+    final combined = parser.parse('''
+Harbor Grill
+Burger USD 18.00
+Shipping & Handling Fee USD 2.00
+Total USD 20.00
+''');
+    expect(combined.shipping, '2.00');
+    expect(combined.shippingLabel, 'Shipping & Handling Fee');
+    expect(combined.items.map((item) => item.description), ['Burger']);
+
+    final embeddedCurrencyCode = parser.parse('''
+Harbor Grill
+Burger USD 18.00
+Delivery USD 4.00
+Total USD 22.00
+''');
+    expect(embeddedCurrencyCode.shipping, '4.00');
+    expect(
+      embeddedCurrencyCode.shippingLabel,
+      'Delivery',
+      reason:
+          'TRY inside Delivery is printed label text, not a currency token.',
+    );
+
+    final percentageLabel = parser.parse('''
+Harbor Grill
+Burger USD 18.00
+Gratuity 18% USD 3.24
+Total USD 21.24
+''');
+    expect(percentageLabel.tip, '3.24');
+    expect(percentageLabel.tipLabel, 'Gratuity 18%');
+
+    final compactCurrencyMarker = parser.parse('''
+Harbor Grill
+Burger USD 18.00
+Delivery:\$4.00
+Total USD 22.00
+''');
+    expect(compactCurrencyMarker.shipping, '4.00');
+    expect(compactCurrencyMarker.shippingLabel, 'Delivery');
+
+    final emojiSuffix = List.filled(60, '😀').join();
+    final boundedUnicodeLabel = parser.parse('''
+Harbor Grill
+Burger USD 18.00
+Actual Tip $emojiSuffix USD 3.24
+Total USD 21.24
+''');
+    expect(boundedUnicodeLabel.tip, '3.24');
+    expect(boundedUnicodeLabel.tipLabel, isNotNull);
+    expect(boundedUnicodeLabel.tipLabel!.length, lessThanOrEqualTo(120));
+    expect(boundedUnicodeLabel.tipLabel!.runes.last, 0x1F600);
+
+    final distinctAdjustmentCurrency = parser.parse('''
+Harbor Grill
+Burger USD 18.00
+Tip EUR 2.00
+Total USD 20.00
+''');
+    expect(distinctAdjustmentCurrency.currency, 'USD');
+    expect(distinctAdjustmentCurrency.tip, '2.00');
+    expect(distinctAdjustmentCurrency.tipCurrency, 'EUR');
+
+    final unsupportedAdjustmentCurrency = parser.parse('''
+Harbor Grill
+Burger USD 18.00
+Tip XPF 2.00
+Total USD 20.00
+''');
+    expect(unsupportedAdjustmentCurrency.currency, 'USD');
+    expect(unsupportedAdjustmentCurrency.tip, '2.00');
+    expect(unsupportedAdjustmentCurrency.tipCurrency, 'XPF');
+    expect(
+      unsupportedAdjustmentCurrency.tipHasExplicitCurrencyEvidence,
+      isTrue,
+    );
+
+    final ambiguousAdjustmentCurrency = parser.parse('''
+Harbor Grill
+Burger USD 18.00
+Tip XPF 2.00 CHF
+Total USD 20.00
+''');
+    expect(ambiguousAdjustmentCurrency.tip, '2.00');
+    expect(ambiguousAdjustmentCurrency.tipCurrency, isNull);
+    expect(ambiguousAdjustmentCurrency.tipHasExplicitCurrencyEvidence, isTrue);
   });
 
-  test('parser keeps charged tip items and excludes suggested tip options', () {
+  test('parser treats a city ZIP row as metadata only beside an address', () {
+    const parser = ReceiptOcrParser();
+    final addressed = parser.parse('''
+Pike Deli
+123 Main St
+Suite 2
+Seattle 98101
+Coffee USD 18.20
+Total USD 18.20
+''');
+    final standalone = parser.parse('''
+Pike Deli
+Seattle 98101
+Total USD 98101.00
+''');
+
+    expect(addressed.merchant, 'Pike Deli');
+    expect(addressed.items.map((item) => item.description), ['Coffee']);
+    expect(standalone.items.map((item) => item.description), ['Seattle']);
+  });
+
+  test('parser preserves merchant headings containing card or invoice', () {
+    const parser = ReceiptOcrParser();
+    final cardMerchant = parser.parse('''
+Central Card Terminal
+Coffee USD 5.00
+Total USD 5.00
+''');
+    final invoiceMerchant = parser.parse('''
+Online Shop Invoice
+Cable USD 8.00
+Total USD 8.00
+''');
+
+    expect(cardMerchant.merchant, 'Central Card Terminal');
+    expect(invoiceMerchant.merchant, 'Online Shop Invoice');
+  });
+
+  test('parser ranks transaction currency above card conversion currency', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Coffee House
+Coffee USD 5.00
+Total USD 5.00
+Card charged EUR 4.60
+''');
+
+    expect(preview.currency, 'USD');
+    expect(preview.items.map((item) => item.description), ['Coffee']);
+    expect(preview.items.single.currency, 'USD');
+  });
+
+  test('payment-only currency never establishes transaction currency', () {
+    const parser = ReceiptOcrParser();
+    for (final paymentLine in const [
+      'Payment USD 5.00',
+      'Tender USD 5.00',
+      'Gift Card USD 5.00',
+      'Prepaid-Card USD 5.00',
+      'Paid by cash USD 5.00',
+      'Paid cash USD 5.00',
+      'Credit Card USD 5.00',
+      'Debit Card USD 5.00',
+      'Credit-Card USD 5.00',
+      'Paid by credit card USD 5.00',
+      'Paid debit-card USD 5.00',
+      'Paid by card USD 5.00',
+      'Card charged EUR 4.60',
+    ]) {
+      final unresolved = parser.parse('''
+Corner Cafe
+Coffee \$5.00
+Total \$5.00
+$paymentLine
+''');
+      expect(unresolved.currency, isNull, reason: paymentLine);
+      expect(
+        unresolved.currencyProvenance,
+        ReceiptOcrCurrencyProvenance.unresolved,
+        reason: paymentLine,
+      );
+
+      final contextual = parser.parse('''
+Corner Cafe
+Coffee \$5.00
+Total \$5.00
+$paymentLine
+''', fallbackCurrency: 'HKD');
+      expect(contextual.currency, 'HKD', reason: paymentLine);
+      expect(
+        contextual.currencyProvenance,
+        ReceiptOcrCurrencyProvenance.defaultFallback,
+        reason: paymentLine,
+      );
+    }
+  });
+
+  test(
+    'reference conversion currency never establishes transaction currency',
+    () {
+      const parser = ReceiptOcrParser();
+      for (final referenceLine in const [
+        'Reference EUR 4.60',
+        'Reference amount EUR 4.60',
+        'DCC EUR 4.60',
+        'DCC conversion EUR 4.60',
+        'Conversion amount EUR 4.60',
+      ]) {
+        final preview = parser.parse('''
+Corner Cafe
+Coffee \$5.00
+Total \$5.00
+$referenceLine
+''');
+
+        expect(preview.currency, isNull, reason: referenceLine);
+        expect(
+          preview.currencyProvenance,
+          ReceiptOcrCurrencyProvenance.unresolved,
+          reason: referenceLine,
+        );
+      }
+    },
+  );
+
+  test('non-transaction metadata symbols never establish currency', () {
+    const parser = ReceiptOcrParser();
+    for (final metadataLine in const [
+      'Reference € 4.60',
+      'Conversion amount £ 4.60',
+      'DCC HK\$ 4.60',
+      'Card charged US\$ 5.00',
+      'DCC د.إ 4.60',
+      'Reference CA\$ 4.60',
+      'Reference ₹ 4.60',
+      'DCC ₩ 4600',
+      'Conversion amount ¥ 720',
+      'Reference \$ 4.60',
+      'Reference currency EUR',
+      'DCC currency GBP',
+      'Tender currency AED',
+      'Reference HK\$',
+      'Payment €',
+      'Card charged US\$',
+      'Conversion amount ₹',
+      'DCC ¥',
+      'Reference KR',
+      'Payment A\$',
+      'Payment S\$',
+      'Payment NZ\$',
+      'Payment NT\$',
+      'Payment R\$',
+      'Payment ₺',
+      'Payment ₫',
+      'Payment zł',
+      'Payment Rs',
+      'Payment \$',
+      'Reference currency: EUR',
+      'Payment currency= AED',
+      'DCC amount# GBP',
+      'Card charged- US\$',
+      'Conversion amount: HK\$',
+      'Tender currency: \$',
+    ]) {
+      final preview = parser.parse('''
+Corner Cafe
+Coffee 5.00
+Total 5.00
+$metadataLine
+''', fallbackCurrency: 'USD');
+
+      expect(preview.currency, isNull, reason: metadataLine);
+      expect(
+        preview.currencyProvenance,
+        ReceiptOcrCurrencyProvenance.unresolved,
+        reason: metadataLine,
+      );
+      expect(
+        preview.currencyProvenance,
+        isNot(ReceiptOcrCurrencyProvenance.defaultFallback),
+      );
+    }
+  });
+
+  test('transaction currency outranks different metadata symbols', () {
+    const parser = ReceiptOcrParser();
+    for (final metadataLine in const [
+      'Reference € 4.60',
+      'Conversion amount £ 4.60',
+      'DCC HK\$ 4.60',
+      'Card charged US\$ 5.00',
+      'DCC د.إ 4.60',
+      'Reference ₹ 4.60',
+      'Reference currency EUR',
+      'DCC currency GBP',
+      'Tender currency AED',
+      'Reference HK\$',
+      'Payment €',
+      'Payment zł',
+      'Reference currency: EUR',
+      'Payment currency= AED',
+      'DCC amount# GBP',
+      'Card charged- HK\$',
+    ]) {
+      final preview = parser.parse('''
+Corner Cafe
+Coffee USD 5.00
+Total USD 5.00
+$metadataLine
+''');
+
+      expect(preview.currency, 'USD', reason: metadataLine);
+      expect(
+        preview.currencyProvenance,
+        ReceiptOcrCurrencyProvenance.explicit,
+        reason: metadataLine,
+      );
+    }
+  });
+
+  test('metadata-like merchandise names retain transaction currency', () {
+    const parser = ReceiptOcrParser();
+    for (final itemLine in const [
+      'Reference Book EUR 9.00',
+      'Conversion Adapter PLN 12.00',
+      'Tender Greens USD 8.00',
+      'Payment Terminal GBP 14.00',
+      'Payment Card Reader EUR 16.00',
+      'Reference Currency Guide PLN 18.00',
+      'Conversion Rate Book USD 20.00',
+      'Tender Cash Box GBP 22.00',
+      'Payment Card-Reader EUR 24.00',
+    ]) {
+      final expectedCurrency = itemLine.split(
+        ' ',
+      )[itemLine.split(' ').length - 2];
+      final preview = parser.parse('''
+Corner Market
+$itemLine
+Total ${itemLine.split(' ').last}
+''');
+
+      expect(preview.currency, expectedCurrency, reason: itemLine);
+      expect(
+        preview.currencyProvenance,
+        ReceiptOcrCurrencyProvenance.explicit,
+        reason: itemLine,
+      );
+    }
+  });
+
+  test('non-transaction currency metadata never becomes merchandise', () {
+    const parser = ReceiptOcrParser();
+    for (final metadataLine in const [
+      'DCC HK\$ 5.00',
+      'Reference € 4.60',
+      'Conversion amount £ 4.60',
+      'Reference currency: EUR',
+      'Payment currency= AED',
+      'DCC amount# GBP',
+    ]) {
+      final preview = parser.parse('''
+Corner Cafe
+Coffee USD 5.00
+$metadataLine
+Total USD 5.00
+''');
+
+      expect(preview.items.map((item) => item.description), [
+        'Coffee',
+      ], reason: metadataLine);
+      expect(
+        preview.warnings,
+        isNot(
+          contains(
+            'Some OCR lines need manual review because no traceable line amount was found.',
+          ),
+        ),
+        reason: metadataLine,
+      );
+    }
+  });
+
+  test('items preserve explicit currency distinct from receipt currency', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Corner Cafe
+Imported tea 2 x 2.00 EUR 4.00
+Coffee USD 5.00
+Total USD 9.00
+''');
+
+    expect(preview.currency, 'USD');
+    expect(preview.items.first.description, 'Imported tea');
+    expect(preview.items.first.quantity, '2');
+    expect(preview.items.first.unitPrice, '2.00');
+    expect(preview.items.first.lineTotal, '4.00');
+    expect(preview.items.first.currency, 'EUR');
+    expect(preview.items.last.currency, 'USD');
+  });
+
+  test('context currency outranks internally separated metadata currency', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Hong Kong Cafe
+Coffee \$5.00
+Total \$5.00
+Reference currency: EUR
+''');
+
+    expect(preview.currency, 'HKD');
+    expect(
+      preview.currencyProvenance,
+      ReceiptOcrCurrencyProvenance.contextInferred,
+    );
+  });
+
+  test('parser separates charged tips and excludes suggested tip options', () {
     const parser = ReceiptOcrParser();
 
     final charged = parser.parse('''
@@ -379,13 +917,64 @@ Suggested Tip 20% USD 4.36
 Total USD 20.00
 ''');
 
-    expect(charged.tip, isNull);
-    expect(charged.items.map((item) => item.description), [
-      'Fare',
-      'Toll',
-      'Tip',
-    ]);
+    expect(charged.tip, '5.00');
+    expect(charged.items.map((item) => item.description), ['Fare', 'Toll']);
     expect(suggested.items.map((item) => item.description), ['Pasta']);
+  });
+
+  test('parser excludes a bare approval identifier from items', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Corner Cafe
+Coffee USD 5.00
+Approval 123456
+Total USD 5.00
+''');
+
+    expect(preview.items.map((item) => item.description), ['Coffee']);
+    expect(preview.total, '5.00');
+
+    for (final metadata in const [
+      'Approval: 123456',
+      'Auth: 123456',
+      'Payment USD 5.00',
+      'Tender USD 5.00',
+      'Gift Card USD 5.00',
+      'Prepaid-Card USD 5.00',
+      'Paid by cash USD 5.00',
+      'Paid cash USD 5.00',
+      'Credit Card USD 5.00',
+      'Debit Card USD 5.00',
+      'Credit-Card USD 5.00',
+      'Paid by credit card USD 5.00',
+      'Paid debit-card USD 5.00',
+      'Paid by card USD 5.00',
+    ]) {
+      final punctuated = parser.parse('''
+Corner Cafe
+Coffee USD 5.00
+$metadata
+Total USD 5.00
+''');
+      expect(punctuated.items.map((item) => item.description), [
+        'Coffee',
+      ], reason: metadata);
+    }
+  });
+
+  test('parser preserves regular and nonbreaking space grouped amounts', () {
+    const parser = ReceiptOcrParser();
+    for (final separator in const [' ', '\u00a0']) {
+      final preview = parser.parse('''
+Paris Cafe
+Coffee EUR 1${separator}234,50
+Total EUR 1${separator}234,50
+''');
+      expect(preview.currency, 'EUR', reason: separator.codeUnits.toString());
+      expect(preview.items.single.description, 'Coffee');
+      expect(preview.items.single.lineTotal, '1234.50');
+      expect(preview.total, '1234.50');
+    }
   });
 
   test('parser joins a wrapped description to its following priced line', () {
@@ -412,6 +1001,143 @@ Total USD 37.49
     );
   });
 
+  test('parser excludes a detected non-first merchant from wrapped items', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+WELCOME
+The Wonderful Corner Cafe
+Coffee USD 5.00
+Total USD 5.00
+''');
+
+    expect(preview.merchant, 'The Wonderful Corner Cafe');
+    expect(preview.items.single.description, 'Coffee');
+  });
+
+  test('parser excludes only the detected merchant row by identity', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Fresh Apple Market
+Fresh Apple Market
+Pie USD 5.00
+Total USD 5.00
+''');
+
+    expect(preview.merchant, 'Fresh Apple Market');
+    expect(preview.items.single.description, 'Fresh Apple Market Pie');
+  });
+
+  test('parser preserves multiple wrapped description rows', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Home Goods Depot
+Premium Stainless
+Steel Water Bottle
+Blue USD 24.99
+Total USD 24.99
+''');
+
+    expect(
+      preview.items.single.description,
+      'Premium Stainless Steel Water Bottle Blue',
+    );
+  });
+
+  test('parser preserves wrapped descriptions in caseless scripts', () {
+    const parser = ReceiptOcrParser();
+    final arabic = parser.parse('''
+متجر المنزل
+زجاجة مياه فولاذية ممتازة
+زرقاء AED 24.99
+الإجمالي AED 24.99
+''');
+    final thai = parser.parse('''
+ร้านของใช้
+ขวดน้ำสแตนเลสคุณภาพสูง
+สีฟ้า THB 249.00
+ยอดสุทธิ THB 249.00
+''');
+
+    expect(arabic.items.single.description, 'زجاجة مياه فولاذية ممتازة زرقاء');
+    expect(thai.items.single.description, 'ขวดน้ำสแตนเลสคุณภาพสูง สีฟ้า');
+  });
+
+  test('parser does not join an unrelated slogan to a priced item', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Neighborhood Market
+Fresh food every day
+Milk USD 3.00
+Total USD 3.00
+''');
+
+    expect(preview.items.single.description, 'Milk');
+  });
+
+  test('parser preserves substantive one-glyph item descriptions', () {
+    const parser = ReceiptOcrParser();
+    final korean = parser.parse('''
+서울 찻집
+차 KRW 3500
+합계 KRW 3500
+''');
+    final han = parser.parse('''
+茶館
+茶 JPY 500
+合計 JPY 500
+''');
+
+    expect(korean.items.single.description, '차');
+    expect(han.items.single.description, '茶');
+  });
+
+  test('parser preserves Card merchant headings without payment evidence', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Card Factory
+Birthday Card USD 4.00
+Total USD 4.00
+''');
+
+    expect(preview.merchant, 'Card Factory');
+    expect(preview.items.single.description, 'Birthday Card');
+  });
+
+  test('parser matches localized receipt labels without case sensitivity', () {
+    const parser = ReceiptOcrParser();
+    final german = parser.parse('''
+Köln Markt
+Kaffee EUR 8,00
+ZWISCHENSUMME EUR 8,00
+GESAMT EUR 8,00
+''');
+    final french = parser.parse('''
+Café Paris
+Croissant EUR 8,00
+SOUS-TOTAL EUR 8,00
+TOTAL EUR 8,00
+''');
+
+    expect(german.subtotal, '8.00');
+    expect(german.total, '8.00');
+    expect(german.items.map((item) => item.description), ['Kaffee']);
+    expect(french.subtotal, '8.00');
+    expect(french.total, '8.00');
+    expect(french.items.map((item) => item.description), ['Croissant']);
+  });
+
+  test('parser does not prepend a receipt column header to an item', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Corner Cafe
+ITEM DESCRIPTION
+Coffee USD 5.00
+Total USD 5.00
+''');
+
+    expect(preview.items.single.description, 'Coffee');
+  });
+
   test('parser normalizes Arabic-Indic AED receipt values', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse('''
@@ -433,6 +1159,27 @@ Date: ٢٠٢٦-٠٩-١٧
     expect(preview.total, '21.79');
     expect(preview.items.map((item) => item.description), ['قهوة', 'حلوى']);
     expect(preview.items.map((item) => item.lineTotal), ['12.50', '8.25']);
+  });
+
+  test('parser normalizes Devanagari and Thai receipt digits', () {
+    const parser = ReceiptOcrParser();
+    final devanagari = parser.parse('''
+दिल्ली कैफे
+चाय INR १२.५०
+कुल INR १२.५०
+''');
+    final thai = parser.parse('''
+ร้านสยาม
+ชา THB ๑๒.๕๐
+ยอดสุทธิ THB ๑๒.๕๐
+''');
+
+    expect(devanagari.currency, 'INR');
+    expect(devanagari.items.single.lineTotal, '12.50');
+    expect(devanagari.total, '12.50');
+    expect(thai.currency, 'THB');
+    expect(thai.items.single.lineTotal, '12.50');
+    expect(thai.total, '12.50');
   });
 
   test('parser extracts bundled Global Core labels and dates', () {
@@ -515,6 +1262,60 @@ Date: ٢٠٢٦-٠٩-١٧
     }
   });
 
+  test('parser disambiguates dotted day-first and dashed dates', () {
+    const parser = ReceiptOcrParser();
+
+    expect(
+      parser.parse('Corner Cafe\nDate 09-17-2026\nTotal USD 5.00').receiptDate,
+      '2026-09-17',
+    );
+    expect(
+      parser.parse('Corner Cafe\nDate 09.17.2026\nTotal USD 5.00').receiptDate,
+      '2026-09-17',
+    );
+    expect(
+      parser.parse('Corner Cafe\nDate 17.09.2026\nTotal EUR 5.00').receiptDate,
+      '2026-09-17',
+    );
+    expect(
+      parser.parse('Corner Cafe\nDate 04.05.2026\nTotal EUR 5.00').receiptDate,
+      '2026-05-04',
+    );
+    expect(
+      parser
+          .parse(
+            'Corner Cafe\nDate 02.31.2026\nDate 09.17.2026\nTotal USD 5.00',
+          )
+          .receiptDate,
+      '2026-09-17',
+    );
+    expect(
+      parser
+          .parse(
+            'Corner Cafe\nDate 02.31.2026 Reprinted 09.17.2026\nTotal USD 5.00',
+          )
+          .receiptDate,
+      '2026-09-17',
+    );
+    final missingMerchant = parser.parse('Date 09.17.2026\nTotal USD 5.00');
+    expect(missingMerchant.merchant, isNull);
+    expect(missingMerchant.receiptDate, '2026-09-17');
+  });
+
+  test('parser normalizes fullwidth CJK monetary glyphs', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('東京麺店\nラーメン ￥１，２００\n合計 ￥１，２００');
+
+    expect(preview.currency, 'JPY');
+    expect(
+      preview.currencyProvenance,
+      ReceiptOcrCurrencyProvenance.contextInferred,
+    );
+    expect(preview.items.single.description, 'ラーメン');
+    expect(preview.items.single.lineTotal, '1200');
+    expect(preview.total, '1200');
+  });
+
   test('parser accepts native Arabic prefix currency and U+060C decimal', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse('الإجمالي دإ٢١،٧٩');
@@ -522,6 +1323,16 @@ Date: ٢٠٢٦-٠٩-١٧
     expect(preview.currency, 'AED');
     expect(preview.currencyProvenance, ReceiptOcrCurrencyProvenance.explicit);
     expect(preview.total, '21.79');
+  });
+
+  test('parser compatibility-normalizes Arabic presentation forms', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('ﺍﻹﺟﻤﺎﻟﻲ ﺩ.ﺇ٥');
+
+    expect(preview.currency, 'AED');
+    expect(preview.currencyProvenance, ReceiptOcrCurrencyProvenance.explicit);
+    expect(preview.total, '5');
+    expect(preview.items, isEmpty);
   });
 
   test('parser preserves U+060C thousands grouping', () {
@@ -564,6 +1375,16 @@ TOTAL AED 5
     expect(preview.currencyProvenance, ReceiptOcrCurrencyProvenance.explicit);
     expect(preview.items.single.currency, 'AED');
     expect(preview.total, '5');
+  });
+
+  test('single whole-unit coded item is explicit monetary evidence', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('Coffee USD 5');
+
+    expect(preview.currency, 'USD');
+    expect(preview.currencyProvenance, ReceiptOcrCurrencyProvenance.explicit);
+    expect(preview.items.single.description, 'Coffee');
+    expect(preview.items.single.lineTotal, '5');
   });
 
   test('ambiguous dollar uses USD only when fallback is USD', () {
@@ -775,7 +1596,7 @@ Total HKD 24.00
       );
 
       expect(preview.reviewHints, [
-        'Detected tax/service/discount may explain why item totals differ from the grand total.',
+        'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
       ]);
       expect(
         preview.reviewHints,
@@ -792,6 +1613,21 @@ Total HKD 24.00
         ReceiptOcrItemCandidate(description: 'Milk', lineTotal: '25.00'),
         ReceiptOcrItemCandidate(description: 'Bread', lineTotal: '18.00'),
       ],
+    );
+
+    expect(preview.reviewHints, [
+      'OCR item total differs from detected grand total. Review the receipt before applying.',
+    ]);
+  });
+
+  test('preview does not use cross-currency adjustments for reconciliation', () {
+    const preview = ReceiptOcrPreview(
+      currency: 'USD',
+      tip: '2.00',
+      tipCurrency: 'XPF',
+      tipHasExplicitCurrencyEvidence: true,
+      total: '45.00',
+      items: [ReceiptOcrItemCandidate(description: 'Milk', lineTotal: '43.00')],
     );
 
     expect(preview.reviewHints, [
@@ -920,16 +1756,19 @@ Total USD 4.00
     expect(result.message, contains('manual'));
   });
 
-  test('ml kit provider safely fails when no image path is supplied', () async {
-    const provider = MlKitReceiptOcrProvider();
+  test(
+    'ml kit provider safely fails for invalid encoded image bytes',
+    () async {
+      const provider = MlKitReceiptOcrProvider();
 
-    final result = await provider.extractReceipt(
-      ReceiptOcrRequest(bytes: const [1, 2, 3], contentType: 'image/jpeg'),
-    );
+      final result = await provider.extractReceipt(
+        ReceiptOcrRequest(bytes: const [1, 2, 3], contentType: 'image/jpeg'),
+      );
 
-    expect(result.status, ReceiptOcrStatus.failed);
-    expect(result.message, contains('manual'));
-  });
+      expect(result.status, ReceiptOcrStatus.failed);
+      expect(result.message, contains('manual'));
+    },
+  );
 
   test('fakeable provider can return structured preview', () async {
     final provider = _FakeReceiptOcrProvider(

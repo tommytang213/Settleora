@@ -47,6 +47,42 @@ class ScriptRouteSelectorTest {
     }
 
     @Test
+    fun ArabicPresentationFormsRemainSpecialistEvidence() {
+        val selected = ScriptRouteSelector.select(
+            listOf(
+                candidate("common", ScriptEvidence.COMMON, "TOTAL", 0.99f),
+                candidate("arabic", ScriptEvidence.ARABIC, "ﻣﺨﺵﻮﻋ", 0.82f),
+            ),
+        )
+
+        assertEquals("arabic", selected?.pack?.modelPackId)
+    }
+
+    @Test
+    fun pureSingleGlyphSpecialistItemRemainsValidEvidence() {
+        val selected = ScriptRouteSelector.select(
+            listOf(
+                candidate("common", ScriptEvidence.COMMON, "X", 0.99f),
+                candidate("korean", ScriptEvidence.KOREAN, "차", 0.82f),
+            ),
+        )
+
+        assertEquals("korean", selected?.pack?.modelPackId)
+    }
+
+    @Test
+    fun bundledCyrillicExtendedBLettersRouteToCyrillicPack() {
+        val selected = ScriptRouteSelector.select(
+            listOf(
+                candidate("common", ScriptEvidence.COMMON, "X", 0.99f),
+                candidate("cyrillic", ScriptEvidence.CYRILLIC, "Ꚙꚟ", 0.82f),
+            ),
+        )
+
+        assertEquals("cyrillic", selected?.pack?.modelPackId)
+    }
+
+    @Test
     fun longHighConfidenceLatinHallucinationCannotSuppressSpecialist() {
         val selected = ScriptRouteSelector.select(
             listOf(
@@ -156,7 +192,7 @@ class ScriptRouteSelectorTest {
     }
 
     @Test
-    fun ArabicIndicDigitsAreNeutralForSpecialistCoverage() {
+    fun localNumeralsRemainSpecialistEvidence() {
         val selected = ScriptRouteSelector.select(
             listOf(
                 candidate("common", ScriptEvidence.COMMON, "12.50", 0.80f),
@@ -164,7 +200,25 @@ class ScriptRouteSelectorTest {
             ),
         )
 
-        assertEquals("common", selected?.pack?.modelPackId)
+        assertEquals("arabic", selected?.pack?.modelPackId)
+        assertEquals(
+            "devanagari",
+            ScriptRouteSelector.select(
+                listOf(
+                    candidate("common", ScriptEvidence.COMMON, "12.50", 0.80f),
+                    candidate("devanagari", ScriptEvidence.DEVANAGARI, "१२.५०", 0.99f),
+                ),
+            )?.pack?.modelPackId,
+        )
+        assertEquals(
+            "thai",
+            ScriptRouteSelector.select(
+                listOf(
+                    candidate("common", ScriptEvidence.COMMON, "12.50", 0.80f),
+                    candidate("thai", ScriptEvidence.THAI, "๑๒.๕๐", 0.99f),
+                ),
+            )?.pack?.modelPackId,
+        )
     }
 
     private fun candidate(

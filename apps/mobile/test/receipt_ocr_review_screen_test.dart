@@ -560,6 +560,15 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(OutlinedButton, 'Preview changes'));
       await tester.pumpAndSettle();
+      expect(find.text('Header reconciliation'), findsOneWidget);
+      expect(find.text('Evidence charges'), findsOneWidget);
+      expect(find.text('Evidence credits'), findsOneWidget);
+      expect(
+        find.text(
+          'Unavailable for mixed-currency or incomplete header evidence',
+        ),
+        findsNothing,
+      );
       await tester.tap(find.widgetWithText(FilledButton, 'Apply to draft'));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Apply'));
@@ -586,6 +595,78 @@ void main() {
       expect(visibleText(tester), isNot(contains('final bill')));
       expect(find.text('Applied Receipt'), findsOneWidget);
       expect(find.text('Corner Market'), findsNothing);
+    });
+
+    testWidgets('shows same-currency header reconciliation separately', (
+      tester,
+    ) async {
+      await useLargeSurface(tester);
+      final route = sampleRoute();
+      final repository = FakeReceiptOcrReviewRepository(
+        reviewResponse: sampleReview(route),
+        previewResponse: samplePreview(
+          route,
+          summary: const ReceiptOcrReviewPreviewSummary(
+            lineCount: 1,
+            linesWithProposedTotalCount: 1,
+            linesMissingProposedTotalCount: 0,
+            adjustmentEvidenceCount: 2,
+            proposedLineTotalSumAmount: '10.00',
+            reconciledAdjustmentChargeTotalAmount: '2.00',
+            reconciledAdjustmentCreditTotalAmount: '0.50',
+            expectedHeaderTotalAmount: '12.30',
+          ),
+        ),
+      );
+
+      await pumpDetail(tester, repository: repository, route: route);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Preview changes'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Header reconciliation'), findsOneWidget);
+      expect(find.text('Evidence charges'), findsOneWidget);
+      expect(find.text('Evidence credits'), findsOneWidget);
+      expect(find.text('Expected total'), findsOneWidget);
+      expect(find.text('2.00 USD'), findsOneWidget);
+      expect(find.text('0.50 USD'), findsOneWidget);
+      expect(find.text('12.30 USD'), findsOneWidget);
+    });
+
+    testWidgets('shows cross-currency reconciliation as unavailable', (
+      tester,
+    ) async {
+      await useLargeSurface(tester);
+      final route = sampleRoute();
+      final repository = FakeReceiptOcrReviewRepository(
+        reviewResponse: sampleReview(route),
+        previewResponse: samplePreview(
+          route,
+          summary: const ReceiptOcrReviewPreviewSummary(
+            lineCount: 1,
+            linesWithProposedTotalCount: 1,
+            linesMissingProposedTotalCount: 0,
+            adjustmentEvidenceCount: 1,
+            proposedLineTotalSumAmount: '10.00',
+            expectedHeaderTotalAmount: null,
+          ),
+        ),
+      );
+
+      await pumpDetail(tester, repository: repository, route: route);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Preview changes'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Header reconciliation'), findsOneWidget);
+      expect(
+        find.text(
+          'Unavailable for mixed-currency or incomplete header evidence',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Evidence charges'), findsNothing);
+      expect(find.text('Expected total'), findsNothing);
     });
 
     testWidgets('does not refresh queue after returning without mutation', (
@@ -1019,6 +1100,244 @@ void main() {
       semantics.dispose();
     });
 
+    testWidgets(
+      'shows non-item evidence separately and preserves reviewed edits',
+      (tester) async {
+        await useLargeSurface(tester);
+        final route = sampleRoute();
+        final repository = FakeReceiptOcrReviewRepository(
+          reviewResponse: sampleReview(route, adjustments: sampleAdjustments()),
+        );
+
+        await pumpDetail(tester, repository: repository, route: route);
+        await tester.pumpAndSettle();
+
+        expect(find.text('Non-item adjustments'), findsOneWidget);
+        expect(find.text('Driver gratuity'), findsOneWidget);
+        expect(find.text('Unfamiliar receipt credit'), findsOneWidget);
+        expect(
+          find.text(
+            'Preserved for review and reconciliation. These are not merchandise and are not automatically added to the bill.',
+          ),
+          findsOneWidget,
+        );
+
+        await tester.tap(find.widgetWithIcon(IconButton, Icons.edit_outlined));
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          editableTextForKey(
+            const ValueKey('receipt-review-edit-adjustment-label-0'),
+          ),
+          'Updated gratuity',
+        );
+        await tester.ensureVisible(
+          find.byKey(const ValueKey('receipt-review-edit-adjustment-remove-1')),
+        );
+        await tester.tap(
+          find.byKey(const ValueKey('receipt-review-edit-adjustment-remove-1')),
+        );
+        await tester.ensureVisible(
+          find.byKey(const Key('receipt-review-edit-save')),
+        );
+        await tester.tap(find.byKey(const Key('receipt-review-edit-save')));
+        await tester.pumpAndSettle();
+
+        expect(repository.saveCalls, 1);
+        expect(repository.lastSaveRequest?.adjustmentEvidence, hasLength(1));
+        final saved = repository.lastSaveRequest!.adjustmentEvidence.single;
+        expect(saved.kind, ReceiptOcrReviewAdjustmentKindValues.tip);
+        expect(saved.originalLabel, 'Updated gratuity');
+        expect(saved.amount, '2.00');
+        expect(saved.currency, 'USD');
+        expect(
+          saved.direction,
+          ReceiptOcrReviewAdjustmentDirectionValues.charge,
+        );
+      },
+    );
+
+    testWidgets(
+      'saved review currency change clears persisted money evidence',
+      (tester) async {
+        await useLargeSurface(tester);
+        final route = sampleRoute();
+        final repository = FakeReceiptOcrReviewRepository(
+          reviewResponse: sampleReview(route),
+        );
+
+        await pumpDetail(tester, repository: repository, route: route);
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithIcon(IconButton, Icons.edit_outlined));
+        await tester.pumpAndSettle();
+
+        final currencySelector = find.byKey(
+          const Key('receipt-review-edit-currency'),
+        );
+        tester.widget<CurrencySelector>(currencySelector).onChanged('EUR');
+        await tester.pump();
+
+        await tester.ensureVisible(
+          find.byKey(const Key('receipt-review-edit-save')),
+        );
+        await tester.tap(find.byKey(const Key('receipt-review-edit-save')));
+        await tester.pumpAndSettle();
+
+        expect(repository.saveCalls, 1);
+        final saved = repository.lastSaveRequest!;
+        expect(saved.currency, 'EUR');
+        expect(saved.subtotalAmount, isNull);
+        expect(saved.taxAmount, isNull);
+        expect(saved.serviceChargeAmount, isNull);
+        expect(saved.discountAmount, isNull);
+        expect(saved.grandTotalAmount, isNull);
+        expect(saved.lines.single.text, 'Milk');
+        expect(saved.lines.single.quantity, '1');
+        expect(saved.lines.single.unitPriceAmount, isNull);
+        expect(saved.lines.single.lineTotalAmount, isNull);
+      },
+    );
+
+    testWidgets('changing adjustment kind to credit refreshes direction', (
+      tester,
+    ) async {
+      await useLargeSurface(tester);
+      final route = sampleRoute();
+      final repository = FakeReceiptOcrReviewRepository(
+        reviewResponse: sampleReview(route, adjustments: sampleAdjustments()),
+      );
+
+      await pumpDetail(tester, repository: repository, route: route);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithIcon(IconButton, Icons.edit_outlined));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('receipt-review-edit-adjustment-kind-0')),
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('receipt-review-edit-adjustment-kind-0')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('credit').last);
+      await tester.pumpAndSettle();
+
+      final directionFinder = find.byKey(
+        const ValueKey('receipt-review-edit-adjustment-direction-0-credit'),
+      );
+      expect(directionFinder, findsOneWidget);
+      expect(
+        tester
+            .widget<DropdownButtonFormField<String>>(directionFinder)
+            .initialValue,
+        ReceiptOcrReviewAdjustmentDirectionValues.credit,
+      );
+
+      await tester.ensureVisible(
+        find.byKey(const Key('receipt-review-edit-save')),
+      );
+      await tester.tap(find.byKey(const Key('receipt-review-edit-save')));
+      await tester.pumpAndSettle();
+
+      expect(repository.saveCalls, 1);
+      final saved = repository.lastSaveRequest!.adjustmentEvidence.first;
+      expect(saved.kind, ReceiptOcrReviewAdjustmentKindValues.credit);
+      expect(saved.direction, ReceiptOcrReviewAdjustmentDirectionValues.credit);
+    });
+
+    testWidgets('removing a middle adjustment preserves remaining row state', (
+      tester,
+    ) async {
+      await useLargeSurface(tester);
+      final route = sampleRoute();
+      final repository = FakeReceiptOcrReviewRepository(
+        reviewResponse: sampleReview(route, adjustments: sampleAdjustments()),
+      );
+
+      await pumpDetail(tester, repository: repository, route: route);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithIcon(IconButton, Icons.edit_outlined));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('receipt-review-edit-adjustment-remove-0')),
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('receipt-review-edit-adjustment-remove-0')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<DropdownButtonFormField<String>>(
+              find.byKey(
+                const ValueKey('receipt-review-edit-adjustment-kind-0'),
+              ),
+            )
+            .initialValue,
+        ReceiptOcrReviewAdjustmentKindValues.other,
+      );
+      expect(
+        editableTextValue(
+          tester,
+          const ValueKey('receipt-review-edit-adjustment-label-0'),
+        ),
+        'Unfamiliar receipt credit',
+      );
+
+      await tester.ensureVisible(
+        find.byKey(const Key('receipt-review-edit-save')),
+      );
+      await tester.tap(find.byKey(const Key('receipt-review-edit-save')));
+      await tester.pumpAndSettle();
+
+      final saved = repository.lastSaveRequest!.adjustmentEvidence.single;
+      expect(saved.kind, ReceiptOcrReviewAdjustmentKindValues.other);
+      expect(saved.originalLabel, 'Unfamiliar receipt credit');
+      expect(saved.direction, ReceiptOcrReviewAdjustmentDirectionValues.credit);
+    });
+
+    testWidgets('adjustment-only edit does not invent review currency', (
+      tester,
+    ) async {
+      await useLargeSurface(tester);
+      final route = sampleRoute();
+      final repository = FakeReceiptOcrReviewRepository(
+        reviewResponse: sampleReview(
+          route,
+          merchantText: null,
+          includeReceiptDate: false,
+          currency: null,
+          subtotalAmount: null,
+          taxAmount: null,
+          grandTotalAmount: null,
+          lines: const [],
+          adjustments: [sampleAdjustments().first],
+        ),
+      );
+
+      await pumpDetail(tester, repository: repository, route: route);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithIcon(IconButton, Icons.edit_outlined));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        editableTextForKey(
+          const ValueKey('receipt-review-edit-adjustment-label-0'),
+        ),
+        'Reviewed gratuity',
+      );
+      await tester.ensureVisible(
+        find.byKey(const Key('receipt-review-edit-save')),
+      );
+      await tester.tap(find.byKey(const Key('receipt-review-edit-save')));
+      await tester.pumpAndSettle();
+
+      expect(repository.saveCalls, 1);
+      expect(repository.lastSaveRequest!.currency, isNull);
+      expect(
+        repository.lastSaveRequest!.adjustmentEvidence.single.originalLabel,
+        'Reviewed gratuity',
+      );
+      expect(find.text('Required when amounts are present'), findsNothing);
+    });
+
     testWidgets('search filters loaded detail line candidates', (tester) async {
       await useLargeSurface(tester);
       final route = sampleRoute();
@@ -1223,6 +1542,53 @@ void main() {
       );
       expect(find.byKey(const Key('receipt-review-line-search')), findsNothing);
       expect(find.text('No matching receipt lines'), findsNothing);
+    });
+
+    testWidgets('saved review editor stops at the 100-line API bound', (
+      tester,
+    ) async {
+      await useLargeSurface(tester);
+      final route = sampleRoute();
+      final lines = List<ReceiptOcrReviewLine>.generate(
+        99,
+        (index) => ReceiptOcrReviewLine(
+          id: _lineId,
+          sortOrder: index,
+          text: 'Item $index',
+          quantity: '1',
+          unitPriceAmount: '1.00',
+          lineTotalAmount: '1.00',
+          createdAtUtc: _createdAtUtc,
+          updatedAtUtc: _updatedAtUtc,
+        ),
+      );
+      final repository = FakeReceiptOcrReviewRepository(
+        reviewResponse: sampleReview(route, lines: lines),
+      );
+
+      await pumpDetail(tester, repository: repository, route: route);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Edit receipt review'));
+      await tester.pumpAndSettle();
+
+      final add = find.byKey(const Key('receipt-review-edit-line-add'));
+      expect(tester.widget<IconButton>(add).onPressed, isNotNull);
+      await tester.tap(add);
+      await tester.pump();
+
+      expect(tester.widget<IconButton>(add).onPressed, isNull);
+      expect(
+        find.text('Receipt reviews support up to 100 merchandise lines.'),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('receipt-review-edit-line-card-99')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('receipt-review-edit-line-card-100')),
+        findsNothing,
+      );
     });
 
     testWidgets('labels detail edit actions and delete confirmation controls', (
@@ -2578,6 +2944,7 @@ ReceiptOcrReviewDetail sampleReview(
   String? taxAmount = '0.80',
   String? grandTotalAmount = '10.80',
   List<ReceiptOcrReviewLine>? lines,
+  List<ReceiptOcrReviewAdjustment> adjustments = const [],
 }) {
   return ReceiptOcrReviewDetail(
     id: _reviewId,
@@ -2597,9 +2964,37 @@ ReceiptOcrReviewDetail sampleReview(
     discountAmount: null,
     grandTotalAmount: grandTotalAmount,
     lines: lines ?? sampleLines(),
+    adjustmentEvidence: adjustments,
     createdAtUtc: _createdAtUtc,
     updatedAtUtc: _updatedAtUtc,
   );
+}
+
+List<ReceiptOcrReviewAdjustment> sampleAdjustments() {
+  return [
+    ReceiptOcrReviewAdjustment(
+      id: '66666666-6666-6666-6666-666666666666',
+      sortOrder: 0,
+      kind: ReceiptOcrReviewAdjustmentKindValues.tip,
+      originalLabel: 'Driver gratuity',
+      amount: '2.00',
+      currency: 'USD',
+      direction: ReceiptOcrReviewAdjustmentDirectionValues.charge,
+      createdAtUtc: _createdAtUtc,
+      updatedAtUtc: _updatedAtUtc,
+    ),
+    ReceiptOcrReviewAdjustment(
+      id: '77777777-7777-7777-7777-777777777777',
+      sortOrder: 1,
+      kind: ReceiptOcrReviewAdjustmentKindValues.other,
+      originalLabel: 'Unfamiliar receipt credit',
+      amount: '0.50',
+      currency: 'USD',
+      direction: ReceiptOcrReviewAdjustmentDirectionValues.credit,
+      createdAtUtc: _createdAtUtc,
+      updatedAtUtc: _updatedAtUtc,
+    ),
+  ];
 }
 
 List<ReceiptOcrReviewLine> sampleLines() {
@@ -2667,6 +3062,7 @@ ReceiptOcrReviewApplyPreview samplePreview(
   bool canApply = true,
   List<ReceiptOcrReviewApplyPreviewIssueCode> blockedReasons = const [],
   List<ReceiptOcrReviewApplyPreviewIssueCode> warnings = const [],
+  ReceiptOcrReviewPreviewSummary? summary,
 }) {
   return ReceiptOcrReviewApplyPreview(
     reviewId: _reviewId,
@@ -2684,7 +3080,7 @@ ReceiptOcrReviewApplyPreview samplePreview(
     proposedDiscountAmount: null,
     proposedGrandTotalAmount: '10.80',
     proposedLines: const [],
-    summary: samplePreviewSummary(),
+    summary: summary ?? samplePreviewSummary(),
     canApply: canApply,
     blockedReasons: blockedReasons,
     warnings: warnings,
@@ -2717,6 +3113,8 @@ ReceiptOcrReviewPreviewSummary samplePreviewSummary() {
     linesWithProposedTotalCount: 1,
     linesMissingProposedTotalCount: 0,
     proposedLineTotalSumAmount: '10.00',
+    reconciledAdjustmentChargeTotalAmount: '0',
+    reconciledAdjustmentCreditTotalAmount: '0',
     expectedHeaderTotalAmount: '10.80',
   );
 }

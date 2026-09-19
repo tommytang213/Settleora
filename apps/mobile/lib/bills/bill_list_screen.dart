@@ -262,19 +262,27 @@ ReceiptOcrPreview _copyReceiptOcrPreview(
   String? currency,
   ReceiptOcrCurrencyProvenance? currencyProvenance,
   List<ReceiptOcrItemCandidate>? items,
+  bool clearHeaderMoney = false,
 }) {
   return ReceiptOcrPreview(
     merchant: merchant ?? preview.merchant,
     receiptDate: receiptDate ?? preview.receiptDate,
     currency: currency ?? preview.currency,
     currencyProvenance: currencyProvenance ?? preview.currencyProvenance,
-    subtotal: preview.subtotal,
-    tax: preview.tax,
-    service: preview.service,
+    subtotal: clearHeaderMoney ? null : preview.subtotal,
+    tax: clearHeaderMoney ? null : preview.tax,
+    service: clearHeaderMoney ? null : preview.service,
     tip: preview.tip,
+    tipLabel: preview.tipLabel,
+    tipCurrency: preview.tipCurrency,
+    tipHasExplicitCurrencyEvidence: preview.tipHasExplicitCurrencyEvidence,
     shipping: preview.shipping,
-    discount: preview.discount,
-    total: preview.total,
+    shippingLabel: preview.shippingLabel,
+    shippingCurrency: preview.shippingCurrency,
+    shippingHasExplicitCurrencyEvidence:
+        preview.shippingHasExplicitCurrencyEvidence,
+    discount: clearHeaderMoney ? null : preview.discount,
+    total: clearHeaderMoney ? null : preview.total,
     rawTextLineCount: preview.rawTextLineCount,
     confidence: preview.confidence,
     category: preview.category,
@@ -390,29 +398,179 @@ ReceiptOcrReviewSaveRequest? _receiptOcrReviewSaveRequestFromPreview(
   if (preview == null || !_receiptOcrPreviewHasReviewCandidates(preview)) {
     return null;
   }
+  final currency = _nullableUppercaseCurrency(preview.currency);
 
   return ReceiptOcrReviewSaveRequest(
     status: ReceiptOcrReviewStatusValues.provisional,
     source: ReceiptOcrReviewSourceValues.onDevice,
     merchantText: _nullableTrimmedText(preview.merchant),
     receiptIssuedAtUtc: _parseReceiptOcrReviewDate(preview.receiptDate),
-    currency: _nullableUppercaseCurrency(preview.currency),
-    subtotalAmount: _nullableTrimmedText(preview.subtotal),
-    taxAmount: _nullableTrimmedText(preview.tax),
-    serviceChargeAmount: _nullableTrimmedText(preview.service),
-    discountAmount: _nullableTrimmedText(preview.discount),
-    grandTotalAmount: _nullableTrimmedText(preview.total),
-    lines: [
-      for (final item in preview.items)
-        if (_receiptOcrItemHasReviewCandidate(item))
-          ReceiptOcrReviewLineSaveRequest(
-            text: item.description.trim(),
-            quantity: _nullableTrimmedText(item.quantity),
-            unitPriceAmount: _nullableTrimmedText(item.unitPrice),
-            lineTotalAmount: _nullableTrimmedText(item.lineTotal),
-          ),
-    ],
+    currency: currency,
+    subtotalAmount: receiptOcrMoneyCandidateForSave(
+      preview.subtotal,
+      currency: currency,
+    ),
+    taxAmount: receiptOcrMoneyCandidateForSave(preview.tax, currency: currency),
+    serviceChargeAmount: receiptOcrMoneyCandidateForSave(
+      preview.service,
+      currency: currency,
+    ),
+    discountAmount: receiptOcrMoneyCandidateForSave(
+      preview.discount,
+      currency: currency,
+    ),
+    grandTotalAmount: receiptOcrMoneyCandidateForSave(
+      preview.total,
+      currency: currency,
+    ),
+    lines: receiptOcrReviewLinesFromPreview(preview),
+    adjustmentEvidence: receiptOcrAdjustmentEvidenceFromPreview(preview),
   );
+}
+
+@visibleForTesting
+List<ReceiptOcrReviewLineSaveRequest> receiptOcrReviewLinesFromPreview(
+  ReceiptOcrPreview preview,
+) {
+  final reviewCurrency = _nullableUppercaseCurrency(preview.currency);
+  return [
+        for (final item in preview.items)
+          if (_receiptOcrItemHasReviewCandidate(item)) item,
+      ]
+      .take(receiptOcrReviewLineLimit)
+      .map((item) {
+        // Preserve every normalized OCR currency as comparison evidence, even
+        // when the API cannot persist that currency. Filtering an explicit
+        // unsupported code to null here would incorrectly make its money
+        // inherit the supported receipt currency.
+        final lineCurrency = settleoraNormalizeCurrencyCode(item.currency);
+        final moneyCurrency =
+            lineCurrency == null || lineCurrency == reviewCurrency
+            ? reviewCurrency
+            : null;
+        return ReceiptOcrReviewLineSaveRequest(
+          text: item.description.trim(),
+          quantity: receiptOcrQuantityCandidateForSave(item.quantity),
+          unitPriceAmount: receiptOcrMoneyCandidateForSave(
+            item.unitPrice,
+            currency: moneyCurrency,
+          ),
+          lineTotalAmount: receiptOcrMoneyCandidateForSave(
+            item.lineTotal,
+            currency: moneyCurrency,
+          ),
+        );
+      })
+      .toList(growable: false);
+}
+
+@visibleForTesting
+List<ReceiptOcrReviewAdjustmentSaveRequest>
+receiptOcrAdjustmentEvidenceFromPreview(ReceiptOcrPreview preview) {
+  final reviewCurrency = _nullableUppercaseCurrency(preview.currency);
+
+  final adjustments = <ReceiptOcrReviewAdjustmentSaveRequest>[];
+  final tipCurrency = _nullableUppercaseCurrency(
+    preview.tipHasExplicitCurrencyEvidence
+        ? preview.tipCurrency
+        : preview.tipCurrency ?? reviewCurrency,
+  );
+  final tip = receiptOcrMoneyCandidateForSave(
+    preview.tip,
+    currency: tipCurrency,
+    allowZero: false,
+  );
+  if (tip != null && tipCurrency != null) {
+    adjustments.add(
+      ReceiptOcrReviewAdjustmentSaveRequest(
+        kind: ReceiptOcrReviewAdjustmentKindValues.tip,
+        originalLabel: _nullableTrimmedText(preview.tipLabel) ?? 'Tip',
+        amount: tip,
+        currency: tipCurrency,
+        direction: ReceiptOcrReviewAdjustmentDirectionValues.charge,
+      ),
+    );
+  }
+
+  final shippingCurrency = _nullableUppercaseCurrency(
+    preview.shippingHasExplicitCurrencyEvidence
+        ? preview.shippingCurrency
+        : preview.shippingCurrency ?? reviewCurrency,
+  );
+  final shipping = receiptOcrMoneyCandidateForSave(
+    preview.shipping,
+    currency: shippingCurrency,
+    allowZero: false,
+  );
+  if (shipping != null && shippingCurrency != null) {
+    adjustments.add(
+      ReceiptOcrReviewAdjustmentSaveRequest(
+        kind: ReceiptOcrReviewAdjustmentKindValues.shipping,
+        originalLabel:
+            _nullableTrimmedText(preview.shippingLabel) ?? 'Shipping',
+        amount: shipping,
+        currency: shippingCurrency,
+        direction: ReceiptOcrReviewAdjustmentDirectionValues.charge,
+      ),
+    );
+  }
+
+  return adjustments;
+}
+
+@visibleForTesting
+bool receiptOcrAdjustmentMagnitudeCanPersist(
+  String amount, {
+  required String currency,
+}) {
+  return receiptOcrMoneyCandidateForSave(
+        amount,
+        currency: currency,
+        allowZero: false,
+      ) !=
+      null;
+}
+
+@visibleForTesting
+String? receiptOcrMoneyCandidateForSave(
+  String? amount, {
+  required String? currency,
+  bool allowZero = true,
+}) {
+  final normalizedCurrency = _nullableUppercaseCurrency(currency);
+  final candidate = _nullableTrimmedText(amount);
+  if (normalizedCurrency == null || candidate == null) {
+    return null;
+  }
+
+  final parsed = _parseExactDecimalAmount(candidate);
+  final scale = _currencyScale(normalizedCurrency);
+  if (parsed == null ||
+      parsed.value < BigInt.zero ||
+      (!allowZero && parsed.value == BigInt.zero) ||
+      parsed.scale > scale ||
+      parsed.scale > 4) {
+    return null;
+  }
+
+  final normalizedValue = parsed.value * _bigIntPow10(4 - parsed.scale);
+  return normalizedValue <= BigInt.parse('9999999999999999999')
+      ? candidate
+      : null;
+}
+
+@visibleForTesting
+String? receiptOcrQuantityCandidateForSave(String? quantity) {
+  final candidate = _nullableTrimmedText(quantity);
+  final parsed = candidate == null ? null : _parseExactDecimalAmount(candidate);
+  if (parsed == null || parsed.value <= BigInt.zero || parsed.scale > 4) {
+    return null;
+  }
+
+  final normalizedValue = parsed.value * _bigIntPow10(4 - parsed.scale);
+  return normalizedValue <= BigInt.parse('999999999999999999')
+      ? candidate
+      : null;
 }
 
 bool _receiptOcrItemHasReviewCandidate(ReceiptOcrItemCandidate item) {
@@ -433,7 +591,9 @@ String? _nullableTrimmedText(String? value) {
 
 String? _nullableUppercaseCurrency(String? value) {
   final trimmed = value?.trim().toUpperCase();
-  if (trimmed == null || trimmed.isEmpty) {
+  if (trimmed == null ||
+      trimmed.isEmpty ||
+      !settleoraIsSupportedCurrency(trimmed)) {
     return null;
   }
 
@@ -1510,6 +1670,13 @@ class _SettleoraPersonalBillCreateScreenState
           artifactResult: processedArtifact.result,
         ),
       );
+      if (!processedArtifact.result.accepted) {
+        setState(() {
+          _attachmentDraftError =
+              'The selected receipt image could not be prepared. Choose another image or use manual entry.';
+        });
+        return;
+      }
       final draftAttachmentId = _nextDraftAttachmentId;
       setState(() {
         _draftAttachments.add(
@@ -1656,36 +1823,30 @@ class _SettleoraPersonalBillCreateScreenState
       pickedFile,
       allowedContentTypes: allowedContentTypes,
     );
-    final draftAttachmentId = _nextDraftAttachmentId;
-    setState(() {
-      _draftAttachments.add(
-        _BillCreateDraftAttachment(
-          id: draftAttachmentId,
-          file: validatedFile,
-          purpose: purpose,
-        ),
-      );
-      _nextDraftAttachmentId += 1;
-    });
-
     if (purpose == SettleoraBillAttachmentPurposeValues.receipt) {
       final processedArtifact = _processedReceiptAttachmentArtifact(
         file: validatedFile,
         sourceType: ReceiptIntakeSourceType.fileImport,
         processor: widget.receiptImageArtifactProcessor,
       );
-      final index = _draftAttachments.indexWhere(
-        (attachment) => attachment.id == draftAttachmentId,
-      );
-      if (index >= 0) {
+      if (!processedArtifact.result.accepted) {
         setState(() {
-          _draftAttachments[index] = _BillCreateDraftAttachment(
+          _attachmentDraftError =
+              'The selected receipt image could not be prepared. Choose another image or use manual entry.';
+        });
+        return;
+      }
+      final draftAttachmentId = _nextDraftAttachmentId;
+      setState(() {
+        _draftAttachments.add(
+          _BillCreateDraftAttachment(
             id: draftAttachmentId,
             file: processedArtifact.file,
             purpose: purpose,
-          );
-        });
-      }
+          ),
+        );
+        _nextDraftAttachmentId += 1;
+      });
       final intakeSafetyReview = reviewReceiptIntakeSafety(
         ReceiptIntakeSafetyMetadata.fromPickedFile(
           sourceType: ReceiptIntakeSourceType.fileImport,
@@ -1701,7 +1862,20 @@ class _SettleoraPersonalBillCreateScreenState
         sourceDraftAttachmentId: draftAttachmentId,
         intakeSafetyReview: intakeSafetyReview,
       );
+      return;
     }
+
+    final draftAttachmentId = _nextDraftAttachmentId;
+    setState(() {
+      _draftAttachments.add(
+        _BillCreateDraftAttachment(
+          id: draftAttachmentId,
+          file: validatedFile,
+          purpose: purpose,
+        ),
+      );
+      _nextDraftAttachmentId += 1;
+    });
   }
 
   Future<SettleoraBillAttachmentPurpose?> _selectDraftAttachmentPurpose() {
@@ -2020,18 +2194,21 @@ class _SettleoraPersonalBillCreateScreenState
               _PersonalBillCreateItemControllers(
                   currency: _receiptOcrApplicableItemCurrency(
                     candidate.currency,
-                    _currencyController.text,
+                    preview.currency ?? _currencyController.text,
                   ),
                 )
                 ..name.text = candidate.description.trim()
-                ..quantity.text = candidate.quantity ?? '1'
-                ..unitAmount.text = candidate.unitPrice ?? ''
+                ..quantity.text = _receiptOcrAppliedQuantity(candidate)
+                ..unitAmount.text = _receiptOcrAppliedUnitPrice(candidate)
                 ..amount.text = candidate.lineTotal ?? '',
           ]);
       }
 
       _itemListError = null;
-      _receiptOcrApplied = true;
+      _receiptOcrApplied = _receiptOcrSelectionFullyApplied(
+        preview,
+        _receiptOcrApplySelection,
+      );
     });
   }
 
@@ -2815,6 +2992,7 @@ class _ReceiptOcrEditableReviewForm extends StatefulWidget {
     required this.enabled,
     required this.onChanged,
     required this.onReset,
+    this.clearHeaderMoneyOnCurrencyChange = false,
   });
 
   final String keyPrefix;
@@ -2822,6 +3000,7 @@ class _ReceiptOcrEditableReviewForm extends StatefulWidget {
   final bool enabled;
   final ValueChanged<ReceiptOcrPreview> onChanged;
   final VoidCallback onReset;
+  final bool clearHeaderMoneyOnCurrencyChange;
 
   @override
   State<_ReceiptOcrEditableReviewForm> createState() =>
@@ -2834,6 +3013,9 @@ class _ReceiptOcrEditableReviewFormState
   late final TextEditingController _dateController;
   late final TextEditingController _currencyController;
   final List<_ReceiptOcrEditableItemControllers> _itemControllers = [];
+  final Map<_ReceiptOcrEditableItemControllers, String>
+  _propagatedItemCurrencies = {};
+  String? _fallbackCurrencyToPropagate;
   bool _syncScheduled = false;
 
   @override
@@ -2848,13 +3030,22 @@ class _ReceiptOcrEditableReviewFormState
     _currencyController = TextEditingController(
       text: widget.preview.currency ?? '',
     );
+    _rememberFallbackCurrency(widget.preview);
     _resetItemControllers(widget.preview.items);
   }
 
   @override
   void didUpdateWidget(covariant _ReceiptOcrEditableReviewForm oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (_controllersMatchPreview(widget.preview)) {
+    final controllersMatchIncoming = _controllersMatchPreview(widget.preview);
+    if (widget.preview.currencyProvenance ==
+        ReceiptOcrCurrencyProvenance.defaultFallback) {
+      _rememberFallbackCurrency(widget.preview);
+    } else if (!controllersMatchIncoming) {
+      _fallbackCurrencyToPropagate = null;
+      _propagatedItemCurrencies.clear();
+    }
+    if (controllersMatchIncoming) {
       return;
     }
     if (_syncScheduled) {
@@ -2875,6 +3066,17 @@ class _ReceiptOcrEditableReviewFormState
         }
       });
     });
+  }
+
+  void _rememberFallbackCurrency(ReceiptOcrPreview preview) {
+    if (preview.currencyProvenance !=
+        ReceiptOcrCurrencyProvenance.defaultFallback) {
+      return;
+    }
+    final normalized = preview.currency?.trim().toUpperCase();
+    if (settleoraIsSupportedCurrency(normalized)) {
+      _fallbackCurrencyToPropagate = normalized;
+    }
   }
 
   @override
@@ -2933,9 +3135,21 @@ class _ReceiptOcrEditableReviewFormState
         for (final item in items)
           _ReceiptOcrEditableItemControllers(candidate: item),
       ]);
+    _propagatedItemCurrencies.clear();
+    final fallbackCurrency = _fallbackCurrencyToPropagate;
+    if (fallbackCurrency != null) {
+      for (final item in _itemControllers) {
+        if (item.currency.text.trim().toUpperCase() == fallbackCurrency) {
+          _propagatedItemCurrencies[item] = fallbackCurrency;
+        }
+      }
+    }
   }
 
-  void _emitChanged({ReceiptOcrCurrencyProvenance? currencyProvenance}) {
+  void _emitChanged({
+    ReceiptOcrCurrencyProvenance? currencyProvenance,
+    bool clearHeaderMoney = false,
+  }) {
     widget.onChanged(
       _copyReceiptOcrPreview(
         widget.preview,
@@ -2943,6 +3157,7 @@ class _ReceiptOcrEditableReviewFormState
         receiptDate: _dateController.text,
         currency: _currencyController.text,
         currencyProvenance: currencyProvenance,
+        clearHeaderMoney: clearHeaderMoney,
         items: [
           for (final item in _itemControllers)
             ReceiptOcrItemCandidate(
@@ -2958,6 +3173,9 @@ class _ReceiptOcrEditableReviewFormState
   }
 
   void _addItem() {
+    if (_itemControllers.length >= receiptOcrReviewLineLimit) {
+      return;
+    }
     setState(() {
       _itemControllers.add(
         _ReceiptOcrEditableItemControllers(
@@ -2974,6 +3192,7 @@ class _ReceiptOcrEditableReviewFormState
     }
     setState(() {
       final removed = _itemControllers.removeAt(index);
+      _propagatedItemCurrencies.remove(removed);
       removed.dispose();
     });
     _emitChanged();
@@ -3024,11 +3243,29 @@ class _ReceiptOcrEditableReviewFormState
           enabled: widget.enabled,
           semanticLabel: 'Receipt currency selector',
           onChanged: (currency) {
+            final previousCurrency = _currencyController.text
+                .trim()
+                .toUpperCase();
             _currencyController.text = currency ?? '';
+            final nextCurrency = currency?.trim().toUpperCase() ?? '';
+            if (settleoraIsSupportedCurrency(nextCurrency)) {
+              for (final entry in _propagatedItemCurrencies.entries.toList()) {
+                final item = entry.key;
+                if (item.currency.text.trim().toUpperCase() != entry.value) {
+                  _propagatedItemCurrencies.remove(item);
+                  continue;
+                }
+                item.currency.text = nextCurrency;
+                _propagatedItemCurrencies[item] = nextCurrency;
+              }
+            }
             _emitChanged(
               currencyProvenance: settleoraIsSupportedCurrency(currency)
                   ? ReceiptOcrCurrencyProvenance.explicit
                   : ReceiptOcrCurrencyProvenance.unresolved,
+              clearHeaderMoney:
+                  widget.clearHeaderMoneyOnCurrencyChange &&
+                  previousCurrency != nextCurrency,
             );
           },
         ),
@@ -3046,12 +3283,27 @@ class _ReceiptOcrEditableReviewFormState
             ),
             TextButton.icon(
               key: Key('${widget.keyPrefix}-ocr-add-item'),
-              onPressed: widget.enabled ? _addItem : null,
+              onPressed:
+                  widget.enabled &&
+                      _itemControllers.length < receiptOcrReviewLineLimit
+                  ? _addItem
+                  : null,
               icon: const Icon(Icons.add),
               label: const Text('Add item'),
             ),
           ],
         ),
+        if (_itemControllers.length >= receiptOcrReviewLineLimit)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              'Receipt review supports up to $receiptOcrReviewLineLimit lines.',
+              key: Key('${widget.keyPrefix}-ocr-item-limit'),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
         if (_itemControllers.isEmpty)
           Padding(
             padding: const EdgeInsets.only(top: 4),
@@ -3740,6 +3992,32 @@ bool _receiptOcrSelectionHasAvailableSections(
       (selection.items && _receiptOcrItemsCanApply(preview));
 }
 
+bool _receiptOcrSelectionFullyApplied(
+  ReceiptOcrPreview preview,
+  _ReceiptOcrApplySelection selection,
+) {
+  if ((preview.merchant ?? '').trim().isNotEmpty && !selection.merchant) {
+    return false;
+  }
+  if ((preview.receiptDate ?? '').trim().isNotEmpty && !selection.date) {
+    return false;
+  }
+  if ((preview.currency ?? '').trim().isNotEmpty &&
+      (!settleoraIsSupportedCurrency(preview.currency) ||
+          preview.currencyProvenance ==
+              ReceiptOcrCurrencyProvenance.defaultFallback ||
+          preview.currencyProvenance ==
+              ReceiptOcrCurrencyProvenance.unresolved ||
+          !selection.currency)) {
+    return false;
+  }
+  if (preview.items.isNotEmpty &&
+      (!_receiptOcrItemsCanApply(preview) || !selection.items)) {
+    return false;
+  }
+  return true;
+}
+
 bool _receiptOcrItemsCanApply(ReceiptOcrPreview preview) {
   if (preview.items.isEmpty) {
     return false;
@@ -3759,6 +4037,9 @@ bool _receiptOcrItemsCanApply(ReceiptOcrPreview preview) {
   }
 
   return preview.items.every((candidate) {
+    if (candidate.description.trim().isEmpty) {
+      return false;
+    }
     final itemCurrency = candidate.currency?.trim();
     if (itemCurrency != null &&
         itemCurrency.isNotEmpty &&
@@ -3774,10 +4055,20 @@ bool _receiptOcrItemsCanApply(ReceiptOcrPreview preview) {
     }
 
     final quantity = candidate.quantity?.trim();
+    if (quantity != null &&
+        quantity.isNotEmpty &&
+        receiptOcrQuantityCandidateForSave(quantity) == null) {
+      return false;
+    }
     final parsedQuantity = quantity == null || quantity.isEmpty
         ? 1
         : _positiveWholeNumber(quantity);
-    if (quantity != null && quantity.isNotEmpty && parsedQuantity == null) {
+    final hasFractionalQuantity =
+        quantity != null && _isPositiveFractionalQuantity(quantity);
+    if (quantity != null &&
+        quantity.isNotEmpty &&
+        parsedQuantity == null &&
+        !hasFractionalQuantity) {
       return false;
     }
 
@@ -3792,6 +4083,32 @@ bool _receiptOcrItemsCanApply(ReceiptOcrPreview preview) {
     final parsedLineTotal = lineTotal.isEmpty
         ? null
         : _parseCurrencyAmount(lineTotal, applicableCurrency!);
+    final boundedUnitPrice = unitPrice.isEmpty
+        ? null
+        : receiptOcrMoneyCandidateForSave(
+            unitPrice,
+            currency: applicableCurrency,
+            allowZero: false,
+          );
+    final boundedLineTotal = lineTotal.isEmpty
+        ? null
+        : receiptOcrMoneyCandidateForSave(
+            lineTotal,
+            currency: applicableCurrency,
+            allowZero: false,
+          );
+    if (hasFractionalQuantity) {
+      // The authoritative bill model accepts whole-number quantities only.
+      // Preserve the OCR measurement in the review preview, but apply the
+      // verified line total as one bill unit instead of changing bill math.
+      return boundedLineTotal != null &&
+          parsedLineTotal != null &&
+          _currencyAmountIsPositive(parsedLineTotal);
+    }
+    if ((unitPrice.isNotEmpty && boundedUnitPrice == null) ||
+        (lineTotal.isNotEmpty && boundedLineTotal == null)) {
+      return false;
+    }
     final amountsAreValid =
         (unitPrice.isEmpty ||
             (parsedUnitPrice != null &&
@@ -3808,6 +4125,24 @@ bool _receiptOcrItemsCanApply(ReceiptOcrPreview preview) {
           quantity: parsedQuantity!,
         );
   });
+}
+
+String _receiptOcrAppliedQuantity(ReceiptOcrItemCandidate candidate) {
+  final quantity = candidate.quantity?.trim();
+  final wholeQuantity = quantity == null
+      ? null
+      : _positiveWholeNumber(quantity);
+  if (wholeQuantity != null) return wholeQuantity.toString();
+  return quantity != null && _isPositiveFractionalQuantity(quantity)
+      ? '1'
+      : (quantity == null || quantity.isEmpty ? '1' : quantity);
+}
+
+String _receiptOcrAppliedUnitPrice(ReceiptOcrItemCandidate candidate) {
+  final quantity = candidate.quantity?.trim();
+  return quantity != null && _isPositiveFractionalQuantity(quantity)
+      ? ''
+      : (candidate.unitPrice ?? '');
 }
 
 String _receiptOcrItemsApplyBlockReason(ReceiptOcrPreview preview) {
@@ -3953,6 +4288,22 @@ List<_ReceiptOcrReferenceCharge> _receiptOcrReferenceCharges(
         label: 'Service charge suggested',
         amount: preview.service!.trim(),
         currency: currency,
+      ),
+    if ((preview.tip ?? '').trim().isNotEmpty)
+      _ReceiptOcrReferenceCharge(
+        label: 'Tip suggested',
+        amount: preview.tip!.trim(),
+        currency: preview.tipHasExplicitCurrencyEvidence
+            ? preview.tipCurrency?.trim().toUpperCase()
+            : preview.tipCurrency?.trim().toUpperCase() ?? currency,
+      ),
+    if ((preview.shipping ?? '').trim().isNotEmpty)
+      _ReceiptOcrReferenceCharge(
+        label: 'Shipping suggested',
+        amount: preview.shipping!.trim(),
+        currency: preview.shippingHasExplicitCurrencyEvidence
+            ? preview.shippingCurrency?.trim().toUpperCase()
+            : preview.shippingCurrency?.trim().toUpperCase() ?? currency,
       ),
     if ((preview.total ?? '').trim().isNotEmpty)
       _ReceiptOcrReferenceCharge(
@@ -6216,6 +6567,13 @@ class _SettleoraGroupBillCreateScreenState
           artifactResult: processedArtifact.result,
         ),
       );
+      if (!processedArtifact.result.accepted) {
+        setState(() {
+          _attachmentDraftError =
+              'The selected receipt image could not be prepared. Choose another image or use manual entry.';
+        });
+        return;
+      }
       final draftAttachmentId = _nextDraftAttachmentId;
       setState(() {
         _draftAttachments.add(
@@ -6362,36 +6720,30 @@ class _SettleoraGroupBillCreateScreenState
       pickedFile,
       allowedContentTypes: allowedContentTypes,
     );
-    final draftAttachmentId = _nextDraftAttachmentId;
-    setState(() {
-      _draftAttachments.add(
-        _BillCreateDraftAttachment(
-          id: draftAttachmentId,
-          file: validatedFile,
-          purpose: purpose,
-        ),
-      );
-      _nextDraftAttachmentId += 1;
-    });
-
     if (purpose == SettleoraBillAttachmentPurposeValues.receipt) {
       final processedArtifact = _processedReceiptAttachmentArtifact(
         file: validatedFile,
         sourceType: ReceiptIntakeSourceType.fileImport,
         processor: widget.receiptImageArtifactProcessor,
       );
-      final index = _draftAttachments.indexWhere(
-        (attachment) => attachment.id == draftAttachmentId,
-      );
-      if (index >= 0) {
+      if (!processedArtifact.result.accepted) {
         setState(() {
-          _draftAttachments[index] = _BillCreateDraftAttachment(
+          _attachmentDraftError =
+              'The selected receipt image could not be prepared. Choose another image or use manual entry.';
+        });
+        return;
+      }
+      final draftAttachmentId = _nextDraftAttachmentId;
+      setState(() {
+        _draftAttachments.add(
+          _BillCreateDraftAttachment(
             id: draftAttachmentId,
             file: processedArtifact.file,
             purpose: purpose,
-          );
-        });
-      }
+          ),
+        );
+        _nextDraftAttachmentId += 1;
+      });
       final intakeSafetyReview = reviewReceiptIntakeSafety(
         ReceiptIntakeSafetyMetadata.fromPickedFile(
           sourceType: ReceiptIntakeSourceType.fileImport,
@@ -6407,7 +6759,20 @@ class _SettleoraGroupBillCreateScreenState
         sourceDraftAttachmentId: draftAttachmentId,
         intakeSafetyReview: intakeSafetyReview,
       );
+      return;
     }
+
+    final draftAttachmentId = _nextDraftAttachmentId;
+    setState(() {
+      _draftAttachments.add(
+        _BillCreateDraftAttachment(
+          id: draftAttachmentId,
+          file: validatedFile,
+          purpose: purpose,
+        ),
+      );
+      _nextDraftAttachmentId += 1;
+    });
   }
 
   Future<void> _runReceiptOcrPreview(
@@ -6744,7 +7109,7 @@ class _SettleoraGroupBillCreateScreenState
               _GroupBillCreateItemControllers(
                 currency: _receiptOcrApplicableItemCurrency(
                   candidate.currency,
-                  _currencyController.text,
+                  preview.currency ?? _currencyController.text,
                 ),
               ),
             );
@@ -6752,13 +7117,16 @@ class _SettleoraGroupBillCreateScreenState
 
           final item = _itemControllers[index];
           item.name.text = candidate.description.trim();
-          item.quantityUnits.text = candidate.quantity ?? '1';
-          item.unitAmount.text = candidate.unitPrice ?? '';
+          item.quantityUnits.text = _receiptOcrAppliedQuantity(candidate);
+          item.unitAmount.text = _receiptOcrAppliedUnitPrice(candidate);
           item.amount.text = candidate.lineTotal ?? '';
-          final itemCurrency = candidate.currency?.trim().toUpperCase();
+          final itemCurrency = _receiptOcrApplicableItemCurrency(
+            candidate.currency,
+            preview.currency ?? _currencyController.text,
+          );
           if (settleoraIsSupportedCurrency(itemCurrency) &&
               !item.currencyEditedByUser) {
-            item.setCurrencyFromBill(itemCurrency!);
+            item.setCurrencyFromBill(itemCurrency);
           }
         }
       }
@@ -6766,7 +7134,10 @@ class _SettleoraGroupBillCreateScreenState
       _itemListError = null;
       _splitTotalError = null;
       _payerTotalError = null;
-      _receiptOcrApplied = true;
+      _receiptOcrApplied = _receiptOcrSelectionFullyApplied(
+        preview,
+        _receiptOcrApplySelection,
+      );
       _selectedStep = _GroupBillCreateStep.receiptItems;
     });
   }
@@ -14143,6 +14514,7 @@ class _SavedReceiptOcrReviewEditContent extends StatelessWidget {
                 enabled: enabled,
                 onChanged: onPreviewChanged,
                 onReset: onReset,
+                clearHeaderMoneyOnCurrencyChange: true,
               ),
             ],
           ),
@@ -16889,26 +17261,33 @@ ReceiptOcrReviewSaveRequest _receiptOcrReviewSaveRequestFromSavedEdit(
   ReceiptOcrReviewDetail review,
   ReceiptOcrPreview preview,
 ) {
+  final editedCurrency = _nullableUppercaseCurrency(preview.currency);
+  final originalCurrency = _nullableUppercaseCurrency(review.currency);
+  final preserveHeaderMoney =
+      editedCurrency != null && editedCurrency == originalCurrency;
   return ReceiptOcrReviewSaveRequest(
     status: ReceiptOcrReviewStatusValues.provisional,
     source: review.source,
     merchantText: _nullableTrimmedText(preview.merchant),
     receiptIssuedAtUtc: _parseReceiptOcrReviewDate(preview.receiptDate),
-    currency: _nullableUppercaseCurrency(preview.currency),
-    subtotalAmount: review.subtotalAmount,
-    taxAmount: review.taxAmount,
-    serviceChargeAmount: review.serviceChargeAmount,
-    discountAmount: review.discountAmount,
-    grandTotalAmount: review.grandTotalAmount,
-    lines: [
-      for (final item in preview.items)
-        if (_receiptOcrItemHasReviewCandidate(item))
-          ReceiptOcrReviewLineSaveRequest(
-            text: item.description.trim(),
-            quantity: _nullableTrimmedText(item.quantity),
-            unitPriceAmount: _nullableTrimmedText(item.unitPrice),
-            lineTotalAmount: _nullableTrimmedText(item.lineTotal),
-          ),
+    currency: editedCurrency,
+    subtotalAmount: preserveHeaderMoney ? review.subtotalAmount : null,
+    taxAmount: preserveHeaderMoney ? review.taxAmount : null,
+    serviceChargeAmount: preserveHeaderMoney
+        ? review.serviceChargeAmount
+        : null,
+    discountAmount: preserveHeaderMoney ? review.discountAmount : null,
+    grandTotalAmount: preserveHeaderMoney ? review.grandTotalAmount : null,
+    lines: receiptOcrReviewLinesFromPreview(preview),
+    adjustmentEvidence: [
+      for (final adjustment in review.adjustmentEvidence)
+        ReceiptOcrReviewAdjustmentSaveRequest(
+          kind: adjustment.kind,
+          originalLabel: adjustment.originalLabel,
+          amount: adjustment.amount,
+          currency: adjustment.currency,
+          direction: adjustment.direction,
+        ),
     ],
   );
 }
@@ -17342,16 +17721,26 @@ _ExactDecimalAmount? _parseExactDecimalAmount(String value) {
 
 int? _positiveWholeNumber(String value) {
   final trimmed = value.trim();
-  if (!RegExp(r'^\d+$').hasMatch(trimmed)) {
+  final match = RegExp(r'^(\d+)(?:\.0+)?$').firstMatch(trimmed);
+  if (match == null) {
     return null;
   }
 
-  final parsed = int.tryParse(trimmed);
+  final parsed = int.tryParse(match.group(1)!);
   if (parsed == null || parsed <= 0) {
     return null;
   }
 
   return parsed;
+}
+
+bool _isPositiveFractionalQuantity(String value) {
+  final parsed = _parseExactDecimalAmount(value);
+  if (parsed == null || parsed.scale == 0 || parsed.value <= BigInt.zero) {
+    return false;
+  }
+  final wholeUnit = BigInt.from(10).pow(parsed.scale);
+  return parsed.value.remainder(wholeUnit) != BigInt.zero;
 }
 
 bool _lineTotalMatchesUnitAmount({

@@ -125,6 +125,7 @@ class ReceiptImageArtifactProcessor {
   static const maxSourceBytes = 25 * 1024 * 1024;
   static const maxDecodedDimension = 8192;
   static const maxDecodedPixels = 16 * 1024 * 1024;
+  static const maxNormalizedDimension = 2048;
 
   ReceiptImageArtifactResult process(ReceiptImageArtifactRequest request) {
     final sourceContentType = _normalizedToken(request.sourceContentType);
@@ -353,13 +354,20 @@ class ReceiptImageArtifactProcessor {
     reasonCodes.addAll(cacheReadiness.reasonCodes);
     warnings.add(cacheReadiness.message);
 
-    final orientedImage = img.bakeOrientation(decodedImage);
+    // Bound the decoded pixels before EXIF orientation can allocate a second
+    // full-resolution buffer. Rotation preserves the maximum dimension, so
+    // pre-orientation bounding keeps the normalized geometry contract intact.
+    final boundedImage = _boundedForOcr(decodedImage);
+    if (!identical(boundedImage, decodedImage)) {
+      reasonCodes.add('normalized_dimensions_bounded');
+    }
+    final normalizedImage = img.bakeOrientation(boundedImage);
     final jpegQuality = request.jpegQuality.clamp(1, 100).toInt();
     final normalizedBytes = Uint8List.fromList(
-      img.encodeJpg(orientedImage, quality: jpegQuality),
+      img.encodeJpg(normalizedImage, quality: jpegQuality),
     );
     final thumbnailImage = _thumbnailFor(
-      orientedImage,
+      normalizedImage,
       maxDimension: request.thumbnailMaxDimension,
     );
     final thumbnailBytes = Uint8List.fromList(
@@ -378,8 +386,8 @@ class ReceiptImageArtifactProcessor {
       sourceSizeBytes: sourceBytes.length,
       normalizedSizeBytes: normalizedBytes.length,
       thumbnailSizeBytes: thumbnailBytes.length,
-      width: orientedImage.width,
-      height: orientedImage.height,
+      width: normalizedImage.width,
+      height: normalizedImage.height,
       thumbnailWidth: thumbnailImage.width,
       thumbnailHeight: thumbnailImage.height,
       warnings: warnings.toList(growable: false),
@@ -447,6 +455,23 @@ ReceiptImageArtifactResult _rejectedResult({
     warnings: warnings.toList(growable: false),
     reasonCodes: reasonCodes.toList(growable: false),
     cacheReadiness: cacheReadiness,
+  );
+}
+
+img.Image _boundedForOcr(img.Image source) {
+  if (source.width <= ReceiptImageArtifactProcessor.maxNormalizedDimension &&
+      source.height <= ReceiptImageArtifactProcessor.maxNormalizedDimension) {
+    return source;
+  }
+  if (source.width >= source.height) {
+    return img.copyResize(
+      source,
+      width: ReceiptImageArtifactProcessor.maxNormalizedDimension,
+    );
+  }
+  return img.copyResize(
+    source,
+    height: ReceiptImageArtifactProcessor.maxNormalizedDimension,
   );
 }
 

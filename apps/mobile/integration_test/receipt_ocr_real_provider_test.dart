@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 import 'package:integration_test/integration_test.dart';
 import 'package:mobile/receipt_ocr_capture/paddle_receipt_ocr_provider.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_image_artifact_processor.dart';
@@ -55,84 +56,60 @@ void main() {
         ),
       );
 
-      expect(result.status, ReceiptOcrStatus.extracted, reason: fixtureId);
-      final preview = result.preview!;
-      _expectField(fixtureId, 'merchant', preview.merchant, expected);
-      _expectField(fixtureId, 'date', preview.receiptDate, expected);
-      _expectField(fixtureId, 'currency', preview.currency, expected);
-      _expectField(fixtureId, 'subtotal', preview.subtotal, expected);
-      _expectField(fixtureId, 'tax', preview.tax, expected);
-      _expectField(fixtureId, 'service', preview.service, expected);
-      _expectField(fixtureId, 'tip', preview.tip, expected);
-      _expectField(fixtureId, 'shipping', preview.shipping, expected);
-      _expectField(fixtureId, 'discount', preview.discount, expected);
-      _expectField(fixtureId, 'total', preview.total, expected);
-
-      final expectedItems = (expected['items']! as List<Object?>)
-          .map((item) => _ExpectedItem.fromManifest(item, fixtureId))
-          .toList(growable: false);
-      expect(preview.items, hasLength(expectedItems.length), reason: fixtureId);
-      for (var index = 0; index < expectedItems.length; index += 1) {
-        final expectedItem = expectedItems[index];
-        final actualItem = preview.items[index];
-        expect(
-          _normalizedText(actualItem.description),
-          _normalizedText(expectedItem.description),
-          reason: '$fixtureId item[$index].description',
-        );
-        expect(
-          actualItem.lineTotal,
-          expectedItem.lineTotal,
-          reason: '$fixtureId item[$index].lineTotal',
-        );
-        if (expectedItem.quantity != null) {
-          expect(
-            actualItem.quantity,
-            expectedItem.quantity,
-            reason: '$fixtureId item[$index].quantity',
-          );
-        }
-        if (expectedItem.unitPrice != null) {
-          expect(
-            actualItem.unitPrice,
-            expectedItem.unitPrice,
-            reason: '$fixtureId item[$index].unitPrice',
-          );
-        }
-      }
-
-      if (currencyResolution != null) {
-        expect(
-          preview.currencyProvenance,
-          _currencyProvenance(currencyResolution['source']! as String),
-          reason: '$fixtureId currency provenance',
-        );
-      }
-      final expectedReviewCondition =
-          expected['expected_review_condition'] as String?;
-      if (expectedReviewCondition != null) {
-        expect(
-          expectedReviewCondition,
-          'printed total differs from visible charge-line arithmetic',
-          reason: '$fixtureId unsupported review condition',
-        );
-        expect(
-          preview.reviewHints,
-          contains(
-            'OCR item total differs from detected grand total. Review the receipt before applying.',
-          ),
-          reason: '$fixtureId review condition',
-        );
-      }
-      expect(preview.blocks, isNotEmpty, reason: '$fixtureId OCR evidence');
-      expect(
-        preview.runEvidence?.runtime,
-    Platform.isIOS
-        ? 'onnxruntime-objc:1.24.3:cpu'
-        : 'onnxruntime-android:1.21.1:cpu',
-        reason: '$fixtureId runtime evidence',
+      _expectCompletePreview(
+        fixtureId,
+        result,
+        expected,
+        currencyResolution: currencyResolution,
       );
     }
+  });
+
+  testWidgets('a real fixture rotated 270 degrees matches complete truth', (
+    WidgetTester tester,
+  ) async {
+    final manifest =
+        jsonDecode(utf8.decode(await fixtures.load('manifest.json')))
+            as Map<String, Object?>;
+    final entry = (manifest['fixtures']! as List<Object?>)
+        .cast<Map<String, Object?>>()
+        .singleWhere(
+          (fixture) => fixture['id'] == 'existing_12_freshmart_grocery_en_US',
+        );
+    final source = img.decodeImage(
+      await fixtures.load(entry['file']! as String),
+    );
+    expect(source, isNotNull);
+    final rotatedBytes = img.encodeJpg(
+      img.copyRotate(source!, angle: 270),
+      quality: 100,
+    );
+    final artifact = artifactProcessor.process(
+      ReceiptImageArtifactRequest(
+        sourceType: ReceiptImageSourceKind.importedImage,
+        sourceContentType: 'image/jpeg',
+        sourceBytes: rotatedBytes,
+        sourceExtension: 'jpeg',
+        sourceLabel: 'existing_12_freshmart_grocery_en_US-derived-rotate270',
+      ),
+    );
+    expect(artifact.accepted, isTrue);
+    expect(artifact.normalizedJpegProduced, isTrue);
+
+    final result = await provider.extractReceipt(
+      ReceiptOcrRequest(
+        bytes: artifact.normalizedJpegBytes!,
+        contentType: artifact.normalizedContentType!,
+        fallbackCurrency: entry['fallback_currency'] as String?,
+      ),
+    );
+    _expectCompletePreview(
+      'existing_12_freshmart_grocery_en_US-derived-rotate270',
+      result,
+      entry['expected']! as Map<String, Object?>,
+      currencyResolution:
+          entry['expected_currency_resolution'] as Map<String, Object?>?,
+    );
   });
 }
 
@@ -150,6 +127,91 @@ const _supportedExpectedKeys = <String>{
   'items',
   'expected_review_condition',
 };
+
+void _expectCompletePreview(
+  String fixtureId,
+  ReceiptOcrResult result,
+  Map<String, Object?> expected, {
+  Map<String, Object?>? currencyResolution,
+}) {
+  expect(result.status, ReceiptOcrStatus.extracted, reason: fixtureId);
+  final preview = result.preview!;
+  _expectField(fixtureId, 'merchant', preview.merchant, expected);
+  _expectField(fixtureId, 'date', preview.receiptDate, expected);
+  _expectField(fixtureId, 'currency', preview.currency, expected);
+  _expectField(fixtureId, 'subtotal', preview.subtotal, expected);
+  _expectField(fixtureId, 'tax', preview.tax, expected);
+  _expectField(fixtureId, 'service', preview.service, expected);
+  _expectField(fixtureId, 'tip', preview.tip, expected);
+  _expectField(fixtureId, 'shipping', preview.shipping, expected);
+  _expectField(fixtureId, 'discount', preview.discount, expected);
+  _expectField(fixtureId, 'total', preview.total, expected);
+
+  final expectedItems = (expected['items']! as List<Object?>)
+      .map((item) => _ExpectedItem.fromManifest(item, fixtureId))
+      .toList(growable: false);
+  expect(preview.items, hasLength(expectedItems.length), reason: fixtureId);
+  for (var index = 0; index < expectedItems.length; index += 1) {
+    final expectedItem = expectedItems[index];
+    final actualItem = preview.items[index];
+    expect(
+      _normalizedText(actualItem.description),
+      _normalizedText(expectedItem.description),
+      reason: '$fixtureId item[$index].description',
+    );
+    expect(
+      actualItem.lineTotal,
+      expectedItem.lineTotal,
+      reason: '$fixtureId item[$index].lineTotal',
+    );
+    if (expectedItem.quantity != null) {
+      expect(
+        actualItem.quantity,
+        expectedItem.quantity,
+        reason: '$fixtureId item[$index].quantity',
+      );
+    }
+    if (expectedItem.unitPrice != null) {
+      expect(
+        actualItem.unitPrice,
+        expectedItem.unitPrice,
+        reason: '$fixtureId item[$index].unitPrice',
+      );
+    }
+  }
+
+  if (currencyResolution != null) {
+    expect(
+      preview.currencyProvenance,
+      _currencyProvenance(currencyResolution['source']! as String),
+      reason: '$fixtureId currency provenance',
+    );
+  }
+  final expectedReviewCondition =
+      expected['expected_review_condition'] as String?;
+  if (expectedReviewCondition != null) {
+    expect(
+      expectedReviewCondition,
+      'printed total differs from visible charge-line arithmetic',
+      reason: '$fixtureId unsupported review condition',
+    );
+    expect(
+      preview.reviewHints,
+      contains(
+        'OCR item total differs from detected grand total. Review the receipt before applying.',
+      ),
+      reason: '$fixtureId review condition',
+    );
+  }
+  expect(preview.blocks, isNotEmpty, reason: '$fixtureId OCR evidence');
+  expect(
+    preview.runEvidence?.runtime,
+    Platform.isIOS
+        ? 'onnxruntime-objc:1.24.3:cpu'
+        : 'onnxruntime-android:1.21.1:cpu',
+    reason: '$fixtureId runtime evidence',
+  );
+}
 
 void _expectField(
   String fixtureId,

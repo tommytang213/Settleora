@@ -171,33 +171,51 @@ class SettleoraPaddleOcrEngine(context: Context) {
                             batchIndices,
                         )
                     }
-                    val rotateDocument = ReceiptOrientationSelector.shouldRotate180(
-                        uprightCandidates = candidatesByLine.map { it.single() },
-                        rotatedCandidates = rotatedCandidatesByLine.map { it.single() },
+                    // Orientation must not depend on the common recognizer for
+                    // scripts that recognizer cannot read. Probe the bounded,
+                    // catalog-pinned specialist set in both orientations before
+                    // choosing the document direction.
+                    for (pack in packs) {
+                        if (pack === commonPack) continue
+                        for (batchIndices in batchesFor(crops, crops.indices)) {
+                            recognizeBatch(pack, crops, candidatesByLine, batchIndices)
+                        }
+                        for (batchIndices in batchesFor(rotatedCrops, rotatedCrops.indices)) {
+                            recognizeBatch(
+                                pack,
+                                rotatedCrops,
+                                rotatedCandidatesByLine,
+                                batchIndices,
+                            )
+                        }
+                    }
+                    val uprightOrientationCandidates = candidatesByLine.map { candidates ->
+                        ScriptRouteSelector.select(candidates) ?: candidates.first()
+                    }
+                    val rotatedOrientationCandidates = rotatedCandidatesByLine.map { candidates ->
+                        ScriptRouteSelector.select(candidates) ?: candidates.first()
+                    }
+                    val reverseRecognition = ReceiptOrientationSelector.shouldRotate180(
+                        uprightCandidates = uprightOrientationCandidates,
+                        rotatedCandidates = rotatedOrientationCandidates,
                     )
-                    if (rotateDocument) {
+                    if (reverseRecognition) {
                         crops.indices.forEach { index ->
                             crops[index].release()
                             crops[index] = rotatedCrops[index]
                             candidatesByLine[index].clear()
-                            candidatesByLine[index] += rotatedCandidatesByLine[index].single()
+                            candidatesByLine[index] += rotatedCandidatesByLine[index]
                         }
                     }
-                    val specialistsByLine = candidatesByLine.map { candidates ->
-                        ScriptRouteSelector.specialistPackIdsForLine(
-                            candidates.single(),
-                            packs.map { it.spec },
-                        ).toSet()
-                    }
-                    for (pack in packs) {
-                        if (pack === commonPack) continue
-                        val probeIndices = candidatesByLine.indices.filter { lineIndex ->
-                            pack.spec.modelPackId in specialistsByLine[lineIndex]
-                        }
-                        for (batchIndices in batchesFor(crops, probeIndices)) {
-                            recognizeBatch(pack, crops, candidatesByLine, batchIndices)
-                        }
-                    }
+                    val documentOrientation = ReceiptDocumentOrientation.select(
+                        lineDimensions = validBoxes.map { (_, box) ->
+                            val xs = box.points.map { it.x }
+                            val ys = box.points.map { it.y }
+                            (xs.maxOrNull()!! - xs.minOrNull()!!) to
+                                (ys.maxOrNull()!! - ys.minOrNull()!!)
+                        },
+                        reverseRecognition = reverseRecognition,
+                    )
 
                     candidatesByLine.forEachIndexed { index, candidates ->
                         val accepted = ScriptRouteSelector.select(candidates)
@@ -211,20 +229,11 @@ class SettleoraPaddleOcrEngine(context: Context) {
                                 textDirection = ReceiptBlockOrder.textDirection(accepted.text),
                                 order = order,
                                 points = box.points.map { point ->
-                                    if (rotateDocument) {
-                                        SettleoraOcrPoint(
-                                            (sourceWidth - 1f - point.x).coerceIn(
-                                                0f,
-                                                sourceWidth - 1f,
-                                            ),
-                                            (sourceHeight - 1f - point.y).coerceIn(
-                                                0f,
-                                                sourceHeight - 1f,
-                                            ),
-                                        )
-                                    } else {
-                                        SettleoraOcrPoint(point.x, point.y)
-                                    }
+                                    documentOrientation.transform(
+                                        SettleoraOcrPoint(point.x, point.y),
+                                        sourceWidth,
+                                        sourceHeight,
+                                    )
                                 },
                             )
                         }

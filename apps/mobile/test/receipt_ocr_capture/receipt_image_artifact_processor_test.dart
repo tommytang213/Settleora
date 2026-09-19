@@ -67,6 +67,26 @@ void main() {
     expect(result.thumbnailHeight, 120);
   });
 
+  test('bounds normalized dimensions before the in-memory OCR bridge', () {
+    final result = processor.process(
+      ReceiptImageArtifactRequest(
+        sourceType: ReceiptImageSourceKind.capturedPhoto,
+        sourceContentType: 'image/jpeg',
+        sourceExtension: 'jpg',
+        sourceLabel: 'large-camera.jpg',
+        sourceBytes: _jpegBytes(width: 2200, height: 110),
+      ),
+    );
+
+    expect(result.accepted, isTrue);
+    expect(result.width, ReceiptImageArtifactProcessor.maxNormalizedDimension);
+    expect(result.height, lessThan(110));
+    expect(result.reasonCodes, contains('normalized_dimensions_bounded'));
+    final normalized = img.decodeJpg(result.normalizedJpegBytes!);
+    expect(normalized?.width, result.width);
+    expect(normalized?.height, result.height);
+  });
+
   test('bakes JPEG EXIF orientation before native OCR', () {
     final image = _sampleImage(120, 240)..exif.imageIfd.orientation = 6;
     final source = Uint8List.fromList(img.encodeJpg(image));
@@ -87,6 +107,30 @@ void main() {
     final normalized = img.decodeJpg(result.normalizedJpegBytes!);
     expect(normalized?.width, 240);
     expect(normalized?.height, 120);
+    expect(normalized?.exif.imageIfd.hasOrientation, isFalse);
+  });
+
+  test('bounds large pixels before baking EXIF orientation', () {
+    final image = _sampleImage(2200, 110)..exif.imageIfd.orientation = 6;
+    final source = Uint8List.fromList(img.encodeJpg(image));
+
+    final result = processor.process(
+      ReceiptImageArtifactRequest(
+        sourceType: ReceiptImageSourceKind.capturedPhoto,
+        sourceContentType: 'image/jpeg',
+        sourceExtension: 'jpg',
+        sourceLabel: 'large-rotated-camera.jpg',
+        sourceBytes: source,
+      ),
+    );
+
+    expect(result.accepted, isTrue);
+    expect(result.width, lessThan(110));
+    expect(result.height, ReceiptImageArtifactProcessor.maxNormalizedDimension);
+    expect(result.reasonCodes, contains('normalized_dimensions_bounded'));
+    final normalized = img.decodeJpg(result.normalizedJpegBytes!);
+    expect(normalized?.width, result.width);
+    expect(normalized?.height, result.height);
     expect(normalized?.exif.imageIfd.hasOrientation, isFalse);
   });
 
