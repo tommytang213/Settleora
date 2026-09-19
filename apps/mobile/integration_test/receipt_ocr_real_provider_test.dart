@@ -466,7 +466,9 @@ List<_BoundedMismatch> _completePreviewMismatches(
     mismatches.add(_BoundedMismatch(fixtureId, 'ocr_evidence'));
   } else {
     for (final block in preview.blocks) {
-      if (modelCatalog.versionFor(block.modelPackId) != block.modelVersion) {
+      if (!modelCatalog.isRecognizer(block.modelPackId) ||
+          block.modelVersion == null ||
+          modelCatalog.versionFor(block.modelPackId) != block.modelVersion) {
         mismatches.add(_BoundedMismatch(fixtureId, 'model_version'));
         break;
       }
@@ -622,6 +624,9 @@ class _NativeModelCatalogEvidence {
   final Map<String, String> recognizerRoutes;
 
   String? versionFor(String? packId) => packVersions[packId];
+
+  bool isRecognizer(String? packId) =>
+      packId != null && recognizerRoutes.values.contains(packId);
 
   String recognizerForScript(String fixtureScript) {
     final catalogScript = switch (fixtureScript) {
