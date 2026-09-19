@@ -87,6 +87,7 @@
         { "path": "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/util/OpenCVUtils.kt", "sha256": "a0998194a93e32cf1edce0d6cf3f1dcc9a37801da4b547639c0d98a09ae4da79" },
         { "path": "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/util/YamlUtils.kt", "sha256": "d61f540ed2420dea704dc381d91eb5e154191817745a8ecb2f1e712d58938f1a" },
         { "path": "apps/mobile/ios/Podfile", "sha256": "8de8af012ce22e4f4ba2e6241733a61aa16e9af47dad342c4e7295fb474c52a5" },
+        { "path": "apps/mobile/ios/Podfile.lock", "sha256": "08afc1413159dcd818b669869736fc56e38a99618a1f951e605b1eea02dc5189" },
         { "path": "apps/mobile/ios/Runner.xcodeproj/project.pbxproj", "sha256": "051302b307c8b2cf74d79442ffcdac820760543efb7b30e51c78cd98b44b3f6c" },
         { "path": "apps/mobile/ios/Runner/AppDelegate.swift", "sha256": "991e81eb3b6be2a8f4625f2d7c00d5caa2996845c381b512d0efbf36300e3f17" },
         { "path": "apps/mobile/ios/Runner/PaddleOCR/Engine/BoxSorter.swift", "sha256": "8712e9972fcb64f14ed5da13dfceab3dd7d4f952372931c943cfee5526bec7de" },

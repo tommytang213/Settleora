@@ -75,6 +75,7 @@ test("native semantic binding covers the exact provider execution path", () => {
     "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/util/OpenCVUtils.kt",
     "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/util/YamlUtils.kt",
     "apps/mobile/ios/Podfile",
+    "apps/mobile/ios/Podfile.lock",
     "apps/mobile/ios/Runner.xcodeproj/project.pbxproj",
     "apps/mobile/ios/Runner/AppDelegate.swift",
     "apps/mobile/ios/Runner/PaddleOCR/Engine/BoxSorter.swift",

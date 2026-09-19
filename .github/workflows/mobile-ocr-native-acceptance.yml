@@ -245,16 +245,27 @@ jobs:
         run: |
           flutter pub get
           cd ios
-          pod install
+          pod install --deployment
           test -s Podfile.lock
-          sha256sum Podfile.lock
-          cat Podfile.lock
+          test "$(shasum -a 256 Podfile.lock | awk '{print $1}')" = "08afc1413159dcd818b669869736fc56e38a99618a1f951e605b1eea02dc5189"
 
-      - name: Upload temporary iOS dependency lock
+      - name: Generate temporary pre-native base lock
+        run: |
+          base_dir="$RUNNER_TEMP/ios-base-lock"
+          mkdir -p "$base_dir"
+          git archive e4d4edd0d6854845cc67b00924f6d22af6a70688 | tar -x -C "$base_dir"
+          cp apps/mobile/ios/Podfile.lock "$base_dir/apps/mobile/ios/Podfile.lock"
+          cd "$base_dir/apps/mobile"
+          flutter pub get
+          cd ios
+          pod install
+          cp Podfile.lock "$RUNNER_TEMP/ios-base-Podfile.lock"
+
+      - name: Upload temporary pre-native base lock
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ios-pod-lock-${{ env.EXPECTED_HEAD }}
-          path: apps/mobile/ios/Podfile.lock
+          name: ios-base-pod-lock-${{ env.EXPECTED_HEAD }}
+          path: ${{ runner.temp }}/ios-base-Podfile.lock
           if-no-files-found: error
           retention-days: 1
 
@@ -304,7 +315,8 @@ jobs:
             cd "$candidate_dir/apps/mobile"
             flutter pub get
             cd ios
-            pod install
+            pod install --deployment
+            test "$(shasum -a 256 Podfile.lock | awk '{print $1}')" = "08afc1413159dcd818b669869736fc56e38a99618a1f951e605b1eea02dc5189"
             cd ..
             flutter build ios --release --no-codesign
           )
@@ -318,7 +330,8 @@ jobs:
             flutter clean
             flutter pub get
             cd ios
-            pod install
+            pod install --deployment
+            test "$(shasum -a 256 Podfile.lock | awk '{print $1}')" = "08afc1413159dcd818b669869736fc56e38a99618a1f951e605b1eea02dc5189"
             cd ..
             flutter build ios --release --no-codesign
           )
@@ -332,7 +345,7 @@ jobs:
             cd "$base_dir/apps/mobile"
             flutter pub get
             cd ios
-            pod install
+            pod install --deployment
             cd ..
             flutter build ios --release --no-codesign
           )

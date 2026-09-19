@@ -204,7 +204,9 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
     assert.equal(runCommands(job).some((command) => command.includes('| tee ')), false);
     assert.ok(runCommands(job).some((command) => command.includes('--machine')));
     assert.ok(runCommands(job).some((command) => command.includes('flutter build') && command.includes('--release')));
-    const upload = stepsFor(job).find((step) => step.uses?.startsWith('actions/upload-artifact@'));
+    const upload = stepsFor(job).find((step) =>
+      step.uses?.startsWith('actions/upload-artifact@') &&
+      step.with?.path?.endsWith('-ocr-acceptance.json'));
     assert.equal(upload.with.path.endsWith('-ocr-acceptance.json'), true);
     assert.equal(upload.with['if-no-files-found'], 'error');
     assert.equal(upload.with['retention-days'], 30);
@@ -214,7 +216,8 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   const serialized = JSON.stringify(native);
   const serializedWithoutExplicitPackageBuildTokens = serialized
     .replaceAll('--release', '--production-package')
-    .replaceAll('app-release.apk', 'app-production.apk');
+    .replaceAll('app-release.apk', 'app-production.apk')
+    .replaceAll('--deployment', '--dependency-locked');
   assert.doesNotMatch(serializedWithoutExplicitPackageBuildTokens, /secrets\.|contents['"]?:['"]?write|deploy|release|receipt.*(?:jpg|jpeg|png)/i);
   const collector = read('tools/ocr-models/native-acceptance-evidence.mjs');
   assert.match(collector, /maxLogBytes/);
@@ -235,7 +238,9 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(iosCommands.includes('/Applications/Xcode_16.4.app/Contents/Developer'));
   assert.ok(iosCommands.includes('test "$(pod --version)" = "1.17.0"'));
   assert.ok(iosCommands.includes('test -s Podfile.lock'));
-  assert.match(serialized, /ios-pod-lock-/);
+  assert.ok((iosCommands.match(/pod install --deployment/g) ?? []).length >= 4);
+  assert.match(serialized, /ios-base-pod-lock-/);
+  assert.doesNotMatch(serialized, /ios-pod-lock-/);
 });
 
 test('all repository workflow action references remain full-SHA pinned', () => {
