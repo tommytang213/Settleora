@@ -1,10 +1,11 @@
 import Flutter
 import Foundation
 
-@MainActor
 final class RetryableTaskLoader<Value> {
   private var task: Task<Value, Error>?
 
+  // The owning plugin admits only one OCR call at a time through isBusy, so
+  // loader state is always entered serially and never needs actor isolation.
   func value(factory: @escaping () async throws -> Value) async throws -> Value {
     let current = task ?? Task { try await factory() }
     task = current

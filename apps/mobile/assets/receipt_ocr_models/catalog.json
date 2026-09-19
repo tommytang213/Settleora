@@ -114,7 +114,7 @@
         { "path": "apps/mobile/ios/Runner/PaddleOCR/ThirdParty/Clipper1/clipper.cpp", "sha256": "711f4374ca6e80ca50d786fd53fba20db394a1bae2a8d0d71b38cff535698ec8" },
         { "path": "apps/mobile/ios/Runner/PaddleOCR/ThirdParty/Clipper1/clipper.hpp", "sha256": "e37c594a918940da4e5d0436c5ab91bd0f6148e6c16a5e9d362514ca8f3923e7" },
         { "path": "apps/mobile/ios/Runner/Runner-Bridging-Header.h", "sha256": "ba43def7f8ea1e275d951793d16d08bea9f7db12e89515eaee072bb72920350c" },
-        { "path": "apps/mobile/ios/Runner/SettleoraReceiptOcrPlugin.swift", "sha256": "01b8d4c8f294b879be3408f6a878b70bccea3346b50192100f14cea5fa472284" }
+        { "path": "apps/mobile/ios/Runner/SettleoraReceiptOcrPlugin.swift", "sha256": "86e053c91fb623282f073aa88d39b3f0b352535d782a59748a02f3d58f414e3f" }
       ]
     },
     "parser": {
