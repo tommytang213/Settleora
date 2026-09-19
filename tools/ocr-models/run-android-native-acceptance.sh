@@ -50,9 +50,12 @@ fi
 phase=isolate_wifi
 timeout 30 "$adb" -s emulator-5554 shell svc wifi disable >/dev/null 2>&1
 phase=isolate_mobile_data
-timeout 30 "$adb" -s emulator-5554 shell svc data disable >/dev/null 2>&1
+if ! timeout 30 "$adb" -s emulator-5554 shell svc data disable >/dev/null 2>&1; then
+  timeout 30 "$adb" -s emulator-5554 shell settings put global mobile_data 0 >/dev/null 2>&1
+fi
 phase=verify_network_controls
 test "$(timeout 30 "$adb" -s emulator-5554 shell settings get global airplane_mode_on 2>/dev/null | tr -d '\r')" = "1"
+test "$(timeout 30 "$adb" -s emulator-5554 shell settings get global mobile_data 2>/dev/null | tr -d '\r')" = "0"
 
 phase=execute_flutter_test
 status=0
