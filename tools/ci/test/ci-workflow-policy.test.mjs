@@ -10,7 +10,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 const read = (relativePath) => readFileSync(path.join(repoRoot, relativePath), 'utf8');
 const workflow = (name) => parse(read(`.github/workflows/${name}`));
 const stepsFor = (job) => job.steps ?? [];
-const runCommands = (job) => stepsFor(job).map((step) => step.run).filter(Boolean);
+const runCommands = (job) => stepsFor(job).map((step) => step.run ?? step.with?.script).filter(Boolean);
 const flutterVersion = '3.44.8';
 const sharedMobileReleaseGate = './tool/validate-release.sh';
 
@@ -160,6 +160,129 @@ test('iOS build procedure is reusable, manual, pinned, and simulator-only', () =
       command.includes('loads the real Roboto and Material Icons font files')),
   );
   assert.doesNotMatch(JSON.stringify(job), /continue-on-error|--no-fatal-warnings|\|\|\s*true/);
+});
+
+test('native OCR acceptance is exact-head, device-backed, and retains only bounded evidence', () => {
+  const native = workflow('mobile-ocr-native-acceptance.yml');
+  const boundedCapture = read('tools/ocr-models/bounded-process-capture.mjs');
+  assert.deepEqual(native.on.pull_request.branches, ['main']);
+  assert.ok(native.on.workflow_dispatch);
+  assert.ok(native.on.pull_request.paths.includes('apps/mobile/assets/receipt_ocr_models/**'));
+  assert.deepEqual(native.permissions, { contents: 'read' });
+  assert.equal(native.env.EXPECTED_HEAD, "${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || inputs.expected_head }}");
+
+  const expectedJobs = [
+    ['android-native-acceptance', 'ubuntu-24.04', 'emulator-5554'],
+    ['ios-native-acceptance', 'macos-15', 'steps.simulator.outputs.udid'],
+  ];
+  for (const [jobName, runner, device] of expectedJobs) {
+    const job = native.jobs[jobName];
+    assert.equal(job['runs-on'], runner);
+    assert.equal(job['timeout-minutes'], 360);
+    const checkout = stepsFor(job).find((step) => step.uses?.startsWith('actions/checkout@'));
+    assert.equal(checkout.with.ref, '${{ env.CANDIDATE_REF }}');
+    assert.equal(checkout.with['fetch-depth'], 0);
+    assert.ok(runCommands(job).some((command) => command.includes('git rev-parse HEAD')));
+    const executionCommands = jobName === 'android-native-acceptance'
+      ? [read('tools/ocr-models/run-android-native-acceptance.sh')]
+      : runCommands(job);
+    const allCommands = [...runCommands(job), ...executionCommands];
+    assert.ok(executionCommands.some(
+      (command) => command.includes('bounded-process-capture.mjs') && command.includes(device),
+    ));
+    assert.ok(boundedCapture.includes('integration_test/receipt_ocr_real_provider_test.dart'));
+    const acceptance = stepsFor(job).find((step) => step.id === 'acceptance');
+    assert.equal(acceptance['timeout-minutes'], 180);
+    assert.ok(runCommands(job).includes('npm run validate:ocr-models'));
+    assert.ok(runCommands(job).some((command) => command.includes('native-acceptance-evidence.mjs')));
+    assert.ok(runCommands(job).some((command) => command.includes('--require-complete=true')));
+    assert.ok(runCommands(job).some((command) => command.includes('--test-status=')));
+    if (jobName === 'android-native-acceptance') {
+      assert.ok(runCommands(job).some((command) => command.includes('--failure-phase=')));
+    }
+    assert.ok(runCommands(job).some((command) => command.includes('--runner-image=')));
+    assert.ok(runCommands(job).some((command) => command.includes('--native-image=')));
+    assert.ok(runCommands(job).some((command) => command.includes('--stderr-log=')));
+    assert.ok(allCommands.some((command) => command.includes('bounded-process-capture.mjs')));
+    assert.ok(allCommands.some((command) => command.includes('--max-bytes=33554432')));
+    assert.ok(allCommands.some((command) => command.includes('--platform=')));
+    assert.ok(allCommands.some((command) => command.includes('--device=')));
+    assert.ok(runCommands(job).some((command) => command.includes('--base-app-bytes=')));
+    assert.ok(runCommands(job).some((command) => command.includes('git archive')));
+    assert.ok(runCommands(job).some((command) => command.includes('git archive "$EXPECTED_HEAD"')));
+    assert.ok(allCommands.some((command) => command.includes('>"$RUNNER_TEMP/')));
+    assert.equal(allCommands.some((command) => command.includes('| tee ')), false);
+    assert.ok(boundedCapture.includes('"--machine"'));
+    assert.ok(runCommands(job).some((command) => command.includes('flutter build') && command.includes('--release')));
+    const upload = stepsFor(job).find((step) =>
+      step.uses?.startsWith('actions/upload-artifact@') &&
+      step.with?.path?.endsWith('-ocr-acceptance.json'));
+    assert.equal(upload.with.path.endsWith('-ocr-acceptance.json'), true);
+    assert.equal(upload.with['if-no-files-found'], 'error');
+    assert.equal(upload.with['retention-days'], 30);
+    assert.ok(runCommands(job).at(-1).includes('steps.acceptance.outputs.status'));
+  }
+
+  const serialized = JSON.stringify(native);
+  const serializedWithoutExplicitPackageBuildTokens = serialized
+    .replaceAll('--release', '--production-package')
+    .replaceAll('app-release.apk', 'app-production.apk')
+    .replaceAll('--deployment', '--dependency-locked');
+  assert.doesNotMatch(serializedWithoutExplicitPackageBuildTokens, /secrets\.|contents['"]?:['"]?write|deploy|release|receipt.*(?:jpg|jpeg|png)/i);
+  const collector = read('tools/ocr-models/native-acceptance-evidence.mjs');
+  assert.match(collector, /maxLogBytes/);
+  assert.match(collector, /maxMarkerBytes/);
+  assert.match(collector, /sanitizeAcceptance/);
+  assert.match(collector, /sanitizeUiSmoke/);
+  assert.doesNotMatch(collector, /rawText/);
+  assert.doesNotMatch(collector, /acceptance:\s*value|uiSmoke:\s*value/);
+  const androidCommands = runCommands(native.jobs['android-native-acceptance']).join('\n');
+  const androidRunner = read('tools/ocr-models/run-android-native-acceptance.sh');
+  const androidExecution = native.jobs['android-native-acceptance'].steps.find((step) => step.id === 'acceptance');
+  assert.equal(androidExecution.with.script, 'bash "$GITHUB_WORKSPACE/tools/ocr-models/run-android-native-acceptance.sh"');
+  assert.equal(androidExecution.with.script.includes('\n'), false);
+  assert.ok(androidRunner.includes('$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager'));
+  assert.ok(androidCommands.includes('$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer'));
+  assert.ok(androidRunner.includes('$ANDROID_HOME/platform-tools/adb'));
+  assert.equal(androidCommands.includes('adb wait-for-device'), false);
+  const androidAcceptance = native.jobs['android-native-acceptance'].steps.find((step) => step.id === 'acceptance');
+  assert.equal(androidAcceptance.uses, 'reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d');
+  assert.equal(androidAcceptance.with['emulator-port'], 5554);
+  assert.equal(androidAcceptance.with['emulator-boot-timeout'], 600);
+  assert.ok(androidAcceptance.with['emulator-options'].includes('-no-metrics'));
+  assert.ok(androidRunner.includes('timeout 5 "$adb" -s emulator-5554 get-state'));
+  assert.ok(androidRunner.includes('timeout 5 "$adb" -s emulator-5554 shell getprop sys.boot_completed'));
+  assert.ok(androidRunner.includes('shell cmd connectivity airplane-mode enable'));
+  assert.ok(androidRunner.includes('settings get global airplane_mode_on'));
+  assert.ok(androidRunner.includes('timeout 30 "$adb" -s emulator-5554 shell cmd connectivity airplane-mode enable'));
+  assert.ok(androidRunner.includes('settings put global airplane_mode_on 1'));
+  assert.ok(androidRunner.includes('timeout 30 "$adb" -s emulator-5554 shell settings get global airplane_mode_on'));
+  assert.ok(androidRunner.includes('echo "failure_phase=$phase" >> "$GITHUB_OUTPUT"'));
+  assert.ok(androidCommands.includes('verify-mobile-package.mjs --platform=android'));
+  assert.ok(androidCommands.includes('android-dex-packages.txt'));
+  assert.ok(androidRunner.includes('test "$system_image_revision" = "9"'));
+  assert.ok(androidRunner.includes('test "$emulator_revision" = "37.1.11"'));
+  assert.ok(boundedCapture.includes('integration_test/receipt_ocr_real_provider_test.dart'));
+  assert.ok(androidRunner.includes('|| status=$?'));
+  assert.match(serialized, /integration.*test/i);
+  const iosCommands = runCommands(native.jobs['ios-native-acceptance']).join('\n');
+  assert.ok(iosCommands.includes('/Applications/Xcode_16.4.app/Contents/Developer'));
+  assert.ok(iosCommands.includes('test "$(pod --version)" = "1.17.0"'));
+  assert.ok(iosCommands.includes('xcrun simctl erase "$udid"'));
+  assert.ok(iosCommands.includes('pfctl -a com.apple/settleora-ocr'));
+  assert.ok(iosCommands.includes('pfctl -E'));
+  assert.ok(iosCommands.includes('pfctl -X "$pf_token"'));
+  assert.ok(iosCommands.indexOf('trap cleanup_firewall EXIT') < iosCommands.indexOf('pf_enable_output=$(sudo pfctl -E'));
+  assert.ok(iosCommands.includes('pfctl -a com.apple/settleora-ocr -F rules >/dev/null || cleanup_status=$?'));
+  assert.ok(iosCommands.includes('pfctl -X "$pf_token" >/dev/null || cleanup_status=$?'));
+  assert.ok(iosCommands.includes('block drop out quick on ! lo0 proto { tcp udp }'));
+  assert.ok(iosCommands.includes('verify-mobile-package.mjs --platform=ios'));
+  assert.ok(iosCommands.includes('ios-production-symbols.txt'));
+  assert.ok(iosCommands.includes('test -s Podfile.lock'));
+  assert.ok((iosCommands.match(/pod install --deployment/g) ?? []).length >= 4);
+  assert.match(serialized, /ios-pre-native-Podfile\.lock/);
+  assert.doesNotMatch(serialized, /temporary pre-native base lock|ios-base-pod-lock-/i);
+  assert.doesNotMatch(serialized, /ios-pod-lock-/);
 });
 
 test('all repository workflow action references remain full-SHA pinned', () => {

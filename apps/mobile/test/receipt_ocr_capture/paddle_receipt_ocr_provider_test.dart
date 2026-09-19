@@ -38,6 +38,10 @@ void main() {
       'detectionModelPackId': 'detector',
       'detectionModelVersion': 'v2',
       'runtime': 'onnxruntime-android:1.21.1:cpu',
+      'coldLoadTimeMs': 80,
+      'detectionTimeMs': 20,
+      'recognitionTimeMs': 30,
+      'totalTimeMs': 55,
     });
     final provider = PaddleReceiptOcrProvider(channel: channel);
 
@@ -58,6 +62,10 @@ void main() {
     expect(result.preview?.blocks.last.points.single.x, 1.0);
     expect(result.preview?.runEvidence?.detectionModelPackId, 'detector');
     expect(result.preview?.runEvidence?.runtime, contains('onnxruntime'));
+    expect(result.preview?.runEvidence?.coldLoadTimeMs, 80);
+    expect(result.preview?.runEvidence?.detectionTimeMs, 20);
+    expect(result.preview?.runEvidence?.recognitionTimeMs, 30);
+    expect(result.preview?.runEvidence?.totalTimeMs, 55);
   });
 
   test('provider maps channel failures to bounded manual fallback', () async {
@@ -68,6 +76,8 @@ void main() {
     );
     expect(result.status, ReceiptOcrStatus.failed);
     expect(result.message, contains('manual'));
+    expect(result.failureCategory, ReceiptOcrFailureCategory.providerException);
+    expect(result.message, isNot(contains('private native details')));
   });
 
   test('provider reconstructs split LTR and RTL boxes by native row', () async {

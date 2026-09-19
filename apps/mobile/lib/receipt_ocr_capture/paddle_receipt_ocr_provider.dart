@@ -75,11 +75,18 @@ class PaddleReceiptOcrProvider implements ReceiptOcrProvider {
             detectionModelVersion:
                 response?['detectionModelVersion'] as String?,
             runtime: response?['runtime'] as String?,
+            coldLoadTimeMs: response?['coldLoadTimeMs'] as int?,
+            detectionTimeMs: response?['detectionTimeMs'] as int?,
+            recognitionTimeMs: response?['recognitionTimeMs'] as int?,
+            totalTimeMs: response?['totalTimeMs'] as int?,
           ),
         ),
       );
     } catch (_) {
-      return _failed;
+      // Retain only a bounded category. Native exception text may contain OCR
+      // content, local paths, or provider diagnostics and must not escape the
+      // provider boundary.
+      return _providerExceptionFailed;
     }
   }
 
@@ -116,6 +123,12 @@ class PaddleReceiptOcrProvider implements ReceiptOcrProvider {
 
   static const _failed = ReceiptOcrResult.failed(
     'Receipt reading failed. You can still enter the bill manually.',
+    failureCategory: ReceiptOcrFailureCategory.invalidProviderResponse,
+  );
+
+  static const _providerExceptionFailed = ReceiptOcrResult.failed(
+    'Receipt reading failed. You can still enter the bill manually.',
+    failureCategory: ReceiptOcrFailureCategory.providerException,
   );
 }
 
