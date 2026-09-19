@@ -239,7 +239,8 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(iosCommands.includes('test "$(pod --version)" = "1.17.0"'));
   assert.ok(iosCommands.includes('test -s Podfile.lock'));
   assert.ok((iosCommands.match(/pod install --deployment/g) ?? []).length >= 4);
-  assert.match(serialized, /ios-base-pod-lock-/);
+  assert.match(serialized, /ios-pre-native-Podfile\.lock/);
+  assert.doesNotMatch(serialized, /temporary pre-native base lock|ios-base-pod-lock-/i);
   assert.doesNotMatch(serialized, /ios-pod-lock-/);
 });
 

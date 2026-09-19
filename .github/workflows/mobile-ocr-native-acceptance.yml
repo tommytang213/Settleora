@@ -249,26 +249,6 @@ jobs:
           test -s Podfile.lock
           test "$(shasum -a 256 Podfile.lock | awk '{print $1}')" = "08afc1413159dcd818b669869736fc56e38a99618a1f951e605b1eea02dc5189"
 
-      - name: Generate temporary pre-native base lock
-        run: |
-          base_dir="$RUNNER_TEMP/ios-base-lock"
-          mkdir -p "$base_dir"
-          git archive e4d4edd0d6854845cc67b00924f6d22af6a70688 | tar -x -C "$base_dir"
-          cp apps/mobile/ios/Podfile.lock "$base_dir/apps/mobile/ios/Podfile.lock"
-          cd "$base_dir/apps/mobile"
-          flutter pub get
-          cd ios
-          pod install
-          cp Podfile.lock "$RUNNER_TEMP/ios-base-Podfile.lock"
-
-      - name: Upload temporary pre-native base lock
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: ios-base-pod-lock-${{ env.EXPECTED_HEAD }}
-          path: ${{ runner.temp }}/ios-base-Podfile.lock
-          if-no-files-found: error
-          retention-days: 1
-
       - name: Boot trusted iOS simulator
         id: simulator
         shell: bash
@@ -341,11 +321,13 @@ jobs:
           base_dir="$RUNNER_TEMP/ios-base-app"
           mkdir -p "$base_dir"
           git archive "$base_sha" | tar -x -C "$base_dir"
+          cp tools/ocr-models/baselines/ios-pre-native-Podfile.lock "$base_dir/apps/mobile/ios/Podfile.lock"
           (
             cd "$base_dir/apps/mobile"
             flutter pub get
             cd ios
             pod install --deployment
+            test "$(shasum -a 256 Podfile.lock | awk '{print $1}')" = "486ba24476c7ae0be32927fa9239599749f285d7a5a48129caebe4437ed6cc30"
             cd ..
             flutter build ios --release --no-codesign
           )
