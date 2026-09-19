@@ -3991,6 +3991,11 @@ bool _receiptOcrItemsCanApply(ReceiptOcrPreview preview) {
     }
 
     final quantity = candidate.quantity?.trim();
+    if (quantity != null &&
+        quantity.isNotEmpty &&
+        receiptOcrQuantityCandidateForSave(quantity) == null) {
+      return false;
+    }
     final parsedQuantity = quantity == null || quantity.isEmpty
         ? 1
         : _positiveWholeNumber(quantity);
@@ -4014,12 +4019,31 @@ bool _receiptOcrItemsCanApply(ReceiptOcrPreview preview) {
     final parsedLineTotal = lineTotal.isEmpty
         ? null
         : _parseCurrencyAmount(lineTotal, applicableCurrency!);
+    final boundedUnitPrice = unitPrice.isEmpty
+        ? null
+        : receiptOcrMoneyCandidateForSave(
+            unitPrice,
+            currency: applicableCurrency,
+            allowZero: false,
+          );
+    final boundedLineTotal = lineTotal.isEmpty
+        ? null
+        : receiptOcrMoneyCandidateForSave(
+            lineTotal,
+            currency: applicableCurrency,
+            allowZero: false,
+          );
     if (hasFractionalQuantity) {
       // The authoritative bill model accepts whole-number quantities only.
       // Preserve the OCR measurement in the review preview, but apply the
       // verified line total as one bill unit instead of changing bill math.
-      return parsedLineTotal != null &&
+      return boundedLineTotal != null &&
+          parsedLineTotal != null &&
           _currencyAmountIsPositive(parsedLineTotal);
+    }
+    if ((unitPrice.isNotEmpty && boundedUnitPrice == null) ||
+        (lineTotal.isNotEmpty && boundedLineTotal == null)) {
+      return false;
     }
     final amountsAreValid =
         (unitPrice.isEmpty ||

@@ -598,6 +598,51 @@ Card charged EUR 4.60
     expect(preview.items.single.currency, 'USD');
   });
 
+  test('payment-only currency never establishes transaction currency', () {
+    const parser = ReceiptOcrParser();
+    for (final paymentLine in const [
+      'Payment USD 5.00',
+      'Tender USD 5.00',
+      'Gift Card USD 5.00',
+      'Prepaid-Card USD 5.00',
+      'Paid by cash USD 5.00',
+      'Paid cash USD 5.00',
+      'Credit Card USD 5.00',
+      'Debit Card USD 5.00',
+      'Credit-Card USD 5.00',
+      'Paid by credit card USD 5.00',
+      'Paid debit-card USD 5.00',
+      'Paid by card USD 5.00',
+      'Card charged EUR 4.60',
+    ]) {
+      final unresolved = parser.parse('''
+Corner Cafe
+Coffee \$5.00
+Total \$5.00
+$paymentLine
+''');
+      expect(unresolved.currency, isNull, reason: paymentLine);
+      expect(
+        unresolved.currencyProvenance,
+        ReceiptOcrCurrencyProvenance.unresolved,
+        reason: paymentLine,
+      );
+
+      final contextual = parser.parse('''
+Corner Cafe
+Coffee \$5.00
+Total \$5.00
+$paymentLine
+''', fallbackCurrency: 'HKD');
+      expect(contextual.currency, 'HKD', reason: paymentLine);
+      expect(
+        contextual.currencyProvenance,
+        ReceiptOcrCurrencyProvenance.defaultFallback,
+        reason: paymentLine,
+      );
+    }
+  });
+
   test('parser separates charged tips and excludes suggested tip options', () {
     const parser = ReceiptOcrParser();
 

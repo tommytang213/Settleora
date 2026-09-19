@@ -313,7 +313,13 @@ class ReceiptOcrParser {
           if (lineOrder != 0) return lineOrder;
           return left.code.compareTo(right.code);
         });
-    return ranked.first.code;
+    // Payment/tender rows can carry a settlement or DCC currency that differs
+    // from the receipt transaction currency. They may corroborate currency
+    // detected elsewhere, but must never establish it by themselves.
+    return ranked
+        .where((candidate) => candidate.score >= 100)
+        .firstOrNull
+        ?.code;
   }
 
   String? _explicitCurrencyFromLine(String line) {

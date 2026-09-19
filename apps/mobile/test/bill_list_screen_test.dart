@@ -4729,6 +4729,84 @@ void main() {
   );
 
   testWidgets(
+    'personal OCR keeps over-limit item numbers as review-only evidence',
+    (tester) async {
+      await useLargeSurface(tester);
+      for (final candidate in const [
+        ReceiptOcrItemCandidate(
+          description: 'Over-limit quantity',
+          quantity: '100000000000000',
+          lineTotal: '12.50',
+          currency: 'USD',
+        ),
+        ReceiptOcrItemCandidate(
+          description: 'Over-limit amount',
+          quantity: '1',
+          lineTotal: '1000000000000000.00',
+          currency: 'USD',
+        ),
+      ]) {
+        final receiptOcrProvider = FakeReceiptOcrProvider(
+          ReceiptOcrResult.extracted(
+            ReceiptOcrPreview(
+              merchant: 'Boundary Store',
+              currency: 'USD',
+              currencyProvenance: ReceiptOcrCurrencyProvenance.explicit,
+              items: [candidate],
+            ),
+          ),
+        );
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: SettleoraPersonalBillCreateScreen(
+              repository: FakeBillRepository(),
+              attachmentRepository: FakeBillAttachmentRepository(),
+              attachmentFileInput: FakeBillAttachmentFileInput(
+                pickedFile: samplePickedAttachmentFile(
+                  filename: 'boundary.png',
+                  contentType: 'image/png',
+                  bytes: samplePngBytes(width: 64, height: 64),
+                ),
+              ),
+              receiptOcrProvider: receiptOcrProvider,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('personal-bill-scan-receipt')));
+        await tester.pumpAndSettle();
+
+        expect(find.text(candidate.description), findsWidgets);
+        expect(
+          tester
+              .widget<CheckboxListTile>(
+                find.byKey(const Key('personal-bill-ocr-apply-items')),
+              )
+              .onChanged,
+          isNull,
+          reason: candidate.description,
+        );
+        await _tapReceiptOcrApply(tester, 'personal-bill');
+        expect(
+          tester
+              .widget<TextFormField>(
+                find.byKey(const ValueKey('personal-bill-item-name-0')),
+              )
+              .controller
+              ?.text,
+          isEmpty,
+          reason: candidate.description,
+        );
+
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpAndSettle();
+      }
+    },
+  );
+
+  testWidgets(
     'personal OCR item replacement warning is visible when selected',
     (tester) async {
       await useLargeSurface(tester);
