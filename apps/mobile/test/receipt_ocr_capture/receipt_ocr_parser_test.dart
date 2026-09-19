@@ -693,6 +693,16 @@ $referenceLine
       'Conversion amount ₹',
       'DCC ¥',
       'Reference KR',
+      'Payment A\$',
+      'Payment S\$',
+      'Payment NZ\$',
+      'Payment NT\$',
+      'Payment R\$',
+      'Payment ₺',
+      'Payment ₫',
+      'Payment zł',
+      'Payment Rs',
+      'Payment \$',
     ]) {
       final preview = parser.parse('''
 Corner Cafe
@@ -728,6 +738,7 @@ $metadataLine
       'Tender currency AED',
       'Reference HK\$',
       'Payment €',
+      'Payment zł',
     ]) {
       final preview = parser.parse('''
 Corner Cafe
@@ -741,6 +752,32 @@ $metadataLine
         preview.currencyProvenance,
         ReceiptOcrCurrencyProvenance.explicit,
         reason: metadataLine,
+      );
+    }
+  });
+
+  test('metadata-like merchandise names retain transaction currency', () {
+    const parser = ReceiptOcrParser();
+    for (final itemLine in const [
+      'Reference Book EUR 9.00',
+      'Conversion Adapter PLN 12.00',
+      'Tender Greens USD 8.00',
+      'Payment Terminal GBP 14.00',
+    ]) {
+      final expectedCurrency = itemLine.split(
+        ' ',
+      )[itemLine.split(' ').length - 2];
+      final preview = parser.parse('''
+Corner Market
+$itemLine
+Total ${itemLine.split(' ').last}
+''');
+
+      expect(preview.currency, expectedCurrency, reason: itemLine);
+      expect(
+        preview.currencyProvenance,
+        ReceiptOcrCurrencyProvenance.explicit,
+        reason: itemLine,
       );
     }
   });

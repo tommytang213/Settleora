@@ -1503,6 +1503,53 @@ void main() {
       expect(find.text('No matching receipt lines'), findsNothing);
     });
 
+    testWidgets('saved review editor stops at the 100-line API bound', (
+      tester,
+    ) async {
+      await useLargeSurface(tester);
+      final route = sampleRoute();
+      final lines = List<ReceiptOcrReviewLine>.generate(
+        99,
+        (index) => ReceiptOcrReviewLine(
+          id: _lineId,
+          sortOrder: index,
+          text: 'Item $index',
+          quantity: '1',
+          unitPriceAmount: '1.00',
+          lineTotalAmount: '1.00',
+          createdAtUtc: _createdAtUtc,
+          updatedAtUtc: _updatedAtUtc,
+        ),
+      );
+      final repository = FakeReceiptOcrReviewRepository(
+        reviewResponse: sampleReview(route, lines: lines),
+      );
+
+      await pumpDetail(tester, repository: repository, route: route);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Edit receipt review'));
+      await tester.pumpAndSettle();
+
+      final add = find.byKey(const Key('receipt-review-edit-line-add'));
+      expect(tester.widget<IconButton>(add).onPressed, isNotNull);
+      await tester.tap(add);
+      await tester.pump();
+
+      expect(tester.widget<IconButton>(add).onPressed, isNull);
+      expect(
+        find.text('Receipt reviews support up to 100 merchandise lines.'),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('receipt-review-edit-line-card-99')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('receipt-review-edit-line-card-100')),
+        findsNothing,
+      );
+    });
+
     testWidgets('labels detail edit actions and delete confirmation controls', (
       tester,
     ) async {

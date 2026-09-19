@@ -310,6 +310,9 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
   }
 
   void _addLine() {
+    if (_lineEditors.length >= _maxReceiptOcrReviewLineCount) {
+      return;
+    }
     setState(() {
       _lineEditors.add(_ReceiptOcrReviewLineEditors.empty());
     });
@@ -517,12 +520,21 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
                 ),
                 IconButton(
                   key: const Key('receipt-review-edit-line-add'),
-                  onPressed: isBusy ? null : _addLine,
+                  onPressed:
+                      isBusy ||
+                          _lineEditors.length >= _maxReceiptOcrReviewLineCount
+                      ? null
+                      : _addLine,
                   tooltip: 'Add line',
                   icon: const Icon(Icons.add),
                 ),
               ],
             ),
+            if (_lineEditors.length >= _maxReceiptOcrReviewLineCount)
+              Text(
+                'Receipt reviews support up to $_maxReceiptOcrReviewLineCount merchandise lines.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
             const SizedBox(height: 8),
             if (_lineEditors.isEmpty)
               const SettleoraStatePanel(
@@ -2338,6 +2350,7 @@ String? _lineTextValidator(String? value) {
 
 const _receiptOcrDecimalMaxLength = 22;
 final _receiptOcrMoneyPattern = RegExp(r'^(0|[1-9][0-9]*)(\.[0-9]{1,4})?$');
+const _maxReceiptOcrReviewLineCount = 100;
 const _maxReceiptOcrReviewAdjustmentCount = 50;
 final _receiptOcrQuantityPattern = RegExp(
   r'^(?=.*[1-9])(?:0|[0-9]+)(?:\.[0-9]{1,4})?$',

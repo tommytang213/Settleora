@@ -783,6 +783,7 @@ String? _explicitSymbolCurrency(String joined) {
     '₩': 'KRW',
     '₺': 'TRY',
     '₫': 'VND',
+    'ZŁ': 'PLN',
   };
   for (final marker in markers.entries) {
     if (joined.contains(marker.key)) return marker.value;
@@ -1040,7 +1041,11 @@ bool _isAdministrativeLine(String line) {
 
 bool _isPaymentMetadataLine(String line) {
   final normalized = line.toLowerCase().trim();
-  if (RegExp(r'^(?:payment|tender)\b').hasMatch(normalized) &&
+  final paymentPrefix = RegExp(r'^(?:payment|tender)\b').firstMatch(normalized);
+  if (paymentPrefix != null &&
+      _hasCurrencyMetadataShape(
+        normalized.substring(paymentPrefix.end).trimLeft(),
+      ) &&
       _lineHasAmount(line)) {
     return true;
   }
@@ -1080,12 +1085,30 @@ bool _isNonTransactionCurrencyMetadataLine(String line) {
   if (_isPaymentMetadataLine(line)) {
     return true;
   }
-  final normalized = line.toLowerCase().trim();
-  final hasMetadataPrefix = RegExp(
-    r'^(?:(?:payment|tender)\b|(?:gift|prepaid)[ -]?card\b|paid\s+(?:by\s+)?(?:cash|card|credit[ -]?card|debit[ -]?card|visa|mastercard|master card|amex|american express)\b|(?:credit|debit)[ -]?card\b|(?:cash|change|card|visa|mastercard|master card|amex|american express)\b|dcc(?:\s+(?:amount|conversion|reference|currency))?\b|reference(?:\s+(?:amount|currency|conversion))?\b|conversion(?:\s+(?:amount|currency))?\b)',
-  ).hasMatch(normalized);
-  return hasMetadataPrefix &&
+  final trimmed = line.trim();
+  final prefix = RegExp(
+    r'^(?:payment|tender|(?:gift|prepaid)[ -]?card|paid\s+(?:by\s+)?(?:cash|card|credit[ -]?card|debit[ -]?card|visa|mastercard|master card|amex|american express)|(?:credit|debit)[ -]?card|cash|change|card|visa|mastercard|master card|amex|american express|dcc|reference|conversion)\b',
+    caseSensitive: false,
+  ).firstMatch(trimmed);
+  if (prefix == null) {
+    return false;
+  }
+  final remainder = trimmed.substring(prefix.end).trimLeft();
+  return _hasCurrencyMetadataShape(remainder) &&
       (_lineHasAmount(line) || _lineHasCurrencyMarkerOrCode(line));
+}
+
+bool _hasCurrencyMetadataShape(String remainder) {
+  return RegExp(r'^[:#=\-]').hasMatch(remainder) ||
+      RegExp(
+        r'^(?:amount|currency|conversion|reference|rate|charged|cash|card|credit[ -]?card|debit[ -]?card|visa|mastercard|master card|amex|american express)\b',
+        caseSensitive: false,
+      ).hasMatch(remainder) ||
+      RegExp(
+        '^(?:$_currencyTokenPattern)(?=\\s|\$|[0-9-])',
+        caseSensitive: false,
+      ).hasMatch(remainder) ||
+      RegExp('^$_amountTokenPattern(?=\\s|\$)').hasMatch(remainder);
 }
 
 bool _lineHasCurrencyMarkerOrCode(String line) {
@@ -1096,6 +1119,7 @@ bool _lineHasCurrencyMarkerOrCode(String line) {
       _explicitCurrencyFromNormalizedLine(normalized) != null ||
       normalized.contains(r'$') ||
       normalized.contains('¥') ||
+      normalized.contains('ZŁ') ||
       RegExp(r'\b(?:KR|RS)\b').hasMatch(normalized);
 }
 
