@@ -205,6 +205,7 @@ function parseSafeRunnerLog(log, stderrLog) {
   let startCount = 0;
   let doneCount = 0;
   let protocolSucceeded = false;
+  let failedProtocolEvent = false;
   for (const [index, line] of log.split(/\r?\n/).entries()) {
     if (line === "") continue;
     let event;
@@ -243,7 +244,7 @@ function parseSafeRunnerLog(log, stderrLog) {
       (event.type === "error" && event.isFailure) ||
       (event.type === "testDone" && event.result !== "success")
     ) {
-      throw new Error("Acceptance runner reported a failed protocol event");
+      failedProtocolEvent = true;
     }
     if (event.type === "print") {
       if (
@@ -263,10 +264,14 @@ function parseSafeRunnerLog(log, stderrLog) {
       throw new Error("Acceptance runner emitted duplicate bounded markers");
     }
   }
-  if (startCount !== 1 || doneCount !== 1 || !protocolSucceeded) {
-    throw new Error("Acceptance runner did not complete one successful protocol run");
-  }
-  return markerMessages;
+  return {
+    markerMessages,
+    protocolSucceeded:
+      startCount === 1 &&
+      doneCount === 1 &&
+      protocolSucceeded &&
+      !failedProtocolEvent,
+  };
 }
 
 function sanitizeAcceptance(value, platform) {
@@ -411,15 +416,15 @@ export function buildEvidence(args, repoRoot = process.cwd()) {
   }
   const log = readFileSync(args.log, "utf8");
   const stderrLog = readFileSync(args["stderr-log"], "utf8");
-  const lines = parseSafeRunnerLog(log, stderrLog);
+  const protocol = parseSafeRunnerLog(log, stderrLog);
   const acceptance = parseMarker(
-    lines,
+    protocol.markerMessages,
     "SETTLEORA_OCR_ACCEPTANCE=",
     (value) => sanitizeAcceptance(value, args.platform),
     { schemaVersion: 1, platform: args.platform, completed: false, markerProduced: false },
   );
   const uiSmoke = parseMarker(
-    lines,
+    protocol.markerMessages,
     "SETTLEORA_OCR_UI_SMOKE=",
     (value) => sanitizeUiSmoke(value, args.platform),
     { schemaVersion: 1, platform: args.platform, completed: false, markerProduced: false },
@@ -448,6 +453,7 @@ export function buildEvidence(args, repoRoot = process.cwd()) {
     sourceSha: args["source-sha"],
     execution: {
       testExitStatus,
+      protocolSucceeded: protocol.protocolSucceeded,
       environment: sanitizeEnvironment(args),
     },
     acceptance,
@@ -492,6 +498,7 @@ export function isCompleteEvidence(evidence) {
     evidence.acceptance.completed &&
       evidence.acceptance.networkIsolated === true &&
       evidence.execution.testExitStatus === 0 &&
+      evidence.execution.protocolSucceeded === true &&
       evidence.acceptance.passedFixtureCount === 101 &&
       evidence.acceptance.mismatchCount === 0 &&
       evidence.acceptance.coldLoadTimeMs > 0 &&

@@ -116,6 +116,7 @@ test("retains only the bounded native acceptance schema", () => {
       assert.equal(evidence.packageEvidence.ocrStackPackageDeltaBytes, 100);
       assert.equal(evidence.identities.fixtureTreeSha256.length, 64);
       assert.equal(evidence.execution.testExitStatus, 0);
+      assert.equal(evidence.execution.protocolSucceeded, true);
       assert.equal(evidence.execution.environment.device, "test-device");
       assert.equal(evidence.identities.baseAppSha, evidenceArgs(log)["base-sha"]);
       assert.deepEqual(Object.keys(evidence.acceptance.mismatches[0]), ["fixtureId", "field"]);
@@ -125,7 +126,7 @@ test("retains only the bounded native acceptance schema", () => {
 
 test("complete evidence requires both package measurements and a positive delta", () => {
   const evidence = {
-    execution: { testExitStatus: 0 },
+    execution: { testExitStatus: 0, protocolSucceeded: true },
     acceptance: {
       completed: true,
       networkIsolated: true,
@@ -275,10 +276,11 @@ test("discards bounded Flutter failure envelopes without retaining their text", 
     `${errorEvent}\n{"type":"done","time":2,"success":false}`,
   );
   withLog(log, (logPath) => {
-    assert.throws(
-      () => buildEvidence(evidenceArgs(logPath), repoRoot),
-      /failed protocol event/,
-    );
+    const evidence = buildEvidence(evidenceArgs(logPath), repoRoot);
+    assert.equal(evidence.execution.protocolSucceeded, false);
+    assert.equal(isCompleteEvidence(evidence), false);
+    assert.equal(JSON.stringify(evidence).includes("diagnostic text"), false);
+    assert.equal(JSON.stringify(evidence).includes("private local path"), false);
   });
 });
 
@@ -288,10 +290,9 @@ test("rejects contradictory unsuccessful protocol completion", () => {
     '{"type":"done","time":2,"success":false}',
   );
   withLog(log, (logPath) => {
-    assert.throws(
-      () => buildEvidence(evidenceArgs(logPath), repoRoot),
-      /did not complete one successful protocol run/,
-    );
+    const evidence = buildEvidence(evidenceArgs(logPath), repoRoot);
+    assert.equal(evidence.execution.protocolSucceeded, false);
+    assert.equal(isCompleteEvidence(evidence), false);
   });
 });
 
