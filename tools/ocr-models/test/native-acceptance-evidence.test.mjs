@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { buildEvidence } from "../native-acceptance-evidence.mjs";
+import { buildEvidence, isCompleteEvidence } from "../native-acceptance-evidence.mjs";
 
 const sourceSha = "a".repeat(40);
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
@@ -62,9 +63,68 @@ test("retains only the bounded native acceptance schema", () => {
       assert.equal(evidence.acceptance.completed, true);
       assert.equal(evidence.uiSmoke.completed, true);
       assert.equal(evidence.packageEvidence.bundledModelPackageDeltaBytes, 50);
+      assert.equal(evidence.identities.fixtureTreeSha256.length, 64);
       assert.equal(JSON.stringify(evidence).includes("private"), false);
     },
   );
+});
+
+test("complete evidence requires both package measurements and a positive delta", () => {
+  const evidence = {
+    acceptance: { completed: true, passedFixtureCount: 101, mismatchCount: 0 },
+    uiSmoke: { completed: true, previewPanel: true, applyBoundaryVisible: true },
+    packageEvidence: {
+      fullBytes: 200,
+      baselineWithoutBundledModelPayloadBytes: 150,
+      bundledModelPackageDeltaBytes: 50,
+    },
+  };
+  assert.equal(isCompleteEvidence(evidence), true);
+  assert.equal(
+    isCompleteEvidence({
+      ...evidence,
+      packageEvidence: { ...evidence.packageEvidence, bundledModelPackageDeltaBytes: 0 },
+    }),
+    false,
+  );
+  assert.equal(
+    isCompleteEvidence({
+      ...evidence,
+      packageEvidence: { ...evidence.packageEvidence, fullBytes: null },
+    }),
+    false,
+  );
+});
+
+test("CLI writes a bounded failure artifact before rejecting malformed markers", () => {
+  const temporaryDirectory = mkdtempSync(path.join(os.tmpdir(), "settleora-ocr-evidence-cli-"));
+  try {
+    const log = path.join(temporaryDirectory, "acceptance.log");
+    const out = path.join(temporaryDirectory, "evidence.json");
+    writeFileSync(
+      log,
+      `SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({ schemaVersion: 1, platform: "android", completed: true, runtime: "private raw receipt text" })}\n`,
+      { mode: 0o600 },
+    );
+    const result = spawnSync(
+      process.execPath,
+      [
+        path.join(repoRoot, "tools/ocr-models/native-acceptance-evidence.mjs"),
+        `--log=${log}`,
+        `--out=${out}`,
+        "--platform=android",
+        `--source-sha=${sourceSha}`,
+        "--require-complete=true",
+      ],
+      { cwd: repoRoot, encoding: "utf8" },
+    );
+    assert.notEqual(result.status, 0);
+    const retained = readFileSync(out, "utf8");
+    assert.match(retained, /invalid_or_unavailable_bounded_evidence/);
+    assert.equal(retained.includes("private raw receipt text"), false);
+  } finally {
+    rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
 });
 
 test("produces bounded incomplete evidence when device execution emits no markers", () => {

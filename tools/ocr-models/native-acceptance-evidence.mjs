@@ -208,6 +208,10 @@ export function buildEvidence(args, repoRoot = process.cwd()) {
     identities: {
       catalogSha256: sha256(catalogPath),
       manifestSha256: sha256(manifestPath),
+      fixtureTreeSha256: boundedToken(
+        catalog.acceptanceContract?.fixtureCorpus?.treeSha256,
+        "catalog.acceptanceContract.fixtureCorpus.treeSha256",
+      ),
       fixtureCount: 101,
     },
   };
@@ -225,21 +229,43 @@ function parseArgs(values) {
   );
 }
 
+export function isCompleteEvidence(evidence) {
+  return Boolean(
+    evidence.acceptance.completed &&
+      evidence.acceptance.passedFixtureCount === 101 &&
+      evidence.acceptance.mismatchCount === 0 &&
+      evidence.uiSmoke.completed &&
+      evidence.uiSmoke.previewPanel &&
+      evidence.uiSmoke.applyBoundaryVisible &&
+      evidence.packageEvidence.fullBytes != null &&
+      evidence.packageEvidence.baselineWithoutBundledModelPayloadBytes != null &&
+      evidence.packageEvidence.bundledModelPackageDeltaBytes > 0,
+  );
+}
+
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   const args = parseArgs(process.argv.slice(2));
   if (!args.out) throw new Error("Missing --out");
-  const evidence = buildEvidence(args);
+  let evidence;
+  try {
+    evidence = buildEvidence(args);
+  } catch {
+    evidence = {
+      schemaVersion: 1,
+      platform: new Set(["android", "ios"]).has(args.platform) ? args.platform : null,
+      sourceSha: /^[0-9a-f]{40}$/.test(args["source-sha"] ?? "")
+        ? args["source-sha"]
+        : null,
+      acceptance: { completed: false },
+      uiSmoke: { completed: false },
+      collectionFailure: "invalid_or_unavailable_bounded_evidence",
+    };
+    writeFileSync(args.out, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
+    throw new Error("Bounded native OCR evidence collection failed");
+  }
   writeFileSync(args.out, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
   console.log(`Wrote bounded ${args.platform} OCR acceptance evidence`);
-  if (
-    args["require-complete"] === "true" &&
-    (!evidence.acceptance.completed ||
-      evidence.acceptance.passedFixtureCount !== 101 ||
-      evidence.acceptance.mismatchCount !== 0 ||
-      !evidence.uiSmoke.completed ||
-      !evidence.uiSmoke.previewPanel ||
-      !evidence.uiSmoke.applyBoundaryVisible)
-  ) {
+  if (args["require-complete"] === "true" && !isCompleteEvidence(evidence)) {
     throw new Error("Native OCR acceptance evidence is incomplete or failing");
   }
 }

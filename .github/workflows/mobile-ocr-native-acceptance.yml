@@ -68,6 +68,9 @@ jobs:
         working-directory: apps/mobile
         run: flutter pub get
 
+      - name: Verify immutable OCR models and fixture corpus
+        run: npm run validate:ocr-models
+
       - name: Start trusted Android emulator
         shell: bash
         run: |
@@ -85,7 +88,7 @@ jobs:
 
       - name: Execute Android real-provider acceptance
         id: acceptance
-        timeout-minutes: 300
+        timeout-minutes: 180
         working-directory: apps/mobile
         shell: bash
         run: |
@@ -169,6 +172,9 @@ jobs:
           cd ios
           pod install
 
+      - name: Verify immutable OCR models and fixture corpus
+        run: npm run validate:ocr-models
+
       - name: Boot trusted iOS simulator
         id: simulator
         shell: bash
@@ -180,7 +186,7 @@ jobs:
 
       - name: Execute iOS real-provider acceptance
         id: acceptance
-        timeout-minutes: 300
+        timeout-minutes: 180
         working-directory: apps/mobile
         shell: bash
         run: |

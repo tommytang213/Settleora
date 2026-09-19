@@ -188,7 +188,8 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
       ),
     );
     const acceptance = stepsFor(job).find((step) => step.id === 'acceptance');
-    assert.equal(acceptance['timeout-minutes'], 300);
+    assert.equal(acceptance['timeout-minutes'], 180);
+    assert.ok(runCommands(job).includes('npm run validate:ocr-models'));
     assert.ok(runCommands(job).some((command) => command.includes('native-acceptance-evidence.mjs')));
     assert.ok(runCommands(job).some((command) => command.includes('--require-complete=true')));
     const upload = stepsFor(job).find((step) => step.uses?.startsWith('actions/upload-artifact@'));
