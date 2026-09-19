@@ -140,6 +140,45 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
     }
 
     [Fact]
+    public async Task ReceiptOcrReviewAcceptsLargestPersistableQuantity()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Quantity Boundary Owner");
+        var billId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            groupId: null,
+            ExpenseBillStatuses.Confirmed,
+            archivedAtUtc: null,
+            [ownerSession.UserProfileId],
+            [ownerSession.UserProfileId],
+            InitialTimestamp.AddMinutes(2));
+        var fileId = await SeedBillAttachmentAsync(
+            testFactory,
+            billId,
+            ownerSession.UserProfileId,
+            ExpenseBillAttachmentPurposes.Receipt,
+            FileObjectPurposes.ReceiptImage,
+            FileObjectStatuses.Active,
+            removedAtUtc: null);
+        using var client = testFactory.CreateClient();
+
+        using var request = CreateJsonBearerRequest(
+            HttpMethod.Put,
+            PersonalOcrReviewPath(billId, fileId),
+            ownerSession.RawSessionToken,
+            """{"status":"provisional","source":"on_device","lines":[{"text":"Bulk item","quantity":"99999999999999.9999"}]}""");
+        using var response = await client.SendAsync(request);
+        var content = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var saved = ReadReviewPayload(content);
+        var persisted = await ReadReceiptOcrReviewAsync(testFactory, saved.Id);
+        Assert.Equal(ReceiptOcrReviewConstraints.QuantityMaxValue, persisted.Lines.Single().Quantity);
+    }
+
+    [Fact]
     public async Task PersonalBillOwnerCanUpdateExistingReceiptOcrReviewAndReplacePriorLines()
     {
         var testContext = CreateFactory();
@@ -2641,6 +2680,7 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
             """{"status":"provisional","source":"on_device","currency":"USD","grandTotalAmount":"-1.00"}""",
             """{"status":"provisional","source":"on_device","grandTotalAmount":"10.00"}""",
             """{"status":"provisional","source":"on_device","currency":"USD","lines":[{"text":"Latte","quantity":"0"}]}""",
+            """{"status":"provisional","source":"on_device","lines":[{"text":"Bulk item","quantity":"100000000000000"}]}""",
             $$"""{"status":"provisional","source":"on_device","lines":[{{tooManyLines}}]}""",
             """{"status":"provisional","source":"on_device","adjustmentEvidence":[{"kind":"unknown","originalLabel":"Mystery","amount":"1","currency":"USD","direction":"charge"}]}""",
             """{"status":"provisional","source":"on_device","adjustmentEvidence":null,"merchantText":"Cafe"}""",

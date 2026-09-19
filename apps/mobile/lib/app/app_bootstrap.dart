@@ -20,7 +20,7 @@ import '../notifications/generated_notification_repository.dart';
 import '../notifications/notification_repository.dart';
 import '../profile/generated_profile_repository.dart';
 import '../profile/profile_repository.dart';
-import '../receipt_ocr_capture/mlkit_receipt_ocr_provider.dart';
+import '../receipt_ocr_capture/paddle_receipt_ocr_provider.dart';
 import '../receipt_ocr_capture/receipt_image_intake.dart';
 import '../receipt_ocr_capture/receipt_ocr_provider.dart';
 import '../receipt_ocr_review/generated_receipt_ocr_review_repository.dart';
@@ -583,7 +583,7 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
       receiptImageIntake:
           widget.receiptImageIntake ?? ImagePickerReceiptImageIntake(),
       receiptOcrProvider:
-          widget.receiptOcrProvider ?? const MlKitReceiptOcrProvider(),
+          widget.receiptOcrProvider ?? defaultMobileReceiptOcrProvider(),
       billRevisionRepository: billRevisionRepository,
       settlementRepository: settlementRepository,
       recurringBillRepository: recurringBillRepository,

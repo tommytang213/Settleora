@@ -2065,7 +2065,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(selected, 'JPY');
 
-      selected = 'AUD';
+      selected = 'ZAR';
       await tester.pumpWidget(
         MaterialApp(
           theme: SettleoraTheme.light(),
@@ -2080,7 +2080,7 @@ void main() {
         ),
       );
 
-      expect(find.text('AUD - Not currently selectable'), findsOneWidget);
+      expect(find.text('ZAR - Not currently selectable'), findsOneWidget);
     },
   );
 

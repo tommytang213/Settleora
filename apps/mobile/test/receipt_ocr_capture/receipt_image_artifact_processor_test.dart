@@ -67,6 +67,106 @@ void main() {
     expect(result.thumbnailHeight, 120);
   });
 
+  test('bounds normalized dimensions before the in-memory OCR bridge', () {
+    final result = processor.process(
+      ReceiptImageArtifactRequest(
+        sourceType: ReceiptImageSourceKind.capturedPhoto,
+        sourceContentType: 'image/jpeg',
+        sourceExtension: 'jpg',
+        sourceLabel: 'large-camera.jpg',
+        sourceBytes: _jpegBytes(width: 2200, height: 110),
+      ),
+    );
+
+    expect(result.accepted, isTrue);
+    expect(result.width, ReceiptImageArtifactProcessor.maxNormalizedDimension);
+    expect(result.height, lessThan(110));
+    expect(result.reasonCodes, contains('normalized_dimensions_bounded'));
+    final normalized = img.decodeJpg(result.normalizedJpegBytes!);
+    expect(normalized?.width, result.width);
+    expect(normalized?.height, result.height);
+  });
+
+  test('bakes JPEG EXIF orientation before native OCR', () {
+    final image = _sampleImage(120, 240)..exif.imageIfd.orientation = 6;
+    final source = Uint8List.fromList(img.encodeJpg(image));
+
+    final result = processor.process(
+      ReceiptImageArtifactRequest(
+        sourceType: ReceiptImageSourceKind.capturedPhoto,
+        sourceContentType: 'image/jpeg',
+        sourceExtension: 'jpg',
+        sourceLabel: 'portrait-camera.jpg',
+        sourceBytes: source,
+      ),
+    );
+
+    expect(result.accepted, isTrue);
+    expect(result.width, 240);
+    expect(result.height, 120);
+    final normalized = img.decodeJpg(result.normalizedJpegBytes!);
+    expect(normalized?.width, 240);
+    expect(normalized?.height, 120);
+    expect(normalized?.exif.imageIfd.hasOrientation, isFalse);
+  });
+
+  test('bounds large pixels before baking EXIF orientation', () {
+    final image = _sampleImage(2200, 110)..exif.imageIfd.orientation = 6;
+    final source = Uint8List.fromList(img.encodeJpg(image));
+
+    final result = processor.process(
+      ReceiptImageArtifactRequest(
+        sourceType: ReceiptImageSourceKind.capturedPhoto,
+        sourceContentType: 'image/jpeg',
+        sourceExtension: 'jpg',
+        sourceLabel: 'large-rotated-camera.jpg',
+        sourceBytes: source,
+      ),
+    );
+
+    expect(result.accepted, isTrue);
+    expect(result.width, lessThan(110));
+    expect(result.height, ReceiptImageArtifactProcessor.maxNormalizedDimension);
+    expect(result.reasonCodes, contains('normalized_dimensions_bounded'));
+    final normalized = img.decodeJpg(result.normalizedJpegBytes!);
+    expect(normalized?.width, result.width);
+    expect(normalized?.height, result.height);
+    expect(normalized?.exif.imageIfd.hasOrientation, isFalse);
+  });
+
+  test('selects decoder from bytes when metadata and extension disagree', () {
+    final result = processor.process(
+      ReceiptImageArtifactRequest(
+        sourceType: ReceiptImageSourceKind.importedImage,
+        sourceContentType: 'image/jpeg',
+        sourceExtension: 'jpg',
+        sourceLabel: 'wrong-extension.jpg',
+        sourceBytes: _pngBytes(width: 64, height: 32),
+      ),
+    );
+
+    expect(result.accepted, isTrue);
+    expect(result.width, 64);
+    expect(result.height, 32);
+    expect(result.reasonCodes, contains('source_metadata_type_mismatch'));
+  });
+
+  test('rejects decodable image formats outside the receipt allowlist', () {
+    final result = processor.process(
+      ReceiptImageArtifactRequest(
+        sourceType: ReceiptImageSourceKind.importedImage,
+        sourceContentType: 'image/gif',
+        sourceExtension: 'gif',
+        sourceLabel: 'animated-receipt.gif',
+        sourceBytes: img.encodeGif(_sampleImage(32, 16)),
+      ),
+    );
+
+    expect(result.status, ReceiptImageArtifactStatus.unsupported);
+    expect(result.normalizedJpegBytes, isNull);
+    expect(result.reasonCodes, contains('unknown_or_unsupported_file_type'));
+  });
+
   test('marks PDF document input limited without page extraction', () {
     final result = processor.process(
       const ReceiptImageArtifactRequest(
@@ -101,6 +201,48 @@ void main() {
     expect(result.thumbnailJpegBytes, isNull);
     expect(result.reasonCodes, contains('heic_decoder_unavailable'));
     expect(result.safeDiagnosticSummary, isNot(contains('/private/mobile')));
+  });
+
+  test('rejects over-limit pixel dimensions before full image decode', () {
+    final source = _pngWithDeclaredDimensions(width: 5000, height: 4000);
+
+    final result = processor.process(
+      ReceiptImageArtifactRequest(
+        sourceType: ReceiptImageSourceKind.importedImage,
+        sourceContentType: 'image/png',
+        sourceExtension: 'png',
+        sourceLabel: 'compressed-large-receipt.png',
+        sourceBytes: source,
+      ),
+    );
+
+    expect(source.length, lessThan(1024));
+    expect(result.status, ReceiptImageArtifactStatus.unsupported);
+    expect(result.normalizedJpegBytes, isNull);
+    expect(result.thumbnailJpegBytes, isNull);
+    expect(
+      result.reasonCodes,
+      contains('image_dimensions_exceed_processing_limit'),
+    );
+    expect(result.reasonCodes, isNot(contains('image_decode_failed')));
+  });
+
+  test('rejects an over-limit single dimension before full decode', () {
+    final result = processor.process(
+      ReceiptImageArtifactRequest(
+        sourceType: ReceiptImageSourceKind.importedImage,
+        sourceContentType: 'image/png',
+        sourceExtension: 'png',
+        sourceLabel: 'too-wide-receipt.png',
+        sourceBytes: _pngWithDeclaredDimensions(width: 8193, height: 1),
+      ),
+    );
+
+    expect(result.status, ReceiptImageArtifactStatus.unsupported);
+    expect(
+      result.reasonCodes,
+      contains('image_dimensions_exceed_processing_limit'),
+    );
   });
 
   test(
@@ -139,6 +281,29 @@ Uint8List _pngBytes({required int width, required int height}) {
 
 Uint8List _jpegBytes({required int width, required int height}) {
   return Uint8List.fromList(img.encodeJpg(_sampleImage(width, height)));
+}
+
+Uint8List _pngWithDeclaredDimensions({
+  required int width,
+  required int height,
+}) {
+  final bytes = _pngBytes(width: 1, height: 1);
+  final data = ByteData.sublistView(bytes);
+  data.setUint32(16, width, Endian.big);
+  data.setUint32(20, height, Endian.big);
+  data.setUint32(29, _crc32(bytes.sublist(12, 29)), Endian.big);
+  return bytes;
+}
+
+int _crc32(List<int> bytes) {
+  var crc = 0xffffffff;
+  for (final byte in bytes) {
+    crc ^= byte;
+    for (var bit = 0; bit < 8; bit += 1) {
+      crc = (crc & 1) == 1 ? (crc >> 1) ^ 0xedb88320 : crc >> 1;
+    }
+  }
+  return (crc ^ 0xffffffff) & 0xffffffff;
 }
 
 img.Image _sampleImage(int width, int height) {

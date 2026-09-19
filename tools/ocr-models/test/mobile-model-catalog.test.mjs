@@ -24,6 +24,64 @@ test("committed mobile OCR catalog is pinned and internally consistent", async (
   assert.equal(result.ok, true, result.failures.join("\n"));
 });
 
+test("native semantic binding covers the exact provider execution path", () => {
+  const { catalog } = loadCatalog(repoRoot);
+  const expected = [
+    "apps/mobile/integration_test/receipt_ocr_real_provider_test.dart",
+    "apps/mobile/lib/app/app_bootstrap.dart",
+    "apps/mobile/lib/app/server_mode_shell.dart",
+    "apps/mobile/lib/bills/bill_list_screen.dart",
+    "apps/mobile/lib/groups/group_list_screen.dart",
+    "apps/mobile/lib/main.dart",
+    "apps/mobile/lib/receipt_ocr_capture/mlkit_receipt_ocr_provider.dart",
+    "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_provider.dart",
+    "apps/mobile/lib/receipt_ocr_capture/paddle_receipt_ocr_provider.dart",
+    "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_preview.dart",
+    "apps/mobile/lib/ui/settleora_form_fields.dart",
+    "apps/mobile/pubspec.yaml",
+    "apps/mobile/pubspec.lock",
+    "apps/mobile/android/app/build.gradle.kts",
+    "apps/mobile/android/app/proguard-rules.pro",
+    "apps/mobile/android/app/src/release/kotlin/dev/flutter/plugins/integration_test/IntegrationTestPlugin.kt",
+    "apps/mobile/android/gradle/verification-metadata.xml",
+    "apps/mobile/android/settings.gradle.kts",
+    "apps/mobile/android/app/src/androidTest/kotlin/com/example/mobile/ocr/ReceiptOcrCorpusInstrumentedTest.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/example/mobile/MainActivity.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/MobileOcrModelCatalog.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ReceiptDocumentOrientation.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/SettleoraPaddleOcrEngine.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ReceiptOrientationSelector.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ScriptRouteSelector.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/RecognizedTextNormalizer.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ReceiptBlockOrder.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ReceiptOcrInputLimits.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/EngineConfig.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/PaddleOCRConfig.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/engine/DetectionEngine.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/engine/ORTSessionManager.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/model/ModelConfig.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/model/OCRBox.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/model/OCRError.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/postprocess/BoxSorter.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/preprocess/DetPreprocessor.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/preprocess/RecPreprocessor.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/postprocess/DBPostProcessor.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/postprocess/CTCDecoder.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/postprocess/PolygonUnclip.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/postprocess/QuadGeometry.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/postprocess/QuadTextCrop.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/util/BitmapUtils.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/util/ImageUtils.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/util/MathUtils.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/util/OpenCVUtils.kt",
+    "apps/mobile/android/app/src/main/kotlin/com/paddle/ocr/util/YamlUtils.kt",
+  ].sort();
+  const actual = catalog.acceptanceContract.nativeSemantics.files
+    .map((source) => source.path)
+    .sort();
+  assert.deepEqual(actual, expected);
+});
+
 test("verification rejects changed model bytes", async (t) => {
   const temporaryRoot = copyVerificationFixture(t, "settleora-ocr-catalog-");
   const source = JSON.parse(readFileSync(path.join(repoRoot, catalogRelativePath), "utf8"));
@@ -74,18 +132,42 @@ test("verification rejects unreviewed files in a model pack", async (t) => {
   assert.match(result.failures.join("\n"), /unexpected file inventory/);
 });
 
-test("verification rejects Flutter packaging drift", async (t) => {
-  const temporaryRoot = copyVerificationFixture(t, "settleora-ocr-pubspec-");
-  const pubspecPath = path.join(temporaryRoot, "apps/mobile/pubspec.yaml");
-  const pubspec = readFileSync(pubspecPath, "utf8").replace(
-    "    - assets/receipt_ocr_models/ppocrv5-thai-rec/\n",
+test("verification rejects Android packaging drift", async (t) => {
+  const temporaryRoot = copyVerificationFixture(t, "settleora-ocr-gradle-");
+  const gradlePath = path.join(temporaryRoot, "apps/mobile/android/app/build.gradle.kts");
+  const gradle = readFileSync(gradlePath, "utf8").replace(
+    '        getByName("main").assets.srcDir("../../assets")\n',
     "",
   );
+  writeFileSync(gradlePath, gradle);
+
+  const result = await verifyCatalog(temporaryRoot);
+  assert.equal(result.ok, false);
+  assert.match(result.failures.join("\n"), /OCR asset inventory is not Android-scoped/);
+});
+
+test("verification rejects accidental shared iOS model packaging", async (t) => {
+  const temporaryRoot = copyVerificationFixture(t, "settleora-ocr-pubspec-");
+  const pubspecPath = path.join(temporaryRoot, "apps/mobile/pubspec.yaml");
+  const pubspec = `${readFileSync(pubspecPath, "utf8")}\n  assets:\n    - assets/receipt_ocr_models/catalog.json\n`;
   writeFileSync(pubspecPath, pubspec);
 
   const result = await verifyCatalog(temporaryRoot);
   assert.equal(result.ok, false);
-  assert.match(result.failures.join("\n"), /OCR asset inventory does not match catalog/);
+  assert.match(result.failures.join("\n"), /Android OCR assets must not be shared with iOS/);
+});
+
+test("verification rejects changed runtime license bytes", async (t) => {
+  const temporaryRoot = copyVerificationFixture(t, "settleora-ocr-license-bytes-");
+  const licensePath = path.join(
+    temporaryRoot,
+    "apps/mobile/assets/receipt_ocr_models/LICENSE-ONNXRUNTIME-MIT.txt",
+  );
+  writeFileSync(licensePath, `${readFileSync(licensePath, "utf8")}changed\n`);
+
+  const result = await verifyCatalog(temporaryRoot);
+  assert.equal(result.ok, false);
+  assert.match(result.failures.join("\n"), /trusted legal artifact byte size mismatch/);
 });
 
 test("verification rejects drift in bound parser evidence", async (t) => {
@@ -95,6 +177,33 @@ test("verification rejects drift in bound parser evidence", async (t) => {
     "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_parser.dart",
   );
   writeFileSync(parserPath, `${readFileSync(parserPath, "utf8")}\n// drift\n`);
+
+  const result = await verifyCatalog(temporaryRoot);
+  assert.equal(result.ok, false);
+  assert.match(result.failures.join("\n"), /bound acceptance source sha256 mismatch/);
+});
+
+test("verification rejects drift in parser currency policy", async (t) => {
+  const temporaryRoot = copyVerificationFixture(t, "settleora-ocr-currency-policy-");
+  const policyPath = path.join(
+    temporaryRoot,
+    "apps/mobile/lib/ui/settleora_form_fields.dart",
+  );
+  writeFileSync(policyPath, `${readFileSync(policyPath, "utf8")}\n// drift\n`);
+
+  const result = await verifyCatalog(temporaryRoot);
+  assert.equal(result.ok, false);
+  assert.match(result.failures.join("\n"), /bound acceptance source sha256 mismatch/);
+});
+
+test("verification rejects drift in bound native OCR semantics", async (t) => {
+  const temporaryRoot = copyVerificationFixture(t, "settleora-ocr-native-");
+  const source = JSON.parse(readFileSync(path.join(repoRoot, catalogRelativePath), "utf8"));
+  const nativePath = path.join(
+    temporaryRoot,
+    source.acceptanceContract.nativeSemantics.files[0].path,
+  );
+  writeFileSync(nativePath, `${readFileSync(nativePath, "utf8")}\n// changed\n`);
 
   const result = await verifyCatalog(temporaryRoot);
   assert.equal(result.ok, false);
@@ -153,6 +262,14 @@ function copyVerificationFixture(t, prefix) {
     const target = path.join(temporaryRoot, relativePath);
     mkdirSync(path.dirname(target), { recursive: true });
     cpSync(path.join(repoRoot, relativePath), target);
+  }
+  const catalog = JSON.parse(
+    readFileSync(path.join(repoRoot, catalogRelativePath), "utf8"),
+  );
+  for (const source of catalog.acceptanceContract.nativeSemantics.files) {
+    const target = path.join(temporaryRoot, source.path);
+    mkdirSync(path.dirname(target), { recursive: true });
+    cpSync(path.join(repoRoot, source.path), target);
   }
   return temporaryRoot;
 }
