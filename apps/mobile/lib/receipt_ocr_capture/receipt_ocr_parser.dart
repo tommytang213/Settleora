@@ -1099,16 +1099,18 @@ bool _isNonTransactionCurrencyMetadataLine(String line) {
 }
 
 bool _hasCurrencyMetadataShape(String remainder) {
-  return RegExp(r'^[:#=\-]').hasMatch(remainder) ||
-      RegExp(
-        r'^(?:amount|currency|conversion|reference|rate|charged|cash|card|credit[ -]?card|debit[ -]?card|visa|mastercard|master card|amex|american express)\b',
-        caseSensitive: false,
-      ).hasMatch(remainder) ||
-      RegExp(
-        '^(?:$_currencyTokenPattern)(?=\\s|\$|[0-9-])',
-        caseSensitive: false,
-      ).hasMatch(remainder) ||
-      RegExp('^$_amountTokenPattern(?=\\s|\$)').hasMatch(remainder);
+  const qualifierPattern =
+      r'(?:amount|currency|conversion|reference|rate|charged|cash|card|credit[ -]?card|debit[ -]?card|visa|mastercard|master card|amex|american express)';
+  final currencyPattern = '(?:$_currencyTokenPattern)';
+  final amountPattern = '(?:$_amountTokenPattern)';
+  return RegExp(
+    '^(?:[:#=\\-]\\s*)?'
+    '(?:$qualifierPattern\\s+){0,3}'
+    '(?:$currencyPattern(?:\\s+$amountPattern)?|'
+    '$amountPattern(?:\\s+$currencyPattern)?)'
+    '\\s*\$',
+    caseSensitive: false,
+  ).hasMatch(remainder);
 }
 
 bool _lineHasCurrencyMarkerOrCode(String line) {

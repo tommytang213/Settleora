@@ -763,6 +763,10 @@ $metadataLine
       'Conversion Adapter PLN 12.00',
       'Tender Greens USD 8.00',
       'Payment Terminal GBP 14.00',
+      'Payment Card Reader EUR 16.00',
+      'Reference Currency Guide PLN 18.00',
+      'Conversion Rate Book USD 20.00',
+      'Tender Cash Box GBP 22.00',
     ]) {
       final expectedCurrency = itemLine.split(
         ' ',
