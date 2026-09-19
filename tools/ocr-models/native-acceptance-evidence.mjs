@@ -19,6 +19,29 @@ const androidPreflightFailurePhases = new Set([
   "execute_flutter_test",
 ]);
 
+export function buildFailureEvidence(args) {
+  const platform = new Set(["android", "ios"]).has(args.platform) ? args.platform : null;
+  const parsedStatus = Number(args["test-status"]);
+  const testExitStatus = Number.isSafeInteger(parsedStatus) && parsedStatus >= 0
+    ? parsedStatus
+    : null;
+  const requestedPhase = args["failure-phase"] || null;
+  const preflightFailurePhase = platform === "android" && androidPreflightFailurePhases.has(requestedPhase)
+    ? requestedPhase
+    : null;
+  return {
+    schemaVersion: 1,
+    platform,
+    sourceSha: /^[0-9a-f]{40}$/.test(args["source-sha"] ?? "")
+      ? args["source-sha"]
+      : null,
+    execution: { testExitStatus, preflightFailurePhase },
+    acceptance: { completed: false },
+    uiSmoke: { completed: false },
+    collectionFailure: "invalid_or_unavailable_bounded_evidence",
+  };
+}
+
 function parseOptionalBytes(value) {
   if (value == null || value === "") return null;
   const parsed = Number(value);
@@ -654,16 +677,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   try {
     evidence = buildEvidence(args);
   } catch {
-    evidence = {
-      schemaVersion: 1,
-      platform: new Set(["android", "ios"]).has(args.platform) ? args.platform : null,
-      sourceSha: /^[0-9a-f]{40}$/.test(args["source-sha"] ?? "")
-        ? args["source-sha"]
-        : null,
-      acceptance: { completed: false },
-      uiSmoke: { completed: false },
-      collectionFailure: "invalid_or_unavailable_bounded_evidence",
-    };
+    evidence = buildFailureEvidence(args);
     writeFileSync(args.out, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
     throw new Error("Bounded native OCR evidence collection failed");
   }

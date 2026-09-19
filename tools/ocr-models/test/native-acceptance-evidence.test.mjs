@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { buildEvidence, isCompleteEvidence } from "../native-acceptance-evidence.mjs";
+import { buildEvidence, buildFailureEvidence, isCompleteEvidence } from "../native-acceptance-evidence.mjs";
 
 const sourceSha = "a".repeat(40);
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
@@ -273,6 +273,34 @@ test("retains only an allowlisted Android preflight failure phase", () => {
       /Preflight failure phase is invalid/,
     );
   });
+});
+
+test("failure evidence retains bounded phase and status before environment collection", () => {
+  assert.deepEqual(
+    buildFailureEvidence({
+      platform: "android",
+      "source-sha": sourceSha,
+      "test-status": "20",
+      "failure-phase": "resolve_tools",
+    }),
+    {
+      schemaVersion: 1,
+      platform: "android",
+      sourceSha,
+      execution: { testExitStatus: 20, preflightFailurePhase: "resolve_tools" },
+      acceptance: { completed: false },
+      uiSmoke: { completed: false },
+      collectionFailure: "invalid_or_unavailable_bounded_evidence",
+    },
+  );
+  const rejected = buildFailureEvidence({
+    platform: "android",
+    "source-sha": "not-a-sha",
+    "test-status": "private",
+    "failure-phase": "private diagnostic",
+  });
+  assert.deepEqual(rejected.execution, { testExitStatus: null, preflightFailurePhase: null });
+  assert.equal(rejected.sourceSha, null);
 });
 
 test("rejects all non-allowlisted application output and unresolved environment identity", () => {

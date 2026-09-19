@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -21,6 +21,10 @@ function withCapture(callback) {
 
 test("captures bounded stdout and stderr and preserves the child status", () => {
   withCapture(({ stdoutPath, stderrPath }) => {
+    writeFileSync(stdoutPath, "old stdout", { mode: 0o644 });
+    writeFileSync(stderrPath, "old stderr", { mode: 0o644 });
+    chmodSync(stdoutPath, 0o644);
+    chmodSync(stderrPath, 0o644);
     const result = spawnSync(process.execPath, [
       capture,
       `--stdout=${stdoutPath}`,
@@ -36,6 +40,8 @@ test("captures bounded stdout and stderr and preserves the child status", () => 
     assert.equal(result.stderr, "");
     assert.equal(readFileSync(stdoutPath, "utf8"), "safe-out");
     assert.equal(readFileSync(stderrPath, "utf8"), "safe-error");
+    assert.equal(statSync(stdoutPath).mode & 0o777, 0o600);
+    assert.equal(statSync(stderrPath).mode & 0o777, 0o600);
   });
 });
 
@@ -64,8 +70,8 @@ test("rejects unknown and duplicate wrapper options without echoing their values
   for (const invalidOption of ["--unknown=private-value", "--max-bytes=8"]) {
     const result = spawnSync(process.execPath, [
       capture,
-      "--stdout=stdout.log",
-      "--stderr=stderr.log",
+      `--stdout=${path.join(os.tmpdir(), "stdout.log")}`,
+      `--stderr=${path.join(os.tmpdir(), "stderr.log")}`,
       "--max-bytes=16",
       invalidOption,
       "--",

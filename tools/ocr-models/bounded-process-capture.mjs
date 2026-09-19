@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-import { createWriteStream } from "node:fs";
+import { constants, createWriteStream, fchmodSync, openSync } from "node:fs";
 import { spawn } from "node:child_process";
+import path from "node:path";
 
 function parseArgs(values) {
   const separator = values.indexOf("--");
@@ -18,6 +19,9 @@ function parseArgs(values) {
   if (
     !options.get("stdout") ||
     !options.get("stderr") ||
+    !path.isAbsolute(options.get("stdout")) ||
+    !path.isAbsolute(options.get("stderr")) ||
+    path.resolve(options.get("stdout")) === path.resolve(options.get("stderr")) ||
     !Number.isSafeInteger(maxBytes) ||
     maxBytes < 1 ||
     maxBytes > 32 * 1024 * 1024
@@ -33,7 +37,13 @@ function parseArgs(values) {
 }
 
 function boundedSink(stream, filePath, maxBytes, onOverflow) {
-  const output = createWriteStream(filePath, { flags: "w", mode: 0o600 });
+  const descriptor = openSync(
+    filePath,
+    constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW,
+    0o600,
+  );
+  fchmodSync(descriptor, 0o600);
+  const output = createWriteStream(null, { fd: descriptor, autoClose: true });
   let bytes = 0;
   stream.on("data", (chunk) => {
     const remaining = maxBytes - bytes;
