@@ -145,6 +145,7 @@ jobs:
             --platform=android \
             --source-sha="$EXPECTED_HEAD" \
             --test-status="${{ steps.acceptance.outputs.status }}" \
+            --failure-phase="${{ steps.acceptance.outputs.failure_phase }}" \
             --runner-image="${{ steps.acceptance.outputs.runner_image }}" \
             --os-runtime="${{ steps.acceptance.outputs.os_runtime }}" \
             --sdk-toolchain="${{ steps.acceptance.outputs.sdk_toolchain }}" \
@@ -262,7 +263,11 @@ jobs:
           printf 'block drop out quick on ! lo0 proto { tcp udp } user %s\n' "$user_id" | sudo pfctl -a com.apple/settleora-ocr -f -
           sudo pfctl -a com.apple/settleora-ocr -sr | grep -F "user = $user_id"
           set +e
-          flutter test integration_test/receipt_ocr_real_provider_test.dart -d "${{ steps.simulator.outputs.udid }}" --timeout 6h --machine --no-pub >"$RUNNER_TEMP/ios-acceptance.log" 2>"$RUNNER_TEMP/ios-acceptance.stderr.log"
+          node "$GITHUB_WORKSPACE/tools/ocr-models/bounded-process-capture.mjs" \
+            --stdout="$RUNNER_TEMP/ios-acceptance.log" \
+            --stderr="$RUNNER_TEMP/ios-acceptance.stderr.log" \
+            --max-bytes=33554432 \
+            -- flutter test integration_test/receipt_ocr_real_provider_test.dart -d "${{ steps.simulator.outputs.udid }}" --timeout 6h --machine --no-pub
           status=$?
           set -e
           cleanup_firewall

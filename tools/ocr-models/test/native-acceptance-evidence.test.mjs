@@ -141,7 +141,8 @@ test("retains only the bounded native acceptance schema", () => {
 
 test("complete evidence requires both package measurements and a positive delta", () => {
   const evidence = {
-    execution: { testExitStatus: 0, protocolSucceeded: true },
+    execution: { testExitStatus: 0, protocolSucceeded: true, preflightFailurePhase: null },
+    diagnostics: [],
     acceptance: {
       completed: true,
       networkIsolated: true,
@@ -163,6 +164,20 @@ test("complete evidence requires both package measurements and a positive delta"
     },
   };
   assert.equal(isCompleteEvidence(evidence), true);
+  assert.equal(
+    isCompleteEvidence({
+      ...evidence,
+      execution: { ...evidence.execution, preflightFailurePhase: "isolate_wifi" },
+    }),
+    false,
+  );
+  assert.equal(
+    isCompleteEvidence({
+      ...evidence,
+      diagnostics: [{ schemaVersion: 1, platform: "android", stage: "corpus_provider", fixtureId: "fixture_001" }],
+    }),
+    false,
+  );
   assert.equal(
     isCompleteEvidence({
       ...evidence,
@@ -242,6 +257,24 @@ test("produces bounded incomplete evidence when device execution emits no marker
   });
 });
 
+test("retains only an allowlisted Android preflight failure phase", () => {
+  withLog(protocolLog(), (logPath) => {
+    const evidence = buildEvidence(
+      { ...evidenceArgs(logPath), "test-status": "20", "failure-phase": "isolate_airplane_mode" },
+      repoRoot,
+    );
+    assert.equal(evidence.execution.preflightFailurePhase, "isolate_airplane_mode");
+    assert.equal(isCompleteEvidence(evidence), false);
+    assert.throws(
+      () => buildEvidence(
+        { ...evidenceArgs(logPath), "test-status": "20", "failure-phase": "private diagnostic" },
+        repoRoot,
+      ),
+      /Preflight failure phase is invalid/,
+    );
+  });
+});
+
 test("rejects all non-allowlisted application output and unresolved environment identity", () => {
   withLog(protocolLog("native diagnostic: unexpected receipt text"), (log) => {
     assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot), /non-allowlisted/);
@@ -252,6 +285,35 @@ test("rejects all non-allowlisted application output and unresolved environment 
       /must be resolved/,
     );
   });
+});
+
+test("retains only bounded failure-stage diagnostics and never accepts them as complete", () => {
+  const diagnostic = {
+    schemaVersion: 1,
+    platform: "android",
+    stage: "corpus_provider",
+    fixtureId: "fixture_001",
+  };
+  withLog(protocolLog(`SETTLEORA_OCR_DIAGNOSTIC=${JSON.stringify(diagnostic)}`), (logPath) => {
+    const evidence = buildEvidence(evidenceArgs(logPath), repoRoot);
+    assert.deepEqual(evidence.diagnostics, [diagnostic]);
+    assert.equal(isCompleteEvidence(evidence), false);
+  });
+  withLog(
+    protocolLog(
+      `SETTLEORA_OCR_DIAGNOSTIC=${JSON.stringify({ ...diagnostic, stage: "private provider detail" })}`,
+    ),
+    (logPath) => {
+      assert.throws(() => buildEvidence(evidenceArgs(logPath), repoRoot), /identity is invalid/);
+    },
+  );
+  withLog(
+    protocolLog(...Array.from({ length: 5 }, () =>
+      `SETTLEORA_OCR_DIAGNOSTIC=${JSON.stringify(diagnostic)}`)),
+    (logPath) => {
+      assert.throws(() => buildEvidence(evidenceArgs(logPath), repoRoot), /too many diagnostic markers/);
+    },
+  );
 });
 
 test("rejects non-allowlisted marker fields before evidence can be accepted", () => {

@@ -25,245 +25,322 @@ void main() {
   testWidgets('native acceptance runner has no external network', (
     WidgetTester tester,
   ) async {
-    Socket? socket;
-    try {
-      socket = await Socket.connect(
-        InternetAddress('1.1.1.1'),
-        443,
-        timeout: const Duration(seconds: 3),
+    final failure = _BoundedFailureStage('network_canary');
+    await failure.run(() async {
+      Socket? socket;
+      try {
+        socket = await Socket.connect(
+          InternetAddress('1.1.1.1'),
+          443,
+          timeout: const Duration(seconds: 3),
+        );
+      } on SocketException {
+        // Expected: the acceptance runner blocks external TCP and UDP traffic.
+      } on TimeoutException {
+        // Expected: a dropped connection also proves the canary cannot escape.
+      }
+      await socket?.close();
+      networkIsolated = socket == null;
+      expect(
+        networkIsolated,
+        isTrue,
+        reason: 'Native OCR acceptance must run without external networking.',
       );
-    } on SocketException {
-      // Expected: the acceptance runner blocks external TCP and UDP traffic.
-    } on TimeoutException {
-      // Expected: a dropped connection also proves the canary cannot escape.
-    }
-    await socket?.close();
-    networkIsolated = socket == null;
-    expect(
-      networkIsolated,
-      isTrue,
-      reason: 'Native OCR acceptance must run without external networking.',
-    );
+    });
   });
 
   testWidgets('all 101 real images match complete preview truth', (
     WidgetTester tester,
   ) async {
-    final manifest =
-        jsonDecode(utf8.decode(await fixtures.load('manifest.json')))
-            as Map<String, Object?>;
-    expect(manifest['schema_version'], 2);
-    final entries = (manifest['fixtures']! as List<Object?>)
-        .cast<Map<String, Object?>>();
-    expect(entries, hasLength(101));
-    final mismatches = <_BoundedMismatch>[];
-    final fixtureDurationsMs = <int>[];
-    final nativeDurationsMs = <int>[];
-    final scriptResults = <String, _ScriptResult>{};
-    var peakRssBytes = ProcessInfo.currentRss;
-    int? nativeColdLoadTimeMs;
-    String? runtime;
+    final failure = _BoundedFailureStage('corpus_manifest');
+    await failure.run(() async {
+      final manifest =
+          jsonDecode(utf8.decode(await fixtures.load('manifest.json')))
+              as Map<String, Object?>;
+      expect(manifest['schema_version'], 2);
+      final entries = (manifest['fixtures']! as List<Object?>)
+          .cast<Map<String, Object?>>();
+      expect(entries, hasLength(101));
+      final mismatches = <_BoundedMismatch>[];
+      final fixtureDurationsMs = <int>[];
+      final nativeDurationsMs = <int>[];
+      final scriptResults = <String, _ScriptResult>{};
+      var peakRssBytes = ProcessInfo.currentRss;
+      int? nativeColdLoadTimeMs;
+      String? runtime;
 
-    for (final entry in entries) {
-      final fixtureId = entry['id']! as String;
-      final script = entry['script']! as String;
-      final scriptResult = scriptResults.putIfAbsent(script, _ScriptResult.new);
-      scriptResult.total += 1;
-      final expected = entry['expected']! as Map<String, Object?>;
-      final fixtureMismatches = <_BoundedMismatch>[];
-      if (expected.keys.toSet().difference(_supportedExpectedKeys).isNotEmpty) {
-        fixtureMismatches.add(_BoundedMismatch(fixtureId, 'manifest_shape'));
-        mismatches.addAll(fixtureMismatches);
-        continue;
-      }
-      final currencyResolution =
-          entry['expected_currency_resolution'] as Map<String, Object?>?;
-      final artifact = artifactProcessor.process(
-        ReceiptImageArtifactRequest(
-          sourceType: ReceiptImageSourceKind.importedImage,
-          sourceContentType: 'image/jpeg',
-          sourceBytes: await fixtures.load(entry['file']! as String),
-          sourceExtension: 'jpeg',
-          sourceLabel: fixtureId,
-        ),
-      );
-      if (!artifact.accepted || !artifact.normalizedJpegProduced) {
-        fixtureMismatches.add(_BoundedMismatch(fixtureId, 'normalization'));
-      } else {
-        final stopwatch = Stopwatch()..start();
-        final rssSampler = Timer.periodic(const Duration(milliseconds: 25), (
-          _,
-        ) {
-          if (ProcessInfo.currentRss > peakRssBytes) {
-            peakRssBytes = ProcessInfo.currentRss;
-          }
-        });
-        try {
-          final result = await provider.extractReceipt(
-            ReceiptOcrRequest(
-              bytes: artifact.normalizedJpegBytes!,
-              contentType: artifact.normalizedContentType!,
-              fallbackCurrency: entry['fallback_currency'] as String?,
-            ),
-          );
-          final evidence = result.preview?.runEvidence;
-          if (evidence?.totalTimeMs != null) {
-            nativeDurationsMs.add(evidence!.totalTimeMs!);
-          }
-          nativeColdLoadTimeMs ??= evidence?.coldLoadTimeMs;
-          runtime ??= evidence?.runtime;
-          fixtureMismatches.addAll(
-            _completePreviewMismatches(
-              fixtureId,
-              result,
-              expected,
-              currencyResolution: currencyResolution,
-            ),
-          );
-        } catch (_) {
-          // Preserve only a bounded category. Native exception details can
-          // contain OCR text, local paths, or provider diagnostics and must
-          // never enter retained acceptance evidence.
-          fixtureMismatches.add(
-            _BoundedMismatch(fixtureId, 'provider_exception'),
-          );
-        } finally {
-          rssSampler.cancel();
-          stopwatch.stop();
-          fixtureDurationsMs.add(stopwatch.elapsedMilliseconds);
+      for (final entry in entries) {
+        final fixtureId = entry['id']! as String;
+        failure.set('corpus_fixture_load', fixtureId: fixtureId);
+        final script = entry['script']! as String;
+        final scriptResult = scriptResults.putIfAbsent(
+          script,
+          _ScriptResult.new,
+        );
+        scriptResult.total += 1;
+        final expected = entry['expected']! as Map<String, Object?>;
+        final fixtureMismatches = <_BoundedMismatch>[];
+        if (expected.keys
+            .toSet()
+            .difference(_supportedExpectedKeys)
+            .isNotEmpty) {
+          fixtureMismatches.add(_BoundedMismatch(fixtureId, 'manifest_shape'));
+          mismatches.addAll(fixtureMismatches);
+          continue;
         }
+        final currencyResolution =
+            entry['expected_currency_resolution'] as Map<String, Object?>?;
+        final fixtureBytes = await fixtures.load(entry['file']! as String);
+        failure.set('corpus_normalization', fixtureId: fixtureId);
+        final artifact = artifactProcessor.process(
+          ReceiptImageArtifactRequest(
+            sourceType: ReceiptImageSourceKind.importedImage,
+            sourceContentType: 'image/jpeg',
+            sourceBytes: fixtureBytes,
+            sourceExtension: 'jpeg',
+            sourceLabel: fixtureId,
+          ),
+        );
+        if (!artifact.accepted || !artifact.normalizedJpegProduced) {
+          fixtureMismatches.add(_BoundedMismatch(fixtureId, 'normalization'));
+        } else {
+          final stopwatch = Stopwatch()..start();
+          final rssSampler = Timer.periodic(const Duration(milliseconds: 25), (
+            _,
+          ) {
+            if (ProcessInfo.currentRss > peakRssBytes) {
+              peakRssBytes = ProcessInfo.currentRss;
+            }
+          });
+          try {
+            failure.set('corpus_provider', fixtureId: fixtureId);
+            final result = await provider.extractReceipt(
+              ReceiptOcrRequest(
+                bytes: artifact.normalizedJpegBytes!,
+                contentType: artifact.normalizedContentType!,
+                fallbackCurrency: entry['fallback_currency'] as String?,
+              ),
+            );
+            final evidence = result.preview?.runEvidence;
+            if (evidence?.totalTimeMs != null) {
+              nativeDurationsMs.add(evidence!.totalTimeMs!);
+            }
+            nativeColdLoadTimeMs ??= evidence?.coldLoadTimeMs;
+            runtime ??= evidence?.runtime;
+            failure.set('corpus_comparison', fixtureId: fixtureId);
+            fixtureMismatches.addAll(
+              _completePreviewMismatches(
+                fixtureId,
+                result,
+                expected,
+                currencyResolution: currencyResolution,
+              ),
+            );
+          } catch (_) {
+            // Preserve only a bounded category. Native exception details can
+            // contain OCR text, local paths, or provider diagnostics and must
+            // never enter retained acceptance evidence.
+            fixtureMismatches.add(
+              _BoundedMismatch(fixtureId, 'provider_exception'),
+            );
+          } finally {
+            rssSampler.cancel();
+            stopwatch.stop();
+            fixtureDurationsMs.add(stopwatch.elapsedMilliseconds);
+          }
+        }
+        if (fixtureMismatches.isEmpty) scriptResult.passed += 1;
+        mismatches.addAll(fixtureMismatches);
       }
-      if (fixtureMismatches.isEmpty) scriptResult.passed += 1;
-      mismatches.addAll(fixtureMismatches);
-    }
 
-    final evidence = <String, Object?>{
-      'schemaVersion': 1,
-      'platform': Platform.operatingSystem,
-      'completed': true,
-      'networkIsolated': networkIsolated,
-      'fixtureCount': entries.length,
-      'passedFixtureCount':
-          entries.length - mismatches.map((e) => e.fixtureId).toSet().length,
-      'mismatchCount': mismatches.length,
-      'mismatches': mismatches.map((e) => e.toJson()).toList(growable: false),
-      'runtime': runtime,
-      'coldLoadTimeMs': nativeColdLoadTimeMs,
-      'endToEndLatencyMs': _latencySummary(fixtureDurationsMs),
-      'nativeLatencyMs': _latencySummary(nativeDurationsMs),
-      'peakRssBytes': peakRssBytes,
-      'perScript': {
-        for (final entry in scriptResults.entries)
-          entry.key: entry.value.toJson(),
-      },
-    };
-    binding.reportData = evidence;
-    // This marker is intentionally bounded to fixture IDs, field names, and
-    // aggregate metrics. It never contains OCR text or receipt bytes.
-    debugPrint('SETTLEORA_OCR_ACCEPTANCE=${jsonEncode(evidence)}');
-    expect(
-      mismatches.isEmpty,
-      isTrue,
-      reason: 'Bounded OCR mismatches: ${mismatches.join(',')}',
-    );
+      failure.set('corpus_evidence');
+      final evidence = <String, Object?>{
+        'schemaVersion': 1,
+        'platform': Platform.operatingSystem,
+        'completed': true,
+        'networkIsolated': networkIsolated,
+        'fixtureCount': entries.length,
+        'passedFixtureCount':
+            entries.length - mismatches.map((e) => e.fixtureId).toSet().length,
+        'mismatchCount': mismatches.length,
+        'mismatches': mismatches.map((e) => e.toJson()).toList(growable: false),
+        'runtime': runtime,
+        'coldLoadTimeMs': nativeColdLoadTimeMs,
+        'endToEndLatencyMs': _latencySummary(fixtureDurationsMs),
+        'nativeLatencyMs': _latencySummary(nativeDurationsMs),
+        'peakRssBytes': peakRssBytes,
+        'perScript': {
+          for (final entry in scriptResults.entries)
+            entry.key: entry.value.toJson(),
+        },
+      };
+      binding.reportData = evidence;
+      // This marker is intentionally bounded to fixture IDs, field names, and
+      // aggregate metrics. It never contains OCR text or receipt bytes.
+      debugPrint('SETTLEORA_OCR_ACCEPTANCE=${jsonEncode(evidence)}');
+      expect(
+        mismatches.isEmpty,
+        isTrue,
+        reason: 'Bounded OCR mismatches: ${mismatches.join(',')}',
+      );
+    });
   });
 
   testWidgets('a real fixture rotated 270 degrees matches complete truth', (
     WidgetTester tester,
   ) async {
-    final manifest =
-        jsonDecode(utf8.decode(await fixtures.load('manifest.json')))
-            as Map<String, Object?>;
-    final entry = (manifest['fixtures']! as List<Object?>)
-        .cast<Map<String, Object?>>()
-        .singleWhere(
-          (fixture) => fixture['id'] == 'existing_12_freshmart_grocery_en_US',
-        );
-    final source = img.decodeImage(
-      await fixtures.load(entry['file']! as String),
-    );
-    expect(source, isNotNull);
-    final rotatedBytes = img.encodeJpg(
-      img.copyRotate(source!, angle: 270),
-      quality: 100,
-    );
-    final artifact = artifactProcessor.process(
-      ReceiptImageArtifactRequest(
-        sourceType: ReceiptImageSourceKind.importedImage,
-        sourceContentType: 'image/jpeg',
-        sourceBytes: rotatedBytes,
-        sourceExtension: 'jpeg',
-        sourceLabel: 'existing_12_freshmart_grocery_en_US-derived-rotate270',
-      ),
-    );
-    expect(artifact.accepted, isTrue);
-    expect(artifact.normalizedJpegProduced, isTrue);
+    final failure = _BoundedFailureStage('rotation_manifest');
+    await failure.run(() async {
+      final manifest =
+          jsonDecode(utf8.decode(await fixtures.load('manifest.json')))
+              as Map<String, Object?>;
+      final entry = (manifest['fixtures']! as List<Object?>)
+          .cast<Map<String, Object?>>()
+          .singleWhere(
+            (fixture) => fixture['id'] == 'existing_12_freshmart_grocery_en_US',
+          );
+      failure.set(
+        'rotation_fixture_load',
+        fixtureId: 'existing_12_freshmart_grocery_en_US',
+      );
+      final source = img.decodeImage(
+        await fixtures.load(entry['file']! as String),
+      );
+      expect(source, isNotNull);
+      final rotatedBytes = img.encodeJpg(
+        img.copyRotate(source!, angle: 270),
+        quality: 100,
+      );
+      failure.set(
+        'rotation_normalization',
+        fixtureId: 'existing_12_freshmart_grocery_en_US',
+      );
+      final artifact = artifactProcessor.process(
+        ReceiptImageArtifactRequest(
+          sourceType: ReceiptImageSourceKind.importedImage,
+          sourceContentType: 'image/jpeg',
+          sourceBytes: rotatedBytes,
+          sourceExtension: 'jpeg',
+          sourceLabel: 'existing_12_freshmart_grocery_en_US-derived-rotate270',
+        ),
+      );
+      expect(artifact.accepted, isTrue);
+      expect(artifact.normalizedJpegProduced, isTrue);
 
-    final result = await provider.extractReceipt(
-      ReceiptOcrRequest(
-        bytes: artifact.normalizedJpegBytes!,
-        contentType: artifact.normalizedContentType!,
-        fallbackCurrency: entry['fallback_currency'] as String?,
-      ),
-    );
-    final mismatches = _completePreviewMismatches(
-      'existing_12_freshmart_grocery_en_US-derived-rotate270',
-      result,
-      entry['expected']! as Map<String, Object?>,
-      currencyResolution:
-          entry['expected_currency_resolution'] as Map<String, Object?>?,
-    );
-    expect(
-      mismatches.isEmpty,
-      isTrue,
-      reason: 'Bounded rotated OCR mismatches: ${mismatches.join(',')}',
-    );
+      failure.set(
+        'rotation_provider',
+        fixtureId: 'existing_12_freshmart_grocery_en_US',
+      );
+      final result = await provider.extractReceipt(
+        ReceiptOcrRequest(
+          bytes: artifact.normalizedJpegBytes!,
+          contentType: artifact.normalizedContentType!,
+          fallbackCurrency: entry['fallback_currency'] as String?,
+        ),
+      );
+      failure.set(
+        'rotation_comparison',
+        fixtureId: 'existing_12_freshmart_grocery_en_US',
+      );
+      final mismatches = _completePreviewMismatches(
+        'existing_12_freshmart_grocery_en_US-derived-rotate270',
+        result,
+        entry['expected']! as Map<String, Object?>,
+        currencyResolution:
+            entry['expected_currency_resolution'] as Map<String, Object?>?,
+      );
+      expect(
+        mismatches.isEmpty,
+        isTrue,
+        reason: 'Bounded rotated OCR mismatches: ${mismatches.join(',')}',
+      );
+    });
   });
 
   testWidgets('representative production receipt review UI uses real provider', (
     WidgetTester tester,
   ) async {
-    final manifest =
-        jsonDecode(utf8.decode(await fixtures.load('manifest.json')))
-            as Map<String, Object?>;
-    final entry = (manifest['fixtures']! as List<Object?>)
-        .cast<Map<String, Object?>>()
-        .singleWhere(
-          (fixture) => fixture['id'] == 'existing_12_freshmart_grocery_en_US',
-        );
-    final input = _FixtureAttachmentInput(
-      await fixtures.load(entry['file']! as String),
-    );
+    final failure = _BoundedFailureStage('ui_manifest');
+    await failure.run(() async {
+      final manifest =
+          jsonDecode(utf8.decode(await fixtures.load('manifest.json')))
+              as Map<String, Object?>;
+      final entry = (manifest['fixtures']! as List<Object?>)
+          .cast<Map<String, Object?>>()
+          .singleWhere(
+            (fixture) => fixture['id'] == 'existing_12_freshmart_grocery_en_US',
+          );
+      failure.set(
+        'ui_fixture_load',
+        fixtureId: 'existing_12_freshmart_grocery_en_US',
+      );
+      final input = _FixtureAttachmentInput(
+        await fixtures.load(entry['file']! as String),
+      );
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: SettleoraPersonalBillCreateScreen(
-          repository: _NoopBillRepository(),
-          attachmentFileInput: input,
-          receiptOcrProvider: provider,
-          defaultCurrency: entry['fallback_currency'] as String?,
-          scanReceiptOnStart: true,
+      failure.set(
+        'ui_render',
+        fixtureId: 'existing_12_freshmart_grocery_en_US',
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraPersonalBillCreateScreen(
+            repository: _NoopBillRepository(),
+            attachmentFileInput: input,
+            receiptOcrProvider: provider,
+            defaultCurrency: entry['fallback_currency'] as String?,
+            scanReceiptOnStart: true,
+          ),
         ),
-      ),
-    );
+      );
 
-    final previewPanel = find.byKey(
-      const Key('personal-bill-ocr-preview-panel'),
-    );
-    for (
-      var attempt = 0;
-      attempt < 3000 && previewPanel.evaluate().isEmpty;
-      attempt += 1
-    ) {
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-      await tester.pump();
-    }
-    expect(previewPanel, findsOneWidget);
-    expect(find.byKey(const Key('personal-bill-ocr-apply')), findsOneWidget);
-    debugPrint(
-      'SETTLEORA_OCR_UI_SMOKE=${jsonEncode({'schemaVersion': 1, 'platform': Platform.operatingSystem, 'completed': true, 'fixtureId': entry['id'], 'previewPanel': true, 'applyBoundaryVisible': true})}',
-    );
+      final previewPanel = find.byKey(
+        const Key('personal-bill-ocr-preview-panel'),
+      );
+      for (
+        var attempt = 0;
+        attempt < 3000 && previewPanel.evaluate().isEmpty;
+        attempt += 1
+      ) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        await tester.pump();
+      }
+      expect(previewPanel, findsOneWidget);
+      expect(find.byKey(const Key('personal-bill-ocr-apply')), findsOneWidget);
+      failure.set(
+        'ui_evidence',
+        fixtureId: 'existing_12_freshmart_grocery_en_US',
+      );
+      debugPrint(
+        'SETTLEORA_OCR_UI_SMOKE=${jsonEncode({'schemaVersion': 1, 'platform': Platform.operatingSystem, 'completed': true, 'fixtureId': entry['id'], 'previewPanel': true, 'applyBoundaryVisible': true})}',
+      );
+    });
   });
+}
+
+class _BoundedFailureStage {
+  _BoundedFailureStage(this.stage);
+
+  String stage;
+  String? fixtureId;
+
+  void set(String value, {String? fixtureId}) {
+    stage = value;
+    this.fixtureId = fixtureId;
+  }
+
+  Future<void> run(Future<void> Function() body) async {
+    try {
+      await body();
+    } catch (_) {
+      // Retain only a bounded stage and fixture identifier. Exception text can
+      // contain receipt data, provider diagnostics, or local paths.
+      debugPrint(
+        'SETTLEORA_OCR_DIAGNOSTIC=${jsonEncode({'schemaVersion': 1, 'platform': Platform.operatingSystem, 'stage': stage, 'fixtureId': fixtureId})}',
+      );
+      rethrow;
+    }
+  }
 }
 
 const _supportedExpectedKeys = <String>{

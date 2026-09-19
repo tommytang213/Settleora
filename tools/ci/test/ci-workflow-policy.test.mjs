@@ -195,9 +195,14 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
     assert.ok(runCommands(job).some((command) => command.includes('native-acceptance-evidence.mjs')));
     assert.ok(runCommands(job).some((command) => command.includes('--require-complete=true')));
     assert.ok(runCommands(job).some((command) => command.includes('--test-status=')));
+    if (jobName === 'android-native-acceptance') {
+      assert.ok(runCommands(job).some((command) => command.includes('--failure-phase=')));
+    }
     assert.ok(runCommands(job).some((command) => command.includes('--runner-image=')));
     assert.ok(runCommands(job).some((command) => command.includes('--native-image=')));
     assert.ok(runCommands(job).some((command) => command.includes('--stderr-log=')));
+    assert.ok(allCommands.some((command) => command.includes('bounded-process-capture.mjs')));
+    assert.ok(allCommands.some((command) => command.includes('--max-bytes=33554432')));
     assert.ok(runCommands(job).some((command) => command.includes('--base-app-bytes=')));
     assert.ok(runCommands(job).some((command) => command.includes('git archive')));
     assert.ok(runCommands(job).some((command) => command.includes('git archive "$EXPECTED_HEAD"')));
@@ -246,7 +251,9 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(androidRunner.includes('shell cmd connectivity airplane-mode enable'));
   assert.ok(androidRunner.includes('settings get global airplane_mode_on'));
   assert.ok(androidRunner.includes('timeout 30 "$adb" -s emulator-5554 shell cmd connectivity airplane-mode enable'));
+  assert.ok(androidRunner.includes('settings put global airplane_mode_on 1'));
   assert.ok(androidRunner.includes('timeout 30 "$adb" -s emulator-5554 shell settings get global airplane_mode_on'));
+  assert.ok(androidRunner.includes('echo "failure_phase=$phase" >> "$GITHUB_OUTPUT"'));
   assert.ok(androidCommands.includes('verify-mobile-package.mjs --platform=android'));
   assert.ok(androidCommands.includes('android-dex-packages.txt'));
   assert.ok(androidRunner.includes('test "$system_image_revision" = "9"'));

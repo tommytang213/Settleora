@@ -6,6 +6,18 @@ import { fileURLToPath } from "node:url";
 const maxLogBytes = 32 * 1024 * 1024;
 const maxMarkerBytes = 512 * 1024;
 const safeToken = /^[A-Za-z0-9_.:[\]-]{1,160}$/;
+const androidPreflightFailurePhases = new Set([
+  "initialize",
+  "resolve_tools",
+  "verify_sdk_revisions",
+  "verify_device",
+  "emit_environment",
+  "isolate_airplane_mode",
+  "isolate_wifi",
+  "isolate_mobile_data",
+  "verify_network_controls",
+  "execute_flutter_test",
+]);
 
 function parseOptionalBytes(value) {
   if (value == null || value === "") return null;
@@ -292,7 +304,8 @@ function parseSafeRunnerLog(log, stderrLog) {
       if (
         typeof event.message !== "string" ||
         (!event.message.startsWith("SETTLEORA_OCR_ACCEPTANCE=") &&
-          !event.message.startsWith("SETTLEORA_OCR_UI_SMOKE="))
+          !event.message.startsWith("SETTLEORA_OCR_UI_SMOKE=") &&
+          !event.message.startsWith("SETTLEORA_OCR_DIAGNOSTIC="))
       ) {
         throw new Error("Acceptance runner emitted non-allowlisted application output");
       }
@@ -436,6 +449,54 @@ function sanitizeUiSmoke(value, platform) {
   };
 }
 
+const diagnosticStages = new Set([
+  "network_canary",
+  "corpus_manifest",
+  "corpus_fixture_load",
+  "corpus_normalization",
+  "corpus_provider",
+  "corpus_comparison",
+  "corpus_evidence",
+  "rotation_manifest",
+  "rotation_fixture_load",
+  "rotation_normalization",
+  "rotation_provider",
+  "rotation_comparison",
+  "ui_manifest",
+  "ui_fixture_load",
+  "ui_render",
+  "ui_evidence",
+]);
+
+function sanitizeDiagnostic(value, platform) {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Diagnostic marker must contain an object");
+  }
+  assertExactKeys(value, ["schemaVersion", "platform", "stage", "fixtureId"], "diagnostic marker");
+  if (value.schemaVersion !== 1 || value.platform !== platform || !diagnosticStages.has(value.stage)) {
+    throw new Error("Diagnostic marker identity is invalid");
+  }
+  return {
+    schemaVersion: 1,
+    platform,
+    stage: value.stage,
+    fixtureId: boundedToken(value.fixtureId, "diagnostic.fixtureId", { nullable: true }),
+  };
+}
+
+function parseDiagnostics(lines, platform) {
+  const marker = "SETTLEORA_OCR_DIAGNOSTIC=";
+  const markedLines = lines.filter((line) => line.startsWith(marker));
+  if (markedLines.length > 4) throw new Error("Acceptance runner emitted too many diagnostic markers");
+  return markedLines.map((line) => {
+    const encoded = line.slice(marker.length);
+    if (Buffer.byteLength(encoded, "utf8") > maxMarkerBytes) {
+      throw new Error("Diagnostic marker exceeds its bound");
+    }
+    return sanitizeDiagnostic(JSON.parse(encoded), platform);
+  });
+}
+
 function parseMarker(lines, marker, sanitize, fallback) {
   const markedLine = lines.findLast((line) => line.includes(marker));
   if (!markedLine) return fallback;
@@ -477,6 +538,7 @@ export function buildEvidence(args, repoRoot = process.cwd()) {
     (value) => sanitizeUiSmoke(value, args.platform),
     { schemaVersion: 1, platform: args.platform, completed: false, markerProduced: false },
   );
+  const diagnostics = parseDiagnostics(protocol.markerMessages, args.platform);
 
   const catalogPath = path.join(repoRoot, "apps/mobile/assets/receipt_ocr_models/catalog.json");
   const manifestPath = path.join(repoRoot, "apps/mobile/test/fixtures/receipt_ocr/manifest.json");
@@ -486,6 +548,13 @@ export function buildEvidence(args, repoRoot = process.cwd()) {
   const modelFreeBytes = parseOptionalBytes(args["model-free-bytes"]);
   const baseAppBytes = parseOptionalBytes(args["base-app-bytes"]);
   const testExitStatus = boundedInteger(Number(args["test-status"]), "test-status");
+  const preflightFailurePhase = args["failure-phase"] || null;
+  if (
+    preflightFailurePhase != null &&
+    (args.platform !== "android" || !androidPreflightFailurePhases.has(preflightFailurePhase))
+  ) {
+    throw new Error("Preflight failure phase is invalid");
+  }
   const expectedBaseSha = "e4d4edd0d6854845cc67b00924f6d22af6a70688";
   if (args["base-sha"] !== expectedBaseSha) throw new Error("Base app SHA is invalid");
   if (fullBytes != null && modelFreeBytes != null && fullBytes < modelFreeBytes) {
@@ -502,10 +571,12 @@ export function buildEvidence(args, repoRoot = process.cwd()) {
     execution: {
       testExitStatus,
       protocolSucceeded: protocol.protocolSucceeded,
+      preflightFailurePhase,
       environment: sanitizeEnvironment(args),
     },
     acceptance,
     uiSmoke,
+    diagnostics,
     packageEvidence: {
       fullBytes,
       baselineWithoutBundledModelPayloadBytes: modelFreeBytes,
@@ -543,7 +614,10 @@ function parseArgs(values) {
 
 export function isCompleteEvidence(evidence) {
   return Boolean(
-    evidence.acceptance.completed &&
+    Array.isArray(evidence.diagnostics) &&
+      evidence.diagnostics.length === 0 &&
+      evidence.execution.preflightFailurePhase == null &&
+      evidence.acceptance.completed &&
       evidence.acceptance.networkIsolated === true &&
       evidence.execution.testExitStatus === 0 &&
       evidence.execution.protocolSucceeded === true &&
