@@ -224,10 +224,17 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.doesNotMatch(collector, /rawText/);
   assert.doesNotMatch(collector, /acceptance:\s*value|uiSmoke:\s*value/);
   const androidCommands = runCommands(native.jobs['android-native-acceptance']).join('\n');
+  assert.ok(androidCommands.includes('$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager'));
+  assert.ok(androidCommands.includes('$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer'));
+  assert.ok(androidCommands.includes('$ANDROID_HOME/platform-tools/adb'));
   assert.ok(androidCommands.includes('test "$system_image_revision" = "9"'));
   assert.ok(androidCommands.includes('test "$emulator_revision" = "37.2.10"'));
   assert.match(serialized, /receipt_ocr_acceptance/);
   assert.match(serialized, /integration.*test/i);
+  const iosCommands = runCommands(native.jobs['ios-native-acceptance']).join('\n');
+  assert.ok(iosCommands.includes('/Applications/Xcode_16.4.app/Contents/Developer'));
+  assert.ok(iosCommands.includes('test "$(pod --version)" = "1.17.0"'));
+  assert.ok(iosCommands.includes('test -s Podfile.lock'));
 });
 
 test('all repository workflow action references remain full-SHA pinned', () => {

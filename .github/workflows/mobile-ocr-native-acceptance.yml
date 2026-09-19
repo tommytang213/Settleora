@@ -76,30 +76,39 @@ jobs:
         id: environment
         shell: bash
         run: |
+          : "${ANDROID_HOME:?Hosted Android SDK root is unavailable}"
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          avdmanager="$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager"
+          emulator="$ANDROID_HOME/emulator/emulator"
+          adb="$ANDROID_HOME/platform-tools/adb"
+          test -x "$sdkmanager"
+          test -x "$avdmanager"
           sudo chmod 666 /dev/kvm
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platform-tools" "emulator" "system-images;android-35;google_apis;x86_64"
-          echo no | avdmanager create avd --force --name settleora-ocr --package "system-images;android-35;google_apis;x86_64"
-          nohup emulator -avd settleora-ocr -no-window -no-snapshot -noaudio -no-boot-anim -gpu swiftshader_indirect >"$RUNNER_TEMP/android-emulator.log" 2>&1 &
-          adb wait-for-device
+          yes | "$sdkmanager" --licenses >/dev/null || true
+          "$sdkmanager" "platform-tools" "emulator" "system-images;android-35;google_apis;x86_64"
+          test -x "$emulator"
+          test -x "$adb"
+          echo no | "$avdmanager" create avd --force --name settleora-ocr --package "system-images;android-35;google_apis;x86_64"
+          nohup "$emulator" -avd settleora-ocr -no-window -no-snapshot -noaudio -no-boot-anim -gpu swiftshader_indirect >"$RUNNER_TEMP/android-emulator.log" 2>&1 &
+          "$adb" wait-for-device
           for attempt in $(seq 1 120); do
-            if test "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1"; then
+            if test "$("$adb" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1"; then
               break
             fi
             sleep 2
           done
-          test "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1"
+          test "$("$adb" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1"
           : "${ImageOS:?Hosted runner image OS is unavailable}"
           : "${ImageVersion:?Hosted runner image version is unavailable}"
           sanitize() { printf '%s' "$1" | tr -c 'A-Za-z0-9_.:\[\]-' '_'; }
-          system_image_revision=$(sdkmanager --list_installed | awk -F'|' '$1 ~ /system-images;android-35;google_apis;x86_64/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}')
-          emulator_revision=$(sdkmanager --list_installed | awk -F'|' '$1 ~ /^[ \t]*emulator[ \t]*$/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}')
+          system_image_revision=$("$sdkmanager" --list_installed | awk -F'|' '$1 ~ /system-images;android-35;google_apis;x86_64/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}')
+          emulator_revision=$("$sdkmanager" --list_installed | awk -F'|' '$1 ~ /^[ \t]*emulator[ \t]*$/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}')
           test -n "$system_image_revision"
           test "$system_image_revision" = "9"
           test "$emulator_revision" = "37.2.10"
           echo "runner_image=$(sanitize "${ImageOS}-${ImageVersion}")" >> "$GITHUB_OUTPUT"
-          echo "os_runtime=$(sanitize "android-api$(adb shell getprop ro.build.version.sdk | tr -d '\r')-$(adb shell getprop ro.build.id | tr -d '\r')-$(adb shell getprop ro.build.version.incremental | tr -d '\r')")" >> "$GITHUB_OUTPUT"
-          echo "sdk_toolchain=$(sanitize "emulator-$(emulator -version | head -1 | awk '{print $3}')")" >> "$GITHUB_OUTPUT"
+          echo "os_runtime=$(sanitize "android-api$("$adb" shell getprop ro.build.version.sdk | tr -d '\r')-$("$adb" shell getprop ro.build.id | tr -d '\r')-$("$adb" shell getprop ro.build.version.incremental | tr -d '\r')")" >> "$GITHUB_OUTPUT"
+          echo "sdk_toolchain=$(sanitize "emulator-$("$emulator" -version | head -1 | awk '{print $3}')")" >> "$GITHUB_OUTPUT"
           echo "device=Android_Emulator_API_35_google_apis_x86_64" >> "$GITHUB_OUTPUT"
           echo "native_image=$(sanitize "android-35-google_apis-x86_64-revision-${system_image_revision}-emulator-${emulator_revision}")" >> "$GITHUB_OUTPUT"
 
@@ -118,7 +127,7 @@ jobs:
       - name: Measure Android package and model payload delta
         if: always()
         id: package
-        working-directory: apps/mobile
+        working-directory: ${{ github.workspace }}
         shell: bash
         run: |
           candidate_dir="$RUNNER_TEMP/android-candidate-package"
@@ -132,7 +141,9 @@ jobs:
           full_apk="$candidate_dir/apps/mobile/build/app/outputs/flutter-apk/app-release.apk"
           full_bytes=$(stat -c %s "$full_apk")
           ! unzip -l "$full_apk" | grep -F 'receipt_ocr_acceptance'
-          ! apkanalyzer dex packages "$full_apk" | grep -F 'dev.flutter.plugins.integration_test'
+          apkanalyzer="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
+          test -x "$apkanalyzer"
+          ! "$apkanalyzer" dex packages "$full_apk" | grep -F 'dev.flutter.plugins.integration_test'
           find "$candidate_dir/apps/mobile/assets/receipt_ocr_models" -mindepth 2 -type f -exec truncate -s 0 {} +
           (
             cd "$candidate_dir/apps/mobile"
@@ -221,21 +232,29 @@ jobs:
           flutter-version: "3.44.8"
           cache: true
 
+      - name: Verify immutable OCR models and fixture corpus
+        run: npm run validate:ocr-models
+
+      - name: Select trusted Xcode and CocoaPods
+        run: |
+          sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
+          test "$(pod --version)" = "1.17.0"
+
       - name: Install dependencies and pods
         working-directory: apps/mobile
         run: |
           flutter pub get
           cd ios
           pod install
-
-      - name: Verify immutable OCR models and fixture corpus
-        run: npm run validate:ocr-models
+          test -s Podfile.lock
+          sha256sum Podfile.lock
+          cat Podfile.lock
 
       - name: Boot trusted iOS simulator
         id: simulator
         shell: bash
         run: |
-          sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
+          test "$(xcode-select -p)" = "/Applications/Xcode_16.4.app/Contents/Developer"
           runtime=com.apple.CoreSimulator.SimRuntime.iOS-18-5
           udid=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for x in d["com.apple.CoreSimulator.SimRuntime.iOS-18-5"] if x["name"] == "iPhone 16"))')
           xcrun simctl boot "$udid" || true
@@ -248,7 +267,7 @@ jobs:
           test -n "$runtime_build"
           echo "runner_image=$(sanitize "${ImageOS}-${ImageVersion}")" >> "$GITHUB_OUTPUT"
           echo "os_runtime=$(sanitize "$runtime")" >> "$GITHUB_OUTPUT"
-          echo "sdk_toolchain=$(sanitize "$(xcodebuild -version | tr '\n' '-')")" >> "$GITHUB_OUTPUT"
+          echo "sdk_toolchain=$(sanitize "$(xcodebuild -version | tr '\n' '-')-cocoapods-$(pod --version)")" >> "$GITHUB_OUTPUT"
           echo "device=iPhone_16" >> "$GITHUB_OUTPUT"
           echo "native_image=$(sanitize "ios-18.5-${runtime_build}-iPhone_16")" >> "$GITHUB_OUTPUT"
 
@@ -267,7 +286,7 @@ jobs:
       - name: Measure iOS app and model payload delta
         if: always()
         id: package
-        working-directory: apps/mobile
+        working-directory: ${{ github.workspace }}
         shell: bash
         run: |
           candidate_dir="$RUNNER_TEMP/ios-candidate-package"
