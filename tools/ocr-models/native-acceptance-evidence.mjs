@@ -284,7 +284,7 @@ function parseSafeRunnerLog(log, stderrLog) {
     }
     if (
       (event.type === "error" && event.isFailure) ||
-      (event.type === "testDone" && event.result !== "success")
+      (event.type === "testDone" && (event.result !== "success" || event.skipped))
     ) {
       failedProtocolEvent = true;
     }

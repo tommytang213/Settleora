@@ -76,6 +76,8 @@ void main() {
     );
     expect(result.status, ReceiptOcrStatus.failed);
     expect(result.message, contains('manual'));
+    expect(result.failureCategory, ReceiptOcrFailureCategory.providerException);
+    expect(result.message, isNot(contains('private native details')));
   });
 
   test('provider reconstructs split LTR and RTL boxes by native row', () async {

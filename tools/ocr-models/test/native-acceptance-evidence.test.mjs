@@ -312,6 +312,18 @@ test("rejects contradictory unsuccessful protocol completion", () => {
   });
 });
 
+test("rejects skipped tests even when the runner reports success", () => {
+  const log = protocolLog().replace(
+    '"result":"success","skipped":false',
+    '"result":"success","skipped":true',
+  );
+  withLog(log, (logPath) => {
+    const evidence = buildEvidence(evidenceArgs(logPath), repoRoot);
+    assert.equal(evidence.execution.protocolSucceeded, false);
+    assert.equal(isCompleteEvidence(evidence), false);
+  });
+});
+
 test("discards bounded stderr diagnostics without retaining their text", () => {
   withLog(protocolLog(), (logPath) => {
     writeFileSync(

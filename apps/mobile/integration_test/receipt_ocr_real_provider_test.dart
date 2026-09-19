@@ -290,7 +290,14 @@ List<_BoundedMismatch> _completePreviewMismatches(
   final mismatches = <_BoundedMismatch>[];
   final preview = result.preview;
   if (result.status != ReceiptOcrStatus.extracted || preview == null) {
-    return [_BoundedMismatch(fixtureId, 'provider_status')];
+    return [
+      _BoundedMismatch(
+        fixtureId,
+        result.failureCategory == ReceiptOcrFailureCategory.providerException
+            ? 'provider_exception'
+            : 'provider_status',
+      ),
+    ];
   }
   _collectField(mismatches, fixtureId, 'merchant', preview.merchant, expected);
   _collectField(mismatches, fixtureId, 'date', preview.receiptDate, expected);

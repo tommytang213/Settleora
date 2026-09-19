@@ -19,7 +19,12 @@ class ReceiptOcrRequest {
 }
 
 class ReceiptOcrResult {
-  const ReceiptOcrResult._({required this.status, this.preview, this.message});
+  const ReceiptOcrResult._({
+    required this.status,
+    this.preview,
+    this.message,
+    this.failureCategory,
+  });
 
   const ReceiptOcrResult.extracted(ReceiptOcrPreview preview)
     : this._(status: ReceiptOcrStatus.extracted, preview: preview);
@@ -27,12 +32,16 @@ class ReceiptOcrResult {
   const ReceiptOcrResult.unsupported(String message)
     : this._(status: ReceiptOcrStatus.unsupported, message: message);
 
-  const ReceiptOcrResult.failed(String message)
-    : this._(status: ReceiptOcrStatus.failed, message: message);
+  const ReceiptOcrResult.failed(this.message, {this.failureCategory})
+    : status = ReceiptOcrStatus.failed,
+      preview = null;
 
   final ReceiptOcrStatus status;
   final ReceiptOcrPreview? preview;
   final String? message;
+  final ReceiptOcrFailureCategory? failureCategory;
 }
 
 enum ReceiptOcrStatus { extracted, unsupported, failed }
+
+enum ReceiptOcrFailureCategory { invalidProviderResponse, providerException }
