@@ -235,6 +235,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(iosCommands.includes('/Applications/Xcode_16.4.app/Contents/Developer'));
   assert.ok(iosCommands.includes('test "$(pod --version)" = "1.17.0"'));
   assert.ok(iosCommands.includes('test -s Podfile.lock'));
+  assert.match(serialized, /ios-pod-lock-/);
 });
 
 test('all repository workflow action references remain full-SHA pinned', () => {

@@ -125,7 +125,7 @@ jobs:
           exit 0
 
       - name: Measure Android package and model payload delta
-        if: always()
+        if: ${{ !cancelled() }}
         id: package
         working-directory: ${{ github.workspace }}
         shell: bash
@@ -250,6 +250,14 @@ jobs:
           sha256sum Podfile.lock
           cat Podfile.lock
 
+      - name: Upload temporary iOS dependency lock
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ios-pod-lock-${{ env.EXPECTED_HEAD }}
+          path: apps/mobile/ios/Podfile.lock
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Boot trusted iOS simulator
         id: simulator
         shell: bash
@@ -284,7 +292,7 @@ jobs:
           exit 0
 
       - name: Measure iOS app and model payload delta
-        if: always()
+        if: ${{ !cancelled() }}
         id: package
         working-directory: ${{ github.workspace }}
         shell: bash
