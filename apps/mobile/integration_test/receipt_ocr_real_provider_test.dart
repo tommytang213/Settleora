@@ -350,7 +350,13 @@ String _normalizedText(String? value) =>
 
 Map<String, int?> _latencySummary(List<int> values) {
   if (values.isEmpty) {
-    return const {'cold': null, 'warmP50': null, 'warmP95': null, 'max': null};
+    return const {
+      'sampleCount': 0,
+      'cold': null,
+      'warmP50': null,
+      'warmP95': null,
+      'max': null,
+    };
   }
   final warm = values.length > 1 ? (values.sublist(1)..sort()) : <int>[];
   int? percentile(double fraction) {
@@ -360,6 +366,7 @@ Map<String, int?> _latencySummary(List<int> values) {
   }
 
   return {
+    'sampleCount': values.length,
     'cold': values.first,
     'warmP50': percentile(0.50),
     'warmP95': percentile(0.95),

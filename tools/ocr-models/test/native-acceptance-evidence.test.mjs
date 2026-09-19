@@ -21,6 +21,19 @@ function withLog(contents, callback) {
   }
 }
 
+function evidenceArgs(log, platform = "android") {
+  return {
+    log,
+    platform,
+    "source-sha": sourceSha,
+    "test-status": "0",
+    "runner-image": "test-runner-1",
+    "os-runtime": `${platform}-test-runtime`,
+    "sdk-toolchain": "test-sdk-1",
+    device: "test-device",
+  };
+}
+
 test("retains only the bounded native acceptance schema", () => {
   const acceptance = {
     schemaVersion: 1,
@@ -32,8 +45,8 @@ test("retains only the bounded native acceptance schema", () => {
     mismatches: [{ fixtureId: "fixture_001", field: "items[0].description", rawText: "private" }],
     runtime: "onnxruntime-android:1.21.1:cpu",
     coldLoadTimeMs: 25,
-    endToEndLatencyMs: { cold: 30, warmP50: 20, warmP95: 24, max: 30 },
-    nativeLatencyMs: { cold: 28, warmP50: 18, warmP95: 22, max: 28 },
+    endToEndLatencyMs: { sampleCount: 101, cold: 30, warmP50: 20, warmP95: 24, max: 30 },
+    nativeLatencyMs: { sampleCount: 101, cold: 28, warmP50: 18, warmP95: 22, max: 28 },
     peakRssBytes: 123456,
     perScript: { Latin: { total: 101, passed: 100, leaked: "private" } },
     rawOcrText: "private",
@@ -52,9 +65,7 @@ test("retains only the bounded native acceptance schema", () => {
     (log) => {
       const evidence = buildEvidence(
         {
-          log,
-          platform: "android",
-          "source-sha": sourceSha,
+          ...evidenceArgs(log),
           "full-bytes": "200",
           "baseline-bytes": "150",
         },
@@ -64,6 +75,8 @@ test("retains only the bounded native acceptance schema", () => {
       assert.equal(evidence.uiSmoke.completed, true);
       assert.equal(evidence.packageEvidence.bundledModelPackageDeltaBytes, 50);
       assert.equal(evidence.identities.fixtureTreeSha256.length, 64);
+      assert.equal(evidence.execution.testExitStatus, 0);
+      assert.equal(evidence.execution.environment.device, "test-device");
       assert.equal(JSON.stringify(evidence).includes("private"), false);
     },
   );
@@ -71,7 +84,16 @@ test("retains only the bounded native acceptance schema", () => {
 
 test("complete evidence requires both package measurements and a positive delta", () => {
   const evidence = {
-    acceptance: { completed: true, passedFixtureCount: 101, mismatchCount: 0 },
+    execution: { testExitStatus: 0 },
+    acceptance: {
+      completed: true,
+      passedFixtureCount: 101,
+      mismatchCount: 0,
+      coldLoadTimeMs: 1,
+      endToEndLatencyMs: { sampleCount: 101 },
+      nativeLatencyMs: { sampleCount: 101 },
+      peakRssBytes: 1,
+    },
     uiSmoke: { completed: true, previewPanel: true, applyBoundaryVisible: true },
     packageEvidence: {
       fullBytes: 200,
@@ -80,6 +102,7 @@ test("complete evidence requires both package measurements and a positive delta"
     },
   };
   assert.equal(isCompleteEvidence(evidence), true);
+  assert.equal(isCompleteEvidence({ ...evidence, execution: { testExitStatus: 1 } }), false);
   assert.equal(
     isCompleteEvidence({
       ...evidence,
@@ -114,6 +137,11 @@ test("CLI writes a bounded failure artifact before rejecting malformed markers",
         `--out=${out}`,
         "--platform=android",
         `--source-sha=${sourceSha}`,
+        "--test-status=0",
+        "--runner-image=test-runner-1",
+        "--os-runtime=android-test-runtime",
+        "--sdk-toolchain=test-sdk-1",
+        "--device=test-device",
         "--require-complete=true",
       ],
       { cwd: repoRoot, encoding: "utf8" },
@@ -129,10 +157,7 @@ test("CLI writes a bounded failure artifact before rejecting malformed markers",
 
 test("produces bounded incomplete evidence when device execution emits no markers", () => {
   withLog("device did not boot\n", (log) => {
-    const evidence = buildEvidence(
-      { log, platform: "ios", "source-sha": sourceSha },
-      repoRoot,
-    );
+    const evidence = buildEvidence(evidenceArgs(log, "ios"), repoRoot);
     assert.deepEqual(evidence.acceptance, {
       schemaVersion: 1,
       platform: "ios",
@@ -155,14 +180,14 @@ test("rejects unbounded marker tokens rather than retaining arbitrary OCR text",
     mismatches: [{ fixtureId: "private receipt text with spaces", field: "merchant" }],
     runtime: null,
     coldLoadTimeMs: null,
-    endToEndLatencyMs: { cold: null, warmP50: null, warmP95: null, max: null },
-    nativeLatencyMs: { cold: null, warmP50: null, warmP95: null, max: null },
+    endToEndLatencyMs: { sampleCount: 0, cold: null, warmP50: null, warmP95: null, max: null },
+    nativeLatencyMs: { sampleCount: 0, cold: null, warmP50: null, warmP95: null, max: null },
     peakRssBytes: 1,
     perScript: {},
   };
   withLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify(acceptance)}\n`, (log) => {
     assert.throws(
-      () => buildEvidence({ log, platform: "android", "source-sha": sourceSha }, repoRoot),
+      () => buildEvidence(evidenceArgs(log), repoRoot),
       /bounded evidence token/,
     );
   });
@@ -179,14 +204,14 @@ test("rejects contradictory aggregate counts and package measurements", () => {
     mismatches: [{ fixtureId: "fixture_001", field: "merchant" }],
     runtime: "onnxruntime-android:1.21.1:cpu",
     coldLoadTimeMs: 1,
-    endToEndLatencyMs: { cold: 1, warmP50: 1, warmP95: 1, max: 1 },
-    nativeLatencyMs: { cold: 1, warmP50: 1, warmP95: 1, max: 1 },
+    endToEndLatencyMs: { sampleCount: 101, cold: 1, warmP50: 1, warmP95: 1, max: 1 },
+    nativeLatencyMs: { sampleCount: 101, cold: 1, warmP50: 1, warmP95: 1, max: 1 },
     peakRssBytes: 1,
     perScript: { Latin: { total: 101, passed: 101 } },
   };
   withLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify(acceptance)}\n`, (log) => {
     assert.throws(
-      () => buildEvidence({ log, platform: "android", "source-sha": sourceSha }, repoRoot),
+      () => buildEvidence(evidenceArgs(log), repoRoot),
       /internally inconsistent/,
     );
   });
@@ -194,9 +219,7 @@ test("rejects contradictory aggregate counts and package measurements", () => {
     assert.throws(
       () => buildEvidence(
         {
-          log,
-          platform: "android",
-          "source-sha": sourceSha,
+          ...evidenceArgs(log),
           "full-bytes": "100",
           "baseline-bytes": "101",
         },

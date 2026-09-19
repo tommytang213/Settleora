@@ -34,7 +34,7 @@ env:
 jobs:
   android-native-acceptance:
     name: Android 101-image real-provider acceptance
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 360
 
     steps:
@@ -72,6 +72,7 @@ jobs:
         run: npm run validate:ocr-models
 
       - name: Start trusted Android emulator
+        id: environment
         shell: bash
         run: |
           sudo chmod 666 /dev/kvm
@@ -81,10 +82,17 @@ jobs:
           nohup emulator -avd settleora-ocr -no-window -no-snapshot -noaudio -no-boot-anim -gpu swiftshader_indirect >"$RUNNER_TEMP/android-emulator.log" 2>&1 &
           adb wait-for-device
           for attempt in $(seq 1 120); do
-            test "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" && exit 0
+            if test "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1"; then
+              break
+            fi
             sleep 2
           done
-          exit 1
+          test "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1"
+          sanitize() { printf '%s' "$1" | tr -c 'A-Za-z0-9_.:\[\]-' '_'; }
+          echo "runner_image=$(sanitize "${ImageOS:-unknown}-${ImageVersion:-unknown}")" >> "$GITHUB_OUTPUT"
+          echo "os_runtime=$(sanitize "android-api$(adb shell getprop ro.build.version.sdk | tr -d '\r')-$(adb shell getprop ro.build.id | tr -d '\r')")" >> "$GITHUB_OUTPUT"
+          echo "sdk_toolchain=$(sanitize "emulator-$(emulator -version | head -1 | awk '{print $3}')")" >> "$GITHUB_OUTPUT"
+          echo "device=Android_Emulator_API_35_google_apis_x86_64" >> "$GITHUB_OUTPUT"
 
       - name: Execute Android real-provider acceptance
         id: acceptance
@@ -122,6 +130,11 @@ jobs:
             --out="$RUNNER_TEMP/android-ocr-acceptance.json" \
             --platform=android \
             --source-sha="$EXPECTED_HEAD" \
+            --test-status="${{ steps.acceptance.outputs.status }}" \
+            --runner-image="${{ steps.environment.outputs.runner_image }}" \
+            --os-runtime="${{ steps.environment.outputs.os_runtime }}" \
+            --sdk-toolchain="${{ steps.environment.outputs.sdk_toolchain }}" \
+            --device="${{ steps.environment.outputs.device }}" \
             --full-bytes="${{ steps.package.outputs.full_bytes }}" \
             --baseline-bytes="${{ steps.package.outputs.baseline_bytes }}" \
             --require-complete=true
@@ -141,7 +154,7 @@ jobs:
 
   ios-native-acceptance:
     name: iOS 101-image real-provider acceptance
-    runs-on: macos-latest
+    runs-on: macos-15
     timeout-minutes: 360
 
     steps:
@@ -179,10 +192,17 @@ jobs:
         id: simulator
         shell: bash
         run: |
-          udid=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for values in d.values() for x in values if x["name"].startswith("iPhone")))')
+          sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
+          runtime=com.apple.CoreSimulator.SimRuntime.iOS-18-5
+          udid=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for x in d["com.apple.CoreSimulator.SimRuntime.iOS-18-5"] if x["name"] == "iPhone 16"))')
           xcrun simctl boot "$udid" || true
           xcrun simctl bootstatus "$udid" -b
           echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          sanitize() { printf '%s' "$1" | tr -c 'A-Za-z0-9_.:\[\]-' '_'; }
+          echo "runner_image=$(sanitize "${ImageOS:-unknown}-${ImageVersion:-unknown}")" >> "$GITHUB_OUTPUT"
+          echo "os_runtime=$(sanitize "$runtime")" >> "$GITHUB_OUTPUT"
+          echo "sdk_toolchain=$(sanitize "$(xcodebuild -version | tr '\n' '-')")" >> "$GITHUB_OUTPUT"
+          echo "device=iPhone_16" >> "$GITHUB_OUTPUT"
 
       - name: Execute iOS real-provider acceptance
         id: acceptance
@@ -220,6 +240,11 @@ jobs:
             --out="$RUNNER_TEMP/ios-ocr-acceptance.json" \
             --platform=ios \
             --source-sha="$EXPECTED_HEAD" \
+            --test-status="${{ steps.acceptance.outputs.status }}" \
+            --runner-image="${{ steps.simulator.outputs.runner_image }}" \
+            --os-runtime="${{ steps.simulator.outputs.os_runtime }}" \
+            --sdk-toolchain="${{ steps.simulator.outputs.sdk_toolchain }}" \
+            --device="${{ steps.simulator.outputs.device }}" \
             --full-bytes="${{ steps.package.outputs.full_bytes }}" \
             --baseline-bytes="${{ steps.package.outputs.baseline_bytes }}" \
             --require-complete=true

@@ -24,6 +24,12 @@ function boundedInteger(value, name, { nullable = false } = {}) {
   return value;
 }
 
+function positiveInteger(value, name) {
+  const parsed = boundedInteger(value, name);
+  if (parsed === 0) throw new Error(`${name} must be positive`);
+  return parsed;
+}
+
 function boundedToken(value, name, { nullable = false } = {}) {
   if (nullable && value == null) return null;
   if (typeof value !== "string" || !safeToken.test(value)) {
@@ -36,12 +42,31 @@ function latencySummary(value, name) {
   if (value == null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`${name} must be an object`);
   }
-  return Object.fromEntries(
-    ["cold", "warmP50", "warmP95", "max"].map((field) => [
-      field,
-      boundedInteger(value[field], `${name}.${field}`, { nullable: true }),
-    ]),
-  );
+  const summary = {
+    sampleCount: boundedInteger(value.sampleCount, `${name}.sampleCount`),
+    cold: positiveInteger(value.cold, `${name}.cold`),
+    warmP50: positiveInteger(value.warmP50, `${name}.warmP50`),
+    warmP95: positiveInteger(value.warmP95, `${name}.warmP95`),
+    max: positiveInteger(value.max, `${name}.max`),
+  };
+  if (
+    summary.sampleCount !== 101 ||
+    summary.cold > summary.max ||
+    summary.warmP50 > summary.warmP95 ||
+    summary.warmP95 > summary.max
+  ) {
+    throw new Error(`${name} is internally inconsistent`);
+  }
+  return summary;
+}
+
+function sanitizeEnvironment(args) {
+  return {
+    runnerImage: boundedToken(args["runner-image"], "runner-image"),
+    osRuntime: boundedToken(args["os-runtime"], "os-runtime"),
+    sdkToolchain: boundedToken(args["sdk-toolchain"], "sdk-toolchain"),
+    device: boundedToken(args.device, "device"),
+  };
 }
 
 function sanitizeAcceptance(value, platform) {
@@ -116,10 +141,10 @@ function sanitizeAcceptance(value, platform) {
     mismatchCount,
     mismatches,
     runtime,
-    coldLoadTimeMs: boundedInteger(value.coldLoadTimeMs, "coldLoadTimeMs", { nullable: true }),
+    coldLoadTimeMs: positiveInteger(value.coldLoadTimeMs, "coldLoadTimeMs"),
     endToEndLatencyMs: latencySummary(value.endToEndLatencyMs, "endToEndLatencyMs"),
     nativeLatencyMs: latencySummary(value.nativeLatencyMs, "nativeLatencyMs"),
-    peakRssBytes: boundedInteger(value.peakRssBytes, "peakRssBytes"),
+    peakRssBytes: positiveInteger(value.peakRssBytes, "peakRssBytes"),
     perScript,
   };
 }
@@ -156,7 +181,7 @@ function parseMarker(lines, marker, sanitize, fallback) {
 }
 
 export function buildEvidence(args, repoRoot = process.cwd()) {
-  for (const required of ["log", "platform", "source-sha"]) {
+  for (const required of ["log", "platform", "source-sha", "test-status", "runner-image", "os-runtime", "sdk-toolchain", "device"]) {
     if (!args[required]) throw new Error(`Missing --${required}`);
   }
   if (!new Set(["android", "ios"]).has(args.platform)) {
@@ -188,6 +213,7 @@ export function buildEvidence(args, repoRoot = process.cwd()) {
   const sha256 = (filePath) => createHash("sha256").update(readFileSync(filePath)).digest("hex");
   const fullBytes = parseOptionalBytes(args["full-bytes"]);
   const baselineBytes = parseOptionalBytes(args["baseline-bytes"]);
+  const testExitStatus = boundedInteger(Number(args["test-status"]), "test-status");
   if (fullBytes != null && baselineBytes != null && fullBytes < baselineBytes) {
     throw new Error("Bundled model package delta cannot be negative");
   }
@@ -196,6 +222,10 @@ export function buildEvidence(args, repoRoot = process.cwd()) {
     schemaVersion: 1,
     platform: args.platform,
     sourceSha: args["source-sha"],
+    execution: {
+      testExitStatus,
+      environment: sanitizeEnvironment(args),
+    },
     acceptance,
     uiSmoke,
     packageEvidence: {
@@ -232,8 +262,13 @@ function parseArgs(values) {
 export function isCompleteEvidence(evidence) {
   return Boolean(
     evidence.acceptance.completed &&
+      evidence.execution.testExitStatus === 0 &&
       evidence.acceptance.passedFixtureCount === 101 &&
       evidence.acceptance.mismatchCount === 0 &&
+      evidence.acceptance.coldLoadTimeMs > 0 &&
+      evidence.acceptance.endToEndLatencyMs.sampleCount === 101 &&
+      evidence.acceptance.nativeLatencyMs.sampleCount === 101 &&
+      evidence.acceptance.peakRssBytes > 0 &&
       evidence.uiSmoke.completed &&
       evidence.uiSmoke.previewPanel &&
       evidence.uiSmoke.applyBoundaryVisible &&

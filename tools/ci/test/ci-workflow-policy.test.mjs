@@ -171,8 +171,8 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.equal(native.env.EXPECTED_HEAD, "${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || inputs.expected_head }}");
 
   const expectedJobs = [
-    ['android-native-acceptance', 'ubuntu-latest', 'emulator-5554'],
-    ['ios-native-acceptance', 'macos-latest', 'steps.simulator.outputs.udid'],
+    ['android-native-acceptance', 'ubuntu-24.04', 'emulator-5554'],
+    ['ios-native-acceptance', 'macos-15', 'steps.simulator.outputs.udid'],
   ];
   for (const [jobName, runner, device] of expectedJobs) {
     const job = native.jobs[jobName];
@@ -192,6 +192,8 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
     assert.ok(runCommands(job).includes('npm run validate:ocr-models'));
     assert.ok(runCommands(job).some((command) => command.includes('native-acceptance-evidence.mjs')));
     assert.ok(runCommands(job).some((command) => command.includes('--require-complete=true')));
+    assert.ok(runCommands(job).some((command) => command.includes('--test-status=')));
+    assert.ok(runCommands(job).some((command) => command.includes('--runner-image=')));
     const upload = stepsFor(job).find((step) => step.uses?.startsWith('actions/upload-artifact@'));
     assert.equal(upload.with.path.endsWith('-ocr-acceptance.json'), true);
     assert.equal(upload.with['if-no-files-found'], 'error');
