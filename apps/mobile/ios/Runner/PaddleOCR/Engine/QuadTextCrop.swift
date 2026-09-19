@@ -80,25 +80,37 @@ enum QuadTextCropError: LocalizedError {
 /// Minimum-area quadrilateral, corner ordering, perspective warp, then optional 90° CCW rotation when height/width ≥ 1.5.
 struct QuadTextCrop {
 
+    /// A receipt image rasterized once into the BGR layout consumed by OpenCV.
+    /// Reuse this value for every detected quadrilateral in the receipt.
+    struct PreparedSource {
+        fileprivate let pixels: Data
+        fileprivate let width: Int
+        fileprivate let height: Int
+    }
+
+    static func prepare(_ image: CGImage) throws -> PreparedSource {
+        PreparedSource(
+            pixels: Data(try extractBGRPixels(from: image)),
+            width: image.width,
+            height: image.height
+        )
+    }
+
     /// Crop a text region from the source image using the detector quadrilateral.
-    static func crop(_ image: CGImage, polygon: [[Int32]]) throws -> CGImage {
+    static func crop(_ source: PreparedSource, polygon: [[Int32]]) throws -> CGImage {
         guard polygon.count == 4, polygon.allSatisfy({ $0.count == 2 }) else {
             throw QuadTextCropError.invalidPolygon(
                 "Expected 4 points with 2 coordinates each, got \(polygon.count) points"
             )
         }
 
-        let srcPixels = try extractBGRPixels(from: image)
-        let srcW = image.width
-        let srcH = image.height
-
         let polyValues: [NSValue] = polygon.map {
             NSValue(cgPoint: CGPoint(x: CGFloat($0[0]), y: CGFloat($0[1])))
         }
         guard let out = PDBOpenCVImageBridge.quadTextLineCropBGR(
-            Data(srcPixels),
-            srcWidth: srcW,
-            srcHeight: srcH,
+            source.pixels,
+            srcWidth: source.width,
+            srcHeight: source.height,
             quad: polyValues
         ) else {
             throw QuadTextCropError.openCVFailed

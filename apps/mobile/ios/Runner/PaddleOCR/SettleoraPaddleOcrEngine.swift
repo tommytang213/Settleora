@@ -133,7 +133,13 @@ final class SettleoraPaddleOcrEngine {
     let detection = try await detector.detect(image, runtimeParams: runtime)
     let boxes = BoxSorter.sortInReadingOrder(detection.boxes)
     guard boxes.count <= 128 else { throw SettleoraOcrError.tooManyLines }
-    let crops = try boxes.map { try QuadTextCrop.crop(image, polygon: $0.points) }
+    let crops: [CGImage]
+    if boxes.isEmpty {
+      crops = []
+    } else {
+      let cropSource = try QuadTextCrop.prepare(image)
+      crops = try boxes.map { try QuadTextCrop.crop(cropSource, polygon: $0.points) }
+    }
 
     guard let common = recognizers.first(where: { $0.spec.acceptedScripts.contains(.common) }) else {
       throw SettleoraOcrError.invalidCatalog

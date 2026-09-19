@@ -5,6 +5,43 @@ import XCTest
 
 class RunnerTests: XCTestCase {
 
+  func testQuadTextCropReusesOnePreparedReceiptRaster() throws {
+    let width = 12
+    let height = 8
+    let colorSpace = CGColorSpaceCreateDeviceRGB()
+    guard let context = CGContext(
+      data: nil,
+      width: width,
+      height: height,
+      bitsPerComponent: 8,
+      bytesPerRow: width * 4,
+      space: colorSpace,
+      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else {
+      return XCTFail("Could not create test bitmap context")
+    }
+    context.setFillColor(UIColor.red.cgColor)
+    context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    guard let image = context.makeImage() else {
+      return XCTFail("Could not create test image")
+    }
+
+    let source = try QuadTextCrop.prepare(image)
+    let left = try QuadTextCrop.crop(
+      source,
+      polygon: [[0, 0], [5, 0], [5, 7], [0, 7]]
+    )
+    let right = try QuadTextCrop.crop(
+      source,
+      polygon: [[6, 0], [11, 0], [11, 7], [6, 7]]
+    )
+
+    XCTAssertGreaterThan(left.width, 0)
+    XCTAssertGreaterThan(left.height, 0)
+    XCTAssertGreaterThan(right.width, 0)
+    XCTAssertGreaterThan(right.height, 0)
+  }
+
   func testEncodedImageRejectsOversizedDeclaredDimensionsBeforeDecode() {
     // Valid, compressed 75-byte PNG declaring a 10,000-pixel-wide surface.
     // The encoded header must be rejected before Image I/O decodes its pixels.
