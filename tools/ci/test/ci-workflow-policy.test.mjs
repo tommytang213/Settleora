@@ -180,6 +180,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
     assert.equal(job['timeout-minutes'], 360);
     const checkout = stepsFor(job).find((step) => step.uses?.startsWith('actions/checkout@'));
     assert.equal(checkout.with.ref, '${{ env.CANDIDATE_REF }}');
+    assert.equal(checkout.with['fetch-depth'], 0);
     assert.ok(runCommands(job).some((command) => command.includes('git rev-parse HEAD')));
     assert.ok(
       runCommands(job).some(
@@ -194,6 +195,11 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
     assert.ok(runCommands(job).some((command) => command.includes('--require-complete=true')));
     assert.ok(runCommands(job).some((command) => command.includes('--test-status=')));
     assert.ok(runCommands(job).some((command) => command.includes('--runner-image=')));
+    assert.ok(runCommands(job).some((command) => command.includes('--native-image=')));
+    assert.ok(runCommands(job).some((command) => command.includes('--base-app-bytes=')));
+    assert.ok(runCommands(job).some((command) => command.includes('git archive')));
+    assert.ok(runCommands(job).some((command) => command.includes('>"$RUNNER_TEMP/')));
+    assert.equal(runCommands(job).some((command) => command.includes('| tee ')), false);
     const upload = stepsFor(job).find((step) => step.uses?.startsWith('actions/upload-artifact@'));
     assert.equal(upload.with.path.endsWith('-ocr-acceptance.json'), true);
     assert.equal(upload.with['if-no-files-found'], 'error');

@@ -42,6 +42,7 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
           ref: ${{ env.CANDIDATE_REF }}
+          fetch-depth: 0
 
       - name: Verify exact candidate
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
@@ -88,11 +89,16 @@ jobs:
             sleep 2
           done
           test "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1"
+          : "${ImageOS:?Hosted runner image OS is unavailable}"
+          : "${ImageVersion:?Hosted runner image version is unavailable}"
           sanitize() { printf '%s' "$1" | tr -c 'A-Za-z0-9_.:\[\]-' '_'; }
-          echo "runner_image=$(sanitize "${ImageOS:-unknown}-${ImageVersion:-unknown}")" >> "$GITHUB_OUTPUT"
-          echo "os_runtime=$(sanitize "android-api$(adb shell getprop ro.build.version.sdk | tr -d '\r')-$(adb shell getprop ro.build.id | tr -d '\r')")" >> "$GITHUB_OUTPUT"
+          system_image_revision=$(sdkmanager --list_installed | awk -F'|' '$1 ~ /system-images;android-35;google_apis;x86_64/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}')
+          test -n "$system_image_revision"
+          echo "runner_image=$(sanitize "${ImageOS}-${ImageVersion}")" >> "$GITHUB_OUTPUT"
+          echo "os_runtime=$(sanitize "android-api$(adb shell getprop ro.build.version.sdk | tr -d '\r')-$(adb shell getprop ro.build.id | tr -d '\r')-$(adb shell getprop ro.build.version.incremental | tr -d '\r')")" >> "$GITHUB_OUTPUT"
           echo "sdk_toolchain=$(sanitize "emulator-$(emulator -version | head -1 | awk '{print $3}')")" >> "$GITHUB_OUTPUT"
           echo "device=Android_Emulator_API_35_google_apis_x86_64" >> "$GITHUB_OUTPUT"
+          echo "native_image=$(sanitize "android-35-google_apis-x86_64-revision-${system_image_revision}")" >> "$GITHUB_OUTPUT"
 
       - name: Execute Android real-provider acceptance
         id: acceptance
@@ -101,8 +107,8 @@ jobs:
         shell: bash
         run: |
           set +e
-          flutter test integration_test/receipt_ocr_real_provider_test.dart -d emulator-5554 --timeout 6h 2>&1 | tee "$RUNNER_TEMP/android-acceptance.log"
-          status=${PIPESTATUS[0]}
+          flutter test integration_test/receipt_ocr_real_provider_test.dart -d emulator-5554 --timeout 6h >"$RUNNER_TEMP/android-acceptance.log" 2>&1
+          status=$?
           echo "status=$status" >> "$GITHUB_OUTPUT"
           exit 0
 
@@ -116,9 +122,22 @@ jobs:
           full_bytes=$(stat -c %s build/app/outputs/flutter-apk/app-debug.apk)
           find assets/receipt_ocr_models -mindepth 2 -type f -exec truncate -s 0 {} +
           flutter build apk --debug
-          baseline_bytes=$(stat -c %s build/app/outputs/flutter-apk/app-debug.apk)
+          model_free_bytes=$(stat -c %s build/app/outputs/flutter-apk/app-debug.apk)
+          base_sha=7a6af8457cdd6eb64df91253a63801756f09d23d
+          git cat-file -e "$base_sha^{commit}"
+          base_dir="$RUNNER_TEMP/android-base-app"
+          mkdir -p "$base_dir"
+          git archive "$base_sha" | tar -x -C "$base_dir"
+          (
+            cd "$base_dir/apps/mobile"
+            flutter pub get
+            flutter build apk --debug
+          )
+          base_app_bytes=$(stat -c %s "$base_dir/apps/mobile/build/app/outputs/flutter-apk/app-debug.apk")
           echo "full_bytes=$full_bytes" >> "$GITHUB_OUTPUT"
-          echo "baseline_bytes=$baseline_bytes" >> "$GITHUB_OUTPUT"
+          echo "model_free_bytes=$model_free_bytes" >> "$GITHUB_OUTPUT"
+          echo "base_app_bytes=$base_app_bytes" >> "$GITHUB_OUTPUT"
+          echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
 
       - name: Build bounded Android evidence
         if: always()
@@ -135,8 +154,11 @@ jobs:
             --os-runtime="${{ steps.environment.outputs.os_runtime }}" \
             --sdk-toolchain="${{ steps.environment.outputs.sdk_toolchain }}" \
             --device="${{ steps.environment.outputs.device }}" \
+            --native-image="${{ steps.environment.outputs.native_image }}" \
             --full-bytes="${{ steps.package.outputs.full_bytes }}" \
-            --baseline-bytes="${{ steps.package.outputs.baseline_bytes }}" \
+            --model-free-bytes="${{ steps.package.outputs.model_free_bytes }}" \
+            --base-app-bytes="${{ steps.package.outputs.base_app_bytes }}" \
+            --base-sha="${{ steps.package.outputs.base_sha }}" \
             --require-complete=true
 
       - name: Upload bounded Android evidence
@@ -162,6 +184,7 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
           ref: ${{ env.CANDIDATE_REF }}
+          fetch-depth: 0
 
       - name: Verify exact candidate
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
@@ -198,11 +221,16 @@ jobs:
           xcrun simctl boot "$udid" || true
           xcrun simctl bootstatus "$udid" -b
           echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          : "${ImageOS:?Hosted runner image OS is unavailable}"
+          : "${ImageVersion:?Hosted runner image version is unavailable}"
           sanitize() { printf '%s' "$1" | tr -c 'A-Za-z0-9_.:\[\]-' '_'; }
-          echo "runner_image=$(sanitize "${ImageOS:-unknown}-${ImageVersion:-unknown}")" >> "$GITHUB_OUTPUT"
+          runtime_build=$(xcrun simctl list runtimes -j | python3 -c 'import json,sys; values=json.load(sys.stdin)["runtimes"]; value=next(x for x in values if x["identifier"] == "com.apple.CoreSimulator.SimRuntime.iOS-18-5"); print(value.get("buildversion") or value["version"])')
+          test -n "$runtime_build"
+          echo "runner_image=$(sanitize "${ImageOS}-${ImageVersion}")" >> "$GITHUB_OUTPUT"
           echo "os_runtime=$(sanitize "$runtime")" >> "$GITHUB_OUTPUT"
           echo "sdk_toolchain=$(sanitize "$(xcodebuild -version | tr '\n' '-')")" >> "$GITHUB_OUTPUT"
           echo "device=iPhone_16" >> "$GITHUB_OUTPUT"
+          echo "native_image=$(sanitize "ios-18.5-${runtime_build}-iPhone_16")" >> "$GITHUB_OUTPUT"
 
       - name: Execute iOS real-provider acceptance
         id: acceptance
@@ -211,8 +239,8 @@ jobs:
         shell: bash
         run: |
           set +e
-          flutter test integration_test/receipt_ocr_real_provider_test.dart -d "${{ steps.simulator.outputs.udid }}" --timeout 6h 2>&1 | tee "$RUNNER_TEMP/ios-acceptance.log"
-          status=${PIPESTATUS[0]}
+          flutter test integration_test/receipt_ocr_real_provider_test.dart -d "${{ steps.simulator.outputs.udid }}" --timeout 6h >"$RUNNER_TEMP/ios-acceptance.log" 2>&1
+          status=$?
           echo "status=$status" >> "$GITHUB_OUTPUT"
           exit 0
 
@@ -226,9 +254,25 @@ jobs:
           full_bytes=$(find build/ios/iphonesimulator/Runner.app -type f -exec stat -f %z {} + | awk '{sum += $1} END {print sum}')
           find assets/receipt_ocr_models -mindepth 2 -type f -exec truncate -s 0 {} +
           flutter build ios --debug --simulator
-          baseline_bytes=$(find build/ios/iphonesimulator/Runner.app -type f -exec stat -f %z {} + | awk '{sum += $1} END {print sum}')
+          model_free_bytes=$(find build/ios/iphonesimulator/Runner.app -type f -exec stat -f %z {} + | awk '{sum += $1} END {print sum}')
+          base_sha=2cab34c454b279056d4e130977f93cce26d46ce0
+          git cat-file -e "$base_sha^{commit}"
+          base_dir="$RUNNER_TEMP/ios-base-app"
+          mkdir -p "$base_dir"
+          git archive "$base_sha" | tar -x -C "$base_dir"
+          (
+            cd "$base_dir/apps/mobile"
+            flutter pub get
+            cd ios
+            pod install
+            cd ..
+            flutter build ios --debug --simulator
+          )
+          base_app_bytes=$(find "$base_dir/apps/mobile/build/ios/iphonesimulator/Runner.app" -type f -exec stat -f %z {} + | awk '{sum += $1} END {print sum}')
           echo "full_bytes=$full_bytes" >> "$GITHUB_OUTPUT"
-          echo "baseline_bytes=$baseline_bytes" >> "$GITHUB_OUTPUT"
+          echo "model_free_bytes=$model_free_bytes" >> "$GITHUB_OUTPUT"
+          echo "base_app_bytes=$base_app_bytes" >> "$GITHUB_OUTPUT"
+          echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
 
       - name: Build bounded iOS evidence
         if: always()
@@ -245,8 +289,11 @@ jobs:
             --os-runtime="${{ steps.simulator.outputs.os_runtime }}" \
             --sdk-toolchain="${{ steps.simulator.outputs.sdk_toolchain }}" \
             --device="${{ steps.simulator.outputs.device }}" \
+            --native-image="${{ steps.simulator.outputs.native_image }}" \
             --full-bytes="${{ steps.package.outputs.full_bytes }}" \
-            --baseline-bytes="${{ steps.package.outputs.baseline_bytes }}" \
+            --model-free-bytes="${{ steps.package.outputs.model_free_bytes }}" \
+            --base-app-bytes="${{ steps.package.outputs.base_app_bytes }}" \
+            --base-sha="${{ steps.package.outputs.base_sha }}" \
             --require-complete=true
 
       - name: Upload bounded iOS evidence

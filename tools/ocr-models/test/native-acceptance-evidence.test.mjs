@@ -31,6 +31,10 @@ function evidenceArgs(log, platform = "android") {
     "os-runtime": `${platform}-test-runtime`,
     "sdk-toolchain": "test-sdk-1",
     device: "test-device",
+    "native-image": `${platform}-test-image-1`,
+    "base-sha": platform === "android"
+      ? "7a6af8457cdd6eb64df91253a63801756f09d23d"
+      : "2cab34c454b279056d4e130977f93cce26d46ce0",
   };
 }
 
@@ -67,16 +71,19 @@ test("retains only the bounded native acceptance schema", () => {
         {
           ...evidenceArgs(log),
           "full-bytes": "200",
-          "baseline-bytes": "150",
+          "model-free-bytes": "150",
+          "base-app-bytes": "100",
         },
         repoRoot,
       );
       assert.equal(evidence.acceptance.completed, true);
       assert.equal(evidence.uiSmoke.completed, true);
       assert.equal(evidence.packageEvidence.bundledModelPackageDeltaBytes, 50);
+      assert.equal(evidence.packageEvidence.ocrStackPackageDeltaBytes, 100);
       assert.equal(evidence.identities.fixtureTreeSha256.length, 64);
       assert.equal(evidence.execution.testExitStatus, 0);
       assert.equal(evidence.execution.environment.device, "test-device");
+      assert.equal(evidence.identities.baseAppSha, evidenceArgs(log)["base-sha"]);
       assert.equal(JSON.stringify(evidence).includes("private"), false);
     },
   );
@@ -99,6 +106,8 @@ test("complete evidence requires both package measurements and a positive delta"
       fullBytes: 200,
       baselineWithoutBundledModelPayloadBytes: 150,
       bundledModelPackageDeltaBytes: 50,
+      baseAppBytes: 100,
+      ocrStackPackageDeltaBytes: 100,
     },
   };
   assert.equal(isCompleteEvidence(evidence), true);
@@ -142,6 +151,8 @@ test("CLI writes a bounded failure artifact before rejecting malformed markers",
         "--os-runtime=android-test-runtime",
         "--sdk-toolchain=test-sdk-1",
         "--device=test-device",
+        "--native-image=android-test-image-1",
+        "--base-sha=7a6af8457cdd6eb64df91253a63801756f09d23d",
         "--require-complete=true",
       ],
       { cwd: repoRoot, encoding: "utf8" },
@@ -166,6 +177,18 @@ test("produces bounded incomplete evidence when device execution emits no marker
     });
     assert.equal(evidence.packageEvidence.fullBytes, null);
     assert.equal(evidence.packageEvidence.bundledModelPackageDeltaBytes, null);
+  });
+});
+
+test("rejects receipt-derived text and unresolved environment identity in captured logs", () => {
+  withLog("native diagnostic: CloudCart Marketplace\n", (log) => {
+    assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot), /receipt-derived text/);
+  });
+  withLog("device did not boot\n", (log) => {
+    assert.throws(
+      () => buildEvidence({ ...evidenceArgs(log), "runner-image": "unknown-unknown" }, repoRoot),
+      /must be resolved/,
+    );
   });
 });
 
@@ -221,7 +244,8 @@ test("rejects contradictory aggregate counts and package measurements", () => {
         {
           ...evidenceArgs(log),
           "full-bytes": "100",
-          "baseline-bytes": "101",
+          "model-free-bytes": "101",
+          "base-app-bytes": "50",
         },
         repoRoot,
       ),

@@ -38,6 +38,12 @@ function boundedToken(value, name, { nullable = false } = {}) {
   return value;
 }
 
+function boundedIdentity(value, name) {
+  const token = boundedToken(value, name);
+  if (/unknown/i.test(token)) throw new Error(`${name} must be resolved`);
+  return token;
+}
+
 function latencySummary(value, name) {
   if (value == null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`${name} must be an object`);
@@ -62,11 +68,26 @@ function latencySummary(value, name) {
 
 function sanitizeEnvironment(args) {
   return {
-    runnerImage: boundedToken(args["runner-image"], "runner-image"),
-    osRuntime: boundedToken(args["os-runtime"], "os-runtime"),
-    sdkToolchain: boundedToken(args["sdk-toolchain"], "sdk-toolchain"),
-    device: boundedToken(args.device, "device"),
+    runnerImage: boundedIdentity(args["runner-image"], "runner-image"),
+    osRuntime: boundedIdentity(args["os-runtime"], "os-runtime"),
+    sdkToolchain: boundedIdentity(args["sdk-toolchain"], "sdk-toolchain"),
+    device: boundedIdentity(args.device, "device"),
+    nativeImage: boundedIdentity(args["native-image"], "native-image"),
   };
+}
+
+function assertSafeLog(log, manifest) {
+  const sensitiveValues = manifest.fixtures.flatMap((fixture) => {
+    const expected = fixture.expected ?? {};
+    return [
+      expected.merchant,
+      ...(Array.isArray(expected.items) ? expected.items.map((item) => item?.[0]) : []),
+    ];
+  }).filter((value) => typeof value === "string" && value.length >= 6);
+  const normalizedLog = log.toLocaleLowerCase("en-US");
+  if (sensitiveValues.some((value) => normalizedLog.includes(value.toLocaleLowerCase("en-US")))) {
+    throw new Error("Acceptance log contains receipt-derived text");
+  }
 }
 
 function sanitizeAcceptance(value, platform) {
@@ -181,7 +202,7 @@ function parseMarker(lines, marker, sanitize, fallback) {
 }
 
 export function buildEvidence(args, repoRoot = process.cwd()) {
-  for (const required of ["log", "platform", "source-sha", "test-status", "runner-image", "os-runtime", "sdk-toolchain", "device"]) {
+  for (const required of ["log", "platform", "source-sha", "test-status", "runner-image", "os-runtime", "sdk-toolchain", "device", "native-image", "base-sha"]) {
     if (!args[required]) throw new Error(`Missing --${required}`);
   }
   if (!new Set(["android", "ios"]).has(args.platform)) {
@@ -193,7 +214,8 @@ export function buildEvidence(args, repoRoot = process.cwd()) {
   if (statSync(args.log).size > maxLogBytes) {
     throw new Error("Acceptance log exceeds the bounded parser limit");
   }
-  const lines = readFileSync(args.log, "utf8").split(/\r?\n/);
+  const log = readFileSync(args.log, "utf8");
+  const lines = log.split(/\r?\n/);
   const acceptance = parseMarker(
     lines,
     "SETTLEORA_OCR_ACCEPTANCE=",
@@ -210,12 +232,22 @@ export function buildEvidence(args, repoRoot = process.cwd()) {
   const catalogPath = path.join(repoRoot, "apps/mobile/assets/receipt_ocr_models/catalog.json");
   const manifestPath = path.join(repoRoot, "apps/mobile/test/fixtures/receipt_ocr/manifest.json");
   const catalog = JSON.parse(readFileSync(catalogPath, "utf8"));
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  assertSafeLog(log, manifest);
   const sha256 = (filePath) => createHash("sha256").update(readFileSync(filePath)).digest("hex");
   const fullBytes = parseOptionalBytes(args["full-bytes"]);
-  const baselineBytes = parseOptionalBytes(args["baseline-bytes"]);
+  const modelFreeBytes = parseOptionalBytes(args["model-free-bytes"]);
+  const baseAppBytes = parseOptionalBytes(args["base-app-bytes"]);
   const testExitStatus = boundedInteger(Number(args["test-status"]), "test-status");
-  if (fullBytes != null && baselineBytes != null && fullBytes < baselineBytes) {
+  const expectedBaseSha = args.platform === "android"
+    ? "7a6af8457cdd6eb64df91253a63801756f09d23d"
+    : "2cab34c454b279056d4e130977f93cce26d46ce0";
+  if (args["base-sha"] !== expectedBaseSha) throw new Error("Base app SHA is invalid");
+  if (fullBytes != null && modelFreeBytes != null && fullBytes < modelFreeBytes) {
     throw new Error("Bundled model package delta cannot be negative");
+  }
+  if (fullBytes != null && baseAppBytes != null && fullBytes < baseAppBytes) {
+    throw new Error("OCR stack package delta cannot be negative");
   }
 
   return {
@@ -230,9 +262,12 @@ export function buildEvidence(args, repoRoot = process.cwd()) {
     uiSmoke,
     packageEvidence: {
       fullBytes,
-      baselineWithoutBundledModelPayloadBytes: baselineBytes,
+      baselineWithoutBundledModelPayloadBytes: modelFreeBytes,
       bundledModelPackageDeltaBytes:
-        fullBytes == null || baselineBytes == null ? null : fullBytes - baselineBytes,
+        fullBytes == null || modelFreeBytes == null ? null : fullBytes - modelFreeBytes,
+      baseAppBytes,
+      ocrStackPackageDeltaBytes:
+        fullBytes == null || baseAppBytes == null ? null : fullBytes - baseAppBytes,
       catalogModelBytes: boundedInteger(catalog.totalBundledBytes, "catalog.totalBundledBytes"),
     },
     identities: {
@@ -243,6 +278,7 @@ export function buildEvidence(args, repoRoot = process.cwd()) {
         "catalog.acceptanceContract.fixtureCorpus.treeSha256",
       ),
       fixtureCount: 101,
+      baseAppSha: args["base-sha"],
     },
   };
 }
@@ -274,7 +310,9 @@ export function isCompleteEvidence(evidence) {
       evidence.uiSmoke.applyBoundaryVisible &&
       evidence.packageEvidence.fullBytes != null &&
       evidence.packageEvidence.baselineWithoutBundledModelPayloadBytes != null &&
-      evidence.packageEvidence.bundledModelPackageDeltaBytes > 0,
+      evidence.packageEvidence.bundledModelPackageDeltaBytes > 0 &&
+      evidence.packageEvidence.baseAppBytes != null &&
+      evidence.packageEvidence.ocrStackPackageDeltaBytes > 0,
   );
 }
 
