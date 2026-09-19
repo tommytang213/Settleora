@@ -202,7 +202,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
     assert.ok(runCommands(job).some((command) => command.includes('>"$RUNNER_TEMP/')));
     assert.equal(runCommands(job).some((command) => command.includes('| tee ')), false);
     assert.ok(runCommands(job).some((command) => command.includes('--machine')));
-    assert.ok(runCommands(job).some((command) => command.includes('flutter build') && command.includes('--profile')));
+    assert.ok(runCommands(job).some((command) => command.includes('flutter build') && command.includes('--release')));
     const upload = stepsFor(job).find((step) => step.uses?.startsWith('actions/upload-artifact@'));
     assert.equal(upload.with.path.endsWith('-ocr-acceptance.json'), true);
     assert.equal(upload.with['if-no-files-found'], 'error');
@@ -211,7 +211,10 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   }
 
   const serialized = JSON.stringify(native);
-  assert.doesNotMatch(serialized, /secrets\.|contents['"]?:['"]?write|deploy|release|receipt.*(?:jpg|jpeg|png)/i);
+  const serializedWithoutExplicitPackageBuildTokens = serialized
+    .replaceAll('--release', '--production-package')
+    .replaceAll('app-release.apk', 'app-production.apk');
+  assert.doesNotMatch(serializedWithoutExplicitPackageBuildTokens, /secrets\.|contents['"]?:['"]?write|deploy|release|receipt.*(?:jpg|jpeg|png)/i);
   const collector = read('tools/ocr-models/native-acceptance-evidence.mjs');
   assert.match(collector, /maxLogBytes/);
   assert.match(collector, /maxMarkerBytes/);

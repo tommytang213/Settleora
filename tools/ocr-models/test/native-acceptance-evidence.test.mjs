@@ -24,9 +24,9 @@ function withLog(contents, callback) {
 
 function protocolLog(...messages) {
   return [
-    { type: "start", protocolVersion: "0.1.1" },
-    ...messages.map((message) => ({ type: "print", message })),
-    { type: "done", success: true },
+    { type: "start", time: 0, protocolVersion: "0.1.1", runnerVersion: "test", pid: 1 },
+    ...messages.map((message) => ({ type: "print", time: 1, testID: 1, message })),
+    { type: "done", time: 2, success: true },
   ].map((event) => JSON.stringify(event)).join("\n") + "\n";
 }
 
@@ -214,6 +214,18 @@ test("rejects non-allowlisted marker fields before evidence can be accepted", ()
     rawOcrText: "private receipt text",
   };
   withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify(marker)}`), (log) => {
+    assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot), /non-allowlisted fields/);
+  });
+});
+
+test("rejects extra fields on otherwise allowlisted machine-protocol events", () => {
+  const injected = `${JSON.stringify({
+    type: "done",
+    time: 2,
+    success: true,
+    rawReceiptText: "private",
+  })}\n`;
+  withLog(injected, (log) => {
     assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot), /non-allowlisted fields/);
   });
 });

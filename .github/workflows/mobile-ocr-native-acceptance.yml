@@ -118,11 +118,11 @@ jobs:
         working-directory: apps/mobile
         shell: bash
         run: |
-          flutter build apk --profile
-          full_bytes=$(stat -c %s build/app/outputs/flutter-apk/app-profile.apk)
+          flutter build apk --release
+          full_bytes=$(stat -c %s build/app/outputs/flutter-apk/app-release.apk)
           find assets/receipt_ocr_models -mindepth 2 -type f -exec truncate -s 0 {} +
-          flutter build apk --profile
-          model_free_bytes=$(stat -c %s build/app/outputs/flutter-apk/app-profile.apk)
+          flutter build apk --release
+          model_free_bytes=$(stat -c %s build/app/outputs/flutter-apk/app-release.apk)
           base_sha=7a6af8457cdd6eb64df91253a63801756f09d23d
           git cat-file -e "$base_sha^{commit}"
           base_dir="$RUNNER_TEMP/android-base-app"
@@ -131,9 +131,9 @@ jobs:
           (
             cd "$base_dir/apps/mobile"
             flutter pub get
-            flutter build apk --profile
+            flutter build apk --release
           )
-          base_app_bytes=$(stat -c %s "$base_dir/apps/mobile/build/app/outputs/flutter-apk/app-profile.apk")
+          base_app_bytes=$(stat -c %s "$base_dir/apps/mobile/build/app/outputs/flutter-apk/app-release.apk")
           echo "full_bytes=$full_bytes" >> "$GITHUB_OUTPUT"
           echo "model_free_bytes=$model_free_bytes" >> "$GITHUB_OUTPUT"
           echo "base_app_bytes=$base_app_bytes" >> "$GITHUB_OUTPUT"
@@ -252,10 +252,10 @@ jobs:
         working-directory: apps/mobile
         shell: bash
         run: |
-          flutter build ios --profile --no-codesign
+          flutter build ios --release --no-codesign
           full_bytes=$(find build/ios/iphoneos/Runner.app -type f -exec stat -f %z {} + | awk '{sum += $1} END {print sum}')
           find assets/receipt_ocr_models -mindepth 2 -type f -exec truncate -s 0 {} +
-          flutter build ios --profile --no-codesign
+          flutter build ios --release --no-codesign
           model_free_bytes=$(find build/ios/iphoneos/Runner.app -type f -exec stat -f %z {} + | awk '{sum += $1} END {print sum}')
           base_sha=2cab34c454b279056d4e130977f93cce26d46ce0
           git cat-file -e "$base_sha^{commit}"
@@ -268,7 +268,7 @@ jobs:
             cd ios
             pod install
             cd ..
-            flutter build ios --profile --no-codesign
+            flutter build ios --release --no-codesign
           )
           base_app_bytes=$(find "$base_dir/apps/mobile/build/ios/iphoneos/Runner.app" -type f -exec stat -f %z {} + | awk '{sum += $1} END {print sum}')
           echo "full_bytes=$full_bytes" >> "$GITHUB_OUTPUT"

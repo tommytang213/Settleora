@@ -45,8 +45,98 @@ function boundedIdentity(value, name) {
 }
 
 function assertExactKeys(value, allowed, name) {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${name} must be an object`);
+  }
   const extras = Object.keys(value).filter((key) => !allowed.includes(key));
   if (extras.length > 0) throw new Error(`${name} contains non-allowlisted fields`);
+}
+
+function assertType(value, type, name, { nullable = false } = {}) {
+  if (nullable && value == null) return;
+  if (typeof value !== type) throw new Error(`${name} has an invalid type`);
+}
+
+function assertProtocolMetadata(value, name) {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${name} must be an object`);
+  }
+  assertExactKeys(value, ["skip", "skipReason"], name);
+  assertType(value.skip, "boolean", `${name}.skip`);
+  assertType(value.skipReason, "string", `${name}.skipReason`, { nullable: true });
+}
+
+function assertProtocolLocation(value, name, { group = false } = {}) {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${name} must be an object`);
+  }
+  const common = ["id", "suiteID", "name", "metadata", "line", "column", "url"];
+  assertExactKeys(value, group ? [...common, "parentID", "testCount"] : [...common, "groupIDs"], name);
+  boundedInteger(value.id, `${name}.id`);
+  boundedInteger(value.suiteID, `${name}.suiteID`);
+  assertType(value.name, "string", `${name}.name`);
+  assertProtocolMetadata(value.metadata, `${name}.metadata`);
+  if (value.line != null) boundedInteger(value.line, `${name}.line`);
+  if (value.column != null) boundedInteger(value.column, `${name}.column`);
+  assertType(value.url, "string", `${name}.url`, { nullable: true });
+  if (group) {
+    if (value.parentID != null) boundedInteger(value.parentID, `${name}.parentID`);
+    boundedInteger(value.testCount, `${name}.testCount`);
+  } else {
+    if (!Array.isArray(value.groupIDs) || value.groupIDs.some((id) => !Number.isSafeInteger(id) || id < 0)) {
+      throw new Error(`${name}.groupIDs is invalid`);
+    }
+  }
+}
+
+function assertProtocolEvent(event) {
+  const name = `protocol ${event.type}`;
+  boundedInteger(event.time, `${name}.time`);
+  switch (event.type) {
+    case "start":
+      assertExactKeys(event, ["type", "time", "protocolVersion", "runnerVersion", "pid"], name);
+      assertType(event.protocolVersion, "string", `${name}.protocolVersion`);
+      assertType(event.runnerVersion, "string", `${name}.runnerVersion`);
+      boundedInteger(event.pid, `${name}.pid`);
+      break;
+    case "allSuites":
+      assertExactKeys(event, ["type", "time", "count"], name);
+      boundedInteger(event.count, `${name}.count`);
+      break;
+    case "suite":
+      assertExactKeys(event, ["type", "time", "suite"], name);
+      assertExactKeys(event.suite, ["id", "platform", "path"], `${name}.suite`);
+      boundedInteger(event.suite.id, `${name}.suite.id`);
+      assertType(event.suite.platform, "string", `${name}.suite.platform`);
+      assertType(event.suite.path, "string", `${name}.suite.path`);
+      break;
+    case "group":
+      assertExactKeys(event, ["type", "time", "group"], name);
+      assertProtocolLocation(event.group, `${name}.group`, { group: true });
+      break;
+    case "testStart":
+      assertExactKeys(event, ["type", "time", "test"], name);
+      assertProtocolLocation(event.test, `${name}.test`);
+      break;
+    case "testDone":
+      assertExactKeys(event, ["type", "time", "testID", "result", "skipped", "hidden"], name);
+      boundedInteger(event.testID, `${name}.testID`);
+      assertType(event.result, "string", `${name}.result`);
+      assertType(event.skipped, "boolean", `${name}.skipped`);
+      assertType(event.hidden, "boolean", `${name}.hidden`);
+      break;
+    case "done":
+      assertExactKeys(event, ["type", "time", "success"], name);
+      assertType(event.success, "boolean", `${name}.success`);
+      break;
+    case "print":
+      assertExactKeys(event, ["type", "time", "testID", "message"], name);
+      boundedInteger(event.testID, `${name}.testID`);
+      assertType(event.message, "string", `${name}.message`);
+      break;
+    default:
+      throw new Error("Acceptance runner emitted a non-allowlisted protocol event");
+  }
 }
 
 function latencySummary(value, name) {
@@ -98,9 +188,27 @@ function parseSafeRunnerLog(log, stderrLog) {
     } catch {
       throw new Error(`Acceptance runner line ${index + 1} is not protocol JSON`);
     }
-    if (event == null || typeof event !== "object" || Array.isArray(event)) {
+    if (Array.isArray(event)) {
+      if (
+        event.length !== 1 ||
+        event[0] == null ||
+        typeof event[0] !== "object" ||
+        Array.isArray(event[0])
+      ) {
+        throw new Error(`Acceptance runner line ${index + 1} is not a bounded daemon event`);
+      }
+      assertExactKeys(event[0], ["event", "params"], "daemon event");
+      if (event[0].event !== "test.startedProcess") {
+        throw new Error("Acceptance runner emitted a non-allowlisted daemon event");
+      }
+      assertExactKeys(event[0].params, ["vmServiceUri"], "daemon event params");
+      assertType(event[0].params.vmServiceUri, "string", "daemon event params.vmServiceUri", { nullable: true });
+      continue;
+    }
+    if (event == null || typeof event !== "object") {
       throw new Error(`Acceptance runner line ${index + 1} is not a protocol event`);
     }
+    assertProtocolEvent(event);
     if (event.type === "print") {
       if (
         typeof event.message !== "string" ||
