@@ -231,7 +231,13 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(androidCommands.includes('$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer'));
   assert.ok(androidCommands.includes('$ANDROID_HOME/platform-tools/adb'));
   assert.equal(androidCommands.includes('adb wait-for-device'), false);
-  assert.ok(androidCommands.includes('timeout 5 "$adb" shell getprop sys.boot_completed'));
+  assert.equal(
+    native.jobs['android-native-acceptance'].steps.find((step) => step.id === 'environment')['timeout-minutes'],
+    20,
+  );
+  assert.ok(androidCommands.includes('-port 5554'));
+  assert.ok(androidCommands.includes('timeout 5 "$adb" -s "$device_serial" get-state'));
+  assert.ok(androidCommands.includes('timeout 5 "$adb" -s "$device_serial" shell getprop sys.boot_completed'));
   assert.ok(androidCommands.includes('test "$system_image_revision" = "9"'));
   assert.ok(androidCommands.includes('test "$emulator_revision" = "37.2.10"'));
   assert.match(serialized, /receipt_ocr_acceptance/);

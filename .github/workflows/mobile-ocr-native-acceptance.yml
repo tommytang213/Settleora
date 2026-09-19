@@ -74,6 +74,7 @@ jobs:
 
       - name: Start trusted Android emulator
         id: environment
+        timeout-minutes: 20
         shell: bash
         run: |
           : "${ANDROID_HOME:?Hosted Android SDK root is unavailable}"
@@ -81,6 +82,7 @@ jobs:
           avdmanager="$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager"
           emulator="$ANDROID_HOME/emulator/emulator"
           adb="$ANDROID_HOME/platform-tools/adb"
+          device_serial="emulator-5554"
           test -x "$sdkmanager"
           test -x "$avdmanager"
           sudo chmod 666 /dev/kvm
@@ -89,10 +91,10 @@ jobs:
           test -x "$emulator"
           test -x "$adb"
           echo no | "$avdmanager" create avd --force --name settleora-ocr --package "system-images;android-35;google_apis;x86_64"
-          nohup "$emulator" -avd settleora-ocr -no-window -no-snapshot -noaudio -no-boot-anim -gpu swiftshader_indirect >"$RUNNER_TEMP/android-emulator.log" 2>&1 &
+          nohup "$emulator" -avd settleora-ocr -port 5554 -no-window -no-snapshot -noaudio -no-boot-anim -gpu swiftshader_indirect >"$RUNNER_TEMP/android-emulator.log" 2>&1 &
           for attempt in $(seq 1 120); do
-            if test "$("$adb" get-state 2>/dev/null)" = "device" &&
-               test "$(timeout 5 "$adb" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1"; then
+            if test "$(timeout 5 "$adb" -s "$device_serial" get-state 2>/dev/null)" = "device" &&
+               test "$(timeout 5 "$adb" -s "$device_serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1"; then
               ready=1
               break
             fi
@@ -108,7 +110,7 @@ jobs:
           test "$system_image_revision" = "9"
           test "$emulator_revision" = "37.2.10"
           echo "runner_image=$(sanitize "${ImageOS}-${ImageVersion}")" >> "$GITHUB_OUTPUT"
-          echo "os_runtime=$(sanitize "android-api$("$adb" shell getprop ro.build.version.sdk | tr -d '\r')-$("$adb" shell getprop ro.build.id | tr -d '\r')-$("$adb" shell getprop ro.build.version.incremental | tr -d '\r')")" >> "$GITHUB_OUTPUT"
+          echo "os_runtime=$(sanitize "android-api$(timeout 5 "$adb" -s "$device_serial" shell getprop ro.build.version.sdk | tr -d '\r')-$(timeout 5 "$adb" -s "$device_serial" shell getprop ro.build.id | tr -d '\r')-$(timeout 5 "$adb" -s "$device_serial" shell getprop ro.build.version.incremental | tr -d '\r')")" >> "$GITHUB_OUTPUT"
           echo "sdk_toolchain=$(sanitize "emulator-$("$emulator" -version | head -1 | awk '{print $3}')")" >> "$GITHUB_OUTPUT"
           echo "device=Android_Emulator_API_35_google_apis_x86_64" >> "$GITHUB_OUTPUT"
           echo "native_image=$(sanitize "android-35-google_apis-x86_64-revision-${system_image_revision}-emulator-${emulator_revision}")" >> "$GITHUB_OUTPUT"
