@@ -33,6 +33,11 @@ void main() {
           'socket_interpose_v1',
           reason: 'The iOS runner must scope isolation to the test app.',
         );
+        expect(
+          Platform.environment['SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED'],
+          '1',
+          reason: 'The iOS network interposer must positively attest loading.',
+        );
       }
       Socket? socket;
       try {
@@ -41,10 +46,20 @@ void main() {
           443,
           timeout: const Duration(seconds: 3),
         );
-      } on SocketException {
-        // Expected: the acceptance runner blocks external TCP and UDP traffic.
+      } on SocketException catch (error) {
+        if (Platform.isIOS) {
+          expect(
+            error.osError?.errorCode,
+            51,
+            reason: 'The iOS interposer must deny with Darwin ENETUNREACH.',
+          );
+        }
       } on TimeoutException {
-        // Expected: a dropped connection also proves the canary cannot escape.
+        expect(
+          Platform.isIOS,
+          isFalse,
+          reason: 'An iOS timeout does not prove the interposer denied access.',
+        );
       }
       await socket?.close();
       networkIsolated = socket == null;

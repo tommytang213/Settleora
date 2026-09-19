@@ -2,8 +2,13 @@
 #include <errno.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+
+__attribute__((constructor)) static void settleora_mark_interposer_loaded(void) {
+  setenv("SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED", "1", 1);
+}
 
 static bool settleora_is_ipv4_loopback(const struct in_addr *address) {
   return (ntohl(address->s_addr) >> 24) == 127;
