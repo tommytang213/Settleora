@@ -797,6 +797,56 @@ Total ${itemLine.split(' ').last}
     }
   });
 
+  test('non-transaction currency metadata never becomes merchandise', () {
+    const parser = ReceiptOcrParser();
+    for (final metadataLine in const [
+      'DCC HK\$ 5.00',
+      'Reference € 4.60',
+      'Conversion amount £ 4.60',
+      'Reference currency: EUR',
+      'Payment currency= AED',
+      'DCC amount# GBP',
+    ]) {
+      final preview = parser.parse('''
+Corner Cafe
+Coffee USD 5.00
+$metadataLine
+Total USD 5.00
+''');
+
+      expect(preview.items.map((item) => item.description), [
+        'Coffee',
+      ], reason: metadataLine);
+      expect(
+        preview.warnings,
+        isNot(
+          contains(
+            'Some OCR lines need manual review because no traceable line amount was found.',
+          ),
+        ),
+        reason: metadataLine,
+      );
+    }
+  });
+
+  test('items preserve explicit currency distinct from receipt currency', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Corner Cafe
+Imported tea 2 x 2.00 EUR 4.00
+Coffee USD 5.00
+Total USD 9.00
+''');
+
+    expect(preview.currency, 'USD');
+    expect(preview.items.first.description, 'Imported tea');
+    expect(preview.items.first.quantity, '2');
+    expect(preview.items.first.unitPrice, '2.00');
+    expect(preview.items.first.lineTotal, '4.00');
+    expect(preview.items.first.currency, 'EUR');
+    expect(preview.items.last.currency, 'USD');
+  });
+
   test('context currency outranks internally separated metadata currency', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse('''

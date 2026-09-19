@@ -18,6 +18,7 @@ import 'package:mobile/notifications/notification_repository.dart';
 import 'package:mobile/profile/profile_repository.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_image_artifact_processor.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_image_intake.dart';
+import 'package:mobile/receipt_ocr_capture/receipt_ocr_parser.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_provider.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
 import 'package:mobile/receipt_ocr_review/receipt_ocr_review_repository.dart';
@@ -659,6 +660,28 @@ void main() {
     expect(lines[1].lineTotalAmount, isNull);
     expect(lines.last.text, 'Extra 97');
   });
+
+  test(
+    'OCR parser-to-save omits money for explicit mismatched line currency',
+    () {
+      const parser = ReceiptOcrParser();
+      final preview = parser.parse('''
+Corner Cafe
+Imported tea 2 x 2.00 EUR 4.00
+Coffee USD 5.00
+Total USD 9.00
+''');
+      final lines = receiptOcrReviewLinesFromPreview(preview);
+
+      expect(preview.currency, 'USD');
+      expect(lines.first.text, 'Imported tea');
+      expect(lines.first.quantity, '2');
+      expect(lines.first.unitPriceAmount, isNull);
+      expect(lines.first.lineTotalAmount, isNull);
+      expect(lines.last.text, 'Coffee');
+      expect(lines.last.lineTotalAmount, '5.00');
+    },
+  );
 
   testWidgets(
     'personal OCR uses selected currency fallback and keeps currency editable',

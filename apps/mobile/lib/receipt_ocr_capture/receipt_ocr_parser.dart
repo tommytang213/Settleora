@@ -408,7 +408,7 @@ class ReceiptOcrParser {
       final match = RegExp(
         '^(.+?)\\s+($_currencyTokenPattern)?\\s*'
         "($_amountTokenPattern)"
-        '(?:\\s*(?:$_currencyTokenPattern))?\$',
+        '(?:\\s*($_currencyTokenPattern))?\$',
         caseSensitive: false,
       ).firstMatch(line);
       if (match == null) {
@@ -432,7 +432,12 @@ class ReceiptOcrParser {
         description = '$wrappedDescription $description';
       }
       wrappedDescriptionLines.clear();
-      final lineTotal = _normalizeAmount(match.group(3)!, currency: currency);
+      final lineCurrency =
+          _currencyFromItemToken(match.group(2) ?? match.group(4)) ?? currency;
+      final lineTotal = _normalizeAmount(
+        match.group(3)!,
+        currency: lineCurrency,
+      );
       if (!_hasSubstantiveItemDescription(description) ||
           lineTotal == null ||
           _isLikelyNonItemDescription(description) ||
@@ -451,7 +456,7 @@ class ReceiptOcrParser {
         final quantity = quantityMatch.group(2)!;
         final unitPrice = _normalizeAmount(
           quantityMatch.group(3)!,
-          currency: currency,
+          currency: lineCurrency,
         );
         final cleanedName = _cleanDescription(quantityMatch.group(1)!);
         if (cleanedName.isNotEmpty) {
@@ -461,7 +466,7 @@ class ReceiptOcrParser {
               quantity: quantity,
               unitPrice: unitPrice,
               lineTotal: lineTotal,
-              currency: currency,
+              currency: lineCurrency,
               category: 'item_line',
             ),
           );
@@ -474,7 +479,7 @@ class ReceiptOcrParser {
           description: description,
           quantity: '1',
           lineTotal: lineTotal,
-          currency: currency,
+          currency: lineCurrency,
           category: 'item_line',
         ),
       );
@@ -1035,7 +1040,7 @@ bool _isAdministrativeLine(String line) {
       _hasShippingLabel(line, normalized) ||
       _hasDiscountLabel(line, normalized) ||
       _hasTotalLabel(line, normalized) ||
-      _isPaymentMetadataLine(line) ||
+      _isNonTransactionCurrencyMetadataLine(line) ||
       normalized.contains('thank you');
 }
 
@@ -1132,6 +1137,13 @@ String? _explicitCurrencyFromNormalizedLine(String normalized) {
   if (normalized.contains('€')) return 'EUR';
   if (normalized.contains('£')) return 'GBP';
   return _explicitSymbolCurrency(normalized);
+}
+
+String? _currencyFromItemToken(String? token) {
+  if (token == null) return null;
+  final normalized = token.trim().toUpperCase();
+  return _supportedCurrencyCode(normalized) ??
+      _explicitCurrencyFromNormalizedLine(normalized);
 }
 
 bool _isContextualReceiptMetadataLine(List<String> lines, int index) {
