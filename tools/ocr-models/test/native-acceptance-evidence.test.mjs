@@ -261,6 +261,26 @@ test("rejects extra fields on otherwise allowlisted machine-protocol events", ()
   });
 });
 
+test("discards bounded Flutter failure envelopes without retaining their text", () => {
+  const errorEvent = JSON.stringify({
+    type: "error",
+    time: 2,
+    testID: 3,
+    error: "diagnostic text that must not be retained",
+    stackTrace: "private local path that must not be retained",
+    isFailure: true,
+  });
+  const log = protocolLog().replace(
+    '{"type":"done","time":2,"success":true}',
+    `${errorEvent}\n{"type":"done","time":2,"success":false}`,
+  );
+  withLog(log, (logPath) => {
+    const evidence = buildEvidence(evidenceArgs(logPath), repoRoot);
+    assert.equal(JSON.stringify(evidence).includes("diagnostic text"), false);
+    assert.equal(JSON.stringify(evidence).includes("private local path"), false);
+  });
+});
+
 test("rejects non-print Flutter message types", () => {
   const log = protocolLog("SETTLEORA_OCR_ACCEPTANCE={}")
     .replace('"messageType":"print"', '"messageType":"skip"');

@@ -140,6 +140,19 @@ function assertProtocolEvent(event) {
       }
       assertType(event.message, "string", `${name}.message`);
       break;
+    case "error":
+      assertExactKeys(event, ["type", "time", "testID", "error", "stackTrace", "isFailure"], name);
+      boundedInteger(event.testID, `${name}.testID`);
+      assertType(event.error, "string", `${name}.error`);
+      assertType(event.stackTrace, "string", `${name}.stackTrace`);
+      assertType(event.isFailure, "boolean", `${name}.isFailure`);
+      if (
+        Buffer.byteLength(event.error, "utf8") > 64 * 1024 ||
+        Buffer.byteLength(event.stackTrace, "utf8") > 256 * 1024
+      ) {
+        throw new Error(`${name} exceeds its protocol bound`);
+      }
+      break;
     default:
       throw new Error("Acceptance runner emitted a non-allowlisted protocol event");
   }
@@ -183,7 +196,7 @@ function parseSafeRunnerLog(log, stderrLog) {
     throw new Error("Acceptance runner wrote non-protocol diagnostics");
   }
   const allowedEventTypes = new Set([
-    "start", "allSuites", "suite", "group", "testStart", "testDone", "done",
+    "start", "allSuites", "suite", "group", "testStart", "testDone", "done", "error",
   ]);
   const markerMessages = [];
   for (const [index, line] of log.split(/\r?\n/).entries()) {
