@@ -667,7 +667,7 @@ void main() {
       const parser = ReceiptOcrParser();
       final preview = parser.parse('''
 Corner Cafe
-Imported tea 2 x 2.00 EUR 4.00
+Imported tea 2 x 2.00 PLN 4.00
 Coffee USD 5.00
 Total USD 9.00
 ''');

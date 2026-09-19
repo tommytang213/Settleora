@@ -433,7 +433,11 @@ List<ReceiptOcrReviewLineSaveRequest> receiptOcrReviewLinesFromPreview(
       ]
       .take(receiptOcrReviewLineLimit)
       .map((item) {
-        final lineCurrency = _nullableUppercaseCurrency(item.currency);
+        // Preserve every normalized OCR currency as comparison evidence, even
+        // when the API cannot persist that currency. Filtering an explicit
+        // unsupported code to null here would incorrectly make its money
+        // inherit the supported receipt currency.
+        final lineCurrency = settleoraNormalizeCurrencyCode(item.currency);
         final moneyCurrency =
             lineCurrency == null || lineCurrency == reviewCurrency
             ? reviewCurrency
