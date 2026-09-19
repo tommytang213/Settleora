@@ -166,6 +166,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   const native = workflow('mobile-ocr-native-acceptance.yml');
   assert.deepEqual(native.on.pull_request.branches, ['main']);
   assert.ok(native.on.workflow_dispatch);
+  assert.ok(native.on.pull_request.paths.includes('apps/mobile/assets/receipt_ocr_models/**'));
   assert.deepEqual(native.permissions, { contents: 'read' });
   assert.equal(native.env.EXPECTED_HEAD, "${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || inputs.expected_head }}");
 
@@ -186,7 +187,10 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
           command.includes('receipt_ocr_real_provider_test.dart') && command.includes(device),
       ),
     );
+    const acceptance = stepsFor(job).find((step) => step.id === 'acceptance');
+    assert.equal(acceptance['timeout-minutes'], 300);
     assert.ok(runCommands(job).some((command) => command.includes('native-acceptance-evidence.mjs')));
+    assert.ok(runCommands(job).some((command) => command.includes('--require-complete=true')));
     const upload = stepsFor(job).find((step) => step.uses?.startsWith('actions/upload-artifact@'));
     assert.equal(upload.with.path.endsWith('-ocr-acceptance.json'), true);
     assert.equal(upload.with['if-no-files-found'], 'error');

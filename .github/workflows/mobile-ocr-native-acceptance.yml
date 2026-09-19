@@ -8,6 +8,7 @@ on:
       - ".github/workflows/mobile-ocr-native-acceptance.yml"
       - "apps/mobile/integration_test/receipt_ocr_real_provider_test.dart"
       - "apps/mobile/android/**"
+      - "apps/mobile/assets/receipt_ocr_models/**"
       - "apps/mobile/ios/**"
       - "apps/mobile/lib/receipt_ocr_capture/**"
       - "apps/mobile/test/fixtures/receipt_ocr/**"
@@ -84,6 +85,7 @@ jobs:
 
       - name: Execute Android real-provider acceptance
         id: acceptance
+        timeout-minutes: 300
         working-directory: apps/mobile
         shell: bash
         run: |
@@ -118,7 +120,8 @@ jobs:
             --platform=android \
             --source-sha="$EXPECTED_HEAD" \
             --full-bytes="${{ steps.package.outputs.full_bytes }}" \
-            --baseline-bytes="${{ steps.package.outputs.baseline_bytes }}"
+            --baseline-bytes="${{ steps.package.outputs.baseline_bytes }}" \
+            --require-complete=true
 
       - name: Upload bounded Android evidence
         if: always()
@@ -177,6 +180,7 @@ jobs:
 
       - name: Execute iOS real-provider acceptance
         id: acceptance
+        timeout-minutes: 300
         working-directory: apps/mobile
         shell: bash
         run: |
@@ -211,7 +215,8 @@ jobs:
             --platform=ios \
             --source-sha="$EXPECTED_HEAD" \
             --full-bytes="${{ steps.package.outputs.full_bytes }}" \
-            --baseline-bytes="${{ steps.package.outputs.baseline_bytes }}"
+            --baseline-bytes="${{ steps.package.outputs.baseline_bytes }}" \
+            --require-complete=true
 
       - name: Upload bounded iOS evidence
         if: always()

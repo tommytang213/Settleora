@@ -83,15 +83,39 @@ function sanitizeAcceptance(value, platform) {
       ];
     }),
   );
+  const fixtureCount = boundedInteger(value.fixtureCount, "fixtureCount");
+  const passedFixtureCount = boundedInteger(value.passedFixtureCount, "passedFixtureCount");
+  const mismatchCount = boundedInteger(value.mismatchCount, "mismatchCount");
+  const failedFixtureCount = new Set(mismatches.map(({ fixtureId }) => fixtureId)).size;
+  const scriptTotals = Object.values(perScript).reduce(
+    (total, counts) => ({ total: total.total + counts.total, passed: total.passed + counts.passed }),
+    { total: 0, passed: 0 },
+  );
+  if (
+    fixtureCount !== 101 ||
+    passedFixtureCount > fixtureCount ||
+    mismatchCount !== mismatches.length ||
+    failedFixtureCount !== fixtureCount - passedFixtureCount ||
+    scriptTotals.total !== fixtureCount ||
+    scriptTotals.passed !== passedFixtureCount ||
+    Object.values(perScript).some(({ total, passed }) => passed > total)
+  ) {
+    throw new Error("Acceptance counts are internally inconsistent");
+  }
+  const expectedRuntime = platform === "android"
+    ? "onnxruntime-android:1.21.1:cpu"
+    : "onnxruntime-objc:1.24.3:cpu";
+  const runtime = boundedToken(value.runtime, "runtime", { nullable: true });
+  if (runtime !== expectedRuntime) throw new Error("Acceptance runtime identity is invalid");
   return {
     schemaVersion: 1,
     platform,
     completed: true,
-    fixtureCount: boundedInteger(value.fixtureCount, "fixtureCount"),
-    passedFixtureCount: boundedInteger(value.passedFixtureCount, "passedFixtureCount"),
-    mismatchCount: boundedInteger(value.mismatchCount, "mismatchCount"),
+    fixtureCount,
+    passedFixtureCount,
+    mismatchCount,
     mismatches,
-    runtime: boundedToken(value.runtime, "runtime", { nullable: true }),
+    runtime,
     coldLoadTimeMs: boundedInteger(value.coldLoadTimeMs, "coldLoadTimeMs", { nullable: true }),
     endToEndLatencyMs: latencySummary(value.endToEndLatencyMs, "endToEndLatencyMs"),
     nativeLatencyMs: latencySummary(value.nativeLatencyMs, "nativeLatencyMs"),
@@ -164,6 +188,9 @@ export function buildEvidence(args, repoRoot = process.cwd()) {
   const sha256 = (filePath) => createHash("sha256").update(readFileSync(filePath)).digest("hex");
   const fullBytes = parseOptionalBytes(args["full-bytes"]);
   const baselineBytes = parseOptionalBytes(args["baseline-bytes"]);
+  if (fullBytes != null && baselineBytes != null && fullBytes < baselineBytes) {
+    throw new Error("Bundled model package delta cannot be negative");
+  }
 
   return {
     schemaVersion: 1,
@@ -204,4 +231,15 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   const evidence = buildEvidence(args);
   writeFileSync(args.out, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
   console.log(`Wrote bounded ${args.platform} OCR acceptance evidence`);
+  if (
+    args["require-complete"] === "true" &&
+    (!evidence.acceptance.completed ||
+      evidence.acceptance.passedFixtureCount !== 101 ||
+      evidence.acceptance.mismatchCount !== 0 ||
+      !evidence.uiSmoke.completed ||
+      !evidence.uiSmoke.previewPanel ||
+      !evidence.uiSmoke.applyBoundaryVisible)
+  ) {
+    throw new Error("Native OCR acceptance evidence is incomplete or failing");
+  }
 }

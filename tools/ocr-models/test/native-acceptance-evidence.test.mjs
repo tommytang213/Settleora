@@ -107,3 +107,42 @@ test("rejects unbounded marker tokens rather than retaining arbitrary OCR text",
     );
   });
 });
+
+test("rejects contradictory aggregate counts and package measurements", () => {
+  const acceptance = {
+    schemaVersion: 1,
+    platform: "android",
+    completed: true,
+    fixtureCount: 101,
+    passedFixtureCount: 101,
+    mismatchCount: 1,
+    mismatches: [{ fixtureId: "fixture_001", field: "merchant" }],
+    runtime: "onnxruntime-android:1.21.1:cpu",
+    coldLoadTimeMs: 1,
+    endToEndLatencyMs: { cold: 1, warmP50: 1, warmP95: 1, max: 1 },
+    nativeLatencyMs: { cold: 1, warmP50: 1, warmP95: 1, max: 1 },
+    peakRssBytes: 1,
+    perScript: { Latin: { total: 101, passed: 101 } },
+  };
+  withLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify(acceptance)}\n`, (log) => {
+    assert.throws(
+      () => buildEvidence({ log, platform: "android", "source-sha": sourceSha }, repoRoot),
+      /internally inconsistent/,
+    );
+  });
+  withLog("device did not boot\n", (log) => {
+    assert.throws(
+      () => buildEvidence(
+        {
+          log,
+          platform: "android",
+          "source-sha": sourceSha,
+          "full-bytes": "100",
+          "baseline-bytes": "101",
+        },
+        repoRoot,
+      ),
+      /cannot be negative/,
+    );
+  });
+});
