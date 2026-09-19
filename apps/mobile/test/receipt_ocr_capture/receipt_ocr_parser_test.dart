@@ -684,6 +684,15 @@ $referenceLine
       'DCC ₩ 4600',
       'Conversion amount ¥ 720',
       'Reference \$ 4.60',
+      'Reference currency EUR',
+      'DCC currency GBP',
+      'Tender currency AED',
+      'Reference HK\$',
+      'Payment €',
+      'Card charged US\$',
+      'Conversion amount ₹',
+      'DCC ¥',
+      'Reference KR',
     ]) {
       final preview = parser.parse('''
 Corner Cafe
@@ -714,6 +723,11 @@ $metadataLine
       'Card charged US\$ 5.00',
       'DCC د.إ 4.60',
       'Reference ₹ 4.60',
+      'Reference currency EUR',
+      'DCC currency GBP',
+      'Tender currency AED',
+      'Reference HK\$',
+      'Payment €',
     ]) {
       final preview = parser.parse('''
 Corner Cafe

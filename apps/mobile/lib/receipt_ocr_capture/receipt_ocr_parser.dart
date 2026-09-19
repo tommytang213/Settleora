@@ -327,13 +327,7 @@ class ReceiptOcrParser {
   }
 
   String? _explicitCurrencyFromLine(String line) {
-    final normalized = line.toUpperCase();
-    if (_hasExplicitHongKongCurrencyMarker(normalized)) return 'HKD';
-    if (_hasExplicitUnitedStatesCurrencyMarker(normalized)) return 'USD';
-    if (normalized.contains('د.إ') || normalized.contains('دإ')) return 'AED';
-    if (normalized.contains('€')) return 'EUR';
-    if (normalized.contains('£')) return 'GBP';
-    return _explicitSymbolCurrency(normalized);
+    return _explicitCurrencyFromNormalizedLine(line.toUpperCase());
   }
 
   _LabeledReceiptAmounts _extractLabeledAmounts(
@@ -1087,10 +1081,31 @@ bool _isNonTransactionCurrencyMetadataLine(String line) {
     return true;
   }
   final normalized = line.toLowerCase().trim();
-  return _lineHasAmount(line) &&
-      RegExp(
-        r'^(?:dcc(?:\s+(?:amount|conversion|reference))?|reference(?:\s+(?:amount|currency|conversion))?|conversion(?:\s+(?:amount|currency))?)\b',
-      ).hasMatch(normalized);
+  final hasMetadataPrefix = RegExp(
+    r'^(?:(?:payment|tender)\b|(?:gift|prepaid)[ -]?card\b|paid\s+(?:by\s+)?(?:cash|card|credit[ -]?card|debit[ -]?card|visa|mastercard|master card|amex|american express)\b|(?:credit|debit)[ -]?card\b|(?:cash|change|card|visa|mastercard|master card|amex|american express)\b|dcc(?:\s+(?:amount|conversion|reference|currency))?\b|reference(?:\s+(?:amount|currency|conversion))?\b|conversion(?:\s+(?:amount|currency))?\b)',
+  ).hasMatch(normalized);
+  return hasMetadataPrefix &&
+      (_lineHasAmount(line) || _lineHasCurrencyMarkerOrCode(line));
+}
+
+bool _lineHasCurrencyMarkerOrCode(String line) {
+  final normalized = line.toUpperCase();
+  return _supportedCurrencyCodes.any(
+        (code) => RegExp('\\b${RegExp.escape(code)}\\b').hasMatch(normalized),
+      ) ||
+      _explicitCurrencyFromNormalizedLine(normalized) != null ||
+      normalized.contains(r'$') ||
+      normalized.contains('¥') ||
+      RegExp(r'\b(?:KR|RS)\b').hasMatch(normalized);
+}
+
+String? _explicitCurrencyFromNormalizedLine(String normalized) {
+  if (_hasExplicitHongKongCurrencyMarker(normalized)) return 'HKD';
+  if (_hasExplicitUnitedStatesCurrencyMarker(normalized)) return 'USD';
+  if (normalized.contains('د.إ') || normalized.contains('دإ')) return 'AED';
+  if (normalized.contains('€')) return 'EUR';
+  if (normalized.contains('£')) return 'GBP';
+  return _explicitSymbolCurrency(normalized);
 }
 
 bool _isContextualReceiptMetadataLine(List<String> lines, int index) {

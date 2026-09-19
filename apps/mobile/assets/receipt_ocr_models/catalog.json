@@ -91,7 +91,7 @@
     },
     "parser": {
       "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_parser.dart",
-      "sha256": "84c44d48f3b1615e1070f03382849ae98c4570e5202afe7281c719c9de86be14"
+      "sha256": "1f3fba06eeaed9efc697f97b4d08c8aaef861e043cf18f545bc6b005587f5f59"
     }
   },
   "totalBundledBytes": 76580102,
