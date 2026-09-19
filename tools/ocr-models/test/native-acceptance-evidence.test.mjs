@@ -353,6 +353,33 @@ test("retains bounded partial metrics for a failed run without accepting it", ()
   });
 });
 
+test("retains zero-duration failed-run samples without accepting them", () => {
+  const acceptance = {
+    schemaVersion: 1,
+    platform: "android",
+    completed: true,
+    networkIsolated: true,
+    fixtureCount: 101,
+    passedFixtureCount: 0,
+    mismatchCount: 101,
+    mismatches: Array.from({ length: 101 }, (_, index) => ({
+      fixtureId: `fixture_${index}`,
+      field: "provider_exception",
+    })),
+    runtime: null,
+    coldLoadTimeMs: null,
+    endToEndLatencyMs: { sampleCount: 101, cold: 0, warmP50: 0, warmP95: 0, max: 0 },
+    nativeLatencyMs: { sampleCount: 0, cold: null, warmP50: null, warmP95: null, max: null },
+    peakRssBytes: 1,
+    perScript: { Latin: { total: 101, passed: 0 } },
+  };
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify(acceptance)}`), (logPath) => {
+    const evidence = buildEvidence({ ...evidenceArgs(logPath), "test-status": "1" }, repoRoot);
+    assert.equal(evidence.acceptance.endToEndLatencyMs.cold, 0);
+    assert.equal(isCompleteEvidence(evidence), false);
+  });
+});
+
 test("rejects malformed protocol ordering and inactive test references", () => {
   const beforeStart = `${JSON.stringify({ type: "done", time: 0, success: true })}\n${protocolLog()}`;
   withLog(beforeStart, (logPath) => {

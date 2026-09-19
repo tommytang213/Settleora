@@ -163,16 +163,16 @@ function latencySummary(value, name) {
     throw new Error(`${name} must be an object`);
   }
   assertExactKeys(value, ["sampleCount", "cold", "warmP50", "warmP95", "max"], name);
-  const optionalPositiveInteger = (metric, metricName) => {
+  const optionalNonNegativeInteger = (metric, metricName) => {
     if (metric == null) return null;
-    return positiveInteger(metric, metricName);
+    return boundedInteger(metric, metricName);
   };
   const summary = {
     sampleCount: boundedInteger(value.sampleCount, `${name}.sampleCount`),
-    cold: optionalPositiveInteger(value.cold, `${name}.cold`),
-    warmP50: optionalPositiveInteger(value.warmP50, `${name}.warmP50`),
-    warmP95: optionalPositiveInteger(value.warmP95, `${name}.warmP95`),
-    max: optionalPositiveInteger(value.max, `${name}.max`),
+    cold: optionalNonNegativeInteger(value.cold, `${name}.cold`),
+    warmP50: optionalNonNegativeInteger(value.warmP50, `${name}.warmP50`),
+    warmP95: optionalNonNegativeInteger(value.warmP95, `${name}.warmP95`),
+    max: optionalNonNegativeInteger(value.max, `${name}.max`),
   };
   const allMetrics = [summary.cold, summary.warmP50, summary.warmP95, summary.max];
   const invalidEmpty = summary.sampleCount === 0 && allMetrics.some((metric) => metric != null);
@@ -402,7 +402,7 @@ function sanitizeAcceptance(value, platform) {
     runtime,
     coldLoadTimeMs: value.coldLoadTimeMs == null
       ? null
-      : positiveInteger(value.coldLoadTimeMs, "coldLoadTimeMs"),
+      : boundedInteger(value.coldLoadTimeMs, "coldLoadTimeMs"),
     endToEndLatencyMs: latencySummary(value.endToEndLatencyMs, "endToEndLatencyMs"),
     nativeLatencyMs: latencySummary(value.nativeLatencyMs, "nativeLatencyMs"),
     peakRssBytes: positiveInteger(value.peakRssBytes, "peakRssBytes"),

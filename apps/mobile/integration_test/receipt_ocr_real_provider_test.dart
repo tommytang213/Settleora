@@ -98,30 +98,40 @@ void main() {
             peakRssBytes = ProcessInfo.currentRss;
           }
         });
-        final result = await provider.extractReceipt(
-          ReceiptOcrRequest(
-            bytes: artifact.normalizedJpegBytes!,
-            contentType: artifact.normalizedContentType!,
-            fallbackCurrency: entry['fallback_currency'] as String?,
-          ),
-        );
-        rssSampler.cancel();
-        stopwatch.stop();
-        fixtureDurationsMs.add(stopwatch.elapsedMilliseconds);
-        final evidence = result.preview?.runEvidence;
-        if (evidence?.totalTimeMs != null) {
-          nativeDurationsMs.add(evidence!.totalTimeMs!);
+        try {
+          final result = await provider.extractReceipt(
+            ReceiptOcrRequest(
+              bytes: artifact.normalizedJpegBytes!,
+              contentType: artifact.normalizedContentType!,
+              fallbackCurrency: entry['fallback_currency'] as String?,
+            ),
+          );
+          final evidence = result.preview?.runEvidence;
+          if (evidence?.totalTimeMs != null) {
+            nativeDurationsMs.add(evidence!.totalTimeMs!);
+          }
+          nativeColdLoadTimeMs ??= evidence?.coldLoadTimeMs;
+          runtime ??= evidence?.runtime;
+          fixtureMismatches.addAll(
+            _completePreviewMismatches(
+              fixtureId,
+              result,
+              expected,
+              currencyResolution: currencyResolution,
+            ),
+          );
+        } catch (_) {
+          // Preserve only a bounded category. Native exception details can
+          // contain OCR text, local paths, or provider diagnostics and must
+          // never enter retained acceptance evidence.
+          fixtureMismatches.add(
+            _BoundedMismatch(fixtureId, 'provider_exception'),
+          );
+        } finally {
+          rssSampler.cancel();
+          stopwatch.stop();
+          fixtureDurationsMs.add(stopwatch.elapsedMilliseconds);
         }
-        nativeColdLoadTimeMs ??= evidence?.coldLoadTimeMs;
-        runtime ??= evidence?.runtime;
-        fixtureMismatches.addAll(
-          _completePreviewMismatches(
-            fixtureId,
-            result,
-            expected,
-            currencyResolution: currencyResolution,
-          ),
-        );
       }
       if (fixtureMismatches.isEmpty) scriptResult.passed += 1;
       mismatches.addAll(fixtureMismatches);

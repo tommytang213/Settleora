@@ -28,10 +28,10 @@ test "$(timeout 5 "$adb" -s emulator-5554 get-state)" = "device"
 test "$(timeout 5 "$adb" -s emulator-5554 shell getprop sys.boot_completed | tr -d '\r')" = "1"
 
 phase=isolate_network
-timeout 5 "$adb" -s emulator-5554 shell cmd connectivity airplane-mode enable >/dev/null 2>&1
-timeout 5 "$adb" -s emulator-5554 shell svc wifi disable >/dev/null 2>&1
-timeout 5 "$adb" -s emulator-5554 shell svc data disable >/dev/null 2>&1
-test "$(timeout 5 "$adb" -s emulator-5554 shell settings get global airplane_mode_on | tr -d '\r')" = "1"
+timeout 30 "$adb" -s emulator-5554 shell cmd connectivity airplane-mode enable >/dev/null 2>&1
+timeout 30 "$adb" -s emulator-5554 shell svc wifi disable >/dev/null 2>&1
+timeout 30 "$adb" -s emulator-5554 shell svc data disable >/dev/null 2>&1
+test "$(timeout 30 "$adb" -s emulator-5554 shell settings get global airplane_mode_on 2>/dev/null | tr -d '\r')" = "1"
 
 phase=emit_environment
 : "${ImageOS:?Hosted runner image OS is unavailable}"

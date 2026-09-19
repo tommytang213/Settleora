@@ -245,6 +245,8 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(androidRunner.includes('timeout 5 "$adb" -s emulator-5554 shell getprop sys.boot_completed'));
   assert.ok(androidRunner.includes('shell cmd connectivity airplane-mode enable'));
   assert.ok(androidRunner.includes('settings get global airplane_mode_on'));
+  assert.ok(androidRunner.includes('timeout 30 "$adb" -s emulator-5554 shell cmd connectivity airplane-mode enable'));
+  assert.ok(androidRunner.includes('timeout 30 "$adb" -s emulator-5554 shell settings get global airplane_mode_on'));
   assert.ok(androidCommands.includes('verify-mobile-package.mjs --platform=android'));
   assert.ok(androidCommands.includes('android-dex-packages.txt'));
   assert.ok(androidRunner.includes('test "$system_image_revision" = "9"'));
