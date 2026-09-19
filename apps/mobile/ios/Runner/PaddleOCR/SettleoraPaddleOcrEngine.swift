@@ -118,10 +118,6 @@ final class SettleoraPaddleOcrEngine {
       throw SettleoraOcrError.imageTooLarge
     }
     let image = try EncodedImageCodec.cgImage(fromEncodedData: imageData)
-    guard image.width <= 8192, image.height <= 8192,
-          image.width * image.height <= 16_000_000 else {
-      throw SettleoraOcrError.imageTooLarge
-    }
 
     let totalStart = CFAbsoluteTimeGetCurrent()
     let runtime = OCRRuntimeParams(

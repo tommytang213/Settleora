@@ -1,11 +1,28 @@
 import Flutter
 import Foundation
 
+@MainActor
+final class RetryableTaskLoader<Value> {
+  private var task: Task<Value, Error>?
+
+  func value(factory: @escaping () async throws -> Value) async throws -> Value {
+    let current = task ?? Task { try await factory() }
+    task = current
+    do {
+      return try await current.value
+    } catch {
+      // A failed initialization must not poison every later OCR attempt.
+      task = nil
+      throw error
+    }
+  }
+}
+
 final class SettleoraReceiptOcrPlugin: NSObject, FlutterPlugin {
   private static let ocrChannelName = "com.settleora.mobile/receipt_ocr"
   private static let acceptanceChannelName = "com.settleora.mobile/receipt_ocr_acceptance"
 
-  private var engineTask: Task<SettleoraPaddleOcrEngine, Error>?
+  private let engineLoader = RetryableTaskLoader<SettleoraPaddleOcrEngine>()
   private var isBusy = false
 
   static func register(with registrar: FlutterPluginRegistrar) {
@@ -56,11 +73,11 @@ final class SettleoraReceiptOcrPlugin: NSObject, FlutterPlugin {
       return
     }
     isBusy = true
-    let engineTask = self.engineTask ?? Task { try await SettleoraPaddleOcrEngine.make() }
-    self.engineTask = engineTask
     Task {
       do {
-        let engine = try await engineTask.value
+        let engine = try await engineLoader.value {
+          try await SettleoraPaddleOcrEngine.make()
+        }
         let value = try await engine.recognize(bytes.data).channelValue
         await MainActor.run {
           self.isBusy = false

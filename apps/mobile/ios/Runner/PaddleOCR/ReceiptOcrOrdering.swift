@@ -43,7 +43,11 @@ enum ReceiptBlockOrder {
         row.append(sorted[index])
         index += 1
       }
-      let rtl = directionCounts(row.map(\.text).joined()).rtl > directionCounts(row.map(\.text).joined()).ltr
+      let counts = row.map { rowDirectionCounts($0.text) }
+        .reduce((ltr: 0, rtl: 0)) { total, next in
+          (ltr: total.ltr + next.ltr, rtl: total.rtl + next.rtl)
+        }
+      let rtl = counts.rtl > counts.ltr
       row.sort { rtl ? left($0) > left($1) : left($0) < left($1) }
       for var block in row {
         block.row = rowIndex
@@ -75,6 +79,15 @@ enum ReceiptBlockOrder {
   private static func height(_ block: SettleoraOcrBlock) -> Double { max(1, bottom(block) - top(block)) }
   private static func center(_ block: SettleoraOcrBlock) -> Double { top(block) + height(block) / 2 }
 
+  private static func rowDirectionCounts(_ text: String) -> (ltr: Int, rtl: Int) {
+    let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    let range = NSRange(normalized.startIndex..<normalized.endIndex, in: normalized)
+    if isoCurrencyAmount.firstMatch(in: normalized, range: range) != nil {
+      return (ltr: 0, rtl: 0)
+    }
+    return directionCounts(text)
+  }
+
   private static func directionCounts(_ text: String) -> (ltr: Int, rtl: Int) {
     var ltr = 0
     var rtl = 0
@@ -88,4 +101,8 @@ enum ReceiptBlockOrder {
     }
     return (ltr, rtl)
   }
+
+  private static let isoCurrencyAmount = try! NSRegularExpression(
+    pattern: #"^(?:[A-Za-z]{3}\s*[:=]?\s*-?\p{Nd}+(?:[.,'’\u066B\u066C]\p{Nd}+)*|-?\p{Nd}+(?:[.,'’\u066B\u066C]\p{Nd}+)*\s*[A-Za-z]{3})$"#
+  )
 }
