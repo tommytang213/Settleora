@@ -299,7 +299,7 @@ class ReceiptOcrParser {
                 _hasShippingLabel(line, normalized) ||
                 _hasDiscountLabel(line, normalized)) {
               score += 200;
-            } else if (_isPaymentMetadataLine(line)) {
+            } else if (_isNonTransactionCurrencyMetadataLine(line)) {
               score += 1;
             } else {
               score += 100;
@@ -313,9 +313,10 @@ class ReceiptOcrParser {
           if (lineOrder != 0) return lineOrder;
           return left.code.compareTo(right.code);
         });
-    // Payment/tender rows can carry a settlement or DCC currency that differs
-    // from the receipt transaction currency. They may corroborate currency
-    // detected elsewhere, but must never establish it by themselves.
+    // Payment/tender and reference/conversion rows can carry a settlement or
+    // DCC currency that differs from the receipt transaction currency. They
+    // may corroborate currency detected elsewhere, but must never establish it
+    // by themselves.
     return ranked
         .where((candidate) => candidate.score >= 100)
         .firstOrNull
@@ -1076,6 +1077,17 @@ bool _isPaymentMetadataLine(String line) {
   return RegExp(
     r'\b(card\s+(?:charged|payment|tender|ending|number|no)|charged\s+(?:to\s+)?card|approval\s*(?:code|no|#|number)|auth(?:orization)?\s*(?:code|no|#|number))\b',
   ).hasMatch(normalized);
+}
+
+bool _isNonTransactionCurrencyMetadataLine(String line) {
+  if (_isPaymentMetadataLine(line)) {
+    return true;
+  }
+  final normalized = line.toLowerCase().trim();
+  return _lineHasAmount(line) &&
+      RegExp(
+        r'^(?:dcc(?:\s+(?:amount|conversion|reference))?|reference(?:\s+(?:amount|currency|conversion))?|conversion(?:\s+(?:amount|currency))?)\b',
+      ).hasMatch(normalized);
 }
 
 bool _isContextualReceiptMetadataLine(List<String> lines, int index) {

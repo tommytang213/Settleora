@@ -417,24 +417,41 @@ ReceiptOcrReviewSaveRequest? _receiptOcrReviewSaveRequestFromPreview(
       preview.total,
       currency: currency,
     ),
-    lines: [
-      for (final item in preview.items)
-        if (_receiptOcrItemHasReviewCandidate(item))
-          ReceiptOcrReviewLineSaveRequest(
-            text: item.description.trim(),
-            quantity: receiptOcrQuantityCandidateForSave(item.quantity),
-            unitPriceAmount: receiptOcrMoneyCandidateForSave(
-              item.unitPrice,
-              currency: currency,
-            ),
-            lineTotalAmount: receiptOcrMoneyCandidateForSave(
-              item.lineTotal,
-              currency: currency,
-            ),
-          ),
-    ],
+    lines: receiptOcrReviewLinesFromPreview(preview),
     adjustmentEvidence: receiptOcrAdjustmentEvidenceFromPreview(preview),
   );
+}
+
+@visibleForTesting
+List<ReceiptOcrReviewLineSaveRequest> receiptOcrReviewLinesFromPreview(
+  ReceiptOcrPreview preview,
+) {
+  final reviewCurrency = _nullableUppercaseCurrency(preview.currency);
+  return [
+        for (final item in preview.items)
+          if (_receiptOcrItemHasReviewCandidate(item)) item,
+      ]
+      .take(receiptOcrReviewLineLimit)
+      .map((item) {
+        final lineCurrency = _nullableUppercaseCurrency(item.currency);
+        final moneyCurrency =
+            lineCurrency == null || lineCurrency == reviewCurrency
+            ? reviewCurrency
+            : null;
+        return ReceiptOcrReviewLineSaveRequest(
+          text: item.description.trim(),
+          quantity: receiptOcrQuantityCandidateForSave(item.quantity),
+          unitPriceAmount: receiptOcrMoneyCandidateForSave(
+            item.unitPrice,
+            currency: moneyCurrency,
+          ),
+          lineTotalAmount: receiptOcrMoneyCandidateForSave(
+            item.lineTotal,
+            currency: moneyCurrency,
+          ),
+        );
+      })
+      .toList(growable: false);
 }
 
 @visibleForTesting
@@ -3133,6 +3150,9 @@ class _ReceiptOcrEditableReviewFormState
   }
 
   void _addItem() {
+    if (_itemControllers.length >= receiptOcrReviewLineLimit) {
+      return;
+    }
     setState(() {
       _itemControllers.add(
         _ReceiptOcrEditableItemControllers(
@@ -3234,12 +3254,27 @@ class _ReceiptOcrEditableReviewFormState
             ),
             TextButton.icon(
               key: Key('${widget.keyPrefix}-ocr-add-item'),
-              onPressed: widget.enabled ? _addItem : null,
+              onPressed:
+                  widget.enabled &&
+                      _itemControllers.length < receiptOcrReviewLineLimit
+                  ? _addItem
+                  : null,
               icon: const Icon(Icons.add),
               label: const Text('Add item'),
             ),
           ],
         ),
+        if (_itemControllers.length >= receiptOcrReviewLineLimit)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              'Receipt review supports up to $receiptOcrReviewLineLimit lines.',
+              key: Key('${widget.keyPrefix}-ocr-item-limit'),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
         if (_itemControllers.isEmpty)
           Padding(
             padding: const EdgeInsets.only(top: 4),

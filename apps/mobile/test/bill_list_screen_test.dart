@@ -488,7 +488,9 @@ void main() {
       receiptRepository.lastSaveRequest?.lines.map(
         (line) => line.lineTotalAmount,
       ),
-      ['30.00', '18.00'],
+      ['30.00', null],
+      reason:
+          'The second HKD line stays reviewable but its amount must not be relabeled as USD.',
     );
     expect(
       receiptRepository.lastSaveRequest?.adjustmentEvidence.map(
@@ -618,6 +620,44 @@ void main() {
     expect(receiptOcrQuantityCandidateForSave('0'), isNull);
     expect(receiptOcrQuantityCandidateForSave('-1'), isNull);
     expect(receiptOcrQuantityCandidateForSave('1.23456'), isNull);
+  });
+
+  test('OCR save adapter preserves line currency boundaries and API limit', () {
+    final lines = receiptOcrReviewLinesFromPreview(
+      ReceiptOcrPreview(
+        currency: 'USD',
+        items: [
+          const ReceiptOcrItemCandidate(
+            description: 'Same currency',
+            quantity: '1',
+            unitPrice: '2.00',
+            lineTotal: '2.00',
+            currency: 'USD',
+          ),
+          const ReceiptOcrItemCandidate(
+            description: 'Different currency',
+            quantity: '1',
+            unitPrice: '3.00',
+            lineTotal: '3.00',
+            currency: 'EUR',
+          ),
+          for (var index = 0; index < receiptOcrReviewLineLimit; index += 1)
+            ReceiptOcrItemCandidate(
+              description: 'Extra $index',
+              lineTotal: '1.00',
+              currency: 'USD',
+            ),
+        ],
+      ),
+    );
+
+    expect(lines, hasLength(receiptOcrReviewLineLimit));
+    expect(lines.first.lineTotalAmount, '2.00');
+    expect(lines[1].text, 'Different currency');
+    expect(lines[1].quantity, '1');
+    expect(lines[1].unitPriceAmount, isNull);
+    expect(lines[1].lineTotalAmount, isNull);
+    expect(lines.last.text, 'Extra 97');
   });
 
   testWidgets(

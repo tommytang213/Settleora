@@ -643,6 +643,34 @@ $paymentLine
     }
   });
 
+  test(
+    'reference conversion currency never establishes transaction currency',
+    () {
+      const parser = ReceiptOcrParser();
+      for (final referenceLine in const [
+        'Reference EUR 4.60',
+        'Reference amount EUR 4.60',
+        'DCC EUR 4.60',
+        'DCC conversion EUR 4.60',
+        'Conversion amount EUR 4.60',
+      ]) {
+        final preview = parser.parse('''
+Corner Cafe
+Coffee \$5.00
+Total \$5.00
+$referenceLine
+''');
+
+        expect(preview.currency, isNull, reason: referenceLine);
+        expect(
+          preview.currencyProvenance,
+          ReceiptOcrCurrencyProvenance.unresolved,
+          reason: referenceLine,
+        );
+      }
+    },
+  );
+
   test('parser separates charged tips and excludes suggested tip options', () {
     const parser = ReceiptOcrParser();
 

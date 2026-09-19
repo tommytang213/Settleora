@@ -1,3 +1,5 @@
+const int receiptOcrReviewLineLimit = 100;
+
 class ReceiptOcrPreview {
   const ReceiptOcrPreview({
     this.merchant,
