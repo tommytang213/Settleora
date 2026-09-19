@@ -12,9 +12,11 @@ class ReceiptOcrPreview {
     this.tip,
     this.tipLabel,
     this.tipCurrency,
+    this.tipHasExplicitCurrencyEvidence = false,
     this.shipping,
     this.shippingLabel,
     this.shippingCurrency,
+    this.shippingHasExplicitCurrencyEvidence = false,
     this.discount,
     this.total,
     this.rawTextLineCount = 0,
@@ -36,9 +38,11 @@ class ReceiptOcrPreview {
   final String? tip;
   final String? tipLabel;
   final String? tipCurrency;
+  final bool tipHasExplicitCurrencyEvidence;
   final String? shipping;
   final String? shippingLabel;
   final String? shippingCurrency;
+  final bool shippingHasExplicitCurrencyEvidence;
   final String? discount;
   final String? total;
   final int rawTextLineCount;
@@ -195,11 +199,34 @@ bool _hasReceiptOcrReferenceAdjustment(ReceiptOcrPreview preview) {
   final amounts = [
     _parseReceiptOcrReviewAmount(preview.tax),
     _parseReceiptOcrReviewAmount(preview.service),
-    _parseReceiptOcrReviewAmount(preview.tip),
-    _parseReceiptOcrReviewAmount(preview.shipping),
+    if (_adjustmentCurrencyMatchesReview(
+      reviewCurrency: preview.currency,
+      adjustmentCurrency: preview.tipCurrency,
+      hasExplicitCurrencyEvidence: preview.tipHasExplicitCurrencyEvidence,
+    ))
+      _parseReceiptOcrReviewAmount(preview.tip),
+    if (_adjustmentCurrencyMatchesReview(
+      reviewCurrency: preview.currency,
+      adjustmentCurrency: preview.shippingCurrency,
+      hasExplicitCurrencyEvidence: preview.shippingHasExplicitCurrencyEvidence,
+    ))
+      _parseReceiptOcrReviewAmount(preview.shipping),
     _parseReceiptOcrReviewAmount(preview.discount),
   ];
   return amounts.any((amount) => amount != null && amount != 0);
+}
+
+bool _adjustmentCurrencyMatchesReview({
+  required String? reviewCurrency,
+  required String? adjustmentCurrency,
+  required bool hasExplicitCurrencyEvidence,
+}) {
+  if (!hasExplicitCurrencyEvidence) return true;
+  final normalizedReview = reviewCurrency?.trim().toUpperCase();
+  final normalizedAdjustment = adjustmentCurrency?.trim().toUpperCase();
+  return normalizedReview != null &&
+      normalizedReview.isNotEmpty &&
+      normalizedAdjustment == normalizedReview;
 }
 
 bool _hasReviewAmountText(String? value) {

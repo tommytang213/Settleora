@@ -1156,6 +1156,47 @@ void main() {
       },
     );
 
+    testWidgets(
+      'saved review currency change clears persisted money evidence',
+      (tester) async {
+        await useLargeSurface(tester);
+        final route = sampleRoute();
+        final repository = FakeReceiptOcrReviewRepository(
+          reviewResponse: sampleReview(route),
+        );
+
+        await pumpDetail(tester, repository: repository, route: route);
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithIcon(IconButton, Icons.edit_outlined));
+        await tester.pumpAndSettle();
+
+        final currencySelector = find.byKey(
+          const Key('receipt-review-edit-currency'),
+        );
+        tester.widget<CurrencySelector>(currencySelector).onChanged('EUR');
+        await tester.pump();
+
+        await tester.ensureVisible(
+          find.byKey(const Key('receipt-review-edit-save')),
+        );
+        await tester.tap(find.byKey(const Key('receipt-review-edit-save')));
+        await tester.pumpAndSettle();
+
+        expect(repository.saveCalls, 1);
+        final saved = repository.lastSaveRequest!;
+        expect(saved.currency, 'EUR');
+        expect(saved.subtotalAmount, isNull);
+        expect(saved.taxAmount, isNull);
+        expect(saved.serviceChargeAmount, isNull);
+        expect(saved.discountAmount, isNull);
+        expect(saved.grandTotalAmount, isNull);
+        expect(saved.lines.single.text, 'Milk');
+        expect(saved.lines.single.quantity, '1');
+        expect(saved.lines.single.unitPriceAmount, isNull);
+        expect(saved.lines.single.lineTotalAmount, isNull);
+      },
+    );
+
     testWidgets('changing adjustment kind to credit refreshes direction', (
       tester,
     ) async {

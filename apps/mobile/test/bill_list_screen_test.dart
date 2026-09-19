@@ -183,6 +183,8 @@ void main() {
           service: '0.00',
           tip: '3.00',
           tipLabel: 'Driver gratuity',
+          tipCurrency: 'XPF',
+          tipHasExplicitCurrencyEvidence: true,
           shipping: '4.00',
           shippingLabel: 'Delivery fee',
           total: '43.00',
@@ -333,7 +335,7 @@ void main() {
       find.text('Service charge suggested: HKD 0.00 (review only)'),
       findsOneWidget,
     );
-    expect(find.text('Tip suggested: HKD 3.00 (review only)'), findsOneWidget);
+    expect(find.text('Tip suggested: XPF 3.00 (review only)'), findsOneWidget);
     expect(
       find.text('Shipping suggested: HKD 4.00 (review only)'),
       findsOneWidget,
@@ -505,13 +507,6 @@ void main() {
       ),
       [
         (
-          ReceiptOcrReviewAdjustmentKindValues.tip,
-          'Driver gratuity',
-          '3.00',
-          'USD',
-          ReceiptOcrReviewAdjustmentDirectionValues.charge,
-        ),
-        (
           ReceiptOcrReviewAdjustmentKindValues.shipping,
           'Delivery fee',
           '4.00',
@@ -519,7 +514,8 @@ void main() {
           ReceiptOcrReviewAdjustmentDirectionValues.charge,
         ),
       ],
-      reason: 'Tip and shipping must remain typed non-item review evidence.',
+      reason:
+          'Unsupported explicit tip currency stays visible but is not relabeled; valid shipping remains typed non-item evidence.',
     );
     expect(find.text('Bill'), findsOneWidget);
     expect(
@@ -568,16 +564,20 @@ void main() {
     ReceiptOcrPreview preview({
       String? tip,
       String? tipCurrency,
+      bool tipHasExplicitCurrencyEvidence = false,
       String? shipping,
       String? shippingCurrency,
+      bool shippingHasExplicitCurrencyEvidence = false,
     }) => ReceiptOcrPreview(
       currency: 'USD',
       tip: tip,
       tipLabel: 'Driver gratuity',
       tipCurrency: tipCurrency,
+      tipHasExplicitCurrencyEvidence: tipHasExplicitCurrencyEvidence,
       shipping: shipping,
       shippingLabel: 'Delivery fee',
       shippingCurrency: shippingCurrency,
+      shippingHasExplicitCurrencyEvidence: shippingHasExplicitCurrencyEvidence,
     );
 
     expect(
@@ -600,7 +600,11 @@ void main() {
     );
     expect(
       receiptOcrAdjustmentEvidenceFromPreview(
-        preview(tip: '3.00', tipCurrency: 'PLN'),
+        preview(
+          tip: '3.00',
+          tipCurrency: 'XPF',
+          tipHasExplicitCurrencyEvidence: true,
+        ),
       ),
       isEmpty,
       reason: 'Unsupported explicit currency evidence must not be relabeled.',

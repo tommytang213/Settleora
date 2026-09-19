@@ -275,9 +275,12 @@ ReceiptOcrPreview _copyReceiptOcrPreview(
     tip: preview.tip,
     tipLabel: preview.tipLabel,
     tipCurrency: preview.tipCurrency,
+    tipHasExplicitCurrencyEvidence: preview.tipHasExplicitCurrencyEvidence,
     shipping: preview.shipping,
     shippingLabel: preview.shippingLabel,
     shippingCurrency: preview.shippingCurrency,
+    shippingHasExplicitCurrencyEvidence:
+        preview.shippingHasExplicitCurrencyEvidence,
     discount: clearHeaderMoney ? null : preview.discount,
     total: clearHeaderMoney ? null : preview.total,
     rawTextLineCount: preview.rawTextLineCount,
@@ -468,7 +471,9 @@ receiptOcrAdjustmentEvidenceFromPreview(ReceiptOcrPreview preview) {
 
   final adjustments = <ReceiptOcrReviewAdjustmentSaveRequest>[];
   final tipCurrency = _nullableUppercaseCurrency(
-    preview.tipCurrency ?? reviewCurrency,
+    preview.tipHasExplicitCurrencyEvidence
+        ? preview.tipCurrency
+        : preview.tipCurrency ?? reviewCurrency,
   );
   final tip = receiptOcrMoneyCandidateForSave(
     preview.tip,
@@ -488,7 +493,9 @@ receiptOcrAdjustmentEvidenceFromPreview(ReceiptOcrPreview preview) {
   }
 
   final shippingCurrency = _nullableUppercaseCurrency(
-    preview.shippingCurrency ?? reviewCurrency,
+    preview.shippingHasExplicitCurrencyEvidence
+        ? preview.shippingCurrency
+        : preview.shippingCurrency ?? reviewCurrency,
   );
   final shipping = receiptOcrMoneyCandidateForSave(
     preview.shipping,
@@ -4286,13 +4293,17 @@ List<_ReceiptOcrReferenceCharge> _receiptOcrReferenceCharges(
       _ReceiptOcrReferenceCharge(
         label: 'Tip suggested',
         amount: preview.tip!.trim(),
-        currency: preview.tipCurrency?.trim().toUpperCase() ?? currency,
+        currency: preview.tipHasExplicitCurrencyEvidence
+            ? preview.tipCurrency?.trim().toUpperCase()
+            : preview.tipCurrency?.trim().toUpperCase() ?? currency,
       ),
     if ((preview.shipping ?? '').trim().isNotEmpty)
       _ReceiptOcrReferenceCharge(
         label: 'Shipping suggested',
         amount: preview.shipping!.trim(),
-        currency: preview.shippingCurrency?.trim().toUpperCase() ?? currency,
+        currency: preview.shippingHasExplicitCurrencyEvidence
+            ? preview.shippingCurrency?.trim().toUpperCase()
+            : preview.shippingCurrency?.trim().toUpperCase() ?? currency,
       ),
     if ((preview.total ?? '').trim().isNotEmpty)
       _ReceiptOcrReferenceCharge(

@@ -556,6 +556,30 @@ Total USD 20.00
     expect(distinctAdjustmentCurrency.currency, 'USD');
     expect(distinctAdjustmentCurrency.tip, '2.00');
     expect(distinctAdjustmentCurrency.tipCurrency, 'EUR');
+
+    final unsupportedAdjustmentCurrency = parser.parse('''
+Harbor Grill
+Burger USD 18.00
+Tip XPF 2.00
+Total USD 20.00
+''');
+    expect(unsupportedAdjustmentCurrency.currency, 'USD');
+    expect(unsupportedAdjustmentCurrency.tip, '2.00');
+    expect(unsupportedAdjustmentCurrency.tipCurrency, 'XPF');
+    expect(
+      unsupportedAdjustmentCurrency.tipHasExplicitCurrencyEvidence,
+      isTrue,
+    );
+
+    final ambiguousAdjustmentCurrency = parser.parse('''
+Harbor Grill
+Burger USD 18.00
+Tip XPF 2.00 CHF
+Total USD 20.00
+''');
+    expect(ambiguousAdjustmentCurrency.tip, '2.00');
+    expect(ambiguousAdjustmentCurrency.tipCurrency, isNull);
+    expect(ambiguousAdjustmentCurrency.tipHasExplicitCurrencyEvidence, isTrue);
   });
 
   test('parser treats a city ZIP row as metadata only beside an address', () {
@@ -988,6 +1012,19 @@ Total USD 5.00
 
     expect(preview.merchant, 'The Wonderful Corner Cafe');
     expect(preview.items.single.description, 'Coffee');
+  });
+
+  test('parser excludes only the detected merchant row by identity', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Fresh Apple Market
+Fresh Apple Market
+Pie USD 5.00
+Total USD 5.00
+''');
+
+    expect(preview.merchant, 'Fresh Apple Market');
+    expect(preview.items.single.description, 'Fresh Apple Market Pie');
   });
 
   test('parser preserves multiple wrapped description rows', () {
@@ -1576,6 +1613,21 @@ Total HKD 24.00
         ReceiptOcrItemCandidate(description: 'Milk', lineTotal: '25.00'),
         ReceiptOcrItemCandidate(description: 'Bread', lineTotal: '18.00'),
       ],
+    );
+
+    expect(preview.reviewHints, [
+      'OCR item total differs from detected grand total. Review the receipt before applying.',
+    ]);
+  });
+
+  test('preview does not use cross-currency adjustments for reconciliation', () {
+    const preview = ReceiptOcrPreview(
+      currency: 'USD',
+      tip: '2.00',
+      tipCurrency: 'XPF',
+      tipHasExplicitCurrencyEvidence: true,
+      total: '45.00',
+      items: [ReceiptOcrItemCandidate(description: 'Milk', lineTotal: '43.00')],
     );
 
     expect(preview.reviewHints, [

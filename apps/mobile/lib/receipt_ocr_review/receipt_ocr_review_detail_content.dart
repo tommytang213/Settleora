@@ -348,19 +348,32 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
   }
 
   ReceiptOcrReviewSaveRequest _buildRequest() {
+    final editedCurrency = _nullableText(
+      _currencyController.text,
+    )?.toUpperCase();
+    final originalCurrency = widget.review.currency?.trim().toUpperCase();
+    final preserveMoney = editedCurrency == originalCurrency;
     return ReceiptOcrReviewSaveRequest(
       status: widget.review.status,
       source: widget.review.source,
       merchantText: _nullableText(_merchantController.text),
       receiptIssuedAtUtc: _parseDate(_receiptDateController.text),
-      currency: _nullableText(_currencyController.text)?.toUpperCase(),
-      subtotalAmount: _nullableText(_subtotalController.text),
-      taxAmount: _nullableText(_taxController.text),
-      serviceChargeAmount: _nullableText(_serviceChargeController.text),
-      discountAmount: _nullableText(_discountController.text),
-      grandTotalAmount: _nullableText(_grandTotalController.text),
+      currency: editedCurrency,
+      subtotalAmount: preserveMoney
+          ? _nullableText(_subtotalController.text)
+          : null,
+      taxAmount: preserveMoney ? _nullableText(_taxController.text) : null,
+      serviceChargeAmount: preserveMoney
+          ? _nullableText(_serviceChargeController.text)
+          : null,
+      discountAmount: preserveMoney
+          ? _nullableText(_discountController.text)
+          : null,
+      grandTotalAmount: preserveMoney
+          ? _nullableText(_grandTotalController.text)
+          : null,
       lines: _lineEditors
-          .map((editors) => editors.toRequest())
+          .map((editors) => editors.toRequest(omitMoney: !preserveMoney))
           .toList(growable: false),
       adjustmentEvidence: _adjustmentEditors
           .map((editors) => editors.toRequest())
@@ -453,7 +466,24 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
                 validator: _currencyValidator,
                 onChanged: (currency) {
                   setState(() {
+                    final previousCurrency = _currencyController.text
+                        .trim()
+                        .toUpperCase();
                     _currencyController.text = currency ?? '';
+                    final nextCurrency = _currencyController.text
+                        .trim()
+                        .toUpperCase();
+                    if (previousCurrency != nextCurrency) {
+                      _subtotalController.clear();
+                      _taxController.clear();
+                      _serviceChargeController.clear();
+                      _discountController.clear();
+                      _grandTotalController.clear();
+                      for (final editors in _lineEditors) {
+                        editors.unitPriceAmountController.clear();
+                        editors.lineTotalAmountController.clear();
+                      }
+                    }
                   });
                 },
               ),
@@ -899,12 +929,16 @@ class _ReceiptOcrReviewLineEditors {
         lineTotalAmountController.text.trim().isNotEmpty;
   }
 
-  ReceiptOcrReviewLineSaveRequest toRequest() {
+  ReceiptOcrReviewLineSaveRequest toRequest({bool omitMoney = false}) {
     return ReceiptOcrReviewLineSaveRequest(
       text: textController.text.trim(),
       quantity: _nullableText(quantityController.text),
-      unitPriceAmount: _nullableText(unitPriceAmountController.text),
-      lineTotalAmount: _nullableText(lineTotalAmountController.text),
+      unitPriceAmount: omitMoney
+          ? null
+          : _nullableText(unitPriceAmountController.text),
+      lineTotalAmount: omitMoney
+          ? null
+          : _nullableText(lineTotalAmountController.text),
     );
   }
 

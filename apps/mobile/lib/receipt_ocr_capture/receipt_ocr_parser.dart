@@ -32,11 +32,16 @@ class ReceiptOcrParser {
     );
     final currency = currencyDetection.currency;
     final amounts = _extractLabeledAmounts(lines, currency);
-    final merchant = _detectMerchant(lines);
-    final itemCandidates = _extractItems(lines, currency, merchant: merchant);
+    final merchantDetection = _detectMerchant(lines);
+    final merchant = merchantDetection?.text;
+    final itemCandidates = _extractItems(
+      lines,
+      currency,
+      merchantLineIndex: merchantDetection?.lineIndex,
+    );
     final unresolvedItemLines = _countUnresolvedItemLikeLines(
       lines,
-      merchant: merchant,
+      merchantLineIndex: merchantDetection?.lineIndex,
     );
     if (itemCandidates.isEmpty) {
       warnings.add('No clear item lines were detected.');
@@ -69,12 +74,23 @@ class ReceiptOcrParser {
       service: amounts.service,
       tip: amounts.tip,
       tipLabel: amounts.tipLabel,
-      tipCurrency: amounts.tip == null ? null : amounts.tipCurrency ?? currency,
+      tipCurrency: amounts.tip == null
+          ? null
+          : amounts.tipHasExplicitCurrencyEvidence
+          ? amounts.tipCurrency
+          : currency,
+      tipHasExplicitCurrencyEvidence:
+          amounts.tip != null && amounts.tipHasExplicitCurrencyEvidence,
       shipping: amounts.shipping,
       shippingLabel: amounts.shippingLabel,
       shippingCurrency: amounts.shipping == null
           ? null
-          : amounts.shippingCurrency ?? currency,
+          : amounts.shippingHasExplicitCurrencyEvidence
+          ? amounts.shippingCurrency
+          : currency,
+      shippingHasExplicitCurrencyEvidence:
+          amounts.shipping != null &&
+          amounts.shippingHasExplicitCurrencyEvidence,
       discount: amounts.discount,
       total: amounts.total,
       rawTextLineCount: lines.length,
@@ -87,7 +103,7 @@ class ReceiptOcrParser {
     );
   }
 
-  String? _detectMerchant(List<String> lines) {
+  ({String text, int lineIndex})? _detectMerchant(List<String> lines) {
     for (var index = 0; index < lines.length && index < 5; index += 1) {
       final line = lines[index];
       if (_isAdministrativeLine(line) ||
@@ -95,7 +111,7 @@ class ReceiptOcrParser {
           _lineHasAmount(line)) {
         continue;
       }
-      return _cleanDescription(line);
+      return (text: _cleanDescription(line), lineIndex: index);
     }
 
     return null;
@@ -334,14 +350,39 @@ class ReceiptOcrParser {
     return _explicitCurrencyFromNormalizedLine(line.toUpperCase());
   }
 
-  String? _explicitAdjustmentCurrencyFromLine(String line) {
-    final candidates = <String>{
+  ({String? currency, bool hasExplicitEvidence})
+  _explicitAdjustmentCurrencyFromLine(String line) {
+    final boundedCodeCandidates = <String>{
+      for (final match in RegExp(
+        r'(?<![A-Za-z])([A-Z]{3})(?![A-Za-z])\s*[:=]?\s*[+-]?\s*\d',
+      ).allMatches(line))
+        match.group(1)!,
+      for (final match in RegExp(
+        r'\d(?:[\d,]*)(?:\.\d+)?\s*([A-Z]{3})(?![A-Za-z])',
+      ).allMatches(line))
+        match.group(1)!,
+    };
+    if (boundedCodeCandidates.isNotEmpty) {
+      return (
+        currency: boundedCodeCandidates.length == 1
+            ? boundedCodeCandidates.single
+            : null,
+        hasExplicitEvidence: true,
+      );
+    }
+
+    final recognizedCandidates = <String>{
       ..._supportedCurrencyCodes.where(
         (code) => _hasExplicitCurrencyCode([line], code),
       ),
       ?_explicitCurrencyFromLine(line),
     };
-    return candidates.length == 1 ? candidates.single : null;
+    return (
+      currency: recognizedCandidates.length == 1
+          ? recognizedCandidates.single
+          : null,
+      hasExplicitEvidence: recognizedCandidates.isNotEmpty,
+    );
   }
 
   _LabeledReceiptAmounts _extractLabeledAmounts(
@@ -354,9 +395,11 @@ class ReceiptOcrParser {
     String? tip;
     String? tipLabel;
     String? tipCurrency;
+    var tipHasExplicitCurrencyEvidence = false;
     String? shipping;
     String? shippingLabel;
     String? shippingCurrency;
+    var shippingHasExplicitCurrencyEvidence = false;
     String? discount;
     String? total;
 
@@ -377,7 +420,10 @@ class ReceiptOcrParser {
         if (tip == null) {
           tip = amount;
           tipLabel = _originalReceiptAdjustmentLabel(line, fallback: 'Tip');
-          tipCurrency = _explicitAdjustmentCurrencyFromLine(line);
+          final adjustmentCurrency = _explicitAdjustmentCurrencyFromLine(line);
+          tipCurrency = adjustmentCurrency.currency;
+          tipHasExplicitCurrencyEvidence =
+              adjustmentCurrency.hasExplicitEvidence;
         }
       } else if (_hasShippingLabel(line, normalized)) {
         if (shipping == null) {
@@ -386,7 +432,10 @@ class ReceiptOcrParser {
             line,
             fallback: 'Shipping',
           );
-          shippingCurrency = _explicitAdjustmentCurrencyFromLine(line);
+          final adjustmentCurrency = _explicitAdjustmentCurrencyFromLine(line);
+          shippingCurrency = adjustmentCurrency.currency;
+          shippingHasExplicitCurrencyEvidence =
+              adjustmentCurrency.hasExplicitEvidence;
         }
       } else if (_hasDiscountLabel(line, normalized)) {
         discount ??= amount;
@@ -402,9 +451,11 @@ class ReceiptOcrParser {
       tip: tip,
       tipLabel: tipLabel,
       tipCurrency: tipCurrency,
+      tipHasExplicitCurrencyEvidence: tipHasExplicitCurrencyEvidence,
       shipping: shipping,
       shippingLabel: shippingLabel,
       shippingCurrency: shippingCurrency,
+      shippingHasExplicitCurrencyEvidence: shippingHasExplicitCurrencyEvidence,
       discount: discount,
       total: total,
     );
@@ -413,7 +464,7 @@ class ReceiptOcrParser {
   List<ReceiptOcrItemCandidate> _extractItems(
     List<String> lines,
     String? currency, {
-    String? merchant,
+    int? merchantLineIndex,
   }) {
     final items = <ReceiptOcrItemCandidate>[];
     final wrappedDescriptionLines = <String>[];
@@ -425,7 +476,7 @@ class ReceiptOcrParser {
       final line = lines[lineIndex];
       if (_isAdministrativeLine(line) ||
           _isContextualReceiptMetadataLine(lines, lineIndex) ||
-          (merchant != null && _cleanDescription(line) == merchant) ||
+          lineIndex == merchantLineIndex ||
           (fuelItem != null && _isFuelMeasurementLine(line))) {
         wrappedDescriptionLines.clear();
         continue;
@@ -580,11 +631,14 @@ class ReceiptOcrParser {
     caseSensitive: false,
   ).hasMatch(line);
 
-  int _countUnresolvedItemLikeLines(List<String> lines, {String? merchant}) {
+  int _countUnresolvedItemLikeLines(
+    List<String> lines, {
+    int? merchantLineIndex,
+  }) {
     var count = 0;
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       final line = lines[lineIndex];
-      if (merchant != null && _cleanDescription(line) == merchant) {
+      if (lineIndex == merchantLineIndex) {
         continue;
       }
       if (_isAdministrativeLine(line) ||
@@ -624,9 +678,11 @@ class _LabeledReceiptAmounts {
     this.tip,
     this.tipLabel,
     this.tipCurrency,
+    this.tipHasExplicitCurrencyEvidence = false,
     this.shipping,
     this.shippingLabel,
     this.shippingCurrency,
+    this.shippingHasExplicitCurrencyEvidence = false,
     this.discount,
     this.total,
   });
@@ -637,9 +693,11 @@ class _LabeledReceiptAmounts {
   final String? tip;
   final String? tipLabel;
   final String? tipCurrency;
+  final bool tipHasExplicitCurrencyEvidence;
   final String? shipping;
   final String? shippingLabel;
   final String? shippingCurrency;
+  final bool shippingHasExplicitCurrencyEvidence;
   final String? discount;
   final String? total;
 }
@@ -1374,10 +1432,15 @@ bool _hasServiceChargeLabel(String line, String normalized) {
 
 bool _hasActualTipChargeLabel(String line, String normalized) {
   if (_isSuggestedTipLine(normalized)) return false;
-  return _hasEnglishReceiptLabel(
-    normalized,
-    RegExp(r'\b(?:actual\s+tip|gratuity|tip)\b', caseSensitive: false),
+  final labelPattern = RegExp(
+    r'\b(?:actual\s+tip|gratuity|tip)\b',
+    caseSensitive: false,
   );
+  return _hasEnglishReceiptLabel(normalized, labelPattern) ||
+      _hasEnglishReceiptLabel(
+        _withoutBoundedExplicitCurrencyCode(line).toLowerCase(),
+        labelPattern,
+      );
 }
 
 bool _isSuggestedTipLine(String normalized) => RegExp(
@@ -1458,13 +1521,24 @@ bool _isPricedItemLine(String line) {
 }
 
 bool _hasShippingLabel(String line, String normalized) {
-  return _hasEnglishReceiptLabel(
-    normalized,
-    RegExp(
-      r'\b(shipping|delivery)(?:\s+(?:fee|charge)|\s*(?:(?:&|and)\s*)?handling(?:\s+(?:fee|charge))?)?\b',
-      caseSensitive: false,
-    ),
+  final labelPattern = RegExp(
+    r'\b(shipping|delivery)(?:\s+(?:fee|charge)|\s*(?:(?:&|and)\s*)?handling(?:\s+(?:fee|charge))?)?\b',
+    caseSensitive: false,
   );
+  return _hasEnglishReceiptLabel(normalized, labelPattern) ||
+      _hasEnglishReceiptLabel(
+        _withoutBoundedExplicitCurrencyCode(line).toLowerCase(),
+        labelPattern,
+      );
+}
+
+String _withoutBoundedExplicitCurrencyCode(String line) {
+  return line
+      .replaceAll(
+        RegExp(r'(?<![A-Za-z])([A-Z]{3})(?![A-Za-z])(?=\s*[:=]?\s*[+-]?\s*\d)'),
+        ' ',
+      )
+      .replaceAll(RegExp(r'(?<=\d)\s*([A-Z]{3})(?![A-Za-z])'), ' ');
 }
 
 bool _hasDiscountLabel(String line, String normalized) {
