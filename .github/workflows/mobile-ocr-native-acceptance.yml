@@ -267,7 +267,8 @@ jobs:
             --stdout="$RUNNER_TEMP/ios-acceptance.log" \
             --stderr="$RUNNER_TEMP/ios-acceptance.stderr.log" \
             --max-bytes=33554432 \
-            -- flutter test integration_test/receipt_ocr_real_provider_test.dart -d "${{ steps.simulator.outputs.udid }}" --timeout 6h --machine --no-pub
+            --platform=ios \
+            --device="${{ steps.simulator.outputs.udid }}"
           status=$?
           set -e
           cleanup_firewall

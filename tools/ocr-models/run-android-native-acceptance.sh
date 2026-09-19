@@ -60,7 +60,8 @@ node "$GITHUB_WORKSPACE/tools/ocr-models/bounded-process-capture.mjs" \
   --stdout="$RUNNER_TEMP/android-acceptance.log" \
   --stderr="$RUNNER_TEMP/android-acceptance.stderr.log" \
   --max-bytes=33554432 \
-  -- flutter test integration_test/receipt_ocr_real_provider_test.dart -d emulator-5554 --timeout 6h --machine --no-pub || status=$?
+  --platform=android \
+  --device=emulator-5554 || status=$?
 echo "status=$status" >> "$GITHUB_OUTPUT"
 echo "failure_phase=" >> "$GITHUB_OUTPUT"
 phase=complete

@@ -164,6 +164,7 @@ test('iOS build procedure is reusable, manual, pinned, and simulator-only', () =
 
 test('native OCR acceptance is exact-head, device-backed, and retains only bounded evidence', () => {
   const native = workflow('mobile-ocr-native-acceptance.yml');
+  const boundedCapture = read('tools/ocr-models/bounded-process-capture.mjs');
   assert.deepEqual(native.on.pull_request.branches, ['main']);
   assert.ok(native.on.workflow_dispatch);
   assert.ok(native.on.pull_request.paths.includes('apps/mobile/assets/receipt_ocr_models/**'));
@@ -187,8 +188,9 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
       : runCommands(job);
     const allCommands = [...runCommands(job), ...executionCommands];
     assert.ok(executionCommands.some(
-      (command) => command.includes('receipt_ocr_real_provider_test.dart') && command.includes(device),
+      (command) => command.includes('bounded-process-capture.mjs') && command.includes(device),
     ));
+    assert.ok(boundedCapture.includes('integration_test/receipt_ocr_real_provider_test.dart'));
     const acceptance = stepsFor(job).find((step) => step.id === 'acceptance');
     assert.equal(acceptance['timeout-minutes'], 180);
     assert.ok(runCommands(job).includes('npm run validate:ocr-models'));
@@ -203,12 +205,14 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
     assert.ok(runCommands(job).some((command) => command.includes('--stderr-log=')));
     assert.ok(allCommands.some((command) => command.includes('bounded-process-capture.mjs')));
     assert.ok(allCommands.some((command) => command.includes('--max-bytes=33554432')));
+    assert.ok(allCommands.some((command) => command.includes('--platform=')));
+    assert.ok(allCommands.some((command) => command.includes('--device=')));
     assert.ok(runCommands(job).some((command) => command.includes('--base-app-bytes=')));
     assert.ok(runCommands(job).some((command) => command.includes('git archive')));
     assert.ok(runCommands(job).some((command) => command.includes('git archive "$EXPECTED_HEAD"')));
     assert.ok(allCommands.some((command) => command.includes('>"$RUNNER_TEMP/')));
     assert.equal(allCommands.some((command) => command.includes('| tee ')), false);
-    assert.ok(allCommands.some((command) => command.includes('--machine')));
+    assert.ok(boundedCapture.includes('"--machine"'));
     assert.ok(runCommands(job).some((command) => command.includes('flutter build') && command.includes('--release')));
     const upload = stepsFor(job).find((step) =>
       step.uses?.startsWith('actions/upload-artifact@') &&
@@ -258,7 +262,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(androidCommands.includes('android-dex-packages.txt'));
   assert.ok(androidRunner.includes('test "$system_image_revision" = "9"'));
   assert.ok(androidRunner.includes('test "$emulator_revision" = "37.1.11"'));
-  assert.ok(androidRunner.includes('flutter test integration_test/receipt_ocr_real_provider_test.dart'));
+  assert.ok(boundedCapture.includes('integration_test/receipt_ocr_real_provider_test.dart'));
   assert.ok(androidRunner.includes('|| status=$?'));
   assert.match(serialized, /integration.*test/i);
   const iosCommands = runCommands(native.jobs['ios-native-acceptance']).join('\n');

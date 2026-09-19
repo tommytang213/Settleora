@@ -2,13 +2,12 @@
 import { closeSync, constants, createWriteStream, fchmodSync, openSync } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-function parseArgs(values) {
-  const separator = values.indexOf("--");
-  if (separator < 0 || separator === values.length - 1) throw new Error("invalid arguments");
-  const allowedOptions = new Set(["stdout", "stderr", "max-bytes"]);
+export function parseArgs(values) {
+  const allowedOptions = new Set(["stdout", "stderr", "max-bytes", "platform", "device"]);
   const options = new Map();
-  for (const value of values.slice(0, separator)) {
+  for (const value of values) {
     const equals = value.indexOf("=");
     if (!value.startsWith("--") || equals < 3) throw new Error("invalid option");
     const name = value.slice(2, equals);
@@ -22,17 +21,43 @@ function parseArgs(values) {
     !path.isAbsolute(options.get("stdout")) ||
     !path.isAbsolute(options.get("stderr")) ||
     path.resolve(options.get("stdout")) === path.resolve(options.get("stderr")) ||
+    !new Set(["android", "ios"]).has(options.get("platform")) ||
     !Number.isSafeInteger(maxBytes) ||
     maxBytes < 1 ||
     maxBytes > 32 * 1024 * 1024
   ) {
     throw new Error("invalid bounds");
   }
+  const platform = options.get("platform");
+  const device = options.get("device");
+  if (
+    (platform === "android" && device !== "emulator-5554") ||
+    (platform === "ios" && !/^[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}$/.test(device ?? ""))
+  ) {
+    throw new Error("invalid device");
+  }
   return {
     stdoutPath: options.get("stdout"),
     stderrPath: options.get("stderr"),
     maxBytes,
-    command: values.slice(separator + 1),
+    platform,
+    device,
+  };
+}
+
+export function buildFlutterCommand(device) {
+  return {
+    executable: "flutter",
+    args: [
+      "test",
+      "integration_test/receipt_ocr_real_provider_test.dart",
+      "-d",
+      device,
+      "--timeout",
+      "6h",
+      "--machine",
+      "--no-pub",
+    ],
   };
 }
 
@@ -101,8 +126,7 @@ async function terminateProcessGroup(pid) {
   if (processGroupExists(pid)) throw new Error("process group termination failed");
 }
 
-async function main() {
-  const { stdoutPath, stderrPath, maxBytes, command } = parseArgs(process.argv.slice(2));
+export async function runBoundedProcess({ stdoutPath, stderrPath, maxBytes, executable, args }) {
   let overflow = false;
   let child;
   let termination;
@@ -122,7 +146,7 @@ async function main() {
     throw error;
   }
   try {
-    child = spawn(command[0], command.slice(1), {
+    child = spawn(executable, args, {
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -139,12 +163,20 @@ async function main() {
   });
   await Promise.all([stdoutDone, stderrDone]);
   if (termination) await termination;
-  if (overflow) process.exit(97);
-  if (outcome.wrapperError || outcome.signal != null || !Number.isInteger(outcome.code)) process.exit(98);
-  process.exit(outcome.code);
+  if (overflow) return 97;
+  if (outcome.wrapperError || outcome.signal != null || !Number.isInteger(outcome.code)) return 98;
+  return outcome.code;
 }
 
-main().catch(() => {
-  process.stderr.write("bounded_process_capture_failed\n");
-  process.exit(98);
-});
+async function main() {
+  const { stdoutPath, stderrPath, maxBytes, device } = parseArgs(process.argv.slice(2));
+  const command = buildFlutterCommand(device);
+  return runBoundedProcess({ stdoutPath, stderrPath, maxBytes, ...command });
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+  main().then((status) => process.exit(status)).catch(() => {
+    process.stderr.write("bounded_process_capture_failed\n");
+    process.exit(98);
+  });
+}
