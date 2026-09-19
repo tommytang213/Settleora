@@ -66,6 +66,32 @@ test("terminates on overflow without echoing captured content", () => {
   });
 });
 
+test("terminates detached descendants that ignore the graceful overflow signal", () => {
+  withCapture(({ stdoutPath, stderrPath }) => {
+    const descendantSource = "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)";
+    const parentSource = [
+      "const { spawn } = require('node:child_process')",
+      `const child = spawn(process.execPath, ['-e', ${JSON.stringify(descendantSource)}], { stdio: 'ignore' })`,
+      "process.stdout.write(`${child.pid}\\n${'x'.repeat(1000)}`)",
+      "setInterval(() => {}, 1000)",
+    ].join(";");
+    const result = spawnSync(process.execPath, [
+      capture,
+      `--stdout=${stdoutPath}`,
+      `--stderr=${stderrPath}`,
+      "--max-bytes=64",
+      "--",
+      process.execPath,
+      "-e",
+      parentSource,
+    ], { encoding: "utf8", timeout: 10000 });
+    assert.equal(result.status, 97);
+    const descendantPid = Number(readFileSync(stdoutPath, "utf8").split("\n", 1)[0]);
+    assert.equal(Number.isSafeInteger(descendantPid), true);
+    assert.throws(() => process.kill(descendantPid, 0), { code: "ESRCH" });
+  });
+});
+
 test("rejects unknown and duplicate wrapper options without echoing their values", () => {
   for (const invalidOption of ["--unknown=private-value", "--max-bytes=8"]) {
     const result = spawnSync(process.execPath, [

@@ -301,6 +301,8 @@ test("failure evidence retains bounded phase and status before environment colle
   });
   assert.deepEqual(rejected.execution, { testExitStatus: null, preflightFailurePhase: null });
   assert.equal(rejected.sourceSha, null);
+  assert.equal(buildFailureEvidence({ "test-status": "" }).execution.testExitStatus, null);
+  assert.equal(buildFailureEvidence({}).execution.testExitStatus, null);
 });
 
 test("rejects all non-allowlisted application output and unresolved environment identity", () => {

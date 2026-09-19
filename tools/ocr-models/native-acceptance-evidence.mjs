@@ -21,8 +21,11 @@ const androidPreflightFailurePhases = new Set([
 
 export function buildFailureEvidence(args) {
   const platform = new Set(["android", "ios"]).has(args.platform) ? args.platform : null;
-  const parsedStatus = Number(args["test-status"]);
-  const testExitStatus = Number.isSafeInteger(parsedStatus) && parsedStatus >= 0
+  const statusToken = args["test-status"];
+  const parsedStatus = typeof statusToken === "string" && /^(0|[1-9][0-9]*)$/.test(statusToken)
+    ? Number(statusToken)
+    : null;
+  const testExitStatus = Number.isSafeInteger(parsedStatus)
     ? parsedStatus
     : null;
   const requestedPhase = args["failure-phase"] || null;
