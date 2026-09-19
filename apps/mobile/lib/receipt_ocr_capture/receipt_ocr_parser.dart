@@ -32,8 +32,8 @@ class ReceiptOcrParser {
     );
     final currency = currencyDetection.currency;
     final amounts = _extractLabeledAmounts(lines, currency);
-    final itemCandidates = _extractItems(lines, currency);
     final merchant = _detectMerchant(lines);
+    final itemCandidates = _extractItems(lines, currency, merchant: merchant);
     final unresolvedItemLines = _countUnresolvedItemLikeLines(
       lines,
       merchant: merchant,
@@ -69,8 +69,12 @@ class ReceiptOcrParser {
       service: amounts.service,
       tip: amounts.tip,
       tipLabel: amounts.tipLabel,
+      tipCurrency: amounts.tip == null ? null : amounts.tipCurrency ?? currency,
       shipping: amounts.shipping,
       shippingLabel: amounts.shippingLabel,
+      shippingCurrency: amounts.shipping == null
+          ? null
+          : amounts.shippingCurrency ?? currency,
       discount: amounts.discount,
       total: amounts.total,
       rawTextLineCount: lines.length,
@@ -330,6 +334,16 @@ class ReceiptOcrParser {
     return _explicitCurrencyFromNormalizedLine(line.toUpperCase());
   }
 
+  String? _explicitAdjustmentCurrencyFromLine(String line) {
+    final candidates = <String>{
+      ..._supportedCurrencyCodes.where(
+        (code) => _hasExplicitCurrencyCode([line], code),
+      ),
+      ?_explicitCurrencyFromLine(line),
+    };
+    return candidates.length == 1 ? candidates.single : null;
+  }
+
   _LabeledReceiptAmounts _extractLabeledAmounts(
     List<String> lines,
     String? currency,
@@ -339,8 +353,10 @@ class ReceiptOcrParser {
     String? service;
     String? tip;
     String? tipLabel;
+    String? tipCurrency;
     String? shipping;
     String? shippingLabel;
+    String? shippingCurrency;
     String? discount;
     String? total;
 
@@ -358,14 +374,20 @@ class ReceiptOcrParser {
       } else if (_hasServiceChargeLabel(line, normalized)) {
         service ??= amount;
       } else if (_hasActualTipChargeLabel(line, normalized)) {
-        tip ??= amount;
-        tipLabel ??= _originalReceiptAdjustmentLabel(line, fallback: 'Tip');
+        if (tip == null) {
+          tip = amount;
+          tipLabel = _originalReceiptAdjustmentLabel(line, fallback: 'Tip');
+          tipCurrency = _explicitAdjustmentCurrencyFromLine(line);
+        }
       } else if (_hasShippingLabel(line, normalized)) {
-        shipping ??= amount;
-        shippingLabel ??= _originalReceiptAdjustmentLabel(
-          line,
-          fallback: 'Shipping',
-        );
+        if (shipping == null) {
+          shipping = amount;
+          shippingLabel = _originalReceiptAdjustmentLabel(
+            line,
+            fallback: 'Shipping',
+          );
+          shippingCurrency = _explicitAdjustmentCurrencyFromLine(line);
+        }
       } else if (_hasDiscountLabel(line, normalized)) {
         discount ??= amount;
       } else if (_hasTotalLabel(line, normalized)) {
@@ -379,8 +401,10 @@ class ReceiptOcrParser {
       service: service,
       tip: tip,
       tipLabel: tipLabel,
+      tipCurrency: tipCurrency,
       shipping: shipping,
       shippingLabel: shippingLabel,
+      shippingCurrency: shippingCurrency,
       discount: discount,
       total: total,
     );
@@ -388,8 +412,9 @@ class ReceiptOcrParser {
 
   List<ReceiptOcrItemCandidate> _extractItems(
     List<String> lines,
-    String? currency,
-  ) {
+    String? currency, {
+    String? merchant,
+  }) {
     final items = <ReceiptOcrItemCandidate>[];
     final wrappedDescriptionLines = <String>[];
     final fuelItem = _extractFuelItem(lines, currency);
@@ -400,6 +425,7 @@ class ReceiptOcrParser {
       final line = lines[lineIndex];
       if (_isAdministrativeLine(line) ||
           _isContextualReceiptMetadataLine(lines, lineIndex) ||
+          (merchant != null && _cleanDescription(line) == merchant) ||
           (fuelItem != null && _isFuelMeasurementLine(line))) {
         wrappedDescriptionLines.clear();
         continue;
@@ -597,8 +623,10 @@ class _LabeledReceiptAmounts {
     this.service,
     this.tip,
     this.tipLabel,
+    this.tipCurrency,
     this.shipping,
     this.shippingLabel,
+    this.shippingCurrency,
     this.discount,
     this.total,
   });
@@ -608,8 +636,10 @@ class _LabeledReceiptAmounts {
   final String? service;
   final String? tip;
   final String? tipLabel;
+  final String? tipCurrency;
   final String? shipping;
   final String? shippingLabel;
+  final String? shippingCurrency;
   final String? discount;
   final String? total;
 }

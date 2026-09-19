@@ -262,21 +262,24 @@ ReceiptOcrPreview _copyReceiptOcrPreview(
   String? currency,
   ReceiptOcrCurrencyProvenance? currencyProvenance,
   List<ReceiptOcrItemCandidate>? items,
+  bool clearHeaderMoney = false,
 }) {
   return ReceiptOcrPreview(
     merchant: merchant ?? preview.merchant,
     receiptDate: receiptDate ?? preview.receiptDate,
     currency: currency ?? preview.currency,
     currencyProvenance: currencyProvenance ?? preview.currencyProvenance,
-    subtotal: preview.subtotal,
-    tax: preview.tax,
-    service: preview.service,
+    subtotal: clearHeaderMoney ? null : preview.subtotal,
+    tax: clearHeaderMoney ? null : preview.tax,
+    service: clearHeaderMoney ? null : preview.service,
     tip: preview.tip,
     tipLabel: preview.tipLabel,
+    tipCurrency: preview.tipCurrency,
     shipping: preview.shipping,
     shippingLabel: preview.shippingLabel,
-    discount: preview.discount,
-    total: preview.total,
+    shippingCurrency: preview.shippingCurrency,
+    discount: clearHeaderMoney ? null : preview.discount,
+    total: clearHeaderMoney ? null : preview.total,
     rawTextLineCount: preview.rawTextLineCount,
     confidence: preview.confidence,
     category: preview.category,
@@ -461,42 +464,45 @@ List<ReceiptOcrReviewLineSaveRequest> receiptOcrReviewLinesFromPreview(
 @visibleForTesting
 List<ReceiptOcrReviewAdjustmentSaveRequest>
 receiptOcrAdjustmentEvidenceFromPreview(ReceiptOcrPreview preview) {
-  final currency = _nullableUppercaseCurrency(preview.currency);
-  if (currency == null) {
-    return const [];
-  }
+  final reviewCurrency = _nullableUppercaseCurrency(preview.currency);
 
   final adjustments = <ReceiptOcrReviewAdjustmentSaveRequest>[];
+  final tipCurrency = _nullableUppercaseCurrency(
+    preview.tipCurrency ?? reviewCurrency,
+  );
   final tip = receiptOcrMoneyCandidateForSave(
     preview.tip,
-    currency: currency,
+    currency: tipCurrency,
     allowZero: false,
   );
-  if (tip != null) {
+  if (tip != null && tipCurrency != null) {
     adjustments.add(
       ReceiptOcrReviewAdjustmentSaveRequest(
         kind: ReceiptOcrReviewAdjustmentKindValues.tip,
         originalLabel: _nullableTrimmedText(preview.tipLabel) ?? 'Tip',
         amount: tip,
-        currency: currency,
+        currency: tipCurrency,
         direction: ReceiptOcrReviewAdjustmentDirectionValues.charge,
       ),
     );
   }
 
+  final shippingCurrency = _nullableUppercaseCurrency(
+    preview.shippingCurrency ?? reviewCurrency,
+  );
   final shipping = receiptOcrMoneyCandidateForSave(
     preview.shipping,
-    currency: currency,
+    currency: shippingCurrency,
     allowZero: false,
   );
-  if (shipping != null) {
+  if (shipping != null && shippingCurrency != null) {
     adjustments.add(
       ReceiptOcrReviewAdjustmentSaveRequest(
         kind: ReceiptOcrReviewAdjustmentKindValues.shipping,
         originalLabel:
             _nullableTrimmedText(preview.shippingLabel) ?? 'Shipping',
         amount: shipping,
-        currency: currency,
+        currency: shippingCurrency,
         direction: ReceiptOcrReviewAdjustmentDirectionValues.charge,
       ),
     );
@@ -2979,6 +2985,7 @@ class _ReceiptOcrEditableReviewForm extends StatefulWidget {
     required this.enabled,
     required this.onChanged,
     required this.onReset,
+    this.clearHeaderMoneyOnCurrencyChange = false,
   });
 
   final String keyPrefix;
@@ -2986,6 +2993,7 @@ class _ReceiptOcrEditableReviewForm extends StatefulWidget {
   final bool enabled;
   final ValueChanged<ReceiptOcrPreview> onChanged;
   final VoidCallback onReset;
+  final bool clearHeaderMoneyOnCurrencyChange;
 
   @override
   State<_ReceiptOcrEditableReviewForm> createState() =>
@@ -3131,7 +3139,10 @@ class _ReceiptOcrEditableReviewFormState
     }
   }
 
-  void _emitChanged({ReceiptOcrCurrencyProvenance? currencyProvenance}) {
+  void _emitChanged({
+    ReceiptOcrCurrencyProvenance? currencyProvenance,
+    bool clearHeaderMoney = false,
+  }) {
     widget.onChanged(
       _copyReceiptOcrPreview(
         widget.preview,
@@ -3139,6 +3150,7 @@ class _ReceiptOcrEditableReviewFormState
         receiptDate: _dateController.text,
         currency: _currencyController.text,
         currencyProvenance: currencyProvenance,
+        clearHeaderMoney: clearHeaderMoney,
         items: [
           for (final item in _itemControllers)
             ReceiptOcrItemCandidate(
@@ -3224,6 +3236,9 @@ class _ReceiptOcrEditableReviewFormState
           enabled: widget.enabled,
           semanticLabel: 'Receipt currency selector',
           onChanged: (currency) {
+            final previousCurrency = _currencyController.text
+                .trim()
+                .toUpperCase();
             _currencyController.text = currency ?? '';
             final nextCurrency = currency?.trim().toUpperCase() ?? '';
             if (settleoraIsSupportedCurrency(nextCurrency)) {
@@ -3241,6 +3256,9 @@ class _ReceiptOcrEditableReviewFormState
               currencyProvenance: settleoraIsSupportedCurrency(currency)
                   ? ReceiptOcrCurrencyProvenance.explicit
                   : ReceiptOcrCurrencyProvenance.unresolved,
+              clearHeaderMoney:
+                  widget.clearHeaderMoneyOnCurrencyChange &&
+                  previousCurrency != nextCurrency,
             );
           },
         ),
@@ -4268,13 +4286,13 @@ List<_ReceiptOcrReferenceCharge> _receiptOcrReferenceCharges(
       _ReceiptOcrReferenceCharge(
         label: 'Tip suggested',
         amount: preview.tip!.trim(),
-        currency: currency,
+        currency: preview.tipCurrency?.trim().toUpperCase() ?? currency,
       ),
     if ((preview.shipping ?? '').trim().isNotEmpty)
       _ReceiptOcrReferenceCharge(
         label: 'Shipping suggested',
         amount: preview.shipping!.trim(),
-        currency: currency,
+        currency: preview.shippingCurrency?.trim().toUpperCase() ?? currency,
       ),
     if ((preview.total ?? '').trim().isNotEmpty)
       _ReceiptOcrReferenceCharge(
@@ -14485,6 +14503,7 @@ class _SavedReceiptOcrReviewEditContent extends StatelessWidget {
                 enabled: enabled,
                 onChanged: onPreviewChanged,
                 onReset: onReset,
+                clearHeaderMoneyOnCurrencyChange: true,
               ),
             ],
           ),
@@ -17231,27 +17250,24 @@ ReceiptOcrReviewSaveRequest _receiptOcrReviewSaveRequestFromSavedEdit(
   ReceiptOcrReviewDetail review,
   ReceiptOcrPreview preview,
 ) {
+  final editedCurrency = _nullableUppercaseCurrency(preview.currency);
+  final originalCurrency = _nullableUppercaseCurrency(review.currency);
+  final preserveHeaderMoney =
+      editedCurrency != null && editedCurrency == originalCurrency;
   return ReceiptOcrReviewSaveRequest(
     status: ReceiptOcrReviewStatusValues.provisional,
     source: review.source,
     merchantText: _nullableTrimmedText(preview.merchant),
     receiptIssuedAtUtc: _parseReceiptOcrReviewDate(preview.receiptDate),
-    currency: _nullableUppercaseCurrency(preview.currency),
-    subtotalAmount: review.subtotalAmount,
-    taxAmount: review.taxAmount,
-    serviceChargeAmount: review.serviceChargeAmount,
-    discountAmount: review.discountAmount,
-    grandTotalAmount: review.grandTotalAmount,
-    lines: [
-      for (final item in preview.items)
-        if (_receiptOcrItemHasReviewCandidate(item))
-          ReceiptOcrReviewLineSaveRequest(
-            text: item.description.trim(),
-            quantity: _nullableTrimmedText(item.quantity),
-            unitPriceAmount: _nullableTrimmedText(item.unitPrice),
-            lineTotalAmount: _nullableTrimmedText(item.lineTotal),
-          ),
-    ],
+    currency: editedCurrency,
+    subtotalAmount: preserveHeaderMoney ? review.subtotalAmount : null,
+    taxAmount: preserveHeaderMoney ? review.taxAmount : null,
+    serviceChargeAmount: preserveHeaderMoney
+        ? review.serviceChargeAmount
+        : null,
+    discountAmount: preserveHeaderMoney ? review.discountAmount : null,
+    grandTotalAmount: preserveHeaderMoney ? review.grandTotalAmount : null,
+    lines: receiptOcrReviewLinesFromPreview(preview),
     adjustmentEvidence: [
       for (final adjustment in review.adjustmentEvidence)
         ReceiptOcrReviewAdjustmentSaveRequest(

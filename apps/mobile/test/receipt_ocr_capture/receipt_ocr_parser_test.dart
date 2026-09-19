@@ -465,8 +465,10 @@ Total USD 40.99
 
     expect(preview.shipping, '9.99');
     expect(preview.shippingLabel, 'Shipping');
+    expect(preview.shippingCurrency, 'USD');
     expect(preview.tip, '5.00');
     expect(preview.tipLabel, 'Actual Tip');
+    expect(preview.tipCurrency, 'USD');
     expect(preview.items.map((item) => item.description), ['Burger', 'Beer']);
 
     final suffixed = parser.parse('''
@@ -544,6 +546,16 @@ Total USD 21.24
     expect(boundedUnicodeLabel.tipLabel, isNotNull);
     expect(boundedUnicodeLabel.tipLabel!.length, lessThanOrEqualTo(120));
     expect(boundedUnicodeLabel.tipLabel!.runes.last, 0x1F600);
+
+    final distinctAdjustmentCurrency = parser.parse('''
+Harbor Grill
+Burger USD 18.00
+Tip EUR 2.00
+Total USD 20.00
+''');
+    expect(distinctAdjustmentCurrency.currency, 'USD');
+    expect(distinctAdjustmentCurrency.tip, '2.00');
+    expect(distinctAdjustmentCurrency.tipCurrency, 'EUR');
   });
 
   test('parser treats a city ZIP row as metadata only beside an address', () {
@@ -963,6 +975,19 @@ Total USD 37.49
         ),
       ),
     );
+  });
+
+  test('parser excludes a detected non-first merchant from wrapped items', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+WELCOME
+The Wonderful Corner Cafe
+Coffee USD 5.00
+Total USD 5.00
+''');
+
+    expect(preview.merchant, 'The Wonderful Corner Cafe');
+    expect(preview.items.single.description, 'Coffee');
   });
 
   test('parser preserves multiple wrapped description rows', () {

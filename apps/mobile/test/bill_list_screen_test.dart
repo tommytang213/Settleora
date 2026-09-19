@@ -565,20 +565,45 @@ void main() {
   });
 
   test('OCR adjustment adapter only emits API-valid positive magnitudes', () {
-    ReceiptOcrPreview preview({String? tip, String? shipping}) =>
-        ReceiptOcrPreview(
-          currency: 'USD',
-          tip: tip,
-          tipLabel: 'Driver gratuity',
-          shipping: shipping,
-          shippingLabel: 'Delivery fee',
-        );
+    ReceiptOcrPreview preview({
+      String? tip,
+      String? tipCurrency,
+      String? shipping,
+      String? shippingCurrency,
+    }) => ReceiptOcrPreview(
+      currency: 'USD',
+      tip: tip,
+      tipLabel: 'Driver gratuity',
+      tipCurrency: tipCurrency,
+      shipping: shipping,
+      shippingLabel: 'Delivery fee',
+      shippingCurrency: shippingCurrency,
+    );
 
     expect(
       receiptOcrAdjustmentEvidenceFromPreview(
         preview(tip: '3.00', shipping: '4.00'),
       ).map((adjustment) => adjustment.amount),
       ['3.00', '4.00'],
+    );
+    expect(
+      receiptOcrAdjustmentEvidenceFromPreview(
+        preview(
+          tip: '3.00',
+          tipCurrency: 'EUR',
+          shipping: '4.00',
+          shippingCurrency: 'USD',
+        ),
+      ).map((adjustment) => adjustment.currency),
+      ['EUR', 'USD'],
+      reason: 'Explicit adjustment currencies must not inherit the receipt.',
+    );
+    expect(
+      receiptOcrAdjustmentEvidenceFromPreview(
+        preview(tip: '3.00', tipCurrency: 'PLN'),
+      ),
+      isEmpty,
+      reason: 'Unsupported explicit currency evidence must not be relabeled.',
     );
     expect(
       receiptOcrAdjustmentEvidenceFromPreview(
@@ -1584,6 +1609,11 @@ Total USD 9.00
       find.byKey(const Key('saved-ocr-review-ocr-edit-currency')),
       'HKD',
     );
+    expect(
+      find.textContaining('10.80 HKD'),
+      findsNothing,
+      reason: 'Changing currency must not relabel saved header evidence.',
+    );
     await tester.enterText(
       find.byKey(const ValueKey('saved-ocr-review-ocr-item-description-0')),
       'Edited milk',
@@ -1599,11 +1629,6 @@ Total USD 9.00
     await tester.enterText(
       find.byKey(const ValueKey('saved-ocr-review-ocr-item-line-total-0')),
       '22.00',
-    );
-    await _selectCurrency(
-      tester,
-      find.byKey(const ValueKey('saved-ocr-review-ocr-item-currency-0')),
-      'HKD',
     );
     await tester.tap(find.byKey(const Key('saved-ocr-review-ocr-add-item')));
     await tester.pumpAndSettle();
@@ -1632,7 +1657,7 @@ Total USD 9.00
       DateTime.utc(2026, 6, 14),
     );
     expect(receiptRepository.lastSaveRequest?.currency, 'HKD');
-    expect(receiptRepository.lastSaveRequest?.grandTotalAmount, '10.80');
+    expect(receiptRepository.lastSaveRequest?.grandTotalAmount, isNull);
     expect(receiptRepository.lastSaveRequest?.adjustmentEvidence, hasLength(1));
     expect(
       receiptRepository
@@ -1650,7 +1675,9 @@ Total USD 9.00
       receiptRepository.lastSaveRequest?.lines.map(
         (line) => line.lineTotalAmount,
       ),
-      ['22.00', '8.00'],
+      [null, '8.00'],
+      reason:
+          'Changing the review currency must not relabel saved header or line money.',
     );
     expect(find.text('Edited Market'), findsOneWidget);
     expect(find.text('Edited milk'), findsOneWidget);
