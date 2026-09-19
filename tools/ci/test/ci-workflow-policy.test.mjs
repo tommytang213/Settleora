@@ -248,7 +248,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(androidCommands.includes('verify-mobile-package.mjs --platform=android'));
   assert.ok(androidCommands.includes('android-dex-packages.txt'));
   assert.ok(androidRunner.includes('test "$system_image_revision" = "9"'));
-  assert.ok(androidRunner.includes('test "$emulator_revision" = "37.2.10"'));
+  assert.ok(androidRunner.includes('test "$emulator_revision" = "37.1.11"'));
   assert.ok(androidRunner.includes('flutter test integration_test/receipt_ocr_real_provider_test.dart'));
   assert.ok(androidRunner.includes('|| status=$?'));
   assert.match(serialized, /integration.*test/i);

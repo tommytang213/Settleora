@@ -25,14 +25,29 @@ function withLog(contents, callback) {
 function protocolLog(...messages) {
   return [
     { type: "start", time: 0, protocolVersion: "0.1.1", runnerVersion: null, pid: 1 },
+    {
+      type: "testStart",
+      time: 1,
+      test: {
+        id: 1,
+        suiteID: 1,
+        groupIDs: [],
+        name: "bounded native acceptance fixture",
+        metadata: { skip: false, skipReason: null },
+        line: null,
+        column: null,
+        url: null,
+      },
+    },
     ...messages.map((message) => ({
       type: "print",
-      time: 1,
+      time: 2,
       testID: 1,
       messageType: "print",
       message,
     })),
-    { type: "done", time: 2, success: true },
+    { type: "testDone", time: 3, testID: 1, result: "success", skipped: false, hidden: false },
+    { type: "done", time: 4, success: true },
   ].map((event) => JSON.stringify(event)).join("\n") + "\n";
 }
 
@@ -132,9 +147,10 @@ test("complete evidence requires both package measurements and a positive delta"
       networkIsolated: true,
       passedFixtureCount: 101,
       mismatchCount: 0,
+      runtime: "test-runtime",
       coldLoadTimeMs: 1,
-      endToEndLatencyMs: { sampleCount: 101 },
-      nativeLatencyMs: { sampleCount: 101 },
+      endToEndLatencyMs: { sampleCount: 101, cold: 1, warmP50: 1, warmP95: 1, max: 1 },
+      nativeLatencyMs: { sampleCount: 101, cold: 1, warmP50: 1, warmP95: 1, max: 1 },
       peakRssBytes: 1,
     },
     uiSmoke: { completed: true, previewPanel: true, applyBoundaryVisible: true },
@@ -266,14 +282,14 @@ test("discards bounded Flutter failure envelopes without retaining their text", 
   const errorEvent = JSON.stringify({
     type: "error",
     time: 2,
-    testID: 3,
+    testID: 1,
     error: "diagnostic text that must not be retained",
     stackTrace: "private local path that must not be retained",
     isFailure: true,
   });
   const log = protocolLog().replace(
-    '{"type":"done","time":2,"success":true}',
-    `${errorEvent}\n{"type":"done","time":2,"success":false}`,
+    '{"type":"testDone","time":3,"testID":1,"result":"success","skipped":false,"hidden":false}',
+    `${errorEvent}\n{"type":"testDone","time":3,"testID":1,"result":"success","skipped":false,"hidden":false}`,
   );
   withLog(log, (logPath) => {
     const evidence = buildEvidence(evidenceArgs(logPath), repoRoot);
@@ -286,8 +302,8 @@ test("discards bounded Flutter failure envelopes without retaining their text", 
 
 test("rejects contradictory unsuccessful protocol completion", () => {
   const log = protocolLog().replace(
-    '{"type":"done","time":2,"success":true}',
-    '{"type":"done","time":2,"success":false}',
+    '{"type":"done","time":4,"success":true}',
+    '{"type":"done","time":4,"success":false}',
   );
   withLog(log, (logPath) => {
     const evidence = buildEvidence(evidenceArgs(logPath), repoRoot);
@@ -306,6 +322,57 @@ test("discards bounded stderr diagnostics without retaining their text", () => {
     const evidence = buildEvidence(evidenceArgs(logPath), repoRoot);
     assert.equal(JSON.stringify(evidence).includes("private toolchain path"), false);
     assert.equal(JSON.stringify(evidence).includes("diagnostic text"), false);
+  });
+});
+
+test("retains bounded partial metrics for a failed run without accepting it", () => {
+  const acceptance = {
+    schemaVersion: 1,
+    platform: "android",
+    completed: true,
+    networkIsolated: true,
+    fixtureCount: 101,
+    passedFixtureCount: 0,
+    mismatchCount: 101,
+    mismatches: Array.from({ length: 101 }, (_, index) => ({
+      fixtureId: `fixture_${index}`,
+      field: "provider_status",
+    })),
+    runtime: null,
+    coldLoadTimeMs: null,
+    endToEndLatencyMs: { sampleCount: 0, cold: null, warmP50: null, warmP95: null, max: null },
+    nativeLatencyMs: { sampleCount: 0, cold: null, warmP50: null, warmP95: null, max: null },
+    peakRssBytes: 1,
+    perScript: { Latin: { total: 101, passed: 0 } },
+  };
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify(acceptance)}`), (logPath) => {
+    const evidence = buildEvidence({ ...evidenceArgs(logPath), "test-status": "1" }, repoRoot);
+    assert.equal(evidence.acceptance.mismatchCount, 101);
+    assert.equal(evidence.acceptance.runtime, null);
+    assert.equal(isCompleteEvidence(evidence), false);
+  });
+});
+
+test("rejects malformed protocol ordering and inactive test references", () => {
+  const beforeStart = `${JSON.stringify({ type: "done", time: 0, success: true })}\n${protocolLog()}`;
+  withLog(beforeStart, (logPath) => {
+    assert.throws(() => buildEvidence(evidenceArgs(logPath), repoRoot), /before start/);
+  });
+  const inactivePrint = protocolLog("SETTLEORA_OCR_UI_SMOKE={}")
+    .replace('"testID":1,"messageType"', '"testID":99,"messageType"');
+  withLog(inactivePrint, (logPath) => {
+    assert.throws(() => buildEvidence(evidenceArgs(logPath), repoRoot), /inactive test/);
+  });
+  const unfinished = protocolLog().replace(
+    '{"type":"testDone","time":3,"testID":1,"result":"success","skipped":false,"hidden":false}\n',
+    "",
+  );
+  withLog(unfinished, (logPath) => {
+    assert.throws(() => buildEvidence(evidenceArgs(logPath), repoRoot), /unfinished tests/);
+  });
+  const afterDone = `${protocolLog()}${JSON.stringify([{ event: "test.startedProcess", params: { vmServiceUri: null } }])}\n`;
+  withLog(afterDone, (logPath) => {
+    assert.throws(() => buildEvidence(evidenceArgs(logPath), repoRoot), /after completion/);
   });
 });
 

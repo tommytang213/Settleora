@@ -163,19 +163,33 @@ function latencySummary(value, name) {
     throw new Error(`${name} must be an object`);
   }
   assertExactKeys(value, ["sampleCount", "cold", "warmP50", "warmP95", "max"], name);
+  const optionalPositiveInteger = (metric, metricName) => {
+    if (metric == null) return null;
+    return positiveInteger(metric, metricName);
+  };
   const summary = {
     sampleCount: boundedInteger(value.sampleCount, `${name}.sampleCount`),
-    cold: positiveInteger(value.cold, `${name}.cold`),
-    warmP50: positiveInteger(value.warmP50, `${name}.warmP50`),
-    warmP95: positiveInteger(value.warmP95, `${name}.warmP95`),
-    max: positiveInteger(value.max, `${name}.max`),
+    cold: optionalPositiveInteger(value.cold, `${name}.cold`),
+    warmP50: optionalPositiveInteger(value.warmP50, `${name}.warmP50`),
+    warmP95: optionalPositiveInteger(value.warmP95, `${name}.warmP95`),
+    max: optionalPositiveInteger(value.max, `${name}.max`),
   };
-  if (
-    summary.sampleCount !== 101 ||
+  const allMetrics = [summary.cold, summary.warmP50, summary.warmP95, summary.max];
+  const invalidEmpty = summary.sampleCount === 0 && allMetrics.some((metric) => metric != null);
+  const invalidSingle = summary.sampleCount === 1 && (
+    summary.cold == null ||
+    summary.max == null ||
+    summary.cold !== summary.max ||
+    summary.warmP50 != null ||
+    summary.warmP95 != null
+  );
+  const invalidMultiple = summary.sampleCount > 1 && (
+    allMetrics.some((metric) => metric == null) ||
     summary.cold > summary.max ||
     summary.warmP50 > summary.warmP95 ||
     summary.warmP95 > summary.max
-  ) {
+  );
+  if (summary.sampleCount > 101 || invalidEmpty || invalidSingle || invalidMultiple) {
     throw new Error(`${name} is internally inconsistent`);
   }
   return summary;
@@ -206,6 +220,10 @@ function parseSafeRunnerLog(log, stderrLog) {
   let doneCount = 0;
   let protocolSucceeded = false;
   let failedProtocolEvent = false;
+  let protocolStarted = false;
+  let protocolDone = false;
+  const startedTestIds = new Set();
+  const completedTestIds = new Set();
   for (const [index, line] of log.split(/\r?\n/).entries()) {
     if (line === "") continue;
     let event;
@@ -214,6 +232,7 @@ function parseSafeRunnerLog(log, stderrLog) {
     } catch {
       throw new Error(`Acceptance runner line ${index + 1} is not protocol JSON`);
     }
+    if (protocolDone) throw new Error("Acceptance runner emitted an event after completion");
     if (Array.isArray(event)) {
       if (
         event.length !== 1 ||
@@ -235,10 +254,33 @@ function parseSafeRunnerLog(log, stderrLog) {
       throw new Error(`Acceptance runner line ${index + 1} is not a protocol event`);
     }
     assertProtocolEvent(event);
-    if (event.type === "start") startCount += 1;
+    if (event.type === "start") {
+      if (protocolStarted) throw new Error("Acceptance runner emitted duplicate start events");
+      protocolStarted = true;
+      startCount += 1;
+    } else if (!protocolStarted) {
+      throw new Error("Acceptance runner emitted an event before start");
+    }
+    if (event.type === "testStart") {
+      if (startedTestIds.has(event.test.id)) {
+        throw new Error("Acceptance runner emitted a duplicate test start");
+      }
+      startedTestIds.add(event.test.id);
+    }
+    if (event.type === "print" || event.type === "error" || event.type === "testDone") {
+      const testId = event.testID;
+      if (!startedTestIds.has(testId) || completedTestIds.has(testId)) {
+        throw new Error("Acceptance runner referenced an inactive test");
+      }
+      if (event.type === "testDone") completedTestIds.add(testId);
+    }
     if (event.type === "done") {
+      if (startedTestIds.size === 0 || completedTestIds.size !== startedTestIds.size) {
+        throw new Error("Acceptance runner completed with unfinished tests");
+      }
       doneCount += 1;
       protocolSucceeded = event.success;
+      protocolDone = true;
     }
     if (
       (event.type === "error" && event.isFailure) ||
@@ -269,6 +311,8 @@ function parseSafeRunnerLog(log, stderrLog) {
     protocolSucceeded:
       startCount === 1 &&
       doneCount === 1 &&
+      startedTestIds.size > 0 &&
+      completedTestIds.size === startedTestIds.size &&
       protocolSucceeded &&
       !failedProtocolEvent,
   };
@@ -343,7 +387,9 @@ function sanitizeAcceptance(value, platform) {
     ? "onnxruntime-android:1.21.1:cpu"
     : "onnxruntime-objc:1.24.3:cpu";
   const runtime = boundedToken(value.runtime, "runtime", { nullable: true });
-  if (runtime !== expectedRuntime) throw new Error("Acceptance runtime identity is invalid");
+  if (runtime != null && runtime !== expectedRuntime) {
+    throw new Error("Acceptance runtime identity is invalid");
+  }
   return {
     schemaVersion: 1,
     platform,
@@ -354,7 +400,9 @@ function sanitizeAcceptance(value, platform) {
     mismatchCount,
     mismatches,
     runtime,
-    coldLoadTimeMs: positiveInteger(value.coldLoadTimeMs, "coldLoadTimeMs"),
+    coldLoadTimeMs: value.coldLoadTimeMs == null
+      ? null
+      : positiveInteger(value.coldLoadTimeMs, "coldLoadTimeMs"),
     endToEndLatencyMs: latencySummary(value.endToEndLatencyMs, "endToEndLatencyMs"),
     nativeLatencyMs: latencySummary(value.nativeLatencyMs, "nativeLatencyMs"),
     peakRssBytes: positiveInteger(value.peakRssBytes, "peakRssBytes"),
@@ -501,9 +549,18 @@ export function isCompleteEvidence(evidence) {
       evidence.execution.protocolSucceeded === true &&
       evidence.acceptance.passedFixtureCount === 101 &&
       evidence.acceptance.mismatchCount === 0 &&
+      evidence.acceptance.runtime != null &&
       evidence.acceptance.coldLoadTimeMs > 0 &&
       evidence.acceptance.endToEndLatencyMs.sampleCount === 101 &&
+      evidence.acceptance.endToEndLatencyMs.cold > 0 &&
+      evidence.acceptance.endToEndLatencyMs.warmP50 > 0 &&
+      evidence.acceptance.endToEndLatencyMs.warmP95 > 0 &&
+      evidence.acceptance.endToEndLatencyMs.max > 0 &&
       evidence.acceptance.nativeLatencyMs.sampleCount === 101 &&
+      evidence.acceptance.nativeLatencyMs.cold > 0 &&
+      evidence.acceptance.nativeLatencyMs.warmP50 > 0 &&
+      evidence.acceptance.nativeLatencyMs.warmP95 > 0 &&
+      evidence.acceptance.nativeLatencyMs.max > 0 &&
       evidence.acceptance.peakRssBytes > 0 &&
       evidence.uiSmoke.completed &&
       evidence.uiSmoke.previewPanel &&
