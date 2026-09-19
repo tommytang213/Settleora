@@ -671,6 +671,66 @@ $referenceLine
     },
   );
 
+  test('non-transaction metadata symbols never establish currency', () {
+    const parser = ReceiptOcrParser();
+    for (final metadataLine in const [
+      'Reference € 4.60',
+      'Conversion amount £ 4.60',
+      'DCC HK\$ 4.60',
+      'Card charged US\$ 5.00',
+      'DCC د.إ 4.60',
+      'Reference CA\$ 4.60',
+      'Reference ₹ 4.60',
+      'DCC ₩ 4600',
+      'Conversion amount ¥ 720',
+      'Reference \$ 4.60',
+    ]) {
+      final preview = parser.parse('''
+Corner Cafe
+Coffee 5.00
+Total 5.00
+$metadataLine
+''', fallbackCurrency: 'USD');
+
+      expect(preview.currency, isNull, reason: metadataLine);
+      expect(
+        preview.currencyProvenance,
+        ReceiptOcrCurrencyProvenance.unresolved,
+        reason: metadataLine,
+      );
+      expect(
+        preview.currencyProvenance,
+        isNot(ReceiptOcrCurrencyProvenance.defaultFallback),
+      );
+    }
+  });
+
+  test('transaction currency outranks different metadata symbols', () {
+    const parser = ReceiptOcrParser();
+    for (final metadataLine in const [
+      'Reference € 4.60',
+      'Conversion amount £ 4.60',
+      'DCC HK\$ 4.60',
+      'Card charged US\$ 5.00',
+      'DCC د.إ 4.60',
+      'Reference ₹ 4.60',
+    ]) {
+      final preview = parser.parse('''
+Corner Cafe
+Coffee USD 5.00
+Total USD 5.00
+$metadataLine
+''');
+
+      expect(preview.currency, 'USD', reason: metadataLine);
+      expect(
+        preview.currencyProvenance,
+        ReceiptOcrCurrencyProvenance.explicit,
+        reason: metadataLine,
+      );
+    }
+  });
+
   test('parser separates charged tips and excludes suggested tip options', () {
     const parser = ReceiptOcrParser();
 

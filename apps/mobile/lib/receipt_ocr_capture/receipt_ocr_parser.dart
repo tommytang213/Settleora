@@ -158,8 +158,11 @@ class ReceiptOcrParser {
     List<String> lines, {
     String? fallbackCurrency,
   }) {
-    final joined = lines.join(' ').toUpperCase();
-    final explicitCode = _rankedExplicitCurrencyCode(lines);
+    final transactionCurrencyLines = lines
+        .where((line) => !_isNonTransactionCurrencyMetadataLine(line))
+        .toList(growable: false);
+    final joined = transactionCurrencyLines.join(' ').toUpperCase();
+    final explicitCode = _rankedExplicitCurrencyCode(transactionCurrencyLines);
     if (explicitCode != null) {
       return _ReceiptCurrencyDetection(
         currency: explicitCode,
@@ -313,10 +316,10 @@ class ReceiptOcrParser {
           if (lineOrder != 0) return lineOrder;
           return left.code.compareTo(right.code);
         });
-    // Payment/tender and reference/conversion rows can carry a settlement or
-    // DCC currency that differs from the receipt transaction currency. They
-    // may corroborate currency detected elsewhere, but must never establish it
-    // by themselves.
+    // This ranking receives transaction evidence only. Payment/tender and
+    // reference/conversion rows can carry a settlement or DCC currency that
+    // differs from the receipt transaction currency, so no code or symbol on
+    // those rows may establish transaction currency.
     return ranked
         .where((candidate) => candidate.score >= 100)
         .firstOrNull
