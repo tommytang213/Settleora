@@ -27,6 +27,13 @@ void main() {
   ) async {
     final failure = _BoundedFailureStage('network_canary');
     await failure.run(() async {
+      if (Platform.isIOS) {
+        expect(
+          Platform.environment['SETTLEORA_OCR_NETWORK_ISOLATION'],
+          'socket_interpose_v1',
+          reason: 'The iOS runner must scope isolation to the test app.',
+        );
+      }
       Socket? socket;
       try {
         socket = await Socket.connect(
@@ -61,6 +68,14 @@ void main() {
       final entries = (manifest['fixtures']! as List<Object?>)
           .cast<Map<String, Object?>>();
       expect(entries, hasLength(101));
+      final modelCatalog = _NativeModelCatalogEvidence.fromJson(
+        jsonDecode(
+              await rootBundle.loadString(
+                'assets/receipt_ocr_models/catalog.json',
+              ),
+            )
+            as Map<String, Object?>,
+      );
       final mismatches = <_BoundedMismatch>[];
       final fixtureDurationsMs = <int>[];
       final nativeDurationsMs = <int>[];
@@ -133,6 +148,8 @@ void main() {
                 fixtureId,
                 result,
                 expected,
+                script: script,
+                modelCatalog: modelCatalog,
                 currencyResolution: currencyResolution,
               ),
             );
@@ -199,6 +216,14 @@ void main() {
           .singleWhere(
             (fixture) => fixture['id'] == 'existing_12_freshmart_grocery_en_US',
           );
+      final modelCatalog = _NativeModelCatalogEvidence.fromJson(
+        jsonDecode(
+              await rootBundle.loadString(
+                'assets/receipt_ocr_models/catalog.json',
+              ),
+            )
+            as Map<String, Object?>,
+      );
       failure.set(
         'rotation_fixture_load',
         fixtureId: 'existing_12_freshmart_grocery_en_US',
@@ -246,6 +271,8 @@ void main() {
         'existing_12_freshmart_grocery_en_US-derived-rotate270',
         result,
         entry['expected']! as Map<String, Object?>,
+        script: entry['script']! as String,
+        modelCatalog: modelCatalog,
         currencyResolution:
             entry['expected_currency_resolution'] as Map<String, Object?>?,
       );
@@ -362,6 +389,8 @@ List<_BoundedMismatch> _completePreviewMismatches(
   String fixtureId,
   ReceiptOcrResult result,
   Map<String, Object?> expected, {
+  required String script,
+  required _NativeModelCatalogEvidence modelCatalog,
   Map<String, Object?>? currencyResolution,
 }) {
   final mismatches = <_BoundedMismatch>[];
@@ -435,6 +464,23 @@ List<_BoundedMismatch> _completePreviewMismatches(
   }
   if (preview.blocks.isEmpty) {
     mismatches.add(_BoundedMismatch(fixtureId, 'ocr_evidence'));
+  } else {
+    for (final block in preview.blocks) {
+      if (modelCatalog.versionFor(block.modelPackId) != block.modelVersion) {
+        mismatches.add(_BoundedMismatch(fixtureId, 'model_version'));
+        break;
+      }
+    }
+    final expectedPack = modelCatalog.recognizerForScript(script);
+    if (!preview.blocks.any((block) => block.modelPackId == expectedPack)) {
+      mismatches.add(_BoundedMismatch(fixtureId, 'model_route'));
+    }
+  }
+  if (preview.runEvidence?.detectionModelPackId !=
+          modelCatalog.detectionPackId ||
+      preview.runEvidence?.detectionModelVersion !=
+          modelCatalog.versionFor(modelCatalog.detectionPackId)) {
+    mismatches.add(_BoundedMismatch(fixtureId, 'detection_model'));
   }
   final expectedRuntime = Platform.isIOS
       ? 'onnxruntime-objc:1.24.3:cpu'
@@ -511,6 +557,83 @@ class _ScriptResult {
   int passed = 0;
 
   Map<String, int> toJson() => {'total': total, 'passed': passed};
+}
+
+class _NativeModelCatalogEvidence {
+  const _NativeModelCatalogEvidence({
+    required this.detectionPackId,
+    required this.packVersions,
+    required this.recognizerRoutes,
+  });
+
+  factory _NativeModelCatalogEvidence.fromJson(Map<String, Object?> value) {
+    final rawPacks = value['packs'];
+    if (rawPacks is! List<Object?> || rawPacks.isEmpty) {
+      throw StateError('Native model catalog has no packs');
+    }
+    final versions = <String, String>{};
+    final routes = <String, String>{};
+    String? detectionPackId;
+    for (final rawPack in rawPacks) {
+      if (rawPack is! Map<String, Object?>) {
+        throw StateError('Native model catalog pack is invalid');
+      }
+      final packId = rawPack['modelPackId'];
+      final version = rawPack['modelVersion'];
+      final rawScripts = rawPack['routeScripts'];
+      if (packId is! String ||
+          version is! String ||
+          rawScripts is! List<Object?> ||
+          rawScripts.isEmpty ||
+          versions.containsKey(packId)) {
+        throw StateError('Native model catalog identity is invalid');
+      }
+      versions[packId] = version;
+      for (final rawScript in rawScripts) {
+        if (rawScript is! String) {
+          throw StateError('Native model catalog route is invalid');
+        }
+        if (rawScript == 'Any') {
+          if (detectionPackId != null) {
+            throw StateError(
+              'Native model catalog detection route is ambiguous',
+            );
+          }
+          detectionPackId = packId;
+        } else if (routes.putIfAbsent(rawScript, () => packId) != packId) {
+          throw StateError(
+            'Native model catalog recognition route is ambiguous',
+          );
+        }
+      }
+    }
+    if (detectionPackId == null) {
+      throw StateError('Native model catalog detection route is missing');
+    }
+    return _NativeModelCatalogEvidence(
+      detectionPackId: detectionPackId,
+      packVersions: versions,
+      recognizerRoutes: routes,
+    );
+  }
+
+  final String detectionPackId;
+  final Map<String, String> packVersions;
+  final Map<String, String> recognizerRoutes;
+
+  String? versionFor(String? packId) => packVersions[packId];
+
+  String recognizerForScript(String fixtureScript) {
+    final catalogScript = switch (fixtureScript) {
+      'Chinese' => 'HanSimplified',
+      _ => fixtureScript,
+    };
+    final packId = recognizerRoutes[catalogScript];
+    if (packId == null) {
+      throw StateError('Fixture script has no catalog recognition route');
+    }
+    return packId;
+  }
 }
 
 ReceiptOcrCurrencyProvenance _currencyProvenance(String source) {

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -78,9 +78,67 @@ test("terminates detached descendants that ignore the graceful overflow signal",
     assert.equal(status, 97);
     const descendantPid = Number(readFileSync(stdoutPath, "utf8").split("\n", 1)[0]);
     assert.equal(Number.isSafeInteger(descendantPid), true);
-    assert.throws(() => process.kill(descendantPid, 0), { code: "ESRCH" });
+    assert.equal(await isAbsentOrZombie(descendantPid), true);
   });
 });
+
+test("forwards wrapper termination to the full detached process group", async () => {
+  await withCapture(async ({ stdoutPath, stderrPath }) => {
+    const directory = path.dirname(stdoutPath);
+    const descendantPath = path.join(directory, "descendant.pid");
+    const flutterPath = path.join(directory, "flutter");
+    const descendantSource = "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)";
+    writeFileSync(flutterPath, [
+      "#!/bin/sh",
+      `${JSON.stringify(process.execPath)} -e ${JSON.stringify(`const { writeFileSync } = require('node:fs'); const { spawn } = require('node:child_process'); const child = spawn(process.execPath, ['-e', ${JSON.stringify(descendantSource)}], { stdio: 'ignore' }); writeFileSync(${JSON.stringify(descendantPath)}, String(child.pid)); setInterval(() => {}, 1000);`)} `,
+    ].join("\n"), { mode: 0o700 });
+    const wrapper = spawn(process.execPath, [
+      capture,
+      `--stdout=${stdoutPath}`,
+      `--stderr=${stderrPath}`,
+      "--max-bytes=64",
+      "--platform=android",
+      "--device=emulator-5554",
+    ], {
+      env: { ...process.env, PATH: `${directory}${path.delimiter}${process.env.PATH}` },
+      stdio: "ignore",
+    });
+    const deadline = Date.now() + 5000;
+    while (!readPid(descendantPath) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    const descendantPid = readPid(descendantPath);
+    assert.equal(Number.isSafeInteger(descendantPid), true);
+    wrapper.kill("SIGTERM");
+    const status = await new Promise((resolve) => wrapper.once("close", resolve));
+    assert.equal(status, 98);
+    assert.equal(await isAbsentOrZombie(descendantPid), true);
+  });
+});
+
+function readPid(filePath) {
+  try {
+    return Number(readFileSync(filePath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+async function isAbsentOrZombie(pid) {
+  const deadline = Date.now() + 2000;
+  while (Date.now() < deadline) {
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      if (error?.code === "ESRCH") return true;
+      throw error;
+    }
+    const status = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" });
+    if (status.status !== 0 || /^Z/.test(status.stdout.trim())) return true;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  return false;
+}
 
 test("rejects unknown and duplicate wrapper options without echoing their values", () => {
   for (const invalidOption of ["--unknown=private-value", "--max-bytes=8"]) {

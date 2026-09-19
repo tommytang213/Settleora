@@ -185,11 +185,12 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
     assert.ok(runCommands(job).some((command) => command.includes('git rev-parse HEAD')));
     const executionCommands = jobName === 'android-native-acceptance'
       ? [read('tools/ocr-models/run-android-native-acceptance.sh')]
-      : runCommands(job);
+      : [read('tools/ocr-models/run-ios-native-acceptance.sh')];
     const allCommands = [...runCommands(job), ...executionCommands];
-    assert.ok(executionCommands.some(
-      (command) => command.includes('bounded-process-capture.mjs') && command.includes(device),
-    ));
+    assert.ok(executionCommands.some((command) =>
+      command.includes('bounded-process-capture.mjs') &&
+      command.includes(jobName === 'android-native-acceptance' ? device : '--device="$device"')),
+    );
     assert.ok(boundedCapture.includes('integration_test/receipt_ocr_real_provider_test.dart'));
     const acceptance = stepsFor(job).find((step) => step.id === 'acceptance');
     assert.equal(acceptance['timeout-minutes'], 180);
@@ -197,9 +198,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
     assert.ok(runCommands(job).some((command) => command.includes('native-acceptance-evidence.mjs')));
     assert.ok(runCommands(job).some((command) => command.includes('--require-complete=true')));
     assert.ok(runCommands(job).some((command) => command.includes('--test-status=')));
-    if (jobName === 'android-native-acceptance') {
-      assert.ok(runCommands(job).some((command) => command.includes('--failure-phase=')));
-    }
+    assert.ok(runCommands(job).some((command) => command.includes('--failure-phase=')));
     assert.ok(runCommands(job).some((command) => command.includes('--runner-image=')));
     assert.ok(runCommands(job).some((command) => command.includes('--native-image=')));
     assert.ok(runCommands(job).some((command) => command.includes('--stderr-log=')));
@@ -268,16 +267,21 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(androidRunner.includes('|| status=$?'));
   assert.match(serialized, /integration.*test/i);
   const iosCommands = runCommands(native.jobs['ios-native-acceptance']).join('\n');
+  const iosRunner = read('tools/ocr-models/run-ios-native-acceptance.sh');
+  const iosNetworkDeny = read('tools/ocr-models/ios-simulator-network-deny.c');
   assert.ok(iosCommands.includes('/Applications/Xcode_16.4.app/Contents/Developer'));
   assert.ok(iosCommands.includes('test "$(pod --version)" = "1.17.0"'));
   assert.ok(iosCommands.includes('xcrun simctl erase "$udid"'));
-  assert.ok(iosCommands.includes('pfctl -a com.apple/settleora-ocr'));
-  assert.ok(iosCommands.includes('pfctl -E'));
-  assert.ok(iosCommands.includes('pfctl -X "$pf_token"'));
-  assert.ok(iosCommands.indexOf('trap cleanup_firewall EXIT') < iosCommands.indexOf('pf_enable_output=$(sudo pfctl -E'));
-  assert.ok(iosCommands.includes('pfctl -a com.apple/settleora-ocr -F rules >/dev/null || cleanup_status=$?'));
-  assert.ok(iosCommands.includes('pfctl -X "$pf_token" >/dev/null || cleanup_status=$?'));
-  assert.ok(iosCommands.includes('block drop out quick on ! lo0 proto { tcp udp }'));
+  assert.doesNotMatch(iosCommands, /pfctl|user_id=\$\(id -u\)/);
+  assert.ok(iosCommands.includes('run-ios-native-acceptance.sh'));
+  assert.ok(iosRunner.includes('SIMCTL_CHILD_DYLD_INSERT_LIBRARIES'));
+  assert.ok(iosRunner.includes('SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_ISOLATION=socket_interpose_v1'));
+  assert.ok(iosRunner.includes('echo "failure_phase=$phase" >> "$GITHUB_OUTPUT"'));
+  assert.match(iosNetworkDeny, /settleora_connect/);
+  assert.match(iosNetworkDeny, /settleora_sendto/);
+  assert.match(iosNetworkDeny, /settleora_sendmsg/);
+  assert.match(iosNetworkDeny, /settleora_connectx/);
+  assert.match(iosNetworkDeny, /IN6_IS_ADDR_LOOPBACK/);
   assert.ok(iosCommands.includes('verify-mobile-package.mjs --platform=ios'));
   assert.ok(iosCommands.includes('ios-production-symbols.txt'));
   assert.ok(iosCommands.includes('test -s Podfile.lock'));

@@ -18,6 +18,17 @@ const androidPreflightFailurePhases = new Set([
   "verify_network_controls",
   "execute_flutter_test",
 ]);
+const iosPreflightFailurePhases = new Set([
+  "initialize",
+  "validate_environment",
+  "build_network_isolation",
+  "execute_flutter_test",
+]);
+
+function isAllowedPreflightFailurePhase(platform, phase) {
+  return (platform === "android" && androidPreflightFailurePhases.has(phase)) ||
+    (platform === "ios" && iosPreflightFailurePhases.has(phase));
+}
 
 export function buildFailureEvidence(args) {
   const platform = new Set(["android", "ios"]).has(args.platform) ? args.platform : null;
@@ -29,7 +40,7 @@ export function buildFailureEvidence(args) {
     ? parsedStatus
     : null;
   const requestedPhase = args["failure-phase"] || null;
-  const preflightFailurePhase = platform === "android" && androidPreflightFailurePhases.has(requestedPhase)
+  const preflightFailurePhase = isAllowedPreflightFailurePhase(platform, requestedPhase)
     ? requestedPhase
     : null;
   return {
@@ -577,7 +588,7 @@ export function buildEvidence(args, repoRoot = process.cwd()) {
   const preflightFailurePhase = args["failure-phase"] || null;
   if (
     preflightFailurePhase != null &&
-    (args.platform !== "android" || !androidPreflightFailurePhases.has(preflightFailurePhase))
+    !isAllowedPreflightFailurePhase(args.platform, preflightFailurePhase)
   ) {
     throw new Error("Preflight failure phase is invalid");
   }

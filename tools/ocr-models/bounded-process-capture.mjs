@@ -118,22 +118,25 @@ async function terminateProcessGroup(pid) {
     if (error?.code === "ESRCH") return;
     throw error;
   }
-  const forcedDeadline = Date.now() + 1000;
-  while (Date.now() < forcedDeadline) {
-    if (!processGroupExists(pid)) return;
-    await wait(50);
-  }
-  if (processGroupExists(pid)) throw new Error("process group termination failed");
+  // A successfully killed orphan can remain as a zombie until the hosted
+  // runner's PID 1 reaps it. kill(-pgid, 0) still sees that zombie, so process
+  // group existence is not a valid post-SIGKILL failure signal. The direct
+  // child close awaited below plus successful delivery of SIGKILL is the
+  // bounded termination proof.
 }
 
 export async function runBoundedProcess({ stdoutPath, stderrPath, maxBytes, executable, args }) {
   let overflow = false;
+  let interrupted = false;
   let child;
   let termination;
+  const requestTermination = () => {
+    if (child?.pid && !termination) termination = terminateProcessGroup(child.pid);
+  };
   const failClosed = () => {
     if (overflow) return;
     overflow = true;
-    if (child?.pid) termination = terminateProcessGroup(child.pid);
+    requestTermination();
   };
   let stdoutDescriptor;
   let stderrDescriptor;
@@ -157,13 +160,26 @@ export async function runBoundedProcess({ stdoutPath, stderrPath, maxBytes, exec
   }
   const stdoutDone = boundedSink(child.stdout, stdoutDescriptor, maxBytes, failClosed);
   const stderrDone = boundedSink(child.stderr, stderrDescriptor, maxBytes, failClosed);
-  const outcome = await new Promise((resolve) => {
-    child.once("error", () => resolve({ code: null, signal: null, wrapperError: true }));
-    child.once("close", (code, signal) => resolve({ code, signal, wrapperError: false }));
-  });
-  await Promise.all([stdoutDone, stderrDone]);
-  if (termination) await termination;
+  const forwardSignal = () => {
+    interrupted = true;
+    requestTermination();
+  };
+  process.once("SIGTERM", forwardSignal);
+  process.once("SIGINT", forwardSignal);
+  let outcome;
+  try {
+    outcome = await new Promise((resolve) => {
+      child.once("error", () => resolve({ code: null, signal: null, wrapperError: true }));
+      child.once("close", (code, signal) => resolve({ code, signal, wrapperError: false }));
+    });
+    await Promise.all([stdoutDone, stderrDone]);
+    if (termination) await termination;
+  } finally {
+    process.removeListener("SIGTERM", forwardSignal);
+    process.removeListener("SIGINT", forwardSignal);
+  }
   if (overflow) return 97;
+  if (interrupted) return 98;
   if (outcome.wrapperError || outcome.signal != null || !Number.isInteger(outcome.code)) return 98;
   return outcome.code;
 }

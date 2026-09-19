@@ -242,39 +242,7 @@ jobs:
         timeout-minutes: 180
         working-directory: apps/mobile
         shell: bash
-        run: |
-          user_id=$(id -u)
-          sudo pfctl -sr | grep -F 'anchor "com.apple/*"'
-          pf_token=
-          cleanup_firewall() {
-            cleanup_status=0
-            sudo pfctl -a com.apple/settleora-ocr -F rules >/dev/null || cleanup_status=$?
-            if test -n "$pf_token"; then
-              sudo pfctl -X "$pf_token" >/dev/null || cleanup_status=$?
-            fi
-            return "$cleanup_status"
-          }
-          trap cleanup_firewall EXIT
-          pf_enable_output=$(sudo pfctl -E 2>&1)
-          pf_token=$(printf '%s\n' "$pf_enable_output" | awk '/Token :/ {print $3}')
-          test "$(printf '%s' "$pf_token" | tr -cd '0-9')" = "$pf_token"
-          test -n "$pf_token"
-          sudo pfctl -s info | grep -F 'Status: Enabled'
-          printf 'block drop out quick on ! lo0 proto { tcp udp } user %s\n' "$user_id" | sudo pfctl -a com.apple/settleora-ocr -f -
-          sudo pfctl -a com.apple/settleora-ocr -sr | grep -F "user = $user_id"
-          set +e
-          node "$GITHUB_WORKSPACE/tools/ocr-models/bounded-process-capture.mjs" \
-            --stdout="$RUNNER_TEMP/ios-acceptance.log" \
-            --stderr="$RUNNER_TEMP/ios-acceptance.stderr.log" \
-            --max-bytes=33554432 \
-            --platform=ios \
-            --device="${{ steps.simulator.outputs.udid }}"
-          status=$?
-          set -e
-          cleanup_firewall
-          trap - EXIT
-          echo "status=$status" >> "$GITHUB_OUTPUT"
-          exit 0
+        run: bash "$GITHUB_WORKSPACE/tools/ocr-models/run-ios-native-acceptance.sh" "${{ steps.simulator.outputs.udid }}"
 
       - name: Measure iOS app and model payload delta
         if: ${{ !cancelled() }}
@@ -354,6 +322,7 @@ jobs:
             --platform=ios \
             --source-sha="$EXPECTED_HEAD" \
             --test-status="${{ steps.acceptance.outputs.status }}" \
+            --failure-phase="${{ steps.acceptance.outputs.failure_phase }}" \
             --runner-image="${{ steps.simulator.outputs.runner_image }}" \
             --os-runtime="${{ steps.simulator.outputs.os_runtime }}" \
             --sdk-toolchain="${{ steps.simulator.outputs.sdk_toolchain }}" \

@@ -275,6 +275,32 @@ test("retains only an allowlisted Android preflight failure phase", () => {
   });
 });
 
+test("retains only an allowlisted iOS preflight failure phase", () => {
+  withLog(protocolLog(), (logPath) => {
+    const evidence = buildEvidence(
+      {
+        ...evidenceArgs(logPath, "ios"),
+        "test-status": "98",
+        "failure-phase": "build_network_isolation",
+      },
+      repoRoot,
+    );
+    assert.equal(evidence.execution.preflightFailurePhase, "build_network_isolation");
+    assert.equal(isCompleteEvidence(evidence), false);
+    assert.throws(
+      () => buildEvidence(
+        {
+          ...evidenceArgs(logPath, "ios"),
+          "test-status": "98",
+          "failure-phase": "private diagnostic",
+        },
+        repoRoot,
+      ),
+      /Preflight failure phase is invalid/,
+    );
+  });
+});
+
 test("failure evidence retains bounded phase and status before environment collection", () => {
   assert.deepEqual(
     buildFailureEvidence({
@@ -303,6 +329,15 @@ test("failure evidence retains bounded phase and status before environment colle
   assert.equal(rejected.sourceSha, null);
   assert.equal(buildFailureEvidence({ "test-status": "" }).execution.testExitStatus, null);
   assert.equal(buildFailureEvidence({}).execution.testExitStatus, null);
+  assert.deepEqual(
+    buildFailureEvidence({
+      platform: "ios",
+      "source-sha": sourceSha,
+      "test-status": "98",
+      "failure-phase": "build_network_isolation",
+    }).execution,
+    { testExitStatus: 98, preflightFailurePhase: "build_network_isolation" },
+  );
 });
 
 test("rejects all non-allowlisted application output and unresolved environment identity", () => {
