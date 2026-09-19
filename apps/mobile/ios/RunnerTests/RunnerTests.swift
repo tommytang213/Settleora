@@ -29,9 +29,9 @@ class RunnerTests: XCTestCase {
   }
 
   @MainActor
-  func testRetryableTaskLoaderRecoversAfterInitializationFailure() async throws {
+  func testRetryableValueLoaderRecoversAfterInitializationFailure() async throws {
     enum ExpectedFailure: Error { case transient }
-    let loader = RetryableTaskLoader<Int>()
+    let loader = RetryableValueLoader<Int>()
     var attempts = 0
 
     do {
@@ -49,6 +49,13 @@ class RunnerTests: XCTestCase {
       return 42
     }
     XCTAssertEqual(value, 42)
+    XCTAssertEqual(attempts, 2)
+
+    let cached = try await loader.value {
+      attempts += 1
+      return 99
+    }
+    XCTAssertEqual(cached, 42)
     XCTAssertEqual(attempts, 2)
   }
 

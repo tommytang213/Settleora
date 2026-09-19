@@ -1,21 +1,16 @@
 import Flutter
 import Foundation
 
-final class RetryableTaskLoader<Value> {
-  private var task: Task<Value, Error>?
+final class RetryableValueLoader<Value> {
+  private var cachedValue: Value?
 
   // The owning plugin admits only one OCR call at a time through isBusy, so
   // loader state is always entered serially and never needs actor isolation.
   func value(factory: @escaping () async throws -> Value) async throws -> Value {
-    let current = task ?? Task { try await factory() }
-    task = current
-    do {
-      return try await current.value
-    } catch {
-      // A failed initialization must not poison every later OCR attempt.
-      task = nil
-      throw error
-    }
+    if let cachedValue { return cachedValue }
+    let loaded = try await factory()
+    cachedValue = loaded
+    return loaded
   }
 }
 
@@ -23,7 +18,7 @@ final class SettleoraReceiptOcrPlugin: NSObject, FlutterPlugin {
   private static let ocrChannelName = "com.settleora.mobile/receipt_ocr"
   private static let acceptanceChannelName = "com.settleora.mobile/receipt_ocr_acceptance"
 
-  private let engineLoader = RetryableTaskLoader<SettleoraPaddleOcrEngine>()
+  private let engineLoader = RetryableValueLoader<SettleoraPaddleOcrEngine>()
   private var isBusy = false
 
   static func register(with registrar: FlutterPluginRegistrar) {
