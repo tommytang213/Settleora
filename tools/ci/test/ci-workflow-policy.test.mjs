@@ -10,7 +10,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 const read = (relativePath) => readFileSync(path.join(repoRoot, relativePath), 'utf8');
 const workflow = (name) => parse(read(`.github/workflows/${name}`));
 const stepsFor = (job) => job.steps ?? [];
-const runCommands = (job) => stepsFor(job).map((step) => step.run).filter(Boolean);
+const runCommands = (job) => stepsFor(job).map((step) => step.run ?? step.with?.script).filter(Boolean);
 const flutterVersion = '3.44.8';
 const sharedMobileReleaseGate = './tool/validate-release.sh';
 
@@ -231,20 +231,28 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(androidCommands.includes('$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer'));
   assert.ok(androidCommands.includes('$ANDROID_HOME/platform-tools/adb'));
   assert.equal(androidCommands.includes('adb wait-for-device'), false);
-  assert.equal(
-    native.jobs['android-native-acceptance'].steps.find((step) => step.id === 'environment')['timeout-minutes'],
-    20,
-  );
-  assert.ok(androidCommands.includes('-port 5554'));
-  assert.ok(androidCommands.includes('timeout 5 "$adb" -s "$device_serial" get-state'));
-  assert.ok(androidCommands.includes('timeout 5 "$adb" -s "$device_serial" shell getprop sys.boot_completed'));
+  const androidAcceptance = native.jobs['android-native-acceptance'].steps.find((step) => step.id === 'acceptance');
+  assert.equal(androidAcceptance.uses, 'reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d');
+  assert.equal(androidAcceptance.with['emulator-port'], 5554);
+  assert.equal(androidAcceptance.with['emulator-boot-timeout'], 600);
+  assert.ok(androidAcceptance.with['emulator-options'].includes('-no-metrics'));
+  assert.ok(androidCommands.includes('timeout 5 "$adb" -s emulator-5554 get-state'));
+  assert.ok(androidCommands.includes('timeout 5 "$adb" -s emulator-5554 shell getprop sys.boot_completed'));
+  assert.ok(androidCommands.includes('shell cmd connectivity airplane-mode enable'));
+  assert.ok(androidCommands.includes('settings get global airplane_mode_on'));
+  assert.ok(androidCommands.includes('verify-mobile-package.mjs --platform=android'));
+  assert.ok(androidCommands.includes('android-dex-packages.txt'));
   assert.ok(androidCommands.includes('test "$system_image_revision" = "9"'));
   assert.ok(androidCommands.includes('test "$emulator_revision" = "37.2.10"'));
-  assert.match(serialized, /receipt_ocr_acceptance/);
   assert.match(serialized, /integration.*test/i);
   const iosCommands = runCommands(native.jobs['ios-native-acceptance']).join('\n');
   assert.ok(iosCommands.includes('/Applications/Xcode_16.4.app/Contents/Developer'));
   assert.ok(iosCommands.includes('test "$(pod --version)" = "1.17.0"'));
+  assert.ok(iosCommands.includes('xcrun simctl erase "$udid"'));
+  assert.ok(iosCommands.includes('pfctl -a com.apple/settleora-ocr'));
+  assert.ok(iosCommands.includes('block drop out quick on ! lo0 proto { tcp udp }'));
+  assert.ok(iosCommands.includes('verify-mobile-package.mjs --platform=ios'));
+  assert.ok(iosCommands.includes('ios-production-symbols.txt'));
   assert.ok(iosCommands.includes('test -s Podfile.lock'));
   assert.ok((iosCommands.match(/pod install --deployment/g) ?? []).length >= 4);
   assert.match(serialized, /ios-pre-native-Podfile\.lock/);

@@ -95,6 +95,9 @@ function assertProtocolEvent(event) {
   switch (event.type) {
     case "start":
       assertExactKeys(event, ["type", "time", "protocolVersion", "runnerVersion", "pid"], name);
+      if (!Object.hasOwn(event, "runnerVersion")) {
+        throw new Error(`${name}.runnerVersion is required`);
+      }
       assertType(event.protocolVersion, "string", `${name}.protocolVersion`);
       assertType(event.runnerVersion, "string", `${name}.runnerVersion`, { nullable: true });
       boundedInteger(event.pid, `${name}.pid`);
@@ -241,7 +244,7 @@ function sanitizeAcceptance(value, platform) {
     throw new Error("Acceptance marker identity is invalid");
   }
   assertExactKeys(value, [
-    "schemaVersion", "platform", "completed", "fixtureCount", "passedFixtureCount",
+    "schemaVersion", "platform", "completed", "networkIsolated", "fixtureCount", "passedFixtureCount",
     "mismatchCount", "mismatches", "runtime", "coldLoadTimeMs", "endToEndLatencyMs",
     "nativeLatencyMs", "peakRssBytes", "perScript",
   ], "acceptance marker");
@@ -307,6 +310,7 @@ function sanitizeAcceptance(value, platform) {
     schemaVersion: 1,
     platform,
     completed: true,
+    networkIsolated: value.networkIsolated === true,
     fixtureCount,
     passedFixtureCount,
     mismatchCount,
@@ -453,6 +457,7 @@ function parseArgs(values) {
 export function isCompleteEvidence(evidence) {
   return Boolean(
     evidence.acceptance.completed &&
+      evidence.acceptance.networkIsolated === true &&
       evidence.execution.testExitStatus === 0 &&
       evidence.acceptance.passedFixtureCount === 101 &&
       evidence.acceptance.mismatchCount === 0 &&

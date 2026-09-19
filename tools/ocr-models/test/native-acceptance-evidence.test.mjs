@@ -58,11 +58,24 @@ test("accepts Flutter 3.44.8 start events with a null runner version", () => {
   });
 });
 
+test("rejects start events that omit the runner version property", () => {
+  const log = protocolLog();
+  const events = log.trimEnd().split("\n").map((line) => JSON.parse(line));
+  delete events[0].runnerVersion;
+  withLog(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`, (logPath) => {
+    assert.throws(
+      () => buildEvidence(evidenceArgs(logPath), repoRoot),
+      /runnerVersion is required/,
+    );
+  });
+});
+
 test("retains only the bounded native acceptance schema", () => {
   const acceptance = {
     schemaVersion: 1,
     platform: "android",
     completed: true,
+    networkIsolated: true,
     fixtureCount: 101,
     passedFixtureCount: 100,
     mismatchCount: 1,
@@ -115,6 +128,7 @@ test("complete evidence requires both package measurements and a positive delta"
     execution: { testExitStatus: 0 },
     acceptance: {
       completed: true,
+      networkIsolated: true,
       passedFixtureCount: 101,
       mismatchCount: 0,
       coldLoadTimeMs: 1,
@@ -132,6 +146,13 @@ test("complete evidence requires both package measurements and a positive delta"
     },
   };
   assert.equal(isCompleteEvidence(evidence), true);
+  assert.equal(
+    isCompleteEvidence({
+      ...evidence,
+      acceptance: { ...evidence.acceptance, networkIsolated: false },
+    }),
+    false,
+  );
   assert.equal(isCompleteEvidence({ ...evidence, execution: { testExitStatus: 1 } }), false);
   assert.equal(
     isCompleteEvidence({

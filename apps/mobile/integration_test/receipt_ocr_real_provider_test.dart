@@ -20,6 +20,31 @@ void main() {
   const fixtures = _NativeAcceptanceFixtures();
   const provider = PaddleReceiptOcrProvider();
   const artifactProcessor = ReceiptImageArtifactProcessor();
+  var networkIsolated = false;
+
+  testWidgets('native acceptance runner has no external network', (
+    WidgetTester tester,
+  ) async {
+    Socket? socket;
+    try {
+      socket = await Socket.connect(
+        InternetAddress('1.1.1.1'),
+        443,
+        timeout: const Duration(seconds: 3),
+      );
+    } on SocketException {
+      // Expected: the acceptance runner blocks external TCP and UDP traffic.
+    } on TimeoutException {
+      // Expected: a dropped connection also proves the canary cannot escape.
+    }
+    await socket?.close();
+    networkIsolated = socket == null;
+    expect(
+      networkIsolated,
+      isTrue,
+      reason: 'Native OCR acceptance must run without external networking.',
+    );
+  });
 
   testWidgets('all 101 real images match complete preview truth', (
     WidgetTester tester,
@@ -106,6 +131,7 @@ void main() {
       'schemaVersion': 1,
       'platform': Platform.operatingSystem,
       'completed': true,
+      'networkIsolated': networkIsolated,
       'fixtureCount': entries.length,
       'passedFixtureCount':
           entries.length - mismatches.map((e) => e.fixtureId).toSet().length,
