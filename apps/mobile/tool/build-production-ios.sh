@@ -24,6 +24,23 @@ build_number=
 export_options_plist=
 podfile_lock_sha="$default_podfile_lock_sha"
 require_integration_test=true
+source_snapshot=
+dependency_cache_root=
+inspection_root=
+cleanup_inspection_root=false
+inventory_file=
+symbols_file=
+
+cleanup() {
+  [[ -z "$inventory_file" ]] || rm -f -- "$inventory_file"
+  [[ -z "$symbols_file" ]] || rm -f -- "$symbols_file"
+  if [[ "$cleanup_inspection_root" == true && -n "$inspection_root" ]]; then
+    rm -rf -- "$inspection_root"
+  fi
+  [[ -z "$dependency_cache_root" ]] || rm -rf -- "$dependency_cache_root"
+  [[ -z "$source_snapshot" ]] || rm -rf -- "$source_snapshot"
+}
+trap cleanup EXIT
 
 fail() {
   printf 'Canonical iOS production build failed: %s\n' "$1" >&2
@@ -95,12 +112,10 @@ elif [[ "$artifact_class" == release-candidate ]]; then
   git -C "$source_git_root" cat-file -e "$source_sha^{commit}" 2>/dev/null || fail "source commit is unavailable"
   [[ "$(git -C "$source_git_root" rev-parse "$source_sha^{tree}")" == "$source_tree" ]] || fail "source tree does not match source commit"
   source_snapshot=$(mktemp -d)
-  cleanup_source_snapshot() { rm -rf -- "$source_snapshot"; }
-  trap cleanup_source_snapshot EXIT
   git -C "$source_git_root" archive "$source_sha" | tar -x -C "$source_snapshot"
   diff -q -r "$source_snapshot" "$repo_root" >/dev/null || fail "exported source differs from the committed tree"
-  cleanup_source_snapshot
-  trap - EXIT
+  rm -rf -- "$source_snapshot"
+  source_snapshot=
 fi
 
 if [[ "$mode" == signed ]]; then
@@ -147,10 +162,19 @@ if [[ "$artifact_class" == release-candidate ]]; then
 fi
 
 cd "$mobile_root"
+# Resolve every canonical build through fresh task-owned caches. pubspec.lock
+# and Podfile.lock bind versions/checksums; isolation prevents restored or
+# manually modified global cache bytes from satisfying those resolutions.
+dependency_cache_root=$(mktemp -d)
+export PUB_CACHE="$dependency_cache_root/pub-cache"
+export CP_HOME_DIR="$dependency_cache_root/cocoapods-home"
+export CP_CACHE_DIR="$dependency_cache_root/cocoapods-cache"
+mkdir -p "$PUB_CACHE" "$CP_HOME_DIR" "$CP_CACHE_DIR"
 # Git cleanliness deliberately ignores generated Flutter state. Clear it with
 # the pinned Flutter tool before dependency resolution so neither incremental
 # intermediates nor stale IPA/archive outputs can influence this build.
 flutter clean
+rm -rf -- build .dart_tool .flutter-plugins-dependencies ios/Pods ios/.symlinks
 flutter pub get
 [[ "$(sha256_file pubspec.lock)" == "$pubspec_lock_sha" ]] || fail "pubspec.lock drifted during dependency resolution"
 
@@ -163,7 +187,7 @@ node "$tool_root/tools/ocr-models/prepare-production-flutter-plugins.mjs" \
 # Pods and plugin symlinks are ignored generated state, so Git cleanliness does
 # not prove their identity. Recreate the sandbox from the pinned Podfile.lock on
 # every canonical build rather than allowing a prior build to supply pod bytes.
-rm -rf -- build ios/Pods ios/.symlinks
+rm -rf -- ios/Pods ios/.symlinks
 (
   cd ios
   pod install --deployment
@@ -197,8 +221,6 @@ if grep -Eq 'integration_test|IntegrationTestPlugin' "$registrant"; then
   fail "integration_test remains in the production registrant"
 fi
 
-inspection_root=
-cleanup_inspection_root=false
 artifact_path=
 archive_path=
 if [[ "$mode" == signed ]]; then
@@ -216,14 +238,33 @@ if [[ "$mode" == signed ]]; then
   archive_path=$(cd "$(dirname "${archive_paths[0]}")" && pwd -P)/$(basename "${archive_paths[0]}")
   inspection_root=$(mktemp -d)
   cleanup_inspection_root=true
-  trap 'if [[ "$cleanup_inspection_root" == true ]]; then rm -rf -- "$inspection_root"; fi' EXIT
   unzip -q "$artifact_path" -d "$inspection_root"
+  top_level_entries=()
+  while IFS= read -r candidate; do
+    top_level_entries+=("$(basename "$candidate")")
+  done < <(find "$inspection_root" -mindepth 1 -maxdepth 1 -print | LC_ALL=C sort)
+  for entry in "${top_level_entries[@]}"; do
+    case "$entry" in
+      Payload|SwiftSupport) ;;
+      *) fail "IPA contains a non-allowlisted top-level entry" ;;
+    esac
+  done
+  [[ -d "$inspection_root/Payload" ]] || fail "IPA Payload directory is missing"
   packaged_apps=()
   while IFS= read -r candidate; do
     packaged_apps+=("$candidate")
   done < <(find "$inspection_root/Payload" -maxdepth 1 -type d -name '*.app' -print | LC_ALL=C sort)
   [[ ${#packaged_apps[@]} -eq 1 ]] || fail "IPA must contain exactly one application bundle"
   app_path=${packaged_apps[0]}
+  payload_entries=()
+  while IFS= read -r candidate; do
+    payload_entries+=("$candidate")
+  done < <(find "$inspection_root/Payload" -mindepth 1 -maxdepth 1 -print | LC_ALL=C sort)
+  [[ ${#payload_entries[@]} -eq 1 && "${payload_entries[0]}" == "$app_path" ]] || fail "IPA Payload contains content outside the application bundle"
+  if [[ -d "$inspection_root/SwiftSupport" ]]; then
+    unexpected_swift_support=$(find "$inspection_root/SwiftSupport" -mindepth 1 ! -type d ! \( -type f -name '*.dylib' \) -print -quit)
+    [[ -z "$unexpected_swift_support" ]] || fail "IPA SwiftSupport contains a non-allowlisted entry"
+  fi
   codesign --verify --deep --strict "$app_path"
 else
   app_path="$mobile_root/build/ios/iphoneos/Runner.app"
@@ -251,8 +292,11 @@ fi
 
 inventory_file=$(mktemp)
 symbols_file=$(mktemp)
-trap 'rm -f -- "$inventory_file" "$symbols_file"; if [[ "$cleanup_inspection_root" == true ]]; then rm -rf -- "$inspection_root"; fi' EXIT
-find "$app_path" -mindepth 1 -print | LC_ALL=C sort >"$inventory_file"
+inventory_root=$app_path
+if [[ "$mode" == signed ]]; then
+  inventory_root=$inspection_root
+fi
+find "$inventory_root" -mindepth 1 -print | LC_ALL=C sort >"$inventory_file"
 if grep -Eiq 'integration[_-]?test|receipt_ocr_real_provider_test|receipt_ocr_acceptance|(^|/)test(/|$)|\.log$|ocr.*evidence' "$inventory_file"; then
   fail "production application contains test, fixture, log, or OCR evidence paths"
 fi
@@ -265,7 +309,7 @@ while IFS= read -r candidate; do
     nm -a "$candidate" >>"$symbols_file"
     strings "$candidate" >>"$symbols_file"
   fi
-done < <(find "$app_path" -type f -perm -111 -print)
+done < <(find "$inventory_root" -type f -perm -111 -print)
 [[ "$binary_count" -gt 0 ]] || fail "production application contains no inspectable Mach-O binary"
 grep -Fq 'GeneratedPluginRegistrant' "$symbols_file" || fail "GeneratedPluginRegistrant is absent from production binaries"
 grep -Fq 'FilePickerPlugin' "$symbols_file" || fail "FilePickerPlugin is absent from production binaries"

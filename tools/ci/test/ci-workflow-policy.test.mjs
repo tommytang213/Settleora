@@ -331,8 +331,9 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(androidCommands.includes("'loadFixture'"));
   assert.ok(androidRunner.includes('test "$system_image_revision" = "9"'));
   assert.ok(androidRunner.includes('test "$emulator_revision" = "37.1.11"'));
-  assert.ok(androidRunner.includes("java -version 2>&1 | sed -n '1p'"));
-  assert.ok(androidRunner.includes('emulator-$emulator_revision-java-$java_version'));
+  assert.ok(androidRunner.includes('java_version_output=$(java -version 2>&1)'));
+  assert.ok(androidRunner.includes("java_version_sha256=$(printf '%s' \"$java_version_output\" | sha256sum"));
+  assert.ok(androidRunner.includes('emulator-$emulator_revision-java-version-sha256-$java_version_sha256'));
   assert.ok(boundedCapture.includes('integration_test/receipt_ocr_real_provider_test.dart'));
   assert.ok(androidRunner.includes('|| status=$?'));
   assert.match(serialized, /integration.*test/i);
@@ -390,7 +391,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(iosCommands.includes('git diff --exit-code -- Podfile.lock'));
   assert.ok(iosProductionBuilder.includes('pod install --deployment'));
   assert.ok(iosProductionBuilder.includes('flutter clean'));
-  assert.ok(iosProductionBuilder.includes('rm -rf -- build ios/Pods ios/.symlinks'));
+  assert.ok(iosProductionBuilder.includes('rm -rf -- build .dart_tool .flutter-plugins-dependencies ios/Pods ios/.symlinks'));
   assert.match(iosCommands, /verify-ios-test-podfile-lock\.mjs" \\\n\s+< "\$test_metadata_dir\/production-Podfile\.lock"/);
   assert.match(serialized, /ios-pre-native-Podfile\.lock/);
   assert.doesNotMatch(serialized, /temporary pre-native base lock|ios-base-pod-lock-/i);

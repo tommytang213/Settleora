@@ -634,16 +634,21 @@ test("rejects skipped tests even when the runner reports success", () => {
   });
 });
 
-test("discards bounded stderr diagnostics without retaining their text", () => {
+test("rejects nonempty stderr without retaining its text", () => {
   withLog(protocolLog(), (logPath) => {
     writeFileSync(
       `${logPath}.stderr`,
       "private toolchain path and diagnostic text\n",
       { mode: 0o600 },
     );
-    const evidence = buildEvidence(evidenceArgs(logPath), repoRoot);
-    assert.equal(JSON.stringify(evidence).includes("private toolchain path"), false);
-    assert.equal(JSON.stringify(evidence).includes("diagnostic text"), false);
+    assert.throws(
+      () => buildEvidence(evidenceArgs(logPath), repoRoot),
+      /non-allowlisted stderr/,
+    );
+    const failure = buildFailureEvidence(evidenceArgs(logPath));
+    assert.equal(failure.execution.stderrBytes, 43);
+    assert.equal(JSON.stringify(failure).includes("private toolchain path"), false);
+    assert.equal(JSON.stringify(failure).includes("diagnostic text"), false);
   });
 });
 

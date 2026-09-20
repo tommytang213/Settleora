@@ -136,10 +136,11 @@ The active signed-validation workflow:
 - Runs Flutter dependency, analyze, and non-visual test steps before signing.
 - Passes `testFlightInternalTestingOnly` through `xcode-project use-profiles`.
 - Resolves Flutter and CocoaPods dependencies without changing `pubspec.lock` or `Podfile.lock`.
+- Resolves through fresh task-owned Pub and CocoaPods home/cache directories, then removes them, so restored or manually modified global cache bytes cannot enter canonical provenance.
 - Keeps Flutter Swift Package Manager integration disabled so the pinned CocoaPods graph remains the single reviewed native plugin recipe.
 - Projects only the reviewed `integration_test` development plugin out of production Flutter/Dart package metadata and registrants, while positively requiring FilePicker and Flutter secure storage registration.
 - Builds exactly one signed IPA/archive pair through the canonical wrapper.
-- Verifies the unchanged bundle identifier, signature, plugin calls/test-plugin absence, exact OCR catalog/models, and absence of acceptance fixtures, test classes/assets, and raw OCR evidence/log paths.
+- Verifies the unchanged bundle identifier, signature, plugin calls/test-plugin absence, exact OCR catalog/models, and absence of acceptance fixtures, test classes/assets, and raw OCR evidence/log paths across the complete extracted IPA inventory. Signed IPA top-level content is fail-closed to `Payload` plus optional dylib-only `SwiftSupport`, and `Payload` may contain only the one application bundle.
 - Verifies the packaged short version/build number against the requested signed-build identity and writes those values with source/tree, toolchain, lockfile, OCR catalog/manifest, artifact filenames, and immutable IPA/archive SHA-256 provenance.
 - Records historical package-size baselines as a composite identity of the base commit/tree, the dependency lock actually substituted into that source, and the exact candidate tooling commit; the base SHA alone is never presented as the complete built baseline identity.
 - Retains the IPA, archive, and provenance as Codemagic artifacts.

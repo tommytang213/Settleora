@@ -37,11 +37,13 @@ phase=emit_environment
 : "${GITHUB_OUTPUT:?GitHub output path is unavailable}"
 : "${RUNNER_TEMP:?Runner temporary path is unavailable}"
 sanitize() { printf '%s' "$1" | tr -c 'A-Za-z0-9_.:\[\]-' '_'; }
-java_version=$(java -version 2>&1 | sed -n '1p')
-test -n "$java_version"
+java_version_output=$(java -version 2>&1)
+test -n "$java_version_output"
+java_version_sha256=$(printf '%s' "$java_version_output" | sha256sum | awk '{print $1}')
+test "${#java_version_sha256}" -eq 64
 echo "runner_image=$(sanitize "${ImageOS}-${ImageVersion}")" >> "$GITHUB_OUTPUT"
 echo "os_runtime=$(sanitize "android-api$(timeout 5 "$adb" -s emulator-5554 shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\r')-$(timeout 5 "$adb" -s emulator-5554 shell getprop ro.build.id 2>/dev/null | tr -d '\r')-$(timeout 5 "$adb" -s emulator-5554 shell getprop ro.build.version.incremental 2>/dev/null | tr -d '\r')")" >> "$GITHUB_OUTPUT"
-echo "sdk_toolchain=$(sanitize "emulator-$emulator_revision-java-$java_version")" >> "$GITHUB_OUTPUT"
+echo "sdk_toolchain=$(sanitize "emulator-$emulator_revision-java-version-sha256-$java_version_sha256")" >> "$GITHUB_OUTPUT"
 echo "device=Android_Emulator_API_35_google_apis_x86_64" >> "$GITHUB_OUTPUT"
 echo "native_image=$(sanitize "android-35-google_apis-x86_64-revision-${system_image_revision}-emulator-${emulator_revision}")" >> "$GITHUB_OUTPUT"
 

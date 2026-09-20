@@ -322,12 +322,13 @@ function sanitizeEnvironment(args) {
 }
 
 function parseSafeRunnerLog(log, stderrLog) {
-  // Flutter and the native toolchains may write build/runtime diagnostics to
-  // stderr even when --machine stdout remains valid. Treat stderr as an
-  // untrusted, bounded input and deliberately discard it; it is never copied
-  // into the evidence artifact. Completion still requires valid stdout
-  // protocol markers and a zero test exit status.
-  void stderrLog;
+  // Successful acceptance must be silent on stderr. Inspect only its byte
+  // length so a rejected stream can never be copied into bounded evidence.
+  // This closes the privacy boundary around native/plugin diagnostics while
+  // keeping failure evidence limited to a content-free byte count.
+  if (Buffer.byteLength(stderrLog, "utf8") !== 0) {
+    throw new Error("Acceptance runner emitted non-allowlisted stderr");
+  }
   const allowedEventTypes = new Set([
     "start", "allSuites", "suite", "group", "testStart", "testDone", "done", "error",
   ]);
