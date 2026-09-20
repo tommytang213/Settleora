@@ -131,6 +131,22 @@ test("canonical wrapper rejects unsafe modes and release candidates without prov
   assert.match(arbitraryRoot.stderr, /Usage: hash-directory\.mjs <app\|archive>/);
 });
 
+test("directory hasher CLI rejects symlinked fixed build ancestors", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-ios-cli-root-"));
+  const external = mkdtempSync(path.join(os.tmpdir(), "settleora-ios-cli-external-"));
+  try {
+    mkdirSync(path.join(root, "build"));
+    symlinkSync(external, path.join(root, "build/ios"), "dir");
+    const directoryHasher = path.join(repoRoot, "tools/ocr-models/hash-directory.mjs");
+    const result = spawnSync(process.execPath, [directoryHasher, "app"], { cwd: root, encoding: "utf8" });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /build path components must be real directories/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(external, { recursive: true, force: true });
+  }
+});
+
 function rootForUnsafeCli() {
   return path.resolve(os.tmpdir(), "untrusted-artifact-root");
 }

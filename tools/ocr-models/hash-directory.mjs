@@ -43,12 +43,28 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   if (process.argv.length !== 3 || !new Set(["app", "archive"]).has(process.argv[2])) {
     throw new Error("Usage: hash-directory.mjs <app|archive>");
   }
-  const iosBuildRoot = path.resolve("build", "ios");
+  const buildRoot = path.resolve("build");
+  const iosBuildRoot = path.join(buildRoot, "ios");
+  for (const fixedRoot of [buildRoot, iosBuildRoot]) {
+    const fixedStat = lstatSync(fixedRoot);
+    if (!fixedStat.isDirectory() || fixedStat.isSymbolicLink()) {
+      throw new Error("iOS build path components must be real directories");
+    }
+  }
   let artifactRoot;
   if (process.argv[2] === "app") {
-    artifactRoot = path.join(iosBuildRoot, "iphoneos", "Runner.app");
+    const appRoot = path.join(iosBuildRoot, "iphoneos");
+    const appRootStat = lstatSync(appRoot);
+    if (!appRootStat.isDirectory() || appRootStat.isSymbolicLink()) {
+      throw new Error("iOS build path components must be real directories");
+    }
+    artifactRoot = path.join(appRoot, "Runner.app");
   } else {
     const archiveRoot = path.join(iosBuildRoot, "archive");
+    const archiveRootStat = lstatSync(archiveRoot);
+    if (!archiveRootStat.isDirectory() || archiveRootStat.isSymbolicLink()) {
+      throw new Error("iOS build path components must be real directories");
+    }
     const archives = readdirSync(archiveRoot)
       .filter((name) => /^[A-Za-z0-9._ -]+\.xcarchive$/.test(name))
       .filter((name) => lstatSync(path.join(archiveRoot, name)).isDirectory())
