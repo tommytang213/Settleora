@@ -57,6 +57,18 @@ void main() {
           ReceiptOcrPoint(x: 10, y: 10),
           ReceiptOcrPoint(x: 0, y: 10),
         ],
+        const [
+          ReceiptOcrPoint(x: 0, y: 0),
+          ReceiptOcrPoint(x: 10, y: 10),
+          ReceiptOcrPoint(x: 0, y: 10),
+          ReceiptOcrPoint(x: 10, y: 0),
+        ],
+        const [
+          ReceiptOcrPoint(x: 0, y: 0),
+          ReceiptOcrPoint(x: 10, y: 0),
+          ReceiptOcrPoint(x: 5, y: 5),
+          ReceiptOcrPoint(x: 0, y: 10),
+        ],
       ]) {
         expect(
           isValidNativeOcrBlockGeometry(

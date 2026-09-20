@@ -119,6 +119,7 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
     "prepare-production-flutter-plugins.mjs",
     "--package-config=.dart_tool/package_config.json",
     "--package-graph=.dart_tool/package_graph.json",
+    "rm -rf -- ios/Pods ios/.symlinks",
     "verify-mobile-package.mjs",
     "FilePicker registrant call is missing or duplicated",
     "Flutter secure storage registrant call is missing or duplicated",
@@ -166,6 +167,13 @@ test("iOS simulator pod graph permits exactly the pinned integration_test projec
   );
   assert.throws(
     () => verifyIosTestPodfileLock(production, production),
+    /expected one integration_test pod/,
+  );
+  assert.throws(
+    () => verifyIosTestPodfileLock(production, projected.replace(
+      "  - integration_test (0.0.1):\n    - Flutter\n",
+      "  - integration_test (0.0.1):\n    - Flutter\n  - integration_test (0.0.1):\n    - Flutter\n",
+    )),
     /expected one integration_test pod/,
   );
 });

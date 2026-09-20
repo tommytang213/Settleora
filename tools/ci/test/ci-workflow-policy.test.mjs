@@ -349,6 +349,8 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(iosCommands.includes('a5b6068c71fe9b0a77743d5c639b5538dd2be10db7ddd4ecd9317fee03541903'));
   assert.ok(iosCommands.includes('git diff --exit-code -- Podfile.lock'));
   assert.ok(iosProductionBuilder.includes('pod install --deployment'));
+  assert.ok(iosProductionBuilder.includes('rm -rf -- ios/Pods ios/.symlinks'));
+  assert.match(iosCommands, /verify-ios-test-podfile-lock\.mjs" \\\n\s+< "\$test_metadata_dir\/production-Podfile\.lock"/);
   assert.match(serialized, /ios-pre-native-Podfile\.lock/);
   assert.doesNotMatch(serialized, /temporary pre-native base lock|ios-base-pod-lock-/i);
   assert.doesNotMatch(serialized, /ios-pod-lock-/);

@@ -555,12 +555,24 @@ bool isValidNativeOcrBlockGeometry(
     return false;
   }
   var doubledArea = 0.0;
+  final turnDirections = <double>[];
   for (var index = 0; index < block.points.length; index += 1) {
     final current = block.points[index];
     final next = block.points[(index + 1) % block.points.length];
     doubledArea += current.x * next.y - next.x * current.y;
+    final afterNext = block.points[(index + 2) % block.points.length];
+    turnDirections.add(
+      (next.x - current.x) * (afterNext.y - next.y) -
+          (next.y - current.y) * (afterNext.x - next.x),
+    );
   }
-  return doubledArea.abs() > 0.000001;
+  const epsilon = 0.000001;
+  if (doubledArea.abs() <= epsilon ||
+      turnDirections.any((direction) => direction.abs() <= epsilon)) {
+    return false;
+  }
+  final turnsClockwise = turnDirections.first < 0;
+  return turnDirections.every((direction) => (direction < 0) == turnsClockwise);
 }
 
 void _collectField(

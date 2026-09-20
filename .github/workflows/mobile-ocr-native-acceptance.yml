@@ -293,8 +293,7 @@ jobs:
           # built from an independent exact-head archive and cannot consume it.
           (cd ios && pod install)
           node "$GITHUB_WORKSPACE/tools/ocr-models/verify-ios-test-podfile-lock.mjs" \
-            "$test_metadata_dir/production-Podfile.lock" \
-            "$GITHUB_WORKSPACE/apps/mobile/ios/Podfile.lock"
+            < "$test_metadata_dir/production-Podfile.lock"
 
       - name: Boot trusted iOS simulator
         id: simulator

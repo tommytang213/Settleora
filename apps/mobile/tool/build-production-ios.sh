@@ -144,6 +144,10 @@ node "$tool_root/tools/ocr-models/prepare-production-flutter-plugins.mjs" \
   --package-graph=.dart_tool/package_graph.json \
   --require-integration-test="$require_integration_test"
 
+# Pods and plugin symlinks are ignored generated state, so Git cleanliness does
+# not prove their identity. Recreate the sandbox from the pinned Podfile.lock on
+# every canonical build rather than allowing a prior build to supply pod bytes.
+rm -rf -- ios/Pods ios/.symlinks
 (
   cd ios
   pod install --deployment
