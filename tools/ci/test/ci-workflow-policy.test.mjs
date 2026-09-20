@@ -383,7 +383,9 @@ test('Codemagic stays manual-only and retains the signed release candidate witho
   assert.equal(internal.environment.cocoapods, '1.17.0');
   assert.equal(internal.environment.vars.FLUTTER_BUILD_NAME, '1.0.0');
   const scripts = internal.scripts.map((step) => step.script).join('\n');
-  assert.match(scripts, /testFlightInternalTestingOnly/);
+  const productionWrapper = read('apps/mobile/tool/build-production-ios.sh');
+  assert.match(productionWrapper, /testFlightInternalTestingOnly/);
+  assert.doesNotMatch(scripts, /xcode-project use-profiles/);
   assert.match(scripts, /build-production-ios\.sh/);
   assert.match(scripts, /--mode=signed/);
   assert.match(scripts, /--source-sha="\$CM_COMMIT"/);

@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { hashDirectory } from "../hash-directory.mjs";
+import { verifyIosTestPodfileLock } from "../verify-ios-test-podfile-lock.mjs";
 import { buildProvenance } from "../write-ios-release-provenance.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
@@ -111,6 +112,7 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
     "a5b6068c71fe9b0a77743d5c639b5538dd2be10db7ddd4ecd9317fee03541903",
     "Podfile.lock does not match the approved identity",
     "Podfile.lock drifted during build",
+    "source checkout differs from the committed tree",
     "prepare-production-flutter-plugins.mjs",
     "--package-config=.dart_tool/package_config.json",
     "--package-graph=.dart_tool/package_graph.json",
@@ -122,6 +124,8 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
     "packaged build name differs from the requested signed build",
     "packaged build number differs from the requested signed build",
     "write-ios-release-provenance.mjs",
+    "xcode-project use-profiles",
+    "export options plist was not produced",
     '$(basename "$provenance_out")',
   ]) assert.ok(script.includes(required), required);
   assert.match(script, /signed builds must be release candidates/);
@@ -134,7 +138,33 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   }
   assert.doesNotMatch(podfileLock, /integration_test/);
   assert.doesNotMatch(script, /\b(?:mapfile|readarray)\b/);
-  assert.doesNotMatch(script, /app-store-connect|testflight|upload|publish/i);
+  assert.doesNotMatch(script, /app-store-connect|submit_to_testflight|submit_to_app_store|\bupload\b|\bpublish\b/i);
+});
+
+test("historical size measurement does not require release-candidate OCR identities", () => {
+  const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
+  assert.match(
+    script,
+    /catalog_sha=\nfixture_manifest_sha=\nif \[\[ "\$artifact_class" == release-candidate \]\]; then\n  catalog_sha=.*\n  fixture_manifest_sha=.*\nfi/,
+  );
+});
+
+test("iOS simulator pod graph permits exactly the pinned integration_test projection", () => {
+  const production = `PODS:\n  - Flutter (1.0.0)\n\nDEPENDENCIES:\n  - Flutter (from \`Flutter\`)\n\nEXTERNAL SOURCES:\n  Flutter:\n    :path: Flutter\n\nSPEC CHECKSUMS:\n  Flutter: ${"1".repeat(40)}\n`;
+  const projected = production
+    .replace("  - Flutter (1.0.0)\n", "  - Flutter (1.0.0)\n  - integration_test (0.0.1):\n    - Flutter\n")
+    .replace("DEPENDENCIES:\n", "DEPENDENCIES:\n  - integration_test (from `.symlinks/plugins/integration_test/ios`)\n")
+    .replace("EXTERNAL SOURCES:\n", "EXTERNAL SOURCES:\n  integration_test:\n    :path: \".symlinks/plugins/integration_test/ios\"\n")
+    .replace("SPEC CHECKSUMS:\n", `SPEC CHECKSUMS:\n  integration_test: ${"2".repeat(40)}\n`);
+  assert.doesNotThrow(() => verifyIosTestPodfileLock(production, projected));
+  assert.throws(
+    () => verifyIosTestPodfileLock(production, projected.replace("  - Flutter (1.0.0)\n", "  - Flutter (2.0.0)\n")),
+    /differs beyond/,
+  );
+  assert.throws(
+    () => verifyIosTestPodfileLock(production, production),
+    /expected one integration_test pod/,
+  );
 });
 
 test("canonical wrapper rejects unsafe modes and release candidates without provenance before building", () => {

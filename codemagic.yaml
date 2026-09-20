@@ -131,10 +131,6 @@ workflows:
         script: |
           ./tool/validate-release.sh
 
-      - name: Set up iOS code signing settings
-        script: |
-          xcode-project use-profiles --custom-export-options='{"testFlightInternalTestingOnly": true}'
-
       - name: Build signed iOS IPA
         script: |
           test "$(git rev-parse HEAD)" = "$CM_COMMIT"

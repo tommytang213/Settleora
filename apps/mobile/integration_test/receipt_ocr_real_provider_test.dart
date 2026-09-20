@@ -479,6 +479,30 @@ List<_BoundedMismatch> _completePreviewMismatches(
         mismatches.add(_BoundedMismatch(fixtureId, 'model_version'));
         break;
       }
+      final confidence = block.confidence;
+      final geometryIsValid =
+          confidence != null &&
+          confidence.isFinite &&
+          confidence >= 0 &&
+          confidence <= 1 &&
+          block.order >= 0 &&
+          block.row >= 0 &&
+          (block.textDirection == 'ltr' || block.textDirection == 'rtl') &&
+          block.points.length == 4 &&
+          block.points.every(
+            (point) => point.x.isFinite && point.y.isFinite,
+          );
+      if (!geometryIsValid) {
+        mismatches.add(_BoundedMismatch(fixtureId, 'block_geometry'));
+        break;
+      }
+    }
+    final orders = preview.blocks.map((block) => block.order).toSet();
+    if (orders.length != preview.blocks.length ||
+        !orders.containsAll(
+          List<int>.generate(preview.blocks.length, (index) => index),
+        )) {
+      mismatches.add(_BoundedMismatch(fixtureId, 'block_order'));
     }
     final expectedPack = modelCatalog.recognizerForScript(script);
     if (!preview.blocks.any((block) => block.modelPackId == expectedPack)) {

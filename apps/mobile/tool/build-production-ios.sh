@@ -76,7 +76,6 @@ if [[ "$mode" == signed ]]; then
   [[ -n "$build_name" && -n "$build_number" && -n "$export_options_plist" ]] || fail "signed build identity/export options are required"
   [[ "$build_name" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "signed build name must be a three-part numeric version"
   [[ "$build_number" =~ ^[0-9]+$ ]] || fail "signed build number must be numeric"
-  [[ -f "$export_options_plist" ]] || fail "export options plist is missing"
 else
   [[ -z "$build_name$build_number$export_options_plist" ]] || fail "signing arguments are invalid for an unsigned build"
 fi
@@ -86,6 +85,9 @@ command -v node >/dev/null || fail "node is unavailable"
 command -v pod >/dev/null || fail "CocoaPods is unavailable"
 command -v xcodebuild >/dev/null || fail "Xcode is unavailable"
 command -v plutil >/dev/null || fail "plutil is unavailable"
+if [[ "$mode" == signed ]]; then
+  command -v xcode-project >/dev/null || fail "Codemagic signing utility is unavailable"
+fi
 
 flutter_version=$(flutter --version --machine | node -e 'let input=""; process.stdin.on("data", chunk => input += chunk).on("end", () => process.stdout.write(JSON.parse(input).frameworkVersion));')
 [[ "$flutter_version" == "$expected_flutter_version" ]] || fail "Flutter must be $expected_flutter_version"
@@ -97,6 +99,7 @@ cocoapods_version=$(pod --version)
 if git -C "$repo_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   [[ "$(git -C "$repo_root" rev-parse HEAD)" == "$source_sha" ]] || fail "source SHA does not match checkout"
   [[ "$(git -C "$repo_root" rev-parse 'HEAD^{tree}')" == "$source_tree" ]] || fail "source tree does not match checkout"
+  [[ -z "$(git -C "$repo_root" status --porcelain=v1 --untracked-files=all)" ]] || fail "source checkout differs from the committed tree"
 fi
 
 sha256_file() {
@@ -108,8 +111,12 @@ if [[ "$artifact_class" == release-candidate ]]; then
   [[ "$pubspec_lock_sha" == "$default_pubspec_lock_sha" ]] || fail "pubspec.lock differs from the committed canonical source"
 fi
 [[ "$(sha256_file "$mobile_root/ios/Podfile.lock")" == "$podfile_lock_sha" ]] || fail "Podfile.lock does not match the approved identity"
-catalog_sha=$(sha256_file "$mobile_root/assets/receipt_ocr_models/catalog.json")
-fixture_manifest_sha=$(sha256_file "$mobile_root/test/fixtures/receipt_ocr/manifest.json")
+catalog_sha=
+fixture_manifest_sha=
+if [[ "$artifact_class" == release-candidate ]]; then
+  catalog_sha=$(sha256_file "$mobile_root/assets/receipt_ocr_models/catalog.json")
+  fixture_manifest_sha=$(sha256_file "$mobile_root/test/fixtures/receipt_ocr/manifest.json")
+fi
 
 cd "$mobile_root"
 flutter pub get
@@ -129,6 +136,11 @@ node "$tool_root/tools/ocr-models/prepare-production-flutter-plugins.mjs" \
 [[ "$(sha256_file ios/Podfile.lock)" == "$podfile_lock_sha" ]] || fail "Podfile.lock drifted during CocoaPods resolution"
 
 if [[ "$mode" == signed ]]; then
+  # This is the only reviewed, wrapper-owned transformation after the clean
+  # exact-tree proof. It selects the existing Codemagic-managed profile and
+  # produces export options; it performs no artifact distribution.
+  xcode-project use-profiles --custom-export-options='{"testFlightInternalTestingOnly": true}'
+  [[ -f "$export_options_plist" ]] || fail "export options plist was not produced"
   flutter build ipa --release --no-pub \
     --build-name="$build_name" \
     --build-number="$build_number" \

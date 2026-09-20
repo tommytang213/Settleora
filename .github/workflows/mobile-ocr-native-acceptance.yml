@@ -262,6 +262,8 @@ jobs:
           cp .flutter-plugins-dependencies "$test_metadata_dir/flutter-plugins-dependencies.json"
           cp .dart_tool/package_config.json "$test_metadata_dir/package_config.json"
           cp .dart_tool/package_graph.json "$test_metadata_dir/package_graph.json"
+          cp ios/Runner/GeneratedPluginRegistrant.h "$test_metadata_dir/GeneratedPluginRegistrant.h"
+          cp ios/Runner/GeneratedPluginRegistrant.m "$test_metadata_dir/GeneratedPluginRegistrant.m"
           node "$GITHUB_WORKSPACE/tools/ocr-models/prepare-production-flutter-plugins.mjs" \
             --file=.flutter-plugins-dependencies \
             --package-config=.dart_tool/package_config.json \
@@ -278,9 +280,21 @@ jobs:
           cp "$test_metadata_dir/flutter-plugins-dependencies.json" .flutter-plugins-dependencies
           cp "$test_metadata_dir/package_config.json" .dart_tool/package_config.json
           cp "$test_metadata_dir/package_graph.json" .dart_tool/package_graph.json
+          cp "$test_metadata_dir/GeneratedPluginRegistrant.h" ios/Runner/GeneratedPluginRegistrant.h
+          cp "$test_metadata_dir/GeneratedPluginRegistrant.m" ios/Runner/GeneratedPluginRegistrant.m
           cmp -s .flutter-plugins-dependencies "$test_metadata_dir/flutter-plugins-dependencies.json"
           cmp -s .dart_tool/package_config.json "$test_metadata_dir/package_config.json"
           cmp -s .dart_tool/package_graph.json "$test_metadata_dir/package_graph.json"
+          cmp -s ios/Runner/GeneratedPluginRegistrant.h "$test_metadata_dir/GeneratedPluginRegistrant.h"
+          cmp -s ios/Runner/GeneratedPluginRegistrant.m "$test_metadata_dir/GeneratedPluginRegistrant.m"
+          cp ios/Podfile.lock "$test_metadata_dir/production-Podfile.lock"
+          # Generate the simulator-only integration_test pod graph after the
+          # canonical production graph is proven. The production package below is
+          # built from an independent exact-head archive and cannot consume it.
+          (cd ios && pod install)
+          node "$GITHUB_WORKSPACE/tools/ocr-models/verify-ios-test-podfile-lock.mjs" \
+            "$test_metadata_dir/production-Podfile.lock" \
+            "$GITHUB_WORKSPACE/apps/mobile/ios/Podfile.lock"
 
       - name: Boot trusted iOS simulator
         id: simulator
