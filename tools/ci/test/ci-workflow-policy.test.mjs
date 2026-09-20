@@ -205,6 +205,8 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
       assert.ok(packageCommands.includes('pubspec.lock'));
       assert.ok(packageCommands.includes('test "$('));
       assert.equal(packageCommands.split('prepare-production-flutter-plugins.mjs').length - 1, 3);
+      assert.equal(packageCommands.split('--package-config=.dart_tool/package_config.json').length - 1, 3);
+      assert.equal(packageCommands.split('--package-graph=.dart_tool/package_graph.json').length - 1, 3);
       assert.equal(packageCommands.split('--require-integration-test=true').length - 1, 2);
       const baselineCommands = packageCommands.slice(packageCommands.indexOf('base_sha='));
       assert.ok(baselineCommands.includes('prepare-production-flutter-plugins.mjs'));
