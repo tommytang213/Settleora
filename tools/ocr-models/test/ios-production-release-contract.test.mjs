@@ -6,10 +6,51 @@ import path from "node:path";
 import test from "node:test";
 
 import { hashDirectory } from "../hash-directory.mjs";
+import { verifyIpaArchive } from "../verify-ipa-archive.mjs";
 import { verifyIosTestPodfileLock } from "../verify-ios-test-podfile-lock.mjs";
 import { buildProvenance } from "../write-ios-release-provenance.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
+
+function makeStoredZip(entries) {
+  const localParts = [];
+  const centralParts = [];
+  let localOffset = 0;
+  for (const entry of entries) {
+    const name = Buffer.from(entry.name);
+    const data = Buffer.from(entry.data ?? "");
+    const directory = entry.directory ?? entry.name.endsWith("/");
+    const mode = entry.mode ?? (directory ? 0o040755 : 0o100644);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(0x800, 6);
+    local.writeUInt32LE(data.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(name.length, 26);
+    localParts.push(local, name, data);
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE((3 << 8) | 20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(0x800, 8);
+    central.writeUInt32LE(data.length, 20);
+    central.writeUInt32LE(data.length, 24);
+    central.writeUInt16LE(name.length, 28);
+    central.writeUInt32LE((mode << 16) >>> 0, 38);
+    central.writeUInt32LE(localOffset, 42);
+    centralParts.push(central, name);
+    localOffset += local.length + name.length + data.length;
+  }
+  const centralDirectory = Buffer.concat(centralParts);
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(entries.length, 8);
+  eocd.writeUInt16LE(entries.length, 10);
+  eocd.writeUInt32LE(centralDirectory.length, 12);
+  eocd.writeUInt32LE(localOffset, 16);
+  return Buffer.concat([...localParts, centralDirectory, eocd]);
+}
 
 function provenanceArgs(root, mode = "signed") {
   const artifact = mode === "signed" ? path.join(root, "Settleora.ipa") : path.join(root, "Runner.app");
@@ -112,6 +153,37 @@ test("signed provenance rejects Codemagic signing-tool drift", () => {
   }
 });
 
+test("IPA namespace verifier rejects ambiguous and escaping ZIP entries before extraction", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-ipa-namespace-"));
+  const archive = path.join(root, "Runner.ipa");
+  try {
+    writeFileSync(archive, makeStoredZip([
+      { name: "Payload/" },
+      { name: "Payload/Runner.app/" },
+      { name: "Payload/Runner.app/Info.plist", data: "plist" },
+      { name: "SwiftSupport/" },
+      { name: "SwiftSupport/iphoneos/" },
+      { name: "SwiftSupport/iphoneos/libswiftCore.dylib", data: "dylib" },
+    ]));
+    assert.match(verifyIpaArchive(archive), /^[0-9a-f]{64}$/);
+
+    for (const entries of [
+      [{ name: "Payload/Runner.app/file" }, { name: "Payload/Runner.app/file" }],
+      [{ name: "Payload/Runner.app/file" }, { name: "payload/runner.app/FILE" }],
+      [{ name: "Payload/../escaped" }],
+      [{ name: "/Payload/Runner.app/file" }],
+      [{ name: "Payload\\Runner.app\\file" }],
+      [{ name: "Other/Runner.app/file" }],
+      [{ name: "Payload/Runner.app/link", mode: 0o120777, data: "../../outside" }],
+    ]) {
+      writeFileSync(archive, makeStoredZip(entries));
+      assert.throws(() => verifyIpaArchive(archive), /Unsafe IPA archive/);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("canonical wrapper fails closed around projection, locks, package inspection, and signing", () => {
   const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
   const pubspec = readFileSync(path.join(repoRoot, "apps/mobile/pubspec.yaml"), "utf8");
@@ -149,6 +221,9 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
     "loadModelCatalog",
     "loadFixture",
     "codesign --verify --deep --strict",
+    "verify-ipa-archive.mjs",
+    "unzip -tqq",
+    "IPA changed after namespace preflight",
     "IPA contains a non-allowlisted top-level entry",
     "IPA Payload contains content outside the application bundle",
     "IPA SwiftSupport contains a non-allowlisted entry",
