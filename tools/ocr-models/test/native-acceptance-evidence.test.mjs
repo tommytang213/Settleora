@@ -439,6 +439,38 @@ test("failure evidence recovers sanitized partial acceptance without trusting in
   });
 });
 
+test("failure evidence rejects duplicate partial markers instead of selecting one", () => {
+  const acceptance = {
+    schemaVersion: 1,
+    platform: "android",
+    completed: true,
+    networkIsolated: true,
+    fixtureCount: 101,
+    passedFixtureCount: 100,
+    mismatchCount: 1,
+    mismatches: [{ fixtureId: "fixture_001", field: "provider_status" }],
+    runtime: "onnxruntime-android:1.21.1:cpu",
+    coldLoadTimeMs: 25,
+    endToEndLatencyMs: { sampleCount: 101, cold: 30, warmP50: 20, warmP95: 24, max: 30 },
+    nativeLatencyMs: { sampleCount: 101, cold: 28, warmP50: 18, warmP95: 22, max: 28 },
+    peakRssBytes: 123456,
+    perScript: { Latin: { total: 101, passed: 100 } },
+  };
+  const event = (value) => JSON.stringify({
+    type: "print",
+    message: `SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify(value)}`,
+  });
+  const conflicting = {
+    ...acceptance,
+    mismatches: [{ fixtureId: "fixture_002", field: "provider_exception" }],
+  };
+  withLog(`${event(acceptance)}\n${event(conflicting)}\n`, (log) => {
+    const evidence = buildFailureEvidence({ ...evidenceArgs(log), "test-status": "1" });
+    assert.deepEqual(evidence.acceptance, { completed: false });
+    assert.equal(isCompleteEvidence(evidence), false);
+  });
+});
+
 test("rejects all non-allowlisted application output and unresolved environment identity", () => {
   withLog(protocolLog("native diagnostic: unexpected receipt text"), (log) => {
     assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot), /non-allowlisted/);

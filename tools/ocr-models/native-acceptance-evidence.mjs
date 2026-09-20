@@ -111,6 +111,7 @@ function extractFailureMarker(args, platform, marker, sanitize, fallback) {
       markerMessages.push(event.message);
     }
   }
+  if (markerMessages.length !== 1) return fallback;
   try {
     return parseMarker(markerMessages, marker, (value) => sanitize(value, platform), fallback);
   } catch {
