@@ -14,6 +14,8 @@ on:
       - "apps/mobile/pubspec.yaml"
       - "apps/mobile/pubspec.lock"
       - "apps/mobile/test/fixtures/receipt_ocr/**"
+      - "apps/mobile/tool/**"
+      - "codemagic.yaml"
       - "package.json"
       - "tools/ocr-models/**"
   workflow_dispatch:
@@ -287,76 +289,28 @@ jobs:
           candidate_dir="$RUNNER_TEMP/ios-candidate-package"
           mkdir -p "$candidate_dir"
           git archive "$EXPECTED_HEAD" | tar -x -C "$candidate_dir"
-          (
-            cd "$candidate_dir/apps/mobile"
-            lock_sha=$(shasum -a 256 pubspec.lock | awk '{print $1}')
-            flutter pub get
-            test "$(shasum -a 256 pubspec.lock | awk '{print $1}')" = "$lock_sha"
-            node "$GITHUB_WORKSPACE/tools/ocr-models/prepare-production-flutter-plugins.mjs" --file=.flutter-plugins-dependencies --require-integration-test=true
-            cd ios
-            pod install --deployment
-            test "$(shasum -a 256 Podfile.lock | awk '{print $1}')" = "08afc1413159dcd818b669869736fc56e38a99618a1f951e605b1eea02dc5189"
-            cd ..
-            flutter build ios --release --no-codesign --no-pub
-            grep -Fx '  [FilePickerPlugin registerWithRegistrar:[registry registrarForPlugin:@"FilePickerPlugin"]];' ios/Runner/GeneratedPluginRegistrant.m
-            grep -Fx '  [FlutterSecureStorageDarwinPlugin registerWithRegistrar:[registry registrarForPlugin:@"FlutterSecureStorageDarwinPlugin"]];' ios/Runner/GeneratedPluginRegistrant.m
-            if grep -E 'integration_test|IntegrationTestPlugin' ios/Runner/GeneratedPluginRegistrant.m; then
-              echo "Projected iOS registrant still contains integration_test" >&2
-              exit 1
-            else
-              grep_status=$?
-              test "$grep_status" -eq 1
-            fi
-          )
+          source_tree=$(git rev-parse "$EXPECTED_HEAD^{tree}")
+          bash "$GITHUB_WORKSPACE/apps/mobile/tool/build-production-ios.sh" \
+            --mode=unsigned \
+            --source-sha="$EXPECTED_HEAD" \
+            --source-tree="$source_tree" \
+            --mobile-root="$candidate_dir/apps/mobile" \
+            --repo-root="$candidate_dir" \
+            --provenance-out="$RUNNER_TEMP/ios-release-provenance.json"
           full_app="$candidate_dir/apps/mobile/build/ios/iphoneos/Runner.app"
           full_bytes=$(find "$full_app" -type f -exec stat -f %z {} + | awk '{sum += $1} END {print sum}')
-          package_verification=$(node tools/ocr-models/verify-mobile-package.mjs --platform=ios --package="$full_app" --repo-root="$candidate_dir" --json=true)
-          verified_catalog_file_count=$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).catalogFileCount))' "$package_verification")
-          verified_model_file_count=$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).modelFileCount))' "$package_verification")
-          verified_fixture_absence_count=$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).fixtureFileCount))' "$package_verification")
-          : >"$RUNNER_TEMP/ios-production-symbols.txt"
-          binary_count=0
-          while IFS= read -r candidate; do
-            if file "$candidate" | grep -q 'Mach-O'; then
-              binary_count=$((binary_count + 1))
-              nm -a "$candidate" >>"$RUNNER_TEMP/ios-production-symbols.txt"
-              strings "$candidate" >>"$RUNNER_TEMP/ios-production-symbols.txt"
-            fi
-          done < <(find "$full_app" -type f -perm -111 -print)
-          test "$binary_count" -gt 0
-          grep -F 'GeneratedPluginRegistrant' "$RUNNER_TEMP/ios-production-symbols.txt"
-          grep -F 'FilePickerPlugin' "$RUNNER_TEMP/ios-production-symbols.txt"
-          grep -F 'FlutterSecureStorageDarwinPlugin' "$RUNNER_TEMP/ios-production-symbols.txt"
-          if grep -Ei 'IntegrationTestPlugin|dev\.flutter\.plugins\.integration_test' "$RUNNER_TEMP/ios-production-symbols.txt"; then
-            echo "Production iOS app contains the integration_test plugin" >&2
-            exit 1
-          else
-            grep_status=$?
-            test "$grep_status" -eq 1
-          fi
+          verified_catalog_file_count=1
+          verified_model_file_count=$(node -e 'const c=require(process.argv[1]); process.stdout.write(String(c.packs.flatMap(p => p.files).length))' "$candidate_dir/apps/mobile/assets/receipt_ocr_models/catalog.json")
+          verified_fixture_absence_count=$(node -e 'const m=require(process.argv[1]); process.stdout.write(String(m.fixtures.length + 1))' "$candidate_dir/apps/mobile/test/fixtures/receipt_ocr/manifest.json")
           find "$candidate_dir/apps/mobile/assets/receipt_ocr_models" -mindepth 2 -type f -exec truncate -s 0 {} +
-          (
-            cd "$candidate_dir/apps/mobile"
-            flutter clean
-            lock_sha=$(shasum -a 256 pubspec.lock | awk '{print $1}')
-            flutter pub get
-            test "$(shasum -a 256 pubspec.lock | awk '{print $1}')" = "$lock_sha"
-            node "$GITHUB_WORKSPACE/tools/ocr-models/prepare-production-flutter-plugins.mjs" --file=.flutter-plugins-dependencies --require-integration-test=true
-            cd ios
-            pod install --deployment
-            test "$(shasum -a 256 Podfile.lock | awk '{print $1}')" = "08afc1413159dcd818b669869736fc56e38a99618a1f951e605b1eea02dc5189"
-            cd ..
-            flutter build ios --release --no-codesign --no-pub
-            grep -Fx '  [FilePickerPlugin registerWithRegistrar:[registry registrarForPlugin:@"FilePickerPlugin"]];' ios/Runner/GeneratedPluginRegistrant.m
-            grep -Fx '  [FlutterSecureStorageDarwinPlugin registerWithRegistrar:[registry registrarForPlugin:@"FlutterSecureStorageDarwinPlugin"]];' ios/Runner/GeneratedPluginRegistrant.m
-            if grep -E 'integration_test|IntegrationTestPlugin' ios/Runner/GeneratedPluginRegistrant.m; then
-              echo "Projected iOS registrant still contains integration_test" >&2
-              exit 1
-            else
-              grep_status=$?
-              test "$grep_status" -eq 1
-            fi
-          )
+          (cd "$candidate_dir/apps/mobile" && flutter clean)
+          bash "$GITHUB_WORKSPACE/apps/mobile/tool/build-production-ios.sh" \
+            --mode=unsigned \
+            --artifact-class=size-measurement \
+            --source-sha="$EXPECTED_HEAD" \
+            --source-tree="$source_tree" \
+            --mobile-root="$candidate_dir/apps/mobile" \
+            --repo-root="$candidate_dir"
           model_free_bytes=$(find "$full_app" -type f -exec stat -f %z {} + | awk '{sum += $1} END {print sum}')
           base_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
           git cat-file -e "$base_sha^{commit}"
@@ -364,27 +318,17 @@ jobs:
           mkdir -p "$base_dir"
           git archive "$base_sha" | tar -x -C "$base_dir"
           cp tools/ocr-models/baselines/ios-pre-native-Podfile.lock "$base_dir/apps/mobile/ios/Podfile.lock"
-          (
-            cd "$base_dir/apps/mobile"
-            lock_sha=$(shasum -a 256 pubspec.lock | awk '{print $1}')
-            flutter pub get
-            test "$(shasum -a 256 pubspec.lock | awk '{print $1}')" = "$lock_sha"
-            node "$GITHUB_WORKSPACE/tools/ocr-models/prepare-production-flutter-plugins.mjs" --file=.flutter-plugins-dependencies
-            cd ios
-            pod install --deployment
-            test "$(shasum -a 256 Podfile.lock | awk '{print $1}')" = "486ba24476c7ae0be32927fa9239599749f285d7a5a48129caebe4437ed6cc30"
-            cd ..
-            flutter build ios --release --no-codesign --no-pub
-            grep -Fx '  [FilePickerPlugin registerWithRegistrar:[registry registrarForPlugin:@"FilePickerPlugin"]];' ios/Runner/GeneratedPluginRegistrant.m
-            grep -Fx '  [FlutterSecureStorageDarwinPlugin registerWithRegistrar:[registry registrarForPlugin:@"FlutterSecureStorageDarwinPlugin"]];' ios/Runner/GeneratedPluginRegistrant.m
-            if grep -E 'integration_test|IntegrationTestPlugin' ios/Runner/GeneratedPluginRegistrant.m; then
-              echo "Projected iOS registrant still contains integration_test" >&2
-              exit 1
-            else
-              grep_status=$?
-              test "$grep_status" -eq 1
-            fi
-          )
+          base_tree=$(git rev-parse "$base_sha^{tree}")
+          bash "$GITHUB_WORKSPACE/apps/mobile/tool/build-production-ios.sh" \
+            --mode=unsigned \
+            --artifact-class=size-measurement \
+            --source-sha="$base_sha" \
+            --source-tree="$base_tree" \
+            --mobile-root="$base_dir/apps/mobile" \
+            --repo-root="$base_dir" \
+            --tool-root="$GITHUB_WORKSPACE" \
+            --podfile-lock-sha=486ba24476c7ae0be32927fa9239599749f285d7a5a48129caebe4437ed6cc30 \
+            --require-integration-test=false
           base_app_bytes=$(find "$base_dir/apps/mobile/build/ios/iphoneos/Runner.app" -type f -exec stat -f %z {} + | awk '{sum += $1} END {print sum}')
           echo "full_bytes=$full_bytes" >> "$GITHUB_OUTPUT"
           echo "model_free_bytes=$model_free_bytes" >> "$GITHUB_OUTPUT"
@@ -427,7 +371,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ios-ocr-native-acceptance-${{ env.EXPECTED_HEAD }}
-          path: ${{ runner.temp }}/ios-ocr-acceptance.json
+          path: |
+            ${{ runner.temp }}/ios-ocr-acceptance.json
+            ${{ runner.temp }}/ios-release-provenance.json
           if-no-files-found: error
           retention-days: 30
 

@@ -174,6 +174,8 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(native.on.pull_request.paths.includes('apps/mobile/lib/**'));
   assert.ok(native.on.pull_request.paths.includes('apps/mobile/pubspec.yaml'));
   assert.ok(native.on.pull_request.paths.includes('apps/mobile/pubspec.lock'));
+  assert.ok(native.on.pull_request.paths.includes('apps/mobile/tool/**'));
+  assert.ok(native.on.pull_request.paths.includes('codemagic.yaml'));
   assert.ok(native.on.pull_request.paths.includes('package.json'));
   assert.deepEqual(native.permissions, { contents: 'read' });
   assert.match(nativeTest, /invokeMethod<Uint8List>\('loadModelCatalog'\)/);
@@ -198,23 +200,24 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
     assert.ok(runCommands(job).some((command) => command.includes('git rev-parse HEAD')));
     assert.ok(runCommands(job).some((command) => command.includes('git diff --exit-code -- pubspec.lock')));
     const packageCommands = runCommands(job).find((command) => command.includes('git archive "$EXPECTED_HEAD"'));
-    assert.ok(packageCommands.includes('lock_sha='));
-    assert.ok(packageCommands.includes('pubspec.lock'));
-    assert.ok(packageCommands.includes('test "$('));
-    assert.equal(
-      packageCommands.split('prepare-production-flutter-plugins.mjs').length - 1,
-      3,
-    );
-    assert.equal(
-      packageCommands.split('--require-integration-test=true').length - 1,
-      2,
-    );
-    const baselineCommands = packageCommands.slice(packageCommands.indexOf('base_sha='));
-    assert.ok(baselineCommands.includes('prepare-production-flutter-plugins.mjs'));
-    assert.ok(!baselineCommands.includes('--require-integration-test=true'));
+    if (jobName === 'android-native-acceptance') {
+      assert.ok(packageCommands.includes('lock_sha='));
+      assert.ok(packageCommands.includes('pubspec.lock'));
+      assert.ok(packageCommands.includes('test "$('));
+      assert.equal(packageCommands.split('prepare-production-flutter-plugins.mjs').length - 1, 3);
+      assert.equal(packageCommands.split('--require-integration-test=true').length - 1, 2);
+      const baselineCommands = packageCommands.slice(packageCommands.indexOf('base_sha='));
+      assert.ok(baselineCommands.includes('prepare-production-flutter-plugins.mjs'));
+      assert.ok(!baselineCommands.includes('--require-integration-test=true'));
+    } else {
+      assert.equal(packageCommands.split('build-production-ios.sh').length - 1, 3);
+      assert.equal(packageCommands.split('--artifact-class=size-measurement').length - 1, 2);
+      assert.ok(packageCommands.includes('--provenance-out="$RUNNER_TEMP/ios-release-provenance.json"'));
+      assert.ok(packageCommands.includes('--require-integration-test=false'));
+    }
     const executionCommands = jobName === 'android-native-acceptance'
       ? [read('tools/ocr-models/run-android-native-acceptance.sh')]
-      : [read('tools/ocr-models/run-ios-native-acceptance.sh')];
+      : [read('tools/ocr-models/run-ios-native-acceptance.sh'), read('apps/mobile/tool/build-production-ios.sh')];
     const allCommands = [...runCommands(job), ...executionCommands];
     assert.ok(executionCommands.some((command) =>
       command.includes('bounded-process-capture.mjs') &&
@@ -244,16 +247,16 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
     assert.ok(allCommands.some((command) => command.includes('>"$RUNNER_TEMP/')));
     assert.equal(allCommands.some((command) => command.includes('| tee ')), false);
     assert.ok(boundedCapture.includes('"--machine"'));
-    assert.ok(runCommands(job).some((command) => command.includes('flutter build') && command.includes('--release')));
+    assert.ok(allCommands.some((command) => command.includes('flutter build') && command.includes('--release')));
     if (jobName === 'android-native-acceptance') {
       assert.ok(packageCommands.includes('flutter build apk --release --no-pub'));
     } else {
-      assert.ok(packageCommands.includes('flutter build ios --release --no-codesign --no-pub'));
+      assert.ok(packageCommands.includes('build-production-ios.sh'));
     }
     const upload = stepsFor(job).find((step) =>
       step.uses?.startsWith('actions/upload-artifact@') &&
-      step.with?.path?.endsWith('-ocr-acceptance.json'));
-    assert.equal(upload.with.path.endsWith('-ocr-acceptance.json'), true);
+      step.with?.path?.includes('-ocr-acceptance.json'));
+    assert.match(upload.with.path, /-ocr-acceptance\.json/);
     assert.equal(upload.with['if-no-files-found'], 'error');
     assert.equal(upload.with['retention-days'], 30);
     assert.ok(runCommands(job).at(-1).includes('steps.acceptance.outputs.status'));
@@ -263,6 +266,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   const serializedWithoutExplicitPackageBuildTokens = serialized
     .replaceAll('--release', '--production-package')
     .replaceAll('app-release.apk', 'app-production.apk')
+    .replaceAll('ios-release-provenance.json', 'ios-production-provenance.json')
     .replaceAll('--deployment', '--dependency-locked');
   assert.doesNotMatch(serializedWithoutExplicitPackageBuildTokens, /secrets\.|contents['"]?:['"]?write|deploy|release|receipt.*(?:jpg|jpeg|png)/i);
   const collector = read('tools/ocr-models/native-acceptance-evidence.mjs');
@@ -328,28 +332,16 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.match(iosNetworkDeny, /IN6_IS_ADDR_V4MAPPED/);
   assert.match(iosNetworkDeny, /settleora_is_ipv4_loopback/);
   assert.match(iosNetworkDeny, /SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED/);
-  assert.ok(iosCommands.includes('verify-mobile-package.mjs --platform=ios'));
-  assert.ok(iosCommands.includes('ios-production-symbols.txt'));
-  assert.ok(iosCommands.includes("grep -F 'GeneratedPluginRegistrant'"));
-  assert.ok(iosCommands.includes("grep -F 'FilePickerPlugin'"));
-  assert.ok(iosCommands.includes("grep -F 'FlutterSecureStorageDarwinPlugin'"));
-  assert.equal(
-    (iosCommands.match(/\[FilePickerPlugin registerWithRegistrar:\[registry registrarForPlugin:@"FilePickerPlugin"\]\];/g) ?? []).length,
-    3,
-  );
-  assert.equal(
-    (iosCommands.match(/\[FlutterSecureStorageDarwinPlugin registerWithRegistrar:\[registry registrarForPlugin:@"FlutterSecureStorageDarwinPlugin"\]\];/g) ?? []).length,
-    3,
-  );
-  assert.equal(
-    (iosCommands.match(/Projected iOS registrant still contains integration_test/g) ?? []).length,
-    3,
-  );
-  assert.ok(iosCommands.includes('grep_status=$?'));
-  assert.ok(iosCommands.includes('Production iOS app contains the integration_test plugin'));
+  const iosProductionBuilder = read('apps/mobile/tool/build-production-ios.sh');
+  assert.ok(iosCommands.includes('build-production-ios.sh'));
+  assert.ok(iosProductionBuilder.includes('verify-mobile-package.mjs'));
+  assert.ok(iosProductionBuilder.includes('GeneratedPluginRegistrant'));
+  assert.ok(iosProductionBuilder.includes('FilePickerPlugin'));
+  assert.ok(iosProductionBuilder.includes('FlutterSecureStorageDarwinPlugin'));
+  assert.ok(iosProductionBuilder.includes('integration_test is linked into the production application'));
   assert.ok(iosCommands.includes('test -s Podfile.lock'));
   assert.ok(iosCommands.includes('git diff --exit-code -- Podfile.lock'));
-  assert.ok((iosCommands.match(/pod install --deployment/g) ?? []).length >= 4);
+  assert.ok(iosProductionBuilder.includes('pod install --deployment'));
   assert.match(serialized, /ios-pre-native-Podfile\.lock/);
   assert.doesNotMatch(serialized, /temporary pre-native base lock|ios-base-pod-lock-/i);
   assert.doesNotMatch(serialized, /ios-pod-lock-/);
@@ -369,7 +361,7 @@ test('all repository workflow action references remain full-SHA pinned', () => {
   }
 });
 
-test('Codemagic stays manual-only with signed internal upload semantics intact', () => {
+test('Codemagic stays manual-only and retains the signed release candidate without publishing', () => {
   const codemagic = parse(read('codemagic.yaml'));
   for (const item of Object.values(codemagic.workflows)) {
     assert.equal(item.triggering, undefined);
@@ -380,19 +372,20 @@ test('Codemagic stays manual-only with signed internal upload semantics intact',
   assert.equal(internal.environment.ios_signing.distribution_type, 'app_store');
   assert.equal(internal.environment.ios_signing.bundle_identifier, 'com.tommytang213.settleora');
   assert.equal(internal.environment.flutter, flutterVersion);
-  assert.equal(internal.environment.xcode, 'latest');
-  assert.equal(internal.environment.cocoapods, 'default');
+  assert.equal(internal.environment.xcode, '16.4');
+  assert.equal(internal.environment.cocoapods, '1.17.0');
   assert.equal(internal.environment.vars.FLUTTER_BUILD_NAME, '1.0.0');
   const scripts = internal.scripts.map((step) => step.script).join('\n');
   assert.match(scripts, /testFlightInternalTestingOnly/);
-  assert.match(scripts, /flutter build ipa --release/);
+  assert.match(scripts, /build-production-ios\.sh/);
+  assert.match(scripts, /--mode=signed/);
+  assert.match(scripts, /--source-sha="\$CM_COMMIT"/);
   assert.match(scripts, /--build-number="\$BUILD_NUMBER"/);
   assert.ok(internal.artifacts.includes('$CM_BUILD_DIR/apps/mobile/build/ios/ipa/*.ipa'));
   assert.ok(internal.artifacts.includes('$CM_BUILD_DIR/apps/mobile/build/ios/archive/*.xcarchive'));
-  assert.equal(internal.publishing.app_store_connect.auth, 'integration');
-  assert.equal(internal.publishing.app_store_connect.submit_to_testflight, false);
-  assert.equal(internal.publishing.app_store_connect.submit_to_app_store, false);
-  assert.equal(internal.publishing.app_store_connect.beta_groups, undefined);
+  assert.ok(internal.artifacts.includes('$CM_BUILD_DIR/apps/mobile/build/ios/release-provenance.json'));
+  assert.equal(internal.publishing, undefined);
+  assert.doesNotMatch(JSON.stringify(internal), /submit_to_testflight|submit_to_app_store|beta_groups/);
 });
 
 test('GitHub and Codemagic release gates share one non-visual Flutter contract', () => {
