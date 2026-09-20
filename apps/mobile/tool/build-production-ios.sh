@@ -223,5 +223,5 @@ if [[ "$artifact_class" == release-candidate ]]; then
     --fixture-manifest-sha256="$fixture_manifest_sha"
   printf 'SETTLEORA_IOS_RELEASE_ARTIFACT=%s\n' "$(basename "$artifact_path")"
   printf 'SETTLEORA_IOS_RELEASE_SHA256=%s\n' "$artifact_sha"
-  printf 'SETTLEORA_IOS_RELEASE_PROVENANCE=%s\n' "$provenance_out"
+  printf 'SETTLEORA_IOS_RELEASE_PROVENANCE=%s\n' "$(basename "$provenance_out")"
 fi

@@ -92,6 +92,7 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
     "integration_test is linked into the production application",
     "codesign --verify --deep --strict",
     "write-ios-release-provenance.mjs",
+    '$(basename "$provenance_out")',
   ]) assert.ok(script.includes(required), required);
   assert.match(script, /signed builds must be release candidates/);
   assert.match(script, /release candidate provenance output is required/);
