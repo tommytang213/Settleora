@@ -331,6 +331,8 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(androidCommands.includes("'loadFixture'"));
   assert.ok(androidRunner.includes('test "$system_image_revision" = "9"'));
   assert.ok(androidRunner.includes('test "$emulator_revision" = "37.1.11"'));
+  assert.ok(androidRunner.includes("java -version 2>&1 | sed -n '1p'"));
+  assert.ok(androidRunner.includes('emulator-$emulator_revision-java-$java_version'));
   assert.ok(boundedCapture.includes('integration_test/receipt_ocr_real_provider_test.dart'));
   assert.ok(androidRunner.includes('|| status=$?'));
   assert.match(serialized, /integration.*test/i);
@@ -364,10 +366,14 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.match(iosNetworkDeny, /settleora_sendto/);
   assert.match(iosNetworkDeny, /settleora_sendmsg/);
   assert.match(iosNetworkDeny, /settleora_connectx/);
+  assert.match(iosNetworkDeny, /settleora_getaddrinfo/);
+  assert.match(iosNetworkDeny, /EAI_SYSTEM/);
   assert.match(iosNetworkDeny, /IN6_IS_ADDR_LOOPBACK/);
   assert.match(iosNetworkDeny, /IN6_IS_ADDR_V4MAPPED/);
   assert.match(iosNetworkDeny, /settleora_is_ipv4_loopback/);
   assert.match(iosNetworkDeny, /SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED/);
+  assert.match(nativeTest, /InternetAddress\.lookup\('example\.com'\)/);
+  assert.match(nativeTest, /hostnameResolutionDenied/);
   const iosProductionBuilder = read('apps/mobile/tool/build-production-ios.sh');
   assert.ok(iosCommands.includes('build-production-ios.sh'));
   assert.ok(iosCommands.includes('ios-test-plugin-metadata'));
@@ -383,7 +389,8 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(iosCommands.includes('a5b6068c71fe9b0a77743d5c639b5538dd2be10db7ddd4ecd9317fee03541903'));
   assert.ok(iosCommands.includes('git diff --exit-code -- Podfile.lock'));
   assert.ok(iosProductionBuilder.includes('pod install --deployment'));
-  assert.ok(iosProductionBuilder.includes('rm -rf -- ios/Pods ios/.symlinks'));
+  assert.ok(iosProductionBuilder.includes('flutter clean'));
+  assert.ok(iosProductionBuilder.includes('rm -rf -- build ios/Pods ios/.symlinks'));
   assert.match(iosCommands, /verify-ios-test-podfile-lock\.mjs" \\\n\s+< "\$test_metadata_dir\/production-Podfile\.lock"/);
   assert.match(serialized, /ios-pre-native-Podfile\.lock/);
   assert.doesNotMatch(serialized, /temporary pre-native base lock|ios-base-pod-lock-/i);

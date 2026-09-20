@@ -41,6 +41,7 @@ void main() {
       }
       failure.set('network_probe');
       Socket? socket;
+      var numericAddressDenied = false;
       try {
         socket = await Socket.connect(
           InternetAddress('1.1.1.1'),
@@ -48,6 +49,7 @@ void main() {
           timeout: const Duration(seconds: 3),
         );
       } on SocketException catch (error) {
+        numericAddressDenied = true;
         if (Platform.isIOS) {
           failure.set('network_denial_contract');
           expect(
@@ -64,8 +66,16 @@ void main() {
         );
       }
       await socket?.close();
+      failure.set('hostname_resolution_probe');
+      var hostnameResolutionDenied = false;
+      try {
+        await InternetAddress.lookup('example.com');
+      } on SocketException {
+        hostnameResolutionDenied = true;
+      }
       failure.set('network_isolation');
-      networkIsolated = socket == null;
+      networkIsolated =
+          socket == null && numericAddressDenied && hostnameResolutionDenied;
       expect(
         networkIsolated,
         isTrue,

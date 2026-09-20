@@ -147,6 +147,10 @@ if [[ "$artifact_class" == release-candidate ]]; then
 fi
 
 cd "$mobile_root"
+# Git cleanliness deliberately ignores generated Flutter state. Clear it with
+# the pinned Flutter tool before dependency resolution so neither incremental
+# intermediates nor stale IPA/archive outputs can influence this build.
+flutter clean
 flutter pub get
 [[ "$(sha256_file pubspec.lock)" == "$pubspec_lock_sha" ]] || fail "pubspec.lock drifted during dependency resolution"
 
@@ -159,7 +163,7 @@ node "$tool_root/tools/ocr-models/prepare-production-flutter-plugins.mjs" \
 # Pods and plugin symlinks are ignored generated state, so Git cleanliness does
 # not prove their identity. Recreate the sandbox from the pinned Podfile.lock on
 # every canonical build rather than allowing a prior build to supply pod bytes.
-rm -rf -- ios/Pods ios/.symlinks
+rm -rf -- build ios/Pods ios/.symlinks
 (
   cd ios
   pod install --deployment
@@ -268,6 +272,9 @@ grep -Fq 'FilePickerPlugin' "$symbols_file" || fail "FilePickerPlugin is absent 
 grep -Fq 'FlutterSecureStorageDarwinPlugin' "$symbols_file" || fail "Flutter secure storage is absent from production binaries"
 if grep -Eiq 'IntegrationTestPlugin|dev\.flutter\.plugins\.integration_test' "$symbols_file"; then
   fail "integration_test is linked into the production application"
+fi
+if grep -Fq -e 'com.settleora.mobile/receipt_ocr_acceptance' -e 'loadModelCatalog' -e 'loadFixture' "$symbols_file"; then
+  fail "native OCR acceptance handlers are linked into the production application"
 fi
 
 if [[ "$artifact_class" == release-candidate ]]; then

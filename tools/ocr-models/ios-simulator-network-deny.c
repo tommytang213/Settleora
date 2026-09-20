@@ -1,5 +1,6 @@
 #include <arpa/inet.h>
 #include <errno.h>
+#include <netdb.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdlib.h>
@@ -39,6 +40,31 @@ static bool settleora_is_external(const struct sockaddr *address) {
 static int settleora_deny(void) {
   errno = ENETUNREACH;
   return -1;
+}
+
+static bool settleora_is_external_hostname(const char *hostname) {
+  if (hostname == NULL || strcmp(hostname, "localhost") == 0) return false;
+  struct in_addr ipv4;
+  if (inet_pton(AF_INET, hostname, &ipv4) == 1) {
+    return !settleora_is_ipv4_loopback(&ipv4);
+  }
+  struct in6_addr ipv6;
+  if (inet_pton(AF_INET6, hostname, &ipv6) == 1) {
+    return !IN6_IS_ADDR_LOOPBACK(&ipv6);
+  }
+  return true;
+}
+
+static int settleora_getaddrinfo(
+    const char *hostname,
+    const char *service,
+    const struct addrinfo *hints,
+    struct addrinfo **result) {
+  if (settleora_is_external_hostname(hostname)) {
+    errno = ENETUNREACH;
+    return EAI_SYSTEM;
+  }
+  return getaddrinfo(hostname, service, hints, result);
 }
 
 static int settleora_connect(
@@ -114,3 +140,4 @@ SETTLEORA_INTERPOSE(settleora_connect, connect);
 SETTLEORA_INTERPOSE(settleora_sendto, sendto);
 SETTLEORA_INTERPOSE(settleora_sendmsg, sendmsg);
 SETTLEORA_INTERPOSE(settleora_connectx, connectx);
+SETTLEORA_INTERPOSE(settleora_getaddrinfo, getaddrinfo);

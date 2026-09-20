@@ -16,7 +16,6 @@ final class RetryableValueLoader<Value> {
 
 final class SettleoraReceiptOcrPlugin: NSObject, FlutterPlugin {
   private static let ocrChannelName = "com.settleora.mobile/receipt_ocr"
-  private static let acceptanceChannelName = "com.settleora.mobile/receipt_ocr_acceptance"
 
   private let engineLoader = RetryableValueLoader<SettleoraPaddleOcrEngine>()
   private var isBusy = false
@@ -27,6 +26,7 @@ final class SettleoraReceiptOcrPlugin: NSObject, FlutterPlugin {
     registrar.addMethodCallDelegate(instance, channel: channel)
 
     #if DEBUG
+    let acceptanceChannelName = "com.settleora.mobile/receipt_ocr_acceptance"
     let acceptance = FlutterMethodChannel(
       name: acceptanceChannelName,
       binaryMessenger: registrar.messenger()

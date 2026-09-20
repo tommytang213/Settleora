@@ -39,7 +39,7 @@
     },
     "nativeSemantics": {
       "files": [
-        { "path": "apps/mobile/integration_test/receipt_ocr_real_provider_test.dart", "sha256": "4dd63823d7f34497e9ed0edc1ee96ea3cffc26c481297a6e02b403e73b0b7b1c" },
+        { "path": "apps/mobile/integration_test/receipt_ocr_real_provider_test.dart", "sha256": "55760addf2dd4eae898d332ad276fcddaafcc0917bfb925d1d8d8e3af8dd45a8" },
         { "path": "apps/mobile/lib/app/app_bootstrap.dart", "sha256": "bfc2ea06825d3b7162f6f08b68b0413e62320523b3c087a6abc27aecc8b1d875" },
         { "path": "apps/mobile/lib/app/server_mode_shell.dart", "sha256": "7bc1b89910d260c5652810265b8a9985896fe62e852f65aa24d44d5fa2d8459e" },
         { "path": "apps/mobile/lib/bills/bill_list_screen.dart", "sha256": "ac9cac9dd7db56e3a167e38cd17e7c7547e4c0aa4019298b3b95175b284feead" },
@@ -118,7 +118,7 @@
         { "path": "apps/mobile/ios/Runner/PaddleOCR/ThirdParty/Clipper1/clipper.cpp", "sha256": "711f4374ca6e80ca50d786fd53fba20db394a1bae2a8d0d71b38cff535698ec8" },
         { "path": "apps/mobile/ios/Runner/PaddleOCR/ThirdParty/Clipper1/clipper.hpp", "sha256": "e37c594a918940da4e5d0436c5ab91bd0f6148e6c16a5e9d362514ca8f3923e7" },
         { "path": "apps/mobile/ios/Runner/Runner-Bridging-Header.h", "sha256": "ba43def7f8ea1e275d951793d16d08bea9f7db12e89515eaee072bb72920350c" },
-        { "path": "apps/mobile/ios/Runner/SettleoraReceiptOcrPlugin.swift", "sha256": "7b0da121311fe98fc3617d49c1dfae08c2aa5eb66982fe40f2e56f227996f4fd" }
+        { "path": "apps/mobile/ios/Runner/SettleoraReceiptOcrPlugin.swift", "sha256": "c8b305f7d6a0b8cbc6e5edeba1b581e464ebded6bf336905bf4b11bde29a8f92" }
       ]
     },
     "parser": {

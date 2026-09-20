@@ -135,11 +135,16 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
     "prepare-production-flutter-plugins.mjs",
     "--package-config=.dart_tool/package_config.json",
     "--package-graph=.dart_tool/package_graph.json",
-    "rm -rf -- ios/Pods ios/.symlinks",
+    "flutter clean",
+    "rm -rf -- build ios/Pods ios/.symlinks",
     "verify-mobile-package.mjs",
     "FilePicker registrant call is missing or duplicated",
     "Flutter secure storage registrant call is missing or duplicated",
     "integration_test is linked into the production application",
+    "native OCR acceptance handlers are linked into the production application",
+    "com.settleora.mobile/receipt_ocr_acceptance",
+    "loadModelCatalog",
+    "loadFixture",
     "codesign --verify --deep --strict",
     "packaged build name differs from the requested signed build",
     "packaged build number differs from the requested signed build",
@@ -163,6 +168,10 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
 });
 
 test("iOS acceptance channel is compiled only into the Debug Runner", () => {
+  const plugin = readFileSync(
+    path.join(repoRoot, "apps/mobile/ios/Runner/SettleoraReceiptOcrPlugin.swift"),
+    "utf8",
+  );
   const project = readFileSync(
     path.join(repoRoot, "apps/mobile/ios/Runner.xcodeproj/project.pbxproj"),
     "utf8",
@@ -179,6 +188,14 @@ test("iOS acceptance channel is compiled only into the Debug Runner", () => {
   assert.match(runnerDebug ?? "", /SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;/);
   assert.doesNotMatch(runnerRelease ?? "", /SWIFT_ACTIVE_COMPILATION_CONDITIONS/);
   assert.doesNotMatch(runnerProfile ?? "", /SWIFT_ACTIVE_COMPILATION_CONDITIONS/);
+  assert.match(
+    plugin,
+    /#if DEBUG\n    let acceptanceChannelName = "com\.settleora\.mobile\/receipt_ocr_acceptance"/,
+  );
+  assert.doesNotMatch(
+    plugin,
+    /private static let acceptanceChannelName = "com\.settleora\.mobile\/receipt_ocr_acceptance"/,
+  );
 });
 
 test("historical size measurement does not require release-candidate OCR identities", () => {
