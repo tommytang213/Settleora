@@ -196,6 +196,10 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
     assert.equal(checkout.with['fetch-depth'], 0);
     assert.ok(runCommands(job).some((command) => command.includes('git rev-parse HEAD')));
     assert.ok(runCommands(job).some((command) => command.includes('git diff --exit-code -- pubspec.lock')));
+    const packageCommands = runCommands(job).find((command) => command.includes('git archive "$EXPECTED_HEAD"'));
+    assert.ok(packageCommands.includes('lock_sha='));
+    assert.ok(packageCommands.includes('pubspec.lock'));
+    assert.ok(packageCommands.includes('test "$('));
     const executionCommands = jobName === 'android-native-acceptance'
       ? [read('tools/ocr-models/run-android-native-acceptance.sh')]
       : [read('tools/ocr-models/run-ios-native-acceptance.sh')];
@@ -228,6 +232,11 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
     assert.equal(allCommands.some((command) => command.includes('| tee ')), false);
     assert.ok(boundedCapture.includes('"--machine"'));
     assert.ok(runCommands(job).some((command) => command.includes('flutter build') && command.includes('--release')));
+    if (jobName === 'android-native-acceptance') {
+      assert.ok(packageCommands.includes('flutter build apk --release --no-pub'));
+    } else {
+      assert.ok(packageCommands.includes('flutter build ios --release --no-codesign --no-pub'));
+    }
     const upload = stepsFor(job).find((step) =>
       step.uses?.startsWith('actions/upload-artifact@') &&
       step.with?.path?.endsWith('-ocr-acceptance.json'));
@@ -277,6 +286,8 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(androidCommands.includes('verify-mobile-package.mjs --platform=android'));
   assert.ok(androidCommands.includes('--json=true'));
   assert.ok(androidCommands.includes('android-dex-packages.txt'));
+  assert.ok(androidCommands.includes('grep_status=$?'));
+  assert.ok(androidCommands.includes('Production APK contains the integration_test plugin'));
   assert.ok(androidRunner.includes('test "$system_image_revision" = "9"'));
   assert.ok(androidRunner.includes('test "$emulator_revision" = "37.1.11"'));
   assert.ok(boundedCapture.includes('integration_test/receipt_ocr_real_provider_test.dart'));
@@ -303,6 +314,8 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.match(iosNetworkDeny, /SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED/);
   assert.ok(iosCommands.includes('verify-mobile-package.mjs --platform=ios'));
   assert.ok(iosCommands.includes('ios-production-symbols.txt'));
+  assert.ok(iosCommands.includes('grep_status=$?'));
+  assert.ok(iosCommands.includes('Production iOS app contains the integration_test plugin'));
   assert.ok(iosCommands.includes('test -s Podfile.lock'));
   assert.ok(iosCommands.includes('git diff --exit-code -- Podfile.lock'));
   assert.ok((iosCommands.match(/pod install --deployment/g) ?? []).length >= 4);

@@ -102,8 +102,10 @@ jobs:
           git archive "$EXPECTED_HEAD" | tar -x -C "$candidate_dir"
           (
             cd "$candidate_dir/apps/mobile"
+            lock_sha=$(sha256sum pubspec.lock | awk '{print $1}')
             flutter pub get
-            flutter build apk --release
+            test "$(sha256sum pubspec.lock | awk '{print $1}')" = "$lock_sha"
+            flutter build apk --release --no-pub
           )
           full_apk="$candidate_dir/apps/mobile/build/app/outputs/flutter-apk/app-release.apk"
           full_bytes=$(stat -c %s "$full_apk")
@@ -113,13 +115,21 @@ jobs:
           apkanalyzer="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
           test -x "$apkanalyzer"
           "$apkanalyzer" dex packages "$full_apk" >"$RUNNER_TEMP/android-dex-packages.txt"
-          ! grep -F 'dev.flutter.plugins.integration_test' "$RUNNER_TEMP/android-dex-packages.txt"
+          if grep -F 'dev.flutter.plugins.integration_test' "$RUNNER_TEMP/android-dex-packages.txt"; then
+            echo "Production APK contains the integration_test plugin" >&2
+            exit 1
+          else
+            grep_status=$?
+            test "$grep_status" -eq 1
+          fi
           find "$candidate_dir/apps/mobile/assets/receipt_ocr_models" -mindepth 2 -type f -exec truncate -s 0 {} +
           (
             cd "$candidate_dir/apps/mobile"
             flutter clean
+            lock_sha=$(sha256sum pubspec.lock | awk '{print $1}')
             flutter pub get
-            flutter build apk --release
+            test "$(sha256sum pubspec.lock | awk '{print $1}')" = "$lock_sha"
+            flutter build apk --release --no-pub
           )
           model_free_bytes=$(stat -c %s "$full_apk")
           base_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
@@ -129,8 +139,10 @@ jobs:
           git archive "$base_sha" | tar -x -C "$base_dir"
           (
             cd "$base_dir/apps/mobile"
+            lock_sha=$(sha256sum pubspec.lock | awk '{print $1}')
             flutter pub get
-            flutter build apk --release
+            test "$(sha256sum pubspec.lock | awk '{print $1}')" = "$lock_sha"
+            flutter build apk --release --no-pub
           )
           base_app_bytes=$(stat -c %s "$base_dir/apps/mobile/build/app/outputs/flutter-apk/app-release.apk")
           echo "full_bytes=$full_bytes" >> "$GITHUB_OUTPUT"
@@ -267,12 +279,14 @@ jobs:
           git archive "$EXPECTED_HEAD" | tar -x -C "$candidate_dir"
           (
             cd "$candidate_dir/apps/mobile"
+            lock_sha=$(shasum -a 256 pubspec.lock | awk '{print $1}')
             flutter pub get
+            test "$(shasum -a 256 pubspec.lock | awk '{print $1}')" = "$lock_sha"
             cd ios
             pod install --deployment
             test "$(shasum -a 256 Podfile.lock | awk '{print $1}')" = "08afc1413159dcd818b669869736fc56e38a99618a1f951e605b1eea02dc5189"
             cd ..
-            flutter build ios --release --no-codesign
+            flutter build ios --release --no-codesign --no-pub
           )
           full_app="$candidate_dir/apps/mobile/build/ios/iphoneos/Runner.app"
           full_bytes=$(find "$full_app" -type f -exec stat -f %z {} + | awk '{sum += $1} END {print sum}')
@@ -289,17 +303,25 @@ jobs:
             fi
           done < <(find "$full_app" -type f -perm -111 -print)
           test "$binary_count" -gt 0
-          ! grep -Ei 'IntegrationTestPlugin|dev\.flutter\.plugins\.integration_test' "$RUNNER_TEMP/ios-production-symbols.txt"
+          if grep -Ei 'IntegrationTestPlugin|dev\.flutter\.plugins\.integration_test' "$RUNNER_TEMP/ios-production-symbols.txt"; then
+            echo "Production iOS app contains the integration_test plugin" >&2
+            exit 1
+          else
+            grep_status=$?
+            test "$grep_status" -eq 1
+          fi
           find "$candidate_dir/apps/mobile/assets/receipt_ocr_models" -mindepth 2 -type f -exec truncate -s 0 {} +
           (
             cd "$candidate_dir/apps/mobile"
             flutter clean
+            lock_sha=$(shasum -a 256 pubspec.lock | awk '{print $1}')
             flutter pub get
+            test "$(shasum -a 256 pubspec.lock | awk '{print $1}')" = "$lock_sha"
             cd ios
             pod install --deployment
             test "$(shasum -a 256 Podfile.lock | awk '{print $1}')" = "08afc1413159dcd818b669869736fc56e38a99618a1f951e605b1eea02dc5189"
             cd ..
-            flutter build ios --release --no-codesign
+            flutter build ios --release --no-codesign --no-pub
           )
           model_free_bytes=$(find "$full_app" -type f -exec stat -f %z {} + | awk '{sum += $1} END {print sum}')
           base_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
@@ -310,12 +332,14 @@ jobs:
           cp tools/ocr-models/baselines/ios-pre-native-Podfile.lock "$base_dir/apps/mobile/ios/Podfile.lock"
           (
             cd "$base_dir/apps/mobile"
+            lock_sha=$(shasum -a 256 pubspec.lock | awk '{print $1}')
             flutter pub get
+            test "$(shasum -a 256 pubspec.lock | awk '{print $1}')" = "$lock_sha"
             cd ios
             pod install --deployment
             test "$(shasum -a 256 Podfile.lock | awk '{print $1}')" = "486ba24476c7ae0be32927fa9239599749f285d7a5a48129caebe4437ed6cc30"
             cd ..
-            flutter build ios --release --no-codesign
+            flutter build ios --release --no-codesign --no-pub
           )
           base_app_bytes=$(find "$base_dir/apps/mobile/build/ios/iphoneos/Runner.app" -type f -exec stat -f %z {} + | awk '{sum += $1} END {print sum}')
           echo "full_bytes=$full_bytes" >> "$GITHUB_OUTPUT"
