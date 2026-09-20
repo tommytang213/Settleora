@@ -14,7 +14,9 @@ const maximumExpandedBytes = 8 * 1024 * 1024 * 1024;
 const maximumEntryBytes = 2 * 1024 * 1024 * 1024;
 const supportedCompressionMethods = new Set([0, 8]);
 const allowedRoots = new Set(["Payload", "SwiftSupport"]);
-const forbiddenExtraFieldIds = new Set([0x0001, 0x7075]);
+// These fields carry timestamps or numeric UID/GID metadata only. Do not add
+// a field that can override a filename, file type, link target, or data size.
+const allowedMetadataExtraFieldIds = new Set([0x000a, 0x5455, 0x5855, 0x7855, 0x7875]);
 
 function fail(message) {
   throw new Error(`Unsafe IPA archive: ${message}`);
@@ -48,7 +50,28 @@ function validateExtraFields(bytes) {
     const length = bytes.readUInt16LE(cursor + 2);
     cursor += 4;
     if (cursor + length > bytes.length) fail("entry extra field length is malformed");
-    if (forbiddenExtraFieldIds.has(identifier)) fail("ZIP64 or path-overriding extra field is forbidden");
+    const data = bytes.subarray(cursor, cursor + length);
+    if (!allowedMetadataExtraFieldIds.has(identifier)) fail("non-metadata archive extra field is forbidden");
+    if (identifier === 0x5455 && (
+      ![5, 9, 13].includes(length) ||
+      (data[0] & ~0x07) !== 0
+    )) fail("extended timestamp extra field is malformed");
+    if (identifier === 0x5855 && ![8, 12].includes(length)) fail("legacy Unix metadata extra field is malformed");
+    if (identifier === 0x7855 && length !== 4) fail("Unix UID/GID metadata extra field is malformed");
+    if (identifier === 0x7875) {
+      const uidLength = data[1];
+      const gidLengthOffset = 2 + uidLength;
+      const gidLength = data[gidLengthOffset];
+      if (data[0] !== 1 || uidLength < 1 || uidLength > 8 || gidLength < 1 || gidLength > 8 || gidLengthOffset + 1 + gidLength !== length) {
+        fail("new Unix UID/GID metadata extra field is malformed");
+      }
+    }
+    if (identifier === 0x000a && (
+      length !== 32 ||
+      data.readUInt32LE(0) !== 0 ||
+      data.readUInt16LE(4) !== 1 ||
+      data.readUInt16LE(6) !== 24
+    )) fail("NTFS timestamp metadata extra field is malformed");
     cursor += length;
   }
 }

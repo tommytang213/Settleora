@@ -169,11 +169,12 @@ test("signed provenance rejects Codemagic signing-tool drift", () => {
 test("IPA namespace verifier rejects ambiguous and escaping ZIP entries before extraction", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-ipa-namespace-"));
   const archive = path.join(root, "Runner.ipa");
+  const harmlessTimestamp = Buffer.from([0x55, 0x54, 0x05, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00]);
   try {
     writeFileSync(archive, makeStoredZip([
       { name: "Payload/" },
       { name: "Payload/Runner.app/" },
-      { name: "Payload/Runner.app/Info.plist", data: "plist", dataDescriptor: true },
+      { name: "Payload/Runner.app/Info.plist", data: "plist", dataDescriptor: true, centralExtra: harmlessTimestamp, localExtra: harmlessTimestamp },
       { name: "SwiftSupport/" },
       { name: "SwiftSupport/iphoneos/" },
       { name: "SwiftSupport/iphoneos/libswiftCore.dylib", data: "dylib" },
@@ -192,6 +193,8 @@ test("IPA namespace verifier rejects ambiguous and escaping ZIP entries before e
       [{ name: "Payload/Runner.app/file", data: "data", localCompressedSize: 3 }],
       [{ name: "Payload/Runner.app/file", data: "data", dataDescriptor: true, descriptorCompressedSize: 3 }],
       [{ name: "Payload/Runner.app/file", centralExtra: Buffer.from([0x75, 0x70, 0x01, 0x00, 0x01]) }],
+      [{ name: "Payload/Runner.app/file", centralExtra: Buffer.from([0x6e, 0x75, 0x00, 0x00]) }],
+      [{ name: "Payload/Runner.app/file", centralExtra: Buffer.from([0x4d, 0x33, 0x00, 0x00]) }],
     ]) {
       writeFileSync(archive, makeStoredZip(entries));
       assert.throws(() => verifyIpaArchive(archive), /Unsafe IPA archive/);
