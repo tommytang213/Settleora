@@ -517,17 +517,21 @@ test("rejects all non-allowlisted application output and unresolved environment 
 });
 
 test("retains only bounded failure-stage diagnostics and never accepts them as complete", () => {
-  const diagnostic = {
+  const diagnosticFor = (stage) => ({
     schemaVersion: 1,
     platform: "android",
-    stage: "corpus_provider",
+    stage,
     fixtureId: "fixture_001",
-  };
-  withLog(protocolLog(`SETTLEORA_OCR_DIAGNOSTIC=${JSON.stringify(diagnostic)}`), (logPath) => {
-    const evidence = buildEvidence(evidenceArgs(logPath), repoRoot);
-    assert.deepEqual(evidence.diagnostics, [diagnostic]);
-    assert.equal(isCompleteEvidence(evidence), false);
   });
+  for (const stage of ["corpus_provider", "hostname_resolution_probe"]) {
+    const diagnostic = diagnosticFor(stage);
+    withLog(protocolLog(`SETTLEORA_OCR_DIAGNOSTIC=${JSON.stringify(diagnostic)}`), (logPath) => {
+      const evidence = buildEvidence(evidenceArgs(logPath), repoRoot);
+      assert.deepEqual(evidence.diagnostics, [diagnostic]);
+      assert.equal(isCompleteEvidence(evidence), false);
+    });
+  }
+  const diagnostic = diagnosticFor("corpus_provider");
   withLog(
     protocolLog(
       `SETTLEORA_OCR_DIAGNOSTIC=${JSON.stringify({ ...diagnostic, stage: "private provider detail" })}`,
