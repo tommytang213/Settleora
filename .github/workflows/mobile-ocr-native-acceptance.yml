@@ -255,11 +255,32 @@ jobs:
         run: |
           flutter pub get
           git diff --exit-code -- pubspec.lock
+          # Prove the canonical production CocoaPods graph before restoring the
+          # pinned integration_test metadata needed only by the simulator run.
+          test_metadata_dir="$RUNNER_TEMP/ios-test-plugin-metadata"
+          mkdir -p "$test_metadata_dir"
+          cp .flutter-plugins-dependencies "$test_metadata_dir/flutter-plugins-dependencies.json"
+          cp .dart_tool/package_config.json "$test_metadata_dir/package_config.json"
+          cp .dart_tool/package_graph.json "$test_metadata_dir/package_graph.json"
+          node "$GITHUB_WORKSPACE/tools/ocr-models/prepare-production-flutter-plugins.mjs" \
+            --file=.flutter-plugins-dependencies \
+            --package-config=.dart_tool/package_config.json \
+            --package-graph=.dart_tool/package_graph.json \
+            --require-integration-test=true
           cd ios
           pod install --deployment
           test -s Podfile.lock
           test "$(shasum -a 256 Podfile.lock | awk '{print $1}')" = "a5b6068c71fe9b0a77743d5c639b5538dd2be10db7ddd4ecd9317fee03541903"
           git diff --exit-code -- Podfile.lock
+          cd ..
+          # This metadata is derived from pubspec.lock and Flutter 3.44.8; it is
+          # never consumed by the canonical production-package wrapper.
+          cp "$test_metadata_dir/flutter-plugins-dependencies.json" .flutter-plugins-dependencies
+          cp "$test_metadata_dir/package_config.json" .dart_tool/package_config.json
+          cp "$test_metadata_dir/package_graph.json" .dart_tool/package_graph.json
+          cmp -s .flutter-plugins-dependencies "$test_metadata_dir/flutter-plugins-dependencies.json"
+          cmp -s .dart_tool/package_config.json "$test_metadata_dir/package_config.json"
+          cmp -s .dart_tool/package_graph.json "$test_metadata_dir/package_graph.json"
 
       - name: Boot trusted iOS simulator
         id: simulator

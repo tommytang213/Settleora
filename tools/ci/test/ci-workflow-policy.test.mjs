@@ -336,6 +336,10 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.match(iosNetworkDeny, /SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED/);
   const iosProductionBuilder = read('apps/mobile/tool/build-production-ios.sh');
   assert.ok(iosCommands.includes('build-production-ios.sh'));
+  assert.ok(iosCommands.includes('ios-test-plugin-metadata'));
+  assert.ok(iosCommands.includes('prepare-production-flutter-plugins.mjs'));
+  assert.ok(iosCommands.includes('--require-integration-test=true'));
+  assert.ok(iosCommands.includes('cmp -s .dart_tool/package_graph.json'));
   assert.ok(iosProductionBuilder.includes('verify-mobile-package.mjs'));
   assert.ok(iosProductionBuilder.includes('GeneratedPluginRegistrant'));
   assert.ok(iosProductionBuilder.includes('FilePickerPlugin'));
