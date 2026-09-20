@@ -42,7 +42,7 @@ function decodeName(bytes) {
   }
 }
 
-function validateExtraFields(bytes) {
+function validateExtraFields(bytes, location) {
   let cursor = 0;
   while (cursor < bytes.length) {
     if (cursor + 4 > bytes.length) fail("entry extra fields are malformed");
@@ -52,12 +52,17 @@ function validateExtraFields(bytes) {
     if (cursor + length > bytes.length) fail("entry extra field length is malformed");
     const data = bytes.subarray(cursor, cursor + length);
     if (!allowedMetadataExtraFieldIds.has(identifier)) fail("non-metadata archive extra field is forbidden");
-    if (identifier === 0x5455 && (
-      ![5, 9, 13].includes(length) ||
-      (data[0] & ~0x07) !== 0
-    )) fail("extended timestamp extra field is malformed");
-    if (identifier === 0x5855 && ![8, 12].includes(length)) fail("legacy Unix metadata extra field is malformed");
-    if (identifier === 0x7855 && length !== 4) fail("Unix UID/GID metadata extra field is malformed");
+    if (identifier === 0x5455) {
+      const flags = data[0];
+      const localLength = 1 + 4 * [1, 2, 4].filter((bit) => (flags & bit) !== 0).length;
+      const expectedLength = location === "central" ? ((flags & 1) !== 0 ? 5 : 1) : localLength;
+      if ((flags & ~0x07) !== 0 || length !== expectedLength) fail("extended timestamp extra field is malformed");
+    }
+    if (identifier === 0x5855) {
+      const validLength = location === "central" ? length === 8 : [8, 12].includes(length);
+      if (!validLength) fail("legacy Unix metadata extra field is malformed");
+    }
+    if (identifier === 0x7855 && length !== (location === "central" ? 0 : 4)) fail("Unix UID/GID metadata extra field is malformed");
     if (identifier === 0x7875) {
       const uidLength = data[1];
       const gidLengthOffset = 2 + uidLength;
@@ -66,7 +71,7 @@ function validateExtraFields(bytes) {
         fail("new Unix UID/GID metadata extra field is malformed");
       }
     }
-    if (identifier === 0x000a && (
+    if (identifier === 0x000a && (location !== "local" ||
       length !== 32 ||
       data.readUInt32LE(0) !== 0 ||
       data.readUInt16LE(4) !== 1 ||
@@ -168,7 +173,7 @@ export function verifyIpaArchive(archivePath) {
 
       const nameBytes = central.subarray(cursor + 46, cursor + 46 + nameLength);
       if ((flags & 0x0800) === 0 && nameBytes.some((byte) => byte >= 0x80)) fail("non-ASCII entry name is missing its UTF-8 flag");
-      validateExtraFields(central.subarray(cursor + 46 + nameLength, cursor + 46 + nameLength + extraLength));
+      validateExtraFields(central.subarray(cursor + 46 + nameLength, cursor + 46 + nameLength + extraLength), "central");
       const name = decodeName(nameBytes);
       const unixMode = madeBySystem === 3 || madeBySystem === 19 ? externalAttributes >>> 16 : 0;
       const unixType = unixMode & 0xf000;
@@ -204,7 +209,7 @@ export function verifyIpaArchive(archivePath) {
         (localUncompressedSize !== 0 && localUncompressedSize !== uncompressedSize)
       )) fail("local data-descriptor placeholders disagree with the central directory");
       const localExtra = readExact(fd, localExtraLength, localOffset + 30 + localNameLength);
-      validateExtraFields(localExtra);
+      validateExtraFields(localExtra, "local");
       const dataStart = localOffset + 30 + localNameLength + localExtraLength;
       let entryEndOffset = dataStart + compressedSize;
       if (usesDataDescriptor) {

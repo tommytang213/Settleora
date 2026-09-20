@@ -170,11 +170,19 @@ test("IPA namespace verifier rejects ambiguous and escaping ZIP entries before e
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-ipa-namespace-"));
   const archive = path.join(root, "Runner.ipa");
   const harmlessTimestamp = Buffer.from([0x55, 0x54, 0x05, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00]);
+  const unix2CentralMarker = Buffer.from([0x55, 0x78, 0x00, 0x00]);
+  const unix2LocalMetadata = Buffer.from([0x55, 0x78, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00]);
   try {
     writeFileSync(archive, makeStoredZip([
       { name: "Payload/" },
       { name: "Payload/Runner.app/" },
-      { name: "Payload/Runner.app/Info.plist", data: "plist", dataDescriptor: true, centralExtra: harmlessTimestamp, localExtra: harmlessTimestamp },
+      {
+        name: "Payload/Runner.app/Info.plist",
+        data: "plist",
+        dataDescriptor: true,
+        centralExtra: Buffer.concat([harmlessTimestamp, unix2CentralMarker]),
+        localExtra: Buffer.concat([harmlessTimestamp, unix2LocalMetadata]),
+      },
       { name: "SwiftSupport/" },
       { name: "SwiftSupport/iphoneos/" },
       { name: "SwiftSupport/iphoneos/libswiftCore.dylib", data: "dylib" },
