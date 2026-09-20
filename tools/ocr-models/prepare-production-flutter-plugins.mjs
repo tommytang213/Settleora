@@ -1,8 +1,25 @@
-import { lstatSync, readFileSync, writeFileSync } from "node:fs";
+import { lstatSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const allowedDevPlugins = new Set(["integration_test"]);
+const generatedRegistrants = [
+  "android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java",
+  "ios/Runner/GeneratedPluginRegistrant.h",
+  "ios/Runner/GeneratedPluginRegistrant.m",
+];
+
+function removeGeneratedRegistrants(projectRoot) {
+  for (const relativePath of generatedRegistrants) {
+    const registrantPath = path.join(projectRoot, ...relativePath.split("/"));
+    const stat = lstatSync(registrantPath, { throwIfNoEntry: false });
+    if (stat == null) continue;
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 1024 * 1024) {
+      throw new Error(`Generated Flutter plugin registrant is unsafe: ${relativePath}`);
+    }
+    unlinkSync(registrantPath);
+  }
+}
 
 export function prepareProductionFlutterPlugins(filePath, { requireIntegrationTest = false } = {}) {
   const stat = lstatSync(filePath);
@@ -59,6 +76,9 @@ export function prepareProductionFlutterPlugins(filePath, { requireIntegrationTe
       dependencies: node.dependencies.filter((dependency) => !removed.has(dependency)),
     }));
   writeFileSync(filePath, `${JSON.stringify(metadata, null, 2)}\n`, { mode: stat.mode & 0o777 });
+  if (removed.size > 0) {
+    removeGeneratedRegistrants(path.dirname(path.resolve(filePath)));
+  }
   return [...removed].sort();
 }
 

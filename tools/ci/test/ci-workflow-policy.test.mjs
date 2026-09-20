@@ -206,8 +206,11 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
     );
     assert.equal(
       packageCommands.split('--require-integration-test=true').length - 1,
-      3,
+      2,
     );
+    const baselineCommands = packageCommands.slice(packageCommands.indexOf('base_sha='));
+    assert.ok(baselineCommands.includes('prepare-production-flutter-plugins.mjs'));
+    assert.ok(!baselineCommands.includes('--require-integration-test=true'));
     const executionCommands = jobName === 'android-native-acceptance'
       ? [read('tools/ocr-models/run-android-native-acceptance.sh')]
       : [read('tools/ocr-models/run-ios-native-acceptance.sh')];

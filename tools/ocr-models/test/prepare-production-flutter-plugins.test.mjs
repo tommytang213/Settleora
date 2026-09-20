@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -33,6 +33,16 @@ const metadata = () => ({
 
 test("removes only the reviewed dev plugin from every production platform", () => {
   withMetadata(metadata(), (file) => {
+    const root = path.dirname(file);
+    const androidRegistrant = path.join(
+      root,
+      "android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java",
+    );
+    const iosRegistrant = path.join(root, "ios/Runner/GeneratedPluginRegistrant.m");
+    mkdirSync(path.dirname(androidRegistrant), { recursive: true });
+    mkdirSync(path.dirname(iosRegistrant), { recursive: true });
+    writeFileSync(androidRegistrant, "generated Android integration_test registrant");
+    writeFileSync(iosRegistrant, "generated iOS integration_test registrant");
     assert.deepEqual(
       prepareProductionFlutterPlugins(file, { requireIntegrationTest: true }),
       ["integration_test"],
@@ -41,6 +51,8 @@ test("removes only the reviewed dev plugin from every production platform", () =
     assert.deepEqual(result.plugins.ios.map((plugin) => plugin.name), ["production_plugin"]);
     assert.deepEqual(result.plugins.android, []);
     assert.deepEqual(result.dependencyGraph.map((node) => node.name), ["production_plugin"]);
+    assert.equal(existsSync(androidRegistrant), false);
+    assert.equal(existsSync(iosRegistrant), false);
   });
 });
 

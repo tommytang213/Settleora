@@ -145,7 +145,7 @@ jobs:
             lock_sha=$(sha256sum pubspec.lock | awk '{print $1}')
             flutter pub get
             test "$(sha256sum pubspec.lock | awk '{print $1}')" = "$lock_sha"
-            node "$GITHUB_WORKSPACE/tools/ocr-models/prepare-production-flutter-plugins.mjs" --file=.flutter-plugins-dependencies --require-integration-test=true
+            node "$GITHUB_WORKSPACE/tools/ocr-models/prepare-production-flutter-plugins.mjs" --file=.flutter-plugins-dependencies
             flutter build apk --release --no-pub
           )
           base_app_bytes=$(stat -c %s "$base_dir/apps/mobile/build/app/outputs/flutter-apk/app-release.apk")
@@ -344,7 +344,7 @@ jobs:
             lock_sha=$(shasum -a 256 pubspec.lock | awk '{print $1}')
             flutter pub get
             test "$(shasum -a 256 pubspec.lock | awk '{print $1}')" = "$lock_sha"
-            node "$GITHUB_WORKSPACE/tools/ocr-models/prepare-production-flutter-plugins.mjs" --file=.flutter-plugins-dependencies --require-integration-test=true
+            node "$GITHUB_WORKSPACE/tools/ocr-models/prepare-production-flutter-plugins.mjs" --file=.flutter-plugins-dependencies
             cd ios
             pod install --deployment
             test "$(shasum -a 256 Podfile.lock | awk '{print $1}')" = "486ba24476c7ae0be32927fa9239599749f285d7a5a48129caebe4437ed6cc30"
