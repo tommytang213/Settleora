@@ -100,6 +100,7 @@ test("unsigned structural provenance is explicitly non-promotable", () => {
 test("canonical wrapper fails closed around projection, locks, package inspection, and signing", () => {
   const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
   const pubspec = readFileSync(path.join(repoRoot, "apps/mobile/pubspec.yaml"), "utf8");
+  const podfileLock = readFileSync(path.join(repoRoot, "apps/mobile/ios/Podfile.lock"), "utf8");
   for (const required of [
     "Flutter must be $expected_flutter_version",
     "Xcode must be $expected_xcode_version",
@@ -107,6 +108,7 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
     "pubspec.lock drifted during build",
     "pubspec.lock differs from the committed canonical source",
     "065007a0c8b90d527aff6306936a02cd527d30f03800cc8e4229e8273d3afcc7",
+    "6ee499d21f620dc366ae3db0cc83e6480eefb5a6d3640d90cbd3ad92a8627168",
     "Podfile.lock does not match the approved identity",
     "Podfile.lock drifted during build",
     "prepare-production-flutter-plugins.mjs",
@@ -126,6 +128,11 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   assert.match(script, /release candidate provenance output is required/);
   assert.match(pubspec, /flutter:\n(?:.|\n)*?config:\n\s+enable-swift-package-manager: false/);
   assert.doesNotMatch(pubspec, /enable-swift-package-manager: true/);
+  for (const productionPlugin of ["file_picker", "flutter_secure_storage_darwin", "image_picker_ios"]) {
+    assert.match(podfileLock, new RegExp(`^  - ${productionPlugin} \\(`, "m"));
+    assert.match(podfileLock, new RegExp(`^  ${productionPlugin}:`, "m"));
+  }
+  assert.doesNotMatch(podfileLock, /integration_test/);
   assert.doesNotMatch(script, /\b(?:mapfile|readarray)\b/);
   assert.doesNotMatch(script, /app-store-connect|testflight|upload|publish/i);
 });
