@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -41,8 +41,14 @@ test("removes only the reviewed dev plugin from every production platform", () =
     const iosRegistrant = path.join(root, "ios/Runner/GeneratedPluginRegistrant.m");
     mkdirSync(path.dirname(androidRegistrant), { recursive: true });
     mkdirSync(path.dirname(iosRegistrant), { recursive: true });
-    writeFileSync(androidRegistrant, "generated Android integration_test registrant");
-    writeFileSync(iosRegistrant, "generated iOS integration_test registrant");
+    writeFileSync(
+      androidRegistrant,
+      "production plugin\n    try {\n      flutterEngine.getPlugins().add(new dev.flutter.plugins.integration_test.IntegrationTestPlugin());\n    } catch (Exception e) {\n      Log.e(TAG, \"Error registering plugin integration_test, dev.flutter.plugins.integration_test.IntegrationTestPlugin\", e);\n    }\nproduction plugin tail\n",
+    );
+    writeFileSync(
+      iosRegistrant,
+      "production plugin\n#if __has_include(<integration_test/IntegrationTestPlugin.h>)\n#import <integration_test/IntegrationTestPlugin.h>\n#else\n@import integration_test;\n#endif\n\n@implementation GeneratedPluginRegistrant\n  [IntegrationTestPlugin registerWithRegistrar:[registry registrarForPlugin:@\"IntegrationTestPlugin\"]];\nproduction plugin tail\n",
+    );
     assert.deepEqual(
       prepareProductionFlutterPlugins(file, { requireIntegrationTest: true }),
       ["integration_test"],
@@ -51,8 +57,11 @@ test("removes only the reviewed dev plugin from every production platform", () =
     assert.deepEqual(result.plugins.ios.map((plugin) => plugin.name), ["production_plugin"]);
     assert.deepEqual(result.plugins.android, []);
     assert.deepEqual(result.dependencyGraph.map((node) => node.name), ["production_plugin"]);
-    assert.equal(existsSync(androidRegistrant), false);
-    assert.equal(existsSync(iosRegistrant), false);
+    assert.equal(readFileSync(androidRegistrant, "utf8"), "production plugin\nproduction plugin tail\n");
+    assert.equal(
+      readFileSync(iosRegistrant, "utf8"),
+      "production plugin\n@implementation GeneratedPluginRegistrant\nproduction plugin tail\n",
+    );
   });
 });
 

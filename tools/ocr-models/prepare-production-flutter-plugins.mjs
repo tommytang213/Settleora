@@ -1,24 +1,43 @@
-import { lstatSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { lstatSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const allowedDevPlugins = new Set(["integration_test"]);
-const generatedRegistrants = [
-  "android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java",
-  "ios/Runner/GeneratedPluginRegistrant.h",
-  "ios/Runner/GeneratedPluginRegistrant.m",
-];
+const registrantProjections = {
+  android: {
+    relativePath: "android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java",
+    fragments: [
+      "    try {\n      flutterEngine.getPlugins().add(new dev.flutter.plugins.integration_test.IntegrationTestPlugin());\n    } catch (Exception e) {\n      Log.e(TAG, \"Error registering plugin integration_test, dev.flutter.plugins.integration_test.IntegrationTestPlugin\", e);\n    }\n",
+    ],
+  },
+  ios: {
+    relativePath: "ios/Runner/GeneratedPluginRegistrant.m",
+    fragments: [
+      "#if __has_include(<integration_test/IntegrationTestPlugin.h>)\n#import <integration_test/IntegrationTestPlugin.h>\n#else\n@import integration_test;\n#endif\n\n",
+      "  [IntegrationTestPlugin registerWithRegistrar:[registry registrarForPlugin:@\"IntegrationTestPlugin\"]];\n",
+    ],
+  },
+};
 
-function removeGeneratedRegistrants(projectRoot) {
-  for (const relativePath of generatedRegistrants) {
-    const registrantPath = path.join(projectRoot, ...relativePath.split("/"));
-    const stat = lstatSync(registrantPath, { throwIfNoEntry: false });
-    if (stat == null) continue;
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 1024 * 1024) {
-      throw new Error(`Generated Flutter plugin registrant is unsafe: ${relativePath}`);
-    }
-    unlinkSync(registrantPath);
+function projectGeneratedRegistrant(projectRoot, platform) {
+  const projection = registrantProjections[platform];
+  if (projection == null) return;
+  const registrantPath = path.join(projectRoot, ...projection.relativePath.split("/"));
+  const stat = lstatSync(registrantPath, { throwIfNoEntry: false });
+  if (stat == null || !stat.isFile() || stat.isSymbolicLink() || stat.size > 1024 * 1024) {
+    throw new Error(`Generated Flutter plugin registrant is unsafe: ${projection.relativePath}`);
   }
+  let source = readFileSync(registrantPath, "utf8");
+  for (const fragment of projection.fragments) {
+    if (source.split(fragment).length !== 2) {
+      throw new Error(`Generated Flutter plugin registrant has unexpected integration_test shape: ${projection.relativePath}`);
+    }
+    source = source.replace(fragment, "");
+  }
+  if (/integration_test|IntegrationTestPlugin/.test(source)) {
+    throw new Error(`Generated Flutter plugin registrant still references integration_test: ${projection.relativePath}`);
+  }
+  writeFileSync(registrantPath, source, { mode: stat.mode & 0o777 });
 }
 
 export function prepareProductionFlutterPlugins(filePath, { requireIntegrationTest = false } = {}) {
@@ -39,6 +58,7 @@ export function prepareProductionFlutterPlugins(filePath, { requireIntegrationTe
   }
 
   const removed = new Set();
+  const removedPlatforms = new Set();
   for (const [platform, plugins] of Object.entries(metadata.plugins)) {
     if (!Array.isArray(plugins)) throw new Error(`Flutter ${platform} plugins are invalid`);
     metadata.plugins[platform] = plugins.filter((plugin) => {
@@ -50,6 +70,7 @@ export function prepareProductionFlutterPlugins(filePath, { requireIntegrationTe
         throw new Error(`Unreviewed dev plugin cannot enter the production projection: ${plugin.name}`);
       }
       removed.add(plugin.name);
+      removedPlatforms.add(platform);
       return false;
     });
   }
@@ -76,8 +97,9 @@ export function prepareProductionFlutterPlugins(filePath, { requireIntegrationTe
       dependencies: node.dependencies.filter((dependency) => !removed.has(dependency)),
     }));
   writeFileSync(filePath, `${JSON.stringify(metadata, null, 2)}\n`, { mode: stat.mode & 0o777 });
-  if (removed.size > 0) {
-    removeGeneratedRegistrants(path.dirname(path.resolve(filePath)));
+  const projectRoot = path.dirname(path.resolve(filePath));
+  for (const platform of removedPlatforms) {
+    projectGeneratedRegistrant(projectRoot, platform);
   }
   return [...removed].sort();
 }

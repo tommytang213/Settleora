@@ -117,6 +117,9 @@ jobs:
           apkanalyzer="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
           test -x "$apkanalyzer"
           "$apkanalyzer" dex packages "$full_apk" >"$RUNNER_TEMP/android-dex-packages.txt"
+          "$apkanalyzer" dex code --class io.flutter.plugins.GeneratedPluginRegistrant "$full_apk" >"$RUNNER_TEMP/android-plugin-registrant.txt"
+          grep -F 'com.mr.flutter.plugin.filepicker.FilePickerPlugin' "$RUNNER_TEMP/android-plugin-registrant.txt"
+          grep -F 'com.it_nomads.fluttersecurestorage.FlutterSecureStoragePlugin' "$RUNNER_TEMP/android-plugin-registrant.txt"
           if grep -F 'dev.flutter.plugins.integration_test' "$RUNNER_TEMP/android-dex-packages.txt"; then
             echo "Production APK contains the integration_test plugin" >&2
             exit 1
@@ -311,6 +314,9 @@ jobs:
             fi
           done < <(find "$full_app" -type f -perm -111 -print)
           test "$binary_count" -gt 0
+          grep -F 'GeneratedPluginRegistrant' "$RUNNER_TEMP/ios-production-symbols.txt"
+          grep -F 'FilePickerPlugin' "$RUNNER_TEMP/ios-production-symbols.txt"
+          grep -F 'FlutterSecureStorageDarwinPlugin' "$RUNNER_TEMP/ios-production-symbols.txt"
           if grep -Ei 'IntegrationTestPlugin|dev\.flutter\.plugins\.integration_test' "$RUNNER_TEMP/ios-production-symbols.txt"; then
             echo "Production iOS app contains the integration_test plugin" >&2
             exit 1

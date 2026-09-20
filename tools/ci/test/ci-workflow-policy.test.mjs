@@ -298,6 +298,9 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(androidCommands.includes('verify-mobile-package.mjs --platform=android'));
   assert.ok(androidCommands.includes('--json=true'));
   assert.ok(androidCommands.includes('android-dex-packages.txt'));
+  assert.ok(androidCommands.includes('android-plugin-registrant.txt'));
+  assert.ok(androidCommands.includes('com.mr.flutter.plugin.filepicker.FilePickerPlugin'));
+  assert.ok(androidCommands.includes('com.it_nomads.fluttersecurestorage.FlutterSecureStoragePlugin'));
   assert.ok(androidCommands.includes('grep_status=$?'));
   assert.ok(androidCommands.includes('Production APK contains the integration_test plugin'));
   assert.ok(androidRunner.includes('test "$system_image_revision" = "9"'));
@@ -326,6 +329,9 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.match(iosNetworkDeny, /SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED/);
   assert.ok(iosCommands.includes('verify-mobile-package.mjs --platform=ios'));
   assert.ok(iosCommands.includes('ios-production-symbols.txt'));
+  assert.ok(iosCommands.includes("grep -F 'GeneratedPluginRegistrant'"));
+  assert.ok(iosCommands.includes("grep -F 'FilePickerPlugin'"));
+  assert.ok(iosCommands.includes("grep -F 'FlutterSecureStorageDarwinPlugin'"));
   assert.ok(iosCommands.includes('grep_status=$?'));
   assert.ok(iosCommands.includes('Production iOS app contains the integration_test plugin'));
   assert.ok(iosCommands.includes('test -s Podfile.lock'));
