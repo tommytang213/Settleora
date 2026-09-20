@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, readSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -116,16 +116,7 @@ function findEocd(tail, tailStart, archiveSize) {
   fail("end-of-central-directory record is missing or archive has trailing bytes");
 }
 
-export function verifyIpaArchive(archivePath) {
-  // This local CLI intentionally inspects the caller-selected IPA. O_NOFOLLOW
-  // and descriptor-based validation make that one path use race-free and keep
-  // archive-controlled entry names away from filesystem path operations.
-  let fd;
-  try {
-    fd = openSync(archivePath, constants.O_RDONLY | constants.O_NOFOLLOW); // lgtm[js/path-injection]
-  } catch {
-    fail("archive cannot be opened as a regular non-symlink file");
-  }
+export function verifyOpenedIpa(fd) {
   try {
     const archiveStat = fstatSync(fd);
     if (!archiveStat.isFile()) fail("archive must be a regular non-symlink file");
@@ -246,7 +237,28 @@ export function verifyIpaArchive(archivePath) {
   }
 }
 
+function verifyCanonicalIpa() {
+  const ipaDirectory = path.resolve("build/ios/ipa");
+  let candidates;
+  try {
+    candidates = readdirSync(ipaDirectory, { withFileTypes: true })
+      .filter((entry) => entry.name.endsWith(".ipa"))
+      .map((entry) => entry.name)
+      .sort();
+  } catch {
+    fail("canonical IPA directory cannot be read");
+  }
+  if (candidates.length !== 1) fail("canonical IPA directory must contain exactly one IPA");
+  let fd;
+  try {
+    fd = openSync(path.join(ipaDirectory, candidates[0]), constants.O_RDONLY | constants.O_NOFOLLOW);
+  } catch {
+    fail("canonical IPA cannot be opened as a regular non-symlink file");
+  }
+  return verifyOpenedIpa(fd);
+}
+
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
-  if (process.argv.length !== 3) throw new Error("Usage: verify-ipa-archive.mjs <signed.ipa>");
-  process.stdout.write(`${verifyIpaArchive(process.argv[2])}\n`);
+  if (process.argv.length !== 2) throw new Error("Usage: verify-ipa-archive.mjs");
+  process.stdout.write(`${verifyCanonicalIpa()}\n`);
 }
