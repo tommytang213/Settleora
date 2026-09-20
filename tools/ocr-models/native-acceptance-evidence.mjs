@@ -733,7 +733,7 @@ function parseMarker(lines, marker, sanitize, fallback) {
 }
 
 export function buildEvidence(args, repoRoot = process.cwd()) {
-  for (const required of ["log", "stderr-log", "platform", "source-sha", "test-status", "runner-image", "os-runtime", "sdk-toolchain", "device", "native-image", "base-sha"]) {
+  for (const required of ["log", "stderr-log", "platform", "source-sha", "test-status", "runner-image", "os-runtime", "sdk-toolchain", "device", "native-image", "base-sha", "base-tree", "base-tooling-sha", "base-dependency-lock-sha256"]) {
     if (!args[required]) throw new Error(`Missing --${required}`);
   }
   if (!new Set(["android", "ios"]).has(args.platform)) {
@@ -786,7 +786,24 @@ export function buildEvidence(args, repoRoot = process.cwd()) {
     throw new Error("Preflight failure phase is invalid");
   }
   const expectedBaseSha = "e4d4edd0d6854845cc67b00924f6d22af6a70688";
+  const expectedBaseTree = "3ac1c3a2177445304a116102fce3ff4553f70719";
   if (args["base-sha"] !== expectedBaseSha) throw new Error("Base app SHA is invalid");
+  if (args["base-tree"] !== expectedBaseTree) throw new Error("Base app tree is invalid");
+  if (args["base-tooling-sha"] !== args["source-sha"]) {
+    throw new Error("Base measurement tooling SHA must match the exact candidate");
+  }
+  if (!/^[0-9a-f]{64}$/.test(args["base-dependency-lock-sha256"])) {
+    throw new Error("Base dependency lock identity is invalid");
+  }
+  const baseComposite = {
+    sourceCommit: args["base-sha"],
+    sourceTree: args["base-tree"],
+    dependencyLockSha256: args["base-dependency-lock-sha256"],
+    toolingCommit: args["base-tooling-sha"],
+  };
+  const baseCompositeSha256 = createHash("sha256")
+    .update(JSON.stringify(baseComposite))
+    .digest("hex");
   if (fullBytes != null && modelFreeBytes != null && fullBytes < modelFreeBytes) {
     throw new Error("Bundled model package delta cannot be negative");
   }
@@ -832,6 +849,10 @@ export function buildEvidence(args, repoRoot = process.cwd()) {
       ),
       fixtureCount: 101,
       baseAppSha: args["base-sha"],
+      baseAppTree: args["base-tree"],
+      baseDependencyLockSha256: args["base-dependency-lock-sha256"],
+      baseMeasurementToolingSha: args["base-tooling-sha"],
+      baseCompositeSha256,
     },
   };
 }
@@ -885,6 +906,7 @@ export function isCompleteEvidence(evidence) {
       evidence.packageEvidence.baselineWithoutBundledModelPayloadBytes != null &&
       evidence.packageEvidence.bundledModelPackageDeltaBytes > 0 &&
       evidence.packageEvidence.baseAppBytes != null &&
+      /^[0-9a-f]{64}$/.test(evidence.identities?.baseCompositeSha256 ?? "") &&
       evidence.packageEvidence.ocrStackPackageDeltaBytes > 0,
   );
 }

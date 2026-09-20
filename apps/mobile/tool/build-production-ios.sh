@@ -5,6 +5,7 @@ set -euo pipefail
 expected_flutter_version=3.44.8
 expected_xcode_version=16.4
 expected_cocoapods_version=1.17.0
+expected_codemagic_cli_tools_version=0.69.0
 expected_bundle_identifier=com.tommytang213.settleora
 default_pubspec_lock_sha=065007a0c8b90d527aff6306936a02cd527d30f03800cc8e4229e8273d3afcc7
 default_podfile_lock_sha=a5b6068c71fe9b0a77743d5c639b5538dd2be10db7ddd4ecd9317fee03541903
@@ -102,6 +103,10 @@ elif [[ "$artifact_class" == release-candidate ]]; then
   trap - EXIT
 fi
 
+if [[ "$mode" == signed ]]; then
+  [[ "${CODEMAGIC_CLI_TOOLS_VERSION:-}" == "$expected_codemagic_cli_tools_version" ]] || fail "Codemagic CLI tools contract is missing or changed"
+fi
+
 command -v flutter >/dev/null || fail "flutter is unavailable"
 command -v node >/dev/null || fail "node is unavailable"
 command -v pod >/dev/null || fail "CocoaPods is unavailable"
@@ -109,6 +114,7 @@ command -v xcodebuild >/dev/null || fail "Xcode is unavailable"
 command -v plutil >/dev/null || fail "plutil is unavailable"
 if [[ "$mode" == signed ]]; then
   command -v xcode-project >/dev/null || fail "Codemagic signing utility is unavailable"
+  command -v codemagic-cli-tools >/dev/null || fail "Codemagic CLI tools version inspector is unavailable"
 fi
 
 flutter_version=$(flutter --version --machine | node -e 'let input=""; process.stdin.on("data", chunk => input += chunk).on("end", () => process.stdout.write(JSON.parse(input).frameworkVersion));')
@@ -117,6 +123,12 @@ xcode_version=$(xcodebuild -version | sed -n '1s/^Xcode //p')
 [[ "$xcode_version" == "$expected_xcode_version" ]] || fail "Xcode must be $expected_xcode_version"
 cocoapods_version=$(pod --version)
 [[ "$cocoapods_version" == "$expected_cocoapods_version" ]] || fail "CocoaPods must be $expected_cocoapods_version"
+codemagic_cli_tools_version=not-applicable
+if [[ "$mode" == signed ]]; then
+  codemagic_cli_tools_output=$(codemagic-cli-tools --version 2>/dev/null)
+  codemagic_cli_tools_version=${codemagic_cli_tools_output##* }
+  [[ "$codemagic_cli_tools_version" == "$expected_codemagic_cli_tools_version" ]] || fail "Codemagic CLI tools must be $expected_codemagic_cli_tools_version"
+fi
 
 sha256_file() {
   shasum -a 256 "$1" | awk '{print $1}'
@@ -277,6 +289,7 @@ if [[ "$artifact_class" == release-candidate ]]; then
     --flutter-version="$flutter_version" \
     --xcode-version="$xcode_version" \
     --cocoapods-version="$cocoapods_version" \
+    --codemagic-cli-tools-version="$codemagic_cli_tools_version" \
     --pubspec-lock-sha256="$pubspec_lock_sha" \
     --podfile-lock-sha256="$podfile_lock_sha" \
     --catalog-sha256="$catalog_sha" \

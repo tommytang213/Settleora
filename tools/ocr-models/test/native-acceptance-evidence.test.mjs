@@ -57,12 +57,33 @@ function evidenceArgs(log, platform = "android") {
     device: "test-device",
     "native-image": `${platform}-test-image-1`,
     "base-sha": "e4d4edd0d6854845cc67b00924f6d22af6a70688",
+    "base-tree": "3ac1c3a2177445304a116102fce3ff4553f70719",
+    "base-tooling-sha": sourceSha,
+    "base-dependency-lock-sha256": "9".repeat(64),
   };
 }
 
 test("accepts Flutter 3.44.8 start events with a null runner version", () => {
   withLog(protocolLog(), (log) => {
     assert.doesNotThrow(() => buildEvidence(evidenceArgs(log), repoRoot));
+  });
+});
+
+test("binds package baseline evidence to source, dependency lock, and exact tooling", () => {
+  withLog(protocolLog(), (log) => {
+    const args = evidenceArgs(log);
+    assert.throws(
+      () => buildEvidence({ ...args, "base-tree": "0".repeat(40) }, repoRoot),
+      /Base app tree is invalid/,
+    );
+    assert.throws(
+      () => buildEvidence({ ...args, "base-tooling-sha": "0".repeat(40) }, repoRoot),
+      /tooling SHA must match/,
+    );
+    assert.throws(
+      () => buildEvidence({ ...args, "base-dependency-lock-sha256": "invalid" }, repoRoot),
+      /dependency lock identity is invalid/,
+    );
   });
 });
 
@@ -145,6 +166,10 @@ test("retains only the bounded native acceptance schema", () => {
       assert.equal(evidence.execution.protocolSucceeded, true);
       assert.equal(evidence.execution.environment.device, "test-device");
       assert.equal(evidence.identities.baseAppSha, evidenceArgs(log)["base-sha"]);
+      assert.equal(evidence.identities.baseAppTree, evidenceArgs(log)["base-tree"]);
+      assert.equal(evidence.identities.baseMeasurementToolingSha, sourceSha);
+      assert.equal(evidence.identities.baseDependencyLockSha256, "9".repeat(64));
+      assert.match(evidence.identities.baseCompositeSha256, /^[0-9a-f]{64}$/);
       assert.deepEqual(Object.keys(evidence.acceptance.mismatches[0]), ["fixtureId", "field"]);
     },
   );
@@ -179,8 +204,10 @@ test("complete evidence requires both package measurements and a positive delta"
       expectedFixtureAbsenceCount: 102,
       verifiedFixtureAbsenceCount: 102,
     },
+    identities: { baseCompositeSha256: "9".repeat(64) },
   };
   assert.equal(isCompleteEvidence(evidence), true);
+  assert.equal(isCompleteEvidence({ ...evidence, identities: undefined }), false);
   assert.equal(
     isCompleteEvidence({
       ...evidence,

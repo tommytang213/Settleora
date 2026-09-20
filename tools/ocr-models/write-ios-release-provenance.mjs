@@ -17,6 +17,7 @@ const allowedArguments = new Set([
   "flutter-version",
   "xcode-version",
   "cocoapods-version",
+  "codemagic-cli-tools-version",
   "pubspec-lock-sha256",
   "podfile-lock-sha256",
   "catalog-sha256",
@@ -58,6 +59,16 @@ function requireBuildIdentity(value, pattern, name) {
 export function buildProvenance(args) {
   if (!new Set(["signed", "unsigned"]).has(args.get("mode"))) throw new Error("Invalid build mode");
   const signed = args.get("mode") === "signed";
+  const codemagicCliTools = signed
+    ? requireBuildIdentity(
+        args.get("codemagic-cli-tools-version"),
+        /^\d+\.\d+\.\d+$/,
+        "Codemagic CLI tools version",
+      )
+    : null;
+  if (signed && codemagicCliTools !== "0.69.0") {
+    throw new Error("Codemagic CLI tools version differs from the canonical contract");
+  }
   const artifact = args.get("artifact");
   const artifactStat = lstatSync(artifact);
   if (args.get("mode") === "signed" && !artifactStat.isFile()) throw new Error("Signed artifact is not a regular file");
@@ -96,6 +107,7 @@ export function buildProvenance(args) {
       flutter: args.get("flutter-version"),
       xcode: args.get("xcode-version"),
       cocoapods: args.get("cocoapods-version"),
+      codemagicCliTools,
     },
     locks: {
       pubspecLockSha256: requireDigest(args.get("pubspec-lock-sha256"), "pubspec.lock identity"),

@@ -124,7 +124,7 @@ Real App Store Connect upload still requires:
 
 ## Canonical Signed Release-Candidate Workflow
 
-Run `Mobile iOS signed release candidate validation` manually only after the signing setup above is available. It uses Flutter 3.44.8, Xcode 16.4, and CocoaPods 1.17.0 and calls `apps/mobile/tool/build-production-ios.sh`, the same production preparation/build primitive used by the GitHub unsigned structural package lane. The canonical output is the one signed IPA and its corresponding distribution archive. The IPA SHA-256 and bounded provenance are retained beside those artifacts.
+Run `Mobile iOS signed release candidate validation` manually only after the signing setup above is available. It uses Flutter 3.44.8, Xcode 16.4, CocoaPods 1.17.0, and Codemagic CLI tools 0.69.0 and calls `apps/mobile/tool/build-production-ios.sh`, the same production preparation/build primitive used by the GitHub unsigned structural package lane. The wrapper fails closed if the Codemagic image's signing utility version differs, and signed provenance records that exact version. The canonical output is the one signed IPA and its corresponding distribution archive. The IPA SHA-256 and bounded provenance are retained beside those artifacts.
 
 The GitHub lane's unsigned `Runner.app` is structural evidence only. Its provenance is explicitly non-promotable; only the signed Codemagic IPA identified by the signed build-once provenance contract may become a retained release candidate.
 
@@ -141,6 +141,7 @@ The active signed-validation workflow:
 - Builds exactly one signed IPA/archive pair through the canonical wrapper.
 - Verifies the unchanged bundle identifier, signature, plugin calls/test-plugin absence, exact OCR catalog/models, and absence of acceptance fixtures, test classes/assets, and raw OCR evidence/log paths.
 - Verifies the packaged short version/build number against the requested signed-build identity and writes those values with source/tree, toolchain, lockfile, OCR catalog/manifest, artifact filenames, and immutable IPA/archive SHA-256 provenance.
+- Records historical package-size baselines as a composite identity of the base commit/tree, the dependency lock actually substituted into that source, and the exact candidate tooling commit; the base SHA alone is never presented as the complete built baseline identity.
 - Retains the IPA, archive, and provenance as Codemagic artifacts.
 - Has no `publishing` block, `submit_to_testflight`, `submit_to_app_store`, or `beta_groups` configuration.
 

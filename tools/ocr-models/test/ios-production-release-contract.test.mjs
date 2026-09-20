@@ -31,6 +31,7 @@ function provenanceArgs(root, mode = "signed") {
     "flutter-version": "3.44.8",
     "xcode-version": "16.4",
     "cocoapods-version": "1.17.0",
+    "codemagic-cli-tools-version": mode === "signed" ? "0.69.0" : "not-applicable",
     "pubspec-lock-sha256": "4".repeat(64),
     "podfile-lock-sha256": "5".repeat(64),
     "catalog-sha256": "6".repeat(64),
@@ -79,6 +80,7 @@ test("signed provenance binds the exact artifact and forbids publication", () =>
     assert.equal(provenance.artifact.archiveSha256, "8".repeat(64));
     assert.equal(provenance.artifact.buildName, "1.0.0");
     assert.equal(provenance.artifact.buildNumber, "42");
+    assert.equal(provenance.toolchain.codemagicCliTools, "0.69.0");
     assert.equal(provenance.verification.codeSignatureVerified, true);
     assert.equal(JSON.stringify(provenance).includes(root), false);
   } finally {
@@ -93,6 +95,18 @@ test("unsigned structural provenance is explicitly non-promotable", () => {
     assert.equal(provenance.contract, "settleora-ios-unsigned-structural-verification-v1");
     assert.equal(provenance.promotionPolicy, "not-promotable-unsigned-structural-evidence");
     assert.equal(provenance.verification.codeSignatureVerified, false);
+    assert.equal(provenance.toolchain.codemagicCliTools, null);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("signed provenance rejects Codemagic signing-tool drift", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-ios-provenance-toolchain-"));
+  try {
+    const args = provenanceArgs(root);
+    args.set("codemagic-cli-tools-version", "0.70.0");
+    assert.throws(() => buildProvenance(args), /differs from the canonical contract/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -106,6 +120,8 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
     "Flutter must be $expected_flutter_version",
     "Xcode must be $expected_xcode_version",
     "CocoaPods must be $expected_cocoapods_version",
+    "Codemagic CLI tools must be $expected_codemagic_cli_tools_version",
+    "Codemagic CLI tools contract is missing or changed",
     "pubspec.lock drifted during build",
     "pubspec.lock differs from the committed canonical source",
     "065007a0c8b90d527aff6306936a02cd527d30f03800cc8e4229e8273d3afcc7",
@@ -129,6 +145,7 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
     "packaged build number differs from the requested signed build",
     "write-ios-release-provenance.mjs",
     "xcode-project use-profiles",
+    "codemagic-cli-tools --version",
     "export options plist was not produced",
     '$(basename "$provenance_out")',
   ]) assert.ok(script.includes(required), required);

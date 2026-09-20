@@ -115,6 +115,7 @@ workflows:
         bundle_identifier: com.tommytang213.settleora
       vars:
         FLUTTER_BUILD_NAME: "1.0.0"
+        CODEMAGIC_CLI_TOOLS_VERSION: "0.69.0"
 
     cache:
       cache_paths:

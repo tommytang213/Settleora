@@ -134,6 +134,18 @@ jobs:
             grep_status=$?
             test "$grep_status" -eq 1
           fi
+          : >"$RUNNER_TEMP/android-production-dex-strings.txt"
+          while IFS= read -r dex_file; do
+            unzip -p "$full_apk" "$dex_file" | strings >>"$RUNNER_TEMP/android-production-dex-strings.txt"
+          done < <(zipinfo -1 "$full_apk" | grep -E '^classes[0-9]*\.dex$')
+          test -s "$RUNNER_TEMP/android-production-dex-strings.txt"
+          if grep -F -e 'com.settleora.mobile/receipt_ocr_acceptance' -e 'loadModelCatalog' -e 'loadFixture' "$RUNNER_TEMP/android-production-dex-strings.txt"; then
+            echo "Production APK contains the native OCR acceptance channel" >&2
+            exit 1
+          else
+            grep_status=$?
+            test "$grep_status" -eq 1
+          fi
           find "$candidate_dir/apps/mobile/assets/receipt_ocr_models" -mindepth 2 -type f -exec truncate -s 0 {} +
           (
             cd "$candidate_dir/apps/mobile"
@@ -154,6 +166,8 @@ jobs:
           base_dir="$RUNNER_TEMP/android-base-app"
           mkdir -p "$base_dir"
           git archive "$base_sha" | tar -x -C "$base_dir"
+          base_tree=$(git rev-parse "$base_sha^{tree}")
+          base_dependency_lock_sha256=$(sha256sum "$base_dir/apps/mobile/pubspec.lock" | awk '{print $1}')
           (
             cd "$base_dir/apps/mobile"
             lock_sha=$(sha256sum pubspec.lock | awk '{print $1}')
@@ -170,6 +184,8 @@ jobs:
           echo "model_free_bytes=$model_free_bytes" >> "$GITHUB_OUTPUT"
           echo "base_app_bytes=$base_app_bytes" >> "$GITHUB_OUTPUT"
           echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
+          echo "base_tree=$base_tree" >> "$GITHUB_OUTPUT"
+          echo "base_dependency_lock_sha256=$base_dependency_lock_sha256" >> "$GITHUB_OUTPUT"
           echo "verified_model_file_count=$verified_model_file_count" >> "$GITHUB_OUTPUT"
           echo "verified_catalog_file_count=$verified_catalog_file_count" >> "$GITHUB_OUTPUT"
           echo "verified_fixture_absence_count=$verified_fixture_absence_count" >> "$GITHUB_OUTPUT"
@@ -197,6 +213,9 @@ jobs:
             --model-free-bytes="${{ steps.package.outputs.model_free_bytes }}" \
             --base-app-bytes="${{ steps.package.outputs.base_app_bytes }}" \
             --base-sha="${{ steps.package.outputs.base_sha }}" \
+            --base-tree="${{ steps.package.outputs.base_tree }}" \
+            --base-tooling-sha="$EXPECTED_HEAD" \
+            --base-dependency-lock-sha256="${{ steps.package.outputs.base_dependency_lock_sha256 }}" \
             --verified-model-file-count="${{ steps.package.outputs.verified_model_file_count }}" \
             --verified-catalog-file-count="${{ steps.package.outputs.verified_catalog_file_count }}" \
             --verified-fixture-absence-count="${{ steps.package.outputs.verified_fixture_absence_count }}" \
@@ -365,6 +384,7 @@ jobs:
           git archive "$base_sha" | tar -x -C "$base_dir"
           cp tools/ocr-models/baselines/ios-pre-native-Podfile.lock "$base_dir/apps/mobile/ios/Podfile.lock"
           base_tree=$(git rev-parse "$base_sha^{tree}")
+          base_dependency_lock_sha256=$(shasum -a 256 "$base_dir/apps/mobile/ios/Podfile.lock" | awk '{print $1}')
           bash "$GITHUB_WORKSPACE/apps/mobile/tool/build-production-ios.sh" \
             --mode=unsigned \
             --artifact-class=size-measurement \
@@ -380,6 +400,8 @@ jobs:
           echo "model_free_bytes=$model_free_bytes" >> "$GITHUB_OUTPUT"
           echo "base_app_bytes=$base_app_bytes" >> "$GITHUB_OUTPUT"
           echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
+          echo "base_tree=$base_tree" >> "$GITHUB_OUTPUT"
+          echo "base_dependency_lock_sha256=$base_dependency_lock_sha256" >> "$GITHUB_OUTPUT"
           echo "verified_model_file_count=$verified_model_file_count" >> "$GITHUB_OUTPUT"
           echo "verified_catalog_file_count=$verified_catalog_file_count" >> "$GITHUB_OUTPUT"
           echo "verified_fixture_absence_count=$verified_fixture_absence_count" >> "$GITHUB_OUTPUT"
@@ -407,6 +429,9 @@ jobs:
             --model-free-bytes="${{ steps.package.outputs.model_free_bytes }}" \
             --base-app-bytes="${{ steps.package.outputs.base_app_bytes }}" \
             --base-sha="${{ steps.package.outputs.base_sha }}" \
+            --base-tree="${{ steps.package.outputs.base_tree }}" \
+            --base-tooling-sha="$EXPECTED_HEAD" \
+            --base-dependency-lock-sha256="${{ steps.package.outputs.base_dependency_lock_sha256 }}" \
             --verified-model-file-count="${{ steps.package.outputs.verified_model_file_count }}" \
             --verified-catalog-file-count="${{ steps.package.outputs.verified_catalog_file_count }}" \
             --verified-fixture-absence-count="${{ steps.package.outputs.verified_fixture_absence_count }}" \

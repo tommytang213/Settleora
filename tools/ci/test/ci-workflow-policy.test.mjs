@@ -167,6 +167,9 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   const boundedCapture = read('tools/ocr-models/bounded-process-capture.mjs');
   const nativeTest = read('apps/mobile/integration_test/receipt_ocr_real_provider_test.dart');
   const androidActivity = read('apps/mobile/android/app/src/main/kotlin/com/example/mobile/MainActivity.kt');
+  const androidDebugHooks = read('apps/mobile/android/app/src/debug/kotlin/com/example/mobile/ReceiptOcrBuildVariantHooks.kt');
+  const androidProfileHooks = read('apps/mobile/android/app/src/profile/kotlin/com/example/mobile/ReceiptOcrBuildVariantHooks.kt');
+  const androidReleaseHooks = read('apps/mobile/android/app/src/release/kotlin/com/example/mobile/ReceiptOcrBuildVariantHooks.kt');
   const iosPlugin = read('apps/mobile/ios/Runner/SettleoraReceiptOcrPlugin.swift');
   assert.deepEqual(native.on.pull_request.branches, ['main']);
   assert.ok(native.on.workflow_dispatch);
@@ -180,8 +183,14 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.deepEqual(native.permissions, { contents: 'read' });
   assert.match(nativeTest, /invokeMethod<Uint8List>\('loadModelCatalog'\)/);
   assert.doesNotMatch(nativeTest, /rootBundle\.loadString/);
-  assert.match(androidActivity, /call\.method == "loadModelCatalog"/);
-  assert.match(androidActivity, /assets\.open\("receipt_ocr_models\/catalog\.json"\)/);
+  assert.match(androidActivity, /ReceiptOcrBuildVariantHooks\.configure/);
+  assert.doesNotMatch(androidActivity, /receipt_ocr_acceptance|loadModelCatalog|loadFixture/);
+  assert.match(androidDebugHooks, /call\.method == "loadModelCatalog"/);
+  assert.match(androidDebugHooks, /assets\.open\("receipt_ocr_models\/catalog\.json"\)/);
+  for (const productionHooks of [androidProfileHooks, androidReleaseHooks]) {
+    assert.doesNotMatch(productionHooks, /receipt_ocr_acceptance|loadModelCatalog|loadFixture/);
+    assert.match(productionHooks, /return null/);
+  }
   assert.match(iosPlugin, /call\.method == "loadModelCatalog"/);
   assert.match(iosPlugin, /FlutterAssetResolver\.url\("assets\/receipt_ocr_models\/catalog\.json"\)/);
   assert.equal(native.env.EXPECTED_HEAD, "${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || inputs.expected_head }}");
@@ -241,6 +250,11 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
     assert.ok(allCommands.some((command) => command.includes('--platform=')));
     assert.ok(allCommands.some((command) => command.includes('--device=')));
     assert.ok(runCommands(job).some((command) => command.includes('--base-app-bytes=')));
+    assert.ok(packageCommands.includes('base_tree=$(git rev-parse "$base_sha^{tree}")'));
+    assert.ok(packageCommands.includes('base_dependency_lock_sha256='));
+    assert.ok(runCommands(job).some((command) => command.includes('--base-tree=')));
+    assert.ok(runCommands(job).some((command) => command.includes('--base-tooling-sha="$EXPECTED_HEAD"')));
+    assert.ok(runCommands(job).some((command) => command.includes('--base-dependency-lock-sha256=')));
     assert.ok(runCommands(job).some((command) => command.includes('--verified-model-file-count=')));
     assert.ok(runCommands(job).some((command) => command.includes('--verified-catalog-file-count=')));
     assert.ok(runCommands(job).some((command) => command.includes('--verified-fixture-absence-count=')));
@@ -310,6 +324,11 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(androidCommands.includes('com.it_nomads.fluttersecurestorage.FlutterSecureStoragePlugin'));
   assert.ok(androidCommands.includes('grep_status=$?'));
   assert.ok(androidCommands.includes('Production APK contains the integration_test plugin'));
+  assert.ok(androidCommands.includes('android-production-dex-strings.txt'));
+  assert.ok(androidCommands.includes('Production APK contains the native OCR acceptance channel'));
+  assert.ok(androidCommands.includes('com.settleora.mobile/receipt_ocr_acceptance'));
+  assert.ok(androidCommands.includes("'loadModelCatalog'"));
+  assert.ok(androidCommands.includes("'loadFixture'"));
   assert.ok(androidRunner.includes('test "$system_image_revision" = "9"'));
   assert.ok(androidRunner.includes('test "$emulator_revision" = "37.1.11"'));
   assert.ok(boundedCapture.includes('integration_test/receipt_ocr_real_provider_test.dart'));
@@ -399,9 +418,12 @@ test('Codemagic stays manual-only and retains the signed release candidate witho
   assert.equal(internal.environment.xcode, '16.4');
   assert.equal(internal.environment.cocoapods, '1.17.0');
   assert.equal(internal.environment.vars.FLUTTER_BUILD_NAME, '1.0.0');
+  assert.equal(internal.environment.vars.CODEMAGIC_CLI_TOOLS_VERSION, '0.69.0');
   const scripts = internal.scripts.map((step) => step.script).join('\n');
   const productionWrapper = read('apps/mobile/tool/build-production-ios.sh');
   assert.match(productionWrapper, /testFlightInternalTestingOnly/);
+  assert.match(productionWrapper, /codemagic-cli-tools --version/);
+  assert.match(productionWrapper, /--codemagic-cli-tools-version=/);
   assert.doesNotMatch(scripts, /xcode-project use-profiles/);
   assert.match(scripts, /build-production-ios\.sh/);
   assert.match(scripts, /--mode=signed/);
