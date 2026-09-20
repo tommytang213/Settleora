@@ -221,8 +221,8 @@ fi
 
 if [[ "$artifact_class" == release-candidate ]]; then
   mkdir -p "$(dirname "$provenance_out")"
-  artifact_sha=$(if [[ "$mode" == signed ]]; then sha256_file "$artifact_path"; else node "$tool_root/tools/ocr-models/hash-directory.mjs" "$app_path"; fi)
-  archive_sha=$(if [[ "$mode" == signed ]]; then node "$tool_root/tools/ocr-models/hash-directory.mjs" "$archive_path"; else printf ''; fi)
+  artifact_sha=$(if [[ "$mode" == signed ]]; then sha256_file "$artifact_path"; else node "$tool_root/tools/ocr-models/hash-directory.mjs" app; fi)
+  archive_sha=$(if [[ "$mode" == signed ]]; then node "$tool_root/tools/ocr-models/hash-directory.mjs" archive; else printf ''; fi)
   node "$tool_root/tools/ocr-models/write-ios-release-provenance.mjs" \
     --out="$provenance_out" \
     --mode="$mode" \

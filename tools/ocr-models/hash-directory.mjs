@@ -36,6 +36,21 @@ export function hashDirectory(root) {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
-  if (process.argv.length !== 3) throw new Error("Usage: hash-directory.mjs <directory>");
-  console.log(hashDirectory(process.argv[2]));
+  if (process.argv.length !== 3 || !new Set(["app", "archive"]).has(process.argv[2])) {
+    throw new Error("Usage: hash-directory.mjs <app|archive>");
+  }
+  const iosBuildRoot = path.resolve("build", "ios");
+  let artifactRoot;
+  if (process.argv[2] === "app") {
+    artifactRoot = path.join(iosBuildRoot, "iphoneos", "Runner.app");
+  } else {
+    const archiveRoot = path.join(iosBuildRoot, "archive");
+    const archives = readdirSync(archiveRoot)
+      .filter((name) => /^[A-Za-z0-9._ -]+\.xcarchive$/.test(name))
+      .filter((name) => lstatSync(path.join(archiveRoot, name)).isDirectory())
+      .sort();
+    if (archives.length !== 1) throw new Error("Expected exactly one iOS archive");
+    artifactRoot = path.join(archiveRoot, archives[0]);
+  }
+  console.log(hashDirectory(artifactRoot));
 }

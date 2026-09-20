@@ -120,4 +120,13 @@ test("canonical wrapper rejects unsafe modes and release candidates without prov
   ], { encoding: "utf8" });
   assert.notEqual(missingProvenance.status, 0);
   assert.match(missingProvenance.stderr, /provenance output is required/);
+
+  const directoryHasher = path.join(repoRoot, "tools/ocr-models/hash-directory.mjs");
+  const arbitraryRoot = spawnSync(process.execPath, [directoryHasher, rootForUnsafeCli()], { encoding: "utf8" });
+  assert.notEqual(arbitraryRoot.status, 0);
+  assert.match(arbitraryRoot.stderr, /Usage: hash-directory\.mjs <app\|archive>/);
 });
+
+function rootForUnsafeCli() {
+  return path.resolve(os.tmpdir(), "untrusted-artifact-root");
+}
