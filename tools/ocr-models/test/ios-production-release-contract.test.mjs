@@ -99,6 +99,7 @@ test("unsigned structural provenance is explicitly non-promotable", () => {
 
 test("canonical wrapper fails closed around projection, locks, package inspection, and signing", () => {
   const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
+  const pubspec = readFileSync(path.join(repoRoot, "apps/mobile/pubspec.yaml"), "utf8");
   for (const required of [
     "Flutter must be $expected_flutter_version",
     "Xcode must be $expected_xcode_version",
@@ -123,6 +124,8 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   ]) assert.ok(script.includes(required), required);
   assert.match(script, /signed builds must be release candidates/);
   assert.match(script, /release candidate provenance output is required/);
+  assert.match(pubspec, /flutter:\n(?:.|\n)*?config:\n\s+enable-swift-package-manager: false/);
+  assert.doesNotMatch(pubspec, /enable-swift-package-manager: true/);
   assert.doesNotMatch(script, /\b(?:mapfile|readarray)\b/);
   assert.doesNotMatch(script, /app-store-connect|testflight|upload|publish/i);
 });

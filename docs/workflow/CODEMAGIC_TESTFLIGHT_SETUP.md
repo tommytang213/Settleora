@@ -136,6 +136,7 @@ The active signed-validation workflow:
 - Runs Flutter dependency, analyze, and non-visual test steps before signing.
 - Passes `testFlightInternalTestingOnly` through `xcode-project use-profiles`.
 - Resolves Flutter and CocoaPods dependencies without changing `pubspec.lock` or `Podfile.lock`.
+- Keeps Flutter Swift Package Manager integration disabled so the pinned CocoaPods graph remains the single reviewed native plugin recipe.
 - Projects only the reviewed `integration_test` development plugin out of production Flutter/Dart package metadata and registrants, while positively requiring FilePicker and Flutter secure storage registration.
 - Builds exactly one signed IPA/archive pair through the canonical wrapper.
 - Verifies the unchanged bundle identifier, signature, plugin calls/test-plugin absence, exact OCR catalog/models, and absence of acceptance fixtures, test classes/assets, and raw OCR evidence/log paths.
