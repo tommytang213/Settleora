@@ -43,6 +43,20 @@ export function buildFailureEvidence(args) {
   const preflightFailurePhase = isAllowedPreflightFailurePhase(platform, requestedPhase)
     ? requestedPhase
     : null;
+  const acceptance = extractFailureMarker(
+    args,
+    platform,
+    "SETTLEORA_OCR_ACCEPTANCE=",
+    sanitizeAcceptance,
+    { completed: false },
+  );
+  const uiSmoke = extractFailureMarker(
+    args,
+    platform,
+    "SETTLEORA_OCR_UI_SMOKE=",
+    sanitizeUiSmoke,
+    { completed: false },
+  );
   const boundedSize = (filePath) => {
     try {
       const size = statSync(filePath).size;
@@ -63,11 +77,45 @@ export function buildFailureEvidence(args) {
       stdoutBytes: boundedSize(args.log),
       stderrBytes: boundedSize(args["stderr-log"]),
     },
-    acceptance: { completed: false },
-    uiSmoke: { completed: false },
+    acceptance,
+    uiSmoke,
     diagnostics: extractFailureDiagnostics(args, platform),
     collectionFailure: "invalid_or_unavailable_bounded_evidence",
   };
+}
+
+function extractFailureMarker(args, platform, marker, sanitize, fallback) {
+  if (platform == null || typeof args.log !== "string") return fallback;
+  let log;
+  try {
+    if (statSync(args.log).size > maxLogBytes) return fallback;
+    log = readFileSync(args.log, "utf8");
+  } catch {
+    return fallback;
+  }
+  const markerMessages = [];
+  for (const line of log.split(/\r?\n/)) {
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (
+      event != null &&
+      !Array.isArray(event) &&
+      event.type === "print" &&
+      typeof event.message === "string" &&
+      event.message.startsWith(marker)
+    ) {
+      markerMessages.push(event.message);
+    }
+  }
+  try {
+    return parseMarker(markerMessages, marker, (value) => sanitize(value, platform), fallback);
+  } catch {
+    return fallback;
+  }
 }
 
 function parseOptionalBytes(value) {

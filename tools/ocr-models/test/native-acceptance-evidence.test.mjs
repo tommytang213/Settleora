@@ -404,6 +404,41 @@ test("failure evidence recovers only bounded diagnostics from an otherwise inval
   });
 });
 
+test("failure evidence recovers sanitized partial acceptance without trusting invalid protocol", () => {
+  const acceptance = {
+    schemaVersion: 1,
+    platform: "android",
+    completed: true,
+    networkIsolated: true,
+    fixtureCount: 101,
+    passedFixtureCount: 100,
+    mismatchCount: 1,
+    mismatches: [{ fixtureId: "fixture_001", field: "provider_status" }],
+    runtime: "onnxruntime-android:1.21.1:cpu",
+    coldLoadTimeMs: 25,
+    endToEndLatencyMs: { sampleCount: 101, cold: 30, warmP50: 20, warmP95: 24, max: 30 },
+    nativeLatencyMs: { sampleCount: 101, cold: 28, warmP50: 18, warmP95: 22, max: 28 },
+    peakRssBytes: 123456,
+    perScript: { Latin: { total: 101, passed: 100 } },
+  };
+  const markerEvent = JSON.stringify({
+    type: "print",
+    message: `SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify(acceptance)}`,
+    privateField: "must not be retained",
+  });
+  withLog(`untrusted tool output\n${markerEvent}\n`, (log) => {
+    const evidence = buildFailureEvidence({
+      ...evidenceArgs(log),
+      "test-status": "1",
+    });
+    assert.deepEqual(evidence.acceptance, acceptance);
+    assert.equal(evidence.collectionFailure, "invalid_or_unavailable_bounded_evidence");
+    assert.equal(JSON.stringify(evidence).includes("privateField"), false);
+    assert.equal(JSON.stringify(evidence).includes("untrusted tool output"), false);
+    assert.equal(isCompleteEvidence(evidence), false);
+  });
+});
+
 test("rejects all non-allowlisted application output and unresolved environment identity", () => {
   withLog(protocolLog("native diagnostic: unexpected receipt text"), (log) => {
     assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot), /non-allowlisted/);
