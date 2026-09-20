@@ -39,6 +39,7 @@ function provenanceArgs(root, mode = "signed") {
 
 test("directory identity is deterministic and binds safe relative symbolic links", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-ios-directory-hash-"));
+  const rootLink = `${root}-link`;
   try {
     mkdirSync(path.join(root, "nested"));
     writeFileSync(path.join(root, "nested/model.onnx"), "model");
@@ -57,7 +58,10 @@ test("directory identity is deterministic and binds safe relative symbolic links
     rmSync(path.join(root, "nested/model-link.onnx"));
     symlinkSync("../../outside", path.join(root, "nested/model-link.onnx"));
     assert.throws(() => hashDirectory(root), /escaping symbolic link/);
+    symlinkSync(root, rootLink, "dir");
+    assert.throws(() => hashDirectory(rootLink), /root must be a real directory/);
   } finally {
+    rmSync(rootLink, { force: true });
     rmSync(root, { recursive: true, force: true });
   }
 });

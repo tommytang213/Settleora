@@ -5,6 +5,10 @@ import { fileURLToPath } from "node:url";
 
 export function hashDirectory(root) {
   const resolvedRoot = path.resolve(root);
+  const rootStat = lstatSync(resolvedRoot);
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
+    throw new Error("Artifact root must be a real directory");
+  }
   const digest = createHash("sha256");
   const visit = (directory, prefix = "") => {
     for (const name of readdirSync(directory).sort()) {
