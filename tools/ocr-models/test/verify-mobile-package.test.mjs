@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
 import { verifyMobilePackage } from "../verify-mobile-package.mjs";
+import { trustedLegalArtifacts } from "../mobile-model-catalog.mjs";
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
@@ -25,6 +26,10 @@ function withPackageContract(callback) {
         }],
       }));
     writeFileSync(path.join(root, "apps/mobile/assets/receipt_ocr_models/catalog.json"), catalog);
+    for (const artifact of trustedLegalArtifacts) {
+      const bytes = readFileSync(path.join(repoRootForCli(), "apps/mobile", artifact.path));
+      writeFileSync(path.join(root, "apps/mobile", artifact.path), bytes);
+    }
     writeFileSync(
       path.join(root, "apps/mobile/test/fixtures/receipt_ocr/manifest.json"),
       JSON.stringify({ fixtures: Array.from({ length: 101 }, (_, index) => ({ file: `script/fixture-${index}.png` })) }),
@@ -42,6 +47,12 @@ test("verifies the catalog, every model, and concrete fixture absence in Android
     mkdirSync(path.dirname(modelPath), { recursive: true });
     writeFileSync(modelPath, model);
     writeFileSync(path.join(packageRoot, "assets/receipt_ocr_models/catalog.json"), catalog);
+    for (const artifact of trustedLegalArtifacts) {
+      writeFileSync(
+        path.join(packageRoot, artifact.path),
+        readFileSync(path.join(root, "apps/mobile", artifact.path)),
+      );
+    }
     const apk = path.join(root, "app.apk");
     execFileSync("zip", ["-q", "-r", apk, "assets"], { cwd: packageRoot });
     assert.deepEqual(
@@ -89,6 +100,12 @@ test("verifies the catalog, every model, and concrete fixture absence in iOS app
     mkdirSync(path.dirname(modelPath), { recursive: true });
     writeFileSync(modelPath, model);
     writeFileSync(path.join(app, "receipt_ocr_models/catalog.json"), catalog);
+    for (const artifact of trustedLegalArtifacts) {
+      writeFileSync(
+        path.join(app, artifact.path.replace(/^assets\//, "")),
+        readFileSync(path.join(root, "apps/mobile", artifact.path)),
+      );
+    }
 
     const extraModel = path.join(app, "receipt_ocr_models/test-pack/unlisted.onnx");
     writeFileSync(extraModel, "unreviewed");
@@ -100,6 +117,18 @@ test("verifies the catalog, every model, and concrete fixture absence in iOS app
     assert.deepEqual(
       verifyMobilePackage({ platform: "ios", packagePath: app, repoRoot: root }),
       { catalogFileCount: 1, modelFileCount: 1, fixtureFileCount: 102 },
+    );
+
+    const legalArtifact = trustedLegalArtifacts[0];
+    const packagedLegalPath = path.join(app, legalArtifact.path.replace(/^assets\//, ""));
+    writeFileSync(packagedLegalPath, "stale");
+    assert.throws(
+      () => verifyMobilePackage({ platform: "ios", packagePath: app, repoRoot: root }),
+      /catalog identity/,
+    );
+    writeFileSync(
+      packagedLegalPath,
+      readFileSync(path.join(root, "apps/mobile", legalArtifact.path)),
     );
 
     writeFileSync(path.join(app, "receipt_ocr_models/catalog.json"), "stale");

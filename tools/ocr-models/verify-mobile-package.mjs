@@ -4,6 +4,8 @@ import { lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { trustedLegalArtifacts } from "./mobile-model-catalog.mjs";
+
 const maxInventoryBytes = 32 * 1024 * 1024;
 const maxModelBytes = 64 * 1024 * 1024;
 
@@ -55,6 +57,11 @@ function expectedPackageContract(repoRoot) {
       sha256: sha256(catalogBytes),
     },
     models,
+    legalArtifacts: trustedLegalArtifacts.map((artifact, index) => ({
+      relativePath: safeRelativePath(artifact.path, `trustedLegalArtifacts[${index}].path`),
+      bytes: artifact.bytes,
+      sha256: artifact.sha256,
+    })),
     fixtures,
   };
 }
@@ -110,7 +117,11 @@ function verifyAndroidPackage(packagePath, contract, runCommand) {
     .filter((entry) => entry.startsWith("assets/receipt_ocr_models/") && !entry.endsWith("/"));
   assertExactModelInventory(
     packagedModels,
-    [contract.catalog.relativePath, ...contract.models.map((model) => model.relativePath)],
+    [
+      contract.catalog.relativePath,
+      ...contract.models.map((model) => model.relativePath),
+      ...contract.legalArtifacts.map((artifact) => artifact.relativePath),
+    ],
   );
   if (!entries.has(contract.catalog.relativePath)) {
     throw new Error(`Production APK is missing ${contract.catalog.relativePath}`);
@@ -132,6 +143,16 @@ function verifyAndroidPackage(packagePath, contract, runCommand) {
     });
     validateModel(bytes, model, entry);
   }
+  for (const artifact of contract.legalArtifacts) {
+    if (!entries.has(artifact.relativePath)) {
+      throw new Error(`Production APK is missing ${artifact.relativePath}`);
+    }
+    const bytes = runCommand("unzip", ["-p", packagePath, artifact.relativePath], {
+      encoding: "buffer",
+      maxBuffer: maxModelBytes,
+    });
+    validateModel(bytes, artifact, artifact.relativePath);
+  }
   for (const fixture of contract.fixtures) {
     const entry = `assets/${fixture}`;
     if (entries.has(entry)) throw new Error(`Production APK contains acceptance fixture ${entry}`);
@@ -149,6 +170,8 @@ function verifyIosPackage(packagePath, contract) {
     [
       "catalog.json",
       ...contract.models.map((model) => model.relativePath.replace(/^assets\/receipt_ocr_models\//, "")),
+      ...contract.legalArtifacts.map((artifact) =>
+        artifact.relativePath.replace(/^assets\/receipt_ocr_models\//, "")),
     ],
   );
   const catalogRelativePath = contract.catalog.relativePath.slice("assets/".length);
@@ -168,6 +191,15 @@ function verifyIosPackage(packagePath, contract) {
       throw new Error(`Production iOS app model is not a regular file: ${model.relativePath}`);
     }
     validateModel(readFileSync(filePath), model, model.relativePath);
+  }
+  for (const artifact of contract.legalArtifacts) {
+    const packagedRelativePath = artifact.relativePath.replace(/^assets\//, "");
+    const filePath = path.join(packagePath, ...packagedRelativePath.split("/"));
+    const stat = lstatSync(filePath);
+    if (!stat.isFile() || stat.isSymbolicLink()) {
+      throw new Error(`Production iOS app legal artifact is not a regular file: ${artifact.relativePath}`);
+    }
+    validateModel(readFileSync(filePath), artifact, artifact.relativePath);
   }
   for (const fixture of contract.fixtures) {
     const filePath = path.join(packagePath, "receipt_ocr_acceptance", ...fixture.split("/"));
