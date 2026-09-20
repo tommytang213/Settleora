@@ -258,7 +258,7 @@ jobs:
           cd ios
           pod install --deployment
           test -s Podfile.lock
-          test "$(shasum -a 256 Podfile.lock | awk '{print $1}')" = "08afc1413159dcd818b669869736fc56e38a99618a1f951e605b1eea02dc5189"
+          test "$(shasum -a 256 Podfile.lock | awk '{print $1}')" = "a5b6068c71fe9b0a77743d5c639b5538dd2be10db7ddd4ecd9317fee03541903"
           git diff --exit-code -- Podfile.lock
 
       - name: Boot trusted iOS simulator
