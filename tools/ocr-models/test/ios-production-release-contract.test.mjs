@@ -108,7 +108,7 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
     "pubspec.lock drifted during build",
     "pubspec.lock differs from the committed canonical source",
     "065007a0c8b90d527aff6306936a02cd527d30f03800cc8e4229e8273d3afcc7",
-    "6ee499d21f620dc366ae3db0cc83e6480eefb5a6d3640d90cbd3ad92a8627168",
+    "a5b6068c71fe9b0a77743d5c639b5538dd2be10db7ddd4ecd9317fee03541903",
     "Podfile.lock does not match the approved identity",
     "Podfile.lock drifted during build",
     "prepare-production-flutter-plugins.mjs",
