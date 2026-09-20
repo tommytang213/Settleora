@@ -40,7 +40,27 @@ function projectGeneratedRegistrant(projectRoot, platform) {
   writeFileSync(registrantPath, source, { mode: stat.mode & 0o777 });
 }
 
-export function prepareProductionFlutterPlugins(filePath, { requireIntegrationTest = false } = {}) {
+function projectPackageConfig(filePath, removed) {
+  const stat = lstatSync(filePath);
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.size <= 0 || stat.size > 4 * 1024 * 1024) {
+    throw new Error("Dart package configuration must be a bounded regular file");
+  }
+  const config = JSON.parse(readFileSync(filePath, "utf8"));
+  if (config == null || typeof config !== "object" || !Array.isArray(config.packages)) {
+    throw new Error("Dart package configuration has an invalid shape");
+  }
+  const removedEntries = config.packages.filter((entry) => removed.has(entry?.name));
+  if (removedEntries.length !== removed.size) {
+    throw new Error("Reviewed dev plugin package configuration is missing or duplicated");
+  }
+  config.packages = config.packages.filter((entry) => !removed.has(entry.name));
+  writeFileSync(filePath, `${JSON.stringify(config, null, 2)}\n`, { mode: stat.mode & 0o777 });
+}
+
+export function prepareProductionFlutterPlugins(
+  filePath,
+  { requireIntegrationTest = false, packageConfigPath } = {},
+) {
   const stat = lstatSync(filePath);
   if (!stat.isFile() || stat.isSymbolicLink() || stat.size <= 0 || stat.size > 4 * 1024 * 1024) {
     throw new Error("Flutter plugin metadata must be a bounded regular file");
@@ -77,6 +97,9 @@ export function prepareProductionFlutterPlugins(filePath, { requireIntegrationTe
   if (requireIntegrationTest && !removed.has("integration_test")) {
     throw new Error("Expected integration_test dev plugin was not present");
   }
+  if (removed.size > 0 && !packageConfigPath) {
+    throw new Error("Production package configuration projection is required");
+  }
   for (const node of metadata.dependencyGraph) {
     if (
       node == null ||
@@ -97,6 +120,7 @@ export function prepareProductionFlutterPlugins(filePath, { requireIntegrationTe
       dependencies: node.dependencies.filter((dependency) => !removed.has(dependency)),
     }));
   writeFileSync(filePath, `${JSON.stringify(metadata, null, 2)}\n`, { mode: stat.mode & 0o777 });
+  if (removed.size > 0) projectPackageConfig(packageConfigPath, removed);
   const projectRoot = path.dirname(path.resolve(filePath));
   for (const platform of removedPlatforms) {
     projectGeneratedRegistrant(projectRoot, platform);
@@ -110,7 +134,7 @@ function parseArgs(values) {
     const separator = value.indexOf("=");
     if (!value.startsWith("--") || separator < 3) throw new Error("Invalid production plugin argument");
     const key = value.slice(2, separator);
-    if (args.has(key) || !new Set(["file", "require-integration-test"]).has(key)) {
+    if (args.has(key) || !new Set(["file", "package-config", "require-integration-test"]).has(key)) {
       throw new Error("Unknown or duplicate production plugin argument");
     }
     args.set(key, value.slice(separator + 1));
@@ -123,6 +147,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   if (!args.get("file")) throw new Error("Missing production plugin metadata path");
   const removed = prepareProductionFlutterPlugins(path.resolve(args.get("file")), {
     requireIntegrationTest: args.get("require-integration-test") === "true",
+    packageConfigPath: args.get("package-config") ? path.resolve(args.get("package-config")) : undefined,
   });
   console.log(`Prepared production Flutter plugin metadata (${removed.length} reviewed dev plugin removed)`);
 }

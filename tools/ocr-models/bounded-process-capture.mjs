@@ -98,6 +98,11 @@ function processGroupExists(pid) {
     return true;
   } catch (error) {
     if (error?.code === "ESRCH") return false;
+    // macOS can deny a zero-signal probe of an extant detached group even
+    // when the wrapper owns its direct child. Treat that as still present so
+    // termination remains fail-closed rather than becoming an unhandled test
+    // rejection.
+    if (error?.code === "EPERM") return true;
     throw error;
   }
 }

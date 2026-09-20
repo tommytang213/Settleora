@@ -126,6 +126,8 @@ Real App Store Connect upload still requires:
 
 Run `Mobile iOS signed release candidate validation` manually only after the signing setup above is available. It uses Flutter 3.44.8, Xcode 16.4, and CocoaPods 1.17.0 and calls `apps/mobile/tool/build-production-ios.sh`, the same production preparation/build primitive used by the GitHub unsigned structural package lane. The canonical output is the one signed IPA and its corresponding distribution archive. The IPA SHA-256 and bounded provenance are retained beside those artifacts.
 
+The GitHub lane's unsigned `Runner.app` is structural evidence only. Its provenance is explicitly non-promotable; only the signed Codemagic IPA identified by the signed build-once provenance contract may become a retained release candidate.
+
 The active signed-validation workflow:
 
 - Uses `integrations.app_store_connect: settleora-app-store-connect`.
@@ -134,7 +136,7 @@ The active signed-validation workflow:
 - Runs Flutter dependency, analyze, and non-visual test steps before signing.
 - Passes `testFlightInternalTestingOnly` through `xcode-project use-profiles`.
 - Resolves Flutter and CocoaPods dependencies without changing `pubspec.lock` or `Podfile.lock`.
-- Projects only the reviewed `integration_test` development plugin out of production metadata and registrants, while positively requiring FilePicker and Flutter secure storage registration.
+- Projects only the reviewed `integration_test` development plugin out of production Flutter/Dart package metadata and registrants, while positively requiring FilePicker and Flutter secure storage registration.
 - Builds exactly one signed IPA/archive pair through the canonical wrapper.
 - Verifies the unchanged bundle identifier, signature, plugin calls/test-plugin absence, exact OCR catalog/models, and absence of acceptance fixtures, test classes/assets, and raw OCR evidence/log paths.
 - Verifies the packaged short version/build number against the requested signed-build identity and writes those values with source/tree, toolchain, lockfile, OCR catalog/manifest, artifact filenames, and immutable IPA/archive SHA-256 provenance.

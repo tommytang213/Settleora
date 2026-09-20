@@ -85,6 +85,18 @@ test("signed provenance binds the exact artifact and forbids publication", () =>
   }
 });
 
+test("unsigned structural provenance is explicitly non-promotable", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-ios-unsigned-provenance-"));
+  try {
+    const provenance = buildProvenance(provenanceArgs(root, "unsigned"));
+    assert.equal(provenance.contract, "settleora-ios-unsigned-structural-verification-v1");
+    assert.equal(provenance.promotionPolicy, "not-promotable-unsigned-structural-evidence");
+    assert.equal(provenance.verification.codeSignatureVerified, false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("canonical wrapper fails closed around projection, locks, package inspection, and signing", () => {
   const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
   for (const required of [
@@ -92,8 +104,12 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
     "Xcode must be $expected_xcode_version",
     "CocoaPods must be $expected_cocoapods_version",
     "pubspec.lock drifted during build",
+    "pubspec.lock differs from the committed canonical source",
+    "065007a0c8b90d527aff6306936a02cd527d30f03800cc8e4229e8273d3afcc7",
+    "Podfile.lock does not match the approved identity",
     "Podfile.lock drifted during build",
     "prepare-production-flutter-plugins.mjs",
+    "--package-config=.dart_tool/package_config.json",
     "verify-mobile-package.mjs",
     "FilePicker registrant call is missing or duplicated",
     "Flutter secure storage registrant call is missing or duplicated",

@@ -6,6 +6,7 @@ expected_flutter_version=3.44.8
 expected_xcode_version=16.4
 expected_cocoapods_version=1.17.0
 expected_bundle_identifier=com.tommytang213.settleora
+default_pubspec_lock_sha=065007a0c8b90d527aff6306936a02cd527d30f03800cc8e4229e8273d3afcc7
 default_podfile_lock_sha=08afc1413159dcd818b669869736fc56e38a99618a1f951e605b1eea02dc5189
 
 mode=
@@ -66,6 +67,7 @@ if [[ "$artifact_class" == release-candidate ]]; then
   [[ "$podfile_lock_sha" == "$default_podfile_lock_sha" ]] || fail "release candidate must use the canonical Podfile.lock"
   [[ "$require_integration_test" == true ]] || fail "release candidate must prove integration_test projection"
   [[ "$tool_root" == "$repo_root" ]] || fail "release candidate must use tooling from its exact source tree"
+  [[ "$mobile_root" == "$repo_root/apps/mobile" ]] || fail "release candidate must use the canonical mobile source tree"
   [[ -n "$provenance_out" ]] || fail "release candidate provenance output is required"
 fi
 
@@ -102,6 +104,9 @@ sha256_file() {
 }
 
 pubspec_lock_sha=$(sha256_file "$mobile_root/pubspec.lock")
+if [[ "$artifact_class" == release-candidate ]]; then
+  [[ "$pubspec_lock_sha" == "$default_pubspec_lock_sha" ]] || fail "pubspec.lock differs from the committed canonical source"
+fi
 [[ "$(sha256_file "$mobile_root/ios/Podfile.lock")" == "$podfile_lock_sha" ]] || fail "Podfile.lock does not match the approved identity"
 catalog_sha=$(sha256_file "$mobile_root/assets/receipt_ocr_models/catalog.json")
 fixture_manifest_sha=$(sha256_file "$mobile_root/test/fixtures/receipt_ocr/manifest.json")
@@ -112,6 +117,7 @@ flutter pub get
 
 node "$tool_root/tools/ocr-models/prepare-production-flutter-plugins.mjs" \
   --file=.flutter-plugins-dependencies \
+  --package-config=.dart_tool/package_config.json \
   --require-integration-test="$require_integration_test"
 
 (

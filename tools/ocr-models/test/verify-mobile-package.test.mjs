@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
@@ -60,6 +60,17 @@ test("verifies the catalog, every model, and concrete fixture absence in Android
     rmSync(apk);
     execFileSync("zip", ["-q", "-r", apk, "assets"], { cwd: packageRoot });
 
+    const extraModel = path.join(packageRoot, "assets/receipt_ocr_models/test-pack/unlisted.onnx");
+    writeFileSync(extraModel, "unreviewed");
+    execFileSync("zip", ["-q", "-u", apk, "assets/receipt_ocr_models/test-pack/unlisted.onnx"], { cwd: packageRoot });
+    assert.throws(
+      () => verifyMobilePackage({ platform: "android", packagePath: apk, repoRoot: root }),
+      /inventory differs from the catalog/,
+    );
+    rmSync(extraModel);
+    rmSync(apk);
+    execFileSync("zip", ["-q", "-r", apk, "assets"], { cwd: packageRoot });
+
     const fixturePath = path.join(packageRoot, "assets/script/fixture-0.png");
     mkdirSync(path.dirname(fixturePath), { recursive: true });
     writeFileSync(fixturePath, "fixture");
@@ -78,6 +89,14 @@ test("verifies the catalog, every model, and concrete fixture absence in iOS app
     mkdirSync(path.dirname(modelPath), { recursive: true });
     writeFileSync(modelPath, model);
     writeFileSync(path.join(app, "receipt_ocr_models/catalog.json"), catalog);
+
+    const extraModel = path.join(app, "receipt_ocr_models/test-pack/unlisted.onnx");
+    writeFileSync(extraModel, "unreviewed");
+    assert.throws(
+      () => verifyMobilePackage({ platform: "ios", packagePath: app, repoRoot: root }),
+      /inventory differs from the catalog/,
+    );
+    rmSync(extraModel);
     assert.deepEqual(
       verifyMobilePackage({ platform: "ios", packagePath: app, repoRoot: root }),
       { catalogFileCount: 1, modelFileCount: 1, fixtureFileCount: 102 },
@@ -99,3 +118,23 @@ test("verifies the catalog, every model, and concrete fixture absence in iOS app
     );
   });
 });
+
+test("CLI reports bounded package-verification failures without local paths", () => {
+  withPackageContract(({ root }) => {
+    const missingPackage = path.join(root, "private-build-root/Runner.app");
+    const result = spawnSync(process.execPath, [
+      path.join(repoRootForCli(), "tools/ocr-models/verify-mobile-package.mjs"),
+      "--platform=ios",
+      `--package=${missingPackage}`,
+      `--repo-root=${root}`,
+    ], { encoding: "utf8" });
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.equal(result.stderr, "Production package verification failed: package contract mismatch\n");
+    assert.equal(result.stderr.includes(root), false);
+  });
+});
+
+function repoRootForCli() {
+  return path.resolve(import.meta.dirname, "../../..");
+}

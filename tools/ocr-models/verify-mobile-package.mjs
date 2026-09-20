@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { lstatSync, readFileSync } from "node:fs";
+import { lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -71,12 +71,47 @@ function validateModel(bytes, expected, name) {
   }
 }
 
+function assertExactModelInventory(actualEntries, expectedEntries) {
+  const actual = [...actualEntries].sort();
+  const expected = [...expectedEntries].sort();
+  if (
+    actual.length !== expected.length ||
+    actual.some((entry, index) => entry !== expected[index])
+  ) {
+    throw new Error("Production package model inventory differs from the catalog");
+  }
+}
+
+function iosModelInventory(modelRoot) {
+  const files = [];
+  const visit = (directory, prefix = "") => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isSymbolicLink()) {
+        throw new Error("Production iOS app model inventory contains a symbolic link");
+      }
+      if (entry.isDirectory()) visit(path.join(directory, entry.name), relativePath);
+      else if (entry.isFile()) files.push(relativePath);
+      else throw new Error("Production iOS app model inventory contains an unsupported entry");
+    }
+  };
+  visit(modelRoot);
+  return files;
+}
+
 function verifyAndroidPackage(packagePath, contract, runCommand) {
   const inventory = runCommand("unzip", ["-Z1", packagePath], {
     encoding: "utf8",
     maxBuffer: maxInventoryBytes,
   });
   const entries = new Set(inventory.split(/\r?\n/).filter(Boolean));
+  const packagedModels = inventory
+    .split(/\r?\n/)
+    .filter((entry) => entry.startsWith("assets/receipt_ocr_models/") && !entry.endsWith("/"));
+  assertExactModelInventory(
+    packagedModels,
+    [contract.catalog.relativePath, ...contract.models.map((model) => model.relativePath)],
+  );
   if (!entries.has(contract.catalog.relativePath)) {
     throw new Error(`Production APK is missing ${contract.catalog.relativePath}`);
   }
@@ -104,6 +139,18 @@ function verifyAndroidPackage(packagePath, contract, runCommand) {
 }
 
 function verifyIosPackage(packagePath, contract) {
+  const modelRoot = path.join(packagePath, "receipt_ocr_models");
+  const modelRootStat = lstatSync(modelRoot);
+  if (!modelRootStat.isDirectory() || modelRootStat.isSymbolicLink()) {
+    throw new Error("Production iOS app model root is not a real directory");
+  }
+  assertExactModelInventory(
+    iosModelInventory(modelRoot),
+    [
+      "catalog.json",
+      ...contract.models.map((model) => model.relativePath.replace(/^assets\/receipt_ocr_models\//, "")),
+    ],
+  );
   const catalogRelativePath = contract.catalog.relativePath.slice("assets/".length);
   const catalogFilePath = path.join(packagePath, ...catalogRelativePath.split("/"));
   const catalogStat = lstatSync(catalogFilePath);
@@ -157,15 +204,20 @@ function parseArgs(values) {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
-  const args = parseArgs(process.argv.slice(2));
-  const result = verifyMobilePackage({
-    platform: args.platform,
-    packagePath: path.resolve(args.package),
-    repoRoot: path.resolve(args["repo-root"] ?? "."),
-  });
-  if (args.json === "true") {
-    console.log(JSON.stringify(result));
-  } else {
-    console.log(`Verified ${args.platform} production package: catalog identity; ${result.modelFileCount} catalog model files; ${result.fixtureFileCount} acceptance fixture paths absent`);
+  try {
+    const args = parseArgs(process.argv.slice(2));
+    const result = verifyMobilePackage({
+      platform: args.platform,
+      packagePath: path.resolve(args.package),
+      repoRoot: path.resolve(args["repo-root"] ?? "."),
+    });
+    if (args.json === "true") {
+      console.log(JSON.stringify(result));
+    } else {
+      console.log(`Verified ${args.platform} production package: catalog identity; ${result.modelFileCount} catalog model files; ${result.fixtureFileCount} acceptance fixture paths absent`);
+    }
+  } catch {
+    console.error("Production package verification failed: package contract mismatch");
+    process.exitCode = 1;
   }
 }

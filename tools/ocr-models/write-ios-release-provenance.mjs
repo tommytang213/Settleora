@@ -57,6 +57,7 @@ function requireBuildIdentity(value, pattern, name) {
 
 export function buildProvenance(args) {
   if (!new Set(["signed", "unsigned"]).has(args.get("mode"))) throw new Error("Invalid build mode");
+  const signed = args.get("mode") === "signed";
   const artifact = args.get("artifact");
   const artifactStat = lstatSync(artifact);
   if (args.get("mode") === "signed" && !artifactStat.isFile()) throw new Error("Signed artifact is not a regular file");
@@ -70,8 +71,12 @@ export function buildProvenance(args) {
   if (args.get("mode") === "unsigned" && archiveSha256) throw new Error("Unsigned artifact cannot have an archive identity");
   return {
     schemaVersion: 1,
-    contract: "settleora-ios-build-once-promote-same-artifact-v1",
-    promotionPolicy: "promote-this-exact-signed-ipa-without-rebuild",
+    contract: signed
+      ? "settleora-ios-build-once-promote-same-artifact-v1"
+      : "settleora-ios-unsigned-structural-verification-v1",
+    promotionPolicy: signed
+      ? "promote-this-exact-signed-ipa-without-rebuild"
+      : "not-promotable-unsigned-structural-evidence",
     publicationPerformed: false,
     mode: args.get("mode"),
     source: {
