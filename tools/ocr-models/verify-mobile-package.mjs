@@ -29,7 +29,9 @@ function sha256(bytes) {
 }
 
 function expectedPackageContract(repoRoot) {
-  const catalog = readJson(path.join(repoRoot, "apps/mobile/assets/receipt_ocr_models/catalog.json"));
+  const catalogPath = path.join(repoRoot, "apps/mobile/assets/receipt_ocr_models/catalog.json");
+  const catalogBytes = readFileSync(catalogPath);
+  const catalog = JSON.parse(catalogBytes.toString("utf8"));
   const manifest = readJson(path.join(repoRoot, "apps/mobile/test/fixtures/receipt_ocr/manifest.json"));
   const models = catalog.packs.flatMap((pack, packIndex) =>
     pack.files.map((file, fileIndex) => ({
@@ -46,7 +48,15 @@ function expectedPackageContract(repoRoot) {
     ...manifest.fixtures.map((fixture, index) =>
       safeRelativePath(fixture.file, `manifest.fixtures[${index}].file`)),
   ];
-  return { models, fixtures };
+  return {
+    catalog: {
+      relativePath: "assets/receipt_ocr_models/catalog.json",
+      bytes: catalogBytes.length,
+      sha256: sha256(catalogBytes),
+    },
+    models,
+    fixtures,
+  };
 }
 
 function validateModel(bytes, expected, name) {
@@ -67,6 +77,17 @@ function verifyAndroidPackage(packagePath, contract, runCommand) {
     maxBuffer: maxInventoryBytes,
   });
   const entries = new Set(inventory.split(/\r?\n/).filter(Boolean));
+  if (!entries.has(contract.catalog.relativePath)) {
+    throw new Error(`Production APK is missing ${contract.catalog.relativePath}`);
+  }
+  validateModel(
+    runCommand("unzip", ["-p", packagePath, contract.catalog.relativePath], {
+      encoding: "buffer",
+      maxBuffer: maxModelBytes,
+    }),
+    contract.catalog,
+    contract.catalog.relativePath,
+  );
   for (const model of contract.models) {
     const entry = model.relativePath;
     if (!entries.has(entry)) throw new Error(`Production APK is missing ${entry}`);
@@ -83,6 +104,13 @@ function verifyAndroidPackage(packagePath, contract, runCommand) {
 }
 
 function verifyIosPackage(packagePath, contract) {
+  const catalogRelativePath = contract.catalog.relativePath.slice("assets/".length);
+  const catalogFilePath = path.join(packagePath, ...catalogRelativePath.split("/"));
+  const catalogStat = lstatSync(catalogFilePath);
+  if (!catalogStat.isFile() || catalogStat.isSymbolicLink()) {
+    throw new Error("Production iOS app catalog is not a regular file");
+  }
+  validateModel(readFileSync(catalogFilePath), contract.catalog, contract.catalog.relativePath);
   for (const model of contract.models) {
     const packagedRelativePath = model.relativePath.startsWith("assets/")
       ? model.relativePath.slice("assets/".length)
@@ -113,7 +141,11 @@ export function verifyMobilePackage({ platform, packagePath, repoRoot, runComman
   }
   if (platform === "android") verifyAndroidPackage(packagePath, contract, runCommand);
   else verifyIosPackage(packagePath, contract);
-  return { modelFileCount: contract.models.length, fixtureFileCount: contract.fixtures.length };
+  return {
+    catalogFileCount: 1,
+    modelFileCount: contract.models.length,
+    fixtureFileCount: contract.fixtures.length,
+  };
 }
 
 function parseArgs(values) {
@@ -134,6 +166,6 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   if (args.json === "true") {
     console.log(JSON.stringify(result));
   } else {
-    console.log(`Verified ${args.platform} production package: ${result.modelFileCount} catalog model files; ${result.fixtureFileCount} acceptance fixture paths absent`);
+    console.log(`Verified ${args.platform} production package: catalog identity; ${result.modelFileCount} catalog model files; ${result.fixtureFileCount} acceptance fixture paths absent`);
   }
 }

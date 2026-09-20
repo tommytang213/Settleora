@@ -105,11 +105,13 @@ jobs:
             lock_sha=$(sha256sum pubspec.lock | awk '{print $1}')
             flutter pub get
             test "$(sha256sum pubspec.lock | awk '{print $1}')" = "$lock_sha"
+            node "$GITHUB_WORKSPACE/tools/ocr-models/prepare-production-flutter-plugins.mjs" --file=.flutter-plugins-dependencies --require-integration-test=true
             flutter build apk --release --no-pub
           )
           full_apk="$candidate_dir/apps/mobile/build/app/outputs/flutter-apk/app-release.apk"
           full_bytes=$(stat -c %s "$full_apk")
           package_verification=$(node tools/ocr-models/verify-mobile-package.mjs --platform=android --package="$full_apk" --repo-root="$candidate_dir" --json=true)
+          verified_catalog_file_count=$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).catalogFileCount))' "$package_verification")
           verified_model_file_count=$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).modelFileCount))' "$package_verification")
           verified_fixture_absence_count=$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).fixtureFileCount))' "$package_verification")
           apkanalyzer="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
@@ -129,6 +131,7 @@ jobs:
             lock_sha=$(sha256sum pubspec.lock | awk '{print $1}')
             flutter pub get
             test "$(sha256sum pubspec.lock | awk '{print $1}')" = "$lock_sha"
+            node "$GITHUB_WORKSPACE/tools/ocr-models/prepare-production-flutter-plugins.mjs" --file=.flutter-plugins-dependencies --require-integration-test=true
             flutter build apk --release --no-pub
           )
           model_free_bytes=$(stat -c %s "$full_apk")
@@ -142,6 +145,7 @@ jobs:
             lock_sha=$(sha256sum pubspec.lock | awk '{print $1}')
             flutter pub get
             test "$(sha256sum pubspec.lock | awk '{print $1}')" = "$lock_sha"
+            node "$GITHUB_WORKSPACE/tools/ocr-models/prepare-production-flutter-plugins.mjs" --file=.flutter-plugins-dependencies --require-integration-test=true
             flutter build apk --release --no-pub
           )
           base_app_bytes=$(stat -c %s "$base_dir/apps/mobile/build/app/outputs/flutter-apk/app-release.apk")
@@ -150,6 +154,7 @@ jobs:
           echo "base_app_bytes=$base_app_bytes" >> "$GITHUB_OUTPUT"
           echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
           echo "verified_model_file_count=$verified_model_file_count" >> "$GITHUB_OUTPUT"
+          echo "verified_catalog_file_count=$verified_catalog_file_count" >> "$GITHUB_OUTPUT"
           echo "verified_fixture_absence_count=$verified_fixture_absence_count" >> "$GITHUB_OUTPUT"
 
       - name: Build bounded Android evidence
@@ -176,6 +181,7 @@ jobs:
             --base-app-bytes="${{ steps.package.outputs.base_app_bytes }}" \
             --base-sha="${{ steps.package.outputs.base_sha }}" \
             --verified-model-file-count="${{ steps.package.outputs.verified_model_file_count }}" \
+            --verified-catalog-file-count="${{ steps.package.outputs.verified_catalog_file_count }}" \
             --verified-fixture-absence-count="${{ steps.package.outputs.verified_fixture_absence_count }}" \
             --require-complete=true
 
@@ -282,6 +288,7 @@ jobs:
             lock_sha=$(shasum -a 256 pubspec.lock | awk '{print $1}')
             flutter pub get
             test "$(shasum -a 256 pubspec.lock | awk '{print $1}')" = "$lock_sha"
+            node "$GITHUB_WORKSPACE/tools/ocr-models/prepare-production-flutter-plugins.mjs" --file=.flutter-plugins-dependencies --require-integration-test=true
             cd ios
             pod install --deployment
             test "$(shasum -a 256 Podfile.lock | awk '{print $1}')" = "08afc1413159dcd818b669869736fc56e38a99618a1f951e605b1eea02dc5189"
@@ -291,6 +298,7 @@ jobs:
           full_app="$candidate_dir/apps/mobile/build/ios/iphoneos/Runner.app"
           full_bytes=$(find "$full_app" -type f -exec stat -f %z {} + | awk '{sum += $1} END {print sum}')
           package_verification=$(node tools/ocr-models/verify-mobile-package.mjs --platform=ios --package="$full_app" --repo-root="$candidate_dir" --json=true)
+          verified_catalog_file_count=$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).catalogFileCount))' "$package_verification")
           verified_model_file_count=$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).modelFileCount))' "$package_verification")
           verified_fixture_absence_count=$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).fixtureFileCount))' "$package_verification")
           : >"$RUNNER_TEMP/ios-production-symbols.txt"
@@ -317,6 +325,7 @@ jobs:
             lock_sha=$(shasum -a 256 pubspec.lock | awk '{print $1}')
             flutter pub get
             test "$(shasum -a 256 pubspec.lock | awk '{print $1}')" = "$lock_sha"
+            node "$GITHUB_WORKSPACE/tools/ocr-models/prepare-production-flutter-plugins.mjs" --file=.flutter-plugins-dependencies --require-integration-test=true
             cd ios
             pod install --deployment
             test "$(shasum -a 256 Podfile.lock | awk '{print $1}')" = "08afc1413159dcd818b669869736fc56e38a99618a1f951e605b1eea02dc5189"
@@ -335,6 +344,7 @@ jobs:
             lock_sha=$(shasum -a 256 pubspec.lock | awk '{print $1}')
             flutter pub get
             test "$(shasum -a 256 pubspec.lock | awk '{print $1}')" = "$lock_sha"
+            node "$GITHUB_WORKSPACE/tools/ocr-models/prepare-production-flutter-plugins.mjs" --file=.flutter-plugins-dependencies --require-integration-test=true
             cd ios
             pod install --deployment
             test "$(shasum -a 256 Podfile.lock | awk '{print $1}')" = "486ba24476c7ae0be32927fa9239599749f285d7a5a48129caebe4437ed6cc30"
@@ -347,6 +357,7 @@ jobs:
           echo "base_app_bytes=$base_app_bytes" >> "$GITHUB_OUTPUT"
           echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
           echo "verified_model_file_count=$verified_model_file_count" >> "$GITHUB_OUTPUT"
+          echo "verified_catalog_file_count=$verified_catalog_file_count" >> "$GITHUB_OUTPUT"
           echo "verified_fixture_absence_count=$verified_fixture_absence_count" >> "$GITHUB_OUTPUT"
 
       - name: Build bounded iOS evidence
@@ -373,6 +384,7 @@ jobs:
             --base-app-bytes="${{ steps.package.outputs.base_app_bytes }}" \
             --base-sha="${{ steps.package.outputs.base_sha }}" \
             --verified-model-file-count="${{ steps.package.outputs.verified_model_file_count }}" \
+            --verified-catalog-file-count="${{ steps.package.outputs.verified_catalog_file_count }}" \
             --verified-fixture-absence-count="${{ steps.package.outputs.verified_fixture_absence_count }}" \
             --require-complete=true
 

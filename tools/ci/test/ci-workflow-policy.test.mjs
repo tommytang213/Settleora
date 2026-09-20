@@ -200,6 +200,14 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
     assert.ok(packageCommands.includes('lock_sha='));
     assert.ok(packageCommands.includes('pubspec.lock'));
     assert.ok(packageCommands.includes('test "$('));
+    assert.equal(
+      packageCommands.split('prepare-production-flutter-plugins.mjs').length - 1,
+      3,
+    );
+    assert.equal(
+      packageCommands.split('--require-integration-test=true').length - 1,
+      3,
+    );
     const executionCommands = jobName === 'android-native-acceptance'
       ? [read('tools/ocr-models/run-android-native-acceptance.sh')]
       : [read('tools/ocr-models/run-ios-native-acceptance.sh')];
@@ -225,6 +233,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
     assert.ok(allCommands.some((command) => command.includes('--device=')));
     assert.ok(runCommands(job).some((command) => command.includes('--base-app-bytes=')));
     assert.ok(runCommands(job).some((command) => command.includes('--verified-model-file-count=')));
+    assert.ok(runCommands(job).some((command) => command.includes('--verified-catalog-file-count=')));
     assert.ok(runCommands(job).some((command) => command.includes('--verified-fixture-absence-count=')));
     assert.ok(runCommands(job).some((command) => command.includes('git archive')));
     assert.ok(runCommands(job).some((command) => command.includes('git archive "$EXPECTED_HEAD"')));

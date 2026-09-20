@@ -73,7 +73,18 @@ test("rejects start events that omit the runner version property", () => {
   withLog(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`, (logPath) => {
     assert.throws(
       () => buildEvidence(evidenceArgs(logPath), repoRoot),
-      /runnerVersion is required/,
+      /missing required fields/,
+    );
+  });
+});
+
+test("rejects any protocol event that omits a declared schema property", () => {
+  const events = protocolLog().trimEnd().split("\n").map((line) => JSON.parse(line));
+  delete events.find((event) => event.type === "testDone").hidden;
+  withLog(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`, (logPath) => {
+    assert.throws(
+      () => buildEvidence(evidenceArgs(logPath), repoRoot),
+      /missing required fields/,
     );
   });
 });
@@ -116,6 +127,7 @@ test("retains only the bounded native acceptance schema", () => {
           "model-free-bytes": "150",
           "base-app-bytes": "100",
           "verified-model-file-count": "14",
+          "verified-catalog-file-count": "1",
           "verified-fixture-absence-count": "102",
         },
         repoRoot,
@@ -126,6 +138,7 @@ test("retains only the bounded native acceptance schema", () => {
       assert.equal(evidence.packageEvidence.ocrStackPackageDeltaBytes, 100);
       assert.equal(evidence.packageEvidence.catalogModelFileCount, 14);
       assert.equal(evidence.packageEvidence.verifiedModelFileCount, 14);
+      assert.equal(evidence.packageEvidence.verifiedCatalogFileCount, 1);
       assert.equal(evidence.packageEvidence.verifiedFixtureAbsenceCount, 102);
       assert.equal(evidence.identities.fixtureTreeSha256.length, 64);
       assert.equal(evidence.execution.testExitStatus, 0);
@@ -160,6 +173,8 @@ test("complete evidence requires both package measurements and a positive delta"
       baseAppBytes: 100,
       ocrStackPackageDeltaBytes: 100,
       catalogModelFileCount: 14,
+      expectedCatalogFileCount: 1,
+      verifiedCatalogFileCount: 1,
       verifiedModelFileCount: 14,
       expectedFixtureAbsenceCount: 102,
       verifiedFixtureAbsenceCount: 102,
@@ -322,7 +337,12 @@ test("failure evidence retains bounded phase and status before environment colle
       schemaVersion: 1,
       platform: "android",
       sourceSha,
-      execution: { testExitStatus: 20, preflightFailurePhase: "resolve_tools" },
+      execution: {
+        testExitStatus: 20,
+        preflightFailurePhase: "resolve_tools",
+        stdoutBytes: null,
+        stderrBytes: null,
+      },
       acceptance: { completed: false },
       uiSmoke: { completed: false },
       diagnostics: [],
@@ -335,7 +355,12 @@ test("failure evidence retains bounded phase and status before environment colle
     "test-status": "private",
     "failure-phase": "private diagnostic",
   });
-  assert.deepEqual(rejected.execution, { testExitStatus: null, preflightFailurePhase: null });
+  assert.deepEqual(rejected.execution, {
+    testExitStatus: null,
+    preflightFailurePhase: null,
+    stdoutBytes: null,
+    stderrBytes: null,
+  });
   assert.equal(rejected.sourceSha, null);
   assert.equal(buildFailureEvidence({ "test-status": "" }).execution.testExitStatus, null);
   assert.equal(buildFailureEvidence({}).execution.testExitStatus, null);
@@ -346,7 +371,12 @@ test("failure evidence retains bounded phase and status before environment colle
       "test-status": "98",
       "failure-phase": "build_network_isolation",
     }).execution,
-    { testExitStatus: 98, preflightFailurePhase: "build_network_isolation" },
+    {
+      testExitStatus: 98,
+      preflightFailurePhase: "build_network_isolation",
+      stdoutBytes: null,
+      stderrBytes: null,
+    },
   );
 });
 
@@ -598,6 +628,23 @@ test("requires the exact declared acceptance tests and marker owners", () => {
   });
 });
 
+test("rejects dangling and cross-suite protocol references", () => {
+  const danglingSuite = protocolLog().replace('"suiteID":1,"groupIDs":[1]', '"suiteID":999,"groupIDs":[1]');
+  withLog(danglingSuite, (logPath) => {
+    assert.throws(() => buildEvidence(evidenceArgs(logPath), repoRoot), /suite\/group reference/);
+  });
+
+  const danglingGroup = protocolLog().replace('"groupIDs":[1]', '"groupIDs":[999]');
+  withLog(danglingGroup, (logPath) => {
+    assert.throws(() => buildEvidence(evidenceArgs(logPath), repoRoot), /suite\/group reference/);
+  });
+
+  const danglingParent = protocolLog().replace('"parentID":null', '"parentID":999');
+  withLog(danglingParent, (logPath) => {
+    assert.throws(() => buildEvidence(evidenceArgs(logPath), repoRoot), /group reference/);
+  });
+});
+
 test("rejects non-print Flutter message types", () => {
   const log = protocolLog("SETTLEORA_OCR_ACCEPTANCE={}")
     .replace('"messageType":"print"', '"messageType":"skip"');
@@ -619,6 +666,7 @@ test("rejects unbounded marker tokens rather than retaining arbitrary OCR text",
     schemaVersion: 1,
     platform: "android",
     completed: true,
+    networkIsolated: true,
     fixtureCount: 101,
     passedFixtureCount: 0,
     mismatchCount: 1,
@@ -643,6 +691,7 @@ test("rejects contradictory aggregate counts and package measurements", () => {
     schemaVersion: 1,
     platform: "android",
     completed: true,
+    networkIsolated: true,
     fixtureCount: 101,
     passedFixtureCount: 101,
     mismatchCount: 1,

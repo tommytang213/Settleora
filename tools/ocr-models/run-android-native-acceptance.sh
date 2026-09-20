@@ -28,8 +28,8 @@ emulator_revision=$("$sdkmanager" --list_installed 2>/dev/null | awk -F'|' '$1 ~
 test "$system_image_revision" = "9"
 test "$emulator_revision" = "37.1.11"
 phase=verify_device
-test "$(timeout 5 "$adb" -s emulator-5554 get-state)" = "device"
-test "$(timeout 5 "$adb" -s emulator-5554 shell getprop sys.boot_completed | tr -d '\r')" = "1"
+test "$(timeout 5 "$adb" -s emulator-5554 get-state 2>/dev/null)" = "device"
+test "$(timeout 5 "$adb" -s emulator-5554 shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1"
 
 phase=emit_environment
 : "${ImageOS:?Hosted runner image OS is unavailable}"

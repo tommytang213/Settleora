@@ -43,13 +43,26 @@ export function buildFailureEvidence(args) {
   const preflightFailurePhase = isAllowedPreflightFailurePhase(platform, requestedPhase)
     ? requestedPhase
     : null;
+  const boundedSize = (filePath) => {
+    try {
+      const size = statSync(filePath).size;
+      return Number.isSafeInteger(size) && size >= 0 && size <= maxLogBytes ? size : null;
+    } catch {
+      return null;
+    }
+  };
   return {
     schemaVersion: 1,
     platform,
     sourceSha: /^[0-9a-f]{40}$/.test(args["source-sha"] ?? "")
       ? args["source-sha"]
       : null,
-    execution: { testExitStatus, preflightFailurePhase },
+    execution: {
+      testExitStatus,
+      preflightFailurePhase,
+      stdoutBytes: boundedSize(args.log),
+      stderrBytes: boundedSize(args["stderr-log"]),
+    },
     acceptance: { completed: false },
     uiSmoke: { completed: false },
     diagnostics: extractFailureDiagnostics(args, platform),
@@ -100,6 +113,8 @@ function assertExactKeys(value, allowed, name) {
   }
   const extras = Object.keys(value).filter((key) => !allowed.includes(key));
   if (extras.length > 0) throw new Error(`${name} contains non-allowlisted fields`);
+  const missing = allowed.filter((key) => !Object.hasOwn(value, key));
+  if (missing.length > 0) throw new Error(`${name} is missing required fields`);
 }
 
 function assertType(value, type, name, { nullable = false } = {}) {
@@ -288,6 +303,8 @@ function parseSafeRunnerLog(log, stderrLog) {
   let protocolStarted = false;
   let protocolDone = false;
   const startedTests = new Map();
+  const suites = new Set();
+  const groups = new Map();
   const completedTestIds = new Set();
   for (const [index, line] of log.split(/\r?\n/).entries()) {
     if (line === "") continue;
@@ -331,18 +348,50 @@ function parseSafeRunnerLog(log, stderrLog) {
       declaredSuiteCount = event.count;
     }
     if (event.type === "suite") {
+      if (suites.has(event.suite.id)) throw new Error("Acceptance runner emitted a duplicate suite");
+      suites.add(event.suite.id);
       suiteCount += 1;
       if (!event.suite.path.endsWith("integration_test/receipt_ocr_real_provider_test.dart")) {
         throw new Error("Acceptance runner suite identity is invalid");
       }
     }
-    if (event.type === "group" && event.group.parentID == null) {
-      rootGroupCount += 1;
-      declaredRootTestCount = event.group.testCount;
+    if (event.type === "group") {
+      if (
+        groups.has(event.group.id) ||
+        !suites.has(event.group.suiteID) ||
+        (event.group.parentID != null && !groups.has(event.group.parentID))
+      ) {
+        throw new Error("Acceptance runner emitted an invalid group reference");
+      }
+      if (
+        event.group.parentID != null &&
+        groups.get(event.group.parentID).suiteID !== event.group.suiteID
+      ) {
+        throw new Error("Acceptance runner emitted a cross-suite group reference");
+      }
+      groups.set(event.group.id, {
+        suiteID: event.group.suiteID,
+        parentID: event.group.parentID,
+      });
+      if (event.group.parentID == null) {
+        rootGroupCount += 1;
+        declaredRootTestCount = event.group.testCount;
+      }
     }
     if (event.type === "testStart") {
-      if (startedTests.has(event.test.id) || !expectedTests.has(event.test.name)) {
-        throw new Error("Acceptance runner emitted a duplicate test start");
+      const referencedGroups = event.test.groupIDs.map((id) => groups.get(id));
+      const validGroupChain = referencedGroups.length > 0 && referencedGroups.every(
+        (group, groupIndex) => group != null &&
+          group.suiteID === event.test.suiteID &&
+          group.parentID === (groupIndex === 0 ? null : event.test.groupIDs[groupIndex - 1]),
+      );
+      if (
+        startedTests.has(event.test.id) ||
+        !expectedTests.has(event.test.name) ||
+        !suites.has(event.test.suiteID) ||
+        !validGroupChain
+      ) {
+        throw new Error("Acceptance runner emitted a duplicate test or invalid suite/group reference");
       }
       if ([...startedTests.values()].includes(event.test.name)) {
         throw new Error("Acceptance runner emitted a duplicate test identity");
@@ -401,6 +450,8 @@ function parseSafeRunnerLog(log, stderrLog) {
       allSuitesCount === 1 &&
       declaredSuiteCount === 1 &&
       suiteCount === 1 &&
+      suites.size === 1 &&
+      groups.size >= 1 &&
       rootGroupCount === 1 &&
       declaredRootTestCount === expectedTests.size &&
       doneCount === 1 &&
@@ -665,6 +716,7 @@ export function buildEvidence(args, repoRoot = process.cwd()) {
   const modelFreeBytes = parseOptionalBytes(args["model-free-bytes"]);
   const baseAppBytes = parseOptionalBytes(args["base-app-bytes"]);
   const verifiedModelFileCount = parseOptionalBytes(args["verified-model-file-count"]);
+  const verifiedCatalogFileCount = parseOptionalBytes(args["verified-catalog-file-count"]);
   const verifiedFixtureAbsenceCount = parseOptionalBytes(args["verified-fixture-absence-count"]);
   const testExitStatus = boundedInteger(Number(args["test-status"]), "test-status");
   const preflightFailurePhase = args["failure-phase"] || null;
@@ -706,6 +758,8 @@ export function buildEvidence(args, repoRoot = process.cwd()) {
         fullBytes == null || baseAppBytes == null ? null : fullBytes - baseAppBytes,
       catalogModelBytes: boundedInteger(catalog.totalBundledBytes, "catalog.totalBundledBytes"),
       catalogModelFileCount: positiveInteger(catalogModelFileCount, "catalog model file count"),
+      expectedCatalogFileCount: 1,
+      verifiedCatalogFileCount,
       verifiedModelFileCount,
       expectedFixtureAbsenceCount,
       verifiedFixtureAbsenceCount,
@@ -765,6 +819,8 @@ export function isCompleteEvidence(evidence) {
       evidence.packageEvidence.fullBytes != null &&
       evidence.packageEvidence.verifiedModelFileCount ===
         evidence.packageEvidence.catalogModelFileCount &&
+      evidence.packageEvidence.verifiedCatalogFileCount ===
+        evidence.packageEvidence.expectedCatalogFileCount &&
       evidence.packageEvidence.verifiedFixtureAbsenceCount ===
         evidence.packageEvidence.expectedFixtureAbsenceCount &&
       evidence.packageEvidence.baselineWithoutBundledModelPayloadBytes != null &&
