@@ -332,6 +332,18 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(iosCommands.includes("grep -F 'GeneratedPluginRegistrant'"));
   assert.ok(iosCommands.includes("grep -F 'FilePickerPlugin'"));
   assert.ok(iosCommands.includes("grep -F 'FlutterSecureStorageDarwinPlugin'"));
+  assert.equal(
+    (iosCommands.match(/\[FilePickerPlugin registerWithRegistrar:\[registry registrarForPlugin:@"FilePickerPlugin"\]\];/g) ?? []).length,
+    2,
+  );
+  assert.equal(
+    (iosCommands.match(/\[FlutterSecureStorageDarwinPlugin registerWithRegistrar:\[registry registrarForPlugin:@"FlutterSecureStorageDarwinPlugin"\]\];/g) ?? []).length,
+    2,
+  );
+  assert.equal(
+    (iosCommands.match(/Projected iOS registrant still contains integration_test/g) ?? []).length,
+    2,
+  );
   assert.ok(iosCommands.includes('grep_status=$?'));
   assert.ok(iosCommands.includes('Production iOS app contains the integration_test plugin'));
   assert.ok(iosCommands.includes('test -s Podfile.lock'));

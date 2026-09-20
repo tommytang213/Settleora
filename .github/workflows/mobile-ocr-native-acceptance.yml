@@ -297,6 +297,15 @@ jobs:
             test "$(shasum -a 256 Podfile.lock | awk '{print $1}')" = "08afc1413159dcd818b669869736fc56e38a99618a1f951e605b1eea02dc5189"
             cd ..
             flutter build ios --release --no-codesign --no-pub
+            grep -Fx '  [FilePickerPlugin registerWithRegistrar:[registry registrarForPlugin:@"FilePickerPlugin"]];' ios/Runner/GeneratedPluginRegistrant.m
+            grep -Fx '  [FlutterSecureStorageDarwinPlugin registerWithRegistrar:[registry registrarForPlugin:@"FlutterSecureStorageDarwinPlugin"]];' ios/Runner/GeneratedPluginRegistrant.m
+            if grep -E 'integration_test|IntegrationTestPlugin' ios/Runner/GeneratedPluginRegistrant.m; then
+              echo "Projected iOS registrant still contains integration_test" >&2
+              exit 1
+            else
+              grep_status=$?
+              test "$grep_status" -eq 1
+            fi
           )
           full_app="$candidate_dir/apps/mobile/build/ios/iphoneos/Runner.app"
           full_bytes=$(find "$full_app" -type f -exec stat -f %z {} + | awk '{sum += $1} END {print sum}')
@@ -337,6 +346,15 @@ jobs:
             test "$(shasum -a 256 Podfile.lock | awk '{print $1}')" = "08afc1413159dcd818b669869736fc56e38a99618a1f951e605b1eea02dc5189"
             cd ..
             flutter build ios --release --no-codesign --no-pub
+            grep -Fx '  [FilePickerPlugin registerWithRegistrar:[registry registrarForPlugin:@"FilePickerPlugin"]];' ios/Runner/GeneratedPluginRegistrant.m
+            grep -Fx '  [FlutterSecureStorageDarwinPlugin registerWithRegistrar:[registry registrarForPlugin:@"FlutterSecureStorageDarwinPlugin"]];' ios/Runner/GeneratedPluginRegistrant.m
+            if grep -E 'integration_test|IntegrationTestPlugin' ios/Runner/GeneratedPluginRegistrant.m; then
+              echo "Projected iOS registrant still contains integration_test" >&2
+              exit 1
+            else
+              grep_status=$?
+              test "$grep_status" -eq 1
+            fi
           )
           model_free_bytes=$(find "$full_app" -type f -exec stat -f %z {} + | awk '{sum += $1} END {print sum}')
           base_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
