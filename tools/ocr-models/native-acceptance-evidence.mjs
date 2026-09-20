@@ -581,12 +581,10 @@ function sanitizeUiSmoke(value, platform) {
 }
 
 const diagnosticStages = new Set([
-  "network_canary",
   "network_environment",
   "network_probe",
   "network_denial_contract",
   "network_isolation",
-  "corpus_manifest",
   "corpus_manifest_load",
   "corpus_manifest_contract",
   "corpus_catalog_load",
@@ -595,7 +593,6 @@ const diagnosticStages = new Set([
   "corpus_provider",
   "corpus_comparison",
   "corpus_evidence",
-  "rotation_manifest",
   "rotation_manifest_load",
   "rotation_fixture_select",
   "rotation_catalog_load",
@@ -603,7 +600,6 @@ const diagnosticStages = new Set([
   "rotation_normalization",
   "rotation_provider",
   "rotation_comparison",
-  "ui_manifest",
   "ui_manifest_load",
   "ui_fixture_select",
   "ui_fixture_load",

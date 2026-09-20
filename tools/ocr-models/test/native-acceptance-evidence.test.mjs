@@ -436,6 +436,21 @@ test("retains only bounded failure-stage diagnostics and never accepts them as c
       assert.throws(() => buildEvidence(evidenceArgs(logPath), repoRoot), /identity is invalid/);
     },
   );
+  for (const obsoleteStage of [
+    "network_canary",
+    "corpus_manifest",
+    "rotation_manifest",
+    "ui_manifest",
+  ]) {
+    withLog(
+      protocolLog(
+        `SETTLEORA_OCR_DIAGNOSTIC=${JSON.stringify({ ...diagnostic, stage: obsoleteStage })}`,
+      ),
+      (logPath) => {
+        assert.throws(() => buildEvidence(evidenceArgs(logPath), repoRoot), /identity is invalid/);
+      },
+    );
+  }
   withLog(
     protocolLog(...Array.from({ length: 5 }, () =>
       `SETTLEORA_OCR_DIAGNOSTIC=${JSON.stringify(diagnostic)}`)),
