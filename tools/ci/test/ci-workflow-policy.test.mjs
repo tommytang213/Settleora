@@ -265,6 +265,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
     assert.ok(boundedCapture.includes('"--machine"'));
     assert.ok(allCommands.some((command) => command.includes('flutter build') && command.includes('--release')));
     if (jobName === 'android-native-acceptance') {
+      assert.equal(job.env.ORG_GRADLE_PROJECT_settleoraReleaseEvidence, 'true');
       assert.ok(packageCommands.includes('flutter build apk --release --no-pub'));
     } else {
       assert.ok(packageCommands.includes('build-production-ios.sh'));
@@ -283,6 +284,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
     .replaceAll('--release', '--production-package')
     .replaceAll('app-release.apk', 'app-production.apk')
     .replaceAll('ios-release-provenance.json', 'ios-production-provenance.json')
+    .replaceAll('settleoraReleaseEvidence', 'settleoraDependencyVerification')
     .replaceAll('--deployment', '--dependency-locked');
   assert.doesNotMatch(serializedWithoutExplicitPackageBuildTokens, /secrets\.|contents['"]?:['"]?write|deploy|release|receipt.*(?:jpg|jpeg|png)/i);
   const collector = read('tools/ocr-models/native-acceptance-evidence.mjs');

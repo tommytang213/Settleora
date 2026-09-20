@@ -22,11 +22,11 @@ function verifyTestIpa(archivePath) {
   return verifyOpenedIpa(fd);
 }
 
-function makeStoredZip(entries) {
-  const localParts = [];
+function makeStoredZip(entries, { prefix = Buffer.alloc(0), gap = Buffer.alloc(0) } = {}) {
+  const localParts = [prefix];
   const centralParts = [];
-  let localOffset = 0;
-  for (const entry of entries) {
+  let localOffset = prefix.length;
+  for (const [index, entry] of entries.entries()) {
     const name = Buffer.from(entry.name);
     const localName = Buffer.from(entry.localName ?? entry.name);
     const data = Buffer.from(entry.data ?? "");
@@ -64,6 +64,10 @@ function makeStoredZip(entries) {
     central.writeUInt32LE(localOffset, 42);
     centralParts.push(central, name, centralExtra);
     localOffset += local.length + localName.length + localExtra.length + data.length + descriptor.length;
+    if (index + 1 < entries.length && gap.length > 0) {
+      localParts.push(gap);
+      localOffset += gap.length;
+    }
   }
   const centralDirectory = Buffer.concat(centralParts);
   const eocd = Buffer.alloc(22);
@@ -213,6 +217,16 @@ test("IPA namespace verifier rejects ambiguous and escaping ZIP entries before e
     const canonicalLinkResult = spawnSync(process.execPath, [verifier], { cwd: root, encoding: "utf8" });
     assert.notEqual(canonicalLinkResult.status, 0);
     assert.doesNotMatch(canonicalLinkResult.stderr, new RegExp(root.replaceAll("/", "\\/")));
+    rmSync(canonicalIpa);
+    rmSync(canonicalIpaDirectory, { recursive: true });
+    const redirectedIpaDirectory = path.join(root, "redirected-ipa");
+    mkdirSync(redirectedIpaDirectory);
+    writeFileSync(path.join(redirectedIpaDirectory, "Runner.ipa"), readFileSync(archive));
+    symlinkSync(redirectedIpaDirectory, canonicalIpaDirectory, "dir");
+    const canonicalDirectoryLinkResult = spawnSync(process.execPath, [verifier], { cwd: root, encoding: "utf8" });
+    assert.notEqual(canonicalDirectoryLinkResult.status, 0);
+    assert.match(canonicalDirectoryLinkResult.stderr, /no symbolic-link components/);
+    assert.doesNotMatch(canonicalDirectoryLinkResult.stderr, new RegExp(root.replaceAll("/", "\\/")));
     const archiveLink = path.join(root, "Runner-link.ipa");
     symlinkSync(archive, archiveLink);
     assert.throws(() => verifyTestIpa(archiveLink), /regular non-symlink file/);
@@ -235,6 +249,15 @@ test("IPA namespace verifier rejects ambiguous and escaping ZIP entries before e
       writeFileSync(archive, makeStoredZip(entries));
       assert.throws(() => verifyTestIpa(archive), /Unsafe IPA archive/);
     }
+    const contiguousEntries = [
+      { name: "Payload/" },
+      { name: "Payload/Runner.app/" },
+      { name: "Payload/Runner.app/file", data: "safe" },
+    ];
+    writeFileSync(archive, makeStoredZip(contiguousEntries, { prefix: Buffer.from("unreferenced-prefix") }));
+    assert.throws(() => verifyTestIpa(archive), /complete archive payload/);
+    writeFileSync(archive, makeStoredZip(contiguousEntries, { gap: Buffer.from("unreferenced-gap") }));
+    assert.throws(() => verifyTestIpa(archive), /complete archive payload/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -280,6 +303,8 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
     "verify-ipa-archive.mjs",
     "unzip -tqq",
     "IPA changed after namespace preflight",
+    "IPA changed after package inspection",
+    "IPA changed while provenance was generated",
     "IPA contains a non-allowlisted top-level entry",
     "IPA Payload contains content outside the application bundle",
     "IPA SwiftSupport contains a non-allowlisted entry",

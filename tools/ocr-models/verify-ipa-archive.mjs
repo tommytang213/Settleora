@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { closeSync, constants, fstatSync, openSync, readSync, readdirSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -228,9 +228,12 @@ export function verifyOpenedIpa(fd) {
     }
     if (cursor !== central.length) fail("central directory contains unaccounted bytes");
     occupiedRanges.sort((left, right) => left[0] - right[0]);
-    for (let index = 1; index < occupiedRanges.length; index += 1) {
-      if (occupiedRanges[index][0] < occupiedRanges[index - 1][1]) fail("entry byte ranges overlap");
+    let coveredThrough = 0;
+    for (const [rangeStart, rangeEnd] of occupiedRanges) {
+      if (rangeStart !== coveredThrough) fail("entry byte ranges do not cover the complete archive payload");
+      coveredThrough = rangeEnd;
     }
+    if (coveredThrough !== centralOffset) fail("entry byte ranges do not reach the central directory");
     return hashFileDescriptor(fd, archiveStat.size);
   } finally {
     closeSync(fd);
@@ -238,7 +241,17 @@ export function verifyOpenedIpa(fd) {
 }
 
 function verifyCanonicalIpa() {
-  const ipaDirectory = path.resolve("build/ios/ipa");
+  const directoryComponents = ["build", path.join("build", "ios"), path.join("build", "ios", "ipa")];
+  for (const component of directoryComponents) {
+    let stat;
+    try {
+      stat = lstatSync(component);
+    } catch {
+      fail("canonical IPA directory cannot be read");
+    }
+    if (!stat.isDirectory() || stat.isSymbolicLink()) fail("canonical IPA directory must contain no symbolic-link components");
+  }
+  const ipaDirectory = path.join("build", "ios", "ipa");
   let candidates;
   try {
     candidates = readdirSync(ipaDirectory, { withFileTypes: true })

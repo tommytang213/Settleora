@@ -326,7 +326,12 @@ fi
 
 if [[ "$artifact_class" == release-candidate ]]; then
   mkdir -p "$(dirname "$provenance_out")"
-  artifact_sha=$(if [[ "$mode" == signed ]]; then sha256_file "$artifact_path"; else node "$tool_root/tools/ocr-models/hash-directory.mjs" app; fi)
+  if [[ "$mode" == signed ]]; then
+    [[ "$(sha256_file "$artifact_path")" == "$preflight_ipa_sha" ]] || fail "IPA changed after package inspection"
+    artifact_sha=$preflight_ipa_sha
+  else
+    artifact_sha=$(node "$tool_root/tools/ocr-models/hash-directory.mjs" app)
+  fi
   archive_sha=$(if [[ "$mode" == signed ]]; then node "$tool_root/tools/ocr-models/hash-directory.mjs" archive; else printf ''; fi)
   node "$tool_root/tools/ocr-models/write-ios-release-provenance.mjs" \
     --out="$provenance_out" \
@@ -348,6 +353,9 @@ if [[ "$artifact_class" == release-candidate ]]; then
     --podfile-lock-sha256="$podfile_lock_sha" \
     --catalog-sha256="$catalog_sha" \
     --fixture-manifest-sha256="$fixture_manifest_sha"
+  if [[ "$mode" == signed ]]; then
+    [[ "$(sha256_file "$artifact_path")" == "$artifact_sha" ]] || fail "IPA changed while provenance was generated"
+  fi
   printf 'SETTLEORA_IOS_RELEASE_ARTIFACT=%s\n' "$(basename "$artifact_path")"
   printf 'SETTLEORA_IOS_RELEASE_SHA256=%s\n' "$artifact_sha"
   printf 'SETTLEORA_IOS_RELEASE_PROVENANCE=%s\n' "$(basename "$provenance_out")"

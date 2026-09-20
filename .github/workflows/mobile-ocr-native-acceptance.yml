@@ -41,6 +41,8 @@ jobs:
     name: Android 101-image real-provider acceptance
     runs-on: ubuntu-24.04
     timeout-minutes: 360
+    env:
+      ORG_GRADLE_PROJECT_settleoraReleaseEvidence: "true"
 
     steps:
       - name: Checkout exact candidate
