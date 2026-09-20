@@ -384,7 +384,7 @@ test("failure evidence recovers only bounded diagnostics from an otherwise inval
   const diagnostic = {
     schemaVersion: 1,
     platform: "ios",
-    stage: "network_canary",
+    stage: "network_environment",
     fixtureId: null,
   };
   const diagnosticEvent = JSON.stringify({

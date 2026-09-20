@@ -25,7 +25,7 @@ void main() {
   testWidgets('native acceptance runner has no external network', (
     WidgetTester tester,
   ) async {
-    final failure = _BoundedFailureStage('network_canary');
+    final failure = _BoundedFailureStage('network_environment');
     await failure.run(() async {
       if (Platform.isIOS) {
         expect(
@@ -39,6 +39,7 @@ void main() {
           reason: 'The iOS network interposer must positively attest loading.',
         );
       }
+      failure.set('network_probe');
       Socket? socket;
       try {
         socket = await Socket.connect(
@@ -48,6 +49,7 @@ void main() {
         );
       } on SocketException catch (error) {
         if (Platform.isIOS) {
+          failure.set('network_denial_contract');
           expect(
             error.osError?.errorCode,
             51,
@@ -62,6 +64,7 @@ void main() {
         );
       }
       await socket?.close();
+      failure.set('network_isolation');
       networkIsolated = socket == null;
       expect(
         networkIsolated,
@@ -74,15 +77,17 @@ void main() {
   testWidgets('all 101 real images match complete preview truth', (
     WidgetTester tester,
   ) async {
-    final failure = _BoundedFailureStage('corpus_manifest');
+    final failure = _BoundedFailureStage('corpus_manifest_load');
     await failure.run(() async {
       final manifest =
           jsonDecode(utf8.decode(await fixtures.load('manifest.json')))
               as Map<String, Object?>;
+      failure.set('corpus_manifest_contract');
       expect(manifest['schema_version'], 2);
       final entries = (manifest['fixtures']! as List<Object?>)
           .cast<Map<String, Object?>>();
       expect(entries, hasLength(101));
+      failure.set('corpus_catalog_load');
       final modelCatalog = _NativeModelCatalogEvidence.fromJson(
         jsonDecode(utf8.decode(await fixtures.loadModelCatalog()))
             as Map<String, Object?>,
@@ -219,16 +224,18 @@ void main() {
   testWidgets('a real fixture rotated 270 degrees matches complete truth', (
     WidgetTester tester,
   ) async {
-    final failure = _BoundedFailureStage('rotation_manifest');
+    final failure = _BoundedFailureStage('rotation_manifest_load');
     await failure.run(() async {
       final manifest =
           jsonDecode(utf8.decode(await fixtures.load('manifest.json')))
               as Map<String, Object?>;
+      failure.set('rotation_fixture_select');
       final entry = (manifest['fixtures']! as List<Object?>)
           .cast<Map<String, Object?>>()
           .singleWhere(
             (fixture) => fixture['id'] == 'existing_12_freshmart_grocery_en_US',
           );
+      failure.set('rotation_catalog_load');
       final modelCatalog = _NativeModelCatalogEvidence.fromJson(
         jsonDecode(utf8.decode(await fixtures.loadModelCatalog()))
             as Map<String, Object?>,
@@ -298,11 +305,12 @@ void main() {
   testWidgets('representative production receipt review UI uses real provider', (
     WidgetTester tester,
   ) async {
-    final failure = _BoundedFailureStage('ui_manifest');
+    final failure = _BoundedFailureStage('ui_manifest_load');
     await failure.run(() async {
       final manifest =
           jsonDecode(utf8.decode(await fixtures.load('manifest.json')))
               as Map<String, Object?>;
+      failure.set('ui_fixture_select');
       final entry = (manifest['fixtures']! as List<Object?>)
           .cast<Map<String, Object?>>()
           .singleWhere(
