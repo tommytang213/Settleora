@@ -118,6 +118,7 @@ flutter pub get
 node "$tool_root/tools/ocr-models/prepare-production-flutter-plugins.mjs" \
   --file=.flutter-plugins-dependencies \
   --package-config=.dart_tool/package_config.json \
+  --package-graph=.dart_tool/package_graph.json \
   --require-integration-test="$require_integration_test"
 
 (

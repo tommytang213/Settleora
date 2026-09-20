@@ -57,9 +57,55 @@ function projectPackageConfig(filePath, removed) {
   writeFileSync(filePath, `${JSON.stringify(config, null, 2)}\n`, { mode: stat.mode & 0o777 });
 }
 
+function projectPackageGraph(filePath, removed) {
+  const stat = lstatSync(filePath);
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.size <= 0 || stat.size > 4 * 1024 * 1024) {
+    throw new Error("Dart package graph must be a bounded regular file");
+  }
+  const graph = JSON.parse(readFileSync(filePath, "utf8"));
+  if (
+    graph == null ||
+    typeof graph !== "object" ||
+    graph.configVersion !== 1 ||
+    !Array.isArray(graph.roots) ||
+    graph.roots.length !== 1 ||
+    !Array.isArray(graph.packages)
+  ) {
+    throw new Error("Dart package graph has an invalid shape");
+  }
+  const rootName = graph.roots[0];
+  const rootEntries = graph.packages.filter((entry) => entry?.name === rootName);
+  const removedEntries = graph.packages.filter((entry) => removed.has(entry?.name));
+  if (typeof rootName !== "string" || rootEntries.length !== 1 || removedEntries.length !== removed.size) {
+    throw new Error("Dart package graph root or reviewed dev plugin is missing or duplicated");
+  }
+  for (const entry of graph.packages) {
+    if (
+      entry == null ||
+      typeof entry !== "object" ||
+      typeof entry.name !== "string" ||
+      !Array.isArray(entry.dependencies) ||
+      !Array.isArray(entry.devDependencies)
+    ) {
+      throw new Error("Dart package graph entry has an invalid shape");
+    }
+    if (entry.dependencies.some((dependency) => removed.has(dependency))) {
+      throw new Error("A production Dart package depends on a removed dev plugin");
+    }
+  }
+  const root = rootEntries[0];
+  const removedRootDevDependencies = root.devDependencies.filter((dependency) => removed.has(dependency));
+  if (removedRootDevDependencies.length !== removed.size) {
+    throw new Error("Reviewed dev plugin is missing or duplicated in the root package graph");
+  }
+  root.devDependencies = root.devDependencies.filter((dependency) => !removed.has(dependency));
+  graph.packages = graph.packages.filter((entry) => !removed.has(entry.name));
+  writeFileSync(filePath, `${JSON.stringify(graph, null, 2)}\n`, { mode: stat.mode & 0o777 });
+}
+
 export function prepareProductionFlutterPlugins(
   filePath,
-  { requireIntegrationTest = false, packageConfigPath } = {},
+  { requireIntegrationTest = false, packageConfigPath, packageGraphPath } = {},
 ) {
   const stat = lstatSync(filePath);
   if (!stat.isFile() || stat.isSymbolicLink() || stat.size <= 0 || stat.size > 4 * 1024 * 1024) {
@@ -97,8 +143,8 @@ export function prepareProductionFlutterPlugins(
   if (requireIntegrationTest && !removed.has("integration_test")) {
     throw new Error("Expected integration_test dev plugin was not present");
   }
-  if (removed.size > 0 && !packageConfigPath) {
-    throw new Error("Production package configuration projection is required");
+  if (removed.size > 0 && (!packageConfigPath || !packageGraphPath)) {
+    throw new Error("Production Dart package projection is required");
   }
   for (const node of metadata.dependencyGraph) {
     if (
@@ -120,6 +166,7 @@ export function prepareProductionFlutterPlugins(
       dependencies: node.dependencies.filter((dependency) => !removed.has(dependency)),
     }));
   writeFileSync(filePath, `${JSON.stringify(metadata, null, 2)}\n`, { mode: stat.mode & 0o777 });
+  if (removed.size > 0) projectPackageGraph(packageGraphPath, removed);
   if (removed.size > 0) projectPackageConfig(packageConfigPath, removed);
   const projectRoot = path.dirname(path.resolve(filePath));
   for (const platform of removedPlatforms) {
@@ -134,7 +181,7 @@ function parseArgs(values) {
     const separator = value.indexOf("=");
     if (!value.startsWith("--") || separator < 3) throw new Error("Invalid production plugin argument");
     const key = value.slice(2, separator);
-    if (args.has(key) || !new Set(["file", "package-config", "require-integration-test"]).has(key)) {
+    if (args.has(key) || !new Set(["file", "package-config", "package-graph", "require-integration-test"]).has(key)) {
       throw new Error("Unknown or duplicate production plugin argument");
     }
     args.set(key, value.slice(separator + 1));
@@ -148,6 +195,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   const removed = prepareProductionFlutterPlugins(path.resolve(args.get("file")), {
     requireIntegrationTest: args.get("require-integration-test") === "true",
     packageConfigPath: args.get("package-config") ? path.resolve(args.get("package-config")) : undefined,
+    packageGraphPath: args.get("package-graph") ? path.resolve(args.get("package-graph")) : undefined,
   });
   console.log(`Prepared production Flutter plugin metadata (${removed.length} reviewed dev plugin removed)`);
 }

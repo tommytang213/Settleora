@@ -110,6 +110,7 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
     "Podfile.lock drifted during build",
     "prepare-production-flutter-plugins.mjs",
     "--package-config=.dart_tool/package_config.json",
+    "--package-graph=.dart_tool/package_graph.json",
     "verify-mobile-package.mjs",
     "FilePicker registrant call is missing or duplicated",
     "Flutter secure storage registrant call is missing or duplicated",
