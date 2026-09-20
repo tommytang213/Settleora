@@ -330,6 +330,16 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(iosRunner.includes('launchctl getenv SETTLEORA_OCR_NETWORK_ISOLATION'));
   assert.ok(iosRunner.includes('launchctl unsetenv DYLD_INSERT_LIBRARIES'));
   assert.ok(iosRunner.includes('launchctl unsetenv SETTLEORA_OCR_NETWORK_ISOLATION'));
+  assert.ok(
+    iosRunner.indexOf('network_environment_configured=true') >
+      iosRunner.indexOf('launchctl setenv DYLD_INSERT_LIBRARIES "$network_deny"'),
+  );
+  assert.ok(
+    iosRunner.indexOf('network_environment_configured=true') <
+      iosRunner.indexOf('launchctl setenv SETTLEORA_OCR_NETWORK_ISOLATION socket_interpose_v1'),
+  );
+  assert.ok(iosRunner.includes('phase=cleanup_network_isolation'));
+  assert.ok(iosRunner.includes('exit "$status"'));
   assert.ok(iosRunner.includes('echo "failure_phase=$phase" >> "$GITHUB_OUTPUT"'));
   assert.match(iosNetworkDeny, /settleora_connect/);
   assert.match(iosNetworkDeny, /settleora_sendto/);

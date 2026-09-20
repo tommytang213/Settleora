@@ -22,7 +22,9 @@ const iosPreflightFailurePhases = new Set([
   "initialize",
   "validate_environment",
   "build_network_isolation",
+  "install_network_isolation",
   "execute_flutter_test",
+  "cleanup_network_isolation",
 ]);
 
 function isAllowedPreflightFailurePhase(platform, phase) {

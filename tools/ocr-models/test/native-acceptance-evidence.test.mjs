@@ -301,16 +301,22 @@ test("retains only an allowlisted Android preflight failure phase", () => {
 
 test("retains only an allowlisted iOS preflight failure phase", () => {
   withLog(protocolLog(), (logPath) => {
-    const evidence = buildEvidence(
-      {
-        ...evidenceArgs(logPath, "ios"),
-        "test-status": "98",
-        "failure-phase": "build_network_isolation",
-      },
-      repoRoot,
-    );
-    assert.equal(evidence.execution.preflightFailurePhase, "build_network_isolation");
-    assert.equal(isCompleteEvidence(evidence), false);
+    for (const phase of [
+      "build_network_isolation",
+      "install_network_isolation",
+      "cleanup_network_isolation",
+    ]) {
+      const evidence = buildEvidence(
+        {
+          ...evidenceArgs(logPath, "ios"),
+          "test-status": "98",
+          "failure-phase": phase,
+        },
+        repoRoot,
+      );
+      assert.equal(evidence.execution.preflightFailurePhase, phase);
+      assert.equal(isCompleteEvidence(evidence), false);
+    }
     assert.throws(
       () => buildEvidence(
         {
