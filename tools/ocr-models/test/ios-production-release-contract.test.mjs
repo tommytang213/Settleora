@@ -145,6 +145,25 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   assert.doesNotMatch(script, /app-store-connect|submit_to_testflight|submit_to_app_store|\bupload\b|\bpublish\b/i);
 });
 
+test("iOS acceptance channel is compiled only into the Debug Runner", () => {
+  const project = readFileSync(
+    path.join(repoRoot, "apps/mobile/ios/Runner.xcodeproj/project.pbxproj"),
+    "utf8",
+  );
+  const runnerDebug = project.match(
+    /97C147061CF9000F007C117D \/\* Debug \*\/ = \{[\s\S]*?\n\t\t\};/,
+  )?.[0];
+  const runnerRelease = project.match(
+    /97C147071CF9000F007C117D \/\* Release \*\/ = \{[\s\S]*?\n\t\t\};/,
+  )?.[0];
+  const runnerProfile = project.match(
+    /249021D4217E4FDB00AE95B9 \/\* Profile \*\/ = \{[\s\S]*?\n\t\t\};/,
+  )?.[0];
+  assert.match(runnerDebug ?? "", /SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;/);
+  assert.doesNotMatch(runnerRelease ?? "", /SWIFT_ACTIVE_COMPILATION_CONDITIONS/);
+  assert.doesNotMatch(runnerProfile ?? "", /SWIFT_ACTIVE_COMPILATION_CONDITIONS/);
+});
+
 test("historical size measurement does not require release-candidate OCR identities", () => {
   const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
   assert.match(
