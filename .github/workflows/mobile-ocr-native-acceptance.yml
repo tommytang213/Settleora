@@ -340,6 +340,7 @@ jobs:
             --mode=unsigned \
             --source-sha="$EXPECTED_HEAD" \
             --source-tree="$source_tree" \
+            --source-git-root="$GITHUB_WORKSPACE" \
             --mobile-root="$candidate_dir/apps/mobile" \
             --repo-root="$candidate_dir" \
             --provenance-out="$RUNNER_TEMP/ios-release-provenance.json"

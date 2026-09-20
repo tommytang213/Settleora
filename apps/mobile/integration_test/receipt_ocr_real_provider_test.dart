@@ -162,6 +162,8 @@ void main() {
                 script: script,
                 modelCatalog: modelCatalog,
                 currencyResolution: currencyResolution,
+                imageWidth: artifact.width!,
+                imageHeight: artifact.height!,
               ),
             );
           } catch (_) {
@@ -282,6 +284,8 @@ void main() {
         modelCatalog: modelCatalog,
         currencyResolution:
             entry['expected_currency_resolution'] as Map<String, Object?>?,
+        imageWidth: artifact.width!,
+        imageHeight: artifact.height!,
       );
       expect(
         mismatches.isEmpty,
@@ -399,6 +403,8 @@ List<_BoundedMismatch> _completePreviewMismatches(
   required String script,
   required _NativeModelCatalogEvidence modelCatalog,
   Map<String, Object?>? currencyResolution,
+  required int imageWidth,
+  required int imageHeight,
 }) {
   final mismatches = <_BoundedMismatch>[];
   final preview = result.preview;
@@ -479,20 +485,11 @@ List<_BoundedMismatch> _completePreviewMismatches(
         mismatches.add(_BoundedMismatch(fixtureId, 'model_version'));
         break;
       }
-      final confidence = block.confidence;
-      final geometryIsValid =
-          confidence != null &&
-          confidence.isFinite &&
-          confidence >= 0 &&
-          confidence <= 1 &&
-          block.order >= 0 &&
-          block.row >= 0 &&
-          (block.textDirection == 'ltr' || block.textDirection == 'rtl') &&
-          block.points.length == 4 &&
-          block.points.every(
-            (point) => point.x.isFinite && point.y.isFinite,
-          );
-      if (!geometryIsValid) {
+      if (!isValidNativeOcrBlockGeometry(
+        block,
+        imageWidth: imageWidth,
+        imageHeight: imageHeight,
+      )) {
         mismatches.add(_BoundedMismatch(fixtureId, 'block_geometry'));
         break;
       }
@@ -522,6 +519,48 @@ List<_BoundedMismatch> _completePreviewMismatches(
     mismatches.add(_BoundedMismatch(fixtureId, 'runtime_evidence'));
   }
   return mismatches;
+}
+
+bool isValidNativeOcrBlockGeometry(
+  ReceiptOcrBlockEvidence block, {
+  required int imageWidth,
+  required int imageHeight,
+}) {
+  final confidence = block.confidence;
+  if (confidence == null ||
+      !confidence.isFinite ||
+      confidence < 0 ||
+      confidence > 1 ||
+      block.order < 0 ||
+      block.row < 0 ||
+      (block.textDirection != 'ltr' && block.textDirection != 'rtl') ||
+      block.points.length != 4 ||
+      imageWidth <= 0 ||
+      imageHeight <= 0) {
+    return false;
+  }
+  final distinctPoints = block.points
+      .map((point) => '${point.x}:${point.y}')
+      .toSet();
+  if (distinctPoints.length != 4 ||
+      block.points.any(
+        (point) =>
+            !point.x.isFinite ||
+            !point.y.isFinite ||
+            point.x < 0 ||
+            point.y < 0 ||
+            point.x > imageWidth ||
+            point.y > imageHeight,
+      )) {
+    return false;
+  }
+  var doubledArea = 0.0;
+  for (var index = 0; index < block.points.length; index += 1) {
+    final current = block.points[index];
+    final next = block.points[(index + 1) % block.points.length];
+    doubledArea += current.x * next.y - next.x * current.y;
+  }
+  return doubledArea.abs() > 0.000001;
 }
 
 void _collectField(

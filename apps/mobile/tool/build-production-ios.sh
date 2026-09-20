@@ -13,6 +13,7 @@ mode=
 artifact_class=release-candidate
 source_sha=
 source_tree=
+source_git_root=
 mobile_root=
 repo_root=
 tool_root=
@@ -34,6 +35,7 @@ for argument in "$@"; do
     --artifact-class=*) artifact_class=${argument#*=} ;;
     --source-sha=*) source_sha=${argument#*=} ;;
     --source-tree=*) source_tree=${argument#*=} ;;
+    --source-git-root=*) source_git_root=${argument#*=} ;;
     --mobile-root=*) mobile_root=${argument#*=} ;;
     --repo-root=*) repo_root=${argument#*=} ;;
     --tool-root=*) tool_root=${argument#*=} ;;
@@ -80,6 +82,25 @@ else
   [[ -z "$build_name$build_number$export_options_plist" ]] || fail "signing arguments are invalid for an unsigned build"
 fi
 
+if git -C "$repo_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  [[ -z "$source_git_root" ]] || fail "source Git root is valid only for an exported source tree"
+  [[ "$(git -C "$repo_root" rev-parse HEAD)" == "$source_sha" ]] || fail "source SHA does not match checkout"
+  [[ "$(git -C "$repo_root" rev-parse 'HEAD^{tree}')" == "$source_tree" ]] || fail "source tree does not match checkout"
+  [[ -z "$(git -C "$repo_root" status --porcelain=v1 --untracked-files=all)" ]] || fail "source checkout differs from the committed tree"
+elif [[ "$artifact_class" == release-candidate ]]; then
+  [[ "$mode" == unsigned ]] || fail "signed release candidate requires a clean Git worktree"
+  [[ -n "$source_git_root" ]] || fail "exported release candidate requires a source Git root"
+  git -C "$source_git_root" cat-file -e "$source_sha^{commit}" 2>/dev/null || fail "source commit is unavailable"
+  [[ "$(git -C "$source_git_root" rev-parse "$source_sha^{tree}")" == "$source_tree" ]] || fail "source tree does not match source commit"
+  source_snapshot=$(mktemp -d)
+  cleanup_source_snapshot() { rm -rf -- "$source_snapshot"; }
+  trap cleanup_source_snapshot EXIT
+  git -C "$source_git_root" archive "$source_sha" | tar -x -C "$source_snapshot"
+  diff -q -r "$source_snapshot" "$repo_root" >/dev/null || fail "exported source differs from the committed tree"
+  cleanup_source_snapshot
+  trap - EXIT
+fi
+
 command -v flutter >/dev/null || fail "flutter is unavailable"
 command -v node >/dev/null || fail "node is unavailable"
 command -v pod >/dev/null || fail "CocoaPods is unavailable"
@@ -95,12 +116,6 @@ xcode_version=$(xcodebuild -version | sed -n '1s/^Xcode //p')
 [[ "$xcode_version" == "$expected_xcode_version" ]] || fail "Xcode must be $expected_xcode_version"
 cocoapods_version=$(pod --version)
 [[ "$cocoapods_version" == "$expected_cocoapods_version" ]] || fail "CocoaPods must be $expected_cocoapods_version"
-
-if git -C "$repo_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  [[ "$(git -C "$repo_root" rev-parse HEAD)" == "$source_sha" ]] || fail "source SHA does not match checkout"
-  [[ "$(git -C "$repo_root" rev-parse 'HEAD^{tree}')" == "$source_tree" ]] || fail "source tree does not match checkout"
-  [[ -z "$(git -C "$repo_root" status --porcelain=v1 --untracked-files=all)" ]] || fail "source checkout differs from the committed tree"
-fi
 
 sha256_file() {
   shasum -a 256 "$1" | awk '{print $1}'

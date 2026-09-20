@@ -113,6 +113,8 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
     "Podfile.lock does not match the approved identity",
     "Podfile.lock drifted during build",
     "source checkout differs from the committed tree",
+    "signed release candidate requires a clean Git worktree",
+    "exported source differs from the committed tree",
     "prepare-production-flutter-plugins.mjs",
     "--package-config=.dart_tool/package_config.json",
     "--package-graph=.dart_tool/package_graph.json",
@@ -186,6 +188,35 @@ test("canonical wrapper rejects unsafe modes and release candidates without prov
   const arbitraryRoot = spawnSync(process.execPath, [directoryHasher, rootForUnsafeCli()], { encoding: "utf8" });
   assert.notEqual(arbitraryRoot.status, 0);
   assert.match(arbitraryRoot.stderr, /Usage: hash-directory\.mjs <app\|archive>/);
+});
+
+test("signed wrapper rejects a non-Git source before trusting caller provenance", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-ios-nongit-source-"));
+  try {
+    mkdirSync(path.join(root, "apps/mobile/ios/Runner"), { recursive: true });
+    mkdirSync(path.join(root, "tools/ocr-models"), { recursive: true });
+    writeFileSync(path.join(root, "apps/mobile/pubspec.lock"), "lock");
+    writeFileSync(path.join(root, "apps/mobile/ios/Podfile.lock"), "lock");
+    writeFileSync(path.join(root, "tools/ocr-models/prepare-production-flutter-plugins.mjs"), "");
+    writeFileSync(path.join(root, "tools/ocr-models/verify-mobile-package.mjs"), "");
+    const result = spawnSync("bash", [
+      path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"),
+      "--mode=signed",
+      `--source-sha=${"1".repeat(40)}`,
+      `--source-tree=${"2".repeat(40)}`,
+      `--mobile-root=${path.join(root, "apps/mobile")}`,
+      `--repo-root=${root}`,
+      `--tool-root=${root}`,
+      "--build-name=1.0.0",
+      "--build-number=1",
+      `--export-options-plist=${path.join(root, "export.plist")}`,
+      `--provenance-out=${path.join(root, "provenance.json")}`,
+    ], { encoding: "utf8" });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /signed release candidate requires a clean Git worktree/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("directory hasher CLI rejects symlinked fixed build ancestors", () => {
