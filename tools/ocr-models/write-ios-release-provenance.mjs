@@ -12,6 +12,8 @@ const allowedArguments = new Set([
   "archive",
   "archive-sha256",
   "bundle-identifier",
+  "build-name",
+  "build-number",
   "flutter-version",
   "xcode-version",
   "cocoapods-version",
@@ -48,6 +50,11 @@ function requireGitIdentity(value, name) {
   return value;
 }
 
+function requireBuildIdentity(value, pattern, name) {
+  if (!pattern.test(value)) throw new Error(`${name} is invalid`);
+  return value;
+}
+
 export function buildProvenance(args) {
   if (!new Set(["signed", "unsigned"]).has(args.get("mode"))) throw new Error("Invalid build mode");
   const artifact = args.get("artifact");
@@ -77,6 +84,8 @@ export function buildProvenance(args) {
       archiveName: archive ? path.basename(archive) : null,
       archiveSha256: archiveSha256 ? requireDigest(archiveSha256, "archive identity") : null,
       bundleIdentifier: args.get("bundle-identifier"),
+      buildName: requireBuildIdentity(args.get("build-name"), /^[0-9]+\.[0-9]+\.[0-9]+$/, "build name"),
+      buildNumber: requireBuildIdentity(args.get("build-number"), /^[0-9]+$/, "build number"),
     },
     toolchain: {
       flutter: args.get("flutter-version"),

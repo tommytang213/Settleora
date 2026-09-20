@@ -137,7 +137,7 @@ The active signed-validation workflow:
 - Projects only the reviewed `integration_test` development plugin out of production metadata and registrants, while positively requiring FilePicker and Flutter secure storage registration.
 - Builds exactly one signed IPA/archive pair through the canonical wrapper.
 - Verifies the unchanged bundle identifier, signature, plugin calls/test-plugin absence, exact OCR catalog/models, and absence of acceptance fixtures, test classes/assets, and raw OCR evidence/log paths.
-- Writes source/tree, toolchain, lockfile, OCR catalog/manifest, artifact filenames, and immutable IPA/archive SHA-256 provenance.
+- Verifies the packaged short version/build number against the requested signed-build identity and writes those values with source/tree, toolchain, lockfile, OCR catalog/manifest, artifact filenames, and immutable IPA/archive SHA-256 provenance.
 - Retains the IPA, archive, and provenance as Codemagic artifacts.
 - Has no `publishing` block, `submit_to_testflight`, `submit_to_app_store`, or `beta_groups` configuration.
 

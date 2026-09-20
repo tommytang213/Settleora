@@ -72,6 +72,8 @@ fi
 if [[ "$mode" == signed ]]; then
   [[ "$artifact_class" == release-candidate ]] || fail "signed builds must be release candidates"
   [[ -n "$build_name" && -n "$build_number" && -n "$export_options_plist" ]] || fail "signed build identity/export options are required"
+  [[ "$build_name" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "signed build name must be a three-part numeric version"
+  [[ "$build_number" =~ ^[0-9]+$ ]] || fail "signed build number must be numeric"
   [[ -f "$export_options_plist" ]] || fail "export options plist is missing"
 else
   [[ -z "$build_name$build_number$export_options_plist" ]] || fail "signing arguments are invalid for an unsigned build"
@@ -145,17 +147,26 @@ cleanup_inspection_root=false
 artifact_path=
 archive_path=
 if [[ "$mode" == signed ]]; then
-  mapfile -t ipa_files < <(find build/ios/ipa -maxdepth 1 -type f -name '*.ipa' -print | LC_ALL=C sort)
+  ipa_files=()
+  while IFS= read -r candidate; do
+    ipa_files+=("$candidate")
+  done < <(find build/ios/ipa -maxdepth 1 -type f -name '*.ipa' -print | LC_ALL=C sort)
   [[ ${#ipa_files[@]} -eq 1 ]] || fail "signed build must produce exactly one IPA"
   artifact_path=$(cd "$(dirname "${ipa_files[0]}")" && pwd -P)/$(basename "${ipa_files[0]}")
-  mapfile -t archive_paths < <(find build/ios/archive -maxdepth 1 -type d -name '*.xcarchive' -print | LC_ALL=C sort)
+  archive_paths=()
+  while IFS= read -r candidate; do
+    archive_paths+=("$candidate")
+  done < <(find build/ios/archive -maxdepth 1 -type d -name '*.xcarchive' -print | LC_ALL=C sort)
   [[ ${#archive_paths[@]} -eq 1 ]] || fail "signed build must produce exactly one xcarchive"
   archive_path=$(cd "$(dirname "${archive_paths[0]}")" && pwd -P)/$(basename "${archive_paths[0]}")
   inspection_root=$(mktemp -d)
   cleanup_inspection_root=true
   trap 'if [[ "$cleanup_inspection_root" == true ]]; then rm -rf -- "$inspection_root"; fi' EXIT
   unzip -q "$artifact_path" -d "$inspection_root"
-  mapfile -t packaged_apps < <(find "$inspection_root/Payload" -maxdepth 1 -type d -name '*.app' -print | LC_ALL=C sort)
+  packaged_apps=()
+  while IFS= read -r candidate; do
+    packaged_apps+=("$candidate")
+  done < <(find "$inspection_root/Payload" -maxdepth 1 -type d -name '*.app' -print | LC_ALL=C sort)
   [[ ${#packaged_apps[@]} -eq 1 ]] || fail "IPA must contain exactly one application bundle"
   app_path=${packaged_apps[0]}
   codesign --verify --deep --strict "$app_path"
@@ -167,6 +178,14 @@ fi
 [[ -d "$app_path" ]] || fail "production application bundle is missing"
 bundle_identifier=$(plutil -extract CFBundleIdentifier raw "$app_path/Info.plist")
 [[ "$bundle_identifier" == "$expected_bundle_identifier" ]] || fail "production bundle identifier changed"
+packaged_build_name=$(plutil -extract CFBundleShortVersionString raw "$app_path/Info.plist")
+packaged_build_number=$(plutil -extract CFBundleVersion raw "$app_path/Info.plist")
+[[ "$packaged_build_name" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "packaged build name is invalid"
+[[ "$packaged_build_number" =~ ^[0-9]+$ ]] || fail "packaged build number is invalid"
+if [[ "$mode" == signed ]]; then
+  [[ "$packaged_build_name" == "$build_name" ]] || fail "packaged build name differs from the requested signed build"
+  [[ "$packaged_build_number" == "$build_number" ]] || fail "packaged build number differs from the requested signed build"
+fi
 
 if [[ "$artifact_class" == release-candidate ]]; then
   node "$tool_root/tools/ocr-models/verify-mobile-package.mjs" \
@@ -214,6 +233,8 @@ if [[ "$artifact_class" == release-candidate ]]; then
     --archive="$archive_path" \
     --archive-sha256="$archive_sha" \
     --bundle-identifier="$bundle_identifier" \
+    --build-name="$packaged_build_name" \
+    --build-number="$packaged_build_number" \
     --flutter-version="$flutter_version" \
     --xcode-version="$xcode_version" \
     --cocoapods-version="$cocoapods_version" \

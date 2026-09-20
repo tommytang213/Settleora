@@ -25,6 +25,8 @@ function provenanceArgs(root, mode = "signed") {
     archive: mode === "signed" ? archive : "",
     "archive-sha256": mode === "signed" ? "8".repeat(64) : "",
     "bundle-identifier": "com.tommytang213.settleora",
+    "build-name": "1.0.0",
+    "build-number": "42",
     "flutter-version": "3.44.8",
     "xcode-version": "16.4",
     "cocoapods-version": "1.17.0",
@@ -70,6 +72,8 @@ test("signed provenance binds the exact artifact and forbids publication", () =>
     assert.equal(provenance.artifact.fileName, "Settleora.ipa");
     assert.equal(provenance.artifact.sha256, "3".repeat(64));
     assert.equal(provenance.artifact.archiveSha256, "8".repeat(64));
+    assert.equal(provenance.artifact.buildName, "1.0.0");
+    assert.equal(provenance.artifact.buildNumber, "42");
     assert.equal(provenance.verification.codeSignatureVerified, true);
     assert.equal(JSON.stringify(provenance).includes(root), false);
   } finally {
@@ -91,11 +95,14 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
     "Flutter secure storage registrant call is missing or duplicated",
     "integration_test is linked into the production application",
     "codesign --verify --deep --strict",
+    "packaged build name differs from the requested signed build",
+    "packaged build number differs from the requested signed build",
     "write-ios-release-provenance.mjs",
     '$(basename "$provenance_out")',
   ]) assert.ok(script.includes(required), required);
   assert.match(script, /signed builds must be release candidates/);
   assert.match(script, /release candidate provenance output is required/);
+  assert.doesNotMatch(script, /\b(?:mapfile|readarray)\b/);
   assert.doesNotMatch(script, /app-store-connect|testflight|upload|publish/i);
 });
 
