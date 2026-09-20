@@ -23,30 +23,23 @@ function withLog(contents, callback) {
 }
 
 function protocolLog(...messages) {
+  const testNames = [
+    "native acceptance runner has no external network",
+    "all 101 real images match complete preview truth",
+    "a real fixture rotated 270 degrees matches complete truth",
+    "representative production receipt review UI uses real provider",
+  ];
+  const ownerIndex = (message) => message.startsWith("SETTLEORA_OCR_UI_SMOKE=") ? 3 : 1;
   return [
     { type: "start", time: 0, protocolVersion: "0.1.1", runnerVersion: null, pid: 1 },
-    {
-      type: "testStart",
-      time: 1,
-      test: {
-        id: 1,
-        suiteID: 1,
-        groupIDs: [],
-        name: "bounded native acceptance fixture",
-        metadata: { skip: false, skipReason: null },
-        line: null,
-        column: null,
-        url: null,
-      },
-    },
-    ...messages.map((message) => ({
-      type: "print",
-      time: 2,
-      testID: 1,
-      messageType: "print",
-      message,
-    })),
-    { type: "testDone", time: 3, testID: 1, result: "success", skipped: false, hidden: false },
+    { type: "allSuites", time: 0, count: 1 },
+    { type: "suite", time: 0, suite: { id: 1, platform: "vm", path: "integration_test/receipt_ocr_real_provider_test.dart" } },
+    { type: "group", time: 0, group: { id: 1, suiteID: 1, parentID: null, name: "", metadata: { skip: false, skipReason: null }, testCount: 4, line: null, column: null, url: null } },
+    ...testNames.flatMap((name, index) => [
+      { type: "testStart", time: 1, test: { id: index + 1, suiteID: 1, groupIDs: [1], name, metadata: { skip: false, skipReason: null }, line: null, column: null, url: null } },
+      ...messages.filter((message) => ownerIndex(message) === index).map((message) => ({ type: "print", time: 2, testID: index + 1, messageType: "print", message })),
+      { type: "testDone", time: 3, testID: index + 1, result: "success", skipped: false, hidden: false },
+    ]),
     { type: "done", time: 4, success: true },
   ].map((event) => JSON.stringify(event)).join("\n") + "\n";
 }
@@ -566,7 +559,7 @@ test("rejects malformed protocol ordering and inactive test references", () => {
     assert.throws(() => buildEvidence(evidenceArgs(logPath), repoRoot), /before start/);
   });
   const inactivePrint = protocolLog("SETTLEORA_OCR_UI_SMOKE={}")
-    .replace('"testID":1,"messageType"', '"testID":99,"messageType"');
+    .replace('"testID":4,"messageType"', '"testID":99,"messageType"');
   withLog(inactivePrint, (logPath) => {
     assert.throws(() => buildEvidence(evidenceArgs(logPath), repoRoot), /inactive test/);
   });
@@ -580,6 +573,28 @@ test("rejects malformed protocol ordering and inactive test references", () => {
   const afterDone = `${protocolLog()}${JSON.stringify([{ event: "test.startedProcess", params: { vmServiceUri: null } }])}\n`;
   withLog(afterDone, (logPath) => {
     assert.throws(() => buildEvidence(evidenceArgs(logPath), repoRoot), /after completion/);
+  });
+});
+
+test("requires the exact declared acceptance tests and marker owners", () => {
+  const missingRotation = protocolLog()
+    .replace(/\{"type":"testStart","time":1,"test":\{"id":3,[^\n]+\n/, "")
+    .replace('{"type":"testDone","time":3,"testID":3,"result":"success","skipped":false,"hidden":false}\n', "");
+  withLog(missingRotation, (logPath) => {
+    const evidence = buildEvidence(evidenceArgs(logPath), repoRoot);
+    assert.equal(evidence.execution.protocolSucceeded, false);
+  });
+
+  const wrongDeclaredCount = protocolLog().replace('"testCount":4', '"testCount":3');
+  withLog(wrongDeclaredCount, (logPath) => {
+    const evidence = buildEvidence(evidenceArgs(logPath), repoRoot);
+    assert.equal(evidence.execution.protocolSucceeded, false);
+  });
+
+  const uiMarker = "SETTLEORA_OCR_UI_SMOKE={}";
+  const wrongOwner = protocolLog(uiMarker).replace('"testID":4,"messageType"', '"testID":2,"messageType"');
+  withLog(wrongOwner, (logPath) => {
+    assert.throws(() => buildEvidence(evidenceArgs(logPath), repoRoot), /inactive test|wrong test/);
   });
 });
 

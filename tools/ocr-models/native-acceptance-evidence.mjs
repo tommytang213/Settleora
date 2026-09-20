@@ -266,13 +266,28 @@ function parseSafeRunnerLog(log, stderrLog) {
     "start", "allSuites", "suite", "group", "testStart", "testDone", "done", "error",
   ]);
   const markerMessages = [];
+  const expectedTests = new Set([
+    "native acceptance runner has no external network",
+    "all 101 real images match complete preview truth",
+    "a real fixture rotated 270 degrees matches complete truth",
+    "representative production receipt review UI uses real provider",
+  ]);
+  const expectedMarkerOwners = new Map([
+    ["SETTLEORA_OCR_ACCEPTANCE=", "all 101 real images match complete preview truth"],
+    ["SETTLEORA_OCR_UI_SMOKE=", "representative production receipt review UI uses real provider"],
+  ]);
   let startCount = 0;
+  let allSuitesCount = 0;
+  let declaredSuiteCount = null;
+  let suiteCount = 0;
+  let rootGroupCount = 0;
+  let declaredRootTestCount = null;
   let doneCount = 0;
   let protocolSucceeded = false;
   let failedProtocolEvent = false;
   let protocolStarted = false;
   let protocolDone = false;
-  const startedTestIds = new Set();
+  const startedTests = new Map();
   const completedTestIds = new Set();
   for (const [index, line] of log.split(/\r?\n/).entries()) {
     if (line === "") continue;
@@ -311,21 +326,38 @@ function parseSafeRunnerLog(log, stderrLog) {
     } else if (!protocolStarted) {
       throw new Error("Acceptance runner emitted an event before start");
     }
+    if (event.type === "allSuites") {
+      allSuitesCount += 1;
+      declaredSuiteCount = event.count;
+    }
+    if (event.type === "suite") {
+      suiteCount += 1;
+      if (!event.suite.path.endsWith("integration_test/receipt_ocr_real_provider_test.dart")) {
+        throw new Error("Acceptance runner suite identity is invalid");
+      }
+    }
+    if (event.type === "group" && event.group.parentID == null) {
+      rootGroupCount += 1;
+      declaredRootTestCount = event.group.testCount;
+    }
     if (event.type === "testStart") {
-      if (startedTestIds.has(event.test.id)) {
+      if (startedTests.has(event.test.id) || !expectedTests.has(event.test.name)) {
         throw new Error("Acceptance runner emitted a duplicate test start");
       }
-      startedTestIds.add(event.test.id);
+      if ([...startedTests.values()].includes(event.test.name)) {
+        throw new Error("Acceptance runner emitted a duplicate test identity");
+      }
+      startedTests.set(event.test.id, event.test.name);
     }
     if (event.type === "print" || event.type === "error" || event.type === "testDone") {
       const testId = event.testID;
-      if (!startedTestIds.has(testId) || completedTestIds.has(testId)) {
+      if (!startedTests.has(testId) || completedTestIds.has(testId)) {
         throw new Error("Acceptance runner referenced an inactive test");
       }
       if (event.type === "testDone") completedTestIds.add(testId);
     }
     if (event.type === "done") {
-      if (startedTestIds.size === 0 || completedTestIds.size !== startedTestIds.size) {
+      if (startedTests.size === 0 || completedTestIds.size !== startedTests.size) {
         throw new Error("Acceptance runner completed with unfinished tests");
       }
       doneCount += 1;
@@ -348,6 +380,11 @@ function parseSafeRunnerLog(log, stderrLog) {
         throw new Error("Acceptance runner emitted non-allowlisted application output");
       }
       markerMessages.push(event.message);
+      for (const [marker, owner] of expectedMarkerOwners) {
+        if (event.message.startsWith(marker) && startedTests.get(event.testID) !== owner) {
+          throw new Error("Acceptance marker was emitted by the wrong test");
+        }
+      }
     } else if (!allowedEventTypes.has(event.type)) {
       throw new Error("Acceptance runner emitted a non-allowlisted protocol event");
     }
@@ -361,9 +398,14 @@ function parseSafeRunnerLog(log, stderrLog) {
     markerMessages,
     protocolSucceeded:
       startCount === 1 &&
+      allSuitesCount === 1 &&
+      declaredSuiteCount === 1 &&
+      suiteCount === 1 &&
+      rootGroupCount === 1 &&
+      declaredRootTestCount === expectedTests.size &&
       doneCount === 1 &&
-      startedTestIds.size > 0 &&
-      completedTestIds.size === startedTestIds.size &&
+      startedTests.size === expectedTests.size &&
+      completedTestIds.size === startedTests.size &&
       protocolSucceeded &&
       !failedProtocolEvent,
   };
