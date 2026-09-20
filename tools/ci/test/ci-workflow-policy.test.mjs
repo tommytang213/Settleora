@@ -174,6 +174,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(native.on.pull_request.paths.includes('apps/mobile/lib/**'));
   assert.ok(native.on.pull_request.paths.includes('apps/mobile/pubspec.yaml'));
   assert.ok(native.on.pull_request.paths.includes('apps/mobile/pubspec.lock'));
+  assert.ok(native.on.pull_request.paths.includes('package.json'));
   assert.deepEqual(native.permissions, { contents: 'read' });
   assert.match(nativeTest, /invokeMethod<Uint8List>\('loadModelCatalog'\)/);
   assert.doesNotMatch(nativeTest, /rootBundle\.loadString/);
@@ -334,15 +335,15 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(iosCommands.includes("grep -F 'FlutterSecureStorageDarwinPlugin'"));
   assert.equal(
     (iosCommands.match(/\[FilePickerPlugin registerWithRegistrar:\[registry registrarForPlugin:@"FilePickerPlugin"\]\];/g) ?? []).length,
-    2,
+    3,
   );
   assert.equal(
     (iosCommands.match(/\[FlutterSecureStorageDarwinPlugin registerWithRegistrar:\[registry registrarForPlugin:@"FlutterSecureStorageDarwinPlugin"\]\];/g) ?? []).length,
-    2,
+    3,
   );
   assert.equal(
     (iosCommands.match(/Projected iOS registrant still contains integration_test/g) ?? []).length,
-    2,
+    3,
   );
   assert.ok(iosCommands.includes('grep_status=$?'));
   assert.ok(iosCommands.includes('Production iOS app contains the integration_test plugin'));

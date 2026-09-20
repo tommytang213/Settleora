@@ -14,6 +14,7 @@ on:
       - "apps/mobile/pubspec.yaml"
       - "apps/mobile/pubspec.lock"
       - "apps/mobile/test/fixtures/receipt_ocr/**"
+      - "package.json"
       - "tools/ocr-models/**"
   workflow_dispatch:
     inputs:
@@ -374,6 +375,15 @@ jobs:
             test "$(shasum -a 256 Podfile.lock | awk '{print $1}')" = "486ba24476c7ae0be32927fa9239599749f285d7a5a48129caebe4437ed6cc30"
             cd ..
             flutter build ios --release --no-codesign --no-pub
+            grep -Fx '  [FilePickerPlugin registerWithRegistrar:[registry registrarForPlugin:@"FilePickerPlugin"]];' ios/Runner/GeneratedPluginRegistrant.m
+            grep -Fx '  [FlutterSecureStorageDarwinPlugin registerWithRegistrar:[registry registrarForPlugin:@"FlutterSecureStorageDarwinPlugin"]];' ios/Runner/GeneratedPluginRegistrant.m
+            if grep -E 'integration_test|IntegrationTestPlugin' ios/Runner/GeneratedPluginRegistrant.m; then
+              echo "Projected iOS registrant still contains integration_test" >&2
+              exit 1
+            else
+              grep_status=$?
+              test "$grep_status" -eq 1
+            fi
           )
           base_app_bytes=$(find "$base_dir/apps/mobile/build/ios/iphoneos/Runner.app" -type f -exec stat -f %z {} + | awk '{sum += $1} END {print sum}')
           echo "full_bytes=$full_bytes" >> "$GITHUB_OUTPUT"
