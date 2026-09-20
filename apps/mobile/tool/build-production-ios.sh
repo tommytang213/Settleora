@@ -83,6 +83,7 @@ else
 fi
 
 if git -C "$repo_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  [[ "$(git -C "$repo_root" rev-parse --show-toplevel)" == "$(cd "$repo_root" && pwd -P)" ]] || fail "source root is not the Git worktree root"
   [[ -z "$source_git_root" ]] || fail "source Git root is valid only for an exported source tree"
   [[ "$(git -C "$repo_root" rev-parse HEAD)" == "$source_sha" ]] || fail "source SHA does not match checkout"
   [[ "$(git -C "$repo_root" rev-parse 'HEAD^{tree}')" == "$source_tree" ]] || fail "source tree does not match checkout"

@@ -113,6 +113,7 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
     "Podfile.lock does not match the approved identity",
     "Podfile.lock drifted during build",
     "source checkout differs from the committed tree",
+    "source root is not the Git worktree root",
     "signed release candidate requires a clean Git worktree",
     "exported source differs from the committed tree",
     "prepare-production-flutter-plugins.mjs",
@@ -214,6 +215,46 @@ test("signed wrapper rejects a non-Git source before trusting caller provenance"
     ], { encoding: "utf8" });
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /signed release candidate requires a clean Git worktree/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("signed wrapper rejects an ignored fake source nested under a clean worktree", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-ios-nested-source-"));
+  const fakeRoot = path.join(root, "ignored-source");
+  const git = (...args) => spawnSync("git", ["-C", root, ...args], { encoding: "utf8" });
+  try {
+    assert.equal(git("init", "-q").status, 0);
+    assert.equal(git("config", "user.email", "test@example.invalid").status, 0);
+    assert.equal(git("config", "user.name", "Settleora Test").status, 0);
+    writeFileSync(path.join(root, ".gitignore"), "ignored-source/\n");
+    writeFileSync(path.join(root, "tracked"), "source");
+    assert.equal(git("add", ".gitignore", "tracked").status, 0);
+    assert.equal(git("commit", "-q", "-m", "fixture").status, 0);
+    const head = git("rev-parse", "HEAD").stdout.trim();
+    const tree = git("rev-parse", "HEAD^{tree}").stdout.trim();
+    mkdirSync(path.join(fakeRoot, "apps/mobile/ios/Runner"), { recursive: true });
+    mkdirSync(path.join(fakeRoot, "tools/ocr-models"), { recursive: true });
+    writeFileSync(path.join(fakeRoot, "apps/mobile/pubspec.lock"), "fake-lock");
+    writeFileSync(path.join(fakeRoot, "apps/mobile/ios/Podfile.lock"), "fake-lock");
+    writeFileSync(path.join(fakeRoot, "tools/ocr-models/prepare-production-flutter-plugins.mjs"), "");
+    writeFileSync(path.join(fakeRoot, "tools/ocr-models/verify-mobile-package.mjs"), "");
+    const result = spawnSync("bash", [
+      path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"),
+      "--mode=signed",
+      `--source-sha=${head}`,
+      `--source-tree=${tree}`,
+      `--mobile-root=${path.join(fakeRoot, "apps/mobile")}`,
+      `--repo-root=${fakeRoot}`,
+      `--tool-root=${fakeRoot}`,
+      "--build-name=1.0.0",
+      "--build-number=1",
+      `--export-options-plist=${path.join(fakeRoot, "export.plist")}`,
+      `--provenance-out=${path.join(fakeRoot, "provenance.json")}`,
+    ], { encoding: "utf8" });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /source root is not the Git worktree root/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
