@@ -49,6 +49,13 @@ function projectPackageConfig(filePath, removed) {
   if (config == null || typeof config !== "object" || !Array.isArray(config.packages)) {
     throw new Error("Dart package configuration has an invalid shape");
   }
+  const packageNames = config.packages.map((entry) => entry?.name);
+  if (
+    packageNames.some((name) => typeof name !== "string") ||
+    new Set(packageNames).size !== packageNames.length
+  ) {
+    throw new Error("Dart package configuration identities are invalid or duplicated");
+  }
   const removedEntries = config.packages.filter((entry) => removed.has(entry?.name));
   if (removedEntries.length !== removed.size) {
     throw new Error("Reviewed dev plugin package configuration is missing or duplicated");
@@ -73,32 +80,46 @@ function projectPackageGraph(filePath, removed) {
   ) {
     throw new Error("Dart package graph has an invalid shape");
   }
+  const packageList = (entry, key) => {
+    const value = entry[key];
+    if (value == null) return [];
+    if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+      throw new Error("Dart package graph entry has an invalid shape");
+    }
+    return value;
+  };
   const rootName = graph.roots[0];
   const rootEntries = graph.packages.filter((entry) => entry?.name === rootName);
   const removedEntries = graph.packages.filter((entry) => removed.has(entry?.name));
   if (typeof rootName !== "string" || rootEntries.length !== 1 || removedEntries.length !== removed.size) {
     throw new Error("Dart package graph root or reviewed dev plugin is missing or duplicated");
   }
+  const seenPackageNames = new Set();
   for (const entry of graph.packages) {
     if (
       entry == null ||
       typeof entry !== "object" ||
-      typeof entry.name !== "string" ||
-      !Array.isArray(entry.dependencies) ||
-      !Array.isArray(entry.devDependencies)
+      typeof entry.name !== "string"
     ) {
       throw new Error("Dart package graph entry has an invalid shape");
     }
-    if (entry.dependencies.some((dependency) => removed.has(dependency))) {
+    if (seenPackageNames.has(entry.name)) {
+      throw new Error("Dart package graph contains a duplicate package identity");
+    }
+    seenPackageNames.add(entry.name);
+    const dependencies = packageList(entry, "dependencies");
+    packageList(entry, "devDependencies");
+    if (dependencies.some((dependency) => removed.has(dependency))) {
       throw new Error("A production Dart package depends on a removed dev plugin");
     }
   }
   const root = rootEntries[0];
-  const removedRootDevDependencies = root.devDependencies.filter((dependency) => removed.has(dependency));
+  const rootDevDependencies = packageList(root, "devDependencies");
+  const removedRootDevDependencies = rootDevDependencies.filter((dependency) => removed.has(dependency));
   if (removedRootDevDependencies.length !== removed.size) {
     throw new Error("Reviewed dev plugin is missing or duplicated in the root package graph");
   }
-  root.devDependencies = root.devDependencies.filter((dependency) => !removed.has(dependency));
+  root.devDependencies = rootDevDependencies.filter((dependency) => !removed.has(dependency));
   graph.packages = graph.packages.filter((entry) => !removed.has(entry.name));
   writeFileSync(filePath, `${JSON.stringify(graph, null, 2)}\n`, { mode: stat.mode & 0o777 });
 }

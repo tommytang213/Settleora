@@ -26,8 +26,8 @@ function withMetadata(metadata, callback) {
       roots: ["mobile"],
       packages: [
         { name: "mobile", version: "1.0.0", dependencies: ["production_plugin"], devDependencies: ["integration_test"] },
-        { name: "integration_test", version: "0.0.0", dependencies: [], devDependencies: [] },
-        { name: "production_plugin", version: "1.0.0", dependencies: [], devDependencies: [] },
+        { name: "integration_test", version: "0.0.0", dependencies: [] },
+        { name: "production_plugin", version: "1.0.0", dependencies: [] },
       ],
     }));
     callback(file, packageConfig, packageGraph);
