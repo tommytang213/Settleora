@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 const eocdSignature = 0x06054b50;
 const centralSignature = 0x02014b50;
 const localSignature = 0x04034b50;
+const dataDescriptorSignature = 0x08074b50;
 const maximumArchiveBytes = 2 * 1024 * 1024 * 1024;
 const maximumCentralDirectoryBytes = 64 * 1024 * 1024;
 const maximumEntries = 50_000;
@@ -13,6 +14,7 @@ const maximumExpandedBytes = 8 * 1024 * 1024 * 1024;
 const maximumEntryBytes = 2 * 1024 * 1024 * 1024;
 const supportedCompressionMethods = new Set([0, 8]);
 const allowedRoots = new Set(["Payload", "SwiftSupport"]);
+const forbiddenExtraFieldIds = new Set([0x0001, 0x7075]);
 
 function fail(message) {
   throw new Error(`Unsafe IPA archive: ${message}`);
@@ -35,6 +37,19 @@ function decodeName(bytes) {
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {
     fail("entry name is not valid UTF-8");
+  }
+}
+
+function validateExtraFields(bytes) {
+  let cursor = 0;
+  while (cursor < bytes.length) {
+    if (cursor + 4 > bytes.length) fail("entry extra fields are malformed");
+    const identifier = bytes.readUInt16LE(cursor);
+    const length = bytes.readUInt16LE(cursor + 2);
+    cursor += 4;
+    if (cursor + length > bytes.length) fail("entry extra field length is malformed");
+    if (forbiddenExtraFieldIds.has(identifier)) fail("ZIP64 or path-overriding extra field is forbidden");
+    cursor += length;
   }
 }
 
@@ -108,6 +123,7 @@ export function verifyIpaArchive(archivePath) {
       const madeBySystem = central.readUInt16LE(cursor + 4) >>> 8;
       const flags = central.readUInt16LE(cursor + 8);
       const method = central.readUInt16LE(cursor + 10);
+      const crc32 = central.readUInt32LE(cursor + 16);
       const compressedSize = central.readUInt32LE(cursor + 20);
       const uncompressedSize = central.readUInt32LE(cursor + 24);
       const nameLength = central.readUInt16LE(cursor + 28);
@@ -121,11 +137,15 @@ export function verifyIpaArchive(archivePath) {
       if (entryDisk !== 0 || compressedSize === 0xffffffff || uncompressedSize === 0xffffffff || localOffset === 0xffffffff) {
         fail("ZIP64 or multi-disk entries are forbidden");
       }
-      if ((flags & 1) !== 0 || !supportedCompressionMethods.has(method)) fail("encrypted or unsupported-compression entry is forbidden");
+      if ((flags & ~0x080e) !== 0 || (flags & 1) !== 0 || !supportedCompressionMethods.has(method)) {
+        fail("encrypted, unsupported-flag, or unsupported-compression entry is forbidden");
+      }
       if (uncompressedSize > maximumEntryBytes || expandedBytes + uncompressedSize > maximumExpandedBytes) fail("expanded archive exceeds bounded limits");
       expandedBytes += uncompressedSize;
 
       const nameBytes = central.subarray(cursor + 46, cursor + 46 + nameLength);
+      if ((flags & 0x0800) === 0 && nameBytes.some((byte) => byte >= 0x80)) fail("non-ASCII entry name is missing its UTF-8 flag");
+      validateExtraFields(central.subarray(cursor + 46 + nameLength, cursor + 46 + nameLength + extraLength));
       const name = decodeName(nameBytes);
       const unixMode = madeBySystem === 3 || madeBySystem === 19 ? externalAttributes >>> 16 : 0;
       const unixType = unixMode & 0xf000;
@@ -144,14 +164,39 @@ export function verifyIpaArchive(archivePath) {
       if (local.readUInt32LE(0) !== localSignature) fail("local entry header is malformed");
       const localFlags = local.readUInt16LE(6);
       const localMethod = local.readUInt16LE(8);
+      const localCrc32 = local.readUInt32LE(14);
+      const localCompressedSize = local.readUInt32LE(18);
+      const localUncompressedSize = local.readUInt32LE(22);
       const localNameLength = local.readUInt16LE(26);
       const localExtraLength = local.readUInt16LE(28);
       const localName = readExact(fd, localNameLength, localOffset + 30);
       if (localFlags !== flags || localMethod !== method || !localName.equals(nameBytes)) fail("local and central entry identities disagree");
+      const usesDataDescriptor = (flags & 0x0008) !== 0;
+      if (!usesDataDescriptor && (localCrc32 !== crc32 || localCompressedSize !== compressedSize || localUncompressedSize !== uncompressedSize)) {
+        fail("local and central entry integrity values disagree");
+      }
+      if (usesDataDescriptor && (
+        (localCrc32 !== 0 && localCrc32 !== crc32) ||
+        (localCompressedSize !== 0 && localCompressedSize !== compressedSize) ||
+        (localUncompressedSize !== 0 && localUncompressedSize !== uncompressedSize)
+      )) fail("local data-descriptor placeholders disagree with the central directory");
+      const localExtra = readExact(fd, localExtraLength, localOffset + 30 + localNameLength);
+      validateExtraFields(localExtra);
       const dataStart = localOffset + 30 + localNameLength + localExtraLength;
-      const dataEnd = dataStart + compressedSize;
-      if (dataEnd > centralOffset) fail("entry data extends into the central directory");
-      occupiedRanges.push([localOffset, dataEnd]);
+      let entryEndOffset = dataStart + compressedSize;
+      if (usesDataDescriptor) {
+        const descriptor = readExact(fd, 16, entryEndOffset);
+        const signed = descriptor.readUInt32LE(0) === dataDescriptorSignature;
+        const descriptorOffset = signed ? 4 : 0;
+        if (
+          descriptor.readUInt32LE(descriptorOffset) !== crc32 ||
+          descriptor.readUInt32LE(descriptorOffset + 4) !== compressedSize ||
+          descriptor.readUInt32LE(descriptorOffset + 8) !== uncompressedSize
+        ) fail("data descriptor disagrees with the central directory");
+        entryEndOffset += signed ? 16 : 12;
+      }
+      if (entryEndOffset > centralOffset) fail("entry data extends into the central directory");
+      occupiedRanges.push([localOffset, entryEndOffset]);
       cursor = entryEnd;
     }
     if (cursor !== central.length) fail("central directory contains unaccounted bytes");

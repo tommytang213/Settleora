@@ -18,29 +18,42 @@ function makeStoredZip(entries) {
   let localOffset = 0;
   for (const entry of entries) {
     const name = Buffer.from(entry.name);
+    const localName = Buffer.from(entry.localName ?? entry.name);
     const data = Buffer.from(entry.data ?? "");
+    const centralExtra = entry.centralExtra ?? Buffer.alloc(0);
+    const localExtra = entry.localExtra ?? Buffer.alloc(0);
     const directory = entry.directory ?? entry.name.endsWith("/");
     const mode = entry.mode ?? (directory ? 0o040755 : 0o100644);
+    const flags = entry.flags ?? (entry.dataDescriptor ? 0x808 : 0x800);
+    const descriptor = entry.dataDescriptor ? Buffer.alloc(16) : Buffer.alloc(0);
+    if (entry.dataDescriptor) {
+      descriptor.writeUInt32LE(0x08074b50, 0);
+      descriptor.writeUInt32LE(entry.descriptorCrc32 ?? 0, 4);
+      descriptor.writeUInt32LE(entry.descriptorCompressedSize ?? data.length, 8);
+      descriptor.writeUInt32LE(entry.descriptorUncompressedSize ?? data.length, 12);
+    }
     const local = Buffer.alloc(30);
     local.writeUInt32LE(0x04034b50, 0);
     local.writeUInt16LE(20, 4);
-    local.writeUInt16LE(0x800, 6);
-    local.writeUInt32LE(data.length, 18);
-    local.writeUInt32LE(data.length, 22);
-    local.writeUInt16LE(name.length, 26);
-    localParts.push(local, name, data);
+    local.writeUInt16LE(flags, 6);
+    local.writeUInt32LE(entry.localCompressedSize ?? (entry.dataDescriptor ? 0 : data.length), 18);
+    local.writeUInt32LE(entry.localUncompressedSize ?? (entry.dataDescriptor ? 0 : data.length), 22);
+    local.writeUInt16LE(localName.length, 26);
+    local.writeUInt16LE(localExtra.length, 28);
+    localParts.push(local, localName, localExtra, data, descriptor);
     const central = Buffer.alloc(46);
     central.writeUInt32LE(0x02014b50, 0);
     central.writeUInt16LE((3 << 8) | 20, 4);
     central.writeUInt16LE(20, 6);
-    central.writeUInt16LE(0x800, 8);
+    central.writeUInt16LE(flags, 8);
     central.writeUInt32LE(data.length, 20);
     central.writeUInt32LE(data.length, 24);
     central.writeUInt16LE(name.length, 28);
+    central.writeUInt16LE(centralExtra.length, 30);
     central.writeUInt32LE((mode << 16) >>> 0, 38);
     central.writeUInt32LE(localOffset, 42);
-    centralParts.push(central, name);
-    localOffset += local.length + name.length + data.length;
+    centralParts.push(central, name, centralExtra);
+    localOffset += local.length + localName.length + localExtra.length + data.length + descriptor.length;
   }
   const centralDirectory = Buffer.concat(centralParts);
   const eocd = Buffer.alloc(22);
@@ -160,7 +173,7 @@ test("IPA namespace verifier rejects ambiguous and escaping ZIP entries before e
     writeFileSync(archive, makeStoredZip([
       { name: "Payload/" },
       { name: "Payload/Runner.app/" },
-      { name: "Payload/Runner.app/Info.plist", data: "plist" },
+      { name: "Payload/Runner.app/Info.plist", data: "plist", dataDescriptor: true },
       { name: "SwiftSupport/" },
       { name: "SwiftSupport/iphoneos/" },
       { name: "SwiftSupport/iphoneos/libswiftCore.dylib", data: "dylib" },
@@ -175,6 +188,10 @@ test("IPA namespace verifier rejects ambiguous and escaping ZIP entries before e
       [{ name: "Payload\\Runner.app\\file" }],
       [{ name: "Other/Runner.app/file" }],
       [{ name: "Payload/Runner.app/link", mode: 0o120777, data: "../../outside" }],
+      [{ name: "Payload/Runner.app/file", localName: "Payload/Runner.app/evil" }],
+      [{ name: "Payload/Runner.app/file", data: "data", localCompressedSize: 3 }],
+      [{ name: "Payload/Runner.app/file", data: "data", dataDescriptor: true, descriptorCompressedSize: 3 }],
+      [{ name: "Payload/Runner.app/file", centralExtra: Buffer.from([0x75, 0x70, 0x01, 0x00, 0x01]) }],
     ]) {
       writeFileSync(archive, makeStoredZip(entries));
       assert.throws(() => verifyIpaArchive(archive), /Unsafe IPA archive/);
