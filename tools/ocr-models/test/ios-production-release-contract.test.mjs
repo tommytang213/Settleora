@@ -188,6 +188,9 @@ test("IPA namespace verifier rejects ambiguous and escaping ZIP entries before e
       { name: "SwiftSupport/iphoneos/libswiftCore.dylib", data: "dylib" },
     ]));
     assert.match(verifyIpaArchive(archive), /^[0-9a-f]{64}$/);
+    const archiveLink = path.join(root, "Runner-link.ipa");
+    symlinkSync(archive, archiveLink);
+    assert.throws(() => verifyIpaArchive(archiveLink), /regular non-symlink file/);
 
     for (const entries of [
       [{ name: "Payload/Runner.app/file" }, { name: "Payload/Runner.app/file" }],

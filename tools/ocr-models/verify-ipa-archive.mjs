@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { closeSync, lstatSync, openSync, readSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -117,12 +117,20 @@ function findEocd(tail, tailStart, archiveSize) {
 }
 
 export function verifyIpaArchive(archivePath) {
-  const archiveStat = lstatSync(archivePath);
-  if (!archiveStat.isFile() || archiveStat.isSymbolicLink()) fail("archive must be a regular non-symlink file");
-  if (archiveStat.size < 22 || archiveStat.size > maximumArchiveBytes) fail("archive byte size is outside the bounded contract");
-
-  const fd = openSync(archivePath, "r");
+  // This local CLI intentionally inspects the caller-selected IPA. O_NOFOLLOW
+  // and descriptor-based validation make that one path use race-free and keep
+  // archive-controlled entry names away from filesystem path operations.
+  let fd;
   try {
+    fd = openSync(archivePath, constants.O_RDONLY | constants.O_NOFOLLOW); // lgtm[js/path-injection]
+  } catch {
+    fail("archive cannot be opened as a regular non-symlink file");
+  }
+  try {
+    const archiveStat = fstatSync(fd);
+    if (!archiveStat.isFile()) fail("archive must be a regular non-symlink file");
+    if (archiveStat.size < 22 || archiveStat.size > maximumArchiveBytes) fail("archive byte size is outside the bounded contract");
+
     const tailLength = Math.min(archiveStat.size, 65_557);
     const tailStart = archiveStat.size - tailLength;
     const { buffer: eocd, offset: eocdOffset } = findEocd(readExact(fd, tailLength, tailStart), tailStart, archiveStat.size);
