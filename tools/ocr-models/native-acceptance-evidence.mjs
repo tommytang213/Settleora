@@ -616,10 +616,14 @@ export function buildEvidence(args, repoRoot = process.cwd()) {
   const catalogPath = path.join(repoRoot, "apps/mobile/assets/receipt_ocr_models/catalog.json");
   const manifestPath = path.join(repoRoot, "apps/mobile/test/fixtures/receipt_ocr/manifest.json");
   const catalog = JSON.parse(readFileSync(catalogPath, "utf8"));
+  const catalogModelFileCount = catalog.packs.flatMap((pack) => pack.files).length;
+  const expectedFixtureAbsenceCount = 102;
   const sha256 = (filePath) => createHash("sha256").update(readFileSync(filePath)).digest("hex");
   const fullBytes = parseOptionalBytes(args["full-bytes"]);
   const modelFreeBytes = parseOptionalBytes(args["model-free-bytes"]);
   const baseAppBytes = parseOptionalBytes(args["base-app-bytes"]);
+  const verifiedModelFileCount = parseOptionalBytes(args["verified-model-file-count"]);
+  const verifiedFixtureAbsenceCount = parseOptionalBytes(args["verified-fixture-absence-count"]);
   const testExitStatus = boundedInteger(Number(args["test-status"]), "test-status");
   const preflightFailurePhase = args["failure-phase"] || null;
   if (
@@ -659,6 +663,10 @@ export function buildEvidence(args, repoRoot = process.cwd()) {
       ocrStackPackageDeltaBytes:
         fullBytes == null || baseAppBytes == null ? null : fullBytes - baseAppBytes,
       catalogModelBytes: boundedInteger(catalog.totalBundledBytes, "catalog.totalBundledBytes"),
+      catalogModelFileCount: positiveInteger(catalogModelFileCount, "catalog model file count"),
+      verifiedModelFileCount,
+      expectedFixtureAbsenceCount,
+      verifiedFixtureAbsenceCount,
     },
     identities: {
       catalogSha256: sha256(catalogPath),
@@ -713,6 +721,10 @@ export function isCompleteEvidence(evidence) {
       evidence.uiSmoke.previewPanel &&
       evidence.uiSmoke.applyBoundaryVisible &&
       evidence.packageEvidence.fullBytes != null &&
+      evidence.packageEvidence.verifiedModelFileCount ===
+        evidence.packageEvidence.catalogModelFileCount &&
+      evidence.packageEvidence.verifiedFixtureAbsenceCount ===
+        evidence.packageEvidence.expectedFixtureAbsenceCount &&
       evidence.packageEvidence.baselineWithoutBundledModelPayloadBytes != null &&
       evidence.packageEvidence.bundledModelPackageDeltaBytes > 0 &&
       evidence.packageEvidence.baseAppBytes != null &&

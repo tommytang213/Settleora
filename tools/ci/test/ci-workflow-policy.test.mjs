@@ -165,10 +165,22 @@ test('iOS build procedure is reusable, manual, pinned, and simulator-only', () =
 test('native OCR acceptance is exact-head, device-backed, and retains only bounded evidence', () => {
   const native = workflow('mobile-ocr-native-acceptance.yml');
   const boundedCapture = read('tools/ocr-models/bounded-process-capture.mjs');
+  const nativeTest = read('apps/mobile/integration_test/receipt_ocr_real_provider_test.dart');
+  const androidActivity = read('apps/mobile/android/app/src/main/kotlin/com/example/mobile/MainActivity.kt');
+  const iosPlugin = read('apps/mobile/ios/Runner/SettleoraReceiptOcrPlugin.swift');
   assert.deepEqual(native.on.pull_request.branches, ['main']);
   assert.ok(native.on.workflow_dispatch);
   assert.ok(native.on.pull_request.paths.includes('apps/mobile/assets/receipt_ocr_models/**'));
+  assert.ok(native.on.pull_request.paths.includes('apps/mobile/lib/**'));
+  assert.ok(native.on.pull_request.paths.includes('apps/mobile/pubspec.yaml'));
+  assert.ok(native.on.pull_request.paths.includes('apps/mobile/pubspec.lock'));
   assert.deepEqual(native.permissions, { contents: 'read' });
+  assert.match(nativeTest, /invokeMethod<Uint8List>\('loadModelCatalog'\)/);
+  assert.doesNotMatch(nativeTest, /rootBundle\.loadString/);
+  assert.match(androidActivity, /call\.method == "loadModelCatalog"/);
+  assert.match(androidActivity, /assets\.open\("receipt_ocr_models\/catalog\.json"\)/);
+  assert.match(iosPlugin, /call\.method == "loadModelCatalog"/);
+  assert.match(iosPlugin, /FlutterAssetResolver\.url\("assets\/receipt_ocr_models\/catalog\.json"\)/);
   assert.equal(native.env.EXPECTED_HEAD, "${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || inputs.expected_head }}");
 
   const expectedJobs = [
@@ -183,6 +195,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
     assert.equal(checkout.with.ref, '${{ env.CANDIDATE_REF }}');
     assert.equal(checkout.with['fetch-depth'], 0);
     assert.ok(runCommands(job).some((command) => command.includes('git rev-parse HEAD')));
+    assert.ok(runCommands(job).some((command) => command.includes('git diff --exit-code -- pubspec.lock')));
     const executionCommands = jobName === 'android-native-acceptance'
       ? [read('tools/ocr-models/run-android-native-acceptance.sh')]
       : [read('tools/ocr-models/run-ios-native-acceptance.sh')];
@@ -207,6 +220,8 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
     assert.ok(allCommands.some((command) => command.includes('--platform=')));
     assert.ok(allCommands.some((command) => command.includes('--device=')));
     assert.ok(runCommands(job).some((command) => command.includes('--base-app-bytes=')));
+    assert.ok(runCommands(job).some((command) => command.includes('--verified-model-file-count=')));
+    assert.ok(runCommands(job).some((command) => command.includes('--verified-fixture-absence-count=')));
     assert.ok(runCommands(job).some((command) => command.includes('git archive')));
     assert.ok(runCommands(job).some((command) => command.includes('git archive "$EXPECTED_HEAD"')));
     assert.ok(allCommands.some((command) => command.includes('>"$RUNNER_TEMP/')));
@@ -260,6 +275,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(androidRunner.includes('timeout 30 "$adb" -s emulator-5554 shell settings get global mobile_data'));
   assert.ok(androidRunner.includes('echo "failure_phase=$phase" >> "$GITHUB_OUTPUT"'));
   assert.ok(androidCommands.includes('verify-mobile-package.mjs --platform=android'));
+  assert.ok(androidCommands.includes('--json=true'));
   assert.ok(androidCommands.includes('android-dex-packages.txt'));
   assert.ok(androidRunner.includes('test "$system_image_revision" = "9"'));
   assert.ok(androidRunner.includes('test "$emulator_revision" = "37.1.11"'));
@@ -288,6 +304,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(iosCommands.includes('verify-mobile-package.mjs --platform=ios'));
   assert.ok(iosCommands.includes('ios-production-symbols.txt'));
   assert.ok(iosCommands.includes('test -s Podfile.lock'));
+  assert.ok(iosCommands.includes('git diff --exit-code -- Podfile.lock'));
   assert.ok((iosCommands.match(/pod install --deployment/g) ?? []).length >= 4);
   assert.match(serialized, /ios-pre-native-Podfile\.lock/);
   assert.doesNotMatch(serialized, /temporary pre-native base lock|ios-base-pod-lock-/i);

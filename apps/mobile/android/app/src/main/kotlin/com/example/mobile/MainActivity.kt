@@ -81,6 +81,20 @@ class MainActivity : FlutterActivity() {
                 ACCEPTANCE_CHANNEL,
             ).also { acceptance ->
                 acceptance.setMethodCallHandler { call, result ->
+                    if (call.method == "loadModelCatalog") {
+                        try {
+                            result.success(
+                                assets.open("receipt_ocr_models/catalog.json").use { it.readBytes() },
+                            )
+                        } catch (_: Throwable) {
+                            result.error(
+                                "catalog_unavailable",
+                                "Packaged OCR model catalog unavailable",
+                                null,
+                            )
+                        }
+                        return@setMethodCallHandler
+                    }
                     if (call.method != "loadFixture") {
                         result.notImplemented()
                         return@setMethodCallHandler

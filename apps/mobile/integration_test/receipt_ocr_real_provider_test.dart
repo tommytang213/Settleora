@@ -84,11 +84,7 @@ void main() {
           .cast<Map<String, Object?>>();
       expect(entries, hasLength(101));
       final modelCatalog = _NativeModelCatalogEvidence.fromJson(
-        jsonDecode(
-              await rootBundle.loadString(
-                'assets/receipt_ocr_models/catalog.json',
-              ),
-            )
+        jsonDecode(utf8.decode(await fixtures.loadModelCatalog()))
             as Map<String, Object?>,
       );
       final mismatches = <_BoundedMismatch>[];
@@ -232,11 +228,7 @@ void main() {
             (fixture) => fixture['id'] == 'existing_12_freshmart_grocery_en_US',
           );
       final modelCatalog = _NativeModelCatalogEvidence.fromJson(
-        jsonDecode(
-              await rootBundle.loadString(
-                'assets/receipt_ocr_models/catalog.json',
-              ),
-            )
+        jsonDecode(utf8.decode(await fixtures.loadModelCatalog()))
             as Map<String, Object?>,
       );
       failure.set(
@@ -803,6 +795,14 @@ class _NativeAcceptanceFixtures {
     });
     if (bytes == null || bytes.isEmpty) {
       throw StateError('OCR acceptance fixture unavailable');
+    }
+    return bytes;
+  }
+
+  Future<Uint8List> loadModelCatalog() async {
+    final bytes = await _channel.invokeMethod<Uint8List>('loadModelCatalog');
+    if (bytes == null || bytes.isEmpty) {
+      throw StateError('Packaged OCR model catalog unavailable');
     }
     return bytes;
   }

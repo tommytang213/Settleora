@@ -10,7 +10,9 @@ on:
       - "apps/mobile/android/**"
       - "apps/mobile/assets/receipt_ocr_models/**"
       - "apps/mobile/ios/**"
-      - "apps/mobile/lib/receipt_ocr_capture/**"
+      - "apps/mobile/lib/**"
+      - "apps/mobile/pubspec.yaml"
+      - "apps/mobile/pubspec.lock"
       - "apps/mobile/test/fixtures/receipt_ocr/**"
       - "tools/ocr-models/**"
   workflow_dispatch:
@@ -67,7 +69,9 @@ jobs:
 
       - name: Install dependencies
         working-directory: apps/mobile
-        run: flutter pub get
+        run: |
+          flutter pub get
+          git diff --exit-code -- pubspec.lock
 
       - name: Verify immutable OCR models and fixture corpus
         run: npm run validate:ocr-models
@@ -103,7 +107,9 @@ jobs:
           )
           full_apk="$candidate_dir/apps/mobile/build/app/outputs/flutter-apk/app-release.apk"
           full_bytes=$(stat -c %s "$full_apk")
-          node tools/ocr-models/verify-mobile-package.mjs --platform=android --package="$full_apk" --repo-root="$candidate_dir"
+          package_verification=$(node tools/ocr-models/verify-mobile-package.mjs --platform=android --package="$full_apk" --repo-root="$candidate_dir" --json=true)
+          verified_model_file_count=$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).modelFileCount))' "$package_verification")
+          verified_fixture_absence_count=$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).fixtureFileCount))' "$package_verification")
           apkanalyzer="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
           test -x "$apkanalyzer"
           "$apkanalyzer" dex packages "$full_apk" >"$RUNNER_TEMP/android-dex-packages.txt"
@@ -131,6 +137,8 @@ jobs:
           echo "model_free_bytes=$model_free_bytes" >> "$GITHUB_OUTPUT"
           echo "base_app_bytes=$base_app_bytes" >> "$GITHUB_OUTPUT"
           echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
+          echo "verified_model_file_count=$verified_model_file_count" >> "$GITHUB_OUTPUT"
+          echo "verified_fixture_absence_count=$verified_fixture_absence_count" >> "$GITHUB_OUTPUT"
 
       - name: Build bounded Android evidence
         if: always()
@@ -155,6 +163,8 @@ jobs:
             --model-free-bytes="${{ steps.package.outputs.model_free_bytes }}" \
             --base-app-bytes="${{ steps.package.outputs.base_app_bytes }}" \
             --base-sha="${{ steps.package.outputs.base_sha }}" \
+            --verified-model-file-count="${{ steps.package.outputs.verified_model_file_count }}" \
+            --verified-fixture-absence-count="${{ steps.package.outputs.verified_fixture_absence_count }}" \
             --require-complete=true
 
       - name: Upload bounded Android evidence
@@ -209,10 +219,12 @@ jobs:
         working-directory: apps/mobile
         run: |
           flutter pub get
+          git diff --exit-code -- pubspec.lock
           cd ios
           pod install --deployment
           test -s Podfile.lock
           test "$(shasum -a 256 Podfile.lock | awk '{print $1}')" = "08afc1413159dcd818b669869736fc56e38a99618a1f951e605b1eea02dc5189"
+          git diff --exit-code -- Podfile.lock
 
       - name: Boot trusted iOS simulator
         id: simulator
@@ -264,7 +276,9 @@ jobs:
           )
           full_app="$candidate_dir/apps/mobile/build/ios/iphoneos/Runner.app"
           full_bytes=$(find "$full_app" -type f -exec stat -f %z {} + | awk '{sum += $1} END {print sum}')
-          node tools/ocr-models/verify-mobile-package.mjs --platform=ios --package="$full_app" --repo-root="$candidate_dir"
+          package_verification=$(node tools/ocr-models/verify-mobile-package.mjs --platform=ios --package="$full_app" --repo-root="$candidate_dir" --json=true)
+          verified_model_file_count=$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).modelFileCount))' "$package_verification")
+          verified_fixture_absence_count=$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).fixtureFileCount))' "$package_verification")
           : >"$RUNNER_TEMP/ios-production-symbols.txt"
           binary_count=0
           while IFS= read -r candidate; do
@@ -308,6 +322,8 @@ jobs:
           echo "model_free_bytes=$model_free_bytes" >> "$GITHUB_OUTPUT"
           echo "base_app_bytes=$base_app_bytes" >> "$GITHUB_OUTPUT"
           echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
+          echo "verified_model_file_count=$verified_model_file_count" >> "$GITHUB_OUTPUT"
+          echo "verified_fixture_absence_count=$verified_fixture_absence_count" >> "$GITHUB_OUTPUT"
 
       - name: Build bounded iOS evidence
         if: always()
@@ -332,6 +348,8 @@ jobs:
             --model-free-bytes="${{ steps.package.outputs.model_free_bytes }}" \
             --base-app-bytes="${{ steps.package.outputs.base_app_bytes }}" \
             --base-sha="${{ steps.package.outputs.base_sha }}" \
+            --verified-model-file-count="${{ steps.package.outputs.verified_model_file_count }}" \
+            --verified-fixture-absence-count="${{ steps.package.outputs.verified_fixture_absence_count }}" \
             --require-complete=true
 
       - name: Upload bounded iOS evidence

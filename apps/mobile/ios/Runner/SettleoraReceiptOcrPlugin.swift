@@ -32,6 +32,19 @@ final class SettleoraReceiptOcrPlugin: NSObject, FlutterPlugin {
       binaryMessenger: registrar.messenger()
     )
     acceptance.setMethodCallHandler { call, result in
+      if call.method == "loadModelCatalog" {
+        do {
+          let catalog = try FlutterAssetResolver.url("assets/receipt_ocr_models/catalog.json")
+          result(FlutterStandardTypedData(bytes: try Data(contentsOf: catalog)))
+        } catch {
+          result(FlutterError(
+            code: "catalog_unavailable",
+            message: "Packaged OCR model catalog unavailable",
+            details: nil
+          ))
+        }
+        return
+      }
       guard call.method == "loadFixture" else { result(FlutterMethodNotImplemented); return }
       guard
         let arguments = call.arguments as? [String: Any],

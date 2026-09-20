@@ -131,5 +131,9 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
     packagePath: path.resolve(args.package),
     repoRoot: path.resolve(args["repo-root"] ?? "."),
   });
-  console.log(`Verified ${args.platform} production package: ${result.modelFileCount} catalog model files; ${result.fixtureFileCount} acceptance fixture paths absent`);
+  if (args.json === "true") {
+    console.log(JSON.stringify(result));
+  } else {
+    console.log(`Verified ${args.platform} production package: ${result.modelFileCount} catalog model files; ${result.fixtureFileCount} acceptance fixture paths absent`);
+  }
 }

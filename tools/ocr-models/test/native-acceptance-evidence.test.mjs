@@ -122,6 +122,8 @@ test("retains only the bounded native acceptance schema", () => {
           "full-bytes": "200",
           "model-free-bytes": "150",
           "base-app-bytes": "100",
+          "verified-model-file-count": "14",
+          "verified-fixture-absence-count": "102",
         },
         repoRoot,
       );
@@ -129,6 +131,9 @@ test("retains only the bounded native acceptance schema", () => {
       assert.equal(evidence.uiSmoke.completed, true);
       assert.equal(evidence.packageEvidence.bundledModelPackageDeltaBytes, 50);
       assert.equal(evidence.packageEvidence.ocrStackPackageDeltaBytes, 100);
+      assert.equal(evidence.packageEvidence.catalogModelFileCount, 14);
+      assert.equal(evidence.packageEvidence.verifiedModelFileCount, 14);
+      assert.equal(evidence.packageEvidence.verifiedFixtureAbsenceCount, 102);
       assert.equal(evidence.identities.fixtureTreeSha256.length, 64);
       assert.equal(evidence.execution.testExitStatus, 0);
       assert.equal(evidence.execution.protocolSucceeded, true);
@@ -161,9 +166,20 @@ test("complete evidence requires both package measurements and a positive delta"
       bundledModelPackageDeltaBytes: 50,
       baseAppBytes: 100,
       ocrStackPackageDeltaBytes: 100,
+      catalogModelFileCount: 14,
+      verifiedModelFileCount: 14,
+      expectedFixtureAbsenceCount: 102,
+      verifiedFixtureAbsenceCount: 102,
     },
   };
   assert.equal(isCompleteEvidence(evidence), true);
+  assert.equal(
+    isCompleteEvidence({
+      ...evidence,
+      packageEvidence: { ...evidence.packageEvidence, verifiedModelFileCount: 13 },
+    }),
+    false,
+  );
   assert.equal(
     isCompleteEvidence({
       ...evidence,
