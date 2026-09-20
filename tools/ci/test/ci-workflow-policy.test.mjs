@@ -323,8 +323,13 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(iosCommands.includes('xcrun simctl erase "$udid"'));
   assert.doesNotMatch(iosCommands, /pfctl|user_id=\$\(id -u\)/);
   assert.ok(iosCommands.includes('run-ios-native-acceptance.sh'));
-  assert.ok(iosRunner.includes('SIMCTL_CHILD_DYLD_INSERT_LIBRARIES'));
-  assert.ok(iosRunner.includes('SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_ISOLATION=socket_interpose_v1'));
+  assert.doesNotMatch(iosRunner, /SIMCTL_CHILD_/);
+  assert.ok(iosRunner.includes('launchctl setenv DYLD_INSERT_LIBRARIES "$network_deny"'));
+  assert.ok(iosRunner.includes('launchctl setenv SETTLEORA_OCR_NETWORK_ISOLATION socket_interpose_v1'));
+  assert.ok(iosRunner.includes('launchctl getenv DYLD_INSERT_LIBRARIES'));
+  assert.ok(iosRunner.includes('launchctl getenv SETTLEORA_OCR_NETWORK_ISOLATION'));
+  assert.ok(iosRunner.includes('launchctl unsetenv DYLD_INSERT_LIBRARIES'));
+  assert.ok(iosRunner.includes('launchctl unsetenv SETTLEORA_OCR_NETWORK_ISOLATION'));
   assert.ok(iosRunner.includes('echo "failure_phase=$phase" >> "$GITHUB_OUTPUT"'));
   assert.match(iosNetworkDeny, /settleora_connect/);
   assert.match(iosNetworkDeny, /settleora_sendto/);

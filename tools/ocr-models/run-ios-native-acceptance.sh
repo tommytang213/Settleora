@@ -2,8 +2,14 @@
 set -euo pipefail
 
 phase=initialize
+device=""
+network_environment_configured=false
 report_failure_phase() {
   status=$?
+  if "$network_environment_configured"; then
+    xcrun simctl spawn "$device" launchctl unsetenv DYLD_INSERT_LIBRARIES >/dev/null 2>&1 || true
+    xcrun simctl spawn "$device" launchctl unsetenv SETTLEORA_OCR_NETWORK_ISOLATION >/dev/null 2>&1 || true
+  fi
   if test "$status" -ne 0; then
     printf 'ios_native_acceptance_failure_phase=%s\n' "$phase" >&2
     if test -n "${GITHUB_OUTPUT:-}"; then
@@ -42,10 +48,15 @@ xcrun --sdk iphonesimulator clang \
 codesign --force --sign - "$network_deny" >/dev/null
 file "$network_deny" | grep -F 'Mach-O' >/dev/null
 
+phase=install_network_isolation
+xcrun simctl spawn "$device" launchctl setenv DYLD_INSERT_LIBRARIES "$network_deny"
+xcrun simctl spawn "$device" launchctl setenv SETTLEORA_OCR_NETWORK_ISOLATION socket_interpose_v1
+network_environment_configured=true
+test "$(xcrun simctl spawn "$device" launchctl getenv DYLD_INSERT_LIBRARIES)" = "$network_deny"
+test "$(xcrun simctl spawn "$device" launchctl getenv SETTLEORA_OCR_NETWORK_ISOLATION)" = "socket_interpose_v1"
+
 phase=execute_flutter_test
 status=0
-SIMCTL_CHILD_DYLD_INSERT_LIBRARIES="$network_deny" \
-SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_ISOLATION=socket_interpose_v1 \
 node "$GITHUB_WORKSPACE/tools/ocr-models/bounded-process-capture.mjs" \
   --stdout="$RUNNER_TEMP/ios-acceptance.log" \
   --stderr="$RUNNER_TEMP/ios-acceptance.stderr.log" \
