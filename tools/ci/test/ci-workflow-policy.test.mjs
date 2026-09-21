@@ -356,6 +356,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.doesNotMatch(iosCommands, /pfctl|user_id=\$\(id -u\)/);
   assert.ok(iosCommands.includes('run-ios-native-acceptance.sh'));
   assert.ok(iosRunner.includes('export SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE="$network_deny"'));
+  assert.ok(iosRunner.includes('network_deny_in_app="@executable_path/Frameworks/libSettleoraOcrNetworkDeny.dylib"'));
   assert.ok(iosRunner.includes('export SIMCTL_CHILD_DYLD_INSERT_LIBRARIES="$network_deny_in_app"'));
   assert.ok(iosRunner.includes('export SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_ISOLATION=socket_interpose_v1'));
   assert.ok(iosRunner.includes('launchctl setenv DYLD_INSERT_LIBRARIES "$network_deny_in_app"'));
@@ -395,6 +396,17 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
     /B40000000000000000000000 \/\* Embed OCR network interposer \*\/ = \{[\s\S]*?\n\t\t\};/,
   )?.[0] ?? '';
   assert.ok(interposerPhase.includes('name = "Embed OCR network interposer"'));
+  const runnerTarget = iosProject.match(
+    /97C146ED1CF9000F007C117D \/\* Runner \*\/ = \{[\s\S]*?\n\t\t\};/,
+  )?.[0] ?? '';
+  const thinBinaryIndex = runnerTarget.indexOf(
+    '3B06AD1E1E4923F5004D2608 /* Thin Binary */',
+  );
+  const interposerPhaseIndex = runnerTarget.indexOf(
+    'B40000000000000000000000 /* Embed OCR network interposer */',
+  );
+  assert.ok(thinBinaryIndex >= 0);
+  assert.ok(interposerPhaseIndex > thinBinaryIndex);
   const interposerSteps = [
     'shellScript = "set -eu\\n',
     'destination=\\"$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH/libSettleoraOcrNetworkDeny.dylib\\"',
