@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { constants, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { constants, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -22,6 +22,17 @@ function verifyTestIpa(archivePath) {
   return verifyOpenedIpa(fd);
 }
 
+function crc32(bytes) {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ ((crc & 1) === 0 ? 0 : 0xedb88320);
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
 function makeStoredZip(entries, { prefix = Buffer.alloc(0), gap = Buffer.alloc(0), archiveComment = Buffer.alloc(0) } = {}) {
   const localParts = [prefix];
   const centralParts = [];
@@ -33,13 +44,14 @@ function makeStoredZip(entries, { prefix = Buffer.alloc(0), gap = Buffer.alloc(0
     const centralExtra = entry.centralExtra ?? Buffer.alloc(0);
     const centralComment = entry.centralComment ?? Buffer.alloc(0);
     const localExtra = entry.localExtra ?? Buffer.alloc(0);
+    const dataCrc32 = crc32(data);
     const directory = entry.directory ?? entry.name.endsWith("/");
     const mode = entry.mode ?? (directory ? 0o040755 : 0o100644);
     const flags = entry.flags ?? (entry.dataDescriptor ? 0x808 : 0x800);
     const descriptor = entry.dataDescriptor ? Buffer.alloc(16) : Buffer.alloc(0);
     if (entry.dataDescriptor) {
       descriptor.writeUInt32LE(0x08074b50, 0);
-      descriptor.writeUInt32LE(entry.descriptorCrc32 ?? 0, 4);
+      descriptor.writeUInt32LE(entry.descriptorCrc32 ?? dataCrc32, 4);
       descriptor.writeUInt32LE(entry.descriptorCompressedSize ?? data.length, 8);
       descriptor.writeUInt32LE(entry.descriptorUncompressedSize ?? data.length, 12);
     }
@@ -47,6 +59,7 @@ function makeStoredZip(entries, { prefix = Buffer.alloc(0), gap = Buffer.alloc(0
     local.writeUInt32LE(0x04034b50, 0);
     local.writeUInt16LE(20, 4);
     local.writeUInt16LE(flags, 6);
+    local.writeUInt32LE(entry.localCrc32 ?? (entry.dataDescriptor ? 0 : dataCrc32), 14);
     local.writeUInt32LE(entry.localCompressedSize ?? (entry.dataDescriptor ? 0 : data.length), 18);
     local.writeUInt32LE(entry.localUncompressedSize ?? (entry.dataDescriptor ? 0 : data.length), 22);
     local.writeUInt16LE(localName.length, 26);
@@ -57,6 +70,7 @@ function makeStoredZip(entries, { prefix = Buffer.alloc(0), gap = Buffer.alloc(0
     central.writeUInt16LE((3 << 8) | 20, 4);
     central.writeUInt16LE(20, 6);
     central.writeUInt16LE(flags, 8);
+    central.writeUInt32LE(entry.centralCrc32 ?? dataCrc32, 16);
     central.writeUInt32LE(data.length, 20);
     central.writeUInt32LE(data.length, 24);
     central.writeUInt16LE(name.length, 28);
@@ -213,6 +227,12 @@ test("IPA namespace verifier rejects ambiguous and escaping ZIP entries before e
     const canonicalResult = spawnSync(process.execPath, [verifier], { cwd: root, encoding: "utf8" });
     assert.equal(canonicalResult.status, 0, canonicalResult.stderr);
     assert.match(canonicalResult.stdout.trim(), /^[0-9a-f]{64}$/);
+    assert.equal(existsSync(path.join(canonicalIpaDirectory, ".settleora-verified-ipa")), false);
+    assert.equal(
+      readFileSync(path.join(root, "build/ios/.settleora-ipa-inspection/Payload/Runner.app/Info.plist"), "utf8"),
+      "plist",
+    );
+    rmSync(path.join(root, "build/ios/.settleora-ipa-inspection"), { recursive: true });
     const argumentResult = spawnSync(process.execPath, [verifier, archive], { cwd: root, encoding: "utf8" });
     assert.notEqual(argumentResult.status, 0);
     rmSync(canonicalIpa);
@@ -272,6 +292,8 @@ test("IPA namespace verifier rejects ambiguous and escaping ZIP entries before e
       writeFileSync(archive, makeStoredZip([{ name: "Payload/" }, { name: controlName, data: "safe" }]));
       assert.throws(() => verifyTestIpa(archive), /control character/);
     }
+    writeFileSync(archive, makeStoredZip([{ name: "Payload/", data: "hidden receipt evidence" }]));
+    assert.throws(() => verifyTestIpa(archive), /directory entry contains payload bytes/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -315,7 +337,9 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
     "loadFixture",
     "codesign --verify --deep --strict",
     "verify-ipa-archive.mjs",
-    "unzip -tqq",
+    ".settleora-ipa-inspection",
+    "descriptor-backed IPA inspection is missing",
+    "retained IPA differs from descriptor-backed preflight",
     "IPA changed after namespace preflight",
     "IPA changed after package inspection",
     "IPA changed while provenance was generated",

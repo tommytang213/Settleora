@@ -1,5 +1,20 @@
 import { createHash } from "node:crypto";
-import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, readdirSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import {
+  closeSync,
+  constants,
+  fstatSync,
+  fsyncSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  unlinkSync,
+  writeSync,
+} from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -117,7 +132,7 @@ function findEocd(tail, tailStart, archiveSize) {
   fail("end-of-central-directory record is missing or archive has trailing bytes");
 }
 
-export function verifyOpenedIpa(fd) {
+export function verifyOpenedIpa(fd, { close = true } = {}) {
   try {
     const archiveStat = fstatSync(fd);
     if (!archiveStat.isFile()) fail("archive must be a regular non-symlink file");
@@ -183,6 +198,9 @@ export function verifyOpenedIpa(fd) {
       if (unixType !== 0 && unixType !== 0x4000 && unixType !== 0x8000) fail("symlink or special-file entry is forbidden");
       const directory = unixType === 0x4000 || (unixType === 0 && name.endsWith("/"));
       if (directory !== name.endsWith("/")) fail("entry type and directory marker disagree");
+      if (directory && (method !== 0 || crc32 !== 0 || compressedSize !== 0 || uncompressedSize !== 0 || (flags & 0x0008) !== 0)) {
+        fail("directory entry contains payload bytes");
+      }
       const normalizedName = validateName(name, directory);
       const foldedName = normalizedName.normalize("NFC").toLocaleLowerCase("en-US");
       if (exactNames.has(normalizedName) || foldedNames.has(foldedName)) fail("duplicate or case-colliding entry name is forbidden");
@@ -240,8 +258,48 @@ export function verifyOpenedIpa(fd) {
     if (coveredThrough !== centralOffset) fail("entry byte ranges do not reach the central directory");
     return hashFileDescriptor(fd, archiveStat.size);
   } finally {
-    closeSync(fd);
+    if (close) closeSync(fd);
   }
+}
+
+function copyOpenedIpa(fd, destination, size, expectedSha256) {
+  let destinationFd;
+  try {
+    destinationFd = openSync(
+      destination,
+      constants.O_RDWR | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+      0o600,
+    );
+    const hash = createHash("sha256");
+    const buffer = Buffer.alloc(1024 * 1024);
+    let position = 0;
+    while (position < size) {
+      const count = readSync(fd, buffer, 0, Math.min(buffer.length, size - position), position);
+      if (count === 0) fail("archive changed while its verified snapshot was copied");
+      let written = 0;
+      while (written < count) {
+        written += writeSync(destinationFd, buffer, written, count - written);
+      }
+      hash.update(buffer.subarray(0, count));
+      position += count;
+    }
+    fsyncSync(destinationFd);
+    if (hash.digest("hex") !== expectedSha256) fail("verified archive snapshot differs from the opened descriptor");
+  } catch (error) {
+    if (destinationFd !== undefined) closeSync(destinationFd);
+    try {
+      unlinkSync(destination);
+    } catch {}
+    throw error;
+  }
+  if (verifyOpenedIpa(destinationFd, { close: false }) !== expectedSha256) {
+    closeSync(destinationFd);
+    try {
+      unlinkSync(destination);
+    } catch {}
+    fail("verified archive snapshot identity changed");
+  }
+  return destinationFd;
 }
 
 function verifyCanonicalIpa() {
@@ -256,6 +314,7 @@ function verifyCanonicalIpa() {
     if (!stat.isDirectory() || stat.isSymbolicLink()) fail("canonical IPA directory must contain no symbolic-link components");
   }
   const ipaDirectory = path.join("build", "ios", "ipa");
+  const inspectionRoot = path.join("build", "ios", ".settleora-ipa-inspection");
   let candidates;
   try {
     candidates = readdirSync(ipaDirectory, { withFileTypes: true })
@@ -272,7 +331,33 @@ function verifyCanonicalIpa() {
   } catch {
     fail("canonical IPA cannot be opened as a regular non-symlink file");
   }
-  return verifyOpenedIpa(fd);
+  let copiedFd;
+  const snapshot = path.join(ipaDirectory, ".settleora-verified-ipa");
+  const canonicalIpa = path.join(ipaDirectory, candidates[0]);
+  try {
+    const archiveStat = fstatSync(fd);
+    const digest = verifyOpenedIpa(fd, { close: false });
+    copiedFd = copyOpenedIpa(fd, snapshot, archiveStat.size, digest);
+    renameSync(snapshot, canonicalIpa);
+    mkdirSync(inspectionRoot, { mode: 0o700 });
+    const integrity = spawnSync("unzip", ["-tqq", "/dev/fd/3"], {
+      stdio: ["ignore", "ignore", "ignore", copiedFd],
+    });
+    if (integrity.status !== 0) fail("descriptor-backed IPA integrity test failed");
+    const extraction = spawnSync("unzip", ["-q", "/dev/fd/3", "-d", inspectionRoot], {
+      stdio: ["ignore", "ignore", "ignore", copiedFd],
+    });
+    if (extraction.status !== 0) fail("descriptor-backed IPA extraction failed");
+    return digest;
+  } catch (error) {
+    try {
+      rmSync(inspectionRoot, { recursive: true, force: true });
+    } catch {}
+    throw error;
+  } finally {
+    if (copiedFd !== undefined) closeSync(copiedFd);
+    closeSync(fd);
+  }
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {

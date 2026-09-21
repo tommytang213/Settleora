@@ -236,11 +236,12 @@ if [[ "$mode" == signed ]]; then
   done < <(find build/ios/archive -maxdepth 1 -type d -name '*.xcarchive' -print | LC_ALL=C sort)
   [[ ${#archive_paths[@]} -eq 1 ]] || fail "signed build must produce exactly one xcarchive"
   archive_path=$(cd "$(dirname "${archive_paths[0]}")" && pwd -P)/$(basename "${archive_paths[0]}")
+  inspection_root=$PWD/build/ios/.settleora-ipa-inspection
+  [[ ! -e "$inspection_root" && ! -L "$inspection_root" ]] || fail "descriptor-backed IPA inspection root already exists"
   preflight_ipa_sha=$(node "$tool_root/tools/ocr-models/verify-ipa-archive.mjs")
-  unzip -tqq "$artifact_path" || fail "IPA integrity test failed"
-  inspection_root=$(mktemp -d)
+  [[ -d "$inspection_root" && ! -L "$inspection_root" ]] || fail "descriptor-backed IPA inspection is missing"
   cleanup_inspection_root=true
-  unzip -q "$artifact_path" -d "$inspection_root"
+  [[ "$(sha256_file "$artifact_path")" == "$preflight_ipa_sha" ]] || fail "retained IPA differs from descriptor-backed preflight"
   [[ "$(sha256_file "$artifact_path")" == "$preflight_ipa_sha" ]] || fail "IPA changed after namespace preflight"
   top_level_entries=()
   while IFS= read -r candidate; do
