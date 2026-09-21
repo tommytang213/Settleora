@@ -399,13 +399,12 @@ Future<bool> _proveLoopbackRoundTrip() async {
   ServerSocket? server;
   Socket? client;
   Socket? peer;
+  Future<ServerSocket>? bindFuture;
   var exchangeComplete = false;
   var cleanupComplete = true;
   try {
-    server = await ServerSocket.bind(
-      InternetAddress.loopbackIPv4,
-      0,
-    ).timeout(timeout);
+    bindFuture = ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    server = await bindFuture.timeout(timeout);
     client = await Socket.connect(
       InternetAddress.loopbackIPv4,
       server.port,
@@ -436,10 +435,26 @@ Future<bool> _proveLoopbackRoundTrip() async {
     } on Object {
       cleanupComplete = false;
     }
-    try {
-      await server?.close().timeout(timeout);
-    } on Object {
-      cleanupComplete = false;
+    if (server == null) {
+      final lateBind = bindFuture;
+      if (lateBind != null) {
+        unawaited(
+          lateBind.then<void>((lateServer) async {
+            try {
+              await lateServer.close().timeout(timeout);
+            } on Object {
+              // The canary has already failed. Never expose late cleanup
+              // diagnostics through retained acceptance output.
+            }
+          }, onError: (Object _, StackTrace _) {}),
+        );
+      }
+    } else {
+      try {
+        await server.close().timeout(timeout);
+      } on Object {
+        cleanupComplete = false;
+      }
     }
   }
   return exchangeComplete && cleanupComplete;
