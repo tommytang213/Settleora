@@ -391,13 +391,32 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.match(iosNetworkDeny, /IN6_IS_ADDR_V4MAPPED/);
   assert.match(iosNetworkDeny, /settleora_is_ipv4_loopback/);
   assert.match(iosNetworkDeny, /SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED/);
-  assert.ok(iosProject.includes('name = "Embed OCR network interposer"'));
-  assert.ok(iosProject.includes('shellScript = "set -eu\\n'));
-  assert.ok(iosProject.includes('[ \\"$CONFIGURATION\\" = \\"Debug\\" ]'));
-  assert.ok(iosProject.includes('${SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE:-}'));
-  assert.ok(iosProject.includes('$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH/libSettleoraOcrNetworkDeny.dylib'));
-  assert.ok(iosProject.includes('/usr/bin/cmp -s'));
-  assert.ok(iosProject.includes('/bin/rm -f \\"$destination\\"'));
+  const interposerPhase = iosProject.match(
+    /B40000000000000000000000 \/\* Embed OCR network interposer \*\/ = \{[\s\S]*?\n\t\t\};/,
+  )?.[0] ?? '';
+  assert.ok(interposerPhase.includes('name = "Embed OCR network interposer"'));
+  const interposerSteps = [
+    'shellScript = "set -eu\\n',
+    'destination=\\"$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH/libSettleoraOcrNetworkDeny.dylib\\"',
+    'if [ \\"$CONFIGURATION\\" = \\"Debug\\" ] && [ -n \\"${SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE:-}\\" ]',
+    'test -f \\"$SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE\\"',
+    '/usr/bin/codesign --verify --strict \\"$SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE\\"',
+    '/usr/bin/ditto \\"$SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE\\" \\"$destination\\"',
+    '/usr/bin/cmp -s \\"$SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE\\" \\"$destination\\"',
+    '/usr/bin/codesign --verify --strict \\"$destination\\"',
+    'else\\n  /bin/rm -f \\"$destination\\"\\nfi',
+  ];
+  let previousInterposerStep = -1;
+  for (const step of interposerSteps) {
+    const index = interposerPhase.indexOf(step);
+    assert.ok(index > previousInterposerStep, `missing or out-of-order interposer step: ${step}`);
+    previousInterposerStep = index;
+  }
+  assert.equal(
+    interposerPhase.match(/\/usr\/bin\/codesign --verify --strict/g)?.length,
+    2,
+  );
+  assert.doesNotMatch(interposerPhase, /CONFIGURATION.*(?:Release|Profile)/);
   assert.match(nativeTest, /InternetAddress\.lookup\('example\.com'\)/);
   assert.match(nativeTest, /hostnameResolutionDenied/);
   const iosProductionBuilder = read('apps/mobile/tool/build-production-ios.sh');
