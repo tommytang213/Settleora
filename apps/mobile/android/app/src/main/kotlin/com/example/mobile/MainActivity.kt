@@ -2,6 +2,7 @@ package com.example.mobile
 
 import android.content.pm.ApplicationInfo
 import com.example.mobile.ocr.SettleoraPaddleOcrEngine
+import com.example.mobile.ocr.boundedReceiptOcrFailureCode
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -58,11 +59,15 @@ class MainActivity : FlutterActivity() {
                         runOnUiThread {
                             if (!destroyed) result.success(channelValue)
                         }
-                    } catch (_: Throwable) {
+                    } catch (error: Throwable) {
                         // Receipt bytes/text and local paths must never enter routine logs or errors.
                         runOnUiThread {
                             if (!destroyed) {
-                                result.error("ocr_failed", "On-device receipt OCR failed", null)
+                                result.error(
+                                    boundedReceiptOcrFailureCode(error),
+                                    "On-device receipt OCR failed",
+                                    null,
+                                )
                             }
                         }
                     } finally {

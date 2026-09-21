@@ -40,13 +40,14 @@ class ORTSessionManager(
     fun loadModels(detAssetPath: String, recAssetPaths: Map<String, String>) {
         require(recAssetPaths.isNotEmpty()) { "At least one recognition model is required" }
         val loadStart = System.currentTimeMillis()
-        env = OrtEnvironment.getEnvironment()
-        val opts = OrtSession.SessionOptions().apply {
-            setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-            setIntraOpNumThreads(config.numThreads)
+        val ortEnv = try {
+            OrtEnvironment.getEnvironment()
+        } catch (t: Throwable) {
+            throw OCRError.RuntimeInitializationFailed("onnxruntime", t)
         }
+        env = ortEnv
+        val opts = createSessionOptions()
         try {
-            val ortEnv = env ?: throw OCRError.ModelLoadFailed("OCR", Exception("Environment not initialized"))
             val detBytes = readModelAsset(detAssetPath)
             try {
                 detSession = ortEnv.createSession(detBytes, opts)
@@ -115,7 +116,7 @@ class ORTSessionManager(
                 characterList,
             )
         } catch (t: Throwable) {
-            throw OCRError.InferenceFailed(modelName, t)
+            throw OCRError.DecodeError("Recognition output decoding failed", t)
         } finally {
             result.close()
         }
@@ -143,10 +144,7 @@ class ORTSessionManager(
                 "recognition:$recognizerId",
                 Exception("Model asset is not registered"),
             )
-        val opts = OrtSession.SessionOptions().apply {
-            setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-            setIntraOpNumThreads(config.numThreads)
-        }
+        val opts = createSessionOptions()
         val nextSession = try {
             ortEnv.createSession(readModelAsset(assetPath), opts)
         } catch (t: Throwable) {
@@ -172,6 +170,17 @@ class ORTSessionManager(
             context.assets.open(assetPath).use { it.readBytes() }
         } catch (t: Throwable) {
             throw OCRError.ModelNotFound(assetPath, t)
+        }
+    }
+
+    private fun createSessionOptions(): OrtSession.SessionOptions {
+        return try {
+            OrtSession.SessionOptions().apply {
+                setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+                setIntraOpNumThreads(config.numThreads)
+            }
+        } catch (t: Throwable) {
+            throw OCRError.RuntimeInitializationFailed("onnxruntime", t)
         }
     }
 
