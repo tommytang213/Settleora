@@ -56,6 +56,8 @@ enum ReceiptOcrFailureCategory {
   modelOpen,
   modelConfiguration,
   runtimeInitialization,
+  runtimeInitializationOpenCv,
+  runtimeInitializationOnnxRuntime,
   inputValidation,
   postprocessing,
   detectionInference,
@@ -72,6 +74,10 @@ extension ReceiptOcrFailureCategoryEvidence on ReceiptOcrFailureCategory {
     ReceiptOcrFailureCategory.modelConfiguration => 'ocr_model_configuration',
     ReceiptOcrFailureCategory.runtimeInitialization =>
       'ocr_runtime_initialization',
+    ReceiptOcrFailureCategory.runtimeInitializationOpenCv =>
+      'ocr_runtime_initialization_opencv',
+    ReceiptOcrFailureCategory.runtimeInitializationOnnxRuntime =>
+      'ocr_runtime_initialization_onnxruntime',
     ReceiptOcrFailureCategory.inputValidation => 'ocr_input_validation',
     ReceiptOcrFailureCategory.postprocessing => 'ocr_postprocessing',
     ReceiptOcrFailureCategory.detectionInference => 'ocr_detection_inference',

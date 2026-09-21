@@ -29,7 +29,15 @@ sealed class OCRError(
         OCRError("Failed to parse config: $path", "ocr_model_configuration", cause)
 
     class RuntimeInitializationFailed(component: String, cause: Throwable? = null) :
-        OCRError("Failed to initialize $component", "ocr_runtime_initialization", cause)
+        OCRError(
+            "Failed to initialize $component",
+            when (component) {
+                "opencv" -> "ocr_runtime_initialization_opencv"
+                "onnxruntime" -> "ocr_runtime_initialization_onnxruntime"
+                else -> "ocr_runtime_initialization"
+            },
+            cause,
+        )
 
     class InvalidImage : OCRError("Input image is empty or invalid", "ocr_input_validation")
     class ImageTooLarge :
