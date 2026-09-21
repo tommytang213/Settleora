@@ -349,14 +349,16 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   const iosCommands = runCommands(native.jobs['ios-native-acceptance']).join('\n');
   const iosRunner = read('tools/ocr-models/run-ios-native-acceptance.sh');
   const iosNetworkDeny = read('tools/ocr-models/ios-simulator-network-deny.c');
+  const iosProject = read('apps/mobile/ios/Runner.xcodeproj/project.pbxproj');
   assert.ok(iosCommands.includes('/Applications/Xcode_16.4.app/Contents/Developer'));
   assert.ok(iosCommands.includes('test "$(pod --version)" = "1.17.0"'));
   assert.ok(iosCommands.includes('xcrun simctl erase "$udid"'));
   assert.doesNotMatch(iosCommands, /pfctl|user_id=\$\(id -u\)/);
   assert.ok(iosCommands.includes('run-ios-native-acceptance.sh'));
-  assert.ok(iosRunner.includes('export SIMCTL_CHILD_DYLD_INSERT_LIBRARIES="$network_deny"'));
+  assert.ok(iosRunner.includes('export SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE="$network_deny"'));
+  assert.ok(iosRunner.includes('export SIMCTL_CHILD_DYLD_INSERT_LIBRARIES="$network_deny_in_app"'));
   assert.ok(iosRunner.includes('export SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_ISOLATION=socket_interpose_v1'));
-  assert.ok(iosRunner.includes('launchctl setenv DYLD_INSERT_LIBRARIES "$network_deny"'));
+  assert.ok(iosRunner.includes('launchctl setenv DYLD_INSERT_LIBRARIES "$network_deny_in_app"'));
   assert.ok(iosRunner.includes('launchctl setenv SETTLEORA_OCR_NETWORK_ISOLATION socket_interpose_v1'));
   assert.ok(iosRunner.includes('launchctl getenv DYLD_INSERT_LIBRARIES'));
   assert.ok(iosRunner.includes('launchctl getenv SETTLEORA_OCR_NETWORK_ISOLATION'));
@@ -364,6 +366,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(iosRunner.includes('launchctl unsetenv SETTLEORA_OCR_NETWORK_ISOLATION'));
   assert.ok(iosRunner.includes('unset SIMCTL_CHILD_DYLD_INSERT_LIBRARIES'));
   assert.ok(iosRunner.includes('unset SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_ISOLATION'));
+  assert.ok(iosRunner.includes('unset SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE'));
   assert.ok(iosRunner.includes('phase=verify_network_environment_clean'));
   assert.ok(iosRunner.includes('test -z "${SIMCTL_CHILD_DYLD_INSERT_LIBRARIES:-}"'));
   assert.ok(iosRunner.includes('test -z "${SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_ISOLATION:-}"'));
@@ -388,6 +391,10 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.match(iosNetworkDeny, /IN6_IS_ADDR_V4MAPPED/);
   assert.match(iosNetworkDeny, /settleora_is_ipv4_loopback/);
   assert.match(iosNetworkDeny, /SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED/);
+  assert.ok(iosProject.includes('name = "Embed OCR network interposer"'));
+  assert.ok(iosProject.includes('[ \\"$CONFIGURATION\\" = \\"Debug\\" ]'));
+  assert.ok(iosProject.includes('${SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE:-}'));
+  assert.ok(iosProject.includes('$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH/libSettleoraOcrNetworkDeny.dylib'));
   assert.match(nativeTest, /InternetAddress\.lookup\('example\.com'\)/);
   assert.match(nativeTest, /hostnameResolutionDenied/);
   const iosProductionBuilder = read('apps/mobile/tool/build-production-ios.sh');

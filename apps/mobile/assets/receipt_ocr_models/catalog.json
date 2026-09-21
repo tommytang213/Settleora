@@ -93,7 +93,7 @@
         { "path": "apps/mobile/ios/Podfile", "sha256": "8de8af012ce22e4f4ba2e6241733a61aa16e9af47dad342c4e7295fb474c52a5" },
         { "path": "apps/mobile/ios/Podfile.lock", "sha256": "a5b6068c71fe9b0a77743d5c639b5538dd2be10db7ddd4ecd9317fee03541903" },
         { "path": "tools/ocr-models/baselines/ios-pre-native-Podfile.lock", "sha256": "486ba24476c7ae0be32927fa9239599749f285d7a5a48129caebe4437ed6cc30" },
-        { "path": "apps/mobile/ios/Runner.xcodeproj/project.pbxproj", "sha256": "dab855ed92ce0b9a86b6ff12e3e0f0901bc98cda5b33dccd4785483a811ab849" },
+        { "path": "apps/mobile/ios/Runner.xcodeproj/project.pbxproj", "sha256": "3725290ce3c7327b067b2b933fa772fc498b9b802004ba6984645c5920a1f0d1" },
         { "path": "apps/mobile/ios/Runner/AppDelegate.swift", "sha256": "991e81eb3b6be2a8f4625f2d7c00d5caa2996845c381b512d0efbf36300e3f17" },
         { "path": "apps/mobile/ios/Runner/PaddleOCR/Engine/BoxSorter.swift", "sha256": "8712e9972fcb64f14ed5da13dfceab3dd7d4f952372931c943cfee5526bec7de" },
         { "path": "apps/mobile/ios/Runner/PaddleOCR/Engine/CTCDecoder.swift", "sha256": "c6ad6b9d40bbe127971f89d9dfa943ed8d35174ebf35a2993d2edf3054f5e3c6" },

@@ -220,6 +220,7 @@
 				97C146EC1CF9000F007C117D /* Resources */,
 				9705A1C41CF9048500538489 /* Embed Frameworks */,
 				3B06AD1E1E4923F5004D2608 /* Thin Binary */,
+				B40000000000000000000000 /* Embed OCR network interposer */,
 				B30000000000000000000000 /* Copy OCR acceptance fixtures */,
 			);
 			buildRules = (
@@ -340,6 +341,20 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "if [ \"$CONFIGURATION\" = \"Debug\" ]; then\n  /usr/bin/ditto \"$SRCROOT/../test/fixtures/receipt_ocr\" \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/receipt_ocr_acceptance\"\nfi\n";
+		};
+		B40000000000000000000000 /* Embed OCR network interposer */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Embed OCR network interposer";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if [ \"$CONFIGURATION\" = \"Debug\" ] && [ -n \"${SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE:-}\" ]; then\n  test -f \"$SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE\"\n  /usr/bin/codesign --verify --strict \"$SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE\"\n  destination=\"$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH/libSettleoraOcrNetworkDeny.dylib\"\n  /bin/mkdir -p \"$(/usr/bin/dirname \"$destination\")\"\n  /usr/bin/ditto \"$SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE\" \"$destination\"\n  /usr/bin/codesign --verify --strict \"$destination\"\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
