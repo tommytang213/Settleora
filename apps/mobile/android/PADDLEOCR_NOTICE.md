@@ -12,7 +12,7 @@ repository's license.
 Runtime dependencies:
 
 - ONNX Runtime Android 1.21.1 (MIT)
-- QuickBird Studios OpenCV Android 4.5.3 (Apache-2.0 wrapper; OpenCV 3-clause BSD)
+- QuickBird Studios OpenCV Android 4.5.3.0 (Apache-2.0 wrapper; OpenCV 3-clause BSD)
 
 The mobile artifact includes the applicable ONNX Runtime MIT and OpenCV
 3-clause BSD license texts under `assets/receipt_ocr_models/`. Android packages
