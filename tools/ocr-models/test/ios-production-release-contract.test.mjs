@@ -22,7 +22,7 @@ function verifyTestIpa(archivePath) {
   return verifyOpenedIpa(fd);
 }
 
-function makeStoredZip(entries, { prefix = Buffer.alloc(0), gap = Buffer.alloc(0) } = {}) {
+function makeStoredZip(entries, { prefix = Buffer.alloc(0), gap = Buffer.alloc(0), archiveComment = Buffer.alloc(0) } = {}) {
   const localParts = [prefix];
   const centralParts = [];
   let localOffset = prefix.length;
@@ -31,6 +31,7 @@ function makeStoredZip(entries, { prefix = Buffer.alloc(0), gap = Buffer.alloc(0
     const localName = Buffer.from(entry.localName ?? entry.name);
     const data = Buffer.from(entry.data ?? "");
     const centralExtra = entry.centralExtra ?? Buffer.alloc(0);
+    const centralComment = entry.centralComment ?? Buffer.alloc(0);
     const localExtra = entry.localExtra ?? Buffer.alloc(0);
     const directory = entry.directory ?? entry.name.endsWith("/");
     const mode = entry.mode ?? (directory ? 0o040755 : 0o100644);
@@ -60,9 +61,10 @@ function makeStoredZip(entries, { prefix = Buffer.alloc(0), gap = Buffer.alloc(0
     central.writeUInt32LE(data.length, 24);
     central.writeUInt16LE(name.length, 28);
     central.writeUInt16LE(centralExtra.length, 30);
+    central.writeUInt16LE(centralComment.length, 32);
     central.writeUInt32LE((mode << 16) >>> 0, 38);
     central.writeUInt32LE(localOffset, 42);
-    centralParts.push(central, name, centralExtra);
+    centralParts.push(central, name, centralExtra, centralComment);
     localOffset += local.length + localName.length + localExtra.length + data.length + descriptor.length;
     if (index + 1 < entries.length && gap.length > 0) {
       localParts.push(gap);
@@ -76,7 +78,8 @@ function makeStoredZip(entries, { prefix = Buffer.alloc(0), gap = Buffer.alloc(0
   eocd.writeUInt16LE(entries.length, 10);
   eocd.writeUInt32LE(centralDirectory.length, 12);
   eocd.writeUInt32LE(localOffset, 16);
-  return Buffer.concat([...localParts, centralDirectory, eocd]);
+  eocd.writeUInt16LE(archiveComment.length, 20);
+  return Buffer.concat([...localParts, centralDirectory, eocd, archiveComment]);
 }
 
 function provenanceArgs(root, mode = "signed") {
@@ -258,6 +261,13 @@ test("IPA namespace verifier rejects ambiguous and escaping ZIP entries before e
     assert.throws(() => verifyTestIpa(archive), /complete archive payload/);
     writeFileSync(archive, makeStoredZip(contiguousEntries, { gap: Buffer.from("unreferenced-gap") }));
     assert.throws(() => verifyTestIpa(archive), /complete archive payload/);
+    writeFileSync(archive, makeStoredZip(contiguousEntries, { archiveComment: Buffer.from("opaque-comment") }));
+    assert.throws(() => verifyTestIpa(archive), /archive comments are forbidden/);
+    writeFileSync(archive, makeStoredZip([
+      { name: "Payload/" },
+      { name: "Payload/Runner.app/file", data: "safe", centralComment: Buffer.from("opaque-comment") },
+    ]));
+    assert.throws(() => verifyTestIpa(archive), /entry comments are forbidden/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -307,7 +317,10 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
     "IPA changed while provenance was generated",
     "IPA contains a non-allowlisted top-level entry",
     "IPA Payload contains content outside the application bundle",
-    "IPA SwiftSupport contains a non-allowlisted entry",
+    "IPA SwiftSupport layout is not canonical",
+    "IPA SwiftSupport inventory differs from the application",
+    "IPA SwiftSupport contains a non-Mach-O library",
+    "IPA SwiftSupport library differs from its application counterpart",
     "inventory_root=$inspection_root",
     "packaged build name differs from the requested signed build",
     "packaged build number differs from the requested signed build",

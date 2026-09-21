@@ -914,19 +914,24 @@ export function isCompleteEvidence(evidence) {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
-  const args = parseArgs(process.argv.slice(2));
-  if (!args.out) throw new Error("Missing --out");
-  let evidence;
   try {
-    evidence = buildEvidence(args);
-  } catch {
-    evidence = buildFailureEvidence(args);
+    const args = parseArgs(process.argv.slice(2));
+    if (!args.out) throw new Error("Missing --out");
+    let evidence;
+    try {
+      evidence = buildEvidence(args);
+    } catch {
+      evidence = buildFailureEvidence(args);
+      writeFileSync(args.out, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
+      throw new Error("bounded collection failed");
+    }
     writeFileSync(args.out, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
-    throw new Error("Bounded native OCR evidence collection failed");
-  }
-  writeFileSync(args.out, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
-  console.log(`Wrote bounded ${args.platform} OCR acceptance evidence`);
-  if (args["require-complete"] === "true" && !isCompleteEvidence(evidence)) {
-    throw new Error("Native OCR acceptance evidence is incomplete or failing");
+    console.log(`Wrote bounded ${args.platform} OCR acceptance evidence`);
+    if (args["require-complete"] === "true" && !isCompleteEvidence(evidence)) {
+      throw new Error("bounded evidence incomplete");
+    }
+  } catch {
+    process.stderr.write("bounded_native_ocr_evidence_failed\n");
+    process.exitCode = 1;
   }
 }

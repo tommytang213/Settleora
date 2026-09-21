@@ -183,6 +183,13 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.deepEqual(native.permissions, { contents: 'read' });
   assert.match(nativeTest, /invokeMethod<Uint8List>\('loadModelCatalog'\)/);
   assert.doesNotMatch(nativeTest, /rootBundle\.loadString/);
+  const corpusFixtureIndex = nativeTest.indexOf("final fixtureBytes =");
+  const endToEndStopwatchIndex = nativeTest.indexOf("final stopwatch = Stopwatch()..start();", corpusFixtureIndex);
+  const rssSamplerIndex = nativeTest.indexOf("final rssSampler = Timer.periodic", corpusFixtureIndex);
+  const normalizationIndex = nativeTest.indexOf("artifactProcessor.process(", corpusFixtureIndex);
+  assert.ok(corpusFixtureIndex >= 0);
+  assert.ok(endToEndStopwatchIndex > corpusFixtureIndex && endToEndStopwatchIndex < normalizationIndex);
+  assert.ok(rssSamplerIndex > corpusFixtureIndex && rssSamplerIndex < normalizationIndex);
   assert.match(androidActivity, /ReceiptOcrBuildVariantHooks\.configure/);
   assert.doesNotMatch(androidActivity, /receipt_ocr_acceptance|loadModelCatalog|loadFixture/);
   assert.match(androidDebugHooks, /call\.method == "loadModelCatalog"/);

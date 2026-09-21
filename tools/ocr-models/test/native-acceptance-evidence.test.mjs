@@ -286,6 +286,9 @@ test("CLI writes a bounded failure artifact before rejecting malformed markers",
       { cwd: repoRoot, encoding: "utf8" },
     );
     assert.notEqual(result.status, 0);
+    assert.equal(result.stderr, "bounded_native_ocr_evidence_failed\n");
+    assert.equal(result.stderr.includes(repoRoot), false);
+    assert.doesNotMatch(result.stderr, /\bat\s|Error:/);
     const retained = readFileSync(out, "utf8");
     assert.match(retained, /invalid_or_unavailable_bounded_evidence/);
     assert.equal(retained.includes("private raw receipt text"), false);

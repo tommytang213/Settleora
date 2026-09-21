@@ -264,9 +264,35 @@ if [[ "$mode" == signed ]]; then
     payload_entries+=("$candidate")
   done < <(find "$inspection_root/Payload" -mindepth 1 -maxdepth 1 -print | LC_ALL=C sort)
   [[ ${#payload_entries[@]} -eq 1 && "${payload_entries[0]}" == "$app_path" ]] || fail "IPA Payload contains content outside the application bundle"
+  app_swift_libraries=()
+  if [[ -d "$app_path/Frameworks" ]]; then
+    while IFS= read -r candidate; do
+      app_swift_libraries+=("$candidate")
+    done < <(find "$app_path/Frameworks" -mindepth 1 -maxdepth 1 -type f -name 'libswift*.dylib' -print | LC_ALL=C sort)
+  fi
   if [[ -d "$inspection_root/SwiftSupport" ]]; then
-    unexpected_swift_support=$(find "$inspection_root/SwiftSupport" -mindepth 1 ! -type d ! \( -type f -name '*.dylib' \) -print -quit)
-    [[ -z "$unexpected_swift_support" ]] || fail "IPA SwiftSupport contains a non-allowlisted entry"
+    swift_support_roots=()
+    while IFS= read -r candidate; do
+      swift_support_roots+=("$candidate")
+    done < <(find "$inspection_root/SwiftSupport" -mindepth 1 -maxdepth 1 -print | LC_ALL=C sort)
+    [[ ${#swift_support_roots[@]} -eq 1 && "${swift_support_roots[0]}" == "$inspection_root/SwiftSupport/iphoneos" && -d "${swift_support_roots[0]}" ]] || fail "IPA SwiftSupport layout is not canonical"
+    swift_support_libraries=()
+    while IFS= read -r candidate; do
+      swift_support_libraries+=("$candidate")
+    done < <(find "$inspection_root/SwiftSupport/iphoneos" -mindepth 1 -maxdepth 1 -type f -name 'libswift*.dylib' -print | LC_ALL=C sort)
+    [[ ${#swift_support_libraries[@]} -eq ${#app_swift_libraries[@]} ]] || fail "IPA SwiftSupport inventory differs from the application"
+    [[ "$(find "$inspection_root/SwiftSupport/iphoneos" -mindepth 1 -maxdepth 1 -print | wc -l | tr -d ' ')" == "${#swift_support_libraries[@]}" ]] || fail "IPA SwiftSupport contains a non-library entry"
+    for candidate in "${swift_support_libraries[@]}"; do
+      file "$candidate" | grep -q 'Mach-O' || fail "IPA SwiftSupport contains a non-Mach-O library"
+      app_library="$app_path/Frameworks/$(basename "$candidate")"
+      [[ -f "$app_library" ]] || fail "IPA SwiftSupport library has no application counterpart"
+      cmp -s "$candidate" "$app_library" || fail "IPA SwiftSupport library differs from its application counterpart"
+    done
+    for candidate in "${app_swift_libraries[@]}"; do
+      [[ -f "$inspection_root/SwiftSupport/iphoneos/$(basename "$candidate")" ]] || fail "application Swift library is absent from SwiftSupport"
+    done
+  else
+    [[ ${#app_swift_libraries[@]} -eq 0 ]] || fail "IPA SwiftSupport is missing application Swift libraries"
   fi
   codesign --verify --deep --strict "$app_path"
 else

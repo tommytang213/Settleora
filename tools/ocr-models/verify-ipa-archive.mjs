@@ -131,11 +131,13 @@ export function verifyOpenedIpa(fd) {
     const totalEntries = eocd.readUInt16LE(10);
     const centralSize = eocd.readUInt32LE(12);
     const centralOffset = eocd.readUInt32LE(16);
+    const archiveCommentLength = eocd.readUInt16LE(20);
     if (disk !== 0 || centralDisk !== 0 || diskEntries !== totalEntries) fail("multi-disk archives are forbidden");
     if (totalEntries === 0 || totalEntries === 0xffff || centralSize === 0xffffffff || centralOffset === 0xffffffff) {
       fail("empty or ZIP64 archives are outside the bounded contract");
     }
     if (totalEntries > maximumEntries || centralSize > maximumCentralDirectoryBytes) fail("central directory exceeds bounded limits");
+    if (archiveCommentLength !== 0) fail("archive comments are forbidden");
     if (centralOffset + centralSize !== eocdOffset) fail("central directory bounds do not match the archive");
 
     const central = readExact(fd, centralSize, centralOffset);
@@ -161,6 +163,7 @@ export function verifyOpenedIpa(fd) {
       const localOffset = central.readUInt32LE(cursor + 42);
       const entryEnd = cursor + 46 + nameLength + extraLength + commentLength;
       if (entryEnd > central.length || nameLength === 0) fail("central directory entry lengths are malformed");
+      if (commentLength !== 0) fail("entry comments are forbidden");
       if (entryDisk !== 0 || compressedSize === 0xffffffff || uncompressedSize === 0xffffffff || localOffset === 0xffffffff) {
         fail("ZIP64 or multi-disk entries are forbidden");
       }

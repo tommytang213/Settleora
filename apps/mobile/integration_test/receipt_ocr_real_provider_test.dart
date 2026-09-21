@@ -132,67 +132,80 @@ void main() {
         final currencyResolution =
             entry['expected_currency_resolution'] as Map<String, Object?>?;
         final fixtureBytes = await fixtures.load(entry['file']! as String);
-        failure.set('corpus_normalization', fixtureId: fixtureId);
-        final artifact = artifactProcessor.process(
-          ReceiptImageArtifactRequest(
-            sourceType: ReceiptImageSourceKind.importedImage,
-            sourceContentType: 'image/jpeg',
-            sourceBytes: fixtureBytes,
-            sourceExtension: 'jpeg',
-            sourceLabel: fixtureId,
-          ),
-        );
-        if (!artifact.accepted || !artifact.normalizedJpegProduced) {
-          fixtureMismatches.add(_BoundedMismatch(fixtureId, 'normalization'));
-        } else {
-          final stopwatch = Stopwatch()..start();
-          final rssSampler = Timer.periodic(const Duration(milliseconds: 25), (
-            _,
-          ) {
-            if (ProcessInfo.currentRss > peakRssBytes) {
-              peakRssBytes = ProcessInfo.currentRss;
-            }
-          });
+        final stopwatch = Stopwatch()..start();
+        final rssSampler = Timer.periodic(const Duration(milliseconds: 25), (
+          _,
+        ) {
+          if (ProcessInfo.currentRss > peakRssBytes) {
+            peakRssBytes = ProcessInfo.currentRss;
+          }
+        });
+        try {
+          failure.set('corpus_normalization', fixtureId: fixtureId);
+          ReceiptImageArtifactResult? artifact;
           try {
-            failure.set('corpus_provider', fixtureId: fixtureId);
-            final result = await provider.extractReceipt(
-              ReceiptOcrRequest(
-                bytes: artifact.normalizedJpegBytes!,
-                contentType: artifact.normalizedContentType!,
-                fallbackCurrency: entry['fallback_currency'] as String?,
-              ),
-            );
-            final evidence = result.preview?.runEvidence;
-            if (evidence?.totalTimeMs != null) {
-              nativeDurationsMs.add(evidence!.totalTimeMs!);
-            }
-            nativeColdLoadTimeMs ??= evidence?.coldLoadTimeMs;
-            runtime ??= evidence?.runtime;
-            failure.set('corpus_comparison', fixtureId: fixtureId);
-            fixtureMismatches.addAll(
-              _completePreviewMismatches(
-                fixtureId,
-                result,
-                expected,
-                script: script,
-                modelCatalog: modelCatalog,
-                currencyResolution: currencyResolution,
-                imageWidth: artifact.width!,
-                imageHeight: artifact.height!,
+            artifact = artifactProcessor.process(
+              ReceiptImageArtifactRequest(
+                sourceType: ReceiptImageSourceKind.importedImage,
+                sourceContentType: 'image/jpeg',
+                sourceBytes: fixtureBytes,
+                sourceExtension: 'jpeg',
+                sourceLabel: fixtureId,
               ),
             );
           } catch (_) {
-            // Preserve only a bounded category. Native exception details can
-            // contain OCR text, local paths, or provider diagnostics and must
-            // never enter retained acceptance evidence.
-            fixtureMismatches.add(
-              _BoundedMismatch(fixtureId, 'provider_exception'),
-            );
-          } finally {
-            rssSampler.cancel();
-            stopwatch.stop();
-            fixtureDurationsMs.add(stopwatch.elapsedMilliseconds);
+            fixtureMismatches.add(_BoundedMismatch(fixtureId, 'normalization'));
           }
+          if (artifact == null ||
+              !artifact.accepted ||
+              !artifact.normalizedJpegProduced) {
+            if (fixtureMismatches.isEmpty) {
+              fixtureMismatches.add(
+                _BoundedMismatch(fixtureId, 'normalization'),
+              );
+            }
+          } else {
+            try {
+              failure.set('corpus_provider', fixtureId: fixtureId);
+              final result = await provider.extractReceipt(
+                ReceiptOcrRequest(
+                  bytes: artifact.normalizedJpegBytes!,
+                  contentType: artifact.normalizedContentType!,
+                  fallbackCurrency: entry['fallback_currency'] as String?,
+                ),
+              );
+              final evidence = result.preview?.runEvidence;
+              if (evidence?.totalTimeMs != null) {
+                nativeDurationsMs.add(evidence!.totalTimeMs!);
+              }
+              nativeColdLoadTimeMs ??= evidence?.coldLoadTimeMs;
+              runtime ??= evidence?.runtime;
+              failure.set('corpus_comparison', fixtureId: fixtureId);
+              fixtureMismatches.addAll(
+                _completePreviewMismatches(
+                  fixtureId,
+                  result,
+                  expected,
+                  script: script,
+                  modelCatalog: modelCatalog,
+                  currencyResolution: currencyResolution,
+                  imageWidth: artifact.width!,
+                  imageHeight: artifact.height!,
+                ),
+              );
+            } catch (_) {
+              // Preserve only a bounded category. Native exception details can
+              // contain OCR text, local paths, or provider diagnostics and must
+              // never enter retained acceptance evidence.
+              fixtureMismatches.add(
+                _BoundedMismatch(fixtureId, 'provider_exception'),
+              );
+            }
+          }
+        } finally {
+          rssSampler.cancel();
+          stopwatch.stop();
+          fixtureDurationsMs.add(stopwatch.elapsedMilliseconds);
         }
         if (fixtureMismatches.isEmpty) scriptResult.passed += 1;
         mismatches.addAll(fixtureMismatches);
