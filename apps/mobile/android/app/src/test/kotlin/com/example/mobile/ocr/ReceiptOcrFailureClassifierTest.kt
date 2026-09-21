@@ -45,5 +45,14 @@ class ReceiptOcrFailureClassifierTest {
             "ocr_internal_contract",
             boundedReceiptOcrFailureCode(IllegalStateException("private-detail")),
         )
+
+        var deepCause: Throwable = OCRError.InvalidImage()
+        repeat(16) { deepCause = IllegalStateException("private-detail", deepCause) }
+        assertEquals("ocr_internal_contract", boundedReceiptOcrFailureCode(deepCause))
+
+        val cycleStart = IllegalStateException("private-detail")
+        val cycleEnd = IllegalStateException("private-detail", cycleStart)
+        cycleStart.initCause(cycleEnd)
+        assertEquals("ocr_internal_contract", boundedReceiptOcrFailureCode(cycleStart))
     }
 }
