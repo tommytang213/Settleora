@@ -373,16 +373,29 @@ void main() {
       final previewPanel = find.byKey(
         const Key('personal-bill-ocr-preview-panel'),
       );
+      final applyControl = find.byKey(
+        const Key('personal-bill-ocr-apply'),
+      );
+      final statusControl = find.byKey(
+        const Key('personal-bill-ocr-status'),
+      );
       for (
         var attempt = 0;
-        attempt < 3000 && previewPanel.evaluate().isEmpty;
+        attempt < 3000 && applyControl.evaluate().isEmpty;
         attempt += 1
       ) {
         await Future<void>.delayed(const Duration(milliseconds: 100));
         await tester.pump();
+        if (statusControl.evaluate().isNotEmpty &&
+            find
+                .descendant(of: statusControl, matching: find.text('Reading'))
+                .evaluate()
+                .isEmpty) {
+          break;
+        }
       }
       expect(previewPanel, findsOneWidget);
-      expect(find.byKey(const Key('personal-bill-ocr-apply')), findsOneWidget);
+      expect(applyControl, findsOneWidget);
       failure.set(
         'ui_evidence',
         fixtureId: 'existing_12_freshmart_grocery_en_US',

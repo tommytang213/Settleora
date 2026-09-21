@@ -58,6 +58,7 @@ function decodeName(bytes) {
 }
 
 function validateExtraFields(bytes, location) {
+  const fields = new Map();
   let cursor = 0;
   while (cursor < bytes.length) {
     if (cursor + 4 > bytes.length) fail("entry extra fields are malformed");
@@ -67,6 +68,7 @@ function validateExtraFields(bytes, location) {
     if (cursor + length > bytes.length) fail("entry extra field length is malformed");
     const data = bytes.subarray(cursor, cursor + length);
     if (!allowedMetadataExtraFieldIds.has(identifier)) fail("non-metadata archive extra field is forbidden");
+    if (fields.has(identifier)) fail("duplicate archive metadata extra field is forbidden");
     if (identifier === 0x5455) {
       const flags = data[0];
       const localLength = 1 + 4 * [1, 2, 4].filter((bit) => (flags & bit) !== 0).length;
@@ -92,7 +94,47 @@ function validateExtraFields(bytes, location) {
       data.readUInt16LE(4) !== 1 ||
       data.readUInt16LE(6) !== 24
     )) fail("NTFS timestamp metadata extra field is malformed");
+    fields.set(identifier, Buffer.from(data));
     cursor += length;
+  }
+  return fields;
+}
+
+function validateMatchingExtraFields(localFields, centralFields) {
+  const localTimestamp = localFields.get(0x5455);
+  const centralTimestamp = centralFields.get(0x5455);
+  if ((localTimestamp == null) !== (centralTimestamp == null)) {
+    fail("local and central timestamp metadata disagree");
+  }
+  if (localTimestamp != null && centralTimestamp != null) {
+    const localHasModifiedTime = (localTimestamp[0] & 1) !== 0;
+    const centralHasModifiedTime = (centralTimestamp[0] & 1) !== 0;
+    if (localHasModifiedTime !== centralHasModifiedTime ||
+        (localHasModifiedTime && !localTimestamp.subarray(1, 5).equals(centralTimestamp.subarray(1, 5)))) {
+      fail("local and central timestamp metadata disagree");
+    }
+  }
+
+  const localLegacyUnix = localFields.get(0x5855);
+  const centralLegacyUnix = centralFields.get(0x5855);
+  if ((localLegacyUnix == null) !== (centralLegacyUnix == null) ||
+      (localLegacyUnix != null &&
+       centralLegacyUnix != null &&
+       !localLegacyUnix.subarray(0, 8).equals(centralLegacyUnix))) {
+    fail("local and central legacy Unix metadata disagree");
+  }
+
+  const localUnix2 = localFields.get(0x7855);
+  const centralUnix2 = centralFields.get(0x7855);
+  if ((localUnix2 == null) !== (centralUnix2 == null)) {
+    fail("local and central Unix UID/GID metadata disagree");
+  }
+
+  const localUnix3 = localFields.get(0x7875);
+  const centralUnix3 = centralFields.get(0x7875);
+  if ((localUnix3 == null) !== (centralUnix3 == null) ||
+      (localUnix3 != null && centralUnix3 != null && !localUnix3.equals(centralUnix3))) {
+    fail("local and central new Unix UID/GID metadata disagree");
   }
 }
 
@@ -191,7 +233,10 @@ export function verifyOpenedIpa(fd, { close = true } = {}) {
 
       const nameBytes = central.subarray(cursor + 46, cursor + 46 + nameLength);
       if ((flags & 0x0800) === 0 && nameBytes.some((byte) => byte >= 0x80)) fail("non-ASCII entry name is missing its UTF-8 flag");
-      validateExtraFields(central.subarray(cursor + 46 + nameLength, cursor + 46 + nameLength + extraLength), "central");
+      const centralExtraFields = validateExtraFields(
+        central.subarray(cursor + 46 + nameLength, cursor + 46 + nameLength + extraLength),
+        "central",
+      );
       const name = decodeName(nameBytes);
       const unixMode = madeBySystem === 3 || madeBySystem === 19 ? externalAttributes >>> 16 : 0;
       const unixType = unixMode & 0xf000;
@@ -230,7 +275,8 @@ export function verifyOpenedIpa(fd, { close = true } = {}) {
         (localUncompressedSize !== 0 && localUncompressedSize !== uncompressedSize)
       )) fail("local data-descriptor placeholders disagree with the central directory");
       const localExtra = readExact(fd, localExtraLength, localOffset + 30 + localNameLength);
-      validateExtraFields(localExtra, "local");
+      const localExtraFields = validateExtraFields(localExtra, "local");
+      validateMatchingExtraFields(localExtraFields, centralExtraFields);
       const dataStart = localOffset + 30 + localNameLength + localExtraLength;
       let entryEndOffset = dataStart + compressedSize;
       if (usesDataDescriptor) {

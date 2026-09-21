@@ -300,6 +300,26 @@ test("IPA namespace verifier rejects ambiguous and escaping ZIP entries before e
       { name: "Payload/Runner.app/file", data: "safe", centralComment: Buffer.from("opaque-comment") },
     ]));
     assert.throws(() => verifyTestIpa(archive), /entry comments are forbidden/);
+    for (const repeatedExtra of [
+      Buffer.concat([harmlessTimestamp, harmlessTimestamp]),
+      Buffer.concat([unix2CentralMarker, unix2CentralMarker]),
+    ]) {
+      writeFileSync(archive, makeStoredZip([
+        { name: "Payload/", centralExtra: repeatedExtra },
+      ]));
+      assert.throws(() => verifyTestIpa(archive), /duplicate archive metadata extra field/);
+    }
+    const mismatchedTimestamp = Buffer.from(harmlessTimestamp);
+    mismatchedTimestamp.writeUInt32LE(1, 5);
+    writeFileSync(archive, makeStoredZip([
+      {
+        name: "Payload/Runner.app/file",
+        data: "safe",
+        centralExtra: harmlessTimestamp,
+        localExtra: mismatchedTimestamp,
+      },
+    ]));
+    assert.throws(() => verifyTestIpa(archive), /timestamp metadata disagree/);
     for (const controlName of ["Payload/Runner.app/split\nidentity", "Payload/Runner.app/del\u007fidentity"]) {
       writeFileSync(archive, makeStoredZip([{ name: "Payload/" }, { name: controlName, data: "safe" }]));
       assert.throws(() => verifyTestIpa(archive), /control character/);
