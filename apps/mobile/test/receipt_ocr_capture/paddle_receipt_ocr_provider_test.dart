@@ -24,6 +24,7 @@ void main() {
         {
           'text': 'TOTAL 12.50',
           'order': 2,
+          'row': 2,
           'confidence': 0.91,
           'modelPackId': 'common',
           'modelVersion': 'v1',
@@ -32,8 +33,8 @@ void main() {
             {'x': 1.0, 'y': 2.0},
           ],
         },
-        {'text': 'Corner Cafe', 'order': 0},
-        {'text': 'Tea 12.50', 'order': 1},
+        {'text': 'Corner Cafe', 'order': 0, 'row': 0},
+        {'text': 'Tea 12.50', 'order': 1, 'row': 1},
       ],
       'detectionModelPackId': 'detector',
       'detectionModelVersion': 'v2',
@@ -78,6 +79,27 @@ void main() {
     expect(result.message, contains('manual'));
     expect(result.failureCategory, ReceiptOcrFailureCategory.providerException);
     expect(result.message, isNot(contains('private native details')));
+  });
+
+  test('provider rejects blocks without a native row field', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    final provider = PaddleReceiptOcrProvider(
+      channel: _FakeChannel({
+        'blocks': [
+          {'text': 'TOTAL 12.50', 'order': 0},
+        ],
+      }),
+    );
+
+    final result = await provider.extractReceipt(
+      ReceiptOcrRequest(bytes: const [1], contentType: 'image/jpeg'),
+    );
+
+    expect(result.status, ReceiptOcrStatus.failed);
+    expect(
+      result.failureCategory,
+      ReceiptOcrFailureCategory.invalidProviderResponse,
+    );
   });
 
   test('provider reconstructs split LTR and RTL boxes by native row', () async {

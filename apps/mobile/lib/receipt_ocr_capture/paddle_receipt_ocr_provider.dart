@@ -53,12 +53,18 @@ class PaddleReceiptOcrProvider implements ReceiptOcrProvider {
       );
       final rawBlocks = response?['blocks'];
       if (rawBlocks is! List) return _failed;
-      final blocks = rawBlocks.whereType<Map>().toList()
-        ..sort((left, right) => _order(left).compareTo(_order(right)));
-      final evidence = blocks
-          .map(_blockEvidence)
-          .whereType<ReceiptOcrBlockEvidence>()
-          .toList(growable: false);
+      final blocks = <Map<Object?, Object?>>[];
+      for (final rawBlock in rawBlocks) {
+        if (rawBlock is! Map) return _failed;
+        blocks.add(rawBlock);
+      }
+      blocks.sort((left, right) => _order(left).compareTo(_order(right)));
+      final evidence = <ReceiptOcrBlockEvidence>[];
+      for (final block in blocks) {
+        final parsed = _blockEvidence(block);
+        if (parsed == null) return _failed;
+        evidence.add(parsed);
+      }
       final rows = <int, List<String>>{};
       for (final block in evidence) {
         (rows[block.row] ??= <String>[]).add(block.text.trim());
@@ -95,7 +101,8 @@ class PaddleReceiptOcrProvider implements ReceiptOcrProvider {
 
   static ReceiptOcrBlockEvidence? _blockEvidence(Map<Object?, Object?> block) {
     final text = block['text'];
-    if (text is! String || text.trim().isEmpty) return null;
+    final row = block['row'];
+    if (text is! String || text.trim().isEmpty || row is! int) return null;
     final rawPoints = block['points'];
     final points = rawPoints is List
         ? rawPoints
@@ -112,7 +119,7 @@ class PaddleReceiptOcrProvider implements ReceiptOcrProvider {
     return ReceiptOcrBlockEvidence(
       text: text.trim(),
       order: _order(block),
-      row: block['row'] is int ? block['row']! as int : _order(block),
+      row: row,
       confidence: (block['confidence'] as num?)?.toDouble(),
       modelPackId: block['modelPackId'] as String?,
       modelVersion: block['modelVersion'] as String?,

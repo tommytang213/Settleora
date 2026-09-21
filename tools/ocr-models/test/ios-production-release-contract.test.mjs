@@ -268,6 +268,10 @@ test("IPA namespace verifier rejects ambiguous and escaping ZIP entries before e
       { name: "Payload/Runner.app/file", data: "safe", centralComment: Buffer.from("opaque-comment") },
     ]));
     assert.throws(() => verifyTestIpa(archive), /entry comments are forbidden/);
+    for (const controlName of ["Payload/Runner.app/split\nidentity", "Payload/Runner.app/del\u007fidentity"]) {
+      writeFileSync(archive, makeStoredZip([{ name: "Payload/" }, { name: controlName, data: "safe" }]));
+      assert.throws(() => verifyTestIpa(archive), /control character/);
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -321,6 +325,7 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
     "IPA SwiftSupport inventory differs from the application",
     "IPA SwiftSupport contains a non-Mach-O library",
     "IPA SwiftSupport library differs from its application counterpart",
+    "file -b --",
     "inventory_root=$inspection_root",
     "packaged build name differs from the requested signed build",
     "packaged build number differs from the requested signed build",

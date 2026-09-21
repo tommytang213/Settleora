@@ -83,6 +83,7 @@ function validateExtraFields(bytes, location) {
 
 function validateName(name, directory) {
   if (!name || name.startsWith("/") || name.includes("\\")) fail("entry name is not a safe relative POSIX path");
+  if (/[\u0000-\u001f\u007f]/u.test(name)) fail("entry name contains a control character");
   const withoutTrailingSlash = directory && name.endsWith("/") ? name.slice(0, -1) : name;
   if (!withoutTrailingSlash || (!directory && name.endsWith("/"))) fail("entry directory marker is inconsistent");
   const components = withoutTrailingSlash.split("/");

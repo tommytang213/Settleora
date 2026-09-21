@@ -283,7 +283,7 @@ if [[ "$mode" == signed ]]; then
     [[ ${#swift_support_libraries[@]} -eq ${#app_swift_libraries[@]} ]] || fail "IPA SwiftSupport inventory differs from the application"
     [[ "$(find "$inspection_root/SwiftSupport/iphoneos" -mindepth 1 -maxdepth 1 -print | wc -l | tr -d ' ')" == "${#swift_support_libraries[@]}" ]] || fail "IPA SwiftSupport contains a non-library entry"
     for candidate in "${swift_support_libraries[@]}"; do
-      file "$candidate" | grep -q 'Mach-O' || fail "IPA SwiftSupport contains a non-Mach-O library"
+      file -b -- "$candidate" | grep -Eq '^Mach-O( |$)' || fail "IPA SwiftSupport contains a non-Mach-O library"
       app_library="$app_path/Frameworks/$(basename "$candidate")"
       [[ -f "$app_library" ]] || fail "IPA SwiftSupport library has no application counterpart"
       cmp -s "$candidate" "$app_library" || fail "IPA SwiftSupport library differs from its application counterpart"
