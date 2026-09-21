@@ -29,9 +29,9 @@ void main() {
     await failure.run(() async {
       if (Platform.isIOS) {
         expect(
-          Platform.environment['SETTLEORA_OCR_NETWORK_ISOLATION'],
+          const String.fromEnvironment('SETTLEORA_OCR_NETWORK_ISOLATION'),
           'socket_interpose_v1',
-          reason: 'The iOS runner must scope isolation to the test app.',
+          reason: 'The iOS runner must identify the isolated test invocation.',
         );
         failure.set('network_interposer_load');
         expect(

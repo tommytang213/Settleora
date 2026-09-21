@@ -170,7 +170,7 @@ test("CLI accepts only the fixed receipt OCR command profile and bounded device 
     "--device=emulator-5554",
   ]);
   assert.equal(parsed.device, "emulator-5554");
-  assert.deepEqual(buildFlutterCommand(parsed.device), {
+  assert.deepEqual(buildFlutterCommand(parsed.device, parsed.platform), {
     executable: "flutter",
     args: [
       "test",
@@ -183,6 +183,25 @@ test("CLI accepts only the fixed receipt OCR command profile and bounded device 
       "--no-pub",
     ],
   });
+
+  const ios = parseArgs([
+    `--stdout=${path.join(os.tmpdir(), "stdout.log")}`,
+    `--stderr=${path.join(os.tmpdir(), "stderr.log")}`,
+    "--max-bytes=64",
+    "--platform=ios",
+    "--device=00000000-0000-0000-0000-000000000000",
+  ]);
+  assert.deepEqual(buildFlutterCommand(ios.device, ios.platform).args, [
+    "test",
+    "integration_test/receipt_ocr_real_provider_test.dart",
+    "-d",
+    "00000000-0000-0000-0000-000000000000",
+    "--dart-define=SETTLEORA_OCR_NETWORK_ISOLATION=socket_interpose_v1",
+    "--timeout",
+    "6h",
+    "--machine",
+    "--no-pub",
+  ]);
   assert.throws(() => parseArgs([
     `--stdout=${path.join(os.tmpdir(), "stdout.log")}`,
     `--stderr=${path.join(os.tmpdir(), "stderr.log")}`,

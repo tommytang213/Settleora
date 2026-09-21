@@ -45,7 +45,7 @@ export function parseArgs(values) {
   };
 }
 
-export function buildFlutterCommand(device) {
+export function buildFlutterCommand(device, platform) {
   return {
     executable: "flutter",
     args: [
@@ -53,6 +53,9 @@ export function buildFlutterCommand(device) {
       "integration_test/receipt_ocr_real_provider_test.dart",
       "-d",
       device,
+      ...(platform === "ios"
+        ? ["--dart-define=SETTLEORA_OCR_NETWORK_ISOLATION=socket_interpose_v1"]
+        : []),
       "--timeout",
       "6h",
       "--machine",
@@ -190,8 +193,8 @@ export async function runBoundedProcess({ stdoutPath, stderrPath, maxBytes, exec
 }
 
 async function main() {
-  const { stdoutPath, stderrPath, maxBytes, device } = parseArgs(process.argv.slice(2));
-  const command = buildFlutterCommand(device);
+  const { stdoutPath, stderrPath, maxBytes, platform, device } = parseArgs(process.argv.slice(2));
+  const command = buildFlutterCommand(device, platform);
   return runBoundedProcess({ stdoutPath, stderrPath, maxBytes, ...command });
 }
 
