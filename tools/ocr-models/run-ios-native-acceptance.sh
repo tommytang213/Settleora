@@ -4,14 +4,43 @@ set -euo pipefail
 phase=initialize
 device=""
 network_environment_configured=false
+read_simulator_environment() {
+  local variable="$1"
+  local value=""
+  local read_status=0
+  if value=$(xcrun simctl spawn "$device" launchctl getenv "$variable" 2>/dev/null); then
+    :
+  else
+    read_status=$?
+    test "$read_status" -eq 1 || return "$read_status"
+  fi
+  printf '%s' "$value"
+}
 report_failure_phase() {
   status=$?
   cleanup_status=0
   if "$network_environment_configured"; then
+    unset SIMCTL_CHILD_DYLD_INSERT_LIBRARIES || cleanup_status=98
+    unset SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_ISOLATION || cleanup_status=98
+    if test -n "${SIMCTL_CHILD_DYLD_INSERT_LIBRARIES:-}" ||
+      test -n "${SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_ISOLATION:-}"; then
+      cleanup_status=98
+    fi
     if ! xcrun simctl spawn "$device" launchctl unsetenv DYLD_INSERT_LIBRARIES >/dev/null 2>&1; then
       cleanup_status=98
     fi
     if ! xcrun simctl spawn "$device" launchctl unsetenv SETTLEORA_OCR_NETWORK_ISOLATION >/dev/null 2>&1; then
+      cleanup_status=98
+    fi
+    persistent_dyld=""
+    persistent_isolation=""
+    if ! persistent_dyld=$(read_simulator_environment DYLD_INSERT_LIBRARIES); then
+      cleanup_status=98
+    fi
+    if ! persistent_isolation=$(read_simulator_environment SETTLEORA_OCR_NETWORK_ISOLATION); then
+      cleanup_status=98
+    fi
+    if test -n "$persistent_dyld" || test -n "$persistent_isolation"; then
       cleanup_status=98
     fi
     if test "$cleanup_status" -ne 0; then
@@ -59,10 +88,20 @@ xcrun --sdk iphonesimulator clang \
 codesign --force --sign - "$network_deny" >/dev/null
 file "$network_deny" | grep -F 'Mach-O' >/dev/null
 
+phase=verify_network_environment_clean
+test -z "${SIMCTL_CHILD_DYLD_INSERT_LIBRARIES:-}"
+test -z "${SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_ISOLATION:-}"
+test -z "$(read_simulator_environment DYLD_INSERT_LIBRARIES)"
+test -z "$(read_simulator_environment SETTLEORA_OCR_NETWORK_ISOLATION)"
+
 phase=install_network_isolation
 xcrun simctl spawn "$device" launchctl setenv DYLD_INSERT_LIBRARIES "$network_deny"
 network_environment_configured=true
 xcrun simctl spawn "$device" launchctl setenv SETTLEORA_OCR_NETWORK_ISOLATION socket_interpose_v1
+export SIMCTL_CHILD_DYLD_INSERT_LIBRARIES="$network_deny"
+export SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_ISOLATION=socket_interpose_v1
+test "$SIMCTL_CHILD_DYLD_INSERT_LIBRARIES" = "$network_deny"
+test "$SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_ISOLATION" = "socket_interpose_v1"
 test "$(xcrun simctl spawn "$device" launchctl getenv DYLD_INSERT_LIBRARIES)" = "$network_deny"
 test "$(xcrun simctl spawn "$device" launchctl getenv SETTLEORA_OCR_NETWORK_ISOLATION)" = "socket_interpose_v1"
 

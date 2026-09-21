@@ -33,6 +33,7 @@ void main() {
           'socket_interpose_v1',
           reason: 'The iOS runner must scope isolation to the test app.',
         );
+        failure.set('network_interposer_load');
         expect(
           Platform.environment['SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED'],
           '1',

@@ -634,6 +634,7 @@ function sanitizeUiSmoke(value, platform) {
 
 const diagnosticStages = new Set([
   "network_environment",
+  "network_interposer_load",
   "network_probe",
   "hostname_resolution_probe",
   "network_denial_contract",

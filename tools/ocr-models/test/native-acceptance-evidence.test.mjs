@@ -526,7 +526,11 @@ test("retains only bounded failure-stage diagnostics and never accepts them as c
     stage,
     fixtureId: "fixture_001",
   });
-  for (const stage of ["corpus_provider", "hostname_resolution_probe"]) {
+  for (const stage of [
+    "corpus_provider",
+    "hostname_resolution_probe",
+    "network_interposer_load",
+  ]) {
     const diagnostic = diagnosticFor(stage);
     withLog(protocolLog(`SETTLEORA_OCR_DIAGNOSTIC=${JSON.stringify(diagnostic)}`), (logPath) => {
       const evidence = buildEvidence(evidenceArgs(logPath), repoRoot);
