@@ -372,7 +372,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(iosRunner.includes('test -z "${SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_ISOLATION:-}"'));
   assert.ok(
     iosRunner.indexOf('network_environment_configured=true') >
-      iosRunner.indexOf('launchctl setenv DYLD_INSERT_LIBRARIES "$network_deny"'),
+      iosRunner.indexOf('launchctl setenv DYLD_INSERT_LIBRARIES "$network_deny_in_app"'),
   );
   assert.ok(
     iosRunner.indexOf('network_environment_configured=true') <
@@ -392,9 +392,12 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.match(iosNetworkDeny, /settleora_is_ipv4_loopback/);
   assert.match(iosNetworkDeny, /SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED/);
   assert.ok(iosProject.includes('name = "Embed OCR network interposer"'));
+  assert.ok(iosProject.includes('shellScript = "set -eu\\n'));
   assert.ok(iosProject.includes('[ \\"$CONFIGURATION\\" = \\"Debug\\" ]'));
   assert.ok(iosProject.includes('${SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE:-}'));
   assert.ok(iosProject.includes('$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH/libSettleoraOcrNetworkDeny.dylib'));
+  assert.ok(iosProject.includes('/usr/bin/cmp -s'));
+  assert.ok(iosProject.includes('/bin/rm -f \\"$destination\\"'));
   assert.match(nativeTest, /InternetAddress\.lookup\('example\.com'\)/);
   assert.match(nativeTest, /hostnameResolutionDenied/);
   const iosProductionBuilder = read('apps/mobile/tool/build-production-ios.sh');

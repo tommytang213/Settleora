@@ -354,7 +354,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "if [ \"$CONFIGURATION\" = \"Debug\" ] && [ -n \"${SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE:-}\" ]; then\n  test -f \"$SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE\"\n  /usr/bin/codesign --verify --strict \"$SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE\"\n  destination=\"$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH/libSettleoraOcrNetworkDeny.dylib\"\n  /bin/mkdir -p \"$(/usr/bin/dirname \"$destination\")\"\n  /usr/bin/ditto \"$SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE\" \"$destination\"\n  /usr/bin/codesign --verify --strict \"$destination\"\nfi\n";
+			shellScript = "set -eu\ndestination=\"$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH/libSettleoraOcrNetworkDeny.dylib\"\nif [ \"$CONFIGURATION\" = \"Debug\" ] && [ -n \"${SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE:-}\" ]; then\n  test -f \"$SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE\"\n  /usr/bin/codesign --verify --strict \"$SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE\"\n  /bin/mkdir -p \"$(/usr/bin/dirname \"$destination\")\"\n  /usr/bin/ditto \"$SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE\" \"$destination\"\n  /usr/bin/cmp -s \"$SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE\" \"$destination\"\n  /usr/bin/codesign --verify --strict \"$destination\"\nelse\n  /bin/rm -f \"$destination\"\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
