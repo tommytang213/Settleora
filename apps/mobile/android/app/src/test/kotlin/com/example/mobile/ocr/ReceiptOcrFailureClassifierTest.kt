@@ -22,6 +22,14 @@ class ReceiptOcrFailureClassifierTest {
             boundedReceiptOcrFailureCode(OCRError.RuntimeInitializationFailed("private-component")),
         )
         assertEquals(
+            "ocr_runtime_initialization_opencv",
+            boundedReceiptOcrFailureCode(OCRError.RuntimeInitializationFailed("opencv")),
+        )
+        assertEquals(
+            "ocr_runtime_initialization_onnxruntime",
+            boundedReceiptOcrFailureCode(OCRError.RuntimeInitializationFailed("onnxruntime")),
+        )
+        assertEquals(
             "ocr_detection_inference",
             boundedReceiptOcrFailureCode(OCRError.InferenceFailed("detection", Exception())),
         )
