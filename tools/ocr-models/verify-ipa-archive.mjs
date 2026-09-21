@@ -361,6 +361,11 @@ function verifyCanonicalIpa() {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
-  if (process.argv.length !== 2) throw new Error("Usage: verify-ipa-archive.mjs");
-  process.stdout.write(`${verifyCanonicalIpa()}\n`);
+  try {
+    if (process.argv.length !== 2) throw new Error("invalid invocation");
+    process.stdout.write(`${verifyCanonicalIpa()}\n`);
+  } catch {
+    process.stderr.write("canonical_ipa_verification_failed\n");
+    process.exitCode = 1;
+  }
 }

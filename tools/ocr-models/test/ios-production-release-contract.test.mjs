@@ -233,13 +233,25 @@ test("IPA namespace verifier rejects ambiguous and escaping ZIP entries before e
       "plist",
     );
     rmSync(path.join(root, "build/ios/.settleora-ipa-inspection"), { recursive: true });
+    const boundedCliError = "canonical_ipa_verification_failed\n";
     const argumentResult = spawnSync(process.execPath, [verifier, archive], { cwd: root, encoding: "utf8" });
     assert.notEqual(argumentResult.status, 0);
+    assert.equal(argumentResult.stdout, "");
+    assert.equal(argumentResult.stderr, boundedCliError);
+    writeFileSync(canonicalIpa, "not an ipa");
+    const malformedResult = spawnSync(process.execPath, [verifier], { cwd: root, encoding: "utf8" });
+    assert.notEqual(malformedResult.status, 0);
+    assert.equal(malformedResult.stdout, "");
+    assert.equal(malformedResult.stderr, boundedCliError);
+    assert.doesNotMatch(malformedResult.stderr, new RegExp(root.replaceAll("/", "\\/")));
+    assert.doesNotMatch(malformedResult.stderr, new RegExp(repoRoot.replaceAll("/", "\\/")));
+    assert.doesNotMatch(malformedResult.stderr, /Error:|\bat\s/);
     rmSync(canonicalIpa);
     symlinkSync(archive, canonicalIpa);
     const canonicalLinkResult = spawnSync(process.execPath, [verifier], { cwd: root, encoding: "utf8" });
     assert.notEqual(canonicalLinkResult.status, 0);
-    assert.doesNotMatch(canonicalLinkResult.stderr, new RegExp(root.replaceAll("/", "\\/")));
+    assert.equal(canonicalLinkResult.stdout, "");
+    assert.equal(canonicalLinkResult.stderr, boundedCliError);
     rmSync(canonicalIpa);
     rmSync(canonicalIpaDirectory, { recursive: true });
     const redirectedIpaDirectory = path.join(root, "redirected-ipa");
@@ -248,8 +260,8 @@ test("IPA namespace verifier rejects ambiguous and escaping ZIP entries before e
     symlinkSync(redirectedIpaDirectory, canonicalIpaDirectory, "dir");
     const canonicalDirectoryLinkResult = spawnSync(process.execPath, [verifier], { cwd: root, encoding: "utf8" });
     assert.notEqual(canonicalDirectoryLinkResult.status, 0);
-    assert.match(canonicalDirectoryLinkResult.stderr, /no symbolic-link components/);
-    assert.doesNotMatch(canonicalDirectoryLinkResult.stderr, new RegExp(root.replaceAll("/", "\\/")));
+    assert.equal(canonicalDirectoryLinkResult.stdout, "");
+    assert.equal(canonicalDirectoryLinkResult.stderr, boundedCliError);
     const archiveLink = path.join(root, "Runner-link.ipa");
     symlinkSync(archive, archiveLink);
     assert.throws(() => verifyTestIpa(archiveLink), /regular non-symlink file/);
