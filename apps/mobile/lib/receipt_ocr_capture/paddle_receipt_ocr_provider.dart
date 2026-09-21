@@ -78,8 +78,10 @@ class PaddleReceiptOcrProvider implements ReceiptOcrProvider {
           ),
         ),
       );
+    } on PlatformException catch (error) {
+      return _nativeFailure(error.code);
     } catch (_) {
-      return _failed;
+      return _providerExceptionFailed;
     }
   }
 
@@ -116,7 +118,34 @@ class PaddleReceiptOcrProvider implements ReceiptOcrProvider {
 
   static const _failed = ReceiptOcrResult.failed(
     'Receipt reading failed. You can still enter the bill manually.',
+    failureCategory: ReceiptOcrFailureCategory.invalidProviderResponse,
   );
+
+  static const _providerExceptionFailed = ReceiptOcrResult.failed(
+    'Receipt reading failed. You can still enter the bill manually.',
+    failureCategory: ReceiptOcrFailureCategory.providerException,
+  );
+
+  static ReceiptOcrResult _nativeFailure(String code) {
+    final category = switch (code) {
+      'ocr_resource_lookup' => ReceiptOcrFailureCategory.resourceLookup,
+      'ocr_model_open' => ReceiptOcrFailureCategory.modelOpen,
+      'ocr_model_configuration' => ReceiptOcrFailureCategory.modelConfiguration,
+      'ocr_runtime_initialization' =>
+        ReceiptOcrFailureCategory.runtimeInitialization,
+      'ocr_input_validation' => ReceiptOcrFailureCategory.inputValidation,
+      'ocr_postprocessing' => ReceiptOcrFailureCategory.postprocessing,
+      'ocr_detection_inference' => ReceiptOcrFailureCategory.detectionInference,
+      'ocr_recognition_inference' =>
+        ReceiptOcrFailureCategory.recognitionInference,
+      'ocr_output_decode' => ReceiptOcrFailureCategory.outputDecode,
+      _ => ReceiptOcrFailureCategory.providerException,
+    };
+    return ReceiptOcrResult.failed(
+      'Receipt reading failed. You can still enter the bill manually.',
+      failureCategory: category,
+    );
+  }
 }
 
 ReceiptOcrProvider defaultMobileReceiptOcrProvider() {

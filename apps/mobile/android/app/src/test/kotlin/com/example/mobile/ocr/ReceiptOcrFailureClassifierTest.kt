@@ -31,6 +31,10 @@ class ReceiptOcrFailureClassifierTest {
                 OCRError.InferenceFailed("recognition:private-model", Exception()),
             ),
         )
+        assertEquals(
+            "ocr_output_decode",
+            boundedReceiptOcrFailureCode(OCRError.DecodeError("fixed message")),
+        )
     }
 
     @Test
@@ -39,6 +43,15 @@ class ReceiptOcrFailureClassifierTest {
             "ocr_model_configuration",
             boundedReceiptOcrFailureCode(
                 IllegalStateException("private-detail", OCRError.ConfigParseFailed("private-path")),
+            ),
+        )
+        assertEquals(
+            "ocr_resource_lookup",
+            boundedReceiptOcrFailureCode(
+                OCRError.ModelLoadFailed(
+                    "recognition:private-model",
+                    OCRError.ModelNotFound("private-path"),
+                ),
             ),
         )
         assertEquals(
