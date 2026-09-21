@@ -395,34 +395,54 @@ void main() {
 }
 
 Future<bool> _proveLoopbackRoundTrip() async {
+  const timeout = Duration(seconds: 3);
   ServerSocket? server;
   Socket? client;
   Socket? peer;
+  var exchangeComplete = false;
+  var cleanupComplete = true;
   try {
-    server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    server = await ServerSocket.bind(
+      InternetAddress.loopbackIPv4,
+      0,
+    ).timeout(timeout);
     client = await Socket.connect(
       InternetAddress.loopbackIPv4,
       server.port,
-      timeout: const Duration(seconds: 3),
+      timeout: timeout,
     );
-    peer = await server.first.timeout(const Duration(seconds: 3));
+    peer = await server.first.timeout(timeout);
     client.add(const <int>[0x53]);
-    await client.flush();
-    final request = await peer.first.timeout(const Duration(seconds: 3));
+    await client.flush().timeout(timeout);
+    final request = await peer.first.timeout(timeout);
     peer.add(const <int>[0x4f]);
-    await peer.flush();
-    final response = await client.first.timeout(const Duration(seconds: 3));
-    return request.length == 1 &&
+    await peer.flush().timeout(timeout);
+    final response = await client.first.timeout(timeout);
+    exchangeComplete =
+        request.length == 1 &&
         request.single == 0x53 &&
         response.length == 1 &&
         response.single == 0x4f;
   } on Object {
-    return false;
+    exchangeComplete = false;
   } finally {
-    client?.destroy();
-    peer?.destroy();
-    await server?.close();
+    try {
+      client?.destroy();
+    } on Object {
+      cleanupComplete = false;
+    }
+    try {
+      peer?.destroy();
+    } on Object {
+      cleanupComplete = false;
+    }
+    try {
+      await server?.close().timeout(timeout);
+    } on Object {
+      cleanupComplete = false;
+    }
   }
+  return exchangeComplete && cleanupComplete;
 }
 
 class _BoundedFailureStage {
