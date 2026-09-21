@@ -67,6 +67,12 @@ void main() {
         );
       }
       await socket?.close();
+      failure.set('loopback_round_trip_probe');
+      expect(
+        await _proveLoopbackRoundTrip(),
+        isTrue,
+        reason: 'Native OCR acceptance isolation must preserve loopback.',
+      );
       failure.set('hostname_resolution_probe');
       var hostnameResolutionDenied = false;
       try {
@@ -386,6 +392,37 @@ void main() {
       );
     });
   });
+}
+
+Future<bool> _proveLoopbackRoundTrip() async {
+  ServerSocket? server;
+  Socket? client;
+  Socket? peer;
+  try {
+    server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    client = await Socket.connect(
+      InternetAddress.loopbackIPv4,
+      server.port,
+      timeout: const Duration(seconds: 3),
+    );
+    peer = await server.first.timeout(const Duration(seconds: 3));
+    client.add(const <int>[0x53]);
+    await client.flush();
+    final request = await peer.first.timeout(const Duration(seconds: 3));
+    peer.add(const <int>[0x4f]);
+    await peer.flush();
+    final response = await client.first.timeout(const Duration(seconds: 3));
+    return request.length == 1 &&
+        request.single == 0x53 &&
+        response.length == 1 &&
+        response.single == 0x4f;
+  } on Object {
+    return false;
+  } finally {
+    client?.destroy();
+    peer?.destroy();
+    await server?.close();
+  }
 }
 
 class _BoundedFailureStage {
