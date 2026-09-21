@@ -134,7 +134,12 @@ void _expectCompletePreview(
   Map<String, Object?> expected, {
   Map<String, Object?>? currencyResolution,
 }) {
-  expect(result.status, ReceiptOcrStatus.extracted, reason: fixtureId);
+  expect(
+    result.status,
+    ReceiptOcrStatus.extracted,
+    reason:
+        '$fixtureId:${result.failureCategory?.boundedEvidenceField ?? 'provider_status'}',
+  );
   final preview = result.preview!;
   _expectField(fixtureId, 'merchant', preview.merchant, expected);
   _expectField(fixtureId, 'date', preview.receiptDate, expected);

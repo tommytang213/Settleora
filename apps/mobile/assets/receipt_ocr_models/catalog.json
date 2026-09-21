@@ -39,13 +39,13 @@
     },
     "nativeSemantics": {
       "files": [
-        { "path": "apps/mobile/integration_test/receipt_ocr_real_provider_test.dart", "sha256": "8841367846bdb72ddca9e080c9535a577fe8f96ab15638103a215cbacca1c8d7" },
+        { "path": "apps/mobile/integration_test/receipt_ocr_real_provider_test.dart", "sha256": "2f1d7c2b479410a6770b3378b93db720e7b9ba69dc6d57c0917604ffca9b535c" },
         { "path": "apps/mobile/lib/app/app_bootstrap.dart", "sha256": "bfc2ea06825d3b7162f6f08b68b0413e62320523b3c087a6abc27aecc8b1d875" },
         { "path": "apps/mobile/lib/app/server_mode_shell.dart", "sha256": "7bc1b89910d260c5652810265b8a9985896fe62e852f65aa24d44d5fa2d8459e" },
         { "path": "apps/mobile/lib/bills/bill_list_screen.dart", "sha256": "ac9cac9dd7db56e3a167e38cd17e7c7547e4c0aa4019298b3b95175b284feead" },
         { "path": "apps/mobile/lib/groups/group_list_screen.dart", "sha256": "62497fd2753850b88d93b1b0e40d2e982ba560209fb36321aa986b7d1fbdc473" },
         { "path": "apps/mobile/lib/main.dart", "sha256": "b91c1fe701d9412c3a85880186016609d8ba460d1f6584fa3b5be5873ab36b89" },
-        { "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_provider.dart", "sha256": "4736041fd27ef0663c5e31039682aca7bfcc4548115b5db4b394ca9285753261" },
+        { "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_provider.dart", "sha256": "dc00b9c8ccbe0914b4a4031bcf20a9063ee8558f65bdd18eb60e8dfa84ed9157" },
         { "path": "apps/mobile/lib/receipt_ocr_capture/mlkit_receipt_ocr_provider.dart", "sha256": "a7f552b7e9601814e2fe2d6ed1b5d57b86678edd2438ccba8bcd3cb3e68ff9cb" },
         { "path": "apps/mobile/lib/receipt_ocr_capture/paddle_receipt_ocr_provider.dart", "sha256": "96302523b6acc14514e51eb746563bd45e9edc145e94f21603da605c2c2c5992" },
         { "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_preview.dart", "sha256": "f38abe35b5c9b4f4e6fa8c5c0c8355e02fa3153317a2b6c0305effa2ed9e5921" },

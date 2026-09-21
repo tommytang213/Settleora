@@ -98,6 +98,11 @@ void main() {
           ReceiptOcrRequest(bytes: const [1], contentType: 'image/jpeg'),
         );
         expect(result.failureCategory, entry.value, reason: entry.key);
+        expect(
+          result.failureCategory?.boundedEvidenceField,
+          entry.key == 'private_native_code' ? 'provider_exception' : entry.key,
+          reason: entry.key,
+        );
         expect(result.message, isNot(contains('private')));
       }
     },

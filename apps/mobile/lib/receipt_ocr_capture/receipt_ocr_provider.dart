@@ -62,3 +62,21 @@ enum ReceiptOcrFailureCategory {
   recognitionInference,
   outputDecode,
 }
+
+extension ReceiptOcrFailureCategoryEvidence on ReceiptOcrFailureCategory {
+  String get boundedEvidenceField => switch (this) {
+    ReceiptOcrFailureCategory.invalidProviderResponse => 'provider_status',
+    ReceiptOcrFailureCategory.providerException => 'provider_exception',
+    ReceiptOcrFailureCategory.resourceLookup => 'ocr_resource_lookup',
+    ReceiptOcrFailureCategory.modelOpen => 'ocr_model_open',
+    ReceiptOcrFailureCategory.modelConfiguration => 'ocr_model_configuration',
+    ReceiptOcrFailureCategory.runtimeInitialization =>
+      'ocr_runtime_initialization',
+    ReceiptOcrFailureCategory.inputValidation => 'ocr_input_validation',
+    ReceiptOcrFailureCategory.postprocessing => 'ocr_postprocessing',
+    ReceiptOcrFailureCategory.detectionInference => 'ocr_detection_inference',
+    ReceiptOcrFailureCategory.recognitionInference =>
+      'ocr_recognition_inference',
+    ReceiptOcrFailureCategory.outputDecode => 'ocr_output_decode',
+  };
+}
