@@ -333,6 +333,7 @@ test("retains only an allowlisted iOS preflight failure phase", () => {
   withLog(protocolLog(), (logPath) => {
     for (const phase of [
       "build_network_isolation",
+      "verify_network_environment_clean",
       "install_network_isolation",
       "cleanup_network_isolation",
     ]) {
@@ -529,6 +530,7 @@ test("retains only bounded failure-stage diagnostics and never accepts them as c
   for (const stage of [
     "corpus_provider",
     "hostname_resolution_probe",
+    "loopback_round_trip_probe",
     "network_interposer_load",
   ]) {
     const diagnostic = diagnosticFor(stage);
