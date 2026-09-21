@@ -32,9 +32,14 @@ class ReceiptOcrResult {
   const ReceiptOcrResult.unsupported(String message)
     : this._(status: ReceiptOcrStatus.unsupported, message: message);
 
-  const ReceiptOcrResult.failed(this.message, {this.failureCategory})
-    : status = ReceiptOcrStatus.failed,
-      preview = null;
+  const ReceiptOcrResult.failed(
+    String message, {
+    ReceiptOcrFailureCategory? failureCategory,
+  }) : this._(
+         status: ReceiptOcrStatus.failed,
+         message: message,
+         failureCategory: failureCategory,
+       );
 
   final ReceiptOcrStatus status;
   final ReceiptOcrPreview? preview;
@@ -44,4 +49,34 @@ class ReceiptOcrResult {
 
 enum ReceiptOcrStatus { extracted, unsupported, failed }
 
-enum ReceiptOcrFailureCategory { invalidProviderResponse, providerException }
+enum ReceiptOcrFailureCategory {
+  invalidProviderResponse,
+  providerException,
+  resourceLookup,
+  modelOpen,
+  modelConfiguration,
+  runtimeInitialization,
+  inputValidation,
+  postprocessing,
+  detectionInference,
+  recognitionInference,
+  outputDecode,
+}
+
+extension ReceiptOcrFailureCategoryEvidence on ReceiptOcrFailureCategory {
+  String get boundedEvidenceField => switch (this) {
+    ReceiptOcrFailureCategory.invalidProviderResponse => 'provider_status',
+    ReceiptOcrFailureCategory.providerException => 'provider_exception',
+    ReceiptOcrFailureCategory.resourceLookup => 'ocr_resource_lookup',
+    ReceiptOcrFailureCategory.modelOpen => 'ocr_model_open',
+    ReceiptOcrFailureCategory.modelConfiguration => 'ocr_model_configuration',
+    ReceiptOcrFailureCategory.runtimeInitialization =>
+      'ocr_runtime_initialization',
+    ReceiptOcrFailureCategory.inputValidation => 'ocr_input_validation',
+    ReceiptOcrFailureCategory.postprocessing => 'ocr_postprocessing',
+    ReceiptOcrFailureCategory.detectionInference => 'ocr_detection_inference',
+    ReceiptOcrFailureCategory.recognitionInference =>
+      'ocr_recognition_inference',
+    ReceiptOcrFailureCategory.outputDecode => 'ocr_output_decode',
+  };
+}

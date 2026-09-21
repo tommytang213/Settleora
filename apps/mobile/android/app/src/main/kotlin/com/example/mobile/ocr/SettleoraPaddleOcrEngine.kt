@@ -37,7 +37,7 @@ class SettleoraPaddleOcrEngine(context: Context) {
 
     init {
         if (!OpenCVUtils.init(appContext)) {
-            throw OCRError.ModelLoadFailed("opencv", IllegalStateException("OpenCV unavailable"))
+            throw OCRError.RuntimeInitializationFailed("opencv")
         }
 
         val configuredPacks = catalog.recognizers.map { spec ->

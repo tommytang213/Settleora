@@ -443,9 +443,7 @@ List<_BoundedMismatch> _completePreviewMismatches(
     return [
       _BoundedMismatch(
         fixtureId,
-        result.failureCategory == ReceiptOcrFailureCategory.providerException
-            ? 'provider_exception'
-            : 'provider_status',
+        result.failureCategory?.boundedEvidenceField ?? 'provider_status',
       ),
     ];
   }

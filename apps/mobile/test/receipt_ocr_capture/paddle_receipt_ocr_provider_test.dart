@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/receipt_ocr_capture/mlkit_receipt_ocr_provider.dart';
 import 'package:mobile/receipt_ocr_capture/paddle_receipt_ocr_provider.dart';
@@ -102,6 +103,42 @@ void main() {
     );
   });
 
+  test(
+    'provider preserves only allowlisted native failure categories',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      const expected = {
+        'ocr_resource_lookup': ReceiptOcrFailureCategory.resourceLookup,
+        'ocr_model_open': ReceiptOcrFailureCategory.modelOpen,
+        'ocr_model_configuration': ReceiptOcrFailureCategory.modelConfiguration,
+        'ocr_runtime_initialization':
+            ReceiptOcrFailureCategory.runtimeInitialization,
+        'ocr_input_validation': ReceiptOcrFailureCategory.inputValidation,
+        'ocr_postprocessing': ReceiptOcrFailureCategory.postprocessing,
+        'ocr_detection_inference': ReceiptOcrFailureCategory.detectionInference,
+        'ocr_recognition_inference':
+            ReceiptOcrFailureCategory.recognitionInference,
+        'ocr_output_decode': ReceiptOcrFailureCategory.outputDecode,
+        'private_native_code': ReceiptOcrFailureCategory.providerException,
+      };
+      for (final entry in expected.entries) {
+        final provider = PaddleReceiptOcrProvider(
+          channel: _PlatformExceptionChannel(entry.key),
+        );
+        final result = await provider.extractReceipt(
+          ReceiptOcrRequest(bytes: const [1], contentType: 'image/jpeg'),
+        );
+        expect(result.failureCategory, entry.value, reason: entry.key);
+        expect(
+          result.failureCategory?.boundedEvidenceField,
+          entry.key == 'private_native_code' ? 'provider_exception' : entry.key,
+          reason: entry.key,
+        );
+        expect(result.message, isNot(contains('private')));
+      }
+    },
+  );
+
   test('provider reconstructs split LTR and RTL boxes by native row', () async {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
     final provider = PaddleReceiptOcrProvider(
@@ -145,5 +182,20 @@ class _ThrowingChannel implements PaddleReceiptOcrChannel {
   @override
   Future<Map<Object?, Object?>?> recognize(Uint8List imageBytes) {
     throw StateError('private native details');
+  }
+}
+
+class _PlatformExceptionChannel implements PaddleReceiptOcrChannel {
+  _PlatformExceptionChannel(this.code);
+
+  final String code;
+
+  @override
+  Future<Map<Object?, Object?>?> recognize(Uint8List imageBytes) {
+    throw PlatformException(
+      code: code,
+      message: 'private native details',
+      details: 'private native payload',
+    );
   }
 }

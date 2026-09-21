@@ -14,13 +14,36 @@
 
 package com.paddle.ocr.model
 
-sealed class OCRError(message: String, cause: Throwable? = null) : Exception(message, cause) {
-    class ModelNotFound(modelPath: String, cause: Throwable? = null) : OCRError("Model not found: $modelPath", cause)
-    class ModelLoadFailed(modelName: String, cause: Throwable) : OCRError("Failed to load $modelName model", cause)
-    class ConfigParseFailed(path: String, cause: Throwable? = null) : OCRError("Failed to parse config: $path", cause)
-    class InvalidImage : OCRError("Input image is empty or invalid")
-    class ImageTooLarge : OCRError("Input image exceeds the on-device OCR processing limit")
-    class TooManyTextLines : OCRError("Detected receipt exceeds the on-device OCR line limit")
-    class InferenceFailed(stage: String, cause: Throwable) : OCRError("Inference failed at stage '$stage'", cause)
-    class DecodeError(message: String, cause: Throwable? = null) : OCRError(message, cause)
+sealed class OCRError(
+    message: String,
+    val boundedCode: String,
+    cause: Throwable? = null,
+) : Exception(message, cause) {
+    class ModelNotFound(modelPath: String, cause: Throwable? = null) :
+        OCRError("Model not found: $modelPath", "ocr_resource_lookup", cause)
+
+    class ModelLoadFailed(modelName: String, cause: Throwable) :
+        OCRError("Failed to load $modelName model", "ocr_model_open", cause)
+
+    class ConfigParseFailed(path: String, cause: Throwable? = null) :
+        OCRError("Failed to parse config: $path", "ocr_model_configuration", cause)
+
+    class RuntimeInitializationFailed(component: String, cause: Throwable? = null) :
+        OCRError("Failed to initialize $component", "ocr_runtime_initialization", cause)
+
+    class InvalidImage : OCRError("Input image is empty or invalid", "ocr_input_validation")
+    class ImageTooLarge :
+        OCRError("Input image exceeds the on-device OCR processing limit", "ocr_input_validation")
+
+    class TooManyTextLines :
+        OCRError("Detected receipt exceeds the on-device OCR line limit", "ocr_postprocessing")
+
+    class InferenceFailed(stage: String, cause: Throwable) : OCRError(
+        "Inference failed at stage '$stage'",
+        if (stage == "detection") "ocr_detection_inference" else "ocr_recognition_inference",
+        cause,
+    )
+
+    class DecodeError(message: String, cause: Throwable? = null) :
+        OCRError(message, "ocr_output_decode", cause)
 }
