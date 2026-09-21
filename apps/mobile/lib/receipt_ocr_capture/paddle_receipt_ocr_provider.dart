@@ -147,6 +147,10 @@ class PaddleReceiptOcrProvider implements ReceiptOcrProvider {
       'ocr_model_configuration' => ReceiptOcrFailureCategory.modelConfiguration,
       'ocr_runtime_initialization' =>
         ReceiptOcrFailureCategory.runtimeInitialization,
+      'ocr_runtime_initialization_opencv' =>
+        ReceiptOcrFailureCategory.runtimeInitializationOpenCv,
+      'ocr_runtime_initialization_onnxruntime' =>
+        ReceiptOcrFailureCategory.runtimeInitializationOnnxRuntime,
       'ocr_input_validation' => ReceiptOcrFailureCategory.inputValidation,
       'ocr_postprocessing' => ReceiptOcrFailureCategory.postprocessing,
       'ocr_detection_inference' => ReceiptOcrFailureCategory.detectionInference,
