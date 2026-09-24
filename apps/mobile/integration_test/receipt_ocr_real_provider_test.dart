@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -113,109 +114,109 @@ void main() {
       final fixtureDurationsMs = <int>[];
       final nativeDurationsMs = <int>[];
       final scriptResults = <String, _ScriptResult>{};
-      var peakRssBytes = ProcessInfo.currentRss;
+      final rssSampler = await _ProcessRssSampler.start();
       int? nativeColdLoadTimeMs;
       String? runtime;
-
-      for (final entry in entries) {
-        final fixtureId = entry['id']! as String;
-        failure.set('corpus_fixture_load', fixtureId: fixtureId);
-        final script = entry['script']! as String;
-        final scriptResult = scriptResults.putIfAbsent(
-          script,
-          _ScriptResult.new,
-        );
-        scriptResult.total += 1;
-        final expected = entry['expected']! as Map<String, Object?>;
-        final fixtureMismatches = <_BoundedMismatch>[];
-        if (expected.keys
-            .toSet()
-            .difference(_supportedExpectedKeys)
-            .isNotEmpty) {
-          fixtureMismatches.add(_BoundedMismatch(fixtureId, 'manifest_shape'));
-          mismatches.addAll(fixtureMismatches);
-          continue;
-        }
-        final currencyResolution =
-            entry['expected_currency_resolution'] as Map<String, Object?>?;
-        final fixtureBytes = await fixtures.load(entry['file']! as String);
-        final stopwatch = Stopwatch()..start();
-        final rssSampler = Timer.periodic(const Duration(milliseconds: 25), (
-          _,
-        ) {
-          if (ProcessInfo.currentRss > peakRssBytes) {
-            peakRssBytes = ProcessInfo.currentRss;
-          }
-        });
-        try {
-          failure.set('corpus_normalization', fixtureId: fixtureId);
-          ReceiptImageArtifactResult? artifact;
-          try {
-            artifact = artifactProcessor.process(
-              ReceiptImageArtifactRequest(
-                sourceType: ReceiptImageSourceKind.importedImage,
-                sourceContentType: 'image/jpeg',
-                sourceBytes: fixtureBytes,
-                sourceExtension: 'jpeg',
-                sourceLabel: fixtureId,
-              ),
+      int? peakRssBytes;
+      try {
+        for (final entry in entries) {
+          final fixtureId = entry['id']! as String;
+          failure.set('corpus_fixture_load', fixtureId: fixtureId);
+          final script = entry['script']! as String;
+          final scriptResult = scriptResults.putIfAbsent(
+            script,
+            _ScriptResult.new,
+          );
+          scriptResult.total += 1;
+          final expected = entry['expected']! as Map<String, Object?>;
+          final fixtureMismatches = <_BoundedMismatch>[];
+          if (expected.keys
+              .toSet()
+              .difference(_supportedExpectedKeys)
+              .isNotEmpty) {
+            fixtureMismatches.add(
+              _BoundedMismatch(fixtureId, 'manifest_shape'),
             );
-          } catch (_) {
-            fixtureMismatches.add(_BoundedMismatch(fixtureId, 'normalization'));
+            mismatches.addAll(fixtureMismatches);
+            continue;
           }
-          if (artifact == null ||
-              !artifact.accepted ||
-              !artifact.normalizedJpegProduced) {
-            if (fixtureMismatches.isEmpty) {
+          final currencyResolution =
+              entry['expected_currency_resolution'] as Map<String, Object?>?;
+          final fixtureBytes = await fixtures.load(entry['file']! as String);
+          final stopwatch = Stopwatch()..start();
+          try {
+            failure.set('corpus_normalization', fixtureId: fixtureId);
+            ReceiptImageArtifactResult? artifact;
+            try {
+              artifact = artifactProcessor.process(
+                ReceiptImageArtifactRequest(
+                  sourceType: ReceiptImageSourceKind.importedImage,
+                  sourceContentType: 'image/jpeg',
+                  sourceBytes: fixtureBytes,
+                  sourceExtension: 'jpeg',
+                  sourceLabel: fixtureId,
+                ),
+              );
+            } catch (_) {
               fixtureMismatches.add(
                 _BoundedMismatch(fixtureId, 'normalization'),
               );
             }
-          } else {
-            try {
-              failure.set('corpus_provider', fixtureId: fixtureId);
-              final result = await provider.extractReceipt(
-                ReceiptOcrRequest(
-                  bytes: artifact.normalizedJpegBytes!,
-                  contentType: artifact.normalizedContentType!,
-                  fallbackCurrency: entry['fallback_currency'] as String?,
-                ),
-              );
-              final evidence = result.preview?.runEvidence;
-              if (evidence?.totalTimeMs != null) {
-                nativeDurationsMs.add(evidence!.totalTimeMs!);
+            if (artifact == null ||
+                !artifact.accepted ||
+                !artifact.normalizedJpegProduced) {
+              if (fixtureMismatches.isEmpty) {
+                fixtureMismatches.add(
+                  _BoundedMismatch(fixtureId, 'normalization'),
+                );
               }
-              nativeColdLoadTimeMs ??= evidence?.coldLoadTimeMs;
-              runtime ??= evidence?.runtime;
-              failure.set('corpus_comparison', fixtureId: fixtureId);
-              fixtureMismatches.addAll(
-                _completePreviewMismatches(
-                  fixtureId,
-                  result,
-                  expected,
-                  script: script,
-                  modelCatalog: modelCatalog,
-                  currencyResolution: currencyResolution,
-                  imageWidth: artifact.width!,
-                  imageHeight: artifact.height!,
-                ),
-              );
-            } catch (_) {
-              // Preserve only a bounded category. Native exception details can
-              // contain OCR text, local paths, or provider diagnostics and must
-              // never enter retained acceptance evidence.
-              fixtureMismatches.add(
-                _BoundedMismatch(fixtureId, 'provider_exception'),
-              );
+            } else {
+              try {
+                failure.set('corpus_provider', fixtureId: fixtureId);
+                final result = await provider.extractReceipt(
+                  ReceiptOcrRequest(
+                    bytes: artifact.normalizedJpegBytes!,
+                    contentType: artifact.normalizedContentType!,
+                    fallbackCurrency: entry['fallback_currency'] as String?,
+                  ),
+                );
+                final evidence = result.preview?.runEvidence;
+                if (evidence?.totalTimeMs != null) {
+                  nativeDurationsMs.add(evidence!.totalTimeMs!);
+                }
+                nativeColdLoadTimeMs ??= evidence?.coldLoadTimeMs;
+                runtime ??= evidence?.runtime;
+                failure.set('corpus_comparison', fixtureId: fixtureId);
+                fixtureMismatches.addAll(
+                  _completePreviewMismatches(
+                    fixtureId,
+                    result,
+                    expected,
+                    script: script,
+                    modelCatalog: modelCatalog,
+                    currencyResolution: currencyResolution,
+                    imageWidth: artifact.width!,
+                    imageHeight: artifact.height!,
+                  ),
+                );
+              } catch (_) {
+                // Preserve only a bounded category. Native exception details can
+                // contain OCR text, local paths, or provider diagnostics and must
+                // never enter retained acceptance evidence.
+                fixtureMismatches.add(
+                  _BoundedMismatch(fixtureId, 'provider_exception'),
+                );
+              }
             }
+          } finally {
+            stopwatch.stop();
+            fixtureDurationsMs.add(stopwatch.elapsedMilliseconds);
           }
-        } finally {
-          rssSampler.cancel();
-          stopwatch.stop();
-          fixtureDurationsMs.add(stopwatch.elapsedMilliseconds);
+          if (fixtureMismatches.isEmpty) scriptResult.passed += 1;
+          mismatches.addAll(fixtureMismatches);
         }
-        if (fixtureMismatches.isEmpty) scriptResult.passed += 1;
-        mismatches.addAll(fixtureMismatches);
+      } finally {
+        peakRssBytes = await rssSampler.stop();
       }
 
       failure.set('corpus_evidence');
@@ -373,12 +374,8 @@ void main() {
       final previewPanel = find.byKey(
         const Key('personal-bill-ocr-preview-panel'),
       );
-      final applyControl = find.byKey(
-        const Key('personal-bill-ocr-apply'),
-      );
-      final statusControl = find.byKey(
-        const Key('personal-bill-ocr-status'),
-      );
+      final applyControl = find.byKey(const Key('personal-bill-ocr-apply'));
+      final statusControl = find.byKey(const Key('personal-bill-ocr-status'));
       for (
         var attempt = 0;
         attempt < 3000 && applyControl.evaluate().isEmpty;
@@ -405,6 +402,92 @@ void main() {
       );
     });
   });
+}
+
+class _ProcessRssSampler {
+  _ProcessRssSampler._(
+    this._isolate,
+    this._controlPort,
+    this._eventPort,
+    this._result,
+  );
+
+  final Isolate _isolate;
+  final SendPort _controlPort;
+  final ReceivePort _eventPort;
+  final Future<Object?> _result;
+  Future<int>? _stopFuture;
+
+  static Future<_ProcessRssSampler> start() async {
+    final eventPort = ReceivePort();
+    final ready = Completer<Object?>();
+    final result = Completer<Object?>();
+    eventPort.listen((event) {
+      if (event is SendPort && !ready.isCompleted) {
+        ready.complete(event);
+      } else if (event is int && !result.isCompleted) {
+        result.complete(event);
+      } else {
+        if (!ready.isCompleted) ready.complete(null);
+        if (!result.isCompleted) result.complete(null);
+      }
+    });
+    Isolate? isolate;
+    try {
+      isolate = await Isolate.spawn(
+        _sampleProcessRss,
+        eventPort.sendPort,
+        onError: eventPort.sendPort,
+        onExit: eventPort.sendPort,
+      );
+      final controlPort = await ready.future.timeout(
+        const Duration(seconds: 5),
+      );
+      if (controlPort is! SendPort) throw StateError('rss_sampler_unavailable');
+      return _ProcessRssSampler._(
+        isolate,
+        controlPort,
+        eventPort,
+        result.future,
+      );
+    } catch (_) {
+      isolate?.kill(priority: Isolate.immediate);
+      eventPort.close();
+      rethrow;
+    }
+  }
+
+  Future<int> stop() => _stopFuture ??= _stop();
+
+  Future<int> _stop() async {
+    try {
+      _controlPort.send(null);
+      final peakRssBytes = await _result.timeout(const Duration(seconds: 5));
+      if (peakRssBytes is! int || peakRssBytes <= 0) {
+        throw StateError('rss_sampler_unavailable');
+      }
+      return peakRssBytes;
+    } finally {
+      _isolate.kill(priority: Isolate.immediate);
+      _eventPort.close();
+    }
+  }
+}
+
+Future<void> _sampleProcessRss(SendPort events) async {
+  final controlPort = ReceivePort();
+  var peakRssBytes = ProcessInfo.currentRss;
+  events.send(controlPort.sendPort);
+  final timer = Timer.periodic(const Duration(milliseconds: 10), (_) {
+    final currentRssBytes = ProcessInfo.currentRss;
+    if (currentRssBytes > peakRssBytes) peakRssBytes = currentRssBytes;
+  });
+  await controlPort.first;
+  timer.cancel();
+  final finalRssBytes = ProcessInfo.currentRss;
+  if (finalRssBytes > peakRssBytes) peakRssBytes = finalRssBytes;
+  events.send(peakRssBytes);
+  controlPort.close();
 }
 
 Future<bool> _proveLoopbackRoundTrip() async {

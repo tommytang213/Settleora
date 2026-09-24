@@ -185,11 +185,22 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.doesNotMatch(nativeTest, /rootBundle\.loadString/);
   const corpusFixtureIndex = nativeTest.indexOf("final fixtureBytes =");
   const endToEndStopwatchIndex = nativeTest.indexOf("final stopwatch = Stopwatch()..start();", corpusFixtureIndex);
-  const rssSamplerIndex = nativeTest.indexOf("final rssSampler = Timer.periodic", corpusFixtureIndex);
+  const rssSamplerIndex = nativeTest.indexOf("final rssSampler = await _ProcessRssSampler.start()");
   const normalizationIndex = nativeTest.indexOf("artifactProcessor.process(", corpusFixtureIndex);
   assert.ok(corpusFixtureIndex >= 0);
   assert.ok(endToEndStopwatchIndex > corpusFixtureIndex && endToEndStopwatchIndex < normalizationIndex);
-  assert.ok(rssSamplerIndex > corpusFixtureIndex && rssSamplerIndex < normalizationIndex);
+  assert.ok(rssSamplerIndex >= 0 && rssSamplerIndex < corpusFixtureIndex);
+  assert.match(nativeTest, /Isolate\.spawn\(\s*_sampleProcessRss,/);
+  assert.match(
+    nativeTest,
+    /Future<void> _sampleProcessRss[\s\S]*Timer\.periodic\(const Duration\(milliseconds: 10\)[\s\S]*ProcessInfo\.currentRss/,
+  );
+  assert.match(nativeTest, /onError: eventPort\.sendPort,[\s\S]*onExit: eventPort\.sendPort/);
+  assert.match(nativeTest, /ready\.future\.timeout\(\s*const Duration\(seconds: 5\)/);
+  assert.match(nativeTest, /_result\.timeout\(\s*const Duration\(seconds: 5\)/);
+  assert.match(nativeTest, /peakRssBytes is! int \|\| peakRssBytes <= 0/);
+  assert.match(nativeTest, /finally \{\s*_isolate\.kill\(priority: Isolate\.immediate\);\s*_eventPort\.close\(\);/);
+  assert.match(nativeTest, /finally \{\s*peakRssBytes = await rssSampler\.stop\(\);/);
   assert.match(androidActivity, /ReceiptOcrBuildVariantHooks\.configure/);
   assert.doesNotMatch(androidActivity, /receipt_ocr_acceptance|loadModelCatalog|loadFixture/);
   assert.match(androidDebugHooks, /call\.method == "loadModelCatalog"/);
