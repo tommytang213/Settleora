@@ -5,10 +5,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { trustedLegalArtifacts } from "./mobile-model-catalog.mjs";
+import { expectedAndroidNonOcrEntries } from "./android-production-entry-inventory.mjs";
 
 const maxInventoryBytes = 32 * 1024 * 1024;
 const maxModelBytes = 64 * 1024 * 1024;
-
+const maxAndroidArchiveBytes = 512 * 1024 * 1024;
+const allowedAndroidCompressionMethods = new Set([0, 8]);
+const prohibitedPackageEntry = /integration[_-]?test|receipt_ocr_real_provider_test|receipt_ocr_acceptance|(?:^|\/)(?:private|fixtures?|tests?)(?:\/|[-_.]|$)|\.log$|(?:^|\/)[^/]*(?:ocr[-_]?output|ocr[-_]?evidence|private[-_]?receipt)[^/]*|(?:^|\/)[^/]*(?:receipt|invoice|fixture|corpus|ocr|scan)[^/]*\.(?:jpe?g|png|webp|heic|heif|pdf|tiff?|bmp|json|csv|txt|bin|dat|db|sqlite|zip)$/i;
 function readJson(filePath) {
   return JSON.parse(readFileSync(filePath, "utf8"));
 }
@@ -106,12 +109,141 @@ function iosModelInventory(modelRoot) {
   return files;
 }
 
+function verifyAndroidZipMetadata(packagePath) {
+  const archive = readFileSync(packagePath);
+  if (archive.length < 22 || archive.length > maxAndroidArchiveBytes) {
+    throw new Error("Production APK archive size is outside the reviewed bound");
+  }
+  let eocd = -1;
+  for (let cursor = archive.length - 22; cursor >= Math.max(0, archive.length - 65_557); cursor -= 1) {
+    if (archive.readUInt32LE(cursor) === 0x06054b50 && cursor + 22 + archive.readUInt16LE(cursor + 20) === archive.length) {
+      eocd = cursor;
+      break;
+    }
+  }
+  if (eocd < 0 || archive.readUInt16LE(eocd + 4) !== 0 || archive.readUInt16LE(eocd + 6) !== 0 ||
+      archive.readUInt16LE(eocd + 8) !== archive.readUInt16LE(eocd + 10) ||
+      archive.readUInt16LE(eocd + 20) !== 0) {
+    throw new Error("Production APK archive metadata is unsupported");
+  }
+  const count = archive.readUInt16LE(eocd + 10);
+  const centralSize = archive.readUInt32LE(eocd + 12);
+  const centralOffset = archive.readUInt32LE(eocd + 16);
+  if (count === 0 || count === 0xffff || centralOffset === 0xffffffff || centralSize === 0xffffffff ||
+      centralOffset + centralSize !== eocd) {
+    throw new Error("Production APK central directory is outside the reviewed bound");
+  }
+  const names = [];
+  const seen = new Set();
+  const localRanges = [];
+  let cursor = centralOffset;
+  for (let index = 0; index < count; index += 1) {
+    if (cursor + 46 > eocd || archive.readUInt32LE(cursor) !== 0x02014b50) {
+      throw new Error("Production APK central directory entry is malformed");
+    }
+    const nameLength = archive.readUInt16LE(cursor + 28);
+    const madeBySystem = archive.readUInt16LE(cursor + 4) >>> 8;
+    const centralFlags = archive.readUInt16LE(cursor + 8);
+    const centralMethod = archive.readUInt16LE(cursor + 10);
+    const centralCrc = archive.readUInt32LE(cursor + 16);
+    const compressedSize = archive.readUInt32LE(cursor + 20);
+    const uncompressedSize = archive.readUInt32LE(cursor + 24);
+    const extraLength = archive.readUInt16LE(cursor + 30);
+    const commentLength = archive.readUInt16LE(cursor + 32);
+    const localOffset = archive.readUInt32LE(cursor + 42);
+    const externalAttributes = archive.readUInt32LE(cursor + 38);
+    const unixType = (externalAttributes >>> 16) & 0xf000;
+    const end = cursor + 46 + nameLength + extraLength + commentLength;
+    if (nameLength === 0 || end > eocd || extraLength !== 0 || commentLength !== 0 ||
+        centralFlags !== 0 || !allowedAndroidCompressionMethods.has(centralMethod) ||
+        ((madeBySystem === 3 || madeBySystem === 19) && unixType !== 0x8000) ||
+        (externalAttributes & 0x10) !== 0 ||
+        uncompressedSize === 0xffffffff ||
+        compressedSize === 0xffffffff || localOffset === 0xffffffff ||
+        localOffset + 30 > centralOffset ||
+        archive.readUInt32LE(localOffset) !== 0x04034b50) {
+      throw new Error("Production APK entry metadata is unreviewed");
+    }
+    const nameBytes = archive.subarray(cursor + 46, cursor + 46 + nameLength);
+    const localNameLength = archive.readUInt16LE(localOffset + 26);
+    const localExtraLength = archive.readUInt16LE(localOffset + 28);
+    const localNameStart = localOffset + 30;
+    const localExtraStart = localNameStart + localNameLength;
+    const dataStart = localExtraStart + localExtraLength;
+    const dataEnd = dataStart + compressedSize;
+    if (localNameLength !== nameLength || localExtraStart + localExtraLength > centralOffset ||
+        !archive.subarray(localNameStart, localExtraStart).equals(nameBytes) ||
+        archive.subarray(localExtraStart, localExtraStart + localExtraLength).some((byte) => byte !== 0) ||
+        nameBytes.some((byte) => byte < 0x20 || byte > 0x7e) ||
+        archive.readUInt16LE(localOffset + 6) !== centralFlags ||
+        archive.readUInt16LE(localOffset + 8) !== centralMethod ||
+        archive.readUInt32LE(localOffset + 14) !== centralCrc ||
+        archive.readUInt32LE(localOffset + 18) !== compressedSize ||
+        archive.readUInt32LE(localOffset + 22) !== uncompressedSize ||
+        dataEnd > centralOffset) {
+      throw new Error("Production APK local metadata is unreviewed");
+    }
+    const name = nameBytes.toString("ascii");
+    if (seen.has(name)) throw new Error("Production APK contains duplicate entry names");
+    seen.add(name);
+    names.push(name);
+    localRanges.push([localOffset, dataEnd]);
+    cursor = end;
+  }
+  if (cursor !== eocd) throw new Error("Production APK central directory has unaccounted bytes");
+  localRanges.sort((left, right) => left[0] - right[0]);
+  let coveredThrough = 0;
+  for (const [start, end] of localRanges) {
+    if (start !== coveredThrough) throw new Error("Production APK contains unreferenced local bytes");
+    coveredThrough = end;
+  }
+  const gap = centralOffset - coveredThrough;
+  if (gap > 0) {
+    if (gap < 32 || archive.toString("ascii", centralOffset - 16, centralOffset) !== "APK Sig Block 42") {
+      throw new Error("Production APK contains unreviewed bytes before the central directory");
+    }
+    const blockSize = Number(archive.readBigUInt64LE(centralOffset - 24));
+    if (blockSize !== gap - 8 || Number(archive.readBigUInt64LE(coveredThrough)) !== blockSize) {
+      throw new Error("Production APK signing block bounds disagree");
+    }
+    const expectedIds = new Set([0x7109871a, 0x504b4453, 0x42726577]);
+    const observedIds = new Set();
+    let pair = coveredThrough + 8;
+    while (pair < centralOffset - 24) {
+      if (pair + 12 > centralOffset - 24) throw new Error("Production APK signing pair is malformed");
+      const pairSize = Number(archive.readBigUInt64LE(pair));
+      const pairEnd = pair + 8 + pairSize;
+      const id = archive.readUInt32LE(pair + 8);
+      if (!Number.isSafeInteger(pairSize) || pairSize < 4 || pairEnd > centralOffset - 24 ||
+          !expectedIds.has(id) || observedIds.has(id) ||
+          (id === 0x42726577 && archive.subarray(pair + 12, pairEnd).some((byte) => byte !== 0))) {
+        throw new Error("Production APK signing pair is unreviewed");
+      }
+      observedIds.add(id);
+      pair = pairEnd;
+    }
+    if (pair !== centralOffset - 24 || observedIds.size !== expectedIds.size) {
+      throw new Error("Production APK signing block inventory differs");
+    }
+  }
+  return names;
+}
+
 function verifyAndroidPackage(packagePath, contract, runCommand) {
+  const archiveEntries = verifyAndroidZipMetadata(packagePath);
   const inventory = runCommand("unzip", ["-Z1", packagePath], {
     encoding: "utf8",
     maxBuffer: maxInventoryBytes,
   });
-  const entries = new Set(inventory.split(/\r?\n/).filter(Boolean));
+  const inventoryEntries = inventory.split(/\r?\n/).filter(Boolean);
+  if (archiveEntries.length !== inventoryEntries.length ||
+      archiveEntries.some((entry, index) => entry !== inventoryEntries[index])) {
+    throw new Error("Production APK archive and extraction inventories disagree");
+  }
+  if (inventoryEntries.some((entry) => entry.endsWith("/"))) {
+    throw new Error("Production APK contains an unverified directory entry");
+  }
+  const entries = new Set(inventoryEntries);
   const packagedModels = inventory
     .split(/\r?\n/)
     .filter((entry) => entry.startsWith("assets/receipt_ocr_models/") && !entry.endsWith("/"));
@@ -156,6 +288,20 @@ function verifyAndroidPackage(packagePath, contract, runCommand) {
   for (const fixture of contract.fixtures) {
     const entry = `assets/${fixture}`;
     if (entries.has(entry)) throw new Error(`Production APK contains acceptance fixture ${entry}`);
+  }
+  const expectedEntries = [
+    ...expectedAndroidNonOcrEntries,
+    contract.catalog.relativePath,
+    ...contract.models.map((model) => model.relativePath),
+    ...contract.legalArtifacts.map((artifact) => artifact.relativePath),
+  ].sort();
+  if (inventoryEntries.length !== expectedEntries.length ||
+      inventoryEntries.slice().sort().some((entry, index) => entry !== expectedEntries[index])) {
+    throw new Error("Production APK contains an unreviewed entry path");
+  }
+  if (inventoryEntries.some((entry) =>
+    !entry.startsWith("assets/receipt_ocr_models/") && prohibitedPackageEntry.test(entry))) {
+    throw new Error("Production APK contains test, fixture, log, or OCR evidence paths");
   }
 }
 

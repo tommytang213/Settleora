@@ -309,6 +309,16 @@ test("IPA namespace verifier rejects ambiguous and escaping ZIP entries before e
       ]));
       assert.throws(() => verifyTestIpa(archive), /duplicate archive metadata extra field/);
     }
+    const opaqueNtfsField = Buffer.alloc(36);
+    opaqueNtfsField.writeUInt16LE(0x000a, 0);
+    opaqueNtfsField.writeUInt16LE(32, 2);
+    opaqueNtfsField.writeUInt16LE(1, 8);
+    opaqueNtfsField.writeUInt16LE(24, 10);
+    Buffer.from("PRIVATE_RECEIPT_TEXT_123").copy(opaqueNtfsField, 12);
+    writeFileSync(archive, makeStoredZip([
+      { name: "Payload/Runner.app/file", data: "safe", localExtra: opaqueNtfsField },
+    ]));
+    assert.throws(() => verifyTestIpa(archive), /non-metadata archive extra field is forbidden/);
     const mismatchedTimestamp = Buffer.from(harmlessTimestamp);
     mismatchedTimestamp.writeUInt32LE(1, 5);
     writeFileSync(archive, makeStoredZip([

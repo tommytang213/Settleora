@@ -31,7 +31,7 @@ const supportedCompressionMethods = new Set([0, 8]);
 const allowedRoots = new Set(["Payload", "SwiftSupport"]);
 // These fields carry timestamps or numeric UID/GID metadata only. Do not add
 // a field that can override a filename, file type, link target, or data size.
-const allowedMetadataExtraFieldIds = new Set([0x000a, 0x5455, 0x5855, 0x7855, 0x7875]);
+const allowedMetadataExtraFieldIds = new Set([0x5455, 0x5855, 0x7855, 0x7875]);
 
 function fail(message) {
   throw new Error(`Unsafe IPA archive: ${message}`);
@@ -88,12 +88,6 @@ function validateExtraFields(bytes, location) {
         fail("new Unix UID/GID metadata extra field is malformed");
       }
     }
-    if (identifier === 0x000a && (location !== "local" ||
-      length !== 32 ||
-      data.readUInt32LE(0) !== 0 ||
-      data.readUInt16LE(4) !== 1 ||
-      data.readUInt16LE(6) !== 24
-    )) fail("NTFS timestamp metadata extra field is malformed");
     fields.set(identifier, Buffer.from(data));
     cursor += length;
   }
