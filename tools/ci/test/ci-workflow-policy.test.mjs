@@ -418,6 +418,11 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.match(iosNetworkDeny, /IN6_IS_ADDR_V4MAPPED/);
   assert.match(iosNetworkDeny, /settleora_is_ipv4_loopback/);
   assert.match(iosNetworkDeny, /SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED/);
+  assert.match(iosNetworkDeny, /visibility\("default"\)\)\) int settleora_network_interposer_loaded\(void\)/);
+  assert.match(nativeTest, /DynamicLibrary\.process\(\)\s*\.lookupFunction<Int32 Function\(\), int Function\(\)>/);
+  assert.doesNotMatch(nativeTest, /DynamicLibrary\.open\(/);
+  assert.match(nativeTest, /lookupFunction<Int32 Function\(\), int Function\(\)>\(\s*'settleora_network_interposer_loaded'/);
+  assert.match(nativeTest, /interposerLoaded = probe\(\) == 1/);
   const interposerPhase = iosProject.match(
     /B40000000000000000000000 \/\* Embed OCR network interposer \*\/ = \{[\s\S]*?\n\t\t\};/,
   )?.[0] ?? '';

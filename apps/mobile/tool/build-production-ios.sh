@@ -30,10 +30,12 @@ inspection_root=
 cleanup_inspection_root=false
 inventory_file=
 symbols_file=
+icon_compare_root=
 
 cleanup() {
   [[ -z "$inventory_file" ]] || rm -f -- "$inventory_file"
   [[ -z "$symbols_file" ]] || rm -f -- "$symbols_file"
+  [[ -z "$icon_compare_root" ]] || rm -rf -- "$icon_compare_root"
   if [[ "$cleanup_inspection_root" == true && -n "$inspection_root" ]]; then
     rm -rf -- "$inspection_root"
   fi
@@ -394,9 +396,20 @@ while IFS= read -r candidate; do
   elif [[ "$file_description" == *'PNG image data'* ]]; then
     [[ "$candidate" == "$app_path"/AppIcon*.png ]] ||
       fail "production application contains an unreviewed image or document resource"
+    if [[ -z "$icon_compare_root" ]]; then
+      icon_compare_root=$(mktemp -d)
+    fi
+    sips -s format bmp "$candidate" --out "$icon_compare_root/packaged.bmp" >/dev/null 2>&1 ||
+      fail "production application icon cannot be decoded"
+    [[ -s "$icon_compare_root/packaged.bmp" ]] || fail "production application icon cannot be decoded"
     reviewed_icon=false
     for source_icon in "$mobile_root"/ios/Runner/Assets.xcassets/AppIcon.appiconset/*.png; do
-      if cmp -s "$candidate" "$source_icon"; then
+      sips -s format bmp "$source_icon" --out "$icon_compare_root/source.bmp" >/dev/null 2>&1 ||
+        fail "reviewed application icon cannot be decoded"
+      [[ -s "$icon_compare_root/source.bmp" ]] || fail "reviewed application icon cannot be decoded"
+      if cmp -s "$icon_compare_root/packaged.bmp" "$icon_compare_root/source.bmp"; then
+        node "$tool_root/tools/ocr-models/verify-ios-icon-png.mjs" "$candidate" "$source_icon" ||
+          fail "production application icon contains unreviewed bytes"
         reviewed_icon=true
         break
       fi

@@ -1,5 +1,16 @@
 // Exact non-OCR entry paths from the pinned projected Android Release APK.
 // Model and legal entries are bound separately to the reviewed OCR catalog.
+// Reviewed projected `flutter build apk --release --no-pub` packages, without
+// the separate strict-Gradle evidence flag. SHA-256 over sorted non-OCR entry
+// records: name NUL expanded-size NUL SHA-256(expanded bytes) newline. Every
+// allowlisted entry, including all six Flutter-generated native libraries,
+// must match one complete reviewed package identity. AOT output varies across
+// clean build roots, so each distinct output must be reviewed and pinned.
+export const expectedAndroidNonOcrDigests = Object.freeze([
+  "b7997e01c72c780678075b8e3a649b0030af8b8b08ca3531b3c612c0f823ebef",
+  "53269d0493b61795d8c8f93882e45ed65cf126cfbbda1ed8b000830e9e0b0bda",
+  "0a1fa06d7f3e3dcd4ca17ef0291274ed086053761abddac816c73a5e6e26bba9",
+]);
 export const expectedAndroidNonOcrEntries = Object.freeze([
   "AndroidManifest.xml",
   "DebugProbesKt.bin",

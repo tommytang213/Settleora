@@ -132,18 +132,9 @@ function validateMatchingExtraFields(localFields, centralFields) {
 }
 
 function validateDosTimestamp(time, date) {
-  const year = 1980 + (date >>> 9);
-  const month = (date >>> 5) & 0x0f;
-  const day = date & 0x1f;
-  const hour = time >>> 11;
-  const minute = (time >>> 5) & 0x3f;
-  const second = (time & 0x1f) * 2;
-  const calendarDay = new Date(Date.UTC(year, month - 1, day));
-  if (month < 1 || month > 12 || day < 1 || day > 31 ||
-      calendarDay.getUTCFullYear() !== year || calendarDay.getUTCMonth() !== month - 1 ||
-      calendarDay.getUTCDate() !== day || hour > 23 || minute > 59 || second > 59) {
-    fail("entry DOS timestamp is not a valid calendar time");
-  }
+  // Match the reviewed, fixed ZIP metadata pair used by the Android release
+  // verifier. A merely valid calendar value still carries attacker bytes.
+  if (time !== 0x0821 || date !== 0x0221) fail("entry DOS timestamp is not canonical");
 }
 
 function validateName(name, directory) {

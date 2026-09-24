@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
 import 'package:flutter/material.dart';
@@ -35,9 +36,19 @@ void main() {
           reason: 'The iOS runner must identify the isolated test invocation.',
         );
         failure.set('network_interposer_load');
+        var interposerLoaded = false;
+        try {
+          final probe = DynamicLibrary.process()
+              .lookupFunction<Int32 Function(), int Function()>(
+                'settleora_network_interposer_loaded',
+              );
+          interposerLoaded = probe() == 1;
+        } catch (_) {
+          // The bounded failure stage below is the only emitted diagnostic.
+        }
         expect(
-          Platform.environment['SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED'],
-          '1',
+          interposerLoaded,
+          isTrue,
           reason: 'The iOS network interposer must positively attest loading.',
         );
       }

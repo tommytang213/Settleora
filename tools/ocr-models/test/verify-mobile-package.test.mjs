@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { deflateRawSync } from "node:zlib";
 
 import { verifyAndroidSignature, verifyMobilePackage } from "../verify-mobile-package.mjs";
 import { expectedAndroidNonOcrEntries } from "../android-production-entry-inventory.mjs";
@@ -13,6 +14,16 @@ import { trustedLegalArtifacts } from "../mobile-model-catalog.mjs";
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
 }
+
+const placeholder = Buffer.from("reviewed-package-placeholder");
+const syntheticNative = Buffer.concat([Buffer.from([0x7f, 0x45, 0x4c, 0x46]), Buffer.alloc(4092)]);
+const nativeEntry = (name) => /^lib\/(?:arm64-v8a|armeabi-v7a|x86_64)\/(?:libapp|libdartjni)\.so$/.test(name);
+const syntheticEntryData = (name) => nativeEntry(name) ? syntheticNative : placeholder;
+const syntheticNonOcrDigest = sha256(Buffer.from(expectedAndroidNonOcrEntries.slice().sort()
+  .map((name) => {
+    const data = syntheticEntryData(name);
+    return `${name}\0${data.length}\0${sha256(data)}\n`;
+  }).join("")));
 
 test("APK signer rejects missing and same-size altered jar bytes", () => {
   assert.throws(() => verifyAndroidSignature("ignored.apk", Buffer.alloc(1)), /toolchain is unreviewed/);
@@ -52,7 +63,8 @@ function syntheticSigningBlock(extraPair = null) {
 }
 
 function writeSyntheticApk(apk, packageRoot, { unsigned = false, firstLocalExtra = Buffer.alloc(0),
-  extraEntries = [], extraSigningPair = null } = {}) {
+  extraEntries = [], extraSigningPair = null, changedNonOcrEntry = null,
+  trailingCompressedEntry = null } = {}) {
   const entries = [];
   const visit = (directory, prefix = "") => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -63,7 +75,9 @@ function writeSyntheticApk(apk, packageRoot, { unsigned = false, firstLocalExtra
   };
   visit(packageRoot);
   entries.push(...expectedAndroidNonOcrEntries.map((name) => ({
-    name, data: Buffer.from("reviewed-package-placeholder"),
+    name, data: name === changedNonOcrEntry ?
+      (nativeEntry(name) ? Buffer.concat([syntheticNative, Buffer.from("private receipt bytes")]) :
+        Buffer.from("private receipt bytes")) : syntheticEntryData(name),
   })));
   entries.push(...extraEntries);
   entries.sort((left, right) => left.name.localeCompare(right.name));
@@ -73,32 +87,36 @@ function writeSyntheticApk(apk, packageRoot, { unsigned = false, firstLocalExtra
   for (const [index, entry] of entries.entries()) {
     const name = Buffer.from(entry.name);
     const data = Buffer.from(entry.data ?? "");
+    const method = entry.name === trailingCompressedEntry ? 8 : 0;
+    const stored = method === 8 ? Buffer.concat([deflateRawSync(data), Buffer.from("PRIVATE_RECEIPT_TEXT")]) : data;
     const extra = index === 0 ? firstLocalExtra : Buffer.alloc(0);
     const crc = crc32(data);
     const localHeader = Buffer.alloc(30);
     localHeader.writeUInt32LE(0x04034b50, 0);
     localHeader.writeUInt16LE(0, 4);
+    localHeader.writeUInt16LE(method, 8);
     localHeader.writeUInt16LE(0x0821, 10);
     localHeader.writeUInt16LE(0x0221, 12);
     localHeader.writeUInt32LE(crc, 14);
-    localHeader.writeUInt32LE(data.length, 18);
+    localHeader.writeUInt32LE(stored.length, 18);
     localHeader.writeUInt32LE(data.length, 22);
     localHeader.writeUInt16LE(name.length, 26);
     localHeader.writeUInt16LE(extra.length, 28);
-    local.push(localHeader, name, extra, data);
+    local.push(localHeader, name, extra, stored);
     const centralHeader = Buffer.alloc(46);
     centralHeader.writeUInt32LE(0x02014b50, 0);
     centralHeader.writeUInt16LE(0, 4);
     centralHeader.writeUInt16LE(0, 6);
+    centralHeader.writeUInt16LE(method, 10);
     centralHeader.writeUInt16LE(0x0821, 12);
     centralHeader.writeUInt16LE(0x0221, 14);
     centralHeader.writeUInt32LE(crc, 16);
-    centralHeader.writeUInt32LE(data.length, 20);
+    centralHeader.writeUInt32LE(stored.length, 20);
     centralHeader.writeUInt32LE(data.length, 24);
     centralHeader.writeUInt16LE(name.length, 28);
     centralHeader.writeUInt32LE(localOffset, 42);
     central.push(centralHeader, name);
-    localOffset += 30 + name.length + extra.length + data.length;
+    localOffset += 30 + name.length + extra.length + stored.length;
   }
   const block = unsigned ? Buffer.alloc(0) : syntheticSigningBlock(extraSigningPair);
   const directory = Buffer.concat(central);
@@ -155,6 +173,7 @@ test("verifies the catalog, every model, and concrete fixture absence in Android
     let signatureChecks = 0;
     const verifyTestPackage = () => verifyMobilePackage({
       platform: "android", packagePath: apk, repoRoot: root,
+      reviewedNonOcrDigests: [syntheticNonOcrDigest],
       verifySignature: () => { signatureChecks += 1; return "a".repeat(64); },
     });
     writeSyntheticApk(apk, packageRoot);
@@ -165,6 +184,7 @@ test("verifies the catalog, every model, and concrete fixture absence in Android
     const originalSha256 = sha256(readFileSync(apk));
     const stable = verifyMobilePackage({
       platform: "android", packagePath: apk, repoRoot: root,
+      reviewedNonOcrDigests: [syntheticNonOcrDigest],
       verifySignature: () => {
         writeFileSync(apk, "replaced after snapshot");
         return "a".repeat(64);
@@ -174,8 +194,20 @@ test("verifies the catalog, every model, and concrete fixture absence in Android
     writeSyntheticApk(apk, packageRoot);
     assert.throws(() => verifyMobilePackage({
       platform: "android", packagePath: apk, repoRoot: root,
+      reviewedNonOcrDigests: [syntheticNonOcrDigest],
       verifySignature: () => { throw new Error("signature verification failed"); },
     }), /signature verification failed/);
+
+    writeSyntheticApk(apk, packageRoot, { changedNonOcrEntry: "assets/flutter_assets/FontManifest.json" });
+    assert.throws(verifyTestPackage, /non-model contents differ from reviewed bytes/);
+
+    writeSyntheticApk(apk, packageRoot, { changedNonOcrEntry: "lib/x86_64/libapp.so" });
+    assert.throws(verifyTestPackage, /non-model contents differ from reviewed bytes/);
+
+    writeSyntheticApk(apk, packageRoot, { trailingCompressedEntry: "assets/flutter_assets/FontManifest.json" });
+    assert.throws(verifyTestPackage, /compressed entry contains trailing bytes/);
+    writeSyntheticApk(apk, packageRoot, { trailingCompressedEntry: "assets/receipt_ocr_models/catalog.json" });
+    assert.throws(verifyTestPackage, /compressed entry contains trailing bytes/);
 
     writeFileSync(path.join(packageRoot, "assets/receipt_ocr_models/catalog.json"), "stale");
     writeSyntheticApk(apk, packageRoot);

@@ -11,6 +11,10 @@ __attribute__((constructor)) static void settleora_mark_interposer_loaded(void) 
   setenv("SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED", "1", 1);
 }
 
+__attribute__((visibility("default"))) int settleora_network_interposer_loaded(void) {
+  return 1;
+}
+
 static bool settleora_is_ipv4_loopback(const struct in_addr *address) {
   return (ntohl(address->s_addr) >> 24) == 127;
 }

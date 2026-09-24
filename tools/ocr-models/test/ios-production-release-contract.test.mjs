@@ -60,8 +60,8 @@ function makeStoredZip(entries, { prefix = Buffer.alloc(0), gap = Buffer.alloc(0
     local.writeUInt32LE(0x04034b50, 0);
     local.writeUInt16LE(20, 4);
     local.writeUInt16LE(flags, 6);
-    local.writeUInt16LE(entry.localTime ?? 0, 10);
-    local.writeUInt16LE(entry.localDate ?? 0x21, 12);
+    local.writeUInt16LE(entry.localTime ?? 0x0821, 10);
+    local.writeUInt16LE(entry.localDate ?? 0x0221, 12);
     local.writeUInt32LE(entry.localCrc32 ?? (entry.dataDescriptor ? 0 : dataCrc32), 14);
     local.writeUInt32LE(entry.localCompressedSize ?? (entry.dataDescriptor ? 0 : data.length), 18);
     local.writeUInt32LE(entry.localUncompressedSize ?? (entry.dataDescriptor ? 0 : data.length), 22);
@@ -73,8 +73,8 @@ function makeStoredZip(entries, { prefix = Buffer.alloc(0), gap = Buffer.alloc(0
     central.writeUInt16LE((3 << 8) | 20, 4);
     central.writeUInt16LE(20, 6);
     central.writeUInt16LE(flags, 8);
-    central.writeUInt16LE(entry.centralTime ?? 0, 12);
-    central.writeUInt16LE(entry.centralDate ?? 0x21, 14);
+    central.writeUInt16LE(entry.centralTime ?? 0x0821, 12);
+    central.writeUInt16LE(entry.centralDate ?? 0x0221, 14);
     central.writeUInt32LE(entry.centralCrc32 ?? dataCrc32, 16);
     central.writeUInt32LE(data.length, 20);
     central.writeUInt32LE(data.length, 24);
@@ -341,11 +341,12 @@ test("IPA namespace verifier rejects ambiguous and escaping ZIP entries before e
       { localDate: 0, centralDate: 0 },
       { localTime: 0xffff, centralTime: 0xffff },
       { localDate: 0x5c5f, centralDate: 0x5c5f },
+      { localTime: 0x4241, centralTime: 0x4241, localDate: 0x4443, centralDate: 0x4443 },
     ]) {
       writeFileSync(archive, makeStoredZip([
         { name: "Payload/Runner.app/file", data: "safe", ...timestampEntry },
       ]));
-      assert.throws(() => verifyTestIpa(archive), /DOS timestamp|valid calendar time/);
+      assert.throws(() => verifyTestIpa(archive), /DOS timestamp/);
     }
     const localTimestampWithUncheckedTimes = Buffer.alloc(17);
     localTimestampWithUncheckedTimes.writeUInt16LE(0x5455, 0);
@@ -422,8 +423,18 @@ test("XML property list with opaque data is covered by the common plist inspecti
 test("compiled asset inspection rejects an added catalog image", () => {
   const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
   assert.match(script, /node "\$tool_root\/tools\/ocr-models\/verify-ios-asset-catalog\.mjs"/);
-  assert.doesNotThrow(() => verifyIosAssetCatalogInfo(JSON.stringify([
+  const reviewed = verifyIosAssetCatalogInfo(JSON.stringify([
     { Name: "AppIcon", AssetType: "Image" },
+    { Name: "LaunchImage", AssetType: "Image" },
+  ]));
+  assert.match(reviewed, /^[0-9a-f]{64}$/);
+  assert.equal(reviewed, verifyIosAssetCatalogInfo(JSON.stringify([
+    { AssetType: "Image", Name: "AppIcon" },
+    { AssetType: "Image", Name: "LaunchImage" },
+  ])));
+  assert.notEqual(reviewed, verifyIosAssetCatalogInfo(JSON.stringify([
+    { Name: "AppIcon", AssetType: "Image" },
+    { Name: "AppIcon", AssetType: "Image", PixelWidth: 24 },
     { Name: "LaunchImage", AssetType: "Image" },
   ])));
   assert.throws(() => verifyIosAssetCatalogInfo(JSON.stringify([
@@ -439,7 +450,10 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
   assert.match(script, /strings "\$candidate" >>"\$symbols_file"\s*done < <\(find "\$inventory_root" -type f -print\)/);
   assert.match(script, /"\$candidate" == "\$app_path"\/AppIcon\*\.png/);
-  assert.match(script, /cmp -s "\$candidate" "\$source_icon"/);
+  assert.match(script, /sips -s format bmp "\$candidate" --out "\$icon_compare_root\/packaged\.bmp"/);
+  assert.match(script, /sips -s format bmp "\$source_icon" --out "\$icon_compare_root\/source\.bmp"/);
+  assert.match(script, /cmp -s "\$icon_compare_root\/packaged\.bmp" "\$icon_compare_root\/source\.bmp"/);
+  assert.match(script, /verify-ios-icon-png\.mjs" "\$candidate" "\$source_icon"/);
   assert.match(script, /production application contains an unreviewed resource path/);
   assert.match(script, /\^Base\\\.lproj\/\[\^\/\]\+\\\.storyboardc\/\[\^\/\]\+\$/);
   assert.match(script, /\^Frameworks\/\[\^\/\]\+\\\.framework/);
