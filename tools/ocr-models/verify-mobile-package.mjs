@@ -198,39 +198,63 @@ function verifyAndroidZipMetadata(packagePath) {
     coveredThrough = end;
   }
   const gap = centralOffset - coveredThrough;
-  if (gap > 0) {
-    if (gap < 32 || archive.toString("ascii", centralOffset - 16, centralOffset) !== "APK Sig Block 42") {
-      throw new Error("Production APK contains unreviewed bytes before the central directory");
+  if (gap < 32) {
+    throw new Error("Production APK signing block is required");
+  }
+  if (archive.toString("ascii", centralOffset - 16, centralOffset) !== "APK Sig Block 42") {
+    throw new Error("Production APK contains unreviewed bytes before the central directory");
+  }
+  const blockSize = Number(archive.readBigUInt64LE(centralOffset - 24));
+  if (blockSize !== gap - 8 || Number(archive.readBigUInt64LE(coveredThrough)) !== blockSize) {
+    throw new Error("Production APK signing block bounds disagree");
+  }
+  const expectedIds = new Set([0x7109871a, 0x42726577]);
+  const observedIds = new Set();
+  let pair = coveredThrough + 8;
+  while (pair < centralOffset - 24) {
+    if (pair + 12 > centralOffset - 24) throw new Error("Production APK signing pair is malformed");
+    const pairSize = Number(archive.readBigUInt64LE(pair));
+    const pairEnd = pair + 8 + pairSize;
+    const id = archive.readUInt32LE(pair + 8);
+    const value = archive.subarray(pair + 12, pairEnd);
+    if (!Number.isSafeInteger(pairSize) || pairSize < 4 || pairEnd > centralOffset - 24 ||
+        !expectedIds.has(id) || observedIds.has(id) ||
+        (id === 0x42726577 && value.some((byte) => byte !== 0))) {
+      throw new Error("Production APK signing pair is unreviewed");
     }
-    const blockSize = Number(archive.readBigUInt64LE(centralOffset - 24));
-    if (blockSize !== gap - 8 || Number(archive.readBigUInt64LE(coveredThrough)) !== blockSize) {
-      throw new Error("Production APK signing block bounds disagree");
-    }
-    const expectedIds = new Set([0x7109871a, 0x504b4453, 0x42726577]);
-    const observedIds = new Set();
-    let pair = coveredThrough + 8;
-    while (pair < centralOffset - 24) {
-      if (pair + 12 > centralOffset - 24) throw new Error("Production APK signing pair is malformed");
-      const pairSize = Number(archive.readBigUInt64LE(pair));
-      const pairEnd = pair + 8 + pairSize;
-      const id = archive.readUInt32LE(pair + 8);
-      if (!Number.isSafeInteger(pairSize) || pairSize < 4 || pairEnd > centralOffset - 24 ||
-          !expectedIds.has(id) || observedIds.has(id) ||
-          (id === 0x42726577 && archive.subarray(pair + 12, pairEnd).some((byte) => byte !== 0))) {
-        throw new Error("Production APK signing pair is unreviewed");
-      }
-      observedIds.add(id);
-      pair = pairEnd;
-    }
-    if (pair !== centralOffset - 24 || observedIds.size !== expectedIds.size) {
-      throw new Error("Production APK signing block inventory differs");
-    }
+    observedIds.add(id);
+    pair = pairEnd;
+  }
+  if (pair !== centralOffset - 24 || observedIds.size !== expectedIds.size) {
+    throw new Error("Production APK signing block inventory differs");
   }
   return names;
 }
 
-function verifyAndroidPackage(packagePath, contract, runCommand) {
+function verifyAndroidSignature(packagePath) {
+  const sdkRoot = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT;
+  if (!sdkRoot) throw new Error("Production APK signer toolchain is unavailable");
+  const apksigner = path.join(sdkRoot, "build-tools/35.0.0/apksigner");
+  const stat = lstatSync(apksigner);
+  if (!stat.isFile() || stat.isSymbolicLink()) {
+    throw new Error("Production APK signer toolchain is unreviewed");
+  }
+  const output = execFileSync(apksigner, ["verify", "--verbose", "--print-certs", packagePath], {
+    encoding: "utf8",
+    maxBuffer: 64 * 1024,
+  });
+  if (!/^Verifies$/m.test(output) ||
+      !/^Verified using v2 scheme \(APK Signature Scheme v2\): true$/m.test(output) ||
+      !/^Number of signers: 1$/m.test(output) ||
+      !/^Signer #1 certificate DN: C=US, O=Android, CN=Android Debug$/m.test(output) ||
+      !/^Signer #1 certificate SHA-256 digest: [0-9a-f]{64}$/m.test(output)) {
+    throw new Error("Production APK signer identity is unreviewed");
+  }
+}
+
+function verifyAndroidPackage(packagePath, contract, runCommand, verifySignature) {
   const archiveEntries = verifyAndroidZipMetadata(packagePath);
+  verifySignature(packagePath);
   const inventory = runCommand("unzip", ["-Z1", packagePath], {
     encoding: "utf8",
     maxBuffer: maxInventoryBytes,
@@ -358,13 +382,14 @@ function verifyIosPackage(packagePath, contract) {
   }
 }
 
-export function verifyMobilePackage({ platform, packagePath, repoRoot, runCommand = execFileSync }) {
+export function verifyMobilePackage({ platform, packagePath, repoRoot, runCommand = execFileSync,
+  verifySignature = verifyAndroidSignature }) {
   if (!new Set(["android", "ios"]).has(platform)) throw new Error("Platform is invalid");
   const contract = expectedPackageContract(repoRoot);
   if (contract.models.length === 0 || contract.fixtures.length !== 102) {
     throw new Error("Catalog or immutable fixture contract is incomplete");
   }
-  if (platform === "android") verifyAndroidPackage(packagePath, contract, runCommand);
+  if (platform === "android") verifyAndroidPackage(packagePath, contract, runCommand, verifySignature);
   else verifyIosPackage(packagePath, contract);
   return {
     catalogFileCount: 1,
