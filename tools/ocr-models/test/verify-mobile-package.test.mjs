@@ -60,7 +60,7 @@ function syntheticSigningBlock(extraPair = null) {
 function writeSyntheticApk(apk, packageRoot, { unsigned = false, firstLocalExtra = Buffer.alloc(0),
   extraEntries = [], extraSigningPair = null, changedNonOcrEntry = null,
   trailingCompressedEntry = null, recompressedEntry = null,
-  reverseCentralOrder = false } = {}) {
+  reverseCentralOrder = false, changedProfileEntry = null } = {}) {
   const entries = [];
   const visit = (directory, prefix = "") => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -89,7 +89,8 @@ function writeSyntheticApk(apk, packageRoot, { unsigned = false, firstLocalExtra
       ? Buffer.concat([deflateRawSync(data), Buffer.from("PRIVATE_RECEIPT_TEXT")])
       : entry.name === recompressedEntry ? deflateRawSync(data, { level: 0 }) : data;
     const extra = index === 0 ? firstLocalExtra : Buffer.alloc(0);
-    digestRecords.push(`${entry.name}\0${localOffset}\0${method}\0${extra.length}\0${stored.length}\0${data.length}\0${sha256(stored)}\0${sha256(data)}\n`);
+    const madeBy = entry.name === changedProfileEntry ? 0x0014 : 0;
+    digestRecords.push(`${entry.name}\0${localOffset}\0${madeBy}\0${0}\0${method}\0${extra.length}\0${stored.length}\0${data.length}\0${sha256(stored)}\0${sha256(data)}\n`);
     const crc = crc32(data);
     const localHeader = Buffer.alloc(30);
     localHeader.writeUInt32LE(0x04034b50, 0);
@@ -105,7 +106,7 @@ function writeSyntheticApk(apk, packageRoot, { unsigned = false, firstLocalExtra
     local.push(localHeader, name, extra, stored);
     const centralHeader = Buffer.alloc(46);
     centralHeader.writeUInt32LE(0x02014b50, 0);
-    centralHeader.writeUInt16LE(0, 4);
+    centralHeader.writeUInt16LE(madeBy, 4);
     centralHeader.writeUInt16LE(0, 6);
     centralHeader.writeUInt16LE(method, 10);
     centralHeader.writeUInt16LE(0x0821, 12);
@@ -211,6 +212,9 @@ test("verifies the catalog, every model, and concrete fixture absence in Android
     assert.throws(verifyTestPackage, /entry representations differ from reviewed bytes/);
 
     writeSyntheticApk(apk, packageRoot, { reverseCentralOrder: true });
+    assert.throws(verifyTestPackage, /entry representations differ from reviewed bytes/);
+
+    writeSyntheticApk(apk, packageRoot, { changedProfileEntry: "assets/flutter_assets/FontManifest.json" });
     assert.throws(verifyTestPackage, /entry representations differ from reviewed bytes/);
 
     writeSyntheticApk(apk, packageRoot, { trailingCompressedEntry: "assets/flutter_assets/FontManifest.json" });
