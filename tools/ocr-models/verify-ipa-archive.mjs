@@ -131,6 +131,21 @@ function validateMatchingExtraFields(localFields, centralFields) {
   }
 }
 
+function validateDosTimestamp(time, date) {
+  const year = 1980 + (date >>> 9);
+  const month = (date >>> 5) & 0x0f;
+  const day = date & 0x1f;
+  const hour = time >>> 11;
+  const minute = (time >>> 5) & 0x3f;
+  const second = (time & 0x1f) * 2;
+  const calendarDay = new Date(Date.UTC(year, month - 1, day));
+  if (month < 1 || month > 12 || day < 1 || day > 31 ||
+      calendarDay.getUTCFullYear() !== year || calendarDay.getUTCMonth() !== month - 1 ||
+      calendarDay.getUTCDate() !== day || hour > 23 || minute > 59 || second > 59) {
+    fail("entry DOS timestamp is not a valid calendar time");
+  }
+}
+
 function validateName(name, directory) {
   if (!name || name.startsWith("/") || name.includes("\\")) fail("entry name is not a safe relative POSIX path");
   if (/[\u0000-\u001f\u007f]/u.test(name)) fail("entry name contains a control character");
@@ -203,6 +218,9 @@ export function verifyOpenedIpa(fd, { close = true } = {}) {
       const madeBySystem = central.readUInt16LE(cursor + 4) >>> 8;
       const flags = central.readUInt16LE(cursor + 8);
       const method = central.readUInt16LE(cursor + 10);
+      const centralTime = central.readUInt16LE(cursor + 12);
+      const centralDate = central.readUInt16LE(cursor + 14);
+      validateDosTimestamp(centralTime, centralDate);
       const crc32 = central.readUInt32LE(cursor + 16);
       const compressedSize = central.readUInt32LE(cursor + 20);
       const uncompressedSize = central.readUInt32LE(cursor + 24);
@@ -251,6 +269,8 @@ export function verifyOpenedIpa(fd, { close = true } = {}) {
       if (local.readUInt32LE(0) !== localSignature) fail("local entry header is malformed");
       const localFlags = local.readUInt16LE(6);
       const localMethod = local.readUInt16LE(8);
+      const localTime = local.readUInt16LE(10);
+      const localDate = local.readUInt16LE(12);
       const localCrc32 = local.readUInt32LE(14);
       const localCompressedSize = local.readUInt32LE(18);
       const localUncompressedSize = local.readUInt32LE(22);
@@ -258,6 +278,7 @@ export function verifyOpenedIpa(fd, { close = true } = {}) {
       const localExtraLength = local.readUInt16LE(28);
       const localName = readExact(fd, localNameLength, localOffset + 30);
       if (localFlags !== flags || localMethod !== method || !localName.equals(nameBytes)) fail("local and central entry identities disagree");
+      if (localTime !== centralTime || localDate !== centralDate) fail("local and central entry DOS timestamps disagree");
       const usesDataDescriptor = (flags & 0x0008) !== 0;
       if (!usesDataDescriptor && (localCrc32 !== crc32 || localCompressedSize !== compressedSize || localUncompressedSize !== uncompressedSize)) {
         fail("local and central entry integrity values disagree");

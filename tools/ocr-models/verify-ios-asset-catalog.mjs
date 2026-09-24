@@ -9,9 +9,10 @@ export function verifyIosAssetCatalogInfo(json) {
     throw new Error("Compiled asset metadata is missing or oversized");
   }
   const assets = JSON.parse(json);
-  if (!Array.isArray(assets) || assets.length === 0 || assets.some((asset) =>
+  if (!Array.isArray(assets) || assets.some((asset) =>
     asset === null || typeof asset !== "object" || Array.isArray(asset) ||
-    !reviewedNames.has(asset.Name))) {
+    !reviewedNames.has(asset.Name)) ||
+    [...reviewedNames].some((name) => !assets.some((asset) => asset.Name === name))) {
     throw new Error("Compiled asset catalog contains an unreviewed asset");
   }
 }

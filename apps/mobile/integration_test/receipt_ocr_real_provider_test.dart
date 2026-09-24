@@ -662,14 +662,21 @@ List<_BoundedMismatch> _completePreviewMismatches(
   }
   final expectedReviewCondition =
       expected['expected_review_condition'] as String?;
-  if (expectedReviewCondition != null) {
-    if (expectedReviewCondition !=
-            'printed total differs from visible charge-line arithmetic' ||
-        !preview.reviewHints.contains(
+  final expectedHints = expectedReviewCondition == null
+      ? const <String>[]
+      : expectedReviewCondition ==
+            'printed total differs from visible charge-line arithmetic'
+      ? const <String>[
           'OCR item total differs from detected grand total. Review the receipt before applying.',
-        )) {
-      mismatches.add(_BoundedMismatch(fixtureId, 'review_condition'));
-    }
+        ]
+      : null;
+  final actualHints = preview.reviewHints;
+  if (expectedHints == null ||
+      actualHints.length != expectedHints.length ||
+      !actualHints.asMap().entries.every(
+        (entry) => entry.value == expectedHints[entry.key],
+      )) {
+    mismatches.add(_BoundedMismatch(fixtureId, 'review_condition'));
   }
   if (preview.blocks.isEmpty) {
     mismatches.add(_BoundedMismatch(fixtureId, 'ocr_evidence'));
