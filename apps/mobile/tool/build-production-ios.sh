@@ -333,12 +333,100 @@ fi
 
 : >"$symbols_file"
 binary_count=0
+source_asset_names=()
+while IFS= read -r source_asset; do
+  source_asset_names+=("$(basename "$source_asset")")
+done < <(find "$mobile_root/ios/Runner/Assets.xcassets" -mindepth 1 -maxdepth 1 -type d -print | LC_ALL=C sort)
+[[ "${source_asset_names[*]}" == 'AppIcon.appiconset LaunchImage.imageset' ]] ||
+  fail "production asset catalog source inventory changed"
 while IFS= read -r candidate; do
-  if file "$candidate" | grep -q 'Mach-O'; then
+  file_description=$(file -b "$candidate")
+  if [[ "$file_description" != Mach-O* ]]; then
+    [[ "$candidate" == "$app_path"/* ]] || fail "production application contains an unreviewed resource path"
+    relative_resource=${candidate#"$app_path"/}
+    case "$relative_resource" in
+      Info.plist|PkgInfo|Assets.car|embedded.mobileprovision|en.lproj/InfoPlist.strings|_CodeSignature/CodeResources|Frameworks/Flutter.framework/icudtl.dat|Frameworks/App.framework/flutter_assets/AssetManifest.bin|Frameworks/App.framework/flutter_assets/AssetManifest.json|Frameworks/App.framework/flutter_assets/FontManifest.json|Frameworks/App.framework/flutter_assets/NOTICES.Z) ;;
+      AppIcon*.png) [[ "$relative_resource" =~ ^AppIcon[^/]*\.png$ ]] || fail "production application contains an unreviewed resource path" ;;
+      receipt_ocr_models/*) ;; # verify-mobile-package enforces the exact recursive model inventory.
+      Base.lproj/*.nib) [[ "$relative_resource" =~ ^Base\.lproj/[^/]+\.nib$ ]] || fail "production application contains an unreviewed resource path" ;;
+      Base.lproj/*.storyboardc/*) [[ "$relative_resource" =~ ^Base\.lproj/[^/]+\.storyboardc/[^/]+$ ]] || fail "production application contains an unreviewed resource path" ;;
+      Frameworks/*/Info.plist|Frameworks/*/PrivacyInfo.xcprivacy|Frameworks/*/_CodeSignature/CodeResources)
+        [[ "$relative_resource" =~ ^Frameworks/[^/]+\.framework/(Info\.plist|PrivacyInfo\.xcprivacy|_CodeSignature/CodeResources)$ ]] ||
+          fail "production application contains an unreviewed resource path"
+        framework_name=${relative_resource#Frameworks/}
+        framework_name=${framework_name%%/*}
+        framework_name=${framework_name%.framework}
+        case "$framework_name" in
+          App|Flutter|file_picker|flutter_secure_storage_darwin|google_mlkit_commons|google_mlkit_text_recognition|image_picker_ios|GoogleDataTransport|GoogleMLKit|GoogleToolboxForMac|GoogleUtilities|GTMSessionFetcher|MLImage|MLKitCommon|MLKitTextRecognition|MLKitTextRecognitionCommon|MLKitVision|nanopb|onnxruntime|onnxruntime-c|onnxruntime-objc|OpenCV|PromisesObjC|FBLPromises|Yams) ;;
+          *) fail "production application contains an unreviewed framework resource" ;;
+        esac ;;
+      *.bundle/Info.plist|*.bundle/PrivacyInfo.xcprivacy|*.bundle/_CodeSignature/CodeResources)
+        [[ "$relative_resource" =~ ^([^/]+\.bundle|Frameworks/[^/]+\.framework/[^/]+\.bundle)/(Info\.plist|PrivacyInfo\.xcprivacy|_CodeSignature/CodeResources)$ ]] ||
+          fail "production application contains an unreviewed resource path"
+        bundle_name=${relative_resource%%.bundle/*}
+        bundle_name=${bundle_name##*/}
+        case "$bundle_name" in
+          file_picker_ios_privacy|image_picker_ios_privacy|flutter_secure_storage|GoogleUtilities_Privacy|GoogleDataTransport_Privacy|GoogleToolboxForMac_Privacy|GoogleToolboxForMac_Logger_Privacy|GTMSessionFetcher_Privacy|GTMSessionFetcher_Core_Privacy|MLKitCommon_Privacy|MLKitTextRecognition_Privacy|MLKitTextRecognitionCommon_Privacy|MLKitVision_Privacy|MLImage_Privacy|nanopb_Privacy|OpenCV_Privacy|onnxruntime_privacy|Yams_Privacy|PromisesObjC_Privacy|FBLPromises_Privacy|LatinOCRResources) ;;
+          *) fail "production application contains an unreviewed privacy bundle" ;;
+        esac ;;
+      LatinOCRResources.bundle/*|Frameworks/MLKitTextRecognition.framework/LatinOCRResources.bundle/*)
+        [[ "$relative_resource" =~ ^(LatinOCRResources\.bundle|Frameworks/MLKitTextRecognition\.framework/LatinOCRResources\.bundle)/[^/]+$ ]] ||
+          fail "production application contains an unreviewed model resource path"
+        case "${relative_resource##*/}" in
+          region_proposal_text_detector_tflite_gray_quantized.bincfg) expected_vendor_sha=1a38b646d109c14dd8ae30d5f12a9036f60f9e923c9301337aa2507759f2b098 ;;
+          rpn_lstm_engine_tflite_latin.bincfg) expected_vendor_sha=10f0cd4292d367b27782053dfc1860c0629b13098058b3ac1d6eca6288bbfb04 ;;
+          rpn_text_detector_mobile_space_to_depth_quantized_v2.tflite) expected_vendor_sha=2906a3b00953351813c4917341e197107ed2aaac2d17650890758dc190271dee ;;
+          tflite_langid.tflite) expected_vendor_sha=7f931f6f7c1dd0ec591ace7780df91645a450fafc83505f3ff45ce5ef7c8441b ;;
+          tflite_lstm_recognizer_latin_0.3.bincfg) expected_vendor_sha=a050ebbb730708c8556a887793b87fce12ee9ffa517afc5205c71d4624bd7bc7 ;;
+          tflite_lstm_recognizer_latin_0.3.class_lst) expected_vendor_sha=55150f2779d07936c9fbf8becbb8567fe3ea5ad6b6d944245829695a8ae968fa ;;
+          tflite_lstm_recognizer_latin_0.3.conv_model) expected_vendor_sha=64aba719b4ed1ee5b3d4886c5aaf0b1ac051bf5879e9b08e861e0e29e20a08a7 ;;
+          tflite_lstm_recognizer_latin_0.3.lstm_model) expected_vendor_sha=0ed62e4fbe0fc5c4090aec473b136e188f828590765c028382358daddb3ccb6e ;;
+          *) fail "production application contains an unreviewed model resource" ;;
+        esac
+        [[ "$(sha256_file "$candidate")" == "$expected_vendor_sha" ]] ||
+          fail "production application model resource differs from the pinned pod archive" ;;
+      *) fail "production application contains an unreviewed resource path" ;;
+    esac
+  fi
+  if [[ "$file_description" == Mach-O* ]]; then
     binary_count=$((binary_count + 1))
     nm -a "$candidate" >>"$symbols_file"
-    strings "$candidate" >>"$symbols_file"
+  elif [[ "$file_description" == *'PNG image data'* ]]; then
+    [[ "$candidate" == "$app_path"/AppIcon*.png ]] ||
+      fail "production application contains an unreviewed image or document resource"
+    reviewed_icon=false
+    for source_icon in "$mobile_root"/ios/Runner/Assets.xcassets/AppIcon.appiconset/*.png; do
+      if cmp -s "$candidate" "$source_icon"; then
+        reviewed_icon=true
+        break
+      fi
+    done
+    [[ "$reviewed_icon" == true ]] ||
+      fail "production application icon differs from reviewed source assets"
+  elif [[ "$candidate" == "$app_path/Assets.car" ]]; then
+    asset_info=$(xcrun --sdk iphoneos assetutil --info "$candidate") ||
+      fail "compiled asset catalog cannot be inspected"
+    printf '%s' "$asset_info" | node -e 'let json=""; process.stdin.on("data", chunk => { json += chunk; }); process.stdin.on("end", () => { try { const assets = JSON.parse(json); if (!Array.isArray(assets) || assets.length === 0 || assets.some(asset => !["AppIcon", "LaunchImage"].includes(asset.Name))) process.exitCode = 1; } catch { process.exitCode = 1; } });' ||
+      fail "compiled asset catalog contains an unreviewed asset"
+  elif [[ "$file_description" == *'Apple binary property list'* ]]; then
+    [[ "$candidate" == */Info.plist || "$candidate" == */InfoPlist.strings || "$candidate" == */PrivacyInfo.xcprivacy ]] ||
+      fail "production application contains an unreviewed opaque resource"
+  elif [[ "$file_description" == data ]]; then
+    case "$candidate" in
+      "$app_path"/receipt_ocr_models/*|"$app_path"/Assets.car|"$app_path"/embedded.mobileprovision|"$app_path"/Frameworks/Flutter.framework/icudtl.dat|"$app_path"/Frameworks/App.framework/flutter_assets/AssetManifest.bin|"$app_path"/Frameworks/App.framework/flutter_assets/NOTICES.Z|"$app_path"/Base.lproj/*.nib|"$app_path"/LatinOCRResources.bundle/*|"$app_path"/Frameworks/MLKitTextRecognition.framework/LatinOCRResources.bundle/*) ;;
+      *) fail "production application contains an unreviewed opaque resource" ;;
+    esac
+  elif [[ "$file_description" =~ image|bitmap|PDF\ document|SVG|HEIF|HEIC|AVIF|Web/P|archive|compressed\ data|gzip|bzip2|XZ\ compressed|Zstandard|RAR|7-zip ]]; then
+    fail "production application contains an unreviewed image or document resource"
   fi
+  if [[ "$candidate" == *.plist || "$candidate" == *.xcprivacy || "$candidate" == *.strings ]]; then
+    plist_xml=$(plutil -convert xml1 -o - "$candidate") ||
+      fail "production application property list cannot be inspected"
+    [[ "$plist_xml" != *'<data>'* ]] ||
+      fail "production application property list contains opaque data"
+    printf '%s\n' "$plist_xml" >>"$symbols_file"
+  fi
+  strings "$candidate" >>"$symbols_file"
 done < <(find "$inventory_root" -type f -print)
 [[ "$binary_count" -gt 0 ]] || fail "production application contains no inspectable Mach-O binary"
 grep -Fq 'GeneratedPluginRegistrant' "$symbols_file" || fail "GeneratedPluginRegistrant is absent from production binaries"

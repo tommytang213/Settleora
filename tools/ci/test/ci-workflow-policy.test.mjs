@@ -201,6 +201,9 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.match(nativeTest, /peakRssBytes is! int \|\| peakRssBytes <= 0/);
   assert.match(nativeTest, /finally \{\s*_isolate\.kill\(priority: Isolate\.immediate\);\s*_eventPort\.close\(\);/);
   assert.match(nativeTest, /finally \{\s*peakRssBytes = await rssSampler\.stop\(\);/);
+  assert.doesNotMatch(nativeTest, /if \(!expected\.containsKey\(field\)\) return;/);
+  assert.match(nativeTest, /if \(actualItem\.quantity != expectedItem\.quantity\)/);
+  assert.match(nativeTest, /if \(actualItem\.unitPrice != expectedItem\.unitPrice\)/);
   assert.match(androidActivity, /ReceiptOcrBuildVariantHooks\.configure/);
   assert.doesNotMatch(androidActivity, /receipt_ocr_acceptance|loadModelCatalog|loadFixture/);
   assert.match(androidDebugHooks, /call\.method == "loadModelCatalog"/);

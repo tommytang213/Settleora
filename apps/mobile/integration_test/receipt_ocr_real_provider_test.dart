@@ -646,12 +646,10 @@ List<_BoundedMismatch> _completePreviewMismatches(
     if (actualItem.lineTotal != expectedItem.lineTotal) {
       mismatches.add(_BoundedMismatch(fixtureId, 'items[$index].lineTotal'));
     }
-    if (expectedItem.quantity != null &&
-        actualItem.quantity != expectedItem.quantity) {
+    if (actualItem.quantity != expectedItem.quantity) {
       mismatches.add(_BoundedMismatch(fixtureId, 'items[$index].quantity'));
     }
-    if (expectedItem.unitPrice != null &&
-        actualItem.unitPrice != expectedItem.unitPrice) {
+    if (actualItem.unitPrice != expectedItem.unitPrice) {
       mismatches.add(_BoundedMismatch(fixtureId, 'items[$index].unitPrice'));
     }
   }
@@ -780,7 +778,6 @@ void _collectField(
   String? actual,
   Map<String, Object?> expected,
 ) {
-  if (!expected.containsKey(field)) return;
   final expectedValue = expected[field];
   if (field == 'merchant' && expectedValue is String) {
     if (_normalizedText(actual) != _normalizedText(expectedValue)) {

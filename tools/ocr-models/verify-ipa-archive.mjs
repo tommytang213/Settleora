@@ -71,9 +71,8 @@ function validateExtraFields(bytes, location) {
     if (fields.has(identifier)) fail("duplicate archive metadata extra field is forbidden");
     if (identifier === 0x5455) {
       const flags = data[0];
-      const localLength = 1 + 4 * [1, 2, 4].filter((bit) => (flags & bit) !== 0).length;
-      const expectedLength = location === "central" ? ((flags & 1) !== 0 ? 5 : 1) : localLength;
-      if ((flags & ~0x07) !== 0 || length !== expectedLength) fail("extended timestamp extra field is malformed");
+      const expectedLength = (flags & 1) !== 0 ? 5 : 1;
+      if ((flags & ~0x01) !== 0 || length !== expectedLength) fail("extended timestamp extra field is malformed");
     }
     if (identifier === 0x5855) {
       const validLength = location === "central" ? length === 8 : [8, 12].includes(length);

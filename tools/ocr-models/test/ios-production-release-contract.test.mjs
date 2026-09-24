@@ -330,6 +330,18 @@ test("IPA namespace verifier rejects ambiguous and escaping ZIP entries before e
       },
     ]));
     assert.throws(() => verifyTestIpa(archive), /timestamp metadata disagree/);
+    const localTimestampWithUncheckedTimes = Buffer.alloc(17);
+    localTimestampWithUncheckedTimes.writeUInt16LE(0x5455, 0);
+    localTimestampWithUncheckedTimes.writeUInt16LE(13, 2);
+    localTimestampWithUncheckedTimes[4] = 0x07;
+    Buffer.from("PRIVATE_", "ascii").copy(localTimestampWithUncheckedTimes, 9);
+    writeFileSync(archive, makeStoredZip([{
+      name: "Payload/Runner.app/file",
+      data: "safe",
+      centralExtra: harmlessTimestamp,
+      localExtra: localTimestampWithUncheckedTimes,
+    }]));
+    assert.throws(() => verifyTestIpa(archive), /extended timestamp extra field is malformed/);
     for (const controlName of ["Payload/Runner.app/split\nidentity", "Payload/Runner.app/del\u007fidentity"]) {
       writeFileSync(archive, makeStoredZip([{ name: "Payload/" }, { name: controlName, data: "safe" }]));
       assert.throws(() => verifyTestIpa(archive), /control character/);
@@ -341,8 +353,93 @@ test("IPA namespace verifier rejects ambiguous and escaping ZIP entries before e
   }
 });
 
+test("opaque archive resource is classified for fail-closed iOS inspection", () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "settleora-opaque-resource-"));
+  try {
+    const archive = path.join(directory, "innocuous.dat");
+    writeFileSync(archive, makeStoredZip([{ name: "private.png", data: "opaque receipt bytes" }]));
+    const observed = spawnSync("file", ["-b", archive], { encoding: "utf8" });
+    assert.equal(observed.status, 0);
+    assert.match(observed.stdout, /archive/i);
+    const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
+    assert.match(script, /Web\/P\|archive\|compressed\\ data/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("binary property list with opaque image data is classified for fail-closed iOS inspection", () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "settleora-opaque-plist-"));
+  try {
+    const plist = path.join(directory, "innocuous.dat");
+    writeFileSync(plist, Buffer.from("YnBsaXN0MDDRAQJUYmxvYk8QD4lQTkcNChoKUFJJVkFURQgLEAAAAAAAAAEBAAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAi", "base64"));
+    const observed = spawnSync("file", ["-b", plist], { encoding: "utf8" });
+    assert.equal(observed.status, 0);
+    assert.match(observed.stdout, /Apple binary property list/);
+    const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
+    assert.match(script, /Apple binary property list/);
+    assert.match(script, /"\$candidate" == \*\/Info\.plist \|\| "\$candidate" == \*\/InfoPlist\.strings/);
+    assert.match(script, /plist_xml.*<data>/);
+    assert.match(script, /"\$file_description" == data/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("XML property list with opaque data is covered by the common plist inspection", () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "settleora-xml-plist-"));
+  try {
+    const plist = path.join(directory, "Info.plist");
+    writeFileSync(plist, '<?xml version="1.0"?><plist version="1.0"><dict><key>payload</key><data>iVBORw0KGgo=</data></dict></plist>');
+    const observed = spawnSync("file", ["-b", plist], { encoding: "utf8" });
+    assert.equal(observed.status, 0);
+    assert.doesNotMatch(observed.stdout, /Apple binary property list/);
+    const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
+    assert.match(script, /if \[\[ "\$candidate" == \*\.plist \|\| "\$candidate" == \*\.xcprivacy \|\| "\$candidate" == \*\.strings \]\]/);
+    assert.match(script, /"\$plist_xml" != \*'<data>'\*/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("compiled asset inspection rejects an added catalog image", () => {
+  const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
+  const inlineVerifier = script.match(/printf '%s' "\$asset_info" \| node -e '([^']+)'/);
+  assert.ok(inlineVerifier);
+  for (const [names, expectedStatus] of [
+    [["AppIcon", "LaunchImage"], 0],
+    [["AppIcon", "PrivateReceipt"], 1],
+  ]) {
+    const result = spawnSync("node", ["-e", inlineVerifier[1]], {
+      input: JSON.stringify(names.map((Name) => ({ Name, AssetType: "Image" }))),
+      encoding: "utf8",
+    });
+    assert.equal(result.status, expectedStatus);
+  }
+});
+
 test("canonical wrapper fails closed around projection, locks, package inspection, and signing", () => {
   const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
+  assert.match(script, /strings "\$candidate" >>"\$symbols_file"\s*done < <\(find "\$inventory_root" -type f -print\)/);
+  assert.match(script, /"\$candidate" == "\$app_path"\/AppIcon\*\.png/);
+  assert.match(script, /cmp -s "\$candidate" "\$source_icon"/);
+  assert.match(script, /production application contains an unreviewed resource path/);
+  assert.match(script, /\^Base\\\.lproj\/\[\^\/\]\+\\\.storyboardc\/\[\^\/\]\+\$/);
+  assert.match(script, /\^Frameworks\/\[\^\/\]\+\\\.framework/);
+  assert.match(script, /unreviewed framework resource/);
+  assert.match(script, /App\|Flutter\|file_picker\|flutter_secure_storage_darwin/);
+  assert.match(script, /file_picker_ios_privacy\|image_picker_ios_privacy\|flutter_secure_storage\|GoogleUtilities_Privacy/);
+  assert.match(script, /GoogleToolboxForMac_Logger_Privacy/);
+  assert.match(script, /GTMSessionFetcher_Core_Privacy/);
+  assert.match(script, /FBLPromises_Privacy/);
+  assert.match(script, /unreviewed privacy bundle/);
+  assert.match(script, /LatinOCRResources\.bundle/);
+  assert.match(script, /production application model resource differs from the pinned pod archive/);
+  assert.match(script, /assetutil --info "\$candidate"/);
+  assert.match(script, /Frameworks\/App\.framework\/flutter_assets\/AssetManifest\.json/);
+  assert.doesNotMatch(script, /flutter_assets\/\*\.json/);
+  assert.match(script, /image\|bitmap\|PDF\\ document\|SVG\|HEIF\|HEIC\|AVIF\|Web\/P\|archive\|compressed\\ data\|gzip/);
+  assert.match(script, /production application contains an unreviewed image or document resource/);
   const pubspec = readFileSync(path.join(repoRoot, "apps/mobile/pubspec.yaml"), "utf8");
   const podfileLock = readFileSync(path.join(repoRoot, "apps/mobile/ios/Podfile.lock"), "utf8");
   for (const required of [
