@@ -150,6 +150,8 @@ test("retains only the bounded native acceptance schema", () => {
           "verified-model-file-count": "14",
           "verified-catalog-file-count": "1",
           "verified-fixture-absence-count": "102",
+          "package-sha256": "b".repeat(64),
+          "signer-certificate-sha256": "c".repeat(64),
         },
         repoRoot,
       );
@@ -177,6 +179,7 @@ test("retains only the bounded native acceptance schema", () => {
 
 test("complete evidence requires both package measurements and a positive delta", () => {
   const evidence = {
+    platform: "android",
     execution: { testExitStatus: 0, protocolSucceeded: true, preflightFailurePhase: null },
     diagnostics: [],
     acceptance: {
@@ -203,10 +206,14 @@ test("complete evidence requires both package measurements and a positive delta"
       verifiedModelFileCount: 14,
       expectedFixtureAbsenceCount: 102,
       verifiedFixtureAbsenceCount: 102,
+      packageSha256: "b".repeat(64),
+      signerCertificateSha256: "c".repeat(64),
     },
     identities: { baseCompositeSha256: "9".repeat(64) },
   };
   assert.equal(isCompleteEvidence(evidence), true);
+  assert.equal(isCompleteEvidence({ ...evidence,
+    packageEvidence: { ...evidence.packageEvidence, signerCertificateSha256: null } }), false);
   assert.equal(isCompleteEvidence({ ...evidence, identities: undefined }), false);
   assert.equal(
     isCompleteEvidence({

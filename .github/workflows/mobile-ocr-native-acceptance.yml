@@ -118,15 +118,20 @@ jobs:
             flutter build apk --release --no-pub
           )
           full_apk="$candidate_dir/apps/mobile/build/app/outputs/flutter-apk/app-release.apk"
-          full_bytes=$(stat -c %s "$full_apk")
-          package_verification=$(node tools/ocr-models/verify-mobile-package.mjs --platform=android --package="$full_apk" --repo-root="$candidate_dir" --json=true)
+          verified_apk="$RUNNER_TEMP/settleora-verified-production.apk"
+          install -m 0400 "$full_apk" "$verified_apk"
+          full_bytes=$(stat -c %s "$verified_apk")
+          package_verification=$(node tools/ocr-models/verify-mobile-package.mjs --platform=android --package="$verified_apk" --repo-root="$candidate_dir" --json=true)
           verified_catalog_file_count=$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).catalogFileCount))' "$package_verification")
           verified_model_file_count=$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).modelFileCount))' "$package_verification")
           verified_fixture_absence_count=$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).fixtureFileCount))' "$package_verification")
+          verified_package_sha256=$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).packageSha256)' "$package_verification")
+          verified_signer_certificate_sha256=$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).signerCertificateSha256)' "$package_verification")
+          test "$(sha256sum "$verified_apk" | awk '{print $1}')" = "$verified_package_sha256"
           apkanalyzer="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
           test -x "$apkanalyzer"
-          "$apkanalyzer" dex packages "$full_apk" >"$RUNNER_TEMP/android-dex-packages.txt"
-          "$apkanalyzer" dex code --class io.flutter.plugins.GeneratedPluginRegistrant "$full_apk" >"$RUNNER_TEMP/android-plugin-registrant.txt"
+          "$apkanalyzer" dex packages "$verified_apk" >"$RUNNER_TEMP/android-dex-packages.txt"
+          "$apkanalyzer" dex code --class io.flutter.plugins.GeneratedPluginRegistrant "$verified_apk" >"$RUNNER_TEMP/android-plugin-registrant.txt"
           grep -F 'com.mr.flutter.plugin.filepicker.FilePickerPlugin' "$RUNNER_TEMP/android-plugin-registrant.txt"
           grep -F 'com.it_nomads.fluttersecurestorage.FlutterSecureStoragePlugin' "$RUNNER_TEMP/android-plugin-registrant.txt"
           if grep -F 'dev.flutter.plugins.integration_test' "$RUNNER_TEMP/android-dex-packages.txt"; then
@@ -138,8 +143,8 @@ jobs:
           fi
           : >"$RUNNER_TEMP/android-production-dex-strings.txt"
           while IFS= read -r dex_file; do
-            unzip -p "$full_apk" "$dex_file" | strings >>"$RUNNER_TEMP/android-production-dex-strings.txt"
-          done < <(zipinfo -1 "$full_apk" | grep -E '^classes[0-9]*\.dex$')
+            unzip -p "$verified_apk" "$dex_file" | strings >>"$RUNNER_TEMP/android-production-dex-strings.txt"
+          done < <(zipinfo -1 "$verified_apk" | grep -E '^classes[0-9]*\.dex$')
           test -s "$RUNNER_TEMP/android-production-dex-strings.txt"
           if grep -F -e 'com.settleora.mobile/receipt_ocr_acceptance' -e 'loadModelCatalog' -e 'loadFixture' "$RUNNER_TEMP/android-production-dex-strings.txt"; then
             echo "Production APK contains the native OCR acceptance channel" >&2
@@ -148,6 +153,7 @@ jobs:
             grep_status=$?
             test "$grep_status" -eq 1
           fi
+          test "$(sha256sum "$verified_apk" | awk '{print $1}')" = "$verified_package_sha256"
           find "$candidate_dir/apps/mobile/assets/receipt_ocr_models" -mindepth 2 -type f -exec truncate -s 0 {} +
           (
             cd "$candidate_dir/apps/mobile"
@@ -191,6 +197,8 @@ jobs:
           echo "verified_model_file_count=$verified_model_file_count" >> "$GITHUB_OUTPUT"
           echo "verified_catalog_file_count=$verified_catalog_file_count" >> "$GITHUB_OUTPUT"
           echo "verified_fixture_absence_count=$verified_fixture_absence_count" >> "$GITHUB_OUTPUT"
+          echo "verified_package_sha256=$verified_package_sha256" >> "$GITHUB_OUTPUT"
+          echo "verified_signer_certificate_sha256=$verified_signer_certificate_sha256" >> "$GITHUB_OUTPUT"
 
       - name: Build bounded Android evidence
         if: always()
@@ -221,6 +229,8 @@ jobs:
             --verified-model-file-count="${{ steps.package.outputs.verified_model_file_count }}" \
             --verified-catalog-file-count="${{ steps.package.outputs.verified_catalog_file_count }}" \
             --verified-fixture-absence-count="${{ steps.package.outputs.verified_fixture_absence_count }}" \
+            --package-sha256="${{ steps.package.outputs.verified_package_sha256 }}" \
+            --signer-certificate-sha256="${{ steps.package.outputs.verified_signer_certificate_sha256 }}" \
             --require-complete=true
 
       - name: Upload bounded Android evidence

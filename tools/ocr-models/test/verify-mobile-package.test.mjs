@@ -77,7 +77,7 @@ function writeSyntheticApk(apk, packageRoot, { unsigned = false, firstLocalExtra
     const crc = crc32(data);
     const localHeader = Buffer.alloc(30);
     localHeader.writeUInt32LE(0x04034b50, 0);
-    localHeader.writeUInt16LE(20, 4);
+    localHeader.writeUInt16LE(0, 4);
     localHeader.writeUInt16LE(0x0821, 10);
     localHeader.writeUInt16LE(0x0221, 12);
     localHeader.writeUInt32LE(crc, 14);
@@ -88,8 +88,8 @@ function writeSyntheticApk(apk, packageRoot, { unsigned = false, firstLocalExtra
     local.push(localHeader, name, extra, data);
     const centralHeader = Buffer.alloc(46);
     centralHeader.writeUInt32LE(0x02014b50, 0);
-    centralHeader.writeUInt16LE(20, 4);
-    centralHeader.writeUInt16LE(20, 6);
+    centralHeader.writeUInt16LE(0, 4);
+    centralHeader.writeUInt16LE(0, 6);
     centralHeader.writeUInt16LE(0x0821, 12);
     centralHeader.writeUInt16LE(0x0221, 14);
     centralHeader.writeUInt32LE(crc, 16);
@@ -155,12 +155,23 @@ test("verifies the catalog, every model, and concrete fixture absence in Android
     let signatureChecks = 0;
     const verifyTestPackage = () => verifyMobilePackage({
       platform: "android", packagePath: apk, repoRoot: root,
-      verifySignature: () => { signatureChecks += 1; },
+      verifySignature: () => { signatureChecks += 1; return "a".repeat(64); },
     });
     writeSyntheticApk(apk, packageRoot);
     assert.deepEqual(verifyTestPackage(),
-      { catalogFileCount: 1, modelFileCount: 1, fixtureFileCount: 102 });
+      { catalogFileCount: 1, modelFileCount: 1, fixtureFileCount: 102,
+        signerCertificateSha256: "a".repeat(64), packageSha256: sha256(readFileSync(apk)) });
     assert.equal(signatureChecks, 1);
+    const originalSha256 = sha256(readFileSync(apk));
+    const stable = verifyMobilePackage({
+      platform: "android", packagePath: apk, repoRoot: root,
+      verifySignature: () => {
+        writeFileSync(apk, "replaced after snapshot");
+        return "a".repeat(64);
+      },
+    });
+    assert.equal(stable.packageSha256, originalSha256);
+    writeSyntheticApk(apk, packageRoot);
     assert.throws(() => verifyMobilePackage({
       platform: "android", packagePath: apk, repoRoot: root,
       verifySignature: () => { throw new Error("signature verification failed"); },
@@ -240,6 +251,16 @@ test("verifies the catalog, every model, and concrete fixture absence in Android
     const changedCentralDate = readFileSync(apk);
     changedCentralDate.writeUInt16LE(0, changedCentralDate.readUInt32LE(changedCentralDate.length - 6) + 14);
     writeFileSync(apk, changedCentralDate);
+    assert.throws(verifyTestPackage, /local metadata is unreviewed/);
+    writeSyntheticApk(apk, packageRoot);
+    const changedAttributes = readFileSync(apk);
+    changedAttributes.writeUInt16LE(1, changedAttributes.readUInt32LE(changedAttributes.length - 6) + 36);
+    writeFileSync(apk, changedAttributes);
+    assert.throws(verifyTestPackage, /entry metadata is unreviewed/);
+    writeSyntheticApk(apk, packageRoot);
+    const changedVersion = readFileSync(apk);
+    changedVersion.writeUInt16LE(20, 4);
+    writeFileSync(apk, changedVersion);
     assert.throws(verifyTestPackage, /local metadata is unreviewed/);
     writeSyntheticApk(apk, packageRoot, {
       extraSigningPair: signingPair(0x504b4453, Buffer.from("PRIVATE_RECEIPT_TEXT_123")),

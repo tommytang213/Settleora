@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { lstatSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -31,6 +31,40 @@ function safeRelativePath(value, name) {
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
+}
+
+function withAndroidSnapshot(packagePath, verify) {
+  const descriptor = openSync(packagePath, constants.O_RDONLY | constants.O_NOFOLLOW);
+  let snapshot;
+  try {
+    const before = fstatSync(descriptor, { bigint: true });
+    if (!before.isFile() || before.size < 1n || before.size > BigInt(maxAndroidArchiveBytes)) {
+      throw new Error("Production APK archive size is outside the reviewed bound");
+    }
+    snapshot = Buffer.allocUnsafe(Number(before.size));
+    let offset = 0;
+    while (offset < snapshot.length) {
+      const count = readSync(descriptor, snapshot, offset, Math.min(1024 * 1024, snapshot.length - offset), null);
+      if (count === 0) throw new Error("Production APK changed while snapshotting");
+      offset += count;
+    }
+    const after = fstatSync(descriptor, { bigint: true });
+    if (readSync(descriptor, Buffer.alloc(1), 0, 1, null) !== 0 ||
+        before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size ||
+        before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs) {
+      throw new Error("Production APK changed while snapshotting");
+    }
+  } finally {
+    closeSync(descriptor);
+  }
+  const temporary = mkdtempSync("/tmp/settleora-apk-");
+  try {
+    const snapshotPath = path.join(temporary, "production.apk");
+    writeFileSync(snapshotPath, snapshot, { flag: "wx", mode: 0o400 });
+    return { signerCertificateSha256: verify(snapshotPath), packageSha256: sha256(snapshot) };
+  } finally {
+    rmSync(temporary, { recursive: true, force: true });
+  }
 }
 
 function expectedPackageContract(repoRoot) {
@@ -142,7 +176,8 @@ function verifyAndroidZipMetadata(packagePath) {
       throw new Error("Production APK central directory entry is malformed");
     }
     const nameLength = archive.readUInt16LE(cursor + 28);
-    const madeBySystem = archive.readUInt16LE(cursor + 4) >>> 8;
+    const madeBy = archive.readUInt16LE(cursor + 4);
+    const neededVersion = archive.readUInt16LE(cursor + 6);
     const centralFlags = archive.readUInt16LE(cursor + 8);
     const centralMethod = archive.readUInt16LE(cursor + 10);
     const centralTime = archive.readUInt16LE(cursor + 12);
@@ -152,14 +187,17 @@ function verifyAndroidZipMetadata(packagePath) {
     const uncompressedSize = archive.readUInt32LE(cursor + 24);
     const extraLength = archive.readUInt16LE(cursor + 30);
     const commentLength = archive.readUInt16LE(cursor + 32);
+    const diskStart = archive.readUInt16LE(cursor + 34);
+    const internalAttributes = archive.readUInt16LE(cursor + 36);
     const localOffset = archive.readUInt32LE(cursor + 42);
     const externalAttributes = archive.readUInt32LE(cursor + 38);
-    const unixType = (externalAttributes >>> 16) & 0xf000;
     const end = cursor + 46 + nameLength + extraLength + commentLength;
     if (nameLength === 0 || end > eocd || extraLength !== 0 || commentLength !== 0 ||
+        diskStart !== 0 || internalAttributes !== 0 || neededVersion !== 0 ||
         centralFlags !== 0 || !allowedAndroidCompressionMethods.has(centralMethod) ||
-        ((madeBySystem === 3 || madeBySystem === 19) && unixType !== 0x8000) ||
-        (externalAttributes & 0x10) !== 0 ||
+        !((madeBy === 0 && externalAttributes === 0) ||
+          (madeBy === 0x0014 && externalAttributes === 0) ||
+          (madeBy === 0x0300 && externalAttributes === 0x81a40000)) ||
         uncompressedSize === 0xffffffff ||
         compressedSize === 0xffffffff || localOffset === 0xffffffff ||
         localOffset + 30 > centralOffset ||
@@ -177,6 +215,7 @@ function verifyAndroidZipMetadata(packagePath) {
         !archive.subarray(localNameStart, localExtraStart).equals(nameBytes) ||
         archive.subarray(localExtraStart, localExtraStart + localExtraLength).some((byte) => byte !== 0) ||
         nameBytes.some((byte) => byte < 0x20 || byte > 0x7e) ||
+        archive.readUInt16LE(localOffset + 4) !== neededVersion ||
         archive.readUInt16LE(localOffset + 6) !== centralFlags ||
         archive.readUInt16LE(localOffset + 8) !== centralMethod ||
         centralTime !== 0x0821 || centralDate !== 0x0221 ||
@@ -254,18 +293,20 @@ export function verifyAndroidSignature(packagePath, jarBytes = readFileSync("/us
   } finally {
     rmSync(temporary, { recursive: true, force: true });
   }
+  const certificate = /^Signer #1 certificate SHA-256 digest: ([0-9a-f]{64})$/m.exec(output);
   if (!/^Verifies$/m.test(output) ||
       !/^Verified using v2 scheme \(APK Signature Scheme v2\): true$/m.test(output) ||
       !/^Number of signers: 1$/m.test(output) ||
       !/^Signer #1 certificate DN: C=US, O=Android, CN=Android Debug$/m.test(output) ||
-      !/^Signer #1 certificate SHA-256 digest: [0-9a-f]{64}$/m.test(output)) {
+      !certificate) {
     throw new Error("Production APK signer identity is unreviewed");
   }
+  return certificate[1];
 }
 
 function verifyAndroidPackage(packagePath, contract, runCommand, verifySignature) {
   const archiveEntries = verifyAndroidZipMetadata(packagePath);
-  verifySignature(packagePath);
+  const signerCertificateSha256 = verifySignature(packagePath);
   const inventory = runCommand("unzip", ["-Z1", packagePath], {
     encoding: "utf8",
     maxBuffer: maxInventoryBytes,
@@ -338,6 +379,10 @@ function verifyAndroidPackage(packagePath, contract, runCommand, verifySignature
     !entry.startsWith("assets/receipt_ocr_models/") && prohibitedPackageEntry.test(entry))) {
     throw new Error("Production APK contains test, fixture, log, or OCR evidence paths");
   }
+  if (!/^[0-9a-f]{64}$/.test(signerCertificateSha256)) {
+    throw new Error("Production APK signer identity is unreviewed");
+  }
+  return signerCertificateSha256;
 }
 
 function verifyIosPackage(packagePath, contract) {
@@ -400,12 +445,15 @@ export function verifyMobilePackage({ platform, packagePath, repoRoot, runComman
   if (contract.models.length === 0 || contract.fixtures.length !== 102) {
     throw new Error("Catalog or immutable fixture contract is incomplete");
   }
-  if (platform === "android") verifyAndroidPackage(packagePath, contract, runCommand, verifySignature);
-  else verifyIosPackage(packagePath, contract);
+  const androidEvidence = platform === "android"
+    ? withAndroidSnapshot(packagePath, (snapshot) => verifyAndroidPackage(snapshot, contract, runCommand, verifySignature))
+    : null;
+  if (platform === "ios") verifyIosPackage(packagePath, contract);
   return {
     catalogFileCount: 1,
     modelFileCount: contract.models.length,
     fixtureFileCount: contract.fixtures.length,
+    ...(androidEvidence ?? {}),
   };
 }
 

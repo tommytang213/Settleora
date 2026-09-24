@@ -782,6 +782,14 @@ export function buildEvidence(args, repoRoot = process.cwd()) {
   const verifiedModelFileCount = parseOptionalBytes(args["verified-model-file-count"]);
   const verifiedCatalogFileCount = parseOptionalBytes(args["verified-catalog-file-count"]);
   const verifiedFixtureAbsenceCount = parseOptionalBytes(args["verified-fixture-absence-count"]);
+  const packageSha256 = args["package-sha256"] || null;
+  const signerCertificateSha256 = args["signer-certificate-sha256"] || null;
+  if (packageSha256 != null && !/^[0-9a-f]{64}$/.test(packageSha256)) {
+    throw new Error("Production package digest is invalid");
+  }
+  if (signerCertificateSha256 != null && !/^[0-9a-f]{64}$/.test(signerCertificateSha256)) {
+    throw new Error("Production signer certificate digest is invalid");
+  }
   const testExitStatus = boundedInteger(Number(args["test-status"]), "test-status");
   const preflightFailurePhase = args["failure-phase"] || null;
   if (
@@ -844,6 +852,8 @@ export function buildEvidence(args, repoRoot = process.cwd()) {
       verifiedModelFileCount,
       expectedFixtureAbsenceCount,
       verifiedFixtureAbsenceCount,
+      packageSha256,
+      signerCertificateSha256,
     },
     identities: {
       catalogSha256: sha256(catalogPath),
@@ -908,6 +918,9 @@ export function isCompleteEvidence(evidence) {
         evidence.packageEvidence.expectedCatalogFileCount &&
       evidence.packageEvidence.verifiedFixtureAbsenceCount ===
         evidence.packageEvidence.expectedFixtureAbsenceCount &&
+      (evidence.platform !== "android" ||
+        (/^[0-9a-f]{64}$/.test(evidence.packageEvidence.packageSha256 ?? "") &&
+          /^[0-9a-f]{64}$/.test(evidence.packageEvidence.signerCertificateSha256 ?? ""))) &&
       evidence.packageEvidence.baselineWithoutBundledModelPayloadBytes != null &&
       evidence.packageEvidence.bundledModelPackageDeltaBytes > 0 &&
       evidence.packageEvidence.baseAppBytes != null &&

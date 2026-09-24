@@ -285,6 +285,18 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
     if (jobName === 'android-native-acceptance') {
       assert.equal(job.env.ORG_GRADLE_PROJECT_settleoraReleaseEvidence, 'true');
       assert.ok(packageCommands.includes('flutter build apk --release --no-pub'));
+      assert.match(packageCommands, /install -m 0400 "\$full_apk" "\$verified_apk"/);
+      assert.match(packageCommands, /--package="\$verified_apk"/);
+      assert.match(packageCommands, /apkanalyzer" dex packages "\$verified_apk"/);
+      assert.match(packageCommands, /zipinfo -1 "\$verified_apk"/);
+      assert.equal(packageCommands.split('sha256sum "$verified_apk"').length - 1, 2);
+      assert.match(packageCommands, /verified_package_sha256=\$\(node -e .*\.packageSha256/);
+      assert.match(packageCommands, /verified_signer_certificate_sha256=\$\(node -e .*\.signerCertificateSha256/);
+      assert.match(packageCommands, /verified_package_sha256=\$verified_package_sha256/);
+      assert.match(packageCommands, /verified_signer_certificate_sha256=\$verified_signer_certificate_sha256/);
+      const evidenceCommands = runCommands(job).find((command) => command.includes('native-acceptance-evidence.mjs'));
+      assert.match(evidenceCommands, /--package-sha256="\$\{\{ steps\.package\.outputs\.verified_package_sha256 \}\}"/);
+      assert.match(evidenceCommands, /--signer-certificate-sha256="\$\{\{ steps\.package\.outputs\.verified_signer_certificate_sha256 \}\}"/);
     } else {
       assert.ok(packageCommands.includes('build-production-ios.sh'));
     }
