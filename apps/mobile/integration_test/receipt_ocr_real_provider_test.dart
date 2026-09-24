@@ -35,12 +35,6 @@ void main() {
           'socket_interpose_v1',
           reason: 'The iOS runner must identify the isolated test invocation.',
         );
-        failure.set('network_interposer_constructor');
-        expect(
-          Platform.environment['SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED'],
-          '1',
-          reason: 'The iOS network interposer constructor must run in the app.',
-        );
         failure.set('network_interposer_symbol');
         var interposerLoaded = false;
         try {
@@ -48,6 +42,7 @@ void main() {
               .lookupFunction<Int32 Function(), int Function()>(
                 'settleora_network_interposer_loaded',
               );
+          failure.set('network_interposer_constructor');
           interposerLoaded = probe() == 1;
         } catch (_) {
           // The bounded failure stage below is the only emitted diagnostic.
@@ -55,7 +50,7 @@ void main() {
         expect(
           interposerLoaded,
           isTrue,
-          reason: 'The iOS network interposer must positively attest loading.',
+          reason: 'The iOS network interposer constructor must positively attest loading.',
         );
       }
       failure.set('network_probe');

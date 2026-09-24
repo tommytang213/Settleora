@@ -7,12 +7,15 @@
 #include <string.h>
 #include <sys/socket.h>
 
+static volatile int settleora_constructor_ran = 0;
+
 __attribute__((constructor)) static void settleora_mark_interposer_loaded(void) {
+  settleora_constructor_ran = 1;
   setenv("SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED", "1", 1);
 }
 
 __attribute__((visibility("default"))) int settleora_network_interposer_loaded(void) {
-  return 1;
+  return settleora_constructor_ran;
 }
 
 static bool settleora_is_ipv4_loopback(const struct in_addr *address) {

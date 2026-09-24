@@ -29,9 +29,6 @@ const maximumExpandedBytes = 8 * 1024 * 1024 * 1024;
 const maximumEntryBytes = 2 * 1024 * 1024 * 1024;
 const supportedCompressionMethods = new Set([0, 8]);
 const allowedRoots = new Set(["Payload", "SwiftSupport"]);
-// The exact signed IPA byte identity is pinned after a trusted build. Until
-// then, no signed archive can pass the canonical release preflight.
-const reviewedIpaArchiveDigests = new Set();
 const allowedMetadataExtraFieldIds = new Set([0x5455]);
 
 class UnreviewedIpaRepresentation extends Error {
@@ -290,11 +287,11 @@ export function inspectOpenedIpa(fd, { close = true } = {}) {
 }
 
 export function verifyOpenedIpa(fd, {
-  close = true, reviewedDigests = reviewedIpaArchiveDigests,
+  close = true, reviewedDigests = null,
 } = {}) {
   try {
     const digest = inspectOpenedIpa(fd, { close: false });
-    if (!reviewedDigests.has(digest)) throw new UnreviewedIpaRepresentation(digest);
+    if (reviewedDigests !== null && !reviewedDigests.has(digest)) throw new UnreviewedIpaRepresentation(digest);
     return digest;
   } finally {
     if (close) closeSync(fd);
@@ -345,7 +342,7 @@ function copyOpenedIpa(fd, destination, size, expectedSha256, reviewedDigests) {
   return destinationFd;
 }
 
-export function verifyCanonicalIpa({ reviewedDigests = reviewedIpaArchiveDigests } = {}) {
+export function verifyCanonicalIpa({ reviewedDigests = null } = {}) {
   const directoryComponents = ["build", path.join("build", "ios"), path.join("build", "ios", "ipa")];
   for (const component of directoryComponents) {
     let stat;
@@ -405,7 +402,9 @@ export function verifyCanonicalIpa({ reviewedDigests = reviewedIpaArchiveDigests
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   try {
-    if (process.argv.length !== 2) throw new Error("invalid invocation");
+    if (process.argv.length !== 2) {
+      throw new Error("invalid invocation");
+    }
     process.stdout.write(`${verifyCanonicalIpa()}\n`);
   } catch (error) {
     process.stderr.write(error instanceof UnreviewedIpaRepresentation

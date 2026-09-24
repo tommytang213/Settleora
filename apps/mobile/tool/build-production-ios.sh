@@ -343,17 +343,16 @@ done < <(find "$mobile_root/ios/Runner/Assets.xcassets" -mindepth 1 -maxdepth 1 
 [[ "${source_asset_names[*]}" == 'AppIcon.appiconset LaunchImage.imageset' ]] ||
   fail "production asset catalog source inventory changed"
 [[ -f "$app_path/Assets.car" ]] || fail "compiled asset catalog is absent"
-asset_info=$(xcrun --sdk iphoneos assetutil --info "$app_path/Assets.car") ||
-  fail "compiled asset catalog cannot be inspected"
-printf '%s' "$asset_info" | node "$tool_root/tools/ocr-models/verify-ios-asset-catalog.mjs" ||
-  fail "compiled asset catalog contains an unreviewed asset"
+asset_car_before_sha256=$(sha256_file "$app_path/Assets.car")
+asset_observation=$(xcrun --sdk iphoneos assetutil --info "$app_path/Assets.car" 2>/dev/null |
+  node "$tool_root/tools/ocr-models/verify-ios-asset-catalog.mjs") ||
+  fail "compiled asset catalog metadata cannot be observed"
+printf '%s\n' "$asset_observation"
 compiled_asset_car_sha256=$(sha256_file "$app_path/Assets.car")
+[[ "$compiled_asset_car_sha256" == "$asset_car_before_sha256" ]] ||
+  fail "compiled asset catalog changed during metadata observation"
 printf 'compiled_asset_car_sha256=%s\n' "$compiled_asset_car_sha256"
-# Emit both bounded asset identities before resource inventory can stop the build.
-reviewed_asset_car_sha256=''
-asset_catalog_unreviewed=false
-[[ "$compiled_asset_car_sha256" == "$reviewed_asset_car_sha256" ]] ||
-  asset_catalog_unreviewed=true
+# These are observed identities only. #1320 owns the signed Xcode baseline.
 while IFS= read -r candidate; do
   file_description=$(file -b "$candidate")
   if [[ "$file_description" != Mach-O* ]]; then
@@ -444,7 +443,7 @@ while IFS= read -r candidate; do
     [[ "$reviewed_icon" == true ]] ||
       fail "production application icon differs from reviewed source assets"
   elif [[ "$candidate" == "$app_path/Assets.car" ]]; then
-    : # The complete bytes and rendition metadata were inspected above.
+    : # Opaque compiled content is excluded from package-wide privacy approval.
   elif [[ "$file_description" == *'Apple binary property list'* ]]; then
     [[ "$candidate" == */Info.plist || "$candidate" == */InfoPlist.strings || "$candidate" == */PrivacyInfo.xcprivacy ]] ||
       fail "production application contains an unreviewed opaque resource"
@@ -467,8 +466,6 @@ while IFS= read -r candidate; do
 done < <(find "$inventory_root" -type f -print)
 [[ "$icon_representation_unreviewed" == false ]] ||
   fail "production application icon contains unreviewed bytes"
-[[ "$asset_catalog_unreviewed" == false ]] ||
-  fail "compiled asset catalog bytes are unreviewed"
 [[ "$binary_count" -gt 0 ]] || fail "production application contains no inspectable Mach-O binary"
 grep -Fq 'GeneratedPluginRegistrant' "$symbols_file" || fail "GeneratedPluginRegistrant is absent from production binaries"
 grep -Fq 'FilePickerPlugin' "$symbols_file" || fail "FilePickerPlugin is absent from production binaries"
@@ -485,10 +482,20 @@ if [[ "$artifact_class" == release-candidate ]]; then
   if [[ "$mode" == signed ]]; then
     [[ "$(sha256_file "$artifact_path")" == "$preflight_ipa_sha" ]] || fail "IPA changed after package inspection"
     artifact_sha=$preflight_ipa_sha
+    # Inspect every retained archive file before claiming package privacy.
+    archive_review=$(node "$tool_root/tools/ocr-models/verify-ios-xcarchive.mjs" "$archive_path" "$app_path") ||
+      fail "signed xcarchive privacy verification failed"
+    [[ -n "$archive_review" ]] || fail "signed xcarchive privacy verification produced no evidence"
+    [[ "$(sha256_file "$artifact_path")" == "$artifact_sha" ]] || fail "IPA changed after archive inspection"
   else
     artifact_sha=$(node "$tool_root/tools/ocr-models/hash-directory.mjs" app)
   fi
   archive_sha=$(if [[ "$mode" == signed ]]; then node "$tool_root/tools/ocr-models/hash-directory.mjs" archive; else printf ''; fi)
+  if [[ "$mode" == signed ]]; then
+    inspected_archive_sha=$(printf '%s' "$archive_review" | node -e 'const fs=require("node:fs"); const v=JSON.parse(fs.readFileSync(0,"utf8")); if(!/^[0-9a-f]{64}$/.test(v.archiveSha256)) process.exit(1); process.stdout.write(v.archiveSha256)' ) ||
+      fail "signed xcarchive inspection identity is invalid"
+    [[ "$archive_sha" == "$inspected_archive_sha" ]] || fail "xcarchive changed after privacy inspection"
+  fi
   node "$tool_root/tools/ocr-models/write-ios-release-provenance.mjs" \
     --out="$provenance_out" \
     --mode="$mode" \

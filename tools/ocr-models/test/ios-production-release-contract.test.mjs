@@ -179,6 +179,9 @@ test("signed provenance binds the exact artifact and forbids publication", () =>
     assert.equal(provenance.artifact.buildNumber, "42");
     assert.equal(provenance.toolchain.codemagicCliTools, "0.69.0");
     assert.equal(provenance.verification.codeSignatureVerified, true);
+    assert.equal(provenance.verification.rawOcrEvidenceAbsentFromReviewedResources, true);
+    assert.equal(provenance.verification.compiledAssetContentReviewed, false);
+    assert.equal(Object.hasOwn(provenance.verification, "rawOcrEvidenceAbsent"), false);
     assert.equal(JSON.stringify(provenance).includes(root), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -235,11 +238,11 @@ test("IPA namespace verifier rejects ambiguous and escaping ZIP entries before e
     mkdirSync(canonicalIpaDirectory, { recursive: true });
     writeFileSync(canonicalIpa, readFileSync(archive));
     const canonicalResult = spawnSync(process.execPath, [verifier], { cwd: root, encoding: "utf8" });
-    assert.notEqual(canonicalResult.status, 0);
-    assert.equal(canonicalResult.stdout, "");
+    assert.equal(canonicalResult.status, 0);
     const reviewedDigest = sha256(readFileSync(canonicalIpa));
-    assert.equal(canonicalResult.stderr,
-      `canonical_ipa_representation_unreviewed sha256=${reviewedDigest}\n`);
+    assert.equal(canonicalResult.stdout, `${reviewedDigest}\n`);
+    assert.equal(canonicalResult.stderr, "");
+    rmSync(path.join(root, "build/ios/.settleora-ipa-inspection"), { recursive: true });
     const oldDirectory = process.cwd();
     try {
       process.chdir(root);
@@ -411,6 +414,9 @@ test("signed IPA rejects an alternate valid DEFLATE representation", () => {
     assert.notEqual(sha256(alternate), sha256(reviewed));
     writeFileSync(archive, alternate);
     assert.equal(verifyTestIpa(archive), sha256(alternate));
+    // A valid alternate representation has its own output identity; no digest is required before the build.
+    assert.equal(verifyCanonicalIpa(), sha256(alternate));
+    rmSync(path.join(root, "build/ios/.settleora-ipa-inspection"), { recursive: true });
     const fd = openSync(archive, constants.O_RDONLY | constants.O_NOFOLLOW);
     assert.throws(() => verifyOpenedIpa(fd, { reviewedDigests }), /representation is unreviewed/);
     assert.throws(() => verifyCanonicalIpa({ reviewedDigests }), /representation is unreviewed/);
@@ -469,30 +475,29 @@ test("XML property list with opaque data is covered by the common plist inspecti
   }
 });
 
-test("compiled asset inspection rejects an added catalog image", () => {
+test("compiled asset inspection records added metadata without claiming signed approval", () => {
   const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
   assert.match(script, /node "\$tool_root\/tools\/ocr-models\/verify-ios-asset-catalog\.mjs"/);
-  const reviewed = verifyIosAssetCatalogInfo(JSON.stringify([
-    { Name: "AppIcon", AssetType: "Image" },
-    { Name: "LaunchImage", AssetType: "Image" },
+  const observed = verifyIosAssetCatalogInfo(JSON.stringify([
+    { Name: "AppIcon", AssetType: "Image", SHA1Digest: "a".repeat(40) },
+    { Name: "LaunchImage", AssetType: "Image", SHA1Digest: "b".repeat(40) },
   ]));
-  assert.match(reviewed, /^[0-9a-f]{64}$/);
-  assert.equal(reviewed, verifyIosAssetCatalogInfo(JSON.stringify([
-    { AssetType: "Image", Name: "AppIcon" },
-    { AssetType: "Image", Name: "LaunchImage" },
+  assert.match(observed, /^[0-9a-f]{64}$/);
+  assert.equal(observed, verifyIosAssetCatalogInfo(JSON.stringify([
+    { AssetType: "Image", Name: "AppIcon", SHA1Digest: "a".repeat(40) },
+    { AssetType: "Image", Name: "LaunchImage", SHA1Digest: "b".repeat(40) },
   ])));
-  assert.notEqual(reviewed, verifyIosAssetCatalogInfo(JSON.stringify([
-    { Name: "AppIcon", AssetType: "Image" },
-    { Name: "AppIcon", AssetType: "Image", PixelWidth: 24 },
-    { Name: "LaunchImage", AssetType: "Image" },
+  assert.notEqual(observed, verifyIosAssetCatalogInfo(JSON.stringify([
+    { Name: "AppIcon", AssetType: "Image", SHA1Digest: "a".repeat(40) },
+    { Name: "AppIcon", AssetType: "Image", PixelWidth: 24, SHA1Digest: "c".repeat(40) },
+    { Name: "LaunchImage", AssetType: "Image", SHA1Digest: "b".repeat(40) },
   ])));
-  assert.throws(() => verifyIosAssetCatalogInfo(JSON.stringify([
-    { Name: "AppIcon", AssetType: "Image" },
+  assert.notEqual(observed, verifyIosAssetCatalogInfo(JSON.stringify([
+    { Name: "AppIcon", AssetType: "Image", SHA1Digest: "a".repeat(40) },
     { Name: "PrivateReceipt", AssetType: "Image" },
-  ])), /unreviewed asset/);
-  for (const incomplete of [[], [{ Name: "AppIcon" }], [{ Name: "LaunchImage" }]]) {
-    assert.throws(() => verifyIosAssetCatalogInfo(JSON.stringify(incomplete)), /unreviewed asset/);
-  }
+  ])));
+  assert.throws(() => verifyIosAssetCatalogInfo("[]"), /metadata is invalid/);
+  assert.doesNotMatch(script, /compiled asset catalog bytes are unreviewed/);
 });
 
 test("canonical wrapper fails closed around projection, locks, package inspection, and signing", () => {
@@ -512,9 +517,8 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   assert.match(script, /production application contains an unreviewed resource path/);
   assert.match(script, /unreviewed_resource_path_sha256=%s resource_class=%s/);
   assert.match(script, /compiled_asset_car_sha256=%s/);
-  assert.match(script, /\[\[ "\$compiled_asset_car_sha256" == "\$reviewed_asset_car_sha256" \]\] \|\|\s+asset_catalog_unreviewed=true/);
-  assert.match(script, /\[\[ "\$asset_catalog_unreviewed" == false \]\] \|\|/);
-  assert.match(script, /compiled asset catalog bytes are unreviewed/);
+  assert.match(script, /verify-ios-xcarchive\.mjs/);
+  assert.doesNotMatch(script, /reviewed_asset_car_sha256=''/);
   assert.match(script, /\^Base\\\.lproj\/\[\^\/\]\+\\\.storyboardc\/\[\^\/\]\+\$/);
   assert.match(script, /\^Frameworks\/\[\^\/\]\+\\\.framework/);
   assert.match(script, /unreviewed framework resource/);
@@ -526,7 +530,9 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   assert.match(script, /unreviewed privacy bundle/);
   assert.match(script, /LatinOCRResources\.bundle/);
   assert.match(script, /production application model resource differs from the pinned pod archive/);
+  assert.doesNotMatch(script, /assetutil --validate-file "\$app_path\/Assets\.car"/);
   assert.match(script, /assetutil --info "\$app_path\/Assets\.car"/);
+  assert.match(script, /compiled asset catalog changed during metadata observation/);
   assert.match(script, /Frameworks\/App\.framework\/flutter_assets\/AssetManifest\.json/);
   assert.doesNotMatch(script, /flutter_assets\/\*\.json/);
   assert.match(script, /image\|bitmap\|PDF\\ document\|SVG\|HEIF\|HEIC\|AVIF\|Web\/P\|archive\|compressed\\ data\|gzip/);

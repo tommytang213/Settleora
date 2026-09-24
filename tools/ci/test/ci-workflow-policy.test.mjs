@@ -421,6 +421,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.match(iosNetworkDeny, /settleora_is_ipv4_loopback/);
   assert.match(iosNetworkDeny, /SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED/);
   assert.match(iosNetworkDeny, /visibility\("default"\)\)\) int settleora_network_interposer_loaded\(void\)/);
+  assert.match(iosNetworkDeny, /return settleora_constructor_ran;/);
   assert.match(nativeTest, /DynamicLibrary\.process\(\)\s*\.lookupFunction<Int32 Function\(\), int Function\(\)>/);
   assert.doesNotMatch(nativeTest, /DynamicLibrary\.open\(/);
   assert.match(nativeTest, /lookupFunction<Int32 Function\(\), int Function\(\)>\(\s*'settleora_network_interposer_loaded'/);

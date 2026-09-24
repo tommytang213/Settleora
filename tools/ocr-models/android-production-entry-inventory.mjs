@@ -11,8 +11,8 @@
 // must match one complete reviewed package identity. AOT output varies across
 // clean build roots, so each distinct output must be reviewed and pinned.
 export const expectedAndroidPackageDigests = Object.freeze([
-  "bdd5a9aa9c474d47b60a7086ee100929c5ff6ba3eafcb9c3ed03edd6496d4e22",
-  "f8c18fac2280d2b9aea230890099c99fbb63ba002ba2d16e86153903089dd610",
+  "35d527d589662fced712a7157b147517be5bf565c581bdf196752f46e8568d32",
+  "d32a93d7787c3e02ce21e8eda023ade8475bf9043f46239deb76ae2bd2d02cb5",
 ]);
 export const expectedAndroidNonOcrEntries = Object.freeze([
   "AndroidManifest.xml",
