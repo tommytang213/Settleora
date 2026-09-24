@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { inflateRawSync } from "node:zlib";
 
 import { trustedLegalArtifacts } from "./mobile-model-catalog.mjs";
-import { expectedAndroidNonOcrEntries, expectedAndroidNonOcrDigests } from "./android-production-entry-inventory.mjs";
+import { expectedAndroidNonOcrEntries, expectedAndroidPackageDigests } from "./android-production-entry-inventory.mjs";
 
 const maxInventoryBytes = 32 * 1024 * 1024;
 const maxModelBytes = 64 * 1024 * 1024;
@@ -15,7 +15,7 @@ const allowedAndroidCompressionMethods = new Set([0, 8]);
 const prohibitedPackageEntry = /integration[_-]?test|receipt_ocr_real_provider_test|receipt_ocr_acceptance|(?:^|\/)(?:private|fixtures?|tests?)(?:\/|[-_.]|$)|\.log$|(?:^|\/)[^/]*(?:ocr[-_]?output|ocr[-_]?evidence|private[-_]?receipt)[^/]*|(?:^|\/)[^/]*(?:receipt|invoice|fixture|corpus|ocr|scan)[^/]*\.(?:jpe?g|png|webp|heic|heif|pdf|tiff?|bmp|json|csv|txt|bin|dat|db|sqlite|zip)$/i;
 class PackageContentMismatch extends Error {
   constructor(digest) {
-    super("Production APK non-model contents differ from reviewed bytes");
+    super("Production APK entry representations differ from reviewed bytes");
     this.digest = digest;
   }
 }
@@ -264,7 +264,10 @@ function verifyAndroidZipMetadata(packagePath) {
       contents = expanded.buffer;
     }
     if (contents.length !== uncompressedSize) throw new Error("Production APK entry expanded size differs");
-    if (!modelEntry) contentDigests.push([name, uncompressedSize, sha256(contents)]);
+    contentDigests.push([
+      name, centralMethod, compressedSize, uncompressedSize,
+      sha256(compressed), sha256(contents),
+    ]);
     localRanges.push([localOffset, dataEnd]);
     cursor = end;
   }
@@ -307,10 +310,11 @@ function verifyAndroidZipMetadata(packagePath) {
     throw new Error("Production APK signing block inventory differs");
   }
   const contentHash = createHash("sha256");
-  for (const [name, size, digest] of contentDigests.sort((left, right) => left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0)) {
-    contentHash.update(`${name}\0${size}\0${digest}\n`);
+  for (const [name, method, compressedSize, expandedSize, compressedDigest, expandedDigest] of
+    contentDigests.sort((left, right) => left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0)) {
+    contentHash.update(`${name}\0${method}\0${compressedSize}\0${expandedSize}\0${compressedDigest}\0${expandedDigest}\n`);
   }
-  return { names, nonOcrDigest: contentHash.digest("hex") };
+  return { names, packageDigest: contentHash.digest("hex") };
 }
 
 export function verifyAndroidSignature(packagePath, jarBytes = readFileSync("/usr/local/lib/android/sdk/build-tools/35.0.0/lib/apksigner.jar")) {
@@ -342,8 +346,8 @@ export function verifyAndroidSignature(packagePath, jarBytes = readFileSync("/us
   return certificate[1];
 }
 
-function verifyAndroidPackage(packagePath, contract, runCommand, verifySignature, reviewedNonOcrDigests) {
-  const { names: archiveEntries, nonOcrDigest } = verifyAndroidZipMetadata(packagePath);
+function verifyAndroidPackage(packagePath, contract, runCommand, verifySignature, reviewedPackageDigests) {
+  const { names: archiveEntries, packageDigest } = verifyAndroidZipMetadata(packagePath);
   const signerCertificateSha256 = verifySignature(packagePath);
   const inventory = runCommand("unzip", ["-Z1", packagePath], {
     encoding: "utf8",
@@ -417,8 +421,8 @@ function verifyAndroidPackage(packagePath, contract, runCommand, verifySignature
     !entry.startsWith("assets/receipt_ocr_models/") && prohibitedPackageEntry.test(entry))) {
     throw new Error("Production APK contains test, fixture, log, or OCR evidence paths");
   }
-  if (!reviewedNonOcrDigests.includes(nonOcrDigest)) {
-    throw new PackageContentMismatch(nonOcrDigest);
+  if (!reviewedPackageDigests.includes(packageDigest)) {
+    throw new PackageContentMismatch(packageDigest);
   }
   if (!/^[0-9a-f]{64}$/.test(signerCertificateSha256)) {
     throw new Error("Production APK signer identity is unreviewed");
@@ -480,14 +484,14 @@ function verifyIosPackage(packagePath, contract) {
 }
 
 export function verifyMobilePackage({ platform, packagePath, repoRoot, runCommand = execFileSync,
-  verifySignature = verifyAndroidSignature, reviewedNonOcrDigests = expectedAndroidNonOcrDigests }) {
+  verifySignature = verifyAndroidSignature, reviewedPackageDigests = expectedAndroidPackageDigests }) {
   if (!new Set(["android", "ios"]).has(platform)) throw new Error("Platform is invalid");
   const contract = expectedPackageContract(repoRoot);
   if (contract.models.length === 0 || contract.fixtures.length !== 102) {
     throw new Error("Catalog or immutable fixture contract is incomplete");
   }
   const androidEvidence = platform === "android"
-    ? withAndroidSnapshot(packagePath, (snapshot) => verifyAndroidPackage(snapshot, contract, runCommand, verifySignature, reviewedNonOcrDigests))
+    ? withAndroidSnapshot(packagePath, (snapshot) => verifyAndroidPackage(snapshot, contract, runCommand, verifySignature, reviewedPackageDigests))
     : null;
   if (platform === "ios") verifyIosPackage(packagePath, contract);
   return {

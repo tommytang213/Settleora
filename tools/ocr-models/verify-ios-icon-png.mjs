@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { readSync } from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { inflateSync } from "node:zlib";
@@ -7,6 +8,9 @@ const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const maxPngBytes = 4 * 1024 * 1024;
 const maxPixels = 1024 * 1024;
 const maxDecodedBytes = 16 * 1024 * 1024;
+// Xcode-optimized icon representations must be pinned here after a trusted
+// exact-source macOS build proves their full PNG byte identities.
+const reviewedCompiledIconDigests = new Map();
 const validDepths = new Map([
   [0, new Set([1, 2, 4, 8, 16])],
   [2, new Set([8, 16])],
@@ -18,6 +22,33 @@ const channels = new Map([[0, 1], [2, 3], [3, 1], [4, 2], [6, 4]]);
 
 function fail() {
   throw new Error("Packaged iOS icon PNG contains unreviewed bytes");
+}
+
+function sha256(bytes) {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+class UnreviewedIconRepresentation extends Error {
+  constructor(sourceDigest, packagedDigest) {
+    super("Packaged iOS icon PNG contains unreviewed bytes");
+    this.sourceDigest = sourceDigest;
+    this.packagedDigest = packagedDigest;
+  }
+}
+
+function readBoundedStdin() {
+  const limit = 2 * maxPngBytes + 32;
+  const chunk = Buffer.allocUnsafe(64 * 1024);
+  const parts = [];
+  let size = 0;
+  for (;;) {
+    const count = readSync(0, chunk, 0, Math.min(chunk.length, limit + 1 - size), null);
+    if (count === 0) break;
+    size += count;
+    if (size > limit) fail();
+    parts.push(Buffer.from(chunk.subarray(0, count)));
+  }
+  return Buffer.concat(parts, size);
 }
 
 function crc32(bytes) {
@@ -114,14 +145,37 @@ export function verifyIosIconPng(packagedBytes, sourceBytes) {
   for (const [key, count] of packaged.metadata) {
     if (count > (source.metadata.get(key) ?? 0)) fail();
   }
+  const sourceDigest = sha256(sourceBytes);
+  const packagedDigest = sha256(packagedBytes);
+  if (packagedDigest !== sourceDigest &&
+      !reviewedCompiledIconDigests.get(sourceDigest)?.has(packagedDigest)) {
+    throw new UnreviewedIconRepresentation(sourceDigest, packagedDigest);
+  }
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   try {
-    if (process.argv.length !== 4) fail();
-    verifyIosIconPng(readFileSync(process.argv[2]), readFileSync(process.argv[3]));
-  } catch {
-    console.error("Packaged iOS icon PNG verification failed");
+    if (process.argv.length !== 2) fail();
+    const input = readBoundedStdin();
+    let offset = 0;
+    const readFrame = () => {
+      const newline = input.indexOf(10, offset);
+      if (newline < offset || newline - offset > 8) fail();
+      const lengthText = input.toString("ascii", offset, newline);
+      if (!/^[1-9][0-9]*$/.test(lengthText)) fail();
+      const length = Number(lengthText);
+      if (length > maxPngBytes || newline + 1 + length > input.length) fail();
+      offset = newline + 1 + length;
+      return input.subarray(newline + 1, offset);
+    };
+    const packagedBytes = readFrame();
+    const sourceBytes = readFrame();
+    if (offset !== input.length) fail();
+    verifyIosIconPng(packagedBytes, sourceBytes);
+  } catch (error) {
+    console.error(error instanceof UnreviewedIconRepresentation
+      ? `Packaged iOS icon PNG representation is unreviewed: source ${error.sourceDigest} packaged ${error.packagedDigest}`
+      : "Packaged iOS icon PNG verification failed");
     process.exitCode = 1;
   }
 }

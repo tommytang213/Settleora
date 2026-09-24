@@ -1,12 +1,28 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { deflateSync, inflateSync } from "node:zlib";
 
 import { verifyIosIconPng } from "../verify-ios-icon-png.mjs";
 
 const icon = readFileSync(path.resolve(import.meta.dirname,
   "../../../apps/mobile/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-20x20@1x.png"));
+
+function framed(...parts) {
+  return Buffer.concat(parts.flatMap((part) => [Buffer.from(`${part.length}\n`), part]));
+}
+
+test("icon verifier CLI accepts only two bounded binary frames", () => {
+  const script = path.resolve(import.meta.dirname, "../verify-ios-icon-png.mjs");
+  const run = (input) => spawnSync(process.execPath, [script], { input, encoding: "utf8" });
+  assert.equal(run(framed(icon, icon)).status, 0);
+  assert.equal(run(framed(icon, icon, icon)).status, 1);
+  assert.equal(run(Buffer.concat([Buffer.from("99999999\n"), icon])).status, 1);
+  assert.equal(run(Buffer.alloc(2 * 4 * 1024 * 1024 + 33)).status, 1);
+  assert.equal(run(framed(Buffer.concat([icon, Buffer.from("hidden")]), icon)).status, 1);
+});
 
 function crc32(bytes) {
   let crc = 0xffffffff;
@@ -60,4 +76,8 @@ test("render-equivalent PNG containers cannot carry new metadata or hidden IDAT 
   const hiddenDeflate = replaceChunk(icon, "IDAT", chunk("IDAT",
     Buffer.concat([originalDeflate, Buffer.from("PRIVATE_RECEIPT_TEXT")])));
   assert.throws(() => verifyIosIconPng(hiddenDeflate, icon), /unreviewed bytes/);
+
+  const recoded = replaceChunk(icon, "IDAT", chunk("IDAT",
+    deflateSync(inflateSync(originalDeflate), { level: 0 })));
+  assert.throws(() => verifyIosIconPng(recoded, icon), /unreviewed bytes/);
 });

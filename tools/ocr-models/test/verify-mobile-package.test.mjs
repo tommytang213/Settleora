@@ -19,11 +19,6 @@ const placeholder = Buffer.from("reviewed-package-placeholder");
 const syntheticNative = Buffer.concat([Buffer.from([0x7f, 0x45, 0x4c, 0x46]), Buffer.alloc(4092)]);
 const nativeEntry = (name) => /^lib\/(?:arm64-v8a|armeabi-v7a|x86_64)\/(?:libapp|libdartjni)\.so$/.test(name);
 const syntheticEntryData = (name) => nativeEntry(name) ? syntheticNative : placeholder;
-const syntheticNonOcrDigest = sha256(Buffer.from(expectedAndroidNonOcrEntries.slice().sort()
-  .map((name) => {
-    const data = syntheticEntryData(name);
-    return `${name}\0${data.length}\0${sha256(data)}\n`;
-  }).join("")));
 
 test("APK signer rejects missing and same-size altered jar bytes", () => {
   assert.throws(() => verifyAndroidSignature("ignored.apk", Buffer.alloc(1)), /toolchain is unreviewed/);
@@ -64,7 +59,7 @@ function syntheticSigningBlock(extraPair = null) {
 
 function writeSyntheticApk(apk, packageRoot, { unsigned = false, firstLocalExtra = Buffer.alloc(0),
   extraEntries = [], extraSigningPair = null, changedNonOcrEntry = null,
-  trailingCompressedEntry = null } = {}) {
+  trailingCompressedEntry = null, recompressedEntry = null } = {}) {
   const entries = [];
   const visit = (directory, prefix = "") => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -83,12 +78,16 @@ function writeSyntheticApk(apk, packageRoot, { unsigned = false, firstLocalExtra
   entries.sort((left, right) => left.name.localeCompare(right.name));
   const local = [];
   const central = [];
+  const digestRecords = [];
   let localOffset = 0;
   for (const [index, entry] of entries.entries()) {
     const name = Buffer.from(entry.name);
     const data = Buffer.from(entry.data ?? "");
-    const method = entry.name === trailingCompressedEntry ? 8 : 0;
-    const stored = method === 8 ? Buffer.concat([deflateRawSync(data), Buffer.from("PRIVATE_RECEIPT_TEXT")]) : data;
+    const method = entry.name === trailingCompressedEntry || entry.name === recompressedEntry ? 8 : 0;
+    const stored = entry.name === trailingCompressedEntry
+      ? Buffer.concat([deflateRawSync(data), Buffer.from("PRIVATE_RECEIPT_TEXT")])
+      : entry.name === recompressedEntry ? deflateRawSync(data, { level: 0 }) : data;
+    digestRecords.push(`${entry.name}\0${method}\0${stored.length}\0${data.length}\0${sha256(stored)}\0${sha256(data)}\n`);
     const extra = index === 0 ? firstLocalExtra : Buffer.alloc(0);
     const crc = crc32(data);
     const localHeader = Buffer.alloc(30);
@@ -127,6 +126,7 @@ function writeSyntheticApk(apk, packageRoot, { unsigned = false, firstLocalExtra
   end.writeUInt32LE(directory.length, 12);
   end.writeUInt32LE(localOffset + block.length, 16);
   writeFileSync(apk, Buffer.concat([...local, block, directory, end]));
+  return sha256(Buffer.from(digestRecords.sort().join("")));
 }
 
 function withPackageContract(callback) {
@@ -171,12 +171,12 @@ test("verifies the catalog, every model, and concrete fixture absence in Android
     }
     const apk = path.join(root, "app.apk");
     let signatureChecks = 0;
+    const reviewedPackageDigest = writeSyntheticApk(apk, packageRoot);
     const verifyTestPackage = () => verifyMobilePackage({
       platform: "android", packagePath: apk, repoRoot: root,
-      reviewedNonOcrDigests: [syntheticNonOcrDigest],
+      reviewedPackageDigests: [reviewedPackageDigest],
       verifySignature: () => { signatureChecks += 1; return "a".repeat(64); },
     });
-    writeSyntheticApk(apk, packageRoot);
     assert.deepEqual(verifyTestPackage(),
       { catalogFileCount: 1, modelFileCount: 1, fixtureFileCount: 102,
         signerCertificateSha256: "a".repeat(64), packageSha256: sha256(readFileSync(apk)) });
@@ -184,7 +184,7 @@ test("verifies the catalog, every model, and concrete fixture absence in Android
     const originalSha256 = sha256(readFileSync(apk));
     const stable = verifyMobilePackage({
       platform: "android", packagePath: apk, repoRoot: root,
-      reviewedNonOcrDigests: [syntheticNonOcrDigest],
+      reviewedPackageDigests: [reviewedPackageDigest],
       verifySignature: () => {
         writeFileSync(apk, "replaced after snapshot");
         return "a".repeat(64);
@@ -194,15 +194,20 @@ test("verifies the catalog, every model, and concrete fixture absence in Android
     writeSyntheticApk(apk, packageRoot);
     assert.throws(() => verifyMobilePackage({
       platform: "android", packagePath: apk, repoRoot: root,
-      reviewedNonOcrDigests: [syntheticNonOcrDigest],
+      reviewedPackageDigests: [reviewedPackageDigest],
       verifySignature: () => { throw new Error("signature verification failed"); },
     }), /signature verification failed/);
 
     writeSyntheticApk(apk, packageRoot, { changedNonOcrEntry: "assets/flutter_assets/FontManifest.json" });
-    assert.throws(verifyTestPackage, /non-model contents differ from reviewed bytes/);
+    assert.throws(verifyTestPackage, /entry representations differ from reviewed bytes/);
 
     writeSyntheticApk(apk, packageRoot, { changedNonOcrEntry: "lib/x86_64/libapp.so" });
-    assert.throws(verifyTestPackage, /non-model contents differ from reviewed bytes/);
+    assert.throws(verifyTestPackage, /entry representations differ from reviewed bytes/);
+
+    writeSyntheticApk(apk, packageRoot, { recompressedEntry: "assets/flutter_assets/FontManifest.json" });
+    assert.throws(verifyTestPackage, /entry representations differ from reviewed bytes/);
+    writeSyntheticApk(apk, packageRoot, { recompressedEntry: "assets/receipt_ocr_models/catalog.json" });
+    assert.throws(verifyTestPackage, /entry representations differ from reviewed bytes/);
 
     writeSyntheticApk(apk, packageRoot, { trailingCompressedEntry: "assets/flutter_assets/FontManifest.json" });
     assert.throws(verifyTestPackage, /compressed entry contains trailing bytes/);

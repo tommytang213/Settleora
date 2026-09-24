@@ -335,6 +335,7 @@ fi
 
 : >"$symbols_file"
 binary_count=0
+icon_representation_unreviewed=false
 source_asset_names=()
 while IFS= read -r source_asset; do
   source_asset_names+=("$(basename "$source_asset")")
@@ -408,8 +409,13 @@ while IFS= read -r candidate; do
         fail "reviewed application icon cannot be decoded"
       [[ -s "$icon_compare_root/source.bmp" ]] || fail "reviewed application icon cannot be decoded"
       if cmp -s "$icon_compare_root/packaged.bmp" "$icon_compare_root/source.bmp"; then
-        node "$tool_root/tools/ocr-models/verify-ios-icon-png.mjs" "$candidate" "$source_icon" ||
-          fail "production application icon contains unreviewed bytes"
+        {
+          printf '%s\n' "$(wc -c < "$candidate" | tr -d ' ')"
+          cat -- "$candidate"
+          printf '%s\n' "$(wc -c < "$source_icon" | tr -d ' ')"
+          cat -- "$source_icon"
+        } | node "$tool_root/tools/ocr-models/verify-ios-icon-png.mjs" ||
+          icon_representation_unreviewed=true
         reviewed_icon=true
         break
       fi
@@ -441,6 +447,8 @@ while IFS= read -r candidate; do
   fi
   strings "$candidate" >>"$symbols_file"
 done < <(find "$inventory_root" -type f -print)
+[[ "$icon_representation_unreviewed" == false ]] ||
+  fail "production application icon contains unreviewed bytes"
 [[ "$binary_count" -gt 0 ]] || fail "production application contains no inspectable Mach-O binary"
 grep -Fq 'GeneratedPluginRegistrant' "$symbols_file" || fail "GeneratedPluginRegistrant is absent from production binaries"
 grep -Fq 'FilePickerPlugin' "$symbols_file" || fail "FilePickerPlugin is absent from production binaries"

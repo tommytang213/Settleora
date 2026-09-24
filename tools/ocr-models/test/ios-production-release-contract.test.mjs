@@ -453,7 +453,13 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   assert.match(script, /sips -s format bmp "\$candidate" --out "\$icon_compare_root\/packaged\.bmp"/);
   assert.match(script, /sips -s format bmp "\$source_icon" --out "\$icon_compare_root\/source\.bmp"/);
   assert.match(script, /cmp -s "\$icon_compare_root\/packaged\.bmp" "\$icon_compare_root\/source\.bmp"/);
-  assert.match(script, /verify-ios-icon-png\.mjs" "\$candidate" "\$source_icon"/);
+  assert.match(script, /wc -c < "\$candidate"/);
+  assert.match(script, /cat -- "\$candidate"/);
+  assert.match(script, /wc -c < "\$source_icon"/);
+  assert.match(script, /cat -- "\$source_icon"/);
+  assert.match(script, /\} \| node "\$tool_root\/tools\/ocr-models\/verify-ios-icon-png\.mjs"/);
+  assert.match(script, /icon_representation_unreviewed=true/);
+  assert.match(script, /\[\[ "\$icon_representation_unreviewed" == false \]\] \|\|/);
   assert.match(script, /production application contains an unreviewed resource path/);
   assert.match(script, /\^Base\\\.lproj\/\[\^\/\]\+\\\.storyboardc\/\[\^\/\]\+\$/);
   assert.match(script, /\^Frameworks\/\[\^\/\]\+\\\.framework/);
