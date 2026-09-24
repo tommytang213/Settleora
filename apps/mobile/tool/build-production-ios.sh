@@ -406,7 +406,7 @@ while IFS= read -r candidate; do
   elif [[ "$candidate" == "$app_path/Assets.car" ]]; then
     asset_info=$(xcrun --sdk iphoneos assetutil --info "$candidate") ||
       fail "compiled asset catalog cannot be inspected"
-    printf '%s' "$asset_info" | node -e 'let json=""; process.stdin.on("data", chunk => { json += chunk; }); process.stdin.on("end", () => { try { const assets = JSON.parse(json); if (!Array.isArray(assets) || assets.length === 0 || assets.some(asset => !["AppIcon", "LaunchImage"].includes(asset.Name))) process.exitCode = 1; } catch { process.exitCode = 1; } });' ||
+    printf '%s' "$asset_info" | node "$tool_root/tools/ocr-models/verify-ios-asset-catalog.mjs" ||
       fail "compiled asset catalog contains an unreviewed asset"
   elif [[ "$file_description" == *'Apple binary property list'* ]]; then
     [[ "$candidate" == */Info.plist || "$candidate" == */InfoPlist.strings || "$candidate" == */PrivacyInfo.xcprivacy ]] ||

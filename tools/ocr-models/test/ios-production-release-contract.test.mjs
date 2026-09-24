@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { hashDirectory } from "../hash-directory.mjs";
+import { verifyIosAssetCatalogInfo } from "../verify-ios-asset-catalog.mjs";
 import { verifyOpenedIpa } from "../verify-ipa-archive.mjs";
 import { verifyIosTestPodfileLock } from "../verify-ios-test-podfile-lock.mjs";
 import { buildProvenance } from "../write-ios-release-provenance.mjs";
@@ -404,18 +405,15 @@ test("XML property list with opaque data is covered by the common plist inspecti
 
 test("compiled asset inspection rejects an added catalog image", () => {
   const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
-  const inlineVerifier = script.match(/printf '%s' "\$asset_info" \| node -e '([^']+)'/);
-  assert.ok(inlineVerifier);
-  for (const [names, expectedStatus] of [
-    [["AppIcon", "LaunchImage"], 0],
-    [["AppIcon", "PrivateReceipt"], 1],
-  ]) {
-    const result = spawnSync("node", ["-e", inlineVerifier[1]], {
-      input: JSON.stringify(names.map((Name) => ({ Name, AssetType: "Image" }))),
-      encoding: "utf8",
-    });
-    assert.equal(result.status, expectedStatus);
-  }
+  assert.match(script, /node "\$tool_root\/tools\/ocr-models\/verify-ios-asset-catalog\.mjs"/);
+  assert.doesNotThrow(() => verifyIosAssetCatalogInfo(JSON.stringify([
+    { Name: "AppIcon", AssetType: "Image" },
+    { Name: "LaunchImage", AssetType: "Image" },
+  ])));
+  assert.throws(() => verifyIosAssetCatalogInfo(JSON.stringify([
+    { Name: "AppIcon", AssetType: "Image" },
+    { Name: "PrivateReceipt", AssetType: "Image" },
+  ])), /unreviewed asset/);
 });
 
 test("canonical wrapper fails closed around projection, locks, package inspection, and signing", () => {
