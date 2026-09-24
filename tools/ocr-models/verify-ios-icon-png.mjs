@@ -138,18 +138,24 @@ function readPng(bytes) {
 }
 
 export function verifyIosIconPng(packagedBytes, sourceBytes) {
-  const packaged = readPng(packagedBytes);
   const source = readPng(sourceBytes);
-  if (packaged.width !== source.width || packaged.height !== source.height ||
-      (packaged.palette && (!source.palette || !packaged.palette.equals(source.palette)))) fail();
-  for (const [key, count] of packaged.metadata) {
-    if (count > (source.metadata.get(key) ?? 0)) fail();
-  }
+  if (!Buffer.isBuffer(packagedBytes) || packagedBytes.length < 45 ||
+      packagedBytes.length > maxPngBytes) fail();
   const sourceDigest = sha256(sourceBytes);
   const packagedDigest = sha256(packagedBytes);
   if (packagedDigest !== sourceDigest &&
       !reviewedCompiledIconDigests.get(sourceDigest)?.has(packagedDigest)) {
     throw new UnreviewedIconRepresentation(sourceDigest, packagedDigest);
+  }
+  // Xcode may emit a proprietary optimized representation. The wrapper first
+  // proves decoded pixels equal a reviewed source icon; the full byte digest
+  // above then binds the exact packaged representation.
+  if (packagedDigest !== sourceDigest) return;
+  const packaged = readPng(packagedBytes);
+  if (packaged.width !== source.width || packaged.height !== source.height ||
+      (packaged.palette && (!source.palette || !packaged.palette.equals(source.palette)))) fail();
+  for (const [key, count] of packaged.metadata) {
+    if (count > (source.metadata.get(key) ?? 0)) fail();
   }
 }
 

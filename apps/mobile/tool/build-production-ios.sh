@@ -342,6 +342,18 @@ while IFS= read -r source_asset; do
 done < <(find "$mobile_root/ios/Runner/Assets.xcassets" -mindepth 1 -maxdepth 1 -type d -print | LC_ALL=C sort)
 [[ "${source_asset_names[*]}" == 'AppIcon.appiconset LaunchImage.imageset' ]] ||
   fail "production asset catalog source inventory changed"
+[[ -f "$app_path/Assets.car" ]] || fail "compiled asset catalog is absent"
+asset_info=$(xcrun --sdk iphoneos assetutil --info "$app_path/Assets.car") ||
+  fail "compiled asset catalog cannot be inspected"
+printf '%s' "$asset_info" | node "$tool_root/tools/ocr-models/verify-ios-asset-catalog.mjs" ||
+  fail "compiled asset catalog contains an unreviewed asset"
+compiled_asset_car_sha256=$(sha256_file "$app_path/Assets.car")
+printf 'compiled_asset_car_sha256=%s\n' "$compiled_asset_car_sha256"
+# Emit both bounded asset identities before resource inventory can stop the build.
+reviewed_asset_car_sha256=''
+asset_catalog_unreviewed=false
+[[ "$compiled_asset_car_sha256" == "$reviewed_asset_car_sha256" ]] ||
+  asset_catalog_unreviewed=true
 while IFS= read -r candidate; do
   file_description=$(file -b "$candidate")
   if [[ "$file_description" != Mach-O* ]]; then
@@ -388,7 +400,16 @@ while IFS= read -r candidate; do
         esac
         [[ "$(sha256_file "$candidate")" == "$expected_vendor_sha" ]] ||
           fail "production application model resource differs from the pinned pod archive" ;;
-      *) fail "production application contains an unreviewed resource path" ;;
+      *)
+        resource_path_sha=$(printf '%s' "$relative_resource" | shasum -a 256 | cut -d ' ' -f 1)
+        case "$relative_resource" in
+          Frameworks/*) resource_class=framework ;;
+          *.bundle/*) resource_class=bundle ;;
+          *) resource_class=application ;;
+        esac
+        printf 'unreviewed_resource_path_sha256=%s resource_class=%s\n' \
+          "$resource_path_sha" "$resource_class" >&2
+        fail "production application contains an unreviewed resource path" ;;
     esac
   fi
   if [[ "$file_description" == Mach-O* ]]; then
@@ -423,10 +444,7 @@ while IFS= read -r candidate; do
     [[ "$reviewed_icon" == true ]] ||
       fail "production application icon differs from reviewed source assets"
   elif [[ "$candidate" == "$app_path/Assets.car" ]]; then
-    asset_info=$(xcrun --sdk iphoneos assetutil --info "$candidate") ||
-      fail "compiled asset catalog cannot be inspected"
-    printf '%s' "$asset_info" | node "$tool_root/tools/ocr-models/verify-ios-asset-catalog.mjs" ||
-      fail "compiled asset catalog contains an unreviewed asset"
+    : # The complete bytes and rendition metadata were inspected above.
   elif [[ "$file_description" == *'Apple binary property list'* ]]; then
     [[ "$candidate" == */Info.plist || "$candidate" == */InfoPlist.strings || "$candidate" == */PrivacyInfo.xcprivacy ]] ||
       fail "production application contains an unreviewed opaque resource"
@@ -449,6 +467,8 @@ while IFS= read -r candidate; do
 done < <(find "$inventory_root" -type f -print)
 [[ "$icon_representation_unreviewed" == false ]] ||
   fail "production application icon contains unreviewed bytes"
+[[ "$asset_catalog_unreviewed" == false ]] ||
+  fail "compiled asset catalog bytes are unreviewed"
 [[ "$binary_count" -gt 0 ]] || fail "production application contains no inspectable Mach-O binary"
 grep -Fq 'GeneratedPluginRegistrant' "$symbols_file" || fail "GeneratedPluginRegistrant is absent from production binaries"
 grep -Fq 'FilePickerPlugin' "$symbols_file" || fail "FilePickerPlugin is absent from production binaries"

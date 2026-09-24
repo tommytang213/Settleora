@@ -461,6 +461,11 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   assert.match(script, /icon_representation_unreviewed=true/);
   assert.match(script, /\[\[ "\$icon_representation_unreviewed" == false \]\] \|\|/);
   assert.match(script, /production application contains an unreviewed resource path/);
+  assert.match(script, /unreviewed_resource_path_sha256=%s resource_class=%s/);
+  assert.match(script, /compiled_asset_car_sha256=%s/);
+  assert.match(script, /\[\[ "\$compiled_asset_car_sha256" == "\$reviewed_asset_car_sha256" \]\] \|\|\s+asset_catalog_unreviewed=true/);
+  assert.match(script, /\[\[ "\$asset_catalog_unreviewed" == false \]\] \|\|/);
+  assert.match(script, /compiled asset catalog bytes are unreviewed/);
   assert.match(script, /\^Base\\\.lproj\/\[\^\/\]\+\\\.storyboardc\/\[\^\/\]\+\$/);
   assert.match(script, /\^Frameworks\/\[\^\/\]\+\\\.framework/);
   assert.match(script, /unreviewed framework resource/);
@@ -472,7 +477,7 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   assert.match(script, /unreviewed privacy bundle/);
   assert.match(script, /LatinOCRResources\.bundle/);
   assert.match(script, /production application model resource differs from the pinned pod archive/);
-  assert.match(script, /assetutil --info "\$candidate"/);
+  assert.match(script, /assetutil --info "\$app_path\/Assets\.car"/);
   assert.match(script, /Frameworks\/App\.framework\/flutter_assets\/AssetManifest\.json/);
   assert.doesNotMatch(script, /flutter_assets\/\*\.json/);
   assert.match(script, /image\|bitmap\|PDF\\ document\|SVG\|HEIF\|HEIC\|AVIF\|Web\/P\|archive\|compressed\\ data\|gzip/);

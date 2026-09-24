@@ -391,6 +391,8 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(iosRunner.includes('launchctl getenv SETTLEORA_OCR_NETWORK_ISOLATION'));
   assert.ok(iosRunner.includes('launchctl unsetenv DYLD_INSERT_LIBRARIES'));
   assert.ok(iosRunner.includes('launchctl unsetenv SETTLEORA_OCR_NETWORK_ISOLATION'));
+  assert.ok(iosRunner.includes('launchctl unsetenv SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED'));
+  assert.ok(iosRunner.includes('read_simulator_environment SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED'));
   assert.ok(iosRunner.includes('unset SIMCTL_CHILD_DYLD_INSERT_LIBRARIES'));
   assert.ok(iosRunner.includes('unset SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_ISOLATION'));
   assert.ok(iosRunner.includes('unset SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE'));

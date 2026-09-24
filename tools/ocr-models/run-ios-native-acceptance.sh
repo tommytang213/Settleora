@@ -23,9 +23,11 @@ report_failure_phase() {
     unset SIMCTL_CHILD_DYLD_INSERT_LIBRARIES || cleanup_status=98
     unset SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_ISOLATION || cleanup_status=98
     unset SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE || cleanup_status=98
+    unset SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED || cleanup_status=98
     if test -n "${SIMCTL_CHILD_DYLD_INSERT_LIBRARIES:-}" ||
-      test -n "${SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_ISOLATION:-}" ||
-      test -n "${SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE:-}"; then
+        test -n "${SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_ISOLATION:-}" ||
+        test -n "${SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE:-}" ||
+        test -n "${SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED:-}"; then
       cleanup_status=98
     fi
     if ! xcrun simctl spawn "$device" launchctl unsetenv DYLD_INSERT_LIBRARIES >/dev/null 2>&1; then
@@ -34,15 +36,23 @@ report_failure_phase() {
     if ! xcrun simctl spawn "$device" launchctl unsetenv SETTLEORA_OCR_NETWORK_ISOLATION >/dev/null 2>&1; then
       cleanup_status=98
     fi
+    if ! xcrun simctl spawn "$device" launchctl unsetenv SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED >/dev/null 2>&1; then
+      cleanup_status=98
+    fi
     persistent_dyld=""
     persistent_isolation=""
+    persistent_constructor=""
     if ! persistent_dyld=$(read_simulator_environment DYLD_INSERT_LIBRARIES); then
       cleanup_status=98
     fi
     if ! persistent_isolation=$(read_simulator_environment SETTLEORA_OCR_NETWORK_ISOLATION); then
       cleanup_status=98
     fi
-    if test -n "$persistent_dyld" || test -n "$persistent_isolation"; then
+    if ! persistent_constructor=$(read_simulator_environment SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED); then
+      cleanup_status=98
+    fi
+    if test -n "$persistent_dyld" || test -n "$persistent_isolation" ||
+        test -n "$persistent_constructor"; then
       cleanup_status=98
     fi
     if test "$cleanup_status" -ne 0; then
@@ -95,8 +105,10 @@ phase=verify_network_environment_clean
 test -z "${SIMCTL_CHILD_DYLD_INSERT_LIBRARIES:-}"
 test -z "${SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_ISOLATION:-}"
 test -z "${SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE:-}"
+test -z "${SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED:-}"
 test -z "$(read_simulator_environment DYLD_INSERT_LIBRARIES)"
 test -z "$(read_simulator_environment SETTLEORA_OCR_NETWORK_ISOLATION)"
+test -z "$(read_simulator_environment SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED)"
 
 phase=install_network_isolation
 xcrun simctl spawn "$device" launchctl setenv DYLD_INSERT_LIBRARIES "$network_deny_in_app"

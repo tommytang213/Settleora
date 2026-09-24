@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
@@ -59,6 +60,19 @@ test("reviewed icon bytes have a complete PNG stream", () => {
   assert.doesNotThrow(() => verifyIosIconPng(icon, icon));
   assert.throws(() => verifyIosIconPng(Buffer.concat([icon, Buffer.from("PRIVATE_RECEIPT_TEXT")]), icon),
     /unreviewed bytes/);
+});
+
+test("unreviewed optimized icon reports only bounded full-byte identities", () => {
+  const script = path.resolve(import.meta.dirname, "../verify-ios-icon-png.mjs");
+  const optimized = Buffer.concat([icon.subarray(0, 8), Buffer.from("CgBI"), icon.subarray(8)]);
+  const run = spawnSync(process.execPath, [script], {
+    input: framed(optimized, icon), encoding: "utf8",
+  });
+  const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
+  assert.equal(run.status, 1);
+  assert.equal(run.stdout, "");
+  assert.equal(run.stderr.trim(),
+    `Packaged iOS icon PNG representation is unreviewed: source ${digest(icon)} packaged ${digest(optimized)}`);
 });
 
 test("render-equivalent PNG containers cannot carry new metadata or hidden IDAT bytes", () => {
