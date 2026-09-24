@@ -1,17 +1,20 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { constants, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { deflateRawSync } from "node:zlib";
 
 import { hashDirectory } from "../hash-directory.mjs";
 import { verifyIosAssetCatalogInfo } from "../verify-ios-asset-catalog.mjs";
-import { verifyOpenedIpa } from "../verify-ipa-archive.mjs";
+import { inspectOpenedIpa, verifyCanonicalIpa, verifyOpenedIpa } from "../verify-ipa-archive.mjs";
 import { verifyIosTestPodfileLock } from "../verify-ios-test-podfile-lock.mjs";
 import { buildProvenance } from "../write-ios-release-provenance.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
+const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
 function verifyTestIpa(archivePath) {
   let fd;
@@ -20,7 +23,7 @@ function verifyTestIpa(archivePath) {
   } catch {
     throw new Error("Unsafe IPA archive: archive cannot be opened as a regular non-symlink file");
   }
-  return verifyOpenedIpa(fd);
+  return inspectOpenedIpa(fd);
 }
 
 function crc32(bytes) {
@@ -42,6 +45,8 @@ function makeStoredZip(entries, { prefix = Buffer.alloc(0), gap = Buffer.alloc(0
     const name = Buffer.from(entry.name);
     const localName = Buffer.from(entry.localName ?? entry.name);
     const data = Buffer.from(entry.data ?? "");
+    const method = entry.deflateLevel == null ? 0 : 8;
+    const stored = method === 8 ? deflateRawSync(data, { level: entry.deflateLevel }) : data;
     const centralExtra = entry.centralExtra ?? Buffer.alloc(0);
     const centralComment = entry.centralComment ?? Buffer.alloc(0);
     const localExtra = entry.localExtra ?? Buffer.alloc(0);
@@ -53,30 +58,32 @@ function makeStoredZip(entries, { prefix = Buffer.alloc(0), gap = Buffer.alloc(0
     if (entry.dataDescriptor) {
       descriptor.writeUInt32LE(0x08074b50, 0);
       descriptor.writeUInt32LE(entry.descriptorCrc32 ?? dataCrc32, 4);
-      descriptor.writeUInt32LE(entry.descriptorCompressedSize ?? data.length, 8);
+      descriptor.writeUInt32LE(entry.descriptorCompressedSize ?? stored.length, 8);
       descriptor.writeUInt32LE(entry.descriptorUncompressedSize ?? data.length, 12);
     }
     const local = Buffer.alloc(30);
     local.writeUInt32LE(0x04034b50, 0);
     local.writeUInt16LE(20, 4);
     local.writeUInt16LE(flags, 6);
+    local.writeUInt16LE(method, 8);
     local.writeUInt16LE(entry.localTime ?? 0x0821, 10);
     local.writeUInt16LE(entry.localDate ?? 0x0221, 12);
     local.writeUInt32LE(entry.localCrc32 ?? (entry.dataDescriptor ? 0 : dataCrc32), 14);
-    local.writeUInt32LE(entry.localCompressedSize ?? (entry.dataDescriptor ? 0 : data.length), 18);
+    local.writeUInt32LE(entry.localCompressedSize ?? (entry.dataDescriptor ? 0 : stored.length), 18);
     local.writeUInt32LE(entry.localUncompressedSize ?? (entry.dataDescriptor ? 0 : data.length), 22);
     local.writeUInt16LE(localName.length, 26);
     local.writeUInt16LE(localExtra.length, 28);
-    localParts.push(local, localName, localExtra, data, descriptor);
+    localParts.push(local, localName, localExtra, stored, descriptor);
     const central = Buffer.alloc(46);
     central.writeUInt32LE(0x02014b50, 0);
     central.writeUInt16LE((3 << 8) | 20, 4);
     central.writeUInt16LE(20, 6);
     central.writeUInt16LE(flags, 8);
+    central.writeUInt16LE(method, 10);
     central.writeUInt16LE(entry.centralTime ?? 0x0821, 12);
     central.writeUInt16LE(entry.centralDate ?? 0x0221, 14);
     central.writeUInt32LE(entry.centralCrc32 ?? dataCrc32, 16);
-    central.writeUInt32LE(data.length, 20);
+    central.writeUInt32LE(stored.length, 20);
     central.writeUInt32LE(data.length, 24);
     central.writeUInt16LE(name.length, 28);
     central.writeUInt16LE(centralExtra.length, 30);
@@ -84,7 +91,7 @@ function makeStoredZip(entries, { prefix = Buffer.alloc(0), gap = Buffer.alloc(0
     central.writeUInt32LE((mode << 16) >>> 0, 38);
     central.writeUInt32LE(localOffset, 42);
     centralParts.push(central, name, centralExtra, centralComment);
-    localOffset += local.length + localName.length + localExtra.length + data.length + descriptor.length;
+    localOffset += local.length + localName.length + localExtra.length + stored.length + descriptor.length;
     if (index + 1 < entries.length && gap.length > 0) {
       localParts.push(gap);
       localOffset += gap.length;
@@ -206,8 +213,6 @@ test("IPA namespace verifier rejects ambiguous and escaping ZIP entries before e
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-ipa-namespace-"));
   const archive = path.join(root, "Runner.ipa");
   const harmlessTimestamp = Buffer.from([0x55, 0x54, 0x05, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00]);
-  const unix2CentralMarker = Buffer.from([0x55, 0x78, 0x00, 0x00]);
-  const unix2LocalMetadata = Buffer.from([0x55, 0x78, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00]);
   try {
     writeFileSync(archive, makeStoredZip([
       { name: "Payload/" },
@@ -216,8 +221,8 @@ test("IPA namespace verifier rejects ambiguous and escaping ZIP entries before e
         name: "Payload/Runner.app/Info.plist",
         data: "plist",
         dataDescriptor: true,
-        centralExtra: Buffer.concat([harmlessTimestamp, unix2CentralMarker]),
-        localExtra: Buffer.concat([harmlessTimestamp, unix2LocalMetadata]),
+        centralExtra: harmlessTimestamp,
+        localExtra: harmlessTimestamp,
       },
       { name: "SwiftSupport/" },
       { name: "SwiftSupport/iphoneos/" },
@@ -230,8 +235,18 @@ test("IPA namespace verifier rejects ambiguous and escaping ZIP entries before e
     mkdirSync(canonicalIpaDirectory, { recursive: true });
     writeFileSync(canonicalIpa, readFileSync(archive));
     const canonicalResult = spawnSync(process.execPath, [verifier], { cwd: root, encoding: "utf8" });
-    assert.equal(canonicalResult.status, 0, canonicalResult.stderr);
-    assert.match(canonicalResult.stdout.trim(), /^[0-9a-f]{64}$/);
+    assert.notEqual(canonicalResult.status, 0);
+    assert.equal(canonicalResult.stdout, "");
+    const reviewedDigest = sha256(readFileSync(canonicalIpa));
+    assert.equal(canonicalResult.stderr,
+      `canonical_ipa_representation_unreviewed sha256=${reviewedDigest}\n`);
+    const oldDirectory = process.cwd();
+    try {
+      process.chdir(root);
+      assert.equal(verifyCanonicalIpa({ reviewedDigests: new Set([reviewedDigest]) }), reviewedDigest);
+    } finally {
+      process.chdir(oldDirectory);
+    }
     assert.equal(existsSync(path.join(canonicalIpaDirectory, ".settleora-verified-ipa")), false);
     assert.equal(
       readFileSync(path.join(root, "build/ios/.settleora-ipa-inspection/Payload/Runner.app/Info.plist"), "utf8"),
@@ -270,6 +285,10 @@ test("IPA namespace verifier rejects ambiguous and escaping ZIP entries before e
     const archiveLink = path.join(root, "Runner-link.ipa");
     symlinkSync(archive, archiveLink);
     assert.throws(() => verifyTestIpa(archiveLink), /regular non-symlink file/);
+    const privateUidGid = Buffer.concat([
+      Buffer.from([0x75, 0x78, 0x13, 0x00, 0x01, 0x08]),
+      Buffer.from("PRIVATE!"), Buffer.from([0x08]), Buffer.from("RECEIPT!"),
+    ]);
 
     for (const entries of [
       [{ name: "Payload/Runner.app/file" }, { name: "Payload/Runner.app/file" }],
@@ -285,6 +304,7 @@ test("IPA namespace verifier rejects ambiguous and escaping ZIP entries before e
       [{ name: "Payload/Runner.app/file", centralExtra: Buffer.from([0x75, 0x70, 0x01, 0x00, 0x01]) }],
       [{ name: "Payload/Runner.app/file", centralExtra: Buffer.from([0x6e, 0x75, 0x00, 0x00]) }],
       [{ name: "Payload/Runner.app/file", centralExtra: Buffer.from([0x4d, 0x33, 0x00, 0x00]) }],
+      [{ name: "Payload/Runner.app/file", centralExtra: privateUidGid, localExtra: privateUidGid }],
     ]) {
       writeFileSync(archive, makeStoredZip(entries));
       assert.throws(() => verifyTestIpa(archive), /Unsafe IPA archive/);
@@ -305,10 +325,7 @@ test("IPA namespace verifier rejects ambiguous and escaping ZIP entries before e
       { name: "Payload/Runner.app/file", data: "safe", centralComment: Buffer.from("opaque-comment") },
     ]));
     assert.throws(() => verifyTestIpa(archive), /entry comments are forbidden/);
-    for (const repeatedExtra of [
-      Buffer.concat([harmlessTimestamp, harmlessTimestamp]),
-      Buffer.concat([unix2CentralMarker, unix2CentralMarker]),
-    ]) {
+    for (const repeatedExtra of [Buffer.concat([harmlessTimestamp, harmlessTimestamp])]) {
       writeFileSync(archive, makeStoredZip([
         { name: "Payload/", centralExtra: repeatedExtra },
       ]));
@@ -334,7 +351,7 @@ test("IPA namespace verifier rejects ambiguous and escaping ZIP entries before e
         localExtra: mismatchedTimestamp,
       },
     ]));
-    assert.throws(() => verifyTestIpa(archive), /timestamp metadata disagree/);
+    assert.throws(() => verifyTestIpa(archive), /timestamp extra field is not canonical/);
     for (const timestampEntry of [
       { localTime: 0x4142, centralTime: 0x5758 },
       { localDate: 0x4142, centralDate: 0x5758 },
@@ -359,7 +376,7 @@ test("IPA namespace verifier rejects ambiguous and escaping ZIP entries before e
       centralExtra: harmlessTimestamp,
       localExtra: localTimestampWithUncheckedTimes,
     }]));
-    assert.throws(() => verifyTestIpa(archive), /extended timestamp extra field is malformed/);
+    assert.throws(() => verifyTestIpa(archive), /extended timestamp extra field is not canonical/);
     for (const controlName of ["Payload/Runner.app/split\nidentity", "Payload/Runner.app/del\u007fidentity"]) {
       writeFileSync(archive, makeStoredZip([{ name: "Payload/" }, { name: controlName, data: "safe" }]));
       assert.throws(() => verifyTestIpa(archive), /control character/);
@@ -367,6 +384,38 @@ test("IPA namespace verifier rejects ambiguous and escaping ZIP entries before e
     writeFileSync(archive, makeStoredZip([{ name: "Payload/", data: "hidden receipt evidence" }]));
     assert.throws(() => verifyTestIpa(archive), /directory entry contains payload bytes/);
   } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("signed IPA rejects an alternate valid DEFLATE representation", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-ipa-deflate-"));
+  const ipaDirectory = path.join(root, "build/ios/ipa");
+  const archive = path.join(ipaDirectory, "Runner.ipa");
+  const oldDirectory = process.cwd();
+  const entries = (level) => [
+    { name: "Payload/" },
+    { name: "Payload/Runner.app/" },
+    { name: "Payload/Runner.app/Info.plist", data: "reviewed app bytes ".repeat(64), deflateLevel: level },
+  ];
+  try {
+    mkdirSync(ipaDirectory, { recursive: true });
+    const reviewed = makeStoredZip(entries(6));
+    writeFileSync(archive, reviewed);
+    assert.equal(verifyTestIpa(archive), sha256(reviewed));
+    process.chdir(root);
+    const reviewedDigests = new Set([sha256(reviewed)]);
+    assert.equal(verifyCanonicalIpa({ reviewedDigests }), sha256(reviewed));
+    rmSync(path.join(root, "build/ios/.settleora-ipa-inspection"), { recursive: true });
+    const alternate = makeStoredZip(entries(0));
+    assert.notEqual(sha256(alternate), sha256(reviewed));
+    writeFileSync(archive, alternate);
+    assert.equal(verifyTestIpa(archive), sha256(alternate));
+    const fd = openSync(archive, constants.O_RDONLY | constants.O_NOFOLLOW);
+    assert.throws(() => verifyOpenedIpa(fd, { reviewedDigests }), /representation is unreviewed/);
+    assert.throws(() => verifyCanonicalIpa({ reviewedDigests }), /representation is unreviewed/);
+  } finally {
+    process.chdir(oldDirectory);
     rmSync(root, { recursive: true, force: true });
   }
 });

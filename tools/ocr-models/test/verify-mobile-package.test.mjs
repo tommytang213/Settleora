@@ -59,7 +59,8 @@ function syntheticSigningBlock(extraPair = null) {
 
 function writeSyntheticApk(apk, packageRoot, { unsigned = false, firstLocalExtra = Buffer.alloc(0),
   extraEntries = [], extraSigningPair = null, changedNonOcrEntry = null,
-  trailingCompressedEntry = null, recompressedEntry = null } = {}) {
+  trailingCompressedEntry = null, recompressedEntry = null,
+  reverseCentralOrder = false } = {}) {
   const entries = [];
   const visit = (directory, prefix = "") => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -87,8 +88,8 @@ function writeSyntheticApk(apk, packageRoot, { unsigned = false, firstLocalExtra
     const stored = entry.name === trailingCompressedEntry
       ? Buffer.concat([deflateRawSync(data), Buffer.from("PRIVATE_RECEIPT_TEXT")])
       : entry.name === recompressedEntry ? deflateRawSync(data, { level: 0 }) : data;
-    digestRecords.push(`${entry.name}\0${method}\0${stored.length}\0${data.length}\0${sha256(stored)}\0${sha256(data)}\n`);
     const extra = index === 0 ? firstLocalExtra : Buffer.alloc(0);
+    digestRecords.push(`${entry.name}\0${localOffset}\0${method}\0${extra.length}\0${stored.length}\0${data.length}\0${sha256(stored)}\0${sha256(data)}\n`);
     const crc = crc32(data);
     const localHeader = Buffer.alloc(30);
     localHeader.writeUInt32LE(0x04034b50, 0);
@@ -114,11 +115,11 @@ function writeSyntheticApk(apk, packageRoot, { unsigned = false, firstLocalExtra
     centralHeader.writeUInt32LE(data.length, 24);
     centralHeader.writeUInt16LE(name.length, 28);
     centralHeader.writeUInt32LE(localOffset, 42);
-    central.push(centralHeader, name);
+    central.push([centralHeader, name]);
     localOffset += 30 + name.length + extra.length + stored.length;
   }
   const block = unsigned ? Buffer.alloc(0) : syntheticSigningBlock(extraSigningPair);
-  const directory = Buffer.concat(central);
+  const directory = Buffer.concat((reverseCentralOrder ? central.reverse() : central).flat());
   const end = Buffer.alloc(22);
   end.writeUInt32LE(0x06054b50, 0);
   end.writeUInt16LE(entries.length, 8);
@@ -126,7 +127,7 @@ function writeSyntheticApk(apk, packageRoot, { unsigned = false, firstLocalExtra
   end.writeUInt32LE(directory.length, 12);
   end.writeUInt32LE(localOffset + block.length, 16);
   writeFileSync(apk, Buffer.concat([...local, block, directory, end]));
-  return sha256(Buffer.from(digestRecords.sort().join("")));
+  return sha256(Buffer.from((reverseCentralOrder ? digestRecords.reverse() : digestRecords).join("")));
 }
 
 function withPackageContract(callback) {
@@ -207,6 +208,9 @@ test("verifies the catalog, every model, and concrete fixture absence in Android
     writeSyntheticApk(apk, packageRoot, { recompressedEntry: "assets/flutter_assets/FontManifest.json" });
     assert.throws(verifyTestPackage, /entry representations differ from reviewed bytes/);
     writeSyntheticApk(apk, packageRoot, { recompressedEntry: "assets/receipt_ocr_models/catalog.json" });
+    assert.throws(verifyTestPackage, /entry representations differ from reviewed bytes/);
+
+    writeSyntheticApk(apk, packageRoot, { reverseCentralOrder: true });
     assert.throws(verifyTestPackage, /entry representations differ from reviewed bytes/);
 
     writeSyntheticApk(apk, packageRoot, { trailingCompressedEntry: "assets/flutter_assets/FontManifest.json" });

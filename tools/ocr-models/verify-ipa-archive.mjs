@@ -29,9 +29,17 @@ const maximumExpandedBytes = 8 * 1024 * 1024 * 1024;
 const maximumEntryBytes = 2 * 1024 * 1024 * 1024;
 const supportedCompressionMethods = new Set([0, 8]);
 const allowedRoots = new Set(["Payload", "SwiftSupport"]);
-// These fields carry timestamps or numeric UID/GID metadata only. Do not add
-// a field that can override a filename, file type, link target, or data size.
-const allowedMetadataExtraFieldIds = new Set([0x5455, 0x5855, 0x7855, 0x7875]);
+// The exact signed IPA byte identity is pinned after a trusted build. Until
+// then, no signed archive can pass the canonical release preflight.
+const reviewedIpaArchiveDigests = new Set();
+const allowedMetadataExtraFieldIds = new Set([0x5455]);
+
+class UnreviewedIpaRepresentation extends Error {
+  constructor(digest) {
+    super("Signed IPA representation is unreviewed");
+    this.digest = digest;
+  }
+}
 
 function fail(message) {
   throw new Error(`Unsafe IPA archive: ${message}`);
@@ -57,7 +65,7 @@ function decodeName(bytes) {
   }
 }
 
-function validateExtraFields(bytes, location) {
+function validateExtraFields(bytes) {
   const fields = new Map();
   let cursor = 0;
   while (cursor < bytes.length) {
@@ -70,21 +78,8 @@ function validateExtraFields(bytes, location) {
     if (!allowedMetadataExtraFieldIds.has(identifier)) fail("non-metadata archive extra field is forbidden");
     if (fields.has(identifier)) fail("duplicate archive metadata extra field is forbidden");
     if (identifier === 0x5455) {
-      const flags = data[0];
-      const expectedLength = (flags & 1) !== 0 ? 5 : 1;
-      if ((flags & ~0x01) !== 0 || length !== expectedLength) fail("extended timestamp extra field is malformed");
-    }
-    if (identifier === 0x5855) {
-      const validLength = location === "central" ? length === 8 : [8, 12].includes(length);
-      if (!validLength) fail("legacy Unix metadata extra field is malformed");
-    }
-    if (identifier === 0x7855 && length !== (location === "central" ? 0 : 4)) fail("Unix UID/GID metadata extra field is malformed");
-    if (identifier === 0x7875) {
-      const uidLength = data[1];
-      const gidLengthOffset = 2 + uidLength;
-      const gidLength = data[gidLengthOffset];
-      if (data[0] !== 1 || uidLength < 1 || uidLength > 8 || gidLength < 1 || gidLength > 8 || gidLengthOffset + 1 + gidLength !== length) {
-        fail("new Unix UID/GID metadata extra field is malformed");
+      if (length !== 5 || data[0] !== 1 || data.subarray(1).some((byte) => byte !== 0)) {
+        fail("extended timestamp extra field is not canonical");
       }
     }
     fields.set(identifier, Buffer.from(data));
@@ -108,27 +103,6 @@ function validateMatchingExtraFields(localFields, centralFields) {
     }
   }
 
-  const localLegacyUnix = localFields.get(0x5855);
-  const centralLegacyUnix = centralFields.get(0x5855);
-  if ((localLegacyUnix == null) !== (centralLegacyUnix == null) ||
-      (localLegacyUnix != null &&
-       centralLegacyUnix != null &&
-       !localLegacyUnix.subarray(0, 8).equals(centralLegacyUnix))) {
-    fail("local and central legacy Unix metadata disagree");
-  }
-
-  const localUnix2 = localFields.get(0x7855);
-  const centralUnix2 = centralFields.get(0x7855);
-  if ((localUnix2 == null) !== (centralUnix2 == null)) {
-    fail("local and central Unix UID/GID metadata disagree");
-  }
-
-  const localUnix3 = localFields.get(0x7875);
-  const centralUnix3 = centralFields.get(0x7875);
-  if ((localUnix3 == null) !== (centralUnix3 == null) ||
-      (localUnix3 != null && centralUnix3 != null && !localUnix3.equals(centralUnix3))) {
-    fail("local and central new Unix UID/GID metadata disagree");
-  }
 }
 
 function validateDosTimestamp(time, date) {
@@ -173,7 +147,10 @@ function findEocd(tail, tailStart, archiveSize) {
   fail("end-of-central-directory record is missing or archive has trailing bytes");
 }
 
-export function verifyOpenedIpa(fd, { close = true } = {}) {
+// Structural inspection is deliberately separate from release attestation.
+// It permits format tests to probe malformed archives without assigning them
+// a reviewed signed-artifact identity.
+export function inspectOpenedIpa(fd, { close = true } = {}) {
   try {
     const archiveStat = fstatSync(fd);
     if (!archiveStat.isFile()) fail("archive must be a regular non-symlink file");
@@ -237,7 +214,6 @@ export function verifyOpenedIpa(fd, { close = true } = {}) {
       if ((flags & 0x0800) === 0 && nameBytes.some((byte) => byte >= 0x80)) fail("non-ASCII entry name is missing its UTF-8 flag");
       const centralExtraFields = validateExtraFields(
         central.subarray(cursor + 46 + nameLength, cursor + 46 + nameLength + extraLength),
-        "central",
       );
       const name = decodeName(nameBytes);
       const unixMode = madeBySystem === 3 || madeBySystem === 19 ? externalAttributes >>> 16 : 0;
@@ -280,7 +256,7 @@ export function verifyOpenedIpa(fd, { close = true } = {}) {
         (localUncompressedSize !== 0 && localUncompressedSize !== uncompressedSize)
       )) fail("local data-descriptor placeholders disagree with the central directory");
       const localExtra = readExact(fd, localExtraLength, localOffset + 30 + localNameLength);
-      const localExtraFields = validateExtraFields(localExtra, "local");
+      const localExtraFields = validateExtraFields(localExtra);
       validateMatchingExtraFields(localExtraFields, centralExtraFields);
       const dataStart = localOffset + 30 + localNameLength + localExtraLength;
       let entryEndOffset = dataStart + compressedSize;
@@ -313,7 +289,19 @@ export function verifyOpenedIpa(fd, { close = true } = {}) {
   }
 }
 
-function copyOpenedIpa(fd, destination, size, expectedSha256) {
+export function verifyOpenedIpa(fd, {
+  close = true, reviewedDigests = reviewedIpaArchiveDigests,
+} = {}) {
+  try {
+    const digest = inspectOpenedIpa(fd, { close: false });
+    if (!reviewedDigests.has(digest)) throw new UnreviewedIpaRepresentation(digest);
+    return digest;
+  } finally {
+    if (close) closeSync(fd);
+  }
+}
+
+function copyOpenedIpa(fd, destination, size, expectedSha256, reviewedDigests) {
   let destinationFd;
   try {
     destinationFd = openSync(
@@ -343,17 +331,21 @@ function copyOpenedIpa(fd, destination, size, expectedSha256) {
     } catch {}
     throw error;
   }
-  if (verifyOpenedIpa(destinationFd, { close: false }) !== expectedSha256) {
+  try {
+    if (verifyOpenedIpa(destinationFd, { close: false, reviewedDigests }) !== expectedSha256) {
+      fail("verified archive snapshot identity changed");
+    }
+  } catch (error) {
     closeSync(destinationFd);
     try {
       unlinkSync(destination);
     } catch {}
-    fail("verified archive snapshot identity changed");
+    throw error;
   }
   return destinationFd;
 }
 
-function verifyCanonicalIpa() {
+export function verifyCanonicalIpa({ reviewedDigests = reviewedIpaArchiveDigests } = {}) {
   const directoryComponents = ["build", path.join("build", "ios"), path.join("build", "ios", "ipa")];
   for (const component of directoryComponents) {
     let stat;
@@ -387,8 +379,8 @@ function verifyCanonicalIpa() {
   const canonicalIpa = path.join(ipaDirectory, candidates[0]);
   try {
     const archiveStat = fstatSync(fd);
-    const digest = verifyOpenedIpa(fd, { close: false });
-    copiedFd = copyOpenedIpa(fd, snapshot, archiveStat.size, digest);
+    const digest = verifyOpenedIpa(fd, { close: false, reviewedDigests });
+    copiedFd = copyOpenedIpa(fd, snapshot, archiveStat.size, digest, reviewedDigests);
     renameSync(snapshot, canonicalIpa);
     mkdirSync(inspectionRoot, { mode: 0o700 });
     const integrity = spawnSync("unzip", ["-tqq", "/dev/fd/3"], {
@@ -415,8 +407,10 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   try {
     if (process.argv.length !== 2) throw new Error("invalid invocation");
     process.stdout.write(`${verifyCanonicalIpa()}\n`);
-  } catch {
-    process.stderr.write("canonical_ipa_verification_failed\n");
+  } catch (error) {
+    process.stderr.write(error instanceof UnreviewedIpaRepresentation
+      ? `canonical_ipa_representation_unreviewed sha256=${error.digest}\n`
+      : "canonical_ipa_verification_failed\n");
     process.exitCode = 1;
   }
 }

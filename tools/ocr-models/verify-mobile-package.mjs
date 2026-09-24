@@ -265,7 +265,7 @@ function verifyAndroidZipMetadata(packagePath) {
     }
     if (contents.length !== uncompressedSize) throw new Error("Production APK entry expanded size differs");
     contentDigests.push([
-      name, centralMethod, compressedSize, uncompressedSize,
+      name, localOffset, centralMethod, localExtraLength, compressedSize, uncompressedSize,
       sha256(compressed), sha256(contents),
     ]);
     localRanges.push([localOffset, dataEnd]);
@@ -310,9 +310,11 @@ function verifyAndroidZipMetadata(packagePath) {
     throw new Error("Production APK signing block inventory differs");
   }
   const contentHash = createHash("sha256");
-  for (const [name, method, compressedSize, expandedSize, compressedDigest, expandedDigest] of
-    contentDigests.sort((left, right) => left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0)) {
-    contentHash.update(`${name}\0${method}\0${compressedSize}\0${expandedSize}\0${compressedDigest}\0${expandedDigest}\n`);
+  // Keep central-directory order and bind each local offset. Together they
+  // commit to both ZIP entry orders, not merely the set of entry contents.
+  for (const [name, localOffset, method, localExtraLength, compressedSize,
+    expandedSize, compressedDigest, expandedDigest] of contentDigests) {
+    contentHash.update(`${name}\0${localOffset}\0${method}\0${localExtraLength}\0${compressedSize}\0${expandedSize}\0${compressedDigest}\0${expandedDigest}\n`);
   }
   return { names, packageDigest: contentHash.digest("hex") };
 }

@@ -3,14 +3,15 @@
 // the complete digest below. Model and legal expanded bytes also have catalog pins.
 // Reviewed projected `flutter build apk --release --no-pub` packages, without
 // the separate strict-Gradle evidence flag. SHA-256 over sorted APK entry
-// records: name NUL method NUL compressed-size NUL expanded-size NUL
+// records in central-directory order: name NUL local-offset NUL method NUL
+// local-extra-length NUL compressed-size NUL expanded-size NUL
 // SHA-256(compressed bytes) NUL SHA-256(expanded bytes) newline. Every APK
 // entry, including all six Flutter-generated native libraries and OCR assets,
 // must match one complete reviewed package identity. AOT output varies across
 // clean build roots, so each distinct output must be reviewed and pinned.
 export const expectedAndroidPackageDigests = Object.freeze([
-  "6f4a04745a1f8ef455da200a4f33eaf501cb405eba77b99c49ef9cbb7b3c4760",
-  "e744852e5e5375612ea4c2eeea1be15595db2b76418b1c2a38854c20b87a8121",
+  "e19657ba9b81909676118dafb1f4b5f707c37959f981f0951bae5eaf184a2bdf",
+  "bcfdc2c4a43c8e9509704f8952636e8d6c74dbe31e611d5ccff3680367f7fed4",
 ]);
 export const expectedAndroidNonOcrEntries = Object.freeze([
   "AndroidManifest.xml",
