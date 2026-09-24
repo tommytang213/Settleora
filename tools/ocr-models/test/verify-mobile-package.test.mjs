@@ -6,13 +6,27 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { verifyMobilePackage } from "../verify-mobile-package.mjs";
+import { verifyAndroidSignature, verifyMobilePackage } from "../verify-mobile-package.mjs";
 import { expectedAndroidNonOcrEntries } from "../android-production-entry-inventory.mjs";
 import { trustedLegalArtifacts } from "../mobile-model-catalog.mjs";
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
 }
+
+test("APK signer rejects traversal roots and modified SDK jar bytes", () => {
+  assert.throws(() => verifyAndroidSignature("ignored.apk", "/tmp/../tmp"), /toolchain is unavailable/);
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-apksigner-test-"));
+  try {
+    const tools = path.join(root, "build-tools/35.0.0");
+    mkdirSync(path.join(tools, "lib"), { recursive: true });
+    writeFileSync(path.join(tools, "apksigner"), "#!/bin/sh\nexit 0\n");
+    writeFileSync(path.join(tools, "lib/apksigner.jar"), Buffer.alloc(1074241));
+    assert.throws(() => verifyAndroidSignature("ignored.apk", root), /toolchain is unreviewed/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 function crc32(bytes) {
   let crc = 0xffffffff;
@@ -57,6 +71,9 @@ function writeSyntheticApk(apk, packageRoot, { unsigned = false, firstLocalExtra
     }
   };
   visit(packageRoot);
+  entries.push(...expectedAndroidNonOcrEntries.map((name) => ({
+    name, data: Buffer.from("reviewed-package-placeholder"),
+  })));
   entries.push(...extraEntries);
   entries.sort((left, right) => left.name.localeCompare(right.name));
   const local = [];
@@ -138,11 +155,6 @@ test("verifies the catalog, every model, and concrete fixture absence in Android
         path.join(packageRoot, artifact.path),
         readFileSync(path.join(root, "apps/mobile", artifact.path)),
       );
-    }
-    for (const entry of expectedAndroidNonOcrEntries) {
-      const filePath = path.join(packageRoot, entry);
-      mkdirSync(path.dirname(filePath), { recursive: true });
-      writeFileSync(filePath, "reviewed-package-placeholder");
     }
     const apk = path.join(root, "app.apk");
     let signatureChecks = 0;

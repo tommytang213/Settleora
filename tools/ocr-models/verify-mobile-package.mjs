@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { lstatSync, readFileSync, readdirSync } from "node:fs";
+import { lstatSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -231,18 +231,33 @@ function verifyAndroidZipMetadata(packagePath) {
   return names;
 }
 
-function verifyAndroidSignature(packagePath) {
-  const sdkRoot = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT;
-  if (!sdkRoot) throw new Error("Production APK signer toolchain is unavailable");
-  const apksigner = path.join(sdkRoot, "build-tools/35.0.0/apksigner");
-  const stat = lstatSync(apksigner);
-  if (!stat.isFile() || stat.isSymbolicLink()) {
+export function verifyAndroidSignature(packagePath, sdkRoot = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT) {
+  if (typeof sdkRoot !== "string" || !/^\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+$/.test(sdkRoot)) {
+    throw new Error("Production APK signer toolchain is unavailable");
+  }
+  const signerJar = path.join(sdkRoot, "build-tools/35.0.0/lib/apksigner.jar");
+  const stat = lstatSync(signerJar);
+  if (!stat.isFile() || stat.isSymbolicLink() || realpathSync(signerJar) !== signerJar ||
+      stat.size !== 1074241) {
     throw new Error("Production APK signer toolchain is unreviewed");
   }
-  const output = execFileSync(apksigner, ["verify", "--verbose", "--print-certs", packagePath], {
-    encoding: "utf8",
-    maxBuffer: 64 * 1024,
-  });
+  const jarBytes = readFileSync(signerJar);
+  if (sha256(jarBytes) !== "00ef9948f843fe395d2440ae3ef41405b8040a6d5d46493bd1902ac0ee6deae7") {
+    throw new Error("Production APK signer toolchain is unreviewed");
+  }
+  const temporary = mkdtempSync("/tmp/settleora-apksigner-");
+  let output;
+  try {
+    const privateJar = path.join(temporary, "apksigner.jar");
+    writeFileSync(privateJar, jarBytes, { flag: "wx", mode: 0o400 });
+    output = execFileSync("/usr/bin/java", ["-jar", privateJar, "verify", "--verbose", "--print-certs", path.resolve(packagePath)], {
+      encoding: "utf8",
+      maxBuffer: 64 * 1024,
+      env: { PATH: "/usr/bin", LANG: "C", LC_ALL: "C" },
+    });
+  } finally {
+    rmSync(temporary, { recursive: true, force: true });
+  }
   if (!/^Verifies$/m.test(output) ||
       !/^Verified using v2 scheme \(APK Signature Scheme v2\): true$/m.test(output) ||
       !/^Number of signers: 1$/m.test(output) ||
