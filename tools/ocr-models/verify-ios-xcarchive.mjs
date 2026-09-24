@@ -98,8 +98,25 @@ export function inspectXcarchive(root, ipaAppRoot, inspectPlist = (file) => exec
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   try {
-    if (process.argv.length !== 4) fail();
-    process.stdout.write(`${JSON.stringify(inspectXcarchive(process.argv[2], process.argv[3]))}\n`);
+    if (process.argv.length !== 2) fail();
+    const buildRoot = path.resolve("build");
+    const iosRoot = path.join(buildRoot, "ios");
+    const archiveRoot = path.join(iosRoot, "archive");
+    const inspectionRoot = path.join(iosRoot, ".settleora-ipa-inspection");
+    const appRoot = path.join(inspectionRoot, "Payload", "Runner.app");
+    for (const directory of [buildRoot, iosRoot, archiveRoot, inspectionRoot,
+      path.join(inspectionRoot, "Payload"), appRoot]) {
+      const stat = lstatSync(directory);
+      if (!stat.isDirectory() || stat.isSymbolicLink()) fail();
+    }
+    const archives = readdirSync(archiveRoot)
+      .filter((name) => /^[A-Za-z0-9._ -]+\.xcarchive$/.test(name))
+      .filter((name) => {
+        const stat = lstatSync(path.join(archiveRoot, name));
+        return stat.isDirectory() && !stat.isSymbolicLink();
+      });
+    if (archives.length !== 1) fail();
+    process.stdout.write(`${JSON.stringify(inspectXcarchive(path.join(archiveRoot, archives[0]), appRoot))}\n`);
   } catch {
     process.stderr.write("xcarchive_privacy_verification_failed\n");
     process.exitCode = 1;

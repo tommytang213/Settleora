@@ -518,6 +518,8 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   assert.match(script, /unreviewed_resource_path_sha256=%s resource_class=%s/);
   assert.match(script, /compiled_asset_car_sha256=%s/);
   assert.match(script, /verify-ios-xcarchive\.mjs/);
+  assert.match(script, /archive_review=\$\(node "\$tool_root\/tools\/ocr-models\/verify-ios-xcarchive\.mjs"\)/);
+  assert.match(script, /signed IPA application path is not canonical/);
   assert.doesNotMatch(script, /reviewed_asset_car_sha256=''/);
   assert.match(script, /\^Base\\\.lproj\/\[\^\/\]\+\\\.storyboardc\/\[\^\/\]\+\$/);
   assert.match(script, /\^Frameworks\/\[\^\/\]\+\\\.framework/);

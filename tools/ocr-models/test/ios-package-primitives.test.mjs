@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -7,6 +8,16 @@ import { inspectIosAssetCatalogInfo } from "../verify-ios-asset-catalog.mjs";
 import { inspectXcarchive } from "../verify-ios-xcarchive.mjs";
 
 const plist = () => "<?xml version=\"1.0\"?><plist><dict/></plist>";
+
+test("archive verifier CLI rejects caller-supplied paths", () => {
+  const verifier = path.resolve(import.meta.dirname, "../verify-ios-xcarchive.mjs");
+  const result = spawnSync(process.execPath, [verifier, "/tmp/other.xcarchive", "/tmp/other.app"], {
+    encoding: "utf8",
+  });
+  assert.notEqual(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.equal(result.stderr, "xcarchive_privacy_verification_failed\n");
+});
 
 test("asset catalog emits bounded observed metadata without asserting a signed baseline", () => {
   const base = [

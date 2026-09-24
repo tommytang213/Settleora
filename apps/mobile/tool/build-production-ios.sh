@@ -483,7 +483,9 @@ if [[ "$artifact_class" == release-candidate ]]; then
     [[ "$(sha256_file "$artifact_path")" == "$preflight_ipa_sha" ]] || fail "IPA changed after package inspection"
     artifact_sha=$preflight_ipa_sha
     # Inspect every retained archive file before claiming package privacy.
-    archive_review=$(node "$tool_root/tools/ocr-models/verify-ios-xcarchive.mjs" "$archive_path" "$app_path") ||
+    [[ "$app_path" == "$inspection_root/Payload/Runner.app" ]] ||
+      fail "signed IPA application path is not canonical"
+    archive_review=$(node "$tool_root/tools/ocr-models/verify-ios-xcarchive.mjs") ||
       fail "signed xcarchive privacy verification failed"
     [[ -n "$archive_review" ]] || fail "signed xcarchive privacy verification produced no evidence"
     [[ "$(sha256_file "$artifact_path")" == "$artifact_sha" ]] || fail "IPA changed after archive inspection"
