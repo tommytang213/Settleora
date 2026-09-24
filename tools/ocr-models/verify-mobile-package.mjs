@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { lstatSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -145,6 +145,8 @@ function verifyAndroidZipMetadata(packagePath) {
     const madeBySystem = archive.readUInt16LE(cursor + 4) >>> 8;
     const centralFlags = archive.readUInt16LE(cursor + 8);
     const centralMethod = archive.readUInt16LE(cursor + 10);
+    const centralTime = archive.readUInt16LE(cursor + 12);
+    const centralDate = archive.readUInt16LE(cursor + 14);
     const centralCrc = archive.readUInt32LE(cursor + 16);
     const compressedSize = archive.readUInt32LE(cursor + 20);
     const uncompressedSize = archive.readUInt32LE(cursor + 24);
@@ -177,6 +179,9 @@ function verifyAndroidZipMetadata(packagePath) {
         nameBytes.some((byte) => byte < 0x20 || byte > 0x7e) ||
         archive.readUInt16LE(localOffset + 6) !== centralFlags ||
         archive.readUInt16LE(localOffset + 8) !== centralMethod ||
+        centralTime !== 0x0821 || centralDate !== 0x0221 ||
+        archive.readUInt16LE(localOffset + 10) !== centralTime ||
+        archive.readUInt16LE(localOffset + 12) !== centralDate ||
         archive.readUInt32LE(localOffset + 14) !== centralCrc ||
         archive.readUInt32LE(localOffset + 18) !== compressedSize ||
         archive.readUInt32LE(localOffset + 22) !== uncompressedSize ||
@@ -231,18 +236,9 @@ function verifyAndroidZipMetadata(packagePath) {
   return names;
 }
 
-export function verifyAndroidSignature(packagePath, sdkRoot = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT) {
-  if (typeof sdkRoot !== "string" || !/^\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+$/.test(sdkRoot)) {
-    throw new Error("Production APK signer toolchain is unavailable");
-  }
-  const signerJar = path.join(sdkRoot, "build-tools/35.0.0/lib/apksigner.jar");
-  const stat = lstatSync(signerJar);
-  if (!stat.isFile() || stat.isSymbolicLink() || realpathSync(signerJar) !== signerJar ||
-      stat.size !== 1074241) {
-    throw new Error("Production APK signer toolchain is unreviewed");
-  }
-  const jarBytes = readFileSync(signerJar);
-  if (sha256(jarBytes) !== "00ef9948f843fe395d2440ae3ef41405b8040a6d5d46493bd1902ac0ee6deae7") {
+export function verifyAndroidSignature(packagePath, jarBytes = readFileSync("/usr/local/lib/android/sdk/build-tools/35.0.0/lib/apksigner.jar")) {
+  if (!Buffer.isBuffer(jarBytes) || jarBytes.length !== 1074241 ||
+      sha256(jarBytes) !== "00ef9948f843fe395d2440ae3ef41405b8040a6d5d46493bd1902ac0ee6deae7") {
     throw new Error("Production APK signer toolchain is unreviewed");
   }
   const temporary = mkdtempSync("/tmp/settleora-apksigner-");

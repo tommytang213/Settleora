@@ -14,18 +14,9 @@ function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
-test("APK signer rejects traversal roots and modified SDK jar bytes", () => {
-  assert.throws(() => verifyAndroidSignature("ignored.apk", "/tmp/../tmp"), /toolchain is unavailable/);
-  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-apksigner-test-"));
-  try {
-    const tools = path.join(root, "build-tools/35.0.0");
-    mkdirSync(path.join(tools, "lib"), { recursive: true });
-    writeFileSync(path.join(tools, "apksigner"), "#!/bin/sh\nexit 0\n");
-    writeFileSync(path.join(tools, "lib/apksigner.jar"), Buffer.alloc(1074241));
-    assert.throws(() => verifyAndroidSignature("ignored.apk", root), /toolchain is unreviewed/);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+test("APK signer rejects missing and same-size altered jar bytes", () => {
+  assert.throws(() => verifyAndroidSignature("ignored.apk", Buffer.alloc(1)), /toolchain is unreviewed/);
+  assert.throws(() => verifyAndroidSignature("ignored.apk", Buffer.alloc(1074241)), /toolchain is unreviewed/);
 });
 
 function crc32(bytes) {
@@ -87,6 +78,8 @@ function writeSyntheticApk(apk, packageRoot, { unsigned = false, firstLocalExtra
     const localHeader = Buffer.alloc(30);
     localHeader.writeUInt32LE(0x04034b50, 0);
     localHeader.writeUInt16LE(20, 4);
+    localHeader.writeUInt16LE(0x0821, 10);
+    localHeader.writeUInt16LE(0x0221, 12);
     localHeader.writeUInt32LE(crc, 14);
     localHeader.writeUInt32LE(data.length, 18);
     localHeader.writeUInt32LE(data.length, 22);
@@ -97,6 +90,8 @@ function writeSyntheticApk(apk, packageRoot, { unsigned = false, firstLocalExtra
     centralHeader.writeUInt32LE(0x02014b50, 0);
     centralHeader.writeUInt16LE(20, 4);
     centralHeader.writeUInt16LE(20, 6);
+    centralHeader.writeUInt16LE(0x0821, 12);
+    centralHeader.writeUInt16LE(0x0221, 14);
     centralHeader.writeUInt32LE(crc, 16);
     centralHeader.writeUInt32LE(data.length, 20);
     centralHeader.writeUInt32LE(data.length, 24);
@@ -236,6 +231,16 @@ test("verifies the catalog, every model, and concrete fixture absence in Android
     assert.throws(verifyTestPackage, /local metadata is unreviewed/);
     writeSyntheticApk(apk, packageRoot, { unsigned: true });
     assert.throws(verifyTestPackage, /signing block is required/);
+    writeSyntheticApk(apk, packageRoot);
+    const changedLocalTime = readFileSync(apk);
+    changedLocalTime.writeUInt16LE(0, 10);
+    writeFileSync(apk, changedLocalTime);
+    assert.throws(verifyTestPackage, /local metadata is unreviewed/);
+    writeSyntheticApk(apk, packageRoot);
+    const changedCentralDate = readFileSync(apk);
+    changedCentralDate.writeUInt16LE(0, changedCentralDate.readUInt32LE(changedCentralDate.length - 6) + 14);
+    writeFileSync(apk, changedCentralDate);
+    assert.throws(verifyTestPackage, /local metadata is unreviewed/);
     writeSyntheticApk(apk, packageRoot, {
       extraSigningPair: signingPair(0x504b4453, Buffer.from("PRIVATE_RECEIPT_TEXT_123")),
     });

@@ -452,6 +452,8 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(iosProductionBuilder.includes('GeneratedPluginRegistrant'));
   assert.ok(iosProductionBuilder.includes('FilePickerPlugin'));
   assert.ok(iosProductionBuilder.includes('FlutterSecureStorageDarwinPlugin'));
+  assert.match(iosProductionBuilder, /find "\$inventory_root" -type f -print/);
+  assert.doesNotMatch(iosProductionBuilder, /find "\$inventory_root" -type f -perm/);
   assert.ok(iosProductionBuilder.includes('integration_test is linked into the production application'));
   assert.ok(iosCommands.includes('test -s Podfile.lock'));
   assert.ok(iosCommands.includes('a5b6068c71fe9b0a77743d5c639b5538dd2be10db7ddd4ecd9317fee03541903'));

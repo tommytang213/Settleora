@@ -339,7 +339,7 @@ while IFS= read -r candidate; do
     nm -a "$candidate" >>"$symbols_file"
     strings "$candidate" >>"$symbols_file"
   fi
-done < <(find "$inventory_root" -type f -perm -111 -print)
+done < <(find "$inventory_root" -type f -print)
 [[ "$binary_count" -gt 0 ]] || fail "production application contains no inspectable Mach-O binary"
 grep -Fq 'GeneratedPluginRegistrant' "$symbols_file" || fail "GeneratedPluginRegistrant is absent from production binaries"
 grep -Fq 'FilePickerPlugin' "$symbols_file" || fail "FilePickerPlugin is absent from production binaries"
