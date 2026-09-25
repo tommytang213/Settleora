@@ -21,6 +21,11 @@ export const expectedAndroidPackageDigests = Object.freeze([
   // Trusted exact-head GitHub-hosted ubuntu-24.04 projection, run 36085738686,
   // Android job 107917106305; the verifier reached only its final digest gate.
   "b44ff3b8d60c1abe229c18bc23543195d131fa332805299ab4f9554a559e09ee",
+  // Clean exact-candidate projection for the iOS harness follow-up, with
+  // pinned Flutter 3.44.8, strict Gradle evidence and production plugin graph.
+  // Signer, exact entries, expanded model/legal bytes and fixture absence
+  // passed before the complete entry digest gate reported this identity.
+  "14263c2237b61d070a6ae55f03ddef9a07836a16e2648766610b64c0c83fb24a",
 ]);
 export const expectedAndroidNonOcrEntries = Object.freeze([
   "AndroidManifest.xml",

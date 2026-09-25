@@ -461,18 +461,26 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.match(iosNetworkDeny, /SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED/);
   assert.match(iosNetworkDeny, /visibility\("default"\)\)\) int settleora_network_interposer_loaded\(void\)/);
   assert.match(iosNetworkDeny, /return settleora_constructor_ran;/);
-  assert.match(nativeTest, /_dyld_image_count/);
-  assert.match(nativeTest, /_dyld_get_image_name/);
   assert.match(nativeTest, /Platform\.resolvedExecutable/);
   assert.match(nativeTest, /Frameworks\/libSettleoraOcrNetworkDeny\.dylib/);
-  assert.match(nativeTest, /bool _matchesLoadedNetworkInterposerPath\(String observed, String expected\)\s*=>\s*observed == expected;/);
-  assert.match(nativeTest, /if \(_matchesLoadedNetworkInterposerPath\(utf8\.decode\(bytes\), expected\)\)\s*\{\s*return expected;/);
-  assert.match(nativeTest, /_matchesLoadedNetworkInterposerPath\(\s*'',\s*'\/reviewed\/Runner\.app\/Frameworks\/libSettleoraOcrNetworkDeny\.dylib'/);
-  assert.match(nativeTest, /An absent preloaded image must not attest isolation/);
-  assert.ok(nativeTest.indexOf('final interposerPath = _preloadedNetworkInterposerPath();') <
-    nativeTest.indexOf('DynamicLibrary.open(interposerPath!)'));
-  assert.match(nativeTest, /DynamicLibrary\.open\(interposerPath!\)/);
-  assert.match(nativeTest, /lookupFunction<Int32 Function\(\), int Function\(\)>\(\s*'settleora_network_interposer_loaded'/);
+  assert.match(nativeTest, /FileSystemEntity\.typeSync\(expected, followLinks: false\)/);
+  assert.match(nativeTest, /FileSystemEntityType\.file/);
+  assert.match(nativeTest, /const loadedOnly = 0x01 \| 0x10;/);
+  assert.match(nativeTest, /openLoaded\(path, loadedOnly\)/);
+  assert.match(nativeTest, /'@executable_path\/Frameworks\/libSettleoraOcrNetworkDeny\.dylib'/);
+  assert.match(nativeTest, /findSymbol\(handle, symbolName\)/);
+  assert.match(nativeTest, /'dladdr'/);
+  assert.match(nativeTest, /imageForSymbol\(symbol, imageInfo\)/);
+  assert.match(nativeTest, /File\(observedPath!\)\.resolveSymbolicLinksSync\(\)/);
+  assert.match(nativeTest, /File\(interposerPath\)\.resolveSymbolicLinksSync\(\)/);
+  assert.match(nativeTest, /closeLoaded\(handle\)/);
+  assert.doesNotMatch(nativeTest, /DynamicLibrary\.open\(/);
+  assert.ok(nativeTest.indexOf('final interposerPath = _inAppNetworkInterposerPath();') <
+    nativeTest.indexOf('openLoaded(path, loadedOnly)'));
+  assert.ok(nativeTest.indexOf('openLoaded(path, loadedOnly)') <
+    nativeTest.indexOf('findSymbol(handle, symbolName)'));
+  assert.ok(nativeTest.indexOf('findSymbol(handle, symbolName)') <
+    nativeTest.indexOf('imageForSymbol(symbol, imageInfo)'));
   assert.match(nativeTest, /interposerLoaded = probe\(\) == 1/);
   const interposerPhase = iosProject.match(
     /B40000000000000000000000 \/\* Embed OCR network interposer \*\/ = \{[\s\S]*?\n\t\t\};/,

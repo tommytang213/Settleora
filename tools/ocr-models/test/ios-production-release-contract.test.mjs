@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { constants, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
@@ -515,6 +515,21 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   assert.match(script, /icon_representation_unreviewed=true/);
   assert.match(script, /\[\[ "\$icon_representation_unreviewed" == false \]\] \|\|/);
   assert.match(script, /production application contains an unreviewed resource path/);
+  const resourceInventoryLoop = script.slice(script.lastIndexOf('while IFS= read -r candidate; do'));
+  assert.match(resourceInventoryLoop, /done < <\(find "\$inventory_root" -type f -print\)/);
+  assert.ok(resourceInventoryLoop.indexOf('Base.lproj/*.storyboardc/*)') <
+    resourceInventoryLoop.indexOf('Base.lproj/*.nib)'));
+  assert.doesNotMatch(resourceInventoryLoop, /if \[\[ -d "\$candidate" \]\]/);
+  const storyboardCase = resourceInventoryLoop.match(/^      Base\.lproj\/\*\.storyboardc\/\*\).*$/m)?.[0];
+  const nibCase = resourceInventoryLoop.match(/^      Base\.lproj\/\*\.nib\).*$/m)?.[0];
+  assert.ok(storyboardCase && nibCase);
+  const classifyStoryboards = `relative_resource="$1"; fail_unreviewed_resource_path() { exit 33; }; case "$relative_resource" in\n${storyboardCase}\n${nibCase}\n*) exit 44 ;;\nesac`;
+  assert.doesNotThrow(() => execFileSync('bash', ['-c', classifyStoryboards, '--',
+    'Base.lproj/Main.storyboardc/UIViewController.nib']));
+  assert.doesNotThrow(() => execFileSync('bash', ['-c', classifyStoryboards, '--',
+    'Base.lproj/Standalone.nib']));
+  assert.throws(() => execFileSync('bash', ['-c', classifyStoryboards, '--',
+    'Base.lproj/Main.storyboardc/nested/UIViewController.nib']), { status: 33 });
   assert.match(script, /unreviewed_resource_path_sha256=%s resource_class=%s/);
   assert.match(script, /compiled_asset_car_sha256=%s/);
   assert.match(script, /verify-ios-xcarchive\.mjs/);

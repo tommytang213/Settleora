@@ -558,6 +558,8 @@ test("retains only bounded failure-stage diagnostics and never accepts them as c
     "corpus_provider",
     "hostname_resolution_probe",
     "loopback_round_trip_probe",
+    "network_interposer_file",
+    "network_interposer_image",
     "network_interposer_load",
     "network_interposer_constructor",
     "network_interposer_symbol",

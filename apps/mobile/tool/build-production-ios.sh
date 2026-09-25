@@ -353,6 +353,18 @@ compiled_asset_car_sha256=$(sha256_file "$app_path/Assets.car")
   fail "compiled asset catalog changed during metadata observation"
 printf 'compiled_asset_car_sha256=%s\n' "$compiled_asset_car_sha256"
 # These are observed identities only. #1320 owns the signed Xcode baseline.
+fail_unreviewed_resource_path() {
+  local resource_path_sha resource_class
+  resource_path_sha=$(printf '%s' "$relative_resource" | shasum -a 256 | cut -d ' ' -f 1)
+  case "$relative_resource" in
+    Frameworks/*) resource_class=framework ;;
+    *.bundle/*) resource_class=bundle ;;
+    *) resource_class=application ;;
+  esac
+  printf 'unreviewed_resource_path_sha256=%s resource_class=%s\n' \
+    "$resource_path_sha" "$resource_class" >&2
+  fail "production application contains an unreviewed resource path"
+}
 while IFS= read -r candidate; do
   file_description=$(file -b "$candidate")
   if [[ "$file_description" != Mach-O* ]]; then
@@ -360,13 +372,13 @@ while IFS= read -r candidate; do
     relative_resource=${candidate#"$app_path"/}
     case "$relative_resource" in
       Info.plist|PkgInfo|Assets.car|embedded.mobileprovision|en.lproj/InfoPlist.strings|_CodeSignature/CodeResources|Frameworks/Flutter.framework/icudtl.dat|Frameworks/App.framework/flutter_assets/AssetManifest.bin|Frameworks/App.framework/flutter_assets/AssetManifest.json|Frameworks/App.framework/flutter_assets/FontManifest.json|Frameworks/App.framework/flutter_assets/NOTICES.Z) ;;
-      AppIcon*.png) [[ "$relative_resource" =~ ^AppIcon[^/]*\.png$ ]] || fail "production application contains an unreviewed resource path" ;;
+      AppIcon*.png) [[ "$relative_resource" =~ ^AppIcon[^/]*\.png$ ]] || fail_unreviewed_resource_path ;;
       receipt_ocr_models/*) ;; # verify-mobile-package enforces the exact recursive model inventory.
-      Base.lproj/*.nib) [[ "$relative_resource" =~ ^Base\.lproj/[^/]+\.nib$ ]] || fail "production application contains an unreviewed resource path" ;;
-      Base.lproj/*.storyboardc/*) [[ "$relative_resource" =~ ^Base\.lproj/[^/]+\.storyboardc/[^/]+$ ]] || fail "production application contains an unreviewed resource path" ;;
+      Base.lproj/*.storyboardc/*) [[ "$relative_resource" =~ ^Base\.lproj/[^/]+\.storyboardc/[^/]+$ ]] || fail_unreviewed_resource_path ;;
+      Base.lproj/*.nib) [[ "$relative_resource" =~ ^Base\.lproj/[^/]+\.nib$ ]] || fail_unreviewed_resource_path ;;
       Frameworks/*/Info.plist|Frameworks/*/PrivacyInfo.xcprivacy|Frameworks/*/_CodeSignature/CodeResources)
         [[ "$relative_resource" =~ ^Frameworks/[^/]+\.framework/(Info\.plist|PrivacyInfo\.xcprivacy|_CodeSignature/CodeResources)$ ]] ||
-          fail "production application contains an unreviewed resource path"
+          fail_unreviewed_resource_path
         framework_name=${relative_resource#Frameworks/}
         framework_name=${framework_name%%/*}
         framework_name=${framework_name%.framework}
@@ -376,7 +388,7 @@ while IFS= read -r candidate; do
         esac ;;
       *.bundle/Info.plist|*.bundle/PrivacyInfo.xcprivacy|*.bundle/_CodeSignature/CodeResources)
         [[ "$relative_resource" =~ ^([^/]+\.bundle|Frameworks/[^/]+\.framework/[^/]+\.bundle)/(Info\.plist|PrivacyInfo\.xcprivacy|_CodeSignature/CodeResources)$ ]] ||
-          fail "production application contains an unreviewed resource path"
+          fail_unreviewed_resource_path
         bundle_name=${relative_resource%%.bundle/*}
         bundle_name=${bundle_name##*/}
         case "$bundle_name" in
@@ -400,15 +412,7 @@ while IFS= read -r candidate; do
         [[ "$(sha256_file "$candidate")" == "$expected_vendor_sha" ]] ||
           fail "production application model resource differs from the pinned pod archive" ;;
       *)
-        resource_path_sha=$(printf '%s' "$relative_resource" | shasum -a 256 | cut -d ' ' -f 1)
-        case "$relative_resource" in
-          Frameworks/*) resource_class=framework ;;
-          *.bundle/*) resource_class=bundle ;;
-          *) resource_class=application ;;
-        esac
-        printf 'unreviewed_resource_path_sha256=%s resource_class=%s\n' \
-          "$resource_path_sha" "$resource_class" >&2
-        fail "production application contains an unreviewed resource path" ;;
+        fail_unreviewed_resource_path ;;
     esac
   fi
   if [[ "$file_description" == Mach-O* ]]; then

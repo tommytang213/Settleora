@@ -17,39 +17,47 @@ import 'package:mobile/receipt_ocr_capture/receipt_image_normalization_policy.da
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_provider.dart';
 
-bool _matchesLoadedNetworkInterposerPath(String observed, String expected) =>
-    observed == expected;
+final class _DarwinDlInfo extends Struct {
+  external Pointer<Int8> imagePath;
+  external Pointer<Void> imageBase;
+  external Pointer<Int8> symbolName;
+  external Pointer<Void> symbolAddress;
+}
 
-String? _preloadedNetworkInterposerPath() {
+String? _inAppNetworkInterposerPath() {
   final executable = Platform.resolvedExecutable;
   final separator = executable.lastIndexOf('/');
   if (separator < 1) return null;
   final expected =
       '${executable.substring(0, separator)}/Frameworks/libSettleoraOcrNetworkDeny.dylib';
-  final process = DynamicLibrary.process();
-  final imageCount = process.lookupFunction<Uint32 Function(), int Function()>(
-    '_dyld_image_count',
-  );
-  final imageName = process
-      .lookupFunction<
-        Pointer<Int8> Function(Uint32),
-        Pointer<Int8> Function(int)
-      >('_dyld_get_image_name');
-  final count = imageCount();
-  if (count < 1 || count > 1024) return null;
-  for (var index = 0; index < count; index++) {
-    final pointer = imageName(index);
-    if (pointer.address == 0) continue;
-    final bytes = <int>[];
-    for (var offset = 0; offset < 4096; offset++) {
-      final byte = (pointer + offset).value;
-      if (byte == 0) break;
-      bytes.add(byte & 0xff);
-    }
-    if (bytes.length >= 4096) continue;
-    if (_matchesLoadedNetworkInterposerPath(utf8.decode(bytes), expected)) {
-      return expected;
-    }
+  return FileSystemEntity.typeSync(expected, followLinks: false) ==
+          FileSystemEntityType.file
+      ? expected
+      : null;
+}
+
+Pointer<Int8> _nativeCString(
+  String value,
+  Pointer<Void> Function(int) allocate,
+) {
+  final bytes = utf8.encode(value);
+  final pointer = allocate(bytes.length + 1).cast<Uint8>();
+  if (pointer.address == 0) throw StateError('Native allocation failed');
+  for (var index = 0; index < bytes.length; index++) {
+    pointer[index] = bytes[index];
+  }
+  pointer[bytes.length] = 0;
+  return pointer.cast<Int8>();
+}
+
+String? _boundedNativeString(Pointer<Int8> pointer) {
+  if (pointer.address == 0) return null;
+  final bytes = <int>[];
+  final unsigned = pointer.cast<Uint8>();
+  for (var index = 0; index < 4096; index++) {
+    final byte = unsigned[index];
+    if (byte == 0) return utf8.decode(bytes);
+    bytes.add(byte);
   }
   return null;
 }
@@ -68,44 +76,115 @@ void main() {
     await failure.run(() async {
       if (Platform.isIOS) {
         expect(
-          _matchesLoadedNetworkInterposerPath(
-            '',
-            '/reviewed/Runner.app/Frameworks/libSettleoraOcrNetworkDeny.dylib',
-          ),
-          isFalse,
-          reason: 'An absent preloaded image must not attest isolation.',
-        );
-        expect(
-          _matchesLoadedNetworkInterposerPath(
-            '/other/Runner.app/Frameworks/libSettleoraOcrNetworkDeny.dylib',
-            '/reviewed/Runner.app/Frameworks/libSettleoraOcrNetworkDeny.dylib',
-          ),
-          isFalse,
-          reason:
-              'A different or absent preloaded image must not attest isolation.',
-        );
-        expect(
           const String.fromEnvironment('SETTLEORA_OCR_NETWORK_ISOLATION'),
           'socket_interpose_v1',
           reason: 'The iOS runner must identify the isolated test invocation.',
         );
         var interposerLoaded = false;
         try {
-          failure.set('network_interposer_load');
-          final interposerPath = _preloadedNetworkInterposerPath();
+          failure.set('network_interposer_file');
+          final interposerPath = _inAppNetworkInterposerPath();
           expect(
             interposerPath,
             isNotNull,
-            reason:
-                'The iOS interposer must already be loaded before the probe.',
+            reason: 'The iOS interposer must be a regular in-app file.',
           );
-          failure.set('network_interposer_symbol');
-          final probe = DynamicLibrary.open(interposerPath!)
-              .lookupFunction<Int32 Function(), int Function()>(
-                'settleora_network_interposer_loaded',
+          failure.set('network_interposer_load');
+          final process = DynamicLibrary.process();
+          final allocate = process
+              .lookupFunction<
+                Pointer<Void> Function(IntPtr),
+                Pointer<Void> Function(int)
+              >('malloc');
+          final release = process
+              .lookupFunction<
+                Void Function(Pointer<Void>),
+                void Function(Pointer<Void>)
+              >('free');
+          final openLoaded = process
+              .lookupFunction<
+                Pointer<Void> Function(Pointer<Int8>, Int32),
+                Pointer<Void> Function(Pointer<Int8>, int)
+              >('dlopen');
+          final closeLoaded = process
+              .lookupFunction<
+                Int32 Function(Pointer<Void>),
+                int Function(Pointer<Void>)
+              >('dlclose');
+          final findSymbol = process
+              .lookupFunction<
+                Pointer<Void> Function(Pointer<Void>, Pointer<Int8>),
+                Pointer<Void> Function(Pointer<Void>, Pointer<Int8>)
+              >('dlsym');
+          final imageForSymbol = process
+              .lookupFunction<
+                Int32 Function(Pointer<Void>, Pointer<_DarwinDlInfo>),
+                int Function(Pointer<Void>, Pointer<_DarwinDlInfo>)
+              >('dladdr');
+          // Darwin RTLD_LAZY | RTLD_NOLOAD returns a handle only when the
+          // exact in-app image is already loaded; it never loads the image.
+          const loadedOnly = 0x01 | 0x10;
+          Pointer<Void> handle = nullptr;
+          for (final candidate in [
+            interposerPath!,
+            '@executable_path/Frameworks/libSettleoraOcrNetworkDeny.dylib',
+          ]) {
+            final path = _nativeCString(candidate, allocate);
+            try {
+              handle = openLoaded(path, loadedOnly);
+            } finally {
+              release(path.cast<Void>());
+            }
+            if (handle.address != 0) break;
+          }
+          expect(
+            handle.address,
+            isNot(0),
+            reason: 'The exact in-app interposer must already be loaded.',
+          );
+          try {
+            failure.set('network_interposer_symbol');
+            final symbolName = _nativeCString(
+              'settleora_network_interposer_loaded',
+              allocate,
+            );
+            Pointer<Void> symbol;
+            try {
+              symbol = findSymbol(handle, symbolName);
+            } finally {
+              release(symbolName.cast<Void>());
+            }
+            expect(symbol.address, isNot(0));
+            failure.set('network_interposer_image');
+            final imageInfo = allocate(
+              sizeOf<_DarwinDlInfo>(),
+            ).cast<_DarwinDlInfo>();
+            expect(imageInfo.address, isNot(0));
+            try {
+              expect(imageForSymbol(symbol, imageInfo), isNot(0));
+              final observed = _boundedNativeString(imageInfo.ref.imagePath);
+              expect(observed, isNotNull);
+              final inAppToken =
+                  '@executable_path/Frameworks/libSettleoraOcrNetworkDeny.dylib';
+              final observedPath = observed == inAppToken
+                  ? interposerPath
+                  : observed;
+              expect(
+                File(observedPath!).resolveSymbolicLinksSync(),
+                File(interposerPath).resolveSymbolicLinksSync(),
+                reason: 'The loaded symbol must come from the in-app dylib.',
               );
-          failure.set('network_interposer_constructor');
-          interposerLoaded = probe() == 1;
+            } finally {
+              release(imageInfo.cast<Void>());
+            }
+            failure.set('network_interposer_constructor');
+            final probe = symbol
+                .cast<NativeFunction<Int32 Function()>>()
+                .asFunction<int Function()>();
+            interposerLoaded = probe() == 1;
+          } finally {
+            expect(closeLoaded(handle), 0);
+          }
         } catch (_) {
           // The bounded failure stage below is the only emitted diagnostic.
         }
