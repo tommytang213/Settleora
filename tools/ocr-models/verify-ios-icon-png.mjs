@@ -8,13 +8,17 @@ const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const maxPngBytes = 4 * 1024 * 1024;
 const maxPixels = 1024 * 1024;
 const maxDecodedBytes = 16 * 1024 * 1024;
-// Exact-source Xcode 16.4 unsigned package observation: workflow 36037153468,
-// job 107759977029. The wrapper first matched decoded BMP pixels to the
-// reviewed source icon, then reported both full-byte digests. This pins only
-// that loose AppIcon representation; signed Assets.car proof belongs to #1320.
+// Exact-source Xcode 16.4 unsigned package observations. The wrapper first
+// matched decoded BMP pixels to each reviewed source icon, then reported both
+// full-byte digests. These pin only loose AppIcon representations; signed
+// Assets.car proof belongs to #1320.
 const reviewedCompiledIconDigests = new Map([
+  // Workflow 36037153468, job 107759977029.
   ["19be171481dc71a0b2803ebcd01dd8b0c5fd5778dee34c0a3cabc948c225f24e",
     new Set(["9d328d1d45f386375e28736159b4ffa53c4930e3962016dbf98b029a4e80121c"])],
+  // Workflow 36121355731, job 108027351637.
+  ["41c7d42f6e61f8fe7f30b1ffa2256aecbc9682be06d18c4a3062043e1a2e547c",
+    new Set(["29a53a06908d2de7e2c0d4b50d967cc61acb33f76689c207e43f28e9724c3996"])],
 ]);
 const validDepths = new Map([
   [0, new Set([1, 2, 4, 8, 16])],

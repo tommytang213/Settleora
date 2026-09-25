@@ -46,6 +46,11 @@ export const expectedAndroidPackageDigests = Object.freeze([
   // Android job 108027351798. Signer, exact entries, expanded model/legal
   // bytes and fixture absence passed before the complete digest gate.
   "a5c71dc97ee90ae3b05d464fd211fb7a9dbe6e0bbdf2eb5daffd5affd94279c3",
+  // Clean local projection for bounded iOS interposer diagnostics with pinned
+  // Flutter 3.44.8, strict Gradle evidence and production plugin graph.
+  // The verifier reached only this final digest gate after signer, exact
+  // entries, expanded model/legal bytes and fixture absence passed.
+  "ca6eceebe8ed94ea595e8b2786626e18e0b1e30b0e357606748c07b4e14e2e66",
 ]);
 export const expectedAndroidNonOcrEntries = Object.freeze([
   "AndroidManifest.xml",

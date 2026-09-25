@@ -477,6 +477,26 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.match(nativeTest, /File\(observed!\)\.resolveSymbolicLinksSync\(\)/);
   assert.match(nativeTest, /File\(\s*interposerPath!,\s*\)\.resolveSymbolicLinksSync\(\)/);
   assert.match(nativeTest, /interposerLoaded = symbol\.asFunction<int Function\(\)>\(\)\(\) == 1/);
+  const interposerDiagnostics = [
+    'network_interposer_process',
+    'network_interposer_malloc',
+    'network_interposer_free',
+    'network_interposer_dladdr',
+    'network_interposer_dyld_count_lookup',
+    'network_interposer_dyld_name_lookup',
+    'network_interposer_dyld_count',
+    'network_interposer_path',
+    'network_interposer_loaded_image',
+    'network_interposer_symbol',
+    'network_interposer_image',
+    'network_interposer_constructor',
+  ];
+  let priorDiagnostic = -1;
+  for (const stage of interposerDiagnostics) {
+    const index = nativeTest.indexOf(`failure.set('${stage}');`);
+    assert.ok(index > priorDiagnostic, `missing or out-of-order bounded interposer stage: ${stage}`);
+    priorDiagnostic = index;
+  }
   assert.doesNotMatch(nativeTest, /DynamicLibrary\.open\(/);
   assert.doesNotMatch(nativeTest, /'dlopen'/);
   assert.ok(nativeTest.indexOf('final interposerPath = _inAppNetworkInterposerPath();') <

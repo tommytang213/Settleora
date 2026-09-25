@@ -75,34 +75,41 @@ void main() {
             isNotNull,
             reason: 'The iOS interposer must be a regular in-app file.',
           );
-          failure.set('network_interposer_load');
+          failure.set('network_interposer_process');
           final process = DynamicLibrary.process();
+          failure.set('network_interposer_malloc');
           final allocate = process
               .lookupFunction<
                 Pointer<Void> Function(IntPtr),
                 Pointer<Void> Function(int)
               >('malloc');
+          failure.set('network_interposer_free');
           final release = process
               .lookupFunction<
                 Void Function(Pointer<Void>),
                 void Function(Pointer<Void>)
               >('free');
+          failure.set('network_interposer_dladdr');
           final imageForSymbol = process
               .lookupFunction<
                 Int32 Function(Pointer<Void>, Pointer<_DarwinDlInfo>),
                 int Function(Pointer<Void>, Pointer<_DarwinDlInfo>)
               >('dladdr');
+          failure.set('network_interposer_dyld_count_lookup');
           final imageCount = process
               .lookupFunction<Uint32 Function(), int Function()>(
                 '_dyld_image_count',
               );
+          failure.set('network_interposer_dyld_name_lookup');
           final imageName = process
               .lookupFunction<
                 Pointer<Int8> Function(Uint32),
                 Pointer<Int8> Function(int)
               >('_dyld_get_image_name');
+          failure.set('network_interposer_dyld_count');
           final beforeCount = imageCount();
           expect(beforeCount, inInclusiveRange(1, 4096));
+          failure.set('network_interposer_path');
           final expectedImage = File(
             interposerPath!,
           ).resolveSymbolicLinksSync();
@@ -120,6 +127,7 @@ void main() {
             );
             loadedImageCount++;
           }
+          failure.set('network_interposer_loaded_image');
           expect(
             loadedImageCount,
             1,
