@@ -128,6 +128,26 @@ void main() {
             loadedImageCount++;
           }
           failure.set('network_interposer_loaded_image');
+          if (loadedImageCount != 1) {
+            const injectedPath =
+                '@executable_path/Frameworks/libSettleoraOcrNetworkDeny.dylib';
+            final launchHasInterposer =
+                Platform.environment['DYLD_INSERT_LIBRARIES']
+                    ?.split(':')
+                    .contains(injectedPath) ==
+                true;
+            final constructorMarked =
+                Platform
+                    .environment['SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED'] ==
+                '1';
+            failure.set(
+              !launchHasInterposer
+                  ? 'network_interposer_launch_environment'
+                  : !constructorMarked
+                  ? 'network_interposer_dyld_injection'
+                  : 'network_interposer_loaded_image',
+            );
+          }
           expect(
             loadedImageCount,
             1,

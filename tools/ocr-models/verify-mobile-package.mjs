@@ -308,6 +308,8 @@ function verifyAndroidZipMetadata(packagePath) {
   }
   const expectedIds = new Set([0x7109871a, 0x42726577]);
   const observedIds = new Set();
+  // Clean 35da3b91 Release projection; a different padding length is unreviewed.
+  const reviewedPaddingBytes = 2650;
   let pair = coveredThrough + 8;
   while (pair < centralOffset - 24) {
     if (pair + 12 > centralOffset - 24) throw new Error("Production APK signing pair is malformed");
@@ -317,7 +319,8 @@ function verifyAndroidZipMetadata(packagePath) {
     const value = archive.subarray(pair + 12, pairEnd);
     if (!Number.isSafeInteger(pairSize) || pairSize < 4 || pairEnd > centralOffset - 24 ||
         !expectedIds.has(id) || observedIds.has(id) ||
-        (id === 0x42726577 && value.some((byte) => byte !== 0))) {
+        (id === 0x42726577 && (value.length !== reviewedPaddingBytes ||
+          value.some((byte) => byte !== 0)))) {
       throw new Error("Production APK signing pair is unreviewed");
     }
     observedIds.add(id);
@@ -515,6 +518,9 @@ function verifyIosPackage(packagePath, contract) {
   if (!catalogStat.isFile() || catalogStat.isSymbolicLink()) {
     throw new Error("Production iOS app catalog is not a regular file");
   }
+  if (catalogStat.size !== contract.catalog.bytes) {
+    throw new Error("Production iOS app catalog size differs from the catalog");
+  }
   validateModel(readFileSync(catalogFilePath), contract.catalog, contract.catalog.relativePath);
   for (const model of contract.models) {
     const packagedRelativePath = model.relativePath.startsWith("assets/")
@@ -525,6 +531,9 @@ function verifyIosPackage(packagePath, contract) {
     if (!stat.isFile() || stat.isSymbolicLink()) {
       throw new Error(`Production iOS app model is not a regular file: ${model.relativePath}`);
     }
+    if (stat.size !== model.bytes) {
+      throw new Error("Production iOS app model size differs from the catalog");
+    }
     validateModel(readFileSync(filePath), model, model.relativePath);
   }
   for (const artifact of contract.legalArtifacts) {
@@ -533,6 +542,9 @@ function verifyIosPackage(packagePath, contract) {
     const stat = lstatSync(filePath);
     if (!stat.isFile() || stat.isSymbolicLink()) {
       throw new Error(`Production iOS app legal artifact is not a regular file: ${artifact.relativePath}`);
+    }
+    if (stat.size !== artifact.bytes) {
+      throw new Error("Production iOS app legal artifact size differs from the catalog");
     }
     validateModel(readFileSync(filePath), artifact, artifact.relativePath);
   }

@@ -43,11 +43,11 @@ function signingPair(id, value) {
   return Buffer.concat([header, value]);
 }
 
-function syntheticSigningBlock(extraPair = null) {
+function syntheticSigningBlock(extraPair = null, paddingLength = 2650) {
   const pairs = Buffer.concat([
     signingPair(0x7109871a, Buffer.from("synthetic-v2-signer")),
     ...(extraPair == null ? [] : [extraPair]),
-    signingPair(0x42726577, Buffer.alloc(8)),
+    signingPair(0x42726577, Buffer.alloc(paddingLength)),
   ]);
   const size = BigInt(pairs.length + 24);
   const head = Buffer.alloc(8);
@@ -60,7 +60,7 @@ function syntheticSigningBlock(extraPair = null) {
 function writeSyntheticApk(apk, packageRoot, { unsigned = false, firstLocalExtra = Buffer.alloc(0),
   extraEntries = [], extraSigningPair = null, changedNonOcrEntry = null,
   trailingCompressedEntry = null, recompressedEntry = null, wrongCrcEntry = null,
-  reverseCentralOrder = false, changedProfileEntry = null } = {}) {
+  reverseCentralOrder = false, changedProfileEntry = null, signingPaddingLength = 2650 } = {}) {
   const entries = [];
   const visit = (directory, prefix = "") => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -120,7 +120,7 @@ function writeSyntheticApk(apk, packageRoot, { unsigned = false, firstLocalExtra
     central.push([centralHeader, name]);
     localOffset += 30 + name.length + extra.length + stored.length;
   }
-  const block = unsigned ? Buffer.alloc(0) : syntheticSigningBlock(extraSigningPair);
+  const block = unsigned ? Buffer.alloc(0) : syntheticSigningBlock(extraSigningPair, signingPaddingLength);
   const directory = Buffer.concat((reverseCentralOrder ? central.reverse() : central).flat());
   const end = Buffer.alloc(22);
   end.writeUInt32LE(0x06054b50, 0);
@@ -330,6 +330,8 @@ test("verifies the catalog, every model, and concrete fixture absence in Android
       extraSigningPair: signingPair(0x504b4453, Buffer.from("PRIVATE_RECEIPT_TEXT_123")),
     });
     assert.throws(verifyTestPackage, /signing pair is unreviewed/);
+    writeSyntheticApk(apk, packageRoot, { signingPaddingLength: 2651 });
+    assert.throws(verifyTestPackage, /signing pair is unreviewed/);
 
     writeSyntheticApk(apk, packageRoot);
     const listed = readFileSync(apk);
@@ -429,12 +431,26 @@ test("verifies the catalog, every model, and concrete fixture absence in iOS app
       { catalogFileCount: 1, modelFileCount: 1, fixtureFileCount: 102 },
     );
 
+    writeFileSync(modelPath, Buffer.concat([model, Buffer.from("unreviewed")]));
+    assert.throws(
+      () => verifyMobilePackage({ platform: "ios", packagePath: app, repoRoot: root }),
+      /model size differs from the catalog/,
+    );
+    writeFileSync(modelPath, model);
+
     const legalArtifact = trustedLegalArtifacts[0];
     const packagedLegalPath = path.join(app, legalArtifact.path.replace(/^assets\//, ""));
+    const legalBytes = readFileSync(packagedLegalPath);
+    writeFileSync(packagedLegalPath, Buffer.concat([legalBytes, Buffer.from("unreviewed")]));
+    assert.throws(
+      () => verifyMobilePackage({ platform: "ios", packagePath: app, repoRoot: root }),
+      /legal artifact size differs from the catalog/,
+    );
+    writeFileSync(packagedLegalPath, legalBytes);
     writeFileSync(packagedLegalPath, "stale");
     assert.throws(
       () => verifyMobilePackage({ platform: "ios", packagePath: app, repoRoot: root }),
-      /catalog identity/,
+      /legal artifact size differs from the catalog/,
     );
     writeFileSync(
       packagedLegalPath,
@@ -444,7 +460,7 @@ test("verifies the catalog, every model, and concrete fixture absence in iOS app
     writeFileSync(path.join(app, "receipt_ocr_models/catalog.json"), "stale");
     assert.throws(
       () => verifyMobilePackage({ platform: "ios", packagePath: app, repoRoot: root }),
-      /catalog identity/,
+      /catalog size differs from the catalog/,
     );
     writeFileSync(path.join(app, "receipt_ocr_models/catalog.json"), catalog);
 

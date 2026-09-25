@@ -371,7 +371,12 @@ while IFS= read -r candidate; do
     [[ "$candidate" == "$app_path"/* ]] || fail "production application contains an unreviewed resource path"
     relative_resource=${candidate#"$app_path"/}
     case "$relative_resource" in
-      Info.plist|PkgInfo|Assets.car|embedded.mobileprovision|en.lproj/InfoPlist.strings|_CodeSignature/CodeResources|Frameworks/Flutter.framework/icudtl.dat|Frameworks/App.framework/flutter_assets/AssetManifest.bin|Frameworks/App.framework/flutter_assets/AssetManifest.json|Frameworks/App.framework/flutter_assets/FontManifest.json|Frameworks/App.framework/flutter_assets/NOTICES.Z) ;;
+      Info.plist|PkgInfo|Assets.car|embedded.mobileprovision|en.lproj/InfoPlist.strings|_CodeSignature/CodeResources|Frameworks/App.framework/flutter_assets/AssetManifest.bin|Frameworks/App.framework/flutter_assets/AssetManifest.json|Frameworks/App.framework/flutter_assets/FontManifest.json|Frameworks/App.framework/flutter_assets/NOTICES.Z) ;;
+      Frameworks/Flutter.framework/icudtl.dat)
+        # Exact Flutter 3.44.8 ios-release engine resource, content hash
+        # 13ffd72b2f9a5ca4db2a74ea52d5353ec2e8f939.
+        [[ "$(sha256_file "$candidate")" == 998367809a821d595928089c197b3f7959f0420f81f79d4d0daee53378492ed5 ]] ||
+          fail "packaged Flutter ICU differs from the reviewed toolchain resource" ;;
       AppFrameworkInfo.plist)
         [[ "$(sha256_file "$mobile_root/ios/Flutter/AppFrameworkInfo.plist")" == da12038f9b2688a8a26160fea2609fa8fcb11421448c109f09c0f573efe7698d ]] ||
           fail "reviewed AppFrameworkInfo source differs from pinned identity"
@@ -401,7 +406,14 @@ while IFS= read -r candidate; do
         framework_name=${framework_name%.framework}
         case "$framework_name" in
           App|Flutter|file_picker|flutter_secure_storage_darwin|google_mlkit_commons|google_mlkit_text_recognition|image_picker_ios|GoogleDataTransport|GoogleMLKit|GoogleToolboxForMac|GoogleUtilities|GTMSessionFetcher|MLImage|MLKitCommon|MLKitTextRecognition|MLKitTextRecognitionCommon|MLKitVision|nanopb|onnxruntime|onnxruntime-c|onnxruntime-objc|OpenCV|PromisesObjC|FBLPromises|Yams) ;;
-          *) fail "production application contains an unreviewed framework resource" ;;
+          *)
+            if [[ "$framework_name" =~ ^[A-Za-z][A-Za-z0-9_.-]{0,63}$ ]]; then
+              printf 'unreviewed_framework_name=%s\n' "$framework_name" >&2
+            else
+              printf 'unreviewed_framework_name_sha256=%s\n' \
+                "$(printf '%s' "$framework_name" | shasum -a 256 | cut -d ' ' -f 1)" >&2
+            fi
+            fail "production application contains an unreviewed framework resource" ;;
         esac ;;
       *.bundle/Info.plist|*.bundle/PrivacyInfo.xcprivacy|*.bundle/_CodeSignature/CodeResources)
         [[ "$relative_resource" =~ ^([^/]+\.bundle|Frameworks/[^/]+\.framework/[^/]+\.bundle)/(Info\.plist|PrivacyInfo\.xcprivacy|_CodeSignature/CodeResources)$ ]] ||

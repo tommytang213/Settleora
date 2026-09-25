@@ -569,6 +569,8 @@ test("retains only bounded failure-stage diagnostics and never accepts them as c
     "network_interposer_dyld_name_lookup",
     "network_interposer_dyld_count",
     "network_interposer_path",
+    "network_interposer_launch_environment",
+    "network_interposer_dyld_injection",
     "network_interposer_loaded_image",
     "network_interposer_constructor",
     "network_interposer_symbol",

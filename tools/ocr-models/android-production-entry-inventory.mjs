@@ -3,16 +3,11 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
-  // Exact candidate tracked tree excluding this inventory file; clean local
-  // Flutter 3.44.8 Release projection with strict Gradle evidence and the
-  // production plugin graph. The verifier reached only its final digest gate
-  // after signer, entry, model/legal-byte and fixture-absence checks passed.
-  "e0bb94e12f32db5e79a2b649ddfee84935e473082e9e8c82c2ce5d0bedcb8ce3": Object.freeze([
-    "736f5927fa6f8006cb6b50c4f76b93fa5bbfcc5a3cf1e22e051709bcd8bcd726",
-    // GitHub-hosted ubuntu-24.04 run 36134642962, Android job 108069684982
-    // reached only the final digest gate. The source-binding correction changes
-    // verifier/workflow/test files, not the packaged application inputs.
-    "203bc3a7a2136b32d138818e7ea078fdab00842baae507100e60f6370c458adc",
+  // Exact candidate tracked tree excluding this inventory file. Clean local
+  // Flutter 3.44.8 Release projection with strict Gradle evidence, the
+  // production plugin graph, and the updated bound acceptance catalog.
+  "c00b538b46e61c761200110cb8db79e47fca5f44f23894b9195c314ef55e7861": Object.freeze([
+    "57de81460d733fe85576ffc60d532ccff23d40d8b58fd3f621962b36d0345fd8",
   ]),
 });
 export const expectedAndroidNonOcrEntries = Object.freeze([
