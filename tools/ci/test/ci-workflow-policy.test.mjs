@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -441,7 +442,13 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(iosRunner.includes('test -z "${SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_ISOLATION:-}"'));
   assert.ok(iosRunner.includes('"-Wl,-install_name,$network_deny_in_app"'));
   assert.ok(iosRunner.includes('xcrun otool -D "$network_deny"'));
-  assert.ok(iosRunner.includes("if test \"$(cat \"$debug_config\")\" != '#include \"Generated.xcconfig\"'; then"));
+  const debugConfig = read('apps/mobile/ios/Flutter/Debug.xcconfig');
+  const projectedDebugConfig = '#include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"\n' + debugConfig;
+  for (const content of [debugConfig, projectedDebugConfig]) {
+    const digest = createHash('sha256').update(content).digest('hex');
+    assert.ok(iosRunner.includes(digest));
+  }
+  assert.ok(iosRunner.includes('case "$debug_config_sha" in'));
   assert.ok(iosRunner.includes("printf '\\nOTHER_LDFLAGS = $(inherited) -Wl,-needed_library,%s\\n'"));
   assert.ok(iosRunner.includes('network_link_configured=true'));
   for (const stage of ['verify_debug_link_config', 'verify_network_link_path',

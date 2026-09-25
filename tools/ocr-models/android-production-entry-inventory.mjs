@@ -3,6 +3,12 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // Exact iOS Debug config and package-resource correction. Android inputs
+  // are unchanged; local representation verified, hosted reproof required.
+  "f7464e6457fabff7dddd30d233c312c05b24fed143bf9e50fb48eede552cd311": Object.freeze([
+    "754737d69df2409e1e1fe265b3eb003335980e6bc450f2d1a4a44adf57b601f2",
+    "69470e8594e11481160ef3b1415f22bae77a4901d2bacb89e813e60196946a8c",
+  ]),
   // Exact bounded iOS diagnostic follow-up. Android package inputs remain
   // unchanged; the first representation passed the complete local Release
   // projection, while the second requires exact-head hosted reproof.

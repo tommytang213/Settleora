@@ -116,10 +116,13 @@ phase=install_network_isolation
 debug_config="$GITHUB_WORKSPACE/apps/mobile/ios/Flutter/Debug.xcconfig"
 network_config_backup="$RUNNER_TEMP/settleora-ocr-debug.xcconfig.original"
 phase=verify_debug_link_config
-if test "$(cat "$debug_config")" != '#include "Generated.xcconfig"'; then
-  shasum -a 256 "$debug_config" | awk '{print "debug_link_config_sha256=" $1}' >&2
-  exit 98
-fi
+debug_config_sha=$(shasum -a 256 "$debug_config" | cut -d ' ' -f 1)
+case "$debug_config_sha" in
+  # Tracked one-line config, or exact CocoaPods 1.17.0 projection observed in
+  # Xcode 16.4 job 108190884239 before the acceptance link modification.
+  a82d7765b37116ee4821d2cd1d65942febf8032353757ffb0826eabde785b4a6|690b8a8b1ae15ddd29b241429963e971bbc6720ab22f154cf8cf6b085b6d4925) ;;
+  *) printf 'debug_link_config_sha256=%s\n' "$debug_config_sha" >&2; exit 98 ;;
+esac
 phase=verify_network_link_path
 case "$network_deny" in
   *[[:space:]]*) exit 98 ;;

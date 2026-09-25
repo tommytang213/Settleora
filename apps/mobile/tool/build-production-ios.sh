@@ -389,7 +389,7 @@ while IFS= read -r candidate; do
     [[ "$candidate" == "$app_path"/* ]] || fail "production application contains an unreviewed resource path"
     relative_resource=${candidate#"$app_path"/}
     case "$relative_resource" in
-      Info.plist|PkgInfo|Assets.car|embedded.mobileprovision|en.lproj/InfoPlist.strings|_CodeSignature/CodeResources|Frameworks/App.framework/flutter_assets/AssetManifest.bin|Frameworks/App.framework/flutter_assets/AssetManifest.json|Frameworks/App.framework/flutter_assets/FontManifest.json|Frameworks/App.framework/flutter_assets/NOTICES.Z) ;;
+      Info.plist|PkgInfo|Assets.car|embedded.mobileprovision|en.lproj/InfoPlist.strings|_CodeSignature/CodeResources|Frameworks/App.framework/flutter_assets/AssetManifest.bin|Frameworks/App.framework/flutter_assets/AssetManifest.json|Frameworks/App.framework/flutter_assets/FontManifest.json) ;;
       Frameworks/Flutter.framework/icudtl.dat)
         # Exact Flutter 3.44.8 ios-release engine resource, content hash
         # 13ffd72b2f9a5ca4db2a74ea52d5353ec2e8f939.
@@ -408,6 +408,7 @@ while IFS= read -r candidate; do
       # Exact Flutter-generated assets observed in the reviewed same-source
       # Android Release package. iOS must prove identical bytes or fail closed.
       Frameworks/App.framework/flutter_assets/NativeAssetsManifest.json) expected_flutter_asset_sha=9548a31e4a048135c1d94f919328bfb62ae2c7bb3cab96557c7941daa97776cb ;;
+      Frameworks/App.framework/flutter_assets/NOTICES.Z) expected_flutter_asset_sha=7c9b681fa5d9672489bc4a80fbbb03e5ee666d4b45af75aecf3f1802052f9008 ;;
       Frameworks/App.framework/flutter_assets/fonts/MaterialIcons-Regular.otf) expected_flutter_asset_sha=e4aae88917aea920dfba979f19616d87669655d003444d3b1a110b685b88a0ed ;;
       Frameworks/App.framework/flutter_assets/packages/cupertino_icons/assets/CupertinoIcons.ttf) expected_flutter_asset_sha=67c44fe9183b002e79dde7f6977e2988661c9a3e4a3c5fce968787efdbed823c ;;
       Frameworks/App.framework/flutter_assets/shaders/ink_sparkle.frag) expected_flutter_asset_sha=1fe8436a743884cb65078fe8c7b38e18f5365f2a2961270916f426fd13c604af ;;
@@ -416,6 +417,21 @@ while IFS= read -r candidate; do
       receipt_ocr_models/*) ;; # verify-mobile-package enforces the exact recursive model inventory.
       Base.lproj/*.storyboardc/*) [[ "$relative_resource" =~ ^Base\.lproj/[^/]+\.storyboardc/[^/]+$ ]] || fail_unreviewed_resource_path ;;
       Base.lproj/*.nib) [[ "$relative_resource" =~ ^Base\.lproj/[^/]+\.nib$ ]] || fail_unreviewed_resource_path ;;
+      *.bundle/Info.plist|*.bundle/PrivacyInfo.xcprivacy|*.bundle/_CodeSignature/CodeResources)
+        [[ "$relative_resource" =~ ^([^/]+\.bundle|Frameworks/[^/]+\.framework/[^/]+\.bundle)/(Info\.plist|PrivacyInfo\.xcprivacy|_CodeSignature/CodeResources)$ ]] ||
+          fail_unreviewed_resource_path
+        bundle_name=${relative_resource%%.bundle/*}
+        bundle_name=${bundle_name##*/}
+        case "$bundle_name" in
+          file_picker_ios_privacy|image_picker_ios_privacy|flutter_secure_storage|GoogleUtilities_Privacy|GoogleDataTransport_Privacy|GoogleToolboxForMac_Privacy|GoogleToolboxForMac_Logger_Privacy|GTMSessionFetcher_Privacy|GTMSessionFetcher_Core_Privacy|MLKitCommon_Privacy|MLKitTextRecognition_Privacy|MLKitTextRecognitionCommon_Privacy|MLKitVision_Privacy|MLImage_Privacy|nanopb_Privacy|OpenCV_Privacy|onnxruntime_privacy|Yams_Privacy|PromisesObjC_Privacy|FBLPromises_Privacy|LatinOCRResources) ;;
+          *) fail "production application contains an unreviewed privacy bundle" ;;
+        esac
+        if [[ "$relative_resource" == Frameworks/* ]]; then
+          case "$relative_resource" in
+            Frameworks/GoogleDataTransport.framework/GoogleDataTransport_Privacy.bundle/*|Frameworks/MLKitTextRecognition.framework/LatinOCRResources.bundle/*) ;;
+            *) fail_unreviewed_resource_path ;;
+          esac
+        fi ;;
       Frameworks/*/Info.plist|Frameworks/*/PrivacyInfo.xcprivacy|Frameworks/*/_CodeSignature/CodeResources)
         [[ "$relative_resource" =~ ^Frameworks/[^/]+\.framework/(Info\.plist|PrivacyInfo\.xcprivacy|_CodeSignature/CodeResources)$ ]] ||
           fail_unreviewed_resource_path
@@ -428,15 +444,6 @@ while IFS= read -r candidate; do
             printf 'unreviewed_framework_name_sha256=%s\n' \
               "$(printf '%s' "$framework_name" | shasum -a 256 | cut -d ' ' -f 1)" >&2
             fail "production application contains an unreviewed framework resource" ;;
-        esac ;;
-      *.bundle/Info.plist|*.bundle/PrivacyInfo.xcprivacy|*.bundle/_CodeSignature/CodeResources)
-        [[ "$relative_resource" =~ ^([^/]+\.bundle|Frameworks/[^/]+\.framework/[^/]+\.bundle)/(Info\.plist|PrivacyInfo\.xcprivacy|_CodeSignature/CodeResources)$ ]] ||
-          fail_unreviewed_resource_path
-        bundle_name=${relative_resource%%.bundle/*}
-        bundle_name=${bundle_name##*/}
-        case "$bundle_name" in
-          file_picker_ios_privacy|image_picker_ios_privacy|flutter_secure_storage|GoogleUtilities_Privacy|GoogleDataTransport_Privacy|GoogleToolboxForMac_Privacy|GoogleToolboxForMac_Logger_Privacy|GTMSessionFetcher_Privacy|GTMSessionFetcher_Core_Privacy|MLKitCommon_Privacy|MLKitTextRecognition_Privacy|MLKitTextRecognitionCommon_Privacy|MLKitVision_Privacy|MLImage_Privacy|nanopb_Privacy|OpenCV_Privacy|onnxruntime_privacy|Yams_Privacy|PromisesObjC_Privacy|FBLPromises_Privacy|LatinOCRResources) ;;
-          *) fail "production application contains an unreviewed privacy bundle" ;;
         esac ;;
       LatinOCRResources.bundle/*|Frameworks/MLKitTextRecognition.framework/LatinOCRResources.bundle/*)
         [[ "$relative_resource" =~ ^(LatinOCRResources\.bundle|Frameworks/MLKitTextRecognition\.framework/LatinOCRResources\.bundle)/[^/]+$ ]] ||
@@ -508,6 +515,8 @@ while IFS= read -r candidate; do
       "$app_path"/Frameworks/App.framework/flutter_assets/NativeAssetsManifest.json|"$app_path"/Frameworks/App.framework/flutter_assets/fonts/MaterialIcons-Regular.otf|"$app_path"/Frameworks/App.framework/flutter_assets/packages/cupertino_icons/assets/CupertinoIcons.ttf|"$app_path"/Frameworks/App.framework/flutter_assets/shaders/ink_sparkle.frag|"$app_path"/Frameworks/App.framework/flutter_assets/shaders/stretch_effect.frag) ;;
       *) fail "production application contains an unreviewed opaque resource" ;;
     esac
+  elif [[ "$relative_resource" == Frameworks/App.framework/flutter_assets/NOTICES.Z && "$file_description" == *'compressed data'* ]]; then
+    : # Exact content was checked against the reviewed Release APK above.
   elif [[ "$file_description" =~ image|bitmap|PDF\ document|SVG|HEIF|HEIC|AVIF|Web/P|archive|compressed\ data|gzip|bzip2|XZ\ compressed|Zstandard|RAR|7-zip ]]; then
     fail "production application contains an unreviewed image or document resource"
   fi

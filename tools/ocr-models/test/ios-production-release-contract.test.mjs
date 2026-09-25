@@ -546,6 +546,26 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   assert.doesNotMatch(resourceInventoryLoop, /unreviewed_framework_name=%s/);
   assert.match(script, /App\|Flutter\|file_picker\|flutter_secure_storage_darwin/);
   assert.match(script, /nanopb\|objective_c\|onnxruntime/);
+  assert.ok(resourceInventoryLoop.indexOf('*.bundle/Info.plist|*.bundle/PrivacyInfo.xcprivacy') <
+    resourceInventoryLoop.indexOf('Frameworks/*/Info.plist|Frameworks/*/PrivacyInfo.xcprivacy'));
+  const nestedBundlePattern = resourceInventoryLoop.match(
+    /Frameworks\/GoogleDataTransport\.framework\/GoogleDataTransport_Privacy\.bundle\/\*\|Frameworks\/MLKitTextRecognition\.framework\/LatinOCRResources\.bundle\/\*/,
+  )?.[0];
+  assert.ok(nestedBundlePattern);
+  assert.match(resourceInventoryLoop, /\*\) fail_unreviewed_resource_path ;;\s+esac\s+fi ;;\s+Frameworks\/\*\/Info\.plist/);
+  const matchesNestedBundle = (relativePath) => {
+    const result = spawnSync('bash', ['-c', `case "$1" in ${nestedBundlePattern}) printf reviewed ;; *) printf reject ;; esac`, '_', relativePath], { encoding: 'utf8' });
+    assert.equal(result.status, 0);
+    return result.stdout;
+  };
+  assert.equal(matchesNestedBundle('Frameworks/GoogleDataTransport.framework/GoogleDataTransport_Privacy.bundle/PrivacyInfo.xcprivacy'), 'reviewed');
+  assert.equal(matchesNestedBundle('Frameworks/App.framework/GoogleDataTransport_Privacy.bundle/PrivacyInfo.xcprivacy'), 'reject');
+  assert.match(script, /Frameworks\/App\.framework\/flutter_assets\/NOTICES\.Z\) expected_flutter_asset_sha=7c9b681fa5d9672489bc4a80fbbb03e5ee666d4b45af75aecf3f1802052f9008/);
+  assert.equal(resourceInventoryLoop.indexOf('NOTICES.Z'),
+    resourceInventoryLoop.indexOf('NOTICES.Z) expected_flutter_asset_sha='));
+  assert.doesNotMatch(resourceInventoryLoop, /AssetManifest\.json\|Frameworks\/App\.framework\/flutter_assets\/FontManifest\.json\|Frameworks\/App\.framework\/flutter_assets\/NOTICES\.Z\) ;;/);
+  assert.ok(script.indexOf('elif [[ "$relative_resource" == Frameworks/App.framework/flutter_assets/NOTICES.Z') <
+    script.indexOf('elif [[ "$file_description" =~ image|bitmap'));
   assert.match(readFileSync(path.join(repoRoot, 'apps/mobile/pubspec.lock'), 'utf8'), /objective_c:\s+dependency: transitive\s+description:[\s\S]*?name: objective_c[\s\S]*?version: "9\.3\.0"/);
   assert.match(script, /file_picker_ios_privacy\|image_picker_ios_privacy\|flutter_secure_storage\|GoogleUtilities_Privacy/);
   assert.match(script, /GoogleToolboxForMac_Logger_Privacy/);
