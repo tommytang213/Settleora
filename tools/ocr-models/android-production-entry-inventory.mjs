@@ -3,6 +3,15 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // Exact iOS acceptance-link and locked-framework inventory correction.
+  // Android package inputs are unchanged; the complete local Release
+  // projection produced the first digest. The second
+  // digest is the reviewed hosted representation from job 108134556526 and
+  // must be re-proven on the new exact head before acceptance.
+  "32a7e3d69a5d91ddfe7df97d81891172965a91fcb25e65b0a3d4aae99fff0ab9": Object.freeze([
+    "754737d69df2409e1e1fe265b3eb003335980e6bc450f2d1a4a44adf57b601f2",
+    "69470e8594e11481160ef3b1415f22bae77a4901d2bacb89e813e60196946a8c",
+  ]),
   // Exact candidate tracked tree excluding this inventory file. Clean local
   // Flutter 3.44.8 Release projection with strict Gradle evidence, the
   // production plugin graph, and the updated bound acceptance catalog.

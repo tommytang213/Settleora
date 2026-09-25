@@ -4,6 +4,9 @@ set -euo pipefail
 phase=initialize
 device=""
 network_environment_configured=false
+network_link_configured=false
+debug_config=""
+network_config_backup=""
 read_simulator_environment() {
   local variable="$1"
   local value=""
@@ -19,18 +22,19 @@ read_simulator_environment() {
 report_failure_phase() {
   status=$?
   cleanup_status=0
+  if "$network_link_configured"; then
+    if ! cp -p "$network_config_backup" "$debug_config" ||
+        ! cmp -s "$network_config_backup" "$debug_config"; then
+      cleanup_status=98
+    fi
+  fi
   if "$network_environment_configured"; then
-    unset SIMCTL_CHILD_DYLD_INSERT_LIBRARIES || cleanup_status=98
     unset SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_ISOLATION || cleanup_status=98
     unset SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE || cleanup_status=98
     unset SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED || cleanup_status=98
-    if test -n "${SIMCTL_CHILD_DYLD_INSERT_LIBRARIES:-}" ||
-        test -n "${SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_ISOLATION:-}" ||
+    if test -n "${SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_ISOLATION:-}" ||
         test -n "${SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE:-}" ||
         test -n "${SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED:-}"; then
-      cleanup_status=98
-    fi
-    if ! xcrun simctl spawn "$device" launchctl unsetenv DYLD_INSERT_LIBRARIES >/dev/null 2>&1; then
       cleanup_status=98
     fi
     if ! xcrun simctl spawn "$device" launchctl unsetenv SETTLEORA_OCR_NETWORK_ISOLATION >/dev/null 2>&1; then
@@ -39,26 +43,22 @@ report_failure_phase() {
     if ! xcrun simctl spawn "$device" launchctl unsetenv SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED >/dev/null 2>&1; then
       cleanup_status=98
     fi
-    persistent_dyld=""
     persistent_isolation=""
     persistent_constructor=""
-    if ! persistent_dyld=$(read_simulator_environment DYLD_INSERT_LIBRARIES); then
-      cleanup_status=98
-    fi
     if ! persistent_isolation=$(read_simulator_environment SETTLEORA_OCR_NETWORK_ISOLATION); then
       cleanup_status=98
     fi
     if ! persistent_constructor=$(read_simulator_environment SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED); then
       cleanup_status=98
     fi
-    if test -n "$persistent_dyld" || test -n "$persistent_isolation" ||
+    if test -n "$persistent_isolation" ||
         test -n "$persistent_constructor"; then
       cleanup_status=98
     fi
-    if test "$cleanup_status" -ne 0; then
-      status=$cleanup_status
-      phase=cleanup_network_isolation
-    fi
+  fi
+  if test "$cleanup_status" -ne 0; then
+    status=$cleanup_status
+    phase=cleanup_network_isolation
   fi
   if test "$status" -ne 0; then
     printf 'ios_native_acceptance_failure_phase=%s\n' "$phase" >&2
@@ -92,6 +92,7 @@ xcrun --sdk iphonesimulator clang \
   -arch "$host_arch" \
   -mios-simulator-version-min=18.0 \
   -dynamiclib \
+  "-Wl,-install_name,$network_deny_in_app" \
   -fvisibility=hidden \
   -Wall \
   -Wextra \
@@ -100,6 +101,7 @@ xcrun --sdk iphonesimulator clang \
   -o "$network_deny"
 codesign --force --sign - "$network_deny" >/dev/null
 file "$network_deny" | grep -F 'Mach-O' >/dev/null
+test "$(xcrun otool -D "$network_deny" | tail -n 1)" = "$network_deny_in_app"
 
 phase=verify_network_environment_clean
 test -z "${SIMCTL_CHILD_DYLD_INSERT_LIBRARIES:-}"
@@ -111,16 +113,22 @@ test -z "$(read_simulator_environment SETTLEORA_OCR_NETWORK_ISOLATION)"
 test -z "$(read_simulator_environment SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED)"
 
 phase=install_network_isolation
-xcrun simctl spawn "$device" launchctl setenv DYLD_INSERT_LIBRARIES "$network_deny_in_app"
+debug_config="$GITHUB_WORKSPACE/apps/mobile/ios/Flutter/Debug.xcconfig"
+network_config_backup="$RUNNER_TEMP/settleora-ocr-debug.xcconfig.original"
+test "$(cat "$debug_config")" = '#include "Generated.xcconfig"'
+case "$network_deny" in
+  *[[:space:]]*) exit 98 ;;
+esac
+cp -p "$debug_config" "$network_config_backup"
+network_link_configured=true
+printf '\nOTHER_LDFLAGS = $(inherited) -Wl,-needed_library,%s\n' "$network_deny" >> "$debug_config"
+test "$(tail -n 1 "$debug_config")" = "OTHER_LDFLAGS = \$(inherited) -Wl,-needed_library,$network_deny"
 network_environment_configured=true
 xcrun simctl spawn "$device" launchctl setenv SETTLEORA_OCR_NETWORK_ISOLATION socket_interpose_v1
 export SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE="$network_deny"
-export SIMCTL_CHILD_DYLD_INSERT_LIBRARIES="$network_deny_in_app"
 export SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_ISOLATION=socket_interpose_v1
 test "$SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE" = "$network_deny"
-test "$SIMCTL_CHILD_DYLD_INSERT_LIBRARIES" = "$network_deny_in_app"
 test "$SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_ISOLATION" = "socket_interpose_v1"
-test "$(xcrun simctl spawn "$device" launchctl getenv DYLD_INSERT_LIBRARIES)" = "$network_deny_in_app"
 test "$(xcrun simctl spawn "$device" launchctl getenv SETTLEORA_OCR_NETWORK_ISOLATION)" = "socket_interpose_v1"
 
 phase=execute_flutter_test

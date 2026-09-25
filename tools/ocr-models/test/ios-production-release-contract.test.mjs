@@ -543,6 +543,8 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   assert.match(resourceInventoryLoop, /unreviewed_framework_name_sha256=%s/);
   assert.doesNotMatch(resourceInventoryLoop, /unreviewed_framework_name=%s/);
   assert.match(script, /App\|Flutter\|file_picker\|flutter_secure_storage_darwin/);
+  assert.match(script, /nanopb\|objective_c\|onnxruntime/);
+  assert.match(readFileSync(path.join(repoRoot, 'apps/mobile/pubspec.lock'), 'utf8'), /objective_c:\s+dependency: transitive\s+description:[\s\S]*?name: objective_c[\s\S]*?version: "9\.3\.0"/);
   assert.match(script, /file_picker_ios_privacy\|image_picker_ios_privacy\|flutter_secure_storage\|GoogleUtilities_Privacy/);
   assert.match(script, /GoogleToolboxForMac_Logger_Privacy/);
   assert.match(script, /GTMSessionFetcher_Core_Privacy/);

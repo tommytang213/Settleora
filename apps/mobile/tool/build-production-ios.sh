@@ -405,7 +405,7 @@ while IFS= read -r candidate; do
         framework_name=${framework_name%%/*}
         framework_name=${framework_name%.framework}
         case "$framework_name" in
-          App|Flutter|file_picker|flutter_secure_storage_darwin|google_mlkit_commons|google_mlkit_text_recognition|image_picker_ios|GoogleDataTransport|GoogleMLKit|GoogleToolboxForMac|GoogleUtilities|GTMSessionFetcher|MLImage|MLKitCommon|MLKitTextRecognition|MLKitTextRecognitionCommon|MLKitVision|nanopb|onnxruntime|onnxruntime-c|onnxruntime-objc|OpenCV|PromisesObjC|FBLPromises|Yams) ;;
+          App|Flutter|file_picker|flutter_secure_storage_darwin|google_mlkit_commons|google_mlkit_text_recognition|image_picker_ios|GoogleDataTransport|GoogleMLKit|GoogleToolboxForMac|GoogleUtilities|GTMSessionFetcher|MLImage|MLKitCommon|MLKitTextRecognition|MLKitTextRecognitionCommon|MLKitVision|nanopb|objective_c|onnxruntime|onnxruntime-c|onnxruntime-objc|OpenCV|PromisesObjC|FBLPromises|Yams) ;;
           *)
             printf 'unreviewed_framework_name_sha256=%s\n' \
               "$(printf '%s' "$framework_name" | shasum -a 256 | cut -d ' ' -f 1)" >&2

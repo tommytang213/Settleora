@@ -418,6 +418,8 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   const iosRunner = read('tools/ocr-models/run-ios-native-acceptance.sh');
   const iosNetworkDeny = read('tools/ocr-models/ios-simulator-network-deny.c');
   const iosProject = read('apps/mobile/ios/Runner.xcodeproj/project.pbxproj');
+  assert.equal(read('apps/mobile/ios/Flutter/Debug.xcconfig'), '#include "Generated.xcconfig"\n');
+  assert.equal(read('apps/mobile/ios/Flutter/Release.xcconfig'), '#include "Generated.xcconfig"\n');
   assert.ok(iosCommands.includes('/Applications/Xcode_16.4.app/Contents/Developer'));
   assert.ok(iosCommands.includes('test "$(pod --version)" = "1.17.0"'));
   assert.ok(iosCommands.includes('xcrun simctl erase "$udid"'));
@@ -425,26 +427,30 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(iosCommands.includes('run-ios-native-acceptance.sh'));
   assert.ok(iosRunner.includes('export SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE="$network_deny"'));
   assert.ok(iosRunner.includes('network_deny_in_app="@executable_path/Frameworks/libSettleoraOcrNetworkDeny.dylib"'));
-  assert.ok(iosRunner.includes('export SIMCTL_CHILD_DYLD_INSERT_LIBRARIES="$network_deny_in_app"'));
   assert.ok(iosRunner.includes('export SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_ISOLATION=socket_interpose_v1'));
-  assert.ok(iosRunner.includes('launchctl setenv DYLD_INSERT_LIBRARIES "$network_deny_in_app"'));
   assert.ok(iosRunner.includes('launchctl setenv SETTLEORA_OCR_NETWORK_ISOLATION socket_interpose_v1'));
-  assert.ok(iosRunner.includes('launchctl getenv DYLD_INSERT_LIBRARIES'));
   assert.ok(iosRunner.includes('launchctl getenv SETTLEORA_OCR_NETWORK_ISOLATION'));
-  assert.ok(iosRunner.includes('launchctl unsetenv DYLD_INSERT_LIBRARIES'));
   assert.ok(iosRunner.includes('launchctl unsetenv SETTLEORA_OCR_NETWORK_ISOLATION'));
   assert.ok(iosRunner.includes('launchctl unsetenv SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED'));
   assert.ok(iosRunner.includes('read_simulator_environment SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED'));
-  assert.ok(iosRunner.includes('unset SIMCTL_CHILD_DYLD_INSERT_LIBRARIES'));
   assert.ok(iosRunner.includes('unset SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_ISOLATION'));
   assert.ok(iosRunner.includes('unset SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE'));
   assert.ok(iosRunner.includes('phase=verify_network_environment_clean'));
   assert.ok(iosRunner.includes('test -z "${SIMCTL_CHILD_DYLD_INSERT_LIBRARIES:-}"'));
   assert.ok(iosRunner.includes('test -z "${SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_ISOLATION:-}"'));
-  assert.ok(
-    iosRunner.indexOf('network_environment_configured=true') >
-      iosRunner.indexOf('launchctl setenv DYLD_INSERT_LIBRARIES "$network_deny_in_app"'),
-  );
+  assert.ok(iosRunner.includes('"-Wl,-install_name,$network_deny_in_app"'));
+  assert.ok(iosRunner.includes('xcrun otool -D "$network_deny"'));
+  assert.ok(iosRunner.includes("test \"$(cat \"$debug_config\")\" = '#include \"Generated.xcconfig\"'"));
+  assert.ok(iosRunner.includes("printf '\\nOTHER_LDFLAGS = $(inherited) -Wl,-needed_library,%s\\n'"));
+  assert.ok(iosRunner.includes('network_link_configured=true'));
+  assert.ok(iosRunner.includes('cp -p "$network_config_backup" "$debug_config"'));
+  assert.ok(iosRunner.includes('cmp -s "$network_config_backup" "$debug_config"'));
+  assert.ok(iosRunner.indexOf('network_link_configured=true') <
+    iosRunner.indexOf('phase=execute_flutter_test'));
+  assert.ok(iosRunner.indexOf('cp -p "$network_config_backup" "$debug_config"') <
+    iosRunner.indexOf('phase=execute_flutter_test'));
+  assert.doesNotMatch(iosRunner, /launchctl setenv DYLD_INSERT_LIBRARIES/);
+  assert.doesNotMatch(iosRunner, /export SIMCTL_CHILD_DYLD_INSERT_LIBRARIES/);
   assert.ok(
     iosRunner.indexOf('network_environment_configured=true') <
       iosRunner.indexOf('launchctl setenv SETTLEORA_OCR_NETWORK_ISOLATION socket_interpose_v1'),
