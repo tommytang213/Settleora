@@ -90,6 +90,12 @@ void main() {
             reason: 'The iOS interposer must be a regular in-app file.',
           );
           failure.set('network_interposer_load');
+          expect(
+            Platform.environment['SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED'],
+            '1',
+            reason:
+                'The in-app interposer constructor must have run at launch.',
+          );
           final process = DynamicLibrary.process();
           final allocate = process
               .lookupFunction<
@@ -121,26 +127,59 @@ void main() {
                 Int32 Function(Pointer<Void>, Pointer<_DarwinDlInfo>),
                 int Function(Pointer<Void>, Pointer<_DarwinDlInfo>)
               >('dladdr');
-          // Darwin RTLD_LAZY | RTLD_NOLOAD returns a handle only when the
-          // exact in-app image is already loaded; it never loads the image.
-          const loadedOnly = 0x01 | 0x10;
-          Pointer<Void> handle = nullptr;
-          for (final candidate in [
+          final imageCount = process
+              .lookupFunction<Uint32 Function(), int Function()>(
+                '_dyld_image_count',
+              );
+          final imageName = process
+              .lookupFunction<
+                Pointer<Int8> Function(Uint32),
+                Pointer<Int8> Function(int)
+              >('_dyld_get_image_name');
+          final beforeCount = imageCount();
+          expect(beforeCount, inInclusiveRange(1, 4096));
+          final expectedImage = File(
             interposerPath!,
-            '@executable_path/Frameworks/libSettleoraOcrNetworkDeny.dylib',
-          ]) {
-            final path = _nativeCString(candidate, allocate);
-            try {
-              handle = openLoaded(path, loadedOnly);
-            } finally {
-              release(path.cast<Void>());
+          ).resolveSymbolicLinksSync();
+          String? loadedImage;
+          for (var index = 0; index < beforeCount; index++) {
+            final candidate = _boundedNativeString(imageName(index));
+            if (candidate == null ||
+                !candidate.endsWith('/libSettleoraOcrNetworkDeny.dylib')) {
+              continue;
             }
-            if (handle.address != 0) break;
+            if (File(candidate).resolveSymbolicLinksSync() == expectedImage) {
+              expect(
+                loadedImage,
+                isNull,
+                reason: 'Only one in-app interposer image may be loaded.',
+              );
+              loadedImage = candidate;
+            }
+          }
+          expect(
+            loadedImage,
+            isNotNull,
+            reason: 'The exact in-app interposer must already be loaded.',
+          );
+          // The image is proven loaded before obtaining a handle. Opening its
+          // dyld-reported name must leave the loaded-image count unchanged.
+          final loadedPath = _nativeCString(loadedImage!, allocate);
+          Pointer<Void> handle;
+          try {
+            handle = openLoaded(loadedPath, 0x01); // Darwin RTLD_LAZY.
+          } finally {
+            release(loadedPath.cast<Void>());
           }
           expect(
             handle.address,
             isNot(0),
             reason: 'The exact in-app interposer must already be loaded.',
+          );
+          expect(
+            imageCount(),
+            beforeCount,
+            reason: 'Obtaining the interposer handle must not load an image.',
           );
           try {
             failure.set('network_interposer_symbol');
@@ -164,14 +203,9 @@ void main() {
               expect(imageForSymbol(symbol, imageInfo), isNot(0));
               final observed = _boundedNativeString(imageInfo.ref.imagePath);
               expect(observed, isNotNull);
-              final inAppToken =
-                  '@executable_path/Frameworks/libSettleoraOcrNetworkDeny.dylib';
-              final observedPath = observed == inAppToken
-                  ? interposerPath
-                  : observed;
               expect(
-                File(observedPath!).resolveSymbolicLinksSync(),
-                File(interposerPath).resolveSymbolicLinksSync(),
+                File(observed!).resolveSymbolicLinksSync(),
+                expectedImage,
                 reason: 'The loaded symbol must come from the in-app dylib.',
               );
             } finally {

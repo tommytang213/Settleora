@@ -372,6 +372,12 @@ while IFS= read -r candidate; do
     relative_resource=${candidate#"$app_path"/}
     case "$relative_resource" in
       Info.plist|PkgInfo|Assets.car|embedded.mobileprovision|en.lproj/InfoPlist.strings|_CodeSignature/CodeResources|Frameworks/Flutter.framework/icudtl.dat|Frameworks/App.framework/flutter_assets/AssetManifest.bin|Frameworks/App.framework/flutter_assets/AssetManifest.json|Frameworks/App.framework/flutter_assets/FontManifest.json|Frameworks/App.framework/flutter_assets/NOTICES.Z) ;;
+      AppFrameworkInfo.plist)
+        observed_app_framework_sha=$(sha256_file "$candidate")
+        if [[ "$observed_app_framework_sha" != da12038f9b2688a8a26160fea2609fa8fcb11421448c109f09c0f573efe7698d ]]; then
+          printf 'app_framework_info_sha256=%s\n' "$observed_app_framework_sha" >&2
+          fail "production AppFrameworkInfo resource differs from reviewed source"
+        fi ;;
       # Exact Flutter-generated assets observed in the reviewed same-source
       # Android Release package. iOS must prove identical bytes or fail closed.
       Frameworks/App.framework/flutter_assets/NativeAssetsManifest.json) expected_flutter_asset_sha=9548a31e4a048135c1d94f919328bfb62ae2c7bb3cab96557c7941daa97776cb ;;

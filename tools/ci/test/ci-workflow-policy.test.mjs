@@ -465,19 +465,24 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.match(nativeTest, /Frameworks\/libSettleoraOcrNetworkDeny\.dylib/);
   assert.match(nativeTest, /FileSystemEntity\.typeSync\(expected, followLinks: false\)/);
   assert.match(nativeTest, /FileSystemEntityType\.file/);
-  assert.match(nativeTest, /const loadedOnly = 0x01 \| 0x10;/);
-  assert.match(nativeTest, /openLoaded\(path, loadedOnly\)/);
-  assert.match(nativeTest, /'@executable_path\/Frameworks\/libSettleoraOcrNetworkDeny\.dylib'/);
+  assert.match(nativeTest, /Platform\.environment\['SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED'\]/);
+  assert.match(nativeTest, /'_dyld_image_count'/);
+  assert.match(nativeTest, /'_dyld_get_image_name'/);
+  assert.match(nativeTest, /File\(candidate\)\.resolveSymbolicLinksSync\(\) == expectedImage/);
+  assert.match(nativeTest, /openLoaded\(loadedPath, 0x01\)/);
+  assert.match(nativeTest, /expect\(\s*imageCount\(\),\s*beforeCount/);
   assert.match(nativeTest, /findSymbol\(handle, symbolName\)/);
   assert.match(nativeTest, /'dladdr'/);
   assert.match(nativeTest, /imageForSymbol\(symbol, imageInfo\)/);
-  assert.match(nativeTest, /File\(observedPath!\)\.resolveSymbolicLinksSync\(\)/);
-  assert.match(nativeTest, /File\(interposerPath\)\.resolveSymbolicLinksSync\(\)/);
+  assert.match(nativeTest, /File\(observed!\)\.resolveSymbolicLinksSync\(\)/);
+  assert.match(nativeTest, /File\(\s*interposerPath!,\s*\)\.resolveSymbolicLinksSync\(\)/);
   assert.match(nativeTest, /closeLoaded\(handle\)/);
   assert.doesNotMatch(nativeTest, /DynamicLibrary\.open\(/);
   assert.ok(nativeTest.indexOf('final interposerPath = _inAppNetworkInterposerPath();') <
-    nativeTest.indexOf('openLoaded(path, loadedOnly)'));
-  assert.ok(nativeTest.indexOf('openLoaded(path, loadedOnly)') <
+    nativeTest.indexOf('final beforeCount = imageCount();'));
+  assert.ok(nativeTest.indexOf('final beforeCount = imageCount();') <
+    nativeTest.indexOf('openLoaded(loadedPath, 0x01)'));
+  assert.ok(nativeTest.indexOf('openLoaded(loadedPath, 0x01)') <
     nativeTest.indexOf('findSymbol(handle, symbolName)'));
   assert.ok(nativeTest.indexOf('findSymbol(handle, symbolName)') <
     nativeTest.indexOf('imageForSymbol(symbol, imageInfo)'));

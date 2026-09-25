@@ -517,6 +517,10 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   assert.match(script, /production application contains an unreviewed resource path/);
   const resourceInventoryLoop = script.slice(script.lastIndexOf('while IFS= read -r candidate; do'));
   assert.match(resourceInventoryLoop, /done < <\(find "\$inventory_root" -type f -print\)/);
+  const appFrameworkSource = readFileSync(path.join(repoRoot, "apps/mobile/ios/Flutter/AppFrameworkInfo.plist"));
+  const appFrameworkSha = createHash("sha256").update(appFrameworkSource).digest("hex");
+  assert.match(resourceInventoryLoop, new RegExp(`AppFrameworkInfo\\.plist\\)\\s+observed_app_framework_sha=\\$\\(sha256_file "\\$candidate"\\)[\\s\\S]*?"\\$observed_app_framework_sha" != ${appFrameworkSha}`));
+  assert.match(resourceInventoryLoop, /production AppFrameworkInfo resource differs from reviewed source/);
   assert.ok(resourceInventoryLoop.indexOf('Base.lproj/*.storyboardc/*)') <
     resourceInventoryLoop.indexOf('Base.lproj/*.nib)'));
   assert.doesNotMatch(resourceInventoryLoop, /if \[\[ -d "\$candidate" \]\]/);
