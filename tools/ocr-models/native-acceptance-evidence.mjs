@@ -7,6 +7,8 @@ const maxLogBytes = 32 * 1024 * 1024;
 const maxMarkerBytes = 512 * 1024;
 const safeToken = /^[A-Za-z0-9_.:[\]-]{1,160}$/;
 const androidPreflightFailurePhases = new Set([
+  "kvm_setup",
+  "kvm_preflight",
   "initialize",
   "resolve_tools",
   "verify_sdk_revisions",
@@ -635,6 +637,7 @@ function sanitizeUiSmoke(value, platform) {
 
 const diagnosticStages = new Set([
   "network_environment",
+  "network_interposer_load",
   "network_interposer_constructor",
   "network_interposer_symbol",
   "network_probe",

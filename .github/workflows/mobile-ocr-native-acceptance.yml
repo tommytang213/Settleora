@@ -81,6 +81,52 @@ jobs:
       - name: Verify immutable OCR models and fixture corpus
         run: npm run validate:ocr-models
 
+      - name: Enable KVM group perms
+        id: kvm_setup
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! {
+            echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules &&
+            sudo udevadm control --reload-rules &&
+            sudo udevadm trigger --name-match=kvm
+          }; then
+            echo "failure_phase=kvm_setup" >> "$GITHUB_OUTPUT"
+            echo "::error title=Android KVM infrastructure::kvm_setup_failed" >&2
+            exit 1
+          fi
+
+      - name: Preflight Android KVM acceleration
+        id: kvm_preflight
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail_kvm() {
+            echo "failure_phase=kvm_preflight" >> "$GITHUB_OUTPUT"
+            echo "::error title=Android KVM infrastructure::kvm_unusable" >&2
+            exit 1
+          }
+          if [[ ! -c /dev/kvm || ! -r /dev/kvm || ! -w /dev/kvm ]]; then
+            fail_kvm
+          fi
+          # KVM_GET_API_VERSION (0xAE00) must return the supported API version 12.
+          if ! timeout 10s python3 - <<'PY'
+          import fcntl
+          import os
+
+          fd = os.open('/dev/kvm', os.O_RDWR | os.O_CLOEXEC)
+          try:
+              assert fcntl.ioctl(fd, 0xAE00) == 12
+          finally:
+              os.close(fd)
+          PY
+          then
+            fail_kvm
+          fi
+          echo "Android KVM preflight passed"
+
       - name: Execute Android real-provider acceptance on trusted emulator
         id: acceptance
         timeout-minutes: 180
@@ -97,7 +143,7 @@ jobs:
           script: bash "$GITHUB_WORKSPACE/tools/ocr-models/run-android-native-acceptance.sh"
 
       - name: Measure Android package and model payload delta
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.kvm_preflight.outcome == 'success' }}
         id: package
         working-directory: ${{ github.workspace }}
         shell: bash
@@ -213,7 +259,7 @@ jobs:
             --platform=android \
             --source-sha="$EXPECTED_HEAD" \
             --test-status="${{ steps.acceptance.outputs.status }}" \
-            --failure-phase="${{ steps.acceptance.outputs.failure_phase }}" \
+            --failure-phase="${{ steps.kvm_setup.outputs.failure_phase || steps.kvm_preflight.outputs.failure_phase || steps.acceptance.outputs.failure_phase }}" \
             --runner-image="${{ steps.acceptance.outputs.runner_image }}" \
             --os-runtime="${{ steps.acceptance.outputs.os_runtime }}" \
             --sdk-toolchain="${{ steps.acceptance.outputs.sdk_toolchain }}" \

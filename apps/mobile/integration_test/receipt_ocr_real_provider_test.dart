@@ -17,6 +17,43 @@ import 'package:mobile/receipt_ocr_capture/receipt_image_normalization_policy.da
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_provider.dart';
 
+bool _matchesLoadedNetworkInterposerPath(String observed, String expected) =>
+    observed == expected;
+
+String? _preloadedNetworkInterposerPath() {
+  final executable = Platform.resolvedExecutable;
+  final separator = executable.lastIndexOf('/');
+  if (separator < 1) return null;
+  final expected =
+      '${executable.substring(0, separator)}/Frameworks/libSettleoraOcrNetworkDeny.dylib';
+  final process = DynamicLibrary.process();
+  final imageCount = process.lookupFunction<Uint32 Function(), int Function()>(
+    '_dyld_image_count',
+  );
+  final imageName = process
+      .lookupFunction<
+        Pointer<Int8> Function(Uint32),
+        Pointer<Int8> Function(int)
+      >('_dyld_get_image_name');
+  final count = imageCount();
+  if (count < 1 || count > 1024) return null;
+  for (var index = 0; index < count; index++) {
+    final pointer = imageName(index);
+    if (pointer.address == 0) continue;
+    final bytes = <int>[];
+    for (var offset = 0; offset < 4096; offset++) {
+      final byte = (pointer + offset).value;
+      if (byte == 0) break;
+      bytes.add(byte & 0xff);
+    }
+    if (bytes.length >= 4096) continue;
+    if (_matchesLoadedNetworkInterposerPath(utf8.decode(bytes), expected)) {
+      return expected;
+    }
+  }
+  return null;
+}
+
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   const fixtures = _NativeAcceptanceFixtures();
@@ -31,14 +68,39 @@ void main() {
     await failure.run(() async {
       if (Platform.isIOS) {
         expect(
+          _matchesLoadedNetworkInterposerPath(
+            '',
+            '/reviewed/Runner.app/Frameworks/libSettleoraOcrNetworkDeny.dylib',
+          ),
+          isFalse,
+          reason: 'An absent preloaded image must not attest isolation.',
+        );
+        expect(
+          _matchesLoadedNetworkInterposerPath(
+            '/other/Runner.app/Frameworks/libSettleoraOcrNetworkDeny.dylib',
+            '/reviewed/Runner.app/Frameworks/libSettleoraOcrNetworkDeny.dylib',
+          ),
+          isFalse,
+          reason:
+              'A different or absent preloaded image must not attest isolation.',
+        );
+        expect(
           const String.fromEnvironment('SETTLEORA_OCR_NETWORK_ISOLATION'),
           'socket_interpose_v1',
           reason: 'The iOS runner must identify the isolated test invocation.',
         );
-        failure.set('network_interposer_symbol');
         var interposerLoaded = false;
         try {
-          final probe = DynamicLibrary.process()
+          failure.set('network_interposer_load');
+          final interposerPath = _preloadedNetworkInterposerPath();
+          expect(
+            interposerPath,
+            isNotNull,
+            reason:
+                'The iOS interposer must already be loaded before the probe.',
+          );
+          failure.set('network_interposer_symbol');
+          final probe = DynamicLibrary.open(interposerPath!)
               .lookupFunction<Int32 Function(), int Function()>(
                 'settleora_network_interposer_loaded',
               );
@@ -50,7 +112,8 @@ void main() {
         expect(
           interposerLoaded,
           isTrue,
-          reason: 'The iOS network interposer constructor must positively attest loading.',
+          reason:
+              'The iOS network interposer constructor must positively attest loading.',
         );
       }
       failure.set('network_probe');

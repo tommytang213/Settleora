@@ -11,8 +11,12 @@
 // must match one complete reviewed package identity. AOT output varies across
 // clean build roots, so each distinct output must be reviewed and pinned.
 export const expectedAndroidPackageDigests = Object.freeze([
-  "35d527d589662fced712a7157b147517be5bf565c581bdf196752f46e8568d32",
-  "d32a93d7787c3e02ce21e8eda023ade8475bf9043f46239deb76ae2bd2d02cb5",
+  // Clean exact-candidate projection for continuation 20260925-0223.
+  "8678470a97491463c558222a8b151f2dcec5fcbbaed3d1d2467dd9c520f732b6",
+  // Clean 20260925-0959 projection with the workflow's strict Gradle evidence flag.
+  // The full package verifier also checked its entry inventory, expanded model
+  // bytes, fixture absence, and pinned Android signer before this pin was added.
+  "53732fa7c7fba3b0db22ab35ec02ca8723b60480f7993d24cad24bee007d265d",
 ]);
 export const expectedAndroidNonOcrEntries = Object.freeze([
   "AndroidManifest.xml",

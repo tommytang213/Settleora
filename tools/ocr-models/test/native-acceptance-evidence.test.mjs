@@ -320,6 +320,18 @@ test("produces bounded incomplete evidence when device execution emits no marker
 
 test("retains only an allowlisted Android preflight failure phase", () => {
   withLog(protocolLog(), (logPath) => {
+    const setupEvidence = buildEvidence(
+      { ...evidenceArgs(logPath), "test-status": "20", "failure-phase": "kvm_setup" },
+      repoRoot,
+    );
+    assert.equal(setupEvidence.execution.preflightFailurePhase, "kvm_setup");
+    assert.equal(isCompleteEvidence(setupEvidence), false);
+    const kvmEvidence = buildEvidence(
+      { ...evidenceArgs(logPath), "test-status": "20", "failure-phase": "kvm_preflight" },
+      repoRoot,
+    );
+    assert.equal(kvmEvidence.execution.preflightFailurePhase, "kvm_preflight");
+    assert.equal(isCompleteEvidence(kvmEvidence), false);
     const evidence = buildEvidence(
       { ...evidenceArgs(logPath), "test-status": "20", "failure-phase": "isolate_airplane_mode" },
       repoRoot,
@@ -538,6 +550,7 @@ test("retains only bounded failure-stage diagnostics and never accepts them as c
     "corpus_provider",
     "hostname_resolution_probe",
     "loopback_round_trip_probe",
+    "network_interposer_load",
     "network_interposer_constructor",
     "network_interposer_symbol",
   ]) {
