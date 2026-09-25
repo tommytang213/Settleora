@@ -373,10 +373,14 @@ while IFS= read -r candidate; do
     case "$relative_resource" in
       Info.plist|PkgInfo|Assets.car|embedded.mobileprovision|en.lproj/InfoPlist.strings|_CodeSignature/CodeResources|Frameworks/Flutter.framework/icudtl.dat|Frameworks/App.framework/flutter_assets/AssetManifest.bin|Frameworks/App.framework/flutter_assets/AssetManifest.json|Frameworks/App.framework/flutter_assets/FontManifest.json|Frameworks/App.framework/flutter_assets/NOTICES.Z) ;;
       AppFrameworkInfo.plist)
+        [[ "$(sha256_file "$mobile_root/ios/Flutter/AppFrameworkInfo.plist")" == da12038f9b2688a8a26160fea2609fa8fcb11421448c109f09c0f573efe7698d ]] ||
+          fail "reviewed AppFrameworkInfo source differs from pinned identity"
         observed_app_framework_sha=$(sha256_file "$candidate")
-        if [[ "$observed_app_framework_sha" != da12038f9b2688a8a26160fea2609fa8fcb11421448c109f09c0f573efe7698d ]]; then
+        # Exact Xcode 16.4 simulator output observed in run 36108851718;
+        # this is no claim about a signed release package.
+        if [[ "$observed_app_framework_sha" != 275c1f7273e185d2d65f8b447af25841e2be7fbdb3df89feb6324634f33ce317 ]]; then
           printf 'app_framework_info_sha256=%s\n' "$observed_app_framework_sha" >&2
-          fail "production AppFrameworkInfo resource differs from reviewed source"
+          fail "production AppFrameworkInfo resource differs from reviewed Xcode output"
         fi ;;
       # Exact Flutter-generated assets observed in the reviewed same-source
       # Android Release package. iOS must prove identical bytes or fail closed.
@@ -470,11 +474,11 @@ while IFS= read -r candidate; do
   elif [[ "$candidate" == "$app_path/Assets.car" ]]; then
     : # Opaque compiled content is excluded from package-wide privacy approval.
   elif [[ "$file_description" == *'Apple binary property list'* ]]; then
-    [[ "$candidate" == */Info.plist || "$candidate" == */InfoPlist.strings || "$candidate" == */PrivacyInfo.xcprivacy ]] ||
+    [[ "$candidate" == */Info.plist || "$candidate" == */InfoPlist.strings || "$candidate" == */PrivacyInfo.xcprivacy || "$candidate" == "$app_path/AppFrameworkInfo.plist" ]] ||
       fail "production application contains an unreviewed opaque resource"
   elif [[ "$file_description" == data ]]; then
     case "$candidate" in
-      "$app_path"/receipt_ocr_models/*|"$app_path"/Assets.car|"$app_path"/embedded.mobileprovision|"$app_path"/Frameworks/Flutter.framework/icudtl.dat|"$app_path"/Frameworks/App.framework/flutter_assets/AssetManifest.bin|"$app_path"/Frameworks/App.framework/flutter_assets/NOTICES.Z|"$app_path"/Base.lproj/*.nib|"$app_path"/LatinOCRResources.bundle/*|"$app_path"/Frameworks/MLKitTextRecognition.framework/LatinOCRResources.bundle/*) ;;
+      "$app_path"/receipt_ocr_models/*|"$app_path"/Assets.car|"$app_path"/embedded.mobileprovision|"$app_path"/AppFrameworkInfo.plist|"$app_path"/Frameworks/Flutter.framework/icudtl.dat|"$app_path"/Frameworks/App.framework/flutter_assets/AssetManifest.bin|"$app_path"/Frameworks/App.framework/flutter_assets/NOTICES.Z|"$app_path"/Base.lproj/*.nib|"$app_path"/LatinOCRResources.bundle/*|"$app_path"/Frameworks/MLKitTextRecognition.framework/LatinOCRResources.bundle/*) ;;
       "$app_path"/Frameworks/App.framework/flutter_assets/NativeAssetsManifest.json|"$app_path"/Frameworks/App.framework/flutter_assets/fonts/MaterialIcons-Regular.otf|"$app_path"/Frameworks/App.framework/flutter_assets/packages/cupertino_icons/assets/CupertinoIcons.ttf|"$app_path"/Frameworks/App.framework/flutter_assets/shaders/ink_sparkle.frag|"$app_path"/Frameworks/App.framework/flutter_assets/shaders/stretch_effect.frag) ;;
       *) fail "production application contains an unreviewed opaque resource" ;;
     esac

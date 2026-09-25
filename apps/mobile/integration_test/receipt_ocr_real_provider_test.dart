@@ -36,20 +36,6 @@ String? _inAppNetworkInterposerPath() {
       : null;
 }
 
-Pointer<Int8> _nativeCString(
-  String value,
-  Pointer<Void> Function(int) allocate,
-) {
-  final bytes = utf8.encode(value);
-  final pointer = allocate(bytes.length + 1).cast<Uint8>();
-  if (pointer.address == 0) throw StateError('Native allocation failed');
-  for (var index = 0; index < bytes.length; index++) {
-    pointer[index] = bytes[index];
-  }
-  pointer[bytes.length] = 0;
-  return pointer.cast<Int8>();
-}
-
 String? _boundedNativeString(Pointer<Int8> pointer) {
   if (pointer.address == 0) return null;
   final bytes = <int>[];
@@ -90,12 +76,6 @@ void main() {
             reason: 'The iOS interposer must be a regular in-app file.',
           );
           failure.set('network_interposer_load');
-          expect(
-            Platform.environment['SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED'],
-            '1',
-            reason:
-                'The in-app interposer constructor must have run at launch.',
-          );
           final process = DynamicLibrary.process();
           final allocate = process
               .lookupFunction<
@@ -107,21 +87,6 @@ void main() {
                 Void Function(Pointer<Void>),
                 void Function(Pointer<Void>)
               >('free');
-          final openLoaded = process
-              .lookupFunction<
-                Pointer<Void> Function(Pointer<Int8>, Int32),
-                Pointer<Void> Function(Pointer<Int8>, int)
-              >('dlopen');
-          final closeLoaded = process
-              .lookupFunction<
-                Int32 Function(Pointer<Void>),
-                int Function(Pointer<Void>)
-              >('dlclose');
-          final findSymbol = process
-              .lookupFunction<
-                Pointer<Void> Function(Pointer<Void>, Pointer<Int8>),
-                Pointer<Void> Function(Pointer<Void>, Pointer<Int8>)
-              >('dlsym');
           final imageForSymbol = process
               .lookupFunction<
                 Int32 Function(Pointer<Void>, Pointer<_DarwinDlInfo>),
@@ -141,84 +106,55 @@ void main() {
           final expectedImage = File(
             interposerPath!,
           ).resolveSymbolicLinksSync();
-          String? loadedImage;
+          var loadedImageCount = 0;
           for (var index = 0; index < beforeCount; index++) {
             final candidate = _boundedNativeString(imageName(index));
             if (candidate == null ||
                 !candidate.endsWith('/libSettleoraOcrNetworkDeny.dylib')) {
               continue;
             }
-            if (File(candidate).resolveSymbolicLinksSync() == expectedImage) {
-              expect(
-                loadedImage,
-                isNull,
-                reason: 'Only one in-app interposer image may be loaded.',
-              );
-              loadedImage = candidate;
-            }
+            expect(
+              File(candidate).resolveSymbolicLinksSync(),
+              expectedImage,
+              reason: 'No alternate interposer image may be loaded.',
+            );
+            loadedImageCount++;
           }
           expect(
-            loadedImage,
-            isNotNull,
+            loadedImageCount,
+            1,
             reason: 'The exact in-app interposer must already be loaded.',
           );
-          // The image is proven loaded before obtaining a handle. Opening its
-          // dyld-reported name must leave the loaded-image count unchanged.
-          final loadedPath = _nativeCString(loadedImage!, allocate);
-          Pointer<Void> handle;
-          try {
-            handle = openLoaded(loadedPath, 0x01); // Darwin RTLD_LAZY.
-          } finally {
-            release(loadedPath.cast<Void>());
-          }
-          expect(
-            handle.address,
-            isNot(0),
-            reason: 'The exact in-app interposer must already be loaded.',
+          // Look up only among images that were already globally loaded by
+          // dyld. dladdr below proves the symbol came from the one in-app image.
+          failure.set('network_interposer_symbol');
+          final symbol = process.lookup<NativeFunction<Int32 Function()>>(
+            'settleora_network_interposer_loaded',
           );
           expect(
             imageCount(),
             beforeCount,
-            reason: 'Obtaining the interposer handle must not load an image.',
+            reason: 'Looking up the interposer symbol must not load an image.',
           );
+          failure.set('network_interposer_image');
+          final imageInfo = allocate(
+            sizeOf<_DarwinDlInfo>(),
+          ).cast<_DarwinDlInfo>();
+          expect(imageInfo.address, isNot(0));
           try {
-            failure.set('network_interposer_symbol');
-            final symbolName = _nativeCString(
-              'settleora_network_interposer_loaded',
-              allocate,
+            expect(imageForSymbol(symbol.cast<Void>(), imageInfo), isNot(0));
+            final observed = _boundedNativeString(imageInfo.ref.imagePath);
+            expect(observed, isNotNull);
+            expect(
+              File(observed!).resolveSymbolicLinksSync(),
+              expectedImage,
+              reason: 'The loaded symbol must come from the in-app dylib.',
             );
-            Pointer<Void> symbol;
-            try {
-              symbol = findSymbol(handle, symbolName);
-            } finally {
-              release(symbolName.cast<Void>());
-            }
-            expect(symbol.address, isNot(0));
-            failure.set('network_interposer_image');
-            final imageInfo = allocate(
-              sizeOf<_DarwinDlInfo>(),
-            ).cast<_DarwinDlInfo>();
-            expect(imageInfo.address, isNot(0));
-            try {
-              expect(imageForSymbol(symbol, imageInfo), isNot(0));
-              final observed = _boundedNativeString(imageInfo.ref.imagePath);
-              expect(observed, isNotNull);
-              expect(
-                File(observed!).resolveSymbolicLinksSync(),
-                expectedImage,
-                reason: 'The loaded symbol must come from the in-app dylib.',
-              );
-            } finally {
-              release(imageInfo.cast<Void>());
-            }
-            failure.set('network_interposer_constructor');
-            final probe = symbol
-                .cast<NativeFunction<Int32 Function()>>()
-                .asFunction<int Function()>();
-            interposerLoaded = probe() == 1;
           } finally {
-            expect(closeLoaded(handle), 0);
+            release(imageInfo.cast<Void>());
           }
+          failure.set('network_interposer_constructor');
+          interposerLoaded = symbol.asFunction<int Function()>()() == 1;
         } catch (_) {
           // The bounded failure stage below is the only emitted diagnostic.
         }

@@ -519,8 +519,11 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   assert.match(resourceInventoryLoop, /done < <\(find "\$inventory_root" -type f -print\)/);
   const appFrameworkSource = readFileSync(path.join(repoRoot, "apps/mobile/ios/Flutter/AppFrameworkInfo.plist"));
   const appFrameworkSha = createHash("sha256").update(appFrameworkSource).digest("hex");
-  assert.match(resourceInventoryLoop, new RegExp(`AppFrameworkInfo\\.plist\\)\\s+observed_app_framework_sha=\\$\\(sha256_file "\\$candidate"\\)[\\s\\S]*?"\\$observed_app_framework_sha" != ${appFrameworkSha}`));
-  assert.match(resourceInventoryLoop, /production AppFrameworkInfo resource differs from reviewed source/);
+  assert.match(resourceInventoryLoop, new RegExp(`AppFrameworkInfo\\.plist\\)[\\s\\S]*?"\\$mobile_root/ios/Flutter/AppFrameworkInfo\\.plist"\\)" == ${appFrameworkSha}`));
+  assert.match(resourceInventoryLoop, /observed_app_framework_sha=\$\(sha256_file "\$candidate"\)/);
+  assert.match(resourceInventoryLoop, /"\$observed_app_framework_sha" != 275c1f7273e185d2d65f8b447af25841e2be7fbdb3df89feb6324634f33ce317/);
+  assert.match(resourceInventoryLoop, /production AppFrameworkInfo resource differs from reviewed Xcode output/);
+  assert.match(resourceInventoryLoop, /"\$candidate" == "\$app_path\/AppFrameworkInfo\.plist"/);
   assert.ok(resourceInventoryLoop.indexOf('Base.lproj/*.storyboardc/*)') <
     resourceInventoryLoop.indexOf('Base.lproj/*.nib)'));
   assert.doesNotMatch(resourceInventoryLoop, /if \[\[ -d "\$candidate" \]\]/);
