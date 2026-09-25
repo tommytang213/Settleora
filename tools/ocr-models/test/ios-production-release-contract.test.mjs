@@ -571,10 +571,20 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   assert.match(resourceInventoryLoop, /"\$app_path"\/Base\.lproj\/\*\.nib\)\s+relative_nib=\$\{candidate#"\$app_path"\/\}/);
   assert.match(resourceInventoryLoop, /"\$relative_nib" =~ \^Base\\\.lproj\/\[\^\/\]\+\\\.nib\$/);
   assert.match(resourceInventoryLoop, /production compiled nib has no reviewed byte identity/);
-  assert.match(script, /compiled_storyboard_nib_count=0\s+for compiled_nib in "\$app_path"\/Base\.lproj\/\*\.storyboardc\/\*\.nib; do/);
+  assert.match(script, /compiled_storyboard_nib_count=0\s+is_reviewed_compiled_storyboard_nib\(\)/);
+  assert.match(script, /for compiled_nib in "\$app_path"\/Base\.lproj\/\*\.storyboardc\/\*\.nib; do/);
   assert.match(script, /compiled_storyboard_nib_path_sha256=%s compiled_storyboard_nib_sha256=%s/);
+  assert.match(script, /"\$compiled_storyboard_nib_count" -eq 4/);
+  for (const digest of [
+    '79b50384bcd97f98ef991ad5d6328a0e68a467d97e1856c3b5da16c766f16aa0:6f2e96b21c175a06c4622032d9bbe1d14b634956b7130c9290d15cd456b319d6',
+    '3b45d86bcc78a2634049ebd2c637bde2be37e96d4edb91e14a0ee8164ea3ef3a:54f3637f671feba5f19e82ec4f4a7fb448bb3cfc0fb180f089aa571fc8f053e2',
+    '6e2ddab6bc4276bf991e29c08aa937c8d023ed25e0cd9e2efca010dd3187292e:058fe138c3b415c0a5f2608c42a8d56c579bf10f7b7351bd947b1c7eca4714d9',
+    '77485951f0a486f3a744e8fb3ddd5ade66e1af8f64cf365dd1370f7e5acb60a0:cbdd28d89423b2c9beef2b27ce2c9608d30d6c6a9d2e7679f79a53814444e53f',
+  ]) assert.ok(script.includes(digest));
   assert.match(resourceInventoryLoop, /"\$relative_nib" =~ \^Base\\\.lproj\/\[\^\/\]\+\\\.storyboardc\/\[\^\/\]\+\\\.nib\$/);
-  assert.match(resourceInventoryLoop, /production storyboard nib has no reviewed byte identity/);
+  assert.match(resourceInventoryLoop, /production storyboard nib changed after inventory verification/);
+  assert.ok(resourceInventoryLoop.indexOf('is_reviewed_compiled_storyboard_nib "$candidate_nib_path_sha" "$candidate_nib_sha"') <
+    resourceInventoryLoop.indexOf('file_description=$(file -b "$candidate")'));
   assert.ok(resourceInventoryLoop.indexOf('observed_asset_manifest_sha=$(sha256_file "$candidate")') <
     resourceInventoryLoop.indexOf('file_description=$(file -b "$candidate")'));
   assert.ok(resourceInventoryLoop.indexOf('unreviewed_compiled_nib_sha256=%s') <

@@ -453,7 +453,12 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(iosRunner.includes('network_link_configured=true'));
   for (const stage of ['verify_debug_link_config', 'verify_network_link_path',
     'save_debug_link_config', 'apply_debug_link_config', 'verify_debug_link_setting',
-    'enable_simulator_isolation', 'verify_simulator_interposer_link',
+    'enable_simulator_isolation', 'build_simulator_interposer_link',
+    'verify_simulator_interposer_link',
+    'verify_simulator_app', 'verify_simulator_interposer_copy',
+    'verify_simulator_interposer_load_command',
+    'verify_simulator_interposer_install_name',
+    'verify_debug_link_setting_after_build',
     'verify_simulator_interposer_link_after_test']) {
     assert.ok(iosRunner.includes(`phase=${stage}`));
     assert.ok(nativeEvidenceCollector.includes(`"${stage}"`));

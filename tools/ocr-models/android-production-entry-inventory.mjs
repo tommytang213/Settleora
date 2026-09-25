@@ -3,6 +3,22 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // Exact bounded UI stages and controlled Apply handoff proof. Clean
+  // Flutter 3.44.8 Release projection; hosted signer/bytes need proof.
+  "4f57028560ef7bf369cf1f6343f7127f2d36838b5b0d1acb12d62704998f64ee": Object.freeze([
+    "7cec98e06c6eb872af8b6fc219faa16e183257465b5f776ea3b45a2d028487c9",
+  ]),
+// Exact selected Apply destination proof with bound catalog. Clean Flutter
+  // 3.44.8 Release projection; hosted signer and representation need proof.
+  "ee613e60e009570ccd62803060505e49c52b6bcc77c59ef0c480cd401467fdf2": Object.freeze([
+    "70b9d8be2674c297e701fa67eb84cde08257d671e1d35e6c13d592cdb862089e",
+  ]),
+  // Exact native UI handoff and Xcode resource correction, with the acceptance
+  // catalog rebound to the updated real-provider test. Clean Flutter 3.44.8
+  // Release projection; hosted signer and representation still require proof.
+  "42c540b5404f6ce3d25d970d1c0f226cc0f6579f2f73bd95d9e6cec8680f4f98": Object.freeze([
+    "29a2d524987132092f6460fbe24bcd95d917697cec360e07d799be17e087fff9",
+  ]),
   // UI handoff now binds the real provider response while the complete corpus
   // retains semantic truth checks. Clean Flutter 3.44.8 Release projection;
   // hosted exact-head representation still requires reproof.

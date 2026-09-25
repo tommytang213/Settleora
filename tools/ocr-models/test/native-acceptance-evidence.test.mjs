@@ -368,7 +368,13 @@ test("retains only an allowlisted iOS preflight failure phase", () => {
       "apply_debug_link_config",
       "verify_debug_link_setting",
       "enable_simulator_isolation",
+      "build_simulator_interposer_link",
       "verify_simulator_interposer_link",
+      "verify_simulator_app",
+      "verify_simulator_interposer_copy",
+      "verify_simulator_interposer_load_command",
+      "verify_simulator_interposer_install_name",
+      "verify_debug_link_setting_after_build",
       "verify_simulator_interposer_link_after_test",
       "cleanup_network_isolation",
     ]) {
@@ -583,6 +589,12 @@ test("retains only bounded failure-stage diagnostics and never accepts them as c
     "network_interposer_constructor",
     "network_interposer_symbol",
     "ui_value_binding",
+    "ui_provider_status",
+    "ui_provider_preview",
+    "ui_provider_fields",
+    "ui_merchant_binding",
+    "ui_date_binding",
+    "ui_total_binding",
     "ui_apply_handoff",
   ]) {
     const diagnostic = diagnosticFor(stage);

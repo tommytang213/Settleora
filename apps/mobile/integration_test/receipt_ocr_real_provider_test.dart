@@ -16,6 +16,8 @@ import 'package:mobile/receipt_ocr_capture/receipt_image_artifact_processor.dart
 import 'package:mobile/receipt_ocr_capture/receipt_image_normalization_policy.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_provider.dart';
+import 'package:mobile/ui/settleora_components.dart';
+import 'package:mobile/ui/settleora_form_fields.dart';
 
 final class _DarwinDlInfo extends Struct {
   external Pointer<Int8> imagePath;
@@ -561,16 +563,31 @@ void main() {
       expect(previewPanel, findsOneWidget);
       expect(applyControl, findsOneWidget);
       failure.set(
-        'ui_value_binding',
+        'ui_provider_status',
         fixtureId: 'existing_12_freshmart_grocery_en_US',
       );
       expect(recordingProvider.lastResult?.status, ReceiptOcrStatus.extracted);
+      failure.set(
+        'ui_provider_preview',
+        fixtureId: 'existing_12_freshmart_grocery_en_US',
+      );
       final actualPreview = recordingProvider.lastResult?.preview;
       expect(actualPreview, isNotNull);
+      failure.set(
+        'ui_provider_fields',
+        fixtureId: 'existing_12_freshmart_grocery_en_US',
+      );
       expect(
-        [actualPreview!.merchant, actualPreview.receiptDate, actualPreview.total]
-            .any((value) => value != null && value.isNotEmpty),
+        [
+          actualPreview!.merchant,
+          actualPreview.receiptDate,
+          actualPreview.total,
+        ].any((value) => value != null && value.isNotEmpty),
         isTrue,
+      );
+      failure.set(
+        'ui_merchant_binding',
+        fixtureId: 'existing_12_freshmart_grocery_en_US',
       );
       expect(
         tester
@@ -580,6 +597,10 @@ void main() {
             .controller
             ?.text,
         actualPreview.merchant ?? '',
+      );
+      failure.set(
+        'ui_date_binding',
+        fixtureId: 'existing_12_freshmart_grocery_en_US',
       );
       expect(
         tester
@@ -592,6 +613,10 @@ void main() {
             .controller
             .text,
         actualPreview.receiptDate ?? '',
+      );
+      failure.set(
+        'ui_total_binding',
+        fixtureId: 'existing_12_freshmart_grocery_en_US',
       );
       final totalFinder = find.descendant(
         of: previewPanel,
@@ -610,10 +635,13 @@ void main() {
           renderedTotal.length - totalSuffix.length,
         );
         final totalParts = amountAndCurrency.split(' ');
-        expect(totalParts.length, inInclusiveRange(1, 2));
-        if (totalParts.length == 2) {
+        final previewCurrency = actualPreview.currency?.trim().toUpperCase();
+        if (previewCurrency != null && previewCurrency.isNotEmpty) {
+          expect(totalParts.length, 2);
           expect(totalParts.first, matches(RegExp(r'^[A-Z]{3}$')));
-          expect(totalParts.first, actualPreview.currency?.toUpperCase());
+          expect(totalParts.first, previewCurrency);
+        } else {
+          expect(totalParts.length, 1);
         }
         expect(totalParts.last, actualPreview.total);
       }
@@ -621,31 +649,160 @@ void main() {
         'ui_apply_handoff',
         fixtureId: 'existing_12_freshmart_grocery_en_US',
       );
+      bool selectedForApply(String section) {
+        final option = find.byKey(Key('personal-bill-ocr-apply-$section'));
+        return option.evaluate().isNotEmpty &&
+            tester.widget<CheckboxListTile>(option).value == true;
+      }
+
+      final applyMerchant = selectedForApply('merchant');
+      final applyDate = selectedForApply('date');
+      final applyCurrency = selectedForApply('currency');
+      final applyItems = selectedForApply('items');
+      expect(applyMerchant || applyDate || applyCurrency || applyItems, isTrue);
+      expect(tester.widget<AppButton>(applyControl).onPressed, isNotNull);
+      final merchantField = find.byKey(
+        const Key('personal-bill-merchant-name'),
+      );
+      final dateField = find.descendant(
+        of: find.byKey(const Key('personal-bill-date')),
+        matching: find.byType(EditableText),
+      );
+      final currencyField = find.descendant(
+        of: find.byKey(const Key('personal-bill-currency')),
+        matching: find.byType(CurrencySelector),
+      );
+      if (applyMerchant) {
+        final draft = tester.widget<TextFormField>(merchantField).controller!;
+        draft.text = actualPreview.merchant?.trim() == '__ocr_apply_probe__'
+            ? '__ocr_apply_probe_alt__'
+            : '__ocr_apply_probe__';
+      } else if (applyItems) {
+        final draft = tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('personal-bill-item-name-0')),
+            )
+            .controller!;
+        draft.text =
+            actualPreview.items.first.description.trim() ==
+                '__ocr_apply_probe__'
+            ? '__ocr_apply_probe_alt__'
+            : '__ocr_apply_probe__';
+      } else if (applyDate) {
+        final draft = tester.widget<EditableText>(dateField).controller;
+        draft.text = actualPreview.receiptDate?.trim() == '2001-01-01'
+            ? '2002-01-01'
+            : '2001-01-01';
+      } else {
+        final currency = actualPreview.currency?.trim().toUpperCase();
+        tester
+            .widget<CurrencySelector>(currencyField)
+            .onChanged(currency == 'USD' ? 'EUR' : 'USD');
+      }
+      await tester.pumpAndSettle();
+      expect(selectedForApply('merchant'), applyMerchant);
+      expect(selectedForApply('date'), applyDate);
+      expect(selectedForApply('currency'), applyCurrency);
+      expect(selectedForApply('items'), applyItems);
+      expect(tester.widget<AppButton>(applyControl).onPressed, isNotNull);
       await tester.ensureVisible(applyControl);
       await tester.tap(applyControl);
       await tester.pumpAndSettle();
-      expect(find.text('Suggestions applied'), findsOneWidget);
-      expect(
-        tester
-            .widget<TextFormField>(
-              find.byKey(const Key('personal-bill-merchant-name')),
-            )
+      if (applyMerchant) {
+        final appliedMerchant = tester
+            .widget<TextFormField>(merchantField)
             .controller
-            ?.text,
-        actualPreview.merchant ?? '',
-      );
-      expect(
-        tester
-            .widget<EditableText>(
-              find.descendant(
-                of: find.byKey(const Key('personal-bill-date')),
-                matching: find.byType(EditableText),
-              ),
-            )
+            ?.text;
+        expect(appliedMerchant, actualPreview.merchant?.trim());
+      }
+      if (applyDate) {
+        final appliedDate = tester
+            .widget<EditableText>(dateField)
             .controller
-            .text,
-        actualPreview.receiptDate ?? '',
-      );
+            .text;
+        expect(appliedDate, actualPreview.receiptDate?.trim());
+      }
+      if (applyCurrency) {
+        final appliedCurrency = tester
+            .widget<CurrencySelector>(currencyField)
+            .value;
+        expect(appliedCurrency, actualPreview.currency?.trim().toUpperCase());
+      }
+      if (applyItems) {
+        expect(actualPreview.items, isNotEmpty);
+        for (var index = 0; index < actualPreview.items.length; index++) {
+          final candidate = actualPreview.items[index];
+          expect(
+            tester
+                .widget<TextFormField>(
+                  find.byKey(ValueKey('personal-bill-item-name-$index')),
+                )
+                .controller
+                ?.text,
+            candidate.description.trim(),
+          );
+          expect(
+            tester
+                .widget<TextFormField>(
+                  find.byKey(ValueKey('personal-bill-item-amount-$index')),
+                )
+                .controller
+                ?.text,
+            candidate.lineTotal ?? '',
+          );
+          final quantityText = candidate.quantity?.trim() ?? '';
+          final wholeMatch = RegExp(
+            r'^(\d+)(?:\.0+)?$',
+          ).firstMatch(quantityText);
+          final wholeQuantity = wholeMatch == null
+              ? null
+              : int.tryParse(wholeMatch.group(1)!);
+          final fractionalQuantity =
+              quantityText.isNotEmpty &&
+              (wholeQuantity == null || wholeQuantity <= 0);
+          expect(
+            tester
+                .widget<TextFormField>(
+                  find.byKey(ValueKey('personal-bill-item-quantity-$index')),
+                )
+                .controller
+                ?.text,
+            (fractionalQuantity ? 1 : (wholeQuantity ?? 1)).toString(),
+          );
+          expect(
+            tester
+                .widget<TextFormField>(
+                  find.byKey(ValueKey('personal-bill-item-unit-amount-$index')),
+                )
+                .controller
+                ?.text,
+            fractionalQuantity ? '' : (candidate.unitPrice ?? ''),
+          );
+          expect(
+            tester
+                .widget<CurrencySelector>(
+                  find.descendant(
+                    of: find.byKey(
+                      ValueKey('personal-bill-item-currency-$index'),
+                    ),
+                    matching: find.byType(CurrencySelector),
+                  ),
+                )
+                .value,
+            (candidate.currency?.trim().isNotEmpty == true
+                    ? candidate.currency
+                    : actualPreview.currency)
+                ?.trim()
+                .toUpperCase(),
+          );
+        }
+        expect(
+          find.byKey(
+            ValueKey('personal-bill-item-name-${actualPreview.items.length}'),
+          ),
+          findsNothing,
+        );
+      }
       failure.set(
         'ui_evidence',
         fixtureId: 'existing_12_freshmart_grocery_en_US',

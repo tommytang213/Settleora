@@ -143,16 +143,22 @@ test "$SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE" = "$network_deny"
 test "$SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_ISOLATION" = "socket_interpose_v1"
 test "$(xcrun simctl spawn "$device" launchctl getenv SETTLEORA_OCR_NETWORK_ISOLATION)" = "socket_interpose_v1"
 
+phase=build_simulator_interposer_link
+flutter build ios --simulator --debug --no-codesign --no-pub
 phase=verify_simulator_interposer_link
-flutter build ios --simulator --debug --no-codesign --no-pub >/dev/null
 simulator_app="$GITHUB_WORKSPACE/apps/mobile/build/ios/iphonesimulator/Runner.app"
 simulator_executable="$simulator_app/Runner"
 simulator_interposer="$simulator_app/Frameworks/libSettleoraOcrNetworkDeny.dylib"
+phase=verify_simulator_app
 test -f "$simulator_executable"
+phase=verify_simulator_interposer_copy
 test -f "$simulator_interposer"
 cmp -s "$network_deny" "$simulator_interposer"
+phase=verify_simulator_interposer_load_command
 xcrun otool -L "$simulator_executable" | grep -F "$network_deny_in_app (" >/dev/null
+phase=verify_simulator_interposer_install_name
 test "$(xcrun otool -D "$simulator_interposer" | tail -n 1)" = "$network_deny_in_app"
+phase=verify_debug_link_setting_after_build
 test "$(tail -n 1 "$debug_config")" = "OTHER_LDFLAGS = \$(inherited) -Wl,-needed_library,$network_deny"
 
 phase=execute_flutter_test
