@@ -548,13 +548,11 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   assert.match(script, /nanopb\|objective_c\|onnxruntime/);
   assert.ok(resourceInventoryLoop.indexOf('*.bundle/Info.plist|*.bundle/PrivacyInfo.xcprivacy') <
     resourceInventoryLoop.indexOf('Frameworks/*/Info.plist|Frameworks/*/PrivacyInfo.xcprivacy'));
-  const nestedBundlePattern = resourceInventoryLoop.match(
-    /Frameworks\/GoogleDataTransport\.framework\/GoogleDataTransport_Privacy\.bundle\/\*\|Frameworks\/MLKitTextRecognition\.framework\/LatinOCRResources\.bundle\/\*/,
-  )?.[0];
-  assert.ok(nestedBundlePattern);
+  assert.match(resourceInventoryLoop,
+    /Frameworks\/GoogleDataTransport\.framework\/GoogleDataTransport_Privacy\.bundle\/\*\|Frameworks\/MLKitTextRecognition\.framework\/LatinOCRResources\.bundle\/\*/);
   assert.match(resourceInventoryLoop, /\*\) fail_unreviewed_resource_path ;;\s+esac\s+fi ;;\s+Frameworks\/\*\/Info\.plist/);
   const matchesNestedBundle = (relativePath) => {
-    const result = spawnSync('bash', ['-c', `case "$1" in ${nestedBundlePattern}) printf reviewed ;; *) printf reject ;; esac`, '_', relativePath], { encoding: 'utf8' });
+    const result = spawnSync('bash', ['-c', 'case "$1" in Frameworks/GoogleDataTransport.framework/GoogleDataTransport_Privacy.bundle/*|Frameworks/MLKitTextRecognition.framework/LatinOCRResources.bundle/*) printf reviewed ;; *) printf reject ;; esac', '_', relativePath], { encoding: 'utf8' });
     assert.equal(result.status, 0);
     return result.stdout;
   };
