@@ -143,6 +143,18 @@ test "$SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE" = "$network_deny"
 test "$SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_ISOLATION" = "socket_interpose_v1"
 test "$(xcrun simctl spawn "$device" launchctl getenv SETTLEORA_OCR_NETWORK_ISOLATION)" = "socket_interpose_v1"
 
+phase=verify_simulator_interposer_link
+flutter build ios --simulator --debug --no-codesign --no-pub >/dev/null
+simulator_app="$GITHUB_WORKSPACE/apps/mobile/build/ios/iphonesimulator/Runner.app"
+simulator_executable="$simulator_app/Runner"
+simulator_interposer="$simulator_app/Frameworks/libSettleoraOcrNetworkDeny.dylib"
+test -f "$simulator_executable"
+test -f "$simulator_interposer"
+cmp -s "$network_deny" "$simulator_interposer"
+xcrun otool -L "$simulator_executable" | grep -F "$network_deny_in_app (" >/dev/null
+test "$(xcrun otool -D "$simulator_interposer" | tail -n 1)" = "$network_deny_in_app"
+test "$(tail -n 1 "$debug_config")" = "OTHER_LDFLAGS = \$(inherited) -Wl,-needed_library,$network_deny"
+
 phase=execute_flutter_test
 status=0
 node "$GITHUB_WORKSPACE/tools/ocr-models/bounded-process-capture.mjs" \
@@ -151,6 +163,10 @@ node "$GITHUB_WORKSPACE/tools/ocr-models/bounded-process-capture.mjs" \
   --max-bytes=33554432 \
   --platform=ios \
   --device="$device" || status=$?
+phase=verify_simulator_interposer_link_after_test
+test -f "$simulator_executable"
+test -f "$simulator_interposer"
+xcrun otool -L "$simulator_executable" | grep -F "$network_deny_in_app (" >/dev/null
 echo "status=$status" >> "$GITHUB_OUTPUT"
 echo "failure_phase=" >> "$GITHUB_OUTPUT"
 phase=complete

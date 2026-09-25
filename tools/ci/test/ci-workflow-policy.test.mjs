@@ -453,7 +453,8 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(iosRunner.includes('network_link_configured=true'));
   for (const stage of ['verify_debug_link_config', 'verify_network_link_path',
     'save_debug_link_config', 'apply_debug_link_config', 'verify_debug_link_setting',
-    'enable_simulator_isolation']) {
+    'enable_simulator_isolation', 'verify_simulator_interposer_link',
+    'verify_simulator_interposer_link_after_test']) {
     assert.ok(iosRunner.includes(`phase=${stage}`));
     assert.ok(nativeEvidenceCollector.includes(`"${stage}"`));
   }
@@ -462,6 +463,13 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(iosRunner.includes('cmp -s "$network_config_backup" "$debug_config"'));
   assert.ok(iosRunner.indexOf('network_link_configured=true') <
     iosRunner.indexOf('phase=execute_flutter_test'));
+  assert.ok(iosRunner.indexOf('phase=verify_simulator_interposer_link') <
+    iosRunner.indexOf('phase=execute_flutter_test'));
+  assert.ok(iosRunner.indexOf('phase=verify_simulator_interposer_link_after_test') >
+    iosRunner.indexOf('phase=execute_flutter_test'));
+  assert.ok(iosRunner.includes('flutter build ios --simulator --debug --no-codesign --no-pub'));
+  assert.ok(iosRunner.includes('xcrun otool -L "$simulator_executable"'));
+  assert.ok(iosRunner.includes('cmp -s "$network_deny" "$simulator_interposer"'));
   assert.ok(iosRunner.indexOf('cp -p "$network_config_backup" "$debug_config"') <
     iosRunner.indexOf('phase=execute_flutter_test'));
   assert.doesNotMatch(iosRunner, /launchctl setenv DYLD_INSERT_LIBRARIES/);

@@ -368,6 +368,8 @@ test("retains only an allowlisted iOS preflight failure phase", () => {
       "apply_debug_link_config",
       "verify_debug_link_setting",
       "enable_simulator_isolation",
+      "verify_simulator_interposer_link",
+      "verify_simulator_interposer_link_after_test",
       "cleanup_network_isolation",
     ]) {
       const evidence = buildEvidence(

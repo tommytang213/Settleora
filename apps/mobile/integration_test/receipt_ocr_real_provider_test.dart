@@ -24,6 +24,20 @@ final class _DarwinDlInfo extends Struct {
   external Pointer<Void> symbolAddress;
 }
 
+final class _RecordingReceiptOcrProvider implements ReceiptOcrProvider {
+  _RecordingReceiptOcrProvider(this.delegate);
+
+  final ReceiptOcrProvider delegate;
+  ReceiptOcrResult? lastResult;
+
+  @override
+  Future<ReceiptOcrResult> extractReceipt(ReceiptOcrRequest request) async {
+    final result = await delegate.extractReceipt(request);
+    lastResult = result;
+    return result;
+  }
+}
+
 String? _inAppNetworkInterposerPath() {
   final executable = Platform.resolvedExecutable;
   final separator = executable.lastIndexOf('/');
@@ -506,6 +520,7 @@ void main() {
       final input = _FixtureAttachmentInput(
         await fixtures.load(entry['file']! as String),
       );
+      final recordingProvider = _RecordingReceiptOcrProvider(provider);
 
       failure.set(
         'ui_render',
@@ -516,7 +531,7 @@ void main() {
           home: SettleoraPersonalBillCreateScreen(
             repository: _NoopBillRepository(),
             attachmentFileInput: input,
-            receiptOcrProvider: provider,
+            receiptOcrProvider: recordingProvider,
             defaultCurrency: entry['fallback_currency'] as String?,
             scanReceiptOnStart: true,
           ),
@@ -545,10 +560,17 @@ void main() {
       }
       expect(previewPanel, findsOneWidget);
       expect(applyControl, findsOneWidget);
-      final expected = entry['expected']! as Map<String, Object?>;
       failure.set(
         'ui_value_binding',
         fixtureId: 'existing_12_freshmart_grocery_en_US',
+      );
+      expect(recordingProvider.lastResult?.status, ReceiptOcrStatus.extracted);
+      final actualPreview = recordingProvider.lastResult?.preview;
+      expect(actualPreview, isNotNull);
+      expect(
+        [actualPreview!.merchant, actualPreview.receiptDate, actualPreview.total]
+            .any((value) => value != null && value.isNotEmpty),
+        isTrue,
       );
       expect(
         tester
@@ -557,7 +579,7 @@ void main() {
             )
             .controller
             ?.text,
-        expected['merchant'],
+        actualPreview.merchant ?? '',
       );
       expect(
         tester
@@ -569,29 +591,32 @@ void main() {
             )
             .controller
             .text,
-        expected['date'],
+        actualPreview.receiptDate ?? '',
       );
-      final totalText = tester.widget<Text>(
-        find.descendant(
-          of: previewPanel,
-          matching: find.textContaining('Grand total suggested:'),
-        ),
+      final totalFinder = find.descendant(
+        of: previewPanel,
+        matching: find.textContaining('Grand total suggested:'),
       );
-      final renderedTotal = totalText.data!;
-      const totalPrefix = 'Grand total suggested: ';
-      const totalSuffix = ' (review only)';
-      expect(renderedTotal.startsWith(totalPrefix), isTrue);
-      expect(renderedTotal.endsWith(totalSuffix), isTrue);
-      final amountAndCurrency = renderedTotal.substring(
-        totalPrefix.length,
-        renderedTotal.length - totalSuffix.length,
-      );
-      final totalParts = amountAndCurrency.split(' ');
-      expect(totalParts.length, inInclusiveRange(1, 2));
-      if (totalParts.length == 2) {
-        expect(totalParts.first, matches(RegExp(r'^[A-Z]{3}$')));
+      if (actualPreview.total == null || actualPreview.total!.isEmpty) {
+        expect(totalFinder, findsNothing);
+      } else {
+        final renderedTotal = tester.widget<Text>(totalFinder).data!;
+        const totalPrefix = 'Grand total suggested: ';
+        const totalSuffix = ' (review only)';
+        expect(renderedTotal.startsWith(totalPrefix), isTrue);
+        expect(renderedTotal.endsWith(totalSuffix), isTrue);
+        final amountAndCurrency = renderedTotal.substring(
+          totalPrefix.length,
+          renderedTotal.length - totalSuffix.length,
+        );
+        final totalParts = amountAndCurrency.split(' ');
+        expect(totalParts.length, inInclusiveRange(1, 2));
+        if (totalParts.length == 2) {
+          expect(totalParts.first, matches(RegExp(r'^[A-Z]{3}$')));
+          expect(totalParts.first, actualPreview.currency?.toUpperCase());
+        }
+        expect(totalParts.last, actualPreview.total);
       }
-      expect(totalParts.last, expected['total']);
       failure.set(
         'ui_apply_handoff',
         fixtureId: 'existing_12_freshmart_grocery_en_US',
@@ -607,7 +632,7 @@ void main() {
             )
             .controller
             ?.text,
-        expected['merchant'],
+        actualPreview.merchant ?? '',
       );
       expect(
         tester
@@ -619,7 +644,7 @@ void main() {
             )
             .controller
             .text,
-        expected['date'],
+        actualPreview.receiptDate ?? '',
       );
       failure.set(
         'ui_evidence',

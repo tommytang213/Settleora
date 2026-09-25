@@ -34,7 +34,9 @@ const iosPreflightFailurePhases = new Set([
   "apply_debug_link_config",
   "verify_debug_link_setting",
   "enable_simulator_isolation",
+  "verify_simulator_interposer_link",
   "execute_flutter_test",
+  "verify_simulator_interposer_link_after_test",
   "cleanup_network_isolation",
 ]);
 

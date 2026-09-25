@@ -3,10 +3,19 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // UI handoff now binds the real provider response while the complete corpus
+  // retains semantic truth checks. Clean Flutter 3.44.8 Release projection;
+  // hosted exact-head representation still requires reproof.
+  "0bef102f66cecb7e05d3869d04ca426df94ac50af05cba332a85b17652f239e4": Object.freeze([
+    "59a8e71dbc2b643ec9632f8524262be08f37f448f38d737d85f262c7ac4b09be",
+  ]),
   // Hosted review follow-up strengthens iOS package and UI evidence; Android
-  // package inputs are unchanged. Local representation passed strict review.
+  // package inputs are unchanged. Local representation passed strict review;
+  // the second representation was observed after signer, exact path, model,
+  // legal-artifact, and fixture-absence checks in hosted job 108224162571.
   "0dc9f2201df46a5031621867ce6a5df9e5b13a36814f939fa857900650781a30": Object.freeze([
     "0caceaa079326b5e1de3a4e5a681ec4f9917056094b45cec25d93bf92ce702dd",
+    "054b05fbe3ac3e5987c1a00109c763d63dbbc48cf2d8d023cd643b51a13a0bc3",
   ]),
   // Fixed-command nested-bundle policy regression; APK inputs unchanged.
   // Local representation passed strict verification, hosted reproof required.

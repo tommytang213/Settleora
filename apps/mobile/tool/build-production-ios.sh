@@ -476,7 +476,7 @@ while IFS= read -r candidate; do
         esac
         if [[ "$relative_resource" == Frameworks/* ]]; then
           case "$relative_resource" in
-            Frameworks/GoogleDataTransport.framework/GoogleDataTransport_Privacy.bundle/*|Frameworks/MLKitTextRecognition.framework/LatinOCRResources.bundle/*) ;;
+            Frameworks/GoogleDataTransport.framework/GoogleDataTransport_Privacy.bundle/*|Frameworks/MLKitTextRecognition.framework/LatinOCRResources.bundle/*|Frameworks/image_picker_ios.framework/image_picker_ios_privacy.bundle/PrivacyInfo.xcprivacy) ;;
             *) fail_unreviewed_resource_path ;;
           esac
         fi ;;
