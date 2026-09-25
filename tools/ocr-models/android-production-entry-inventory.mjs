@@ -1,57 +1,20 @@
-// Exact non-OCR entry paths from the pinned projected Android Release APK.
-// All entry representations, including model and legal entries, are bound by
-// the complete digest below. Model and legal expanded bytes also have catalog pins.
-// Reviewed projected `flutter build apk --release --no-pub` packages, including
-// the strict-Gradle evidence flag used by the hosted native workflow. SHA-256
-// over sorted APK entry
-// records in central-directory order: name NUL local-offset NUL made-by NUL
-// external-attributes NUL method NUL
-// local-extra-length NUL compressed-size NUL expanded-size NUL
-// SHA-256(compressed bytes) NUL SHA-256(expanded bytes) newline. Every APK
-// entry, including all six Flutter-generated native libraries and OCR assets,
-// must match one complete reviewed package identity. AOT output varies across
-// clean build roots, so each distinct output must be reviewed and pinned.
-export const expectedAndroidPackageDigests = Object.freeze([
-  // Clean exact-candidate projection for continuation 20260925-0223.
-  "8678470a97491463c558222a8b151f2dcec5fcbbaed3d1d2467dd9c520f732b6",
-  // Clean 20260925-0959 projection with the workflow's strict Gradle evidence flag.
-  // The full package verifier also checked its entry inventory, expanded model
-  // bytes, fixture absence, and pinned Android signer before this pin was added.
-  "53732fa7c7fba3b0db22ab35ec02ca8723b60480f7993d24cad24bee007d265d",
-  // Trusted exact-head GitHub-hosted ubuntu-24.04 projection, run 36085738686,
-  // Android job 107917106305; the verifier reached only its final digest gate.
-  "b44ff3b8d60c1abe229c18bc23543195d131fa332805299ab4f9554a559e09ee",
-  // Clean exact-candidate projection for the iOS harness follow-up, with
-  // pinned Flutter 3.44.8, strict Gradle evidence and production plugin graph.
-  // Signer, exact entries, expanded model/legal bytes and fixture absence
-  // passed before the complete entry digest gate reported this identity.
-  "14263c2237b61d070a6ae55f03ddef9a07836a16e2648766610b64c0c83fb24a",
-  // Trusted exact-head GitHub-hosted ubuntu-24.04 projection, run 36095500537,
-  // Android job 107946807934. Signer, exact entries, expanded model/legal
-  // bytes and fixture absence passed before the complete digest gate.
-  "dc4415a52a133de0a8d85775055ba3072cba76d64c4a58d4bf96759c2e45c84a",
-  // Clean 20260925-0959 iOS-isolation follow-up projection with pinned Flutter
-  // 3.44.8 and production plugin graph. The verifier reached this final
-  // digest gate after signer, entries, expanded bytes and fixture absence.
-  "689f95190d77ce489e16dcbeb78099b26fb1b71dd4c7eedf9f930252ee0a95ff",
-  // Trusted exact-head GitHub-hosted ubuntu-24.04 projection, run 36108851718,
-  // Android job 107987478584. Signer, exact entries, expanded model/legal
-  // bytes and fixture absence passed before the complete digest gate.
-  "2fe347b76fbca134f9f69dc7c925366988de8e7c2156ea199d3430b733c6a7e9",
-  // Clean local projection for the Xcode plist/interposer follow-up with
-  // pinned Flutter 3.44.8 and production plugin graph. The verifier reached
-  // this final gate after signer, entries, expanded bytes and fixture absence.
-  "2d9a61215985fab709906aa754ee485e9938555f96c9631a31472b00523de722",
-  // Trusted exact-head GitHub-hosted ubuntu-24.04 projection, run 36121355731,
-  // Android job 108027351798. Signer, exact entries, expanded model/legal
-  // bytes and fixture absence passed before the complete digest gate.
-  "a5c71dc97ee90ae3b05d464fd211fb7a9dbe6e0bbdf2eb5daffd5affd94279c3",
-  // Clean local projection for bounded iOS interposer diagnostics with pinned
-  // Flutter 3.44.8, strict Gradle evidence and production plugin graph.
-  // The verifier reached only this final digest gate after signer, exact
-  // entries, expanded model/legal bytes and fixture absence passed.
-  "ca6eceebe8ed94ea595e8b2786626e18e0b1e30b0e357606748c07b4e14e2e66",
-]);
+// Exact reviewed APK entry identities are keyed by the tracked source tree.
+// The inventory file itself is excluded from that tree fingerprint to avoid a
+// circular commitment when adding a newly reviewed package representation.
+// An older package digest is never accepted for a changed source tree.
+export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // Exact candidate tracked tree excluding this inventory file; clean local
+  // Flutter 3.44.8 Release projection with strict Gradle evidence and the
+  // production plugin graph. The verifier reached only its final digest gate
+  // after signer, entry, model/legal-byte and fixture-absence checks passed.
+  "e0bb94e12f32db5e79a2b649ddfee84935e473082e9e8c82c2ce5d0bedcb8ce3": Object.freeze([
+    "736f5927fa6f8006cb6b50c4f76b93fa5bbfcc5a3cf1e22e051709bcd8bcd726",
+    // GitHub-hosted ubuntu-24.04 run 36134642962, Android job 108069684982
+    // reached only the final digest gate. The source-binding correction changes
+    // verifier/workflow/test files, not the packaged application inputs.
+    "203bc3a7a2136b32d138818e7ea078fdab00842baae507100e60f6370c458adc",
+  ]),
+});
 export const expectedAndroidNonOcrEntries = Object.freeze([
   "AndroidManifest.xml",
   "DebugProbesKt.bin",

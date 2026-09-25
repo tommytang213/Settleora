@@ -6,11 +6,12 @@ import { fileURLToPath } from "node:url";
 import { inflateRawSync } from "node:zlib";
 
 import { trustedLegalArtifacts } from "./mobile-model-catalog.mjs";
-import { expectedAndroidNonOcrEntries, expectedAndroidPackageDigests } from "./android-production-entry-inventory.mjs";
+import { expectedAndroidNonOcrEntries, expectedAndroidPackageDigestsBySource } from "./android-production-entry-inventory.mjs";
 
 const maxInventoryBytes = 32 * 1024 * 1024;
 const maxModelBytes = 64 * 1024 * 1024;
 const maxAndroidArchiveBytes = 512 * 1024 * 1024;
+const digestInventoryPath = "tools/ocr-models/android-production-entry-inventory.mjs";
 const allowedAndroidCompressionMethods = new Set([0, 8]);
 const crc32Table = Uint32Array.from({ length: 256 }, (_, index) => {
   let value = index;
@@ -364,7 +365,52 @@ export function verifyAndroidSignature(packagePath, jarBytes = readFileSync("/us
   return certificate[1];
 }
 
-function verifyAndroidPackage(packagePath, contract, runCommand, verifySignature, reviewedPackageDigests) {
+export function reviewedSourceTreeFingerprint(gitRoot, sourceSha, runCommand = execFileSync) {
+  if (typeof gitRoot !== "string" || gitRoot.length === 0) {
+    throw new Error("Production APK source repository is unavailable");
+  }
+  if (!/^[0-9a-f]{40}$/.test(sourceSha ?? "")) {
+    throw new Error("Production APK source commit is invalid");
+  }
+  const head = runCommand("git", ["-C", gitRoot, "rev-parse", "HEAD"], {
+    encoding: "utf8", maxBuffer: 1024,
+  }).trim();
+  if (head !== sourceSha) throw new Error("Production APK source commit differs from checkout");
+  const listing = runCommand("git", ["-C", gitRoot, "ls-tree", "-r", "-z", "--full-tree", sourceSha], {
+    encoding: "buffer", maxBuffer: maxInventoryBytes,
+  });
+  if (!Buffer.isBuffer(listing) || listing.length === 0 || listing.at(-1) !== 0) {
+    throw new Error("Production APK source tree is unavailable");
+  }
+  const digest = createHash("sha256");
+  const inventoryName = Buffer.from(digestInventoryPath);
+  let inventoryCount = 0;
+  let includedCount = 0;
+  let offset = 0;
+  while (offset < listing.length) {
+    const end = listing.indexOf(0, offset);
+    if (end < offset) throw new Error("Production APK source tree is malformed");
+    const record = listing.subarray(offset, end);
+    const tab = record.indexOf(9);
+    if (tab < 0 || !/^(?:100644|100755|120000) blob [0-9a-f]{40}$/.test(record.subarray(0, tab).toString("ascii"))) {
+      throw new Error("Production APK source tree has an unsupported entry");
+    }
+    if (record.subarray(tab + 1).equals(inventoryName)) {
+      inventoryCount++;
+    } else {
+      digest.update(record).update(Buffer.from([0]));
+      includedCount++;
+    }
+    offset = end + 1;
+  }
+  if (inventoryCount !== 1 || includedCount === 0) {
+    throw new Error("Production APK source tree inventory is incomplete");
+  }
+  return digest.digest("hex");
+}
+
+function verifyAndroidPackage(packagePath, contract, runCommand, verifySignature, reviewedPackageDigestsBySource,
+  sourceTreeFingerprint) {
   const { names: archiveEntries, packageDigest } = verifyAndroidZipMetadata(packagePath);
   const signerCertificateSha256 = verifySignature(packagePath);
   const inventory = runCommand("unzip", ["-Z1", packagePath], {
@@ -439,7 +485,7 @@ function verifyAndroidPackage(packagePath, contract, runCommand, verifySignature
     !entry.startsWith("assets/receipt_ocr_models/") && prohibitedPackageEntry.test(entry))) {
     throw new Error("Production APK contains test, fixture, log, or OCR evidence paths");
   }
-  if (!reviewedPackageDigests.includes(packageDigest)) {
+  if (!reviewedPackageDigestsBySource[sourceTreeFingerprint]?.includes(packageDigest)) {
     throw new PackageContentMismatch(packageDigest);
   }
   if (!/^[0-9a-f]{64}$/.test(signerCertificateSha256)) {
@@ -502,20 +548,27 @@ function verifyIosPackage(packagePath, contract) {
 }
 
 export function verifyMobilePackage({ platform, packagePath, repoRoot, runCommand = execFileSync,
-  verifySignature = verifyAndroidSignature, reviewedPackageDigests = expectedAndroidPackageDigests }) {
+  verifySignature = verifyAndroidSignature,
+  reviewedPackageDigestsBySource = expectedAndroidPackageDigestsBySource,
+  sourceGitRoot, sourceSha }) {
   if (!new Set(["android", "ios"]).has(platform)) throw new Error("Platform is invalid");
   const contract = expectedPackageContract(repoRoot);
   if (contract.models.length === 0 || contract.fixtures.length !== 102) {
     throw new Error("Catalog or immutable fixture contract is incomplete");
   }
+  const sourceTreeFingerprint = platform === "android"
+    ? reviewedSourceTreeFingerprint(sourceGitRoot, sourceSha, runCommand)
+    : null;
   const androidEvidence = platform === "android"
-    ? withAndroidSnapshot(packagePath, (snapshot) => verifyAndroidPackage(snapshot, contract, runCommand, verifySignature, reviewedPackageDigests))
+    ? withAndroidSnapshot(packagePath, (snapshot) => verifyAndroidPackage(snapshot, contract, runCommand,
+      verifySignature, reviewedPackageDigestsBySource, sourceTreeFingerprint))
     : null;
   if (platform === "ios") verifyIosPackage(packagePath, contract);
   return {
     catalogFileCount: 1,
     modelFileCount: contract.models.length,
     fixtureFileCount: contract.fixtures.length,
+    ...(sourceTreeFingerprint == null ? {} : { sourceTreeFingerprint }),
     ...(androidEvidence ?? {}),
   };
 }
@@ -535,6 +588,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
       platform: args.platform,
       packagePath: path.resolve(args.package),
       repoRoot: path.resolve(args["repo-root"] ?? "."),
+      sourceGitRoot: args["source-git-root"] ? path.resolve(args["source-git-root"]) : undefined,
+      sourceSha: args["source-sha"],
     });
     if (args.json === "true") {
       console.log(JSON.stringify(result));

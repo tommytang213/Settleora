@@ -391,6 +391,9 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(androidRunner.indexOf('phase=verify_airplane_mode') < androidRunner.indexOf('phase=verify_mobile_data'));
   assert.ok(androidRunner.includes('echo "failure_phase=$phase" >> "$GITHUB_OUTPUT"'));
   assert.ok(androidCommands.includes('verify-mobile-package.mjs --platform=android'));
+  assert.ok(androidCommands.includes('--source-git-root="$GITHUB_WORKSPACE"'));
+  assert.ok(androidCommands.includes('--source-sha="$EXPECTED_HEAD"'));
+  assert.ok(androidCommands.includes('verified_source_tree_fingerprint='));
   assert.ok(androidCommands.includes('--json=true'));
   assert.ok(androidCommands.includes('android-dex-packages.txt'));
   assert.ok(androidCommands.includes('android-plugin-registrant.txt'));

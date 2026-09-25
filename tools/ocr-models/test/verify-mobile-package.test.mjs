@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { deflateRawSync } from "node:zlib";
 
-import { verifyAndroidSignature, verifyMobilePackage } from "../verify-mobile-package.mjs";
+import { reviewedSourceTreeFingerprint, verifyAndroidSignature, verifyMobilePackage } from "../verify-mobile-package.mjs";
 import { expectedAndroidNonOcrEntries } from "../android-production-entry-inventory.mjs";
 import { trustedLegalArtifacts } from "../mobile-model-catalog.mjs";
 
@@ -153,14 +153,30 @@ function withPackageContract(callback) {
       path.join(root, "apps/mobile/test/fixtures/receipt_ocr/manifest.json"),
       JSON.stringify({ fixtures: Array.from({ length: 101 }, (_, index) => ({ file: `script/fixture-${index}.png` })) }),
     );
-    callback({ root, model, catalog });
+    mkdirSync(path.join(root, "apps/mobile/lib"), { recursive: true });
+    writeFileSync(path.join(root, "apps/mobile/lib/source.dart"), "reviewed source");
+    mkdirSync(path.join(root, "tools/ocr-models"), { recursive: true });
+    writeFileSync(path.join(root, "tools/ocr-models/android-production-entry-inventory.mjs"), "reviewed inventory");
+    const git = (...args) => {
+      const result = spawnSync("git", ["-C", root, ...args], {
+        encoding: "utf8", env: { ...process.env, GIT_AUTHOR_NAME: "Settleora Test",
+          GIT_AUTHOR_EMAIL: "test@example.invalid", GIT_COMMITTER_NAME: "Settleora Test",
+          GIT_COMMITTER_EMAIL: "test@example.invalid" },
+      });
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout.trim();
+    };
+    git("init", "-q");
+    git("add", "apps/mobile", "tools/ocr-models/android-production-entry-inventory.mjs");
+    git("commit", "-qm", "reviewed source");
+    callback({ root, model, catalog, git, sourceSha: git("rev-parse", "HEAD") });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 }
 
 test("verifies the catalog, every model, and concrete fixture absence in Android APKs", () => {
-  withPackageContract(({ root, model, catalog }) => {
+  withPackageContract(({ root, model, catalog, sourceSha }) => {
     const packageRoot = path.join(root, "android-package");
     const modelPath = path.join(packageRoot, "assets/receipt_ocr_models/test-pack/model.onnx");
     mkdirSync(path.dirname(modelPath), { recursive: true });
@@ -175,19 +191,21 @@ test("verifies the catalog, every model, and concrete fixture absence in Android
     const apk = path.join(root, "app.apk");
     let signatureChecks = 0;
     const reviewedPackageDigest = writeSyntheticApk(apk, packageRoot);
+    const sourceTreeFingerprint = reviewedSourceTreeFingerprint(root, sourceSha);
+    const reviewedPackageDigestsBySource = { [sourceTreeFingerprint]: [reviewedPackageDigest] };
     const verifyTestPackage = () => verifyMobilePackage({
-      platform: "android", packagePath: apk, repoRoot: root,
-      reviewedPackageDigests: [reviewedPackageDigest],
+      platform: "android", packagePath: apk, repoRoot: root, sourceGitRoot: root, sourceSha,
+      reviewedPackageDigestsBySource,
       verifySignature: () => { signatureChecks += 1; return "a".repeat(64); },
     });
     assert.deepEqual(verifyTestPackage(),
-      { catalogFileCount: 1, modelFileCount: 1, fixtureFileCount: 102,
+      { catalogFileCount: 1, modelFileCount: 1, fixtureFileCount: 102, sourceTreeFingerprint,
         signerCertificateSha256: "a".repeat(64), packageSha256: sha256(readFileSync(apk)) });
     assert.equal(signatureChecks, 1);
     const originalSha256 = sha256(readFileSync(apk));
     const stable = verifyMobilePackage({
-      platform: "android", packagePath: apk, repoRoot: root,
-      reviewedPackageDigests: [reviewedPackageDigest],
+      platform: "android", packagePath: apk, repoRoot: root, sourceGitRoot: root, sourceSha,
+      reviewedPackageDigestsBySource,
       verifySignature: () => {
         writeFileSync(apk, "replaced after snapshot");
         return "a".repeat(64);
@@ -196,8 +214,8 @@ test("verifies the catalog, every model, and concrete fixture absence in Android
     assert.equal(stable.packageSha256, originalSha256);
     writeSyntheticApk(apk, packageRoot);
     assert.throws(() => verifyMobilePackage({
-      platform: "android", packagePath: apk, repoRoot: root,
-      reviewedPackageDigests: [reviewedPackageDigest],
+      platform: "android", packagePath: apk, repoRoot: root, sourceGitRoot: root, sourceSha,
+      reviewedPackageDigestsBySource,
       verifySignature: () => { throw new Error("signature verification failed"); },
     }), /signature verification failed/);
 
@@ -345,6 +363,43 @@ test("verifies the catalog, every model, and concrete fixture absence in Android
 
     writeSyntheticApk(apk, packageRoot, { wrongCrcEntry: expectedAndroidNonOcrEntries[0] });
     assert.throws(verifyTestPackage, /entry CRC differs from its payload/);
+  });
+});
+
+test("rejects a reviewed APK from a different tracked source tree", () => {
+  withPackageContract(({ root, model, catalog, git, sourceSha }) => {
+    const packageRoot = path.join(root, "android-package");
+    const modelPath = path.join(packageRoot, "assets/receipt_ocr_models/test-pack/model.onnx");
+    mkdirSync(path.dirname(modelPath), { recursive: true });
+    writeFileSync(modelPath, model);
+    writeFileSync(path.join(packageRoot, "assets/receipt_ocr_models/catalog.json"), catalog);
+    for (const artifact of trustedLegalArtifacts) {
+      writeFileSync(path.join(packageRoot, artifact.path),
+        readFileSync(path.join(root, "apps/mobile", artifact.path)));
+    }
+    const apk = path.join(root, "app.apk");
+    const packageDigest = writeSyntheticApk(apk, packageRoot);
+    const originalFingerprint = reviewedSourceTreeFingerprint(root, sourceSha);
+    const reviewedPackageDigestsBySource = { [originalFingerprint]: [packageDigest] };
+    const verifyAt = (sha) => verifyMobilePackage({
+      platform: "android", packagePath: apk, repoRoot: root,
+      sourceGitRoot: root, sourceSha: sha, reviewedPackageDigestsBySource,
+      verifySignature: () => "a".repeat(64),
+    });
+    assert.equal(verifyAt(sourceSha).sourceTreeFingerprint, originalFingerprint);
+    writeFileSync(path.join(root, "tools/ocr-models/android-production-entry-inventory.mjs"), "new digest pin");
+    git("add", "tools/ocr-models/android-production-entry-inventory.mjs");
+    git("commit", "-qm", "add digest pin");
+    const inventoryOnlySha = git("rev-parse", "HEAD");
+    assert.equal(reviewedSourceTreeFingerprint(root, inventoryOnlySha), originalFingerprint);
+    assert.equal(verifyAt(inventoryOnlySha).sourceTreeFingerprint, originalFingerprint);
+    writeFileSync(path.join(root, "apps/mobile/lib/source.dart"), "changed application source");
+    git("add", "apps/mobile/lib/source.dart");
+    git("commit", "-qm", "change application source");
+    const changedSourceSha = git("rev-parse", "HEAD");
+    assert.notEqual(reviewedSourceTreeFingerprint(root, changedSourceSha), originalFingerprint);
+    assert.throws(() => verifyAt(changedSourceSha), /entry representations differ from reviewed bytes/);
+    assert.throws(() => verifyAt(sourceSha), /source commit differs from checkout/);
   });
 });
 

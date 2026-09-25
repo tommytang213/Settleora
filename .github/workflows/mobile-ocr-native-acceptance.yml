@@ -167,12 +167,14 @@ jobs:
           verified_apk="$RUNNER_TEMP/settleora-verified-production.apk"
           install -m 0400 "$full_apk" "$verified_apk"
           full_bytes=$(stat -c %s "$verified_apk")
-          package_verification=$(node tools/ocr-models/verify-mobile-package.mjs --platform=android --package="$verified_apk" --repo-root="$candidate_dir" --json=true)
+          package_verification=$(node tools/ocr-models/verify-mobile-package.mjs --platform=android --package="$verified_apk" --repo-root="$candidate_dir" --source-git-root="$GITHUB_WORKSPACE" --source-sha="$EXPECTED_HEAD" --json=true)
           verified_catalog_file_count=$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).catalogFileCount))' "$package_verification")
           verified_model_file_count=$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).modelFileCount))' "$package_verification")
           verified_fixture_absence_count=$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).fixtureFileCount))' "$package_verification")
           verified_package_sha256=$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).packageSha256)' "$package_verification")
           verified_signer_certificate_sha256=$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).signerCertificateSha256)' "$package_verification")
+          verified_source_tree_fingerprint=$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).sourceTreeFingerprint)' "$package_verification")
+          echo "verified_source_tree_fingerprint=$verified_source_tree_fingerprint"
           test "$(sha256sum "$verified_apk" | awk '{print $1}')" = "$verified_package_sha256"
           apkanalyzer="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
           test -x "$apkanalyzer"
