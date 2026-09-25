@@ -3,10 +3,24 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // Canonical DateField UI proof, Debug dylib preflight, and bounded iOS
+  // opaque-resource diagnostics. Clean Flutter 3.44.8 Release projection;
+  // hosted signer and representation still require exact-head proof.
+  "53a5a4dbe5393ccd2ccfacf629e9ad33b5dae70b463f0f88061a59f0a6185091": Object.freeze([
+    "184c0f967f667215d39777a506af6222c6f6c9f0e404707b36d9abcfa3c31b4a",
+  ]),
+  // Exact iOS Xcode Debug dylib link check and bounded opaque-resource
+  // diagnostics. Android inputs are unchanged; the prior clean Flutter
+  // 3.44.8 Release APK passed strict verification under this source tree.
+  "ed20e3296e4986f725f62e29b207e9957def9364112745f83c30103f9d430d2b": Object.freeze([
+    "7cec98e06c6eb872af8b6fc219faa16e183257465b5f776ea3b45a2d028487c9",
+  ]),
   // Exact bounded UI stages and controlled Apply handoff proof. Clean
-  // Flutter 3.44.8 Release projection; hosted signer/bytes need proof.
+  // Flutter 3.44.8 Release projection; hosted signer, exact paths, model,
+  // and fixture-absence checks observed the second digest in job 108262217243.
   "4f57028560ef7bf369cf1f6343f7127f2d36838b5b0d1acb12d62704998f64ee": Object.freeze([
     "7cec98e06c6eb872af8b6fc219faa16e183257465b5f776ea3b45a2d028487c9",
+    "b4aed0d10c8a62460a3c1cdf4c928f040f9296d5ce3a5405c8a5533ea561f92e",
   ]),
 // Exact selected Apply destination proof with bound catalog. Clean Flutter
   // 3.44.8 Release projection; hosted signer and representation need proof.

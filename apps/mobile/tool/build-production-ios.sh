@@ -383,6 +383,13 @@ fail_unreviewed_resource_path() {
   fi
   fail "production application contains an unreviewed resource path"
 }
+fail_unreviewed_opaque_resource() {
+  local relative_resource=${candidate#"$app_path"/}
+  printf 'unreviewed_opaque_path_sha256=%s unreviewed_opaque_sha256=%s\n' \
+    "$(printf '%s' "$relative_resource" | shasum -a 256 | cut -d ' ' -f 1)" \
+    "$(sha256_file "$candidate")" >&2
+  fail "production application contains an unreviewed opaque resource"
+}
 compiled_storyboard_nib_count=0
 is_reviewed_compiled_storyboard_nib() {
   # Four Xcode 16.4 iphoneos Release nibs observed from exact source 6f7c8d7b
@@ -579,12 +586,12 @@ while IFS= read -r candidate; do
     : # Opaque compiled content is excluded from package-wide privacy approval.
   elif [[ "$file_description" == *'Apple binary property list'* ]]; then
     [[ "$candidate" == */Info.plist || "$candidate" == */InfoPlist.strings || "$candidate" == */PrivacyInfo.xcprivacy || "$candidate" == "$app_path/AppFrameworkInfo.plist" ]] ||
-      fail "production application contains an unreviewed opaque resource"
+      fail_unreviewed_opaque_resource
   elif [[ "$file_description" == data ]]; then
     case "$candidate" in
       "$app_path"/receipt_ocr_models/*|"$app_path"/Assets.car|"$app_path"/embedded.mobileprovision|"$app_path"/AppFrameworkInfo.plist|"$app_path"/Frameworks/Flutter.framework/icudtl.dat|"$app_path"/Frameworks/App.framework/flutter_assets/AssetManifest.bin|"$app_path"/Frameworks/App.framework/flutter_assets/NOTICES.Z|"$app_path"/LatinOCRResources.bundle/*|"$app_path"/Frameworks/MLKitTextRecognition.framework/LatinOCRResources.bundle/*) ;;
       "$app_path"/Frameworks/App.framework/flutter_assets/NativeAssetsManifest.json|"$app_path"/Frameworks/App.framework/flutter_assets/fonts/MaterialIcons-Regular.otf|"$app_path"/Frameworks/App.framework/flutter_assets/packages/cupertino_icons/assets/CupertinoIcons.ttf|"$app_path"/Frameworks/App.framework/flutter_assets/shaders/ink_sparkle.frag|"$app_path"/Frameworks/App.framework/flutter_assets/shaders/stretch_effect.frag) ;;
-      *) fail "production application contains an unreviewed opaque resource" ;;
+      *) fail_unreviewed_opaque_resource ;;
     esac
   elif [[ "$relative_resource" == Frameworks/App.framework/flutter_assets/NOTICES.Z && "$file_description" == *'compressed data'* ]]; then
     : # Exact content was checked against the reviewed Release APK above.

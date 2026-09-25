@@ -574,6 +574,8 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   assert.match(script, /compiled_storyboard_nib_count=0\s+is_reviewed_compiled_storyboard_nib\(\)/);
   assert.match(script, /for compiled_nib in "\$app_path"\/Base\.lproj\/\*\.storyboardc\/\*\.nib; do/);
   assert.match(script, /compiled_storyboard_nib_path_sha256=%s compiled_storyboard_nib_sha256=%s/);
+  assert.match(script, /unreviewed_opaque_path_sha256=%s unreviewed_opaque_sha256=%s/);
+  assert.match(script, /\*\) fail_unreviewed_opaque_resource ;;/);
   assert.match(script, /"\$compiled_storyboard_nib_count" -eq 4/);
   for (const digest of [
     '79b50384bcd97f98ef991ad5d6328a0e68a467d97e1856c3b5da16c766f16aa0:6f2e96b21c175a06c4622032d9bbe1d14b634956b7130c9290d15cd456b319d6',

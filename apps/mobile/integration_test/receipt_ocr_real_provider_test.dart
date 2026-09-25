@@ -604,11 +604,8 @@ void main() {
       );
       expect(
         tester
-            .widget<EditableText>(
-              find.descendant(
-                of: find.byKey(const Key('personal-bill-ocr-edit-date')),
-                matching: find.byType(EditableText),
-              ),
+            .widget<DateField>(
+              find.byKey(const Key('personal-bill-ocr-edit-date')),
             )
             .controller
             .text,
@@ -664,10 +661,7 @@ void main() {
       final merchantField = find.byKey(
         const Key('personal-bill-merchant-name'),
       );
-      final dateField = find.descendant(
-        of: find.byKey(const Key('personal-bill-date')),
-        matching: find.byType(EditableText),
-      );
+      final dateField = find.byKey(const Key('personal-bill-date'));
       final currencyField = find.descendant(
         of: find.byKey(const Key('personal-bill-currency')),
         matching: find.byType(CurrencySelector),
@@ -689,7 +683,7 @@ void main() {
             ? '__ocr_apply_probe_alt__'
             : '__ocr_apply_probe__';
       } else if (applyDate) {
-        final draft = tester.widget<EditableText>(dateField).controller;
+        final draft = tester.widget<DateField>(dateField).controller;
         draft.text = actualPreview.receiptDate?.trim() == '2001-01-01'
             ? '2002-01-01'
             : '2001-01-01';
@@ -716,10 +710,7 @@ void main() {
         expect(appliedMerchant, actualPreview.merchant?.trim());
       }
       if (applyDate) {
-        final appliedDate = tester
-            .widget<EditableText>(dateField)
-            .controller
-            .text;
+        final appliedDate = tester.widget<DateField>(dateField).controller.text;
         expect(appliedDate, actualPreview.receiptDate?.trim());
       }
       if (applyCurrency) {

@@ -155,7 +155,17 @@ phase=verify_simulator_interposer_copy
 test -f "$simulator_interposer"
 cmp -s "$network_deny" "$simulator_interposer"
 phase=verify_simulator_interposer_load_command
-xcrun otool -L "$simulator_executable" | grep -F "$network_deny_in_app (" >/dev/null
+simulator_link_image="$simulator_executable"
+if xcrun otool -L "$simulator_executable" | grep -F "$network_deny_in_app (" >/dev/null; then
+  :
+elif test -f "$simulator_app/Runner.debug.dylib" &&
+    xcrun otool -L "$simulator_app/Runner.debug.dylib" | grep -F "$network_deny_in_app (" >/dev/null; then
+  # Xcode 16 may put the app's Debug-linked code in this in-app dylib.
+  simulator_link_image="$simulator_app/Runner.debug.dylib"
+else
+  exit 98
+fi
+printf 'ios_simulator_link_image=%s\n' "${simulator_link_image##*/}"
 phase=verify_simulator_interposer_install_name
 test "$(xcrun otool -D "$simulator_interposer" | tail -n 1)" = "$network_deny_in_app"
 phase=verify_debug_link_setting_after_build
@@ -172,7 +182,8 @@ node "$GITHUB_WORKSPACE/tools/ocr-models/bounded-process-capture.mjs" \
 phase=verify_simulator_interposer_link_after_test
 test -f "$simulator_executable"
 test -f "$simulator_interposer"
-xcrun otool -L "$simulator_executable" | grep -F "$network_deny_in_app (" >/dev/null
+test -f "$simulator_link_image"
+xcrun otool -L "$simulator_link_image" | grep -F "$network_deny_in_app (" >/dev/null
 echo "status=$status" >> "$GITHUB_OUTPUT"
 echo "failure_phase=" >> "$GITHUB_OUTPUT"
 phase=complete

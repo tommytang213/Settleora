@@ -473,6 +473,10 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(iosRunner.indexOf('phase=verify_simulator_interposer_link_after_test') >
     iosRunner.indexOf('phase=execute_flutter_test'));
   assert.ok(iosRunner.includes('flutter build ios --simulator --debug --no-codesign --no-pub'));
+  assert.ok(iosRunner.includes('simulator_link_image="$simulator_executable"'));
+  assert.ok(iosRunner.includes('test -f "$simulator_app/Runner.debug.dylib"'));
+  assert.ok(iosRunner.includes('simulator_link_image="$simulator_app/Runner.debug.dylib"'));
+  assert.ok(iosRunner.includes('xcrun otool -L "$simulator_link_image" | grep -F "$network_deny_in_app ("'));
   assert.ok(iosRunner.includes('xcrun otool -L "$simulator_executable"'));
   assert.ok(iosRunner.includes('cmp -s "$network_deny" "$simulator_interposer"'));
   assert.ok(iosRunner.indexOf('cp -p "$network_config_backup" "$debug_config"') <
