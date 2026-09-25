@@ -18,6 +18,8 @@ const androidPreflightFailurePhases = new Set([
   "isolate_wifi",
   "isolate_mobile_data",
   "verify_network_controls",
+  "verify_airplane_mode",
+  "verify_mobile_data",
   "execute_flutter_test",
 ]);
 const iosPreflightFailurePhases = new Set([

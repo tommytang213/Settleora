@@ -1,8 +1,9 @@
 // Exact non-OCR entry paths from the pinned projected Android Release APK.
 // All entry representations, including model and legal entries, are bound by
 // the complete digest below. Model and legal expanded bytes also have catalog pins.
-// Reviewed projected `flutter build apk --release --no-pub` packages, without
-// the separate strict-Gradle evidence flag. SHA-256 over sorted APK entry
+// Reviewed projected `flutter build apk --release --no-pub` packages, including
+// the strict-Gradle evidence flag used by the hosted native workflow. SHA-256
+// over sorted APK entry
 // records in central-directory order: name NUL local-offset NUL made-by NUL
 // external-attributes NUL method NUL
 // local-extra-length NUL compressed-size NUL expanded-size NUL
@@ -17,6 +18,9 @@ export const expectedAndroidPackageDigests = Object.freeze([
   // The full package verifier also checked its entry inventory, expanded model
   // bytes, fixture absence, and pinned Android signer before this pin was added.
   "53732fa7c7fba3b0db22ab35ec02ca8723b60480f7993d24cad24bee007d265d",
+  // Trusted exact-head GitHub-hosted ubuntu-24.04 projection, run 36085738686,
+  // Android job 107917106305; the verifier reached only its final digest gate.
+  "b44ff3b8d60c1abe229c18bc23543195d131fa332805299ab4f9554a559e09ee",
 ]);
 export const expectedAndroidNonOcrEntries = Object.freeze([
   "AndroidManifest.xml",

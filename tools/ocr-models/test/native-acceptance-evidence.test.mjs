@@ -320,6 +320,14 @@ test("produces bounded incomplete evidence when device execution emits no marker
 
 test("retains only an allowlisted Android preflight failure phase", () => {
   withLog(protocolLog(), (logPath) => {
+    for (const phase of ["verify_airplane_mode", "verify_mobile_data"]) {
+      const stateEvidence = buildEvidence(
+        { ...evidenceArgs(logPath), "test-status": "20", "failure-phase": phase },
+        repoRoot,
+      );
+      assert.equal(stateEvidence.execution.preflightFailurePhase, phase);
+      assert.equal(isCompleteEvidence(stateEvidence), false);
+    }
     const setupEvidence = buildEvidence(
       { ...evidenceArgs(logPath), "test-status": "20", "failure-phase": "kvm_setup" },
       repoRoot,

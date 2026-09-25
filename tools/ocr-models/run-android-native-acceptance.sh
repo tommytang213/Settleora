@@ -51,14 +51,20 @@ phase=isolate_airplane_mode
 if ! timeout 30 "$adb" -s emulator-5554 shell cmd connectivity airplane-mode enable >/dev/null 2>&1; then
   timeout 30 "$adb" -s emulator-5554 shell settings put global airplane_mode_on 1 >/dev/null 2>&1
 fi
+# API 35 can report command success before its global setting reflects the
+# requested state. Pin the observable setting before verifying isolation.
+timeout 30 "$adb" -s emulator-5554 shell settings put global airplane_mode_on 1 >/dev/null 2>&1
 phase=isolate_wifi
 timeout 30 "$adb" -s emulator-5554 shell svc wifi disable >/dev/null 2>&1
 phase=isolate_mobile_data
 if ! timeout 30 "$adb" -s emulator-5554 shell svc data disable >/dev/null 2>&1; then
   timeout 30 "$adb" -s emulator-5554 shell settings put global mobile_data 0 >/dev/null 2>&1
 fi
-phase=verify_network_controls
+timeout 30 "$adb" -s emulator-5554 shell settings put global mobile_data 0 >/dev/null 2>&1
+phase=verify_airplane_mode
+test "$(timeout 30 "$adb" -s emulator-5554 shell cmd connectivity airplane-mode 2>/dev/null | tr -d '\r')" = "enabled"
 test "$(timeout 30 "$adb" -s emulator-5554 shell settings get global airplane_mode_on 2>/dev/null | tr -d '\r')" = "1"
+phase=verify_mobile_data
 test "$(timeout 30 "$adb" -s emulator-5554 shell settings get global mobile_data 2>/dev/null | tr -d '\r')" = "0"
 
 phase=execute_flutter_test
