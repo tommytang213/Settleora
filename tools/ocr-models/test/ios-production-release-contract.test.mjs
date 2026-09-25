@@ -540,6 +540,8 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   assert.match(script, /\^Base\\\.lproj\/\[\^\/\]\+\\\.storyboardc\/\[\^\/\]\+\$/);
   assert.match(script, /\^Frameworks\/\[\^\/\]\+\\\.framework/);
   assert.match(script, /unreviewed framework resource/);
+  assert.match(resourceInventoryLoop, /unreviewed_framework_name_sha256=%s/);
+  assert.doesNotMatch(resourceInventoryLoop, /unreviewed_framework_name=%s/);
   assert.match(script, /App\|Flutter\|file_picker\|flutter_secure_storage_darwin/);
   assert.match(script, /file_picker_ios_privacy\|image_picker_ios_privacy\|flutter_secure_storage\|GoogleUtilities_Privacy/);
   assert.match(script, /GoogleToolboxForMac_Logger_Privacy/);

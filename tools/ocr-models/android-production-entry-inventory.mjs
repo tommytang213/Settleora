@@ -6,7 +6,7 @@ export const expectedAndroidPackageDigestsBySource = Object.freeze({
   // Exact candidate tracked tree excluding this inventory file. Clean local
   // Flutter 3.44.8 Release projection with strict Gradle evidence, the
   // production plugin graph, and the updated bound acceptance catalog.
-  "c00b538b46e61c761200110cb8db79e47fca5f44f23894b9195c314ef55e7861": Object.freeze([
+  "4895cd8dd88f33c39c5513128d1b64fbce8a7da880bf873077fc86ca46087c62": Object.freeze([
     "57de81460d733fe85576ffc60d532ccff23d40d8b58fd3f621962b36d0345fd8",
   ]),
 });

@@ -407,12 +407,8 @@ while IFS= read -r candidate; do
         case "$framework_name" in
           App|Flutter|file_picker|flutter_secure_storage_darwin|google_mlkit_commons|google_mlkit_text_recognition|image_picker_ios|GoogleDataTransport|GoogleMLKit|GoogleToolboxForMac|GoogleUtilities|GTMSessionFetcher|MLImage|MLKitCommon|MLKitTextRecognition|MLKitTextRecognitionCommon|MLKitVision|nanopb|onnxruntime|onnxruntime-c|onnxruntime-objc|OpenCV|PromisesObjC|FBLPromises|Yams) ;;
           *)
-            if [[ "$framework_name" =~ ^[A-Za-z][A-Za-z0-9_.-]{0,63}$ ]]; then
-              printf 'unreviewed_framework_name=%s\n' "$framework_name" >&2
-            else
-              printf 'unreviewed_framework_name_sha256=%s\n' \
-                "$(printf '%s' "$framework_name" | shasum -a 256 | cut -d ' ' -f 1)" >&2
-            fi
+            printf 'unreviewed_framework_name_sha256=%s\n' \
+              "$(printf '%s' "$framework_name" | shasum -a 256 | cut -d ' ' -f 1)" >&2
             fail "production application contains an unreviewed framework resource" ;;
         esac ;;
       *.bundle/Info.plist|*.bundle/PrivacyInfo.xcprivacy|*.bundle/_CodeSignature/CodeResources)
