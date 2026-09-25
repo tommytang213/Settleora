@@ -12,6 +12,13 @@ const maxInventoryBytes = 32 * 1024 * 1024;
 const maxModelBytes = 64 * 1024 * 1024;
 const maxAndroidArchiveBytes = 512 * 1024 * 1024;
 const allowedAndroidCompressionMethods = new Set([0, 8]);
+const crc32Table = Uint32Array.from({ length: 256 }, (_, index) => {
+  let value = index;
+  for (let bit = 0; bit < 8; bit += 1) {
+    value = (value >>> 1) ^ ((value & 1) === 0 ? 0 : 0xedb88320);
+  }
+  return value >>> 0;
+});
 const prohibitedPackageEntry = /integration[_-]?test|receipt_ocr_real_provider_test|receipt_ocr_acceptance|(?:^|\/)(?:private|fixtures?|tests?)(?:\/|[-_.]|$)|\.log$|(?:^|\/)[^/]*(?:ocr[-_]?output|ocr[-_]?evidence|private[-_]?receipt)[^/]*|(?:^|\/)[^/]*(?:receipt|invoice|fixture|corpus|ocr|scan)[^/]*\.(?:jpe?g|png|webp|heic|heif|pdf|tiff?|bmp|json|csv|txt|bin|dat|db|sqlite|zip)$/i;
 class PackageContentMismatch extends Error {
   constructor(digest) {
@@ -38,6 +45,14 @@ function safeRelativePath(value, name) {
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
+}
+
+function crc32(bytes) {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc = (crc >>> 8) ^ crc32Table[(crc ^ byte) & 0xff];
+  }
+  return (crc ^ 0xffffffff) >>> 0;
 }
 
 function withAndroidSnapshot(packagePath, verify) {
@@ -264,6 +279,7 @@ function verifyAndroidZipMetadata(packagePath) {
       contents = expanded.buffer;
     }
     if (contents.length !== uncompressedSize) throw new Error("Production APK entry expanded size differs");
+    if (crc32(contents) !== centralCrc) throw new Error("Production APK entry CRC differs from its payload");
     contentDigests.push([
       name, localOffset, madeBy, externalAttributes, centralMethod, localExtraLength, compressedSize, uncompressedSize,
       sha256(compressed), sha256(contents),

@@ -59,7 +59,7 @@ function syntheticSigningBlock(extraPair = null) {
 
 function writeSyntheticApk(apk, packageRoot, { unsigned = false, firstLocalExtra = Buffer.alloc(0),
   extraEntries = [], extraSigningPair = null, changedNonOcrEntry = null,
-  trailingCompressedEntry = null, recompressedEntry = null,
+  trailingCompressedEntry = null, recompressedEntry = null, wrongCrcEntry = null,
   reverseCentralOrder = false, changedProfileEntry = null } = {}) {
   const entries = [];
   const visit = (directory, prefix = "") => {
@@ -92,13 +92,14 @@ function writeSyntheticApk(apk, packageRoot, { unsigned = false, firstLocalExtra
     const madeBy = entry.name === changedProfileEntry ? 0x0014 : 0;
     digestRecords.push(`${entry.name}\0${localOffset}\0${madeBy}\0${0}\0${method}\0${extra.length}\0${stored.length}\0${data.length}\0${sha256(stored)}\0${sha256(data)}\n`);
     const crc = crc32(data);
+    const recordedCrc = entry.name === wrongCrcEntry ? (crc ^ 1) >>> 0 : crc;
     const localHeader = Buffer.alloc(30);
     localHeader.writeUInt32LE(0x04034b50, 0);
     localHeader.writeUInt16LE(0, 4);
     localHeader.writeUInt16LE(method, 8);
     localHeader.writeUInt16LE(0x0821, 10);
     localHeader.writeUInt16LE(0x0221, 12);
-    localHeader.writeUInt32LE(crc, 14);
+    localHeader.writeUInt32LE(recordedCrc, 14);
     localHeader.writeUInt32LE(stored.length, 18);
     localHeader.writeUInt32LE(data.length, 22);
     localHeader.writeUInt16LE(name.length, 26);
@@ -111,7 +112,7 @@ function writeSyntheticApk(apk, packageRoot, { unsigned = false, firstLocalExtra
     centralHeader.writeUInt16LE(method, 10);
     centralHeader.writeUInt16LE(0x0821, 12);
     centralHeader.writeUInt16LE(0x0221, 14);
-    centralHeader.writeUInt32LE(crc, 16);
+    centralHeader.writeUInt32LE(recordedCrc, 16);
     centralHeader.writeUInt32LE(stored.length, 20);
     centralHeader.writeUInt32LE(data.length, 24);
     centralHeader.writeUInt16LE(name.length, 28);
@@ -341,6 +342,9 @@ test("verifies the catalog, every model, and concrete fixture absence in Android
     mismatchedHeader.writeUInt32LE(mismatchedHeader.readUInt32LE(14) ^ 1, 14);
     writeFileSync(apk, mismatchedHeader);
     assert.throws(verifyTestPackage, /local metadata is unreviewed/);
+
+    writeSyntheticApk(apk, packageRoot, { wrongCrcEntry: expectedAndroidNonOcrEntries[0] });
+    assert.throws(verifyTestPackage, /entry CRC differs from its payload/);
   });
 });
 

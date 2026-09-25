@@ -372,6 +372,13 @@ while IFS= read -r candidate; do
     relative_resource=${candidate#"$app_path"/}
     case "$relative_resource" in
       Info.plist|PkgInfo|Assets.car|embedded.mobileprovision|en.lproj/InfoPlist.strings|_CodeSignature/CodeResources|Frameworks/Flutter.framework/icudtl.dat|Frameworks/App.framework/flutter_assets/AssetManifest.bin|Frameworks/App.framework/flutter_assets/AssetManifest.json|Frameworks/App.framework/flutter_assets/FontManifest.json|Frameworks/App.framework/flutter_assets/NOTICES.Z) ;;
+      # Exact Flutter-generated assets observed in the reviewed same-source
+      # Android Release package. iOS must prove identical bytes or fail closed.
+      Frameworks/App.framework/flutter_assets/NativeAssetsManifest.json) expected_flutter_asset_sha=9548a31e4a048135c1d94f919328bfb62ae2c7bb3cab96557c7941daa97776cb ;;
+      Frameworks/App.framework/flutter_assets/fonts/MaterialIcons-Regular.otf) expected_flutter_asset_sha=e4aae88917aea920dfba979f19616d87669655d003444d3b1a110b685b88a0ed ;;
+      Frameworks/App.framework/flutter_assets/packages/cupertino_icons/assets/CupertinoIcons.ttf) expected_flutter_asset_sha=67c44fe9183b002e79dde7f6977e2988661c9a3e4a3c5fce968787efdbed823c ;;
+      Frameworks/App.framework/flutter_assets/shaders/ink_sparkle.frag) expected_flutter_asset_sha=1fe8436a743884cb65078fe8c7b38e18f5365f2a2961270916f426fd13c604af ;;
+      Frameworks/App.framework/flutter_assets/shaders/stretch_effect.frag) expected_flutter_asset_sha=62a899ff4e168ac6ca888ce7c2f40e5d3fbf8ca20a1c3ded781a116a6d7907e2 ;;
       AppIcon*.png) [[ "$relative_resource" =~ ^AppIcon[^/]*\.png$ ]] || fail_unreviewed_resource_path ;;
       receipt_ocr_models/*) ;; # verify-mobile-package enforces the exact recursive model inventory.
       Base.lproj/*.storyboardc/*) [[ "$relative_resource" =~ ^Base\.lproj/[^/]+\.storyboardc/[^/]+$ ]] || fail_unreviewed_resource_path ;;
@@ -414,6 +421,14 @@ while IFS= read -r candidate; do
       *)
         fail_unreviewed_resource_path ;;
     esac
+    if [[ -n "${expected_flutter_asset_sha:-}" ]]; then
+      observed_flutter_asset_sha=$(sha256_file "$candidate")
+      if [[ "$observed_flutter_asset_sha" != "$expected_flutter_asset_sha" ]]; then
+        printf 'flutter_generated_content_sha256=%s\n' "$observed_flutter_asset_sha" >&2
+        fail "production Flutter asset bytes differ from the reviewed identity"
+      fi
+      unset expected_flutter_asset_sha
+    fi
   fi
   if [[ "$file_description" == Mach-O* ]]; then
     binary_count=$((binary_count + 1))
@@ -454,6 +469,7 @@ while IFS= read -r candidate; do
   elif [[ "$file_description" == data ]]; then
     case "$candidate" in
       "$app_path"/receipt_ocr_models/*|"$app_path"/Assets.car|"$app_path"/embedded.mobileprovision|"$app_path"/Frameworks/Flutter.framework/icudtl.dat|"$app_path"/Frameworks/App.framework/flutter_assets/AssetManifest.bin|"$app_path"/Frameworks/App.framework/flutter_assets/NOTICES.Z|"$app_path"/Base.lproj/*.nib|"$app_path"/LatinOCRResources.bundle/*|"$app_path"/Frameworks/MLKitTextRecognition.framework/LatinOCRResources.bundle/*) ;;
+      "$app_path"/Frameworks/App.framework/flutter_assets/NativeAssetsManifest.json|"$app_path"/Frameworks/App.framework/flutter_assets/fonts/MaterialIcons-Regular.otf|"$app_path"/Frameworks/App.framework/flutter_assets/packages/cupertino_icons/assets/CupertinoIcons.ttf|"$app_path"/Frameworks/App.framework/flutter_assets/shaders/ink_sparkle.frag|"$app_path"/Frameworks/App.framework/flutter_assets/shaders/stretch_effect.frag) ;;
       *) fail "production application contains an unreviewed opaque resource" ;;
     esac
   elif [[ "$file_description" =~ image|bitmap|PDF\ document|SVG|HEIF|HEIC|AVIF|Web/P|archive|compressed\ data|gzip|bzip2|XZ\ compressed|Zstandard|RAR|7-zip ]]; then

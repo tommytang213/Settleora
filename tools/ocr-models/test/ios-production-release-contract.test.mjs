@@ -545,6 +545,25 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   assert.match(script, /assetutil --info "\$app_path\/Assets\.car"/);
   assert.match(script, /compiled asset catalog changed during metadata observation/);
   assert.match(script, /Frameworks\/App\.framework\/flutter_assets\/AssetManifest\.json/);
+  for (const generatedAsset of [
+    ["NativeAssetsManifest.json", "9548a31e4a048135c1d94f919328bfb62ae2c7bb3cab96557c7941daa97776cb"],
+    ["fonts/MaterialIcons-Regular.otf", "e4aae88917aea920dfba979f19616d87669655d003444d3b1a110b685b88a0ed"],
+    ["packages/cupertino_icons/assets/CupertinoIcons.ttf", "67c44fe9183b002e79dde7f6977e2988661c9a3e4a3c5fce968787efdbed823c"],
+    ["shaders/ink_sparkle.frag", "1fe8436a743884cb65078fe8c7b38e18f5365f2a2961270916f426fd13c604af"],
+    ["shaders/stretch_effect.frag", "62a899ff4e168ac6ca888ce7c2f40e5d3fbf8ca20a1c3ded781a116a6d7907e2"],
+  ]) {
+    assert.match(generatedAsset[1], /^[0-9a-f]{64}$/);
+    assert.ok(resourceInventoryLoop.includes(
+      `Frameworks/App.framework/flutter_assets/${generatedAsset[0]}) expected_flutter_asset_sha=${generatedAsset[1]} ;;`,
+    ));
+    assert.ok(resourceInventoryLoop.slice(resourceInventoryLoop.indexOf('elif [[ "$file_description" == data ]]')).includes(
+      `"$app_path"/Frameworks/App.framework/flutter_assets/${generatedAsset[0]}`,
+    ));
+  }
+  assert.match(resourceInventoryLoop, /observed_flutter_asset_sha=\$\(sha256_file "\$candidate"\)/);
+  assert.match(resourceInventoryLoop, /"\$observed_flutter_asset_sha" != "\$expected_flutter_asset_sha"/);
+  assert.match(resourceInventoryLoop, /production Flutter asset bytes differ from the reviewed identity/);
+  assert.match(resourceInventoryLoop, /unset expected_flutter_asset_sha/);
   assert.doesNotMatch(script, /flutter_assets\/\*\.json/);
   assert.match(script, /image\|bitmap\|PDF\\ document\|SVG\|HEIF\|HEIC\|AVIF\|Web\/P\|archive\|compressed\\ data\|gzip/);
   assert.match(script, /production application contains an unreviewed image or document resource/);
