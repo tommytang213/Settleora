@@ -115,14 +115,23 @@ test -z "$(read_simulator_environment SETTLEORA_OCR_NETWORK_INTERPOSER_LOADED)"
 phase=install_network_isolation
 debug_config="$GITHUB_WORKSPACE/apps/mobile/ios/Flutter/Debug.xcconfig"
 network_config_backup="$RUNNER_TEMP/settleora-ocr-debug.xcconfig.original"
-test "$(cat "$debug_config")" = '#include "Generated.xcconfig"'
+phase=verify_debug_link_config
+if test "$(cat "$debug_config")" != '#include "Generated.xcconfig"'; then
+  shasum -a 256 "$debug_config" | awk '{print "debug_link_config_sha256=" $1}' >&2
+  exit 98
+fi
+phase=verify_network_link_path
 case "$network_deny" in
   *[[:space:]]*) exit 98 ;;
 esac
+phase=save_debug_link_config
 cp -p "$debug_config" "$network_config_backup"
 network_link_configured=true
+phase=apply_debug_link_config
 printf '\nOTHER_LDFLAGS = $(inherited) -Wl,-needed_library,%s\n' "$network_deny" >> "$debug_config"
+phase=verify_debug_link_setting
 test "$(tail -n 1 "$debug_config")" = "OTHER_LDFLAGS = \$(inherited) -Wl,-needed_library,$network_deny"
+phase=enable_simulator_isolation
 network_environment_configured=true
 xcrun simctl spawn "$device" launchctl setenv SETTLEORA_OCR_NETWORK_ISOLATION socket_interpose_v1
 export SETTLEORA_OCR_NETWORK_INTERPOSER_SOURCE="$network_deny"

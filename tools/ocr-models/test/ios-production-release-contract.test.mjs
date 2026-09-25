@@ -532,6 +532,8 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   assert.match(resourceInventoryLoop,
     /Base\.lproj\/\*\.nib\) \[\[ "\$relative_resource" =~ \^Base\\\.lproj\/\[\^\/\]\+\\\.nib\$ \]\] \|\| fail_unreviewed_resource_path ;;/);
   assert.match(script, /unreviewed_resource_path_sha256=%s resource_class=%s/);
+  assert.match(script, /framework_component_sha256=%s framework_tail_sha256=%s resource_kind=%s resource_depth=%s/);
+  assert.doesNotMatch(script, /unreviewed_resource_path=%s|framework_component=%s|framework_tail=%s/);
   assert.match(script, /compiled_asset_car_sha256=%s/);
   assert.match(script, /verify-ios-xcarchive\.mjs/);
   assert.match(script, /archive_review=\$\(node "\$tool_root\/tools\/ocr-models\/verify-ios-xcarchive\.mjs"\)/);

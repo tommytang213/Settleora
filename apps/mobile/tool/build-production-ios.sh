@@ -354,7 +354,7 @@ compiled_asset_car_sha256=$(sha256_file "$app_path/Assets.car")
 printf 'compiled_asset_car_sha256=%s\n' "$compiled_asset_car_sha256"
 # These are observed identities only. #1320 owns the signed Xcode baseline.
 fail_unreviewed_resource_path() {
-  local resource_path_sha resource_class
+  local resource_path_sha resource_class framework_component framework_tail resource_kind resource_depth
   resource_path_sha=$(printf '%s' "$relative_resource" | shasum -a 256 | cut -d ' ' -f 1)
   case "$relative_resource" in
     Frameworks/*) resource_class=framework ;;
@@ -363,6 +363,24 @@ fail_unreviewed_resource_path() {
   esac
   printf 'unreviewed_resource_path_sha256=%s resource_class=%s\n' \
     "$resource_path_sha" "$resource_class" >&2
+  if [[ "$resource_class" == framework ]]; then
+    framework_component=${relative_resource#Frameworks/}
+    framework_component=${framework_component%%/*}
+    framework_tail=${relative_resource#"Frameworks/$framework_component/"}
+    case "$framework_tail" in
+      *.plist) resource_kind=plist ;;
+      *.xcprivacy) resource_kind=privacy ;;
+      *.json) resource_kind=json ;;
+      *.strings) resource_kind=strings ;;
+      *.dat|*.bin) resource_kind=data ;;
+      *) resource_kind=other ;;
+    esac
+    resource_depth=$(printf '%s' "$framework_tail" | tr -cd '/' | wc -c | tr -d ' ')
+    printf 'framework_component_sha256=%s framework_tail_sha256=%s resource_kind=%s resource_depth=%s\n' \
+      "$(printf '%s' "$framework_component" | shasum -a 256 | cut -d ' ' -f 1)" \
+      "$(printf '%s' "$framework_tail" | shasum -a 256 | cut -d ' ' -f 1)" \
+      "$resource_kind" "$resource_depth" >&2
+  fi
   fail "production application contains an unreviewed resource path"
 }
 while IFS= read -r candidate; do

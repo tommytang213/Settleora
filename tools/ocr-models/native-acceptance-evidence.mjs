@@ -28,6 +28,12 @@ const iosPreflightFailurePhases = new Set([
   "build_network_isolation",
   "verify_network_environment_clean",
   "install_network_isolation",
+  "verify_debug_link_config",
+  "verify_network_link_path",
+  "save_debug_link_config",
+  "apply_debug_link_config",
+  "verify_debug_link_setting",
+  "enable_simulator_isolation",
   "execute_flutter_test",
   "cleanup_network_isolation",
 ]);

@@ -417,6 +417,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   const iosCommands = runCommands(native.jobs['ios-native-acceptance']).join('\n');
   const iosRunner = read('tools/ocr-models/run-ios-native-acceptance.sh');
   const iosNetworkDeny = read('tools/ocr-models/ios-simulator-network-deny.c');
+  const nativeEvidenceCollector = read('tools/ocr-models/native-acceptance-evidence.mjs');
   const iosProject = read('apps/mobile/ios/Runner.xcodeproj/project.pbxproj');
   assert.equal(read('apps/mobile/ios/Flutter/Debug.xcconfig'), '#include "Generated.xcconfig"\n');
   assert.equal(read('apps/mobile/ios/Flutter/Release.xcconfig'), '#include "Generated.xcconfig"\n');
@@ -440,9 +441,16 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(iosRunner.includes('test -z "${SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_ISOLATION:-}"'));
   assert.ok(iosRunner.includes('"-Wl,-install_name,$network_deny_in_app"'));
   assert.ok(iosRunner.includes('xcrun otool -D "$network_deny"'));
-  assert.ok(iosRunner.includes("test \"$(cat \"$debug_config\")\" = '#include \"Generated.xcconfig\"'"));
+  assert.ok(iosRunner.includes("if test \"$(cat \"$debug_config\")\" != '#include \"Generated.xcconfig\"'; then"));
   assert.ok(iosRunner.includes("printf '\\nOTHER_LDFLAGS = $(inherited) -Wl,-needed_library,%s\\n'"));
   assert.ok(iosRunner.includes('network_link_configured=true'));
+  for (const stage of ['verify_debug_link_config', 'verify_network_link_path',
+    'save_debug_link_config', 'apply_debug_link_config', 'verify_debug_link_setting',
+    'enable_simulator_isolation']) {
+    assert.ok(iosRunner.includes(`phase=${stage}`));
+    assert.ok(nativeEvidenceCollector.includes(`"${stage}"`));
+  }
+  assert.ok(iosRunner.includes('debug_link_config_sha256='));
   assert.ok(iosRunner.includes('cp -p "$network_config_backup" "$debug_config"'));
   assert.ok(iosRunner.includes('cmp -s "$network_config_backup" "$debug_config"'));
   assert.ok(iosRunner.indexOf('network_link_configured=true') <
