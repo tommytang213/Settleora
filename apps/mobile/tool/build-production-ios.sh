@@ -383,8 +383,56 @@ fail_unreviewed_resource_path() {
   fi
   fail "production application contains an unreviewed resource path"
 }
+compiled_storyboard_nib_count=0
+for compiled_nib in "$app_path"/Base.lproj/*.storyboardc/*.nib; do
+  [[ -f "$compiled_nib" ]] || continue
+  compiled_storyboard_nib_count=$((compiled_storyboard_nib_count + 1))
+  [[ "$compiled_storyboard_nib_count" -le 16 ]] ||
+    fail "production storyboard nib inventory is unbounded"
+  compiled_nib_relative=${compiled_nib#"$app_path"/}
+  printf 'compiled_storyboard_nib_path_sha256=%s compiled_storyboard_nib_sha256=%s\n' \
+    "$(printf '%s' "$compiled_nib_relative" | shasum -a 256 | cut -d ' ' -f 1)" \
+    "$(sha256_file "$compiled_nib")"
+done
 while IFS= read -r candidate; do
+  # Bind opaque generated resources before file(1) classifies their bytes.
+  case "$candidate" in
+    "$app_path"/Frameworks/App.framework/flutter_assets/AssetManifest.bin)
+      observed_asset_manifest_sha=$(sha256_file "$candidate")
+      if [[ "$observed_asset_manifest_sha" != 00af55ad3d6f21898fe77e0ff092d1a1cda52c941b6860e9928d45c8af8c095d ]]; then
+        printf 'asset_manifest_sha256=%s\n' "$observed_asset_manifest_sha" >&2
+        fail "production Flutter asset manifest differs from reviewed Release bytes"
+      fi ;;
+    "$app_path"/Base.lproj/*.nib)
+      relative_nib=${candidate#"$app_path"/}
+      if [[ "$relative_nib" =~ ^Base\.lproj/[^/]+\.nib$ ]]; then
+        printf 'unreviewed_compiled_nib_sha256=%s\n' "$(sha256_file "$candidate")" >&2
+        fail "production compiled nib has no reviewed byte identity"
+      fi ;;
+    "$app_path"/Base.lproj/*.storyboardc/*.nib)
+      relative_nib=${candidate#"$app_path"/}
+      if [[ "$relative_nib" =~ ^Base\.lproj/[^/]+\.storyboardc/[^/]+\.nib$ ]]; then
+        fail "production storyboard nib has no reviewed byte identity"
+      fi ;;
+  esac
   file_description=$(file -b "$candidate")
+  if [[ "$file_description" == Mach-O* && "$candidate" == "$app_path"/* ]]; then
+    relative_resource=${candidate#"$app_path"/}
+    case "$relative_resource" in
+      Runner) ;;
+      Frameworks/*.framework/*)
+        [[ "$relative_resource" =~ ^Frameworks/([^/]+)\.framework/([^/]+)$ ]] || fail_unreviewed_resource_path
+        framework_name=${BASH_REMATCH[1]}
+        [[ "$framework_name" == "${BASH_REMATCH[2]}" ]] || fail_unreviewed_resource_path
+        case "$framework_name" in
+          App|Flutter|file_picker|flutter_secure_storage_darwin|google_mlkit_commons|google_mlkit_text_recognition|image_picker_ios|GoogleDataTransport|GoogleMLKit|GoogleToolboxForMac|GoogleUtilities|GTMSessionFetcher|MLImage|MLKitCommon|MLKitTextRecognition|MLKitTextRecognitionCommon|MLKitVision|nanopb|objective_c|onnxruntime|onnxruntime-c|onnxruntime-objc|OpenCV|PromisesObjC|FBLPromises|Yams) ;;
+          *) fail_unreviewed_resource_path ;;
+        esac ;;
+      Frameworks/libswift*.dylib)
+        [[ "$relative_resource" =~ ^Frameworks/libswift[A-Za-z0-9_]+\.dylib$ ]] || fail_unreviewed_resource_path ;;
+      *) fail_unreviewed_resource_path ;;
+    esac
+  fi
   if [[ "$file_description" != Mach-O* ]]; then
     [[ "$candidate" == "$app_path"/* ]] || fail "production application contains an unreviewed resource path"
     relative_resource=${candidate#"$app_path"/}
@@ -511,7 +559,7 @@ while IFS= read -r candidate; do
       fail "production application contains an unreviewed opaque resource"
   elif [[ "$file_description" == data ]]; then
     case "$candidate" in
-      "$app_path"/receipt_ocr_models/*|"$app_path"/Assets.car|"$app_path"/embedded.mobileprovision|"$app_path"/AppFrameworkInfo.plist|"$app_path"/Frameworks/Flutter.framework/icudtl.dat|"$app_path"/Frameworks/App.framework/flutter_assets/AssetManifest.bin|"$app_path"/Frameworks/App.framework/flutter_assets/NOTICES.Z|"$app_path"/Base.lproj/*.nib|"$app_path"/LatinOCRResources.bundle/*|"$app_path"/Frameworks/MLKitTextRecognition.framework/LatinOCRResources.bundle/*) ;;
+      "$app_path"/receipt_ocr_models/*|"$app_path"/Assets.car|"$app_path"/embedded.mobileprovision|"$app_path"/AppFrameworkInfo.plist|"$app_path"/Frameworks/Flutter.framework/icudtl.dat|"$app_path"/Frameworks/App.framework/flutter_assets/AssetManifest.bin|"$app_path"/Frameworks/App.framework/flutter_assets/NOTICES.Z|"$app_path"/LatinOCRResources.bundle/*|"$app_path"/Frameworks/MLKitTextRecognition.framework/LatinOCRResources.bundle/*) ;;
       "$app_path"/Frameworks/App.framework/flutter_assets/NativeAssetsManifest.json|"$app_path"/Frameworks/App.framework/flutter_assets/fonts/MaterialIcons-Regular.otf|"$app_path"/Frameworks/App.framework/flutter_assets/packages/cupertino_icons/assets/CupertinoIcons.ttf|"$app_path"/Frameworks/App.framework/flutter_assets/shaders/ink_sparkle.frag|"$app_path"/Frameworks/App.framework/flutter_assets/shaders/stretch_effect.frag) ;;
       *) fail "production application contains an unreviewed opaque resource" ;;
     esac

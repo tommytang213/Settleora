@@ -3,6 +3,11 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // Hosted review follow-up strengthens iOS package and UI evidence; Android
+  // package inputs are unchanged. Local representation passed strict review.
+  "0dc9f2201df46a5031621867ce6a5df9e5b13a36814f939fa857900650781a30": Object.freeze([
+    "0caceaa079326b5e1de3a4e5a681ec4f9917056094b45cec25d93bf92ce702dd",
+  ]),
   // Fixed-command nested-bundle policy regression; APK inputs unchanged.
   // Local representation passed strict verification, hosted reproof required.
   "123ea0885d2060c98bb89849a3815d42715775b1590d241d224ec1469009f03f": Object.freeze([

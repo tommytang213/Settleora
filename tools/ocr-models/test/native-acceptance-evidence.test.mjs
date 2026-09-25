@@ -580,6 +580,8 @@ test("retains only bounded failure-stage diagnostics and never accepts them as c
     "network_interposer_loaded_image",
     "network_interposer_constructor",
     "network_interposer_symbol",
+    "ui_value_binding",
+    "ui_apply_handoff",
   ]) {
     const diagnostic = diagnosticFor(stage);
     withLog(protocolLog(`SETTLEORA_OCR_DIAGNOSTIC=${JSON.stringify(diagnostic)}`), (logPath) => {

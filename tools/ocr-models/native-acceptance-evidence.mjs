@@ -685,6 +685,8 @@ const diagnosticStages = new Set([
   "ui_fixture_select",
   "ui_fixture_load",
   "ui_render",
+  "ui_value_binding",
+  "ui_apply_handoff",
   "ui_evidence",
 ]);
 

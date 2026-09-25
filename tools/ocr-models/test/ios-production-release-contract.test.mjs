@@ -517,6 +517,11 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   assert.match(script, /production application contains an unreviewed resource path/);
   const resourceInventoryLoop = script.slice(script.lastIndexOf('while IFS= read -r candidate; do'));
   assert.match(resourceInventoryLoop, /done < <\(find "\$inventory_root" -type f -print\)/);
+  assert.match(resourceInventoryLoop, /if \[\[ "\$file_description" == Mach-O\* && "\$candidate" == "\$app_path"\/\* \]\]; then/);
+  assert.match(resourceInventoryLoop, /Frameworks\/\*\.framework\/\*\)\s+\[\[ "\$relative_resource" =~ \^Frameworks\/\(\[\^\/\]\+\)\\\.framework\/\(\[\^\/\]\+\)\$ \]\] \|\| fail_unreviewed_resource_path/);
+  assert.match(resourceInventoryLoop, /"\$framework_name" == "\$\{BASH_REMATCH\[2\]\}"/);
+  assert.ok(resourceInventoryLoop.indexOf('if [[ "$file_description" == Mach-O*') <
+    resourceInventoryLoop.indexOf('nm -a "$candidate"'));
   const appFrameworkSource = readFileSync(path.join(repoRoot, "apps/mobile/ios/Flutter/AppFrameworkInfo.plist"));
   const appFrameworkSha = createHash("sha256").update(appFrameworkSource).digest("hex");
   assert.match(resourceInventoryLoop, new RegExp(`AppFrameworkInfo\\.plist\\)[\\s\\S]*?"\\$mobile_root/ios/Flutter/AppFrameworkInfo\\.plist"\\)" == ${appFrameworkSha}`));
@@ -524,8 +529,6 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   assert.match(resourceInventoryLoop, /"\$observed_app_framework_sha" != 275c1f7273e185d2d65f8b447af25841e2be7fbdb3df89feb6324634f33ce317/);
   assert.match(resourceInventoryLoop, /production AppFrameworkInfo resource differs from reviewed Xcode output/);
   assert.match(resourceInventoryLoop, /"\$candidate" == "\$app_path\/AppFrameworkInfo\.plist"/);
-  assert.ok(resourceInventoryLoop.indexOf('Base.lproj/*.storyboardc/*)') <
-    resourceInventoryLoop.indexOf('Base.lproj/*.nib)'));
   assert.doesNotMatch(resourceInventoryLoop, /if \[\[ -d "\$candidate" \]\]/);
   assert.match(resourceInventoryLoop,
     /Base\.lproj\/\*\.storyboardc\/\*\) \[\[ "\$relative_resource" =~ \^Base\\\.lproj\/\[\^\/\]\+\\\.storyboardc\/\[\^\/\]\+\$ \]\] \|\| fail_unreviewed_resource_path ;;/);
@@ -558,6 +561,20 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   };
   assert.equal(matchesNestedBundle('Frameworks/GoogleDataTransport.framework/GoogleDataTransport_Privacy.bundle/PrivacyInfo.xcprivacy'), 'reviewed');
   assert.equal(matchesNestedBundle('Frameworks/App.framework/GoogleDataTransport_Privacy.bundle/PrivacyInfo.xcprivacy'), 'reject');
+  assert.match(resourceInventoryLoop, /observed_asset_manifest_sha=\$\(sha256_file "\$candidate"\)/);
+  assert.match(resourceInventoryLoop, /"\$observed_asset_manifest_sha" != 00af55ad3d6f21898fe77e0ff092d1a1cda52c941b6860e9928d45c8af8c095d/);
+  assert.match(resourceInventoryLoop, /_CodeSignature\/CodeResources\|Frameworks\/App\.framework\/flutter_assets\/AssetManifest\.bin\|Frameworks\/App\.framework\/flutter_assets\/AssetManifest\.json/);
+  assert.match(resourceInventoryLoop, /"\$app_path"\/Base\.lproj\/\*\.nib\)\s+relative_nib=\$\{candidate#"\$app_path"\/\}/);
+  assert.match(resourceInventoryLoop, /"\$relative_nib" =~ \^Base\\\.lproj\/\[\^\/\]\+\\\.nib\$/);
+  assert.match(resourceInventoryLoop, /production compiled nib has no reviewed byte identity/);
+  assert.match(script, /compiled_storyboard_nib_count=0\s+for compiled_nib in "\$app_path"\/Base\.lproj\/\*\.storyboardc\/\*\.nib; do/);
+  assert.match(script, /compiled_storyboard_nib_path_sha256=%s compiled_storyboard_nib_sha256=%s/);
+  assert.match(resourceInventoryLoop, /"\$relative_nib" =~ \^Base\\\.lproj\/\[\^\/\]\+\\\.storyboardc\/\[\^\/\]\+\\\.nib\$/);
+  assert.match(resourceInventoryLoop, /production storyboard nib has no reviewed byte identity/);
+  assert.ok(resourceInventoryLoop.indexOf('observed_asset_manifest_sha=$(sha256_file "$candidate")') <
+    resourceInventoryLoop.indexOf('file_description=$(file -b "$candidate")'));
+  assert.ok(resourceInventoryLoop.indexOf('unreviewed_compiled_nib_sha256=%s') <
+    resourceInventoryLoop.indexOf('file_description=$(file -b "$candidate")'));
   assert.match(script, /Frameworks\/App\.framework\/flutter_assets\/NOTICES\.Z\) expected_flutter_asset_sha=7c9b681fa5d9672489bc4a80fbbb03e5ee666d4b45af75aecf3f1802052f9008/);
   assert.equal(resourceInventoryLoop.indexOf('NOTICES.Z'),
     resourceInventoryLoop.indexOf('NOTICES.Z) expected_flutter_asset_sha='));

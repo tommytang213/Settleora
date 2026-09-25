@@ -545,6 +545,82 @@ void main() {
       }
       expect(previewPanel, findsOneWidget);
       expect(applyControl, findsOneWidget);
+      final expected = entry['expected']! as Map<String, Object?>;
+      failure.set(
+        'ui_value_binding',
+        fixtureId: 'existing_12_freshmart_grocery_en_US',
+      );
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const Key('personal-bill-ocr-edit-merchant')),
+            )
+            .controller
+            ?.text,
+        expected['merchant'],
+      );
+      expect(
+        tester
+            .widget<EditableText>(
+              find.descendant(
+                of: find.byKey(const Key('personal-bill-ocr-edit-date')),
+                matching: find.byType(EditableText),
+              ),
+            )
+            .controller
+            .text,
+        expected['date'],
+      );
+      final totalText = tester.widget<Text>(
+        find.descendant(
+          of: previewPanel,
+          matching: find.textContaining('Grand total suggested:'),
+        ),
+      );
+      final renderedTotal = totalText.data!;
+      const totalPrefix = 'Grand total suggested: ';
+      const totalSuffix = ' (review only)';
+      expect(renderedTotal.startsWith(totalPrefix), isTrue);
+      expect(renderedTotal.endsWith(totalSuffix), isTrue);
+      final amountAndCurrency = renderedTotal.substring(
+        totalPrefix.length,
+        renderedTotal.length - totalSuffix.length,
+      );
+      final totalParts = amountAndCurrency.split(' ');
+      expect(totalParts.length, inInclusiveRange(1, 2));
+      if (totalParts.length == 2) {
+        expect(totalParts.first, matches(RegExp(r'^[A-Z]{3}$')));
+      }
+      expect(totalParts.last, expected['total']);
+      failure.set(
+        'ui_apply_handoff',
+        fixtureId: 'existing_12_freshmart_grocery_en_US',
+      );
+      await tester.ensureVisible(applyControl);
+      await tester.tap(applyControl);
+      await tester.pumpAndSettle();
+      expect(find.text('Suggestions applied'), findsOneWidget);
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const Key('personal-bill-merchant-name')),
+            )
+            .controller
+            ?.text,
+        expected['merchant'],
+      );
+      expect(
+        tester
+            .widget<EditableText>(
+              find.descendant(
+                of: find.byKey(const Key('personal-bill-date')),
+                matching: find.byType(EditableText),
+              ),
+            )
+            .controller
+            .text,
+        expected['date'],
+      );
       failure.set(
         'ui_evidence',
         fixtureId: 'existing_12_freshmart_grocery_en_US',
