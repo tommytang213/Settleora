@@ -26,6 +26,10 @@ export const expectedAndroidPackageDigests = Object.freeze([
   // Signer, exact entries, expanded model/legal bytes and fixture absence
   // passed before the complete entry digest gate reported this identity.
   "14263c2237b61d070a6ae55f03ddef9a07836a16e2648766610b64c0c83fb24a",
+  // Trusted exact-head GitHub-hosted ubuntu-24.04 projection, run 36095500537,
+  // Android job 107946807934. Signer, exact entries, expanded model/legal
+  // bytes and fixture absence passed before the complete digest gate.
+  "dc4415a52a133de0a8d85775055ba3072cba76d64c4a58d4bf96759c2e45c84a",
 ]);
 export const expectedAndroidNonOcrEntries = Object.freeze([
   "AndroidManifest.xml",
