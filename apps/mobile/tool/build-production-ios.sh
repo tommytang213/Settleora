@@ -579,6 +579,8 @@ while IFS= read -r candidate; do
     if [[ -n "${expected_flutter_asset_sha:-}" ]]; then
       observed_flutter_asset_sha=$(sha256_file "$candidate")
       if [[ "$observed_flutter_asset_sha" != "$expected_flutter_asset_sha" ]]; then
+        printf 'flutter_generated_content_path_sha256=%s\n' \
+          "$(printf '%s' "$relative_resource" | shasum -a 256 | cut -d ' ' -f 1)" >&2
         printf 'flutter_generated_content_sha256=%s\n' "$observed_flutter_asset_sha" >&2
         fail "production Flutter asset bytes differ from the reviewed identity"
       fi

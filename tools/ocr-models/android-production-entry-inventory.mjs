@@ -3,6 +3,12 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // Exact simulator forced-symbol link follow-up and bounded iOS asset-path
+  // diagnostic. Clean Flutter 3.44.8 Release projection passed preceding
+  // local package gates; hosted signer and ZIP representation need proof.
+  "ee46898f12864323ed0f978a1279a3a28d02b2d6ea1364ab51b689586a2b2fc5": Object.freeze([
+    "e5c67b451bd79f6f42d8db74df2942961bdfe0e1083285109d2db299e1db860c",
+  ]),
   // Exact geometry-bound acceptance source and nested iOS privacy resource.
   // Clean Flutter 3.44.8 production-plugin Release projection passed the
   // preceding local package gates; hosted signer and ZIP representation

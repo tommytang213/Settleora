@@ -64,16 +64,20 @@ def report(trace, dylib, capture_status):
         xlinker_operand = re.compile(r"(?<!\S)-Xlinker\s+" + re.escape(dylib) + r"(?=\s|$)")
         direct_path = re.compile(r"(?<!\S)" + re.escape(dylib) + r"(?=\s|$)")
         anchor_path = re.compile(r"(?<!\S)" + re.escape(anchor) + r"(?=\s|$)")
+        forced_symbol = re.compile(
+            r"(?<!\S)-Wl,-u,_settleora_network_interposer_loaded(?=\s|$)"
+        )
         proofs = []
         for command in invocations:
             forced = bool(needed_wl.search(command) or needed_xlinker.search(command))
             without_forced_operands = xlinker_operand.sub(" ", needed_xlinker.sub(" ", needed_wl.sub(" ", command)))
             direct = bool(direct_path.search(without_forced_operands))
-            proofs.append((forced, direct, bool(anchor_path.search(command))))
+            proofs.append((forced, direct, bool(anchor_path.search(command)), bool(forced_symbol.search(command))))
         print(f"ios_{label}_needed_library_in_link_invocation={'present' if any(p[0] for p in proofs) else 'absent'}", file=sys.stderr)
         print(f"ios_{label}_dylib_direct_input={'present' if any(p[1] for p in proofs) else 'absent'}", file=sys.stderr)
         print(f"ios_{label}_same_invocation_link_inputs={'present' if any(all(p[:2]) for p in proofs) else 'absent'}", file=sys.stderr)
-        print(f"ios_{label}_anchor_same_invocation={'present' if any(all(p) for p in proofs) else 'absent'}", file=sys.stderr)
+        print(f"ios_{label}_anchor_same_invocation={'present' if any(all(p[:3]) for p in proofs) else 'absent'}", file=sys.stderr)
+        print(f"ios_{label}_forced_symbol_same_invocation={'present' if any(all(p) for p in proofs) else 'absent'}", file=sys.stderr)
     diagnostics = {
         "undefined_interposer_symbol": any(
             "Undefined symbol: _settleora_network_interposer_loaded" in line
