@@ -104,10 +104,18 @@ class ReceiptOcrRunEvidence {
     this.detectionModelPackId,
     this.detectionModelVersion,
     this.runtime,
+    this.coldLoadTimeMs,
+    this.detectionTimeMs,
+    this.recognitionTimeMs,
+    this.totalTimeMs,
   });
   final String? detectionModelPackId;
   final String? detectionModelVersion;
   final String? runtime;
+  final int? coldLoadTimeMs;
+  final int? detectionTimeMs;
+  final int? recognitionTimeMs;
+  final int? totalTimeMs;
 }
 
 class ReceiptOcrItemCandidate {

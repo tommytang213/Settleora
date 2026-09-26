@@ -16,7 +16,6 @@ final class RetryableValueLoader<Value> {
 
 final class SettleoraReceiptOcrPlugin: NSObject, FlutterPlugin {
   private static let ocrChannelName = "com.settleora.mobile/receipt_ocr"
-  private static let acceptanceChannelName = "com.settleora.mobile/receipt_ocr_acceptance"
 
   private let engineLoader = RetryableValueLoader<SettleoraPaddleOcrEngine>()
   private var isBusy = false
@@ -27,11 +26,25 @@ final class SettleoraReceiptOcrPlugin: NSObject, FlutterPlugin {
     registrar.addMethodCallDelegate(instance, channel: channel)
 
     #if DEBUG
+    let acceptanceChannelName = "com.settleora.mobile/receipt_ocr_acceptance"
     let acceptance = FlutterMethodChannel(
       name: acceptanceChannelName,
       binaryMessenger: registrar.messenger()
     )
     acceptance.setMethodCallHandler { call, result in
+      if call.method == "loadModelCatalog" {
+        do {
+          let catalog = try FlutterAssetResolver.url("assets/receipt_ocr_models/catalog.json")
+          result(FlutterStandardTypedData(bytes: try Data(contentsOf: catalog)))
+        } catch {
+          result(FlutterError(
+            code: "catalog_unavailable",
+            message: "Packaged OCR model catalog unavailable",
+            details: nil
+          ))
+        }
+        return
+      }
       guard call.method == "loadFixture" else { result(FlutterMethodNotImplemented); return }
       guard
         let arguments = call.arguments as? [String: Any],

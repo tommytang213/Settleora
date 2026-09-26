@@ -23,7 +23,22 @@ import {
   validatePublicationRunDocument,
   validatePublicationRunUrl,
 } from '../day1-release-identity.mjs';
-import { assertCleanCompletion, assertCommitHasNoSymlinks, canonicalAndroidInput, canonicalManifestPath, canonicalReleaseNotesInput, canonicalWebInput, copyBoundedFile, deterministicAndroidRebuildProjection, parseCanonicalJson, parseSingleApkSigner, retainReleaseNotes, runGuardedFailureDescendantFixture, runGuardedOutputDescriptorFixture, runToolchainMutationGuardFixture, safeInput, sanitizedErrorMessage, toolchainTreeDigest, verificationRegistryReference } from '../day1-release-identity-cli.mjs';
+import { assertCleanCompletion, assertCommitHasNoSymlinks, assertReviewedApkSigningBlockIds, canonicalAndroidInput, canonicalManifestPath, canonicalReleaseNotesInput, canonicalWebInput, copyBoundedFile, deterministicAndroidRebuildProjection, parseCanonicalJson, parseSingleApkSigner, retainReleaseNotes, runGuardedFailureDescendantFixture, runGuardedOutputDescriptorFixture, runToolchainMutationGuardFixture, safeInput, sanitizedErrorMessage, toolchainTreeDigest, verificationRegistryReference } from '../day1-release-identity-cli.mjs';
+
+test('canonical APK signing inventory rejects the removed dependency-info block', () => {
+  assert.doesNotThrow(() => assertReviewedApkSigningBlockIds(['42726577', '7109871a']));
+  assert.throws(() => assertReviewedApkSigningBlockIds(['42726577', '504b4453', '7109871a']), /signing-block ID inventory/);
+  assert.throws(() => assertReviewedApkSigningBlockIds([]), /signing-block ID inventory/);
+});
+
+test('Android artifact size bounds agree across release verification layers', () => {
+  const cli = readFileSync(new URL('../day1-release-identity-cli.mjs', import.meta.url), 'utf8');
+  const collector = readFileSync(new URL('../day1-release-identity.mjs', import.meta.url), 'utf8');
+  const sealed = readFileSync(new URL('../sealed_android_verifier.py', import.meta.url), 'utf8');
+  assert.match(cli, /const maxAndroidArtifactBytes = 320 \* 1024 \* 1024;/);
+  assert.match(collector, /const maxAndroidArtifactBytes = 320 \* 1024 \* 1024;/);
+  assert.match(sealed, /MAX_ARTIFACT_BYTES = 320 \* 1024 \* 1024/);
+});
 
 const d = (character) => `sha256:${character.repeat(64)}`;
 const producerJson = (value) => `${JSON.stringify(value, null, 2)}\n`;

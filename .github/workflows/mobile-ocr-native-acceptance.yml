@@ -1,0 +1,513 @@
+name: Mobile OCR Native Acceptance
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/mobile-ocr-native-acceptance.yml"
+      - "apps/mobile/integration_test/receipt_ocr_real_provider_test.dart"
+      - "apps/mobile/android/**"
+      - "apps/mobile/assets/receipt_ocr_models/**"
+      - "apps/mobile/ios/**"
+      - "apps/mobile/lib/**"
+      - "apps/mobile/pubspec.yaml"
+      - "apps/mobile/pubspec.lock"
+      - "apps/mobile/test/fixtures/receipt_ocr/**"
+      - "apps/mobile/tool/**"
+      - "codemagic.yaml"
+      - "package.json"
+      - "tools/ocr-models/**"
+  workflow_dispatch:
+    inputs:
+      checkout_ref:
+        description: "Branch, tag, or SHA to validate."
+        required: true
+        type: string
+      expected_head:
+        description: "Exact commit SHA expected after checkout."
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  CANDIDATE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || inputs.checkout_ref }}
+  EXPECTED_HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || inputs.expected_head }}
+
+jobs:
+  android-native-acceptance:
+    name: Android 101-image real-provider acceptance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      ORG_GRADLE_PROJECT_settleoraReleaseEvidence: "true"
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ env.CANDIDATE_REF }}
+          fetch-depth: 0
+
+      - name: Verify exact candidate
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "22"
+
+      - name: Setup Java
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          channel: stable
+          flutter-version: "3.44.8"
+          cache: true
+
+      - name: Install dependencies
+        working-directory: apps/mobile
+        run: |
+          flutter pub get
+          git diff --exit-code -- pubspec.lock
+
+      - name: Verify immutable OCR models and fixture corpus
+        run: npm run validate:ocr-models
+
+      - name: Enable KVM group perms
+        id: kvm_setup
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! {
+            echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules &&
+            sudo udevadm control --reload-rules &&
+            sudo udevadm trigger --name-match=kvm
+          }; then
+            echo "failure_phase=kvm_setup" >> "$GITHUB_OUTPUT"
+            echo "::error title=Android KVM infrastructure::kvm_setup_failed" >&2
+            exit 1
+          fi
+
+      - name: Preflight Android KVM acceleration
+        id: kvm_preflight
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail_kvm() {
+            echo "failure_phase=kvm_preflight" >> "$GITHUB_OUTPUT"
+            echo "::error title=Android KVM infrastructure::kvm_unusable" >&2
+            exit 1
+          }
+          if [[ ! -c /dev/kvm || ! -r /dev/kvm || ! -w /dev/kvm ]]; then
+            fail_kvm
+          fi
+          # KVM_GET_API_VERSION (0xAE00) must return the supported API version 12.
+          if ! timeout 10s python3 - <<'PY'
+          import fcntl
+          import os
+
+          fd = os.open('/dev/kvm', os.O_RDWR | os.O_CLOEXEC)
+          try:
+              assert fcntl.ioctl(fd, 0xAE00) == 12
+          finally:
+              os.close(fd)
+          PY
+          then
+            fail_kvm
+          fi
+          echo "Android KVM preflight passed"
+
+      - name: Execute Android real-provider acceptance on trusted emulator
+        id: acceptance
+        timeout-minutes: 180
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          emulator-port: 5554
+          emulator-boot-timeout: 600
+          disable-animations: true
+          emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -no-metrics -gpu swiftshader_indirect
+          working-directory: apps/mobile
+          script: bash "$GITHUB_WORKSPACE/tools/ocr-models/run-android-native-acceptance.sh"
+
+      - name: Measure Android package and model payload delta
+        if: ${{ !cancelled() && steps.kvm_preflight.outcome == 'success' }}
+        id: package
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        run: |
+          candidate_dir="$RUNNER_TEMP/android-candidate-package"
+          mkdir -p "$candidate_dir"
+          git archive "$EXPECTED_HEAD" | tar -x -C "$candidate_dir"
+          (
+            cd "$candidate_dir/apps/mobile"
+            lock_sha=$(sha256sum pubspec.lock | awk '{print $1}')
+            flutter pub get
+            test "$(sha256sum pubspec.lock | awk '{print $1}')" = "$lock_sha"
+            node "$GITHUB_WORKSPACE/tools/ocr-models/prepare-production-flutter-plugins.mjs" \
+              --file=.flutter-plugins-dependencies \
+              --package-config=.dart_tool/package_config.json \
+              --package-graph=.dart_tool/package_graph.json \
+              --require-integration-test=true
+            flutter build apk --release --no-pub
+          )
+          full_apk="$candidate_dir/apps/mobile/build/app/outputs/flutter-apk/app-release.apk"
+          verified_apk="$RUNNER_TEMP/settleora-verified-production.apk"
+          install -m 0400 "$full_apk" "$verified_apk"
+          full_bytes=$(stat -c %s "$verified_apk")
+          package_verification=$(node tools/ocr-models/verify-mobile-package.mjs --platform=android --package="$verified_apk" --repo-root="$candidate_dir" --source-git-root="$GITHUB_WORKSPACE" --source-sha="$EXPECTED_HEAD" --json=true)
+          verified_catalog_file_count=$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).catalogFileCount))' "$package_verification")
+          verified_model_file_count=$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).modelFileCount))' "$package_verification")
+          verified_fixture_absence_count=$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).fixtureFileCount))' "$package_verification")
+          verified_package_sha256=$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).packageSha256)' "$package_verification")
+          verified_signer_certificate_sha256=$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).signerCertificateSha256)' "$package_verification")
+          verified_source_tree_fingerprint=$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).sourceTreeFingerprint)' "$package_verification")
+          echo "verified_source_tree_fingerprint=$verified_source_tree_fingerprint"
+          test "$(sha256sum "$verified_apk" | awk '{print $1}')" = "$verified_package_sha256"
+          apkanalyzer="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
+          test -x "$apkanalyzer"
+          "$apkanalyzer" dex packages "$verified_apk" >"$RUNNER_TEMP/android-dex-packages.txt"
+          "$apkanalyzer" dex code --class io.flutter.plugins.GeneratedPluginRegistrant "$verified_apk" >"$RUNNER_TEMP/android-plugin-registrant.txt"
+          grep -F 'com.mr.flutter.plugin.filepicker.FilePickerPlugin' "$RUNNER_TEMP/android-plugin-registrant.txt"
+          grep -F 'com.it_nomads.fluttersecurestorage.FlutterSecureStoragePlugin' "$RUNNER_TEMP/android-plugin-registrant.txt"
+          if grep -F 'dev.flutter.plugins.integration_test' "$RUNNER_TEMP/android-dex-packages.txt"; then
+            echo "Production APK contains the integration_test plugin" >&2
+            exit 1
+          else
+            grep_status=$?
+            test "$grep_status" -eq 1
+          fi
+          : >"$RUNNER_TEMP/android-production-dex-strings.txt"
+          while IFS= read -r dex_file; do
+            unzip -p "$verified_apk" "$dex_file" | strings >>"$RUNNER_TEMP/android-production-dex-strings.txt"
+          done < <(zipinfo -1 "$verified_apk" | grep -E '^classes[0-9]*\.dex$')
+          test -s "$RUNNER_TEMP/android-production-dex-strings.txt"
+          if grep -F -e 'com.settleora.mobile/receipt_ocr_acceptance' -e 'loadModelCatalog' -e 'loadFixture' "$RUNNER_TEMP/android-production-dex-strings.txt"; then
+            echo "Production APK contains the native OCR acceptance channel" >&2
+            exit 1
+          else
+            grep_status=$?
+            test "$grep_status" -eq 1
+          fi
+          test "$(sha256sum "$verified_apk" | awk '{print $1}')" = "$verified_package_sha256"
+          find "$candidate_dir/apps/mobile/assets/receipt_ocr_models" -mindepth 2 -type f -exec truncate -s 0 {} +
+          (
+            cd "$candidate_dir/apps/mobile"
+            flutter clean
+            lock_sha=$(sha256sum pubspec.lock | awk '{print $1}')
+            flutter pub get
+            test "$(sha256sum pubspec.lock | awk '{print $1}')" = "$lock_sha"
+            node "$GITHUB_WORKSPACE/tools/ocr-models/prepare-production-flutter-plugins.mjs" \
+              --file=.flutter-plugins-dependencies \
+              --package-config=.dart_tool/package_config.json \
+              --package-graph=.dart_tool/package_graph.json \
+              --require-integration-test=true
+            flutter build apk --release --no-pub
+          )
+          model_free_bytes=$(stat -c %s "$full_apk")
+          base_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
+          git cat-file -e "$base_sha^{commit}"
+          base_dir="$RUNNER_TEMP/android-base-app"
+          mkdir -p "$base_dir"
+          git archive "$base_sha" | tar -x -C "$base_dir"
+          base_tree=$(git rev-parse "$base_sha^{tree}")
+          base_dependency_lock_sha256=$(sha256sum "$base_dir/apps/mobile/pubspec.lock" | awk '{print $1}')
+          (
+            cd "$base_dir/apps/mobile"
+            lock_sha=$(sha256sum pubspec.lock | awk '{print $1}')
+            flutter pub get
+            test "$(sha256sum pubspec.lock | awk '{print $1}')" = "$lock_sha"
+            node "$GITHUB_WORKSPACE/tools/ocr-models/prepare-production-flutter-plugins.mjs" \
+              --file=.flutter-plugins-dependencies \
+              --package-config=.dart_tool/package_config.json \
+              --package-graph=.dart_tool/package_graph.json
+            flutter build apk --release --no-pub
+          )
+          base_app_bytes=$(stat -c %s "$base_dir/apps/mobile/build/app/outputs/flutter-apk/app-release.apk")
+          echo "full_bytes=$full_bytes" >> "$GITHUB_OUTPUT"
+          echo "model_free_bytes=$model_free_bytes" >> "$GITHUB_OUTPUT"
+          echo "base_app_bytes=$base_app_bytes" >> "$GITHUB_OUTPUT"
+          echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
+          echo "base_tree=$base_tree" >> "$GITHUB_OUTPUT"
+          echo "base_dependency_lock_sha256=$base_dependency_lock_sha256" >> "$GITHUB_OUTPUT"
+          echo "verified_model_file_count=$verified_model_file_count" >> "$GITHUB_OUTPUT"
+          echo "verified_catalog_file_count=$verified_catalog_file_count" >> "$GITHUB_OUTPUT"
+          echo "verified_fixture_absence_count=$verified_fixture_absence_count" >> "$GITHUB_OUTPUT"
+          echo "verified_package_sha256=$verified_package_sha256" >> "$GITHUB_OUTPUT"
+          echo "verified_signer_certificate_sha256=$verified_signer_certificate_sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Build bounded Android evidence
+        if: always()
+        working-directory: ${{ github.workspace }}
+        run: |
+          test -f "$RUNNER_TEMP/android-acceptance.log" || : >"$RUNNER_TEMP/android-acceptance.log"
+          test -f "$RUNNER_TEMP/android-acceptance.stderr.log" || : >"$RUNNER_TEMP/android-acceptance.stderr.log"
+          node tools/ocr-models/native-acceptance-evidence.mjs \
+            --log="$RUNNER_TEMP/android-acceptance.log" \
+            --stderr-log="$RUNNER_TEMP/android-acceptance.stderr.log" \
+            --out="$RUNNER_TEMP/android-ocr-acceptance.json" \
+            --platform=android \
+            --source-sha="$EXPECTED_HEAD" \
+            --test-status="${{ steps.acceptance.outputs.status }}" \
+            --failure-phase="${{ steps.kvm_setup.outputs.failure_phase || steps.kvm_preflight.outputs.failure_phase || steps.acceptance.outputs.failure_phase }}" \
+            --runner-image="${{ steps.acceptance.outputs.runner_image }}" \
+            --os-runtime="${{ steps.acceptance.outputs.os_runtime }}" \
+            --sdk-toolchain="${{ steps.acceptance.outputs.sdk_toolchain }}" \
+            --device="${{ steps.acceptance.outputs.device }}" \
+            --native-image="${{ steps.acceptance.outputs.native_image }}" \
+            --full-bytes="${{ steps.package.outputs.full_bytes }}" \
+            --model-free-bytes="${{ steps.package.outputs.model_free_bytes }}" \
+            --base-app-bytes="${{ steps.package.outputs.base_app_bytes }}" \
+            --base-sha="${{ steps.package.outputs.base_sha }}" \
+            --base-tree="${{ steps.package.outputs.base_tree }}" \
+            --base-tooling-sha="$EXPECTED_HEAD" \
+            --base-dependency-lock-sha256="${{ steps.package.outputs.base_dependency_lock_sha256 }}" \
+            --verified-model-file-count="${{ steps.package.outputs.verified_model_file_count }}" \
+            --verified-catalog-file-count="${{ steps.package.outputs.verified_catalog_file_count }}" \
+            --verified-fixture-absence-count="${{ steps.package.outputs.verified_fixture_absence_count }}" \
+            --package-sha256="${{ steps.package.outputs.verified_package_sha256 }}" \
+            --signer-certificate-sha256="${{ steps.package.outputs.verified_signer_certificate_sha256 }}" \
+            --require-complete=true
+
+      - name: Upload bounded Android evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: android-ocr-native-acceptance-${{ env.EXPECTED_HEAD }}
+          path: ${{ runner.temp }}/android-ocr-acceptance.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Enforce Android acceptance result
+        if: always()
+        run: test "${{ steps.acceptance.outputs.status }}" = "0"
+
+  ios-native-acceptance:
+    name: iOS 101-image real-provider acceptance
+    runs-on: macos-15
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ env.CANDIDATE_REF }}
+          fetch-depth: 0
+
+      - name: Verify exact candidate
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "22"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          channel: stable
+          flutter-version: "3.44.8"
+          cache: true
+
+      - name: Verify immutable OCR models and fixture corpus
+        run: npm run validate:ocr-models
+
+      - name: Select trusted Xcode and CocoaPods
+        run: |
+          sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
+          test "$(pod --version)" = "1.17.0"
+
+      - name: Install dependencies and pods
+        working-directory: apps/mobile
+        run: |
+          flutter pub get
+          git diff --exit-code -- pubspec.lock
+          # Prove the canonical production CocoaPods graph before restoring the
+          # pinned integration_test metadata needed only by the simulator run.
+          test_metadata_dir="$RUNNER_TEMP/ios-test-plugin-metadata"
+          mkdir -p "$test_metadata_dir"
+          cp .flutter-plugins-dependencies "$test_metadata_dir/flutter-plugins-dependencies.json"
+          cp .dart_tool/package_config.json "$test_metadata_dir/package_config.json"
+          cp .dart_tool/package_graph.json "$test_metadata_dir/package_graph.json"
+          cp ios/Runner/GeneratedPluginRegistrant.h "$test_metadata_dir/GeneratedPluginRegistrant.h"
+          cp ios/Runner/GeneratedPluginRegistrant.m "$test_metadata_dir/GeneratedPluginRegistrant.m"
+          node "$GITHUB_WORKSPACE/tools/ocr-models/prepare-production-flutter-plugins.mjs" \
+            --file=.flutter-plugins-dependencies \
+            --package-config=.dart_tool/package_config.json \
+            --package-graph=.dart_tool/package_graph.json \
+            --require-integration-test=true
+          cd ios
+          pod install --deployment
+          test -s Podfile.lock
+          test "$(shasum -a 256 Podfile.lock | awk '{print $1}')" = "a5b6068c71fe9b0a77743d5c639b5538dd2be10db7ddd4ecd9317fee03541903"
+          git diff --exit-code -- Podfile.lock
+          cd ..
+          # This metadata is derived from pubspec.lock and Flutter 3.44.8; it is
+          # never consumed by the canonical production-package wrapper.
+          cp "$test_metadata_dir/flutter-plugins-dependencies.json" .flutter-plugins-dependencies
+          cp "$test_metadata_dir/package_config.json" .dart_tool/package_config.json
+          cp "$test_metadata_dir/package_graph.json" .dart_tool/package_graph.json
+          cp "$test_metadata_dir/GeneratedPluginRegistrant.h" ios/Runner/GeneratedPluginRegistrant.h
+          cp "$test_metadata_dir/GeneratedPluginRegistrant.m" ios/Runner/GeneratedPluginRegistrant.m
+          cmp -s .flutter-plugins-dependencies "$test_metadata_dir/flutter-plugins-dependencies.json"
+          cmp -s .dart_tool/package_config.json "$test_metadata_dir/package_config.json"
+          cmp -s .dart_tool/package_graph.json "$test_metadata_dir/package_graph.json"
+          cmp -s ios/Runner/GeneratedPluginRegistrant.h "$test_metadata_dir/GeneratedPluginRegistrant.h"
+          cmp -s ios/Runner/GeneratedPluginRegistrant.m "$test_metadata_dir/GeneratedPluginRegistrant.m"
+          cp ios/Podfile.lock "$test_metadata_dir/production-Podfile.lock"
+          # Generate the simulator-only integration_test pod graph after the
+          # canonical production graph is proven. The production package below is
+          # built from an independent exact-head archive and cannot consume it.
+          (cd ios && pod install)
+          node "$GITHUB_WORKSPACE/tools/ocr-models/verify-ios-test-podfile-lock.mjs" \
+            < "$test_metadata_dir/production-Podfile.lock"
+
+      - name: Boot trusted iOS simulator
+        id: simulator
+        shell: bash
+        run: |
+          test "$(xcode-select -p)" = "/Applications/Xcode_16.4.app/Contents/Developer"
+          runtime=com.apple.CoreSimulator.SimRuntime.iOS-18-5
+          udid=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for x in d["com.apple.CoreSimulator.SimRuntime.iOS-18-5"] if x["name"] == "iPhone 16"))')
+          xcrun simctl shutdown "$udid" || true
+          xcrun simctl erase "$udid"
+          xcrun simctl boot "$udid"
+          xcrun simctl bootstatus "$udid" -b
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          : "${ImageOS:?Hosted runner image OS is unavailable}"
+          : "${ImageVersion:?Hosted runner image version is unavailable}"
+          sanitize() { printf '%s' "$1" | tr -c 'A-Za-z0-9_.:\[\]-' '_'; }
+          runtime_build=$(xcrun simctl list runtimes -j | python3 -c 'import json,sys; values=json.load(sys.stdin)["runtimes"]; value=next(x for x in values if x["identifier"] == "com.apple.CoreSimulator.SimRuntime.iOS-18-5"); print(value.get("buildversion") or value["version"])')
+          test -n "$runtime_build"
+          echo "runner_image=$(sanitize "${ImageOS}-${ImageVersion}")" >> "$GITHUB_OUTPUT"
+          echo "os_runtime=$(sanitize "$runtime")" >> "$GITHUB_OUTPUT"
+          echo "sdk_toolchain=$(sanitize "$(xcodebuild -version | tr '\n' '-')-cocoapods-$(pod --version)")" >> "$GITHUB_OUTPUT"
+          echo "device=iPhone_16" >> "$GITHUB_OUTPUT"
+          echo "native_image=$(sanitize "ios-18.5-${runtime_build}-iPhone_16")" >> "$GITHUB_OUTPUT"
+
+      - name: Execute iOS real-provider acceptance
+        id: acceptance
+        timeout-minutes: 180
+        working-directory: apps/mobile
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/tools/ocr-models/run-ios-native-acceptance.sh" "${{ steps.simulator.outputs.udid }}"
+
+      - name: Measure iOS app and model payload delta
+        if: ${{ !cancelled() }}
+        id: package
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        run: |
+          candidate_dir="$RUNNER_TEMP/ios-candidate-package"
+          mkdir -p "$candidate_dir"
+          git archive "$EXPECTED_HEAD" | tar -x -C "$candidate_dir"
+          source_tree=$(git rev-parse "$EXPECTED_HEAD^{tree}")
+          bash "$GITHUB_WORKSPACE/apps/mobile/tool/build-production-ios.sh" \
+            --mode=unsigned \
+            --source-sha="$EXPECTED_HEAD" \
+            --source-tree="$source_tree" \
+            --source-git-root="$GITHUB_WORKSPACE" \
+            --mobile-root="$candidate_dir/apps/mobile" \
+            --repo-root="$candidate_dir" \
+            --provenance-out="$RUNNER_TEMP/ios-release-provenance.json"
+          full_app="$candidate_dir/apps/mobile/build/ios/iphoneos/Runner.app"
+          full_bytes=$(find "$full_app" -type f -exec stat -f %z {} + | awk '{sum += $1} END {print sum}')
+          verified_catalog_file_count=1
+          verified_model_file_count=$(node -e 'const c=require(process.argv[1]); process.stdout.write(String(c.packs.flatMap(p => p.files).length))' "$candidate_dir/apps/mobile/assets/receipt_ocr_models/catalog.json")
+          verified_fixture_absence_count=$(node -e 'const m=require(process.argv[1]); process.stdout.write(String(m.fixtures.length + 1))' "$candidate_dir/apps/mobile/test/fixtures/receipt_ocr/manifest.json")
+          find "$candidate_dir/apps/mobile/assets/receipt_ocr_models" -mindepth 2 -type f -exec truncate -s 0 {} +
+          (cd "$candidate_dir/apps/mobile" && flutter clean)
+          bash "$GITHUB_WORKSPACE/apps/mobile/tool/build-production-ios.sh" \
+            --mode=unsigned \
+            --artifact-class=size-measurement \
+            --source-sha="$EXPECTED_HEAD" \
+            --source-tree="$source_tree" \
+            --mobile-root="$candidate_dir/apps/mobile" \
+            --repo-root="$candidate_dir"
+          model_free_bytes=$(find "$full_app" -type f -exec stat -f %z {} + | awk '{sum += $1} END {print sum}')
+          base_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
+          git cat-file -e "$base_sha^{commit}"
+          base_dir="$RUNNER_TEMP/ios-base-app"
+          mkdir -p "$base_dir"
+          git archive "$base_sha" | tar -x -C "$base_dir"
+          cp tools/ocr-models/baselines/ios-pre-native-Podfile.lock "$base_dir/apps/mobile/ios/Podfile.lock"
+          base_tree=$(git rev-parse "$base_sha^{tree}")
+          base_dependency_lock_sha256=$(shasum -a 256 "$base_dir/apps/mobile/ios/Podfile.lock" | awk '{print $1}')
+          bash "$GITHUB_WORKSPACE/apps/mobile/tool/build-production-ios.sh" \
+            --mode=unsigned \
+            --artifact-class=size-measurement \
+            --source-sha="$base_sha" \
+            --source-tree="$base_tree" \
+            --mobile-root="$base_dir/apps/mobile" \
+            --repo-root="$base_dir" \
+            --tool-root="$GITHUB_WORKSPACE" \
+            --podfile-lock-sha=486ba24476c7ae0be32927fa9239599749f285d7a5a48129caebe4437ed6cc30 \
+            --require-integration-test=false
+          base_app_bytes=$(find "$base_dir/apps/mobile/build/ios/iphoneos/Runner.app" -type f -exec stat -f %z {} + | awk '{sum += $1} END {print sum}')
+          echo "full_bytes=$full_bytes" >> "$GITHUB_OUTPUT"
+          echo "model_free_bytes=$model_free_bytes" >> "$GITHUB_OUTPUT"
+          echo "base_app_bytes=$base_app_bytes" >> "$GITHUB_OUTPUT"
+          echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
+          echo "base_tree=$base_tree" >> "$GITHUB_OUTPUT"
+          echo "base_dependency_lock_sha256=$base_dependency_lock_sha256" >> "$GITHUB_OUTPUT"
+          echo "verified_model_file_count=$verified_model_file_count" >> "$GITHUB_OUTPUT"
+          echo "verified_catalog_file_count=$verified_catalog_file_count" >> "$GITHUB_OUTPUT"
+          echo "verified_fixture_absence_count=$verified_fixture_absence_count" >> "$GITHUB_OUTPUT"
+
+      - name: Build bounded iOS evidence
+        if: always()
+        working-directory: ${{ github.workspace }}
+        run: |
+          test -f "$RUNNER_TEMP/ios-acceptance.log" || : >"$RUNNER_TEMP/ios-acceptance.log"
+          test -f "$RUNNER_TEMP/ios-acceptance.stderr.log" || : >"$RUNNER_TEMP/ios-acceptance.stderr.log"
+          node tools/ocr-models/native-acceptance-evidence.mjs \
+            --log="$RUNNER_TEMP/ios-acceptance.log" \
+            --stderr-log="$RUNNER_TEMP/ios-acceptance.stderr.log" \
+            --out="$RUNNER_TEMP/ios-ocr-acceptance.json" \
+            --platform=ios \
+            --source-sha="$EXPECTED_HEAD" \
+            --test-status="${{ steps.acceptance.outputs.status }}" \
+            --failure-phase="${{ steps.acceptance.outputs.failure_phase }}" \
+            --runner-image="${{ steps.simulator.outputs.runner_image }}" \
+            --os-runtime="${{ steps.simulator.outputs.os_runtime }}" \
+            --sdk-toolchain="${{ steps.simulator.outputs.sdk_toolchain }}" \
+            --device="${{ steps.simulator.outputs.device }}" \
+            --native-image="${{ steps.simulator.outputs.native_image }}" \
+            --full-bytes="${{ steps.package.outputs.full_bytes }}" \
+            --model-free-bytes="${{ steps.package.outputs.model_free_bytes }}" \
+            --base-app-bytes="${{ steps.package.outputs.base_app_bytes }}" \
+            --base-sha="${{ steps.package.outputs.base_sha }}" \
+            --base-tree="${{ steps.package.outputs.base_tree }}" \
+            --base-tooling-sha="$EXPECTED_HEAD" \
+            --base-dependency-lock-sha256="${{ steps.package.outputs.base_dependency_lock_sha256 }}" \
+            --verified-model-file-count="${{ steps.package.outputs.verified_model_file_count }}" \
+            --verified-catalog-file-count="${{ steps.package.outputs.verified_catalog_file_count }}" \
+            --verified-fixture-absence-count="${{ steps.package.outputs.verified_fixture_absence_count }}" \
+            --require-complete=true
+
+      - name: Upload bounded iOS evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ios-ocr-native-acceptance-${{ env.EXPECTED_HEAD }}
+          path: |
+            ${{ runner.temp }}/ios-ocr-acceptance.json
+            ${{ runner.temp }}/ios-release-provenance.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Enforce iOS acceptance result
+        if: always()
+        run: test "${{ steps.acceptance.outputs.status }}" = "0"

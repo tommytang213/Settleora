@@ -1,6 +1,6 @@
 # Codemagic TestFlight Setup
 
-This document describes Settleora's repository-side Codemagic foundation for manually initiated Flutter evidence and the guarded internal TestFlight upload workflow. GitHub Actions owns automatic pull-request validation; Codemagic is preparation for explicit internal testing and release work only, not a production App Store release setup.
+This document describes Settleora's repository-side Codemagic foundation for manually initiated Flutter evidence and signed iOS release-candidate validation. GitHub Actions owns automatic pull-request validation. Codemagic may build and retain a signed release candidate, but the repository currently defines no App Store Connect publishing action and no TestFlight/App Store upload or submission.
 
 ## Repository Layout
 
@@ -15,7 +15,7 @@ The root `codemagic.yaml` defines:
 - `mobile-ios-validation`: safe Flutter validation only.
 - `mobile-ios-visual-evidence`: explicit visual capture / screen-compare
   evidence tests for Codex/Figma/UI review.
-- `mobile-ios-testflight-internal`: manual internal TestFlight-oriented App Store Connect upload through the confirmed Codemagic Apple Developer Portal integration.
+- `mobile-ios-testflight-internal`: manual signed release-candidate build and inspection using the confirmed Codemagic Apple Developer Portal signing integration. The legacy workflow key is retained for continuity; the workflow does not publish.
 
 Codemagic validates the whole YAML when detecting configuration, including workflows that are run manually. Keep the root file parse-safe and do not commit signing material, App Store Connect API keys, provisioning profiles, certificates, `.p8` files, passwords, or other secrets.
 
@@ -25,7 +25,7 @@ Automatic pull-request validity no longer depends on starting Codemagic. The Git
 
 `Mobile iOS validation` remains manual-only in Codemagic. It is supplementary evidence and must not be treated as an automatic PR check for routine backend, API, OpenAPI, test-only, docs-only, or security-hardening changes.
 
-Run `Mobile iOS validation` manually only when supplementary Codemagic evidence is explicitly requested, such as Codemagic configuration diagnosis or release preparation. It uses the repository-validated exact Flutter 3.44.8 SDK, Xcode latest, and CocoaPods default, then invokes the same release-gating command used by GitHub PR validation:
+Run `Mobile iOS validation` manually only when supplementary Codemagic evidence is explicitly requested, such as Codemagic configuration diagnosis or release preparation. It uses Flutter 3.44.8 and invokes the same release-gating command used by GitHub PR validation:
 
 ```bash
 ./tool/validate-release.sh
@@ -122,28 +122,36 @@ Real App Store Connect upload still requires:
 - App Store Connect access through the `settleora-app-store-connect` Codemagic integration.
 - Internal testers configured in App Store Connect when the maintainer wants tester access to processed builds.
 
-## Internal TestFlight Workflow
+## Canonical Signed Release-Candidate Workflow
 
-Run `Mobile iOS internal TestFlight` manually only after the setup above is complete. This workflow is upload-only from the repository side: it uploads the signed IPA to App Store Connect and avoids Codemagic post-processing distribution to beta groups.
+Run `Mobile iOS signed release candidate validation` manually only after the signing setup above is available. It uses Flutter 3.44.8, Xcode 16.4, CocoaPods 1.17.0, and Codemagic CLI tools 0.69.0 and calls `apps/mobile/tool/build-production-ios.sh`, the same production preparation/build primitive used by the GitHub unsigned structural package lane. The wrapper fails closed if the Codemagic image's signing utility version differs, and signed provenance records that exact version. The canonical output is the one signed IPA and its corresponding distribution archive. The IPA SHA-256 and bounded provenance are retained beside those artifacts.
 
-The active internal workflow:
+The GitHub lane's unsigned `Runner.app` is structural evidence only. Its provenance is explicitly non-promotable; only the signed Codemagic IPA identified by the signed build-once provenance contract may become a retained release candidate.
+
+The active signed-validation workflow:
 
 - Uses `integrations.app_store_connect: settleora-app-store-connect`.
 - Uses `ios_signing.distribution_type: app_store`.
 - Uses `ios_signing.bundle_identifier: com.tommytang213.settleora`.
 - Runs Flutter dependency, analyze, and non-visual test steps before signing.
 - Passes `testFlightInternalTestingOnly` through `xcode-project use-profiles`.
-- Builds a signed iOS IPA with `flutter build ipa --release`.
-- Publishes to App Store Connect with `auth: integration`.
-- Sets `submit_to_testflight: false` so Codemagic does not submit the build to TestFlight beta review.
-- Does not set `beta_groups`.
-- Keeps `submit_to_app_store: false`.
+- Resolves Flutter and CocoaPods dependencies without changing `pubspec.lock` or `Podfile.lock`.
+- Resolves through fresh task-owned Pub and CocoaPods home/cache directories, then removes them, so restored or manually modified global cache bytes cannot enter canonical provenance.
+- Keeps Flutter Swift Package Manager integration disabled so the pinned CocoaPods graph remains the single reviewed native plugin recipe.
+- Projects only the reviewed `integration_test` development plugin out of production Flutter/Dart package metadata and registrants, while positively requiring FilePicker and Flutter secure storage registration.
+- Builds exactly one signed IPA/archive pair through the canonical wrapper.
+- Before extraction, verifies the IPA central directory has bounded size/expansion, unique safe relative UTF-8 names, only regular files/directories under `Payload` and optional `SwiftSupport`, matching local-header sizes/CRC/names and data descriptors, and a strict allowlist of timestamp/UID metadata extras. ZIP64, path/type/link-altering or unknown extras, encryption, symlinks, special files, path traversal, case collisions, overlapping entries, and unsupported flags/compression fail closed. It then verifies archive integrity and the unchanged IPA digest across extraction.
+- Verifies the unchanged bundle identifier, signature, plugin calls/test-plugin absence, exact OCR catalog/models, and absence of acceptance fixtures, test classes/assets, and raw OCR evidence/log paths across the complete extracted IPA inventory. Signed IPA top-level content is fail-closed to `Payload` plus optional dylib-only `SwiftSupport`, and `Payload` may contain only the one application bundle.
+- Verifies the packaged short version/build number against the requested signed-build identity and writes those values with source/tree, toolchain, lockfile, OCR catalog/manifest, artifact filenames, and immutable IPA/archive SHA-256 provenance.
+- Records historical package-size baselines as a composite identity of the base commit/tree, the dependency lock actually substituted into that source, and the exact candidate tooling commit; the base SHA alone is never presented as the complete built baseline identity.
+- Retains the IPA, archive, and provenance as Codemagic artifacts.
+- Has no `publishing` block, `submit_to_testflight`, `submit_to_app_store`, or `beta_groups` configuration.
 
 Do not configure `beta_groups: Internal Testers`. App Store Connect internal tester groups are not valid Codemagic `beta_groups` assignment targets, and using that wiring can fail after the build has already uploaded and processed. If a future workflow adds external beta tester distribution, keep it explicitly external-only, require beta review intentionally, and never include the internal `Internal Testers` group in `beta_groups`.
 
-No public App Store release is configured. No external tester automation is configured. No `submit_to_app_store`, external beta groups, certificates, provisioning profiles, `.p8` files, passwords, or signing material are committed.
+No App Store Connect upload, public App Store release, or tester automation is configured. No `submit_to_testflight`, `submit_to_app_store`, beta groups, certificates, provisioning profiles, `.p8` files, passwords, or signing material are committed.
 
-The internal TestFlight workflow invokes the same repository-owned
+The signed release-candidate workflow invokes the same repository-owned
 `./tool/validate-release.sh` contract as GitHub and `Mobile iOS validation`.
 It runs every Flutter test file except
 `*visual*capture_test.dart` and `*visual*evidence*_test.dart`, and it excludes
@@ -152,6 +160,13 @@ ordinary tests from mixed files. Visual
 capture/screenshot-helper/screen-compare evidence remains available through
 `Mobile iOS visual evidence` without blocking the installable preview build
 path.
+
+The future promotion boundary is intentionally separate and is not implemented
+or activated here. A later explicitly approved TestFlight/App Store action must
+consume the retained, reviewed IPA whose SHA-256 appears in
+`build/ios/release-provenance.json`; it must not rebuild from source. If Apple
+tooling later proves an unavoidable transformation is required, that constraint
+and the smallest transformation must be reviewed and recorded before promotion.
 
 ## App Store Connect Compliance Metadata
 
@@ -191,7 +206,7 @@ If a future feature intentionally uses device location, nearby stores, maps,
 merchant discovery, GPS receipts, automatic location tagging, or a
 location-requiring media picker, review and replace this purpose string as part
 of that feature. After this metadata change, the next verification step is a
-fresh maintainer-approved `Mobile iOS internal TestFlight` upload and App Store
+future separately approved promotion of the retained signed IPA and App Store
 Connect processing check to confirm the encryption prompt and 90683 warning are
 cleared for the processed build.
 
@@ -229,8 +244,8 @@ Manual approval points:
   or Apple Developer Portal changes.
 - Android signing, keystore, Play Console integration, package name, or release
   track changes.
-- Triggering `Mobile iOS internal TestFlight` or any future upload-capable
-  Codemagic workflow.
+- Triggering any future upload-capable Codemagic workflow or promoting a
+  retained signed release candidate to App Store Connect.
 - TestFlight tester availability, internal tester setup, external beta review,
   or beta group assignment.
 - App Store release submission, phased release, manual release, metadata
@@ -294,18 +309,17 @@ Internal tester access may still require manual Apple-side setup, depending on c
 
 ## What Codex Cannot Verify
 
-Codex cannot verify a real Codemagic cloud build or TestFlight upload unless the maintainer manually triggers the workflow and provides the result. Local validation only proves repository syntax, docs, and repo-safe checks.
+Codex cannot verify a real Codemagic signed build unless the build-validation workflow is triggered and its retained artifacts/provenance are provided. TestFlight upload remains a separate action that requires later explicit approval. Local validation proves only repository syntax, contract tests, and repo-safe checks.
 
-Codemagic cloud build success, Apple signing success, App Store Connect upload/processing, manual internal tester availability, and real iPhone install through TestFlight remain external/manual evidence until a maintainer runs the workflow and records the result.
+Codemagic cloud build success and Apple signing success remain external evidence until the signed-validation workflow runs. App Store Connect upload/processing, tester availability, and real iPhone installation remain unperformed and separately gated.
 
 The repository has no Codemagic `triggering.events` configuration, and GitHub Actions contains no Codemagic API, webhook, or build invocation. A repository webhook may still exist so Codemagic can observe repository events, but under the current YAML it does not make PRs, pushes, or merges start these workflows automatically. External Codemagic account/webhook settings require separate manual dashboard confirmation and are not proven by repository inspection alone.
 
 ## Recommended Order
 
-1. Merge the Codemagic/TestFlight repository setup.
-2. In Codemagic, confirm the branch with root `codemagic.yaml` is detected.
-3. Confirm the exact release candidate passed its classifier-required GitHub Actions lanes and stable `Validate scaffold` aggregate; run `Mobile iOS validation` manually only if supplementary Codemagic evidence is required.
-4. Confirm Apple Developer Program, App Store Connect app record, registered bundle ID `com.tommytang213.settleora`, internal tester access needs, and Codemagic integration `settleora-app-store-connect`.
-5. Manually run `Mobile iOS internal TestFlight` only at a milestone or release gate when signing and App Store Connect setup are ready.
-6. After upload processing, check App Store Connect > My Apps > Settleora > TestFlight / Builds and perform any manual internal tester setup needed in App Store Connect.
-7. Record Codemagic build logs, App Store Connect processing status, and TestFlight install evidence in the Day 1 acceptance package when available.
+1. Confirm the exact candidate passed its classifier-required GitHub Actions lanes and stable `Validate scaffold` aggregate.
+2. In Codemagic, manually run `Mobile iOS signed release candidate validation` for that exact SHA.
+3. Verify the retained IPA/archive/provenance, exact source SHA, and IPA SHA-256; do not rebuild the candidate.
+4. Complete #1308 review and acceptance gates while leaving upload, tester assignment, and merge separately gated.
+5. Only after a later explicit promotion approval, provide the retained reviewed IPA to the separately authorized upload action without rebuilding.
+6. After any later approved upload, record App Store Connect processing and TestFlight install evidence in the Day 1 acceptance package.
