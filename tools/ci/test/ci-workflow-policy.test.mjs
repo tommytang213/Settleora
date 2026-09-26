@@ -464,6 +464,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
     'apply_debug_link_config', 'verify_debug_link_setting',
     'verify_resolved_debug_link_setting',
     'enable_simulator_isolation', 'build_simulator_interposer_link',
+    'verify_simulator_runner_link_architecture',
     'verify_simulator_interposer_link_invocation',
     'verify_simulator_interposer_link',
     'verify_simulator_app', 'verify_simulator_interposer_copy',
@@ -774,6 +775,10 @@ test('iOS linker diagnostic binds the needed-library flag to the exact Runner in
   const ignoredAnchor = `${linked}ld: warning: ignoring file /tmp/settleora-network-interposer-anchor.o built for arm64, but linking in object file for x86_64\n`;
   assert.match(diagnose(ignoredAnchor), /ios_build_error_classes=.*anchor_object_ignored/);
   assert.doesNotMatch(diagnose(ignoredAnchor), /ld: warning: ignoring file/);
+  const quotedSimulatorArch = `${linked}Error (Xcode): building for 'iOS-simulator', but linking in dylib built for 'iOS': ${dylib}\n`;
+  assert.match(diagnose(quotedSimulatorArch), /ios_build_error_classes=.*wrong_architecture/);
+  assert.match(diagnose(quotedSimulatorArch), /ios_interposer_wrong_architecture=present/);
+  assert.doesNotMatch(diagnose(quotedSimulatorArch), /building for 'iOS-simulator'/);
   assert.match(diagnose(`${linked}ld: library not found for ${dylib}\n`),
     /ios_interposer_library_not_found=present/);
   assert.match(diagnose(linked), /ios_undefined_interposer_symbol=absent/);

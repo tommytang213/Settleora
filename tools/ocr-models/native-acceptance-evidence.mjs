@@ -43,6 +43,7 @@ const iosPreflightFailurePhases = new Set([
   "verify_resolved_debug_link_setting",
   "enable_simulator_isolation",
   "build_simulator_interposer_link",
+  "verify_simulator_runner_link_architecture",
   "verify_simulator_interposer_link_invocation",
   "verify_simulator_interposer_link",
   "verify_simulator_app",

@@ -3,17 +3,29 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // Exact hosted-review diagnostic follow-up. Clean Flutter 3.44.8 local
+  // Release projection passed package inventory; hosted signer/ZIP proof
+  // remains required on the published corrective head.
+  "12140646eda88da668dbf6d279603034fefdad054077cc674cb8bb20e5844d8b": Object.freeze([
+    "2732984b1dae606406fa407bd922b901c51b72dc4b6f168f3c4dbe6308c69d1a",
+  ]),
   // Exact x86_64 simulator test link and observed nested privacy manifest.
   // Clean Flutter 3.44.8 local Release projection passed package inventory;
   // hosted signer and ZIP representation remain exact-head proof.
   "7debfded6dab18333d66ede85c651eab85a1584a8370b0526dbc0ece3a89ecd2": Object.freeze([
     "87bcf8e058f255a503fa746fab3d0350589ce668bc31ff7bcf2c6da52a96b278",
+    // Exact-head hosted job 108417510446 passed signer, path, model, and
+    // fixture-absence gates before reporting this ZIP representation.
+    "33c26b3d1dd0039e6c2d6f3135234df27dfa75423b13a438eb21da4597f91dbc",
   ]),
   // Exact simulator architecture diagnostic and nested privacy bundle paths.
   // Clean Flutter 3.44.8 local Release projection passed the preceding
   // package gates; hosted signer and ZIP representation still need proof.
   "b8d252c86041cb25e7360aae2224b1981e938b091c503ac7b5f16a71c235dc74": Object.freeze([
     "397951d6b04074af9599863dd4ba24540e98b38e87b8b1ec1ba51b89aacda2ee",
+    // Exact-head hosted job 108412705574 passed signer, path, model, and
+    // fixture-absence gates before reporting this ZIP representation.
+    "33c26b3d1dd0039e6c2d6f3135234df27dfa75423b13a438eb21da4597f91dbc",
   ]),
   // Exact iOS nested privacy path and bounded Xcode error-class follow-up.
   // Clean Flutter 3.44.8 Release projection passed the complete local

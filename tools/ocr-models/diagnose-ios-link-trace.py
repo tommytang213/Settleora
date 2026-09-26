@@ -119,6 +119,7 @@ def report(trace, dylib, capture_status):
         print(f"ios_{label}_forced_symbol_same_invocation={'present' if any(all(p[:4]) for p in proofs) else 'absent'}", file=sys.stderr)
         print(f"ios_{label}_library_search_path_in_link_invocation={'present' if any(p[4] for p in proofs) else 'absent'}", file=sys.stderr)
         print(f"ios_{label}_link_argument_order={'present' if any(p[0] and p[1] and p[2] and p[4] and p[5] and p[6] for p in proofs) else 'absent'}", file=sys.stderr)
+    simulator_arch_mismatch = re.compile(r"building for ['\"]?ios[- ]simulator['\"]?, but linking in", re.IGNORECASE)
     diagnostics = {
         "undefined_interposer_symbol": any(
             "Undefined symbol: _settleora_network_interposer_loaded" in line
@@ -131,7 +132,7 @@ def report(trace, dylib, capture_status):
             for line in lines
         ),
         "interposer_wrong_architecture": any(
-            ("building for iOS Simulator" in line or "wrong architecture" in line)
+            (simulator_arch_mismatch.search(line) or "wrong architecture" in line)
             and (dylib in line or "libSettleoraOcrNetworkDeny" in line)
             for line in lines
         ),
@@ -161,7 +162,7 @@ def report(trace, dylib, capture_status):
         "codesign_failed": "codesign" in error_text and "failed" in error_text,
         "wrong_architecture": "wrong architecture" in error_text or
             "incompatible architecture" in error_text or
-            "building for ios simulator, but linking in" in error_text,
+            bool(simulator_arch_mismatch.search(error_text)),
         "anchor_object_ignored": any("settleora-network-interposer-anchor.o" in line and
             ("ignoring file" in line.lower() or "incompatible" in line.lower() or
              "built for" in line.lower()) for line in error_lines),
