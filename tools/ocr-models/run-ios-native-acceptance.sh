@@ -5,8 +5,11 @@ phase=initialize
 device=""
 network_environment_configured=false
 network_link_configured=false
+network_project_configured=false
 debug_config=""
 network_config_backup=""
+runner_project=""
+runner_project_backup=""
 read_simulator_environment() {
   local variable="$1"
   local value=""
@@ -25,6 +28,12 @@ report_failure_phase() {
   if "$network_link_configured"; then
     if ! cp -p "$network_config_backup" "$debug_config" ||
         ! cmp -s "$network_config_backup" "$debug_config"; then
+      cleanup_status=98
+    fi
+  fi
+  if "$network_project_configured"; then
+    if ! cp -p "$runner_project_backup" "$runner_project" ||
+        ! cmp -s "$runner_project_backup" "$runner_project"; then
       cleanup_status=98
     fi
   fi
@@ -130,6 +139,33 @@ esac
 phase=save_debug_link_config
 cp -p "$debug_config" "$network_config_backup"
 network_link_configured=true
+runner_project="$GITHUB_WORKSPACE/apps/mobile/ios/Runner.xcodeproj/project.pbxproj"
+runner_project_backup="$RUNNER_TEMP/settleora-ocr-runner-project.original"
+phase=save_runner_project
+cp -p "$runner_project" "$runner_project_backup"
+network_project_configured=true
+phase=apply_runner_project_link
+node - "$runner_project" "$network_deny" <<'NODE'
+const fs = require('node:fs');
+const [projectPath, dylibPath] = process.argv.slice(2);
+let source = fs.readFileSync(projectPath, 'utf8');
+const buildId = 'E13080000000000000000001';
+const fileId = 'E13080000000000000000002';
+if (source.includes(buildId) || source.includes(fileId) || !/^\/[^\s";]+$/.test(dylibPath)) process.exit(98);
+const replaceOnce = (from, to) => {
+  if (source.split(from).length !== 2) process.exit(98);
+  source = source.replace(from, to);
+};
+replaceOnce('/* End PBXBuildFile section */',
+  `\t\t${buildId} /* OCR test interposer in Frameworks */ = {isa = PBXBuildFile; fileRef = ${fileId} /* OCR test interposer */; };\n/* End PBXBuildFile section */`);
+replaceOnce('/* End PBXFileReference section */',
+  `\t\t${fileId} /* OCR test interposer */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = "${dylibPath}"; sourceTree = "<absolute>"; };\n/* End PBXFileReference section */`);
+replaceOnce('97C146EB1CF9000F007C117D /* Frameworks */ = {\n\t\t\tisa = PBXFrameworksBuildPhase;\n\t\t\tbuildActionMask = 2147483647;\n\t\t\tfiles = (',
+  `97C146EB1CF9000F007C117D /* Frameworks */ = {\n\t\t\tisa = PBXFrameworksBuildPhase;\n\t\t\tbuildActionMask = 2147483647;\n\t\t\tfiles = (\n\t\t\t\t${buildId} /* OCR test interposer in Frameworks */,`);
+fs.writeFileSync(projectPath, source);
+NODE
+plutil -lint "$runner_project" >/dev/null
+printf 'ios_simulator_runner_framework_link=present\n'
 phase=apply_debug_link_config
 printf '\nENABLE_DEBUG_DYLIB = NO\nOTHER_LDFLAGS = $(inherited) -Wl,-needed_library,%s\n' "$network_deny" >> "$debug_config"
 phase=verify_debug_link_setting

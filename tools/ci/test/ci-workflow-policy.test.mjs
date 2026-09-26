@@ -454,7 +454,8 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(iosRunner.includes('ios_simulator_link_setting=missing'));
   assert.ok(iosRunner.includes('network_link_configured=true'));
   for (const stage of ['verify_debug_link_config', 'verify_network_link_path',
-    'save_debug_link_config', 'apply_debug_link_config', 'verify_debug_link_setting',
+    'save_debug_link_config', 'save_runner_project', 'apply_runner_project_link',
+    'apply_debug_link_config', 'verify_debug_link_setting',
     'verify_resolved_debug_link_setting',
     'enable_simulator_isolation', 'build_simulator_interposer_link',
     'verify_simulator_interposer_link',
@@ -470,6 +471,11 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(iosRunner.includes('debug_link_config_sha256='));
   assert.ok(iosRunner.includes('cp -p "$network_config_backup" "$debug_config"'));
   assert.ok(iosRunner.includes('cmp -s "$network_config_backup" "$debug_config"'));
+  assert.ok(iosRunner.includes('network_project_configured=true'));
+  assert.ok(iosRunner.includes('cp -p "$runner_project_backup" "$runner_project"'));
+  assert.ok(iosRunner.includes('cmp -s "$runner_project_backup" "$runner_project"'));
+  assert.ok(iosRunner.includes('PBXFrameworksBuildPhase'));
+  assert.ok(iosRunner.includes('ios_simulator_runner_framework_link=present'));
   assert.ok(iosRunner.indexOf('network_link_configured=true') <
     iosRunner.indexOf('phase=execute_flutter_test'));
   assert.ok(iosRunner.indexOf('phase=verify_simulator_interposer_link') <

@@ -31,6 +31,8 @@ const iosPreflightFailurePhases = new Set([
   "verify_debug_link_config",
   "verify_network_link_path",
   "save_debug_link_config",
+  "save_runner_project",
+  "apply_runner_project_link",
   "apply_debug_link_config",
   "verify_debug_link_setting",
   "verify_resolved_debug_link_setting",
