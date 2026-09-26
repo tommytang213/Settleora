@@ -6,7 +6,7 @@ import sys
 
 
 LINK_STEP = re.compile(
-    r"\bLd\s+\S*/Runner\.app/(?P<image>Runner(?:\.debug\.dylib)?)\s+normal\b"
+    r"\bLd\s+(?P<output>\S*/Runner\.app/(?P<image>Runner(?:\.debug\.dylib)?))\s+normal\b"
     r".*\(in target ['\"]Runner['\"] from project ['\"]Runner['\"]\)"
 )
 NEXT_STEP = re.compile(r"\(in target ['\"][^'\"]+['\"] from project ['\"][^'\"]+['\"]\)")
@@ -27,7 +27,7 @@ def linked_commands(lines):
         if not step:
             continue
         image = step.group("image")
-        output = re.compile(r"\s-o\s+\S*/Runner\.app/" + re.escape(image) + r"(?:\s|$)")
+        output = re.compile(r"\s-o\s+" + re.escape(step.group("output")) + r"(?:\s|$)")
         for following in lines[index + 1:index + 21]:
             if NEXT_STEP.search(following):
                 break
@@ -56,12 +56,21 @@ def report(trace, dylib, capture_status):
     for image, label in (("Runner", "runner"), ("Runner.debug.dylib", "debug_dylib")):
         invocations = commands[image]
         print(f"ios_{label}_link_invocation={'present' if invocations else 'absent'}", file=sys.stderr)
-        flag_found = any(
-            re.search(r"(?<!\S)-Wl,-needed_library," + re.escape(dylib) + r"(?=\s|$)", command)
-            or re.search(r"(?<!\S)-Xlinker\s+-needed_library\s+-Xlinker\s+" + re.escape(dylib) + r"(?=\s|$)", command)
-            for command in invocations
+        needed_wl = re.compile(r"(?<!\S)-Wl,-needed_library," + re.escape(dylib) + r"(?=\s|$)")
+        needed_xlinker = re.compile(
+            r"(?<!\S)-Xlinker\s+-needed_library\s+-Xlinker\s+" + re.escape(dylib) + r"(?=\s|$)"
         )
-        print(f"ios_{label}_needed_library_in_link_invocation={'present' if flag_found else 'absent'}", file=sys.stderr)
+        xlinker_operand = re.compile(r"(?<!\S)-Xlinker\s+" + re.escape(dylib) + r"(?=\s|$)")
+        direct_path = re.compile(r"(?<!\S)" + re.escape(dylib) + r"(?=\s|$)")
+        proofs = []
+        for command in invocations:
+            forced = bool(needed_wl.search(command) or needed_xlinker.search(command))
+            without_forced_operands = xlinker_operand.sub(" ", needed_xlinker.sub(" ", needed_wl.sub(" ", command)))
+            direct = bool(direct_path.search(without_forced_operands))
+            proofs.append((forced, direct))
+        print(f"ios_{label}_needed_library_in_link_invocation={'present' if any(p[0] for p in proofs) else 'absent'}", file=sys.stderr)
+        print(f"ios_{label}_dylib_direct_input={'present' if any(p[1] for p in proofs) else 'absent'}", file=sys.stderr)
+        print(f"ios_{label}_same_invocation_link_inputs={'present' if any(all(p) for p in proofs) else 'absent'}", file=sys.stderr)
     diagnostics = {
         "undefined_interposer_symbol": any(
             "Undefined symbol: _settleora_network_interposer_loaded" in line
@@ -89,7 +98,7 @@ def report(trace, dylib, capture_status):
 
 
 def main():
-    if len(sys.argv) != 3 or not re.fullmatch(r"[1-9][0-9]{0,2}", sys.argv[2]):
+    if len(sys.argv) != 3 or not re.fullmatch(r"(?:0|[1-9][0-9]{0,2})", sys.argv[2]):
         raise ValueError("invalid build diagnostic arguments")
     dylib, capture_status = sys.argv[1:]
     if int(capture_status) > 255:

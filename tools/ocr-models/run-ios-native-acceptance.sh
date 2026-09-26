@@ -169,10 +169,10 @@ NODE
 plutil -lint "$runner_project" >/dev/null
 printf 'ios_simulator_runner_framework_link=present\n'
 phase=apply_debug_link_config
-printf '\nENABLE_DEBUG_DYLIB = NO\nOTHER_LDFLAGS = $(inherited) -Wl,-needed_library,%s\nLIBRARY_SEARCH_PATHS = $(inherited) %s\n' "$network_deny" "$RUNNER_TEMP" >> "$debug_config"
+printf '\nENABLE_DEBUG_DYLIB = NO\nOTHER_LDFLAGS = $(inherited) %s -Wl,-needed_library,%s\nLIBRARY_SEARCH_PATHS = $(inherited) %s\n' "$network_deny" "$network_deny" "$RUNNER_TEMP" >> "$debug_config"
 phase=verify_debug_link_setting
 test "$(tail -n 3 "$debug_config" | head -n 1)" = 'ENABLE_DEBUG_DYLIB = NO'
-test "$(tail -n 2 "$debug_config" | head -n 1)" = "OTHER_LDFLAGS = \$(inherited) -Wl,-needed_library,$network_deny"
+test "$(tail -n 2 "$debug_config" | head -n 1)" = "OTHER_LDFLAGS = \$(inherited) $network_deny -Wl,-needed_library,$network_deny"
 test "$(tail -n 1 "$debug_config")" = "LIBRARY_SEARCH_PATHS = \$(inherited) $RUNNER_TEMP"
 phase=verify_resolved_debug_link_setting
 resolved_debug_settings=$(xcodebuild -project "$GITHUB_WORKSPACE/apps/mobile/ios/Runner.xcodeproj" \
@@ -220,6 +220,15 @@ if test "$build_status" -ne 0; then
       "$network_deny" "$build_status"
   exit "$build_status"
 fi
+phase=verify_simulator_interposer_link_invocation
+link_diagnostic=$({ cat "$build_trace"; printf '\n'; cat "$build_errors"; } | \
+  python3 "$GITHUB_WORKSPACE/tools/ocr-models/diagnose-ios-link-trace.py" \
+    "$network_deny" 0 2>&1)
+printf '%s\n' "$link_diagnostic"
+grep -Fx 'ios_runner_link_invocation=present' <<< "$link_diagnostic" >/dev/null
+grep -Fx 'ios_runner_needed_library_in_link_invocation=present' <<< "$link_diagnostic" >/dev/null
+grep -Fx 'ios_runner_dylib_direct_input=present' <<< "$link_diagnostic" >/dev/null
+grep -Fx 'ios_runner_same_invocation_link_inputs=present' <<< "$link_diagnostic" >/dev/null
 phase=verify_simulator_interposer_link
 simulator_app="$GITHUB_WORKSPACE/apps/mobile/build/ios/iphonesimulator/Runner.app"
 simulator_executable="$simulator_app/Runner"
@@ -231,7 +240,7 @@ test -f "$simulator_interposer"
 cmp -s "$network_deny" "$simulator_interposer"
 phase=verify_debug_link_setting_after_build
 test "$(tail -n 3 "$debug_config" | head -n 1)" = 'ENABLE_DEBUG_DYLIB = NO'
-test "$(tail -n 2 "$debug_config" | head -n 1)" = "OTHER_LDFLAGS = \$(inherited) -Wl,-needed_library,$network_deny"
+test "$(tail -n 2 "$debug_config" | head -n 1)" = "OTHER_LDFLAGS = \$(inherited) $network_deny -Wl,-needed_library,$network_deny"
 test "$(tail -n 1 "$debug_config")" = "LIBRARY_SEARCH_PATHS = \$(inherited) $RUNNER_TEMP"
 phase=verify_resolved_debug_link_setting_after_build
 resolved_built_settings=$(xcodebuild -workspace "$GITHUB_WORKSPACE/apps/mobile/ios/Runner.xcworkspace" \

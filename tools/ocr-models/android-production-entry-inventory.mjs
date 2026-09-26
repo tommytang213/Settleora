@@ -3,6 +3,13 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // The Runner simulator link now proves both inputs on one exact invocation;
+  // iOS admits the observed GoogleUtilities plist.
+  // Canonical Flutter 3.44.8 local APK strict verification passed; hosted
+  // signer and ZIP representation remain exact-head requirements.
+  "ecf77098a60ff25255ea9ec2852d847c5e4a5632e5642ba6a417f54ca109620c": Object.freeze([
+    "7a3a7d935b7e8ce24dcf5b03f3e56a761d9ba87d014a43bd095c98c4ac05c2ff",
+  ]),
   // Simulator-only forced load command replaces the failing Swift symbol
   // probe; exact GoogleUtilities privacy sibling is admitted on iOS. The
   // canonical Flutter 3.44.8 local APK passed strict package verification.

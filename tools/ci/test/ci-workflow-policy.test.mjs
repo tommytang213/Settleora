@@ -449,7 +449,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
     assert.ok(iosRunner.includes(digest));
   }
   assert.ok(iosRunner.includes('case "$debug_config_sha" in'));
-  assert.ok(iosRunner.includes("printf '\\nENABLE_DEBUG_DYLIB = NO\\nOTHER_LDFLAGS = $(inherited) -Wl,-needed_library,%s\\nLIBRARY_SEARCH_PATHS = $(inherited) %s\\n'"));
+  assert.ok(iosRunner.includes("printf '\\nENABLE_DEBUG_DYLIB = NO\\nOTHER_LDFLAGS = $(inherited) %s -Wl,-needed_library,%s\\nLIBRARY_SEARCH_PATHS = $(inherited) %s\\n'"));
   assert.ok(iosRunner.includes('resolved_link_flags=$(sed -n'));
   assert.ok(iosRunner.includes('resolved_library_search_paths=$(sed -n'));
   assert.ok(iosRunner.includes('resolved_built_library_search_paths=$(sed -n'));
@@ -462,6 +462,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
     'apply_debug_link_config', 'verify_debug_link_setting',
     'verify_resolved_debug_link_setting',
     'enable_simulator_isolation', 'build_simulator_interposer_link',
+    'verify_simulator_interposer_link_invocation',
     'verify_simulator_interposer_link',
     'verify_simulator_app', 'verify_simulator_interposer_copy',
     'verify_simulator_interposer_load_command',
@@ -492,6 +493,8 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(iosRunner.includes('maxBytes: 32 * 1024 * 1024'));
   assert.ok(iosRunner.includes('if test "$build_status" -ne 0; then'));
   assert.ok(iosRunner.includes('diagnose-ios-link-trace.py'));
+  assert.ok(iosRunner.includes("grep -Fx 'ios_runner_dylib_direct_input=present'"));
+  assert.ok(iosRunner.includes("grep -Fx 'ios_runner_same_invocation_link_inputs=present'"));
   assert.ok(iosRunner.includes('simulator_link_image="$simulator_executable"'));
   assert.ok(iosRunner.includes('test -f "$simulator_app/Runner.debug.dylib"'));
   assert.ok(iosRunner.includes('simulator_link_image="$simulator_app/Runner.debug.dylib"'));
@@ -645,10 +648,27 @@ test('iOS linker diagnostic binds the needed-library flag to the exact Runner in
   assert.match(diagnose(settingsOnly), /ios_runner_needed_library_in_link_invocation=absent/);
   const linked = `${header}    /Applications/Xcode/usr/bin/clang -Wl,-needed_library,${dylib} -o /tmp/Runner.app/Runner\n`;
   assert.match(diagnose(linked), /ios_runner_needed_library_in_link_invocation=present/);
+  assert.match(diagnose(linked), /ios_runner_dylib_direct_input=absent/);
+  const direct = `${header}    /Applications/Xcode/usr/bin/clang ${dylib} -Wl,-needed_library,${dylib} -o /tmp/Runner.app/Runner\n`;
+  assert.match(diagnose(direct, '0'), /ios_runner_dylib_direct_input=present/);
+  assert.match(diagnose(direct, '0'), /ios_runner_same_invocation_link_inputs=present/);
+  assert.match(diagnose(direct, '0'), /ios_build_capture_status=0/);
+  const directSuffix = `${header}    /Applications/Xcode/usr/bin/clang ${dylib}.backup -Wl,-needed_library,${dylib} -o /tmp/Runner.app/Runner\n`;
+  assert.match(diagnose(directSuffix), /ios_runner_dylib_direct_input=absent/);
   const suffix = `${header}    /Applications/Xcode/usr/bin/clang -Wl,-needed_library,${dylib}.backup -o /tmp/Runner.app/Runner\n`;
   assert.match(diagnose(suffix), /ios_runner_needed_library_in_link_invocation=absent/);
   const xlinker = `${header}    /Applications/Xcode/usr/bin/clang -Xlinker -needed_library -Xlinker ${dylib} -o /tmp/Runner.app/Runner\n`;
   assert.match(diagnose(xlinker), /ios_runner_needed_library_in_link_invocation=present/);
+  assert.match(diagnose(xlinker), /ios_runner_dylib_direct_input=absent/);
+  assert.match(diagnose(xlinker), /ios_runner_same_invocation_link_inputs=absent/);
+  const weakOperand = `${header}    /Applications/Xcode/usr/bin/clang -Xlinker -weak_library -Xlinker ${dylib} -Wl,-needed_library,${dylib} -o /tmp/Runner.app/Runner\n`;
+  assert.match(diagnose(weakOperand), /ios_runner_dylib_direct_input=absent/);
+  const split = `${header}    /Applications/Xcode/usr/bin/clang ${dylib} -o /tmp/Runner.app/Runner\n${header}    /Applications/Xcode/usr/bin/clang -Wl,-needed_library,${dylib} -o /tmp/Runner.app/Runner\n`;
+  assert.match(diagnose(split), /ios_runner_dylib_direct_input=present/);
+  assert.match(diagnose(split), /ios_runner_needed_library_in_link_invocation=present/);
+  assert.match(diagnose(split), /ios_runner_same_invocation_link_inputs=absent/);
+  const xlinkerDirect = `${header}    /Applications/Xcode/usr/bin/clang ${dylib} -Xlinker -needed_library -Xlinker ${dylib} -o /tmp/Runner.app/Runner\n`;
+  assert.match(diagnose(xlinkerDirect), /ios_runner_same_invocation_link_inputs=present/);
   const xlinkerSuffix = `${header}    /Applications/Xcode/usr/bin/clang -Xlinker -needed_library -Xlinker ${dylib}.backup -o /tmp/Runner.app/Runner\n`;
   assert.match(diagnose(xlinkerSuffix), /ios_runner_needed_library_in_link_invocation=absent/);
   assert.match(diagnose(linked, '127'), /ios_build_capture_status=127/);
@@ -657,6 +677,9 @@ test('iOS linker diagnostic binds the needed-library flag to the exact Runner in
   assert.match(diagnose(unrelated), /ios_runner_link_invocation=absent/);
   const wrongOutput = `${header}    /Applications/Xcode/usr/bin/clang -Wl,-needed_library,${dylib} -o /tmp/Runner.app/Other\n`;
   assert.match(diagnose(wrongOutput), /ios_runner_link_invocation=absent/);
+  const differentRoot = `${header}    /Applications/Xcode/usr/bin/clang ${dylib} -Wl,-needed_library,${dylib} -o /tmp/other/Runner.app/Runner\n`;
+  assert.match(diagnose(differentRoot), /ios_runner_link_invocation=absent/);
+  assert.match(diagnose(differentRoot), /ios_runner_same_invocation_link_inputs=absent/);
   const debug = `Ld /tmp/Runner.app/Runner.debug.dylib normal (in target 'Runner' from project 'Runner')\n    /Applications/Xcode/usr/bin/clang -Wl,-needed_library,${dylib} -o /tmp/Runner.app/Runner.debug.dylib\n`;
   assert.match(diagnose(debug), /ios_debug_dylib_needed_library_in_link_invocation=present/);
   assert.match(diagnose(`${linked}ld: Undefined symbol: _settleora_network_interposer_loaded\n`),
