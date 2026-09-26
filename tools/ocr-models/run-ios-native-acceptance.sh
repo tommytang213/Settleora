@@ -95,6 +95,7 @@ case "$host_arch" in
   arm64|x86_64) ;;
   *) exit 98 ;;
 esac
+printf 'ios_simulator_interposer_build_architecture=%s\n' "$host_arch"
 network_deny="$RUNNER_TEMP/libSettleoraOcrNetworkDeny.dylib"
 network_deny_in_app="@executable_path/Frameworks/libSettleoraOcrNetworkDeny.dylib"
 xcrun --sdk iphonesimulator clang \

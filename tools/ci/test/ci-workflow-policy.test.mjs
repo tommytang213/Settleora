@@ -699,6 +699,8 @@ test('iOS linker diagnostic binds the needed-library flag to the exact Runner in
   const stripped = neededWithoutAnchor.replace(' -L/tmp ', ' -arch arm64 -Wl,-dead_strip_dylibs -L/tmp ');
   assert.match(diagnose(stripped, '0'), /ios_runner_link_architecture=arm64/);
   assert.match(diagnose(stripped, '0'), /ios_runner_dead_strip_dylibs=present/);
+  const targeted = neededWithoutAnchor.replace(' -L/tmp ', ' -target x86_64-apple-ios18.0-simulator -L/tmp ');
+  assert.match(diagnose(targeted, '0'), /ios_runner_link_architecture=x86_64/);
   const forcedWithoutAnchor = neededWithoutAnchor.replace(' -L/tmp ', ' -Wl,-u,_settleora_network_interposer_loaded -L/tmp ');
   assert.match(diagnose(forcedWithoutAnchor, '0'), /ios_runner_anchor_in_link_invocation=absent/);
   assert.match(diagnose(forcedWithoutAnchor, '0'), /ios_runner_forced_symbol_same_invocation=absent/);
@@ -758,6 +760,9 @@ test('iOS linker diagnostic binds the needed-library flag to the exact Runner in
   assert.match(diagnose(relativeError), /ios_build_error_classes=unclassified/);
   assert.match(diagnose(relativeError), /ios_build_error_digest_sha256=[0-9a-f]{64}/);
   assert.doesNotMatch(diagnose(relativeError), /receipt-1234|confidential merchant/);
+  const ignoredAnchor = `${linked}ld: warning: ignoring file /tmp/settleora-network-interposer-anchor.o built for arm64, but linking in object file for x86_64\n`;
+  assert.match(diagnose(ignoredAnchor), /ios_build_error_classes=.*anchor_object_ignored/);
+  assert.doesNotMatch(diagnose(ignoredAnchor), /ld: warning: ignoring file/);
   assert.match(diagnose(`${linked}ld: library not found for ${dylib}\n`),
     /ios_interposer_library_not_found=present/);
   assert.match(diagnose(linked), /ios_undefined_interposer_symbol=absent/);

@@ -62,6 +62,9 @@ def report(trace, dylib, capture_status):
         architectures = set()
         for command in invocations:
             architectures.update(re.findall(r"(?<!\S)-arch\s+(arm64|x86_64)(?=\s|$)", command))
+            architectures.update(re.findall(
+                r"(?<!\S)-target\s+(arm64|x86_64)-apple-ios[0-9.]*-simulator(?=\s|$)", command
+            ))
         architecture = next(iter(architectures)) if len(architectures) == 1 else (
             "multiple" if architectures else "absent"
         )
@@ -154,6 +157,12 @@ def report(trace, dylib, capture_status):
         "linker_command_failed": "linker command failed" in error_text,
         "sandbox_denied": "sandbox:" in error_text and "deny(" in error_text,
         "codesign_failed": "codesign" in error_text and "failed" in error_text,
+        "wrong_architecture": "wrong architecture" in error_text or
+            "incompatible architecture" in error_text or
+            "building for ios simulator, but linking in" in error_text,
+        "anchor_object_ignored": any("settleora-network-interposer-anchor.o" in line and
+            ("ignoring file" in line.lower() or "incompatible" in line.lower() or
+             "built for" in line.lower()) for line in error_lines),
     }
     print(f"ios_build_error_line_count={len(error_lines)}", file=sys.stderr)
     print("ios_build_error_classes=" + (",".join(k for k, v in classes.items() if v) or "unclassified"), file=sys.stderr)
