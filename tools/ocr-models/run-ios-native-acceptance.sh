@@ -95,11 +95,14 @@ case "$host_arch" in
   arm64|x86_64) ;;
   *) exit 98 ;;
 esac
-printf 'ios_simulator_interposer_build_architecture=%s\n' "$host_arch"
+# Exact-head job 108412705428 linked Runner for x86_64 on an arm64 host.
+# Build the test-only interposer and anchor for the actual Runner target.
+simulator_link_arch=x86_64
+printf 'ios_simulator_host_architecture=%s ios_simulator_interposer_build_architecture=%s\n' "$host_arch" "$simulator_link_arch"
 network_deny="$RUNNER_TEMP/libSettleoraOcrNetworkDeny.dylib"
 network_deny_in_app="@executable_path/Frameworks/libSettleoraOcrNetworkDeny.dylib"
 xcrun --sdk iphonesimulator clang \
-  -arch "$host_arch" \
+  -arch "$simulator_link_arch" \
   -mios-simulator-version-min=18.0 \
   -dynamiclib \
   "-Wl,-install_name,$network_deny_in_app" \
@@ -116,7 +119,7 @@ test "$(xcrun nm -gU "$network_deny" | awk '$2 == "T" && $3 == "_settleora_netwo
 printf 'ios_simulator_interposer_export=present\n'
 phase=build_simulator_link_anchor
 link_anchor="$RUNNER_TEMP/settleora-network-interposer-anchor.o"
-xcrun --sdk iphonesimulator clang -arch "$host_arch" \
+xcrun --sdk iphonesimulator clang -arch "$simulator_link_arch" \
   -mios-simulator-version-min=18.0 -Wall -Wextra -Werror \
   -x c -c -o "$link_anchor" - <<'C'
 extern int settleora_network_interposer_loaded(void);
@@ -132,7 +135,7 @@ xcrun nm -gU "$link_anchor" | awk '$2 == "T" && $3 == "_settleora_require_networ
 printf 'ios_simulator_link_anchor=present\n'
 phase=verify_simulator_linker_resolution
 link_probe="$RUNNER_TEMP/settleora-network-interposer-link-probe"
-if ! xcrun --sdk iphonesimulator clang -arch "$host_arch" \
+if ! xcrun --sdk iphonesimulator clang -arch "$simulator_link_arch" \
   -mios-simulator-version-min=18.0 "$link_anchor" \
   -Wl,-u,_settleora_require_network_interposer -L"$RUNNER_TEMP" "$network_deny" \
   -Wl,-needed-lSettleoraOcrNetworkDeny \
@@ -271,6 +274,9 @@ link_diagnostic=$({ cat "$build_trace"; printf '\n'; cat "$build_errors"; } | \
     "$network_deny" 0 2>&1)
 printf '%s\n' "$link_diagnostic"
 grep -Fx 'ios_runner_link_invocation=present' <<< "$link_diagnostic" >/dev/null
+phase=verify_simulator_runner_link_architecture
+grep -Fx "ios_runner_link_architecture=$simulator_link_arch" <<< "$link_diagnostic" >/dev/null
+phase=verify_simulator_interposer_link_invocation
 grep -Fx 'ios_runner_needed_library_in_link_invocation=present' <<< "$link_diagnostic" >/dev/null
 grep -Fx 'ios_runner_dylib_direct_input=present' <<< "$link_diagnostic" >/dev/null
 grep -Fx 'ios_runner_same_invocation_link_inputs=present' <<< "$link_diagnostic" >/dev/null

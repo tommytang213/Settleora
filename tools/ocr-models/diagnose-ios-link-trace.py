@@ -146,11 +146,13 @@ def report(trace, dylib, capture_status):
     # Xcode often wraps the actual linker failure in an "Error (Xcode)" line.
     # Report fixed categories and a digest only; build lines may contain paths.
     error_lines = [line for line in lines if "Error (Xcode):" in line or
-                   re.search(r"(?:^|\s)(?:error:|ld:|clang: error:)", line)]
+                   re.search(r"(?:^|\s)(?:error:|ld:|clang: error:)", line) or
+                   re.search(r'^\s+"?_[A-Za-z_][A-Za-z0-9_]*"?, referenced from:', line)]
     error_text = "\n".join(error_lines).lower()
     classes = {
         "undefined_symbols": "undefined symbols for architecture" in error_text or
-            "symbol(s) not found for architecture" in error_text,
+            "symbol(s) not found for architecture" in error_text or
+            "undefined symbol:" in error_text,
         "duplicate_symbols": "duplicate symbol" in error_text,
         "library_not_found": "library not found" in error_text,
         "framework_not_found": "framework not found" in error_text,

@@ -482,6 +482,9 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(iosRunner.includes('cp -p "$runner_project_backup" "$runner_project"'));
   assert.ok(iosRunner.includes('cmp -s "$runner_project_backup" "$runner_project"'));
   assert.ok(iosRunner.includes('ios_simulator_link_anchor=present'));
+  assert.ok(iosRunner.includes('simulator_link_arch=x86_64'));
+  assert.equal((iosRunner.match(/-arch "\$simulator_link_arch"/g) ?? []).length, 3);
+  assert.ok(iosRunner.includes('grep -Fx "ios_runner_link_architecture=$simulator_link_arch"'));
   assert.ok(iosRunner.includes('ios_simulator_linker_resolution=present'));
   assert.ok(iosRunner.includes('ios_simulator_linker_dependency=absent'));
   assert.ok(iosRunner.includes('xcrun nm -j -u "$link_anchor"'));
@@ -756,6 +759,14 @@ test('iOS linker diagnostic binds the needed-library flag to the exact Runner in
   assert.match(diagnose(wrappedError), /ios_build_error_classes=undefined_symbols/);
   assert.match(diagnose(wrappedError), /ios_build_error_anchor_symbol=present/);
   assert.doesNotMatch(diagnose(wrappedError), /\/Users\/private\/location/);
+  const multiline = `${linked}ld: Undefined symbols for architecture arm64:\n  "_settleora_require_network_interposer", referenced from:\n      in /Users/private/linker.o\n`;
+  const otherSymbol = multiline.replace('_settleora_require_network_interposer', '_some_other_symbol');
+  assert.match(diagnose(multiline), /ios_build_error_anchor_symbol=present/);
+  const errorDigest = (trace) => /ios_build_error_digest_sha256=([0-9a-f]{64})/.exec(diagnose(trace))[1];
+  assert.notEqual(errorDigest(multiline), errorDigest(otherSymbol));
+  assert.doesNotMatch(diagnose(multiline), /\/Users\/private\/linker.o/);
+  assert.match(diagnose(`${linked}Error (Xcode): Undefined symbol: _some_other_symbol\n`),
+    /ios_build_error_classes=undefined_symbols/);
   const relativeError = `${linked}error: receipt-1234.swift:42: confidential merchant\n`;
   assert.match(diagnose(relativeError), /ios_build_error_classes=unclassified/);
   assert.match(diagnose(relativeError), /ios_build_error_digest_sha256=[0-9a-f]{64}/);
