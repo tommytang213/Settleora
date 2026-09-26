@@ -383,6 +383,9 @@ fail_unreviewed_resource_path() {
       "$(printf '%s' "$framework_component" | shasum -a 256 | cut -d ' ' -f 1)" \
       "$(printf '%s' "$framework_tail" | shasum -a 256 | cut -d ' ' -f 1)" \
       "$resource_kind" "$resource_depth" >&2
+    if [[ "$resource_depth" == 1 && ( "$resource_kind" == privacy || "$resource_kind" == plist ) ]]; then
+      printf 'unreviewed_framework_resource_sha256=%s\n' "$(sha256_file "$candidate")" >&2
+    fi
   fi
   fail "production application contains an unreviewed resource path"
 }
@@ -547,8 +550,8 @@ while IFS= read -r candidate; do
               [[ "$(sha256_file "$candidate")" == 1a93db69e5f73983aa5a92283f3cd7b830a894ac5a3917efa52910b2da1894b8 ]] ||
                 fail_unreviewed_resource_path ;;
             Frameworks/nanopb.framework/nanopb_Privacy.bundle/PrivacyInfo.xcprivacy)
-              printf 'observed_nanopb_privacy_manifest_sha256=%s\n' "$(sha256_file "$candidate")" >&2
-              fail "production application privacy manifest bytes are unreviewed" ;;
+              [[ "$(sha256_file "$candidate")" == 729ba3cbd0f458c78cd61edf17350edafe0e34ca86e314ec64c8cb22ccd21b54 ]] ||
+                fail_unreviewed_resource_path ;;
             Frameworks/GoogleDataTransport.framework/GoogleDataTransport_Privacy.bundle/*|Frameworks/GoogleToolboxForMac.framework/GoogleToolboxForMac_Logger_Privacy.bundle/Info.plist|Frameworks/GoogleToolboxForMac.framework/GoogleToolboxForMac_Logger_Privacy.bundle/PrivacyInfo.xcprivacy|Frameworks/GoogleToolboxForMac.framework/GoogleToolboxForMac_Privacy.bundle/PrivacyInfo.xcprivacy|Frameworks/GoogleUtilities.framework/GoogleUtilities_Privacy.bundle/Info.plist|Frameworks/GoogleUtilities.framework/GoogleUtilities_Privacy.bundle/PrivacyInfo.xcprivacy|Frameworks/GTMSessionFetcher.framework/GTMSessionFetcher_Core_Privacy.bundle/Info.plist|Frameworks/GTMSessionFetcher.framework/GTMSessionFetcher_Core_Privacy.bundle/PrivacyInfo.xcprivacy|Frameworks/FBLPromises.framework/FBLPromises_Privacy.bundle/Info.plist|Frameworks/FBLPromises.framework/FBLPromises_Privacy.bundle/PrivacyInfo.xcprivacy|Frameworks/flutter_secure_storage_darwin.framework/flutter_secure_storage.bundle/Info.plist|Frameworks/flutter_secure_storage_darwin.framework/flutter_secure_storage.bundle/PrivacyInfo.xcprivacy|Frameworks/MLKitTextRecognition.framework/LatinOCRResources.bundle/*|Frameworks/image_picker_ios.framework/image_picker_ios_privacy.bundle/PrivacyInfo.xcprivacy) ;;
             *) fail_unreviewed_resource_path ;;
           esac

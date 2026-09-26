@@ -538,6 +538,7 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   assert.match(script, /unreviewed_privacy_bundle_info_sha256=%s/);
   assert.match(script, /Frameworks\/image_picker_ios\.framework\/image_picker_ios_privacy\.bundle\/Info\.plist/);
   assert.match(script, /framework_component_sha256=%s framework_tail_sha256=%s resource_kind=%s resource_depth=%s/);
+  assert.match(script, /unreviewed_framework_resource_sha256=%s/);
   const engineResourcePins = [...script.matchAll(/Frameworks\/Flutter\.framework\/(Headers\/[^)]+\.h|Modules\/module\.modulemap)\) expected_flutter_engine_resource_sha=([a-f0-9]{64}) ;;/g)];
   assert.equal(engineResourcePins.length, 20);
   assert.equal(new Set(engineResourcePins.map((match) => match[1])).size, 20);
@@ -570,8 +571,7 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
     /Frameworks\/image_picker_ios\.framework\/image_picker_ios_privacy\.bundle\/Info\.plist\)\s+\[\[ "\$\(sha256_file "\$candidate"\)" == 92fa33c74cf8ae0f8e628a2718c45a8fb16d7e6b1bd33c899ccd1ce9ec437f13 \]\]/);
   assert.match(resourceInventoryLoop, /\*\) fail_unreviewed_resource_path ;;\s+esac\s+fi ;;\s+Frameworks\/\*\/Info\.plist/);
   assert.match(resourceInventoryLoop, /Frameworks\/GoogleToolboxForMac\.framework\/GoogleToolboxForMac_Privacy\.bundle\/Info\.plist\)\s+\[\[ "\$\(sha256_file "\$candidate"\)" == 1a93db69e5f73983aa5a92283f3cd7b830a894ac5a3917efa52910b2da1894b8 \]\]/);
-  assert.match(resourceInventoryLoop, /Frameworks\/nanopb\.framework\/nanopb_Privacy\.bundle\/PrivacyInfo\.xcprivacy\)\s+printf 'observed_nanopb_privacy_manifest_sha256=/);
-  assert.match(resourceInventoryLoop, /production application privacy manifest bytes are unreviewed/);
+  assert.match(resourceInventoryLoop, /Frameworks\/nanopb\.framework\/nanopb_Privacy\.bundle\/PrivacyInfo\.xcprivacy\)\s+\[\[ "\$\(sha256_file "\$candidate"\)" == 729ba3cbd0f458c78cd61edf17350edafe0e34ca86e314ec64c8cb22ccd21b54 \]\]/);
   assert.ok(resourceInventoryLoop.indexOf('Frameworks/nanopb.framework/nanopb_Privacy.bundle/PrivacyInfo.xcprivacy)') <
     resourceInventoryLoop.indexOf('Frameworks/GoogleDataTransport.framework/GoogleDataTransport_Privacy.bundle/*'));
   const matchesNestedBundle = (relativePath) => {

@@ -3,11 +3,20 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // Exact hosted-observed nanopb privacy-manifest byte pin and bounded
+  // unknown framework resource diagnostic. Clean Flutter 3.44.8 local Release
+  // projection passed inventory; hosted signer and ZIP proof remain required.
+  "e6f2428d48e645cbcff7bf952f1243600821786bfd9815e808c85f96f0708db7": Object.freeze([
+    "cb31d67add34e5443445f788a6f2d8b02e17726f2b3523a9cf664c9bcd0fc623",
+  ]),
   // Exact hosted iOS privacy plist byte pin and fail-closed nanopb privacy
   // manifest diagnostic. Clean Flutter 3.44.8 local Release projection passed
   // package inventory; hosted signer and ZIP representation remain exact-head proof.
   "29ce9b4b011121e4fcc3a2305fe5f99b94b450cc213f14994223b7f662ee9f54": Object.freeze([
     "f8b510c73c69e37699bbdbbd9e31c56efaad83e7a6343bcf3fb2446e67725876",
+    // Exact-head hosted job 108472248533 passed signer, path, catalog, model,
+    // and fixture-absence gates before reporting this ZIP representation.
+    "33c26b3d1dd0039e6c2d6f3135234df27dfa75423b13a438eb21da4597f91dbc",
   ]),
   // Exact fail-closed iOS privacy-plist byte diagnostic. Clean Flutter 3.44.8
   // local Release projection passed package inventory; hosted signer and ZIP
