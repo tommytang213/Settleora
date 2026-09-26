@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Print bounded linker facts from a failed simulator build trace."""
 
+import hashlib
 import re
 import sys
 
@@ -139,6 +140,32 @@ def report(trace, dylib, capture_status):
     }
     for label, found in diagnostics.items():
         print(f"ios_{label}={'present' if found else 'absent'}", file=sys.stderr)
+    # Xcode often wraps the actual linker failure in an "Error (Xcode)" line.
+    # Report fixed categories and a digest only; build lines may contain paths.
+    error_lines = [line for line in lines if "Error (Xcode):" in line or
+                   re.search(r"(?:^|\s)(?:error:|ld:|clang: error:)", line)]
+    error_text = "\n".join(error_lines).lower()
+    classes = {
+        "undefined_symbols": "undefined symbols for architecture" in error_text or
+            "symbol(s) not found for architecture" in error_text,
+        "duplicate_symbols": "duplicate symbol" in error_text,
+        "library_not_found": "library not found" in error_text,
+        "framework_not_found": "framework not found" in error_text,
+        "linker_command_failed": "linker command failed" in error_text,
+        "sandbox_denied": "sandbox:" in error_text and "deny(" in error_text,
+        "codesign_failed": "codesign" in error_text and "failed" in error_text,
+    }
+    print(f"ios_build_error_line_count={len(error_lines)}", file=sys.stderr)
+    print("ios_build_error_classes=" + (",".join(k for k, v in classes.items() if v) or "unclassified"), file=sys.stderr)
+    print("ios_build_error_anchor_symbol=" + (
+        "present" if "_settleora_require_network_interposer" in "\n".join(error_lines) else "absent"
+    ), file=sys.stderr)
+    print("ios_build_error_interposer_symbol=" + (
+        "present" if "_settleora_network_interposer_loaded" in "\n".join(error_lines) else "absent"
+    ), file=sys.stderr)
+    if error_lines:
+        print("ios_build_error_digest_sha256=" + hashlib.sha256(
+            "\n".join(error_lines).encode("utf-8")).hexdigest(), file=sys.stderr)
 
 
 def main():

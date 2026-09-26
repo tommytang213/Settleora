@@ -750,6 +750,14 @@ test('iOS linker diagnostic binds the needed-library flag to the exact Runner in
   assert.match(diagnose(debug), /ios_debug_dylib_needed_library_in_link_invocation=present/);
   assert.match(diagnose(`${linked}ld: Undefined symbol: _settleora_network_interposer_loaded\n`),
     /ios_undefined_interposer_symbol=present/);
+  const wrappedError = `${linked}Error (Xcode): Undefined symbols for architecture arm64: _settleora_require_network_interposer /Users/private/location\n`;
+  assert.match(diagnose(wrappedError), /ios_build_error_classes=undefined_symbols/);
+  assert.match(diagnose(wrappedError), /ios_build_error_anchor_symbol=present/);
+  assert.doesNotMatch(diagnose(wrappedError), /\/Users\/private\/location/);
+  const relativeError = `${linked}error: receipt-1234.swift:42: confidential merchant\n`;
+  assert.match(diagnose(relativeError), /ios_build_error_classes=unclassified/);
+  assert.match(diagnose(relativeError), /ios_build_error_digest_sha256=[0-9a-f]{64}/);
+  assert.doesNotMatch(diagnose(relativeError), /receipt-1234|confidential merchant/);
   assert.match(diagnose(`${linked}ld: library not found for ${dylib}\n`),
     /ios_interposer_library_not_found=present/);
   assert.match(diagnose(linked), /ios_undefined_interposer_symbol=absent/);
