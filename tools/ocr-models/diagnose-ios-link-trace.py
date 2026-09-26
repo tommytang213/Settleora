@@ -58,6 +58,7 @@ def report(trace, dylib, capture_status):
         invocations = commands[image]
         print(f"ios_{label}_link_invocation={'present' if invocations else 'absent'}", file=sys.stderr)
         needed_wl = re.compile(r"(?<!\S)-Wl,-needed_library," + re.escape(dylib) + r"(?=\s|$)")
+        needed_search = re.compile(r"(?<!\S)-Wl,-needed-lSettleoraOcrNetworkDeny(?=\s|$)")
         needed_xlinker = re.compile(
             r"(?<!\S)-Xlinker\s+-needed_library\s+-Xlinker\s+" + re.escape(dylib) + r"(?=\s|$)"
         )
@@ -69,8 +70,8 @@ def report(trace, dylib, capture_status):
         )
         proofs = []
         for command in invocations:
-            forced = bool(needed_wl.search(command) or needed_xlinker.search(command))
-            without_forced_operands = xlinker_operand.sub(" ", needed_xlinker.sub(" ", needed_wl.sub(" ", command)))
+            forced = bool(needed_wl.search(command) or needed_xlinker.search(command) or needed_search.search(command))
+            without_forced_operands = xlinker_operand.sub(" ", needed_xlinker.sub(" ", needed_search.sub(" ", needed_wl.sub(" ", command))))
             direct = bool(direct_path.search(without_forced_operands))
             proofs.append((forced, direct, bool(anchor_path.search(command)), bool(forced_symbol.search(command))))
         print(f"ios_{label}_needed_library_in_link_invocation={'present' if any(p[0] for p in proofs) else 'absent'}", file=sys.stderr)

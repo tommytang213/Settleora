@@ -621,7 +621,7 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
     resourceInventoryLoop.indexOf('file_description=$(file -b "$candidate")'));
   assert.ok(resourceInventoryLoop.indexOf('unreviewed_compiled_nib_sha256=%s') <
     resourceInventoryLoop.indexOf('file_description=$(file -b "$candidate")'));
-  assert.match(script, /Frameworks\/App\.framework\/flutter_assets\/NOTICES\.Z\) expected_flutter_asset_sha=7c9b681fa5d9672489bc4a80fbbb03e5ee666d4b45af75aecf3f1802052f9008/);
+  assert.match(script, /Frameworks\/App\.framework\/flutter_assets\/NOTICES\.Z\) expected_flutter_asset_sha=73f6eae191a87b9e96ff32d4c255978e3769125b777b8288ee501a066f2bcd22/);
   assert.equal(resourceInventoryLoop.indexOf('NOTICES.Z'),
     resourceInventoryLoop.indexOf('NOTICES.Z) expected_flutter_asset_sha='));
   assert.doesNotMatch(resourceInventoryLoop, /AssetManifest\.json\|Frameworks\/App\.framework\/flutter_assets\/FontManifest\.json\|Frameworks\/App\.framework\/flutter_assets\/NOTICES\.Z\) ;;/);

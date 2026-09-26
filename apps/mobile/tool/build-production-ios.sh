@@ -486,10 +486,11 @@ while IFS= read -r candidate; do
           printf 'app_framework_info_sha256=%s\n' "$observed_app_framework_sha" >&2
           fail "production AppFrameworkInfo resource differs from reviewed Xcode output"
         fi ;;
-      # Exact Flutter-generated assets observed in the reviewed same-source
-      # Android Release package. iOS must prove identical bytes or fail closed.
+      # Exact Flutter-generated assets from the reviewed Flutter 3.44.8
+      # package. The iOS compressed notices identity was observed in exact-head
+      # unsigned package job 108382318967 after prior package gates passed.
       Frameworks/App.framework/flutter_assets/NativeAssetsManifest.json) expected_flutter_asset_sha=9548a31e4a048135c1d94f919328bfb62ae2c7bb3cab96557c7941daa97776cb ;;
-      Frameworks/App.framework/flutter_assets/NOTICES.Z) expected_flutter_asset_sha=7c9b681fa5d9672489bc4a80fbbb03e5ee666d4b45af75aecf3f1802052f9008 ;;
+      Frameworks/App.framework/flutter_assets/NOTICES.Z) expected_flutter_asset_sha=73f6eae191a87b9e96ff32d4c255978e3769125b777b8288ee501a066f2bcd22 ;;
       Frameworks/App.framework/flutter_assets/fonts/MaterialIcons-Regular.otf) expected_flutter_asset_sha=e4aae88917aea920dfba979f19616d87669655d003444d3b1a110b685b88a0ed ;;
       Frameworks/App.framework/flutter_assets/packages/cupertino_icons/assets/CupertinoIcons.ttf) expected_flutter_asset_sha=67c44fe9183b002e79dde7f6977e2988661c9a3e4a3c5fce968787efdbed823c ;;
       Frameworks/App.framework/flutter_assets/shaders/ink_sparkle.frag) expected_flutter_asset_sha=1fe8436a743884cb65078fe8c7b38e18f5365f2a2961270916f426fd13c604af ;;

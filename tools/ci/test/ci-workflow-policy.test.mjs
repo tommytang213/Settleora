@@ -449,7 +449,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
     assert.ok(iosRunner.includes(digest));
   }
   assert.ok(iosRunner.includes('case "$debug_config_sha" in'));
-  assert.ok(iosRunner.includes("printf '\\nENABLE_DEBUG_DYLIB = NO\\nOTHER_LDFLAGS = $(inherited) %s -Wl,-u,_settleora_network_interposer_loaded %s -Wl,-needed_library,%s\\nLIBRARY_SEARCH_PATHS = $(inherited) %s\\n'"));
+  assert.ok(iosRunner.includes("printf '\\nENABLE_DEBUG_DYLIB = NO\\nOTHER_LDFLAGS = $(inherited) %s -Wl,-u,_settleora_network_interposer_loaded -L%s -Wl,-needed-lSettleoraOcrNetworkDeny\\nLIBRARY_SEARCH_PATHS = $(inherited) %s\\n'"));
   assert.ok(iosRunner.includes('resolved_link_flags=$(sed -n'));
   assert.ok(iosRunner.includes('resolved_library_search_paths=$(sed -n'));
   assert.ok(iosRunner.includes('resolved_built_library_search_paths=$(sed -n'));
@@ -458,7 +458,8 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(iosRunner.includes('ios_simulator_link_setting=missing'));
   assert.ok(iosRunner.includes('network_link_configured=true'));
   for (const stage of ['build_simulator_link_anchor', 'verify_simulator_link_anchor_object',
-    'verify_simulator_link_anchor_symbol', 'verify_debug_link_config', 'verify_network_link_path',
+    'verify_simulator_link_anchor_symbol', 'verify_simulator_linker_resolution',
+    'verify_debug_link_config', 'verify_network_link_path',
     'save_debug_link_config', 'save_runner_project', 'apply_runner_project_link',
     'apply_debug_link_config', 'verify_debug_link_setting',
     'verify_resolved_debug_link_setting',
@@ -481,6 +482,8 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(iosRunner.includes('cp -p "$runner_project_backup" "$runner_project"'));
   assert.ok(iosRunner.includes('cmp -s "$runner_project_backup" "$runner_project"'));
   assert.ok(iosRunner.includes('ios_simulator_link_anchor=present'));
+  assert.ok(iosRunner.includes('ios_simulator_linker_resolution=present'));
+  assert.ok(iosRunner.includes('ios_simulator_linker_dependency=absent'));
   assert.ok(iosRunner.includes('xcrun nm -j -u "$link_anchor"'));
   assert.ok(iosRunner.includes('ios_simulator_link_anchor_setting=missing'));
   assert.ok(iosRunner.includes('ios_simulator_built_link_anchor_setting=missing'));
@@ -669,6 +672,10 @@ test('iOS linker diagnostic binds the needed-library flag to the exact Runner in
   const forced = `${header}    /Applications/Xcode/usr/bin/clang ${anchor} -Wl,-u,_settleora_network_interposer_loaded ${dylib} -Wl,-needed_library,${dylib} -o /tmp/Runner.app/Runner\n`;
   assert.match(diagnose(forced, '0'), /ios_runner_forced_symbol_same_invocation=present/);
   assert.match(diagnose(forced.replace('-Wl,-u,_settleora_network_interposer_loaded ', '-Wl,-u,_settleora_network_interposer_loaded.bak '), '0'), /ios_runner_forced_symbol_same_invocation=absent/);
+  const searched = `${header}    /Applications/Xcode/usr/bin/clang ${anchor} -Wl,-u,_settleora_network_interposer_loaded -L/tmp ${dylib} -Wl,-needed-lSettleoraOcrNetworkDeny -o /tmp/Runner.app/Runner\n`;
+  assert.match(diagnose(searched, '0'), /ios_runner_forced_symbol_same_invocation=present/);
+  assert.match(diagnose(searched, '0'), /ios_runner_same_invocation_link_inputs=present/);
+  assert.match(diagnose(searched.replace('-Wl,-needed-lSettleoraOcrNetworkDeny', '-Wl,-needed-lSettleoraOcrNetworkDeny.bak'), '0'), /ios_runner_same_invocation_link_inputs=absent/);
   const anchorSuffix = `${header}    /Applications/Xcode/usr/bin/clang ${anchor}.backup ${dylib} -Wl,-needed_library,${dylib} -o /tmp/Runner.app/Runner\n`;
   assert.match(diagnose(anchorSuffix, '0'), /ios_runner_anchor_same_invocation=absent/);
   assert.match(diagnose(direct, '0'), /ios_build_capture_status=0/);
