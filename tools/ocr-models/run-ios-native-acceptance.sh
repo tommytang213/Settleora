@@ -166,6 +166,26 @@ test -f "$simulator_executable"
 phase=verify_simulator_interposer_copy
 test -f "$simulator_interposer"
 cmp -s "$network_deny" "$simulator_interposer"
+phase=verify_debug_link_setting_after_build
+test "$(tail -n 2 "$debug_config" | head -n 1)" = 'ENABLE_DEBUG_DYLIB = NO'
+test "$(tail -n 1 "$debug_config")" = "OTHER_LDFLAGS = \$(inherited) -Wl,-needed_library,$network_deny"
+phase=verify_resolved_debug_link_setting_after_build
+resolved_built_settings=$(xcodebuild -workspace "$GITHUB_WORKSPACE/apps/mobile/ios/Runner.xcworkspace" \
+  -scheme Runner -configuration Debug -sdk iphonesimulator -showBuildSettings 2>/dev/null)
+resolved_built_runner_settings=$(awk '
+  /^Build settings for action build and target Runner:$/ { found++; selected = 1; next }
+  /^Build settings for action build and target / { selected = 0 }
+  selected { print }
+  END { if (found != 1) exit 98 }
+' <<< "$resolved_built_settings")
+resolved_built_link_flags=$(sed -n 's/^[[:space:]]*OTHER_LDFLAGS = //p' <<< "$resolved_built_runner_settings")
+resolved_built_debug_dylib=$(sed -n 's/^[[:space:]]*ENABLE_DEBUG_DYLIB = //p' <<< "$resolved_built_runner_settings")
+case "$resolved_built_link_flags" in
+  *"-Wl,-needed_library,$network_deny"*) ;;
+  *) printf 'ios_simulator_built_link_setting=missing\n' >&2; exit 98 ;;
+esac
+test "$resolved_built_debug_dylib" = NO || { printf 'ios_simulator_built_debug_dylib_setting=unexpected\n' >&2; exit 98; }
+printf 'ios_simulator_built_link_setting=present ios_simulator_built_debug_dylib_setting=NO\n'
 phase=verify_simulator_interposer_load_command
 simulator_link_image="$simulator_executable"
 if xcrun otool -L "$simulator_executable" | grep -F "$network_deny_in_app (" >/dev/null; then
@@ -175,15 +195,23 @@ elif test -f "$simulator_app/Runner.debug.dylib" &&
   # Xcode 16 may put the app's Debug-linked code in this in-app dylib.
   simulator_link_image="$simulator_app/Runner.debug.dylib"
 else
+  if xcrun otool -L "$simulator_executable" | grep -F 'libSettleoraOcrNetworkDeny.dylib' >/dev/null; then
+    printf 'ios_simulator_runner_interposer_alternate_install_name=present\n' >&2
+  else
+    printf 'ios_simulator_runner_interposer_dependency=absent\n' >&2
+  fi
+  if test -f "$simulator_app/Runner.debug.dylib"; then
+    if xcrun otool -L "$simulator_app/Runner.debug.dylib" | grep -F 'libSettleoraOcrNetworkDeny.dylib' >/dev/null; then
+      printf 'ios_simulator_debug_dylib_interposer_alternate_install_name=present\n' >&2
+    else
+      printf 'ios_simulator_debug_dylib_interposer_dependency=absent\n' >&2
+    fi
+  fi
   exit 98
 fi
 printf 'ios_simulator_link_image=%s\n' "${simulator_link_image##*/}"
 phase=verify_simulator_interposer_install_name
 test "$(xcrun otool -D "$simulator_interposer" | tail -n 1)" = "$network_deny_in_app"
-phase=verify_debug_link_setting_after_build
-test "$(tail -n 2 "$debug_config" | head -n 1)" = 'ENABLE_DEBUG_DYLIB = NO'
-test "$(tail -n 1 "$debug_config")" = "OTHER_LDFLAGS = \$(inherited) -Wl,-needed_library,$network_deny"
-
 phase=execute_flutter_test
 status=0
 node "$GITHUB_WORKSPACE/tools/ocr-models/bounded-process-capture.mjs" \

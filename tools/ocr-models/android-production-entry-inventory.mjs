@@ -3,11 +3,20 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // Exact follow-up after validating the built Runner scheme settings. The
+  // projected Flutter 3.44.8 Release APK passed local strict verification;
+  // hosted signer and ZIP representation still require exact-head proof.
+  "0dfcca217029e5c853c2ee9f4740fbb9f73add735e8f061b11820164ff3385ac": Object.freeze([
+    "a49272491c9a47c170361ec06f0b3bceb3d9258c4e9c6fbab6559a56d607cbd5",
+  ]),
   // Bounded Apply handoff diagnostics with the acceptance source rebound in
   // the trusted catalog. Clean local Flutter 3.44.8 Release projection;
   // hosted signer and ZIP representation still require exact-head proof.
   "b33412a769497759afa1652afa39244435b27e9570a9a97aa392e7a242ea59fe": Object.freeze([
     "d34226db4c9d49b0480033ef290607bca3f84ab0adf048032c80b64fcbbfc6e6",
+    // Exact-head hosted job 108311257068 passed signer, path, model, and
+    // fixture-absence checks before reporting this ZIP representation.
+    "86693b38ae65bc5ed245c29e6a928aaac3f1644764ec6020db34c83e5ae7f041",
   ]),
   // Test-only iOS simulator link verification and reviewed compiled nib
   // classification. Android build inputs are unchanged; hosted exact-head

@@ -669,7 +669,7 @@ void main() {
       final merchantField = find.byKey(
         const Key('personal-bill-merchant-name'),
       );
-      final dateField = find.byKey(const Key('personal-bill-date'));
+      final dateField = find.byKey(const Key('personal-bill-date-picker'));
       final currencyField = find.descendant(
         of: find.byKey(const Key('personal-bill-currency')),
         matching: find.byType(CurrencySelector),

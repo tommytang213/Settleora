@@ -363,6 +363,9 @@ fail_unreviewed_resource_path() {
   esac
   printf 'unreviewed_resource_path_sha256=%s resource_class=%s\n' \
     "$resource_path_sha" "$resource_class" >&2
+  if [[ "$relative_resource" == Frameworks/image_picker_ios.framework/image_picker_ios_privacy.bundle/Info.plist ]]; then
+    printf 'unreviewed_privacy_bundle_info_sha256=%s\n' "$(sha256_file "$candidate")" >&2
+  fi
   if [[ "$resource_class" == framework ]]; then
     framework_component=${relative_resource#Frameworks/}
     framework_component=${framework_component%%/*}
