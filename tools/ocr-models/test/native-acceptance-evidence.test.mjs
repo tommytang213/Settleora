@@ -10,6 +10,19 @@ import { buildEvidence, buildFailureEvidence, isCompleteEvidence } from "../nati
 const sourceSha = "a".repeat(40);
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 
+test("iOS simulator acceptance resolves its test-only link before running the provider", () => {
+  const runner = readFileSync(path.join(repoRoot, "tools/ocr-models/run-ios-native-acceptance.sh"), "utf8");
+  assert.match(runner, /ENABLE_DEBUG_DYLIB = NO/);
+  assert.match(runner, /resolved_link_flags=\$\(sed -n/);
+  assert.match(runner, /ios_simulator_link_setting=missing/);
+  assert.match(runner, /resolved_debug_dylib.*NO \|\|/);
+  assert.match(runner, /xcrun otool -L "\$simulator_executable"/);
+  assert.ok(runner.indexOf("phase=verify_resolved_debug_link_setting") <
+    runner.indexOf("phase=build_simulator_interposer_link"));
+  assert.ok(runner.indexOf("phase=verify_simulator_interposer_load_command") <
+    runner.indexOf("phase=execute_flutter_test"));
+});
+
 function withLog(contents, callback) {
   const temporaryDirectory = mkdtempSync(path.join(os.tmpdir(), "settleora-ocr-evidence-"));
   try {
@@ -367,6 +380,7 @@ test("retains only an allowlisted iOS preflight failure phase", () => {
       "save_debug_link_config",
       "apply_debug_link_config",
       "verify_debug_link_setting",
+      "verify_resolved_debug_link_setting",
       "enable_simulator_isolation",
       "build_simulator_interposer_link",
       "verify_simulator_interposer_link",
@@ -596,6 +610,14 @@ test("retains only bounded failure-stage diagnostics and never accepts them as c
     "ui_date_binding",
     "ui_total_binding",
     "ui_apply_handoff",
+    "ui_apply_selection",
+    "ui_apply_probe",
+    "ui_apply_selection_retained",
+    "ui_apply_tap",
+    "ui_apply_merchant",
+    "ui_apply_date",
+    "ui_apply_currency",
+    "ui_apply_items",
   ]) {
     const diagnostic = diagnosticFor(stage);
     withLog(protocolLog(`SETTLEORA_OCR_DIAGNOSTIC=${JSON.stringify(diagnostic)}`), (logPath) => {

@@ -131,9 +131,21 @@ phase=save_debug_link_config
 cp -p "$debug_config" "$network_config_backup"
 network_link_configured=true
 phase=apply_debug_link_config
-printf '\nOTHER_LDFLAGS = $(inherited) -Wl,-needed_library,%s\n' "$network_deny" >> "$debug_config"
+printf '\nENABLE_DEBUG_DYLIB = NO\nOTHER_LDFLAGS = $(inherited) -Wl,-needed_library,%s\n' "$network_deny" >> "$debug_config"
 phase=verify_debug_link_setting
+test "$(tail -n 2 "$debug_config" | head -n 1)" = 'ENABLE_DEBUG_DYLIB = NO'
 test "$(tail -n 1 "$debug_config")" = "OTHER_LDFLAGS = \$(inherited) -Wl,-needed_library,$network_deny"
+phase=verify_resolved_debug_link_setting
+resolved_debug_settings=$(xcodebuild -project "$GITHUB_WORKSPACE/apps/mobile/ios/Runner.xcodeproj" \
+  -target Runner -configuration Debug -sdk iphonesimulator -showBuildSettings 2>/dev/null)
+resolved_link_flags=$(sed -n 's/^[[:space:]]*OTHER_LDFLAGS = //p' <<< "$resolved_debug_settings")
+resolved_debug_dylib=$(sed -n 's/^[[:space:]]*ENABLE_DEBUG_DYLIB = //p' <<< "$resolved_debug_settings")
+case "$resolved_link_flags" in
+  *"-Wl,-needed_library,$network_deny"*) ;;
+  *) printf 'ios_simulator_link_setting=missing\n' >&2; exit 98 ;;
+esac
+test "$resolved_debug_dylib" = NO || { printf 'ios_simulator_debug_dylib_setting=unexpected\n' >&2; exit 98; }
+printf 'ios_simulator_link_setting=present ios_simulator_debug_dylib_setting=NO\n'
 phase=enable_simulator_isolation
 network_environment_configured=true
 xcrun simctl spawn "$device" launchctl setenv SETTLEORA_OCR_NETWORK_ISOLATION socket_interpose_v1
@@ -169,6 +181,7 @@ printf 'ios_simulator_link_image=%s\n' "${simulator_link_image##*/}"
 phase=verify_simulator_interposer_install_name
 test "$(xcrun otool -D "$simulator_interposer" | tail -n 1)" = "$network_deny_in_app"
 phase=verify_debug_link_setting_after_build
+test "$(tail -n 2 "$debug_config" | head -n 1)" = 'ENABLE_DEBUG_DYLIB = NO'
 test "$(tail -n 1 "$debug_config")" = "OTHER_LDFLAGS = \$(inherited) -Wl,-needed_library,$network_deny"
 
 phase=execute_flutter_test

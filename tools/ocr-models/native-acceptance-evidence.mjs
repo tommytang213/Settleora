@@ -33,6 +33,7 @@ const iosPreflightFailurePhases = new Set([
   "save_debug_link_config",
   "apply_debug_link_config",
   "verify_debug_link_setting",
+  "verify_resolved_debug_link_setting",
   "enable_simulator_isolation",
   "build_simulator_interposer_link",
   "verify_simulator_interposer_link",
@@ -701,6 +702,14 @@ const diagnosticStages = new Set([
   "ui_date_binding",
   "ui_total_binding",
   "ui_apply_handoff",
+  "ui_apply_selection",
+  "ui_apply_probe",
+  "ui_apply_selection_retained",
+  "ui_apply_tap",
+  "ui_apply_merchant",
+  "ui_apply_date",
+  "ui_apply_currency",
+  "ui_apply_items",
   "ui_evidence",
 ]);
 

@@ -3,11 +3,26 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // Bounded Apply handoff diagnostics with the acceptance source rebound in
+  // the trusted catalog. Clean local Flutter 3.44.8 Release projection;
+  // hosted signer and ZIP representation still require exact-head proof.
+  "b33412a769497759afa1652afa39244435b27e9570a9a97aa392e7a242ea59fe": Object.freeze([
+    "d34226db4c9d49b0480033ef290607bca3f84ab0adf048032c80b64fcbbfc6e6",
+  ]),
+  // Test-only iOS simulator link verification and reviewed compiled nib
+  // classification. Android build inputs are unchanged; hosted exact-head
+  // signer and ZIP representation still require proof.
+  "5757b13b2301696fe9bd74e89578eb25eda87caf6f4a8d661b13302aa83d2438": Object.freeze([
+    "ab04b0e09a523c20338627ffd2c57b3924aa84c9169b4a2894235b71cf0d7d69",
+  ]),
   // Canonical DateField UI proof, Debug dylib preflight, and bounded iOS
   // opaque-resource diagnostics. Clean Flutter 3.44.8 Release projection;
-  // hosted signer and representation still require exact-head proof.
+  // hosted job 108273080304 proved signer and the second representation.
   "53a5a4dbe5393ccd2ccfacf629e9ad33b5dae70b463f0f88061a59f0a6185091": Object.freeze([
     "184c0f967f667215d39777a506af6222c6f6c9f0e404707b36d9abcfa3c31b4a",
+    // Exact-head hosted job 108273080304 passed signer, path, model, and
+    // fixture-absence checks before reporting this ZIP representation.
+    "20ab78ea9e2248abfa34ab6f8f081dc4c82ad79ed6bb96d64691ab580a8f9ec1",
   ]),
   // Exact iOS Xcode Debug dylib link check and bounded opaque-resource
   // diagnostics. Android inputs are unchanged; the prior clean Flutter

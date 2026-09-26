@@ -656,8 +656,16 @@ void main() {
       final applyDate = selectedForApply('date');
       final applyCurrency = selectedForApply('currency');
       final applyItems = selectedForApply('items');
+      failure.set(
+        'ui_apply_selection',
+        fixtureId: 'existing_12_freshmart_grocery_en_US',
+      );
       expect(applyMerchant || applyDate || applyCurrency || applyItems, isTrue);
       expect(tester.widget<AppButton>(applyControl).onPressed, isNotNull);
+      failure.set(
+        'ui_apply_probe',
+        fixtureId: 'existing_12_freshmart_grocery_en_US',
+      );
       final merchantField = find.byKey(
         const Key('personal-bill-merchant-name'),
       );
@@ -694,15 +702,27 @@ void main() {
             .onChanged(currency == 'USD' ? 'EUR' : 'USD');
       }
       await tester.pumpAndSettle();
+      failure.set(
+        'ui_apply_selection_retained',
+        fixtureId: 'existing_12_freshmart_grocery_en_US',
+      );
       expect(selectedForApply('merchant'), applyMerchant);
       expect(selectedForApply('date'), applyDate);
       expect(selectedForApply('currency'), applyCurrency);
       expect(selectedForApply('items'), applyItems);
       expect(tester.widget<AppButton>(applyControl).onPressed, isNotNull);
+      failure.set(
+        'ui_apply_tap',
+        fixtureId: 'existing_12_freshmart_grocery_en_US',
+      );
       await tester.ensureVisible(applyControl);
       await tester.tap(applyControl);
       await tester.pumpAndSettle();
       if (applyMerchant) {
+        failure.set(
+          'ui_apply_merchant',
+          fixtureId: 'existing_12_freshmart_grocery_en_US',
+        );
         final appliedMerchant = tester
             .widget<TextFormField>(merchantField)
             .controller
@@ -710,16 +730,28 @@ void main() {
         expect(appliedMerchant, actualPreview.merchant?.trim());
       }
       if (applyDate) {
+        failure.set(
+          'ui_apply_date',
+          fixtureId: 'existing_12_freshmart_grocery_en_US',
+        );
         final appliedDate = tester.widget<DateField>(dateField).controller.text;
         expect(appliedDate, actualPreview.receiptDate?.trim());
       }
       if (applyCurrency) {
+        failure.set(
+          'ui_apply_currency',
+          fixtureId: 'existing_12_freshmart_grocery_en_US',
+        );
         final appliedCurrency = tester
             .widget<CurrencySelector>(currencyField)
             .value;
         expect(appliedCurrency, actualPreview.currency?.trim().toUpperCase());
       }
       if (applyItems) {
+        failure.set(
+          'ui_apply_items',
+          fixtureId: 'existing_12_freshmart_grocery_en_US',
+        );
         expect(actualPreview.items, isNotEmpty);
         for (var index = 0; index < actualPreview.items.length; index++) {
           final candidate = actualPreview.items[index];

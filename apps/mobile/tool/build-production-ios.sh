@@ -429,12 +429,6 @@ while IFS= read -r candidate; do
         printf 'asset_manifest_sha256=%s\n' "$observed_asset_manifest_sha" >&2
         fail "production Flutter asset manifest differs from reviewed Release bytes"
       fi ;;
-    "$app_path"/Base.lproj/*.nib)
-      relative_nib=${candidate#"$app_path"/}
-      if [[ "$relative_nib" =~ ^Base\.lproj/[^/]+\.nib$ ]]; then
-        printf 'unreviewed_compiled_nib_sha256=%s\n' "$(sha256_file "$candidate")" >&2
-        fail "production compiled nib has no reviewed byte identity"
-      fi ;;
     "$app_path"/Base.lproj/*.storyboardc/*.nib)
       relative_nib=${candidate#"$app_path"/}
       if [[ "$relative_nib" =~ ^Base\.lproj/[^/]+\.storyboardc/[^/]+\.nib$ ]]; then
@@ -443,6 +437,12 @@ while IFS= read -r candidate; do
         is_reviewed_compiled_storyboard_nib "$candidate_nib_path_sha" "$candidate_nib_sha" ||
           fail "production storyboard nib changed after inventory verification"
         continue
+      fi ;;
+    "$app_path"/Base.lproj/*.nib)
+      relative_nib=${candidate#"$app_path"/}
+      if [[ "$relative_nib" =~ ^Base\.lproj/[^/]+\.nib$ ]]; then
+        printf 'unreviewed_compiled_nib_sha256=%s\n' "$(sha256_file "$candidate")" >&2
+        fail "production compiled nib has no reviewed byte identity"
       fi ;;
   esac
   file_description=$(file -b "$candidate")

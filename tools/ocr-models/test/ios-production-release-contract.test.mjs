@@ -585,6 +585,9 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   ]) assert.ok(script.includes(digest));
   assert.match(resourceInventoryLoop, /"\$relative_nib" =~ \^Base\\\.lproj\/\[\^\/\]\+\\\.storyboardc\/\[\^\/\]\+\\\.nib\$/);
   assert.match(resourceInventoryLoop, /production storyboard nib changed after inventory verification/);
+  assert.ok(resourceInventoryLoop.indexOf('"$app_path"/Base.lproj/*.storyboardc/*.nib)') <
+    resourceInventoryLoop.indexOf('"$app_path"/Base.lproj/*.nib)'),
+  'nested storyboard nibs must be handled before the broad direct nib glob');
   assert.ok(resourceInventoryLoop.indexOf('is_reviewed_compiled_storyboard_nib "$candidate_nib_path_sha" "$candidate_nib_sha"') <
     resourceInventoryLoop.indexOf('file_description=$(file -b "$candidate")'));
   assert.ok(resourceInventoryLoop.indexOf('observed_asset_manifest_sha=$(sha256_file "$candidate")') <
