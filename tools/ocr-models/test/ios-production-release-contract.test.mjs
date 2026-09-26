@@ -640,7 +640,7 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   assert.match(script, /compiled asset catalog changed during metadata observation/);
   assert.match(script, /Frameworks\/App\.framework\/flutter_assets\/AssetManifest\.json/);
   for (const generatedAsset of [
-    ["NativeAssetsManifest.json", "9548a31e4a048135c1d94f919328bfb62ae2c7bb3cab96557c7941daa97776cb"],
+    ["NativeAssetsManifest.json", "625b2ddedce42e3d218ceb8869bc9119e8dea8650a6cb24ab779d5008055b141"],
     ["fonts/MaterialIcons-Regular.otf", "e4aae88917aea920dfba979f19616d87669655d003444d3b1a110b685b88a0ed"],
     ["packages/cupertino_icons/assets/CupertinoIcons.ttf", "67c44fe9183b002e79dde7f6977e2988661c9a3e4a3c5fce968787efdbed823c"],
     ["shaders/ink_sparkle.frag", "1fe8436a743884cb65078fe8c7b38e18f5365f2a2961270916f426fd13c604af"],

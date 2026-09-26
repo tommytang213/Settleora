@@ -132,7 +132,7 @@ phase=verify_simulator_linker_resolution
 link_probe="$RUNNER_TEMP/settleora-network-interposer-link-probe"
 if ! xcrun --sdk iphonesimulator clang -arch "$host_arch" \
   -mios-simulator-version-min=18.0 "$link_anchor" \
-  -L"$RUNNER_TEMP" -Wl,-u,_settleora_network_interposer_loaded \
+  -L"$RUNNER_TEMP" -Wl,-u,_settleora_network_interposer_loaded "$network_deny" \
   -Wl,-needed-lSettleoraOcrNetworkDeny \
   -x c -o "$link_probe" - <<'C' >/dev/null 2>"$RUNNER_TEMP/settleora-link-probe-errors.log"; then
 int main(void) { return 0; }
@@ -204,10 +204,10 @@ NODE
 plutil -lint "$runner_project" >/dev/null
 printf 'ios_simulator_runner_framework_link=present\n'
 phase=apply_debug_link_config
-printf '\nENABLE_DEBUG_DYLIB = NO\nOTHER_LDFLAGS = $(inherited) %s -Wl,-u,_settleora_network_interposer_loaded -L%s -Wl,-needed-lSettleoraOcrNetworkDeny\nLIBRARY_SEARCH_PATHS = $(inherited) %s\n' "$link_anchor" "$RUNNER_TEMP" "$RUNNER_TEMP" >> "$debug_config"
+printf '\nENABLE_DEBUG_DYLIB = NO\nOTHER_LDFLAGS = $(inherited) %s -Wl,-u,_settleora_network_interposer_loaded -L%s %s -Wl,-needed-lSettleoraOcrNetworkDeny\nLIBRARY_SEARCH_PATHS = $(inherited) %s\n' "$link_anchor" "$RUNNER_TEMP" "$network_deny" "$RUNNER_TEMP" >> "$debug_config"
 phase=verify_debug_link_setting
 test "$(tail -n 3 "$debug_config" | head -n 1)" = 'ENABLE_DEBUG_DYLIB = NO'
-test "$(tail -n 2 "$debug_config" | head -n 1)" = "OTHER_LDFLAGS = \$(inherited) $link_anchor -Wl,-u,_settleora_network_interposer_loaded -L$RUNNER_TEMP -Wl,-needed-lSettleoraOcrNetworkDeny"
+test "$(tail -n 2 "$debug_config" | head -n 1)" = "OTHER_LDFLAGS = \$(inherited) $link_anchor -Wl,-u,_settleora_network_interposer_loaded -L$RUNNER_TEMP $network_deny -Wl,-needed-lSettleoraOcrNetworkDeny"
 test "$(tail -n 1 "$debug_config")" = "LIBRARY_SEARCH_PATHS = \$(inherited) $RUNNER_TEMP"
 phase=verify_resolved_debug_link_setting
 resolved_debug_settings=$(xcodebuild -project "$GITHUB_WORKSPACE/apps/mobile/ios/Runner.xcodeproj" \
@@ -226,6 +226,10 @@ esac
 case " $resolved_link_flags " in
   *" $link_anchor "*) ;;
   *) printf 'ios_simulator_link_anchor_setting=missing\n' >&2; exit 98 ;;
+esac
+case " $resolved_link_flags " in
+  *" -L$RUNNER_TEMP $network_deny "*) ;;
+  *) printf 'ios_simulator_direct_link_setting=missing\n' >&2; exit 98 ;;
 esac
 case "$resolved_library_search_paths" in
   *"$RUNNER_TEMP"*) ;;
@@ -274,6 +278,8 @@ grep -Fx 'ios_runner_dylib_direct_input=present' <<< "$link_diagnostic" >/dev/nu
 grep -Fx 'ios_runner_same_invocation_link_inputs=present' <<< "$link_diagnostic" >/dev/null
 grep -Fx 'ios_runner_anchor_same_invocation=present' <<< "$link_diagnostic" >/dev/null
 grep -Fx 'ios_runner_forced_symbol_same_invocation=present' <<< "$link_diagnostic" >/dev/null
+grep -Fx 'ios_runner_library_search_path_in_link_invocation=present' <<< "$link_diagnostic" >/dev/null
+grep -Fx 'ios_runner_link_argument_order=present' <<< "$link_diagnostic" >/dev/null
 phase=verify_simulator_interposer_link
 simulator_app="$GITHUB_WORKSPACE/apps/mobile/build/ios/iphonesimulator/Runner.app"
 simulator_executable="$simulator_app/Runner"
@@ -285,7 +291,7 @@ test -f "$simulator_interposer"
 cmp -s "$network_deny" "$simulator_interposer"
 phase=verify_debug_link_setting_after_build
 test "$(tail -n 3 "$debug_config" | head -n 1)" = 'ENABLE_DEBUG_DYLIB = NO'
-test "$(tail -n 2 "$debug_config" | head -n 1)" = "OTHER_LDFLAGS = \$(inherited) $link_anchor -Wl,-u,_settleora_network_interposer_loaded -L$RUNNER_TEMP -Wl,-needed-lSettleoraOcrNetworkDeny"
+test "$(tail -n 2 "$debug_config" | head -n 1)" = "OTHER_LDFLAGS = \$(inherited) $link_anchor -Wl,-u,_settleora_network_interposer_loaded -L$RUNNER_TEMP $network_deny -Wl,-needed-lSettleoraOcrNetworkDeny"
 test "$(tail -n 1 "$debug_config")" = "LIBRARY_SEARCH_PATHS = \$(inherited) $RUNNER_TEMP"
 phase=verify_resolved_debug_link_setting_after_build
 resolved_built_settings=$(xcodebuild -workspace "$GITHUB_WORKSPACE/apps/mobile/ios/Runner.xcworkspace" \
@@ -310,6 +316,10 @@ esac
 case " $resolved_built_link_flags " in
   *" $link_anchor "*) ;;
   *) printf 'ios_simulator_built_link_anchor_setting=missing\n' >&2; exit 98 ;;
+esac
+case " $resolved_built_link_flags " in
+  *" -L$RUNNER_TEMP $network_deny "*) ;;
+  *) printf 'ios_simulator_built_direct_link_setting=missing\n' >&2; exit 98 ;;
 esac
 case "$resolved_built_library_search_paths" in
   *"$RUNNER_TEMP"*) ;;

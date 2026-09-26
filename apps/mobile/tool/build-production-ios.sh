@@ -489,7 +489,9 @@ while IFS= read -r candidate; do
       # Exact Flutter-generated assets from the reviewed Flutter 3.44.8
       # package. The iOS compressed notices identity was observed in exact-head
       # unsigned package job 108382318967 after prior package gates passed.
-      Frameworks/App.framework/flutter_assets/NativeAssetsManifest.json) expected_flutter_asset_sha=9548a31e4a048135c1d94f919328bfb62ae2c7bb3cab96557c7941daa97776cb ;;
+      # The iOS native-assets index was observed in exact-head job 108386436381
+      # after the same preceding package gates.
+      Frameworks/App.framework/flutter_assets/NativeAssetsManifest.json) expected_flutter_asset_sha=625b2ddedce42e3d218ceb8869bc9119e8dea8650a6cb24ab779d5008055b141 ;;
       Frameworks/App.framework/flutter_assets/NOTICES.Z) expected_flutter_asset_sha=73f6eae191a87b9e96ff32d4c255978e3769125b777b8288ee501a066f2bcd22 ;;
       Frameworks/App.framework/flutter_assets/fonts/MaterialIcons-Regular.otf) expected_flutter_asset_sha=e4aae88917aea920dfba979f19616d87669655d003444d3b1a110b685b88a0ed ;;
       Frameworks/App.framework/flutter_assets/packages/cupertino_icons/assets/CupertinoIcons.ttf) expected_flutter_asset_sha=67c44fe9183b002e79dde7f6977e2988661c9a3e4a3c5fce968787efdbed823c ;;

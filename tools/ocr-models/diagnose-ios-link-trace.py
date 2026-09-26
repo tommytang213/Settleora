@@ -63,22 +63,43 @@ def report(trace, dylib, capture_status):
             r"(?<!\S)-Xlinker\s+-needed_library\s+-Xlinker\s+" + re.escape(dylib) + r"(?=\s|$)"
         )
         xlinker_operand = re.compile(r"(?<!\S)-Xlinker\s+" + re.escape(dylib) + r"(?=\s|$)")
+        separate_option_operand = re.compile(
+            r"(?<!\S)(?:-L|-F|-o|-isysroot|-weak_library|-reexport_library|-force_load)\s+"
+            + re.escape(dylib) + r"(?=\s|$)"
+        )
         direct_path = re.compile(r"(?<!\S)" + re.escape(dylib) + r"(?=\s|$)")
         anchor_path = re.compile(r"(?<!\S)" + re.escape(anchor) + r"(?=\s|$)")
+        library_search = re.compile(r"(?<!\S)-L" + re.escape(dylib.rsplit("/", 1)[0]) + r"(?=\s|$)")
         forced_symbol = re.compile(
             r"(?<!\S)-Wl,-u,_settleora_network_interposer_loaded(?=\s|$)"
+        )
+        exact_order = re.compile(
+            r"(?<!\S)" + re.escape(anchor)
+            + r"\s+-Wl,-u,_settleora_network_interposer_loaded"
+            + r"\s+-L" + re.escape(dylib.rsplit("/", 1)[0])
+            + r"\s+" + re.escape(dylib)
+            + r"\s+-Wl,-needed-lSettleoraOcrNetworkDeny(?=\s|$)"
         )
         proofs = []
         for command in invocations:
             forced = bool(needed_wl.search(command) or needed_xlinker.search(command) or needed_search.search(command))
-            without_forced_operands = xlinker_operand.sub(" ", needed_xlinker.sub(" ", needed_search.sub(" ", needed_wl.sub(" ", command))))
+            mask = lambda match: "#" * len(match.group())
+            without_forced_operands = separate_option_operand.sub(
+                mask, xlinker_operand.sub(
+                    mask, needed_xlinker.sub(mask, needed_search.sub(mask, needed_wl.sub(mask, command)))
+                )
+            )
             direct = bool(direct_path.search(without_forced_operands))
-            proofs.append((forced, direct, bool(anchor_path.search(command)), bool(forced_symbol.search(command))))
+            search = bool(library_search.search(command))
+            ordered = bool(exact_order.search(command))
+            proofs.append((forced, direct, bool(anchor_path.search(command)), bool(forced_symbol.search(command)), search, ordered))
         print(f"ios_{label}_needed_library_in_link_invocation={'present' if any(p[0] for p in proofs) else 'absent'}", file=sys.stderr)
         print(f"ios_{label}_dylib_direct_input={'present' if any(p[1] for p in proofs) else 'absent'}", file=sys.stderr)
         print(f"ios_{label}_same_invocation_link_inputs={'present' if any(all(p[:2]) for p in proofs) else 'absent'}", file=sys.stderr)
         print(f"ios_{label}_anchor_same_invocation={'present' if any(all(p[:3]) for p in proofs) else 'absent'}", file=sys.stderr)
-        print(f"ios_{label}_forced_symbol_same_invocation={'present' if any(all(p) for p in proofs) else 'absent'}", file=sys.stderr)
+        print(f"ios_{label}_forced_symbol_same_invocation={'present' if any(all(p[:4]) for p in proofs) else 'absent'}", file=sys.stderr)
+        print(f"ios_{label}_library_search_path_in_link_invocation={'present' if any(p[4] for p in proofs) else 'absent'}", file=sys.stderr)
+        print(f"ios_{label}_link_argument_order={'present' if any(all(p) for p in proofs) else 'absent'}", file=sys.stderr)
     diagnostics = {
         "undefined_interposer_symbol": any(
             "Undefined symbol: _settleora_network_interposer_loaded" in line
