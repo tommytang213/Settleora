@@ -167,21 +167,27 @@ NODE
 plutil -lint "$runner_project" >/dev/null
 printf 'ios_simulator_runner_framework_link=present\n'
 phase=apply_debug_link_config
-printf '\nENABLE_DEBUG_DYLIB = NO\nOTHER_LDFLAGS = $(inherited) -Wl,-needed_library,%s\n' "$network_deny" >> "$debug_config"
+printf '\nENABLE_DEBUG_DYLIB = NO\nOTHER_LDFLAGS = $(inherited) -Wl,-needed_library,%s\nLIBRARY_SEARCH_PATHS = $(inherited) %s\n' "$network_deny" "$RUNNER_TEMP" >> "$debug_config"
 phase=verify_debug_link_setting
-test "$(tail -n 2 "$debug_config" | head -n 1)" = 'ENABLE_DEBUG_DYLIB = NO'
-test "$(tail -n 1 "$debug_config")" = "OTHER_LDFLAGS = \$(inherited) -Wl,-needed_library,$network_deny"
+test "$(tail -n 3 "$debug_config" | head -n 1)" = 'ENABLE_DEBUG_DYLIB = NO'
+test "$(tail -n 2 "$debug_config" | head -n 1)" = "OTHER_LDFLAGS = \$(inherited) -Wl,-needed_library,$network_deny"
+test "$(tail -n 1 "$debug_config")" = "LIBRARY_SEARCH_PATHS = \$(inherited) $RUNNER_TEMP"
 phase=verify_resolved_debug_link_setting
 resolved_debug_settings=$(xcodebuild -project "$GITHUB_WORKSPACE/apps/mobile/ios/Runner.xcodeproj" \
   -target Runner -configuration Debug -sdk iphonesimulator -showBuildSettings 2>/dev/null)
 resolved_link_flags=$(sed -n 's/^[[:space:]]*OTHER_LDFLAGS = //p' <<< "$resolved_debug_settings")
+resolved_library_search_paths=$(sed -n 's/^[[:space:]]*LIBRARY_SEARCH_PATHS = //p' <<< "$resolved_debug_settings")
 resolved_debug_dylib=$(sed -n 's/^[[:space:]]*ENABLE_DEBUG_DYLIB = //p' <<< "$resolved_debug_settings")
 case "$resolved_link_flags" in
   *"-Wl,-needed_library,$network_deny"*) ;;
   *) printf 'ios_simulator_link_setting=missing\n' >&2; exit 98 ;;
 esac
+case "$resolved_library_search_paths" in
+  *"$RUNNER_TEMP"*) ;;
+  *) printf 'ios_simulator_library_search_path=missing\n' >&2; exit 98 ;;
+esac
 test "$resolved_debug_dylib" = NO || { printf 'ios_simulator_debug_dylib_setting=unexpected\n' >&2; exit 98; }
-printf 'ios_simulator_link_setting=present ios_simulator_debug_dylib_setting=NO\n'
+printf 'ios_simulator_link_setting=present ios_simulator_library_search_path=present ios_simulator_debug_dylib_setting=NO\n'
 phase=enable_simulator_isolation
 network_environment_configured=true
 xcrun simctl spawn "$device" launchctl setenv SETTLEORA_OCR_NETWORK_ISOLATION socket_interpose_v1
@@ -203,8 +209,9 @@ phase=verify_simulator_interposer_copy
 test -f "$simulator_interposer"
 cmp -s "$network_deny" "$simulator_interposer"
 phase=verify_debug_link_setting_after_build
-test "$(tail -n 2 "$debug_config" | head -n 1)" = 'ENABLE_DEBUG_DYLIB = NO'
-test "$(tail -n 1 "$debug_config")" = "OTHER_LDFLAGS = \$(inherited) -Wl,-needed_library,$network_deny"
+test "$(tail -n 3 "$debug_config" | head -n 1)" = 'ENABLE_DEBUG_DYLIB = NO'
+test "$(tail -n 2 "$debug_config" | head -n 1)" = "OTHER_LDFLAGS = \$(inherited) -Wl,-needed_library,$network_deny"
+test "$(tail -n 1 "$debug_config")" = "LIBRARY_SEARCH_PATHS = \$(inherited) $RUNNER_TEMP"
 phase=verify_resolved_debug_link_setting_after_build
 resolved_built_settings=$(xcodebuild -workspace "$GITHUB_WORKSPACE/apps/mobile/ios/Runner.xcworkspace" \
   -scheme Runner -configuration Debug -sdk iphonesimulator -showBuildSettings 2>/dev/null)
@@ -215,13 +222,18 @@ resolved_built_runner_settings=$(awk '
   END { if (found != 1) exit 98 }
 ' <<< "$resolved_built_settings")
 resolved_built_link_flags=$(sed -n 's/^[[:space:]]*OTHER_LDFLAGS = //p' <<< "$resolved_built_runner_settings")
+resolved_built_library_search_paths=$(sed -n 's/^[[:space:]]*LIBRARY_SEARCH_PATHS = //p' <<< "$resolved_built_runner_settings")
 resolved_built_debug_dylib=$(sed -n 's/^[[:space:]]*ENABLE_DEBUG_DYLIB = //p' <<< "$resolved_built_runner_settings")
 case "$resolved_built_link_flags" in
   *"-Wl,-needed_library,$network_deny"*) ;;
   *) printf 'ios_simulator_built_link_setting=missing\n' >&2; exit 98 ;;
 esac
+case "$resolved_built_library_search_paths" in
+  *"$RUNNER_TEMP"*) ;;
+  *) printf 'ios_simulator_built_library_search_path=missing\n' >&2; exit 98 ;;
+esac
 test "$resolved_built_debug_dylib" = NO || { printf 'ios_simulator_built_debug_dylib_setting=unexpected\n' >&2; exit 98; }
-printf 'ios_simulator_built_link_setting=present ios_simulator_built_debug_dylib_setting=NO\n'
+printf 'ios_simulator_built_link_setting=present ios_simulator_built_library_search_path=present ios_simulator_built_debug_dylib_setting=NO\n'
 phase=verify_simulator_interposer_load_command
 simulator_link_image="$simulator_executable"
 if xcrun otool -L "$simulator_executable" | grep -F "$network_deny_in_app (" >/dev/null; then

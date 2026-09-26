@@ -449,8 +449,12 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
     assert.ok(iosRunner.includes(digest));
   }
   assert.ok(iosRunner.includes('case "$debug_config_sha" in'));
-  assert.ok(iosRunner.includes("printf '\\nENABLE_DEBUG_DYLIB = NO\\nOTHER_LDFLAGS = $(inherited) -Wl,-needed_library,%s\\n'"));
+  assert.ok(iosRunner.includes("printf '\\nENABLE_DEBUG_DYLIB = NO\\nOTHER_LDFLAGS = $(inherited) -Wl,-needed_library,%s\\nLIBRARY_SEARCH_PATHS = $(inherited) %s\\n'"));
   assert.ok(iosRunner.includes('resolved_link_flags=$(sed -n'));
+  assert.ok(iosRunner.includes('resolved_library_search_paths=$(sed -n'));
+  assert.ok(iosRunner.includes('resolved_built_library_search_paths=$(sed -n'));
+  assert.ok(iosRunner.includes('ios_simulator_library_search_path=missing'));
+  assert.ok(iosRunner.includes('ios_simulator_built_library_search_path=missing'));
   assert.ok(iosRunner.includes('ios_simulator_link_setting=missing'));
   assert.ok(iosRunner.includes('network_link_configured=true'));
   for (const stage of ['verify_debug_link_config', 'verify_network_link_path',

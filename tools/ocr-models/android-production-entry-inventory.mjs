@@ -3,11 +3,20 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // Exact simulator linker-search and nested privacy-resource follow-up.
+  // Clean Flutter 3.44.8 Release projection passed local package gates;
+  // hosted signer and ZIP representation remain required.
+  "89abdc913e515e9e8653e522bc5908bce73714051ccadd504c143d4162763503": Object.freeze([
+    "b5add95a4e2eba96f15e7b06b2b4830c16452fef4c29e29303c99e10d9293c8f",
+  ]),
   // Exact seven-path iOS simulator link and unsigned-resource follow-up.
   // Clean Flutter 3.44.8 Release projection passed every local package gate;
   // hosted signer and representation remain exact-head requirements.
   "231a09bad33fae0a509fcd633848a95cba9c43c976e543586a13407d97226b0a": Object.freeze([
     "abe08a0d15e5c042ec0ade32354c4113da2d683120083525313e085f7f8c91e1",
+    // Exact-head hosted job 108327752348 passed signer, path, catalog,
+    // model, and fixture-absence gates before reporting this representation.
+    "9a79e9675943035b6f9887de3b99f2de62ac39c210b7382956ffb63f34f0b985",
   ]),
   // Exact follow-up after validating the built Runner scheme settings. The
   // projected Flutter 3.44.8 Release APK passed local strict verification;
