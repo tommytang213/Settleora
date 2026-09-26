@@ -538,6 +538,13 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   assert.match(script, /unreviewed_privacy_bundle_info_sha256=%s/);
   assert.match(script, /Frameworks\/image_picker_ios\.framework\/image_picker_ios_privacy\.bundle\/Info\.plist/);
   assert.match(script, /framework_component_sha256=%s framework_tail_sha256=%s resource_kind=%s resource_depth=%s/);
+  const engineResourcePins = [...script.matchAll(/Frameworks\/Flutter\.framework\/(Headers\/[^)]+\.h|Modules\/module\.modulemap)\) expected_flutter_engine_resource_sha=([a-f0-9]{64}) ;;/g)];
+  assert.equal(engineResourcePins.length, 20);
+  assert.equal(new Set(engineResourcePins.map((match) => match[1])).size, 20);
+  assert.ok(engineResourcePins.some((match) => match[1] === 'Headers/FlutterSceneDelegate.h' &&
+    match[2] === '1bdbab65e137d7695d6b391e3ffeecbadd2dda103795f72ec47452b8b9a3fa06'));
+  assert.doesNotMatch(script, /Frameworks\/Flutter\.framework\/Headers\/\*\.h\) expected_flutter_engine_resource_sha=/);
+  assert.match(script, /packaged Flutter engine resource differs from reviewed toolchain bytes/);
   assert.doesNotMatch(script, /unreviewed_resource_path=%s|framework_component=%s|framework_tail=%s/);
   assert.match(script, /compiled_asset_car_sha256=%s/);
   assert.match(script, /verify-ios-xcarchive\.mjs/);

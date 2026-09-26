@@ -494,6 +494,34 @@ while IFS= read -r candidate; do
       Frameworks/App.framework/flutter_assets/packages/cupertino_icons/assets/CupertinoIcons.ttf) expected_flutter_asset_sha=67c44fe9183b002e79dde7f6977e2988661c9a3e4a3c5fce968787efdbed823c ;;
       Frameworks/App.framework/flutter_assets/shaders/ink_sparkle.frag) expected_flutter_asset_sha=1fe8436a743884cb65078fe8c7b38e18f5365f2a2961270916f426fd13c604af ;;
       Frameworks/App.framework/flutter_assets/shaders/stretch_effect.frag) expected_flutter_asset_sha=62a899ff4e168ac6ca888ce7c2f40e5d3fbf8ca20a1c3ded781a116a6d7907e2 ;;
+      Frameworks/Flutter.framework/Headers/*.h|Frameworks/Flutter.framework/Modules/module.modulemap)
+        # Exact Flutter 3.44.8 ios-release engine archive 0cd610717bde;
+        # retain only its reviewed framework headers and module map.
+        case "$relative_resource" in
+          Frameworks/Flutter.framework/Headers/FlutterSceneDelegate.h) expected_flutter_engine_resource_sha=1bdbab65e137d7695d6b391e3ffeecbadd2dda103795f72ec47452b8b9a3fa06 ;;
+          Frameworks/Flutter.framework/Headers/FlutterEngine.h) expected_flutter_engine_resource_sha=29528cda49a2619ac88f2a31be72b314af4e543918315dfaf11e5622c200742a ;;
+          Frameworks/Flutter.framework/Headers/FlutterChannels.h) expected_flutter_engine_resource_sha=920d7de42def64b88e9fc29e150532ec3a15b80f55643a6aa012d59fae2e19a2 ;;
+          Frameworks/Flutter.framework/Headers/FlutterPlugin.h) expected_flutter_engine_resource_sha=c8ade438c856f678d4fe247e0b70749553195714bda4d258dd1431af88439b03 ;;
+          Frameworks/Flutter.framework/Headers/FlutterAppDelegate.h) expected_flutter_engine_resource_sha=7a1ba667654203dc4e5c123fee042e9cf980827f5c2698992834bda7c5d6aa46 ;;
+          Frameworks/Flutter.framework/Headers/FlutterTexture.h) expected_flutter_engine_resource_sha=25ca4de1af6cbfac729e50f7462eb5d4de72f87a2ea545a9da1cab21707f23c6 ;;
+          Frameworks/Flutter.framework/Headers/FlutterEngineGroup.h) expected_flutter_engine_resource_sha=4aacef231a815c427753d2c9df6842117b2b1f63f5ea0ba643e810c7a3dd95fe ;;
+          Frameworks/Flutter.framework/Headers/FlutterPlatformViews.h) expected_flutter_engine_resource_sha=d1a53db8ce90729ce6669b8560e6e3f5d1a51849132a8c0f304449410745d8fe ;;
+          Frameworks/Flutter.framework/Headers/FlutterHeadlessDartRunner.h) expected_flutter_engine_resource_sha=9e6663669bc5097af281fe14f5a3e4362f15708edc2f902d03e098e6e51620bd ;;
+          Frameworks/Flutter.framework/Headers/FlutterCodecs.h) expected_flutter_engine_resource_sha=672aa51d8b996e915ebd57a7cbd59d974ad51604bbb33232b2c4a20b269a7853 ;;
+          Frameworks/Flutter.framework/Headers/Flutter.h) expected_flutter_engine_resource_sha=c1f5b26a03d82c2451dbec13b8645bb56df3df3d80592f98171ba204e15d4a36 ;;
+          Frameworks/Flutter.framework/Headers/FlutterViewController.h) expected_flutter_engine_resource_sha=e2336e4d76c2899c2aa71d253a64dd292183b3ebaba237681a95ce2bac09a9a5 ;;
+          Frameworks/Flutter.framework/Headers/FlutterMacros.h) expected_flutter_engine_resource_sha=79b0551d265c52701b378851718ab7b6db7afbecf561b73c2954988554e80f99 ;;
+          Frameworks/Flutter.framework/Headers/FlutterDartProject.h) expected_flutter_engine_resource_sha=53cabfd086edf6ae0ed8732c09d530213b49753c7c2e3865c7ed1a63cddf1fab ;;
+          Frameworks/Flutter.framework/Headers/FlutterHourFormat.h) expected_flutter_engine_resource_sha=43848b1528212ffe441493f22e0ecf362f49ff1a645557f3ae8d15422407b6b6 ;;
+          Frameworks/Flutter.framework/Headers/FlutterPluginAppLifeCycleDelegate.h) expected_flutter_engine_resource_sha=f8f327fb94838f655de9153c09022dfc9625dd3fbc0e1a7b1c89aa033a1ca0d9 ;;
+          Frameworks/Flutter.framework/Headers/FlutterBinaryMessenger.h) expected_flutter_engine_resource_sha=1170e4e2dfbba82a724246abfaaf561ea63d6dc2bc7b2a210b0195b41261332f ;;
+          Frameworks/Flutter.framework/Headers/FlutterCallbackCache.h) expected_flutter_engine_resource_sha=d21f7ebcae4afabf26a13b221817ecebe4ccf50a20d3cf5a7c7032de06dcc035 ;;
+          Frameworks/Flutter.framework/Headers/FlutterSceneLifeCycle.h) expected_flutter_engine_resource_sha=b4d90b84efbe3ce2f8db38397e312fe7f0c97d0ad7bbca8763a24b6ebf2d2217 ;;
+          Frameworks/Flutter.framework/Modules/module.modulemap) expected_flutter_engine_resource_sha=d158eb891a59ec065968fff498c00f3093e18ba2e8301e0c857ccbe63db8b46b ;;
+          *) fail_unreviewed_resource_path ;;
+        esac
+        [[ "$(sha256_file "$candidate")" == "$expected_flutter_engine_resource_sha" ]] ||
+          fail "packaged Flutter engine resource differs from reviewed toolchain bytes" ;;
       AppIcon*.png) [[ "$relative_resource" =~ ^AppIcon[^/]*\.png$ ]] || fail_unreviewed_resource_path ;;
       receipt_ocr_models/*) ;; # verify-mobile-package enforces the exact recursive model inventory.
       Base.lproj/*.storyboardc/*) [[ "$relative_resource" =~ ^Base\.lproj/[^/]+\.storyboardc/[^/]+$ ]] || fail_unreviewed_resource_path ;;

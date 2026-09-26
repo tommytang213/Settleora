@@ -3,6 +3,12 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // Exact local Flutter 3.44.8 Release projection after the simulator-only
+  // symbol probe and pinned Flutter engine resource inventory. Hosted signer
+  // and ZIP representation still require this exact-source job evidence.
+  "0dc6740398efde64750dd2fa1bb54726f97562f1b5d246d557c9e692b36fd190": Object.freeze([
+    "281700fb57f84dca0a52cd970f29ed9616aa31c523f45ce5e1269c0f7a1a1c0e",
+  ]),
   // The Runner simulator link now proves both inputs on one exact invocation;
   // iOS admits the observed GoogleUtilities plist.
   // Canonical Flutter 3.44.8 local APK strict verification passed; hosted
