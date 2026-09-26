@@ -120,6 +120,8 @@ xcrun --sdk iphonesimulator clang \
 codesign --force --sign - "$network_deny" >/dev/null
 file "$network_deny" | grep -F 'Mach-O' >/dev/null
 test "$(xcrun otool -D "$network_deny" | tail -n 1)" = "$network_deny_in_app"
+test "$(xcrun nm -gU "$network_deny" | awk '$2 == "T" && $3 == "_settleora_network_interposer_loaded" { count++ } END { print count + 0 }')" = 1
+printf 'ios_simulator_interposer_export=present\n'
 
 phase=verify_network_environment_clean
 test -z "${SIMCTL_CHILD_DYLD_INSERT_LIBRARIES:-}"
@@ -230,7 +232,25 @@ test "$SIMCTL_CHILD_SETTLEORA_OCR_NETWORK_ISOLATION" = "socket_interpose_v1"
 test "$(xcrun simctl spawn "$device" launchctl getenv SETTLEORA_OCR_NETWORK_ISOLATION)" = "socket_interpose_v1"
 
 phase=build_simulator_interposer_link
-flutter build ios --simulator --debug --no-codesign --no-pub
+build_trace="$RUNNER_TEMP/settleora-ios-build-link-trace.log"
+build_errors="$RUNNER_TEMP/settleora-ios-build-link-errors.log"
+build_status=0
+node --input-type=module - "$build_trace" "$build_errors" "$GITHUB_WORKSPACE" <<'NODE' || build_status=$?
+import { pathToFileURL } from 'node:url';
+const [stdoutPath, stderrPath, workspace] = process.argv.slice(2);
+const { runBoundedProcess } = await import(pathToFileURL(`${workspace}/tools/ocr-models/bounded-process-capture.mjs`));
+const status = await runBoundedProcess({
+  stdoutPath, stderrPath, maxBytes: 32 * 1024 * 1024,
+  executable: 'flutter',
+  args: ['build', 'ios', '--simulator', '--debug', '--no-codesign', '--no-pub', '--verbose'],
+});
+process.exitCode = status;
+NODE
+if test "$build_status" -ne 0; then
+  python3 "$GITHUB_WORKSPACE/tools/ocr-models/diagnose-ios-link-trace.py" \
+    "$build_trace" "$build_errors" "$network_deny" "$build_status"
+  exit "$build_status"
+fi
 phase=verify_simulator_interposer_link
 simulator_app="$GITHUB_WORKSPACE/apps/mobile/build/ios/iphonesimulator/Runner.app"
 simulator_executable="$simulator_app/Runner"
