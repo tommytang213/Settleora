@@ -3,11 +3,11 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
-  // Simulator Runner searched-library load with no unresolved link anchor,
-  // and the observed iOS shader bytes. Clean Flutter 3.44.8 Release passed preceding
+  // Simulator Runner roots its own test-only link anchor and records the
+  // observed iOS shader bytes. Clean Flutter 3.44.8 Release passed preceding
   // local package gates; hosted signer and ZIP representation need proof.
-  "4a9aea0a2326160284ea58f94915d774ca1f56969dd32463903a34a989d89581": Object.freeze([
-    "f495028395dc53b2e1cda711481f40c018d5f95ca89146afe88e76320cd614e2",
+  "8919dccd7e8b2127eb6d425b7f12be7abe6e16833fa95883942b2bd7ca3bcb78": Object.freeze([
+    "56c48d4e2765b6dc4542e15bb445b48381dd657d109055009c682cbc9260608f",
   ]),
   // Exact simulator needed-l link probe and trusted iOS notice-byte identity.
   // Clean Flutter 3.44.8 Release projection passed preceding local package

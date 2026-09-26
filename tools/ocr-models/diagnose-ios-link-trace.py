@@ -57,6 +57,15 @@ def report(trace, dylib, capture_status):
     for image, label in (("Runner", "runner"), ("Runner.debug.dylib", "debug_dylib")):
         invocations = commands[image]
         print(f"ios_{label}_link_invocation={'present' if invocations else 'absent'}", file=sys.stderr)
+        print(f"ios_{label}_link_invocation_count={len(invocations)}", file=sys.stderr)
+        architectures = set()
+        for command in invocations:
+            architectures.update(re.findall(r"(?<!\S)-arch\s+(arm64|x86_64)(?=\s|$)", command))
+        architecture = next(iter(architectures)) if len(architectures) == 1 else (
+            "multiple" if architectures else "absent"
+        )
+        print(f"ios_{label}_link_architecture={architecture}", file=sys.stderr)
+        print(f"ios_{label}_dead_strip_dylibs={'present' if any(re.search(r'(?<!\S)(?:-Wl,)?-dead_strip_dylibs(?=\s|$)', command) for command in invocations) else 'absent'}", file=sys.stderr)
         needed_wl = re.compile(r"(?<!\S)-Wl,-needed_library," + re.escape(dylib) + r"(?=\s|$)")
         needed_search = re.compile(r"(?<!\S)-Wl,-needed-lSettleoraOcrNetworkDeny(?=\s|$)")
         needed_xlinker = re.compile(
@@ -73,8 +82,13 @@ def report(trace, dylib, capture_status):
         forced_symbol = re.compile(
             r"(?<!\S)-Wl,-u,_settleora_network_interposer_loaded(?=\s|$)"
         )
+        anchor_root = re.compile(
+            r"(?<!\S)-Wl,-u,_settleora_require_network_interposer(?=\s|$)"
+        )
         exact_order = re.compile(
-            r"(?<!\S)-L" + re.escape(dylib.rsplit("/", 1)[0])
+            r"(?<!\S)" + re.escape(anchor)
+            + r"\s+-Wl,-u,_settleora_require_network_interposer"
+            + r"\s+-L" + re.escape(dylib.rsplit("/", 1)[0])
             + r"\s+" + re.escape(dylib)
             + r"\s+-Wl,-needed-lSettleoraOcrNetworkDeny(?=\s|$)"
         )
@@ -90,16 +104,17 @@ def report(trace, dylib, capture_status):
             direct = bool(direct_path.search(without_forced_operands))
             search = bool(library_search.search(command))
             ordered = bool(exact_order.search(command))
-            proofs.append((forced, direct, bool(anchor_path.search(command)), bool(forced_symbol.search(command)), search, ordered))
+            proofs.append((forced, direct, bool(anchor_path.search(command)), bool(forced_symbol.search(command)), search, bool(anchor_root.search(command)), ordered))
         print(f"ios_{label}_needed_library_in_link_invocation={'present' if any(p[0] for p in proofs) else 'absent'}", file=sys.stderr)
         print(f"ios_{label}_dylib_direct_input={'present' if any(p[1] for p in proofs) else 'absent'}", file=sys.stderr)
         print(f"ios_{label}_same_invocation_link_inputs={'present' if any(all(p[:2]) for p in proofs) else 'absent'}", file=sys.stderr)
         print(f"ios_{label}_anchor_in_link_invocation={'present' if any(p[2] for p in proofs) else 'absent'}", file=sys.stderr)
         print(f"ios_{label}_forced_symbol_in_link_invocation={'present' if any(p[3] for p in proofs) else 'absent'}", file=sys.stderr)
+        print(f"ios_{label}_anchor_root_in_link_invocation={'present' if any(p[5] for p in proofs) else 'absent'}", file=sys.stderr)
         print(f"ios_{label}_anchor_same_invocation={'present' if any(all(p[:3]) for p in proofs) else 'absent'}", file=sys.stderr)
         print(f"ios_{label}_forced_symbol_same_invocation={'present' if any(all(p[:4]) for p in proofs) else 'absent'}", file=sys.stderr)
         print(f"ios_{label}_library_search_path_in_link_invocation={'present' if any(p[4] for p in proofs) else 'absent'}", file=sys.stderr)
-        print(f"ios_{label}_link_argument_order={'present' if any(p[0] and p[1] and p[4] and p[5] for p in proofs) else 'absent'}", file=sys.stderr)
+        print(f"ios_{label}_link_argument_order={'present' if any(p[0] and p[1] and p[2] and p[4] and p[5] and p[6] for p in proofs) else 'absent'}", file=sys.stderr)
     diagnostics = {
         "undefined_interposer_symbol": any(
             "Undefined symbol: _settleora_network_interposer_loaded" in line

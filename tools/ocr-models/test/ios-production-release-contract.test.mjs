@@ -644,7 +644,7 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
     ["fonts/MaterialIcons-Regular.otf", "e4aae88917aea920dfba979f19616d87669655d003444d3b1a110b685b88a0ed"],
     ["packages/cupertino_icons/assets/CupertinoIcons.ttf", "67c44fe9183b002e79dde7f6977e2988661c9a3e4a3c5fce968787efdbed823c"],
     ["shaders/ink_sparkle.frag", "62ce4ba6e34254371ffdfb8e0670afcc5314f4452edf5ee70afcf079f2ed7ea2"],
-    ["shaders/stretch_effect.frag", "62a899ff4e168ac6ca888ce7c2f40e5d3fbf8ca20a1c3ded781a116a6d7907e2"],
+    ["shaders/stretch_effect.frag", "21cdf2ecc9b113671fb228620d952ebae0f102a78a39a9df89b6ebdf6aec315a"],
   ]) {
     assert.match(generatedAsset[1], /^[0-9a-f]{64}$/);
     assert.ok(resourceInventoryLoop.includes(

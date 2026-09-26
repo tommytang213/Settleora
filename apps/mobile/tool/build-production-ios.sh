@@ -496,7 +496,7 @@ while IFS= read -r candidate; do
       Frameworks/App.framework/flutter_assets/fonts/MaterialIcons-Regular.otf) expected_flutter_asset_sha=e4aae88917aea920dfba979f19616d87669655d003444d3b1a110b685b88a0ed ;;
       Frameworks/App.framework/flutter_assets/packages/cupertino_icons/assets/CupertinoIcons.ttf) expected_flutter_asset_sha=67c44fe9183b002e79dde7f6977e2988661c9a3e4a3c5fce968787efdbed823c ;;
       Frameworks/App.framework/flutter_assets/shaders/ink_sparkle.frag) expected_flutter_asset_sha=62ce4ba6e34254371ffdfb8e0670afcc5314f4452edf5ee70afcf079f2ed7ea2 ;;
-      Frameworks/App.framework/flutter_assets/shaders/stretch_effect.frag) expected_flutter_asset_sha=62a899ff4e168ac6ca888ce7c2f40e5d3fbf8ca20a1c3ded781a116a6d7907e2 ;;
+      Frameworks/App.framework/flutter_assets/shaders/stretch_effect.frag) expected_flutter_asset_sha=21cdf2ecc9b113671fb228620d952ebae0f102a78a39a9df89b6ebdf6aec315a ;;
       Frameworks/Flutter.framework/Headers/*.h|Frameworks/Flutter.framework/Modules/module.modulemap)
         # Exact Flutter 3.44.8 ios-release engine archive 0cd610717bde;
         # retain only its reviewed framework headers and module map.
