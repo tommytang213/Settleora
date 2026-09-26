@@ -3,6 +3,13 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // Simulator-only forced load command replaces the failing Swift symbol
+  // probe; exact GoogleUtilities privacy sibling is admitted on iOS. The
+  // canonical Flutter 3.44.8 local APK passed strict package verification.
+  // Hosted signer and ZIP representation remain exact-head requirements.
+  "66660afee3239cfa866958d7a11fd1ec3c3d15b4a217111b222b6e90cc365e2d": Object.freeze([
+    "7a3a7d935b7e8ce24dcf5b03f3e56a761d9ba87d014a43bd095c98c4ac05c2ff",
+  ]),
   // Exact iOS nested privacy-bundle and bounded linker-diagnostic follow-up.
   // Canonical Flutter 3.44.8 plugin projection passed the strict local APK
   // verifier; exact-head hosted signer and ZIP evidence remain required.

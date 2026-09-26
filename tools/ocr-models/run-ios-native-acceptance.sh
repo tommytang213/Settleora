@@ -6,13 +6,10 @@ device=""
 network_environment_configured=false
 network_link_configured=false
 network_project_configured=false
-app_delegate_configured=false
 debug_config=""
 network_config_backup=""
 runner_project=""
 runner_project_backup=""
-app_delegate=""
-app_delegate_backup=""
 read_simulator_environment() {
   local variable="$1"
   local value=""
@@ -37,12 +34,6 @@ report_failure_phase() {
   if "$network_project_configured"; then
     if ! cp -p "$runner_project_backup" "$runner_project" ||
         ! cmp -s "$runner_project_backup" "$runner_project"; then
-      cleanup_status=98
-    fi
-  fi
-  if "$app_delegate_configured"; then
-    if ! cp -p "$app_delegate_backup" "$app_delegate" ||
-        ! cmp -s "$app_delegate_backup" "$app_delegate"; then
       cleanup_status=98
     fi
   fi
@@ -155,29 +146,6 @@ runner_project_backup="$RUNNER_TEMP/settleora-ocr-runner-project.original"
 phase=save_runner_project
 cp -p "$runner_project" "$runner_project_backup"
 network_project_configured=true
-app_delegate="$GITHUB_WORKSPACE/apps/mobile/ios/Runner/AppDelegate.swift"
-app_delegate_backup="$RUNNER_TEMP/settleora-ocr-app-delegate.original"
-phase=verify_app_delegate_source
-test "$(shasum -a 256 "$app_delegate" | cut -d ' ' -f 1)" = 991e81eb3b6be2a8f4625f2d7c00d5caa2996845c381b512d0efbf36300e3f17
-phase=save_app_delegate
-cp -p "$app_delegate" "$app_delegate_backup"
-app_delegate_configured=true
-phase=apply_app_delegate_probe
-node - "$app_delegate" <<'NODE'
-const fs = require('node:fs');
-const sourcePath = process.argv[2];
-let source = fs.readFileSync(sourcePath, 'utf8');
-const replaceOnce = (from, to) => {
-  if (source.split(from).length !== 2) process.exit(98);
-  source = source.replace(from, to);
-};
-replaceOnce('import UIKit\n\n@main\n',
-  'import UIKit\n\n@_silgen_name("settleora_network_interposer_loaded")\nfunc settleoraNetworkInterposerLoaded() -> Int32\n\n@main\n');
-replaceOnce('  ) -> Bool {\n    return super.application(application, didFinishLaunchingWithOptions: launchOptions)\n',
-  '  ) -> Bool {\n    guard settleoraNetworkInterposerLoaded() == 1 else { return false }\n    return super.application(application, didFinishLaunchingWithOptions: launchOptions)\n');
-fs.writeFileSync(sourcePath, source);
-NODE
-printf 'ios_simulator_app_delegate_probe=present\n'
 phase=apply_runner_project_link
 node - "$runner_project" "$network_deny" <<'NODE'
 const fs = require('node:fs');
