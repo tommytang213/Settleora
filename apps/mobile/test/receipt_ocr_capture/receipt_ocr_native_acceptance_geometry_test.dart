@@ -16,6 +16,33 @@ ReceiptOcrBlockEvidence block(List<ReceiptOcrPoint> points) =>
     );
 
 void main() {
+  test('sideways native points use upright swapped image bounds', () {
+    const landscapeWidth = 1448;
+    const landscapeHeight = 1086;
+    final uprightBlock = block(const [
+      ReceiptOcrPoint(x: 1000, y: 1300),
+      ReceiptOcrPoint(x: 1050, y: 1300),
+      ReceiptOcrPoint(x: 1050, y: 1400),
+      ReceiptOcrPoint(x: 1000, y: 1400),
+    ]);
+    expect(
+      isValidNativeOcrBlockGeometry(
+        uprightBlock,
+        imageWidth: landscapeHeight,
+        imageHeight: landscapeWidth,
+      ),
+      isTrue,
+    );
+    expect(
+      isValidNativeOcrBlockGeometry(
+        uprightBlock,
+        imageWidth: landscapeWidth,
+        imageHeight: landscapeHeight,
+      ),
+      isFalse,
+    );
+  });
+
   test(
     'native acceptance geometry requires a bounded positive-area polygon',
     () {

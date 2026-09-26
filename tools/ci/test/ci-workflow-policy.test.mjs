@@ -457,7 +457,8 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(iosRunner.includes('ios_simulator_built_library_search_path=missing'));
   assert.ok(iosRunner.includes('ios_simulator_link_setting=missing'));
   assert.ok(iosRunner.includes('network_link_configured=true'));
-  for (const stage of ['build_simulator_link_anchor', 'verify_debug_link_config', 'verify_network_link_path',
+  for (const stage of ['build_simulator_link_anchor', 'verify_simulator_link_anchor_object',
+    'verify_simulator_link_anchor_symbol', 'verify_debug_link_config', 'verify_network_link_path',
     'save_debug_link_config', 'save_runner_project', 'apply_runner_project_link',
     'apply_debug_link_config', 'verify_debug_link_setting',
     'verify_resolved_debug_link_setting',
@@ -480,7 +481,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(iosRunner.includes('cp -p "$runner_project_backup" "$runner_project"'));
   assert.ok(iosRunner.includes('cmp -s "$runner_project_backup" "$runner_project"'));
   assert.ok(iosRunner.includes('ios_simulator_link_anchor=present'));
-  assert.ok(iosRunner.includes('xcrun nm -u "$link_anchor"'));
+  assert.ok(iosRunner.includes('xcrun nm -j -u "$link_anchor"'));
   assert.ok(iosRunner.includes('ios_simulator_link_anchor_setting=missing'));
   assert.ok(iosRunner.includes('ios_simulator_built_link_anchor_setting=missing'));
   assert.doesNotMatch(iosRunner, /@_silgen_name|app_delegate_backup/);

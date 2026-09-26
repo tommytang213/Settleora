@@ -28,6 +28,8 @@ const iosPreflightFailurePhases = new Set([
   "validate_environment",
   "build_network_isolation",
   "build_simulator_link_anchor",
+  "verify_simulator_link_anchor_object",
+  "verify_simulator_link_anchor_symbol",
   "verify_network_environment_clean",
   "install_network_isolation",
   "verify_debug_link_config",

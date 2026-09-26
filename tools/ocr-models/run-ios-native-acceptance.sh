@@ -123,8 +123,10 @@ __attribute__((used, constructor)) static void settleora_require_network_interpo
   if (settleora_network_interposer_loaded() != 1) __builtin_trap();
 }
 C
+phase=verify_simulator_link_anchor_object
 file "$link_anchor" | grep -F 'Mach-O' >/dev/null
-xcrun nm -u "$link_anchor" | grep -E ' U _settleora_network_interposer_loaded$' >/dev/null
+phase=verify_simulator_link_anchor_symbol
+xcrun nm -j -u "$link_anchor" | grep -Fx '_settleora_network_interposer_loaded' >/dev/null
 printf 'ios_simulator_link_anchor=present\n'
 
 phase=verify_network_environment_clean

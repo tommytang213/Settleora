@@ -490,8 +490,10 @@ void main() {
         modelCatalog: modelCatalog,
         currencyResolution:
             entry['expected_currency_resolution'] as Map<String, Object?>?,
-        imageWidth: artifact.width!,
-        imageHeight: artifact.height!,
+        // Native sideways orientation maps block points into the upright
+        // document frame, whose axes are swapped from this 270-degree image.
+        imageWidth: artifact.height!,
+        imageHeight: artifact.width!,
       );
       expect(
         mismatches.isEmpty,
