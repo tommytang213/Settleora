@@ -569,8 +569,11 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   assert.match(resourceInventoryLoop,
     /Frameworks\/image_picker_ios\.framework\/image_picker_ios_privacy\.bundle\/Info\.plist\)\s+\[\[ "\$\(sha256_file "\$candidate"\)" == 92fa33c74cf8ae0f8e628a2718c45a8fb16d7e6b1bd33c899ccd1ce9ec437f13 \]\]/);
   assert.match(resourceInventoryLoop, /\*\) fail_unreviewed_resource_path ;;\s+esac\s+fi ;;\s+Frameworks\/\*\/Info\.plist/);
-  assert.match(resourceInventoryLoop, /Frameworks\/GoogleToolboxForMac\.framework\/GoogleToolboxForMac_Privacy\.bundle\/Info\.plist\)\s+printf 'observed_google_toolbox_privacy_info_sha256=/);
-  assert.match(resourceInventoryLoop, /production application privacy plist bytes are unreviewed/);
+  assert.match(resourceInventoryLoop, /Frameworks\/GoogleToolboxForMac\.framework\/GoogleToolboxForMac_Privacy\.bundle\/Info\.plist\)\s+\[\[ "\$\(sha256_file "\$candidate"\)" == 1a93db69e5f73983aa5a92283f3cd7b830a894ac5a3917efa52910b2da1894b8 \]\]/);
+  assert.match(resourceInventoryLoop, /Frameworks\/nanopb\.framework\/nanopb_Privacy\.bundle\/PrivacyInfo\.xcprivacy\)\s+printf 'observed_nanopb_privacy_manifest_sha256=/);
+  assert.match(resourceInventoryLoop, /production application privacy manifest bytes are unreviewed/);
+  assert.ok(resourceInventoryLoop.indexOf('Frameworks/nanopb.framework/nanopb_Privacy.bundle/PrivacyInfo.xcprivacy)') <
+    resourceInventoryLoop.indexOf('Frameworks/GoogleDataTransport.framework/GoogleDataTransport_Privacy.bundle/*'));
   const matchesNestedBundle = (relativePath) => {
     const result = spawnSync('bash', ['-c', 'case "$1" in Frameworks/GoogleDataTransport.framework/GoogleDataTransport_Privacy.bundle/*|Frameworks/GoogleToolboxForMac.framework/GoogleToolboxForMac_Logger_Privacy.bundle/Info.plist|Frameworks/GoogleToolboxForMac.framework/GoogleToolboxForMac_Logger_Privacy.bundle/PrivacyInfo.xcprivacy|Frameworks/GoogleToolboxForMac.framework/GoogleToolboxForMac_Privacy.bundle/PrivacyInfo.xcprivacy|Frameworks/GoogleUtilities.framework/GoogleUtilities_Privacy.bundle/Info.plist|Frameworks/GoogleUtilities.framework/GoogleUtilities_Privacy.bundle/PrivacyInfo.xcprivacy|Frameworks/GTMSessionFetcher.framework/GTMSessionFetcher_Core_Privacy.bundle/Info.plist|Frameworks/GTMSessionFetcher.framework/GTMSessionFetcher_Core_Privacy.bundle/PrivacyInfo.xcprivacy|Frameworks/FBLPromises.framework/FBLPromises_Privacy.bundle/Info.plist|Frameworks/FBLPromises.framework/FBLPromises_Privacy.bundle/PrivacyInfo.xcprivacy|Frameworks/flutter_secure_storage_darwin.framework/flutter_secure_storage.bundle/Info.plist|Frameworks/flutter_secure_storage_darwin.framework/flutter_secure_storage.bundle/PrivacyInfo.xcprivacy|Frameworks/MLKitTextRecognition.framework/LatinOCRResources.bundle/*|Frameworks/image_picker_ios.framework/image_picker_ios_privacy.bundle/PrivacyInfo.xcprivacy) printf reviewed ;; *) printf reject ;; esac', '_', relativePath], { encoding: 'utf8' });
     assert.equal(result.status, 0);
@@ -583,6 +586,8 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   assert.equal(matchesNestedBundle('Frameworks/GoogleToolboxForMac.framework/GoogleToolboxForMac_Privacy.bundle/PrivacyInfo.xcprivacy'), 'reviewed');
   assert.equal(matchesNestedBundle('Frameworks/GoogleToolboxForMac.framework/GoogleToolboxForMac_Privacy.bundle/Info.plist'), 'reject');
   assert.equal(matchesNestedBundle('Frameworks/GoogleToolboxForMac.framework/GoogleToolboxForMac_Privacy.bundle/Other.plist'), 'reject');
+  assert.equal(matchesNestedBundle('Frameworks/nanopb.framework/nanopb_Privacy.bundle/PrivacyInfo.xcprivacy'), 'reject');
+  assert.equal(matchesNestedBundle('Frameworks/nanopb.framework/nanopb_Privacy.bundle/Other.xcprivacy'), 'reject');
   assert.equal(matchesNestedBundle('Frameworks/GoogleUtilities.framework/GoogleUtilities_Privacy.bundle/PrivacyInfo.xcprivacy'), 'reviewed');
   assert.equal(matchesNestedBundle('Frameworks/GoogleUtilities.framework/GoogleUtilities_Privacy.bundle/Info.plist'), 'reviewed');
   assert.equal(matchesNestedBundle('Frameworks/GoogleUtilities.framework/GoogleUtilities_Privacy.bundle/extra.plist'), 'reject');
