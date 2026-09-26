@@ -646,6 +646,30 @@ void main() {
         'ui_apply_handoff',
         fixtureId: 'existing_12_freshmart_grocery_en_US',
       );
+      failure.set(
+        'ui_apply_selection',
+        fixtureId: 'existing_12_freshmart_grocery_en_US',
+      );
+      void requireApplyOption(String section, bool populated) {
+        expect(
+          find.byKey(Key('personal-bill-ocr-apply-$section')),
+          populated ? findsOneWidget : findsNothing,
+        );
+      }
+
+      requireApplyOption(
+        'merchant',
+        actualPreview.merchant?.trim().isNotEmpty == true,
+      );
+      requireApplyOption(
+        'date',
+        actualPreview.receiptDate?.trim().isNotEmpty == true,
+      );
+      requireApplyOption(
+        'currency',
+        actualPreview.currency?.trim().isNotEmpty == true,
+      );
+      requireApplyOption('items', actualPreview.items.isNotEmpty);
       bool selectedForApply(String section) {
         final option = find.byKey(Key('personal-bill-ocr-apply-$section'));
         return option.evaluate().isNotEmpty &&
@@ -656,10 +680,6 @@ void main() {
       final applyDate = selectedForApply('date');
       final applyCurrency = selectedForApply('currency');
       final applyItems = selectedForApply('items');
-      failure.set(
-        'ui_apply_selection',
-        fixtureId: 'existing_12_freshmart_grocery_en_US',
-      );
       expect(applyMerchant || applyDate || applyCurrency || applyItems, isTrue);
       expect(tester.widget<AppButton>(applyControl).onPressed, isNotNull);
       failure.set(

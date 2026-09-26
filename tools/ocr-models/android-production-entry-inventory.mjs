@@ -3,6 +3,18 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // Exact iOS nested privacy-bundle and bounded linker-diagnostic follow-up.
+  // Canonical Flutter 3.44.8 plugin projection passed the strict local APK
+  // verifier; exact-head hosted signer and ZIP evidence remain required.
+  "40c99f472fa30946adbb1172b351e2d9ab6e60ed9d6ba9a4638738be4f40f813": Object.freeze([
+    "7a3a7d935b7e8ce24dcf5b03f3e56a761d9ba87d014a43bd095c98c4ac05c2ff",
+  ]),
+  // Bounded stdin link diagnostics and actual-provider Apply option proof.
+  // Exact Flutter 3.44.8 production-plugin projection passed local package
+  // gates; the hosted signer and ZIP representation require exact-head proof.
+  "b010342f4de3c20b9ce17b764c5c5396e54a9f535974a13046068e8d3090279a": Object.freeze([
+    "7a3a7d935b7e8ce24dcf5b03f3e56a761d9ba87d014a43bd095c98c4ac05c2ff",
+  ]),
   // Exact iOS native-link diagnostics and FBLPromises privacy path. The
   // retained clean Flutter 3.44.8 Release projection passed local catalog,
   // model, fixture-absence, path, and entry checks; hosted signer and ZIP

@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """Print bounded linker facts from a failed simulator build trace."""
 
-import pathlib
 import re
-import stat
 import sys
 
 
@@ -15,12 +13,11 @@ NEXT_STEP = re.compile(r"\(in target ['\"][^'\"]+['\"] from project ['\"][^'\"]+
 CLANG_COMMAND = re.compile(r"/(?:clang|clang\+\+)\s")
 
 
-def trace_bytes(path):
-    candidate = pathlib.Path(path)
-    metadata = candidate.lstat()
-    if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > 32 * 1024 * 1024:
-        raise ValueError("build trace is not a bounded regular file")
-    return candidate.read_bytes()
+def trace_bytes():
+    trace = sys.stdin.buffer.read(64 * 1024 * 1024 + 1)
+    if len(trace) > 64 * 1024 * 1024:
+        raise ValueError("build trace exceeds the bounded capture")
+    return trace
 
 
 def linked_commands(lines):
@@ -65,17 +62,41 @@ def report(trace, dylib, capture_status):
             for command in invocations
         )
         print(f"ios_{label}_needed_library_in_link_invocation={'present' if flag_found else 'absent'}", file=sys.stderr)
+    diagnostics = {
+        "undefined_interposer_symbol": any(
+            "Undefined symbol: _settleora_network_interposer_loaded" in line
+            or '"_settleora_network_interposer_loaded", referenced from:' in line
+            for line in lines
+        ),
+        "interposer_library_not_found": any(
+            ("library not found" in line or "file not found" in line)
+            and (dylib in line or "libSettleoraOcrNetworkDeny" in line)
+            for line in lines
+        ),
+        "interposer_wrong_architecture": any(
+            ("building for iOS Simulator" in line or "wrong architecture" in line)
+            and (dylib in line or "libSettleoraOcrNetworkDeny" in line)
+            for line in lines
+        ),
+        "linker_error": any(
+            line.startswith("ld: ") or "clang: error: linker command failed" in line
+            for line in lines
+        ),
+        "swift_error": any("Swift Compiler Error" in line or "error: " in line and ".swift:" in line for line in lines),
+    }
+    for label, found in diagnostics.items():
+        print(f"ios_{label}={'present' if found else 'absent'}", file=sys.stderr)
 
 
 def main():
-    if len(sys.argv) != 5 or not re.fullmatch(r"[1-9][0-9]{0,2}", sys.argv[4]):
+    if len(sys.argv) != 3 or not re.fullmatch(r"[1-9][0-9]{0,2}", sys.argv[2]):
         raise ValueError("invalid build diagnostic arguments")
-    stdout, stderr, dylib, capture_status = sys.argv[1:]
+    dylib, capture_status = sys.argv[1:]
     if int(capture_status) > 255:
         raise ValueError("invalid build status")
     if not dylib.startswith("/") or "\n" in dylib:
         raise ValueError("invalid interposer path")
-    report(trace_bytes(stdout) + b"\n" + trace_bytes(stderr), dylib, capture_status)
+    report(trace_bytes(), dylib, capture_status)
 
 
 if __name__ == "__main__":

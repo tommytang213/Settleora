@@ -2,8 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
@@ -636,44 +635,40 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
 });
 
 test('iOS linker diagnostic binds the needed-library flag to the exact Runner invocation', () => {
-  const directory = mkdtempSync(path.join(tmpdir(), 'settleora-ios-link-trace-'));
-  const stdout = path.join(directory, 'stdout.log');
-  const stderr = path.join(directory, 'stderr.log');
   const dylib = '/tmp/libSettleoraOcrNetworkDeny.dylib';
   const diagnose = (trace, captureStatus = '1') => {
-    writeFileSync(stdout, trace);
-    writeFileSync(stderr, '');
     const result = spawnSync('python3', [
       path.join(repoRoot, 'tools/ocr-models/diagnose-ios-link-trace.py'),
-      stdout, stderr, dylib, captureStatus,
-    ], { encoding: 'utf8' });
+      dylib, captureStatus,
+    ], { encoding: 'utf8', input: trace });
     assert.equal(result.status, 0, result.stderr);
     return result.stderr;
   };
-  try {
-    const header = "Ld /tmp/Runner.app/Runner normal (in target 'Runner' from project 'Runner')\n";
-    const settingsOnly = `OTHER_LDFLAGS = -Wl,-needed_library,${dylib}\n${header}    /Applications/Xcode/usr/bin/clang -o /tmp/Runner.app/Runner\n`;
-    assert.match(diagnose(settingsOnly), /ios_runner_link_invocation=present/);
-    assert.match(diagnose(settingsOnly), /ios_runner_needed_library_in_link_invocation=absent/);
-    const linked = `${header}    /Applications/Xcode/usr/bin/clang -Wl,-needed_library,${dylib} -o /tmp/Runner.app/Runner\n`;
-    assert.match(diagnose(linked), /ios_runner_needed_library_in_link_invocation=present/);
-    const suffix = `${header}    /Applications/Xcode/usr/bin/clang -Wl,-needed_library,${dylib}.backup -o /tmp/Runner.app/Runner\n`;
-    assert.match(diagnose(suffix), /ios_runner_needed_library_in_link_invocation=absent/);
-    const xlinker = `${header}    /Applications/Xcode/usr/bin/clang -Xlinker -needed_library -Xlinker ${dylib} -o /tmp/Runner.app/Runner\n`;
-    assert.match(diagnose(xlinker), /ios_runner_needed_library_in_link_invocation=present/);
-    const xlinkerSuffix = `${header}    /Applications/Xcode/usr/bin/clang -Xlinker -needed_library -Xlinker ${dylib}.backup -o /tmp/Runner.app/Runner\n`;
-    assert.match(diagnose(xlinkerSuffix), /ios_runner_needed_library_in_link_invocation=absent/);
-    assert.match(diagnose(linked, '127'), /ios_build_capture_status=127/);
-    assert.match(diagnose(linked, '137'), /ios_build_capture_status=137/);
-    const unrelated = `Ld /tmp/Runner.app/Other normal (in target 'Other' from project 'Runner')\n    /Applications/Xcode/usr/bin/clang -Wl,-needed_library,${dylib} -o /tmp/Runner.app/Other\n`;
-    assert.match(diagnose(unrelated), /ios_runner_link_invocation=absent/);
-    const wrongOutput = `${header}    /Applications/Xcode/usr/bin/clang -Wl,-needed_library,${dylib} -o /tmp/Runner.app/Other\n`;
-    assert.match(diagnose(wrongOutput), /ios_runner_link_invocation=absent/);
-    const debug = `Ld /tmp/Runner.app/Runner.debug.dylib normal (in target 'Runner' from project 'Runner')\n    /Applications/Xcode/usr/bin/clang -Wl,-needed_library,${dylib} -o /tmp/Runner.app/Runner.debug.dylib\n`;
-    assert.match(diagnose(debug), /ios_debug_dylib_needed_library_in_link_invocation=present/);
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
-  }
+  const header = "Ld /tmp/Runner.app/Runner normal (in target 'Runner' from project 'Runner')\n";
+  const settingsOnly = `OTHER_LDFLAGS = -Wl,-needed_library,${dylib}\n${header}    /Applications/Xcode/usr/bin/clang -o /tmp/Runner.app/Runner\n`;
+  assert.match(diagnose(settingsOnly), /ios_runner_link_invocation=present/);
+  assert.match(diagnose(settingsOnly), /ios_runner_needed_library_in_link_invocation=absent/);
+  const linked = `${header}    /Applications/Xcode/usr/bin/clang -Wl,-needed_library,${dylib} -o /tmp/Runner.app/Runner\n`;
+  assert.match(diagnose(linked), /ios_runner_needed_library_in_link_invocation=present/);
+  const suffix = `${header}    /Applications/Xcode/usr/bin/clang -Wl,-needed_library,${dylib}.backup -o /tmp/Runner.app/Runner\n`;
+  assert.match(diagnose(suffix), /ios_runner_needed_library_in_link_invocation=absent/);
+  const xlinker = `${header}    /Applications/Xcode/usr/bin/clang -Xlinker -needed_library -Xlinker ${dylib} -o /tmp/Runner.app/Runner\n`;
+  assert.match(diagnose(xlinker), /ios_runner_needed_library_in_link_invocation=present/);
+  const xlinkerSuffix = `${header}    /Applications/Xcode/usr/bin/clang -Xlinker -needed_library -Xlinker ${dylib}.backup -o /tmp/Runner.app/Runner\n`;
+  assert.match(diagnose(xlinkerSuffix), /ios_runner_needed_library_in_link_invocation=absent/);
+  assert.match(diagnose(linked, '127'), /ios_build_capture_status=127/);
+  assert.match(diagnose(linked, '137'), /ios_build_capture_status=137/);
+  const unrelated = `Ld /tmp/Runner.app/Other normal (in target 'Other' from project 'Runner')\n    /Applications/Xcode/usr/bin/clang -Wl,-needed_library,${dylib} -o /tmp/Runner.app/Other\n`;
+  assert.match(diagnose(unrelated), /ios_runner_link_invocation=absent/);
+  const wrongOutput = `${header}    /Applications/Xcode/usr/bin/clang -Wl,-needed_library,${dylib} -o /tmp/Runner.app/Other\n`;
+  assert.match(diagnose(wrongOutput), /ios_runner_link_invocation=absent/);
+  const debug = `Ld /tmp/Runner.app/Runner.debug.dylib normal (in target 'Runner' from project 'Runner')\n    /Applications/Xcode/usr/bin/clang -Wl,-needed_library,${dylib} -o /tmp/Runner.app/Runner.debug.dylib\n`;
+  assert.match(diagnose(debug), /ios_debug_dylib_needed_library_in_link_invocation=present/);
+  assert.match(diagnose(`${linked}ld: Undefined symbol: _settleora_network_interposer_loaded\n`),
+    /ios_undefined_interposer_symbol=present/);
+  assert.match(diagnose(`${linked}ld: library not found for ${dylib}\n`),
+    /ios_interposer_library_not_found=present/);
+  assert.match(diagnose(linked), /ios_undefined_interposer_symbol=absent/);
 });
 
 test('all repository workflow action references remain full-SHA pinned', () => {

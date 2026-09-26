@@ -512,7 +512,7 @@ while IFS= read -r candidate; do
             Frameworks/image_picker_ios.framework/image_picker_ios_privacy.bundle/Info.plist)
               [[ "$(sha256_file "$candidate")" == 92fa33c74cf8ae0f8e628a2718c45a8fb16d7e6b1bd33c899ccd1ce9ec437f13 ]] ||
                 fail_unreviewed_resource_path ;;
-            Frameworks/GoogleDataTransport.framework/GoogleDataTransport_Privacy.bundle/*|Frameworks/GTMSessionFetcher.framework/GTMSessionFetcher_Core_Privacy.bundle/Info.plist|Frameworks/GTMSessionFetcher.framework/GTMSessionFetcher_Core_Privacy.bundle/PrivacyInfo.xcprivacy|Frameworks/FBLPromises.framework/FBLPromises_Privacy.bundle/PrivacyInfo.xcprivacy|Frameworks/MLKitTextRecognition.framework/LatinOCRResources.bundle/*|Frameworks/image_picker_ios.framework/image_picker_ios_privacy.bundle/PrivacyInfo.xcprivacy) ;;
+            Frameworks/GoogleDataTransport.framework/GoogleDataTransport_Privacy.bundle/*|Frameworks/GTMSessionFetcher.framework/GTMSessionFetcher_Core_Privacy.bundle/Info.plist|Frameworks/GTMSessionFetcher.framework/GTMSessionFetcher_Core_Privacy.bundle/PrivacyInfo.xcprivacy|Frameworks/FBLPromises.framework/FBLPromises_Privacy.bundle/Info.plist|Frameworks/FBLPromises.framework/FBLPromises_Privacy.bundle/PrivacyInfo.xcprivacy|Frameworks/MLKitTextRecognition.framework/LatinOCRResources.bundle/*|Frameworks/image_picker_ios.framework/image_picker_ios_privacy.bundle/PrivacyInfo.xcprivacy) ;;
             *) fail_unreviewed_resource_path ;;
           esac
         fi ;;
