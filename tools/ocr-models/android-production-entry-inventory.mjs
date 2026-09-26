@@ -3,6 +3,12 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // Exact fail-closed iOS privacy-plist byte diagnostic. Clean Flutter 3.44.8
+  // local Release projection passed package inventory; hosted signer and ZIP
+  // representation remain exact-head proof.
+  "ab62ebd54124119c657e4412fbd32907e90474f1509146f6097a8c748cc63d9f": Object.freeze([
+    "3ba2634b0aafcf1d718d09d9c22a01d6f01345989aac5f4a0a2b9be7dc34d673",
+  ]),
   // Exact hosted-observed iOS nested privacy plist follow-up. Clean Flutter
   // 3.44.8 local Release projection passed package inventory; hosted signer
   // and ZIP representation remain exact-head proof.
