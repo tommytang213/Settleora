@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 const maxLogBytes = 32 * 1024 * 1024;
 const maxMarkerBytes = 512 * 1024;
 const safeToken = /^[A-Za-z0-9_.:[\]-]{1,160}$/;
+const reviewedUiFixtureId = "existing_12_freshmart_grocery_en_US";
 const androidPreflightFailurePhases = new Set([
   "kvm_setup",
   "kvm_preflight",
@@ -32,6 +33,9 @@ const iosPreflightFailurePhases = new Set([
   "verify_network_link_path",
   "save_debug_link_config",
   "save_runner_project",
+  "verify_app_delegate_source",
+  "save_app_delegate",
+  "apply_app_delegate_probe",
   "apply_runner_project_link",
   "apply_debug_link_config",
   "verify_debug_link_setting",
@@ -645,11 +649,15 @@ function sanitizeUiSmoke(value, platform) {
     ["schemaVersion", "platform", "completed", "fixtureId", "previewPanel", "applyBoundaryVisible"],
     "UI smoke marker",
   );
+  const fixtureId = boundedToken(value.fixtureId, "uiSmoke.fixtureId");
+  if (fixtureId !== reviewedUiFixtureId) {
+    throw new Error("UI smoke fixture identity is unreviewed");
+  }
   return {
     schemaVersion: 1,
     platform,
     completed: true,
-    fixtureId: boundedToken(value.fixtureId, "uiSmoke.fixtureId"),
+    fixtureId,
     previewPanel: value.previewPanel === true,
     applyBoundaryVisible: value.applyBoundaryVisible === true,
   };
@@ -962,6 +970,7 @@ export function isCompleteEvidence(evidence) {
       evidence.acceptance.nativeLatencyMs.max > 0 &&
       evidence.acceptance.peakRssBytes > 0 &&
       evidence.uiSmoke.completed &&
+      evidence.uiSmoke.fixtureId === reviewedUiFixtureId &&
       evidence.uiSmoke.previewPanel &&
       evidence.uiSmoke.applyBoundaryVisible &&
       evidence.packageEvidence.fullBytes != null &&

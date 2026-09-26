@@ -144,7 +144,7 @@ test("retains only the bounded native acceptance schema", () => {
     schemaVersion: 1,
     platform: "android",
     completed: true,
-    fixtureId: "fixture_001",
+    fixtureId: "existing_12_freshmart_grocery_en_US",
     previewPanel: true,
     applyBoundaryVisible: true,
   };
@@ -188,6 +188,14 @@ test("retains only the bounded native acceptance schema", () => {
       assert.deepEqual(Object.keys(evidence.acceptance.mismatches[0]), ["fixtureId", "field"]);
     },
   );
+  withLog(
+    protocolLog(
+      `SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify(acceptance)}`,
+      `SETTLEORA_OCR_UI_SMOKE=${JSON.stringify({ ...uiSmoke, fixtureId: "synthetic_easy_fixture" })}`,
+    ),
+    (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot),
+      /UI smoke fixture identity is unreviewed/),
+  );
 });
 
 test("complete evidence requires both package measurements and a positive delta", () => {
@@ -206,7 +214,7 @@ test("complete evidence requires both package measurements and a positive delta"
       nativeLatencyMs: { sampleCount: 101, cold: 1, warmP50: 1, warmP95: 1, max: 1 },
       peakRssBytes: 1,
     },
-    uiSmoke: { completed: true, previewPanel: true, applyBoundaryVisible: true },
+    uiSmoke: { completed: true, fixtureId: "existing_12_freshmart_grocery_en_US", previewPanel: true, applyBoundaryVisible: true },
     packageEvidence: {
       fullBytes: 200,
       baselineWithoutBundledModelPayloadBytes: 150,
@@ -225,6 +233,8 @@ test("complete evidence requires both package measurements and a positive delta"
     identities: { baseCompositeSha256: "9".repeat(64) },
   };
   assert.equal(isCompleteEvidence(evidence), true);
+  assert.equal(isCompleteEvidence({ ...evidence,
+    uiSmoke: { ...evidence.uiSmoke, fixtureId: "synthetic_easy_fixture" } }), false);
   assert.equal(isCompleteEvidence({ ...evidence,
     packageEvidence: { ...evidence.packageEvidence, signerCertificateSha256: null } }), false);
   assert.equal(isCompleteEvidence({ ...evidence, identities: undefined }), false);
@@ -379,6 +389,9 @@ test("retains only an allowlisted iOS preflight failure phase", () => {
       "verify_network_link_path",
       "save_debug_link_config",
       "save_runner_project",
+      "verify_app_delegate_source",
+      "save_app_delegate",
+      "apply_app_delegate_probe",
       "apply_runner_project_link",
       "apply_debug_link_config",
       "verify_debug_link_setting",
