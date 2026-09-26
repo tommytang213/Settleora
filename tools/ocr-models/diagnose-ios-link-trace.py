@@ -74,9 +74,7 @@ def report(trace, dylib, capture_status):
             r"(?<!\S)-Wl,-u,_settleora_network_interposer_loaded(?=\s|$)"
         )
         exact_order = re.compile(
-            r"(?<!\S)" + re.escape(anchor)
-            + r"\s+-Wl,-u,_settleora_network_interposer_loaded"
-            + r"\s+-L" + re.escape(dylib.rsplit("/", 1)[0])
+            r"(?<!\S)-L" + re.escape(dylib.rsplit("/", 1)[0])
             + r"\s+" + re.escape(dylib)
             + r"\s+-Wl,-needed-lSettleoraOcrNetworkDeny(?=\s|$)"
         )
@@ -96,10 +94,12 @@ def report(trace, dylib, capture_status):
         print(f"ios_{label}_needed_library_in_link_invocation={'present' if any(p[0] for p in proofs) else 'absent'}", file=sys.stderr)
         print(f"ios_{label}_dylib_direct_input={'present' if any(p[1] for p in proofs) else 'absent'}", file=sys.stderr)
         print(f"ios_{label}_same_invocation_link_inputs={'present' if any(all(p[:2]) for p in proofs) else 'absent'}", file=sys.stderr)
+        print(f"ios_{label}_anchor_in_link_invocation={'present' if any(p[2] for p in proofs) else 'absent'}", file=sys.stderr)
+        print(f"ios_{label}_forced_symbol_in_link_invocation={'present' if any(p[3] for p in proofs) else 'absent'}", file=sys.stderr)
         print(f"ios_{label}_anchor_same_invocation={'present' if any(all(p[:3]) for p in proofs) else 'absent'}", file=sys.stderr)
         print(f"ios_{label}_forced_symbol_same_invocation={'present' if any(all(p[:4]) for p in proofs) else 'absent'}", file=sys.stderr)
         print(f"ios_{label}_library_search_path_in_link_invocation={'present' if any(p[4] for p in proofs) else 'absent'}", file=sys.stderr)
-        print(f"ios_{label}_link_argument_order={'present' if any(all(p) for p in proofs) else 'absent'}", file=sys.stderr)
+        print(f"ios_{label}_link_argument_order={'present' if any(p[0] and p[1] and p[4] and p[5] for p in proofs) else 'absent'}", file=sys.stderr)
     diagnostics = {
         "undefined_interposer_symbol": any(
             "Undefined symbol: _settleora_network_interposer_loaded" in line
