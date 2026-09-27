@@ -606,7 +606,10 @@ while IFS= read -r candidate; do
         bundle_name=${bundle_name##*/}
         case "$bundle_name" in
           file_picker_ios_privacy|image_picker_ios_privacy|flutter_secure_storage|GoogleUtilities_Privacy|GoogleDataTransport_Privacy|GoogleToolboxForMac_Privacy|GoogleToolboxForMac_Logger_Privacy|GTMSessionFetcher_Privacy|GTMSessionFetcher_Core_Privacy|MLKitCommon_Privacy|MLKitTextRecognition_Privacy|MLKitTextRecognitionCommon_Privacy|MLKitVision_Privacy|MLImage_Privacy|nanopb_Privacy|OpenCV_Privacy|onnxruntime_privacy|Yams_Privacy|PromisesObjC_Privacy|FBLPromises_Privacy|LatinOCRResources) ;;
-          *) fail "production application contains an unreviewed privacy bundle" ;;
+          # The fixed pre-native size baseline has one byte-pinned Info.plist
+          # in a bundle outside the current production dependency inventory.
+          *) is_reviewed_pre_native_baseline_resource ||
+            fail "production application contains an unreviewed privacy bundle" ;;
         esac
         if [[ "$relative_resource" == Frameworks/* ]]; then
           case "$relative_resource" in

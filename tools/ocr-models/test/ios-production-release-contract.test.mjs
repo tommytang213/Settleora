@@ -760,6 +760,8 @@ test("historical iOS size baseline admits only its five observed bundle resource
   assert.ok(guard);
   const inventory = script.match(/observe_pre_native_baseline_bundle\(\) \{[\s\S]*?\n\}/)?.[0];
   assert.ok(inventory);
+  const privacyBundleCase = script.match(/case "\$bundle_name" in[\s\S]*?\n\s*esac/)?.[0];
+  assert.ok(privacyBundleCase);
   assert.match(inventory, /"\$observed_count" -le 64/);
   assert.match(inventory, /"\$observed_count" -eq 5/);
   assert.match(inventory, /"\$source_sha" == e4d4edd0d6854845cc67b00924f6d22af6a70688/);
@@ -796,6 +798,21 @@ check_tuple d2736eac556c5bae12db2e4b6c2a2b02cd36a490e26388b65527feecb84cd5ed 639
 check_tuple b3d731c55e13078a1d0e953e07d37c614133f4c1c3df65f1db1dcffbf3437226 e8bf176ab46545c803ef0db2bdefe57bf6ea302149d36257aaecca3e5118d172 48323c9991f72b12d5df9852aa33f50daa13fd4afb447ddb995f8c9e3327c79e Vendor.bundle/lang3.lproj/name.strings || exit 13
 check_tuple bd2a59d6d3ebe4da870b642e5bff0b3e6a7cb3e0374795bcbeb88eb2a8dcc379 d05a82bd3911e6fb696a4236f1948edcd980cf709fbd6870eeb4ac6e4d5dad9f 4ce5093174371d9711f34278532b4d5c9a7c2783739f361ab96c9ccd919ea432 Vendor.bundle/data.bin || exit 14
 check_tuple c3ffe9ac14280d7ed96202c11fec46984b14e8204ec3e504176906ecbdcc4c69 9ac3b5ad93cbc0305c62f78f50b32774a939d7c44fcc380bc5f4d65c9b39efdf edceaa1270b4ce30b8af310bae530f8338239e98c675139b9646d5a6150a2ab1 Vendor.bundle/Info.plist || exit 15
+fail() { return 1; }
+privacy_bundle_case() {
+  ${privacyBundleCase}
+}
+bundle_name=Vendor
+privacy_bundle_case || exit 16
+source_sha=0000000000000000000000000000000000000000
+if privacy_bundle_case; then exit 17; fi
+source_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
+mode=signed
+if privacy_bundle_case; then exit 18; fi
+mode=unsigned
+mock_byte_sha=0000000000000000000000000000000000000000000000000000000000000000
+if privacy_bundle_case; then exit 19; fi
+mock_byte_sha=edceaa1270b4ce30b8af310bae530f8338239e98c675139b9646d5a6150a2ab1
 mode=signed
 if is_reviewed_pre_native_baseline_resource; then exit 21; fi
 mode=unsigned
