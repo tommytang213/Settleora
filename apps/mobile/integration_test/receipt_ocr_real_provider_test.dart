@@ -701,7 +701,8 @@ void main() {
         draft.text = actualPreview.merchant?.trim() == '__ocr_apply_probe__'
             ? '__ocr_apply_probe_alt__'
             : '__ocr_apply_probe__';
-      } else if (applyItems) {
+      }
+      if (applyItems) {
         final draft = tester
             .widget<TextFormField>(
               find.byKey(const ValueKey('personal-bill-item-name-0')),
@@ -712,18 +713,49 @@ void main() {
                 '__ocr_apply_probe__'
             ? '__ocr_apply_probe_alt__'
             : '__ocr_apply_probe__';
-      } else if (applyDate) {
+      }
+      if (applyDate) {
         final draft = tester.widget<DateField>(dateField).controller;
         draft.text = actualPreview.receiptDate?.trim() == '2001-01-01'
             ? '2002-01-01'
             : '2001-01-01';
-      } else {
+      }
+      if (applyCurrency) {
         final currency = actualPreview.currency?.trim().toUpperCase();
         tester
             .widget<CurrencySelector>(currencyField)
             .onChanged(currency == 'USD' ? 'EUR' : 'USD');
       }
       await tester.pumpAndSettle();
+      if (applyMerchant) {
+        expect(
+          tester.widget<TextFormField>(merchantField).controller?.text,
+          isNot(actualPreview.merchant?.trim()),
+        );
+      }
+      if (applyDate) {
+        expect(
+          tester.widget<DateField>(dateField).controller.text,
+          isNot(actualPreview.receiptDate?.trim()),
+        );
+      }
+      if (applyCurrency) {
+        expect(
+          tester.widget<CurrencySelector>(currencyField).value,
+          isNot(actualPreview.currency?.trim().toUpperCase()),
+        );
+      }
+      if (applyItems) {
+        expect(
+          tester
+              .widget<TextFormField>(
+                find.byKey(const ValueKey('personal-bill-item-name-0')),
+              )
+              .controller
+              ?.text,
+          isNot(actualPreview.items.first.description.trim()),
+        );
+      }
       failure.set(
         'ui_apply_selection_retained',
         fixtureId: 'existing_12_freshmart_grocery_en_US',
