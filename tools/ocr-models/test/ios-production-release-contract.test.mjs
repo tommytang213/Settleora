@@ -571,7 +571,7 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
     /Frameworks\/image_picker_ios\.framework\/image_picker_ios_privacy\.bundle\/PrivacyInfo\.xcprivacy/);
   assert.match(resourceInventoryLoop,
     /Frameworks\/image_picker_ios\.framework\/image_picker_ios_privacy\.bundle\/Info\.plist\)\s+\[\[ "\$\(sha256_file "\$candidate"\)" == 92fa33c74cf8ae0f8e628a2718c45a8fb16d7e6b1bd33c899ccd1ce9ec437f13 \]\]/);
-  assert.match(resourceInventoryLoop, /\*\) fail_unreviewed_resource_path ;;\s+esac\s+fi ;;\s+Frameworks\/\*\/Info\.plist/);
+  assert.match(resourceInventoryLoop, /\*\) is_reviewed_pre_native_baseline_resource \|\| fail_unreviewed_resource_path ;;\s+esac\s+fi ;;\s+Frameworks\/\*\/Info\.plist/);
   assert.match(resourceInventoryLoop, /Frameworks\/GoogleToolboxForMac\.framework\/GoogleToolboxForMac_Privacy\.bundle\/Info\.plist\)\s+\[\[ "\$\(sha256_file "\$candidate"\)" == 1a93db69e5f73983aa5a92283f3cd7b830a894ac5a3917efa52910b2da1894b8 \]\]/);
   assert.match(resourceInventoryLoop, /Frameworks\/nanopb\.framework\/nanopb_Privacy\.bundle\/PrivacyInfo\.xcprivacy\)\s+\[\[ "\$\(sha256_file "\$candidate"\)" == 729ba3cbd0f458c78cd61edf17350edafe0e34ca86e314ec64c8cb22ccd21b54 \]\]/);
   assert.match(resourceInventoryLoop, /Frameworks\/nanopb\.framework\/nanopb_Privacy\.bundle\/Info\.plist\)\s+\[\[ "\$\(sha256_file "\$candidate"\)" == 8acd771356d9ae297dcb72876b232580832c516b82755e575fc3cb0de3f1a6f8 \]\]/);
@@ -754,12 +754,14 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   assert.doesNotMatch(script, /app-store-connect|submit_to_testflight|submit_to_app_store|\bupload\b|\bpublish\b/i);
 });
 
-test("historical iOS size baseline admits only its five observed bundle resources", () => {
+test("historical iOS size baseline pins five bundle files and one separate privacy manifest", () => {
   const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
   const guard = script.match(/is_reviewed_pre_native_baseline_resource\(\) \{[\s\S]*?\n\}/)?.[0];
   assert.ok(guard);
   const inventory = script.match(/observe_pre_native_baseline_bundle\(\) \{[\s\S]*?\n\}/)?.[0];
   assert.ok(inventory);
+  const privacyInventory = script.match(/observe_pre_native_privacy_bundle_inventory\(\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(privacyInventory);
   const privacyBundleCase = script.match(/case "\$bundle_name" in[\s\S]*?\n\s*esac/)?.[0];
   assert.ok(privacyBundleCase);
   assert.match(privacyBundleCase, /unreviewed_privacy_bundle_path_sha256=%s unreviewed_privacy_bundle_byte_sha256=%s/);
@@ -769,8 +771,15 @@ test("historical iOS size baseline admits only its five observed bundle resource
   assert.match(inventory, /"\$observed_count" -eq 5/);
   assert.match(inventory, /"\$source_sha" == e4d4edd0d6854845cc67b00924f6d22af6a70688/);
   assert.match(inventory, /baseline_bundle_path_sha256=%s baseline_bundle_tail_sha256=%s resource_kind=%s resource_depth=%s baseline_bundle_byte_sha256=%s/);
+  assert.match(guard, /be715e85d5f4f57413f61b531918c4ecd57ce571ac5638c957f1c30880f640ac/);
+  assert.match(guard, /9a9f78244f66debf784883ab0e7dcb515bafc45066b14054e8a0b5bc7207ee12/);
+  assert.match(guard, /47226a29608df206ad0a110e6afeb5a77ff575ac1df9c76bfdb2d6dfb3fafed1/);
+  assert.match(privacyInventory, /"\$observed_count" -le 128/);
+  assert.match(privacyInventory, /baseline_privacy_path_sha256=%s baseline_privacy_component_sha256=%s baseline_privacy_tail_sha256=%s baseline_privacy_byte_sha256=%s/);
+  assert.doesNotMatch(privacyInventory, /printf '[^']*(?:bundle_component|relative_resource)=%s/);
   assert.doesNotMatch(inventory, /printf '[^']*(?:bundle_component|relative_resource)=%s/);
-  assert.match(script, /observe_pre_native_baseline_bundle\s+while IFS= read -r candidate; do/);
+  assert.match(script, /observe_pre_native_baseline_bundle\s+observe_pre_native_privacy_bundle_inventory\s+while IFS= read -r candidate; do/);
+  assert.match(script, /observe_pre_native_privacy_bundle_inventory\s+while IFS= read -r candidate; do/);
   assert.match(script, /\*\.bundle\/\*\)\s+#[^\n]*\n\s+#[^\n]*\n\s+is_reviewed_pre_native_baseline_resource \|\| fail_unreviewed_resource_path/);
   assert.match(script, /is_reviewed_pre_native_baseline_resource \|\|\s+fail_unreviewed_opaque_resource/);
   const probe = String.raw`${guard}
@@ -779,13 +788,13 @@ shasum() {
   local value
   value=$(cat)
   case "$value" in
-    Vendor.bundle) printf '%s  -\n' "$component_sha" ;;
+    Vendor.bundle) printf '%s  -\n' "$mock_component_sha" ;;
     Vendor.bundle/*) printf '%s  -\n' "$mock_path_sha" ;;
     *) printf '%s  -\n' "$mock_tail_sha" ;;
   esac
 }
 sha256_file() { printf '%s\n' "$mock_byte_sha"; }
-component_sha=e1c52c24d9324d76c00df7774c64f4d3256f28ed458bdd51abb27bce67640925
+mock_component_sha=e1c52c24d9324d76c00df7774c64f4d3256f28ed458bdd51abb27bce67640925
 mode=unsigned
 artifact_class=size-measurement
 source_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
@@ -802,6 +811,22 @@ check_tuple d2736eac556c5bae12db2e4b6c2a2b02cd36a490e26388b65527feecb84cd5ed 639
 check_tuple b3d731c55e13078a1d0e953e07d37c614133f4c1c3df65f1db1dcffbf3437226 e8bf176ab46545c803ef0db2bdefe57bf6ea302149d36257aaecca3e5118d172 48323c9991f72b12d5df9852aa33f50daa13fd4afb447ddb995f8c9e3327c79e Vendor.bundle/lang3.lproj/name.strings || exit 13
 check_tuple bd2a59d6d3ebe4da870b642e5bff0b3e6a7cb3e0374795bcbeb88eb2a8dcc379 d05a82bd3911e6fb696a4236f1948edcd980cf709fbd6870eeb4ac6e4d5dad9f 4ce5093174371d9711f34278532b4d5c9a7c2783739f361ab96c9ccd919ea432 Vendor.bundle/data.bin || exit 14
 check_tuple c3ffe9ac14280d7ed96202c11fec46984b14e8204ec3e504176906ecbdcc4c69 9ac3b5ad93cbc0305c62f78f50b32774a939d7c44fcc380bc5f4d65c9b39efdf edceaa1270b4ce30b8af310bae530f8338239e98c675139b9646d5a6150a2ab1 Vendor.bundle/Info.plist || exit 15
+mock_component_sha=be715e85d5f4f57413f61b531918c4ecd57ce571ac5638c957f1c30880f640ac
+check_tuple 9a9f78244f66debf784883ab0e7dcb515bafc45066b14054e8a0b5bc7207ee12 6d123ae8ab04eee632cc6c18a31d71271ad217595dcd4401c63875b4b5c0e226 47226a29608df206ad0a110e6afeb5a77ff575ac1df9c76bfdb2d6dfb3fafed1 Vendor.bundle/PrivacyInfo.xcprivacy || exit 36
+mock_byte_sha=0000000000000000000000000000000000000000000000000000000000000000
+if is_reviewed_pre_native_baseline_resource; then exit 37; fi
+mock_byte_sha=47226a29608df206ad0a110e6afeb5a77ff575ac1df9c76bfdb2d6dfb3fafed1
+mock_path_sha=0000000000000000000000000000000000000000000000000000000000000000
+if is_reviewed_pre_native_baseline_resource; then exit 38; fi
+mock_path_sha=9a9f78244f66debf784883ab0e7dcb515bafc45066b14054e8a0b5bc7207ee12
+mock_tail_sha=0000000000000000000000000000000000000000000000000000000000000000
+if is_reviewed_pre_native_baseline_resource; then exit 39; fi
+mock_component_sha=e1c52c24d9324d76c00df7774c64f4d3256f28ed458bdd51abb27bce67640925
+if is_reviewed_pre_native_baseline_resource; then exit 40; fi
+mock_tail_sha=9ac3b5ad93cbc0305c62f78f50b32774a939d7c44fcc380bc5f4d65c9b39efdf
+mock_path_sha=c3ffe9ac14280d7ed96202c11fec46984b14e8204ec3e504176906ecbdcc4c69
+mock_byte_sha=edceaa1270b4ce30b8af310bae530f8338239e98c675139b9646d5a6150a2ab1
+relative_resource=Vendor.bundle/Info.plist
 fail() { return 1; }
 privacy_bundle_case() {
   ${privacyBundleCase}
@@ -833,9 +858,9 @@ mock_byte_sha=0000000000000000000000000000000000000000000000000000000000000000
 if is_reviewed_pre_native_baseline_resource; then exit 25; fi
 mock_byte_sha=288d39f3e5c57b1a268e746a96759c839077b2e7a0f42d5f025ba0060986373b
 if is_reviewed_pre_native_baseline_resource; then exit 26; fi
-component_sha=0000000000000000000000000000000000000000000000000000000000000000
+mock_component_sha=0000000000000000000000000000000000000000000000000000000000000000
 if is_reviewed_pre_native_baseline_resource; then exit 27; fi
-component_sha=e1c52c24d9324d76c00df7774c64f4d3256f28ed458bdd51abb27bce67640925
+mock_component_sha=e1c52c24d9324d76c00df7774c64f4d3256f28ed458bdd51abb27bce67640925
 relative_resource=Vendor/Info.plist
 if is_reviewed_pre_native_baseline_resource; then exit 28; fi
 relative_resource=Vendor.bundle/Info.plist
@@ -843,7 +868,7 @@ sha256_file() { printf '%s\n' '/private/raw/bundle/path' >&2; return 1; }
 diagnostic_output=$(privacy_bundle_case 2>&1) && exit 29
 [[ "$diagnostic_output" == *'unreviewed_privacy_bundle_byte_sha256=unavailable'* ]] || exit 30
 [[ "$diagnostic_output" != *'/private/raw/bundle/path'* ]] || exit 31
-[[ "$diagnostic_output" == *"unreviewed_privacy_bundle_component_sha256=$component_sha"* ]] || exit 34
+[[ "$diagnostic_output" == *"unreviewed_privacy_bundle_component_sha256=$mock_component_sha"* ]] || exit 34
 [[ "$diagnostic_output" == *"unreviewed_privacy_bundle_tail_sha256=$mock_tail_sha"* ]] || exit 35
 app_path=$(mktemp -d)
 mkdir -p "$app_path/Vendor.bundle"
@@ -853,6 +878,40 @@ baseline_output=$(observe_pre_native_baseline_bundle 2>&1) && exit 32
 [[ "$baseline_output" == *'pre-native baseline bundle resource is unreadable'* ]] || exit 33
 [[ "$baseline_output" != *'/private/raw/bundle/path'* ]] || exit 34
 rm -rf -- "$app_path"
+`;
+  const result = spawnSync("bash", ["-s"], { encoding: "utf8", input: probe });
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("fixed iOS baseline privacy inventory emits only bounded hashes and fails on unreadable bytes", () => {
+  const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
+  const inventory = script.match(/observe_pre_native_privacy_bundle_inventory\(\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(inventory);
+  const probe = String.raw`${inventory}
+shasum() { cat >/dev/null; printf '%064d  -\n' 1; }
+sha256_file() { printf '%064d\n' 2; }
+fail() { printf '%s\n' "$1" >&2; exit 1; }
+mode=unsigned
+artifact_class=size-measurement
+source_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
+app_path=$(mktemp -d)
+inventory_file=$(mktemp)
+mkdir -p "$app_path/Vendor.bundle"
+: > "$app_path/Vendor.bundle/PrivacyInfo.xcprivacy"
+printf '%s\n' "$app_path/Vendor.bundle/PrivacyInfo.xcprivacy" > "$inventory_file"
+output=$(observe_pre_native_privacy_bundle_inventory) || exit 41
+[[ "$output" == *'baseline_privacy_bundle_inventory_count=1'* ]] || exit 42
+[[ "$output" == *'baseline_privacy_path_sha256=0000000000000000000000000000000000000000000000000000000000000001'* ]] || exit 43
+[[ "$output" != *'Vendor.bundle'* ]] || exit 44
+source_sha=0000000000000000000000000000000000000000
+[[ -z "$(observe_pre_native_privacy_bundle_inventory)" ]] || exit 45
+source_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
+sha256_file() { printf '%s\n' '/private/raw/resource/path' >&2; return 1; }
+error=$(observe_pre_native_privacy_bundle_inventory 2>&1) && exit 46
+[[ "$error" == *'pre-native privacy bundle resource is unreadable'* ]] || exit 47
+[[ "$error" != *'/private/raw/resource/path'* ]] || exit 48
+rm -rf -- "$app_path"
+rm -f -- "$inventory_file"
 `;
   const result = spawnSync("bash", ["-s"], { encoding: "utf8", input: probe });
   assert.equal(result.status, 0, result.stderr);

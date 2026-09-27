@@ -355,6 +355,10 @@ void main() {
                 nativeColdLoadTimeMs ??= evidence?.coldLoadTimeMs;
                 runtime ??= evidence?.runtime;
                 failure.set('corpus_comparison', fixtureId: fixtureId);
+                // Sideways native text points use the upright document frame.
+                // The immutable 90-degree corpus variant stores landscape bytes.
+                final sidewaysCorpusVariant =
+                    entry['image_variant'] == 'rotate 90 degrees';
                 fixtureMismatches.addAll(
                   _completePreviewMismatches(
                     fixtureId,
@@ -363,8 +367,12 @@ void main() {
                     script: script,
                     modelCatalog: modelCatalog,
                     currencyResolution: currencyResolution,
-                    imageWidth: artifact.width!,
-                    imageHeight: artifact.height!,
+                    imageWidth: sidewaysCorpusVariant
+                        ? artifact.height!
+                        : artifact.width!,
+                    imageHeight: sidewaysCorpusVariant
+                        ? artifact.width!
+                        : artifact.height!,
                   ),
                 );
               } catch (_) {

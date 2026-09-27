@@ -407,15 +407,27 @@ fail_unreviewed_resource_path() {
   fail "production application contains an unreviewed resource path"
 }
 is_reviewed_pre_native_baseline_resource() {
-  local bundle_component bundle_tail path_sha tail_sha byte_sha
+  local bundle_component bundle_tail component_sha path_sha tail_sha byte_sha
   [[ "$mode" == unsigned && "$artifact_class" == size-measurement &&
     "$source_sha" == e4d4edd0d6854845cc67b00924f6d22af6a70688 &&
     "$relative_resource" == *.bundle/* ]] || return 1
   bundle_component=${relative_resource%%.bundle/*}.bundle
   bundle_tail=${relative_resource#"$bundle_component"/}
-  [[ "$(printf '%s' "$bundle_component" | shasum -a 256 | cut -d ' ' -f 1)" == e1c52c24d9324d76c00df7774c64f4d3256f28ed458bdd51abb27bce67640925 ]] || return 1
+  component_sha=$(printf '%s' "$bundle_component" | shasum -a 256 | cut -d ' ' -f 1)
   path_sha=$(printf '%s' "$relative_resource" | shasum -a 256 | cut -d ' ' -f 1)
   tail_sha=$(printf '%s' "$bundle_tail" | shasum -a 256 | cut -d ' ' -f 1)
+  # One additional privacy manifest was observed after all five pinned files
+  # in the fixed unsigned size baseline. Bind its component, direct tail,
+  # relative path, and bytes; no other file in that bundle is reviewed.
+  if [[ "$component_sha" == be715e85d5f4f57413f61b531918c4ecd57ce571ac5638c957f1c30880f640ac &&
+    "$bundle_tail" == PrivacyInfo.xcprivacy &&
+    "$path_sha" == 9a9f78244f66debf784883ab0e7dcb515bafc45066b14054e8a0b5bc7207ee12 &&
+    "$tail_sha" == 6d123ae8ab04eee632cc6c18a31d71271ad217595dcd4401c63875b4b5c0e226 ]]; then
+    byte_sha=$(sha256_file "$candidate" 2>/dev/null) || return 1
+    [[ "$byte_sha" == 47226a29608df206ad0a110e6afeb5a77ff575ac1df9c76bfdb2d6dfb3fafed1 ]]
+    return
+  fi
+  [[ "$component_sha" == e1c52c24d9324d76c00df7774c64f4d3256f28ed458bdd51abb27bce67640925 ]] || return 1
   byte_sha=$(sha256_file "$candidate" 2>/dev/null) || return 1
   case "$path_sha:$tail_sha:$byte_sha" in
     # Five files observed together in the fixed pre-native baseline bundle in
@@ -457,6 +469,31 @@ observe_pre_native_baseline_bundle() {
   [[ "$observed_count" -eq 5 ]] || fail "pre-native baseline bundle resource count differs from reviewed inventory"
   printf 'baseline_bundle_resource_count=%s\n' "$observed_count"
 }
+observe_pre_native_privacy_bundle_inventory() {
+  [[ "$mode" == unsigned && "$artifact_class" == size-measurement &&
+    "$source_sha" == e4d4edd0d6854845cc67b00924f6d22af6a70688 ]] || return 0
+  local observed_count=0 candidate relative_resource bundle_component bundle_tail observed_byte_sha
+  while IFS= read -r candidate; do
+    relative_resource=${candidate#"$app_path"/}
+    case "$relative_resource" in
+      *.bundle/Info.plist|*.bundle/PrivacyInfo.xcprivacy|*.bundle/_CodeSignature/CodeResources) ;;
+      *) continue ;;
+    esac
+    observed_count=$((observed_count + 1))
+    [[ "$observed_count" -le 128 ]] || fail "pre-native privacy bundle inventory exceeds reviewed diagnostic bound"
+    [[ -f "$candidate" && ! -L "$candidate" ]] || fail "pre-native privacy bundle resource is not a regular file"
+    bundle_component=${relative_resource%%.bundle/*}.bundle
+    bundle_tail=${relative_resource#"$bundle_component"/}
+    observed_byte_sha=$(sha256_file "$candidate" 2>/dev/null) ||
+      fail "pre-native privacy bundle resource is unreadable"
+    printf 'baseline_privacy_path_sha256=%s baseline_privacy_component_sha256=%s baseline_privacy_tail_sha256=%s baseline_privacy_byte_sha256=%s\n' \
+      "$(printf '%s' "$relative_resource" | shasum -a 256 | cut -d ' ' -f 1)" \
+      "$(printf '%s' "$bundle_component" | shasum -a 256 | cut -d ' ' -f 1)" \
+      "$(printf '%s' "$bundle_tail" | shasum -a 256 | cut -d ' ' -f 1)" \
+      "$observed_byte_sha"
+  done < "$inventory_file"
+  printf 'baseline_privacy_bundle_inventory_count=%s\n' "$observed_count"
+}
 fail_unreviewed_opaque_resource() {
   local relative_resource=${candidate#"$app_path"/}
   printf 'unreviewed_opaque_path_sha256=%s unreviewed_opaque_sha256=%s\n' \
@@ -495,6 +532,7 @@ done
 [[ "$compiled_storyboard_nib_count" -eq 4 ]] ||
   fail "production storyboard nib inventory differs from reviewed Xcode output"
 observe_pre_native_baseline_bundle
+observe_pre_native_privacy_bundle_inventory
 while IFS= read -r candidate; do
   # Bind opaque generated resources before file(1) classifies their bytes.
   case "$candidate" in
@@ -644,7 +682,7 @@ while IFS= read -r candidate; do
               [[ "$(sha256_file "$candidate")" == 3d3b30c0bc5677bd40fc3dff681a369be2af6b956ec0f15dc59f91650e0740e9 ]] ||
                 fail_unreviewed_resource_path ;;
             Frameworks/GoogleDataTransport.framework/GoogleDataTransport_Privacy.bundle/*|Frameworks/GoogleToolboxForMac.framework/GoogleToolboxForMac_Logger_Privacy.bundle/Info.plist|Frameworks/GoogleToolboxForMac.framework/GoogleToolboxForMac_Logger_Privacy.bundle/PrivacyInfo.xcprivacy|Frameworks/GoogleToolboxForMac.framework/GoogleToolboxForMac_Privacy.bundle/PrivacyInfo.xcprivacy|Frameworks/GoogleUtilities.framework/GoogleUtilities_Privacy.bundle/Info.plist|Frameworks/GoogleUtilities.framework/GoogleUtilities_Privacy.bundle/PrivacyInfo.xcprivacy|Frameworks/GTMSessionFetcher.framework/GTMSessionFetcher_Core_Privacy.bundle/Info.plist|Frameworks/GTMSessionFetcher.framework/GTMSessionFetcher_Core_Privacy.bundle/PrivacyInfo.xcprivacy|Frameworks/FBLPromises.framework/FBLPromises_Privacy.bundle/Info.plist|Frameworks/FBLPromises.framework/FBLPromises_Privacy.bundle/PrivacyInfo.xcprivacy|Frameworks/flutter_secure_storage_darwin.framework/flutter_secure_storage.bundle/Info.plist|Frameworks/flutter_secure_storage_darwin.framework/flutter_secure_storage.bundle/PrivacyInfo.xcprivacy|Frameworks/MLKitTextRecognition.framework/LatinOCRResources.bundle/*|Frameworks/image_picker_ios.framework/image_picker_ios_privacy.bundle/PrivacyInfo.xcprivacy) ;;
-            *) fail_unreviewed_resource_path ;;
+            *) is_reviewed_pre_native_baseline_resource || fail_unreviewed_resource_path ;;
           esac
         fi ;;
       Frameworks/*/Info.plist|Frameworks/*/PrivacyInfo.xcprivacy|Frameworks/*/_CodeSignature/CodeResources)

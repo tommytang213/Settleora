@@ -3,11 +3,20 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // Exact six-path #1308 candidate after the rotated acceptance bound and
+  // fixed-baseline iOS privacy manifest correction. Clean Flutter 3.44.8
+  // local Release APK passed preceding package gates; signer is mocked.
+  "6300728711f17cee677ed7edc705aee350768eb1b980770fd180003b95d85538": Object.freeze([
+    "4e1a2f4b45b11c7b47b5b81db47e7f626d2750f621899e5f60d2f713920ca4aa",
+  ]),
   // Bounded hash-only iOS privacy-bundle diagnostic. The exact synthetic
   // source tree passed the strict local Release APK path/catalog/model/fixture
   // gates; its signer is mocked until exact-head hosted proof is available.
   "91b15758f9969a97a964faf0f9e48078683193dbe3eb691314f43b0ec4e29f36": Object.freeze([
     "b7776c6168400be59fa5dc89e84a0a966d473104fc036f6759682d366cdad0de",
+    // Exact-head hosted job 108699296493 passed signer, archive/path,
+    // catalog, model, and fixture-absence gates before reporting these bytes.
+    "74a1233184417c2665c91494b4c92c00f58803e841649666d52c7749dacb0efd",
   ]),
   // Hash-only iOS pre-native baseline diagnostic. The clean Flutter 3.44.8
   // local Release projection passed the strict archive, catalog, 14-model,
