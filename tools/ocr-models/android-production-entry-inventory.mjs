@@ -5,10 +5,12 @@
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
   // Pre-native iOS baseline privacy-bundle dispatch and its regression test.
   // The clean Flutter 3.44.8 local Release projection passed the path,
-  // catalog, model, and fixture gates. Local signer was mocked; exact-head
-  // hosted signer and ZIP representation still require independent proof.
+  // catalog, model, and fixture gates. Local signer was mocked. Exact-head
+  // hosted job 108645294547 passed signer and all preceding package gates
+  // before reporting its distinct ZIP entry representation.
   "9e72b805550bef58f7c4adcc9bee78ddbe472dcd31533c44e9fa807d216cf199": Object.freeze([
     "7c24dd947a94f3ece1c792d755f6ff1e0804c39d8064594f84a9aa4c2af3f878",
+    "74a1233184417c2665c91494b4c92c00f58803e841649666d52c7749dacb0efd",
   ]),
   // Five exact fixed-baseline iOS bundle resources and both previously
   // observed hosted Android ZIP representations. A clean Flutter 3.44.8
