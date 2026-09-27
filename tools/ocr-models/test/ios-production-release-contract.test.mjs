@@ -800,7 +800,7 @@ relative_resource=Vendor.bundle/lang.lproj/name.strings
 sha256_file() { printf '%064d\\n' 0; }
 if is_reviewed_pre_native_baseline_strings; then exit 16; fi
 `;
-  const result = spawnSync("bash", ["-c", probe], { encoding: "utf8" });
+  const result = spawnSync("bash", ["-s"], { encoding: "utf8", input: probe });
   assert.equal(result.status, 0, result.stderr);
 });
 

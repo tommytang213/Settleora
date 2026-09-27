@@ -3,6 +3,12 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // CodeQL-safe test harness follow-up. Clean Flutter 3.44.8 local Release
+  // projection passed the preceding package gates; hosted signer and ZIP
+  // representation remain required on the corrective head.
+  "814deb9875aec475afdc5e4f09cb480a6103c179e86cb756f3c3fd66c3eddfcc": Object.freeze([
+    "1dbe9ec92e70552877672cff4a17f2a0ef91b32bfbfa8229652e9545ee1ac0e2",
+  ]),
   // Fixed pre-native iOS size-baseline string pin and bounded inventory.
   // A clean Flutter 3.44.8 local Release projection passed the preceding
   // Android package gates; hosted signer and ZIP proof remain required.
