@@ -762,6 +762,8 @@ test("historical iOS size baseline admits only its five observed bundle resource
   assert.ok(inventory);
   const privacyBundleCase = script.match(/case "\$bundle_name" in[\s\S]*?\n\s*esac/)?.[0];
   assert.ok(privacyBundleCase);
+  assert.match(privacyBundleCase, /unreviewed_privacy_bundle_path_sha256=%s unreviewed_privacy_bundle_byte_sha256=%s/);
+  assert.doesNotMatch(privacyBundleCase, /printf '[^']*relative_resource=%s/);
   assert.match(inventory, /"\$observed_count" -le 64/);
   assert.match(inventory, /"\$observed_count" -eq 5/);
   assert.match(inventory, /"\$source_sha" == e4d4edd0d6854845cc67b00924f6d22af6a70688/);
@@ -771,6 +773,7 @@ test("historical iOS size baseline admits only its five observed bundle resource
   assert.match(script, /\*\.bundle\/\*\)\s+#[^\n]*\n\s+#[^\n]*\n\s+is_reviewed_pre_native_baseline_resource \|\| fail_unreviewed_resource_path/);
   assert.match(script, /is_reviewed_pre_native_baseline_resource \|\|\s+fail_unreviewed_opaque_resource/);
   const probe = String.raw`${guard}
+${inventory}
 shasum() {
   local value
   value=$(cat)
@@ -834,6 +837,19 @@ if is_reviewed_pre_native_baseline_resource; then exit 27; fi
 component_sha=e1c52c24d9324d76c00df7774c64f4d3256f28ed458bdd51abb27bce67640925
 relative_resource=Vendor/Info.plist
 if is_reviewed_pre_native_baseline_resource; then exit 28; fi
+relative_resource=Vendor.bundle/Info.plist
+sha256_file() { printf '%s\n' '/private/raw/bundle/path' >&2; return 1; }
+diagnostic_output=$(privacy_bundle_case 2>&1) && exit 29
+[[ "$diagnostic_output" == *'unreviewed_privacy_bundle_byte_sha256=unavailable'* ]] || exit 30
+[[ "$diagnostic_output" != *'/private/raw/bundle/path'* ]] || exit 31
+app_path=$(mktemp -d)
+mkdir -p "$app_path/Vendor.bundle"
+: > "$app_path/Vendor.bundle/Info.plist"
+fail() { printf '%s\n' "$1" >&2; exit 1; }
+baseline_output=$(observe_pre_native_baseline_bundle 2>&1) && exit 32
+[[ "$baseline_output" == *'pre-native baseline bundle resource is unreadable'* ]] || exit 33
+[[ "$baseline_output" != *'/private/raw/bundle/path'* ]] || exit 34
+rm -rf -- "$app_path"
 `;
   const result = spawnSync("bash", ["-s"], { encoding: "utf8", input: probe });
   assert.equal(result.status, 0, result.stderr);

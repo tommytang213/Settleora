@@ -3,6 +3,13 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // Hash-only iOS pre-native baseline diagnostic. The clean Flutter 3.44.8
+  // local Release projection passed the strict archive, catalog, 14-model,
+  // and 102-fixture-absence gates; local signer was mocked. Hosted signer and
+  // any distinct hosted ZIP representation still require exact-head proof.
+  "9fcfa9b67a83fb6ef398976bac73d9197288bcee5cba12f72f154cb0e5315e56": Object.freeze([
+    "6cc699ded0865e4a1dc8d151d9d1e3ae7c9466de33bf0e588bb9750bb689f88e",
+  ]),
   // Pre-native iOS baseline privacy-bundle dispatch and its regression test.
   // The clean Flutter 3.44.8 local Release projection passed the path,
   // catalog, model, and fixture gates. Local signer was mocked. Exact-head

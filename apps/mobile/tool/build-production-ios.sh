@@ -416,7 +416,7 @@ is_reviewed_pre_native_baseline_resource() {
   [[ "$(printf '%s' "$bundle_component" | shasum -a 256 | cut -d ' ' -f 1)" == e1c52c24d9324d76c00df7774c64f4d3256f28ed458bdd51abb27bce67640925 ]] || return 1
   path_sha=$(printf '%s' "$relative_resource" | shasum -a 256 | cut -d ' ' -f 1)
   tail_sha=$(printf '%s' "$bundle_tail" | shasum -a 256 | cut -d ' ' -f 1)
-  byte_sha=$(sha256_file "$candidate")
+  byte_sha=$(sha256_file "$candidate" 2>/dev/null) || return 1
   case "$path_sha:$tail_sha:$byte_sha" in
     # Five files observed together in the fixed pre-native baseline bundle in
     # hosted job 108593887895: three strings, one opaque resource, one plist.
@@ -431,7 +431,7 @@ is_reviewed_pre_native_baseline_resource() {
 observe_pre_native_baseline_bundle() {
   [[ "$mode" == unsigned && "$artifact_class" == size-measurement &&
     "$source_sha" == e4d4edd0d6854845cc67b00924f6d22af6a70688 ]] || return 0
-  local observed_count=0 candidate relative_resource bundle_component bundle_tail resource_kind resource_depth
+  local observed_count=0 candidate relative_resource bundle_component bundle_tail resource_kind resource_depth observed_byte_sha
   while IFS= read -r -d '' candidate; do
     relative_resource=${candidate#"$app_path"/}
     [[ "$relative_resource" == *.bundle/* ]] || continue
@@ -447,10 +447,12 @@ observe_pre_native_baseline_bundle() {
       *) resource_kind=other ;;
     esac
     resource_depth=$(printf '%s' "$bundle_tail" | tr -cd '/' | wc -c | tr -d ' ')
+    observed_byte_sha=$(sha256_file "$candidate" 2>/dev/null) ||
+      fail "pre-native baseline bundle resource is unreadable"
     printf 'baseline_bundle_path_sha256=%s baseline_bundle_tail_sha256=%s resource_kind=%s resource_depth=%s baseline_bundle_byte_sha256=%s\n' \
       "$(printf '%s' "$relative_resource" | shasum -a 256 | cut -d ' ' -f 1)" \
       "$(printf '%s' "$bundle_tail" | shasum -a 256 | cut -d ' ' -f 1)" \
-      "$resource_kind" "$resource_depth" "$(sha256_file "$candidate")"
+      "$resource_kind" "$resource_depth" "$observed_byte_sha"
   done < <(find "$app_path" -type f -print0)
   [[ "$observed_count" -eq 5 ]] || fail "pre-native baseline bundle resource count differs from reviewed inventory"
   printf 'baseline_bundle_resource_count=%s\n' "$observed_count"
@@ -608,8 +610,13 @@ while IFS= read -r candidate; do
           file_picker_ios_privacy|image_picker_ios_privacy|flutter_secure_storage|GoogleUtilities_Privacy|GoogleDataTransport_Privacy|GoogleToolboxForMac_Privacy|GoogleToolboxForMac_Logger_Privacy|GTMSessionFetcher_Privacy|GTMSessionFetcher_Core_Privacy|MLKitCommon_Privacy|MLKitTextRecognition_Privacy|MLKitTextRecognitionCommon_Privacy|MLKitVision_Privacy|MLImage_Privacy|nanopb_Privacy|OpenCV_Privacy|onnxruntime_privacy|Yams_Privacy|PromisesObjC_Privacy|FBLPromises_Privacy|LatinOCRResources) ;;
           # The fixed pre-native size baseline has one byte-pinned Info.plist
           # in a bundle outside the current production dependency inventory.
-          *) is_reviewed_pre_native_baseline_resource ||
-            fail "production application contains an unreviewed privacy bundle" ;;
+          *) if ! is_reviewed_pre_native_baseline_resource; then
+               diagnostic_byte_sha=$(sha256_file "$candidate" 2>/dev/null) || diagnostic_byte_sha=unavailable
+               printf 'unreviewed_privacy_bundle_path_sha256=%s unreviewed_privacy_bundle_byte_sha256=%s\n' \
+                 "$(printf '%s' "$relative_resource" | shasum -a 256 | cut -d ' ' -f 1)" \
+                 "$diagnostic_byte_sha" >&2
+               fail "production application contains an unreviewed privacy bundle"
+             fi ;;
         esac
         if [[ "$relative_resource" == Frameworks/* ]]; then
           case "$relative_resource" in
