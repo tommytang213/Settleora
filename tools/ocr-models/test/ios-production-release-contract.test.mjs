@@ -538,6 +538,8 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   assert.match(script, /unreviewed_privacy_bundle_info_sha256=%s/);
   assert.match(script, /Frameworks\/image_picker_ios\.framework\/image_picker_ios_privacy\.bundle\/Info\.plist/);
   assert.match(script, /framework_component_sha256=%s framework_tail_sha256=%s resource_kind=%s resource_depth=%s/);
+  assert.match(script, /bundle_component_sha256=%s bundle_tail_sha256=%s resource_kind=%s resource_depth=%s bundle_resource_sha256=%s/);
+  assert.doesNotMatch(script, /unreviewed_bundle_path=%s/);
   assert.match(script, /unreviewed_framework_resource_sha256=%s/);
   const engineResourcePins = [...script.matchAll(/Frameworks\/Flutter\.framework\/(Headers\/[^)]+\.h|Modules\/module\.modulemap)\) expected_flutter_engine_resource_sha=([a-f0-9]{64}) ;;/g)];
   assert.equal(engineResourcePins.length, 20);

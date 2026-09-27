@@ -3,11 +3,20 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // Bounded baseline bundle diagnostic. Clean Flutter 3.44.8 local Release
+  // projection passed preceding package gates; hosted signer and ZIP
+  // representation remain required for this exact source fingerprint.
+  "52e2f77b7a316dbcf9506c46b1e948d03a54bffddf7cb299296703e571f667d4": Object.freeze([
+    "9a515f8e843b057219186fbfb74cd628a91fdd8aa088f3b9217d34892e567232",
+  ]),
   // Strict Android numeric network-denial probe and bound acceptance source.
   // Clean Flutter 3.44.8 local Release projection passed preceding package
   // gates; hosted signer and ZIP representation remain required.
   "e7fee1ae373984bafa2f9bed4f91162c9784f4521714f3c9484af571272caa56": Object.freeze([
     "8cb1e3a896d2340cef74f2af33e6de67b3459e2ccc0b1d18f4d64d4846433929",
+    // Exact-head hosted job 108563504199 passed signer, path, catalog,
+    // model, and fixture-absence gates before reporting this ZIP representation.
+    "74a1233184417c2665c91494b4c92c00f58803e841649666d52c7749dacb0efd",
   ]),
   // UI Apply probe and its updated acceptance-source catalog binding.
   // Clean Flutter 3.44.8 local Release projection passed preceding package

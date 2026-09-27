@@ -355,6 +355,7 @@ printf 'compiled_asset_car_sha256=%s\n' "$compiled_asset_car_sha256"
 # These are observed identities only. #1320 owns the signed Xcode baseline.
 fail_unreviewed_resource_path() {
   local resource_path_sha resource_class framework_component framework_tail resource_kind resource_depth
+  local bundle_component bundle_tail bundle_kind bundle_depth
   resource_path_sha=$(printf '%s' "$relative_resource" | shasum -a 256 | cut -d ' ' -f 1)
   case "$relative_resource" in
     Frameworks/*) resource_class=framework ;;
@@ -363,6 +364,22 @@ fail_unreviewed_resource_path() {
   esac
   printf 'unreviewed_resource_path_sha256=%s resource_class=%s\n' \
     "$resource_path_sha" "$resource_class" >&2
+  if [[ "$resource_class" == bundle ]]; then
+    bundle_component=${relative_resource%%.bundle/*}.bundle
+    bundle_tail=${relative_resource#"$bundle_component"/}
+    case "$bundle_tail" in
+      *.plist) bundle_kind=plist ;;
+      *.xcprivacy) bundle_kind=privacy ;;
+      *.json) bundle_kind=json ;;
+      *.strings) bundle_kind=strings ;;
+      *) bundle_kind=other ;;
+    esac
+    bundle_depth=$(printf '%s' "$bundle_tail" | tr -cd '/' | wc -c | tr -d ' ')
+    printf 'bundle_component_sha256=%s bundle_tail_sha256=%s resource_kind=%s resource_depth=%s bundle_resource_sha256=%s\n' \
+      "$(printf '%s' "$bundle_component" | shasum -a 256 | cut -d ' ' -f 1)" \
+      "$(printf '%s' "$bundle_tail" | shasum -a 256 | cut -d ' ' -f 1)" \
+      "$bundle_kind" "$bundle_depth" "$(sha256_file "$candidate")" >&2
+  fi
   if [[ "$relative_resource" == Frameworks/image_picker_ios.framework/image_picker_ios_privacy.bundle/Info.plist ]]; then
     printf 'unreviewed_privacy_bundle_info_sha256=%s\n' "$(sha256_file "$candidate")" >&2
   fi
