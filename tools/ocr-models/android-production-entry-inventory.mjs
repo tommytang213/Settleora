@@ -8,6 +8,9 @@ export const expectedAndroidPackageDigestsBySource = Object.freeze({
   // local Release APK passed preceding package gates; signer is mocked.
   "6300728711f17cee677ed7edc705aee350768eb1b980770fd180003b95d85538": Object.freeze([
     "4e1a2f4b45b11c7b47b5b81db47e7f626d2750f621899e5f60d2f713920ca4aa",
+    // Exact-head hosted job 108727015032 passed signer, archive/path,
+    // catalog, model, and fixture-absence gates before reporting these bytes.
+    "f056e2f9e16d7c3f9d882939fd1d5cc6a4c12ff3cbf31ff2b16c5efe4f535c09",
   ]),
   // Bounded hash-only iOS privacy-bundle diagnostic. The exact synthetic
   // source tree passed the strict local Release APK path/catalog/model/fixture
