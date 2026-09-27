@@ -615,6 +615,11 @@ while IFS= read -r candidate; do
                printf 'unreviewed_privacy_bundle_path_sha256=%s unreviewed_privacy_bundle_byte_sha256=%s\n' \
                  "$(printf '%s' "$relative_resource" | shasum -a 256 | cut -d ' ' -f 1)" \
                  "$diagnostic_byte_sha" >&2
+               diagnostic_bundle_component=${relative_resource%%.bundle/*}.bundle
+               diagnostic_bundle_tail=${relative_resource#"$diagnostic_bundle_component"/}
+               printf 'unreviewed_privacy_bundle_component_sha256=%s unreviewed_privacy_bundle_tail_sha256=%s\n' \
+                 "$(printf '%s' "$diagnostic_bundle_component" | shasum -a 256 | cut -d ' ' -f 1)" \
+                 "$(printf '%s' "$diagnostic_bundle_tail" | shasum -a 256 | cut -d ' ' -f 1)" >&2
                fail "production application contains an unreviewed privacy bundle"
              fi ;;
         esac

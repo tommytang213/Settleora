@@ -763,6 +763,7 @@ test("historical iOS size baseline admits only its five observed bundle resource
   const privacyBundleCase = script.match(/case "\$bundle_name" in[\s\S]*?\n\s*esac/)?.[0];
   assert.ok(privacyBundleCase);
   assert.match(privacyBundleCase, /unreviewed_privacy_bundle_path_sha256=%s unreviewed_privacy_bundle_byte_sha256=%s/);
+  assert.match(privacyBundleCase, /unreviewed_privacy_bundle_component_sha256=%s unreviewed_privacy_bundle_tail_sha256=%s/);
   assert.doesNotMatch(privacyBundleCase, /printf '[^']*relative_resource=%s/);
   assert.match(inventory, /"\$observed_count" -le 64/);
   assert.match(inventory, /"\$observed_count" -eq 5/);
@@ -842,6 +843,8 @@ sha256_file() { printf '%s\n' '/private/raw/bundle/path' >&2; return 1; }
 diagnostic_output=$(privacy_bundle_case 2>&1) && exit 29
 [[ "$diagnostic_output" == *'unreviewed_privacy_bundle_byte_sha256=unavailable'* ]] || exit 30
 [[ "$diagnostic_output" != *'/private/raw/bundle/path'* ]] || exit 31
+[[ "$diagnostic_output" == *"unreviewed_privacy_bundle_component_sha256=$component_sha"* ]] || exit 34
+[[ "$diagnostic_output" == *"unreviewed_privacy_bundle_tail_sha256=$mock_tail_sha"* ]] || exit 35
 app_path=$(mktemp -d)
 mkdir -p "$app_path/Vendor.bundle"
 : > "$app_path/Vendor.bundle/Info.plist"
