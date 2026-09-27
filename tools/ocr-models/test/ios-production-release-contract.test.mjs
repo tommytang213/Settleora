@@ -574,6 +574,7 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   assert.match(resourceInventoryLoop, /Frameworks\/nanopb\.framework\/nanopb_Privacy\.bundle\/PrivacyInfo\.xcprivacy\)\s+\[\[ "\$\(sha256_file "\$candidate"\)" == 729ba3cbd0f458c78cd61edf17350edafe0e34ca86e314ec64c8cb22ccd21b54 \]\]/);
   assert.match(resourceInventoryLoop, /Frameworks\/nanopb\.framework\/nanopb_Privacy\.bundle\/Info\.plist\)\s+\[\[ "\$\(sha256_file "\$candidate"\)" == 8acd771356d9ae297dcb72876b232580832c516b82755e575fc3cb0de3f1a6f8 \]\]/);
   assert.match(resourceInventoryLoop, /Frameworks\/file_picker\.framework\/file_picker_ios_privacy\.bundle\/PrivacyInfo\.xcprivacy\)\s+\[\[ "\$\(sha256_file "\$candidate"\)" == 47226a29608df206ad0a110e6afeb5a77ff575ac1df9c76bfdb2d6dfb3fafed1 \]\]/);
+  assert.match(resourceInventoryLoop, /Frameworks\/file_picker\.framework\/file_picker_ios_privacy\.bundle\/Info\.plist\)\s+\[\[ "\$\(sha256_file "\$candidate"\)" == 3d3b30c0bc5677bd40fc3dff681a369be2af6b956ec0f15dc59f91650e0740e9 \]\]/);
   assert.ok(resourceInventoryLoop.indexOf('Frameworks/nanopb.framework/nanopb_Privacy.bundle/PrivacyInfo.xcprivacy)') <
     resourceInventoryLoop.indexOf('Frameworks/GoogleDataTransport.framework/GoogleDataTransport_Privacy.bundle/*'));
   const matchesNestedBundle = (relativePath) => {
@@ -591,6 +592,8 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   assert.equal(matchesNestedBundle('Frameworks/nanopb.framework/nanopb_Privacy.bundle/PrivacyInfo.xcprivacy'), 'reject');
   assert.equal(matchesNestedBundle('Frameworks/nanopb.framework/nanopb_Privacy.bundle/Info.plist'), 'reject');
   assert.equal(matchesNestedBundle('Frameworks/file_picker.framework/file_picker_ios_privacy.bundle/PrivacyInfo.xcprivacy'), 'reject');
+  assert.equal(matchesNestedBundle('Frameworks/file_picker.framework/file_picker_ios_privacy.bundle/Info.plist'), 'reject');
+  assert.equal(matchesNestedBundle('Frameworks/file_picker.framework/file_picker_ios_privacy.bundle/Other.plist'), 'reject');
   assert.equal(matchesNestedBundle('Frameworks/nanopb.framework/nanopb_Privacy.bundle/Other.xcprivacy'), 'reject');
   assert.equal(matchesNestedBundle('Frameworks/GoogleUtilities.framework/GoogleUtilities_Privacy.bundle/PrivacyInfo.xcprivacy'), 'reviewed');
   assert.equal(matchesNestedBundle('Frameworks/GoogleUtilities.framework/GoogleUtilities_Privacy.bundle/Info.plist'), 'reviewed');

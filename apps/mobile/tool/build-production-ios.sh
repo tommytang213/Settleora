@@ -558,6 +558,9 @@ while IFS= read -r candidate; do
             Frameworks/file_picker.framework/file_picker_ios_privacy.bundle/PrivacyInfo.xcprivacy)
               [[ "$(sha256_file "$candidate")" == 47226a29608df206ad0a110e6afeb5a77ff575ac1df9c76bfdb2d6dfb3fafed1 ]] ||
                 fail_unreviewed_resource_path ;;
+            Frameworks/file_picker.framework/file_picker_ios_privacy.bundle/Info.plist)
+              [[ "$(sha256_file "$candidate")" == 3d3b30c0bc5677bd40fc3dff681a369be2af6b956ec0f15dc59f91650e0740e9 ]] ||
+                fail_unreviewed_resource_path ;;
             Frameworks/GoogleDataTransport.framework/GoogleDataTransport_Privacy.bundle/*|Frameworks/GoogleToolboxForMac.framework/GoogleToolboxForMac_Logger_Privacy.bundle/Info.plist|Frameworks/GoogleToolboxForMac.framework/GoogleToolboxForMac_Logger_Privacy.bundle/PrivacyInfo.xcprivacy|Frameworks/GoogleToolboxForMac.framework/GoogleToolboxForMac_Privacy.bundle/PrivacyInfo.xcprivacy|Frameworks/GoogleUtilities.framework/GoogleUtilities_Privacy.bundle/Info.plist|Frameworks/GoogleUtilities.framework/GoogleUtilities_Privacy.bundle/PrivacyInfo.xcprivacy|Frameworks/GTMSessionFetcher.framework/GTMSessionFetcher_Core_Privacy.bundle/Info.plist|Frameworks/GTMSessionFetcher.framework/GTMSessionFetcher_Core_Privacy.bundle/PrivacyInfo.xcprivacy|Frameworks/FBLPromises.framework/FBLPromises_Privacy.bundle/Info.plist|Frameworks/FBLPromises.framework/FBLPromises_Privacy.bundle/PrivacyInfo.xcprivacy|Frameworks/flutter_secure_storage_darwin.framework/flutter_secure_storage.bundle/Info.plist|Frameworks/flutter_secure_storage_darwin.framework/flutter_secure_storage.bundle/PrivacyInfo.xcprivacy|Frameworks/MLKitTextRecognition.framework/LatinOCRResources.bundle/*|Frameworks/image_picker_ios.framework/image_picker_ios_privacy.bundle/PrivacyInfo.xcprivacy) ;;
             *) fail_unreviewed_resource_path ;;
           esac
