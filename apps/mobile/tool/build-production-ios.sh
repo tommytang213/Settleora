@@ -406,6 +406,45 @@ fail_unreviewed_resource_path() {
   fi
   fail "production application contains an unreviewed resource path"
 }
+is_reviewed_pre_native_baseline_strings() {
+  local bundle_component bundle_tail
+  [[ "$mode" == unsigned && "$artifact_class" == size-measurement &&
+    "$source_sha" == e4d4edd0d6854845cc67b00924f6d22af6a70688 &&
+    "$relative_resource" == *.bundle/*/*.strings ]] || return 1
+  bundle_component=${relative_resource%%.bundle/*}.bundle
+  bundle_tail=${relative_resource#"$bundle_component"/}
+  [[ "$(printf '%s' "$relative_resource" | shasum -a 256 | cut -d ' ' -f 1)" == 2acd809e558c9d1a7c08069eb361c296a3125e94820b015f99082288d66fc285 &&
+    "$(printf '%s' "$bundle_component" | shasum -a 256 | cut -d ' ' -f 1)" == e1c52c24d9324d76c00df7774c64f4d3256f28ed458bdd51abb27bce67640925 &&
+    "$(printf '%s' "$bundle_tail" | shasum -a 256 | cut -d ' ' -f 1)" == 7bd67f215974b512446d5ff4725574d4bd7f64417b5120c4a4f55d854b95b671 &&
+    "$(sha256_file "$candidate")" == 288d39f3e5c57b1a268e746a96759c839077b2e7a0f42d5f025ba0060986373b ]]
+}
+observe_pre_native_baseline_bundle() {
+  [[ "$mode" == unsigned && "$artifact_class" == size-measurement &&
+    "$source_sha" == e4d4edd0d6854845cc67b00924f6d22af6a70688 ]] || return 0
+  local observed_count=0 candidate relative_resource bundle_component bundle_tail resource_kind resource_depth
+  while IFS= read -r -d '' candidate; do
+    relative_resource=${candidate#"$app_path"/}
+    [[ "$relative_resource" == *.bundle/* ]] || continue
+    bundle_component=${relative_resource%%.bundle/*}.bundle
+    [[ "$(printf '%s' "$bundle_component" | shasum -a 256 | cut -d ' ' -f 1)" == e1c52c24d9324d76c00df7774c64f4d3256f28ed458bdd51abb27bce67640925 ]] || continue
+    observed_count=$((observed_count + 1))
+    [[ "$observed_count" -le 64 ]] || fail "pre-native baseline bundle resource count exceeds reviewed diagnostic bound"
+    bundle_tail=${relative_resource#"$bundle_component"/}
+    case "$bundle_tail" in
+      *.plist) resource_kind=plist ;;
+      *.xcprivacy) resource_kind=privacy ;;
+      *.strings) resource_kind=strings ;;
+      *) resource_kind=other ;;
+    esac
+    resource_depth=$(printf '%s' "$bundle_tail" | tr -cd '/' | wc -c | tr -d ' ')
+    printf 'baseline_bundle_path_sha256=%s baseline_bundle_tail_sha256=%s resource_kind=%s resource_depth=%s baseline_bundle_byte_sha256=%s\n' \
+      "$(printf '%s' "$relative_resource" | shasum -a 256 | cut -d ' ' -f 1)" \
+      "$(printf '%s' "$bundle_tail" | shasum -a 256 | cut -d ' ' -f 1)" \
+      "$resource_kind" "$resource_depth" "$(sha256_file "$candidate")"
+  done < <(find "$app_path" -type f -print0)
+  [[ "$observed_count" -gt 0 ]] || fail "reviewed pre-native baseline bundle is absent"
+  printf 'baseline_bundle_resource_count=%s\n' "$observed_count"
+}
 fail_unreviewed_opaque_resource() {
   local relative_resource=${candidate#"$app_path"/}
   printf 'unreviewed_opaque_path_sha256=%s unreviewed_opaque_sha256=%s\n' \
@@ -443,6 +482,7 @@ for compiled_nib in "$app_path"/Base.lproj/*.storyboardc/*.nib; do
 done
 [[ "$compiled_storyboard_nib_count" -eq 4 ]] ||
   fail "production storyboard nib inventory differs from reviewed Xcode output"
+observe_pre_native_baseline_bundle
 while IFS= read -r candidate; do
   # Bind opaque generated resources before file(1) classifies their bytes.
   case "$candidate" in
@@ -611,6 +651,10 @@ while IFS= read -r candidate; do
         esac
         [[ "$(sha256_file "$candidate")" == "$expected_vendor_sha" ]] ||
           fail "production application model resource differs from the pinned pod archive" ;;
+      *.bundle/*)
+        # One exact localized string from the fixed pre-native size baseline,
+        # observed in hosted job 108568916541. It is never a release resource.
+        is_reviewed_pre_native_baseline_strings || fail_unreviewed_resource_path ;;
       *)
         fail_unreviewed_resource_path ;;
     esac
@@ -660,11 +704,13 @@ while IFS= read -r candidate; do
     : # Opaque compiled content is excluded from package-wide privacy approval.
   elif [[ "$file_description" == *'Apple binary property list'* ]]; then
     [[ "$candidate" == */Info.plist || "$candidate" == */InfoPlist.strings || "$candidate" == */PrivacyInfo.xcprivacy || "$candidate" == "$app_path/AppFrameworkInfo.plist" ]] ||
+      is_reviewed_pre_native_baseline_strings ||
       fail_unreviewed_opaque_resource
   elif [[ "$file_description" == data ]]; then
     case "$candidate" in
       "$app_path"/receipt_ocr_models/*|"$app_path"/Assets.car|"$app_path"/embedded.mobileprovision|"$app_path"/AppFrameworkInfo.plist|"$app_path"/Frameworks/Flutter.framework/icudtl.dat|"$app_path"/Frameworks/App.framework/flutter_assets/AssetManifest.bin|"$app_path"/Frameworks/App.framework/flutter_assets/NOTICES.Z|"$app_path"/LatinOCRResources.bundle/*|"$app_path"/Frameworks/MLKitTextRecognition.framework/LatinOCRResources.bundle/*) ;;
       "$app_path"/Frameworks/App.framework/flutter_assets/NativeAssetsManifest.json|"$app_path"/Frameworks/App.framework/flutter_assets/fonts/MaterialIcons-Regular.otf|"$app_path"/Frameworks/App.framework/flutter_assets/packages/cupertino_icons/assets/CupertinoIcons.ttf|"$app_path"/Frameworks/App.framework/flutter_assets/shaders/ink_sparkle.frag|"$app_path"/Frameworks/App.framework/flutter_assets/shaders/stretch_effect.frag) ;;
+      "$app_path"/*.bundle/*) is_reviewed_pre_native_baseline_strings || fail_unreviewed_opaque_resource ;;
       *) fail_unreviewed_opaque_resource ;;
     esac
   elif [[ "$relative_resource" == Frameworks/App.framework/flutter_assets/NOTICES.Z && "$file_description" == *'compressed data'* ]]; then

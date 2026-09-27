@@ -754,6 +754,56 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   assert.doesNotMatch(script, /app-store-connect|submit_to_testflight|submit_to_app_store|\bupload\b|\bpublish\b/i);
 });
 
+test("historical iOS size baseline admits only its observed nested string bytes", () => {
+  const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
+  const guard = script.match(/is_reviewed_pre_native_baseline_strings\(\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(guard);
+  const inventory = script.match(/observe_pre_native_baseline_bundle\(\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(inventory);
+  assert.match(inventory, /"\$observed_count" -le 64/);
+  assert.match(inventory, /"\$source_sha" == e4d4edd0d6854845cc67b00924f6d22af6a70688/);
+  assert.match(inventory, /baseline_bundle_path_sha256=%s baseline_bundle_tail_sha256=%s resource_kind=%s resource_depth=%s baseline_bundle_byte_sha256=%s/);
+  assert.doesNotMatch(inventory, /printf '[^']*(?:bundle_component|relative_resource)=%s/);
+  assert.match(script, /observe_pre_native_baseline_bundle\s+while IFS= read -r candidate; do/);
+  assert.match(script, /\*\.bundle\/\*\)\s+#[^\n]*\n\s+#[^\n]*\n\s+is_reviewed_pre_native_baseline_strings \|\| fail_unreviewed_resource_path/);
+  assert.match(script, /is_reviewed_pre_native_baseline_strings \|\|\s+fail_unreviewed_opaque_resource/);
+  const probe = `${guard}
+shasum() {
+  local value
+  value=$(cat)
+  case "$value" in
+    Vendor.bundle\/lang.lproj\/name.strings) printf '2acd809e558c9d1a7c08069eb361c296a3125e94820b015f99082288d66fc285  -\\n' ;;
+    Vendor.bundle) printf 'e1c52c24d9324d76c00df7774c64f4d3256f28ed458bdd51abb27bce67640925  -\\n' ;;
+    lang.lproj\/name.strings) printf '7bd67f215974b512446d5ff4725574d4bd7f64417b5120c4a4f55d854b95b671  -\\n' ;;
+    *) printf '%064d  -\\n' 0 ;;
+  esac
+}
+sha256_file() { printf '288d39f3e5c57b1a268e746a96759c839077b2e7a0f42d5f025ba0060986373b\\n'; }
+mode=unsigned
+artifact_class=size-measurement
+source_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
+relative_resource=Vendor.bundle/lang.lproj/name.strings
+candidate=/tmp/mock-baseline-string
+is_reviewed_pre_native_baseline_strings || exit 11
+mode=signed
+if is_reviewed_pre_native_baseline_strings; then exit 12; fi
+mode=unsigned
+artifact_class=release-candidate
+if is_reviewed_pre_native_baseline_strings; then exit 13; fi
+artifact_class=size-measurement
+source_sha=0000000000000000000000000000000000000000
+if is_reviewed_pre_native_baseline_strings; then exit 14; fi
+source_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
+relative_resource=Vendor.bundle/lang.lproj/other.strings
+if is_reviewed_pre_native_baseline_strings; then exit 15; fi
+relative_resource=Vendor.bundle/lang.lproj/name.strings
+sha256_file() { printf '%064d\\n' 0; }
+if is_reviewed_pre_native_baseline_strings; then exit 16; fi
+`;
+  const result = spawnSync("bash", ["-c", probe], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+});
+
 test("iOS acceptance channel is compiled only into the Debug Runner", () => {
   const plugin = readFileSync(
     path.join(repoRoot, "apps/mobile/ios/Runner/SettleoraReceiptOcrPlugin.swift"),
