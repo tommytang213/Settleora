@@ -406,17 +406,27 @@ fail_unreviewed_resource_path() {
   fi
   fail "production application contains an unreviewed resource path"
 }
-is_reviewed_pre_native_baseline_strings() {
-  local bundle_component bundle_tail
+is_reviewed_pre_native_baseline_resource() {
+  local bundle_component bundle_tail path_sha tail_sha byte_sha
   [[ "$mode" == unsigned && "$artifact_class" == size-measurement &&
     "$source_sha" == e4d4edd0d6854845cc67b00924f6d22af6a70688 &&
-    "$relative_resource" == *.bundle/*/*.strings ]] || return 1
+    "$relative_resource" == *.bundle/* ]] || return 1
   bundle_component=${relative_resource%%.bundle/*}.bundle
   bundle_tail=${relative_resource#"$bundle_component"/}
-  [[ "$(printf '%s' "$relative_resource" | shasum -a 256 | cut -d ' ' -f 1)" == 2acd809e558c9d1a7c08069eb361c296a3125e94820b015f99082288d66fc285 &&
-    "$(printf '%s' "$bundle_component" | shasum -a 256 | cut -d ' ' -f 1)" == e1c52c24d9324d76c00df7774c64f4d3256f28ed458bdd51abb27bce67640925 &&
-    "$(printf '%s' "$bundle_tail" | shasum -a 256 | cut -d ' ' -f 1)" == 7bd67f215974b512446d5ff4725574d4bd7f64417b5120c4a4f55d854b95b671 &&
-    "$(sha256_file "$candidate")" == 288d39f3e5c57b1a268e746a96759c839077b2e7a0f42d5f025ba0060986373b ]]
+  [[ "$(printf '%s' "$bundle_component" | shasum -a 256 | cut -d ' ' -f 1)" == e1c52c24d9324d76c00df7774c64f4d3256f28ed458bdd51abb27bce67640925 ]] || return 1
+  path_sha=$(printf '%s' "$relative_resource" | shasum -a 256 | cut -d ' ' -f 1)
+  tail_sha=$(printf '%s' "$bundle_tail" | shasum -a 256 | cut -d ' ' -f 1)
+  byte_sha=$(sha256_file "$candidate")
+  case "$path_sha:$tail_sha:$byte_sha" in
+    # Five files observed together in the fixed pre-native baseline bundle in
+    # hosted job 108593887895: three strings, one opaque resource, one plist.
+    2acd809e558c9d1a7c08069eb361c296a3125e94820b015f99082288d66fc285:7bd67f215974b512446d5ff4725574d4bd7f64417b5120c4a4f55d854b95b671:288d39f3e5c57b1a268e746a96759c839077b2e7a0f42d5f025ba0060986373b|\
+    d2736eac556c5bae12db2e4b6c2a2b02cd36a490e26388b65527feecb84cd5ed:639261fd474c06142a4e2036b16fdb8a3ee1526da0dc2eaedd69246bb830fa80:efd39647cbb35228a962f5d397757839f13c1c6360417a7822ce428d1a44ae61|\
+    b3d731c55e13078a1d0e953e07d37c614133f4c1c3df65f1db1dcffbf3437226:e8bf176ab46545c803ef0db2bdefe57bf6ea302149d36257aaecca3e5118d172:48323c9991f72b12d5df9852aa33f50daa13fd4afb447ddb995f8c9e3327c79e|\
+    bd2a59d6d3ebe4da870b642e5bff0b3e6a7cb3e0374795bcbeb88eb2a8dcc379:d05a82bd3911e6fb696a4236f1948edcd980cf709fbd6870eeb4ac6e4d5dad9f:4ce5093174371d9711f34278532b4d5c9a7c2783739f361ab96c9ccd919ea432|\
+    c3ffe9ac14280d7ed96202c11fec46984b14e8204ec3e504176906ecbdcc4c69:9ac3b5ad93cbc0305c62f78f50b32774a939d7c44fcc380bc5f4d65c9b39efdf:edceaa1270b4ce30b8af310bae530f8338239e98c675139b9646d5a6150a2ab1) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 observe_pre_native_baseline_bundle() {
   [[ "$mode" == unsigned && "$artifact_class" == size-measurement &&
@@ -442,7 +452,7 @@ observe_pre_native_baseline_bundle() {
       "$(printf '%s' "$bundle_tail" | shasum -a 256 | cut -d ' ' -f 1)" \
       "$resource_kind" "$resource_depth" "$(sha256_file "$candidate")"
   done < <(find "$app_path" -type f -print0)
-  [[ "$observed_count" -gt 0 ]] || fail "reviewed pre-native baseline bundle is absent"
+  [[ "$observed_count" -eq 5 ]] || fail "pre-native baseline bundle resource count differs from reviewed inventory"
   printf 'baseline_bundle_resource_count=%s\n' "$observed_count"
 }
 fail_unreviewed_opaque_resource() {
@@ -652,9 +662,9 @@ while IFS= read -r candidate; do
         [[ "$(sha256_file "$candidate")" == "$expected_vendor_sha" ]] ||
           fail "production application model resource differs from the pinned pod archive" ;;
       *.bundle/*)
-        # One exact localized string from the fixed pre-native size baseline,
-        # observed in hosted job 108568916541. It is never a release resource.
-        is_reviewed_pre_native_baseline_strings || fail_unreviewed_resource_path ;;
+        # Only exact files from the fixed pre-native size baseline bundle,
+        # observed in hosted job 108593887895; never release resources.
+        is_reviewed_pre_native_baseline_resource || fail_unreviewed_resource_path ;;
       *)
         fail_unreviewed_resource_path ;;
     esac
@@ -704,13 +714,13 @@ while IFS= read -r candidate; do
     : # Opaque compiled content is excluded from package-wide privacy approval.
   elif [[ "$file_description" == *'Apple binary property list'* ]]; then
     [[ "$candidate" == */Info.plist || "$candidate" == */InfoPlist.strings || "$candidate" == */PrivacyInfo.xcprivacy || "$candidate" == "$app_path/AppFrameworkInfo.plist" ]] ||
-      is_reviewed_pre_native_baseline_strings ||
+      is_reviewed_pre_native_baseline_resource ||
       fail_unreviewed_opaque_resource
   elif [[ "$file_description" == data ]]; then
     case "$candidate" in
       "$app_path"/receipt_ocr_models/*|"$app_path"/Assets.car|"$app_path"/embedded.mobileprovision|"$app_path"/AppFrameworkInfo.plist|"$app_path"/Frameworks/Flutter.framework/icudtl.dat|"$app_path"/Frameworks/App.framework/flutter_assets/AssetManifest.bin|"$app_path"/Frameworks/App.framework/flutter_assets/NOTICES.Z|"$app_path"/LatinOCRResources.bundle/*|"$app_path"/Frameworks/MLKitTextRecognition.framework/LatinOCRResources.bundle/*) ;;
       "$app_path"/Frameworks/App.framework/flutter_assets/NativeAssetsManifest.json|"$app_path"/Frameworks/App.framework/flutter_assets/fonts/MaterialIcons-Regular.otf|"$app_path"/Frameworks/App.framework/flutter_assets/packages/cupertino_icons/assets/CupertinoIcons.ttf|"$app_path"/Frameworks/App.framework/flutter_assets/shaders/ink_sparkle.frag|"$app_path"/Frameworks/App.framework/flutter_assets/shaders/stretch_effect.frag) ;;
-      "$app_path"/*.bundle/*) is_reviewed_pre_native_baseline_strings || fail_unreviewed_opaque_resource ;;
+      "$app_path"/*.bundle/*) is_reviewed_pre_native_baseline_resource || fail_unreviewed_opaque_resource ;;
       *) fail_unreviewed_opaque_resource ;;
     esac
   elif [[ "$relative_resource" == Frameworks/App.framework/flutter_assets/NOTICES.Z && "$file_description" == *'compressed data'* ]]; then

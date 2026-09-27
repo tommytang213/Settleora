@@ -754,51 +754,69 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   assert.doesNotMatch(script, /app-store-connect|submit_to_testflight|submit_to_app_store|\bupload\b|\bpublish\b/i);
 });
 
-test("historical iOS size baseline admits only its observed nested string bytes", () => {
+test("historical iOS size baseline admits only its five observed bundle resources", () => {
   const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
-  const guard = script.match(/is_reviewed_pre_native_baseline_strings\(\) \{[\s\S]*?\n\}/)?.[0];
+  const guard = script.match(/is_reviewed_pre_native_baseline_resource\(\) \{[\s\S]*?\n\}/)?.[0];
   assert.ok(guard);
   const inventory = script.match(/observe_pre_native_baseline_bundle\(\) \{[\s\S]*?\n\}/)?.[0];
   assert.ok(inventory);
   assert.match(inventory, /"\$observed_count" -le 64/);
+  assert.match(inventory, /"\$observed_count" -eq 5/);
   assert.match(inventory, /"\$source_sha" == e4d4edd0d6854845cc67b00924f6d22af6a70688/);
   assert.match(inventory, /baseline_bundle_path_sha256=%s baseline_bundle_tail_sha256=%s resource_kind=%s resource_depth=%s baseline_bundle_byte_sha256=%s/);
   assert.doesNotMatch(inventory, /printf '[^']*(?:bundle_component|relative_resource)=%s/);
   assert.match(script, /observe_pre_native_baseline_bundle\s+while IFS= read -r candidate; do/);
-  assert.match(script, /\*\.bundle\/\*\)\s+#[^\n]*\n\s+#[^\n]*\n\s+is_reviewed_pre_native_baseline_strings \|\| fail_unreviewed_resource_path/);
-  assert.match(script, /is_reviewed_pre_native_baseline_strings \|\|\s+fail_unreviewed_opaque_resource/);
-  const probe = `${guard}
+  assert.match(script, /\*\.bundle\/\*\)\s+#[^\n]*\n\s+#[^\n]*\n\s+is_reviewed_pre_native_baseline_resource \|\| fail_unreviewed_resource_path/);
+  assert.match(script, /is_reviewed_pre_native_baseline_resource \|\|\s+fail_unreviewed_opaque_resource/);
+  const probe = String.raw`${guard}
 shasum() {
   local value
   value=$(cat)
   case "$value" in
-    Vendor.bundle\/lang.lproj\/name.strings) printf '2acd809e558c9d1a7c08069eb361c296a3125e94820b015f99082288d66fc285  -\\n' ;;
-    Vendor.bundle) printf 'e1c52c24d9324d76c00df7774c64f4d3256f28ed458bdd51abb27bce67640925  -\\n' ;;
-    lang.lproj\/name.strings) printf '7bd67f215974b512446d5ff4725574d4bd7f64417b5120c4a4f55d854b95b671  -\\n' ;;
-    *) printf '%064d  -\\n' 0 ;;
+    Vendor.bundle) printf '%s  -\n' "$component_sha" ;;
+    Vendor.bundle/*) printf '%s  -\n' "$mock_path_sha" ;;
+    *) printf '%s  -\n' "$mock_tail_sha" ;;
   esac
 }
-sha256_file() { printf '288d39f3e5c57b1a268e746a96759c839077b2e7a0f42d5f025ba0060986373b\\n'; }
+sha256_file() { printf '%s\n' "$mock_byte_sha"; }
+component_sha=e1c52c24d9324d76c00df7774c64f4d3256f28ed458bdd51abb27bce67640925
 mode=unsigned
 artifact_class=size-measurement
 source_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
-relative_resource=Vendor.bundle/lang.lproj/name.strings
-candidate=/tmp/mock-baseline-string
-is_reviewed_pre_native_baseline_strings || exit 11
+candidate=/tmp/mock-baseline-resource
+check_tuple() {
+  mock_path_sha=$1
+  mock_tail_sha=$2
+  mock_byte_sha=$3
+  relative_resource=$4
+  is_reviewed_pre_native_baseline_resource
+}
+check_tuple 2acd809e558c9d1a7c08069eb361c296a3125e94820b015f99082288d66fc285 7bd67f215974b512446d5ff4725574d4bd7f64417b5120c4a4f55d854b95b671 288d39f3e5c57b1a268e746a96759c839077b2e7a0f42d5f025ba0060986373b Vendor.bundle/lang.lproj/name.strings || exit 11
+check_tuple d2736eac556c5bae12db2e4b6c2a2b02cd36a490e26388b65527feecb84cd5ed 639261fd474c06142a4e2036b16fdb8a3ee1526da0dc2eaedd69246bb830fa80 efd39647cbb35228a962f5d397757839f13c1c6360417a7822ce428d1a44ae61 Vendor.bundle/lang2.lproj/name.strings || exit 12
+check_tuple b3d731c55e13078a1d0e953e07d37c614133f4c1c3df65f1db1dcffbf3437226 e8bf176ab46545c803ef0db2bdefe57bf6ea302149d36257aaecca3e5118d172 48323c9991f72b12d5df9852aa33f50daa13fd4afb447ddb995f8c9e3327c79e Vendor.bundle/lang3.lproj/name.strings || exit 13
+check_tuple bd2a59d6d3ebe4da870b642e5bff0b3e6a7cb3e0374795bcbeb88eb2a8dcc379 d05a82bd3911e6fb696a4236f1948edcd980cf709fbd6870eeb4ac6e4d5dad9f 4ce5093174371d9711f34278532b4d5c9a7c2783739f361ab96c9ccd919ea432 Vendor.bundle/data.bin || exit 14
+check_tuple c3ffe9ac14280d7ed96202c11fec46984b14e8204ec3e504176906ecbdcc4c69 9ac3b5ad93cbc0305c62f78f50b32774a939d7c44fcc380bc5f4d65c9b39efdf edceaa1270b4ce30b8af310bae530f8338239e98c675139b9646d5a6150a2ab1 Vendor.bundle/Info.plist || exit 15
 mode=signed
-if is_reviewed_pre_native_baseline_strings; then exit 12; fi
+if is_reviewed_pre_native_baseline_resource; then exit 21; fi
 mode=unsigned
 artifact_class=release-candidate
-if is_reviewed_pre_native_baseline_strings; then exit 13; fi
+if is_reviewed_pre_native_baseline_resource; then exit 22; fi
 artifact_class=size-measurement
 source_sha=0000000000000000000000000000000000000000
-if is_reviewed_pre_native_baseline_strings; then exit 14; fi
+if is_reviewed_pre_native_baseline_resource; then exit 23; fi
 source_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
-relative_resource=Vendor.bundle/lang.lproj/other.strings
-if is_reviewed_pre_native_baseline_strings; then exit 15; fi
-relative_resource=Vendor.bundle/lang.lproj/name.strings
-sha256_file() { printf '%064d\\n' 0; }
-if is_reviewed_pre_native_baseline_strings; then exit 16; fi
+mock_path_sha=0000000000000000000000000000000000000000000000000000000000000000
+if is_reviewed_pre_native_baseline_resource; then exit 24; fi
+mock_path_sha=c3ffe9ac14280d7ed96202c11fec46984b14e8204ec3e504176906ecbdcc4c69
+mock_byte_sha=0000000000000000000000000000000000000000000000000000000000000000
+if is_reviewed_pre_native_baseline_resource; then exit 25; fi
+mock_byte_sha=288d39f3e5c57b1a268e746a96759c839077b2e7a0f42d5f025ba0060986373b
+if is_reviewed_pre_native_baseline_resource; then exit 26; fi
+component_sha=0000000000000000000000000000000000000000000000000000000000000000
+if is_reviewed_pre_native_baseline_resource; then exit 27; fi
+component_sha=e1c52c24d9324d76c00df7774c64f4d3256f28ed458bdd51abb27bce67640925
+relative_resource=Vendor/Info.plist
+if is_reviewed_pre_native_baseline_resource; then exit 28; fi
 `;
   const result = spawnSync("bash", ["-s"], { encoding: "utf8", input: probe });
   assert.equal(result.status, 0, result.stderr);

@@ -3,17 +3,31 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // Five exact fixed-baseline iOS bundle resources and both previously
+  // observed hosted Android ZIP representations. A clean Flutter 3.44.8
+  // local Release projection passed catalog/model/fixture gates; local signer
+  // was mocked, so exact-head hosted signer and ZIP proof remain required.
+  "a855002e93fb9ed135861023652e35563ff2f92aeaae77d65e2d3c1e255f2c11": Object.freeze([
+    "e928940c7b65e3d881cd126b24b9a0fbedcc9af09fd0ba6d53be223707c2321c",
+  ]),
   // CodeQL-safe test harness follow-up. Clean Flutter 3.44.8 local Release
-  // projection passed the preceding package gates; hosted signer and ZIP
-  // representation remain required on the corrective head.
+  // projection passed the preceding package gates; exact-head hosted signer
+  // and ZIP representation were subsequently observed in job 108595661268.
   "814deb9875aec475afdc5e4f09cb480a6103c179e86cb756f3c3fd66c3eddfcc": Object.freeze([
     "1dbe9ec92e70552877672cff4a17f2a0ef91b32bfbfa8229652e9545ee1ac0e2",
+    // Exact-head hosted job 108595661268 passed signer, path, catalog,
+    // model, and fixture-absence gates before reporting this ZIP representation.
+    "74a1233184417c2665c91494b4c92c00f58803e841649666d52c7749dacb0efd",
   ]),
   // Fixed pre-native iOS size-baseline string pin and bounded inventory.
   // A clean Flutter 3.44.8 local Release projection passed the preceding
-  // Android package gates; hosted signer and ZIP proof remain required.
+  // Android package gates; exact-head hosted signer and ZIP representation
+  // were subsequently observed in job 108593888025.
   "8e074f30fc1493fce49143000d934c5a509bab59ae909da271bef509ab248aa5": Object.freeze([
     "1dbe9ec92e70552877672cff4a17f2a0ef91b32bfbfa8229652e9545ee1ac0e2",
+    // Exact-head hosted job 108593888025 passed signer, path, catalog,
+    // model, and fixture-absence gates before reporting this ZIP representation.
+    "74a1233184417c2665c91494b4c92c00f58803e841649666d52c7749dacb0efd",
   ]),
   // Bounded baseline bundle diagnostic. Clean Flutter 3.44.8 local Release
   // projection and exact-head hosted signer/path/catalog/model/fixture-absence
