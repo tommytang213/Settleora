@@ -220,14 +220,14 @@ void main() {
         );
       } on SocketException catch (error) {
         numericAddressDenied = true;
-        if (Platform.isIOS) {
-          failure.set('network_denial_contract');
-          expect(
-            error.osError?.errorCode,
-            51,
-            reason: 'The iOS interposer must deny with Darwin ENETUNREACH.',
-          );
-        }
+        failure.set('network_denial_contract');
+        expect(
+          error.osError?.errorCode,
+          Platform.isIOS ? 51 : 101,
+          reason: Platform.isIOS
+              ? 'The iOS interposer must deny with Darwin ENETUNREACH.'
+              : 'The isolated Android emulator must deny with Linux ENETUNREACH.',
+        );
       } on TimeoutException {
         expect(
           Platform.isIOS,
