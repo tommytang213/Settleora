@@ -873,7 +873,7 @@ class ReceiptOcrParser {
       );
       if (!_hasSubstantiveItemDescription(description) ||
           lineTotal == null ||
-          _isLikelyNonItemDescription(description) ||
+          _isLikelyNonItemDescription(description, pricedRow: true) ||
           !_hasTraceableItemAmountToken(line, match.group(3)!)) {
         continue;
       }
@@ -1077,7 +1077,7 @@ class ReceiptOcrParser {
           ),
         );
         if (!_hasSubstantiveItemDescription(description) ||
-            _isReceiptMetadataLine(description)) {
+            _isReceiptMetadataLine(description, allowBarePostal: false)) {
           continue;
         }
         items[rowIndex] = ReceiptOcrItemCandidate(
@@ -1987,7 +1987,7 @@ bool _isAddressContinuationLine(String line) => RegExp(
   caseSensitive: false,
 ).hasMatch(line.trim());
 
-bool _isReceiptMetadataLine(String line) {
+bool _isReceiptMetadataLine(String line, {bool allowBarePostal = true}) {
   final normalized = line.toLowerCase().trim();
   if (normalized.isEmpty) {
     return true;
@@ -2008,8 +2008,18 @@ bool _isReceiptMetadataLine(String line) {
     RegExp(r'\b(p\.?\s*o\.?\s*box|po box)\b'),
     RegExp(r'\b(zip|postal|postcode)\s*[:#-]?\s*[a-z0-9 -]{3,10}\b'),
     RegExp(r"^[a-z .'-]+,\s*[a-z]{2}\s+\d{5}(?:-\d{4})?$"),
-    RegExp(r"^[a-z .'-]+,?\s+[a-z]{2,3}\s+\d{4,5}(?:-\d{4})?$"),
-    RegExp(r"^[a-z .'-]+,?\s+[a-z]{2}\s+[a-z]\d[a-z]\s?\d[a-z]\d$"),
+    // Bare postal lines remain metadata. A priced product description can
+    // have the same shape, so it needs an explicit comma to count as address.
+    RegExp(
+      allowBarePostal
+          ? r"^[a-z .'-]+,?\s+[a-z]{2,3}\s+\d{4,5}(?:-\d{4})?$"
+          : r"^[a-z .'-]+,\s*[a-z]{2,3}\s+\d{4,5}(?:-\d{4})?$",
+    ),
+    RegExp(
+      allowBarePostal
+          ? r"^[a-z .'-]+,?\s+[a-z]{2}\s+[a-z]\d[a-z]\s?\d[a-z]\d$"
+          : r"^[a-z .'-]+,\s*[a-z]{2}\s+[a-z]\d[a-z]\s?\d[a-z]\d$",
+    ),
     RegExp(
       r"^[a-z .'-]+\b(?:road|street|avenue|ave|lane|drive|boulevard|blvd)\b,\s*[a-z .'-]+\s+\d{4,6}$",
     ),
@@ -2026,7 +2036,7 @@ bool _isReceiptMetadataLine(String line) {
       r'^\s*(?:(?:previous|prior|last|refund|reference|payment|paid)\s+)?(?:bill|invoice|statement|transaction|order|purchase|due|payment|refund|service|billing)\s+date\s*[:#-]?\s*(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{4}|[a-z]{3,9}\.?\s+\d{1,2},?\s+\d{4})\s*$',
     ),
     RegExp(r'\b(tel|phone|fax|whatsapp|mobile|contact)\b'),
-    RegExp(r'\b(?:\+?\d[\d ()-]{6,}\d)\b'),
+    RegExp(r'\b(?:\+?\d[\d ()-]{6,}\d)\b(?![.,]\d)'),
     RegExp(r'\b(www\.|https?://|\.com\b|\.net\b|\.org\b|\.hk\b|@[\w.-]+\.)'),
     RegExp(r'\b(email|instagram|facebook|wechat|line id|twitter|xhs)\b'),
     RegExp(
@@ -2045,9 +2055,10 @@ bool _isReceiptMetadataLine(String line) {
   return metadataPatterns.any((pattern) => pattern.hasMatch(normalized));
 }
 
-bool _isLikelyNonItemDescription(String description) {
+bool _isLikelyNonItemDescription(String description, {bool pricedRow = false}) {
   final normalized = description.toLowerCase().trim();
-  if (normalized.isEmpty || _isReceiptMetadataLine(description)) {
+  if (normalized.isEmpty ||
+      _isReceiptMetadataLine(description, allowBarePostal: !pricedRow)) {
     return true;
   }
 

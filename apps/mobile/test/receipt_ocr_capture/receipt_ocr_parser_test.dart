@@ -546,6 +546,22 @@ Total \$145.00
     expect(mexico.tax, '20.00');
   });
 
+  test('priced products with region-shaped codes remain editable items', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Corner Shop
+Widget Pro AB 12345 19.99
+Widget CA 12345 12.00
+Total 31.99
+''');
+
+    expect(preview.items.map((item) => item.description), [
+      'Widget Pro AB 12345',
+      'Widget CA 12345',
+    ]);
+    expect(preview.items.map((item) => item.lineTotal), ['19.99', '12.00']);
+  });
+
   test('charge table uses its columns despite neighboring panel text', () {
     final preview = const ReceiptOcrParser().parse(
       'Harbor Utility\n'
