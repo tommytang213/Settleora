@@ -62,7 +62,22 @@ function isAllowedPreflightFailurePhase(platform, phase) {
     (platform === "ios" && iosPreflightFailurePhases.has(phase));
 }
 
-export function buildFailureEvidence(args) {
+function immutableFixtureIds(repoRoot) {
+  const manifestPath = path.join(repoRoot, "apps/mobile/test/fixtures/receipt_ocr/manifest.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  const fixtureEntries = manifest.fixtures;
+  if (!Array.isArray(fixtureEntries) || fixtureEntries.length !== 101 ||
+      fixtureEntries.some((fixture) => typeof fixture?.id !== "string")) {
+    throw new Error("Immutable OCR fixture inventory is invalid");
+  }
+  const expectedFixtureIds = new Set(fixtureEntries.map((fixture) => fixture.id));
+  if (expectedFixtureIds.size !== 101) {
+    throw new Error("Immutable OCR fixture inventory is invalid");
+  }
+  return expectedFixtureIds;
+}
+
+export function buildFailureEvidence(args, repoRoot = process.cwd()) {
   const platform = new Set(["android", "ios"]).has(args.platform) ? args.platform : null;
   const statusToken = args["test-status"];
   const parsedStatus = typeof statusToken === "string" && /^(0|[1-9][0-9]*)$/.test(statusToken)
@@ -75,11 +90,17 @@ export function buildFailureEvidence(args) {
   const preflightFailurePhase = isAllowedPreflightFailurePhase(platform, requestedPhase)
     ? requestedPhase
     : null;
+  let expectedFixtureIds;
+  try {
+    expectedFixtureIds = immutableFixtureIds(repoRoot);
+  } catch {
+    // Failure recovery remains bounded when the checkout itself is invalid.
+  }
   const acceptance = extractFailureMarker(
     args,
     platform,
     "SETTLEORA_OCR_ACCEPTANCE=",
-    sanitizeAcceptance,
+    (value, markerPlatform) => sanitizeAcceptance(value, markerPlatform, expectedFixtureIds),
     { completed: false },
   );
   const uiSmoke = extractFailureMarker(
@@ -872,16 +893,7 @@ export function buildEvidence(args, repoRoot = process.cwd()) {
   const protocol = parseSafeRunnerLog(log, stderrLog);
   const catalogPath = path.join(repoRoot, "apps/mobile/assets/receipt_ocr_models/catalog.json");
   const manifestPath = path.join(repoRoot, "apps/mobile/test/fixtures/receipt_ocr/manifest.json");
-  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-  const fixtureEntries = manifest.fixtures;
-  if (!Array.isArray(fixtureEntries) || fixtureEntries.length !== 101 ||
-      fixtureEntries.some((fixture) => typeof fixture?.id !== "string")) {
-    throw new Error("Immutable OCR fixture inventory is invalid");
-  }
-  const expectedFixtureIds = new Set(fixtureEntries.map((fixture) => fixture.id));
-  if (expectedFixtureIds.size !== 101) {
-    throw new Error("Immutable OCR fixture inventory is invalid");
-  }
+  const expectedFixtureIds = immutableFixtureIds(repoRoot);
   const acceptance = parseMarker(
     protocol.markerMessages,
     "SETTLEORA_OCR_ACCEPTANCE=",

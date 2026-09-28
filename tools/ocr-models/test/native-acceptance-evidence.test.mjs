@@ -845,12 +845,21 @@ test("retains bounded partial metrics for a failed run without accepting it", ()
     nativeLatencyMs: { sampleCount: 0, cold: null, warmP50: null, warmP95: null, max: null },
     peakRssBytes: 1,
     perScript: { Latin: { total: 101, passed: 0 } },
+    recognitionCoverage: manifestFixtureIds.map((fixtureId) => ({
+      fixtureId, blockCount: 0, merchantExactTextSeen: false,
+      totalExactTokenSeen: false, expectedItemCount: 0, itemDescriptionsExactTextSeen: 0,
+    })),
   };
   withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify(acceptance)}`), (logPath) => {
     const evidence = buildEvidence({ ...evidenceArgs(logPath), "test-status": "1" }, repoRoot);
     assert.equal(evidence.acceptance.mismatchCount, 101);
     assert.equal(evidence.acceptance.runtime, null);
     assert.equal(isCompleteEvidence(evidence), false);
+    const recovered = buildFailureEvidence({ ...evidenceArgs(logPath), "test-status": "1" }, repoRoot);
+    assert.equal(recovered.acceptance.mismatchCount, 101);
+    assert.equal(recovered.acceptance.mismatches.length, 101);
+    assert.equal(recovered.acceptance.recognitionCoverage.length, 101);
+    assert.equal(recovered.acceptance.runtime, null);
   });
 });
 
