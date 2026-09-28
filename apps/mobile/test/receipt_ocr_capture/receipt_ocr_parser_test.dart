@@ -982,6 +982,34 @@ Total USD 20.00
     expect(ambiguousAdjustmentCurrency.tipHasExplicitCurrencyEvidence, isTrue);
   });
 
+  test('utility charge table keeps usage and rate out of item names', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Gas Utility
+Bill Date Apr 10, 2025
+Description Therms Rate Amount
+Customer Charge (per account) - \$15.00 \$15.00
+Delivery Charge 76 \$0.4120 \$31.31
+State Gas Tax 76 \$0.0280 \$2.13
+Total Current Charges \$48.44
+Total Amount Due \$48.44
+''', fallbackCurrency: 'USD');
+
+    expect(preview.shipping, isNull);
+    expect(preview.tax, isNull);
+    expect(preview.items.map((item) => item.description), [
+      'Customer Charge (per account)',
+      'Delivery Charge',
+      'State Gas Tax',
+    ]);
+    expect(preview.items.map((item) => item.lineTotal), [
+      '15.00',
+      '31.31',
+      '2.13',
+    ]);
+    expect(preview.items.every((item) => item.quantity == null), isTrue);
+  });
+
   test('parser treats a city ZIP row as metadata only beside an address', () {
     const parser = ReceiptOcrParser();
     final addressed = parser.parse('''

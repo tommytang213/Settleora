@@ -27,13 +27,18 @@ class ReceiptOcrParser {
     }
 
     final layoutRows = _matchingLayoutRows(lines, blocks);
+    final chargeTableRows = _chargeTableRows(lines);
 
     final currencyDetection = _detectCurrency(
       lines,
       fallbackCurrency: fallbackCurrency,
     );
     final currency = currencyDetection.currency;
-    final amounts = _extractLabeledAmounts(lines, currency);
+    final amounts = _extractLabeledAmounts(
+      lines,
+      currency,
+      chargeTableRows: chargeTableRows,
+    );
     final merchantDetection = _detectMerchant(lines, layoutRows);
     final merchant = merchantDetection?.text;
     final itemCandidates = _extractItems(
@@ -41,6 +46,7 @@ class ReceiptOcrParser {
       currency,
       merchantLineIndices: merchantDetection?.lineIndices ?? const {},
       layoutRows: layoutRows,
+      chargeTableRows: chargeTableRows,
     );
     final unresolvedItemLines = _countUnresolvedItemLikeLines(
       lines,
@@ -550,8 +556,9 @@ class ReceiptOcrParser {
 
   _LabeledReceiptAmounts _extractLabeledAmounts(
     List<String> lines,
-    String? currency,
-  ) {
+    String? currency, {
+    Set<int> chargeTableRows = const {},
+  }) {
     String? subtotal;
     String? tax;
     String? service;
@@ -573,6 +580,7 @@ class ReceiptOcrParser {
       if (amount == null) {
         continue;
       }
+      if (chargeTableRows.contains(lineIndex)) continue;
 
       if (_hasSubtotalLabel(line, normalized)) {
         subtotal ??= amount;
@@ -673,6 +681,7 @@ class ReceiptOcrParser {
     String? currency, {
     Set<int> merchantLineIndices = const {},
     List<List<ReceiptOcrBlockEvidence>> layoutRows = const [],
+    Set<int> chargeTableRows = const {},
   }) {
     final items = <ReceiptOcrItemCandidate>[];
     final wrappedDescriptionLines = <String>[];
@@ -683,8 +692,11 @@ class ReceiptOcrParser {
     }
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       final line = lines[lineIndex];
-      if (_isAdministrativeLine(line) ||
+      if ((_isAdministrativeLine(line) &&
+              !chargeTableRows.contains(lineIndex)) ||
           _isContextualReceiptMetadataLine(lines, lineIndex) ||
+          _isChargeTableHeader(line) ||
+          _detectDate([line]) != null ||
           merchantLineIndices.contains(lineIndex) ||
           (fuelItem != null && _isFuelMeasurementLine(line))) {
         wrappedDescriptionLines.clear();
@@ -713,6 +725,9 @@ class ReceiptOcrParser {
       }
 
       var description = _cleanDescription(match.group(1)!);
+      if (chargeTableRows.contains(lineIndex)) {
+        description = _stripChargeTableColumns(description);
+      }
       final wrappedDescription = wrappedDescriptionLines.join(' ');
       if (_isStrongWrappedItemDescription(wrappedDescription)) {
         description = '$wrappedDescription $description';
@@ -919,6 +934,50 @@ List<List<ReceiptOcrBlockEvidence>> _matchingLayoutRows(
     if (_normalizeOcrLine(text) != lines[index]) return const [];
   }
   return rows;
+}
+
+// A printed charge table can contain usage and rate columns before its final
+// amount. Those columns are evidence, but they are not part of the item name
+// and they do not establish a bill-item quantity without a quantity label.
+Set<int> _chargeTableRows(List<String> lines) {
+  final rows = <int>{};
+  var remaining = 0;
+  for (var index = 0; index < lines.length; index++) {
+    final line = lines[index];
+    final lower = line.toLowerCase();
+    if (_isChargeTableHeader(line)) {
+      remaining = 20;
+      continue;
+    }
+    if (remaining == 0) continue;
+    remaining -= 1;
+    if (_hasTotalLabel(line, lower) || _hasSubtotalLabel(line, lower)) {
+      remaining = 0;
+      continue;
+    }
+    final numericTokens = RegExp(
+      '(?<![A-Za-z0-9])$_amountTokenPattern(?![A-Za-z0-9])',
+    ).allMatches(line).length;
+    if (numericTokens >= 2) rows.add(index);
+  }
+  return rows;
+}
+
+bool _isChargeTableHeader(String line) {
+  final lower = line.toLowerCase();
+  return RegExp(r'\bdescription\b').hasMatch(lower) &&
+      RegExp(r'\b(?:amount|total)\b').hasMatch(lower) &&
+      RegExp(r'\b(?:rate|usage|therms|kwh|units?)\b').hasMatch(lower);
+}
+
+String _stripChargeTableColumns(String description) {
+  final trailingColumns = RegExp(
+    '^(.*?)\\s+(?:(?:$_currencyTokenPattern)?\\s*$_amountTokenPattern\\s*){1,2}\$',
+    caseSensitive: false,
+  ).firstMatch(description);
+  if (trailingColumns == null) return description;
+  final name = _cleanDescription(trailingColumns.group(1)!);
+  return _hasSubstantiveItemDescription(name) ? name : description;
 }
 
 class _LabeledReceiptAmounts {
@@ -1714,6 +1773,7 @@ bool _isSuggestedTipLine(String normalized) => RegExp(
 bool _isWrappedItemDescriptionCandidate(String description) {
   if (description.length < 2 ||
       _lineHasAmount(description) ||
+      _isChargeTableHeader(description) ||
       _isAdministrativeLine(description) ||
       _isReceiptMetadataLine(description) ||
       _isLikelyNonItemDescription(description)) {
@@ -1887,7 +1947,7 @@ bool _hasTotalLabel(String line, String normalized) {
   return _hasEnglishReceiptLabel(
         normalized,
         RegExp(
-          r'\b(total\s+amount\s+due|grand\s+total|amount\s+due|balance\s+due|total)\b',
+          r'\b(total\s+amount\s+due|total\s+current\s+charges|grand\s+total|amount\s+due|balance\s+due|total)\b',
           caseSensitive: false,
         ),
       ) ||
