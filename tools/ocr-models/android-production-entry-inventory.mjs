@@ -3,6 +3,14 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // #1309 layout-cell currency and cross-currency review arithmetic at
+  // 8f6bd8c3. A clean Flutter 3.44.8 Release projection passed archive/path,
+  // catalog, 14-model, legal-resource, and 102-fixture-absence checks before
+  // this local ZIP representation. Local signer was mocked; hosted exact-
+  // source signer proof remains required.
+  "906f0c803d205bb7f64005473c80b096d41a46a30e61ffe8d29500f5e34e9d88": Object.freeze([
+    "2be530ecfe60c89a09e5a40b98e448b186dba2ac6ae870506848423c082445b7",
+  ]),
   // #1309 general layout-cell and explicit-currency total ranking at
   // b1349249. A clean Flutter 3.44.8 Release projection passed archive/path,
   // catalog, 14-model, legal-resource, and 102-fixture-absence checks before
@@ -18,6 +26,9 @@ export const expectedAndroidPackageDigestsBySource = Object.freeze({
   // exact-source signer proof remains required.
   "f3d2501463d7ca0f7e9768cae59b9af217d0ec54aa48d40bfb9d2289e0fcaf85": Object.freeze([
     "f10139afd466837cf948d284c77c398417a0f422c12ca0dab9b28fc0fc0dea72",
+    // Exact-source ubuntu-24.04 representation observed only after the hosted
+    // signer, archive, catalog, model, and fixture-absence gates passed.
+    "6a5f5efcd30a484ac80afd646adbd859f1a1cbf6966a75b79528abb4492630d8",
   ]),
   // #1309 bounded rate-cell cleanup and complete recognition coverage at
   // 4d7bbc63. Clean Flutter 3.44.8 Release projection passed archive/path,
