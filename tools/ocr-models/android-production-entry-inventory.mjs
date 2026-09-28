@@ -5,10 +5,12 @@
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
   // #1308 real-provider UI item Apply probe bound to the trusted catalog.
   // Clean Flutter 3.44.8 local Release APK passed archive/path, catalog,
-  // 14-model and 102-fixture-absence gates; local signer was mocked. Hosted
-  // exact-source signer and ZIP representation remain to be proved.
+  // 14-model and 102-fixture-absence gates; local signer was mocked. Exact-
+  // source hosted job 108854321587 passed signer and the preceding package
+  // gates before reporting its distinct ZIP entry representation below.
   "37979935da129fbe3dbbbcd2c603f8d977ba4ceeb8cc9bd860fe0d096aef59d6": Object.freeze([
     "ef7c7dbae79a7c60ff2094aeda5b003af35f2410bac2230a90e0d197008475a6",
+    "11e40b7dfa8fdb0f8df5c43c0c171e7cb1cc9d6e11c544d662b0a462eafcb029",
   ]),
   // Exact #1308 historical unsigned iOS 63-resource bundle commitment and
   // regression. A clean Flutter 3.44.8 local Release APK passed archive/path,
