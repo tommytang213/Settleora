@@ -626,6 +626,9 @@ class ReceiptOcrParser {
         if (RegExp(r'\bcurrent\s+charges\b').hasMatch(normalized)) {
           score -= 5;
         }
+        if (RegExp(r'\b(?:total\s+paid|paid\s+total)\b').hasMatch(normalized)) {
+          score -= 5;
+        }
         if (RegExp(r'\bnet\s+payable\b').hasMatch(normalized)) {
           score += 5;
         }
@@ -1698,7 +1701,7 @@ bool _hasTraceableItemAmountToken(String line, String amountToken) {
   // an item amount; explicit symbols and separated codes remain usable.
   if (RegExp(
     '(?<![A-Za-z0-9])(?:${_supportedCurrencyCodes.join('|')}|Rs|kr)'
-    '${RegExp.escape(amountToken)}(?=\\s|\$)',
+    '${RegExp.escape(amountToken)}(?:\\s+(?:$_currencyTokenPattern))?\\s*\$',
     caseSensitive: false,
   ).hasMatch(line)) {
     return false;

@@ -403,6 +403,14 @@ Change USD 8.00
 ''');
     expect(paid.total, '12.00');
 
+    final partialPayment = const ReceiptOcrParser().parse('''
+Corner Store
+Bread USD 12.00
+Total USD 12.00
+Total Paid USD 5.00
+''');
+    expect(partialPayment.total, '12.00');
+
     final refund = const ReceiptOcrParser().parse('''
 Corner Store
 Returned Bread USD -12.00
@@ -675,6 +683,12 @@ Total $18.00
     );
     expect(productCode.items, isEmpty);
     expect(productCode.total, '12.00');
+
+    final pricedCode = parser.parse(
+      'Corner Shop\nModel USD123 USD 123.00\nTotal USD 123.00',
+    );
+    expect(pricedCode.items.map((item) => item.description), ['Model USD123']);
+    expect(pricedCode.items.single.lineTotal, '123.00');
 
     final annotated = parser.parse(
       'Corner Shop\nItem A HK\$12.00\nSubtotal (8.25%) HK\$12.00\n'
