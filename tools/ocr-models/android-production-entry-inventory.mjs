@@ -3,6 +3,13 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // #1309 repeated organization identity and unit-bearing charge columns at
+  // 0b0d321e. A clean Flutter 3.44.8 Release projection passed archive/path,
+  // catalog, 14-model, legal-artifact, and 102-fixture-absence checks before
+  // this ZIP digest. The local signer was mocked; hosted proof is still needed.
+  "5f14773a23a90c2db299aaa0529f3f780fc7716d4d150dad813dce8d1daf1c04": Object.freeze([
+    "ba9a1ec334ee0137b46773b44d289976e99d8a414529bcc9a7204e018f884df3",
+  ]),
   // #1309 shifted charge-table amount cells at 2da1e7b7. A clean Flutter
   // 3.44.8 Release projection passed archive/path, catalog, 14-model,
   // legal-artifact, and 102-fixture-absence checks before this ZIP digest.
