@@ -612,6 +612,32 @@ Total 31.99
     expect(preview.tax, isNull);
   });
 
+  test('charge table associates a separate foreign currency cell', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Market\n'
+      'Description Usage Rate Amount\n'
+      'Souvenir EUR 9.00\n'
+      'Total USD 10.00',
+      blocks: [
+        _layoutBlock('Market', 0, 0, 20, 350),
+        _layoutBlock('Description', 1, 1, 20, 150),
+        _layoutBlock('Usage', 2, 1, 170, 210),
+        _layoutBlock('Rate', 3, 1, 230, 270),
+        _layoutBlock('Amount', 4, 1, 310, 350),
+        _layoutBlock('Souvenir', 5, 2, 20, 150),
+        _layoutBlock('EUR', 6, 2, 280, 305),
+        _layoutBlock('9.00', 7, 2, 310, 350),
+        _layoutBlock('Total USD 10.00', 8, 3, 20, 350),
+      ],
+    );
+
+    expect(preview.currency, 'USD');
+    expect(preview.items.single.description, 'Souvenir');
+    expect(preview.items.single.currency, 'EUR');
+    expect(preview.items.single.lineTotal, '9.00');
+    expect(preview.reviewHints, isEmpty);
+  });
+
   test('a fuller repeated organization identity outranks its short logo', () {
     final preview = const ReceiptOcrParser().parse('''
 Harborline
@@ -1469,6 +1495,10 @@ Total Amount Due \$12.00
       expect(preview.items.map((item) => item.description), ['Service Plan']);
       expect(preview.items.single.lineTotal, '12.00');
       expect(preview.total, '12.00');
+      expect(
+        preview.warnings.any((warning) => warning.contains('Some OCR lines')),
+        isFalse,
+      );
     }
   });
 

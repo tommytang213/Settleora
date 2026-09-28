@@ -1021,30 +1021,7 @@ class ReceiptOcrParser {
     final amountRight = amountCell.points
         .map((point) => point.x)
         .reduce((left, right) => left > right ? left : right);
-    final currencyOnlyPattern = RegExp(
-      '^\\s*(?:$_currencyTokenPattern)\\s*\$',
-      caseSensitive: false,
-    );
-    final nearbyCurrencyBlocks = row
-        .where((block) {
-          if (block == amountCell ||
-              !currencyOnlyPattern.hasMatch(_normalizeOcrLine(block.text))) {
-            return false;
-          }
-          final left = block.points
-              .map((point) => point.x)
-              .reduce((a, b) => a < b ? a : b);
-          final right = block.points
-              .map((point) => point.x)
-              .reduce((a, b) => a > b ? a : b);
-          final gap = right <= amountLeft
-              ? amountLeft - right
-              : left >= amountRight
-              ? left - amountRight
-              : 0;
-          return gap <= (amountRight - amountLeft) * 0.75 + 8;
-        })
-        .toList(growable: false);
+    final nearbyCurrencyBlocks = _nearbyCurrencyOnlyBlocks(row, amountCell);
     if (nearbyCurrencyBlocks.length > 1) return null;
     final currencyBlock = nearbyCurrencyBlocks.firstOrNull;
     final monetaryText = currencyBlock == null
@@ -1214,10 +1191,23 @@ class ReceiptOcrParser {
             .toList(growable: false);
         if (amountCells.isEmpty) continue;
         final amountCell = amountCells.last;
-        final lineCurrency =
-            _explicitCurrencyFromLine(amountCell.text) ?? currency;
+        final nearbyCurrencyBlocks = _nearbyCurrencyOnlyBlocks(
+          tableBlocks,
+          amountCell,
+        );
+        if (nearbyCurrencyBlocks.length > 1) continue;
+        final currencyBlock = nearbyCurrencyBlocks.firstOrNull;
+        final monetaryText = currencyBlock == null
+            ? _normalizeOcrLine(amountCell.text)
+            : '${_normalizeOcrLine(currencyBlock.text)} ${_normalizeOcrLine(amountCell.text)}';
+        final printedCurrency = _explicitAdjustmentCurrencyFromLine(
+          monetaryText,
+        );
+        final lineCurrency = printedCurrency.hasExplicitEvidence
+            ? printedCurrency.currency
+            : currency;
         final lineTotal = _lastAmountInLine(
-          amountCell.text,
+          monetaryText,
           currency: lineCurrency,
         );
         if (lineTotal == null) continue;
@@ -1225,6 +1215,7 @@ class ReceiptOcrParser {
           _cleanDescription(
             tableBlocks
                 .where((block) {
+                  if (block == currencyBlock) return false;
                   final right = block.points
                       .map((point) => point.x)
                       .reduce((a, b) => a > b ? a : b);
@@ -1327,6 +1318,7 @@ class ReceiptOcrParser {
         continue;
       }
       if (_isAdministrativeLine(line) ||
+          _isChargeTableHeader(line) ||
           _isContextualReceiptMetadataLine(lines, lineIndex) ||
           _lineHasAmount(line) ||
           _detectDate([line]) != null) {
@@ -1361,6 +1353,44 @@ double? _averageBlockConfidence(List<ReceiptOcrBlockEvidence> blocks) {
   final values = blocks.map((block) => block.confidence).nonNulls.toList();
   if (values.isEmpty) return null;
   return values.reduce((left, right) => left + right) / values.length;
+}
+
+List<ReceiptOcrBlockEvidence> _nearbyCurrencyOnlyBlocks(
+  List<ReceiptOcrBlockEvidence> row,
+  ReceiptOcrBlockEvidence amountCell,
+) {
+  if (amountCell.points.isEmpty) return const [];
+  final amountLeft = amountCell.points
+      .map((point) => point.x)
+      .reduce((left, right) => left < right ? left : right);
+  final amountRight = amountCell.points
+      .map((point) => point.x)
+      .reduce((left, right) => left > right ? left : right);
+  final currencyOnlyPattern = RegExp(
+    '^\\s*(?:$_currencyTokenPattern)\\s*\$',
+    caseSensitive: false,
+  );
+  return row
+      .where((block) {
+        if (block == amountCell ||
+            block.points.isEmpty ||
+            !currencyOnlyPattern.hasMatch(_normalizeOcrLine(block.text))) {
+          return false;
+        }
+        final left = block.points
+            .map((point) => point.x)
+            .reduce((a, b) => a < b ? a : b);
+        final right = block.points
+            .map((point) => point.x)
+            .reduce((a, b) => a > b ? a : b);
+        final gap = right <= amountLeft
+            ? amountLeft - right
+            : left >= amountRight
+            ? left - amountRight
+            : 0;
+        return gap <= (amountRight - amountLeft) * 0.75 + 8;
+      })
+      .toList(growable: false);
 }
 
 List<List<ReceiptOcrBlockEvidence>> _matchingLayoutRows(
