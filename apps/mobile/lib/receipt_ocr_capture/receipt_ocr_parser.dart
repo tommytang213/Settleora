@@ -165,19 +165,25 @@ class ReceiptOcrParser {
       }
     }
     if (best == null) return null;
-    final nextIndex = best.lineIndex + 1;
-    if (nextIndex < lines.length &&
-        _isUppercaseOrganizationSegment(best.text) &&
-        _isUppercaseOrganizationSegment(lines[nextIndex]) &&
-        !_isAdministrativeLine(lines[nextIndex]) &&
-        !_isReceiptMetadataLine(lines[nextIndex]) &&
-        !_lineHasAmount(lines[nextIndex])) {
-      return (
-        text: '${best.text} ${_cleanDescription(lines[nextIndex])}',
-        lineIndices: {best.lineIndex, nextIndex},
-      );
+    final parts = <String>[best.text];
+    final indices = <int>{best.lineIndex};
+    for (
+      var nextIndex = best.lineIndex + 1;
+      nextIndex < lines.length && parts.length < 3;
+      nextIndex++
+    ) {
+      final next = lines[nextIndex];
+      if (!_isUppercaseOrganizationSegment(parts.last) ||
+          !_isUppercaseOrganizationSegment(next) ||
+          _isAdministrativeLine(next) ||
+          _isReceiptMetadataLine(next) ||
+          _lineHasAmount(next)) {
+        break;
+      }
+      parts.add(_cleanDescription(next));
+      indices.add(nextIndex);
     }
-    return (text: best.text, lineIndices: {best.lineIndex});
+    return (text: parts.join(' '), lineIndices: indices);
   }
 
   String? _detectDate(List<String> lines) {
@@ -185,19 +191,24 @@ class ReceiptOcrParser {
     for (var index = 0; index < lines.length; index += 1) {
       final line = lines[index];
       final lower = line.toLowerCase();
-      final nearby = index > 0
-          ? '${lines[index - 1].toLowerCase()} $lower'
-          : lower;
       var score = 100 - index;
-      if (RegExp(
+      final primaryLabel = RegExp(
         r'\b(bill|invoice|statement|transaction|order|purchase|issued)\s*(date|on)?\b',
-      ).hasMatch(nearby)) {
-        score += 55;
-      }
-      if (RegExp(
+      );
+      final secondaryLabel = RegExp(
         r'\b(due|pay by|payment|paid|previous|prior|last|refund|reference|meter|reading|billing period|service period|period from|period to)\b',
-      ).hasMatch(nearby)) {
-        score -= 90;
+      );
+      if (primaryLabel.hasMatch(lower)) {
+        score += 80;
+      } else if (secondaryLabel.hasMatch(lower)) {
+        score -= 100;
+      } else if (index > 0 && !_lineHasAmount(lines[index - 1])) {
+        final previous = lines[index - 1].toLowerCase();
+        if (primaryLabel.hasMatch(previous)) {
+          score += 20;
+        } else if (secondaryLabel.hasMatch(previous)) {
+          score -= 30;
+        }
       }
       void consider(String? date) {
         if (date != null && (best == null || score > best!.score)) {
@@ -626,7 +637,7 @@ class ReceiptOcrParser {
   }) {
     final items = <ReceiptOcrItemCandidate>[];
     final wrappedDescriptionLines = <String>[];
-    final leadingQuantityRows = _leadingQuantityColumnRows(lines);
+    final leadingQuantityRows = _leadingQuantityColumnRows(lines, layoutRows);
     final fuelItem = _extractFuelItem(lines, currency);
     if (fuelItem != null) {
       items.add(fuelItem);
@@ -1711,12 +1722,17 @@ bool _isUppercaseOrganizationSegment(String value) {
       letters.toLowerCase() != letters;
 }
 
-Set<int> _leadingQuantityColumnRows(List<String> lines) {
+Set<int> _leadingQuantityColumnRows(
+  List<String> lines,
+  List<List<ReceiptOcrBlockEvidence>> layoutRows,
+) {
   final accepted = <int>{};
-  final run = <({int index, String quantity})>[];
+  final run = <({int index, double centerX})>[];
   void finishRun() {
-    if (run.length >= 3 &&
-        run.map((entry) => entry.quantity).toSet().length < run.length) {
+    if (run.length >= 2 &&
+        run.map((entry) => entry.centerX).reduce((a, b) => a < b ? a : b) +
+                12 >=
+            run.map((entry) => entry.centerX).reduce((a, b) => a > b ? a : b)) {
       accepted.addAll(run.map((entry) => entry.index));
     }
     run.clear();
@@ -1725,11 +1741,34 @@ Set<int> _leadingQuantityColumnRows(List<String> lines) {
   for (var index = 0; index < lines.length; index++) {
     final line = lines[index];
     final match = RegExp(r'^(\d{1,2})\s+').firstMatch(line);
-    if (match == null || !_isPricedItemLine(line)) {
+    final row = index < layoutRows.length
+        ? layoutRows[index]
+        : const <ReceiptOcrBlockEvidence>[];
+    if (match == null ||
+        !_isPricedItemLine(line) ||
+        row.length < 3 ||
+        row.first.text.trim() != match.group(1) ||
+        row.first.points.length != 4 ||
+        row[1].points.length != 4) {
       finishRun();
       continue;
     }
-    run.add((index: index, quantity: match.group(1)!));
+    final quantityPoints = row.first.points;
+    final descriptionPoints = row[1].points;
+    final quantityRight = quantityPoints
+        .map((point) => point.x)
+        .reduce((a, b) => a > b ? a : b);
+    final descriptionLeft = descriptionPoints
+        .map((point) => point.x)
+        .reduce((a, b) => a < b ? a : b);
+    if (quantityRight >= descriptionLeft) {
+      finishRun();
+      continue;
+    }
+    final quantityLeft = quantityPoints
+        .map((point) => point.x)
+        .reduce((a, b) => a < b ? a : b);
+    run.add((index: index, centerX: (quantityLeft + quantityRight) / 2));
   }
   finishRun();
   return accepted;

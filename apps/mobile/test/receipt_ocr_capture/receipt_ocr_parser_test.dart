@@ -8,6 +8,24 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
 import 'package:mobile/receipt_ocr_capture/unsupported_receipt_ocr_provider.dart';
 import 'package:mobile/ui/settleora_form_fields.dart';
 
+ReceiptOcrBlockEvidence _layoutBlock(
+  String text,
+  int order,
+  int row,
+  double left,
+  double right,
+) => ReceiptOcrBlockEvidence(
+  text: text,
+  order: order,
+  row: row,
+  points: [
+    ReceiptOcrPoint(x: left, y: row * 20),
+    ReceiptOcrPoint(x: right, y: row * 20),
+    ReceiptOcrPoint(x: right, y: row * 20 + 12),
+    ReceiptOcrPoint(x: left, y: row * 20 + 12),
+  ],
+);
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -137,7 +155,8 @@ Total Current Charges USD 80.00
   test(
     'stacked organization and leading item quantities retain reading order',
     () {
-      final preview = const ReceiptOcrParser().parse('''
+      final preview = const ReceiptOcrParser().parse(
+        '''
 THE RIDGE
 KITCHEN + BAR
 789 Summit Blvd
@@ -146,7 +165,24 @@ KITCHEN + BAR
 1 Tiramisu 8.00
 Subtotal USD 40.00
 Total USD 40.00
-''');
+''',
+        blocks: [
+          _layoutBlock('THE RIDGE', 0, 0, 100, 260),
+          _layoutBlock('KITCHEN + BAR', 1, 1, 90, 270),
+          _layoutBlock('789 Summit Blvd', 2, 2, 110, 260),
+          _layoutBlock('1', 3, 3, 20, 28),
+          _layoutBlock('Margherita Pizza', 4, 3, 55, 220),
+          _layoutBlock('14.00', 5, 3, 310, 350),
+          _layoutBlock('2', 6, 4, 20, 28),
+          _layoutBlock('House Red (gls)', 7, 4, 55, 220),
+          _layoutBlock('18.00', 8, 4, 310, 350),
+          _layoutBlock('1', 9, 5, 20, 28),
+          _layoutBlock('Tiramisu', 10, 5, 55, 180),
+          _layoutBlock('8.00', 11, 5, 310, 350),
+          _layoutBlock('Subtotal USD 40.00', 12, 6, 100, 350),
+          _layoutBlock('Total USD 40.00', 13, 7, 100, 350),
+        ],
+      );
       expect(preview.merchant, 'THE RIDGE KITCHEN + BAR');
       expect(preview.items.map((item) => item.description), [
         'Margherita Pizza',
@@ -173,6 +209,52 @@ Total USD 2.50
 ''');
     expect(preview.items.single.description, '7 Up Soda');
     expect(preview.items.single.quantity, isNull);
+  });
+
+  test('repeated numeric product prefixes remain names without geometry', () {
+    final preview = const ReceiptOcrParser().parse('''
+Corner Market
+7 Up Soda 2.50
+7 Grain Bread 3.00
+8 Ball Toy 4.00
+Total USD 9.50
+''');
+    expect(preview.items.map((item) => item.description), [
+      '7 Up Soda',
+      '7 Grain Bread',
+      '8 Ball Toy',
+    ]);
+    expect(preview.items.every((item) => item.quantity == null), isTrue);
+  });
+
+  test('three uppercase organization rows are consumed as one role', () {
+    final preview = const ReceiptOcrParser().parse('''
+THE
+RIDGE
+KITCHEN + BAR
+Coffee USD 4.00
+Total USD 4.00
+''');
+    expect(preview.merchant, 'THE RIDGE KITCHEN + BAR');
+    expect(
+      preview.warnings,
+      isNot(
+        contains(
+          'Some OCR lines need manual review because no traceable line amount was found.',
+        ),
+      ),
+    );
+  });
+
+  test('explicit bill date outranks print date after a due date', () {
+    final preview = const ReceiptOcrParser().parse('''
+River Utility
+Print Date: 2025-04-05
+Due Date: 2025-04-28
+Bill Date: 2025-04-10
+Total USD 10.00
+''');
+    expect(preview.receiptDate, '2025-04-10');
   });
 
   test(
