@@ -3,6 +3,13 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // #1309 layout-aware charge-table candidate at 5868443e. Clean Flutter
+  // 3.44.8 Release projection passed archive/path, catalog, 14-model,
+  // legal-artifact, and 102-fixture-absence checks before this local ZIP digest.
+  // Local signer was mocked; hosted exact-source signer proof remains required.
+  "2b0a91ea113941e393f8d268726cb5eca4edb641327f450bf5d30ad49f35b94e": Object.freeze([
+    "414792dd034e478ef434bd5027aa64acf0af798025b99a3082feb0244dd0244d",
+  ]),
   // #1309 adjacent-row association at 39495792. A clean Flutter 3.44.8
   // production projection passed archive/path, catalog, model, legal-artifact,
   // and 102-fixture-absence checks before yielding this local ZIP representation.
