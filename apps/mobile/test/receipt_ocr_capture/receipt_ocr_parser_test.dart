@@ -594,6 +594,35 @@ Total \$145.00
     expect(preview.tax, isNull);
   });
 
+  test('a fuller repeated organization identity outranks its short logo', () {
+    final preview = const ReceiptOcrParser().parse('''
+Harborline
+Water Services
+Clean water for everyone
+WATER SERVICE BILL
+Bill Date: 2026-09-17
+Water Charge USD 25.00
+Total Amount Due USD 25.00
+PAYMENT COUPON
+Harborline Loyalty Card
+Harborline Water Services
+Harborline Water Services Team
+''');
+    expect(preview.merchant, 'Harborline Water Services');
+    expect(preview.items.map((item) => item.description), ['Water Charge']);
+
+    final spacedLogo = const ReceiptOcrParser().parse('''
+NimbusShop
+M a r k e t p l a c e
+INVOICE
+NimbusShop Marketplace
+Invoice Date: 2026-09-17
+Desk Mat USD 19.99
+Total USD 19.99
+''');
+    expect(spacedLogo.merchant, 'NimbusShop Marketplace');
+  });
+
   test('foreign-currency adjustments do not corroborate a receipt total', () {
     final preview = const ReceiptOcrParser().parse('''
 Corner Store

@@ -221,7 +221,41 @@ class ReceiptOcrParser {
       parts.add(_cleanDescription(next));
       indices.add(nextIndex);
     }
-    return (text: parts.join(' '), lineIndices: indices);
+    final organization = parts.join(' ');
+    if (parts.length == 1 &&
+        !organization.contains(' ') &&
+        organization.length >= 4 &&
+        best.lineIndex + 1 < lines.length) {
+      final adjacentIdentitySegment = _foldOrganizationSegment(
+        lines[best.lineIndex + 1],
+      );
+      final prefix = '${organization.toLowerCase()} ';
+      for (var index = best.lineIndex + 1; index < lines.length; index++) {
+        final candidate = _cleanDescription(lines[index]);
+        if (!candidate.toLowerCase().startsWith(prefix) ||
+            candidate.length > 80 ||
+            _lineHasAmount(candidate) ||
+            _isAdministrativeLine(candidate) ||
+            _isReceiptMetadataLine(candidate) ||
+            _detectDate([candidate]) != null) {
+          continue;
+        }
+        final extension = candidate.substring(organization.length).trim();
+        final extensionWords = extension.split(RegExp(r'\s+'));
+        if (extensionWords.isEmpty ||
+            extensionWords.length > 3 ||
+            !extensionWords.every(_unicodeLetterPattern.hasMatch) ||
+            _foldOrganizationSegment(extension) != adjacentIdentitySegment ||
+            RegExp(
+              r'\b(team|support|help)\b',
+              caseSensitive: false,
+            ).hasMatch(extension)) {
+          continue;
+        }
+        return (text: candidate, lineIndices: {...indices, index});
+      }
+    }
+    return (text: organization, lineIndices: indices);
   }
 
   String? _detectDate(List<String> lines) {
@@ -2167,6 +2201,9 @@ bool _isUppercaseOrganizationSegment(String value) {
       letters.toUpperCase() == letters &&
       letters.toLowerCase() != letters;
 }
+
+String _foldOrganizationSegment(String value) =>
+    value.toLowerCase().replaceAll(RegExp(r'[^\p{L}\p{N}]', unicode: true), '');
 
 Set<int> _leadingQuantityColumnRows(
   List<String> lines,
