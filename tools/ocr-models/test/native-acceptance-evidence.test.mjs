@@ -133,6 +133,8 @@ test("retains only the bounded native acceptance schema", () => {
     passedFixtureCount: 100,
     mismatchCount: 1,
     mismatches: [{ fixtureId: "fixture_001", field: "items[0].description" }],
+    recognitionCoverage: [{ fixtureId: "fixture_001", blockCount: 12, merchantExactTextSeen: true,
+      totalExactTokenSeen: true, expectedItemCount: 2, itemDescriptionsExactTextSeen: 1 }],
     runtime: "onnxruntime-android:1.21.1:cpu",
     coldLoadTimeMs: 25,
     endToEndLatencyMs: { sampleCount: 101, cold: 30, warmP50: 20, warmP95: 24, max: 30 },
@@ -186,6 +188,7 @@ test("retains only the bounded native acceptance schema", () => {
       assert.equal(evidence.identities.baseDependencyLockSha256, "9".repeat(64));
       assert.match(evidence.identities.baseCompositeSha256, /^[0-9a-f]{64}$/);
       assert.deepEqual(Object.keys(evidence.acceptance.mismatches[0]), ["fixtureId", "field"]);
+      assert.deepEqual(evidence.acceptance.recognitionCoverage, acceptance.recognitionCoverage);
     },
   );
   withLog(
@@ -195,6 +198,14 @@ test("retains only the bounded native acceptance schema", () => {
     ),
     (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot),
       /UI smoke fixture identity is unreviewed/),
+  );
+  withLog(
+    protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...acceptance,
+      recognitionCoverage: [{ ...acceptance.recognitionCoverage[0], text: "raw-content-must-not-survive" }],
+    })}`),
+    (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot),
+      /recognitionCoverage\[0\].*non-allowlisted fields/),
   );
 });
 

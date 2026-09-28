@@ -555,6 +555,7 @@ function sanitizeAcceptance(value, platform) {
     "schemaVersion", "platform", "completed", "networkIsolated", "fixtureCount", "passedFixtureCount",
     "mismatchCount", "mismatches", "runtime", "coldLoadTimeMs", "endToEndLatencyMs",
     "nativeLatencyMs", "peakRssBytes", "perScript",
+    ...(Object.hasOwn(value, "recognitionCoverage") ? ["recognitionCoverage"] : []),
   ], "acceptance marker");
   if (!Array.isArray(value.mismatches) || value.mismatches.length > 4096) {
     throw new Error("Acceptance mismatch evidence is not bounded");
@@ -568,6 +569,28 @@ function sanitizeAcceptance(value, platform) {
       fixtureId: boundedToken(entry.fixtureId, `mismatches[${index}].fixtureId`),
       field: boundedToken(entry.field, `mismatches[${index}].field`),
     };
+  });
+  const recognitionCoverage = Object.hasOwn(value, "recognitionCoverage") ? value.recognitionCoverage : [];
+  if (!Array.isArray(recognitionCoverage) || recognitionCoverage.length > 101) {
+    throw new Error("Recognition coverage evidence is not bounded");
+  }
+  const coverageFixtures = new Set();
+  const boundedRecognitionCoverage = recognitionCoverage.map((entry, index) => {
+    if (entry == null || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new Error(`recognitionCoverage[${index}] must be an object`);
+    }
+    assertExactKeys(entry, ["fixtureId", "blockCount", "merchantExactTextSeen", "totalExactTokenSeen", "expectedItemCount", "itemDescriptionsExactTextSeen"], `recognitionCoverage[${index}]`);
+    const fixtureId = boundedToken(entry.fixtureId, `recognitionCoverage[${index}].fixtureId`);
+    const blockCount = boundedInteger(entry.blockCount, `recognitionCoverage[${index}].blockCount`);
+    const expectedItemCount = boundedInteger(entry.expectedItemCount, `recognitionCoverage[${index}].expectedItemCount`);
+    const itemDescriptionsExactTextSeen = boundedInteger(entry.itemDescriptionsExactTextSeen, `recognitionCoverage[${index}].itemDescriptionsExactTextSeen`);
+    if (coverageFixtures.has(fixtureId) || blockCount > 256 || expectedItemCount > 40 || itemDescriptionsExactTextSeen > expectedItemCount ||
+        typeof entry.merchantExactTextSeen !== "boolean" || typeof entry.totalExactTokenSeen !== "boolean") {
+      throw new Error("Recognition coverage evidence is invalid");
+    }
+    coverageFixtures.add(fixtureId);
+    return { fixtureId, blockCount, merchantExactTextSeen: entry.merchantExactTextSeen,
+      totalExactTokenSeen: entry.totalExactTokenSeen, expectedItemCount, itemDescriptionsExactTextSeen };
   });
   if (value.perScript == null || typeof value.perScript !== "object" || Array.isArray(value.perScript)) {
     throw new Error("perScript must be an object");
@@ -625,6 +648,7 @@ function sanitizeAcceptance(value, platform) {
     passedFixtureCount,
     mismatchCount,
     mismatches,
+    ...(Object.hasOwn(value, "recognitionCoverage") ? { recognitionCoverage: boundedRecognitionCoverage } : {}),
     runtime,
     coldLoadTimeMs: value.coldLoadTimeMs == null
       ? null

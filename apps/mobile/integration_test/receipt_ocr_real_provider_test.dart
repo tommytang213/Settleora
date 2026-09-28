@@ -279,6 +279,7 @@ void main() {
             as Map<String, Object?>,
       );
       final mismatches = <_BoundedMismatch>[];
+      final recognitionCoverage = <Map<String, Object>>[];
       final fixtureDurationsMs = <int>[];
       final nativeDurationsMs = <int>[];
       final scriptResults = <String, _ScriptResult>{};
@@ -375,6 +376,9 @@ void main() {
                         : artifact.height!,
                   ),
                 );
+                recognitionCoverage.add(
+                  _boundedRecognitionCoverage(fixtureId, result, expected),
+                );
               } catch (_) {
                 // Preserve only a bounded category. Native exception details can
                 // contain OCR text, local paths, or provider diagnostics and must
@@ -406,6 +410,7 @@ void main() {
             entries.length - mismatches.map((e) => e.fixtureId).toSet().length,
         'mismatchCount': mismatches.length,
         'mismatches': mismatches.map((e) => e.toJson()).toList(growable: false),
+        'recognitionCoverage': recognitionCoverage,
         'runtime': runtime,
         'coldLoadTimeMs': nativeColdLoadTimeMs,
         'endToEndLatencyMs': _latencySummary(fixtureDurationsMs),
@@ -1304,6 +1309,41 @@ List<_BoundedMismatch> _completePreviewMismatches(
   }
   return mismatches;
 }
+
+Map<String, Object> _boundedRecognitionCoverage(
+  String fixtureId,
+  ReceiptOcrResult result,
+  Map<String, Object?> expected,
+) {
+  // Only bounded booleans and counts leave this process. Receipt text, block
+  // geometry, expected values, and local paths remain in memory.
+  final blocks = result.preview?.blocks ?? const <ReceiptOcrBlockEvidence>[];
+  final foldedEvidence = _foldRecognitionEvidence(
+    blocks.map((block) => block.text).join(' '),
+  );
+  bool containsExpected(Object? value) {
+    if (value is! String) return false;
+    final foldedExpected = _foldRecognitionEvidence(value);
+    return foldedExpected.isNotEmpty && foldedEvidence.contains(foldedExpected);
+  }
+
+  final expectedItems = (expected['items'] as List<Object?>)
+      .map((item) => _ExpectedItem.fromManifest(item, fixtureId))
+      .toList(growable: false);
+  return {
+    'fixtureId': fixtureId,
+    'blockCount': blocks.length,
+    'merchantExactTextSeen': containsExpected(expected['merchant']),
+    'totalExactTokenSeen': containsExpected(expected['total']),
+    'expectedItemCount': expectedItems.length,
+    'itemDescriptionsExactTextSeen': expectedItems
+        .where((item) => containsExpected(item.description))
+        .length,
+  };
+}
+
+String _foldRecognitionEvidence(String value) =>
+    value.toLowerCase().replaceAll(RegExp(r'[^\p{L}\p{N}]', unicode: true), '');
 
 bool isValidNativeOcrBlockGeometry(
   ReceiptOcrBlockEvidence block, {
