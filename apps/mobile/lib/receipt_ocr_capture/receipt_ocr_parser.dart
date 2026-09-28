@@ -285,7 +285,13 @@ class ReceiptOcrParser {
               ].where((label) => label.start < dateStart).toList()
               ..sort((a, b) => a.start.compareTo(b.start));
         if (labels.isNotEmpty) {
-          score += labels.last.secondary ? -100 : 80;
+          final nearest = labels.last;
+          final priorQualifier =
+              !nearest.secondary &&
+              RegExp(
+                r'\b(?:previous|prior|last|refund|reference|payment|paid)\s+$',
+              ).hasMatch(lower.substring(0, nearest.start));
+          score += nearest.secondary || priorQualifier ? -100 : 80;
         } else if (index > 0 && !_lineHasAmount(lines[index - 1])) {
           final previous = lines[index - 1].toLowerCase();
           if (secondaryLabel.hasMatch(previous)) {
@@ -391,6 +397,7 @@ class ReceiptOcrParser {
         .where((line) => !_isNonTransactionCurrencyMetadataLine(line))
         .toList(growable: false);
     final joined = transactionCurrencyLines.join(' ').toUpperCase();
+    final hasUsPostalAddress = _hasUsPostalAddress(transactionCurrencyLines);
     final explicitCode = _rankedExplicitCurrencyCode(transactionCurrencyLines);
     if (explicitCode != null) {
       return _ReceiptCurrencyDetection(
@@ -437,7 +444,10 @@ class ReceiptOcrParser {
       );
     }
 
-    final contextualCurrency = _contextualCurrency(joined);
+    final contextualCurrency = _contextualCurrency(
+      joined,
+      hasUsPostalAddress: hasUsPostalAddress,
+    );
     if (contextualCurrency != null) {
       return _ReceiptCurrencyDetection(
         currency: contextualCurrency,
@@ -448,7 +458,7 @@ class ReceiptOcrParser {
     final normalizedFallback = _supportedCurrencyCode(fallbackCurrency);
     if (normalizedFallback == 'USD' &&
         (RegExp(r'\b(UNITED\s+STATES|USA)\b').hasMatch(joined) ||
-            RegExp(r'\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\b').hasMatch(joined))) {
+            hasUsPostalAddress)) {
       return const _ReceiptCurrencyDetection(
         currency: 'USD',
         provenance: ReceiptOcrCurrencyProvenance.contextInferred,
@@ -693,12 +703,14 @@ class ReceiptOcrParser {
     final sameCurrencyShipping =
         !shippingHasExplicitCurrencyEvidence ||
         (currency != null && shippingCurrency == currency);
+    final discountMagnitude = discount == null
+        ? null
+        : double.tryParse(discount)?.abs();
     final supportedParts = [
       tax,
       service,
       if (sameCurrencyTip) tip,
       if (sameCurrencyShipping) shipping,
-      discount,
     ].map((value) => value == null ? null : double.tryParse(value));
     final supportedSum = subtotalValue == null
         ? null
@@ -706,7 +718,8 @@ class ReceiptOcrParser {
               supportedParts.whereType<double>().fold<double>(
                 0,
                 (a, b) => a + b,
-              );
+              ) -
+              (discountMagnitude ?? 0);
     totalCandidates.sort((left, right) {
       int rank(({String value, int score, int order}) candidate) {
         final parsed = double.tryParse(candidate.value);
@@ -768,7 +781,6 @@ class ReceiptOcrParser {
               !chargeTableRows.contains(lineIndex)) ||
           _isContextualReceiptMetadataLine(lines, lineIndex) ||
           _isChargeTableHeader(line) ||
-          _detectDate([line]) != null ||
           merchantLineIndices.contains(lineIndex) ||
           (fuelItem != null && _isFuelMeasurementLine(line))) {
         wrappedDescriptionLines.clear();
@@ -984,10 +996,15 @@ class ReceiptOcrParser {
         continue;
       }
 
-      final endIndex = headerIndex + 21 < lines.length
-          ? headerIndex + 21
-          : lines.length;
-      for (var rowIndex = headerIndex + 1; rowIndex < endIndex; rowIndex++) {
+      for (
+        var rowIndex = headerIndex + 1;
+        rowIndex < lines.length;
+        rowIndex++
+      ) {
+        if (_isChargeTableHeader(lines[rowIndex]) ||
+            _isChargeTableSectionBoundary(lines[rowIndex])) {
+          break;
+        }
         final tableBlocks = layoutRows[rowIndex]
             .where((block) {
               if (block.points.isEmpty) return false;
@@ -1040,22 +1057,24 @@ class ReceiptOcrParser {
           currency: lineCurrency,
         );
         if (lineTotal == null) continue;
-        final description = _cleanDescription(
-          tableBlocks
-              .where((block) {
-                final right = block.points
-                    .map((point) => point.x)
-                    .reduce((a, b) => a > b ? a : b);
-                return right < amountLeft - 12 &&
-                    !_isStandaloneAmountRow(block.text) &&
-                    !RegExp(
-                      '^(?:$_currencyTokenPattern)\\s*[-+]?\\d',
-                      caseSensitive: false,
-                    ).hasMatch(block.text.trim()) &&
-                    _unicodeLetterPattern.hasMatch(block.text);
-              })
-              .map((block) => block.text.trim())
-              .join(' '),
+        final description = _stripChargeTableColumns(
+          _cleanDescription(
+            tableBlocks
+                .where((block) {
+                  final right = block.points
+                      .map((point) => point.x)
+                      .reduce((a, b) => a > b ? a : b);
+                  return right < amountLeft - 12 &&
+                      !_isStandaloneAmountRow(block.text) &&
+                      !RegExp(
+                        '^(?:$_currencyTokenPattern)\\s*[-+]?\\d',
+                        caseSensitive: false,
+                      ).hasMatch(block.text.trim()) &&
+                      _unicodeLetterPattern.hasMatch(block.text);
+                })
+                .map((block) => block.text.trim())
+                .join(' '),
+          ),
         );
         if (!_hasSubstantiveItemDescription(description) ||
             _isReceiptMetadataLine(description)) {
@@ -1263,18 +1282,19 @@ bool _isFinancialLabelWithAdjacentAmount(
 // and they do not establish a bill-item quantity without a quantity label.
 Set<int> _chargeTableRows(List<String> lines) {
   final rows = <int>{};
-  var remaining = 0;
+  var inTable = false;
   for (var index = 0; index < lines.length; index++) {
     final line = lines[index];
     final lower = line.toLowerCase();
     if (_isChargeTableHeader(line)) {
-      remaining = 20;
+      inTable = true;
       continue;
     }
-    if (remaining == 0) continue;
-    remaining -= 1;
-    if (_hasTotalLabel(line, lower) || _hasSubtotalLabel(line, lower)) {
-      remaining = 0;
+    if (!inTable) continue;
+    if (_hasTotalLabel(line, lower) ||
+        _hasSubtotalLabel(line, lower) ||
+        _isChargeTableSectionBoundary(line)) {
+      inTable = false;
       continue;
     }
     final pricedRow = RegExp(
@@ -1293,6 +1313,14 @@ Set<int> _chargeTableRows(List<String> lines) {
     }
   }
   return rows;
+}
+
+bool _isChargeTableSectionBoundary(String line) {
+  if (_lineHasAmount(line)) return false;
+  return RegExp(
+    r'^(?:payment\s+(?:coupon|information|summary)|remittance|important\s+messages?|(?:account|billing|usage)\s+(?:summary|information)|contact\s+us|notes?)\b',
+    caseSensitive: false,
+  ).hasMatch(line.trim());
 }
 
 bool _isChargeTableHeader(String line) {
@@ -1539,7 +1567,7 @@ String? _explicitSymbolCurrency(String joined) {
   return null;
 }
 
-String? _contextualCurrency(String joined) {
+String? _contextualCurrency(String joined, {required bool hasUsPostalAddress}) {
   if (joined.contains(r'$')) {
     if (RegExp(
           r'\b(HONG\s+KONG|KOWLOON|CAUSEWAY\s+BAY|HK)\b',
@@ -1574,10 +1602,8 @@ String? _contextualCurrency(String joined) {
     ).hasMatch(joined)) {
       return 'MXN';
     }
-    if (RegExp(
-          r'\b(UNITED\s+STATES|USA|SEATTLE|SALES\s+TAX)\b',
-        ).hasMatch(joined) ||
-        RegExp(r'\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\b').hasMatch(joined)) {
+    if (RegExp(r'\b(UNITED\s+STATES|USA|SALES\s+TAX)\b').hasMatch(joined) ||
+        hasUsPostalAddress) {
       return 'USD';
     }
   }
@@ -1611,6 +1637,27 @@ String? _contextualCurrency(String joined) {
     return 'PLN';
   }
   return null;
+}
+
+bool _hasUsPostalAddress(List<String> lines) {
+  final cityStateZip = RegExp(
+    r"^[a-z][a-z .'-]{1,40}(,?)\s+(AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC)\s+\d{5}(?:-\d{4})?$",
+    caseSensitive: false,
+  );
+  for (var index = 0; index < lines.length; index++) {
+    final match = cityStateZip.firstMatch(lines[index].trim());
+    if (match == null) continue;
+    if (match.group(1) == ',') return true;
+    var addressIndex = index - 1;
+    while (addressIndex >= 0 &&
+        _isAddressContinuationLine(lines[addressIndex])) {
+      addressIndex -= 1;
+    }
+    if (addressIndex >= 0 && _isStreetAddressLine(lines[addressIndex])) {
+      return true;
+    }
+  }
+  return false;
 }
 
 bool _lineHasAmount(String line) {
@@ -1964,6 +2011,9 @@ bool _isReceiptMetadataLine(String line) {
     ),
     RegExp(
       r'^\s*(date|dated|issued|printed|reprinted)\s*[:#-]?\s*\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}\b',
+    ),
+    RegExp(
+      r'^\s*(?:(?:previous|prior|last|refund|reference|payment|paid)\s+)?(?:bill|invoice|statement|transaction|order|purchase|due|payment|refund|service|billing)\s+date\s*[:#-]?\s*(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{4}|[a-z]{3,9}\.?\s+\d{1,2},?\s+\d{4})\s*$',
     ),
     RegExp(r'\b(tel|phone|fax|whatsapp|mobile|contact)\b'),
     RegExp(r'\b(?:\+?\d[\d ()-]{6,}\d)\b'),

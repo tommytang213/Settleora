@@ -551,7 +551,7 @@ Total \$145.00
       'Harbor Utility\n'
       'Description Therms Rate Amount Important Messages\n'
       'Customer Charge - USD 15.00 USD 15.00 Save energy\n'
-      'Delivery Charge 76 USD 0.4120 USD 31.31 Go paperless\n'
+      'Delivery Charge 76 therms USD 0.4120 USD 31.31 Go paperless\n'
       'State Gas Tax 76 USD 0.0280 USD 2.13 Budget reminder\n'
       'Total Current Charges USD 48.44',
       blocks: [
@@ -567,7 +567,7 @@ Total \$145.00
         _layoutBlock('USD 15.00', 9, 2, 310, 350),
         _layoutBlock('Save energy', 10, 2, 500, 700),
         _layoutBlock('Delivery Charge', 11, 3, 20, 160),
-        _layoutBlock('76', 12, 3, 170, 210),
+        _layoutBlock('76 therms', 12, 3, 170, 210),
         _layoutBlock('USD 0.4120', 13, 3, 230, 270),
         // A wider recognized amount cell can start left of the header edge.
         _layoutBlock('USD 31.31', 14, 3, 285, 350),
@@ -1385,6 +1385,43 @@ Total Amount Due \$53.11
     ]);
   });
 
+  test('long charge tables retain late rows until a printed total', () {
+    const parser = ReceiptOcrParser();
+    final chargeRows = List.generate(
+      24,
+      (index) => 'Charge ${index + 1} 2 therms \$0.5000 \$1.00',
+    );
+    final text = [
+      'Harbor Utility',
+      'Description Usage Rate Amount',
+      ...chargeRows,
+      'Total Amount Due \$24.00',
+    ].join('\n');
+    final flattened = parser.parse(text, fallbackCurrency: 'USD');
+    expect(flattened.items, hasLength(24));
+    expect(flattened.items.last.description, 'Charge 24');
+    expect(flattened.items.last.lineTotal, '1.00');
+
+    final blocks = <ReceiptOcrBlockEvidence>[
+      _layoutBlock('Harbor Utility', 0, 0, 20, 350),
+      _layoutBlock('Description', 1, 1, 20, 150),
+      _layoutBlock('Usage', 2, 1, 170, 210),
+      _layoutBlock('Rate', 3, 1, 230, 270),
+      _layoutBlock('Amount', 4, 1, 310, 350),
+      for (var index = 0; index < 24; index++) ...[
+        _layoutBlock('Charge ${index + 1}', 5 + index * 4, index + 2, 20, 150),
+        _layoutBlock('2 therms', 6 + index * 4, index + 2, 170, 210),
+        _layoutBlock('\$0.5000', 7 + index * 4, index + 2, 230, 270),
+        _layoutBlock('\$1.00', 8 + index * 4, index + 2, 310, 350),
+      ],
+      _layoutBlock('Total Amount Due \$24.00', 101, 26, 20, 350),
+    ];
+    final layout = parser.parse(text, fallbackCurrency: 'USD', blocks: blocks);
+    expect(layout.items, hasLength(24));
+    expect(layout.items.last.description, 'Charge 24');
+    expect(layout.items.last.lineTotal, '1.00');
+  });
+
   test('parser treats a city ZIP row as metadata only beside an address', () {
     const parser = ReceiptOcrParser();
     final addressed = parser.parse('''
@@ -1404,6 +1441,70 @@ Total USD 98101.00
     expect(addressed.merchant, 'Pike Deli');
     expect(addressed.items.map((item) => item.description), ['Coffee']);
     expect(standalone.items.map((item) => item.description), ['Seattle']);
+  });
+
+  test('USD postal context requires an address-shaped row', () {
+    const parser = ReceiptOcrParser();
+    final productCode = parser.parse('''
+Corner Shop
+Widget CA 12345
+Coffee \$12.00
+Total \$12.00
+''', fallbackCurrency: 'USD');
+    expect(productCode.currency, 'USD');
+    expect(
+      productCode.currencyProvenance,
+      ReceiptOcrCurrencyProvenance.defaultFallback,
+    );
+
+    final address = parser.parse('''
+Corner Shop
+123 Main St
+Riverside CA 92507
+Coffee \$12.00
+Total \$12.00
+''', fallbackCurrency: 'USD');
+    expect(address.currency, 'USD');
+    expect(
+      address.currencyProvenance,
+      ReceiptOcrCurrencyProvenance.contextInferred,
+    );
+  });
+
+  test('previous bill date does not outrank the current bill date', () {
+    final preview = const ReceiptOcrParser().parse('''
+Harbor Utility
+Previous Bill Date 2025-01-01
+Bill Date 2025-02-01
+Due Date 2025-02-28
+Current Charges USD 20.00
+Total Amount Due USD 20.00
+''');
+    expect(preview.receiptDate, '2025-02-01');
+  });
+
+  test('positive printed discount reduces arithmetic total ranking', () {
+    final preview = const ReceiptOcrParser().parse('''
+Harbor Shop
+Subtotal USD 100.00
+Discount USD 20.00
+Total USD 120.00
+Total USD 80.00
+''');
+    expect(preview.discount, '20.00');
+    expect(preview.total, '80.00');
+  });
+
+  test('a service date on a priced row does not hide the item', () {
+    final preview = const ReceiptOcrParser().parse('''
+City Parking
+Transaction Date 2026-09-28
+09/28/2026 Parking USD 20.00
+Total USD 20.00
+''');
+    expect(preview.items, hasLength(1));
+    expect(preview.items.single.description, contains('Parking'));
+    expect(preview.items.single.lineTotal, '20.00');
   });
 
   test('parser preserves merchant headings containing card or invoice', () {
