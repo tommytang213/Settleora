@@ -579,18 +579,35 @@ function sanitizeAcceptance(value, platform) {
     if (entry == null || typeof entry !== "object" || Array.isArray(entry)) {
       throw new Error(`recognitionCoverage[${index}] must be an object`);
     }
-    assertExactKeys(entry, ["fixtureId", "blockCount", "merchantExactTextSeen", "totalExactTokenSeen", "expectedItemCount", "itemDescriptionsExactTextSeen"], `recognitionCoverage[${index}]`);
+    const layoutKeys = ["rowCount", "merchantExactTextInOneRow", "itemDescriptionsSameRowAsAmount",
+      "itemDescriptionsWithinAdjacentAmountRow", "chargeTableHeaderSameRow"];
+    const hasLayoutCoverage = layoutKeys.some((key) => Object.hasOwn(entry, key));
+    assertExactKeys(entry, ["fixtureId", "blockCount", "merchantExactTextSeen", "totalExactTokenSeen",
+      "expectedItemCount", "itemDescriptionsExactTextSeen", ...(hasLayoutCoverage ? layoutKeys : [])],
+    `recognitionCoverage[${index}]`);
     const fixtureId = boundedToken(entry.fixtureId, `recognitionCoverage[${index}].fixtureId`);
     const blockCount = boundedInteger(entry.blockCount, `recognitionCoverage[${index}].blockCount`);
     const expectedItemCount = boundedInteger(entry.expectedItemCount, `recognitionCoverage[${index}].expectedItemCount`);
     const itemDescriptionsExactTextSeen = boundedInteger(entry.itemDescriptionsExactTextSeen, `recognitionCoverage[${index}].itemDescriptionsExactTextSeen`);
+    const rowCount = hasLayoutCoverage ? boundedInteger(entry.rowCount, `recognitionCoverage[${index}].rowCount`) : null;
+    const sameRowCount = hasLayoutCoverage ? boundedInteger(entry.itemDescriptionsSameRowAsAmount,
+      `recognitionCoverage[${index}].itemDescriptionsSameRowAsAmount`) : null;
+    const adjacentRowCount = hasLayoutCoverage ? boundedInteger(entry.itemDescriptionsWithinAdjacentAmountRow,
+      `recognitionCoverage[${index}].itemDescriptionsWithinAdjacentAmountRow`) : null;
     if (coverageFixtures.has(fixtureId) || blockCount > 256 || expectedItemCount > 40 || itemDescriptionsExactTextSeen > expectedItemCount ||
-        typeof entry.merchantExactTextSeen !== "boolean" || typeof entry.totalExactTokenSeen !== "boolean") {
+        typeof entry.merchantExactTextSeen !== "boolean" || typeof entry.totalExactTokenSeen !== "boolean" ||
+        (hasLayoutCoverage && (rowCount > 256 || rowCount > blockCount || sameRowCount > adjacentRowCount ||
+          adjacentRowCount > expectedItemCount || typeof entry.merchantExactTextInOneRow !== "boolean" ||
+          typeof entry.chargeTableHeaderSameRow !== "boolean"))) {
       throw new Error("Recognition coverage evidence is invalid");
     }
     coverageFixtures.add(fixtureId);
     return { fixtureId, blockCount, merchantExactTextSeen: entry.merchantExactTextSeen,
-      totalExactTokenSeen: entry.totalExactTokenSeen, expectedItemCount, itemDescriptionsExactTextSeen };
+      totalExactTokenSeen: entry.totalExactTokenSeen, expectedItemCount, itemDescriptionsExactTextSeen,
+      ...(hasLayoutCoverage ? { rowCount, merchantExactTextInOneRow: entry.merchantExactTextInOneRow,
+        itemDescriptionsSameRowAsAmount: sameRowCount,
+        itemDescriptionsWithinAdjacentAmountRow: adjacentRowCount,
+        chargeTableHeaderSameRow: entry.chargeTableHeaderSameRow } : {}) };
   });
   if (value.perScript == null || typeof value.perScript !== "object" || Array.isArray(value.perScript)) {
     throw new Error("perScript must be an object");

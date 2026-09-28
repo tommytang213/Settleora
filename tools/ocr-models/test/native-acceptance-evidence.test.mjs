@@ -134,7 +134,9 @@ test("retains only the bounded native acceptance schema", () => {
     mismatchCount: 1,
     mismatches: [{ fixtureId: "fixture_001", field: "items[0].description" }],
     recognitionCoverage: [{ fixtureId: "fixture_001", blockCount: 12, merchantExactTextSeen: true,
-      totalExactTokenSeen: true, expectedItemCount: 2, itemDescriptionsExactTextSeen: 1 }],
+      totalExactTokenSeen: true, expectedItemCount: 2, itemDescriptionsExactTextSeen: 1,
+      rowCount: 8, merchantExactTextInOneRow: true, itemDescriptionsSameRowAsAmount: 0,
+      itemDescriptionsWithinAdjacentAmountRow: 1, chargeTableHeaderSameRow: false }],
     runtime: "onnxruntime-android:1.21.1:cpu",
     coldLoadTimeMs: 25,
     endToEndLatencyMs: { sampleCount: 101, cold: 30, warmP50: 20, warmP95: 24, max: 30 },
@@ -206,6 +208,26 @@ test("retains only the bounded native acceptance schema", () => {
     })}`),
     (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot),
       /recognitionCoverage\[0\].*non-allowlisted fields/),
+  );
+  withLog(
+    protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...acceptance,
+      recognitionCoverage: [{ ...acceptance.recognitionCoverage[0], rowCount: 13 }],
+    })}`),
+    (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot),
+      /Recognition coverage evidence is invalid/),
+  );
+  const legacyCoverage = { fixtureId: "fixture_001", blockCount: 12,
+    merchantExactTextSeen: true, totalExactTokenSeen: true,
+    expectedItemCount: 2, itemDescriptionsExactTextSeen: 1 };
+  withLog(
+    protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...acceptance, recognitionCoverage: [legacyCoverage],
+    })}`),
+    (log) => assert.deepEqual(
+      buildEvidence(evidenceArgs(log), repoRoot).acceptance.recognitionCoverage,
+      [legacyCoverage],
+    ),
   );
 });
 

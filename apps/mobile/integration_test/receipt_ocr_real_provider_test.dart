@@ -1321,6 +1321,12 @@ Map<String, Object> _boundedRecognitionCoverage(
   final foldedEvidence = _foldRecognitionEvidence(
     blocks.map((block) => block.text).join(' '),
   );
+  final rowText = <int, List<String>>{};
+  for (final block in blocks) {
+    (rowText[block.row] ??= <String>[]).add(block.text);
+  }
+  final rows = rowText.values.map((parts) => parts.join(' ')).toList();
+  final foldedRows = rows.map(_foldRecognitionEvidence).toList();
   bool containsExpected(Object? value) {
     if (value is! String) return false;
     final foldedExpected = _foldRecognitionEvidence(value);
@@ -1330,15 +1336,51 @@ Map<String, Object> _boundedRecognitionCoverage(
   final expectedItems = (expected['items'] as List<Object?>)
       .map((item) => _ExpectedItem.fromManifest(item, fixtureId))
       .toList(growable: false);
+  final merchantFolded = expected['merchant'] is String
+      ? _foldRecognitionEvidence(expected['merchant'] as String)
+      : '';
+  bool descriptionAndAmountWithinRows(_ExpectedItem item, int distance) {
+    final description = _foldRecognitionEvidence(item.description);
+    final amount = _foldRecognitionEvidence(item.lineTotal);
+    if (description.isEmpty || amount.isEmpty) return false;
+    for (var index = 0; index < foldedRows.length; index++) {
+      if (!foldedRows[index].contains(description)) continue;
+      final first = index - distance < 0 ? 0 : index - distance;
+      final last = index + distance >= foldedRows.length
+          ? foldedRows.length - 1
+          : index + distance;
+      for (var amountIndex = first; amountIndex <= last; amountIndex++) {
+        if (foldedRows[amountIndex].contains(amount)) return true;
+      }
+    }
+    return false;
+  }
+
   return {
     'fixtureId': fixtureId,
     'blockCount': blocks.length,
+    'rowCount': rows.length,
     'merchantExactTextSeen': containsExpected(expected['merchant']),
+    'merchantExactTextInOneRow':
+        merchantFolded.isNotEmpty &&
+        foldedRows.any((row) => row.contains(merchantFolded)),
     'totalExactTokenSeen': containsExpected(expected['total']),
     'expectedItemCount': expectedItems.length,
     'itemDescriptionsExactTextSeen': expectedItems
         .where((item) => containsExpected(item.description))
         .length,
+    'itemDescriptionsSameRowAsAmount': expectedItems
+        .where((item) => descriptionAndAmountWithinRows(item, 0))
+        .length,
+    'itemDescriptionsWithinAdjacentAmountRow': expectedItems
+        .where((item) => descriptionAndAmountWithinRows(item, 1))
+        .length,
+    'chargeTableHeaderSameRow': rows.any((row) {
+      final lower = row.toLowerCase();
+      return RegExp(r'\bdescription\b').hasMatch(lower) &&
+          RegExp(r'\b(?:amount|total)\b').hasMatch(lower) &&
+          RegExp(r'\b(?:rate|usage|therms|kwh|units?)\b').hasMatch(lower);
+    }),
   };
 }
 
