@@ -1409,6 +1409,18 @@ Total Amount Due \$31.31
     ]);
     expect(singleAmountRow.items.single.lineTotal, '31.31');
 
+    final deliveryFeeRow = parser.parse('''
+Power Utility
+Description Usage Rate Amount
+Delivery Fee USD 5.00
+Total Amount Due USD 5.00
+''');
+    expect(deliveryFeeRow.shipping, isNull);
+    expect(deliveryFeeRow.items.map((item) => item.description), [
+      'Delivery Fee',
+    ]);
+    expect(deliveryFeeRow.items.single.lineTotal, '5.00');
+
     final unitBearing = parser.parse('''
 Power Utility
 Description Usage Rate Amount

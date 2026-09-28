@@ -1517,11 +1517,6 @@ bool _isChargeTableSummaryLine(String line) {
       _hasDiscountLabel(line, normalized) ||
       _hasActualTipChargeLabel(line, normalized) ||
       _hasServiceChargeLabel(line, normalized) ||
-      (RegExp(
-            r'^\s*(?:shipping|delivery fee)\b',
-            caseSensitive: false,
-          ).hasMatch(line) &&
-          _hasShippingLabel(line, normalized)) ||
       _isPaymentMetadataLine(line);
 }
 
