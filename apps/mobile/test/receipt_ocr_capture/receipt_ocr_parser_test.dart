@@ -1540,6 +1540,98 @@ Total 12.50
     expect(preview.items.single.lineTotal, '12.50');
   });
 
+  test('layout fallback excludes localized tender and change rows', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(
+      '''
+Sklep Warszawa
+Zupa 35,50 zł .
+Gotówka 60,00 zł .
+Reszta 24,50 zł .
+Razem 35,50 zł .
+''',
+      blocks: [
+        _layoutBlock('Sklep Warszawa', 0, 0, 20, 350),
+        _layoutBlock('Zupa', 1, 1, 20, 120),
+        _layoutBlock('35,50 zł', 2, 1, 300, 420),
+        _layoutBlock('.', 3, 1, 440, 450),
+        _layoutBlock('Gotówka', 4, 2, 20, 120),
+        _layoutBlock('60,00 zł', 5, 2, 300, 420),
+        _layoutBlock('.', 6, 2, 440, 450),
+        _layoutBlock('Reszta', 7, 3, 20, 120),
+        _layoutBlock('24,50 zł', 8, 3, 300, 420),
+        _layoutBlock('.', 9, 3, 440, 450),
+        _layoutBlock('Razem', 10, 4, 20, 120),
+        _layoutBlock('35,50 zł', 11, 4, 300, 420),
+        _layoutBlock('.', 12, 4, 440, 450),
+      ],
+    );
+
+    expect(preview.items.map((item) => item.description), ['Zupa']);
+    expect(preview.items.single.lineTotal, '35.50');
+  });
+
+  test('layout fallback selects a priced cell beside bare quantity', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(
+      'Market\nApples 2 \$3.00 .\nTotal \$3.00 .',
+      blocks: [
+        _layoutBlock('Market', 0, 0, 20, 350),
+        _layoutBlock('Apples', 1, 1, 20, 120),
+        _layoutBlock('2', 2, 1, 170, 185),
+        _layoutBlock('\$3.00', 3, 1, 300, 420),
+        _layoutBlock('.', 4, 1, 440, 450),
+        _layoutBlock('Total', 5, 2, 20, 120),
+        _layoutBlock('\$3.00', 6, 2, 300, 420),
+        _layoutBlock('.', 7, 2, 440, 450),
+      ],
+    );
+
+    expect(preview.items.map((item) => item.description), ['Apples']);
+    expect(preview.items.single.lineTotal, '3.00');
+  });
+
+  test('layout fallback normalizes native-script amount cells', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(
+      'متجر دبي\nقهوة ١٢٫٥٠ د.إ .\nالإجمالي ١٢٫٥٠ د.إ .',
+      blocks: [
+        _layoutBlock('متجر دبي', 0, 0, 200, 400, textDirection: 'rtl'),
+        _layoutBlock('قهوة', 1, 1, 300, 400, textDirection: 'rtl'),
+        _layoutBlock('١٢٫٥٠ د.إ', 2, 1, 30, 150, textDirection: 'ltr'),
+        _layoutBlock('.', 3, 1, 10, 20),
+        _layoutBlock('الإجمالي', 4, 2, 300, 400, textDirection: 'rtl'),
+        _layoutBlock('١٢٫٥٠ د.إ', 5, 2, 30, 150, textDirection: 'ltr'),
+        _layoutBlock('.', 6, 2, 10, 20),
+      ],
+    );
+
+    expect(preview.items.map((item) => item.description), ['قهوة']);
+    expect(preview.items.single.lineTotal, '12.50');
+    expect(preview.items.single.currency, 'AED');
+  });
+
+  test('layout fallback pairs split foreign currency with amount', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(
+      'Corner Cafe\nCoffee USD 10.00\nSouvenir EUR 9.00 .\nTotal USD 10.00',
+      blocks: [
+        _layoutBlock('Corner Cafe', 0, 0, 20, 350),
+        _layoutBlock('Coffee USD 10.00', 1, 1, 20, 350),
+        _layoutBlock('Souvenir', 2, 2, 20, 150),
+        _layoutBlock('EUR', 3, 2, 260, 295),
+        _layoutBlock('9.00', 4, 2, 300, 420),
+        _layoutBlock('.', 5, 2, 440, 450),
+        _layoutBlock('Total USD 10.00', 6, 3, 20, 350),
+      ],
+    );
+
+    expect(preview.items.last.description, 'Souvenir');
+    expect(preview.items.last.currency, 'EUR');
+    expect(preview.items.last.lineTotal, '9.00');
+    expect(preview.reviewHints, isEmpty);
+  });
+
   test('long charge tables retain late rows until a printed total', () {
     const parser = ReceiptOcrParser();
     final chargeRows = List.generate(

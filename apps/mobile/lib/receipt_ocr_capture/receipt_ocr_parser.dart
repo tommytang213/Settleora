@@ -997,17 +997,59 @@ class ReceiptOcrParser {
       '(?:\\s*(?:$_currencyTokenPattern))?\\s*\$',
       caseSensitive: false,
     );
+    final minorDigits = _currencyMinorUnitDigits(currency);
+    bool hasMonetaryEvidence(String cellText) {
+      final printed = _explicitAdjustmentCurrencyFromLine(cellText);
+      return printed.hasExplicitEvidence ||
+          (minorDigits > 0 &&
+              RegExp('[.,]\\d{1,$minorDigits}\\b').hasMatch(cellText));
+    }
+
     final amountCells = row
-        .where((block) => amountCellPattern.hasMatch(block.text))
+        .where((block) {
+          final cellText = _normalizeOcrLine(block.text);
+          return amountCellPattern.hasMatch(cellText) &&
+              hasMonetaryEvidence(cellText);
+        })
         .toList(growable: false);
     if (amountCells.length != 1) return null;
     final amountCell = amountCells.single;
+    final amountText = _normalizeOcrLine(amountCell.text);
     final amountLeft = amountCell.points
         .map((point) => point.x)
         .reduce((left, right) => left < right ? left : right);
     final amountRight = amountCell.points
         .map((point) => point.x)
         .reduce((left, right) => left > right ? left : right);
+    final currencyOnlyPattern = RegExp(
+      '^\\s*(?:$_currencyTokenPattern)\\s*\$',
+      caseSensitive: false,
+    );
+    final nearbyCurrencyBlocks = row
+        .where((block) {
+          if (block == amountCell ||
+              !currencyOnlyPattern.hasMatch(_normalizeOcrLine(block.text))) {
+            return false;
+          }
+          final left = block.points
+              .map((point) => point.x)
+              .reduce((a, b) => a < b ? a : b);
+          final right = block.points
+              .map((point) => point.x)
+              .reduce((a, b) => a > b ? a : b);
+          final gap = right <= amountLeft
+              ? amountLeft - right
+              : left >= amountRight
+              ? left - amountRight
+              : 0;
+          return gap <= (amountRight - amountLeft) * 0.75 + 8;
+        })
+        .toList(growable: false);
+    if (nearbyCurrencyBlocks.length > 1) return null;
+    final currencyBlock = nearbyCurrencyBlocks.firstOrNull;
+    final monetaryText = currencyBlock == null
+        ? amountText
+        : '${_normalizeOcrLine(currencyBlock.text)} $amountText';
     final rightToLeft = row.any(
       (block) =>
           block != amountCell &&
@@ -1017,8 +1059,9 @@ class ReceiptOcrParser {
     final descriptionBlocks = row
         .where((block) {
           if (block == amountCell ||
+              block == currencyBlock ||
               !_unicodeLetterPattern.hasMatch(block.text) ||
-              amountCellPattern.hasMatch(block.text)) {
+              amountCellPattern.hasMatch(_normalizeOcrLine(block.text))) {
             return false;
           }
           final left = block.points
@@ -1039,32 +1082,26 @@ class ReceiptOcrParser {
         _isLikelyNonItemDescription(description, pricedRow: true)) {
       return null;
     }
-    final coreRow = '$description ${amountCell.text}';
+    final coreRow = '$description $monetaryText';
     if (_isAdministrativeLine(coreRow) ||
         _isPaymentMetadataLine(coreRow) ||
         _isReceiptMetadataLine(coreRow)) {
       return null;
     }
-    final printedCurrency = _explicitAdjustmentCurrencyFromLine(
-      amountCell.text,
-    );
+    final printedCurrency = _explicitAdjustmentCurrencyFromLine(monetaryText);
     // A bare integer could be an account or reference number. The fallback
     // is intentionally narrower than ordinary priced-row parsing: require a
     // printed denomination or decimal punctuation for this geometry repair.
-    final minorDigits = _currencyMinorUnitDigits(currency);
     final decimalEvidence =
         minorDigits > 0 &&
-        RegExp('[.,]\\d{1,$minorDigits}\\b').hasMatch(amountCell.text);
+        RegExp('[.,]\\d{1,$minorDigits}\\b').hasMatch(amountText);
     if (!printedCurrency.hasExplicitEvidence && !decimalEvidence) {
       return null;
     }
     final lineCurrency = printedCurrency.hasExplicitEvidence
         ? printedCurrency.currency
         : currency;
-    final lineTotal = _lastAmountInLine(
-      amountCell.text,
-      currency: lineCurrency,
-    );
+    final lineTotal = _lastAmountInLine(monetaryText, currency: lineCurrency);
     if (lineTotal == null) return null;
     return ReceiptOcrItemCandidate(
       description: description,
@@ -1987,6 +2024,16 @@ bool _isAdministrativeLine(String line) {
 
 bool _isPaymentMetadataLine(String line) {
   final normalized = line.toLowerCase().trim();
+  // These labels describe settlement evidence, not merchandise. Keep the
+  // recognition rule anchored so a product name containing the word is not
+  // excluded solely for that reason.
+  if (RegExp(
+        r'^(?:gotówka|reszta|nakit|para üstü|tiền mặt|tiền thừa|dinheiro|troco|espèces|monnaie|наличные|сдача|نقدا|نقداً|الباقي|現金|お釣り|现金|現金支付|找零|현금|거스름돈|เงินสด|เงินทอน|नकद|बाकी)(?:\s|[:：])',
+        caseSensitive: false,
+      ).hasMatch(normalized) &&
+      _lineHasAmount(line)) {
+    return true;
+  }
   final paymentPrefix = RegExp(r'^(?:payment|tender)\b').firstMatch(normalized);
   if (paymentPrefix != null &&
       _hasCurrencyMetadataShape(
