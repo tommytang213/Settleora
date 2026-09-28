@@ -677,6 +677,8 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
     ));
   }
   assert.match(resourceInventoryLoop, /observed_flutter_asset_sha=\$\(sha256_file "\$candidate"\)/);
+  assert.match(resourceInventoryLoop,
+    /"\$relative_resource" == Frameworks\/App\.framework\/flutter_assets\/NOTICES\.Z &&\s+"\$mode" == unsigned &&\s+"\$observed_flutter_asset_sha" == f1180de3d3150e74be53219fc4b526c64dbf85e806315d22c5abb6d26b8b9af6/);
   assert.match(resourceInventoryLoop, /"\$observed_flutter_asset_sha" != "\$expected_flutter_asset_sha"/);
   assert.match(resourceInventoryLoop, /production Flutter asset bytes differ from the reviewed identity/);
   assert.match(resourceInventoryLoop, /unset expected_flutter_asset_sha/);
