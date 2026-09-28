@@ -1069,7 +1069,7 @@ String _normalizeOcrLine(String value) {
   }
   normalized = normalized.replaceAllMapped(
     RegExp(
-      '(?<![A-Za-z0-9])($_currencyTokenPattern)(?=\\d)',
+      r'(?<![A-Za-z0-9])(Rs|kr)(?=\d[\d,]*(?:\.\d{1,3}|,\d{2})(?![A-Za-z0-9]))',
       caseSensitive: false,
     ),
     (match) => '${match.group(1)} ',
@@ -1693,6 +1693,16 @@ bool _isDateOrTimeOnlyLine(String normalized) {
 }
 
 bool _hasTraceableItemAmountToken(String line, String amountToken) {
+  // A product/SKU suffix such as USD123 is not printed monetary evidence.
+  // Adjacent alphabetic currency markers are too ambiguous to promote into
+  // an item amount; explicit symbols and separated codes remain usable.
+  if (RegExp(
+    '(?<![A-Za-z0-9])(?:${_supportedCurrencyCodes.join('|')}|Rs|kr)'
+    '${RegExp.escape(amountToken)}(?=\\s|\$)',
+    caseSensitive: false,
+  ).hasMatch(line)) {
+    return false;
+  }
   final normalizedToken = _normalizeAmount(amountToken);
   if (normalizedToken == null) {
     return false;

@@ -670,6 +670,12 @@ Total $18.00
     );
     expect(tender.total, isNull);
 
+    final productCode = parser.parse(
+      'Corner Shop\nModel USD123\nVoucher Rs123\nDevice INR123.45\nTotal USD 12.00',
+    );
+    expect(productCode.items, isEmpty);
+    expect(productCode.total, '12.00');
+
     final annotated = parser.parse(
       'Corner Shop\nItem A HK\$12.00\nSubtotal (8.25%) HK\$12.00\n'
       'Total (HKD) HK\$12.00',
