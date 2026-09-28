@@ -126,6 +126,8 @@ class ReceiptOcrParser {
       if (_isAdministrativeLine(line) ||
           _isContextualReceiptMetadataLine(lines, index) ||
           _lineHasAmount(line) ||
+          (index + 1 < lines.length &&
+              _isStandaloneAmountRow(lines[index + 1])) ||
           _isReceiptMetadataLine(line)) {
         continue;
       }
@@ -613,7 +615,7 @@ class ReceiptOcrParser {
         discount ??= amount;
       } else if (_hasTotalLabel(line, normalized) &&
           !RegExp(
-            r'\b(payment|paid|tender|cash|change|refund|previous|prior|reference)\b',
+            r'\b(payment|tender|cash|change|previous|prior|reference)\b',
           ).hasMatch(normalized)) {
         var score = 10;
         if (RegExp(
@@ -631,17 +633,27 @@ class ReceiptOcrParser {
       }
     }
 
-    final expectedFromParts = [subtotal, tax, service, tip, shipping, discount]
-        .map((value) => value == null ? null : double.tryParse(value))
-        .toList(growable: false);
-    final subtotalValue = expectedFromParts.first;
+    final subtotalValue = subtotal == null ? null : double.tryParse(subtotal);
+    final sameCurrencyTip =
+        !tipHasExplicitCurrencyEvidence ||
+        (currency != null && tipCurrency == currency);
+    final sameCurrencyShipping =
+        !shippingHasExplicitCurrencyEvidence ||
+        (currency != null && shippingCurrency == currency);
+    final supportedParts = [
+      tax,
+      service,
+      if (sameCurrencyTip) tip,
+      if (sameCurrencyShipping) shipping,
+      discount,
+    ].map((value) => value == null ? null : double.tryParse(value));
     final supportedSum = subtotalValue == null
         ? null
         : subtotalValue +
-              expectedFromParts
-                  .skip(1)
-                  .whereType<double>()
-                  .fold<double>(0, (a, b) => a + b);
+              supportedParts.whereType<double>().fold<double>(
+                0,
+                (a, b) => a + b,
+              );
     totalCandidates.sort((left, right) {
       int rank(({String value, int score, int order}) candidate) {
         final parsed = double.tryParse(candidate.value);
@@ -1957,7 +1969,7 @@ bool _hasTotalLabel(String line, String normalized) {
   return _hasEnglishReceiptLabel(
         normalized,
         RegExp(
-          r'\b(total\s+amount\s+due|total\s+current\s+charges|grand\s+total|amount\s+due|balance\s+due|total)\b',
+          r'\b(total\s+amount\s+due|total\s+current\s+charges|refund\s+total|total\s+paid|paid\s+total|grand\s+total|amount\s+due|balance\s+due|total)\b',
           caseSensitive: false,
         ),
       ) ||

@@ -364,6 +364,45 @@ Total USD 2.50
         'Some OCR lines need manual review because no traceable line amount was found.',
       ),
     );
+    final competingKeywordItem = const ReceiptOcrParser().parse('''
+FRESH FOODS
+MARKET SALAD
+12.00
+Total USD 12.00
+''');
+    expect(competingKeywordItem.merchant, 'FRESH FOODS');
+  });
+
+  test('foreign-currency adjustments do not corroborate a receipt total', () {
+    final preview = const ReceiptOcrParser().parse('''
+Corner Store
+Subtotal USD 90.00
+Tip EUR 20.00
+Total EUR 110.00
+Total USD 100.00
+''');
+    expect(preview.currency, 'USD');
+    expect(preview.tipCurrency, 'EUR');
+    expect(preview.total, '100.00');
+  });
+
+  test('printed total paid and refund total remain review candidates', () {
+    final paid = const ReceiptOcrParser().parse('''
+Corner Store
+Bread USD 12.00
+Total Paid USD 12.00
+Cash Tender USD 20.00
+Change USD 8.00
+''');
+    expect(paid.total, '12.00');
+
+    final refund = const ReceiptOcrParser().parse('''
+Corner Store
+Returned Bread USD -12.00
+Refund Total USD -12.00
+Cash Tender USD 12.00
+''');
+    expect(refund.total, '-12.00');
   });
 
   test('explicit bill date outranks print date after a due date', () {
