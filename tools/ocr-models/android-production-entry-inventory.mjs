@@ -8,6 +8,9 @@ export const expectedAndroidPackageDigestsBySource = Object.freeze({
   // was mocked locally. Exact-head hosted signer and ZIP proof remain required.
   "12bbd5f7006e6db4bf89e701fd611bb458fe8752eea5f72eb9842b7ef3278c95": Object.freeze([
     "0250d5e5f81e9788f7094a585bd7d6579475e6d49c01ce3f9152d5319f89dd99",
+    // Exact-head hosted job 108754479056 passed signer, archive/path,
+    // catalog, 14-model and 102-fixture-absence checks before reporting ZIP bytes.
+    "f056e2f9e16d7c3f9d882939fd1d5cc6a4c12ff3cbf31ff2b16c5efe4f535c09",
   ]),
   // Exact six-path #1308 candidate after the rotated acceptance bound and
   // fixed-baseline iOS privacy manifest correction. Clean Flutter 3.44.8
