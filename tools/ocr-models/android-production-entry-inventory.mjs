@@ -3,6 +3,13 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // #1309 matched-item amount and partial-payment ranking at 33733c6f. A
+  // clean Flutter 3.44.8 production projection passed archive/path, catalog,
+  // model, legal-artifact, and 102-fixture-absence checks before yielding this
+  // local ZIP representation. Local signer was mocked; hosted proof is needed.
+  "75471c84044d9f769f3abd71bd6f7ddd4ac069d1708269484b86534004d8abf8": Object.freeze([
+    "4236c62518a270fd275571727f9515ea41f495a9035eec1ce67d419b84530298",
+  ]),
   // #1309 attached-code item guard at 35a386ca. A clean Flutter 3.44.8
   // production projection passed archive/path, catalog, model, legal-artifact,
   // and 102-fixture-absence checks before yielding this local ZIP representation.
