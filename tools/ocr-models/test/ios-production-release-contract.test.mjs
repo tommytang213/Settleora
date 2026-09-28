@@ -624,7 +624,7 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
   assert.match(script, /for compiled_nib in "\$app_path"\/Base\.lproj\/\*\.storyboardc\/\*\.nib; do/);
   assert.match(script, /compiled_storyboard_nib_path_sha256=%s compiled_storyboard_nib_sha256=%s/);
   assert.match(script, /unreviewed_opaque_path_sha256=%s unreviewed_opaque_sha256=%s/);
-  assert.match(script, /\*\) fail_unreviewed_opaque_resource ;;/);
+  assert.match(script, /\*\) is_reviewed_pre_native_other_bundle_resource \|\| fail_unreviewed_opaque_resource ;;/);
   assert.match(script, /"\$compiled_storyboard_nib_count" -eq 4/);
   for (const digest of [
     '79b50384bcd97f98ef991ad5d6328a0e68a467d97e1856c3b5da16c766f16aa0:6f2e96b21c175a06c4622032d9bbe1d14b634956b7130c9290d15cd456b319d6',
@@ -782,8 +782,8 @@ test("historical iOS size baseline pins five bundle files and one separate priva
   assert.doesNotMatch(privacyInventory, /printf '[^']*(?:bundle_component|relative_resource)=%s/);
   assert.doesNotMatch(inventory, /printf '[^']*(?:bundle_component|relative_resource)=%s/);
   assert.match(script, /observe_pre_native_baseline_bundle\s+observe_pre_native_privacy_bundle_inventory\s+observe_pre_native_other_bundle_inventory\s+while IFS= read -r candidate; do/);
-  assert.match(script, /\*\.bundle\/\*\)\s+#[^\n]*\n\s+#[^\n]*\n\s+is_reviewed_pre_native_baseline_resource \|\| fail_unreviewed_resource_path/);
-  assert.match(script, /is_reviewed_pre_native_baseline_resource \|\|\s+fail_unreviewed_opaque_resource/);
+  assert.match(script, /\*\.bundle\/\*\)\s+#[^\n]*\n\s+#[^\n]*\n\s+is_reviewed_pre_native_baseline_resource \|\|\s+is_reviewed_pre_native_other_bundle_resource \|\| fail_unreviewed_resource_path/);
+  assert.match(script, /is_reviewed_pre_native_baseline_resource \|\|\s+is_reviewed_pre_native_other_bundle_resource \|\| fail_unreviewed_opaque_resource/);
   const probe = String.raw`${guard}
 ${inventory}
 shasum() {
@@ -965,6 +965,85 @@ observe_pre_native_other_bundle_inventory
     });
     assert.equal(linkedResult.status, 98);
     assert.match(linkedResult.stderr, /pre-native other bundle resource is not a regular file/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("historical unsigned iOS bundle commitment accepts only the complete observed bytes", () => {
+  const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
+  const inventory = script.match(/observe_pre_native_other_bundle_inventory\(\) \{[\s\S]*?\n\}/)?.[0];
+  const guard = script.match(/is_reviewed_pre_native_other_bundle_resource\(\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(inventory && guard);
+  assert.match(inventory, /observed_count" -eq 63/);
+  assert.match(inventory, /LC_ALL=C sort/);
+  assert.match(guard, /\$mode" == unsigned/);
+  assert.match(guard, /\$artifact_class" == size-measurement/);
+  assert.match(guard, /grep -Fxq -- "\$observed_line"/);
+  assert.match(script, /is_reviewed_pre_native_other_bundle_resource \|\| fail_unreviewed_resource_path/);
+  assert.match(script, /is_reviewed_pre_native_other_bundle_resource \|\| fail_unreviewed_opaque_resource/);
+
+  const relative = "Sample.bundle/fi.lproj/Ui.strings";
+  const component = "Sample.bundle";
+  const tail = "fi.lproj/Ui.strings";
+  const content = "reviewed fixture";
+  const line = [
+    `baseline_other_bundle_path_sha256=${sha256(relative)}`,
+    `baseline_other_bundle_component_sha256=${sha256(component)}`,
+    `baseline_other_bundle_tail_sha256=${sha256(tail)}`,
+    "resource_kind=strings",
+    "resource_depth=1",
+    `baseline_other_bundle_byte_sha256=${sha256(content)}`,
+  ].join(" ");
+  const digest = sha256(`${line}\n`);
+  const testInventory = inventory
+    .replace('"$observed_count" -eq 63', '"$observed_count" -eq 1')
+    .replace("cf2042eb75c1d738afcad7c9f0ef7b3202a1f68059d270e6015881c9a1365990", digest);
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-ios-bundle-commitment-"));
+  try {
+    const appPath = path.join(root, "Runner.app");
+    const resource = path.join(appPath, relative);
+    mkdirSync(path.dirname(resource), { recursive: true });
+    writeFileSync(resource, content);
+    const inventoryFile = path.join(root, "inventory.txt");
+    writeFileSync(inventoryFile, `${resource}\n`);
+    const probe = String.raw`reviewed_other_bundle_inventory=''
+${testInventory}
+${guard}
+sha256_file() { shasum -a 256 "$1" | cut -d ' ' -f 1; }
+fail() { printf '%s\n' "$1" >&2; exit 98; }
+app_path=$APP_PATH
+inventory_file=$INVENTORY_FILE
+candidate=$RESOURCE
+relative_resource=Sample.bundle/fi.lproj/Ui.strings
+mode=unsigned
+artifact_class=size-measurement
+source_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
+observe_pre_native_other_bundle_inventory
+is_reviewed_pre_native_other_bundle_resource || exit 11
+printf 'changed fixture' > "$candidate"
+if is_reviewed_pre_native_other_bundle_resource; then exit 12; fi
+printf 'reviewed fixture' > "$candidate"
+mode=signed
+if is_reviewed_pre_native_other_bundle_resource; then exit 13; fi
+mode=unsigned
+source_sha=0000000000000000000000000000000000000000
+if is_reviewed_pre_native_other_bundle_resource; then exit 14; fi
+source_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
+relative_resource=Sample.bundle/fi.lproj/Unknown.strings
+if is_reviewed_pre_native_other_bundle_resource; then exit 15; fi
+relative_resource=Sample.bundle/fi.lproj/Ui.strings
+printf '%s\n' "$candidate" "$candidate" > "$inventory_file"
+observe_pre_native_other_bundle_inventory
+if is_reviewed_pre_native_other_bundle_resource; then exit 16; fi
+`;
+    const result = spawnSync("bash", ["-s"], {
+      encoding: "utf8",
+      input: probe,
+      env: { ...process.env, APP_PATH: appPath, INVENTORY_FILE: inventoryFile, RESOURCE: resource },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.doesNotMatch(result.stdout + result.stderr, /reviewed fixture|changed fixture|Runner\.app|Sample\.bundle/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

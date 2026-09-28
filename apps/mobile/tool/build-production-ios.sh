@@ -553,10 +553,13 @@ observe_pre_native_privacy_bundle_inventory() {
   done < "$inventory_file"
   printf 'baseline_privacy_bundle_inventory_count=%s\n' "$observed_count"
 }
+reviewed_other_bundle_inventory=''
 observe_pre_native_other_bundle_inventory() {
   [[ "$mode" == unsigned && "$artifact_class" == size-measurement &&
     "$source_sha" == e4d4edd0d6854845cc67b00924f6d22af6a70688 ]] || return 0
-  local observed_count=0 candidate relative_resource bundle_component bundle_tail resource_kind resource_depth observed_byte_sha
+  reviewed_other_bundle_inventory=''
+  local observed_count=0 candidate relative_resource bundle_component bundle_tail resource_kind resource_depth observed_byte_sha observed_line observed_inventory_sha
+  local -a observed_lines=()
   while IFS= read -r candidate; do
     relative_resource=${candidate#"$app_path"/}
     case "$relative_resource" in
@@ -580,13 +583,50 @@ observe_pre_native_other_bundle_inventory() {
     resource_depth=$(printf '%s' "$bundle_tail" | tr -cd '/' | wc -c | tr -d ' ')
     observed_byte_sha=$(sha256_file "$candidate" 2>/dev/null) ||
       fail "pre-native other bundle resource is unreadable"
-    printf 'baseline_other_bundle_path_sha256=%s baseline_other_bundle_component_sha256=%s baseline_other_bundle_tail_sha256=%s resource_kind=%s resource_depth=%s baseline_other_bundle_byte_sha256=%s\n' \
+    observed_line=$(printf 'baseline_other_bundle_path_sha256=%s baseline_other_bundle_component_sha256=%s baseline_other_bundle_tail_sha256=%s resource_kind=%s resource_depth=%s baseline_other_bundle_byte_sha256=%s' \
       "$(printf '%s' "$relative_resource" | shasum -a 256 | cut -d ' ' -f 1)" \
       "$(printf '%s' "$bundle_component" | shasum -a 256 | cut -d ' ' -f 1)" \
       "$(printf '%s' "$bundle_tail" | shasum -a 256 | cut -d ' ' -f 1)" \
-      "$resource_kind" "$resource_depth" "$observed_byte_sha"
+      "$resource_kind" "$resource_depth" "$observed_byte_sha")
+    printf '%s\n' "$observed_line"
+    observed_lines+=("$observed_line")
   done < "$inventory_file"
   printf 'baseline_other_bundle_inventory_count=%s\n' "$observed_count"
+  # Hosted job 108785332951 observed all 63 resource identities together in
+  # the fixed historical unsigned size baseline. Commit to the sorted complete
+  # path/component/tail/kind/depth/byte inventory. An extra or changed file
+  # invalidates the whole inventory; this never authorizes signed release.
+  if [[ "$observed_count" -eq 63 ]]; then
+    reviewed_other_bundle_inventory=$(printf '%s\n' "${observed_lines[@]}" | LC_ALL=C sort)
+    observed_inventory_sha=$(printf '%s\n' "$reviewed_other_bundle_inventory" | shasum -a 256 | cut -d ' ' -f 1)
+    if [[ "$observed_inventory_sha" != cf2042eb75c1d738afcad7c9f0ef7b3202a1f68059d270e6015881c9a1365990 ]]; then
+      reviewed_other_bundle_inventory=''
+    fi
+  fi
+}
+is_reviewed_pre_native_other_bundle_resource() {
+  local bundle_component bundle_tail resource_kind resource_depth observed_line reviewed_byte_sha
+  [[ "$mode" == unsigned && "$artifact_class" == size-measurement &&
+    "$source_sha" == e4d4edd0d6854845cc67b00924f6d22af6a70688 &&
+    "$relative_resource" == *.bundle/* && -n "$reviewed_other_bundle_inventory" &&
+    -f "$candidate" && ! -L "$candidate" ]] || return 1
+  bundle_component=${relative_resource%%.bundle/*}.bundle
+  bundle_tail=${relative_resource#"$bundle_component"/}
+  case "$bundle_tail" in
+    *.strings) resource_kind=strings ;;
+    *.plist) resource_kind=plist ;;
+    *.xcprivacy) resource_kind=privacy ;;
+    *.json) resource_kind=json ;;
+    *) resource_kind=other ;;
+  esac
+  resource_depth=$(printf '%s' "$bundle_tail" | tr -cd '/' | wc -c | tr -d ' ')
+  reviewed_byte_sha=$(sha256_file "$candidate" 2>/dev/null) || return 1
+  observed_line=$(printf 'baseline_other_bundle_path_sha256=%s baseline_other_bundle_component_sha256=%s baseline_other_bundle_tail_sha256=%s resource_kind=%s resource_depth=%s baseline_other_bundle_byte_sha256=%s' \
+    "$(printf '%s' "$relative_resource" | shasum -a 256 | cut -d ' ' -f 1)" \
+    "$(printf '%s' "$bundle_component" | shasum -a 256 | cut -d ' ' -f 1)" \
+    "$(printf '%s' "$bundle_tail" | shasum -a 256 | cut -d ' ' -f 1)" \
+    "$resource_kind" "$resource_depth" "$reviewed_byte_sha")
+  grep -Fxq -- "$observed_line" <<< "$reviewed_other_bundle_inventory"
 }
 fail_unreviewed_opaque_resource() {
   local relative_resource=${candidate#"$app_path"/}
@@ -813,7 +853,8 @@ while IFS= read -r candidate; do
       *.bundle/*)
         # Only exact files from the fixed pre-native size baseline bundle,
         # observed in hosted job 108593887895; never release resources.
-        is_reviewed_pre_native_baseline_resource || fail_unreviewed_resource_path ;;
+        is_reviewed_pre_native_baseline_resource ||
+          is_reviewed_pre_native_other_bundle_resource || fail_unreviewed_resource_path ;;
       *)
         fail_unreviewed_resource_path ;;
     esac
@@ -864,13 +905,15 @@ while IFS= read -r candidate; do
   elif [[ "$file_description" == *'Apple binary property list'* ]]; then
     [[ "$candidate" == */Info.plist || "$candidate" == */InfoPlist.strings || "$candidate" == */PrivacyInfo.xcprivacy || "$candidate" == "$app_path/AppFrameworkInfo.plist" ]] ||
       is_reviewed_pre_native_baseline_resource ||
+      is_reviewed_pre_native_other_bundle_resource ||
       fail_unreviewed_opaque_resource
   elif [[ "$file_description" == data ]]; then
     case "$candidate" in
       "$app_path"/receipt_ocr_models/*|"$app_path"/Assets.car|"$app_path"/embedded.mobileprovision|"$app_path"/AppFrameworkInfo.plist|"$app_path"/Frameworks/Flutter.framework/icudtl.dat|"$app_path"/Frameworks/App.framework/flutter_assets/AssetManifest.bin|"$app_path"/Frameworks/App.framework/flutter_assets/NOTICES.Z|"$app_path"/LatinOCRResources.bundle/*|"$app_path"/Frameworks/MLKitTextRecognition.framework/LatinOCRResources.bundle/*) ;;
       "$app_path"/Frameworks/App.framework/flutter_assets/NativeAssetsManifest.json|"$app_path"/Frameworks/App.framework/flutter_assets/fonts/MaterialIcons-Regular.otf|"$app_path"/Frameworks/App.framework/flutter_assets/packages/cupertino_icons/assets/CupertinoIcons.ttf|"$app_path"/Frameworks/App.framework/flutter_assets/shaders/ink_sparkle.frag|"$app_path"/Frameworks/App.framework/flutter_assets/shaders/stretch_effect.frag) ;;
-      "$app_path"/*.bundle/*) is_reviewed_pre_native_baseline_resource || fail_unreviewed_opaque_resource ;;
-      *) fail_unreviewed_opaque_resource ;;
+      "$app_path"/*.bundle/*) is_reviewed_pre_native_baseline_resource ||
+        is_reviewed_pre_native_other_bundle_resource || fail_unreviewed_opaque_resource ;;
+      *) is_reviewed_pre_native_other_bundle_resource || fail_unreviewed_opaque_resource ;;
     esac
   elif [[ "$relative_resource" == Frameworks/App.framework/flutter_assets/NOTICES.Z && "$file_description" == *'compressed data'* ]]; then
     : # Exact content was checked against the reviewed Release APK above.
