@@ -480,6 +480,72 @@ Total USD 12.50
     expect(overlappingRows.items.map((item) => item.description), ['Bread']);
   });
 
+  test('postal and registration headers do not become merchandise', () {
+    const parser = ReceiptOcrParser();
+    final us = parser.parse('''
+Pike Street Deli
+Seattle WA 98101
+Sales Tax applies
+Sandwich \$12.50
+Coffee \$4.00
+Subtotal \$16.50
+Sales Tax \$1.70
+Total \$18.20
+''');
+    final australia = parser.parse('''
+Harbour Bakery
+Sydney NSW 2000
+ABN 12 345 678 901
+Flat White \$5.50
+Toastie \$13.00
+Subtotal \$18.50
+GST \$1.68
+Total \$20.18
+''');
+    final singapore = parser.parse('''
+Orchard Kopi
+Orchard Road, Singapore 238801
+GST Reg M2-1234567-8
+Kopi \$2.20
+Toast Set \$6.80
+Subtotal \$9.00
+GST \$0.81
+Total \$9.81
+''');
+    expect(us.items.map((item) => item.description), ['Sandwich', 'Coffee']);
+    expect(us.tax, '1.70');
+    expect(
+      us.warnings,
+      isNot(
+        contains(
+          'Some OCR lines need manual review because no traceable line amount was found.',
+        ),
+      ),
+    );
+    expect(australia.items.map((item) => item.description), [
+      'Flat White',
+      'Toastie',
+    ]);
+    expect(australia.tax, '1.68');
+    expect(singapore.items.map((item) => item.description), [
+      'Kopi',
+      'Toast Set',
+    ]);
+    expect(singapore.tax, '0.81');
+    final mexico = parser.parse('''
+Mercado Centro
+Ciudad de México, CDMX
+IVA incluido
+Tacos \$90.00
+Agua \$35.00
+Subtotal \$125.00
+IVA \$20.00
+Total \$145.00
+''');
+    expect(mexico.items.map((item) => item.description), ['Tacos', 'Agua']);
+    expect(mexico.tax, '20.00');
+  });
+
   test('foreign-currency adjustments do not corroborate a receipt total', () {
     final preview = const ReceiptOcrParser().parse('''
 Corner Store

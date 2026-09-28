@@ -1758,6 +1758,17 @@ bool _isReceiptMetadataLine(String line) {
     RegExp(r'\b(p\.?\s*o\.?\s*box|po box)\b'),
     RegExp(r'\b(zip|postal|postcode)\s*[:#-]?\s*[a-z0-9 -]{3,10}\b'),
     RegExp(r"^[a-z .'-]+,\s*[a-z]{2}\s+\d{5}(?:-\d{4})?$"),
+    RegExp(r"^[a-z .'-]+,?\s+[a-z]{2,3}\s+\d{4,5}(?:-\d{4})?$"),
+    RegExp(r"^[a-z .'-]+,?\s+[a-z]{2}\s+[a-z]\d[a-z]\s?\d[a-z]\d$"),
+    RegExp(
+      r"^[a-z .'-]+\b(?:road|street|avenue|ave|lane|drive|boulevard|blvd)\b,\s*[a-z .'-]+\s+\d{4,6}$",
+    ),
+    RegExp(
+      r'^(?:abn|acn|nzbn|ruc|rfc|(?:gst|hst|vat|tax)\s*(?:reg(?:istration)?|id|no|number))\s*[:#-]?\s*[a-z0-9][a-z0-9\s-]{3,}$',
+    ),
+    RegExp(
+      r'^(?:(?:sales\s+)?tax|vat|gst|hst|iva)\s+(?:applies|included|incluido|inclusive|applied)$',
+    ),
     RegExp(
       r'^\s*(date|dated|issued|printed|reprinted)\s*[:#-]?\s*\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}\b',
     ),
@@ -1882,7 +1893,10 @@ bool _hasSubtotalLabel(String line, String normalized) {
 bool _hasTaxLabel(String line, String normalized) {
   return _hasEnglishReceiptLabel(
         normalized,
-        RegExp(r'\b(tax|vat|gst)\b', caseSensitive: false),
+        RegExp(
+          r'\b(?:sales\s+tax|tax|vat|gst|hst|iva)\b',
+          caseSensitive: false,
+        ),
       ) ||
       _hasJapaneseReceiptLabel(line, const ['消費税', '税']) ||
       _hasLocalizedReceiptLabel(line, const [
