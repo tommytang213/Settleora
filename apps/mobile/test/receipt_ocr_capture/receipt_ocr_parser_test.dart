@@ -296,6 +296,22 @@ Total USD 9.50
     expect(preview.items.map((item) => item.quantity), ['4', '5']);
   });
 
+  test('a one-row quantity column remains usable with a header', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Corner Market\nQty Item Price\n4 Rolls 8.00\nTotal USD 8.00',
+      blocks: [
+        _layoutBlock('Corner Market', 0, 0, 20, 220),
+        _layoutBlock('Qty Item Price', 1, 1, 20, 350),
+        _layoutBlock('4', 2, 2, 20, 28),
+        _layoutBlock('Rolls', 3, 2, 55, 220),
+        _layoutBlock('8.00', 4, 2, 310, 350),
+        _layoutBlock('Total USD 8.00', 5, 3, 20, 350),
+      ],
+    );
+    expect(preview.items.single.description, 'Rolls');
+    expect(preview.items.single.quantity, '4');
+  });
+
   test('three uppercase organization rows are consumed as one role', () {
     final preview = const ReceiptOcrParser().parse('''
 THE
@@ -369,6 +385,24 @@ Total USD 10.00
       expect(preview.receiptDate, '2025-04-10');
     },
   );
+
+  test('two date roles on one line select the bill date', () {
+    final preview = const ReceiptOcrParser().parse('''
+River Utility
+Due Date: 2025-04-28 Bill Date: 2025-04-10
+Total USD 10.00
+''');
+    expect(preview.receiptDate, '2025-04-10');
+  });
+
+  test('final total outranks current charges', () {
+    final preview = const ReceiptOcrParser().parse('''
+River Utility
+Current Charges USD 10.00
+Total USD 12.00
+''');
+    expect(preview.total, '12.00');
+  });
 
   test(
     'layout rows retain recognition confidence on matched item evidence',

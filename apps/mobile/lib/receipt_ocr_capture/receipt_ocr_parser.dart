@@ -209,36 +209,45 @@ class ReceiptOcrParser {
       final lower = line.toLowerCase();
       // Reading order only breaks nearby ties; an explicit role must remain
       // stronger than a distant unlabeled date on a long document.
-      var score = 100 - (index < 10 ? index : 10);
+      final positionScore = 100 - (index < 10 ? index : 10);
       final primaryLabel = RegExp(
         r'\b(bill|invoice|statement|transaction|order|purchase|issued)\s*(date|on)?\b',
       );
       final secondaryLabel = RegExp(
         r'\b(due|pay by|payment|paid|previous|prior|last|refund|reference|meter|reading|billing period|service period|period from|period to)\b',
       );
-      if (secondaryLabel.hasMatch(lower)) {
-        score -= 100;
-      } else if (primaryLabel.hasMatch(lower)) {
-        score += 80;
-      } else if (index > 0 && !_lineHasAmount(lines[index - 1])) {
-        final previous = lines[index - 1].toLowerCase();
-        if (secondaryLabel.hasMatch(previous)) {
-          score -= 30;
-        } else if (primaryLabel.hasMatch(previous)) {
-          score += 20;
+      void consider(String? date, int dateStart) {
+        var score = positionScore;
+        final labels =
+            <({int start, bool secondary})>[
+                ...primaryLabel
+                    .allMatches(lower)
+                    .map((match) => (start: match.start, secondary: false)),
+                ...secondaryLabel
+                    .allMatches(lower)
+                    .map((match) => (start: match.start, secondary: true)),
+              ].where((label) => label.start < dateStart).toList()
+              ..sort((a, b) => a.start.compareTo(b.start));
+        if (labels.isNotEmpty) {
+          score += labels.last.secondary ? -100 : 80;
+        } else if (index > 0 && !_lineHasAmount(lines[index - 1])) {
+          final previous = lines[index - 1].toLowerCase();
+          if (secondaryLabel.hasMatch(previous)) {
+            score -= 30;
+          } else if (primaryLabel.hasMatch(previous)) {
+            score += 20;
+          }
         }
-      }
-      void consider(String? date) {
         if (date != null && (best == null || score > best!.score)) {
           best = (date: date, score: score);
         }
       }
 
-      final month = RegExp(
+      final monthMatches = RegExp(
         r'\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+(\d{1,2}),?\s+(20\d{2}|19\d{2})\b',
         caseSensitive: false,
-      ).firstMatch(line);
-      if (month != null) {
+      ).allMatches(line);
+      for (final month in monthMatches) {
         final monthIndex =
             const [
               'jan',
@@ -261,6 +270,7 @@ class ReceiptOcrParser {
             monthIndex,
             int.parse(month.group(2)!),
           ),
+          month.start,
         );
       }
       final eastAsianMatches = RegExp(
@@ -272,7 +282,7 @@ class ReceiptOcrParser {
           int.parse(eastAsian.group(2)!),
           int.parse(eastAsian.group(3)!),
         );
-        consider(formatted);
+        consider(formatted, eastAsian.start);
       }
 
       final isoMatches = RegExp(
@@ -284,7 +294,7 @@ class ReceiptOcrParser {
           int.parse(iso.group(2)!),
           int.parse(iso.group(3)!),
         );
-        consider(formatted);
+        consider(formatted, iso.start);
       }
 
       final slashMatches = RegExp(
@@ -297,7 +307,7 @@ class ReceiptOcrParser {
         final formatted = first > 12
             ? _formatDate(year, second, first)
             : _formatDate(year, first, second);
-        consider(formatted);
+        consider(formatted, slash.start);
       }
 
       final separatedDateMatches = RegExp(
@@ -311,7 +321,7 @@ class ReceiptOcrParser {
         final formatted = first > 12 || (separator == '.' && second <= 12)
             ? _formatDate(year, second, first)
             : _formatDate(year, first, second);
-        consider(formatted);
+        consider(formatted, separatedDate.start);
       }
     }
     return best?.date;
@@ -593,9 +603,10 @@ class ReceiptOcrParser {
         ).hasMatch(normalized)) {
           score += 20;
         }
-        if (RegExp(
-          r'\b(current\s+charges|net\s+payable)\b',
-        ).hasMatch(normalized)) {
+        if (RegExp(r'\bcurrent\s+charges\b').hasMatch(normalized)) {
+          score -= 5;
+        }
+        if (RegExp(r'\bnet\s+payable\b').hasMatch(normalized)) {
           score += 5;
         }
         totalCandidates.add((value: amount, score: score, order: lineIndex));
@@ -1761,7 +1772,7 @@ Set<int> _leadingQuantityColumnRows(
           ).hasMatch(line),
         );
     if (hasQuantityHeader &&
-        run.length >= 2 &&
+        run.isNotEmpty &&
         run.map((entry) => entry.centerX).reduce((a, b) => a < b ? a : b) +
                 12 >=
             run.map((entry) => entry.centerX).reduce((a, b) => a > b ? a : b)) {
