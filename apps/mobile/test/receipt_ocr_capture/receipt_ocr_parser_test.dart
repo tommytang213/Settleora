@@ -635,11 +635,47 @@ Total $18.00
 
     expect(explicitCode.currency, 'HKD');
     expect(explicitSymbol.currency, 'HKD');
+    expect(explicitSymbol.total, '18.00');
     expect(hongKongContext.currency, 'HKD');
     expect(
       hongKongContext.currencyProvenance,
       ReceiptOcrCurrencyProvenance.contextInferred,
     );
+  });
+
+  test('currency prefixes beside a total label retain the printed total', () {
+    const parser = ReceiptOcrParser();
+    for (final prefix in const [
+      r'HK$',
+      r'US$',
+      r'CA$',
+      r'A$',
+      r'S$',
+      r'NZ$',
+      r'NT$',
+      r'R$',
+      'Rs',
+      'kr',
+      '₹',
+      '€',
+    ]) {
+      final preview = parser.parse(
+        'Corner Shop\nItem A ${prefix}12.00\nTotal ${prefix}12.00',
+      );
+      expect(preview.total, '12.00', reason: prefix);
+    }
+
+    final tender = parser.parse(
+      'Corner Shop\nItem A HK\$12.00\nPayment HK\$12.00',
+    );
+    expect(tender.total, isNull);
+
+    final annotated = parser.parse(
+      'Corner Shop\nItem A HK\$12.00\nSubtotal (8.25%) HK\$12.00\n'
+      'Total (HKD) HK\$12.00',
+    );
+    expect(annotated.subtotal, '12.00');
+    expect(annotated.total, '12.00');
   });
 
   test('ambiguous dollar uses fallback currency instead of USD', () {

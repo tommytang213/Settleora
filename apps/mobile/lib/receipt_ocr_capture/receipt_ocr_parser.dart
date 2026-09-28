@@ -1069,6 +1069,13 @@ String _normalizeOcrLine(String value) {
   }
   normalized = normalized.replaceAllMapped(
     RegExp(
+      '(?<![A-Za-z0-9])($_currencyTokenPattern)(?=\\d)',
+      caseSensitive: false,
+    ),
+    (match) => '${match.group(1)} ',
+  );
+  normalized = normalized.replaceAllMapped(
+    RegExp(
       '([+-])\\s*($_currencyTokenPattern)\\s*(?=\\d)',
       caseSensitive: false,
     ),
@@ -1996,10 +2003,11 @@ bool _hasEnglishReceiptLabel(String normalized, RegExp labelPattern) {
     return false;
   }
 
-  final amount = RegExp(_amountTokenPattern).firstMatch(normalized);
-  if (amount == null) {
+  final amounts = RegExp(_amountTokenPattern).allMatches(normalized).toList();
+  if (amounts.isEmpty) {
     return false;
   }
+  final amount = amounts.last;
 
   final labelEndsBeforeAmount = label.end <= amount.start;
   final labelStartsAfterAmount = label.start >= amount.end;
@@ -2011,6 +2019,13 @@ bool _hasEnglishReceiptLabel(String normalized, RegExp labelPattern) {
   final trailingText = normalized.substring(amount.end).trim();
   final textBesideAmount = labelEndsBeforeAmount ? leadingText : trailingText;
   final compactLabel = textBesideAmount
+      .replaceAll(
+        RegExp(
+          '(?<![A-Za-z0-9])(?:$_currencyTokenPattern)(?![A-Za-z0-9])',
+          caseSensitive: false,
+        ),
+        ' ',
+      )
       .replaceAll(RegExp(r'[^\w\s%.\-]'), ' ')
       .replaceAll(RegExp(r'\s+'), ' ')
       .trim();
