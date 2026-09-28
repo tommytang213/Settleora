@@ -619,6 +619,30 @@ Total $5.50
     );
   });
 
+  test('USD fallback needs matching country evidence for bare amounts', () {
+    const parser = ReceiptOcrParser();
+    const receipt = '''
+Corner Market
+Denver, CO 80202
+Bread 4.00
+Total 4.00
+''';
+    final supported = parser.parse(receipt, fallbackCurrency: 'USD');
+    final conflicting = parser.parse(receipt, fallbackCurrency: 'HKD');
+    final unsupported = parser.parse(
+      'Corner Market\nBread 4.00\nTotal 4.00',
+      fallbackCurrency: 'USD',
+    );
+    expect(supported.currency, 'USD');
+    expect(
+      supported.currencyProvenance,
+      ReceiptOcrCurrencyProvenance.contextInferred,
+    );
+    expect(supported.items.single.currency, 'USD');
+    expect(conflicting.currency, isNull);
+    expect(unsupported.currency, isNull);
+  });
+
   test('ambiguous yen kr and Rs markers use matching fallbacks', () {
     const parser = ReceiptOcrParser();
     final cases = <({String text, String fallback})>[

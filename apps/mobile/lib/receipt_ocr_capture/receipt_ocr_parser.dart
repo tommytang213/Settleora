@@ -392,6 +392,14 @@ class ReceiptOcrParser {
     }
 
     final normalizedFallback = _supportedCurrencyCode(fallbackCurrency);
+    if (normalizedFallback == 'USD' &&
+        (RegExp(r'\b(UNITED\s+STATES|USA)\b').hasMatch(joined) ||
+            RegExp(r'\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\b').hasMatch(joined))) {
+      return const _ReceiptCurrencyDetection(
+        currency: 'USD',
+        provenance: ReceiptOcrCurrencyProvenance.contextInferred,
+      );
+    }
     final ambiguousSymbolPresent =
         joined.contains(r'$') ||
         joined.contains('¥') ||
