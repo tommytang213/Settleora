@@ -135,7 +135,7 @@ test("retains only the bounded native acceptance schema", () => {
     mismatches: [{ fixtureId: "fixture_001", field: "items[0].description" }],
     recognitionCoverage: [{ fixtureId: "fixture_001", blockCount: 12, merchantExactTextSeen: true,
       totalExactTokenSeen: true, expectedItemCount: 2, itemDescriptionsExactTextSeen: 1,
-      rowCount: 8, merchantExactTextInOneRow: true, itemDescriptionsSameRowAsAmount: 0,
+      rowCount: 8, actualItemCount: 1, merchantExactTextInOneRow: true, itemDescriptionsSameRowAsAmount: 0,
       itemDescriptionsWithinAdjacentAmountRow: 1, chargeTableHeaderSameRow: false }],
     runtime: "onnxruntime-android:1.21.1:cpu",
     coldLoadTimeMs: 25,

@@ -1366,6 +1366,7 @@ Map<String, Object> _boundedRecognitionCoverage(
         foldedRows.any((row) => row.contains(merchantFolded)),
     'totalExactTokenSeen': containsExpected(expected['total']),
     'expectedItemCount': expectedItems.length,
+    'actualItemCount': result.preview?.items.length ?? 0,
     'itemDescriptionsExactTextSeen': expectedItems
         .where((item) => containsExpected(item.description))
         .length,

@@ -579,7 +579,7 @@ function sanitizeAcceptance(value, platform) {
     if (entry == null || typeof entry !== "object" || Array.isArray(entry)) {
       throw new Error(`recognitionCoverage[${index}] must be an object`);
     }
-    const layoutKeys = ["rowCount", "merchantExactTextInOneRow", "itemDescriptionsSameRowAsAmount",
+    const layoutKeys = ["rowCount", "actualItemCount", "merchantExactTextInOneRow", "itemDescriptionsSameRowAsAmount",
       "itemDescriptionsWithinAdjacentAmountRow", "chargeTableHeaderSameRow"];
     const hasLayoutCoverage = layoutKeys.some((key) => Object.hasOwn(entry, key));
     assertExactKeys(entry, ["fixtureId", "blockCount", "merchantExactTextSeen", "totalExactTokenSeen",
@@ -590,13 +590,16 @@ function sanitizeAcceptance(value, platform) {
     const expectedItemCount = boundedInteger(entry.expectedItemCount, `recognitionCoverage[${index}].expectedItemCount`);
     const itemDescriptionsExactTextSeen = boundedInteger(entry.itemDescriptionsExactTextSeen, `recognitionCoverage[${index}].itemDescriptionsExactTextSeen`);
     const rowCount = hasLayoutCoverage ? boundedInteger(entry.rowCount, `recognitionCoverage[${index}].rowCount`) : null;
+    const actualItemCount = hasLayoutCoverage ? boundedInteger(entry.actualItemCount,
+      `recognitionCoverage[${index}].actualItemCount`) : null;
     const sameRowCount = hasLayoutCoverage ? boundedInteger(entry.itemDescriptionsSameRowAsAmount,
       `recognitionCoverage[${index}].itemDescriptionsSameRowAsAmount`) : null;
     const adjacentRowCount = hasLayoutCoverage ? boundedInteger(entry.itemDescriptionsWithinAdjacentAmountRow,
       `recognitionCoverage[${index}].itemDescriptionsWithinAdjacentAmountRow`) : null;
     if (coverageFixtures.has(fixtureId) || blockCount > 256 || expectedItemCount > 40 || itemDescriptionsExactTextSeen > expectedItemCount ||
         typeof entry.merchantExactTextSeen !== "boolean" || typeof entry.totalExactTokenSeen !== "boolean" ||
-        (hasLayoutCoverage && (rowCount > 256 || rowCount > blockCount || sameRowCount > adjacentRowCount ||
+        (hasLayoutCoverage && (rowCount > 256 || rowCount > blockCount || actualItemCount > 40 ||
+          sameRowCount > adjacentRowCount ||
           adjacentRowCount > expectedItemCount || typeof entry.merchantExactTextInOneRow !== "boolean" ||
           typeof entry.chargeTableHeaderSameRow !== "boolean"))) {
       throw new Error("Recognition coverage evidence is invalid");
@@ -604,7 +607,8 @@ function sanitizeAcceptance(value, platform) {
     coverageFixtures.add(fixtureId);
     return { fixtureId, blockCount, merchantExactTextSeen: entry.merchantExactTextSeen,
       totalExactTokenSeen: entry.totalExactTokenSeen, expectedItemCount, itemDescriptionsExactTextSeen,
-      ...(hasLayoutCoverage ? { rowCount, merchantExactTextInOneRow: entry.merchantExactTextInOneRow,
+      ...(hasLayoutCoverage ? { rowCount, actualItemCount,
+        merchantExactTextInOneRow: entry.merchantExactTextInOneRow,
         itemDescriptionsSameRowAsAmount: sameRowCount,
         itemDescriptionsWithinAdjacentAmountRow: adjacentRowCount,
         chargeTableHeaderSameRow: entry.chargeTableHeaderSameRow } : {}) };
