@@ -27,7 +27,8 @@ class ReceiptOcrParser {
     }
 
     final layoutRows = _matchingLayoutRows(lines, blocks);
-    final chargeTableRows = _chargeTableRows(lines);
+    final chargeTable = _classifyChargeTableRows(lines);
+    final chargeTableRows = chargeTable.items;
 
     final currencyDetection = _detectCurrency(
       lines,
@@ -48,6 +49,7 @@ class ReceiptOcrParser {
       currency,
       layoutRows: layoutRows,
       chargeTableRows: recognizedChargeRows,
+      ambiguousChargeTableRows: chargeTable.ambiguous,
     );
     final merchantDetection = _detectMerchant(lines, layoutRows);
     final merchant = merchantDetection?.text;
@@ -57,6 +59,7 @@ class ReceiptOcrParser {
       merchantLineIndices: merchantDetection?.lineIndices ?? const {},
       layoutRows: layoutRows,
       chargeTableRows: recognizedChargeRows,
+      ambiguousChargeTableRows: chargeTable.ambiguous,
       layoutChargeItems: layoutChargeItems,
     );
     final unresolvedItemLines = _countUnresolvedItemLikeLines(
@@ -617,6 +620,7 @@ class ReceiptOcrParser {
     String? currency, {
     List<List<ReceiptOcrBlockEvidence>> layoutRows = const [],
     Set<int> chargeTableRows = const {},
+    Set<int> ambiguousChargeTableRows = const {},
   }) {
     String? subtotal;
     String? tax;
@@ -642,7 +646,10 @@ class ReceiptOcrParser {
       if (amount == null) {
         continue;
       }
-      if (chargeTableRows.contains(lineIndex)) continue;
+      if (chargeTableRows.contains(lineIndex) ||
+          ambiguousChargeTableRows.contains(lineIndex)) {
+        continue;
+      }
 
       if (_hasSubtotalLabel(line, normalized)) {
         subtotal ??= amount;
@@ -775,6 +782,7 @@ class ReceiptOcrParser {
     Set<int> merchantLineIndices = const {},
     List<List<ReceiptOcrBlockEvidence>> layoutRows = const [],
     Set<int> chargeTableRows = const {},
+    Set<int> ambiguousChargeTableRows = const {},
     Map<int, ReceiptOcrItemCandidate> layoutChargeItems = const {},
   }) {
     final items = <ReceiptOcrItemCandidate>[];
@@ -789,6 +797,10 @@ class ReceiptOcrParser {
       final layoutChargeItem = layoutChargeItems[lineIndex];
       if (layoutChargeItem != null) {
         items.add(layoutChargeItem);
+        wrappedDescriptionLines.clear();
+        continue;
+      }
+      if (ambiguousChargeTableRows.contains(lineIndex)) {
         wrappedDescriptionLines.clear();
         continue;
       }
@@ -1478,8 +1490,11 @@ bool _isFinancialLabelWithAdjacentAmount(
 // A printed charge table can contain usage and rate columns before its final
 // amount. Those columns are evidence, but they are not part of the item name
 // and they do not establish a bill-item quantity without a quantity label.
-Set<int> _chargeTableRows(List<String> lines) {
+({Set<int> items, Set<int> ambiguous}) _classifyChargeTableRows(
+  List<String> lines,
+) {
   final rows = <int>{};
+  final ambiguous = <int>{};
   var inTable = false;
   for (var index = 0; index < lines.length; index++) {
     final line = lines[index];
@@ -1501,6 +1516,16 @@ Set<int> _chargeTableRows(List<String> lines) {
       '(?:\\s*($_currencyTokenPattern))?\$',
       caseSensitive: false,
     ).firstMatch(line);
+    // A bare usage count followed by one monetary value can be a rate with
+    // its final amount missing from OCR. Geometry may still recover the
+    // amount column; flattened text alone cannot assign that value safely.
+    if (pricedRow != null &&
+        RegExp(r'(?:^|\s)\d+(?:[.,]\d+)?$').hasMatch(
+          pricedRow.group(1)!.trim(),
+        )) {
+      ambiguous.add(index);
+      continue;
+    }
     if (pricedRow != null &&
         !_isChargeTableSummaryLine(line) &&
         !_isReceiptMetadataLine(line) &&
@@ -1514,7 +1539,7 @@ Set<int> _chargeTableRows(List<String> lines) {
       rows.add(index);
     }
   }
-  return rows;
+  return (items: rows, ambiguous: ambiguous);
 }
 
 bool _isChargeTableSummaryLine(String line) {
@@ -2272,7 +2297,7 @@ bool _isReceiptMetadataLine(String line, {bool allowBarePostal = true}) {
       r'^\s*(date|dated|issued|printed|reprinted)\s*[:#-]?\s*\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}\b',
     ),
     RegExp(
-      r'^\s*(?:(?:(?:current|previous|prior|present|last)\s+)?(?:meter\s+)?reading|(?:meter|account|customer|reference)\s+(?:number|no|id))\s*[:#-]?\s*\d+(?:[.,]\d+)*\s*$',
+      r'^\s*(?:(?:(?:current|previous|prior|present|last)\s+)?(?:meter\s+)?reading|(?:meter|account|customer|reference)\s+(?:number|no|id))(?:\s*\([^)]{1,20}\))?\s*[:#-]?\s*\d+(?:[.,]\d+)*\s*$',
     ),
     RegExp(
       r'^\s*(?:(?:previous|prior|last|refund|reference|payment|paid)\s+)?(?:bill|invoice|statement|transaction|order|purchase|due|payment|refund|service|billing)\s+date\s*[:#-]?\s*(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{4}|[a-z]{3,9}\.?\s+\d{1,2},?\s+\d{4})\s*$',
