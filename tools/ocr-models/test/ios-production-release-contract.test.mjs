@@ -883,6 +883,57 @@ rm -rf -- "$app_path"
   assert.equal(result.status, 0, result.stderr);
 });
 
+test("historical iOS privacy metadata accepts only observed unsigned source-bound tuples", () => {
+  const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
+  const guard = script.match(/is_reviewed_pre_native_baseline_privacy_metadata\(\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(guard);
+  assert.match(script, /! is_reviewed_pre_native_baseline_resource &&\s*! is_reviewed_pre_native_baseline_privacy_metadata/);
+  const probe = String.raw`${guard}
+shasum() {
+  local value
+  value=$(cat)
+  case "$value" in
+    Vendor.bundle) printf '%s  -\n' "$mock_component_sha" ;;
+    Vendor.bundle/*) printf '%s  -\n' "$mock_path_sha" ;;
+    *) printf '%s  -\n' "$mock_tail_sha" ;;
+  esac
+}
+sha256_file() { printf '%s\n' "$mock_byte_sha"; }
+mode=unsigned
+artifact_class=size-measurement
+source_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
+candidate=/tmp/mock-baseline-privacy
+relative_resource=Vendor.bundle/Info.plist
+mock_path_sha=76c6977604d74ae01792f7d00b8150a71f2c1974dd295f813694f85d61201251
+mock_component_sha=be715e85d5f4f57413f61b531918c4ecd57ce571ac5638c957f1c30880f640ac
+mock_tail_sha=9ac3b5ad93cbc0305c62f78f50b32774a939d7c44fcc380bc5f4d65c9b39efdf
+mock_byte_sha=f546fbcf3cb94c4ad9084bc5a470421693bf96166057048818f85b062c417b4c
+is_reviewed_pre_native_baseline_privacy_metadata || exit 51
+mock_byte_sha=0000000000000000000000000000000000000000000000000000000000000000
+if is_reviewed_pre_native_baseline_privacy_metadata; then exit 52; fi
+mock_byte_sha=f546fbcf3cb94c4ad9084bc5a470421693bf96166057048818f85b062c417b4c
+mock_path_sha=0000000000000000000000000000000000000000000000000000000000000000
+if is_reviewed_pre_native_baseline_privacy_metadata; then exit 53; fi
+mock_path_sha=76c6977604d74ae01792f7d00b8150a71f2c1974dd295f813694f85d61201251
+mock_component_sha=0000000000000000000000000000000000000000000000000000000000000000
+if is_reviewed_pre_native_baseline_privacy_metadata; then exit 54; fi
+mock_component_sha=be715e85d5f4f57413f61b531918c4ecd57ce571ac5638c957f1c30880f640ac
+relative_resource=Vendor.bundle/opaque.bin
+if is_reviewed_pre_native_baseline_privacy_metadata; then exit 55; fi
+relative_resource=Vendor.bundle/Info.plist
+source_sha=0000000000000000000000000000000000000000
+if is_reviewed_pre_native_baseline_privacy_metadata; then exit 56; fi
+source_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
+mode=signed
+if is_reviewed_pre_native_baseline_privacy_metadata; then exit 57; fi
+mode=unsigned
+artifact_class=release-candidate
+if is_reviewed_pre_native_baseline_privacy_metadata; then exit 58; fi
+`;
+  const result = spawnSync("bash", ["-s"], { encoding: "utf8", input: probe });
+  assert.equal(result.status, 0, result.stderr);
+});
+
 test("fixed iOS baseline privacy inventory emits only bounded hashes and fails on unreadable bytes", () => {
   const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
   const inventory = script.match(/observe_pre_native_privacy_bundle_inventory\(\) \{[\s\S]*?\n\}/)?.[0];
