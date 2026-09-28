@@ -711,6 +711,20 @@ void main() {
             : '__ocr_apply_probe__';
       }
       if (applyItems) {
+        final firstItem = actualPreview.items.first;
+        final quantityText = firstItem.quantity?.trim() ?? '';
+        final wholeMatch = RegExp(r'^(\d+)(?:\.0+)?$').firstMatch(quantityText);
+        final wholeQuantity = wholeMatch == null
+            ? null
+            : int.tryParse(wholeMatch.group(1)!);
+        final fractionalQuantity =
+            quantityText.isNotEmpty &&
+            (wholeQuantity == null || wholeQuantity <= 0);
+        final appliedQuantity = (fractionalQuantity ? 1 : (wholeQuantity ?? 1))
+            .toString();
+        final appliedUnitAmount = fractionalQuantity
+            ? ''
+            : (firstItem.unitPrice ?? '');
         final draft = tester
             .widget<TextFormField>(
               find.byKey(const ValueKey('personal-bill-item-name-0')),
@@ -721,6 +735,33 @@ void main() {
                 '__ocr_apply_probe__'
             ? '__ocr_apply_probe_alt__'
             : '__ocr_apply_probe__';
+        final quantity = tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('personal-bill-item-quantity-0')),
+            )
+            .controller!;
+        quantity.text = appliedQuantity == '7' ? '8' : '7';
+        final unitAmount = tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('personal-bill-item-unit-amount-0')),
+            )
+            .controller!;
+        unitAmount.text = appliedUnitAmount == '9876.54'
+            ? '9876.55'
+            : '9876.54';
+        final itemCurrencyField = find.descendant(
+          of: find.byKey(const ValueKey('personal-bill-item-currency-0')),
+          matching: find.byType(CurrencySelector),
+        );
+        final appliedItemCurrency =
+            (firstItem.currency?.trim().isNotEmpty == true
+                    ? firstItem.currency
+                    : actualPreview.currency)
+                ?.trim()
+                .toUpperCase();
+        tester
+            .widget<CurrencySelector>(itemCurrencyField)
+            .onChanged(appliedItemCurrency == 'USD' ? 'EUR' : 'USD');
       }
       if (applyDate) {
         final draft = tester.widget<DateField>(dateField).controller;
@@ -754,6 +795,20 @@ void main() {
         );
       }
       if (applyItems) {
+        final firstItem = actualPreview.items.first;
+        final quantityText = firstItem.quantity?.trim() ?? '';
+        final wholeMatch = RegExp(r'^(\d+)(?:\.0+)?$').firstMatch(quantityText);
+        final wholeQuantity = wholeMatch == null
+            ? null
+            : int.tryParse(wholeMatch.group(1)!);
+        final fractionalQuantity =
+            quantityText.isNotEmpty &&
+            (wholeQuantity == null || wholeQuantity <= 0);
+        final appliedQuantity = (fractionalQuantity ? 1 : (wholeQuantity ?? 1))
+            .toString();
+        final appliedUnitAmount = fractionalQuantity
+            ? ''
+            : (firstItem.unitPrice ?? '');
         expect(
           tester
               .widget<TextFormField>(
@@ -762,6 +817,38 @@ void main() {
               .controller
               ?.text,
           isNot(actualPreview.items.first.description.trim()),
+        );
+        expect(
+          tester
+              .widget<TextFormField>(
+                find.byKey(const ValueKey('personal-bill-item-quantity-0')),
+              )
+              .controller
+              ?.text,
+          isNot(appliedQuantity),
+        );
+        expect(
+          tester
+              .widget<TextFormField>(
+                find.byKey(const ValueKey('personal-bill-item-unit-amount-0')),
+              )
+              .controller
+              ?.text,
+          isNot(appliedUnitAmount),
+        );
+        final itemCurrencyField = find.descendant(
+          of: find.byKey(const ValueKey('personal-bill-item-currency-0')),
+          matching: find.byType(CurrencySelector),
+        );
+        final appliedItemCurrency =
+            (actualPreview.items.first.currency?.trim().isNotEmpty == true
+                    ? actualPreview.items.first.currency
+                    : actualPreview.currency)
+                ?.trim()
+                .toUpperCase();
+        expect(
+          tester.widget<CurrencySelector>(itemCurrencyField).value,
+          isNot(appliedItemCurrency),
         );
       }
       failure.set(

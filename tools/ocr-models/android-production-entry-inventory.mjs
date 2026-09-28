@@ -3,6 +3,13 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // #1308 real-provider UI item Apply probe bound to the trusted catalog.
+  // Clean Flutter 3.44.8 local Release APK passed archive/path, catalog,
+  // 14-model and 102-fixture-absence gates; local signer was mocked. Hosted
+  // exact-source signer and ZIP representation remain to be proved.
+  "37979935da129fbe3dbbbcd2c603f8d977ba4ceeb8cc9bd860fe0d096aef59d6": Object.freeze([
+    "ef7c7dbae79a7c60ff2094aeda5b003af35f2410bac2230a90e0d197008475a6",
+  ]),
   // Exact #1308 historical unsigned iOS 63-resource bundle commitment and
   // regression. A clean Flutter 3.44.8 local Release APK passed archive/path,
   // catalog, model, and fixture checks; the local signer was mocked. The
