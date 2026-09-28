@@ -1441,7 +1441,10 @@ String _normalizeOcrLine(String value) {
     (_) => ',',
   );
   normalized = normalized.replaceFirstMapped(
-    RegExp(r'^(.*?)\s*(-?\d{1,6}(?:,\d{3})*(?:\.\d{1,3})?)\s*(د\.?إ)$'),
+    // Keep the complete printed amount together before moving a trailing
+    // AED marker. A permissive prefix used to swallow comma decimals and
+    // leave only the fractional digits as the apparent amount.
+    RegExp(r'^(.*?)\s+(-?\d+(?:[.,]\d+)*)\s*(د\.?إ)$'),
     (match) => '${match.group(1)} ${match.group(3)} ${match.group(2)}',
   );
   return normalized.trim();

@@ -2065,6 +2065,24 @@ Date: ٢٠٢٦-٠٩-١٧
     expect(preview.items.map((item) => item.lineTotal), ['12.50', '8.25']);
   });
 
+  test('trailing AED marker retains the whole comma-decimal amount', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+متجر دبي
+قهوة ١٢,٥٠ د.إ
+حلوى ٨,٢٥ د.إ
+المجموع الفرعي ٢٠,٧٥ د.إ
+الضريبة ١,٠٤ د.إ
+الإجمالي ٢١,٧٩ د.إ
+''');
+
+    expect(preview.currency, 'AED');
+    expect(preview.subtotal, '20.75');
+    expect(preview.tax, '1.04');
+    expect(preview.total, '21.79');
+    expect(preview.items.map((item) => item.lineTotal), ['12.50', '8.25']);
+  });
+
   test('parser normalizes Devanagari and Thai receipt digits', () {
     const parser = ReceiptOcrParser();
     final devanagari = parser.parse('''
