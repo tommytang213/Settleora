@@ -380,6 +380,69 @@ Total USD 12.50
     expect(shortItemName.items.single.description, 'Tea');
   });
 
+  test('adjacent right-column amount is reviewable item evidence', () {
+    const text = 'Corner Market\nBread\nUSD 2.50\nTotal USD 2.50';
+    final preview = const ReceiptOcrParser().parse(
+      text,
+      blocks: [
+        _layoutBlock('Corner Market', 0, 0, 20, 220),
+        _layoutBlock('Bread', 1, 1, 20, 150),
+        _layoutBlock('USD 2.50', 2, 2, 310, 350),
+        _layoutBlock('Total USD 2.50', 3, 3, 20, 350),
+      ],
+    );
+    expect(preview.merchant, 'Corner Market');
+    expect(preview.items, hasLength(1));
+    expect(preview.items.single.description, 'Bread');
+    expect(preview.items.single.lineTotal, '2.50');
+    expect(preview.items.single.currency, 'USD');
+    expect(
+      preview.warnings,
+      isNot(
+        contains(
+          'Some OCR lines need manual review because no traceable line amount was found.',
+        ),
+      ),
+    );
+
+    final withoutGeometry = const ReceiptOcrParser().parse(text);
+    expect(withoutGeometry.items, isEmpty);
+    final leftAlignedAmount = const ReceiptOcrParser().parse(
+      text,
+      blocks: [
+        _layoutBlock('Corner Market', 0, 0, 20, 220),
+        _layoutBlock('Bread', 1, 1, 20, 150),
+        _layoutBlock('USD 2.50', 2, 2, 20, 100),
+        _layoutBlock('Total USD 2.50', 3, 3, 20, 350),
+      ],
+    );
+    expect(leftAlignedAmount.items, isEmpty);
+    final distantAmount = const ReceiptOcrParser().parse(
+      text,
+      blocks: [
+        _layoutBlock('Corner Market', 0, 0, 20, 220),
+        _layoutBlock('Bread', 1, 1, 20, 150),
+        _layoutBlock('USD 2.50', 2, 20, 310, 350),
+        _layoutBlock('Total USD 2.50', 3, 21, 20, 350),
+      ],
+    );
+    expect(distantAmount.items, isEmpty);
+
+    const withTender =
+        'Corner Market\nBread USD 2.50\nCash\nUSD 5.00\nTotal USD 2.50';
+    final tender = const ReceiptOcrParser().parse(
+      withTender,
+      blocks: [
+        _layoutBlock('Corner Market', 0, 0, 20, 220),
+        _layoutBlock('Bread USD 2.50', 1, 1, 20, 350),
+        _layoutBlock('Cash', 2, 2, 20, 150),
+        _layoutBlock('USD 5.00', 3, 3, 310, 350),
+        _layoutBlock('Total USD 2.50', 4, 4, 20, 350),
+      ],
+    );
+    expect(tender.items.map((item) => item.description), ['Bread']);
+  });
+
   test('foreign-currency adjustments do not corroborate a receipt total', () {
     final preview = const ReceiptOcrParser().parse('''
 Corner Store

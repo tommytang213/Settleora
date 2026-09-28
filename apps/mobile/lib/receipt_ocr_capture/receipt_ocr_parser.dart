@@ -51,6 +51,7 @@ class ReceiptOcrParser {
     final unresolvedItemLines = _countUnresolvedItemLikeLines(
       lines,
       merchantLineIndices: merchantDetection?.lineIndices ?? const {},
+      layoutRows: layoutRows,
     );
     if (itemCandidates.isEmpty) {
       warnings.add('No clear item lines were detected.');
@@ -717,6 +718,10 @@ class ReceiptOcrParser {
         wrappedDescriptionLines.clear();
         continue;
       }
+      if (_isStandaloneAmountRow(line)) {
+        wrappedDescriptionLines.clear();
+        continue;
+      }
 
       final match = RegExp(
         '^(.+?)\\s+($_currencyTokenPattern)?\\s*'
@@ -726,6 +731,42 @@ class ReceiptOcrParser {
       ).firstMatch(line);
       if (match == null) {
         final cleaned = _cleanDescription(line);
+        if (lineIndex + 1 < lines.length &&
+            _isWrappedItemDescriptionCandidate(cleaned) &&
+            !_isLikelyNonItemDescription(cleaned) &&
+            !_isStandaloneTenderLabel(cleaned) &&
+            _isStandaloneAmountRow(lines[lineIndex + 1]) &&
+            _isAdjacentRightColumnAmount(layoutRows, lineIndex)) {
+          final amountLine = lines[lineIndex + 1];
+          final amountCurrency =
+              _explicitCurrencyFromLine(amountLine) ?? currency;
+          final lineTotal = _lastAmountInLine(
+            amountLine,
+            currency: amountCurrency,
+          );
+          if (lineTotal != null) {
+            final wrappedDescription = wrappedDescriptionLines.join(' ');
+            final description =
+                _isStrongWrappedItemDescription(wrappedDescription)
+                ? '$wrappedDescription $cleaned'
+                : cleaned;
+            items.add(
+              ReceiptOcrItemCandidate(
+                description: description,
+                lineTotal: lineTotal,
+                currency: amountCurrency,
+                confidence: _averageBlockConfidence([
+                  ...layoutRows[lineIndex],
+                  ...layoutRows[lineIndex + 1],
+                ]),
+                category: 'item_line',
+              ),
+            );
+            wrappedDescriptionLines.clear();
+            lineIndex += 1;
+            continue;
+          }
+        }
         if (lineIndex > 0 && _isWrappedItemDescriptionCandidate(cleaned)) {
           wrappedDescriptionLines.add(cleaned);
           // Keep the OCR continuation window bounded so unrelated earlier
@@ -897,6 +938,7 @@ class ReceiptOcrParser {
   int _countUnresolvedItemLikeLines(
     List<String> lines, {
     Set<int> merchantLineIndices = const {},
+    List<List<ReceiptOcrBlockEvidence>> layoutRows = const [],
   }) {
     var count = 0;
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
@@ -915,6 +957,13 @@ class ReceiptOcrParser {
       if (lineIndex + 1 < lines.length &&
           _isWrappedItemDescriptionCandidate(cleaned) &&
           _isPricedItemLine(lines[lineIndex + 1])) {
+        continue;
+      }
+      if (lineIndex + 1 < lines.length &&
+          _isWrappedItemDescriptionCandidate(cleaned) &&
+          !_isStandaloneTenderLabel(cleaned) &&
+          _isStandaloneAmountRow(lines[lineIndex + 1]) &&
+          _isAdjacentRightColumnAmount(layoutRows, lineIndex)) {
         continue;
       }
       final letterCount = _unicodeLetterPattern.allMatches(cleaned).length;
@@ -949,6 +998,48 @@ List<List<ReceiptOcrBlockEvidence>> _matchingLayoutRows(
     if (_normalizeOcrLine(text) != lines[index]) return const [];
   }
   return rows;
+}
+
+bool _isAdjacentRightColumnAmount(
+  List<List<ReceiptOcrBlockEvidence>> layoutRows,
+  int descriptionIndex,
+) {
+  if (descriptionIndex + 1 >= layoutRows.length) return false;
+  final descriptionPoints = layoutRows[descriptionIndex]
+      .expand((block) => block.points)
+      .toList(growable: false);
+  final amountPoints = layoutRows[descriptionIndex + 1]
+      .expand((block) => block.points)
+      .toList(growable: false);
+  if (descriptionPoints.isEmpty || amountPoints.isEmpty) return false;
+
+  final descriptionRight = descriptionPoints
+      .map((point) => point.x)
+      .reduce((left, right) => left > right ? left : right);
+  final amountLeft = amountPoints
+      .map((point) => point.x)
+      .reduce((left, right) => left < right ? left : right);
+  final descriptionTop = descriptionPoints
+      .map((point) => point.y)
+      .reduce((top, value) => top < value ? top : value);
+  final descriptionBottom = descriptionPoints
+      .map((point) => point.y)
+      .reduce((bottom, value) => bottom > value ? bottom : value);
+  final amountTop = amountPoints
+      .map((point) => point.y)
+      .reduce((top, value) => top < value ? top : value);
+  final amountBottom = amountPoints
+      .map((point) => point.y)
+      .reduce((bottom, value) => bottom > value ? bottom : value);
+  final rowHeight =
+      (descriptionBottom - descriptionTop) > (amountBottom - amountTop)
+      ? descriptionBottom - descriptionTop
+      : amountBottom - amountTop;
+  final verticalGap = amountTop - descriptionBottom;
+  return rowHeight > 0 &&
+      verticalGap >= 0 &&
+      verticalGap <= rowHeight * 1.5 &&
+      amountLeft > descriptionRight + 8;
 }
 
 // A printed charge table can contain usage and rate columns before its final
@@ -1313,6 +1404,11 @@ bool _isStandaloneAmountRow(String line) {
           .trim();
   return remaining.isEmpty || _supportedCurrencyCode(remaining) != null;
 }
+
+bool _isStandaloneTenderLabel(String line) => RegExp(
+  r'^(?:cash|change|payment|tender|paid|card|credit[ -]?card|debit[ -]?card|visa|mastercard|master card|amex|american express)$',
+  caseSensitive: false,
+).hasMatch(line.trim());
 
 String? _lastAmountInLine(String line, {String? currency}) {
   final matches = RegExp(

@@ -1031,9 +1031,8 @@ export function isCompleteEvidence(evidence) {
       evidence.execution.protocolSucceeded === true &&
       evidence.acceptance.passedFixtureCount === 101 &&
       evidence.acceptance.mismatchCount === 0 &&
-      (!Object.hasOwn(evidence.acceptance, "recognitionCoverage") ||
-        (Array.isArray(evidence.acceptance.recognitionCoverage) &&
-          evidence.acceptance.recognitionCoverage.length === 101)) &&
+      Array.isArray(evidence.acceptance.recognitionCoverage) &&
+      evidence.acceptance.recognitionCoverage.length === 101 &&
       evidence.acceptance.runtime != null &&
       evidence.acceptance.coldLoadTimeMs > 0 &&
       evidence.acceptance.endToEndLatencyMs.sampleCount === 101 &&

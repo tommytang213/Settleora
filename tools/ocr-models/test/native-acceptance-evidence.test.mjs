@@ -270,6 +270,9 @@ test("complete evidence requires both package measurements and a positive delta"
       networkIsolated: true,
       passedFixtureCount: 101,
       mismatchCount: 0,
+      recognitionCoverage: manifestFixtureIds.map((fixtureId) => ({ fixtureId,
+        blockCount: 1, merchantExactTextSeen: false, totalExactTokenSeen: false,
+        expectedItemCount: 0, itemDescriptionsExactTextSeen: 0 })),
       runtime: "test-runtime",
       coldLoadTimeMs: 1,
       endToEndLatencyMs: { sampleCount: 101, cold: 1, warmP50: 1, warmP95: 1, max: 1 },
@@ -295,6 +298,8 @@ test("complete evidence requires both package measurements and a positive delta"
     identities: { baseCompositeSha256: "9".repeat(64) },
   };
   assert.equal(isCompleteEvidence(evidence), true);
+  assert.equal(isCompleteEvidence({ ...evidence,
+    acceptance: { ...evidence.acceptance, recognitionCoverage: undefined } }), false);
   assert.equal(isCompleteEvidence({ ...evidence,
     acceptance: { ...evidence.acceptance, recognitionCoverage: [{ fixtureId: "fixture_001" }] } }), false);
   assert.equal(isCompleteEvidence({ ...evidence,
