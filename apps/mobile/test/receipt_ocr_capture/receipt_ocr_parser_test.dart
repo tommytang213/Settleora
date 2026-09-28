@@ -1426,6 +1426,7 @@ Power Utility
 Description Usage Rate Amount
 Meter Reading 12345
 Current Meter Reading 12345.67
+Previous Meter Reading 12.34
 Service Charge USD 5.00
 Delivery Fee USD 2.00
 Total Amount Due USD 7.00
@@ -1440,11 +1441,13 @@ Total Amount Due USD 7.00
       _layoutBlock('12345', 6, 2, 310, 350),
       _layoutBlock('Current Meter Reading', 7, 3, 20, 160),
       _layoutBlock('12345.67', 8, 3, 310, 350),
-      _layoutBlock('Service Charge', 9, 4, 20, 160),
-      _layoutBlock('USD 5.00', 10, 4, 310, 350),
-      _layoutBlock('Delivery Fee', 11, 5, 20, 160),
-      _layoutBlock('USD 2.00', 12, 5, 310, 350),
-      _layoutBlock('Total Amount Due USD 7.00', 13, 6, 20, 350),
+      _layoutBlock('Previous Meter Reading', 9, 4, 20, 160),
+      _layoutBlock('12.34', 10, 4, 310, 350),
+      _layoutBlock('Service Charge', 11, 5, 20, 160),
+      _layoutBlock('USD 5.00', 12, 5, 310, 350),
+      _layoutBlock('Delivery Fee', 13, 6, 20, 160),
+      _layoutBlock('USD 2.00', 14, 6, 310, 350),
+      _layoutBlock('Total Amount Due USD 7.00', 15, 7, 20, 350),
     ];
     for (final draft in [
       parser.parse(mixedTable),
