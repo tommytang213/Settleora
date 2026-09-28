@@ -544,7 +544,7 @@ function parseSafeRunnerLog(log, stderrLog) {
   };
 }
 
-function sanitizeAcceptance(value, platform) {
+function sanitizeAcceptance(value, platform, expectedFixtureIds) {
   if (value == null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Acceptance marker must contain an object");
   }
@@ -613,6 +613,11 @@ function sanitizeAcceptance(value, platform) {
         itemDescriptionsWithinAdjacentAmountRow: adjacentRowCount,
         chargeTableHeaderSameRow: entry.chargeTableHeaderSameRow } : {}) };
   });
+  if (Object.hasOwn(value, "recognitionCoverage") &&
+      (boundedRecognitionCoverage.length !== expectedFixtureIds.size ||
+        [...coverageFixtures].some((fixtureId) => !expectedFixtureIds.has(fixtureId)))) {
+    throw new Error("Recognition coverage fixture inventory differs from the immutable corpus");
+  }
   if (value.perScript == null || typeof value.perScript !== "object" || Array.isArray(value.perScript)) {
     throw new Error("perScript must be an object");
   }
@@ -865,10 +870,22 @@ export function buildEvidence(args, repoRoot = process.cwd()) {
   const log = readFileSync(args.log, "utf8");
   const stderrLog = readFileSync(args["stderr-log"], "utf8");
   const protocol = parseSafeRunnerLog(log, stderrLog);
+  const catalogPath = path.join(repoRoot, "apps/mobile/assets/receipt_ocr_models/catalog.json");
+  const manifestPath = path.join(repoRoot, "apps/mobile/test/fixtures/receipt_ocr/manifest.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  const fixtureEntries = manifest.fixtures;
+  if (!Array.isArray(fixtureEntries) || fixtureEntries.length !== 101 ||
+      fixtureEntries.some((fixture) => typeof fixture?.id !== "string")) {
+    throw new Error("Immutable OCR fixture inventory is invalid");
+  }
+  const expectedFixtureIds = new Set(fixtureEntries.map((fixture) => fixture.id));
+  if (expectedFixtureIds.size !== 101) {
+    throw new Error("Immutable OCR fixture inventory is invalid");
+  }
   const acceptance = parseMarker(
     protocol.markerMessages,
     "SETTLEORA_OCR_ACCEPTANCE=",
-    (value) => sanitizeAcceptance(value, args.platform),
+    (value) => sanitizeAcceptance(value, args.platform, expectedFixtureIds),
     { schemaVersion: 1, platform: args.platform, completed: false, markerProduced: false },
   );
   const uiSmoke = parseMarker(
@@ -879,8 +896,6 @@ export function buildEvidence(args, repoRoot = process.cwd()) {
   );
   const diagnostics = parseDiagnostics(protocol.markerMessages, args.platform);
 
-  const catalogPath = path.join(repoRoot, "apps/mobile/assets/receipt_ocr_models/catalog.json");
-  const manifestPath = path.join(repoRoot, "apps/mobile/test/fixtures/receipt_ocr/manifest.json");
   const catalog = JSON.parse(readFileSync(catalogPath, "utf8"));
   const catalogModelFileCount = catalog.packs.flatMap((pack) => pack.files).length;
   const expectedFixtureAbsenceCount = 102;
@@ -1004,6 +1019,9 @@ export function isCompleteEvidence(evidence) {
       evidence.execution.protocolSucceeded === true &&
       evidence.acceptance.passedFixtureCount === 101 &&
       evidence.acceptance.mismatchCount === 0 &&
+      (!Object.hasOwn(evidence.acceptance, "recognitionCoverage") ||
+        (Array.isArray(evidence.acceptance.recognitionCoverage) &&
+          evidence.acceptance.recognitionCoverage.length === 101)) &&
       evidence.acceptance.runtime != null &&
       evidence.acceptance.coldLoadTimeMs > 0 &&
       evidence.acceptance.endToEndLatencyMs.sampleCount === 101 &&

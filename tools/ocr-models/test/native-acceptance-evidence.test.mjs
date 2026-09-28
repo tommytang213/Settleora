@@ -9,6 +9,9 @@ import { buildEvidence, buildFailureEvidence, isCompleteEvidence } from "../nati
 
 const sourceSha = "a".repeat(40);
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
+const manifestFixtureIds = JSON.parse(readFileSync(path.join(
+  repoRoot, "apps/mobile/test/fixtures/receipt_ocr/manifest.json"), "utf8",
+)).fixtures.map((fixture) => fixture.id);
 
 test("iOS simulator acceptance resolves its test-only link before running the provider", () => {
   const runner = readFileSync(path.join(repoRoot, "tools/ocr-models/run-ios-native-acceptance.sh"), "utf8");
@@ -133,10 +136,10 @@ test("retains only the bounded native acceptance schema", () => {
     passedFixtureCount: 100,
     mismatchCount: 1,
     mismatches: [{ fixtureId: "fixture_001", field: "items[0].description" }],
-    recognitionCoverage: [{ fixtureId: "fixture_001", blockCount: 12, merchantExactTextSeen: true,
+    recognitionCoverage: manifestFixtureIds.map((fixtureId) => ({ fixtureId, blockCount: 12, merchantExactTextSeen: true,
       totalExactTokenSeen: true, expectedItemCount: 2, itemDescriptionsExactTextSeen: 1,
       rowCount: 8, actualItemCount: 1, merchantExactTextInOneRow: true, itemDescriptionsSameRowAsAmount: 0,
-      itemDescriptionsWithinAdjacentAmountRow: 1, chargeTableHeaderSameRow: false }],
+      itemDescriptionsWithinAdjacentAmountRow: 1, chargeTableHeaderSameRow: false })),
     runtime: "onnxruntime-android:1.21.1:cpu",
     coldLoadTimeMs: 25,
     endToEndLatencyMs: { sampleCount: 101, cold: 30, warmP50: 20, warmP95: 24, max: 30 },
@@ -217,17 +220,43 @@ test("retains only the bounded native acceptance schema", () => {
     (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot),
       /Recognition coverage evidence is invalid/),
   );
-  const legacyCoverage = { fixtureId: "fixture_001", blockCount: 12,
+  const legacyCoverage = manifestFixtureIds.map((fixtureId) => ({ fixtureId, blockCount: 12,
     merchantExactTextSeen: true, totalExactTokenSeen: true,
-    expectedItemCount: 2, itemDescriptionsExactTextSeen: 1 };
+    expectedItemCount: 2, itemDescriptionsExactTextSeen: 1 }));
   withLog(
     protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
-      ...acceptance, recognitionCoverage: [legacyCoverage],
+      ...acceptance, recognitionCoverage: legacyCoverage,
     })}`),
     (log) => assert.deepEqual(
       buildEvidence(evidenceArgs(log), repoRoot).acceptance.recognitionCoverage,
-      [legacyCoverage],
+      legacyCoverage,
     ),
+  );
+  const withoutCoverage = { ...acceptance };
+  delete withoutCoverage.recognitionCoverage;
+  withLog(
+    protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify(withoutCoverage)}`),
+    (log) => assert.equal(
+      Object.hasOwn(buildEvidence(evidenceArgs(log), repoRoot).acceptance, "recognitionCoverage"),
+      false,
+    ),
+  );
+  withLog(
+    protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...acceptance, recognitionCoverage: acceptance.recognitionCoverage.slice(1),
+    })}`),
+    (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot),
+      /Recognition coverage fixture inventory differs/),
+  );
+  withLog(
+    protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...acceptance, recognitionCoverage: [
+        { ...acceptance.recognitionCoverage[0], fixtureId: "unknown_fixture" },
+        ...acceptance.recognitionCoverage.slice(1),
+      ],
+    })}`),
+    (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot),
+      /Recognition coverage fixture inventory differs/),
   );
 });
 
@@ -266,6 +295,8 @@ test("complete evidence requires both package measurements and a positive delta"
     identities: { baseCompositeSha256: "9".repeat(64) },
   };
   assert.equal(isCompleteEvidence(evidence), true);
+  assert.equal(isCompleteEvidence({ ...evidence,
+    acceptance: { ...evidence.acceptance, recognitionCoverage: [{ fixtureId: "fixture_001" }] } }), false);
   assert.equal(isCompleteEvidence({ ...evidence,
     uiSmoke: { ...evidence.uiSmoke, fixtureId: "synthetic_easy_fixture" } }), false);
   assert.equal(isCompleteEvidence({ ...evidence,
