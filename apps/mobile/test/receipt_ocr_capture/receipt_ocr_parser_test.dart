@@ -1512,6 +1512,7 @@ Total USD 10.00
     expect(preview.items.last.description, 'Souvenir');
     expect(preview.items.last.currency, 'EUR');
     expect(preview.items.last.lineTotal, '9.00');
+    expect(preview.reviewHints, isEmpty);
   });
 
   test('layout fallback rejects bare identifier amounts', () {

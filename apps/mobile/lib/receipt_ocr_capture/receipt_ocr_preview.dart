@@ -139,7 +139,10 @@ class ReceiptOcrItemCandidate {
 }
 
 List<String> _receiptOcrReviewHints(ReceiptOcrPreview preview) {
-  final itemTotal = _sumReceiptOcrItemLineTotals(preview.items);
+  final itemTotal = _sumReceiptOcrItemLineTotals(
+    preview.items,
+    reviewCurrency: preview.currency,
+  );
   if (itemTotal == null) {
     return const [];
   }
@@ -190,12 +193,24 @@ List<String> _receiptOcrReviewHints(ReceiptOcrPreview preview) {
   return const [];
 }
 
-int? _sumReceiptOcrItemLineTotals(List<ReceiptOcrItemCandidate> items) {
+int? _sumReceiptOcrItemLineTotals(
+  List<ReceiptOcrItemCandidate> items, {
+  String? reviewCurrency,
+}) {
   int? total;
   for (final item in items) {
     final amount = _parseReceiptOcrReviewAmount(item.lineTotal);
     if (amount == null) {
       continue;
+    }
+    final printedCurrency = item.currency?.trim().toUpperCase();
+    if (printedCurrency != null &&
+        printedCurrency.isNotEmpty &&
+        reviewCurrency != null &&
+        printedCurrency != reviewCurrency.trim().toUpperCase()) {
+      // A foreign-denominated item remains review evidence, but its number
+      // cannot corroborate a subtotal or total in the receipt currency.
+      return null;
     }
     total = (total ?? 0) + amount;
   }
