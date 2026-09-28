@@ -1200,6 +1200,7 @@ class ReceiptOcrParser {
         final monetaryText = currencyBlock == null
             ? _normalizeOcrLine(amountCell.text)
             : '${_normalizeOcrLine(currencyBlock.text)} ${_normalizeOcrLine(amountCell.text)}';
+        if (!_hasChargeTableMonetaryEvidence(monetaryText)) continue;
         final printedCurrency = _explicitAdjustmentCurrencyFromLine(
           monetaryText,
         );
@@ -1500,6 +1501,9 @@ Set<int> _chargeTableRows(List<String> lines) {
     if (pricedRow != null &&
         !_isChargeTableSummaryLine(line) &&
         !_isReceiptMetadataLine(line) &&
+        _hasChargeTableMonetaryEvidence(
+          '${pricedRow.group(2) ?? ''} ${pricedRow.group(3)} ${pricedRow.group(4) ?? ''}',
+        ) &&
         _hasSubstantiveItemDescription(
           _cleanDescription(pricedRow.group(1)!),
         ) &&
@@ -1516,8 +1520,18 @@ bool _isChargeTableSummaryLine(String line) {
       _hasTaxLabel(line, normalized) ||
       _hasDiscountLabel(line, normalized) ||
       _hasActualTipChargeLabel(line, normalized) ||
-      _hasServiceChargeLabel(line, normalized) ||
       _isPaymentMetadataLine(line);
+}
+
+bool _hasChargeTableMonetaryEvidence(String monetaryText) {
+  final amountTokens = RegExp(_amountTokenPattern).allMatches(monetaryText);
+  if (amountTokens.isEmpty) return false;
+  final printedAmount = amountTokens.last.group(0)!;
+  return RegExp(
+        _currencyTokenPattern,
+        caseSensitive: false,
+      ).hasMatch(monetaryText) ||
+      RegExp(r'[.,]\d+\b').hasMatch(printedAmount);
 }
 
 bool _isChargeTableSectionBoundary(String line) {
@@ -2253,6 +2267,9 @@ bool _isReceiptMetadataLine(String line, {bool allowBarePostal = true}) {
     ),
     RegExp(
       r'^\s*(date|dated|issued|printed|reprinted)\s*[:#-]?\s*\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}\b',
+    ),
+    RegExp(
+      r'^\s*(?:(?:meter|account|customer|reference)\s+(?:reading|number|no|id)|(?:current|previous|prior)\s+reading)\s*[:#-]?\s*\d{3,}\s*$',
     ),
     RegExp(
       r'^\s*(?:(?:previous|prior|last|refund|reference|payment|paid)\s+)?(?:bill|invoice|statement|transaction|order|purchase|due|payment|refund|service|billing)\s+date\s*[:#-]?\s*(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{4}|[a-z]{3,9}\.?\s+\d{1,2},?\s+\d{4})\s*$',

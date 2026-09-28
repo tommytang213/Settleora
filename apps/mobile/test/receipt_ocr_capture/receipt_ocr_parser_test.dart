@@ -1421,6 +1421,41 @@ Total Amount Due USD 5.00
     ]);
     expect(deliveryFeeRow.items.single.lineTotal, '5.00');
 
+    const mixedTable = '''
+Power Utility
+Description Usage Rate Amount
+Meter Reading 12345
+Service Charge USD 5.00
+Delivery Fee USD 2.00
+Total Amount Due USD 7.00
+''';
+    final mixedBlocks = [
+      _layoutBlock('Power Utility', 0, 0, 20, 350),
+      _layoutBlock('Description', 1, 1, 20, 150),
+      _layoutBlock('Usage', 2, 1, 170, 210),
+      _layoutBlock('Rate', 3, 1, 230, 270),
+      _layoutBlock('Amount', 4, 1, 310, 350),
+      _layoutBlock('Meter Reading', 5, 2, 20, 160),
+      _layoutBlock('12345', 6, 2, 310, 350),
+      _layoutBlock('Service Charge', 7, 3, 20, 160),
+      _layoutBlock('USD 5.00', 8, 3, 310, 350),
+      _layoutBlock('Delivery Fee', 9, 4, 20, 160),
+      _layoutBlock('USD 2.00', 10, 4, 310, 350),
+      _layoutBlock('Total Amount Due USD 7.00', 11, 5, 20, 350),
+    ];
+    for (final draft in [
+      parser.parse(mixedTable),
+      parser.parse(mixedTable, blocks: mixedBlocks),
+    ]) {
+      expect(draft.service, isNull);
+      expect(draft.shipping, isNull);
+      expect(draft.items.map((item) => item.description), [
+        'Service Charge',
+        'Delivery Fee',
+      ]);
+      expect(draft.items.map((item) => item.lineTotal), ['5.00', '2.00']);
+    }
+
     final unitBearing = parser.parse('''
 Power Utility
 Description Usage Rate Amount
