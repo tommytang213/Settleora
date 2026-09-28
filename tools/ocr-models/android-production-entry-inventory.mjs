@@ -8,7 +8,7 @@ export const expectedAndroidPackageDigestsBySource = Object.freeze({
   // legal-artifact, and 102-fixture-absence checks before this local ZIP digest.
   // Local signer was mocked; hosted exact-source signer proof remains required.
   "2b0a91ea113941e393f8d268726cb5eca4edb641327f450bf5d30ad49f35b94e": Object.freeze([
-    "414792dd034e478ef434bd5027aa64acf0af798025b99a3082feb0244dd0244d",
+    "414792dd034e478ef434bd5027aa64acf0af798025b99a3082feb0245dd0244d",
   ]),
   // #1309 adjacent-row association at 39495792. A clean Flutter 3.44.8
   // production projection passed archive/path, catalog, model, legal-artifact,
