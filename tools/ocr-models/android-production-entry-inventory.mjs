@@ -3,6 +3,13 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // #1309 complete manifest-bound recognition coverage at aa7623b0. A clean
+  // Flutter 3.44.8 production projection passed archive/path, catalog, model,
+  // legal-artifact, and 102-fixture-absence checks before yielding this local
+  // ZIP representation. The local signer was mocked; hosted proof is required.
+  "86863451ad7d9d350265459d2d06e0f07651004784cca89c613c32bde59f4792": Object.freeze([
+    "6f548a7014f4b2d3382a3ec2da8351a5b88c0b8e42195042f612e7f42bfa5ad8",
+  ]),
   // #1309 bounded row-coverage evidence at 01a2b3b1. A clean Flutter 3.44.8
   // production projection passed archive/path, catalog, model, legal-artifact,
   // and 102-fixture-absence checks before yielding this local ZIP representation.
