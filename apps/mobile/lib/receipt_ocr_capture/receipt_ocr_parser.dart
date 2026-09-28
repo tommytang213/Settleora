@@ -1197,6 +1197,7 @@ class ReceiptOcrParser {
             _hasSubtotalLabel(tableText, lower)) {
           break;
         }
+        if (_isChargeTableSummaryLine(tableText)) continue;
         final amountCells = tableBlocks
             .where((block) {
               final left = block.points
@@ -1467,6 +1468,7 @@ Set<int> _chargeTableRows(List<String> lines) {
       caseSensitive: false,
     ).firstMatch(line);
     if (pricedRow != null &&
+        !_isChargeTableSummaryLine(line) &&
         !_isReceiptMetadataLine(line) &&
         _hasSubstantiveItemDescription(
           _cleanDescription(pricedRow.group(1)!),
@@ -1476,6 +1478,18 @@ Set<int> _chargeTableRows(List<String> lines) {
     }
   }
   return rows;
+}
+
+bool _isChargeTableSummaryLine(String line) {
+  final normalized = line.toLowerCase();
+  return _hasTaxLabel(line, normalized) ||
+      _hasDiscountLabel(line, normalized) ||
+      _hasActualTipChargeLabel(line, normalized) ||
+      _hasServiceChargeLabel(line, normalized) ||
+      (RegExp(r'^\s*(?:shipping|delivery fee)\b', caseSensitive: false)
+              .hasMatch(line) &&
+          _hasShippingLabel(line, normalized)) ||
+      _isPaymentMetadataLine(line);
 }
 
 bool _isChargeTableSectionBoundary(String line) {

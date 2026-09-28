@@ -1403,6 +1403,40 @@ Total Amount Due \$53.11
     ]);
   });
 
+  test('charge-table tax summary stays tax beside a tax-named charge', () {
+    const parser = ReceiptOcrParser();
+    const text = '''
+Gas Utility
+Description Usage Rate Amount
+State Gas Tax 76 \$0.0280 \$2.13
+Tax \$0.50
+Total Amount Due \$2.63
+''';
+    final blocks = [
+      _layoutBlock('Gas Utility', 0, 0, 20, 350),
+      _layoutBlock('Description', 1, 1, 20, 150),
+      _layoutBlock('Usage', 2, 1, 170, 210),
+      _layoutBlock('Rate', 3, 1, 230, 270),
+      _layoutBlock('Amount', 4, 1, 310, 350),
+      _layoutBlock('State Gas Tax', 5, 2, 20, 160),
+      _layoutBlock('76', 6, 2, 170, 210),
+      _layoutBlock('\$0.0280', 7, 2, 230, 270),
+      _layoutBlock('\$2.13', 8, 2, 310, 350),
+      _layoutBlock('Tax', 9, 3, 20, 160),
+      _layoutBlock('\$0.50', 10, 3, 310, 350),
+      _layoutBlock('Total Amount Due \$2.63', 11, 4, 20, 350),
+    ];
+
+    for (final preview in [
+      parser.parse(text, fallbackCurrency: 'USD'),
+      parser.parse(text, fallbackCurrency: 'USD', blocks: blocks),
+    ]) {
+      expect(preview.tax, '0.50');
+      expect(preview.items.map((item) => item.description), ['State Gas Tax']);
+      expect(preview.items.single.lineTotal, '2.13');
+    }
+  });
+
   test('layout monetary cells recover items from noisy flattened rows', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse(
