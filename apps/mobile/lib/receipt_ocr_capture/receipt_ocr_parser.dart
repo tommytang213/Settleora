@@ -1482,7 +1482,8 @@ Set<int> _chargeTableRows(List<String> lines) {
 
 bool _isChargeTableSummaryLine(String line) {
   final normalized = line.toLowerCase();
-  return _hasTaxLabel(line, normalized) ||
+  return _isAccountBalanceSummaryLine(line) ||
+      _hasTaxLabel(line, normalized) ||
       _hasDiscountLabel(line, normalized) ||
       _hasActualTipChargeLabel(line, normalized) ||
       _hasServiceChargeLabel(line, normalized) ||

@@ -1437,6 +1437,41 @@ Total Amount Due \$2.63
     }
   });
 
+  test('charge-table account summaries stay out of itemized charges', () {
+    const parser = ReceiptOcrParser();
+    const text = '''
+Gas Utility
+Description Usage Rate Amount
+Previous Balance \$72.41
+Payments Received -\$72.41
+Service Plan \$12.00
+Total Amount Due \$12.00
+''';
+    final blocks = [
+      _layoutBlock('Gas Utility', 0, 0, 20, 350),
+      _layoutBlock('Description', 1, 1, 20, 150),
+      _layoutBlock('Usage', 2, 1, 170, 210),
+      _layoutBlock('Rate', 3, 1, 230, 270),
+      _layoutBlock('Amount', 4, 1, 310, 350),
+      _layoutBlock('Previous Balance', 5, 2, 20, 160),
+      _layoutBlock('\$72.41', 6, 2, 310, 350),
+      _layoutBlock('Payments Received', 7, 3, 20, 160),
+      _layoutBlock('-\$72.41', 8, 3, 310, 350),
+      _layoutBlock('Service Plan', 9, 4, 20, 160),
+      _layoutBlock('\$12.00', 10, 4, 310, 350),
+      _layoutBlock('Total Amount Due \$12.00', 11, 5, 20, 350),
+    ];
+
+    for (final preview in [
+      parser.parse(text, fallbackCurrency: 'USD'),
+      parser.parse(text, fallbackCurrency: 'USD', blocks: blocks),
+    ]) {
+      expect(preview.items.map((item) => item.description), ['Service Plan']);
+      expect(preview.items.single.lineTotal, '12.00');
+      expect(preview.total, '12.00');
+    }
+  });
+
   test('layout monetary cells recover items from noisy flattened rows', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse(
