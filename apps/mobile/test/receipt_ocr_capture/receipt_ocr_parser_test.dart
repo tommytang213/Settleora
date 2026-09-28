@@ -160,6 +160,7 @@ Total Current Charges USD 80.00
 THE RIDGE
 KITCHEN + BAR
 789 Summit Blvd
+Qty Item Price
 1 Margherita Pizza 14.00
 2 House Red (gls) 18.00
 1 Tiramisu 8.00
@@ -170,17 +171,18 @@ Total USD 40.00
           _layoutBlock('THE RIDGE', 0, 0, 100, 260),
           _layoutBlock('KITCHEN + BAR', 1, 1, 90, 270),
           _layoutBlock('789 Summit Blvd', 2, 2, 110, 260),
-          _layoutBlock('1', 3, 3, 20, 28),
-          _layoutBlock('Margherita Pizza', 4, 3, 55, 220),
-          _layoutBlock('14.00', 5, 3, 310, 350),
-          _layoutBlock('2', 6, 4, 20, 28),
-          _layoutBlock('House Red (gls)', 7, 4, 55, 220),
-          _layoutBlock('18.00', 8, 4, 310, 350),
-          _layoutBlock('1', 9, 5, 20, 28),
-          _layoutBlock('Tiramisu', 10, 5, 55, 180),
-          _layoutBlock('8.00', 11, 5, 310, 350),
-          _layoutBlock('Subtotal USD 40.00', 12, 6, 100, 350),
-          _layoutBlock('Total USD 40.00', 13, 7, 100, 350),
+          _layoutBlock('Qty Item Price', 3, 3, 20, 350),
+          _layoutBlock('1', 4, 4, 20, 28),
+          _layoutBlock('Margherita Pizza', 5, 4, 55, 220),
+          _layoutBlock('14.00', 6, 4, 310, 350),
+          _layoutBlock('2', 7, 5, 20, 28),
+          _layoutBlock('House Red (gls)', 8, 5, 55, 220),
+          _layoutBlock('18.00', 9, 5, 310, 350),
+          _layoutBlock('1', 10, 6, 20, 28),
+          _layoutBlock('Tiramisu', 11, 6, 55, 180),
+          _layoutBlock('8.00', 12, 6, 310, 350),
+          _layoutBlock('Subtotal USD 40.00', 13, 7, 100, 350),
+          _layoutBlock('Total USD 40.00', 14, 8, 100, 350),
         ],
       );
       expect(preview.merchant, 'THE RIDGE KITCHEN + BAR');
@@ -251,6 +253,30 @@ Total USD 9.50
     },
   );
 
+  test(
+    'small aligned product prefixes remain names without a quantity header',
+    () {
+      final preview = const ReceiptOcrParser().parse(
+        'Corner Market\n2 Pack Batteries 3.00\n3 Bean Soup 4.00\nTotal USD 7.00',
+        blocks: [
+          _layoutBlock('Corner Market', 0, 0, 20, 220),
+          _layoutBlock('2', 1, 1, 20, 28),
+          _layoutBlock('Pack Batteries', 2, 1, 55, 220),
+          _layoutBlock('3.00', 3, 1, 310, 350),
+          _layoutBlock('3', 4, 2, 20, 28),
+          _layoutBlock('Bean Soup', 5, 2, 55, 220),
+          _layoutBlock('4.00', 6, 2, 310, 350),
+          _layoutBlock('Total USD 7.00', 7, 3, 20, 350),
+        ],
+      );
+      expect(preview.items.map((item) => item.description), [
+        '2 Pack Batteries',
+        '3 Bean Soup',
+      ]);
+      expect(preview.items.every((item) => item.quantity == null), isTrue);
+    },
+  );
+
   test('three uppercase organization rows are consumed as one role', () {
     final preview = const ReceiptOcrParser().parse('''
 THE
@@ -309,6 +335,21 @@ Total USD 10.00
 ''');
     expect(preview.receiptDate, '2025-04-10');
   });
+
+  test(
+    'explicit bill date outranks an early unlabeled date on a long bill',
+    () {
+      final lines = <String>[
+        'River Utility',
+        '2025-04-01',
+        ...List<String>.generate(90, (index) => 'Service note ${index + 1}'),
+        'Bill Date: 2025-04-10',
+        'Total USD 10.00',
+      ];
+      final preview = const ReceiptOcrParser().parse(lines.join('\n'));
+      expect(preview.receiptDate, '2025-04-10');
+    },
+  );
 
   test(
     'layout rows retain recognition confidence on matched item evidence',

@@ -207,7 +207,9 @@ class ReceiptOcrParser {
     for (var index = 0; index < lines.length; index += 1) {
       final line = lines[index];
       final lower = line.toLowerCase();
-      var score = 100 - index;
+      // Reading order only breaks nearby ties; an explicit role must remain
+      // stronger than a distant unlabeled date on a long document.
+      var score = 100 - (index < 10 ? index : 10);
       final primaryLabel = RegExp(
         r'\b(bill|invoice|statement|transaction|order|purchase|issued)\s*(date|on)?\b',
       );
@@ -1516,6 +1518,9 @@ bool _isReceiptMetadataLine(String line) {
     RegExp(r'\b(?:\+?\d[\d ()-]{6,}\d)\b'),
     RegExp(r'\b(www\.|https?://|\.com\b|\.net\b|\.org\b|\.hk\b|@[\w.-]+\.)'),
     RegExp(r'\b(email|instagram|facebook|wechat|line id|twitter|xhs)\b'),
+    RegExp(
+      r'^\s*(?:qty|quantity)\b.*\b(?:item|description|product|price|amount|total)\b',
+    ),
     RegExp(r'\b(tax\s*id|tin|gst\s*no|vat\s*no|business\s*no|br\s*no)\b'),
     RegExp(r'^\s*(invoice|receipt|check|cheque|ticket)\s*(no|#|number|num)?\b'),
     RegExp(
@@ -1745,7 +1750,18 @@ Set<int> _leadingQuantityColumnRows(
   final accepted = <int>{};
   final run = <({int index, double centerX})>[];
   void finishRun() {
-    if (run.length >= 2 &&
+    final firstIndex = run.isEmpty ? 0 : run.first.index;
+    final headerStart = firstIndex > 10 ? firstIndex - 10 : 0;
+    final hasQuantityHeader = lines
+        .sublist(headerStart, firstIndex)
+        .any(
+          (line) => RegExp(
+            r'^\s*(?:qty|quantity)\b.*\b(?:item|description|product|price|amount|total)\b',
+            caseSensitive: false,
+          ).hasMatch(line),
+        );
+    if (hasQuantityHeader &&
+        run.length >= 2 &&
         run.map((entry) => entry.centerX).reduce((a, b) => a < b ? a : b) +
                 12 >=
             run.map((entry) => entry.centerX).reduce((a, b) => a > b ? a : b)) {
