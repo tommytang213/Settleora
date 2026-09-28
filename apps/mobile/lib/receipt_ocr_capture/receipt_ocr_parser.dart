@@ -955,10 +955,20 @@ Set<int> _chargeTableRows(List<String> lines) {
       remaining = 0;
       continue;
     }
-    final numericTokens = RegExp(
-      '(?<![A-Za-z0-9])$_amountTokenPattern(?![A-Za-z0-9])',
-    ).allMatches(line).length;
-    if (numericTokens >= 2) rows.add(index);
+    final pricedRow = RegExp(
+      '^(.+?)\\s+($_currencyTokenPattern)?\\s*'
+      '($_amountTokenPattern)'
+      '(?:\\s*($_currencyTokenPattern))?\$',
+      caseSensitive: false,
+    ).firstMatch(line);
+    if (pricedRow != null &&
+        !_isReceiptMetadataLine(line) &&
+        _hasSubstantiveItemDescription(
+          _cleanDescription(pricedRow.group(1)!),
+        ) &&
+        _hasTraceableItemAmountToken(line, pricedRow.group(3)!)) {
+      rows.add(index);
+    }
   }
   return rows;
 }

@@ -1008,6 +1008,17 @@ Total Amount Due \$48.44
       '2.13',
     ]);
     expect(preview.items.every((item) => item.quantity == null), isTrue);
+    final singleAmountRow = parser.parse('''
+Power Utility
+Description Usage Rate Amount
+Delivery Charge \$31.31
+Total Amount Due \$31.31
+''', fallbackCurrency: 'USD');
+    expect(singleAmountRow.shipping, isNull);
+    expect(singleAmountRow.items.map((item) => item.description), [
+      'Delivery Charge',
+    ]);
+    expect(singleAmountRow.items.single.lineTotal, '31.31');
   });
 
   test('parser treats a city ZIP row as metadata only beside an address', () {
