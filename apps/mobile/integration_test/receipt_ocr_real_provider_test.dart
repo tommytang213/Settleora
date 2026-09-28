@@ -1329,8 +1329,10 @@ Map<String, Object> _boundedRecognitionCoverage(
     blocks.map((block) => block.text).join(' '),
   );
   final rowText = <int, List<String>>{};
+  final rowBlocks = <int, List<ReceiptOcrBlockEvidence>>{};
   for (final block in blocks) {
     (rowText[block.row] ??= <String>[]).add(block.text);
+    (rowBlocks[block.row] ??= <ReceiptOcrBlockEvidence>[]).add(block);
   }
   final rows = rowText.values.map((parts) => parts.join(' ')).toList();
   final foldedRows = rows.map(_foldRecognitionEvidence).toList();
@@ -1363,10 +1365,42 @@ Map<String, Object> _boundedRecognitionCoverage(
     return false;
   }
 
+  bool descriptionAndAmountInCellShape(
+    _ExpectedItem item, {
+    required bool sameBlock,
+  }) {
+    final description = _foldRecognitionEvidence(item.description);
+    final amount = _foldRecognitionEvidence(item.lineTotal);
+    if (description.isEmpty || amount.isEmpty) return false;
+    for (final row in rowBlocks.values) {
+      final foldedBlocks = row
+          .map((block) => _foldRecognitionEvidence(block.text))
+          .toList(growable: false);
+      if (sameBlock) {
+        if (foldedBlocks.any(
+          (block) => block.contains(description) && block.contains(amount),
+        )) {
+          return true;
+        }
+      } else {
+        for (var index = 0; index < foldedBlocks.length; index++) {
+          if (!foldedBlocks[index].contains(amount)) continue;
+          final otherText = [
+            for (var other = 0; other < foldedBlocks.length; other++)
+              if (other != index) foldedBlocks[other],
+          ].join();
+          if (otherText.contains(description)) return true;
+        }
+      }
+    }
+    return false;
+  }
+
   return {
     'fixtureId': fixtureId,
     'blockCount': blocks.length,
     'rowCount': rows.length,
+    'parserLineCount': result.preview?.rawTextLineCount ?? 0,
     'merchantExactTextSeen': containsExpected(expected['merchant']),
     'merchantExactTextInOneRow':
         merchantFolded.isNotEmpty &&
@@ -1379,6 +1413,14 @@ Map<String, Object> _boundedRecognitionCoverage(
         .length,
     'itemDescriptionsSameRowAsAmount': expectedItems
         .where((item) => descriptionAndAmountWithinRows(item, 0))
+        .length,
+    'itemDescriptionsSameBlockAsAmount': expectedItems
+        .where((item) => descriptionAndAmountInCellShape(item, sameBlock: true))
+        .length,
+    'itemDescriptionsWithDistinctAmountBlock': expectedItems
+        .where(
+          (item) => descriptionAndAmountInCellShape(item, sameBlock: false),
+        )
         .length,
     'itemDescriptionsWithinAdjacentAmountRow': expectedItems
         .where((item) => descriptionAndAmountWithinRows(item, 1))

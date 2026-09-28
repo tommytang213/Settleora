@@ -1574,6 +1574,46 @@ Total 12.50
     expect(preview.items.single.lineTotal, '12.50');
   });
 
+  test('account balance summaries do not become geometry-backed items', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(
+      '''
+Gas Utility
+Previous Balance \$72.41 .
+Payments Received -\$72.41 .
+Balance Forward \$0.00 .
+Current Gas Charges \$86.27 .
+Service Plan \$12.00 .
+Total Amount Due \$86.27 .
+''',
+      blocks: [
+        _layoutBlock('Gas Utility', 0, 0, 20, 350),
+        _layoutBlock('Previous Balance', 1, 1, 20, 180),
+        _layoutBlock('\$72.41', 2, 1, 300, 420),
+        _layoutBlock('.', 3, 1, 440, 450),
+        _layoutBlock('Payments Received', 4, 2, 20, 180),
+        _layoutBlock('-\$72.41', 5, 2, 300, 420),
+        _layoutBlock('.', 6, 2, 440, 450),
+        _layoutBlock('Balance Forward', 7, 3, 20, 180),
+        _layoutBlock('\$0.00', 8, 3, 300, 420),
+        _layoutBlock('.', 9, 3, 440, 450),
+        _layoutBlock('Current Gas Charges', 10, 4, 20, 180),
+        _layoutBlock('\$86.27', 11, 4, 300, 420),
+        _layoutBlock('.', 12, 4, 440, 450),
+        _layoutBlock('Service Plan', 13, 5, 20, 180),
+        _layoutBlock('\$12.00', 14, 5, 300, 420),
+        _layoutBlock('.', 15, 5, 440, 450),
+        _layoutBlock('Total Amount Due', 16, 6, 20, 180),
+        _layoutBlock('\$86.27', 17, 6, 300, 420),
+        _layoutBlock('.', 18, 6, 440, 450),
+      ],
+    );
+
+    expect(preview.items.map((item) => item.description), ['Service Plan']);
+    expect(preview.items.single.lineTotal, '12.00');
+    expect(preview.total, '86.27');
+  });
+
   test('layout fallback excludes localized tender and change rows', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse(

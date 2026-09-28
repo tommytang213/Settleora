@@ -1486,8 +1486,10 @@ bool _isChargeTableSummaryLine(String line) {
       _hasDiscountLabel(line, normalized) ||
       _hasActualTipChargeLabel(line, normalized) ||
       _hasServiceChargeLabel(line, normalized) ||
-      (RegExp(r'^\s*(?:shipping|delivery fee)\b', caseSensitive: false)
-              .hasMatch(line) &&
+      (RegExp(
+            r'^\s*(?:shipping|delivery fee)\b',
+            caseSensitive: false,
+          ).hasMatch(line) &&
           _hasShippingLabel(line, normalized)) ||
       _isPaymentMetadataLine(line);
 }
@@ -2032,9 +2034,16 @@ bool _isAdministrativeLine(String line) {
       _hasShippingLabel(line, normalized) ||
       _hasDiscountLabel(line, normalized) ||
       _hasTotalLabel(line, normalized) ||
+      _isAccountBalanceSummaryLine(line) ||
       _isNonTransactionCurrencyMetadataLine(line) ||
       normalized.contains('thank you');
 }
+
+bool _isAccountBalanceSummaryLine(String line) => RegExp(
+  r'^(?:(?:previous|prior|opening|closing|outstanding)\s+balance|balance\s+(?:forward|brought\s+forward)|payments?\s+(?:received|made)|current\s+(?:[\p{L}]+\s+){0,3}charges)\b',
+  caseSensitive: false,
+  unicode: true,
+).hasMatch(line.trim());
 
 bool _isPaymentMetadataLine(String line) {
   final normalized = line.toLowerCase().trim();

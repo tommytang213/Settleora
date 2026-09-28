@@ -603,8 +603,11 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
     const layoutKeys = ["rowCount", "actualItemCount", "merchantExactTextInOneRow", "itemDescriptionsSameRowAsAmount",
       "itemDescriptionsWithinAdjacentAmountRow", "chargeTableHeaderSameRow"];
     const hasLayoutCoverage = layoutKeys.some((key) => Object.hasOwn(entry, key));
+    const cellKeys = ["parserLineCount", "itemDescriptionsSameBlockAsAmount", "itemDescriptionsWithDistinctAmountBlock"];
+    const hasCellCoverage = cellKeys.some((key) => Object.hasOwn(entry, key));
     assertExactKeys(entry, ["fixtureId", "blockCount", "merchantExactTextSeen", "totalExactTokenSeen",
-      "expectedItemCount", "itemDescriptionsExactTextSeen", ...(hasLayoutCoverage ? layoutKeys : [])],
+      "expectedItemCount", "itemDescriptionsExactTextSeen", ...(hasLayoutCoverage ? layoutKeys : []),
+      ...(hasCellCoverage ? cellKeys : [])],
     `recognitionCoverage[${index}]`);
     const fixtureId = boundedToken(entry.fixtureId, `recognitionCoverage[${index}].fixtureId`);
     const blockCount = boundedInteger(entry.blockCount, `recognitionCoverage[${index}].blockCount`);
@@ -617,8 +620,16 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
       `recognitionCoverage[${index}].itemDescriptionsSameRowAsAmount`) : null;
     const adjacentRowCount = hasLayoutCoverage ? boundedInteger(entry.itemDescriptionsWithinAdjacentAmountRow,
       `recognitionCoverage[${index}].itemDescriptionsWithinAdjacentAmountRow`) : null;
+    const parserLineCount = hasCellCoverage ? boundedInteger(entry.parserLineCount,
+      `recognitionCoverage[${index}].parserLineCount`) : null;
+    const sameBlockCount = hasCellCoverage ? boundedInteger(entry.itemDescriptionsSameBlockAsAmount,
+      `recognitionCoverage[${index}].itemDescriptionsSameBlockAsAmount`) : null;
+    const distinctBlockCount = hasCellCoverage ? boundedInteger(entry.itemDescriptionsWithDistinctAmountBlock,
+      `recognitionCoverage[${index}].itemDescriptionsWithDistinctAmountBlock`) : null;
     if (coverageFixtures.has(fixtureId) || blockCount > 256 || expectedItemCount > 40 || itemDescriptionsExactTextSeen > expectedItemCount ||
         typeof entry.merchantExactTextSeen !== "boolean" || typeof entry.totalExactTokenSeen !== "boolean" ||
+        (hasCellCoverage && (!hasLayoutCoverage || parserLineCount > 256 ||
+          sameBlockCount > sameRowCount || distinctBlockCount > sameRowCount)) ||
         (hasLayoutCoverage && (rowCount > 256 || rowCount > blockCount || actualItemCount > 40 ||
           sameRowCount > adjacentRowCount ||
           adjacentRowCount > expectedItemCount || typeof entry.merchantExactTextInOneRow !== "boolean" ||
@@ -632,7 +643,9 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
         merchantExactTextInOneRow: entry.merchantExactTextInOneRow,
         itemDescriptionsSameRowAsAmount: sameRowCount,
         itemDescriptionsWithinAdjacentAmountRow: adjacentRowCount,
-        chargeTableHeaderSameRow: entry.chargeTableHeaderSameRow } : {}) };
+        chargeTableHeaderSameRow: entry.chargeTableHeaderSameRow } : {}),
+      ...(hasCellCoverage ? { parserLineCount, itemDescriptionsSameBlockAsAmount: sameBlockCount,
+        itemDescriptionsWithDistinctAmountBlock: distinctBlockCount } : {}) };
   });
   if (Object.hasOwn(value, "recognitionCoverage") &&
       (boundedRecognitionCoverage.length !== expectedFixtureIds.size ||
