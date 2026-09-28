@@ -3,6 +3,13 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // #1309 split-currency charge-table and header boundary at 2b10eab5.
+  // A clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // model, resource, and fixture-absence gates before this ZIP identity.
+  // Local signer was mocked; hosted exact-source signer proof remains needed.
+  "49447f19da8c23ab634850180eda9967e5be22baf4c2d065b73d05a23a527d60": Object.freeze([
+    "78fdefc77f5d4bd8154bec73f2c02bb38ba25636f452ade60d0309c3753162af",
+  ]),
   // #1309 charge-table account-summary boundary at 4aaf1c91. A clean
   // Flutter 3.44.8 Release projection passed archive/path, catalog, 14-model,
   // legal-resource, and 102-fixture-absence gates before this ZIP identity.
