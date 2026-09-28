@@ -350,6 +350,22 @@ Total USD 4.00
     );
   });
 
+  test('an uppercase item before a standalone amount stays out of merchant', () {
+    final preview = const ReceiptOcrParser().parse('''
+CORNER MARKET
+BREAD
+2.50
+Total USD 2.50
+''');
+    expect(preview.merchant, 'CORNER MARKET');
+    expect(
+      preview.warnings,
+      contains(
+        'Some OCR lines need manual review because no traceable line amount was found.',
+      ),
+    );
+  });
+
   test('explicit bill date outranks print date after a due date', () {
     final preview = const ReceiptOcrParser().parse('''
 River Utility

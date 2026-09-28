@@ -193,6 +193,8 @@ class ReceiptOcrParser {
           !_isUppercaseOrganizationSegment(next) ||
           _isAdministrativeLine(next) ||
           _isReceiptMetadataLine(next) ||
+          (nextIndex + 1 < lines.length &&
+              _isStandaloneAmountRow(lines[nextIndex + 1])) ||
           _lineHasAmount(next)) {
         break;
       }
@@ -1201,6 +1203,16 @@ String? _contextualCurrency(String joined) {
 
 bool _lineHasAmount(String line) {
   return _lastAmountInLine(line) != null;
+}
+
+bool _isStandaloneAmountRow(String line) {
+  final amount = RegExp(_amountTokenPattern).firstMatch(line);
+  if (amount == null || !_lineHasAmount(line)) return false;
+  final remaining =
+      '${line.substring(0, amount.start)} ${line.substring(amount.end)}'
+          .replaceAll(RegExp(r'[\s$€£¥₹₩฿₱]'), '')
+          .trim();
+  return remaining.isEmpty || RegExp(r'^[A-Za-z]{3}$').hasMatch(remaining);
 }
 
 String? _lastAmountInLine(String line, {String? currency}) {
