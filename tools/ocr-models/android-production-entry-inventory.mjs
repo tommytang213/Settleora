@@ -6,9 +6,15 @@ export const expectedAndroidPackageDigestsBySource = Object.freeze({
   // Exact #1308 historical unsigned iOS bundle-string correction and bounded
   // bundle inventory, including regular-directory traversal. Clean Flutter
   // 3.44.8 local Release APK passed strict path/catalog/model/fixture gates;
-  // local signer was mocked. Hosted signer and ZIP proof remain required.
+  // local signer was mocked. Exact-head hosted proof is pinned below.
   "a19d9d8cd61e4936a572e73cc2a1953f25c9825dce55b4dd57e823b8e51db0b4": Object.freeze([
     "0cce1b640e260c26e249ad5ab864b84435561a495794bb0fd4b4a5f1d8fc14b8",
+    // Fresh clean local projection from the same source fingerprint passed
+    // catalog/model/fixture/path gates; signer was mocked locally.
+    "104cb1d6c6acbf58cccc14510842cb2cf91a79f8b2b9d1a683ce9903a3079a09",
+    // Exact-head hosted job 108785333039 passed signer, archive/path,
+    // catalog, 14-model and 102-fixture-absence gates before reporting ZIP bytes.
+    "f056e2f9e16d7c3f9d882939fd1d5cc6a4c12ff3cbf31ff2b16c5efe4f535c09",
   ]),
   // Exact #1308 iOS fixed-baseline privacy metadata correction. Clean Flutter
   // 3.44.8 local Release APK passed path/catalog/model/fixture gates; signer
