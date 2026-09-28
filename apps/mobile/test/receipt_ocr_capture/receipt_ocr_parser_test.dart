@@ -551,7 +551,7 @@ Total \$145.00
       'Harbor Utility\n'
       'Description Therms Rate Amount Important Messages\n'
       'Customer Charge - USD 15.00 USD 15.00 Save energy\n'
-      'Delivery Charge 76 therms USD 0.4120 USD 31.31 Go paperless\n'
+      'Delivery Charge 76 therms 0.4120/therm USD 31.31 Go paperless\n'
       'State Gas Tax 76 USD 0.0280 USD 2.13 Budget reminder\n'
       'Total Current Charges USD 48.44',
       blocks: [
@@ -568,7 +568,7 @@ Total \$145.00
         _layoutBlock('Save energy', 10, 2, 500, 700),
         _layoutBlock('Delivery Charge', 11, 3, 20, 160),
         _layoutBlock('76 therms', 12, 3, 170, 210),
-        _layoutBlock('USD 0.4120', 13, 3, 230, 270),
+        _layoutBlock('0.4120/therm', 13, 3, 230, 270),
         // A wider recognized amount cell can start left of the header edge.
         _layoutBlock('USD 31.31', 14, 3, 285, 350),
         _layoutBlock('Go paperless', 15, 3, 500, 700),

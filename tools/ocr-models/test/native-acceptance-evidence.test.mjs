@@ -868,6 +868,32 @@ test("retains bounded partial metrics for a failed run without accepting it", ()
   });
 });
 
+test("retains one provider exception within a complete bounded coverage inventory", () => {
+  const failedFixtureId = manifestFixtureIds.at(-1);
+  const acceptance = {
+    schemaVersion: 1, platform: "android", completed: true, networkIsolated: true,
+    fixtureCount: 101, passedFixtureCount: 100, mismatchCount: 1,
+    mismatches: [{ fixtureId: failedFixtureId, field: "provider_exception" }],
+    recognitionCoverage: manifestFixtureIds.map((fixtureId) => ({
+      fixtureId, blockCount: fixtureId === failedFixtureId ? 0 : 2,
+      merchantExactTextSeen: false, totalExactTokenSeen: false,
+      expectedItemCount: 0, itemDescriptionsExactTextSeen: 0,
+    })),
+    runtime: null, coldLoadTimeMs: null,
+    endToEndLatencyMs: { sampleCount: 101, cold: 1, warmP50: 1, warmP95: 1, max: 1 },
+    nativeLatencyMs: { sampleCount: 100, cold: 1, warmP50: 1, warmP95: 1, max: 1 },
+    peakRssBytes: 1, perScript: { Latin: { total: 101, passed: 100 } },
+  };
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify(acceptance)}`), (logPath) => {
+    const evidence = buildFailureEvidence({ ...evidenceArgs(logPath), "test-status": "1" }, repoRoot);
+    assert.equal(evidence.acceptance.mismatchCount, 1);
+    assert.deepEqual(evidence.acceptance.mismatches, acceptance.mismatches);
+    assert.equal(evidence.acceptance.recognitionCoverage.length, 101);
+    assert.equal(evidence.acceptance.recognitionCoverage.at(-1).blockCount, 0);
+    assert.equal(isCompleteEvidence(evidence), false);
+  });
+});
+
 test("retains zero-duration failed-run samples without accepting them", () => {
   const acceptance = {
     schemaVersion: 1,

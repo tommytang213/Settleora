@@ -298,6 +298,14 @@ void main() {
           );
           scriptResult.total += 1;
           final expected = entry['expected']! as Map<String, Object?>;
+          final coverageIndex = recognitionCoverage.length;
+          recognitionCoverage.add(
+            _boundedRecognitionCoverage(
+              fixtureId,
+              const ReceiptOcrResult.failed(''),
+              expected,
+            ),
+          );
           final fixtureMismatches = <_BoundedMismatch>[];
           if (expected.keys
               .toSet()
@@ -376,9 +384,8 @@ void main() {
                         : artifact.height!,
                   ),
                 );
-                recognitionCoverage.add(
-                  _boundedRecognitionCoverage(fixtureId, result, expected),
-                );
+                recognitionCoverage[coverageIndex] =
+                    _boundedRecognitionCoverage(fixtureId, result, expected);
               } catch (_) {
                 // Preserve only a bounded category. Native exception details can
                 // contain OCR text, local paths, or provider diagnostics and must

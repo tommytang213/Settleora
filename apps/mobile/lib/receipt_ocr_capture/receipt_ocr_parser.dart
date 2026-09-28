@@ -1338,6 +1338,13 @@ String _stripChargeTableColumns(String description) {
   final name = _cleanDescription(trailingColumns?.group(1) ?? description)
       .replaceFirst(
         RegExp(
+          '\\s+(?:(?:$_currencyTokenPattern)\\s*)?\\d+(?:[.,]\\d+)?\\s*(?:/\\s*|per\\s+)(?:therms?|kwh|m³|m3|gallons?|gal|units?|gb|minutes?|mins?)\\s*\$',
+          caseSensitive: false,
+        ),
+        '',
+      )
+      .replaceFirst(
+        RegExp(
           r'\s+\d+(?:[.,]\d+)?\s*(?:therms?|kwh|m³|m3|gallons?|gal|units?|gb|minutes?|mins?)$',
           caseSensitive: false,
         ),
