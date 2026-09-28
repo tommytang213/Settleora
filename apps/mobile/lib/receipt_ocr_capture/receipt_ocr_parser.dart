@@ -988,7 +988,13 @@ class ReceiptOcrParser {
               final left = block.points
                   .map((point) => point.x)
                   .reduce((a, b) => a < b ? a : b);
-              return left >= amountLeft - 12 && _lineHasAmount(block.text);
+              final right = block.points
+                  .map((point) => point.x)
+                  .reduce((a, b) => a > b ? a : b);
+              final center = (left + right) / 2;
+              return center >= amountLeft - 12 &&
+                  right >= amountLeft &&
+                  _lineHasAmount(block.text);
             })
             .toList(growable: false);
         if (amountCells.isEmpty) continue;

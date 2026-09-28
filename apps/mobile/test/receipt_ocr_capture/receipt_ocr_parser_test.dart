@@ -569,7 +569,8 @@ Total \$145.00
         _layoutBlock('Delivery Charge', 11, 3, 20, 160),
         _layoutBlock('76', 12, 3, 170, 210),
         _layoutBlock('USD 0.4120', 13, 3, 230, 270),
-        _layoutBlock('USD 31.31', 14, 3, 310, 350),
+        // A wider recognized amount cell can start left of the header edge.
+        _layoutBlock('USD 31.31', 14, 3, 285, 350),
         _layoutBlock('Go paperless', 15, 3, 500, 700),
         _layoutBlock('State Gas Tax', 16, 4, 20, 160),
         _layoutBlock('76', 17, 4, 170, 210),
