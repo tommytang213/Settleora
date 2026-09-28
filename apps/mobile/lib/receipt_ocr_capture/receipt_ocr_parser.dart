@@ -1308,7 +1308,13 @@ String _stripChargeTableColumns(String description) {
     caseSensitive: false,
   ).firstMatch(description);
   if (trailingColumns == null) return description;
-  final name = _cleanDescription(trailingColumns.group(1)!);
+  final name = _cleanDescription(trailingColumns.group(1)!).replaceFirst(
+    RegExp(
+      r'\s+\d+(?:[.,]\d+)?\s*(?:therms?|kwh|m³|m3|gallons?|gal|units?|gb|minutes?|mins?)$',
+      caseSensitive: false,
+    ),
+    '',
+  );
   return _hasSubstantiveItemDescription(name) ? name : description;
 }
 

@@ -1364,6 +1364,19 @@ Total Amount Due \$31.31
       'Delivery Charge',
     ]);
     expect(singleAmountRow.items.single.lineTotal, '31.31');
+
+    final unitBearing = parser.parse('''
+Power Utility
+Description Usage Rate Amount
+Delivery Charge 76 therms \$0.4120 \$31.31
+Electric Service 120 kWh \$0.1400 \$16.80
+Total Amount Due \$48.11
+''', fallbackCurrency: 'USD');
+    expect(unitBearing.items.map((item) => item.description), [
+      'Delivery Charge',
+      'Electric Service',
+    ]);
+    expect(unitBearing.items.map((item) => item.lineTotal), ['31.31', '16.80']);
   });
 
   test('parser treats a city ZIP row as metadata only beside an address', () {
