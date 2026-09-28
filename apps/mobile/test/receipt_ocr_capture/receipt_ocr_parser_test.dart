@@ -277,6 +277,25 @@ Total USD 9.50
     },
   );
 
+  test('an explicit quantity header supports quantities above three', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Corner Market\nQty Item Price\n4 Rolls 8.00\n5 Pens 10.00\nTotal USD 18.00',
+      blocks: [
+        _layoutBlock('Corner Market', 0, 0, 20, 220),
+        _layoutBlock('Qty Item Price', 1, 1, 20, 350),
+        _layoutBlock('4', 2, 2, 20, 28),
+        _layoutBlock('Rolls', 3, 2, 55, 220),
+        _layoutBlock('8.00', 4, 2, 310, 350),
+        _layoutBlock('5', 5, 3, 20, 28),
+        _layoutBlock('Pens', 6, 3, 55, 220),
+        _layoutBlock('10.00', 7, 3, 310, 350),
+        _layoutBlock('Total USD 18.00', 8, 4, 20, 350),
+      ],
+    );
+    expect(preview.items.map((item) => item.description), ['Rolls', 'Pens']);
+    expect(preview.items.map((item) => item.quantity), ['4', '5']);
+  });
+
   test('three uppercase organization rows are consumed as one role', () {
     final preview = const ReceiptOcrParser().parse('''
 THE

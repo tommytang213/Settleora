@@ -1778,7 +1778,6 @@ Set<int> _leadingQuantityColumnRows(
         : const <ReceiptOcrBlockEvidence>[];
     if (match == null ||
         !_isPricedItemLine(line) ||
-        (int.tryParse(match.group(1)!) ?? 99) > 3 ||
         row.length < 3 ||
         row.first.text.trim() != match.group(1) ||
         row.first.points.length != 4 ||
