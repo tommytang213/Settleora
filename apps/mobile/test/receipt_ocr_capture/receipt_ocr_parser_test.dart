@@ -48,7 +48,7 @@ Thank you
     expect(preview.items.first.unitPrice, '12.50');
     expect(preview.items.first.lineTotal, '25.00');
     expect(preview.items.last.description, 'Bread');
-    expect(preview.items.last.quantity, '1');
+    expect(preview.items.last.quantity, isNull);
     expect(preview.items.last.lineTotal, '18.00');
     expect(preview.reviewHints, isEmpty);
   });
@@ -80,6 +80,137 @@ Card 25.50
       'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
     ]);
   });
+
+  test(
+    'bill title above provider and due date above bill date select semantic roles',
+    () {
+      final preview = const ReceiptOcrParser().parse('''
+UTILITY BILL
+Northstar Gas Utility
+Account Number: 123456
+Due Date: Apr 28, 2025
+Bill Date: Apr 10, 2025
+Billing Period: Mar 11, 2025 - Apr 09, 2025
+Current Gas Charges USD 86.27
+Total Amount Due USD 86.27
+''');
+      expect(preview.merchant, 'Northstar Gas Utility');
+      expect(preview.receiptDate, '2025-04-10');
+      expect(preview.total, '86.27');
+    },
+  );
+
+  test(
+    'unprinted quantity remains unknown while printed quantity is retained',
+    () {
+      final preview = const ReceiptOcrParser().parse('''
+Corner Market
+Milk 2 x 12.50 25.00
+Bread 18.00
+Total USD 43.00
+''');
+      expect(preview.items.first.quantity, '2');
+      expect(preview.items.last.quantity, isNull);
+    },
+  );
+
+  test(
+    'amount due outranks current charges and tender without rewriting values',
+    () {
+      final preview = const ReceiptOcrParser().parse('''
+River Utility
+Service date: 2025-04-01
+Bill Date: 2025-04-10
+Due Date: 2025-04-28
+Subtotal USD 80.00
+Tax USD 6.27
+Total Amount Due USD 86.27
+Cash Tender USD 100.00
+Change USD 13.73
+Total Current Charges USD 80.00
+''');
+      expect(preview.receiptDate, '2025-04-10');
+      expect(preview.total, '86.27');
+    },
+  );
+
+  test(
+    'stacked organization and leading item quantities retain reading order',
+    () {
+      final preview = const ReceiptOcrParser().parse('''
+THE RIDGE
+KITCHEN + BAR
+789 Summit Blvd
+1 Margherita Pizza 14.00
+2 House Red (gls) 18.00
+1 Tiramisu 8.00
+Subtotal USD 40.00
+Total USD 40.00
+''');
+      expect(preview.merchant, 'THE RIDGE KITCHEN + BAR');
+      expect(preview.items.map((item) => item.description), [
+        'Margherita Pizza',
+        'House Red (gls)',
+        'Tiramisu',
+      ]);
+      expect(preview.items.map((item) => item.quantity), ['1', '2', '1']);
+      expect(
+        preview.warnings,
+        isNot(
+          contains(
+            'Some OCR lines need manual review because no traceable line amount was found.',
+          ),
+        ),
+      );
+    },
+  );
+
+  test('a number-prefixed product stays a name without a quantity column', () {
+    final preview = const ReceiptOcrParser().parse('''
+Corner Market
+7 Up Soda 2.50
+Total USD 2.50
+''');
+    expect(preview.items.single.description, '7 Up Soda');
+    expect(preview.items.single.quantity, isNull);
+  });
+
+  test(
+    'layout rows retain recognition confidence on matched item evidence',
+    () {
+      final preview = const ReceiptOcrParser().parse(
+        'Corner Market\nBread 18.00\nTotal USD 18.00',
+        blocks: const [
+          ReceiptOcrBlockEvidence(
+            text: 'Corner Market',
+            order: 0,
+            row: 0,
+            confidence: 0.91,
+          ),
+          ReceiptOcrBlockEvidence(
+            text: 'Bread',
+            order: 1,
+            row: 1,
+            confidence: 0.8,
+          ),
+          ReceiptOcrBlockEvidence(
+            text: '18.00',
+            order: 2,
+            row: 1,
+            confidence: 0.6,
+          ),
+          ReceiptOcrBlockEvidence(
+            text: 'Total USD 18.00',
+            order: 3,
+            row: 2,
+            confidence: 0.92,
+          ),
+        ],
+      );
+      expect(preview.items.single.confidence, closeTo(0.7, 0.001));
+      expect(preview.blocks, hasLength(4));
+    },
+  );
 
   test('parser preserves weighted quantity and unit-price evidence', () {
     const parser = ReceiptOcrParser();

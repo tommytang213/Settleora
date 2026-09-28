@@ -26,22 +26,25 @@ class ReceiptOcrParser {
       );
     }
 
+    final layoutRows = _matchingLayoutRows(lines, blocks);
+
     final currencyDetection = _detectCurrency(
       lines,
       fallbackCurrency: fallbackCurrency,
     );
     final currency = currencyDetection.currency;
     final amounts = _extractLabeledAmounts(lines, currency);
-    final merchantDetection = _detectMerchant(lines);
+    final merchantDetection = _detectMerchant(lines, layoutRows);
     final merchant = merchantDetection?.text;
     final itemCandidates = _extractItems(
       lines,
       currency,
-      merchantLineIndex: merchantDetection?.lineIndex,
+      merchantLineIndices: merchantDetection?.lineIndices ?? const {},
+      layoutRows: layoutRows,
     );
     final unresolvedItemLines = _countUnresolvedItemLikeLines(
       lines,
-      merchantLineIndex: merchantDetection?.lineIndex,
+      merchantLineIndices: merchantDetection?.lineIndices ?? const {},
     );
     if (itemCandidates.isEmpty) {
       warnings.add('No clear item lines were detected.');
@@ -103,22 +106,134 @@ class ReceiptOcrParser {
     );
   }
 
-  ({String text, int lineIndex})? _detectMerchant(List<String> lines) {
-    for (var index = 0; index < lines.length && index < 5; index += 1) {
+  ({String text, Set<int> lineIndices})? _detectMerchant(
+    List<String> lines,
+    List<List<ReceiptOcrBlockEvidence>> layoutRows,
+  ) {
+    ({String text, int lineIndex, int score})? best;
+    final documentRight = layoutRows
+        .expand((row) => row)
+        .expand((block) => block.points)
+        .fold<double>(0, (right, point) => point.x > right ? point.x : right);
+    for (var index = 0; index < lines.length && index < 10; index += 1) {
       final line = lines[index];
       if (_isAdministrativeLine(line) ||
           _isContextualReceiptMetadataLine(lines, index) ||
-          _lineHasAmount(line)) {
+          _lineHasAmount(line) ||
+          _isReceiptMetadataLine(line)) {
         continue;
       }
-      return (text: _cleanDescription(line), lineIndex: index);
+      final cleaned = _cleanDescription(line);
+      if (!_hasSubstantiveItemDescription(cleaned)) continue;
+      final lower = cleaned.toLowerCase();
+      var score = 10 - index;
+      if (index < layoutRows.length && layoutRows[index].isNotEmpty) {
+        final row = layoutRows[index];
+        final confidence = _averageBlockConfidence(row);
+        if (confidence != null && confidence < 0.4) score -= 4;
+        final xValues = row
+            .expand((block) => block.points)
+            .map((point) => point.x)
+            .toList();
+        if (documentRight > 0 && xValues.isNotEmpty) {
+          final center =
+              (xValues.reduce((a, b) => a < b ? a : b) +
+                  xValues.reduce((a, b) => a > b ? a : b)) /
+              2;
+          if ((center - documentRight / 2).abs() < documentRight * 0.18) {
+            score += 2;
+          }
+        }
+      }
+      if (RegExp(
+        r'\b(invoice|statement|bill|receipt|report|account summary|usage summary)\b',
+      ).hasMatch(lower)) {
+        score -= 18;
+      }
+      if (RegExp(
+        r'\b(utility|utilities|market|store|restaurant|cafe|pharmacy|hotel|company|corp|inc|ltd|llc)\b',
+      ).hasMatch(lower)) {
+        score += 5;
+      }
+      if (RegExp(
+        r'\b(customer|account|reference|address|phone|email|website|service period)\b',
+      ).hasMatch(lower)) {
+        score -= 18;
+      }
+      if (best == null || score > best.score) {
+        best = (text: cleaned, lineIndex: index, score: score);
+      }
     }
-
-    return null;
+    if (best == null) return null;
+    final nextIndex = best.lineIndex + 1;
+    if (nextIndex < lines.length &&
+        _isUppercaseOrganizationSegment(best.text) &&
+        _isUppercaseOrganizationSegment(lines[nextIndex]) &&
+        !_isAdministrativeLine(lines[nextIndex]) &&
+        !_isReceiptMetadataLine(lines[nextIndex]) &&
+        !_lineHasAmount(lines[nextIndex])) {
+      return (
+        text: '${best.text} ${_cleanDescription(lines[nextIndex])}',
+        lineIndices: {best.lineIndex, nextIndex},
+      );
+    }
+    return (text: best.text, lineIndices: {best.lineIndex});
   }
 
   String? _detectDate(List<String> lines) {
-    for (final line in lines) {
+    ({String date, int score})? best;
+    for (var index = 0; index < lines.length; index += 1) {
+      final line = lines[index];
+      final lower = line.toLowerCase();
+      final nearby = index > 0
+          ? '${lines[index - 1].toLowerCase()} $lower'
+          : lower;
+      var score = 100 - index;
+      if (RegExp(
+        r'\b(bill|invoice|statement|transaction|order|purchase|issued)\s*(date|on)?\b',
+      ).hasMatch(nearby)) {
+        score += 55;
+      }
+      if (RegExp(
+        r'\b(due|pay by|payment|paid|previous|prior|last|refund|reference|meter|reading|billing period|service period|period from|period to)\b',
+      ).hasMatch(nearby)) {
+        score -= 90;
+      }
+      void consider(String? date) {
+        if (date != null && (best == null || score > best!.score)) {
+          best = (date: date, score: score);
+        }
+      }
+
+      final month = RegExp(
+        r'\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+(\d{1,2}),?\s+(20\d{2}|19\d{2})\b',
+        caseSensitive: false,
+      ).firstMatch(line);
+      if (month != null) {
+        final monthIndex =
+            const [
+              'jan',
+              'feb',
+              'mar',
+              'apr',
+              'may',
+              'jun',
+              'jul',
+              'aug',
+              'sep',
+              'oct',
+              'nov',
+              'dec',
+            ].indexOf(month.group(1)!.substring(0, 3).toLowerCase()) +
+            1;
+        consider(
+          _formatDate(
+            int.parse(month.group(3)!),
+            monthIndex,
+            int.parse(month.group(2)!),
+          ),
+        );
+      }
       final eastAsianMatches = RegExp(
         r'\b(20\d{2}|19\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日?',
       ).allMatches(line);
@@ -128,7 +243,7 @@ class ReceiptOcrParser {
           int.parse(eastAsian.group(2)!),
           int.parse(eastAsian.group(3)!),
         );
-        if (formatted != null) return formatted;
+        consider(formatted);
       }
 
       final isoMatches = RegExp(
@@ -140,7 +255,7 @@ class ReceiptOcrParser {
           int.parse(iso.group(2)!),
           int.parse(iso.group(3)!),
         );
-        if (formatted != null) return formatted;
+        consider(formatted);
       }
 
       final slashMatches = RegExp(
@@ -153,7 +268,7 @@ class ReceiptOcrParser {
         final formatted = first > 12
             ? _formatDate(year, second, first)
             : _formatDate(year, first, second);
-        if (formatted != null) return formatted;
+        consider(formatted);
       }
 
       final separatedDateMatches = RegExp(
@@ -167,11 +282,10 @@ class ReceiptOcrParser {
         final formatted = first > 12 || (separator == '.' && second <= 12)
             ? _formatDate(year, second, first)
             : _formatDate(year, first, second);
-        if (formatted != null) return formatted;
+        consider(formatted);
       }
     }
-
-    return null;
+    return best?.date;
   }
 
   _ReceiptCurrencyDetection _detectCurrency(
@@ -401,9 +515,10 @@ class ReceiptOcrParser {
     String? shippingCurrency;
     var shippingHasExplicitCurrencyEvidence = false;
     String? discount;
-    String? total;
+    final totalCandidates = <({String value, int score, int order})>[];
 
-    for (final line in lines) {
+    for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+      final line = lines[lineIndex];
       final normalized = line.toLowerCase();
       final amount = _lastAmountInLine(line, currency: currency);
       if (amount == null) {
@@ -439,10 +554,52 @@ class ReceiptOcrParser {
         }
       } else if (_hasDiscountLabel(line, normalized)) {
         discount ??= amount;
-      } else if (_hasTotalLabel(line, normalized)) {
-        total = amount;
+      } else if (_hasTotalLabel(line, normalized) &&
+          !RegExp(
+            r'\b(payment|paid|tender|cash|change|refund|previous|prior|reference)\b',
+          ).hasMatch(normalized)) {
+        var score = 10;
+        if (RegExp(
+          r'\b(total\s+amount\s+due|grand\s+total|balance\s+due|amount\s+due)\b',
+        ).hasMatch(normalized)) {
+          score += 20;
+        }
+        if (RegExp(
+          r'\b(current\s+charges|net\s+payable)\b',
+        ).hasMatch(normalized)) {
+          score += 5;
+        }
+        totalCandidates.add((value: amount, score: score, order: lineIndex));
       }
     }
+
+    final expectedFromParts = [subtotal, tax, service, tip, shipping, discount]
+        .map((value) => value == null ? null : double.tryParse(value))
+        .toList(growable: false);
+    final subtotalValue = expectedFromParts.first;
+    final supportedSum = subtotalValue == null
+        ? null
+        : subtotalValue +
+              expectedFromParts
+                  .skip(1)
+                  .whereType<double>()
+                  .fold<double>(0, (a, b) => a + b);
+    totalCandidates.sort((left, right) {
+      int rank(({String value, int score, int order}) candidate) {
+        final parsed = double.tryParse(candidate.value);
+        final arithmetic =
+            supportedSum != null &&
+                parsed != null &&
+                (parsed - supportedSum).abs() <= 0.02
+            ? 4
+            : 0;
+        return candidate.score + arithmetic;
+      }
+
+      final scoreOrder = rank(right).compareTo(rank(left));
+      return scoreOrder != 0 ? scoreOrder : right.order.compareTo(left.order);
+    });
+    final total = totalCandidates.firstOrNull?.value;
 
     return _LabeledReceiptAmounts(
       subtotal: subtotal,
@@ -464,10 +621,12 @@ class ReceiptOcrParser {
   List<ReceiptOcrItemCandidate> _extractItems(
     List<String> lines,
     String? currency, {
-    int? merchantLineIndex,
+    Set<int> merchantLineIndices = const {},
+    List<List<ReceiptOcrBlockEvidence>> layoutRows = const [],
   }) {
     final items = <ReceiptOcrItemCandidate>[];
     final wrappedDescriptionLines = <String>[];
+    final leadingQuantityRows = _leadingQuantityColumnRows(lines);
     final fuelItem = _extractFuelItem(lines, currency);
     if (fuelItem != null) {
       items.add(fuelItem);
@@ -476,7 +635,7 @@ class ReceiptOcrParser {
       final line = lines[lineIndex];
       if (_isAdministrativeLine(line) ||
           _isContextualReceiptMetadataLine(lines, lineIndex) ||
-          lineIndex == merchantLineIndex ||
+          merchantLineIndices.contains(lineIndex) ||
           (fuelItem != null && _isFuelMeasurementLine(line))) {
         wrappedDescriptionLines.clear();
         continue;
@@ -511,6 +670,9 @@ class ReceiptOcrParser {
       wrappedDescriptionLines.clear();
       final lineCurrency =
           _currencyFromItemToken(match.group(2) ?? match.group(4)) ?? currency;
+      final lineConfidence = lineIndex < layoutRows.length
+          ? _averageBlockConfidence(layoutRows[lineIndex])
+          : null;
       final lineTotal = _normalizeAmount(
         match.group(3)!,
         currency: lineCurrency,
@@ -544,6 +706,7 @@ class ReceiptOcrParser {
               unitPrice: unitPrice,
               lineTotal: lineTotal,
               currency: lineCurrency,
+              confidence: lineConfidence,
               category: 'item_line',
             ),
           );
@@ -551,12 +714,32 @@ class ReceiptOcrParser {
         }
       }
 
+      final leadingQuantity = RegExp(
+        r'^(\d{1,2})\s+(.+)$',
+      ).firstMatch(description);
+      if (leadingQuantityRows.contains(lineIndex) &&
+          leadingQuantity != null &&
+          int.parse(leadingQuantity.group(1)!) > 0 &&
+          _hasSubstantiveItemDescription(leadingQuantity.group(2)!)) {
+        items.add(
+          ReceiptOcrItemCandidate(
+            description: _cleanDescription(leadingQuantity.group(2)!),
+            quantity: leadingQuantity.group(1),
+            lineTotal: lineTotal,
+            currency: lineCurrency,
+            confidence: lineConfidence,
+            category: 'item_line',
+          ),
+        );
+        continue;
+      }
+
       items.add(
         ReceiptOcrItemCandidate(
           description: description,
-          quantity: '1',
           lineTotal: lineTotal,
           currency: lineCurrency,
+          confidence: lineConfidence,
           category: 'item_line',
         ),
       );
@@ -633,12 +816,12 @@ class ReceiptOcrParser {
 
   int _countUnresolvedItemLikeLines(
     List<String> lines, {
-    int? merchantLineIndex,
+    Set<int> merchantLineIndices = const {},
   }) {
     var count = 0;
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       final line = lines[lineIndex];
-      if (lineIndex == merchantLineIndex) {
+      if (merchantLineIndices.contains(lineIndex)) {
         continue;
       }
       if (_isAdministrativeLine(line) ||
@@ -668,6 +851,24 @@ double? _averageBlockConfidence(List<ReceiptOcrBlockEvidence> blocks) {
   final values = blocks.map((block) => block.confidence).nonNulls.toList();
   if (values.isEmpty) return null;
   return values.reduce((left, right) => left + right) / values.length;
+}
+
+List<List<ReceiptOcrBlockEvidence>> _matchingLayoutRows(
+  List<String> lines,
+  List<ReceiptOcrBlockEvidence> blocks,
+) {
+  if (blocks.isEmpty) return const [];
+  final byRow = <int, List<ReceiptOcrBlockEvidence>>{};
+  for (final block in blocks) {
+    (byRow[block.row] ??= []).add(block);
+  }
+  final rows = byRow.values.toList(growable: false);
+  if (rows.length != lines.length) return const [];
+  for (var index = 0; index < rows.length; index++) {
+    final text = rows[index].map((block) => block.text.trim()).join(' ');
+    if (_normalizeOcrLine(text) != lines[index]) return const [];
+  }
+  return rows;
 }
 
 class _LabeledReceiptAmounts {
@@ -1503,6 +1704,37 @@ bool _hasSubstantiveItemDescription(String description) {
   return letters.length == 1 && letters.single > 0x7f;
 }
 
+bool _isUppercaseOrganizationSegment(String value) {
+  final letters = value.replaceAll(RegExp(r'[^\p{L}]', unicode: true), '');
+  return letters.length >= 3 &&
+      letters.toUpperCase() == letters &&
+      letters.toLowerCase() != letters;
+}
+
+Set<int> _leadingQuantityColumnRows(List<String> lines) {
+  final accepted = <int>{};
+  final run = <({int index, String quantity})>[];
+  void finishRun() {
+    if (run.length >= 3 &&
+        run.map((entry) => entry.quantity).toSet().length < run.length) {
+      accepted.addAll(run.map((entry) => entry.index));
+    }
+    run.clear();
+  }
+
+  for (var index = 0; index < lines.length; index++) {
+    final line = lines[index];
+    final match = RegExp(r'^(\d{1,2})\s+').firstMatch(line);
+    if (match == null || !_isPricedItemLine(line)) {
+      finishRun();
+      continue;
+    }
+    run.add((index: index, quantity: match.group(1)!));
+  }
+  finishRun();
+  return accepted;
+}
+
 bool _isPricedItemLine(String line) {
   if (_isAdministrativeLine(line) || _isReceiptMetadataLine(line)) {
     return false;
@@ -1553,7 +1785,7 @@ bool _hasTotalLabel(String line, String normalized) {
   return _hasEnglishReceiptLabel(
         normalized,
         RegExp(
-          r'\b(grand\s+total|amount\s+due|balance\s+due|total)\b',
+          r'\b(total\s+amount\s+due|grand\s+total|amount\s+due|balance\s+due|total)\b',
           caseSensitive: false,
         ),
       ) ||

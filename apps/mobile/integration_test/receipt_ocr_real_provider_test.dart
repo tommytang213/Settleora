@@ -961,11 +961,7 @@ void main() {
                   ),
                 )
                 .value,
-            (candidate.currency?.trim().isNotEmpty == true
-                    ? candidate.currency
-                    : actualPreview.currency)
-                ?.trim()
-                .toUpperCase(),
+            (entry['expected']! as Map<String, Object?>)['currency'],
           );
         }
         expect(
@@ -1233,6 +1229,9 @@ List<_BoundedMismatch> _completePreviewMismatches(
     }
     if (actualItem.unitPrice != expectedItem.unitPrice) {
       mismatches.add(_BoundedMismatch(fixtureId, 'items[$index].unitPrice'));
+    }
+    if (actualItem.currency != expected['currency']) {
+      mismatches.add(_BoundedMismatch(fixtureId, 'items[$index].currency'));
     }
   }
 

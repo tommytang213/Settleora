@@ -92,6 +92,11 @@ final class SettleoraReceiptOcrPlugin: NSObject, FlutterPlugin {
           self.isBusy = false
           result(value)
         }
+      } catch SettleoraOcrError.tooManyLines {
+        await MainActor.run {
+          self.isBusy = false
+          result(FlutterError(code: "ocr_postprocessing", message: "On-device receipt OCR exceeded its line limit", details: nil))
+        }
       } catch {
         // Never expose receipt bytes, text, file paths, or provider internals.
         await MainActor.run {
