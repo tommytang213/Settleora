@@ -34,11 +34,20 @@ class ReceiptOcrParser {
       fallbackCurrency: fallbackCurrency,
     );
     final currency = currencyDetection.currency;
+    final layoutChargeItems = _extractLayoutChargeTableItems(
+      lines,
+      layoutRows,
+      currency,
+    );
+    final recognizedChargeRows = {
+      ...chargeTableRows,
+      ...layoutChargeItems.keys,
+    };
     final amounts = _extractLabeledAmounts(
       lines,
       currency,
       layoutRows: layoutRows,
-      chargeTableRows: chargeTableRows,
+      chargeTableRows: recognizedChargeRows,
     );
     final merchantDetection = _detectMerchant(lines, layoutRows);
     final merchant = merchantDetection?.text;
@@ -47,7 +56,8 @@ class ReceiptOcrParser {
       currency,
       merchantLineIndices: merchantDetection?.lineIndices ?? const {},
       layoutRows: layoutRows,
-      chargeTableRows: chargeTableRows,
+      chargeTableRows: recognizedChargeRows,
+      layoutChargeItems: layoutChargeItems,
     );
     final unresolvedItemLines = _countUnresolvedItemLikeLines(
       lines,
@@ -703,6 +713,7 @@ class ReceiptOcrParser {
     Set<int> merchantLineIndices = const {},
     List<List<ReceiptOcrBlockEvidence>> layoutRows = const [],
     Set<int> chargeTableRows = const {},
+    Map<int, ReceiptOcrItemCandidate> layoutChargeItems = const {},
   }) {
     final items = <ReceiptOcrItemCandidate>[];
     final wrappedDescriptionLines = <String>[];
@@ -713,6 +724,12 @@ class ReceiptOcrParser {
     }
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       final line = lines[lineIndex];
+      final layoutChargeItem = layoutChargeItems[lineIndex];
+      if (layoutChargeItem != null) {
+        items.add(layoutChargeItem);
+        wrappedDescriptionLines.clear();
+        continue;
+      }
       if ((_isAdministrativeLine(line) &&
               !chargeTableRows.contains(lineIndex)) ||
           _isContextualReceiptMetadataLine(lines, lineIndex) ||
@@ -884,6 +901,136 @@ class ReceiptOcrParser {
     }
 
     return items.take(40).toList(growable: false);
+  }
+
+  Map<int, ReceiptOcrItemCandidate> _extractLayoutChargeTableItems(
+    List<String> lines,
+    List<List<ReceiptOcrBlockEvidence>> layoutRows,
+    String? currency,
+  ) {
+    if (layoutRows.length != lines.length) return const {};
+    final items = <int, ReceiptOcrItemCandidate>{};
+    for (var headerIndex = 0; headerIndex < lines.length; headerIndex++) {
+      if (!_isChargeTableHeader(lines[headerIndex])) continue;
+      final header = layoutRows[headerIndex];
+      final descriptionBlocks = header
+          .where(
+            (block) =>
+                block.points.isNotEmpty &&
+                RegExp(
+                  r'\bdescription\b',
+                  caseSensitive: false,
+                ).hasMatch(block.text),
+          )
+          .toList(growable: false);
+      final amountBlocks = header
+          .where(
+            (block) =>
+                block.points.isNotEmpty &&
+                RegExp(
+                  r'\b(?:amount|total)\b',
+                  caseSensitive: false,
+                ).hasMatch(block.text),
+          )
+          .toList(growable: false);
+      if (descriptionBlocks.isEmpty || amountBlocks.isEmpty) continue;
+      final descriptionLeft = descriptionBlocks
+          .expand((block) => block.points)
+          .map((point) => point.x)
+          .reduce((left, right) => left < right ? left : right);
+      final amountLeft = amountBlocks
+          .expand((block) => block.points)
+          .map((point) => point.x)
+          .reduce((left, right) => left < right ? left : right);
+      final amountRight = amountBlocks
+          .expand((block) => block.points)
+          .map((point) => point.x)
+          .reduce((left, right) => left > right ? left : right);
+      if (amountLeft <= descriptionLeft || amountRight <= amountLeft) {
+        continue;
+      }
+
+      final endIndex = headerIndex + 21 < lines.length
+          ? headerIndex + 21
+          : lines.length;
+      for (var rowIndex = headerIndex + 1; rowIndex < endIndex; rowIndex++) {
+        final tableBlocks = layoutRows[rowIndex]
+            .where((block) {
+              if (block.points.isEmpty) return false;
+              final center =
+                  block.points
+                          .map((point) => point.x)
+                          .reduce(
+                            (left, right) => left < right ? left : right,
+                          ) /
+                      2 +
+                  block.points
+                          .map((point) => point.x)
+                          .reduce(
+                            (left, right) => left > right ? left : right,
+                          ) /
+                      2;
+              return center >= descriptionLeft - 12 &&
+                  center <= amountRight + 12;
+            })
+            .toList(growable: false);
+        if (tableBlocks.isEmpty) continue;
+        final tableText = _normalizeOcrLine(
+          tableBlocks.map((block) => block.text.trim()).join(' '),
+        );
+        final lower = tableText.toLowerCase();
+        if (_hasTotalLabel(tableText, lower) ||
+            _hasSubtotalLabel(tableText, lower)) {
+          break;
+        }
+        final amountCells = tableBlocks
+            .where((block) {
+              final left = block.points
+                  .map((point) => point.x)
+                  .reduce((a, b) => a < b ? a : b);
+              return left >= amountLeft - 12 && _lineHasAmount(block.text);
+            })
+            .toList(growable: false);
+        if (amountCells.isEmpty) continue;
+        final amountCell = amountCells.last;
+        final lineCurrency =
+            _explicitCurrencyFromLine(amountCell.text) ?? currency;
+        final lineTotal = _lastAmountInLine(
+          amountCell.text,
+          currency: lineCurrency,
+        );
+        if (lineTotal == null) continue;
+        final description = _cleanDescription(
+          tableBlocks
+              .where((block) {
+                final right = block.points
+                    .map((point) => point.x)
+                    .reduce((a, b) => a > b ? a : b);
+                return right < amountLeft - 12 &&
+                    !_isStandaloneAmountRow(block.text) &&
+                    !RegExp(
+                      '^(?:$_currencyTokenPattern)\\s*[-+]?\\d',
+                      caseSensitive: false,
+                    ).hasMatch(block.text.trim()) &&
+                    _unicodeLetterPattern.hasMatch(block.text);
+              })
+              .map((block) => block.text.trim())
+              .join(' '),
+        );
+        if (!_hasSubstantiveItemDescription(description) ||
+            _isReceiptMetadataLine(description)) {
+          continue;
+        }
+        items[rowIndex] = ReceiptOcrItemCandidate(
+          description: description,
+          lineTotal: lineTotal,
+          currency: lineCurrency,
+          confidence: _averageBlockConfidence(tableBlocks),
+          category: 'item_line',
+        );
+      }
+    }
+    return items;
   }
 
   ReceiptOcrItemCandidate? _extractFuelItem(

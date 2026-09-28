@@ -546,6 +546,53 @@ Total \$145.00
     expect(mexico.tax, '20.00');
   });
 
+  test('charge table uses its columns despite neighboring panel text', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Harbor Utility\n'
+      'Description Therms Rate Amount Important Messages\n'
+      'Customer Charge - USD 15.00 USD 15.00 Save energy\n'
+      'Delivery Charge 76 USD 0.4120 USD 31.31 Go paperless\n'
+      'State Gas Tax 76 USD 0.0280 USD 2.13 Budget reminder\n'
+      'Total Current Charges USD 48.44',
+      blocks: [
+        _layoutBlock('Harbor Utility', 0, 0, 20, 350),
+        _layoutBlock('Description', 1, 1, 20, 150),
+        _layoutBlock('Therms', 2, 1, 170, 210),
+        _layoutBlock('Rate', 3, 1, 230, 270),
+        _layoutBlock('Amount', 4, 1, 310, 350),
+        _layoutBlock('Important Messages', 5, 1, 500, 700),
+        _layoutBlock('Customer Charge', 6, 2, 20, 160),
+        _layoutBlock('-', 7, 2, 170, 210),
+        _layoutBlock('USD 15.00', 8, 2, 230, 270),
+        _layoutBlock('USD 15.00', 9, 2, 310, 350),
+        _layoutBlock('Save energy', 10, 2, 500, 700),
+        _layoutBlock('Delivery Charge', 11, 3, 20, 160),
+        _layoutBlock('76', 12, 3, 170, 210),
+        _layoutBlock('USD 0.4120', 13, 3, 230, 270),
+        _layoutBlock('USD 31.31', 14, 3, 310, 350),
+        _layoutBlock('Go paperless', 15, 3, 500, 700),
+        _layoutBlock('State Gas Tax', 16, 4, 20, 160),
+        _layoutBlock('76', 17, 4, 170, 210),
+        _layoutBlock('USD 0.0280', 18, 4, 230, 270),
+        _layoutBlock('USD 2.13', 19, 4, 310, 350),
+        _layoutBlock('Budget reminder', 20, 4, 500, 700),
+        _layoutBlock('Total Current Charges USD 48.44', 21, 5, 20, 350),
+      ],
+    );
+    expect(preview.items.map((item) => item.description), [
+      'Customer Charge',
+      'Delivery Charge',
+      'State Gas Tax',
+    ]);
+    expect(preview.items.map((item) => item.lineTotal), [
+      '15.00',
+      '31.31',
+      '2.13',
+    ]);
+    expect(preview.shipping, isNull);
+    expect(preview.tax, isNull);
+  });
+
   test('foreign-currency adjustments do not corroborate a receipt total', () {
     final preview = const ReceiptOcrParser().parse('''
 Corner Store
