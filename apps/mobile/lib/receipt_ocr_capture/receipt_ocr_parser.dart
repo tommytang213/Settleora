@@ -70,7 +70,10 @@ class ReceiptOcrParser {
     if (itemCandidates.isEmpty) {
       warnings.add('No clear item lines were detected.');
     }
-    if (unresolvedItemLines > 0) {
+    if (unresolvedItemLines > 0 ||
+        chargeTable.ambiguous.any(
+          (index) => !layoutChargeItems.containsKey(index),
+        )) {
       warnings.add(
         'Some OCR lines need manual review because no traceable line amount was found.',
       );
@@ -1519,10 +1522,14 @@ bool _isFinancialLabelWithAdjacentAmount(
     // A bare usage count followed by one monetary value can be a rate with
     // its final amount missing from OCR. Geometry may still recover the
     // amount column; flattened text alone cannot assign that value safely.
+    final prefix = pricedRow?.group(1)?.trim() ?? '';
+    final endsWithUsage = RegExp(
+      r'(?:^|\s)\d+(?:[.,]\d+)?(?:\s*(?:therms?|kwh|mwh|kw|m³|m3|units?|gallons?|liters?|litres?|kg|g|lb|lbs))?\s*$',
+      caseSensitive: false,
+    ).hasMatch(prefix);
     if (pricedRow != null &&
-        RegExp(r'(?:^|\s)\d+(?:[.,]\d+)?$').hasMatch(
-          pricedRow.group(1)!.trim(),
-        )) {
+        endsWithUsage &&
+        RegExp(_amountTokenPattern).allMatches(prefix).length == 1) {
       ambiguous.add(index);
       continue;
     }

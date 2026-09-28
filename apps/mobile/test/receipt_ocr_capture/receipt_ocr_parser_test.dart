@@ -1477,13 +1477,49 @@ Total Amount Due \$53.11
     expect(unitBearing.items.map((item) => item.description), [
       'Delivery Charge',
       'Electric Service',
+    ]);
+    expect(unitBearing.items.map((item) => item.lineTotal), ['31.31', '16.80']);
+    expect(
+      unitBearing.warnings,
+      contains(
+        'Some OCR lines need manual review because no traceable line amount was found.',
+      ),
+    );
+
+    const waterText = '''
+Power Utility
+Description Usage Rate Amount
+Water Charge 76 therms \$5.00
+Total Amount Due \$5.00
+''';
+    final waterBlocks = [
+      _layoutBlock('Power Utility', 0, 0, 20, 350),
+      _layoutBlock('Description', 1, 1, 20, 150),
+      _layoutBlock('Usage', 2, 1, 170, 210),
+      _layoutBlock('Rate', 3, 1, 230, 270),
+      _layoutBlock('Amount', 4, 1, 310, 350),
+      _layoutBlock('Water Charge', 5, 2, 20, 160),
+      _layoutBlock('76 therms', 6, 2, 170, 210),
+      _layoutBlock('\$5.00', 7, 2, 310, 350),
+      _layoutBlock('Total Amount Due \$5.00', 8, 3, 20, 350),
+    ];
+    final locatedWater = parser.parse(
+      waterText,
+      fallbackCurrency: 'USD',
+      blocks: waterBlocks,
+    );
+    expect(locatedWater.items.map((item) => item.description), [
       'Water Charge',
     ]);
-    expect(unitBearing.items.map((item) => item.lineTotal), [
-      '31.31',
-      '16.80',
-      '5.00',
-    ]);
+    expect(locatedWater.items.single.lineTotal, '5.00');
+    expect(
+      locatedWater.warnings,
+      isNot(
+        contains(
+          'Some OCR lines need manual review because no traceable line amount was found.',
+        ),
+      ),
+    );
   });
 
   test('charge-table tax summary stays tax beside a tax-named charge', () {
