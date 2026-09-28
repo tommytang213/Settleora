@@ -227,6 +227,30 @@ Total USD 9.50
     expect(preview.items.every((item) => item.quantity == null), isTrue);
   });
 
+  test(
+    'repeated numeric product prefixes remain names with aligned geometry',
+    () {
+      final preview = const ReceiptOcrParser().parse(
+        'Corner Market\n7 Up Soda 2.50\n7 Grain Bread 3.00\nTotal USD 5.50',
+        blocks: [
+          _layoutBlock('Corner Market', 0, 0, 20, 220),
+          _layoutBlock('7', 1, 1, 20, 28),
+          _layoutBlock('Up Soda', 2, 1, 55, 220),
+          _layoutBlock('2.50', 3, 1, 310, 350),
+          _layoutBlock('7', 4, 2, 20, 28),
+          _layoutBlock('Grain Bread', 5, 2, 55, 220),
+          _layoutBlock('3.00', 6, 2, 310, 350),
+          _layoutBlock('Total USD 5.50', 7, 3, 20, 350),
+        ],
+      );
+      expect(preview.items.map((item) => item.description), [
+        '7 Up Soda',
+        '7 Grain Bread',
+      ]);
+      expect(preview.items.every((item) => item.quantity == null), isTrue);
+    },
+  );
+
   test('three uppercase organization rows are consumed as one role', () {
     final preview = const ReceiptOcrParser().parse('''
 THE
@@ -246,12 +270,41 @@ Total USD 4.00
     );
   });
 
+  test('keyword-bearing third organization row retains preceding rows', () {
+    final preview = const ReceiptOcrParser().parse('''
+THE
+RIDGE
+KITCHEN MARKET
+Coffee USD 4.00
+Total USD 4.00
+''');
+    expect(preview.merchant, 'THE RIDGE KITCHEN MARKET');
+    expect(
+      preview.warnings,
+      isNot(
+        contains(
+          'Some OCR lines need manual review because no traceable line amount was found.',
+        ),
+      ),
+    );
+  });
+
   test('explicit bill date outranks print date after a due date', () {
     final preview = const ReceiptOcrParser().parse('''
 River Utility
 Print Date: 2025-04-05
 Due Date: 2025-04-28
 Bill Date: 2025-04-10
+Total USD 10.00
+''');
+    expect(preview.receiptDate, '2025-04-10');
+  });
+
+  test('bill due date stays secondary to a later transaction date', () {
+    final preview = const ReceiptOcrParser().parse('''
+River Utility
+Bill Due Date: 2025-04-28
+Transaction Date: 2025-04-10
 Total USD 10.00
 ''');
     expect(preview.receiptDate, '2025-04-10');

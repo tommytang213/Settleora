@@ -168,6 +168,22 @@ class ReceiptOcrParser {
     final parts = <String>[best.text];
     final indices = <int>{best.lineIndex};
     for (
+      var previousIndex = best.lineIndex - 1;
+      previousIndex >= 0 && parts.length < 3;
+      previousIndex--
+    ) {
+      final previous = lines[previousIndex];
+      if (!_isUppercaseOrganizationSegment(previous) ||
+          !_isUppercaseOrganizationSegment(parts.first) ||
+          _isAdministrativeLine(previous) ||
+          _isReceiptMetadataLine(previous) ||
+          _lineHasAmount(previous)) {
+        break;
+      }
+      parts.insert(0, _cleanDescription(previous));
+      indices.add(previousIndex);
+    }
+    for (
       var nextIndex = best.lineIndex + 1;
       nextIndex < lines.length && parts.length < 3;
       nextIndex++
@@ -198,16 +214,16 @@ class ReceiptOcrParser {
       final secondaryLabel = RegExp(
         r'\b(due|pay by|payment|paid|previous|prior|last|refund|reference|meter|reading|billing period|service period|period from|period to)\b',
       );
-      if (primaryLabel.hasMatch(lower)) {
-        score += 80;
-      } else if (secondaryLabel.hasMatch(lower)) {
+      if (secondaryLabel.hasMatch(lower)) {
         score -= 100;
+      } else if (primaryLabel.hasMatch(lower)) {
+        score += 80;
       } else if (index > 0 && !_lineHasAmount(lines[index - 1])) {
         final previous = lines[index - 1].toLowerCase();
-        if (primaryLabel.hasMatch(previous)) {
-          score += 20;
-        } else if (secondaryLabel.hasMatch(previous)) {
+        if (secondaryLabel.hasMatch(previous)) {
           score -= 30;
+        } else if (primaryLabel.hasMatch(previous)) {
+          score += 20;
         }
       }
       void consider(String? date) {
@@ -1746,6 +1762,7 @@ Set<int> _leadingQuantityColumnRows(
         : const <ReceiptOcrBlockEvidence>[];
     if (match == null ||
         !_isPricedItemLine(line) ||
+        (int.tryParse(match.group(1)!) ?? 99) > 3 ||
         row.length < 3 ||
         row.first.text.trim() != match.group(1) ||
         row.first.points.length != 4 ||
