@@ -37,6 +37,7 @@ class ReceiptOcrParser {
     final amounts = _extractLabeledAmounts(
       lines,
       currency,
+      layoutRows: layoutRows,
       chargeTableRows: chargeTableRows,
     );
     final merchantDetection = _detectMerchant(lines, layoutRows);
@@ -560,6 +561,7 @@ class ReceiptOcrParser {
   _LabeledReceiptAmounts _extractLabeledAmounts(
     List<String> lines,
     String? currency, {
+    List<List<ReceiptOcrBlockEvidence>> layoutRows = const [],
     Set<int> chargeTableRows = const {},
   }) {
     String? subtotal;
@@ -577,7 +579,10 @@ class ReceiptOcrParser {
     final totalCandidates = <({String value, int score, int order})>[];
 
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-      final line = lines[lineIndex];
+      final line =
+          _isFinancialLabelWithAdjacentAmount(lines, layoutRows, lineIndex)
+          ? '${lines[lineIndex]} ${lines[lineIndex + 1]}'
+          : lines[lineIndex];
       final normalized = line.toLowerCase();
       final amount = _lastAmountInLine(line, currency: currency);
       if (amount == null) {
@@ -735,6 +740,11 @@ class ReceiptOcrParser {
             _isWrappedItemDescriptionCandidate(cleaned) &&
             !_isLikelyNonItemDescription(cleaned) &&
             !_isStandaloneTenderLabel(cleaned) &&
+            !_isFinancialLabelWithAdjacentAmount(
+              lines,
+              layoutRows,
+              lineIndex,
+            ) &&
             _isStandaloneAmountRow(lines[lineIndex + 1]) &&
             _isAdjacentRightColumnAmount(layoutRows, lineIndex)) {
           final amountLine = lines[lineIndex + 1];
@@ -962,6 +972,7 @@ class ReceiptOcrParser {
       if (lineIndex + 1 < lines.length &&
           _isWrappedItemDescriptionCandidate(cleaned) &&
           !_isStandaloneTenderLabel(cleaned) &&
+          !_isFinancialLabelWithAdjacentAmount(lines, layoutRows, lineIndex) &&
           _isStandaloneAmountRow(lines[lineIndex + 1]) &&
           _isAdjacentRightColumnAmount(layoutRows, lineIndex)) {
         continue;
@@ -1036,10 +1047,28 @@ bool _isAdjacentRightColumnAmount(
       ? descriptionBottom - descriptionTop
       : amountBottom - amountTop;
   final verticalGap = amountTop - descriptionBottom;
+  final descriptionCenter = (descriptionTop + descriptionBottom) / 2;
+  final amountCenter = (amountTop + amountBottom) / 2;
   return rowHeight > 0 &&
-      verticalGap >= 0 &&
+      amountCenter > descriptionCenter + rowHeight * 0.5 &&
+      verticalGap >= -rowHeight * 0.5 &&
       verticalGap <= rowHeight * 1.5 &&
       amountLeft > descriptionRight + 8;
+}
+
+bool _isFinancialLabelWithAdjacentAmount(
+  List<String> lines,
+  List<List<ReceiptOcrBlockEvidence>> layoutRows,
+  int labelIndex,
+) {
+  if (labelIndex + 1 >= lines.length ||
+      !_isStandaloneAmountRow(lines[labelIndex + 1]) ||
+      !_isAdjacentRightColumnAmount(layoutRows, labelIndex)) {
+    return false;
+  }
+  final printedPair = '${lines[labelIndex]} ${lines[labelIndex + 1]}';
+  return _isAdministrativeLine(printedPair) ||
+      _isPaymentMetadataLine(printedPair);
 }
 
 // A printed charge table can contain usage and rate columns before its final

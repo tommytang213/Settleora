@@ -441,6 +441,43 @@ Total USD 12.50
       ],
     );
     expect(tender.items.map((item) => item.description), ['Bread']);
+
+    const splitFinancial =
+        'Corner Market\nBread USD 2.50\nAmount Due\nUSD 2.50\nCash Tendered\nUSD 5.00';
+    final splitRoles = const ReceiptOcrParser().parse(
+      splitFinancial,
+      blocks: [
+        _layoutBlock('Corner Market', 0, 0, 20, 220),
+        _layoutBlock('Bread USD 2.50', 1, 1, 20, 350),
+        _layoutBlock('Amount Due', 2, 2, 20, 150),
+        _layoutBlock('USD 2.50', 3, 3, 310, 350),
+        _layoutBlock('Cash Tendered', 4, 4, 20, 150),
+        _layoutBlock('USD 5.00', 5, 5, 310, 350),
+      ],
+    );
+    expect(splitRoles.total, '2.50');
+    expect(splitRoles.items.map((item) => item.description), ['Bread']);
+
+    final overlappingRows = const ReceiptOcrParser().parse(
+      text,
+      blocks: [
+        _layoutBlock('Corner Market', 0, 0, 20, 220),
+        _layoutBlock('Bread', 1, 1, 20, 150),
+        const ReceiptOcrBlockEvidence(
+          text: 'USD 2.50',
+          order: 2,
+          row: 2,
+          points: [
+            ReceiptOcrPoint(x: 310, y: 30),
+            ReceiptOcrPoint(x: 350, y: 30),
+            ReceiptOcrPoint(x: 350, y: 42),
+            ReceiptOcrPoint(x: 310, y: 42),
+          ],
+        ),
+        _layoutBlock('Total USD 2.50', 3, 3, 20, 350),
+      ],
+    );
+    expect(overlappingRows.items.map((item) => item.description), ['Bread']);
   });
 
   test('foreign-currency adjustments do not corroborate a receipt total', () {
