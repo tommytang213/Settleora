@@ -774,12 +774,14 @@ test("historical iOS size baseline pins five bundle files and one separate priva
   assert.match(guard, /be715e85d5f4f57413f61b531918c4ecd57ce571ac5638c957f1c30880f640ac/);
   assert.match(guard, /9a9f78244f66debf784883ab0e7dcb515bafc45066b14054e8a0b5bc7207ee12/);
   assert.match(guard, /47226a29608df206ad0a110e6afeb5a77ff575ac1df9c76bfdb2d6dfb3fafed1/);
+  assert.match(guard, /ce1c3886deab82acd18ba2aa80def98e34cf86e714639dd744f82482d49cfc2c/);
+  assert.match(guard, /ae21ad45c956d823328afa166d6a6ba27caf7183985a07ddeb79369a6df2b785/);
+  assert.match(guard, /6c8d836a96d43c6618bdbd7cd2dc13a3ed4ddca443d2168e40488209e393980b/);
   assert.match(privacyInventory, /"\$observed_count" -le 128/);
   assert.match(privacyInventory, /baseline_privacy_path_sha256=%s baseline_privacy_component_sha256=%s baseline_privacy_tail_sha256=%s baseline_privacy_byte_sha256=%s/);
   assert.doesNotMatch(privacyInventory, /printf '[^']*(?:bundle_component|relative_resource)=%s/);
   assert.doesNotMatch(inventory, /printf '[^']*(?:bundle_component|relative_resource)=%s/);
-  assert.match(script, /observe_pre_native_baseline_bundle\s+observe_pre_native_privacy_bundle_inventory\s+while IFS= read -r candidate; do/);
-  assert.match(script, /observe_pre_native_privacy_bundle_inventory\s+while IFS= read -r candidate; do/);
+  assert.match(script, /observe_pre_native_baseline_bundle\s+observe_pre_native_privacy_bundle_inventory\s+observe_pre_native_other_bundle_inventory\s+while IFS= read -r candidate; do/);
   assert.match(script, /\*\.bundle\/\*\)\s+#[^\n]*\n\s+#[^\n]*\n\s+is_reviewed_pre_native_baseline_resource \|\| fail_unreviewed_resource_path/);
   assert.match(script, /is_reviewed_pre_native_baseline_resource \|\|\s+fail_unreviewed_opaque_resource/);
   const probe = String.raw`${guard}
@@ -813,6 +815,30 @@ check_tuple bd2a59d6d3ebe4da870b642e5bff0b3e6a7cb3e0374795bcbeb88eb2a8dcc379 d05
 check_tuple c3ffe9ac14280d7ed96202c11fec46984b14e8204ec3e504176906ecbdcc4c69 9ac3b5ad93cbc0305c62f78f50b32774a939d7c44fcc380bc5f4d65c9b39efdf edceaa1270b4ce30b8af310bae530f8338239e98c675139b9646d5a6150a2ab1 Vendor.bundle/Info.plist || exit 15
 mock_component_sha=be715e85d5f4f57413f61b531918c4ecd57ce571ac5638c957f1c30880f640ac
 check_tuple 9a9f78244f66debf784883ab0e7dcb515bafc45066b14054e8a0b5bc7207ee12 6d123ae8ab04eee632cc6c18a31d71271ad217595dcd4401c63875b4b5c0e226 47226a29608df206ad0a110e6afeb5a77ff575ac1df9c76bfdb2d6dfb3fafed1 Vendor.bundle/PrivacyInfo.xcprivacy || exit 36
+mock_component_sha=ce1c3886deab82acd18ba2aa80def98e34cf86e714639dd744f82482d49cfc2c
+check_tuple ae21ad45c956d823328afa166d6a6ba27caf7183985a07ddeb79369a6df2b785 6cd869293d722a973916e2242f1c5d8fcbf55898ec280a23f962a90909a7a8a5 6c8d836a96d43c6618bdbd7cd2dc13a3ed4ddca443d2168e40488209e393980b Vendor.bundle/en.lproj/Name.strings || exit 41
+mock_byte_sha=0000000000000000000000000000000000000000000000000000000000000000
+if is_reviewed_pre_native_baseline_resource; then exit 42; fi
+mock_byte_sha=6c8d836a96d43c6618bdbd7cd2dc13a3ed4ddca443d2168e40488209e393980b
+mock_path_sha=0000000000000000000000000000000000000000000000000000000000000000
+if is_reviewed_pre_native_baseline_resource; then exit 43; fi
+mock_path_sha=ae21ad45c956d823328afa166d6a6ba27caf7183985a07ddeb79369a6df2b785
+mock_tail_sha=0000000000000000000000000000000000000000000000000000000000000000
+if is_reviewed_pre_native_baseline_resource; then exit 44; fi
+mock_tail_sha=6cd869293d722a973916e2242f1c5d8fcbf55898ec280a23f962a90909a7a8a5
+relative_resource=Vendor.bundle/en.lproj/Name.json
+if is_reviewed_pre_native_baseline_resource; then exit 45; fi
+relative_resource=Vendor.bundle/en.lproj/Name.strings
+mode=signed
+if is_reviewed_pre_native_baseline_resource; then exit 46; fi
+mode=unsigned
+source_sha=0000000000000000000000000000000000000000
+if is_reviewed_pre_native_baseline_resource; then exit 47; fi
+source_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
+mock_component_sha=be715e85d5f4f57413f61b531918c4ecd57ce571ac5638c957f1c30880f640ac
+mock_path_sha=9a9f78244f66debf784883ab0e7dcb515bafc45066b14054e8a0b5bc7207ee12
+mock_tail_sha=6d123ae8ab04eee632cc6c18a31d71271ad217595dcd4401c63875b4b5c0e226
+relative_resource=Vendor.bundle/PrivacyInfo.xcprivacy
 mock_byte_sha=0000000000000000000000000000000000000000000000000000000000000000
 if is_reviewed_pre_native_baseline_resource; then exit 37; fi
 mock_byte_sha=47226a29608df206ad0a110e6afeb5a77ff575ac1df9c76bfdb2d6dfb3fafed1
@@ -881,6 +907,67 @@ rm -rf -- "$app_path"
 `;
   const result = spawnSync("bash", ["-s"], { encoding: "utf8", input: probe });
   assert.equal(result.status, 0, result.stderr);
+});
+
+test("historical iOS bundle inventory reports bounded hashes without resource names or bytes", () => {
+  const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
+  const inventory = script.match(/observe_pre_native_other_bundle_inventory\(\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(inventory);
+  assert.match(script, /observe_pre_native_privacy_bundle_inventory\s+observe_pre_native_other_bundle_inventory\s+while IFS= read -r candidate; do/);
+  assert.match(inventory, /"\$observed_count" -le 256/);
+  assert.match(inventory, /"\$source_sha" == e4d4edd0d6854845cc67b00924f6d22af6a70688/);
+  assert.match(inventory, /\[\[ -d "\$candidate" && ! -L "\$candidate" \]\] && continue/);
+  assert.doesNotMatch(inventory, /printf '[^']*(?:relative_resource|bundle_component|bundle_tail|candidate)=%s/);
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-ios-bundle-inventory-"));
+  try {
+    const appPath = path.join(root, "Runner.app");
+    const resource = path.join(appPath, "Vendor.bundle", "fi.lproj", "private-receipt.strings");
+    mkdirSync(path.dirname(resource), { recursive: true });
+    writeFileSync(resource, "private receipt text");
+    const inventoryFile = path.join(root, "inventory.txt");
+    writeFileSync(inventoryFile, [
+      path.join(appPath, "Vendor.bundle"),
+      path.join(appPath, "Vendor.bundle", "fi.lproj"),
+      resource,
+    ].join("\n") + "\n");
+    const probe = String.raw`${inventory}
+sha256_file() { shasum -a 256 "$1" | cut -d ' ' -f 1; }
+fail() { printf '%s\n' "$1" >&2; exit 98; }
+app_path=$APP_PATH
+inventory_file=$INVENTORY_FILE
+mode=unsigned
+artifact_class=size-measurement
+source_sha=e4d4edd0d6854845cc67b00924f6d22af6a70688
+observe_pre_native_other_bundle_inventory
+mode=signed
+observe_pre_native_other_bundle_inventory
+source_sha=0000000000000000000000000000000000000000
+mode=unsigned
+observe_pre_native_other_bundle_inventory
+`;
+    const result = spawnSync("bash", ["-s"], {
+      encoding: "utf8",
+      input: probe,
+      env: { ...process.env, APP_PATH: appPath, INVENTORY_FILE: inventoryFile },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /baseline_other_bundle_path_sha256=[0-9a-f]{64} baseline_other_bundle_component_sha256=[0-9a-f]{64} baseline_other_bundle_tail_sha256=[0-9a-f]{64} resource_kind=strings resource_depth=1 baseline_other_bundle_byte_sha256=[0-9a-f]{64}/);
+    assert.match(result.stdout, /baseline_other_bundle_inventory_count=1/);
+    assert.equal(result.stdout.trim().split("\n").length, 2);
+    assert.doesNotMatch(result.stdout + result.stderr, /private-receipt|private receipt text|Runner\.app|Vendor\.bundle/);
+    const linkedResource = path.join(appPath, "Vendor.bundle", "fi.lproj", "private-link.strings");
+    symlinkSync(resource, linkedResource);
+    writeFileSync(inventoryFile, `${linkedResource}\n`);
+    const linkedResult = spawnSync("bash", ["-s"], {
+      encoding: "utf8",
+      input: probe,
+      env: { ...process.env, APP_PATH: appPath, INVENTORY_FILE: inventoryFile },
+    });
+    assert.equal(linkedResult.status, 98);
+    assert.match(linkedResult.stderr, /pre-native other bundle resource is not a regular file/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("historical iOS privacy metadata accepts only observed unsigned source-bound tuples", () => {

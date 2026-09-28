@@ -427,6 +427,17 @@ is_reviewed_pre_native_baseline_resource() {
     [[ "$byte_sha" == 47226a29608df206ad0a110e6afeb5a77ff575ac1df9c76bfdb2d6dfb3fafed1 ]]
     return
   fi
+  # One localized strings file was observed after all 29 privacy metadata
+  # identities in hosted unsigned-size job 108754478930. Admit only its
+  # exact historical path, component, direct localized tail, and bytes.
+  if [[ "$component_sha" == ce1c3886deab82acd18ba2aa80def98e34cf86e714639dd744f82482d49cfc2c &&
+    "$bundle_tail" =~ ^[^/]+/[^/]+\.strings$ &&
+    "$path_sha" == ae21ad45c956d823328afa166d6a6ba27caf7183985a07ddeb79369a6df2b785 &&
+    "$tail_sha" == 6cd869293d722a973916e2242f1c5d8fcbf55898ec280a23f962a90909a7a8a5 ]]; then
+    byte_sha=$(sha256_file "$candidate" 2>/dev/null) || return 1
+    [[ "$byte_sha" == 6c8d836a96d43c6618bdbd7cd2dc13a3ed4ddca443d2168e40488209e393980b ]]
+    return
+  fi
   [[ "$component_sha" == e1c52c24d9324d76c00df7774c64f4d3256f28ed458bdd51abb27bce67640925 ]] || return 1
   byte_sha=$(sha256_file "$candidate" 2>/dev/null) || return 1
   case "$path_sha:$tail_sha:$byte_sha" in
@@ -542,6 +553,41 @@ observe_pre_native_privacy_bundle_inventory() {
   done < "$inventory_file"
   printf 'baseline_privacy_bundle_inventory_count=%s\n' "$observed_count"
 }
+observe_pre_native_other_bundle_inventory() {
+  [[ "$mode" == unsigned && "$artifact_class" == size-measurement &&
+    "$source_sha" == e4d4edd0d6854845cc67b00924f6d22af6a70688 ]] || return 0
+  local observed_count=0 candidate relative_resource bundle_component bundle_tail resource_kind resource_depth observed_byte_sha
+  while IFS= read -r candidate; do
+    relative_resource=${candidate#"$app_path"/}
+    case "$relative_resource" in
+      *.bundle/Info.plist|*.bundle/PrivacyInfo.xcprivacy|*.bundle/_CodeSignature/CodeResources) continue ;;
+      *.bundle/*) ;;
+      *) continue ;;
+    esac
+    [[ -d "$candidate" && ! -L "$candidate" ]] && continue
+    observed_count=$((observed_count + 1))
+    [[ "$observed_count" -le 256 ]] || fail "pre-native other bundle inventory exceeds reviewed diagnostic bound"
+    [[ -f "$candidate" && ! -L "$candidate" ]] || fail "pre-native other bundle resource is not a regular file"
+    bundle_component=${relative_resource%%.bundle/*}.bundle
+    bundle_tail=${relative_resource#"$bundle_component"/}
+    case "$bundle_tail" in
+      *.strings) resource_kind=strings ;;
+      *.plist) resource_kind=plist ;;
+      *.xcprivacy) resource_kind=privacy ;;
+      *.json) resource_kind=json ;;
+      *) resource_kind=other ;;
+    esac
+    resource_depth=$(printf '%s' "$bundle_tail" | tr -cd '/' | wc -c | tr -d ' ')
+    observed_byte_sha=$(sha256_file "$candidate" 2>/dev/null) ||
+      fail "pre-native other bundle resource is unreadable"
+    printf 'baseline_other_bundle_path_sha256=%s baseline_other_bundle_component_sha256=%s baseline_other_bundle_tail_sha256=%s resource_kind=%s resource_depth=%s baseline_other_bundle_byte_sha256=%s\n' \
+      "$(printf '%s' "$relative_resource" | shasum -a 256 | cut -d ' ' -f 1)" \
+      "$(printf '%s' "$bundle_component" | shasum -a 256 | cut -d ' ' -f 1)" \
+      "$(printf '%s' "$bundle_tail" | shasum -a 256 | cut -d ' ' -f 1)" \
+      "$resource_kind" "$resource_depth" "$observed_byte_sha"
+  done < "$inventory_file"
+  printf 'baseline_other_bundle_inventory_count=%s\n' "$observed_count"
+}
 fail_unreviewed_opaque_resource() {
   local relative_resource=${candidate#"$app_path"/}
   printf 'unreviewed_opaque_path_sha256=%s unreviewed_opaque_sha256=%s\n' \
@@ -581,6 +627,7 @@ done
   fail "production storyboard nib inventory differs from reviewed Xcode output"
 observe_pre_native_baseline_bundle
 observe_pre_native_privacy_bundle_inventory
+observe_pre_native_other_bundle_inventory
 while IFS= read -r candidate; do
   # Bind opaque generated resources before file(1) classifies their bytes.
   case "$candidate" in
