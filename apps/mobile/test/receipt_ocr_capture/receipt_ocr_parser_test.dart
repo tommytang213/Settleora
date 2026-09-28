@@ -1489,6 +1489,56 @@ Total 12.50 .
     expect(preview.items.map((item) => item.description), ['Sandwich']);
   });
 
+  test('layout fallback preserves a foreign item cell currency', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(
+      '''
+Corner Cafe
+Coffee USD 10.00
+Souvenir EUR 9.00 .
+Total USD 10.00
+''',
+      blocks: [
+        _layoutBlock('Corner Cafe', 0, 0, 20, 350),
+        _layoutBlock('Coffee USD 10.00', 1, 1, 20, 350),
+        _layoutBlock('Souvenir', 2, 2, 20, 150),
+        _layoutBlock('EUR 9.00', 3, 2, 300, 420),
+        _layoutBlock('.', 4, 2, 440, 450),
+        _layoutBlock('Total USD 10.00', 5, 3, 20, 350),
+      ],
+    );
+
+    expect(preview.currency, 'USD');
+    expect(preview.items.last.description, 'Souvenir');
+    expect(preview.items.last.currency, 'EUR');
+    expect(preview.items.last.lineTotal, '9.00');
+  });
+
+  test('layout fallback rejects bare identifier amounts', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(
+      '''
+Corner Cafe
+Member ID 123456 .
+Coffee 12.50 .
+Total 12.50
+''',
+      blocks: [
+        _layoutBlock('Corner Cafe', 0, 0, 20, 350),
+        _layoutBlock('Member ID', 1, 1, 20, 150),
+        _layoutBlock('123456', 2, 1, 300, 420),
+        _layoutBlock('.', 3, 1, 440, 450),
+        _layoutBlock('Coffee', 4, 2, 20, 150),
+        _layoutBlock('12.50', 5, 2, 300, 420),
+        _layoutBlock('.', 6, 2, 440, 450),
+        _layoutBlock('Total 12.50', 7, 3, 20, 350),
+      ],
+    );
+
+    expect(preview.items.map((item) => item.description), ['Coffee']);
+    expect(preview.items.single.lineTotal, '12.50');
+  });
+
   test('long charge tables retain late rows until a printed total', () {
     const parser = ReceiptOcrParser();
     final chargeRows = List.generate(

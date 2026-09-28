@@ -1045,7 +1045,22 @@ class ReceiptOcrParser {
         _isReceiptMetadataLine(coreRow)) {
       return null;
     }
-    final lineCurrency = _explicitCurrencyFromLine(amountCell.text) ?? currency;
+    final printedCurrency = _explicitAdjustmentCurrencyFromLine(
+      amountCell.text,
+    );
+    // A bare integer could be an account or reference number. The fallback
+    // is intentionally narrower than ordinary priced-row parsing: require a
+    // printed denomination or decimal punctuation for this geometry repair.
+    final minorDigits = _currencyMinorUnitDigits(currency);
+    final decimalEvidence =
+        minorDigits > 0 &&
+        RegExp('[.,]\\d{1,$minorDigits}\\b').hasMatch(amountCell.text);
+    if (!printedCurrency.hasExplicitEvidence && !decimalEvidence) {
+      return null;
+    }
+    final lineCurrency = printedCurrency.hasExplicitEvidence
+        ? printedCurrency.currency
+        : currency;
     final lineTotal = _lastAmountInLine(
       amountCell.text,
       currency: lineCurrency,
