@@ -1301,7 +1301,7 @@ bool _isStandaloneAmountRow(String line) {
       '${line.substring(0, amount.start)} ${line.substring(amount.end)}'
           .replaceAll(RegExp(r'[\s$€£¥₹₩฿₱]'), '')
           .trim();
-  return remaining.isEmpty || RegExp(r'^[A-Za-z]{3}$').hasMatch(remaining);
+  return remaining.isEmpty || _supportedCurrencyCode(remaining) != null;
 }
 
 String? _lastAmountInLine(String line, {String? currency}) {

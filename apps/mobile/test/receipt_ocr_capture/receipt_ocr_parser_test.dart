@@ -371,6 +371,13 @@ MARKET SALAD
 Total USD 12.00
 ''');
     expect(competingKeywordItem.merchant, 'FRESH FOODS');
+    final shortItemName = const ReceiptOcrParser().parse('''
+Corner Cafe
+Tea 12.50
+Total USD 12.50
+''');
+    expect(shortItemName.merchant, 'Corner Cafe');
+    expect(shortItemName.items.single.description, 'Tea');
   });
 
   test('foreign-currency adjustments do not corroborate a receipt total', () {
