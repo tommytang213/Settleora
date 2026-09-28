@@ -677,6 +677,21 @@ class ReceiptOcrParser {
           !RegExp(
             r'\b(payment|tender|cash|change|previous|prior|reference)\b',
           ).hasMatch(normalized)) {
+        final printedCurrencies = <String>{
+          ..._supportedCurrencyCodes.where(
+            (code) => _hasExplicitCurrencyCode([line], code),
+          ),
+          ?_explicitCurrencyFromLine(line),
+        };
+        // A DCC or reference total may be printed next to the transaction
+        // total. It remains OCR evidence, but cannot supply the primary amount
+        // when its explicit denomination conflicts with this draft currency.
+        if (currency != null &&
+            printedCurrencies.isNotEmpty &&
+            (printedCurrencies.length != 1 ||
+                !printedCurrencies.contains(currency))) {
+          continue;
+        }
         var score = 10;
         if (RegExp(
           r'\b(total\s+amount\s+due|grand\s+total|balance\s+due|amount\s+due)\b',
@@ -791,6 +806,13 @@ class ReceiptOcrParser {
         continue;
       }
 
+      final layoutFallback = _extractLayoutItemFallback(
+        lines,
+        layoutRows,
+        lineIndex,
+        currency,
+      );
+
       final match = RegExp(
         '^(.+?)\\s+($_currencyTokenPattern)?\\s*'
         "($_amountTokenPattern)"
@@ -798,6 +820,11 @@ class ReceiptOcrParser {
         caseSensitive: false,
       ).firstMatch(line);
       if (match == null) {
+        if (layoutFallback != null) {
+          items.add(layoutFallback);
+          wrappedDescriptionLines.clear();
+          continue;
+        }
         final cleaned = _cleanDescription(line);
         if (lineIndex + 1 < lines.length &&
             _isWrappedItemDescriptionCandidate(cleaned) &&
@@ -875,6 +902,7 @@ class ReceiptOcrParser {
           lineTotal == null ||
           _isLikelyNonItemDescription(description, pricedRow: true) ||
           !_hasTraceableItemAmountToken(line, match.group(3)!)) {
+        if (layoutFallback != null) items.add(layoutFallback);
         continue;
       }
 
@@ -947,6 +975,89 @@ class ReceiptOcrParser {
     }
 
     return items.take(40).toList(growable: false);
+  }
+
+  ReceiptOcrItemCandidate? _extractLayoutItemFallback(
+    List<String> lines,
+    List<List<ReceiptOcrBlockEvidence>> layoutRows,
+    int rowIndex,
+    String? currency,
+  ) {
+    if (layoutRows.length != lines.length ||
+        _isPaymentMetadataLine(lines[rowIndex]) ||
+        _isAdministrativeLine(lines[rowIndex])) {
+      return null;
+    }
+    final row = layoutRows[rowIndex];
+    if (row.length < 2 || row.any((block) => block.points.isEmpty)) {
+      return null;
+    }
+    final amountCellPattern = RegExp(
+      '^\\s*(?:(?:$_currencyTokenPattern)\\s*)?$_amountTokenPattern'
+      '(?:\\s*(?:$_currencyTokenPattern))?\\s*\$',
+      caseSensitive: false,
+    );
+    final amountCells = row
+        .where((block) => amountCellPattern.hasMatch(block.text))
+        .toList(growable: false);
+    if (amountCells.length != 1) return null;
+    final amountCell = amountCells.single;
+    final amountLeft = amountCell.points
+        .map((point) => point.x)
+        .reduce((left, right) => left < right ? left : right);
+    final amountRight = amountCell.points
+        .map((point) => point.x)
+        .reduce((left, right) => left > right ? left : right);
+    final rightToLeft = row.any(
+      (block) =>
+          block != amountCell &&
+          block.textDirection == 'rtl' &&
+          _unicodeLetterPattern.hasMatch(block.text),
+    );
+    final descriptionBlocks = row
+        .where((block) {
+          if (block == amountCell ||
+              !_unicodeLetterPattern.hasMatch(block.text) ||
+              amountCellPattern.hasMatch(block.text)) {
+            return false;
+          }
+          final left = block.points
+              .map((point) => point.x)
+              .reduce((a, b) => a < b ? a : b);
+          final right = block.points
+              .map((point) => point.x)
+              .reduce((a, b) => a > b ? a : b);
+          return rightToLeft
+              ? left >= amountRight + 8
+              : right <= amountLeft - 8;
+        })
+        .toList(growable: false);
+    final description = _cleanDescription(
+      descriptionBlocks.map((block) => block.text.trim()).join(' '),
+    );
+    if (!_hasSubstantiveItemDescription(description) ||
+        _isLikelyNonItemDescription(description, pricedRow: true)) {
+      return null;
+    }
+    final coreRow = '$description ${amountCell.text}';
+    if (_isAdministrativeLine(coreRow) ||
+        _isPaymentMetadataLine(coreRow) ||
+        _isReceiptMetadataLine(coreRow)) {
+      return null;
+    }
+    final lineCurrency = _explicitCurrencyFromLine(amountCell.text) ?? currency;
+    final lineTotal = _lastAmountInLine(
+      amountCell.text,
+      currency: lineCurrency,
+    );
+    if (lineTotal == null) return null;
+    return ReceiptOcrItemCandidate(
+      description: description,
+      lineTotal: lineTotal,
+      currency: lineCurrency,
+      confidence: _averageBlockConfidence(row),
+      category: 'item_line',
+    );
   }
 
   Map<int, ReceiptOcrItemCandidate> _extractLayoutChargeTableItems(

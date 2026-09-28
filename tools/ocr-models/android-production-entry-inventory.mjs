@@ -18,6 +18,9 @@ export const expectedAndroidPackageDigestsBySource = Object.freeze({
   // hosted exact-source signer proof remains required.
   "e2d1807b5db6796429ac7128a7cc56002e7d4b74cad6d8afbc5b79957df4984a": Object.freeze([
     "908edd14615fe3b85a1d2f004d3ec742cc913eb0572aabd6a38738be61bcc5ae",
+    // Exact-source ubuntu-24.04 representation observed only after the hosted
+    // signer, archive, catalog, model, and fixture-absence gates passed.
+    "380da707839caab3b12350e8fd2f878a4b92b5cb5c34ec4272dd69ecf329c856",
   ]),
   // #1309 layout and semantic review corrections at c9c6cde6. A clean Flutter
   // 3.44.8 Release projection passed archive/path, catalog, 14-model,

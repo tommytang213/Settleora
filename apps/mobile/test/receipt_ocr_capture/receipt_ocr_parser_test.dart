@@ -13,11 +13,13 @@ ReceiptOcrBlockEvidence _layoutBlock(
   int order,
   int row,
   double left,
-  double right,
-) => ReceiptOcrBlockEvidence(
+  double right, {
+  String? textDirection,
+}) => ReceiptOcrBlockEvidence(
   text: text,
   order: order,
   row: row,
+  textDirection: textDirection,
   points: [
     ReceiptOcrPoint(x: left, y: row * 20),
     ReceiptOcrPoint(x: right, y: row * 20),
@@ -1401,6 +1403,92 @@ Total Amount Due \$53.11
     ]);
   });
 
+  test('layout monetary cells recover items from noisy flattened rows', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(
+      '''
+Sklep Warszawa
+Zupa 35,50 zł .
+Kawa 12,00 zł .
+Cash 60,00 zł .
+Change 12,50 zł .
+Razem 47,50 zł .
+''',
+      blocks: [
+        _layoutBlock('Sklep Warszawa', 0, 0, 20, 350),
+        _layoutBlock('Zupa', 1, 1, 20, 120),
+        _layoutBlock('35,50 zł', 2, 1, 300, 420),
+        _layoutBlock('.', 3, 1, 440, 450),
+        _layoutBlock('Kawa', 4, 2, 20, 120),
+        _layoutBlock('12,00 zł', 5, 2, 300, 420),
+        _layoutBlock('.', 6, 2, 440, 450),
+        _layoutBlock('Cash', 7, 3, 20, 120),
+        _layoutBlock('60,00 zł', 8, 3, 300, 420),
+        _layoutBlock('.', 9, 3, 440, 450),
+        _layoutBlock('Change', 10, 4, 20, 120),
+        _layoutBlock('12,50 zł', 11, 4, 300, 420),
+        _layoutBlock('.', 12, 4, 440, 450),
+        _layoutBlock('Razem', 13, 5, 20, 120),
+        _layoutBlock('47,50 zł', 14, 5, 300, 420),
+        _layoutBlock('.', 15, 5, 440, 450),
+      ],
+    );
+
+    expect(preview.currency, 'PLN');
+    expect(preview.items.map((item) => item.description), ['Zupa', 'Kawa']);
+    expect(preview.items.map((item) => item.lineTotal), ['35.50', '12.00']);
+  });
+
+  test('layout monetary fallback respects right-to-left description side', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(
+      '''
+متجر دبي
+قهوة 12.50 د.إ .
+الإجمالي 12.50 د.إ .
+''',
+      blocks: [
+        _layoutBlock('متجر دبي', 0, 0, 200, 400, textDirection: 'rtl'),
+        _layoutBlock('قهوة', 1, 1, 300, 400, textDirection: 'rtl'),
+        _layoutBlock('12.50 د.إ', 2, 1, 30, 150, textDirection: 'ltr'),
+        _layoutBlock('.', 3, 1, 10, 20),
+        _layoutBlock('الإجمالي', 4, 2, 300, 400, textDirection: 'rtl'),
+        _layoutBlock('12.50 د.إ', 5, 2, 30, 150, textDirection: 'ltr'),
+        _layoutBlock('.', 6, 2, 10, 20),
+      ],
+    );
+
+    expect(preview.items.map((item) => item.description), ['قهوة']);
+    expect(preview.items.single.lineTotal, '12.50');
+    expect(preview.items.single.currency, 'AED');
+  });
+
+  test('layout fallback does not promote a noisy postal row to an item', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(
+      '''
+Pike Deli
+Seattle WA 98101 .
+Sandwich 12.50 .
+Total 12.50 .
+''',
+      blocks: [
+        _layoutBlock('Pike Deli', 0, 0, 20, 350),
+        _layoutBlock('Seattle WA', 1, 1, 20, 170),
+        _layoutBlock('98101', 2, 1, 300, 420),
+        _layoutBlock('.', 3, 1, 440, 450),
+        _layoutBlock('Sandwich', 4, 2, 20, 170),
+        _layoutBlock('12.50', 5, 2, 300, 420),
+        _layoutBlock('.', 6, 2, 440, 450),
+        _layoutBlock('Total', 7, 3, 20, 170),
+        _layoutBlock('12.50', 8, 3, 300, 420),
+        _layoutBlock('.', 9, 3, 440, 450),
+      ],
+    );
+
+    expect(preview.items.map((item) => item.description), ['Sandwich']);
+  });
+
   test('long charge tables retain late rows until a printed total', () {
     const parser = ReceiptOcrParser();
     final chargeRows = List.generate(
@@ -2383,6 +2471,18 @@ Total 120.00
       labelledCurrency.currencyProvenance,
       ReceiptOcrCurrencyProvenance.explicit,
     );
+  });
+
+  test('foreign-currency total does not replace the transaction total', () {
+    const parser = ReceiptOcrParser();
+    final compared = parser.parse('''
+Exchange Cafe
+Coffee USD 100.00
+Total USD 100.00
+Total EUR 90.00
+''');
+    expect(compared.currency, 'USD');
+    expect(compared.total, '100.00');
   });
 
   test('parser ignores address header block and keeps real items', () {
