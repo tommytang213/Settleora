@@ -1428,7 +1428,7 @@ Map<String, Object> _boundedRecognitionCoverage(
     'chargeTableHeaderSameRow': rows.any((row) {
       final lower = row.toLowerCase();
       return RegExp(r'\bdescription\b').hasMatch(lower) &&
-          RegExp(r'\b(?:amount|total)\b').hasMatch(lower) &&
+          RegExp(r'\b(?:amount|total|charges?)\b').hasMatch(lower) &&
           RegExp(r'\b(?:rate|usage|therms|kwh|units?)\b').hasMatch(lower);
     }),
   };

@@ -1568,6 +1568,92 @@ Total Amount Due \$5.00
     );
   });
 
+  test('foreign tax and service do not support a transaction total', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Market USD
+Subtotal USD 90.00
+Tax EUR 20.00
+Service Charge EUR 5.00
+Total USD 115.00
+Total USD 90.00
+''');
+
+    expect(preview.currency, 'USD');
+    expect(preview.tax, '20.00');
+    expect(preview.service, '5.00');
+    expect(preview.total, '90.00');
+  });
+
+  test('unmarked charge columns retain complete usage and rate rows', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Power Utility
+Description Usage Rate Charges
+Delivery Charge 76 0.4120 31.31
+Total Amount Due USD 31.31
+''');
+
+    expect(preview.items.map((item) => item.description), ['Delivery Charge']);
+    expect(preview.items.single.lineTotal, '31.31');
+    expect(preview.items.single.quantity, isNull);
+  });
+
+  test('detached charge sign stays unresolved for review', () {
+    const parser = ReceiptOcrParser();
+    const text = '''
+Power Utility
+Description Usage Rate Amount
+Solar Credit - \$15.00
+Total Amount Due \$15.00
+''';
+    final blocks = [
+      _layoutBlock('Power Utility', 0, 0, 20, 350),
+      _layoutBlock('Description', 1, 1, 20, 150),
+      _layoutBlock('Usage', 2, 1, 170, 210),
+      _layoutBlock('Rate', 3, 1, 230, 270),
+      _layoutBlock('Amount', 4, 1, 310, 350),
+      _layoutBlock('Solar Credit', 5, 2, 20, 160),
+      _layoutBlock('-', 6, 2, 290, 300),
+      _layoutBlock('\$15.00', 7, 2, 310, 350),
+      _layoutBlock('Total Amount Due \$15.00', 8, 3, 20, 350),
+    ];
+    for (final preview in [
+      parser.parse(text),
+      parser.parse(text, blocks: blocks),
+    ]) {
+      expect(preview.items, isEmpty);
+      expect(
+        preview.warnings,
+        contains(
+          'Some OCR lines need manual review because no traceable line amount was found.',
+        ),
+      );
+    }
+  });
+
+  test('zero-minor-unit item amount is recoverable from geometry', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(
+      'Market JPY\nCurrency JPY\nRamen 1200 .\nTotal JPY 1200 .',
+      blocks: [
+        _layoutBlock('Market JPY', 0, 0, 20, 350),
+        _layoutBlock('Currency JPY', 1, 1, 20, 350),
+        _layoutBlock('Ramen', 2, 2, 20, 120),
+        _layoutBlock('1200', 3, 2, 300, 420),
+        _layoutBlock('.', 4, 2, 440, 450),
+        _layoutBlock('Total JPY 1200', 5, 3, 20, 350),
+        _layoutBlock('.', 6, 3, 440, 450),
+      ],
+    );
+
+    expect(preview.currency, 'JPY');
+    expect(preview.merchant, 'Market JPY');
+    expect(preview.items.map((item) => item.description), ['Ramen']);
+    expect(preview.items.single.lineTotal, '1200');
+    expect(preview.items.single.currency, 'JPY');
+  });
+
   test('charge-table tax summary stays tax beside a tax-named charge', () {
     const parser = ReceiptOcrParser();
     const text = '''

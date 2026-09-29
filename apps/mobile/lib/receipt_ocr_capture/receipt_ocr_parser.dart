@@ -627,7 +627,11 @@ class ReceiptOcrParser {
   }) {
     String? subtotal;
     String? tax;
+    String? taxCurrency;
+    var taxHasExplicitCurrencyEvidence = false;
     String? service;
+    String? serviceCurrency;
+    var serviceHasExplicitCurrencyEvidence = false;
     String? tip;
     String? tipLabel;
     String? tipCurrency;
@@ -657,9 +661,19 @@ class ReceiptOcrParser {
       if (_hasSubtotalLabel(line, normalized)) {
         subtotal ??= amount;
       } else if (_hasTaxLabel(line, normalized)) {
-        tax ??= amount;
+        if (tax == null) {
+          tax = amount;
+          final printed = _explicitAdjustmentCurrencyFromLine(line);
+          taxCurrency = printed.currency;
+          taxHasExplicitCurrencyEvidence = printed.hasExplicitEvidence;
+        }
       } else if (_hasServiceChargeLabel(line, normalized)) {
-        service ??= amount;
+        if (service == null) {
+          service = amount;
+          final printed = _explicitAdjustmentCurrencyFromLine(line);
+          serviceCurrency = printed.currency;
+          serviceHasExplicitCurrencyEvidence = printed.hasExplicitEvidence;
+        }
       } else if (_hasActualTipChargeLabel(line, normalized)) {
         if (tip == null) {
           tip = amount;
@@ -722,6 +736,12 @@ class ReceiptOcrParser {
     }
 
     final subtotalValue = subtotal == null ? null : double.tryParse(subtotal);
+    final sameCurrencyTax =
+        !taxHasExplicitCurrencyEvidence ||
+        (currency != null && taxCurrency == currency);
+    final sameCurrencyService =
+        !serviceHasExplicitCurrencyEvidence ||
+        (currency != null && serviceCurrency == currency);
     final sameCurrencyTip =
         !tipHasExplicitCurrencyEvidence ||
         (currency != null && tipCurrency == currency);
@@ -732,8 +752,8 @@ class ReceiptOcrParser {
         ? null
         : double.tryParse(discount)?.abs();
     final supportedParts = [
-      tax,
-      service,
+      if (sameCurrencyTax) tax,
+      if (sameCurrencyService) service,
       if (sameCurrencyTip) tip,
       if (sameCurrencyShipping) shipping,
     ].map((value) => value == null ? null : double.tryParse(value));
@@ -1016,6 +1036,9 @@ class ReceiptOcrParser {
     bool hasMonetaryEvidence(String cellText) {
       final printed = _explicitAdjustmentCurrencyFromLine(cellText);
       return printed.hasExplicitEvidence ||
+          (currency != null &&
+              minorDigits == 0 &&
+              RegExp(r'^\s*\d{1,9}\s*$').hasMatch(cellText)) ||
           (minorDigits > 0 &&
               RegExp('[.,]\\d{1,$minorDigits}\\b').hasMatch(cellText));
     }
@@ -1087,7 +1110,13 @@ class ReceiptOcrParser {
     final decimalEvidence =
         minorDigits > 0 &&
         RegExp('[.,]\\d{1,$minorDigits}\\b').hasMatch(amountText);
-    if (!printedCurrency.hasExplicitEvidence && !decimalEvidence) {
+    final zeroMinorIntegerEvidence =
+        currency != null &&
+        minorDigits == 0 &&
+        RegExp(r'^\s*\d{1,9}\s*$').hasMatch(amountText);
+    if (!printedCurrency.hasExplicitEvidence &&
+        !decimalEvidence &&
+        !zeroMinorIntegerEvidence) {
       return null;
     }
     final lineCurrency = printedCurrency.hasExplicitEvidence
@@ -1129,7 +1158,7 @@ class ReceiptOcrParser {
             (block) =>
                 block.points.isNotEmpty &&
                 RegExp(
-                  r'\b(?:amount|total)\b',
+                  r'\b(?:amount|total|charges?)\b',
                   caseSensitive: false,
                 ).hasMatch(block.text),
           )
@@ -1209,6 +1238,11 @@ class ReceiptOcrParser {
             .toList(growable: false);
         if (amountCells.isEmpty) continue;
         final amountCell = amountCells.last;
+        // A detached sign cannot be dropped while promoting an otherwise
+        // positive amount. Keep this row unresolved until the sign is bound.
+        if (_nearbySignOnlyBlocks(tableBlocks, amountCell).isNotEmpty) {
+          continue;
+        }
         final nearbyCurrencyBlocks = _nearbyCurrencyOnlyBlocks(
           tableBlocks,
           amountCell,
@@ -1412,6 +1446,35 @@ List<ReceiptOcrBlockEvidence> _nearbyCurrencyOnlyBlocks(
       .toList(growable: false);
 }
 
+List<ReceiptOcrBlockEvidence> _nearbySignOnlyBlocks(
+  List<ReceiptOcrBlockEvidence> row,
+  ReceiptOcrBlockEvidence amountCell,
+) {
+  if (amountCell.points.isEmpty) return const [];
+  final amountLeft = amountCell.points
+      .map((point) => point.x)
+      .reduce((left, right) => left < right ? left : right);
+  final amountWidth =
+      amountCell.points
+          .map((point) => point.x)
+          .reduce((left, right) => left > right ? left : right) -
+      amountLeft;
+  return row
+      .where((block) {
+        if (block == amountCell ||
+            block.points.isEmpty ||
+            !RegExp(r'^\s*[-−]\s*$').hasMatch(block.text)) {
+          return false;
+        }
+        final signRight = block.points
+            .map((point) => point.x)
+            .reduce((left, right) => left > right ? left : right);
+        return signRight <= amountLeft &&
+            amountLeft - signRight <= amountWidth * 0.75 + 8;
+      })
+      .toList(growable: false);
+}
+
 List<List<ReceiptOcrBlockEvidence>> _matchingLayoutRows(
   List<String> lines,
   List<ReceiptOcrBlockEvidence> blocks,
@@ -1525,11 +1588,19 @@ bool _isFinancialLabelWithAdjacentAmount(
     // reliable role in flattened text. Geometry may still identify an Amount
     // cell; until then keep the row visible as unresolved review evidence.
     final prefix = pricedRow?.group(1)?.trim() ?? '';
+    if (RegExp(
+      '(?:^|\\s)[-−]\\s+(?:$_currencyTokenPattern\\s*)?$_amountTokenPattern\\s*\$',
+      caseSensitive: false,
+    ).hasMatch(line)) {
+      ambiguous.add(index);
+      continue;
+    }
     if (pricedRow != null &&
         hasRateColumn &&
         !_isChargeTableSummaryLine(line) &&
         !_isReceiptMetadataLine(line) &&
-        !_hasEarlierPrintedMonetaryAmount(prefix)) {
+        !_hasEarlierPrintedMonetaryAmount(prefix) &&
+        !_hasCompleteUsageRateColumns(prefix)) {
       ambiguous.add(index);
       continue;
     }
@@ -1553,6 +1624,15 @@ bool _hasEarlierPrintedMonetaryAmount(String prefix) {
   return RegExp(
     '(?:^|\\s)(?:$_currencyTokenPattern)\\s*$_amountTokenPattern(?:\\s|\$)'
     '|(?:^|\\s)$_amountTokenPattern\\s*(?:$_currencyTokenPattern)(?:\\s|\$)',
+    caseSensitive: false,
+  ).hasMatch(prefix);
+}
+
+bool _hasCompleteUsageRateColumns(String prefix) {
+  return RegExp(
+    r'\b\d+(?:[.,]\d+)?\s*'
+    r'(?:therms?|kwh|m³|m3|gallons?|gal|units?|gb|minutes?|mins?)?\s+'
+    r'\d+(?:[.,]\d+)?\s*$',
     caseSensitive: false,
   ).hasMatch(prefix);
 }
@@ -1588,7 +1668,7 @@ bool _isChargeTableSectionBoundary(String line) {
 bool _isChargeTableHeader(String line) {
   final lower = line.toLowerCase();
   return RegExp(r'\bdescription\b').hasMatch(lower) &&
-      RegExp(r'\b(?:amount|total)\b').hasMatch(lower) &&
+      RegExp(r'\b(?:amount|total|charges?)\b').hasMatch(lower) &&
       RegExp(r'\b(?:rate|usage|therms|kwh|units?)\b').hasMatch(lower);
 }
 
