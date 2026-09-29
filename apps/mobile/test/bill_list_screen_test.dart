@@ -179,8 +179,12 @@ void main() {
           currency: 'HKD',
           subtotal: '45.00',
           discount: '-2.00',
-          tax: '0.00',
-          service: '0.00',
+          tax: '5.00',
+          taxCurrency: 'EUR',
+          taxHasExplicitCurrencyEvidence: true,
+          service: '6.00',
+          serviceCurrency: 'GBP',
+          serviceHasExplicitCurrencyEvidence: true,
           tip: '3.00',
           tipLabel: 'Driver gratuity',
           tipCurrency: 'XPF',
@@ -330,9 +334,9 @@ void main() {
       find.text('Discount suggested: HKD -2.00 (review only)'),
       findsOneWidget,
     );
-    expect(find.text('Tax suggested: HKD 0.00 (review only)'), findsOneWidget);
+    expect(find.text('Tax suggested: EUR 5.00 (review only)'), findsOneWidget);
     expect(
-      find.text('Service charge suggested: HKD 0.00 (review only)'),
+      find.text('Service charge suggested: GBP 6.00 (review only)'),
       findsOneWidget,
     );
     expect(find.text('Tip suggested: XPF 3.00 (review only)'), findsOneWidget);
@@ -480,8 +484,8 @@ void main() {
       isNull,
       reason: 'Signed OCR discounts remain visible locally but are not sent.',
     );
-    expect(receiptRepository.lastSaveRequest?.taxAmount, '0.00');
-    expect(receiptRepository.lastSaveRequest?.serviceChargeAmount, '0.00');
+    expect(receiptRepository.lastSaveRequest?.taxAmount, isNull);
+    expect(receiptRepository.lastSaveRequest?.serviceChargeAmount, isNull);
     expect(receiptRepository.lastSaveRequest?.grandTotalAmount, '43.00');
     expect(receiptRepository.lastSaveRequest?.lines.map((line) => line.text), [
       'Corrected milk',
