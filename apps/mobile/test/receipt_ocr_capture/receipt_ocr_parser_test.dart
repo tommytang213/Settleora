@@ -3207,6 +3207,51 @@ Total EUR 90.00
     expect(compared.total, '100.00');
   });
 
+  test('bare yen reference total does not replace a USD transaction total', () {
+    const parser = ReceiptOcrParser();
+    final compared = parser.parse('''
+Exchange Cafe
+Coffee USD 80.00
+Total USD 80.00
+Total ¥12000
+''');
+    expect(compared.currency, 'USD');
+    expect(compared.total, '80.00');
+  });
+
+  test('matching-currency adjustment supersedes an earlier foreign one', () {
+    const parser = ReceiptOcrParser();
+    final compared = parser.parse('''
+Exchange Cafe
+Subtotal EUR 90.00
+Subtotal USD 100.00
+Tax EUR 8.00
+Tax USD 10.00
+Service EUR 4.00
+Service USD 5.00
+Tip EUR 2.00
+Tip USD 3.00
+Shipping EUR 6.00
+Shipping USD 7.00
+Discount EUR 9.00
+Discount USD 11.00
+Total USD 114.00
+''');
+    expect(compared.currency, 'USD');
+    expect(compared.subtotal, '100.00');
+    expect(compared.subtotalCurrency, 'USD');
+    expect(compared.tax, '10.00');
+    expect(compared.taxCurrency, 'USD');
+    expect(compared.service, '5.00');
+    expect(compared.serviceCurrency, 'USD');
+    expect(compared.tip, '3.00');
+    expect(compared.tipCurrency, 'USD');
+    expect(compared.shipping, '7.00');
+    expect(compared.shippingCurrency, 'USD');
+    expect(compared.discount, '11.00');
+    expect(compared.discountCurrency, 'USD');
+  });
+
   test('parser ignores address header block and keeps real items', () {
     const parser = ReceiptOcrParser();
 

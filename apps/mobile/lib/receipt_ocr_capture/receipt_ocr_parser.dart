@@ -680,6 +680,18 @@ class ReceiptOcrParser {
     String? discountCurrency;
     var discountHasExplicitCurrencyEvidence = false;
     final totalCandidates = <({String value, int score, int order})>[];
+    bool preferMatchingPrintedCurrency(
+      String? existing,
+      String? existingCurrency,
+      bool existingHasExplicitEvidence,
+      ({String? currency, bool hasExplicitEvidence}) printed,
+    ) =>
+        existing == null ||
+        (currency != null &&
+            existingHasExplicitEvidence &&
+            existingCurrency != currency &&
+            printed.hasExplicitEvidence &&
+            printed.currency == currency);
 
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       final line =
@@ -697,51 +709,81 @@ class ReceiptOcrParser {
       }
 
       if (_hasSubtotalLabel(line, normalized)) {
-        if (subtotal == null) {
+        final printed = _explicitAdjustmentCurrencyFromLine(line);
+        if (preferMatchingPrintedCurrency(
+          subtotal,
+          subtotalCurrency,
+          subtotalHasExplicitCurrencyEvidence,
+          printed,
+        )) {
           subtotal = amount;
-          final printed = _explicitAdjustmentCurrencyFromLine(line);
           subtotalCurrency = printed.currency;
           subtotalHasExplicitCurrencyEvidence = printed.hasExplicitEvidence;
         }
       } else if (_hasTaxLabel(line, normalized)) {
-        if (tax == null) {
+        final printed = _explicitAdjustmentCurrencyFromLine(line);
+        if (preferMatchingPrintedCurrency(
+          tax,
+          taxCurrency,
+          taxHasExplicitCurrencyEvidence,
+          printed,
+        )) {
           tax = amount;
-          final printed = _explicitAdjustmentCurrencyFromLine(line);
           taxCurrency = printed.currency;
           taxHasExplicitCurrencyEvidence = printed.hasExplicitEvidence;
         }
       } else if (_hasServiceChargeLabel(line, normalized)) {
-        if (service == null) {
+        final printed = _explicitAdjustmentCurrencyFromLine(line);
+        if (preferMatchingPrintedCurrency(
+          service,
+          serviceCurrency,
+          serviceHasExplicitCurrencyEvidence,
+          printed,
+        )) {
           service = amount;
-          final printed = _explicitAdjustmentCurrencyFromLine(line);
           serviceCurrency = printed.currency;
           serviceHasExplicitCurrencyEvidence = printed.hasExplicitEvidence;
         }
       } else if (_hasActualTipChargeLabel(line, normalized)) {
-        if (tip == null) {
+        final adjustmentCurrency = _explicitAdjustmentCurrencyFromLine(line);
+        if (preferMatchingPrintedCurrency(
+          tip,
+          tipCurrency,
+          tipHasExplicitCurrencyEvidence,
+          adjustmentCurrency,
+        )) {
           tip = amount;
           tipLabel = _originalReceiptAdjustmentLabel(line, fallback: 'Tip');
-          final adjustmentCurrency = _explicitAdjustmentCurrencyFromLine(line);
           tipCurrency = adjustmentCurrency.currency;
           tipHasExplicitCurrencyEvidence =
               adjustmentCurrency.hasExplicitEvidence;
         }
       } else if (_hasShippingLabel(line, normalized)) {
-        if (shipping == null) {
+        final adjustmentCurrency = _explicitAdjustmentCurrencyFromLine(line);
+        if (preferMatchingPrintedCurrency(
+          shipping,
+          shippingCurrency,
+          shippingHasExplicitCurrencyEvidence,
+          adjustmentCurrency,
+        )) {
           shipping = amount;
           shippingLabel = _originalReceiptAdjustmentLabel(
             line,
             fallback: 'Shipping',
           );
-          final adjustmentCurrency = _explicitAdjustmentCurrencyFromLine(line);
           shippingCurrency = adjustmentCurrency.currency;
           shippingHasExplicitCurrencyEvidence =
               adjustmentCurrency.hasExplicitEvidence;
         }
       } else if (_hasDiscountLabel(line, normalized)) {
-        if (discount == null) {
+        final printed = _explicitAdjustmentCurrencyFromLine(line);
+        if (preferMatchingPrintedCurrency(
+          discount,
+          discountCurrency,
+          discountHasExplicitCurrencyEvidence,
+          printed,
+        )) {
           discount = amount;
-          final printed = _explicitAdjustmentCurrencyFromLine(line);
           discountCurrency = printed.currency;
           discountHasExplicitCurrencyEvidence = printed.hasExplicitEvidence;
         }
@@ -759,9 +801,10 @@ class ReceiptOcrParser {
         // total. It remains OCR evidence, but cannot supply the primary amount
         // when its explicit denomination conflicts with this draft currency.
         if (currency != null &&
-            printedCurrencies.isNotEmpty &&
-            (printedCurrencies.length != 1 ||
-                !printedCurrencies.contains(currency))) {
+            ((line.contains('¥') && currency != 'JPY' && currency != 'CNY') ||
+                (printedCurrencies.isNotEmpty &&
+                    (printedCurrencies.length != 1 ||
+                        !printedCurrencies.contains(currency))))) {
           continue;
         }
         var score = 10;
