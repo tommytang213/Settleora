@@ -1933,6 +1933,33 @@ Total $10.00
     expect(preview.items.single.currencyUnresolved, isFalse);
   });
 
+  test('uppercase ambiguous item word cannot outrank total dollar', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(r'''
+BBQ Shop
+BBQ RUB 10.00
+Total $10.00
+''', fallbackCurrency: 'USD');
+
+    expect(preview.currency, 'USD');
+    expect(preview.total, '10.00');
+    expect(preview.items.single.currency, 'RUB');
+  });
+
+  test(
+    'uppercase item code remains evidence without selected total symbol',
+    () {
+      const parser = ReceiptOcrParser();
+      final preview = parser.parse('''
+BBQ Shop
+BBQ RUB 10.00
+Total 10.00
+''');
+
+      expect(preview.currency, 'RUB');
+    },
+  );
+
   test('lowercase supported code on total remains printed evidence', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse('''

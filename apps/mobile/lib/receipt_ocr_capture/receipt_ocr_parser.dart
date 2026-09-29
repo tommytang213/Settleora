@@ -422,6 +422,14 @@ class ReceiptOcrParser {
     final transactionCurrencyLines = lines
         .where((line) => !_isNonTransactionCurrencyMetadataLine(line))
         .toList(growable: false);
+    final hasSelectedTotalSymbol = transactionCurrencyLines.any((line) {
+      final normalized = line.toLowerCase();
+      return _hasTotalLabel(line, normalized) &&
+          !RegExp(
+            r'\b(payment|tender|cash|change|previous|prior|reference)\b',
+          ).hasMatch(normalized) &&
+          RegExp(r'[$€£¥]').hasMatch(line);
+    });
     final rankedCurrencyLines = transactionCurrencyLines
         .map((line) {
           final normalized = line.toLowerCase();
@@ -433,7 +441,10 @@ class ReceiptOcrParser {
               RegExp(r'^\s*(?:currency|curr)\b').hasMatch(normalized)) {
             return line;
           }
-          return _maskAmbiguousSupportedItemWords(line);
+          return _maskAmbiguousSupportedItemWords(
+            line,
+            maskUppercase: hasSelectedTotalSymbol,
+          );
         })
         .toList(growable: false);
     final joined = transactionCurrencyLines.join(' ').toUpperCase();
@@ -2791,7 +2802,10 @@ bool _selectedItemCurrencyUnresolved(String text, String? receiptCurrency) {
   return selected.hasExplicitEvidence && selected.currency == null;
 }
 
-String _maskAmbiguousSupportedItemWords(String text) => text.replaceAllMapped(
+String _maskAmbiguousSupportedItemWords(
+  String text, {
+  bool maskUppercase = false,
+}) => text.replaceAllMapped(
   RegExp(
     r'(?<![\p{L}\p{N}])(?:rub|try)(?![\p{L}])',
     caseSensitive: false,
@@ -2799,7 +2813,9 @@ String _maskAmbiguousSupportedItemWords(String text) => text.replaceAllMapped(
   ),
   (match) {
     final token = match.group(0)!;
-    return token == token.toUpperCase() ? token : ' ' * token.length;
+    return token == token.toUpperCase() && !maskUppercase
+        ? token
+        : ' ' * token.length;
   },
 );
 
