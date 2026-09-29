@@ -4505,6 +4505,35 @@ Total USD 12.00
     }
   });
 
+  test('unclassified surcharge keeps adjustment warning', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Meal 10.00
+Surcharge USD 1.00
+Tax USD 1.00
+Total USD 12.00
+''');
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(preview.reviewHints, [
+      'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
+    ]);
+  });
+
+  test('item truncation keeps adjustment warning', () {
+    final itemLines = List.filled(41, 'Meal 1.00').join('\n');
+    final preview = const ReceiptOcrParser().parse('''
+Market
+$itemLines
+Tax USD 1.00
+Total USD 41.00
+''');
+    expect(preview.items, hasLength(40));
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(preview.reviewHints, [
+      'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
+    ]);
+  });
+
   test('preview does not reconcile a partial item total', () {
     const preview = ReceiptOcrPreview(
       currency: 'HKD',

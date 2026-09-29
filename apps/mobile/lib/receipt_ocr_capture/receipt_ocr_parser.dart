@@ -5,7 +5,7 @@ import '../ui/settleora_form_fields.dart';
 
 final _unicodeLetterPattern = RegExp(r'\p{L}', unicode: true);
 final _potentialReceiptAdjustmentLabelPattern = RegExp(
-  r'\b(?:sales\s+tax|tax|vat|gst|hst|iva|tva|kdv|mwst|service(?:\s+(?:charge|fee))?|tip|gratuity|shipping|delivery(?:\s+(?:charge|fee))?|discount|coupon)\b',
+  r'\b(?:sales\s+tax|tax|vat|gst|hst|iva|tva|kdv|mwst|service(?:\s+(?:charge|fee))?|tip|gratuity|shipping|delivery(?:\s+(?:charge|fee))?|discount|coupon|surcharge)\b',
   caseSensitive: false,
 );
 const _localizedReceiptAdjustmentLabels = [
@@ -94,7 +94,7 @@ class ReceiptOcrParser {
     );
     final merchantDetection = _detectMerchant(lines, layoutRows);
     final merchant = merchantDetection?.text;
-    final itemCandidates = _extractItems(
+    final extractedItems = _extractItems(
       lines,
       currency,
       selectedTotal: amounts.total,
@@ -105,6 +105,7 @@ class ReceiptOcrParser {
       layoutChargeItems: layoutChargeItems,
       detachedAmountSignRows: detachedAmountSignRows,
     );
+    final itemCandidates = extractedItems.items;
     final unresolvedItemLines = _countUnresolvedItemLikeLines(
       lines,
       merchantLineIndices: merchantDetection?.lineIndices ?? const {},
@@ -174,7 +175,8 @@ class ReceiptOcrParser {
       discountCurrency: amounts.discountCurrency,
       discountHasExplicitCurrencyEvidence:
           amounts.discountHasExplicitCurrencyEvidence,
-      adjustmentsComplete: amounts.adjustmentsComplete,
+      adjustmentsComplete:
+          amounts.adjustmentsComplete && !extractedItems.truncated,
       total: amounts.total,
       rawTextLineCount: lines.length,
       confidence: _averageBlockConfidence(blocks),
@@ -1182,7 +1184,7 @@ class ReceiptOcrParser {
     );
   }
 
-  List<ReceiptOcrItemCandidate> _extractItems(
+  ({List<ReceiptOcrItemCandidate> items, bool truncated}) _extractItems(
     List<String> lines,
     String? currency, {
     String? selectedTotal,
@@ -1432,7 +1434,10 @@ class ReceiptOcrParser {
       items.remove(fuelItem);
     }
 
-    return items.take(40).toList(growable: false);
+    return (
+      items: items.take(40).toList(growable: false),
+      truncated: items.length > 40,
+    );
   }
 
   ReceiptOcrItemCandidate? _extractLayoutItemFallback(
