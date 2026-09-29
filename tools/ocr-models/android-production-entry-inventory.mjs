@@ -3,6 +3,13 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // #1309 whole-unit foreign-symbol correction at 857caa5e.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "412d553db41ad1ebd65023ae64ea9a2c0179d39bd9ab9743a5e87e164f4275de": Object.freeze([
+    "75c914e02e9e233e8b8bb1ca72bf1d9808d9cca5523dc4bc937edddd6ca11a22",
+  ]),
   // #1309 trailing-currency correction at 25672675.
   // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
   // 14-model, legal-resource, and fixture-absence gates. Local signer was
