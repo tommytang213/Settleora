@@ -484,10 +484,9 @@ ReceiptOcrReviewSaveRequest? receiptOcrReviewSaveRequestFromPreview(
             )
         ? receiptOcrMoneyCandidateForSave(preview.discount, currency: currency)
         : null,
-    grandTotalAmount: receiptOcrMoneyCandidateForSave(
-      preview.total,
-      currency: currency,
-    ),
+    grandTotalAmount: reviewCurrencyChanged
+        ? null
+        : receiptOcrMoneyCandidateForSave(preview.total, currency: currency),
     lines: receiptOcrReviewLinesFromPreview(preview),
     adjustmentEvidence: receiptOcrAdjustmentEvidenceFromPreview(preview),
     headerEvidence: _receiptOcrHeaderEvidenceFromPreview(
@@ -4185,6 +4184,9 @@ bool _receiptOcrItemsCanApply(ReceiptOcrPreview preview) {
 
   return preview.items.every((candidate) {
     if (candidate.description.trim().isEmpty) {
+      return false;
+    }
+    if (candidate.currencyUnresolved) {
       return false;
     }
     final itemCurrency = candidate.currency?.trim();

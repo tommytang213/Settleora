@@ -617,7 +617,10 @@ class ReceiptOcrParser {
 
   ({String? currency, bool hasExplicitEvidence})
   _explicitAdjustmentCurrencyFromLine(String line, {String? receiptCurrency}) {
-    if (RegExp(_amountTokenPattern).allMatches(line).length > 1) {
+    if (RegExp(_amountTokenPattern).allMatches(line).length > 1 ||
+        (receiptCurrency != null &&
+            !_currencyCompatibleWithBareDollar(receiptCurrency) &&
+            RegExp(r'(?<![A-Za-z])\$\s*[+-]?\d').hasMatch(line))) {
       return _currencyAdjacentToSelectedAmount(line, receiptCurrency);
     }
     // The bare yen sign denotes JPY or CNY. Keep the printed marker as

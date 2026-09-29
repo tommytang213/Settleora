@@ -490,7 +490,7 @@ void main() {
     );
     expect(receiptRepository.lastSaveRequest?.taxAmount, isNull);
     expect(receiptRepository.lastSaveRequest?.serviceChargeAmount, isNull);
-    expect(receiptRepository.lastSaveRequest?.grandTotalAmount, '43.00');
+    expect(receiptRepository.lastSaveRequest?.grandTotalAmount, isNull);
     expect(receiptRepository.lastSaveRequest?.lines.map((line) => line.text), [
       'Corrected milk',
       'Bread',
@@ -560,7 +560,7 @@ void main() {
     expect(find.text('Receipt totals'), findsOneWidget);
     expect(find.text('Review receipt lines'), findsOneWidget);
     expect(find.text('2 lines'), findsOneWidget);
-    expect(find.text('Grand total'), findsOneWidget);
+    expect(find.text('Grand total'), findsNothing);
     expect(find.text('10.80 USD'), findsWidgets);
     expect(find.text('Milk'), findsWidgets);
     expect(find.textContaining('raw OCR full text'), findsNothing);
@@ -780,6 +780,20 @@ void main() {
     expect(sameCurrency?.headerEvidence, isEmpty);
   });
 
+  test('OCR currency change does not relabel a printed grand total', () {
+    final changed = receiptOcrReviewSaveRequestFromPreview(
+      const ReceiptOcrPreview(currency: 'USD', total: '9.00'),
+      originalCurrency: 'EUR',
+    );
+    expect(changed?.grandTotalAmount, isNull);
+
+    final unchanged = receiptOcrReviewSaveRequestFromPreview(
+      const ReceiptOcrPreview(currency: 'USD', total: '9.00'),
+      originalCurrency: 'USD',
+    );
+    expect(unchanged?.grandTotalAmount, '9.00');
+  });
+
   test('OCR save adapter preserves line currency boundaries and API limit', () {
     final lines = receiptOcrReviewLinesFromPreview(
       ReceiptOcrPreview(
@@ -917,7 +931,25 @@ Total EUR 9.00
     expect(lines.single.lineTotalAmount, isNull);
   });
 
-  testWidgets('editing OCR merchant keeps mixed item money unresolved', (
+  test('OCR save does not relabel a bare dollar tax as euro money', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(r'''
+Exchange Cafe
+Coffee EUR 9.00
+Tax $1.00
+Total EUR 10.00
+''');
+    final saved = receiptOcrReviewSaveRequestFromPreview(
+      preview,
+      originalCurrency: preview.currency,
+    );
+
+    expect(preview.taxHasExplicitCurrencyEvidence, isTrue);
+    expect(saved?.taxAmount, isNull);
+    expect(saved?.headerEvidence, isEmpty);
+  });
+
+  testWidgets('editing OCR merchant keeps unresolved items out of Apply', (
     tester,
   ) async {
     await useLargeSurface(tester);
@@ -962,15 +994,18 @@ Total EUR 9.00
       find.byKey(const Key('personal-bill-ocr-edit-merchant')),
       'Edited Exchange Cafe',
     );
+    expect(
+      tester
+          .widget<CheckboxListTile>(
+            find.byKey(const Key('personal-bill-ocr-apply-items')),
+          )
+          .onChanged,
+      isNull,
+    );
     await _tapReceiptOcrApply(tester, 'personal-bill');
     await _tapSaveBill(tester);
 
-    expect(receiptRepository.saveCalls, 1);
-    expect(receiptRepository.lastSaveRequest?.lines.single.text, 'Coffee');
-    expect(
-      receiptRepository.lastSaveRequest?.lines.single.lineTotalAmount,
-      isNull,
-    );
+    expect(receiptRepository.saveCalls, 0);
   });
 
   testWidgets(

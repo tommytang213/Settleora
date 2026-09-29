@@ -1830,6 +1830,21 @@ Total USD 95.00
     );
   });
 
+  test('bare dollar tax stays review-only under explicit euro total', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(r'''
+Exchange Cafe
+Coffee EUR 9.00
+Tax $1.00
+Total EUR 10.00
+''');
+
+    expect(preview.currency, 'EUR');
+    expect(preview.tax, '1.00');
+    expect(preview.taxCurrency, isNull);
+    expect(preview.taxHasExplicitCurrencyEvidence, isTrue);
+  });
+
   test('zero-minor-unit item amount is recoverable from geometry', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse(
