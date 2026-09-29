@@ -3451,23 +3451,33 @@ Total USD 1.00
 
   test('opposing markers beside one amount remain unresolved', () {
     const parser = ReceiptOcrParser();
-    final compared = parser.parse('''
+    for (final scenario in [
+      (item: 'Coffee USD 3.00 €', total: 'Total USD 3.00', currency: 'USD'),
+      (item: r'Coffee EUR 3.00 $', total: 'Total EUR 3.00', currency: 'EUR'),
+    ]) {
+      final compared = parser.parse('''
 Exchange Cafe
-Coffee USD 3.00 €
-Total USD 3.00
+${scenario.item}
+${scenario.total}
 ''');
-    expect(compared.currency, 'USD');
-    expect(
-      compared.items.where(
-        (item) => item.lineTotal == '3.00' && item.currencyUnresolved,
-      ),
-      isNotEmpty,
-    );
+      expect(compared.currency, scenario.currency);
+      expect(
+        compared.items.where(
+          (item) => item.lineTotal == '3.00' && item.currencyUnresolved,
+        ),
+        isNotEmpty,
+        reason: scenario.item,
+      );
+    }
   });
 
   test('item words that resemble currency codes do not conflict', () {
     const parser = ReceiptOcrParser();
-    for (final itemLine in [r'2 Try Special $3.00', r'Try 2 Special $3.00']) {
+    for (final itemLine in [
+      r'2 Try Special $3.00',
+      r'Try 2 Special $3.00',
+      r'Try 2 $3.00',
+    ]) {
       final compared = parser.parse('''
 Exchange Cafe
 $itemLine

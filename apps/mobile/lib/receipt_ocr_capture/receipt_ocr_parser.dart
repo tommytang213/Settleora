@@ -2667,15 +2667,21 @@ bool _currencyMarkerTouchesAmount(String text, RegExpMatch marker) {
   final afterFollowingAmount = followingAmount == null
       ? null
       : after.substring(followingAmount.end).trimLeft();
+  final firstAmountLooksMonetary =
+      followingAmount != null &&
+      (followingAmount.group(0)!.contains('.') ||
+          followingAmount.group(0)!.contains(',') ||
+          !RegExp(r'^[A-Za-z]+$').hasMatch(marker.group(0)!));
   final amountEndsCell =
       afterFollowingAmount != null &&
       (afterFollowingAmount.isEmpty ||
           RegExp(r'^[/:,;|)\]\-.]').hasMatch(afterFollowingAmount) ||
-          RegExp(
-            '^(?:$_currencyTokenPattern\\s*)?$_amountTokenPattern',
-            caseSensitive: false,
-            unicode: true,
-          ).hasMatch(afterFollowingAmount));
+          (firstAmountLooksMonetary &&
+              RegExp(
+                '^(?:$_currencyTokenPattern\\s*)?$_amountTokenPattern',
+                caseSensitive: false,
+                unicode: true,
+              ).hasMatch(afterFollowingAmount)));
   return (markerEndsAmount &&
           RegExp('$_amountTokenPattern\\s*[:=]?\\s*\$').hasMatch(before)) ||
       amountEndsCell;
@@ -2736,7 +2742,9 @@ _currencyAdjacentToSelectedAmount(String text, String? receiptCurrency) {
   final left = resolve(preceding?.group(1));
   final right = resolve(following?.group(1));
   final selectedTokens = preceding != null || following != null;
-  if (left != null && right != null && left != right) {
+  if (preceding != null &&
+      following != null &&
+      (left == null || right == null || left != right)) {
     return (currency: null, hasExplicitEvidence: true);
   }
   if (selectedTokens) {
