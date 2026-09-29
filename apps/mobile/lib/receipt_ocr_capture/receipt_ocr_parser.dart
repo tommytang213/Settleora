@@ -5,7 +5,7 @@ import '../ui/settleora_form_fields.dart';
 
 final _unicodeLetterPattern = RegExp(r'\p{L}', unicode: true);
 final _potentialReceiptAdjustmentLabelPattern = RegExp(
-  r'\b(?:sales\s+tax|tax|vat|gst|hst|iva|tva|kdv|mwst|service(?:\s+(?:charge|fee))?|tip|gratuity|shipping|delivery(?:\s+(?:charge|fee))?|discount|coupon|surcharge|charge|fee|refund|rebate|credit|deposit|levy|duty|donation|round(?:ing|[\s-]*off))\b',
+  r'\b(?:sales\s+tax|tax|vat|gst|hst|iva|tva|kdv|mwst|service(?:\s+(?:charge|fee))?|tip|gratuity|shipping|delivery(?:\s+(?:charge|fee))?|discount|coupon|loyalty[\s-]+savings?|surcharge|charge|fee|refund|rebate|credit|deposit|levy|duty|donation|round(?:ing|[\s-]*off))\b',
   caseSensitive: false,
 );
 const _localizedReceiptAdjustmentLabels = [
@@ -933,6 +933,17 @@ class ReceiptOcrParser {
           line,
           receiptCurrency: currency,
         );
+        final retainedCurrency = subtotalHasExplicitCurrencyEvidence
+            ? subtotalCurrency
+            : currency;
+        final printedCurrency = printed.hasExplicitEvidence
+            ? printed.currency
+            : currency;
+        if (subtotal != null &&
+            retainedCurrency == printedCurrency &&
+            double.tryParse(subtotal) != double.tryParse(amount)) {
+          adjustmentsComplete = false;
+        }
         if (preferMatchingPrintedCurrency(
           subtotal,
           subtotalCurrency,

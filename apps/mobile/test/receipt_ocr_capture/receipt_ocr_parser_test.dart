@@ -4690,6 +4690,36 @@ Total USD 12.00
     }
   });
 
+  test('conflicting printed subtotals keep review warning', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Meal USD 10.00
+Subtotal USD 10.00
+Subtotal USD 11.00
+Tax USD 2.00
+Total USD 12.00
+''');
+    expect(preview.subtotal, '10.00');
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(preview.reviewHints, [
+      'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
+    ]);
+  });
+
+  test('loyalty savings row remains unresolved adjustment evidence', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Meal USD 10.00
+Loyalty Savings USD -1.00
+Tax USD 1.00
+Total USD 10.00
+''');
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(preview.reviewHints, [
+      'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
+    ]);
+  });
+
   test('percentage-only tax does not count as a monetary adjustment', () {
     final preview = const ReceiptOcrParser().parse('''
 Market
