@@ -603,11 +603,13 @@ class ReceiptOcrParser {
       for (final match in RegExp(
         r'(?<![A-Za-z])([A-Z]{3})(?![A-Za-z])\s*[:=]?\s*[+-]?\s*\d',
       ).allMatches(line))
-        match.group(1)!,
+        if (!_nonCurrencyAdjustmentCodes.contains(match.group(1)!))
+          match.group(1)!,
       for (final match in RegExp(
         r'\d(?:[\d,]*)(?:\.\d+)?\s*([A-Z]{3})(?![A-Za-z])',
       ).allMatches(line))
-        match.group(1)!,
+        if (!_nonCurrencyAdjustmentCodes.contains(match.group(1)!))
+          match.group(1)!,
     };
     if (boundedCodeCandidates.isNotEmpty) {
       return (
@@ -1271,7 +1273,13 @@ class ReceiptOcrParser {
         final amountCell = amountCells.last;
         // A detached sign cannot be dropped while promoting an otherwise
         // positive amount. Keep this row unresolved until the sign is bound.
-        if (_nearbySignOnlyBlocks(tableBlocks, amountCell).isNotEmpty) {
+        if (_nearbySignOnlyBlocks(tableBlocks, amountCell).isNotEmpty ||
+            (!tableBlocks.any(
+                  (block) => block != amountCell && _lineHasAmount(block.text),
+                ) &&
+                tableBlocks.any(
+                  (block) => RegExp(r'^\s*[-−]\s*$').hasMatch(block.text),
+                ))) {
           continue;
         }
         final nearbyCurrencyBlocks = _nearbyCurrencyOnlyBlocks(
@@ -1936,6 +1944,20 @@ final _currencyTokenPattern = [
 ].map(RegExp.escape).join('|');
 const _amountTokenPattern =
     r"-?(?:\d{1,3}(?:[ \u00a0]\d{3})+(?:[.,]\d{1,3})?|\d+(?:[.,'’]\d+)*)";
+
+const _nonCurrencyAdjustmentCodes = {
+  'TAX',
+  'TIP',
+  'VAT',
+  'GST',
+  'HST',
+  'FEE',
+  'DUE',
+  'NET',
+  'PAY',
+  'BAL',
+  'SUB',
+};
 
 String? _supportedCurrencyCode(String? value) {
   final normalized = settleoraNormalizeCurrencyCode(value);

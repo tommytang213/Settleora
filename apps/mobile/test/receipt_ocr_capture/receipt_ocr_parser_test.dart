@@ -1632,6 +1632,58 @@ Total Amount Due \$15.00
     }
   });
 
+  test('charge sign separated by currency cell stays unresolved', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(
+      'Power Utility\nDescription Usage Rate Amount\nSolar Credit - USD 15.00\nTotal Amount Due USD 15.00',
+      blocks: [
+        _layoutBlock('Power Utility', 0, 0, 20, 350),
+        _layoutBlock('Description', 1, 1, 20, 150),
+        _layoutBlock('Usage', 2, 1, 170, 210),
+        _layoutBlock('Rate', 3, 1, 230, 270),
+        _layoutBlock('Amount', 4, 1, 310, 350),
+        _layoutBlock('Solar Credit', 5, 2, 20, 160),
+        _layoutBlock('-', 6, 2, 230, 240),
+        _layoutBlock('USD', 7, 2, 260, 295),
+        _layoutBlock('15.00', 8, 2, 310, 350),
+        _layoutBlock('Total Amount Due USD 15.00', 9, 3, 20, 350),
+      ],
+    );
+
+    expect(preview.items, isEmpty);
+    expect(
+      preview.warnings,
+      contains(
+        'Some OCR lines need manual review because no traceable line amount was found.',
+      ),
+    );
+  });
+
+  test('uppercase adjustment labels do not become currency evidence', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Market USD
+Meal USD 90.00
+Subtotal USD 90.00
+TAX 5.00
+SERVICE 0.00
+Total USD 90.00
+Total USD 95.00
+''');
+
+    expect(preview.currency, 'USD');
+    expect(preview.tax, '5.00');
+    expect(preview.taxCurrency, isNull);
+    expect(preview.taxHasExplicitCurrencyEvidence, isFalse);
+    expect(preview.total, '95.00');
+    expect(
+      preview.reviewHints,
+      contains(
+        'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
+      ),
+    );
+  });
+
   test('zero-minor-unit item amount is recoverable from geometry', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse(
