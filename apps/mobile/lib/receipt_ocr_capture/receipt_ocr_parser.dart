@@ -166,6 +166,7 @@ class ReceiptOcrParser {
       final line = lines[index];
       if (_isAdministrativeLine(line) ||
           _isContextualReceiptMetadataLine(lines, index) ||
+          _isChargeTableHeader(line) ||
           _lineHasAmount(line) ||
           (index + 1 < lines.length &&
               _isStandaloneAmountRow(lines[index + 1])) ||
@@ -225,6 +226,7 @@ class ReceiptOcrParser {
       if (!_isUppercaseOrganizationSegment(previous) ||
           !_isUppercaseOrganizationSegment(parts.first) ||
           _isAdministrativeLine(previous) ||
+          _isChargeTableHeader(previous) ||
           _isReceiptMetadataLine(previous) ||
           _lineHasAmount(previous)) {
         break;
@@ -241,6 +243,7 @@ class ReceiptOcrParser {
       if (!_isUppercaseOrganizationSegment(parts.last) ||
           !_isUppercaseOrganizationSegment(next) ||
           _isAdministrativeLine(next) ||
+          _isChargeTableHeader(next) ||
           _isReceiptMetadataLine(next) ||
           (nextIndex + 1 < lines.length &&
               _isStandaloneAmountRow(lines[nextIndex + 1])) ||
@@ -1538,6 +1541,10 @@ class ReceiptOcrParser {
           .expand((block) => block.points)
           .map((point) => point.x)
           .reduce((left, right) => left < right ? left : right);
+      final descriptionRight = descriptionBlocks
+          .expand((block) => block.points)
+          .map((point) => point.x)
+          .reduce((left, right) => left > right ? left : right);
       final amountLeft = amountBlocks
           .expand((block) => block.points)
           .map((point) => point.x)
@@ -1546,7 +1553,9 @@ class ReceiptOcrParser {
           .expand((block) => block.points)
           .map((point) => point.x)
           .reduce((left, right) => left > right ? left : right);
-      if (amountLeft <= descriptionLeft || amountRight <= amountLeft) {
+      final amountOnLeft = amountRight < descriptionLeft;
+      final amountOnRight = descriptionRight < amountLeft;
+      if ((!amountOnLeft && !amountOnRight) || amountRight <= amountLeft) {
         continue;
       }
 
@@ -1576,8 +1585,10 @@ class ReceiptOcrParser {
                             (left, right) => left > right ? left : right,
                           ) /
                       2;
-              return center >= descriptionLeft - 12 &&
-                  center <= amountRight + 12;
+              return center >=
+                      (amountOnLeft ? amountLeft : descriptionLeft) - 12 &&
+                  center <=
+                      (amountOnLeft ? descriptionRight : amountRight) + 12;
             })
             .toList(growable: false);
         if (tableBlocks.isEmpty) continue;
@@ -1602,8 +1613,9 @@ class ReceiptOcrParser {
                   .map((point) => point.x)
                   .reduce((a, b) => a > b ? a : b);
               final center = (left + right) / 2;
-              return center >= amountLeft - 12 &&
-                  right >= amountLeft &&
+              return (amountOnLeft
+                      ? center <= amountRight + 12 && left <= amountRight
+                      : center >= amountLeft - 12 && right >= amountLeft) &&
                   _lineHasAmount(block.text);
             })
             .toList(growable: false);
@@ -1645,7 +1657,12 @@ class ReceiptOcrParser {
                   final right = block.points
                       .map((point) => point.x)
                       .reduce((a, b) => a > b ? a : b);
-                  return right < amountLeft - 12 &&
+                  return (amountOnLeft
+                          ? block.points
+                                    .map((point) => point.x)
+                                    .reduce((a, b) => a < b ? a : b) >
+                                amountRight + 12
+                          : right < amountLeft - 12) &&
                       !_isStandaloneAmountRow(block.text) &&
                       !RegExp(
                         '^(?:$_currencyTokenPattern)\\s*[-+]?\\d',
@@ -2165,7 +2182,6 @@ bool _hasChargeTableMonetaryEvidence(String monetaryText) {
 }
 
 bool _isChargeTableSectionBoundary(String line) {
-  if (_lineHasAmount(line)) return false;
   return RegExp(
     r'^(?:payment\s+(?:coupon|information|summary)|remittance|important\s+messages?|(?:account|billing|usage)\s+(?:summary|information)|contact\s+us|notes?)\b',
     caseSensitive: false,
@@ -2834,6 +2850,12 @@ bool _isAccountBalanceSummaryLine(String line) => RegExp(
 
 bool _isPaymentMetadataLine(String line) {
   final normalized = line.toLowerCase().trim();
+  if (RegExp(
+        r'^(?:payment\s+(?:coupon|information|summary)|remittance)\b',
+      ).hasMatch(normalized) &&
+      _lineHasAmount(line)) {
+    return true;
+  }
   // These labels describe settlement evidence, not merchandise. Keep the
   // recognition rule anchored so a product name containing the word is not
   // excluded solely for that reason.

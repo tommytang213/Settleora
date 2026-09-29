@@ -333,6 +333,16 @@ Total USD 4.00
     );
   });
 
+  test('uppercase charge columns do not extend the merchant', () {
+    final preview = const ReceiptOcrParser().parse('''
+HARBOR UTILITY
+DESCRIPTION USAGE RATE AMOUNT
+Water Charge USD 12.00
+Total USD 12.00
+''');
+    expect(preview.merchant, 'HARBOR UTILITY');
+  });
+
   test('keyword-bearing third organization row retains preceding rows', () {
     final preview = const ReceiptOcrParser().parse('''
 THE
@@ -667,6 +677,49 @@ Total 31.99
     expect(preview.items.single.currency, 'EUR');
     expect(preview.items.single.lineTotal, '9.00');
     expect(preview.reviewHints, isEmpty);
+  });
+
+  test('amount-bearing payment summary ends a layout charge table', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Harbor Utility\nDescription Usage Rate Amount\n'
+      'Water Charge USD 12.00\nPayment Summary USD 12.00\n'
+      'Remittance USD 12.00',
+      blocks: [
+        _layoutBlock('Harbor Utility', 0, 0, 20, 350),
+        _layoutBlock('Description', 1, 1, 20, 150),
+        _layoutBlock('Usage', 2, 1, 170, 210),
+        _layoutBlock('Rate', 3, 1, 230, 270),
+        _layoutBlock('Amount', 4, 1, 310, 350),
+        _layoutBlock('Water Charge', 5, 2, 20, 150),
+        _layoutBlock('USD 12.00', 6, 2, 310, 350),
+        _layoutBlock('Payment Summary', 7, 3, 20, 150),
+        _layoutBlock('USD 12.00', 8, 3, 310, 350),
+        _layoutBlock('Remittance', 9, 4, 20, 150),
+        _layoutBlock('USD 12.00', 10, 4, 310, 350),
+      ],
+    );
+    expect(preview.items.map((item) => item.description), ['Water Charge']);
+  });
+
+  test('mirrored right-to-left charge columns recover amount cells', () {
+    final preview = const ReceiptOcrParser().parse(
+      'متجر دبي\nAmount Rate Usage Description\n'
+      '12.50 د.إ 0.50 25 قهوة\nTotal 12.50 د.إ',
+      blocks: [
+        _layoutBlock('متجر دبي', 0, 0, 200, 400, textDirection: 'rtl'),
+        _layoutBlock('Amount', 1, 1, 20, 80),
+        _layoutBlock('Rate', 2, 1, 120, 165),
+        _layoutBlock('Usage', 3, 1, 190, 235),
+        _layoutBlock('Description', 4, 1, 300, 400, textDirection: 'rtl'),
+        _layoutBlock('12.50 د.إ', 5, 2, 20, 80),
+        _layoutBlock('0.50', 6, 2, 120, 165),
+        _layoutBlock('25', 7, 2, 190, 235),
+        _layoutBlock('قهوة', 8, 2, 300, 400, textDirection: 'rtl'),
+        _layoutBlock('Total 12.50 د.إ', 9, 3, 20, 400),
+      ],
+    );
+    expect(preview.items.map((item) => item.description), ['قهوة']);
+    expect(preview.items.single.lineTotal, '12.50');
   });
 
   test('a fuller repeated organization identity outranks its short logo', () {
