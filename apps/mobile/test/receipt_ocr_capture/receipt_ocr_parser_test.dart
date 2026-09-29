@@ -4534,6 +4534,34 @@ Total USD 41.00
     ]);
   });
 
+  test('unpriced item-like row keeps adjustment warning', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Meal 10.00
+Unpriced item
+Tax USD 2.00
+Total USD 12.00
+''');
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(preview.reviewHints, [
+      'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
+    ]);
+  });
+
+  test('unclassified convenience fee keeps adjustment warning', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Meal 10.00
+Convenience fee USD 1.00
+Tax USD 1.00
+Total USD 12.00
+''');
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(preview.reviewHints, [
+      'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
+    ]);
+  });
+
   test('preview does not reconcile a partial item total', () {
     const preview = ReceiptOcrPreview(
       currency: 'HKD',

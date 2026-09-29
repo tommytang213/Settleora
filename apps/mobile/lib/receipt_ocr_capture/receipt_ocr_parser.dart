@@ -5,7 +5,7 @@ import '../ui/settleora_form_fields.dart';
 
 final _unicodeLetterPattern = RegExp(r'\p{L}', unicode: true);
 final _potentialReceiptAdjustmentLabelPattern = RegExp(
-  r'\b(?:sales\s+tax|tax|vat|gst|hst|iva|tva|kdv|mwst|service(?:\s+(?:charge|fee))?|tip|gratuity|shipping|delivery(?:\s+(?:charge|fee))?|discount|coupon|surcharge)\b',
+  r'\b(?:sales\s+tax|tax|vat|gst|hst|iva|tva|kdv|mwst|service(?:\s+(?:charge|fee))?|tip|gratuity|shipping|delivery(?:\s+(?:charge|fee))?|discount|coupon|surcharge|fee)\b',
   caseSensitive: false,
 );
 const _localizedReceiptAdjustmentLabels = [
@@ -176,7 +176,9 @@ class ReceiptOcrParser {
       discountHasExplicitCurrencyEvidence:
           amounts.discountHasExplicitCurrencyEvidence,
       adjustmentsComplete:
-          amounts.adjustmentsComplete && !extractedItems.truncated,
+          amounts.adjustmentsComplete &&
+          !extractedItems.truncated &&
+          unresolvedItemLines == 0,
       total: amounts.total,
       rawTextLineCount: lines.length,
       confidence: _averageBlockConfidence(blocks),
