@@ -5,7 +5,7 @@ import '../ui/settleora_form_fields.dart';
 
 final _unicodeLetterPattern = RegExp(r'\p{L}', unicode: true);
 final _potentialReceiptAdjustmentLabelPattern = RegExp(
-  r'\b(?:sales\s+tax|tax|vat|gst|hst|iva|tva|kdv|mwst|service\s+(?:charge|fee)|tip|gratuity|shipping|delivery(?:\s+(?:charge|fee))?|discount|coupon)\b',
+  r'\b(?:sales\s+tax|tax|vat|gst|hst|iva|tva|kdv|mwst|service(?:\s+(?:charge|fee))?|tip|gratuity|shipping|delivery(?:\s+(?:charge|fee))?|discount|coupon)\b',
   caseSensitive: false,
 );
 
