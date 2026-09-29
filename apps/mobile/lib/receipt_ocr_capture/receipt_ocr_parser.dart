@@ -1529,7 +1529,7 @@ bool _isFinancialLabelWithAdjacentAmount(
         hasRateColumn &&
         !_isChargeTableSummaryLine(line) &&
         !_isReceiptMetadataLine(line) &&
-        !_hasChargeTableMonetaryEvidence(prefix)) {
+        !_hasEarlierPrintedMonetaryAmount(prefix)) {
       ambiguous.add(index);
       continue;
     }
@@ -1547,6 +1547,14 @@ bool _isFinancialLabelWithAdjacentAmount(
     }
   }
   return (items: rows, ambiguous: ambiguous);
+}
+
+bool _hasEarlierPrintedMonetaryAmount(String prefix) {
+  return RegExp(
+    '(?:^|\\s)(?:$_currencyTokenPattern)\\s*$_amountTokenPattern(?:\\s|\$)'
+    '|(?:^|\\s)$_amountTokenPattern\\s*(?:$_currencyTokenPattern)(?:\\s|\$)',
+    caseSensitive: false,
+  ).hasMatch(prefix);
 }
 
 bool _isChargeTableSummaryLine(String line) {
