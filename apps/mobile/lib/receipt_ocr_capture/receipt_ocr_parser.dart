@@ -1499,11 +1499,13 @@ bool _isFinancialLabelWithAdjacentAmount(
   final rows = <int>{};
   final ambiguous = <int>{};
   var inTable = false;
+  var hasRateColumn = false;
   for (var index = 0; index < lines.length; index++) {
     final line = lines[index];
     final lower = line.toLowerCase();
     if (_isChargeTableHeader(line)) {
       inTable = true;
+      hasRateColumn = RegExp(r'\brate\b', caseSensitive: false).hasMatch(line);
       continue;
     }
     if (!inTable) continue;
@@ -1519,15 +1521,15 @@ bool _isFinancialLabelWithAdjacentAmount(
       '(?:\\s*($_currencyTokenPattern))?\$',
       caseSensitive: false,
     ).firstMatch(line);
-    // A bare usage count followed by one monetary value can be a rate with
-    // its final amount missing from OCR. Geometry may still recover the
-    // amount column; flattened text alone cannot assign that value safely.
+    // A single monetary value under separate Rate and Amount columns has no
+    // reliable role in flattened text. Geometry may still identify an Amount
+    // cell; until then keep the row visible as unresolved review evidence.
     final prefix = pricedRow?.group(1)?.trim() ?? '';
-    final endsWithUsage = RegExp(
-      r'(?:^|\s)\d+(?:[.,]\d+)?(?:\s*(?:therms?|kwh|mwh|kw|m³|m3|units?|gallons?|liters?|litres?|kg|g|lb|lbs))?\s*$',
-      caseSensitive: false,
-    ).hasMatch(prefix);
-    if (pricedRow != null && endsWithUsage) {
+    if (pricedRow != null &&
+        hasRateColumn &&
+        !_isChargeTableSummaryLine(line) &&
+        !_isReceiptMetadataLine(line) &&
+        !_hasChargeTableMonetaryEvidence(prefix)) {
       ambiguous.add(index);
       continue;
     }

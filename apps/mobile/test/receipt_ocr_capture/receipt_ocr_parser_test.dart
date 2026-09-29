@@ -1404,10 +1404,13 @@ Delivery Charge \$31.31
 Total Amount Due \$31.31
 ''', fallbackCurrency: 'USD');
     expect(singleAmountRow.shipping, isNull);
-    expect(singleAmountRow.items.map((item) => item.description), [
-      'Delivery Charge',
-    ]);
-    expect(singleAmountRow.items.single.lineTotal, '31.31');
+    expect(singleAmountRow.items, isEmpty);
+    expect(
+      singleAmountRow.warnings.any(
+        (warning) => warning.contains('Some OCR lines'),
+      ),
+      isTrue,
+    );
 
     final deliveryFeeRow = parser.parse('''
 Power Utility
@@ -1416,10 +1419,39 @@ Delivery Fee USD 5.00
 Total Amount Due USD 5.00
 ''');
     expect(deliveryFeeRow.shipping, isNull);
-    expect(deliveryFeeRow.items.map((item) => item.description), [
-      'Delivery Fee',
-    ]);
-    expect(deliveryFeeRow.items.single.lineTotal, '5.00');
+    expect(deliveryFeeRow.items, isEmpty);
+    expect(
+      deliveryFeeRow.warnings.any(
+        (warning) => warning.contains('Some OCR lines'),
+      ),
+      isTrue,
+    );
+
+    const rateOnlyText = '''
+Power Utility
+Description Rate Amount
+Delivery Charge USD 0.15
+Total Amount Due USD 0.15
+''';
+    final rateOnlyBlocks = [
+      _layoutBlock('Power Utility', 0, 0, 20, 350),
+      _layoutBlock('Description', 1, 1, 20, 150),
+      _layoutBlock('Rate', 2, 1, 230, 270),
+      _layoutBlock('Amount', 3, 1, 310, 350),
+      _layoutBlock('Delivery Charge', 4, 2, 20, 160),
+      _layoutBlock('USD 0.15', 5, 2, 230, 270),
+      _layoutBlock('Total Amount Due USD 0.15', 6, 3, 20, 350),
+    ];
+    for (final draft in [
+      parser.parse(rateOnlyText),
+      parser.parse(rateOnlyText, blocks: rateOnlyBlocks),
+    ]) {
+      expect(draft.items, isEmpty);
+      expect(
+        draft.warnings.any((warning) => warning.contains('Some OCR lines')),
+        isTrue,
+      );
+    }
 
     const mixedTable = '''
 Power Utility
@@ -1457,18 +1489,24 @@ Total Amount Due USD 7.00
       _layoutBlock('USD 2.00', 20, 8, 310, 350),
       _layoutBlock('Total Amount Due USD 7.00', 21, 9, 20, 350),
     ];
-    for (final draft in [
-      parser.parse(mixedTable),
-      parser.parse(mixedTable, blocks: mixedBlocks),
-    ]) {
-      expect(draft.service, isNull);
-      expect(draft.shipping, isNull);
-      expect(draft.items.map((item) => item.description), [
-        'Service Charge',
-        'Delivery Fee',
-      ]);
-      expect(draft.items.map((item) => item.lineTotal), ['5.00', '2.00']);
-    }
+    final unlocatedDraft = parser.parse(mixedTable);
+    expect(unlocatedDraft.service, isNull);
+    expect(unlocatedDraft.shipping, isNull);
+    expect(unlocatedDraft.items, isEmpty);
+    expect(
+      unlocatedDraft.warnings.any(
+        (warning) => warning.contains('Some OCR lines'),
+      ),
+      isTrue,
+    );
+    final locatedDraft = parser.parse(mixedTable, blocks: mixedBlocks);
+    expect(locatedDraft.service, isNull);
+    expect(locatedDraft.shipping, isNull);
+    expect(locatedDraft.items.map((item) => item.description), [
+      'Service Charge',
+      'Delivery Fee',
+    ]);
+    expect(locatedDraft.items.map((item) => item.lineTotal), ['5.00', '2.00']);
 
     final unitBearing = parser.parse('''
 Power Utility
@@ -1585,18 +1623,21 @@ Total Amount Due \$12.00
       _layoutBlock('Total Amount Due \$12.00', 11, 5, 20, 350),
     ];
 
-    for (final preview in [
-      parser.parse(text, fallbackCurrency: 'USD'),
-      parser.parse(text, fallbackCurrency: 'USD', blocks: blocks),
-    ]) {
-      expect(preview.items.map((item) => item.description), ['Service Plan']);
-      expect(preview.items.single.lineTotal, '12.00');
-      expect(preview.total, '12.00');
-      expect(
-        preview.warnings.any((warning) => warning.contains('Some OCR lines')),
-        isFalse,
-      );
-    }
+    final unlocated = parser.parse(text, fallbackCurrency: 'USD');
+    expect(unlocated.items, isEmpty);
+    expect(unlocated.total, '12.00');
+    expect(
+      unlocated.warnings.any((warning) => warning.contains('Some OCR lines')),
+      isTrue,
+    );
+    final located = parser.parse(text, fallbackCurrency: 'USD', blocks: blocks);
+    expect(located.items.map((item) => item.description), ['Service Plan']);
+    expect(located.items.single.lineTotal, '12.00');
+    expect(located.total, '12.00');
+    expect(
+      located.warnings.any((warning) => warning.contains('Some OCR lines')),
+      isFalse,
+    );
   });
 
   test('layout monetary cells recover items from noisy flattened rows', () {
