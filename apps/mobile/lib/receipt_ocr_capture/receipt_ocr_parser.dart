@@ -1947,12 +1947,18 @@ bool _hasUnboundChargeTableSign(
   final amountLeft = amountCell.points
       .map((point) => point.x)
       .reduce((left, right) => left < right ? left : right);
+  final amountRight = amountCell.points
+      .map((point) => point.x)
+      .reduce((left, right) => left > right ? left : right);
   final nearbySigns = _nearbySignOnlyBlocks(row, amountCell);
   for (final sign in row.where(
     (block) =>
         block.points.isNotEmpty && RegExp(r'^\s*[-−]\s*$').hasMatch(block.text),
   )) {
     if (nearbySigns.contains(sign)) return true;
+    final signLeft = sign.points
+        .map((point) => point.x)
+        .reduce((left, right) => left < right ? left : right);
     final signRight = sign.points
         .map((point) => point.x)
         .reduce((left, right) => left > right ? left : right);
@@ -1971,7 +1977,10 @@ bool _hasUnboundChargeTableSign(
       final right = block.points
           .map((point) => point.x)
           .reduce((a, b) => a > b ? a : b);
-      return left > signRight && right < amountLeft;
+      return (signRight < amountLeft &&
+              left > signRight &&
+              right < amountLeft) ||
+          (signLeft > amountRight && left > amountRight && right < signLeft);
     });
     if (!interveningRate) return true;
   }
@@ -3962,6 +3971,10 @@ bool _hasDiscountLabel(String line, String normalized) {
 }
 
 bool _isPrimaryTotalCurrencyLine(String line, String normalized) {
+  if (RegExp(r'^\s*payment\s+due\b').hasMatch(normalized) &&
+      _hasTotalLabel(line, normalized)) {
+    return true;
+  }
   if (RegExp(
     r'\b(payment|tender|cash|change|previous|prior|reference)\b',
   ).hasMatch(normalized)) {
@@ -3979,7 +3992,7 @@ bool _hasTotalLabel(String line, String normalized) {
   return _hasEnglishReceiptLabel(
         normalized,
         RegExp(
-          r'\b(total\s+amount\s+due|total\s+current\s+charges|refund\s+total|total\s+paid|paid\s+total|grand\s+total|amount\s+due|balance\s+due|total)\b',
+          r'\b(total\s+amount\s+due|total\s+current\s+charges|refund\s+total|total\s+paid|paid\s+total|grand\s+total|amount\s+due|balance\s+due|payment\s+due|total)\b',
           caseSensitive: false,
         ),
       ) ||

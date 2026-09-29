@@ -701,6 +701,26 @@ Total 31.99
     expect(preview.items.map((item) => item.description), ['Water Charge']);
   });
 
+  test('payment due footer is a total, not a charge-table item', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Harbor Utility\nDescription Usage Rate Amount\n'
+      'Water Charge USD 12.00\nPayment Due USD 12.00',
+      blocks: [
+        _layoutBlock('Harbor Utility', 0, 0, 20, 350),
+        _layoutBlock('Description', 1, 1, 20, 150),
+        _layoutBlock('Usage', 2, 1, 170, 210),
+        _layoutBlock('Rate', 3, 1, 230, 270),
+        _layoutBlock('Amount', 4, 1, 310, 350),
+        _layoutBlock('Water Charge', 5, 2, 20, 150),
+        _layoutBlock('USD 12.00', 6, 2, 310, 350),
+        _layoutBlock('Payment Due', 7, 3, 20, 150),
+        _layoutBlock('USD 12.00', 8, 3, 310, 350),
+      ],
+    );
+    expect(preview.items.map((item) => item.description), ['Water Charge']);
+    expect(preview.total, '12.00');
+  });
+
   test('mirrored right-to-left charge columns recover amount cells', () {
     final preview = const ReceiptOcrParser().parse(
       'متجر دبي\nAmount Rate Usage Description\n'
@@ -714,6 +734,27 @@ Total 31.99
         _layoutBlock('12.50 د.إ', 5, 2, 20, 80),
         _layoutBlock('0.50', 6, 2, 120, 165),
         _layoutBlock('25', 7, 2, 190, 235),
+        _layoutBlock('قهوة', 8, 2, 300, 400, textDirection: 'rtl'),
+        _layoutBlock('Total 12.50 د.إ', 9, 3, 20, 400),
+      ],
+    );
+    expect(preview.items.map((item) => item.description), ['قهوة']);
+    expect(preview.items.single.lineTotal, '12.50');
+  });
+
+  test('RTL usage placeholder separated by rate keeps charge row', () {
+    final preview = const ReceiptOcrParser().parse(
+      'متجر دبي\nAmount Rate Usage Description\n'
+      '12.50 د.إ 0.50 - قهوة\nTotal 12.50 د.إ',
+      blocks: [
+        _layoutBlock('متجر دبي', 0, 0, 200, 400, textDirection: 'rtl'),
+        _layoutBlock('Amount', 1, 1, 20, 80),
+        _layoutBlock('Rate', 2, 1, 120, 165),
+        _layoutBlock('Usage', 3, 1, 190, 235),
+        _layoutBlock('Description', 4, 1, 300, 400, textDirection: 'rtl'),
+        _layoutBlock('12.50 د.إ', 5, 2, 20, 80),
+        _layoutBlock('0.50', 6, 2, 120, 165),
+        _layoutBlock('-', 7, 2, 190, 235),
         _layoutBlock('قهوة', 8, 2, 300, 400, textDirection: 'rtl'),
         _layoutBlock('Total 12.50 د.إ', 9, 3, 20, 400),
       ],
