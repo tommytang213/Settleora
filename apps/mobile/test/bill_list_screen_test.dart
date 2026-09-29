@@ -1155,7 +1155,7 @@ Total USD 11.00
     final unsupported = parser.parse('''
 Market
 Coffee USD 10.00
-Tax ₱1.00 USD
+Tax ₱+1.00 USD
 Total USD 11.00
 ''');
     final unsupportedSave = receiptOcrReviewSaveRequestFromPreview(
@@ -1166,6 +1166,19 @@ Total USD 11.00
     expect(unsupported.taxHasExplicitCurrencyEvidence, isTrue);
     expect(unsupportedSave?.taxAmount, isNull);
     expect(unsupportedSave?.headerEvidence, isEmpty);
+
+    final opposedSigned = parser.parse('''
+Market
+Coffee USD 10.00
+Tax €+1.00 USD
+Total USD 11.00
+''');
+    final opposedSignedSave = receiptOcrReviewSaveRequestFromPreview(
+      opposedSigned,
+      originalCurrency: opposedSigned.currency,
+    );
+    expect(opposedSigned.taxCurrency, isNull);
+    expect(opposedSignedSave?.taxAmount, isNull);
   });
 
   testWidgets('editing OCR merchant keeps unresolved items out of Apply', (

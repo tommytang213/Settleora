@@ -1676,7 +1676,23 @@ Total EUR 11.00
     expect(sameCurrency.taxCurrency, 'EUR');
     expect(sameCurrency.taxHasExplicitCurrencyEvidence, isTrue);
 
-    for (final printedTax in ['Tax ₱1.00 USD', 'Tax ₱1.00']) {
+    for (final printedTax in ['Tax €+1.00 USD', 'Tax 5% €+1.00 USD']) {
+      final opposedSigned = parser.parse('''
+Market
+Coffee USD 10.00
+$printedTax
+Total USD 11.00
+''');
+      expect(opposedSigned.taxCurrency, isNull);
+      expect(opposedSigned.taxHasExplicitCurrencyEvidence, isTrue);
+    }
+
+    for (final printedTax in [
+      'Tax ₱1.00 USD',
+      'Tax ₱1.00',
+      'Tax ₱+1.00 USD',
+      'Tax ₱−1.00 USD',
+    ]) {
       final unsupported = parser.parse('''
 Market
 Coffee USD 10.00

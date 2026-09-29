@@ -698,10 +698,20 @@ class ReceiptOcrParser {
     if (_hasUnsupportedCurrencySymbolOnSelectedAmount(line)) {
       return (currency: null, hasExplicitEvidence: true);
     }
-    final amountCount = RegExp(_amountTokenPattern).allMatches(line).length;
-    final adjacentPrintedMarkers = _printedCurrencyMarkerMatches(
-      line,
-    ).where((marker) => _currencyMarkerTouchesAmount(line, marker)).length;
+    final amounts = RegExp(_amountTokenPattern).allMatches(line).toList();
+    final amountCount = amounts.length;
+    final selectedAmount = amounts.lastOrNull;
+    final adjacentPrintedMarkers = selectedAmount == null
+        ? 0
+        : _printedCurrencyMarkerMatches(line)
+              .where(
+                (marker) => _currencyMarkerAdjacentToSelectedHeaderAmount(
+                  line,
+                  marker,
+                  selectedAmount,
+                ),
+              )
+              .length;
     if (amountCount > 1 ||
         (amountCount == 1 && adjacentPrintedMarkers > 1) ||
         (receiptCurrency != null &&
@@ -1747,18 +1757,21 @@ bool _hasUnsupportedCurrencySymbolOnSelectedAmount(String text) {
     )) {
       return false;
     }
-    final beforeAmount =
-        symbol.end <= amount.start &&
-        RegExp(
-          r'^\s*[:=]?\s*$',
-        ).hasMatch(text.substring(symbol.end, amount.start));
-    final afterAmount =
-        symbol.start >= amount.end &&
-        RegExp(
-          r'^\s*[:=]?\s*$',
-        ).hasMatch(text.substring(amount.end, symbol.start));
-    return beforeAmount || afterAmount;
+    return _currencyMarkerAdjacentToSelectedHeaderAmount(text, symbol, amount);
   });
+}
+
+bool _currencyMarkerAdjacentToSelectedHeaderAmount(
+  String text,
+  RegExpMatch marker,
+  RegExpMatch amount,
+) {
+  final between = marker.end <= amount.start
+      ? text.substring(marker.end, amount.start)
+      : marker.start >= amount.end
+      ? text.substring(amount.end, marker.start)
+      : null;
+  return between != null && RegExp(r'^\s*[:=]?\s*[+−-]?\s*$').hasMatch(between);
 }
 
 double? _averageBlockConfidence(List<ReceiptOcrBlockEvidence> blocks) {
@@ -3371,7 +3384,7 @@ _currencyAdjacentToSelectedAmount(
   final before = text.substring(0, amount.start).trimRight();
   final after = text.substring(amount.end).trimLeft();
   final preceding = RegExp(
-    '(?<![\\p{L}\\p{N}])($_currencyTokenPattern)\\s*[:=]?\\s*\$',
+    '(?<![\\p{L}\\p{N}])($_currencyTokenPattern)\\s*[:=]?\\s*[+−]?\\s*\$',
     caseSensitive: false,
     unicode: true,
   ).firstMatch(before);
