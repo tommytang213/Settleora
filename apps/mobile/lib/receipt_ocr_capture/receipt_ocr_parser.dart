@@ -2718,9 +2718,22 @@ bool _currencyMarkerTouchesAmount(String text, RegExpMatch marker) {
         caseSensitive: false,
         unicode: true,
       ).hasMatch(after);
+  final trailingMarkerHasWordSeparatedAmount =
+      precedingAmount != null &&
+      (precedingAmount.group(1)!.contains('.') ||
+          precedingAmount.group(1)!.contains(',') ||
+          printedSymbolOrAbbreviation) &&
+      (printedSymbolOrAbbreviation || markerText == markerText.toUpperCase()) &&
+      RegExp(
+        '^(?:and|plus|or|vs\\.?|versus|to)\\s+'
+        '$_currencyTokenPattern\\s*$_amountTokenPattern',
+        caseSensitive: false,
+        unicode: true,
+      ).hasMatch(after.trimLeft());
   return (markerEndsAmount && precedingAmount != null) ||
       amountEndsCell ||
-      trailingMarkerHasMonetaryAmount;
+      trailingMarkerHasMonetaryAmount ||
+      trailingMarkerHasWordSeparatedAmount;
 }
 
 String? _currencyAdjacentToSelectedAmountWithYen(String text) {
