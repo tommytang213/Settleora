@@ -96,9 +96,7 @@ Card 25.50
     expect(preview.tax, '1.65');
     expect(preview.total, '25.50');
     expect(preview.items.map((item) => item.description), ['Pasta', 'Coffee']);
-    expect(preview.reviewHints, [
-      'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
-    ]);
+    expect(preview.reviewHints, isEmpty);
   });
 
   test(
@@ -2139,12 +2137,7 @@ Total USD 95.00
     expect(preview.taxCurrency, isNull);
     expect(preview.taxHasExplicitCurrencyEvidence, isFalse);
     expect(preview.total, '95.00');
-    expect(
-      preview.reviewHints,
-      contains(
-        'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
-      ),
-    );
+    expect(preview.reviewHints, isEmpty);
   });
 
   test('bare dollar tax stays review-only under explicit euro total', () {
@@ -4375,7 +4368,7 @@ Total HKD 24.00
   });
 
   test(
-    'preview avoids grand total mismatch warning when charges can explain it',
+    'preview omits warning when charges exactly reconcile the grand total',
     () {
       const preview = ReceiptOcrPreview(
         currency: 'HKD',
@@ -4389,15 +4382,38 @@ Total HKD 24.00
         ],
       );
 
-      expect(preview.reviewHints, [
-        'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
-      ]);
-      expect(
-        preview.reviewHints,
-        isNot(contains('OCR item total differs from detected grand total.')),
-      );
+      expect(preview.reviewHints, isEmpty);
     },
   );
+
+  test('preview retains warning when adjustments do not reconcile', () {
+    const preview = ReceiptOcrPreview(
+      currency: 'HKD',
+      subtotal: '43.00',
+      tax: '2.00',
+      service: '3.00',
+      total: '49.00',
+      items: [ReceiptOcrItemCandidate(description: 'Meal', lineTotal: '43.00')],
+    );
+    expect(preview.reviewHints, [
+      'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
+    ]);
+  });
+
+  test('preview reconciles signed and magnitude discount evidence', () {
+    for (final discount in ['-2.00', '2.00']) {
+      final preview = ReceiptOcrPreview(
+        currency: 'USD',
+        subtotal: '10.00',
+        discount: discount,
+        total: '8.00',
+        items: const [
+          ReceiptOcrItemCandidate(description: 'Meal', lineTotal: '10.00'),
+        ],
+      );
+      expect(preview.reviewHints, isEmpty);
+    }
+  });
 
   test('preview hints against grand total only without detected charges', () {
     const preview = ReceiptOcrPreview(

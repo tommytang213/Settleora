@@ -9793,7 +9793,7 @@ Total USD 9.00
         find.text(
           'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
         ),
-        findsOneWidget,
+        findsNothing,
       );
       expect(
         tester
