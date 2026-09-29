@@ -1083,6 +1083,22 @@ Total €9.00 $10.00
     expect(saved?.grandTotalAmount, '10.00');
   });
 
+  test('OCR save keeps attached USD total amount with its currency', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Market
+Coffee USD 10.00
+Total €9.00 USD10.00
+''');
+    final saved = receiptOcrReviewSaveRequestFromPreview(
+      preview,
+      originalCurrency: preview.currency,
+    );
+
+    expect(preview.currency, 'USD');
+    expect(saved?.grandTotalAmount, '10.00');
+  });
+
   test('OCR save does not relabel a bare dollar tax as euro money', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse(r'''

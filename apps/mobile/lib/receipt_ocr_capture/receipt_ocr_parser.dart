@@ -783,7 +783,9 @@ class ReceiptOcrParser {
           ? '${lines[lineIndex]} ${lines[lineIndex + 1]}'
           : lines[lineIndex];
       final normalized = line.toLowerCase();
-      final amount = _lastAmountInLine(line, currency: currency);
+      final amount = _isPrimaryTotalCurrencyLine(line, normalized)
+          ? _selectedTotalAmountInLine(line, currency: currency)
+          : _lastAmountInLine(line, currency: currency);
       if (amount == null) {
         continue;
       }
@@ -2478,6 +2480,21 @@ String? _lastAmountInLine(String line, {String? currency}) {
   }
 
   return _normalizeAmount(matches.last.group(0)!, currency: currency);
+}
+
+String? _selectedTotalAmountInLine(String line, {String? currency}) {
+  final selected = RegExp(_amountTokenPattern).allMatches(line).lastOrNull;
+  if (selected != null &&
+      _supportedCurrencyCodes.contains(
+        _currencyAdjacentToSelectedAmount(
+          line,
+          currency,
+          allowPriorCurrencyConflict: true,
+        ).currency,
+      )) {
+    return _normalizeAmount(selected.group(0)!, currency: currency);
+  }
+  return _lastAmountInLine(line, currency: currency);
 }
 
 String _originalReceiptAdjustmentLabel(

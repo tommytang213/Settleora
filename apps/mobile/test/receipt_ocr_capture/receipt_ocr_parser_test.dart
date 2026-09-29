@@ -1971,6 +1971,21 @@ Total €9.00 $10.00
     expect(preview.total, '10.00');
   });
 
+  test(
+    'attached code total keeps the selected amount and currency together',
+    () {
+      const parser = ReceiptOcrParser();
+      final preview = parser.parse('''
+Market
+Coffee USD 10.00
+Total €9.00 USD10.00
+''');
+
+      expect(preview.currency, 'USD');
+      expect(preview.total, '10.00');
+    },
+  );
+
   test('mixed total with unbound selected dollar stays unresolved', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse('''
