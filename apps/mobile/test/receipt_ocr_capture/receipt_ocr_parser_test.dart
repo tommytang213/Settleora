@@ -3309,8 +3309,45 @@ Total USD 2.00
           .where((item) => item.lineTotal == '1.00')
           .every((item) => item.currency == null),
       isTrue,
+      reason: compared.items
+          .where((item) => item.lineTotal == '1.00')
+          .map((item) => item.currency)
+          .toList()
+          .toString(),
     );
     expect(compared.tax, isNull);
+  });
+
+  test('item name suffix cannot become selected amount currency', () {
+    const parser = ReceiptOcrParser();
+    final compared = parser.parse('''
+Corner Bakery
+2 Pastry 3.00
+Total USD 3.00
+''');
+    expect(compared.currency, 'USD');
+    expect(
+      compared.items.where(
+        (item) => item.lineTotal == '3.00' && item.currency == 'USD',
+      ),
+      isNotEmpty,
+    );
+  });
+
+  test('bare dollar in a mixed row cannot inherit euro currency', () {
+    const parser = ReceiptOcrParser();
+    final compared = parser.parse('''
+Exchange Cafe
+Coffee ¥150 / \$1.00
+Total €2.00
+''');
+    expect(compared.currency, 'EUR');
+    expect(
+      compared.items.where(
+        (item) => item.lineTotal == '1.00' && item.currency == null,
+      ),
+      isNotEmpty,
+    );
   });
 
   test('matching-currency adjustment supersedes an earlier foreign one', () {

@@ -2626,12 +2626,14 @@ _currencyAdjacentToSelectedAmount(String text, String? receiptCurrency) {
   final before = text.substring(0, amount.start).trimRight();
   final after = text.substring(amount.end).trimLeft();
   final preceding = RegExp(
-    '($_currencyTokenPattern)\\s*[:=]?\\s*\$',
+    '(?<![\\p{L}\\p{N}])($_currencyTokenPattern)\\s*[:=]?\\s*\$',
     caseSensitive: false,
+    unicode: true,
   ).firstMatch(before);
   final following = RegExp(
-    '^\\s*[:=]?\\s*($_currencyTokenPattern)(?=\\s|\$|[/,;])',
+    '^\\s*[:=]?\\s*($_currencyTokenPattern)(?![\\p{L}])',
     caseSensitive: false,
+    unicode: true,
   ).firstMatch(after);
   String? resolve(String? token) {
     if (token == null) return null;
@@ -2640,7 +2642,9 @@ _currencyAdjacentToSelectedAmount(String text, String? receiptCurrency) {
           ? receiptCurrency
           : '¥';
     }
-    if (token == r'$') return receiptCurrency;
+    // Bare dollars do not identify which dollar currency is printed in a
+    // mixed-denomination row. Keep the selected amount review-only.
+    if (token == r'$') return null;
     return _currencyFromItemToken(token);
   }
 
@@ -2654,8 +2658,9 @@ _currencyAdjacentToSelectedAmount(String text, String? receiptCurrency) {
     return (currency: left ?? right, hasExplicitEvidence: true);
   }
   final otherPrintedCurrency = RegExp(
-    _currencyTokenPattern,
+    '(?<![\\p{L}\\p{N}])(?:$_currencyTokenPattern)(?![\\p{L}])',
     caseSensitive: false,
+    unicode: true,
   ).hasMatch(text);
   return (currency: null, hasExplicitEvidence: otherPrintedCurrency);
 }
