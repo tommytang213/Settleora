@@ -178,6 +178,7 @@ class ReceiptOcrParser {
       adjustmentsComplete:
           amounts.adjustmentsComplete &&
           !extractedItems.truncated &&
+          !extractedItems.unretainedPricedItem &&
           unresolvedItemLines == 0,
       total: amounts.total,
       rawTextLineCount: lines.length,
@@ -878,17 +879,15 @@ class ReceiptOcrParser {
         if (hasPotentialAdjustment) adjustmentsComplete = false;
         continue;
       }
-      final adjustmentRole = _hasTaxLabel(line, normalized)
-          ? 'tax'
-          : _hasServiceChargeLabel(line, normalized)
-          ? 'service'
-          : _hasActualTipChargeLabel(line, normalized)
-          ? 'tip'
-          : _hasShippingLabel(line, normalized)
-          ? 'shipping'
-          : _hasDiscountLabel(line, normalized)
-          ? 'discount'
-          : null;
+      final adjustmentRoles = [
+        if (_hasTaxLabel(line, normalized)) 'tax',
+        if (_hasServiceChargeLabel(line, normalized)) 'service',
+        if (_hasActualTipChargeLabel(line, normalized)) 'tip',
+        if (_hasShippingLabel(line, normalized)) 'shipping',
+        if (_hasDiscountLabel(line, normalized)) 'discount',
+      ];
+      final adjustmentRole = adjustmentRoles.firstOrNull;
+      if (adjustmentRoles.length > 1) adjustmentsComplete = false;
       if (adjustmentRole != null) {
         adjustmentRoleCounts.update(
           adjustmentRole,
@@ -1186,7 +1185,12 @@ class ReceiptOcrParser {
     );
   }
 
-  ({List<ReceiptOcrItemCandidate> items, bool truncated}) _extractItems(
+  ({
+    List<ReceiptOcrItemCandidate> items,
+    bool truncated,
+    bool unretainedPricedItem,
+  })
+  _extractItems(
     List<String> lines,
     String? currency, {
     String? selectedTotal,
@@ -1198,6 +1202,7 @@ class ReceiptOcrParser {
     Set<int> detachedAmountSignRows = const {},
   }) {
     final items = <ReceiptOcrItemCandidate>[];
+    var unretainedPricedItem = false;
     final wrappedDescriptionLines = <String>[];
     final leadingQuantityRows = _leadingQuantityColumnRows(lines, layoutRows);
     final hasFuelMeasurementLayout =
@@ -1329,6 +1334,16 @@ class ReceiptOcrParser {
         } else {
           wrappedDescriptionLines.clear();
         }
+        final printedAmount = RegExp(_amountTokenPattern).firstMatch(line);
+        if (printedAmount != null && _lineHasAmount(line)) {
+          final description = _cleanDescription(
+            line.substring(0, printedAmount.start),
+          );
+          if (_hasSubstantiveItemDescription(description) &&
+              !_isLikelyNonItemDescription(description, pricedRow: true)) {
+            unretainedPricedItem = true;
+          }
+        }
         continue;
       }
 
@@ -1361,7 +1376,12 @@ class ReceiptOcrParser {
           lineTotal == null ||
           _isLikelyNonItemDescription(description, pricedRow: true) ||
           !_hasTraceableItemAmountToken(line, match.group(3)!)) {
-        if (layoutFallback != null) items.add(layoutFallback);
+        if (layoutFallback != null) {
+          items.add(layoutFallback);
+        } else if (_hasSubstantiveItemDescription(description) &&
+            !_isLikelyNonItemDescription(description, pricedRow: true)) {
+          unretainedPricedItem = true;
+        }
         continue;
       }
 
@@ -1434,11 +1454,13 @@ class ReceiptOcrParser {
       // another priced purchase is present. Keep the other traceable lines
       // and leave the fuel measurement for explicit review.
       items.remove(fuelItem);
+      unretainedPricedItem = true;
     }
 
     return (
       items: items.take(40).toList(growable: false),
       truncated: items.length > 40,
+      unretainedPricedItem: unretainedPricedItem,
     );
   }
 
