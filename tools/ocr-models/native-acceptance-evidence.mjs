@@ -605,9 +605,10 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
     const hasLayoutCoverage = layoutKeys.some((key) => Object.hasOwn(entry, key));
     const cellKeys = ["parserLineCount", "itemDescriptionsSameBlockAsAmount", "itemDescriptionsWithDistinctAmountBlock"];
     const hasCellCoverage = cellKeys.some((key) => Object.hasOwn(entry, key));
+    const hasReviewHintCategory = Object.hasOwn(entry, "reviewHintCategory");
     assertExactKeys(entry, ["fixtureId", "blockCount", "merchantExactTextSeen", "totalExactTokenSeen",
       "expectedItemCount", "itemDescriptionsExactTextSeen", ...(hasLayoutCoverage ? layoutKeys : []),
-      ...(hasCellCoverage ? cellKeys : [])],
+      ...(hasCellCoverage ? cellKeys : []), ...(hasReviewHintCategory ? ["reviewHintCategory"] : [])],
     `recognitionCoverage[${index}]`);
     const fixtureId = boundedToken(entry.fixtureId, `recognitionCoverage[${index}].fixtureId`);
     const blockCount = boundedInteger(entry.blockCount, `recognitionCoverage[${index}].blockCount`);
@@ -626,8 +627,11 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
       `recognitionCoverage[${index}].itemDescriptionsSameBlockAsAmount`) : null;
     const distinctBlockCount = hasCellCoverage ? boundedInteger(entry.itemDescriptionsWithDistinctAmountBlock,
       `recognitionCoverage[${index}].itemDescriptionsWithDistinctAmountBlock`) : null;
+    const reviewHintCategory = hasReviewHintCategory
+      ? boundedToken(entry.reviewHintCategory, `recognitionCoverage[${index}].reviewHintCategory`) : null;
     if (coverageFixtures.has(fixtureId) || blockCount > 256 || expectedItemCount > 40 || itemDescriptionsExactTextSeen > expectedItemCount ||
         typeof entry.merchantExactTextSeen !== "boolean" || typeof entry.totalExactTokenSeen !== "boolean" ||
+        (hasReviewHintCategory && !new Set(["none", "subtotal_mismatch", "adjustment_explanation", "grand_total_mismatch", "other"]).has(reviewHintCategory)) ||
         (hasCellCoverage && (!hasLayoutCoverage || parserLineCount > 256 ||
           sameBlockCount > sameRowCount || distinctBlockCount > sameRowCount)) ||
         (hasLayoutCoverage && (rowCount > 256 || rowCount > blockCount || actualItemCount > 40 ||
@@ -645,8 +649,13 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
         itemDescriptionsWithinAdjacentAmountRow: adjacentRowCount,
         chargeTableHeaderSameRow: entry.chargeTableHeaderSameRow } : {}),
       ...(hasCellCoverage ? { parserLineCount, itemDescriptionsSameBlockAsAmount: sameBlockCount,
-        itemDescriptionsWithDistinctAmountBlock: distinctBlockCount } : {}) };
+        itemDescriptionsWithDistinctAmountBlock: distinctBlockCount } : {}),
+      ...(hasReviewHintCategory ? { reviewHintCategory } : {}) };
   });
+  if (boundedRecognitionCoverage.some((entry) => Object.hasOwn(entry, "reviewHintCategory")) &&
+      boundedRecognitionCoverage.some((entry) => !Object.hasOwn(entry, "reviewHintCategory"))) {
+    throw new Error("Recognition coverage review hint categories are incomplete");
+  }
   if (Object.hasOwn(value, "recognitionCoverage") &&
       (boundedRecognitionCoverage.length !== expectedFixtureIds.size ||
         [...coverageFixtures].some((fixtureId) => !expectedFixtureIds.has(fixtureId)))) {

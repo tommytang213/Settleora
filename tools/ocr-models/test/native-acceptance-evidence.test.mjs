@@ -141,7 +141,7 @@ test("retains only the bounded native acceptance schema", () => {
       rowCount: 8, actualItemCount: 1, merchantExactTextInOneRow: true, itemDescriptionsSameRowAsAmount: 0,
       itemDescriptionsWithinAdjacentAmountRow: 1, chargeTableHeaderSameRow: false,
       parserLineCount: 8, itemDescriptionsSameBlockAsAmount: 0,
-      itemDescriptionsWithDistinctAmountBlock: 0 })),
+      itemDescriptionsWithDistinctAmountBlock: 0, reviewHintCategory: "none" })),
     runtime: "onnxruntime-android:1.21.1:cpu",
     coldLoadTimeMs: 25,
     endToEndLatencyMs: { sampleCount: 101, cold: 30, warmP50: 20, warmP95: 24, max: 30 },
@@ -229,6 +229,24 @@ test("retains only the bounded native acceptance schema", () => {
     })}`),
     (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot),
       /Recognition coverage evidence is invalid/),
+  );
+  withLog(
+    protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...acceptance,
+      recognitionCoverage: [{ ...acceptance.recognitionCoverage[0], reviewHintCategory: "raw-content" },
+        ...acceptance.recognitionCoverage.slice(1)],
+    })}`),
+    (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot),
+      /Recognition coverage evidence is invalid/),
+  );
+  withLog(
+    protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...acceptance,
+      recognitionCoverage: [{ ...acceptance.recognitionCoverage[0], reviewHintCategory: undefined },
+        ...acceptance.recognitionCoverage.slice(1)],
+    })}`),
+    (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot),
+      /review hint categories are incomplete/),
   );
   const legacyCoverage = manifestFixtureIds.map((fixtureId) => ({ fixtureId, blockCount: 12,
     merchantExactTextSeen: true, totalExactTokenSeen: true,

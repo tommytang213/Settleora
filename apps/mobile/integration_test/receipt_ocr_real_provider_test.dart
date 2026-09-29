@@ -1408,6 +1408,7 @@ Map<String, Object> _boundedRecognitionCoverage(
     'totalExactTokenSeen': containsExpected(expected['total']),
     'expectedItemCount': expectedItems.length,
     'actualItemCount': result.preview?.items.length ?? 0,
+    'reviewHintCategory': _boundedReviewHintCategory(result.preview),
     'itemDescriptionsExactTextSeen': expectedItems
         .where((item) => containsExpected(item.description))
         .length,
@@ -1431,6 +1432,21 @@ Map<String, Object> _boundedRecognitionCoverage(
           RegExp(r'\b(?:amount|total|charges?)\b').hasMatch(lower) &&
           RegExp(r'\b(?:rate|usage|therms|kwh|units?)\b').hasMatch(lower);
     }),
+  };
+}
+
+String _boundedReviewHintCategory(ReceiptOcrPreview? preview) {
+  final hints = preview?.reviewHints ?? const <String>[];
+  if (hints.isEmpty) return 'none';
+  if (hints.length != 1) return 'other';
+  return switch (hints.single) {
+    'OCR item total differs from detected subtotal. Review the receipt before applying.' =>
+      'subtotal_mismatch',
+    'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.' =>
+      'adjustment_explanation',
+    'OCR item total differs from detected grand total. Review the receipt before applying.' =>
+      'grand_total_mismatch',
+    _ => 'other',
   };
 }
 
