@@ -186,6 +186,11 @@ List<String> _receiptOcrReviewHints(ReceiptOcrPreview preview) {
     }
 
     final total = _parseReceiptOcrReviewAmount(preview.total);
+    if (total != null && !preview.adjustmentsComplete) {
+      return const [
+        'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
+      ];
+    }
     if (total != null && _hasReceiptOcrReferenceAdjustment(preview)) {
       final adjustments = _reconcilableReceiptOcrAdjustments(preview);
       if (preview.adjustmentsComplete &&
@@ -205,6 +210,12 @@ List<String> _receiptOcrReviewHints(ReceiptOcrPreview preview) {
   final total = _parseReceiptOcrReviewAmount(preview.total);
   if (total == null) {
     return const [];
+  }
+
+  if (!preview.adjustmentsComplete) {
+    return const [
+      'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
+    ];
   }
 
   if (_hasReceiptOcrReferenceAdjustment(preview)) {

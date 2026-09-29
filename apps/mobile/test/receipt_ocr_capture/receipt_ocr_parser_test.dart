@@ -4653,6 +4653,22 @@ Total USD 12.00
     ]);
   });
 
+  test('unparseable-only adjustment keeps warning at equal grand total', () {
+    for (final subtotalLine in ['', 'Subtotal USD 10.00\n']) {
+      final preview = const ReceiptOcrParser().parse('''
+Market
+Meal 10.00
+${subtotalLine}Tax 2%
+Total USD 10.00
+''');
+      expect(preview.tax, isNull);
+      expect(preview.adjustmentsComplete, isFalse);
+      expect(preview.reviewHints, [
+        'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
+      ]);
+    }
+  });
+
   test('detached-sign priced item keeps adjustment warning', () {
     final preview = const ReceiptOcrParser().parse('''
 Market
