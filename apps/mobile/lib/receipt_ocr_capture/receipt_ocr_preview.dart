@@ -8,7 +8,11 @@ class ReceiptOcrPreview {
     this.currencyProvenance = ReceiptOcrCurrencyProvenance.explicit,
     this.subtotal,
     this.tax,
+    this.taxCurrency,
+    this.taxHasExplicitCurrencyEvidence = false,
     this.service,
+    this.serviceCurrency,
+    this.serviceHasExplicitCurrencyEvidence = false,
     this.tip,
     this.tipLabel,
     this.tipCurrency,
@@ -34,7 +38,11 @@ class ReceiptOcrPreview {
   final ReceiptOcrCurrencyProvenance currencyProvenance;
   final String? subtotal;
   final String? tax;
+  final String? taxCurrency;
+  final bool taxHasExplicitCurrencyEvidence;
   final String? service;
+  final String? serviceCurrency;
+  final bool serviceHasExplicitCurrencyEvidence;
   final String? tip;
   final String? tipLabel;
   final String? tipCurrency;
@@ -220,8 +228,18 @@ int? _sumReceiptOcrItemLineTotals(
 
 bool _hasReceiptOcrReferenceAdjustment(ReceiptOcrPreview preview) {
   final amounts = [
-    _parseReceiptOcrReviewAmount(preview.tax),
-    _parseReceiptOcrReviewAmount(preview.service),
+    if (_adjustmentCurrencyMatchesReview(
+      reviewCurrency: preview.currency,
+      adjustmentCurrency: preview.taxCurrency,
+      hasExplicitCurrencyEvidence: preview.taxHasExplicitCurrencyEvidence,
+    ))
+      _parseReceiptOcrReviewAmount(preview.tax),
+    if (_adjustmentCurrencyMatchesReview(
+      reviewCurrency: preview.currency,
+      adjustmentCurrency: preview.serviceCurrency,
+      hasExplicitCurrencyEvidence: preview.serviceHasExplicitCurrencyEvidence,
+    ))
+      _parseReceiptOcrReviewAmount(preview.service),
     if (_adjustmentCurrencyMatchesReview(
       reviewCurrency: preview.currency,
       adjustmentCurrency: preview.tipCurrency,

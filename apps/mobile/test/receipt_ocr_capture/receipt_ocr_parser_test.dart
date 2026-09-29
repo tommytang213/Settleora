@@ -1654,6 +1654,51 @@ Total Amount Due \$15.00
     expect(preview.items.single.currency, 'JPY');
   });
 
+  test('foreign zero-minor amount cell uses its adjacent currency block', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(
+      'Market USD\nSouvenir JPY 1200 .\nTotal USD 10.00',
+      blocks: [
+        _layoutBlock('Market USD', 0, 0, 20, 350),
+        _layoutBlock('Souvenir', 1, 1, 20, 150),
+        _layoutBlock('JPY', 2, 1, 260, 295),
+        _layoutBlock('1200', 3, 1, 300, 420),
+        _layoutBlock('.', 4, 1, 440, 450),
+        _layoutBlock('Total USD 10.00', 5, 2, 20, 350),
+      ],
+    );
+
+    expect(preview.currency, 'USD');
+    expect(preview.items.map((item) => item.description), ['Souvenir']);
+    expect(preview.items.single.lineTotal, '1200');
+    expect(preview.items.single.currency, 'JPY');
+  });
+
+  test('detached sign outside a charge table never becomes positive', () {
+    const parser = ReceiptOcrParser();
+    const text = 'Market USD\nSolar Credit - \$15.00 .\nTotal USD 15.00';
+    final blocks = [
+      _layoutBlock('Market USD', 0, 0, 20, 350),
+      _layoutBlock('Solar Credit', 1, 1, 20, 160),
+      _layoutBlock('-', 2, 1, 290, 300),
+      _layoutBlock('\$15.00', 3, 1, 310, 350),
+      _layoutBlock('.', 4, 1, 440, 450),
+      _layoutBlock('Total USD 15.00', 5, 2, 20, 350),
+    ];
+    for (final preview in [
+      parser.parse(text),
+      parser.parse(text, blocks: blocks),
+    ]) {
+      expect(preview.items, isEmpty);
+      expect(
+        preview.warnings,
+        contains(
+          'Some OCR lines need manual review because no traceable line amount was found.',
+        ),
+      );
+    }
+  });
+
   test('charge-table tax summary stays tax beside a tax-named charge', () {
     const parser = ReceiptOcrParser();
     const text = '''
@@ -3176,6 +3221,24 @@ Total HKD 24.00
       tipHasExplicitCurrencyEvidence: true,
       total: '45.00',
       items: [ReceiptOcrItemCandidate(description: 'Milk', lineTotal: '43.00')],
+    );
+
+    expect(preview.reviewHints, [
+      'OCR item total differs from detected grand total. Review the receipt before applying.',
+    ]);
+  });
+
+  test('preview excludes foreign tax and service from charge explanation', () {
+    const preview = ReceiptOcrPreview(
+      currency: 'USD',
+      tax: '20.00',
+      taxCurrency: 'EUR',
+      taxHasExplicitCurrencyEvidence: true,
+      service: '5.00',
+      serviceCurrency: 'EUR',
+      serviceHasExplicitCurrencyEvidence: true,
+      total: '115.00',
+      items: [ReceiptOcrItemCandidate(description: 'Meal', lineTotal: '90.00')],
     );
 
     expect(preview.reviewHints, [

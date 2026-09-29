@@ -14,11 +14,15 @@ class ReceiptOcrParser {
     List<ReceiptOcrBlockEvidence> blocks = const [],
     ReceiptOcrRunEvidence? runEvidence,
   }) {
-    final lines = recognizedText
+    final sourceLines = recognizedText
         .split(RegExp(r'\r?\n'))
-        .map(_normalizeOcrLine)
-        .where((line) => line.isNotEmpty)
+        .where((line) => line.trim().isNotEmpty)
         .toList(growable: false);
+    final lines = sourceLines.map(_normalizeOcrLine).toList(growable: false);
+    final detachedAmountSignRows = <int>{
+      for (var index = 0; index < sourceLines.length; index++)
+        if (_hasDetachedAmountSign(sourceLines[index])) index,
+    };
     final warnings = <String>[];
     if (lines.isEmpty) {
       return const ReceiptOcrPreview(
@@ -27,7 +31,10 @@ class ReceiptOcrParser {
     }
 
     final layoutRows = _matchingLayoutRows(lines, blocks);
-    final chargeTable = _classifyChargeTableRows(lines);
+    final chargeTable = _classifyChargeTableRows(
+      lines,
+      detachedAmountSignRows: detachedAmountSignRows,
+    );
     final chargeTableRows = chargeTable.items;
 
     final currencyDetection = _detectCurrency(
@@ -61,6 +68,7 @@ class ReceiptOcrParser {
       chargeTableRows: recognizedChargeRows,
       ambiguousChargeTableRows: chargeTable.ambiguous,
       layoutChargeItems: layoutChargeItems,
+      detachedAmountSignRows: detachedAmountSignRows,
     );
     final unresolvedItemLines = _countUnresolvedItemLikeLines(
       lines,
@@ -71,6 +79,7 @@ class ReceiptOcrParser {
       warnings.add('No clear item lines were detected.');
     }
     if (unresolvedItemLines > 0 ||
+        detachedAmountSignRows.isNotEmpty ||
         chargeTable.ambiguous.any(
           (index) => !layoutChargeItems.containsKey(index),
         )) {
@@ -98,7 +107,12 @@ class ReceiptOcrParser {
       currencyProvenance: currencyDetection.provenance,
       subtotal: amounts.subtotal,
       tax: amounts.tax,
+      taxCurrency: amounts.taxCurrency,
+      taxHasExplicitCurrencyEvidence: amounts.taxHasExplicitCurrencyEvidence,
       service: amounts.service,
+      serviceCurrency: amounts.serviceCurrency,
+      serviceHasExplicitCurrencyEvidence:
+          amounts.serviceHasExplicitCurrencyEvidence,
       tip: amounts.tip,
       tipLabel: amounts.tipLabel,
       tipCurrency: amounts.tip == null
@@ -785,7 +799,11 @@ class ReceiptOcrParser {
     return _LabeledReceiptAmounts(
       subtotal: subtotal,
       tax: tax,
+      taxCurrency: taxCurrency,
+      taxHasExplicitCurrencyEvidence: taxHasExplicitCurrencyEvidence,
       service: service,
+      serviceCurrency: serviceCurrency,
+      serviceHasExplicitCurrencyEvidence: serviceHasExplicitCurrencyEvidence,
       tip: tip,
       tipLabel: tipLabel,
       tipCurrency: tipCurrency,
@@ -807,6 +825,7 @@ class ReceiptOcrParser {
     Set<int> chargeTableRows = const {},
     Set<int> ambiguousChargeTableRows = const {},
     Map<int, ReceiptOcrItemCandidate> layoutChargeItems = const {},
+    Set<int> detachedAmountSignRows = const {},
   }) {
     final items = <ReceiptOcrItemCandidate>[];
     final wrappedDescriptionLines = <String>[];
@@ -831,6 +850,7 @@ class ReceiptOcrParser {
               !chargeTableRows.contains(lineIndex)) ||
           _isContextualReceiptMetadataLine(lines, lineIndex) ||
           _isChargeTableHeader(line) ||
+          detachedAmountSignRows.contains(lineIndex) ||
           merchantLineIndices.contains(lineIndex) ||
           (fuelItem != null && _isFuelMeasurementLine(line))) {
         wrappedDescriptionLines.clear();
@@ -1032,11 +1052,20 @@ class ReceiptOcrParser {
       '(?:\\s*(?:$_currencyTokenPattern))?\\s*\$',
       caseSensitive: false,
     );
-    final minorDigits = _currencyMinorUnitDigits(currency);
-    bool hasMonetaryEvidence(String cellText) {
+    bool hasMonetaryEvidence(ReceiptOcrBlockEvidence cell) {
+      final cellText = _normalizeOcrLine(cell.text);
       final printed = _explicitAdjustmentCurrencyFromLine(cellText);
+      final adjacentCurrency = _nearbyCurrencyOnlyBlocks(row, cell);
+      if (adjacentCurrency.length > 1) return false;
+      final cellCurrency = adjacentCurrency.isEmpty
+          ? printed.currency ?? currency
+          : _explicitAdjustmentCurrencyFromLine(
+                  '${_normalizeOcrLine(adjacentCurrency.single.text)} $cellText',
+                ).currency ??
+                currency;
+      final minorDigits = _currencyMinorUnitDigits(cellCurrency);
       return printed.hasExplicitEvidence ||
-          (currency != null &&
+          (cellCurrency != null &&
               minorDigits == 0 &&
               RegExp(r'^\s*\d{1,9}\s*$').hasMatch(cellText)) ||
           (minorDigits > 0 &&
@@ -1047,11 +1076,12 @@ class ReceiptOcrParser {
         .where((block) {
           final cellText = _normalizeOcrLine(block.text);
           return amountCellPattern.hasMatch(cellText) &&
-              hasMonetaryEvidence(cellText);
+              hasMonetaryEvidence(block);
         })
         .toList(growable: false);
     if (amountCells.length != 1) return null;
     final amountCell = amountCells.single;
+    if (_nearbySignOnlyBlocks(row, amountCell).isNotEmpty) return null;
     final amountText = _normalizeOcrLine(amountCell.text);
     final amountLeft = amountCell.points
         .map((point) => point.x)
@@ -1100,18 +1130,22 @@ class ReceiptOcrParser {
     final coreRow = '$description $monetaryText';
     if (_isAdministrativeLine(coreRow) ||
         _isPaymentMetadataLine(coreRow) ||
-        _isReceiptMetadataLine(coreRow)) {
+        _isReceiptMetadataLine(coreRow, allowBarePostal: false)) {
       return null;
     }
-    final printedCurrency = _explicitAdjustmentCurrencyFromLine(monetaryText);
     // A bare integer could be an account or reference number. The fallback
-    // is intentionally narrower than ordinary priced-row parsing: require a
-    // printed denomination or decimal punctuation for this geometry repair.
+    // uses a printed denomination or a zero-minor-unit receipt currency plus
+    // a bounded amount cell; the geometry and metadata guards still apply.
+    final printedCurrency = _explicitAdjustmentCurrencyFromLine(monetaryText);
+    final lineCurrency = printedCurrency.hasExplicitEvidence
+        ? printedCurrency.currency
+        : currency;
+    final minorDigits = _currencyMinorUnitDigits(lineCurrency);
     final decimalEvidence =
         minorDigits > 0 &&
         RegExp('[.,]\\d{1,$minorDigits}\\b').hasMatch(amountText);
     final zeroMinorIntegerEvidence =
-        currency != null &&
+        lineCurrency != null &&
         minorDigits == 0 &&
         RegExp(r'^\s*\d{1,9}\s*$').hasMatch(amountText);
     if (!printedCurrency.hasExplicitEvidence &&
@@ -1119,9 +1153,6 @@ class ReceiptOcrParser {
         !zeroMinorIntegerEvidence) {
       return null;
     }
-    final lineCurrency = printedCurrency.hasExplicitEvidence
-        ? printedCurrency.currency
-        : currency;
     final lineTotal = _lastAmountInLine(monetaryText, currency: lineCurrency);
     if (lineTotal == null) return null;
     return ReceiptOcrItemCandidate(
@@ -1557,8 +1588,9 @@ bool _isFinancialLabelWithAdjacentAmount(
 // amount. Those columns are evidence, but they are not part of the item name
 // and they do not establish a bill-item quantity without a quantity label.
 ({Set<int> items, Set<int> ambiguous}) _classifyChargeTableRows(
-  List<String> lines,
-) {
+  List<String> lines, {
+  Set<int> detachedAmountSignRows = const {},
+}) {
   final rows = <int>{};
   final ambiguous = <int>{};
   var inTable = false;
@@ -1588,10 +1620,7 @@ bool _isFinancialLabelWithAdjacentAmount(
     // reliable role in flattened text. Geometry may still identify an Amount
     // cell; until then keep the row visible as unresolved review evidence.
     final prefix = pricedRow?.group(1)?.trim() ?? '';
-    if (RegExp(
-      '(?:^|\\s)[-−]\\s+(?:$_currencyTokenPattern\\s*)?$_amountTokenPattern\\s*\$',
-      caseSensitive: false,
-    ).hasMatch(line)) {
+    if (detachedAmountSignRows.contains(index)) {
       ambiguous.add(index);
       continue;
     }
@@ -1626,6 +1655,25 @@ bool _hasEarlierPrintedMonetaryAmount(String prefix) {
     '|(?:^|\\s)$_amountTokenPattern\\s*(?:$_currencyTokenPattern)(?:\\s|\$)',
     caseSensitive: false,
   ).hasMatch(prefix);
+}
+
+bool _hasDetachedAmountSign(String line) {
+  final withoutTrailingPunctuation = line.trim().replaceFirst(
+    RegExp(r'\s+\.$'),
+    '',
+  );
+  final amounts = RegExp(
+    _amountTokenPattern,
+  ).allMatches(withoutTrailingPunctuation).toList(growable: false);
+  if (amounts.isEmpty) return false;
+  final beforeAmount = withoutTrailingPunctuation.substring(
+    0,
+    amounts.last.start,
+  );
+  return RegExp(
+    '(?:^|\\s)[-−]\\s+(?:$_currencyTokenPattern)?\\s*\$',
+    caseSensitive: false,
+  ).hasMatch(beforeAmount);
 }
 
 bool _hasCompleteUsageRateColumns(String prefix) {
@@ -1699,7 +1747,11 @@ class _LabeledReceiptAmounts {
   const _LabeledReceiptAmounts({
     this.subtotal,
     this.tax,
+    this.taxCurrency,
+    this.taxHasExplicitCurrencyEvidence = false,
     this.service,
+    this.serviceCurrency,
+    this.serviceHasExplicitCurrencyEvidence = false,
     this.tip,
     this.tipLabel,
     this.tipCurrency,
@@ -1714,7 +1766,11 @@ class _LabeledReceiptAmounts {
 
   final String? subtotal;
   final String? tax;
+  final String? taxCurrency;
+  final bool taxHasExplicitCurrencyEvidence;
   final String? service;
+  final String? serviceCurrency;
+  final bool serviceHasExplicitCurrencyEvidence;
   final String? tip;
   final String? tipLabel;
   final String? tipCurrency;
