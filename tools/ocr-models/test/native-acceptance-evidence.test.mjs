@@ -692,7 +692,7 @@ test("retains only bounded failure-stage diagnostics and never accepts them as c
     schemaVersion: 1,
     platform: "android",
     stage,
-    fixtureId: "fixture_001",
+    fixtureId: manifestFixtureIds[0],
   });
   for (const stage of [
     "corpus_provider",
@@ -739,6 +739,16 @@ test("retains only bounded failure-stage diagnostics and never accepts them as c
     });
   }
   const diagnostic = diagnosticFor("corpus_provider");
+  for (const fixtureId of ["privateMerchant", "4111111111111111"]) {
+    withLog(
+      protocolLog(`SETTLEORA_OCR_DIAGNOSTIC=${JSON.stringify({ ...diagnostic, fixtureId })}`),
+      (logPath) => {
+        assert.throws(() => buildEvidence(evidenceArgs(logPath), repoRoot),
+          /Diagnostic fixture identity is not in the immutable corpus/);
+        assert.deepEqual(buildFailureEvidence(evidenceArgs(logPath), repoRoot).diagnostics, []);
+      },
+    );
+  }
   withLog(
     protocolLog(
       `SETTLEORA_OCR_DIAGNOSTIC=${JSON.stringify({ ...diagnostic, stage: "private provider detail" })}`,

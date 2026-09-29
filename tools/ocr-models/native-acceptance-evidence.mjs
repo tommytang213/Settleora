@@ -132,7 +132,7 @@ export function buildFailureEvidence(args, repoRoot = process.cwd()) {
     },
     acceptance,
     uiSmoke,
-    diagnostics: extractFailureDiagnostics(args, platform),
+    diagnostics: extractFailureDiagnostics(args, platform, expectedFixtureIds),
     collectionFailure: "invalid_or_unavailable_bounded_evidence",
   };
 }
@@ -820,7 +820,7 @@ const diagnosticStages = new Set([
   "ui_evidence",
 ]);
 
-function sanitizeDiagnostic(value, platform) {
+function sanitizeDiagnostic(value, platform, expectedFixtureIds) {
   if (value == null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Diagnostic marker must contain an object");
   }
@@ -828,15 +828,19 @@ function sanitizeDiagnostic(value, platform) {
   if (value.schemaVersion !== 1 || value.platform !== platform || !diagnosticStages.has(value.stage)) {
     throw new Error("Diagnostic marker identity is invalid");
   }
+  const fixtureId = boundedToken(value.fixtureId, "diagnostic.fixtureId", { nullable: true });
+  if (fixtureId != null && !expectedFixtureIds?.has(fixtureId)) {
+    throw new Error("Diagnostic fixture identity is not in the immutable corpus");
+  }
   return {
     schemaVersion: 1,
     platform,
     stage: value.stage,
-    fixtureId: boundedToken(value.fixtureId, "diagnostic.fixtureId", { nullable: true }),
+    fixtureId,
   };
 }
 
-function parseDiagnostics(lines, platform) {
+function parseDiagnostics(lines, platform, expectedFixtureIds) {
   const marker = "SETTLEORA_OCR_DIAGNOSTIC=";
   const markedLines = lines.filter((line) => line.startsWith(marker));
   if (markedLines.length > 4) throw new Error("Acceptance runner emitted too many diagnostic markers");
@@ -845,11 +849,11 @@ function parseDiagnostics(lines, platform) {
     if (Buffer.byteLength(encoded, "utf8") > maxMarkerBytes) {
       throw new Error("Diagnostic marker exceeds its bound");
     }
-    return sanitizeDiagnostic(JSON.parse(encoded), platform);
+    return sanitizeDiagnostic(JSON.parse(encoded), platform, expectedFixtureIds);
   });
 }
 
-function extractFailureDiagnostics(args, platform) {
+function extractFailureDiagnostics(args, platform, expectedFixtureIds) {
   if (platform == null || typeof args.log !== "string") return [];
   let log;
   try {
@@ -878,7 +882,7 @@ function extractFailureDiagnostics(args, platform) {
     }
   }
   try {
-    return parseDiagnostics(markerMessages, platform);
+    return parseDiagnostics(markerMessages, platform, expectedFixtureIds);
   } catch {
     return [];
   }
@@ -928,7 +932,7 @@ export function buildEvidence(args, repoRoot = process.cwd()) {
     (value) => sanitizeUiSmoke(value, args.platform),
     { schemaVersion: 1, platform: args.platform, completed: false, markerProduced: false },
   );
-  const diagnostics = parseDiagnostics(protocol.markerMessages, args.platform);
+  const diagnostics = parseDiagnostics(protocol.markerMessages, args.platform, expectedFixtureIds);
 
   const catalog = JSON.parse(readFileSync(catalogPath, "utf8"));
   const catalogModelFileCount = catalog.packs.flatMap((pack) => pack.files).length;
