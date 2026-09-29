@@ -1034,6 +1034,10 @@ class ReceiptOcrParser {
                 description: description,
                 lineTotal: lineTotal,
                 currency: amountCurrency,
+                currencyUnresolved: _selectedItemCurrencyUnresolved(
+                  amountLine,
+                  currency,
+                ),
                 confidence: _averageBlockConfidence([
                   ...layoutRows[lineIndex],
                   ...layoutRows[lineIndex + 1],
@@ -1073,6 +1077,10 @@ class ReceiptOcrParser {
         currency,
         token: match.group(2) ?? match.group(4),
       );
+      final currencyUnresolved = _selectedItemCurrencyUnresolved(
+        line,
+        currency,
+      );
       final lineConfidence = lineIndex < layoutRows.length
           ? _averageBlockConfidence(layoutRows[lineIndex])
           : null;
@@ -1110,6 +1118,7 @@ class ReceiptOcrParser {
               unitPrice: unitPrice,
               lineTotal: lineTotal,
               currency: lineCurrency,
+              currencyUnresolved: currencyUnresolved,
               confidence: lineConfidence,
               category: 'item_line',
             ),
@@ -1131,6 +1140,7 @@ class ReceiptOcrParser {
             quantity: leadingQuantity.group(1),
             lineTotal: lineTotal,
             currency: lineCurrency,
+            currencyUnresolved: currencyUnresolved,
             confidence: lineConfidence,
             category: 'item_line',
           ),
@@ -1143,6 +1153,7 @@ class ReceiptOcrParser {
           description: description,
           lineTotal: lineTotal,
           currency: lineCurrency,
+          currencyUnresolved: currencyUnresolved,
           confidence: lineConfidence,
           category: 'item_line',
         ),
@@ -1293,6 +1304,8 @@ class ReceiptOcrParser {
       description: description,
       lineTotal: lineTotal,
       currency: lineCurrency,
+      currencyUnresolved:
+          printedCurrency.hasExplicitEvidence && lineCurrency == null,
       confidence: _averageBlockConfidence(row),
       category: 'item_line',
     );
@@ -1458,6 +1471,8 @@ class ReceiptOcrParser {
           description: description,
           lineTotal: lineTotal,
           currency: lineCurrency,
+          currencyUnresolved:
+              printedCurrency.hasExplicitEvidence && lineCurrency == null,
           confidence: _averageBlockConfidence(tableBlocks),
           category: 'item_line',
         );
@@ -2613,6 +2628,12 @@ String? _itemCurrencyFromPrintedText(
   return _currencyFromItemToken(token) ??
       _explicitCurrencyFromNormalizedLine(text.toUpperCase()) ??
       receiptCurrency;
+}
+
+bool _selectedItemCurrencyUnresolved(String text, String? receiptCurrency) {
+  if (RegExp(_amountTokenPattern).allMatches(text).length < 2) return false;
+  final selected = _currencyAdjacentToSelectedAmount(text, receiptCurrency);
+  return selected.hasExplicitEvidence && selected.currency == null;
 }
 
 String? _currencyAdjacentToSelectedAmountWithYen(String text) {

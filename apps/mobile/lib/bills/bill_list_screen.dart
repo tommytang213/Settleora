@@ -585,7 +585,8 @@ List<ReceiptOcrReviewLineSaveRequest> receiptOcrReviewLinesFromPreview(
         // inherit the supported receipt currency.
         final lineCurrency = settleoraNormalizeCurrencyCode(item.currency);
         final moneyCurrency =
-            lineCurrency == null || lineCurrency == reviewCurrency
+            !item.currencyUnresolved &&
+                (lineCurrency == null || lineCurrency == reviewCurrency)
             ? reviewCurrency
             : null;
         return ReceiptOcrReviewLineSaveRequest(
@@ -3259,7 +3260,8 @@ class _ReceiptOcrEditableReviewFormState
           controller.quantity.text != (item.quantity ?? '') ||
           controller.unitPrice.text != (item.unitPrice ?? '') ||
           controller.lineTotal.text != (item.lineTotal ?? '') ||
-          controller.currency.text != (item.currency ?? '')) {
+          controller.currency.text != (item.currency ?? '') ||
+          controller.currencyUnresolved != item.currencyUnresolved) {
         return true;
       }
     }
@@ -3307,6 +3309,8 @@ class _ReceiptOcrEditableReviewFormState
               unitPrice: item.unitPrice.text,
               lineTotal: item.lineTotal.text,
               currency: item.currency.text,
+              currencyUnresolved:
+                  item.currencyUnresolved && item.currency.text.trim().isEmpty,
             ),
         ],
       ),
@@ -3514,13 +3518,15 @@ class _ReceiptOcrEditableItemControllers {
        quantity = TextEditingController(text: candidate.quantity ?? ''),
        unitPrice = TextEditingController(text: candidate.unitPrice ?? ''),
        lineTotal = TextEditingController(text: candidate.lineTotal ?? ''),
-       currency = TextEditingController(text: candidate.currency ?? '');
+       currency = TextEditingController(text: candidate.currency ?? ''),
+       currencyUnresolved = candidate.currencyUnresolved;
 
   final TextEditingController description;
   final TextEditingController quantity;
   final TextEditingController unitPrice;
   final TextEditingController lineTotal;
   final TextEditingController currency;
+  final bool currencyUnresolved;
 
   void dispose() {
     description.dispose();

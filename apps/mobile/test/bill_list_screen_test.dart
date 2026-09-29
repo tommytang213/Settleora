@@ -733,6 +733,53 @@ void main() {
     },
   );
 
+  test('OCR save preserves four foreign printed header roles as evidence', () {
+    const preview = ReceiptOcrPreview(
+      currency: 'USD',
+      subtotal: '9.50',
+      subtotalCurrency: 'EUR',
+      subtotalHasExplicitCurrencyEvidence: true,
+      tax: '0.25',
+      taxCurrency: 'HKD',
+      taxHasExplicitCurrencyEvidence: true,
+      service: '0.15',
+      serviceCurrency: 'GBP',
+      serviceHasExplicitCurrencyEvidence: true,
+      discount: '1',
+      discountCurrency: 'JPY',
+      discountHasExplicitCurrencyEvidence: true,
+    );
+    final saved = receiptOcrReviewSaveRequestFromPreview(preview);
+
+    expect(saved?.subtotalAmount, isNull);
+    expect(saved?.taxAmount, isNull);
+    expect(saved?.serviceChargeAmount, isNull);
+    expect(saved?.discountAmount, isNull);
+    expect(
+      saved?.headerEvidence
+          .map((entry) => (entry.role, entry.amount, entry.currency))
+          .toList(),
+      [
+        ('subtotal', '9.50', 'EUR'),
+        ('tax', '0.25', 'HKD'),
+        ('service_charge', '0.15', 'GBP'),
+        ('discount', '1', 'JPY'),
+      ],
+    );
+
+    final sameCurrency = receiptOcrReviewSaveRequestFromPreview(
+      const ReceiptOcrPreview(
+        currency: 'USD',
+        tax: '1.00',
+        taxCurrency: 'USD',
+        taxHasExplicitCurrencyEvidence: true,
+      ),
+      originalCurrency: 'USD',
+    );
+    expect(sameCurrency?.taxAmount, '1.00');
+    expect(sameCurrency?.headerEvidence, isEmpty);
+  });
+
   test('OCR save adapter preserves line currency boundaries and API limit', () {
     final lines = receiptOcrReviewLinesFromPreview(
       ReceiptOcrPreview(
@@ -807,6 +854,90 @@ Total USD 80.00
     expect(preview.items.single.currency, '¥');
     expect(lines.single.text, 'Coffee');
     expect(lines.single.lineTotalAmount, isNull);
+  });
+
+  test('OCR parser-to-save keeps ambiguous mixed item money unresolved', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Exchange Cafe
+Coffee ¥150 / \$1.00
+Total €2.00
+''');
+    final lines = receiptOcrReviewLinesFromPreview(preview);
+
+    expect(preview.currency, 'EUR');
+    expect(
+      preview.items.where((item) => item.currencyUnresolved),
+      isNotEmpty,
+    );
+    expect(lines.where((line) => line.text.contains('Coffee')), isNotEmpty);
+    expect(
+      lines.where((line) => line.text.contains('Coffee')).first.lineTotalAmount,
+      isNull,
+    );
+
+    final ordinary = receiptOcrReviewLinesFromPreview(
+      const ReceiptOcrPreview(
+        currency: 'EUR',
+        items: [
+          ReceiptOcrItemCandidate(description: 'Ordinary', lineTotal: '1.00'),
+        ],
+      ),
+    );
+    expect(ordinary.single.lineTotalAmount, '1.00');
+  });
+
+  testWidgets('editing OCR merchant keeps mixed item money unresolved', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final receiptRepository = FakeReceiptOcrReviewRepository();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraPersonalBillCreateScreen(
+          repository: FakeBillRepository(
+            createdDetail: sampleBillDetail(id: _createdBillId),
+          ),
+          attachmentRepository: FakeBillAttachmentRepository(),
+          attachmentFileInput: FakeBillAttachmentFileInput(
+            pickedFile: samplePickedAttachmentFile(
+              filename: 'receipt.png',
+              contentType: 'image/png',
+              bytes: samplePngBytes(width: 64, height: 64),
+            ),
+          ),
+          receiptOcrProvider: FakeReceiptOcrProvider(
+            const ReceiptOcrResult.extracted(
+              ReceiptOcrPreview(
+                merchant: 'Exchange Cafe',
+                currency: 'EUR',
+                items: [
+                  ReceiptOcrItemCandidate(
+                    description: 'Coffee',
+                    lineTotal: '1.00',
+                    currencyUnresolved: true,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          receiptOcrReviewRepository: receiptRepository,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('personal-bill-scan-receipt')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-ocr-edit-merchant')),
+      'Edited Exchange Cafe',
+    );
+    await _tapReceiptOcrApply(tester, 'personal-bill');
+    await _tapSaveBill(tester);
+
+    expect(receiptRepository.saveCalls, 1);
+    expect(receiptRepository.lastSaveRequest?.lines.single.text, 'Coffee');
+    expect(receiptRepository.lastSaveRequest?.lines.single.lineTotalAmount, isNull);
   });
 
   testWidgets(

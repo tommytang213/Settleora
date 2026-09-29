@@ -141,6 +141,7 @@ class ReceiptOcrItemCandidate {
     this.unitPrice,
     this.lineTotal,
     this.currency,
+    this.currencyUnresolved = false,
     this.confidence,
     this.category,
   });
@@ -150,6 +151,7 @@ class ReceiptOcrItemCandidate {
   final String? unitPrice;
   final String? lineTotal;
   final String? currency;
+  final bool currencyUnresolved;
   final double? confidence;
   final String? category;
 }
@@ -222,6 +224,7 @@ int? _sumReceiptOcrItemLineTotals(
 }) {
   int? total;
   for (final item in items) {
+    if (item.currencyUnresolved) return null;
     final amount = _parseReceiptOcrReviewAmount(item.lineTotal);
     if (amount == null) {
       continue;

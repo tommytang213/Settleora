@@ -3315,6 +3315,12 @@ Total USD 2.00
           .toList()
           .toString(),
     );
+    expect(
+      compared.items
+          .where((item) => item.lineTotal == '1.00')
+          .every((item) => item.currencyUnresolved),
+      isTrue,
+    );
     expect(compared.tax, isNull);
   });
 
@@ -3344,7 +3350,10 @@ Total €2.00
     expect(compared.currency, 'EUR');
     expect(
       compared.items.where(
-        (item) => item.lineTotal == '1.00' && item.currency == null,
+        (item) =>
+            item.lineTotal == '1.00' &&
+            item.currency == null &&
+            item.currencyUnresolved,
       ),
       isNotEmpty,
     );
@@ -3514,6 +3523,22 @@ Total HKD 24.00
     expect(preview.reviewHints, [
       'OCR item total differs from detected subtotal. Review the receipt before applying.',
     ]);
+  });
+
+  test('unresolved item currency cannot corroborate receipt arithmetic', () {
+    const preview = ReceiptOcrPreview(
+      currency: 'EUR',
+      subtotal: '2.00',
+      total: '2.00',
+      items: [
+        ReceiptOcrItemCandidate(
+          description: 'Mixed-currency item',
+          lineTotal: '1.00',
+          currencyUnresolved: true,
+        ),
+      ],
+    );
+    expect(preview.reviewHints, isEmpty);
   });
 
   test(
