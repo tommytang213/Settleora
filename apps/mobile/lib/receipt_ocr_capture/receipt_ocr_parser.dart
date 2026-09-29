@@ -4,6 +4,10 @@ import 'receipt_ocr_preview.dart';
 import '../ui/settleora_form_fields.dart';
 
 final _unicodeLetterPattern = RegExp(r'\p{L}', unicode: true);
+final _potentialReceiptAdjustmentLabelPattern = RegExp(
+  r'\b(?:sales\s+tax|tax|vat|gst|hst|iva|tva|kdv|mwst|service\s+(?:charge|fee)|tip|gratuity|shipping|delivery(?:\s+(?:charge|fee))?|discount|coupon)\b',
+  caseSensitive: false,
+);
 
 class ReceiptOcrParser {
   const ReceiptOcrParser();
@@ -822,7 +826,14 @@ class ReceiptOcrParser {
             printed.currency == currency);
 
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-      if (detachedAmountSignRows.contains(lineIndex)) continue;
+      if (detachedAmountSignRows.contains(lineIndex)) {
+        if (_potentialReceiptAdjustmentLabelPattern.hasMatch(
+          lines[lineIndex],
+        )) {
+          adjustmentsComplete = false;
+        }
+        continue;
+      }
       final line =
           _isFinancialLabelWithAdjacentAmount(lines, layoutRows, lineIndex)
           ? '${lines[lineIndex]} ${lines[lineIndex + 1]}'
@@ -831,8 +842,11 @@ class ReceiptOcrParser {
       final amount = _isPrimaryTotalCurrencyLine(line, normalized)
           ? _selectedTotalAmountInLine(line, currency: currency)
           : _lastAmountInLine(line, currency: currency);
+      final hasPotentialAdjustment = _potentialReceiptAdjustmentLabelPattern
+          .hasMatch(line);
       if (chargeTableRows.contains(lineIndex) ||
           ambiguousChargeTableRows.contains(lineIndex)) {
+        if (hasPotentialAdjustment) adjustmentsComplete = false;
         continue;
       }
       final adjustmentRole = _hasTaxLabel(line, normalized)
@@ -854,11 +868,7 @@ class ReceiptOcrParser {
         );
         if (amount == null) adjustmentsComplete = false;
       }
-      if (adjustmentRole == null &&
-          RegExp(
-            r'^(?:sales\s+tax|tax|vat|gst|hst|iva|tva|kdv|mwst|service\s+(?:charge|fee)|tip|gratuity|shipping|delivery\s+(?:charge|fee)|discount|coupon)\b',
-            caseSensitive: false,
-          ).hasMatch(line.trim())) {
+      if (adjustmentRole == null && hasPotentialAdjustment) {
         adjustmentsComplete = false;
       }
       if (amount == null) continue;

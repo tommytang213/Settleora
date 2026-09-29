@@ -4445,6 +4445,36 @@ Total USD 12.00
     ]);
   });
 
+  test('qualified malformed adjustment keeps review warning', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Meal 10.00
+Local tax reference 123
+Service charge USD 2.00
+Total USD 12.00
+''');
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(preview.reviewHints, [
+      'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
+    ]);
+  });
+
+  test('charge-table adjustment prevents unproven reconciliation', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Description Usage Rate Amount
+Base Charge 10 \$1.00 \$10.00
+Delivery Charge 2 \$1.00 \$2.00
+Subtotal USD 12.00
+Tax USD 1.00
+Total USD 13.00
+''');
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(preview.reviewHints, [
+      'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
+    ]);
+  });
+
   test('preview does not reconcile a partial item total', () {
     const preview = ReceiptOcrPreview(
       currency: 'HKD',
