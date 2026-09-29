@@ -186,9 +186,7 @@ List<String> _receiptOcrReviewHints(ReceiptOcrPreview preview) {
     }
 
     final total = _parseReceiptOcrReviewAmount(preview.total);
-    if (total != null &&
-        _hasReceiptOcrReferenceAdjustment(preview) &&
-        !_receiptOcrAmountsClose(itemTotal, total)) {
+    if (total != null && _hasReceiptOcrReferenceAdjustment(preview)) {
       final adjustments = _reconcilableReceiptOcrAdjustments(preview);
       if (preview.adjustmentsComplete &&
           _hasCompleteReceiptOcrItemLineTotals(preview.items) &&
@@ -210,19 +208,16 @@ List<String> _receiptOcrReviewHints(ReceiptOcrPreview preview) {
   }
 
   if (_hasReceiptOcrReferenceAdjustment(preview)) {
-    if (!_receiptOcrAmountsClose(itemTotal, total)) {
-      final adjustments = _reconcilableReceiptOcrAdjustments(preview);
-      if (preview.adjustmentsComplete &&
-          _hasCompleteReceiptOcrItemLineTotals(preview.items) &&
-          adjustments != null &&
-          _receiptOcrAmountsClose(itemTotal + adjustments, total)) {
-        return const [];
-      }
-      return const [
-        'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
-      ];
+    final adjustments = _reconcilableReceiptOcrAdjustments(preview);
+    if (preview.adjustmentsComplete &&
+        _hasCompleteReceiptOcrItemLineTotals(preview.items) &&
+        adjustments != null &&
+        _receiptOcrAmountsClose(itemTotal + adjustments, total)) {
+      return const [];
     }
-    return const [];
+    return const [
+      'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
+    ];
   }
 
   if (!_receiptOcrAmountsClose(itemTotal, total)) {

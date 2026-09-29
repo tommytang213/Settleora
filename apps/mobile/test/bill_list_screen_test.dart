@@ -1808,6 +1808,56 @@ Total USD 9.00
     );
   });
 
+  testWidgets('editing an OCR item restores the adjustment warning', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final receiptOcrProvider = FakeReceiptOcrProvider(
+      const ReceiptOcrResult.extracted(
+        ReceiptOcrPreview(
+          currency: 'HKD',
+          tax: '2.00',
+          total: '12.00',
+          items: [
+            ReceiptOcrItemCandidate(
+              description: 'Meal',
+              lineTotal: '10.00',
+              currency: 'HKD',
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraPersonalBillCreateScreen(
+          repository: FakeBillRepository(),
+          attachmentRepository: FakeBillAttachmentRepository(),
+          attachmentFileInput: FakeBillAttachmentFileInput(
+            pickedFile: samplePickedAttachmentFile(
+              filename: 'receipt.png',
+              contentType: 'image/png',
+              bytes: samplePngBytes(width: 64, height: 64),
+            ),
+          ),
+          receiptOcrProvider: receiptOcrProvider,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('personal-bill-scan-receipt')));
+    await tester.pumpAndSettle();
+    const hint =
+        'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.';
+    expect(find.text(hint), findsNothing);
+    await tester.enterText(
+      find.byKey(const ValueKey('personal-bill-ocr-item-description-0')),
+      'Replacement meal',
+    );
+    await tester.pumpAndSettle();
+    expect(find.text(hint), findsOneWidget);
+  });
+
   testWidgets(
     'personal OCR preview clears when source receipt draft is removed',
     (tester) async {

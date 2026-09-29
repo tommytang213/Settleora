@@ -262,6 +262,7 @@ ReceiptOcrPreview _copyReceiptOcrPreview(
   String? currency,
   ReceiptOcrCurrencyProvenance? currencyProvenance,
   List<ReceiptOcrItemCandidate>? items,
+  bool itemEvidenceChanged = false,
   bool clearHeaderMoney = false,
 }) {
   bool retainHeader(String? printedCurrency, bool hasExplicitEvidence) {
@@ -316,7 +317,7 @@ ReceiptOcrPreview _copyReceiptOcrPreview(
     discountCurrency: retainDiscount ? preview.discountCurrency : null,
     discountHasExplicitCurrencyEvidence:
         retainDiscount && preview.discountHasExplicitCurrencyEvidence,
-    adjustmentsComplete: preview.adjustmentsComplete,
+    adjustmentsComplete: preview.adjustmentsComplete && !itemEvidenceChanged,
     total: clearHeaderMoney ? null : preview.total,
     rawTextLineCount: preview.rawTextLineCount,
     confidence: preview.confidence,
@@ -3304,6 +3305,10 @@ class _ReceiptOcrEditableReviewFormState
         currency: _currencyController.text,
         currencyProvenance: currencyProvenance,
         clearHeaderMoney: clearHeaderMoney,
+        itemEvidenceChanged: _itemsDiffer(
+          widget.preview.items,
+          _itemControllers,
+        ),
         items: [
           for (final item in _itemControllers)
             ReceiptOcrItemCandidate(
