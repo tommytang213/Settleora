@@ -9648,6 +9648,7 @@ Total USD 9.00
             subtotal: '68.00',
             service: '6.00',
             tax: '2.00',
+            adjustmentsComplete: false,
             total: '76.00',
             rawTextLineCount: 6,
             items: [
@@ -9793,7 +9794,7 @@ Total USD 9.00
         find.text(
           'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
         ),
-        findsNothing,
+        findsOneWidget,
       );
       expect(
         tester
@@ -9836,6 +9837,13 @@ Total USD 9.00
       await tester.enterText(
         find.byKey(const Key('group-bill-ocr-edit-merchant')),
         'Corrected Dim Sum',
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
+        ),
+        findsOneWidget,
       );
       await tester.tap(find.byKey(const Key('group-bill-ocr-add-item')));
       await tester.pumpAndSettle();

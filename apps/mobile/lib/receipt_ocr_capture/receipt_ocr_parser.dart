@@ -854,7 +854,7 @@ class ReceiptOcrParser {
         );
         if (amount == null) adjustmentsComplete = false;
       }
-      if (amount == null &&
+      if (adjustmentRole == null &&
           RegExp(
             r'^(?:sales\s+tax|tax|vat|gst|hst|iva|tva|kdv|mwst|service\s+(?:charge|fee)|tip|gratuity|shipping|delivery\s+(?:charge|fee)|discount|coupon)\b',
             caseSensitive: false,

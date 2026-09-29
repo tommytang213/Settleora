@@ -4430,6 +4430,21 @@ Total USD 12.00
     ]);
   });
 
+  test('parser does not treat a numbered malformed charge as complete', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Market
+Meal 10.00
+Tax reference 123
+Service charge USD 2.00
+Total USD 12.00
+''');
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(preview.reviewHints, [
+      'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
+    ]);
+  });
+
   test('preview does not reconcile a partial item total', () {
     const preview = ReceiptOcrPreview(
       currency: 'HKD',

@@ -316,6 +316,7 @@ ReceiptOcrPreview _copyReceiptOcrPreview(
     discountCurrency: retainDiscount ? preview.discountCurrency : null,
     discountHasExplicitCurrencyEvidence:
         retainDiscount && preview.discountHasExplicitCurrencyEvidence,
+    adjustmentsComplete: preview.adjustmentsComplete,
     total: clearHeaderMoney ? null : preview.total,
     rawTextLineCount: preview.rawTextLineCount,
     confidence: preview.confidence,
