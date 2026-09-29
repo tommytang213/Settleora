@@ -3219,6 +3219,23 @@ Total ¥12000
     expect(compared.total, '80.00');
   });
 
+  test('bare yen item and tax retain review-only currency against USD', () {
+    const parser = ReceiptOcrParser();
+    final compared = parser.parse('''
+Exchange Cafe
+Coffee ¥12000
+Tax ¥100
+Total USD 80.00
+''');
+    expect(compared.currency, 'USD');
+    expect(compared.total, '80.00');
+    expect(compared.items.single.description, 'Coffee');
+    expect(compared.items.single.currency, '¥');
+    expect(compared.tax, '100');
+    expect(compared.taxCurrency, '¥');
+    expect(compared.taxHasExplicitCurrencyEvidence, isTrue);
+  });
+
   test('matching-currency adjustment supersedes an earlier foreign one', () {
     const parser = ReceiptOcrParser();
     final compared = parser.parse('''

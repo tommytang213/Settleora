@@ -616,7 +616,16 @@ class ReceiptOcrParser {
   }
 
   ({String? currency, bool hasExplicitEvidence})
-  _explicitAdjustmentCurrencyFromLine(String line) {
+  _explicitAdjustmentCurrencyFromLine(String line, {String? receiptCurrency}) {
+    // The bare yen sign denotes JPY or CNY. Keep the printed marker as
+    // review-only currency evidence when neither is the transaction currency;
+    // it must never inherit another receipt currency on save.
+    if (line.contains('¥') &&
+        receiptCurrency != null &&
+        receiptCurrency != 'JPY' &&
+        receiptCurrency != 'CNY') {
+      return (currency: '¥', hasExplicitEvidence: true);
+    }
     final boundedCodeCandidates = <String>{
       for (final match in RegExp(
         r'(?<![A-Za-z])([A-Z]{3})(?![A-Za-z])\s*[:=]?\s*[+-]?\s*\d',
@@ -709,7 +718,10 @@ class ReceiptOcrParser {
       }
 
       if (_hasSubtotalLabel(line, normalized)) {
-        final printed = _explicitAdjustmentCurrencyFromLine(line);
+        final printed = _explicitAdjustmentCurrencyFromLine(
+          line,
+          receiptCurrency: currency,
+        );
         if (preferMatchingPrintedCurrency(
           subtotal,
           subtotalCurrency,
@@ -721,7 +733,10 @@ class ReceiptOcrParser {
           subtotalHasExplicitCurrencyEvidence = printed.hasExplicitEvidence;
         }
       } else if (_hasTaxLabel(line, normalized)) {
-        final printed = _explicitAdjustmentCurrencyFromLine(line);
+        final printed = _explicitAdjustmentCurrencyFromLine(
+          line,
+          receiptCurrency: currency,
+        );
         if (preferMatchingPrintedCurrency(
           tax,
           taxCurrency,
@@ -733,7 +748,10 @@ class ReceiptOcrParser {
           taxHasExplicitCurrencyEvidence = printed.hasExplicitEvidence;
         }
       } else if (_hasServiceChargeLabel(line, normalized)) {
-        final printed = _explicitAdjustmentCurrencyFromLine(line);
+        final printed = _explicitAdjustmentCurrencyFromLine(
+          line,
+          receiptCurrency: currency,
+        );
         if (preferMatchingPrintedCurrency(
           service,
           serviceCurrency,
@@ -745,7 +763,10 @@ class ReceiptOcrParser {
           serviceHasExplicitCurrencyEvidence = printed.hasExplicitEvidence;
         }
       } else if (_hasActualTipChargeLabel(line, normalized)) {
-        final adjustmentCurrency = _explicitAdjustmentCurrencyFromLine(line);
+        final adjustmentCurrency = _explicitAdjustmentCurrencyFromLine(
+          line,
+          receiptCurrency: currency,
+        );
         if (preferMatchingPrintedCurrency(
           tip,
           tipCurrency,
@@ -759,7 +780,10 @@ class ReceiptOcrParser {
               adjustmentCurrency.hasExplicitEvidence;
         }
       } else if (_hasShippingLabel(line, normalized)) {
-        final adjustmentCurrency = _explicitAdjustmentCurrencyFromLine(line);
+        final adjustmentCurrency = _explicitAdjustmentCurrencyFromLine(
+          line,
+          receiptCurrency: currency,
+        );
         if (preferMatchingPrintedCurrency(
           shipping,
           shippingCurrency,
@@ -776,7 +800,10 @@ class ReceiptOcrParser {
               adjustmentCurrency.hasExplicitEvidence;
         }
       } else if (_hasDiscountLabel(line, normalized)) {
-        final printed = _explicitAdjustmentCurrencyFromLine(line);
+        final printed = _explicitAdjustmentCurrencyFromLine(
+          line,
+          receiptCurrency: currency,
+        );
         if (preferMatchingPrintedCurrency(
           discount,
           discountCurrency,
@@ -982,8 +1009,10 @@ class ReceiptOcrParser {
             _isStandaloneAmountRow(lines[lineIndex + 1]) &&
             _isAdjacentRightColumnAmount(layoutRows, lineIndex)) {
           final amountLine = lines[lineIndex + 1];
-          final amountCurrency =
-              _explicitCurrencyFromLine(amountLine) ?? currency;
+          final amountCurrency = _itemCurrencyFromPrintedText(
+            amountLine,
+            currency,
+          );
           final lineTotal = _lastAmountInLine(
             amountLine,
             currency: amountCurrency,
@@ -1033,8 +1062,11 @@ class ReceiptOcrParser {
         description = '$wrappedDescription $description';
       }
       wrappedDescriptionLines.clear();
-      final lineCurrency =
-          _currencyFromItemToken(match.group(2) ?? match.group(4)) ?? currency;
+      final lineCurrency = _itemCurrencyFromPrintedText(
+        line,
+        currency,
+        token: match.group(2) ?? match.group(4),
+      );
       final lineConfidence = lineIndex < layoutRows.length
           ? _averageBlockConfidence(layoutRows[lineIndex])
           : null;
@@ -1143,13 +1175,17 @@ class ReceiptOcrParser {
     );
     bool hasMonetaryEvidence(ReceiptOcrBlockEvidence cell) {
       final cellText = _normalizeOcrLine(cell.text);
-      final printed = _explicitAdjustmentCurrencyFromLine(cellText);
+      final printed = _explicitAdjustmentCurrencyFromLine(
+        cellText,
+        receiptCurrency: currency,
+      );
       final adjacentCurrency = _nearbyCurrencyOnlyBlocks(row, cell);
       if (adjacentCurrency.length > 1) return false;
       final cellCurrency = adjacentCurrency.isEmpty
           ? printed.currency ?? currency
           : _explicitAdjustmentCurrencyFromLine(
                   '${_normalizeOcrLine(adjacentCurrency.single.text)} $cellText',
+                  receiptCurrency: currency,
                 ).currency ??
                 currency;
       final minorDigits = _currencyMinorUnitDigits(cellCurrency);
@@ -1225,7 +1261,10 @@ class ReceiptOcrParser {
     // A bare integer could be an account or reference number. The fallback
     // uses a printed denomination or a zero-minor-unit receipt currency plus
     // a bounded amount cell; the geometry and metadata guards still apply.
-    final printedCurrency = _explicitAdjustmentCurrencyFromLine(monetaryText);
+    final printedCurrency = _explicitAdjustmentCurrencyFromLine(
+      monetaryText,
+      receiptCurrency: currency,
+    );
     final lineCurrency = printedCurrency.hasExplicitEvidence
         ? printedCurrency.currency
         : currency;
@@ -1375,6 +1414,7 @@ class ReceiptOcrParser {
         if (!_hasChargeTableMonetaryEvidence(monetaryText)) continue;
         final printedCurrency = _explicitAdjustmentCurrencyFromLine(
           monetaryText,
+          receiptCurrency: currency,
         );
         final lineCurrency = printedCurrency.hasExplicitEvidence
             ? printedCurrency.currency
@@ -2539,6 +2579,22 @@ String? _currencyFromItemToken(String? token) {
   final normalized = token.trim().toUpperCase();
   return _supportedCurrencyCode(normalized) ??
       _explicitCurrencyFromNormalizedLine(normalized);
+}
+
+String? _itemCurrencyFromPrintedText(
+  String text,
+  String? receiptCurrency, {
+  String? token,
+}) {
+  if (text.contains('¥') &&
+      receiptCurrency != null &&
+      receiptCurrency != 'JPY' &&
+      receiptCurrency != 'CNY') {
+    return '¥';
+  }
+  return _currencyFromItemToken(token) ??
+      _explicitCurrencyFromNormalizedLine(text.toUpperCase()) ??
+      receiptCurrency;
 }
 
 bool _isContextualReceiptMetadataLine(List<String> lines, int index) {

@@ -720,6 +720,22 @@ Total USD 9.00
     },
   );
 
+  test('OCR parser-to-save omits bare yen money from a USD review', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Exchange Cafe
+Coffee ¥12000
+Tax ¥100
+Total USD 80.00
+''');
+    final lines = receiptOcrReviewLinesFromPreview(preview);
+
+    expect(preview.currency, 'USD');
+    expect(preview.items.single.currency, '¥');
+    expect(lines.single.text, 'Coffee');
+    expect(lines.single.lineTotalAmount, isNull);
+  });
+
   testWidgets(
     'personal OCR uses selected currency fallback and keeps currency editable',
     (tester) async {
