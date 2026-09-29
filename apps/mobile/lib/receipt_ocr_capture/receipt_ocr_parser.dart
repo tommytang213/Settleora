@@ -1139,6 +1139,7 @@ class ReceiptOcrParser {
       lines,
       currency,
       selectedTotal: selectedTotal,
+      merchantLineIndices: merchantLineIndices,
       detachedAmountSignRows: detachedAmountSignRows,
     );
     if (fuelItem != null) {
@@ -1163,7 +1164,8 @@ class ReceiptOcrParser {
           detachedAmountSignRows.contains(lineIndex) ||
           merchantLineIndices.contains(lineIndex) ||
           ((fuelItem != null || hasFuelMeasurementLayout) &&
-              _isFuelMeasurementLine(line))) {
+              _isFuelMeasurementLine(line) &&
+              !_isPricedFuelLine(line))) {
         wrappedDescriptionLines.clear();
         continue;
       }
@@ -1677,12 +1679,14 @@ class ReceiptOcrParser {
     List<String> lines,
     String? currency, {
     String? selectedTotal,
+    Set<int> merchantLineIndices = const {},
     Set<int> detachedAmountSignRows = const {},
   }) {
     String? description;
     String? quantity;
     String? unitPrice;
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+      if (merchantLineIndices.contains(lineIndex)) continue;
       final line = lines[lineIndex];
       if (detachedAmountSignRows.contains(lineIndex)) return null;
       final fuel = RegExp(
@@ -1690,6 +1694,9 @@ class ReceiptOcrParser {
         caseSensitive: false,
       ).firstMatch(line);
       if (fuel != null) {
+        // A second priced fuel-labelled row is a separate purchase, not the
+        // description of this synthetic fuel measurement item.
+        if (description != null || _isPricedFuelLine(line)) return null;
         description = _cleanDescription(fuel.group(1)!);
         continue;
       }
@@ -1761,6 +1768,10 @@ class ReceiptOcrParser {
     r'^(?:FUEL|PRODUCT|GALLONS?|LIT(?:ER|RE)S?|PRICE\s*/\s*(?:GAL|L)|UNIT\s+PRICE)\b',
     caseSensitive: false,
   ).hasMatch(line);
+
+  bool _isPricedFuelLine(String line) =>
+      RegExp(r'^(?:FUEL|PRODUCT)\b', caseSensitive: false).hasMatch(line) &&
+      _hasChargeTableMonetaryEvidence(line);
 
   int _countUnresolvedItemLikeLines(
     List<String> lines, {

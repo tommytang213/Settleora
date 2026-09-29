@@ -942,6 +942,23 @@ TOTAL USD 45.22
     }
   });
 
+  test('second priced fuel row cannot replace measured fuel description', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+WESTSIDE FUEL
+FUEL Regular Unleaded
+GALLONS 10.000
+PRICE/GAL USD 3.000
+FUEL ADDITIVE USD 5.00
+TOTAL USD 35.00
+''');
+
+    expect(preview.items, hasLength(1));
+    expect(preview.items.single.description, 'FUEL ADDITIVE');
+    expect(preview.items.single.lineTotal, '5.00');
+    expect(preview.items.single.quantity, isNull);
+  });
+
   test('ordinary fuel-named item remains an editable item', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse('''

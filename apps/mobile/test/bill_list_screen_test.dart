@@ -1102,6 +1102,22 @@ TOTAL PAID EUR 41.00
     expect(lines.single.lineTotalAmount, '45.22');
   });
 
+  test('OCR save preserves separate priced fuel-labelled purchase', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Fuel Stop
+FUEL Regular Unleaded
+GALLONS 10.000
+PRICE/GAL USD 3.000
+FUEL ADDITIVE USD 5.00
+TOTAL USD 35.00
+''');
+
+    final lines = receiptOcrReviewLinesFromPreview(preview);
+    expect(lines, hasLength(1));
+    expect(lines.single.lineTotalAmount, '5.00');
+  });
+
   test('OCR save binds mixed total money to selected USD amount', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse(r'''
