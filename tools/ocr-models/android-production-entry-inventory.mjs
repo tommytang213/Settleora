@@ -3,6 +3,13 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // #1309 detached bare-service adjustment warning at f00cd11e.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "e967b190ab3da4408dc4b89f135870324966af812d7ecba57f44a8e955aa0f4d": Object.freeze([
+    "4b4ef76346a960fc5ff0c7fbc424c8725cf990be3e432d203c5949e86b2a783a",
+  ]),
   // #1309 unresolved qualified and charge-table adjustments at 6ad4c13a.
   // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
   // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
