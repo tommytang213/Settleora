@@ -205,6 +205,12 @@ List<String> _receiptOcrReviewHints(ReceiptOcrPreview preview) {
       ];
     }
 
+    if (total != null && !_receiptOcrAmountsClose(itemTotal, total)) {
+      return const [
+        'OCR item total differs from detected grand total. Review the receipt before applying.',
+      ];
+    }
+
     return const [];
   }
 
@@ -275,39 +281,34 @@ bool _hasCompleteReceiptOcrItemLineTotals(List<ReceiptOcrItemCandidate> items) {
 }
 
 bool _hasReceiptOcrReferenceAdjustment(ReceiptOcrPreview preview) {
-  final amounts = [
-    if (_adjustmentCurrencyMatchesReview(
-      reviewCurrency: preview.currency,
-      adjustmentCurrency: preview.taxCurrency,
-      hasExplicitCurrencyEvidence: preview.taxHasExplicitCurrencyEvidence,
-    ))
-      _parseReceiptOcrReviewAmount(preview.tax),
-    if (_adjustmentCurrencyMatchesReview(
-      reviewCurrency: preview.currency,
-      adjustmentCurrency: preview.serviceCurrency,
-      hasExplicitCurrencyEvidence: preview.serviceHasExplicitCurrencyEvidence,
-    ))
-      _parseReceiptOcrReviewAmount(preview.service),
-    if (_adjustmentCurrencyMatchesReview(
-      reviewCurrency: preview.currency,
-      adjustmentCurrency: preview.tipCurrency,
-      hasExplicitCurrencyEvidence: preview.tipHasExplicitCurrencyEvidence,
-    ))
-      _parseReceiptOcrReviewAmount(preview.tip),
-    if (_adjustmentCurrencyMatchesReview(
-      reviewCurrency: preview.currency,
-      adjustmentCurrency: preview.shippingCurrency,
-      hasExplicitCurrencyEvidence: preview.shippingHasExplicitCurrencyEvidence,
-    ))
-      _parseReceiptOcrReviewAmount(preview.shipping),
-    if (_adjustmentCurrencyMatchesReview(
-      reviewCurrency: preview.currency,
-      adjustmentCurrency: preview.discountCurrency,
-      hasExplicitCurrencyEvidence: preview.discountHasExplicitCurrencyEvidence,
-    ))
-      _parseReceiptOcrReviewAmount(preview.discount),
+  final entries = [
+    (preview.tax, preview.taxCurrency, preview.taxHasExplicitCurrencyEvidence),
+    (
+      preview.service,
+      preview.serviceCurrency,
+      preview.serviceHasExplicitCurrencyEvidence,
+    ),
+    (preview.tip, preview.tipCurrency, preview.tipHasExplicitCurrencyEvidence),
+    (
+      preview.shipping,
+      preview.shippingCurrency,
+      preview.shippingHasExplicitCurrencyEvidence,
+    ),
+    (
+      preview.discount,
+      preview.discountCurrency,
+      preview.discountHasExplicitCurrencyEvidence,
+    ),
   ];
-  return amounts.any((amount) => amount != null);
+  return entries.any(
+    (entry) =>
+        _adjustmentCurrencyMatchesReview(
+          reviewCurrency: preview.currency,
+          adjustmentCurrency: entry.$2,
+          hasExplicitCurrencyEvidence: entry.$3,
+        ) &&
+        _parseReceiptOcrReviewAmount(entry.$1) != null,
+  );
 }
 
 int? _reconcilableReceiptOcrAdjustments(ReceiptOcrPreview preview) {

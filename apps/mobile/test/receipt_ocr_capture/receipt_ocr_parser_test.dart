@@ -4693,6 +4693,21 @@ Total USD 10.00
     ]);
   });
 
+  test('foreign-only adjustment keeps grand-total warning', () {
+    const preview = ReceiptOcrPreview(
+      currency: 'USD',
+      subtotal: '10.00',
+      tax: '2.00',
+      taxCurrency: 'EUR',
+      taxHasExplicitCurrencyEvidence: true,
+      total: '12.00',
+      items: [ReceiptOcrItemCandidate(description: 'Meal', lineTotal: '10.00')],
+    );
+    expect(preview.reviewHints, [
+      'OCR item total differs from detected grand total. Review the receipt before applying.',
+    ]);
+  });
+
   test('detached-sign priced item keeps adjustment warning', () {
     final preview = const ReceiptOcrParser().parse('''
 Market
