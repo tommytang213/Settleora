@@ -617,6 +617,9 @@ class ReceiptOcrParser {
 
   ({String? currency, bool hasExplicitEvidence})
   _explicitAdjustmentCurrencyFromLine(String line, {String? receiptCurrency}) {
+    if (RegExp(_amountTokenPattern).allMatches(line).length > 1) {
+      return _currencyAdjacentToSelectedAmount(line, receiptCurrency);
+    }
     // The bare yen sign denotes JPY or CNY. Keep the printed marker as
     // review-only currency evidence when neither is the transaction currency;
     // it must never inherit another receipt currency on save.
@@ -2597,6 +2600,10 @@ String? _itemCurrencyFromPrintedText(
   String? receiptCurrency, {
   String? token,
 }) {
+  if (RegExp(_amountTokenPattern).allMatches(text).length > 1) {
+    final selected = _currencyAdjacentToSelectedAmount(text, receiptCurrency);
+    return selected.hasExplicitEvidence ? selected.currency : receiptCurrency;
+  }
   if (text.contains('¥') &&
       receiptCurrency != null &&
       receiptCurrency != 'JPY' &&
@@ -2609,22 +2616,48 @@ String? _itemCurrencyFromPrintedText(
 }
 
 String? _currencyAdjacentToSelectedAmountWithYen(String text) {
+  return _currencyAdjacentToSelectedAmount(text, null).currency;
+}
+
+({String? currency, bool hasExplicitEvidence})
+_currencyAdjacentToSelectedAmount(String text, String? receiptCurrency) {
   final amount = RegExp(_amountTokenPattern).allMatches(text).lastOrNull;
-  if (amount == null) return null;
+  if (amount == null) return (currency: null, hasExplicitEvidence: false);
   final before = text.substring(0, amount.start).trimRight();
   final after = text.substring(amount.end).trimLeft();
-  if (before.endsWith('¥') || after.startsWith('¥')) return '¥';
-  final precedingCode = RegExp(
-    r'\b([A-Z]{3})\s*[:=]?\s*$',
+  final preceding = RegExp(
+    '($_currencyTokenPattern)\\s*[:=]?\\s*\$',
     caseSensitive: false,
   ).firstMatch(before);
-  final followingCode = RegExp(
-    r'^([A-Z]{3})\b',
+  final following = RegExp(
+    '^\\s*[:=]?\\s*($_currencyTokenPattern)(?=\\s|\$|[/,;])',
     caseSensitive: false,
   ).firstMatch(after);
-  return _supportedCurrencyCode(
-    precedingCode?.group(1) ?? followingCode?.group(1),
-  );
+  String? resolve(String? token) {
+    if (token == null) return null;
+    if (token == '¥') {
+      return receiptCurrency == 'JPY' || receiptCurrency == 'CNY'
+          ? receiptCurrency
+          : '¥';
+    }
+    if (token == r'$') return receiptCurrency;
+    return _currencyFromItemToken(token);
+  }
+
+  final left = resolve(preceding?.group(1));
+  final right = resolve(following?.group(1));
+  final selectedTokens = preceding != null || following != null;
+  if (left != null && right != null && left != right) {
+    return (currency: null, hasExplicitEvidence: true);
+  }
+  if (selectedTokens) {
+    return (currency: left ?? right, hasExplicitEvidence: true);
+  }
+  final otherPrintedCurrency = RegExp(
+    _currencyTokenPattern,
+    caseSensitive: false,
+  ).hasMatch(text);
+  return (currency: null, hasExplicitEvidence: otherPrintedCurrency);
 }
 
 bool _isContextualReceiptMetadataLine(List<String> lines, int index) {

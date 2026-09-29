@@ -3269,6 +3269,50 @@ Total USD 2.00
     expect(compared.tax, isNull);
   });
 
+  test('mixed rows bind supported symbols to the selected amount', () {
+    const parser = ReceiptOcrParser();
+    for (final (symbol, code) in [
+      (r'US$', 'USD'),
+      (r'HK$', 'HKD'),
+      ('€', 'EUR'),
+      ('£', 'GBP'),
+    ]) {
+      final compared = parser.parse('''
+Exchange Cafe
+Coffee ¥150 / $symbol 1.00
+Tax ¥150 / $symbol 1.00
+Total $symbol 2.00
+''');
+      expect(compared.currency, code, reason: symbol);
+      expect(
+        compared.items.where(
+          (item) => item.lineTotal == '1.00' && item.currency == code,
+        ),
+        isNotEmpty,
+        reason: symbol,
+      );
+      expect(compared.tax, isNull, reason: symbol);
+    }
+  });
+
+  test('mixed row without selected amount currency remains unresolved', () {
+    const parser = ReceiptOcrParser();
+    final compared = parser.parse('''
+Exchange Cafe
+Coffee ¥150 / 1.00
+Tax ¥150 / 1.00
+Total USD 2.00
+''');
+    expect(compared.currency, 'USD');
+    expect(
+      compared.items
+          .where((item) => item.lineTotal == '1.00')
+          .every((item) => item.currency == null),
+      isTrue,
+    );
+    expect(compared.tax, isNull);
+  });
+
   test('matching-currency adjustment supersedes an earlier foreign one', () {
     const parser = ReceiptOcrParser();
     final compared = parser.parse('''
