@@ -482,6 +482,37 @@ Total USD 12.50
     expect(overlappingRows.items.map((item) => item.description), ['Bread']);
   });
 
+  test('adjacent priced rows accept trailing and leading local symbols', () {
+    const parser = ReceiptOcrParser();
+    final polish = parser.parse(
+      'Sklep Warszawa\nZupa\n35,50 zł\nKawa\n12,00 zł\nRazem 47,50 zł',
+      blocks: [
+        _layoutBlock('Sklep Warszawa', 0, 0, 20, 280),
+        _layoutBlock('Zupa', 1, 1, 20, 120),
+        _layoutBlock('35,50 zł', 2, 2, 300, 390),
+        _layoutBlock('Kawa', 3, 3, 20, 120),
+        _layoutBlock('12,00 zł', 4, 4, 300, 390),
+        _layoutBlock('Razem 47,50 zł', 5, 5, 20, 390),
+      ],
+    );
+    expect(polish.items.map((item) => item.description), ['Zupa', 'Kawa']);
+    expect(polish.items.map((item) => item.lineTotal), ['35.50', '12.00']);
+
+    final turkish = parser.parse(
+      'İstanbul Market\nYemek\n₺400,00\nÇay\n₺56,70\nToplam ₺456,70',
+      blocks: [
+        _layoutBlock('İstanbul Market', 0, 0, 20, 280),
+        _layoutBlock('Yemek', 1, 1, 20, 120),
+        _layoutBlock('₺400,00', 2, 2, 300, 390),
+        _layoutBlock('Çay', 3, 3, 20, 120),
+        _layoutBlock('₺56,70', 4, 4, 300, 390),
+        _layoutBlock('Toplam ₺456,70', 5, 5, 20, 390),
+      ],
+    );
+    expect(turkish.items.map((item) => item.description), ['Yemek', 'Çay']);
+    expect(turkish.items.map((item) => item.lineTotal), ['400.00', '56.70']);
+  });
+
   test('postal and registration headers do not become merchandise', () {
     const parser = ReceiptOcrParser();
     final us = parser.parse('''
@@ -3407,6 +3438,56 @@ Total USD 1.00
     expect(
       conflicted.items.where(
         (item) => item.lineTotal == '1.00' && item.currencyUnresolved,
+      ),
+      isNotEmpty,
+    );
+  });
+
+  test('item words that resemble currency codes do not conflict', () {
+    const parser = ReceiptOcrParser();
+    final compared = parser.parse(r'''
+Exchange Cafe
+2 Try Special $3.00
+Total USD 3.00
+''');
+    expect(compared.currency, 'USD');
+    expect(
+      compared.items.where(
+        (item) => item.lineTotal == '3.00' && item.currency == 'USD',
+      ),
+      isNotEmpty,
+      reason: compared.items
+          .map((item) => (
+                item.description,
+                item.lineTotal,
+                item.currency,
+                item.currencyUnresolved,
+              ))
+          .toList()
+          .toString(),
+    );
+    expect(
+      compared.items.where((item) => item.lineTotal == '3.00').every(
+        (item) => !item.currencyUnresolved,
+      ),
+      isTrue,
+    );
+  });
+
+  test('single printed dollar item cannot inherit euro currency', () {
+    const parser = ReceiptOcrParser();
+    final compared = parser.parse(r'''
+Exchange Cafe
+Coffee $9.00
+Total EUR 9.00
+''');
+    expect(compared.currency, 'EUR');
+    expect(
+      compared.items.where(
+        (item) =>
+            item.lineTotal == '9.00' &&
+            item.currency == null &&
+            item.currencyUnresolved,
       ),
       isNotEmpty,
     );

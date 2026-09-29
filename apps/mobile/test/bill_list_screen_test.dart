@@ -887,6 +887,21 @@ Total €2.00
     expect(ordinary.single.lineTotalAmount, '1.00');
   });
 
+  test('OCR save does not relabel a printed dollar item as euro money', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(r'''
+Exchange Cafe
+Coffee $9.00
+Total EUR 9.00
+''');
+    final lines = receiptOcrReviewLinesFromPreview(preview);
+
+    expect(preview.currency, 'EUR');
+    expect(preview.items.single.currencyUnresolved, isTrue);
+    expect(lines.single.text, 'Coffee');
+    expect(lines.single.lineTotalAmount, isNull);
+  });
+
   testWidgets('editing OCR merchant keeps mixed item money unresolved', (
     tester,
   ) async {
