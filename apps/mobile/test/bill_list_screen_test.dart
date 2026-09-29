@@ -705,6 +705,34 @@ void main() {
     },
   );
 
+  test(
+    'initial OCR save keeps a printed header provisional after currency edit',
+    () {
+      const preview = ReceiptOcrPreview(
+        currency: 'EUR',
+        tax: '2.50',
+        taxCurrency: 'EUR',
+        taxHasExplicitCurrencyEvidence: true,
+      );
+      final edited = receiptOcrReviewSaveRequestFromPreview(
+        preview,
+        originalCurrency: 'USD',
+      );
+      expect(edited?.currency, 'EUR');
+      expect(edited?.taxAmount, isNull);
+      expect(edited?.headerEvidence.single.role, 'tax');
+      expect(edited?.headerEvidence.single.amount, '2.50');
+      expect(edited?.headerEvidence.single.currency, 'EUR');
+
+      final unchanged = receiptOcrReviewSaveRequestFromPreview(
+        preview,
+        originalCurrency: 'EUR',
+      );
+      expect(unchanged?.taxAmount, '2.50');
+      expect(unchanged?.headerEvidence, isEmpty);
+    },
+  );
+
   test('OCR save adapter preserves line currency boundaries and API limit', () {
     final lines = receiptOcrReviewLinesFromPreview(
       ReceiptOcrPreview(

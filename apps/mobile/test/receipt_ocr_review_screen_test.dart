@@ -2210,6 +2210,44 @@ void main() {
       },
     );
 
+    testWidgets(
+      'edits a review whose printed evidence now matches its currency',
+      (tester) async {
+        await useLargeSurface(tester);
+        final route = sampleRoute();
+        final repository = FakeReceiptOcrReviewRepository(
+          reviewResponse: sampleReview(
+            route,
+            currency: 'EUR',
+            taxAmount: null,
+            headerEvidence: const [
+              ReceiptOcrReviewHeaderEvidence(
+                role: 'tax',
+                amount: '2.50',
+                currency: 'EUR',
+              ),
+            ],
+          ),
+        );
+        await pumpDetail(tester, repository: repository, route: route);
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithIcon(IconButton, Icons.edit_outlined));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.byKey(const Key('receipt-review-edit-save')),
+        );
+        await tester.tap(find.byKey(const Key('receipt-review-edit-save')));
+        await tester.pumpAndSettle();
+        expect(repository.saveCalls, 1);
+        expect(repository.lastSaveRequest?.taxAmount, isNull);
+        expect(repository.lastSaveRequest?.headerEvidence.single.role, 'tax');
+        expect(
+          repository.lastSaveRequest?.headerEvidence.single.currency,
+          'EUR',
+        );
+      },
+    );
+
     testWidgets('saves edits through the group route and blocks conflicts', (
       tester,
     ) async {

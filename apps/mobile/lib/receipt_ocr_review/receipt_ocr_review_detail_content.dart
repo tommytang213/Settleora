@@ -612,10 +612,6 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
                             if (!settleoraIsSupportedCurrency(currency)) {
                               return 'Use a supported currency';
                             }
-                            if (currency ==
-                                _currencyController.text.trim().toUpperCase()) {
-                              return 'Use the receipt-currency field above';
-                            }
                             return null;
                           },
                         ),

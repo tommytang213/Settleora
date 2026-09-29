@@ -427,13 +427,17 @@ String? _safeFilenameExtension(String? filename) {
   return safeName.substring(dotIndex + 1).toLowerCase();
 }
 
-ReceiptOcrReviewSaveRequest? _receiptOcrReviewSaveRequestFromPreview(
-  ReceiptOcrPreview? preview,
-) {
+@visibleForTesting
+ReceiptOcrReviewSaveRequest? receiptOcrReviewSaveRequestFromPreview(
+  ReceiptOcrPreview? preview, {
+  String? originalCurrency,
+}) {
   if (preview == null || !_receiptOcrPreviewHasReviewCandidates(preview)) {
     return null;
   }
   final currency = _nullableUppercaseCurrency(preview.currency);
+  final reviewCurrencyChanged =
+      _nullableUppercaseCurrency(originalCurrency) != currency;
 
   return ReceiptOcrReviewSaveRequest(
     status: ReceiptOcrReviewStatusValues.provisional,
@@ -442,35 +446,42 @@ ReceiptOcrReviewSaveRequest? _receiptOcrReviewSaveRequestFromPreview(
     receiptIssuedAtUtc: _parseReceiptOcrReviewDate(preview.receiptDate),
     currency: currency,
     subtotalAmount:
-        _receiptOcrHeaderAdjustmentCurrencyMatches(
-          currency,
-          preview.subtotalCurrency,
-          preview.subtotalHasExplicitCurrencyEvidence,
-        )
+        !(reviewCurrencyChanged &&
+                preview.subtotalHasExplicitCurrencyEvidence) &&
+            _receiptOcrHeaderAdjustmentCurrencyMatches(
+              currency,
+              preview.subtotalCurrency,
+              preview.subtotalHasExplicitCurrencyEvidence,
+            )
         ? receiptOcrMoneyCandidateForSave(preview.subtotal, currency: currency)
         : null,
     taxAmount:
-        _receiptOcrHeaderAdjustmentCurrencyMatches(
-          currency,
-          preview.taxCurrency,
-          preview.taxHasExplicitCurrencyEvidence,
-        )
+        !(reviewCurrencyChanged && preview.taxHasExplicitCurrencyEvidence) &&
+            _receiptOcrHeaderAdjustmentCurrencyMatches(
+              currency,
+              preview.taxCurrency,
+              preview.taxHasExplicitCurrencyEvidence,
+            )
         ? receiptOcrMoneyCandidateForSave(preview.tax, currency: currency)
         : null,
     serviceChargeAmount:
-        _receiptOcrHeaderAdjustmentCurrencyMatches(
-          currency,
-          preview.serviceCurrency,
-          preview.serviceHasExplicitCurrencyEvidence,
-        )
+        !(reviewCurrencyChanged &&
+                preview.serviceHasExplicitCurrencyEvidence) &&
+            _receiptOcrHeaderAdjustmentCurrencyMatches(
+              currency,
+              preview.serviceCurrency,
+              preview.serviceHasExplicitCurrencyEvidence,
+            )
         ? receiptOcrMoneyCandidateForSave(preview.service, currency: currency)
         : null,
     discountAmount:
-        _receiptOcrHeaderAdjustmentCurrencyMatches(
-          currency,
-          preview.discountCurrency,
-          preview.discountHasExplicitCurrencyEvidence,
-        )
+        !(reviewCurrencyChanged &&
+                preview.discountHasExplicitCurrencyEvidence) &&
+            _receiptOcrHeaderAdjustmentCurrencyMatches(
+              currency,
+              preview.discountCurrency,
+              preview.discountHasExplicitCurrencyEvidence,
+            )
         ? receiptOcrMoneyCandidateForSave(preview.discount, currency: currency)
         : null,
     grandTotalAmount: receiptOcrMoneyCandidateForSave(
@@ -479,7 +490,10 @@ ReceiptOcrReviewSaveRequest? _receiptOcrReviewSaveRequestFromPreview(
     ),
     lines: receiptOcrReviewLinesFromPreview(preview),
     adjustmentEvidence: receiptOcrAdjustmentEvidenceFromPreview(preview),
-    headerEvidence: receiptOcrHeaderEvidenceFromPreview(preview),
+    headerEvidence: _receiptOcrHeaderEvidenceFromPreview(
+      preview,
+      preserveMatchingEvidence: reviewCurrencyChanged,
+    ),
   );
 }
 
@@ -2514,8 +2528,9 @@ class _SettleoraPersonalBillCreateScreenState
     if (_receiptOcrPreviewDraftAttachmentId != sourceDraftAttachmentId) {
       return null;
     }
-    final request = _receiptOcrReviewSaveRequestFromPreview(
+    final request = receiptOcrReviewSaveRequestFromPreview(
       _receiptOcrCorrectedPreview ?? _receiptOcrResult?.preview,
+      originalCurrency: _receiptOcrResult?.preview?.currency,
     );
     if (reviewRepository == null || fileId.isEmpty || request == null) {
       return null;
@@ -7546,8 +7561,9 @@ class _SettleoraGroupBillCreateScreenState
     if (_receiptOcrPreviewDraftAttachmentId != sourceDraftAttachmentId) {
       return null;
     }
-    final request = _receiptOcrReviewSaveRequestFromPreview(
+    final request = receiptOcrReviewSaveRequestFromPreview(
       _receiptOcrCorrectedPreview ?? _receiptOcrResult?.preview,
+      originalCurrency: _receiptOcrResult?.preview?.currency,
     );
     if (reviewRepository == null || fileId.isEmpty || request == null) {
       return null;
