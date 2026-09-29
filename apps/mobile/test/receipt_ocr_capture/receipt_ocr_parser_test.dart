@@ -1708,6 +1708,22 @@ Total EUR 9.00
       isTrue,
     );
 
+    for (final marker in ['USD', 'JPY', 'Rs', 'kr']) {
+      final detachedAfterCode = parser.parse('''
+Market
+Tax $marker− 1.00
+Total USD 9.00
+''');
+      expect(detachedAfterCode.tax, isNull, reason: marker);
+      expect(
+        detachedAfterCode.warnings.any(
+          (warning) => warning.contains('manual review'),
+        ),
+        isTrue,
+        reason: marker,
+      );
+    }
+
     for (final printedTax in [
       'Tax ₱1.00 USD',
       'Tax ₱1.00',
@@ -1785,6 +1801,31 @@ Total Amount Due \$15.00
         ),
       );
     }
+  });
+
+  test('layout charge amount cell with spaced minus stays unresolved', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(
+      'Power Utility\nDescription Usage Rate Amount\nSolar Credit €− 15.00\nTotal Amount Due EUR 15.00',
+      blocks: [
+        _layoutBlock('Power Utility', 0, 0, 20, 350),
+        _layoutBlock('Description', 1, 1, 20, 150),
+        _layoutBlock('Usage', 2, 1, 170, 210),
+        _layoutBlock('Rate', 3, 1, 230, 270),
+        _layoutBlock('Amount', 4, 1, 310, 350),
+        _layoutBlock('Solar Credit', 5, 2, 20, 160),
+        _layoutBlock('€− 15.00', 6, 2, 310, 350),
+        _layoutBlock('Total Amount Due EUR 15.00', 7, 3, 20, 350),
+      ],
+    );
+
+    expect(preview.items, isEmpty);
+    expect(
+      preview.warnings,
+      contains(
+        'Some OCR lines need manual review because no traceable line amount was found.',
+      ),
+    );
   });
 
   test('charge sign separated by currency cell stays unresolved', () {

@@ -46,6 +46,7 @@ class ReceiptOcrParser {
       lines,
       layoutRows,
       currency,
+      detachedAmountSignRows: detachedAmountSignRows,
     );
     final recognizedChargeRows = {
       ...chargeTableRows,
@@ -1481,8 +1482,9 @@ class ReceiptOcrParser {
   Map<int, ReceiptOcrItemCandidate> _extractLayoutChargeTableItems(
     List<String> lines,
     List<List<ReceiptOcrBlockEvidence>> layoutRows,
-    String? currency,
-  ) {
+    String? currency, {
+    Set<int> detachedAmountSignRows = const {},
+  }) {
     if (layoutRows.length != lines.length) return const {};
     final items = <int, ReceiptOcrItemCandidate>{};
     for (var headerIndex = 0; headerIndex < lines.length; headerIndex++) {
@@ -1534,6 +1536,7 @@ class ReceiptOcrParser {
             _isChargeTableSectionBoundary(lines[rowIndex])) {
           break;
         }
+        if (detachedAmountSignRows.contains(rowIndex)) continue;
         final tableBlocks = layoutRows[rowIndex]
             .where((block) {
               if (block.points.isEmpty) return false;
@@ -1585,7 +1588,8 @@ class ReceiptOcrParser {
         final amountCell = amountCells.last;
         // A detached sign cannot be dropped while promoting an otherwise
         // positive amount. Keep this row unresolved until the sign is bound.
-        if (_hasUnboundChargeTableSign(tableBlocks, amountCell)) {
+        if (_hasUnboundChargeTableSign(tableBlocks, amountCell) ||
+            _hasDetachedAmountSign(amountCell.text)) {
           continue;
         }
         final nearbyCurrencyBlocks = _nearbyCurrencyOnlyBlocks(
@@ -2062,7 +2066,7 @@ bool _hasDetachedAmountSign(String line) {
     0,
     amounts.last.start,
   );
-  return RegExp(r'(?<![A-Za-z0-9])[-−]\s+$').hasMatch(beforeAmount) ||
+  return RegExp(r'[-−]\s+$').hasMatch(beforeAmount) ||
       RegExp(
         '(?:^|\\s)[-−]\\s+(?:$_currencyTokenPattern)?\\s*\$',
         caseSensitive: false,

@@ -1203,6 +1203,21 @@ Total EUR 9.00
     );
     expect(detachedNegative.tax, isNull);
     expect(detachedSave?.taxAmount, isNull);
+
+    for (final marker in ['USD', 'JPY', 'Rs', 'kr']) {
+      final detachedAfterCode = parser.parse('''
+Market
+Tax $marker− 1.00
+Total USD 9.00
+''');
+      final save = receiptOcrReviewSaveRequestFromPreview(
+        detachedAfterCode,
+        originalCurrency: detachedAfterCode.currency,
+      );
+      expect(detachedAfterCode.tax, isNull, reason: marker);
+      expect(save?.taxAmount, isNull, reason: marker);
+      expect(save?.headerEvidence, isEmpty, reason: marker);
+    }
   });
 
   testWidgets('editing OCR merchant keeps unresolved items out of Apply', (
