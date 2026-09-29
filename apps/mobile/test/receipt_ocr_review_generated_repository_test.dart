@@ -71,6 +71,8 @@ void main() {
       expect(detail.adjustmentEvidence.single.kind, 'tip');
       expect(detail.adjustmentEvidence.single.originalLabel, 'Driver gratuity');
       expect(detail.adjustmentEvidence.single.direction, 'charge');
+      expect(detail.headerEvidence.single.role, 'discount');
+      expect(detail.headerEvidence.single.currency, 'EUR');
       expect(detail.updatedAtUtc, _updatedAtUtc);
 
       final preview = await repository.previewApply(route);
@@ -141,6 +143,14 @@ void main() {
         expect(client.lastUpsertRequest?.currency, 'USD');
         expect(client.lastUpsertRequest?.lines?.single.text, 'Milk');
         expect(
+          client.lastUpsertRequest?.headerEvidence?.single.role,
+          'discount',
+        );
+        expect(
+          client.lastUpsertRequest?.headerEvidence?.single.currency,
+          'EUR',
+        );
+        expect(
           client.lastUpsertRequest?.adjustmentEvidence?.single.kind,
           'tip',
         );
@@ -163,6 +173,7 @@ void main() {
             'grandTotalAmount',
             'lines',
             'adjustmentEvidence',
+            'headerEvidence',
           ]),
         );
 
@@ -408,6 +419,7 @@ api.ReceiptOcrReviewSummaryResponse sampleApiSummary() {
     merchantText: 'Corner Market',
     currency: 'USD',
     lineCount: 1,
+    headerEvidence: const [],
     createdAtUtc: _createdAtUtc,
     updatedAtUtc: _updatedAtUtc,
   );
@@ -454,6 +466,13 @@ api.ReceiptOcrReviewResponse sampleApiReview() {
         updatedAtUtc: _updatedAtUtc,
       ),
     ],
+    headerEvidence: const [
+      api.ReceiptOcrReviewHeaderEvidenceResponse(
+        role: 'discount',
+        amount: '1.50',
+        currency: 'EUR',
+      ),
+    ],
     createdAtUtc: _createdAtUtc,
     updatedAtUtc: _updatedAtUtc,
   );
@@ -494,6 +513,13 @@ ReceiptOcrReviewSaveRequest sampleSaveRequest() {
         amount: '2.00',
         currency: 'USD',
         direction: ReceiptOcrReviewAdjustmentDirectionValues.charge,
+      ),
+    ],
+    headerEvidence: const [
+      ReceiptOcrReviewHeaderEvidenceSaveRequest(
+        role: 'discount',
+        amount: '1.50',
+        currency: 'EUR',
       ),
     ],
   );

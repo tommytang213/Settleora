@@ -2110,6 +2110,68 @@ void main() {
       expect(repository.applyCalls, 0);
     });
 
+    testWidgets(
+      'edits foreign printed header evidence and shows it after save',
+      (tester) async {
+        await useLargeSurface(tester);
+        final route = sampleRoute();
+        const original = ReceiptOcrReviewHeaderEvidence(
+          role: 'discount',
+          amount: '1.00',
+          currency: 'EUR',
+        );
+        const edited = ReceiptOcrReviewHeaderEvidence(
+          role: 'discount',
+          amount: '2.50',
+          currency: 'GBP',
+        );
+        final saveCompleter = Completer<ReceiptOcrReviewDetail>();
+        final repository = FakeReceiptOcrReviewRepository(
+          reviewResponse: sampleReview(route, headerEvidence: const [original]),
+          saveCompleter: saveCompleter,
+        );
+        await pumpDetail(tester, repository: repository, route: route);
+        await tester.pumpAndSettle();
+        expect(find.text('1.00 EUR'), findsOneWidget);
+        await tester.tap(find.widgetWithIcon(IconButton, Icons.edit_outlined));
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          editableTextForKey(
+            const Key('receipt-review-edit-header-amount-discount'),
+          ),
+          '2.50',
+        );
+        await tester.enterText(
+          editableTextForKey(
+            const Key('receipt-review-edit-header-currency-discount'),
+          ),
+          'GBP',
+        );
+        await tester.ensureVisible(
+          find.byKey(const Key('receipt-review-edit-save')),
+        );
+        await tester.tap(find.byKey(const Key('receipt-review-edit-save')));
+        await tester.pump();
+        expect(
+          repository.lastSaveRequest?.headerEvidence.single.role,
+          'discount',
+        );
+        expect(
+          repository.lastSaveRequest?.headerEvidence.single.amount,
+          '2.50',
+        );
+        expect(
+          repository.lastSaveRequest?.headerEvidence.single.currency,
+          'GBP',
+        );
+        saveCompleter.complete(
+          sampleReview(route, headerEvidence: const [edited]),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('2.50 GBP'), findsOneWidget);
+      },
+    );
+
     testWidgets('saves edits through the group route and blocks conflicts', (
       tester,
     ) async {
@@ -2945,6 +3007,7 @@ ReceiptOcrReviewDetail sampleReview(
   String? grandTotalAmount = '10.80',
   List<ReceiptOcrReviewLine>? lines,
   List<ReceiptOcrReviewAdjustment> adjustments = const [],
+  List<ReceiptOcrReviewHeaderEvidence> headerEvidence = const [],
 }) {
   return ReceiptOcrReviewDetail(
     id: _reviewId,
@@ -2965,6 +3028,7 @@ ReceiptOcrReviewDetail sampleReview(
     grandTotalAmount: grandTotalAmount,
     lines: lines ?? sampleLines(),
     adjustmentEvidence: adjustments,
+    headerEvidence: headerEvidence,
     createdAtUtc: _createdAtUtc,
     updatedAtUtc: _updatedAtUtc,
   );

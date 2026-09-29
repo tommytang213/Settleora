@@ -3380,6 +3380,29 @@ export interface ReceiptOcrReviewAdjustmentResponse {
 }
 
 /**
+ * Stable role of provisional printed header evidence.
+ */
+export type ReceiptOcrReviewHeaderRole = "subtotal" | "tax" | "service_charge" | "discount";
+
+/**
+ * A bounded printed header candidate with its own supported currency. It is never authoritative bill money.
+ */
+export interface ReceiptOcrReviewHeaderEvidenceRequest {
+  role: ReceiptOcrReviewHeaderRole;
+  amount: ReceiptOcrCandidateAmount;
+  currency: CurrencyCode;
+}
+
+/**
+ * Persisted provisional printed header candidate; apply ignores this collection.
+ */
+export interface ReceiptOcrReviewHeaderEvidenceResponse {
+  role: ReceiptOcrReviewHeaderRole;
+  amount: ReceiptOcrCandidateAmount;
+  currency: CurrencyCode;
+}
+
+/**
  * One bounded OCR review line. Line text is reviewed/candidate text, not raw OCR full text. Amounts use the review-level currency and remain provisional.
  */
 export interface ReceiptOcrReviewLineRequest {
@@ -3435,6 +3458,10 @@ export interface ReceiptOcrReviewUpsertRequest {
    * Optional ordered non-item adjustment evidence. The server derives stable order from array order; entries are not merchandise and are not automatically applied as bill adjustments.
    */
   adjustmentEvidence?: ReceiptOcrReviewAdjustmentRequest[];
+  /**
+   * Optional provisional printed header candidates in a currency different from the review currency. At most one entry per role; absent preserves existing evidence on update, while an empty array clears it. Never used as authoritative bill money.
+   */
+  headerEvidence?: ReceiptOcrReviewHeaderEvidenceRequest[];
 }
 
 /**
@@ -3489,6 +3516,7 @@ export interface ReceiptOcrReviewSummaryResponse {
    * Number of bounded reviewed/candidate line rows linked to the review.
    */
   lineCount: number;
+  headerEvidence: ReceiptOcrReviewHeaderEvidenceResponse[];
   createdAtUtc: string;
   updatedAtUtc: string;
 }
@@ -3525,6 +3553,7 @@ export interface ReceiptOcrReviewResponse {
   grandTotalAmount: string | null;
   lines: ReceiptOcrReviewLineResponse[];
   adjustmentEvidence: ReceiptOcrReviewAdjustmentResponse[];
+  headerEvidence: ReceiptOcrReviewHeaderEvidenceResponse[];
   createdAtUtc: string;
   updatedAtUtc: string;
 }

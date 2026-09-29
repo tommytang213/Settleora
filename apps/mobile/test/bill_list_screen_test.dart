@@ -660,6 +660,51 @@ void main() {
     expect(receiptOcrQuantityCandidateForSave('1.23456'), isNull);
   });
 
+  test(
+    'foreign printed headers retain role amount and currency without scalar coercion',
+    () {
+      const preview = ReceiptOcrPreview(
+        currency: 'USD',
+        subtotal: '9.50',
+        subtotalCurrency: 'EUR',
+        subtotalHasExplicitCurrencyEvidence: true,
+        tax: '2.00',
+        taxCurrency: 'HKD',
+        taxHasExplicitCurrencyEvidence: true,
+        service: '1.00',
+        serviceCurrency: 'GBP',
+        serviceHasExplicitCurrencyEvidence: true,
+        discount: '1',
+        discountCurrency: 'JPY',
+        discountHasExplicitCurrencyEvidence: true,
+      );
+      final evidence = receiptOcrHeaderEvidenceFromPreview(preview);
+      expect(
+        evidence.map((entry) => (entry.role, entry.amount, entry.currency)),
+        [
+          ('subtotal', '9.50', 'EUR'),
+          ('tax', '2.00', 'HKD'),
+          ('service_charge', '1.00', 'GBP'),
+          ('discount', '1', 'JPY'),
+        ],
+      );
+      expect(
+        receiptOcrHeaderEvidenceFromPreview(
+          const ReceiptOcrPreview(
+            currency: 'USD',
+            tax: '1.00',
+            taxCurrency: 'USD',
+            taxHasExplicitCurrencyEvidence: true,
+            service: '2.00',
+            serviceCurrency: 'XPF',
+            serviceHasExplicitCurrencyEvidence: true,
+          ),
+        ),
+        isEmpty,
+      );
+    },
+  );
+
   test('OCR save adapter preserves line currency boundaries and API limit', () {
     final lines = receiptOcrReviewLinesFromPreview(
       ReceiptOcrPreview(
@@ -8780,6 +8825,18 @@ Total USD 80.00
           .controller
           ?.text,
       isEmpty,
+    );
+    expect(
+      receiptOcrHeaderEvidenceFromPreview(
+        const ReceiptOcrPreview(
+          tax: '3.00',
+          taxCurrency: 'EUR',
+          taxHasExplicitCurrencyEvidence: true,
+        ),
+      ).single.currency,
+      'EUR',
+      reason:
+          'A known printed currency can be kept while the review currency is unresolved.',
     );
   });
 

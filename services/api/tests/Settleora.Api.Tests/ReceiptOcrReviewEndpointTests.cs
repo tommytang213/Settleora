@@ -305,6 +305,96 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
         AssertSafeReviewJson(getContent);
         Assert.Equal(savedPayload.Id, ReadReviewPayload(getContent).Id);
+        using var update = CreateJsonBearerRequest(HttpMethod.Put,
+            GroupOcrReviewPath(groupId, billId, fileId), ownerSession.RawSessionToken,
+            """{"status":"reviewed","source":"manual_entry","currency":"USD","headerEvidence":[{"role":"tax","amount":"2.50","currency":"EUR"}]}""");
+        using var updateResponse = await client.SendAsync(update);
+        Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
+        Assert.Equal(new ReceiptOcrReviewHeaderEvidencePayload("tax", "2.5", "EUR"),
+            Assert.Single(ReadReviewPayload(await updateResponse.Content.ReadAsStringAsync()).HeaderEvidence));
+        using var reopened = CreateBearerRequest(HttpMethod.Get,
+            GroupOcrReviewPath(groupId, billId, fileId), participantSession.RawSessionToken);
+        using var reopenedResponse = await client.SendAsync(reopened);
+        Assert.Equal("EUR", Assert.Single(ReadReviewPayload(await reopenedResponse.Content.ReadAsStringAsync()).HeaderEvidence).Currency);
+        using var groupList = CreateBearerRequest(HttpMethod.Get,
+            $"/api/v1/groups/{groupId:D}/receipt-ocr-reviews", participantSession.RawSessionToken);
+        using var groupListResponse = await client.SendAsync(groupList);
+        Assert.Equal(HttpStatusCode.OK, groupListResponse.StatusCode);
+        Assert.Equal("tax", Assert.Single(Assert.Single(ReadReviewQueuePayload(await groupListResponse.Content.ReadAsStringAsync()).Reviews).HeaderEvidence).Role);
+        using var nullCurrencyUpdate = CreateJsonBearerRequest(HttpMethod.Put,
+            GroupOcrReviewPath(groupId, billId, fileId), ownerSession.RawSessionToken,
+            """{"status":"provisional","source":"on_device","currency":null,"headerEvidence":[{"role":"tax","amount":"2.50","currency":"EUR"}]}""");
+        using var nullCurrencyResponse = await client.SendAsync(nullCurrencyUpdate);
+        Assert.Equal(HttpStatusCode.OK, nullCurrencyResponse.StatusCode);
+        var nullCurrencyReview = ReadReviewPayload(await nullCurrencyResponse.Content.ReadAsStringAsync());
+        Assert.Null(nullCurrencyReview.Currency);
+        Assert.Equal("EUR", Assert.Single(nullCurrencyReview.HeaderEvidence).Currency);
+    }
+
+    [Fact]
+    public async Task ForeignHeaderEvidenceSurvivesPersonalSaveListReopenAndReplacementWithoutBillAuthority()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var owner = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Foreign header owner");
+        var billId = await SeedBillAsync(testFactory, owner.UserProfileId, null,
+            ExpenseBillStatuses.Draft, null, [owner.UserProfileId], [owner.UserProfileId], InitialTimestamp.AddMinutes(2));
+        var fileId = await SeedBillAttachmentAsync(testFactory, billId, owner.UserProfileId,
+            ExpenseBillAttachmentPurposes.Receipt, FileObjectPurposes.ReceiptImage,
+            FileObjectStatuses.Active, null);
+        var beforeItems = await CountBillItemsAsync(testFactory, billId);
+        using var client = testFactory.CreateClient();
+        const string payload = """
+            {"status":"provisional","source":"on_device","currency":"USD","grandTotalAmount":"10.00",
+             "headerEvidence":[
+               {"role":"subtotal","amount":"9.50","currency":"EUR"},
+               {"role":"tax","amount":"0.25","currency":"HKD"},
+               {"role":"service_charge","amount":"0.15","currency":"GBP"},
+               {"role":"discount","amount":"1","currency":"JPY"}]}
+            """;
+        using var put = CreateJsonBearerRequest(HttpMethod.Put, PersonalOcrReviewPath(billId, fileId), owner.RawSessionToken, payload);
+        using var savedResponse = await client.SendAsync(put);
+        Assert.Equal(HttpStatusCode.Created, savedResponse.StatusCode);
+        var saved = ReadReviewPayload(await savedResponse.Content.ReadAsStringAsync());
+        Assert.Equal(4, saved.HeaderEvidence.Count);
+        Assert.Equal(["discount", "service_charge", "subtotal", "tax"], saved.HeaderEvidence.Select(e => e.Role));
+        Assert.Equal(["JPY", "GBP", "EUR", "HKD"], saved.HeaderEvidence.Select(e => e.Currency));
+        Assert.Empty(saved.AdjustmentEvidence);
+        using var get = CreateBearerRequest(HttpMethod.Get, PersonalOcrReviewPath(billId, fileId), owner.RawSessionToken);
+        using var reopenedResponse = await client.SendAsync(get);
+        Assert.Equal(saved.HeaderEvidence, ReadReviewPayload(await reopenedResponse.Content.ReadAsStringAsync()).HeaderEvidence);
+        using var list = CreateBearerRequest(HttpMethod.Get, "/api/v1/receipt-ocr-reviews", owner.RawSessionToken);
+        using var listedResponse = await client.SendAsync(list);
+        Assert.Equal(HttpStatusCode.OK, listedResponse.StatusCode);
+        Assert.Equal(saved.HeaderEvidence, ReadReviewQueuePayload(await listedResponse.Content.ReadAsStringAsync()).Reviews.Single().HeaderEvidence);
+        Assert.Equal(beforeItems, await CountBillItemsAsync(testFactory, billId));
+        using var preview = CreateBearerRequest(HttpMethod.Get, PersonalOcrReviewApplyPreviewPath(billId, fileId), owner.RawSessionToken);
+        using var previewResponse = await client.SendAsync(preview);
+        Assert.Equal(HttpStatusCode.OK, previewResponse.StatusCode);
+        using (var previewDocument = JsonDocument.Parse(await previewResponse.Content.ReadAsStringAsync()))
+        {
+            var proposed = previewDocument.RootElement;
+            Assert.Equal(JsonValueKind.Null, proposed.GetProperty("proposedSubtotalAmount").ValueKind);
+            Assert.Equal(JsonValueKind.Null, proposed.GetProperty("proposedTaxAmount").ValueKind);
+            Assert.Equal(JsonValueKind.Null, proposed.GetProperty("proposedServiceChargeAmount").ValueKind);
+            Assert.Equal(JsonValueKind.Null, proposed.GetProperty("proposedDiscountAmount").ValueKind);
+            Assert.False(proposed.GetProperty("canApply").GetBoolean());
+        }
+        using var omittedConflict = CreateJsonBearerRequest(HttpMethod.Put, PersonalOcrReviewPath(billId, fileId), owner.RawSessionToken,
+            """{"status":"reviewed","source":"on_device","currency":"USD","taxAmount":"1.00"}""");
+        using var omittedConflictResponse = await client.SendAsync(omittedConflict);
+        Assert.Equal(HttpStatusCode.BadRequest, omittedConflictResponse.StatusCode);
+        using var currencyConflict = CreateJsonBearerRequest(HttpMethod.Put, PersonalOcrReviewPath(billId, fileId), owner.RawSessionToken,
+            """{"status":"reviewed","source":"on_device","currency":"EUR"}""");
+        using var currencyConflictResponse = await client.SendAsync(currencyConflict);
+        Assert.Equal(HttpStatusCode.BadRequest, currencyConflictResponse.StatusCode);
+
+        using var replace = CreateJsonBearerRequest(HttpMethod.Put, PersonalOcrReviewPath(billId, fileId), owner.RawSessionToken,
+            """{"status":"reviewed","source":"on_device","currency":"USD","subtotalAmount":"10.00","grandTotalAmount":"10.00","headerEvidence":[]}""");
+        using var replacedResponse = await client.SendAsync(replace);
+        Assert.Equal(HttpStatusCode.OK, replacedResponse.StatusCode);
+        Assert.Empty(ReadReviewPayload(await replacedResponse.Content.ReadAsStringAsync()).HeaderEvidence);
+        Assert.Equal(beforeItems, await CountBillItemsAsync(testFactory, billId));
     }
 
     [Fact]
@@ -2688,7 +2778,15 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
             """{"status":"provisional","source":"on_device","adjustmentEvidence":[{"kind":"credit","originalLabel":"Credit","amount":"1","currency":"USD","direction":"charge"}]}""",
             """{"status":"provisional","source":"on_device","adjustmentEvidence":[{"kind":"fee","originalLabel":"Fee","amount":"1","currency":"usd","direction":"charge"}]}""",
             $$"""{"status":"provisional","source":"on_device","adjustmentEvidence":[{"kind":"other","originalLabel":"{{new string('x', 121)}}","amount":"1","currency":"USD","direction":"credit"}]}""",
-            $$"""{"status":"provisional","source":"on_device","adjustmentEvidence":[{{tooManyAdjustments}}]}"""
+            $$"""{"status":"provisional","source":"on_device","adjustmentEvidence":[{{tooManyAdjustments}}]}""",
+            """{"status":"provisional","source":"on_device","headerEvidence":null}""",
+            """{"status":"provisional","source":"on_device","headerEvidence":[{"role":"total","amount":"1","currency":"EUR"}]}""",
+            """{"status":"provisional","source":"on_device","headerEvidence":[{"role":"tax","amount":"1","currency":"EUR"},{"role":"tax","amount":"2","currency":"GBP"}]}""",
+            """{"status":"provisional","source":"on_device","headerEvidence":[{"role":"tax","amount":"1e2","currency":"EUR"}]}""",
+            """{"status":"provisional","source":"on_device","headerEvidence":[{"role":"tax","amount":"1","currency":"XPF"}]}""",
+            """{"status":"provisional","source":"on_device","currency":"USD","taxAmount":"1","headerEvidence":[{"role":"tax","amount":"2","currency":"EUR"}]}""",
+            """{"status":"provisional","source":"on_device","currency":"USD","headerEvidence":[{"role":"tax","amount":"1","currency":"USD"}]}""",
+            """{"status":"provisional","source":"on_device","headerEvidence":[{"role":"subtotal","amount":"1","currency":"EUR"},{"role":"tax","amount":"1","currency":"EUR"},{"role":"service_charge","amount":"1","currency":"EUR"},{"role":"discount","amount":"1","currency":"EUR"},{"role":"tax","amount":"1","currency":"GBP"}]}"""
         };
 
         foreach (var payload in invalidPayloads)
@@ -2747,6 +2845,9 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         var adjustmentDirectionSchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewAdjustmentDirection:");
         var adjustmentRequestSchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewAdjustmentRequest:");
         var adjustmentResponseSchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewAdjustmentResponse:");
+        var headerRoleSchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewHeaderRole:");
+        var headerRequestSchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewHeaderEvidenceRequest:");
+        var headerResponseSchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewHeaderEvidenceResponse:");
         var listResponseSchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewListResponse:");
         var summaryResponseSchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewSummaryResponse:");
         var responseSchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewResponse:");
@@ -2797,6 +2898,11 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         Assert.Contains("maxItems: 100", requestSchema);
         Assert.Contains("maxItems: 50", requestSchema);
         Assert.Contains("adjustmentEvidence", requestSchema);
+        Assert.Contains("headerEvidence", requestSchema);
+        Assert.Contains("maxItems: 4", requestSchema);
+        Assert.Contains("service_charge", headerRoleSchema);
+        Assert.Contains("ReceiptOcrCandidateAmount", headerRequestSchema);
+        Assert.Contains("ReceiptOcrCandidateAmount", headerResponseSchema);
         Assert.Contains("other", adjustmentKindSchema);
         Assert.Contains("credit", adjustmentDirectionSchema);
         Assert.Contains("originalLabel", adjustmentRequestSchema);
@@ -2810,9 +2916,11 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         Assert.Contains("reviews", listResponseSchema);
         Assert.Contains("lineCount", summaryResponseSchema);
         Assert.Contains("merchantText", summaryResponseSchema);
+        Assert.Contains("headerEvidence", summaryResponseSchema);
         Assert.Contains("grandTotalAmount", responseSchema);
         Assert.Contains("lines", responseSchema);
         Assert.Contains("adjustmentEvidence", responseSchema);
+        Assert.Contains("headerEvidence", responseSchema);
         Assert.Contains("currency_mismatch", applyPreviewIssueSchema);
         Assert.Contains("line_total_mismatch", applyPreviewIssueSchema);
         Assert.Contains("adjustments_not_auto_applied", applyPreviewIssueSchema);
@@ -3780,6 +3888,7 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
                 "fileId",
                 "grandTotalAmount",
                 "groupId",
+                "headerEvidence",
                 "id",
                 "lines",
                 "merchantText",
@@ -3815,7 +3924,12 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
             root.GetProperty("adjustmentEvidence")
                 .EnumerateArray()
                 .Select(ReadAdjustmentPayload)
-                .ToArray());
+                .ToArray(),
+            root.GetProperty("headerEvidence").EnumerateArray()
+                .Select(entry => new ReceiptOcrReviewHeaderEvidencePayload(
+                    entry.GetProperty("role").GetString()!,
+                    entry.GetProperty("amount").GetString()!,
+                    entry.GetProperty("currency").GetString()!)).ToArray());
     }
 
     private static ReceiptOcrReviewAdjustmentPayload ReadAdjustmentPayload(JsonElement root)
@@ -3922,6 +4036,7 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
                 "currency",
                 "fileId",
                 "groupId",
+                "headerEvidence",
                 "lineCount",
                 "merchantText",
                 "reviewId",
@@ -3943,6 +4058,11 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
             root.GetProperty("merchantText").GetString(),
             root.GetProperty("currency").GetString(),
             root.GetProperty("lineCount").GetInt32(),
+            root.GetProperty("headerEvidence").EnumerateArray()
+                .Select(entry => new ReceiptOcrReviewHeaderEvidencePayload(
+                    entry.GetProperty("role").GetString()!,
+                    entry.GetProperty("amount").GetString()!,
+                    entry.GetProperty("currency").GetString()!)).ToArray(),
             root.GetProperty("createdAtUtc").GetDateTimeOffset(),
             root.GetProperty("updatedAtUtc").GetDateTimeOffset());
     }
@@ -4504,7 +4624,10 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         string? Currency,
         string? GrandTotalAmount,
         IReadOnlyList<ReceiptOcrReviewLinePayload> Lines,
-        IReadOnlyList<ReceiptOcrReviewAdjustmentPayload> AdjustmentEvidence);
+        IReadOnlyList<ReceiptOcrReviewAdjustmentPayload> AdjustmentEvidence,
+        IReadOnlyList<ReceiptOcrReviewHeaderEvidencePayload> HeaderEvidence);
+
+    private sealed record ReceiptOcrReviewHeaderEvidencePayload(string Role, string Amount, string Currency);
 
     private sealed record ReceiptOcrReviewAdjustmentPayload(
         Guid Id,
@@ -4551,6 +4674,7 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         string? MerchantText,
         string? Currency,
         int LineCount,
+        IReadOnlyList<ReceiptOcrReviewHeaderEvidencePayload> HeaderEvidence,
         DateTimeOffset CreatedAtUtc,
         DateTimeOffset UpdatedAtUtc);
 

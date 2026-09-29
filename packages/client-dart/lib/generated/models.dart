@@ -9938,6 +9938,75 @@ class ReceiptOcrReviewAdjustmentResponse {
   }
 }
 
+/// Stable role of provisional printed header evidence.
+typedef ReceiptOcrReviewHeaderRole = String;
+class ReceiptOcrReviewHeaderRoleValues {
+  const ReceiptOcrReviewHeaderRoleValues._();
+  static const ReceiptOcrReviewHeaderRole subtotal = "subtotal";
+  static const ReceiptOcrReviewHeaderRole tax = "tax";
+  static const ReceiptOcrReviewHeaderRole serviceCharge = "service_charge";
+  static const ReceiptOcrReviewHeaderRole discount = "discount";
+  static const Set<ReceiptOcrReviewHeaderRole> values = {subtotal, tax, serviceCharge, discount};
+}
+
+/// A bounded printed header candidate with its own supported currency. It is never authoritative bill money.
+class ReceiptOcrReviewHeaderEvidenceRequest {
+  const ReceiptOcrReviewHeaderEvidenceRequest({
+    required this.role,
+    required this.amount,
+    required this.currency,
+  });
+
+  final ReceiptOcrReviewHeaderRole role;
+  final ReceiptOcrCandidateAmount amount;
+  final CurrencyCode currency;
+
+  factory ReceiptOcrReviewHeaderEvidenceRequest.fromJson(JsonObject json) {
+    return ReceiptOcrReviewHeaderEvidenceRequest(
+      role: json["role"] as String,
+      amount: json["amount"] as String,
+      currency: json["currency"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "role": role,
+      "amount": amount,
+      "currency": currency,
+    };
+  }
+}
+
+/// Persisted provisional printed header candidate; apply ignores this collection.
+class ReceiptOcrReviewHeaderEvidenceResponse {
+  const ReceiptOcrReviewHeaderEvidenceResponse({
+    required this.role,
+    required this.amount,
+    required this.currency,
+  });
+
+  final ReceiptOcrReviewHeaderRole role;
+  final ReceiptOcrCandidateAmount amount;
+  final CurrencyCode currency;
+
+  factory ReceiptOcrReviewHeaderEvidenceResponse.fromJson(JsonObject json) {
+    return ReceiptOcrReviewHeaderEvidenceResponse(
+      role: json["role"] as String,
+      amount: json["amount"] as String,
+      currency: json["currency"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "role": role,
+      "amount": amount,
+      "currency": currency,
+    };
+  }
+}
+
 /// One bounded OCR review line. Line text is reviewed/candidate text, not raw OCR full text. Amounts use the review-level currency and remain provisional.
 class ReceiptOcrReviewLineRequest {
   static const Object _unsetQuantity = Object();
@@ -10022,6 +10091,7 @@ class ReceiptOcrReviewUpsertRequest {
     Object? grandTotalAmount = _unsetGrandTotalAmount,
     this.lines,
     this.adjustmentEvidence,
+    this.headerEvidence,
   })
       : merchantText = identical(merchantText, _unsetMerchantText) ? null : merchantText as String?,
         _hasMerchantText = !identical(merchantText, _unsetMerchantText),
@@ -10066,6 +10136,8 @@ class ReceiptOcrReviewUpsertRequest {
   final List<ReceiptOcrReviewLineRequest>? lines;
   /// Optional ordered non-item adjustment evidence. The server derives stable order from array order; entries are not merchandise and are not automatically applied as bill adjustments.
   final List<ReceiptOcrReviewAdjustmentRequest>? adjustmentEvidence;
+  /// Optional provisional printed header candidates in a currency different from the review currency. At most one entry per role; absent preserves existing evidence on update, while an empty array clears it. Never used as authoritative bill money.
+  final List<ReceiptOcrReviewHeaderEvidenceRequest>? headerEvidence;
 
   factory ReceiptOcrReviewUpsertRequest.fromJson(JsonObject json) {
     return ReceiptOcrReviewUpsertRequest(
@@ -10097,6 +10169,7 @@ class ReceiptOcrReviewUpsertRequest {
           : _unsetGrandTotalAmount,
       lines: json["lines"] == null ? null : (json["lines"] as List<dynamic>).map((item) => ReceiptOcrReviewLineRequest.fromJson(JsonObject.from(item as Map))).toList(growable: false),
       adjustmentEvidence: json["adjustmentEvidence"] == null ? null : (json["adjustmentEvidence"] as List<dynamic>).map((item) => ReceiptOcrReviewAdjustmentRequest.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      headerEvidence: json["headerEvidence"] == null ? null : (json["headerEvidence"] as List<dynamic>).map((item) => ReceiptOcrReviewHeaderEvidenceRequest.fromJson(JsonObject.from(item as Map))).toList(growable: false),
     );
   }
 
@@ -10111,6 +10184,7 @@ class ReceiptOcrReviewUpsertRequest {
     final grandTotalAmountJsonValue = grandTotalAmount;
     final linesJsonValue = lines;
     final adjustmentEvidenceJsonValue = adjustmentEvidence;
+    final headerEvidenceJsonValue = headerEvidence;
 
     return {
       "status": status,
@@ -10125,6 +10199,7 @@ class ReceiptOcrReviewUpsertRequest {
       if (_hasGrandTotalAmount) "grandTotalAmount": grandTotalAmountJsonValue,
       if (linesJsonValue != null) "lines": linesJsonValue.map((item) => item.toJson()).toList(growable: false),
       if (adjustmentEvidenceJsonValue != null) "adjustmentEvidence": adjustmentEvidenceJsonValue.map((item) => item.toJson()).toList(growable: false),
+      if (headerEvidenceJsonValue != null) "headerEvidence": headerEvidenceJsonValue.map((item) => item.toJson()).toList(growable: false),
     };
   }
 }
@@ -10215,6 +10290,7 @@ class ReceiptOcrReviewSummaryResponse {
     required this.merchantText,
     required this.currency,
     required this.lineCount,
+    required this.headerEvidence,
     required this.createdAtUtc,
     required this.updatedAtUtc,
   });
@@ -10234,6 +10310,7 @@ class ReceiptOcrReviewSummaryResponse {
   final CurrencyCode? currency;
   /// Number of bounded reviewed/candidate line rows linked to the review.
   final int lineCount;
+  final List<ReceiptOcrReviewHeaderEvidenceResponse> headerEvidence;
   final DateTime createdAtUtc;
   final DateTime updatedAtUtc;
 
@@ -10248,6 +10325,7 @@ class ReceiptOcrReviewSummaryResponse {
       merchantText: json["merchantText"] == null ? null : json["merchantText"] as String,
       currency: json["currency"] == null ? null : json["currency"] as String,
       lineCount: (json["lineCount"] as num).toInt(),
+      headerEvidence: (json["headerEvidence"] as List<dynamic>).map((item) => ReceiptOcrReviewHeaderEvidenceResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
       createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
       updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
     );
@@ -10268,6 +10346,7 @@ class ReceiptOcrReviewSummaryResponse {
       "merchantText": merchantTextJsonValue,
       "currency": currencyJsonValue,
       "lineCount": lineCount,
+      "headerEvidence": headerEvidence.map((item) => item.toJson()).toList(growable: false),
       "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
       "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
     };
@@ -10293,6 +10372,7 @@ class ReceiptOcrReviewResponse {
     required this.grandTotalAmount,
     required this.lines,
     required this.adjustmentEvidence,
+    required this.headerEvidence,
     required this.createdAtUtc,
     required this.updatedAtUtc,
   });
@@ -10317,6 +10397,7 @@ class ReceiptOcrReviewResponse {
   final String? grandTotalAmount;
   final List<ReceiptOcrReviewLineResponse> lines;
   final List<ReceiptOcrReviewAdjustmentResponse> adjustmentEvidence;
+  final List<ReceiptOcrReviewHeaderEvidenceResponse> headerEvidence;
   final DateTime createdAtUtc;
   final DateTime updatedAtUtc;
 
@@ -10338,6 +10419,7 @@ class ReceiptOcrReviewResponse {
       grandTotalAmount: json["grandTotalAmount"] == null ? null : json["grandTotalAmount"] as String,
       lines: (json["lines"] as List<dynamic>).map((item) => ReceiptOcrReviewLineResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
       adjustmentEvidence: (json["adjustmentEvidence"] as List<dynamic>).map((item) => ReceiptOcrReviewAdjustmentResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      headerEvidence: (json["headerEvidence"] as List<dynamic>).map((item) => ReceiptOcrReviewHeaderEvidenceResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
       createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
       updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
     );
@@ -10371,6 +10453,7 @@ class ReceiptOcrReviewResponse {
       "grandTotalAmount": grandTotalAmountJsonValue,
       "lines": lines.map((item) => item.toJson()).toList(growable: false),
       "adjustmentEvidence": adjustmentEvidence.map((item) => item.toJson()).toList(growable: false),
+      "headerEvidence": headerEvidence.map((item) => item.toJson()).toList(growable: false),
       "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
       "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
     };

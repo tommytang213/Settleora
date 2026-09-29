@@ -18343,6 +18343,43 @@ components:
         updatedAtUtc:
           type: string
           format: date-time
+    ReceiptOcrReviewHeaderRole:
+      type: string
+      description: Stable role of provisional printed header evidence.
+      enum:
+        - subtotal
+        - tax
+        - service_charge
+        - discount
+    ReceiptOcrReviewHeaderEvidenceRequest:
+      type: object
+      description: A bounded printed header candidate with its own supported currency. It is never authoritative bill money.
+      additionalProperties: false
+      required:
+        - role
+        - amount
+        - currency
+      properties:
+        role:
+          $ref: "#/components/schemas/ReceiptOcrReviewHeaderRole"
+        amount:
+          $ref: "#/components/schemas/ReceiptOcrCandidateAmount"
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+    ReceiptOcrReviewHeaderEvidenceResponse:
+      type: object
+      description: Persisted provisional printed header candidate; apply ignores this collection.
+      required:
+        - role
+        - amount
+        - currency
+      properties:
+        role:
+          $ref: "#/components/schemas/ReceiptOcrReviewHeaderRole"
+        amount:
+          $ref: "#/components/schemas/ReceiptOcrCandidateAmount"
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
     ReceiptOcrReviewLineRequest:
       type: object
       description: One bounded OCR review line. Line text is reviewed/candidate text, not raw OCR full text. Amounts use the review-level currency and remain provisional.
@@ -18435,6 +18472,12 @@ components:
           items:
             $ref: "#/components/schemas/ReceiptOcrReviewAdjustmentRequest"
           description: Optional ordered non-item adjustment evidence. The server derives stable order from array order; entries are not merchandise and are not automatically applied as bill adjustments.
+        headerEvidence:
+          type: array
+          maxItems: 4
+          items:
+            $ref: "#/components/schemas/ReceiptOcrReviewHeaderEvidenceRequest"
+          description: Optional provisional printed header candidates in a currency different from the review currency. At most one entry per role; absent preserves existing evidence on update, while an empty array clears it. Never used as authoritative bill money.
     ReceiptOcrReviewLineResponse:
       type: object
       description: Safe receipt OCR review line response. It exposes bounded reviewed/candidate fields only and excludes raw OCR full text, file bytes, storage/provider internals, bill item mutation state, payment details, and unrelated users.
@@ -18498,6 +18541,7 @@ components:
         - merchantText
         - currency
         - lineCount
+        - headerEvidence
         - createdAtUtc
         - updatedAtUtc
       properties:
@@ -18538,6 +18582,11 @@ components:
           minimum: 0
           maximum: 100
           description: Number of bounded reviewed/candidate line rows linked to the review.
+        headerEvidence:
+          type: array
+          maxItems: 4
+          items:
+            $ref: "#/components/schemas/ReceiptOcrReviewHeaderEvidenceResponse"
         createdAtUtc:
           type: string
           format: date-time
@@ -18564,6 +18613,7 @@ components:
         - grandTotalAmount
         - lines
         - adjustmentEvidence
+        - headerEvidence
         - createdAtUtc
         - updatedAtUtc
       properties:
@@ -18632,6 +18682,11 @@ components:
           maxItems: 50
           items:
             $ref: "#/components/schemas/ReceiptOcrReviewAdjustmentResponse"
+        headerEvidence:
+          type: array
+          maxItems: 4
+          items:
+            $ref: "#/components/schemas/ReceiptOcrReviewHeaderEvidenceResponse"
         createdAtUtc:
           type: string
           format: date-time

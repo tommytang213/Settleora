@@ -361,6 +361,15 @@ ReceiptOcrReviewDetail _mapDetail(api.ReceiptOcrReviewResponse response) {
     adjustmentEvidence: response.adjustmentEvidence
         .map(_mapAdjustment)
         .toList(growable: false),
+    headerEvidence: response.headerEvidence
+        .map(
+          (entry) => ReceiptOcrReviewHeaderEvidence(
+            role: entry.role,
+            amount: entry.amount,
+            currency: entry.currency,
+          ),
+        )
+        .toList(growable: false),
     createdAtUtc: response.createdAtUtc.toUtc(),
     updatedAtUtc: response.updatedAtUtc.toUtc(),
   );
@@ -412,6 +421,15 @@ api.ReceiptOcrReviewUpsertRequest _mapSaveRequest(
     lines: request.lines.map(_mapSaveLine).toList(growable: false),
     adjustmentEvidence: request.adjustmentEvidence
         .map(_mapSaveAdjustment)
+        .toList(growable: false),
+    headerEvidence: request.headerEvidence
+        .map(
+          (entry) => api.ReceiptOcrReviewHeaderEvidenceRequest(
+            role: entry.role,
+            amount: entry.amount,
+            currency: entry.currency,
+          ),
+        )
         .toList(growable: false),
   );
 }
