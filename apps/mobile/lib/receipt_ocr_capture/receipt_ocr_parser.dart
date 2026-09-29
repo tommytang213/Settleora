@@ -2690,7 +2690,8 @@ bool _currencyMarkerTouchesAmount(String text, RegExpMatch marker) {
   final trailingMarkerHasMonetaryAmount =
       precedingAmount != null &&
       (precedingAmount.group(1)!.contains('.') ||
-          precedingAmount.group(1)!.contains(',')) &&
+          precedingAmount.group(1)!.contains(',') ||
+          !RegExp(r'^[A-Za-z]+$').hasMatch(markerText)) &&
       (!RegExp(r'^[A-Za-z]+$').hasMatch(markerText) ||
           markerText == markerText.toUpperCase()) &&
       RegExp(

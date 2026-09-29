@@ -3435,6 +3435,8 @@ Total USD 3.00
       r'Coffee HKD 10.00 $1.00',
       r'Coffee HKD 10 $1.00',
       r'Coffee 10.00 HKD $1.00',
+      r'Coffee 10 € $1.00',
+      r'Coffee 10 £ $1.00',
     ]) {
       final conflicted = parser.parse('''
 Exchange Cafe
