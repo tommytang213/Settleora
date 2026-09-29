@@ -4382,6 +4382,28 @@ Total HKD 24.00
     expect(preview.reviewHints, isEmpty);
   });
 
+  test('unresolved item currency retains printed adjustment warning', () {
+    for (final foreignAdjustment in [false, true]) {
+      final preview = ReceiptOcrPreview(
+        currency: 'EUR',
+        tax: '1.00',
+        taxCurrency: foreignAdjustment ? 'USD' : 'EUR',
+        taxHasExplicitCurrencyEvidence: true,
+        total: '3.00',
+        items: const [
+          ReceiptOcrItemCandidate(
+            description: 'Mixed-currency item',
+            lineTotal: '2.00',
+            currencyUnresolved: true,
+          ),
+        ],
+      );
+      expect(preview.reviewHints, [
+        'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
+      ], reason: 'foreign adjustment: $foreignAdjustment');
+    }
+  });
+
   test(
     'preview omits warning when charges exactly reconcile the grand total',
     () {

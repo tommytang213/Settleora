@@ -164,6 +164,14 @@ List<String> _receiptOcrReviewHints(ReceiptOcrPreview preview) {
     reviewCurrency: preview.currency,
   );
   if (itemTotal == null) {
+    if (_parseReceiptOcrReviewAmount(preview.total) != null &&
+        (!preview.adjustmentsComplete ||
+            _hasReceiptOcrReferenceAdjustment(preview) ||
+            _hasReceiptOcrForeignAdjustment(preview))) {
+      return const [
+        'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
+      ];
+    }
     return const [];
   }
 
