@@ -2715,10 +2715,10 @@ Iterable<RegExpMatch> _printedCurrencyMarkerMatches(String text) sync* {
     caseSensitive: false,
     unicode: true,
   ).allMatches(text);
-  // A supported suffix symbol can touch its amount. Keep the separated-code
-  // boundary above so letters embedded in a product or SKU stay out.
+  // A supported printed marker can touch its earlier amount. The following
+  // monetary-context check excludes a bare code embedded in product/SKU text.
   yield* RegExp(
-    r'(?<=\d)(€|£|¥|₹|₩|₺|₫|\$|zł|kr|Rs)(?![\p{L}])',
+    '(?<=\\d)($_currencyTokenPattern)(?![\\p{L}\\p{N}])',
     caseSensitive: false,
     unicode: true,
   ).allMatches(text);
