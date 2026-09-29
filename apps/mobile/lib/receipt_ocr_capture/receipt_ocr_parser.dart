@@ -1527,9 +1527,7 @@ bool _isFinancialLabelWithAdjacentAmount(
       r'(?:^|\s)\d+(?:[.,]\d+)?(?:\s*(?:therms?|kwh|mwh|kw|m³|m3|units?|gallons?|liters?|litres?|kg|g|lb|lbs))?\s*$',
       caseSensitive: false,
     ).hasMatch(prefix);
-    if (pricedRow != null &&
-        endsWithUsage &&
-        RegExp(_amountTokenPattern).allMatches(prefix).length == 1) {
+    if (pricedRow != null && endsWithUsage) {
       ambiguous.add(index);
       continue;
     }

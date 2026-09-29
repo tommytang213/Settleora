@@ -1428,6 +1428,7 @@ Meter Reading 12345
 Current Meter Reading 12345.67
 Previous Meter Reading (kWh) 12.34
 Delivery Charge 76 \$0.412
+Tier 1 76 therms \$0.41
 Service Charge USD 5.00
 Delivery Fee USD 2.00
 Total Amount Due USD 7.00
@@ -1447,11 +1448,14 @@ Total Amount Due USD 7.00
       _layoutBlock('Delivery Charge', 11, 5, 20, 160),
       _layoutBlock('76', 12, 5, 170, 210),
       _layoutBlock('\$0.412', 13, 5, 230, 270),
-      _layoutBlock('Service Charge', 14, 6, 20, 160),
-      _layoutBlock('USD 5.00', 15, 6, 310, 350),
-      _layoutBlock('Delivery Fee', 16, 7, 20, 160),
-      _layoutBlock('USD 2.00', 17, 7, 310, 350),
-      _layoutBlock('Total Amount Due USD 7.00', 18, 8, 20, 350),
+      _layoutBlock('Tier 1', 14, 6, 20, 160),
+      _layoutBlock('76 therms', 15, 6, 170, 210),
+      _layoutBlock('\$0.41', 16, 6, 230, 270),
+      _layoutBlock('Service Charge', 17, 7, 20, 160),
+      _layoutBlock('USD 5.00', 18, 7, 310, 350),
+      _layoutBlock('Delivery Fee', 19, 8, 20, 160),
+      _layoutBlock('USD 2.00', 20, 8, 310, 350),
+      _layoutBlock('Total Amount Due USD 7.00', 21, 9, 20, 350),
     ];
     for (final draft in [
       parser.parse(mixedTable),
