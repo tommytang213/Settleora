@@ -1946,6 +1946,43 @@ Total $10.00
     expect(preview.items.single.currency, 'RUB');
   });
 
+  test('supported selected total marker outranks uppercase item word', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+BBQ Shop
+BBQ RUB 10.00
+Total ₹10.00
+''');
+
+    expect(preview.currency, 'INR');
+    expect(preview.total, '10.00');
+    expect(preview.items.single.currency, 'RUB');
+  });
+
+  test('receipt currency follows the selected amount on mixed total', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(r'''
+Market
+Coffee USD 10.00
+Total €9.00 $10.00
+''', fallbackCurrency: 'USD');
+
+    expect(preview.currency, 'USD');
+    expect(preview.total, '10.00');
+  });
+
+  test('mixed total with unbound selected dollar stays unresolved', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Market
+Coffee 10.00
+Total €9.00 \$10.00
+''');
+
+    expect(preview.currency, isNull);
+    expect(preview.total, isNull);
+  });
+
   test(
     'uppercase item code remains evidence without selected total symbol',
     () {

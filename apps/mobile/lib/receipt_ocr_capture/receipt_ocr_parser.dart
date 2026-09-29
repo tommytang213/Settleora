@@ -422,13 +422,52 @@ class ReceiptOcrParser {
     final transactionCurrencyLines = lines
         .where((line) => !_isNonTransactionCurrencyMetadataLine(line))
         .toList(growable: false);
+    final normalizedFallback = _supportedCurrencyCode(fallbackCurrency);
+    final primaryTotalLines = transactionCurrencyLines
+        .where((line) => _isPrimaryTotalCurrencyLine(line, line.toLowerCase()))
+        .toList(growable: false);
+    // A single printed multi-amount total supplies a bounded selected amount.
+    // Separate total rows still use the established role ranking below.
+    if (primaryTotalLines.length == 1 &&
+        RegExp(
+              _amountTokenPattern,
+            ).allMatches(primaryTotalLines.single).length >
+            1) {
+      final line = primaryTotalLines.single;
+      final selected = _currencyAdjacentToSelectedAmount(
+        line,
+        normalizedFallback,
+        allowPriorCurrencyConflict: true,
+      );
+      if (selected.hasExplicitEvidence &&
+          _supportedCurrencyCodes.contains(selected.currency)) {
+        final amount = RegExp(_amountTokenPattern).allMatches(line).last;
+        final before = line.substring(0, amount.start).trimRight();
+        final after = line.substring(amount.end).trimLeft();
+        final bareDollar =
+            RegExp(r'(?<![A-Za-z])\$$').hasMatch(before) ||
+            after.startsWith(r'$');
+        return _ReceiptCurrencyDetection(
+          currency: selected.currency,
+          isSymbolOnly: bareDollar,
+          usedFallbackForSymbolOnly: bareDollar,
+          provenance: bareDollar
+              ? ReceiptOcrCurrencyProvenance.defaultFallback
+              : ReceiptOcrCurrencyProvenance.explicit,
+        );
+      }
+      if (selected.hasExplicitEvidence) {
+        return const _ReceiptCurrencyDetection();
+      }
+    }
     final hasSelectedTotalSymbol = transactionCurrencyLines.any((line) {
       final normalized = line.toLowerCase();
-      return _hasTotalLabel(line, normalized) &&
-          !RegExp(
-            r'\b(payment|tender|cash|change|previous|prior|reference)\b',
-          ).hasMatch(normalized) &&
-          RegExp(r'[$€£¥]').hasMatch(line);
+      return _isPrimaryTotalCurrencyLine(line, normalized) &&
+          _currencyAdjacentToSelectedAmount(
+            line,
+            normalizedFallback,
+            allowPriorCurrencyConflict: true,
+          ).hasExplicitEvidence;
     });
     final rankedCurrencyLines = transactionCurrencyLines
         .map((line) {
@@ -506,7 +545,6 @@ class ReceiptOcrParser {
       );
     }
 
-    final normalizedFallback = _supportedCurrencyCode(fallbackCurrency);
     if (normalizedFallback == 'USD' &&
         (RegExp(r'\b(UNITED\s+STATES|USA)\b').hasMatch(joined) ||
             hasUsPostalAddress)) {
@@ -876,7 +914,11 @@ class ReceiptOcrParser {
                     r'^\s*(?:grand\s+total|total\s+amount\s+due|total)\b',
                   ).hasMatch(normalized) &&
                   RegExp(_amountTokenPattern).allMatches(line).length > 1 &&
-                  _currencyAdjacentToSelectedAmount(line, currency).currency ==
+                  _currencyAdjacentToSelectedAmount(
+                        line,
+                        currency,
+                        allowPriorCurrencyConflict: true,
+                      ).currency ==
                       currency)) &&
           !RegExp(
             r'\b(payment|tender|cash|change|previous|prior|reference)\b',
@@ -884,6 +926,7 @@ class ReceiptOcrParser {
         final selectedCurrency = _currencyAdjacentToSelectedAmount(
           line,
           currency,
+          allowPriorCurrencyConflict: true,
         );
         final printedCurrencies = <String>{
           ..._supportedCurrencyCodes.where(
@@ -3245,7 +3288,11 @@ Iterable<RegExpMatch> _printedCurrencyMarkerMatches(String text) sync* {
 }
 
 ({String? currency, bool hasExplicitEvidence})
-_currencyAdjacentToSelectedAmount(String text, String? receiptCurrency) {
+_currencyAdjacentToSelectedAmount(
+  String text,
+  String? receiptCurrency, {
+  bool allowPriorCurrencyConflict = false,
+}) {
   final amount = RegExp(_amountTokenPattern).allMatches(text).lastOrNull;
   if (amount == null) return (currency: null, hasExplicitEvidence: false);
   final before = text.substring(0, amount.start).trimRight();
@@ -3269,6 +3316,7 @@ _currencyAdjacentToSelectedAmount(String text, String? receiptCurrency) {
     }
     if (token == r'$') {
       if (!_currencyCompatibleWithBareDollar(receiptCurrency)) return null;
+      if (allowPriorCurrencyConflict) return receiptCurrency;
       final hasConflictingDenomination = _printedCurrencyMarkerMatches(text)
           .any((match) {
             final otherMarker = match.group(1);
@@ -3732,6 +3780,19 @@ bool _hasDiscountLabel(String line, String normalized) {
         RegExp(r'\b(discount|coupon)\b', caseSensitive: false),
       ) ||
       _hasJapaneseReceiptLabel(line, const ['割引', '値引']);
+}
+
+bool _isPrimaryTotalCurrencyLine(String line, String normalized) {
+  if (RegExp(
+    r'\b(payment|tender|cash|change|previous|prior|reference)\b',
+  ).hasMatch(normalized)) {
+    return false;
+  }
+  return _hasTotalLabel(line, normalized) ||
+      (RegExp(
+            r'^\s*(?:grand\s+total|total\s+amount\s+due|total|amount\s+due|balance\s+due)\b',
+          ).hasMatch(normalized) &&
+          RegExp(_amountTokenPattern).allMatches(line).length > 1);
 }
 
 bool _hasTotalLabel(String line, String normalized) {
