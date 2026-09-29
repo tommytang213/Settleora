@@ -2720,9 +2720,6 @@ bool _currencyMarkerTouchesAmount(String text, RegExpMatch marker) {
       ).hasMatch(after);
   final trailingMarkerHasWordSeparatedAmount =
       precedingAmount != null &&
-      (precedingAmount.group(1)!.contains('.') ||
-          precedingAmount.group(1)!.contains(',') ||
-          printedSymbolOrAbbreviation) &&
       (printedSymbolOrAbbreviation || markerText == markerText.toUpperCase()) &&
       RegExp(
         '^(?:and|plus|or|vs\\.?|versus|to)\\s+'

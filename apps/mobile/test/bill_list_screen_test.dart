@@ -952,6 +952,24 @@ Total USD 1.00
     );
   });
 
+  test('OCR parser-to-save excludes whole-unit mixed item money', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(r'''
+Exchange Cafe
+Coffee 10 EUR and $1.00
+Total USD 1.00
+''');
+    final lines = receiptOcrReviewLinesFromPreview(preview);
+
+    expect(preview.currency, 'USD');
+    expect(preview.items.where((item) => item.currencyUnresolved), isNotEmpty);
+    expect(lines.where((line) => line.text.contains('Coffee')), isNotEmpty);
+    expect(
+      lines.where((line) => line.text.contains('Coffee')).first.lineTotalAmount,
+      isNull,
+    );
+  });
+
   test('OCR save does not relabel a printed dollar item as euro money', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse(r'''
