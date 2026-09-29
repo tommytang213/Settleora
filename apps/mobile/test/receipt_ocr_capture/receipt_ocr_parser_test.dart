@@ -1879,6 +1879,19 @@ Total USD 10.00
     expect(preview.items.single.currencyUnresolved, isTrue);
   });
 
+  test('lowercase unsupported ISO code stays unresolved', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Exchange Cafe
+Coffee xpf 10.00
+Total USD 10.00
+''');
+
+    expect(preview.currency, 'USD');
+    expect(preview.items.single.currency, 'XPF');
+    expect(preview.items.single.currencyUnresolved, isTrue);
+  });
+
   test('selected total symbol outranks an earlier different symbol', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse('''
