@@ -660,6 +660,79 @@ void main() {
     expect(receiptOcrQuantityCandidateForSave('1.23456'), isNull);
   });
 
+  test(
+    'foreign printed headers retain role amount and currency without scalar coercion',
+    () {
+      const preview = ReceiptOcrPreview(
+        currency: 'USD',
+        subtotal: '9.50',
+        subtotalCurrency: 'EUR',
+        subtotalHasExplicitCurrencyEvidence: true,
+        tax: '2.00',
+        taxCurrency: 'HKD',
+        taxHasExplicitCurrencyEvidence: true,
+        service: '1.00',
+        serviceCurrency: 'GBP',
+        serviceHasExplicitCurrencyEvidence: true,
+        discount: '1',
+        discountCurrency: 'JPY',
+        discountHasExplicitCurrencyEvidence: true,
+      );
+      final evidence = receiptOcrHeaderEvidenceFromPreview(preview);
+      expect(
+        evidence.map((entry) => (entry.role, entry.amount, entry.currency)),
+        [
+          ('subtotal', '9.50', 'EUR'),
+          ('tax', '2.00', 'HKD'),
+          ('service_charge', '1.00', 'GBP'),
+          ('discount', '1', 'JPY'),
+        ],
+      );
+      expect(
+        receiptOcrHeaderEvidenceFromPreview(
+          const ReceiptOcrPreview(
+            currency: 'USD',
+            tax: '1.00',
+            taxCurrency: 'USD',
+            taxHasExplicitCurrencyEvidence: true,
+            service: '2.00',
+            serviceCurrency: 'XPF',
+            serviceHasExplicitCurrencyEvidence: true,
+          ),
+        ),
+        isEmpty,
+      );
+    },
+  );
+
+  test(
+    'initial OCR save keeps a printed header provisional after currency edit',
+    () {
+      const preview = ReceiptOcrPreview(
+        currency: 'EUR',
+        tax: '2.50',
+        taxCurrency: 'EUR',
+        taxHasExplicitCurrencyEvidence: true,
+      );
+      final edited = receiptOcrReviewSaveRequestFromPreview(
+        preview,
+        originalCurrency: 'USD',
+      );
+      expect(edited?.currency, 'EUR');
+      expect(edited?.taxAmount, isNull);
+      expect(edited?.headerEvidence.single.role, 'tax');
+      expect(edited?.headerEvidence.single.amount, '2.50');
+      expect(edited?.headerEvidence.single.currency, 'EUR');
+
+      final unchanged = receiptOcrReviewSaveRequestFromPreview(
+        preview,
+        originalCurrency: 'EUR',
+      );
+      expect(unchanged?.taxAmount, '2.50');
+      expect(unchanged?.headerEvidence, isEmpty);
+    },
+  );
+
   test('OCR save adapter preserves line currency boundaries and API limit', () {
     final lines = receiptOcrReviewLinesFromPreview(
       ReceiptOcrPreview(
@@ -1530,6 +1603,13 @@ Total USD 80.00
       reviewDetail: sampleReceiptOcrReviewDetail(
         route,
         adjustments: sampleBillReviewAdjustments(),
+        headerEvidence: const [
+          ReceiptOcrReviewHeaderEvidence(
+            role: 'service_charge',
+            amount: '2.50',
+            currency: 'EUR',
+          ),
+        ],
       ),
     );
 
@@ -1686,6 +1766,19 @@ Total USD 80.00
     );
     expect(receiptRepository.lastSaveRequest?.currency, 'HKD');
     expect(receiptRepository.lastSaveRequest?.grandTotalAmount, isNull);
+    expect(receiptRepository.lastSaveRequest?.headerEvidence, hasLength(1));
+    expect(
+      receiptRepository.lastSaveRequest?.headerEvidence.single.role,
+      'service_charge',
+    );
+    expect(
+      receiptRepository.lastSaveRequest?.headerEvidence.single.amount,
+      '2.50',
+    );
+    expect(
+      receiptRepository.lastSaveRequest?.headerEvidence.single.currency,
+      'EUR',
+    );
     expect(receiptRepository.lastSaveRequest?.adjustmentEvidence, hasLength(1));
     expect(
       receiptRepository
@@ -1787,6 +1880,104 @@ Total USD 80.00
     expect(find.textContaining('raw OCR full text'), findsNothing);
     semantics.dispose();
   });
+
+  testWidgets(
+    'saved printed header stays visible and provisional when review currency matches',
+    (tester) async {
+      await useLargeSurface(tester);
+      final route = ReceiptOcrReviewRoute(
+        billId: _createdBillId,
+        fileId: _uploadedFileId,
+      );
+      final receiptRepository = FakeReceiptOcrReviewRepository(
+        reviewDetail: sampleReceiptOcrReviewDetail(
+          route,
+          includeScalarTotals: false,
+          headerEvidence: const [
+            ReceiptOcrReviewHeaderEvidence(
+              role: 'tax',
+              amount: '2.50',
+              currency: 'EUR',
+            ),
+          ],
+        ),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillDetailScreen(
+            repository: FakeBillRepository(
+              detail: sampleBillDetail(id: _createdBillId),
+            ),
+            billId: _createdBillId,
+            initialBill: sampleBillDetail(id: _createdBillId),
+            receiptOcrReviewRepository: receiptRepository,
+            initialReceiptOcrReviewHandoff: ReceiptOcrReviewHandoff.saved(
+              reviewRoute: route,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('bill-detail-ocr-review-open')));
+      await tester.pumpAndSettle();
+      expect(find.text('No receipt totals were saved.'), findsNothing);
+      expect(find.text('Printed tax (review only)'), findsOneWidget);
+      expect(find.text('2.50 EUR'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('saved-ocr-review-edit')));
+      await tester.pumpAndSettle();
+      expect(find.text('Printed tax (review only)'), findsOneWidget);
+      await _selectCurrency(
+        tester,
+        find.byKey(const Key('saved-ocr-review-ocr-edit-currency')),
+        'EUR',
+      );
+      await _scrollSavedOcrReviewEditActionsIntoView(tester);
+      await tester.tap(find.byKey(const Key('saved-ocr-review-edit-save')));
+      await tester.pumpAndSettle();
+      expect(receiptRepository.lastSaveRequest?.currency, 'EUR');
+      expect(receiptRepository.lastSaveRequest?.taxAmount, isNull);
+      expect(
+        receiptRepository.lastSaveRequest?.headerEvidence.single.role,
+        'tax',
+      );
+      expect(
+        receiptRepository.lastSaveRequest?.headerEvidence.single.amount,
+        '2.50',
+      );
+      expect(
+        receiptRepository.lastSaveRequest?.headerEvidence.single.currency,
+        'EUR',
+      );
+      expect(
+        receiptRepository.reviewDetail?.headerEvidence.single.currency,
+        'EUR',
+      );
+      expect(find.text('Printed tax (review only)'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('saved-ocr-review-edit')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('saved-ocr-review-ocr-edit-merchant')),
+        'Edited Market',
+      );
+      await _scrollSavedOcrReviewEditActionsIntoView(tester);
+      await tester.tap(find.byKey(const Key('saved-ocr-review-edit-save')));
+      await tester.pumpAndSettle();
+      expect(receiptRepository.saveCalls, 2);
+      expect(receiptRepository.lastSaveRequest?.merchantText, 'Edited Market');
+      expect(receiptRepository.lastSaveRequest?.taxAmount, isNull);
+      expect(
+        receiptRepository.lastSaveRequest?.headerEvidence.single.amount,
+        '2.50',
+      );
+      expect(
+        receiptRepository.lastSaveRequest?.headerEvidence.single.currency,
+        'EUR',
+      );
+      expect(find.text('Printed tax (review only)'), findsOneWidget);
+    },
+  );
 
   testWidgets(
     'personal saved OCR review edit cancel leaves repository unchanged',
@@ -8781,6 +8972,18 @@ Total USD 80.00
           ?.text,
       isEmpty,
     );
+    expect(
+      receiptOcrHeaderEvidenceFromPreview(
+        const ReceiptOcrPreview(
+          tax: '3.00',
+          taxCurrency: 'EUR',
+          taxHasExplicitCurrencyEvidence: true,
+        ),
+      ).single.currency,
+      'EUR',
+      reason:
+          'A known printed currency can be kept while the review currency is unresolved.',
+    );
   });
 
   testWidgets('group OCR requires consistent amounts and a nonempty name', (
@@ -14110,6 +14313,8 @@ ReceiptOcrReviewDetail sampleReceiptOcrReviewDetail(
   String currency = 'USD',
   DateTime? updatedAtUtc,
   List<ReceiptOcrReviewAdjustment> adjustments = const [],
+  List<ReceiptOcrReviewHeaderEvidence> headerEvidence = const [],
+  bool includeScalarTotals = true,
 }) {
   return ReceiptOcrReviewDetail(
     id: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
@@ -14121,11 +14326,11 @@ ReceiptOcrReviewDetail sampleReceiptOcrReviewDetail(
     merchantText: merchantText,
     receiptIssuedAtUtc: _createdAtUtc,
     currency: currency,
-    subtotalAmount: '10.00',
-    taxAmount: '0.80',
+    subtotalAmount: includeScalarTotals ? '10.00' : null,
+    taxAmount: includeScalarTotals ? '0.80' : null,
     serviceChargeAmount: null,
     discountAmount: null,
-    grandTotalAmount: '10.80',
+    grandTotalAmount: includeScalarTotals ? '10.80' : null,
     lines: [
       ReceiptOcrReviewLine(
         id: 'dddddddd-dddd-dddd-dddd-dddddddddddd',
@@ -14139,6 +14344,7 @@ ReceiptOcrReviewDetail sampleReceiptOcrReviewDetail(
       ),
     ],
     adjustmentEvidence: adjustments,
+    headerEvidence: headerEvidence,
     createdAtUtc: _createdAtUtc,
     updatedAtUtc: updatedAtUtc ?? _updatedAtUtc,
   );
@@ -14204,6 +14410,14 @@ ReceiptOcrReviewDetail sampleReceiptOcrReviewDetailFromRequest(
           direction: request.adjustmentEvidence[index].direction,
           createdAtUtc: _createdAtUtc,
           updatedAtUtc: _updatedAtUtc,
+        ),
+    ],
+    headerEvidence: [
+      for (final entry in request.headerEvidence)
+        ReceiptOcrReviewHeaderEvidence(
+          role: entry.role,
+          amount: entry.amount,
+          currency: entry.currency,
         ),
     ],
     createdAtUtc: _createdAtUtc,

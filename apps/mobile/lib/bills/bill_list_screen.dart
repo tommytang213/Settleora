@@ -264,23 +264,45 @@ ReceiptOcrPreview _copyReceiptOcrPreview(
   List<ReceiptOcrItemCandidate>? items,
   bool clearHeaderMoney = false,
 }) {
+  bool retainHeader(String? printedCurrency, bool hasExplicitEvidence) {
+    if (!clearHeaderMoney) return true;
+    final supportedPrinted = _nullableUppercaseCurrency(printedCurrency);
+    return hasExplicitEvidence && supportedPrinted != null;
+  }
+
+  final retainSubtotal = retainHeader(
+    preview.subtotalCurrency,
+    preview.subtotalHasExplicitCurrencyEvidence,
+  );
+  final retainTax = retainHeader(
+    preview.taxCurrency,
+    preview.taxHasExplicitCurrencyEvidence,
+  );
+  final retainService = retainHeader(
+    preview.serviceCurrency,
+    preview.serviceHasExplicitCurrencyEvidence,
+  );
+  final retainDiscount = retainHeader(
+    preview.discountCurrency,
+    preview.discountHasExplicitCurrencyEvidence,
+  );
   return ReceiptOcrPreview(
     merchant: merchant ?? preview.merchant,
     receiptDate: receiptDate ?? preview.receiptDate,
     currency: currency ?? preview.currency,
     currencyProvenance: currencyProvenance ?? preview.currencyProvenance,
-    subtotal: clearHeaderMoney ? null : preview.subtotal,
-    subtotalCurrency: clearHeaderMoney ? null : preview.subtotalCurrency,
+    subtotal: retainSubtotal ? preview.subtotal : null,
+    subtotalCurrency: retainSubtotal ? preview.subtotalCurrency : null,
     subtotalHasExplicitCurrencyEvidence:
-        !clearHeaderMoney && preview.subtotalHasExplicitCurrencyEvidence,
-    tax: clearHeaderMoney ? null : preview.tax,
-    taxCurrency: clearHeaderMoney ? null : preview.taxCurrency,
+        retainSubtotal && preview.subtotalHasExplicitCurrencyEvidence,
+    tax: retainTax ? preview.tax : null,
+    taxCurrency: retainTax ? preview.taxCurrency : null,
     taxHasExplicitCurrencyEvidence:
-        !clearHeaderMoney && preview.taxHasExplicitCurrencyEvidence,
-    service: clearHeaderMoney ? null : preview.service,
-    serviceCurrency: clearHeaderMoney ? null : preview.serviceCurrency,
+        retainTax && preview.taxHasExplicitCurrencyEvidence,
+    service: retainService ? preview.service : null,
+    serviceCurrency: retainService ? preview.serviceCurrency : null,
     serviceHasExplicitCurrencyEvidence:
-        !clearHeaderMoney && preview.serviceHasExplicitCurrencyEvidence,
+        retainService && preview.serviceHasExplicitCurrencyEvidence,
     tip: preview.tip,
     tipLabel: preview.tipLabel,
     tipCurrency: preview.tipCurrency,
@@ -290,10 +312,10 @@ ReceiptOcrPreview _copyReceiptOcrPreview(
     shippingCurrency: preview.shippingCurrency,
     shippingHasExplicitCurrencyEvidence:
         preview.shippingHasExplicitCurrencyEvidence,
-    discount: clearHeaderMoney ? null : preview.discount,
-    discountCurrency: clearHeaderMoney ? null : preview.discountCurrency,
+    discount: retainDiscount ? preview.discount : null,
+    discountCurrency: retainDiscount ? preview.discountCurrency : null,
     discountHasExplicitCurrencyEvidence:
-        !clearHeaderMoney && preview.discountHasExplicitCurrencyEvidence,
+        retainDiscount && preview.discountHasExplicitCurrencyEvidence,
     total: clearHeaderMoney ? null : preview.total,
     rawTextLineCount: preview.rawTextLineCount,
     confidence: preview.confidence,
@@ -320,6 +342,7 @@ bool _receiptOcrPreviewHasReviewCandidates(ReceiptOcrPreview preview) {
   return (preview.merchant ?? '').trim().isNotEmpty ||
       (preview.receiptDate ?? '').trim().isNotEmpty ||
       (preview.currency ?? '').trim().isNotEmpty ||
+      receiptOcrHeaderEvidenceFromPreview(preview).isNotEmpty ||
       preview.items.any(
         (item) =>
             item.description.trim().isNotEmpty ||
@@ -404,13 +427,17 @@ String? _safeFilenameExtension(String? filename) {
   return safeName.substring(dotIndex + 1).toLowerCase();
 }
 
-ReceiptOcrReviewSaveRequest? _receiptOcrReviewSaveRequestFromPreview(
-  ReceiptOcrPreview? preview,
-) {
+@visibleForTesting
+ReceiptOcrReviewSaveRequest? receiptOcrReviewSaveRequestFromPreview(
+  ReceiptOcrPreview? preview, {
+  String? originalCurrency,
+}) {
   if (preview == null || !_receiptOcrPreviewHasReviewCandidates(preview)) {
     return null;
   }
   final currency = _nullableUppercaseCurrency(preview.currency);
+  final reviewCurrencyChanged =
+      _nullableUppercaseCurrency(originalCurrency) != currency;
 
   return ReceiptOcrReviewSaveRequest(
     status: ReceiptOcrReviewStatusValues.provisional,
@@ -419,35 +446,42 @@ ReceiptOcrReviewSaveRequest? _receiptOcrReviewSaveRequestFromPreview(
     receiptIssuedAtUtc: _parseReceiptOcrReviewDate(preview.receiptDate),
     currency: currency,
     subtotalAmount:
-        _receiptOcrHeaderAdjustmentCurrencyMatches(
-          currency,
-          preview.subtotalCurrency,
-          preview.subtotalHasExplicitCurrencyEvidence,
-        )
+        !(reviewCurrencyChanged &&
+                preview.subtotalHasExplicitCurrencyEvidence) &&
+            _receiptOcrHeaderAdjustmentCurrencyMatches(
+              currency,
+              preview.subtotalCurrency,
+              preview.subtotalHasExplicitCurrencyEvidence,
+            )
         ? receiptOcrMoneyCandidateForSave(preview.subtotal, currency: currency)
         : null,
     taxAmount:
-        _receiptOcrHeaderAdjustmentCurrencyMatches(
-          currency,
-          preview.taxCurrency,
-          preview.taxHasExplicitCurrencyEvidence,
-        )
+        !(reviewCurrencyChanged && preview.taxHasExplicitCurrencyEvidence) &&
+            _receiptOcrHeaderAdjustmentCurrencyMatches(
+              currency,
+              preview.taxCurrency,
+              preview.taxHasExplicitCurrencyEvidence,
+            )
         ? receiptOcrMoneyCandidateForSave(preview.tax, currency: currency)
         : null,
     serviceChargeAmount:
-        _receiptOcrHeaderAdjustmentCurrencyMatches(
-          currency,
-          preview.serviceCurrency,
-          preview.serviceHasExplicitCurrencyEvidence,
-        )
+        !(reviewCurrencyChanged &&
+                preview.serviceHasExplicitCurrencyEvidence) &&
+            _receiptOcrHeaderAdjustmentCurrencyMatches(
+              currency,
+              preview.serviceCurrency,
+              preview.serviceHasExplicitCurrencyEvidence,
+            )
         ? receiptOcrMoneyCandidateForSave(preview.service, currency: currency)
         : null,
     discountAmount:
-        _receiptOcrHeaderAdjustmentCurrencyMatches(
-          currency,
-          preview.discountCurrency,
-          preview.discountHasExplicitCurrencyEvidence,
-        )
+        !(reviewCurrencyChanged &&
+                preview.discountHasExplicitCurrencyEvidence) &&
+            _receiptOcrHeaderAdjustmentCurrencyMatches(
+              currency,
+              preview.discountCurrency,
+              preview.discountHasExplicitCurrencyEvidence,
+            )
         ? receiptOcrMoneyCandidateForSave(preview.discount, currency: currency)
         : null,
     grandTotalAmount: receiptOcrMoneyCandidateForSave(
@@ -456,7 +490,72 @@ ReceiptOcrReviewSaveRequest? _receiptOcrReviewSaveRequestFromPreview(
     ),
     lines: receiptOcrReviewLinesFromPreview(preview),
     adjustmentEvidence: receiptOcrAdjustmentEvidenceFromPreview(preview),
+    headerEvidence: _receiptOcrHeaderEvidenceFromPreview(
+      preview,
+      preserveMatchingEvidence: reviewCurrencyChanged,
+    ),
   );
+}
+
+@visibleForTesting
+List<ReceiptOcrReviewHeaderEvidenceSaveRequest>
+receiptOcrHeaderEvidenceFromPreview(ReceiptOcrPreview preview) {
+  return _receiptOcrHeaderEvidenceFromPreview(preview);
+}
+
+List<ReceiptOcrReviewHeaderEvidenceSaveRequest>
+_receiptOcrHeaderEvidenceFromPreview(
+  ReceiptOcrPreview preview, {
+  bool preserveMatchingEvidence = false,
+}) {
+  final reviewCurrency = _nullableUppercaseCurrency(preview.currency);
+  final candidates = [
+    (
+      'subtotal',
+      preview.subtotal,
+      preview.subtotalCurrency,
+      preview.subtotalHasExplicitCurrencyEvidence,
+    ),
+    (
+      'tax',
+      preview.tax,
+      preview.taxCurrency,
+      preview.taxHasExplicitCurrencyEvidence,
+    ),
+    (
+      'service_charge',
+      preview.service,
+      preview.serviceCurrency,
+      preview.serviceHasExplicitCurrencyEvidence,
+    ),
+    (
+      'discount',
+      preview.discount,
+      preview.discountCurrency,
+      preview.discountHasExplicitCurrencyEvidence,
+    ),
+  ];
+  final evidence = <ReceiptOcrReviewHeaderEvidenceSaveRequest>[];
+  for (final candidate in candidates) {
+    final printedCurrency = _nullableUppercaseCurrency(candidate.$3);
+    final amount = receiptOcrMoneyCandidateForSave(
+      candidate.$2,
+      currency: printedCurrency,
+    );
+    if (candidate.$4 &&
+        printedCurrency != null &&
+        (preserveMatchingEvidence || printedCurrency != reviewCurrency) &&
+        amount != null) {
+      evidence.add(
+        ReceiptOcrReviewHeaderEvidenceSaveRequest(
+          role: candidate.$1,
+          amount: amount,
+          currency: printedCurrency,
+        ),
+      );
+    }
+  }
+  return evidence;
 }
 
 bool _receiptOcrHeaderAdjustmentCurrencyMatches(
@@ -2429,8 +2528,9 @@ class _SettleoraPersonalBillCreateScreenState
     if (_receiptOcrPreviewDraftAttachmentId != sourceDraftAttachmentId) {
       return null;
     }
-    final request = _receiptOcrReviewSaveRequestFromPreview(
+    final request = receiptOcrReviewSaveRequestFromPreview(
       _receiptOcrCorrectedPreview ?? _receiptOcrResult?.preview,
+      originalCurrency: _receiptOcrResult?.preview?.currency,
     );
     if (reviewRepository == null || fileId.isEmpty || request == null) {
       return null;
@@ -7461,8 +7561,9 @@ class _SettleoraGroupBillCreateScreenState
     if (_receiptOcrPreviewDraftAttachmentId != sourceDraftAttachmentId) {
       return null;
     }
-    final request = _receiptOcrReviewSaveRequestFromPreview(
+    final request = receiptOcrReviewSaveRequestFromPreview(
       _receiptOcrCorrectedPreview ?? _receiptOcrResult?.preview,
+      originalCurrency: _receiptOcrResult?.preview?.currency,
     );
     if (reviewRepository == null || fileId.isEmpty || request == null) {
       return null;
@@ -17214,6 +17315,12 @@ List<_SavedReceiptOcrMoneyRow> _savedReceiptOcrHeaderRows(
     ),
     _savedReceiptOcrMoneyRow('Discount', review.discountAmount, currency),
     _savedReceiptOcrMoneyRow('Grand total', review.grandTotalAmount, currency),
+    for (final entry in review.headerEvidence)
+      _SavedReceiptOcrMoneyRow(
+        label: 'Printed ${entry.role.replaceAll('_', ' ')} (review only)',
+        amount: entry.amount,
+        currency: entry.currency,
+      ),
   ].nonNulls.toList(growable: false);
 }
 
@@ -17282,16 +17389,35 @@ ReceiptOcrPreview _receiptOcrPreviewFromSavedReview(
   final sortedLines = [...review.lines]
     ..sort((left, right) => left.sortOrder.compareTo(right.sortOrder));
   final currency = review.currency;
+  ReceiptOcrReviewHeaderEvidence? evidence(String role) {
+    for (final entry in review.headerEvidence) {
+      if (entry.role == role) return entry;
+    }
+    return null;
+  }
+
+  final subtotalEvidence = evidence('subtotal');
+  final taxEvidence = evidence('tax');
+  final serviceEvidence = evidence('service_charge');
+  final discountEvidence = evidence('discount');
   return ReceiptOcrPreview(
     merchant: review.merchantText,
     receiptDate: review.receiptIssuedAtUtc == null
         ? null
         : _formatBillDate(review.receiptIssuedAtUtc!),
     currency: currency,
-    subtotal: review.subtotalAmount,
-    tax: review.taxAmount,
-    service: review.serviceChargeAmount,
-    discount: review.discountAmount,
+    subtotal: review.subtotalAmount ?? subtotalEvidence?.amount,
+    subtotalCurrency: subtotalEvidence?.currency,
+    subtotalHasExplicitCurrencyEvidence: subtotalEvidence != null,
+    tax: review.taxAmount ?? taxEvidence?.amount,
+    taxCurrency: taxEvidence?.currency,
+    taxHasExplicitCurrencyEvidence: taxEvidence != null,
+    service: review.serviceChargeAmount ?? serviceEvidence?.amount,
+    serviceCurrency: serviceEvidence?.currency,
+    serviceHasExplicitCurrencyEvidence: serviceEvidence != null,
+    discount: review.discountAmount ?? discountEvidence?.amount,
+    discountCurrency: discountEvidence?.currency,
+    discountHasExplicitCurrencyEvidence: discountEvidence != null,
     total: review.grandTotalAmount,
     items: [
       for (final line in sortedLines)
@@ -17320,12 +17446,55 @@ ReceiptOcrReviewSaveRequest _receiptOcrReviewSaveRequestFromSavedEdit(
     merchantText: _nullableTrimmedText(preview.merchant),
     receiptIssuedAtUtc: _parseReceiptOcrReviewDate(preview.receiptDate),
     currency: editedCurrency,
-    subtotalAmount: preserveHeaderMoney ? review.subtotalAmount : null,
-    taxAmount: preserveHeaderMoney ? review.taxAmount : null,
-    serviceChargeAmount: preserveHeaderMoney
-        ? review.serviceChargeAmount
+    subtotalAmount:
+        preserveHeaderMoney &&
+            !preview.subtotalHasExplicitCurrencyEvidence &&
+            _receiptOcrHeaderAdjustmentCurrencyMatches(
+              editedCurrency,
+              preview.subtotalCurrency,
+              preview.subtotalHasExplicitCurrencyEvidence,
+            )
+        ? receiptOcrMoneyCandidateForSave(
+            preview.subtotal,
+            currency: editedCurrency,
+          )
         : null,
-    discountAmount: preserveHeaderMoney ? review.discountAmount : null,
+    taxAmount:
+        preserveHeaderMoney &&
+            !preview.taxHasExplicitCurrencyEvidence &&
+            _receiptOcrHeaderAdjustmentCurrencyMatches(
+              editedCurrency,
+              preview.taxCurrency,
+              preview.taxHasExplicitCurrencyEvidence,
+            )
+        ? receiptOcrMoneyCandidateForSave(preview.tax, currency: editedCurrency)
+        : null,
+    serviceChargeAmount:
+        preserveHeaderMoney &&
+            !preview.serviceHasExplicitCurrencyEvidence &&
+            _receiptOcrHeaderAdjustmentCurrencyMatches(
+              editedCurrency,
+              preview.serviceCurrency,
+              preview.serviceHasExplicitCurrencyEvidence,
+            )
+        ? receiptOcrMoneyCandidateForSave(
+            preview.service,
+            currency: editedCurrency,
+          )
+        : null,
+    discountAmount:
+        preserveHeaderMoney &&
+            !preview.discountHasExplicitCurrencyEvidence &&
+            _receiptOcrHeaderAdjustmentCurrencyMatches(
+              editedCurrency,
+              preview.discountCurrency,
+              preview.discountHasExplicitCurrencyEvidence,
+            )
+        ? receiptOcrMoneyCandidateForSave(
+            preview.discount,
+            currency: editedCurrency,
+          )
+        : null,
     grandTotalAmount: preserveHeaderMoney ? review.grandTotalAmount : null,
     lines: receiptOcrReviewLinesFromPreview(preview),
     adjustmentEvidence: [
@@ -17338,6 +17507,10 @@ ReceiptOcrReviewSaveRequest _receiptOcrReviewSaveRequestFromSavedEdit(
           direction: adjustment.direction,
         ),
     ],
+    headerEvidence: _receiptOcrHeaderEvidenceFromPreview(
+      preview,
+      preserveMatchingEvidence: true,
+    ),
   );
 }
 
