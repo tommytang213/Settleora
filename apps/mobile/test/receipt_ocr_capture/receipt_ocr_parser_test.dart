@@ -3424,6 +3424,23 @@ Total €2.00
     );
   });
 
+  test('word-separated foreign amount keeps selected dollar unresolved', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(r'''
+Exchange Cafe
+Coffee EUR 10.00 and $1.00
+Total USD 1.00
+''');
+
+    expect(preview.currency, 'USD');
+    expect(
+      preview.items.where(
+        (item) => item.lineTotal == '1.00' && item.currencyUnresolved,
+      ),
+      isNotEmpty,
+    );
+  });
+
   test('ordinary multi-number dollar item inherits established currency', () {
     const parser = ReceiptOcrParser();
     final compared = parser.parse(r'''

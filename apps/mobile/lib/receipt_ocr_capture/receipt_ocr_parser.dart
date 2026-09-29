@@ -2693,6 +2693,13 @@ bool _currencyMarkerTouchesAmount(String text, RegExpMatch marker) {
           RegExp(r'^[/:,;|)=+\]\-.]').hasMatch(afterFollowingAmount) ||
           (firstAmountLooksMonetary &&
               RegExp(
+                '^(?:and|plus|or|vs\\.?|versus|to)\\s+'
+                '$_currencyTokenPattern\\s*$_amountTokenPattern',
+                caseSensitive: false,
+                unicode: true,
+              ).hasMatch(afterFollowingAmount)) ||
+          (firstAmountLooksMonetary &&
+              RegExp(
                 '^(?:$_currencyTokenPattern\\s*)?$_amountTokenPattern',
                 caseSensitive: false,
                 unicode: true,
