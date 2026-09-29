@@ -1067,6 +1067,25 @@ Total $10.00
     expect(lines.single.lineTotalAmount, isNull);
   });
 
+  test('OCR save keeps detached signed fuel total out of item lines', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Fuel Stop
+FUEL Regular Unleaded
+GALLONS 1.5
+PRICE/GAL USD 2.00
+TOTAL USD− 3.00
+''');
+
+    expect(preview.items, isEmpty);
+    expect(receiptOcrReviewLinesFromPreview(preview), isEmpty);
+    final saved = receiptOcrReviewSaveRequestFromPreview(
+      preview,
+      originalCurrency: preview.currency,
+    );
+    expect(saved?.grandTotalAmount, isNull);
+  });
+
   test('OCR save binds mixed total money to selected USD amount', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse(r'''

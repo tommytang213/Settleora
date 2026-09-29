@@ -1120,7 +1120,11 @@ class ReceiptOcrParser {
     final items = <ReceiptOcrItemCandidate>[];
     final wrappedDescriptionLines = <String>[];
     final leadingQuantityRows = _leadingQuantityColumnRows(lines, layoutRows);
-    final fuelItem = _extractFuelItem(lines, currency);
+    final fuelItem = _extractFuelItem(
+      lines,
+      currency,
+      detachedAmountSignRows: detachedAmountSignRows,
+    );
     if (fuelItem != null) {
       items.add(fuelItem);
     }
@@ -1142,7 +1146,7 @@ class ReceiptOcrParser {
           _isChargeTableHeader(line) ||
           detachedAmountSignRows.contains(lineIndex) ||
           merchantLineIndices.contains(lineIndex) ||
-          (fuelItem != null && _isFuelMeasurementLine(line))) {
+          _isFuelMeasurementLine(line)) {
         wrappedDescriptionLines.clear();
         continue;
       }
@@ -1654,13 +1658,16 @@ class ReceiptOcrParser {
 
   ReceiptOcrItemCandidate? _extractFuelItem(
     List<String> lines,
-    String? currency,
-  ) {
+    String? currency, {
+    Set<int> detachedAmountSignRows = const {},
+  }) {
     String? description;
     String? quantity;
     String? unitPrice;
     String? lineTotal;
-    for (final line in lines) {
+    for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+      final line = lines[lineIndex];
+      if (detachedAmountSignRows.contains(lineIndex)) return null;
       final fuel = RegExp(
         r'^(?:FUEL|PRODUCT)\s*[:#-]?\s+(.+)$',
         caseSensitive: false,

@@ -872,6 +872,36 @@ TOTAL $45.22
     expect(preview.items.single.lineTotal, '45.22');
   });
 
+  test('fuel shortcut leaves detached signed money unresolved', () {
+    const parser = ReceiptOcrParser();
+    for (final signedLine in [
+      'TOTAL USD− 3.00',
+      'PRICE/GAL USD− 2.00',
+      'GALLONS − 1.5',
+    ]) {
+      final preview = parser.parse('''
+WESTSIDE FUEL
+FUEL Regular Unleaded
+GALLONS 1.5
+PRICE/GAL USD 2.00
+TOTAL USD 3.00
+$signedLine
+''');
+      expect(
+        preview.items,
+        isEmpty,
+        reason: 'signed fuel field must stay unresolved',
+      );
+      expect(
+        preview.warnings,
+        contains(
+          'Some OCR lines need manual review because no traceable line amount was found.',
+        ),
+        reason: signedLine,
+      );
+    }
+  });
+
   test(
     'parser quarantines an ambiguous fuel grand total with another item',
     () {
