@@ -1920,6 +1920,29 @@ Total USD 10.00
     expect(preview.items.single.lineTotal, '10.00');
   });
 
+  test('lowercase item word cannot set receipt-wide currency', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(r'''
+BBQ Shop
+BBQ rub 10.00
+Total $10.00
+''', fallbackCurrency: 'USD');
+
+    expect(preview.currency, 'USD');
+    expect(preview.items.single.currency, 'USD');
+    expect(preview.items.single.currencyUnresolved, isFalse);
+  });
+
+  test('lowercase supported code on total remains printed evidence', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Coffee 10.00
+Total rub 10.00
+''');
+
+    expect(preview.currency, 'RUB');
+  });
+
   test('earlier unsupported item money does not hide selected USD amount', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse('''

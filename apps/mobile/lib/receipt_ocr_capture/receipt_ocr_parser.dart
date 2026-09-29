@@ -422,9 +422,23 @@ class ReceiptOcrParser {
     final transactionCurrencyLines = lines
         .where((line) => !_isNonTransactionCurrencyMetadataLine(line))
         .toList(growable: false);
+    final rankedCurrencyLines = transactionCurrencyLines
+        .map((line) {
+          final normalized = line.toLowerCase();
+          if (_hasTotalLabel(line, normalized) ||
+              _hasSubtotalLabel(line, normalized) ||
+              _hasTaxLabel(line, normalized) ||
+              _hasServiceChargeLabel(line, normalized) ||
+              _hasDiscountLabel(line, normalized) ||
+              RegExp(r'^\s*(?:currency|curr)\b').hasMatch(normalized)) {
+            return line;
+          }
+          return _maskAmbiguousSupportedItemWords(line);
+        })
+        .toList(growable: false);
     final joined = transactionCurrencyLines.join(' ').toUpperCase();
     final hasUsPostalAddress = _hasUsPostalAddress(transactionCurrencyLines);
-    final explicitCode = _rankedExplicitCurrencyCode(transactionCurrencyLines);
+    final explicitCode = _rankedExplicitCurrencyCode(rankedCurrencyLines);
     if (explicitCode != null) {
       return _ReceiptCurrencyDetection(
         currency: explicitCode,

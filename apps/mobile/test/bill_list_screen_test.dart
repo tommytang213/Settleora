@@ -1041,6 +1041,19 @@ Total USD 10.00
     expect(lines.single.lineTotalAmount, '10.00');
   });
 
+  test('OCR save does not let lowercase rub set receipt currency', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(r'''
+BBQ Shop
+BBQ rub 10.00
+Total $10.00
+''', fallbackCurrency: 'USD');
+    final lines = receiptOcrReviewLinesFromPreview(preview);
+
+    expect(preview.currency, 'USD');
+    expect(lines.single.lineTotalAmount, '10.00');
+  });
+
   test('OCR save does not relabel a bare dollar tax as euro money', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse(r'''
