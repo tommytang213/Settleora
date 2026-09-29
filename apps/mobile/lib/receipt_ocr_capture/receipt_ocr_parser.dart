@@ -874,9 +874,6 @@ class ReceiptOcrParser {
           ? '${lines[lineIndex]} ${lines[lineIndex + 1]}'
           : lines[lineIndex];
       final normalized = line.toLowerCase();
-      final amount = _isPrimaryTotalCurrencyLine(line, normalized)
-          ? _selectedTotalAmountInLine(line, currency: currency)
-          : _lastAmountInLine(line, currency: currency);
       final hasPotentialAdjustment = _hasPotentialReceiptAdjustmentLabel(line);
       if (chargeTableRows.contains(lineIndex) ||
           ambiguousChargeTableRows.contains(lineIndex)) {
@@ -891,6 +888,19 @@ class ReceiptOcrParser {
         if (_hasDiscountLabel(line, normalized)) 'discount',
       ];
       final adjustmentRole = adjustmentRoles.firstOrNull;
+      final isSubtotal = _hasSubtotalLabel(line, normalized);
+      final printedHeaderCurrency = isSubtotal || adjustmentRole != null
+          ? _explicitAdjustmentCurrencyFromLine(line, receiptCurrency: currency)
+          : null;
+      final amountCurrency = printedHeaderCurrency?.hasExplicitEvidence == true
+          ? printedHeaderCurrency!.currency
+          : currency;
+      final amount =
+          _isPrimaryTotalCurrencyLine(line, normalized) &&
+              !isSubtotal &&
+              adjustmentRole == null
+          ? _selectedTotalAmountInLine(line, currency: currency)
+          : _lastAmountInLine(line, currency: amountCurrency);
       if (adjustmentRoles.length > 1) adjustmentsComplete = false;
       final lastAmountToken = RegExp(
         _amountTokenPattern,

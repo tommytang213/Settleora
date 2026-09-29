@@ -3916,6 +3916,21 @@ Total USD 2.00
     expect(compared.tax, isNull);
   });
 
+  test('foreign header amount uses its printed minor-unit scale', () {
+    for (final amount in ['1.000', '1,000']) {
+      final preview = const ReceiptOcrParser().parse('''
+Market
+Meal USD 10.00
+Tax KWD $amount
+Total USD 10.00
+''');
+      expect(preview.currency, 'USD', reason: amount);
+      expect(preview.taxCurrency, 'KWD', reason: amount);
+      expect(preview.taxHasExplicitCurrencyEvidence, isTrue, reason: amount);
+      expect(preview.tax, '1.000', reason: amount);
+    }
+  });
+
   test('mixed rows bind supported symbols to the selected amount', () {
     const parser = ReceiptOcrParser();
     for (final (symbol, code) in [
