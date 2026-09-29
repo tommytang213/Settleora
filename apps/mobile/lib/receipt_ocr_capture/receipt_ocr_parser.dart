@@ -179,6 +179,10 @@ class ReceiptOcrParser {
           amounts.adjustmentsComplete &&
           !extractedItems.truncated &&
           !extractedItems.unretainedPricedItem &&
+          detachedAmountSignRows.isEmpty &&
+          !chargeTable.ambiguous.any(
+            (index) => !layoutChargeItems.containsKey(index),
+          ) &&
           unresolvedItemLines == 0,
       total: amounts.total,
       rawTextLineCount: lines.length,
