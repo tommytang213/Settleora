@@ -845,7 +845,14 @@ class ReceiptOcrParser {
           discountCurrency = printed.currency;
           discountHasExplicitCurrencyEvidence = printed.hasExplicitEvidence;
         }
-      } else if (_hasTotalLabel(line, normalized) &&
+      } else if ((_hasTotalLabel(line, normalized) ||
+              (currency != null &&
+                  RegExp(
+                    r'^\s*(?:grand\s+total|total\s+amount\s+due|total)\b',
+                  ).hasMatch(normalized) &&
+                  RegExp(_amountTokenPattern).allMatches(line).length > 1 &&
+                  _currencyAdjacentToSelectedAmount(line, currency).currency ==
+                      currency)) &&
           !RegExp(
             r'\b(payment|tender|cash|change|previous|prior|reference)\b',
           ).hasMatch(normalized)) {
@@ -862,7 +869,12 @@ class ReceiptOcrParser {
         // A DCC or reference total may be printed next to the transaction
         // total. It remains OCR evidence, but cannot supply the primary amount
         // when its explicit denomination conflicts with this draft currency.
-        if ((currency != null && _hasUnsupportedIsoMonetaryEvidence(line)) ||
+        final selectedUnsupportedCurrency =
+            _unsupportedIsoCodeAdjacentToSelectedAmount(line);
+        if ((currency != null &&
+                (selectedUnsupportedCurrency != null ||
+                    (!selectedCurrency.hasExplicitEvidence &&
+                        _hasUnsupportedIsoMonetaryEvidence(line)))) ||
             (selectedCurrency.hasExplicitEvidence
                 ? currency != null &&
                       (selectedCurrency.currency == null ||
@@ -3035,6 +3047,25 @@ const _knownUnsupportedIsoCurrencyCodes = <String>{
   'ZWL',
   'ZWR',
 };
+
+// These currency codes also read as ordinary item words when OCR emits mixed
+// or lowercase text. Their letter case alone cannot turn a product word into
+// a foreign monetary marker; uppercase printed code still counts as evidence.
+const _ambiguousLowercaseIsoCurrencyWords = <String>{
+  'ALL',
+  'BAD',
+  'BAN',
+  'BOB',
+  'BOL',
+  'COP',
+  'CUP',
+  'GEL',
+  'MAD',
+  'MOP',
+  'PEN',
+  'TOP',
+  'TRY',
+};
 Iterable<RegExpMatch> _unsupportedIsoCurrencyMarkers(String text) sync* {
   for (final match in RegExp(
     r'(?<![\p{L}\p{N}])([A-Za-z]{3})(?![\p{L}])',
@@ -3042,6 +3073,8 @@ Iterable<RegExpMatch> _unsupportedIsoCurrencyMarkers(String text) sync* {
   ).allMatches(text)) {
     final code = match.group(1)!.toUpperCase();
     if (_knownUnsupportedIsoCurrencyCodes.contains(code) &&
+        (match.group(1) == code ||
+            !_ambiguousLowercaseIsoCurrencyWords.contains(code)) &&
         !_nonCurrencyAdjustmentCodes.contains(code)) {
       yield match;
     }

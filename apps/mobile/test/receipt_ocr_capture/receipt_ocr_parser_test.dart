@@ -1892,6 +1892,32 @@ Total USD 10.00
     expect(preview.items.single.currencyUnresolved, isTrue);
   });
 
+  test('ordinary lowercase currency-code word stays an item word', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Office Shop
+Blue pen 10.00
+Total USD 10.00
+''');
+
+    expect(preview.currency, 'USD');
+    expect(preview.items.single.currency, 'USD');
+    expect(preview.items.single.currencyUnresolved, isFalse);
+    expect(preview.items.single.lineTotal, '10.00');
+  });
+
+  test('earlier unsupported total does not erase selected supported total', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Exchange Cafe
+Coffee USD 1.00
+Grand Total XPF 100 / USD 1.00
+''');
+
+    expect(preview.currency, 'USD');
+    expect(preview.total, '1.00');
+  });
+
   test('selected total symbol outranks an earlier different symbol', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse('''

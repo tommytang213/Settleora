@@ -1002,6 +1002,19 @@ Total USD 10.00
     }
   });
 
+  test('OCR save keeps ordinary pen item money reviewable', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Office Shop
+Blue pen 10.00
+Total USD 10.00
+''');
+    final lines = receiptOcrReviewLinesFromPreview(preview);
+
+    expect(preview.items.single.currencyUnresolved, isFalse);
+    expect(lines.single.lineTotalAmount, '10.00');
+  });
+
   test('OCR save does not relabel a bare dollar tax as euro money', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse(r'''
