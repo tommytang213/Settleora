@@ -17430,6 +17430,8 @@ ReceiptOcrPreview _receiptOcrPreviewFromSavedReview(
     discount: review.discountAmount ?? discountEvidence?.amount,
     discountCurrency: discountEvidence?.currency,
     discountHasExplicitCurrencyEvidence: discountEvidence != null,
+    // Saved scalar fields do not prove that every printed adjustment survived.
+    adjustmentsComplete: false,
     total: review.grandTotalAmount,
     items: [
       for (final line in sortedLines)

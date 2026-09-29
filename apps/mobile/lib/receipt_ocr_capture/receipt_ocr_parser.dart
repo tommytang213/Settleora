@@ -8,6 +8,34 @@ final _potentialReceiptAdjustmentLabelPattern = RegExp(
   r'\b(?:sales\s+tax|tax|vat|gst|hst|iva|tva|kdv|mwst|service(?:\s+(?:charge|fee))?|tip|gratuity|shipping|delivery(?:\s+(?:charge|fee))?|discount|coupon)\b',
   caseSensitive: false,
 );
+const _localizedReceiptAdjustmentLabels = [
+  '消費税',
+  '税',
+  'الضريبة',
+  '税额',
+  '稅額',
+  '부가세',
+  'जीएसटी',
+  'कर',
+  'ภาษี',
+  'ндс',
+  'thuế',
+  'サービス料',
+  '服務費',
+  '服务费',
+  '서비스료',
+  'सेवा शुल्क',
+  'ค่าบริการ',
+  'сервисный сбор',
+  '割引',
+  '値引',
+];
+
+bool _hasPotentialReceiptAdjustmentLabel(String line) {
+  if (_potentialReceiptAdjustmentLabelPattern.hasMatch(line)) return true;
+  final folded = line.toLowerCase();
+  return _localizedReceiptAdjustmentLabels.any(folded.contains);
+}
 
 class ReceiptOcrParser {
   const ReceiptOcrParser();
@@ -827,9 +855,7 @@ class ReceiptOcrParser {
 
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       if (detachedAmountSignRows.contains(lineIndex)) {
-        if (_potentialReceiptAdjustmentLabelPattern.hasMatch(
-          lines[lineIndex],
-        )) {
+        if (_hasPotentialReceiptAdjustmentLabel(lines[lineIndex])) {
           adjustmentsComplete = false;
         }
         continue;
@@ -842,8 +868,7 @@ class ReceiptOcrParser {
       final amount = _isPrimaryTotalCurrencyLine(line, normalized)
           ? _selectedTotalAmountInLine(line, currency: currency)
           : _lastAmountInLine(line, currency: currency);
-      final hasPotentialAdjustment = _potentialReceiptAdjustmentLabelPattern
-          .hasMatch(line);
+      final hasPotentialAdjustment = _hasPotentialReceiptAdjustmentLabel(line);
       if (chargeTableRows.contains(lineIndex) ||
           ambiguousChargeTableRows.contains(lineIndex)) {
         if (hasPotentialAdjustment) adjustmentsComplete = false;
