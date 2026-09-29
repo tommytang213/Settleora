@@ -6,9 +6,12 @@ export const expectedAndroidPackageDigestsBySource = Object.freeze({
   // #1309 subtotal-conflict and loyalty-savings warning at 974440d9.
   // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
   // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
-  // mocked; hosted signer proof remains required for this fingerprint.
+  // mocked. Hosted exact-head Android job 109614694107 passed the signer,
+  // archive/path, catalog, model, legal, and fixture gates before emitting
+  // the second ZIP representation for this same source fingerprint.
   "95c05ae14ca93346d8e84c70c2a25720845e6ceaf9a7956c57fef72f0bc3c519": Object.freeze([
     "d8f0adb62b3a8d233c9ac6e83430d3ac135131f9df0ca57ab4d1992646c8d74b",
+    "ebff2d186e9e82147f9013635a9979c9ed0f937c367822c46b1337b3cc19bfff",
   ]),
   // #1309 unresolved-item adjustment review warning at 6e66064a.
   // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
