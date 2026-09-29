@@ -2668,12 +2668,14 @@ bool _currencyMarkerTouchesAmount(String text, RegExpMatch marker) {
       ? null
       : after.substring(followingAmount.end).trimLeft();
   final markerText = marker.group(0)!;
-  // Adjacent bare numbers may be quantities. A printed symbol or uppercase
-  // code provides monetary evidence; an ordinary title-case word does not.
+  final printedSymbolOrAbbreviation =
+      !RegExp(r'^[A-Za-z]+$').hasMatch(markerText) ||
+      RegExp(r'^(?:kr|Rs)$', caseSensitive: false).hasMatch(markerText);
+  // Adjacent bare numbers may be quantities. Printed symbols, abbreviations,
+  // and uppercase codes give monetary evidence; title-case words do not.
   final firstAmountLooksMonetary =
       followingAmount != null &&
-      (!RegExp(r'^[A-Za-z]+$').hasMatch(markerText) ||
-          markerText == markerText.toUpperCase());
+      (printedSymbolOrAbbreviation || markerText == markerText.toUpperCase());
   final amountEndsCell =
       afterFollowingAmount != null &&
       (afterFollowingAmount.isEmpty ||
@@ -2691,9 +2693,8 @@ bool _currencyMarkerTouchesAmount(String text, RegExpMatch marker) {
       precedingAmount != null &&
       (precedingAmount.group(1)!.contains('.') ||
           precedingAmount.group(1)!.contains(',') ||
-          !RegExp(r'^[A-Za-z]+$').hasMatch(markerText)) &&
-      (!RegExp(r'^[A-Za-z]+$').hasMatch(markerText) ||
-          markerText == markerText.toUpperCase()) &&
+          printedSymbolOrAbbreviation) &&
+      (printedSymbolOrAbbreviation || markerText == markerText.toUpperCase()) &&
       RegExp(
         '^\\s*(?:$_currencyTokenPattern\\s*)?$_amountTokenPattern',
         caseSensitive: false,
