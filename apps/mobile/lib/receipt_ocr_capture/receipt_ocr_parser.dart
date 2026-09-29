@@ -460,6 +460,21 @@ class ReceiptOcrParser {
         return const _ReceiptCurrencyDetection();
       }
     }
+    if (primaryTotalLines.length == 1 &&
+        RegExp(
+              _amountTokenPattern,
+            ).allMatches(primaryTotalLines.single).length ==
+            1) {
+      final attachedCode = _attachedSupportedCodeOnSelectedAmount(
+        primaryTotalLines.single,
+      );
+      if (attachedCode != null) {
+        return _ReceiptCurrencyDetection(
+          currency: attachedCode,
+          provenance: ReceiptOcrCurrencyProvenance.explicit,
+        );
+      }
+    }
     final hasSelectedTotalSymbol = transactionCurrencyLines.any((line) {
       final normalized = line.toLowerCase();
       return _isPrimaryTotalCurrencyLine(line, normalized) &&
@@ -910,21 +925,7 @@ class ReceiptOcrParser {
           discountCurrency = printed.currency;
           discountHasExplicitCurrencyEvidence = printed.hasExplicitEvidence;
         }
-      } else if ((_hasTotalLabel(line, normalized) ||
-              (currency != null &&
-                  RegExp(
-                    r'^\s*(?:grand\s+total|total\s+amount\s+due|total)\b',
-                  ).hasMatch(normalized) &&
-                  RegExp(_amountTokenPattern).allMatches(line).length > 1 &&
-                  _currencyAdjacentToSelectedAmount(
-                        line,
-                        currency,
-                        allowPriorCurrencyConflict: true,
-                      ).currency ==
-                      currency)) &&
-          !RegExp(
-            r'\b(payment|tender|cash|change|previous|prior|reference)\b',
-          ).hasMatch(normalized)) {
+      } else if (_isPrimaryTotalCurrencyLine(line, normalized)) {
         final selectedCurrency = _currencyAdjacentToSelectedAmount(
           line,
           currency,
@@ -941,7 +942,10 @@ class ReceiptOcrParser {
         // when its explicit denomination conflicts with this draft currency.
         final selectedUnsupportedCurrency =
             _unsupportedIsoCodeAdjacentToSelectedAmount(line);
-        if ((currency != null &&
+        if ((RegExp(_amountTokenPattern).allMatches(line).length > 1 &&
+                selectedCurrency.hasExplicitEvidence &&
+                selectedCurrency.currency == null) ||
+            (currency != null &&
                 (selectedUnsupportedCurrency != null ||
                     (!selectedCurrency.hasExplicitEvidence &&
                         _hasUnsupportedIsoMonetaryEvidence(line)))) ||
@@ -2497,6 +2501,26 @@ String? _selectedTotalAmountInLine(String line, {String? currency}) {
   return _lastAmountInLine(line, currency: currency);
 }
 
+String? _attachedSupportedCodeOnSelectedAmount(String line) {
+  final selected = RegExp(_amountTokenPattern).allMatches(line).lastOrNull;
+  if (selected == null) return null;
+  final before = line.substring(0, selected.start);
+  final after = line.substring(selected.end);
+  final preceding = RegExp(
+    r'(?<![\p{L}\p{N}])([A-Za-z]{3})$',
+    unicode: true,
+  ).firstMatch(before)?.group(1)?.toUpperCase();
+  final following = RegExp(
+    r'^([A-Za-z]{3})(?![\p{L}\p{N}])',
+    unicode: true,
+  ).firstMatch(after)?.group(1)?.toUpperCase();
+  if (preceding != null && following != null && preceding != following) {
+    return null;
+  }
+  final code = preceding ?? following;
+  return _supportedCurrencyCodes.contains(code) ? code : null;
+}
+
 String _originalReceiptAdjustmentLabel(
   String line, {
   required String fallback,
@@ -3809,7 +3833,8 @@ bool _isPrimaryTotalCurrencyLine(String line, String normalized) {
       (RegExp(
             r'^\s*(?:grand\s+total|total\s+amount\s+due|total|amount\s+due|balance\s+due)\b',
           ).hasMatch(normalized) &&
-          RegExp(_amountTokenPattern).allMatches(line).length > 1);
+          (RegExp(_amountTokenPattern).allMatches(line).length > 1 ||
+              _attachedSupportedCodeOnSelectedAmount(line) != null));
 }
 
 bool _hasTotalLabel(String line, String normalized) {

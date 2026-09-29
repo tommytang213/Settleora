@@ -1986,6 +1986,20 @@ Total €9.00 USD10.00
     },
   );
 
+  test('single total with attached code establishes currency', () {
+    const parser = ReceiptOcrParser();
+    for (final printedTotal in ['Total USD10.00', 'Total 10.00USD']) {
+      final preview = parser.parse('''
+Market
+Coffee 10.00
+$printedTotal
+''');
+
+      expect(preview.currency, 'USD');
+      expect(preview.total, '10.00');
+    }
+  });
+
   test('mixed total with unbound selected dollar stays unresolved', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse('''
