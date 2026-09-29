@@ -3,6 +3,13 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // #1309 separate priced fuel-row correction at 81396ba2.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "01a7acd365a1782519fa95c75f9470acf6490f8299bb21b645672a222f3ce594": Object.freeze([
+    "544462d3765585577a12981ed557925b961c25c666be393b021011b90dd4b56b",
+  ]),
   // #1309 fuel transaction-total and rate-currency correction at f959ba41.
   // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
   // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
