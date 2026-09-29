@@ -835,6 +835,8 @@ class ReceiptOcrParser {
         // when its explicit denomination conflicts with this draft currency.
         if (currency != null &&
             ((line.contains('¥') && currency != 'JPY' && currency != 'CNY') ||
+                (line.contains(r'$') &&
+                    !_currencyCompatibleWithBareDollar(currency)) ||
                 (printedCurrencies.isNotEmpty &&
                     (printedCurrencies.length != 1 ||
                         !printedCurrencies.contains(currency))))) {
@@ -2610,6 +2612,18 @@ String? _currencyFromItemToken(String? token) {
       _explicitCurrencyFromNormalizedLine(normalized);
 }
 
+bool _currencyCompatibleWithBareDollar(String? currency) => const {
+  'AUD',
+  'BRL',
+  'CAD',
+  'HKD',
+  'MXN',
+  'NZD',
+  'SGD',
+  'TWD',
+  'USD',
+}.contains(currency);
+
 String? _itemCurrencyFromPrintedText(
   String text,
   String? receiptCurrency, {
@@ -2663,9 +2677,24 @@ _currencyAdjacentToSelectedAmount(String text, String? receiptCurrency) {
           ? receiptCurrency
           : '¥';
     }
-    // Bare dollars do not identify which dollar currency is printed in a
-    // mixed-denomination row. Keep the selected amount review-only.
-    if (token == r'$') return null;
+    if (token == r'$') {
+      if (!_currencyCompatibleWithBareDollar(receiptCurrency)) return null;
+      final hasConflictingDenomination = RegExp(
+        '(?<![\\p{L}\\p{N}])($_currencyTokenPattern)(?![\\p{L}])',
+        caseSensitive: false,
+        unicode: true,
+      ).allMatches(text).any((match) {
+        final otherToken = match.group(1);
+        if (otherToken == r'$') return false;
+        final otherCurrency = otherToken == '¥'
+            ? (receiptCurrency == 'JPY' || receiptCurrency == 'CNY'
+                  ? receiptCurrency
+                  : '¥')
+            : _currencyFromItemToken(otherToken);
+        return otherCurrency != receiptCurrency;
+      });
+      return hasConflictingDenomination ? null : receiptCurrency;
+    }
     return _currencyFromItemToken(token);
   }
 

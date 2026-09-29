@@ -3219,6 +3219,25 @@ Total ¥12000
     expect(compared.total, '80.00');
   });
 
+  test('bare dollar total cannot become a euro transaction total', () {
+    const parser = ReceiptOcrParser();
+    final compared = parser.parse(r'''
+Exchange Cafe
+Coffee EUR 90.00
+Total $100.00
+''');
+    expect(compared.currency, 'EUR');
+    expect(compared.total, isNull);
+
+    final compatible = parser.parse(r'''
+Exchange Cafe
+Coffee USD 3.00
+Total $3.00
+''');
+    expect(compatible.currency, 'USD');
+    expect(compatible.total, '3.00');
+  });
+
   test('bare yen item and tax retain review-only currency against USD', () {
     const parser = ReceiptOcrParser();
     final compared = parser.parse('''
@@ -3354,6 +3373,40 @@ Total €2.00
             item.lineTotal == '1.00' &&
             item.currency == null &&
             item.currencyUnresolved,
+      ),
+      isNotEmpty,
+    );
+  });
+
+  test('ordinary multi-number dollar item inherits established currency', () {
+    const parser = ReceiptOcrParser();
+    final compared = parser.parse(r'''
+Exchange Cafe
+2 Coffee $3.00
+Total USD 3.00
+''');
+    expect(compared.currency, 'USD');
+    expect(
+      compared.items.where(
+        (item) => item.lineTotal == '3.00' && item.currency == 'USD',
+      ),
+      isNotEmpty,
+    );
+    expect(
+      compared.items.where((item) => item.lineTotal == '3.00').every(
+        (item) => !item.currencyUnresolved,
+      ),
+      isTrue,
+    );
+
+    final conflicted = parser.parse(r'''
+Exchange Cafe
+Coffee HKD 10.00 / $1.00
+Total USD 1.00
+''');
+    expect(
+      conflicted.items.where(
+        (item) => item.lineTotal == '1.00' && item.currencyUnresolved,
       ),
       isNotEmpty,
     );
