@@ -2667,11 +2667,13 @@ bool _currencyMarkerTouchesAmount(String text, RegExpMatch marker) {
   final afterFollowingAmount = followingAmount == null
       ? null
       : after.substring(followingAmount.end).trimLeft();
+  final markerText = marker.group(0)!;
+  // Adjacent bare numbers may be quantities. A printed symbol or uppercase
+  // code provides monetary evidence; an ordinary title-case word does not.
   final firstAmountLooksMonetary =
       followingAmount != null &&
-      (followingAmount.group(0)!.contains('.') ||
-          followingAmount.group(0)!.contains(',') ||
-          !RegExp(r'^[A-Za-z]+$').hasMatch(marker.group(0)!));
+      (!RegExp(r'^[A-Za-z]+$').hasMatch(markerText) ||
+          markerText == markerText.toUpperCase());
   final amountEndsCell =
       afterFollowingAmount != null &&
       (afterFollowingAmount.isEmpty ||

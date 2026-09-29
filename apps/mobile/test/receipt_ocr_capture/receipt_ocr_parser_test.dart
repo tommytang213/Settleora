@@ -3433,6 +3433,7 @@ Total USD 3.00
     for (final itemLine in [
       r'Coffee HKD 10.00 / $1.00',
       r'Coffee HKD 10.00 $1.00',
+      r'Coffee HKD 10 $1.00',
     ]) {
       final conflicted = parser.parse('''
 Exchange Cafe
@@ -3477,6 +3478,7 @@ ${scenario.total}
       r'2 Try Special $3.00',
       r'Try 2 Special $3.00',
       r'Try 2 $3.00',
+      r'Try 2.0 $3.00',
     ]) {
       final compared = parser.parse('''
 Exchange Cafe
