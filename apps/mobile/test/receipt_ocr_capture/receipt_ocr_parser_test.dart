@@ -3434,6 +3434,7 @@ Total USD 3.00
       r'Coffee HKD 10.00 / $1.00',
       r'Coffee HKD 10.00 $1.00',
       r'Coffee HKD 10 $1.00',
+      r'Coffee 10.00 HKD $1.00',
     ]) {
       final conflicted = parser.parse('''
 Exchange Cafe
@@ -3479,6 +3480,7 @@ ${scenario.total}
       r'Try 2 Special $3.00',
       r'Try 2 $3.00',
       r'Try 2.0 $3.00',
+      r'2.0 Try $3.00',
     ]) {
       final compared = parser.parse('''
 Exchange Cafe
