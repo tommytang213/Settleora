@@ -65,6 +65,7 @@ class ReceiptOcrParser {
     final itemCandidates = _extractItems(
       lines,
       currency,
+      selectedTotal: amounts.total,
       merchantLineIndices: merchantDetection?.lineIndices ?? const {},
       layoutRows: layoutRows,
       chargeTableRows: recognizedChargeRows,
@@ -1110,6 +1111,7 @@ class ReceiptOcrParser {
   List<ReceiptOcrItemCandidate> _extractItems(
     List<String> lines,
     String? currency, {
+    String? selectedTotal,
     Set<int> merchantLineIndices = const {},
     List<List<ReceiptOcrBlockEvidence>> layoutRows = const [],
     Set<int> chargeTableRows = const {},
@@ -1120,9 +1122,23 @@ class ReceiptOcrParser {
     final items = <ReceiptOcrItemCandidate>[];
     final wrappedDescriptionLines = <String>[];
     final leadingQuantityRows = _leadingQuantityColumnRows(lines, layoutRows);
+    final hasFuelMeasurementLayout =
+        lines.any(
+          (line) => RegExp(
+            r'^(?:GALLONS?|LIT(?:ER|RE)S?)\b',
+            caseSensitive: false,
+          ).hasMatch(line),
+        ) &&
+        lines.any(
+          (line) => RegExp(
+            r'^(?:PRICE\s*/\s*(?:GAL|L)|UNIT\s+PRICE)\b',
+            caseSensitive: false,
+          ).hasMatch(line),
+        );
     final fuelItem = _extractFuelItem(
       lines,
       currency,
+      selectedTotal: selectedTotal,
       detachedAmountSignRows: detachedAmountSignRows,
     );
     if (fuelItem != null) {
@@ -1146,7 +1162,8 @@ class ReceiptOcrParser {
           _isChargeTableHeader(line) ||
           detachedAmountSignRows.contains(lineIndex) ||
           merchantLineIndices.contains(lineIndex) ||
-          _isFuelMeasurementLine(line)) {
+          ((fuelItem != null || hasFuelMeasurementLayout) &&
+              _isFuelMeasurementLine(line))) {
         wrappedDescriptionLines.clear();
         continue;
       }
@@ -1659,12 +1676,12 @@ class ReceiptOcrParser {
   ReceiptOcrItemCandidate? _extractFuelItem(
     List<String> lines,
     String? currency, {
+    String? selectedTotal,
     Set<int> detachedAmountSignRows = const {},
   }) {
     String? description;
     String? quantity;
     String? unitPrice;
-    String? lineTotal;
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       final line = lines[lineIndex];
       if (detachedAmountSignRows.contains(lineIndex)) return null;
@@ -1687,27 +1704,54 @@ class ReceiptOcrParser {
         r'^(?:PRICE\s*/\s*(?:GAL|L)|UNIT\s+PRICE)\b',
         caseSensitive: false,
       ).hasMatch(line)) {
+        final printedRateCurrency = _currencyAdjacentToSelectedAmount(
+          line,
+          currency,
+        );
+        if (_hasUnsupportedCurrencySymbolOnSelectedAmount(line) ||
+            _unsupportedIsoCodeAdjacentToSelectedAmount(line) != null ||
+            (printedRateCurrency.hasExplicitEvidence &&
+                printedRateCurrency.currency != currency)) {
+          return null;
+        }
         // Per-unit fuel rates commonly carry three decimal places even when
         // the transaction currency has two minor digits.
         unitPrice = _lastAmountInLine(line);
         continue;
       }
-      if (_hasTotalLabel(line, line.toLowerCase())) {
-        lineTotal = _lastAmountInLine(line, currency: currency);
-      }
     }
+    final hasSelectedTransactionTotal =
+        selectedTotal != null &&
+        lines.any((line) {
+          final normalized = line.toLowerCase();
+          if (!_isPrimaryTotalCurrencyLine(line, normalized) ||
+              RegExp(
+                r'\b(?:paid|payment|tender|cash|change|reference|conversion)\b',
+              ).hasMatch(normalized) ||
+              _selectedTotalAmountInLine(line, currency: currency) !=
+                  selectedTotal) {
+            return false;
+          }
+          final printed = _currencyAdjacentToSelectedAmount(
+            line,
+            currency,
+            allowPriorCurrencyConflict: true,
+          );
+          return !printed.hasExplicitEvidence ||
+              (printed.currency != null && printed.currency == currency);
+        });
     if (description == null ||
         description.isEmpty ||
         quantity == null ||
         unitPrice == null ||
-        lineTotal == null) {
+        !hasSelectedTransactionTotal) {
       return null;
     }
     return ReceiptOcrItemCandidate(
       description: description,
       quantity: quantity,
       unitPrice: unitPrice,
-      lineTotal: lineTotal,
+      lineTotal: selectedTotal,
       currency: currency,
       category: 'item_line',
     );

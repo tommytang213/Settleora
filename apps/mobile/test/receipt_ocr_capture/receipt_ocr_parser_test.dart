@@ -902,6 +902,58 @@ $signedLine
     }
   });
 
+  test('fuel item uses selected transaction total, not payment evidence', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+WESTSIDE FUEL
+FUEL Regular Unleaded
+GALLONS 12.563
+PRICE/GAL USD 3.599
+TOTAL USD 45.22
+TOTAL PAID EUR 41.00
+''');
+
+    expect(preview.total, '45.22');
+    expect(preview.items, hasLength(1));
+    expect(preview.items.single.lineTotal, '45.22');
+    expect(preview.items.single.currency, 'USD');
+
+    final paymentOnly = parser.parse('''
+WESTSIDE FUEL
+FUEL Regular Unleaded
+GALLONS 12.563
+PRICE/GAL USD 3.599
+TOTAL PAID USD 45.22
+''');
+    expect(paymentOnly.items, isEmpty);
+  });
+
+  test('fuel unit rate with conflicting printed currency stays unresolved', () {
+    const parser = ReceiptOcrParser();
+    for (final rate in ['PRICE/GAL EUR 3.599', 'PRICE/GAL ₱3.599']) {
+      final preview = parser.parse('''
+WESTSIDE FUEL
+FUEL Regular Unleaded
+GALLONS 12.563
+$rate
+TOTAL USD 45.22
+''');
+      expect(preview.items, isEmpty, reason: 'conflicting printed unit rate');
+    }
+  });
+
+  test('ordinary fuel-named item remains an editable item', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Corner Store
+Fuel USD 5.00
+Total USD 5.00
+''');
+
+    expect(preview.items, hasLength(1));
+    expect(preview.items.single.lineTotal, '5.00');
+  });
+
   test(
     'parser quarantines an ambiguous fuel grand total with another item',
     () {
