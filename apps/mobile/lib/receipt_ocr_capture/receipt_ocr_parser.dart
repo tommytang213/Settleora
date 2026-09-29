@@ -624,7 +624,10 @@ class ReceiptOcrParser {
         receiptCurrency != null &&
         receiptCurrency != 'JPY' &&
         receiptCurrency != 'CNY') {
-      return (currency: '¥', hasExplicitEvidence: true);
+      return (
+        currency: _currencyAdjacentToSelectedAmountWithYen(line) ?? '¥',
+        hasExplicitEvidence: true,
+      );
     }
     final boundedCodeCandidates = <String>{
       for (final match in RegExp(
@@ -2526,6 +2529,14 @@ bool _isNonTransactionCurrencyMetadataLine(String line) {
     return true;
   }
   final trimmed = line.trim();
+  if (RegExp(
+        r'^(?:reference|conversion|dcc)\s+(?:total|amount)\b',
+        caseSensitive: false,
+      ).hasMatch(trimmed) &&
+      _lineHasAmount(trimmed) &&
+      _lineHasCurrencyMarkerOrCode(trimmed)) {
+    return true;
+  }
   final prefix = RegExp(
     r'^(?:payment|tender|(?:gift|prepaid)[ -]?card|paid\s+(?:by\s+)?(?:cash|card|credit[ -]?card|debit[ -]?card|visa|mastercard|master card|amex|american express)|(?:credit|debit)[ -]?card|cash|change|card|visa|mastercard|master card|amex|american express|dcc|reference|conversion)\b',
     caseSensitive: false,
@@ -2590,11 +2601,30 @@ String? _itemCurrencyFromPrintedText(
       receiptCurrency != null &&
       receiptCurrency != 'JPY' &&
       receiptCurrency != 'CNY') {
-    return '¥';
+    return _currencyAdjacentToSelectedAmountWithYen(text) ?? '¥';
   }
   return _currencyFromItemToken(token) ??
       _explicitCurrencyFromNormalizedLine(text.toUpperCase()) ??
       receiptCurrency;
+}
+
+String? _currencyAdjacentToSelectedAmountWithYen(String text) {
+  final amount = RegExp(_amountTokenPattern).allMatches(text).lastOrNull;
+  if (amount == null) return null;
+  final before = text.substring(0, amount.start).trimRight();
+  final after = text.substring(amount.end).trimLeft();
+  if (before.endsWith('¥') || after.startsWith('¥')) return '¥';
+  final precedingCode = RegExp(
+    r'\b([A-Z]{3})\s*[:=]?\s*$',
+    caseSensitive: false,
+  ).firstMatch(before);
+  final followingCode = RegExp(
+    r'^([A-Z]{3})\b',
+    caseSensitive: false,
+  ).firstMatch(after);
+  return _supportedCurrencyCode(
+    precedingCode?.group(1) ?? followingCode?.group(1),
+  );
 }
 
 bool _isContextualReceiptMetadataLine(List<String> lines, int index) {

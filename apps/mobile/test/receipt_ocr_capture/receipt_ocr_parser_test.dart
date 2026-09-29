@@ -3236,6 +3236,39 @@ Total USD 80.00
     expect(compared.taxHasExplicitCurrencyEvidence, isTrue);
   });
 
+  test('reference total does not establish transaction currency', () {
+    const parser = ReceiptOcrParser();
+    final compared = parser.parse('''
+Exchange Cafe
+Reference Total EUR 90.00
+Coffee USD 60.00
+Tea USD 40.00
+Total 100.00
+''');
+    expect(compared.currency, 'USD');
+    expect(compared.total, '100.00');
+  });
+
+  test('mixed yen and USD row binds currency to its selected amount', () {
+    const parser = ReceiptOcrParser();
+    final compared = parser.parse('''
+Exchange Cafe
+Coffee ¥150 / USD 1.00
+Tax ¥150 / USD 1.00
+Total USD 2.00
+''');
+    expect(compared.currency, 'USD');
+    expect(
+      compared.items.where(
+        (item) => item.lineTotal == '1.00' && item.currency == 'USD',
+      ),
+      isNotEmpty,
+    );
+    // The multi-amount tax row remains unresolved rather than assigning the
+    // selected USD number to the unrelated yen marker.
+    expect(compared.tax, isNull);
+  });
+
   test('matching-currency adjustment supersedes an earlier foreign one', () {
     const parser = ReceiptOcrParser();
     final compared = parser.parse('''
