@@ -745,7 +745,7 @@ void main() {
       service: '0.15',
       serviceCurrency: 'GBP',
       serviceHasExplicitCurrencyEvidence: true,
-      discount: '1',
+      discount: '-1',
       discountCurrency: 'JPY',
       discountHasExplicitCurrencyEvidence: true,
     );
@@ -2130,6 +2130,11 @@ Total USD 9.00
             amount: '2.50',
             currency: 'EUR',
           ),
+          ReceiptOcrReviewHeaderEvidence(
+            role: 'discount',
+            amount: '1.00',
+            currency: 'EUR',
+          ),
         ],
       ),
     );
@@ -2287,17 +2292,29 @@ Total USD 9.00
     );
     expect(receiptRepository.lastSaveRequest?.currency, 'HKD');
     expect(receiptRepository.lastSaveRequest?.grandTotalAmount, isNull);
-    expect(receiptRepository.lastSaveRequest?.headerEvidence, hasLength(1));
+    expect(receiptRepository.lastSaveRequest?.headerEvidence, hasLength(2));
     expect(
-      receiptRepository.lastSaveRequest?.headerEvidence.single.role,
+      receiptRepository.lastSaveRequest?.headerEvidence.first.role,
       'service_charge',
     );
     expect(
-      receiptRepository.lastSaveRequest?.headerEvidence.single.amount,
+      receiptRepository.lastSaveRequest?.headerEvidence.first.amount,
       '2.50',
     );
     expect(
-      receiptRepository.lastSaveRequest?.headerEvidence.single.currency,
+      receiptRepository.lastSaveRequest?.headerEvidence.first.currency,
+      'EUR',
+    );
+    expect(
+      receiptRepository.lastSaveRequest?.headerEvidence.last.role,
+      'discount',
+    );
+    expect(
+      receiptRepository.lastSaveRequest?.headerEvidence.last.amount,
+      '1.00',
+    );
+    expect(
+      receiptRepository.lastSaveRequest?.headerEvidence.last.currency,
       'EUR',
     );
     expect(receiptRepository.lastSaveRequest?.adjustmentEvidence, hasLength(1));

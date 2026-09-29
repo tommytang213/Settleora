@@ -537,8 +537,11 @@ _receiptOcrHeaderEvidenceFromPreview(
   final evidence = <ReceiptOcrReviewHeaderEvidenceSaveRequest>[];
   for (final candidate in candidates) {
     final printedCurrency = _nullableUppercaseCurrency(candidate.$3);
+    final evidenceAmount = candidate.$1 == 'discount'
+        ? candidate.$2?.trim().replaceFirst(RegExp(r'^[-−]'), '')
+        : candidate.$2;
     final amount = receiptOcrMoneyCandidateForSave(
-      candidate.$2,
+      evidenceAmount,
       currency: printedCurrency,
     );
     if (candidate.$4 &&
