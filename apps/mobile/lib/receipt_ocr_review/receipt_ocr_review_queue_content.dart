@@ -299,6 +299,8 @@ class _ReceiptOcrReviewDiscoveryState {
       receiptOcrReviewStatusLabel(review.status),
       review.groupId == null ? 'Personal bill personal' : 'Group bill group',
       ?_displayCurrencyCandidate(review.currency),
+      for (final entry in review.headerEvidence)
+        '${entry.role.replaceAll('_', ' ')} ${entry.amount} ${entry.currency}',
     ].join(' ').toLowerCase();
   }
 }
@@ -483,6 +485,17 @@ class _ReceiptOcrReviewSummaryTile extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 10),
+                if (review.headerEvidence.isNotEmpty) ...[
+                  for (final entry in review.headerEvidence)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text(
+                        'Printed ${entry.role.replaceAll('_', ' ')}: ${entry.amount} ${entry.currency} (review only)',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                  const SizedBox(height: 6),
+                ],
                 Row(
                   children: [
                     Expanded(

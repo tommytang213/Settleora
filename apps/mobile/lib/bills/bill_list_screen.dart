@@ -264,23 +264,50 @@ ReceiptOcrPreview _copyReceiptOcrPreview(
   List<ReceiptOcrItemCandidate>? items,
   bool clearHeaderMoney = false,
 }) {
+  bool retainHeader(String? printedCurrency, bool hasExplicitEvidence) {
+    if (!clearHeaderMoney) return true;
+    final supportedPrinted = _nullableUppercaseCurrency(printedCurrency);
+    final nextReviewCurrency = _nullableUppercaseCurrency(
+      currency ?? preview.currency,
+    );
+    return hasExplicitEvidence &&
+        supportedPrinted != null &&
+        supportedPrinted != nextReviewCurrency;
+  }
+
+  final retainSubtotal = retainHeader(
+    preview.subtotalCurrency,
+    preview.subtotalHasExplicitCurrencyEvidence,
+  );
+  final retainTax = retainHeader(
+    preview.taxCurrency,
+    preview.taxHasExplicitCurrencyEvidence,
+  );
+  final retainService = retainHeader(
+    preview.serviceCurrency,
+    preview.serviceHasExplicitCurrencyEvidence,
+  );
+  final retainDiscount = retainHeader(
+    preview.discountCurrency,
+    preview.discountHasExplicitCurrencyEvidence,
+  );
   return ReceiptOcrPreview(
     merchant: merchant ?? preview.merchant,
     receiptDate: receiptDate ?? preview.receiptDate,
     currency: currency ?? preview.currency,
     currencyProvenance: currencyProvenance ?? preview.currencyProvenance,
-    subtotal: clearHeaderMoney ? null : preview.subtotal,
-    subtotalCurrency: clearHeaderMoney ? null : preview.subtotalCurrency,
+    subtotal: retainSubtotal ? preview.subtotal : null,
+    subtotalCurrency: retainSubtotal ? preview.subtotalCurrency : null,
     subtotalHasExplicitCurrencyEvidence:
-        !clearHeaderMoney && preview.subtotalHasExplicitCurrencyEvidence,
-    tax: clearHeaderMoney ? null : preview.tax,
-    taxCurrency: clearHeaderMoney ? null : preview.taxCurrency,
+        retainSubtotal && preview.subtotalHasExplicitCurrencyEvidence,
+    tax: retainTax ? preview.tax : null,
+    taxCurrency: retainTax ? preview.taxCurrency : null,
     taxHasExplicitCurrencyEvidence:
-        !clearHeaderMoney && preview.taxHasExplicitCurrencyEvidence,
-    service: clearHeaderMoney ? null : preview.service,
-    serviceCurrency: clearHeaderMoney ? null : preview.serviceCurrency,
+        retainTax && preview.taxHasExplicitCurrencyEvidence,
+    service: retainService ? preview.service : null,
+    serviceCurrency: retainService ? preview.serviceCurrency : null,
     serviceHasExplicitCurrencyEvidence:
-        !clearHeaderMoney && preview.serviceHasExplicitCurrencyEvidence,
+        retainService && preview.serviceHasExplicitCurrencyEvidence,
     tip: preview.tip,
     tipLabel: preview.tipLabel,
     tipCurrency: preview.tipCurrency,
@@ -290,10 +317,10 @@ ReceiptOcrPreview _copyReceiptOcrPreview(
     shippingCurrency: preview.shippingCurrency,
     shippingHasExplicitCurrencyEvidence:
         preview.shippingHasExplicitCurrencyEvidence,
-    discount: clearHeaderMoney ? null : preview.discount,
-    discountCurrency: clearHeaderMoney ? null : preview.discountCurrency,
+    discount: retainDiscount ? preview.discount : null,
+    discountCurrency: retainDiscount ? preview.discountCurrency : null,
     discountHasExplicitCurrencyEvidence:
-        !clearHeaderMoney && preview.discountHasExplicitCurrencyEvidence,
+        retainDiscount && preview.discountHasExplicitCurrencyEvidence,
     total: clearHeaderMoney ? null : preview.total,
     rawTextLineCount: preview.rawTextLineCount,
     confidence: preview.confidence,

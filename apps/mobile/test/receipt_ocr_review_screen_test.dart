@@ -56,6 +56,44 @@ void main() {
       expect(repository.lastListLimit, 50);
     });
 
+    testWidgets('queue shows and searches printed foreign header evidence', (
+      tester,
+    ) async {
+      await useLargeSurface(tester);
+      final repository = FakeReceiptOcrReviewRepository(
+        listResponse: [
+          sampleSummary(
+            headerEvidence: const [
+              ReceiptOcrReviewHeaderEvidence(
+                role: 'service_charge',
+                amount: '2.50',
+                currency: 'EUR',
+              ),
+            ],
+          ),
+        ],
+      );
+      await pumpQueue(tester, repository: repository);
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Printed service charge: 2.50 EUR (review only)'),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(RegExp('Printed service charge 2.50 EUR')),
+        findsOneWidget,
+      );
+      await tester.enterText(
+        editableTextForKey(const Key('receipt-review-search')),
+        'EUR',
+      );
+      await tester.pump();
+      expect(
+        find.text('Printed service charge: 2.50 EUR (review only)'),
+        findsOneWidget,
+      );
+    });
+
     testWidgets('search filters loaded queue rows', (tester) async {
       await useLargeSurface(tester);
       final repository = FakeReceiptOcrReviewRepository(
@@ -2979,6 +3017,7 @@ ReceiptOcrReviewSummary sampleSummary({
   String? merchantText = 'Corner Market',
   String? currency = 'USD',
   int lineCount = 1,
+  List<ReceiptOcrReviewHeaderEvidence> headerEvidence = const [],
 }) {
   return ReceiptOcrReviewSummary(
     reviewId: reviewId,
@@ -2990,6 +3029,7 @@ ReceiptOcrReviewSummary sampleSummary({
     merchantText: merchantText,
     currency: currency,
     lineCount: lineCount,
+    headerEvidence: headerEvidence,
     createdAtUtc: _createdAtUtc,
     updatedAtUtc: _updatedAtUtc,
   );

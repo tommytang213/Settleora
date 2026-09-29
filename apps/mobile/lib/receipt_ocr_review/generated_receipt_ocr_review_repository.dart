@@ -336,6 +336,15 @@ ReceiptOcrReviewSummary _mapSummary(
     merchantText: response.merchantText,
     currency: response.currency,
     lineCount: response.lineCount,
+    headerEvidence: response.headerEvidence
+        .map(
+          (entry) => ReceiptOcrReviewHeaderEvidence(
+            role: entry.role,
+            amount: entry.amount,
+            currency: entry.currency,
+          ),
+        )
+        .toList(growable: false),
     createdAtUtc: response.createdAtUtc.toUtc(),
     updatedAtUtc: response.updatedAtUtc.toUtc(),
   );

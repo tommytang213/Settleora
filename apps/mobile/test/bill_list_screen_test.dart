@@ -1575,6 +1575,13 @@ Total USD 80.00
       reviewDetail: sampleReceiptOcrReviewDetail(
         route,
         adjustments: sampleBillReviewAdjustments(),
+        headerEvidence: const [
+          ReceiptOcrReviewHeaderEvidence(
+            role: 'service_charge',
+            amount: '2.50',
+            currency: 'EUR',
+          ),
+        ],
       ),
     );
 
@@ -1731,6 +1738,19 @@ Total USD 80.00
     );
     expect(receiptRepository.lastSaveRequest?.currency, 'HKD');
     expect(receiptRepository.lastSaveRequest?.grandTotalAmount, isNull);
+    expect(receiptRepository.lastSaveRequest?.headerEvidence, hasLength(1));
+    expect(
+      receiptRepository.lastSaveRequest?.headerEvidence.single.role,
+      'service_charge',
+    );
+    expect(
+      receiptRepository.lastSaveRequest?.headerEvidence.single.amount,
+      '2.50',
+    );
+    expect(
+      receiptRepository.lastSaveRequest?.headerEvidence.single.currency,
+      'EUR',
+    );
     expect(receiptRepository.lastSaveRequest?.adjustmentEvidence, hasLength(1));
     expect(
       receiptRepository
@@ -14167,6 +14187,7 @@ ReceiptOcrReviewDetail sampleReceiptOcrReviewDetail(
   String currency = 'USD',
   DateTime? updatedAtUtc,
   List<ReceiptOcrReviewAdjustment> adjustments = const [],
+  List<ReceiptOcrReviewHeaderEvidence> headerEvidence = const [],
 }) {
   return ReceiptOcrReviewDetail(
     id: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
@@ -14196,6 +14217,7 @@ ReceiptOcrReviewDetail sampleReceiptOcrReviewDetail(
       ),
     ],
     adjustmentEvidence: adjustments,
+    headerEvidence: headerEvidence,
     createdAtUtc: _createdAtUtc,
     updatedAtUtc: updatedAtUtc ?? _updatedAtUtc,
   );
@@ -14261,6 +14283,14 @@ ReceiptOcrReviewDetail sampleReceiptOcrReviewDetailFromRequest(
           direction: request.adjustmentEvidence[index].direction,
           createdAtUtc: _createdAtUtc,
           updatedAtUtc: _updatedAtUtc,
+        ),
+    ],
+    headerEvidence: [
+      for (final entry in request.headerEvidence)
+        ReceiptOcrReviewHeaderEvidence(
+          role: entry.role,
+          amount: entry.amount,
+          currency: entry.currency,
         ),
     ],
     createdAtUtc: _createdAtUtc,

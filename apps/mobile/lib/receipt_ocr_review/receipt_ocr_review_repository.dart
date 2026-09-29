@@ -109,6 +109,7 @@ class ReceiptOcrReviewSummary {
     required this.merchantText,
     required this.currency,
     required this.lineCount,
+    this.headerEvidence = const [],
     required this.createdAtUtc,
     required this.updatedAtUtc,
   });
@@ -122,6 +123,7 @@ class ReceiptOcrReviewSummary {
   final String? merchantText;
   final String? currency;
   final int lineCount;
+  final List<ReceiptOcrReviewHeaderEvidence> headerEvidence;
   final DateTime createdAtUtc;
   final DateTime updatedAtUtc;
 }

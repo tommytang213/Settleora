@@ -60,6 +60,9 @@ void main() {
       expect(summary.reviewId, _reviewId);
       expect(summary.groupId, _groupId);
       expect(summary.merchantText, 'Corner Market');
+      expect(summary.headerEvidence.single.role, 'discount');
+      expect(summary.headerEvidence.single.amount, '1.50');
+      expect(summary.headerEvidence.single.currency, 'EUR');
       expect(summary.createdAtUtc, _createdAtUtc);
       expect(client.lastStatus, ReceiptOcrReviewStatusValues.reviewed);
       expect(client.lastSource, ReceiptOcrReviewSourceValues.onDevice);
@@ -419,7 +422,13 @@ api.ReceiptOcrReviewSummaryResponse sampleApiSummary() {
     merchantText: 'Corner Market',
     currency: 'USD',
     lineCount: 1,
-    headerEvidence: const [],
+    headerEvidence: const [
+      api.ReceiptOcrReviewHeaderEvidenceResponse(
+        role: 'discount',
+        amount: '1.50',
+        currency: 'EUR',
+      ),
+    ],
     createdAtUtc: _createdAtUtc,
     updatedAtUtc: _updatedAtUtc,
   );
