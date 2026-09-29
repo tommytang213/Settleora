@@ -2660,7 +2660,7 @@ bool _currencyMarkerTouchesAmount(String text, RegExpMatch marker) {
   final after = text.substring(marker.end);
   final afterMarker = after.trimLeft();
   final markerEndsAmount =
-      afterMarker.isEmpty || RegExp(r'^[/:,;|)\]\-]').hasMatch(afterMarker);
+      afterMarker.isEmpty || RegExp(r'^[/:,;|)=\]\-]').hasMatch(afterMarker);
   final followingAmount = RegExp(
     '^\\s*[:=]?\\s*$_amountTokenPattern',
   ).firstMatch(after);
@@ -2679,7 +2679,7 @@ bool _currencyMarkerTouchesAmount(String text, RegExpMatch marker) {
   final amountEndsCell =
       afterFollowingAmount != null &&
       (afterFollowingAmount.isEmpty ||
-          RegExp(r'^[/:,;|)\]\-.]').hasMatch(afterFollowingAmount) ||
+          RegExp(r'^[/:,;|)=\]\-.]').hasMatch(afterFollowingAmount) ||
           (firstAmountLooksMonetary &&
               RegExp(
                 '^(?:$_currencyTokenPattern\\s*)?$_amountTokenPattern',
@@ -2709,6 +2709,21 @@ String? _currencyAdjacentToSelectedAmountWithYen(String text) {
   return _currencyAdjacentToSelectedAmount(text, null).currency;
 }
 
+Iterable<RegExpMatch> _printedCurrencyMarkerMatches(String text) sync* {
+  yield* RegExp(
+    '(?<![\\p{L}\\p{N}])($_currencyTokenPattern)(?![\\p{L}])',
+    caseSensitive: false,
+    unicode: true,
+  ).allMatches(text);
+  // A supported suffix symbol can touch its amount. Keep the separated-code
+  // boundary above so letters embedded in a product or SKU stay out.
+  yield* RegExp(
+    r'(?<=\d)(€|£|¥|₹|₩|₺|₫|\$|zł|kr|Rs)(?![\p{L}])',
+    caseSensitive: false,
+    unicode: true,
+  ).allMatches(text);
+}
+
 ({String? currency, bool hasExplicitEvidence})
 _currencyAdjacentToSelectedAmount(String text, String? receiptCurrency) {
   final amount = RegExp(_amountTokenPattern).allMatches(text).lastOrNull;
@@ -2734,12 +2749,8 @@ _currencyAdjacentToSelectedAmount(String text, String? receiptCurrency) {
     }
     if (token == r'$') {
       if (!_currencyCompatibleWithBareDollar(receiptCurrency)) return null;
-      final hasConflictingDenomination =
-          RegExp(
-            '(?<![\\p{L}\\p{N}])($_currencyTokenPattern)(?![\\p{L}])',
-            caseSensitive: false,
-            unicode: true,
-          ).allMatches(text).any((match) {
+      final hasConflictingDenomination = _printedCurrencyMarkerMatches(text)
+          .any((match) {
             final otherMarker = match.group(1);
             if (otherMarker == r'$' ||
                 !_currencyMarkerTouchesAmount(text, match)) {
@@ -2768,11 +2779,9 @@ _currencyAdjacentToSelectedAmount(String text, String? receiptCurrency) {
   if (selectedTokens) {
     return (currency: left ?? right, hasExplicitEvidence: true);
   }
-  final otherPrintedCurrency = RegExp(
-    '(?<![\\p{L}\\p{N}])(?:$_currencyTokenPattern)(?![\\p{L}])',
-    caseSensitive: false,
-    unicode: true,
-  ).allMatches(text).any((match) => _currencyMarkerTouchesAmount(text, match));
+  final otherPrintedCurrency = _printedCurrencyMarkerMatches(
+    text,
+  ).any((match) => _currencyMarkerTouchesAmount(text, match));
   return (currency: null, hasExplicitEvidence: otherPrintedCurrency);
 }
 

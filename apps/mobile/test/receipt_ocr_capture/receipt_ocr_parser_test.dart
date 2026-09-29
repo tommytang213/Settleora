@@ -3441,6 +3441,9 @@ Total USD 3.00
       r'Coffee 10 Rs $1.00',
       r'Coffee kr 10 $1.00',
       r'Coffee Rs 10 $1.00',
+      r'Coffee €10 = $1.00',
+      r'Coffee 10 € = $1.00',
+      r'Coffee 10€ = $1.00',
     ]) {
       final conflicted = parser.parse('''
 Exchange Cafe
