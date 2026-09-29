@@ -926,6 +926,9 @@ class ReceiptOcrParser {
       if (adjustmentRole == null && hasPotentialAdjustment) {
         adjustmentsComplete = false;
       }
+      if (isSubtotal && (amount == null || selectedAmountIsRate)) {
+        adjustmentsComplete = false;
+      }
       if (amount == null || selectedAmountIsRate) continue;
 
       if (_hasSubtotalLabel(line, normalized)) {

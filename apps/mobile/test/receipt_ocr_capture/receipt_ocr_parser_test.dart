@@ -4706,6 +4706,22 @@ Total USD 12.00
     ]);
   });
 
+  test('unparseable additional printed subtotal keeps review warning', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Meal USD 10.00
+Subtotal USD 10.00
+Subtotal USD --
+Tax USD 2.00
+Total USD 12.00
+''');
+    expect(preview.subtotal, '10.00');
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(preview.reviewHints, [
+      'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
+    ]);
+  });
+
   test('loyalty savings row remains unresolved adjustment evidence', () {
     final preview = const ReceiptOcrParser().parse('''
 Market
