@@ -188,7 +188,8 @@ List<String> _receiptOcrReviewHints(ReceiptOcrPreview preview) {
         _hasReceiptOcrReferenceAdjustment(preview) &&
         !_receiptOcrAmountsClose(itemTotal, total)) {
       final adjustments = _reconcilableReceiptOcrAdjustments(preview);
-      if (adjustments != null &&
+      if (_hasCompleteReceiptOcrItemLineTotals(preview.items) &&
+          adjustments != null &&
           _receiptOcrAmountsClose(itemTotal + adjustments, total)) {
         return const [];
       }
@@ -208,7 +209,8 @@ List<String> _receiptOcrReviewHints(ReceiptOcrPreview preview) {
   if (_hasReceiptOcrReferenceAdjustment(preview)) {
     if (!_receiptOcrAmountsClose(itemTotal, total)) {
       final adjustments = _reconcilableReceiptOcrAdjustments(preview);
-      if (adjustments != null &&
+      if (_hasCompleteReceiptOcrItemLineTotals(preview.items) &&
+          adjustments != null &&
           _receiptOcrAmountsClose(itemTotal + adjustments, total)) {
         return const [];
       }
@@ -252,6 +254,12 @@ int? _sumReceiptOcrItemLineTotals(
   }
 
   return total;
+}
+
+bool _hasCompleteReceiptOcrItemLineTotals(List<ReceiptOcrItemCandidate> items) {
+  return items.every(
+    (item) => _parseReceiptOcrReviewAmount(item.lineTotal) != null,
+  );
 }
 
 bool _hasReceiptOcrReferenceAdjustment(ReceiptOcrPreview preview) {

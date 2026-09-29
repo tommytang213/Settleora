@@ -4400,6 +4400,22 @@ Total HKD 24.00
     ]);
   });
 
+  test('preview does not reconcile a partial item total', () {
+    const preview = ReceiptOcrPreview(
+      currency: 'HKD',
+      subtotal: '43.00',
+      tax: '2.00',
+      total: '45.00',
+      items: [
+        ReceiptOcrItemCandidate(description: 'Meal', lineTotal: '43.00'),
+        ReceiptOcrItemCandidate(description: 'Unpriced item'),
+      ],
+    );
+    expect(preview.reviewHints, [
+      'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
+    ]);
+  });
+
   test('preview reconciles signed and magnitude discount evidence', () {
     for (final discount in ['-2.00', '2.00']) {
       final preview = ReceiptOcrPreview(
