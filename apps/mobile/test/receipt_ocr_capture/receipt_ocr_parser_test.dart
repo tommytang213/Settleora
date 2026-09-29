@@ -4400,6 +4400,36 @@ Total HKD 24.00
     ]);
   });
 
+  test('parser retains warning when a repeated charge is not represented', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Market
+Meal 10.00
+Service charge USD 2.00
+Service charge USD 3.00
+Total USD 12.00
+''');
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(preview.reviewHints, [
+      'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
+    ]);
+  });
+
+  test('parser retains warning when a printed adjustment is malformed', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Market
+Meal 10.00
+Tax unreadable
+Service charge USD 2.00
+Total USD 12.00
+''');
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(preview.reviewHints, [
+      'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
+    ]);
+  });
+
   test('preview does not reconcile a partial item total', () {
     const preview = ReceiptOcrPreview(
       currency: 'HKD',

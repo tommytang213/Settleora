@@ -26,6 +26,7 @@ class ReceiptOcrPreview {
     this.discount,
     this.discountCurrency,
     this.discountHasExplicitCurrencyEvidence = false,
+    this.adjustmentsComplete = true,
     this.total,
     this.rawTextLineCount = 0,
     this.confidence,
@@ -60,6 +61,7 @@ class ReceiptOcrPreview {
   final String? discount;
   final String? discountCurrency;
   final bool discountHasExplicitCurrencyEvidence;
+  final bool adjustmentsComplete;
   final String? total;
   final int rawTextLineCount;
   final double? confidence;
@@ -188,7 +190,8 @@ List<String> _receiptOcrReviewHints(ReceiptOcrPreview preview) {
         _hasReceiptOcrReferenceAdjustment(preview) &&
         !_receiptOcrAmountsClose(itemTotal, total)) {
       final adjustments = _reconcilableReceiptOcrAdjustments(preview);
-      if (_hasCompleteReceiptOcrItemLineTotals(preview.items) &&
+      if (preview.adjustmentsComplete &&
+          _hasCompleteReceiptOcrItemLineTotals(preview.items) &&
           adjustments != null &&
           _receiptOcrAmountsClose(itemTotal + adjustments, total)) {
         return const [];
@@ -209,7 +212,8 @@ List<String> _receiptOcrReviewHints(ReceiptOcrPreview preview) {
   if (_hasReceiptOcrReferenceAdjustment(preview)) {
     if (!_receiptOcrAmountsClose(itemTotal, total)) {
       final adjustments = _reconcilableReceiptOcrAdjustments(preview);
-      if (_hasCompleteReceiptOcrItemLineTotals(preview.items) &&
+      if (preview.adjustmentsComplete &&
+          _hasCompleteReceiptOcrItemLineTotals(preview.items) &&
           adjustments != null &&
           _receiptOcrAmountsClose(itemTotal + adjustments, total)) {
         return const [];

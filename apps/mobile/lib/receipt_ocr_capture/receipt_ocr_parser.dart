@@ -142,6 +142,7 @@ class ReceiptOcrParser {
       discountCurrency: amounts.discountCurrency,
       discountHasExplicitCurrencyEvidence:
           amounts.discountHasExplicitCurrencyEvidence,
+      adjustmentsComplete: amounts.adjustmentsComplete,
       total: amounts.total,
       rawTextLineCount: lines.length,
       confidence: _averageBlockConfidence(blocks),
@@ -803,6 +804,9 @@ class ReceiptOcrParser {
     String? discount;
     String? discountCurrency;
     var discountHasExplicitCurrencyEvidence = false;
+    final adjustmentRoleCounts = <String, int>{};
+    var adjustmentsComplete = true;
+    var aggregatedRatedTax = false;
     final totalCandidates = <({String value, int score, int order})>[];
     bool preferMatchingPrintedCurrency(
       String? existing,
@@ -827,13 +831,37 @@ class ReceiptOcrParser {
       final amount = _isPrimaryTotalCurrencyLine(line, normalized)
           ? _selectedTotalAmountInLine(line, currency: currency)
           : _lastAmountInLine(line, currency: currency);
-      if (amount == null) {
-        continue;
-      }
       if (chargeTableRows.contains(lineIndex) ||
           ambiguousChargeTableRows.contains(lineIndex)) {
         continue;
       }
+      final adjustmentRole = _hasTaxLabel(line, normalized)
+          ? 'tax'
+          : _hasServiceChargeLabel(line, normalized)
+          ? 'service'
+          : _hasActualTipChargeLabel(line, normalized)
+          ? 'tip'
+          : _hasShippingLabel(line, normalized)
+          ? 'shipping'
+          : _hasDiscountLabel(line, normalized)
+          ? 'discount'
+          : null;
+      if (adjustmentRole != null) {
+        adjustmentRoleCounts.update(
+          adjustmentRole,
+          (count) => count + 1,
+          ifAbsent: () => 1,
+        );
+        if (amount == null) adjustmentsComplete = false;
+      }
+      if (amount == null &&
+          RegExp(
+            r'^(?:sales\s+tax|tax|vat|gst|hst|iva|tva|kdv|mwst|service\s+(?:charge|fee)|tip|gratuity|shipping|delivery\s+(?:charge|fee)|discount|coupon)\b',
+            caseSensitive: false,
+          ).hasMatch(line.trim())) {
+        adjustmentsComplete = false;
+      }
+      if (amount == null) continue;
 
       if (_hasSubtotalLabel(line, normalized)) {
         final printed = _explicitAdjustmentCurrencyFromLine(
@@ -1024,12 +1052,18 @@ class ReceiptOcrParser {
         currency,
       );
       if (aggregate != null) {
+        aggregatedRatedTax = true;
         tax = aggregate;
         taxHasExplicitCurrencyEvidence = ratedTaxComponents.every(
           (component) => component.explicitCurrency,
         );
         taxCurrency = taxHasExplicitCurrencyEvidence ? currency : null;
       }
+    }
+    if (adjustmentRoleCounts.entries.any(
+      (entry) => entry.value > 1 && (entry.key != 'tax' || !aggregatedRatedTax),
+    )) {
+      adjustmentsComplete = false;
     }
 
     final sameCurrencySubtotal =
@@ -1108,6 +1142,7 @@ class ReceiptOcrParser {
       discount: discount,
       discountCurrency: discountCurrency,
       discountHasExplicitCurrencyEvidence: discountHasExplicitCurrencyEvidence,
+      adjustmentsComplete: adjustmentsComplete,
       total: total,
     );
   }
@@ -2250,6 +2285,7 @@ class _LabeledReceiptAmounts {
     this.discount,
     this.discountCurrency,
     this.discountHasExplicitCurrencyEvidence = false,
+    this.adjustmentsComplete = true,
     this.total,
   });
 
@@ -2273,6 +2309,7 @@ class _LabeledReceiptAmounts {
   final String? discount;
   final String? discountCurrency;
   final bool discountHasExplicitCurrencyEvidence;
+  final bool adjustmentsComplete;
   final String? total;
 }
 
