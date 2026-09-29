@@ -2206,7 +2206,8 @@ String _normalizeOcrLine(String value) {
           )
           .replaceAll('\u066b', '.')
           .replaceAll('\u066c', ',')
-          .replaceAll('\u00a0', ' ');
+          .replaceAll('\u00a0', ' ')
+          .replaceAll('−', '-');
   for (var index = 0; index < digitSources.length; index += 1) {
     normalized = normalized.replaceAll(
       digitSources[index],

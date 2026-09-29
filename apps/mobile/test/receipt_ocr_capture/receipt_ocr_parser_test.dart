@@ -1687,6 +1687,14 @@ Total USD 11.00
       expect(opposedSigned.taxHasExplicitCurrencyEvidence, isTrue);
     }
 
+    final negative = parser.parse('''
+Euro Market
+Tax €−1.00
+Total EUR 9.00
+''');
+    expect(negative.tax, '-1.00');
+    expect(negative.taxCurrency, 'EUR');
+
     for (final printedTax in [
       'Tax ₱1.00 USD',
       'Tax ₱1.00',

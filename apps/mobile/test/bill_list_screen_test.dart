@@ -1179,6 +1179,18 @@ Total USD 11.00
     );
     expect(opposedSigned.taxCurrency, isNull);
     expect(opposedSignedSave?.taxAmount, isNull);
+
+    final negative = parser.parse('''
+Euro Market
+Tax €−1.00
+Total EUR 9.00
+''');
+    final negativeSave = receiptOcrReviewSaveRequestFromPreview(
+      negative,
+      originalCurrency: negative.currency,
+    );
+    expect(negative.tax, '-1.00');
+    expect(negativeSave?.taxAmount, isNull);
   });
 
   testWidgets('editing OCR merchant keeps unresolved items out of Apply', (
