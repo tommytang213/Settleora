@@ -2684,13 +2684,13 @@ _currencyAdjacentToSelectedAmount(String text, String? receiptCurrency) {
         caseSensitive: false,
         unicode: true,
       ).allMatches(text).any((match) {
-        final otherToken = match.group(1);
-        if (otherToken == r'$') return false;
-        final otherCurrency = otherToken == '¥'
+        final otherMarker = match.group(1);
+        if (otherMarker == r'$') return false;
+        final otherCurrency = otherMarker == '¥'
             ? (receiptCurrency == 'JPY' || receiptCurrency == 'CNY'
                   ? receiptCurrency
                   : '¥')
-            : _currencyFromItemToken(otherToken);
+            : _currencyFromItemToken(otherMarker);
         return otherCurrency != receiptCurrency;
       });
       return hasConflictingDenomination ? null : receiptCurrency;
