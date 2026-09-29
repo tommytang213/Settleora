@@ -1133,6 +1133,26 @@ Total EUR 10.00
     expect(saved?.headerEvidence, isEmpty);
   });
 
+  test('OCR save rejects opposing markers on one tax amount', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Market
+Coffee USD 10.00
+Tax €1.00 USD
+Total USD 11.00
+''');
+    final saved = receiptOcrReviewSaveRequestFromPreview(
+      preview,
+      originalCurrency: preview.currency,
+    );
+
+    expect(preview.currency, 'USD');
+    expect(preview.taxHasExplicitCurrencyEvidence, isTrue);
+    expect(preview.taxCurrency, isNull);
+    expect(saved?.taxAmount, isNull);
+    expect(saved?.headerEvidence, isEmpty);
+  });
+
   testWidgets('editing OCR merchant keeps unresolved items out of Apply', (
     tester,
   ) async {

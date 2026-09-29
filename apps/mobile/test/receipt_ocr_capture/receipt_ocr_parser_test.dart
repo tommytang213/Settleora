@@ -1642,6 +1642,41 @@ Total USD 100.00
     expect(foreignDiscount.total, '100.00');
   });
 
+  test('opposing printed markers leave a single header amount unresolved', () {
+    const parser = ReceiptOcrParser();
+    for (final label in ['Subtotal', 'Tax', 'Service Charge', 'Discount']) {
+      final preview = parser.parse('''
+Market
+Coffee USD 10.00
+$label €1.00 USD
+Total USD 11.00
+''');
+      expect(preview.currency, 'USD');
+      switch (label) {
+        case 'Subtotal':
+          expect(preview.subtotalCurrency, isNull);
+          expect(preview.subtotalHasExplicitCurrencyEvidence, isTrue);
+        case 'Tax':
+          expect(preview.taxCurrency, isNull);
+          expect(preview.taxHasExplicitCurrencyEvidence, isTrue);
+        case 'Service Charge':
+          expect(preview.serviceCurrency, isNull);
+          expect(preview.serviceHasExplicitCurrencyEvidence, isTrue);
+        case 'Discount':
+          expect(preview.discountCurrency, isNull);
+          expect(preview.discountHasExplicitCurrencyEvidence, isTrue);
+      }
+    }
+
+    final sameCurrency = parser.parse('''
+Market
+Tax €1.00 EUR
+Total EUR 11.00
+''');
+    expect(sameCurrency.taxCurrency, 'EUR');
+    expect(sameCurrency.taxHasExplicitCurrencyEvidence, isTrue);
+  });
+
   test('printed total currency outranks repeated foreign item prices', () {
     const parser = ReceiptOcrParser();
     final text = [

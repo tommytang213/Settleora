@@ -695,7 +695,12 @@ class ReceiptOcrParser {
 
   ({String? currency, bool hasExplicitEvidence})
   _explicitAdjustmentCurrencyFromLine(String line, {String? receiptCurrency}) {
-    if (RegExp(_amountTokenPattern).allMatches(line).length > 1 ||
+    final amountCount = RegExp(_amountTokenPattern).allMatches(line).length;
+    final adjacentPrintedMarkers = _printedCurrencyMarkerMatches(
+      line,
+    ).where((marker) => _currencyMarkerTouchesAmount(line, marker)).length;
+    if (amountCount > 1 ||
+        (amountCount == 1 && adjacentPrintedMarkers > 1) ||
         (receiptCurrency != null &&
             !_currencyCompatibleWithBareDollar(receiptCurrency) &&
             RegExp(r'(?<![A-Za-z])\$\s*[+-]?\d').hasMatch(line))) {
