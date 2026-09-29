@@ -1845,6 +1845,81 @@ Total EUR 10.00
     expect(preview.taxHasExplicitCurrencyEvidence, isTrue);
   });
 
+  test('tax abbreviation inside priced item does not become tax header', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Euro Deli
+Food VAT 5% item EUR 20.00
+Wine VAT 20% item EUR 15.00
+Subtotal EUR 35.00
+VAT 5% EUR 1.00
+VAT 20% EUR 3.00
+Total EUR 39.00
+''');
+
+    expect(preview.currency, 'EUR');
+    expect(preview.items.map((item) => item.description).toList(), [
+      'Food VAT 5% item',
+      'Wine VAT 20% item',
+    ]);
+    expect(preview.tax, '4.00');
+    expect(preview.total, '39.00');
+  });
+
+  test('unsupported printed item ISO code stays unresolved', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Exchange Cafe
+Coffee XPF 10.00
+Total USD 10.00
+''');
+
+    expect(preview.currency, 'USD');
+    expect(preview.items.single.currency, 'XPF');
+    expect(preview.items.single.currencyUnresolved, isTrue);
+  });
+
+  test('selected total symbol outranks an earlier different symbol', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Euro Deli
+Food EUR 9.00
+Total € / £9.00
+''');
+
+    expect(preview.currency, 'EUR');
+    expect(preview.total, isNull);
+  });
+
+  test('distinct tax rates are not added across printed currencies', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Euro Deli
+Food EUR 20.00
+VAT 5% EUR 1.00
+VAT 20% USD 3.00
+Total EUR 21.00
+''');
+
+    expect(preview.currency, 'EUR');
+    expect(preview.tax, '1.00');
+    expect(preview.taxCurrency, 'EUR');
+  });
+
+  test('duplicate printed tax rate is not counted twice', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Euro Deli
+Food EUR 20.00
+VAT 5% EUR 1.00
+VAT 5% EUR 1.00
+Total EUR 21.00
+''');
+
+    expect(preview.currency, 'EUR');
+    expect(preview.tax, '1.00');
+  });
+
   test('zero-minor-unit item amount is recoverable from geometry', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse(

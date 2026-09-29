@@ -683,6 +683,9 @@ class ReceiptOcrParser {
     String? tax;
     String? taxCurrency;
     var taxHasExplicitCurrencyEvidence = false;
+    final ratedTaxComponents =
+        <({String rate, String amount, bool explicitCurrency})>[];
+    var hasUnratedTax = false;
     String? service;
     String? serviceCurrency;
     var serviceHasExplicitCurrencyEvidence = false;
@@ -746,6 +749,25 @@ class ReceiptOcrParser {
           line,
           receiptCurrency: currency,
         );
+        final printedRate = RegExp(
+          r'\b(?:sales\s+tax|tax|vat|gst|hst|iva|tva|kdv|mwst)\b\.?\s*(\d{1,3}(?:[.,]\d{1,2})?)\s*%',
+        ).firstMatch(normalized);
+        final rate = printedRate == null
+            ? null
+            : double.tryParse(
+                printedRate.group(1)!.replaceAll(',', '.'),
+              )?.toString();
+        if (rate != null &&
+            currency != null &&
+            (!printed.hasExplicitEvidence || printed.currency == currency)) {
+          ratedTaxComponents.add((
+            rate: rate,
+            amount: amount,
+            explicitCurrency: printed.hasExplicitEvidence,
+          ));
+        } else {
+          hasUnratedTax = true;
+        }
         if (preferMatchingPrintedCurrency(
           tax,
           taxCurrency,
@@ -827,6 +849,10 @@ class ReceiptOcrParser {
           !RegExp(
             r'\b(payment|tender|cash|change|previous|prior|reference)\b',
           ).hasMatch(normalized)) {
+        final selectedCurrency = _currencyAdjacentToSelectedAmount(
+          line,
+          currency,
+        );
         final printedCurrencies = <String>{
           ..._supportedCurrencyCodes.where(
             (code) => _hasExplicitCurrencyCode([line], code),
@@ -836,13 +862,20 @@ class ReceiptOcrParser {
         // A DCC or reference total may be printed next to the transaction
         // total. It remains OCR evidence, but cannot supply the primary amount
         // when its explicit denomination conflicts with this draft currency.
-        if (currency != null &&
-            ((line.contains('¥') && currency != 'JPY' && currency != 'CNY') ||
-                (line.contains(r'$') &&
-                    !_currencyCompatibleWithBareDollar(currency)) ||
-                (printedCurrencies.isNotEmpty &&
-                    (printedCurrencies.length != 1 ||
-                        !printedCurrencies.contains(currency))))) {
+        if ((currency != null && _hasUnsupportedIsoMonetaryEvidence(line)) ||
+            (selectedCurrency.hasExplicitEvidence
+                ? currency != null &&
+                      (selectedCurrency.currency == null ||
+                          selectedCurrency.currency != currency)
+                : currency != null &&
+                      ((line.contains('¥') &&
+                              currency != 'JPY' &&
+                              currency != 'CNY') ||
+                          (line.contains(r'$') &&
+                              !_currencyCompatibleWithBareDollar(currency)) ||
+                          (printedCurrencies.isNotEmpty &&
+                              (printedCurrencies.length != 1 ||
+                                  !printedCurrencies.contains(currency)))))) {
           continue;
         }
         var score = 10;
@@ -861,6 +894,28 @@ class ReceiptOcrParser {
           score += 5;
         }
         totalCandidates.add((value: amount, score: score, order: lineIndex));
+      }
+    }
+
+    // Several printed rate rows can jointly describe one provisional tax
+    // field. Aggregate only distinct rates in the established receipt
+    // currency; a separate summary or conflicting denomination stays in
+    // review rather than being double counted or converted.
+    if (!hasUnratedTax &&
+        currency != null &&
+        ratedTaxComponents.length > 1 &&
+        ratedTaxComponents.map((component) => component.rate).toSet().length ==
+            ratedTaxComponents.length) {
+      final aggregate = _sumSameCurrencyOcrAmounts(
+        ratedTaxComponents.map((component) => component.amount),
+        currency,
+      );
+      if (aggregate != null) {
+        tax = aggregate;
+        taxHasExplicitCurrencyEvidence = ratedTaxComponents.every(
+          (component) => component.explicitCurrency,
+        );
+        taxCurrency = taxHasExplicitCurrencyEvidence ? currency : null;
       }
     }
 
@@ -2483,6 +2538,35 @@ int _currencyMinorUnitDigits(String? currency) {
   };
 }
 
+String? _sumSameCurrencyOcrAmounts(Iterable<String> amounts, String currency) {
+  final minorDigits = _currencyMinorUnitDigits(currency);
+  final scale = switch (minorDigits) {
+    0 => 1,
+    3 => 1000,
+    _ => 100,
+  };
+  var totalMinor = 0;
+  var count = 0;
+  for (final amount in amounts) {
+    final match = RegExp(r'^(\d+)(?:\.(\d{1,3}))?$').firstMatch(amount);
+    if (match == null) return null;
+    final whole = int.tryParse(match.group(1)!);
+    final fraction = match.group(2) ?? '';
+    if (whole == null || fraction.length > minorDigits) return null;
+    final minor = fraction.isEmpty
+        ? 0
+        : int.tryParse(fraction.padRight(minorDigits, '0'));
+    if (minor == null) return null;
+    totalMinor += whole * scale + minor;
+    count += 1;
+  }
+  if (count < 2) return null;
+  final whole = totalMinor ~/ scale;
+  if (minorDigits == 0) return '$whole';
+  final fraction = (totalMinor % scale).toString().padLeft(minorDigits, '0');
+  return '$whole.$fraction';
+}
+
 String _cleanDescription(String value) {
   return value
       .replaceAll(RegExp(r'\s+'), ' ')
@@ -2648,6 +2732,8 @@ String? _itemCurrencyFromPrintedText(
   String? receiptCurrency, {
   String? token,
 }) {
+  final unsupportedSelected = _unsupportedIsoCodeAdjacentToSelectedAmount(text);
+  if (unsupportedSelected != null) return unsupportedSelected;
   final selected = _currencyAdjacentToSelectedAmount(text, receiptCurrency);
   if (selected.hasExplicitEvidence) return selected.currency;
   if (text.contains('¥') &&
@@ -2662,9 +2748,46 @@ String? _itemCurrencyFromPrintedText(
 }
 
 bool _selectedItemCurrencyUnresolved(String text, String? receiptCurrency) {
+  if (_hasUnsupportedIsoMonetaryEvidence(text)) return true;
   final selected = _currencyAdjacentToSelectedAmount(text, receiptCurrency);
   return selected.hasExplicitEvidence && selected.currency == null;
 }
+
+Iterable<RegExpMatch> _unsupportedIsoCurrencyMarkers(String text) sync* {
+  for (final match in RegExp(
+    r'(?<![\p{L}\p{N}])([A-Z]{3})(?![\p{L}])',
+    unicode: true,
+  ).allMatches(text)) {
+    final code = match.group(1)!;
+    if (!_supportedCurrencyCodes.contains(code) &&
+        !_nonCurrencyAdjustmentCodes.contains(code)) {
+      yield match;
+    }
+  }
+}
+
+String? _unsupportedIsoCodeAdjacentToSelectedAmount(String text) {
+  final amount = RegExp(_amountTokenPattern).allMatches(text).lastOrNull;
+  if (amount == null) return null;
+  for (final marker in _unsupportedIsoCurrencyMarkers(text)) {
+    if (marker.end <= amount.start &&
+        RegExp(
+          r'^\s*[:=]?\s*$',
+        ).hasMatch(text.substring(marker.end, amount.start))) {
+      return marker.group(1);
+    }
+    if (marker.start >= amount.end &&
+        text.substring(amount.end, marker.start).trim().isEmpty) {
+      return marker.group(1);
+    }
+  }
+  return null;
+}
+
+bool _hasUnsupportedIsoMonetaryEvidence(String text) =>
+    _unsupportedIsoCurrencyMarkers(
+      text,
+    ).any((marker) => _currencyMarkerTouchesAmount(text, marker));
 
 bool _currencyMarkerTouchesAmount(String text, RegExpMatch marker) {
   final before = text.substring(0, marker.start);
@@ -3013,7 +3136,7 @@ bool _hasTaxLabel(String line, String normalized) {
   return _hasEnglishReceiptLabel(
         normalized,
         RegExp(
-          r'\b(?:sales\s+tax|tax|vat|gst|hst|iva)\b',
+          r'\b(?:sales\s+tax|tax|vat|gst|hst|iva|tva|kdv|mwst)\b\.?',
           caseSensitive: false,
         ),
       ) ||
@@ -3028,10 +3151,6 @@ bool _hasTaxLabel(String line, String normalized) {
         'ภาษี',
         'НДС',
         'ндс',
-        'TVA',
-        'MwSt.',
-        'VAT',
-        'KDV',
         'Thuế',
       ]);
 }

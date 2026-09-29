@@ -985,6 +985,21 @@ Total EUR 9.00
     expect(lines.single.lineTotalAmount, isNull);
   });
 
+  test('OCR save keeps unsupported item ISO money out of review scalars', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Exchange Cafe
+Coffee XPF 10.00
+Total USD 10.00
+''');
+    final lines = receiptOcrReviewLinesFromPreview(preview);
+
+    expect(preview.items.single.currency, 'XPF');
+    expect(preview.items.single.currencyUnresolved, isTrue);
+    expect(lines.single.text, contains('Coffee'));
+    expect(lines.single.lineTotalAmount, isNull);
+  });
+
   test('OCR save does not relabel a bare dollar tax as euro money', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse(r'''
