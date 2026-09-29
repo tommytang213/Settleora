@@ -3,6 +3,13 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // #1309 printed foreign header amount normalization at e0fdc3c6.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "7cea91d8bf414337d905a95526444aff16c8a819b7111baf613473b5996380bb": Object.freeze([
+    "047879f7577a26982bfbfcdded8c46661e72147d8adfa7edddec2b2d35df62ce",
+  ]),
   // #1309 multi-amount localized adjustment warning at 1d2b4f4e.
   // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
   // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
