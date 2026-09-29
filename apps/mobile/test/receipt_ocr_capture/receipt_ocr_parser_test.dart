@@ -4621,6 +4621,21 @@ Total USD 12.00
     }
   });
 
+  test('percentage-only tax does not count as a monetary adjustment', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Meal 10.00
+Tax 2%
+Service charge USD 2.00
+Total USD 12.00
+''');
+    expect(preview.tax, isNull);
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(preview.reviewHints, [
+      'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
+    ]);
+  });
+
   test('preview does not reconcile a partial item total', () {
     const preview = ReceiptOcrPreview(
       currency: 'HKD',

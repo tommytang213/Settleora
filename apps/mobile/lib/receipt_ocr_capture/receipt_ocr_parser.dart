@@ -888,18 +888,24 @@ class ReceiptOcrParser {
       ];
       final adjustmentRole = adjustmentRoles.firstOrNull;
       if (adjustmentRoles.length > 1) adjustmentsComplete = false;
+      final lastAmountToken = RegExp(
+        _amountTokenPattern,
+      ).allMatches(line).lastOrNull;
+      final selectedAmountIsRate =
+          lastAmountToken != null &&
+          RegExp(r'^\s*%').hasMatch(line.substring(lastAmountToken.end));
       if (adjustmentRole != null) {
         adjustmentRoleCounts.update(
           adjustmentRole,
           (count) => count + 1,
           ifAbsent: () => 1,
         );
-        if (amount == null) adjustmentsComplete = false;
+        if (amount == null || selectedAmountIsRate) adjustmentsComplete = false;
       }
       if (adjustmentRole == null && hasPotentialAdjustment) {
         adjustmentsComplete = false;
       }
-      if (amount == null) continue;
+      if (amount == null || selectedAmountIsRate) continue;
 
       if (_hasSubtotalLabel(line, normalized)) {
         final printed = _explicitAdjustmentCurrencyFromLine(
