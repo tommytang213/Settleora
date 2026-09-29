@@ -2248,6 +2248,60 @@ void main() {
       },
     );
 
+    testWidgets(
+      'requires removing printed evidence before entering its scalar',
+      (tester) async {
+        await useLargeSurface(tester);
+        final route = sampleRoute();
+        final repository = FakeReceiptOcrReviewRepository(
+          reviewResponse: sampleReview(
+            route,
+            taxAmount: null,
+            headerEvidence: const [
+              ReceiptOcrReviewHeaderEvidence(
+                role: 'tax',
+                amount: '2.50',
+                currency: 'EUR',
+              ),
+            ],
+          ),
+        );
+        await pumpDetail(tester, repository: repository, route: route);
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithIcon(IconButton, Icons.edit_outlined));
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          editableTextForKey(const Key('receipt-review-edit-tax')),
+          '1.20',
+        );
+        await tester.ensureVisible(
+          find.byKey(const Key('receipt-review-edit-save')),
+        );
+        await tester.tap(find.byKey(const Key('receipt-review-edit-save')));
+        await tester.pumpAndSettle();
+        expect(repository.saveCalls, 0);
+        expect(
+          find.text('Remove printed tax evidence before entering this amount'),
+          findsOneWidget,
+        );
+
+        final remove = find.byKey(
+          const Key('receipt-review-edit-header-remove-tax'),
+        );
+        await tester.ensureVisible(remove);
+        await tester.tap(remove);
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.byKey(const Key('receipt-review-edit-save')),
+        );
+        await tester.tap(find.byKey(const Key('receipt-review-edit-save')));
+        await tester.pumpAndSettle();
+        expect(repository.saveCalls, 1);
+        expect(repository.lastSaveRequest?.taxAmount, '1.20');
+        expect(repository.lastSaveRequest?.headerEvidence, isEmpty);
+      },
+    );
+
     testWidgets('saves edits through the group route and blocks conflicts', (
       tester,
     ) async {

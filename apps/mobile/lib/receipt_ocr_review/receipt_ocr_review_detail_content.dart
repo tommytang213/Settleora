@@ -414,6 +414,14 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
     );
   }
 
+  String? _headerScalarValidator(String? value, String role) {
+    if (_nullableText(value) != null &&
+        _headerEvidenceEditors.any((entry) => entry.role == role)) {
+      return 'Remove printed ${role.replaceAll('_', ' ')} evidence before entering this amount';
+    }
+    return _moneyValidator(value);
+  }
+
   bool _hasAnyAmountCandidate() {
     final headerControllers = [
       _subtotalController,
@@ -513,7 +521,8 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
               amountLabel: 'Subtotal',
               semanticLabel: 'Subtotal amount suggestion',
               enabled: !isBusy,
-              amountValidator: _moneyValidator,
+              amountValidator: (value) =>
+                  _headerScalarValidator(value, 'subtotal'),
             ),
             _ReceiptOcrMoneyInput(
               amountKey: const Key('receipt-review-edit-tax'),
@@ -522,7 +531,7 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
               amountLabel: 'Tax',
               semanticLabel: 'Tax amount suggestion',
               enabled: !isBusy,
-              amountValidator: _moneyValidator,
+              amountValidator: (value) => _headerScalarValidator(value, 'tax'),
             ),
             _ReceiptOcrMoneyInput(
               amountKey: const Key('receipt-review-edit-service-charge'),
@@ -531,7 +540,8 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
               amountLabel: 'Service charge',
               semanticLabel: 'Service charge amount suggestion',
               enabled: !isBusy,
-              amountValidator: _moneyValidator,
+              amountValidator: (value) =>
+                  _headerScalarValidator(value, 'service_charge'),
             ),
             _ReceiptOcrMoneyInput(
               amountKey: const Key('receipt-review-edit-discount'),
@@ -540,7 +550,8 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
               amountLabel: 'Discount',
               semanticLabel: 'Discount amount suggestion',
               enabled: !isBusy,
-              amountValidator: _moneyValidator,
+              amountValidator: (value) =>
+                  _headerScalarValidator(value, 'discount'),
             ),
             _ReceiptOcrMoneyInput(
               amountKey: const Key('receipt-review-edit-grand-total'),

@@ -411,6 +411,7 @@ internal static class ReceiptOcrReviewEndpoints
             .Include(candidate => candidate.Lines)
             .Include(candidate => candidate.Adjustments)
             .Include(candidate => candidate.HeaderEvidence)
+            .AsSplitQuery()
             .Where(candidate => candidate.ExpenseBillId == billContext.BillId
                 && candidate.FileObjectId == attachment.FileObjectId
                 && candidate.RemovedAtUtc == null)
@@ -2737,6 +2738,7 @@ internal static class ReceiptOcrReviewEndpoints
             .Include(review => review.Lines)
             .Include(review => review.Adjustments)
             .Include(review => review.HeaderEvidence)
+            .AsSplitQuery()
             .Where(review => review.ExpenseBillId == billContext.BillId
                 && review.FileObjectId == fileId
                 && review.GroupId == billContext.GroupId
