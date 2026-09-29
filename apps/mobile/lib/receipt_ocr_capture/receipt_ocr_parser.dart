@@ -2670,9 +2670,18 @@ bool _currencyMarkerTouchesAmount(String text, RegExpMatch marker) {
   final afterMarker = after.trimLeft();
   final markerEndsAmount = afterMarker.isEmpty ||
       RegExp(r'^[/:,;|)\]\-]').hasMatch(afterMarker);
+  final followingAmount = RegExp(
+    '^\\s*[:=]?\\s*$_amountTokenPattern',
+  ).firstMatch(after);
+  final afterFollowingAmount = followingAmount == null
+      ? null
+      : after.substring(followingAmount.end).trimLeft();
+  final amountEndsCell = afterFollowingAmount != null &&
+      (afterFollowingAmount.isEmpty ||
+          RegExp(r'^[/:,;|)\]\-.]').hasMatch(afterFollowingAmount));
   return (markerEndsAmount &&
           RegExp('$_amountTokenPattern\\s*[:=]?\\s*\$').hasMatch(before)) ||
-      RegExp('^\\s*[:=]?\\s*$_amountTokenPattern').hasMatch(after);
+      amountEndsCell;
 }
 
 String? _currencyAdjacentToSelectedAmountWithYen(String text) {

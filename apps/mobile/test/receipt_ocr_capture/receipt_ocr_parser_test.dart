@@ -3445,33 +3445,28 @@ Total USD 1.00
 
   test('item words that resemble currency codes do not conflict', () {
     const parser = ReceiptOcrParser();
-    final compared = parser.parse(r'''
+    for (final itemLine in [r'2 Try Special $3.00', r'Try 2 Special $3.00']) {
+      final compared = parser.parse('''
 Exchange Cafe
-2 Try Special $3.00
+$itemLine
 Total USD 3.00
 ''');
-    expect(compared.currency, 'USD');
-    expect(
-      compared.items.where(
-        (item) => item.lineTotal == '3.00' && item.currency == 'USD',
-      ),
-      isNotEmpty,
-      reason: compared.items
-          .map((item) => (
-                item.description,
-                item.lineTotal,
-                item.currency,
-                item.currencyUnresolved,
-              ))
-          .toList()
-          .toString(),
-    );
-    expect(
-      compared.items.where((item) => item.lineTotal == '3.00').every(
-        (item) => !item.currencyUnresolved,
-      ),
-      isTrue,
-    );
+      expect(compared.currency, 'USD', reason: itemLine);
+      expect(
+        compared.items.where(
+          (item) => item.lineTotal == '3.00' && item.currency == 'USD',
+        ),
+        isNotEmpty,
+        reason: itemLine,
+      );
+      expect(
+        compared.items.where((item) => item.lineTotal == '3.00').every(
+          (item) => !item.currencyUnresolved,
+        ),
+        isTrue,
+        reason: itemLine,
+      );
+    }
   });
 
   test('single printed dollar item cannot inherit euro currency', () {
