@@ -17448,6 +17448,7 @@ ReceiptOcrReviewSaveRequest _receiptOcrReviewSaveRequestFromSavedEdit(
     currency: editedCurrency,
     subtotalAmount:
         preserveHeaderMoney &&
+            !preview.subtotalHasExplicitCurrencyEvidence &&
             _receiptOcrHeaderAdjustmentCurrencyMatches(
               editedCurrency,
               preview.subtotalCurrency,
@@ -17460,6 +17461,7 @@ ReceiptOcrReviewSaveRequest _receiptOcrReviewSaveRequestFromSavedEdit(
         : null,
     taxAmount:
         preserveHeaderMoney &&
+            !preview.taxHasExplicitCurrencyEvidence &&
             _receiptOcrHeaderAdjustmentCurrencyMatches(
               editedCurrency,
               preview.taxCurrency,
@@ -17469,6 +17471,7 @@ ReceiptOcrReviewSaveRequest _receiptOcrReviewSaveRequestFromSavedEdit(
         : null,
     serviceChargeAmount:
         preserveHeaderMoney &&
+            !preview.serviceHasExplicitCurrencyEvidence &&
             _receiptOcrHeaderAdjustmentCurrencyMatches(
               editedCurrency,
               preview.serviceCurrency,
@@ -17481,6 +17484,7 @@ ReceiptOcrReviewSaveRequest _receiptOcrReviewSaveRequestFromSavedEdit(
         : null,
     discountAmount:
         preserveHeaderMoney &&
+            !preview.discountHasExplicitCurrencyEvidence &&
             _receiptOcrHeaderAdjustmentCurrencyMatches(
               editedCurrency,
               preview.discountCurrency,

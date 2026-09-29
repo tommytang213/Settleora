@@ -1954,6 +1954,28 @@ Total USD 80.00
         'EUR',
       );
       expect(find.text('Printed tax (review only)'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('saved-ocr-review-edit')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('saved-ocr-review-ocr-edit-merchant')),
+        'Edited Market',
+      );
+      await _scrollSavedOcrReviewEditActionsIntoView(tester);
+      await tester.tap(find.byKey(const Key('saved-ocr-review-edit-save')));
+      await tester.pumpAndSettle();
+      expect(receiptRepository.saveCalls, 2);
+      expect(receiptRepository.lastSaveRequest?.merchantText, 'Edited Market');
+      expect(receiptRepository.lastSaveRequest?.taxAmount, isNull);
+      expect(
+        receiptRepository.lastSaveRequest?.headerEvidence.single.amount,
+        '2.50',
+      );
+      expect(
+        receiptRepository.lastSaveRequest?.headerEvidence.single.currency,
+        'EUR',
+      );
+      expect(find.text('Printed tax (review only)'), findsOneWidget);
     },
   );
 
