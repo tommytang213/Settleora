@@ -135,7 +135,7 @@ test("retains only the bounded native acceptance schema", () => {
     fixtureCount: 101,
     passedFixtureCount: 100,
     mismatchCount: 1,
-    mismatches: [{ fixtureId: "fixture_001", field: "items[0].description" }],
+    mismatches: [{ fixtureId: manifestFixtureIds[0], field: "items[0].description" }],
     recognitionCoverage: manifestFixtureIds.map((fixtureId) => ({ fixtureId, blockCount: 12, merchantExactTextSeen: true,
       totalExactTokenSeen: true, expectedItemCount: 2, itemDescriptionsExactTextSeen: 1,
       rowCount: 8, actualItemCount: 1, merchantExactTextInOneRow: true, itemDescriptionsSameRowAsAmount: 0,
@@ -329,7 +329,7 @@ test("complete evidence requires both package measurements and a positive delta"
   assert.equal(isCompleteEvidence({ ...evidence,
     acceptance: { ...evidence.acceptance, recognitionCoverage: undefined } }), false);
   assert.equal(isCompleteEvidence({ ...evidence,
-    acceptance: { ...evidence.acceptance, recognitionCoverage: [{ fixtureId: "fixture_001" }] } }), false);
+    acceptance: { ...evidence.acceptance, recognitionCoverage: [{ fixtureId: manifestFixtureIds[0] }] } }), false);
   assert.equal(isCompleteEvidence({ ...evidence,
     uiSmoke: { ...evidence.uiSmoke, fixtureId: "synthetic_easy_fixture" } }), false);
   assert.equal(isCompleteEvidence({ ...evidence,
@@ -352,7 +352,7 @@ test("complete evidence requires both package measurements and a positive delta"
   assert.equal(
     isCompleteEvidence({
       ...evidence,
-      diagnostics: [{ schemaVersion: 1, platform: "android", stage: "corpus_provider", fixtureId: "fixture_001" }],
+      diagnostics: [{ schemaVersion: 1, platform: "android", stage: "corpus_provider", fixtureId: manifestFixtureIds[0] }],
     }),
     false,
   );
@@ -617,7 +617,7 @@ test("failure evidence recovers sanitized partial acceptance without trusting in
     fixtureCount: 101,
     passedFixtureCount: 100,
     mismatchCount: 1,
-    mismatches: [{ fixtureId: "fixture_001", field: "provider_status" }],
+    mismatches: [{ fixtureId: manifestFixtureIds[0], field: "provider_status" }],
     runtime: "onnxruntime-android:1.21.1:cpu",
     coldLoadTimeMs: 25,
     endToEndLatencyMs: { sampleCount: 101, cold: 30, warmP50: 20, warmP95: 24, max: 30 },
@@ -641,6 +641,23 @@ test("failure evidence recovers sanitized partial acceptance without trusting in
     assert.equal(JSON.stringify(evidence).includes("untrusted tool output"), false);
     assert.equal(isCompleteEvidence(evidence), false);
   });
+  const unknownFixture = {
+    ...acceptance,
+    mismatches: [{ fixtureId: "privateMerchant", field: "provider_status" }],
+  };
+  for (const marker of [unknownFixture, acceptance]) {
+    withLog(JSON.stringify({
+      type: "print",
+      message: `SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify(marker)}`,
+    }), (log) => {
+      const evidence = buildFailureEvidence(
+        { ...evidenceArgs(log), "test-status": "1" },
+        marker === acceptance ? path.dirname(log) : repoRoot,
+      );
+      assert.deepEqual(evidence.acceptance, { completed: false });
+      assert.equal(JSON.stringify(evidence).includes("privateMerchant"), false);
+    });
+  }
 });
 
 test("failure evidence rejects duplicate partial markers instead of selecting one", () => {
@@ -652,7 +669,7 @@ test("failure evidence rejects duplicate partial markers instead of selecting on
     fixtureCount: 101,
     passedFixtureCount: 100,
     mismatchCount: 1,
-    mismatches: [{ fixtureId: "fixture_001", field: "provider_status" }],
+    mismatches: [{ fixtureId: manifestFixtureIds[0], field: "provider_status" }],
     runtime: "onnxruntime-android:1.21.1:cpu",
     coldLoadTimeMs: 25,
     endToEndLatencyMs: { sampleCount: 101, cold: 30, warmP50: 20, warmP95: 24, max: 30 },
@@ -666,7 +683,7 @@ test("failure evidence rejects duplicate partial markers instead of selecting on
   });
   const conflicting = {
     ...acceptance,
-    mismatches: [{ fixtureId: "fixture_002", field: "provider_exception" }],
+    mismatches: [{ fixtureId: manifestFixtureIds[1], field: "provider_exception" }],
   };
   withLog(`${event(acceptance)}\n${event(conflicting)}\n`, (log) => {
     const evidence = buildFailureEvidence({ ...evidenceArgs(log), "test-status": "1" });
@@ -879,7 +896,7 @@ test("retains bounded partial metrics for a failed run without accepting it", ()
     passedFixtureCount: 0,
     mismatchCount: 101,
     mismatches: Array.from({ length: 101 }, (_, index) => ({
-      fixtureId: `fixture_${index}`,
+      fixtureId: manifestFixtureIds[index],
       field: "provider_status",
     })),
     runtime: null,
@@ -942,7 +959,7 @@ test("retains zero-duration failed-run samples without accepting them", () => {
     passedFixtureCount: 0,
     mismatchCount: 101,
     mismatches: Array.from({ length: 101 }, (_, index) => ({
-      fixtureId: `fixture_${index}`,
+      fixtureId: manifestFixtureIds[index],
       field: "provider_exception",
     })),
     runtime: null,
@@ -1071,7 +1088,7 @@ test("rejects contradictory aggregate counts and package measurements", () => {
     fixtureCount: 101,
     passedFixtureCount: 101,
     mismatchCount: 1,
-    mismatches: [{ fixtureId: "fixture_001", field: "merchant" }],
+    mismatches: [{ fixtureId: manifestFixtureIds[0], field: "merchant" }],
     runtime: "onnxruntime-android:1.21.1:cpu",
     coldLoadTimeMs: 1,
     endToEndLatencyMs: { sampleCount: 101, cold: 1, warmP50: 1, warmP95: 1, max: 1 },

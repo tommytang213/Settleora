@@ -586,8 +586,12 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
       throw new Error(`mismatches[${index}] must be an object`);
     }
     assertExactKeys(entry, ["fixtureId", "field"], `mismatches[${index}]`);
+    const fixtureId = boundedToken(entry.fixtureId, `mismatches[${index}].fixtureId`);
+    if (!expectedFixtureIds?.has(fixtureId)) {
+      throw new Error("Acceptance mismatch fixture is outside the immutable corpus");
+    }
     return {
-      fixtureId: boundedToken(entry.fixtureId, `mismatches[${index}].fixtureId`),
+      fixtureId,
       field: boundedToken(entry.field, `mismatches[${index}].field`),
     };
   });

@@ -968,7 +968,8 @@ class ReceiptOcrParser {
         // when its explicit denomination conflicts with this draft currency.
         final selectedUnsupportedCurrency =
             _unsupportedIsoCodeAdjacentToSelectedAmount(line);
-        if ((RegExp(_amountTokenPattern).allMatches(line).length > 1 &&
+        if (_hasUnsupportedCurrencySymbolOnSelectedAmount(line) ||
+            (RegExp(_amountTokenPattern).allMatches(line).length > 1 &&
                 selectedCurrency.hasExplicitEvidence &&
                 selectedCurrency.currency == null) ||
             (currency != null &&

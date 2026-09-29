@@ -2288,6 +2288,20 @@ Total €9.00 $10.00
     expect(preview.total, '10.00');
   });
 
+  test('unsupported symbol on selected total stays provisional', () {
+    const parser = ReceiptOcrParser();
+    for (final printedTotal in ['Total ₱10.00', 'Total USD 9.00 ₱10.00']) {
+      final preview = parser.parse('''
+Market
+Coffee USD 10.00
+$printedTotal
+''');
+
+      expect(preview.currency, 'USD');
+      expect(preview.total, isNull);
+    }
+  });
+
   test(
     'attached code total keeps the selected amount and currency together',
     () {
