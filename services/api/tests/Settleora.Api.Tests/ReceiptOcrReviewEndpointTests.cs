@@ -387,7 +387,13 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         using var currencyConflict = CreateJsonBearerRequest(HttpMethod.Put, PersonalOcrReviewPath(billId, fileId), owner.RawSessionToken,
             """{"status":"reviewed","source":"on_device","currency":"EUR"}""");
         using var currencyConflictResponse = await client.SendAsync(currencyConflict);
-        Assert.Equal(HttpStatusCode.BadRequest, currencyConflictResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, currencyConflictResponse.StatusCode);
+        var matchedCurrencyReview = ReadReviewPayload(await currencyConflictResponse.Content.ReadAsStringAsync());
+        Assert.Equal(saved.HeaderEvidence, matchedCurrencyReview.HeaderEvidence);
+        using var matchedPreview = CreateBearerRequest(HttpMethod.Get, PersonalOcrReviewApplyPreviewPath(billId, fileId), owner.RawSessionToken);
+        using var matchedPreviewResponse = await client.SendAsync(matchedPreview);
+        using (var matchedPreviewDocument = JsonDocument.Parse(await matchedPreviewResponse.Content.ReadAsStringAsync()))
+            Assert.Equal(JsonValueKind.Null, matchedPreviewDocument.RootElement.GetProperty("proposedSubtotalAmount").ValueKind);
 
         using var replace = CreateJsonBearerRequest(HttpMethod.Put, PersonalOcrReviewPath(billId, fileId), owner.RawSessionToken,
             """{"status":"reviewed","source":"on_device","currency":"USD","subtotalAmount":"10.00","grandTotalAmount":"10.00","headerEvidence":[]}""");
@@ -2785,7 +2791,6 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
             """{"status":"provisional","source":"on_device","headerEvidence":[{"role":"tax","amount":"1e2","currency":"EUR"}]}""",
             """{"status":"provisional","source":"on_device","headerEvidence":[{"role":"tax","amount":"1","currency":"XPF"}]}""",
             """{"status":"provisional","source":"on_device","currency":"USD","taxAmount":"1","headerEvidence":[{"role":"tax","amount":"2","currency":"EUR"}]}""",
-            """{"status":"provisional","source":"on_device","currency":"USD","headerEvidence":[{"role":"tax","amount":"1","currency":"USD"}]}""",
             """{"status":"provisional","source":"on_device","headerEvidence":[{"role":"subtotal","amount":"1","currency":"EUR"},{"role":"tax","amount":"1","currency":"EUR"},{"role":"service_charge","amount":"1","currency":"EUR"},{"role":"discount","amount":"1","currency":"EUR"},{"role":"tax","amount":"1","currency":"GBP"}]}"""
         };
 

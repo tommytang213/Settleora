@@ -1854,6 +1854,82 @@ Total USD 80.00
   });
 
   testWidgets(
+    'saved printed header stays visible and provisional when review currency matches',
+    (tester) async {
+      await useLargeSurface(tester);
+      final route = ReceiptOcrReviewRoute(
+        billId: _createdBillId,
+        fileId: _uploadedFileId,
+      );
+      final receiptRepository = FakeReceiptOcrReviewRepository(
+        reviewDetail: sampleReceiptOcrReviewDetail(
+          route,
+          includeScalarTotals: false,
+          headerEvidence: const [
+            ReceiptOcrReviewHeaderEvidence(
+              role: 'tax',
+              amount: '2.50',
+              currency: 'EUR',
+            ),
+          ],
+        ),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillDetailScreen(
+            repository: FakeBillRepository(
+              detail: sampleBillDetail(id: _createdBillId),
+            ),
+            billId: _createdBillId,
+            initialBill: sampleBillDetail(id: _createdBillId),
+            receiptOcrReviewRepository: receiptRepository,
+            initialReceiptOcrReviewHandoff: ReceiptOcrReviewHandoff.saved(
+              reviewRoute: route,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('bill-detail-ocr-review-open')));
+      await tester.pumpAndSettle();
+      expect(find.text('No receipt totals were saved.'), findsNothing);
+      expect(find.text('Printed tax (review only)'), findsOneWidget);
+      expect(find.text('2.50 EUR'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('saved-ocr-review-edit')));
+      await tester.pumpAndSettle();
+      expect(find.text('Printed tax (review only)'), findsOneWidget);
+      await _selectCurrency(
+        tester,
+        find.byKey(const Key('saved-ocr-review-ocr-edit-currency')),
+        'EUR',
+      );
+      await _scrollSavedOcrReviewEditActionsIntoView(tester);
+      await tester.tap(find.byKey(const Key('saved-ocr-review-edit-save')));
+      await tester.pumpAndSettle();
+      expect(receiptRepository.lastSaveRequest?.currency, 'EUR');
+      expect(receiptRepository.lastSaveRequest?.taxAmount, isNull);
+      expect(
+        receiptRepository.lastSaveRequest?.headerEvidence.single.role,
+        'tax',
+      );
+      expect(
+        receiptRepository.lastSaveRequest?.headerEvidence.single.amount,
+        '2.50',
+      );
+      expect(
+        receiptRepository.lastSaveRequest?.headerEvidence.single.currency,
+        'EUR',
+      );
+      expect(
+        receiptRepository.reviewDetail?.headerEvidence.single.currency,
+        'EUR',
+      );
+      expect(find.text('Printed tax (review only)'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
     'personal saved OCR review edit cancel leaves repository unchanged',
     (tester) async {
       await useLargeSurface(tester);
@@ -14188,6 +14264,7 @@ ReceiptOcrReviewDetail sampleReceiptOcrReviewDetail(
   DateTime? updatedAtUtc,
   List<ReceiptOcrReviewAdjustment> adjustments = const [],
   List<ReceiptOcrReviewHeaderEvidence> headerEvidence = const [],
+  bool includeScalarTotals = true,
 }) {
   return ReceiptOcrReviewDetail(
     id: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
@@ -14199,11 +14276,11 @@ ReceiptOcrReviewDetail sampleReceiptOcrReviewDetail(
     merchantText: merchantText,
     receiptIssuedAtUtc: _createdAtUtc,
     currency: currency,
-    subtotalAmount: '10.00',
-    taxAmount: '0.80',
+    subtotalAmount: includeScalarTotals ? '10.00' : null,
+    taxAmount: includeScalarTotals ? '0.80' : null,
     serviceChargeAmount: null,
     discountAmount: null,
-    grandTotalAmount: '10.80',
+    grandTotalAmount: includeScalarTotals ? '10.80' : null,
     lines: [
       ReceiptOcrReviewLine(
         id: 'dddddddd-dddd-dddd-dddd-dddddddddddd',

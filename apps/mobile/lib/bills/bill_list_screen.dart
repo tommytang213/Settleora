@@ -267,12 +267,7 @@ ReceiptOcrPreview _copyReceiptOcrPreview(
   bool retainHeader(String? printedCurrency, bool hasExplicitEvidence) {
     if (!clearHeaderMoney) return true;
     final supportedPrinted = _nullableUppercaseCurrency(printedCurrency);
-    final nextReviewCurrency = _nullableUppercaseCurrency(
-      currency ?? preview.currency,
-    );
-    return hasExplicitEvidence &&
-        supportedPrinted != null &&
-        supportedPrinted != nextReviewCurrency;
+    return hasExplicitEvidence && supportedPrinted != null;
   }
 
   final retainSubtotal = retainHeader(
@@ -491,6 +486,14 @@ ReceiptOcrReviewSaveRequest? _receiptOcrReviewSaveRequestFromPreview(
 @visibleForTesting
 List<ReceiptOcrReviewHeaderEvidenceSaveRequest>
 receiptOcrHeaderEvidenceFromPreview(ReceiptOcrPreview preview) {
+  return _receiptOcrHeaderEvidenceFromPreview(preview);
+}
+
+List<ReceiptOcrReviewHeaderEvidenceSaveRequest>
+_receiptOcrHeaderEvidenceFromPreview(
+  ReceiptOcrPreview preview, {
+  bool preserveMatchingEvidence = false,
+}) {
   final reviewCurrency = _nullableUppercaseCurrency(preview.currency);
   final candidates = [
     (
@@ -527,7 +530,7 @@ receiptOcrHeaderEvidenceFromPreview(ReceiptOcrPreview preview) {
     );
     if (candidate.$4 &&
         printedCurrency != null &&
-        printedCurrency != reviewCurrency &&
+        (preserveMatchingEvidence || printedCurrency != reviewCurrency) &&
         amount != null) {
       evidence.add(
         ReceiptOcrReviewHeaderEvidenceSaveRequest(
@@ -17296,6 +17299,12 @@ List<_SavedReceiptOcrMoneyRow> _savedReceiptOcrHeaderRows(
     ),
     _savedReceiptOcrMoneyRow('Discount', review.discountAmount, currency),
     _savedReceiptOcrMoneyRow('Grand total', review.grandTotalAmount, currency),
+    for (final entry in review.headerEvidence)
+      _SavedReceiptOcrMoneyRow(
+        label: 'Printed ${entry.role.replaceAll('_', ' ')} (review only)',
+        amount: entry.amount,
+        currency: entry.currency,
+      ),
   ].nonNulls.toList(growable: false);
 }
 
@@ -17478,7 +17487,10 @@ ReceiptOcrReviewSaveRequest _receiptOcrReviewSaveRequestFromSavedEdit(
           direction: adjustment.direction,
         ),
     ],
-    headerEvidence: receiptOcrHeaderEvidenceFromPreview(preview),
+    headerEvidence: _receiptOcrHeaderEvidenceFromPreview(
+      preview,
+      preserveMatchingEvidence: true,
+    ),
   );
 }
 

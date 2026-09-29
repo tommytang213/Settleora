@@ -9949,7 +9949,7 @@ class ReceiptOcrReviewHeaderRoleValues {
   static const Set<ReceiptOcrReviewHeaderRole> values = {subtotal, tax, serviceCharge, discount};
 }
 
-/// A bounded printed header candidate with its own supported currency. It is never authoritative bill money.
+/// A bounded printed header candidate with its own supported currency. It is never authoritative bill money, including if the selected review currency later changes to match the printed currency.
 class ReceiptOcrReviewHeaderEvidenceRequest {
   const ReceiptOcrReviewHeaderEvidenceRequest({
     required this.role,
@@ -10136,7 +10136,7 @@ class ReceiptOcrReviewUpsertRequest {
   final List<ReceiptOcrReviewLineRequest>? lines;
   /// Optional ordered non-item adjustment evidence. The server derives stable order from array order; entries are not merchandise and are not automatically applied as bill adjustments.
   final List<ReceiptOcrReviewAdjustmentRequest>? adjustmentEvidence;
-  /// Optional provisional printed header candidates in a currency different from the review currency. At most one entry per role; absent preserves existing evidence on update, while an empty array clears it. Never used as authoritative bill money.
+  /// Optional provisional printed header candidates, usually foreign to the selected review currency. Evidence remains review-only if a later currency edit makes the currencies match. At most one entry per role; a scalar and evidence cannot share a role. Absent preserves existing evidence on update, while an empty array clears it. Never used as authoritative bill money.
   final List<ReceiptOcrReviewHeaderEvidenceRequest>? headerEvidence;
 
   factory ReceiptOcrReviewUpsertRequest.fromJson(JsonObject json) {

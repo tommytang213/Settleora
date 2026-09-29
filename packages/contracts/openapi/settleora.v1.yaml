@@ -18353,7 +18353,7 @@ components:
         - discount
     ReceiptOcrReviewHeaderEvidenceRequest:
       type: object
-      description: A bounded printed header candidate with its own supported currency. It is never authoritative bill money.
+      description: A bounded printed header candidate with its own supported currency. It is never authoritative bill money, including if the selected review currency later changes to match the printed currency.
       additionalProperties: false
       required:
         - role
@@ -18477,7 +18477,7 @@ components:
           maxItems: 4
           items:
             $ref: "#/components/schemas/ReceiptOcrReviewHeaderEvidenceRequest"
-          description: Optional provisional printed header candidates in a currency different from the review currency. At most one entry per role; absent preserves existing evidence on update, while an empty array clears it. Never used as authoritative bill money.
+          description: Optional provisional printed header candidates, usually foreign to the selected review currency. Evidence remains review-only if a later currency edit makes the currencies match. At most one entry per role; a scalar and evidence cannot share a role. Absent preserves existing evidence on update, while an empty array clears it. Never used as authoritative bill money.
     ReceiptOcrReviewLineResponse:
       type: object
       description: Safe receipt OCR review line response. It exposes bounded reviewed/candidate fields only and excludes raw OCR full text, file bytes, storage/provider internals, bill item mutation state, payment details, and unrelated users.

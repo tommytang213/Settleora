@@ -430,8 +430,8 @@ internal static class ReceiptOcrReviewEndpoints
                     ReceiptOcrReviewHeaderRoles.Discount => submittedReview.DiscountAmount,
                     _ => null
                 };
-                if (scalar.HasValue || evidence.Currency == submittedReview.Currency)
-                    conflictErrors["headerEvidence"] = ["Existing header evidence conflicts with the submitted scalar or review currency; supply headerEvidence to replace or clear it."];
+                if (scalar.HasValue)
+                    conflictErrors["headerEvidence"] = ["Existing header evidence conflicts with the submitted scalar; supply headerEvidence to replace or clear it."];
             }
             if (conflictErrors.Count > 0) return InvalidReceiptOcrReview(conflictErrors);
         }
@@ -1964,7 +1964,7 @@ internal static class ReceiptOcrReviewEndpoints
             var grandTotalAmount = ReadOptionalMoney(root, "grandTotalAmount", currencyCode, errors);
             var lines = ReadLines(root, currencyCode, errors);
             var adjustmentEvidence = ReadAdjustments(root, errors, out var adjustmentEvidenceSupplied);
-            var headerEvidence = ReadHeaderEvidence(root, currency, subtotalAmount, taxAmount,
+            var headerEvidence = ReadHeaderEvidence(root, subtotalAmount, taxAmount,
                 serviceChargeAmount, discountAmount, errors, out var headerEvidenceSupplied);
 
             var hasHeaderAmount = HeaderAmountProperties.Any(propertyName =>
@@ -2290,7 +2290,7 @@ internal static class ReceiptOcrReviewEndpoints
     }
 
     private static IReadOnlyList<SubmittedReceiptOcrReviewHeaderEvidence> ReadHeaderEvidence(
-        JsonElement root, string? reviewCurrency, decimal? subtotal, decimal? tax,
+        JsonElement root, decimal? subtotal, decimal? tax,
         decimal? serviceCharge, decimal? discount,
         Dictionary<string, List<string>> errors, out bool supplied)
     {
@@ -2353,8 +2353,6 @@ internal static class ReceiptOcrReviewEndpoints
                 };
                 if (scalar.HasValue) AddError(errors, $"{prefix}.role", "A scalar amount and header evidence cannot share a role.");
             }
-            if (currency is not null && reviewCurrency is not null && currency == reviewCurrency)
-                AddError(errors, $"{prefix}.currency", "Use the review-currency scalar for same-currency headers.");
             if (role is not null && amount.HasValue && currency is not null)
                 evidence.Add(new SubmittedReceiptOcrReviewHeaderEvidence(role, amount.Value, currency));
         }
