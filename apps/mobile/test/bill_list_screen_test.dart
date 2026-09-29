@@ -866,10 +866,7 @@ Total €2.00
     final lines = receiptOcrReviewLinesFromPreview(preview);
 
     expect(preview.currency, 'EUR');
-    expect(
-      preview.items.where((item) => item.currencyUnresolved),
-      isNotEmpty,
-    );
+    expect(preview.items.where((item) => item.currencyUnresolved), isNotEmpty);
     expect(lines.where((line) => line.text.contains('Coffee')), isNotEmpty);
     expect(
       lines.where((line) => line.text.contains('Coffee')).first.lineTotalAmount,
@@ -885,6 +882,24 @@ Total €2.00
       ),
     );
     expect(ordinary.single.lineTotalAmount, '1.00');
+  });
+
+  test('OCR parser-to-save excludes foreign amount before addition', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(r'''
+Exchange Cafe
+Coffee EUR10.00 + $1.00
+Total USD 1.00
+''');
+    final lines = receiptOcrReviewLinesFromPreview(preview);
+
+    expect(preview.currency, 'USD');
+    expect(preview.items.where((item) => item.currencyUnresolved), isNotEmpty);
+    expect(lines.where((line) => line.text.contains('Coffee')), isNotEmpty);
+    expect(
+      lines.where((line) => line.text.contains('Coffee')).first.lineTotalAmount,
+      isNull,
+    );
   });
 
   test('OCR save does not relabel a printed dollar item as euro money', () {
@@ -952,7 +967,10 @@ Total EUR 9.00
 
     expect(receiptRepository.saveCalls, 1);
     expect(receiptRepository.lastSaveRequest?.lines.single.text, 'Coffee');
-    expect(receiptRepository.lastSaveRequest?.lines.single.lineTotalAmount, isNull);
+    expect(
+      receiptRepository.lastSaveRequest?.lines.single.lineTotalAmount,
+      isNull,
+    );
   });
 
   testWidgets(

@@ -2036,7 +2036,15 @@ String _normalizeOcrLine(String value) {
       '([+-])\\s*($_currencyTokenPattern)\\s*(?=\\d)',
       caseSensitive: false,
     ),
-    (match) => '${match.group(2)} ${match.group(1)}',
+    (match) {
+      if (match.group(1) == '+' &&
+          RegExp(
+            _amountTokenPattern,
+          ).hasMatch(normalized.substring(0, match.start))) {
+        return match.group(0)!;
+      }
+      return '${match.group(2)} ${match.group(1)}';
+    },
   );
   normalized = normalized.replaceAllMapped(
     RegExp(r'(?<=\d)\u060c(?=\d{1,2}(?:\D|$))'),
@@ -2660,7 +2668,7 @@ bool _currencyMarkerTouchesAmount(String text, RegExpMatch marker) {
   final after = text.substring(marker.end);
   final afterMarker = after.trimLeft();
   final markerEndsAmount =
-      afterMarker.isEmpty || RegExp(r'^[/:,;|)=\]\-]').hasMatch(afterMarker);
+      afterMarker.isEmpty || RegExp(r'^[/:,;|)=+\]\-]').hasMatch(afterMarker);
   final followingAmount = RegExp(
     '^\\s*[:=]?\\s*$_amountTokenPattern',
   ).firstMatch(after);
@@ -2679,7 +2687,7 @@ bool _currencyMarkerTouchesAmount(String text, RegExpMatch marker) {
   final amountEndsCell =
       afterFollowingAmount != null &&
       (afterFollowingAmount.isEmpty ||
-          RegExp(r'^[/:,;|)=\]\-.]').hasMatch(afterFollowingAmount) ||
+          RegExp(r'^[/:,;|)=+\]\-.]').hasMatch(afterFollowingAmount) ||
           (firstAmountLooksMonetary &&
               RegExp(
                 '^(?:$_currencyTokenPattern\\s*)?$_amountTokenPattern',
