@@ -2302,10 +2302,11 @@ bool _lineHasAmount(String line) {
 
 bool _isStandaloneAmountRow(String line) {
   if (RegExp(
-    '^\\s*(?:(?:$_currencyTokenPattern)\\s*)?$_amountTokenPattern'
-    '(?:\\s*(?:$_currencyTokenPattern))?\\s*\$',
-    caseSensitive: false,
-  ).hasMatch(line) && _lineHasAmount(line)) {
+        '^\\s*(?:(?:$_currencyTokenPattern)\\s*)?$_amountTokenPattern'
+        '(?:\\s*(?:$_currencyTokenPattern))?\\s*\$',
+        caseSensitive: false,
+      ).hasMatch(line) &&
+      _lineHasAmount(line)) {
     return true;
   }
   final amount = RegExp(_amountTokenPattern).firstMatch(line);
@@ -2636,14 +2637,8 @@ String? _itemCurrencyFromPrintedText(
   String? receiptCurrency, {
   String? token,
 }) {
-  if (RegExp(_amountTokenPattern).allMatches(text).length > 1) {
-    final selected = _currencyAdjacentToSelectedAmount(text, receiptCurrency);
-    return selected.hasExplicitEvidence ? selected.currency : receiptCurrency;
-  }
-  if (text.contains(r'$')) {
-    final selected = _currencyAdjacentToSelectedAmount(text, receiptCurrency);
-    if (selected.hasExplicitEvidence) return selected.currency;
-  }
+  final selected = _currencyAdjacentToSelectedAmount(text, receiptCurrency);
+  if (selected.hasExplicitEvidence) return selected.currency;
   if (text.contains('¥') &&
       receiptCurrency != null &&
       receiptCurrency != 'JPY' &&
@@ -2656,10 +2651,6 @@ String? _itemCurrencyFromPrintedText(
 }
 
 bool _selectedItemCurrencyUnresolved(String text, String? receiptCurrency) {
-  if (RegExp(_amountTokenPattern).allMatches(text).length < 2 &&
-      !text.contains(r'$')) {
-    return false;
-  }
   final selected = _currencyAdjacentToSelectedAmount(text, receiptCurrency);
   return selected.hasExplicitEvidence && selected.currency == null;
 }
@@ -2668,17 +2659,23 @@ bool _currencyMarkerTouchesAmount(String text, RegExpMatch marker) {
   final before = text.substring(0, marker.start);
   final after = text.substring(marker.end);
   final afterMarker = after.trimLeft();
-  final markerEndsAmount = afterMarker.isEmpty ||
-      RegExp(r'^[/:,;|)\]\-]').hasMatch(afterMarker);
+  final markerEndsAmount =
+      afterMarker.isEmpty || RegExp(r'^[/:,;|)\]\-]').hasMatch(afterMarker);
   final followingAmount = RegExp(
     '^\\s*[:=]?\\s*$_amountTokenPattern',
   ).firstMatch(after);
   final afterFollowingAmount = followingAmount == null
       ? null
       : after.substring(followingAmount.end).trimLeft();
-  final amountEndsCell = afterFollowingAmount != null &&
+  final amountEndsCell =
+      afterFollowingAmount != null &&
       (afterFollowingAmount.isEmpty ||
-          RegExp(r'^[/:,;|)\]\-.]').hasMatch(afterFollowingAmount));
+          RegExp(r'^[/:,;|)\]\-.]').hasMatch(afterFollowingAmount) ||
+          RegExp(
+            '^(?:$_currencyTokenPattern\\s*)?$_amountTokenPattern',
+            caseSensitive: false,
+            unicode: true,
+          ).hasMatch(afterFollowingAmount));
   return (markerEndsAmount &&
           RegExp('$_amountTokenPattern\\s*[:=]?\\s*\$').hasMatch(before)) ||
       amountEndsCell;
@@ -2713,23 +2710,24 @@ _currencyAdjacentToSelectedAmount(String text, String? receiptCurrency) {
     }
     if (token == r'$') {
       if (!_currencyCompatibleWithBareDollar(receiptCurrency)) return null;
-      final hasConflictingDenomination = RegExp(
-        '(?<![\\p{L}\\p{N}])($_currencyTokenPattern)(?![\\p{L}])',
-        caseSensitive: false,
-        unicode: true,
-      ).allMatches(text).any((match) {
-        final otherMarker = match.group(1);
-        if (otherMarker == r'$' ||
-            !_currencyMarkerTouchesAmount(text, match)) {
-          return false;
-        }
-        final otherCurrency = otherMarker == '¥'
-            ? (receiptCurrency == 'JPY' || receiptCurrency == 'CNY'
-                  ? receiptCurrency
-                  : '¥')
-            : _currencyFromItemToken(otherMarker);
-        return otherCurrency != receiptCurrency;
-      });
+      final hasConflictingDenomination =
+          RegExp(
+            '(?<![\\p{L}\\p{N}])($_currencyTokenPattern)(?![\\p{L}])',
+            caseSensitive: false,
+            unicode: true,
+          ).allMatches(text).any((match) {
+            final otherMarker = match.group(1);
+            if (otherMarker == r'$' ||
+                !_currencyMarkerTouchesAmount(text, match)) {
+              return false;
+            }
+            final otherCurrency = otherMarker == '¥'
+                ? (receiptCurrency == 'JPY' || receiptCurrency == 'CNY'
+                      ? receiptCurrency
+                      : '¥')
+                : _currencyFromItemToken(otherMarker);
+            return otherCurrency != receiptCurrency;
+          });
       return hasConflictingDenomination ? null : receiptCurrency;
     }
     return _currencyFromItemToken(token);

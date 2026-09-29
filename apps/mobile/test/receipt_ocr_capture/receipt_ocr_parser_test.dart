@@ -3424,20 +3424,42 @@ Total USD 3.00
       isNotEmpty,
     );
     expect(
-      compared.items.where((item) => item.lineTotal == '3.00').every(
-        (item) => !item.currencyUnresolved,
-      ),
+      compared.items
+          .where((item) => item.lineTotal == '3.00')
+          .every((item) => !item.currencyUnresolved),
       isTrue,
     );
 
-    final conflicted = parser.parse(r'''
+    for (final itemLine in [
+      r'Coffee HKD 10.00 / $1.00',
+      r'Coffee HKD 10.00 $1.00',
+    ]) {
+      final conflicted = parser.parse('''
 Exchange Cafe
-Coffee HKD 10.00 / $1.00
+$itemLine
 Total USD 1.00
 ''');
+      expect(
+        conflicted.items.where(
+          (item) => item.lineTotal == '1.00' && item.currencyUnresolved,
+        ),
+        isNotEmpty,
+        reason: itemLine,
+      );
+    }
+  });
+
+  test('opposing markers beside one amount remain unresolved', () {
+    const parser = ReceiptOcrParser();
+    final compared = parser.parse('''
+Exchange Cafe
+Coffee USD 3.00 €
+Total USD 3.00
+''');
+    expect(compared.currency, 'USD');
     expect(
-      conflicted.items.where(
-        (item) => item.lineTotal == '1.00' && item.currencyUnresolved,
+      compared.items.where(
+        (item) => item.lineTotal == '3.00' && item.currencyUnresolved,
       ),
       isNotEmpty,
     );
@@ -3460,9 +3482,9 @@ Total USD 3.00
         reason: itemLine,
       );
       expect(
-        compared.items.where((item) => item.lineTotal == '3.00').every(
-          (item) => !item.currencyUnresolved,
-        ),
+        compared.items
+            .where((item) => item.lineTotal == '3.00')
+            .every((item) => !item.currencyUnresolved),
         isTrue,
         reason: itemLine,
       );
