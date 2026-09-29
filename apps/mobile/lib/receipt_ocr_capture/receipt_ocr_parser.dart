@@ -1542,6 +1542,7 @@ List<ReceiptOcrBlockEvidence> _nearbySignOnlyBlocks(
           .map((point) => point.x)
           .reduce((left, right) => left > right ? left : right) -
       amountLeft;
+  final amountRight = amountLeft + amountWidth;
   return row
       .where((block) {
         if (block == amountCell ||
@@ -1549,11 +1550,16 @@ List<ReceiptOcrBlockEvidence> _nearbySignOnlyBlocks(
             !RegExp(r'^\s*[-−]\s*$').hasMatch(block.text)) {
           return false;
         }
+        final signLeft = block.points
+            .map((point) => point.x)
+            .reduce((left, right) => left < right ? left : right);
         final signRight = block.points
             .map((point) => point.x)
             .reduce((left, right) => left > right ? left : right);
-        return signRight <= amountLeft &&
-            amountLeft - signRight <= amountWidth * 0.75 + 8;
+        return (signRight <= amountLeft &&
+                amountLeft - signRight <= amountWidth * 0.75 + 8) ||
+            (signLeft >= amountRight &&
+                signLeft - amountRight <= amountWidth * 0.75 + 8);
       })
       .toList(growable: false);
 }
@@ -1710,6 +1716,9 @@ bool _hasEarlierPrintedMonetaryAmount(String prefix) {
 }
 
 bool _hasDetachedAmountSign(String line) {
+  if (RegExp(r'(?:^|\s)[-−]\s*$').hasMatch(line) && _lineHasAmount(line)) {
+    return true;
+  }
   final withoutTrailingPunctuation = line.trim().replaceFirst(
     RegExp(r'\s+\.$'),
     '',
