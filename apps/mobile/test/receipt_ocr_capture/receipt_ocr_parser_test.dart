@@ -1746,6 +1746,34 @@ Total Amount Due \$15.00
     );
   });
 
+  test('charge sign between rate and currency stays unresolved', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(
+      'Power Utility\nDescription Usage Rate Amount\nSolar Credit 76 0.4120 - USD 31.31\nTotal Amount Due USD 31.31',
+      blocks: [
+        _layoutBlock('Power Utility', 0, 0, 20, 350),
+        _layoutBlock('Description', 1, 1, 20, 150),
+        _layoutBlock('Usage', 2, 1, 170, 210),
+        _layoutBlock('Rate', 3, 1, 230, 270),
+        _layoutBlock('Amount', 4, 1, 310, 350),
+        _layoutBlock('Solar Credit', 5, 2, 20, 160),
+        _layoutBlock('76', 6, 2, 170, 210),
+        _layoutBlock('0.4120', 7, 2, 230, 265),
+        _layoutBlock('-', 8, 2, 267, 275),
+        _layoutBlock('USD', 9, 2, 280, 305),
+        _layoutBlock('31.31', 10, 2, 310, 350),
+        _layoutBlock('Total Amount Due USD 31.31', 11, 3, 20, 350),
+      ],
+    );
+    expect(preview.items, isEmpty);
+    expect(
+      preview.warnings,
+      contains(
+        'Some OCR lines need manual review because no traceable line amount was found.',
+      ),
+    );
+  });
+
   test('uppercase adjustment labels do not become currency evidence', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse('''

@@ -1317,13 +1317,7 @@ class ReceiptOcrParser {
         final amountCell = amountCells.last;
         // A detached sign cannot be dropped while promoting an otherwise
         // positive amount. Keep this row unresolved until the sign is bound.
-        if (_nearbySignOnlyBlocks(tableBlocks, amountCell).isNotEmpty ||
-            (!tableBlocks.any(
-                  (block) => block != amountCell && _lineHasAmount(block.text),
-                ) &&
-                tableBlocks.any(
-                  (block) => RegExp(r'^\s*[-−]\s*$').hasMatch(block.text),
-                ))) {
+        if (_hasUnboundChargeTableSign(tableBlocks, amountCell)) {
           continue;
         }
         final nearbyCurrencyBlocks = _nearbyCurrencyOnlyBlocks(
@@ -1562,6 +1556,45 @@ List<ReceiptOcrBlockEvidence> _nearbySignOnlyBlocks(
                 signLeft - amountRight <= amountWidth * 0.75 + 8);
       })
       .toList(growable: false);
+}
+
+bool _hasUnboundChargeTableSign(
+  List<ReceiptOcrBlockEvidence> row,
+  ReceiptOcrBlockEvidence amountCell,
+) {
+  if (amountCell.points.isEmpty) return false;
+  final amountLeft = amountCell.points
+      .map((point) => point.x)
+      .reduce((left, right) => left < right ? left : right);
+  final nearbySigns = _nearbySignOnlyBlocks(row, amountCell);
+  for (final sign in row.where(
+    (block) =>
+        block.points.isNotEmpty && RegExp(r'^\s*[-−]\s*$').hasMatch(block.text),
+  )) {
+    if (nearbySigns.contains(sign)) return true;
+    final signRight = sign.points
+        .map((point) => point.x)
+        .reduce((left, right) => left > right ? left : right);
+    // A sign under Usage may be a placeholder when a distinct printed rate
+    // sits between it and Amount. Otherwise its direction is unresolved.
+    final interveningRate = row.any((block) {
+      if (block == sign ||
+          block == amountCell ||
+          block.points.isEmpty ||
+          !_hasChargeTableMonetaryEvidence(block.text)) {
+        return false;
+      }
+      final left = block.points
+          .map((point) => point.x)
+          .reduce((a, b) => a < b ? a : b);
+      final right = block.points
+          .map((point) => point.x)
+          .reduce((a, b) => a > b ? a : b);
+      return left > signRight && right < amountLeft;
+    });
+    if (!interveningRate) return true;
+  }
+  return false;
 }
 
 List<List<ReceiptOcrBlockEvidence>> _matchingLayoutRows(
