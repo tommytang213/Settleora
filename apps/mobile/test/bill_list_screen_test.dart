@@ -1191,6 +1191,18 @@ Total EUR 9.00
     );
     expect(negative.tax, '-1.00');
     expect(negativeSave?.taxAmount, isNull);
+
+    final detachedNegative = parser.parse('''
+Euro Market
+Tax €− 1.00
+Total EUR 9.00
+''');
+    final detachedSave = receiptOcrReviewSaveRequestFromPreview(
+      detachedNegative,
+      originalCurrency: detachedNegative.currency,
+    );
+    expect(detachedNegative.tax, isNull);
+    expect(detachedSave?.taxAmount, isNull);
   });
 
   testWidgets('editing OCR merchant keeps unresolved items out of Apply', (

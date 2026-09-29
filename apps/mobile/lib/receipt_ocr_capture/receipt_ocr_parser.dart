@@ -57,6 +57,7 @@ class ReceiptOcrParser {
       layoutRows: layoutRows,
       chargeTableRows: recognizedChargeRows,
       ambiguousChargeTableRows: chargeTable.ambiguous,
+      detachedAmountSignRows: detachedAmountSignRows,
     );
     final merchantDetection = _detectMerchant(lines, layoutRows);
     final merchant = merchantDetection?.text;
@@ -772,6 +773,7 @@ class ReceiptOcrParser {
     List<List<ReceiptOcrBlockEvidence>> layoutRows = const [],
     Set<int> chargeTableRows = const {},
     Set<int> ambiguousChargeTableRows = const {},
+    Set<int> detachedAmountSignRows = const {},
   }) {
     String? subtotal;
     String? subtotalCurrency;
@@ -811,6 +813,7 @@ class ReceiptOcrParser {
             printed.currency == currency);
 
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+      if (detachedAmountSignRows.contains(lineIndex)) continue;
       final line =
           _isFinancialLabelWithAdjacentAmount(lines, layoutRows, lineIndex)
           ? '${lines[lineIndex]} ${lines[lineIndex + 1]}'
@@ -2059,10 +2062,11 @@ bool _hasDetachedAmountSign(String line) {
     0,
     amounts.last.start,
   );
-  return RegExp(
-    '(?:^|\\s)[-−]\\s+(?:$_currencyTokenPattern)?\\s*\$',
-    caseSensitive: false,
-  ).hasMatch(beforeAmount);
+  return RegExp(r'(?<![A-Za-z0-9])[-−]\s+$').hasMatch(beforeAmount) ||
+      RegExp(
+        '(?:^|\\s)[-−]\\s+(?:$_currencyTokenPattern)?\\s*\$',
+        caseSensitive: false,
+      ).hasMatch(beforeAmount);
 }
 
 bool _hasCompleteUsageRateColumns(String prefix) {

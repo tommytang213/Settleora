@@ -1695,6 +1695,19 @@ Total EUR 9.00
     expect(negative.tax, '-1.00');
     expect(negative.taxCurrency, 'EUR');
 
+    final detachedNegative = parser.parse('''
+Euro Market
+Tax €− 1.00
+Total EUR 9.00
+''');
+    expect(detachedNegative.tax, isNull);
+    expect(
+      detachedNegative.warnings.any(
+        (warning) => warning.contains('manual review'),
+      ),
+      isTrue,
+    );
+
     for (final printedTax in [
       'Tax ₱1.00 USD',
       'Tax ₱1.00',
