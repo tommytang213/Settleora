@@ -557,6 +557,7 @@ class ReceiptOcrParser {
     final ranked =
         candidates.map((code) {
           var score = 0;
+          var totalEvidenceCount = 0;
           var firstLine = lines.length;
           for (var index = 0; index < lines.length; index += 1) {
             final line = lines[index];
@@ -567,6 +568,7 @@ class ReceiptOcrParser {
             if (index < firstLine) firstLine = index;
             final normalized = line.toLowerCase();
             if (_hasTotalLabel(line, normalized)) {
+              totalEvidenceCount += 1;
               score += 1000;
             } else if (_hasSubtotalLabel(line, normalized) ||
                 _hasTaxLabel(line, normalized) ||
@@ -581,8 +583,18 @@ class ReceiptOcrParser {
               score += 100;
             }
           }
-          return (code: code, score: score, firstLine: firstLine);
+          return (
+            code: code,
+            score: score,
+            totalEvidenceCount: totalEvidenceCount,
+            firstLine: firstLine,
+          );
         }).toList()..sort((left, right) {
+          // A printed, explicitly denominated total is stronger currency
+          // evidence than any count of foreign-denominated item lines.
+          final totalRoleOrder = (right.totalEvidenceCount > 0 ? 1 : 0)
+              .compareTo(left.totalEvidenceCount > 0 ? 1 : 0);
+          if (totalRoleOrder != 0) return totalRoleOrder;
           final scoreOrder = right.score.compareTo(left.score);
           if (scoreOrder != 0) return scoreOrder;
           final lineOrder = left.firstLine.compareTo(right.firstLine);

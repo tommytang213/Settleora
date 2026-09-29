@@ -1611,6 +1611,21 @@ Total USD 100.00
     expect(foreignDiscount.total, '100.00');
   });
 
+  test('printed total currency outranks repeated foreign item prices', () {
+    const parser = ReceiptOcrParser();
+    final text = [
+      'Market',
+      for (var index = 0; index < 12; index++) 'Souvenir $index EUR 1.00',
+      'Grand Total USD 12.00',
+    ].join('\n');
+    final preview = parser.parse(text);
+
+    expect(preview.currency, 'USD');
+    expect(preview.total, '12.00');
+    expect(preview.items, hasLength(12));
+    expect(preview.items.every((item) => item.currency == 'EUR'), isTrue);
+  });
+
   test('unmarked charge columns retain complete usage and rate rows', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse('''
