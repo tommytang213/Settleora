@@ -3,6 +3,13 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // #1309 truncated-item and unclassified-surcharge warning at cf3b5779.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "4c2bbb50228a75b52b3d96df87053175b375c4ff4acdd0639452f8cf03967c00": Object.freeze([
+    "ad4cc1eb4b2d3e90a83fe6e68901f817981e5ccd5aff16568e917aeb781e8155",
+  ]),
   // #1309 localized incomplete adjustments and saved-review warning at 138bd00e.
   // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
   // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
