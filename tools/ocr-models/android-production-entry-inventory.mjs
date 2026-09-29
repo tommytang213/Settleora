@@ -3,6 +3,13 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // #1309 detached-sign and adjustment review correction at 6e631b58. A
+  // clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // model, resource, and fixture-absence gates before this ZIP identity.
+  // Local signer was mocked; hosted exact-source proof remains required.
+  "dca697de5d1f60e76e6093254bc4e35802201568841c754878a275bac76136d0": Object.freeze([
+    "18fe5ddf5f0234d2d59fb3870ad16d6da0edb65d885e3cee8d03501d05dcf222",
+  ]),
   // #1309 charge-column, detached-sign, and zero-minor geometry correction at
   // ce663993. A clean Flutter 3.44.8 Release projection passed archive/path,
   // catalog, model, resource, and fixture-absence gates before this ZIP
