@@ -211,6 +211,12 @@ List<String> _receiptOcrReviewHints(ReceiptOcrPreview preview) {
       ];
     }
 
+    if (_hasReceiptOcrForeignAdjustment(preview)) {
+      return const [
+        'Detected adjustment currency differs from receipt currency. Review before applying.',
+      ];
+    }
+
     return const [];
   }
 
@@ -242,6 +248,12 @@ List<String> _receiptOcrReviewHints(ReceiptOcrPreview preview) {
   if (!_receiptOcrAmountsClose(itemTotal, total)) {
     return const [
       'OCR item total differs from detected grand total. Review the receipt before applying.',
+    ];
+  }
+
+  if (_hasReceiptOcrForeignAdjustment(preview)) {
+    return const [
+      'Detected adjustment currency differs from receipt currency. Review before applying.',
     ];
   }
 
@@ -308,6 +320,37 @@ bool _hasReceiptOcrReferenceAdjustment(ReceiptOcrPreview preview) {
           hasExplicitCurrencyEvidence: entry.$3,
         ) &&
         _parseReceiptOcrReviewAmount(entry.$1) != null,
+  );
+}
+
+bool _hasReceiptOcrForeignAdjustment(ReceiptOcrPreview preview) {
+  final entries = [
+    (preview.tax, preview.taxCurrency, preview.taxHasExplicitCurrencyEvidence),
+    (
+      preview.service,
+      preview.serviceCurrency,
+      preview.serviceHasExplicitCurrencyEvidence,
+    ),
+    (preview.tip, preview.tipCurrency, preview.tipHasExplicitCurrencyEvidence),
+    (
+      preview.shipping,
+      preview.shippingCurrency,
+      preview.shippingHasExplicitCurrencyEvidence,
+    ),
+    (
+      preview.discount,
+      preview.discountCurrency,
+      preview.discountHasExplicitCurrencyEvidence,
+    ),
+  ];
+  return entries.any(
+    (entry) =>
+        _hasReviewAmountText(entry.$1) &&
+        !_adjustmentCurrencyMatchesReview(
+          reviewCurrency: preview.currency,
+          adjustmentCurrency: entry.$2,
+          hasExplicitCurrencyEvidence: entry.$3,
+        ),
   );
 }
 
