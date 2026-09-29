@@ -1906,6 +1906,34 @@ Total USD 10.00
     expect(preview.items.single.lineTotal, '10.00');
   });
 
+  test('lowercase supported code word stays an item word', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+BBQ Shop
+BBQ rub 10.00
+Total USD 10.00
+''');
+
+    expect(preview.currency, 'USD');
+    expect(preview.items.single.currency, 'USD');
+    expect(preview.items.single.currencyUnresolved, isFalse);
+    expect(preview.items.single.lineTotal, '10.00');
+  });
+
+  test('earlier unsupported item money does not hide selected USD amount', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Exchange Cafe
+Coffee XPF 100 / USD 1.00
+Total USD 1.00
+''');
+
+    expect(preview.currency, 'USD');
+    expect(preview.items.single.currency, 'USD');
+    expect(preview.items.single.currencyUnresolved, isFalse);
+    expect(preview.items.single.lineTotal, '1.00');
+  });
+
   test('earlier unsupported total does not erase selected supported total', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse('''

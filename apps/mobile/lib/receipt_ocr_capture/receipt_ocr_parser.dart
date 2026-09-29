@@ -2744,26 +2744,50 @@ String? _itemCurrencyFromPrintedText(
   String? receiptCurrency, {
   String? token,
 }) {
-  final unsupportedSelected = _unsupportedIsoCodeAdjacentToSelectedAmount(text);
+  final itemText = _maskAmbiguousSupportedItemWords(text);
+  final unsupportedSelected = _unsupportedIsoCodeAdjacentToSelectedAmount(
+    itemText,
+  );
   if (unsupportedSelected != null) return unsupportedSelected;
-  final selected = _currencyAdjacentToSelectedAmount(text, receiptCurrency);
+  final selected = _currencyAdjacentToSelectedAmount(itemText, receiptCurrency);
   if (selected.hasExplicitEvidence) return selected.currency;
-  if (text.contains('¥') &&
+  if (itemText.contains('¥') &&
       receiptCurrency != null &&
       receiptCurrency != 'JPY' &&
       receiptCurrency != 'CNY') {
-    return _currencyAdjacentToSelectedAmountWithYen(text) ?? '¥';
+    return _currencyAdjacentToSelectedAmountWithYen(itemText) ?? '¥';
   }
-  return _currencyFromItemToken(token) ??
-      _explicitCurrencyFromNormalizedLine(text.toUpperCase()) ??
+  final itemToken =
+      token == null || _maskAmbiguousSupportedItemWords(token).trim().isEmpty
+      ? null
+      : token;
+  return _currencyFromItemToken(itemToken) ??
+      _explicitCurrencyFromNormalizedLine(itemText.toUpperCase()) ??
       receiptCurrency;
 }
 
 bool _selectedItemCurrencyUnresolved(String text, String? receiptCurrency) {
-  if (_hasUnsupportedIsoMonetaryEvidence(text)) return true;
-  final selected = _currencyAdjacentToSelectedAmount(text, receiptCurrency);
+  final itemText = _maskAmbiguousSupportedItemWords(text);
+  if (_unsupportedIsoCodeAdjacentToSelectedAmount(itemText) != null) {
+    return true;
+  }
+  final selected = _currencyAdjacentToSelectedAmount(itemText, receiptCurrency);
+  if (selected.hasExplicitEvidence && selected.currency != null) return false;
+  if (_hasUnsupportedIsoMonetaryEvidence(itemText)) return true;
   return selected.hasExplicitEvidence && selected.currency == null;
 }
+
+String _maskAmbiguousSupportedItemWords(String text) => text.replaceAllMapped(
+  RegExp(
+    r'(?<![\p{L}\p{N}])(?:rub|try)(?![\p{L}])',
+    caseSensitive: false,
+    unicode: true,
+  ),
+  (match) {
+    final token = match.group(0)!;
+    return token == token.toUpperCase() ? token : ' ' * token.length;
+  },
+);
 
 // Bounded CLDR currency-code vocabulary for provisional unsupported OCR
 // evidence. These codes never expand the app or API currency policy.

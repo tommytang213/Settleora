@@ -1015,6 +1015,32 @@ Total USD 10.00
     expect(lines.single.lineTotalAmount, '10.00');
   });
 
+  test('OCR save keeps selected USD item amount after earlier XPF', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Exchange Cafe
+Coffee XPF 100 / USD 1.00
+Total USD 1.00
+''');
+    final lines = receiptOcrReviewLinesFromPreview(preview);
+
+    expect(preview.items.single.currencyUnresolved, isFalse);
+    expect(lines.single.lineTotalAmount, '1.00');
+  });
+
+  test('OCR save keeps lowercase rub item money reviewable', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+BBQ Shop
+BBQ rub 10.00
+Total USD 10.00
+''');
+    final lines = receiptOcrReviewLinesFromPreview(preview);
+
+    expect(preview.items.single.currency, 'USD');
+    expect(lines.single.lineTotalAmount, '10.00');
+  });
+
   test('OCR save does not relabel a bare dollar tax as euro money', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse(r'''
