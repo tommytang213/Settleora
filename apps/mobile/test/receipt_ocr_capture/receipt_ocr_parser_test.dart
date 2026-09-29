@@ -4669,6 +4669,30 @@ Total USD 10.00
     }
   });
 
+  test('zero printed adjustment does not hide grand-total conflict', () {
+    const preview = ReceiptOcrPreview(
+      currency: 'USD',
+      subtotal: '10.00',
+      tax: '0.00',
+      total: '12.00',
+      items: [ReceiptOcrItemCandidate(description: 'Meal', lineTotal: '10.00')],
+    );
+    expect(preview.reviewHints, [
+      'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
+    ]);
+  });
+
+  test('unresolved review currency cannot corroborate adjustments', () {
+    const preview = ReceiptOcrPreview(
+      tax: '2.00',
+      total: '12.00',
+      items: [ReceiptOcrItemCandidate(description: 'Meal', lineTotal: '10.00')],
+    );
+    expect(preview.reviewHints, [
+      'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
+    ]);
+  });
+
   test('detached-sign priced item keeps adjustment warning', () {
     final preview = const ReceiptOcrParser().parse('''
 Market

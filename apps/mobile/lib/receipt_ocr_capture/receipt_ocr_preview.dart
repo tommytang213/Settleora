@@ -194,6 +194,7 @@ List<String> _receiptOcrReviewHints(ReceiptOcrPreview preview) {
     if (total != null && _hasReceiptOcrReferenceAdjustment(preview)) {
       final adjustments = _reconcilableReceiptOcrAdjustments(preview);
       if (preview.adjustmentsComplete &&
+          (preview.currency?.trim().isNotEmpty ?? false) &&
           _hasCompleteReceiptOcrItemLineTotals(preview.items) &&
           adjustments != null &&
           _receiptOcrAmountsClose(itemTotal + adjustments, total)) {
@@ -221,6 +222,7 @@ List<String> _receiptOcrReviewHints(ReceiptOcrPreview preview) {
   if (_hasReceiptOcrReferenceAdjustment(preview)) {
     final adjustments = _reconcilableReceiptOcrAdjustments(preview);
     if (preview.adjustmentsComplete &&
+        (preview.currency?.trim().isNotEmpty ?? false) &&
         _hasCompleteReceiptOcrItemLineTotals(preview.items) &&
         adjustments != null &&
         _receiptOcrAmountsClose(itemTotal + adjustments, total)) {
@@ -305,7 +307,7 @@ bool _hasReceiptOcrReferenceAdjustment(ReceiptOcrPreview preview) {
     ))
       _parseReceiptOcrReviewAmount(preview.discount),
   ];
-  return amounts.any((amount) => amount != null && amount != 0);
+  return amounts.any((amount) => amount != null);
 }
 
 int? _reconcilableReceiptOcrAdjustments(ReceiptOcrPreview preview) {
