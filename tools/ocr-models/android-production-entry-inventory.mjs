@@ -3,6 +3,13 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // #1309 unresolved-item and unclassified-fee warning at b813254a.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; hosted signer proof remains required for this fingerprint.
+  "90e47b8ec5f6d7c8d8dc04aadb31b22a47b85dd26d7d06611f412673ad6f1889": Object.freeze([
+    "a85ee39760b66b09fe2b13931aaa58df6c81d36452278c92e1d351ec7a6e79b3",
+  ]),
   // #1309 truncated-item and unclassified-surcharge warning at cf3b5779.
   // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
   // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
