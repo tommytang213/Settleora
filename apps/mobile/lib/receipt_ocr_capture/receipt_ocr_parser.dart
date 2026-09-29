@@ -905,6 +905,13 @@ class ReceiptOcrParser {
           ifAbsent: () => 1,
         );
         if (amount == null || selectedAmountIsRate) adjustmentsComplete = false;
+        final monetaryAmounts = RegExp(_amountTokenPattern)
+            .allMatches(line)
+            .where(
+              (token) => !RegExp(r'^\s*%').hasMatch(line.substring(token.end)),
+            )
+            .length;
+        if (monetaryAmounts != 1) adjustmentsComplete = false;
       }
       if (adjustmentRole == null && hasPotentialAdjustment) {
         adjustmentsComplete = false;

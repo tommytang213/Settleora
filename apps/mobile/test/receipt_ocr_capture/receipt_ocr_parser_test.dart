@@ -4622,6 +4622,21 @@ Total USD 12.00
     ]);
   });
 
+  test('two amounts under one localized adjustment keep warning', () {
+    for (final row in ['消費税 USD 1.00 USD 2.00', '割引 USD 1.00 USD 2.00']) {
+      final preview = const ReceiptOcrParser().parse('''
+Market
+Meal 10.00
+$row
+Total USD 12.00
+''');
+      expect(preview.adjustmentsComplete, isFalse, reason: row);
+      expect(preview.reviewHints, [
+        'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
+      ], reason: row);
+    }
+  });
+
   test('unclassified charge and refund rows keep adjustment warning', () {
     for (final label in ['Handling charge', 'Refund']) {
       final preview = const ReceiptOcrParser().parse('''
