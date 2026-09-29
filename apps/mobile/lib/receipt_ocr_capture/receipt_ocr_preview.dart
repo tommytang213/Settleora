@@ -7,6 +7,8 @@ class ReceiptOcrPreview {
     this.currency,
     this.currencyProvenance = ReceiptOcrCurrencyProvenance.explicit,
     this.subtotal,
+    this.subtotalCurrency,
+    this.subtotalHasExplicitCurrencyEvidence = false,
     this.tax,
     this.taxCurrency,
     this.taxHasExplicitCurrencyEvidence = false,
@@ -22,6 +24,8 @@ class ReceiptOcrPreview {
     this.shippingCurrency,
     this.shippingHasExplicitCurrencyEvidence = false,
     this.discount,
+    this.discountCurrency,
+    this.discountHasExplicitCurrencyEvidence = false,
     this.total,
     this.rawTextLineCount = 0,
     this.confidence,
@@ -37,6 +41,8 @@ class ReceiptOcrPreview {
   final String? currency;
   final ReceiptOcrCurrencyProvenance currencyProvenance;
   final String? subtotal;
+  final String? subtotalCurrency;
+  final bool subtotalHasExplicitCurrencyEvidence;
   final String? tax;
   final String? taxCurrency;
   final bool taxHasExplicitCurrencyEvidence;
@@ -52,6 +58,8 @@ class ReceiptOcrPreview {
   final String? shippingCurrency;
   final bool shippingHasExplicitCurrencyEvidence;
   final String? discount;
+  final String? discountCurrency;
+  final bool discountHasExplicitCurrencyEvidence;
   final String? total;
   final int rawTextLineCount;
   final double? confidence;
@@ -155,8 +163,15 @@ List<String> _receiptOcrReviewHints(ReceiptOcrPreview preview) {
     return const [];
   }
 
-  final subtotal = _parseReceiptOcrReviewAmount(preview.subtotal);
-  if (_hasReviewAmountText(preview.subtotal)) {
+  final subtotalMatchesCurrency = _adjustmentCurrencyMatchesReview(
+    reviewCurrency: preview.currency,
+    adjustmentCurrency: preview.subtotalCurrency,
+    hasExplicitCurrencyEvidence: preview.subtotalHasExplicitCurrencyEvidence,
+  );
+  final subtotal = subtotalMatchesCurrency
+      ? _parseReceiptOcrReviewAmount(preview.subtotal)
+      : null;
+  if (subtotalMatchesCurrency && _hasReviewAmountText(preview.subtotal)) {
     if (subtotal == null) {
       return const [];
     }
@@ -252,7 +267,12 @@ bool _hasReceiptOcrReferenceAdjustment(ReceiptOcrPreview preview) {
       hasExplicitCurrencyEvidence: preview.shippingHasExplicitCurrencyEvidence,
     ))
       _parseReceiptOcrReviewAmount(preview.shipping),
-    _parseReceiptOcrReviewAmount(preview.discount),
+    if (_adjustmentCurrencyMatchesReview(
+      reviewCurrency: preview.currency,
+      adjustmentCurrency: preview.discountCurrency,
+      hasExplicitCurrencyEvidence: preview.discountHasExplicitCurrencyEvidence,
+    ))
+      _parseReceiptOcrReviewAmount(preview.discount),
   ];
   return amounts.any((amount) => amount != null && amount != 0);
 }

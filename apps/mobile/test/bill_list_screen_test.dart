@@ -178,7 +178,11 @@ void main() {
           receiptDate: '2026-06-12',
           currency: 'HKD',
           subtotal: '45.00',
+          subtotalCurrency: 'EUR',
+          subtotalHasExplicitCurrencyEvidence: true,
           discount: '-2.00',
+          discountCurrency: 'EUR',
+          discountHasExplicitCurrencyEvidence: true,
           tax: '5.00',
           taxCurrency: 'EUR',
           taxHasExplicitCurrencyEvidence: true,
@@ -327,11 +331,11 @@ void main() {
     );
     expect(find.text('Receipt totals for review only'), findsOneWidget);
     expect(
-      find.text('Subtotal suggested: HKD 45.00 (review only)'),
+      find.text('Subtotal suggested: EUR 45.00 (review only)'),
       findsOneWidget,
     );
     expect(
-      find.text('Discount suggested: HKD -2.00 (review only)'),
+      find.text('Discount suggested: EUR -2.00 (review only)'),
       findsOneWidget,
     );
     expect(find.text('Tax suggested: EUR 5.00 (review only)'), findsOneWidget);
@@ -352,7 +356,7 @@ void main() {
       find.text(
         'OCR item total differs from detected subtotal. Review the receipt before applying.',
       ),
-      findsOneWidget,
+      findsNothing,
     );
     expect(
       find.byKey(const Key('personal-bill-ocr-apply-subtotal')),
@@ -478,7 +482,7 @@ void main() {
       DateTime.utc(2026, 6, 13),
     );
     expect(receiptRepository.lastSaveRequest?.currency, 'USD');
-    expect(receiptRepository.lastSaveRequest?.subtotalAmount, '45.00');
+    expect(receiptRepository.lastSaveRequest?.subtotalAmount, isNull);
     expect(
       receiptRepository.lastSaveRequest?.discountAmount,
       isNull,

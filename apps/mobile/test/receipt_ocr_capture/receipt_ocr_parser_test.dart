@@ -1585,6 +1585,32 @@ Total USD 90.00
     expect(preview.total, '90.00');
   });
 
+  test('foreign subtotal and discount do not support total arithmetic', () {
+    const parser = ReceiptOcrParser();
+    final foreignSubtotal = parser.parse('''
+Market USD
+Subtotal EUR 90.00
+Tax USD 10.00
+Total USD 100.00
+Total USD 110.00
+''');
+    expect(foreignSubtotal.currency, 'USD');
+    expect(foreignSubtotal.subtotalCurrency, 'EUR');
+    expect(foreignSubtotal.subtotalHasExplicitCurrencyEvidence, isTrue);
+    expect(foreignSubtotal.total, '110.00');
+
+    final foreignDiscount = parser.parse('''
+Market USD
+Subtotal USD 100.00
+Discount EUR 10.00
+Total USD 90.00
+Total USD 100.00
+''');
+    expect(foreignDiscount.discountCurrency, 'EUR');
+    expect(foreignDiscount.discountHasExplicitCurrencyEvidence, isTrue);
+    expect(foreignDiscount.total, '100.00');
+  });
+
   test('unmarked charge columns retain complete usage and rate rows', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse('''
@@ -3293,6 +3319,23 @@ Total HKD 24.00
       items: [ReceiptOcrItemCandidate(description: 'Meal', lineTotal: '90.00')],
     );
 
+    expect(preview.reviewHints, [
+      'OCR item total differs from detected grand total. Review the receipt before applying.',
+    ]);
+  });
+
+  test('preview ignores foreign subtotal and discount arithmetic', () {
+    const preview = ReceiptOcrPreview(
+      currency: 'USD',
+      subtotal: '100.00',
+      subtotalCurrency: 'EUR',
+      subtotalHasExplicitCurrencyEvidence: true,
+      discount: '10.00',
+      discountCurrency: 'EUR',
+      discountHasExplicitCurrencyEvidence: true,
+      total: '80.00',
+      items: [ReceiptOcrItemCandidate(description: 'Meal', lineTotal: '90.00')],
+    );
     expect(preview.reviewHints, [
       'OCR item total differs from detected grand total. Review the receipt before applying.',
     ]);

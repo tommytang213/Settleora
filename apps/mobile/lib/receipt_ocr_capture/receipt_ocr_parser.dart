@@ -106,6 +106,9 @@ class ReceiptOcrParser {
       currency: currency,
       currencyProvenance: currencyDetection.provenance,
       subtotal: amounts.subtotal,
+      subtotalCurrency: amounts.subtotalCurrency,
+      subtotalHasExplicitCurrencyEvidence:
+          amounts.subtotalHasExplicitCurrencyEvidence,
       tax: amounts.tax,
       taxCurrency: amounts.taxCurrency,
       taxHasExplicitCurrencyEvidence: amounts.taxHasExplicitCurrencyEvidence,
@@ -133,6 +136,9 @@ class ReceiptOcrParser {
           amounts.shipping != null &&
           amounts.shippingHasExplicitCurrencyEvidence,
       discount: amounts.discount,
+      discountCurrency: amounts.discountCurrency,
+      discountHasExplicitCurrencyEvidence:
+          amounts.discountHasExplicitCurrencyEvidence,
       total: amounts.total,
       rawTextLineCount: lines.length,
       confidence: _averageBlockConfidence(blocks),
@@ -642,6 +648,8 @@ class ReceiptOcrParser {
     Set<int> ambiguousChargeTableRows = const {},
   }) {
     String? subtotal;
+    String? subtotalCurrency;
+    var subtotalHasExplicitCurrencyEvidence = false;
     String? tax;
     String? taxCurrency;
     var taxHasExplicitCurrencyEvidence = false;
@@ -657,6 +665,8 @@ class ReceiptOcrParser {
     String? shippingCurrency;
     var shippingHasExplicitCurrencyEvidence = false;
     String? discount;
+    String? discountCurrency;
+    var discountHasExplicitCurrencyEvidence = false;
     final totalCandidates = <({String value, int score, int order})>[];
 
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
@@ -675,7 +685,12 @@ class ReceiptOcrParser {
       }
 
       if (_hasSubtotalLabel(line, normalized)) {
-        subtotal ??= amount;
+        if (subtotal == null) {
+          subtotal = amount;
+          final printed = _explicitAdjustmentCurrencyFromLine(line);
+          subtotalCurrency = printed.currency;
+          subtotalHasExplicitCurrencyEvidence = printed.hasExplicitEvidence;
+        }
       } else if (_hasTaxLabel(line, normalized)) {
         if (tax == null) {
           tax = amount;
@@ -712,7 +727,12 @@ class ReceiptOcrParser {
               adjustmentCurrency.hasExplicitEvidence;
         }
       } else if (_hasDiscountLabel(line, normalized)) {
-        discount ??= amount;
+        if (discount == null) {
+          discount = amount;
+          final printed = _explicitAdjustmentCurrencyFromLine(line);
+          discountCurrency = printed.currency;
+          discountHasExplicitCurrencyEvidence = printed.hasExplicitEvidence;
+        }
       } else if (_hasTotalLabel(line, normalized) &&
           !RegExp(
             r'\b(payment|tender|cash|change|previous|prior|reference)\b',
@@ -751,7 +771,12 @@ class ReceiptOcrParser {
       }
     }
 
-    final subtotalValue = subtotal == null ? null : double.tryParse(subtotal);
+    final sameCurrencySubtotal =
+        !subtotalHasExplicitCurrencyEvidence ||
+        (currency != null && subtotalCurrency == currency);
+    final subtotalValue = subtotal == null || !sameCurrencySubtotal
+        ? null
+        : double.tryParse(subtotal);
     final sameCurrencyTax =
         !taxHasExplicitCurrencyEvidence ||
         (currency != null && taxCurrency == currency);
@@ -764,7 +789,10 @@ class ReceiptOcrParser {
     final sameCurrencyShipping =
         !shippingHasExplicitCurrencyEvidence ||
         (currency != null && shippingCurrency == currency);
-    final discountMagnitude = discount == null
+    final sameCurrencyDiscount =
+        !discountHasExplicitCurrencyEvidence ||
+        (currency != null && discountCurrency == currency);
+    final discountMagnitude = discount == null || !sameCurrencyDiscount
         ? null
         : double.tryParse(discount)?.abs();
     final supportedParts = [
@@ -800,6 +828,8 @@ class ReceiptOcrParser {
 
     return _LabeledReceiptAmounts(
       subtotal: subtotal,
+      subtotalCurrency: subtotalCurrency,
+      subtotalHasExplicitCurrencyEvidence: subtotalHasExplicitCurrencyEvidence,
       tax: tax,
       taxCurrency: taxCurrency,
       taxHasExplicitCurrencyEvidence: taxHasExplicitCurrencyEvidence,
@@ -815,6 +845,8 @@ class ReceiptOcrParser {
       shippingCurrency: shippingCurrency,
       shippingHasExplicitCurrencyEvidence: shippingHasExplicitCurrencyEvidence,
       discount: discount,
+      discountCurrency: discountCurrency,
+      discountHasExplicitCurrencyEvidence: discountHasExplicitCurrencyEvidence,
       total: total,
     );
   }
@@ -1754,6 +1786,8 @@ String _stripChargeTableColumns(String description) {
 class _LabeledReceiptAmounts {
   const _LabeledReceiptAmounts({
     this.subtotal,
+    this.subtotalCurrency,
+    this.subtotalHasExplicitCurrencyEvidence = false,
     this.tax,
     this.taxCurrency,
     this.taxHasExplicitCurrencyEvidence = false,
@@ -1769,10 +1803,14 @@ class _LabeledReceiptAmounts {
     this.shippingCurrency,
     this.shippingHasExplicitCurrencyEvidence = false,
     this.discount,
+    this.discountCurrency,
+    this.discountHasExplicitCurrencyEvidence = false,
     this.total,
   });
 
   final String? subtotal;
+  final String? subtotalCurrency;
+  final bool subtotalHasExplicitCurrencyEvidence;
   final String? tax;
   final String? taxCurrency;
   final bool taxHasExplicitCurrencyEvidence;
@@ -1788,6 +1826,8 @@ class _LabeledReceiptAmounts {
   final String? shippingCurrency;
   final bool shippingHasExplicitCurrencyEvidence;
   final String? discount;
+  final String? discountCurrency;
+  final bool discountHasExplicitCurrencyEvidence;
   final String? total;
 }
 
@@ -1957,6 +1997,12 @@ const _nonCurrencyAdjustmentCodes = {
   'PAY',
   'BAL',
   'SUB',
+  'OFF',
+  'SVC',
+  'SRV',
+  'SHP',
+  'DSC',
+  'AMT',
 };
 
 String? _supportedCurrencyCode(String? value) {
