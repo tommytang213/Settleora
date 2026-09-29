@@ -695,6 +695,9 @@ class ReceiptOcrParser {
 
   ({String? currency, bool hasExplicitEvidence})
   _explicitAdjustmentCurrencyFromLine(String line, {String? receiptCurrency}) {
+    if (_hasUnsupportedCurrencySymbolOnSelectedAmount(line)) {
+      return (currency: null, hasExplicitEvidence: true);
+    }
     final amountCount = RegExp(_amountTokenPattern).allMatches(line).length;
     final adjacentPrintedMarkers = _printedCurrencyMarkerMatches(
       line,
@@ -1732,6 +1735,30 @@ class ReceiptOcrParser {
 
     return count;
   }
+}
+
+bool _hasUnsupportedCurrencySymbolOnSelectedAmount(String text) {
+  final amount = RegExp(_amountTokenPattern).allMatches(text).lastOrNull;
+  if (amount == null) return false;
+  final supportedMarkers = _printedCurrencyMarkerMatches(text).toList();
+  return RegExp(r'\p{Sc}', unicode: true).allMatches(text).any((symbol) {
+    if (supportedMarkers.any(
+      (marker) => marker.start <= symbol.start && marker.end >= symbol.end,
+    )) {
+      return false;
+    }
+    final beforeAmount =
+        symbol.end <= amount.start &&
+        RegExp(
+          r'^\s*[:=]?\s*$',
+        ).hasMatch(text.substring(symbol.end, amount.start));
+    final afterAmount =
+        symbol.start >= amount.end &&
+        RegExp(
+          r'^\s*[:=]?\s*$',
+        ).hasMatch(text.substring(amount.end, symbol.start));
+    return beforeAmount || afterAmount;
+  });
 }
 
 double? _averageBlockConfidence(List<ReceiptOcrBlockEvidence> blocks) {

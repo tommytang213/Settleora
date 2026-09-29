@@ -1151,6 +1151,21 @@ Total USD 11.00
     expect(preview.taxCurrency, isNull);
     expect(saved?.taxAmount, isNull);
     expect(saved?.headerEvidence, isEmpty);
+
+    final unsupported = parser.parse('''
+Market
+Coffee USD 10.00
+Tax ₱1.00 USD
+Total USD 11.00
+''');
+    final unsupportedSave = receiptOcrReviewSaveRequestFromPreview(
+      unsupported,
+      originalCurrency: unsupported.currency,
+    );
+    expect(unsupported.taxCurrency, isNull);
+    expect(unsupported.taxHasExplicitCurrencyEvidence, isTrue);
+    expect(unsupportedSave?.taxAmount, isNull);
+    expect(unsupportedSave?.headerEvidence, isEmpty);
   });
 
   testWidgets('editing OCR merchant keeps unresolved items out of Apply', (

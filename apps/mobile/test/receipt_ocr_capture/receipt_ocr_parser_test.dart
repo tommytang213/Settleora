@@ -1675,6 +1675,17 @@ Total EUR 11.00
 ''');
     expect(sameCurrency.taxCurrency, 'EUR');
     expect(sameCurrency.taxHasExplicitCurrencyEvidence, isTrue);
+
+    for (final printedTax in ['Tax ₱1.00 USD', 'Tax ₱1.00']) {
+      final unsupported = parser.parse('''
+Market
+Coffee USD 10.00
+$printedTax
+Total USD 11.00
+''');
+      expect(unsupported.taxCurrency, isNull);
+      expect(unsupported.taxHasExplicitCurrencyEvidence, isTrue);
+    }
   });
 
   test('printed total currency outranks repeated foreign item prices', () {
