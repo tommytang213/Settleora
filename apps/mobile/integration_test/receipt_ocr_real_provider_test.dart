@@ -84,8 +84,13 @@ void main() {
     expect(_containsAmountToken('Item USD 1,234.50', '1234.50'), isTrue);
     expect(_containsAmountToken("Item USD 1'234.50", '234.50'), isFalse);
     expect(_containsAmountToken("Item USD 1'234.50", '1234.50'), isTrue);
+    expect(_containsAmountToken('Total 1.469,13', '1469.13'), isTrue);
+    expect(_containsAmountToken('Total 1.469,13', '469.13'), isFalse);
+    expect(_containsAmountToken('Subtotal 1.234,56', '1234.56'), isTrue);
     expect(_containsIsoDateToken('Dated 2025/04/17', '2025-04-17'), isTrue);
     expect(_containsIsoDateToken('Dated 2025/04/170', '2025-04-17'), isFalse);
+    expect(_containsIsoDateToken('Dated Apr 17, 2025', '2025-04-17'), isTrue);
+    expect(_containsIsoDateToken('Dated Apr 17, 2025', '2025-04-07'), isFalse);
     final firstRow = _recognitionWordTokens('Fresh');
     final secondRow = _recognitionWordTokens('Bread');
     final expected = _recognitionWordTokens('Fresh Bread');
@@ -1646,6 +1651,8 @@ String? _canonicalAmountToken(String value) {
     token = token.replaceAll(',', '');
   } else if (RegExp(r"^\d{1,3}(?:['’]\d{3})+\.\d+$").hasMatch(token)) {
     token = token.replaceAll(RegExp(r"['’]"), '');
+  } else if (RegExp(r'^\d{1,3}(?:\.\d{3})+,\d{1,2}$').hasMatch(token)) {
+    token = token.replaceAll('.', '').replaceAll(',', '.');
   } else if (RegExp(r'^\d+,\d{1,2}$').hasMatch(token)) {
     token = token.replaceAll(',', '.');
   } else if (!RegExp(r'^\d+(?:\.\d+)?$').hasMatch(token)) {
@@ -1677,6 +1684,32 @@ bool _containsIsoDateToken(String text, String expected) {
     if (match.group(1) == expectedDate.group(1) &&
         int.parse(match.group(2)!) == int.parse(expectedDate.group(2)!) &&
         int.parse(match.group(3)!) == int.parse(expectedDate.group(3)!)) {
+      return true;
+    }
+  }
+  const monthNames = <String, int>{
+    'jan': 1,
+    'feb': 2,
+    'mar': 3,
+    'apr': 4,
+    'may': 5,
+    'jun': 6,
+    'jul': 7,
+    'aug': 8,
+    'sep': 9,
+    'oct': 10,
+    'nov': 11,
+    'dec': 12,
+  };
+  final namedDates = RegExp(
+    r'(?<![A-Za-z])(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+(\d{1,2})(?:,)?\s+(\d{4})(?!\d)',
+    caseSensitive: false,
+  );
+  for (final match in namedDates.allMatches(text)) {
+    final month = monthNames[match.group(0)!.substring(0, 3).toLowerCase()];
+    if (month == int.parse(expectedDate.group(2)!) &&
+        int.parse(match.group(1)!) == int.parse(expectedDate.group(3)!) &&
+        match.group(2) == expectedDate.group(1)) {
       return true;
     }
   }
