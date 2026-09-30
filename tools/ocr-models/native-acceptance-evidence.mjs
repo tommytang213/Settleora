@@ -610,12 +610,18 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
     const cellKeys = ["parserLineCount", "itemDescriptionsSameBlockAsAmount", "itemDescriptionsWithDistinctAmountBlock"];
     const hasCellCoverage = cellKeys.some((key) => Object.hasOwn(entry, key));
     const hasReviewHintCategory = Object.hasOwn(entry, "reviewHintCategory");
+    const reviewDecisionKeys = ["reviewDecision", "incompleteAdjustmentReasons"];
+    const hasReviewDecision = reviewDecisionKeys.some((key) => Object.hasOwn(entry, key));
+    const itemDecisionKeys = ["itemLineDecisionCounts", "expectedDescriptionDecisionCounts"];
+    const hasItemDecisions = itemDecisionKeys.some((key) => Object.hasOwn(entry, key));
     const draftKeys = ["expectedItemDescriptionsInDraft", "expectedItemPairsInDraft",
       "expectedDateTokenSeen", "expectedTaxTokenSeen", "expectedSubtotalTokenSeen"];
     const hasDraftCoverage = draftKeys.some((key) => Object.hasOwn(entry, key));
     assertExactKeys(entry, ["fixtureId", "blockCount", "merchantExactTextSeen", "totalExactTokenSeen",
       "expectedItemCount", "itemDescriptionsExactTextSeen", ...(hasLayoutCoverage ? layoutKeys : []),
       ...(hasCellCoverage ? cellKeys : []), ...(hasReviewHintCategory ? ["reviewHintCategory"] : []),
+      ...(hasReviewDecision ? reviewDecisionKeys : []),
+      ...(hasItemDecisions ? itemDecisionKeys : []),
       ...(hasDraftCoverage ? draftKeys : [])],
     `recognitionCoverage[${index}]`);
     const fixtureId = boundedToken(entry.fixtureId, `recognitionCoverage[${index}].fixtureId`);
@@ -637,6 +643,34 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
       `recognitionCoverage[${index}].itemDescriptionsWithDistinctAmountBlock`) : null;
     const reviewHintCategory = hasReviewHintCategory
       ? boundedToken(entry.reviewHintCategory, `recognitionCoverage[${index}].reviewHintCategory`) : null;
+    const reviewDecision = hasReviewDecision
+      ? boundedToken(entry.reviewDecision, `recognitionCoverage[${index}].reviewDecision`) : null;
+    const allowedReviewDecisions = new Set(["none", "itemSumUnavailableWithAdjustment", "subtotalMismatch",
+      "incompleteAdjustmentWithSubtotal", "referenceAdjustmentUnreconciledWithSubtotal",
+      "grandTotalMismatchWithSubtotal", "foreignAdjustmentWithSubtotal",
+      "incompleteAdjustmentWithoutSubtotal", "referenceAdjustmentUnreconciledWithoutSubtotal",
+      "grandTotalMismatchWithoutSubtotal", "foreignAdjustmentWithoutSubtotal"]);
+    const allowedIncompleteReasons = new Set(["labeledAmountEvidence", "detachedLabeledSign",
+      "chargeTableAdjustment", "multipleAdjustmentRoles", "adjustmentAmountMissingOrRate",
+      "multipleMonetaryTokens", "unclassifiedAdjustmentLabel", "subtotalAmountMissingOrRate",
+      "conflictingSubtotal", "repeatedAdjustmentRole", "itemLimit", "unretainedPricedItem",
+      "detachedAmountSign", "ambiguousChargeTable", "unresolvedItemLikeLine"]);
+    const itemDecisionNames = ["unclassified", "layoutChargeSelected", "ambiguousChargeSkipped",
+      "metadataOrHeaderSkipped", "standaloneAmountSkipped", "layoutFallbackSelected",
+      "adjacentAmountSelected", "unpricedDescription", "unretainedPricedRow",
+      "invalidPricedRow", "quantityItemSelected", "leadingQuantityItemSelected", "pricedItemSelected"];
+    if (hasItemDecisions) {
+      assertExactKeys(entry.itemLineDecisionCounts, itemDecisionNames,
+        `recognitionCoverage[${index}].itemLineDecisionCounts`);
+      assertExactKeys(entry.expectedDescriptionDecisionCounts, [...itemDecisionNames, "notInParserRows"],
+        `recognitionCoverage[${index}].expectedDescriptionDecisionCounts`);
+    }
+    const itemDecisionTotal = hasItemDecisions
+      ? Object.values(entry.itemLineDecisionCounts).reduce((sum, count) => sum + boundedInteger(count,
+        `recognitionCoverage[${index}].itemLineDecisionCounts`), 0) : null;
+    const expectedDecisionTotal = hasItemDecisions
+      ? Object.values(entry.expectedDescriptionDecisionCounts).reduce((sum, count) => sum + boundedInteger(count,
+        `recognitionCoverage[${index}].expectedDescriptionDecisionCounts`), 0) : null;
     const draftDescriptions = hasDraftCoverage ? boundedInteger(entry.expectedItemDescriptionsInDraft,
       `recognitionCoverage[${index}].expectedItemDescriptionsInDraft`) : null;
     const draftPairs = hasDraftCoverage ? boundedInteger(entry.expectedItemPairsInDraft,
@@ -644,6 +678,15 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
     if (coverageFixtures.has(fixtureId) || blockCount > 256 || expectedItemCount > 40 || itemDescriptionsExactTextSeen > expectedItemCount ||
         typeof entry.merchantExactTextSeen !== "boolean" || typeof entry.totalExactTokenSeen !== "boolean" ||
         (hasReviewHintCategory && !new Set(["none", "subtotal_mismatch", "adjustment_explanation", "grand_total_mismatch", "other"]).has(reviewHintCategory)) ||
+        (hasReviewDecision && (!hasReviewHintCategory || !allowedReviewDecisions.has(reviewDecision) ||
+          !Array.isArray(entry.incompleteAdjustmentReasons) ||
+          entry.incompleteAdjustmentReasons.length > allowedIncompleteReasons.size ||
+          new Set(entry.incompleteAdjustmentReasons).size !== entry.incompleteAdjustmentReasons.length ||
+          entry.incompleteAdjustmentReasons.some((reason) => !allowedIncompleteReasons.has(reason)) ||
+          (reviewDecision === "none" && reviewHintCategory !== "none") ||
+          (reviewDecision !== "none" && reviewHintCategory === "none"))) ||
+        (hasItemDecisions && (!hasCellCoverage || itemDecisionTotal !== parserLineCount ||
+          expectedDecisionTotal !== expectedItemCount)) ||
         (hasDraftCoverage && (!hasLayoutCoverage || draftDescriptions > expectedItemCount ||
           draftDescriptions > actualItemCount ||
           draftPairs > draftDescriptions || draftPairs > actualItemCount ||
@@ -669,6 +712,10 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
       ...(hasCellCoverage ? { parserLineCount, itemDescriptionsSameBlockAsAmount: sameBlockCount,
         itemDescriptionsWithDistinctAmountBlock: distinctBlockCount } : {}),
       ...(hasReviewHintCategory ? { reviewHintCategory } : {}),
+      ...(hasReviewDecision ? { reviewDecision,
+        incompleteAdjustmentReasons: entry.incompleteAdjustmentReasons } : {}),
+      ...(hasItemDecisions ? { itemLineDecisionCounts: entry.itemLineDecisionCounts,
+        expectedDescriptionDecisionCounts: entry.expectedDescriptionDecisionCounts } : {}),
       ...(hasDraftCoverage ? { expectedItemDescriptionsInDraft: draftDescriptions,
         expectedItemPairsInDraft: draftPairs, expectedDateTokenSeen: entry.expectedDateTokenSeen,
         expectedTaxTokenSeen: entry.expectedTaxTokenSeen,
@@ -677,6 +724,14 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
   if (boundedRecognitionCoverage.some((entry) => Object.hasOwn(entry, "reviewHintCategory")) &&
       boundedRecognitionCoverage.some((entry) => !Object.hasOwn(entry, "reviewHintCategory"))) {
     throw new Error("Recognition coverage review hint categories are incomplete");
+  }
+  if (boundedRecognitionCoverage.some((entry) => Object.hasOwn(entry, "reviewDecision")) &&
+      boundedRecognitionCoverage.some((entry) => !Object.hasOwn(entry, "reviewDecision"))) {
+    throw new Error("Recognition coverage review decisions are incomplete");
+  }
+  if (boundedRecognitionCoverage.some((entry) => Object.hasOwn(entry, "itemLineDecisionCounts")) &&
+      boundedRecognitionCoverage.some((entry) => !Object.hasOwn(entry, "itemLineDecisionCounts"))) {
+    throw new Error("Recognition coverage item decisions are incomplete");
   }
   if (boundedRecognitionCoverage.some((entry) => Object.hasOwn(entry, "expectedItemPairsInDraft")) &&
       boundedRecognitionCoverage.some((entry) => !Object.hasOwn(entry, "expectedItemPairsInDraft"))) {

@@ -27,6 +27,8 @@ class ReceiptOcrPreview {
     this.discountCurrency,
     this.discountHasExplicitCurrencyEvidence = false,
     this.adjustmentsComplete = true,
+    this.incompleteAdjustmentReasons = const [],
+    this.itemLineDecisions = const [],
     this.total,
     this.rawTextLineCount = 0,
     this.confidence,
@@ -62,6 +64,8 @@ class ReceiptOcrPreview {
   final String? discountCurrency;
   final bool discountHasExplicitCurrencyEvidence;
   final bool adjustmentsComplete;
+  final List<ReceiptOcrIncompleteAdjustmentReason> incompleteAdjustmentReasons;
+  final List<ReceiptOcrItemLineDecision> itemLineDecisions;
   final String? total;
   final int rawTextLineCount;
   final double? confidence;
@@ -73,6 +77,14 @@ class ReceiptOcrPreview {
 
   List<String> get reviewHints {
     return _receiptOcrReviewHints(this);
+  }
+
+  // Fixed vocabulary for bounded native acceptance diagnostics. No OCR text
+  // or monetary values are included in this decision.
+  ReceiptOcrReviewDecision get reviewHintDecision {
+    var decision = ReceiptOcrReviewDecision.none;
+    _receiptOcrReviewHints(this, onDecision: (value) => decision = value);
+    return decision;
   }
 
   bool get hasApplyableFields {
@@ -88,6 +100,54 @@ enum ReceiptOcrCurrencyProvenance {
   contextInferred,
   defaultFallback,
   unresolved,
+}
+
+enum ReceiptOcrReviewDecision {
+  none,
+  itemSumUnavailableWithAdjustment,
+  subtotalMismatch,
+  incompleteAdjustmentWithSubtotal,
+  referenceAdjustmentUnreconciledWithSubtotal,
+  grandTotalMismatchWithSubtotal,
+  foreignAdjustmentWithSubtotal,
+  incompleteAdjustmentWithoutSubtotal,
+  referenceAdjustmentUnreconciledWithoutSubtotal,
+  grandTotalMismatchWithoutSubtotal,
+  foreignAdjustmentWithoutSubtotal,
+}
+
+enum ReceiptOcrIncompleteAdjustmentReason {
+  labeledAmountEvidence,
+  detachedLabeledSign,
+  chargeTableAdjustment,
+  multipleAdjustmentRoles,
+  adjustmentAmountMissingOrRate,
+  multipleMonetaryTokens,
+  unclassifiedAdjustmentLabel,
+  subtotalAmountMissingOrRate,
+  conflictingSubtotal,
+  repeatedAdjustmentRole,
+  itemLimit,
+  unretainedPricedItem,
+  detachedAmountSign,
+  ambiguousChargeTable,
+  unresolvedItemLikeLine,
+}
+
+enum ReceiptOcrItemLineDecision {
+  unclassified,
+  layoutChargeSelected,
+  ambiguousChargeSkipped,
+  metadataOrHeaderSkipped,
+  standaloneAmountSkipped,
+  layoutFallbackSelected,
+  adjacentAmountSelected,
+  unpricedDescription,
+  unretainedPricedRow,
+  invalidPricedRow,
+  quantityItemSelected,
+  leadingQuantityItemSelected,
+  pricedItemSelected,
 }
 
 class ReceiptOcrPoint {
@@ -158,7 +218,10 @@ class ReceiptOcrItemCandidate {
   final String? category;
 }
 
-List<String> _receiptOcrReviewHints(ReceiptOcrPreview preview) {
+List<String> _receiptOcrReviewHints(
+  ReceiptOcrPreview preview, {
+  void Function(ReceiptOcrReviewDecision)? onDecision,
+}) {
   final itemTotal = _sumReceiptOcrItemLineTotals(
     preview.items,
     reviewCurrency: preview.currency,
@@ -168,6 +231,9 @@ List<String> _receiptOcrReviewHints(ReceiptOcrPreview preview) {
         (!preview.adjustmentsComplete ||
             _hasReceiptOcrReferenceAdjustment(preview) ||
             _hasReceiptOcrForeignAdjustment(preview))) {
+      onDecision?.call(
+        ReceiptOcrReviewDecision.itemSumUnavailableWithAdjustment,
+      );
       return const [
         'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
       ];
@@ -188,6 +254,7 @@ List<String> _receiptOcrReviewHints(ReceiptOcrPreview preview) {
       return const [];
     }
     if (!_receiptOcrAmountsClose(itemTotal, subtotal)) {
+      onDecision?.call(ReceiptOcrReviewDecision.subtotalMismatch);
       return const [
         'OCR item total differs from detected subtotal. Review the receipt before applying.',
       ];
@@ -195,6 +262,9 @@ List<String> _receiptOcrReviewHints(ReceiptOcrPreview preview) {
 
     final total = _parseReceiptOcrReviewAmount(preview.total);
     if (total != null && !preview.adjustmentsComplete) {
+      onDecision?.call(
+        ReceiptOcrReviewDecision.incompleteAdjustmentWithSubtotal,
+      );
       return const [
         'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
       ];
@@ -208,18 +278,23 @@ List<String> _receiptOcrReviewHints(ReceiptOcrPreview preview) {
           _receiptOcrAmountsClose(itemTotal + adjustments, total)) {
         return const [];
       }
+      onDecision?.call(
+        ReceiptOcrReviewDecision.referenceAdjustmentUnreconciledWithSubtotal,
+      );
       return const [
         'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
       ];
     }
 
     if (total != null && !_receiptOcrAmountsClose(itemTotal, total)) {
+      onDecision?.call(ReceiptOcrReviewDecision.grandTotalMismatchWithSubtotal);
       return const [
         'OCR item total differs from detected grand total. Review the receipt before applying.',
       ];
     }
 
     if (_hasReceiptOcrForeignAdjustment(preview)) {
+      onDecision?.call(ReceiptOcrReviewDecision.foreignAdjustmentWithSubtotal);
       return const [
         'Detected adjustment currency differs from receipt currency. Review before applying.',
       ];
@@ -234,6 +309,9 @@ List<String> _receiptOcrReviewHints(ReceiptOcrPreview preview) {
   }
 
   if (!preview.adjustmentsComplete) {
+    onDecision?.call(
+      ReceiptOcrReviewDecision.incompleteAdjustmentWithoutSubtotal,
+    );
     return const [
       'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
     ];
@@ -248,18 +326,25 @@ List<String> _receiptOcrReviewHints(ReceiptOcrPreview preview) {
         _receiptOcrAmountsClose(itemTotal + adjustments, total)) {
       return const [];
     }
+    onDecision?.call(
+      ReceiptOcrReviewDecision.referenceAdjustmentUnreconciledWithoutSubtotal,
+    );
     return const [
       'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
     ];
   }
 
   if (!_receiptOcrAmountsClose(itemTotal, total)) {
+    onDecision?.call(
+      ReceiptOcrReviewDecision.grandTotalMismatchWithoutSubtotal,
+    );
     return const [
       'OCR item total differs from detected grand total. Review the receipt before applying.',
     ];
   }
 
   if (_hasReceiptOcrForeignAdjustment(preview)) {
+    onDecision?.call(ReceiptOcrReviewDecision.foreignAdjustmentWithoutSubtotal);
     return const [
       'Detected adjustment currency differs from receipt currency. Review before applying.',
     ];

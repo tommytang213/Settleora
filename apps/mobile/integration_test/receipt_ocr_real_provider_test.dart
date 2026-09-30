@@ -1336,6 +1336,15 @@ Map<String, Object> _boundedRecognitionCoverage(
   }
   final rows = rowText.values.map((parts) => parts.join(' ')).toList();
   final foldedRows = rows.map(_foldRecognitionEvidence).toList();
+  final lineDecisions =
+      result.preview?.itemLineDecisions ?? const <ReceiptOcrItemLineDecision>[];
+  final itemLineDecisionCounts = {
+    for (final decision in ReceiptOcrItemLineDecision.values) decision.name: 0,
+  };
+  for (final decision in lineDecisions) {
+    itemLineDecisionCounts[decision.name] =
+        itemLineDecisionCounts[decision.name]! + 1;
+  }
   bool containsExpected(Object? value) {
     if (value is! String) return false;
     final foldedExpected = _foldRecognitionEvidence(value);
@@ -1345,6 +1354,21 @@ Map<String, Object> _boundedRecognitionCoverage(
   final expectedItems = (expected['items'] as List<Object?>)
       .map((item) => _ExpectedItem.fromManifest(item, fixtureId))
       .toList(growable: false);
+  final expectedDescriptionDecisionCounts = {
+    for (final decision in ReceiptOcrItemLineDecision.values) decision.name: 0,
+    'notInParserRows': 0,
+  };
+  for (final item in expectedItems) {
+    final description = _foldRecognitionEvidence(item.description);
+    final index = description.isEmpty
+        ? -1
+        : foldedRows.indexWhere((row) => row.contains(description));
+    final decision = index >= 0 && index < lineDecisions.length
+        ? lineDecisions[index].name
+        : 'notInParserRows';
+    expectedDescriptionDecisionCounts[decision] =
+        expectedDescriptionDecisionCounts[decision]! + 1;
+  }
   final actualItems =
       result.preview?.items ?? const <ReceiptOcrItemCandidate>[];
   final matchedDescriptions = <int>{};
@@ -1454,6 +1478,16 @@ Map<String, Object> _boundedRecognitionCoverage(
     'expectedTaxTokenSeen': containsExpected(expected['tax']),
     'expectedSubtotalTokenSeen': containsExpected(expected['subtotal']),
     'reviewHintCategory': _boundedReviewHintCategory(result.preview),
+    'itemLineDecisionCounts': itemLineDecisionCounts,
+    'expectedDescriptionDecisionCounts': expectedDescriptionDecisionCounts,
+    'reviewDecision':
+        result.preview?.reviewHintDecision.name ??
+        ReceiptOcrReviewDecision.none.name,
+    'incompleteAdjustmentReasons':
+        result.preview?.incompleteAdjustmentReasons
+            .map((reason) => reason.name)
+            .toList(growable: false) ??
+        const <String>[],
     'itemDescriptionsExactTextSeen': expectedItems
         .where((item) => containsExpected(item.description))
         .length,

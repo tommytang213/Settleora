@@ -278,6 +278,51 @@ test("retains only the bounded native acceptance schema", () => {
     (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot),
       /Recognition coverage evidence is invalid/),
   );
+  const withReviewDecisions = acceptance.recognitionCoverage.map((entry) => ({
+    ...entry, reviewDecision: "none", incompleteAdjustmentReasons: [],
+  }));
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+    ...acceptance, recognitionCoverage: withReviewDecisions,
+  })}`), (log) => {
+    assert.deepEqual(buildEvidence(evidenceArgs(log), repoRoot).acceptance.recognitionCoverage,
+      withReviewDecisions);
+  });
+  for (const invalid of [
+    { reviewDecision: "raw-content" },
+    { incompleteAdjustmentReasons: ["raw-content"] },
+    { incompleteAdjustmentReasons: ["itemLimit", "itemLimit"] },
+    { reviewDecision: "subtotalMismatch" },
+  ]) {
+    withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...acceptance, recognitionCoverage: [{ ...withReviewDecisions[0], ...invalid },
+        ...withReviewDecisions.slice(1)],
+    })}`), (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot),
+      /Recognition coverage evidence is invalid/));
+  }
+  const itemDecisionNames = ["unclassified", "layoutChargeSelected", "ambiguousChargeSkipped",
+    "metadataOrHeaderSkipped", "standaloneAmountSkipped", "layoutFallbackSelected",
+    "adjacentAmountSelected", "unpricedDescription", "unretainedPricedRow",
+    "invalidPricedRow", "quantityItemSelected", "leadingQuantityItemSelected", "pricedItemSelected"];
+  const itemLineDecisionCounts = Object.fromEntries(itemDecisionNames.map((name) => [name,
+    name === "unclassified" ? 8 : 0]));
+  const expectedDescriptionDecisionCounts = { ...Object.fromEntries(itemDecisionNames.map((name) => [name, 0])),
+    notInParserRows: 2 };
+  const withItemDecisions = withReviewDecisions.map((entry) => ({ ...entry,
+    itemLineDecisionCounts, expectedDescriptionDecisionCounts }));
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+    ...acceptance, recognitionCoverage: withItemDecisions,
+  })}`), (log) => assert.deepEqual(
+    buildEvidence(evidenceArgs(log), repoRoot).acceptance.recognitionCoverage, withItemDecisions));
+  for (const invalid of [
+    { itemLineDecisionCounts: { ...itemLineDecisionCounts, rawText: 0 } },
+    { itemLineDecisionCounts: { ...itemLineDecisionCounts, unclassified: 9 } },
+    { expectedDescriptionDecisionCounts: { ...expectedDescriptionDecisionCounts, notInParserRows: 1 } },
+  ]) {
+    withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...acceptance, recognitionCoverage: [{ ...withItemDecisions[0], ...invalid },
+        ...withItemDecisions.slice(1)],
+    })}`), (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot)));
+  }
   const legacyCoverage = manifestFixtureIds.map((fixtureId) => ({ fixtureId, blockCount: 12,
     merchantExactTextSeen: true, totalExactTokenSeen: true,
     expectedItemCount: 2, itemDescriptionsExactTextSeen: 1 }));

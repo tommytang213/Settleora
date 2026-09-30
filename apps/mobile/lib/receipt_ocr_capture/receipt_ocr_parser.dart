@@ -136,6 +136,24 @@ class ReceiptOcrParser {
       );
     }
 
+    final incompleteAdjustmentReasons = <ReceiptOcrIncompleteAdjustmentReason>[
+      if (!amounts.adjustmentsComplete)
+        ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence,
+      ...amounts.incompleteReasons,
+      if (extractedItems.truncated)
+        ReceiptOcrIncompleteAdjustmentReason.itemLimit,
+      if (extractedItems.unretainedPricedItem)
+        ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem,
+      if (detachedAmountSignRows.isNotEmpty)
+        ReceiptOcrIncompleteAdjustmentReason.detachedAmountSign,
+      if (chargeTable.ambiguous.any(
+        (index) => !layoutChargeItems.containsKey(index),
+      ))
+        ReceiptOcrIncompleteAdjustmentReason.ambiguousChargeTable,
+      if (unresolvedItemLines > 0)
+        ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine,
+    ];
+
     return ReceiptOcrPreview(
       merchant: merchant,
       receiptDate: _detectDate(lines),
@@ -184,12 +202,14 @@ class ReceiptOcrParser {
             (index) => !layoutChargeItems.containsKey(index),
           ) &&
           unresolvedItemLines == 0,
+      incompleteAdjustmentReasons: incompleteAdjustmentReasons,
       total: amounts.total,
       rawTextLineCount: lines.length,
       confidence: _averageBlockConfidence(blocks),
       category: 'receipt',
       warnings: warnings,
       items: itemCandidates,
+      itemLineDecisions: extractedItems.lineDecisions,
       blocks: blocks,
       runEvidence: runEvidence,
     );
@@ -847,6 +867,7 @@ class ReceiptOcrParser {
     var discountHasExplicitCurrencyEvidence = false;
     final adjustmentRoleCounts = <String, int>{};
     var adjustmentsComplete = true;
+    final incompleteReasons = <ReceiptOcrIncompleteAdjustmentReason>{};
     var aggregatedRatedTax = false;
     final totalCandidates = <({String value, int score, int order})>[];
     bool preferMatchingPrintedCurrency(
@@ -866,6 +887,9 @@ class ReceiptOcrParser {
       if (detachedAmountSignRows.contains(lineIndex)) {
         if (_hasPotentialReceiptAdjustmentLabel(lines[lineIndex])) {
           adjustmentsComplete = false;
+          incompleteReasons.add(
+            ReceiptOcrIncompleteAdjustmentReason.detachedLabeledSign,
+          );
         }
         continue;
       }
@@ -877,7 +901,12 @@ class ReceiptOcrParser {
       final hasPotentialAdjustment = _hasPotentialReceiptAdjustmentLabel(line);
       if (chargeTableRows.contains(lineIndex) ||
           ambiguousChargeTableRows.contains(lineIndex)) {
-        if (hasPotentialAdjustment) adjustmentsComplete = false;
+        if (hasPotentialAdjustment) {
+          adjustmentsComplete = false;
+          incompleteReasons.add(
+            ReceiptOcrIncompleteAdjustmentReason.chargeTableAdjustment,
+          );
+        }
         continue;
       }
       final adjustmentRoles = [
@@ -901,7 +930,12 @@ class ReceiptOcrParser {
               adjustmentRole == null
           ? _selectedTotalAmountInLine(line, currency: currency)
           : _lastAmountInLine(line, currency: amountCurrency);
-      if (adjustmentRoles.length > 1) adjustmentsComplete = false;
+      if (adjustmentRoles.length > 1) {
+        adjustmentsComplete = false;
+        incompleteReasons.add(
+          ReceiptOcrIncompleteAdjustmentReason.multipleAdjustmentRoles,
+        );
+      }
       final lastAmountToken = RegExp(
         _amountTokenPattern,
       ).allMatches(line).lastOrNull;
@@ -914,20 +948,36 @@ class ReceiptOcrParser {
           (count) => count + 1,
           ifAbsent: () => 1,
         );
-        if (amount == null || selectedAmountIsRate) adjustmentsComplete = false;
+        if (amount == null || selectedAmountIsRate) {
+          adjustmentsComplete = false;
+          incompleteReasons.add(
+            ReceiptOcrIncompleteAdjustmentReason.adjustmentAmountMissingOrRate,
+          );
+        }
         final monetaryAmounts = RegExp(_amountTokenPattern)
             .allMatches(line)
             .where(
               (token) => !RegExp(r'^\s*%').hasMatch(line.substring(token.end)),
             )
             .length;
-        if (monetaryAmounts != 1) adjustmentsComplete = false;
+        if (monetaryAmounts != 1) {
+          adjustmentsComplete = false;
+          incompleteReasons.add(
+            ReceiptOcrIncompleteAdjustmentReason.multipleMonetaryTokens,
+          );
+        }
       }
       if (adjustmentRole == null && hasPotentialAdjustment) {
         adjustmentsComplete = false;
+        incompleteReasons.add(
+          ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
+        );
       }
       if (isSubtotal && (amount == null || selectedAmountIsRate)) {
         adjustmentsComplete = false;
+        incompleteReasons.add(
+          ReceiptOcrIncompleteAdjustmentReason.subtotalAmountMissingOrRate,
+        );
       }
       if (amount == null || selectedAmountIsRate) continue;
 
@@ -946,6 +996,9 @@ class ReceiptOcrParser {
             retainedCurrency == printedCurrency &&
             double.tryParse(subtotal) != double.tryParse(amount)) {
           adjustmentsComplete = false;
+          incompleteReasons.add(
+            ReceiptOcrIncompleteAdjustmentReason.conflictingSubtotal,
+          );
         }
         if (preferMatchingPrintedCurrency(
           subtotal,
@@ -1143,6 +1196,9 @@ class ReceiptOcrParser {
       (entry) => entry.value > 1 && (entry.key != 'tax' || !aggregatedRatedTax),
     )) {
       adjustmentsComplete = false;
+      incompleteReasons.add(
+        ReceiptOcrIncompleteAdjustmentReason.repeatedAdjustmentRole,
+      );
     }
 
     final sameCurrencySubtotal =
@@ -1222,6 +1278,7 @@ class ReceiptOcrParser {
       discountCurrency: discountCurrency,
       discountHasExplicitCurrencyEvidence: discountHasExplicitCurrencyEvidence,
       adjustmentsComplete: adjustmentsComplete,
+      incompleteReasons: incompleteReasons.toList(growable: false),
       total: total,
     );
   }
@@ -1230,6 +1287,7 @@ class ReceiptOcrParser {
     List<ReceiptOcrItemCandidate> items,
     bool truncated,
     bool unretainedPricedItem,
+    List<ReceiptOcrItemLineDecision> lineDecisions,
   })
   _extractItems(
     List<String> lines,
@@ -1243,6 +1301,10 @@ class ReceiptOcrParser {
     Set<int> detachedAmountSignRows = const {},
   }) {
     final items = <ReceiptOcrItemCandidate>[];
+    final lineDecisions = List<ReceiptOcrItemLineDecision>.filled(
+      lines.length,
+      ReceiptOcrItemLineDecision.unclassified,
+    );
     var unretainedPricedItem = false;
     final wrappedDescriptionLines = <String>[];
     final leadingQuantityRows = _leadingQuantityColumnRows(lines, layoutRows);
@@ -1273,11 +1335,15 @@ class ReceiptOcrParser {
       final line = lines[lineIndex];
       final layoutChargeItem = layoutChargeItems[lineIndex];
       if (layoutChargeItem != null) {
+        lineDecisions[lineIndex] =
+            ReceiptOcrItemLineDecision.layoutChargeSelected;
         items.add(layoutChargeItem);
         wrappedDescriptionLines.clear();
         continue;
       }
       if (ambiguousChargeTableRows.contains(lineIndex)) {
+        lineDecisions[lineIndex] =
+            ReceiptOcrItemLineDecision.ambiguousChargeSkipped;
         wrappedDescriptionLines.clear();
         continue;
       }
@@ -1290,10 +1356,14 @@ class ReceiptOcrParser {
           ((fuelItem != null || hasFuelMeasurementLayout) &&
               _isFuelMeasurementLine(line) &&
               !_isPricedFuelLine(line))) {
+        lineDecisions[lineIndex] =
+            ReceiptOcrItemLineDecision.metadataOrHeaderSkipped;
         wrappedDescriptionLines.clear();
         continue;
       }
       if (_isStandaloneAmountRow(line)) {
+        lineDecisions[lineIndex] =
+            ReceiptOcrItemLineDecision.standaloneAmountSkipped;
         wrappedDescriptionLines.clear();
         continue;
       }
@@ -1313,6 +1383,8 @@ class ReceiptOcrParser {
       ).firstMatch(line);
       if (match == null) {
         if (layoutFallback != null) {
+          lineDecisions[lineIndex] =
+              ReceiptOcrItemLineDecision.layoutFallbackSelected;
           items.add(layoutFallback);
           wrappedDescriptionLines.clear();
           continue;
@@ -1339,6 +1411,10 @@ class ReceiptOcrParser {
             currency: amountCurrency,
           );
           if (lineTotal != null) {
+            lineDecisions[lineIndex] =
+                ReceiptOcrItemLineDecision.adjacentAmountSelected;
+            lineDecisions[lineIndex + 1] =
+                ReceiptOcrItemLineDecision.adjacentAmountSelected;
             final wrappedDescription = wrappedDescriptionLines.join(' ');
             final description =
                 _isStrongWrappedItemDescription(wrappedDescription)
@@ -1383,7 +1459,14 @@ class ReceiptOcrParser {
           if (_hasSubstantiveItemDescription(description) &&
               !_isLikelyNonItemDescription(description, pricedRow: true)) {
             unretainedPricedItem = true;
+            lineDecisions[lineIndex] =
+                ReceiptOcrItemLineDecision.unretainedPricedRow;
           }
+        }
+        if (lineDecisions[lineIndex] ==
+            ReceiptOcrItemLineDecision.unclassified) {
+          lineDecisions[lineIndex] =
+              ReceiptOcrItemLineDecision.unpricedDescription;
         }
         continue;
       }
@@ -1417,6 +1500,9 @@ class ReceiptOcrParser {
           lineTotal == null ||
           _isLikelyNonItemDescription(description, pricedRow: true) ||
           !_hasTraceableItemAmountToken(line, match.group(3)!)) {
+        lineDecisions[lineIndex] = layoutFallback != null
+            ? ReceiptOcrItemLineDecision.layoutFallbackSelected
+            : ReceiptOcrItemLineDecision.invalidPricedRow;
         if (layoutFallback != null) {
           items.add(layoutFallback);
         } else if (_hasSubstantiveItemDescription(description) &&
@@ -1441,6 +1527,8 @@ class ReceiptOcrParser {
         );
         final cleanedName = _cleanDescription(quantityMatch.group(1)!);
         if (cleanedName.isNotEmpty) {
+          lineDecisions[lineIndex] =
+              ReceiptOcrItemLineDecision.quantityItemSelected;
           items.add(
             ReceiptOcrItemCandidate(
               description: cleanedName,
@@ -1464,6 +1552,8 @@ class ReceiptOcrParser {
           leadingQuantity != null &&
           int.parse(leadingQuantity.group(1)!) > 0 &&
           _hasSubstantiveItemDescription(leadingQuantity.group(2)!)) {
+        lineDecisions[lineIndex] =
+            ReceiptOcrItemLineDecision.leadingQuantityItemSelected;
         items.add(
           ReceiptOcrItemCandidate(
             description: _cleanDescription(leadingQuantity.group(2)!),
@@ -1478,6 +1568,7 @@ class ReceiptOcrParser {
         continue;
       }
 
+      lineDecisions[lineIndex] = ReceiptOcrItemLineDecision.pricedItemSelected;
       items.add(
         ReceiptOcrItemCandidate(
           description: description,
@@ -1502,6 +1593,7 @@ class ReceiptOcrParser {
       items: items.take(40).toList(growable: false),
       truncated: items.length > 40,
       unretainedPricedItem: unretainedPricedItem,
+      lineDecisions: lineDecisions,
     );
   }
 
@@ -2391,6 +2483,7 @@ class _LabeledReceiptAmounts {
     this.discountCurrency,
     this.discountHasExplicitCurrencyEvidence = false,
     this.adjustmentsComplete = true,
+    this.incompleteReasons = const [],
     this.total,
   });
 
@@ -2415,6 +2508,7 @@ class _LabeledReceiptAmounts {
   final String? discountCurrency;
   final bool discountHasExplicitCurrencyEvidence;
   final bool adjustmentsComplete;
+  final List<ReceiptOcrIncompleteAdjustmentReason> incompleteReasons;
   final String? total;
 }
 

@@ -71,6 +71,16 @@ Thank you
     expect(preview.items.last.quantity, isNull);
     expect(preview.items.last.lineTotal, '18.00');
     expect(preview.reviewHints, isEmpty);
+    expect(preview.reviewHintDecision, ReceiptOcrReviewDecision.none);
+    expect(preview.itemLineDecisions, hasLength(preview.rawTextLineCount));
+    expect(
+      preview.itemLineDecisions[2],
+      ReceiptOcrItemLineDecision.quantityItemSelected,
+    );
+    expect(
+      preview.itemLineDecisions[3],
+      ReceiptOcrItemLineDecision.pricedItemSelected,
+    );
   });
 
   test('parser extracts English receipt totals and charges conservatively', () {
@@ -4364,6 +4374,10 @@ Total HKD 24.00
     expect(preview.reviewHints, [
       'OCR item total differs from detected subtotal. Review the receipt before applying.',
     ]);
+    expect(
+      preview.reviewHintDecision,
+      ReceiptOcrReviewDecision.subtotalMismatch,
+    );
   });
 
   test('unresolved item currency cannot corroborate receipt arithmetic', () {
@@ -4464,6 +4478,14 @@ Service charge USD 3.00
 Total USD 12.00
 ''');
     expect(preview.adjustmentsComplete, isFalse);
+    expect(
+      preview.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence),
+    );
+    expect(
+      preview.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.repeatedAdjustmentRole),
+    );
     expect(preview.reviewHints, [
       'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
     ]);
