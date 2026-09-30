@@ -1345,6 +1345,46 @@ Map<String, Object> _boundedRecognitionCoverage(
   final expectedItems = (expected['items'] as List<Object?>)
       .map((item) => _ExpectedItem.fromManifest(item, fixtureId))
       .toList(growable: false);
+  final actualItems =
+      result.preview?.items ?? const <ReceiptOcrItemCandidate>[];
+  final matchedDescriptions = <int>{};
+  final matchedPairs = <int>{};
+  final usedDescriptions = <int>{};
+  final usedPairs = <int>{};
+  for (var index = 0; index < expectedItems.length; index++) {
+    final item = expectedItems[index];
+    final descriptionIndex = actualItems
+        .asMap()
+        .entries
+        .where((entry) => !usedDescriptions.contains(entry.key))
+        .where(
+          (entry) =>
+              _normalizedText(entry.value.description) ==
+              _normalizedText(item.description),
+        )
+        .firstOrNull
+        ?.key;
+    if (descriptionIndex != null) {
+      matchedDescriptions.add(index);
+      usedDescriptions.add(descriptionIndex);
+    }
+    final pairIndex = actualItems
+        .asMap()
+        .entries
+        .where((entry) => !usedPairs.contains(entry.key))
+        .where(
+          (entry) =>
+              _normalizedText(entry.value.description) ==
+                  _normalizedText(item.description) &&
+              entry.value.lineTotal == item.lineTotal,
+        )
+        .firstOrNull
+        ?.key;
+    if (pairIndex != null) {
+      matchedPairs.add(index);
+      usedPairs.add(pairIndex);
+    }
+  }
   final merchantFolded = expected['merchant'] is String
       ? _foldRecognitionEvidence(expected['merchant'] as String)
       : '';
@@ -1408,6 +1448,11 @@ Map<String, Object> _boundedRecognitionCoverage(
     'totalExactTokenSeen': containsExpected(expected['total']),
     'expectedItemCount': expectedItems.length,
     'actualItemCount': result.preview?.items.length ?? 0,
+    'expectedItemDescriptionsInDraft': matchedDescriptions.length,
+    'expectedItemPairsInDraft': matchedPairs.length,
+    'expectedDateTokenSeen': containsExpected(expected['date']),
+    'expectedTaxTokenSeen': containsExpected(expected['tax']),
+    'expectedSubtotalTokenSeen': containsExpected(expected['subtotal']),
     'reviewHintCategory': _boundedReviewHintCategory(result.preview),
     'itemDescriptionsExactTextSeen': expectedItems
         .where((item) => containsExpected(item.description))

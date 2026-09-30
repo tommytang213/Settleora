@@ -610,9 +610,13 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
     const cellKeys = ["parserLineCount", "itemDescriptionsSameBlockAsAmount", "itemDescriptionsWithDistinctAmountBlock"];
     const hasCellCoverage = cellKeys.some((key) => Object.hasOwn(entry, key));
     const hasReviewHintCategory = Object.hasOwn(entry, "reviewHintCategory");
+    const draftKeys = ["expectedItemDescriptionsInDraft", "expectedItemPairsInDraft",
+      "expectedDateTokenSeen", "expectedTaxTokenSeen", "expectedSubtotalTokenSeen"];
+    const hasDraftCoverage = draftKeys.some((key) => Object.hasOwn(entry, key));
     assertExactKeys(entry, ["fixtureId", "blockCount", "merchantExactTextSeen", "totalExactTokenSeen",
       "expectedItemCount", "itemDescriptionsExactTextSeen", ...(hasLayoutCoverage ? layoutKeys : []),
-      ...(hasCellCoverage ? cellKeys : []), ...(hasReviewHintCategory ? ["reviewHintCategory"] : [])],
+      ...(hasCellCoverage ? cellKeys : []), ...(hasReviewHintCategory ? ["reviewHintCategory"] : []),
+      ...(hasDraftCoverage ? draftKeys : [])],
     `recognitionCoverage[${index}]`);
     const fixtureId = boundedToken(entry.fixtureId, `recognitionCoverage[${index}].fixtureId`);
     const blockCount = boundedInteger(entry.blockCount, `recognitionCoverage[${index}].blockCount`);
@@ -633,9 +637,18 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
       `recognitionCoverage[${index}].itemDescriptionsWithDistinctAmountBlock`) : null;
     const reviewHintCategory = hasReviewHintCategory
       ? boundedToken(entry.reviewHintCategory, `recognitionCoverage[${index}].reviewHintCategory`) : null;
+    const draftDescriptions = hasDraftCoverage ? boundedInteger(entry.expectedItemDescriptionsInDraft,
+      `recognitionCoverage[${index}].expectedItemDescriptionsInDraft`) : null;
+    const draftPairs = hasDraftCoverage ? boundedInteger(entry.expectedItemPairsInDraft,
+      `recognitionCoverage[${index}].expectedItemPairsInDraft`) : null;
     if (coverageFixtures.has(fixtureId) || blockCount > 256 || expectedItemCount > 40 || itemDescriptionsExactTextSeen > expectedItemCount ||
         typeof entry.merchantExactTextSeen !== "boolean" || typeof entry.totalExactTokenSeen !== "boolean" ||
         (hasReviewHintCategory && !new Set(["none", "subtotal_mismatch", "adjustment_explanation", "grand_total_mismatch", "other"]).has(reviewHintCategory)) ||
+        (hasDraftCoverage && (!hasLayoutCoverage || draftDescriptions > expectedItemCount ||
+          draftPairs > draftDescriptions || draftPairs > actualItemCount ||
+          typeof entry.expectedDateTokenSeen !== "boolean" ||
+          typeof entry.expectedTaxTokenSeen !== "boolean" ||
+          typeof entry.expectedSubtotalTokenSeen !== "boolean")) ||
         (hasCellCoverage && (!hasLayoutCoverage || parserLineCount > 256 ||
           sameBlockCount > sameRowCount || distinctBlockCount > sameRowCount)) ||
         (hasLayoutCoverage && (rowCount > 256 || rowCount > blockCount || actualItemCount > 40 ||
@@ -654,11 +667,19 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
         chargeTableHeaderSameRow: entry.chargeTableHeaderSameRow } : {}),
       ...(hasCellCoverage ? { parserLineCount, itemDescriptionsSameBlockAsAmount: sameBlockCount,
         itemDescriptionsWithDistinctAmountBlock: distinctBlockCount } : {}),
-      ...(hasReviewHintCategory ? { reviewHintCategory } : {}) };
+      ...(hasReviewHintCategory ? { reviewHintCategory } : {}),
+      ...(hasDraftCoverage ? { expectedItemDescriptionsInDraft: draftDescriptions,
+        expectedItemPairsInDraft: draftPairs, expectedDateTokenSeen: entry.expectedDateTokenSeen,
+        expectedTaxTokenSeen: entry.expectedTaxTokenSeen,
+        expectedSubtotalTokenSeen: entry.expectedSubtotalTokenSeen } : {}) };
   });
   if (boundedRecognitionCoverage.some((entry) => Object.hasOwn(entry, "reviewHintCategory")) &&
       boundedRecognitionCoverage.some((entry) => !Object.hasOwn(entry, "reviewHintCategory"))) {
     throw new Error("Recognition coverage review hint categories are incomplete");
+  }
+  if (boundedRecognitionCoverage.some((entry) => Object.hasOwn(entry, "expectedItemPairsInDraft")) &&
+      boundedRecognitionCoverage.some((entry) => !Object.hasOwn(entry, "expectedItemPairsInDraft"))) {
+    throw new Error("Recognition coverage draft categories are incomplete");
   }
   if (Object.hasOwn(value, "recognitionCoverage") &&
       (boundedRecognitionCoverage.length !== expectedFixtureIds.size ||
