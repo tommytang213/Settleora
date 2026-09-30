@@ -385,6 +385,7 @@ function parseSafeRunnerLog(log, stderrLog) {
   ]);
   const markerMessages = [];
   const expectedTests = new Set([
+    "bounded diagnostic matches whole item and amount tokens",
     "native acceptance runner has no external network",
     "all 101 real images match complete preview truth",
     "a real fixture rotated 270 degrees matches complete truth",
