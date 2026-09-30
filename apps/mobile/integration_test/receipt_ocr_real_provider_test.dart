@@ -71,6 +71,23 @@ void main() {
   const artifactProcessor = ReceiptImageArtifactProcessor();
   var networkIsolated = false;
 
+  test('bounded diagnostic matches whole item and amount tokens', () {
+    expect(_containsAmountToken('Item USD 12.00', '2.00'), isFalse);
+    expect(_containsAmountToken('Item USD 2.00', '2.00'), isTrue);
+    expect(_containsAmountToken('Item USD -2.00', '2.00'), isFalse);
+    expect(_containsAmountToken('Item USD -2.00', '-2.00'), isTrue);
+    expect(_containsAmountToken('Item USD 1,234.50', '1234.50'), isTrue);
+    final firstRow = _recognitionWordTokens('Fresh');
+    final secondRow = _recognitionWordTokens('Bread');
+    final expected = _recognitionWordTokens('Fresh Bread');
+    expect(_containsWordSequence(firstRow, expected), isFalse);
+    expect(_containsWordSequence(secondRow, expected), isFalse);
+    expect(
+      _containsWordSequence([...firstRow, ...secondRow], expected),
+      isTrue,
+    );
+  });
+
   testWidgets('native acceptance runner has no external network', (
     WidgetTester tester,
   ) async {
@@ -1439,8 +1456,7 @@ Map<String, Object> _boundedRecognitionCoverage(
       : '';
   bool descriptionAndAmountWithinRows(_ExpectedItem item, int distance) {
     final descriptionWords = _recognitionWordTokens(item.description);
-    final amount = _foldRecognitionEvidence(item.lineTotal);
-    if (descriptionWords.isEmpty || amount.isEmpty) return false;
+    if (descriptionWords.isEmpty || item.lineTotal.isEmpty) return false;
     for (var index = 0; index < foldedRows.length; index++) {
       if (!_containsWordSequence(rowWordTokens[index], descriptionWords)) {
         continue;
@@ -1450,7 +1466,9 @@ Map<String, Object> _boundedRecognitionCoverage(
           ? foldedRows.length - 1
           : index + distance;
       for (var amountIndex = first; amountIndex <= last; amountIndex++) {
-        if (foldedRows[amountIndex].contains(amount)) return true;
+        if (_containsAmountToken(rows[amountIndex], item.lineTotal)) {
+          return true;
+        }
       }
     }
     return false;
@@ -1461,12 +1479,8 @@ Map<String, Object> _boundedRecognitionCoverage(
     required bool sameBlock,
   }) {
     final descriptionWords = _recognitionWordTokens(item.description);
-    final amount = _foldRecognitionEvidence(item.lineTotal);
-    if (descriptionWords.isEmpty || amount.isEmpty) return false;
+    if (descriptionWords.isEmpty || item.lineTotal.isEmpty) return false;
     for (final row in rowBlocks.values) {
-      final foldedBlocks = row
-          .map((block) => _foldRecognitionEvidence(block.text))
-          .toList(growable: false);
       if (sameBlock) {
         if (row.any(
           (block) =>
@@ -1474,15 +1488,17 @@ Map<String, Object> _boundedRecognitionCoverage(
                 _recognitionWordTokens(block.text),
                 descriptionWords,
               ) &&
-              _foldRecognitionEvidence(block.text).contains(amount),
+              _containsAmountToken(block.text, item.lineTotal),
         )) {
           return true;
         }
       } else {
-        for (var index = 0; index < foldedBlocks.length; index++) {
-          if (!foldedBlocks[index].contains(amount)) continue;
+        for (var index = 0; index < row.length; index++) {
+          if (!_containsAmountToken(row[index].text, item.lineTotal)) {
+            continue;
+          }
           final otherText = [
-            for (var other = 0; other < foldedBlocks.length; other++)
+            for (var other = 0; other < row.length; other++)
               if (other != index) row[other].text,
           ].join(' ');
           if (_containsWordSequence(
@@ -1587,6 +1603,20 @@ bool _containsWordSequence(List<String> row, List<String> expected) {
     if (matches) return true;
   }
   return false;
+}
+
+bool _containsAmountToken(String text, String expected) {
+  final digits = _foldRecognitionEvidence(expected);
+  if (digits.isEmpty) return false;
+  final expectedNegative = expected.trimLeft().startsWith(RegExp(r'[-−]'));
+  return RegExp(
+    r'[-+−]?\s*[\p{N}]+(?:[.,\u066b\u066c][\p{N}]+)*',
+    unicode: true,
+  ).allMatches(text).any((match) {
+    final token = match.group(0)!.trimLeft();
+    return _foldRecognitionEvidence(token) == digits &&
+        (token.startsWith('-') || token.startsWith('−')) == expectedNegative;
+  });
 }
 
 bool isValidNativeOcrBlockGeometry(
