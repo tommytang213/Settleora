@@ -39,7 +39,7 @@
     },
     "nativeSemantics": {
       "files": [
-        { "path": "apps/mobile/integration_test/receipt_ocr_real_provider_test.dart", "sha256": "96736644c134830884bdfe4489bbcb7d63be1655f664354d185c623f61739570" },
+        { "path": "apps/mobile/integration_test/receipt_ocr_real_provider_test.dart", "sha256": "adaf7fc5b90c7be0b38b0aace4afa52ce7306c728d88e2ad12f99ebb77f98825" },
         { "path": "apps/mobile/lib/app/app_bootstrap.dart", "sha256": "bfc2ea06825d3b7162f6f08b68b0413e62320523b3c087a6abc27aecc8b1d875" },
         { "path": "apps/mobile/lib/app/server_mode_shell.dart", "sha256": "7bc1b89910d260c5652810265b8a9985896fe62e852f65aa24d44d5fa2d8459e" },
         { "path": "apps/mobile/lib/bills/bill_list_screen.dart", "sha256": "c4ba09a1262fffe985d7d524adeb38b68fab11b6e12722cdb7a5885e174f9bff" },
@@ -48,7 +48,7 @@
         { "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_provider.dart", "sha256": "a3331597a312cc3bd90a9a026b4bd6901b07f0c38dd7dac00a2a7c2c19ada90e" },
         { "path": "apps/mobile/lib/receipt_ocr_capture/mlkit_receipt_ocr_provider.dart", "sha256": "a7f552b7e9601814e2fe2d6ed1b5d57b86678edd2438ccba8bcd3cb3e68ff9cb" },
         { "path": "apps/mobile/lib/receipt_ocr_capture/paddle_receipt_ocr_provider.dart", "sha256": "bab2702484fbcc48b3e5a985fbbb70467a5714713ad3e0c520aa542768620eeb" },
-        { "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_preview.dart", "sha256": "80f7c71454a886e8d4e7041f16376f7f67b0791e6ab40b38ca612ae82a8760b3" },
+        { "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_preview.dart", "sha256": "80f9e2bedebf89c07e4ee138b82d0528bcfb870fdb89ed3dea16bb5f19af964f" },
         { "path": "apps/mobile/lib/ui/settleora_form_fields.dart", "sha256": "ff5669f541437bef62d562109573f32506273dd90593874c8ffcde6355145079" },
         { "path": "apps/mobile/pubspec.yaml", "sha256": "f5a9968dbb7e1f7ab58b780e9b3f8e049d6008cd339e3df2d748e33e0ab76030" },
         { "path": "apps/mobile/pubspec.lock", "sha256": "065007a0c8b90d527aff6306936a02cd527d30f03800cc8e4229e8273d3afcc7" },
@@ -124,7 +124,7 @@
     },
     "parser": {
       "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_parser.dart",
-      "sha256": "e774052e8c55382c2d2fa5d69994a3f10bf152439609325c5d22fe1d3795502f"
+      "sha256": "856bd3ca8692891f2dd8cd8d25c8e58ca093513e4ad00ef877797e0caa846140"
     }
   },
   "totalBundledBytes": 76580102,

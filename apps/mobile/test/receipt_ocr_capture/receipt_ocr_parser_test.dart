@@ -31,6 +31,29 @@ ReceiptOcrBlockEvidence _layoutBlock(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('bounded item diagnostics retain fixed grammar and origin roles', () {
+    expect(
+      diagnoseReceiptOcrUnretainedRow('Coffee 12.00 note'),
+      ReceiptOcrUnretainedPatternReason.otherSuffixDeletionWouldMatch,
+    );
+    expect(
+      diagnoseReceiptOcrUnretainedRow('Coffee12.00'),
+      ReceiptOcrUnretainedPatternReason.amountBoundaryInsertionWouldMatch,
+    );
+    expect(
+      diagnoseReceiptOcrUnretainedRow('Coffee12.00 zł'),
+      ReceiptOcrUnretainedPatternReason.recognizedCurrencySuffixStillRejected,
+    );
+    final preview = const ReceiptOcrParser().parse(
+      'Cafe\nCoffee 12.00\nTotal USD 12.00',
+    );
+    expect(preview.items, hasLength(1));
+    expect(preview.itemSelectionDecisions, [
+      ReceiptOcrItemLineDecision.pricedItemSelected,
+    ]);
+    expect(preview.itemSelectionDecisions.length, preview.items.length);
+  });
+
   test('selectable currencies remain aligned with API financial policy', () {
     expect(
       settleoraSupportedCurrencies.map((currency) => currency.code).toList(),

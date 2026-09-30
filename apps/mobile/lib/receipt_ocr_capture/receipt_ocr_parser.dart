@@ -210,6 +210,7 @@ class ReceiptOcrParser {
       warnings: warnings,
       items: itemCandidates,
       itemLineDecisions: extractedItems.lineDecisions,
+      itemSelectionDecisions: extractedItems.itemSelectionDecisions,
       blocks: blocks,
       runEvidence: runEvidence,
     );
@@ -1288,6 +1289,7 @@ class ReceiptOcrParser {
     bool truncated,
     bool unretainedPricedItem,
     List<ReceiptOcrItemLineDecision> lineDecisions,
+    List<ReceiptOcrItemLineDecision> itemSelectionDecisions,
   })
   _extractItems(
     List<String> lines,
@@ -1301,6 +1303,7 @@ class ReceiptOcrParser {
     Set<int> detachedAmountSignRows = const {},
   }) {
     final items = <ReceiptOcrItemCandidate>[];
+    final itemSelectionDecisions = <ReceiptOcrItemLineDecision>[];
     final lineDecisions = List<ReceiptOcrItemLineDecision>.filled(
       lines.length,
       ReceiptOcrItemLineDecision.unclassified,
@@ -1330,6 +1333,7 @@ class ReceiptOcrParser {
     );
     if (fuelItem != null) {
       items.add(fuelItem);
+      itemSelectionDecisions.add(ReceiptOcrItemLineDecision.fuelItemSelected);
     }
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       final line = lines[lineIndex];
@@ -1338,6 +1342,9 @@ class ReceiptOcrParser {
         lineDecisions[lineIndex] =
             ReceiptOcrItemLineDecision.layoutChargeSelected;
         items.add(layoutChargeItem);
+        itemSelectionDecisions.add(
+          ReceiptOcrItemLineDecision.layoutChargeSelected,
+        );
         wrappedDescriptionLines.clear();
         continue;
       }
@@ -1375,17 +1382,15 @@ class ReceiptOcrParser {
         currency,
       );
 
-      final match = RegExp(
-        '^(.+?)\\s+($_currencyTokenPattern)?\\s*'
-        "($_amountTokenPattern)"
-        '(?:\\s*($_currencyTokenPattern))?\$',
-        caseSensitive: false,
-      ).firstMatch(line);
+      final match = _pricedItemRowPattern.firstMatch(line);
       if (match == null) {
         if (layoutFallback != null) {
           lineDecisions[lineIndex] =
               ReceiptOcrItemLineDecision.layoutFallbackSelected;
           items.add(layoutFallback);
+          itemSelectionDecisions.add(
+            ReceiptOcrItemLineDecision.layoutFallbackSelected,
+          );
           wrappedDescriptionLines.clear();
           continue;
         }
@@ -1435,6 +1440,9 @@ class ReceiptOcrParser {
                 ]),
                 category: 'item_line',
               ),
+            );
+            itemSelectionDecisions.add(
+              ReceiptOcrItemLineDecision.adjacentAmountSelected,
             );
             wrappedDescriptionLines.clear();
             lineIndex += 1;
@@ -1505,6 +1513,9 @@ class ReceiptOcrParser {
             : ReceiptOcrItemLineDecision.invalidPricedRow;
         if (layoutFallback != null) {
           items.add(layoutFallback);
+          itemSelectionDecisions.add(
+            ReceiptOcrItemLineDecision.layoutFallbackSelected,
+          );
         } else if (_hasSubstantiveItemDescription(description) &&
             !_isLikelyNonItemDescription(description, pricedRow: true)) {
           unretainedPricedItem = true;
@@ -1541,6 +1552,9 @@ class ReceiptOcrParser {
               category: 'item_line',
             ),
           );
+          itemSelectionDecisions.add(
+            ReceiptOcrItemLineDecision.quantityItemSelected,
+          );
           continue;
         }
       }
@@ -1565,6 +1579,9 @@ class ReceiptOcrParser {
             category: 'item_line',
           ),
         );
+        itemSelectionDecisions.add(
+          ReceiptOcrItemLineDecision.leadingQuantityItemSelected,
+        );
         continue;
       }
 
@@ -1579,6 +1596,7 @@ class ReceiptOcrParser {
           category: 'item_line',
         ),
       );
+      itemSelectionDecisions.add(ReceiptOcrItemLineDecision.pricedItemSelected);
     }
 
     if (fuelItem != null && items.length > 1) {
@@ -1586,6 +1604,7 @@ class ReceiptOcrParser {
       // another priced purchase is present. Keep the other traceable lines
       // and leave the fuel measurement for explicit review.
       items.remove(fuelItem);
+      itemSelectionDecisions.removeAt(0);
       unretainedPricedItem = true;
     }
     if (fuelItem != null && items.contains(fuelItem)) {
@@ -1611,6 +1630,9 @@ class ReceiptOcrParser {
       truncated: items.length > 40,
       unretainedPricedItem: unretainedPricedItem,
       lineDecisions: lineDecisions,
+      itemSelectionDecisions: itemSelectionDecisions
+          .take(40)
+          .toList(growable: false),
     );
   }
 
@@ -2548,6 +2570,56 @@ class _ReceiptCurrencyDetection {
 String normalizeReceiptOcrLineForDiagnostics(String value) =>
     _normalizeOcrLine(value);
 
+enum ReceiptOcrUnretainedPatternReason {
+  recognizedCurrencySuffixStillRejected,
+  otherSuffixDeletionWouldMatch,
+  suffixAndBoundaryInsertionWouldMatch,
+  trailingTextOtherMismatch,
+  amountBoundaryInsertionWouldMatch,
+  joinedAmountOtherMismatch,
+  other,
+}
+
+// Only fixed reasons leave this helper. It uses the exact item-row grammar
+// used by selection and never returns receipt text or an amount.
+ReceiptOcrUnretainedPatternReason diagnoseReceiptOcrUnretainedRow(
+  String source,
+) {
+  final line = _normalizeOcrLine(source);
+  final amounts = RegExp(_amountTokenPattern).allMatches(line).toList();
+  if (amounts.isEmpty) return ReceiptOcrUnretainedPatternReason.other;
+  final last = amounts.last;
+  final prefix = line.substring(0, last.start);
+  final amount = line.substring(last.start, last.end);
+  final suffix = line.substring(last.end).trim();
+  final hasJoinedBoundary =
+      prefix.isNotEmpty && !RegExp(r'\s$').hasMatch(prefix);
+  if (suffix.isNotEmpty) {
+    if (RegExp(
+      '^(?:$_currencyTokenPattern)\$',
+      caseSensitive: false,
+    ).hasMatch(suffix)) {
+      return ReceiptOcrUnretainedPatternReason
+          .recognizedCurrencySuffixStillRejected;
+    }
+    if (_pricedItemRowPattern.hasMatch('$prefix$amount')) {
+      return ReceiptOcrUnretainedPatternReason.otherSuffixDeletionWouldMatch;
+    }
+    if (hasJoinedBoundary &&
+        _pricedItemRowPattern.hasMatch('$prefix $amount')) {
+      return ReceiptOcrUnretainedPatternReason
+          .suffixAndBoundaryInsertionWouldMatch;
+    }
+    return ReceiptOcrUnretainedPatternReason.trailingTextOtherMismatch;
+  }
+  if (hasJoinedBoundary) {
+    return _pricedItemRowPattern.hasMatch('$prefix $amount')
+        ? ReceiptOcrUnretainedPatternReason.amountBoundaryInsertionWouldMatch
+        : ReceiptOcrUnretainedPatternReason.joinedAmountOtherMismatch;
+  }
+  return ReceiptOcrUnretainedPatternReason.other;
+}
+
 String _normalizeOcrLine(String value) {
   const digitSources =
       '٠١٢٣٤٥٦٧٨٩'
@@ -2696,6 +2768,12 @@ final _currencyTokenPattern = [
 ].map(RegExp.escape).join('|');
 const _amountTokenPattern =
     r"-?(?:\d{1,3}(?:[ \u00a0]\d{3})+(?:[.,]\d{1,3})?|\d+(?:[.,'’]\d+)*)";
+final _pricedItemRowPattern = RegExp(
+  '^(.+?)\\s+($_currencyTokenPattern)?\\s*'
+  '($_amountTokenPattern)'
+  '(?:\\s*($_currencyTokenPattern))?\$',
+  caseSensitive: false,
+);
 
 const _nonCurrencyAdjustmentCodes = {
   'TAX',

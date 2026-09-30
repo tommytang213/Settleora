@@ -324,6 +324,35 @@ test("retains only the bounded native acceptance schema", () => {
     ...acceptance, recognitionCoverage: withRowShapes,
   })}`), (log) => assert.deepEqual(
     buildEvidence(evidenceArgs(log), repoRoot).acceptance.recognitionCoverage, withRowShapes));
+  const patternReasonNames = ["recognizedCurrencySuffixStillRejected", "otherSuffixDeletionWouldMatch",
+    "suffixAndBoundaryInsertionWouldMatch", "trailingTextOtherMismatch",
+    "amountBoundaryInsertionWouldMatch", "joinedAmountOtherMismatch", "other"];
+  const expectedUnretainedPatternReasonCounts = Object.fromEntries(patternReasonNames.map((name) => [name, 0]));
+  const unmatchedDraftItemOriginCounts = Object.fromEntries(itemDecisionNames.map((name) => [name, 0]));
+  const withPatternReasons = withRowShapes.map((entry) => ({ ...entry,
+    expectedUnretainedPatternReasonCounts, unmatchedDraftItemOriginCounts }));
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+    ...acceptance, recognitionCoverage: withPatternReasons,
+  })}`), (log) => assert.deepEqual(
+    buildEvidence(evidenceArgs(log), repoRoot).acceptance.recognitionCoverage, withPatternReasons));
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+    ...acceptance, recognitionCoverage: [{ ...withRowShapes[0],
+      expectedUnretainedPatternReasonCounts }, ...withRowShapes.slice(1)],
+  })}`), (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot),
+    /missing required fields/));
+  for (const invalid of [
+    { expectedUnretainedPatternReasonCounts: { ...expectedUnretainedPatternReasonCounts, rawText: 0 } },
+    { expectedUnretainedPatternReasonCounts: { ...expectedUnretainedPatternReasonCounts,
+      trailingTextOtherMismatch: 1 } },
+    { unmatchedDraftItemOriginCounts: { ...unmatchedDraftItemOriginCounts, pricedItemSelected: 1 } },
+    { unmatchedDraftItemOriginCounts: { ...unmatchedDraftItemOriginCounts, unclassified: 1 } },
+  ]) {
+    withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...acceptance, recognitionCoverage: [{ ...withPatternReasons[0], ...invalid },
+        ...withPatternReasons.slice(1)],
+    })}`), (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot),
+      /Recognition coverage|non-allowlisted/));
+  }
   withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
     ...acceptance, recognitionCoverage: [{ ...withItemDecisions[0],
       expectedUnretainedRowShapeCounts }, ...withItemDecisions.slice(1)],
@@ -410,6 +439,7 @@ test("complete evidence requires both package measurements and a positive delta"
         reviewDecision: "none", incompleteAdjustmentReasons: [],
         itemLineDecisionCounts: {}, expectedDescriptionDecisionCounts: {},
         expectedUnretainedRowShapeCounts: {}, selectedRowWithoutExpectedPairDecisionCounts: {},
+        expectedUnretainedPatternReasonCounts: {}, unmatchedDraftItemOriginCounts: {},
         expectedItemPairsInDraft: 0 })),
       runtime: "test-runtime",
       coldLoadTimeMs: 1,

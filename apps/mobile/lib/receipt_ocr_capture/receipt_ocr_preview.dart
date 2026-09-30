@@ -29,6 +29,7 @@ class ReceiptOcrPreview {
     this.adjustmentsComplete = true,
     this.incompleteAdjustmentReasons = const [],
     this.itemLineDecisions = const [],
+    this.itemSelectionDecisions = const [],
     this.total,
     this.rawTextLineCount = 0,
     this.confidence,
@@ -66,6 +67,8 @@ class ReceiptOcrPreview {
   final bool adjustmentsComplete;
   final List<ReceiptOcrIncompleteAdjustmentReason> incompleteAdjustmentReasons;
   final List<ReceiptOcrItemLineDecision> itemLineDecisions;
+  // One fixed role per retained item, aligned with items for bounded tests.
+  final List<ReceiptOcrItemLineDecision> itemSelectionDecisions;
   final String? total;
   final int rawTextLineCount;
   final double? confidence;

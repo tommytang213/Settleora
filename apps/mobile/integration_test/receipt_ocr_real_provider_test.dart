@@ -1402,6 +1402,10 @@ Map<String, Object> _boundedRecognitionCoverage(
   final expectedUnretainedRowShapeCounts = {
     for (final shape in _boundedUnretainedRowShapes) shape: 0,
   };
+  final expectedUnretainedPatternReasonCounts = {
+    for (final reason in ReceiptOcrUnretainedPatternReason.values)
+      reason.name: 0,
+  };
   final expectedDescriptionFrequency = <String, int>{};
   for (final item in expectedItems) {
     final description = _foldRecognitionEvidence(item.description);
@@ -1435,6 +1439,9 @@ Map<String, Object> _boundedRecognitionCoverage(
       final shape = _boundedUnretainedRowShape(rows[matches.single]);
       expectedUnretainedRowShapeCounts[shape] =
           expectedUnretainedRowShapeCounts[shape]! + 1;
+      final reason = diagnoseReceiptOcrUnretainedRow(rows[matches.single]);
+      expectedUnretainedPatternReasonCounts[reason.name] =
+          expectedUnretainedPatternReasonCounts[reason.name]! + 1;
     }
   }
   final selectedRowWithoutExpectedPairDecisionCounts = {
@@ -1503,6 +1510,22 @@ Map<String, Object> _boundedRecognitionCoverage(
     if (pairIndex != null) {
       matchedPairs.add(index);
       usedPairs.add(pairIndex);
+    }
+  }
+  final itemOrigins =
+      result.preview?.itemSelectionDecisions ??
+      const <ReceiptOcrItemLineDecision>[];
+  if (itemOrigins.length != actualItems.length) {
+    throw StateError('Bounded item origin alignment failed');
+  }
+  final unmatchedDraftItemOriginCounts = {
+    for (final decision in ReceiptOcrItemLineDecision.values) decision.name: 0,
+  };
+  for (var index = 0; index < itemOrigins.length; index++) {
+    if (!usedPairs.contains(index)) {
+      final name = itemOrigins[index].name;
+      unmatchedDraftItemOriginCounts[name] =
+          unmatchedDraftItemOriginCounts[name]! + 1;
     }
   }
   final merchantWords = expected['merchant'] is String
@@ -1592,8 +1615,11 @@ Map<String, Object> _boundedRecognitionCoverage(
     'itemLineDecisionCounts': itemLineDecisionCounts,
     'expectedDescriptionDecisionCounts': expectedDescriptionDecisionCounts,
     'expectedUnretainedRowShapeCounts': expectedUnretainedRowShapeCounts,
+    'expectedUnretainedPatternReasonCounts':
+        expectedUnretainedPatternReasonCounts,
     'selectedRowWithoutExpectedPairDecisionCounts':
         selectedRowWithoutExpectedPairDecisionCounts,
+    'unmatchedDraftItemOriginCounts': unmatchedDraftItemOriginCounts,
     'reviewDecision':
         result.preview?.reviewHintDecision.name ??
         ReceiptOcrReviewDecision.none.name,

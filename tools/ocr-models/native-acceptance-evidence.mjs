@@ -617,6 +617,8 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
     const hasItemDecisions = itemDecisionKeys.some((key) => Object.hasOwn(entry, key));
     const rowShapeKeys = ["expectedUnretainedRowShapeCounts", "selectedRowWithoutExpectedPairDecisionCounts"];
     const hasRowShapes = rowShapeKeys.some((key) => Object.hasOwn(entry, key));
+    const patternReasonKeys = ["expectedUnretainedPatternReasonCounts", "unmatchedDraftItemOriginCounts"];
+    const hasPatternReasons = patternReasonKeys.some((key) => Object.hasOwn(entry, key));
     const draftKeys = ["expectedItemDescriptionsInDraft", "expectedItemPairsInDraft",
       "expectedDateTokenSeen", "expectedTaxTokenSeen", "expectedSubtotalTokenSeen"];
     const hasDraftCoverage = draftKeys.some((key) => Object.hasOwn(entry, key));
@@ -626,6 +628,7 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
       ...(hasReviewDecision ? reviewDecisionKeys : []),
       ...(hasItemDecisions ? itemDecisionKeys : []),
       ...(hasRowShapes ? rowShapeKeys : []),
+      ...(hasPatternReasons ? patternReasonKeys : []),
       ...(hasDraftCoverage ? draftKeys : [])],
     `recognitionCoverage[${index}]`);
     const fixtureId = boundedToken(entry.fixtureId, `recognitionCoverage[${index}].fixtureId`);
@@ -667,6 +670,11 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
       "joinedAmount", "multipleAmounts", "other"];
     const selectedDecisionNames = new Set(["layoutChargeSelected", "layoutFallbackSelected",
       "quantityItemSelected", "leadingQuantityItemSelected", "pricedItemSelected"]);
+    const itemOriginNames = new Set(["fuelItemSelected", "layoutChargeSelected", "layoutFallbackSelected",
+      "adjacentAmountSelected", "quantityItemSelected", "leadingQuantityItemSelected", "pricedItemSelected"]);
+    const patternReasonNames = ["recognizedCurrencySuffixStillRejected", "otherSuffixDeletionWouldMatch",
+      "suffixAndBoundaryInsertionWouldMatch", "trailingTextOtherMismatch",
+      "amountBoundaryInsertionWouldMatch", "joinedAmountOtherMismatch", "other"];
     if (hasItemDecisions) {
       assertExactKeys(entry.itemLineDecisionCounts, itemDecisionNames,
         `recognitionCoverage[${index}].itemLineDecisionCounts`);
@@ -680,12 +688,24 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
       assertExactKeys(entry.selectedRowWithoutExpectedPairDecisionCounts, itemDecisionNames,
         `recognitionCoverage[${index}].selectedRowWithoutExpectedPairDecisionCounts`);
     }
+    if (hasPatternReasons) {
+      assertExactKeys(entry.expectedUnretainedPatternReasonCounts, patternReasonNames,
+        `recognitionCoverage[${index}].expectedUnretainedPatternReasonCounts`);
+      assertExactKeys(entry.unmatchedDraftItemOriginCounts, itemDecisionNames,
+        `recognitionCoverage[${index}].unmatchedDraftItemOriginCounts`);
+    }
     const unretainedShapeTotal = hasRowShapes
       ? Object.values(entry.expectedUnretainedRowShapeCounts).reduce((sum, count) => sum + boundedInteger(count,
         `recognitionCoverage[${index}].expectedUnretainedRowShapeCounts`), 0) : null;
     const selectedWithoutPairTotal = hasRowShapes
       ? Object.values(entry.selectedRowWithoutExpectedPairDecisionCounts).reduce((sum, count) => sum + boundedInteger(count,
-        `recognitionCoverage[${index}].selectedRowWithoutExpectedPairDecisionCounts`), 0) : null;
+      `recognitionCoverage[${index}].selectedRowWithoutExpectedPairDecisionCounts`), 0) : null;
+    const patternReasonTotal = hasPatternReasons
+      ? Object.values(entry.expectedUnretainedPatternReasonCounts).reduce((sum, count) => sum + boundedInteger(count,
+        `recognitionCoverage[${index}].expectedUnretainedPatternReasonCounts`), 0) : null;
+    const unmatchedOriginTotal = hasPatternReasons
+      ? Object.values(entry.unmatchedDraftItemOriginCounts).reduce((sum, count) => sum + boundedInteger(count,
+        `recognitionCoverage[${index}].unmatchedDraftItemOriginCounts`), 0) : null;
     const itemDecisionTotal = hasItemDecisions
       ? Object.values(entry.itemLineDecisionCounts).reduce((sum, count) => sum + boundedInteger(count,
         `recognitionCoverage[${index}].itemLineDecisionCounts`), 0) : null;
@@ -714,6 +734,11 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
           itemDecisionNames.some((name) =>
             entry.selectedRowWithoutExpectedPairDecisionCounts[name] > entry.itemLineDecisionCounts[name] ||
             (!selectedDecisionNames.has(name) && entry.selectedRowWithoutExpectedPairDecisionCounts[name] !== 0)))) ||
+        (hasPatternReasons && (!hasRowShapes || !hasDraftCoverage ||
+          patternReasonTotal !== unretainedShapeTotal ||
+          unmatchedOriginTotal !== actualItemCount - draftPairs ||
+          itemDecisionNames.some((name) => !itemOriginNames.has(name) &&
+            entry.unmatchedDraftItemOriginCounts[name] !== 0))) ||
         (hasDraftCoverage && (!hasLayoutCoverage || draftDescriptions > expectedItemCount ||
           draftDescriptions > actualItemCount ||
           draftPairs > draftDescriptions || draftPairs > actualItemCount ||
@@ -745,6 +770,9 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
         expectedDescriptionDecisionCounts: entry.expectedDescriptionDecisionCounts } : {}),
       ...(hasRowShapes ? { expectedUnretainedRowShapeCounts: entry.expectedUnretainedRowShapeCounts,
         selectedRowWithoutExpectedPairDecisionCounts: entry.selectedRowWithoutExpectedPairDecisionCounts } : {}),
+      ...(hasPatternReasons ? {
+        expectedUnretainedPatternReasonCounts: entry.expectedUnretainedPatternReasonCounts,
+        unmatchedDraftItemOriginCounts: entry.unmatchedDraftItemOriginCounts } : {}),
       ...(hasDraftCoverage ? { expectedItemDescriptionsInDraft: draftDescriptions,
         expectedItemPairsInDraft: draftPairs, expectedDateTokenSeen: entry.expectedDateTokenSeen,
         expectedTaxTokenSeen: entry.expectedTaxTokenSeen,
@@ -765,6 +793,10 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
   if (boundedRecognitionCoverage.some((entry) => Object.hasOwn(entry, "expectedUnretainedRowShapeCounts")) &&
       boundedRecognitionCoverage.some((entry) => !Object.hasOwn(entry, "expectedUnretainedRowShapeCounts"))) {
     throw new Error("Recognition coverage row shapes are incomplete");
+  }
+  if (boundedRecognitionCoverage.some((entry) => Object.hasOwn(entry, "expectedUnretainedPatternReasonCounts")) &&
+      boundedRecognitionCoverage.some((entry) => !Object.hasOwn(entry, "expectedUnretainedPatternReasonCounts"))) {
+    throw new Error("Recognition coverage pattern reasons are incomplete");
   }
   if (boundedRecognitionCoverage.some((entry) => Object.hasOwn(entry, "expectedItemPairsInDraft")) &&
       boundedRecognitionCoverage.some((entry) => !Object.hasOwn(entry, "expectedItemPairsInDraft"))) {
@@ -1180,6 +1212,8 @@ export function isCompleteEvidence(evidence) {
         Object.hasOwn(row, "expectedDescriptionDecisionCounts") &&
         Object.hasOwn(row, "expectedUnretainedRowShapeCounts") &&
         Object.hasOwn(row, "selectedRowWithoutExpectedPairDecisionCounts") &&
+        Object.hasOwn(row, "expectedUnretainedPatternReasonCounts") &&
+        Object.hasOwn(row, "unmatchedDraftItemOriginCounts") &&
         Object.hasOwn(row, "expectedItemPairsInDraft")) &&
       evidence.acceptance.runtime != null &&
       evidence.acceptance.coldLoadTimeMs > 0 &&
