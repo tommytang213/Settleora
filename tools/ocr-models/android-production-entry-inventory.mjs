@@ -3,6 +3,13 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // #1309 corrected fail-closed diagnostic schema at e7408799.
+  // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
+  // mocked; exact hosted signer proof remains required for this fingerprint.
+  "4493864660b6c662aaacd073ad431714985fb16210be14bc5366fa52cd351a50": Object.freeze([
+    "e5251880314d03685a8af2b53fa8be78a637d8203f3d6fbf0c021df3f9f71962",
+  ]),
   // #1309 diagnostic-only native acceptance evidence at 40383b3e.
   // Clean Flutter 3.44.8 Release projection passed archive/path, catalog,
   // 14-model, legal-resource, and 102-fixture-absence gates. Local signer was
