@@ -3,6 +3,13 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // #1309 five-test bounded native protocol at f70d3fe5. Clean Flutter
+  // 3.44.8 Release projection passed archive/path, catalog, 14-model,
+  // legal-resource, and 102-fixture-absence gates. Local signer was mocked;
+  // exact hosted signer proof remains required for this fingerprint.
+  "3da2fc9dbff9a600cb7d1fe48598c6bcca68867797a3eeba0c3737a79107bf1c": Object.freeze([
+    "3f375db7fbd2873cfbcf0f31fe5b686a6f7a9a7511c787f00c7f056baa5eb04f",
+  ]),
   // #1309 conservative decimal diagnostic at e55037fa. Clean Flutter
   // 3.44.8 Release projection passed archive/path, catalog, 14-model,
   // legal-resource, and 102-fixture-absence gates. Local signer was mocked;
