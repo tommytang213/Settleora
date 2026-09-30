@@ -79,7 +79,13 @@ void main() {
     expect(_containsAmountToken('Item USD 2,00', '2.00'), isTrue);
     expect(_containsAmountToken('Item USD -2.00', '2.00'), isFalse);
     expect(_containsAmountToken('Item USD -2.00', '-2.00'), isTrue);
+    expect(_containsAmountToken('Item -\$2.00', '2.00'), isFalse);
+    expect(_containsAmountToken('Item -\$2.00', '-2.00'), isTrue);
     expect(_containsAmountToken('Item USD 1,234.50', '1234.50'), isTrue);
+    expect(_containsAmountToken("Item USD 1'234.50", '234.50'), isFalse);
+    expect(_containsAmountToken("Item USD 1'234.50", '1234.50'), isTrue);
+    expect(_containsIsoDateToken('Dated 2025/04/17', '2025-04-17'), isTrue);
+    expect(_containsIsoDateToken('Dated 2025/04/170', '2025-04-17'), isFalse);
     final firstRow = _recognitionWordTokens('Fresh');
     final secondRow = _recognitionWordTokens('Bread');
     final expected = _recognitionWordTokens('Fresh Bread');
@@ -1345,9 +1351,6 @@ Map<String, Object> _boundedRecognitionCoverage(
   // Only bounded booleans and counts leave this process. Receipt text, block
   // geometry, expected values, and local paths remain in memory.
   final blocks = result.preview?.blocks ?? const <ReceiptOcrBlockEvidence>[];
-  final foldedEvidence = _foldRecognitionEvidence(
-    blocks.map((block) => block.text).join(' '),
-  );
   final rowText = <int, List<String>>{};
   final rowBlocks = <int, List<ReceiptOcrBlockEvidence>>{};
   for (final block in blocks) {
@@ -1355,9 +1358,9 @@ Map<String, Object> _boundedRecognitionCoverage(
     (rowBlocks[block.row] ??= <ReceiptOcrBlockEvidence>[]).add(block);
   }
   final rows = rowText.values.map((parts) => parts.join(' ')).toList();
-  final foldedRows = rows.map(_foldRecognitionEvidence).toList();
+  final allText = rows.join(' ');
   final rowWordTokens = rows.map(_recognitionWordTokens).toList();
-  final allWordTokens = _recognitionWordTokens(rows.join(' '));
+  final allWordTokens = _recognitionWordTokens(allText);
   final lineDecisions =
       result.preview?.itemLineDecisions ?? const <ReceiptOcrItemLineDecision>[];
   final itemLineDecisionCounts = {
@@ -1367,14 +1370,10 @@ Map<String, Object> _boundedRecognitionCoverage(
     itemLineDecisionCounts[decision.name] =
         itemLineDecisionCounts[decision.name]! + 1;
   }
-  bool containsExpected(Object? value) {
-    if (value is! String) return false;
-    final foldedExpected = _foldRecognitionEvidence(value);
-    return foldedExpected.isNotEmpty && foldedEvidence.contains(foldedExpected);
-  }
-
   bool containsExpectedDescription(String value) =>
       _containsWordSequence(allWordTokens, _recognitionWordTokens(value));
+  bool containsExpectedAmount(Object? value) =>
+      value is String && _containsAmountToken(allText, value);
 
   final expectedItems = (expected['items'] as List<Object?>)
       .map((item) => _ExpectedItem.fromManifest(item, fixtureId))
@@ -1454,19 +1453,19 @@ Map<String, Object> _boundedRecognitionCoverage(
       usedPairs.add(pairIndex);
     }
   }
-  final merchantFolded = expected['merchant'] is String
-      ? _foldRecognitionEvidence(expected['merchant'] as String)
-      : '';
+  final merchantWords = expected['merchant'] is String
+      ? _recognitionWordTokens(expected['merchant'] as String)
+      : const <String>[];
   bool descriptionAndAmountWithinRows(_ExpectedItem item, int distance) {
     final descriptionWords = _recognitionWordTokens(item.description);
     if (descriptionWords.isEmpty || item.lineTotal.isEmpty) return false;
-    for (var index = 0; index < foldedRows.length; index++) {
+    for (var index = 0; index < rows.length; index++) {
       if (!_containsWordSequence(rowWordTokens[index], descriptionWords)) {
         continue;
       }
       final first = index - distance < 0 ? 0 : index - distance;
-      final last = index + distance >= foldedRows.length
-          ? foldedRows.length - 1
+      final last = index + distance >= rows.length
+          ? rows.length - 1
           : index + distance;
       for (var amountIndex = first; amountIndex <= last; amountIndex++) {
         if (_containsAmountToken(rows[amountIndex], item.lineTotal)) {
@@ -1521,18 +1520,22 @@ Map<String, Object> _boundedRecognitionCoverage(
     'blockCount': blocks.length,
     'rowCount': rows.length,
     'parserLineCount': result.preview?.rawTextLineCount ?? 0,
-    'merchantExactTextSeen': containsExpected(expected['merchant']),
+    'merchantExactTextSeen':
+        merchantWords.isNotEmpty &&
+        _containsWordSequence(allWordTokens, merchantWords),
     'merchantExactTextInOneRow':
-        merchantFolded.isNotEmpty &&
-        foldedRows.any((row) => row.contains(merchantFolded)),
-    'totalExactTokenSeen': containsExpected(expected['total']),
+        merchantWords.isNotEmpty &&
+        rowWordTokens.any((row) => _containsWordSequence(row, merchantWords)),
+    'totalExactTokenSeen': containsExpectedAmount(expected['total']),
     'expectedItemCount': expectedItems.length,
     'actualItemCount': result.preview?.items.length ?? 0,
     'expectedItemDescriptionsInDraft': matchedDescriptions.length,
     'expectedItemPairsInDraft': matchedPairs.length,
-    'expectedDateTokenSeen': containsExpected(expected['date']),
-    'expectedTaxTokenSeen': containsExpected(expected['tax']),
-    'expectedSubtotalTokenSeen': containsExpected(expected['subtotal']),
+    'expectedDateTokenSeen':
+        expected['date'] is String &&
+        _containsIsoDateToken(allText, expected['date'] as String),
+    'expectedTaxTokenSeen': containsExpectedAmount(expected['tax']),
+    'expectedSubtotalTokenSeen': containsExpectedAmount(expected['subtotal']),
     'reviewHintCategory': _boundedReviewHintCategory(result.preview),
     'itemLineDecisionCounts': itemLineDecisionCounts,
     'expectedDescriptionDecisionCounts': expectedDescriptionDecisionCounts,
@@ -1612,9 +1615,23 @@ bool _containsAmountToken(String text, String expected) {
   final expectedAmount = _canonicalAmountToken(expected);
   if (expectedAmount == null) return false;
   return RegExp(
-    r'[-+−]?\s*[\p{N}]+(?:[.,\u066b\u066c][\p{N}]+)*',
+    r'(?:[-+−]\s*\p{Sc}?\s*|\p{Sc}\s*)?[\p{N}]+(?:[.,\u066b\u066c\u0027’][\p{N}]+)*',
     unicode: true,
   ).allMatches(text).any((match) {
+    if (match.start > 0 &&
+        RegExp(
+          r'[-+−\p{L}\p{N}.,\u0027’\p{Sc}]',
+          unicode: true,
+        ).hasMatch(text.substring(match.start - 1, match.start))) {
+      return false;
+    }
+    if (match.end < text.length &&
+        RegExp(
+          r'[\p{L}\p{N}.,\u0027’]',
+          unicode: true,
+        ).hasMatch(text.substring(match.end, match.end + 1))) {
+      return false;
+    }
     return _canonicalAmountToken(match.group(0)!) == expectedAmount;
   });
 }
@@ -1624,8 +1641,11 @@ String? _canonicalAmountToken(String value) {
   if (token.isEmpty || token.length > 64) return null;
   final negative = token.startsWith('-') || token.startsWith('−');
   if (negative || token.startsWith('+')) token = token.substring(1).trimLeft();
+  token = token.replaceFirst(RegExp(r'^\p{Sc}', unicode: true), '').trimLeft();
   if (RegExp(r'^\d{1,3}(?:,\d{3})+\.\d+$').hasMatch(token)) {
     token = token.replaceAll(',', '');
+  } else if (RegExp(r"^\d{1,3}(?:['’]\d{3})+\.\d+$").hasMatch(token)) {
+    token = token.replaceAll(RegExp(r"['’]"), '');
   } else if (RegExp(r'^\d+,\d{1,2}$').hasMatch(token)) {
     token = token.replaceAll(',', '.');
   } else if (!RegExp(r'^\d+(?:\.\d+)?$').hasMatch(token)) {
@@ -1637,6 +1657,30 @@ String? _canonicalAmountToken(String value) {
       ? parts.last.replaceFirst(RegExp(r'0+$'), '')
       : '';
   return '${negative ? '-' : ''}$integer${fraction.isEmpty ? '' : '.$fraction'}';
+}
+
+bool _containsIsoDateToken(String text, String expected) {
+  final expectedDate = RegExp(
+    r'^(\d{4})-(\d{1,2})-(\d{1,2})$',
+  ).firstMatch(expected);
+  if (expectedDate == null) return false;
+  final dates = RegExp(r'(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})');
+  for (final match in dates.allMatches(text)) {
+    if (match.start > 0 &&
+        RegExp(r'\d').hasMatch(text.substring(match.start - 1, match.start))) {
+      continue;
+    }
+    if (match.end < text.length &&
+        RegExp(r'\d').hasMatch(text.substring(match.end, match.end + 1))) {
+      continue;
+    }
+    if (match.group(1) == expectedDate.group(1) &&
+        int.parse(match.group(2)!) == int.parse(expectedDate.group(2)!) &&
+        int.parse(match.group(3)!) == int.parse(expectedDate.group(3)!)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 bool isValidNativeOcrBlockGeometry(
