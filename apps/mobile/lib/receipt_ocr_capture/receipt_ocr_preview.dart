@@ -136,6 +136,7 @@ enum ReceiptOcrIncompleteAdjustmentReason {
 
 enum ReceiptOcrItemLineDecision {
   unclassified,
+  fuelItemSelected,
   layoutChargeSelected,
   ambiguousChargeSkipped,
   metadataOrHeaderSkipped,

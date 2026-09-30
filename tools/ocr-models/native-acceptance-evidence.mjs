@@ -655,14 +655,15 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
       "multipleMonetaryTokens", "unclassifiedAdjustmentLabel", "subtotalAmountMissingOrRate",
       "conflictingSubtotal", "repeatedAdjustmentRole", "itemLimit", "unretainedPricedItem",
       "detachedAmountSign", "ambiguousChargeTable", "unresolvedItemLikeLine"]);
-    const itemDecisionNames = ["unclassified", "layoutChargeSelected", "ambiguousChargeSkipped",
+    const itemDecisionNames = ["unclassified", "fuelItemSelected", "layoutChargeSelected", "ambiguousChargeSkipped",
       "metadataOrHeaderSkipped", "standaloneAmountSkipped", "layoutFallbackSelected",
       "adjacentAmountSelected", "unpricedDescription", "unretainedPricedRow",
       "invalidPricedRow", "quantityItemSelected", "leadingQuantityItemSelected", "pricedItemSelected"];
     if (hasItemDecisions) {
       assertExactKeys(entry.itemLineDecisionCounts, itemDecisionNames,
         `recognitionCoverage[${index}].itemLineDecisionCounts`);
-      assertExactKeys(entry.expectedDescriptionDecisionCounts, [...itemDecisionNames, "notInParserRows"],
+      assertExactKeys(entry.expectedDescriptionDecisionCounts,
+        [...itemDecisionNames, "notInParserRows", "ambiguousParserRows"],
         `recognitionCoverage[${index}].expectedDescriptionDecisionCounts`);
     }
     const itemDecisionTotal = hasItemDecisions
@@ -1140,6 +1141,12 @@ export function isCompleteEvidence(evidence) {
       evidence.acceptance.mismatchCount === 0 &&
       Array.isArray(evidence.acceptance.recognitionCoverage) &&
       evidence.acceptance.recognitionCoverage.length === 101 &&
+      evidence.acceptance.recognitionCoverage.every((row) =>
+        row != null && Object.hasOwn(row, "reviewDecision") &&
+        Array.isArray(row.incompleteAdjustmentReasons) &&
+        Object.hasOwn(row, "itemLineDecisionCounts") &&
+        Object.hasOwn(row, "expectedDescriptionDecisionCounts") &&
+        Object.hasOwn(row, "expectedItemPairsInDraft")) &&
       evidence.acceptance.runtime != null &&
       evidence.acceptance.coldLoadTimeMs > 0 &&
       evidence.acceptance.endToEndLatencyMs.sampleCount === 101 &&

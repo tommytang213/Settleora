@@ -1357,14 +1357,30 @@ Map<String, Object> _boundedRecognitionCoverage(
   final expectedDescriptionDecisionCounts = {
     for (final decision in ReceiptOcrItemLineDecision.values) decision.name: 0,
     'notInParserRows': 0,
+    'ambiguousParserRows': 0,
   };
+  final expectedDescriptionFrequency = <String, int>{};
   for (final item in expectedItems) {
     final description = _foldRecognitionEvidence(item.description);
-    final index = description.isEmpty
-        ? -1
-        : foldedRows.indexWhere((row) => row.contains(description));
-    final decision = index >= 0 && index < lineDecisions.length
-        ? lineDecisions[index].name
+    expectedDescriptionFrequency.update(
+      description,
+      (count) => count + 1,
+      ifAbsent: () => 1,
+    );
+  }
+  for (final item in expectedItems) {
+    final description = _foldRecognitionEvidence(item.description);
+    final matches = <int>[
+      if (description.isNotEmpty)
+        for (var index = 0; index < foldedRows.length; index++)
+          if (foldedRows[index].contains(description)) index,
+    ];
+    final decision = matches.isEmpty
+        ? 'notInParserRows'
+        : matches.length != 1 || expectedDescriptionFrequency[description]! > 1
+        ? 'ambiguousParserRows'
+        : matches.single < lineDecisions.length
+        ? lineDecisions[matches.single].name
         : 'notInParserRows';
     expectedDescriptionDecisionCounts[decision] =
         expectedDescriptionDecisionCounts[decision]! + 1;

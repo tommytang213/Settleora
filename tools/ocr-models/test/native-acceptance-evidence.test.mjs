@@ -299,14 +299,14 @@ test("retains only the bounded native acceptance schema", () => {
     })}`), (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot),
       /Recognition coverage evidence is invalid/));
   }
-  const itemDecisionNames = ["unclassified", "layoutChargeSelected", "ambiguousChargeSkipped",
+  const itemDecisionNames = ["unclassified", "fuelItemSelected", "layoutChargeSelected", "ambiguousChargeSkipped",
     "metadataOrHeaderSkipped", "standaloneAmountSkipped", "layoutFallbackSelected",
     "adjacentAmountSelected", "unpricedDescription", "unretainedPricedRow",
     "invalidPricedRow", "quantityItemSelected", "leadingQuantityItemSelected", "pricedItemSelected"];
   const itemLineDecisionCounts = Object.fromEntries(itemDecisionNames.map((name) => [name,
     name === "unclassified" ? 8 : 0]));
   const expectedDescriptionDecisionCounts = { ...Object.fromEntries(itemDecisionNames.map((name) => [name, 0])),
-    notInParserRows: 2 };
+    notInParserRows: 2, ambiguousParserRows: 0 };
   const withItemDecisions = withReviewDecisions.map((entry) => ({ ...entry,
     itemLineDecisionCounts, expectedDescriptionDecisionCounts }));
   withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
@@ -375,7 +375,10 @@ test("complete evidence requires both package measurements and a positive delta"
       mismatchCount: 0,
       recognitionCoverage: manifestFixtureIds.map((fixtureId) => ({ fixtureId,
         blockCount: 1, merchantExactTextSeen: false, totalExactTokenSeen: false,
-        expectedItemCount: 0, itemDescriptionsExactTextSeen: 0 })),
+        expectedItemCount: 0, itemDescriptionsExactTextSeen: 0,
+        reviewDecision: "none", incompleteAdjustmentReasons: [],
+        itemLineDecisionCounts: {}, expectedDescriptionDecisionCounts: {},
+        expectedItemPairsInDraft: 0 })),
       runtime: "test-runtime",
       coldLoadTimeMs: 1,
       endToEndLatencyMs: { sampleCount: 101, cold: 1, warmP50: 1, warmP95: 1, max: 1 },
@@ -401,6 +404,10 @@ test("complete evidence requires both package measurements and a positive delta"
     identities: { baseCompositeSha256: "9".repeat(64) },
   };
   assert.equal(isCompleteEvidence(evidence), true);
+  assert.equal(isCompleteEvidence({ ...evidence, acceptance: { ...evidence.acceptance,
+    recognitionCoverage: evidence.acceptance.recognitionCoverage.map((row) => {
+      const copy = { ...row }; delete copy.reviewDecision; return copy;
+    }) } }), false);
   assert.equal(isCompleteEvidence({ ...evidence,
     acceptance: { ...evidence.acceptance, recognitionCoverage: undefined } }), false);
   assert.equal(isCompleteEvidence({ ...evidence,

@@ -972,6 +972,10 @@ TOTAL $45.22
     expect(preview.items.single.quantity, '12.563');
     expect(preview.items.single.unitPrice, '3.599');
     expect(preview.items.single.lineTotal, '45.22');
+    expect(
+      preview.itemLineDecisions[3],
+      ReceiptOcrItemLineDecision.fuelItemSelected,
+    );
   });
 
   test('fuel shortcut leaves detached signed money unresolved', () {

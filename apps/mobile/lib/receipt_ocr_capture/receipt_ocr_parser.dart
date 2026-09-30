@@ -1588,6 +1588,19 @@ class ReceiptOcrParser {
       items.remove(fuelItem);
       unretainedPricedItem = true;
     }
+    if (fuelItem != null && items.contains(fuelItem)) {
+      for (var index = 0; index < lines.length; index++) {
+        final match = RegExp(
+          r'^(?:FUEL|PRODUCT)\s*[:#-]?\s+(.+)$',
+          caseSensitive: false,
+        ).firstMatch(lines[index]);
+        if (match != null &&
+            _cleanDescription(match.group(1)!) == fuelItem.description) {
+          lineDecisions[index] = ReceiptOcrItemLineDecision.fuelItemSelected;
+          break;
+        }
+      }
+    }
 
     return (
       items: items.take(40).toList(growable: false),
