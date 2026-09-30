@@ -1336,6 +1336,7 @@ Map<String, Object> _boundedRecognitionCoverage(
   }
   final rows = rowText.values.map((parts) => parts.join(' ')).toList();
   final foldedRows = rows.map(_foldRecognitionEvidence).toList();
+  final rowWordTokens = rows.map(_recognitionWordTokens).toList();
   final lineDecisions =
       result.preview?.itemLineDecisions ?? const <ReceiptOcrItemLineDecision>[];
   final itemLineDecisionCounts = {
@@ -1370,10 +1371,12 @@ Map<String, Object> _boundedRecognitionCoverage(
   }
   for (final item in expectedItems) {
     final description = _foldRecognitionEvidence(item.description);
+    final descriptionWords = _recognitionWordTokens(item.description);
     final matches = <int>[
-      if (description.isNotEmpty)
-        for (var index = 0; index < foldedRows.length; index++)
-          if (foldedRows[index].contains(description)) index,
+      if (descriptionWords.isNotEmpty)
+        for (var index = 0; index < rowWordTokens.length; index++)
+          if (_containsWordSequence(rowWordTokens[index], descriptionWords))
+            index,
     ];
     final decision = matches.isEmpty
         ? 'notInParserRows'
@@ -1547,6 +1550,26 @@ String _boundedReviewHintCategory(ReceiptOcrPreview? preview) {
 
 String _foldRecognitionEvidence(String value) =>
     value.toLowerCase().replaceAll(RegExp(r'[^\p{L}\p{N}]', unicode: true), '');
+
+List<String> _recognitionWordTokens(String value) => RegExp(
+  r'[\p{L}\p{N}]+',
+  unicode: true,
+).allMatches(value.toLowerCase()).map((match) => match.group(0)!).toList();
+
+bool _containsWordSequence(List<String> row, List<String> expected) {
+  if (expected.isEmpty || row.length < expected.length) return false;
+  for (var start = 0; start <= row.length - expected.length; start++) {
+    var matches = true;
+    for (var offset = 0; offset < expected.length; offset++) {
+      if (row[start + offset] != expected[offset]) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) return true;
+  }
+  return false;
+}
 
 bool isValidNativeOcrBlockGeometry(
   ReceiptOcrBlockEvidence block, {
