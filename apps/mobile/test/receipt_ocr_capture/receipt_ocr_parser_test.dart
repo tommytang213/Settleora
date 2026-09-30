@@ -978,6 +978,29 @@ TOTAL $45.22
     );
   });
 
+  test('fuel row decision skips matching merchant text', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(r'''
+FUEL Regular Unleaded
+DATE 04/10/2025
+FUEL Regular Unleaded
+GALLONS 12.563
+PRICE/GAL $3.599
+TOTAL $45.22
+''', fallbackCurrency: 'USD');
+
+    expect(preview.items, hasLength(1));
+    expect(preview.items.single.description, 'Regular Unleaded');
+    expect(
+      preview.itemLineDecisions[0],
+      isNot(ReceiptOcrItemLineDecision.fuelItemSelected),
+    );
+    expect(
+      preview.itemLineDecisions[2],
+      ReceiptOcrItemLineDecision.fuelItemSelected,
+    );
+  });
+
   test('fuel shortcut leaves detached signed money unresolved', () {
     const parser = ReceiptOcrParser();
     for (final signedLine in [

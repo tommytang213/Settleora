@@ -1590,6 +1590,10 @@ class ReceiptOcrParser {
     }
     if (fuelItem != null && items.contains(fuelItem)) {
       for (var index = 0; index < lines.length; index++) {
+        if (merchantLineIndices.contains(index) ||
+            _isPricedFuelLine(lines[index])) {
+          continue;
+        }
         final match = RegExp(
           r'^(?:FUEL|PRODUCT)\s*[:#-]?\s+(.+)$',
           caseSensitive: false,

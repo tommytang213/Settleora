@@ -1337,6 +1337,7 @@ Map<String, Object> _boundedRecognitionCoverage(
   final rows = rowText.values.map((parts) => parts.join(' ')).toList();
   final foldedRows = rows.map(_foldRecognitionEvidence).toList();
   final rowWordTokens = rows.map(_recognitionWordTokens).toList();
+  final allWordTokens = _recognitionWordTokens(rows.join(' '));
   final lineDecisions =
       result.preview?.itemLineDecisions ?? const <ReceiptOcrItemLineDecision>[];
   final itemLineDecisionCounts = {
@@ -1351,6 +1352,9 @@ Map<String, Object> _boundedRecognitionCoverage(
     final foldedExpected = _foldRecognitionEvidence(value);
     return foldedExpected.isNotEmpty && foldedEvidence.contains(foldedExpected);
   }
+
+  bool containsExpectedDescription(String value) =>
+      _containsWordSequence(allWordTokens, _recognitionWordTokens(value));
 
   final expectedItems = (expected['items'] as List<Object?>)
       .map((item) => _ExpectedItem.fromManifest(item, fixtureId))
@@ -1379,7 +1383,9 @@ Map<String, Object> _boundedRecognitionCoverage(
             index,
     ];
     final decision = matches.isEmpty
-        ? 'notInParserRows'
+        ? containsExpectedDescription(item.description)
+              ? 'ambiguousParserRows'
+              : 'notInParserRows'
         : matches.length != 1 || expectedDescriptionFrequency[description]! > 1
         ? 'ambiguousParserRows'
         : matches.single < lineDecisions.length
@@ -1432,11 +1438,13 @@ Map<String, Object> _boundedRecognitionCoverage(
       ? _foldRecognitionEvidence(expected['merchant'] as String)
       : '';
   bool descriptionAndAmountWithinRows(_ExpectedItem item, int distance) {
-    final description = _foldRecognitionEvidence(item.description);
+    final descriptionWords = _recognitionWordTokens(item.description);
     final amount = _foldRecognitionEvidence(item.lineTotal);
-    if (description.isEmpty || amount.isEmpty) return false;
+    if (descriptionWords.isEmpty || amount.isEmpty) return false;
     for (var index = 0; index < foldedRows.length; index++) {
-      if (!foldedRows[index].contains(description)) continue;
+      if (!_containsWordSequence(rowWordTokens[index], descriptionWords)) {
+        continue;
+      }
       final first = index - distance < 0 ? 0 : index - distance;
       final last = index + distance >= foldedRows.length
           ? foldedRows.length - 1
@@ -1452,16 +1460,21 @@ Map<String, Object> _boundedRecognitionCoverage(
     _ExpectedItem item, {
     required bool sameBlock,
   }) {
-    final description = _foldRecognitionEvidence(item.description);
+    final descriptionWords = _recognitionWordTokens(item.description);
     final amount = _foldRecognitionEvidence(item.lineTotal);
-    if (description.isEmpty || amount.isEmpty) return false;
+    if (descriptionWords.isEmpty || amount.isEmpty) return false;
     for (final row in rowBlocks.values) {
       final foldedBlocks = row
           .map((block) => _foldRecognitionEvidence(block.text))
           .toList(growable: false);
       if (sameBlock) {
-        if (foldedBlocks.any(
-          (block) => block.contains(description) && block.contains(amount),
+        if (row.any(
+          (block) =>
+              _containsWordSequence(
+                _recognitionWordTokens(block.text),
+                descriptionWords,
+              ) &&
+              _foldRecognitionEvidence(block.text).contains(amount),
         )) {
           return true;
         }
@@ -1470,9 +1483,14 @@ Map<String, Object> _boundedRecognitionCoverage(
           if (!foldedBlocks[index].contains(amount)) continue;
           final otherText = [
             for (var other = 0; other < foldedBlocks.length; other++)
-              if (other != index) foldedBlocks[other],
-          ].join();
-          if (otherText.contains(description)) return true;
+              if (other != index) row[other].text,
+          ].join(' ');
+          if (_containsWordSequence(
+            _recognitionWordTokens(otherText),
+            descriptionWords,
+          )) {
+            return true;
+          }
         }
       }
     }
@@ -1508,7 +1526,7 @@ Map<String, Object> _boundedRecognitionCoverage(
             .toList(growable: false) ??
         const <String>[],
     'itemDescriptionsExactTextSeen': expectedItems
-        .where((item) => containsExpected(item.description))
+        .where((item) => containsExpectedDescription(item.description))
         .length,
     'itemDescriptionsSameRowAsAmount': expectedItems
         .where((item) => descriptionAndAmountWithinRows(item, 0))
