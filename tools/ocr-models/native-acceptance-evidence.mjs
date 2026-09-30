@@ -615,6 +615,8 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
     const hasReviewDecision = reviewDecisionKeys.some((key) => Object.hasOwn(entry, key));
     const itemDecisionKeys = ["itemLineDecisionCounts", "expectedDescriptionDecisionCounts"];
     const hasItemDecisions = itemDecisionKeys.some((key) => Object.hasOwn(entry, key));
+    const rowShapeKeys = ["expectedUnretainedRowShapeCounts", "selectedRowWithoutExpectedPairDecisionCounts"];
+    const hasRowShapes = rowShapeKeys.some((key) => Object.hasOwn(entry, key));
     const draftKeys = ["expectedItemDescriptionsInDraft", "expectedItemPairsInDraft",
       "expectedDateTokenSeen", "expectedTaxTokenSeen", "expectedSubtotalTokenSeen"];
     const hasDraftCoverage = draftKeys.some((key) => Object.hasOwn(entry, key));
@@ -623,6 +625,7 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
       ...(hasCellCoverage ? cellKeys : []), ...(hasReviewHintCategory ? ["reviewHintCategory"] : []),
       ...(hasReviewDecision ? reviewDecisionKeys : []),
       ...(hasItemDecisions ? itemDecisionKeys : []),
+      ...(hasRowShapes ? rowShapeKeys : []),
       ...(hasDraftCoverage ? draftKeys : [])],
     `recognitionCoverage[${index}]`);
     const fixtureId = boundedToken(entry.fixtureId, `recognitionCoverage[${index}].fixtureId`);
@@ -660,6 +663,10 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
       "metadataOrHeaderSkipped", "standaloneAmountSkipped", "layoutFallbackSelected",
       "adjacentAmountSelected", "unpricedDescription", "unretainedPricedRow",
       "invalidPricedRow", "quantityItemSelected", "leadingQuantityItemSelected", "pricedItemSelected"];
+    const unretainedShapeNames = ["noParserAmountToken", "trailingText", "trailingSymbol",
+      "joinedAmount", "multipleAmounts", "other"];
+    const selectedDecisionNames = new Set(["fuelItemSelected", "layoutChargeSelected", "layoutFallbackSelected",
+      "adjacentAmountSelected", "quantityItemSelected", "leadingQuantityItemSelected", "pricedItemSelected"]);
     if (hasItemDecisions) {
       assertExactKeys(entry.itemLineDecisionCounts, itemDecisionNames,
         `recognitionCoverage[${index}].itemLineDecisionCounts`);
@@ -667,6 +674,18 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
         [...itemDecisionNames, "notInParserRows", "ambiguousParserRows"],
         `recognitionCoverage[${index}].expectedDescriptionDecisionCounts`);
     }
+    if (hasRowShapes) {
+      assertExactKeys(entry.expectedUnretainedRowShapeCounts, unretainedShapeNames,
+        `recognitionCoverage[${index}].expectedUnretainedRowShapeCounts`);
+      assertExactKeys(entry.selectedRowWithoutExpectedPairDecisionCounts, itemDecisionNames,
+        `recognitionCoverage[${index}].selectedRowWithoutExpectedPairDecisionCounts`);
+    }
+    const unretainedShapeTotal = hasRowShapes
+      ? Object.values(entry.expectedUnretainedRowShapeCounts).reduce((sum, count) => sum + boundedInteger(count,
+        `recognitionCoverage[${index}].expectedUnretainedRowShapeCounts`), 0) : null;
+    const selectedWithoutPairTotal = hasRowShapes
+      ? Object.values(entry.selectedRowWithoutExpectedPairDecisionCounts).reduce((sum, count) => sum + boundedInteger(count,
+        `recognitionCoverage[${index}].selectedRowWithoutExpectedPairDecisionCounts`), 0) : null;
     const itemDecisionTotal = hasItemDecisions
       ? Object.values(entry.itemLineDecisionCounts).reduce((sum, count) => sum + boundedInteger(count,
         `recognitionCoverage[${index}].itemLineDecisionCounts`), 0) : null;
@@ -689,6 +708,12 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
           (reviewDecision !== "none" && reviewHintCategory === "none"))) ||
         (hasItemDecisions && (!hasCellCoverage || itemDecisionTotal !== parserLineCount ||
           expectedDecisionTotal !== expectedItemCount)) ||
+        (hasRowShapes && (!hasItemDecisions || unretainedShapeTotal !==
+          entry.expectedDescriptionDecisionCounts.unretainedPricedRow ||
+          selectedWithoutPairTotal > parserLineCount ||
+          itemDecisionNames.some((name) =>
+            entry.selectedRowWithoutExpectedPairDecisionCounts[name] > entry.itemLineDecisionCounts[name] ||
+            (!selectedDecisionNames.has(name) && entry.selectedRowWithoutExpectedPairDecisionCounts[name] !== 0)))) ||
         (hasDraftCoverage && (!hasLayoutCoverage || draftDescriptions > expectedItemCount ||
           draftDescriptions > actualItemCount ||
           draftPairs > draftDescriptions || draftPairs > actualItemCount ||
@@ -718,6 +743,8 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
         incompleteAdjustmentReasons: entry.incompleteAdjustmentReasons } : {}),
       ...(hasItemDecisions ? { itemLineDecisionCounts: entry.itemLineDecisionCounts,
         expectedDescriptionDecisionCounts: entry.expectedDescriptionDecisionCounts } : {}),
+      ...(hasRowShapes ? { expectedUnretainedRowShapeCounts: entry.expectedUnretainedRowShapeCounts,
+        selectedRowWithoutExpectedPairDecisionCounts: entry.selectedRowWithoutExpectedPairDecisionCounts } : {}),
       ...(hasDraftCoverage ? { expectedItemDescriptionsInDraft: draftDescriptions,
         expectedItemPairsInDraft: draftPairs, expectedDateTokenSeen: entry.expectedDateTokenSeen,
         expectedTaxTokenSeen: entry.expectedTaxTokenSeen,
@@ -734,6 +761,10 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
   if (boundedRecognitionCoverage.some((entry) => Object.hasOwn(entry, "itemLineDecisionCounts")) &&
       boundedRecognitionCoverage.some((entry) => !Object.hasOwn(entry, "itemLineDecisionCounts"))) {
     throw new Error("Recognition coverage item decisions are incomplete");
+  }
+  if (boundedRecognitionCoverage.some((entry) => Object.hasOwn(entry, "expectedUnretainedRowShapeCounts")) &&
+      boundedRecognitionCoverage.some((entry) => !Object.hasOwn(entry, "expectedUnretainedRowShapeCounts"))) {
+    throw new Error("Recognition coverage row shapes are incomplete");
   }
   if (boundedRecognitionCoverage.some((entry) => Object.hasOwn(entry, "expectedItemPairsInDraft")) &&
       boundedRecognitionCoverage.some((entry) => !Object.hasOwn(entry, "expectedItemPairsInDraft"))) {
@@ -1147,6 +1178,8 @@ export function isCompleteEvidence(evidence) {
         Array.isArray(row.incompleteAdjustmentReasons) &&
         Object.hasOwn(row, "itemLineDecisionCounts") &&
         Object.hasOwn(row, "expectedDescriptionDecisionCounts") &&
+        Object.hasOwn(row, "expectedUnretainedRowShapeCounts") &&
+        Object.hasOwn(row, "selectedRowWithoutExpectedPairDecisionCounts") &&
         Object.hasOwn(row, "expectedItemPairsInDraft")) &&
       evidence.acceptance.runtime != null &&
       evidence.acceptance.coldLoadTimeMs > 0 &&

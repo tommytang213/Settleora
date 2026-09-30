@@ -314,6 +314,34 @@ test("retains only the bounded native acceptance schema", () => {
     ...acceptance, recognitionCoverage: withItemDecisions,
   })}`), (log) => assert.deepEqual(
     buildEvidence(evidenceArgs(log), repoRoot).acceptance.recognitionCoverage, withItemDecisions));
+  const unretainedShapeNames = ["noParserAmountToken", "trailingText", "trailingSymbol",
+    "joinedAmount", "multipleAmounts", "other"];
+  const expectedUnretainedRowShapeCounts = Object.fromEntries(unretainedShapeNames.map((name) => [name, 0]));
+  const selectedRowWithoutExpectedPairDecisionCounts = Object.fromEntries(itemDecisionNames.map((name) => [name, 0]));
+  const withRowShapes = withItemDecisions.map((entry) => ({ ...entry,
+    expectedUnretainedRowShapeCounts, selectedRowWithoutExpectedPairDecisionCounts }));
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+    ...acceptance, recognitionCoverage: withRowShapes,
+  })}`), (log) => assert.deepEqual(
+    buildEvidence(evidenceArgs(log), repoRoot).acceptance.recognitionCoverage, withRowShapes));
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+    ...acceptance, recognitionCoverage: [{ ...withItemDecisions[0],
+      expectedUnretainedRowShapeCounts }, ...withItemDecisions.slice(1)],
+  })}`), (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot),
+    /missing required fields/));
+  for (const invalid of [
+    { expectedUnretainedRowShapeCounts: { ...expectedUnretainedRowShapeCounts, rawText: 0 } },
+    { expectedUnretainedRowShapeCounts: { ...expectedUnretainedRowShapeCounts, trailingText: 1 } },
+    { selectedRowWithoutExpectedPairDecisionCounts: {
+      ...selectedRowWithoutExpectedPairDecisionCounts, pricedItemSelected: 1 } },
+    { selectedRowWithoutExpectedPairDecisionCounts: {
+      ...selectedRowWithoutExpectedPairDecisionCounts, unclassified: 1 } },
+  ]) {
+    withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...acceptance, recognitionCoverage: [{ ...withRowShapes[0], ...invalid }, ...withRowShapes.slice(1)],
+    })}`), (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot),
+      /Recognition coverage|non-allowlisted/));
+  }
   for (const invalid of [
     { itemLineDecisionCounts: { ...itemLineDecisionCounts, rawText: 0 } },
     { itemLineDecisionCounts: { ...itemLineDecisionCounts, unclassified: 9 } },
@@ -379,6 +407,7 @@ test("complete evidence requires both package measurements and a positive delta"
         expectedItemCount: 0, itemDescriptionsExactTextSeen: 0,
         reviewDecision: "none", incompleteAdjustmentReasons: [],
         itemLineDecisionCounts: {}, expectedDescriptionDecisionCounts: {},
+        expectedUnretainedRowShapeCounts: {}, selectedRowWithoutExpectedPairDecisionCounts: {},
         expectedItemPairsInDraft: 0 })),
       runtime: "test-runtime",
       coldLoadTimeMs: 1,

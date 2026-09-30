@@ -91,6 +91,14 @@ void main() {
     expect(_containsIsoDateToken('Dated 2025/04/170', '2025-04-17'), isFalse);
     expect(_containsIsoDateToken('Dated Apr 17, 2025', '2025-04-17'), isTrue);
     expect(_containsIsoDateToken('Dated Apr 17, 2025', '2025-04-07'), isFalse);
+    expect(
+      _boundedUnretainedRowShape('Item 1,234.00 trailing'),
+      'trailingText',
+    );
+    expect(_boundedUnretainedRowShape('Item 123.00,'), 'trailingSymbol');
+    expect(_boundedUnretainedRowShape('Item123.00'), 'joinedAmount');
+    expect(_boundedUnretainedRowShape('Item 2 x 123.00'), 'multipleAmounts');
+    expect(_boundedUnretainedRowShape('Item 123.00'), 'other');
     final firstRow = _recognitionWordTokens('Fresh');
     final secondRow = _recognitionWordTokens('Bread');
     final expected = _recognitionWordTokens('Fresh Bread');
@@ -1388,6 +1396,9 @@ Map<String, Object> _boundedRecognitionCoverage(
     'notInParserRows': 0,
     'ambiguousParserRows': 0,
   };
+  final expectedUnretainedRowShapeCounts = {
+    for (final shape in _boundedUnretainedRowShapes) shape: 0,
+  };
   final expectedDescriptionFrequency = <String, int>{};
   for (final item in expectedItems) {
     final description = _foldRecognitionEvidence(item.description);
@@ -1417,6 +1428,41 @@ Map<String, Object> _boundedRecognitionCoverage(
         : 'notInParserRows';
     expectedDescriptionDecisionCounts[decision] =
         expectedDescriptionDecisionCounts[decision]! + 1;
+    if (decision == ReceiptOcrItemLineDecision.unretainedPricedRow.name) {
+      final shape = _boundedUnretainedRowShape(rows[matches.single]);
+      expectedUnretainedRowShapeCounts[shape] =
+          expectedUnretainedRowShapeCounts[shape]! + 1;
+    }
+  }
+  final selectedRowWithoutExpectedPairDecisionCounts = {
+    for (final decision in ReceiptOcrItemLineDecision.values) decision.name: 0,
+  };
+  const selectedDecisions = {
+    ReceiptOcrItemLineDecision.fuelItemSelected,
+    ReceiptOcrItemLineDecision.layoutChargeSelected,
+    ReceiptOcrItemLineDecision.layoutFallbackSelected,
+    ReceiptOcrItemLineDecision.adjacentAmountSelected,
+    ReceiptOcrItemLineDecision.quantityItemSelected,
+    ReceiptOcrItemLineDecision.leadingQuantityItemSelected,
+    ReceiptOcrItemLineDecision.pricedItemSelected,
+  };
+  for (var index = 0; index < lineDecisions.length; index++) {
+    final decision = lineDecisions[index];
+    if (!selectedDecisions.contains(decision) || index >= rows.length) {
+      continue;
+    }
+    final hasExpectedPairInRow = expectedItems.any(
+      (item) =>
+          _containsWordSequence(
+            rowWordTokens[index],
+            _recognitionWordTokens(item.description),
+          ) &&
+          _containsAmountToken(rows[index], item.lineTotal),
+    );
+    if (!hasExpectedPairInRow) {
+      selectedRowWithoutExpectedPairDecisionCounts[decision.name] =
+          selectedRowWithoutExpectedPairDecisionCounts[decision.name]! + 1;
+    }
   }
   final actualItems =
       result.preview?.items ?? const <ReceiptOcrItemCandidate>[];
@@ -1544,6 +1590,9 @@ Map<String, Object> _boundedRecognitionCoverage(
     'reviewHintCategory': _boundedReviewHintCategory(result.preview),
     'itemLineDecisionCounts': itemLineDecisionCounts,
     'expectedDescriptionDecisionCounts': expectedDescriptionDecisionCounts,
+    'expectedUnretainedRowShapeCounts': expectedUnretainedRowShapeCounts,
+    'selectedRowWithoutExpectedPairDecisionCounts':
+        selectedRowWithoutExpectedPairDecisionCounts,
     'reviewDecision':
         result.preview?.reviewHintDecision.name ??
         ReceiptOcrReviewDecision.none.name,
@@ -1614,6 +1663,37 @@ bool _containsWordSequence(List<String> row, List<String> expected) {
     if (matches) return true;
   }
   return false;
+}
+
+const _boundedUnretainedRowShapes = <String>{
+  'noParserAmountToken',
+  'trailingText',
+  'trailingSymbol',
+  'joinedAmount',
+  'multipleAmounts',
+  'other',
+};
+
+String _boundedUnretainedRowShape(String row) {
+  // Mirrors only the parser's bounded amount-token grammar. The output is a
+  // fixed enum, never receipt text, a coordinate, or a monetary value.
+  final amounts = RegExp(
+    r"-?(?:\d{1,3}(?:[ \u00a0]\d{3})+(?:[.,]\d{1,3})?|\d+(?:[.,'’]\d+)*)",
+  ).allMatches(row).toList(growable: false);
+  if (amounts.isEmpty) return 'noParserAmountToken';
+  final last = amounts.last;
+  final suffix = row.substring(last.end).trim();
+  if (suffix.isNotEmpty) {
+    return RegExp(r'\p{L}', unicode: true).hasMatch(suffix)
+        ? 'trailingText'
+        : 'trailingSymbol';
+  }
+  final prefix = row.substring(0, last.start);
+  if (prefix.isNotEmpty && !RegExp(r'\s$').hasMatch(prefix)) {
+    return 'joinedAmount';
+  }
+  if (amounts.length > 1) return 'multipleAmounts';
+  return 'other';
 }
 
 bool _containsAmountToken(String text, String expected) {
