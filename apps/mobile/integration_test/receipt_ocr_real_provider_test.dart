@@ -15,6 +15,7 @@ import 'package:mobile/receipt_ocr_capture/paddle_receipt_ocr_provider.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_image_artifact_processor.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_image_normalization_policy.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
+import 'package:mobile/receipt_ocr_capture/receipt_ocr_parser.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_provider.dart';
 import 'package:mobile/ui/settleora_components.dart';
 import 'package:mobile/ui/settleora_form_fields.dart';
@@ -99,6 +100,8 @@ void main() {
     expect(_boundedUnretainedRowShape('Item123.00'), 'joinedAmount');
     expect(_boundedUnretainedRowShape('Item 2 x 123.00'), 'multipleAmounts');
     expect(_boundedUnretainedRowShape('Item 123.00'), 'other');
+    expect(_boundedUnretainedRowShape('Item ١٢٣.٠٠'), 'other');
+    expect(_boundedUnretainedRowShape('Item ๑๒๓.๐๐'), 'other');
     final firstRow = _recognitionWordTokens('Fresh');
     final secondRow = _recognitionWordTokens('Bread');
     final expected = _recognitionWordTokens('Fresh Bread');
@@ -1438,10 +1441,8 @@ Map<String, Object> _boundedRecognitionCoverage(
     for (final decision in ReceiptOcrItemLineDecision.values) decision.name: 0,
   };
   const selectedDecisions = {
-    ReceiptOcrItemLineDecision.fuelItemSelected,
     ReceiptOcrItemLineDecision.layoutChargeSelected,
     ReceiptOcrItemLineDecision.layoutFallbackSelected,
-    ReceiptOcrItemLineDecision.adjacentAmountSelected,
     ReceiptOcrItemLineDecision.quantityItemSelected,
     ReceiptOcrItemLineDecision.leadingQuantityItemSelected,
     ReceiptOcrItemLineDecision.pricedItemSelected,
@@ -1677,6 +1678,7 @@ const _boundedUnretainedRowShapes = <String>{
 String _boundedUnretainedRowShape(String row) {
   // Mirrors only the parser's bounded amount-token grammar. The output is a
   // fixed enum, never receipt text, a coordinate, or a monetary value.
+  row = normalizeReceiptOcrLineForDiagnostics(row);
   final amounts = RegExp(
     r"-?(?:\d{1,3}(?:[ \u00a0]\d{3})+(?:[.,]\d{1,3})?|\d+(?:[.,'’]\d+)*)",
   ).allMatches(row).toList(growable: false);

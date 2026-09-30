@@ -665,8 +665,8 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
       "invalidPricedRow", "quantityItemSelected", "leadingQuantityItemSelected", "pricedItemSelected"];
     const unretainedShapeNames = ["noParserAmountToken", "trailingText", "trailingSymbol",
       "joinedAmount", "multipleAmounts", "other"];
-    const selectedDecisionNames = new Set(["fuelItemSelected", "layoutChargeSelected", "layoutFallbackSelected",
-      "adjacentAmountSelected", "quantityItemSelected", "leadingQuantityItemSelected", "pricedItemSelected"]);
+    const selectedDecisionNames = new Set(["layoutChargeSelected", "layoutFallbackSelected",
+      "quantityItemSelected", "leadingQuantityItemSelected", "pricedItemSelected"]);
     if (hasItemDecisions) {
       assertExactKeys(entry.itemLineDecisionCounts, itemDecisionNames,
         `recognitionCoverage[${index}].itemLineDecisionCounts`);

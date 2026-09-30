@@ -2543,6 +2543,11 @@ class _ReceiptCurrencyDetection {
   final ReceiptOcrCurrencyProvenance provenance;
 }
 
+// Keeps bounded acceptance diagnostics aligned with the parser's input grammar.
+// Callers must emit only fixed diagnostic enums, never the normalized text.
+String normalizeReceiptOcrLineForDiagnostics(String value) =>
+    _normalizeOcrLine(value);
+
 String _normalizeOcrLine(String value) {
   const digitSources =
       '٠١٢٣٤٥٦٧٨٩'

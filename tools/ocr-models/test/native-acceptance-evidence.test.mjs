@@ -336,6 +336,8 @@ test("retains only the bounded native acceptance schema", () => {
       ...selectedRowWithoutExpectedPairDecisionCounts, pricedItemSelected: 1 } },
     { selectedRowWithoutExpectedPairDecisionCounts: {
       ...selectedRowWithoutExpectedPairDecisionCounts, unclassified: 1 } },
+    { selectedRowWithoutExpectedPairDecisionCounts: {
+      ...selectedRowWithoutExpectedPairDecisionCounts, adjacentAmountSelected: 1 } },
   ]) {
     withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
       ...acceptance, recognitionCoverage: [{ ...withRowShapes[0], ...invalid }, ...withRowShapes.slice(1)],
