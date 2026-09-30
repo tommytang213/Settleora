@@ -263,6 +263,15 @@ test("retains only the bounded native acceptance schema", () => {
   withLog(
     protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
       ...acceptance,
+      recognitionCoverage: [{ ...acceptance.recognitionCoverage[0], actualItemCount: 0 },
+        ...acceptance.recognitionCoverage.slice(1)],
+    })}`),
+    (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot),
+      /Recognition coverage evidence is invalid/),
+  );
+  withLog(
+    protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...acceptance,
       recognitionCoverage: [{ ...acceptance.recognitionCoverage[0], expectedTaxTokenSeen: "raw-content" },
         ...acceptance.recognitionCoverage.slice(1)],
     })}`),

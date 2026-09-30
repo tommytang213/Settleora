@@ -645,6 +645,7 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
         typeof entry.merchantExactTextSeen !== "boolean" || typeof entry.totalExactTokenSeen !== "boolean" ||
         (hasReviewHintCategory && !new Set(["none", "subtotal_mismatch", "adjustment_explanation", "grand_total_mismatch", "other"]).has(reviewHintCategory)) ||
         (hasDraftCoverage && (!hasLayoutCoverage || draftDescriptions > expectedItemCount ||
+          draftDescriptions > actualItemCount ||
           draftPairs > draftDescriptions || draftPairs > actualItemCount ||
           typeof entry.expectedDateTokenSeen !== "boolean" ||
           typeof entry.expectedTaxTokenSeen !== "boolean" ||
