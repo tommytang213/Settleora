@@ -73,7 +73,10 @@ void main() {
 
   test('bounded diagnostic matches whole item and amount tokens', () {
     expect(_containsAmountToken('Item USD 12.00', '2.00'), isFalse);
+    expect(_containsAmountToken('Item USD 20.0', '2.00'), isFalse);
+    expect(_containsAmountToken('Item USD 123.450', '1234.50'), isFalse);
     expect(_containsAmountToken('Item USD 2.00', '2.00'), isTrue);
+    expect(_containsAmountToken('Item USD 2,00', '2.00'), isTrue);
     expect(_containsAmountToken('Item USD -2.00', '2.00'), isFalse);
     expect(_containsAmountToken('Item USD -2.00', '-2.00'), isTrue);
     expect(_containsAmountToken('Item USD 1,234.50', '1234.50'), isTrue);
@@ -1606,17 +1609,34 @@ bool _containsWordSequence(List<String> row, List<String> expected) {
 }
 
 bool _containsAmountToken(String text, String expected) {
-  final digits = _foldRecognitionEvidence(expected);
-  if (digits.isEmpty) return false;
-  final expectedNegative = expected.trimLeft().startsWith(RegExp(r'[-−]'));
+  final expectedAmount = _canonicalAmountToken(expected);
+  if (expectedAmount == null) return false;
   return RegExp(
     r'[-+−]?\s*[\p{N}]+(?:[.,\u066b\u066c][\p{N}]+)*',
     unicode: true,
   ).allMatches(text).any((match) {
-    final token = match.group(0)!.trimLeft();
-    return _foldRecognitionEvidence(token) == digits &&
-        (token.startsWith('-') || token.startsWith('−')) == expectedNegative;
+    return _canonicalAmountToken(match.group(0)!) == expectedAmount;
   });
+}
+
+String? _canonicalAmountToken(String value) {
+  var token = value.trim();
+  if (token.isEmpty || token.length > 64) return null;
+  final negative = token.startsWith('-') || token.startsWith('−');
+  if (negative || token.startsWith('+')) token = token.substring(1).trimLeft();
+  if (RegExp(r'^\d{1,3}(?:,\d{3})+\.\d+$').hasMatch(token)) {
+    token = token.replaceAll(',', '');
+  } else if (RegExp(r'^\d+,\d{1,2}$').hasMatch(token)) {
+    token = token.replaceAll(',', '.');
+  } else if (!RegExp(r'^\d+(?:\.\d+)?$').hasMatch(token)) {
+    return null;
+  }
+  final parts = token.split('.');
+  final integer = BigInt.parse(parts.first).toString();
+  final fraction = parts.length == 2
+      ? parts.last.replaceFirst(RegExp(r'0+$'), '')
+      : '';
+  return '${negative ? '-' : ''}$integer${fraction.isEmpty ? '' : '.$fraction'}';
 }
 
 bool isValidNativeOcrBlockGeometry(
