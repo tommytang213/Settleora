@@ -5,7 +5,7 @@ import '../ui/settleora_form_fields.dart';
 
 final _unicodeLetterPattern = RegExp(r'\p{L}', unicode: true);
 final _potentialReceiptAdjustmentLabelPattern = RegExp(
-  r'\b(?:sales\s+tax|tax|vat|gst|hst|iva|tva|kdv|mwst|service(?:\s+(?:charge|fee))?|tip|gratuity|shipping|delivery(?:\s+(?:charge|fee))?|discount|coupon|loyalty[\s-]+savings?|surcharge|charge|fee|refund|rebate|credit|deposit|levy|duty|donation|round(?:ing|[\s-]*off))\b',
+  r'\b(?:sales\s+tax|tax|vat|gst|hst|iva|tva|kdv|mwst|service(?:\s+(?:charge|fee))?|tip|gratuity|shipping|delivery(?:\s+(?:charge|fee))?|discount|coupon|promo\s+code|loyalty[\s-]+savings?|surcharge|charge|fee|refund|rebate|credit|deposit|levy|duty|donation|round(?:ing|[\s-]*off))\b',
   caseSensitive: false,
 );
 const _localizedReceiptAdjustmentLabels = [
@@ -193,6 +193,7 @@ class ReceiptOcrParser {
       discountCurrency: amounts.discountCurrency,
       discountHasExplicitCurrencyEvidence:
           amounts.discountHasExplicitCurrencyEvidence,
+      discountBeforeSubtotal: amounts.discountBeforeSubtotal,
       adjustmentsComplete:
           amounts.adjustmentsComplete &&
           !extractedItems.truncated &&
@@ -844,6 +845,7 @@ class ReceiptOcrParser {
     Set<int> detachedAmountSignRows = const {},
   }) {
     String? subtotal;
+    int? selectedSubtotalRow;
     String? subtotalCurrency;
     var subtotalHasExplicitCurrencyEvidence = false;
     String? tax;
@@ -866,6 +868,9 @@ class ReceiptOcrParser {
     String? discount;
     String? discountCurrency;
     var discountHasExplicitCurrencyEvidence = false;
+    final discountComponents =
+        <({String amount, String label, String? currency, bool explicit})>[];
+    final discountRows = <int>[];
     final adjustmentRoleCounts = <String, int>{};
     var adjustmentsComplete = true;
     final incompleteReasons = <ReceiptOcrIncompleteAdjustmentReason>{};
@@ -1008,6 +1013,7 @@ class ReceiptOcrParser {
           printed,
         )) {
           subtotal = amount;
+          selectedSubtotalRow = lineIndex;
           subtotalCurrency = printed.currency;
           subtotalHasExplicitCurrencyEvidence = printed.hasExplicitEvidence;
         }
@@ -1102,6 +1108,15 @@ class ReceiptOcrParser {
           line,
           receiptCurrency: currency,
         );
+        discountRows.add(lineIndex);
+        if (amount.startsWith('-')) {
+          discountComponents.add((
+            amount: amount,
+            label: _originalReceiptAdjustmentLabel(line, fallback: 'Discount'),
+            currency: printed.currency,
+            explicit: printed.hasExplicitEvidence,
+          ));
+        }
         if (preferMatchingPrintedCurrency(
           discount,
           discountCurrency,
@@ -1193,8 +1208,72 @@ class ReceiptOcrParser {
         taxCurrency = taxHasExplicitCurrencyEvidence ? currency : null;
       }
     }
+    // Multiple separately printed negative promotions can be one provisional
+    // discount only when every component has the receipt currency and their
+    // exact decimal sum reconciles a unique printed total. Duplicate labels,
+    // missing/foreign amounts, or other incomplete adjustments stay in review.
+    var aggregatedDiscount = false;
+    if (currency != null &&
+        adjustmentsComplete &&
+        subtotal != null &&
+        discountComponents.length > 1 &&
+        discountComponents.length == adjustmentRoleCounts['discount'] &&
+        (!subtotalHasExplicitCurrencyEvidence ||
+            subtotalCurrency == currency) &&
+        discountComponents.every(
+          (component) => component.explicit && component.currency == currency,
+        ) &&
+        discountComponents
+                .map((component) => component.label.toLowerCase())
+                .toSet()
+                .length ==
+            discountComponents.length &&
+        (!taxHasExplicitCurrencyEvidence || taxCurrency == currency) &&
+        (!serviceHasExplicitCurrencyEvidence || serviceCurrency == currency) &&
+        (!tipHasExplicitCurrencyEvidence || tipCurrency == currency) &&
+        (!shippingHasExplicitCurrencyEvidence ||
+            shippingCurrency == currency) &&
+        adjustmentRoleCounts.entries.every(
+          (entry) =>
+              entry.key == 'discount' ||
+              entry.value == 1 ||
+              (entry.key == 'tax' && aggregatedRatedTax),
+        )) {
+      final magnitude = _sumSameCurrencyOcrAmounts(
+        discountComponents.map((component) => component.amount.substring(1)),
+        currency,
+      );
+      final subtotalMinor = _ocrAmountMinorUnits(subtotal, currency);
+      final discountMinor = magnitude == null
+          ? null
+          : _ocrAmountMinorUnits(magnitude, currency);
+      final totalMinor = totalCandidates.length == 1
+          ? _ocrAmountMinorUnits(totalCandidates.single.value, currency)
+          : null;
+      final adjustmentParts = <String?>[tax, service, tip, shipping];
+      final adjustmentMinors = adjustmentParts
+          .whereType<String>()
+          .map((value) => _ocrAmountMinorUnits(value, currency))
+          .toList(growable: false);
+      if (subtotalMinor != null &&
+          discountMinor != null &&
+          totalMinor != null &&
+          adjustmentMinors.every((value) => value != null) &&
+          subtotalMinor +
+                  adjustmentMinors.whereType<int>().fold(0, (a, b) => a + b) -
+                  discountMinor ==
+              totalMinor) {
+        aggregatedDiscount = true;
+        discount = '-$magnitude';
+        discountCurrency = currency;
+        discountHasExplicitCurrencyEvidence = true;
+      }
+    }
     if (adjustmentRoleCounts.entries.any(
-      (entry) => entry.value > 1 && (entry.key != 'tax' || !aggregatedRatedTax),
+      (entry) =>
+          entry.value > 1 &&
+          (entry.key != 'tax' || !aggregatedRatedTax) &&
+          (entry.key != 'discount' || !aggregatedDiscount),
     )) {
       adjustmentsComplete = false;
       incompleteReasons.add(
@@ -1278,6 +1357,14 @@ class ReceiptOcrParser {
       discount: discount,
       discountCurrency: discountCurrency,
       discountHasExplicitCurrencyEvidence: discountHasExplicitCurrencyEvidence,
+      discountBeforeSubtotal:
+          currency != null &&
+          selectedSubtotalRow != null &&
+          discountRows.length == 1 &&
+          discountRows.single < selectedSubtotalRow &&
+          discount?.startsWith('-') == true &&
+          (!discountHasExplicitCurrencyEvidence ||
+              discountCurrency == currency),
       adjustmentsComplete: adjustmentsComplete,
       incompleteReasons: incompleteReasons.toList(growable: false),
       total: total,
@@ -2523,6 +2610,7 @@ class _LabeledReceiptAmounts {
     this.discount,
     this.discountCurrency,
     this.discountHasExplicitCurrencyEvidence = false,
+    this.discountBeforeSubtotal = false,
     this.adjustmentsComplete = true,
     this.incompleteReasons = const [],
     this.total,
@@ -2548,6 +2636,7 @@ class _LabeledReceiptAmounts {
   final String? discount;
   final String? discountCurrency;
   final bool discountHasExplicitCurrencyEvidence;
+  final bool discountBeforeSubtotal;
   final bool adjustmentsComplete;
   final List<ReceiptOcrIncompleteAdjustmentReason> incompleteReasons;
   final String? total;
@@ -3146,6 +3235,26 @@ int _currencyMinorUnitDigits(String? currency) {
     'KWD' || 'BHD' => 3,
     _ => 2,
   };
+}
+
+int? _ocrAmountMinorUnits(String amount, String currency) {
+  final minorDigits = _currencyMinorUnitDigits(currency);
+  final match = RegExp(r'^(-?)(\d+)(?:\.(\d{1,3}))?$').firstMatch(amount);
+  if (match == null) return null;
+  final fraction = match.group(3) ?? '';
+  if (fraction.length > minorDigits) return null;
+  final whole = int.tryParse(match.group(2)!);
+  final minor = fraction.isEmpty
+      ? 0
+      : int.tryParse(fraction.padRight(minorDigits, '0'));
+  if (whole == null || minor == null) return null;
+  final scale = switch (minorDigits) {
+    0 => 1,
+    3 => 1000,
+    _ => 100,
+  };
+  final value = whole * scale + minor;
+  return match.group(1) == '-' ? -value : value;
 }
 
 String? _sumSameCurrencyOcrAmounts(Iterable<String> amounts, String currency) {
@@ -3985,8 +4094,11 @@ bool _isReceiptMetadataLine(String line, {bool allowBarePostal = true}) {
     RegExp(r'\b(tax\s*id|tin|gst\s*no|vat\s*no|business\s*no|br\s*no)\b'),
     RegExp(r'^\s*(invoice|receipt|check|cheque|ticket)\s*(no|#|number|num)?\b'),
     RegExp(
-      r'\b(table|tbl|store|branch|cashier|server|staff|register|reg|terminal|term|till|pos|order|ord|reference|ref)\b\s*[:#-]?\s*[a-z0-9-]+\b',
+      r'\b(table|tbl|branch|cashier|server|staff|register|reg|terminal|term|till|pos|order|ord|reference|ref)\b\s*[:#-]?\s*[a-z0-9-]+\b',
     ),
+    // A word after "Store" can be a priced product or promotion. A printed
+    // store identifier needs an actual identifier shape before it is metadata.
+    RegExp(r'\bstore\b\s*[:#-]?\s*[a-z0-9-]*\d[a-z0-9-]*\b'),
     RegExp(
       r'\b(open|close|closed|served|powered by|thank you|welcome|visit again)\b',
     ),
@@ -4324,6 +4436,14 @@ bool _hasDiscountLabel(String line, String normalized) {
         normalized,
         RegExp(r'\b(discount|coupon)\b', caseSensitive: false),
       ) ||
+      (_lastAmountInLine(line)?.startsWith('-') == true &&
+          _hasEnglishReceiptLabel(
+            normalized,
+            RegExp(
+              r'\b(?:(?:store|loyalty|member|promo(?:tional)?|voucher|reward|basket|order)\s+(?:coupon|discount)|promo\s+code)\b',
+              caseSensitive: false,
+            ),
+          )) ||
       _hasJapaneseReceiptLabel(line, const ['割引', '値引']);
 }
 

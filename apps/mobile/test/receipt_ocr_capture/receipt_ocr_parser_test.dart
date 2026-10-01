@@ -598,6 +598,121 @@ Total 12.00
     expect(preview.currency, isNull);
   });
 
+  test('distinct printed negative promotions reconcile as one discount', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Cereal USD 6.00
+Milk USD 4.00
+Subtotal USD 10.00
+Store Coupon USD -2.00
+Loyalty Discount USD -1.00
+Tax USD 0.49
+Total USD 7.49
+''');
+    expect(preview.items.map((item) => item.description), ['Cereal', 'Milk']);
+    expect(preview.discount, '-3.00');
+    expect(preview.adjustmentsComplete, isTrue);
+    expect(preview.reviewHints, isEmpty);
+  });
+
+  test('unreconciled or duplicate promotions remain in review', () {
+    for (final rows in [
+      'Store Coupon USD -2.00\nLoyalty Discount USD -1.00',
+      'Store Coupon USD -2.00\nStore Coupon USD -1.00',
+    ]) {
+      final preview = const ReceiptOcrParser().parse('''
+Market
+Cereal USD 10.00
+Subtotal USD 10.00
+$rows
+Total USD 8.00
+''');
+      expect(preview.adjustmentsComplete, isFalse);
+      expect(preview.reviewHints, isNotEmpty);
+    }
+  });
+
+  test('foreign tax cannot make repeated discounts look reconciled', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Cereal USD 10.00
+Subtotal USD 10.00
+Store Coupon USD -2.00
+Loyalty Discount USD -1.00
+Tax EUR 0.49
+Total USD 7.49
+''');
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(preview.reviewHints, isNotEmpty);
+  });
+
+  test('foreign subtotal and duplicate totals keep promotions in review', () {
+    for (final rows in [
+      'Subtotal EUR 10.00',
+      'Subtotal USD 10.00\nTotal USD 7.00',
+    ]) {
+      final preview = const ReceiptOcrParser().parse('''
+Market
+Cereal USD 10.00
+$rows
+Store Coupon USD -2.00
+Loyalty Discount USD -1.00
+Total USD 7.00
+''');
+      expect(preview.adjustmentsComplete, isFalse);
+      expect(preview.reviewHints, isNotEmpty);
+    }
+  });
+
+  test(
+    'negative promo code is a discount and positive coupon sale is an item',
+    () {
+      final preview = const ReceiptOcrParser().parse('''
+Market
+Headphones USD 120.00
+Store Coupon USD 5.00
+Promo Code USD -20.00
+Total USD 105.00
+''');
+      expect(preview.discount, '-20.00');
+      expect(preview.items.map((item) => item.description), [
+        'Headphones',
+        'Store Coupon',
+      ]);
+    },
+  );
+
+  test(
+    'printed before-subtotal discount reconciles without a false warning',
+    () {
+      final preview = const ReceiptOcrParser().parse('''
+Shop Invoice
+Headphones USD 120.00
+Promo Code USD -20.00
+Subtotal USD 100.00
+Shipping USD 9.99
+Tax USD 8.80
+Grand Total USD 118.79
+''');
+      expect(preview.items.map((item) => item.description), ['Headphones']);
+      expect(preview.discount, '-20.00');
+      expect(preview.discountBeforeSubtotal, isTrue);
+      expect(preview.reviewHints, isEmpty);
+
+      final afterSubtotal = const ReceiptOcrParser().parse('''
+Shop Invoice
+Headphones USD 120.00
+Subtotal USD 100.00
+Promo Code USD -20.00
+Shipping USD 9.99
+Tax USD 8.80
+Grand Total USD 118.79
+''');
+      expect(afterSubtotal.discountBeforeSubtotal, isFalse);
+      expect(afterSubtotal.reviewHints, isNotEmpty);
+    },
+  );
+
   test('postal and registration headers do not become merchandise', () {
     const parser = ReceiptOcrParser();
     final us = parser.parse('''

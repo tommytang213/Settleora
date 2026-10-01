@@ -26,6 +26,7 @@ class ReceiptOcrPreview {
     this.discount,
     this.discountCurrency,
     this.discountHasExplicitCurrencyEvidence = false,
+    this.discountBeforeSubtotal = false,
     this.adjustmentsComplete = true,
     this.incompleteAdjustmentReasons = const [],
     this.itemLineDecisions = const [],
@@ -64,6 +65,9 @@ class ReceiptOcrPreview {
   final String? discount;
   final String? discountCurrency;
   final bool discountHasExplicitCurrencyEvidence;
+  // Printed order is evidence for a before-subtotal promotion. This remains
+  // provisional and never changes the printed subtotal or total.
+  final bool discountBeforeSubtotal;
   final bool adjustmentsComplete;
   final List<ReceiptOcrIncompleteAdjustmentReason> incompleteAdjustmentReasons;
   final List<ReceiptOcrItemLineDecision> itemLineDecisions;
@@ -257,7 +261,22 @@ List<String> _receiptOcrReviewHints(
     if (subtotal == null) {
       return const [];
     }
-    if (!_receiptOcrAmountsClose(itemTotal, subtotal)) {
+    final beforeSubtotalDiscount =
+        preview.discountBeforeSubtotal &&
+            _adjustmentCurrencyMatchesReview(
+              reviewCurrency: preview.currency,
+              adjustmentCurrency: preview.discountCurrency,
+              hasExplicitCurrencyEvidence:
+                  preview.discountHasExplicitCurrencyEvidence,
+            )
+        ? _parseReceiptOcrReviewAmount(preview.discount)
+        : null;
+    if (!_receiptOcrAmountsClose(itemTotal, subtotal) &&
+        (beforeSubtotalDiscount == null ||
+            !_receiptOcrAmountsClose(
+              itemTotal + beforeSubtotalDiscount,
+              subtotal,
+            ))) {
       onDecision?.call(ReceiptOcrReviewDecision.subtotalMismatch);
       return const [
         'OCR item total differs from detected subtotal. Review the receipt before applying.',
