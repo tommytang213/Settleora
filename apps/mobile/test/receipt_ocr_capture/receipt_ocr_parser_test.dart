@@ -843,6 +843,139 @@ Total 31.99
     expect(preview.tax, isNull);
   });
 
+  test('invoice columns keep product names separate from codes and prices', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Warehouse\n'
+      'Product / Service SKU Qty Unit Price Total\n'
+      'Ergonomic Chair EP-1001 1 USD 199.99 USD 199.99\n'
+      'Desk Mat DM-100 1 USD 19.99 USD 19.99\n'
+      'Subtotal USD 219.98\nTax USD 0.02\nTotal USD 220.00',
+      blocks: [
+        _layoutBlock('Warehouse', 0, 0, 20, 350),
+        _layoutBlock('Product / Service', 1, 1, 90, 300),
+        _layoutBlock('SKU', 2, 1, 520, 600),
+        _layoutBlock('Qty', 3, 1, 620, 650),
+        _layoutBlock('Unit Price', 4, 1, 680, 790),
+        _layoutBlock('Total', 5, 1, 850, 960),
+        _layoutBlock('Ergonomic Chair', 6, 2, 90, 420),
+        _layoutBlock('EP-1001', 7, 2, 520, 600),
+        _layoutBlock('1', 8, 2, 620, 650),
+        _layoutBlock('USD 199.99', 9, 2, 680, 790),
+        _layoutBlock('USD 199.99', 10, 2, 850, 960),
+        _layoutBlock('Desk Mat', 11, 3, 90, 420),
+        _layoutBlock('DM-100', 12, 3, 520, 600),
+        _layoutBlock('1', 13, 3, 620, 650),
+        _layoutBlock('USD 19.99', 14, 3, 680, 790),
+        _layoutBlock('USD 19.99', 15, 3, 850, 960),
+        _layoutBlock('Subtotal USD 219.98', 16, 4, 680, 960),
+        _layoutBlock('Tax USD 0.02', 17, 5, 680, 960),
+        _layoutBlock('Total USD 220.00', 18, 6, 680, 960),
+      ],
+    );
+    expect(preview.items.map((item) => item.description), [
+      'Ergonomic Chair',
+      'Desk Mat',
+    ]);
+    expect(preview.items.map((item) => item.lineTotal), ['199.99', '19.99']);
+    expect(preview.reviewHints, isEmpty);
+  });
+
+  test('missing invoice total cell cannot promote a unit price', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Warehouse\nProduct / Service SKU Qty Unit Price Total\n'
+      'Ergonomic Chair EP-1001 1 USD 199.99\n'
+      'Total USD 199.99',
+      blocks: [
+        _layoutBlock('Warehouse', 0, 0, 20, 350),
+        _layoutBlock('Product / Service', 1, 1, 90, 300),
+        _layoutBlock('SKU', 2, 1, 520, 600),
+        _layoutBlock('Qty', 3, 1, 620, 650),
+        _layoutBlock('Unit Price', 4, 1, 680, 790),
+        _layoutBlock('Total', 5, 1, 850, 960),
+        _layoutBlock('Ergonomic Chair', 6, 2, 90, 420),
+        _layoutBlock('EP-1001', 7, 2, 520, 600),
+        _layoutBlock('1', 8, 2, 620, 650),
+        _layoutBlock('USD 199.99', 9, 2, 680, 790),
+        _layoutBlock('Total USD 199.99', 10, 3, 680, 960),
+      ],
+    );
+    expect(preview.items, isEmpty);
+    expect(preview.reviewHints, isNotEmpty);
+  });
+
+  test(
+    'bill charge detail keeps dated discounts and taxes as printed rows',
+    () {
+      final preview = const ReceiptOcrParser().parse(
+        'Network Utility\nCurrent Charges Detail\n'
+        'Description Service Period Amount\n'
+        'Internet Plan Feb 5 - Mar 4 USD 59.99\n'
+        'Loyalty Discount Feb 5 - Mar 4 USD -10.00\n'
+        'State Tax Feb 5 - Mar 4 USD 4.31\n'
+        'Total Current Charges USD 54.30',
+        blocks: [
+          _layoutBlock('Network Utility', 0, 0, 20, 350),
+          _layoutBlock('Current Charges Detail', 1, 1, 20, 350),
+          _layoutBlock('Description', 2, 2, 20, 300),
+          _layoutBlock('Service Period', 3, 2, 370, 550),
+          _layoutBlock('Amount', 4, 2, 600, 700),
+          _layoutBlock('Internet Plan', 5, 3, 20, 300),
+          _layoutBlock('Feb 5 - Mar 4', 6, 3, 370, 550),
+          _layoutBlock('USD 59.99', 7, 3, 600, 700),
+          _layoutBlock('Loyalty Discount', 8, 4, 20, 300),
+          _layoutBlock('Feb 5 - Mar 4', 9, 4, 370, 550),
+          _layoutBlock('USD -10.00', 10, 4, 600, 700),
+          _layoutBlock('State Tax', 11, 5, 20, 300),
+          _layoutBlock('Feb 5 - Mar 4', 12, 5, 370, 550),
+          _layoutBlock('USD 4.31', 13, 5, 600, 700),
+          _layoutBlock('Total Current Charges USD 54.30', 14, 6, 20, 700),
+        ],
+      );
+      expect(preview.items.map((item) => item.description), [
+        'Internet Plan',
+        'Loyalty Discount',
+        'State Tax',
+      ]);
+      expect(preview.items.map((item) => item.lineTotal), [
+        '59.99',
+        '-10.00',
+        '4.31',
+      ]);
+      expect(preview.reviewHints, isEmpty);
+    },
+  );
+
+  test('two-column bill detail keeps rate evidence in description', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Water Utility\nCharges for This Period\nDescription Amount\n'
+      'Water Charge (25 m3 @ USD 1.80) USD 45.00\n'
+      'State Water Tax (2.5%) USD 2.64\n'
+      'Total Amount Due USD 47.64',
+      blocks: [
+        _layoutBlock('Water Utility', 0, 0, 20, 350),
+        _layoutBlock('Charges for This Period', 1, 1, 20, 350),
+        _layoutBlock('Description', 2, 2, 20, 300),
+        _layoutBlock('Amount', 3, 2, 600, 700),
+        _layoutBlock('Water Charge (25 m3 @ USD 1.80)', 4, 3, 20, 550),
+        _layoutBlock('USD 45.00', 5, 3, 600, 700),
+        _layoutBlock('State Water Tax (2.5%)', 6, 4, 20, 550),
+        _layoutBlock('USD 2.64', 7, 4, 600, 700),
+        _layoutBlock('Total Amount Due USD 47.64', 8, 5, 20, 700),
+      ],
+    );
+    expect(preview.items.map((item) => item.description), [
+      'Water Charge (25 m3 @ USD 1.80)',
+      'State Water Tax (2.5%)',
+    ]);
+    expect(preview.items.map((item) => item.lineTotal), ['45.00', '2.64']);
+    expect(
+      preview.adjustmentsComplete,
+      isTrue,
+      reason: preview.incompleteAdjustmentReasons.toString(),
+    );
+    expect(preview.reviewHints, isEmpty);
+  });
+
   test('charge table associates a separate foreign currency cell', () {
     final preview = const ReceiptOcrParser().parse(
       'Market\n'

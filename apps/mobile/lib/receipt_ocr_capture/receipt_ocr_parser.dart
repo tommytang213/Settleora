@@ -89,6 +89,7 @@ class ReceiptOcrParser {
       currency,
       layoutRows: layoutRows,
       chargeTableRows: recognizedChargeRows,
+      layoutChargeItemRows: layoutChargeItems.keys.toSet(),
       ambiguousChargeTableRows: chargeTable.ambiguous,
       detachedAmountSignRows: detachedAmountSignRows,
     );
@@ -841,6 +842,7 @@ class ReceiptOcrParser {
     String? currency, {
     List<List<ReceiptOcrBlockEvidence>> layoutRows = const [],
     Set<int> chargeTableRows = const {},
+    Set<int> layoutChargeItemRows = const {},
     Set<int> ambiguousChargeTableRows = const {},
     Set<int> detachedAmountSignRows = const {},
   }) {
@@ -890,6 +892,12 @@ class ReceiptOcrParser {
             printed.currency == currency);
 
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+      if (lineIndex + 1 < lines.length &&
+          _isBillChargeDetailHeader(lines, lineIndex + 1) &&
+          !_lineHasAmount(lines[lineIndex])) {
+        continue;
+      }
+      if (_isSupportedChargeTableHeader(lines, lineIndex)) continue;
       if (detachedAmountSignRows.contains(lineIndex)) {
         if (_hasPotentialReceiptAdjustmentLabel(lines[lineIndex])) {
           adjustmentsComplete = false;
@@ -907,7 +915,8 @@ class ReceiptOcrParser {
       final hasPotentialAdjustment = _hasPotentialReceiptAdjustmentLabel(line);
       if (chargeTableRows.contains(lineIndex) ||
           ambiguousChargeTableRows.contains(lineIndex)) {
-        if (hasPotentialAdjustment) {
+        if (hasPotentialAdjustment &&
+            !layoutChargeItemRows.contains(lineIndex)) {
           adjustmentsComplete = false;
           incompleteReasons.add(
             ReceiptOcrIncompleteAdjustmentReason.chargeTableAdjustment,
@@ -1875,16 +1884,23 @@ class ReceiptOcrParser {
     if (layoutRows.length != lines.length) return const {};
     final items = <int, ReceiptOcrItemCandidate>{};
     for (var headerIndex = 0; headerIndex < lines.length; headerIndex++) {
-      if (!_isChargeTableHeader(lines[headerIndex])) continue;
+      if (!_isSupportedChargeTableHeader(lines, headerIndex)) continue;
+      final invoiceColumns = _isInvoiceProductTableHeader(lines[headerIndex]);
+      final billDetailColumns = _isBillChargeDetailHeader(lines, headerIndex);
       final header = layoutRows[headerIndex];
       final descriptionBlocks = header
           .where(
             (block) =>
                 block.points.isNotEmpty &&
-                RegExp(
-                  r'\bdescription\b',
-                  caseSensitive: false,
-                ).hasMatch(block.text),
+                (RegExp(
+                      r'\bdescription\b',
+                      caseSensitive: false,
+                    ).hasMatch(block.text) ||
+                    (invoiceColumns &&
+                        RegExp(
+                          r'\b(?:product|service)\b',
+                          caseSensitive: false,
+                        ).hasMatch(block.text))),
           )
           .toList(growable: false);
       final amountBlocks = header
@@ -1919,13 +1935,36 @@ class ReceiptOcrParser {
       if ((!amountOnLeft && !amountOnRight) || amountRight <= amountLeft) {
         continue;
       }
+      final intermediateHeaderEdges = header
+          .where(
+            (block) =>
+                block.points.isNotEmpty &&
+                !descriptionBlocks.contains(block) &&
+                !amountBlocks.contains(block),
+          )
+          .expand((block) => block.points.map((point) => point.x))
+          .where(
+            (x) => amountOnLeft
+                ? x < descriptionLeft && x > amountRight
+                : x > descriptionRight && x < amountLeft,
+          )
+          .toList(growable: false);
+      final descriptionColumnEdge = intermediateHeaderEdges.isEmpty
+          ? (amountOnLeft ? amountRight : amountLeft)
+          : amountOnLeft
+          ? (descriptionLeft +
+                    intermediateHeaderEdges.reduce((a, b) => a > b ? a : b)) /
+                2
+          : (descriptionRight +
+                    intermediateHeaderEdges.reduce((a, b) => a < b ? a : b)) /
+                2;
 
       for (
         var rowIndex = headerIndex + 1;
         rowIndex < lines.length;
         rowIndex++
       ) {
-        if (_isChargeTableHeader(lines[rowIndex]) ||
+        if (_isSupportedChargeTableHeader(lines, rowIndex) ||
             _isChargeTableSectionBoundary(lines[rowIndex])) {
           break;
         }
@@ -1961,7 +2000,10 @@ class ReceiptOcrParser {
             _hasSubtotalLabel(tableText, lower)) {
           break;
         }
-        if (_isChargeTableSummaryLine(tableText) ||
+        if ((invoiceColumns || billDetailColumns
+                ? _isAccountBalanceSummaryLine(tableText) ||
+                      _isPaymentMetadataLine(tableText)
+                : _isChargeTableSummaryLine(tableText)) ||
             _isReceiptMetadataLine(tableText)) {
           continue;
         }
@@ -2010,31 +2052,35 @@ class ReceiptOcrParser {
           currency: lineCurrency,
         );
         if (lineTotal == null) continue;
-        final description = _stripChargeTableColumns(
-          _cleanDescription(
-            tableBlocks
-                .where((block) {
-                  if (block == currencyBlock) return false;
-                  final right = block.points
-                      .map((point) => point.x)
-                      .reduce((a, b) => a > b ? a : b);
-                  return (amountOnLeft
-                          ? block.points
-                                    .map((point) => point.x)
-                                    .reduce((a, b) => a < b ? a : b) >
-                                amountRight + 12
-                          : right < amountLeft - 12) &&
-                      !_isStandaloneAmountRow(block.text) &&
-                      !RegExp(
-                        '^(?:$_currencyTokenPattern)\\s*[-+]?\\d',
-                        caseSensitive: false,
-                      ).hasMatch(block.text.trim()) &&
-                      _unicodeLetterPattern.hasMatch(block.text);
-                })
-                .map((block) => block.text.trim())
-                .join(' '),
-          ),
+        final columnDescription = _cleanDescription(
+          tableBlocks
+              .where((block) {
+                if (block == currencyBlock) return false;
+                final right = block.points
+                    .map((point) => point.x)
+                    .reduce((a, b) => a > b ? a : b);
+                final left = block.points
+                    .map((point) => point.x)
+                    .reduce((a, b) => a < b ? a : b);
+                final center = (left + right) / 2;
+                return (amountOnLeft
+                        ? left > amountRight + 12 &&
+                              center >= descriptionColumnEdge
+                        : right < amountLeft - 12 &&
+                              center <= descriptionColumnEdge) &&
+                    !_isStandaloneAmountRow(block.text) &&
+                    !RegExp(
+                      '^(?:$_currencyTokenPattern)\\s*[-+]?\\d',
+                      caseSensitive: false,
+                    ).hasMatch(block.text.trim()) &&
+                    _unicodeLetterPattern.hasMatch(block.text);
+              })
+              .map((block) => block.text.trim())
+              .join(' '),
         );
+        final description = intermediateHeaderEdges.isEmpty
+            ? _stripChargeTableColumns(columnDescription)
+            : columnDescription;
         if (!_hasSubstantiveItemDescription(description) ||
             _isReceiptMetadataLine(description, allowBarePostal: false)) {
           continue;
@@ -2162,8 +2208,13 @@ class ReceiptOcrParser {
       if (merchantLineIndices.contains(lineIndex)) {
         continue;
       }
+      if (lineIndex + 1 < lines.length &&
+          _isBillChargeDetailHeader(lines, lineIndex + 1) &&
+          !_lineHasAmount(line)) {
+        continue;
+      }
       if (_isAdministrativeLine(line) ||
-          _isChargeTableHeader(line) ||
+          _isSupportedChargeTableHeader(lines, lineIndex) ||
           _isContextualReceiptMetadataLine(lines, lineIndex) ||
           _lineHasAmount(line) ||
           _detectDate([line]) != null) {
@@ -2437,12 +2488,20 @@ bool _isFinancialLabelWithAdjacentAmount(
   final ambiguous = <int>{};
   var inTable = false;
   var hasRateColumn = false;
+  var requiresLayoutAmountColumn = false;
   for (var index = 0; index < lines.length; index++) {
     final line = lines[index];
     final lower = line.toLowerCase();
-    if (_isChargeTableHeader(line)) {
+    if (_isSupportedChargeTableHeader(lines, index)) {
       inTable = true;
       hasRateColumn = RegExp(r'\brate\b', caseSensitive: false).hasMatch(line);
+      requiresLayoutAmountColumn =
+          _isInvoiceProductTableHeader(line) ||
+          (_isBillChargeDetailHeader(lines, index) &&
+              RegExp(
+                r'\bservice\s+period\b',
+                caseSensitive: false,
+              ).hasMatch(line));
       continue;
     }
     if (!inTable) continue;
@@ -2464,6 +2523,13 @@ bool _isFinancialLabelWithAdjacentAmount(
     final prefix = pricedRow?.group(1)?.trim() ?? '';
     if (detachedAmountSignRows.contains(index)) {
       ambiguous.add(index);
+      continue;
+    }
+    // An invoice's unit price or a bill's service-period date can be the last
+    // recognized number when its final amount cell is missing. Only the
+    // labeled amount column's geometry can select line money in these tables.
+    if (requiresLayoutAmountColumn) {
+      if (pricedRow != null) ambiguous.add(index);
       continue;
     }
     if (pricedRow != null &&
@@ -2560,9 +2626,37 @@ bool _isChargeTableSectionBoundary(String line) {
 
 bool _isChargeTableHeader(String line) {
   final lower = line.toLowerCase();
-  return RegExp(r'\bdescription\b').hasMatch(lower) &&
-      RegExp(r'\b(?:amount|total|charges?)\b').hasMatch(lower) &&
-      RegExp(r'\b(?:rate|usage|therms|kwh|units?)\b').hasMatch(lower);
+  return (RegExp(r'\bdescription\b').hasMatch(lower) &&
+          RegExp(r'\b(?:amount|total|charges?)\b').hasMatch(lower) &&
+          RegExp(r'\b(?:rate|usage|therms|kwh|units?)\b').hasMatch(lower)) ||
+      _isInvoiceProductTableHeader(line);
+}
+
+bool _isSupportedChargeTableHeader(List<String> lines, int index) =>
+    _isChargeTableHeader(lines[index]) ||
+    _isBillChargeDetailHeader(lines, index);
+
+bool _isBillChargeDetailHeader(List<String> lines, int index) {
+  if (index == 0) return false;
+  if (_lineHasAmount(lines[index - 1])) return false;
+  final lower = lines[index].toLowerCase();
+  if (!RegExp(r'\bdescription\b').hasMatch(lower) ||
+      !RegExp(r'\bamount\b').hasMatch(lower)) {
+    return false;
+  }
+  return RegExp(
+    r'\b(?:current\s+charges?\s+detail|charges?\s+for\s+(?:this|the|current)\s+period|(?:itemized|detailed)\s+charges?|charges?\s+(?:detail|breakdown))\b',
+    caseSensitive: false,
+  ).hasMatch(lines[index - 1]);
+}
+
+bool _isInvoiceProductTableHeader(String line) {
+  final lower = line.toLowerCase();
+  return RegExp(r'\bproduct\s*(?:/|&)\s*service\b').hasMatch(lower) &&
+      RegExp(r'\btotal\b').hasMatch(lower) &&
+      RegExp(r'\b(?:sku|item\s*(?:no|number)|code)\b').hasMatch(lower) &&
+      RegExp(r'\b(?:qty|quantity)\b').hasMatch(lower) &&
+      RegExp(r'\bunit\s*price\b').hasMatch(lower);
 }
 
 String _stripChargeTableColumns(String description) {
