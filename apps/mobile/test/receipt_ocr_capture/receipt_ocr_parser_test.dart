@@ -713,6 +713,55 @@ Grand Total USD 118.79
     },
   );
 
+  test('split tenders and a printed balance stay out of merchandise', () {
+    final preview = const ReceiptOcrParser().parse('''
+Family Market
+Groceries USD 40.00
+Total USD 40.00
+Paid Cash USD 15.00
+Paid Card USD 25.00
+Balance USD 0.00
+''');
+    expect(preview.items.map((item) => item.description), ['Groceries']);
+    expect(preview.total, '40.00');
+  });
+
+  test('a paid deposit is payment evidence and remains under review', () {
+    final preview = const ReceiptOcrParser().parse('''
+Hotel
+Room Night 09/15 USD 180.00
+Room Night 09/16 USD 180.00
+City Tax USD 18.00
+Tourism Fee USD 10.00
+Subtotal USD 388.00
+Deposit Paid USD -100.00
+Amount Due USD 288.00
+''');
+    expect(preview.items.map((item) => item.description), [
+      'Room Night 09/15',
+      'Room Night 09/16',
+    ]);
+    expect(preview.tax, '18.00');
+    expect(preview.subtotal, '388.00');
+    expect(preview.discount, isNull);
+    expect(preview.reviewHints, isNotEmpty);
+  });
+
+  test('role words inside priced product names remain items', () {
+    final preview = const ReceiptOcrParser().parse('''
+Store
+Balance Board USD 19.99
+Tourism Fee Package USD 12.00
+Deposit Paid Pass USD 5.00
+Total USD 36.99
+''');
+    expect(preview.items.map((item) => item.description), [
+      'Balance Board',
+      'Tourism Fee Package',
+      'Deposit Paid Pass',
+    ]);
+  });
+
   test('postal and registration headers do not become merchandise', () {
     const parser = ReceiptOcrParser();
     final us = parser.parse('''

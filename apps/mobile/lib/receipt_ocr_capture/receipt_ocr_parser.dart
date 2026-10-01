@@ -2595,6 +2595,7 @@ bool _isChargeTableSummaryLine(String line) {
   final normalized = line.toLowerCase();
   return _isAccountBalanceSummaryLine(line) ||
       _hasTaxLabel(line, normalized) ||
+      _isExplicitNonItemFeeLine(line) ||
       _hasDiscountLabel(line, normalized) ||
       _hasActualTipChargeLabel(line, normalized) ||
       _isPaymentMetadataLine(line);
@@ -3385,6 +3386,7 @@ bool _isAdministrativeLine(String line) {
   final normalized = line.toLowerCase();
   return _hasSubtotalLabel(line, normalized) ||
       _hasTaxLabel(line, normalized) ||
+      _isExplicitNonItemFeeLine(line) ||
       _hasServiceChargeLabel(line, normalized) ||
       _hasActualTipChargeLabel(line, normalized) ||
       _isSuggestedTipLine(normalized) ||
@@ -3396,14 +3398,44 @@ bool _isAdministrativeLine(String line) {
       normalized.contains('thank you');
 }
 
-bool _isAccountBalanceSummaryLine(String line) => RegExp(
-  r'^(?:(?:previous|prior|opening|closing|outstanding)\s+balance|balance\s+(?:forward|brought\s+forward)|payments?\s+(?:received|made)|current\s+(?:[\p{L}]+\s+){0,3}charges)\b',
-  caseSensitive: false,
-  unicode: true,
-).hasMatch(line.trim());
+bool _isAccountBalanceSummaryLine(String line) =>
+    RegExp(
+      r'^(?:(?:previous|prior|opening|closing|outstanding)\s+balance|balance\s+(?:forward|brought\s+forward)|payments?\s+(?:received|made)|current\s+(?:[\p{L}]+\s+){0,3}charges)\b',
+      caseSensitive: false,
+      unicode: true,
+    ).hasMatch(line.trim()) ||
+    _isLabeledStandaloneMoneyLine(
+      line,
+      RegExp(r'^balance\b', caseSensitive: false),
+    );
+
+bool _isLabeledStandaloneMoneyLine(String line, RegExp label) {
+  final trimmed = line.trim();
+  final match = label.firstMatch(trimmed);
+  if (match == null) return false;
+  final remainder = trimmed
+      .substring(match.end)
+      .replaceFirst(RegExp(r'^\s*[:：]\s*'), '')
+      .trim();
+  return _isStandaloneAmountRow(remainder);
+}
+
+bool _isExplicitNonItemFeeLine(String line) => _isLabeledStandaloneMoneyLine(
+  line,
+  RegExp(
+    r'^(?:tourism|tourist|resort|destination|facility|municipal)\s+fee\b',
+    caseSensitive: false,
+  ),
+);
 
 bool _isPaymentMetadataLine(String line) {
   final normalized = line.toLowerCase().trim();
+  if (_isLabeledStandaloneMoneyLine(
+    line,
+    RegExp(r'^(?:deposit\s+paid|paid\s+deposit)\b', caseSensitive: false),
+  )) {
+    return true;
+  }
   if (RegExp(
         r'^(?:payment\s+(?:coupon|information|summary)|remittance)\b',
       ).hasMatch(normalized) &&
@@ -4298,7 +4330,7 @@ bool _hasTaxLabel(String line, String normalized) {
   return _hasEnglishReceiptLabel(
         normalized,
         RegExp(
-          r'\b(?:sales\s+tax|tax|vat|gst|hst|iva|tva|kdv|mwst)\b\.?',
+          r'\b(?:(?:city|state|local|county|municipal|tourist|tourism|occupancy)\s+tax|sales\s+tax|tax|vat|gst|hst|iva|tva|kdv|mwst)\b\.?',
           caseSensitive: false,
         ),
       ) ||

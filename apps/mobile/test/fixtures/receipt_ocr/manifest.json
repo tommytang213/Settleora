@@ -2594,7 +2594,7 @@
         "date": "2026-09-17",
         "currency": "USD",
         "subtotal": "388.00",
-        "discount": "-100.00",
+        "tax": "18.00",
         "total": "288.00",
         "items": [
           [
@@ -2615,7 +2615,7 @@
           "USD"
         ]
       },
-      "notes": "Final payable is Amount Due after deposit, not raw subtotal."
+      "notes": "Source prints City Tax as tax and Deposit Paid as a payment credit, not a discount. Final payable is Amount Due after deposit; Tourism Fee remains visible non-item evidence."
     },
     {
       "id": "layout_12_utility_previous_balance",
