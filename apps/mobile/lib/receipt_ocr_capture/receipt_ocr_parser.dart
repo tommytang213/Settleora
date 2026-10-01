@@ -2412,7 +2412,12 @@ class ReceiptOcrParser {
       if (courtesy &&
           layoutRows.isEmpty &&
           lastPricedTotal >= 0 &&
-          lineIndex == lines.length - 1) {
+          lineIndex == lines.length - 1 &&
+          _hasOnlyPaymentAmountsBeforeCourtesy(
+            lines,
+            lastPricedTotal,
+            lineIndex,
+          )) {
         continue;
       }
 
@@ -2450,21 +2455,36 @@ bool _isCenteredPostTotalFooter(
   if (lastPricedTotal < 0 ||
       lineIndex <= lastPricedTotal ||
       layoutRows.length != lines.length ||
-      lines.skip(lastPricedTotal + 1).any(_lineHasAmount) ||
+      !_hasOnlyPaymentAmountsBeforeCourtesy(
+        lines,
+        lastPricedTotal,
+        lineIndex,
+      ) ||
       !_isReceiptCourtesyLine(lines[lineIndex])) {
     return false;
   }
-  final totalPoints = layoutRows[lastPricedTotal]
+  final contentPoints = layoutRows
+      .take(lineIndex)
+      .expand((row) => row)
       .expand((block) => block.points)
       .toList(growable: false);
+  final transactionPoints = <ReceiptOcrPoint>[
+    for (var index = lastPricedTotal; index < lineIndex; index++)
+      if (index == lastPricedTotal || _lineHasAmount(lines[index]))
+        for (final block in layoutRows[index]) ...block.points,
+  ];
   final footerPoints = layoutRows[lineIndex]
       .expand((block) => block.points)
       .toList(growable: false);
-  if (totalPoints.isEmpty || footerPoints.isEmpty) return false;
-  final totalLeft = totalPoints
+  if (contentPoints.isEmpty ||
+      transactionPoints.isEmpty ||
+      footerPoints.isEmpty) {
+    return false;
+  }
+  final contentLeft = contentPoints
       .map((point) => point.x)
       .reduce((a, b) => a < b ? a : b);
-  final totalRight = totalPoints
+  final contentRight = contentPoints
       .map((point) => point.x)
       .reduce((a, b) => a > b ? a : b);
   final footerLeft = footerPoints
@@ -2473,21 +2493,35 @@ bool _isCenteredPostTotalFooter(
   final footerRight = footerPoints
       .map((point) => point.x)
       .reduce((a, b) => a > b ? a : b);
-  final totalBottom = totalPoints
+  final transactionBottom = transactionPoints
       .map((point) => point.y)
       .reduce((a, b) => a > b ? a : b);
   final footerTop = footerPoints
       .map((point) => point.y)
       .reduce((a, b) => a < b ? a : b);
-  final totalWidth = totalRight - totalLeft;
-  if (footerTop <= totalBottom ||
-      totalWidth <= 0 ||
-      footerRight - footerLeft > totalWidth * 0.5) {
+  final contentWidth = contentRight - contentLeft;
+  if (footerTop <= transactionBottom ||
+      contentWidth <= 0 ||
+      footerRight - footerLeft > contentWidth * 0.5) {
     return false;
   }
-  final totalCenter = (totalLeft + totalRight) / 2;
+  final contentCenter = (contentLeft + contentRight) / 2;
   final footerCenter = (footerLeft + footerRight) / 2;
-  return (footerCenter - totalCenter).abs() <= totalWidth * 0.15;
+  return (footerCenter - contentCenter).abs() <= contentWidth * 0.15;
+}
+
+bool _hasOnlyPaymentAmountsBeforeCourtesy(
+  List<String> lines,
+  int lastPricedTotal,
+  int courtesyIndex,
+) {
+  for (var index = lastPricedTotal + 1; index < lines.length; index++) {
+    if (!_lineHasAmount(lines[index])) continue;
+    if (index >= courtesyIndex || !_isPaymentMetadataLine(lines[index])) {
+      return false;
+    }
+  }
+  return true;
 }
 
 bool _isReceiptCourtesyLine(String line) {

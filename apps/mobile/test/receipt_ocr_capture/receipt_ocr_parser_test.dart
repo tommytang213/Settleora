@@ -3920,6 +3920,69 @@ Total USD 20.00
     expect(shoppingNamedItem.reviewHints, isNotEmpty);
   });
 
+  test('courtesy footer after tender needs final placement and item safety', () {
+    const parser = ReceiptOcrParser();
+    final centeredAfterTender = parser.parse(
+      'Cafe\nBread USD 5.00\nTotal USD 5.00\nCash USD 10.00\nChange USD 5.00\nThank you for shopping',
+      blocks: [
+        _layoutBlock('Cafe', 0, 0, 350, 650),
+        _layoutBlock('Bread USD 5.00', 1, 1, 100, 900),
+        _layoutBlock('Total USD 5.00', 2, 2, 700, 900),
+        _layoutBlock('Cash USD 10.00', 3, 3, 700, 900),
+        _layoutBlock('Change USD 5.00', 4, 4, 700, 900),
+        _layoutBlock('Thank you for shopping', 5, 5, 450, 550),
+      ],
+    );
+    final leftAlignedAfterTender = parser.parse(
+      'Cafe\nBread USD 5.00\nTotal USD 5.00\nCash USD 10.00\nChange USD 5.00\nThank you for shopping',
+      blocks: [
+        _layoutBlock('Cafe', 0, 0, 350, 650),
+        _layoutBlock('Bread USD 5.00', 1, 1, 100, 900),
+        _layoutBlock('Total USD 5.00', 2, 2, 700, 900),
+        _layoutBlock('Cash USD 10.00', 3, 3, 700, 900),
+        _layoutBlock('Change USD 5.00', 4, 4, 700, 900),
+        _layoutBlock('Thank you for shopping', 5, 5, 100, 300),
+      ],
+    );
+    final footerBeforeTender = parser.parse(
+      'Cafe\nBread USD 5.00\nTotal USD 5.00\nThank you for shopping\nCash USD 10.00',
+      blocks: [
+        _layoutBlock('Cafe', 0, 0, 350, 650),
+        _layoutBlock('Bread USD 5.00', 1, 1, 100, 900),
+        _layoutBlock('Total USD 5.00', 2, 2, 700, 900),
+        _layoutBlock('Thank you for shopping', 3, 3, 450, 550),
+        _layoutBlock('Cash USD 10.00', 4, 4, 700, 900),
+      ],
+    );
+    final pricedItemAfterTotal = parser.parse(
+      'Cafe\nBread USD 5.00\nTotal USD 5.00\nGift USD 2.00\nThank you for shopping',
+      blocks: [
+        _layoutBlock('Cafe', 0, 0, 350, 650),
+        _layoutBlock('Bread USD 5.00', 1, 1, 100, 900),
+        _layoutBlock('Total USD 5.00', 2, 2, 700, 900),
+        _layoutBlock('Gift USD 2.00', 3, 3, 100, 900),
+        _layoutBlock('Thank you for shopping', 4, 4, 450, 550),
+      ],
+    );
+    final noLayoutAfterTender = parser.parse(
+      'Cafe\nBread USD 5.00\nTotal USD 5.00\nCash USD 10.00\nChange USD 5.00\nThank you for shopping',
+    );
+    final noLayoutWithMerchandise = parser.parse(
+      'Cafe\nBread USD 5.00\nTotal USD 5.00\nGift USD 2.00\nThank you for shopping',
+    );
+
+    expect(centeredAfterTender.reviewHints, isEmpty);
+    expect(leftAlignedAfterTender.reviewHints, isNotEmpty);
+    expect(footerBeforeTender.reviewHints, isNotEmpty);
+    expect(pricedItemAfterTotal.reviewHints, isNotEmpty);
+    expect(noLayoutAfterTender.reviewHints, isEmpty);
+    expect(noLayoutWithMerchandise.reviewHints, isNotEmpty);
+    expect(
+      noLayoutWithMerchandise.items.map((item) => item.description),
+      contains('Gift'),
+    );
+  });
+
   test('parser excludes a bare approval identifier from items', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse('''
