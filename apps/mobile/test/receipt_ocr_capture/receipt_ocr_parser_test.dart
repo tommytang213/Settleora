@@ -3878,10 +3878,30 @@ Total USD 20.00
           _layoutBlock('Unpriced item', 3, 3, 450, 550),
         ],
       );
+      final courtesyNamedItem = parser.parse(
+        'Corner Cafe\nBread USD 5.00\nTotal USD 5.00\nThank You Gift',
+        blocks: [
+          _layoutBlock('Corner Cafe', 0, 0, 350, 650),
+          _layoutBlock('Bread USD 5.00', 1, 1, 100, 900),
+          _layoutBlock('Total USD 5.00', 2, 2, 100, 900),
+          _layoutBlock('Thank You Gift', 3, 3, 450, 550),
+        ],
+      );
+      final leftAlignedCourtesy = parser.parse(
+        'Corner Cafe\nBread USD 5.00\nTotal USD 5.00\nThank You',
+        blocks: [
+          _layoutBlock('Corner Cafe', 0, 0, 350, 650),
+          _layoutBlock('Bread USD 5.00', 1, 1, 100, 900),
+          _layoutBlock('Total USD 5.00', 2, 2, 100, 900),
+          _layoutBlock('Thank You', 3, 3, 100, 300),
+        ],
+      );
 
       expect(centered.reviewHints, isEmpty);
       expect(leftAligned.reviewHints, isNotEmpty);
       expect(centeredUnresolved.reviewHints, isNotEmpty);
+      expect(courtesyNamedItem.reviewHints, isNotEmpty);
+      expect(leftAlignedCourtesy.reviewHints, isNotEmpty);
     },
   );
 

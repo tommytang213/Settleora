@@ -2393,9 +2393,10 @@ class ReceiptOcrParser {
           !_lineHasAmount(line)) {
         continue;
       }
-      if (_isAdministrativeLine(line) ||
+      final courtesy = _isReceiptCourtesyLine(line);
+      if ((!courtesy && _isAdministrativeLine(line)) ||
           _isSupportedChargeTableHeader(lines, lineIndex) ||
-          _isContextualReceiptMetadataLine(lines, lineIndex) ||
+          (!courtesy && _isContextualReceiptMetadataLine(lines, lineIndex)) ||
           _lineHasAmount(line) ||
           _detectDate([line]) != null) {
         continue;
@@ -2406,6 +2407,12 @@ class ReceiptOcrParser {
         lineIndex,
         lastPricedTotal,
       )) {
+        continue;
+      }
+      if (courtesy &&
+          layoutRows.isEmpty &&
+          lastPricedTotal >= 0 &&
+          lineIndex == lines.length - 1) {
         continue;
       }
 
@@ -2424,7 +2431,8 @@ class ReceiptOcrParser {
         continue;
       }
       final letterCount = _unicodeLetterPattern.allMatches(cleaned).length;
-      if (letterCount >= 2 && !_isLikelyNonItemDescription(cleaned)) {
+      if (letterCount >= 2 &&
+          (courtesy || !_isLikelyNonItemDescription(cleaned))) {
         count += 1;
       }
     }
@@ -3662,7 +3670,7 @@ bool _isAdministrativeLine(String line) {
       _hasTotalLabel(line, normalized) ||
       _isAccountBalanceSummaryLine(line) ||
       _isNonTransactionCurrencyMetadataLine(line) ||
-      normalized.contains('thank you');
+      _isReceiptCourtesyLine(line);
 }
 
 bool _isAccountBalanceSummaryLine(String line) =>
@@ -4429,7 +4437,7 @@ bool _isReceiptMetadataLine(String line, {bool allowBarePostal = true}) {
   if (normalized.isEmpty) {
     return true;
   }
-
+  if (_isReceiptCourtesyLine(line)) return true;
   if (_isDateOrTimeOnlyLine(normalized)) {
     return true;
   }
@@ -4490,9 +4498,7 @@ bool _isReceiptMetadataLine(String line, {bool allowBarePostal = true}) {
     // A word after "Store" can be a priced product or promotion. A printed
     // store identifier needs an actual identifier shape before it is metadata.
     RegExp(r'\bstore\b\s*[:#-]?\s*[a-z0-9-]*\d[a-z0-9-]*\b'),
-    RegExp(
-      r'\b(open|close|closed|served|powered by|thank you|welcome|visit again)\b',
-    ),
+    RegExp(r'\b(open|close|closed|served|powered by|welcome|visit again)\b'),
   ];
 
   return metadataPatterns.any((pattern) => pattern.hasMatch(normalized));
