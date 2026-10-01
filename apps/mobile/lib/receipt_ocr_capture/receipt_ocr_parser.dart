@@ -2498,6 +2498,7 @@ bool _isReceiptCourtesyLine(String line) {
       .trim();
   return const {
     'thank you',
+    'thank you for shopping',
     'merci',
     'vielen dank',
     'gracias',

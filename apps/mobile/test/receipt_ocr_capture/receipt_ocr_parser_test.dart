@@ -3847,63 +3847,78 @@ Total USD 20.00
     expect(suggested.reviewHints, isEmpty);
   });
 
-  test(
-    'centered unpriced footer after final total does not require review',
-    () {
-      const parser = ReceiptOcrParser();
-      final centered = parser.parse(
-        'Corner Cafe\nBread USD 5.00\nTotal USD 5.00\nMerci',
-        blocks: [
-          _layoutBlock('Corner Cafe', 0, 0, 350, 650),
-          _layoutBlock('Bread USD 5.00', 1, 1, 100, 900),
-          _layoutBlock('Total USD 5.00', 2, 2, 100, 900),
-          _layoutBlock('Merci', 3, 3, 450, 550),
-        ],
-      );
-      final leftAligned = parser.parse(
-        'Corner Cafe\nBread USD 5.00\nTotal USD 5.00\nUnpriced item',
-        blocks: [
-          _layoutBlock('Corner Cafe', 0, 0, 350, 650),
-          _layoutBlock('Bread USD 5.00', 1, 1, 100, 900),
-          _layoutBlock('Total USD 5.00', 2, 2, 100, 900),
-          _layoutBlock('Unpriced item', 3, 3, 100, 300),
-        ],
-      );
-      final centeredUnresolved = parser.parse(
-        'Corner Cafe\nBread USD 5.00\nTotal USD 5.00\nUnpriced item',
-        blocks: [
-          _layoutBlock('Corner Cafe', 0, 0, 350, 650),
-          _layoutBlock('Bread USD 5.00', 1, 1, 100, 900),
-          _layoutBlock('Total USD 5.00', 2, 2, 100, 900),
-          _layoutBlock('Unpriced item', 3, 3, 450, 550),
-        ],
-      );
-      final courtesyNamedItem = parser.parse(
-        'Corner Cafe\nBread USD 5.00\nTotal USD 5.00\nThank You Gift',
-        blocks: [
-          _layoutBlock('Corner Cafe', 0, 0, 350, 650),
-          _layoutBlock('Bread USD 5.00', 1, 1, 100, 900),
-          _layoutBlock('Total USD 5.00', 2, 2, 100, 900),
-          _layoutBlock('Thank You Gift', 3, 3, 450, 550),
-        ],
-      );
-      final leftAlignedCourtesy = parser.parse(
-        'Corner Cafe\nBread USD 5.00\nTotal USD 5.00\nThank You',
-        blocks: [
-          _layoutBlock('Corner Cafe', 0, 0, 350, 650),
-          _layoutBlock('Bread USD 5.00', 1, 1, 100, 900),
-          _layoutBlock('Total USD 5.00', 2, 2, 100, 900),
-          _layoutBlock('Thank You', 3, 3, 100, 300),
-        ],
-      );
+  test('centered unpriced footer after final total does not require review', () {
+    const parser = ReceiptOcrParser();
+    final centered = parser.parse(
+      'Corner Cafe\nBread USD 5.00\nTotal USD 5.00\nMerci',
+      blocks: [
+        _layoutBlock('Corner Cafe', 0, 0, 350, 650),
+        _layoutBlock('Bread USD 5.00', 1, 1, 100, 900),
+        _layoutBlock('Total USD 5.00', 2, 2, 100, 900),
+        _layoutBlock('Merci', 3, 3, 450, 550),
+      ],
+    );
+    final leftAligned = parser.parse(
+      'Corner Cafe\nBread USD 5.00\nTotal USD 5.00\nUnpriced item',
+      blocks: [
+        _layoutBlock('Corner Cafe', 0, 0, 350, 650),
+        _layoutBlock('Bread USD 5.00', 1, 1, 100, 900),
+        _layoutBlock('Total USD 5.00', 2, 2, 100, 900),
+        _layoutBlock('Unpriced item', 3, 3, 100, 300),
+      ],
+    );
+    final centeredUnresolved = parser.parse(
+      'Corner Cafe\nBread USD 5.00\nTotal USD 5.00\nUnpriced item',
+      blocks: [
+        _layoutBlock('Corner Cafe', 0, 0, 350, 650),
+        _layoutBlock('Bread USD 5.00', 1, 1, 100, 900),
+        _layoutBlock('Total USD 5.00', 2, 2, 100, 900),
+        _layoutBlock('Unpriced item', 3, 3, 450, 550),
+      ],
+    );
+    final courtesyNamedItem = parser.parse(
+      'Corner Cafe\nBread USD 5.00\nTotal USD 5.00\nThank You Gift',
+      blocks: [
+        _layoutBlock('Corner Cafe', 0, 0, 350, 650),
+        _layoutBlock('Bread USD 5.00', 1, 1, 100, 900),
+        _layoutBlock('Total USD 5.00', 2, 2, 100, 900),
+        _layoutBlock('Thank You Gift', 3, 3, 450, 550),
+      ],
+    );
+    final leftAlignedCourtesy = parser.parse(
+      'Corner Cafe\nBread USD 5.00\nTotal USD 5.00\nThank You',
+      blocks: [
+        _layoutBlock('Corner Cafe', 0, 0, 350, 650),
+        _layoutBlock('Bread USD 5.00', 1, 1, 100, 900),
+        _layoutBlock('Total USD 5.00', 2, 2, 100, 900),
+        _layoutBlock('Thank You', 3, 3, 100, 300),
+      ],
+    );
+    final shoppingFooter = parser.parse(
+      'Corner Cafe\nBread USD 5.00\nTotal USD 5.00\nThank you for shopping',
+    );
+    final leftAlignedShopping = parser.parse(
+      'Corner Cafe\nBread USD 5.00\nTotal USD 5.00\nThank you for shopping',
+      blocks: [
+        _layoutBlock('Corner Cafe', 0, 0, 350, 650),
+        _layoutBlock('Bread USD 5.00', 1, 1, 100, 900),
+        _layoutBlock('Total USD 5.00', 2, 2, 100, 900),
+        _layoutBlock('Thank you for shopping', 3, 3, 100, 300),
+      ],
+    );
+    final shoppingNamedItem = parser.parse(
+      'Corner Cafe\nBread USD 5.00\nTotal USD 5.00\nThank You for Shopping Bag',
+    );
 
-      expect(centered.reviewHints, isEmpty);
-      expect(leftAligned.reviewHints, isNotEmpty);
-      expect(centeredUnresolved.reviewHints, isNotEmpty);
-      expect(courtesyNamedItem.reviewHints, isNotEmpty);
-      expect(leftAlignedCourtesy.reviewHints, isNotEmpty);
-    },
-  );
+    expect(centered.reviewHints, isEmpty);
+    expect(leftAligned.reviewHints, isNotEmpty);
+    expect(centeredUnresolved.reviewHints, isNotEmpty);
+    expect(courtesyNamedItem.reviewHints, isNotEmpty);
+    expect(leftAlignedCourtesy.reviewHints, isNotEmpty);
+    expect(shoppingFooter.reviewHints, isEmpty);
+    expect(leftAlignedShopping.reviewHints, isNotEmpty);
+    expect(shoppingNamedItem.reviewHints, isNotEmpty);
+  });
 
   test('parser excludes a bare approval identifier from items', () {
     const parser = ReceiptOcrParser();
