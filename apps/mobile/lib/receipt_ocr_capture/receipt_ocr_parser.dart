@@ -2515,11 +2515,28 @@ bool _hasOnlyPaymentAmountsBeforeCourtesy(
   int lastPricedTotal,
   int courtesyIndex,
 ) {
+  var sawPayment = false;
   for (var index = lastPricedTotal + 1; index < lines.length; index++) {
     if (!_lineHasAmount(lines[index])) continue;
-    if (index >= courtesyIndex || !_isPaymentMetadataLine(lines[index])) {
-      return false;
+    if (index >= courtesyIndex) return false;
+    if (_isPaymentMetadataLine(lines[index])) {
+      sawPayment = true;
+      continue;
     }
+    // A zero balance following tender rows closes the payment sequence. A
+    // nonzero balance or an item whose name contains "Balance" still needs
+    // review rather than being mistaken for settled payment evidence.
+    if (sawPayment &&
+        _isLabeledStandaloneMoneyLine(
+          lines[index],
+          RegExp(r'^balance\b', caseSensitive: false),
+        ) &&
+        RegExp(
+          r'^0(?:\.0{1,3})?$',
+        ).hasMatch(_lastAmountInLine(lines[index]) ?? '')) {
+      continue;
+    }
+    return false;
   }
   return true;
 }
@@ -2530,7 +2547,7 @@ bool _isReceiptCourtesyLine(String line) {
       .toLowerCase()
       .replaceFirst(RegExp(r'[.!。！]+$'), '')
       .trim();
-  return const {
+  const courtesyPhrases = {
     'thank you',
     'thank you for shopping',
     'merci',
@@ -2540,6 +2557,8 @@ bool _isReceiptCourtesyLine(String line) {
     'obrigada',
     '謝謝光臨',
     '谢谢光临',
+    '多謝',
+    '多谢',
     'धन्यवाद',
     'ขอบคุณ',
     '감사합니다',
@@ -2550,7 +2569,13 @@ bool _isReceiptCourtesyLine(String line) {
     'спасибо',
     'teşekkürler',
     'dziękujemy',
-  }.contains(normalized);
+  };
+  if (courtesyPhrases.contains(normalized)) return true;
+  final translatedSegments = normalized.split(RegExp(r'\s*[/／]\s*'));
+  return translatedSegments.length > 1 &&
+      translatedSegments.every(
+        (segment) => segment.isNotEmpty && courtesyPhrases.contains(segment),
+      );
 }
 
 bool _hasUnsupportedCurrencySymbolOnSelectedAmount(String text) {

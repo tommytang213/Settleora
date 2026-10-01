@@ -3983,6 +3983,75 @@ Total USD 20.00
     );
   });
 
+  test(
+    'multilingual final courtesy requires known phrases and footer position',
+    () {
+      const parser = ReceiptOcrParser();
+      final centered = parser.parse(
+        'Bakery\nBread USD 5.00\nTotal USD 5.00\nThank you / Gracias / 多謝',
+        blocks: [
+          _layoutBlock('Bakery', 0, 0, 350, 650),
+          _layoutBlock('Bread USD 5.00', 1, 1, 100, 900),
+          _layoutBlock('Total USD 5.00', 2, 2, 700, 900),
+          _layoutBlock('Thank you / Gracias / 多謝', 3, 3, 370, 630),
+        ],
+      );
+      final leftAligned = parser.parse(
+        'Bakery\nBread USD 5.00\nTotal USD 5.00\nThank you / Gracias / 多謝',
+        blocks: [
+          _layoutBlock('Bakery', 0, 0, 350, 650),
+          _layoutBlock('Bread USD 5.00', 1, 1, 100, 900),
+          _layoutBlock('Total USD 5.00', 2, 2, 700, 900),
+          _layoutBlock('Thank you / Gracias / 多謝', 3, 3, 100, 360),
+        ],
+      );
+      final unknownSegment = parser.parse(
+        'Bakery\nBread USD 5.00\nTotal USD 5.00\nThank you / Gift',
+        blocks: [
+          _layoutBlock('Bakery', 0, 0, 350, 650),
+          _layoutBlock('Bread USD 5.00', 1, 1, 100, 900),
+          _layoutBlock('Total USD 5.00', 2, 2, 700, 900),
+          _layoutBlock('Thank you / Gift', 3, 3, 450, 550),
+        ],
+      );
+
+      expect(centered.reviewHints, isEmpty);
+      expect(leftAligned.reviewHints, isNotEmpty);
+      expect(unknownSegment.reviewHints, isNotEmpty);
+    },
+  );
+
+  test(
+    'settled split tender permits only a zero balance before final courtesy',
+    () {
+      const parser = ReceiptOcrParser();
+      ReceiptOcrPreview parseWithBalance(String balance) => parser.parse(
+        'Market\nGroceries USD 40.00\nTotal USD 40.00\nPaid Cash USD 15.00\nPaid Card USD 25.00\n$balance\nThank you',
+        blocks: [
+          _layoutBlock('Market', 0, 0, 350, 650),
+          _layoutBlock('Groceries USD 40.00', 1, 1, 100, 900),
+          _layoutBlock('Total USD 40.00', 2, 2, 700, 900),
+          _layoutBlock('Paid Cash USD 15.00', 3, 3, 700, 900),
+          _layoutBlock('Paid Card USD 25.00', 4, 4, 700, 900),
+          _layoutBlock(balance, 5, 5, 700, 900),
+          _layoutBlock('Thank you', 6, 6, 450, 550),
+        ],
+      );
+
+      final settled = parseWithBalance('Balance USD 0.00');
+      final unpaid = parseWithBalance('Balance USD 2.00');
+      final merchandise = parseWithBalance('Balance Board USD 2.00');
+      expect(settled.items.map((item) => item.description), ['Groceries']);
+      expect(settled.reviewHints, isEmpty);
+      expect(unpaid.reviewHints, isNotEmpty);
+      expect(merchandise.reviewHints, isNotEmpty);
+      expect(
+        merchandise.items.map((item) => item.description),
+        contains('Balance Board'),
+      );
+    },
+  );
+
   test('parser excludes a bare approval identifier from items', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse('''

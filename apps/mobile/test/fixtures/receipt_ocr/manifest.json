@@ -1008,7 +1008,8 @@
             "13.00"
           ]
         ],
-        "subtotal": "18.50"
+        "subtotal": "18.50",
+        "tax": "1.68"
       },
       "expected_currency_resolution": {
         "currency": "AUD",
