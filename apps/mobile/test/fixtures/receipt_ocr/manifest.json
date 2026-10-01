@@ -88,6 +88,8 @@
         "merchant": "BlueRiver Water Services",
         "date": "2024-08-15",
         "currency": "USD",
+        "service": "8.00",
+        "tax": "4.22",
         "total": "109.72",
         "items": [
           [
@@ -97,21 +99,10 @@
           [
             "Sewer Charge",
             "52.50"
-          ],
-          [
-            "Service Fee",
-            "8.00"
-          ],
-          [
-            "State Water Tax",
-            "2.64"
-          ],
-          [
-            "Local Utility Tax",
-            "1.58"
           ]
         ]
-      }
+      },
+      "notes": "Source separately labels a service fee and two tax components. The expected tax is their arithmetic sum; neither fee nor tax is merchandise."
     },
     {
       "id": "existing_04_horizon_mobile_en_US",
@@ -137,13 +128,10 @@
           [
             "International Calls",
             "4.50"
-          ],
-          [
-            "Taxes and Regulatory Fees",
-            "7.67"
           ]
         ]
-      }
+      },
+      "notes": "Source labels the final charge as combined taxes and regulatory fees. Its split is not printed, so no tax-only value is asserted; preserve the combined amount for review."
     },
     {
       "id": "existing_05_northstar_gas_en_US",
@@ -156,6 +144,7 @@
         "merchant": "NorthStar Gas Utility",
         "date": "2025-04-10",
         "currency": "USD",
+        "tax": "2.90",
         "total": "86.27",
         "items": [
           [
@@ -169,26 +158,11 @@
           [
             "Supply Charge",
             "33.06"
-          ],
-          [
-            "State Gas Tax",
-            "2.13"
-          ],
-          [
-            "Local Utility Tax",
-            "0.77"
-          ],
-          [
-            "Environmental Program Fee",
-            "3.04"
-          ],
-          [
-            "Energy Assistance Surcharge",
-            "0.76"
           ]
         ],
         "expected_review_condition": "printed total differs from visible charge-line arithmetic"
-      }
+      },
+      "notes": "Source separately labels two taxes, a fee, and a surcharge. Tax expectation is the sum of printed components; the printed total still disagrees with visible charge arithmetic, so review remains required."
     },
     {
       "id": "existing_06_metrogrid_electric_en_US",
@@ -219,13 +193,10 @@
           [
             "Public Purpose Programs",
             "5.21"
-          ],
-          [
-            "Taxes and Fees",
-            "8.74"
           ]
         ]
-      }
+      },
+      "notes": "Source labels a combined taxes-and-fees row without a printed split. It is not merchandise and no tax-only value is asserted; keep its amount as review evidence."
     },
     {
       "id": "existing_07_citylight_utility_en_US",
@@ -238,6 +209,8 @@
         "merchant": "CityLight Power & Water",
         "date": "2025-03-05",
         "currency": "USD",
+        "subtotal": "181.66",
+        "tax": "9.08",
         "total": "162.47",
         "items": [
           [
@@ -251,21 +224,10 @@
           [
             "Wastewater Service",
             "34.20"
-          ],
-          [
-            "City Utilities Tax (5%)",
-            "9.08"
-          ],
-          [
-            "State Energy Surcharge (1.5%)",
-            "2.73"
-          ],
-          [
-            "Account Credit",
-            "-31.00"
           ]
         ]
-      }
+      },
+      "notes": "Source prints subtotal, tax, surcharge, and account credit as separate financial roles. The credit is an account credit, not a merchandise item or discount; surcharge and credit remain review evidence."
     },
     {
       "id": "existing_08_citypark_parking_en_US",

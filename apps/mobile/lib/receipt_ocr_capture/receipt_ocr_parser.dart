@@ -1938,7 +1938,7 @@ class ReceiptOcrParser {
                   unicode: true,
                 ).hasMatch(description) ||
                 RegExp(
-                  r'^service\s+charge$',
+                  r'^service\s+(?:charge|fee)$',
                   caseSensitive: false,
                 ).hasMatch(description);
           })
@@ -1974,7 +1974,10 @@ class ReceiptOcrParser {
       final rate = RegExp(r'\d+(?:[.,]\d+)?%').firstMatch(label)?.group(0);
       lines[rowIndex] = isTax
           ? 'Tax ${rate == null ? '' : '$rate '}$monetaryText'
-          : RegExp(r'^service\s+charge$', caseSensitive: false).hasMatch(label)
+          : RegExp(
+              r'^service\s+(?:charge|fee)$',
+              caseSensitive: false,
+            ).hasMatch(label)
           ? 'Service Charge $monetaryText'
           : 'Discount $monetaryText';
     }
@@ -2194,7 +2197,7 @@ class ReceiptOcrParser {
           continue;
         }
         if (RegExp(
-              r'\bfee(?:\s*\([^)]*\))?$',
+              r'\b(?:fees?|surcharge)(?:\s*\([^)]*\))?$',
               caseSensitive: false,
             ).hasMatch(description) ||
             _isExplicitNonItemFeeLine('$description $monetaryText')) {
@@ -3524,6 +3527,10 @@ bool _isAccountBalanceSummaryLine(String line) =>
     _isLabeledStandaloneMoneyLine(
       line,
       RegExp(r'^balance\b', caseSensitive: false),
+    ) ||
+    _isLabeledStandaloneMoneyLine(
+      line,
+      RegExp(r'^account\s+credit\b', caseSensitive: false),
     );
 
 bool _isLabeledStandaloneMoneyLine(String line, RegExp label) {

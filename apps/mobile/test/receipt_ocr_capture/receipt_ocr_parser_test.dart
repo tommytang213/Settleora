@@ -1092,6 +1092,38 @@ Total 31.99
     expect(preview.reviewHints, isNotEmpty);
   });
 
+  test('bill fees surcharge and account credit remain review evidence', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Utility\nCurrent Charges Detail\nDescription Amount\n'
+      'Water Plan USD 20.00\nService Fee USD 3.00\n'
+      'Taxes and Regulatory Fees USD 2.00\n'
+      'Energy Surcharge USD 1.00\nTotal Current Charges USD 26.00\n'
+      'Account Credit USD -5.00\nAmount Due USD 21.00',
+      blocks: [
+        _layoutBlock('Utility', 0, 0, 20, 350),
+        _layoutBlock('Current Charges Detail', 1, 1, 20, 350),
+        _layoutBlock('Description', 2, 2, 20, 300),
+        _layoutBlock('Amount', 3, 2, 600, 700),
+        _layoutBlock('Water Plan', 4, 3, 20, 300),
+        _layoutBlock('USD 20.00', 5, 3, 600, 700),
+        _layoutBlock('Service Fee', 6, 4, 20, 300),
+        _layoutBlock('USD 3.00', 7, 4, 600, 700),
+        _layoutBlock('Taxes and Regulatory Fees', 8, 5, 20, 300),
+        _layoutBlock('USD 2.00', 9, 5, 600, 700),
+        _layoutBlock('Energy Surcharge', 10, 6, 20, 300),
+        _layoutBlock('USD 1.00', 11, 6, 600, 700),
+        _layoutBlock('Total Current Charges USD 26.00', 12, 7, 20, 700),
+        _layoutBlock('Account Credit USD -5.00', 13, 8, 20, 700),
+        _layoutBlock('Amount Due USD 21.00', 14, 9, 20, 700),
+      ],
+    );
+    expect(preview.items.map((item) => item.description), ['Water Plan']);
+    expect(preview.service, '3.00');
+    expect(preview.tax, isNull);
+    expect(preview.discount, isNull);
+    expect(preview.reviewHints, isNotEmpty);
+  });
+
   test('missing two-column bill amount cannot promote a printed rate', () {
     final preview = const ReceiptOcrParser().parse(
       'Water Utility\nCharges for This Period\nDescription Amount\n'
