@@ -711,6 +711,41 @@ Grand Total USD 118.79
     expect(receiptOcrQuantityCandidateForSave('1.23456'), isNull);
   });
 
+  test('reconciled signed promotion saves its positive discount magnitude', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Cereal USD 6.00
+Milk USD 4.00
+Subtotal USD 10.00
+Store Coupon USD -2.00
+Loyalty Discount USD -1.00
+Tax USD 0.49
+Total USD 7.49
+''');
+    expect(preview.discount, '-3.00');
+    expect(preview.currency, 'USD');
+    expect(preview.discountCurrency, 'USD');
+    final saved = receiptOcrReviewSaveRequestFromPreview(
+      preview,
+      originalCurrency: preview.currency,
+    );
+    expect(saved?.discountAmount, '3.00');
+    expect(saved?.headerEvidence, isEmpty);
+
+    final editedCurrency = receiptOcrReviewSaveRequestFromPreview(
+      preview,
+      originalCurrency: 'EUR',
+    );
+    expect(editedCurrency?.discountAmount, isNull);
+    expect(
+      editedCurrency?.headerEvidence
+          .where((entry) => entry.role == 'discount')
+          .single
+          .amount,
+      '3.00',
+    );
+  });
+
   test(
     'foreign printed headers retain role amount and currency without scalar coercion',
     () {

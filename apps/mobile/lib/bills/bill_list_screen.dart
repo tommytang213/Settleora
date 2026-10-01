@@ -486,7 +486,10 @@ ReceiptOcrReviewSaveRequest? receiptOcrReviewSaveRequestFromPreview(
               preview.discountCurrency,
               preview.discountHasExplicitCurrencyEvidence,
             )
-        ? receiptOcrMoneyCandidateForSave(preview.discount, currency: currency)
+        ? _receiptOcrDiscountMagnitudeForSave(
+            preview.discount,
+            currency: currency,
+          )
         : null,
     grandTotalAmount: reviewCurrencyChanged
         ? null
@@ -704,6 +707,14 @@ String? receiptOcrMoneyCandidateForSave(
   return normalizedValue <= BigInt.parse('9999999999999999999')
       ? candidate
       : null;
+}
+
+String? _receiptOcrDiscountMagnitudeForSave(
+  String? amount, {
+  required String? currency,
+}) {
+  final magnitude = amount?.trim().replaceFirst(RegExp(r'^[-−]'), '');
+  return receiptOcrMoneyCandidateForSave(magnitude, currency: currency);
 }
 
 @visibleForTesting
@@ -17511,7 +17522,7 @@ ReceiptOcrReviewSaveRequest _receiptOcrReviewSaveRequestFromSavedEdit(
               preview.discountCurrency,
               preview.discountHasExplicitCurrencyEvidence,
             )
-        ? receiptOcrMoneyCandidateForSave(
+        ? _receiptOcrDiscountMagnitudeForSave(
             preview.discount,
             currency: editedCurrency,
           )
