@@ -568,6 +568,57 @@ void main() {
     expect(find.textContaining('storage'), findsNothing);
   });
 
+  testWidgets('merchant edit retains printed before-subtotal discount order', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final preview = const ReceiptOcrParser().parse('''
+Shop Invoice
+Headphones USD 120.00
+Promo Code USD -20.00
+Subtotal USD 100.00
+Shipping USD 9.99
+Tax USD 8.80
+Grand Total USD 118.79
+''');
+    expect(preview.discountBeforeSubtotal, isTrue);
+    expect(preview.reviewHints, isEmpty);
+    final fileInput = FakeBillAttachmentFileInput(
+      pickedFile: samplePickedAttachmentFile(
+        filename: 'receipt.png',
+        contentType: 'image/png',
+        bytes: samplePngBytes(width: 640, height: 480),
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: FakeBillRepository(),
+          syncController: sampleBillSyncController(),
+          attachmentRepository: FakeBillAttachmentRepository(),
+          attachmentFileInput: fileInput,
+          receiptOcrProvider: FakeReceiptOcrProvider(
+            ReceiptOcrResult.extracted(preview),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-list-scan-receipt')));
+    await tester.pumpAndSettle();
+    const warning =
+        'OCR item total differs from detected subtotal. Review the receipt before applying.';
+    expect(find.text(warning), findsNothing);
+
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-ocr-edit-merchant')),
+      'Corrected merchant',
+    );
+    await tester.pumpAndSettle();
+    expect(find.text(warning), findsNothing);
+  });
+
   test('OCR adjustment adapter only emits API-valid positive magnitudes', () {
     ReceiptOcrPreview preview({
       String? tip,
