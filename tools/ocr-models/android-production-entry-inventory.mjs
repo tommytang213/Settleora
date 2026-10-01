@@ -1412,6 +1412,13 @@ export const expectedAndroidPackageDigestsBySource = Object.freeze({
   "27ed73a9b2e00bc5fd826b7b9b164331d9f6088a4c308830f95fdd94270a9ef1": Object.freeze([
     "cdc216bf80333d22704ba34a82c70c144d19c5c00473ad8a75a13c3b9cdec8d1",
   ]),
+  // #1309 amount-column and description safeguards at b6de9807. Clean
+  // Flutter 3.44.8 Release projection passed archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence checks. Local signer
+  // was mocked; exact hosted signer proof remains required.
+  "5315a8d15e5294dc7817d4d411090a4e2d915b2dd567b0259581a6588ecc30dc": Object.freeze([
+    "78597ddb68c86dac4bb1cfd3cf0c5b185a3ed788b72ef31f416c82f983c6789b",
+  ]),
 });
 export const expectedAndroidNonOcrEntries = Object.freeze([
   "AndroidManifest.xml",
