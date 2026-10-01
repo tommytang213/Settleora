@@ -2078,9 +2078,7 @@ class ReceiptOcrParser {
               .map((block) => block.text.trim())
               .join(' '),
         );
-        final description = intermediateHeaderEdges.isEmpty
-            ? _stripChargeTableColumns(columnDescription)
-            : columnDescription;
+        final description = columnDescription;
         if (!_hasSubstantiveItemDescription(description) ||
             _isReceiptMetadataLine(description, allowBarePostal: false)) {
           continue;
@@ -2497,11 +2495,7 @@ bool _isFinancialLabelWithAdjacentAmount(
       hasRateColumn = RegExp(r'\brate\b', caseSensitive: false).hasMatch(line);
       requiresLayoutAmountColumn =
           _isInvoiceProductTableHeader(line) ||
-          (_isBillChargeDetailHeader(lines, index) &&
-              RegExp(
-                r'\bservice\s+period\b',
-                caseSensitive: false,
-              ).hasMatch(line));
+          _isBillChargeDetailHeader(lines, index);
       continue;
     }
     if (!inTable) continue;
@@ -2525,7 +2519,7 @@ bool _isFinancialLabelWithAdjacentAmount(
       ambiguous.add(index);
       continue;
     }
-    // An invoice's unit price or a bill's service-period date can be the last
+    // An invoice's unit price or a bill's rate/date can be the last
     // recognized number when its final amount cell is missing. Only the
     // labeled amount column's geometry can select line money in these tables.
     if (requiresLayoutAmountColumn) {

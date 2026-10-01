@@ -976,6 +976,41 @@ Total 31.99
     expect(preview.reviewHints, isEmpty);
   });
 
+  test('two-column bill keeps a numbered product name', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Network Utility\nCurrent Charges Detail\nDescription Amount\n'
+      'Internet Plan 500 USD 5.00\nTotal Current Charges USD 5.00',
+      blocks: [
+        _layoutBlock('Network Utility', 0, 0, 20, 350),
+        _layoutBlock('Current Charges Detail', 1, 1, 20, 350),
+        _layoutBlock('Description', 2, 2, 20, 300),
+        _layoutBlock('Amount', 3, 2, 600, 700),
+        _layoutBlock('Internet Plan 500', 4, 3, 20, 550),
+        _layoutBlock('USD 5.00', 5, 3, 600, 700),
+        _layoutBlock('Total Current Charges USD 5.00', 6, 4, 20, 700),
+      ],
+    );
+    expect(preview.items.single.description, 'Internet Plan 500');
+    expect(preview.items.single.lineTotal, '5.00');
+  });
+
+  test('missing two-column bill amount cannot promote a printed rate', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Water Utility\nCharges for This Period\nDescription Amount\n'
+      'Water Charge 25 m3 @ USD 1.80\nTotal Amount Due USD 45.00',
+      blocks: [
+        _layoutBlock('Water Utility', 0, 0, 20, 350),
+        _layoutBlock('Charges for This Period', 1, 1, 20, 350),
+        _layoutBlock('Description', 2, 2, 20, 300),
+        _layoutBlock('Amount', 3, 2, 600, 700),
+        _layoutBlock('Water Charge 25 m3 @ USD 1.80', 4, 3, 20, 550),
+        _layoutBlock('Total Amount Due USD 45.00', 5, 4, 20, 700),
+      ],
+    );
+    expect(preview.items, isEmpty);
+    expect(preview.reviewHints, isNotEmpty);
+  });
+
   test('charge table associates a separate foreign currency cell', () {
     final preview = const ReceiptOcrParser().parse(
       'Market\n'
