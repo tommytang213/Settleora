@@ -554,6 +554,50 @@ Total USD 12.50
     expect(turkish.items.map((item) => item.lineTotal), ['400.00', '56.70']);
   });
 
+  test('joined printed currency symbols delimit priced items', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Tea₺56,70
+Rice₩11,000
+Noodlesđ120.000
+SKUUSD123
+Total ₺56,70
+''');
+    expect(preview.items.map((item) => item.description), [
+      'Tea',
+      'Rice',
+      'Noodles',
+    ]);
+    expect(preview.items.map((item) => item.currency), ['TRY', 'KRW', 'VND']);
+    expect(preview.items.map((item) => item.lineTotal), [
+      '56.70',
+      '11000',
+      '120000',
+    ]);
+  });
+
+  test('printed dong suffix stays a currency rather than discarded text', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Noodles 120.000 đ
+Tea 80.000 đ
+Total 200.000 đ
+''');
+    expect(preview.currency, 'VND');
+    expect(preview.items.map((item) => item.description), ['Noodles', 'Tea']);
+    expect(preview.items.map((item) => item.lineTotal), ['120000', '80000']);
+    expect(preview.items.every((item) => item.currency == 'VND'), isTrue);
+  });
+
+  test('Vietnamese letters without amount adjacency do not set currency', () {
+    final preview = const ReceiptOcrParser().parse('''
+Đà Lạt Market
+Tea 12.00
+Total 12.00
+''');
+    expect(preview.currency, isNull);
+  });
+
   test('postal and registration headers do not become merchandise', () {
     const parser = ReceiptOcrParser();
     final us = parser.parse('''

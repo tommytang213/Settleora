@@ -1382,7 +1382,9 @@ class ReceiptOcrParser {
         currency,
       );
 
-      final match = _pricedItemRowPattern.firstMatch(line);
+      final match =
+          _pricedItemRowPattern.firstMatch(line) ??
+          _joinedSymbolPricedItemRowPattern.firstMatch(line);
       if (match == null) {
         if (layoutFallback != null) {
           lineDecisions[lineIndex] =
@@ -2760,6 +2762,7 @@ final _currencyTokenPattern = [
   '₩',
   '₺',
   '₫',
+  'đ',
   'zł',
   'kr',
   'Rs',
@@ -2773,6 +2776,14 @@ final _pricedItemRowPattern = RegExp(
   '($_amountTokenPattern)'
   '(?:\\s*($_currencyTokenPattern))?\$',
   caseSensitive: false,
+);
+// A printed currency symbol supplies a reusable amount boundary even when
+// recognition joins it to the description. Alphabetic codes stay excluded:
+// a joined code and number can be a product identifier.
+final _joinedSymbolPricedItemRowPattern = RegExp(
+  '^(.+?)([\$€£¥₹₩₺₫đ])\\s*($_amountTokenPattern)\\s*\$',
+  caseSensitive: false,
+  unicode: true,
 );
 
 const _nonCurrencyAdjustmentCodes = {
@@ -3310,12 +3321,21 @@ String? _explicitCurrencyFromNormalizedLine(String normalized) {
   if (normalized.contains('د.إ') || normalized.contains('دإ')) return 'AED';
   if (normalized.contains('€')) return 'EUR';
   if (normalized.contains('£')) return 'GBP';
+  // The đồng marker is also a Vietnamese letter. Only an amount-adjacent
+  // occurrence establishes receipt currency.
+  if (RegExp(
+    r'(?:\d\s*Đ(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])Đ\s*\d)',
+    unicode: true,
+  ).hasMatch(normalized)) {
+    return 'VND';
+  }
   return _explicitSymbolCurrency(normalized);
 }
 
 String? _currencyFromItemToken(String? token) {
   if (token == null) return null;
   final normalized = token.trim().toUpperCase();
+  if (normalized == 'Đ') return 'VND';
   return _supportedCurrencyCode(normalized) ??
       _explicitCurrencyFromNormalizedLine(normalized);
 }
