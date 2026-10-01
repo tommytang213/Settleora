@@ -726,6 +726,17 @@ Balance USD 0.00
     expect(preview.total, '40.00');
   });
 
+  test('a foreign balance cannot set a symbol-only transaction currency', () {
+    final preview = const ReceiptOcrParser().parse('''
+Store
+Groceries \$10.00
+Total \$10.00
+Balance EUR 0.00
+''');
+    expect(preview.currency, isNot('EUR'));
+    expect(preview.warnings, isNotEmpty);
+  });
+
   test('a paid deposit is payment evidence and remains under review', () {
     final preview = const ReceiptOcrParser().parse('''
 Hotel
@@ -953,7 +964,7 @@ Total 31.99
   });
 
   test(
-    'bill charge detail keeps dated discounts and taxes as printed rows',
+    'bill charge detail classifies dated discounts and taxes by column role',
     () {
       final preview = const ReceiptOcrParser().parse(
         'Network Utility\nCurrent Charges Detail\n'
@@ -980,16 +991,10 @@ Total 31.99
           _layoutBlock('Total Current Charges USD 54.30', 14, 6, 20, 700),
         ],
       );
-      expect(preview.items.map((item) => item.description), [
-        'Internet Plan',
-        'Loyalty Discount',
-        'State Tax',
-      ]);
-      expect(preview.items.map((item) => item.lineTotal), [
-        '59.99',
-        '-10.00',
-        '4.31',
-      ]);
+      expect(preview.items.map((item) => item.description), ['Internet Plan']);
+      expect(preview.items.map((item) => item.lineTotal), ['59.99']);
+      expect(preview.discount, '-10.00');
+      expect(preview.tax, '4.31');
       expect(preview.reviewHints, isEmpty);
     },
   );
@@ -1014,9 +1019,9 @@ Total 31.99
     );
     expect(preview.items.map((item) => item.description), [
       'Water Charge (25 m3 @ USD 1.80)',
-      'State Water Tax (2.5%)',
     ]);
-    expect(preview.items.map((item) => item.lineTotal), ['45.00', '2.64']);
+    expect(preview.items.map((item) => item.lineTotal), ['45.00']);
+    expect(preview.tax, '2.64');
     expect(
       preview.adjustmentsComplete,
       isTrue,
@@ -1041,6 +1046,50 @@ Total 31.99
     );
     expect(preview.items.single.description, 'Internet Plan 500');
     expect(preview.items.single.lineTotal, '5.00');
+  });
+
+  test(
+    'bill detail fee stays review evidence while priced products survive',
+    () {
+      final preview = const ReceiptOcrParser().parse(
+        'Utility\nCurrent Charges Detail\nDescription Amount\n'
+        'Tax Return Kit USD 10.00\nRegulatory Recovery Fee USD 2.00\n'
+        'Total Current Charges USD 12.00',
+        blocks: [
+          _layoutBlock('Utility', 0, 0, 20, 350),
+          _layoutBlock('Current Charges Detail', 1, 1, 20, 350),
+          _layoutBlock('Description', 2, 2, 20, 300),
+          _layoutBlock('Amount', 3, 2, 600, 700),
+          _layoutBlock('Tax Return Kit', 4, 3, 20, 300),
+          _layoutBlock('USD 10.00', 5, 3, 600, 700),
+          _layoutBlock('Regulatory Recovery Fee', 6, 4, 20, 300),
+          _layoutBlock('USD 2.00', 7, 4, 600, 700),
+          _layoutBlock('Total Current Charges USD 12.00', 8, 5, 20, 700),
+        ],
+      );
+      expect(preview.items.map((item) => item.description), ['Tax Return Kit']);
+      expect(preview.reviewHints, isNotEmpty);
+    },
+  );
+
+  test('missing adjustment amount cell cannot promote a printed rate', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Utility\nCurrent Charges Detail\nDescription Rate Amount\n'
+      'Sales Tax USD 0.15\nTotal Current Charges USD 12.00',
+      blocks: [
+        _layoutBlock('Utility', 0, 0, 20, 350),
+        _layoutBlock('Current Charges Detail', 1, 1, 20, 350),
+        _layoutBlock('Description', 2, 2, 20, 150),
+        _layoutBlock('Rate', 3, 2, 230, 270),
+        _layoutBlock('Amount', 4, 2, 310, 350),
+        _layoutBlock('Sales Tax', 5, 3, 20, 150),
+        _layoutBlock('USD 0.15', 6, 3, 230, 270),
+        _layoutBlock('Total Current Charges USD 12.00', 7, 4, 20, 350),
+      ],
+    );
+    expect(preview.tax, isNull);
+    expect(preview.items, isEmpty);
+    expect(preview.reviewHints, isNotEmpty);
   });
 
   test('missing two-column bill amount cannot promote a printed rate', () {
@@ -2162,13 +2211,10 @@ Total Amount Due USD 7.00
       isTrue,
     );
     final locatedDraft = parser.parse(mixedTable, blocks: mixedBlocks);
-    expect(locatedDraft.service, isNull);
+    expect(locatedDraft.service, '5.00');
     expect(locatedDraft.shipping, isNull);
-    expect(locatedDraft.items.map((item) => item.description), [
-      'Service Charge',
-      'Delivery Fee',
-    ]);
-    expect(locatedDraft.items.map((item) => item.lineTotal), ['5.00', '2.00']);
+    expect(locatedDraft.items, isEmpty);
+    expect(locatedDraft.reviewHints, isNotEmpty);
 
     final unitBearing = parser.parse('''
 Power Utility

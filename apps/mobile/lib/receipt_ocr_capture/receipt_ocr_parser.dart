@@ -68,6 +68,11 @@ class ReceiptOcrParser {
       detachedAmountSignRows: detachedAmountSignRows,
     );
     final chargeTableRows = chargeTable.items;
+    final layoutAdjustmentLines = _layoutAdjustmentEvidenceLines(
+      lines,
+      layoutRows,
+      chargeTable.ambiguous,
+    );
 
     final currencyDetection = _detectCurrency(
       lines,
@@ -79,6 +84,7 @@ class ReceiptOcrParser {
       layoutRows,
       currency,
       detachedAmountSignRows: detachedAmountSignRows,
+      adjustmentRows: layoutAdjustmentLines.keys.toSet(),
     );
     final recognizedChargeRows = {
       ...chargeTableRows,
@@ -92,6 +98,7 @@ class ReceiptOcrParser {
       layoutChargeItemRows: layoutChargeItems.keys.toSet(),
       ambiguousChargeTableRows: chargeTable.ambiguous,
       detachedAmountSignRows: detachedAmountSignRows,
+      layoutAdjustmentLines: layoutAdjustmentLines,
     );
     final merchantDetection = _detectMerchant(lines, layoutRows);
     final merchant = merchantDetection?.text;
@@ -118,7 +125,9 @@ class ReceiptOcrParser {
     if (unresolvedItemLines > 0 ||
         detachedAmountSignRows.isNotEmpty ||
         chargeTable.ambiguous.any(
-          (index) => !layoutChargeItems.containsKey(index),
+          (index) =>
+              !layoutChargeItems.containsKey(index) &&
+              !layoutAdjustmentLines.containsKey(index),
         )) {
       warnings.add(
         'Some OCR lines need manual review because no traceable line amount was found.',
@@ -148,7 +157,9 @@ class ReceiptOcrParser {
       if (detachedAmountSignRows.isNotEmpty)
         ReceiptOcrIncompleteAdjustmentReason.detachedAmountSign,
       if (chargeTable.ambiguous.any(
-        (index) => !layoutChargeItems.containsKey(index),
+        (index) =>
+            !layoutChargeItems.containsKey(index) &&
+            !layoutAdjustmentLines.containsKey(index),
       ))
         ReceiptOcrIncompleteAdjustmentReason.ambiguousChargeTable,
       if (unresolvedItemLines > 0)
@@ -201,7 +212,9 @@ class ReceiptOcrParser {
           !extractedItems.unretainedPricedItem &&
           detachedAmountSignRows.isEmpty &&
           !chargeTable.ambiguous.any(
-            (index) => !layoutChargeItems.containsKey(index),
+            (index) =>
+                !layoutChargeItems.containsKey(index) &&
+                !layoutAdjustmentLines.containsKey(index),
           ) &&
           unresolvedItemLines == 0,
       incompleteAdjustmentReasons: incompleteAdjustmentReasons,
@@ -845,6 +858,7 @@ class ReceiptOcrParser {
     Set<int> layoutChargeItemRows = const {},
     Set<int> ambiguousChargeTableRows = const {},
     Set<int> detachedAmountSignRows = const {},
+    Map<int, String> layoutAdjustmentLines = const {},
   }) {
     String? subtotal;
     int? selectedSubtotalRow;
@@ -908,13 +922,15 @@ class ReceiptOcrParser {
         continue;
       }
       final line =
-          _isFinancialLabelWithAdjacentAmount(lines, layoutRows, lineIndex)
-          ? '${lines[lineIndex]} ${lines[lineIndex + 1]}'
-          : lines[lineIndex];
+          layoutAdjustmentLines[lineIndex] ??
+          (_isFinancialLabelWithAdjacentAmount(lines, layoutRows, lineIndex)
+              ? '${lines[lineIndex]} ${lines[lineIndex + 1]}'
+              : lines[lineIndex]);
       final normalized = line.toLowerCase();
       final hasPotentialAdjustment = _hasPotentialReceiptAdjustmentLabel(line);
-      if (chargeTableRows.contains(lineIndex) ||
-          ambiguousChargeTableRows.contains(lineIndex)) {
+      if ((chargeTableRows.contains(lineIndex) ||
+              ambiguousChargeTableRows.contains(lineIndex)) &&
+          !layoutAdjustmentLines.containsKey(lineIndex)) {
         if (hasPotentialAdjustment &&
             !layoutChargeItemRows.contains(lineIndex)) {
           adjustmentsComplete = false;
@@ -1875,11 +1891,102 @@ class ReceiptOcrParser {
     );
   }
 
+  Map<int, String> _layoutAdjustmentEvidenceLines(
+    List<String> sourceLines,
+    List<List<ReceiptOcrBlockEvidence>> layoutRows,
+    Set<int> ambiguousRows,
+  ) {
+    if (sourceLines.length != layoutRows.length) return const {};
+    final lines = <int, String>{};
+    for (final rowIndex in ambiguousRows) {
+      if (rowIndex >= layoutRows.length) continue;
+      var headerIndex = rowIndex - 1;
+      while (headerIndex >= 0 &&
+          !_isSupportedChargeTableHeader(sourceLines, headerIndex)) {
+        headerIndex--;
+      }
+      if (headerIndex < 0) continue;
+      final amountHeaders = layoutRows[headerIndex]
+          .where(
+            (block) =>
+                block.points.isNotEmpty &&
+                RegExp(
+                  r'^(?:amount|line\s+total|total)$',
+                  caseSensitive: false,
+                ).hasMatch(block.text.trim()),
+          )
+          .toList(growable: false);
+      if (amountHeaders.length != 1) continue;
+      final headerLeft = amountHeaders.single.points
+          .map((point) => point.x)
+          .reduce((a, b) => a < b ? a : b);
+      final headerRight = amountHeaders.single.points
+          .map((point) => point.x)
+          .reduce((a, b) => a > b ? a : b);
+      final row = layoutRows[rowIndex];
+      final labels = row
+          .where((block) {
+            final description = block.text.trim();
+            return RegExp(
+                  r'^(?:[\p{L}\p{N} -]+\s+)?(?:tax|vat|gst|hst|iva|tva|kdv|mwst)(?:\s*\(\d+(?:[.,]\d+)?%\))?$',
+                  caseSensitive: false,
+                  unicode: true,
+                ).hasMatch(description) ||
+                RegExp(
+                  r'^(?:[\p{L}\p{N} -]+\s+)?(?:discount|coupon|rebate)(?:\s*\([\p{L}\p{N} %.-]+\))?$',
+                  caseSensitive: false,
+                  unicode: true,
+                ).hasMatch(description) ||
+                RegExp(
+                  r'^service\s+charge$',
+                  caseSensitive: false,
+                ).hasMatch(description);
+          })
+          .toList(growable: false);
+      final amountBlocks = row
+          .where((block) {
+            if (block.points.isEmpty || !_isStandaloneAmountRow(block.text)) {
+              return false;
+            }
+            final left = block.points
+                .map((point) => point.x)
+                .reduce((a, b) => a < b ? a : b);
+            final right = block.points
+                .map((point) => point.x)
+                .reduce((a, b) => a > b ? a : b);
+            final center = (left + right) / 2;
+            return center >= headerLeft - 12 && center <= headerRight + 12;
+          })
+          .toList(growable: false);
+      if (labels.length != 1 || amountBlocks.length != 1) continue;
+      final label = labels.single.text.trim();
+      final amountBlock = amountBlocks.single;
+      final currencyBlocks = _nearbyCurrencyOnlyBlocks(row, amountBlock);
+      if (currencyBlocks.length > 1) continue;
+      final monetaryText = currencyBlocks.isEmpty
+          ? amountBlock.text.trim()
+          : '${currencyBlocks.single.text.trim()} ${amountBlock.text.trim()}';
+      if (!_hasChargeTableMonetaryEvidence(monetaryText)) continue;
+      final isTax = RegExp(
+        r'\b(?:tax|vat|gst|hst|iva|tva|kdv|mwst)(?:\s*\(\d+(?:[.,]\d+)?%\))?$',
+        caseSensitive: false,
+      ).hasMatch(label);
+      final rate = RegExp(r'\d+(?:[.,]\d+)?%').firstMatch(label)?.group(0);
+      lines[rowIndex] = isTax
+          ? 'Tax ${rate == null ? '' : '$rate '}$monetaryText'
+          : RegExp(r'^service\s+charge$', caseSensitive: false).hasMatch(label)
+          ? 'Service Charge $monetaryText'
+          : 'Discount $monetaryText';
+    }
+    return lines;
+  }
+
   Map<int, ReceiptOcrItemCandidate> _extractLayoutChargeTableItems(
     List<String> lines,
     List<List<ReceiptOcrBlockEvidence>> layoutRows,
     String? currency, {
     Set<int> detachedAmountSignRows = const {},
+    Set<int> adjustmentRows = const {},
   }) {
     if (layoutRows.length != lines.length) return const {};
     final items = <int, ReceiptOcrItemCandidate>{};
@@ -1968,7 +2075,10 @@ class ReceiptOcrParser {
             _isChargeTableSectionBoundary(lines[rowIndex])) {
           break;
         }
-        if (detachedAmountSignRows.contains(rowIndex)) continue;
+        if (detachedAmountSignRows.contains(rowIndex) ||
+            adjustmentRows.contains(rowIndex)) {
+          continue;
+        }
         final tableBlocks = layoutRows[rowIndex]
             .where((block) {
               if (block.points.isEmpty) return false;
@@ -2081,6 +2191,13 @@ class ReceiptOcrParser {
         final description = columnDescription;
         if (!_hasSubstantiveItemDescription(description) ||
             _isReceiptMetadataLine(description, allowBarePostal: false)) {
+          continue;
+        }
+        if (RegExp(
+              r'\bfee(?:\s*\([^)]*\))?$',
+              caseSensitive: false,
+            ).hasMatch(description) ||
+            _isExplicitNonItemFeeLine('$description $monetaryText')) {
           continue;
         }
         items[rowIndex] = ReceiptOcrItemCandidate(
@@ -3493,7 +3610,7 @@ bool _isPaymentMetadataLine(String line) {
 }
 
 bool _isNonTransactionCurrencyMetadataLine(String line) {
-  if (_isPaymentMetadataLine(line)) {
+  if (_isPaymentMetadataLine(line) || _isAccountBalanceSummaryLine(line)) {
     return true;
   }
   final trimmed = line.trim();

@@ -61,6 +61,8 @@
         "merchant": "FiberWave Internet",
         "date": "2025-03-05",
         "currency": "USD",
+        "tax": "4.31",
+        "discount": "-10.00",
         "total": "64.18",
         "items": [
           [
@@ -70,25 +72,10 @@
           [
             "Wi-Fi Router Rental",
             "7.00"
-          ],
-          [
-            "Loyalty Discount (12 Months)",
-            "-10.00"
-          ],
-          [
-            "Regulatory Recovery Fee",
-            "1.99"
-          ],
-          [
-            "State Sales Tax (6.25%)",
-            "4.31"
-          ],
-          [
-            "County Communications Fee (1.75%)",
-            "0.89"
           ]
         ]
-      }
+      },
+      "notes": "Source charge table separately labels the priced service and rental, a loyalty discount, sales tax, and two fees. Discount and tax are adjustments; fees remain visible review evidence because the draft has no matching fee field."
     },
     {
       "id": "existing_03_blueriver_water_en_US",
