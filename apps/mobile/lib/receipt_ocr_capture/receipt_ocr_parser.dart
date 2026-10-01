@@ -32,6 +32,7 @@ const _localizedReceiptAdjustmentLabels = [
 ];
 
 bool _hasPotentialReceiptAdjustmentLabel(String line) {
+  if (_isSuggestedTipLine(line.toLowerCase())) return false;
   if (_potentialReceiptAdjustmentLabelPattern.hasMatch(line)) return true;
   final folded = line.toLowerCase();
   return _localizedReceiptAdjustmentLabels.any(folded.contains);
@@ -71,7 +72,7 @@ class ReceiptOcrParser {
     final layoutAdjustmentLines = _layoutAdjustmentEvidenceLines(
       lines,
       layoutRows,
-      chargeTable.ambiguous,
+      {...chargeTable.items, ...chargeTable.ambiguous},
     );
 
     final currencyDetection = _detectCurrency(
@@ -111,6 +112,7 @@ class ReceiptOcrParser {
       chargeTableRows: recognizedChargeRows,
       ambiguousChargeTableRows: chargeTable.ambiguous,
       layoutChargeItems: layoutChargeItems,
+      layoutAdjustmentRows: layoutAdjustmentLines.keys.toSet(),
       detachedAmountSignRows: detachedAmountSignRows,
     );
     final itemCandidates = extractedItems.items;
@@ -869,6 +871,7 @@ class ReceiptOcrParser {
     var taxHasExplicitCurrencyEvidence = false;
     final ratedTaxComponents =
         <({String rate, String amount, bool explicitCurrency})>[];
+    final transactionTaxAmounts = <String>[];
     var hasUnratedTax = false;
     String? service;
     String? serviceCurrency;
@@ -1047,6 +1050,9 @@ class ReceiptOcrParser {
           line,
           receiptCurrency: currency,
         );
+        if (!printed.hasExplicitEvidence || printed.currency == currency) {
+          transactionTaxAmounts.add(amount);
+        }
         final printedRate = RegExp(
           r'\b(?:sales\s+tax|tax|vat|gst|hst|iva|tva|kdv|mwst)\b\.?\s*(\d{1,3}(?:[.,]\d{1,2})?)\s*%',
         ).firstMatch(normalized);
@@ -1305,6 +1311,13 @@ class ReceiptOcrParser {
         ReceiptOcrIncompleteAdjustmentReason.repeatedAdjustmentRole,
       );
     }
+    if (!aggregatedRatedTax && transactionTaxAmounts.toSet().length > 1) {
+      // A component and a summary can carry the same tax role. Retaining one
+      // arbitrary component as the draft's tax would assert the wrong amount.
+      tax = null;
+      taxCurrency = null;
+      taxHasExplicitCurrencyEvidence = false;
+    }
 
     final sameCurrencySubtotal =
         !subtotalHasExplicitCurrencyEvidence ||
@@ -1412,6 +1425,7 @@ class ReceiptOcrParser {
     Set<int> chargeTableRows = const {},
     Set<int> ambiguousChargeTableRows = const {},
     Map<int, ReceiptOcrItemCandidate> layoutChargeItems = const {},
+    Set<int> layoutAdjustmentRows = const {},
     Set<int> detachedAmountSignRows = const {},
   }) {
     final items = <ReceiptOcrItemCandidate>[];
@@ -1449,6 +1463,12 @@ class ReceiptOcrParser {
     }
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       final line = lines[lineIndex];
+      if (layoutAdjustmentRows.contains(lineIndex)) {
+        lineDecisions[lineIndex] =
+            ReceiptOcrItemLineDecision.metadataOrHeaderSkipped;
+        wrappedDescriptionLines.clear();
+        continue;
+      }
       final layoutChargeItem = layoutChargeItems[lineIndex];
       if (layoutChargeItem != null) {
         lineDecisions[lineIndex] =
@@ -2321,6 +2341,10 @@ class ReceiptOcrParser {
     List<List<ReceiptOcrBlockEvidence>> layoutRows = const [],
   }) {
     var count = 0;
+    final lastPricedTotal = lines.lastIndexWhere(
+      (line) =>
+          _hasTotalLabel(line, line.toLowerCase()) && _lineHasAmount(line),
+    );
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       final line = lines[lineIndex];
       if (merchantLineIndices.contains(lineIndex)) {
@@ -2336,6 +2360,14 @@ class ReceiptOcrParser {
           _isContextualReceiptMetadataLine(lines, lineIndex) ||
           _lineHasAmount(line) ||
           _detectDate([line]) != null) {
+        continue;
+      }
+      if (_isCenteredPostTotalFooter(
+        lines,
+        layoutRows,
+        lineIndex,
+        lastPricedTotal,
+      )) {
         continue;
       }
 
@@ -2361,6 +2393,54 @@ class ReceiptOcrParser {
 
     return count;
   }
+}
+
+bool _isCenteredPostTotalFooter(
+  List<String> lines,
+  List<List<ReceiptOcrBlockEvidence>> layoutRows,
+  int lineIndex,
+  int lastPricedTotal,
+) {
+  if (lastPricedTotal < 0 ||
+      lineIndex <= lastPricedTotal ||
+      layoutRows.length != lines.length ||
+      lines.skip(lastPricedTotal + 1).any(_lineHasAmount)) {
+    return false;
+  }
+  final totalPoints = layoutRows[lastPricedTotal]
+      .expand((block) => block.points)
+      .toList(growable: false);
+  final footerPoints = layoutRows[lineIndex]
+      .expand((block) => block.points)
+      .toList(growable: false);
+  if (totalPoints.isEmpty || footerPoints.isEmpty) return false;
+  final totalLeft = totalPoints
+      .map((point) => point.x)
+      .reduce((a, b) => a < b ? a : b);
+  final totalRight = totalPoints
+      .map((point) => point.x)
+      .reduce((a, b) => a > b ? a : b);
+  final footerLeft = footerPoints
+      .map((point) => point.x)
+      .reduce((a, b) => a < b ? a : b);
+  final footerRight = footerPoints
+      .map((point) => point.x)
+      .reduce((a, b) => a > b ? a : b);
+  final totalBottom = totalPoints
+      .map((point) => point.y)
+      .reduce((a, b) => a > b ? a : b);
+  final footerTop = footerPoints
+      .map((point) => point.y)
+      .reduce((a, b) => a < b ? a : b);
+  final totalWidth = totalRight - totalLeft;
+  if (footerTop <= totalBottom ||
+      totalWidth <= 0 ||
+      footerRight - footerLeft > totalWidth * 0.5) {
+    return false;
+  }
+  final totalCenter = (totalLeft + totalRight) / 2;
+  final footerCenter = (footerLeft + footerRight) / 2;
+  return (footerCenter - totalCenter).abs() <= totalWidth * 0.15;
 }
 
 bool _hasUnsupportedCurrencySymbolOnSelectedAmount(String text) {

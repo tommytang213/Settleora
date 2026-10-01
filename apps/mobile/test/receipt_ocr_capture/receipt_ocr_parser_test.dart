@@ -3032,14 +3032,66 @@ Total Amount Due \$2.63
       _layoutBlock('Total Amount Due \$2.63', 11, 4, 20, 350),
     ];
 
-    for (final preview in [
-      parser.parse(text, fallbackCurrency: 'USD'),
-      parser.parse(text, fallbackCurrency: 'USD', blocks: blocks),
-    ]) {
-      expect(preview.tax, '0.50');
-      expect(preview.items.map((item) => item.description), ['State Gas Tax']);
-      expect(preview.items.single.lineTotal, '2.13');
-    }
+    final withoutLayout = parser.parse(text, fallbackCurrency: 'USD');
+    expect(withoutLayout.tax, '0.50');
+    expect(withoutLayout.items.map((item) => item.description), [
+      'State Gas Tax',
+    ]);
+
+    final withLayout = parser.parse(
+      text,
+      fallbackCurrency: 'USD',
+      blocks: blocks,
+    );
+    expect(withLayout.items, isEmpty);
+    expect(withLayout.tax, isNull);
+    expect(withLayout.adjustmentsComplete, isFalse);
+    expect(withLayout.reviewHints, isNotEmpty);
+  });
+
+  test('labeled bill columns keep service and rated taxes out of items', () {
+    const text = '''
+Water Utility
+Charges for this period
+Description Amount
+Water Charge (25 m3 @ \$1.80) \$45.00
+Sewer Charge (25 m3 @ \$2.10) \$52.50
+Service Fee \$8.00
+State Water Tax (2.5%) \$2.64
+Local Utility Tax (1.5%) \$1.58
+Total Amount Due \$109.72
+''';
+    final blocks = [
+      _layoutBlock('Water Utility', 0, 0, 20, 350),
+      _layoutBlock('Charges for this period', 1, 1, 20, 350),
+      _layoutBlock('Description', 2, 2, 20, 200),
+      _layoutBlock('Amount', 3, 2, 300, 350),
+      _layoutBlock('Water Charge (25 m3 @ \$1.80)', 4, 3, 20, 260),
+      _layoutBlock('\$45.00', 5, 3, 300, 350),
+      _layoutBlock('Sewer Charge (25 m3 @ \$2.10)', 6, 4, 20, 260),
+      _layoutBlock('\$52.50', 7, 4, 300, 350),
+      _layoutBlock('Service Fee', 8, 5, 20, 200),
+      _layoutBlock('\$8.00', 9, 5, 300, 350),
+      _layoutBlock('State Water Tax (2.5%)', 10, 6, 20, 260),
+      _layoutBlock('\$2.64', 11, 6, 300, 350),
+      _layoutBlock('Local Utility Tax (1.5%)', 12, 7, 20, 260),
+      _layoutBlock('\$1.58', 13, 7, 300, 350),
+      _layoutBlock('Total Amount Due \$109.72', 14, 8, 20, 350),
+    ];
+
+    final preview = const ReceiptOcrParser().parse(
+      text,
+      fallbackCurrency: 'USD',
+      blocks: blocks,
+    );
+    expect(preview.items.map((item) => item.description), [
+      'Water Charge (25 m3 @ \$1.80)',
+      'Sewer Charge (25 m3 @ \$2.10)',
+    ]);
+    expect(preview.service, '8.00');
+    expect(preview.tax, '4.22');
+    expect(preview.total, '109.72');
+    expect(preview.reviewHints, isEmpty);
   });
 
   test('charge-table account summaries stay out of itemized charges', () {
@@ -3792,7 +3844,37 @@ Total USD 20.00
     expect(charged.tip, '5.00');
     expect(charged.items.map((item) => item.description), ['Fare', 'Toll']);
     expect(suggested.items.map((item) => item.description), ['Pasta']);
+    expect(suggested.adjustmentsComplete, isTrue);
+    expect(suggested.reviewHints, isEmpty);
   });
+
+  test(
+    'centered unpriced footer after final total does not require review',
+    () {
+      const parser = ReceiptOcrParser();
+      final centered = parser.parse(
+        'Corner Cafe\nBread USD 5.00\nTotal USD 5.00\nMerci',
+        blocks: [
+          _layoutBlock('Corner Cafe', 0, 0, 350, 650),
+          _layoutBlock('Bread USD 5.00', 1, 1, 100, 900),
+          _layoutBlock('Total USD 5.00', 2, 2, 100, 900),
+          _layoutBlock('Merci', 3, 3, 450, 550),
+        ],
+      );
+      final leftAligned = parser.parse(
+        'Corner Cafe\nBread USD 5.00\nTotal USD 5.00\nUnpriced item',
+        blocks: [
+          _layoutBlock('Corner Cafe', 0, 0, 350, 650),
+          _layoutBlock('Bread USD 5.00', 1, 1, 100, 900),
+          _layoutBlock('Total USD 5.00', 2, 2, 100, 900),
+          _layoutBlock('Unpriced item', 3, 3, 100, 300),
+        ],
+      );
+
+      expect(centered.reviewHints, isEmpty);
+      expect(leftAligned.reviewHints, isNotEmpty);
+    },
+  );
 
   test('parser excludes a bare approval identifier from items', () {
     const parser = ReceiptOcrParser();
