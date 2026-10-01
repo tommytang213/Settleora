@@ -1944,6 +1944,44 @@ class ReceiptOcrParser {
           .map((point) => point.x)
           .reduce((a, b) => a > b ? a : b);
       final row = layoutRows[rowIndex];
+      bool hasNumericColumn(RegExp heading) {
+        final headers = layoutRows[headerIndex]
+            .where(
+              (block) =>
+                  block.points.isNotEmpty &&
+                  heading.hasMatch(block.text.trim()),
+            )
+            .toList(growable: false);
+        if (headers.length != 1) return false;
+        final left = headers.single.points
+            .map((point) => point.x)
+            .reduce((a, b) => a < b ? a : b);
+        final right = headers.single.points
+            .map((point) => point.x)
+            .reduce((a, b) => a > b ? a : b);
+        return row.any((block) {
+          if (block.points.isEmpty || !RegExp(r'\d').hasMatch(block.text)) {
+            return false;
+          }
+          final xs = block.points.map((point) => point.x);
+          final center =
+              (xs.reduce((a, b) => a < b ? a : b) +
+                  xs.reduce((a, b) => a > b ? a : b)) /
+              2;
+          return center >= left - 12 && center <= right + 12;
+        });
+      }
+
+      // A calculated charge with both usage/quantity and rate/unit-price
+      // cells remains a candidate item even when its name contains "tax".
+      if (hasNumericColumn(
+            RegExp(r'^(?:usage|qty|quantity)$', caseSensitive: false),
+          ) &&
+          hasNumericColumn(
+            RegExp(r'^(?:rate|unit\s+price)$', caseSensitive: false),
+          )) {
+        continue;
+      }
       final labels = row
           .where((block) {
             final description = block.text.trim();
@@ -2404,7 +2442,8 @@ bool _isCenteredPostTotalFooter(
   if (lastPricedTotal < 0 ||
       lineIndex <= lastPricedTotal ||
       layoutRows.length != lines.length ||
-      lines.skip(lastPricedTotal + 1).any(_lineHasAmount)) {
+      lines.skip(lastPricedTotal + 1).any(_lineHasAmount) ||
+      !_isReceiptCourtesyLine(lines[lineIndex])) {
     return false;
   }
   final totalPoints = layoutRows[lastPricedTotal]
@@ -2441,6 +2480,34 @@ bool _isCenteredPostTotalFooter(
   final totalCenter = (totalLeft + totalRight) / 2;
   final footerCenter = (footerLeft + footerRight) / 2;
   return (footerCenter - totalCenter).abs() <= totalWidth * 0.15;
+}
+
+bool _isReceiptCourtesyLine(String line) {
+  final normalized = line
+      .trim()
+      .toLowerCase()
+      .replaceFirst(RegExp(r'[.!。！]+$'), '')
+      .trim();
+  return const {
+    'thank you',
+    'merci',
+    'vielen dank',
+    'gracias',
+    'obrigado',
+    'obrigada',
+    '謝謝光臨',
+    '谢谢光临',
+    'धन्यवाद',
+    'ขอบคุณ',
+    '감사합니다',
+    'ありがとうございます',
+    'cảm ơn',
+    'شكرا',
+    'شكراً',
+    'спасибо',
+    'teşekkürler',
+    'dziękujemy',
+  }.contains(normalized);
 }
 
 bool _hasUnsupportedCurrencySymbolOnSelectedAmount(String text) {

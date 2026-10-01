@@ -3043,10 +3043,9 @@ Total Amount Due \$2.63
       fallbackCurrency: 'USD',
       blocks: blocks,
     );
-    expect(withLayout.items, isEmpty);
-    expect(withLayout.tax, isNull);
-    expect(withLayout.adjustmentsComplete, isFalse);
-    expect(withLayout.reviewHints, isNotEmpty);
+    expect(withLayout.items.map((item) => item.description), ['State Gas Tax']);
+    expect(withLayout.items.single.lineTotal, '2.13');
+    expect(withLayout.tax, '0.50');
   });
 
   test('labeled bill columns keep service and rated taxes out of items', () {
@@ -3870,9 +3869,19 @@ Total USD 20.00
           _layoutBlock('Unpriced item', 3, 3, 100, 300),
         ],
       );
+      final centeredUnresolved = parser.parse(
+        'Corner Cafe\nBread USD 5.00\nTotal USD 5.00\nUnpriced item',
+        blocks: [
+          _layoutBlock('Corner Cafe', 0, 0, 350, 650),
+          _layoutBlock('Bread USD 5.00', 1, 1, 100, 900),
+          _layoutBlock('Total USD 5.00', 2, 2, 100, 900),
+          _layoutBlock('Unpriced item', 3, 3, 450, 550),
+        ],
+      );
 
       expect(centered.reviewHints, isEmpty);
       expect(leftAligned.reviewHints, isNotEmpty);
+      expect(centeredUnresolved.reviewHints, isNotEmpty);
     },
   );
 
