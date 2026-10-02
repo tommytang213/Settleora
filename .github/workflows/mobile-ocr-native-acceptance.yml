@@ -252,8 +252,38 @@ jobs:
       - name: Record bounded Android package comparison after failed measurement
         if: ${{ !cancelled() && steps.package.outcome == 'failure' }}
         run: |
+          ndk_selected=""
+          ndk_installed=""
+          linker_version=""
+          extension="${FLUTTER_ROOT:-}/packages/flutter_tools/gradle/src/main/kotlin/FlutterExtension.kt"
+          if [[ -n "${FLUTTER_ROOT:-}" && -f "$extension" && $(stat -c %s "$extension") -le 1048576 ]]; then
+            ndk_selected=$(sed -nE 's/.*val ndkVersion: String = "([0-9]+\.[0-9]+\.[0-9]+)".*/\1/p' "$extension" | head -n 1)
+          fi
+          if [[ "$ndk_selected" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && -n "${ANDROID_HOME:-}" ]]; then
+            ndk_root="$ANDROID_HOME/ndk/$ndk_selected"
+            properties="$ndk_root/source.properties"
+            if [[ -f "$properties" && $(stat -c %s "$properties") -le 1048576 ]]; then
+              ndk_installed=$(sed -nE 's/^Pkg\.Revision[[:space:]]*=[[:space:]]*([0-9]+\.[0-9]+\.[0-9]+)[[:space:]]*$/\1/p' "$properties" | head -n 1)
+            fi
+            linker="$ndk_root/toolchains/llvm/prebuilt/linux-x86_64/bin/ld.lld"
+            if [[ "$ndk_installed" == "$ndk_selected" && -x "$linker" ]]; then
+              if linker_output=$(timeout 30s "$linker" --version 2>/dev/null); then
+                if [[ ${#linker_output} -le 16384 ]]; then
+                  linker_version=$(printf '%s\n' "$linker_output" | sed -nE 's/.*LLD[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' | head -n 1)
+                fi
+              fi
+            fi
+          fi
+          candidate_present=false
+          if [[ -d "$RUNNER_TEMP/android-candidate-package" ]]; then
+            candidate_present=true
+          fi
           python3 tools/ocr-models/android-build-provenance-evidence.py \
             --source-sha="$EXPECTED_HEAD" \
+            --ndk-selected="$ndk_selected" \
+            --ndk-installed="$ndk_installed" \
+            --linker-version="$linker_version" \
+            --candidate-root-present="$candidate_present" \
             --out="$RUNNER_TEMP/android-build-provenance.json"
           python3 tools/ocr-models/android-package-comparison-evidence.py \
             --package="$RUNNER_TEMP/settleora-verified-production.apk" \
