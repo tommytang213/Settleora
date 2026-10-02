@@ -2,6 +2,81 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/receipt_ocr_review/receipt_ocr_review_repository.dart';
 
 void main() {
+  test('included tax reconciles bounded same-currency tip or shipping', () {
+    ReceiptOcrReviewSaveRequest candidate({
+      required String subtotal,
+      required String total,
+      required String kind,
+      String adjustmentCurrency = 'GBP',
+      bool duplicate = false,
+    }) {
+      final adjustment = ReceiptOcrReviewAdjustmentSaveRequest(
+        kind: kind,
+        originalLabel: kind,
+        amount: '2',
+        currency: adjustmentCurrency,
+        direction: ReceiptOcrReviewAdjustmentDirectionValues.charge,
+      );
+      return ReceiptOcrReviewSaveRequest(
+        status: ReceiptOcrReviewStatusValues.provisional,
+        source: ReceiptOcrReviewSourceValues.onDevice,
+        merchantText: null,
+        receiptIssuedAtUtc: null,
+        currency: 'GBP',
+        subtotalAmount: subtotal,
+        taxAmount: '4',
+        serviceChargeAmount: null,
+        discountAmount: null,
+        grandTotalAmount: total,
+        lines: const [],
+        adjustmentEvidence: [adjustment, if (duplicate) adjustment],
+      );
+    }
+
+    expect(
+      receiptOcrTaxModeFromSupportedEvidence(
+        candidate(
+          subtotal: '24',
+          total: '26',
+          kind: ReceiptOcrReviewAdjustmentKindValues.tip,
+        ),
+      ),
+      ReceiptOcrTaxReconciliationModeValues.alreadyInBase,
+    );
+    expect(
+      receiptOcrTaxModeFromSupportedEvidence(
+        candidate(
+          subtotal: '20',
+          total: '26',
+          kind: ReceiptOcrReviewAdjustmentKindValues.shipping,
+        ),
+      ),
+      ReceiptOcrTaxReconciliationModeValues.addToBase,
+    );
+    expect(
+      receiptOcrTaxModeFromSupportedEvidence(
+        candidate(
+          subtotal: '24',
+          total: '26',
+          kind: ReceiptOcrReviewAdjustmentKindValues.tip,
+          adjustmentCurrency: 'EUR',
+        ),
+      ),
+      ReceiptOcrTaxReconciliationModeValues.unresolved,
+    );
+    expect(
+      receiptOcrTaxModeFromSupportedEvidence(
+        candidate(
+          subtotal: '24',
+          total: '26',
+          kind: ReceiptOcrReviewAdjustmentKindValues.tip,
+          duplicate: true,
+        ),
+      ),
+      ReceiptOcrTaxReconciliationModeValues.unresolved,
+    );
+  });
+
   test('saved additive tax cannot become included from edited arithmetic', () {
     final now = DateTime.utc(2026, 10, 2);
     final review = ReceiptOcrReviewDetail(

@@ -392,9 +392,31 @@ String? receiptOcrTaxModeForSavedEdit(
     return ReceiptOcrTaxReconciliationModeValues.unresolved;
   }
   return recalculated == ReceiptOcrTaxReconciliationModeValues.unresolved &&
-          candidate.adjustmentEvidence.isEmpty
+          mode != ReceiptOcrTaxReconciliationModeValues.addToBase
       ? ReceiptOcrTaxReconciliationModeValues.sourceIncludedUnresolved
       : recalculated;
+}
+
+BigInt? receiptOcrSupportedAdjustmentTotal(
+  ReceiptOcrReviewSaveRequest candidate,
+) {
+  if (candidate.currency == null) return null;
+  var total = BigInt.zero;
+  final seenKinds = <String>{};
+  for (final adjustment in candidate.adjustmentEvidence) {
+    if ((adjustment.kind != ReceiptOcrReviewAdjustmentKindValues.tip &&
+            adjustment.kind != ReceiptOcrReviewAdjustmentKindValues.shipping) ||
+        !seenKinds.add(adjustment.kind) ||
+        adjustment.direction !=
+            ReceiptOcrReviewAdjustmentDirectionValues.charge ||
+        adjustment.currency != candidate.currency) {
+      return null;
+    }
+    final amount = receiptOcrDecimalUnits(adjustment.amount);
+    if (amount == null || amount <= BigInt.zero) return null;
+    total += amount;
+  }
+  return total;
 }
 
 String receiptOcrTaxModeFromSupportedEvidence(
@@ -402,11 +424,11 @@ String receiptOcrTaxModeFromSupportedEvidence(
   bool hasAmbiguity = false,
 }) {
   const unresolved = ReceiptOcrTaxReconciliationModeValues.unresolved;
-  if (hasAmbiguity ||
-      candidate.currency == null ||
-      candidate.adjustmentEvidence.isNotEmpty) {
+  if (hasAmbiguity || candidate.currency == null) {
     return unresolved;
   }
+  final adjustmentTotal = receiptOcrSupportedAdjustmentTotal(candidate);
+  if (adjustmentTotal == null) return unresolved;
   final tax = receiptOcrDecimalUnits(candidate.taxAmount);
   final total = receiptOcrDecimalUnits(candidate.grandTotalAmount);
   if (tax == null || tax <= BigInt.zero || total == null) return unresolved;
@@ -429,7 +451,7 @@ String receiptOcrTaxModeFromSupportedEvidence(
       ? BigInt.zero
       : receiptOcrDecimalUnits(candidate.discountAmount);
   if (service == null || discount == null) return unresolved;
-  final withoutTax = base + service - discount;
+  final withoutTax = base + service + adjustmentTotal - discount;
   if (total == withoutTax && tax <= base) {
     return ReceiptOcrTaxReconciliationModeValues.alreadyInBase;
   }

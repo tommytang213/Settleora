@@ -659,6 +659,14 @@ VAT included 10% GBP 2.00
 Sales tax 20% GBP 4.00
 Total GBP 24.00
 ''');
+      final includedWithTip = parser.parse('''
+London Books
+Book GBP 24.00
+Subtotal GBP 24.00
+VAT included 20% GBP 4.00
+Tip GBP 2.00
+Total GBP 26.00
+''');
       expect(
         receiptOcrReviewSaveRequestFromPreview(
           gross,
@@ -696,6 +704,15 @@ Total GBP 24.00
       expect(
         mixedSaved?.taxReconciliationMode,
         ReceiptOcrTaxReconciliationModeValues.unresolved,
+      );
+      final tipSaved = receiptOcrReviewSaveRequestFromPreview(
+        includedWithTip,
+        originalCurrency: 'GBP',
+      );
+      expect(tipSaved?.adjustmentEvidence.single.amount, '2.00');
+      expect(
+        tipSaved?.taxReconciliationMode,
+        ReceiptOcrTaxReconciliationModeValues.alreadyInBase,
       );
       expect(
         receiptOcrReviewSaveRequestFromPreview(

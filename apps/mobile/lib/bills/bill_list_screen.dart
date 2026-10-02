@@ -548,7 +548,7 @@ String? _receiptOcrTaxModeFromSource(
           candidate.currency != null &&
           candidate.taxAmount != null &&
           candidate.grandTotalAmount != null &&
-          candidate.adjustmentEvidence.isEmpty
+          receiptOcrSupportedAdjustmentTotal(candidate) != null
       ? ReceiptOcrTaxReconciliationModeValues.sourceIncludedUnresolved
       : mode;
 }
