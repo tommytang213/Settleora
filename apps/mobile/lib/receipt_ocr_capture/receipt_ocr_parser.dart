@@ -4501,6 +4501,16 @@ _currencyAdjacentToSelectedAmount(
   ).firstMatch(after);
   String? resolve(String? token) {
     if (token == null) return null;
+    if (token.toLowerCase() == 'kr') {
+      return const {'SEK', 'NOK', 'DKK'}.contains(receiptCurrency)
+          ? receiptCurrency
+          : null;
+    }
+    if (token.toLowerCase() == 'rs') {
+      return const {'INR', 'PKR'}.contains(receiptCurrency)
+          ? receiptCurrency
+          : null;
+    }
     if (token == '¥') {
       return receiptCurrency == 'JPY' || receiptCurrency == 'CNY'
           ? receiptCurrency
@@ -4625,6 +4635,7 @@ bool _isReceiptMetadataLine(String line, {bool allowBarePostal = true}) {
       r'^\s*(?:qty|quantity)\b.*\b(?:item|description|product|price|amount|total)\b',
     ),
     RegExp(r'\b(tax\s*id|tin|gst\s*no|vat\s*no|business\s*no|br\s*no)\b'),
+    RegExp(r'^\s*strn\s*[:#-]?\s*\d{6,15}\s*$'),
     RegExp(r'^\s*(invoice|receipt|check|cheque|ticket)\s*(no|#|number|num)?\b'),
     RegExp(
       r'\b(table|tbl|branch|cashier|server|staff|register|reg|terminal|term|till|pos|order|ord|reference|ref)\b\s*[:#-]?\s*[a-z0-9-]+\b',
