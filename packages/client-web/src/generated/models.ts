@@ -3330,9 +3330,9 @@ export type ReceiptOcrReviewStatus = "provisional" | "reviewed";
 export type ReceiptOcrReviewSource = "on_device" | "manual_entry" | "imported_reviewed_data";
 
 /**
- * Review-level relation of a printed same-currency tax component to the printed subtotal or complete reviewed item sum. It is not item tax allocation. Unresolved blocks draft Apply; omitted or null on a new review retains legacy additive behavior.
+ * Review-level relation of a printed same-currency tax component to the printed subtotal or complete reviewed item sum. It is not item tax allocation. Both unresolved states block draft Apply. included_unresolved retains high-confidence source evidence of an included-tax label while the reviewed arithmetic is contradictory; it does not authorize Apply or prove an amount. Omitted or null on a new review retains legacy additive behavior.
  */
-export type ReceiptOcrTaxReconciliationMode = "add_to_base" | "already_in_base" | "unresolved";
+export type ReceiptOcrTaxReconciliationMode = "add_to_base" | "already_in_base" | "unresolved" | "included_unresolved";
 
 /**
  * Decimal-safe non-negative candidate amount represented as a string. Exponent notation, locale formatting, symbols, and floating-point JSON numbers are not accepted.

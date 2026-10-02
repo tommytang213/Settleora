@@ -454,7 +454,10 @@ internal static class ReceiptOcrReviewEndpoints
             // turn an included component into an additive charge.
             taxMode = HasSameTaxRelevantMoney(review, submittedReview)
                 ? review.TaxReconciliationMode
-                : ReceiptOcrReviewTaxReconciliationModes.Unresolved;
+                : review.TaxReconciliationMode is ReceiptOcrReviewTaxReconciliationModes.SourceIncludedUnresolved
+                    && review.Currency == submittedReview.Currency
+                    ? ReceiptOcrReviewTaxReconciliationModes.SourceIncludedUnresolved
+                    : ReceiptOcrReviewTaxReconciliationModes.Unresolved;
         }
 
         if (review is null)

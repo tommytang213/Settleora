@@ -2988,7 +2988,7 @@ public sealed class SettleoraDbContext : DbContext
                 "subtotal_amount IS NULL OR subtotal_amount >= 0");
             table.HasCheckConstraint(
                 "ck_receipt_ocr_reviews_tax_reconciliation_mode",
-                "tax_reconciliation_mode IS NULL OR tax_reconciliation_mode IN ('add_to_base', 'already_in_base', 'unresolved')");
+                "tax_reconciliation_mode IS NULL OR tax_reconciliation_mode IN ('add_to_base', 'already_in_base', 'unresolved', 'included_unresolved')");
             table.HasCheckConstraint(
                 "ck_receipt_ocr_reviews_tax_amount_non_negative",
                 "tax_amount IS NULL OR tax_amount >= 0");

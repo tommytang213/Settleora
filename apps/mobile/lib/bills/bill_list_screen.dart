@@ -503,19 +503,48 @@ ReceiptOcrReviewSaveRequest? receiptOcrReviewSaveRequestFromPreview(
     ),
   );
   return candidate.withTaxReconciliationMode(
-    _receiptOcrTaxModeFromSource(preview, candidate),
+    _receiptOcrTaxModeFromSource(
+      preview,
+      candidate,
+      reviewCurrencyChanged: reviewCurrencyChanged,
+    ),
   );
 }
 
 String? _receiptOcrTaxModeFromSource(
   ReceiptOcrPreview preview,
-  ReceiptOcrReviewSaveRequest candidate,
-) {
+  ReceiptOcrReviewSaveRequest candidate, {
+  required bool reviewCurrencyChanged,
+}) {
   if (!preview.taxIncludedInTotal) return null;
-  return receiptOcrTaxModeFromSupportedEvidence(
+  if (reviewCurrencyChanged) {
+    return ReceiptOcrTaxReconciliationModeValues.unresolved;
+  }
+  final mode = receiptOcrTaxModeFromSupportedEvidence(
     candidate,
     hasAmbiguity: preview.reviewHints.isNotEmpty,
   );
+  final arithmeticConflictOnly =
+      preview.reviewHintDecision == ReceiptOcrReviewDecision.none ||
+      preview.reviewHintDecision ==
+          ReceiptOcrReviewDecision.grandTotalMismatchWithSubtotal ||
+      preview.reviewHintDecision ==
+          ReceiptOcrReviewDecision.grandTotalMismatchWithoutSubtotal ||
+      preview.reviewHintDecision ==
+          ReceiptOcrReviewDecision
+              .referenceAdjustmentUnreconciledWithSubtotal ||
+      preview.reviewHintDecision ==
+          ReceiptOcrReviewDecision
+              .referenceAdjustmentUnreconciledWithoutSubtotal;
+  return mode == ReceiptOcrTaxReconciliationModeValues.unresolved &&
+          arithmeticConflictOnly &&
+          preview.adjustmentsComplete &&
+          candidate.currency != null &&
+          candidate.taxAmount != null &&
+          candidate.grandTotalAmount != null &&
+          candidate.adjustmentEvidence.isEmpty
+      ? ReceiptOcrTaxReconciliationModeValues.sourceIncludedUnresolved
+      : mode;
 }
 
 @visibleForTesting

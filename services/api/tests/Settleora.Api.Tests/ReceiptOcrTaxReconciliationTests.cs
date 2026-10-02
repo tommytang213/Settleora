@@ -11,6 +11,7 @@ public sealed class ReceiptOcrTaxReconciliationTests
     [InlineData(null, "20", "20", "24", true, "24")]
     [InlineData("already_in_base", "24", "24", "28", false, "24")]
     [InlineData("unresolved", "24", "24", "24", false, null)]
+    [InlineData("included_unresolved", "24", "24", "24", false, null)]
     public void PreviewUsesOneModeAwareAmountForGrossNetAndLegacy(
         string? mode, string lineTotal, string? subtotal, string total,
         bool canApply, string? expectedHeader)
@@ -20,7 +21,8 @@ public sealed class ReceiptOcrTaxReconciliationTests
         var preview = ReceiptOcrReviewApplyPreviewResponse.From(review, "GBP");
         Assert.Equal(canApply, preview.CanApply);
         Assert.Equal(expectedHeader, preview.Summary.ExpectedHeaderTotalAmount);
-        if (mode is ReceiptOcrReviewTaxReconciliationModes.Unresolved)
+        if (mode is ReceiptOcrReviewTaxReconciliationModes.Unresolved
+            or ReceiptOcrReviewTaxReconciliationModes.SourceIncludedUnresolved)
             Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.TaxReconciliationUnresolved, preview.BlockedReasons);
         if (mode is ReceiptOcrReviewTaxReconciliationModes.AlreadyInBase && !canApply)
             Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.HeaderTotalMismatch, preview.BlockedReasons);

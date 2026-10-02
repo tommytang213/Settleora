@@ -18253,11 +18253,12 @@ components:
         - imported_reviewed_data
     ReceiptOcrTaxReconciliationMode:
       type: string
-      description: Review-level relation of a printed same-currency tax component to the printed subtotal or complete reviewed item sum. It is not item tax allocation. Unresolved blocks draft Apply; omitted or null on a new review retains legacy additive behavior.
+      description: Review-level relation of a printed same-currency tax component to the printed subtotal or complete reviewed item sum. It is not item tax allocation. Both unresolved states block draft Apply. included_unresolved retains high-confidence source evidence of an included-tax label while the reviewed arithmetic is contradictory; it does not authorize Apply or prove an amount. Omitted or null on a new review retains legacy additive behavior.
       enum:
         - add_to_base
         - already_in_base
         - unresolved
+        - included_unresolved
     ReceiptOcrCandidateAmount:
       type: string
       pattern: "^(0|[1-9][0-9]*)(\\.[0-9]{1,4})?$"

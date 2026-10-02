@@ -288,7 +288,8 @@ internal sealed record ReceiptOcrReviewApplyPreviewResponse(
             out var expectedHeaderTotal,
             out var expectedHeaderTotalOutOfRange,
             out var taxModeInvalid);
-        if (review.TaxReconciliationMode is ReceiptOcrReviewTaxReconciliationModes.Unresolved)
+        if (review.TaxReconciliationMode is ReceiptOcrReviewTaxReconciliationModes.Unresolved
+            or ReceiptOcrReviewTaxReconciliationModes.SourceIncludedUnresolved)
         {
             AddBlockedIssue(blockedReasons, warnings, ReceiptOcrReviewApplyPreviewIssueCodes.TaxReconciliationUnresolved);
         }
@@ -373,7 +374,8 @@ internal sealed record ReceiptOcrReviewApplyPreviewResponse(
         outOfRange = false;
         taxModeInvalid = false;
         var mode = review.TaxReconciliationMode;
-        if (mode is ReceiptOcrReviewTaxReconciliationModes.Unresolved)
+        if (mode is ReceiptOcrReviewTaxReconciliationModes.Unresolved
+            or ReceiptOcrReviewTaxReconciliationModes.SourceIncludedUnresolved)
         {
             return false;
         }

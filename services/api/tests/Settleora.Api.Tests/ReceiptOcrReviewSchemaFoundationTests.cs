@@ -243,7 +243,8 @@ public sealed class ReceiptOcrReviewSchemaFoundationTests
         Assert.Equal("tax_reconciliation_mode", taxModeColumn.Name);
         Assert.True(taxModeColumn.IsNullable);
         Assert.Single(taxModeMigration.UpOperations.OfType<AddCheckConstraintOperation>(),
-            constraint => constraint.Name == "ck_receipt_ocr_reviews_tax_reconciliation_mode");
+            constraint => constraint.Name == "ck_receipt_ocr_reviews_tax_reconciliation_mode"
+                && constraint.Sql.Contains("included_unresolved", StringComparison.Ordinal));
         Assert.DoesNotContain(taxModeMigration.UpOperations,
             operation => operation is DropTableOperation or DropColumnOperation or DropIndexOperation or
                 DropForeignKeyOperation or AlterColumnOperation or SqlOperation);

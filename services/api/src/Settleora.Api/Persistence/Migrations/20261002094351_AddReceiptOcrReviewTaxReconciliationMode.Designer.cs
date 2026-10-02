@@ -3044,7 +3044,7 @@ namespace Settleora.Api.Persistence.Migrations
 
                             t.HasCheckConstraint("ck_receipt_ocr_reviews_tax_amount_upper_bound", "tax_amount IS NULL OR tax_amount <= 999999999999999.9999");
 
-                            t.HasCheckConstraint("ck_receipt_ocr_reviews_tax_reconciliation_mode", "tax_reconciliation_mode IS NULL OR tax_reconciliation_mode IN ('add_to_base', 'already_in_base', 'unresolved')");
+                            t.HasCheckConstraint("ck_receipt_ocr_reviews_tax_reconciliation_mode", "tax_reconciliation_mode IS NULL OR tax_reconciliation_mode IN ('add_to_base', 'already_in_base', 'unresolved', 'included_unresolved')");
                         });
                 });
 

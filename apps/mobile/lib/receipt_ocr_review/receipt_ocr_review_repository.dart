@@ -12,6 +12,7 @@ class ReceiptOcrTaxReconciliationModeValues {
   static const addToBase = 'add_to_base';
   static const alreadyInBase = 'already_in_base';
   static const unresolved = 'unresolved';
+  static const sourceIncludedUnresolved = 'included_unresolved';
 }
 
 typedef ReceiptOcrReviewSource = String;
@@ -377,14 +378,17 @@ String? receiptOcrTaxModeForSavedEdit(
     }
   }
   if (sameEvidence) return mode;
-  // A previously supported printed-tax interpretation can be recomputed
-  // from corrected review values. A legacy or ambiguous review has no such
-  // source evidence and remains unresolved without a mode selection control.
+  // Only a stored source-supported interpretation can be recomputed after an
+  // edit. Plain unresolved has no preserved inclusion evidence.
   if (candidate.currency != previous.currency ||
       mode == ReceiptOcrTaxReconciliationModeValues.unresolved) {
     return ReceiptOcrTaxReconciliationModeValues.unresolved;
   }
-  return receiptOcrTaxModeFromSupportedEvidence(candidate);
+  final recalculated = receiptOcrTaxModeFromSupportedEvidence(candidate);
+  return recalculated == ReceiptOcrTaxReconciliationModeValues.unresolved &&
+          candidate.adjustmentEvidence.isEmpty
+      ? ReceiptOcrTaxReconciliationModeValues.sourceIncludedUnresolved
+      : recalculated;
 }
 
 String receiptOcrTaxModeFromSupportedEvidence(

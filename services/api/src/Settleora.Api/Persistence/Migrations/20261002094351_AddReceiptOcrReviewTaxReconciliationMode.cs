@@ -20,7 +20,7 @@ namespace Settleora.Api.Persistence.Migrations
             migrationBuilder.AddCheckConstraint(
                 name: "ck_receipt_ocr_reviews_tax_reconciliation_mode",
                 table: "receipt_ocr_reviews",
-                sql: "tax_reconciliation_mode IS NULL OR tax_reconciliation_mode IN ('add_to_base', 'already_in_base', 'unresolved')");
+                sql: "tax_reconciliation_mode IS NULL OR tax_reconciliation_mode IN ('add_to_base', 'already_in_base', 'unresolved', 'included_unresolved')");
         }
 
         /// <inheritdoc />

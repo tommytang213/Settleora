@@ -77,7 +77,73 @@ void main() {
     );
     expect(
       receiptOcrTaxModeForSavedEdit(review, edit(tax: '25')),
-      ReceiptOcrTaxReconciliationModeValues.unresolved,
+      ReceiptOcrTaxReconciliationModeValues.sourceIncludedUnresolved,
     );
   });
+
+  test(
+    'source included conflict survives save and resolves only after correction',
+    () {
+      final now = DateTime.utc(2026, 10, 2);
+      ReceiptOcrReviewDetail review(String mode) => ReceiptOcrReviewDetail(
+        id: 'review',
+        billId: 'bill',
+        fileId: 'file',
+        groupId: null,
+        status: ReceiptOcrReviewStatusValues.reviewed,
+        source: ReceiptOcrReviewSourceValues.onDevice,
+        merchantText: 'Books',
+        receiptIssuedAtUtc: null,
+        currency: 'GBP',
+        subtotalAmount: '20',
+        taxAmount: '4',
+        taxReconciliationMode: mode,
+        serviceChargeAmount: null,
+        discountAmount: null,
+        grandTotalAmount: '25',
+        lines: const [],
+        createdAtUtc: now,
+        updatedAtUtc: now,
+      );
+      ReceiptOcrReviewSaveRequest corrected({String currency = 'GBP'}) =>
+          ReceiptOcrReviewSaveRequest(
+            status: ReceiptOcrReviewStatusValues.reviewed,
+            source: ReceiptOcrReviewSourceValues.onDevice,
+            merchantText: 'Books',
+            receiptIssuedAtUtc: null,
+            currency: currency,
+            subtotalAmount: '20',
+            taxAmount: '4',
+            serviceChargeAmount: null,
+            discountAmount: null,
+            grandTotalAmount: '24',
+            lines: const [],
+          );
+      expect(
+        receiptOcrTaxModeForSavedEdit(
+          review(
+            ReceiptOcrTaxReconciliationModeValues.sourceIncludedUnresolved,
+          ),
+          corrected(),
+        ),
+        ReceiptOcrTaxReconciliationModeValues.addToBase,
+      );
+      expect(
+        receiptOcrTaxModeForSavedEdit(
+          review(ReceiptOcrTaxReconciliationModeValues.unresolved),
+          corrected(),
+        ),
+        ReceiptOcrTaxReconciliationModeValues.unresolved,
+      );
+      expect(
+        receiptOcrTaxModeForSavedEdit(
+          review(
+            ReceiptOcrTaxReconciliationModeValues.sourceIncludedUnresolved,
+          ),
+          corrected(currency: 'EUR'),
+        ),
+        ReceiptOcrTaxReconciliationModeValues.unresolved,
+      );
+    },
+  );
 }

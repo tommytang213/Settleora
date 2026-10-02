@@ -857,6 +857,24 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
 
         var restored = await Put(Body("already_in_base", "Books edited", "24"));
         Assert.Equal("already_in_base", restored.Mode);
+        var sourceConflict = await Put(Body("included_unresolved", "Books edited", "25"));
+        Assert.Equal(created.Id, sourceConflict.Id);
+        Assert.Equal("included_unresolved", sourceConflict.Mode);
+        var oldClientMerchantEdit = await Put(Body("omit", "Books edited again", "25"));
+        Assert.Equal("included_unresolved", oldClientMerchantEdit.Mode);
+        var oldClientMoneyEdit = await Put(Body("null", "Books edited again", "24"));
+        Assert.Equal("included_unresolved", oldClientMoneyEdit.Mode);
+        using (var request = CreateBearerRequest(HttpMethod.Get, previewPath, owner.RawSessionToken))
+        using (var response = await client.SendAsync(request))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var unresolvedPreview = ReadApplyPreviewPayload(await response.Content.ReadAsStringAsync());
+            Assert.False(unresolvedPreview.CanApply);
+            Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.TaxReconciliationUnresolved,
+                unresolvedPreview.BlockedReasons);
+        }
+        var sourceCorrection = await Put(Body("already_in_base", "Books edited again", "24"));
+        Assert.Equal("already_in_base", sourceCorrection.Mode);
         var adjusted = await Put(Body("omit", "Books edited", "24", addAdjustment: true));
         Assert.Equal(created.Id, adjusted.Id);
         Assert.Equal("unresolved", adjusted.Mode);

@@ -9819,14 +9819,15 @@ class ReceiptOcrReviewSourceValues {
   static const Set<ReceiptOcrReviewSource> values = {onDevice, manualEntry, importedReviewedData};
 }
 
-/// Review-level relation of a printed same-currency tax component to the printed subtotal or complete reviewed item sum. It is not item tax allocation. Unresolved blocks draft Apply; omitted or null on a new review retains legacy additive behavior.
+/// Review-level relation of a printed same-currency tax component to the printed subtotal or complete reviewed item sum. It is not item tax allocation. Both unresolved states block draft Apply. included_unresolved retains high-confidence source evidence of an included-tax label while the reviewed arithmetic is contradictory; it does not authorize Apply or prove an amount. Omitted or null on a new review retains legacy additive behavior.
 typedef ReceiptOcrTaxReconciliationMode = String;
 class ReceiptOcrTaxReconciliationModeValues {
   const ReceiptOcrTaxReconciliationModeValues._();
   static const ReceiptOcrTaxReconciliationMode addToBase = "add_to_base";
   static const ReceiptOcrTaxReconciliationMode alreadyInBase = "already_in_base";
   static const ReceiptOcrTaxReconciliationMode unresolved = "unresolved";
-  static const Set<ReceiptOcrTaxReconciliationMode> values = {addToBase, alreadyInBase, unresolved};
+  static const ReceiptOcrTaxReconciliationMode includedUnresolved = "included_unresolved";
+  static const Set<ReceiptOcrTaxReconciliationMode> values = {addToBase, alreadyInBase, unresolved, includedUnresolved};
 }
 
 /// Decimal-safe non-negative candidate amount represented as a string. Exponent notation, locale formatting, symbols, and floating-point JSON numbers are not accepted.
