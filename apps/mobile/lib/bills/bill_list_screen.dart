@@ -300,6 +300,7 @@ ReceiptOcrPreview _copyReceiptOcrPreview(
     taxCurrency: retainTax ? preview.taxCurrency : null,
     taxHasExplicitCurrencyEvidence:
         retainTax && preview.taxHasExplicitCurrencyEvidence,
+    taxIncludedInTotal: retainTax && preview.taxIncludedInTotal,
     service: retainService ? preview.service : null,
     serviceCurrency: retainService ? preview.serviceCurrency : null,
     serviceHasExplicitCurrencyEvidence:

@@ -619,6 +619,51 @@ Grand Total USD 118.79
     expect(find.text(warning), findsNothing);
   });
 
+  testWidgets('merchant edit retains printed included-tax evidence', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final preview = const ReceiptOcrParser().parse('''
+London Books
+Book GBP 24.00
+Total incl. VAT GBP 24.00
+VAT included 20% GBP 4.00
+''');
+    expect(preview.taxIncludedInTotal, isTrue);
+    expect(preview.reviewHints, isEmpty);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: FakeBillRepository(),
+          syncController: sampleBillSyncController(),
+          attachmentRepository: FakeBillAttachmentRepository(),
+          attachmentFileInput: FakeBillAttachmentFileInput(
+            pickedFile: samplePickedAttachmentFile(
+              filename: 'receipt.png',
+              contentType: 'image/png',
+              bytes: samplePngBytes(width: 640, height: 480),
+            ),
+          ),
+          receiptOcrProvider: FakeReceiptOcrProvider(
+            ReceiptOcrResult.extracted(preview),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-list-scan-receipt')));
+    await tester.pumpAndSettle();
+    const warning =
+        'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.';
+    expect(find.text(warning), findsNothing);
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-ocr-edit-merchant')),
+      'Corrected London Books',
+    );
+    await tester.pumpAndSettle();
+    expect(find.text(warning), findsNothing);
+  });
+
   test('OCR adjustment adapter only emits API-valid positive magnitudes', () {
     ReceiptOcrPreview preview({
       String? tip,
