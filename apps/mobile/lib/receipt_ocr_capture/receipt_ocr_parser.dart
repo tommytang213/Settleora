@@ -1234,8 +1234,7 @@ class ReceiptOcrParser {
     // field. Aggregate only distinct rates in the established receipt
     // currency; a separate summary or conflicting denomination stays in
     // review rather than being double counted or converted.
-    final mixedTaxInclusion =
-        transactionTaxInclusionModes.toSet().length > 1;
+    final mixedTaxInclusion = transactionTaxInclusionModes.toSet().length > 1;
     if (!hasUnratedTax &&
         !mixedTaxInclusion &&
         currency != null &&
@@ -1581,10 +1580,18 @@ class ReceiptOcrParser {
             lineDecisions[lineIndex + 1] =
                 ReceiptOcrItemLineDecision.adjacentAmountSelected;
             final wrappedDescription = wrappedDescriptionLines.join(' ');
-            final description =
+            var description =
                 _isStrongWrappedItemDescription(wrappedDescription)
                 ? '$wrappedDescription $cleaned'
                 : cleaned;
+            if (items.isNotEmpty &&
+                lineIndex > 0 &&
+                lineDecisions[lineIndex - 1] ==
+                    ReceiptOcrItemLineDecision.unpricedDescription &&
+                _isPrintedModifierLine(lines[lineIndex - 1]) &&
+                _isPrintedModifierLine(cleaned)) {
+              description = description.replaceFirst(RegExp(r'^\+\s+'), '');
+            }
             items.add(
               ReceiptOcrItemCandidate(
                 description: description,
@@ -1608,6 +1615,14 @@ class ReceiptOcrParser {
             lineIndex += 1;
             continue;
           }
+        }
+        if (_isPrintedModifierLine(line)) {
+          // An unpriced modifier belongs to the preceding selection. Keep it
+          // in raw review evidence instead of attaching it to the next charge.
+          wrappedDescriptionLines.clear();
+          lineDecisions[lineIndex] =
+              ReceiptOcrItemLineDecision.unpricedDescription;
+          continue;
         }
         if (lineIndex > 0 && _isWrappedItemDescriptionCandidate(cleaned)) {
           wrappedDescriptionLines.add(cleaned);
@@ -1640,6 +1655,14 @@ class ReceiptOcrParser {
       }
 
       var description = _cleanDescription(match.group(1)!);
+      if (items.isNotEmpty &&
+          lineIndex > 0 &&
+          lineDecisions[lineIndex - 1] ==
+              ReceiptOcrItemLineDecision.unpricedDescription &&
+          _isPrintedModifierLine(lines[lineIndex - 1]) &&
+          _isPrintedModifierLine(description)) {
+        description = description.replaceFirst(RegExp(r'^\+\s+'), '');
+      }
       if (chargeTableRows.contains(lineIndex)) {
         description = _stripChargeTableColumns(description);
       }
@@ -2414,6 +2437,16 @@ class ReceiptOcrParser {
       if (merchantLineIndices.contains(lineIndex)) {
         continue;
       }
+      if (_isSeeYouSoonFooterPhrase(line) &&
+          lastPricedTotal >= 0 &&
+          lineIndex == lines.length - 1 &&
+          _hasOnlyPaymentOrIncludedTaxOrSuggestedTipAmountsBeforeCourtesy(
+            lines,
+            lastPricedTotal,
+            lineIndex,
+          )) {
+        continue;
+      }
       if (lineIndex + 1 < lines.length &&
           _isBillChargeDetailHeader(lines, lineIndex + 1) &&
           !_lineHasAmount(line)) {
@@ -2446,14 +2479,25 @@ class ReceiptOcrParser {
           )) {
         continue;
       }
+      if (_isCardApplicationIdentifierLine(line) &&
+          lastPricedTotal >= 0 &&
+          lineIndex > lastPricedTotal &&
+          lines
+              .skip(lastPricedTotal + 1)
+              .take(lineIndex - lastPricedTotal - 1)
+              .any(_isPaymentMetadataLine)) {
+        continue;
+      }
 
       final cleaned = _cleanDescription(line);
       if (lineIndex + 1 < lines.length &&
+          !_isPrintedModifierLine(line) &&
           _isWrappedItemDescriptionCandidate(cleaned) &&
           _isPricedItemLine(lines[lineIndex + 1])) {
         continue;
       }
       if (lineIndex + 1 < lines.length &&
+          !_isPrintedModifierLine(line) &&
           _isWrappedItemDescriptionCandidate(cleaned) &&
           !_isStandaloneTenderLabel(cleaned) &&
           !_isFinancialLabelWithAdjacentAmount(lines, layoutRows, lineIndex) &&
@@ -2471,6 +2515,16 @@ class ReceiptOcrParser {
     return count;
   }
 }
+
+bool _isCardApplicationIdentifierLine(String line) => RegExp(
+  r'^aid\s*[:#-]?\s*[a-f0-9]{10,32}$',
+  caseSensitive: false,
+).hasMatch(line.trim());
+
+bool _isPaymentTerminalIdentifierLine(String line) => RegExp(
+  r'^(?:terminal|term|till|pos)\s*(?:(?:id|no|number)\s*)?[:#-]?\s*[a-z]?\d{1,6}$',
+  caseSensitive: false,
+).hasMatch(line.trim());
 
 bool _isCenteredPostTotalFooter(
   List<String> lines,
@@ -2549,6 +2603,9 @@ bool _hasOnlyPaymentOrIncludedTaxOrSuggestedTipAmountsBeforeCourtesy(
       sawPayment = true;
       continue;
     }
+    if (sawPayment && _isPaymentTerminalIdentifierLine(lines[index])) {
+      continue;
+    }
     // Printed tip suggestions and explicitly included tax below the total
     // are informational; neither reopens the merchandise table.
     if (_isPrintedSuggestedTipOptionLine(lines[index]) ||
@@ -2572,6 +2629,11 @@ bool _hasOnlyPaymentOrIncludedTaxOrSuggestedTipAmountsBeforeCourtesy(
   }
   return true;
 }
+
+bool _isSeeYouSoonFooterPhrase(String line) => RegExp(
+  r'^see you soon[.!。！]?$',
+  caseSensitive: false,
+).hasMatch(line.trim());
 
 bool _isReceiptCourtesyLine(String line) {
   final normalized = line
@@ -3753,6 +3815,9 @@ String _cleanDescription(String value) {
       .replaceAll(RegExp(r'^[*#\-\s]+'), '')
       .trim();
 }
+
+bool _isPrintedModifierLine(String line) =>
+    RegExp(r'^\+\s+\p{L}', unicode: true).hasMatch(line.trim());
 
 bool _isAdministrativeLine(String line) {
   final normalized = line.toLowerCase();

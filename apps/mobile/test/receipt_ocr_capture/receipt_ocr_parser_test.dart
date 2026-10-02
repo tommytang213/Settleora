@@ -263,6 +263,40 @@ Total USD 9.50
   });
 
   test(
+    'reconciling subtotal does not turn numbered products into quantities',
+    () {
+      const rows = [
+        ('1', 'Day Pass', '14.00'),
+        ('1', 'Year Calendar', '11.00'),
+        ('2', 'Pack Batteries', '18.00'),
+        ('1', 'More Thing', '8.00'),
+      ];
+      final preview = const ReceiptOcrParser().parse(
+        'Market\n1 Day Pass 14.00\n1 Year Calendar 11.00\n'
+        '2 Pack Batteries 18.00\n1 More Thing 8.00\n'
+        'Subtotal 51.00\nTotal 51.00',
+        blocks: [
+          _layoutBlock('Market', 0, 0, 150, 500),
+          for (final (index, row) in rows.indexed) ...[
+            _layoutBlock(row.$1, index * 3 + 1, index + 1, 20, 30),
+            _layoutBlock(row.$2, index * 3 + 2, index + 1, 65, 280),
+            _layoutBlock(row.$3, index * 3 + 3, index + 1, 390, 470),
+          ],
+          _layoutBlock('Subtotal 51.00', 13, 5, 65, 470),
+          _layoutBlock('Total 51.00', 14, 6, 65, 470),
+        ],
+      );
+      expect(preview.items.map((item) => item.description), [
+        '1 Day Pass',
+        '1 Year Calendar',
+        '2 Pack Batteries',
+        '1 More Thing',
+      ]);
+      expect(preview.items.every((item) => item.quantity == null), isTrue);
+    },
+  );
+
+  test(
     'repeated numeric product prefixes remain names with aligned geometry',
     () {
       final preview = const ReceiptOcrParser().parse(
@@ -309,6 +343,90 @@ Total USD 9.50
       expect(preview.items.every((item) => item.quantity == null), isTrue);
     },
   );
+
+  test('priced modifier marker is not part of the item name', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Burger Lab
+Combo Meal USD 15.00
++ Large Fries
++ No Onion
++ Extra Cheese USD 1.50
+Iced Tea USD 3.00
+Subtotal USD 19.50
+Tax USD 1.76
+Total USD 21.26
+Thank you
+''');
+    expect(preview.items.map((item) => item.description), [
+      'Combo Meal',
+      'Extra Cheese',
+      'Iced Tea',
+    ]);
+    expect(preview.items.map((item) => item.lineTotal), [
+      '15.00',
+      '1.50',
+      '3.00',
+    ]);
+    expect(preview.reviewHints, isNotEmpty);
+    final oneUnpricedModifier = parser.parse('''
+Burger Lab
+Combo Meal USD 15.00
++ No Onion
++ Extra Cheese USD 1.50
+Total USD 16.50
+''');
+    expect(oneUnpricedModifier.items.map((item) => item.description), [
+      'Combo Meal',
+      'Extra Cheese',
+    ]);
+    expect(oneUnpricedModifier.reviewHints, isNotEmpty);
+
+    final firstItem = parser.parse('''
+Book Shop
++ Energy Drink USD 5.00
+Total USD 5.00
+''');
+    expect(firstItem.items.single.description, '+ Energy Drink');
+    final separateProduct = parser.parse('''
+Book Shop
+Notebook USD 2.00
++ Energy Drink USD 5.00
+Total USD 7.00
+''');
+    expect(separateProduct.items.last.description, '+ Energy Drink');
+    final consecutiveProducts = parser.parse('''
+Book Shop
++ Energy Drink USD 5.00
++ Energy Bar USD 3.00
+Total USD 8.00
+''');
+    expect(consecutiveProducts.items.map((item) => item.description), [
+      '+ Energy Drink',
+      '+ Energy Bar',
+    ]);
+  });
+
+  test('priced modifier keeps an adjacent right-column amount', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Burger Lab\nCombo Meal USD 15.00\n+ Large Fries\n'
+      '+ Extra Cheese\nUSD 1.50\nTotal USD 16.50',
+      blocks: [
+        _layoutBlock('Burger Lab', 0, 0, 20, 250),
+        _layoutBlock('Combo Meal USD 15.00', 1, 1, 20, 350),
+        _layoutBlock('+ Large Fries', 2, 2, 20, 220),
+        _layoutBlock('+ Extra Cheese', 3, 3, 20, 220),
+        _layoutBlock('USD 1.50', 4, 4, 310, 350),
+        _layoutBlock('Total USD 16.50', 5, 5, 20, 350),
+      ],
+    );
+    expect(preview.items.map((item) => item.description), [
+      'Combo Meal',
+      'Extra Cheese',
+    ]);
+    expect(preview.items.map((item) => item.lineTotal), ['15.00', '1.50']);
+    expect(preview.reviewHints, isNotEmpty);
+  });
 
   test('an explicit quantity header supports quantities above three', () {
     final preview = const ReceiptOcrParser().parse(
@@ -4106,6 +4224,74 @@ Thank you
     expect(shoppingFooter.reviewHints, isEmpty);
     expect(leftAlignedShopping.reviewHints, isNotEmpty);
     expect(shoppingNamedItem.reviewHints, isNotEmpty);
+  });
+
+  test('card authorization identifiers after total do not require review', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Tech Kiosk
+Date: 2026-09-17
+Cable USD 19.99
+Total USD 19.99
+VISA **** 4242
+AUTH 738291
+AID A0000000031010
+Terminal 003
+Thank you
+''');
+
+    expect(preview.items, hasLength(1));
+    expect(preview.items.single.description, 'Cable');
+    expect(preview.total, '19.99');
+    expect(preview.reviewHints, isEmpty);
+
+    final uncorroborated = parser.parse('''
+Tech Kiosk
+Cable USD 19.99
+Total USD 19.99
+AID A0000000031010
+''');
+    final uncorroboratedTerminal = parser.parse('''
+Tech Kiosk
+Cable USD 19.99
+Total USD 19.99
+Terminal 003
+Thank you
+''');
+    final pricedTerminal = parser.parse('''
+Tech Kiosk
+Cable USD 19.99
+Total USD 19.99
+VISA **** 4242
+Terminal USD 3.00
+Thank you
+''');
+    expect(uncorroborated.reviewHints, isNotEmpty);
+    expect(uncorroboratedTerminal.reviewHints, isNotEmpty);
+    expect(pricedTerminal.reviewHints, isNotEmpty);
+  });
+
+  test('source-visible see you soon footer does not mask an item', () {
+    const parser = ReceiptOcrParser();
+    final footer = parser.parse(
+      'Cafe\nBread USD 5.00\nTotal USD 5.00\nSee you soon!',
+    );
+    final namedItem = parser.parse(
+      'Cafe\nBread USD 5.00\nTotal USD 5.00\nSee you soon! Gift',
+    );
+    expect(footer.reviewHints, isEmpty);
+    expect(namedItem.reviewHints, isNotEmpty);
+    final splitLineItem = parser.parse(
+      'Cafe\nSee You Soon\nUSD 5.00\nTotal USD 5.00',
+      blocks: [
+        _layoutBlock('Cafe', 0, 0, 20, 200),
+        _layoutBlock('See You Soon', 1, 1, 20, 200),
+        _layoutBlock('USD 5.00', 2, 2, 310, 350),
+        _layoutBlock('Total USD 5.00', 3, 3, 20, 350),
+      ],
+    );
+    expect(splitLineItem.items.single.description, 'See You Soon');
+    expect(splitLineItem.items.single.lineTotal, '5.00');
   });
 
   test('courtesy footer after tender needs final placement and item safety', () {
