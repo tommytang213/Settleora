@@ -419,7 +419,8 @@ internal sealed record ReceiptOcrReviewApplyPreviewResponse(
             if (!string.Equals(adjustment.Currency, review.Currency, StringComparison.Ordinal))
             {
                 expectedHeaderTotal = 0m;
-                taxModeInvalid = mode is ReceiptOcrReviewTaxReconciliationModes.AlreadyInBase;
+                taxModeInvalid = mode is ReceiptOcrReviewTaxReconciliationModes.AddToBase
+                    or ReceiptOcrReviewTaxReconciliationModes.AlreadyInBase;
                 return false;
             }
             expectedHeaderTotal += adjustment.Direction is ReceiptOcrReviewAdjustmentDirections.Credit

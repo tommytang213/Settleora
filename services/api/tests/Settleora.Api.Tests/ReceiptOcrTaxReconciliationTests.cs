@@ -77,6 +77,25 @@ public sealed class ReceiptOcrTaxReconciliationTests
         Assert.Null(preview.Summary.ExpectedHeaderTotalAmount);
     }
 
+    [Theory]
+    [InlineData(ReceiptOcrReviewTaxReconciliationModes.AddToBase)]
+    [InlineData(ReceiptOcrReviewTaxReconciliationModes.AlreadyInBase)]
+    public void ExplicitTaxModeBlocksForeignAdjustmentInsteadOfSkippingHeaderCheck(string mode)
+    {
+        var review = CreateReview(mode, 24m, 24m, 24m);
+        review.Adjustments.Add(new ReceiptOcrReviewAdjustment
+        {
+            Id = Guid.NewGuid(), SortOrder = 0, Kind = ReceiptOcrReviewAdjustmentKinds.Other,
+            OriginalLabel = "Foreign fee", Amount = 1m, Currency = "EUR",
+            Direction = ReceiptOcrReviewAdjustmentDirections.Charge
+        });
+        var preview = ReceiptOcrReviewApplyPreviewResponse.From(review, "GBP");
+        Assert.False(preview.CanApply);
+        Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.TaxReconciliationInvalid,
+            preview.BlockedReasons);
+        Assert.Null(preview.Summary.ExpectedHeaderTotalAmount);
+    }
+
     private static ReceiptOcrReview CreateReview(string? mode, decimal lineTotal, decimal? subtotal, decimal total)
     {
         var review = new ReceiptOcrReview
