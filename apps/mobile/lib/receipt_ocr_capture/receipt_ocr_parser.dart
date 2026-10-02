@@ -2418,6 +2418,16 @@ class ReceiptOcrParser {
       if (merchantLineIndices.contains(lineIndex)) {
         continue;
       }
+      if (_isSeeYouSoonFooterPhrase(line) &&
+          lastPricedTotal >= 0 &&
+          lineIndex == lines.length - 1 &&
+          _hasOnlyPaymentOrSuggestedTipAmountsBeforeCourtesy(
+            lines,
+            lastPricedTotal,
+            lineIndex,
+          )) {
+        continue;
+      }
       if (lineIndex + 1 < lines.length &&
           _isBillChargeDetailHeader(lines, lineIndex + 1) &&
           !_lineHasAmount(line)) {
@@ -2462,11 +2472,13 @@ class ReceiptOcrParser {
 
       final cleaned = _cleanDescription(line);
       if (lineIndex + 1 < lines.length &&
+          !_isPrintedModifierLine(line) &&
           _isWrappedItemDescriptionCandidate(cleaned) &&
           _isPricedItemLine(lines[lineIndex + 1])) {
         continue;
       }
       if (lineIndex + 1 < lines.length &&
+          !_isPrintedModifierLine(line) &&
           _isWrappedItemDescriptionCandidate(cleaned) &&
           !_isStandaloneTenderLabel(cleaned) &&
           !_isFinancialLabelWithAdjacentAmount(lines, layoutRows, lineIndex) &&
@@ -2597,6 +2609,11 @@ bool _hasOnlyPaymentOrSuggestedTipAmountsBeforeCourtesy(
   return true;
 }
 
+bool _isSeeYouSoonFooterPhrase(String line) => RegExp(
+  r'^see you soon[.!。！]?$',
+  caseSensitive: false,
+).hasMatch(line.trim());
+
 bool _isReceiptCourtesyLine(String line) {
   final normalized = line
       .trim()
@@ -2606,7 +2623,6 @@ bool _isReceiptCourtesyLine(String line) {
   const courtesyPhrases = {
     'thank you',
     'thank you for shopping',
-    'see you soon',
     'merci',
     'vielen dank',
     'gracias',

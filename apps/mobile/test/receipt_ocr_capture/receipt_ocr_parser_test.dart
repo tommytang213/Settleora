@@ -369,6 +369,18 @@ Thank you
       '3.00',
     ]);
     expect(preview.reviewHints, isNotEmpty);
+    final oneUnpricedModifier = parser.parse('''
+Burger Lab
+Combo Meal USD 15.00
++ No Onion
++ Extra Cheese USD 1.50
+Total USD 16.50
+''');
+    expect(oneUnpricedModifier.items.map((item) => item.description), [
+      'Combo Meal',
+      'Extra Cheese',
+    ]);
+    expect(oneUnpricedModifier.reviewHints, isNotEmpty);
 
     final firstItem = parser.parse('''
 Book Shop
@@ -4168,6 +4180,17 @@ Thank you
     );
     expect(footer.reviewHints, isEmpty);
     expect(namedItem.reviewHints, isNotEmpty);
+    final splitLineItem = parser.parse(
+      'Cafe\nSee You Soon\nUSD 5.00\nTotal USD 5.00',
+      blocks: [
+        _layoutBlock('Cafe', 0, 0, 20, 200),
+        _layoutBlock('See You Soon', 1, 1, 20, 200),
+        _layoutBlock('USD 5.00', 2, 2, 310, 350),
+        _layoutBlock('Total USD 5.00', 3, 3, 20, 350),
+      ],
+    );
+    expect(splitLineItem.items.single.description, 'See You Soon');
+    expect(splitLineItem.items.single.lineTotal, '5.00');
   });
 
   test('courtesy footer after tender needs final placement and item safety', () {
