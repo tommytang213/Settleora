@@ -2118,6 +2118,22 @@ Total GBP 12.00
     expect(merchandise.taxIncludedInTotal, isFalse);
   });
 
+  test('mixed included and additive tax rows stay unresolved', () {
+    final preview = const ReceiptOcrParser().parse('''
+London Books
+Book GBP 20.00
+Subtotal GBP 20.00
+VAT included 10% GBP 2.00
+Sales tax 20% GBP 4.00
+Total GBP 24.00
+''');
+    expect(preview.currency, 'GBP');
+    expect(preview.tax, isNull);
+    expect(preview.taxIncludedInTotal, isFalse);
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(preview.reviewHints, isNotEmpty);
+  });
+
   test('parser preserves actual tip and shipping preview values', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse('''

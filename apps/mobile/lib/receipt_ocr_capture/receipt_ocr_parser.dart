@@ -874,6 +874,7 @@ class ReceiptOcrParser {
     final ratedTaxComponents =
         <({String rate, String amount, bool explicitCurrency})>[];
     final transactionTaxAmounts = <String>[];
+    final transactionTaxInclusionModes = <bool>[];
     var hasUnratedTax = false;
     String? service;
     String? serviceCurrency;
@@ -1062,6 +1063,7 @@ class ReceiptOcrParser {
         );
         if (!printed.hasExplicitEvidence || printed.currency == currency) {
           transactionTaxAmounts.add(amount);
+          transactionTaxInclusionModes.add(_isIncludedTaxAmountLine(line));
         }
         final printedRate = RegExp(
           r'\b(?:sales\s+tax|tax|vat|gst|hst|iva|tva|kdv|mwst)\b\.?\s*(\d{1,3}(?:[.,]\d{1,2})?)\s*%',
@@ -1232,7 +1234,10 @@ class ReceiptOcrParser {
     // field. Aggregate only distinct rates in the established receipt
     // currency; a separate summary or conflicting denomination stays in
     // review rather than being double counted or converted.
+    final mixedTaxInclusion =
+        transactionTaxInclusionModes.toSet().length > 1;
     if (!hasUnratedTax &&
+        !mixedTaxInclusion &&
         currency != null &&
         ratedTaxComponents.length > 1 &&
         ratedTaxComponents.map((component) => component.rate).toSet().length ==
@@ -1322,12 +1327,15 @@ class ReceiptOcrParser {
         ReceiptOcrIncompleteAdjustmentReason.repeatedAdjustmentRole,
       );
     }
-    if (!aggregatedRatedTax && transactionTaxAmounts.toSet().length > 1) {
+    if (mixedTaxInclusion ||
+        (!aggregatedRatedTax && transactionTaxAmounts.toSet().length > 1)) {
       // A component and a summary can carry the same tax role. Retaining one
-      // arbitrary component as the draft's tax would assert the wrong amount.
+      // arbitrary component or one side of mixed included/additive tax as the
+      // draft's tax would assert the wrong amount or inclusion meaning.
       tax = null;
       taxCurrency = null;
       taxHasExplicitCurrencyEvidence = false;
+      taxIncludedInTotal = false;
     }
 
     final sameCurrencySubtotal =
