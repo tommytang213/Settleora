@@ -235,6 +235,18 @@ public sealed class ReceiptOcrReviewSchemaFoundationTests
             migration => migration.EndsWith("_AddReceiptOcrReviewAdjustmentEvidence", StringComparison.Ordinal));
         Assert.Contains(dbContext.Database.GetMigrations(),
             migration => migration.EndsWith("_AddReceiptOcrReviewHeaderEvidence", StringComparison.Ordinal));
+        Assert.Contains(dbContext.Database.GetMigrations(),
+            migration => migration.EndsWith("_AddReceiptOcrReviewTaxReconciliationMode", StringComparison.Ordinal));
+        var taxModeMigration = new AddReceiptOcrReviewTaxReconciliationMode();
+        var taxModeColumn = Assert.Single(taxModeMigration.UpOperations.OfType<AddColumnOperation>());
+        Assert.Equal("receipt_ocr_reviews", taxModeColumn.Table);
+        Assert.Equal("tax_reconciliation_mode", taxModeColumn.Name);
+        Assert.True(taxModeColumn.IsNullable);
+        Assert.Single(taxModeMigration.UpOperations.OfType<AddCheckConstraintOperation>(),
+            constraint => constraint.Name == "ck_receipt_ocr_reviews_tax_reconciliation_mode");
+        Assert.DoesNotContain(taxModeMigration.UpOperations,
+            operation => operation is DropTableOperation or DropColumnOperation or DropIndexOperation or
+                DropForeignKeyOperation or AlterColumnOperation or SqlOperation);
         var headerMigration = new AddReceiptOcrReviewHeaderEvidence();
         Assert.Single(headerMigration.UpOperations.OfType<CreateTableOperation>(), table => table.Name == "receipt_ocr_review_header_evidence");
         Assert.DoesNotContain(headerMigration.UpOperations,

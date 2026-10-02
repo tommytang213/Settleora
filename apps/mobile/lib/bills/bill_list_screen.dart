@@ -444,7 +444,7 @@ ReceiptOcrReviewSaveRequest? receiptOcrReviewSaveRequestFromPreview(
   final reviewCurrencyChanged =
       _nullableUppercaseCurrency(originalCurrency) != currency;
 
-  return ReceiptOcrReviewSaveRequest(
+  final candidate = ReceiptOcrReviewSaveRequest(
     status: ReceiptOcrReviewStatusValues.provisional,
     source: ReceiptOcrReviewSourceValues.onDevice,
     merchantText: _nullableTrimmedText(preview.merchant),
@@ -502,6 +502,53 @@ ReceiptOcrReviewSaveRequest? receiptOcrReviewSaveRequestFromPreview(
       preserveMatchingEvidence: reviewCurrencyChanged,
     ),
   );
+  return candidate.withTaxReconciliationMode(
+    _receiptOcrTaxModeFromSource(preview, candidate),
+  );
+}
+
+String? _receiptOcrTaxModeFromSource(
+  ReceiptOcrPreview preview,
+  ReceiptOcrReviewSaveRequest candidate,
+) {
+  if (!preview.taxIncludedInTotal) return null;
+  const unresolved = ReceiptOcrTaxReconciliationModeValues.unresolved;
+  if (preview.reviewHints.isNotEmpty ||
+      candidate.currency == null ||
+      candidate.adjustmentEvidence.isNotEmpty) {
+    return unresolved;
+  }
+  final tax = receiptOcrDecimalUnits(candidate.taxAmount);
+  final total = receiptOcrDecimalUnits(candidate.grandTotalAmount);
+  if (tax == null || tax <= BigInt.zero || total == null) return unresolved;
+  BigInt? baseCandidate = receiptOcrDecimalUnits(candidate.subtotalAmount);
+  if (baseCandidate == null) {
+    if (candidate.lines.isEmpty) return unresolved;
+    var lineSum = BigInt.zero;
+    for (final line in candidate.lines) {
+      final amount = receiptOcrDecimalUnits(line.lineTotalAmount);
+      if (amount == null) return unresolved;
+      lineSum += amount;
+    }
+    baseCandidate = lineSum;
+  }
+  final base = baseCandidate;
+  if (tax > base) return unresolved;
+  final service = candidate.serviceChargeAmount == null
+      ? BigInt.zero
+      : receiptOcrDecimalUnits(candidate.serviceChargeAmount);
+  final discount = candidate.discountAmount == null
+      ? BigInt.zero
+      : receiptOcrDecimalUnits(candidate.discountAmount);
+  if (service == null || discount == null) return unresolved;
+  final withoutTax = base + service - discount;
+  if (total == withoutTax) {
+    return ReceiptOcrTaxReconciliationModeValues.alreadyInBase;
+  }
+  if (total == withoutTax + tax) {
+    return ReceiptOcrTaxReconciliationModeValues.addToBase;
+  }
+  return unresolved;
 }
 
 @visibleForTesting
@@ -17441,6 +17488,9 @@ ReceiptOcrPreview _receiptOcrPreviewFromSavedReview(
     subtotalCurrency: subtotalEvidence?.currency,
     subtotalHasExplicitCurrencyEvidence: subtotalEvidence != null,
     tax: review.taxAmount ?? taxEvidence?.amount,
+    taxIncludedInTotal:
+        review.taxReconciliationMode ==
+        ReceiptOcrTaxReconciliationModeValues.alreadyInBase,
     taxCurrency: taxEvidence?.currency,
     taxHasExplicitCurrencyEvidence: taxEvidence != null,
     service: review.serviceChargeAmount ?? serviceEvidence?.amount,
@@ -17473,7 +17523,7 @@ ReceiptOcrReviewSaveRequest _receiptOcrReviewSaveRequestFromSavedEdit(
   final originalCurrency = _nullableUppercaseCurrency(review.currency);
   final preserveHeaderMoney =
       editedCurrency != null && editedCurrency == originalCurrency;
-  return ReceiptOcrReviewSaveRequest(
+  final candidate = ReceiptOcrReviewSaveRequest(
     status: ReceiptOcrReviewStatusValues.provisional,
     source: review.source,
     merchantText: _nullableTrimmedText(preview.merchant),
@@ -17544,6 +17594,9 @@ ReceiptOcrReviewSaveRequest _receiptOcrReviewSaveRequestFromSavedEdit(
       preview,
       preserveMatchingEvidence: true,
     ),
+  );
+  return candidate.withTaxReconciliationMode(
+    receiptOcrTaxModeForSavedEdit(review, candidate),
   );
 }
 

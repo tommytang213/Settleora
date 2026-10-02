@@ -89,6 +89,7 @@ internal static class ReceiptOcrReviewEndpoints
         "currency",
         "subtotalAmount",
         "taxAmount",
+        "taxReconciliationMode",
         "serviceChargeAmount",
         "discountAmount",
         "grandTotalAmount",
@@ -279,6 +280,7 @@ internal static class ReceiptOcrReviewEndpoints
                 review.Source,
                 review.MerchantText,
                 review.Currency,
+                review.TaxReconciliationMode,
                 review.Lines.Count,
                 review.HeaderEvidence.OrderBy(evidence => evidence.Role)
                     .Select(ReceiptOcrReviewHeaderEvidenceResponse.From).ToArray(),
@@ -468,7 +470,17 @@ internal static class ReceiptOcrReviewEndpoints
             }
         }
 
-        ApplySubmittedReview(review, submittedReview, now);
+        var taxMode = submittedReview.TaxReconciliationMode;
+        if ((!submittedReview.TaxReconciliationModeSupplied || taxMode is null)
+            && !created && review.TaxReconciliationMode is not null)
+        {
+            // Absent and explicit null from older clients must never silently
+            // turn an included component into an additive charge.
+            taxMode = HasSameTaxRelevantMoney(review, submittedReview)
+                ? review.TaxReconciliationMode
+                : ReceiptOcrReviewTaxReconciliationModes.Unresolved;
+        }
+        ApplySubmittedReview(review, submittedReview, taxMode, now);
         AddSubmittedLines(dbContext, review, submittedReview.Lines, now);
         if (submittedReview.AdjustmentEvidenceSupplied)
         {
@@ -1960,6 +1972,14 @@ internal static class ReceiptOcrReviewEndpoints
 
             var subtotalAmount = ReadOptionalMoney(root, "subtotalAmount", currencyCode, errors);
             var taxAmount = ReadOptionalMoney(root, "taxAmount", currencyCode, errors);
+            var taxModeSupplied = root.TryGetProperty("taxReconciliationMode", out _);
+            var taxMode = ReadOptionalBoundedString(root, "taxReconciliationMode",
+                ReceiptOcrReviewConstraints.StatusMaxLength,
+                "Tax reconciliation mode must be a supported value.", errors);
+            if (taxMode is not null && !ReceiptOcrReviewTaxReconciliationModes.IsSupported(taxMode))
+            {
+                AddError(errors, "taxReconciliationMode", "Tax reconciliation mode must be a supported value.");
+            }
             var serviceChargeAmount = ReadOptionalMoney(root, "serviceChargeAmount", currencyCode, errors);
             var discountAmount = ReadOptionalMoney(root, "discountAmount", currencyCode, errors);
             var grandTotalAmount = ReadOptionalMoney(root, "grandTotalAmount", currencyCode, errors);
@@ -1996,6 +2016,8 @@ internal static class ReceiptOcrReviewEndpoints
                     currency,
                     subtotalAmount,
                     taxAmount,
+                    taxMode,
+                    taxModeSupplied,
                     serviceChargeAmount,
                     discountAmount,
                     grandTotalAmount,
@@ -3031,9 +3053,40 @@ internal static class ReceiptOcrReviewEndpoints
         }
     }
 
+    private static bool HasSameTaxRelevantMoney(
+        ReceiptOcrReview review,
+        SubmittedReceiptOcrReview submitted)
+    {
+        if (review.Currency != submitted.Currency
+            || review.SubtotalAmount != submitted.SubtotalAmount
+            || review.TaxAmount != submitted.TaxAmount
+            || review.ServiceChargeAmount != submitted.ServiceChargeAmount
+            || review.DiscountAmount != submitted.DiscountAmount
+            || review.GrandTotalAmount != submitted.GrandTotalAmount
+            || review.Lines.Count != submitted.Lines.Count)
+        {
+            return false;
+        }
+        var oldLines = review.Lines.OrderBy(line => line.SortOrder).ToArray();
+        for (var index = 0; index < oldLines.Length; index++)
+        {
+            var oldLine = oldLines[index];
+            var newLine = submitted.Lines[index];
+            if (oldLine.SortOrder != newLine.SortOrder || oldLine.Text != newLine.Text
+                || oldLine.Quantity != newLine.Quantity
+                || oldLine.UnitPriceAmount != newLine.UnitPriceAmount
+                || oldLine.LineTotalAmount != newLine.LineTotalAmount)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private static void ApplySubmittedReview(
         ReceiptOcrReview review,
         SubmittedReceiptOcrReview submittedReview,
+        string? taxReconciliationMode,
         DateTimeOffset now)
     {
         review.Status = submittedReview.Status;
@@ -3043,6 +3096,7 @@ internal static class ReceiptOcrReviewEndpoints
         review.Currency = submittedReview.Currency;
         review.SubtotalAmount = submittedReview.SubtotalAmount;
         review.TaxAmount = submittedReview.TaxAmount;
+        review.TaxReconciliationMode = taxReconciliationMode;
         review.ServiceChargeAmount = submittedReview.ServiceChargeAmount;
         review.DiscountAmount = submittedReview.DiscountAmount;
         review.GrandTotalAmount = submittedReview.GrandTotalAmount;
@@ -3525,6 +3579,8 @@ internal static class ReceiptOcrReviewEndpoints
         string? Currency,
         decimal? SubtotalAmount,
         decimal? TaxAmount,
+        string? TaxReconciliationMode,
+        bool TaxReconciliationModeSupplied,
         decimal? ServiceChargeAmount,
         decimal? DiscountAmount,
         decimal? GrandTotalAmount,

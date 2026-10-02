@@ -48,6 +48,7 @@ OCR should attempt to detect:
 - Users must be able to edit every OCR-derived value before save.
 - Low-confidence fields should be visibly marked.
 - Unbalanced totals should be flagged.
+- Printed tax already included in a supported receipt base must remain visible without being added again when a saved review is applied. Ambiguous or contradictory tax inclusion stays reviewable and blocks Apply until corrected.
 - Duplicate-looking receipts/expenses should show warnings.
 - Users can continue with manual entry if OCR fails.
 

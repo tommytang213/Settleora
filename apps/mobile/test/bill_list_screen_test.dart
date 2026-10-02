@@ -619,6 +619,43 @@ Grand Total USD 118.79
     expect(find.text(warning), findsNothing);
   });
 
+  test('source-supported included VAT saves explicit gross or net tax mode', () {
+    const parser = ReceiptOcrParser();
+    final gross = parser.parse('''
+London Books
+Book GBP 24.00
+Subtotal GBP 24.00
+Total incl. VAT GBP 24.00
+VAT included 20% GBP 4.00
+''');
+    final net = parser.parse('''
+London Books
+Book GBP 20.00
+Subtotal GBP 20.00
+Total incl. VAT GBP 24.00
+VAT included 20% GBP 4.00
+''');
+    final contradictory = parser.parse('''
+London Books
+Book GBP 20.00
+Subtotal GBP 20.00
+Total incl. VAT GBP 25.00
+VAT included 20% GBP 4.00
+''');
+    expect(
+      receiptOcrReviewSaveRequestFromPreview(gross, originalCurrency: 'GBP')?.taxReconciliationMode,
+      ReceiptOcrTaxReconciliationModeValues.alreadyInBase,
+    );
+    expect(
+      receiptOcrReviewSaveRequestFromPreview(net, originalCurrency: 'GBP')?.taxReconciliationMode,
+      ReceiptOcrTaxReconciliationModeValues.addToBase,
+    );
+    expect(
+      receiptOcrReviewSaveRequestFromPreview(contradictory, originalCurrency: 'GBP')?.taxReconciliationMode,
+      ReceiptOcrTaxReconciliationModeValues.unresolved,
+    );
+  });
+
   testWidgets('merchant edit retains printed included-tax evidence', (
     tester,
   ) async {

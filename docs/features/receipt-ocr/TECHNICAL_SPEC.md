@@ -76,6 +76,12 @@ ocr_result_events
 
 OCR-derived money fields must preserve decimal-safe values and currency.
 
+### Saved review tax reconciliation
+
+For an existing bill attachment, the saved OCR review may carry an optional `taxReconciliationMode`: `add_to_base`, `already_in_base`, or `unresolved`. It relates the printed same-currency tax component to the printed subtotal, or to the complete reviewed item sum when no subtotal exists. It does not classify each bill item or replace bill tax-group allocation. A null legacy mode retains additive review arithmetic. An unresolved mode blocks draft Apply.
+
+The API uses one decimal, currency-checked reconciliation result for preview, summary, and write-time Apply. Older clients that omit or send null for the mode preserve an existing explicit mode only when currency, header money, and ordered line values are unchanged; material edits become unresolved rather than silently additive. Equivalent retries must not duplicate a review or expense or double-charge tax. The existing upsert may recreate line IDs and update timestamps; stale Apply still uses the saved review timestamp. The on-device parser may propose a supported mode from printed evidence, but the API owns money checks. Ambiguous inclusion and mixed item-tax allocation remain review work; this slice adds no new selection control.
+
 ## API direction
 
 Future endpoints may include:
