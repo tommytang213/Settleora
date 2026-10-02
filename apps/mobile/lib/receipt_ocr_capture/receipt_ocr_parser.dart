@@ -107,6 +107,7 @@ class ReceiptOcrParser {
       lines,
       currency,
       selectedTotal: amounts.total,
+      selectedSubtotal: amounts.subtotal,
       merchantLineIndices: merchantDetection?.lineIndices ?? const {},
       layoutRows: layoutRows,
       chargeTableRows: recognizedChargeRows,
@@ -1426,6 +1427,7 @@ class ReceiptOcrParser {
     List<String> lines,
     String? currency, {
     String? selectedTotal,
+    String? selectedSubtotal,
     Set<int> merchantLineIndices = const {},
     List<List<ReceiptOcrBlockEvidence>> layoutRows = const [],
     Set<int> chargeTableRows = const {},
@@ -1442,7 +1444,12 @@ class ReceiptOcrParser {
     );
     var unretainedPricedItem = false;
     final wrappedDescriptionLines = <String>[];
-    final leadingQuantityRows = _leadingQuantityColumnRows(lines, layoutRows);
+    final leadingQuantityRows = _leadingQuantityColumnRows(
+      lines,
+      layoutRows,
+      selectedSubtotal: selectedSubtotal,
+      currency: currency,
+    );
     final hasFuelMeasurementLayout =
         lines.any(
           (line) => RegExp(
@@ -2582,6 +2589,7 @@ bool _isReceiptCourtesyLine(String line) {
   const courtesyPhrases = {
     'thank you',
     'thank you for shopping',
+    'see you soon',
     'merci',
     'vielen dank',
     'gracias',
@@ -4837,10 +4845,12 @@ String _foldOrganizationSegment(String value) =>
 
 Set<int> _leadingQuantityColumnRows(
   List<String> lines,
-  List<List<ReceiptOcrBlockEvidence>> layoutRows,
-) {
+  List<List<ReceiptOcrBlockEvidence>> layoutRows, {
+  String? selectedSubtotal,
+  String? currency,
+}) {
   final accepted = <int>{};
-  final run = <({int index, double centerX})>[];
+  final run = <({int index, double centerX, int quantity})>[];
   void finishRun() {
     final firstIndex = run.isEmpty ? 0 : run.first.index;
     final headerStart = firstIndex > 10 ? firstIndex - 10 : 0;
@@ -4852,7 +4862,44 @@ Set<int> _leadingQuantityColumnRows(
             caseSensitive: false,
           ).hasMatch(line),
         );
-    if (hasQuantityHeader &&
+    final hasInvoiceTableHeader = lines
+        .sublist(headerStart, firstIndex)
+        .any(_isInvoiceProductTableHeader);
+    final rowAmounts = [
+      for (final entry in run)
+        _lastAmountInLine(lines[entry.index], currency: currency),
+    ];
+    // Two printed decimal places are enough for this comparison even when
+    // the receipt currency is unresolved; this does not assign a currency.
+    final arithmeticCurrency =
+        currency ??
+        (selectedSubtotal != null &&
+                RegExp(r'^\d+\.\d{2}$').hasMatch(selectedSubtotal) &&
+                rowAmounts.every(
+                  (amount) =>
+                      amount != null &&
+                      RegExp(r'^\d+\.\d{2}$').hasMatch(amount),
+                )
+            ? 'USD'
+            : null);
+    // A repeated, isolated small-number column plus a reconciling printed
+    // subtotal is structural quantity evidence even without a header. A
+    // single numeric product prefix or invoice row numbering is not.
+    final hasCorroboratedQuantityRun =
+        selectedSubtotal != null &&
+        arithmeticCurrency != null &&
+        !hasInvoiceTableHeader &&
+        run.length >= 4 &&
+        run.where((entry) => entry.quantity == 1).length >= 2 &&
+        run.any((entry) => entry.quantity > 1) &&
+        run.every((entry) => entry.quantity <= 3) &&
+        rowAmounts.every((amount) => amount != null) &&
+        _sumSameCurrencyOcrAmounts(
+              rowAmounts.whereType<String>(),
+              arithmeticCurrency,
+            ) ==
+            selectedSubtotal;
+    if ((hasQuantityHeader || hasCorroboratedQuantityRun) &&
         run.isNotEmpty &&
         run.map((entry) => entry.centerX).reduce((a, b) => a < b ? a : b) +
                 12 >=
@@ -4892,7 +4939,11 @@ Set<int> _leadingQuantityColumnRows(
     final quantityLeft = quantityPoints
         .map((point) => point.x)
         .reduce((a, b) => a < b ? a : b);
-    run.add((index: index, centerX: (quantityLeft + quantityRight) / 2));
+    run.add((
+      index: index,
+      centerX: (quantityLeft + quantityRight) / 2,
+      quantity: int.parse(match.group(1)!),
+    ));
   }
   finishRun();
   return accepted;

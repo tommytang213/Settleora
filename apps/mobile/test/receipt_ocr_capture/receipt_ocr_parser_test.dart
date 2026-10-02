@@ -262,6 +262,83 @@ Total USD 9.50
     expect(preview.items.every((item) => item.quantity == null), isTrue);
   });
 
+  test('aligned small quantities reconcile to a printed subtotal', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(
+      'THE RIDGE\nKITCHEN + BAR\n1 Margherita Pizza 14.00\n'
+      '1 Caesar Salad 11.00\n2 House Red (gls) 18.00\n'
+      '1 Tiramisu 8.00\nSubtotal 51.00\nTax 4.46\nTotal 55.46\n'
+      'See you soon!',
+      fallbackCurrency: 'USD',
+      blocks: [
+        _layoutBlock('THE RIDGE', 0, 0, 150, 500),
+        _layoutBlock('KITCHEN + BAR', 1, 1, 180, 490),
+        for (final (index, row) in [
+          ('1', 'Margherita Pizza', '14.00'),
+          ('1', 'Caesar Salad', '11.00'),
+          ('2', 'House Red (gls)', '18.00'),
+          ('1', 'Tiramisu', '8.00'),
+        ].indexed) ...[
+          _layoutBlock(row.$1, index * 3 + 2, index + 2, 20, 30),
+          _layoutBlock(row.$2, index * 3 + 3, index + 2, 65, 280),
+          _layoutBlock(row.$3, index * 3 + 4, index + 2, 390, 470),
+        ],
+        _layoutBlock('Subtotal 51.00', 14, 6, 65, 470),
+        _layoutBlock('Tax 4.46', 15, 7, 65, 470),
+        _layoutBlock('Total 55.46', 16, 8, 65, 470),
+        _layoutBlock('See you soon!', 17, 9, 200, 340),
+      ],
+    );
+    expect(preview.items.map((item) => item.description), [
+      'Margherita Pizza',
+      'Caesar Salad',
+      'House Red (gls)',
+      'Tiramisu',
+    ]);
+    expect(preview.items.map((item) => item.quantity), ['1', '1', '2', '1']);
+    expect(preview.items.map((item) => item.lineTotal), [
+      '14.00',
+      '11.00',
+      '18.00',
+      '8.00',
+    ]);
+    expect(preview.incompleteAdjustmentReasons, isEmpty);
+  });
+
+  test(
+    'aligned numeric prefixes stay descriptions when subtotal conflicts',
+    () {
+      const rows = [
+        ('1', 'Margherita Pizza', '14.00'),
+        ('1', 'Caesar Salad', '11.00'),
+        ('2', 'House Red (gls)', '18.00'),
+        ('1', 'Tiramisu', '8.00'),
+      ];
+      final preview = const ReceiptOcrParser().parse(
+        'Market\n1 Margherita Pizza 14.00\n1 Caesar Salad 11.00\n'
+        '2 House Red (gls) 18.00\n1 Tiramisu 8.00\n'
+        'Subtotal 52.00\nTotal 52.00',
+        blocks: [
+          _layoutBlock('Market', 0, 0, 150, 500),
+          for (final (index, row) in rows.indexed) ...[
+            _layoutBlock(row.$1, index * 3 + 1, index + 1, 20, 30),
+            _layoutBlock(row.$2, index * 3 + 2, index + 1, 65, 280),
+            _layoutBlock(row.$3, index * 3 + 3, index + 1, 390, 470),
+          ],
+          _layoutBlock('Subtotal 52.00', 13, 5, 65, 470),
+          _layoutBlock('Total 52.00', 14, 6, 65, 470),
+        ],
+      );
+      expect(preview.items.map((item) => item.description), [
+        '1 Margherita Pizza',
+        '1 Caesar Salad',
+        '2 House Red (gls)',
+        '1 Tiramisu',
+      ]);
+      expect(preview.items.every((item) => item.quantity == null), isTrue);
+    },
+  );
+
   test(
     'repeated numeric product prefixes remain names with aligned geometry',
     () {
