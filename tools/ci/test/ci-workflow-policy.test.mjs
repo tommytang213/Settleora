@@ -408,7 +408,8 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(androidCommands.includes("'loadModelCatalog'"));
   assert.ok(androidCommands.includes("'loadFixture'"));
   assert.ok(androidRunner.includes('test "$system_image_revision" = "9"'));
-  assert.ok(androidRunner.includes('test "$emulator_revision" = "37.1.11"'));
+  assert.ok(androidRunner.includes('emulator_version_output=$(timeout 10 "$emulator" -version 2>&1)'));
+  assert.ok(androidRunner.includes('test "$emulator_version_line" = "Android emulator version 37.1.11.0 (build_id 15917651) (CL:N/A)"'));
   assert.ok(androidRunner.includes('java_version_output=$(java -version 2>&1)'));
   assert.ok(androidRunner.includes("java_version_sha256=$(printf '%s' \"$java_version_output\" | sha256sum"));
   assert.ok(androidRunner.includes('emulator-$emulator_revision-java-version-sha256-$java_version_sha256'));
