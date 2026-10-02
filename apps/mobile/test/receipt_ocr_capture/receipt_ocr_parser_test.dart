@@ -2036,7 +2036,8 @@ Total $145.00''',
           (
             text:
                 'Stockholm Cafe\nStockholm, Sverige\nMoms 12%\n'
-                'Coffee 45 kr\nBread 30 kr\nTotal 75 kr',
+                'Dato/Datum 2026-09-17\nCoffee 45 kr\nBread 30 kr\n'
+                'Total 75 kr\nTakk / Tack',
             currency: 'SEK',
             total: '75',
             amounts: ['45', '30'],
@@ -2044,15 +2045,17 @@ Total $145.00''',
           (
             text:
                 'Oslo Bakeri\nOslo, Norge\nMVA 15%\n'
-                'Coffee 45 kr\nBread 30 kr\nTotal 75 kr',
+                'Dato/Datum 2026-09-17\nCoffee 45 kr\nBread 30 kr\n'
+                'Total 75 kr\nTakk / Tack',
             currency: 'NOK',
             total: '75',
             amounts: ['45', '30'],
           ),
           (
             text:
-                'Delhi Snacks\nNew Delhi\nGSTIN 07AAAAA0000A1Z5\n'
-                'Meal Rs 450.00\nTea Rs 100.00\nTotal Rs 550.00',
+                'Delhi Snacks\nConnaught Place, New Delhi\n'
+                'GSTIN 07AAAAA0000A1Z5\nDate 2026-09-17\n'
+                'Meal Rs 450.00\nTea Rs 100.00\nTotal Rs 550.00\nThank you',
             currency: 'INR',
             total: '550.00',
             amounts: ['450.00', '100.00'],
@@ -2105,6 +2108,23 @@ Total $145.00''',
       'Coffee 45 kr\nTotal 45 kr',
     );
     expect(topUnpricedProduct.reviewHints, isNotEmpty);
+    for (final name in ['Tack', 'Takk']) {
+      final namedMerchant = parser.parse('$name\nCoffee 45 kr\nTotal 45 kr');
+      expect(namedMerchant.merchant, name);
+    }
+  });
+
+  test('Nordic courtesy text needs footer layout before suppressing review', () {
+    const parser = ReceiptOcrParser();
+    const text = 'Cafe\nCoffee USD 45.00\nTotal USD 45.00\nTakk / Tack';
+    List<ReceiptOcrBlockEvidence> blocks(double left, double right) => [
+      _layoutBlock('Cafe', 0, 0, 20, 120),
+      _layoutBlock('Coffee USD 45.00', 1, 1, 20, 350),
+      _layoutBlock('Total USD 45.00', 2, 2, 20, 350),
+      _layoutBlock('Takk / Tack', 3, 3, left, right),
+    ];
+    expect(parser.parse(text, blocks: blocks(150, 220)).reviewHints, isEmpty);
+    expect(parser.parse(text, blocks: blocks(20, 100)).reviewHints, isNotEmpty);
   });
 
   test(
