@@ -2544,7 +2544,9 @@ bool _hasOnlyPaymentOrIncludedTaxOrSuggestedTipAmountsBeforeCourtesy(
     // Printed tip suggestions and explicitly included tax below the total
     // are informational; neither reopens the merchandise table.
     if (_isPrintedSuggestedTipOptionLine(lines[index]) ||
-        _isIncludedTaxAmountLine(lines[index])) continue;
+        _isIncludedTaxAmountLine(lines[index])) {
+      continue;
+    }
     // A zero balance following tender rows closes the payment sequence. A
     // nonzero balance or an item whose name contains "Balance" still needs
     // review rather than being mistaken for settled payment evidence.
