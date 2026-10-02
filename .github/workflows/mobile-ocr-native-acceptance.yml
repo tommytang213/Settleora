@@ -255,18 +255,24 @@ jobs:
           ndk_selected=""
           ndk_installed=""
           linker_version=""
-          extension="${FLUTTER_ROOT:-}/packages/flutter_tools/gradle/src/main/kotlin/FlutterExtension.kt"
-          if [[ -n "${FLUTTER_ROOT:-}" && -f "$extension" && $(stat -c %s "$extension") -le 1048576 ]]; then
-            ndk_selected=$(sed -nE 's/.*val ndkVersion: String = "([0-9]+\.[0-9]+\.[0-9]+)".*/\1/p' "$extension" | head -n 1)
+          flutter_root=$(realpath -e "${FLUTTER_ROOT:-/nonexistent}" 2>/dev/null || true)
+          extension="$flutter_root/packages/flutter_tools/gradle/src/main/kotlin/FlutterExtension.kt"
+          if [[ "$flutter_root" == /opt/hostedtoolcache/flutter/* && -f "$extension" && $(stat -c %s "$extension") -le 1048576 ]]; then
+            extension_real=$(realpath -e "$extension" 2>/dev/null || true)
+            if [[ "$extension_real" == "$flutter_root"/packages/flutter_tools/gradle/src/main/kotlin/FlutterExtension.kt ]]; then
+              ndk_selected=$(sed -nE 's/.*val ndkVersion: String = "([0-9]+\.[0-9]+\.[0-9]+)".*/\1/p' "$extension" | head -n 1)
+            fi
           fi
-          if [[ "$ndk_selected" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && -n "${ANDROID_HOME:-}" ]]; then
-            ndk_root="$ANDROID_HOME/ndk/$ndk_selected"
+          if [[ "$ndk_selected" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "${ANDROID_HOME:-}" == /usr/local/lib/android/sdk ]]; then
+            ndk_root="/usr/local/lib/android/sdk/ndk/$ndk_selected"
             properties="$ndk_root/source.properties"
-            if [[ -f "$properties" && $(stat -c %s "$properties") -le 1048576 ]]; then
+            properties_real=$(realpath -e "$properties" 2>/dev/null || true)
+            if [[ "$properties_real" == "$properties" && -f "$properties" && $(stat -c %s "$properties") -le 1048576 ]]; then
               ndk_installed=$(sed -nE 's/^Pkg\.Revision[[:space:]]*=[[:space:]]*([0-9]+\.[0-9]+\.[0-9]+)[[:space:]]*$/\1/p' "$properties" | head -n 1)
             fi
             linker="$ndk_root/toolchains/llvm/prebuilt/linux-x86_64/bin/ld.lld"
-            if [[ "$ndk_installed" == "$ndk_selected" && -x "$linker" ]]; then
+            linker_real=$(realpath -e "$linker" 2>/dev/null || true)
+            if [[ "$ndk_installed" == "$ndk_selected" && "$linker_real" == "$linker" && -x "$linker" ]]; then
               if linker_output=$(timeout 30s "$linker" --version 2>/dev/null); then
                 if [[ ${#linker_output} -le 16384 ]]; then
                   linker_version=$(printf '%s\n' "$linker_output" | sed -nE 's/.*LLD[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' | head -n 1)
@@ -275,7 +281,7 @@ jobs:
             fi
           fi
           candidate_present=false
-          if [[ -d "$RUNNER_TEMP/android-candidate-package" ]]; then
+          if [[ "${RUNNER_TEMP:-}" == /home/runner/work/_temp && -d "$RUNNER_TEMP/android-candidate-package" ]]; then
             candidate_present=true
           fi
           python3 tools/ocr-models/android-build-provenance-evidence.py \
