@@ -134,6 +134,15 @@ class AndroidBuildProvenanceEvidenceTest(unittest.TestCase):
                                          "vendor": "other"})
         self.assertEqual(value["collectionStatus"], "complete")
 
+    def test_rejects_runtime_build_for_a_different_java_patch(self):
+        self.script(self.bin / "java", "printf '    java.version = 17.0.20\\n    java.runtime.version = 17.0.21+1\\n    java.vendor = Eclipse Adoptium\\n' >&2")
+        result = self.run_tool()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        value = json.loads(self.output.read_text())
+        self.assertEqual(value["java"]["version"], "17.0.20")
+        self.assertIsNone(value["java"]["runtimeBuild"])
+        self.assertEqual(value["collectionStatus"], "partial")
+
     def test_invalid_source_identity_fails_without_path_or_payload(self):
         result = self.run_tool(source_sha=PRIVATE)
         self.assertNotEqual(result.returncode, 0)

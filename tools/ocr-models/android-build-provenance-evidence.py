@@ -66,9 +66,13 @@ def _java():
     runtime = re.search(r"^\s*java\.runtime\.version\s*=\s*(\S+)\s*$", output,
                         re.MULTILINE)
     vendor = re.search(r"^\s*java\.vendor\s*=\s*(.*?)\s*$", output, re.MULTILINE)
+    parsed_version = _version(version.group(1)) if version else None
     runtime_build = JAVA_RUNTIME_BUILD.fullmatch(runtime.group(1)) if runtime else None
+    if runtime_build and (not parsed_version or
+                          not runtime_build.group(1).startswith(parsed_version + "+")):
+        runtime_build = None
     return {
-        "version": _version(version.group(1)) if version else None,
+        "version": parsed_version,
         "runtimeBuild": runtime_build.group(1) if runtime_build else None,
         "vendor": "temurin" if vendor and vendor.group(1) in
         {"Eclipse Adoptium", "Eclipse Temurin"} else "other" if vendor else None,
