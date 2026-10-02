@@ -763,15 +763,15 @@ test("isolation failure evidence retains only allowlisted probe outcomes", () =>
   const event = JSON.stringify({
     type: "print",
     message: `SETTLEORA_OCR_DIAGNOSTIC=${JSON.stringify(diagnostic)}`,
-    rawHost: "example.com",
-    rawAddress: "1.1.1.1",
+    rawHost: "private-host-marker",
+    rawAddress: "private-address-marker",
   });
   withLog(`${event}\n`, (log) => {
     const evidence = buildFailureEvidence({ ...evidenceArgs(log), "test-status": "1" });
     assert.deepEqual(evidence.diagnostics, [diagnostic]);
     assert.equal(isCompleteEvidence(evidence), false);
-    assert.equal(JSON.stringify(evidence).includes("example.com"), false);
-    assert.equal(JSON.stringify(evidence).includes("1.1.1.1"), false);
+    assert.equal(JSON.stringify(evidence).includes("private-host-marker"), false);
+    assert.equal(JSON.stringify(evidence).includes("private-address-marker"), false);
   });
   withLog(protocolLog(`SETTLEORA_OCR_DIAGNOSTIC=${JSON.stringify(diagnostic)}`), (log) => {
     const evidence = buildEvidence(evidenceArgs(log), repoRoot);
