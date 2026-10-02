@@ -390,7 +390,8 @@ internal sealed record ReceiptOcrReviewApplyPreviewResponse(
         }
         else
         {
-            taxModeInvalid = mode is ReceiptOcrReviewTaxReconciliationModes.AlreadyInBase;
+            taxModeInvalid = mode is ReceiptOcrReviewTaxReconciliationModes.AddToBase
+                or ReceiptOcrReviewTaxReconciliationModes.AlreadyInBase;
             return false;
         }
 

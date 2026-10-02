@@ -57,6 +57,24 @@ public sealed class ReceiptOcrTaxReconciliationTests
         Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.TaxReconciliationInvalid, preview.BlockedReasons);
     }
 
+    [Fact]
+    public void AdditiveModeWithoutSubtotalRejectsOverflowedCompleteLineSum()
+    {
+        var review = CreateReview(ReceiptOcrReviewTaxReconciliationModes.AddToBase,
+            ReceiptOcrReviewConstraints.MoneyAmountMaxValue, null,
+            ReceiptOcrReviewConstraints.MoneyAmountMaxValue);
+        review.Lines.Add(new ReceiptOcrReviewLine
+        {
+            Id = Guid.NewGuid(), Text = "Second item", SortOrder = 1,
+            Quantity = 1m, UnitPriceAmount = 1m, LineTotalAmount = 1m
+        });
+        var preview = ReceiptOcrReviewApplyPreviewResponse.From(review, "GBP");
+        Assert.False(preview.CanApply);
+        Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.TaxReconciliationInvalid,
+            preview.BlockedReasons);
+        Assert.Null(preview.Summary.ExpectedHeaderTotalAmount);
+    }
+
     private static ReceiptOcrReview CreateReview(string? mode, decimal lineTotal, decimal? subtotal, decimal total)
     {
         var review = new ReceiptOcrReview

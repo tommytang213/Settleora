@@ -512,43 +512,10 @@ String? _receiptOcrTaxModeFromSource(
   ReceiptOcrReviewSaveRequest candidate,
 ) {
   if (!preview.taxIncludedInTotal) return null;
-  const unresolved = ReceiptOcrTaxReconciliationModeValues.unresolved;
-  if (preview.reviewHints.isNotEmpty ||
-      candidate.currency == null ||
-      candidate.adjustmentEvidence.isNotEmpty) {
-    return unresolved;
-  }
-  final tax = receiptOcrDecimalUnits(candidate.taxAmount);
-  final total = receiptOcrDecimalUnits(candidate.grandTotalAmount);
-  if (tax == null || tax <= BigInt.zero || total == null) return unresolved;
-  BigInt? baseCandidate = receiptOcrDecimalUnits(candidate.subtotalAmount);
-  if (baseCandidate == null) {
-    if (candidate.lines.isEmpty) return unresolved;
-    var lineSum = BigInt.zero;
-    for (final line in candidate.lines) {
-      final amount = receiptOcrDecimalUnits(line.lineTotalAmount);
-      if (amount == null) return unresolved;
-      lineSum += amount;
-    }
-    baseCandidate = lineSum;
-  }
-  final base = baseCandidate;
-  if (tax > base) return unresolved;
-  final service = candidate.serviceChargeAmount == null
-      ? BigInt.zero
-      : receiptOcrDecimalUnits(candidate.serviceChargeAmount);
-  final discount = candidate.discountAmount == null
-      ? BigInt.zero
-      : receiptOcrDecimalUnits(candidate.discountAmount);
-  if (service == null || discount == null) return unresolved;
-  final withoutTax = base + service - discount;
-  if (total == withoutTax) {
-    return ReceiptOcrTaxReconciliationModeValues.alreadyInBase;
-  }
-  if (total == withoutTax + tax) {
-    return ReceiptOcrTaxReconciliationModeValues.addToBase;
-  }
-  return unresolved;
+  return receiptOcrTaxModeFromSupportedEvidence(
+    candidate,
+    hasAmbiguity: preview.reviewHints.isNotEmpty,
+  );
 }
 
 @visibleForTesting

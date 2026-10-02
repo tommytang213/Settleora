@@ -315,44 +315,118 @@ String? receiptOcrTaxModeForSavedEdit(
   if (mode == null) return null;
   final oldLines = [...previous.lines]
     ..sort((left, right) => left.sortOrder.compareTo(right.sortOrder));
-  if (candidate.currency != previous.currency ||
-      !_sameReceiptOcrDecimal(
+  var sameEvidence =
+      candidate.currency == previous.currency &&
+      _sameReceiptOcrDecimal(
         candidate.subtotalAmount,
         previous.subtotalAmount,
-      ) ||
-      !_sameReceiptOcrDecimal(candidate.taxAmount, previous.taxAmount) ||
-      !_sameReceiptOcrDecimal(
+      ) &&
+      _sameReceiptOcrDecimal(candidate.taxAmount, previous.taxAmount) &&
+      _sameReceiptOcrDecimal(
         candidate.serviceChargeAmount,
         previous.serviceChargeAmount,
-      ) ||
-      !_sameReceiptOcrDecimal(
+      ) &&
+      _sameReceiptOcrDecimal(
         candidate.discountAmount,
         previous.discountAmount,
-      ) ||
-      !_sameReceiptOcrDecimal(
+      ) &&
+      _sameReceiptOcrDecimal(
         candidate.grandTotalAmount,
         previous.grandTotalAmount,
-      ) ||
-      candidate.lines.length != oldLines.length) {
-    return ReceiptOcrTaxReconciliationModeValues.unresolved;
-  }
-  for (var index = 0; index < oldLines.length; index++) {
-    final oldLine = oldLines[index];
-    final newLine = candidate.lines[index];
-    if (oldLine.text != newLine.text ||
-        !_sameReceiptOcrDecimal(oldLine.quantity, newLine.quantity) ||
-        !_sameReceiptOcrDecimal(
-          oldLine.unitPriceAmount,
-          newLine.unitPriceAmount,
-        ) ||
-        !_sameReceiptOcrDecimal(
-          oldLine.lineTotalAmount,
-          newLine.lineTotalAmount,
-        )) {
-      return ReceiptOcrTaxReconciliationModeValues.unresolved;
+      ) &&
+      candidate.lines.length == oldLines.length;
+  if (sameEvidence) {
+    for (var index = 0; index < oldLines.length; index++) {
+      final oldLine = oldLines[index];
+      final newLine = candidate.lines[index];
+      if (oldLine.text != newLine.text ||
+          !_sameReceiptOcrDecimal(oldLine.quantity, newLine.quantity) ||
+          !_sameReceiptOcrDecimal(
+            oldLine.unitPriceAmount,
+            newLine.unitPriceAmount,
+          ) ||
+          !_sameReceiptOcrDecimal(
+            oldLine.lineTotalAmount,
+            newLine.lineTotalAmount,
+          )) {
+        sameEvidence = false;
+        break;
+      }
     }
   }
-  return mode;
+  if (sameEvidence) {
+    final oldAdjustments = [...previous.adjustmentEvidence]
+      ..sort((left, right) => left.sortOrder.compareTo(right.sortOrder));
+    sameEvidence = candidate.adjustmentEvidence.length == oldAdjustments.length;
+    if (sameEvidence) {
+      for (var index = 0; index < oldAdjustments.length; index++) {
+        final oldAdjustment = oldAdjustments[index];
+        final newAdjustment = candidate.adjustmentEvidence[index];
+        if (oldAdjustment.kind != newAdjustment.kind ||
+            oldAdjustment.originalLabel != newAdjustment.originalLabel ||
+            oldAdjustment.currency != newAdjustment.currency ||
+            oldAdjustment.direction != newAdjustment.direction ||
+            !_sameReceiptOcrDecimal(
+              oldAdjustment.amount,
+              newAdjustment.amount,
+            )) {
+          sameEvidence = false;
+          break;
+        }
+      }
+    }
+  }
+  if (sameEvidence) return mode;
+  // A previously supported printed-tax interpretation can be recomputed
+  // from corrected review values. A legacy or ambiguous review has no such
+  // source evidence and remains unresolved without a mode selection control.
+  if (candidate.currency != previous.currency ||
+      mode == ReceiptOcrTaxReconciliationModeValues.unresolved) {
+    return ReceiptOcrTaxReconciliationModeValues.unresolved;
+  }
+  return receiptOcrTaxModeFromSupportedEvidence(candidate);
+}
+
+String receiptOcrTaxModeFromSupportedEvidence(
+  ReceiptOcrReviewSaveRequest candidate, {
+  bool hasAmbiguity = false,
+}) {
+  const unresolved = ReceiptOcrTaxReconciliationModeValues.unresolved;
+  if (hasAmbiguity ||
+      candidate.currency == null ||
+      candidate.adjustmentEvidence.isNotEmpty) {
+    return unresolved;
+  }
+  final tax = receiptOcrDecimalUnits(candidate.taxAmount);
+  final total = receiptOcrDecimalUnits(candidate.grandTotalAmount);
+  if (tax == null || tax <= BigInt.zero || total == null) return unresolved;
+  BigInt? baseCandidate = receiptOcrDecimalUnits(candidate.subtotalAmount);
+  if (baseCandidate == null) {
+    if (candidate.lines.isEmpty) return unresolved;
+    var lineSum = BigInt.zero;
+    for (final line in candidate.lines) {
+      final amount = receiptOcrDecimalUnits(line.lineTotalAmount);
+      if (amount == null) return unresolved;
+      lineSum += amount;
+    }
+    baseCandidate = lineSum;
+  }
+  final base = baseCandidate;
+  final service = candidate.serviceChargeAmount == null
+      ? BigInt.zero
+      : receiptOcrDecimalUnits(candidate.serviceChargeAmount);
+  final discount = candidate.discountAmount == null
+      ? BigInt.zero
+      : receiptOcrDecimalUnits(candidate.discountAmount);
+  if (service == null || discount == null) return unresolved;
+  final withoutTax = base + service - discount;
+  if (total == withoutTax && tax <= base) {
+    return ReceiptOcrTaxReconciliationModeValues.alreadyInBase;
+  }
+  if (total == withoutTax + tax) {
+    return ReceiptOcrTaxReconciliationModeValues.addToBase;
+  }
+  return unresolved;
 }
 
 bool _sameReceiptOcrDecimal(String? left, String? right) {

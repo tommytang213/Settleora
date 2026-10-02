@@ -446,6 +446,17 @@ internal static class ReceiptOcrReviewEndpoints
             });
         }
 
+        var taxMode = submittedReview.TaxReconciliationMode;
+        if ((!submittedReview.TaxReconciliationModeSupplied || taxMode is null)
+            && review is not null && review.TaxReconciliationMode is not null)
+        {
+            // Absent and explicit null from older clients must never silently
+            // turn an included component into an additive charge.
+            taxMode = HasSameTaxRelevantMoney(review, submittedReview)
+                ? review.TaxReconciliationMode
+                : ReceiptOcrReviewTaxReconciliationModes.Unresolved;
+        }
+
         if (review is null)
         {
             review = new ReceiptOcrReview
@@ -470,16 +481,6 @@ internal static class ReceiptOcrReviewEndpoints
             }
         }
 
-        var taxMode = submittedReview.TaxReconciliationMode;
-        if ((!submittedReview.TaxReconciliationModeSupplied || taxMode is null)
-            && !created && review.TaxReconciliationMode is not null)
-        {
-            // Absent and explicit null from older clients must never silently
-            // turn an included component into an additive charge.
-            taxMode = HasSameTaxRelevantMoney(review, submittedReview)
-                ? review.TaxReconciliationMode
-                : ReceiptOcrReviewTaxReconciliationModes.Unresolved;
-        }
         ApplySubmittedReview(review, submittedReview, taxMode, now);
         AddSubmittedLines(dbContext, review, submittedReview.Lines, now);
         if (submittedReview.AdjustmentEvidenceSupplied)
@@ -3078,6 +3079,25 @@ internal static class ReceiptOcrReviewEndpoints
                 || oldLine.LineTotalAmount != newLine.LineTotalAmount)
             {
                 return false;
+            }
+        }
+        if (submitted.AdjustmentEvidenceSupplied)
+        {
+            var oldAdjustments = review.Adjustments.OrderBy(item => item.SortOrder).ToArray();
+            if (oldAdjustments.Length != submitted.AdjustmentEvidence.Count) return false;
+            for (var index = 0; index < oldAdjustments.Length; index++)
+            {
+                var oldAdjustment = oldAdjustments[index];
+                var newAdjustment = submitted.AdjustmentEvidence[index];
+                if (oldAdjustment.SortOrder != newAdjustment.SortOrder
+                    || oldAdjustment.Kind != newAdjustment.Kind
+                    || oldAdjustment.OriginalLabel != newAdjustment.OriginalLabel
+                    || oldAdjustment.Amount != newAdjustment.Amount
+                    || oldAdjustment.Currency != newAdjustment.Currency
+                    || oldAdjustment.Direction != newAdjustment.Direction)
+                {
+                    return false;
+                }
             }
         }
         return true;

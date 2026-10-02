@@ -797,7 +797,7 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         using var client = testFactory.CreateClient();
         testContext.TimeProvider.SetUtcNow(WriteTimestamp);
 
-        string Body(string modeField, string merchant, string subtotal)
+        string Body(string modeField, string merchant, string subtotal, bool addAdjustment = false)
         {
             var payload = new Dictionary<string, object?>
             {
@@ -808,6 +808,10 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
                 ["lines"] = new[] { new { text = "Book", quantity = "1",
                     unitPriceAmount = "24", lineTotalAmount = "24" } }
             };
+            if (addAdjustment)
+                payload["adjustmentEvidence"] = new[] { new {
+                    kind = "other", originalLabel = "Packaging fee", amount = "1",
+                    currency = "USD", direction = "charge" } };
             if (modeField != "omit") payload["taxReconciliationMode"] =
                 modeField == "null" ? null : modeField;
             return JsonSerializer.Serialize(payload);
@@ -850,6 +854,12 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         Assert.False(blocked.CanApply);
         Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.TaxReconciliationUnresolved,
             blocked.BlockedReasons);
+
+        var restored = await Put(Body("already_in_base", "Books edited", "24"));
+        Assert.Equal("already_in_base", restored.Mode);
+        var adjusted = await Put(Body("omit", "Books edited", "24", addAdjustment: true));
+        Assert.Equal(created.Id, adjusted.Id);
+        Assert.Equal("unresolved", adjusted.Mode);
     }
 
     [Fact]
