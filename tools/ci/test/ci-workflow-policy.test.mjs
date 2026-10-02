@@ -365,6 +365,10 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.doesNotMatch(kvmPreflight.run, /\|\|\s*true/);
   const androidPackage = androidSteps.find((step) => step.id === 'package');
   assert.equal(androidPackage.if, "${{ !cancelled() && steps.kvm_preflight.outcome == 'success' }}");
+  const packageComparison = androidSteps.find((step) => step.run?.includes('android-package-comparison-evidence.py'));
+  assert.equal(packageComparison.if, "${{ !cancelled() && steps.package.outcome == 'failure' }}");
+  const comparisonUpload = androidSteps.find((step) => step.with?.name?.startsWith('android-package-comparison-'));
+  assert.equal(comparisonUpload.if, packageComparison.if);
   const androidEvidence = androidSteps.find((step) => step.run?.includes('native-acceptance-evidence.mjs'));
   assert.match(androidEvidence.run, /steps\.kvm_setup\.outputs\.failure_phase \|\| steps\.kvm_preflight\.outputs\.failure_phase \|\| steps\.acceptance\.outputs\.failure_phase/);
   assert.match(nativeTest, /all 101 real images match complete preview truth/);
@@ -372,6 +376,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.equal(androidAcceptance.if, undefined);
   assert.equal(androidAcceptance['continue-on-error'], undefined);
   assert.equal(androidAcceptance.uses, 'reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d');
+  assert.equal(androidAcceptance.with['emulator-build'], 15917651);
   assert.equal(androidAcceptance.with['emulator-port'], 5554);
   assert.equal(androidAcceptance.with['emulator-boot-timeout'], 600);
   assert.ok(androidAcceptance.with['emulator-options'].includes('-no-metrics'));
@@ -408,8 +413,9 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.ok(androidCommands.includes("'loadModelCatalog'"));
   assert.ok(androidCommands.includes("'loadFixture'"));
   assert.ok(androidRunner.includes('test "$system_image_revision" = "9"'));
-  assert.ok(androidRunner.includes('emulator_version_output=$(timeout 10 "$emulator" -version 2>&1)'));
-  assert.ok(androidRunner.includes('test "$emulator_version_line" = "Android emulator version 37.1.11.0 (build_id 15917651) (CL:N/A)"'));
+  assert.ok(androidRunner.includes('emulator_archive_properties="$ANDROID_HOME/emulator/source.properties"'));
+  assert.ok(androidRunner.includes("grep -Fxq 'Pkg.Revision=37.1.11' \"$emulator_archive_properties\""));
+  assert.ok(androidRunner.includes("grep -Fxq 'Pkg.BuildId=15917651' \"$emulator_archive_properties\""));
   assert.ok(androidRunner.includes('java_version_output=$(java -version 2>&1)'));
   assert.ok(androidRunner.includes("java_version_sha256=$(printf '%s' \"$java_version_output\" | sha256sum"));
   assert.ok(androidRunner.includes('emulator-$emulator_revision-java-version-sha256-$java_version_sha256'));

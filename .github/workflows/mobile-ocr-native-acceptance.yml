@@ -249,6 +249,23 @@ jobs:
           echo "verified_package_sha256=$verified_package_sha256" >> "$GITHUB_OUTPUT"
           echo "verified_signer_certificate_sha256=$verified_signer_certificate_sha256" >> "$GITHUB_OUTPUT"
 
+      - name: Record bounded Android package comparison after failed measurement
+        if: ${{ !cancelled() && steps.package.outcome == 'failure' }}
+        run: |
+          python3 tools/ocr-models/android-package-comparison-evidence.py \
+            --package="$RUNNER_TEMP/settleora-verified-production.apk" \
+            --source-sha="$EXPECTED_HEAD" \
+            --out="$RUNNER_TEMP/android-package-comparison.json"
+
+      - name: Upload bounded Android package comparison
+        if: ${{ !cancelled() && steps.package.outcome == 'failure' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: android-package-comparison-${{ env.EXPECTED_HEAD }}
+          path: ${{ runner.temp }}/android-package-comparison.json
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Build bounded Android evidence
         if: always()
         working-directory: ${{ github.workspace }}

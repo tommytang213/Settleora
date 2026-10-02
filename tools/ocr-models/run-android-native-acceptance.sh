@@ -24,10 +24,11 @@ test -x "$adb"
 
 phase=verify_sdk_revisions
 system_image_revision=$("$sdkmanager" --list_installed 2>/dev/null | awk -F'|' '$1 ~ /system-images;android-35;google_apis;x86_64/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}')
-emulator_version_output=$(timeout 10 "$emulator" -version 2>&1)
-emulator_version_line=${emulator_version_output%%$'\n'*}
+emulator_archive_properties="$ANDROID_HOME/emulator/source.properties"
 test "$system_image_revision" = "9"
-test "$emulator_version_line" = "Android emulator version 37.1.11.0 (build_id 15917651) (CL:N/A)"
+test -f "$emulator_archive_properties"
+grep -Fxq 'Pkg.Revision=37.1.11' "$emulator_archive_properties"
+grep -Fxq 'Pkg.BuildId=15917651' "$emulator_archive_properties"
 emulator_revision=37.1.11
 phase=verify_device
 test "$(timeout 5 "$adb" -s emulator-5554 get-state 2>/dev/null)" = "device"
