@@ -385,6 +385,27 @@ Total USD 7.00
     expect(separateProduct.items.last.description, '+ Energy Drink');
   });
 
+  test('priced modifier keeps an adjacent right-column amount', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Burger Lab\nCombo Meal USD 15.00\n+ Large Fries\n'
+      '+ Extra Cheese\nUSD 1.50\nTotal USD 16.50',
+      blocks: [
+        _layoutBlock('Burger Lab', 0, 0, 20, 250),
+        _layoutBlock('Combo Meal USD 15.00', 1, 1, 20, 350),
+        _layoutBlock('+ Large Fries', 2, 2, 20, 220),
+        _layoutBlock('+ Extra Cheese', 3, 3, 20, 220),
+        _layoutBlock('USD 1.50', 4, 4, 310, 350),
+        _layoutBlock('Total USD 16.50', 5, 5, 20, 350),
+      ],
+    );
+    expect(preview.items.map((item) => item.description), [
+      'Combo Meal',
+      'Extra Cheese',
+    ]);
+    expect(preview.items.map((item) => item.lineTotal), ['15.00', '1.50']);
+    expect(preview.reviewHints, isNotEmpty);
+  });
+
   test('an explicit quantity header supports quantities above three', () {
     final preview = const ReceiptOcrParser().parse(
       'Corner Market\nQty Item Price\n4 Rolls 8.00\n5 Pens 10.00\nTotal USD 18.00',

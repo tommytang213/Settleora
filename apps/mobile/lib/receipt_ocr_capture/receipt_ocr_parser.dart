@@ -1534,14 +1534,6 @@ class ReceiptOcrParser {
           wrappedDescriptionLines.clear();
           continue;
         }
-        if (_isPrintedModifierLine(line)) {
-          // An unpriced modifier belongs to the preceding selection. Keep it
-          // in raw review evidence instead of attaching it to the next charge.
-          wrappedDescriptionLines.clear();
-          lineDecisions[lineIndex] =
-              ReceiptOcrItemLineDecision.unpricedDescription;
-          continue;
-        }
         final cleaned = _cleanDescription(line);
         if (lineIndex + 1 < lines.length &&
             _isWrappedItemDescriptionCandidate(cleaned) &&
@@ -1569,10 +1561,16 @@ class ReceiptOcrParser {
             lineDecisions[lineIndex + 1] =
                 ReceiptOcrItemLineDecision.adjacentAmountSelected;
             final wrappedDescription = wrappedDescriptionLines.join(' ');
-            final description =
+            var description =
                 _isStrongWrappedItemDescription(wrappedDescription)
                 ? '$wrappedDescription $cleaned'
                 : cleaned;
+            if (items.isNotEmpty &&
+                lineIndex > 0 &&
+                _isPrintedModifierLine(lines[lineIndex - 1]) &&
+                _isPrintedModifierLine(cleaned)) {
+              description = description.replaceFirst(RegExp(r'^\+\s+'), '');
+            }
             items.add(
               ReceiptOcrItemCandidate(
                 description: description,
@@ -1596,6 +1594,14 @@ class ReceiptOcrParser {
             lineIndex += 1;
             continue;
           }
+        }
+        if (_isPrintedModifierLine(line)) {
+          // An unpriced modifier belongs to the preceding selection. Keep it
+          // in raw review evidence instead of attaching it to the next charge.
+          wrappedDescriptionLines.clear();
+          lineDecisions[lineIndex] =
+              ReceiptOcrItemLineDecision.unpricedDescription;
+          continue;
         }
         if (lineIndex > 0 && _isWrappedItemDescriptionCandidate(cleaned)) {
           wrappedDescriptionLines.add(cleaned);
