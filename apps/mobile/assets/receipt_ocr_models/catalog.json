@@ -39,7 +39,7 @@
     },
     "nativeSemantics": {
       "files": [
-        { "path": "apps/mobile/integration_test/receipt_ocr_real_provider_test.dart", "sha256": "adaf7fc5b90c7be0b38b0aace4afa52ce7306c728d88e2ad12f99ebb77f98825" },
+        { "path": "apps/mobile/integration_test/receipt_ocr_real_provider_test.dart", "sha256": "78afed9c92132f97dec0c93e2fa5cdfce35e915a054acdce9c0295e1dcbf841a" },
         { "path": "apps/mobile/lib/app/app_bootstrap.dart", "sha256": "bfc2ea06825d3b7162f6f08b68b0413e62320523b3c087a6abc27aecc8b1d875" },
         { "path": "apps/mobile/lib/app/server_mode_shell.dart", "sha256": "7bc1b89910d260c5652810265b8a9985896fe62e852f65aa24d44d5fa2d8459e" },
         { "path": "apps/mobile/lib/bills/bill_list_screen.dart", "sha256": "f978d8bf3030d23e4709dd132502fb6977b6300926f38895d00c4135dbc9000a" },

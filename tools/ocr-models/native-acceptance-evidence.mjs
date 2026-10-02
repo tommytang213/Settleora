@@ -970,7 +970,12 @@ function sanitizeDiagnostic(value, platform, expectedFixtureIds) {
   if (value == null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Diagnostic marker must contain an object");
   }
-  assertExactKeys(value, ["schemaVersion", "platform", "stage", "fixtureId"], "diagnostic marker");
+  const hasProbes = Object.hasOwn(value, "probes");
+  assertExactKeys(value,
+    hasProbes
+      ? ["schemaVersion", "platform", "stage", "fixtureId", "probes"]
+      : ["schemaVersion", "platform", "stage", "fixtureId"],
+    "diagnostic marker");
   if (value.schemaVersion !== 1 || value.platform !== platform || !diagnosticStages.has(value.stage)) {
     throw new Error("Diagnostic marker identity is invalid");
   }
@@ -978,11 +983,34 @@ function sanitizeDiagnostic(value, platform, expectedFixtureIds) {
   if (fixtureId != null && !expectedFixtureIds?.has(fixtureId)) {
     throw new Error("Diagnostic fixture identity is not in the immutable corpus");
   }
+  let probes;
+  if (hasProbes) {
+    if (value.stage !== "network_isolation" || fixtureId != null) {
+      throw new Error("Isolation probe diagnostic has an invalid stage");
+    }
+    assertExactKeys(value.probes, ["numeric", "loopback", "hostname"], "isolation probes");
+    const allowed = {
+      numeric: new Set(["connected", "denied_expected", "denied_other", "timeout"]),
+      loopback: new Set(["passed", "failed"]),
+      hostname: new Set(["resolved", "empty_result", "denied"]),
+    };
+    for (const [name, values] of Object.entries(allowed)) {
+      if (!values.has(value.probes[name])) {
+        throw new Error("Isolation probe outcome is not allowlisted");
+      }
+    }
+    probes = {
+      numeric: value.probes.numeric,
+      loopback: value.probes.loopback,
+      hostname: value.probes.hostname,
+    };
+  }
   return {
     schemaVersion: 1,
     platform,
     stage: value.stage,
     fixtureId,
+    ...(probes == null ? {} : { probes }),
   };
 }
 
