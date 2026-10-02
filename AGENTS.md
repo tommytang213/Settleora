@@ -79,6 +79,12 @@ human-merge-only tasks. All unrelated manual gates above remain unchanged.
 
 Task PRs may also be eligible for auto-merge into `ai/integration` after the scope guard, requested validation, CI, AI review, and QA all pass.
 
+## Manual Gate Owner and Evidence
+
+A repository manual gate is a required review decision, not automatically a request to Tommy. For routine implementation of agreed requirements, Atlas acts as the delegated technical lead and makes the technical gate decision for code, CI/tooling, API/schema, and money-correctness work. Codex prepares the concrete contract or diff, exact-head validation, independent reviews, scope evidence, and remaining risks for that decision. Atlas approval does not replace passing tests, independent review, GitHub CI, or the PR's exact-head merge checks.
+
+Implementing and testing an agreed security feature in isolated source is routine technical development; assess the actual effect and scope rather than treating every auth-related edit as a live access change. Ask Tommy when a product requirement or UX direction is unresolved, or before changing live credentials, permissions, exposure, or security-sensitive system or network settings, a production-triggering merge, deployment or release, purchases, adding reviewers, or any task that expressly requires Tommy's own approval. Code and configuration labels do not create an exemption when their actual effect is protected. A task-specific human-merge-only rule remains in force. Do not infer permission for a protected action from Atlas technical signoff. Record the actual gate owner and decision in the task report; do not repeatedly escalate routine technical choices to Tommy after the agreed requirement is clear.
+
 ## Required Task Report Fields
 
 - Task status and branch names.

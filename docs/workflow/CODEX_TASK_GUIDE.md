@@ -281,6 +281,8 @@ scope reduction, architecture direction replacement, branch deletion/cleanup,
 force-like history changes, or any task marked PR-only, human-merge-only, or
 manual-gated.
 
+For routine implementation of agreed requirements, "manual approval" names a required technical decision, not an automatic request to Tommy. Atlas acts as the delegated technical lead for code, CI/tooling, API/schema, and money-correctness gates. Codex supplies a concrete contract or diff, exact-head validation, independent review, scope evidence, and risks before Atlas decides. Approval never replaces passing tests, independent review, GitHub CI, or exact-head PR checks. Record the decision and reviewer in the task report. Implementing and testing an agreed security feature in isolated source is ordinary technical development; decide by actual effects and scope, not by an auth-related filename. Escalate unresolved product or UX choices and changes to live credentials, permissions, exposure, security-sensitive system or network settings, production-triggering merges, deployment or release, purchases, adding reviewers, and tasks expressly requiring Tommy's approval to Tommy. Code or configuration cannot be used to bypass a protected-action gate. Preserve task-specific human-merge-only rules.
+
 Storage/privacy/authz subject matter does not create a manual gate by itself. A task
 may use the normal exact-head development-stage merge path when its tracked
 changes are documentation, planning, factual reconciliation, or audit evidence
