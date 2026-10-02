@@ -49,7 +49,7 @@ class AndroidBuildProvenanceEvidenceTest(unittest.TestCase):
                     "1" * 40 + "\",\"engineRevision\":\"" + "2" * 40 +
                     "\",\"dartSdkVersion\":\"3.12.2\",\"flutterRoot\":\"" +
                     PRIVATE + "\"}'")
-        self.script(self.bin / "java", "printf '    java.version = 17.0.17\\n    java.vendor = Eclipse Adoptium\\n' >&2")
+        self.script(self.bin / "java", "printf '    java.version = 17.0.17\\n    java.runtime.version = 17.0.17+10-LTS\\n    java.vendor = Eclipse Adoptium\\n' >&2")
         self.output = self.root / "evidence.json"
 
     def script(self, path, command):
@@ -84,7 +84,9 @@ class AndroidBuildProvenanceEvidenceTest(unittest.TestCase):
         self.assertEqual(value["flutter"], {
             "frameworkVersion": "3.44.8", "frameworkRevision": "1" * 40,
             "engineRevision": "2" * 40, "dartSdkVersion": "3.12.2"})
-        self.assertEqual(value["java"], {"version": "17.0.17", "vendor": "temurin"})
+        self.assertEqual(value["java"], {"version": "17.0.17",
+                                         "runtimeBuild": "17.0.17+10",
+                                         "vendor": "temurin"})
         self.assertEqual(value["ndk"], {
             "selectedVersion": "28.2.13676358",
             "installedVersion": "28.2.13676358", "linkerVersion": "19.0.1"})
@@ -101,6 +103,7 @@ class AndroidBuildProvenanceEvidenceTest(unittest.TestCase):
                     "\",\"dartSdkVersion\":\"3.12.2\",\"path\":\"" +
                     PRIVATE + "\"}'")
         self.script(self.bin / "java", "printf '    java.version = " + PRIVATE +
+                    "\\n    java.runtime.version = " + PRIVATE +
                     "\\n    java.vendor = " + PRIVATE + "\\n' >&2")
         result = self.run_tool()
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -110,6 +113,7 @@ class AndroidBuildProvenanceEvidenceTest(unittest.TestCase):
         self.assertEqual(value["collectionStatus"], "partial")
         self.assertIsNone(value["flutter"]["frameworkVersion"])
         self.assertIsNone(value["java"]["version"])
+        self.assertIsNone(value["java"]["runtimeBuild"])
         self.assertEqual(value["java"]["vendor"], "other")
 
     def test_missing_or_relative_runner_root_stays_bounded(self):
@@ -121,11 +125,13 @@ class AndroidBuildProvenanceEvidenceTest(unittest.TestCase):
         self.assertNotIn(PRIVATE, self.output.read_text())
 
     def test_records_four_component_java_patch_without_vendor_text(self):
-        self.script(self.bin / "java", "printf '    java.version = 17.0.20.1\\n    java.vendor = Ubuntu\\n' >&2")
+        self.script(self.bin / "java", "printf '    java.version = 17.0.20.1\\n    java.runtime.version = 17.0.20.1+1\\n    java.vendor = Ubuntu\\n' >&2")
         result = self.run_tool()
         self.assertEqual(result.returncode, 0, result.stderr)
         value = json.loads(self.output.read_text())
-        self.assertEqual(value["java"], {"version": "17.0.20.1", "vendor": "other"})
+        self.assertEqual(value["java"], {"version": "17.0.20.1",
+                                         "runtimeBuild": "17.0.20.1+1",
+                                         "vendor": "other"})
         self.assertEqual(value["collectionStatus"], "complete")
 
     def test_invalid_source_identity_fails_without_path_or_payload(self):

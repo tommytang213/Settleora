@@ -17,6 +17,7 @@ MAX_EVIDENCE_BYTES = 4096
 VERSION = re.compile(r"[0-9]+(?:\.[0-9]+){2,3}(?:\+[0-9]+)?\Z")
 REVISION = re.compile(r"[0-9a-f]{40}\Z")
 NDK_VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+\Z")
+JAVA_RUNTIME_BUILD = re.compile(r"([0-9]+(?:\.[0-9]+){2,3}\+[0-9]+)(?:-LTS)?\Z")
 
 
 def _command(*args):
@@ -62,9 +63,13 @@ def _flutter():
 def _java():
     output = _command("java", "-XshowSettings:properties", "-version") or ""
     version = re.search(r"^\s*java\.version\s*=\s*(\S+)\s*$", output, re.MULTILINE)
+    runtime = re.search(r"^\s*java\.runtime\.version\s*=\s*(\S+)\s*$", output,
+                        re.MULTILINE)
     vendor = re.search(r"^\s*java\.vendor\s*=\s*(.*?)\s*$", output, re.MULTILINE)
+    runtime_build = JAVA_RUNTIME_BUILD.fullmatch(runtime.group(1)) if runtime else None
     return {
         "version": _version(version.group(1)) if version else None,
+        "runtimeBuild": runtime_build.group(1) if runtime_build else None,
         "vendor": "temurin" if vendor and vendor.group(1) in
         {"Eclipse Adoptium", "Eclipse Temurin"} else "other" if vendor else None,
     }
