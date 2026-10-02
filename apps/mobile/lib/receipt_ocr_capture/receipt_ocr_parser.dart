@@ -2426,6 +2426,15 @@ class ReceiptOcrParser {
           )) {
         continue;
       }
+      if (_isCardApplicationIdentifierLine(line) &&
+          lastPricedTotal >= 0 &&
+          lineIndex > lastPricedTotal &&
+          lines
+              .skip(lastPricedTotal + 1)
+              .take(lineIndex - lastPricedTotal - 1)
+              .any(_isPaymentMetadataLine)) {
+        continue;
+      }
 
       final cleaned = _cleanDescription(line);
       if (lineIndex + 1 < lines.length &&
@@ -2451,6 +2460,16 @@ class ReceiptOcrParser {
     return count;
   }
 }
+
+bool _isCardApplicationIdentifierLine(String line) => RegExp(
+  r'^aid\s*[:#-]?\s*[a-f0-9]{10,32}$',
+  caseSensitive: false,
+).hasMatch(line.trim());
+
+bool _isPaymentTerminalIdentifierLine(String line) => RegExp(
+  r'^(?:terminal|term|till|pos)\s*(?:(?:id|no|number)\s*)?[:#-]?\s*[a-z]?\d{1,6}$',
+  caseSensitive: false,
+).hasMatch(line.trim());
 
 bool _isCenteredPostTotalFooter(
   List<String> lines,
@@ -2527,6 +2546,9 @@ bool _hasOnlyPaymentOrSuggestedTipAmountsBeforeCourtesy(
     if (index >= courtesyIndex) return false;
     if (_isPaymentMetadataLine(lines[index])) {
       sawPayment = true;
+      continue;
+    }
+    if (sawPayment && _isPaymentTerminalIdentifierLine(lines[index])) {
       continue;
     }
     // Printed percentage suggestions are not a charged tip. Keep the final

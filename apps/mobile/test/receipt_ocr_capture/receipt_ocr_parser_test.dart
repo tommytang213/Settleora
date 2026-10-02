@@ -4007,6 +4007,51 @@ Thank you
     expect(shoppingNamedItem.reviewHints, isNotEmpty);
   });
 
+  test('card authorization identifiers after total do not require review', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Tech Kiosk
+Date: 2026-09-17
+Cable USD 19.99
+Total USD 19.99
+VISA **** 4242
+AUTH 738291
+AID A0000000031010
+Terminal 003
+Thank you
+''');
+
+    expect(preview.items, hasLength(1));
+    expect(preview.items.single.description, 'Cable');
+    expect(preview.total, '19.99');
+    expect(preview.reviewHints, isEmpty);
+
+    final uncorroborated = parser.parse('''
+Tech Kiosk
+Cable USD 19.99
+Total USD 19.99
+AID A0000000031010
+''');
+    final uncorroboratedTerminal = parser.parse('''
+Tech Kiosk
+Cable USD 19.99
+Total USD 19.99
+Terminal 003
+Thank you
+''');
+    final pricedTerminal = parser.parse('''
+Tech Kiosk
+Cable USD 19.99
+Total USD 19.99
+VISA **** 4242
+Terminal USD 3.00
+Thank you
+''');
+    expect(uncorroborated.reviewHints, isNotEmpty);
+    expect(uncorroboratedTerminal.reviewHints, isNotEmpty);
+    expect(pricedTerminal.reviewHints, isNotEmpty);
+  });
+
   test('courtesy footer after tender needs final placement and item safety', () {
     const parser = ReceiptOcrParser();
     final centeredAfterTender = parser.parse(
