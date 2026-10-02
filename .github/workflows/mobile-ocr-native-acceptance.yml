@@ -252,13 +252,13 @@ jobs:
       - name: Record bounded Android package comparison after failed measurement
         if: ${{ !cancelled() && steps.package.outcome == 'failure' }}
         run: |
+          python3 tools/ocr-models/android-build-provenance-evidence.py \
+            --source-sha="$EXPECTED_HEAD" \
+            --out="$RUNNER_TEMP/android-build-provenance.json"
           python3 tools/ocr-models/android-package-comparison-evidence.py \
             --package="$RUNNER_TEMP/settleora-verified-production.apk" \
             --source-sha="$EXPECTED_HEAD" \
             --out="$RUNNER_TEMP/android-package-comparison.json"
-          python3 tools/ocr-models/android-build-provenance-evidence.py \
-            --source-sha="$EXPECTED_HEAD" \
-            --out="$RUNNER_TEMP/android-build-provenance.json"
 
       - name: Upload bounded Android package comparison
         if: ${{ !cancelled() && steps.package.outcome == 'failure' }}

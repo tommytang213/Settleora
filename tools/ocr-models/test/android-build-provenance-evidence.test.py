@@ -11,11 +11,20 @@ from pathlib import Path
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "android-build-provenance-evidence.py"
+WORKFLOW = Path(__file__).resolve().parents[3] / ".github/workflows/mobile-ocr-native-acceptance.yml"
 SOURCE_SHA = "a" * 40
 PRIVATE = "private-receipt-sentinel"
 
 
 class AndroidBuildProvenanceEvidenceTest(unittest.TestCase):
+    def test_workflow_collects_provenance_before_apk_comparison(self):
+        workflow = WORKFLOW.read_text()
+        step = workflow.split("- name: Record bounded Android package comparison after failed measurement", 1)[1]
+        step = step.split("- name: Upload bounded Android package comparison", 1)[0]
+        self.assertLess(step.index("android-build-provenance-evidence.py"),
+                        step.index("android-package-comparison-evidence.py"))
+        self.assertIn("android-build-provenance.json", workflow)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix=f"{PRIVATE}-")
         self.addCleanup(self.temp.cleanup)
