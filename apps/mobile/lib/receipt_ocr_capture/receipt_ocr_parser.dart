@@ -1567,6 +1567,8 @@ class ReceiptOcrParser {
                 : cleaned;
             if (items.isNotEmpty &&
                 lineIndex > 0 &&
+                lineDecisions[lineIndex - 1] ==
+                    ReceiptOcrItemLineDecision.unpricedDescription &&
                 _isPrintedModifierLine(lines[lineIndex - 1]) &&
                 _isPrintedModifierLine(cleaned)) {
               description = description.replaceFirst(RegExp(r'^\+\s+'), '');
@@ -1636,6 +1638,8 @@ class ReceiptOcrParser {
       var description = _cleanDescription(match.group(1)!);
       if (items.isNotEmpty &&
           lineIndex > 0 &&
+          lineDecisions[lineIndex - 1] ==
+              ReceiptOcrItemLineDecision.unpricedDescription &&
           _isPrintedModifierLine(lines[lineIndex - 1]) &&
           _isPrintedModifierLine(description)) {
         description = description.replaceFirst(RegExp(r'^\+\s+'), '');

@@ -383,6 +383,16 @@ Notebook USD 2.00
 Total USD 7.00
 ''');
     expect(separateProduct.items.last.description, '+ Energy Drink');
+    final consecutiveProducts = parser.parse('''
+Book Shop
++ Energy Drink USD 5.00
++ Energy Bar USD 3.00
+Total USD 8.00
+''');
+    expect(consecutiveProducts.items.map((item) => item.description), [
+      '+ Energy Drink',
+      '+ Energy Bar',
+    ]);
   });
 
   test('priced modifier keeps an adjacent right-column amount', () {
