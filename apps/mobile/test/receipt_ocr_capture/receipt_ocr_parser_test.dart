@@ -344,6 +344,47 @@ Total USD 9.50
     },
   );
 
+  test('priced modifier marker is not part of the item name', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Burger Lab
+Combo Meal USD 15.00
++ Large Fries
++ No Onion
++ Extra Cheese USD 1.50
+Iced Tea USD 3.00
+Subtotal USD 19.50
+Tax USD 1.76
+Total USD 21.26
+Thank you
+''');
+    expect(preview.items.map((item) => item.description), [
+      'Combo Meal',
+      'Extra Cheese',
+      'Iced Tea',
+    ]);
+    expect(preview.items.map((item) => item.lineTotal), [
+      '15.00',
+      '1.50',
+      '3.00',
+    ]);
+    expect(preview.reviewHints, isNotEmpty);
+
+    final firstItem = parser.parse('''
+Book Shop
++ Energy Drink USD 5.00
+Total USD 5.00
+''');
+    expect(firstItem.items.single.description, '+ Energy Drink');
+    final separateProduct = parser.parse('''
+Book Shop
+Notebook USD 2.00
++ Energy Drink USD 5.00
+Total USD 7.00
+''');
+    expect(separateProduct.items.last.description, '+ Energy Drink');
+  });
+
   test('an explicit quantity header supports quantities above three', () {
     final preview = const ReceiptOcrParser().parse(
       'Corner Market\nQty Item Price\n4 Rolls 8.00\n5 Pens 10.00\nTotal USD 18.00',

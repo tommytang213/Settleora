@@ -1534,6 +1534,14 @@ class ReceiptOcrParser {
           wrappedDescriptionLines.clear();
           continue;
         }
+        if (_isPrintedModifierLine(line)) {
+          // An unpriced modifier belongs to the preceding selection. Keep it
+          // in raw review evidence instead of attaching it to the next charge.
+          wrappedDescriptionLines.clear();
+          lineDecisions[lineIndex] =
+              ReceiptOcrItemLineDecision.unpricedDescription;
+          continue;
+        }
         final cleaned = _cleanDescription(line);
         if (lineIndex + 1 < lines.length &&
             _isWrappedItemDescriptionCandidate(cleaned) &&
@@ -1620,6 +1628,12 @@ class ReceiptOcrParser {
       }
 
       var description = _cleanDescription(match.group(1)!);
+      if (items.isNotEmpty &&
+          lineIndex > 0 &&
+          _isPrintedModifierLine(lines[lineIndex - 1]) &&
+          _isPrintedModifierLine(description)) {
+        description = description.replaceFirst(RegExp(r'^\+\s+'), '');
+      }
       if (chargeTableRows.contains(lineIndex)) {
         description = _stripChargeTableColumns(description);
       }
@@ -3752,6 +3766,9 @@ String _cleanDescription(String value) {
       .replaceAll(RegExp(r'^[*#\-\s]+'), '')
       .trim();
 }
+
+bool _isPrintedModifierLine(String line) =>
+    RegExp(r'^\+\s+\p{L}', unicode: true).hasMatch(line.trim());
 
 bool _isAdministrativeLine(String line) {
   final normalized = line.toLowerCase();
