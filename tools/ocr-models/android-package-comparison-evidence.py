@@ -5,6 +5,8 @@ import argparse
 import hashlib
 import json
 import re
+import struct
+import sys
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -16,6 +18,114 @@ NATIVE_LIBRARIES = {
 }
 MAX_ARCHIVE_BYTES = 400 * 1024 * 1024
 MAX_EXPANDED_BYTES = 1024 * 1024 * 1024
+MAX_NATIVE_BYTES = 128 * 1024 * 1024
+MAX_ELF_SECTIONS = 128
+MAX_EVIDENCE_BYTES = 128 * 1024
+
+
+def _elf_summary(content):
+    """Return only bounded structural hashes, never ELF strings or payload."""
+    if not 64 <= len(content) <= MAX_NATIVE_BYTES or content[:4] != b"\x7fELF":
+        raise ValueError("Native library is not a bounded ELF file")
+    elf_class, endian_code = content[4:6]
+    if elf_class not in (1, 2) or endian_code not in (1, 2) or content[6] != 1:
+        raise ValueError("Unsupported ELF header")
+    endian = "<" if endian_code == 1 else ">"
+    if elf_class == 1:
+        header_size, section_size = 52, 40
+        header = struct.unpack_from(endian + "HHIIIIIHHHHHH", content, 16)
+        section_offset, entry_size, count = header[5], header[10], header[11]
+        section_format = endian + "IIIIIIIIII"
+    else:
+        header_size, section_size = 64, 64
+        header = struct.unpack_from(endian + "HHIQQQIHHHHHH", content, 16)
+        section_offset, entry_size, count = header[5], header[10], header[11]
+        section_format = endian + "IIQQQQIIQQ"
+    if (len(content) < header_size or entry_size != section_size or
+            not 1 <= count <= MAX_ELF_SECTIONS or
+            section_offset < header_size or
+            section_offset + count * entry_size > len(content)):
+        raise ValueError("ELF section table exceeds reviewed bounds")
+    sections = []
+    build_ids = []
+    for index in range(count):
+        fields = struct.unpack_from(section_format, content,
+                                    section_offset + index * entry_size)
+        section_type = fields[1]
+        offset, size = fields[4], fields[5]
+        if section_type == 8:  # SHT_NOBITS has no bytes in the file.
+            digest = None
+        else:
+            if offset > len(content) or size > len(content) - offset:
+                raise ValueError("ELF section exceeds library bounds")
+            payload = memoryview(content)[offset:offset + size]
+            digest = hashlib.sha256(payload).hexdigest()
+            if section_type == 7:  # SHT_NOTE; only GNU build-id descriptors leave.
+                cursor = 0
+                while cursor < size:
+                    if size - cursor < 12:
+                        raise ValueError("Truncated ELF note")
+                    namesz, descsz, note_type = struct.unpack_from(
+                        endian + "III", payload, cursor)
+                    cursor += 12
+                    name_end = cursor + namesz
+                    desc_start = cursor + ((namesz + 3) & ~3)
+                    desc_end = desc_start + descsz
+                    next_note = desc_start + ((descsz + 3) & ~3)
+                    if next_note > size or namesz > 256 or descsz > 256:
+                        raise ValueError("ELF note exceeds reviewed bounds")
+                    if (bytes(payload[cursor:name_end]) == b"GNU\0" and
+                            note_type == 3 and 4 <= descsz <= 64):
+                        build_ids.append(bytes(payload[desc_start:desc_end]).hex())
+                    cursor = next_note
+        sections.append({"index": index, "type": section_type,
+                         "bytes": size, "sha256": digest})
+    if len(build_ids) > 2:
+        raise ValueError("ELF build-id inventory exceeds reviewed bound")
+    return {"class": 32 if elf_class == 1 else 64,
+            "byteOrder": "little" if endian_code == 1 else "big",
+            "buildIds": build_ids, "sections": sections}
+
+
+def _zip_summary(package, entry):
+    """Hash only the reviewed entry's compressed payload and report ZIP fields."""
+    with package.open("rb") as source:
+        source.seek(entry.header_offset)
+        local = source.read(30)
+        if len(local) != 30:
+            raise ValueError("Truncated native ZIP local header")
+        (signature, needed, flags, method, dos_time, dos_date, crc,
+         compressed, expanded, name_length, extra_length) = struct.unpack(
+             "<IHHHHHIIIHH", local)
+        name = source.read(name_length)
+        extra = source.read(extra_length)
+        if (signature != 0x04034B50 or name != entry.filename.encode("ascii") or
+                len(extra) != extra_length or any(extra) or
+                flags != entry.flag_bits or method != entry.compress_type or
+                crc != entry.CRC or compressed != entry.compress_size or
+                expanded != entry.file_size):
+            raise ValueError("Native ZIP local and central metadata disagree")
+        start = entry.header_offset + 30 + name_length + extra_length
+        if start + compressed > package.stat().st_size:
+            raise ValueError("Native ZIP compressed entry exceeds archive")
+        compressed_hash = hashlib.sha256()
+        remaining = compressed
+        while remaining:
+            chunk = source.read(min(1024 * 1024, remaining))
+            if not chunk:
+                raise ValueError("Truncated native ZIP compressed entry")
+            compressed_hash.update(chunk)
+            remaining -= len(chunk)
+    return {"localHeaderOffset": entry.header_offset,
+            "localExtraBytes": extra_length,
+            "madeBy": (entry.create_system << 8) | entry.create_version,
+            "externalAttributes": entry.external_attr,
+            "neededVersion": needed,
+            "flags": flags, "method": method,
+            "dosTime": dos_time, "dosDate": dos_date,
+            "crc32": f"{crc:08x}",
+            "compressedBytes": compressed,
+            "compressedSha256": compressed_hash.hexdigest()}
 
 
 def main():
@@ -43,27 +153,43 @@ def main():
             total_expanded += entry.file_size
             if total_expanded > MAX_EXPANDED_BYTES:
                 raise ValueError("APK expanded content exceeds the reviewed bound")
-            content_hash = hashlib.sha256()
-            with archive.open(entry) as stream:
-                while chunk := stream.read(1024 * 1024):
-                    content_hash.update(chunk)
-            digest = content_hash.hexdigest()
             if entry.filename in NATIVE_LIBRARIES:
-                native.append({"path": entry.filename, "bytes": entry.file_size, "sha256": digest})
+                if entry.file_size > MAX_NATIVE_BYTES:
+                    raise ValueError("Native library exceeds reviewed size bound")
+                content = archive.read(entry)
+                digest = hashlib.sha256(content).hexdigest()
+                native.append({"path": entry.filename, "bytes": entry.file_size,
+                               "sha256": digest,
+                               "zip": _zip_summary(args.package, entry),
+                               "elf": _elf_summary(content)})
             else:
+                content_hash = hashlib.sha256()
+                with archive.open(entry) as stream:
+                    while chunk := stream.read(1024 * 1024):
+                        content_hash.update(chunk)
+                digest = content_hash.hexdigest()
                 other_hash.update(f"{entry.filename}\0{entry.file_size}\0{digest}\n".encode())
     if len(native) != len(NATIVE_LIBRARIES):
         raise ValueError("APK native library inventory differs")
     evidence = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "sourceSha": args.source_sha,
         "entryCount": len(entries),
         "otherEntryCount": len(entries) - len(native),
         "otherContentDigest": other_hash.hexdigest(),
         "nativeLibraries": native,
     }
-    args.out.write_text(json.dumps(evidence, separators=(",", ":")) + "\n")
+    encoded = json.dumps(evidence, separators=(",", ":")) + "\n"
+    if len(encoded.encode()) > MAX_EVIDENCE_BYTES:
+        raise ValueError("Bounded comparison evidence exceeds reviewed size")
+    args.out.write_text(encoded)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as error:
+        # The diagnostic fails closed without echoing file paths or payloads.
+        print(f"Android package diagnostic failed: {type(error).__name__}",
+              file=sys.stderr)
+        sys.exit(1)

@@ -525,11 +525,81 @@ class ReceiptOcrParser {
         normalizedFallback,
         allowPriorCurrencyConflict: true,
       );
+      final amount = RegExp(_amountTokenPattern).allMatches(line).last;
+      final before = line.substring(0, amount.start).trimRight();
+      final after = line.substring(amount.end).trimLeft();
+      // kr and Rs need receipt context or a bill fallback. Neither is an
+      // explicit currency code on a multi-amount total.
+      final contextualMarkerOnSelectedAmount =
+          RegExp(
+            r'(?<![\p{L}\p{N}])(?:kr|rs)\s*[:=]?\s*[+−]?\s*$',
+            caseSensitive: false,
+            unicode: true,
+          ).hasMatch(before) ||
+          RegExp(
+            r'^\s*[:=]?\s*(?:kr|rs)(?![\p{L}\p{N}])',
+            caseSensitive: false,
+            unicode: true,
+          ).hasMatch(after);
+      if (contextualMarkerOnSelectedAmount) {
+        final markerIsKr =
+            RegExp(
+              r'(?<![\p{L}\p{N}])kr\s*[:=]?\s*[+−]?\s*$',
+              caseSensitive: false,
+              unicode: true,
+            ).hasMatch(before) ||
+            RegExp(
+              r'^\s*[:=]?\s*kr(?![\p{L}\p{N}])',
+              caseSensitive: false,
+              unicode: true,
+            ).hasMatch(after);
+        final compatible = markerIsKr
+            ? const {'SEK', 'NOK', 'DKK'}
+            : const {'INR', 'PKR'};
+        // Only a receipt currency label or the selected total may override
+        // the total marker. A differently denominated item is not authority.
+        final explicit = _rankedExplicitCurrencyCode(
+          transactionCurrencyLines
+              .where(
+                (candidate) =>
+                    candidate == line ||
+                    RegExp(
+                      r'^\s*(?:currency|curr)\b',
+                      caseSensitive: false,
+                    ).hasMatch(candidate),
+              )
+              .toList(growable: false),
+        );
+        if (explicit != null) {
+          return _ReceiptCurrencyDetection(
+            currency: compatible.contains(explicit) ? explicit : null,
+            provenance: compatible.contains(explicit)
+                ? ReceiptOcrCurrencyProvenance.explicit
+                : ReceiptOcrCurrencyProvenance.unresolved,
+          );
+        }
+        final context = _contextualCurrency(
+          transactionCurrencyLines.join(' ').toUpperCase(),
+          hasUsPostalAddress: _hasUsPostalAddress(transactionCurrencyLines),
+        );
+        if (compatible.contains(context)) {
+          return _ReceiptCurrencyDetection(
+            currency: context,
+            provenance: ReceiptOcrCurrencyProvenance.contextInferred,
+          );
+        }
+        final useFallback = compatible.contains(normalizedFallback);
+        return _ReceiptCurrencyDetection(
+          currency: useFallback ? normalizedFallback : null,
+          isSymbolOnly: true,
+          usedFallbackForSymbolOnly: useFallback,
+          provenance: useFallback
+              ? ReceiptOcrCurrencyProvenance.defaultFallback
+              : ReceiptOcrCurrencyProvenance.unresolved,
+        );
+      }
       if (selected.hasExplicitEvidence &&
           _supportedCurrencyCodes.contains(selected.currency)) {
-        final amount = RegExp(_amountTokenPattern).allMatches(line).last;
-        final before = line.substring(0, amount.start).trimRight();
-        final after = line.substring(amount.end).trimLeft();
         final bareDollar =
             RegExp(r'(?<![A-Za-z])\$$').hasMatch(before) ||
             after.startsWith(r'$');
@@ -2431,6 +2501,33 @@ class ReceiptOcrParser {
       if (lineIndex + 1 < lines.length &&
           _isBillChargeDetailHeader(lines, lineIndex + 1) &&
           !_lineHasAmount(line)) {
+        continue;
+      }
+      // A location printed directly below the merchant and directly above a
+      // tax registration/rate header belongs to the receipt header. A bare
+      // unpriced line elsewhere remains reviewable as a possible item.
+      if (lineIndex > 0 &&
+          lineIndex + 1 < lines.length &&
+          merchantLineIndices.contains(lineIndex - 1) &&
+          _isPrintedTaxContextHeader(lines[lineIndex + 1]) &&
+          !_lineHasAmount(line) &&
+          !_isPrintedModifierLine(line) &&
+          RegExp(
+            r'^[\p{L}][\p{L} .,-]{2,60}$',
+            unicode: true,
+          ).hasMatch(line.trim()) &&
+          (RegExp(
+                r',\s*(?:sverige|norge|pakistan|india)\s*$',
+                caseSensitive: false,
+              ).hasMatch(line) ||
+              (RegExp(
+                    r'^(?:new\s+delhi|delhi|mumbai)$',
+                    caseSensitive: false,
+                  ).hasMatch(line.trim()) &&
+                  RegExp(
+                    r'^\s*gstin\b',
+                    caseSensitive: false,
+                  ).hasMatch(lines[lineIndex + 1])))) {
         continue;
       }
       final courtesy = _isReceiptCourtesyLine(line);
@@ -4652,6 +4749,11 @@ bool _isReceiptMetadataLine(String line, {bool allowBarePostal = true}) {
 bool _isPrintedTaxContextHeader(String line) {
   final normalized = line.toLowerCase().trim();
   return RegExp(
+        r'^(?:moms|mva)\s+\d{1,2}(?:[.,]\d{1,2})?\s*%$',
+      ).hasMatch(normalized) ||
+      RegExp(r'^gstin\s*[:#-]?\s*[a-z0-9]{15}$').hasMatch(normalized) ||
+      RegExp(r'^strn\s*[:#-]?\s*\d{6,15}$').hasMatch(normalized) ||
+      RegExp(
         r'^(?:abn|acn|nzbn|ruc|rfc|(?:gst|hst|vat|tax)\s*(?:reg(?:istration)?|id|no|number))\s*[:#-]?\s*[a-z0-9][a-z0-9\s-]{3,}$',
       ).hasMatch(normalized) ||
       RegExp(
