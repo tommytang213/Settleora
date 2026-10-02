@@ -2067,6 +2067,32 @@ VAT included 20% GBP 4.00
     expect(preview.reviewHints, isNotEmpty);
   });
 
+  test('included VAT reconciles a printed net subtotal when supported', () {
+    const parser = ReceiptOcrParser();
+    final balanced = parser.parse('''
+London Books
+Book GBP 20.00
+Subtotal GBP 20.00
+Total incl. VAT GBP 24.00
+VAT included 20% GBP 4.00
+''');
+    expect(balanced.items.single.lineTotal, '20.00');
+    expect(balanced.subtotal, '20.00');
+    expect(balanced.total, '24.00');
+    expect(balanced.tax, '4.00');
+    expect(balanced.taxIncludedInTotal, isTrue);
+    expect(balanced.reviewHints, isEmpty);
+
+    final conflicting = parser.parse('''
+London Books
+Book GBP 20.00
+Subtotal GBP 20.00
+Total incl. VAT GBP 25.00
+VAT included 20% GBP 4.00
+''');
+    expect(conflicting.reviewHints, isNotEmpty);
+  });
+
   test('ordinary additive VAT and merchandise wording keep their roles', () {
     const parser = ReceiptOcrParser();
     final additive = parser.parse('''

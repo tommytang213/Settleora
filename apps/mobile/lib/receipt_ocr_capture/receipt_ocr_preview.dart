@@ -296,12 +296,10 @@ List<String> _receiptOcrReviewHints(
       ];
     }
     if (total != null && _hasReceiptOcrReferenceAdjustment(preview)) {
-      final adjustments = _reconcilableReceiptOcrAdjustments(preview);
       if (preview.adjustmentsComplete &&
           (preview.currency?.trim().isNotEmpty ?? false) &&
           _hasCompleteReceiptOcrItemLineTotals(preview.items) &&
-          adjustments != null &&
-          _receiptOcrAmountsClose(itemTotal + adjustments, total)) {
+          _receiptOcrAdjustmentsReconcile(preview, itemTotal, total)) {
         return const [];
       }
       onDecision?.call(
@@ -344,12 +342,10 @@ List<String> _receiptOcrReviewHints(
   }
 
   if (_hasReceiptOcrReferenceAdjustment(preview)) {
-    final adjustments = _reconcilableReceiptOcrAdjustments(preview);
     if (preview.adjustmentsComplete &&
         (preview.currency?.trim().isNotEmpty ?? false) &&
         _hasCompleteReceiptOcrItemLineTotals(preview.items) &&
-        adjustments != null &&
-        _receiptOcrAmountsClose(itemTotal + adjustments, total)) {
+        _receiptOcrAdjustmentsReconcile(preview, itemTotal, total)) {
       return const [];
     }
     onDecision?.call(
@@ -539,6 +535,20 @@ int? _reconcilableReceiptOcrAdjustments(ReceiptOcrPreview preview) {
     found = true;
   }
   return found ? total : null;
+}
+
+bool _receiptOcrAdjustmentsReconcile(
+  ReceiptOcrPreview preview,
+  int itemTotal,
+  int total,
+) {
+  final adjustments = _reconcilableReceiptOcrAdjustments(preview);
+  if (adjustments == null) return false;
+  if (_receiptOcrAmountsClose(itemTotal + adjustments, total)) return true;
+  if (!preview.taxIncludedInTotal) return false;
+  final tax = _parseReceiptOcrReviewAmount(preview.tax);
+  return tax != null &&
+      _receiptOcrAmountsClose(itemTotal + adjustments + tax, total);
 }
 
 bool _adjustmentCurrencyMatchesReview({

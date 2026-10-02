@@ -1368,13 +1368,19 @@ class ReceiptOcrParser {
                 (a, b) => a + b,
               ) -
               (discountMagnitude ?? 0);
+    final includedTaxValue = sameCurrencyTax && taxIncludedInTotal
+        ? double.tryParse(tax ?? '')
+        : null;
     totalCandidates.sort((left, right) {
       int rank(({String value, int score, int order}) candidate) {
         final parsed = double.tryParse(candidate.value);
         final arithmetic =
             supportedSum != null &&
                 parsed != null &&
-                (parsed - supportedSum).abs() <= 0.02
+                ((parsed - supportedSum).abs() <= 0.02 ||
+                    (includedTaxValue != null &&
+                        (parsed - supportedSum - includedTaxValue).abs() <=
+                            0.02))
             ? 4
             : 0;
         return candidate.score + arithmetic;
