@@ -88,23 +88,29 @@ def _elf_summary(content):
 
 
 def _zip_summary(package, entry):
-    """Hash only the reviewed entry's compressed payload and report ZIP fields."""
+    """Hash only bounded compressed bytes and report reviewed ZIP fields."""
     with package.open("rb") as source:
         source.seek(entry.header_offset)
         local = source.read(30)
         if len(local) != 30:
             raise ValueError("Truncated native ZIP local header")
-        (signature, needed, flags, method, dos_time, dos_date, crc,
-         compressed, expanded, name_length, extra_length) = struct.unpack(
+        (signature, needed, flags, method, dos_time, dos_date, local_crc,
+         local_compressed, local_expanded, name_length, extra_length) = struct.unpack(
              "<IHHHHHIIIHH", local)
         name = source.read(name_length)
         extra = source.read(extra_length)
         if (signature != 0x04034B50 or name != entry.filename.encode("ascii") or
-                len(extra) != extra_length or
-                flags != entry.flag_bits or method != entry.compress_type or
-                crc != entry.CRC or compressed != entry.compress_size or
-                expanded != entry.file_size):
+                len(extra) != extra_length or flags != entry.flag_bits or
+                flags not in (0, 8) or method != entry.compress_type):
             raise ValueError("Native ZIP local and central metadata disagree")
+        if flags == 0 and (local_crc != entry.CRC or
+                           local_compressed != entry.compress_size or
+                           local_expanded != entry.file_size):
+            raise ValueError("Native ZIP local and central sizes disagree")
+        if flags == 8 and (local_crc not in (0, entry.CRC) or
+                           local_compressed not in (0, entry.compress_size) or
+                           local_expanded not in (0, entry.file_size)):
+            raise ValueError("Native ZIP descriptor header is malformed")
         # Report nonzero alignment fields without accepting them for release.
         # The separate strict package verifier still decides that policy.
         cursor = 0
@@ -116,16 +122,31 @@ def _zip_summary(package, entry):
             if cursor > len(extra):
                 raise ValueError("Native ZIP extra field exceeds local header")
         start = entry.header_offset + 30 + name_length + extra_length
-        if start + compressed > package.stat().st_size:
+        end = start + entry.compress_size
+        if end + (12 if flags == 8 else 0) > package.stat().st_size:
             raise ValueError("Native ZIP compressed entry exceeds archive")
         compressed_hash = hashlib.sha256()
-        remaining = compressed
+        remaining = entry.compress_size
         while remaining:
             chunk = source.read(min(1024 * 1024, remaining))
             if not chunk:
                 raise ValueError("Truncated native ZIP compressed entry")
             compressed_hash.update(chunk)
             remaining -= len(chunk)
+        descriptor = b""
+        if flags == 8:
+            first = source.read(4)
+            if len(first) != 4:
+                raise ValueError("Truncated native ZIP data descriptor")
+            if struct.unpack("<I", first)[0] == 0x08074B50:
+                descriptor = first + source.read(12)
+                values = descriptor[4:]
+            else:
+                descriptor = first + source.read(8)
+                values = descriptor
+            if len(values) != 12 or struct.unpack("<III", values) != (
+                    entry.CRC, entry.compress_size, entry.file_size):
+                raise ValueError("Native ZIP data descriptor disagrees")
     return {"localHeaderOffset": entry.header_offset,
             "localExtraBytes": extra_length,
             "localExtraAllZero": not any(extra),
@@ -136,9 +157,15 @@ def _zip_summary(package, entry):
             "neededVersion": needed,
             "flags": flags, "method": method,
             "dosTime": dos_time, "dosDate": dos_date,
-            "crc32": f"{crc:08x}",
-            "compressedBytes": compressed,
-            "compressedSha256": compressed_hash.hexdigest()}
+            "localCrc32": f"{local_crc:08x}",
+            "crc32": f"{entry.CRC:08x}",
+            "localCompressedBytes": local_compressed,
+            "localExpandedBytes": local_expanded,
+            "compressedBytes": entry.compress_size,
+            "compressedSha256": compressed_hash.hexdigest(),
+            "dataDescriptorBytes": len(descriptor),
+            "dataDescriptorSha256": (hashlib.sha256(descriptor).hexdigest()
+                                     if descriptor else None)}
 
 
 def main():

@@ -556,17 +556,16 @@ class ReceiptOcrParser {
         final compatible = markerIsKr
             ? const {'SEK', 'NOK', 'DKK'}
             : const {'INR', 'PKR'};
-        // Only a receipt currency label or the selected total may override
-        // the total marker. A differently denominated item is not authority.
+        // Only a receipt currency label may override this ambiguous total
+        // marker. Earlier amounts on the same total line and differently
+        // denominated items are not authority for the selected amount.
         final explicit = _rankedExplicitCurrencyCode(
           transactionCurrencyLines
               .where(
-                (candidate) =>
-                    candidate == line ||
-                    RegExp(
-                      r'^\s*(?:currency|curr)\b',
-                      caseSensitive: false,
-                    ).hasMatch(candidate),
+                (candidate) => RegExp(
+                  r'^\s*(?:currency|curr)\b',
+                  caseSensitive: false,
+                ).hasMatch(candidate),
               )
               .toList(growable: false),
         );

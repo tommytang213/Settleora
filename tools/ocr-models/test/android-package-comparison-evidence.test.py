@@ -1,5 +1,6 @@
 """Bounded privacy and malformed-input checks for failure-only APK diagnostics."""
 
+import io
 import json
 import struct
 import subprocess
@@ -147,6 +148,48 @@ class PackageComparisonEvidenceTest(unittest.TestCase):
                 archive.writestr(entry, elf())
             for index in range(438):
                 archive.writestr(f"assets/safe-{index:03d}.bin", b"SAFE")
+        result = self.run_tool()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.output.exists())
+
+    def write_descriptor_package(self):
+        class NonSeekable(io.BytesIO):
+            def seek(self, *args):
+                raise OSError("nonseekable")
+
+            def seekable(self):
+                return False
+
+        output = NonSeekable()
+        with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for name in LIBRARIES:
+                archive.writestr(name, elf())
+            for index in range(438):
+                archive.writestr(f"assets/safe-{index:03d}.bin", b"SAFE")
+        self.apk.write_bytes(output.getvalue())
+
+    def test_reports_bounded_zip_data_descriptors(self):
+        self.write_descriptor_package()
+        result = self.run_tool()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for row in json.loads(self.output.read_text())["nativeLibraries"]:
+            self.assertEqual(row["zip"]["flags"], 8)
+            self.assertIn(row["zip"]["dataDescriptorBytes"], (12, 16))
+            self.assertEqual(len(row["zip"]["dataDescriptorSha256"]), 64)
+
+    def test_rejects_malformed_zip_data_descriptor(self):
+        self.write_descriptor_package()
+        with zipfile.ZipFile(self.apk) as archive:
+            entry = archive.getinfo(LIBRARIES[0])
+        content = bytearray(self.apk.read_bytes())
+        name_length, extra_length = struct.unpack_from(
+            "<HH", content, entry.header_offset + 26)
+        descriptor_offset = (entry.header_offset + 30 + name_length +
+                             extra_length + entry.compress_size)
+        if struct.unpack_from("<I", content, descriptor_offset)[0] == 0x08074B50:
+            descriptor_offset += 4
+        content[descriptor_offset] ^= 1
+        self.apk.write_bytes(content)
         result = self.run_tool()
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(self.output.exists())

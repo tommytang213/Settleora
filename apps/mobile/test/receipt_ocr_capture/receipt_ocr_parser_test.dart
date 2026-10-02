@@ -2143,6 +2143,16 @@ Total $145.00''',
         swedenWithForeignItem.currencyProvenance,
         ReceiptOcrCurrencyProvenance.contextInferred,
       );
+      final earlierForeignAmount = parser.parse(
+        'Karachi Grill\nKarachi, Pakistan\n'
+        'Total USD 100.00 Rs 200.00',
+        fallbackCurrency: 'INR',
+      );
+      expect(earlierForeignAmount.currency, 'PKR');
+      expect(
+        earlierForeignAmount.currencyProvenance,
+        ReceiptOcrCurrencyProvenance.contextInferred,
+      );
       final printedConflict = parser.parse(
         'Karachi Grill\nCurrency USD\nTotal Rs 100.00 Rs 200.00',
         fallbackCurrency: 'PKR',
