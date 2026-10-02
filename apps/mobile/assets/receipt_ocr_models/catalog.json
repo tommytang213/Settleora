@@ -48,7 +48,7 @@
         { "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_provider.dart", "sha256": "a3331597a312cc3bd90a9a026b4bd6901b07f0c38dd7dac00a2a7c2c19ada90e" },
         { "path": "apps/mobile/lib/receipt_ocr_capture/mlkit_receipt_ocr_provider.dart", "sha256": "a7f552b7e9601814e2fe2d6ed1b5d57b86678edd2438ccba8bcd3cb3e68ff9cb" },
         { "path": "apps/mobile/lib/receipt_ocr_capture/paddle_receipt_ocr_provider.dart", "sha256": "bab2702484fbcc48b3e5a985fbbb70467a5714713ad3e0c520aa542768620eeb" },
-        { "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_preview.dart", "sha256": "94468bde7b05ce09eb9da6245fe2deac0839aa9e831db268a22645f29f947b73" },
+        { "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_preview.dart", "sha256": "0a8d45910cca0a105bd83539555301faecbaf05d35f891434c03af52432149fb" },
         { "path": "apps/mobile/lib/ui/settleora_form_fields.dart", "sha256": "ff5669f541437bef62d562109573f32506273dd90593874c8ffcde6355145079" },
         { "path": "apps/mobile/pubspec.yaml", "sha256": "f5a9968dbb7e1f7ab58b780e9b3f8e049d6008cd339e3df2d748e33e0ab76030" },
         { "path": "apps/mobile/pubspec.lock", "sha256": "065007a0c8b90d527aff6306936a02cd527d30f03800cc8e4229e8273d3afcc7" },
@@ -124,7 +124,7 @@
     },
     "parser": {
       "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_parser.dart",
-      "sha256": "613ba4c010f36ee249bc8f81bfe6f745b090c84e36e247401cbd42754949477c"
+      "sha256": "96161536b932f02448473772e48f34d10deeae4959a0d698ea74fad444050df6"
     }
   },
   "totalBundledBytes": 76580102,
