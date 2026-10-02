@@ -252,6 +252,9 @@ jobs:
       - name: Record bounded Android package comparison after failed measurement
         if: ${{ !cancelled() && steps.package.outcome == 'failure' }}
         run: |
+          python3 tools/ocr-models/android-build-provenance-evidence.py \
+            --source-sha="$EXPECTED_HEAD" \
+            --out="$RUNNER_TEMP/android-build-provenance.json"
           python3 tools/ocr-models/android-package-comparison-evidence.py \
             --package="$RUNNER_TEMP/settleora-verified-production.apk" \
             --source-sha="$EXPECTED_HEAD" \
@@ -262,7 +265,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: android-package-comparison-${{ env.EXPECTED_HEAD }}
-          path: ${{ runner.temp }}/android-package-comparison.json
+          path: |
+            ${{ runner.temp }}/android-package-comparison.json
+            ${{ runner.temp }}/android-build-provenance.json
           if-no-files-found: error
           retention-days: 30
 

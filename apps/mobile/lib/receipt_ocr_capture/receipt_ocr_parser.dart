@@ -2506,7 +2506,16 @@ class ReceiptOcrParser {
       if (merchantLineIndices.contains(lineIndex)) {
         continue;
       }
-      if (_isSeeYouSoonFooterPhrase(line) &&
+      if ((_isSeeYouSoonFooterPhrase(line) ||
+              (_isNordicCourtesyFooterPhrase(line) &&
+                  (layoutRows.isEmpty ||
+                      _isCenteredPostTotalFooter(
+                        lines,
+                        layoutRows,
+                        lineIndex,
+                        lastPricedTotal,
+                        assumeCourtesy: true,
+                      )))) &&
           lastPricedTotal >= 0 &&
           lineIndex == lines.length - 1 &&
           _hasOnlyPaymentOrIncludedTaxOrSuggestedTipAmountsBeforeCourtesy(
@@ -2538,6 +2547,14 @@ class ReceiptOcrParser {
                 r',\s*(?:sverige|norge|pakistan|india)\s*$',
                 caseSensitive: false,
               ).hasMatch(line) ||
+              (RegExp(
+                    r',\s*(?:new\s+delhi|delhi|mumbai)\s*$',
+                    caseSensitive: false,
+                  ).hasMatch(line) &&
+                  RegExp(
+                    r'^\s*gstin\b',
+                    caseSensitive: false,
+                  ).hasMatch(lines[lineIndex + 1])) ||
               (RegExp(
                     r'^(?:new\s+delhi|delhi|mumbai)$',
                     caseSensitive: false,
@@ -2626,8 +2643,9 @@ bool _isCenteredPostTotalFooter(
   List<String> lines,
   List<List<ReceiptOcrBlockEvidence>> layoutRows,
   int lineIndex,
-  int lastPricedTotal,
-) {
+  int lastPricedTotal, {
+  bool assumeCourtesy = false,
+}) {
   if (lastPricedTotal < 0 ||
       lineIndex <= lastPricedTotal ||
       layoutRows.length != lines.length ||
@@ -2636,7 +2654,7 @@ bool _isCenteredPostTotalFooter(
         lastPricedTotal,
         lineIndex,
       ) ||
-      !_isReceiptCourtesyLine(lines[lineIndex])) {
+      (!assumeCourtesy && !_isReceiptCourtesyLine(lines[lineIndex]))) {
     return false;
   }
   final contentPoints = layoutRows
@@ -2728,6 +2746,11 @@ bool _hasOnlyPaymentOrIncludedTaxOrSuggestedTipAmountsBeforeCourtesy(
 
 bool _isSeeYouSoonFooterPhrase(String line) => RegExp(
   r'^see you soon[.!。！]?$',
+  caseSensitive: false,
+).hasMatch(line.trim());
+
+bool _isNordicCourtesyFooterPhrase(String line) => RegExp(
+  r'^takk\s*[/／]\s*tack[.!。！]?$',
   caseSensitive: false,
 ).hasMatch(line.trim());
 
