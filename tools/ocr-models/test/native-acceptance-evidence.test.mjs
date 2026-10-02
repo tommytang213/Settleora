@@ -787,11 +787,25 @@ test("isolation failure evidence retains only allowlisted probe outcomes", () =>
     assert.deepEqual(evidence.diagnostics, [resolved]);
     assert.equal(isCompleteEvidence(evidence), false);
   });
+  for (const partial of [
+    { stage: "network_probe", probes: { numeric: "not_run", loopback: "not_run", hostname: "not_run" } },
+    { stage: "network_denial_contract", probes: { numeric: "denied_other", loopback: "not_run", hostname: "not_run" } },
+    { stage: "loopback_round_trip_probe", probes: { numeric: "denied_expected", loopback: "failed", hostname: "not_run" } },
+    { stage: "hostname_resolution_probe", probes: { numeric: "denied_expected", loopback: "passed", hostname: "not_run" } },
+  ]) {
+    const marker = { ...diagnostic, ...partial };
+    withLog(protocolLog(`SETTLEORA_OCR_DIAGNOSTIC=${JSON.stringify(marker)}`), (log) => {
+      const evidence = buildFailureEvidence({ ...evidenceArgs(log), "test-status": "1" });
+      assert.deepEqual(evidence.diagnostics, [marker]);
+      assert.equal(isCompleteEvidence(evidence), false);
+    });
+  }
   for (const invalid of [
     { ...diagnostic, probes: { ...diagnostic.probes, numeric: "private network detail" } },
     { ...diagnostic, probes: { ...diagnostic.probes, hostname: "example.com" } },
     { ...diagnostic, probes: { ...diagnostic.probes, rawError: "private" } },
     { ...diagnostic, stage: "corpus_provider" },
+    { ...diagnostic, stage: "network_environment" },
     { ...diagnostic, fixtureId: manifestFixtureIds[0] },
   ]) {
     withLog(protocolLog(`SETTLEORA_OCR_DIAGNOSTIC=${JSON.stringify(invalid)}`), (log) => {

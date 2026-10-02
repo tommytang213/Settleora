@@ -252,19 +252,24 @@ void main() {
         );
       }
       failure.set('network_probe');
+      failure.probeOutcomes = {
+        'numeric': 'not_run',
+        'loopback': 'not_run',
+        'hostname': 'not_run',
+      };
       Socket? socket;
       var numericAddressDenied = false;
-      var numericOutcome = 'not_run';
       try {
         socket = await Socket.connect(
           InternetAddress('1.1.1.1'),
           443,
           timeout: const Duration(seconds: 3),
         );
-        numericOutcome = 'connected';
+        failure.probeOutcomes!['numeric'] = 'connected';
       } on SocketException catch (error) {
         numericAddressDenied = true;
-        numericOutcome = error.osError?.errorCode == (Platform.isIOS ? 51 : 101)
+        failure.probeOutcomes!['numeric'] =
+            error.osError?.errorCode == (Platform.isIOS ? 51 : 101)
             ? 'denied_expected'
             : 'denied_other';
         failure.set('network_denial_contract');
@@ -276,7 +281,7 @@ void main() {
               : 'The isolated Android emulator must deny with Linux ENETUNREACH.',
         );
       } on TimeoutException {
-        numericOutcome = 'timeout';
+        failure.probeOutcomes!['numeric'] = 'timeout';
         expect(
           Platform.isIOS,
           isFalse,
@@ -286,6 +291,7 @@ void main() {
       await socket?.close();
       failure.set('loopback_round_trip_probe');
       final loopbackPassed = await _proveLoopbackRoundTrip();
+      failure.probeOutcomes!['loopback'] = loopbackPassed ? 'passed' : 'failed';
       expect(
         loopbackPassed,
         isTrue,
@@ -293,20 +299,16 @@ void main() {
       );
       failure.set('hostname_resolution_probe');
       var hostnameResolutionDenied = false;
-      var hostnameOutcome = 'resolved';
       try {
         final addresses = await InternetAddress.lookup('example.com');
-        hostnameOutcome = addresses.isEmpty ? 'empty_result' : 'resolved';
+        failure.probeOutcomes!['hostname'] = addresses.isEmpty
+            ? 'empty_result'
+            : 'resolved';
       } on SocketException {
         hostnameResolutionDenied = true;
-        hostnameOutcome = 'denied';
+        failure.probeOutcomes!['hostname'] = 'denied';
       }
       failure.set('network_isolation');
-      failure.probeOutcomes = {
-        'numeric': numericOutcome,
-        'loopback': loopbackPassed ? 'passed' : 'failed',
-        'hostname': hostnameOutcome,
-      };
       networkIsolated =
           socket == null && numericAddressDenied && hostnameResolutionDenied;
       expect(
@@ -1222,7 +1224,7 @@ class _BoundedFailureStage {
       // Retain only a bounded stage, fixture identifier, and allowlisted
       // isolation outcomes. Exception text can contain receipt data or paths.
       debugPrint(
-        'SETTLEORA_OCR_DIAGNOSTIC=${jsonEncode({'schemaVersion': 1, 'platform': Platform.operatingSystem, 'stage': stage, 'fixtureId': fixtureId, if (stage == 'network_isolation' && probeOutcomes != null) 'probes': probeOutcomes})}',
+        'SETTLEORA_OCR_DIAGNOSTIC=${jsonEncode({'schemaVersion': 1, 'platform': Platform.operatingSystem, 'stage': stage, 'fixtureId': fixtureId, if (probeOutcomes != null) 'probes': probeOutcomes})}',
       );
       rethrow;
     }

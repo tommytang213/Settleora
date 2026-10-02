@@ -985,14 +985,14 @@ function sanitizeDiagnostic(value, platform, expectedFixtureIds) {
   }
   let probes;
   if (hasProbes) {
-    if (value.stage !== "network_isolation" || fixtureId != null) {
+    if (!new Set(["network_probe", "network_denial_contract", "loopback_round_trip_probe", "hostname_resolution_probe", "network_isolation"]).has(value.stage) || fixtureId != null) {
       throw new Error("Isolation probe diagnostic has an invalid stage");
     }
     assertExactKeys(value.probes, ["numeric", "loopback", "hostname"], "isolation probes");
     const allowed = {
-      numeric: new Set(["connected", "denied_expected", "denied_other", "timeout"]),
-      loopback: new Set(["passed", "failed"]),
-      hostname: new Set(["resolved", "empty_result", "denied"]),
+      numeric: new Set(["not_run", "connected", "denied_expected", "denied_other", "timeout"]),
+      loopback: new Set(["not_run", "passed", "failed"]),
+      hostname: new Set(["not_run", "resolved", "empty_result", "denied"]),
     };
     for (const [name, values] of Object.entries(allowed)) {
       if (!values.has(value.probes[name])) {
