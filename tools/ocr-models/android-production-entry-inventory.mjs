@@ -1482,6 +1482,15 @@ export const expectedAndroidPackageDigestsBySource = Object.freeze({
   "4b4498fc63e9b869dc40af537262f4dfe192e8353a80172e7852a8cdf887e43a": Object.freeze([
     "708ada4912c4d77a2192d4831ddc541cf90d80aa8025465bc4c06e83f8a02f35",
   ]),
+  // #1309 approved Android emulator build pin at 42139905. A clean Flutter
+  // 3.44.8 Release projection passed archive/path, catalog, 14-model,
+  // legal-resource, and 102-fixture-absence checks. Against the prior clean
+  // build, all 444 entry paths and 438 entry payloads match; the six changed
+  // native libraries include an embedded projection path and ELF build IDs.
+  // Local signer was mocked; hosted signer/native proof remains required.
+  "dff8ae67ea4ca2a99b9fa77b99610e94434f8471d6b1030449493c1dba01ad6d": Object.freeze([
+    "16233d9f912f60c00e64f0887f2d0a4c28eebe76ecb09d90240d018a28d5712f",
+  ]),
 });
 export const expectedAndroidNonOcrEntries = Object.freeze([
   "AndroidManifest.xml",
