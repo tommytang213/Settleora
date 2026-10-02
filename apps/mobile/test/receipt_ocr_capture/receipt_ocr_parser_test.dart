@@ -2029,6 +2029,63 @@ Total $145.00''',
     }
   });
 
+  test('context-backed kr and Rs markers retain item and total money', () {
+    const parser = ReceiptOcrParser();
+    final cases =
+        <({String text, String currency, String total, List<String> amounts})>[
+          (
+            text:
+                'Stockholm Cafe\nStockholm, Sverige\nMoms 12%\n'
+                'Coffee 45 kr\nBread 30 kr\nTotal 75 kr',
+            currency: 'SEK',
+            total: '75',
+            amounts: ['45', '30'],
+          ),
+          (
+            text:
+                'Oslo Bakeri\nOslo, Norge\nMVA 15%\n'
+                'Coffee 45 kr\nBread 30 kr\nTotal 75 kr',
+            currency: 'NOK',
+            total: '75',
+            amounts: ['45', '30'],
+          ),
+          (
+            text:
+                'Delhi Snacks\nNew Delhi\nGSTIN 07AAAAA0000A1Z5\n'
+                'Meal Rs 450.00\nTea Rs 100.00\nTotal Rs 550.00',
+            currency: 'INR',
+            total: '550.00',
+            amounts: ['450.00', '100.00'],
+          ),
+          (
+            text:
+                'Karachi Grill\nKarachi, Pakistan\nSTRN 1234567\n'
+                'Meal Rs 450.00\nTea Rs 100.00\nTotal Rs 550.00',
+            currency: 'PKR',
+            total: '550.00',
+            amounts: ['450.00', '100.00'],
+          ),
+        ];
+    for (final fixture in cases) {
+      final preview = parser.parse(fixture.text);
+      expect(preview.currency, fixture.currency, reason: fixture.text);
+      expect(preview.total, fixture.total, reason: fixture.text);
+      expect(
+        preview.items.map((item) => item.lineTotal),
+        fixture.amounts,
+        reason: fixture.text,
+      );
+      expect(
+        preview.items.map((item) => item.currency),
+        everyElement(fixture.currency),
+        reason: fixture.text,
+      );
+    }
+    final ambiguous = parser.parse('Nordic Shop\nCoffee 45 kr\nTotal 45 kr');
+    expect(ambiguous.currency, isNull);
+    expect(ambiguous.items.single.currency, isNull);
+  });
+
   test('parser normalizes supported locale amount conventions', () {
     const parser = ReceiptOcrParser();
     final cases = <({String text, String currency, List<String> values})>[
