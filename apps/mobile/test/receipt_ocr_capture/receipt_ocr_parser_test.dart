@@ -1983,6 +1983,56 @@ Total $145.00''',
     }
   });
 
+  test('printed localized tax labels do not compete with currency codes', () {
+    const parser = ReceiptOcrParser();
+    final cases = <({String text, String currency, String tax})>[
+      (
+        text: '''
+Boulangerie Lumière
+Baguette 2,20 EUR
+Croissant 3,10 EUR
+Café 4,50 EUR
+Sous-total 9,80 EUR
+TVA 0,98 EUR
+Total 10,78 EUR
+''',
+        currency: 'EUR',
+        tax: '0.98',
+      ),
+      (
+        text: '''
+Mercado Centro
+Tacos MXN 90.00
+Agua MXN 35.00
+Subtotal MXN 125.00
+IVA MXN 20.00
+Total MXN 145.00
+''',
+        currency: 'MXN',
+        tax: '20.00',
+      ),
+      (
+        text: '''
+Istanbul Cafe
+Tea TRY 20.00
+Cake TRY 30.00
+Subtotal TRY 50.00
+KDV TRY 5.00
+Total TRY 55.00
+''',
+        currency: 'TRY',
+        tax: '5.00',
+      ),
+    ];
+    for (final receipt in cases) {
+      final preview = parser.parse(receipt.text);
+      expect(preview.currency, receipt.currency);
+      expect(preview.tax, receipt.tax);
+      expect(preview.taxCurrency, receipt.currency);
+      expect(preview.reviewHints, isEmpty);
+    }
+  });
+
   test('parser preserves actual tip and shipping preview values', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse('''
