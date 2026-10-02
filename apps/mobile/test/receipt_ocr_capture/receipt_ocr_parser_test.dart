@@ -807,6 +807,8 @@ Total \$9.81
 ''');
     expect(us.items.map((item) => item.description), ['Sandwich', 'Coffee']);
     expect(us.tax, '1.70');
+    expect(us.adjustmentsComplete, isTrue);
+    expect(us.reviewHints, isEmpty);
     expect(
       us.warnings,
       isNot(
@@ -825,6 +827,8 @@ Total \$9.81
       'Toast Set',
     ]);
     expect(singapore.tax, '0.81');
+    expect(singapore.adjustmentsComplete, isTrue);
+    expect(singapore.reviewHints, isEmpty);
     final mexico = parser.parse('''
 Mercado Centro
 Ciudad de México, CDMX

@@ -909,6 +909,12 @@ class ReceiptOcrParser {
             printed.currency == currency);
 
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+      // A printed registration or tax-context header describes the receipt.
+      // Keep other malformed adjustment rows in the review path.
+      if (!layoutAdjustmentLines.containsKey(lineIndex) &&
+          _isPrintedTaxContextHeader(lines[lineIndex])) {
+        continue;
+      }
       if (lineIndex + 1 < lines.length &&
           _isBillChargeDetailHeader(lines, lineIndex + 1) &&
           !_lineHasAmount(lines[lineIndex])) {
@@ -4501,6 +4507,7 @@ bool _isReceiptMetadataLine(String line, {bool allowBarePostal = true}) {
   if (_isDateOrTimeOnlyLine(normalized)) {
     return true;
   }
+  if (_isPrintedTaxContextHeader(line)) return true;
 
   final metadataPatterns = [
     RegExp(
@@ -4527,12 +4534,6 @@ bool _isReceiptMetadataLine(String line, {bool allowBarePostal = true}) {
     ),
     RegExp(
       r"^[a-z .'-]+\b(?:road|street|avenue|ave|lane|drive|boulevard|blvd)\b,\s*[a-z .'-]+\s+\d{4,6}$",
-    ),
-    RegExp(
-      r'^(?:abn|acn|nzbn|ruc|rfc|(?:gst|hst|vat|tax)\s*(?:reg(?:istration)?|id|no|number))\s*[:#-]?\s*[a-z0-9][a-z0-9\s-]{3,}$',
-    ),
-    RegExp(
-      r'^(?:(?:sales\s+)?tax|vat|gst|hst|iva)\s+(?:applies|included|incluido|inclusive|applied)$',
     ),
     RegExp(
       r'^\s*(date|dated|issued|printed|reprinted)\s*[:#-]?\s*\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}\b',
@@ -4562,6 +4563,16 @@ bool _isReceiptMetadataLine(String line, {bool allowBarePostal = true}) {
   ];
 
   return metadataPatterns.any((pattern) => pattern.hasMatch(normalized));
+}
+
+bool _isPrintedTaxContextHeader(String line) {
+  final normalized = line.toLowerCase().trim();
+  return RegExp(
+        r'^(?:abn|acn|nzbn|ruc|rfc|(?:gst|hst|vat|tax)\s*(?:reg(?:istration)?|id|no|number))\s*[:#-]?\s*[a-z0-9][a-z0-9\s-]{3,}$',
+      ).hasMatch(normalized) ||
+      RegExp(
+        r'^(?:(?:sales\s+)?tax|vat|gst|hst|iva)\s+(?:applies|included|incluido|inclusive|applied)$',
+      ).hasMatch(normalized);
 }
 
 bool _isLikelyNonItemDescription(String description, {bool pricedRow = false}) {

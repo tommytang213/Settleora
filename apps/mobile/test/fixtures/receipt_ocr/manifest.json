@@ -940,7 +940,8 @@
             "4.00"
           ]
         ],
-        "subtotal": "16.50"
+        "subtotal": "16.50",
+        "tax": "1.70"
       },
       "expected_currency_resolution": {
         "currency": "USD",
@@ -974,7 +975,8 @@
             "5.50"
           ]
         ],
-        "subtotal": "9.75"
+        "subtotal": "9.75",
+        "tax": "1.27"
       },
       "expected_currency_resolution": {
         "currency": "CAD",
@@ -1044,7 +1046,8 @@
             "6.80"
           ]
         ],
-        "subtotal": "9.00"
+        "subtotal": "9.00",
+        "tax": "0.81"
       },
       "expected_currency_resolution": {
         "currency": "SGD",
@@ -1078,7 +1081,8 @@
             "5.00"
           ]
         ],
-        "subtotal": "12.50"
+        "subtotal": "12.50",
+        "tax": "1.63"
       },
       "expected_currency_resolution": {
         "currency": "NZD",
@@ -1112,7 +1116,8 @@
             "35.00"
           ]
         ],
-        "subtotal": "125.00"
+        "subtotal": "125.00",
+        "tax": "20.00"
       },
       "expected_currency_resolution": {
         "currency": "MXN",
@@ -3209,7 +3214,8 @@
             "4.00"
           ]
         ],
-        "subtotal": "16.50"
+        "subtotal": "16.50",
+        "tax": "1.70"
       },
       "expected_currency_resolution": {
         "currency": "USD",
