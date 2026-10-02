@@ -256,13 +256,18 @@ jobs:
             --package="$RUNNER_TEMP/settleora-verified-production.apk" \
             --source-sha="$EXPECTED_HEAD" \
             --out="$RUNNER_TEMP/android-package-comparison.json"
+          python3 tools/ocr-models/android-build-provenance-evidence.py \
+            --source-sha="$EXPECTED_HEAD" \
+            --out="$RUNNER_TEMP/android-build-provenance.json"
 
       - name: Upload bounded Android package comparison
         if: ${{ !cancelled() && steps.package.outcome == 'failure' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: android-package-comparison-${{ env.EXPECTED_HEAD }}
-          path: ${{ runner.temp }}/android-package-comparison.json
+          path: |
+            ${{ runner.temp }}/android-package-comparison.json
+            ${{ runner.temp }}/android-build-provenance.json
           if-no-files-found: error
           retention-days: 30
 

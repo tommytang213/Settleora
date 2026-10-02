@@ -1,0 +1,138 @@
+"""Bounded, privacy-safe Android package build provenance tests."""
+
+import hashlib
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+
+SCRIPT = Path(__file__).resolve().parents[1] / "android-build-provenance-evidence.py"
+SOURCE_SHA = "a" * 40
+PRIVATE = "private-receipt-sentinel"
+
+
+class AndroidBuildProvenanceEvidenceTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix=f"{PRIVATE}-")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.runner_temp = self.root / "runner-temp"
+        (self.runner_temp / "android-candidate-package").mkdir(parents=True)
+        self.flutter_root = self.root / "flutter"
+        extension = (self.flutter_root /
+                     "packages/flutter_tools/gradle/src/main/kotlin/FlutterExtension.kt")
+        extension.parent.mkdir(parents=True)
+        extension.write_text('val ndkVersion: String = "28.2.13676358"\n')
+        self.android_home = self.root / "android-sdk"
+        ndk_root = self.android_home / "ndk/28.2.13676358"
+        ndk_root.mkdir(parents=True)
+        (ndk_root / "source.properties").write_text("Pkg.Revision = 28.2.13676358\n")
+        linker = ndk_root / "toolchains/llvm/prebuilt/linux-x86_64/bin/ld.lld"
+        linker.parent.mkdir(parents=True)
+        self.script(linker, "printf 'LLD 19.0.1 (compatible with GNU linkers)\\n'")
+        self.bin = self.root / "bin"
+        self.bin.mkdir()
+        self.script(self.bin / "flutter", "printf '%s\\n' '{\"frameworkVersion\":\"3.44.8\",\"frameworkRevision\":\"" +
+                    "1" * 40 + "\",\"engineRevision\":\"" + "2" * 40 +
+                    "\",\"dartSdkVersion\":\"3.12.2\",\"flutterRoot\":\"" +
+                    PRIVATE + "\"}'")
+        self.script(self.bin / "java", "printf '    java.version = 17.0.17\\n    java.vendor = Eclipse Adoptium\\n' >&2")
+        self.output = self.root / "evidence.json"
+
+    def script(self, path, command):
+        path.write_text("#!/bin/sh\n" + command + "\n")
+        path.chmod(0o700)
+
+    def run_tool(self, *, source_sha=SOURCE_SHA, overrides=None):
+        env = {**os.environ,
+               "PATH": f"{self.bin}{os.pathsep}{os.environ.get('PATH', '')}",
+               "RUNNER_TEMP": str(self.runner_temp),
+               "FLUTTER_ROOT": str(self.flutter_root),
+               "ANDROID_HOME": str(self.android_home),
+               "ORG_GRADLE_PROJECT_settleoraReleaseEvidence": "true"}
+        if overrides:
+            env.update(overrides)
+        return subprocess.run(
+            [sys.executable, str(SCRIPT), f"--source-sha={source_sha}",
+             f"--out={self.output}"], capture_output=True, text=True, env=env)
+
+    def test_records_only_allowlisted_complete_provenance(self):
+        result = self.run_tool()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        raw = self.output.read_bytes()
+        self.assertLess(len(raw), 4096)
+        self.assertNotIn(PRIVATE.encode(), raw)
+        self.assertNotIn(str(self.root).encode(), raw)
+        value = json.loads(raw)
+        self.assertEqual(set(value), {"schemaVersion", "platform", "sourceSha",
+                                      "collectionStatus", "buildRoot", "flutter",
+                                      "java", "ndk", "gradleVerification"})
+        self.assertEqual(value["collectionStatus"], "complete")
+        self.assertEqual(value["flutter"], {
+            "frameworkVersion": "3.44.8", "frameworkRevision": "1" * 40,
+            "engineRevision": "2" * 40, "dartSdkVersion": "3.12.2"})
+        self.assertEqual(value["java"], {"version": "17.0.17", "vendor": "temurin"})
+        self.assertEqual(value["ndk"], {
+            "selectedVersion": "28.2.13676358",
+            "installedVersion": "28.2.13676358", "linkerVersion": "19.0.1"})
+        self.assertEqual(value["gradleVerification"], {"settleoraReleaseEvidence": True})
+        identity = str(self.runner_temp / "android-candidate-package").encode()
+        self.assertEqual(value["buildRoot"], {
+            "role": "android_candidate_package", "byteLength": len(identity),
+            "sha256": hashlib.sha256(identity).hexdigest()})
+
+    def test_discards_untrusted_version_text_and_private_paths(self):
+        self.script(self.bin / "flutter", "printf '%s\\n' '{\"frameworkVersion\":\"" +
+                    PRIVATE + "\",\"frameworkRevision\":\"" + "1" * 40 +
+                    "\",\"engineRevision\":\"" + "2" * 40 +
+                    "\",\"dartSdkVersion\":\"3.12.2\",\"path\":\"" +
+                    PRIVATE + "\"}'")
+        self.script(self.bin / "java", "printf '    java.version = " + PRIVATE +
+                    "\\n    java.vendor = " + PRIVATE + "\\n' >&2")
+        result = self.run_tool()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        raw = self.output.read_bytes()
+        self.assertNotIn(PRIVATE.encode(), raw)
+        value = json.loads(raw)
+        self.assertEqual(value["collectionStatus"], "partial")
+        self.assertIsNone(value["flutter"]["frameworkVersion"])
+        self.assertIsNone(value["java"]["version"])
+        self.assertEqual(value["java"]["vendor"], "other")
+
+    def test_missing_or_relative_runner_root_stays_bounded(self):
+        result = self.run_tool(overrides={"RUNNER_TEMP": PRIVATE})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        value = json.loads(self.output.read_text())
+        self.assertEqual(value["collectionStatus"], "partial")
+        self.assertIsNone(value["buildRoot"])
+        self.assertNotIn(PRIVATE, self.output.read_text())
+
+    def test_records_four_component_java_patch_without_vendor_text(self):
+        self.script(self.bin / "java", "printf '    java.version = 17.0.20.1\\n    java.vendor = Ubuntu\\n' >&2")
+        result = self.run_tool()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        value = json.loads(self.output.read_text())
+        self.assertEqual(value["java"], {"version": "17.0.20.1", "vendor": "other"})
+        self.assertEqual(value["collectionStatus"], "complete")
+
+    def test_invalid_source_identity_fails_without_path_or_payload(self):
+        result = self.run_tool(source_sha=PRIVATE)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.output.exists())
+        self.assertNotIn(PRIVATE, result.stderr + result.stdout)
+        self.assertNotIn(str(self.root), result.stderr + result.stdout)
+
+    def test_oversized_tool_output_is_not_retained(self):
+        self.script(self.bin / "flutter", "printf '" + PRIVATE * 2000 + "'")
+        result = self.run_tool()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(self.output.read_text())["collectionStatus"], "partial")
+        self.assertNotIn(PRIVATE, self.output.read_text())
+
+
+if __name__ == "__main__":
+    unittest.main()
