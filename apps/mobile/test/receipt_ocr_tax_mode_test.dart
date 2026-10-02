@@ -146,4 +146,64 @@ void main() {
       );
     },
   );
+
+  test('correcting a missed item retains printed included-tax provenance', () {
+    final now = DateTime.utc(2026, 10, 2);
+    final review = ReceiptOcrReviewDetail(
+      id: 'review',
+      billId: 'bill',
+      fileId: 'file',
+      groupId: null,
+      status: ReceiptOcrReviewStatusValues.reviewed,
+      source: ReceiptOcrReviewSourceValues.onDevice,
+      merchantText: 'Books',
+      receiptIssuedAtUtc: null,
+      currency: 'GBP',
+      subtotalAmount: '24',
+      taxAmount: '4',
+      taxReconciliationMode:
+          ReceiptOcrTaxReconciliationModeValues.sourceIncludedUnresolved,
+      serviceChargeAmount: null,
+      discountAmount: null,
+      grandTotalAmount: '24',
+      lines: [
+        ReceiptOcrReviewLine(
+          id: 'line',
+          sortOrder: 0,
+          text: 'Book',
+          quantity: '1',
+          unitPriceAmount: '19',
+          lineTotalAmount: '19',
+          createdAtUtc: now,
+          updatedAtUtc: now,
+        ),
+      ],
+      createdAtUtc: now,
+      updatedAtUtc: now,
+    );
+    final correction = ReceiptOcrReviewSaveRequest(
+      status: review.status,
+      source: review.source,
+      merchantText: review.merchantText,
+      receiptIssuedAtUtc: null,
+      currency: 'GBP',
+      subtotalAmount: '24',
+      taxAmount: '4',
+      serviceChargeAmount: null,
+      discountAmount: null,
+      grandTotalAmount: '24',
+      lines: const [
+        ReceiptOcrReviewLineSaveRequest(
+          text: 'Book',
+          quantity: '1',
+          unitPriceAmount: '24',
+          lineTotalAmount: '24',
+        ),
+      ],
+    );
+    expect(
+      receiptOcrTaxModeForSavedEdit(review, correction),
+      ReceiptOcrTaxReconciliationModeValues.alreadyInBase,
+    );
+  });
 }

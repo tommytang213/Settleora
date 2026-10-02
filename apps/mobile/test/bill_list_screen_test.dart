@@ -677,7 +677,7 @@ VAT included 20% GBP 4.00
           ambiguousItems,
           originalCurrency: 'GBP',
         )?.taxReconciliationMode,
-        ReceiptOcrTaxReconciliationModeValues.unresolved,
+        ReceiptOcrTaxReconciliationModeValues.sourceIncludedUnresolved,
       );
       expect(
         receiptOcrReviewSaveRequestFromPreview(

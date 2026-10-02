@@ -526,6 +526,7 @@ String? _receiptOcrTaxModeFromSource(
   );
   final arithmeticConflictOnly =
       preview.reviewHintDecision == ReceiptOcrReviewDecision.none ||
+      preview.reviewHintDecision == ReceiptOcrReviewDecision.subtotalMismatch ||
       preview.reviewHintDecision ==
           ReceiptOcrReviewDecision.grandTotalMismatchWithSubtotal ||
       preview.reviewHintDecision ==
