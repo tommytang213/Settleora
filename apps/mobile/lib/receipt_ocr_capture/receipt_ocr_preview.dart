@@ -12,6 +12,7 @@ class ReceiptOcrPreview {
     this.tax,
     this.taxCurrency,
     this.taxHasExplicitCurrencyEvidence = false,
+    this.taxIncludedInTotal = false,
     this.service,
     this.serviceCurrency,
     this.serviceHasExplicitCurrencyEvidence = false,
@@ -51,6 +52,8 @@ class ReceiptOcrPreview {
   final String? tax;
   final String? taxCurrency;
   final bool taxHasExplicitCurrencyEvidence;
+  // A printed included-tax component describes the total, not an addition.
+  final bool taxIncludedInTotal;
   final String? service;
   final String? serviceCurrency;
   final bool serviceHasExplicitCurrencyEvidence;
@@ -477,11 +480,13 @@ int? _reconcilableReceiptOcrAdjustments(ReceiptOcrPreview preview) {
       preview.taxCurrency,
       preview.taxHasExplicitCurrencyEvidence,
       false,
+      preview.taxIncludedInTotal,
     ),
     (
       preview.service,
       preview.serviceCurrency,
       preview.serviceHasExplicitCurrencyEvidence,
+      false,
       false,
     ),
     (
@@ -489,11 +494,13 @@ int? _reconcilableReceiptOcrAdjustments(ReceiptOcrPreview preview) {
       preview.tipCurrency,
       preview.tipHasExplicitCurrencyEvidence,
       false,
+      false,
     ),
     (
       preview.shipping,
       preview.shippingCurrency,
       preview.shippingHasExplicitCurrencyEvidence,
+      false,
       false,
     ),
     (
@@ -501,11 +508,18 @@ int? _reconcilableReceiptOcrAdjustments(ReceiptOcrPreview preview) {
       preview.discountCurrency,
       preview.discountHasExplicitCurrencyEvidence,
       true,
+      false,
     ),
   ];
   var total = 0;
   var found = false;
-  for (final (text, currency, hasExplicitCurrencyEvidence, isDiscount)
+  for (final (
+        text,
+        currency,
+        hasExplicitCurrencyEvidence,
+        isDiscount,
+        isIncluded,
+      )
       in entries) {
     if (!_hasReviewAmountText(text)) continue;
     if (!_adjustmentCurrencyMatchesReview(
@@ -517,7 +531,11 @@ int? _reconcilableReceiptOcrAdjustments(ReceiptOcrPreview preview) {
     }
     final amount = _parseReceiptOcrReviewAmount(text);
     if (amount == null) return null;
-    total += isDiscount ? -amount.abs() : amount;
+    total += isIncluded
+        ? 0
+        : isDiscount
+        ? -amount.abs()
+        : amount;
     found = true;
   }
   return found ? total : null;

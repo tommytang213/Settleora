@@ -180,6 +180,7 @@ class ReceiptOcrParser {
       tax: amounts.tax,
       taxCurrency: amounts.taxCurrency,
       taxHasExplicitCurrencyEvidence: amounts.taxHasExplicitCurrencyEvidence,
+      taxIncludedInTotal: amounts.taxIncludedInTotal,
       service: amounts.service,
       serviceCurrency: amounts.serviceCurrency,
       serviceHasExplicitCurrencyEvidence:
@@ -869,6 +870,7 @@ class ReceiptOcrParser {
     String? tax;
     String? taxCurrency;
     var taxHasExplicitCurrencyEvidence = false;
+    var taxIncludedInTotal = false;
     final ratedTaxComponents =
         <({String rate, String amount, bool explicitCurrency})>[];
     final transactionTaxAmounts = <String>[];
@@ -1007,7 +1009,9 @@ class ReceiptOcrParser {
           );
         }
       }
-      if (adjustmentRole == null && hasPotentialAdjustment) {
+      if (adjustmentRole == null &&
+          hasPotentialAdjustment &&
+          !_isPrimaryTotalCurrencyLine(line, normalized)) {
         adjustmentsComplete = false;
         incompleteReasons.add(
           ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
@@ -1087,6 +1091,7 @@ class ReceiptOcrParser {
           tax = amount;
           taxCurrency = printed.currency;
           taxHasExplicitCurrencyEvidence = printed.hasExplicitEvidence;
+          taxIncludedInTotal = _isIncludedTaxAmountLine(line);
         }
       } else if (_hasServiceChargeLabel(line, normalized)) {
         final printed = _explicitAdjustmentCurrencyFromLine(
@@ -1350,7 +1355,7 @@ class ReceiptOcrParser {
         ? null
         : double.tryParse(discount)?.abs();
     final supportedParts = [
-      if (sameCurrencyTax) tax,
+      if (sameCurrencyTax && !taxIncludedInTotal) tax,
       if (sameCurrencyService) service,
       if (sameCurrencyTip) tip,
       if (sameCurrencyShipping) shipping,
@@ -1387,6 +1392,7 @@ class ReceiptOcrParser {
       tax: tax,
       taxCurrency: taxCurrency,
       taxHasExplicitCurrencyEvidence: taxHasExplicitCurrencyEvidence,
+      taxIncludedInTotal: taxIncludedInTotal,
       service: service,
       serviceCurrency: serviceCurrency,
       serviceHasExplicitCurrencyEvidence: serviceHasExplicitCurrencyEvidence,
@@ -2419,7 +2425,7 @@ class ReceiptOcrParser {
           layoutRows.isEmpty &&
           lastPricedTotal >= 0 &&
           lineIndex == lines.length - 1 &&
-          _hasOnlyPaymentOrSuggestedTipAmountsBeforeCourtesy(
+          _hasOnlyPaymentOrIncludedTaxOrSuggestedTipAmountsBeforeCourtesy(
             lines,
             lastPricedTotal,
             lineIndex,
@@ -2461,7 +2467,7 @@ bool _isCenteredPostTotalFooter(
   if (lastPricedTotal < 0 ||
       lineIndex <= lastPricedTotal ||
       layoutRows.length != lines.length ||
-      !_hasOnlyPaymentOrSuggestedTipAmountsBeforeCourtesy(
+      !_hasOnlyPaymentOrIncludedTaxOrSuggestedTipAmountsBeforeCourtesy(
         lines,
         lastPricedTotal,
         lineIndex,
@@ -2516,7 +2522,7 @@ bool _isCenteredPostTotalFooter(
   return (footerCenter - contentCenter).abs() <= contentWidth * 0.15;
 }
 
-bool _hasOnlyPaymentOrSuggestedTipAmountsBeforeCourtesy(
+bool _hasOnlyPaymentOrIncludedTaxOrSuggestedTipAmountsBeforeCourtesy(
   List<String> lines,
   int lastPricedTotal,
   int courtesyIndex,
@@ -2529,10 +2535,10 @@ bool _hasOnlyPaymentOrSuggestedTipAmountsBeforeCourtesy(
       sawPayment = true;
       continue;
     }
-    // Printed percentage suggestions are not a charged tip. Keep the final
-    // courtesy footer in its role only when each intervening priced row has
-    // this bounded suggestion shape.
-    if (_isPrintedSuggestedTipOptionLine(lines[index])) continue;
+    // Printed tip suggestions and explicitly included tax below the total
+    // are informational; neither reopens the merchandise table.
+    if (_isPrintedSuggestedTipOptionLine(lines[index]) ||
+        _isIncludedTaxAmountLine(lines[index])) continue;
     // A zero balance following tender rows closes the payment sequence. A
     // nonzero balance or an item whose name contains "Balance" still needs
     // review rather than being mistaken for settled payment evidence.
@@ -3030,6 +3036,7 @@ class _LabeledReceiptAmounts {
     this.tax,
     this.taxCurrency,
     this.taxHasExplicitCurrencyEvidence = false,
+    this.taxIncludedInTotal = false,
     this.service,
     this.serviceCurrency,
     this.serviceHasExplicitCurrencyEvidence = false,
@@ -3056,6 +3063,7 @@ class _LabeledReceiptAmounts {
   final String? tax;
   final String? taxCurrency;
   final bool taxHasExplicitCurrencyEvidence;
+  final bool taxIncludedInTotal;
   final String? service;
   final String? serviceCurrency;
   final bool serviceHasExplicitCurrencyEvidence;
@@ -4682,7 +4690,8 @@ bool _hasSubtotalLabel(String line, String normalized) {
 }
 
 bool _hasTaxLabel(String line, String normalized) {
-  return _hasEnglishReceiptLabel(
+  return _isIncludedTaxAmountLine(line) ||
+      _hasEnglishReceiptLabel(
         normalized,
         RegExp(
           r'\b(?:(?:city|state|local|county|municipal|tourist|tourism|occupancy)\s+tax|sales\s+tax|tax|vat|gst|hst|iva|tva|kdv|mwst)\b\.?',
@@ -4949,7 +4958,8 @@ bool _isPrimaryTotalCurrencyLine(String line, String normalized) {
 }
 
 bool _hasTotalLabel(String line, String normalized) {
-  return _hasEnglishReceiptLabel(
+  return _isIncludedTaxTotalLine(line) ||
+      _hasEnglishReceiptLabel(
         normalized,
         RegExp(
           r'\b(total\s+amount\s+due|total\s+current\s+charges|refund\s+total|total\s+paid|paid\s+total|grand\s+total|amount\s+due|balance\s+due|payment\s+due|total)\b',
@@ -4972,6 +4982,22 @@ bool _hasTotalLabel(String line, String normalized) {
         'Tổng',
       ]);
 }
+
+bool _isIncludedTaxAmountLine(String line) => RegExp(
+  '^\\s*(?:vat|tax|gst|hst|iva|tva|kdv)\\s+included\\s+'
+  '(?:\\d{1,3}(?:[.,]\\d{1,2})?\\s*%\\s+)?'
+  '(?:$_currencyTokenPattern)?\\s*$_amountTokenPattern'
+  '(?:\\s*(?:$_currencyTokenPattern))?\\s*\$',
+  caseSensitive: false,
+).hasMatch(line);
+
+bool _isIncludedTaxTotalLine(String line) => RegExp(
+  '^\\s*total\\s+incl(?:\\.|uded|uding|usive)?\\s+'
+  '(?:vat|tax|gst|hst|iva|tva|kdv)\\s+'
+  '(?:$_currencyTokenPattern)?\\s*$_amountTokenPattern'
+  '(?:\\s*(?:$_currencyTokenPattern))?\\s*\$',
+  caseSensitive: false,
+).hasMatch(line);
 
 bool _hasEnglishReceiptLabel(String normalized, RegExp labelPattern) {
   final label = labelPattern.firstMatch(normalized);

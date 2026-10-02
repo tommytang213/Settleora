@@ -2033,6 +2033,65 @@ Total TRY 55.00
     }
   });
 
+  test('printed included VAT is informational and not a purchased item', () {
+    final preview = const ReceiptOcrParser().parse('''
+London Books
+17/09/2026
+Book GBP 24.00
+Total incl. VAT GBP 24.00
+VAT included 20% GBP 4.00
+Thank you
+''');
+
+    expect(preview.currency, 'GBP');
+    expect(preview.items.map((item) => item.description), ['Book']);
+    expect(preview.items.single.lineTotal, '24.00');
+    expect(preview.total, '24.00');
+    expect(preview.tax, '4.00');
+    expect(preview.taxCurrency, 'GBP');
+    expect(preview.taxIncludedInTotal, isTrue);
+    expect(preview.reviewHints, isEmpty);
+  });
+
+  test('included tax remains reviewable when printed amounts conflict', () {
+    final preview = const ReceiptOcrParser().parse('''
+London Books
+Book GBP 24.00
+Total incl. VAT GBP 25.00
+VAT included 20% GBP 4.00
+''');
+
+    expect(preview.items.map((item) => item.description), ['Book']);
+    expect(preview.total, '25.00');
+    expect(preview.tax, '4.00');
+    expect(preview.reviewHints, isNotEmpty);
+  });
+
+  test('ordinary additive VAT and merchandise wording keep their roles', () {
+    const parser = ReceiptOcrParser();
+    final additive = parser.parse('''
+London Books
+Book GBP 20.00
+VAT 20% GBP 4.00
+Total GBP 24.00
+''');
+    expect(additive.items.map((item) => item.description), ['Book']);
+    expect(additive.tax, '4.00');
+    expect(additive.taxIncludedInTotal, isFalse);
+    expect(additive.reviewHints, isEmpty);
+
+    final merchandise = parser.parse('''
+London Books
+VAT Included Guide GBP 12.00
+Total GBP 12.00
+''');
+    expect(merchandise.items.map((item) => item.description), [
+      'VAT Included Guide',
+    ]);
+    expect(merchandise.tax, isNull);
+    expect(merchandise.taxIncludedInTotal, isFalse);
+  });
+
   test('parser preserves actual tip and shipping preview values', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse('''
