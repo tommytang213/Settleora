@@ -3901,6 +3901,39 @@ Total USD 20.00
     expect(suggested.reviewHints, isEmpty);
   });
 
+  test('post-total suggested tips permit final courtesy without charge', () {
+    const parser = ReceiptOcrParser();
+    final suggested = parser.parse('''
+Downtown Bistro
+Date: 2026-09-17
+Pasta USD 20.00
+Subtotal USD 20.00
+Tax USD 1.80
+Total USD 21.80
+Suggested Tip 15% USD 3.27
+Suggested Tip 18% USD 3.92
+Suggested Tip 20% USD 4.36
+Thank you
+''');
+    expect(suggested.items.map((item) => item.description), ['Pasta']);
+    expect(suggested.tax, '1.80');
+    expect(suggested.total, '21.80');
+    expect(suggested.tip, isNull);
+    expect(suggested.reviewHints, isEmpty);
+
+    final actualCharge = parser.parse('''
+Downtown Bistro
+Pasta USD 20.00
+Subtotal USD 20.00
+Tax USD 1.80
+Total USD 21.80
+Tip USD 3.27
+Thank you
+''');
+    expect(actualCharge.tip, '3.27');
+    expect(actualCharge.reviewHints, isNotEmpty);
+  });
+
   test('centered unpriced footer after final total does not require review', () {
     const parser = ReceiptOcrParser();
     final centered = parser.parse(

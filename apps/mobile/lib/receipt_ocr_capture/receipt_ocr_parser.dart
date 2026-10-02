@@ -2419,7 +2419,7 @@ class ReceiptOcrParser {
           layoutRows.isEmpty &&
           lastPricedTotal >= 0 &&
           lineIndex == lines.length - 1 &&
-          _hasOnlyPaymentAmountsBeforeCourtesy(
+          _hasOnlyPaymentOrSuggestedTipAmountsBeforeCourtesy(
             lines,
             lastPricedTotal,
             lineIndex,
@@ -2461,7 +2461,7 @@ bool _isCenteredPostTotalFooter(
   if (lastPricedTotal < 0 ||
       lineIndex <= lastPricedTotal ||
       layoutRows.length != lines.length ||
-      !_hasOnlyPaymentAmountsBeforeCourtesy(
+      !_hasOnlyPaymentOrSuggestedTipAmountsBeforeCourtesy(
         lines,
         lastPricedTotal,
         lineIndex,
@@ -2516,7 +2516,7 @@ bool _isCenteredPostTotalFooter(
   return (footerCenter - contentCenter).abs() <= contentWidth * 0.15;
 }
 
-bool _hasOnlyPaymentAmountsBeforeCourtesy(
+bool _hasOnlyPaymentOrSuggestedTipAmountsBeforeCourtesy(
   List<String> lines,
   int lastPricedTotal,
   int courtesyIndex,
@@ -2529,6 +2529,10 @@ bool _hasOnlyPaymentAmountsBeforeCourtesy(
       sawPayment = true;
       continue;
     }
+    // Printed percentage suggestions are not a charged tip. Keep the final
+    // courtesy footer in its role only when each intervening priced row has
+    // this bounded suggestion shape.
+    if (_isPrintedSuggestedTipOptionLine(lines[index])) continue;
     // A zero balance following tender rows closes the payment sequence. A
     // nonzero balance or an item whose name contains "Balance" still needs
     // review rather than being mistaken for settled payment evidence.
@@ -4733,6 +4737,14 @@ bool _hasActualTipChargeLabel(String line, String normalized) {
 bool _isSuggestedTipLine(String normalized) => RegExp(
   r'\b(?:suggested|optional|recommended)\s+tip\b',
 ).hasMatch(normalized);
+
+bool _isPrintedSuggestedTipOptionLine(String line) => RegExp(
+  '^\\s*(?:suggested|optional|recommended)\\s+tip\\s+'
+  '\\d{1,3}(?:[.,]\\d{1,2})?\\s*%\\s+'
+  '(?:$_currencyTokenPattern)?\\s*$_amountTokenPattern'
+  '(?:\\s*(?:$_currencyTokenPattern))?\\s*\$',
+  caseSensitive: false,
+).hasMatch(line);
 
 bool _isWrappedItemDescriptionCandidate(String description) {
   if (description.length < 2 ||
