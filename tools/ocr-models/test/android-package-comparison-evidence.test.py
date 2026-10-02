@@ -120,6 +120,37 @@ class PackageComparisonEvidenceTest(unittest.TestCase):
         self.assertNotIn(PRIVATE.decode(), result.stderr + result.stdout)
         self.assertFalse(self.output.exists())
 
+    def test_reports_bounded_nonzero_alignment_extra_without_leaking_bytes(self):
+        with zipfile.ZipFile(self.apk, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for name in LIBRARIES:
+                entry = zipfile.ZipInfo(name)
+                entry.compress_type = zipfile.ZIP_DEFLATED
+                entry.extra = struct.pack("<HH4s", 0xD935, 4, b"ABCD")
+                archive.writestr(entry, elf())
+            for index in range(438):
+                archive.writestr(f"assets/safe-{index:03d}.bin", b"SAFE")
+        result = self.run_tool()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        raw = self.output.read_bytes()
+        self.assertNotIn(b"ABCD", raw)
+        for row in json.loads(raw)["nativeLibraries"]:
+            self.assertFalse(row["zip"]["localExtraAllZero"])
+            self.assertEqual(row["zip"]["localExtraBytes"], 8)
+            self.assertEqual(len(row["zip"]["localExtraSha256"]), 64)
+
+    def test_rejects_malformed_alignment_extra(self):
+        with zipfile.ZipFile(self.apk, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for name in LIBRARIES:
+                entry = zipfile.ZipInfo(name)
+                entry.compress_type = zipfile.ZIP_DEFLATED
+                entry.extra = struct.pack("<HH4s", 0xD935, 12, b"ABCD")
+                archive.writestr(entry, elf())
+            for index in range(438):
+                archive.writestr(f"assets/safe-{index:03d}.bin", b"SAFE")
+        result = self.run_tool()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.output.exists())
+
     def test_rejects_local_zip_field_mismatch(self):
         content = bytearray(self.apk.read_bytes())
         # First local header CRC differs from the matching central entry.

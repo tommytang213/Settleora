@@ -100,11 +100,21 @@ def _zip_summary(package, entry):
         name = source.read(name_length)
         extra = source.read(extra_length)
         if (signature != 0x04034B50 or name != entry.filename.encode("ascii") or
-                len(extra) != extra_length or any(extra) or
+                len(extra) != extra_length or
                 flags != entry.flag_bits or method != entry.compress_type or
                 crc != entry.CRC or compressed != entry.compress_size or
                 expanded != entry.file_size):
             raise ValueError("Native ZIP local and central metadata disagree")
+        # Report nonzero alignment fields without accepting them for release.
+        # The separate strict package verifier still decides that policy.
+        cursor = 0
+        while cursor < len(extra) and any(extra[cursor:]):
+            if len(extra) - cursor < 4:
+                raise ValueError("Truncated native ZIP extra field")
+            field_bytes = struct.unpack_from("<H", extra, cursor + 2)[0]
+            cursor += 4 + field_bytes
+            if cursor > len(extra):
+                raise ValueError("Native ZIP extra field exceeds local header")
         start = entry.header_offset + 30 + name_length + extra_length
         if start + compressed > package.stat().st_size:
             raise ValueError("Native ZIP compressed entry exceeds archive")
@@ -118,6 +128,9 @@ def _zip_summary(package, entry):
             remaining -= len(chunk)
     return {"localHeaderOffset": entry.header_offset,
             "localExtraBytes": extra_length,
+            "localExtraAllZero": not any(extra),
+            "localExtraSha256": hashlib.sha256(extra).hexdigest(),
+            "centralExtraBytes": len(entry.extra),
             "madeBy": (entry.create_system << 8) | entry.create_version,
             "externalAttributes": entry.external_attr,
             "neededVersion": needed,
