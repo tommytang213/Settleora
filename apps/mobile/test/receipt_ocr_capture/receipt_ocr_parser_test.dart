@@ -2080,11 +2080,106 @@ Total $145.00''',
         everyElement(fixture.currency),
         reason: fixture.text,
       );
+      expect(preview.reviewHints, isEmpty, reason: fixture.text);
     }
     final ambiguous = parser.parse('Nordic Shop\nCoffee 45 kr\nTotal 45 kr');
     expect(ambiguous.currency, isNull);
     expect(ambiguous.items.single.currency, isNull);
   });
+
+  test('priced or uncertain tax context remains reviewable', () {
+    const parser = ReceiptOcrParser();
+    final pricedTax = parser.parse(
+      'Stockholm Cafe\nStockholm, Sverige\nCoffee 45 kr\n'
+      'Moms 12% 5 kr\nTotal 50 kr',
+    );
+    expect(pricedTax.reviewHints, isNotEmpty);
+
+    final uncertainItem = parser.parse(
+      'Delhi Snacks\nGSTIN 07AAAAA0000A1Z5\n'
+      'Meal Rs 450.00\nExtra Sauce\nTotal Rs 450.00',
+    );
+    expect(uncertainItem.reviewHints, isNotEmpty);
+    final topUnpricedProduct = parser.parse(
+      'Stockholm Cafe\nLatte, large\nMoms 12%\n'
+      'Coffee 45 kr\nTotal 45 kr',
+    );
+    expect(topUnpricedProduct.reviewHints, isNotEmpty);
+  });
+
+  test(
+    'multi-amount kr and Rs totals do not promote bill fallback to explicit',
+    () {
+      const parser = ReceiptOcrParser();
+      final pakistan = parser.parse(
+        'Karachi Grill\nKarachi, Pakistan\nMeal Rs 100.00\n'
+        'Total Rs 100.00 Rs 200.00',
+        fallbackCurrency: 'INR',
+      );
+      expect(pakistan.currency, 'PKR');
+      expect(
+        pakistan.currencyProvenance,
+        ReceiptOcrCurrencyProvenance.contextInferred,
+      );
+
+      final foreignItem = parser.parse(
+        'Karachi Grill\nKarachi, Pakistan\nMeal USD 10.00\n'
+        'Total Rs 100.00 Rs 200.00',
+        fallbackCurrency: 'INR',
+      );
+      expect(foreignItem.currency, 'PKR');
+      expect(
+        foreignItem.currencyProvenance,
+        ReceiptOcrCurrencyProvenance.contextInferred,
+      );
+
+      final swedenWithForeignItem = parser.parse(
+        'Stockholm Cafe\nMoms\nCake EUR 10.00\n'
+        'Total 100 kr 200 kr',
+        fallbackCurrency: 'NOK',
+      );
+      expect(swedenWithForeignItem.currency, 'SEK');
+      expect(
+        swedenWithForeignItem.currencyProvenance,
+        ReceiptOcrCurrencyProvenance.contextInferred,
+      );
+      final earlierForeignAmount = parser.parse(
+        'Karachi Grill\nKarachi, Pakistan\n'
+        'Total USD 100.00 Rs 200.00',
+        fallbackCurrency: 'INR',
+      );
+      expect(earlierForeignAmount.currency, 'PKR');
+      expect(
+        earlierForeignAmount.currencyProvenance,
+        ReceiptOcrCurrencyProvenance.contextInferred,
+      );
+      final printedConflict = parser.parse(
+        'Karachi Grill\nCurrency USD\nTotal Rs 100.00 Rs 200.00',
+        fallbackCurrency: 'PKR',
+      );
+      expect(printedConflict.currency, isNull);
+      expect(
+        printedConflict.currencyProvenance,
+        ReceiptOcrCurrencyProvenance.unresolved,
+      );
+
+      final fallback = parser.parse(
+        'Central Store\nMeal Rs 100.00\nTotal Rs 100.00 Rs 200.00',
+        fallbackCurrency: 'INR',
+      );
+      expect(fallback.currency, 'INR');
+      expect(
+        fallback.currencyProvenance,
+        ReceiptOcrCurrencyProvenance.defaultFallback,
+      );
+      expect(
+        fallback.warnings,
+        contains(
+          'The receipt only shows a currency symbol. Using the current bill currency; review it before applying.',
+        ),
+      );
+    },
+  );
 
   test('parser normalizes supported locale amount conventions', () {
     const parser = ReceiptOcrParser();

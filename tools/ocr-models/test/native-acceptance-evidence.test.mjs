@@ -752,6 +752,69 @@ test("failure evidence recovers only bounded diagnostics from an otherwise inval
   });
 });
 
+test("isolation failure evidence retains only allowlisted probe outcomes", () => {
+  const diagnostic = {
+    schemaVersion: 1,
+    platform: "android",
+    stage: "network_isolation",
+    fixtureId: null,
+    probes: { numeric: "timeout", loopback: "passed", hostname: "resolved" },
+  };
+  const event = JSON.stringify({
+    type: "print",
+    message: `SETTLEORA_OCR_DIAGNOSTIC=${JSON.stringify(diagnostic)}`,
+    rawHost: "example.com",
+    rawAddress: "1.1.1.1",
+  });
+  withLog(`${event}\n`, (log) => {
+    const evidence = buildFailureEvidence({ ...evidenceArgs(log), "test-status": "1" });
+    assert.deepEqual(evidence.diagnostics, [diagnostic]);
+    assert.equal(isCompleteEvidence(evidence), false);
+    assert.equal(JSON.stringify(evidence).includes("example.com"), false);
+    assert.equal(JSON.stringify(evidence).includes("1.1.1.1"), false);
+  });
+  withLog(protocolLog(`SETTLEORA_OCR_DIAGNOSTIC=${JSON.stringify(diagnostic)}`), (log) => {
+    const evidence = buildEvidence(evidenceArgs(log), repoRoot);
+    assert.deepEqual(evidence.diagnostics, [diagnostic]);
+    assert.equal(isCompleteEvidence(evidence), false);
+  });
+  const resolved = {
+    ...diagnostic,
+    probes: { numeric: "connected", loopback: "passed", hostname: "empty_result" },
+  };
+  withLog(protocolLog(`SETTLEORA_OCR_DIAGNOSTIC=${JSON.stringify(resolved)}`), (log) => {
+    const evidence = buildEvidence(evidenceArgs(log), repoRoot);
+    assert.deepEqual(evidence.diagnostics, [resolved]);
+    assert.equal(isCompleteEvidence(evidence), false);
+  });
+  for (const partial of [
+    { stage: "network_probe", probes: { numeric: "not_run", loopback: "not_run", hostname: "not_run" } },
+    { stage: "network_denial_contract", probes: { numeric: "denied_other", loopback: "not_run", hostname: "not_run" } },
+    { stage: "loopback_round_trip_probe", probes: { numeric: "denied_expected", loopback: "failed", hostname: "not_run" } },
+    { stage: "hostname_resolution_probe", probes: { numeric: "denied_expected", loopback: "passed", hostname: "not_run" } },
+  ]) {
+    const marker = { ...diagnostic, ...partial };
+    withLog(protocolLog(`SETTLEORA_OCR_DIAGNOSTIC=${JSON.stringify(marker)}`), (log) => {
+      const evidence = buildFailureEvidence({ ...evidenceArgs(log), "test-status": "1" });
+      assert.deepEqual(evidence.diagnostics, [marker]);
+      assert.equal(isCompleteEvidence(evidence), false);
+    });
+  }
+  for (const invalid of [
+    { ...diagnostic, probes: { ...diagnostic.probes, numeric: "private network detail" } },
+    { ...diagnostic, probes: { ...diagnostic.probes, hostname: "example.com" } },
+    { ...diagnostic, probes: { ...diagnostic.probes, rawError: "private" } },
+    { ...diagnostic, stage: "corpus_provider" },
+    { ...diagnostic, stage: "network_environment" },
+    { ...diagnostic, fixtureId: manifestFixtureIds[0] },
+  ]) {
+    withLog(protocolLog(`SETTLEORA_OCR_DIAGNOSTIC=${JSON.stringify(invalid)}`), (log) => {
+      assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot));
+      assert.deepEqual(buildFailureEvidence(evidenceArgs(log), repoRoot).diagnostics, []);
+    });
+  }
+});
+
 test("failure evidence recovers sanitized partial acceptance without trusting invalid protocol", () => {
   const acceptance = {
     schemaVersion: 1,

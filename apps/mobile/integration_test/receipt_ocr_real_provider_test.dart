@@ -252,6 +252,11 @@ void main() {
         );
       }
       failure.set('network_probe');
+      failure.probeOutcomes = {
+        'numeric': 'not_run',
+        'loopback': 'not_run',
+        'hostname': 'not_run',
+      };
       Socket? socket;
       var numericAddressDenied = false;
       try {
@@ -260,8 +265,13 @@ void main() {
           443,
           timeout: const Duration(seconds: 3),
         );
+        failure.probeOutcomes!['numeric'] = 'connected';
       } on SocketException catch (error) {
         numericAddressDenied = true;
+        failure.probeOutcomes!['numeric'] =
+            error.osError?.errorCode == (Platform.isIOS ? 51 : 101)
+            ? 'denied_expected'
+            : 'denied_other';
         failure.set('network_denial_contract');
         expect(
           error.osError?.errorCode,
@@ -271,6 +281,7 @@ void main() {
               : 'The isolated Android emulator must deny with Linux ENETUNREACH.',
         );
       } on TimeoutException {
+        failure.probeOutcomes!['numeric'] = 'timeout';
         expect(
           Platform.isIOS,
           isFalse,
@@ -279,17 +290,23 @@ void main() {
       }
       await socket?.close();
       failure.set('loopback_round_trip_probe');
+      final loopbackPassed = await _proveLoopbackRoundTrip();
+      failure.probeOutcomes!['loopback'] = loopbackPassed ? 'passed' : 'failed';
       expect(
-        await _proveLoopbackRoundTrip(),
+        loopbackPassed,
         isTrue,
         reason: 'Native OCR acceptance isolation must preserve loopback.',
       );
       failure.set('hostname_resolution_probe');
       var hostnameResolutionDenied = false;
       try {
-        await InternetAddress.lookup('example.com');
+        final addresses = await InternetAddress.lookup('example.com');
+        failure.probeOutcomes!['hostname'] = addresses.isEmpty
+            ? 'empty_result'
+            : 'resolved';
       } on SocketException {
         hostnameResolutionDenied = true;
+        failure.probeOutcomes!['hostname'] = 'denied';
       }
       failure.set('network_isolation');
       networkIsolated =
@@ -1193,6 +1210,7 @@ class _BoundedFailureStage {
 
   String stage;
   String? fixtureId;
+  Map<String, String>? probeOutcomes;
 
   void set(String value, {String? fixtureId}) {
     stage = value;
@@ -1203,10 +1221,10 @@ class _BoundedFailureStage {
     try {
       await body();
     } catch (_) {
-      // Retain only a bounded stage and fixture identifier. Exception text can
-      // contain receipt data, provider diagnostics, or local paths.
+      // Retain only a bounded stage, fixture identifier, and allowlisted
+      // isolation outcomes. Exception text can contain receipt data or paths.
       debugPrint(
-        'SETTLEORA_OCR_DIAGNOSTIC=${jsonEncode({'schemaVersion': 1, 'platform': Platform.operatingSystem, 'stage': stage, 'fixtureId': fixtureId})}',
+        'SETTLEORA_OCR_DIAGNOSTIC=${jsonEncode({'schemaVersion': 1, 'platform': Platform.operatingSystem, 'stage': stage, 'fixtureId': fixtureId, if (probeOutcomes != null) 'probes': probeOutcomes})}',
       );
       rethrow;
     }
