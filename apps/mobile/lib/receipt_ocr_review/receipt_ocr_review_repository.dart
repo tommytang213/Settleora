@@ -385,6 +385,12 @@ String? receiptOcrTaxModeForSavedEdit(
     return ReceiptOcrTaxReconciliationModeValues.unresolved;
   }
   final recalculated = receiptOcrTaxModeFromSupportedEvidence(candidate);
+  // An additive source mode does not establish printed inclusion evidence.
+  // Arithmetic changed by an edit cannot promote it to included tax.
+  if (mode == ReceiptOcrTaxReconciliationModeValues.addToBase &&
+      recalculated != ReceiptOcrTaxReconciliationModeValues.addToBase) {
+    return ReceiptOcrTaxReconciliationModeValues.unresolved;
+  }
   return recalculated == ReceiptOcrTaxReconciliationModeValues.unresolved &&
           candidate.adjustmentEvidence.isEmpty
       ? ReceiptOcrTaxReconciliationModeValues.sourceIncludedUnresolved

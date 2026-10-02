@@ -2,6 +2,56 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/receipt_ocr_review/receipt_ocr_review_repository.dart';
 
 void main() {
+  test('saved additive tax cannot become included from edited arithmetic', () {
+    final now = DateTime.utc(2026, 10, 2);
+    final review = ReceiptOcrReviewDetail(
+      id: 'review',
+      billId: 'bill',
+      fileId: 'file',
+      groupId: null,
+      status: ReceiptOcrReviewStatusValues.reviewed,
+      source: ReceiptOcrReviewSourceValues.onDevice,
+      merchantText: 'Cafe',
+      receiptIssuedAtUtc: null,
+      currency: 'USD',
+      subtotalAmount: '20',
+      taxAmount: '4',
+      taxReconciliationMode: ReceiptOcrTaxReconciliationModeValues.addToBase,
+      serviceChargeAmount: null,
+      discountAmount: null,
+      grandTotalAmount: '24',
+      lines: const [],
+      createdAtUtc: now,
+      updatedAtUtc: now,
+    );
+    ReceiptOcrReviewSaveRequest edit(String subtotal, String total) =>
+        ReceiptOcrReviewSaveRequest(
+          status: review.status,
+          source: review.source,
+          merchantText: review.merchantText,
+          receiptIssuedAtUtc: null,
+          currency: 'USD',
+          subtotalAmount: subtotal,
+          taxAmount: '4',
+          serviceChargeAmount: null,
+          discountAmount: null,
+          grandTotalAmount: total,
+          lines: const [],
+        );
+    expect(
+      receiptOcrTaxModeForSavedEdit(review, edit('20', '20')),
+      ReceiptOcrTaxReconciliationModeValues.unresolved,
+    );
+    expect(
+      receiptOcrTaxModeForSavedEdit(review, edit('20', '25')),
+      ReceiptOcrTaxReconciliationModeValues.unresolved,
+    );
+    expect(
+      receiptOcrTaxModeForSavedEdit(review, edit('21', '25')),
+      ReceiptOcrTaxReconciliationModeValues.addToBase,
+    );
+  });
+
   test('saved included tax survives merchant edit and numeric formatting', () {
     final now = DateTime.utc(2026, 10, 2);
     final review = ReceiptOcrReviewDetail(
