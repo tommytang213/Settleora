@@ -1152,6 +1152,107 @@ Total 31.99
     expect(preview.reviewHints, isEmpty);
   });
 
+  test('service usage rate amount table selects only final charge cells', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Municipal Utility\nCurrent Charges Detail\n'
+      'Service Usage Rate Amount\n'
+      'Electricity 620 kWh USD 0.1580/kWh USD 97.96\n'
+      'Water 9,000 gallons USD 0.0055/gallon USD 49.50\n'
+      'Wastewater Service 9,000 gallons USD 0.0038/gallon USD 34.20\n'
+      'Subtotal USD 181.66\nCity Utilities Tax USD 9.08\n'
+      'State Energy Surcharge USD 2.73\n'
+      'Total Current Charges USD 193.47\n'
+      'Account Credit USD -31.00\nTotal Amount Due USD 162.47',
+      blocks: [
+        _layoutBlock('Municipal Utility', 0, 0, 20, 350),
+        _layoutBlock('Current Charges Detail', 1, 1, 20, 700),
+        _layoutBlock('Service', 2, 2, 20, 250),
+        _layoutBlock('Usage', 3, 2, 280, 400),
+        _layoutBlock('Rate', 4, 2, 430, 560),
+        _layoutBlock('Amount', 5, 2, 600, 700),
+        _layoutBlock('Electricity', 6, 3, 20, 250),
+        _layoutBlock('620 kWh', 7, 3, 280, 400),
+        _layoutBlock('USD 0.1580/kWh', 8, 3, 430, 560),
+        _layoutBlock('USD 97.96', 9, 3, 600, 700),
+        _layoutBlock('Water', 10, 4, 20, 250),
+        _layoutBlock('9,000 gallons', 11, 4, 280, 400),
+        _layoutBlock('USD 0.0055/gallon', 12, 4, 430, 560),
+        _layoutBlock('USD 49.50', 13, 4, 600, 700),
+        _layoutBlock('Wastewater Service', 14, 5, 20, 250),
+        _layoutBlock('9,000 gallons', 15, 5, 280, 400),
+        _layoutBlock('USD 0.0038/gallon', 16, 5, 430, 560),
+        _layoutBlock('USD 34.20', 17, 5, 600, 700),
+        _layoutBlock('Subtotal USD 181.66', 18, 6, 20, 700),
+        _layoutBlock('City Utilities Tax USD 9.08', 19, 7, 20, 700),
+        _layoutBlock('State Energy Surcharge USD 2.73', 20, 8, 20, 700),
+        _layoutBlock('Total Current Charges USD 193.47', 21, 9, 20, 700),
+        _layoutBlock('Account Credit USD -31.00', 22, 10, 20, 700),
+        _layoutBlock('Total Amount Due USD 162.47', 23, 11, 20, 700),
+      ],
+    );
+    expect(preview.items.map((item) => item.description), [
+      'Electricity',
+      'Water',
+      'Wastewater Service',
+    ]);
+    expect(preview.items.map((item) => item.lineTotal), [
+      '97.96',
+      '49.50',
+      '34.20',
+    ]);
+
+    final missingAmount = const ReceiptOcrParser().parse(
+      'Municipal Utility\nCurrent Charges Detail\n'
+      'Service Usage Rate Amount\nElectricity 620 kWh USD 0.1580/kWh\n'
+      'Total Amount Due USD 97.96',
+      blocks: [
+        _layoutBlock('Municipal Utility', 0, 0, 20, 350),
+        _layoutBlock('Current Charges Detail', 1, 1, 20, 700),
+        _layoutBlock('Service', 2, 2, 20, 250),
+        _layoutBlock('Usage', 3, 2, 280, 400),
+        _layoutBlock('Rate', 4, 2, 430, 560),
+        _layoutBlock('Amount', 5, 2, 600, 700),
+        _layoutBlock('Electricity', 6, 3, 20, 250),
+        _layoutBlock('620 kWh', 7, 3, 280, 400),
+        _layoutBlock('USD 0.1580/kWh', 8, 3, 430, 560),
+        _layoutBlock('Total Amount Due USD 97.96', 9, 4, 20, 700),
+      ],
+    );
+    expect(missingAmount.items, isEmpty);
+    expect(missingAmount.reviewHints, isNotEmpty);
+  });
+
+  test('a second charge table after subtotal keeps its classified rows', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Utility\nBase Item USD 10.00\nSubtotal USD 10.00\n'
+      'Description Usage Rate Amount\n'
+      'Energy Surcharge 2 kWh USD 0.50 USD 1.00\nTotal USD 11.00',
+    );
+    expect(
+      preview.items.any(
+        (item) =>
+            item.description.contains('Energy Surcharge') &&
+            item.lineTotal == '1.00',
+      ),
+      isTrue,
+    );
+  });
+
+  test('priced tax-named service after subtotal remains an item', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Services\nBase Filing USD 10.00\nSubtotal USD 10.00\n'
+      'Tax Preparation Service USD 20.00\nTotal USD 30.00',
+    );
+    expect(
+      preview.items.any(
+        (item) =>
+            item.description == 'Tax Preparation Service' &&
+            item.lineTotal == '20.00',
+      ),
+      isTrue,
+    );
+  });
+
   test('two-column bill keeps a numbered product name', () {
     final preview = const ReceiptOcrParser().parse(
       'Network Utility\nCurrent Charges Detail\nDescription Amount\n'
@@ -2114,18 +2215,24 @@ Total $145.00''',
     }
   });
 
-  test('Nordic courtesy text needs footer layout before suppressing review', () {
-    const parser = ReceiptOcrParser();
-    const text = 'Cafe\nCoffee USD 45.00\nTotal USD 45.00\nTakk / Tack';
-    List<ReceiptOcrBlockEvidence> blocks(double left, double right) => [
-      _layoutBlock('Cafe', 0, 0, 20, 120),
-      _layoutBlock('Coffee USD 45.00', 1, 1, 20, 350),
-      _layoutBlock('Total USD 45.00', 2, 2, 20, 350),
-      _layoutBlock('Takk / Tack', 3, 3, left, right),
-    ];
-    expect(parser.parse(text, blocks: blocks(150, 220)).reviewHints, isEmpty);
-    expect(parser.parse(text, blocks: blocks(20, 100)).reviewHints, isNotEmpty);
-  });
+  test(
+    'Nordic courtesy text needs footer layout before suppressing review',
+    () {
+      const parser = ReceiptOcrParser();
+      const text = 'Cafe\nCoffee USD 45.00\nTotal USD 45.00\nTakk / Tack';
+      List<ReceiptOcrBlockEvidence> blocks(double left, double right) => [
+        _layoutBlock('Cafe', 0, 0, 20, 120),
+        _layoutBlock('Coffee USD 45.00', 1, 1, 20, 350),
+        _layoutBlock('Total USD 45.00', 2, 2, 20, 350),
+        _layoutBlock('Takk / Tack', 3, 3, left, right),
+      ];
+      expect(parser.parse(text, blocks: blocks(150, 220)).reviewHints, isEmpty);
+      expect(
+        parser.parse(text, blocks: blocks(20, 100)).reviewHints,
+        isNotEmpty,
+      );
+    },
+  );
 
   test(
     'multi-amount kr and Rs totals do not promote bill fallback to explicit',

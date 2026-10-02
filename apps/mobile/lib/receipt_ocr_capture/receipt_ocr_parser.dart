@@ -1511,6 +1511,7 @@ class ReceiptOcrParser {
     );
     var unretainedPricedItem = false;
     final wrappedDescriptionLines = <String>[];
+    var afterSubtotal = false;
     final leadingQuantityRows = _leadingQuantityColumnRows(lines, layoutRows);
     final hasFuelMeasurementLayout =
         lines.any(
@@ -1538,6 +1539,9 @@ class ReceiptOcrParser {
     }
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       final line = lines[lineIndex];
+      if (_hasSubtotalLabel(line, line.toLowerCase())) {
+        afterSubtotal = true;
+      }
       if (layoutAdjustmentRows.contains(lineIndex)) {
         lineDecisions[lineIndex] =
             ReceiptOcrItemLineDecision.metadataOrHeaderSkipped;
@@ -1563,6 +1567,9 @@ class ReceiptOcrParser {
       }
       if ((_isAdministrativeLine(line) &&
               !chargeTableRows.contains(lineIndex)) ||
+          (afterSubtotal &&
+              !chargeTableRows.contains(lineIndex) &&
+              _isPostSubtotalAdjustmentLine(line)) ||
           _isContextualReceiptMetadataLine(lines, lineIndex) ||
           _isChargeTableHeader(line) ||
           detachedAmountSignRows.contains(lineIndex) ||
@@ -2163,6 +2170,15 @@ class ReceiptOcrParser {
                       r'\bdescription\b',
                       caseSensitive: false,
                     ).hasMatch(block.text) ||
+                    (billDetailColumns &&
+                        !RegExp(
+                          r'\bdescription\b',
+                          caseSensitive: false,
+                        ).hasMatch(lines[headerIndex]) &&
+                        RegExp(
+                          r'^\s*service\s*$',
+                          caseSensitive: false,
+                        ).hasMatch(block.text)) ||
                     (invoiceColumns &&
                         RegExp(
                           r'\b(?:product|service)\b',
@@ -3128,6 +3144,16 @@ bool _isChargeTableSummaryLine(String line) {
       _isPaymentMetadataLine(line);
 }
 
+bool _isPostSubtotalAdjustmentLine(String line) {
+  final match = RegExp(
+    r'^(?:[\p{L}]+[ -]+){0,3}(?:tax|surcharge)(?:\s*\([^)]*\))?\s+',
+    caseSensitive: false,
+    unicode: true,
+  ).firstMatch(line.trim());
+  return match != null &&
+      _isStandaloneAmountRow(line.trim().substring(match.end));
+}
+
 bool _hasChargeTableMonetaryEvidence(String monetaryText) {
   final amountTokens = RegExp(_amountTokenPattern).allMatches(monetaryText);
   if (amountTokens.isEmpty) return false;
@@ -3162,7 +3188,11 @@ bool _isBillChargeDetailHeader(List<String> lines, int index) {
   if (index == 0) return false;
   if (_lineHasAmount(lines[index - 1])) return false;
   final lower = lines[index].toLowerCase();
-  if (!RegExp(r'\bdescription\b').hasMatch(lower) ||
+  final hasDescription = RegExp(r'\bdescription\b').hasMatch(lower);
+  final hasServiceColumn =
+      RegExp(r'^service\b').hasMatch(lower) &&
+      RegExp(r'\b(?:usage|rate)\b').hasMatch(lower);
+  if ((!hasDescription && !hasServiceColumn) ||
       !RegExp(r'\bamount\b').hasMatch(lower)) {
     return false;
   }
