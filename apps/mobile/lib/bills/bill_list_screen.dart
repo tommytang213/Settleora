@@ -516,6 +516,11 @@ String? _receiptOcrTaxModeFromSource(
   ReceiptOcrReviewSaveRequest candidate, {
   required bool reviewCurrencyChanged,
 }) {
+  // A balanced total cannot settle printed adjustment rows whose roles or
+  // inclusion are unresolved. Persist that uncertainty for the Apply gate.
+  if (!preview.adjustmentsComplete) {
+    return ReceiptOcrTaxReconciliationModeValues.unresolved;
+  }
   if (!preview.taxIncludedInTotal) return null;
   if (reviewCurrencyChanged) {
     return ReceiptOcrTaxReconciliationModeValues.unresolved;
