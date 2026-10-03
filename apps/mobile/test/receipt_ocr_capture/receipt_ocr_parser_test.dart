@@ -821,6 +821,22 @@ CARD CHARGED USD 100
       ),
     );
 
+    final conflictingHeader = const ReceiptOcrParser().parse(r'''
+Central Card Terminal
+Dinner USD 100
+Total HKD 100
+DCC Selected USD 100
+CARD CHARGED USD 100
+''', fallbackCurrency: 'HKD');
+    expect(conflictingHeader.currency, 'HKD');
+    expect(conflictingHeader.items.single.currency, 'USD');
+    expect(
+      conflictingHeader.warnings,
+      contains(
+        'Item prices and the receipt currency differ. Review before applying.',
+      ),
+    );
+
     final conflictingSelection = const ReceiptOcrParser().parse(r'''
 Central Card Terminal
 Dinner HK$780

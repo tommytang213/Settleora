@@ -121,13 +121,23 @@ class ReceiptOcrParser {
       warnings.add(
         'DCC selection needs a matching charged amount. Review the receipt currency.',
       );
-    } else if (dccCharge.currency != null &&
+    }
+    if (dccCharge.currency != null &&
         itemCandidates.any(
           (item) =>
               item.currency != null && item.currency != dccCharge.currency,
         )) {
       warnings.add(
         'Item prices and the charged amount use different currencies. Review before applying.',
+      );
+    }
+    if (dccCharge.currency != null &&
+        currency != dccCharge.currency &&
+        itemCandidates.any(
+          (item) => item.currency != null && item.currency != currency,
+        )) {
+      warnings.add(
+        'Item prices and the receipt currency differ. Review before applying.',
       );
     }
     final unresolvedItemLines = _countUnresolvedItemLikeLines(
