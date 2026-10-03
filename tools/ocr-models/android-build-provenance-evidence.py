@@ -5,7 +5,6 @@ import argparse
 import hashlib
 import json
 import os
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -14,10 +13,6 @@ from pathlib import Path
 MAX_COMMAND_OUTPUT = 16 * 1024
 MAX_EVIDENCE_BYTES = 4096
 MAX_VERSION_LENGTH = 64
-VERSION = re.compile(r"[0-9]+(?:\.[0-9]+){2,3}(?:\+[0-9]+)?\Z")
-REVISION = re.compile(r"[0-9a-f]{40}\Z")
-NDK_VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+\Z")
-JAVA_RUNTIME_BUILD = re.compile(r"([0-9]+(?:\.[0-9]+){2,3}\+[0-9]+)(?:-LTS)?\Z")
 
 
 def _command(tool):
@@ -38,9 +33,23 @@ def _command(tool):
     return (result.stdout + result.stderr).decode("utf-8", errors="replace")
 
 
-def _version(value, pattern=VERSION):
-    return (value if isinstance(value, str) and
-            len(value) <= MAX_VERSION_LENGTH and pattern.fullmatch(value) else None)
+def _digits(value):
+    return bool(value) and all("0" <= digit <= "9" for digit in value)
+
+
+def _version(value, *, component_counts=(3, 4), allow_build=True, require_build=False):
+    if not isinstance(value, str) or len(value) > MAX_VERSION_LENGTH:
+        return None
+    numbers, plus, build = value.partition("+")
+    if (require_build and not plus) or (plus and (not allow_build or not _digits(build))):
+        return None
+    parts = numbers.split(".")
+    return value if len(parts) in component_counts and all(_digits(part) for part in parts) else None
+
+
+def _revision(value):
+    return (value if isinstance(value, str) and len(value) == 40 and
+            all(digit in "0123456789abcdef" for digit in value) else None)
 
 
 def _flutter():
@@ -53,37 +62,39 @@ def _flutter():
         value = {}
     return {
         "frameworkVersion": _version(value.get("frameworkVersion")),
-        "frameworkRevision": _version(value.get("frameworkRevision"), REVISION),
-        "engineRevision": _version(value.get("engineRevision"), REVISION),
+        "frameworkRevision": _revision(value.get("frameworkRevision")),
+        "engineRevision": _revision(value.get("engineRevision")),
         "dartSdkVersion": _version(value.get("dartSdkVersion")),
     }
 
 
 def _java():
     output = _command("java") or ""
-    version = re.search(r"^\s*java\.version\s*=\s*(\S+)\s*$", output, re.MULTILINE)
-    runtime = re.search(r"^\s*java\.runtime\.version\s*=\s*(\S+)\s*$", output,
-                        re.MULTILINE)
-    vendor = re.search(r"^\s*java\.vendor\s*=\s*(.*?)\s*$", output, re.MULTILINE)
-    parsed_version = _version(version.group(1)) if version else None
-    runtime_value = runtime.group(1) if runtime else None
-    runtime_build = (JAVA_RUNTIME_BUILD.fullmatch(runtime_value)
-                     if runtime_value and len(runtime_value) <= MAX_VERSION_LENGTH else None)
+    properties = {}
+    for line in output.splitlines():
+        name, separator, value = line.strip().partition("=")
+        if separator and name.strip() in {"java.version", "java.runtime.version", "java.vendor"}:
+            properties.setdefault(name.strip(), value.strip())
+    parsed_version = _version(properties.get("java.version"))
+    runtime_value = properties.get("java.runtime.version", "")
+    runtime_core = runtime_value.removesuffix("-LTS")
+    runtime_build = (_version(runtime_core, require_build=True)
+                     if len(runtime_value) <= MAX_VERSION_LENGTH else None)
     if runtime_build and (not parsed_version or
-                          not runtime_build.group(1).startswith(parsed_version + "+")):
+                          not runtime_build.startswith(parsed_version + "+")):
         runtime_build = None
     return {
         "version": parsed_version,
-        "runtimeBuild": runtime_build.group(1) if runtime_build else None,
-        "vendor": "temurin" if vendor and vendor.group(1) in
-        {"Eclipse Adoptium", "Eclipse Temurin"} else "other" if vendor else None,
+        "runtimeBuild": runtime_build,
+        "vendor": "temurin" if properties.get("java.vendor") in
+        {"Eclipse Adoptium", "Eclipse Temurin"} else "other" if "java.vendor" in properties else None,
     }
 
 
 def _ndk(selected_value, installed_value, linker_value):
-    selected = _version(selected_value, NDK_VERSION)
-    installed_version = _version(installed_value, NDK_VERSION)
-    linker_version = _version(linker_value, NDK_VERSION)
+    selected = _version(selected_value, component_counts=(3,), allow_build=False)
+    installed_version = _version(installed_value, component_counts=(3,), allow_build=False)
+    linker_version = _version(linker_value, component_counts=(3,), allow_build=False)
     if not selected or installed_version != selected:
         linker_version = None
     return {
@@ -111,7 +122,7 @@ def _build_root(candidate_present):
 
 def build_evidence(source_sha, ndk_selected, ndk_installed, linker_version,
                    candidate_present):
-    if not REVISION.fullmatch(source_sha):
+    if not _revision(source_sha):
         raise ValueError("Invalid source identity")
     flutter = _flutter()
     java = _java()
