@@ -270,9 +270,13 @@ jobs:
             if [[ "$properties_real" == "$properties" && -f "$properties" && $(stat -c %s "$properties") -le 1048576 ]]; then
               ndk_installed=$(sed -nE 's/^Pkg\.Revision[[:space:]]*=[[:space:]]*([0-9]+\.[0-9]+\.[0-9]+)[[:space:]]*$/\1/p' "$properties" | head -n 1)
             fi
-            linker="$ndk_root/toolchains/llvm/prebuilt/linux-x86_64/bin/ld.lld"
+            linker_bin="$ndk_root/toolchains/llvm/prebuilt/linux-x86_64/bin"
+            linker="$linker_bin/ld.lld"
             linker_real=$(realpath -e "$linker" 2>/dev/null || true)
-            if [[ "$ndk_installed" == "$ndk_selected" && "$linker_real" == "$linker" && -x "$linker" ]]; then
+            linker_target=$(readlink "$linker" 2>/dev/null || true)
+            if [[ "$ndk_installed" == "$ndk_selected" && -x "$linker" &&
+                  ( "$linker_real" == "$linker" ||
+                    ( "$linker_target" == lld && "$linker_real" == "$linker_bin/lld" ) ) ]]; then
               if linker_output=$(timeout 30s "$linker" --version 2>/dev/null); then
                 if [[ ${#linker_output} -le 16384 ]]; then
                   linker_version=$(printf '%s\n' "$linker_output" | sed -nE 's/.*LLD[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' | head -n 1)

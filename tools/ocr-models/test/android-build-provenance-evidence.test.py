@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -101,6 +102,35 @@ class AndroidBuildProvenanceEvidenceTest(unittest.TestCase):
         result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c",
                                  probe + '\nprintf "%s" "$linker_version"\n'],
                                 capture_output=True, text=True, env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "")
+
+    def test_workflow_accepts_only_pinned_ndk_linker_symlink(self):
+        ndk_root = self.android_home / "ndk/28.2.13676358"
+        linker = ndk_root / "toolchains/llvm/prebuilt/linux-x86_64/bin/ld.lld"
+        lld = linker.with_name("lld")
+        linker.unlink()
+        self.script(lld, "printf 'LLD 19.0.1 (compatible with GNU linkers)\\n'")
+        linker.symlink_to("lld")
+        workflow = WORKFLOW.read_text()
+        probe = "linker_bin=" + workflow.split("linker_bin=", 1)[1]
+        probe = probe.split("\n          fi\n          candidate_present=", 1)[0]
+        script = (f"ndk_root={shlex.quote(str(ndk_root))}\n"
+                  "ndk_selected=28.2.13676358\n"
+                  "ndk_installed=28.2.13676358\n"
+                  "linker_version=\n" + probe +
+                  '\nprintf "%s" "$linker_version"\n')
+        result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", script],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "19.0.1")
+
+        lld.unlink()
+        outside = self.root / "external-lld"
+        self.script(outside, "printf 'LLD 99.0.0\\n'")
+        lld.symlink_to(outside)
+        result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", script],
+                                capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "")
 
