@@ -2275,6 +2275,13 @@ class ReceiptOcrParser {
           ? amountBlock.text.trim()
           : '${currencyBlocks.single.text.trim()} ${amountBlock.text.trim()}';
       if (!_hasChargeTableMonetaryEvidence(monetaryText)) continue;
+      if (RegExp(
+            r'\b(?:tax|vat|gst|hst|iva|tva|kdv|mwst)\b',
+            caseSensitive: false,
+          ).hasMatch(label) &&
+          !_isChargeTableSummaryLine('$label $monetaryText')) {
+        continue;
+      }
       final isTax = RegExp(
         r'\b(?:tax|vat|gst|hst|iva|tva|kdv|mwst)(?:\s*\(\d+(?:[.,]\d+)?%\))?$',
         caseSensitive: false,
@@ -3299,9 +3306,24 @@ bool _hasCompleteUsageRateColumns(String prefix) {
 
 bool _isChargeTableSummaryLine(String line) {
   final normalized = line.toLowerCase();
+  final jurisdictionalRatedTax =
+      _hasExplicitTaxRate(line) &&
+      RegExp(
+        r'^\s*(?:state|local|county|city|municipal|federal|provincial|regional|sales|use|excise|tourist|tourism|occupancy|vat|gst|hst)(?:\s+[\p{L}]+){0,2}\s+tax\b',
+        caseSensitive: false,
+        unicode: true,
+      ).hasMatch(line);
+  final ratedTaxNamedCharge =
+      _hasExplicitTaxRate(line) &&
+      !jurisdictionalRatedTax &&
+      RegExp(
+        r'^\s*(?:[\p{L}]+[ -]+){1,3}tax\b',
+        caseSensitive: false,
+        unicode: true,
+      ).hasMatch(line);
   return _isAccountBalanceSummaryLine(line) ||
-      (_hasExplicitTaxRate(line) && _isPostSubtotalAdjustmentLine(line)) ||
-      _hasTaxLabel(line, normalized) ||
+      (jurisdictionalRatedTax && _isPostSubtotalAdjustmentLine(line)) ||
+      (!ratedTaxNamedCharge && _hasTaxLabel(line, normalized)) ||
       _isExplicitNonItemFeeLine(line) ||
       _hasDiscountLabel(line, normalized) ||
       _hasActualTipChargeLabel(line, normalized) ||

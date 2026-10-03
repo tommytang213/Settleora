@@ -4658,6 +4658,126 @@ Total USD 1.00
     expect(preview.tax, isNull);
   });
 
+  test('rated tax-named charge-table item retains priced evidence', () {
+    final preview = const ReceiptOcrParser().parse('''
+Utility
+Description Usage Amount
+Energy Tax (5%) USD 1.00
+Total USD 1.00
+''');
+    expect(preview.items.map((item) => item.description), ['Energy Tax (5%)']);
+    expect(preview.items.single.lineTotal, '1.00');
+    expect(preview.tax, isNull);
+  });
+
+  test('rated sales tax in a charge table remains a tax adjustment', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Description Amount
+Widget USD 5.00
+Sales Tax (5%) USD 0.25
+Total USD 5.25
+''');
+    expect(preview.items.map((item) => item.description), ['Widget']);
+    expect(preview.tax, '0.25');
+  });
+
+  test(
+    'layout charge table retains rated tax-named items with or without usage',
+    () {
+      for (final withUsage in [false, true]) {
+        final offset = withUsage ? 0 : 1;
+        final header = withUsage
+            ? 'Description Usage Amount'
+            : 'Description Amount';
+        final row = withUsage
+            ? 'Energy Tax (5%) 1 USD 1.00'
+            : 'Energy Tax (5%) USD 1.00';
+        final blocks = [
+          _layoutBlock('Utility', 0, 0, 20, 350),
+          if (!withUsage)
+            _layoutBlock('Charges for this period', 1, 1, 20, 350),
+          _layoutBlock('Description', 1 + offset, 1 + offset, 20, 160),
+          if (withUsage) _layoutBlock('Usage', 2, 1, 175, 225),
+          _layoutBlock(
+            'Amount',
+            (withUsage ? 3 : 2) + offset,
+            1 + offset,
+            300,
+            350,
+          ),
+          _layoutBlock(
+            'Energy Tax (5%)',
+            (withUsage ? 4 : 3) + offset,
+            2 + offset,
+            20,
+            160,
+          ),
+          if (withUsage) _layoutBlock('1', 5, 2, 175, 225),
+          _layoutBlock(
+            'USD 1.00',
+            (withUsage ? 6 : 4) + offset,
+            2 + offset,
+            300,
+            350,
+          ),
+          _layoutBlock(
+            'Total',
+            (withUsage ? 7 : 5) + offset,
+            3 + offset,
+            20,
+            160,
+          ),
+          _layoutBlock(
+            'USD 1.00',
+            (withUsage ? 8 : 6) + offset,
+            3 + offset,
+            300,
+            350,
+          ),
+        ];
+        final preview = const ReceiptOcrParser().parse(
+          'Utility\n${withUsage ? '' : 'Charges for this period\n'}$header\n$row\nTotal USD 1.00',
+          blocks: blocks,
+        );
+        expect(
+          preview.items.map((item) => item.description),
+          ['Energy Tax (5%)'],
+          reason: 'withUsage=$withUsage',
+        );
+        expect(preview.items.single.lineTotal, '1.00');
+        expect(preview.tax, isNull);
+      }
+    },
+  );
+
+  test('layout sales-tax summary stays an adjustment beside priced items', () {
+    final preview = const ReceiptOcrParser().parse(
+      '''
+Market
+Charges for this period
+Description Amount
+Widget USD 5.00
+Sales Tax (5%) USD 0.25
+Total USD 5.25
+''',
+      blocks: [
+        _layoutBlock('Market', 0, 0, 20, 350),
+        _layoutBlock('Charges for this period', 1, 1, 20, 350),
+        _layoutBlock('Description', 2, 2, 20, 160),
+        _layoutBlock('Amount', 3, 2, 300, 350),
+        _layoutBlock('Widget', 4, 3, 20, 160),
+        _layoutBlock('USD 5.00', 5, 3, 300, 350),
+        _layoutBlock('Sales Tax (5%)', 6, 4, 20, 160),
+        _layoutBlock('USD 0.25', 7, 4, 300, 350),
+        _layoutBlock('Total', 8, 5, 20, 160),
+        _layoutBlock('USD 5.25', 9, 5, 300, 350),
+      ],
+    );
+    expect(preview.items.map((item) => item.description), ['Widget']);
+    expect(preview.tax, '0.25');
+  });
+
   test('descriptive surcharge after subtotal stays review evidence', () {
     final preview = const ReceiptOcrParser().parse('''
 Utility
