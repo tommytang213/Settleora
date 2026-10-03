@@ -1098,6 +1098,56 @@ Exchange Rate 7.8000 HKD/USD''', fallbackCurrency: 'HKD');
     ]);
   });
 
+  test('provider-row DCC courtesy footer follows corroborated charge', () {
+    // Exact row text captured locally from the checked-in DCC fixture image.
+    // No recognized row text is emitted by hosted native acceptance.
+    const providerRows = r'''Central Card Terminal
+Hong Kong Central
+Date: 2026-09-17
+Dinner HK$780.00
+DCC Selected USD 100.00
+CARD CHARGED USD 100.00
+Exchange Rate 7.8000 HKD/USD
+Thank you''';
+    const parser = ReceiptOcrParser();
+    final charged = parser.parse(providerRows, fallbackCurrency: 'HKD');
+    expect(charged.total, '100.00');
+    expect(charged.adjustmentsComplete, isTrue);
+    expect(charged.items.single.lineTotal, '780.00');
+    expect(charged.items.single.currency, 'HKD');
+    expect(charged.reviewHints, [
+      'Some item prices use a different currency from the receipt. Review before applying.',
+    ]);
+
+    for (final extra in ['Unpriced dessert', 'Thank you']) {
+      final unresolved = parser.parse(
+        providerRows.replaceFirst(
+          'DCC Selected USD 100.00',
+          '$extra\nDCC Selected USD 100.00',
+        ),
+        fallbackCurrency: 'HKD',
+      );
+      expect(unresolved.total, isNull, reason: extra);
+      expect(unresolved.adjustmentsComplete, isFalse, reason: extra);
+    }
+    for (final changed in [
+      providerRows.replaceFirst(
+        'Exchange Rate 7.8000 HKD/USD',
+        'Exchange Rate 7.7000 HKD/USD',
+      ),
+      providerRows.replaceFirst(
+        'Exchange Rate 7.8000 HKD/USD',
+        'Split tender\nExchange Rate 7.8000 HKD/USD',
+      ),
+      providerRows.replaceFirst(
+        'CARD CHARGED USD 100.00',
+        'CARD CHARGED USD 100.00\nCARD CHARGED USD 100.00',
+      ),
+    ]) {
+      expect(parser.parse(changed, fallbackCurrency: 'HKD').total, isNull);
+    }
+  });
+
   test('printed taxi tip remains a tip charge, not merchandise', () {
     final preview = const ReceiptOcrParser().parse('''
 Metro Taxi

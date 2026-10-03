@@ -116,22 +116,38 @@ class ReceiptOcrParser {
       detachedAmountSignRows: detachedAmountSignRows,
     );
     final itemCandidates = extractedItems.items;
-    final unresolvedItemLines = _countUnresolvedItemLikeLines(
-      lines,
-      merchantLineIndices: merchantDetection?.lineIndices ?? const {},
-      layoutRows: layoutRows,
-    );
-    final hasCompleteItemEvidence =
+    final dccCharge = _corroboratedDccCharge(lines);
+    final hasCompletePricedItemEvidence =
         !extractedItems.truncated &&
         !extractedItems.unretainedPricedItem &&
-        unresolvedItemLines == 0 &&
         detachedAmountSignRows.isEmpty &&
         !chargeTable.ambiguous.any(
           (index) =>
               !layoutChargeItems.containsKey(index) &&
               !layoutAdjustmentLines.containsKey(index),
         );
-    final dccCharge = _corroboratedDccCharge(lines);
+    // A corroborated charge and printed rate can establish a terminal DCC
+    // footer boundary before unpriced-line completeness is evaluated. Other
+    // unpriced lines still block the final charged-total suggestion below.
+    final hasBoundedDccFooterBoundary =
+        amounts.total == null &&
+        _boundedDccChargedTotal(
+              lines,
+              itemCandidates,
+              amounts,
+              currency,
+              dccCharge,
+              hasCompleteItemEvidence: hasCompletePricedItemEvidence,
+            ) !=
+            null;
+    final unresolvedItemLines = _countUnresolvedItemLikeLines(
+      lines,
+      merchantLineIndices: merchantDetection?.lineIndices ?? const {},
+      layoutRows: layoutRows,
+      hasBoundedDccFooterBoundary: hasBoundedDccFooterBoundary,
+    );
+    final hasCompleteItemEvidence =
+        hasCompletePricedItemEvidence && unresolvedItemLines == 0;
     final selectedTotal =
         amounts.total ??
         _boundedDccChargedTotal(
@@ -2595,6 +2611,7 @@ class ReceiptOcrParser {
     List<String> lines, {
     Set<int> merchantLineIndices = const {},
     List<List<ReceiptOcrBlockEvidence>> layoutRows = const [],
+    bool hasBoundedDccFooterBoundary = false,
   }) {
     var count = 0;
     final lastPricedTotal = lines.lastIndexWhere(
@@ -2671,6 +2688,14 @@ class ReceiptOcrParser {
         continue;
       }
       final courtesy = _isReceiptCourtesyLine(line);
+      if (courtesy &&
+          hasBoundedDccFooterBoundary &&
+          lastPricedTotal < 0 &&
+          lineIndex == lines.length - 1 &&
+          lineIndex > 0 &&
+          _dccExchangeRatePattern.hasMatch(lines[lineIndex - 1])) {
+        continue;
+      }
       if ((!courtesy && _isAdministrativeLine(line)) ||
           _isSupportedChargeTableHeader(lines, lineIndex) ||
           (!courtesy && _isContextualReceiptMetadataLine(lines, lineIndex)) ||
