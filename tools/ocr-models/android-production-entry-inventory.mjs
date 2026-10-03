@@ -1515,6 +1515,21 @@ export const expectedAndroidPackageDigestsBySource = Object.freeze({
   "59a9ff0b5a3029f6856643774abfb48cdacb0b8d2072f2ec1514eddd28ef376d": Object.freeze([
     "222bb8414817e027b8f3025ecfc80394173bb3487f163a15235a55e82ea39e5d",
   ]),
+  // #1309 exact-a0d selected-NDK path normalization. The hosted a0d
+  // Android package verifier emitted this unreviewed entry-representation
+  // digest. An exact-root local build reproduced that digest and the bounded
+  // package comparison evidence; signer validation remains a separate gate.
+  "6559d1700a979ab6312285c15b7eef168a63f13a09c1a45f6f2fa9d2e2380996": Object.freeze([
+    "f787542a25a33cdeec0d7b3661b067947e7a1834a01863d353d0826afe8677a5",
+  ]),
+  // #1309 final DCC subtotal/prose correction at ff2356da. One clean
+  // exact-root Flutter 3.44.8 APK passed signer, archive/path, catalog,
+  // 14-model, legal-resource, and 102-fixture-absence gates before this
+  // source-bound digest was supplied in memory. Hosted exact-head package
+  // identity and native acceptance remain pending.
+  "a619e4c9b97fc0fecd37ca3ecc43bb368797dd42cf244a9c1c93f2b66104b96c": Object.freeze([
+    "36df2ff773ffd042e14f1743056508dd1373d37ab2715e90d3c5275f2d0bc7a0",
+  ]),
 });
 export const expectedAndroidNonOcrEntries = Object.freeze([
   "AndroidManifest.xml",
