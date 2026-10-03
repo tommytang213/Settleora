@@ -1315,6 +1315,15 @@ Subtotal $16.50
 Sales Tax $1.70
 Total $18.20''');
     expect(genuineUnpricedItem.reviewHints, isNotEmpty);
+    for (final size in ['XL', 'XXL']) {
+      final unpricedSize = parser.parse('''Corner Cafe
+Latte, $size
+Sales Tax applies
+Coffee 4.00
+Sales Tax 0.40
+Total 4.40''');
+      expect(unpricedSize.reviewHints, isNotEmpty, reason: size);
+    }
   });
 
   test('image-transcribed grocery footer leaves priced draft complete', () {
@@ -1352,6 +1361,13 @@ Thank you for shopping local!''';
       reason: preview.incompleteAdjustmentReasons.toString(),
     );
     expect(preview.reviewHints, isEmpty);
+    final unpricedHeaderProduct = const ReceiptOcrParser().parse('''Market
+Cookie. Large
+456 Oak Avenue
+Coffee 4.00
+Sales Tax 0.40
+Total 4.40''');
+    expect(unpricedHeaderProduct.reviewHints, isNotEmpty);
   });
 
   test('charge table uses its columns despite neighboring panel text', () {

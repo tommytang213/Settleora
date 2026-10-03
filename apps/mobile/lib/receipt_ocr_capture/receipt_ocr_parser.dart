@@ -2617,7 +2617,10 @@ class ReceiptOcrParser {
           merchantLineIndices.contains(lineIndex - 1) &&
           _isStreetAddressLine(lines[lineIndex + 1]) &&
           !_lineHasAmount(line) &&
-          RegExp(r'[\p{L}]\.\s+[\p{L}]', unicode: true).hasMatch(line)) {
+          RegExp(
+            r'\b[\p{L}]+\s+[\p{L}]+\.\s+[\p{L}]+\s+[\p{L}]+',
+            unicode: true,
+          ).hasMatch(line)) {
         continue;
       }
       // A location printed directly below the merchant and directly above a
@@ -2634,7 +2637,8 @@ class ReceiptOcrParser {
             unicode: true,
           ).hasMatch(line.trim()) &&
           (RegExp(
-                r'^[\p{L}][\p{L} .-]{2,60},\s*[A-Z]{2,4}$',
+                r'^(?:ciudad\s+de|city\s+of)\s+[\p{L}][\p{L} .-]{2,60},\s*[A-Z]{2,4}$',
+                caseSensitive: false,
                 unicode: true,
               ).hasMatch(line.trim()) ||
               RegExp(
