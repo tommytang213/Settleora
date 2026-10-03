@@ -21,9 +21,9 @@
       "path": "apps/mobile/test/fixtures/receipt_ocr",
       "schemaVersion": 2,
       "entryCount": 101,
-      "manifestSha256": "c6b47409e44b4f70cd219755999897caa8aea22a1bd2baaa3e8a2187e1d28ca9",
+      "manifestSha256": "376b9480547e20e4fbe21efb605ff75699f78e27a0019dec9e474074c67536b4",
       "treeDigestAlgorithm": "sha256-of-sorted-sha256sum-v1",
-      "treeSha256": "5758772c6ff13f458e0508213b53e86a345f03e862c609d556ba4b2688db778a"
+      "treeSha256": "15a3fdda434392ee147b25bb68f2f097b278abfc228dc31975cf728202b1db8a"
     },
     "preprocessing": {
       "files": [
@@ -124,7 +124,7 @@
     },
     "parser": {
       "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_parser.dart",
-      "sha256": "f6da87212f65b06dada92e1012ef511019bc06fb5c656720bcf443e641ef9034"
+      "sha256": "921e7c808b4d23953878d5e7f4faa9f68fc1fb4b0de01a06868d60cfbe0bedd3"
     }
   },
   "totalBundledBytes": 76580102,

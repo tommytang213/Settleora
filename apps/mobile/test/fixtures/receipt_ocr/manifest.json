@@ -2953,6 +2953,7 @@
         "merchant": "Metro Taxi",
         "date": "2026-09-17",
         "currency": "USD",
+        "tip": "5.00",
         "total": "32.50",
         "items": [
           [
@@ -2962,10 +2963,6 @@
           [
             "Toll",
             "3.00"
-          ],
-          [
-            "Tip",
-            "5.00"
           ]
         ]
       },
@@ -2976,7 +2973,8 @@
         "evidence": [
           "USD"
         ]
-      }
+      },
+      "notes": "The printed Tip is a charged tip adjustment, not a merchandise item."
     },
     {
       "id": "layout_25_ecommerce_shipping",

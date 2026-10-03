@@ -733,6 +733,166 @@ Total USD 7.49
     expect(preview.reviewHints, isEmpty);
   });
 
+  test('negative standalone promotion is evidence, not merchandise', () {
+    final preview = const ReceiptOcrParser().parse('''
+Promo Cafe
+Coffee USD 5.00
+Promotion USD -5.00
+Subtotal USD 5.00
+Discount USD -5.00
+Total USD 0.00
+''');
+    expect(preview.items.map((item) => item.description), ['Coffee']);
+    expect(preview.total, '0.00');
+
+    final merchandise = const ReceiptOcrParser().parse('''
+Market
+Promotion Mug USD 5.00
+Total USD 5.00
+''');
+    expect(merchandise.items.map((item) => item.description), [
+      'Promotion Mug',
+    ]);
+  });
+
+  test('DCC selected amount is payment context, not merchandise', () {
+    final preview = const ReceiptOcrParser().parse(r'''
+Central Card Terminal
+Hong Kong Central
+Dinner HK$780
+DCC Selected USD 100
+CARD CHARGED USD 100.00
+Exchange Rate 7.8000 HKD/USD
+''', fallbackCurrency: 'HKD');
+    expect(preview.items.map((item) => item.description), ['Dinner']);
+    expect(preview.currency, 'USD');
+    expect(preview.currencyProvenance, ReceiptOcrCurrencyProvenance.explicit);
+    expect(preview.items.single.currency, 'HKD');
+    expect(
+      preview.warnings,
+      contains(
+        'Item prices and the charged amount use different currencies. Review before applying.',
+      ),
+    );
+
+    final uncorroborated = const ReceiptOcrParser().parse(r'''
+Central Card Terminal
+Dinner HK$780
+DCC Selected USD 100
+''', fallbackCurrency: 'HKD');
+    expect(uncorroborated.currency, 'HKD');
+    expect(
+      uncorroborated.warnings,
+      contains(
+        'DCC selection needs a matching charged amount. Review the receipt currency.',
+      ),
+    );
+
+    final mismatchedCharge = const ReceiptOcrParser().parse(r'''
+Central Card Terminal
+Dinner HK$780
+DCC Selected USD 100
+CARD CHARGED USD 90
+''', fallbackCurrency: 'HKD');
+    expect(mismatchedCharge.currency, 'HKD');
+    expect(
+      mismatchedCharge.warnings,
+      contains(
+        'DCC selection needs a matching charged amount. Review the receipt currency.',
+      ),
+    );
+
+    final explicitTotal = const ReceiptOcrParser().parse(r'''
+Central Card Terminal
+Dinner HK$780
+Total HKD 780
+DCC Selected USD 100
+CARD CHARGED USD 100
+''', fallbackCurrency: 'HKD');
+    expect(explicitTotal.currency, 'HKD');
+    expect(
+      explicitTotal.currencyProvenance,
+      ReceiptOcrCurrencyProvenance.explicit,
+    );
+    expect(
+      explicitTotal.warnings,
+      contains(
+        'Item prices and the charged amount use different currencies. Review before applying.',
+      ),
+    );
+
+    final conflictingHeader = const ReceiptOcrParser().parse(r'''
+Central Card Terminal
+Dinner USD 100
+Total HKD 100
+DCC Selected USD 100
+CARD CHARGED USD 100
+''', fallbackCurrency: 'HKD');
+    expect(conflictingHeader.currency, 'HKD');
+    expect(conflictingHeader.items.single.currency, 'USD');
+    expect(
+      conflictingHeader.warnings,
+      contains(
+        'Item prices and the receipt currency differ. Review before applying.',
+      ),
+    );
+
+    final unresolvedHeader = const ReceiptOcrParser().parse(r'''
+Karachi Grill
+Currency USD
+Dinner USD 100
+Total Rs 100 Rs 200
+DCC Selected USD 100
+CARD CHARGED USD 100
+''', fallbackCurrency: 'PKR');
+    expect(unresolvedHeader.currency, isNull);
+    expect(
+      unresolvedHeader.warnings,
+      isNot(
+        contains(
+          'Item prices and the receipt currency differ. Review before applying.',
+        ),
+      ),
+    );
+
+    final conflictingSelection = const ReceiptOcrParser().parse(r'''
+Central Card Terminal
+Dinner HK$780
+DCC Selected ZZZ 100
+DCC Selected USD 100
+CARD CHARGED USD 100
+''', fallbackCurrency: 'HKD');
+    expect(conflictingSelection.currency, 'HKD');
+    expect(
+      conflictingSelection.warnings,
+      contains(
+        'DCC selection needs a matching charged amount. Review the receipt currency.',
+      ),
+    );
+
+    final merchandise = const ReceiptOcrParser().parse('''
+Store
+DCC Selected Tee USD 10.00
+Total USD 10.00
+''');
+    expect(merchandise.items.map((item) => item.description), [
+      'DCC Selected Tee',
+    ]);
+  });
+
+  test('printed taxi tip remains a tip charge, not merchandise', () {
+    final preview = const ReceiptOcrParser().parse('''
+Metro Taxi
+Fare USD 24.50
+Toll USD 3.00
+Tip USD 5.00
+Total USD 32.50
+''');
+    expect(preview.items.map((item) => item.description), ['Fare', 'Toll']);
+    expect(preview.tip, '5.00');
+    expect(preview.total, '32.50');
+  });
+
   test('unreconciled or duplicate promotions remain in review', () {
     for (final rows in [
       'Store Coupon USD -2.00\nLoyalty Discount USD -1.00',
