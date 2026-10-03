@@ -4668,6 +4668,7 @@ Total USD 1.00
     expect(preview.items.map((item) => item.description), ['Energy Tax (5%)']);
     expect(preview.items.single.lineTotal, '1.00');
     expect(preview.tax, isNull);
+    expect(preview.adjustmentsComplete, isFalse);
     expect(
       preview.incompleteAdjustmentReasons,
       contains(ReceiptOcrIncompleteAdjustmentReason.ambiguousChargeTable),
@@ -4684,6 +4685,7 @@ Luxury Tax (5%) USD 0.50
 Total USD 5.50
 ''');
     expect(preview.items.map((item) => item.description), ['Widget']);
+    expect(preview.adjustmentsComplete, isFalse);
     expect(
       preview.incompleteAdjustmentReasons,
       contains(ReceiptOcrIncompleteAdjustmentReason.ambiguousChargeTable),

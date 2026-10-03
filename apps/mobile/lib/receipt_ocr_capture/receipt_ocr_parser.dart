@@ -282,6 +282,7 @@ class ReceiptOcrParser {
       discountBeforeSubtotal: amounts.discountBeforeSubtotal,
       adjustmentsComplete:
           amounts.adjustmentsComplete &&
+          ambiguousRatedTaxRows.isEmpty &&
           !extractedItems.truncated &&
           !extractedItems.unretainedPricedItem &&
           detachedAmountSignRows.isEmpty &&
