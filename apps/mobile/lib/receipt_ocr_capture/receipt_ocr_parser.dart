@@ -1719,6 +1719,7 @@ class ReceiptOcrParser {
       }
       if ((_isAdministrativeLine(line) &&
               !chargeTableRows.contains(lineIndex)) ||
+          _isIncludedTaxAmountLine(line) ||
           (afterSubtotal &&
               !chargeTableRows.contains(lineIndex) &&
               _hasShippingLabel(
@@ -3320,9 +3321,24 @@ bool _hasCompleteUsageRateColumns(String prefix) {
 
 bool _isChargeTableSummaryLine(String line) {
   final normalized = line.toLowerCase();
+  final jurisdictionalRatedTax =
+      _hasExplicitTaxRate(line) &&
+      RegExp(
+        r'^\s*(?:state|local|county|city|municipal|federal|provincial|regional)(?:\s+[\p{L}]+){0,2}\s+tax\b',
+        caseSensitive: false,
+        unicode: true,
+      ).hasMatch(line);
+  final ratedTaxNamedCharge =
+      _hasExplicitTaxRate(line) &&
+      !jurisdictionalRatedTax &&
+      RegExp(
+        r'^\s*(?:[\p{L}]+[ -]+){1,3}tax\b',
+        caseSensitive: false,
+        unicode: true,
+      ).hasMatch(line);
   return _isAccountBalanceSummaryLine(line) ||
-      (_hasExplicitTaxRate(line) && _isPostSubtotalAdjustmentLine(line)) ||
-      _hasTaxLabel(line, normalized) ||
+      (jurisdictionalRatedTax && _isPostSubtotalAdjustmentLine(line)) ||
+      (!ratedTaxNamedCharge && _hasTaxLabel(line, normalized)) ||
       _isExplicitNonItemFeeLine(line) ||
       _hasDiscountLabel(line, normalized) ||
       _hasActualTipChargeLabel(line, normalized) ||
@@ -5669,7 +5685,7 @@ bool _hasTotalLabel(String line, String normalized) {
 }
 
 bool _isIncludedTaxAmountLine(String line) => RegExp(
-  '^\\s*(?:vat|tax|gst|hst|iva|tva|kdv)\\s+included\\s+'
+  '^\\s*(?:vat|tax|gst|hst|iva|tva|kdv)(?:\\s+included|\\s*\\(included\\))\\s+'
   '(?:\\d{1,3}(?:[.,]\\d{1,2})?\\s*%\\s+)?'
   '(?:$_currencyTokenPattern)?\\s*$_amountTokenPattern'
   '(?:\\s*(?:$_currencyTokenPattern))?\\s*\$',

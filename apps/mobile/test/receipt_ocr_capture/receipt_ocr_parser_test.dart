@@ -4823,6 +4823,31 @@ Total USD 1.00
     expect(preview.tax, isNull);
   });
 
+  test('rated tax-named charge-table item retains priced evidence', () {
+    final preview = const ReceiptOcrParser().parse('''
+Utility
+Description Usage Amount
+Energy Tax (5%) USD 1.00
+Total USD 1.00
+''');
+    expect(preview.items.map((item) => item.description), ['Energy Tax (5%)']);
+    expect(preview.items.single.lineTotal, '1.00');
+    expect(preview.tax, isNull);
+  });
+
+  test('parenthesized included tax stays out of merchandise', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Widget USD 10.00
+Subtotal USD 9.50
+Tax (Included) USD 0.50
+Total USD 10.00
+''');
+    expect(preview.items.map((item) => item.description), ['Widget']);
+    expect(preview.tax, '0.50');
+    expect(preview.taxIncludedInTotal, isTrue);
+  });
+
   test('descriptive surcharge after subtotal stays review evidence', () {
     final preview = const ReceiptOcrParser().parse('''
 Utility
