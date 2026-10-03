@@ -4296,7 +4296,7 @@ String? _boundedDccChargedTotal(
     return null;
   }
   final cardCharge = RegExp(
-    r'^\s*card\s+charged\s+[A-Z]{3}\s+\d+(?:[.,]\d+)?\s*$',
+    '^\\s*card\\s+charged\\s+[A-Z]{3}\\s+($_amountTokenPattern)\\s*\$',
     caseSensitive: false,
   );
   for (final line in lines) {

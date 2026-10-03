@@ -1026,6 +1026,15 @@ Exchange Rate 7.8000 HKD/USD''';
     expect(charged.reviewHints, [
       'Some item prices use a different currency from the receipt. Review before applying.',
     ]);
+    final grouped = parser.parse(r'''Central Card Terminal
+Dinner HK$7,800.00
+DCC Selected USD 1,000.00
+CARD CHARGED USD 1,000.00
+Exchange Rate 7.8000 HKD/USD''', fallbackCurrency: 'HKD');
+    expect(grouped.currency, 'USD');
+    expect(grouped.total, '1000.00');
+    expect(grouped.items.single.currency, 'HKD');
+    expect(grouped.items.single.lineTotal, '7800.00');
 
     for (final extra in [
       'Cash USD 5.00',
