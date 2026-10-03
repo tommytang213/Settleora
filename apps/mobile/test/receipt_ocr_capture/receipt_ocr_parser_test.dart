@@ -4835,6 +4835,18 @@ Total USD 1.00
     expect(preview.tax, isNull);
   });
 
+  test('rated sales tax in a charge table remains a tax adjustment', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Description Amount
+Widget USD 5.00
+Sales Tax (5%) USD 0.25
+Total USD 5.25
+''');
+    expect(preview.items.map((item) => item.description), ['Widget']);
+    expect(preview.tax, '0.25');
+  });
+
   test('parenthesized included tax stays out of merchandise', () {
     final preview = const ReceiptOcrParser().parse('''
 Market

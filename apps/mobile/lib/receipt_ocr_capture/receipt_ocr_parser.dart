@@ -3327,7 +3327,7 @@ bool _isChargeTableSummaryLine(String line) {
   final jurisdictionalRatedTax =
       _hasExplicitTaxRate(line) &&
       RegExp(
-        r'^\s*(?:state|local|county|city|municipal|federal|provincial|regional)(?:\s+[\p{L}]+){0,2}\s+tax\b',
+        r'^\s*(?:state|local|county|city|municipal|federal|provincial|regional|sales|use|excise|tourist|tourism|occupancy|vat|gst|hst)(?:\s+[\p{L}]+){0,2}\s+tax\b',
         caseSensitive: false,
         unicode: true,
       ).hasMatch(line);
