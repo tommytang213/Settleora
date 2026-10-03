@@ -537,15 +537,27 @@ class ReceiptOcrParser {
     final primaryTotalLines = transactionCurrencyLines
         .where((line) => _isPrimaryTotalCurrencyLine(line, line.toLowerCase()))
         .toList(growable: false);
-    final hasExplicitReceiptCurrency = transactionCurrencyLines.any((line) {
-      final normalized = line.toLowerCase();
-      return (RegExp(r'^\s*(?:currency|curr)\b').hasMatch(normalized) ||
-              _hasSubtotalLabel(line, normalized)) &&
-          _rankedExplicitCurrencyCode([line]) != null;
-    });
-    if (primaryTotalLines.isEmpty && !hasExplicitReceiptCurrency) {
+    if (primaryTotalLines.isEmpty) {
       final dccCharge = _corroboratedDccCharge(lines);
       if (dccCharge.currency != null) {
+        final printedReceiptCurrencies = transactionCurrencyLines
+            .where((line) {
+              final normalized = line.toLowerCase();
+              return RegExp(r'^\s*(?:currency|curr)\b').hasMatch(normalized) ||
+                  _hasSubtotalLabel(line, normalized);
+            })
+            .map((line) => _rankedExplicitCurrencyCode([line]))
+            .whereType<String>()
+            .toSet();
+        if (printedReceiptCurrencies.length == 1) {
+          return _ReceiptCurrencyDetection(
+            currency: printedReceiptCurrencies.single,
+            provenance: ReceiptOcrCurrencyProvenance.explicit,
+          );
+        }
+        if (printedReceiptCurrencies.length > 1) {
+          return const _ReceiptCurrencyDetection();
+        }
         return _ReceiptCurrencyDetection(
           currency: dccCharge.currency,
           provenance: ReceiptOcrCurrencyProvenance.explicit,
