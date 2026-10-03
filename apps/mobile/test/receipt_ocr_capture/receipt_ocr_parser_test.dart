@@ -837,6 +837,29 @@ CARD CHARGED USD 100
       ),
     );
 
+    for (final explicitReceiptLine in ['Currency HKD', 'Subtotal HKD 780']) {
+      final printedCurrency = const ReceiptOcrParser().parse('''
+Central Card Terminal
+Dinner HKD 780
+$explicitReceiptLine
+DCC Selected USD 100
+CARD CHARGED USD 100
+''', fallbackCurrency: 'HKD');
+      expect(printedCurrency.currency, 'HKD', reason: explicitReceiptLine);
+      expect(
+        printedCurrency.currencyProvenance,
+        ReceiptOcrCurrencyProvenance.explicit,
+        reason: explicitReceiptLine,
+      );
+      expect(
+        printedCurrency.warnings,
+        contains(
+          'Item prices and the charged amount use different currencies. Review before applying.',
+        ),
+        reason: explicitReceiptLine,
+      );
+    }
+
     final unresolvedHeader = const ReceiptOcrParser().parse(r'''
 Karachi Grill
 Currency USD

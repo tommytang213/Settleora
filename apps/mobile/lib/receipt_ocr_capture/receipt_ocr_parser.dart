@@ -537,7 +537,13 @@ class ReceiptOcrParser {
     final primaryTotalLines = transactionCurrencyLines
         .where((line) => _isPrimaryTotalCurrencyLine(line, line.toLowerCase()))
         .toList(growable: false);
-    if (primaryTotalLines.isEmpty) {
+    final hasExplicitReceiptCurrency = transactionCurrencyLines.any((line) {
+      final normalized = line.toLowerCase();
+      return (RegExp(r'^\s*(?:currency|curr)\b').hasMatch(normalized) ||
+              _hasSubtotalLabel(line, normalized)) &&
+          _rankedExplicitCurrencyCode([line]) != null;
+    });
+    if (primaryTotalLines.isEmpty && !hasExplicitReceiptCurrency) {
       final dccCharge = _corroboratedDccCharge(lines);
       if (dccCharge.currency != null) {
         return _ReceiptCurrencyDetection(
