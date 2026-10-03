@@ -3320,7 +3320,7 @@ bool _isChargeTableSummaryLine(String line) {
   final jurisdictionalRatedTax =
       _hasExplicitTaxRate(line) &&
       RegExp(
-        r'^\s*(?:state|local|county|city|municipal|federal|provincial|regional|sales|use|excise|tourist|tourism|occupancy|vat|gst|hst)(?:\s+[\p{L}]+){0,2}\s+tax\b',
+        r'^\s*(?:state|local|county|city|municipal|federal|provincial|regional|sales|use|excise|tourist|tourism|occupancy|vat|gst|hst|value[ -]+added|goods[ -]+and[ -]+services)(?:\s+[\p{L}]+){0,2}\s+tax\b',
         caseSensitive: false,
         unicode: true,
       ).hasMatch(line);
@@ -3337,7 +3337,7 @@ bool _isChargeTableSummaryLine(String line) {
 bool _isAmbiguousRatedTaxCharge(String line) =>
     _hasExplicitTaxRate(line) &&
     !RegExp(
-      r'^\s*(?:state|local|county|city|municipal|federal|provincial|regional|sales|use|excise|tourist|tourism|occupancy|vat|gst|hst)(?:\s+[\p{L}]+){0,2}\s+tax\b',
+      r'^\s*(?:state|local|county|city|municipal|federal|provincial|regional|sales|use|excise|tourist|tourism|occupancy|vat|gst|hst|value[ -]+added|goods[ -]+and[ -]+services)(?:\s+[\p{L}]+){0,2}\s+tax\b',
       caseSensitive: false,
       unicode: true,
     ).hasMatch(line) &&

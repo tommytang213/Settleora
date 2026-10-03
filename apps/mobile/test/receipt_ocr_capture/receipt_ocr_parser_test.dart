@@ -4691,6 +4691,22 @@ Total USD 5.50
     expect(preview.warnings, contains(contains('may be an item or tax')));
   });
 
+  test('standard multiword rated tax remains a tax adjustment', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Description Amount
+Widget USD 5.00
+Value Added Tax (5%) USD 0.25
+Total USD 5.25
+''');
+    expect(preview.items.map((item) => item.description), ['Widget']);
+    expect(preview.tax, '0.25');
+    expect(
+      preview.warnings,
+      isNot(contains(contains('may be an item or tax'))),
+    );
+  });
+
   test('rated sales tax in a charge table remains a tax adjustment', () {
     final preview = const ReceiptOcrParser().parse('''
 Market
