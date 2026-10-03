@@ -91,6 +91,10 @@ class ReceiptOcrParser {
       ...chargeTableRows,
       ...layoutChargeItems.keys,
     };
+    final ambiguousRatedTaxRows = [
+      for (var index = 0; index < lines.length; index++)
+        if (_isAmbiguousRatedTaxCharge(lines[index])) index,
+    ];
     final amounts = _extractLabeledAmounts(
       lines,
       currency,
@@ -185,6 +189,11 @@ class ReceiptOcrParser {
     if (itemCandidates.isEmpty) {
       warnings.add('No clear item lines were detected.');
     }
+    if (ambiguousRatedTaxRows.isNotEmpty) {
+      warnings.add(
+        'A rated tax-named charge may be an item or tax. Review it before applying.',
+      );
+    }
     if (unresolvedItemLines > 0 ||
         detachedAmountSignRows.isNotEmpty ||
         chargeTable.ambiguous.any(
@@ -224,6 +233,8 @@ class ReceiptOcrParser {
             !layoutChargeItems.containsKey(index) &&
             !layoutAdjustmentLines.containsKey(index),
       ))
+        ReceiptOcrIncompleteAdjustmentReason.ambiguousChargeTable,
+      if (ambiguousRatedTaxRows.isNotEmpty)
         ReceiptOcrIncompleteAdjustmentReason.ambiguousChargeTable,
       if (unresolvedItemLines > 0)
         ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine,
@@ -3313,14 +3324,7 @@ bool _isChargeTableSummaryLine(String line) {
         caseSensitive: false,
         unicode: true,
       ).hasMatch(line);
-  final ratedTaxNamedCharge =
-      _hasExplicitTaxRate(line) &&
-      !jurisdictionalRatedTax &&
-      RegExp(
-        r'^\s*(?:[\p{L}]+[ -]+){1,3}tax\b',
-        caseSensitive: false,
-        unicode: true,
-      ).hasMatch(line);
+  final ratedTaxNamedCharge = _isAmbiguousRatedTaxCharge(line);
   return _isAccountBalanceSummaryLine(line) ||
       (jurisdictionalRatedTax && _isPostSubtotalAdjustmentLine(line)) ||
       (!ratedTaxNamedCharge && _hasTaxLabel(line, normalized)) ||
@@ -3329,6 +3333,19 @@ bool _isChargeTableSummaryLine(String line) {
       _hasActualTipChargeLabel(line, normalized) ||
       _isPaymentMetadataLine(line);
 }
+
+bool _isAmbiguousRatedTaxCharge(String line) =>
+    _hasExplicitTaxRate(line) &&
+    !RegExp(
+      r'^\s*(?:state|local|county|city|municipal|federal|provincial|regional|sales|use|excise|tourist|tourism|occupancy|vat|gst|hst)(?:\s+[\p{L}]+){0,2}\s+tax\b',
+      caseSensitive: false,
+      unicode: true,
+    ).hasMatch(line) &&
+    RegExp(
+      r'^\s*(?:[\p{L}]+[ -]+){1,3}tax\b',
+      caseSensitive: false,
+      unicode: true,
+    ).hasMatch(line);
 
 bool _isPostSubtotalAdjustmentLine(
   String line, {

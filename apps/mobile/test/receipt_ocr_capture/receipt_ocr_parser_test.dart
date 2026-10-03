@@ -4668,6 +4668,27 @@ Total USD 1.00
     expect(preview.items.map((item) => item.description), ['Energy Tax (5%)']);
     expect(preview.items.single.lineTotal, '1.00');
     expect(preview.tax, isNull);
+    expect(
+      preview.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.ambiguousChargeTable),
+    );
+    expect(preview.warnings, contains(contains('may be an item or tax')));
+  });
+
+  test('unfamiliar rated tax summary remains reviewable', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Description Amount
+Widget USD 5.00
+Luxury Tax (5%) USD 0.50
+Total USD 5.50
+''');
+    expect(preview.items.map((item) => item.description), ['Widget']);
+    expect(
+      preview.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.ambiguousChargeTable),
+    );
+    expect(preview.warnings, contains(contains('may be an item or tax')));
   });
 
   test('rated sales tax in a charge table remains a tax adjustment', () {
@@ -4740,11 +4761,9 @@ Total USD 5.25
           'Utility\n${withUsage ? '' : 'Charges for this period\n'}$header\n$row\nTotal USD 1.00',
           blocks: blocks,
         );
-        expect(
-          preview.items.map((item) => item.description),
-          ['Energy Tax (5%)'],
-          reason: 'withUsage=$withUsage',
-        );
+        expect(preview.items.map((item) => item.description), [
+          'Energy Tax (5%)',
+        ], reason: 'withUsage=$withUsage');
         expect(preview.items.single.lineTotal, '1.00');
         expect(preview.tax, isNull);
       }
