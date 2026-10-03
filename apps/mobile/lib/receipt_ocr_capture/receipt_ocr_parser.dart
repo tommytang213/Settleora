@@ -541,15 +541,27 @@ class ReceiptOcrParser {
     if (primaryTotalLines.isEmpty) {
       final dccCharge = _corroboratedDccCharge(lines);
       if (dccCharge.currency != null) {
-        final printedReceiptCurrencies = transactionCurrencyLines
-            .where((line) {
-              final normalized = line.toLowerCase();
-              return RegExp(r'^\s*(?:currency|curr)\b').hasMatch(normalized) ||
-                  _hasSubtotalLabel(line, normalized);
-            })
-            .map((line) => _rankedExplicitCurrencyCode([line]))
-            .whereType<String>()
-            .toSet();
+        final printedReceiptCurrencies = <String>{};
+        for (final line in transactionCurrencyLines) {
+          final normalized = line.toLowerCase();
+          if (!RegExp(r'^\s*(?:currency|curr)\b').hasMatch(normalized) &&
+              !_hasSubtotalLabel(line, normalized) &&
+              !(RegExp(r'^\s*sub[\s-]?total\b').hasMatch(normalized) &&
+                  _lineHasAmount(line))) {
+            continue;
+          }
+          final lineCurrencies = <String>{
+            ..._printedCurrencyMarkerMatches(line)
+                .where((marker) => _currencyMarkerTouchesAmount(line, marker))
+                .map((marker) => _currencyFromItemToken(marker.group(1)))
+                .whereType<String>(),
+            ?_rankedExplicitCurrencyCode([line]),
+          };
+          if (lineCurrencies.length > 1) {
+            return const _ReceiptCurrencyDetection();
+          }
+          printedReceiptCurrencies.addAll(lineCurrencies);
+        }
         if (printedReceiptCurrencies.length == 1) {
           return _ReceiptCurrencyDetection(
             currency: printedReceiptCurrencies.single,
