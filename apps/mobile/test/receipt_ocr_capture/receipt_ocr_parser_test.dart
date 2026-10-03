@@ -4529,16 +4529,18 @@ Bookshop
 Shipping Container Kit 19.00
 Shipping (Container) 7.00
 Delivery (Pizza) 12.00
+Tax (Board Game) 9.00
 Tax Planning Guide 9.00
 Due Date Planner 4.00
 Remaining Balance Workbook 5.00
-Subtotal USD 56.00
-Total USD 56.00
+Subtotal USD 65.00
+Total USD 65.00
 ''');
     expect(preview.items.map((item) => item.description), [
       'Shipping Container Kit',
       'Shipping (Container)',
       'Delivery (Pizza)',
+      'Tax (Board Game)',
       'Tax Planning Guide',
       'Due Date Planner',
       'Remaining Balance Workbook',
