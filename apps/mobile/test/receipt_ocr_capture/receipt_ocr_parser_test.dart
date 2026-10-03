@@ -4985,6 +4985,18 @@ Total USD 5.25
     }
   });
 
+  test('complete flattened Usage and Rate retain rated tax-named items', () {
+    for (final label in ['Energy Tax', 'State Gas Tax']) {
+      final preview = const ReceiptOcrParser().parse(
+        'Utility\nDescription Usage Rate Amount\n$label (5%) 1 0.05 USD 1.00\nTotal USD 1.00',
+      );
+      expect(preview.items, hasLength(1), reason: label);
+      expect(preview.items.single.description, contains(label), reason: label);
+      expect(preview.items.single.lineTotal, '1.00', reason: label);
+      expect(preview.adjustmentsComplete, isFalse, reason: label);
+    }
+  });
+
   test('descriptive surcharge after subtotal stays review evidence', () {
     final preview = const ReceiptOcrParser().parse('''
 Utility
