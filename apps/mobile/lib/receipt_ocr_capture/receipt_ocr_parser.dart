@@ -554,6 +554,25 @@ class ReceiptOcrParser {
                 .where((marker) => _currencyMarkerTouchesAmount(line, marker))
                 .map((marker) => _currencyFromItemToken(marker.group(1)))
                 .whereType<String>(),
+            ...RegExp(
+                  '(?:^\\s*(?:sub[\\s-]?total|currency|curr)\\b\\s*[:=]?\\s*|[/|;,]\\s*)'
+                  '(${_supportedCurrencyCodes.join('|')})\\s*[:=]?\\s*$_amountTokenPattern'
+                  '(?=\\s*(?:\$|[/|;,:)=+—–-]))',
+                  caseSensitive: false,
+                )
+                .allMatches(line)
+                .where((match) {
+                  final ambiguousWord = _maskAmbiguousSupportedItemWords(
+                    match.group(1)!,
+                    maskUppercase: true,
+                  ).trim().isEmpty;
+                  final followedByProse = RegExp(
+                    r'^\s*[—–-].*[\p{L}]',
+                    unicode: true,
+                  ).hasMatch(line.substring(match.end));
+                  return !(ambiguousWord && followedByProse);
+                })
+                .map((match) => match.group(1)!.toUpperCase()),
             ?_rankedExplicitCurrencyCode([line]),
           };
           if (lineCurrencies.length > 1) {
