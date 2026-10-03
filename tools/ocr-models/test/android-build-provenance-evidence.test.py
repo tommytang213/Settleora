@@ -189,6 +189,27 @@ class AndroidBuildProvenanceEvidenceTest(unittest.TestCase):
         self.assertIsNone(value["java"]["runtimeBuild"])
         self.assertEqual(value["collectionStatus"], "partial")
 
+    def test_rejects_long_version_fields_before_regex_matching(self):
+        repeated = "0" * 5000
+        self.script(self.bin / "flutter", "printf '%s\\n' '{\"frameworkVersion\":\"" +
+                    repeated + "\",\"frameworkRevision\":\"" + "1" * 40 +
+                    "\",\"engineRevision\":\"" + "2" * 40 +
+                    "\",\"dartSdkVersion\":\"3.12.2\"}'")
+        self.script(self.bin / "java", "printf '    java.version = " + repeated +
+                    "\\n    java.runtime.version = " + repeated +
+                    "\\n    java.vendor = Eclipse Adoptium\\n' >&2")
+        result = self.run_tool(ndk_versions=(repeated, repeated, repeated))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        evidence = json.loads(self.output.read_text())
+        self.assertEqual(evidence["collectionStatus"], "partial")
+        self.assertIsNone(evidence["flutter"]["frameworkVersion"])
+        self.assertIsNone(evidence["java"]["version"])
+        self.assertIsNone(evidence["java"]["runtimeBuild"])
+        self.assertEqual(evidence["ndk"], {"selectedVersion": None,
+                                           "installedVersion": None,
+                                           "linkerVersion": None})
+        self.assertNotIn(repeated, self.output.read_text())
+
     def test_invalid_source_identity_fails_without_path_or_payload(self):
         result = self.run_tool(source_sha=PRIVATE)
         self.assertNotEqual(result.returncode, 0)

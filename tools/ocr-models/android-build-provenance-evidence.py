@@ -13,6 +13,7 @@ from pathlib import Path
 
 MAX_COMMAND_OUTPUT = 16 * 1024
 MAX_EVIDENCE_BYTES = 4096
+MAX_VERSION_LENGTH = 64
 VERSION = re.compile(r"[0-9]+(?:\.[0-9]+){2,3}(?:\+[0-9]+)?\Z")
 REVISION = re.compile(r"[0-9a-f]{40}\Z")
 NDK_VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+\Z")
@@ -38,7 +39,8 @@ def _command(tool):
 
 
 def _version(value, pattern=VERSION):
-    return value if isinstance(value, str) and pattern.fullmatch(value) else None
+    return (value if isinstance(value, str) and
+            len(value) <= MAX_VERSION_LENGTH and pattern.fullmatch(value) else None)
 
 
 def _flutter():
@@ -64,7 +66,9 @@ def _java():
                         re.MULTILINE)
     vendor = re.search(r"^\s*java\.vendor\s*=\s*(.*?)\s*$", output, re.MULTILINE)
     parsed_version = _version(version.group(1)) if version else None
-    runtime_build = JAVA_RUNTIME_BUILD.fullmatch(runtime.group(1)) if runtime else None
+    runtime_value = runtime.group(1) if runtime else None
+    runtime_build = (JAVA_RUNTIME_BUILD.fullmatch(runtime_value)
+                     if runtime_value and len(runtime_value) <= MAX_VERSION_LENGTH else None)
     if runtime_build and (not parsed_version or
                           not runtime_build.group(1).startswith(parsed_version + "+")):
         runtime_build = None
