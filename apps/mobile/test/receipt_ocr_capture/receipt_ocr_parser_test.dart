@@ -1326,9 +1326,11 @@ Total 4.40''');
     }
   });
 
-  test('image-transcribed grocery footer leaves priced draft complete', () {
-    // Source-image transcription only; this is not a captured provider row set.
-    const imageText = '''FreshMart
+  test(
+    'image-transcribed grocery footer after tender and date stays bounded',
+    () {
+      // Source-image transcription only; this is not a captured provider row set.
+      const imageText = '''FreshMart
 Good Food. Brighter Days.
 456 Oak Avenue
 Pinecrest, NY 10077
@@ -1344,31 +1346,39 @@ TOTAL 14.47
 Visa 1111 14.47
 04/12/2025 10:23 AM
 Thank you for shopping local!''';
-    final preview = const ReceiptOcrParser().parse(
-      imageText,
-      fallbackCurrency: 'USD',
-    );
-    expect(preview.items.map((item) => item.description), [
-      'Bananas',
-      'Organic Milk',
-      'Whole Grain Bread',
-      'Large Eggs',
-      'Spring Mix',
-    ]);
-    expect(
-      preview.adjustmentsComplete,
-      isTrue,
-      reason: preview.incompleteAdjustmentReasons.toString(),
-    );
-    expect(preview.reviewHints, isEmpty);
-    final unpricedHeaderProduct = const ReceiptOcrParser().parse('''Market
-Cookie. Large
+      final preview = const ReceiptOcrParser().parse(
+        imageText,
+        fallbackCurrency: 'USD',
+      );
+      expect(preview.items.map((item) => item.description), [
+        'Bananas',
+        'Organic Milk',
+        'Whole Grain Bread',
+        'Large Eggs',
+        'Spring Mix',
+      ]);
+      // The source-image slogan remains unresolved without provider row/layout
+      // evidence; the footer rule must not silently clear that warning.
+      expect(preview.adjustmentsComplete, isFalse);
+      expect(
+        preview.incompleteAdjustmentReasons,
+        contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+      );
+      final withoutSlogan = const ReceiptOcrParser().parse(
+        imageText.replaceFirst('Good Food. Brighter Days.\n', ''),
+        fallbackCurrency: 'USD',
+      );
+      expect(withoutSlogan.adjustmentsComplete, isTrue);
+      expect(withoutSlogan.reviewHints, isEmpty);
+      final unpricedHeaderProduct = const ReceiptOcrParser().parse('''Market
+Chocolate Cookie. Family Size
 456 Oak Avenue
 Coffee 4.00
 Sales Tax 0.40
 Total 4.40''');
-    expect(unpricedHeaderProduct.reviewHints, isNotEmpty);
-  });
+      expect(unpricedHeaderProduct.reviewHints, isNotEmpty);
+    },
+  );
 
   test('charge table uses its columns despite neighboring panel text', () {
     final preview = const ReceiptOcrParser().parse(

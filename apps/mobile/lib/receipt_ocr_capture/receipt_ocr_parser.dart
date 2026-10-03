@@ -2610,19 +2610,6 @@ class ReceiptOcrParser {
           !_lineHasAmount(line)) {
         continue;
       }
-      // A punctuated slogan between a merchant heading and a street address
-      // belongs to the header. Keep ordinary unpriced descriptions reviewable.
-      if (lineIndex > 0 &&
-          lineIndex + 1 < lines.length &&
-          merchantLineIndices.contains(lineIndex - 1) &&
-          _isStreetAddressLine(lines[lineIndex + 1]) &&
-          !_lineHasAmount(line) &&
-          RegExp(
-            r'\b[\p{L}]+\s+[\p{L}]+\.\s+[\p{L}]+\s+[\p{L}]+',
-            unicode: true,
-          ).hasMatch(line)) {
-        continue;
-      }
       // A location printed directly below the merchant and directly above a
       // tax registration/rate header belongs to the receipt header. A bare
       // unpriced line elsewhere remains reviewable as a possible item.
