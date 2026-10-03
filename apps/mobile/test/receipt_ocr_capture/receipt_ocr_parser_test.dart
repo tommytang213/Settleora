@@ -1035,6 +1035,23 @@ Exchange Rate 7.8000 HKD/USD''', fallbackCurrency: 'HKD');
     expect(grouped.total, '1000.00');
     expect(grouped.items.single.currency, 'HKD');
     expect(grouped.items.single.lineTotal, '7800.00');
+    final unresolvedItem = parser.parse(
+      '$base\nMystery snack',
+      fallbackCurrency: 'HKD',
+    );
+    expect(unresolvedItem.total, isNull);
+    expect(unresolvedItem.adjustmentsComplete, isFalse);
+    final crowdedItems = List.generate(
+      41,
+      (index) => 'Menu $index HK\$1.00',
+    ).join('\n');
+    final truncatedItems = parser.parse(
+      base.replaceFirst('Dinner HK\$780.00', crowdedItems),
+      fallbackCurrency: 'HKD',
+    );
+    expect(truncatedItems.items, hasLength(40));
+    expect(truncatedItems.total, isNull);
+    expect(truncatedItems.adjustmentsComplete, isFalse);
 
     for (final extra in [
       'Cash USD 5.00',

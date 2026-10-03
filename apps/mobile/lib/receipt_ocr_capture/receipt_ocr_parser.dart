@@ -116,6 +116,21 @@ class ReceiptOcrParser {
       detachedAmountSignRows: detachedAmountSignRows,
     );
     final itemCandidates = extractedItems.items;
+    final unresolvedItemLines = _countUnresolvedItemLikeLines(
+      lines,
+      merchantLineIndices: merchantDetection?.lineIndices ?? const {},
+      layoutRows: layoutRows,
+    );
+    final hasCompleteItemEvidence =
+        !extractedItems.truncated &&
+        !extractedItems.unretainedPricedItem &&
+        unresolvedItemLines == 0 &&
+        detachedAmountSignRows.isEmpty &&
+        !chargeTable.ambiguous.any(
+          (index) =>
+              !layoutChargeItems.containsKey(index) &&
+              !layoutAdjustmentLines.containsKey(index),
+        );
     final dccCharge = _corroboratedDccCharge(lines);
     final selectedTotal =
         amounts.total ??
@@ -125,6 +140,7 @@ class ReceiptOcrParser {
           amounts,
           currency,
           dccCharge,
+          hasCompleteItemEvidence: hasCompleteItemEvidence,
         );
     if (dccCharge.hasSelection && dccCharge.currency == null) {
       warnings.add(
@@ -150,11 +166,6 @@ class ReceiptOcrParser {
         'Item prices and the receipt currency differ. Review before applying.',
       );
     }
-    final unresolvedItemLines = _countUnresolvedItemLikeLines(
-      lines,
-      merchantLineIndices: merchantDetection?.lineIndices ?? const {},
-      layoutRows: layoutRows,
-    );
     if (itemCandidates.isEmpty) {
       warnings.add('No clear item lines were detected.');
     }
@@ -2663,6 +2674,7 @@ class ReceiptOcrParser {
       if ((!courtesy && _isAdministrativeLine(line)) ||
           _isSupportedChargeTableHeader(lines, lineIndex) ||
           (!courtesy && _isContextualReceiptMetadataLine(lines, lineIndex)) ||
+          _dccExchangeRatePattern.hasMatch(line) ||
           _lineHasAmount(line) ||
           _detectDate([line]) != null) {
         continue;
@@ -4253,14 +4265,21 @@ bool _isNonTransactionCurrencyMetadataLine(String line) {
   return (hasSelection: hasSelection, currency: null, amount: null);
 }
 
+final _dccExchangeRatePattern = RegExp(
+  r'^\s*exchange\s+rate\s+\d+(?:[.,]\d+)?\s+([A-Z]{3})\s*/\s*([A-Z]{3})\s*$',
+  caseSensitive: false,
+);
+
 String? _boundedDccChargedTotal(
   List<String> lines,
   List<ReceiptOcrItemCandidate> items,
   _LabeledReceiptAmounts amounts,
   String? receiptCurrency,
-  ({bool hasSelection, String? currency, String? amount}) dccCharge,
-) {
-  if (dccCharge.amount == null ||
+  ({bool hasSelection, String? currency, String? amount}) dccCharge, {
+  required bool hasCompleteItemEvidence,
+}) {
+  if (!hasCompleteItemEvidence ||
+      dccCharge.amount == null ||
       dccCharge.currency != receiptCurrency ||
       !amounts.adjustmentsComplete ||
       amounts.incompleteReasons.isNotEmpty ||
@@ -4283,12 +4302,8 @@ String? _boundedDccChargedTotal(
   final itemCurrencies = items.map((item) => item.currency!).toSet();
   if (itemCurrencies.length != 1) return null;
   final itemCurrency = itemCurrencies.single;
-  final rate = RegExp(
-    r'^\s*exchange\s+rate\s+\d+(?:[.,]\d+)?\s+([A-Z]{3})\s*/\s*([A-Z]{3})\s*$',
-    caseSensitive: false,
-  );
   if (!lines.any((line) {
-    final match = rate.firstMatch(line);
+    final match = _dccExchangeRatePattern.firstMatch(line);
     return match != null &&
         match.group(1)!.toUpperCase() == itemCurrency &&
         match.group(2)!.toUpperCase() == receiptCurrency;
