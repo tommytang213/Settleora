@@ -2357,6 +2357,70 @@ VAT included 20% GBP 4.00
     expect(preview.reviewHints, isNotEmpty);
   });
 
+  test('explicit included VAT can accompany a plain printed total', () {
+    final preview = const ReceiptOcrParser().parse('''
+London Books
+Book GBP 24.00
+Total GBP 24.00
+VAT included 20% GBP 4.00
+''');
+
+    expect(preview.taxIncludedInTotal, isTrue);
+    expect(preview.total, '24.00');
+    expect(preview.tax, '4.00');
+    expect(preview.reviewHintDecision, ReceiptOcrReviewDecision.none);
+  });
+
+  test('included VAT reconciles a net subtotal under gross item prices', () {
+    final preview = const ReceiptOcrParser().parse('''
+London Books
+Book GBP 24.00
+Subtotal GBP 20.00
+VAT included 20% GBP 4.00
+Total GBP 24.00
+''');
+
+    expect(preview.items.single.lineTotal, '24.00');
+    expect(preview.subtotal, '20.00');
+    expect(preview.taxIncludedInTotal, isTrue);
+    expect(preview.reviewHintDecision, ReceiptOcrReviewDecision.none);
+  });
+
+  test('included VAT cannot hide a contradictory pre-subtotal discount', () {
+    const preview = ReceiptOcrPreview(
+      currency: 'GBP',
+      subtotal: '20.00',
+      tax: '4.00',
+      taxIncludedInTotal: true,
+      discount: '-5.00',
+      discountBeforeSubtotal: true,
+      total: '19.00',
+      items: [ReceiptOcrItemCandidate(description: 'Book', lineTotal: '24.00')],
+    );
+
+    expect(
+      preview.reviewHintDecision,
+      ReceiptOcrReviewDecision.subtotalMismatch,
+    );
+  });
+
+  test('included VAT and a separately added service fee reconcile', () {
+    final preview = const ReceiptOcrParser().parse('''
+London Books
+Book GBP 24.00
+VAT included 20% GBP 4.00
+Service fee GBP 2.00
+Total GBP 26.00
+''');
+
+    expect(preview.items.single.lineTotal, '24.00');
+    expect(preview.tax, '4.00');
+    expect(preview.service, '2.00');
+    expect(preview.taxIncludedInTotal, isTrue);
+    expect(preview.total, '26.00');
+    expect(preview.reviewHintDecision, ReceiptOcrReviewDecision.none);
+  });
+
   test('included VAT reconciles a printed net subtotal when supported', () {
     const parser = ReceiptOcrParser();
     final balanced = parser.parse('''

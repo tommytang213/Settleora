@@ -260,6 +260,15 @@ List<String> _receiptOcrReviewHints(
   final subtotal = subtotalMatchesCurrency
       ? _parseReceiptOcrReviewAmount(preview.subtotal)
       : null;
+  final includedTax =
+      preview.taxIncludedInTotal &&
+          _adjustmentCurrencyMatchesReview(
+            reviewCurrency: preview.currency,
+            adjustmentCurrency: preview.taxCurrency,
+            hasExplicitCurrencyEvidence: preview.taxHasExplicitCurrencyEvidence,
+          )
+      ? _parseReceiptOcrReviewAmount(preview.tax)
+      : null;
   if (subtotalMatchesCurrency && _hasReviewAmountText(preview.subtotal)) {
     if (subtotal == null) {
       return const [];
@@ -279,7 +288,12 @@ List<String> _receiptOcrReviewHints(
             !_receiptOcrAmountsClose(
               itemTotal + beforeSubtotalDiscount,
               subtotal,
-            ))) {
+            )) &&
+        // A discount before the subtotal leaves the printed tax/discount
+        // order unresolved for the saved review's subtotal-based tax mode.
+        (includedTax == null ||
+            preview.discountBeforeSubtotal ||
+            !_receiptOcrAmountsClose(itemTotal, subtotal + includedTax))) {
       onDecision?.call(ReceiptOcrReviewDecision.subtotalMismatch);
       return const [
         'OCR item total differs from detected subtotal. Review the receipt before applying.',

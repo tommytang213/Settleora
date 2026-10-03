@@ -637,6 +637,13 @@ Subtotal GBP 20.00
 Total incl. VAT GBP 24.00
 VAT included 20% GBP 4.00
 ''');
+      final grossItemWithNetSubtotal = parser.parse('''
+London Books
+Book GBP 24.00
+Subtotal GBP 20.00
+Total incl. VAT GBP 24.00
+VAT included 20% GBP 4.00
+''');
       final contradictory = parser.parse('''
 London Books
 Book GBP 20.00
@@ -677,6 +684,14 @@ Total GBP 26.00
       expect(
         receiptOcrReviewSaveRequestFromPreview(
           net,
+          originalCurrency: 'GBP',
+        )?.taxReconciliationMode,
+        ReceiptOcrTaxReconciliationModeValues.addToBase,
+      );
+      expect(grossItemWithNetSubtotal.reviewHints, isEmpty);
+      expect(
+        receiptOcrReviewSaveRequestFromPreview(
+          grossItemWithNetSubtotal,
           originalCurrency: 'GBP',
         )?.taxReconciliationMode,
         ReceiptOcrTaxReconciliationModeValues.addToBase,
