@@ -330,16 +330,28 @@ class ReceiptOcrParser {
           !_lineHasAmount(second) &&
           !_isReceiptMetadataLine(second)) {
         final identity = '$first $second';
-        final corroborated = lines.skip(2).take(8).any((line) {
+        var corroborated = false;
+        for (final line in lines.skip(2).take(8)) {
+          // A later customer or payee section cannot corroborate the issuer.
+          if (_isChargeTableHeader(line) ||
+              RegExp(
+                r'^\s*(?:bill\s+to|ship\s+to|customer|payee|payment\b|subtotal\b|total\b|thank\s+you\b|need\s+help\b|footer\b)',
+                caseSensitive: false,
+              ).hasMatch(line)) {
+            break;
+          }
           if (!line.toLowerCase().startsWith('${identity.toLowerCase()} ')) {
-            return false;
+            continue;
           }
           final suffix = line.substring(identity.length).trim();
-          return RegExp(
+          if (RegExp(
             r'^(?:order|invoice|account|reference)\s*(?:number|no\.?|#)\s*[:：]',
             caseSensitive: false,
-          ).hasMatch(suffix);
-        });
+          ).hasMatch(suffix)) {
+            corroborated = true;
+            break;
+          }
+        }
         if (corroborated) {
           return (text: identity, lineIndices: {0, 1});
         }

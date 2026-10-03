@@ -2072,6 +2072,37 @@ Desk Mat USD 19.99
 Total USD 19.99
 ''');
       expect(uncorroborated.merchant, isNot('Northstar Marketplace'));
+
+      final competingCustomer = const ReceiptOcrParser().parse('''
+Northstar INVOICE
+Marketplace
+Bill To
+Northstar Marketplace Account Number: C-247
+Payment Method: Card
+Desk Mat USD 19.99
+Total USD 19.99
+''');
+      expect(competingCustomer.merchant, isNot('Northstar Marketplace'));
+
+      final competingPayee = const ReceiptOcrParser().parse('''
+Northstar INVOICE
+Marketplace
+Payee
+Northstar Marketplace Reference Number: P-247
+Desk Mat USD 19.99
+Total USD 19.99
+''');
+      expect(competingPayee.merchant, isNot('Northstar Marketplace'));
+
+      final footerRepeat = const ReceiptOcrParser().parse('''
+Northstar INVOICE
+Marketplace
+Desk Mat USD 19.99
+Total USD 19.99
+Thank you for your purchase
+Northstar Marketplace Order Number: F-247
+''');
+      expect(footerRepeat.merchant, isNot('Northstar Marketplace'));
     },
   );
 
