@@ -4565,6 +4565,29 @@ Total USD 17.00
     },
   );
 
+  test('post-subtotal charge-table rows remain traceable items', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Widget USD 5.00
+Subtotal USD 5.00
+Description Usage Amount
+Energy Surcharge USD 1.00
+Shipping (Express) USD 2.00
+Total USD 8.00
+''');
+    expect(preview.items.map((item) => item.description), [
+      'Widget',
+      'Energy Surcharge',
+      'Shipping (Express)',
+    ]);
+    expect(preview.items.map((item) => item.lineTotal), [
+      '5.00',
+      '1.00',
+      '2.00',
+    ]);
+    expect(preview.shipping, isNull);
+  });
+
   test('previous bill date does not outrank the current bill date', () {
     final preview = const ReceiptOcrParser().parse('''
 Harbor Utility

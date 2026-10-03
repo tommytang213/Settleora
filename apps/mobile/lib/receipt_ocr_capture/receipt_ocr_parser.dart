@@ -1696,12 +1696,15 @@ class ReceiptOcrParser {
       if ((_isAdministrativeLine(line) &&
               !chargeTableRows.contains(lineIndex)) ||
           (afterSubtotal &&
+              !chargeTableRows.contains(lineIndex) &&
               _hasShippingLabel(
                 line,
                 line.toLowerCase(),
                 allowParenthesizedMethod: true,
               )) ||
-          _isPostSubtotalAdjustmentLine(line) ||
+          (_isPostSubtotalAdjustmentLine(line) &&
+              (!chargeTableRows.contains(lineIndex) ||
+                  RegExp(r'\btax\b', caseSensitive: false).hasMatch(line))) ||
           _isContextualReceiptMetadataLine(lines, lineIndex) ||
           _isChargeTableHeader(line) ||
           detachedAmountSignRows.contains(lineIndex) ||
@@ -3288,7 +3291,8 @@ bool _hasCompleteUsageRateColumns(String prefix) {
 bool _isChargeTableSummaryLine(String line) {
   final normalized = line.toLowerCase();
   return _isAccountBalanceSummaryLine(line) ||
-      _isPostSubtotalAdjustmentLine(line) ||
+      (_isPostSubtotalAdjustmentLine(line) &&
+          RegExp(r'\btax\b', caseSensitive: false).hasMatch(line)) ||
       _hasTaxLabel(line, normalized) ||
       _isExplicitNonItemFeeLine(line) ||
       _hasDiscountLabel(line, normalized) ||
