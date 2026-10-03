@@ -2115,7 +2115,10 @@ Total USD 19.99
         'Ship-To:',
         'Recipient',
         'Client',
+        'Billing',
         'Billing Information',
+        'Remit To',
+        'Pay To',
       ]) {
         final buyerIdentity = const ReceiptOcrParser().parse('''
 Northstar INVOICE
@@ -4811,6 +4814,96 @@ Total USD 0.15
             )
             as List<dynamic>;
     expect(serializedReasons.toSet().length, serializedReasons.length);
+  });
+
+  test('amount-column geometry excludes adjacent usage-chart numbers', () {
+    ReceiptOcrPreview parse({bool conflictingMoney = false}) {
+      final blocks = <ReceiptOcrBlockEvidence>[
+        _layoutBlock('CURRENT CHARGES DETAIL', 0, 0, 20, 400),
+        _layoutBlock('USAGE SUMMARY', 1, 0, 740, 980),
+        _layoutBlock('Service', 2, 1, 20, 150),
+        _layoutBlock('Usage', 3, 1, 275, 335),
+        _layoutBlock('Rate', 4, 1, 420, 475),
+        _layoutBlock('Amount', 5, 1, 600, 665),
+        _layoutBlock('Electricity (kWh)', 6, 1, 755, 900),
+        _layoutBlock('Electricity', 7, 2, 20, 150),
+        _layoutBlock('62 kWh', 8, 2, 275, 335),
+        _layoutBlock('USD 0.1580/kWh', 9, 2, 420, 525),
+        _layoutBlock('USD 9.80', 10, 2, 600, 665),
+        _layoutBlock('800', 11, 2, 710, 750),
+        _layoutBlock('Water', 12, 3, 20, 150),
+        _layoutBlock('900 gallons', 13, 3, 275, 350),
+        _layoutBlock('USD 0.0055/gallon', 14, 3, 420, 540),
+        _layoutBlock('USD 4.95', 15, 3, 600, 665),
+        _layoutBlock('600', 16, 3, 710, 750),
+        _layoutBlock('Subtotal', 17, 4, 20, 150),
+        _layoutBlock('USD 14.75', 18, 4, 600, 665),
+        _layoutBlock(conflictingMoney ? 'USD 999.00' : '200', 19, 4, 710, 780),
+        _layoutBlock('City Utilities Tax (5%)', 20, 5, 20, 260),
+        _layoutBlock('USD 0.74', 21, 5, 600, 665),
+        _layoutBlock('0', 22, 5, 710, 750),
+        _layoutBlock('Oct Nov Dec', 23, 5, 780, 970),
+        _layoutBlock('State Energy Surcharge (1.5%)', 24, 6, 20, 300),
+        _layoutBlock('USD 0.22', 25, 6, 600, 665),
+        _layoutBlock('2024 2025', 26, 6, 780, 970),
+        _layoutBlock('Total Current Charges', 27, 7, 20, 250),
+        _layoutBlock('USD 15.71', 28, 7, 600, 665),
+      ];
+      final rows = <int, List<String>>{};
+      for (final block in blocks) {
+        (rows[block.row] ??= <String>[]).add(block.text);
+      }
+      return const ReceiptOcrParser().parse(
+        rows.values.map((parts) => parts.join(' ')).join('\n'),
+        fallbackCurrency: 'USD',
+        blocks: blocks,
+      );
+    }
+
+    final preview = parse();
+    expect(preview.subtotal, '14.75');
+    expect(preview.tax, '0.74');
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(preview.incompleteAdjustmentReasons, isNotEmpty);
+
+    final conflicting = parse(conflictingMoney: true);
+    expect(conflicting.subtotal, isNull);
+    expect(conflicting.adjustmentsComplete, isFalse);
+  });
+
+  test('aligned letterhead needs a repeated full issuer block', () {
+    ReceiptOcrPreview parse(String footer) {
+      final blocks = <ReceiptOcrBlockEvidence>[
+        _layoutBlock('Northbank', 0, 0, 180, 330),
+        _layoutBlock('Powering', 1, 0, 870, 1030),
+        _layoutBlock('100 Main Avenue', 2, 1, 600, 800),
+        _layoutBlock('Power & Water', 3, 2, 180, 330),
+        _layoutBlock('Communities', 4, 2, 870, 1030),
+        _layoutBlock('UTILITY BILL', 5, 3, 20, 300),
+        _layoutBlock('Electricity USD 10.00', 6, 4, 20, 340),
+        _layoutBlock('Total USD 10.00', 7, 5, 20, 340),
+        _layoutBlock(footer, 8, 6, 20, 370),
+        _layoutBlock('Reliable Service', 9, 6, 870, 1030),
+      ];
+      final rows = <int, List<String>>{};
+      for (final block in blocks) {
+        (rows[block.row] ??= <String>[]).add(block.text);
+      }
+      return const ReceiptOcrParser().parse(
+        rows.values.map((parts) => parts.join(' ')).join('\n'),
+        blocks: blocks,
+        fallbackCurrency: 'USD',
+      );
+    }
+
+    expect(
+      parse('Northbank Power & Water').merchant,
+      'Northbank Power & Water',
+    );
+    expect(
+      parse('Northbank Power & Electric').merchant,
+      isNot('Northbank Power & Water'),
+    );
   });
 
   test('unfamiliar rated tax summary remains reviewable', () {
