@@ -4063,6 +4063,12 @@ bool _isNonTransactionCurrencyMetadataLine(String line) {
   if (_isPaymentMetadataLine(line) || _isAccountBalanceSummaryLine(line)) {
     return true;
   }
+  if (_isLabeledStandaloneMoneyLine(
+    line,
+    RegExp(r'^dcc\s+selected\b', caseSensitive: false),
+  )) {
+    return true;
+  }
   final trimmed = line.trim();
   if (RegExp(
         r'^(?:reference|conversion|dcc)\s+(?:total|amount)\b',
@@ -5150,6 +5156,11 @@ bool _hasDiscountLabel(String line, String normalized) {
         normalized,
         RegExp(r'\b(discount|coupon)\b', caseSensitive: false),
       ) ||
+      (_lastAmountInLine(line)?.startsWith('-') == true &&
+          _isLabeledStandaloneMoneyLine(
+            line,
+            RegExp(r'^(?:promotion|promo)\b', caseSensitive: false),
+          )) ||
       (_lastAmountInLine(line)?.startsWith('-') == true &&
           _hasEnglishReceiptLabel(
             normalized,

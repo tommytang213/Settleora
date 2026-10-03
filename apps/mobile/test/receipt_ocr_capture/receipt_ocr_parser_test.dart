@@ -733,6 +733,62 @@ Total USD 7.49
     expect(preview.reviewHints, isEmpty);
   });
 
+  test('negative standalone promotion is evidence, not merchandise', () {
+    final preview = const ReceiptOcrParser().parse('''
+Promo Cafe
+Coffee USD 5.00
+Promotion USD -5.00
+Subtotal USD 5.00
+Discount USD -5.00
+Total USD 0.00
+''');
+    expect(preview.items.map((item) => item.description), ['Coffee']);
+    expect(preview.total, '0.00');
+
+    final merchandise = const ReceiptOcrParser().parse('''
+Market
+Promotion Mug USD 5.00
+Total USD 5.00
+''');
+    expect(merchandise.items.map((item) => item.description), [
+      'Promotion Mug',
+    ]);
+  });
+
+  test('DCC selected amount is payment context, not merchandise', () {
+    final preview = const ReceiptOcrParser().parse(r'''
+Central Card Terminal
+Hong Kong Central
+Dinner HK$780
+DCC Selected USD 100
+CARD CHARGED USD 100.00
+Exchange Rate 7.8000 HKD/USD
+''', fallbackCurrency: 'HKD');
+    expect(preview.items.map((item) => item.description), ['Dinner']);
+
+    final merchandise = const ReceiptOcrParser().parse('''
+Store
+DCC Selected Tee USD 10.00
+Total USD 10.00
+''');
+    expect(merchandise.items.map((item) => item.description), [
+      'DCC Selected Tee',
+    ]);
+  });
+
+  test('printed taxi tip remains a tip charge, not merchandise', () {
+    final preview = const ReceiptOcrParser().parse('''
+Metro Taxi
+Fare USD 24.50
+Toll USD 3.00
+Tip USD 5.00
+Total USD 32.50
+''');
+    expect(preview.items.map((item) => item.description), ['Fare', 'Toll']);
+    expect(preview.tip, '5.00');
+    expect(preview.total, '32.50');
+  });
+
   test('unreconciled or duplicate promotions remain in review', () {
     for (final rows in [
       'Store Coupon USD -2.00\nLoyalty Discount USD -1.00',
