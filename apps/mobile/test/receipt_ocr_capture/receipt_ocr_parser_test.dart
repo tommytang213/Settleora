@@ -2084,7 +2084,15 @@ Total USD 19.99
 ''');
       expect(competingCustomer.merchant, isNot('Northstar Marketplace'));
 
-      for (final buyerHeading in ['Sold To', 'Billed To', 'Recipient']) {
+      for (final buyerHeading in [
+        'Sold To',
+        'Billed To',
+        'Bill-To:',
+        'Ship-To:',
+        'Recipient',
+        'Client',
+        'Billing Information',
+      ]) {
         final buyerIdentity = const ReceiptOcrParser().parse('''
 Northstar INVOICE
 Marketplace

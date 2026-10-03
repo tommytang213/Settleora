@@ -335,7 +335,7 @@ class ReceiptOcrParser {
           // A later customer or payee section cannot corroborate the issuer.
           if (_isChargeTableHeader(line) ||
               RegExp(
-                r'^\s*(?:(?:bill|billed|sold|ship|deliver|delivered)\s+to|customer|buyer|purchaser|recipient|payee|payment\b|subtotal\b|total\b|thank\s+you\b|need\s+help\b|footer\b)',
+                r'^\s*(?:(?:bill|billed|sold|ship|deliver|delivered)[\s-]*to|(?:customer|buyer|purchaser|recipient|payee|client)\b|(?:billing|shipping)\s+(?:information|details)\b|payment\b|subtotal\b|total\b|thank\s+you\b|need\s+help\b|footer\b)',
                 caseSensitive: false,
               ).hasMatch(line)) {
             break;
