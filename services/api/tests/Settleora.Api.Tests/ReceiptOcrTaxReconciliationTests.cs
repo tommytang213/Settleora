@@ -8,6 +8,7 @@ public sealed class ReceiptOcrTaxReconciliationTests
     [Theory]
     [InlineData("already_in_base", "24", "24", "24", true, "24")]
     [InlineData("add_to_base", "20", "20", "24", true, "24")]
+    [InlineData("add_to_base", "24", "20", "24", true, "24")]
     [InlineData(null, "20", "20", "24", true, "24")]
     [InlineData("already_in_base", "24", "24", "28", false, "24")]
     [InlineData("unresolved", "24", "24", "24", false, null)]
@@ -21,11 +22,26 @@ public sealed class ReceiptOcrTaxReconciliationTests
         var preview = ReceiptOcrReviewApplyPreviewResponse.From(review, "GBP");
         Assert.Equal(canApply, preview.CanApply);
         Assert.Equal(expectedHeader, preview.Summary.ExpectedHeaderTotalAmount);
+        if (canApply)
+            Assert.DoesNotContain(ReceiptOcrReviewApplyPreviewIssueCodes.LineSumMismatch, preview.Warnings);
         if (mode is ReceiptOcrReviewTaxReconciliationModes.Unresolved
             or ReceiptOcrReviewTaxReconciliationModes.SourceIncludedUnresolved)
             Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.TaxReconciliationUnresolved, preview.BlockedReasons);
         if (mode is ReceiptOcrReviewTaxReconciliationModes.AlreadyInBase && !canApply)
             Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.HeaderTotalMismatch, preview.BlockedReasons);
+    }
+
+    [Fact]
+    public void AdditiveModeDoesNotInferGrossLinesWhenTaxAllocationIsAmbiguous()
+    {
+        var review = CreateReview(ReceiptOcrReviewTaxReconciliationModes.AddToBase, 14m, 20m, 24m);
+        review.Lines.Add(new ReceiptOcrReviewLine
+        {
+            Id = Guid.NewGuid(), Text = "Second item", SortOrder = 1,
+            Quantity = 1m, UnitPriceAmount = 10m, LineTotalAmount = 10m
+        });
+        var preview = ReceiptOcrReviewApplyPreviewResponse.From(review, "GBP");
+        Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.LineSumMismatch, preview.Warnings);
     }
 
     [Theory]

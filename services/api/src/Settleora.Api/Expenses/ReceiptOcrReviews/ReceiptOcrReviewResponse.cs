@@ -314,7 +314,10 @@ internal sealed record ReceiptOcrReviewApplyPreviewResponse(
                 AddBlockedIssue(blockedReasons, warnings, ReceiptOcrReviewApplyPreviewIssueCodes.LineSumMismatch);
             }
             else if (comparisonAmount.HasValue
-                && NormalizeAmount(proposedLineTotalSum) != NormalizeAmount(comparisonAmount.Value))
+                && NormalizeAmount(proposedLineTotalSum) != NormalizeAmount(comparisonAmount.Value)
+                && !IsSupportedSingleGrossLineWithIncludedTax(
+                    review, orderedLines.Length, proposedLineTotalSum,
+                    hasExpectedHeaderTotal, expectedHeaderTotal, taxModeInvalid))
             {
                 AddWarning(warnings, ReceiptOcrReviewApplyPreviewIssueCodes.LineSumMismatch);
             }
@@ -435,6 +438,38 @@ internal sealed record ReceiptOcrReviewApplyPreviewResponse(
         }
         expectedHeaderTotal = NormalizeAmount(expectedHeaderTotal);
         return true;
+    }
+
+    private static bool IsSupportedSingleGrossLineWithIncludedTax(
+        ReceiptOcrReview review,
+        int lineCount,
+        decimal proposedLineTotalSum,
+        bool hasExpectedHeaderTotal,
+        decimal expectedHeaderTotal,
+        bool taxModeInvalid)
+    {
+        // Receipt-level tax does not identify how tax is allocated across multiple items.
+        // Accept the gross alternative only when a single item and the printed header
+        // establish the complete relationship without other unallocated components.
+        if (review.TaxReconciliationMode is not ReceiptOcrReviewTaxReconciliationModes.AddToBase
+            || lineCount != 1
+            || !review.SubtotalAmount.HasValue
+            || !review.TaxAmount.HasValue
+            || review.TaxAmount.Value <= 0m
+            || review.ServiceChargeAmount.HasValue
+            || review.DiscountAmount.HasValue
+            || review.Adjustments.Count != 0
+            || !hasExpectedHeaderTotal
+            || taxModeInvalid
+            || !review.GrandTotalAmount.HasValue
+            || NormalizeAmount(expectedHeaderTotal) != NormalizeAmount(review.GrandTotalAmount.Value))
+        {
+            return false;
+        }
+
+        var grossAmount = review.SubtotalAmount.Value + review.TaxAmount.Value;
+        return grossAmount <= ReceiptOcrReviewConstraints.MoneyAmountMaxValue
+            && NormalizeAmount(proposedLineTotalSum) == NormalizeAmount(grossAmount);
     }
 
     private static decimal? GetLineSumComparisonAmount(

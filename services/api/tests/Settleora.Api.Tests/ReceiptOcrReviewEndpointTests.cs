@@ -1770,6 +1770,61 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
     }
 
     [Fact]
+    public async Task SingleGrossItemWithIncludedTaxCanPreviewAndApplyWithoutAddingTaxTwice()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var owner = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Gross Tax OCR Owner");
+        var billId = await SeedBillAsync(testFactory, owner.UserProfileId, groupId: null,
+            ExpenseBillStatuses.Draft, archivedAtUtc: null,
+            [owner.UserProfileId], [owner.UserProfileId], InitialTimestamp.AddMinutes(2));
+        var fileId = await SeedBillAttachmentAsync(testFactory, billId, owner.UserProfileId,
+            ExpenseBillAttachmentPurposes.Receipt, FileObjectPurposes.ReceiptImage,
+            FileObjectStatuses.Active, removedAtUtc: null);
+        using var client = testFactory.CreateClient();
+
+        const string reviewJson =
+            """
+            {
+              "status":"reviewed",
+              "source":"on_device",
+              "currency":"USD",
+              "subtotalAmount":"20",
+              "taxAmount":"4",
+              "taxReconciliationMode":"add_to_base",
+              "grandTotalAmount":"24",
+              "lines":[{"text":"Gross item","quantity":"1","unitPriceAmount":"24","lineTotalAmount":"24"}]
+            }
+            """;
+        using var putRequest = CreateJsonBearerRequest(HttpMethod.Put,
+            PersonalOcrReviewPath(billId, fileId), owner.RawSessionToken, reviewJson);
+        using var putResponse = await client.SendAsync(putRequest);
+        Assert.Equal(HttpStatusCode.Created, putResponse.StatusCode);
+        var saved = ReadReviewPayload(await putResponse.Content.ReadAsStringAsync());
+
+        using var previewRequest = CreateBearerRequest(HttpMethod.Get,
+            PersonalOcrReviewApplyPreviewPath(billId, fileId), owner.RawSessionToken);
+        using var previewResponse = await client.SendAsync(previewRequest);
+        Assert.Equal(HttpStatusCode.OK, previewResponse.StatusCode);
+        var preview = ReadApplyPreviewPayload(await previewResponse.Content.ReadAsStringAsync());
+        Assert.True(preview.CanApply);
+        Assert.DoesNotContain(ReceiptOcrReviewApplyPreviewIssueCodes.LineSumMismatch, preview.Warnings);
+
+        var persisted = await ReadReceiptOcrReviewAsync(testFactory, saved.Id);
+        using var applyRequest = CreateJsonBearerRequest(HttpMethod.Post,
+            PersonalOcrReviewApplyPath(billId, fileId), owner.RawSessionToken,
+            ApplyRequestJson(persisted.UpdatedAtUtc));
+        using var applyResponse = await client.SendAsync(applyRequest);
+        Assert.Equal(HttpStatusCode.OK, applyResponse.StatusCode);
+        Assert.Equal(1, ReadApplyPayload(await applyResponse.Content.ReadAsStringAsync()).AppliedItemCount);
+        var bill = await ReadBillAsync(testFactory, billId);
+        var applied = Assert.Single(bill.Items, item =>
+            item.SourceKind == ExpenseBillItemSourceKinds.ReceiptOcrReviewApply && item.DeletedAtUtc is null);
+        Assert.Equal(24m, applied.Amount);
+        Assert.Equal(34m, bill.TotalAmount);
+    }
+
+    [Fact]
     public async Task ReceiptOcrReviewApplyRequiresOwnerFreshReviewedDraftAndSafeBillShape()
     {
         var testContext = CreateFactory();
