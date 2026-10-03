@@ -4890,6 +4890,24 @@ Total USD 5.50
     );
   });
 
+  test('unknown tax levy qualifier remains review evidence', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Widget USD 5.00
+Subtotal USD 5.00
+Tax (Environmental Levy) USD 0.50
+Total USD 5.50
+''');
+    expect(preview.items.map((item) => item.description), ['Widget']);
+    expect(preview.tax, isNull);
+    expect(
+      preview.incompleteAdjustmentReasons,
+      contains(
+        ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
+      ),
+    );
+  });
+
   test('descriptive surcharge after subtotal stays review evidence', () {
     final preview = const ReceiptOcrParser().parse('''
 Utility

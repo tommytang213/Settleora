@@ -3390,7 +3390,7 @@ bool _isPostSubtotalAdjustmentLine(
 
 bool _isAmbiguousParenthesizedTaxLine(String line) {
   final match = RegExp(
-    r'^(?:[\p{L}]+[ -]+){0,3}tax\s*\(\s*[\p{L}]{2,32}\s*\)\s+',
+    r'^(?:[\p{L}]+[ -]+){0,3}tax\s*\(\s*(?:[\p{L}]{2,32}|(?:[\p{L}]+[ -]+){1,3}(?:tax|levy|duty|fee|surcharge|charge|rate|assessment|cess))\s*\)\s+',
     caseSensitive: false,
     unicode: true,
   ).firstMatch(line.trim());
