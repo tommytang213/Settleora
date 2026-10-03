@@ -4311,14 +4311,11 @@ String? _boundedDccChargedTotal(
           r'\b(?:partial|split|installment|deposit|refund|reversal|cashback|remaining|balance|unpaid)\b',
           caseSensitive: false,
         ).hasMatch(line) ||
-        (_isPaymentMetadataLine(line) &&
-            _lineHasAmount(line) &&
-            !cardCharge.hasMatch(line)) ||
-        (RegExp(
-              r'^\s*(?:payment|tender|paid(?:\s+by)?|cash|change|card|visa|mastercard|master\s+card|amex|bank\s+transfer)\b',
-              caseSensitive: false,
-            ).hasMatch(line) &&
-            _lineHasAmount(line) &&
+        ((_isPaymentMetadataLine(line) ||
+                RegExp(
+                  r'^\s*(?:payment|tender|paid(?:\s+by)?|cash|change|(?:gift|prepaid|credit|debit)[ -]?card|card|visa|mastercard|master\s+card|amex|bank\s+transfer)\b',
+                  caseSensitive: false,
+                ).hasMatch(line)) &&
             !cardCharge.hasMatch(line))) {
       return null;
     }

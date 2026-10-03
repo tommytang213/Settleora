@@ -1038,6 +1038,9 @@ Exchange Rate 7.8000 HKD/USD''', fallbackCurrency: 'HKD');
 
     for (final extra in [
       'Cash USD 5.00',
+      'Gift card applied',
+      'Cash paid',
+      'Bank transfer',
       'Paid by bank transfer USD 5.00',
       'Split tender',
       'Partial payment',
