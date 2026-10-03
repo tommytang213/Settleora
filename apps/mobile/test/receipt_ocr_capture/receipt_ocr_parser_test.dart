@@ -814,6 +814,27 @@ CARD CHARGED USD 100
       explicitTotal.currencyProvenance,
       ReceiptOcrCurrencyProvenance.explicit,
     );
+    expect(
+      explicitTotal.warnings,
+      contains(
+        'Item prices and the charged amount use different currencies. Review before applying.',
+      ),
+    );
+
+    final conflictingSelection = const ReceiptOcrParser().parse(r'''
+Central Card Terminal
+Dinner HK$780
+DCC Selected ZZZ 100
+DCC Selected USD 100
+CARD CHARGED USD 100
+''', fallbackCurrency: 'HKD');
+    expect(conflictingSelection.currency, 'HKD');
+    expect(
+      conflictingSelection.warnings,
+      contains(
+        'DCC selection needs a matching charged amount. Review the receipt currency.',
+      ),
+    );
 
     final merchandise = const ReceiptOcrParser().parse('''
 Store

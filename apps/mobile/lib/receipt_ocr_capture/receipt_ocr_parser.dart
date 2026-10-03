@@ -123,7 +123,8 @@ class ReceiptOcrParser {
       );
     } else if (dccCharge.currency != null &&
         itemCandidates.any(
-          (item) => item.currency != null && item.currency != currency,
+          (item) =>
+              item.currency != null && item.currency != dccCharge.currency,
         )) {
       warnings.add(
         'Item prices and the charged amount use different currencies. Review before applying.',
@@ -4126,10 +4127,16 @@ bool _isNonTransactionCurrencyMetadataLine(String line) {
     caseSensitive: false,
   );
   var hasSelection = false;
+  var selectionCount = 0;
+  var chargeCount = 0;
   for (final line in lines) {
     final selection = selectionPattern.firstMatch(line);
     final charge = chargedPattern.firstMatch(line);
-    if (selection != null) hasSelection = true;
+    if (selection != null) {
+      hasSelection = true;
+      selectionCount++;
+    }
+    if (charge != null) chargeCount++;
     final match = selection ?? charge;
     if (match == null) continue;
     final currency = _supportedCurrencyCode(match.group(1));
@@ -4149,7 +4156,9 @@ bool _isNonTransactionCurrencyMetadataLine(String line) {
       charged.add(evidence);
     }
   }
-  if (selected.length == 1 &&
+  if (selectionCount == 1 &&
+      chargeCount == 1 &&
+      selected.length == 1 &&
       charged.length == 1 &&
       selected.single == charged.single) {
     return (hasSelection: true, currency: selected.single.currency);
