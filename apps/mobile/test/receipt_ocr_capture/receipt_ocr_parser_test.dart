@@ -4675,6 +4675,23 @@ Total USD 6.00
     );
   });
 
+  test('tax-named surcharge after subtotal is not assigned to tax', () {
+    final preview = const ReceiptOcrParser().parse('''
+Utility
+Widget USD 5.00
+Subtotal USD 5.00
+Tax Surcharge USD 1.00
+Total USD 6.00
+''');
+    expect(preview.tax, isNull);
+    expect(
+      preview.incompleteAdjustmentReasons,
+      contains(
+        ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
+      ),
+    );
+  });
+
   test('previous bill date does not outrank the current bill date', () {
     final preview = const ReceiptOcrParser().parse('''
 Harbor Utility

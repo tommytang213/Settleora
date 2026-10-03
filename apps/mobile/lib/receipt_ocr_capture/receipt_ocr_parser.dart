@@ -3312,10 +3312,11 @@ bool _isPostSubtotalAdjustmentLine(
   String line, {
   bool allowDescriptiveTaxLabel = false,
   bool allowDescriptiveSurchargeLabel = false,
+  bool taxOnly = false,
 }) {
   final trimmed = line.trim();
   final match = RegExp(
-    r'^(?:[\p{L}]+[ -]+){0,3}(?:tax|surcharge)(?:\s*\(\d{1,3}(?:[.,]\d{1,2})?\s*%\))?\s+',
+    '^(?:[\\p{L}]+[ -]+){0,3}(?:${taxOnly ? 'tax' : 'tax|surcharge'})(?:\\s*\\(\\d{1,3}(?:[.,]\\d{1,2})?\\s*%\\))?\\s+',
     caseSensitive: false,
     unicode: true,
   ).firstMatch(trimmed);
@@ -3333,7 +3334,7 @@ bool _isPostSubtotalAdjustmentLine(
       return true;
     }
   }
-  if (allowDescriptiveSurchargeLabel) {
+  if (allowDescriptiveSurchargeLabel && !taxOnly) {
     final describedSurcharge = RegExp(
       r'^(?:[\p{L}]+[ -]+){0,3}surcharge\s*\([^)]{1,32}\)\s+',
       caseSensitive: false,
@@ -5334,6 +5335,7 @@ bool _hasTaxLabel(
       (_isPostSubtotalAdjustmentLine(
             line,
             allowDescriptiveTaxLabel: allowDescriptiveTaxLabel,
+            taxOnly: true,
           ) &&
           RegExp(r'\btax\b', caseSensitive: false).hasMatch(normalized) &&
           (allowDescriptiveTaxLabel || _hasExplicitTaxRate(line))) ||
