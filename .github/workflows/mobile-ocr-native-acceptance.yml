@@ -252,8 +252,48 @@ jobs:
       - name: Record bounded Android package comparison after failed measurement
         if: ${{ !cancelled() && steps.package.outcome == 'failure' }}
         run: |
+          ndk_selected=""
+          ndk_installed=""
+          linker_version=""
+          flutter_root=$(realpath -e "${FLUTTER_ROOT:-/nonexistent}" 2>/dev/null || true)
+          extension="$flutter_root/packages/flutter_tools/gradle/src/main/kotlin/FlutterExtension.kt"
+          if [[ "$flutter_root" == /opt/hostedtoolcache/flutter/* && -f "$extension" && $(stat -c %s "$extension") -le 1048576 ]]; then
+            extension_real=$(realpath -e "$extension" 2>/dev/null || true)
+            if [[ "$extension_real" == "$flutter_root"/packages/flutter_tools/gradle/src/main/kotlin/FlutterExtension.kt ]]; then
+              ndk_selected=$(sed -nE 's/.*val ndkVersion: String = "([0-9]+\.[0-9]+\.[0-9]+)".*/\1/p' "$extension" | head -n 1)
+            fi
+          fi
+          if [[ "$ndk_selected" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "${ANDROID_HOME:-}" == /usr/local/lib/android/sdk ]]; then
+            ndk_root="/usr/local/lib/android/sdk/ndk/$ndk_selected"
+            properties="$ndk_root/source.properties"
+            properties_real=$(realpath -e "$properties" 2>/dev/null || true)
+            if [[ "$properties_real" == "$properties" && -f "$properties" && $(stat -c %s "$properties") -le 1048576 ]]; then
+              ndk_installed=$(sed -nE 's/^Pkg\.Revision[[:space:]]*=[[:space:]]*([0-9]+\.[0-9]+\.[0-9]+)[[:space:]]*$/\1/p' "$properties" | head -n 1)
+            fi
+            linker_bin="$ndk_root/toolchains/llvm/prebuilt/linux-x86_64/bin"
+            linker="$linker_bin/ld.lld"
+            linker_real=$(realpath -e "$linker" 2>/dev/null || true)
+            linker_target=$(readlink "$linker" 2>/dev/null || true)
+            if [[ "$ndk_installed" == "$ndk_selected" && -x "$linker" &&
+                  ( "$linker_real" == "$linker" ||
+                    ( "$linker_target" == lld && "$linker_real" == "$linker_bin/lld" ) ) ]]; then
+              if linker_output=$(timeout 30s "$linker" --version 2>/dev/null); then
+                if [[ ${#linker_output} -le 16384 ]]; then
+                  linker_version=$(printf '%s\n' "$linker_output" | sed -nE 's/.*LLD[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' | head -n 1)
+                fi
+              fi
+            fi
+          fi
+          candidate_present=false
+          if [[ "${RUNNER_TEMP:-}" == /home/runner/work/_temp && -d "$RUNNER_TEMP/android-candidate-package" ]]; then
+            candidate_present=true
+          fi
           python3 tools/ocr-models/android-build-provenance-evidence.py \
             --source-sha="$EXPECTED_HEAD" \
+            --ndk-selected="$ndk_selected" \
+            --ndk-installed="$ndk_installed" \
+            --linker-version="$linker_version" \
+            --candidate-root-present="$candidate_present" \
             --out="$RUNNER_TEMP/android-build-provenance.json"
           python3 tools/ocr-models/android-package-comparison-evidence.py \
             --package="$RUNNER_TEMP/settleora-verified-production.apk" \

@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -24,6 +25,11 @@ class AndroidBuildProvenanceEvidenceTest(unittest.TestCase):
         self.assertLess(step.index("android-build-provenance-evidence.py"),
                         step.index("android-package-comparison-evidence.py"))
         self.assertIn("android-build-provenance.json", workflow)
+        self.assertIn('--ndk-selected="$ndk_selected"', step)
+        self.assertIn('--ndk-installed="$ndk_installed"', step)
+        self.assertIn('--linker-version="$linker_version"', step)
+        self.assertIn('--candidate-root-present="$candidate_present"', step)
+        self.assertIn('if linker_output=$(timeout 30s "$linker" --version 2>/dev/null); then', step)
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix=f"{PRIVATE}-")
@@ -56,7 +62,9 @@ class AndroidBuildProvenanceEvidenceTest(unittest.TestCase):
         path.write_text("#!/bin/sh\n" + command + "\n")
         path.chmod(0o700)
 
-    def run_tool(self, *, source_sha=SOURCE_SHA, overrides=None):
+    def run_tool(self, *, source_sha=SOURCE_SHA, overrides=None,
+                 ndk_versions=("28.2.13676358", "28.2.13676358", "19.0.1"),
+                 candidate_present="true"):
         env = {**os.environ,
                "PATH": f"{self.bin}{os.pathsep}{os.environ.get('PATH', '')}",
                "RUNNER_TEMP": str(self.runner_temp),
@@ -67,7 +75,75 @@ class AndroidBuildProvenanceEvidenceTest(unittest.TestCase):
             env.update(overrides)
         return subprocess.run(
             [sys.executable, str(SCRIPT), f"--source-sha={source_sha}",
+             f"--ndk-selected={ndk_versions[0]}",
+             f"--ndk-installed={ndk_versions[1]}",
+             f"--linker-version={ndk_versions[2]}",
+             f"--candidate-root-present={candidate_present}",
              f"--out={self.output}"], capture_output=True, text=True, env=env)
+
+    def test_missing_candidate_directory_stays_partial(self):
+        result = self.run_tool(candidate_present="false")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        value = json.loads(self.output.read_text())
+        self.assertIsNone(value["buildRoot"])
+        self.assertEqual(value["collectionStatus"], "partial")
+
+    def test_failed_linker_probe_does_not_abort_diagnostics(self):
+        linker = (self.android_home / "ndk/28.2.13676358" /
+                  "toolchains/llvm/prebuilt/linux-x86_64/bin/ld.lld")
+        self.script(linker, "printf 'LLD 19.0.1\\n'\nexit 42")
+        workflow = WORKFLOW.read_text()
+        step = workflow.split("- name: Record bounded Android package comparison after failed measurement", 1)[1]
+        probe = step.split("python3 tools/ocr-models/android-build-provenance-evidence.py", 1)[0]
+        probe = probe.split("run: |", 1)[1]
+        env = {**os.environ, "FLUTTER_ROOT": str(self.flutter_root),
+               "ANDROID_HOME": str(self.android_home),
+               "RUNNER_TEMP": str(self.runner_temp)}
+        result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c",
+                                 probe + '\nprintf "%s" "$linker_version"\n'],
+                                capture_output=True, text=True, env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "")
+
+    def test_workflow_accepts_only_pinned_ndk_linker_symlink(self):
+        ndk_root = self.android_home / "ndk/28.2.13676358"
+        linker = ndk_root / "toolchains/llvm/prebuilt/linux-x86_64/bin/ld.lld"
+        lld = linker.with_name("lld")
+        linker.unlink()
+        self.script(lld, "printf 'LLD 19.0.1 (compatible with GNU linkers)\\n'")
+        linker.symlink_to("lld")
+        workflow = WORKFLOW.read_text()
+        probe = "linker_bin=" + workflow.split("linker_bin=", 1)[1]
+        probe = probe.split("\n          fi\n          candidate_present=", 1)[0]
+        script = (f"ndk_root={shlex.quote(str(ndk_root))}\n"
+                  "ndk_selected=28.2.13676358\n"
+                  "ndk_installed=28.2.13676358\n"
+                  "linker_version=\n" + probe +
+                  '\nprintf "%s" "$linker_version"\n')
+        result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", script],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "19.0.1")
+
+        lld.unlink()
+        outside = self.root / "external-lld"
+        self.script(outside, "printf 'LLD 99.0.0\\n'")
+        lld.symlink_to(outside)
+        result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", script],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "")
+
+    def test_rejects_unbounded_or_inconsistent_ndk_versions(self):
+        result = self.run_tool(ndk_versions=("28.2.13676358", PRIVATE,
+                                             "19.0.1"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        value = json.loads(self.output.read_text())
+        self.assertEqual(value["ndk"], {"selectedVersion": "28.2.13676358",
+                                        "installedVersion": None,
+                                        "linkerVersion": None})
+        self.assertEqual(value["collectionStatus"], "partial")
+        self.assertNotIn(PRIVATE, self.output.read_text())
 
     def test_records_only_allowlisted_complete_provenance(self):
         result = self.run_tool()
@@ -142,6 +218,27 @@ class AndroidBuildProvenanceEvidenceTest(unittest.TestCase):
         self.assertEqual(value["java"]["version"], "17.0.20")
         self.assertIsNone(value["java"]["runtimeBuild"])
         self.assertEqual(value["collectionStatus"], "partial")
+
+    def test_rejects_long_version_fields_before_regex_matching(self):
+        repeated = "0" * 5000
+        self.script(self.bin / "flutter", "printf '%s\\n' '{\"frameworkVersion\":\"" +
+                    repeated + "\",\"frameworkRevision\":\"" + "1" * 40 +
+                    "\",\"engineRevision\":\"" + "2" * 40 +
+                    "\",\"dartSdkVersion\":\"3.12.2\"}'")
+        self.script(self.bin / "java", "printf '    java.version = " + repeated +
+                    "\\n    java.runtime.version = " + repeated +
+                    "\\n    java.vendor = Eclipse Adoptium\\n' >&2")
+        result = self.run_tool(ndk_versions=(repeated, repeated, repeated))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        evidence = json.loads(self.output.read_text())
+        self.assertEqual(evidence["collectionStatus"], "partial")
+        self.assertIsNone(evidence["flutter"]["frameworkVersion"])
+        self.assertIsNone(evidence["java"]["version"])
+        self.assertIsNone(evidence["java"]["runtimeBuild"])
+        self.assertEqual(evidence["ndk"], {"selectedVersion": None,
+                                           "installedVersion": None,
+                                           "linkerVersion": None})
+        self.assertNotIn(repeated, self.output.read_text())
 
     def test_invalid_source_identity_fails_without_path_or_payload(self):
         result = self.run_tool(source_sha=PRIVATE)
