@@ -4602,6 +4602,34 @@ Total USD 12.60
     }
   });
 
+  test('parenthesized distinct tax rates aggregate after subtotal', () {
+    final preview = const ReceiptOcrParser().parse('''
+Utility
+Water Usage USD 10.00
+Subtotal USD 10.00
+County Utilities Tax (5%) USD 0.50
+Local Utilities Tax (2%) USD 0.20
+Total USD 10.70
+''');
+    expect(preview.items.map((item) => item.description), ['Water Usage']);
+    expect(preview.tax, '0.70');
+  });
+
+  test('tax-named product after subtotal remains merchandise', () {
+    final preview = const ReceiptOcrParser().parse('''
+Bookshop
+Notebook USD 5.00
+Subtotal USD 5.00
+Tax (Board Game) USD 9.00
+Total USD 14.00
+''');
+    expect(preview.items.map((item) => item.description), [
+      'Notebook',
+      'Tax (Board Game)',
+    ]);
+    expect(preview.tax, isNull);
+  });
+
   test(
     'pre-subtotal flat surcharge remains an item outside a charge table',
     () {

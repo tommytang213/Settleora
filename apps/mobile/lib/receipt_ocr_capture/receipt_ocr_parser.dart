@@ -1262,7 +1262,7 @@ class ReceiptOcrParser {
           transactionTaxAmounts.add(amount);
         }
         final printedRate = RegExp(
-          r'\b(?:sales\s+tax|tax|vat|gst|hst|iva|tva|kdv|mwst)\b\.?\s*(\d{1,3}(?:[.,]\d{1,2})?)\s*%',
+          r'\b(?:sales\s+tax|tax|vat|gst|hst|iva|tva|kdv|mwst)\b\.?\s*\(?\s*(\d{1,3}(?:[.,]\d{1,2})?)\s*%\s*\)?',
         ).firstMatch(normalized);
         final rate = printedRate == null
             ? null
@@ -3322,17 +3322,25 @@ bool _isPostSubtotalAdjustmentLine(
   if (match != null && _isStandaloneAmountRow(trimmed.substring(match.end))) {
     return true;
   }
-  for (final label in [
-    if (allowDescriptiveTaxLabel) 'tax',
-    if (allowDescriptiveSurchargeLabel) 'surcharge',
-  ]) {
-    final described = RegExp(
-      '^(?:[\\p{L}]+[ -]+){0,3}$label\\s*\\([^)]{1,32}\\)\\s+',
+  if (allowDescriptiveTaxLabel) {
+    final describedTax = RegExp(
+      r'^(?:[\p{L}]+[ -]+){0,3}tax\s*\(\s*(?:federal|state|local|city|county|municipal|regional|provincial|standard|reduced|special|exempt|zero(?:[ -]rated)?|sales|use|vat|gst|hst)\s*\)\s+',
       caseSensitive: false,
       unicode: true,
     ).firstMatch(trimmed);
-    if (described != null &&
-        _isStandaloneAmountRow(trimmed.substring(described.end))) {
+    if (describedTax != null &&
+        _isStandaloneAmountRow(trimmed.substring(describedTax.end))) {
+      return true;
+    }
+  }
+  if (allowDescriptiveSurchargeLabel) {
+    final describedSurcharge = RegExp(
+      r'^(?:[\p{L}]+[ -]+){0,3}surcharge\s*\([^)]{1,32}\)\s+',
+      caseSensitive: false,
+      unicode: true,
+    ).firstMatch(trimmed);
+    if (describedSurcharge != null &&
+        _isStandaloneAmountRow(trimmed.substring(describedSurcharge.end))) {
       return true;
     }
   }
