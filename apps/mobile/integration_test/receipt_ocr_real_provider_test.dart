@@ -113,6 +113,24 @@ void main() {
     );
   });
 
+  test('explicit item currency is separate from receipt currency', () {
+    final item = _ExpectedItem.fromManifest({
+      'description': 'Dinner',
+      'line_total': '780.00',
+      'currency': 'HKD',
+    }, 'layout_16_dcc_explicit_usd_hk_location');
+    expect(item.lineTotal, '780.00');
+    expect(item.currency, 'HKD');
+    expect(
+      () => _ExpectedItem.fromManifest({
+        'description': 'Dinner',
+        'line_total': '780.00',
+        'currency': r'HK$',
+      }, 'layout_16_dcc_explicit_usd_hk_location'),
+      throwsStateError,
+    );
+  });
+
   testWidgets('native acceptance runner has no external network', (
     WidgetTester tester,
   ) async {
@@ -1302,7 +1320,8 @@ List<_BoundedMismatch> _completePreviewMismatches(
     if (actualItem.unitPrice != expectedItem.unitPrice) {
       mismatches.add(_BoundedMismatch(fixtureId, 'items[$index].unitPrice'));
     }
-    if (actualItem.currency != expected['currency']) {
+    if (actualItem.currency !=
+        (expectedItem.currency ?? expected['currency'])) {
       mismatches.add(_BoundedMismatch(fixtureId, 'items[$index].currency'));
     }
   }
@@ -1321,6 +1340,11 @@ List<_BoundedMismatch> _completePreviewMismatches(
             'printed total differs from visible charge-line arithmetic'
       ? const <String>[
           'OCR item total differs from detected grand total. Review the receipt before applying.',
+        ]
+      : expectedReviewCondition ==
+            'printed item currency differs from charged receipt currency'
+      ? const <String>[
+          'Some item prices use a different currency from the receipt. Review before applying.',
         ]
       : null;
   final actualHints = preview.reviewHints;
@@ -1683,6 +1707,8 @@ String _boundedReviewHintCategory(ReceiptOcrPreview? preview) {
       'adjustment_explanation',
     'OCR item total differs from detected grand total. Review the receipt before applying.' =>
       'grand_total_mismatch',
+    'Some item prices use a different currency from the receipt. Review before applying.' =>
+      'foreign_item_currency',
     _ => 'other',
   };
 }
@@ -2059,6 +2085,7 @@ class _ExpectedItem {
     required this.lineTotal,
     this.quantity,
     this.unitPrice,
+    this.currency,
   });
 
   factory _ExpectedItem.fromManifest(Object? value, String fixtureId) {
@@ -2071,6 +2098,7 @@ class _ExpectedItem {
         'quantity',
         'unit_price',
         'line_total',
+        'currency',
       };
       final unknownKeys = value.keys.toSet().difference(supportedKeys);
       if (unknownKeys.isNotEmpty) {
@@ -2082,10 +2110,14 @@ class _ExpectedItem {
       final quantity = value['quantity'];
       final unitPrice = value['unit_price'];
       final lineTotal = value['line_total'];
+      final currency = value['currency'];
       if (description is! String ||
           lineTotal is! String ||
           (quantity != null && quantity is! String) ||
-          (unitPrice != null && unitPrice is! String)) {
+          (unitPrice != null && unitPrice is! String) ||
+          (currency != null &&
+              (currency is! String ||
+                  !RegExp(r'^[A-Z]{3}$').hasMatch(currency)))) {
         throw StateError('$fixtureId item ground truth must use strings');
       }
       return _ExpectedItem(
@@ -2093,6 +2125,7 @@ class _ExpectedItem {
         quantity: quantity as String?,
         unitPrice: unitPrice as String?,
         lineTotal: lineTotal,
+        currency: currency as String?,
       );
     }
     throw StateError('$fixtureId has an unsupported item representation');
@@ -2102,6 +2135,7 @@ class _ExpectedItem {
   final String? quantity;
   final String? unitPrice;
   final String lineTotal;
+  final String? currency;
 }
 
 class _FixtureAttachmentInput implements SettleoraBillAttachmentFileInput {

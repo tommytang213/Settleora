@@ -652,7 +652,7 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
       ? boundedToken(entry.reviewHintCategory, `recognitionCoverage[${index}].reviewHintCategory`) : null;
     const reviewDecision = hasReviewDecision
       ? boundedToken(entry.reviewDecision, `recognitionCoverage[${index}].reviewDecision`) : null;
-    const allowedReviewDecisions = new Set(["none", "itemSumUnavailableWithAdjustment", "subtotalMismatch",
+    const allowedReviewDecisions = new Set(["none", "foreignItemCurrency", "itemSumUnavailableWithAdjustment", "subtotalMismatch",
       "incompleteAdjustmentWithSubtotal", "referenceAdjustmentUnreconciledWithSubtotal",
       "grandTotalMismatchWithSubtotal", "foreignAdjustmentWithSubtotal",
       "incompleteAdjustmentWithoutSubtotal", "referenceAdjustmentUnreconciledWithoutSubtotal",
@@ -718,7 +718,7 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
       `recognitionCoverage[${index}].expectedItemPairsInDraft`) : null;
     if (coverageFixtures.has(fixtureId) || blockCount > 256 || expectedItemCount > 40 || itemDescriptionsExactTextSeen > expectedItemCount ||
         typeof entry.merchantExactTextSeen !== "boolean" || typeof entry.totalExactTokenSeen !== "boolean" ||
-        (hasReviewHintCategory && !new Set(["none", "subtotal_mismatch", "adjustment_explanation", "grand_total_mismatch", "other"]).has(reviewHintCategory)) ||
+        (hasReviewHintCategory && !new Set(["none", "subtotal_mismatch", "adjustment_explanation", "grand_total_mismatch", "foreign_item_currency", "other"]).has(reviewHintCategory)) ||
         (hasReviewDecision && (!hasReviewHintCategory || !allowedReviewDecisions.has(reviewDecision) ||
           !Array.isArray(entry.incompleteAdjustmentReasons) ||
           entry.incompleteAdjustmentReasons.length > allowedIncompleteReasons.size ||

@@ -288,6 +288,15 @@ test("retains only the bounded native acceptance schema", () => {
     assert.deepEqual(buildEvidence(evidenceArgs(log), repoRoot).acceptance.recognitionCoverage,
       withReviewDecisions);
   });
+  const withForeignItemReview = withReviewDecisions.map((entry, index) => index === 0
+    ? { ...entry, reviewHintCategory: "foreign_item_currency", reviewDecision: "foreignItemCurrency" }
+    : entry);
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+    ...acceptance, recognitionCoverage: withForeignItemReview,
+  })}`), (log) => {
+    assert.deepEqual(buildEvidence(evidenceArgs(log), repoRoot).acceptance.recognitionCoverage,
+      withForeignItemReview);
+  });
   for (const invalid of [
     { reviewDecision: "raw-content" },
     { incompleteAdjustmentReasons: ["raw-content"] },

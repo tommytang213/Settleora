@@ -117,6 +117,15 @@ class ReceiptOcrParser {
     );
     final itemCandidates = extractedItems.items;
     final dccCharge = _corroboratedDccCharge(lines);
+    final selectedTotal =
+        amounts.total ??
+        _boundedDccChargedTotal(
+          lines,
+          itemCandidates,
+          amounts,
+          currency,
+          dccCharge,
+        );
     if (dccCharge.hasSelection && dccCharge.currency == null) {
       warnings.add(
         'DCC selection needs a matching charged amount. Review the receipt currency.',
@@ -160,7 +169,7 @@ class ReceiptOcrParser {
         'Some OCR lines need manual review because no traceable line amount was found.',
       );
     }
-    if (amounts.total == null && itemCandidates.isEmpty) {
+    if (selectedTotal == null && itemCandidates.isEmpty) {
       warnings.add('No clear total amount was detected.');
     }
     if (currencyDetection.usedFallbackForSymbolOnly) {
@@ -245,7 +254,7 @@ class ReceiptOcrParser {
           ) &&
           unresolvedItemLines == 0,
       incompleteAdjustmentReasons: incompleteAdjustmentReasons,
-      total: amounts.total,
+      total: selectedTotal,
       rawTextLineCount: lines.length,
       confidence: _averageBlockConfidence(blocks),
       category: 'receipt',
@@ -4182,11 +4191,11 @@ bool _isNonTransactionCurrencyMetadataLine(String line) {
       (_lineHasAmount(line) || _lineHasCurrencyMarkerOrCode(line));
 }
 
-({bool hasSelection, String? currency}) _corroboratedDccCharge(
+({bool hasSelection, String? currency, String? amount}) _corroboratedDccCharge(
   List<String> lines,
 ) {
-  final selected = <({String currency, String amount})>[];
-  final charged = <({String currency, String amount})>[];
+  final selected = <({String currency, String amount, String canonical})>[];
+  final charged = <({String currency, String amount, String canonical})>[];
   final selectionPattern = RegExp(
     '^\\s*dcc\\s+selected\\s+([A-Za-z]{3})\\s+($_amountTokenPattern)\\s*\$',
     caseSensitive: false,
@@ -4218,7 +4227,11 @@ bool _isNonTransactionCurrencyMetadataLine(String line) {
     final canonicalAmount = fraction.isEmpty
         ? parts[0]
         : '${parts[0]}.$fraction';
-    final evidence = (currency: currency, amount: canonicalAmount);
+    final evidence = (
+      currency: currency,
+      amount: amount,
+      canonical: canonicalAmount,
+    );
     if (selection != null) {
       selected.add(evidence);
     } else {
@@ -4229,10 +4242,88 @@ bool _isNonTransactionCurrencyMetadataLine(String line) {
       chargeCount == 1 &&
       selected.length == 1 &&
       charged.length == 1 &&
-      selected.single == charged.single) {
-    return (hasSelection: true, currency: selected.single.currency);
+      selected.single.currency == charged.single.currency &&
+      selected.single.canonical == charged.single.canonical) {
+    return (
+      hasSelection: true,
+      currency: charged.single.currency,
+      amount: charged.single.amount,
+    );
   }
-  return (hasSelection: hasSelection, currency: null);
+  return (hasSelection: hasSelection, currency: null, amount: null);
+}
+
+String? _boundedDccChargedTotal(
+  List<String> lines,
+  List<ReceiptOcrItemCandidate> items,
+  _LabeledReceiptAmounts amounts,
+  String? receiptCurrency,
+  ({bool hasSelection, String? currency, String? amount}) dccCharge,
+) {
+  if (dccCharge.amount == null ||
+      dccCharge.currency != receiptCurrency ||
+      !amounts.adjustmentsComplete ||
+      amounts.incompleteReasons.isNotEmpty ||
+      amounts.subtotal != null ||
+      amounts.tax != null ||
+      amounts.service != null ||
+      amounts.tip != null ||
+      amounts.shipping != null ||
+      amounts.discount != null ||
+      items.isEmpty ||
+      items.any(
+        (item) =>
+            item.lineTotal == null ||
+            item.currency == null ||
+            item.currency == receiptCurrency ||
+            item.currencyUnresolved,
+      )) {
+    return null;
+  }
+  final itemCurrencies = items.map((item) => item.currency!).toSet();
+  if (itemCurrencies.length != 1) return null;
+  final itemCurrency = itemCurrencies.single;
+  final rate = RegExp(
+    r'^\s*exchange\s+rate\s+\d+(?:[.,]\d+)?\s+([A-Z]{3})\s*/\s*([A-Z]{3})\s*$',
+    caseSensitive: false,
+  );
+  if (!lines.any((line) {
+    final match = rate.firstMatch(line);
+    return match != null &&
+        match.group(1)!.toUpperCase() == itemCurrency &&
+        match.group(2)!.toUpperCase() == receiptCurrency;
+  })) {
+    return null;
+  }
+  final cardCharge = RegExp(
+    r'^\s*card\s+charged\s+[A-Z]{3}\s+\d+(?:[.,]\d+)?\s*$',
+    caseSensitive: false,
+  );
+  for (final line in lines) {
+    final lower = line.toLowerCase();
+    if (_hasTotalLabel(line, lower) ||
+        _hasSubtotalLabel(line, lower) ||
+        RegExp(
+          r'^\s*(?:currency|curr)\b',
+          caseSensitive: false,
+        ).hasMatch(line) ||
+        RegExp(
+          r'\b(?:partial|split|installment|deposit|refund|reversal|cashback|remaining|balance|unpaid)\b',
+          caseSensitive: false,
+        ).hasMatch(line) ||
+        (_isPaymentMetadataLine(line) &&
+            _lineHasAmount(line) &&
+            !cardCharge.hasMatch(line)) ||
+        (RegExp(
+              r'^\s*(?:payment|tender|paid(?:\s+by)?|cash|change|card|visa|mastercard|master\s+card|amex|bank\s+transfer)\b',
+              caseSensitive: false,
+            ).hasMatch(line) &&
+            _lineHasAmount(line) &&
+            !cardCharge.hasMatch(line))) {
+      return null;
+    }
+  }
+  return dccCharge.amount;
 }
 
 bool _hasCurrencyMetadataShape(String remainder) {

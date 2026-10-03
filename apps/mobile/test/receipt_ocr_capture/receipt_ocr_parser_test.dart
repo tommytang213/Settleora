@@ -768,6 +768,11 @@ Exchange Rate 7.8000 HKD/USD
     expect(preview.currency, 'USD');
     expect(preview.currencyProvenance, ReceiptOcrCurrencyProvenance.explicit);
     expect(preview.items.single.currency, 'HKD');
+    expect(preview.items.single.lineTotal, '780');
+    expect(preview.total, '100.00');
+    expect(preview.reviewHints, [
+      'Some item prices use a different currency from the receipt. Review before applying.',
+    ]);
     expect(
       preview.warnings,
       contains(
@@ -1003,6 +1008,61 @@ Total USD 10.00
 ''');
     expect(merchandise.items.map((item) => item.description), [
       'DCC Selected Tee',
+    ]);
+  });
+
+  test('DCC charged-total fallback excludes partial and stronger evidence', () {
+    const parser = ReceiptOcrParser();
+    const base = r'''Central Card Terminal
+Dinner HK$780.00
+DCC Selected USD 100.00
+CARD CHARGED USD 100.00
+Exchange Rate 7.8000 HKD/USD''';
+    final charged = parser.parse(base, fallbackCurrency: 'HKD');
+    expect(charged.currency, 'USD');
+    expect(charged.total, '100.00');
+    expect(charged.items.single.currency, 'HKD');
+    expect(charged.items.single.lineTotal, '780.00');
+    expect(charged.reviewHints, [
+      'Some item prices use a different currency from the receipt. Review before applying.',
+    ]);
+
+    for (final extra in [
+      'Cash USD 5.00',
+      'Paid by bank transfer USD 5.00',
+      'Split tender',
+      'Partial payment',
+      'Refund USD 5.00',
+      'Deposit Paid USD 5.00',
+      'Convenience fee USD 5.00',
+      'Currency USD',
+      'Subtotal HKD 780.00',
+      'Exchange Rate 7.8000 USD/HKD',
+    ]) {
+      final text = extra.startsWith('Exchange Rate')
+          ? base.replaceFirst('Exchange Rate 7.8000 HKD/USD', extra)
+          : '$base\n$extra';
+      final result = parser.parse(text, fallbackCurrency: 'HKD');
+      expect(result.total, isNull, reason: extra);
+    }
+    final unpaidBalance = parser.parse(
+      '$base\nBalance Due USD 5.00',
+      fallbackCurrency: 'HKD',
+    );
+    expect(unpaidBalance.total, '5.00');
+    final printedTotal = parser.parse(
+      '$base\nTotal HKD 780.00',
+      fallbackCurrency: 'HKD',
+    );
+    expect(printedTotal.total, '780.00');
+    expect(printedTotal.currency, 'HKD');
+    final noRate = parser.parse(
+      base.replaceFirst('Exchange Rate 7.8000 HKD/USD', ''),
+      fallbackCurrency: 'HKD',
+    );
+    expect(noRate.total, isNull);
+    expect(noRate.reviewHints, [
+      'Some item prices use a different currency from the receipt. Review before applying.',
     ]);
   });
 
@@ -1790,7 +1850,9 @@ Total 4.40''');
     expect(preview.items.single.description, 'Souvenir');
     expect(preview.items.single.currency, 'EUR');
     expect(preview.items.single.lineTotal, '9.00');
-    expect(preview.reviewHints, isEmpty);
+    expect(preview.reviewHints, [
+      'Some item prices use a different currency from the receipt. Review before applying.',
+    ]);
   });
 
   test('amount-bearing payment summary ends a layout charge table', () {
@@ -4098,7 +4160,9 @@ Total USD 10.00
     expect(preview.items.last.description, 'Souvenir');
     expect(preview.items.last.currency, 'EUR');
     expect(preview.items.last.lineTotal, '9.00');
-    expect(preview.reviewHints, isEmpty);
+    expect(preview.reviewHints, [
+      'Some item prices use a different currency from the receipt. Review before applying.',
+    ]);
   });
 
   test('layout fallback rejects bare identifier amounts', () {
@@ -4255,7 +4319,9 @@ Razem 35,50 zł .
     expect(preview.items.last.description, 'Souvenir');
     expect(preview.items.last.currency, 'EUR');
     expect(preview.items.last.lineTotal, '9.00');
-    expect(preview.reviewHints, isEmpty);
+    expect(preview.reviewHints, [
+      'Some item prices use a different currency from the receipt. Review before applying.',
+    ]);
   });
 
   test('long charge tables retain late rows until a printed total', () {

@@ -2710,11 +2710,13 @@
         "currency": "USD",
         "total": "100.00",
         "items": [
-          [
-            "Dinner",
-            "780.00"
-          ]
-        ]
+          {
+            "description": "Dinner",
+            "line_total": "780.00",
+            "currency": "HKD"
+          }
+        ],
+        "expected_review_condition": "printed item currency differs from charged receipt currency"
       },
       "expected_currency_resolution": {
         "currency": "USD",
@@ -2725,7 +2727,7 @@
           "DCC selected"
         ]
       },
-      "notes": "Explicit charged currency overrides location/default context."
+      "notes": "Image prints Dinner HK$780.00, DCC Selected USD 100.00, CARD CHARGED USD 100.00, and Exchange Rate 7.8000 HKD/USD. The item remains HKD while the charged total is USD; keep the cross-currency relationship reviewable without converting the item."
     },
     {
       "id": "layout_17_bilingual_duplicate_lines",
