@@ -4588,16 +4588,18 @@ Total USD 8.00
     expect(preview.shipping, isNull);
   });
 
-  test('post-subtotal reduced tax remains an adjustment', () {
-    final preview = const ReceiptOcrParser().parse('''
+  test('post-subtotal descriptive tax remains an adjustment', () {
+    for (final taxLabel in ['Tax (Reduced)', 'Tax (Federal)']) {
+      final preview = const ReceiptOcrParser().parse('''
 Market
 Notebook 12.00
 Subtotal 12.00
-Tax (Reduced) 0.60
+$taxLabel 0.60
 Total USD 12.60
 ''');
-    expect(preview.items.map((item) => item.description), ['Notebook']);
-    expect(preview.tax, '0.60');
+      expect(preview.items.map((item) => item.description), ['Notebook']);
+      expect(preview.tax, '0.60');
+    }
   });
 
   test(
