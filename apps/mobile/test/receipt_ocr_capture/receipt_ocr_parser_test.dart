@@ -2084,6 +2084,22 @@ Total USD 19.99
 ''');
       expect(competingCustomer.merchant, isNot('Northstar Marketplace'));
 
+      for (final buyerHeading in ['Sold To', 'Billed To', 'Recipient']) {
+        final buyerIdentity = const ReceiptOcrParser().parse('''
+Northstar INVOICE
+Marketplace
+$buyerHeading
+Northstar Marketplace Account Number: C-247
+Desk Mat USD 19.99
+Total USD 19.99
+''');
+        expect(
+          buyerIdentity.merchant,
+          isNot('Northstar Marketplace'),
+          reason: '$buyerHeading cannot corroborate issuer identity',
+        );
+      }
+
       final competingPayee = const ReceiptOcrParser().parse('''
 Northstar INVOICE
 Marketplace
