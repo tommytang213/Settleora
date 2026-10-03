@@ -2050,6 +2050,31 @@ Total USD 19.99
     expect(spacedLogo.merchant, 'NimbusShop Marketplace');
   });
 
+  test(
+    'split logo before a document title needs repeated identity evidence',
+    () {
+      final corroborated = const ReceiptOcrParser().parse('''
+Northstar INVOICE
+Marketplace
+Everyday essentials
+Northstar Marketplace Order Number: ORD-247
+Desk Mat USD 19.99
+Total USD 19.99
+''');
+      expect(corroborated.merchant, 'Northstar Marketplace');
+
+      final uncorroborated = const ReceiptOcrParser().parse('''
+Northstar INVOICE
+Marketplace
+Everyday essentials
+Unrelated Vendor Order Number: ORD-247
+Desk Mat USD 19.99
+Total USD 19.99
+''');
+      expect(uncorroborated.merchant, isNot('Northstar Marketplace'));
+    },
+  );
+
   test('foreign-currency adjustments do not corroborate a receipt total', () {
     final preview = const ReceiptOcrParser().parse('''
 Corner Store

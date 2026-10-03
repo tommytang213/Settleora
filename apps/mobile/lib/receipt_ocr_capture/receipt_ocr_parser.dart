@@ -313,6 +313,38 @@ class ReceiptOcrParser {
     List<String> lines,
     List<List<ReceiptOcrBlockEvidence>> layoutRows,
   ) {
+    // A logo can share its OCR row with the document title while its second
+    // word is printed below. Require the assembled identity to appear again
+    // before a labeled metadata field before trusting that split header.
+    if (lines.length > 2) {
+      final titledLogo = RegExp(
+        r'^\s*(.+?)\s+(?:invoice|receipt|statement|bill)\s*$',
+        caseSensitive: false,
+      ).firstMatch(lines.first);
+      final first = titledLogo?.group(1)?.trim();
+      final second = lines[1].trim();
+      if (first != null &&
+          _hasSubstantiveItemDescription(first) &&
+          _hasSubstantiveItemDescription(second) &&
+          second.split(RegExp(r'\s+')).length <= 3 &&
+          !_lineHasAmount(second) &&
+          !_isReceiptMetadataLine(second)) {
+        final identity = '$first $second';
+        final corroborated = lines.skip(2).take(8).any((line) {
+          if (!line.toLowerCase().startsWith('${identity.toLowerCase()} ')) {
+            return false;
+          }
+          final suffix = line.substring(identity.length).trim();
+          return RegExp(
+            r'^(?:order|invoice|account|reference)\s*(?:number|no\.?|#)\s*[:：]',
+            caseSensitive: false,
+          ).hasMatch(suffix);
+        });
+        if (corroborated) {
+          return (text: identity, lineIndices: {0, 1});
+        }
+      }
+    }
     ({String text, int lineIndex, int score})? best;
     final documentRight = layoutRows
         .expand((row) => row)
