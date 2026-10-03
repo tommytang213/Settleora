@@ -47,8 +47,9 @@ for abi in arm64-v8a armeabi-v7a x86_64; do
   done
   cmp "$first/libdartjni.so" "$second/libdartjni.so"
   "$ndk_bin/llvm-readelf" -n "$first/libdartjni.so" | grep 'Build ID:' >/dev/null
-  "$ndk_bin/llvm-dwarfdump" --debug-info "$first/libdartjni.so" | grep '/usr/src/settleora-jni/src/dartjni.c' >/dev/null
-  "$ndk_bin/llvm-dwarfdump" --debug-info "$first/libdartjni.so" | grep '/usr/src/settleora-jni/build' >/dev/null
+  "$ndk_bin/llvm-dwarfdump" --debug-info "$first/libdartjni.so" >"$first/dwarf-info.txt"
+  grep -F '/usr/src/settleora-jni/src/dartjni.c' "$first/dwarf-info.txt" >/dev/null
+  grep -F '/usr/src/settleora-jni/build' "$first/dwarf-info.txt" >/dev/null
   "$ndk_bin/llvm-nm" -D "$first/libdartjni.so" | grep 'DartException__ctor' >/dev/null
   "$ndk_bin/llvm-strip" --strip-unneeded -o "$first/stripped.so" "$first/libdartjni.so"
   "$ndk_bin/llvm-strip" --strip-unneeded -o "$second/stripped.so" "$second/libdartjni.so"
