@@ -1067,6 +1067,9 @@ Exchange Rate 7.8000 HKD/USD''', fallbackCurrency: 'HKD');
       'Currency USD',
       'Subtotal HKD 780.00',
       'Exchange Rate 7.8000 USD/HKD',
+      'Exchange Rate 7.7000 HKD/USD',
+      'Exchange Rate 7.7990 HKD/USD',
+      'Exchange Rate 0.0000 HKD/USD',
     ]) {
       final text = extra.startsWith('Exchange Rate')
           ? base.replaceFirst('Exchange Rate 7.8000 HKD/USD', extra)

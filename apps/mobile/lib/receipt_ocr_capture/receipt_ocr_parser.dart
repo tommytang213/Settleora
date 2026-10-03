@@ -4266,9 +4266,53 @@ bool _isNonTransactionCurrencyMetadataLine(String line) {
 }
 
 final _dccExchangeRatePattern = RegExp(
-  r'^\s*exchange\s+rate\s+\d+(?:[.,]\d+)?\s+([A-Z]{3})\s*/\s*([A-Z]{3})\s*$',
+  r'^\s*exchange\s+rate\s+(\d{1,8}[.,]\d{3,8})\s+([A-Z]{3})\s*/\s*([A-Z]{3})\s*$',
   caseSensitive: false,
 );
+
+BigInt? _dccAmountThousandths(String? amount) {
+  if (amount == null || !RegExp(r'^\d{1,12}(?:\.\d{1,3})?$').hasMatch(amount)) {
+    return null;
+  }
+  final parts = amount.split('.');
+  return BigInt.parse(parts.first) * BigInt.from(1000) +
+      BigInt.parse(parts.length == 2 ? parts[1].padRight(3, '0') : '000');
+}
+
+bool _dccRateConsistentWithPrintedAmounts(
+  RegExpMatch rate,
+  List<ReceiptOcrItemCandidate> items,
+  String chargedAmount,
+  String itemCurrency,
+  String chargedCurrency,
+) {
+  final charged = _dccAmountThousandths(chargedAmount);
+  if (charged == null || charged == BigInt.zero) return false;
+  final printed = rate.group(1)!.replaceAll(',', '.').split('.');
+  final scale = BigInt.from(10).pow(printed[1].length);
+  final rateUnits = BigInt.parse(printed[0]) * scale + BigInt.parse(printed[1]);
+  if (rateUnits == BigInt.zero) return false;
+  var itemSum = BigInt.zero;
+  for (final item in items) {
+    final amount = _dccAmountThousandths(item.lineTotal);
+    if (amount == null || amount == BigInt.zero) return false;
+    itemSum += amount;
+  }
+  final difference = (itemSum * scale - charged * rateUnits).abs();
+  final itemQuantum = BigInt.from(
+    10,
+  ).pow(3 - _currencyMinorUnitDigits(itemCurrency));
+  final chargedQuantum = BigInt.from(
+    10,
+  ).pow(3 - _currencyMinorUnitDigits(chargedCurrency));
+  // Bound only the last printed rate digit and currency rounding. This
+  // checks evidence consistency; it never converts an item for application.
+  final twiceTolerance =
+      charged +
+      chargedQuantum * rateUnits +
+      itemQuantum * BigInt.from(items.length) * scale;
+  return difference * BigInt.from(2) <= twiceTolerance;
+}
 
 String? _boundedDccChargedTotal(
   List<String> lines,
@@ -4302,12 +4346,20 @@ String? _boundedDccChargedTotal(
   final itemCurrencies = items.map((item) => item.currency!).toSet();
   if (itemCurrencies.length != 1) return null;
   final itemCurrency = itemCurrencies.single;
-  if (!lines.any((line) {
-    final match = _dccExchangeRatePattern.firstMatch(line);
-    return match != null &&
-        match.group(1)!.toUpperCase() == itemCurrency &&
-        match.group(2)!.toUpperCase() == receiptCurrency;
-  })) {
+  final rates = lines
+      .map(_dccExchangeRatePattern.firstMatch)
+      .whereType<RegExpMatch>()
+      .toList(growable: false);
+  if (rates.length != 1 ||
+      rates.single.group(2)!.toUpperCase() != itemCurrency ||
+      rates.single.group(3)!.toUpperCase() != receiptCurrency ||
+      !_dccRateConsistentWithPrintedAmounts(
+        rates.single,
+        items,
+        dccCharge.amount!,
+        itemCurrency,
+        receiptCurrency!,
+      )) {
     return null;
   }
   final cardCharge = RegExp(
