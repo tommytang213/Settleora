@@ -4848,6 +4848,36 @@ Total USD 10.00
     expect(preview.taxIncludedInTotal, isTrue);
   });
 
+  test('tourism tax qualifier remains a printed tax adjustment', () {
+    final preview = const ReceiptOcrParser().parse('''
+Hotel
+Room USD 5.00
+Subtotal USD 5.00
+Tax (Tourism) USD 0.50
+Total USD 5.50
+''');
+    expect(preview.items.map((item) => item.description), ['Room']);
+    expect(preview.tax, '0.50');
+  });
+
+  test('unknown single-word tax qualifier remains review evidence', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Widget USD 5.00
+Subtotal USD 5.00
+Tax (Ecology) USD 0.50
+Total USD 5.50
+''');
+    expect(preview.items.map((item) => item.description), ['Widget']);
+    expect(preview.tax, isNull);
+    expect(
+      preview.incompleteAdjustmentReasons,
+      contains(
+        ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
+      ),
+    );
+  });
+
   test('descriptive surcharge after subtotal stays review evidence', () {
     final preview = const ReceiptOcrParser().parse('''
 Utility

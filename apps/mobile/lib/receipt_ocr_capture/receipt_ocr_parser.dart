@@ -1734,6 +1734,9 @@ class ReceiptOcrParser {
                 allowDescriptiveSurchargeLabel: afterSubtotal,
               ) &&
               (afterSubtotal || _hasExplicitTaxRate(line))) ||
+          (afterSubtotal &&
+              !chargeTableRows.contains(lineIndex) &&
+              _isAmbiguousParenthesizedTaxLine(line)) ||
           _isContextualReceiptMetadataLine(lines, lineIndex) ||
           _isChargeTableHeader(line) ||
           detachedAmountSignRows.contains(lineIndex) ||
@@ -3362,7 +3365,7 @@ bool _isPostSubtotalAdjustmentLine(
   }
   if (allowDescriptiveTaxLabel) {
     final describedTax = RegExp(
-      r'^(?:[\p{L}]+[ -]+){0,3}tax\s*\(\s*(?:federal|state|local|city|county|municipal|regional|provincial|standard|reduced|special|exempt|zero(?:[ -]rated)?|sales|use|vat|gst|hst)\s*\)\s+',
+      r'^(?:[\p{L}]+[ -]+){0,3}tax\s*\(\s*(?:federal|state|local|city|county|municipal|regional|provincial|standard|reduced|special|exempt|zero(?:[ -]rated)?|sales|use|vat|gst|hst|tourist|tourism|occupancy|lodging)\s*\)\s+',
       caseSensitive: false,
       unicode: true,
     ).firstMatch(trimmed);
@@ -3383,6 +3386,16 @@ bool _isPostSubtotalAdjustmentLine(
     }
   }
   return false;
+}
+
+bool _isAmbiguousParenthesizedTaxLine(String line) {
+  final match = RegExp(
+    r'^(?:[\p{L}]+[ -]+){0,3}tax\s*\(\s*[\p{L}]{2,32}\s*\)\s+',
+    caseSensitive: false,
+    unicode: true,
+  ).firstMatch(line.trim());
+  return match != null &&
+      _isStandaloneAmountRow(line.trim().substring(match.end));
 }
 
 bool _hasExplicitTaxRate(String line) => RegExp(
