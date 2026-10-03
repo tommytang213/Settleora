@@ -4657,6 +4657,206 @@ Total \$12.00
     );
   });
 
+  test('repeated address and mixed due date rows stay out of items', () {
+    final preview = const ReceiptOcrParser().parse('''
+Northport Supply
+Northport, CA 92507 Northport, CA 92507
+Customer Due Date: Mar 25, 2025
+Notebook 12.00
+Total USD 12.00
+''');
+    expect(preview.items.map((item) => item.description), ['Notebook']);
+    expect(preview.items.single.lineTotal, '12.00');
+  });
+
+  test(
+    'qualified shipping tax and payment rows keep their financial roles',
+    () {
+      final preview = const ReceiptOcrParser().parse('''
+Municipal Market
+Notebook 12.00
+Subtotal 12.00
+County Utilities Tax (5%) 0.60
+Shipping (Express) 2.00
+Total USD 14.60
+Amount Paid: USD 14.60
+Remaining Balance: USD 0.00
+''');
+      expect(preview.items.map((item) => item.description), ['Notebook']);
+      expect(preview.tax, '0.60');
+      expect(preview.shipping, '2.00');
+    },
+  );
+
+  test('metadata words inside priced product names remain merchandise', () {
+    final preview = const ReceiptOcrParser().parse('''
+Bookshop
+Shipping Container Kit 19.00
+Shipping (Container) 7.00
+Delivery (Pizza) 12.00
+Tax (Board Game) 9.00
+Tax Planning Guide 9.00
+Due Date Planner 4.00
+Remaining Balance Workbook 5.00
+Subtotal USD 65.00
+Total USD 65.00
+''');
+    expect(preview.items.map((item) => item.description), [
+      'Shipping Container Kit',
+      'Shipping (Container)',
+      'Delivery (Pizza)',
+      'Tax (Board Game)',
+      'Tax Planning Guide',
+      'Due Date Planner',
+      'Remaining Balance Workbook',
+    ]);
+  });
+
+  test(
+    'a priced parenthesized product after a subtotal is not a delivery fee',
+    () {
+      final preview = const ReceiptOcrParser().parse('''
+Bookshop
+Notebook 5.00
+Subtotal 5.00
+Delivery (Pizza) 12.00
+Total USD 17.00
+''');
+      expect(preview.items.map((item) => item.description), [
+        'Notebook',
+        'Delivery (Pizza)',
+      ]);
+      expect(preview.shipping, isNull);
+    },
+  );
+
+  test('post-subtotal charge-table rows remain traceable items', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Widget USD 5.00
+Subtotal USD 5.00
+Description Usage Amount
+Energy Surcharge USD 1.00
+Shipping (Express) USD 2.00
+Total USD 8.00
+''');
+    expect(preview.items.map((item) => item.description), [
+      'Widget',
+      'Energy Surcharge',
+      'Shipping (Express)',
+    ]);
+    expect(preview.items.map((item) => item.lineTotal), [
+      '5.00',
+      '1.00',
+      '2.00',
+    ]);
+    expect(preview.shipping, isNull);
+  });
+
+  test('post-subtotal descriptive tax remains an adjustment', () {
+    for (final taxLabel in ['Tax (Reduced)', 'Tax (Federal)']) {
+      final preview = const ReceiptOcrParser().parse('''
+Market
+Notebook 12.00
+Subtotal 12.00
+$taxLabel 0.60
+Total USD 12.60
+''');
+      expect(preview.items.map((item) => item.description), ['Notebook']);
+      expect(preview.tax, '0.60');
+    }
+  });
+
+  test('parenthesized distinct tax rates aggregate after subtotal', () {
+    final preview = const ReceiptOcrParser().parse('''
+Utility
+Water Usage USD 10.00
+Subtotal USD 10.00
+County Utilities Tax (5%) USD 0.50
+Local Utilities Tax (2%) USD 0.20
+Total USD 10.70
+''');
+    expect(preview.items.map((item) => item.description), ['Water Usage']);
+    expect(preview.tax, '0.70');
+  });
+
+  test('tax-named product after subtotal remains merchandise', () {
+    final preview = const ReceiptOcrParser().parse('''
+Bookshop
+Notebook USD 5.00
+Subtotal USD 5.00
+Tax (Board Game) USD 9.00
+Total USD 14.00
+''');
+    expect(preview.items.map((item) => item.description), [
+      'Notebook',
+      'Tax (Board Game)',
+    ]);
+    expect(preview.tax, isNull);
+  });
+
+  test(
+    'pre-subtotal flat surcharge remains an item outside a charge table',
+    () {
+      final preview = const ReceiptOcrParser().parse('''
+Utility
+Energy Surcharge 1.00
+Subtotal 1.00
+Total USD 1.00
+''');
+      expect(preview.items.map((item) => item.description), [
+        'Energy Surcharge',
+      ]);
+      expect(preview.items.single.lineTotal, '1.00');
+    },
+  );
+
+  test('tax-named charge-table lines retain priced item evidence', () {
+    final preview = const ReceiptOcrParser().parse('''
+Utility
+Description Usage Amount
+Energy Tax USD 1.00
+Total USD 1.00
+''');
+    expect(preview.items.map((item) => item.description), ['Energy Tax']);
+    expect(preview.items.single.lineTotal, '1.00');
+    expect(preview.tax, isNull);
+  });
+
+  test('descriptive surcharge after subtotal stays review evidence', () {
+    final preview = const ReceiptOcrParser().parse('''
+Utility
+Widget USD 5.00
+Subtotal USD 5.00
+Fuel Surcharge (Winter) USD 1.00
+Total USD 6.00
+''');
+    expect(preview.items.map((item) => item.description), ['Widget']);
+    expect(
+      preview.incompleteAdjustmentReasons,
+      contains(
+        ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
+      ),
+    );
+  });
+
+  test('tax-named surcharge after subtotal is not assigned to tax', () {
+    final preview = const ReceiptOcrParser().parse('''
+Utility
+Widget USD 5.00
+Subtotal USD 5.00
+Tax Surcharge USD 1.00
+Total USD 6.00
+''');
+    expect(preview.tax, isNull);
+    expect(
+      preview.incompleteAdjustmentReasons,
+      contains(
+        ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
+      ),
+    );
+  });
+
   test('previous bill date does not outrank the current bill date', () {
     final preview = const ReceiptOcrParser().parse('''
 Harbor Utility

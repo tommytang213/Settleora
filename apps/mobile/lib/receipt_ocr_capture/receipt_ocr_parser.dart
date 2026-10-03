@@ -1086,6 +1086,7 @@ class ReceiptOcrParser {
     final incompleteReasons = <ReceiptOcrIncompleteAdjustmentReason>{};
     var aggregatedRatedTax = false;
     final totalCandidates = <({String value, int score, int order})>[];
+    var seenPrintedSubtotal = false;
     bool preferMatchingPrintedCurrency(
       String? existing,
       String? existingCurrency,
@@ -1100,6 +1101,9 @@ class ReceiptOcrParser {
             printed.currency == currency);
 
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+      if (_hasSubtotalLabel(lines[lineIndex], lines[lineIndex].toLowerCase())) {
+        seenPrintedSubtotal = true;
+      }
       // A printed registration or tax-context header describes the receipt.
       // Keep other malformed adjustment rows in the review path.
       if (!layoutAdjustmentLines.containsKey(lineIndex) &&
@@ -1141,10 +1145,20 @@ class ReceiptOcrParser {
         continue;
       }
       final adjustmentRoles = [
-        if (_hasTaxLabel(line, normalized)) 'tax',
+        if (_hasTaxLabel(
+          line,
+          normalized,
+          allowDescriptiveTaxLabel: seenPrintedSubtotal,
+        ))
+          'tax',
         if (_hasServiceChargeLabel(line, normalized)) 'service',
         if (_hasActualTipChargeLabel(line, normalized)) 'tip',
-        if (_hasShippingLabel(line, normalized)) 'shipping',
+        if (_hasShippingLabel(
+          line,
+          normalized,
+          allowParenthesizedMethod: seenPrintedSubtotal,
+        ))
+          'shipping',
         if (_hasDiscountLabel(line, normalized)) 'discount',
       ];
       final adjustmentRole = adjustmentRoles.firstOrNull;
@@ -1244,7 +1258,7 @@ class ReceiptOcrParser {
           subtotalCurrency = printed.currency;
           subtotalHasExplicitCurrencyEvidence = printed.hasExplicitEvidence;
         }
-      } else if (_hasTaxLabel(line, normalized)) {
+      } else if (adjustmentRole == 'tax') {
         final printed = _explicitAdjustmentCurrencyFromLine(
           line,
           receiptCurrency: currency,
@@ -1254,7 +1268,7 @@ class ReceiptOcrParser {
           transactionTaxInclusionModes.add(_isIncludedTaxAmountLine(line));
         }
         final printedRate = RegExp(
-          r'\b(?:sales\s+tax|tax|vat|gst|hst|iva|tva|kdv|mwst)\b\.?\s*(\d{1,3}(?:[.,]\d{1,2})?)\s*%',
+          r'\b(?:sales\s+tax|tax|vat|gst|hst|iva|tva|kdv|mwst)\b\.?\s*\(?\s*(\d{1,3}(?:[.,]\d{1,2})?)\s*%\s*\)?',
         ).firstMatch(normalized);
         final rate = printedRate == null
             ? null
@@ -1315,7 +1329,7 @@ class ReceiptOcrParser {
           tipHasExplicitCurrencyEvidence =
               adjustmentCurrency.hasExplicitEvidence;
         }
-      } else if (_hasShippingLabel(line, normalized)) {
+      } else if (adjustmentRole == 'shipping') {
         final adjustmentCurrency = _explicitAdjustmentCurrencyFromLine(
           line,
           receiptCurrency: currency,
@@ -1707,7 +1721,18 @@ class ReceiptOcrParser {
               !chargeTableRows.contains(lineIndex)) ||
           (afterSubtotal &&
               !chargeTableRows.contains(lineIndex) &&
-              _isPostSubtotalAdjustmentLine(line)) ||
+              _hasShippingLabel(
+                line,
+                line.toLowerCase(),
+                allowParenthesizedMethod: true,
+              )) ||
+          (!chargeTableRows.contains(lineIndex) &&
+              _isPostSubtotalAdjustmentLine(
+                line,
+                allowDescriptiveTaxLabel: afterSubtotal,
+                allowDescriptiveSurchargeLabel: afterSubtotal,
+              ) &&
+              (afterSubtotal || _hasExplicitTaxRate(line))) ||
           _isContextualReceiptMetadataLine(lines, lineIndex) ||
           _isChargeTableHeader(line) ||
           detachedAmountSignRows.contains(lineIndex) ||
@@ -3296,6 +3321,7 @@ bool _hasCompleteUsageRateColumns(String prefix) {
 bool _isChargeTableSummaryLine(String line) {
   final normalized = line.toLowerCase();
   return _isAccountBalanceSummaryLine(line) ||
+      (_hasExplicitTaxRate(line) && _isPostSubtotalAdjustmentLine(line)) ||
       _hasTaxLabel(line, normalized) ||
       _isExplicitNonItemFeeLine(line) ||
       _hasDiscountLabel(line, normalized) ||
@@ -3303,15 +3329,50 @@ bool _isChargeTableSummaryLine(String line) {
       _isPaymentMetadataLine(line);
 }
 
-bool _isPostSubtotalAdjustmentLine(String line) {
+bool _isPostSubtotalAdjustmentLine(
+  String line, {
+  bool allowDescriptiveTaxLabel = false,
+  bool allowDescriptiveSurchargeLabel = false,
+  bool taxOnly = false,
+}) {
+  final trimmed = line.trim();
   final match = RegExp(
-    r'^(?:[\p{L}]+[ -]+){0,3}(?:tax|surcharge)(?:\s*\([^)]*\))?\s+',
+    '^(?:[\\p{L}]+[ -]+){0,3}(?:${taxOnly ? 'tax' : 'tax|surcharge'})(?:\\s*\\(\\d{1,3}(?:[.,]\\d{1,2})?\\s*%\\))?\\s+',
     caseSensitive: false,
     unicode: true,
-  ).firstMatch(line.trim());
-  return match != null &&
-      _isStandaloneAmountRow(line.trim().substring(match.end));
+  ).firstMatch(trimmed);
+  if (match != null && _isStandaloneAmountRow(trimmed.substring(match.end))) {
+    return true;
+  }
+  if (allowDescriptiveTaxLabel) {
+    final describedTax = RegExp(
+      r'^(?:[\p{L}]+[ -]+){0,3}tax\s*\(\s*(?:federal|state|local|city|county|municipal|regional|provincial|standard|reduced|special|exempt|zero(?:[ -]rated)?|sales|use|vat|gst|hst)\s*\)\s+',
+      caseSensitive: false,
+      unicode: true,
+    ).firstMatch(trimmed);
+    if (describedTax != null &&
+        _isStandaloneAmountRow(trimmed.substring(describedTax.end))) {
+      return true;
+    }
+  }
+  if (allowDescriptiveSurchargeLabel && !taxOnly) {
+    final describedSurcharge = RegExp(
+      r'^(?:[\p{L}]+[ -]+){0,3}surcharge\s*\([^)]{1,32}\)\s+',
+      caseSensitive: false,
+      unicode: true,
+    ).firstMatch(trimmed);
+    if (describedSurcharge != null &&
+        _isStandaloneAmountRow(trimmed.substring(describedSurcharge.end))) {
+      return true;
+    }
+  }
+  return false;
 }
+
+bool _hasExplicitTaxRate(String line) => RegExp(
+  r'\btax\b\s*(?:\(\s*\d{1,3}(?:[.,]\d{1,2})?\s*%\s*\)|\d{1,3}(?:[.,]\d{1,2})?\s*%)',
+  caseSensitive: false,
+).hasMatch(line);
 
 bool _hasChargeTableMonetaryEvidence(String monetaryText) {
   final amountTokens = RegExp(_amountTokenPattern).allMatches(monetaryText);
@@ -4135,6 +4196,10 @@ bool _isAccountBalanceSummaryLine(String line) =>
     _isLabeledStandaloneMoneyLine(
       line,
       RegExp(r'^account\s+credit\b', caseSensitive: false),
+    ) ||
+    _isLabeledStandaloneMoneyLine(
+      line,
+      RegExp(r'^(?:amount\s+paid|remaining\s+balance)\b', caseSensitive: false),
     );
 
 bool _isLabeledStandaloneMoneyLine(String line, RegExp label) {
@@ -5094,6 +5159,18 @@ bool _isReceiptMetadataLine(String line, {bool allowBarePostal = true}) {
     return true;
   }
   if (_isPrintedTaxContextHeader(line)) return true;
+  if (RegExp(
+    r"^([a-z][a-z .'-]{1,40},\s*[a-z]{2}\s+\d{5}(?:-\d{4})?)(?:\s+\1)+$",
+    caseSensitive: false,
+  ).hasMatch(normalized)) {
+    return true;
+  }
+  if (RegExp(
+    r'\bdue\s+date\s*[:：]\s*(?:[a-z]{3,9}\.?\s+\d{1,2},?\s+\d{4}|\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{4})\s*$',
+    caseSensitive: false,
+  ).hasMatch(normalized)) {
+    return true;
+  }
 
   final metadataPatterns = [
     RegExp(
@@ -5266,7 +5343,11 @@ bool _hasSubtotalLabel(String line, String normalized) {
       ]);
 }
 
-bool _hasTaxLabel(String line, String normalized) {
+bool _hasTaxLabel(
+  String line,
+  String normalized, {
+  bool allowDescriptiveTaxLabel = false,
+}) {
   return _isIncludedTaxAmountLine(line) ||
       _hasEnglishReceiptLabel(
         normalized,
@@ -5275,6 +5356,13 @@ bool _hasTaxLabel(String line, String normalized) {
           caseSensitive: false,
         ),
       ) ||
+      (_isPostSubtotalAdjustmentLine(
+            line,
+            allowDescriptiveTaxLabel: allowDescriptiveTaxLabel,
+            taxOnly: true,
+          ) &&
+          RegExp(r'\btax\b', caseSensitive: false).hasMatch(normalized) &&
+          (allowDescriptiveTaxLabel || _hasExplicitTaxRate(line))) ||
       _hasJapaneseReceiptLabel(line, const ['消費税', '税']) ||
       _hasLocalizedReceiptLabel(line, const [
         'الضريبة',
@@ -5479,12 +5567,27 @@ bool _isPricedItemLine(String line) {
       _hasTraceableItemAmountToken(line, match.group(3)!);
 }
 
-bool _hasShippingLabel(String line, String normalized) {
+bool _hasShippingLabel(
+  String line,
+  String normalized, {
+  bool allowParenthesizedMethod = false,
+}) {
   final labelPattern = RegExp(
     r'\b(shipping|delivery)(?:\s+(?:fee|charge)|\s*(?:(?:&|and)\s*)?handling(?:\s+(?:fee|charge))?)?\b',
     caseSensitive: false,
   );
   return _hasEnglishReceiptLabel(normalized, labelPattern) ||
+      (allowParenthesizedMethod &&
+          _hasEnglishReceiptLabel(
+            normalized.replaceFirstMapped(
+              RegExp(
+                r'\b(shipping|delivery)\s*\((?:standard|express|priority|ground|overnight|economy|expedited|tracked|local|international|same[ -]day|next[ -]day)\)',
+                caseSensitive: false,
+              ),
+              (match) => match.group(1)!,
+            ),
+            labelPattern,
+          )) ||
       _hasEnglishReceiptLabel(
         _withoutBoundedExplicitCurrencyCode(line).toLowerCase(),
         labelPattern,
