@@ -411,6 +411,15 @@ void main() {
       find.byKey(const ValueKey('personal-bill-ocr-item-currency-0')),
       'USD',
     );
+    await _selectCurrency(
+      tester,
+      find.byKey(const ValueKey('personal-bill-ocr-item-currency-1')),
+      'USD',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('personal-bill-ocr-item-line-total-1')),
+      '2.31',
+    );
 
     await _tapReceiptOcrApply(tester, 'personal-bill');
 
@@ -449,7 +458,7 @@ void main() {
           )
           .controller
           ?.text,
-      '18.00',
+      '2.31',
     );
 
     await _tapSaveBill(tester);
@@ -467,7 +476,7 @@ void main() {
     ]);
     expect(repository.lastCreateDraft?.items.map((item) => item.amount), [
       '30.00',
-      '18.00',
+      '2.31',
     ]);
     expect(repository.lastCreateDraft?.adjustments, isEmpty);
     expect(receiptRepository.saveCalls, 1);
@@ -499,9 +508,9 @@ void main() {
       receiptRepository.lastSaveRequest?.lines.map(
         (line) => line.lineTotalAmount,
       ),
-      ['30.00', null],
+      ['30.00', '2.31'],
       reason:
-          'The second HKD line stays reviewable but its amount must not be relabeled as USD.',
+          'The second amount is applied only after the user edits both its currency and value.',
     );
     expect(
       receiptRepository.lastSaveRequest?.adjustmentEvidence.map(
@@ -4970,6 +4979,7 @@ Total USD 9.00
         findsOneWidget,
       );
 
+      await _setReceiptOcrSection(tester, 'personal-bill', 'items', true);
       await _tapReceiptOcrApply(tester, 'personal-bill');
       await _tapSaveBill(tester);
 
@@ -5708,6 +5718,80 @@ Total USD 9.00
       );
     },
   );
+
+  testWidgets('personal OCR keeps foreign-currency items in review', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraPersonalBillCreateScreen(
+          repository: FakeBillRepository(),
+          attachmentRepository: FakeBillAttachmentRepository(),
+          attachmentFileInput: FakeBillAttachmentFileInput(
+            pickedFile: samplePickedAttachmentFile(
+              filename: 'receipt.png',
+              contentType: 'image/png',
+              bytes: samplePngBytes(width: 64, height: 64),
+            ),
+          ),
+          receiptOcrProvider: FakeReceiptOcrProvider(
+            const ReceiptOcrResult.extracted(
+              ReceiptOcrPreview(
+                merchant: 'Central Card Terminal',
+                currency: 'USD',
+                currencyProvenance: ReceiptOcrCurrencyProvenance.explicit,
+                total: '100.00',
+                items: [
+                  ReceiptOcrItemCandidate(
+                    description: 'Dinner',
+                    lineTotal: '780.00',
+                    currency: 'HKD',
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('personal-bill-scan-receipt')));
+    await tester.pumpAndSettle();
+    expect(find.text('Dinner'), findsWidgets);
+    expect(find.text('780.00'), findsWidgets);
+    expect(
+      tester
+          .widget<CheckboxListTile>(
+            find.byKey(const Key('personal-bill-ocr-apply-items')),
+          )
+          .onChanged,
+      isNull,
+    );
+    expect(
+      find.text('Review foreign-currency item amounts before applying'),
+      findsOneWidget,
+    );
+    await _tapReceiptOcrApply(tester, 'personal-bill');
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const ValueKey('personal-bill-item-name-0')),
+          )
+          .controller
+          ?.text,
+      isEmpty,
+    );
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const ValueKey('personal-bill-item-amount-0')),
+          )
+          .controller
+          ?.text,
+      isEmpty,
+    );
+  });
 
   testWidgets(
     'personal OCR requires explicit resolution before applying currencyless items',
@@ -9554,6 +9638,7 @@ Total USD 9.00
         findsOneWidget,
       );
 
+      await _setReceiptOcrSection(tester, 'group-bill', 'items', true);
       await _tapReceiptOcrApply(tester, 'group-bill');
       await _assignFirstGroupBillItem(tester);
       await _tapSaveGroupBill(tester);
@@ -9735,6 +9820,82 @@ Total USD 9.00
           .controller
           ?.text,
       'Manual tea',
+    );
+  });
+
+  testWidgets('group OCR keeps foreign-currency items in review', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    await _pumpGroupBillCreate(
+      tester,
+      repository: FakeBillRepository(),
+      groupRepository: FakeGroupRepository(
+        members: [sampleGroupMember(displayName: 'Alex')],
+      ),
+      attachmentRepository: FakeBillAttachmentRepository(),
+      attachmentFileInput: FakeBillAttachmentFileInput(
+        pickedFile: samplePickedAttachmentFile(
+          filename: 'group-receipt.png',
+          contentType: 'image/png',
+          bytes: samplePngBytes(width: 64, height: 64),
+        ),
+      ),
+      receiptOcrProvider: FakeReceiptOcrProvider(
+        const ReceiptOcrResult.extracted(
+          ReceiptOcrPreview(
+            merchant: 'Central Card Terminal',
+            currency: 'USD',
+            currencyProvenance: ReceiptOcrCurrencyProvenance.explicit,
+            total: '100.00',
+            items: [
+              ReceiptOcrItemCandidate(
+                description: 'Dinner',
+                lineTotal: '780.00',
+                currency: 'HKD',
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await _goToGroupBillCreateStep(tester, 'receiptItems');
+    await tester.tap(find.byKey(const Key('group-bill-scan-receipt')));
+    await tester.pumpAndSettle();
+    expect(find.text('Dinner'), findsWidgets);
+    expect(find.text('780.00'), findsWidgets);
+    expect(
+      tester
+          .widget<CheckboxListTile>(
+            find.byKey(const Key('group-bill-ocr-apply-items')),
+          )
+          .onChanged,
+      isNull,
+    );
+    expect(
+      find.text('Review foreign-currency item amounts before applying'),
+      findsOneWidget,
+    );
+    await _tapReceiptOcrApply(tester, 'group-bill');
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const ValueKey('group-bill-item-name-0')),
+          )
+          .controller
+          ?.text,
+      isEmpty,
+    );
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const ValueKey('group-bill-item-amount-0')),
+          )
+          .controller
+          ?.text,
+      isEmpty,
     );
   });
 

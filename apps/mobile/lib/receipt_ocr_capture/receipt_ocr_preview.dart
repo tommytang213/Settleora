@@ -114,6 +114,7 @@ enum ReceiptOcrCurrencyProvenance {
 
 enum ReceiptOcrReviewDecision {
   none,
+  foreignItemCurrency,
   itemSumUnavailableWithAdjustment,
   subtotalMismatch,
   incompleteAdjustmentWithSubtotal,
@@ -238,6 +239,15 @@ List<String> _receiptOcrReviewHints(
     reviewCurrency: preview.currency,
   );
   if (itemTotal == null) {
+    if (preview.currency != null &&
+        preview.items.any(
+          (item) => item.currency != null && item.currency != preview.currency,
+        )) {
+      onDecision?.call(ReceiptOcrReviewDecision.foreignItemCurrency);
+      return const [
+        'Some item prices use a different currency from the receipt. Review before applying.',
+      ];
+    }
     if (_parseReceiptOcrReviewAmount(preview.total) != null &&
         (!preview.adjustmentsComplete ||
             _hasReceiptOcrReferenceAdjustment(preview) ||

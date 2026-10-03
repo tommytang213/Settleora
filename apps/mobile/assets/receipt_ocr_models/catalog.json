@@ -21,9 +21,9 @@
       "path": "apps/mobile/test/fixtures/receipt_ocr",
       "schemaVersion": 2,
       "entryCount": 101,
-      "manifestSha256": "376b9480547e20e4fbe21efb605ff75699f78e27a0019dec9e474074c67536b4",
+      "manifestSha256": "8d54d1f6e0f6661ad1c953880aba85c1162c3817c4e715ee1f8f279397ca8b93",
       "treeDigestAlgorithm": "sha256-of-sorted-sha256sum-v1",
-      "treeSha256": "15a3fdda434392ee147b25bb68f2f097b278abfc228dc31975cf728202b1db8a"
+      "treeSha256": "250bab658af2dd5aa2ad2372df1fdf595e09149d84a36416f2ec2ae8cd6e725c"
     },
     "preprocessing": {
       "files": [
@@ -39,16 +39,16 @@
     },
     "nativeSemantics": {
       "files": [
-        { "path": "apps/mobile/integration_test/receipt_ocr_real_provider_test.dart", "sha256": "743d7f68e2a1408d1b9bad5dfb4e0c98c4f252df25d0a9972d530c344d8d4d37" },
+        { "path": "apps/mobile/integration_test/receipt_ocr_real_provider_test.dart", "sha256": "4b123669000747758ced02052ccdf50c0a0e6ec33eb3f36c1c93cdc57d787223" },
         { "path": "apps/mobile/lib/app/app_bootstrap.dart", "sha256": "bfc2ea06825d3b7162f6f08b68b0413e62320523b3c087a6abc27aecc8b1d875" },
         { "path": "apps/mobile/lib/app/server_mode_shell.dart", "sha256": "7bc1b89910d260c5652810265b8a9985896fe62e852f65aa24d44d5fa2d8459e" },
-        { "path": "apps/mobile/lib/bills/bill_list_screen.dart", "sha256": "f0a4cfc5d8f3a21421b34383c2c6966c44610b5dce52ed050032301c1474cb8e" },
+        { "path": "apps/mobile/lib/bills/bill_list_screen.dart", "sha256": "f99c61b911a4fd586fc6cbe6435803f4c9090fd8a7dc0ca7fd4e513bb7a96fd4" },
         { "path": "apps/mobile/lib/groups/group_list_screen.dart", "sha256": "62497fd2753850b88d93b1b0e40d2e982ba560209fb36321aa986b7d1fbdc473" },
         { "path": "apps/mobile/lib/main.dart", "sha256": "b91c1fe701d9412c3a85880186016609d8ba460d1f6584fa3b5be5873ab36b89" },
         { "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_provider.dart", "sha256": "a3331597a312cc3bd90a9a026b4bd6901b07f0c38dd7dac00a2a7c2c19ada90e" },
         { "path": "apps/mobile/lib/receipt_ocr_capture/mlkit_receipt_ocr_provider.dart", "sha256": "a7f552b7e9601814e2fe2d6ed1b5d57b86678edd2438ccba8bcd3cb3e68ff9cb" },
         { "path": "apps/mobile/lib/receipt_ocr_capture/paddle_receipt_ocr_provider.dart", "sha256": "bab2702484fbcc48b3e5a985fbbb70467a5714713ad3e0c520aa542768620eeb" },
-        { "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_preview.dart", "sha256": "8e54df749dc20cae8c014e62402cb2bfe98d2f3aa443953235f02f19b6525fa3" },
+        { "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_preview.dart", "sha256": "10b35ada0fc46876755dad0fc86824cdb0d0a4c8cf0b023e8038d0f55e427143" },
         { "path": "apps/mobile/lib/ui/settleora_form_fields.dart", "sha256": "ff5669f541437bef62d562109573f32506273dd90593874c8ffcde6355145079" },
         { "path": "apps/mobile/pubspec.yaml", "sha256": "f5a9968dbb7e1f7ab58b780e9b3f8e049d6008cd339e3df2d748e33e0ab76030" },
         { "path": "apps/mobile/pubspec.lock", "sha256": "065007a0c8b90d527aff6306936a02cd527d30f03800cc8e4229e8273d3afcc7" },
@@ -124,7 +124,7 @@
     },
     "parser": {
       "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_parser.dart",
-      "sha256": "9c9342c20f5d2e712692edf86aee11daa94a5da5d0f6619988248aab8076757e"
+      "sha256": "856ab6cf158538cfa04f020d862513f4a8d32a49042d19ccee292503a70f916b"
     }
   },
   "totalBundledBytes": 76580102,

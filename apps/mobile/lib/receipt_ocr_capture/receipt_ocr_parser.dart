@@ -116,7 +116,32 @@ class ReceiptOcrParser {
       detachedAmountSignRows: detachedAmountSignRows,
     );
     final itemCandidates = extractedItems.items;
+    final unresolvedItemLines = _countUnresolvedItemLikeLines(
+      lines,
+      merchantLineIndices: merchantDetection?.lineIndices ?? const {},
+      layoutRows: layoutRows,
+    );
+    final hasCompleteItemEvidence =
+        !extractedItems.truncated &&
+        !extractedItems.unretainedPricedItem &&
+        unresolvedItemLines == 0 &&
+        detachedAmountSignRows.isEmpty &&
+        !chargeTable.ambiguous.any(
+          (index) =>
+              !layoutChargeItems.containsKey(index) &&
+              !layoutAdjustmentLines.containsKey(index),
+        );
     final dccCharge = _corroboratedDccCharge(lines);
+    final selectedTotal =
+        amounts.total ??
+        _boundedDccChargedTotal(
+          lines,
+          itemCandidates,
+          amounts,
+          currency,
+          dccCharge,
+          hasCompleteItemEvidence: hasCompleteItemEvidence,
+        );
     if (dccCharge.hasSelection && dccCharge.currency == null) {
       warnings.add(
         'DCC selection needs a matching charged amount. Review the receipt currency.',
@@ -141,11 +166,6 @@ class ReceiptOcrParser {
         'Item prices and the receipt currency differ. Review before applying.',
       );
     }
-    final unresolvedItemLines = _countUnresolvedItemLikeLines(
-      lines,
-      merchantLineIndices: merchantDetection?.lineIndices ?? const {},
-      layoutRows: layoutRows,
-    );
     if (itemCandidates.isEmpty) {
       warnings.add('No clear item lines were detected.');
     }
@@ -160,7 +180,7 @@ class ReceiptOcrParser {
         'Some OCR lines need manual review because no traceable line amount was found.',
       );
     }
-    if (amounts.total == null && itemCandidates.isEmpty) {
+    if (selectedTotal == null && itemCandidates.isEmpty) {
       warnings.add('No clear total amount was detected.');
     }
     if (currencyDetection.usedFallbackForSymbolOnly) {
@@ -246,7 +266,7 @@ class ReceiptOcrParser {
           ) &&
           unresolvedItemLines == 0,
       incompleteAdjustmentReasons: incompleteAdjustmentReasons,
-      total: amounts.total,
+      total: selectedTotal,
       rawTextLineCount: lines.length,
       confidence: _averageBlockConfidence(blocks),
       category: 'receipt',
@@ -2643,6 +2663,11 @@ class ReceiptOcrParser {
             unicode: true,
           ).hasMatch(line.trim()) &&
           (RegExp(
+                r'^(?:ciudad\s+de|city\s+of)\s+[\p{L}][\p{L} .-]{2,60},\s*[A-Z]{2,4}$',
+                caseSensitive: false,
+                unicode: true,
+              ).hasMatch(line.trim()) ||
+              RegExp(
                 r',\s*(?:sverige|norge|pakistan|india)\s*$',
                 caseSensitive: false,
               ).hasMatch(line) ||
@@ -2668,6 +2693,7 @@ class ReceiptOcrParser {
       if ((!courtesy && _isAdministrativeLine(line)) ||
           _isSupportedChargeTableHeader(lines, lineIndex) ||
           (!courtesy && _isContextualReceiptMetadataLine(lines, lineIndex)) ||
+          _dccExchangeRatePattern.hasMatch(line) ||
           _lineHasAmount(line) ||
           _detectDate([line]) != null) {
         continue;
@@ -2816,6 +2842,9 @@ bool _hasOnlyPaymentOrIncludedTaxOrSuggestedTipAmountsBeforeCourtesy(
       sawPayment = true;
       continue;
     }
+    if (sawPayment && _isDateOrTimeOnlyLine(lines[index].toLowerCase())) {
+      continue;
+    }
     if (sawPayment && _isPaymentTerminalIdentifierLine(lines[index])) {
       continue;
     }
@@ -2862,6 +2891,7 @@ bool _isReceiptCourtesyLine(String line) {
   const courtesyPhrases = {
     'thank you',
     'thank you for shopping',
+    'thank you for shopping local',
     'merci',
     'vielen dank',
     'gracias',
@@ -4196,11 +4226,11 @@ bool _isNonTransactionCurrencyMetadataLine(String line) {
       (_lineHasAmount(line) || _lineHasCurrencyMarkerOrCode(line));
 }
 
-({bool hasSelection, String? currency}) _corroboratedDccCharge(
+({bool hasSelection, String? currency, String? amount}) _corroboratedDccCharge(
   List<String> lines,
 ) {
-  final selected = <({String currency, String amount})>[];
-  final charged = <({String currency, String amount})>[];
+  final selected = <({String currency, String amount, String canonical})>[];
+  final charged = <({String currency, String amount, String canonical})>[];
   final selectionPattern = RegExp(
     '^\\s*dcc\\s+selected\\s+([A-Za-z]{3})\\s+($_amountTokenPattern)\\s*\$',
     caseSensitive: false,
@@ -4232,7 +4262,11 @@ bool _isNonTransactionCurrencyMetadataLine(String line) {
     final canonicalAmount = fraction.isEmpty
         ? parts[0]
         : '${parts[0]}.$fraction';
-    final evidence = (currency: currency, amount: canonicalAmount);
+    final evidence = (
+      currency: currency,
+      amount: amount,
+      canonical: canonicalAmount,
+    );
     if (selection != null) {
       selected.add(evidence);
     } else {
@@ -4243,10 +4277,140 @@ bool _isNonTransactionCurrencyMetadataLine(String line) {
       chargeCount == 1 &&
       selected.length == 1 &&
       charged.length == 1 &&
-      selected.single == charged.single) {
-    return (hasSelection: true, currency: selected.single.currency);
+      selected.single.currency == charged.single.currency &&
+      selected.single.canonical == charged.single.canonical) {
+    return (
+      hasSelection: true,
+      currency: charged.single.currency,
+      amount: charged.single.amount,
+    );
   }
-  return (hasSelection: hasSelection, currency: null);
+  return (hasSelection: hasSelection, currency: null, amount: null);
+}
+
+final _dccExchangeRatePattern = RegExp(
+  r'^\s*exchange\s+rate\s+(\d{1,8}[.,]\d{3,8})\s+([A-Z]{3})\s*/\s*([A-Z]{3})\s*$',
+  caseSensitive: false,
+);
+
+BigInt? _dccAmountThousandths(String? amount) {
+  if (amount == null || !RegExp(r'^\d{1,12}(?:\.\d{1,3})?$').hasMatch(amount)) {
+    return null;
+  }
+  final parts = amount.split('.');
+  return BigInt.parse(parts.first) * BigInt.from(1000) +
+      BigInt.parse(parts.length == 2 ? parts[1].padRight(3, '0') : '000');
+}
+
+bool _dccRateConsistentWithPrintedAmounts(
+  RegExpMatch rate,
+  List<ReceiptOcrItemCandidate> items,
+  String chargedAmount,
+  String itemCurrency,
+  String chargedCurrency,
+) {
+  final charged = _dccAmountThousandths(chargedAmount);
+  if (charged == null || charged == BigInt.zero) return false;
+  final printed = rate.group(1)!.replaceAll(',', '.').split('.');
+  final scale = BigInt.from(10).pow(printed[1].length);
+  final rateUnits = BigInt.parse(printed[0]) * scale + BigInt.parse(printed[1]);
+  if (rateUnits == BigInt.zero) return false;
+  var itemSum = BigInt.zero;
+  for (final item in items) {
+    final amount = _dccAmountThousandths(item.lineTotal);
+    if (amount == null || amount == BigInt.zero) return false;
+    itemSum += amount;
+  }
+  final difference = (itemSum * scale - charged * rateUnits).abs();
+  final itemQuantum = BigInt.from(
+    10,
+  ).pow(3 - _currencyMinorUnitDigits(itemCurrency));
+  final chargedQuantum = BigInt.from(
+    10,
+  ).pow(3 - _currencyMinorUnitDigits(chargedCurrency));
+  // Bound only the last printed rate digit and currency rounding. This
+  // checks evidence consistency; it never converts an item for application.
+  final twiceTolerance =
+      charged +
+      chargedQuantum * rateUnits +
+      itemQuantum * BigInt.from(items.length) * scale;
+  return difference * BigInt.from(2) <= twiceTolerance;
+}
+
+String? _boundedDccChargedTotal(
+  List<String> lines,
+  List<ReceiptOcrItemCandidate> items,
+  _LabeledReceiptAmounts amounts,
+  String? receiptCurrency,
+  ({bool hasSelection, String? currency, String? amount}) dccCharge, {
+  required bool hasCompleteItemEvidence,
+}) {
+  if (!hasCompleteItemEvidence ||
+      dccCharge.amount == null ||
+      dccCharge.currency != receiptCurrency ||
+      !amounts.adjustmentsComplete ||
+      amounts.incompleteReasons.isNotEmpty ||
+      amounts.subtotal != null ||
+      amounts.tax != null ||
+      amounts.service != null ||
+      amounts.tip != null ||
+      amounts.shipping != null ||
+      amounts.discount != null ||
+      items.isEmpty ||
+      items.any(
+        (item) =>
+            item.lineTotal == null ||
+            item.currency == null ||
+            item.currency == receiptCurrency ||
+            item.currencyUnresolved,
+      )) {
+    return null;
+  }
+  final itemCurrencies = items.map((item) => item.currency!).toSet();
+  if (itemCurrencies.length != 1) return null;
+  final itemCurrency = itemCurrencies.single;
+  final rates = lines
+      .map(_dccExchangeRatePattern.firstMatch)
+      .whereType<RegExpMatch>()
+      .toList(growable: false);
+  if (rates.length != 1 ||
+      rates.single.group(2)!.toUpperCase() != itemCurrency ||
+      rates.single.group(3)!.toUpperCase() != receiptCurrency ||
+      !_dccRateConsistentWithPrintedAmounts(
+        rates.single,
+        items,
+        dccCharge.amount!,
+        itemCurrency,
+        receiptCurrency!,
+      )) {
+    return null;
+  }
+  final cardCharge = RegExp(
+    '^\\s*card\\s+charged\\s+[A-Z]{3}\\s+($_amountTokenPattern)\\s*\$',
+    caseSensitive: false,
+  );
+  for (final line in lines) {
+    final lower = line.toLowerCase();
+    if (_hasTotalLabel(line, lower) ||
+        _hasSubtotalLabel(line, lower) ||
+        RegExp(
+          r'^\s*(?:currency|curr)\b',
+          caseSensitive: false,
+        ).hasMatch(line) ||
+        RegExp(
+          r'\b(?:partial|split|installment|deposit|refund|reversal|cashback|remaining|balance|unpaid)\b',
+          caseSensitive: false,
+        ).hasMatch(line) ||
+        ((_isPaymentMetadataLine(line) ||
+                RegExp(
+                  r'^\s*(?:payment|tender|paid(?:\s+by)?|cash|change|(?:gift|prepaid|credit|debit)[ -]?card|card|visa|mastercard|master\s+card|amex|bank\s+transfer)\b',
+                  caseSensitive: false,
+                ).hasMatch(line)) &&
+            !cardCharge.hasMatch(line))) {
+      return null;
+    }
+  }
+  return dccCharge.amount;
 }
 
 bool _hasCurrencyMetadataShape(String remainder) {

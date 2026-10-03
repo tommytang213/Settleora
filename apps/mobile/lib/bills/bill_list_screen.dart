@@ -4247,7 +4247,9 @@ bool _receiptOcrItemsCanApply(ReceiptOcrPreview preview) {
     return false;
   }
 
-  final receiptCurrency = preview.currency?.trim();
+  final receiptCurrency = settleoraNormalizeCurrencyCode(
+    preview.currency?.trim(),
+  );
   if (receiptCurrency != null &&
       receiptCurrency.isNotEmpty &&
       !settleoraIsSupportedCurrency(receiptCurrency)) {
@@ -4261,10 +4263,15 @@ bool _receiptOcrItemsCanApply(ReceiptOcrPreview preview) {
     if (candidate.currencyUnresolved) {
       return false;
     }
-    final itemCurrency = candidate.currency?.trim();
+    final itemCurrency = settleoraNormalizeCurrencyCode(
+      candidate.currency?.trim(),
+    );
     if (itemCurrency != null &&
         itemCurrency.isNotEmpty &&
-        !settleoraIsSupportedCurrency(itemCurrency)) {
+        (!settleoraIsSupportedCurrency(itemCurrency) ||
+            (receiptCurrency != null &&
+                receiptCurrency.isNotEmpty &&
+                itemCurrency != receiptCurrency))) {
       return false;
     }
 
@@ -4375,6 +4382,16 @@ String _receiptOcrItemsApplyBlockReason(ReceiptOcrPreview preview) {
           currency.isNotEmpty &&
           !settleoraIsSupportedCurrency(currency))) {
     return 'Resolve receipt currency before applying';
+  }
+  final receiptCurrency = settleoraNormalizeCurrencyCode(preview.currency);
+  if (settleoraIsSupportedCurrency(receiptCurrency) &&
+      preview.items.any((item) {
+        final itemCurrency = settleoraNormalizeCurrencyCode(item.currency);
+        return itemCurrency != null &&
+            settleoraIsSupportedCurrency(itemCurrency) &&
+            itemCurrency != receiptCurrency;
+      })) {
+    return 'Review foreign-currency item amounts before applying';
   }
   return 'Review item amounts before applying';
 }

@@ -768,6 +768,11 @@ Exchange Rate 7.8000 HKD/USD
     expect(preview.currency, 'USD');
     expect(preview.currencyProvenance, ReceiptOcrCurrencyProvenance.explicit);
     expect(preview.items.single.currency, 'HKD');
+    expect(preview.items.single.lineTotal, '780');
+    expect(preview.total, '100.00');
+    expect(preview.reviewHints, [
+      'Some item prices use a different currency from the receipt. Review before applying.',
+    ]);
     expect(
       preview.warnings,
       contains(
@@ -1003,6 +1008,93 @@ Total USD 10.00
 ''');
     expect(merchandise.items.map((item) => item.description), [
       'DCC Selected Tee',
+    ]);
+  });
+
+  test('DCC charged-total fallback excludes partial and stronger evidence', () {
+    const parser = ReceiptOcrParser();
+    const base = r'''Central Card Terminal
+Dinner HK$780.00
+DCC Selected USD 100.00
+CARD CHARGED USD 100.00
+Exchange Rate 7.8000 HKD/USD''';
+    final charged = parser.parse(base, fallbackCurrency: 'HKD');
+    expect(charged.currency, 'USD');
+    expect(charged.total, '100.00');
+    expect(charged.items.single.currency, 'HKD');
+    expect(charged.items.single.lineTotal, '780.00');
+    expect(charged.reviewHints, [
+      'Some item prices use a different currency from the receipt. Review before applying.',
+    ]);
+    final grouped = parser.parse(r'''Central Card Terminal
+Dinner HK$7,800.00
+DCC Selected USD 1,000.00
+CARD CHARGED USD 1,000.00
+Exchange Rate 7.8000 HKD/USD''', fallbackCurrency: 'HKD');
+    expect(grouped.currency, 'USD');
+    expect(grouped.total, '1000.00');
+    expect(grouped.items.single.currency, 'HKD');
+    expect(grouped.items.single.lineTotal, '7800.00');
+    final unresolvedItem = parser.parse(
+      '$base\nMystery snack',
+      fallbackCurrency: 'HKD',
+    );
+    expect(unresolvedItem.total, isNull);
+    expect(unresolvedItem.adjustmentsComplete, isFalse);
+    final crowdedItems = List.generate(
+      41,
+      (index) => 'Menu $index HK\$1.00',
+    ).join('\n');
+    final truncatedItems = parser.parse(
+      base.replaceFirst('Dinner HK\$780.00', crowdedItems),
+      fallbackCurrency: 'HKD',
+    );
+    expect(truncatedItems.items, hasLength(40));
+    expect(truncatedItems.total, isNull);
+    expect(truncatedItems.adjustmentsComplete, isFalse);
+
+    for (final extra in [
+      'Cash USD 5.00',
+      'Gift card applied',
+      'Cash paid',
+      'Bank transfer',
+      'Paid by bank transfer USD 5.00',
+      'Split tender',
+      'Partial payment',
+      'Refund USD 5.00',
+      'Deposit Paid USD 5.00',
+      'Convenience fee USD 5.00',
+      'Currency USD',
+      'Subtotal HKD 780.00',
+      'Exchange Rate 7.8000 USD/HKD',
+      'Exchange Rate 7.7000 HKD/USD',
+      'Exchange Rate 7.7990 HKD/USD',
+      'Exchange Rate 0.0000 HKD/USD',
+    ]) {
+      final text = extra.startsWith('Exchange Rate')
+          ? base.replaceFirst('Exchange Rate 7.8000 HKD/USD', extra)
+          : '$base\n$extra';
+      final result = parser.parse(text, fallbackCurrency: 'HKD');
+      expect(result.total, isNull, reason: extra);
+    }
+    final unpaidBalance = parser.parse(
+      '$base\nBalance Due USD 5.00',
+      fallbackCurrency: 'HKD',
+    );
+    expect(unpaidBalance.total, '5.00');
+    final printedTotal = parser.parse(
+      '$base\nTotal HKD 780.00',
+      fallbackCurrency: 'HKD',
+    );
+    expect(printedTotal.total, '780.00');
+    expect(printedTotal.currency, 'HKD');
+    final noRate = parser.parse(
+      base.replaceFirst('Exchange Rate 7.8000 HKD/USD', ''),
+      fallbackCurrency: 'HKD',
+    );
+    expect(noRate.total, isNull);
+    expect(noRate.reviewHints, [
+      'Some item prices use a different currency from the receipt. Review before applying.',
     ]);
   });
 
@@ -1262,6 +1354,123 @@ Total 31.99
     ]);
     expect(preview.items.map((item) => item.lineTotal), ['19.99', '12.00']);
   });
+
+  test('image-transcribed location headers do not require item review', () {
+    // These rows are transcribed from the repository fixture images, not from
+    // Android/iOS provider output. Native OCR may split or change these rows.
+    const parser = ReceiptOcrParser();
+    final receipts = <({String text, String currency, List<String> items})>[
+      (
+        text: r'''Pike Street Deli
+Seattle, WA 98101
+Sales Tax applies
+Fecha/Date: 2026-09-17
+Sandwich $12.50
+Coffee $4.00
+Subtotal $16.50
+Sales Tax $1.70
+Total $18.20
+Thank you / Gracias / 多謝''',
+        currency: 'USD',
+        items: ['Sandwich', 'Coffee'],
+      ),
+      (
+        text: r'''Mercado Centro
+Ciudad de México, CDMX
+IVA incluido
+Fecha/Date: 2026-09-17
+Tacos $90.00
+Agua $35.00
+Subtotal $125.00
+IVA $20.00
+Total $145.00
+Thank you / Gracias / 多謝''',
+        currency: 'MXN',
+        items: ['Tacos', 'Agua'],
+      ),
+    ];
+    for (final receipt in receipts) {
+      final preview = parser.parse(receipt.text);
+      expect(preview.items.map((item) => item.description), receipt.items);
+      expect(preview.currency, receipt.currency);
+      expect(preview.adjustmentsComplete, isTrue, reason: receipt.text);
+      expect(preview.reviewHints, isEmpty, reason: receipt.text);
+    }
+
+    final genuineUnpricedItem = parser.parse(r'''Pike Street Deli
+Seattle, WA 98101
+Sales Tax applies
+Sandwich $12.50
+Coffee $4.00
+Unpriced dessert
+Subtotal $16.50
+Sales Tax $1.70
+Total $18.20''');
+    expect(genuineUnpricedItem.reviewHints, isNotEmpty);
+    for (final size in ['XL', 'XXL']) {
+      final unpricedSize = parser.parse('''Corner Cafe
+Latte, $size
+Sales Tax applies
+Coffee 4.00
+Sales Tax 0.40
+Total 4.40''');
+      expect(unpricedSize.reviewHints, isNotEmpty, reason: size);
+    }
+  });
+
+  test(
+    'image-transcribed grocery footer after tender and date stays bounded',
+    () {
+      // Source-image transcription only; this is not a captured provider row set.
+      const imageText = '''FreshMart
+Good Food. Brighter Days.
+456 Oak Avenue
+Pinecrest, NY 10077
+(555) 987-6543
+Bananas 1.25
+Organic Milk 3.49
+Whole Grain Bread 2.99
+Large Eggs 3.29
+Spring Mix 2.50
+SUBTOTAL 13.52
+SALES TAX (7.00%) 0.95
+TOTAL 14.47
+Visa 1111 14.47
+04/12/2025 10:23 AM
+Thank you for shopping local!''';
+      final preview = const ReceiptOcrParser().parse(
+        imageText,
+        fallbackCurrency: 'USD',
+      );
+      expect(preview.items.map((item) => item.description), [
+        'Bananas',
+        'Organic Milk',
+        'Whole Grain Bread',
+        'Large Eggs',
+        'Spring Mix',
+      ]);
+      // The source-image slogan remains unresolved without provider row/layout
+      // evidence; the footer rule must not silently clear that warning.
+      expect(preview.adjustmentsComplete, isFalse);
+      expect(
+        preview.incompleteAdjustmentReasons,
+        contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+      );
+      final withoutSlogan = const ReceiptOcrParser().parse(
+        imageText.replaceFirst('Good Food. Brighter Days.\n', ''),
+        fallbackCurrency: 'USD',
+      );
+      expect(withoutSlogan.adjustmentsComplete, isTrue);
+      expect(withoutSlogan.reviewHints, isEmpty);
+      final unpricedHeaderProduct = const ReceiptOcrParser().parse('''Market
+Chocolate Cookie. Family Size
+456 Oak Avenue
+Coffee 4.00
+Sales Tax 0.40
+Total 4.40''');
+      expect(unpricedHeaderProduct.reviewHints, isNotEmpty);
+    },
+  );
 
   test('charge table uses its columns despite neighboring panel text', () {
     final preview = const ReceiptOcrParser().parse(
@@ -1673,7 +1882,9 @@ Total 31.99
     expect(preview.items.single.description, 'Souvenir');
     expect(preview.items.single.currency, 'EUR');
     expect(preview.items.single.lineTotal, '9.00');
-    expect(preview.reviewHints, isEmpty);
+    expect(preview.reviewHints, [
+      'Some item prices use a different currency from the receipt. Review before applying.',
+    ]);
   });
 
   test('amount-bearing payment summary ends a layout charge table', () {
@@ -4146,7 +4357,9 @@ Total USD 10.00
     expect(preview.items.last.description, 'Souvenir');
     expect(preview.items.last.currency, 'EUR');
     expect(preview.items.last.lineTotal, '9.00');
-    expect(preview.reviewHints, isEmpty);
+    expect(preview.reviewHints, [
+      'Some item prices use a different currency from the receipt. Review before applying.',
+    ]);
   });
 
   test('layout fallback rejects bare identifier amounts', () {
@@ -4303,7 +4516,9 @@ Razem 35,50 zł .
     expect(preview.items.last.description, 'Souvenir');
     expect(preview.items.last.currency, 'EUR');
     expect(preview.items.last.lineTotal, '9.00');
-    expect(preview.reviewHints, isEmpty);
+    expect(preview.reviewHints, [
+      'Some item prices use a different currency from the receipt. Review before applying.',
+    ]);
   });
 
   test('long charge tables retain late rows until a printed total', () {
