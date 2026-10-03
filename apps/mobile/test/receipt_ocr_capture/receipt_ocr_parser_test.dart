@@ -4917,6 +4917,74 @@ Total USD 5.25
     expect(preview.tax, '0.25');
   });
 
+  test('a Rate value alone cannot stand in for missing Usage', () {
+    final preview = const ReceiptOcrParser().parse(
+      '''
+Market
+Description Usage Rate Amount
+Widget 1 5.00 USD 5.00
+Sales Tax (5%) 0.05 USD 0.25
+Total USD 5.25
+''',
+      blocks: [
+        _layoutBlock('Market', 0, 0, 20, 350),
+        _layoutBlock('Description', 1, 1, 20, 160),
+        _layoutBlock('Usage', 2, 1, 175, 220),
+        _layoutBlock('Rate', 3, 1, 230, 280),
+        _layoutBlock('Amount', 4, 1, 300, 350),
+        _layoutBlock('Widget', 5, 2, 20, 160),
+        _layoutBlock('1', 6, 2, 175, 220),
+        _layoutBlock('5.00', 7, 2, 230, 280),
+        _layoutBlock('USD 5.00', 8, 2, 300, 350),
+        _layoutBlock('Sales Tax (5%)', 9, 3, 20, 160),
+        _layoutBlock('0.05', 10, 3, 230, 280),
+        _layoutBlock('USD 0.25', 11, 3, 300, 350),
+        _layoutBlock('Total', 12, 4, 20, 160),
+        _layoutBlock('USD 5.25', 13, 4, 300, 350),
+      ],
+    );
+    expect(
+      preview.items.map((item) => item.description),
+      isNot(contains('Sales Tax (5%) 0.05')),
+    );
+    expect(preview.tax, '0.25');
+    final withoutGeometry = const ReceiptOcrParser().parse('''
+Market
+Description Usage Rate Amount
+Widget 1 5.00 USD 5.00
+Sales Tax (5%) 0.05 USD 0.25
+Total USD 5.25
+''');
+    expect(
+      withoutGeometry.items.map((item) => item.description),
+      isNot(contains('Sales Tax (5%) 0.05')),
+    );
+    expect(withoutGeometry.adjustmentsComplete, isFalse);
+  });
+
+  test('signed unit-bearing Usage remains distinct from a tax summary', () {
+    for (final usage in ['-1 kWh', '+2 liters']) {
+      final preview = const ReceiptOcrParser().parse(
+        'Utility\nDescription Usage Amount\nState Gas Tax (5%) $usage USD 1.00\nTotal USD 1.00',
+        blocks: [
+          _layoutBlock('Utility', 0, 0, 20, 350),
+          _layoutBlock('Description', 1, 1, 20, 160),
+          _layoutBlock('Usage', 2, 1, 175, 225),
+          _layoutBlock('Amount', 3, 1, 300, 350),
+          _layoutBlock('State Gas Tax (5%)', 4, 2, 20, 160),
+          _layoutBlock(usage, 5, 2, 175, 225),
+          _layoutBlock('USD 1.00', 6, 2, 300, 350),
+          _layoutBlock('Total', 7, 3, 20, 160),
+          _layoutBlock('USD 1.00', 8, 3, 300, 350),
+        ],
+      );
+      expect(preview.items.map((item) => item.description), [
+        'State Gas Tax (5%)',
+      ], reason: usage);
+      expect(preview.adjustmentsComplete, isFalse, reason: usage);
+    }
+  });
+
   test('descriptive surcharge after subtotal stays review evidence', () {
     final preview = const ReceiptOcrParser().parse('''
 Utility

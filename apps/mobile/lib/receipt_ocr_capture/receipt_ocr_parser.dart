@@ -3224,9 +3224,10 @@ bool _isFinancialLabelWithAdjacentAmount(
     final prefix = pricedRow?.group(1)?.trim() ?? '';
     final ratedTaxWithUsage =
         hasUsageColumn &&
+        !hasRateColumn &&
         _isRatedTaxNamedLine(line) &&
         RegExp(
-          r'(?:^|\s)\d+(?:[.,]\d+)?(?:\s*(?:kwh|m³|m3|therms?|gallons?|gal|units?|gb|minutes?|mins?))?\s*$',
+          r'(?:^|\s)[+\-−]?\d+(?:[.,]\d+)?(?:\s*(?:kwh|m³|m3|therms?|gallons?|gal|units?|gb|minutes?|mins?|liters?|litres?|ml|kg|lbs?|miles?|hours?|hrs?))?\s*$',
           caseSensitive: false,
         ).hasMatch(prefix);
     if (detachedAmountSignRows.contains(index)) {
@@ -3238,6 +3239,12 @@ bool _isFinancialLabelWithAdjacentAmount(
     // labeled amount column's geometry can select line money in these tables.
     if (requiresLayoutAmountColumn) {
       if (pricedRow != null) ambiguous.add(index);
+      continue;
+    }
+    // A rated tax row in a table with both Usage and Rate columns needs
+    // geometry to prove whether the numeric cell is usage or only a rate.
+    if (pricedRow != null && hasRateColumn && _isRatedTaxNamedLine(line)) {
+      ambiguous.add(index);
       continue;
     }
     if (pricedRow != null &&
@@ -3368,7 +3375,7 @@ bool _hasNumericUsageCell(
   return layoutRows[rowIndex].any((block) {
     if (block.points.isEmpty ||
         !RegExp(
-          r'^\s*\d+(?:[.,]\d+)?(?:\s*(?:kwh|m³|m3|therms?|gallons?|gal|units?|gb|minutes?|mins?))?\s*$',
+          r'^\s*[+\-−]?\d+(?:[.,]\d+)?(?:\s*(?:kwh|m³|m3|therms?|gallons?|gal|units?|gb|minutes?|mins?|liters?|litres?|ml|kg|lbs?|miles?|hours?|hrs?))?\s*$',
           caseSensitive: false,
         ).hasMatch(block.text)) {
       return false;
