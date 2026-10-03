@@ -132,6 +132,7 @@ class ReceiptOcrParser {
       );
     }
     if (dccCharge.currency != null &&
+        currency != null &&
         currency != dccCharge.currency &&
         itemCandidates.any(
           (item) => item.currency != null && item.currency != currency,

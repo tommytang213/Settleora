@@ -837,6 +837,24 @@ CARD CHARGED USD 100
       ),
     );
 
+    final unresolvedHeader = const ReceiptOcrParser().parse(r'''
+Karachi Grill
+Currency USD
+Dinner USD 100
+Total Rs 100 Rs 200
+DCC Selected USD 100
+CARD CHARGED USD 100
+''', fallbackCurrency: 'PKR');
+    expect(unresolvedHeader.currency, isNull);
+    expect(
+      unresolvedHeader.warnings,
+      isNot(
+        contains(
+          'Item prices and the receipt currency differ. Review before applying.',
+        ),
+      ),
+    );
+
     final conflictingSelection = const ReceiptOcrParser().parse(r'''
 Central Card Terminal
 Dinner HK$780
