@@ -93,7 +93,10 @@ class ReceiptOcrParser {
     };
     final ambiguousRatedTaxRows = [
       for (var index = 0; index < lines.length; index++)
-        if (_isAmbiguousRatedTaxCharge(lines[index])) index,
+        if (_isAmbiguousRatedTaxCharge(lines[index]) ||
+            (recognizedChargeRows.contains(index) &&
+                _isRatedTaxNamedLine(lines[index])))
+          index,
     ];
     final amounts = _extractLabeledAmounts(
       lines,
@@ -2206,42 +2209,9 @@ class ReceiptOcrParser {
           .map((point) => point.x)
           .reduce((a, b) => a > b ? a : b);
       final row = layoutRows[rowIndex];
-      bool hasNumericColumn(RegExp heading) {
-        final headers = layoutRows[headerIndex]
-            .where(
-              (block) =>
-                  block.points.isNotEmpty &&
-                  heading.hasMatch(block.text.trim()),
-            )
-            .toList(growable: false);
-        if (headers.length != 1) return false;
-        final left = headers.single.points
-            .map((point) => point.x)
-            .reduce((a, b) => a < b ? a : b);
-        final right = headers.single.points
-            .map((point) => point.x)
-            .reduce((a, b) => a > b ? a : b);
-        return row.any((block) {
-          if (block.points.isEmpty || !RegExp(r'\d').hasMatch(block.text)) {
-            return false;
-          }
-          final xs = block.points.map((point) => point.x);
-          final center =
-              (xs.reduce((a, b) => a < b ? a : b) +
-                  xs.reduce((a, b) => a > b ? a : b)) /
-              2;
-          return center >= left - 12 && center <= right + 12;
-        });
-      }
-
-      // A calculated charge with both usage/quantity and rate/unit-price
-      // cells remains a candidate item even when its name contains "tax".
-      if (hasNumericColumn(
-            RegExp(r'^(?:usage|qty|quantity)$', caseSensitive: false),
-          ) &&
-          hasNumericColumn(
-            RegExp(r'^(?:rate|unit\s+price)$', caseSensitive: false),
-          )) {
+      // A numeric usage or quantity cell is item evidence even when the
+      // charge name contains "tax"; a printed rate column is not required.
+      if (_hasNumericUsageCell(layoutRows, headerIndex, rowIndex)) {
         continue;
       }
       final labels = row
@@ -2449,10 +2419,17 @@ class ReceiptOcrParser {
             _hasSubtotalLabel(tableText, lower)) {
           break;
         }
+        final hasNumericUsageCell = _hasNumericUsageCell(
+          layoutRows,
+          headerIndex,
+          rowIndex,
+        );
         if ((invoiceColumns || billDetailColumns
                 ? _isAccountBalanceSummaryLine(tableText) ||
                       _isPaymentMetadataLine(tableText)
-                : _isChargeTableSummaryLine(tableText)) ||
+                : _isChargeTableSummaryLine(tableText) &&
+                      !(_isRatedTaxNamedLine(tableText) &&
+                          hasNumericUsageCell)) ||
             _isReceiptMetadataLine(tableText)) {
           continue;
         }
@@ -3211,6 +3188,7 @@ bool _isFinancialLabelWithAdjacentAmount(
   final ambiguous = <int>{};
   var inTable = false;
   var hasRateColumn = false;
+  var hasUsageColumn = false;
   var requiresLayoutAmountColumn = false;
   for (var index = 0; index < lines.length; index++) {
     final line = lines[index];
@@ -3218,6 +3196,10 @@ bool _isFinancialLabelWithAdjacentAmount(
     if (_isSupportedChargeTableHeader(lines, index)) {
       inTable = true;
       hasRateColumn = RegExp(r'\brate\b', caseSensitive: false).hasMatch(line);
+      hasUsageColumn = RegExp(
+        r'\b(?:usage|qty|quantity)\b',
+        caseSensitive: false,
+      ).hasMatch(line);
       requiresLayoutAmountColumn =
           _isInvoiceProductTableHeader(line) ||
           _isBillChargeDetailHeader(lines, index);
@@ -3240,6 +3222,13 @@ bool _isFinancialLabelWithAdjacentAmount(
     // reliable role in flattened text. Geometry may still identify an Amount
     // cell; until then keep the row visible as unresolved review evidence.
     final prefix = pricedRow?.group(1)?.trim() ?? '';
+    final ratedTaxWithUsage =
+        hasUsageColumn &&
+        _isRatedTaxNamedLine(line) &&
+        RegExp(
+          r'(?:^|\s)\d+(?:[.,]\d+)?(?:\s*(?:kwh|m³|m3|therms?|gallons?|gal|units?|gb|minutes?|mins?))?\s*$',
+          caseSensitive: false,
+        ).hasMatch(prefix);
     if (detachedAmountSignRows.contains(index)) {
       ambiguous.add(index);
       continue;
@@ -3253,7 +3242,7 @@ bool _isFinancialLabelWithAdjacentAmount(
     }
     if (pricedRow != null &&
         hasRateColumn &&
-        !_isChargeTableSummaryLine(line) &&
+        (ratedTaxWithUsage || !_isChargeTableSummaryLine(line)) &&
         !_isReceiptMetadataLine(line) &&
         !_hasEarlierPrintedMonetaryAmount(prefix) &&
         !_hasCompleteUsageRateColumns(prefix)) {
@@ -3261,7 +3250,7 @@ bool _isFinancialLabelWithAdjacentAmount(
       continue;
     }
     if (pricedRow != null &&
-        !_isChargeTableSummaryLine(line) &&
+        (ratedTaxWithUsage || !_isChargeTableSummaryLine(line)) &&
         !_isReceiptMetadataLine(line) &&
         _hasChargeTableMonetaryEvidence(
           '${pricedRow.group(2) ?? ''} ${pricedRow.group(3)} ${pricedRow.group(4) ?? ''}',
@@ -3336,17 +3325,62 @@ bool _isChargeTableSummaryLine(String line) {
 }
 
 bool _isAmbiguousRatedTaxCharge(String line) =>
-    _hasExplicitTaxRate(line) &&
+    _isRatedTaxNamedLine(line) &&
     !RegExp(
       r'^\s*(?:state|local|county|city|municipal|federal|provincial|regional|sales|use|excise|tourist|tourism|occupancy|vat|gst|hst|value[ -]+added|goods[ -]+and[ -]+services)(?:\s+[\p{L}]+){0,2}\s+tax\b',
       caseSensitive: false,
       unicode: true,
-    ).hasMatch(line) &&
+    ).hasMatch(line);
+
+bool _isRatedTaxNamedLine(String line) =>
+    _hasExplicitTaxRate(line) &&
     RegExp(
       r'^\s*(?:[\p{L}]+[ -]+){1,3}tax\b',
       caseSensitive: false,
       unicode: true,
     ).hasMatch(line);
+
+bool _hasNumericUsageCell(
+  List<List<ReceiptOcrBlockEvidence>> layoutRows,
+  int headerIndex,
+  int rowIndex,
+) {
+  if (headerIndex >= layoutRows.length || rowIndex >= layoutRows.length) {
+    return false;
+  }
+  final headers = layoutRows[headerIndex]
+      .where(
+        (block) =>
+            block.points.isNotEmpty &&
+            RegExp(
+              r'^(?:usage|qty|quantity)$',
+              caseSensitive: false,
+            ).hasMatch(block.text.trim()),
+      )
+      .toList(growable: false);
+  if (headers.length != 1) return false;
+  final left = headers.single.points
+      .map((point) => point.x)
+      .reduce((a, b) => a < b ? a : b);
+  final right = headers.single.points
+      .map((point) => point.x)
+      .reduce((a, b) => a > b ? a : b);
+  return layoutRows[rowIndex].any((block) {
+    if (block.points.isEmpty ||
+        !RegExp(
+          r'^\s*\d+(?:[.,]\d+)?(?:\s*(?:kwh|m³|m3|therms?|gallons?|gal|units?|gb|minutes?|mins?))?\s*$',
+          caseSensitive: false,
+        ).hasMatch(block.text)) {
+      return false;
+    }
+    final xs = block.points.map((point) => point.x);
+    final center =
+        (xs.reduce((a, b) => a < b ? a : b) +
+            xs.reduce((a, b) => a > b ? a : b)) /
+        2;
+    return center >= left - 12 && center <= right + 12;
+  });
+}
 
 bool _isPostSubtotalAdjustmentLine(
   String line, {
@@ -3415,7 +3449,9 @@ bool _isChargeTableHeader(String line) {
   final lower = line.toLowerCase();
   return (RegExp(r'\bdescription\b').hasMatch(lower) &&
           RegExp(r'\b(?:amount|total|charges?)\b').hasMatch(lower) &&
-          RegExp(r'\b(?:rate|usage|therms|kwh|units?)\b').hasMatch(lower)) ||
+          RegExp(
+            r'\b(?:rate|usage|qty|quantity|therms|kwh|units?)\b',
+          ).hasMatch(lower)) ||
       _isInvoiceProductTableHeader(line);
 }
 

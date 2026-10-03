@@ -4779,9 +4779,11 @@ Total USD 5.25
           'Utility\n${withUsage ? '' : 'Charges for this period\n'}$header\n$row\nTotal USD 1.00',
           blocks: blocks,
         );
-        expect(preview.items.map((item) => item.description), [
-          'Energy Tax (5%)',
-        ], reason: 'withUsage=$withUsage');
+        expect(
+          preview.items.map((item) => item.description),
+          ['Energy Tax (5%)'],
+          reason: 'withUsage=$withUsage',
+        );
         expect(preview.items.single.lineTotal, '1.00');
         expect(preview.tax, isNull);
       }
@@ -4811,6 +4813,106 @@ Total USD 5.25
         _layoutBlock('USD 5.25', 9, 5, 300, 350),
       ],
     );
+    expect(preview.items.map((item) => item.description), ['Widget']);
+    expect(preview.tax, '0.25');
+  });
+
+  test('numeric usage keeps rated tax-named charge rows reviewable', () {
+    for (final label in [
+      'State Gas Tax',
+      'Sales Tax',
+      'Value Added Tax',
+      'Goods and Services Tax',
+      'Energy Tax',
+    ]) {
+      final preview = const ReceiptOcrParser().parse(
+        'Utility\nDescription Usage Amount\n$label (5%) 1 USD 1.00\nTotal USD 1.00',
+        blocks: [
+          _layoutBlock('Utility', 0, 0, 20, 350),
+          _layoutBlock('Description', 1, 1, 20, 160),
+          _layoutBlock('Usage', 2, 1, 175, 225),
+          _layoutBlock('Amount', 3, 1, 300, 350),
+          _layoutBlock('$label (5%)', 4, 2, 20, 160),
+          _layoutBlock('1', 5, 2, 175, 225),
+          _layoutBlock('USD 1.00', 6, 2, 300, 350),
+          _layoutBlock('Total', 7, 3, 20, 160),
+          _layoutBlock('USD 1.00', 8, 3, 300, 350),
+        ],
+      );
+      expect(preview.items.map((item) => item.description), [
+        '$label (5%)',
+      ], reason: label);
+      expect(preview.items.single.lineTotal, '1.00', reason: label);
+      expect(preview.tax, isNull, reason: label);
+      expect(preview.adjustmentsComplete, isFalse, reason: label);
+      expect(
+        preview.incompleteAdjustmentReasons,
+        contains(ReceiptOcrIncompleteAdjustmentReason.ambiguousChargeTable),
+        reason: label,
+      );
+    }
+  });
+
+  test('rated tax summary without usage stays an adjustment', () {
+    for (final label in [
+      'State Gas Tax',
+      'Sales Tax',
+      'Value Added Tax',
+      'Goods and Services Tax',
+    ]) {
+      final preview = const ReceiptOcrParser().parse(
+        'Market\nDescription Usage Amount\nWidget 1 USD 5.00\n$label (5%) USD 0.25\nTotal USD 5.25',
+        blocks: [
+          _layoutBlock('Market', 0, 0, 20, 350),
+          _layoutBlock('Description', 1, 1, 20, 160),
+          _layoutBlock('Usage', 2, 1, 175, 225),
+          _layoutBlock('Amount', 3, 1, 300, 350),
+          _layoutBlock('Widget', 4, 2, 20, 160),
+          _layoutBlock('1', 5, 2, 175, 225),
+          _layoutBlock('USD 5.00', 6, 2, 300, 350),
+          _layoutBlock('$label (5%)', 7, 3, 20, 160),
+          _layoutBlock('USD 0.25', 8, 3, 300, 350),
+          _layoutBlock('Total', 9, 4, 20, 160),
+          _layoutBlock('USD 5.25', 10, 4, 300, 350),
+        ],
+      );
+      expect(preview.items.map((item) => item.description), [
+        'Widget',
+      ], reason: label);
+      expect(preview.tax, '0.25', reason: label);
+    }
+  });
+
+  test('numeric quantity also retains a tax-named charge', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Utility\nDescription Qty Amount\nState Gas Tax (5%) 1 USD 1.00\nTotal USD 1.00',
+      blocks: [
+        _layoutBlock('Utility', 0, 0, 20, 350),
+        _layoutBlock('Description', 1, 1, 20, 160),
+        _layoutBlock('Qty', 2, 1, 175, 225),
+        _layoutBlock('Amount', 3, 1, 300, 350),
+        _layoutBlock('State Gas Tax (5%)', 4, 2, 20, 160),
+        _layoutBlock('1', 5, 2, 175, 225),
+        _layoutBlock('USD 1.00', 6, 2, 300, 350),
+        _layoutBlock('Total', 7, 3, 20, 160),
+        _layoutBlock('USD 1.00', 8, 3, 300, 350),
+      ],
+    );
+    expect(preview.items.map((item) => item.description), [
+      'State Gas Tax (5%)',
+    ]);
+    expect(preview.adjustmentsComplete, isFalse);
+  });
+
+  test('explicit post-subtotal rated tax remains an adjustment', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Description Usage Amount
+Widget 1 USD 5.00
+Subtotal USD 5.00
+State Gas Tax (5%) USD 0.25
+Total USD 5.25
+''');
     expect(preview.items.map((item) => item.description), ['Widget']);
     expect(preview.tax, '0.25');
   });
