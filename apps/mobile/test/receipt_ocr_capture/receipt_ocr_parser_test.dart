@@ -896,6 +896,14 @@ DCC Selected USD 100
 CARD CHARGED USD 100
 ''', fallbackCurrency: 'HKD');
     expect(mixedSubtotal.currency, isNull);
+    final mixedSubtotalWithProse = const ReceiptOcrParser().parse('''
+Central Card Terminal
+Dinner HKD 780
+Subtotal HKD 780 / USD 100 — try our app
+DCC Selected USD 100
+CARD CHARGED USD 100
+''', fallbackCurrency: 'HKD');
+    expect(mixedSubtotalWithProse.currency, isNull);
     final subtotalWithProse = const ReceiptOcrParser().parse('''
 Central Card Terminal
 Dinner USD 100
@@ -904,6 +912,56 @@ DCC Selected USD 100
 CARD CHARGED USD 100
 ''', fallbackCurrency: 'HKD');
     expect(subtotalWithProse.currency, 'USD');
+    final subtotalWithUppercaseProse = const ReceiptOcrParser().parse('''
+Central Card Terminal
+Dinner USD 100
+Subtotal USD 100 — TRY 1 FREE
+DCC Selected USD 100
+CARD CHARGED USD 100
+''', fallbackCurrency: 'HKD');
+    expect(subtotalWithUppercaseProse.currency, 'USD');
+    final separatedPromotionProse = const ReceiptOcrParser().parse('''
+Central Card Terminal
+Dinner USD 100
+Subtotal USD 100 / TRY 1 FREE
+DCC Selected USD 100
+CARD CHARGED USD 100
+''', fallbackCurrency: 'HKD');
+    expect(separatedPromotionProse.currency, 'USD');
+    final separatedFreePromotion = const ReceiptOcrParser().parse('''
+Central Card Terminal
+Dinner USD 100
+Subtotal USD 100 / TRY 1 — FREE
+DCC Selected USD 100
+CARD CHARGED USD 100
+''', fallbackCurrency: 'HKD');
+    expect(separatedFreePromotion.currency, 'USD');
+    final separatedPromoCopy = const ReceiptOcrParser().parse('''
+Central Card Terminal
+Dinner USD 100
+Subtotal USD 100 / TRY 1 — SAVE MORE
+DCC Selected USD 100
+CARD CHARGED USD 100
+''', fallbackCurrency: 'HKD');
+    expect(separatedPromoCopy.currency, 'USD');
+    for (final suffix in ['TRY 1 — (FREE)', 'TRY 1 — 2 FREE']) {
+      final decoratedPromoCopy = const ReceiptOcrParser().parse('''
+Central Card Terminal
+Dinner USD 100
+Subtotal USD 100 / $suffix
+DCC Selected USD 100
+CARD CHARGED USD 100
+''', fallbackCurrency: 'HKD');
+      expect(decoratedPromoCopy.currency, 'USD', reason: suffix);
+    }
+    final decimalPromoCopy = const ReceiptOcrParser().parse('''
+Central Card Terminal
+Dinner USD 100
+Subtotal USD 100 / TRY 1.00 — FREE
+DCC Selected USD 100
+CARD CHARGED USD 100
+''', fallbackCurrency: 'HKD');
+    expect(decimalPromoCopy.currency, 'USD');
 
     final unresolvedHeader = const ReceiptOcrParser().parse(r'''
 Karachi Grill
