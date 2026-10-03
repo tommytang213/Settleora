@@ -3247,7 +3247,10 @@ bool _isFinancialLabelWithAdjacentAmount(
     if (pricedRow != null &&
         hasRateColumn &&
         _isRatedTaxNamedLine(line) &&
-        !ratedTaxWithUsage) {
+        !ratedTaxWithUsage &&
+        RegExp(r'\d').hasMatch(
+          prefix.replaceAll(RegExp(r'\(\s*\d+(?:[.,]\d+)?\s*%\s*\)'), ''),
+        )) {
       ambiguous.add(index);
       continue;
     }

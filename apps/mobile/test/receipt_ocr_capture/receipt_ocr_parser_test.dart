@@ -4997,6 +4997,21 @@ Total USD 5.25
     }
   });
 
+  test('rated tax with no Usage or Rate cell remains a flat summary', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Description Usage Rate Amount
+Widget 1 5.00 USD 5.00
+Sales Tax (5%) USD 0.25
+Total USD 5.25
+''');
+    expect(
+      preview.items.map((item) => item.description),
+      isNot(contains('Sales Tax (5%)')),
+    );
+    expect(preview.tax, '0.25');
+  });
+
   test('descriptive surcharge after subtotal stays review evidence', () {
     final preview = const ReceiptOcrParser().parse('''
 Utility
