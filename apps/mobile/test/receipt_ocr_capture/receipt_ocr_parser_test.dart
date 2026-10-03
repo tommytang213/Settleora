@@ -765,6 +765,55 @@ CARD CHARGED USD 100.00
 Exchange Rate 7.8000 HKD/USD
 ''', fallbackCurrency: 'HKD');
     expect(preview.items.map((item) => item.description), ['Dinner']);
+    expect(preview.currency, 'USD');
+    expect(preview.currencyProvenance, ReceiptOcrCurrencyProvenance.explicit);
+    expect(preview.items.single.currency, 'HKD');
+    expect(
+      preview.warnings,
+      contains(
+        'Item prices and the charged amount use different currencies. Review before applying.',
+      ),
+    );
+
+    final uncorroborated = const ReceiptOcrParser().parse(r'''
+Central Card Terminal
+Dinner HK$780
+DCC Selected USD 100
+''', fallbackCurrency: 'HKD');
+    expect(uncorroborated.currency, 'HKD');
+    expect(
+      uncorroborated.warnings,
+      contains(
+        'DCC selection needs a matching charged amount. Review the receipt currency.',
+      ),
+    );
+
+    final mismatchedCharge = const ReceiptOcrParser().parse(r'''
+Central Card Terminal
+Dinner HK$780
+DCC Selected USD 100
+CARD CHARGED USD 90
+''', fallbackCurrency: 'HKD');
+    expect(mismatchedCharge.currency, 'HKD');
+    expect(
+      mismatchedCharge.warnings,
+      contains(
+        'DCC selection needs a matching charged amount. Review the receipt currency.',
+      ),
+    );
+
+    final explicitTotal = const ReceiptOcrParser().parse(r'''
+Central Card Terminal
+Dinner HK$780
+Total HKD 780
+DCC Selected USD 100
+CARD CHARGED USD 100
+''', fallbackCurrency: 'HKD');
+    expect(explicitTotal.currency, 'HKD');
+    expect(
+      explicitTotal.currencyProvenance,
+      ReceiptOcrCurrencyProvenance.explicit,
+    );
 
     final merchandise = const ReceiptOcrParser().parse('''
 Store

@@ -116,6 +116,19 @@ class ReceiptOcrParser {
       detachedAmountSignRows: detachedAmountSignRows,
     );
     final itemCandidates = extractedItems.items;
+    final dccCharge = _corroboratedDccCharge(lines);
+    if (dccCharge.hasSelection && dccCharge.currency == null) {
+      warnings.add(
+        'DCC selection needs a matching charged amount. Review the receipt currency.',
+      );
+    } else if (dccCharge.currency != null &&
+        itemCandidates.any(
+          (item) => item.currency != null && item.currency != currency,
+        )) {
+      warnings.add(
+        'Item prices and the charged amount use different currencies. Review before applying.',
+      );
+    }
     final unresolvedItemLines = _countUnresolvedItemLikeLines(
       lines,
       merchantLineIndices: merchantDetection?.lineIndices ?? const {},
@@ -512,6 +525,15 @@ class ReceiptOcrParser {
     final primaryTotalLines = transactionCurrencyLines
         .where((line) => _isPrimaryTotalCurrencyLine(line, line.toLowerCase()))
         .toList(growable: false);
+    if (primaryTotalLines.isEmpty) {
+      final dccCharge = _corroboratedDccCharge(lines);
+      if (dccCharge.currency != null) {
+        return _ReceiptCurrencyDetection(
+          currency: dccCharge.currency,
+          provenance: ReceiptOcrCurrencyProvenance.explicit,
+        );
+      }
+    }
     // A single printed multi-amount total supplies a bounded selected amount.
     // Separate total rows still use the established role ranking below.
     if (primaryTotalLines.length == 1 &&
@@ -4088,6 +4110,51 @@ bool _isNonTransactionCurrencyMetadataLine(String line) {
   final remainder = trimmed.substring(prefix.end).trimLeft();
   return _hasCurrencyMetadataShape(remainder) &&
       (_lineHasAmount(line) || _lineHasCurrencyMarkerOrCode(line));
+}
+
+({bool hasSelection, String? currency}) _corroboratedDccCharge(
+  List<String> lines,
+) {
+  final selected = <({String currency, String amount})>[];
+  final charged = <({String currency, String amount})>[];
+  final selectionPattern = RegExp(
+    '^\\s*dcc\\s+selected\\s+([A-Za-z]{3})\\s+($_amountTokenPattern)\\s*\$',
+    caseSensitive: false,
+  );
+  final chargedPattern = RegExp(
+    '^\\s*card\\s+charged\\s+([A-Za-z]{3})\\s+($_amountTokenPattern)\\s*\$',
+    caseSensitive: false,
+  );
+  var hasSelection = false;
+  for (final line in lines) {
+    final selection = selectionPattern.firstMatch(line);
+    final charge = chargedPattern.firstMatch(line);
+    if (selection != null) hasSelection = true;
+    final match = selection ?? charge;
+    if (match == null) continue;
+    final currency = _supportedCurrencyCode(match.group(1));
+    final amount = _normalizeAmount(match.group(2)!, currency: currency);
+    if (currency == null || amount == null || amount.startsWith('-')) continue;
+    final parts = amount.split('.');
+    final fraction = parts.length == 2
+        ? parts[1].replaceFirst(RegExp(r'0+$'), '')
+        : '';
+    final canonicalAmount = fraction.isEmpty
+        ? parts[0]
+        : '${parts[0]}.$fraction';
+    final evidence = (currency: currency, amount: canonicalAmount);
+    if (selection != null) {
+      selected.add(evidence);
+    } else {
+      charged.add(evidence);
+    }
+  }
+  if (selected.length == 1 &&
+      charged.length == 1 &&
+      selected.single == charged.single) {
+    return (hasSelection: true, currency: selected.single.currency);
+  }
+  return (hasSelection: hasSelection, currency: null);
 }
 
 bool _hasCurrencyMetadataShape(String remainder) {
