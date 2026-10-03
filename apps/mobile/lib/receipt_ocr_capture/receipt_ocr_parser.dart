@@ -541,6 +541,24 @@ class ReceiptOcrParser {
     if (primaryTotalLines.isEmpty) {
       final dccCharge = _corroboratedDccCharge(lines);
       if (dccCharge.currency != null) {
+        final printedReceiptCurrencies = transactionCurrencyLines
+            .where((line) {
+              final normalized = line.toLowerCase();
+              return RegExp(r'^\s*(?:currency|curr)\b').hasMatch(normalized) ||
+                  _hasSubtotalLabel(line, normalized);
+            })
+            .map((line) => _rankedExplicitCurrencyCode([line]))
+            .whereType<String>()
+            .toSet();
+        if (printedReceiptCurrencies.length == 1) {
+          return _ReceiptCurrencyDetection(
+            currency: printedReceiptCurrencies.single,
+            provenance: ReceiptOcrCurrencyProvenance.explicit,
+          );
+        }
+        if (printedReceiptCurrencies.length > 1) {
+          return const _ReceiptCurrencyDetection();
+        }
         return _ReceiptCurrencyDetection(
           currency: dccCharge.currency,
           provenance: ReceiptOcrCurrencyProvenance.explicit,
