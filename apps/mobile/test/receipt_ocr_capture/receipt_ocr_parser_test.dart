@@ -4527,18 +4527,41 @@ Remaining Balance: USD 0.00
     final preview = const ReceiptOcrParser().parse('''
 Bookshop
 Shipping Container Kit 19.00
+Shipping (Container) 7.00
+Delivery (Pizza) 12.00
 Tax Planning Guide 9.00
 Due Date Planner 4.00
 Remaining Balance Workbook 5.00
-Total USD 37.00
+Subtotal USD 56.00
+Total USD 56.00
 ''');
     expect(preview.items.map((item) => item.description), [
       'Shipping Container Kit',
+      'Shipping (Container)',
+      'Delivery (Pizza)',
       'Tax Planning Guide',
       'Due Date Planner',
       'Remaining Balance Workbook',
     ]);
   });
+
+  test(
+    'a priced parenthesized product after a subtotal is not a delivery fee',
+    () {
+      final preview = const ReceiptOcrParser().parse('''
+Bookshop
+Notebook 5.00
+Subtotal 5.00
+Delivery (Pizza) 12.00
+Total USD 17.00
+''');
+      expect(preview.items.map((item) => item.description), [
+        'Notebook',
+        'Delivery (Pizza)',
+      ]);
+      expect(preview.shipping, isNull);
+    },
+  );
 
   test('previous bill date does not outrank the current bill date', () {
     final preview = const ReceiptOcrParser().parse('''

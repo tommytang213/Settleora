@@ -1083,6 +1083,7 @@ class ReceiptOcrParser {
     final incompleteReasons = <ReceiptOcrIncompleteAdjustmentReason>{};
     var aggregatedRatedTax = false;
     final totalCandidates = <({String value, int score, int order})>[];
+    var seenPrintedSubtotal = false;
     bool preferMatchingPrintedCurrency(
       String? existing,
       String? existingCurrency,
@@ -1097,6 +1098,9 @@ class ReceiptOcrParser {
             printed.currency == currency);
 
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+      if (_hasSubtotalLabel(lines[lineIndex], lines[lineIndex].toLowerCase())) {
+        seenPrintedSubtotal = true;
+      }
       // A printed registration or tax-context header describes the receipt.
       // Keep other malformed adjustment rows in the review path.
       if (!layoutAdjustmentLines.containsKey(lineIndex) &&
@@ -1141,7 +1145,12 @@ class ReceiptOcrParser {
         if (_hasTaxLabel(line, normalized)) 'tax',
         if (_hasServiceChargeLabel(line, normalized)) 'service',
         if (_hasActualTipChargeLabel(line, normalized)) 'tip',
-        if (_hasShippingLabel(line, normalized)) 'shipping',
+        if (_hasShippingLabel(
+          line,
+          normalized,
+          allowParenthesizedMethod: seenPrintedSubtotal,
+        ))
+          'shipping',
         if (_hasDiscountLabel(line, normalized)) 'discount',
       ];
       final adjustmentRole = adjustmentRoles.firstOrNull;
@@ -1308,7 +1317,7 @@ class ReceiptOcrParser {
           tipHasExplicitCurrencyEvidence =
               adjustmentCurrency.hasExplicitEvidence;
         }
-      } else if (_hasShippingLabel(line, normalized)) {
+      } else if (adjustmentRole == 'shipping') {
         final adjustmentCurrency = _explicitAdjustmentCurrencyFromLine(
           line,
           receiptCurrency: currency,
@@ -1630,6 +1639,7 @@ class ReceiptOcrParser {
     );
     var unretainedPricedItem = false;
     final wrappedDescriptionLines = <String>[];
+    var afterSubtotal = false;
     final leadingQuantityRows = _leadingQuantityColumnRows(lines, layoutRows);
     final hasFuelMeasurementLayout =
         lines.any(
@@ -1657,6 +1667,9 @@ class ReceiptOcrParser {
     }
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       final line = lines[lineIndex];
+      if (_hasSubtotalLabel(line, line.toLowerCase())) {
+        afterSubtotal = true;
+      }
       if (layoutAdjustmentRows.contains(lineIndex)) {
         lineDecisions[lineIndex] =
             ReceiptOcrItemLineDecision.metadataOrHeaderSkipped;
@@ -1682,6 +1695,12 @@ class ReceiptOcrParser {
       }
       if ((_isAdministrativeLine(line) &&
               !chargeTableRows.contains(lineIndex)) ||
+          (afterSubtotal &&
+              _hasShippingLabel(
+                line,
+                line.toLowerCase(),
+                allowParenthesizedMethod: true,
+              )) ||
           _isPostSubtotalAdjustmentLine(line) ||
           _isContextualReceiptMetadataLine(lines, lineIndex) ||
           _isChargeTableHeader(line) ||
@@ -5468,22 +5487,27 @@ bool _isPricedItemLine(String line) {
       _hasTraceableItemAmountToken(line, match.group(3)!);
 }
 
-bool _hasShippingLabel(String line, String normalized) {
+bool _hasShippingLabel(
+  String line,
+  String normalized, {
+  bool allowParenthesizedMethod = false,
+}) {
   final labelPattern = RegExp(
     r'\b(shipping|delivery)(?:\s+(?:fee|charge)|\s*(?:(?:&|and)\s*)?handling(?:\s+(?:fee|charge))?)?\b',
     caseSensitive: false,
   );
   return _hasEnglishReceiptLabel(normalized, labelPattern) ||
-      _hasEnglishReceiptLabel(
-        normalized.replaceFirstMapped(
-          RegExp(
-            r'\b(shipping|delivery)\s*\([^)]{1,32}\)',
-            caseSensitive: false,
-          ),
-          (match) => match.group(1)!,
-        ),
-        labelPattern,
-      ) ||
+      (allowParenthesizedMethod &&
+          _hasEnglishReceiptLabel(
+            normalized.replaceFirstMapped(
+              RegExp(
+                r'\b(shipping|delivery)\s*\((?:standard|express|priority|ground|overnight|economy|expedited|tracked|local|international|same[ -]day|next[ -]day)\)',
+                caseSensitive: false,
+              ),
+              (match) => match.group(1)!,
+            ),
+            labelPattern,
+          )) ||
       _hasEnglishReceiptLabel(
         _withoutBoundedExplicitCurrencyCode(line).toLowerCase(),
         labelPattern,
