@@ -1263,6 +1263,97 @@ Total 31.99
     expect(preview.items.map((item) => item.lineTotal), ['19.99', '12.00']);
   });
 
+  test('image-transcribed location headers do not require item review', () {
+    // These rows are transcribed from the repository fixture images, not from
+    // Android/iOS provider output. Native OCR may split or change these rows.
+    const parser = ReceiptOcrParser();
+    final receipts = <({String text, String currency, List<String> items})>[
+      (
+        text: r'''Pike Street Deli
+Seattle, WA 98101
+Sales Tax applies
+Fecha/Date: 2026-09-17
+Sandwich $12.50
+Coffee $4.00
+Subtotal $16.50
+Sales Tax $1.70
+Total $18.20
+Thank you / Gracias / 多謝''',
+        currency: 'USD',
+        items: ['Sandwich', 'Coffee'],
+      ),
+      (
+        text: r'''Mercado Centro
+Ciudad de México, CDMX
+IVA incluido
+Fecha/Date: 2026-09-17
+Tacos $90.00
+Agua $35.00
+Subtotal $125.00
+IVA $20.00
+Total $145.00
+Thank you / Gracias / 多謝''',
+        currency: 'MXN',
+        items: ['Tacos', 'Agua'],
+      ),
+    ];
+    for (final receipt in receipts) {
+      final preview = parser.parse(receipt.text);
+      expect(preview.items.map((item) => item.description), receipt.items);
+      expect(preview.currency, receipt.currency);
+      expect(preview.adjustmentsComplete, isTrue, reason: receipt.text);
+      expect(preview.reviewHints, isEmpty, reason: receipt.text);
+    }
+
+    final genuineUnpricedItem = parser.parse(r'''Pike Street Deli
+Seattle, WA 98101
+Sales Tax applies
+Sandwich $12.50
+Coffee $4.00
+Unpriced dessert
+Subtotal $16.50
+Sales Tax $1.70
+Total $18.20''');
+    expect(genuineUnpricedItem.reviewHints, isNotEmpty);
+  });
+
+  test('image-transcribed grocery footer leaves priced draft complete', () {
+    // Source-image transcription only; this is not a captured provider row set.
+    const imageText = '''FreshMart
+Good Food. Brighter Days.
+456 Oak Avenue
+Pinecrest, NY 10077
+(555) 987-6543
+Bananas 1.25
+Organic Milk 3.49
+Whole Grain Bread 2.99
+Large Eggs 3.29
+Spring Mix 2.50
+SUBTOTAL 13.52
+SALES TAX (7.00%) 0.95
+TOTAL 14.47
+Visa 1111 14.47
+04/12/2025 10:23 AM
+Thank you for shopping local!''';
+    final preview = const ReceiptOcrParser().parse(
+      imageText,
+      fallbackCurrency: 'USD',
+    );
+    expect(preview.items.map((item) => item.description), [
+      'Bananas',
+      'Organic Milk',
+      'Whole Grain Bread',
+      'Large Eggs',
+      'Spring Mix',
+    ]);
+    expect(
+      preview.adjustmentsComplete,
+      isTrue,
+      reason: preview.incompleteAdjustmentReasons.toString(),
+    );
+    expect(preview.reviewHints, isEmpty);
+  });
+
   test('charge table uses its columns despite neighboring panel text', () {
     final preview = const ReceiptOcrParser().parse(
       'Harbor Utility\n'

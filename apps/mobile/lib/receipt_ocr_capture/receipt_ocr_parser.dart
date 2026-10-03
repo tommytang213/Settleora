@@ -2610,6 +2610,16 @@ class ReceiptOcrParser {
           !_lineHasAmount(line)) {
         continue;
       }
+      // A punctuated slogan between a merchant heading and a street address
+      // belongs to the header. Keep ordinary unpriced descriptions reviewable.
+      if (lineIndex > 0 &&
+          lineIndex + 1 < lines.length &&
+          merchantLineIndices.contains(lineIndex - 1) &&
+          _isStreetAddressLine(lines[lineIndex + 1]) &&
+          !_lineHasAmount(line) &&
+          RegExp(r'[\p{L}]\.\s+[\p{L}]', unicode: true).hasMatch(line)) {
+        continue;
+      }
       // A location printed directly below the merchant and directly above a
       // tax registration/rate header belongs to the receipt header. A bare
       // unpriced line elsewhere remains reviewable as a possible item.
@@ -2624,6 +2634,10 @@ class ReceiptOcrParser {
             unicode: true,
           ).hasMatch(line.trim()) &&
           (RegExp(
+                r'^[\p{L}][\p{L} .-]{2,60},\s*[A-Z]{2,4}$',
+                unicode: true,
+              ).hasMatch(line.trim()) ||
+              RegExp(
                 r',\s*(?:sverige|norge|pakistan|india)\s*$',
                 caseSensitive: false,
               ).hasMatch(line) ||
@@ -2797,6 +2811,9 @@ bool _hasOnlyPaymentOrSuggestedTipAmountsBeforeCourtesy(
       sawPayment = true;
       continue;
     }
+    if (sawPayment && _isDateOrTimeOnlyLine(lines[index].toLowerCase())) {
+      continue;
+    }
     if (sawPayment && _isPaymentTerminalIdentifierLine(lines[index])) {
       continue;
     }
@@ -2841,6 +2858,7 @@ bool _isReceiptCourtesyLine(String line) {
   const courtesyPhrases = {
     'thank you',
     'thank you for shopping',
+    'thank you for shopping local',
     'merci',
     'vielen dank',
     'gracias',
