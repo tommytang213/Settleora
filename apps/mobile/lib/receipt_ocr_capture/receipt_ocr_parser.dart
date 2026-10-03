@@ -221,7 +221,10 @@ class ReceiptOcrParser {
       );
     }
 
-    final incompleteAdjustmentReasons = <ReceiptOcrIncompleteAdjustmentReason>[
+    // The native evidence collector requires each typed reason once. Several
+    // independent row paths can identify the same ambiguity; keep the reason
+    // and its review warning without emitting duplicate protocol values.
+    final incompleteAdjustmentReasons = <ReceiptOcrIncompleteAdjustmentReason>{
       if (!amounts.adjustmentsComplete)
         ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence,
       ...amounts.incompleteReasons,
@@ -241,7 +244,7 @@ class ReceiptOcrParser {
         ReceiptOcrIncompleteAdjustmentReason.ambiguousChargeTable,
       if (unresolvedItemLines > 0)
         ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine,
-    ];
+    }.toList(growable: false);
 
     return ReceiptOcrPreview(
       merchant: merchant,
@@ -345,7 +348,7 @@ class ReceiptOcrParser {
           }
           final suffix = line.substring(identity.length).trim();
           if (RegExp(
-            r'^(?:order|invoice|account|reference)\s*(?:number|no\.?|#)\s*[:：]',
+            r'^(?:order|invoice|account|reference)\s*(?:number|no\.?|#)\s*[:：]?\s*(?=[A-Z0-9-]*\d)[A-Z0-9-]+\b',
             caseSensitive: false,
           ).hasMatch(suffix)) {
             corroborated = true;

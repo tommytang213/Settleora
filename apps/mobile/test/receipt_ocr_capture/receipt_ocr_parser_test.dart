@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/receipt_ocr_capture/mlkit_receipt_ocr_provider.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_image_normalization_policy.dart';
@@ -2062,6 +2064,28 @@ Desk Mat USD 19.99
 Total USD 19.99
 ''');
       expect(corroborated.merchant, 'Northstar Marketplace');
+
+      for (final orderLabel in ['Order #247', 'Order No. 247']) {
+        final alternate = const ReceiptOcrParser().parse('''
+Northstar INVOICE
+Marketplace
+Everyday essentials
+Northstar Marketplace $orderLabel
+Desk Mat USD 19.99
+Total USD 19.99
+''');
+        expect(alternate.merchant, 'Northstar Marketplace');
+      }
+
+      final missingIdentifier = const ReceiptOcrParser().parse('''
+Northstar INVOICE
+Marketplace
+Everyday essentials
+Northstar Marketplace Order Number: Pending
+Desk Mat USD 19.99
+Total USD 19.99
+''');
+      expect(missingIdentifier.merchant, isNot('Northstar Marketplace'));
 
       final uncorroborated = const ReceiptOcrParser().parse('''
 Northstar INVOICE
@@ -4753,7 +4777,40 @@ Total USD 1.00
       preview.incompleteAdjustmentReasons,
       contains(ReceiptOcrIncompleteAdjustmentReason.ambiguousChargeTable),
     );
+    expect(
+      preview.incompleteAdjustmentReasons.toSet().length,
+      preview.incompleteAdjustmentReasons.length,
+    );
     expect(preview.warnings, contains(contains('may be an item or tax')));
+  });
+
+  test('rated tax row unresolved by rate and amount keeps unique reasons', () {
+    final preview = const ReceiptOcrParser().parse('''
+Utility
+Description Usage Rate Amount
+Energy Tax (5%) 620 USD 0.15
+Total USD 0.15
+''');
+    expect(
+      preview.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.ambiguousChargeTable),
+    );
+    expect(
+      preview.incompleteAdjustmentReasons.toSet().length,
+      preview.incompleteAdjustmentReasons.length,
+    );
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(preview.warnings, contains(contains('may be an item or tax')));
+    final serializedReasons =
+        jsonDecode(
+              jsonEncode(
+                preview.incompleteAdjustmentReasons
+                    .map((reason) => reason.name)
+                    .toList(),
+              ),
+            )
+            as List<dynamic>;
+    expect(serializedReasons.toSet().length, serializedReasons.length);
   });
 
   test('unfamiliar rated tax summary remains reviewable', () {
