@@ -4588,6 +4588,34 @@ Total USD 8.00
     expect(preview.shipping, isNull);
   });
 
+  test('post-subtotal reduced tax remains an adjustment', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Notebook 12.00
+Subtotal 12.00
+Tax (Reduced) 0.60
+Total USD 12.60
+''');
+    expect(preview.items.map((item) => item.description), ['Notebook']);
+    expect(preview.tax, '0.60');
+  });
+
+  test(
+    'pre-subtotal flat surcharge remains an item outside a charge table',
+    () {
+      final preview = const ReceiptOcrParser().parse('''
+Utility
+Energy Surcharge 1.00
+Subtotal 1.00
+Total USD 1.00
+''');
+      expect(preview.items.map((item) => item.description), [
+        'Energy Surcharge',
+      ]);
+      expect(preview.items.single.lineTotal, '1.00');
+    },
+  );
+
   test('previous bill date does not outrank the current bill date', () {
     final preview = const ReceiptOcrParser().parse('''
 Harbor Utility

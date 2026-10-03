@@ -1703,8 +1703,8 @@ class ReceiptOcrParser {
                 allowParenthesizedMethod: true,
               )) ||
           (_isPostSubtotalAdjustmentLine(line) &&
-              (!chargeTableRows.contains(lineIndex) ||
-                  RegExp(r'\btax\b', caseSensitive: false).hasMatch(line))) ||
+              (RegExp(r'\btax\b', caseSensitive: false).hasMatch(line) ||
+                  (afterSubtotal && !chargeTableRows.contains(lineIndex)))) ||
           _isContextualReceiptMetadataLine(lines, lineIndex) ||
           _isChargeTableHeader(line) ||
           detachedAmountSignRows.contains(lineIndex) ||
@@ -3302,7 +3302,7 @@ bool _isChargeTableSummaryLine(String line) {
 
 bool _isPostSubtotalAdjustmentLine(String line) {
   final match = RegExp(
-    r'^(?:[\p{L}]+[ -]+){0,3}(?:tax|surcharge)(?:\s*\(\d{1,3}(?:[.,]\d{1,2})?\s*%\))?\s+',
+    r'^(?:[\p{L}]+[ -]+){0,3}(?:tax|surcharge)(?:\s*\((?:\d{1,3}(?:[.,]\d{1,2})?\s*%|reduced(?:\s+rate)?|standard(?:\s+rate)?|zero(?:\s+rate)?|exempt)\))?\s+',
     caseSensitive: false,
     unicode: true,
   ).firstMatch(line.trim());
