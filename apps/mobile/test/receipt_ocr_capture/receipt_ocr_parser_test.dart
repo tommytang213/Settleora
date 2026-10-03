@@ -888,6 +888,22 @@ DCC Selected USD 100
 CARD CHARGED USD 100
 ''', fallbackCurrency: 'HKD');
     expect(conflictingPrintedCurrencies.currency, isNull);
+    final mixedSubtotal = const ReceiptOcrParser().parse('''
+Central Card Terminal
+Dinner HKD 780
+Subtotal HKD 780 / USD 100
+DCC Selected USD 100
+CARD CHARGED USD 100
+''', fallbackCurrency: 'HKD');
+    expect(mixedSubtotal.currency, isNull);
+    final subtotalWithProse = const ReceiptOcrParser().parse('''
+Central Card Terminal
+Dinner USD 100
+Subtotal USD 100 — try our app
+DCC Selected USD 100
+CARD CHARGED USD 100
+''', fallbackCurrency: 'HKD');
+    expect(subtotalWithProse.currency, 'USD');
 
     final unresolvedHeader = const ReceiptOcrParser().parse(r'''
 Karachi Grill
