@@ -4618,6 +4618,35 @@ Total USD 1.00
     },
   );
 
+  test('tax-named charge-table lines retain priced item evidence', () {
+    final preview = const ReceiptOcrParser().parse('''
+Utility
+Description Usage Amount
+Energy Tax USD 1.00
+Total USD 1.00
+''');
+    expect(preview.items.map((item) => item.description), ['Energy Tax']);
+    expect(preview.items.single.lineTotal, '1.00');
+    expect(preview.tax, isNull);
+  });
+
+  test('descriptive surcharge after subtotal stays review evidence', () {
+    final preview = const ReceiptOcrParser().parse('''
+Utility
+Widget USD 5.00
+Subtotal USD 5.00
+Fuel Surcharge (Winter) USD 1.00
+Total USD 6.00
+''');
+    expect(preview.items.map((item) => item.description), ['Widget']);
+    expect(
+      preview.incompleteAdjustmentReasons,
+      contains(
+        ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
+      ),
+    );
+  });
+
   test('previous bill date does not outrank the current bill date', () {
     final preview = const ReceiptOcrParser().parse('''
 Harbor Utility
