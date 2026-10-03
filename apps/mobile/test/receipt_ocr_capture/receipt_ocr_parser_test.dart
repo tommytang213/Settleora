@@ -4492,6 +4492,54 @@ Total \$12.00
     );
   });
 
+  test('repeated address and mixed due date rows stay out of items', () {
+    final preview = const ReceiptOcrParser().parse('''
+Northport Supply
+Northport, CA 92507 Northport, CA 92507
+Customer Due Date: Mar 25, 2025
+Notebook 12.00
+Total USD 12.00
+''');
+    expect(preview.items.map((item) => item.description), ['Notebook']);
+    expect(preview.items.single.lineTotal, '12.00');
+  });
+
+  test(
+    'qualified shipping tax and payment rows keep their financial roles',
+    () {
+      final preview = const ReceiptOcrParser().parse('''
+Municipal Market
+Notebook 12.00
+Subtotal 12.00
+County Utilities Tax (5%) 0.60
+Shipping (Express) 2.00
+Total USD 14.60
+Amount Paid: USD 14.60
+Remaining Balance: USD 0.00
+''');
+      expect(preview.items.map((item) => item.description), ['Notebook']);
+      expect(preview.tax, '0.60');
+      expect(preview.shipping, '2.00');
+    },
+  );
+
+  test('metadata words inside priced product names remain merchandise', () {
+    final preview = const ReceiptOcrParser().parse('''
+Bookshop
+Shipping Container Kit 19.00
+Tax Planning Guide 9.00
+Due Date Planner 4.00
+Remaining Balance Workbook 5.00
+Total USD 37.00
+''');
+    expect(preview.items.map((item) => item.description), [
+      'Shipping Container Kit',
+      'Tax Planning Guide',
+      'Due Date Planner',
+      'Remaining Balance Workbook',
+    ]);
+  });
+
   test('previous bill date does not outrank the current bill date', () {
     final preview = const ReceiptOcrParser().parse('''
 Harbor Utility
