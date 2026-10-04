@@ -1622,28 +1622,47 @@ Total 4.40''');
       bool merchantTeamPunctuation = false,
       bool mergedTeamItemLine = false,
       bool singleColumnBuyer = false,
+      bool inlineBuyerName = false,
+      bool firstBuyerLineIsItem = false,
+      bool distinctBuyerNames = false,
       bool buyerHeading = true,
     }) {
       final rows = <List<({String text, double left, double right})>>[
+        if (inlineBuyerName || distinctBuyerNames)
+          [(text: 'BrightDesk Supplies', left: 20, right: 370)],
         [(text: 'Office Supply Invoice', left: 20, right: 370)],
         [
           (
-            text: buyerHeading ? 'Bill To' : 'Order Summary',
+            text: buyerHeading
+                ? inlineBuyerName
+                      ? 'Bill To: Alex Chen'
+                      : 'Bill To'
+                : 'Order Summary',
             left: 20,
             right: 150,
           ),
-          if (!singleColumnBuyer) (text: 'Ship To', left: 510, right: 640),
+          if (!singleColumnBuyer && !inlineBuyerName)
+            (text: 'Ship To', left: 510, right: 640),
         ],
         [
-          (text: 'Alex Chen', left: 20, right: 170),
-          if (!singleColumnBuyer) (text: 'Alex Chen', left: 510, right: 660),
+          (
+            text: firstBuyerLineIsItem ? 'Warranty Extension' : 'Alex Chen',
+            left: 20,
+            right: 170,
+          ),
+          if (!singleColumnBuyer && !inlineBuyerName)
+            (
+              text: distinctBuyerNames ? 'Morgan Lee' : 'Alex Chen',
+              left: 510,
+              right: 660,
+            ),
         ],
         if (unresolvedPairedBuyerIntervalLine)
           [
             (text: 'Warranty Extension', left: 20, right: 200),
             (text: 'Extra Cable', left: 510, right: 660),
           ],
-        if (!singleColumnBuyer)
+        if (!singleColumnBuyer && !inlineBuyerName)
           [
             (text: 'United States', left: 20, right: 190),
             (text: 'United States', left: 510, right: 680),
@@ -1735,6 +1754,18 @@ Total 4.40''');
     expect(complete.items.map((item) => item.lineTotal), ['10.00', '5.00']);
     expect(complete.reviewHints, isEmpty);
     expect(parse(singleColumnBuyer: true).reviewHints, isEmpty);
+    final distinctBuyer = parse(distinctBuyerNames: true);
+    expect(distinctBuyer.reviewHints, isEmpty);
+    expect(distinctBuyer.merchant, isNot('Alex Chen Morgan Lee'));
+    final inlineBuyerItem = parse(
+      inlineBuyerName: true,
+      firstBuyerLineIsItem: true,
+    );
+    expect(inlineBuyerItem.merchant, isNot('Warranty Extension'));
+    expect(
+      inlineBuyerItem.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+    );
     expect(
       parse(
         singleColumnBuyer: true,

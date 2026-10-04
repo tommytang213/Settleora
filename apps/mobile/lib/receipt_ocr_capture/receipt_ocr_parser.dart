@@ -2849,7 +2849,13 @@ class ReceiptOcrParser {
     while (hasSelectedInvoiceTable &&
         buyerCopyEnd < invoiceTableHeader &&
         buyerCopyEnd - buyerHeadingIndex <= 4 &&
-        _isPairedInvoiceBuyerCopyRow(layoutRows, buyerCopyEnd)) {
+        _isPairedInvoiceBuyerCopyRow(
+          layoutRows,
+          buyerCopyEnd,
+          allowDistinctNames:
+              buyerCopyEnd == buyerHeadingIndex + 1 &&
+              _hasDualInvoiceBuyerHeadings(layoutRows, buyerHeadingIndex),
+        )) {
       buyerCopyEnd++;
     }
     final postTotalPaymentSection =
@@ -3164,6 +3170,7 @@ bool _isSingleInvoiceBuyerIdentityRow(
   final identity = layoutRows[headingIndex + 1];
   if (heading.isEmpty ||
       heading.first.points.isEmpty ||
+      !_isBareInvoiceBuyerHeading(heading.first.text) ||
       identity.length != 1 ||
       identity.single.points.isEmpty ||
       _lineHasAmount(identity.single.text) ||
@@ -3179,10 +3186,28 @@ bool _isSingleInvoiceBuyerIdentityRow(
   return identityLeft >= headingLeft - 24 && identityLeft <= headingLeft + 96;
 }
 
+bool _isBareInvoiceBuyerHeading(String text) => RegExp(
+  r'^\s*(?:bill(?:ed)?|ship(?:ped)?|sold)\s+to\s*:?[\s]*$',
+  caseSensitive: false,
+).hasMatch(text);
+
+bool _hasDualInvoiceBuyerHeadings(
+  List<List<ReceiptOcrBlockEvidence>> layoutRows,
+  int headingIndex,
+) {
+  if (headingIndex < 0 || headingIndex >= layoutRows.length) return false;
+  final headings = layoutRows[headingIndex];
+  return headings.length == 2 &&
+      headings.every((heading) => _isBareInvoiceBuyerHeading(heading.text)) &&
+      headings.first.text.toLowerCase().trim() !=
+          headings.last.text.toLowerCase().trim();
+}
+
 bool _isPairedInvoiceBuyerCopyRow(
   List<List<ReceiptOcrBlockEvidence>> layoutRows,
-  int rowIndex,
-) {
+  int rowIndex, {
+  bool allowDistinctNames = false,
+}) {
   if (rowIndex < 0 || rowIndex >= layoutRows.length) return false;
   final row = layoutRows[rowIndex];
   if (row.length != 2 ||
@@ -3197,7 +3222,8 @@ bool _isPairedInvoiceBuyerCopyRow(
   }
   String normalized(String value) =>
       value.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
-  if (normalized(row.first.text) != normalized(row.last.text) &&
+  if (!allowDistinctNames &&
+      normalized(row.first.text) != normalized(row.last.text) &&
       !row.every((block) => _isReceiptMetadataLine(block.text))) {
     return false;
   }
