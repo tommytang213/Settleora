@@ -4817,7 +4817,10 @@ Total USD 0.15
   });
 
   test('amount-column geometry excludes adjacent usage-chart numbers', () {
-    ReceiptOcrPreview parse({bool conflictingMoney = false}) {
+    ReceiptOcrPreview parse({
+      bool conflictingMoney = false,
+      bool rateCurrency = false,
+    }) {
       final blocks = <ReceiptOcrBlockEvidence>[
         _layoutBlock('CURRENT CHARGES DETAIL', 0, 0, 20, 400),
         _layoutBlock('USAGE SUMMARY', 1, 0, 740, 980),
@@ -4840,6 +4843,7 @@ Total USD 0.15
         _layoutBlock('USD 14.75', 18, 4, 600, 665),
         _layoutBlock(conflictingMoney ? 'USD 999.00' : '200', 19, 4, 710, 780),
         _layoutBlock('City Utilities Tax (5%)', 20, 5, 20, 260),
+        if (rateCurrency) _layoutBlock('USD 0.05', 29, 5, 420, 475),
         _layoutBlock('USD 0.74', 21, 5, 600, 665),
         _layoutBlock('0', 22, 5, 710, 750),
         _layoutBlock('Oct Nov Dec', 23, 5, 780, 970),
@@ -4866,13 +4870,20 @@ Total USD 0.15
     expect(preview.adjustmentsComplete, isFalse);
     expect(preview.incompleteAdjustmentReasons, isNotEmpty);
 
+    final withRateCurrency = parse(rateCurrency: true);
+    expect(withRateCurrency.tax, '0.74');
+
     final conflicting = parse(conflictingMoney: true);
     expect(conflicting.subtotal, isNull);
     expect(conflicting.adjustmentsComplete, isFalse);
   });
 
   test('aligned letterhead needs a repeated full issuer block', () {
-    ReceiptOcrPreview parse(String footer, {String? footerSection}) {
+    ReceiptOcrPreview parse(
+      String footer, {
+      String? footerSection,
+      bool sameFooterRow = false,
+    }) {
       final blocks = <ReceiptOcrBlockEvidence>[
         _layoutBlock('Northbank', 0, 0, 180, 330),
         _layoutBlock('Powering', 1, 0, 870, 1030),
@@ -4884,6 +4895,8 @@ Total USD 0.15
         _layoutBlock('Total USD 10.00', 7, 5, 20, 340),
         if (footerSection != null) _layoutBlock(footerSection, 8, 6, 20, 370),
         _layoutBlock(footer, 9, footerSection == null ? 6 : 7, 20, 370),
+        if (sameFooterRow)
+          _layoutBlock('Bill To', 11, footerSection == null ? 6 : 7, 420, 520),
         _layoutBlock(
           'Reliable Service',
           10,
@@ -4918,6 +4931,10 @@ Total USD 0.15
         reason: '$section cannot corroborate the issuer from a later section',
       );
     }
+    expect(
+      parse('Northbank Power & Water', sameFooterRow: true).merchant,
+      isNot('Northbank Power & Water'),
+    );
   });
 
   test('unfamiliar rated tax summary remains reviewable', () {

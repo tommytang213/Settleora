@@ -368,10 +368,12 @@ class ReceiptOcrParser {
                 footerRow < layoutRows.length;
                 footerRow++
               ) {
-                if (RegExp(
-                  r'^\s*(?:(?:bill|billed|sold|ship|deliver|delivered|remit|pay)[\s-]*to|(?:customer|buyer|purchaser|recipient|payee|client|billing|shipping|remittance)\b|payment\s+to\b)',
-                  caseSensitive: false,
-                ).hasMatch(lines[footerRow])) {
+                if (layoutRows[footerRow].any(
+                  (block) => RegExp(
+                    r'^\s*(?:(?:bill|billed|sold|ship|deliver|delivered|remit|pay)[\s-]*to|(?:customer|buyer|purchaser|recipient|payee|client|billing|shipping|remittance)\b|payment\s+to\b)',
+                    caseSensitive: false,
+                  ).hasMatch(block.text),
+                )) {
                   break;
                 }
                 if (layoutRows[footerRow].any(
@@ -2356,6 +2358,16 @@ class ReceiptOcrParser {
       final headerRight = amountHeaders.single.points
           .map((point) => point.x)
           .reduce((a, b) => a > b ? a : b);
+      final rateHeaders = layoutRows[headerIndex]
+          .where(
+            (block) =>
+                block.points.isNotEmpty &&
+                RegExp(
+                  r'^rate$',
+                  caseSensitive: false,
+                ).hasMatch(block.text.trim()),
+          )
+          .toList(growable: false);
       final row = layoutRows[rowIndex];
       // A numeric usage or quantity cell is item evidence even when the
       // charge name contains "tax"; a printed rate column is not required.
@@ -2409,16 +2421,22 @@ class ReceiptOcrParser {
           ? amountBlock.text.trim()
           : '${currencyBlocks.single.text.trim()} ${amountBlock.text.trim()}';
       if (!_hasChargeTableMonetaryEvidence(monetaryText)) continue;
-      if (row.any(
-        (block) =>
-            block != amountBlock &&
-            !currencyBlocks.contains(block) &&
-            RegExp(
+      if (row.any((block) {
+        if (block == amountBlock || currencyBlocks.contains(block)) {
+          return false;
+        }
+        if (rateHeaders.length == 1 && block.points.isNotEmpty) {
+          final rateCenter = _blockCenterX(rateHeaders.single);
+          if ((_blockCenterX(block) - rateCenter).abs() <= 60) {
+            return false;
+          }
+        }
+        return RegExp(
               _currencyTokenPattern,
               caseSensitive: false,
             ).hasMatch(block.text) &&
-            _lineHasAmount(block.text),
-      )) {
+            _lineHasAmount(block.text);
+      })) {
         continue;
       }
       if (RegExp(
