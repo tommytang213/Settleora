@@ -2886,8 +2886,15 @@ class ReceiptOcrParser {
                   _isSingleInvoiceBuyerIdentityRow(
                     layoutRows,
                     buyerHeadingIndex,
+                    lines: lines,
                   )) ||
               (lineIndex > buyerHeadingIndex && lineIndex < buyerCopyEnd) ||
+              _isSingleInvoiceBuyerAddressRow(
+                lines,
+                layoutRows,
+                buyerHeadingIndex,
+                lineIndex,
+              ) ||
               _isSingleInvoiceBuyerCountryRow(
                 lines,
                 layoutRows,
@@ -3169,8 +3176,9 @@ bool _hasOnlyPaymentOrSuggestedTipAmountsBeforeCourtesy(
 
 bool _isSingleInvoiceBuyerIdentityRow(
   List<List<ReceiptOcrBlockEvidence>> layoutRows,
-  int headingIndex,
-) {
+  int headingIndex, {
+  required List<String> lines,
+}) {
   if (headingIndex < 0 || headingIndex + 1 >= layoutRows.length) return false;
   final heading = layoutRows[headingIndex];
   final identity = layoutRows[headingIndex + 1];
@@ -3180,7 +3188,12 @@ bool _isSingleInvoiceBuyerIdentityRow(
       identity.length != 1 ||
       identity.single.points.isEmpty ||
       _lineHasAmount(identity.single.text) ||
-      _hasPotentialReceiptAdjustmentLabel(identity.single.text)) {
+      _hasPotentialReceiptAdjustmentLabel(identity.single.text) ||
+      headingIndex + 2 >= lines.length ||
+      !(_isInvoiceCountryOnly(lines[headingIndex + 2]) ||
+          (headingIndex + 3 < lines.length &&
+              _isInvoiceStreetLine(lines[headingIndex + 2]) &&
+              _isInvoiceCountryOnly(lines[headingIndex + 3])))) {
     return false;
   }
   final headingLeft = heading.first.points
@@ -3197,6 +3210,40 @@ bool _isBareInvoiceBuyerHeading(String text) => RegExp(
   caseSensitive: false,
 ).hasMatch(text);
 
+bool _isInvoiceStreetLine(String text) => RegExp(
+  r'^\s*\d{1,6}\s+[\p{L}][\p{L}\p{N} .,-]{2,70}$',
+  unicode: true,
+).hasMatch(text);
+
+bool _isSingleInvoiceBuyerAddressRow(
+  List<String> lines,
+  List<List<ReceiptOcrBlockEvidence>> layoutRows,
+  int headingIndex,
+  int rowIndex,
+) {
+  if (rowIndex != headingIndex + 2 ||
+      rowIndex >= layoutRows.length ||
+      rowIndex + 1 >= lines.length ||
+      !_isInvoiceStreetLine(lines[rowIndex]) ||
+      !_isInvoiceCountryOnly(lines[rowIndex + 1]) ||
+      !_isSingleInvoiceBuyerIdentityRow(
+        layoutRows,
+        headingIndex,
+        lines: lines,
+      )) {
+    return false;
+  }
+  final addressRow = layoutRows[rowIndex];
+  if (addressRow.length != 1 || addressRow.single.points.isEmpty) return false;
+  final headingLeft = layoutRows[headingIndex].first.points
+      .map((point) => point.x)
+      .reduce((x, y) => x < y ? x : y);
+  final addressLeft = addressRow.single.points
+      .map((point) => point.x)
+      .reduce((x, y) => x < y ? x : y);
+  return addressLeft >= headingLeft - 24 && addressLeft <= headingLeft + 96;
+}
+
 bool _isSingleInvoiceBuyerCountryRow(
   List<String> lines,
   List<List<ReceiptOcrBlockEvidence>> layoutRows,
@@ -3207,7 +3254,11 @@ bool _isSingleInvoiceBuyerCountryRow(
       rowIndex <= headingIndex + 1 ||
       rowIndex > headingIndex + 5 ||
       rowIndex >= layoutRows.length ||
-      !_isSingleInvoiceBuyerIdentityRow(layoutRows, headingIndex) ||
+      !_isSingleInvoiceBuyerIdentityRow(
+        layoutRows,
+        headingIndex,
+        lines: lines,
+      ) ||
       !_isInvoiceCountryOnly(lines[rowIndex])) {
     return false;
   }
@@ -3291,7 +3342,7 @@ bool _isAddressBackedInvoiceCountry(List<String> lines, int index) {
 }
 
 bool _isInvoiceCountryOnly(String line) => RegExp(
-  r'^(?:united states|united kingdom|canada|australia|new zealand|singapore|hong kong)$',
+  r'^(?:united states|united kingdom|canada|australia|new zealand|singapore|hong kong|germany|france|india|brazil|mexico|japan|china|south korea|taiwan|thailand|malaysia|indonesia|philippines|vietnam|pakistan|bangladesh|united arab emirates|saudi arabia|israel|turkey|italy|spain|portugal|netherlands|belgium|switzerland|austria|sweden|norway|denmark|finland|ireland|poland|czech republic|south africa|nigeria|egypt|argentina|chile|colombia|peru)$',
   caseSensitive: false,
 ).hasMatch(line.trim());
 

@@ -1626,11 +1626,13 @@ Total 4.40''');
       bool firstBuyerLineIsItem = false,
       bool distinctBuyerNames = false,
       bool singleBuyerCountry = false,
+      bool singleBuyerStreet = false,
       bool distinctBuyerCountries = false,
+      String buyerCountry = 'United States',
       bool buyerHeading = true,
     }) {
       final rows = <List<({String text, double left, double right})>>[
-        if (inlineBuyerName || distinctBuyerNames)
+        if (inlineBuyerName || distinctBuyerNames || singleColumnBuyer)
           [(text: 'BrightDesk Supplies', left: 20, right: 370)],
         [(text: 'Office Supply Invoice', left: 20, right: 370)],
         [
@@ -1673,8 +1675,10 @@ Total 4.40''');
               right: 680,
             ),
           ],
+        if (singleColumnBuyer && singleBuyerStreet)
+          [(text: '123 Main Street', left: 20, right: 210)],
         if (singleColumnBuyer && singleBuyerCountry)
-          [(text: 'United States', left: 20, right: 190)],
+          [(text: buyerCountry, left: 20, right: 190)],
         if (unresolvedBuyerIntervalLine)
           [(text: 'Warranty Extension', left: 90, right: 420)],
         [
@@ -1761,10 +1765,38 @@ Total 4.40''');
     final complete = parse();
     expect(complete.items.map((item) => item.lineTotal), ['10.00', '5.00']);
     expect(complete.reviewHints, isEmpty);
-    expect(parse(singleColumnBuyer: true).reviewHints, isEmpty);
+    expect(
+      parse(singleColumnBuyer: true).incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+    );
     expect(
       parse(singleColumnBuyer: true, singleBuyerCountry: true).reviewHints,
       isEmpty,
+    );
+    expect(
+      parse(
+        singleColumnBuyer: true,
+        singleBuyerStreet: true,
+        singleBuyerCountry: true,
+      ).reviewHints,
+      isEmpty,
+    );
+    for (final country in ['Germany', 'France', 'India']) {
+      expect(
+        parse(
+          singleColumnBuyer: true,
+          singleBuyerCountry: true,
+          buyerCountry: country,
+        ).reviewHints,
+        isEmpty,
+      );
+    }
+    expect(
+      parse(
+        singleColumnBuyer: true,
+        firstBuyerLineIsItem: true,
+      ).incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
     );
     expect(
       parse(
