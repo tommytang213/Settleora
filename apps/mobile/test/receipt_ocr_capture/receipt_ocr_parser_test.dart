@@ -1609,6 +1609,95 @@ Total 4.40''');
     expect(preview.reviewHints, isEmpty);
   });
 
+  test('invoice table bounds customer copy and confirmed payment footer', () {
+    ReceiptOcrPreview parse({
+      bool unresolvedTableLine = false,
+      bool buyerHeading = true,
+    }) {
+      final rows = <List<({String text, double left, double right})>>[
+        [(text: 'Office Supply Invoice', left: 20, right: 370)],
+        [
+          (
+            text: buyerHeading ? 'Bill To' : 'Order Summary',
+            left: 20,
+            right: 150,
+          ),
+          (text: 'Ship To', left: 510, right: 640),
+        ],
+        [
+          (text: 'Alex Chen', left: 20, right: 170),
+          (text: 'Alex Chen', left: 510, right: 660),
+        ],
+        [
+          (text: 'United States', left: 20, right: 190),
+          (text: 'United States', left: 510, right: 680),
+        ],
+        [
+          (text: 'Product / Service', left: 90, right: 300),
+          (text: 'SKU', left: 520, right: 600),
+          (text: 'Qty', left: 620, right: 650),
+          (text: 'Unit Price', left: 680, right: 790),
+          (text: 'Total', left: 850, right: 960),
+        ],
+        [
+          (text: 'Desk Chair', left: 90, right: 420),
+          (text: 'DC-100', left: 520, right: 600),
+          (text: '1', left: 620, right: 650),
+          (text: 'USD 10.00', left: 680, right: 790),
+          (text: 'USD 10.00', left: 850, right: 960),
+        ],
+        [
+          (text: 'Desk Mat', left: 90, right: 420),
+          (text: 'DM-100', left: 520, right: 600),
+          (text: '1', left: 620, right: 650),
+          (text: 'USD 5.00', left: 680, right: 790),
+          (text: 'USD 5.00', left: 850, right: 960),
+        ],
+        if (unresolvedTableLine)
+          [(text: 'Unpriced Cable', left: 90, right: 420)],
+        [(text: 'Subtotal USD 15.00', left: 680, right: 960)],
+        [(text: 'Tax USD 0.75', left: 680, right: 960)],
+        [(text: 'Total USD 15.75', left: 680, right: 960)],
+        [(text: 'Payment Confirmed', left: 20, right: 400)],
+        [
+          (
+            text: 'Thank you for your order! Your payment is complete.',
+            left: 20,
+            right: 700,
+          ),
+        ],
+        [(text: 'Payment Status: Payment Method:', left: 20, right: 550)],
+        [(text: 'Need Help? Thank you!', left: 20, right: 500)],
+        [(text: "We're here to help!", left: 20, right: 400)],
+      ];
+      var order = 0;
+      final blocks = <ReceiptOcrBlockEvidence>[
+        for (var row = 0; row < rows.length; row++)
+          for (final cell in rows[row])
+            _layoutBlock(cell.text, order++, row, cell.left, cell.right),
+      ];
+      return const ReceiptOcrParser().parse(
+        rows.map((row) => row.map((cell) => cell.text).join(' ')).join('\n'),
+        fallbackCurrency: 'USD',
+        blocks: blocks,
+      );
+    }
+
+    final complete = parse();
+    expect(complete.items.map((item) => item.lineTotal), ['10.00', '5.00']);
+    expect(complete.reviewHints, isEmpty);
+
+    final unresolved = parse(unresolvedTableLine: true);
+    expect(unresolved.reviewHints, isNotEmpty);
+    expect(
+      unresolved.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+    );
+
+    final withoutBuyerBoundary = parse(buyerHeading: false);
+    expect(withoutBuyerBoundary.reviewHints, isNotEmpty);
+  });
+
   test('missing invoice total cell cannot promote a unit price', () {
     final preview = const ReceiptOcrParser().parse(
       'Warehouse\nProduct / Service SKU Qty Unit Price Total\n'

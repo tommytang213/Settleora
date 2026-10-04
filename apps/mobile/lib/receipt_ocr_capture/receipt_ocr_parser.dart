@@ -151,6 +151,7 @@ class ReceiptOcrParser {
       lines,
       merchantLineIndices: merchantDetection?.lineIndices ?? const {},
       layoutRows: layoutRows,
+      layoutChargeItemRows: layoutChargeItems.keys.toSet(),
       hasBoundedDccFooterBoundary: hasBoundedDccFooterBoundary,
     );
     final hasCompleteItemEvidence =
@@ -2817,6 +2818,7 @@ class ReceiptOcrParser {
     List<String> lines, {
     Set<int> merchantLineIndices = const {},
     List<List<ReceiptOcrBlockEvidence>> layoutRows = const [],
+    Set<int> layoutChargeItemRows = const {},
     bool hasBoundedDccFooterBoundary = false,
   }) {
     var count = 0;
@@ -2824,9 +2826,43 @@ class ReceiptOcrParser {
       (line) =>
           _hasTotalLabel(line, line.toLowerCase()) && _lineHasAmount(line),
     );
+    final invoiceTableHeader = lines.indexWhere(_isInvoiceProductTableHeader);
+    final hasSelectedInvoiceTable =
+        invoiceTableHeader >= 0 &&
+        lines
+            .take(invoiceTableHeader)
+            .any(
+              (line) => RegExp(
+                r'^\s*(?:bill(?:ed)?|ship(?:ped)?|sold)\s+to\b',
+                caseSensitive: false,
+              ).hasMatch(line),
+            ) &&
+        layoutChargeItemRows.any((row) => row > invoiceTableHeader) &&
+        !layoutChargeItemRows.any((row) => row < invoiceTableHeader);
+    final postTotalPaymentSection = lastPricedTotal < 0
+        ? -1
+        : lines.indexWhere(
+            (line) => RegExp(
+              r'^\s*payment\s+(?:confirmed|confirmation)\b',
+              caseSensitive: false,
+            ).hasMatch(line),
+            lastPricedTotal + 1,
+          );
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       final line = lines[lineIndex];
       if (merchantLineIndices.contains(lineIndex)) {
+        continue;
+      }
+      // A geometry-backed invoice item table makes earlier unpriced copy
+      // header/customer evidence. Once the final printed total is followed by
+      // an explicit payment section, its unpriced copy is footer evidence.
+      // Keep any printed adjustment or modifier outside these exemptions.
+      if (((hasSelectedInvoiceTable && lineIndex < invoiceTableHeader) ||
+              (postTotalPaymentSection >= 0 &&
+                  lineIndex >= postTotalPaymentSection)) &&
+          !_lineHasAmount(line) &&
+          !_hasPotentialReceiptAdjustmentLabel(line) &&
+          !_isPrintedModifierLine(line)) {
         continue;
       }
       if ((_isSeeYouSoonFooterPhrase(line) ||

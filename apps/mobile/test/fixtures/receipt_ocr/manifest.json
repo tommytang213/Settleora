@@ -212,6 +212,7 @@
         "subtotal": "181.66",
         "tax": "9.08",
         "total": "162.47",
+        "expected_review_condition": "printed surcharge and account credit need manual review",
         "items": [
           [
             "Electricity",
