@@ -2839,7 +2839,8 @@ class ReceiptOcrParser {
             ) &&
         layoutChargeItemRows.any((row) => row > invoiceTableHeader) &&
         !layoutChargeItemRows.any((row) => row < invoiceTableHeader);
-    final postTotalPaymentSection = lastPricedTotal < 0
+    final postTotalPaymentSection =
+        !hasSelectedInvoiceTable || lastPricedTotal < 0
         ? -1
         : lines.indexWhere(
             (line) => RegExp(

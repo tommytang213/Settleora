@@ -1698,6 +1698,19 @@ Total 4.40''');
     expect(withoutBuyerBoundary.reviewHints, isNotEmpty);
   });
 
+  test('payment confirmation alone does not hide an unpriced item', () {
+    final preview = const ReceiptOcrParser().parse('''
+Store
+Milk USD 5.00
+Total USD 5.00
+Payment Confirmed
+Warranty Extension''');
+    expect(
+      preview.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+    );
+  });
+
   test('missing invoice total cell cannot promote a unit price', () {
     final preview = const ReceiptOcrParser().parse(
       'Warehouse\nProduct / Service SKU Qty Unit Price Total\n'
