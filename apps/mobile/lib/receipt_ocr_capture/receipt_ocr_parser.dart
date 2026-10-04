@@ -355,14 +355,33 @@ class ReceiptOcrParser {
               }
               final identity = '$firstName $extension';
               if (identity.length > 80) continue;
-              final repeated = layoutRows
-                  .skip((layoutRows.length / 2).floor())
-                  .expand((row) => row)
-                  .any(
-                    (later) =>
-                        later.text.trim().toLowerCase() ==
-                        identity.toLowerCase(),
-                  );
+              final lastTotalRow = lines.lastIndexWhere(
+                (line) => RegExp(
+                  r'^\s*(?:grand\s+)?total\b',
+                  caseSensitive: false,
+                ).hasMatch(line),
+              );
+              if (lastTotalRow <= rowIndex) continue;
+              var repeated = false;
+              for (
+                var footerRow = lastTotalRow + 1;
+                footerRow < layoutRows.length;
+                footerRow++
+              ) {
+                if (RegExp(
+                  r'^\s*(?:(?:bill|billed|sold|ship|deliver|delivered|remit|pay)[\s-]*to|(?:customer|buyer|purchaser|recipient|payee|client|billing|shipping|remittance)\b|payment\s+to\b)',
+                  caseSensitive: false,
+                ).hasMatch(lines[footerRow])) {
+                  break;
+                }
+                if (layoutRows[footerRow].any(
+                  (later) =>
+                      later.text.trim().toLowerCase() == identity.toLowerCase(),
+                )) {
+                  repeated = true;
+                  break;
+                }
+              }
               if (repeated) {
                 return (text: identity, lineIndices: {0, rowIndex});
               }

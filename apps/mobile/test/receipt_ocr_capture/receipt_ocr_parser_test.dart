@@ -4872,7 +4872,7 @@ Total USD 0.15
   });
 
   test('aligned letterhead needs a repeated full issuer block', () {
-    ReceiptOcrPreview parse(String footer) {
+    ReceiptOcrPreview parse(String footer, {String? footerSection}) {
       final blocks = <ReceiptOcrBlockEvidence>[
         _layoutBlock('Northbank', 0, 0, 180, 330),
         _layoutBlock('Powering', 1, 0, 870, 1030),
@@ -4882,8 +4882,15 @@ Total USD 0.15
         _layoutBlock('UTILITY BILL', 5, 3, 20, 300),
         _layoutBlock('Electricity USD 10.00', 6, 4, 20, 340),
         _layoutBlock('Total USD 10.00', 7, 5, 20, 340),
-        _layoutBlock(footer, 8, 6, 20, 370),
-        _layoutBlock('Reliable Service', 9, 6, 870, 1030),
+        if (footerSection != null) _layoutBlock(footerSection, 8, 6, 20, 370),
+        _layoutBlock(footer, 9, footerSection == null ? 6 : 7, 20, 370),
+        _layoutBlock(
+          'Reliable Service',
+          10,
+          footerSection == null ? 6 : 7,
+          870,
+          1030,
+        ),
       ];
       final rows = <int, List<String>>{};
       for (final block in blocks) {
@@ -4904,6 +4911,13 @@ Total USD 0.15
       parse('Northbank Power & Electric').merchant,
       isNot('Northbank Power & Water'),
     );
+    for (final section in ['Bill To', 'Pay To', 'Remit To']) {
+      expect(
+        parse('Northbank Power & Water', footerSection: section).merchant,
+        isNot('Northbank Power & Water'),
+        reason: '$section cannot corroborate the issuer from a later section',
+      );
+    }
   });
 
   test('unfamiliar rated tax summary remains reviewable', () {
