@@ -1591,6 +1591,14 @@ export const expectedAndroidPackageDigestsBySource = Object.freeze({
   "b73bb08b3c61714590524d53c7348b7cc9d41fd6857d91e06c15bf6d30f7d4ed": Object.freeze([
     "6017fd45641ec7ff845954d8c64202c317da0dc32f0dcbd10fd1c69b2d7c7be9",
   ]),
+  // #1309 buyer-copy product-table boundary at 9ea2ca48. One clean Flutter
+  // 3.44.8 Release APK built at the exact hosted Android root passed the
+  // unchanged signer, archive/path, catalog, 14-model, legal-resource,
+  // and 102-fixture absence gates with this measured digest supplied in memory.
+  // Hosted exact-head package and native acceptance remain separate gates.
+  "90b25dc7c5bef3b3f527b53ac8a9010aca950b679bccef11ed149e42f9c1efed": Object.freeze([
+    "ee593c188731a343d31146b88ec298c45c45decd16ecd155fec442c29dfb2d8c",
+  ]),
 });
 export const expectedAndroidNonOcrEntries = Object.freeze([
   "AndroidManifest.xml",
