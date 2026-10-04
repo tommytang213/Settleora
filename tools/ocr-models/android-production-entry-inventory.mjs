@@ -1575,13 +1575,13 @@ export const expectedAndroidPackageDigestsBySource = Object.freeze({
     "ce309d66134d7e1220073ce1e5583cf4ab656acc92c26138ceaa880caef812b5",
     "9f3c0c4810a763469d919f2a8ac3f000f9d498595058df410ae123513d2db5f4",
   ]),
-  // #1309 invoice-table review bounds at 7d822bc9. One clean Flutter 3.44.8
+  // #1309 invoice-table review bounds at bcc00e79. One clean Flutter 3.44.8
   // Release APK built at the exact hosted Android root passed the unchanged
   // signer, archive/path, catalog, 14-model, legal-resource, and 102-fixture
   // absence gates with this measured representation digest supplied in memory.
   // Hosted exact-head package and native acceptance remain separate gates.
-  "1ec7cc1a66aa5ab8092ef259222cb25344aa99104ecf325c5bfa09c31ae5b598": Object.freeze([
-    "3a8ab5205e7f1ffffdcb80dfc2995190cd3952766243e451acd0b22fc14dedad",
+  "8ec3fc72163127bc616401e78277ee9fc35c6998b2110dc9db773143afcb2396": Object.freeze([
+    "ef54873e4bedcfbf17bbd99196d3a8cc6fc4983089ad69611fb568031e9aca71",
   ]),
 });
 export const expectedAndroidNonOcrEntries = Object.freeze([
