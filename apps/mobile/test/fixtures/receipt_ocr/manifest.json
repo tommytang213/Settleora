@@ -61,6 +61,8 @@
         "merchant": "FiberWave Internet",
         "date": "2025-03-05",
         "currency": "USD",
+        "tax": "4.31",
+        "discount": "-10.00",
         "total": "64.18",
         "items": [
           [
@@ -70,25 +72,10 @@
           [
             "Wi-Fi Router Rental",
             "7.00"
-          ],
-          [
-            "Loyalty Discount (12 Months)",
-            "-10.00"
-          ],
-          [
-            "Regulatory Recovery Fee",
-            "1.99"
-          ],
-          [
-            "State Sales Tax (6.25%)",
-            "4.31"
-          ],
-          [
-            "County Communications Fee (1.75%)",
-            "0.89"
           ]
         ]
-      }
+      },
+      "notes": "Source charge table separately labels the priced service and rental, a loyalty discount, sales tax, and two fees. Discount and tax are adjustments; fees remain visible review evidence because the draft has no matching fee field."
     },
     {
       "id": "existing_03_blueriver_water_en_US",
@@ -101,6 +88,8 @@
         "merchant": "BlueRiver Water Services",
         "date": "2024-08-15",
         "currency": "USD",
+        "service": "8.00",
+        "tax": "4.22",
         "total": "109.72",
         "items": [
           [
@@ -110,21 +99,10 @@
           [
             "Sewer Charge",
             "52.50"
-          ],
-          [
-            "Service Fee",
-            "8.00"
-          ],
-          [
-            "State Water Tax",
-            "2.64"
-          ],
-          [
-            "Local Utility Tax",
-            "1.58"
           ]
         ]
-      }
+      },
+      "notes": "Source separately labels a service fee and two tax components. The expected tax is their arithmetic sum; neither fee nor tax is merchandise."
     },
     {
       "id": "existing_04_horizon_mobile_en_US",
@@ -150,13 +128,10 @@
           [
             "International Calls",
             "4.50"
-          ],
-          [
-            "Taxes and Regulatory Fees",
-            "7.67"
           ]
         ]
-      }
+      },
+      "notes": "Source labels the final charge as combined taxes and regulatory fees. Its split is not printed, so no tax-only value is asserted; preserve the combined amount for review."
     },
     {
       "id": "existing_05_northstar_gas_en_US",
@@ -169,6 +144,7 @@
         "merchant": "NorthStar Gas Utility",
         "date": "2025-04-10",
         "currency": "USD",
+        "tax": "2.90",
         "total": "86.27",
         "items": [
           [
@@ -182,26 +158,11 @@
           [
             "Supply Charge",
             "33.06"
-          ],
-          [
-            "State Gas Tax",
-            "2.13"
-          ],
-          [
-            "Local Utility Tax",
-            "0.77"
-          ],
-          [
-            "Environmental Program Fee",
-            "3.04"
-          ],
-          [
-            "Energy Assistance Surcharge",
-            "0.76"
           ]
         ],
         "expected_review_condition": "printed total differs from visible charge-line arithmetic"
-      }
+      },
+      "notes": "Source separately labels two taxes, a fee, and a surcharge. Tax expectation is the sum of printed components; the printed total still disagrees with visible charge arithmetic, so review remains required."
     },
     {
       "id": "existing_06_metrogrid_electric_en_US",
@@ -232,13 +193,10 @@
           [
             "Public Purpose Programs",
             "5.21"
-          ],
-          [
-            "Taxes and Fees",
-            "8.74"
           ]
         ]
-      }
+      },
+      "notes": "Source labels a combined taxes-and-fees row without a printed split. It is not merchandise and no tax-only value is asserted; keep its amount as review evidence."
     },
     {
       "id": "existing_07_citylight_utility_en_US",
@@ -251,6 +209,8 @@
         "merchant": "CityLight Power & Water",
         "date": "2025-03-05",
         "currency": "USD",
+        "subtotal": "181.66",
+        "tax": "9.08",
         "total": "162.47",
         "items": [
           [
@@ -264,21 +224,10 @@
           [
             "Wastewater Service",
             "34.20"
-          ],
-          [
-            "City Utilities Tax (5%)",
-            "9.08"
-          ],
-          [
-            "State Energy Surcharge (1.5%)",
-            "2.73"
-          ],
-          [
-            "Account Credit",
-            "-31.00"
           ]
         ]
-      }
+      },
+      "notes": "Source prints subtotal, tax, surcharge, and account credit as separate financial roles. The credit is an account credit, not a merchandise item or discount; surcharge and credit remain review evidence."
     },
     {
       "id": "existing_08_citypark_parking_en_US",
@@ -991,7 +940,8 @@
             "4.00"
           ]
         ],
-        "subtotal": "16.50"
+        "subtotal": "16.50",
+        "tax": "1.70"
       },
       "expected_currency_resolution": {
         "currency": "USD",
@@ -1025,7 +975,8 @@
             "5.50"
           ]
         ],
-        "subtotal": "9.75"
+        "subtotal": "9.75",
+        "tax": "1.27"
       },
       "expected_currency_resolution": {
         "currency": "CAD",
@@ -1059,7 +1010,8 @@
             "13.00"
           ]
         ],
-        "subtotal": "18.50"
+        "subtotal": "18.50",
+        "tax": "1.68"
       },
       "expected_currency_resolution": {
         "currency": "AUD",
@@ -1094,7 +1046,8 @@
             "6.80"
           ]
         ],
-        "subtotal": "9.00"
+        "subtotal": "9.00",
+        "tax": "0.81"
       },
       "expected_currency_resolution": {
         "currency": "SGD",
@@ -1128,7 +1081,8 @@
             "5.00"
           ]
         ],
-        "subtotal": "12.50"
+        "subtotal": "12.50",
+        "tax": "1.63"
       },
       "expected_currency_resolution": {
         "currency": "NZD",
@@ -1162,7 +1116,8 @@
             "35.00"
           ]
         ],
-        "subtotal": "125.00"
+        "subtotal": "125.00",
+        "tax": "20.00"
       },
       "expected_currency_resolution": {
         "currency": "MXN",
@@ -2594,7 +2549,7 @@
         "date": "2026-09-17",
         "currency": "USD",
         "subtotal": "388.00",
-        "discount": "-100.00",
+        "tax": "18.00",
         "total": "288.00",
         "items": [
           [
@@ -2615,7 +2570,7 @@
           "USD"
         ]
       },
-      "notes": "Final payable is Amount Due after deposit, not raw subtotal."
+      "notes": "Source prints City Tax as tax and Deposit Paid as a payment credit, not a discount. Final payable is Amount Due after deposit; Tourism Fee remains visible non-item evidence."
     },
     {
       "id": "layout_12_utility_previous_balance",
@@ -2755,11 +2710,13 @@
         "currency": "USD",
         "total": "100.00",
         "items": [
-          [
-            "Dinner",
-            "780.00"
-          ]
-        ]
+          {
+            "description": "Dinner",
+            "line_total": "780.00",
+            "currency": "HKD"
+          }
+        ],
+        "expected_review_condition": "printed item currency differs from charged receipt currency"
       },
       "expected_currency_resolution": {
         "currency": "USD",
@@ -2770,7 +2727,7 @@
           "DCC selected"
         ]
       },
-      "notes": "Explicit charged currency overrides location/default context."
+      "notes": "Image prints Dinner HK$780.00, DCC Selected USD 100.00, CARD CHARGED USD 100.00, and Exchange Rate 7.8000 HKD/USD. The item remains HKD while the charged total is USD; keep the cross-currency relationship reviewable without converting the item."
     },
     {
       "id": "layout_17_bilingual_duplicate_lines",
@@ -2998,6 +2955,7 @@
         "merchant": "Metro Taxi",
         "date": "2026-09-17",
         "currency": "USD",
+        "tip": "5.00",
         "total": "32.50",
         "items": [
           [
@@ -3007,10 +2965,6 @@
           [
             "Toll",
             "3.00"
-          ],
-          [
-            "Tip",
-            "5.00"
           ]
         ]
       },
@@ -3021,7 +2975,8 @@
         "evidence": [
           "USD"
         ]
-      }
+      },
+      "notes": "The printed Tip is a charged tip adjustment, not a merchandise item."
     },
     {
       "id": "layout_25_ecommerce_shipping",
@@ -3259,7 +3214,8 @@
             "4.00"
           ]
         ],
-        "subtotal": "16.50"
+        "subtotal": "16.50",
+        "tax": "1.70"
       },
       "expected_currency_resolution": {
         "currency": "USD",

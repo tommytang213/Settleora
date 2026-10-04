@@ -1,0 +1,495 @@
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+import { deflateRawSync } from "node:zlib";
+
+import { reviewedSourceTreeFingerprint, verifyAndroidSignature, verifyMobilePackage } from "../verify-mobile-package.mjs";
+import { expectedAndroidNonOcrEntries } from "../android-production-entry-inventory.mjs";
+import { trustedLegalArtifacts } from "../mobile-model-catalog.mjs";
+
+function sha256(bytes) {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+const placeholder = Buffer.from("reviewed-package-placeholder");
+const syntheticNative = Buffer.concat([Buffer.from([0x7f, 0x45, 0x4c, 0x46]), Buffer.alloc(4092)]);
+const nativeEntry = (name) => /^lib\/(?:arm64-v8a|armeabi-v7a|x86_64)\/(?:libapp|libdartjni)\.so$/.test(name);
+const syntheticEntryData = (name) => nativeEntry(name) ? syntheticNative : placeholder;
+
+test("APK signer rejects missing and same-size altered jar bytes", () => {
+  assert.throws(() => verifyAndroidSignature("ignored.apk", Buffer.alloc(1)), /toolchain is unreviewed/);
+  assert.throws(() => verifyAndroidSignature("ignored.apk", Buffer.alloc(1074241)), /toolchain is unreviewed/);
+});
+
+function crc32(bytes) {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ ((crc & 1) === 0 ? 0 : 0xedb88320);
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function signingPair(id, value) {
+  const header = Buffer.alloc(12);
+  header.writeBigUInt64LE(BigInt(value.length + 4), 0);
+  header.writeUInt32LE(id, 8);
+  return Buffer.concat([header, value]);
+}
+
+function syntheticSigningBlock(extraPair = null, paddingLength = 2650) {
+  const pairs = Buffer.concat([
+    signingPair(0x7109871a, Buffer.from("synthetic-v2-signer")),
+    ...(extraPair == null ? [] : [extraPair]),
+    signingPair(0x42726577, Buffer.alloc(paddingLength)),
+  ]);
+  const size = BigInt(pairs.length + 24);
+  const head = Buffer.alloc(8);
+  const footer = Buffer.alloc(8);
+  head.writeBigUInt64LE(size);
+  footer.writeBigUInt64LE(size);
+  return Buffer.concat([head, pairs, footer, Buffer.from("APK Sig Block 42")]);
+}
+
+function writeSyntheticApk(apk, packageRoot, { unsigned = false, firstLocalExtra = Buffer.alloc(0),
+  extraEntries = [], extraSigningPair = null, changedNonOcrEntry = null,
+  trailingCompressedEntry = null, recompressedEntry = null, wrongCrcEntry = null,
+  reverseCentralOrder = false, changedProfileEntry = null, signingPaddingLength = 2650 } = {}) {
+  const entries = [];
+  const visit = (directory, prefix = "") => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const name = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) visit(path.join(directory, entry.name), name);
+      else if (entry.isFile()) entries.push({ name, data: readFileSync(path.join(directory, entry.name)) });
+    }
+  };
+  visit(packageRoot);
+  entries.push(...expectedAndroidNonOcrEntries.map((name) => ({
+    name, data: name === changedNonOcrEntry ?
+      (nativeEntry(name) ? Buffer.concat([syntheticNative, Buffer.from("private receipt bytes")]) :
+        Buffer.from("private receipt bytes")) : syntheticEntryData(name),
+  })));
+  entries.push(...extraEntries);
+  entries.sort((left, right) => left.name.localeCompare(right.name));
+  const local = [];
+  const central = [];
+  const digestRecords = [];
+  let localOffset = 0;
+  for (const [index, entry] of entries.entries()) {
+    const name = Buffer.from(entry.name);
+    const data = Buffer.from(entry.data ?? "");
+    const method = entry.name === trailingCompressedEntry || entry.name === recompressedEntry ? 8 : 0;
+    const stored = entry.name === trailingCompressedEntry
+      ? Buffer.concat([deflateRawSync(data), Buffer.from("PRIVATE_RECEIPT_TEXT")])
+      : entry.name === recompressedEntry ? deflateRawSync(data, { level: 0 }) : data;
+    const extra = index === 0 ? firstLocalExtra : Buffer.alloc(0);
+    const madeBy = entry.name === changedProfileEntry ? 0x0014 : 0;
+    digestRecords.push(`${entry.name}\0${localOffset}\0${madeBy}\0${0}\0${method}\0${extra.length}\0${stored.length}\0${data.length}\0${sha256(stored)}\0${sha256(data)}\n`);
+    const crc = crc32(data);
+    const recordedCrc = entry.name === wrongCrcEntry ? (crc ^ 1) >>> 0 : crc;
+    const localHeader = Buffer.alloc(30);
+    localHeader.writeUInt32LE(0x04034b50, 0);
+    localHeader.writeUInt16LE(0, 4);
+    localHeader.writeUInt16LE(method, 8);
+    localHeader.writeUInt16LE(0x0821, 10);
+    localHeader.writeUInt16LE(0x0221, 12);
+    localHeader.writeUInt32LE(recordedCrc, 14);
+    localHeader.writeUInt32LE(stored.length, 18);
+    localHeader.writeUInt32LE(data.length, 22);
+    localHeader.writeUInt16LE(name.length, 26);
+    localHeader.writeUInt16LE(extra.length, 28);
+    local.push(localHeader, name, extra, stored);
+    const centralHeader = Buffer.alloc(46);
+    centralHeader.writeUInt32LE(0x02014b50, 0);
+    centralHeader.writeUInt16LE(madeBy, 4);
+    centralHeader.writeUInt16LE(0, 6);
+    centralHeader.writeUInt16LE(method, 10);
+    centralHeader.writeUInt16LE(0x0821, 12);
+    centralHeader.writeUInt16LE(0x0221, 14);
+    centralHeader.writeUInt32LE(recordedCrc, 16);
+    centralHeader.writeUInt32LE(stored.length, 20);
+    centralHeader.writeUInt32LE(data.length, 24);
+    centralHeader.writeUInt16LE(name.length, 28);
+    centralHeader.writeUInt32LE(localOffset, 42);
+    central.push([centralHeader, name]);
+    localOffset += 30 + name.length + extra.length + stored.length;
+  }
+  const block = unsigned ? Buffer.alloc(0) : syntheticSigningBlock(extraSigningPair, signingPaddingLength);
+  const directory = Buffer.concat((reverseCentralOrder ? central.reverse() : central).flat());
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(directory.length, 12);
+  end.writeUInt32LE(localOffset + block.length, 16);
+  writeFileSync(apk, Buffer.concat([...local, block, directory, end]));
+  return sha256(Buffer.from((reverseCentralOrder ? digestRecords.reverse() : digestRecords).join("")));
+}
+
+function withPackageContract(callback) {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-mobile-package-"));
+  const model = Buffer.from("model-bytes");
+  try {
+    mkdirSync(path.join(root, "apps/mobile/assets/receipt_ocr_models"), { recursive: true });
+    mkdirSync(path.join(root, "apps/mobile/test/fixtures/receipt_ocr"), { recursive: true });
+    const catalog = Buffer.from(JSON.stringify({
+        packs: [{
+          assetDirectory: "assets/receipt_ocr_models/test-pack",
+          files: [{ name: "model.onnx", bytes: model.length, sha256: sha256(model) }],
+        }],
+      }));
+    writeFileSync(path.join(root, "apps/mobile/assets/receipt_ocr_models/catalog.json"), catalog);
+    for (const artifact of trustedLegalArtifacts) {
+      const bytes = readFileSync(path.join(repoRootForCli(), "apps/mobile", artifact.path));
+      writeFileSync(path.join(root, "apps/mobile", artifact.path), bytes);
+    }
+    writeFileSync(
+      path.join(root, "apps/mobile/test/fixtures/receipt_ocr/manifest.json"),
+      JSON.stringify({ fixtures: Array.from({ length: 101 }, (_, index) => ({ file: `script/fixture-${index}.png` })) }),
+    );
+    mkdirSync(path.join(root, "apps/mobile/lib"), { recursive: true });
+    writeFileSync(path.join(root, "apps/mobile/lib/source.dart"), "reviewed source");
+    mkdirSync(path.join(root, "tools/ocr-models"), { recursive: true });
+    writeFileSync(path.join(root, "tools/ocr-models/android-production-entry-inventory.mjs"), "reviewed inventory");
+    const git = (...args) => {
+      const result = spawnSync("git", ["-C", root, ...args], {
+        encoding: "utf8", env: { ...process.env, GIT_AUTHOR_NAME: "Settleora Test",
+          GIT_AUTHOR_EMAIL: "test@example.invalid", GIT_COMMITTER_NAME: "Settleora Test",
+          GIT_COMMITTER_EMAIL: "test@example.invalid" },
+      });
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout.trim();
+    };
+    git("init", "-q");
+    git("add", "apps/mobile", "tools/ocr-models/android-production-entry-inventory.mjs");
+    git("commit", "-qm", "reviewed source");
+    callback({ root, model, catalog, git, sourceSha: git("rev-parse", "HEAD") });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test("verifies the catalog, every model, and concrete fixture absence in Android APKs", () => {
+  withPackageContract(({ root, model, catalog, sourceSha }) => {
+    const packageRoot = path.join(root, "android-package");
+    const modelPath = path.join(packageRoot, "assets/receipt_ocr_models/test-pack/model.onnx");
+    mkdirSync(path.dirname(modelPath), { recursive: true });
+    writeFileSync(modelPath, model);
+    writeFileSync(path.join(packageRoot, "assets/receipt_ocr_models/catalog.json"), catalog);
+    for (const artifact of trustedLegalArtifacts) {
+      writeFileSync(
+        path.join(packageRoot, artifact.path),
+        readFileSync(path.join(root, "apps/mobile", artifact.path)),
+      );
+    }
+    const apk = path.join(root, "app.apk");
+    let signatureChecks = 0;
+    const reviewedPackageDigest = writeSyntheticApk(apk, packageRoot);
+    const sourceTreeFingerprint = reviewedSourceTreeFingerprint(root, sourceSha);
+    const reviewedPackageDigestsBySource = { [sourceTreeFingerprint]: [reviewedPackageDigest] };
+    const verifyTestPackage = () => verifyMobilePackage({
+      platform: "android", packagePath: apk, repoRoot: root, sourceGitRoot: root, sourceSha,
+      reviewedPackageDigestsBySource,
+      verifySignature: () => { signatureChecks += 1; return "a".repeat(64); },
+    });
+    assert.deepEqual(verifyTestPackage(),
+      { catalogFileCount: 1, modelFileCount: 1, fixtureFileCount: 102, sourceTreeFingerprint,
+        signerCertificateSha256: "a".repeat(64), packageSha256: sha256(readFileSync(apk)) });
+    assert.equal(signatureChecks, 1);
+    const originalSha256 = sha256(readFileSync(apk));
+    const stable = verifyMobilePackage({
+      platform: "android", packagePath: apk, repoRoot: root, sourceGitRoot: root, sourceSha,
+      reviewedPackageDigestsBySource,
+      verifySignature: () => {
+        writeFileSync(apk, "replaced after snapshot");
+        return "a".repeat(64);
+      },
+    });
+    assert.equal(stable.packageSha256, originalSha256);
+    writeSyntheticApk(apk, packageRoot);
+    assert.throws(() => verifyMobilePackage({
+      platform: "android", packagePath: apk, repoRoot: root, sourceGitRoot: root, sourceSha,
+      reviewedPackageDigestsBySource,
+      verifySignature: () => { throw new Error("signature verification failed"); },
+    }), /signature verification failed/);
+
+    writeSyntheticApk(apk, packageRoot, { changedNonOcrEntry: "assets/flutter_assets/FontManifest.json" });
+    assert.throws(verifyTestPackage, /entry representations differ from reviewed bytes/);
+
+    writeSyntheticApk(apk, packageRoot, { changedNonOcrEntry: "lib/x86_64/libapp.so" });
+    assert.throws(verifyTestPackage, /entry representations differ from reviewed bytes/);
+
+    writeSyntheticApk(apk, packageRoot, { recompressedEntry: "assets/flutter_assets/FontManifest.json" });
+    assert.throws(verifyTestPackage, /entry representations differ from reviewed bytes/);
+    writeSyntheticApk(apk, packageRoot, { recompressedEntry: "assets/receipt_ocr_models/catalog.json" });
+    assert.throws(verifyTestPackage, /entry representations differ from reviewed bytes/);
+
+    writeSyntheticApk(apk, packageRoot, { reverseCentralOrder: true });
+    assert.throws(verifyTestPackage, /entry representations differ from reviewed bytes/);
+
+    writeSyntheticApk(apk, packageRoot, { changedProfileEntry: "assets/flutter_assets/FontManifest.json" });
+    assert.throws(verifyTestPackage, /entry representations differ from reviewed bytes/);
+
+    writeSyntheticApk(apk, packageRoot, { trailingCompressedEntry: "assets/flutter_assets/FontManifest.json" });
+    assert.throws(verifyTestPackage, /compressed entry contains trailing bytes/);
+    writeSyntheticApk(apk, packageRoot, { trailingCompressedEntry: "assets/receipt_ocr_models/catalog.json" });
+    assert.throws(verifyTestPackage, /compressed entry contains trailing bytes/);
+
+    writeFileSync(path.join(packageRoot, "assets/receipt_ocr_models/catalog.json"), "stale");
+    writeSyntheticApk(apk, packageRoot);
+    assert.throws(verifyTestPackage, /catalog identity/);
+    writeFileSync(path.join(packageRoot, "assets/receipt_ocr_models/catalog.json"), catalog);
+
+    const extraModel = path.join(packageRoot, "assets/receipt_ocr_models/test-pack/unlisted.onnx");
+    writeFileSync(extraModel, "unreviewed");
+    writeSyntheticApk(apk, packageRoot);
+    assert.throws(verifyTestPackage, /inventory differs from the catalog/);
+    rmSync(extraModel);
+
+    const fixturePath = path.join(packageRoot, "assets/script/fixture-0.png");
+    mkdirSync(path.dirname(fixturePath), { recursive: true });
+    writeFileSync(fixturePath, "fixture");
+    writeSyntheticApk(apk, packageRoot);
+    assert.throws(verifyTestPackage, /contains acceptance fixture/);
+    rmSync(fixturePath);
+
+    for (const privateEntry of [
+      "assets/private-receipt.log",
+      "assets/receipt_ocr_acceptance/extra.jpeg",
+      "assets/private/scan.bin",
+      "assets/fixtures/scan.png",
+      "assets/ocr-output.json",
+      "assets/receipt_ocr_fixtures/sample.bin",
+      "assets/receipt_ocr_testdata/sample.bin",
+      "res/raw/receipt_corpus.dat",
+      "res/raw/a.dat",
+      "META-INF/payload.bin",
+    ]) {
+      const privatePath = path.join(packageRoot, privateEntry);
+      mkdirSync(path.dirname(privatePath), { recursive: true });
+      writeFileSync(privatePath, "PRIVATE_RECEIPT_TEXT_123");
+      writeSyntheticApk(apk, packageRoot);
+      assert.throws(verifyTestPackage, /contains an unreviewed entry path/);
+      rmSync(privatePath);
+    }
+
+    writeSyntheticApk(apk, packageRoot, {
+      extraEntries: [{ name: "assets/receipt_ocr_models/private/" }],
+    });
+    assert.throws(verifyTestPackage, /unverified directory entry/);
+
+    writeSyntheticApk(apk, packageRoot);
+    const original = readFileSync(apk);
+    const eocd = original.length - 22;
+    const centralOffset = original.readUInt32LE(eocd + 16);
+    const centralSize = original.readUInt32LE(eocd + 12);
+    const firstEntryLength = 46 + original.readUInt16LE(centralOffset + 28) +
+      original.readUInt16LE(centralOffset + 30) + original.readUInt16LE(centralOffset + 32);
+    const duplicate = Buffer.concat([
+      original.subarray(0, eocd),
+      original.subarray(centralOffset, centralOffset + firstEntryLength),
+      original.subarray(eocd),
+    ]);
+    duplicate.writeUInt16LE(original.readUInt16LE(eocd + 10) + 1, duplicate.length - 12);
+    duplicate.writeUInt16LE(original.readUInt16LE(eocd + 8) + 1, duplicate.length - 14);
+    duplicate.writeUInt32LE(centralSize + firstEntryLength, duplicate.length - 10);
+    writeFileSync(apk, duplicate);
+    assert.throws(verifyTestPackage, /duplicate entry names/);
+
+    writeSyntheticApk(apk, packageRoot, { firstLocalExtra: Buffer.from([1, 2, 3, 4]) });
+    assert.throws(verifyTestPackage, /local metadata is unreviewed/);
+    writeSyntheticApk(apk, packageRoot, { unsigned: true });
+    assert.throws(verifyTestPackage, /signing block is required/);
+    writeSyntheticApk(apk, packageRoot);
+    const changedLocalTime = readFileSync(apk);
+    changedLocalTime.writeUInt16LE(0, 10);
+    writeFileSync(apk, changedLocalTime);
+    assert.throws(verifyTestPackage, /local metadata is unreviewed/);
+    writeSyntheticApk(apk, packageRoot);
+    const changedCentralDate = readFileSync(apk);
+    changedCentralDate.writeUInt16LE(0, changedCentralDate.readUInt32LE(changedCentralDate.length - 6) + 14);
+    writeFileSync(apk, changedCentralDate);
+    assert.throws(verifyTestPackage, /local metadata is unreviewed/);
+    writeSyntheticApk(apk, packageRoot);
+    const changedAttributes = readFileSync(apk);
+    changedAttributes.writeUInt16LE(1, changedAttributes.readUInt32LE(changedAttributes.length - 6) + 36);
+    writeFileSync(apk, changedAttributes);
+    assert.throws(verifyTestPackage, /entry metadata is unreviewed/);
+    writeSyntheticApk(apk, packageRoot);
+    const changedVersion = readFileSync(apk);
+    changedVersion.writeUInt16LE(20, 4);
+    writeFileSync(apk, changedVersion);
+    assert.throws(verifyTestPackage, /local metadata is unreviewed/);
+    writeSyntheticApk(apk, packageRoot, {
+      extraSigningPair: signingPair(0x504b4453, Buffer.from("PRIVATE_RECEIPT_TEXT_123")),
+    });
+    assert.throws(verifyTestPackage, /signing pair is unreviewed/);
+    writeSyntheticApk(apk, packageRoot, { signingPaddingLength: 2651 });
+    assert.throws(verifyTestPackage, /signing pair is unreviewed/);
+
+    writeSyntheticApk(apk, packageRoot);
+    const listed = readFileSync(apk);
+    const listedEocd = listed.length - 22;
+    const listedCentral = listed.readUInt32LE(listedEocd + 16);
+    const listedBlockSize = Number(listed.readBigUInt64LE(listedCentral - 24));
+    const listedBlockStart = listedCentral - listedBlockSize - 8;
+    const hiddenName = Buffer.from("assets/private/scan.bin");
+    const hiddenBytes = Buffer.from("PRIVATE_RECEIPT_TEXT_123");
+    const hiddenHeader = Buffer.alloc(30);
+    hiddenHeader.writeUInt32LE(0x04034b50, 0);
+    hiddenHeader.writeUInt16LE(20, 4);
+    hiddenHeader.writeUInt32LE(hiddenBytes.length, 18);
+    hiddenHeader.writeUInt32LE(hiddenBytes.length, 22);
+    hiddenHeader.writeUInt16LE(hiddenName.length, 26);
+    const unlistedLocal = Buffer.concat([hiddenHeader, hiddenName, hiddenBytes]);
+    const withHiddenLocal = Buffer.concat([
+      listed.subarray(0, listedBlockStart),
+      unlistedLocal,
+      listed.subarray(listedBlockStart),
+    ]);
+    withHiddenLocal.writeUInt32LE(listedCentral + unlistedLocal.length, withHiddenLocal.length - 6);
+    writeFileSync(apk, withHiddenLocal);
+    assert.throws(verifyTestPackage, /signing block bounds disagree/);
+
+    writeSyntheticApk(apk, packageRoot);
+    const mismatchedHeader = readFileSync(apk);
+    mismatchedHeader.writeUInt32LE(mismatchedHeader.readUInt32LE(14) ^ 1, 14);
+    writeFileSync(apk, mismatchedHeader);
+    assert.throws(verifyTestPackage, /local metadata is unreviewed/);
+
+    writeSyntheticApk(apk, packageRoot, { wrongCrcEntry: expectedAndroidNonOcrEntries[0] });
+    assert.throws(verifyTestPackage, /entry CRC differs from its payload/);
+  });
+});
+
+test("rejects a reviewed APK from a different tracked source tree", () => {
+  withPackageContract(({ root, model, catalog, git, sourceSha }) => {
+    const packageRoot = path.join(root, "android-package");
+    const modelPath = path.join(packageRoot, "assets/receipt_ocr_models/test-pack/model.onnx");
+    mkdirSync(path.dirname(modelPath), { recursive: true });
+    writeFileSync(modelPath, model);
+    writeFileSync(path.join(packageRoot, "assets/receipt_ocr_models/catalog.json"), catalog);
+    for (const artifact of trustedLegalArtifacts) {
+      writeFileSync(path.join(packageRoot, artifact.path),
+        readFileSync(path.join(root, "apps/mobile", artifact.path)));
+    }
+    const apk = path.join(root, "app.apk");
+    const packageDigest = writeSyntheticApk(apk, packageRoot);
+    const originalFingerprint = reviewedSourceTreeFingerprint(root, sourceSha);
+    const reviewedPackageDigestsBySource = { [originalFingerprint]: [packageDigest] };
+    const verifyAt = (sha) => verifyMobilePackage({
+      platform: "android", packagePath: apk, repoRoot: root,
+      sourceGitRoot: root, sourceSha: sha, reviewedPackageDigestsBySource,
+      verifySignature: () => "a".repeat(64),
+    });
+    assert.equal(verifyAt(sourceSha).sourceTreeFingerprint, originalFingerprint);
+    writeFileSync(path.join(root, "tools/ocr-models/android-production-entry-inventory.mjs"), "new digest pin");
+    git("add", "tools/ocr-models/android-production-entry-inventory.mjs");
+    git("commit", "-qm", "add digest pin");
+    const inventoryOnlySha = git("rev-parse", "HEAD");
+    assert.equal(reviewedSourceTreeFingerprint(root, inventoryOnlySha), originalFingerprint);
+    assert.equal(verifyAt(inventoryOnlySha).sourceTreeFingerprint, originalFingerprint);
+    writeFileSync(path.join(root, "apps/mobile/lib/source.dart"), "changed application source");
+    git("add", "apps/mobile/lib/source.dart");
+    git("commit", "-qm", "change application source");
+    const changedSourceSha = git("rev-parse", "HEAD");
+    assert.notEqual(reviewedSourceTreeFingerprint(root, changedSourceSha), originalFingerprint);
+    assert.throws(() => verifyAt(changedSourceSha), /entry representations differ from reviewed bytes/);
+    assert.throws(() => verifyAt(sourceSha), /source commit differs from checkout/);
+  });
+});
+
+test("verifies the catalog, every model, and concrete fixture absence in iOS apps", () => {
+  withPackageContract(({ root, model, catalog }) => {
+    const app = path.join(root, "Runner.app");
+    const modelPath = path.join(app, "receipt_ocr_models/test-pack/model.onnx");
+    mkdirSync(path.dirname(modelPath), { recursive: true });
+    writeFileSync(modelPath, model);
+    writeFileSync(path.join(app, "receipt_ocr_models/catalog.json"), catalog);
+    for (const artifact of trustedLegalArtifacts) {
+      writeFileSync(
+        path.join(app, artifact.path.replace(/^assets\//, "")),
+        readFileSync(path.join(root, "apps/mobile", artifact.path)),
+      );
+    }
+
+    const extraModel = path.join(app, "receipt_ocr_models/test-pack/unlisted.onnx");
+    writeFileSync(extraModel, "unreviewed");
+    assert.throws(
+      () => verifyMobilePackage({ platform: "ios", packagePath: app, repoRoot: root }),
+      /inventory differs from the catalog/,
+    );
+    rmSync(extraModel);
+    assert.deepEqual(
+      verifyMobilePackage({ platform: "ios", packagePath: app, repoRoot: root }),
+      { catalogFileCount: 1, modelFileCount: 1, fixtureFileCount: 102 },
+    );
+
+    writeFileSync(modelPath, Buffer.concat([model, Buffer.from("unreviewed")]));
+    assert.throws(
+      () => verifyMobilePackage({ platform: "ios", packagePath: app, repoRoot: root }),
+      /model size differs from the catalog/,
+    );
+    writeFileSync(modelPath, model);
+
+    const legalArtifact = trustedLegalArtifacts[0];
+    const packagedLegalPath = path.join(app, legalArtifact.path.replace(/^assets\//, ""));
+    const legalBytes = readFileSync(packagedLegalPath);
+    writeFileSync(packagedLegalPath, Buffer.concat([legalBytes, Buffer.from("unreviewed")]));
+    assert.throws(
+      () => verifyMobilePackage({ platform: "ios", packagePath: app, repoRoot: root }),
+      /legal artifact size differs from the catalog/,
+    );
+    writeFileSync(packagedLegalPath, legalBytes);
+    writeFileSync(packagedLegalPath, "stale");
+    assert.throws(
+      () => verifyMobilePackage({ platform: "ios", packagePath: app, repoRoot: root }),
+      /legal artifact size differs from the catalog/,
+    );
+    writeFileSync(
+      packagedLegalPath,
+      readFileSync(path.join(root, "apps/mobile", legalArtifact.path)),
+    );
+
+    writeFileSync(path.join(app, "receipt_ocr_models/catalog.json"), "stale");
+    assert.throws(
+      () => verifyMobilePackage({ platform: "ios", packagePath: app, repoRoot: root }),
+      /catalog size differs from the catalog/,
+    );
+    writeFileSync(path.join(app, "receipt_ocr_models/catalog.json"), catalog);
+
+    const fixturePath = path.join(app, "receipt_ocr_acceptance/script/fixture-0.png");
+    mkdirSync(path.dirname(fixturePath), { recursive: true });
+    writeFileSync(fixturePath, "fixture");
+    assert.throws(
+      () => verifyMobilePackage({ platform: "ios", packagePath: app, repoRoot: root }),
+      /contains acceptance fixture/,
+    );
+  });
+});
+
+test("CLI reports bounded package-verification failures without local paths", () => {
+  withPackageContract(({ root }) => {
+    const missingPackage = path.join(root, "private-build-root/Runner.app");
+    const result = spawnSync(process.execPath, [
+      path.join(repoRootForCli(), "tools/ocr-models/verify-mobile-package.mjs"),
+      "--platform=ios",
+      `--package=${missingPackage}`,
+      `--repo-root=${root}`,
+    ], { encoding: "utf8" });
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.equal(result.stderr, "Production package verification failed: package contract mismatch\n");
+    assert.equal(result.stderr.includes(root), false);
+  });
+});
+
+function repoRootForCli() {
+  return path.resolve(import.meta.dirname, "../../..");
+}
