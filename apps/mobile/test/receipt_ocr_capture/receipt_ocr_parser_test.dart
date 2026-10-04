@@ -1612,6 +1612,7 @@ Total 4.40''');
   test('invoice table bounds customer copy and confirmed payment footer', () {
     ReceiptOcrPreview parse({
       bool unresolvedTableLine = false,
+      bool unresolvedFooterLine = false,
       bool buyerHeading = true,
     }) {
       final rows = <List<({String text, double left, double right})>>[
@@ -1659,6 +1660,8 @@ Total 4.40''');
         [(text: 'Tax USD 0.75', left: 680, right: 960)],
         [(text: 'Total USD 15.75', left: 680, right: 960)],
         [(text: 'Payment Confirmed', left: 20, right: 400)],
+        if (unresolvedFooterLine)
+          [(text: 'Unpriced Cable', left: 90, right: 420)],
         [
           (
             text: 'Thank you for your order! Your payment is complete.',
@@ -1696,6 +1699,12 @@ Total 4.40''');
 
     final withoutBuyerBoundary = parse(buyerHeading: false);
     expect(withoutBuyerBoundary.reviewHints, isNotEmpty);
+
+    final unresolvedFooter = parse(unresolvedFooterLine: true);
+    expect(
+      unresolvedFooter.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+    );
   });
 
   test('payment confirmation alone does not hide an unpriced item', () {

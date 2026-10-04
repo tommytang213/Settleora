@@ -2856,11 +2856,13 @@ class ReceiptOcrParser {
       }
       // A geometry-backed invoice item table makes earlier unpriced copy
       // header/customer evidence. Once the final printed total is followed by
-      // an explicit payment section, its unpriced copy is footer evidence.
+      // an explicit payment section, only recognizable payment/support copy
+      // is footer evidence; a new unpriced item remains unresolved.
       // Keep any printed adjustment or modifier outside these exemptions.
       if (((hasSelectedInvoiceTable && lineIndex < invoiceTableHeader) ||
               (postTotalPaymentSection >= 0 &&
-                  lineIndex >= postTotalPaymentSection)) &&
+                  lineIndex >= postTotalPaymentSection &&
+                  _isInvoicePaymentFooterCopy(line))) &&
           !_lineHasAmount(line) &&
           !_hasPotentialReceiptAdjustmentLabel(line) &&
           !_isPrintedModifierLine(line)) {
@@ -3118,6 +3120,11 @@ bool _hasOnlyPaymentOrSuggestedTipAmountsBeforeCourtesy(
   }
   return true;
 }
+
+bool _isInvoicePaymentFooterCopy(String line) => RegExp(
+  r"^\s*(?:payment\s+(?:confirmed|confirmation|status|method|date)\b|confirmation\s+(?:number|id)\b|paid\s+in\s+full\b|thank\s+you(?:[.!?]|\s+for\b)|need\s+help\b|we(?:['’]re|\s+are)\s+here\s+to\s+help\b|if\s+you\s+have\s+(?:any\s+)?questions\b|please\s+contact\b)",
+  caseSensitive: false,
+).hasMatch(line);
 
 bool _isSeeYouSoonFooterPhrase(String line) => RegExp(
   r'^see you soon[.!。！]?$',
