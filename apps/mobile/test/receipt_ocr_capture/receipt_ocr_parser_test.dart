@@ -1612,6 +1612,8 @@ Total 4.40''');
   test('invoice table bounds customer copy and confirmed payment footer', () {
     ReceiptOcrPreview parse({
       bool unresolvedTableLine = false,
+      bool unresolvedBuyerIntervalLine = false,
+      bool unresolvedPairedBuyerIntervalLine = false,
       bool unresolvedFooterLine = false,
       bool mergedFooterItemLine = false,
       bool mergedCourtesyItemLine = false,
@@ -1635,10 +1637,17 @@ Total 4.40''');
           (text: 'Alex Chen', left: 20, right: 170),
           (text: 'Alex Chen', left: 510, right: 660),
         ],
+        if (unresolvedPairedBuyerIntervalLine)
+          [
+            (text: 'Warranty Extension', left: 20, right: 200),
+            (text: 'Extra Cable', left: 510, right: 660),
+          ],
         [
           (text: 'United States', left: 20, right: 190),
           (text: 'United States', left: 510, right: 680),
         ],
+        if (unresolvedBuyerIntervalLine)
+          [(text: 'Warranty Extension', left: 90, right: 420)],
         [
           (text: 'Product / Service', left: 90, right: 300),
           (text: 'SKU', left: 520, right: 600),
@@ -1739,6 +1748,19 @@ Total 4.40''');
     expect(unresolved.reviewHints, isNotEmpty);
     expect(
       unresolved.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+    );
+
+    final unresolvedBuyerInterval = parse(unresolvedBuyerIntervalLine: true);
+    expect(
+      unresolvedBuyerInterval.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+    );
+    final unresolvedPairedBuyerInterval = parse(
+      unresolvedPairedBuyerIntervalLine: true,
+    );
+    expect(
+      unresolvedPairedBuyerInterval.incompleteAdjustmentReasons,
       contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
     );
 

@@ -2829,18 +2829,29 @@ class ReceiptOcrParser {
           _hasTotalLabel(line, line.toLowerCase()) && _lineHasAmount(line),
     );
     final invoiceTableHeader = lines.indexWhere(_isInvoiceProductTableHeader);
+    final buyerHeadingIndex = invoiceTableHeader < 0
+        ? -1
+        : lines
+              .take(invoiceTableHeader)
+              .toList()
+              .indexWhere(
+                (line) => RegExp(
+                  r'^\s*(?:bill(?:ed)?|ship(?:ped)?|sold)\s+to\b',
+                  caseSensitive: false,
+                ).hasMatch(line),
+              );
     final hasSelectedInvoiceTable =
         invoiceTableHeader >= 0 &&
-        lines
-            .take(invoiceTableHeader)
-            .any(
-              (line) => RegExp(
-                r'^\s*(?:bill(?:ed)?|ship(?:ped)?|sold)\s+to\b',
-                caseSensitive: false,
-              ).hasMatch(line),
-            ) &&
+        buyerHeadingIndex >= 0 &&
         layoutChargeItemRows.any((row) => row > invoiceTableHeader) &&
         !layoutChargeItemRows.any((row) => row < invoiceTableHeader);
+    var buyerCopyEnd = buyerHeadingIndex + 1;
+    while (hasSelectedInvoiceTable &&
+        buyerCopyEnd < invoiceTableHeader &&
+        buyerCopyEnd - buyerHeadingIndex <= 4 &&
+        _isPairedInvoiceBuyerCopyRow(layoutRows, buyerCopyEnd)) {
+      buyerCopyEnd++;
+    }
     final postTotalPaymentSection =
         !hasSelectedInvoiceTable || lastPricedTotal < 0
         ? -1
@@ -2856,12 +2867,25 @@ class ReceiptOcrParser {
       if (merchantLineIndices.contains(lineIndex)) {
         continue;
       }
-      // A geometry-backed invoice item table makes earlier unpriced copy
-      // header/customer evidence. Once the final printed total is followed by
+      // Only a recognized buyer heading, its bounded paired address rows,
+      // and an address-backed country line are invoice copy. Other unpriced
+      // lines before the table remain unresolved. Once the total is followed by
       // an explicit payment section, only recognizable payment/support copy
       // is footer evidence; a new unpriced item remains unresolved.
       // Keep any printed adjustment or modifier outside these exemptions.
-      if (((hasSelectedInvoiceTable && lineIndex < invoiceTableHeader) ||
+      final isInvoiceBuyerCopy =
+          hasSelectedInvoiceTable &&
+          (lineIndex == buyerHeadingIndex ||
+              (lineIndex > buyerHeadingIndex && lineIndex < buyerCopyEnd) ||
+              (lineIndex < buyerHeadingIndex &&
+                  lineIndex <= 2 &&
+                  RegExp(
+                    r'\binvoice\b',
+                    caseSensitive: false,
+                  ).hasMatch(line)) ||
+              (lineIndex < buyerHeadingIndex &&
+                  _isAddressBackedInvoiceCountry(lines, lineIndex)));
+      if ((isInvoiceBuyerCopy ||
               (postTotalPaymentSection >= 0 &&
                   lineIndex >= postTotalPaymentSection &&
                   _isInvoicePaymentFooterCopy(
@@ -3124,6 +3148,64 @@ bool _hasOnlyPaymentOrSuggestedTipAmountsBeforeCourtesy(
     return false;
   }
   return true;
+}
+
+bool _isPairedInvoiceBuyerCopyRow(
+  List<List<ReceiptOcrBlockEvidence>> layoutRows,
+  int rowIndex,
+) {
+  if (rowIndex < 0 || rowIndex >= layoutRows.length) return false;
+  final row = layoutRows[rowIndex];
+  if (row.length != 2 ||
+      row.any(
+        (block) =>
+            block.points.isEmpty ||
+            (_lineHasAmount(block.text) &&
+                !_isReceiptMetadataLine(block.text)) ||
+            _hasPotentialReceiptAdjustmentLabel(block.text),
+      )) {
+    return false;
+  }
+  String normalized(String value) =>
+      value.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (normalized(row.first.text) != normalized(row.last.text) &&
+      !row.every((block) => _isReceiptMetadataLine(block.text))) {
+    return false;
+  }
+  final cells = [...row]
+    ..sort(
+      (a, b) => a.points
+          .map((point) => point.x)
+          .reduce((x, y) => x < y ? x : y)
+          .compareTo(
+            b.points.map((point) => point.x).reduce((x, y) => x < y ? x : y),
+          ),
+    );
+  final leftRight = cells.first.points
+      .map((point) => point.x)
+      .reduce((x, y) => x > y ? x : y);
+  final rightLeft = cells.last.points
+      .map((point) => point.x)
+      .reduce((x, y) => x < y ? x : y);
+  return rightLeft >= leftRight + 24;
+}
+
+bool _isAddressBackedInvoiceCountry(List<String> lines, int index) {
+  if (index < 1 || index + 1 >= lines.length) return false;
+  if (!RegExp(
+    r'^(?:united states|united kingdom|canada|australia|new zealand|singapore|hong kong)$',
+    caseSensitive: false,
+  ).hasMatch(lines[index].trim())) {
+    return false;
+  }
+  return RegExp(
+        r'\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\b',
+        caseSensitive: false,
+      ).hasMatch(lines[index - 1]) &&
+      RegExp(
+        r'(?:@|\bwww\.|https?://|\b(?:phone|tel|support)\b)',
+        caseSensitive: false,
+      ).hasMatch(lines[index + 1]);
 }
 
 bool _isInvoicePaymentFooterCopy(String line, {String? merchantName}) {
