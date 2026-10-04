@@ -1715,6 +1715,47 @@ Total 4.40''');
     expect(preview.reviewHints, isEmpty);
   });
 
+  test('country-named unpriced products remain unresolved inside a table', () {
+    final rows = <List<({String text, double left, double right})>>[
+      [(text: 'Harbor Market', left: 20, right: 370)],
+      [(text: 'Bill To: Alex Chen', left: 20, right: 250)],
+      [
+        (text: 'Product / Service', left: 90, right: 300),
+        (text: 'SKU', left: 520, right: 600),
+        (text: 'Qty', left: 620, right: 650),
+        (text: 'Unit Price', left: 680, right: 790),
+        (text: 'Total', left: 850, right: 960),
+      ],
+      [
+        (text: 'Bread', left: 90, right: 300),
+        (text: 'BR-100', left: 520, right: 600),
+        (text: '1', left: 620, right: 650),
+        (text: 'USD 10.00', left: 680, right: 790),
+        (text: 'USD 10.00', left: 850, right: 960),
+      ],
+      [(text: 'Turkey', left: 90, right: 300)],
+      [(text: 'Subtotal USD 10.00', left: 680, right: 960)],
+      [(text: 'Total USD 10.00', left: 680, right: 960)],
+    ];
+    var order = 0;
+    final preview = const ReceiptOcrParser().parse(
+      rows.map((row) => row.map((cell) => cell.text).join(' ')).join('\n'),
+      blocks: [
+        for (var row = 0; row < rows.length; row++)
+          for (final cell in rows[row])
+            _layoutBlock(cell.text, order++, row, cell.left, cell.right),
+      ],
+    );
+    expect(preview.items.single.description, 'Bread');
+    expect(preview.items.single.lineTotal, '10.00');
+    expect(preview.blocks.any((block) => block.text == 'Turkey'), isTrue);
+    expect(
+      preview.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+    );
+    expect(preview.reviewHints, isNotEmpty);
+  });
+
   test('invoice table bounds customer copy and confirmed payment footer', () {
     ReceiptOcrPreview parse({
       bool unresolvedTableLine = false,

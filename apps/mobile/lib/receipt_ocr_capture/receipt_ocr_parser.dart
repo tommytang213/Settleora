@@ -2873,6 +2873,7 @@ class ReceiptOcrParser {
       // Keep any printed adjustment or modifier outside these exemptions.
       final isInvoiceBuyerCopy =
           hasSelectedInvoiceTable &&
+          lineIndex < invoiceTableHeader &&
           (lineIndex == buyerHeadingIndex ||
               _isPairedInvoiceBuyerIdentityRow(
                 layoutRows,
