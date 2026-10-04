@@ -1629,6 +1629,9 @@ Total 4.40''');
       bool singleBuyerStreet = false,
       bool distinctBuyerCountries = false,
       String buyerCountry = 'United States',
+      bool pairedBuyerStreet = true,
+      bool buyerEmailMatchesItems = false,
+      bool swapBuyerEmailColumns = false,
       bool buyerHeading = true,
     }) {
       final rows = <List<({String text, double left, double right})>>[
@@ -1664,6 +1667,11 @@ Total 4.40''');
               right: 660,
             ),
         ],
+        if (!singleColumnBuyer && !inlineBuyerName && pairedBuyerStreet)
+          [
+            (text: '123 Main Street', left: 20, right: 210),
+            (text: '123 Main Street', left: 510, right: 700),
+          ],
         if (unresolvedPairedBuyerIntervalLine)
           [
             (text: 'Warranty Extension', left: 20, right: 200),
@@ -1684,9 +1692,29 @@ Total 4.40''');
           [(text: buyerCountry, left: 20, right: 190)],
         if (!singleColumnBuyer && !inlineBuyerName)
           [
-            (text: 'alex.chen@example.com', left: 20, right: 300),
-            if (distinctBuyerNames)
-              (text: 'morgan.lee@example.com', left: 510, right: 790),
+            (
+              text: buyerEmailMatchesItems
+                  ? swapBuyerEmailColumns
+                        ? 'extra.cable@example.com'
+                        : 'warranty.extension@example.com'
+                  : 'alex.chen@example.com',
+              left: 20,
+              right: 300,
+            ),
+            if (distinctBuyerNames ||
+                distinctBuyerCountries ||
+                buyerEmailMatchesItems)
+              (
+                text: buyerEmailMatchesItems
+                    ? swapBuyerEmailColumns
+                          ? 'warranty.extension@example.com'
+                          : 'extra.cable@example.com'
+                    : distinctBuyerCountries
+                    ? 'alex.chen@example.com'
+                    : 'morgan.lee@example.com',
+                left: 510,
+                right: 790,
+              ),
           ],
         if (unresolvedBuyerIntervalLine)
           [(text: 'Warranty Extension', left: 90, right: 420)],
@@ -1830,6 +1858,22 @@ Total 4.40''');
     expect(distinctBuyer.reviewHints, isEmpty);
     expect(
       parse(firstBuyerLineIsItem: true).incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+    );
+    expect(
+      parse(
+        firstBuyerLineIsItem: true,
+        buyerEmailMatchesItems: true,
+        pairedBuyerStreet: false,
+      ).incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+    );
+    expect(
+      parse(
+        firstBuyerLineIsItem: true,
+        buyerEmailMatchesItems: true,
+        swapBuyerEmailColumns: true,
+      ).incompleteAdjustmentReasons,
       contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
     );
     expect(distinctBuyer.merchant, isNot('Alex Chen Morgan Lee'));

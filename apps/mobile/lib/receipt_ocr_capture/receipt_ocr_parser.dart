@@ -3252,7 +3252,7 @@ bool _isPairedInvoiceBuyerIdentityRow(
 ) {
   if (headingIndex < 0 ||
       rowIndex != headingIndex + 1 ||
-      tableHeaderIndex <= rowIndex ||
+      rowIndex + 2 >= tableHeaderIndex ||
       headingIndex >= layoutRows.length ||
       !_isPairedInvoiceBuyerCopyRow(layoutRows, rowIndex)) {
     return false;
@@ -3262,20 +3262,47 @@ bool _isPairedInvoiceBuyerIdentityRow(
       !headings.every((block) => _isBareInvoiceBuyerHeading(block.text))) {
     return false;
   }
-  final emails = <String>{};
+  final names = [...layoutRows[rowIndex]]
+    ..sort((a, b) => _blockLeft(a).compareTo(_blockLeft(b)));
+  final streets = layoutRows[rowIndex + 1];
+  if (streets.length != 2 ||
+      !streets.every((block) => _isInvoiceStreetLine(block.text)) ||
+      !_isPairedInvoiceBuyerCopyRow(layoutRows, rowIndex + 1)) {
+    return false;
+  }
+  var countryIndex = -1;
   for (
-    var index = rowIndex + 1;
+    var index = rowIndex + 2;
+    index < tableHeaderIndex &&
+        index < layoutRows.length &&
+        index <= headingIndex + 5;
+    index++
+  ) {
+    final row = layoutRows[index];
+    if (row.length == 2 &&
+        row.every((block) => _isInvoiceCountryOnly(block.text)) &&
+        _isPairedInvoiceBuyerCopyRow(layoutRows, index)) {
+      countryIndex = index;
+      break;
+    }
+  }
+  if (countryIndex < 0) return false;
+  final split = (_blockRight(names.first) + _blockLeft(names.last)) / 2;
+  final emailsByColumn = [<String>{}, <String>{}];
+  for (
+    var index = countryIndex + 1;
     index < tableHeaderIndex &&
         index < layoutRows.length &&
         index <= headingIndex + 8;
     index++
   ) {
     for (final block in layoutRows[index]) {
+      if (block.points.isEmpty) continue;
       for (final match in RegExp(
         r'[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}',
         caseSensitive: false,
       ).allMatches(block.text)) {
-        emails.add(
+        emailsByColumn[_blockLeft(block) < split ? 0 : 1].add(
           match
               .group(0)!
               .split('@')
@@ -3286,8 +3313,8 @@ bool _isPairedInvoiceBuyerIdentityRow(
       }
     }
   }
-  if (emails.isEmpty) return false;
-  return layoutRows[rowIndex].every((block) {
+  final normalizedNames = <String>[];
+  for (final block in names) {
     final name = block.text.trim();
     if (!RegExp(
           r'^[\p{L}][\p{L}\p{M}\p{N} .\x27-]{2,70}$',
@@ -3296,13 +3323,32 @@ bool _isPairedInvoiceBuyerIdentityRow(
         name.split(RegExp(r'\s+')).length < 2) {
       return false;
     }
-    final normalizedName = name.toLowerCase().replaceAll(
-      RegExp(r'[^\p{L}\p{N}]', unicode: true),
-      '',
+    normalizedNames.add(
+      name.toLowerCase().replaceAll(
+        RegExp(r'[^\p{L}\p{N}]', unicode: true),
+        '',
+      ),
     );
-    return emails.any((email) => email.contains(normalizedName));
-  });
+  }
+  final leftMatches = emailsByColumn[0].contains(normalizedNames[0]);
+  final rightMatches = emailsByColumn[1].contains(normalizedNames[1]);
+  if (leftMatches && rightMatches) return true;
+  if (normalizedNames[0] != normalizedNames[1] || !leftMatches) return false;
+  final orderedStreets = [...streets]
+    ..sort((a, b) => _blockLeft(a).compareTo(_blockLeft(b)));
+  final orderedCountries = [...layoutRows[countryIndex]]
+    ..sort((a, b) => _blockLeft(a).compareTo(_blockLeft(b)));
+  return orderedStreets.first.text.trim().toLowerCase() ==
+          orderedStreets.last.text.trim().toLowerCase() &&
+      orderedCountries.first.text.trim().toLowerCase() ==
+          orderedCountries.last.text.trim().toLowerCase();
 }
+
+double _blockLeft(ReceiptOcrBlockEvidence block) =>
+    block.points.map((point) => point.x).reduce((x, y) => x < y ? x : y);
+
+double _blockRight(ReceiptOcrBlockEvidence block) =>
+    block.points.map((point) => point.x).reduce((x, y) => x > y ? x : y);
 
 bool _isPairedInvoiceBuyerCopyRow(
   List<List<ReceiptOcrBlockEvidence>> layoutRows,
