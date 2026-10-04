@@ -1564,10 +1564,16 @@ export const expectedAndroidPackageDigestsBySource = Object.freeze({
   // #1309 CityLight geometry and reviewer corrections at c4d34ab3. One
   // isolated Flutter 3.44.8 Release APK passed the local signer, archive/path,
   // catalog, 14-model, legal-resource, and 102-fixture-absence gates with this
-  // digest supplied in memory. Hosted exact-head package and native acceptance
-  // remain pending; this entry does not waive either gate.
+  // digest supplied in memory. Hosted #1308 Android job 111333855309 passed
+  // the preceding signer, archive/path, catalog, model, legal, and fixture
+  // gates, then reported the second digest. Its bounded comparison matches
+  // all 438 non-native entries and all libdartjni.so bytes; only libapp.so
+  // AOT sections differ. A controlled same-source build at the hosted root
+  // length reproduced the AOT section-size pattern and embedded build path.
+  // This additional exact representation does not waive native acceptance.
   "06e9effc08ae7ace3d02ec94e5783898b7785ba9e6e2be8c4703515505e07304": Object.freeze([
     "ce309d66134d7e1220073ce1e5583cf4ab656acc92c26138ceaa880caef812b5",
+    "9f3c0c4810a763469d919f2a8ac3f000f9d498595058df410ae123513d2db5f4",
   ]),
 });
 export const expectedAndroidNonOcrEntries = Object.freeze([
