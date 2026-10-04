@@ -233,6 +233,20 @@ Total USD 25.00
     ]);
   });
 
+  test('multi-currency amount due keeps priority over another total', () {
+    for (final label in ['Amount Due', 'Total Amount Due', 'Total Due']) {
+      final preview = const ReceiptOcrParser().parse('''
+Harbor Hotel
+Room USD 100.00
+Deposit Paid USD 20.00
+$label EUR 72.00 / USD 80.00
+Total USD 100.00
+''');
+      expect(preview.currency, 'USD', reason: label);
+      expect(preview.total, '80.00', reason: label);
+    }
+  });
+
   test(
     'amount due outranks current charges and tender without rewriting values',
     () {

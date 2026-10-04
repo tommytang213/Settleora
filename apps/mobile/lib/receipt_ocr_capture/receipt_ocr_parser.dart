@@ -1554,10 +1554,7 @@ class ReceiptOcrParser {
           continue;
         }
         var score = 10;
-        if (_hasTotalLabel(line, normalized) &&
-            RegExp(
-              r'\b(total\s+(?:amount\s+)?due|grand\s+total|balance\s+due|amount\s+due)\b',
-            ).hasMatch(normalized)) {
+        if (_hasPriorityTotalLabel(line)) {
           score += 20;
         }
         if (RegExp(r'\bcurrent\s+charges\b').hasMatch(normalized)) {
@@ -6318,6 +6315,35 @@ bool _hasTotalLabel(String line, String normalized) {
         'Toplam',
         'Tổng',
       ]);
+}
+
+bool _hasPriorityTotalLabel(String line) {
+  const label =
+      r'(?:total\s+(?:amount\s+)?due|grand\s+total|balance\s+due|amount\s+due)';
+  if (_hasEnglishReceiptLabel(line.toLowerCase(), RegExp('\\b$label\\b'))) {
+    return true;
+  }
+  // A total can show several currency amounts. Keep its priority when the
+  // entire suffix is monetary, while product prose cannot earn that priority.
+  final prefix = RegExp(
+    '^\\s*$label\\b',
+    caseSensitive: false,
+  ).firstMatch(line);
+  if (prefix == null) return false;
+  final suffix = line.substring(prefix.end);
+  final amountPattern = RegExp(_amountTokenPattern);
+  if (!amountPattern.hasMatch(suffix)) return false;
+  final remaining = suffix
+      .replaceAll(amountPattern, ' ')
+      .replaceAll(
+        RegExp(
+          '(?<![\\p{L}])(?:$_currencyTokenPattern)(?![\\p{L}])',
+          caseSensitive: false,
+          unicode: true,
+        ),
+        ' ',
+      );
+  return RegExp(r'^[\s:=/|;]*$').hasMatch(remaining);
 }
 
 bool _hasEnglishReceiptLabel(String normalized, RegExp labelPattern) {
