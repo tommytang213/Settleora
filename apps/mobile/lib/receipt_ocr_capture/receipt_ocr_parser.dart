@@ -3121,10 +3121,32 @@ bool _hasOnlyPaymentOrSuggestedTipAmountsBeforeCourtesy(
   return true;
 }
 
-bool _isInvoicePaymentFooterCopy(String line) => RegExp(
-  r"^\s*(?:payment\s+(?:confirmed|confirmation|status|method|date)\b|confirmation\s+(?:number|id)\b|paid\s+in\s+full\b|thank\s+you(?:[.!?]|\s+for\b)|need\s+help\b|we(?:['’]re|\s+are)\s+here\s+to\s+help\b|if\s+you\s+have\s+(?:any\s+)?questions\b|please\s+contact\b)",
-  caseSensitive: false,
-).hasMatch(line);
+bool _isInvoicePaymentFooterCopy(String line) {
+  final copy = line.trim();
+  return <RegExp>[
+    RegExp(
+      r'^payment\s+(?:confirmed|confirmation)[.!:]?$',
+      caseSensitive: false,
+    ),
+    RegExp(
+      r'^thank\s+you\s+for\s+your\s+order[.!]?(?:\s+your\s+payment\s+(?:has\s+been\s+successfully\s+processed|is\s+complete)[.!]?)?$',
+      caseSensitive: false,
+    ),
+    RegExp(
+      r'^(?:(?:payment\s+(?:status|method|date)|confirmation\s+(?:number|id)):\s*)+$',
+      caseSensitive: false,
+    ),
+    RegExp(r'^paid\s+in\s+full[.!]?$', caseSensitive: false),
+    RegExp(
+      r'^need\s+help[?!.]?(?:\s+thank\s+you[.!]?)?$',
+      caseSensitive: false,
+    ),
+    RegExp(
+      r"^we(?:['’]re|\s+are)\s+here\s+to\s+help[.!]?(?:\s+the\s+.+\s+team)?$",
+      caseSensitive: false,
+    ),
+  ].any((pattern) => pattern.hasMatch(copy));
+}
 
 bool _isSeeYouSoonFooterPhrase(String line) => RegExp(
   r'^see you soon[.!。！]?$',

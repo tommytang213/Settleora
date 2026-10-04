@@ -1613,6 +1613,8 @@ Total 4.40''');
     ReceiptOcrPreview parse({
       bool unresolvedTableLine = false,
       bool unresolvedFooterLine = false,
+      bool mergedFooterItemLine = false,
+      bool mergedCourtesyItemLine = false,
       bool buyerHeading = true,
     }) {
       final rows = <List<({String text, double left, double right})>>[
@@ -1659,12 +1661,22 @@ Total 4.40''');
         [(text: 'Subtotal USD 15.00', left: 680, right: 960)],
         [(text: 'Tax USD 0.75', left: 680, right: 960)],
         [(text: 'Total USD 15.75', left: 680, right: 960)],
-        [(text: 'Payment Confirmed', left: 20, right: 400)],
+        [
+          (
+            text: mergedFooterItemLine
+                ? 'Payment Confirmed Unpriced Cable'
+                : 'Payment Confirmed',
+            left: 20,
+            right: 400,
+          ),
+        ],
         if (unresolvedFooterLine)
           [(text: 'Unpriced Cable', left: 90, right: 420)],
         [
           (
-            text: 'Thank you for your order! Your payment is complete.',
+            text: mergedCourtesyItemLine
+                ? 'Thank you for your order! Unpriced Cable'
+                : 'Thank you for your order! Your payment is complete.',
             left: 20,
             right: 700,
           ),
@@ -1705,6 +1717,16 @@ Total 4.40''');
       unresolvedFooter.incompleteAdjustmentReasons,
       contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
     );
+
+    for (final merged in [
+      parse(mergedFooterItemLine: true),
+      parse(mergedCourtesyItemLine: true),
+    ]) {
+      expect(
+        merged.incompleteAdjustmentReasons,
+        contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+      );
+    }
   });
 
   test('payment confirmation alone does not hide an unpriced item', () {
