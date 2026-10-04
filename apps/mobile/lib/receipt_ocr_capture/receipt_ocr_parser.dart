@@ -1554,9 +1554,10 @@ class ReceiptOcrParser {
           continue;
         }
         var score = 10;
-        if (RegExp(
-          r'\b(total\s+(?:amount\s+)?due|grand\s+total|balance\s+due|amount\s+due)\b',
-        ).hasMatch(normalized)) {
+        if (_hasTotalLabel(line, normalized) &&
+            RegExp(
+              r'\b(total\s+(?:amount\s+)?due|grand\s+total|balance\s+due|amount\s+due)\b',
+            ).hasMatch(normalized)) {
           score += 20;
         }
         if (RegExp(r'\bcurrent\s+charges\b').hasMatch(normalized)) {

@@ -219,6 +219,20 @@ Total Current Charges USD 50.00
     expect(preview.reviewHints, isNotEmpty);
   });
 
+  test('numbered total-due product names do not outrank a printed total', () {
+    final preview = const ReceiptOcrParser().parse('''
+Bookshop
+Total Due Guide 2025 USD 5.00
+Notebook USD 20.00
+Total USD 25.00
+''');
+    expect(preview.total, '25.00');
+    expect(preview.items.map((item) => item.description), [
+      'Total Due Guide 2025',
+      'Notebook',
+    ]);
+  });
+
   test(
     'amount due outranks current charges and tender without rewriting values',
     () {
