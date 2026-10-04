@@ -1621,6 +1621,7 @@ Total 4.40''');
       String? merchantTeamName,
       bool merchantTeamPunctuation = false,
       bool mergedTeamItemLine = false,
+      bool singleColumnBuyer = false,
       bool buyerHeading = true,
     }) {
       final rows = <List<({String text, double left, double right})>>[
@@ -1631,21 +1632,22 @@ Total 4.40''');
             left: 20,
             right: 150,
           ),
-          (text: 'Ship To', left: 510, right: 640),
+          if (!singleColumnBuyer) (text: 'Ship To', left: 510, right: 640),
         ],
         [
           (text: 'Alex Chen', left: 20, right: 170),
-          (text: 'Alex Chen', left: 510, right: 660),
+          if (!singleColumnBuyer) (text: 'Alex Chen', left: 510, right: 660),
         ],
         if (unresolvedPairedBuyerIntervalLine)
           [
             (text: 'Warranty Extension', left: 20, right: 200),
             (text: 'Extra Cable', left: 510, right: 660),
           ],
-        [
-          (text: 'United States', left: 20, right: 190),
-          (text: 'United States', left: 510, right: 680),
-        ],
+        if (!singleColumnBuyer)
+          [
+            (text: 'United States', left: 20, right: 190),
+            (text: 'United States', left: 510, right: 680),
+          ],
         if (unresolvedBuyerIntervalLine)
           [(text: 'Warranty Extension', left: 90, right: 420)],
         [
@@ -1732,6 +1734,14 @@ Total 4.40''');
     final complete = parse();
     expect(complete.items.map((item) => item.lineTotal), ['10.00', '5.00']);
     expect(complete.reviewHints, isEmpty);
+    expect(parse(singleColumnBuyer: true).reviewHints, isEmpty);
+    expect(
+      parse(
+        singleColumnBuyer: true,
+        unresolvedBuyerIntervalLine: true,
+      ).incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+    );
 
     expect(parse(populatedPaymentStatus: true).reviewHints, isEmpty);
     final team = parse(merchantTeamName: complete.merchant);

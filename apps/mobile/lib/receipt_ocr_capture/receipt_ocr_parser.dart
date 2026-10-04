@@ -2876,6 +2876,11 @@ class ReceiptOcrParser {
       final isInvoiceBuyerCopy =
           hasSelectedInvoiceTable &&
           (lineIndex == buyerHeadingIndex ||
+              (lineIndex == buyerHeadingIndex + 1 &&
+                  _isSingleInvoiceBuyerIdentityRow(
+                    layoutRows,
+                    buyerHeadingIndex,
+                  )) ||
               (lineIndex > buyerHeadingIndex && lineIndex < buyerCopyEnd) ||
               (lineIndex < buyerHeadingIndex &&
                   lineIndex <= 2 &&
@@ -3148,6 +3153,30 @@ bool _hasOnlyPaymentOrSuggestedTipAmountsBeforeCourtesy(
     return false;
   }
   return true;
+}
+
+bool _isSingleInvoiceBuyerIdentityRow(
+  List<List<ReceiptOcrBlockEvidence>> layoutRows,
+  int headingIndex,
+) {
+  if (headingIndex < 0 || headingIndex + 1 >= layoutRows.length) return false;
+  final heading = layoutRows[headingIndex];
+  final identity = layoutRows[headingIndex + 1];
+  if (heading.isEmpty ||
+      heading.first.points.isEmpty ||
+      identity.length != 1 ||
+      identity.single.points.isEmpty ||
+      _lineHasAmount(identity.single.text) ||
+      _hasPotentialReceiptAdjustmentLabel(identity.single.text)) {
+    return false;
+  }
+  final headingLeft = heading.first.points
+      .map((point) => point.x)
+      .reduce((x, y) => x < y ? x : y);
+  final identityLeft = identity.single.points
+      .map((point) => point.x)
+      .reduce((x, y) => x < y ? x : y);
+  return identityLeft >= headingLeft - 24 && identityLeft <= headingLeft + 96;
 }
 
 bool _isPairedInvoiceBuyerCopyRow(
