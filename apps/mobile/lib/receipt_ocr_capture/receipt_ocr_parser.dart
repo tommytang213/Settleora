@@ -221,7 +221,10 @@ class ReceiptOcrParser {
       );
     }
 
-    final incompleteAdjustmentReasons = <ReceiptOcrIncompleteAdjustmentReason>[
+    // The native evidence collector requires each typed reason once. Several
+    // independent row paths can identify the same ambiguity; keep the reason
+    // and its review warning without emitting duplicate protocol values.
+    final incompleteAdjustmentReasons = <ReceiptOcrIncompleteAdjustmentReason>{
       if (!amounts.adjustmentsComplete)
         ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence,
       ...amounts.incompleteReasons,
@@ -241,7 +244,7 @@ class ReceiptOcrParser {
         ReceiptOcrIncompleteAdjustmentReason.ambiguousChargeTable,
       if (unresolvedItemLines > 0)
         ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine,
-    ];
+    }.toList(growable: false);
 
     return ReceiptOcrPreview(
       merchant: merchant,
@@ -314,6 +317,126 @@ class ReceiptOcrParser {
     List<String> lines,
     List<List<ReceiptOcrBlockEvidence>> layoutRows,
   ) {
+    // A multi-column letterhead may put a slogan beside the first name block
+    // and the rest of the issuer name several rows below. Join aligned header
+    // blocks only when a later single block repeats that full identity.
+    if (layoutRows.length == lines.length && layoutRows.length > 3) {
+      final firstRow =
+          layoutRows.first
+              .where((block) => block.points.isNotEmpty)
+              .toList(growable: false)
+            ..sort((a, b) => _blockCenterX(a).compareTo(_blockCenterX(b)));
+      if (firstRow.length > 1) {
+        final first = firstRow.first;
+        final firstName = first.text.trim();
+        final documentRight = layoutRows
+            .expand((row) => row)
+            .expand((block) => block.points)
+            .fold<double>(
+              0,
+              (right, point) => point.x > right ? point.x : right,
+            );
+        if (_hasSubstantiveItemDescription(firstName) &&
+            !_lineHasAmount(firstName) &&
+            !_isReceiptMetadataLine(firstName)) {
+          for (
+            var rowIndex = 1;
+            rowIndex < layoutRows.length && rowIndex <= 5;
+            rowIndex++
+          ) {
+            for (final block in layoutRows[rowIndex]) {
+              final extension = block.text.trim();
+              if (block.points.isEmpty ||
+                  !_hasSubstantiveItemDescription(extension) ||
+                  _lineHasAmount(extension) ||
+                  _isReceiptMetadataLine(extension) ||
+                  (_blockCenterX(block) - _blockCenterX(first)).abs() >
+                      documentRight * 0.1) {
+                continue;
+              }
+              final identity = '$firstName $extension';
+              if (identity.length > 80) continue;
+              final lastTotalRow = lines.lastIndexWhere(
+                (line) => RegExp(
+                  r'^\s*(?:grand\s+)?total\b',
+                  caseSensitive: false,
+                ).hasMatch(line),
+              );
+              if (lastTotalRow <= rowIndex) continue;
+              var repeated = false;
+              for (
+                var footerRow = lastTotalRow + 1;
+                footerRow < layoutRows.length;
+                footerRow++
+              ) {
+                if (layoutRows[footerRow].any(
+                  (block) => RegExp(
+                    r'^\s*(?:(?:bill|billed|sold|ship|deliver|delivered|remit|pay)[\s-]*to|(?:customer|buyer|purchaser|recipient|payee|client|billing|shipping|remittance)\b|payment\s+to\b)',
+                    caseSensitive: false,
+                  ).hasMatch(block.text),
+                )) {
+                  break;
+                }
+                if (layoutRows[footerRow].any(
+                  (later) =>
+                      later.text.trim().toLowerCase() == identity.toLowerCase(),
+                )) {
+                  repeated = true;
+                  break;
+                }
+              }
+              if (repeated) {
+                return (text: identity, lineIndices: {0, rowIndex});
+              }
+            }
+          }
+        }
+      }
+    }
+    // A logo can share its OCR row with the document title while its second
+    // word is printed below. Require the assembled identity to appear again
+    // before a labeled metadata field before trusting that split header.
+    if (lines.length > 2) {
+      final titledLogo = RegExp(
+        r'^\s*(.+?)\s+(?:invoice|receipt|statement|bill)\s*$',
+        caseSensitive: false,
+      ).firstMatch(lines.first);
+      final first = titledLogo?.group(1)?.trim();
+      final second = lines[1].trim();
+      if (first != null &&
+          _hasSubstantiveItemDescription(first) &&
+          _hasSubstantiveItemDescription(second) &&
+          second.split(RegExp(r'\s+')).length <= 3 &&
+          !_lineHasAmount(second) &&
+          !_isReceiptMetadataLine(second)) {
+        final identity = '$first $second';
+        var corroborated = false;
+        for (final line in lines.skip(2).take(8)) {
+          // A later customer or payee section cannot corroborate the issuer.
+          if (_isChargeTableHeader(line) ||
+              RegExp(
+                r'^\s*(?:(?:bill|billed|sold|ship|deliver|delivered|remit|pay)[\s-]*to|(?:customer|buyer|purchaser|recipient|payee|client|billing|shipping|remittance)\b|payment\b|subtotal\b|total\b|thank\s+you\b|need\s+help\b|footer\b)',
+                caseSensitive: false,
+              ).hasMatch(line)) {
+            break;
+          }
+          if (!line.toLowerCase().startsWith('${identity.toLowerCase()} ')) {
+            continue;
+          }
+          final suffix = line.substring(identity.length).trim();
+          if (RegExp(
+            r'^(?:order|invoice|account|reference)\s*(?:number|no\.?|#)\s*[:：]?\s*(?=[A-Z0-9-]*\d)[A-Z0-9-]+\b',
+            caseSensitive: false,
+          ).hasMatch(suffix)) {
+            corroborated = true;
+            break;
+          }
+        }
+        if (corroborated) {
+          return (text: identity, lineIndices: {0, 1});
+        }
+      }
+    }
     ({String text, int lineIndex, int score})? best;
     final documentRight = layoutRows
         .expand((row) => row)
@@ -2206,14 +2329,41 @@ class ReceiptOcrParser {
   ) {
     if (sourceLines.length != layoutRows.length) return const {};
     final lines = <int, String>{};
-    for (final rowIndex in ambiguousRows) {
-      if (rowIndex >= layoutRows.length) continue;
+    for (var rowIndex = 0; rowIndex < layoutRows.length; rowIndex++) {
+      final hasPrintedSubtotalBlock = layoutRows[rowIndex].any(
+        (block) => RegExp(
+          r'^\s*sub[\s-]?total\s*$',
+          caseSensitive: false,
+        ).hasMatch(block.text),
+      );
+      final hasPrintedTaxBlock = layoutRows[rowIndex].any(
+        (block) => RegExp(
+          r'^(?:[\p{L}\p{N} -]+\s+)?(?:tax|vat|gst|hst|iva|tva|kdv|mwst)(?:\s*\(\d+(?:[.,]\d+)?%\))?$',
+          caseSensitive: false,
+          unicode: true,
+        ).hasMatch(block.text.trim()),
+      );
+      if (!ambiguousRows.contains(rowIndex) &&
+          !hasPrintedSubtotalBlock &&
+          !hasPrintedTaxBlock) {
+        continue;
+      }
       var headerIndex = rowIndex - 1;
       while (headerIndex >= 0 &&
           !_isSupportedChargeTableHeader(sourceLines, headerIndex)) {
+        if (RegExp(
+              r'^\s*(?:total\b|payment\b|messages?\b|remittance\b)',
+              caseSensitive: false,
+            ).hasMatch(sourceLines[headerIndex]) ||
+            _isChargeTableSectionBoundary(sourceLines[headerIndex])) {
+          break;
+        }
         headerIndex--;
       }
-      if (headerIndex < 0) continue;
+      if (headerIndex < 0 ||
+          !_isSupportedChargeTableHeader(sourceLines, headerIndex)) {
+        continue;
+      }
       final amountHeaders = layoutRows[headerIndex]
           .where(
             (block) =>
@@ -2231,6 +2381,16 @@ class ReceiptOcrParser {
       final headerRight = amountHeaders.single.points
           .map((point) => point.x)
           .reduce((a, b) => a > b ? a : b);
+      final rateHeaders = layoutRows[headerIndex]
+          .where(
+            (block) =>
+                block.points.isNotEmpty &&
+                RegExp(
+                  r'^rate$',
+                  caseSensitive: false,
+                ).hasMatch(block.text.trim()),
+          )
+          .toList(growable: false);
       final row = layoutRows[rowIndex];
       // A numeric usage or quantity cell is item evidence even when the
       // charge name contains "tax"; a printed rate column is not required.
@@ -2241,6 +2401,10 @@ class ReceiptOcrParser {
           .where((block) {
             final description = block.text.trim();
             return RegExp(
+                  r'^sub[\s-]?total$',
+                  caseSensitive: false,
+                ).hasMatch(description) ||
+                RegExp(
                   r'^(?:[\p{L}\p{N} -]+\s+)?(?:tax|vat|gst|hst|iva|tva|kdv|mwst)(?:\s*\(\d+(?:[.,]\d+)?%\))?$',
                   caseSensitive: false,
                   unicode: true,
@@ -2280,6 +2444,24 @@ class ReceiptOcrParser {
           ? amountBlock.text.trim()
           : '${currencyBlocks.single.text.trim()} ${amountBlock.text.trim()}';
       if (!_hasChargeTableMonetaryEvidence(monetaryText)) continue;
+      if (row.any((block) {
+        if (block == amountBlock || currencyBlocks.contains(block)) {
+          return false;
+        }
+        if (rateHeaders.length == 1 && block.points.isNotEmpty) {
+          final rateCenter = _blockCenterX(rateHeaders.single);
+          if ((_blockCenterX(block) - rateCenter).abs() <= 60) {
+            return false;
+          }
+        }
+        return RegExp(
+              _currencyTokenPattern,
+              caseSensitive: false,
+            ).hasMatch(block.text) &&
+            _lineHasAmount(block.text);
+      })) {
+        continue;
+      }
       if (RegExp(
             r'\b(?:tax|vat|gst|hst|iva|tva|kdv|mwst)\b',
             caseSensitive: false,
@@ -2292,7 +2474,10 @@ class ReceiptOcrParser {
         caseSensitive: false,
       ).hasMatch(label);
       final rate = RegExp(r'\d+(?:[.,]\d+)?%').firstMatch(label)?.group(0);
-      lines[rowIndex] = isTax
+      lines[rowIndex] =
+          RegExp(r'^sub[\s-]?total$', caseSensitive: false).hasMatch(label)
+          ? 'Subtotal $monetaryText'
+          : isTax
           ? 'Tax ${rate == null ? '' : '$rate '}$monetaryText'
           : RegExp(
               r'^service\s+(?:charge|fee)$',
@@ -5590,6 +5775,13 @@ bool _isUppercaseOrganizationSegment(String value) {
 
 String _foldOrganizationSegment(String value) =>
     value.toLowerCase().replaceAll(RegExp(r'[^\p{L}\p{N}]', unicode: true), '');
+
+double _blockCenterX(ReceiptOcrBlockEvidence block) {
+  final xs = block.points.map((point) => point.x);
+  return (xs.reduce((a, b) => a < b ? a : b) +
+          xs.reduce((a, b) => a > b ? a : b)) /
+      2;
+}
 
 Set<int> _leadingQuantityColumnRows(
   List<String> lines,
