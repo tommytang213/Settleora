@@ -32,11 +32,17 @@ const _localizedReceiptAdjustmentLabels = [
 ];
 
 bool _hasPotentialReceiptAdjustmentLabel(String line) {
+  if (_isEmailOnlyMetadataLine(line)) return false;
   if (_isSuggestedTipLine(line.toLowerCase())) return false;
   if (_potentialReceiptAdjustmentLabelPattern.hasMatch(line)) return true;
   final folded = line.toLowerCase();
   return _localizedReceiptAdjustmentLabels.any(folded.contains);
 }
+
+bool _isEmailOnlyMetadataLine(String line) => RegExp(
+  r'^\s*(?:[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\s*)+$',
+  caseSensitive: false,
+).hasMatch(line);
 
 class ReceiptOcrParser {
   const ReceiptOcrParser();
@@ -150,7 +156,9 @@ class ReceiptOcrParser {
     final unresolvedItemLines = _countUnresolvedItemLikeLines(
       lines,
       merchantLineIndices: merchantDetection?.lineIndices ?? const {},
+      merchantName: merchant,
       layoutRows: layoutRows,
+      layoutChargeItemRows: layoutChargeItems.keys.toSet(),
       hasBoundedDccFooterBoundary: hasBoundedDccFooterBoundary,
     );
     final hasCompleteItemEvidence =
@@ -1268,6 +1276,7 @@ class ReceiptOcrParser {
           (_isFinancialLabelWithAdjacentAmount(lines, layoutRows, lineIndex)
               ? '${lines[lineIndex]} ${lines[lineIndex + 1]}'
               : lines[lineIndex]);
+      if (_isEmailOnlyMetadataLine(line)) continue;
       final normalized = line.toLowerCase();
       final hasPotentialAdjustment = _hasPotentialReceiptAdjustmentLabel(line);
       if ((chargeTableRows.contains(lineIndex) ||
@@ -1552,9 +1561,7 @@ class ReceiptOcrParser {
           continue;
         }
         var score = 10;
-        if (RegExp(
-          r'\b(total\s+amount\s+due|grand\s+total|balance\s+due|amount\s+due)\b',
-        ).hasMatch(normalized)) {
+        if (_hasPriorityTotalLabel(line)) {
           score += 20;
         }
         if (RegExp(r'\bcurrent\s+charges\b').hasMatch(normalized)) {
@@ -2839,7 +2846,9 @@ class ReceiptOcrParser {
   int _countUnresolvedItemLikeLines(
     List<String> lines, {
     Set<int> merchantLineIndices = const {},
+    String? merchantName,
     List<List<ReceiptOcrBlockEvidence>> layoutRows = const [],
+    Set<int> layoutChargeItemRows = const {},
     bool hasBoundedDccFooterBoundary = false,
   }) {
     var count = 0;
@@ -2847,9 +2856,88 @@ class ReceiptOcrParser {
       (line) =>
           _hasTotalLabel(line, line.toLowerCase()) && _lineHasAmount(line),
     );
+    final invoiceTableHeader = lines.indexWhere(_isInvoiceProductTableHeader);
+    final buyerHeadingIndex = invoiceTableHeader < 0
+        ? -1
+        : lines
+              .take(invoiceTableHeader)
+              .toList()
+              .indexWhere(
+                (line) => RegExp(
+                  r'^\s*(?:bill(?:ed)?|ship(?:ped)?|sold)\s+to\b',
+                  caseSensitive: false,
+                ).hasMatch(line),
+              );
+    final hasSelectedInvoiceTable =
+        invoiceTableHeader >= 0 &&
+        buyerHeadingIndex >= 0 &&
+        layoutChargeItemRows.any((row) => row > invoiceTableHeader) &&
+        !layoutChargeItemRows.any((row) => row < invoiceTableHeader);
+    final postTotalPaymentSection =
+        !hasSelectedInvoiceTable || lastPricedTotal < 0
+        ? -1
+        : lines.indexWhere(
+            (line) => RegExp(
+              r'^\s*payment\s+(?:confirmed|confirmation)\b',
+              caseSensitive: false,
+            ).hasMatch(line),
+            lastPricedTotal + 1,
+          );
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       final line = lines[lineIndex];
       if (merchantLineIndices.contains(lineIndex)) {
+        continue;
+      }
+      // Only a recognized buyer heading, its bounded paired address rows,
+      // and an address-backed country line are invoice copy. Other unpriced
+      // lines before the table remain unresolved. Once the total is followed by
+      // an explicit payment section, only recognizable payment/support copy
+      // is footer evidence; a new unpriced item remains unresolved.
+      // Keep any printed adjustment or modifier outside these exemptions.
+      final isInvoiceBuyerCopy =
+          hasSelectedInvoiceTable &&
+          (lineIndex == buyerHeadingIndex ||
+              _isPairedInvoiceBuyerIdentityRow(
+                layoutRows,
+                buyerHeadingIndex,
+                lineIndex,
+                invoiceTableHeader,
+              ) ||
+              _isPairedInvoiceBuyerStructuralRow(
+                layoutRows,
+                buyerHeadingIndex,
+                lineIndex,
+              ) ||
+              _isSingleInvoiceBuyerAddressRow(
+                lines,
+                layoutRows,
+                buyerHeadingIndex,
+                lineIndex,
+              ) ||
+              _isSingleInvoiceBuyerCountryRow(
+                lines,
+                layoutRows,
+                buyerHeadingIndex,
+                lineIndex,
+              ) ||
+              (lineIndex < buyerHeadingIndex &&
+                  lineIndex <= 2 &&
+                  RegExp(
+                    r'\binvoice\b',
+                    caseSensitive: false,
+                  ).hasMatch(line)) ||
+              (lineIndex < buyerHeadingIndex &&
+                  _isAddressBackedInvoiceCountry(lines, lineIndex)));
+      if ((isInvoiceBuyerCopy ||
+              (postTotalPaymentSection >= 0 &&
+                  lineIndex >= postTotalPaymentSection &&
+                  _isInvoicePaymentFooterCopy(
+                    line,
+                    merchantName: merchantName,
+                  ))) &&
+          !_lineHasAmount(line) &&
+          !_hasPotentialReceiptAdjustmentLabel(line) &&
+          !_isPrintedModifierLine(line)) {
         continue;
       }
       if ((_isSeeYouSoonFooterPhrase(line) ||
@@ -3105,6 +3193,292 @@ bool _hasOnlyPaymentOrIncludedTaxOrSuggestedTipAmountsBeforeCourtesy(
     return false;
   }
   return true;
+}
+
+bool _isBareInvoiceBuyerHeading(String text) => RegExp(
+  r'^\s*(?:bill(?:ed)?|ship(?:ped)?|sold)\s+to\s*:?[\s]*$',
+  caseSensitive: false,
+).hasMatch(text);
+
+bool _isInvoiceStreetLine(String text) => RegExp(
+  r'^\s*\d{1,6}\s+[\p{L}][\p{L}\p{N} .,-]{2,70}$',
+  unicode: true,
+).hasMatch(text);
+
+bool _isSingleInvoiceBuyerAddressRow(
+  List<String> lines,
+  List<List<ReceiptOcrBlockEvidence>> layoutRows,
+  int headingIndex,
+  int rowIndex,
+) {
+  if (headingIndex < 0 ||
+      headingIndex >= layoutRows.length ||
+      layoutRows[headingIndex].isEmpty ||
+      layoutRows[headingIndex].first.points.isEmpty ||
+      rowIndex != headingIndex + 2 ||
+      rowIndex >= layoutRows.length ||
+      rowIndex + 1 >= lines.length ||
+      !_isInvoiceStreetLine(lines[rowIndex]) ||
+      !_isInvoiceCountryOnly(lines[rowIndex + 1])) {
+    return false;
+  }
+  final addressRow = layoutRows[rowIndex];
+  if (addressRow.length != 1 || addressRow.single.points.isEmpty) return false;
+  final headingLeft = layoutRows[headingIndex].first.points
+      .map((point) => point.x)
+      .reduce((x, y) => x < y ? x : y);
+  final addressLeft = addressRow.single.points
+      .map((point) => point.x)
+      .reduce((x, y) => x < y ? x : y);
+  return addressLeft >= headingLeft - 24 && addressLeft <= headingLeft + 96;
+}
+
+bool _isSingleInvoiceBuyerCountryRow(
+  List<String> lines,
+  List<List<ReceiptOcrBlockEvidence>> layoutRows,
+  int headingIndex,
+  int rowIndex,
+) {
+  if (headingIndex < 0 ||
+      headingIndex >= layoutRows.length ||
+      layoutRows[headingIndex].isEmpty ||
+      layoutRows[headingIndex].first.points.isEmpty ||
+      rowIndex <= headingIndex + 1 ||
+      rowIndex > headingIndex + 5 ||
+      rowIndex >= layoutRows.length ||
+      !_isInvoiceCountryOnly(lines[rowIndex])) {
+    return false;
+  }
+  final countryRow = layoutRows[rowIndex];
+  if (countryRow.length != 1 || countryRow.single.points.isEmpty) return false;
+  final headingLeft = layoutRows[headingIndex].first.points
+      .map((point) => point.x)
+      .reduce((x, y) => x < y ? x : y);
+  final countryLeft = countryRow.single.points
+      .map((point) => point.x)
+      .reduce((x, y) => x < y ? x : y);
+  return countryLeft >= headingLeft - 24 && countryLeft <= headingLeft + 96;
+}
+
+bool _isPairedInvoiceBuyerStructuralRow(
+  List<List<ReceiptOcrBlockEvidence>> layoutRows,
+  int headingIndex,
+  int rowIndex,
+) {
+  if (headingIndex < 0 ||
+      rowIndex <= headingIndex + 1 ||
+      rowIndex > headingIndex + 5 ||
+      rowIndex >= layoutRows.length) {
+    return false;
+  }
+  final row = layoutRows[rowIndex];
+  return row.length == 2 &&
+      row.every(
+        (block) =>
+            _isReceiptMetadataLine(block.text) ||
+            _isInvoiceCountryOnly(block.text),
+      ) &&
+      _isPairedInvoiceBuyerCopyRow(layoutRows, rowIndex);
+}
+
+bool _isPairedInvoiceBuyerIdentityRow(
+  List<List<ReceiptOcrBlockEvidence>> layoutRows,
+  int headingIndex,
+  int rowIndex,
+  int tableHeaderIndex,
+) {
+  if (headingIndex < 0 ||
+      rowIndex != headingIndex + 1 ||
+      rowIndex + 2 >= tableHeaderIndex ||
+      headingIndex >= layoutRows.length ||
+      !_isPairedInvoiceBuyerCopyRow(layoutRows, rowIndex)) {
+    return false;
+  }
+  final headings = layoutRows[headingIndex];
+  if (headings.length != 2 ||
+      !headings.every((block) => _isBareInvoiceBuyerHeading(block.text))) {
+    return false;
+  }
+  final names = [...layoutRows[rowIndex]]
+    ..sort((a, b) => _blockLeft(a).compareTo(_blockLeft(b)));
+  final streets = layoutRows[rowIndex + 1];
+  if (streets.length != 2 ||
+      !streets.every((block) => _isInvoiceStreetLine(block.text)) ||
+      !_isPairedInvoiceBuyerCopyRow(layoutRows, rowIndex + 1)) {
+    return false;
+  }
+  var countryIndex = -1;
+  for (
+    var index = rowIndex + 2;
+    index < tableHeaderIndex &&
+        index < layoutRows.length &&
+        index <= headingIndex + 5;
+    index++
+  ) {
+    final row = layoutRows[index];
+    if (row.length == 2 &&
+        row.every((block) => _isInvoiceCountryOnly(block.text)) &&
+        _isPairedInvoiceBuyerCopyRow(layoutRows, index)) {
+      countryIndex = index;
+      break;
+    }
+  }
+  if (countryIndex < 0) return false;
+  final split = (_blockRight(names.first) + _blockLeft(names.last)) / 2;
+  final emailsByColumn = [<String>{}, <String>{}];
+  for (
+    var index = countryIndex + 1;
+    index < tableHeaderIndex &&
+        index < layoutRows.length &&
+        index <= headingIndex + 8;
+    index++
+  ) {
+    for (final block in layoutRows[index]) {
+      if (block.points.isEmpty) continue;
+      for (final match in RegExp(
+        r'[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}',
+        caseSensitive: false,
+      ).allMatches(block.text)) {
+        emailsByColumn[_blockLeft(block) < split ? 0 : 1].add(
+          match
+              .group(0)!
+              .split('@')
+              .first
+              .split('+')
+              .first
+              .toLowerCase()
+              .replaceAll(RegExp(r'[^\p{L}\p{N}]', unicode: true), ''),
+        );
+      }
+    }
+  }
+  final normalizedNames = <String>[];
+  for (final block in names) {
+    final name = block.text.trim();
+    if (!RegExp(
+          r'^[\p{L}][\p{L}\p{M}\p{N} .\x27-]{2,70}$',
+          unicode: true,
+        ).hasMatch(name) ||
+        name.split(RegExp(r'\s+')).length < 2) {
+      return false;
+    }
+    normalizedNames.add(
+      name.toLowerCase().replaceAll(
+        RegExp(r'[^\p{L}\p{N}]', unicode: true),
+        '',
+      ),
+    );
+  }
+  final leftMatches = emailsByColumn[0].contains(normalizedNames[0]);
+  final rightMatches = emailsByColumn[1].contains(normalizedNames[1]);
+  if (leftMatches && rightMatches) return true;
+  if (normalizedNames[0] != normalizedNames[1] || !leftMatches) return false;
+  final orderedStreets = [...streets]
+    ..sort((a, b) => _blockLeft(a).compareTo(_blockLeft(b)));
+  final orderedCountries = [...layoutRows[countryIndex]]
+    ..sort((a, b) => _blockLeft(a).compareTo(_blockLeft(b)));
+  return orderedStreets.first.text.trim().toLowerCase() ==
+          orderedStreets.last.text.trim().toLowerCase() &&
+      orderedCountries.first.text.trim().toLowerCase() ==
+          orderedCountries.last.text.trim().toLowerCase();
+}
+
+double _blockLeft(ReceiptOcrBlockEvidence block) =>
+    block.points.map((point) => point.x).reduce((x, y) => x < y ? x : y);
+
+double _blockRight(ReceiptOcrBlockEvidence block) =>
+    block.points.map((point) => point.x).reduce((x, y) => x > y ? x : y);
+
+bool _isPairedInvoiceBuyerCopyRow(
+  List<List<ReceiptOcrBlockEvidence>> layoutRows,
+  int rowIndex,
+) {
+  if (rowIndex < 0 || rowIndex >= layoutRows.length) return false;
+  final row = layoutRows[rowIndex];
+  if (row.length != 2 ||
+      row.any(
+        (block) =>
+            block.points.isEmpty ||
+            (_lineHasAmount(block.text) &&
+                !_isReceiptMetadataLine(block.text)) ||
+            _hasPotentialReceiptAdjustmentLabel(block.text),
+      )) {
+    return false;
+  }
+  final cells = [...row]
+    ..sort(
+      (a, b) => a.points
+          .map((point) => point.x)
+          .reduce((x, y) => x < y ? x : y)
+          .compareTo(
+            b.points.map((point) => point.x).reduce((x, y) => x < y ? x : y),
+          ),
+    );
+  final leftRight = cells.first.points
+      .map((point) => point.x)
+      .reduce((x, y) => x > y ? x : y);
+  final rightLeft = cells.last.points
+      .map((point) => point.x)
+      .reduce((x, y) => x < y ? x : y);
+  return rightLeft >= leftRight + 24;
+}
+
+bool _isAddressBackedInvoiceCountry(List<String> lines, int index) {
+  if (index < 1 || index + 1 >= lines.length) return false;
+  if (!_isInvoiceCountryOnly(lines[index])) return false;
+  return RegExp(
+        r'\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\b',
+        caseSensitive: false,
+      ).hasMatch(lines[index - 1]) &&
+      RegExp(
+        r'(?:@|\bwww\.|https?://|\b(?:phone|tel|support)\b)',
+        caseSensitive: false,
+      ).hasMatch(lines[index + 1]);
+}
+
+bool _isInvoiceCountryOnly(String line) => RegExp(
+  r'^(?:united states|united kingdom|canada|australia|new zealand|singapore|hong kong|germany|france|india|brazil|mexico|japan|china|south korea|taiwan|thailand|malaysia|indonesia|philippines|vietnam|pakistan|bangladesh|united arab emirates|saudi arabia|israel|turkey|italy|spain|portugal|netherlands|belgium|switzerland|austria|sweden|norway|denmark|finland|ireland|poland|czech republic|south africa|nigeria|egypt|argentina|chile|colombia|peru)$',
+  caseSensitive: false,
+).hasMatch(line.trim());
+
+bool _isInvoicePaymentFooterCopy(String line, {String? merchantName}) {
+  final copy = line.trim();
+  final recognized = <RegExp>[
+    RegExp(
+      r'^payment\s+(?:confirmed|confirmation)[.!:]?$',
+      caseSensitive: false,
+    ),
+    RegExp(
+      r'^thank\s+you\s+for\s+your\s+order[.!]?(?:\s+your\s+payment\s+(?:has\s+been\s+successfully\s+processed|is\s+complete)[.!]?)?$',
+      caseSensitive: false,
+    ),
+    RegExp(
+      r'^(?:(?:payment\s+(?:status|method|date)|confirmation\s+(?:number|id)):\s*)+$',
+      caseSensitive: false,
+    ),
+    RegExp(
+      r'^payment\s+status:\s*(?:paid(?:\s+in\s+full)?|complete|completed|confirmed|successful)[.!]?$',
+      caseSensitive: false,
+    ),
+    RegExp(r'^paid\s+in\s+full[.!]?$', caseSensitive: false),
+    RegExp(
+      r'^need\s+help[?!.]?(?:\s+thank\s+you[.!]?)?$',
+      caseSensitive: false,
+    ),
+    RegExp(
+      r"^we(?:['’]re|\s+are)\s+here\s+to\s+help[.!]?$",
+      caseSensitive: false,
+    ),
+  ].any((pattern) => pattern.hasMatch(copy));
+  if (recognized) return true;
+  final teamSignature = RegExp(
+    r"^we(?:['’]re|\s+are)\s+here\s+to\s+help[.!]?\s+the\s+(.+)\s+team[.!]?$",
+    caseSensitive: false,
+  ).firstMatch(copy);
+  if (teamSignature == null || merchantName == null) return false;
+  String normalize(String value) =>
+      value.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
+  return normalize(teamSignature.group(1)!) == normalize(merchantName);
 }
 
 bool _isSeeYouSoonFooterPhrase(String line) => RegExp(
@@ -5574,6 +5948,24 @@ bool _isDateOrTimeOnlyLine(String normalized) {
 }
 
 bool _hasTraceableItemAmountToken(String line, String amountToken) {
+  // Flattened columns can end in an administrative date. Its year (or day)
+  // is not an item price, even when another column contains descriptive copy.
+  // A separate amount cell can still be recovered by the layout fallback.
+  const calendarDate =
+      r'(?:[a-z]{3,9}\.?\s+\d{1,2},?\s+\d{4}|'
+      r'\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|'
+      r'\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})';
+  final administrativeDate = RegExp(
+    r'\b(?:(?:bill|invoice|statement|payment|due|service|order)\s+date|'
+    r'billing\s+period)\s*[:#-]?\s*'
+    '$calendarDate(?:\\s*[-–—]\\s*$calendarDate)?\\s*\$',
+    caseSensitive: false,
+  ).firstMatch(line);
+  if (administrativeDate != null &&
+      line.lastIndexOf(amountToken) >= administrativeDate.start) {
+    return false;
+  }
+
   // A product/SKU suffix such as USD123 is not printed monetary evidence.
   // Adjacent alphabetic currency markers are too ambiguous to promote into
   // an item amount; explicit symbols and separated codes remain usable.
@@ -5932,7 +6324,7 @@ bool _isPrimaryTotalCurrencyLine(String line, String normalized) {
   }
   return _hasTotalLabel(line, normalized) ||
       (RegExp(
-            r'^\s*(?:grand\s+total|total\s+amount\s+due|total|amount\s+due|balance\s+due)\b',
+            r'^\s*(?:grand\s+total|total\s+(?:amount\s+)?due|total|amount\s+due|balance\s+due)\b',
           ).hasMatch(normalized) &&
           (RegExp(_amountTokenPattern).allMatches(line).length > 1 ||
               _attachedSupportedCodeOnSelectedAmount(line) != null));
@@ -5943,7 +6335,7 @@ bool _hasTotalLabel(String line, String normalized) {
       _hasEnglishReceiptLabel(
         normalized,
         RegExp(
-          r'\b(total\s+amount\s+due|total\s+current\s+charges|refund\s+total|total\s+paid|paid\s+total|grand\s+total|amount\s+due|balance\s+due|payment\s+due|total)\b',
+          r'\b(total\s+(?:amount\s+)?due|total\s+current\s+charges|refund\s+total|total\s+paid|paid\s+total|grand\s+total|amount\s+due|balance\s+due|payment\s+due|total)\b',
           caseSensitive: false,
         ),
       ) ||
@@ -5979,6 +6371,40 @@ bool _isIncludedTaxTotalLine(String line) => RegExp(
   '(?:\\s*(?:$_currencyTokenPattern))?\\s*\$',
   caseSensitive: false,
 ).hasMatch(line);
+
+bool _hasPriorityTotalLabel(String line) {
+  const label =
+      r'(?:total\s+(?:amount\s+)?due|grand\s+total|balance\s+due|amount\s+due)';
+  if (_hasEnglishReceiptLabel(line.toLowerCase(), RegExp('\\b$label\\b'))) {
+    return true;
+  }
+  // A total can show several currency amounts. Each extra amount needs its
+  // own currency marker: a bare edition year is not another monetary cell.
+  final prefix = RegExp(
+    '^\\s*$label\\b',
+    caseSensitive: false,
+  ).firstMatch(line);
+  if (prefix == null) return false;
+  const separators = r'[\s:=/|;,&()\[\]]';
+  final separatorPattern = RegExp('$separators+');
+  final cellPattern = RegExp(
+    '(?:(?:$_currencyTokenPattern)\\s*[:=]?\\s*\\+?\\s*$_amountTokenPattern'
+    '|\\+?\\s*$_amountTokenPattern\\s*[:=]?\\s*(?:$_currencyTokenPattern))'
+    '(?=$separators|\$)',
+    caseSensitive: false,
+  );
+  var offset = prefix.end;
+  var cells = 0;
+  while (offset < line.length) {
+    offset = separatorPattern.matchAsPrefix(line, offset)?.end ?? offset;
+    if (offset == line.length) break;
+    final cell = cellPattern.matchAsPrefix(line, offset);
+    if (cell == null) return false;
+    cells++;
+    offset = cell.end;
+  }
+  return cells > 0;
+}
 
 bool _hasEnglishReceiptLabel(String normalized, RegExp labelPattern) {
   final label = labelPattern.firstMatch(normalized);

@@ -1346,13 +1346,29 @@ List<_BoundedMismatch> _completePreviewMismatches(
       ? const <String>[
           'Some item prices use a different currency from the receipt. Review before applying.',
         ]
+      : expectedReviewCondition ==
+            'printed surcharge and account credit need manual review'
+      ? const <String>[
+          'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
+        ]
       : null;
   final actualHints = preview.reviewHints;
+  final printedAdjustmentReviewIncomplete =
+      expectedReviewCondition ==
+          'printed surcharge and account credit need manual review' &&
+      (preview.adjustmentsComplete ||
+          !preview.incompleteAdjustmentReasons.contains(
+            ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
+          ) ||
+          !preview.incompleteAdjustmentReasons.contains(
+            ReceiptOcrIncompleteAdjustmentReason.chargeTableAdjustment,
+          ));
   if (expectedHints == null ||
       actualHints.length != expectedHints.length ||
       !actualHints.asMap().entries.every(
         (entry) => entry.value == expectedHints[entry.key],
-      )) {
+      ) ||
+      printedAdjustmentReviewIncomplete) {
     mismatches.add(_BoundedMismatch(fixtureId, 'review_condition'));
   }
   if (preview.blocks.isEmpty) {

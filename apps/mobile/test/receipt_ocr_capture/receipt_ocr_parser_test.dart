@@ -167,6 +167,112 @@ Total USD 43.00
     },
   );
 
+  test('labeled statement dates and billing periods do not become prices', () {
+    final preview = const ReceiptOcrParser().parse('''
+Harbor Utility
+Reliable service. Statement Date: Apr 10, 2025
+Billing Period: Mar 01, 2025 – Mar 31, 2025
+Electricity USD 12.00
+Total USD 12.00
+''');
+    expect(preview.items.map((item) => item.description), ['Electricity']);
+    expect(preview.items.single.lineTotal, '12.00');
+  });
+
+  test('a separate priced item survives an adjacent statement date', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Harbor Utility\nCoffee USD 5.00 Bill Date: Apr 10, 2025\n'
+      'Total USD 5.00',
+      blocks: [
+        _layoutBlock('Harbor Utility', 0, 0, 20, 250),
+        _layoutBlock('Coffee', 1, 1, 20, 160),
+        _layoutBlock('USD 5.00', 2, 1, 250, 330),
+        _layoutBlock('Bill Date:', 3, 1, 500, 610),
+        _layoutBlock('Apr 10, 2025', 4, 1, 640, 790),
+        _layoutBlock('Total USD 5.00', 5, 2, 20, 330),
+      ],
+    );
+    expect(preview.items.single.description, 'Coffee');
+    expect(preview.items.single.lineTotal, '5.00');
+  });
+
+  test('a printed price after a dated description remains an item', () {
+    final preview = const ReceiptOcrParser().parse('''
+Print Shop
+Statement Date: Apr 10, 2025 Calendar USD 20.00
+Total Due Guide USD 5.00
+Total USD 25.00
+''');
+    expect(preview.items.map((item) => item.lineTotal), ['20.00', '5.00']);
+    expect(preview.items.last.description, 'Total Due Guide');
+  });
+
+  test('total due is a summary and outranks current charges', () {
+    final preview = const ReceiptOcrParser().parse('''
+Harbor Internet
+Internet Plan USD 50.00
+Total Due USD 40.00
+Total Current Charges USD 50.00
+''');
+    expect(preview.items.map((item) => item.description), ['Internet Plan']);
+    expect(preview.total, '40.00');
+    expect(preview.reviewHints, isNotEmpty);
+  });
+
+  test('numbered total-due product names do not outrank a printed total', () {
+    final preview = const ReceiptOcrParser().parse('''
+Bookshop
+Total Due Guide 2025 USD 5.00
+Notebook USD 20.00
+Total USD 25.00
+''');
+    expect(preview.total, '25.00');
+    expect(preview.items.map((item) => item.description), [
+      'Total Due Guide 2025',
+      'Notebook',
+    ]);
+  });
+
+  test('multi-currency amount due keeps priority over another total', () {
+    for (final label in ['Amount Due', 'Total Amount Due', 'Total Due']) {
+      for (final amounts in [
+        'EUR 72.00 / USD 80.00',
+        'EUR 72.00, USD 80.00',
+        '72.00 EUR / 80.00 USD',
+        'EUR72.00; USD80.00',
+        'EUR: 72.00 / USD: 80.00',
+        'EUR=72.00 / USD=80.00',
+        '72.00: EUR / 80.00: USD',
+        'EUR +72.00 / USD +80.00',
+        '+72.00 EUR / +80.00 USD',
+      ]) {
+        final preview = const ReceiptOcrParser().parse('''
+Harbor Hotel
+Room USD 100.00
+Deposit Paid USD 20.00
+$label $amounts
+Total USD 100.00
+''');
+        expect(preview.currency, 'USD', reason: '$label $amounts');
+        expect(preview.total, '80.00', reason: '$label $amounts');
+      }
+    }
+  });
+
+  test('a bare edition year cannot supply another priority monetary cell', () {
+    final preview = const ReceiptOcrParser().parse('''
+Bookshop
+Total Due 2025 USD 5.00
+Notebook USD 20.00
+Total USD 25.00
+''');
+    expect(preview.total, '25.00');
+    expect(preview.items.map((item) => item.description), [
+      'Total Due 2025',
+      'Notebook',
+    ]);
+  });
+
   test(
     'amount due outranks current charges and tender without rewriting values',
     () {
@@ -1607,6 +1713,389 @@ Total 4.40''');
     ]);
     expect(preview.items.map((item) => item.lineTotal), ['199.99', '19.99']);
     expect(preview.reviewHints, isEmpty);
+  });
+
+  test('invoice table bounds customer copy and confirmed payment footer', () {
+    ReceiptOcrPreview parse({
+      bool unresolvedTableLine = false,
+      bool unresolvedBuyerIntervalLine = false,
+      bool unresolvedPairedBuyerIntervalLine = false,
+      bool unresolvedFooterLine = false,
+      bool mergedFooterItemLine = false,
+      bool mergedCourtesyItemLine = false,
+      bool populatedPaymentStatus = false,
+      String? merchantTeamName,
+      bool merchantTeamPunctuation = false,
+      bool mergedTeamItemLine = false,
+      bool singleColumnBuyer = false,
+      bool inlineBuyerName = false,
+      bool firstBuyerLineIsItem = false,
+      bool distinctBuyerNames = false,
+      bool singleBuyerCountry = false,
+      bool singleBuyerStreet = false,
+      bool distinctBuyerCountries = false,
+      String buyerCountry = 'United States',
+      bool pairedBuyerStreet = true,
+      bool buyerEmailMatchesItems = false,
+      bool swapBuyerEmailColumns = false,
+      bool taggedBuyerEmail = false,
+      bool missingBuyerHeadingPoints = false,
+      bool buyerHeading = true,
+    }) {
+      final rows = <List<({String text, double left, double right})>>[
+        [(text: 'BrightDesk Supplies', left: 20, right: 370)],
+        [(text: 'Office Supply Invoice', left: 20, right: 370)],
+        [
+          (
+            text: buyerHeading
+                ? inlineBuyerName
+                      ? 'Bill To: Alex Chen'
+                      : 'Bill To'
+                : 'Order Summary',
+            left: 20,
+            right: 150,
+          ),
+          if (!singleColumnBuyer && !inlineBuyerName)
+            (text: 'Ship To', left: 510, right: 640),
+        ],
+        [
+          (
+            text: firstBuyerLineIsItem ? 'Warranty Extension' : 'Alex Chen',
+            left: 20,
+            right: 170,
+          ),
+          if (!singleColumnBuyer && !inlineBuyerName)
+            (
+              text: firstBuyerLineIsItem
+                  ? 'Extra Cable'
+                  : distinctBuyerNames
+                  ? 'Morgan Lee'
+                  : 'Alex Chen',
+              left: 510,
+              right: 660,
+            ),
+        ],
+        if (!singleColumnBuyer && !inlineBuyerName && pairedBuyerStreet)
+          [
+            (text: '123 Main Street', left: 20, right: 210),
+            (text: '123 Main Street', left: 510, right: 700),
+          ],
+        if (unresolvedPairedBuyerIntervalLine)
+          [
+            (text: 'Warranty Extension', left: 20, right: 200),
+            (text: 'Extra Cable', left: 510, right: 660),
+          ],
+        if (!singleColumnBuyer && !inlineBuyerName)
+          [
+            (text: 'United States', left: 20, right: 190),
+            (
+              text: distinctBuyerCountries ? 'Canada' : 'United States',
+              left: 510,
+              right: 680,
+            ),
+          ],
+        if (singleColumnBuyer && singleBuyerStreet)
+          [(text: '123 Main Street', left: 20, right: 210)],
+        if (singleColumnBuyer && singleBuyerCountry)
+          [(text: buyerCountry, left: 20, right: 190)],
+        if (!singleColumnBuyer && !inlineBuyerName)
+          [
+            (
+              text: buyerEmailMatchesItems
+                  ? swapBuyerEmailColumns
+                        ? 'extra.cable@example.com'
+                        : 'warranty.extension@example.com'
+                  : taggedBuyerEmail
+                  ? 'alex.chen+invoices@example.com'
+                  : 'alex.chen@example.com',
+              left: 20,
+              right: 300,
+            ),
+            if (distinctBuyerNames ||
+                distinctBuyerCountries ||
+                buyerEmailMatchesItems)
+              (
+                text: buyerEmailMatchesItems
+                    ? swapBuyerEmailColumns
+                          ? 'warranty.extension@example.com'
+                          : 'extra.cable@example.com'
+                    : taggedBuyerEmail
+                    ? distinctBuyerNames
+                          ? 'morgan.lee+shipping@example.com'
+                          : 'alex.chen+shipping@example.com'
+                    : distinctBuyerCountries
+                    ? 'alex.chen@example.com'
+                    : 'morgan.lee@example.com',
+                left: 510,
+                right: 790,
+              ),
+          ],
+        if (unresolvedBuyerIntervalLine)
+          [(text: 'Warranty Extension', left: 90, right: 420)],
+        [
+          (text: 'Product / Service', left: 90, right: 300),
+          (text: 'SKU', left: 520, right: 600),
+          (text: 'Qty', left: 620, right: 650),
+          (text: 'Unit Price', left: 680, right: 790),
+          (text: 'Total', left: 850, right: 960),
+        ],
+        [
+          (text: 'Desk Chair', left: 90, right: 420),
+          (text: 'DC-100', left: 520, right: 600),
+          (text: '1', left: 620, right: 650),
+          (text: 'USD 10.00', left: 680, right: 790),
+          (text: 'USD 10.00', left: 850, right: 960),
+        ],
+        [
+          (text: 'Desk Mat', left: 90, right: 420),
+          (text: 'DM-100', left: 520, right: 600),
+          (text: '1', left: 620, right: 650),
+          (text: 'USD 5.00', left: 680, right: 790),
+          (text: 'USD 5.00', left: 850, right: 960),
+        ],
+        if (unresolvedTableLine)
+          [(text: 'Unpriced Cable', left: 90, right: 420)],
+        [(text: 'Subtotal USD 15.00', left: 680, right: 960)],
+        [(text: 'Tax USD 0.75', left: 680, right: 960)],
+        [(text: 'Total USD 15.75', left: 680, right: 960)],
+        [
+          (
+            text: mergedFooterItemLine
+                ? 'Payment Confirmed Unpriced Cable'
+                : 'Payment Confirmed',
+            left: 20,
+            right: 400,
+          ),
+        ],
+        if (unresolvedFooterLine)
+          [(text: 'Unpriced Cable', left: 90, right: 420)],
+        [
+          (
+            text: mergedCourtesyItemLine
+                ? 'Thank you for your order! Unpriced Cable'
+                : 'Thank you for your order! Your payment is complete.',
+            left: 20,
+            right: 700,
+          ),
+        ],
+        [
+          (
+            text: populatedPaymentStatus
+                ? 'Payment Status: Paid'
+                : 'Payment Status: Payment Method:',
+            left: 20,
+            right: 550,
+          ),
+        ],
+        [(text: 'Need Help? Thank you!', left: 20, right: 500)],
+        [
+          (
+            text: mergedTeamItemLine
+                ? "We're here to help! The Unpriced Cable Team"
+                : merchantTeamName != null
+                ? "We're here to help! The $merchantTeamName Team${merchantTeamPunctuation ? '.' : ''}"
+                : "We're here to help!",
+            left: 20,
+            right: 400,
+          ),
+        ],
+      ];
+      var order = 0;
+      final blocks = <ReceiptOcrBlockEvidence>[
+        for (var row = 0; row < rows.length; row++)
+          for (final cell in rows[row])
+            if (missingBuyerHeadingPoints && row == 2)
+              ReceiptOcrBlockEvidence(
+                text: cell.text,
+                order: order++,
+                row: row,
+                points: const [],
+              )
+            else
+              _layoutBlock(cell.text, order++, row, cell.left, cell.right),
+      ];
+      return const ReceiptOcrParser().parse(
+        rows.map((row) => row.map((cell) => cell.text).join(' ')).join('\n'),
+        fallbackCurrency: 'USD',
+        blocks: blocks,
+      );
+    }
+
+    final complete = parse();
+    expect(complete.items.map((item) => item.lineTotal), ['10.00', '5.00']);
+    expect(complete.reviewHints, isEmpty);
+    expect(
+      parse(singleColumnBuyer: true).incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+    );
+    final singleBuyerAmbiguity = parse(singleColumnBuyer: true).reviewHints;
+    expect(
+      parse(singleColumnBuyer: true, singleBuyerCountry: true).reviewHints,
+      singleBuyerAmbiguity,
+    );
+    expect(
+      parse(
+        singleColumnBuyer: true,
+        singleBuyerStreet: true,
+        singleBuyerCountry: true,
+      ).reviewHints,
+      singleBuyerAmbiguity,
+    );
+    for (final country in ['Germany', 'France', 'India']) {
+      expect(
+        parse(
+          singleColumnBuyer: true,
+          singleBuyerCountry: true,
+          buyerCountry: country,
+        ).reviewHints,
+        singleBuyerAmbiguity,
+      );
+    }
+    expect(
+      parse(
+        singleColumnBuyer: true,
+        firstBuyerLineIsItem: true,
+      ).incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+    );
+    expect(
+      parse(
+        singleColumnBuyer: true,
+        firstBuyerLineIsItem: true,
+        singleBuyerCountry: true,
+        buyerCountry: 'Germany',
+      ).incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+    );
+    expect(
+      parse(
+        singleColumnBuyer: true,
+        singleBuyerStreet: true,
+        singleBuyerCountry: true,
+        missingBuyerHeadingPoints: true,
+      ).incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+    );
+    expect(
+      parse(
+        singleColumnBuyer: true,
+        singleBuyerCountry: true,
+        unresolvedBuyerIntervalLine: true,
+      ).incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+    );
+    expect(parse(distinctBuyerCountries: true).reviewHints, isEmpty);
+    final distinctBuyer = parse(distinctBuyerNames: true);
+    expect(distinctBuyer.reviewHints, isEmpty);
+    expect(parse(taggedBuyerEmail: true).reviewHints, isEmpty);
+    expect(
+      parse(distinctBuyerNames: true, taggedBuyerEmail: true).reviewHints,
+      isEmpty,
+    );
+    expect(
+      parse(firstBuyerLineIsItem: true).incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+    );
+    expect(
+      parse(
+        firstBuyerLineIsItem: true,
+        buyerEmailMatchesItems: true,
+        pairedBuyerStreet: false,
+      ).incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+    );
+    expect(
+      parse(
+        firstBuyerLineIsItem: true,
+        buyerEmailMatchesItems: true,
+        swapBuyerEmailColumns: true,
+      ).incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+    );
+    expect(distinctBuyer.merchant, isNot('Alex Chen Morgan Lee'));
+    final inlineBuyerItem = parse(
+      inlineBuyerName: true,
+      firstBuyerLineIsItem: true,
+    );
+    expect(inlineBuyerItem.merchant, isNot('Warranty Extension'));
+    expect(
+      inlineBuyerItem.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+    );
+    expect(
+      parse(
+        singleColumnBuyer: true,
+        unresolvedBuyerIntervalLine: true,
+      ).incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+    );
+
+    expect(
+      parse(populatedPaymentStatus: true).reviewHints,
+      complete.reviewHints,
+    );
+    final team = parse(merchantTeamName: complete.merchant);
+    expect(team.reviewHints, complete.reviewHints);
+    expect(
+      parse(
+        merchantTeamName: complete.merchant,
+        merchantTeamPunctuation: true,
+      ).reviewHints,
+      complete.reviewHints,
+    );
+
+    final unresolved = parse(unresolvedTableLine: true);
+    expect(unresolved.reviewHints, isNotEmpty);
+    expect(
+      unresolved.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+    );
+
+    final unresolvedBuyerInterval = parse(unresolvedBuyerIntervalLine: true);
+    expect(
+      unresolvedBuyerInterval.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+    );
+    final unresolvedPairedBuyerInterval = parse(
+      unresolvedPairedBuyerIntervalLine: true,
+    );
+    expect(
+      unresolvedPairedBuyerInterval.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+    );
+
+    final withoutBuyerBoundary = parse(buyerHeading: false);
+    expect(withoutBuyerBoundary.reviewHints, isNotEmpty);
+
+    final unresolvedFooter = parse(unresolvedFooterLine: true);
+    expect(
+      unresolvedFooter.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+    );
+
+    for (final merged in [
+      parse(mergedFooterItemLine: true),
+      parse(mergedCourtesyItemLine: true),
+      parse(mergedTeamItemLine: true),
+    ]) {
+      expect(
+        merged.incompleteAdjustmentReasons,
+        contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+      );
+    }
+  });
+
+  test('payment confirmation alone does not hide an unpriced item', () {
+    final preview = const ReceiptOcrParser().parse('''
+Store
+Milk USD 5.00
+Total USD 5.00
+Payment Confirmed
+Warranty Extension''');
+    expect(
+      preview.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+    );
   });
 
   test('missing invoice total cell cannot promote a unit price', () {
