@@ -150,6 +150,7 @@ class ReceiptOcrParser {
     final unresolvedItemLines = _countUnresolvedItemLikeLines(
       lines,
       merchantLineIndices: merchantDetection?.lineIndices ?? const {},
+      merchantName: merchant,
       layoutRows: layoutRows,
       layoutChargeItemRows: layoutChargeItems.keys.toSet(),
       hasBoundedDccFooterBoundary: hasBoundedDccFooterBoundary,
@@ -2817,6 +2818,7 @@ class ReceiptOcrParser {
   int _countUnresolvedItemLikeLines(
     List<String> lines, {
     Set<int> merchantLineIndices = const {},
+    String? merchantName,
     List<List<ReceiptOcrBlockEvidence>> layoutRows = const [],
     Set<int> layoutChargeItemRows = const {},
     bool hasBoundedDccFooterBoundary = false,
@@ -2862,7 +2864,10 @@ class ReceiptOcrParser {
       if (((hasSelectedInvoiceTable && lineIndex < invoiceTableHeader) ||
               (postTotalPaymentSection >= 0 &&
                   lineIndex >= postTotalPaymentSection &&
-                  _isInvoicePaymentFooterCopy(line))) &&
+                  _isInvoicePaymentFooterCopy(
+                    line,
+                    merchantName: merchantName,
+                  ))) &&
           !_lineHasAmount(line) &&
           !_hasPotentialReceiptAdjustmentLabel(line) &&
           !_isPrintedModifierLine(line)) {
@@ -3121,9 +3126,9 @@ bool _hasOnlyPaymentOrSuggestedTipAmountsBeforeCourtesy(
   return true;
 }
 
-bool _isInvoicePaymentFooterCopy(String line) {
+bool _isInvoicePaymentFooterCopy(String line, {String? merchantName}) {
   final copy = line.trim();
-  return <RegExp>[
+  final recognized = <RegExp>[
     RegExp(
       r'^payment\s+(?:confirmed|confirmation)[.!:]?$',
       caseSensitive: false,
@@ -3136,16 +3141,29 @@ bool _isInvoicePaymentFooterCopy(String line) {
       r'^(?:(?:payment\s+(?:status|method|date)|confirmation\s+(?:number|id)):\s*)+$',
       caseSensitive: false,
     ),
+    RegExp(
+      r'^payment\s+status:\s*(?:paid(?:\s+in\s+full)?|complete|completed|confirmed|successful)[.!]?$',
+      caseSensitive: false,
+    ),
     RegExp(r'^paid\s+in\s+full[.!]?$', caseSensitive: false),
     RegExp(
       r'^need\s+help[?!.]?(?:\s+thank\s+you[.!]?)?$',
       caseSensitive: false,
     ),
     RegExp(
-      r"^we(?:['’]re|\s+are)\s+here\s+to\s+help[.!]?(?:\s+the\s+.+\s+team)?$",
+      r"^we(?:['’]re|\s+are)\s+here\s+to\s+help[.!]?$",
       caseSensitive: false,
     ),
   ].any((pattern) => pattern.hasMatch(copy));
+  if (recognized) return true;
+  final teamSignature = RegExp(
+    r"^we(?:['’]re|\s+are)\s+here\s+to\s+help[.!]?\s+the\s+(.+)\s+team$",
+    caseSensitive: false,
+  ).firstMatch(copy);
+  if (teamSignature == null || merchantName == null) return false;
+  String normalize(String value) =>
+      value.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
+  return normalize(teamSignature.group(1)!) == normalize(merchantName);
 }
 
 bool _isSeeYouSoonFooterPhrase(String line) => RegExp(

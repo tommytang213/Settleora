@@ -1615,6 +1615,9 @@ Total 4.40''');
       bool unresolvedFooterLine = false,
       bool mergedFooterItemLine = false,
       bool mergedCourtesyItemLine = false,
+      bool populatedPaymentStatus = false,
+      String? merchantTeamName,
+      bool mergedTeamItemLine = false,
       bool buyerHeading = true,
     }) {
       final rows = <List<({String text, double left, double right})>>[
@@ -1681,9 +1684,27 @@ Total 4.40''');
             right: 700,
           ),
         ],
-        [(text: 'Payment Status: Payment Method:', left: 20, right: 550)],
+        [
+          (
+            text: populatedPaymentStatus
+                ? 'Payment Status: Paid'
+                : 'Payment Status: Payment Method:',
+            left: 20,
+            right: 550,
+          ),
+        ],
         [(text: 'Need Help? Thank you!', left: 20, right: 500)],
-        [(text: "We're here to help!", left: 20, right: 400)],
+        [
+          (
+            text: mergedTeamItemLine
+                ? "We're here to help! The Unpriced Cable Team"
+                : merchantTeamName != null
+                ? "We're here to help! The $merchantTeamName Team"
+                : "We're here to help!",
+            left: 20,
+            right: 400,
+          ),
+        ],
       ];
       var order = 0;
       final blocks = <ReceiptOcrBlockEvidence>[
@@ -1701,6 +1722,10 @@ Total 4.40''');
     final complete = parse();
     expect(complete.items.map((item) => item.lineTotal), ['10.00', '5.00']);
     expect(complete.reviewHints, isEmpty);
+
+    expect(parse(populatedPaymentStatus: true).reviewHints, isEmpty);
+    final team = parse(merchantTeamName: complete.merchant);
+    expect(team.reviewHints, isEmpty);
 
     final unresolved = parse(unresolvedTableLine: true);
     expect(unresolved.reviewHints, isNotEmpty);
@@ -1721,6 +1746,7 @@ Total 4.40''');
     for (final merged in [
       parse(mergedFooterItemLine: true),
       parse(mergedCourtesyItemLine: true),
+      parse(mergedTeamItemLine: true),
     ]) {
       expect(
         merged.incompleteAdjustmentReasons,
