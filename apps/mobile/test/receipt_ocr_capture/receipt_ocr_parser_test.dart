@@ -1632,6 +1632,7 @@ Total 4.40''');
       bool pairedBuyerStreet = true,
       bool buyerEmailMatchesItems = false,
       bool swapBuyerEmailColumns = false,
+      bool taggedBuyerEmail = false,
       bool buyerHeading = true,
     }) {
       final rows = <List<({String text, double left, double right})>>[
@@ -1697,6 +1698,8 @@ Total 4.40''');
                   ? swapBuyerEmailColumns
                         ? 'extra.cable@example.com'
                         : 'warranty.extension@example.com'
+                  : taggedBuyerEmail
+                  ? 'alex.chen+invoices@example.com'
                   : 'alex.chen@example.com',
               left: 20,
               right: 300,
@@ -1709,6 +1712,10 @@ Total 4.40''');
                     ? swapBuyerEmailColumns
                           ? 'warranty.extension@example.com'
                           : 'extra.cable@example.com'
+                    : taggedBuyerEmail
+                    ? distinctBuyerNames
+                          ? 'morgan.lee+shipping@example.com'
+                          : 'alex.chen+shipping@example.com'
                     : distinctBuyerCountries
                     ? 'alex.chen@example.com'
                     : 'morgan.lee@example.com',
@@ -1856,6 +1863,11 @@ Total 4.40''');
     expect(parse(distinctBuyerCountries: true).reviewHints, isEmpty);
     final distinctBuyer = parse(distinctBuyerNames: true);
     expect(distinctBuyer.reviewHints, isEmpty);
+    expect(parse(taggedBuyerEmail: true).reviewHints, isEmpty);
+    expect(
+      parse(distinctBuyerNames: true, taggedBuyerEmail: true).reviewHints,
+      isEmpty,
+    );
     expect(
       parse(firstBuyerLineIsItem: true).incompleteAdjustmentReasons,
       contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),

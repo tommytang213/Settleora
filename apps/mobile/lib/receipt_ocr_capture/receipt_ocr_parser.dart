@@ -32,11 +32,17 @@ const _localizedReceiptAdjustmentLabels = [
 ];
 
 bool _hasPotentialReceiptAdjustmentLabel(String line) {
+  if (_isEmailOnlyMetadataLine(line)) return false;
   if (_isSuggestedTipLine(line.toLowerCase())) return false;
   if (_potentialReceiptAdjustmentLabelPattern.hasMatch(line)) return true;
   final folded = line.toLowerCase();
   return _localizedReceiptAdjustmentLabels.any(folded.contains);
 }
+
+bool _isEmailOnlyMetadataLine(String line) => RegExp(
+  r'^\s*(?:[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\s*)+$',
+  caseSensitive: false,
+).hasMatch(line);
 
 class ReceiptOcrParser {
   const ReceiptOcrParser();
@@ -1267,6 +1273,7 @@ class ReceiptOcrParser {
           (_isFinancialLabelWithAdjacentAmount(lines, layoutRows, lineIndex)
               ? '${lines[lineIndex]} ${lines[lineIndex + 1]}'
               : lines[lineIndex]);
+      if (_isEmailOnlyMetadataLine(line)) continue;
       final normalized = line.toLowerCase();
       final hasPotentialAdjustment = _hasPotentialReceiptAdjustmentLabel(line);
       if ((chargeTableRows.contains(lineIndex) ||
@@ -3306,6 +3313,8 @@ bool _isPairedInvoiceBuyerIdentityRow(
           match
               .group(0)!
               .split('@')
+              .first
+              .split('+')
               .first
               .toLowerCase()
               .replaceAll(RegExp(r'[^\p{L}\p{N}]', unicode: true), ''),
