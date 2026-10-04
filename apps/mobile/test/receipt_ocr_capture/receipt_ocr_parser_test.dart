@@ -1682,6 +1682,12 @@ Total 4.40''');
           [(text: '123 Main Street', left: 20, right: 210)],
         if (singleColumnBuyer && singleBuyerCountry)
           [(text: buyerCountry, left: 20, right: 190)],
+        if (!singleColumnBuyer && !inlineBuyerName)
+          [
+            (text: 'alex.chen@example.com', left: 20, right: 300),
+            if (distinctBuyerNames)
+              (text: 'morgan.lee@example.com', left: 510, right: 790),
+          ],
         if (unresolvedBuyerIntervalLine)
           [(text: 'Warranty Extension', left: 90, right: 420)],
         [
@@ -1767,10 +1773,7 @@ Total 4.40''');
 
     final complete = parse();
     expect(complete.items.map((item) => item.lineTotal), ['10.00', '5.00']);
-    expect(
-      complete.incompleteAdjustmentReasons,
-      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
-    );
+    expect(complete.reviewHints, isEmpty);
     expect(
       parse(singleColumnBuyer: true).incompleteAdjustmentReasons,
       contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
@@ -1822,15 +1825,9 @@ Total 4.40''');
       ).incompleteAdjustmentReasons,
       contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
     );
-    expect(
-      parse(distinctBuyerCountries: true).incompleteAdjustmentReasons,
-      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
-    );
+    expect(parse(distinctBuyerCountries: true).reviewHints, isEmpty);
     final distinctBuyer = parse(distinctBuyerNames: true);
-    expect(
-      distinctBuyer.incompleteAdjustmentReasons,
-      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
-    );
+    expect(distinctBuyer.reviewHints, isEmpty);
     expect(
       parse(firstBuyerLineIsItem: true).incompleteAdjustmentReasons,
       contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),

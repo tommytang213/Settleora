@@ -2869,6 +2869,12 @@ class ReceiptOcrParser {
       final isInvoiceBuyerCopy =
           hasSelectedInvoiceTable &&
           (lineIndex == buyerHeadingIndex ||
+              _isPairedInvoiceBuyerIdentityRow(
+                layoutRows,
+                buyerHeadingIndex,
+                lineIndex,
+                invoiceTableHeader,
+              ) ||
               _isPairedInvoiceBuyerStructuralRow(
                 layoutRows,
                 buyerHeadingIndex,
@@ -3236,6 +3242,66 @@ bool _isPairedInvoiceBuyerStructuralRow(
             _isInvoiceCountryOnly(block.text),
       ) &&
       _isPairedInvoiceBuyerCopyRow(layoutRows, rowIndex);
+}
+
+bool _isPairedInvoiceBuyerIdentityRow(
+  List<List<ReceiptOcrBlockEvidence>> layoutRows,
+  int headingIndex,
+  int rowIndex,
+  int tableHeaderIndex,
+) {
+  if (headingIndex < 0 ||
+      rowIndex != headingIndex + 1 ||
+      tableHeaderIndex <= rowIndex ||
+      headingIndex >= layoutRows.length ||
+      !_isPairedInvoiceBuyerCopyRow(layoutRows, rowIndex)) {
+    return false;
+  }
+  final headings = layoutRows[headingIndex];
+  if (headings.length != 2 ||
+      !headings.every((block) => _isBareInvoiceBuyerHeading(block.text))) {
+    return false;
+  }
+  final emails = <String>{};
+  for (
+    var index = rowIndex + 1;
+    index < tableHeaderIndex &&
+        index < layoutRows.length &&
+        index <= headingIndex + 8;
+    index++
+  ) {
+    for (final block in layoutRows[index]) {
+      for (final match in RegExp(
+        r'[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}',
+        caseSensitive: false,
+      ).allMatches(block.text)) {
+        emails.add(
+          match
+              .group(0)!
+              .split('@')
+              .first
+              .toLowerCase()
+              .replaceAll(RegExp(r'[^\p{L}\p{N}]', unicode: true), ''),
+        );
+      }
+    }
+  }
+  if (emails.isEmpty) return false;
+  return layoutRows[rowIndex].every((block) {
+    final name = block.text.trim();
+    if (!RegExp(
+          r'^[\p{L}][\p{L}\p{M}\p{N} .\x27-]{2,70}$',
+          unicode: true,
+        ).hasMatch(name) ||
+        name.split(RegExp(r'\s+')).length < 2) {
+      return false;
+    }
+    final normalizedName = name.toLowerCase().replaceAll(
+      RegExp(r'[^\p{L}\p{N}]', unicode: true),
+      '',
+    );
+    return emails.any((email) => email.contains(normalizedName));
+  });
 }
 
 bool _isPairedInvoiceBuyerCopyRow(
