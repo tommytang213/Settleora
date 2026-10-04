@@ -3188,7 +3188,11 @@ bool _isSingleInvoiceBuyerAddressRow(
   int headingIndex,
   int rowIndex,
 ) {
-  if (rowIndex != headingIndex + 2 ||
+  if (headingIndex < 0 ||
+      headingIndex >= layoutRows.length ||
+      layoutRows[headingIndex].isEmpty ||
+      layoutRows[headingIndex].first.points.isEmpty ||
+      rowIndex != headingIndex + 2 ||
       rowIndex >= layoutRows.length ||
       rowIndex + 1 >= lines.length ||
       !_isInvoiceStreetLine(lines[rowIndex]) ||
@@ -3213,6 +3217,9 @@ bool _isSingleInvoiceBuyerCountryRow(
   int rowIndex,
 ) {
   if (headingIndex < 0 ||
+      headingIndex >= layoutRows.length ||
+      layoutRows[headingIndex].isEmpty ||
+      layoutRows[headingIndex].first.points.isEmpty ||
       rowIndex <= headingIndex + 1 ||
       rowIndex > headingIndex + 5 ||
       rowIndex >= layoutRows.length ||

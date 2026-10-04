@@ -1633,6 +1633,7 @@ Total 4.40''');
       bool buyerEmailMatchesItems = false,
       bool swapBuyerEmailColumns = false,
       bool taggedBuyerEmail = false,
+      bool missingBuyerHeadingPoints = false,
       bool buyerHeading = true,
     }) {
       final rows = <List<({String text, double left, double right})>>[
@@ -1797,7 +1798,15 @@ Total 4.40''');
       final blocks = <ReceiptOcrBlockEvidence>[
         for (var row = 0; row < rows.length; row++)
           for (final cell in rows[row])
-            _layoutBlock(cell.text, order++, row, cell.left, cell.right),
+            if (missingBuyerHeadingPoints && row == 2)
+              ReceiptOcrBlockEvidence(
+                text: cell.text,
+                order: order++,
+                row: row,
+                points: const [],
+              )
+            else
+              _layoutBlock(cell.text, order++, row, cell.left, cell.right),
       ];
       return const ReceiptOcrParser().parse(
         rows.map((row) => row.map((cell) => cell.text).join(' ')).join('\n'),
@@ -1849,6 +1858,15 @@ Total 4.40''');
         firstBuyerLineIsItem: true,
         singleBuyerCountry: true,
         buyerCountry: 'Germany',
+      ).incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+    );
+    expect(
+      parse(
+        singleColumnBuyer: true,
+        singleBuyerStreet: true,
+        singleBuyerCountry: true,
+        missingBuyerHeadingPoints: true,
       ).incompleteAdjustmentReasons,
       contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
     );
