@@ -628,6 +628,171 @@ Grand Total USD 118.79
     expect(find.text(warning), findsNothing);
   });
 
+  test(
+    'source-supported included VAT saves explicit gross or net tax mode',
+    () {
+      const parser = ReceiptOcrParser();
+      final gross = parser.parse('''
+London Books
+Book GBP 24.00
+Subtotal GBP 24.00
+Total incl. VAT GBP 24.00
+VAT included 20% GBP 4.00
+''');
+      final net = parser.parse('''
+London Books
+Book GBP 20.00
+Subtotal GBP 20.00
+Total incl. VAT GBP 24.00
+VAT included 20% GBP 4.00
+''');
+      final grossItemWithNetSubtotal = parser.parse('''
+London Books
+Book GBP 24.00
+Subtotal GBP 20.00
+Total incl. VAT GBP 24.00
+VAT included 20% GBP 4.00
+''');
+      final contradictory = parser.parse('''
+London Books
+Book GBP 20.00
+Subtotal GBP 20.00
+Total incl. VAT GBP 25.00
+VAT included 20% GBP 4.00
+''');
+      final ambiguousItems = parser.parse('''
+London Books
+Book GBP 19.00
+Subtotal GBP 20.00
+Total incl. VAT GBP 25.00
+VAT included 20% GBP 4.00
+''');
+      final mixedTax = parser.parse('''
+London Books
+Book GBP 24.00
+Subtotal GBP 24.00
+VAT included 10% GBP 2.00
+Sales tax 20% GBP 4.00
+Total GBP 24.00
+''');
+      final includedWithTip = parser.parse('''
+London Books
+Book GBP 24.00
+Subtotal GBP 24.00
+VAT included 20% GBP 4.00
+Tip GBP 2.00
+Total GBP 26.00
+''');
+      expect(
+        receiptOcrReviewSaveRequestFromPreview(
+          gross,
+          originalCurrency: 'GBP',
+        )?.taxReconciliationMode,
+        ReceiptOcrTaxReconciliationModeValues.alreadyInBase,
+      );
+      expect(
+        receiptOcrReviewSaveRequestFromPreview(
+          net,
+          originalCurrency: 'GBP',
+        )?.taxReconciliationMode,
+        ReceiptOcrTaxReconciliationModeValues.addToBase,
+      );
+      expect(grossItemWithNetSubtotal.reviewHints, isEmpty);
+      expect(
+        receiptOcrReviewSaveRequestFromPreview(
+          grossItemWithNetSubtotal,
+          originalCurrency: 'GBP',
+        )?.taxReconciliationMode,
+        ReceiptOcrTaxReconciliationModeValues.addToBase,
+      );
+      expect(
+        receiptOcrReviewSaveRequestFromPreview(
+          contradictory,
+          originalCurrency: 'GBP',
+        )?.taxReconciliationMode,
+        ReceiptOcrTaxReconciliationModeValues.sourceIncludedUnresolved,
+      );
+      expect(
+        receiptOcrReviewSaveRequestFromPreview(
+          ambiguousItems,
+          originalCurrency: 'GBP',
+        )?.taxReconciliationMode,
+        ReceiptOcrTaxReconciliationModeValues.sourceIncludedUnresolved,
+      );
+      final mixedSaved = receiptOcrReviewSaveRequestFromPreview(
+        mixedTax,
+        originalCurrency: 'GBP',
+      );
+      expect(mixedTax.adjustmentsComplete, isFalse);
+      expect(mixedSaved?.taxAmount, isNull);
+      expect(
+        mixedSaved?.taxReconciliationMode,
+        ReceiptOcrTaxReconciliationModeValues.unresolved,
+      );
+      final tipSaved = receiptOcrReviewSaveRequestFromPreview(
+        includedWithTip,
+        originalCurrency: 'GBP',
+      );
+      expect(tipSaved?.adjustmentEvidence.single.amount, '2.00');
+      expect(
+        tipSaved?.taxReconciliationMode,
+        ReceiptOcrTaxReconciliationModeValues.alreadyInBase,
+      );
+      expect(
+        receiptOcrReviewSaveRequestFromPreview(
+          contradictory,
+          originalCurrency: 'EUR',
+        )?.taxReconciliationMode,
+        ReceiptOcrTaxReconciliationModeValues.unresolved,
+      );
+    },
+  );
+
+  testWidgets('merchant edit retains printed included-tax evidence', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final preview = const ReceiptOcrParser().parse('''
+London Books
+Book GBP 24.00
+Total incl. VAT GBP 24.00
+VAT included 20% GBP 4.00
+''');
+    expect(preview.taxIncludedInTotal, isTrue);
+    expect(preview.reviewHints, isEmpty);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: FakeBillRepository(),
+          syncController: sampleBillSyncController(),
+          attachmentRepository: FakeBillAttachmentRepository(),
+          attachmentFileInput: FakeBillAttachmentFileInput(
+            pickedFile: samplePickedAttachmentFile(
+              filename: 'receipt.png',
+              contentType: 'image/png',
+              bytes: samplePngBytes(width: 640, height: 480),
+            ),
+          ),
+          receiptOcrProvider: FakeReceiptOcrProvider(
+            ReceiptOcrResult.extracted(preview),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-list-scan-receipt')));
+    await tester.pumpAndSettle();
+    const warning =
+        'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.';
+    expect(find.text(warning), findsNothing);
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-ocr-edit-merchant')),
+      'Corrected London Books',
+    );
+    await tester.pumpAndSettle();
+    expect(find.text(warning), findsNothing);
+  });
+
   test('OCR adjustment adapter only emits API-valid positive magnitudes', () {
     ReceiptOcrPreview preview({
       String? tip,

@@ -336,6 +336,7 @@ ReceiptOcrReviewSummary _mapSummary(
     merchantText: response.merchantText,
     currency: response.currency,
     lineCount: response.lineCount,
+    taxReconciliationMode: response.taxReconciliationMode,
     headerEvidence: response.headerEvidence
         .map(
           (entry) => ReceiptOcrReviewHeaderEvidence(
@@ -363,6 +364,7 @@ ReceiptOcrReviewDetail _mapDetail(api.ReceiptOcrReviewResponse response) {
     currency: response.currency,
     subtotalAmount: response.subtotalAmount,
     taxAmount: response.taxAmount,
+    taxReconciliationMode: response.taxReconciliationMode,
     serviceChargeAmount: response.serviceChargeAmount,
     discountAmount: response.discountAmount,
     grandTotalAmount: response.grandTotalAmount,
@@ -424,6 +426,7 @@ api.ReceiptOcrReviewUpsertRequest _mapSaveRequest(
     currency: request.currency,
     subtotalAmount: request.subtotalAmount,
     taxAmount: request.taxAmount,
+    taxReconciliationMode: request.taxReconciliationMode,
     serviceChargeAmount: request.serviceChargeAmount,
     discountAmount: request.discountAmount,
     grandTotalAmount: request.grandTotalAmount,

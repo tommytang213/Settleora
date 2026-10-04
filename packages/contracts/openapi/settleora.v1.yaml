@@ -18251,6 +18251,14 @@ components:
         - on_device
         - manual_entry
         - imported_reviewed_data
+    ReceiptOcrTaxReconciliationMode:
+      type: string
+      description: Review-level relation of a printed same-currency tax component to the printed subtotal or complete reviewed item sum. It is not item tax allocation. Both unresolved states block draft Apply. included_unresolved retains high-confidence source evidence of an included-tax label while the reviewed arithmetic is contradictory; it does not authorize Apply or prove an amount. Omitted or null on a new review retains legacy additive behavior.
+      enum:
+        - add_to_base
+        - already_in_base
+        - unresolved
+        - included_unresolved
     ReceiptOcrCandidateAmount:
       type: string
       pattern: "^(0|[1-9][0-9]*)(\\.[0-9]{1,4})?$"
@@ -18447,6 +18455,11 @@ components:
           oneOf:
             - $ref: "#/components/schemas/ReceiptOcrCandidateAmount"
             - type: "null"
+        taxReconciliationMode:
+          oneOf:
+            - $ref: "#/components/schemas/ReceiptOcrTaxReconciliationMode"
+            - type: "null"
+          description: Optional explicit review tax relation. An old-client omitted or null update preserves a stored explicit mode only when currency, header money, and ordered line values are unchanged; otherwise the server stores unresolved and blocks Apply. The server validates exact amounts before Apply.
         serviceChargeAmount:
           oneOf:
             - $ref: "#/components/schemas/ReceiptOcrCandidateAmount"
@@ -18540,6 +18553,7 @@ components:
         - source
         - merchantText
         - currency
+        - taxReconciliationMode
         - lineCount
         - headerEvidence
         - createdAtUtc
@@ -18577,6 +18591,11 @@ components:
           oneOf:
             - $ref: "#/components/schemas/CurrencyCode"
             - type: "null"
+        taxReconciliationMode:
+          oneOf:
+            - $ref: "#/components/schemas/ReceiptOcrTaxReconciliationMode"
+            - type: "null"
+          description: Stored review-level tax reconciliation mode. Null is the legacy additive state.
         lineCount:
           type: integer
           minimum: 0
@@ -18606,6 +18625,7 @@ components:
         - merchantText
         - receiptIssuedAtUtc
         - currency
+        - taxReconciliationMode
         - subtotalAmount
         - taxAmount
         - serviceChargeAmount
@@ -18653,6 +18673,11 @@ components:
           oneOf:
             - $ref: "#/components/schemas/CurrencyCode"
             - type: "null"
+        taxReconciliationMode:
+          oneOf:
+            - $ref: "#/components/schemas/ReceiptOcrTaxReconciliationMode"
+            - type: "null"
+          description: Stored review-level tax reconciliation mode. Null is the legacy additive state.
         subtotalAmount:
           oneOf:
             - type: string
@@ -18850,6 +18875,8 @@ components:
         - line_total_mismatch
         - line_sum_mismatch
         - header_total_mismatch
+        - tax_reconciliation_unresolved
+        - tax_reconciliation_invalid
         - adjustments_not_auto_applied
         - adjustment_currency_not_reconciled
     ReceiptOcrReviewApplyPreviewLineCandidateResponse:

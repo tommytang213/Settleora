@@ -3330,6 +3330,11 @@ export type ReceiptOcrReviewStatus = "provisional" | "reviewed";
 export type ReceiptOcrReviewSource = "on_device" | "manual_entry" | "imported_reviewed_data";
 
 /**
+ * Review-level relation of a printed same-currency tax component to the printed subtotal or complete reviewed item sum. It is not item tax allocation. Both unresolved states block draft Apply. included_unresolved retains high-confidence source evidence of an included-tax label while the reviewed arithmetic is contradictory; it does not authorize Apply or prove an amount. Omitted or null on a new review retains legacy additive behavior.
+ */
+export type ReceiptOcrTaxReconciliationMode = "add_to_base" | "already_in_base" | "unresolved" | "included_unresolved";
+
+/**
  * Decimal-safe non-negative candidate amount represented as a string. Exponent notation, locale formatting, symbols, and floating-point JSON numbers are not accepted.
  */
 export type ReceiptOcrCandidateAmount = string;
@@ -3444,6 +3449,10 @@ export interface ReceiptOcrReviewUpsertRequest {
   currency?: CurrencyCode | null;
   subtotalAmount?: ReceiptOcrCandidateAmount | null;
   taxAmount?: ReceiptOcrCandidateAmount | null;
+  /**
+   * Optional explicit review tax relation. An old-client omitted or null update preserves a stored explicit mode only when currency, header money, and ordered line values are unchanged; otherwise the server stores unresolved and blocks Apply. The server validates exact amounts before Apply.
+   */
+  taxReconciliationMode?: ReceiptOcrTaxReconciliationMode | null;
   serviceChargeAmount?: ReceiptOcrCandidateAmount | null;
   /**
    * Optional non-negative discount magnitude candidate. It is not a signed authoritative adjustment.
@@ -3513,6 +3522,10 @@ export interface ReceiptOcrReviewSummaryResponse {
   merchantText: string | null;
   currency: CurrencyCode | null;
   /**
+   * Stored review-level tax reconciliation mode. Null is the legacy additive state.
+   */
+  taxReconciliationMode: ReceiptOcrTaxReconciliationMode | null;
+  /**
    * Number of bounded reviewed/candidate line rows linked to the review.
    */
   lineCount: number;
@@ -3546,6 +3559,10 @@ export interface ReceiptOcrReviewResponse {
   merchantText: string | null;
   receiptIssuedAtUtc: string | null;
   currency: CurrencyCode | null;
+  /**
+   * Stored review-level tax reconciliation mode. Null is the legacy additive state.
+   */
+  taxReconciliationMode: ReceiptOcrTaxReconciliationMode | null;
   subtotalAmount: string | null;
   taxAmount: string | null;
   serviceChargeAmount: string | null;
@@ -3648,7 +3665,7 @@ export interface ReceiptOcrReviewAssignmentResponse {
 /**
  * Bounded receipt OCR apply-preview validation issue code. Codes in blockedReasons make canApply false; codes in warnings may be informational or blocking.
  */
-export type ReceiptOcrReviewApplyPreviewIssueCode = "unsupported_review_status" | "unsupported_review_source" | "missing_currency" | "unsupported_currency" | "currency_mismatch" | "missing_grand_total" | "empty_line_set" | "line_total_missing" | "unsupported_line_state" | "line_total_mismatch" | "line_sum_mismatch" | "header_total_mismatch" | "adjustments_not_auto_applied" | "adjustment_currency_not_reconciled";
+export type ReceiptOcrReviewApplyPreviewIssueCode = "unsupported_review_status" | "unsupported_review_source" | "missing_currency" | "unsupported_currency" | "currency_mismatch" | "missing_grand_total" | "empty_line_set" | "line_total_missing" | "unsupported_line_state" | "line_total_mismatch" | "line_sum_mismatch" | "header_total_mismatch" | "tax_reconciliation_unresolved" | "tax_reconciliation_invalid" | "adjustments_not_auto_applied" | "adjustment_currency_not_reconciled";
 
 /**
  * Safe proposed bill-item candidate derived from one bounded receipt OCR review line. It excludes bill-item IDs, split allocation input, raw OCR text, file bytes, storage/provider internals, payment details, and unrelated users.

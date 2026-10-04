@@ -2987,6 +2987,9 @@ public sealed class SettleoraDbContext : DbContext
                 "ck_receipt_ocr_reviews_subtotal_amount_non_negative",
                 "subtotal_amount IS NULL OR subtotal_amount >= 0");
             table.HasCheckConstraint(
+                "ck_receipt_ocr_reviews_tax_reconciliation_mode",
+                "tax_reconciliation_mode IS NULL OR tax_reconciliation_mode IN ('add_to_base', 'already_in_base', 'unresolved', 'included_unresolved')");
+            table.HasCheckConstraint(
                 "ck_receipt_ocr_reviews_tax_amount_non_negative",
                 "tax_amount IS NULL OR tax_amount >= 0");
             table.HasCheckConstraint(
@@ -3058,6 +3061,10 @@ public sealed class SettleoraDbContext : DbContext
             .HasPrecision(
                 ReceiptOcrReviewConstraints.MoneyAmountPrecision,
                 ReceiptOcrReviewConstraints.MoneyAmountScale);
+
+        entity.Property(review => review.TaxReconciliationMode)
+            .HasColumnName("tax_reconciliation_mode")
+            .HasMaxLength(ReceiptOcrReviewConstraints.StatusMaxLength);
 
         entity.Property(review => review.TaxAmount)
             .HasColumnName("tax_amount")

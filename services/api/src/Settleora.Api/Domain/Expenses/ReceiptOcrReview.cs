@@ -34,6 +34,8 @@ public sealed class ReceiptOcrReview
 
     public decimal? TaxAmount { get; set; }
 
+    public string? TaxReconciliationMode { get; set; }
+
     public decimal? ServiceChargeAmount { get; set; }
 
     public decimal? DiscountAmount { get; set; }

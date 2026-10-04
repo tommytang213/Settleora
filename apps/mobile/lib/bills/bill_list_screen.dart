@@ -300,6 +300,7 @@ ReceiptOcrPreview _copyReceiptOcrPreview(
     taxCurrency: retainTax ? preview.taxCurrency : null,
     taxHasExplicitCurrencyEvidence:
         retainTax && preview.taxHasExplicitCurrencyEvidence,
+    taxIncludedInTotal: retainTax && preview.taxIncludedInTotal,
     service: retainService ? preview.service : null,
     serviceCurrency: retainService ? preview.serviceCurrency : null,
     serviceHasExplicitCurrencyEvidence:
@@ -443,7 +444,7 @@ ReceiptOcrReviewSaveRequest? receiptOcrReviewSaveRequestFromPreview(
   final reviewCurrencyChanged =
       _nullableUppercaseCurrency(originalCurrency) != currency;
 
-  return ReceiptOcrReviewSaveRequest(
+  final candidate = ReceiptOcrReviewSaveRequest(
     status: ReceiptOcrReviewStatusValues.provisional,
     source: ReceiptOcrReviewSourceValues.onDevice,
     merchantText: _nullableTrimmedText(preview.merchant),
@@ -501,6 +502,55 @@ ReceiptOcrReviewSaveRequest? receiptOcrReviewSaveRequestFromPreview(
       preserveMatchingEvidence: reviewCurrencyChanged,
     ),
   );
+  return candidate.withTaxReconciliationMode(
+    _receiptOcrTaxModeFromSource(
+      preview,
+      candidate,
+      reviewCurrencyChanged: reviewCurrencyChanged,
+    ),
+  );
+}
+
+String? _receiptOcrTaxModeFromSource(
+  ReceiptOcrPreview preview,
+  ReceiptOcrReviewSaveRequest candidate, {
+  required bool reviewCurrencyChanged,
+}) {
+  // A balanced total cannot settle printed adjustment rows whose roles or
+  // inclusion are unresolved. Persist that uncertainty for the Apply gate.
+  if (!preview.adjustmentsComplete) {
+    return ReceiptOcrTaxReconciliationModeValues.unresolved;
+  }
+  if (!preview.taxIncludedInTotal) return null;
+  if (reviewCurrencyChanged) {
+    return ReceiptOcrTaxReconciliationModeValues.unresolved;
+  }
+  final mode = receiptOcrTaxModeFromSupportedEvidence(
+    candidate,
+    hasAmbiguity: preview.reviewHints.isNotEmpty,
+  );
+  final arithmeticConflictOnly =
+      preview.reviewHintDecision == ReceiptOcrReviewDecision.none ||
+      preview.reviewHintDecision == ReceiptOcrReviewDecision.subtotalMismatch ||
+      preview.reviewHintDecision ==
+          ReceiptOcrReviewDecision.grandTotalMismatchWithSubtotal ||
+      preview.reviewHintDecision ==
+          ReceiptOcrReviewDecision.grandTotalMismatchWithoutSubtotal ||
+      preview.reviewHintDecision ==
+          ReceiptOcrReviewDecision
+              .referenceAdjustmentUnreconciledWithSubtotal ||
+      preview.reviewHintDecision ==
+          ReceiptOcrReviewDecision
+              .referenceAdjustmentUnreconciledWithoutSubtotal;
+  return mode == ReceiptOcrTaxReconciliationModeValues.unresolved &&
+          arithmeticConflictOnly &&
+          preview.adjustmentsComplete &&
+          candidate.currency != null &&
+          candidate.taxAmount != null &&
+          candidate.grandTotalAmount != null &&
+          receiptOcrSupportedAdjustmentTotal(candidate) != null
+      ? ReceiptOcrTaxReconciliationModeValues.sourceIncludedUnresolved
+      : mode;
 }
 
 @visibleForTesting
@@ -17457,6 +17507,9 @@ ReceiptOcrPreview _receiptOcrPreviewFromSavedReview(
     subtotalCurrency: subtotalEvidence?.currency,
     subtotalHasExplicitCurrencyEvidence: subtotalEvidence != null,
     tax: review.taxAmount ?? taxEvidence?.amount,
+    taxIncludedInTotal:
+        review.taxReconciliationMode ==
+        ReceiptOcrTaxReconciliationModeValues.alreadyInBase,
     taxCurrency: taxEvidence?.currency,
     taxHasExplicitCurrencyEvidence: taxEvidence != null,
     service: review.serviceChargeAmount ?? serviceEvidence?.amount,
@@ -17489,7 +17542,7 @@ ReceiptOcrReviewSaveRequest _receiptOcrReviewSaveRequestFromSavedEdit(
   final originalCurrency = _nullableUppercaseCurrency(review.currency);
   final preserveHeaderMoney =
       editedCurrency != null && editedCurrency == originalCurrency;
-  return ReceiptOcrReviewSaveRequest(
+  final candidate = ReceiptOcrReviewSaveRequest(
     status: ReceiptOcrReviewStatusValues.provisional,
     source: review.source,
     merchantText: _nullableTrimmedText(preview.merchant),
@@ -17560,6 +17613,9 @@ ReceiptOcrReviewSaveRequest _receiptOcrReviewSaveRequestFromSavedEdit(
       preview,
       preserveMatchingEvidence: true,
     ),
+  );
+  return candidate.withTaxReconciliationMode(
+    receiptOcrTaxModeForSavedEdit(review, candidate),
   );
 }
 

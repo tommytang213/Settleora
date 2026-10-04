@@ -12,6 +12,7 @@ class ReceiptOcrPreview {
     this.tax,
     this.taxCurrency,
     this.taxHasExplicitCurrencyEvidence = false,
+    this.taxIncludedInTotal = false,
     this.service,
     this.serviceCurrency,
     this.serviceHasExplicitCurrencyEvidence = false,
@@ -51,6 +52,8 @@ class ReceiptOcrPreview {
   final String? tax;
   final String? taxCurrency;
   final bool taxHasExplicitCurrencyEvidence;
+  // A printed included-tax component describes the total, not an addition.
+  final bool taxIncludedInTotal;
   final String? service;
   final String? serviceCurrency;
   final bool serviceHasExplicitCurrencyEvidence;
@@ -267,6 +270,15 @@ List<String> _receiptOcrReviewHints(
   final subtotal = subtotalMatchesCurrency
       ? _parseReceiptOcrReviewAmount(preview.subtotal)
       : null;
+  final includedTax =
+      preview.taxIncludedInTotal &&
+          _adjustmentCurrencyMatchesReview(
+            reviewCurrency: preview.currency,
+            adjustmentCurrency: preview.taxCurrency,
+            hasExplicitCurrencyEvidence: preview.taxHasExplicitCurrencyEvidence,
+          )
+      ? _parseReceiptOcrReviewAmount(preview.tax)
+      : null;
   if (subtotalMatchesCurrency && _hasReviewAmountText(preview.subtotal)) {
     if (subtotal == null) {
       return const [];
@@ -286,7 +298,12 @@ List<String> _receiptOcrReviewHints(
             !_receiptOcrAmountsClose(
               itemTotal + beforeSubtotalDiscount,
               subtotal,
-            ))) {
+            )) &&
+        // A discount before the subtotal leaves the printed tax/discount
+        // order unresolved for the saved review's subtotal-based tax mode.
+        (includedTax == null ||
+            preview.discountBeforeSubtotal ||
+            !_receiptOcrAmountsClose(itemTotal, subtotal + includedTax))) {
       onDecision?.call(ReceiptOcrReviewDecision.subtotalMismatch);
       return const [
         'OCR item total differs from detected subtotal. Review the receipt before applying.',
@@ -303,12 +320,10 @@ List<String> _receiptOcrReviewHints(
       ];
     }
     if (total != null && _hasReceiptOcrReferenceAdjustment(preview)) {
-      final adjustments = _reconcilableReceiptOcrAdjustments(preview);
       if (preview.adjustmentsComplete &&
           (preview.currency?.trim().isNotEmpty ?? false) &&
           _hasCompleteReceiptOcrItemLineTotals(preview.items) &&
-          adjustments != null &&
-          _receiptOcrAmountsClose(itemTotal + adjustments, total)) {
+          _receiptOcrAdjustmentsReconcile(preview, itemTotal, total)) {
         return const [];
       }
       onDecision?.call(
@@ -351,12 +366,10 @@ List<String> _receiptOcrReviewHints(
   }
 
   if (_hasReceiptOcrReferenceAdjustment(preview)) {
-    final adjustments = _reconcilableReceiptOcrAdjustments(preview);
     if (preview.adjustmentsComplete &&
         (preview.currency?.trim().isNotEmpty ?? false) &&
         _hasCompleteReceiptOcrItemLineTotals(preview.items) &&
-        adjustments != null &&
-        _receiptOcrAmountsClose(itemTotal + adjustments, total)) {
+        _receiptOcrAdjustmentsReconcile(preview, itemTotal, total)) {
       return const [];
     }
     onDecision?.call(
@@ -487,11 +500,13 @@ int? _reconcilableReceiptOcrAdjustments(ReceiptOcrPreview preview) {
       preview.taxCurrency,
       preview.taxHasExplicitCurrencyEvidence,
       false,
+      preview.taxIncludedInTotal,
     ),
     (
       preview.service,
       preview.serviceCurrency,
       preview.serviceHasExplicitCurrencyEvidence,
+      false,
       false,
     ),
     (
@@ -499,11 +514,13 @@ int? _reconcilableReceiptOcrAdjustments(ReceiptOcrPreview preview) {
       preview.tipCurrency,
       preview.tipHasExplicitCurrencyEvidence,
       false,
+      false,
     ),
     (
       preview.shipping,
       preview.shippingCurrency,
       preview.shippingHasExplicitCurrencyEvidence,
+      false,
       false,
     ),
     (
@@ -511,11 +528,18 @@ int? _reconcilableReceiptOcrAdjustments(ReceiptOcrPreview preview) {
       preview.discountCurrency,
       preview.discountHasExplicitCurrencyEvidence,
       true,
+      false,
     ),
   ];
   var total = 0;
   var found = false;
-  for (final (text, currency, hasExplicitCurrencyEvidence, isDiscount)
+  for (final (
+        text,
+        currency,
+        hasExplicitCurrencyEvidence,
+        isDiscount,
+        isIncluded,
+      )
       in entries) {
     if (!_hasReviewAmountText(text)) continue;
     if (!_adjustmentCurrencyMatchesReview(
@@ -527,10 +551,28 @@ int? _reconcilableReceiptOcrAdjustments(ReceiptOcrPreview preview) {
     }
     final amount = _parseReceiptOcrReviewAmount(text);
     if (amount == null) return null;
-    total += isDiscount ? -amount.abs() : amount;
+    total += isIncluded
+        ? 0
+        : isDiscount
+        ? -amount.abs()
+        : amount;
     found = true;
   }
   return found ? total : null;
+}
+
+bool _receiptOcrAdjustmentsReconcile(
+  ReceiptOcrPreview preview,
+  int itemTotal,
+  int total,
+) {
+  final adjustments = _reconcilableReceiptOcrAdjustments(preview);
+  if (adjustments == null) return false;
+  if (_receiptOcrAmountsClose(itemTotal + adjustments, total)) return true;
+  if (!preview.taxIncludedInTotal) return false;
+  final tax = _parseReceiptOcrReviewAmount(preview.tax);
+  return tax != null &&
+      _receiptOcrAmountsClose(itemTotal + adjustments + tax, total);
 }
 
 bool _adjustmentCurrencyMatchesReview({

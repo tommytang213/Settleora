@@ -7,6 +7,14 @@ class ReceiptOcrReviewStatusValues {
   static const ReceiptOcrReviewStatus reviewed = 'reviewed';
 }
 
+class ReceiptOcrTaxReconciliationModeValues {
+  const ReceiptOcrTaxReconciliationModeValues._();
+  static const addToBase = 'add_to_base';
+  static const alreadyInBase = 'already_in_base';
+  static const unresolved = 'unresolved';
+  static const sourceIncludedUnresolved = 'included_unresolved';
+}
+
 typedef ReceiptOcrReviewSource = String;
 
 class ReceiptOcrReviewSourceValues {
@@ -70,6 +78,10 @@ class ReceiptOcrReviewApplyPreviewIssueCodeValues {
       'line_sum_mismatch';
   static const ReceiptOcrReviewApplyPreviewIssueCode headerTotalMismatch =
       'header_total_mismatch';
+  static const ReceiptOcrReviewApplyPreviewIssueCode
+  taxReconciliationUnresolved = 'tax_reconciliation_unresolved';
+  static const ReceiptOcrReviewApplyPreviewIssueCode taxReconciliationInvalid =
+      'tax_reconciliation_invalid';
   static const ReceiptOcrReviewApplyPreviewIssueCode adjustmentsNotAutoApplied =
       'adjustments_not_auto_applied';
   static const ReceiptOcrReviewApplyPreviewIssueCode
@@ -109,6 +121,7 @@ class ReceiptOcrReviewSummary {
     required this.merchantText,
     required this.currency,
     required this.lineCount,
+    this.taxReconciliationMode,
     this.headerEvidence = const [],
     required this.createdAtUtc,
     required this.updatedAtUtc,
@@ -123,6 +136,7 @@ class ReceiptOcrReviewSummary {
   final String? merchantText;
   final String? currency;
   final int lineCount;
+  final String? taxReconciliationMode;
   final List<ReceiptOcrReviewHeaderEvidence> headerEvidence;
   final DateTime createdAtUtc;
   final DateTime updatedAtUtc;
@@ -141,6 +155,7 @@ class ReceiptOcrReviewDetail {
     required this.currency,
     required this.subtotalAmount,
     required this.taxAmount,
+    this.taxReconciliationMode,
     required this.serviceChargeAmount,
     required this.discountAmount,
     required this.grandTotalAmount,
@@ -162,6 +177,7 @@ class ReceiptOcrReviewDetail {
   final String? currency;
   final String? subtotalAmount;
   final String? taxAmount;
+  final String? taxReconciliationMode;
   final String? serviceChargeAmount;
   final String? discountAmount;
   final String? grandTotalAmount;
@@ -249,6 +265,7 @@ class ReceiptOcrReviewSaveRequest {
     required this.currency,
     required this.subtotalAmount,
     required this.taxAmount,
+    this.taxReconciliationMode,
     required this.serviceChargeAmount,
     required this.discountAmount,
     required this.grandTotalAmount,
@@ -264,12 +281,202 @@ class ReceiptOcrReviewSaveRequest {
   final String? currency;
   final String? subtotalAmount;
   final String? taxAmount;
+  final String? taxReconciliationMode;
   final String? serviceChargeAmount;
   final String? discountAmount;
   final String? grandTotalAmount;
   final List<ReceiptOcrReviewLineSaveRequest> lines;
   final List<ReceiptOcrReviewAdjustmentSaveRequest> adjustmentEvidence;
   final List<ReceiptOcrReviewHeaderEvidenceSaveRequest> headerEvidence;
+
+  ReceiptOcrReviewSaveRequest withTaxReconciliationMode(String? mode) =>
+      ReceiptOcrReviewSaveRequest(
+        status: status,
+        source: source,
+        merchantText: merchantText,
+        receiptIssuedAtUtc: receiptIssuedAtUtc,
+        currency: currency,
+        subtotalAmount: subtotalAmount,
+        taxAmount: taxAmount,
+        taxReconciliationMode: mode,
+        serviceChargeAmount: serviceChargeAmount,
+        discountAmount: discountAmount,
+        grandTotalAmount: grandTotalAmount,
+        lines: lines,
+        adjustmentEvidence: adjustmentEvidence,
+        headerEvidence: headerEvidence,
+      );
+}
+
+String? receiptOcrTaxModeForSavedEdit(
+  ReceiptOcrReviewDetail previous,
+  ReceiptOcrReviewSaveRequest candidate,
+) {
+  final mode = previous.taxReconciliationMode;
+  if (mode == null) return null;
+  final oldLines = [...previous.lines]
+    ..sort((left, right) => left.sortOrder.compareTo(right.sortOrder));
+  var sameEvidence =
+      candidate.currency == previous.currency &&
+      _sameReceiptOcrDecimal(
+        candidate.subtotalAmount,
+        previous.subtotalAmount,
+      ) &&
+      _sameReceiptOcrDecimal(candidate.taxAmount, previous.taxAmount) &&
+      _sameReceiptOcrDecimal(
+        candidate.serviceChargeAmount,
+        previous.serviceChargeAmount,
+      ) &&
+      _sameReceiptOcrDecimal(
+        candidate.discountAmount,
+        previous.discountAmount,
+      ) &&
+      _sameReceiptOcrDecimal(
+        candidate.grandTotalAmount,
+        previous.grandTotalAmount,
+      ) &&
+      candidate.lines.length == oldLines.length;
+  if (sameEvidence) {
+    for (var index = 0; index < oldLines.length; index++) {
+      final oldLine = oldLines[index];
+      final newLine = candidate.lines[index];
+      if (oldLine.text != newLine.text ||
+          !_sameReceiptOcrDecimal(oldLine.quantity, newLine.quantity) ||
+          !_sameReceiptOcrDecimal(
+            oldLine.unitPriceAmount,
+            newLine.unitPriceAmount,
+          ) ||
+          !_sameReceiptOcrDecimal(
+            oldLine.lineTotalAmount,
+            newLine.lineTotalAmount,
+          )) {
+        sameEvidence = false;
+        break;
+      }
+    }
+  }
+  if (sameEvidence) {
+    final oldAdjustments = [...previous.adjustmentEvidence]
+      ..sort((left, right) => left.sortOrder.compareTo(right.sortOrder));
+    sameEvidence = candidate.adjustmentEvidence.length == oldAdjustments.length;
+    if (sameEvidence) {
+      for (var index = 0; index < oldAdjustments.length; index++) {
+        final oldAdjustment = oldAdjustments[index];
+        final newAdjustment = candidate.adjustmentEvidence[index];
+        if (oldAdjustment.kind != newAdjustment.kind ||
+            oldAdjustment.originalLabel != newAdjustment.originalLabel ||
+            oldAdjustment.currency != newAdjustment.currency ||
+            oldAdjustment.direction != newAdjustment.direction ||
+            !_sameReceiptOcrDecimal(
+              oldAdjustment.amount,
+              newAdjustment.amount,
+            )) {
+          sameEvidence = false;
+          break;
+        }
+      }
+    }
+  }
+  if (sameEvidence) return mode;
+  // Only a stored source-supported interpretation can be recomputed after an
+  // edit. Plain unresolved has no preserved inclusion evidence.
+  if (candidate.currency != previous.currency ||
+      mode == ReceiptOcrTaxReconciliationModeValues.unresolved) {
+    return ReceiptOcrTaxReconciliationModeValues.unresolved;
+  }
+  final recalculated = receiptOcrTaxModeFromSupportedEvidence(candidate);
+  // An additive source mode does not establish printed inclusion evidence.
+  // Arithmetic changed by an edit cannot promote it to included tax.
+  if (mode == ReceiptOcrTaxReconciliationModeValues.addToBase &&
+      recalculated != ReceiptOcrTaxReconciliationModeValues.addToBase) {
+    return ReceiptOcrTaxReconciliationModeValues.unresolved;
+  }
+  return recalculated == ReceiptOcrTaxReconciliationModeValues.unresolved &&
+          mode != ReceiptOcrTaxReconciliationModeValues.addToBase
+      ? ReceiptOcrTaxReconciliationModeValues.sourceIncludedUnresolved
+      : recalculated;
+}
+
+BigInt? receiptOcrSupportedAdjustmentTotal(
+  ReceiptOcrReviewSaveRequest candidate,
+) {
+  if (candidate.currency == null) return null;
+  var total = BigInt.zero;
+  final seenKinds = <String>{};
+  for (final adjustment in candidate.adjustmentEvidence) {
+    if ((adjustment.kind != ReceiptOcrReviewAdjustmentKindValues.tip &&
+            adjustment.kind != ReceiptOcrReviewAdjustmentKindValues.shipping) ||
+        !seenKinds.add(adjustment.kind) ||
+        adjustment.direction !=
+            ReceiptOcrReviewAdjustmentDirectionValues.charge ||
+        adjustment.currency != candidate.currency) {
+      return null;
+    }
+    final amount = receiptOcrDecimalUnits(adjustment.amount);
+    if (amount == null || amount <= BigInt.zero) return null;
+    total += amount;
+  }
+  return total;
+}
+
+String receiptOcrTaxModeFromSupportedEvidence(
+  ReceiptOcrReviewSaveRequest candidate, {
+  bool hasAmbiguity = false,
+}) {
+  const unresolved = ReceiptOcrTaxReconciliationModeValues.unresolved;
+  if (hasAmbiguity || candidate.currency == null) {
+    return unresolved;
+  }
+  final adjustmentTotal = receiptOcrSupportedAdjustmentTotal(candidate);
+  if (adjustmentTotal == null) return unresolved;
+  final tax = receiptOcrDecimalUnits(candidate.taxAmount);
+  final total = receiptOcrDecimalUnits(candidate.grandTotalAmount);
+  if (tax == null || tax <= BigInt.zero || total == null) return unresolved;
+  BigInt? baseCandidate = receiptOcrDecimalUnits(candidate.subtotalAmount);
+  if (baseCandidate == null) {
+    if (candidate.lines.isEmpty) return unresolved;
+    var lineSum = BigInt.zero;
+    for (final line in candidate.lines) {
+      final amount = receiptOcrDecimalUnits(line.lineTotalAmount);
+      if (amount == null) return unresolved;
+      lineSum += amount;
+    }
+    baseCandidate = lineSum;
+  }
+  final base = baseCandidate;
+  final service = candidate.serviceChargeAmount == null
+      ? BigInt.zero
+      : receiptOcrDecimalUnits(candidate.serviceChargeAmount);
+  final discount = candidate.discountAmount == null
+      ? BigInt.zero
+      : receiptOcrDecimalUnits(candidate.discountAmount);
+  if (service == null || discount == null) return unresolved;
+  final withoutTax = base + service + adjustmentTotal - discount;
+  if (total == withoutTax && tax <= base) {
+    return ReceiptOcrTaxReconciliationModeValues.alreadyInBase;
+  }
+  if (total == withoutTax + tax) {
+    return ReceiptOcrTaxReconciliationModeValues.addToBase;
+  }
+  return unresolved;
+}
+
+bool _sameReceiptOcrDecimal(String? left, String? right) {
+  if (left == null || right == null) return left == right;
+  final leftAmount = receiptOcrDecimalUnits(left);
+  return leftAmount != null && leftAmount == receiptOcrDecimalUnits(right);
+}
+
+BigInt? receiptOcrDecimalUnits(String? value) {
+  final text = value?.trim();
+  if (text == null) return null;
+  final match = RegExp(
+    r'^(0|[1-9][0-9]*)(?:\.([0-9]{1,4}))?$',
+  ).firstMatch(text);
+  if (match == null) return null;
+  final fraction = (match.group(2) ?? '').padRight(4, '0');
+  return BigInt.parse(match.group(1)!) * BigInt.from(10000) +
+      BigInt.parse(fraction.isEmpty ? '0' : fraction);
 }
 
 class ReceiptOcrReviewAdjustmentSaveRequest {

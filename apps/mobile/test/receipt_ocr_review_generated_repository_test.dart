@@ -171,6 +171,7 @@ void main() {
             'currency',
             'subtotalAmount',
             'taxAmount',
+            'taxReconciliationMode',
             'serviceChargeAmount',
             'discountAmount',
             'grandTotalAmount',
@@ -413,6 +414,7 @@ class FakeReceiptOcrReviewGeneratedClient
 
 api.ReceiptOcrReviewSummaryResponse sampleApiSummary() {
   return api.ReceiptOcrReviewSummaryResponse(
+    taxReconciliationMode: null,
     reviewId: _reviewId,
     billId: _billId,
     groupId: _groupId,
@@ -436,6 +438,7 @@ api.ReceiptOcrReviewSummaryResponse sampleApiSummary() {
 
 api.ReceiptOcrReviewResponse sampleApiReview() {
   return api.ReceiptOcrReviewResponse(
+    taxReconciliationMode: null,
     id: _reviewId,
     billId: _billId,
     fileId: _fileId,
