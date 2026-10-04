@@ -1625,6 +1625,8 @@ Total 4.40''');
       bool inlineBuyerName = false,
       bool firstBuyerLineIsItem = false,
       bool distinctBuyerNames = false,
+      bool singleBuyerCountry = false,
+      bool distinctBuyerCountries = false,
       bool buyerHeading = true,
     }) {
       final rows = <List<({String text, double left, double right})>>[
@@ -1665,8 +1667,14 @@ Total 4.40''');
         if (!singleColumnBuyer && !inlineBuyerName)
           [
             (text: 'United States', left: 20, right: 190),
-            (text: 'United States', left: 510, right: 680),
+            (
+              text: distinctBuyerCountries ? 'Canada' : 'United States',
+              left: 510,
+              right: 680,
+            ),
           ],
+        if (singleColumnBuyer && singleBuyerCountry)
+          [(text: 'United States', left: 20, right: 190)],
         if (unresolvedBuyerIntervalLine)
           [(text: 'Warranty Extension', left: 90, right: 420)],
         [
@@ -1754,6 +1762,19 @@ Total 4.40''');
     expect(complete.items.map((item) => item.lineTotal), ['10.00', '5.00']);
     expect(complete.reviewHints, isEmpty);
     expect(parse(singleColumnBuyer: true).reviewHints, isEmpty);
+    expect(
+      parse(singleColumnBuyer: true, singleBuyerCountry: true).reviewHints,
+      isEmpty,
+    );
+    expect(
+      parse(
+        singleColumnBuyer: true,
+        singleBuyerCountry: true,
+        unresolvedBuyerIntervalLine: true,
+      ).incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+    );
+    expect(parse(distinctBuyerCountries: true).reviewHints, isEmpty);
     final distinctBuyer = parse(distinctBuyerNames: true);
     expect(distinctBuyer.reviewHints, isEmpty);
     expect(distinctBuyer.merchant, isNot('Alex Chen Morgan Lee'));

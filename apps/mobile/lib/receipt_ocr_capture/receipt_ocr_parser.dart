@@ -2888,6 +2888,12 @@ class ReceiptOcrParser {
                     buyerHeadingIndex,
                   )) ||
               (lineIndex > buyerHeadingIndex && lineIndex < buyerCopyEnd) ||
+              _isSingleInvoiceBuyerCountryRow(
+                lines,
+                layoutRows,
+                buyerHeadingIndex,
+                lineIndex,
+              ) ||
               (lineIndex < buyerHeadingIndex &&
                   lineIndex <= 2 &&
                   RegExp(
@@ -3191,6 +3197,31 @@ bool _isBareInvoiceBuyerHeading(String text) => RegExp(
   caseSensitive: false,
 ).hasMatch(text);
 
+bool _isSingleInvoiceBuyerCountryRow(
+  List<String> lines,
+  List<List<ReceiptOcrBlockEvidence>> layoutRows,
+  int headingIndex,
+  int rowIndex,
+) {
+  if (headingIndex < 0 ||
+      rowIndex <= headingIndex + 1 ||
+      rowIndex > headingIndex + 5 ||
+      rowIndex >= layoutRows.length ||
+      !_isSingleInvoiceBuyerIdentityRow(layoutRows, headingIndex) ||
+      !_isInvoiceCountryOnly(lines[rowIndex])) {
+    return false;
+  }
+  final countryRow = layoutRows[rowIndex];
+  if (countryRow.length != 1 || countryRow.single.points.isEmpty) return false;
+  final headingLeft = layoutRows[headingIndex].first.points
+      .map((point) => point.x)
+      .reduce((x, y) => x < y ? x : y);
+  final countryLeft = countryRow.single.points
+      .map((point) => point.x)
+      .reduce((x, y) => x < y ? x : y);
+  return countryLeft >= headingLeft - 24 && countryLeft <= headingLeft + 96;
+}
+
 bool _hasDualInvoiceBuyerHeadings(
   List<List<ReceiptOcrBlockEvidence>> layoutRows,
   int headingIndex,
@@ -3224,7 +3255,8 @@ bool _isPairedInvoiceBuyerCopyRow(
       value.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
   if (!allowDistinctNames &&
       normalized(row.first.text) != normalized(row.last.text) &&
-      !row.every((block) => _isReceiptMetadataLine(block.text))) {
+      !row.every((block) => _isReceiptMetadataLine(block.text)) &&
+      !row.every((block) => _isInvoiceCountryOnly(block.text))) {
     return false;
   }
   final cells = [...row]
@@ -3247,12 +3279,7 @@ bool _isPairedInvoiceBuyerCopyRow(
 
 bool _isAddressBackedInvoiceCountry(List<String> lines, int index) {
   if (index < 1 || index + 1 >= lines.length) return false;
-  if (!RegExp(
-    r'^(?:united states|united kingdom|canada|australia|new zealand|singapore|hong kong)$',
-    caseSensitive: false,
-  ).hasMatch(lines[index].trim())) {
-    return false;
-  }
+  if (!_isInvoiceCountryOnly(lines[index])) return false;
   return RegExp(
         r'\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\b',
         caseSensitive: false,
@@ -3262,6 +3289,11 @@ bool _isAddressBackedInvoiceCountry(List<String> lines, int index) {
         caseSensitive: false,
       ).hasMatch(lines[index + 1]);
 }
+
+bool _isInvoiceCountryOnly(String line) => RegExp(
+  r'^(?:united states|united kingdom|canada|australia|new zealand|singapore|hong kong)$',
+  caseSensitive: false,
+).hasMatch(line.trim());
 
 bool _isInvoicePaymentFooterCopy(String line, {String? merchantName}) {
   final copy = line.trim();
