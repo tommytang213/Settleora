@@ -2882,12 +2882,6 @@ class ReceiptOcrParser {
       final isInvoiceBuyerCopy =
           hasSelectedInvoiceTable &&
           (lineIndex == buyerHeadingIndex ||
-              (lineIndex == buyerHeadingIndex + 1 &&
-                  _isSingleInvoiceBuyerIdentityRow(
-                    layoutRows,
-                    buyerHeadingIndex,
-                    lines: lines,
-                  )) ||
               (lineIndex > buyerHeadingIndex && lineIndex < buyerCopyEnd) ||
               _isSingleInvoiceBuyerAddressRow(
                 lines,
@@ -3174,37 +3168,6 @@ bool _hasOnlyPaymentOrSuggestedTipAmountsBeforeCourtesy(
   return true;
 }
 
-bool _isSingleInvoiceBuyerIdentityRow(
-  List<List<ReceiptOcrBlockEvidence>> layoutRows,
-  int headingIndex, {
-  required List<String> lines,
-}) {
-  if (headingIndex < 0 || headingIndex + 1 >= layoutRows.length) return false;
-  final heading = layoutRows[headingIndex];
-  final identity = layoutRows[headingIndex + 1];
-  if (heading.isEmpty ||
-      heading.first.points.isEmpty ||
-      !_isBareInvoiceBuyerHeading(heading.first.text) ||
-      identity.length != 1 ||
-      identity.single.points.isEmpty ||
-      _lineHasAmount(identity.single.text) ||
-      _hasPotentialReceiptAdjustmentLabel(identity.single.text) ||
-      headingIndex + 2 >= lines.length ||
-      !(_isInvoiceCountryOnly(lines[headingIndex + 2]) ||
-          (headingIndex + 3 < lines.length &&
-              _isInvoiceStreetLine(lines[headingIndex + 2]) &&
-              _isInvoiceCountryOnly(lines[headingIndex + 3])))) {
-    return false;
-  }
-  final headingLeft = heading.first.points
-      .map((point) => point.x)
-      .reduce((x, y) => x < y ? x : y);
-  final identityLeft = identity.single.points
-      .map((point) => point.x)
-      .reduce((x, y) => x < y ? x : y);
-  return identityLeft >= headingLeft - 24 && identityLeft <= headingLeft + 96;
-}
-
 bool _isBareInvoiceBuyerHeading(String text) => RegExp(
   r'^\s*(?:bill(?:ed)?|ship(?:ped)?|sold)\s+to\s*:?[\s]*$',
   caseSensitive: false,
@@ -3225,12 +3188,7 @@ bool _isSingleInvoiceBuyerAddressRow(
       rowIndex >= layoutRows.length ||
       rowIndex + 1 >= lines.length ||
       !_isInvoiceStreetLine(lines[rowIndex]) ||
-      !_isInvoiceCountryOnly(lines[rowIndex + 1]) ||
-      !_isSingleInvoiceBuyerIdentityRow(
-        layoutRows,
-        headingIndex,
-        lines: lines,
-      )) {
+      !_isInvoiceCountryOnly(lines[rowIndex + 1])) {
     return false;
   }
   final addressRow = layoutRows[rowIndex];
@@ -3254,11 +3212,6 @@ bool _isSingleInvoiceBuyerCountryRow(
       rowIndex <= headingIndex + 1 ||
       rowIndex > headingIndex + 5 ||
       rowIndex >= layoutRows.length ||
-      !_isSingleInvoiceBuyerIdentityRow(
-        layoutRows,
-        headingIndex,
-        lines: lines,
-      ) ||
       !_isInvoiceCountryOnly(lines[rowIndex])) {
     return false;
   }

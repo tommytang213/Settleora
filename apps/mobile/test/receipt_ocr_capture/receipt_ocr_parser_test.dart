@@ -1769,9 +1769,10 @@ Total 4.40''');
       parse(singleColumnBuyer: true).incompleteAdjustmentReasons,
       contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
     );
+    final singleBuyerAmbiguity = parse(singleColumnBuyer: true).reviewHints;
     expect(
       parse(singleColumnBuyer: true, singleBuyerCountry: true).reviewHints,
-      isEmpty,
+      singleBuyerAmbiguity,
     );
     expect(
       parse(
@@ -1779,7 +1780,7 @@ Total 4.40''');
         singleBuyerStreet: true,
         singleBuyerCountry: true,
       ).reviewHints,
-      isEmpty,
+      singleBuyerAmbiguity,
     );
     for (final country in ['Germany', 'France', 'India']) {
       expect(
@@ -1788,13 +1789,22 @@ Total 4.40''');
           singleBuyerCountry: true,
           buyerCountry: country,
         ).reviewHints,
-        isEmpty,
+        singleBuyerAmbiguity,
       );
     }
     expect(
       parse(
         singleColumnBuyer: true,
         firstBuyerLineIsItem: true,
+      ).incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+    );
+    expect(
+      parse(
+        singleColumnBuyer: true,
+        firstBuyerLineIsItem: true,
+        singleBuyerCountry: true,
+        buyerCountry: 'Germany',
       ).incompleteAdjustmentReasons,
       contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
     );
