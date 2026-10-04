@@ -1617,6 +1617,7 @@ Total 4.40''');
       bool mergedCourtesyItemLine = false,
       bool populatedPaymentStatus = false,
       String? merchantTeamName,
+      bool merchantTeamPunctuation = false,
       bool mergedTeamItemLine = false,
       bool buyerHeading = true,
     }) {
@@ -1699,7 +1700,7 @@ Total 4.40''');
             text: mergedTeamItemLine
                 ? "We're here to help! The Unpriced Cable Team"
                 : merchantTeamName != null
-                ? "We're here to help! The $merchantTeamName Team"
+                ? "We're here to help! The $merchantTeamName Team${merchantTeamPunctuation ? '.' : ''}"
                 : "We're here to help!",
             left: 20,
             right: 400,
@@ -1726,6 +1727,13 @@ Total 4.40''');
     expect(parse(populatedPaymentStatus: true).reviewHints, isEmpty);
     final team = parse(merchantTeamName: complete.merchant);
     expect(team.reviewHints, isEmpty);
+    expect(
+      parse(
+        merchantTeamName: complete.merchant,
+        merchantTeamPunctuation: true,
+      ).reviewHints,
+      isEmpty,
+    );
 
     final unresolved = parse(unresolvedTableLine: true);
     expect(unresolved.reviewHints, isNotEmpty);

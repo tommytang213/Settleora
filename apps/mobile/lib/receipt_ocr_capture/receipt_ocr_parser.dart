@@ -3157,7 +3157,7 @@ bool _isInvoicePaymentFooterCopy(String line, {String? merchantName}) {
   ].any((pattern) => pattern.hasMatch(copy));
   if (recognized) return true;
   final teamSignature = RegExp(
-    r"^we(?:['’]re|\s+are)\s+here\s+to\s+help[.!]?\s+the\s+(.+)\s+team$",
+    r"^we(?:['’]re|\s+are)\s+here\s+to\s+help[.!]?\s+the\s+(.+)\s+team[.!]?$",
     caseSensitive: false,
   ).firstMatch(copy);
   if (teamSignature == null || merchantName == null) return false;
