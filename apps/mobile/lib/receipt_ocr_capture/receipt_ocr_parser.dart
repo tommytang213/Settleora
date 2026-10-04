@@ -2845,19 +2845,6 @@ class ReceiptOcrParser {
         buyerHeadingIndex >= 0 &&
         layoutChargeItemRows.any((row) => row > invoiceTableHeader) &&
         !layoutChargeItemRows.any((row) => row < invoiceTableHeader);
-    var buyerCopyEnd = buyerHeadingIndex + 1;
-    while (hasSelectedInvoiceTable &&
-        buyerCopyEnd < invoiceTableHeader &&
-        buyerCopyEnd - buyerHeadingIndex <= 4 &&
-        _isPairedInvoiceBuyerCopyRow(
-          layoutRows,
-          buyerCopyEnd,
-          allowDistinctNames:
-              buyerCopyEnd == buyerHeadingIndex + 1 &&
-              _hasDualInvoiceBuyerHeadings(layoutRows, buyerHeadingIndex),
-        )) {
-      buyerCopyEnd++;
-    }
     final postTotalPaymentSection =
         !hasSelectedInvoiceTable || lastPricedTotal < 0
         ? -1
@@ -2882,7 +2869,11 @@ class ReceiptOcrParser {
       final isInvoiceBuyerCopy =
           hasSelectedInvoiceTable &&
           (lineIndex == buyerHeadingIndex ||
-              (lineIndex > buyerHeadingIndex && lineIndex < buyerCopyEnd) ||
+              _isPairedInvoiceBuyerStructuralRow(
+                layoutRows,
+                buyerHeadingIndex,
+                lineIndex,
+              ) ||
               _isSingleInvoiceBuyerAddressRow(
                 lines,
                 layoutRows,
@@ -3226,23 +3217,31 @@ bool _isSingleInvoiceBuyerCountryRow(
   return countryLeft >= headingLeft - 24 && countryLeft <= headingLeft + 96;
 }
 
-bool _hasDualInvoiceBuyerHeadings(
+bool _isPairedInvoiceBuyerStructuralRow(
   List<List<ReceiptOcrBlockEvidence>> layoutRows,
   int headingIndex,
+  int rowIndex,
 ) {
-  if (headingIndex < 0 || headingIndex >= layoutRows.length) return false;
-  final headings = layoutRows[headingIndex];
-  return headings.length == 2 &&
-      headings.every((heading) => _isBareInvoiceBuyerHeading(heading.text)) &&
-      headings.first.text.toLowerCase().trim() !=
-          headings.last.text.toLowerCase().trim();
+  if (headingIndex < 0 ||
+      rowIndex <= headingIndex + 1 ||
+      rowIndex > headingIndex + 5 ||
+      rowIndex >= layoutRows.length) {
+    return false;
+  }
+  final row = layoutRows[rowIndex];
+  return row.length == 2 &&
+      row.every(
+        (block) =>
+            _isReceiptMetadataLine(block.text) ||
+            _isInvoiceCountryOnly(block.text),
+      ) &&
+      _isPairedInvoiceBuyerCopyRow(layoutRows, rowIndex);
 }
 
 bool _isPairedInvoiceBuyerCopyRow(
   List<List<ReceiptOcrBlockEvidence>> layoutRows,
-  int rowIndex, {
-  bool allowDistinctNames = false,
-}) {
+  int rowIndex,
+) {
   if (rowIndex < 0 || rowIndex >= layoutRows.length) return false;
   final row = layoutRows[rowIndex];
   if (row.length != 2 ||
@@ -3253,14 +3252,6 @@ bool _isPairedInvoiceBuyerCopyRow(
                 !_isReceiptMetadataLine(block.text)) ||
             _hasPotentialReceiptAdjustmentLabel(block.text),
       )) {
-    return false;
-  }
-  String normalized(String value) =>
-      value.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
-  if (!allowDistinctNames &&
-      normalized(row.first.text) != normalized(row.last.text) &&
-      !row.every((block) => _isReceiptMetadataLine(block.text)) &&
-      !row.every((block) => _isInvoiceCountryOnly(block.text))) {
     return false;
   }
   final cells = [...row]

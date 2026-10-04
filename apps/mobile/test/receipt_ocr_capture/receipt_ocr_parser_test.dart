@@ -1632,8 +1632,7 @@ Total 4.40''');
       bool buyerHeading = true,
     }) {
       final rows = <List<({String text, double left, double right})>>[
-        if (inlineBuyerName || distinctBuyerNames || singleColumnBuyer)
-          [(text: 'BrightDesk Supplies', left: 20, right: 370)],
+        [(text: 'BrightDesk Supplies', left: 20, right: 370)],
         [(text: 'Office Supply Invoice', left: 20, right: 370)],
         [
           (
@@ -1656,7 +1655,11 @@ Total 4.40''');
           ),
           if (!singleColumnBuyer && !inlineBuyerName)
             (
-              text: distinctBuyerNames ? 'Morgan Lee' : 'Alex Chen',
+              text: firstBuyerLineIsItem
+                  ? 'Extra Cable'
+                  : distinctBuyerNames
+                  ? 'Morgan Lee'
+                  : 'Alex Chen',
               left: 510,
               right: 660,
             ),
@@ -1764,7 +1767,10 @@ Total 4.40''');
 
     final complete = parse();
     expect(complete.items.map((item) => item.lineTotal), ['10.00', '5.00']);
-    expect(complete.reviewHints, isEmpty);
+    expect(
+      complete.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+    );
     expect(
       parse(singleColumnBuyer: true).incompleteAdjustmentReasons,
       contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
@@ -1816,9 +1822,19 @@ Total 4.40''');
       ).incompleteAdjustmentReasons,
       contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
     );
-    expect(parse(distinctBuyerCountries: true).reviewHints, isEmpty);
+    expect(
+      parse(distinctBuyerCountries: true).incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+    );
     final distinctBuyer = parse(distinctBuyerNames: true);
-    expect(distinctBuyer.reviewHints, isEmpty);
+    expect(
+      distinctBuyer.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+    );
+    expect(
+      parse(firstBuyerLineIsItem: true).incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+    );
     expect(distinctBuyer.merchant, isNot('Alex Chen Morgan Lee'));
     final inlineBuyerItem = parse(
       inlineBuyerName: true,
@@ -1837,15 +1853,18 @@ Total 4.40''');
       contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
     );
 
-    expect(parse(populatedPaymentStatus: true).reviewHints, isEmpty);
+    expect(
+      parse(populatedPaymentStatus: true).reviewHints,
+      complete.reviewHints,
+    );
     final team = parse(merchantTeamName: complete.merchant);
-    expect(team.reviewHints, isEmpty);
+    expect(team.reviewHints, complete.reviewHints);
     expect(
       parse(
         merchantTeamName: complete.merchant,
         merchantTeamPunctuation: true,
       ).reviewHints,
-      isEmpty,
+      complete.reviewHints,
     );
 
     final unresolved = parse(unresolvedTableLine: true);
