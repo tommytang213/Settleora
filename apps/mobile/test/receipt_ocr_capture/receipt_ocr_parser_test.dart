@@ -240,6 +240,11 @@ Total USD 25.00
         'EUR 72.00, USD 80.00',
         '72.00 EUR / 80.00 USD',
         'EUR72.00; USD80.00',
+        'EUR: 72.00 / USD: 80.00',
+        'EUR=72.00 / USD=80.00',
+        '72.00: EUR / 80.00: USD',
+        'EUR +72.00 / USD +80.00',
+        '+72.00 EUR / +80.00 USD',
       ]) {
         final preview = const ReceiptOcrParser().parse('''
 Harbor Hotel

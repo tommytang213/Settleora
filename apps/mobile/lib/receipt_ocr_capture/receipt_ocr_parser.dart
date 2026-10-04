@@ -6333,8 +6333,8 @@ bool _hasPriorityTotalLabel(String line) {
   const separators = r'[\s:=/|;,&()\[\]]';
   final separatorPattern = RegExp('$separators+');
   final cellPattern = RegExp(
-    '(?:(?:$_currencyTokenPattern)\\s*$_amountTokenPattern'
-    '|$_amountTokenPattern\\s*(?:$_currencyTokenPattern))'
+    '(?:(?:$_currencyTokenPattern)\\s*[:=]?\\s*\\+?\\s*$_amountTokenPattern'
+    '|\\+?\\s*$_amountTokenPattern\\s*[:=]?\\s*(?:$_currencyTokenPattern))'
     '(?=$separators|\$)',
     caseSensitive: false,
   );
