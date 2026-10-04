@@ -1555,7 +1555,7 @@ class ReceiptOcrParser {
         }
         var score = 10;
         if (RegExp(
-          r'\b(total\s+amount\s+due|grand\s+total|balance\s+due|amount\s+due)\b',
+          r'\b(total\s+(?:amount\s+)?due|grand\s+total|balance\s+due|amount\s+due)\b',
         ).hasMatch(normalized)) {
           score += 20;
         }
@@ -5913,6 +5913,24 @@ bool _isDateOrTimeOnlyLine(String normalized) {
 }
 
 bool _hasTraceableItemAmountToken(String line, String amountToken) {
+  // Flattened columns can end in an administrative date. Its year (or day)
+  // is not an item price, even when another column contains descriptive copy.
+  // A separate amount cell can still be recovered by the layout fallback.
+  const calendarDate =
+      r'(?:[a-z]{3,9}\.?\s+\d{1,2},?\s+\d{4}|'
+      r'\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|'
+      r'\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})';
+  final administrativeDate = RegExp(
+    r'\b(?:(?:bill|invoice|statement|payment|due|service|order)\s+date|'
+    r'billing\s+period)\s*[:#-]?\s*'
+    '$calendarDate(?:\\s*[-–—]\\s*$calendarDate)?\\s*\$',
+    caseSensitive: false,
+  ).firstMatch(line);
+  if (administrativeDate != null &&
+      line.lastIndexOf(amountToken) >= administrativeDate.start) {
+    return false;
+  }
+
   // A product/SKU suffix such as USD123 is not printed monetary evidence.
   // Adjacent alphabetic currency markers are too ambiguous to promote into
   // an item amount; explicit symbols and separated codes remain usable.
@@ -6270,7 +6288,7 @@ bool _isPrimaryTotalCurrencyLine(String line, String normalized) {
   }
   return _hasTotalLabel(line, normalized) ||
       (RegExp(
-            r'^\s*(?:grand\s+total|total\s+amount\s+due|total|amount\s+due|balance\s+due)\b',
+            r'^\s*(?:grand\s+total|total\s+(?:amount\s+)?due|total|amount\s+due|balance\s+due)\b',
           ).hasMatch(normalized) &&
           (RegExp(_amountTokenPattern).allMatches(line).length > 1 ||
               _attachedSupportedCodeOnSelectedAmount(line) != null));
@@ -6280,7 +6298,7 @@ bool _hasTotalLabel(String line, String normalized) {
   return _hasEnglishReceiptLabel(
         normalized,
         RegExp(
-          r'\b(total\s+amount\s+due|total\s+current\s+charges|refund\s+total|total\s+paid|paid\s+total|grand\s+total|amount\s+due|balance\s+due|payment\s+due|total)\b',
+          r'\b(total\s+(?:amount\s+)?due|total\s+current\s+charges|refund\s+total|total\s+paid|paid\s+total|grand\s+total|amount\s+due|balance\s+due|payment\s+due|total)\b',
           caseSensitive: false,
         ),
       ) ||

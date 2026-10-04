@@ -167,6 +167,58 @@ Total USD 43.00
     },
   );
 
+  test('labeled statement dates and billing periods do not become prices', () {
+    final preview = const ReceiptOcrParser().parse('''
+Harbor Utility
+Reliable service. Statement Date: Apr 10, 2025
+Billing Period: Mar 01, 2025 – Mar 31, 2025
+Electricity USD 12.00
+Total USD 12.00
+''');
+    expect(preview.items.map((item) => item.description), ['Electricity']);
+    expect(preview.items.single.lineTotal, '12.00');
+  });
+
+  test('a separate priced item survives an adjacent statement date', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Harbor Utility\nCoffee USD 5.00 Bill Date: Apr 10, 2025\n'
+      'Total USD 5.00',
+      blocks: [
+        _layoutBlock('Harbor Utility', 0, 0, 20, 250),
+        _layoutBlock('Coffee', 1, 1, 20, 160),
+        _layoutBlock('USD 5.00', 2, 1, 250, 330),
+        _layoutBlock('Bill Date:', 3, 1, 500, 610),
+        _layoutBlock('Apr 10, 2025', 4, 1, 640, 790),
+        _layoutBlock('Total USD 5.00', 5, 2, 20, 330),
+      ],
+    );
+    expect(preview.items.single.description, 'Coffee');
+    expect(preview.items.single.lineTotal, '5.00');
+  });
+
+  test('a printed price after a dated description remains an item', () {
+    final preview = const ReceiptOcrParser().parse('''
+Print Shop
+Statement Date: Apr 10, 2025 Calendar USD 20.00
+Total Due Guide USD 5.00
+Total USD 25.00
+''');
+    expect(preview.items.map((item) => item.lineTotal), ['20.00', '5.00']);
+    expect(preview.items.last.description, 'Total Due Guide');
+  });
+
+  test('total due is a summary and outranks current charges', () {
+    final preview = const ReceiptOcrParser().parse('''
+Harbor Internet
+Internet Plan USD 50.00
+Total Due USD 40.00
+Total Current Charges USD 50.00
+''');
+    expect(preview.items.map((item) => item.description), ['Internet Plan']);
+    expect(preview.total, '40.00');
+    expect(preview.reviewHints, isNotEmpty);
+  });
+
   test(
     'amount due outranks current charges and tender without rewriting values',
     () {
