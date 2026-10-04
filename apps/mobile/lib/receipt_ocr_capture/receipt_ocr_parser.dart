@@ -6323,27 +6323,32 @@ bool _hasPriorityTotalLabel(String line) {
   if (_hasEnglishReceiptLabel(line.toLowerCase(), RegExp('\\b$label\\b'))) {
     return true;
   }
-  // A total can show several currency amounts. Keep its priority when the
-  // entire suffix is monetary, while product prose cannot earn that priority.
+  // A total can show several currency amounts. Each extra amount needs its
+  // own currency marker: a bare edition year is not another monetary cell.
   final prefix = RegExp(
     '^\\s*$label\\b',
     caseSensitive: false,
   ).firstMatch(line);
   if (prefix == null) return false;
-  final suffix = line.substring(prefix.end);
-  final amountPattern = RegExp(_amountTokenPattern);
-  if (!amountPattern.hasMatch(suffix)) return false;
-  final remaining = suffix
-      .replaceAll(amountPattern, ' ')
-      .replaceAll(
-        RegExp(
-          '(?<![\\p{L}])(?:$_currencyTokenPattern)(?![\\p{L}])',
-          caseSensitive: false,
-          unicode: true,
-        ),
-        ' ',
-      );
-  return RegExp(r'^[\s:=/|;]*$').hasMatch(remaining);
+  const separators = r'[\s:=/|;,&()\[\]]';
+  final separatorPattern = RegExp('$separators+');
+  final cellPattern = RegExp(
+    '(?:(?:$_currencyTokenPattern)\\s*$_amountTokenPattern'
+    '|$_amountTokenPattern\\s*(?:$_currencyTokenPattern))'
+    '(?=$separators|\$)',
+    caseSensitive: false,
+  );
+  var offset = prefix.end;
+  var cells = 0;
+  while (offset < line.length) {
+    offset = separatorPattern.matchAsPrefix(line, offset)?.end ?? offset;
+    if (offset == line.length) break;
+    final cell = cellPattern.matchAsPrefix(line, offset);
+    if (cell == null) return false;
+    cells++;
+    offset = cell.end;
+  }
+  return cells > 0;
 }
 
 bool _hasEnglishReceiptLabel(String normalized, RegExp labelPattern) {

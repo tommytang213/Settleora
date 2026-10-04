@@ -235,16 +235,37 @@ Total USD 25.00
 
   test('multi-currency amount due keeps priority over another total', () {
     for (final label in ['Amount Due', 'Total Amount Due', 'Total Due']) {
-      final preview = const ReceiptOcrParser().parse('''
+      for (final amounts in [
+        'EUR 72.00 / USD 80.00',
+        'EUR 72.00, USD 80.00',
+        '72.00 EUR / 80.00 USD',
+        'EUR72.00; USD80.00',
+      ]) {
+        final preview = const ReceiptOcrParser().parse('''
 Harbor Hotel
 Room USD 100.00
 Deposit Paid USD 20.00
-$label EUR 72.00 / USD 80.00
+$label $amounts
 Total USD 100.00
 ''');
-      expect(preview.currency, 'USD', reason: label);
-      expect(preview.total, '80.00', reason: label);
+        expect(preview.currency, 'USD', reason: '$label $amounts');
+        expect(preview.total, '80.00', reason: '$label $amounts');
+      }
     }
+  });
+
+  test('a bare edition year cannot supply another priority monetary cell', () {
+    final preview = const ReceiptOcrParser().parse('''
+Bookshop
+Total Due 2025 USD 5.00
+Notebook USD 20.00
+Total USD 25.00
+''');
+    expect(preview.total, '25.00');
+    expect(preview.items.map((item) => item.description), [
+      'Total Due 2025',
+      'Notebook',
+    ]);
   });
 
   test(
