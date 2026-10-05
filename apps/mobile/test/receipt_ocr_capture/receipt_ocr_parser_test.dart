@@ -96,7 +96,12 @@ void main() {
   );
 
   test('bounded utility recovery never clears a panel credit sign', () {
-    for (final support in ['Credit - 10', 'Credit - USD 10', '-']) {
+    for (final support in [
+      'Credit - 10',
+      'Credit - USD 10',
+      '-',
+      'Support ＵＳＤ １０．００; 8 AM - 8 PM PT',
+    ]) {
       final blocks = _boundedUtilityBlocks(support: support);
       final preview = _parseBoundedUtility(blocks);
       expect(
@@ -130,27 +135,56 @@ void main() {
     expect(preview.blocks, containsAll(blocks));
   });
 
-  test(
-    'bounded recovery does not accept detached signs or stray currency',
-    () {
-      final signed = _boundedUtilityBlocks(discountAmount: '- USD 10،00');
-      final signedPreview = _parseBoundedUtility(signed);
-      expect(signedPreview.discount, isNull);
-      expect(signedPreview.blocks, containsAll(signed));
-      final currency = _boundedUtilityBlocks(description: 'Internet Plan USD');
-      final currencyPreview = _parseBoundedUtility(currency);
-      expect(
-        currencyPreview.items.any(
-          (item) => item.description == 'Internet Plan USD',
-        ),
-        isFalse,
-      );
-      expect(currencyPreview.reviewHints, isNotEmpty);
-      expect(currencyPreview.blocks, containsAll(currency));
-    },
-  );
+  test('bounded recovery does not accept detached signs or stray currency', () {
+    final signed = _boundedUtilityBlocks(discountAmount: '- USD 10،00');
+    final signedPreview = _parseBoundedUtility(signed);
+    expect(signedPreview.discount, isNull);
+    expect(signedPreview.blocks, containsAll(signed));
+    final currency = _boundedUtilityBlocks(description: 'Internet Plan USD');
+    final currencyPreview = _parseBoundedUtility(currency);
+    expect(
+      currencyPreview.items.any(
+        (item) => item.description == 'Internet Plan USD',
+      ),
+      isFalse,
+    );
+    expect(currencyPreview.reviewHints, isNotEmpty);
+    expect(currencyPreview.blocks, containsAll(currency));
+  });
 
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test(
+    'bounded recovery preserves summary and description-sign exclusions',
+    () {
+      for (final description in [
+        'Previous Balance',
+        'Payments Received',
+        'Internet Plan ＵＳＤ',
+        'Paid by Cash',
+        'Gift Card',
+        'Payment Summary',
+        'Cash',
+        '- Internet Plan 500',
+      ]) {
+        final blocks = _boundedUtilityBlocks(description: description);
+        final preview = _parseBoundedUtility(blocks);
+        expect(preview.items.any((item) => item.lineTotal == '59.99'), isFalse);
+        expect(preview.reviewHints, isNotEmpty);
+        expect(preview.blocks, containsAll(blocks));
+      }
+      for (final sign in ['-', '−', '－']) {
+        final blocks = _boundedUtilityBlocks();
+        final index = blocks.indexWhere((b) => b.text == 'Internet Plan 500');
+        blocks[index] = _layoutBlock('Internet Plan 500', 8, 3, 60, 383);
+        blocks.insert(index, _layoutBlock(sign, 7, 3, 50, 58));
+        final preview = _parseBoundedUtility(blocks);
+        expect(preview.items.any((item) => item.lineTotal == '59.99'), isFalse);
+        expect(preview.reviewHints, isNotEmpty);
+        expect(preview.blocks, containsAll(blocks));
+      }
+    },
+  );
 
   test('bounded item diagnostics retain fixed grammar and origin roles', () {
     expect(

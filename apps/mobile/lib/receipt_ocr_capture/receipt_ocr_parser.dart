@@ -2458,15 +2458,26 @@ class ReceiptOcrParser {
                 ))) {
           continue;
         }
+        if (descriptionCells.any(
+          (block) => RegExp(r'(^|\s)[-−－](?=\s|$)').hasMatch(block.text),
+        )) {
+          continue;
+        }
         final description = _cleanDescription(
           descriptionCells.map((block) => block.text.trim()).join(' '),
         );
-        if (!_hasSubstantiveItemDescription(description) ||
-            _isReceiptMetadataLine(description, allowBarePostal: false) ||
-            _hasDetachedAmountSign(description) ||
-            _printedCurrencyMarkerMatches(description).isNotEmpty ||
-            RegExp(r'\p{Sc}', unicode: true).hasMatch(description) ||
-            _hasChargeTableMonetaryEvidence(description)) {
+        final normalizedDescription = _normalizeOcrLine(description);
+        if (!_hasSubstantiveItemDescription(normalizedDescription) ||
+            _isAccountBalanceSummaryLine(normalizedDescription) ||
+            _isPaymentMetadataLine('$normalizedDescription $monetaryText') ||
+            _isReceiptMetadataLine(
+              normalizedDescription,
+              allowBarePostal: false,
+            ) ||
+            _hasDetachedAmountSign(normalizedDescription) ||
+            _printedCurrencyMarkerMatches(normalizedDescription).isNotEmpty ||
+            RegExp(r'\p{Sc}', unicode: true).hasMatch(normalizedDescription) ||
+            _hasChargeTableMonetaryEvidence(normalizedDescription)) {
           continue;
         }
         final discountLabel = RegExp(
@@ -2478,7 +2489,8 @@ class ReceiptOcrParser {
           adjustments[rowIndex] = 'Discount $monetaryText';
           continue;
         }
-        if (_hasPotentialReceiptAdjustmentLabel(description)) continue;
+        if (_hasPotentialReceiptAdjustmentLabel(normalizedDescription))
+          continue;
         final lineTotal = _lastAmountInLine(monetaryText, currency: currency);
         if (lineTotal == null || lineTotal.startsWith('-')) continue;
         items[rowIndex] = ReceiptOcrItemCandidate(
@@ -4209,14 +4221,15 @@ bool _isCompleteUtilityPeriod(String text) {
 }
 
 bool _isBoundedUtilitySupportCopy(String text) {
-  if (_hasPotentialReceiptAdjustmentLabel(text) ||
-      _printedCurrencyMarkerMatches(text).isNotEmpty ||
-      RegExp(r'\p{Sc}', unicode: true).hasMatch(text)) {
+  final normalized = _normalizeOcrLine(text);
+  if (_hasPotentialReceiptAdjustmentLabel(normalized) ||
+      _printedCurrencyMarkerMatches(normalized).isNotEmpty ||
+      RegExp(r'\p{Sc}', unicode: true).hasMatch(normalized)) {
     return false;
   }
   // Only complete printed clock ranges explain numeric signs in the panel.
   // Other numbers or trailing signs retain the original row's uncertainty.
-  final withoutClocks = text.replaceAll(
+  final withoutClocks = normalized.replaceAll(
     RegExp(
       r'(?<![\p{L}\p{N}])(?:[1-9]|1[0-2])(?::[0-5]\d)?\s*(?:am|pm)\s*[-−–]\s*'
       r'(?:[1-9]|1[0-2])(?::[0-5]\d)?\s*(?:am|pm)(?![\p{L}\p{N}])',
@@ -4226,7 +4239,7 @@ bool _isBoundedUtilitySupportCopy(String text) {
     '',
   );
   return !RegExp(r'\d|[-−]\s*$').hasMatch(withoutClocks) &&
-      _unicodeLetterPattern.hasMatch(text);
+      _unicodeLetterPattern.hasMatch(normalized);
 }
 
 bool _hasChargeTableMonetaryEvidence(String monetaryText) {
