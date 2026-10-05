@@ -77,6 +77,99 @@ ReceiptOcrPreview _parseBoundedUtility(List<ReceiptOcrBlockEvidence> blocks) {
 }
 
 void main() {
+  test('exact Total role survives separately printed amount context', () {
+    for (final label in [
+      'Total',
+      'Total USD',
+      r'Total $',
+      'Total ZAR',
+      'Total (USD)',
+      r'Total USD $',
+      'Total USD / EUR',
+      'Total: (ZAR)',
+    ]) {
+      for (final period in [
+        'Feb 5 – Mar 4, 2025',
+        'March 2025',
+        'Printed period unclear',
+      ]) {
+        final original = _boundedUtilityBlocks(
+          description: 'Next Month Estimate',
+        );
+        final blocks = [
+          ...original.where((b) => b.row < 3),
+          _layoutBlock(label, 7, 3, 50, 716),
+          _layoutBlock(period, 8, 4, 417, 567),
+          _layoutBlock('54.30', 9, 4, 659, 716),
+          for (final b in original.where((b) => b.row >= 3))
+            _layoutBlock(
+              b.text,
+              b.order + 4,
+              b.row + 2,
+              b.points[0].x,
+              b.points[1].x,
+            ),
+        ];
+        final preview = _parseBoundedUtility(blocks);
+        expect(
+          preview.items.any((i) => i.lineTotal == '59.99'),
+          isFalse,
+          reason: '$label | $period',
+        );
+        expect(preview.blocks, containsAll(blocks));
+      }
+    }
+  });
+  test(
+    'financial phrase position preserves conflict and service distinctions',
+    () {
+      for (final qualifier in [
+        'Partial',
+        'Full',
+        'Final',
+        'Initial',
+        'Additional',
+        'Advance',
+      ]) {
+        final label = '$qualifier Payment';
+        final serviceBlocks = _boundedUtilityBlocks(description: label);
+        final service = _parseBoundedUtility(serviceBlocks);
+        expect(
+          service.items.any((i) => i.lineTotal == '59.99'),
+          isFalse,
+          reason: label,
+        );
+        expect(service.reviewHints, isNotEmpty);
+        expect(service.blocks, containsAll(serviceBlocks));
+        final blocks = _boundedUtilityBlocks(discountAmount: 'USD -10.00');
+        final i = blocks.indexWhere((b) => b.order == 12);
+        blocks[i] = _layoutBlock('Loyalty Discount ($label)', 12, 4, 51, 383);
+        final j = blocks.indexWhere((b) => b.order == 15);
+        blocks[j] = _layoutBlock('Mon - Fri, 8 AM - 8 PM PT', 15, 4, 828, 1020);
+        final discount = _parseBoundedUtility(blocks);
+        expect(discount.discount, isNull, reason: label);
+        expect(discount.reviewHints, isNotEmpty);
+        expect(discount.blocks, containsAll(blocks));
+      }
+      for (final label in [
+        'Partial Payment Plan',
+        'Full Payment Gateway',
+        'Additional Payment Subscription',
+      ]) {
+        final blocks = _boundedUtilityBlocks(description: label);
+        final preview = _parseBoundedUtility(blocks);
+        expect(
+          preview.items.any(
+            (i) => i.description == label && i.lineTotal == '59.99',
+          ),
+          isTrue,
+          reason: label,
+        );
+        expect(preview.blocks, containsAll(blocks));
+      }
+    },
+  );
+
   test('merged footer width does not change adjacent amount ownership', () {
     for (final label in [
       'Total USD',

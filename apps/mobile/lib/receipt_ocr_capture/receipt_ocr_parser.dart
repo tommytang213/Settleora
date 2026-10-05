@@ -2379,7 +2379,7 @@ class ReceiptOcrParser {
             ]
             .expand((role) => role.split(financialConjunction))
             .any(
-              (role) => _hasBoundedUtilityFinancialPrefix(role, monetaryText),
+              (role) => _hasBoundedUtilityFinancialPhrase(role, monetaryText),
             );
     bool hasAdjustmentRole(String label) =>
         [
@@ -2597,6 +2597,32 @@ class ReceiptOcrParser {
               originalProjection,
             ).map((marker) => RegExp.escape(marker.group(0)!)),
           ].join('|');
+          // An exact printed Total role ends this table even when its amount
+          // is unreadable or split across further rows and period cells. This
+          // boundary selects no money; named products retain their other words.
+          final totalRole = RegExp(
+            r'^[^\p{L}\p{N}]*total',
+            caseSensitive: false,
+            unicode: true,
+          ).firstMatch(originalProjection);
+          if (totalRole != null) {
+            var suffix = originalProjection.substring(totalRole.end);
+            final currencyOnly = RegExp(
+              '^(?:$boundaryCurrencyPattern)',
+              caseSensitive: false,
+              unicode: true,
+            );
+            while (true) {
+              suffix = suffix.replaceFirst(
+                RegExp(r'^[^\p{L}\p{N}]+', unicode: true),
+                '',
+              );
+              if (suffix.isEmpty) return true;
+              final marker = currencyOnly.firstMatch(suffix);
+              if (marker == null) break;
+              suffix = suffix.substring(marker.end);
+            }
+          }
           final ownedMoneyProjection = _normalizeOcrLine(
             blocks
                 .map((block) {
@@ -4748,24 +4774,25 @@ final _boundedUtilityNamedServiceQualifier = RegExp(
   caseSensitive: false,
 );
 
-// Leading financial phrases survive qualifiers in bounded conflict and item
-// checks. "in Advance" cannot erase an already printed Amount Paid role.
-bool _hasBoundedUtilityFinancialPrefix(String label, String monetaryText) {
+// Financial phrases survive leading and trailing qualifiers in bounded
+// conflict and item checks; their position does not erase the printed role.
+bool _hasBoundedUtilityFinancialPhrase(String label, String monetaryText) {
   final normalizedRole = _boundedUtilityRoleText(label);
-  final statusQualifier = RegExp(
-    r'^(?:(?:is|was|has|have|had|been|being|will|be|not|now|still|already|'
-    r'partially|fully|successfully|automatically|manually)\s+)*'
-    r'(?:received|made|pending|processed|processing|complete|completed|confirmed|confirmation|'
-    r'successful|success|paid|authorized|authorised|captured|rejected|approved|accepted|declined|'
-    r'failed|refunded|reversed|cancelled|canceled|posted|applied|outstanding|'
-    r'scheduled|due|deferred|cleared|settled|unsettled|unpaid|awaiting)\b',
-    caseSensitive: false,
-  );
-  return [
-    normalizedRole,
-    if (statusQualifier.hasMatch(normalizedRole))
-      normalizedRole.replaceFirst(statusQualifier, '').trim(),
-  ].any((role) {
+  final starts = [
+    0,
+    ...RegExp(r'\s+').allMatches(normalizedRole).map((match) => match.end),
+  ];
+  return starts.any((start) {
+    final role = normalizedRole.substring(start);
+    // A terminal service-kind word belongs to its preceding name. Inspecting
+    // that word alone must not invent a second financial role.
+    final qualifier = _boundedUtilityNamedServiceQualifier.firstMatch(role);
+    if (start > 0 &&
+        qualifier != null &&
+        qualifier.start == 0 &&
+        qualifier.end == role.length) {
+      return false;
+    }
     final ends = [
       ...RegExp(r'\s+').allMatches(role).map((match) => match.start),
       role.length,
