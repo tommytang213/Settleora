@@ -2381,6 +2381,24 @@ class ReceiptOcrParser {
           break;
         }
         final row = rows[rowIndex];
+        // A printed total ends the table even without a complete service row.
+        // Use the existing extractor's projection inside the printed headings
+        // so a separate support panel cannot hide that boundary.
+        final tableText = _normalizeOcrLine(
+          row
+              .where((block) {
+                if (block.points.isEmpty) return false;
+                final center = (_blockLeft(block) + _blockRight(block)) / 2;
+                return center >= _blockLeft(descriptionHeader) - 12 &&
+                    center <= _blockRight(amountHeader) + 12;
+              })
+              .map((block) => block.text.trim())
+              .join(' '),
+        );
+        if (_hasTotalLabel(tableText, tableText.toLowerCase()) ||
+            _hasSubtotalLabel(tableText, tableText.toLowerCase())) {
+          break;
+        }
         if (row.any((block) => block.points.isEmpty)) continue;
         final amountCells = row
             .where(
@@ -2410,9 +2428,9 @@ class ReceiptOcrParser {
             _unsupportedIsoCodeAdjacentToSelectedAmount(monetaryText) != null) {
           continue;
         }
-        final printedCurrency = _explicitAdjustmentCurrencyFromLine(
+        final printedCurrency = _currencyAdjacentToSelectedAmount(
           monetaryText,
-          receiptCurrency: currency,
+          currency,
         );
         if (printedCurrency.hasExplicitEvidence &&
             printedCurrency.currency != currency) {
@@ -2471,15 +2489,11 @@ class ReceiptOcrParser {
             .map((block) => block.text.trim())
             .join(' ');
         if (descriptionCells.any(
-              (block) => RegExp(
-                r'(?<![\p{L}\p{N}])[-−－](?![\p{L}\p{N}])',
-                unicode: true,
-              ).hasMatch(block.text),
-            ) ||
-            RegExp(
-              r'(?<![\p{L}\p{N}])-\s*\d|\d\s*-(?![\p{L}\p{N}])',
-              unicode: true,
-            ).hasMatch(_normalizeOcrLine(descriptionText))) {
+          (block) => RegExp(
+            r'(?<![\p{L}\p{N}])[-−－]|[-−－](?![\p{L}\p{N}])',
+            unicode: true,
+          ).hasMatch(block.text),
+        )) {
           continue;
         }
         final description = _cleanDescription(descriptionText);

@@ -169,6 +169,63 @@ void main() {
     expect(currencyPreview.blocks, containsAll(currency));
   });
 
+  test(
+    'bounded recovery resolves contextual money markers before promotion',
+    () {
+      for (final marker in ['Rs', 'kr']) {
+        for (final money in [
+          '$marker 59.99',
+          '59.99 $marker',
+          '${marker}59.99',
+          '59.99$marker',
+        ]) {
+          final blocks = _boundedUtilityBlocks(serviceAmount: money);
+          final preview = _parseBoundedUtility(blocks);
+          expect(
+            preview.items.any((item) => item.lineTotal == '59.99'),
+            isFalse,
+          );
+          expect(preview.reviewHints, isNotEmpty);
+          expect(preview.blocks, containsAll(blocks));
+        }
+        for (final money in ['$marker -10.00', '-10.00 $marker']) {
+          final blocks = _boundedUtilityBlocks(discountAmount: money);
+          final preview = _parseBoundedUtility(blocks);
+          expect(preview.discount, isNull);
+          expect(preview.blocks, containsAll(blocks));
+        }
+      }
+    },
+  );
+
+  test('bounded recovery stops at a total without a service period', () {
+    for (final label in ['Total Amount Due', 'Subtotal']) {
+      final original = _boundedUtilityBlocks(
+        description: 'Next Month Estimate',
+      );
+      final blocks = [
+        ...original.where((block) => block.row < 3),
+        _layoutBlock(label, 7, 3, 50, 383),
+        _layoutBlock(r'$54.30', 8, 3, 659, 716),
+        _layoutBlock('Help 24/7', 9, 3, 828, 1020),
+        for (final block in original.where((block) => block.row >= 3))
+          _layoutBlock(
+            block.text,
+            block.order + 3,
+            block.row + 1,
+            block.points[0].x,
+            block.points[1].x,
+          ),
+      ];
+      final preview = _parseBoundedUtility(blocks);
+      expect(
+        preview.items.any((item) => item.description == 'Next Month Estimate'),
+        isFalse,
+      );
+      expect(preview.blocks, containsAll(blocks));
+    }
+  });
+
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test(
@@ -214,6 +271,12 @@ void main() {
         'Internet Plan (10 -)',
         'Internet Plan (10-) 12 months',
         'Internet Plan 10- (12 months)',
+        'Internet Plan- 10 (12 months)',
+        'Internet Plan− 10 (12 months)',
+        'Internet Plan－ 10 (12 months)',
+        'Internet Plan-(10)',
+        'Internet Plan- (10)',
+        'Internet Plan- (10) 12 months',
         'Internet Plan XPF 10',
         'Internet Plan XPF 10 (12 months)',
         'Internet Plan 10 XPF (12 months)',
