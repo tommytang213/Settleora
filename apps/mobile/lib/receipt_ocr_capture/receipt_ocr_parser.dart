@@ -2363,9 +2363,22 @@ class ReceiptOcrParser {
     final financialConjunction = RegExp(
       r'\b(?:and|or|with|plus|minus|less|versus|vs|after|before|'
       r'including|excluding|following|without|net\s+of|'
-      r'for|in|by|as\s+of|via|on|from|to|at)\b|&',
+      r'for|in|by|as\s+of|via|on|from|to|at)\b|[&:：;,，；/|.!?]|'
+      r'\s+[\p{Dash}➖]\s+',
       caseSensitive: false,
+      unicode: true,
     );
+    // Apply the same clause grammar to visible notes and outer labels. Notes
+    // cannot erase financial evidence before a service or discount is selected.
+    bool hasFinancialRole(String label, String monetaryText) =>
+        [
+              _boundedUtilityRoleText(label),
+              ..._boundedUtilityAnnotationRoles(label),
+            ]
+            .expand((role) => role.split(financialConjunction))
+            .any(
+              (role) => _hasBoundedUtilityFinancialPrefix(role, monetaryText),
+            );
     final discountLabelPattern = RegExp(
       r'^(?:[\p{L}\p{N} -]+\s+)?(?:discount|coupon|rebate)(?:\s*\([\p{L}\p{N} %.-]+\))?$',
       caseSensitive: false,
@@ -2490,7 +2503,7 @@ class ReceiptOcrParser {
           final namedDates = RegExp(
             '(?<![\\p{L}\\p{N}])'
             "(?<!\\d[.,/'’])"
-            '${_utilityDatePattern(allowFragmentedYear: true, allowTwoDigitYear: true)}'
+            '${_utilityDatePattern(allowFragmentedYear: true, allowTwoDigitYear: true, allowOrdinalDay: true)}'
             '(?![\\p{L}\\p{N}])',
             caseSensitive: false,
             unicode: true,
@@ -2603,12 +2616,7 @@ class ReceiptOcrParser {
                 remainingRoleLabel,
                 ...otherRoleClauses,
                 ..._boundedUtilityAnnotationRoles(financialLabel),
-              ].any(
-                (role) => _hasBoundedUtilityFinancialPrefix(
-                  role,
-                  financialMonetaryText,
-                ),
-              ) ||
+              ].any((role) => hasFinancialRole(role, financialMonetaryText)) ||
               pluralFinancialRoles.hasMatch(otherRoleLabel) ||
               _hasPotentialReceiptAdjustmentLabel(otherRoleLabel) ||
               _isAdministrativeLine('$otherRoleLabel $financialMonetaryText')) {
@@ -2768,12 +2776,7 @@ class ReceiptOcrParser {
         }
         // Established financial roles remain non-item evidence in this recovery
         // path. Keep the printed description and global classifiers intact.
-        if (_boundedUtilityRoleText(normalizedDescription)
-                .split(financialConjunction)
-                .any(
-                  (role) =>
-                      _hasBoundedUtilityFinancialPrefix(role, monetaryText),
-                ) ||
+        if (hasFinancialRole(normalizedDescription, monetaryText) ||
             pluralFinancialRoles.hasMatch(normalizedDescription) ||
             _hasPotentialReceiptAdjustmentLabel(normalizedDescription) ||
             _isAdministrativeLine(ownedText) ||
@@ -4581,6 +4584,7 @@ String _utilityBoundaryDatePattern() {
     allowNumericDates: true,
     allowFragmentedYear: true,
     allowTwoDigitYear: true,
+    allowOrdinalDay: true,
   );
   // A footer may print one date, a range, or an incomplete range. None of
   // these boundary-only forms broadens service-row monetary eligibility.
@@ -4591,6 +4595,7 @@ String _utilityDatePattern({
   bool allowNumericDates = false,
   bool allowFragmentedYear = false,
   bool allowTwoDigitYear = false,
+  bool allowOrdinalDay = false,
 }) {
   const month =
       r'(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|'
@@ -4602,8 +4607,9 @@ String _utilityDatePattern({
       : r'(?:19|20)\d{2}';
   final shortYear = allowFragmentedYear ? r'\d\s*\d' : r'\d{2}';
   final year = allowTwoDigitYear ? '(?:$fullYear|$shortYear)' : fullYear;
+  final namedDay = allowOrdinalDay ? '$day(?:st|nd|rd|th)?' : day;
   final namedDate =
-      '(?:$month\\s*$day|$day\\s*$month)'
+      '(?:$month\\s*$namedDay|$namedDay\\s*$month)'
       '(?:(?:\\s*,\\s*|\\s+)$year)?';
   // Numeric dates only identify a footer boundary. They never broaden the
   // complete named-date evidence required to recover a service amount.
@@ -4628,8 +4634,8 @@ bool _isBoundedUtilitySupportCopy(String text) {
       RegExp(r'\p{Sc}', unicode: true).hasMatch(normalized)) {
     return false;
   }
-  // Only complete printed clock ranges explain numeric signs in the panel.
-  // Other numbers or trailing signs retain the original row's uncertainty.
+  // Only complete printed clock and weekday ranges explain detached signs.
+  // Residual signs in punctuation retain uncertainty; hyphenated words do not.
   final withoutClocks = normalized.replaceAll(
     RegExp(
       r'(?<![\p{L}\p{N}])(?:[1-9]|1[0-2])(?::[0-5]\d)?\s*(?:am|pm)\s*[-−–]\s*'
@@ -4639,10 +4645,21 @@ bool _isBoundedUtilitySupportCopy(String text) {
     ),
     '',
   );
+  const weekday =
+      r'(?:Mon(?:day)?|Tue(?:sday)?|Wed(?:nesday)?|Thu(?:rsday)?|'
+      r'Fri(?:day)?|Sat(?:urday)?|Sun(?:day)?)';
+  final withoutRanges = withoutClocks.replaceAll(
+    RegExp(
+      '\\b$weekday\\s*[\\p{Dash}➖]\\s*$weekday\\b',
+      caseSensitive: false,
+      unicode: true,
+    ),
+    '',
+  );
   return !RegExp(
-        r'\d|[\p{Dash}➖]\s*$',
+        r'\d|(?<!\p{L})[\p{Dash}➖]|[\p{Dash}➖](?!\p{L})',
         unicode: true,
-      ).hasMatch(withoutClocks) &&
+      ).hasMatch(withoutRanges) &&
       _unicodeLetterPattern.hasMatch(normalized);
 }
 

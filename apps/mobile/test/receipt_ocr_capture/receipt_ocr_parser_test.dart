@@ -99,6 +99,17 @@ void main() {
   test('bounded utility recovery never clears a panel credit sign', () {
     for (final support in [
       'Credit - 10',
+      for (final suffix in [
+        '(-)',
+        '[−]',
+        '{﹣}',
+        '(－)',
+        '( - )',
+        '-;',
+        '(-) Contact us',
+        'Contact - us',
+      ])
+        'Mon - Fri, 8 AM - 8 PM PT $suffix',
       'Credit - USD 10',
       '-',
       'Support ＵＳＤ １０．００; 8 AM - 8 PM PT',
@@ -127,6 +138,17 @@ void main() {
         reason: support,
       );
       expect(preview.reviewHints, isNotEmpty, reason: support);
+      expect(preview.blocks, containsAll(blocks));
+    }
+    for (final support in [
+      'Monday – Friday, 8 AM - 8 PM PT',
+      'Live-chat, Mon - Fri, 8 AM - 8 PM PT',
+      '(Mon - Fri), 8 AM - 8 PM PT',
+    ]) {
+      final blocks = _boundedUtilityBlocks(support: support);
+      final preview = _parseBoundedUtility(blocks);
+      expect(preview.items.any((item) => item.lineTotal == '59.99'), isTrue);
+      expect(preview.reviewHints, isEmpty);
       expect(preview.blocks, containsAll(blocks));
     }
     for (final dayDash in ['-', '–', '‐', '‒']) {
@@ -470,6 +492,8 @@ void main() {
       'Feb 5 – Mar 4, 20 25',
       'Feb 5 to Mar 4, 2025',
       'Feb 5, 25 – Mar 4, 25',
+      'Feb 5th – Mar 4th, 2025',
+      'Feb 1st,25 – Mar 3rd,25',
     ]) {
       final preview = _parseBoundedUtility(
         _boundedUtilityBlocks(period: period),
@@ -500,6 +524,20 @@ void main() {
         ('Total Mar 4,25', true),
         ('Total Mar 4,25 $money', false),
         ('Total $money Mar 4,25', false),
+        for (final date in [
+          'Mar 4th, 2025',
+          'March 1st,25',
+          '4th Mar 2025',
+          'Feb 2nd,25 – Mar 3rd,25',
+          'Mar 21st, 2025',
+          'Mar 22nd, 2025',
+          'Mar 23rd, 2025',
+          'Mar 31st, 2025',
+        ]) ...[
+          ('Total $date', true),
+          ('Total $money $date', false),
+          ('Total $date $money', false),
+        ],
       ]) {
         final original = _boundedUtilityBlocks(
           description: 'Next Month Estimate',
@@ -568,6 +606,14 @@ void main() {
       'Loyalty Discount (Paid (12 months))',
       'Loyalty Discount (notes [Amount Paid])',
       'Loyalty Discount [notes (Amount Paid)]',
+      'Loyalty Discount (Payment in March)',
+      'Loyalty Discount (Balance after March)',
+      'Loyalty Discount (Tender by Cheque)',
+      'Loyalty Discount (Payment: received)',
+      'Loyalty Discount [Payment in March]',
+      'Loyalty Discount {Payment via Bank}',
+      'Loyalty Discount ((Payment in March))',
+      'Loyalty Discount (12 months; Payment in March)',
     ]) {
       final blocks = _boundedUtilityBlocks();
       final labelIndex = blocks.indexWhere(
@@ -833,6 +879,18 @@ void main() {
         'Internet Plan 10 XPF (12 months)',
         'Internet Plan 10XPF (12 months)',
         'Internet Plan ＵＳＤ',
+        'Payment: received',
+        'Payment：received',
+        'Tender; cheque',
+        'Balance, March',
+        'Payment / received',
+        'Payment | received',
+        'Payment - received',
+        'Amount Paid: March',
+        'Internet Plan (Payment in March)',
+        'Internet Plan (Amount Paid)',
+        'Internet Plan [Balance after March]',
+        'Internet Plan (Tender by Cheque)',
         'Paid by Cash',
         'Gift Card',
         'Payment Summary',
@@ -906,6 +964,10 @@ void main() {
         'Payment Plan with Internet',
         'Balance Board for Internet',
         'Payment Plan for Internet',
+        'Payment Plan: Internet',
+        'Balance Board / Internet',
+        'Internet Plan (Payment Plan)',
+        'Internet Plan (Balance Board)',
       ]) {
         final blocks = _boundedUtilityBlocks(description: description);
         final preview = _parseBoundedUtility(blocks);
