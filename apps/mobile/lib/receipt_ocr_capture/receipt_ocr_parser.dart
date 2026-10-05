@@ -2426,9 +2426,22 @@ class ReceiptOcrParser {
           }),
         ];
         if (boundaryProjections.any((blocks) {
-          final text = _normalizeOcrLine(
-            blocks.map((block) => block.text.trim()).join(' '),
-          );
+          final text = blocks
+              .map((block) {
+                final text = _normalizeOcrLine(block.text.trim());
+                // OCR can merge a footer label with its service-period suffix.
+                // Remove only the bounded date grammar for boundary recognition.
+                for (final gap in RegExp(r'\s+').allMatches(text)) {
+                  if (_matchesUtilityPeriod(
+                    text.substring(gap.end),
+                    allowIncompleteEnd: true,
+                  )) {
+                    return text.substring(0, gap.start);
+                  }
+                }
+                return text;
+              })
+              .join(' ');
           return _hasTotalLabel(text, text.toLowerCase()) ||
               _hasSubtotalLabel(text, text.toLowerCase());
         })) {
@@ -2492,7 +2505,7 @@ class ReceiptOcrParser {
         final amountTokens = RegExp(
           _amountTokenPattern,
         ).allMatches(monetaryText).toList(growable: false);
-        if (RegExp(r'[-−－]\s').hasMatch(amountCell.text) ||
+        if (RegExp(r'[\p{Dash}➖]\s', unicode: true).hasMatch(amountCell.text) ||
             _hasDetachedAmountSign(amountCell.text) ||
             !_isStandaloneAmountRow(monetaryText) ||
             !_hasChargeTableMonetaryEvidence(monetaryText) ||
@@ -2542,7 +2555,7 @@ class ReceiptOcrParser {
             !descriptionCells.any(
               (block) => _blockLeft(block) <= _blockRight(descriptionHeader),
             ) ||
-            !_isCompleteUtilityPeriod(
+            !_matchesUtilityPeriod(
               periodCells.map((block) => block.text.trim()).join(' '),
             )) {
           continue;
@@ -2567,7 +2580,7 @@ class ReceiptOcrParser {
         }
         if (descriptionCells.any(
           (block) => RegExp(
-            r'(?<![\p{L}\p{N}])[-−－]|[-−－](?![\p{L}\p{N}])',
+            r'(?<![\p{L}\p{N}])[\p{Dash}➖]|[\p{Dash}➖](?![\p{L}\p{N}])',
             unicode: true,
           ).hasMatch(block.text),
         )) {
@@ -4341,7 +4354,7 @@ bool _hasExplicitTaxRate(String line) => RegExp(
   caseSensitive: false,
 ).hasMatch(line);
 
-bool _isCompleteUtilityPeriod(String text) {
+bool _matchesUtilityPeriod(String text, {bool allowIncompleteEnd = false}) {
   const month =
       r'(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|'
       r'Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|'
@@ -4351,8 +4364,9 @@ bool _isCompleteUtilityPeriod(String text) {
   const date =
       '(?:$month\\s*$day|$day\\s*$month)'
       '(?:(?:,\\s*|\\s+)$year)?';
+  final endDate = allowIncompleteEnd ? '(?:$date)?' : date;
   return RegExp(
-    '^$date\\s*[-−–]\\s*$date\\s*\$',
+    '^$date\\s*[-−–]\\s*$endDate\\s*\$',
     caseSensitive: false,
   ).hasMatch(text.trim());
 }

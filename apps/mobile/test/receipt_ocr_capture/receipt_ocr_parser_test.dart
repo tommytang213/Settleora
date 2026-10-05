@@ -240,6 +240,33 @@ void main() {
     }
   });
 
+  test('bounded recovery stops at merged total and period blocks', () {
+    for (final label in ['Total Amount Due', 'Subtotal']) {
+      for (final period in ['Feb 5 – Mar 4, 2025', 'Feb 5 –']) {
+        final original = _boundedUtilityBlocks(
+          description: 'Next Month Estimate',
+        );
+        final blocks = [
+          ...original.where((block) => block.row < 3),
+          _layoutBlock('$label $period', 7, 3, 50, 640),
+          _layoutBlock(r'$54.30', 9, 3, 659, 716),
+          _layoutBlock('Contact us', 10, 3, 828, 1020),
+          for (final block in original.where((block) => block.row >= 3))
+            _layoutBlock(
+              block.text,
+              block.order + 4,
+              block.row + 1,
+              block.points[0].x,
+              block.points[1].x,
+            ),
+        ];
+        final preview = _parseBoundedUtility(blocks);
+        expect(preview.items.any((item) => item.lineTotal == '59.99'), isFalse);
+        expect(preview.blocks, containsAll(blocks));
+      }
+    }
+  });
+
   test('bounded discounts retain evidence of conflicting financial roles', () {
     List<ReceiptOcrBlockEvidence> blocksWithLabel(
       String label, [
@@ -366,6 +393,10 @@ void main() {
         'Internet Plan (10-)',
         'Internet Plan (10−)',
         'Internet Plan (10－)',
+        'Internet Plan (﹣10)',
+        'Internet Plan (10﹣)',
+        'Internet Plan﹣ 10 (12 months)',
+        'Internet Plan (﹣ 10)',
         'Internet Plan 10-',
         'Internet Plan (10 -)',
         'Internet Plan (10-) 12 months',
@@ -393,7 +424,37 @@ void main() {
         expect(preview.reviewHints, isNotEmpty);
         expect(preview.blocks, containsAll(blocks));
       }
-      for (final sign in ['-', '−', '－']) {
+      for (final sign in [
+        '-',
+        '−',
+        '－',
+        '﹣',
+        '‐',
+        '‑',
+        '‒',
+        '–',
+        '—',
+        '⁻',
+        '₋',
+        '﹘',
+        '➖',
+      ]) {
+        for (final description in [
+          'Internet Plan (${sign}10)',
+          'Internet Plan (10$sign)',
+          'Internet Plan$sign 10 (12 months)',
+          'Internet Plan ($sign 10)',
+        ]) {
+          final evidence = _boundedUtilityBlocks(description: description);
+          final result = _parseBoundedUtility(evidence);
+          expect(
+            result.items.any((item) => item.lineTotal == '59.99'),
+            isFalse,
+          );
+          expect(result.reviewHints, isNotEmpty);
+          expect(result.blocks, containsAll(evidence));
+        }
+
         final blocks = _boundedUtilityBlocks();
         final index = blocks.indexWhere((b) => b.text == 'Internet Plan 500');
         blocks[index] = _layoutBlock('Internet Plan 500', 8, 3, 60, 383);
