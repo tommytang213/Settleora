@@ -2350,6 +2350,12 @@ class ReceiptOcrParser {
       r'\b(?:taxes|tips|gratuities|discounts|coupons|surcharges|fees|refunds|rebates|credits|deposits|levies|duties|donations|payments)\b',
       caseSensitive: false,
     );
+    final strongFooterLabel = RegExp(
+      r'^(?:sub[\s-]?total|(?:grand|refund)\s+total|'
+      r'total\s+(?:(?:amount\s+)?due|current\s+charges|paid)|'
+      r'paid\s+total|(?:amount|balance|payment)\s+due)\b',
+      caseSensitive: false,
+    );
     final discountRolePattern = RegExp(
       r'\b(?:discount|coupon|rebate)\b',
       caseSensitive: false,
@@ -2432,19 +2438,22 @@ class ReceiptOcrParser {
         if (boundaryProjections.any((blocks) {
           // OCR may merge or split a footer's label, date and amount.
           // Remove only recognized period syntax from this boundary projection.
-          final text =
-              _normalizeOcrLine(
-                blocks.map((block) => block.text.trim()).join(' '),
-              ).replaceAll(
-                RegExp(
-                  '(?<![\\p{L}\\p{N}])'
-                  '${_utilityPeriodPattern(allowIncompleteEnd: true)}'
-                  '(?![\\p{L}\\p{N}])',
-                  caseSensitive: false,
-                  unicode: true,
-                ),
-                ' ',
-              );
+          final projection = _normalizeOcrLine(
+            blocks.map((block) => block.text.trim()).join(' '),
+          );
+          // A strong printed footer role ends recovery even if its date is
+          // incomplete or unreadable. This does not select a monetary value.
+          if (strongFooterLabel.hasMatch(projection)) return true;
+          final text = projection.replaceAll(
+            RegExp(
+              '(?<![\\p{L}\\p{N}])'
+              '${_utilityPeriodPattern(allowIncompleteEnd: true)}'
+              '(?![\\p{L}\\p{N}])',
+              caseSensitive: false,
+              unicode: true,
+            ),
+            ' ',
+          );
           final roleText = _boundedUtilityRoleText(text);
           return _hasTotalLabel(text, text.toLowerCase()) ||
               _hasSubtotalLabel(text, text.toLowerCase()) ||

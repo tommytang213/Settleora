@@ -317,6 +317,42 @@ void main() {
     }
   });
 
+  test('strong utility footer roles survive unresolved period text', () {
+    for (final label in [
+      'Total Amount Due',
+      'Subtotal',
+      'Balance Due',
+      'Total Current Charges',
+    ]) {
+      for (final detail in [
+        'Feb 5 – Mar 4 , 20 25',
+        '2025/02/05 – 2025/03/04',
+        '(billing period unreadable)',
+      ]) {
+        final original = _boundedUtilityBlocks(
+          description: 'Next Month Estimate',
+        );
+        final blocks = [
+          ...original.where((block) => block.row < 3),
+          _layoutBlock('$label $detail', 7, 3, 50, 640),
+          _layoutBlock(r'$54.30', 9, 3, 659, 716),
+          _layoutBlock('Contact us', 10, 3, 828, 1020),
+          for (final block in original.where((block) => block.row >= 3))
+            _layoutBlock(
+              block.text,
+              block.order + 4,
+              block.row + 1,
+              block.points[0].x,
+              block.points[1].x,
+            ),
+        ];
+        final preview = _parseBoundedUtility(blocks);
+        expect(preview.items.any((item) => item.lineTotal == '59.99'), isFalse);
+        expect(preview.blocks, containsAll(blocks));
+      }
+    }
+  });
+
   test('bounded discounts retain evidence of conflicting financial roles', () {
     List<ReceiptOcrBlockEvidence> blocksWithLabel(
       String label, [
@@ -554,6 +590,17 @@ void main() {
         expect(namedPlan.items.single.lineTotal, '59.99');
         expect(namedPlan.reviewHints, isEmpty);
       }
+      final totalNamedPlan = _parseBoundedUtility(
+        _boundedUtilityBlocks(description: 'Total Security Plan'),
+      );
+      expect(
+        totalNamedPlan.items.any(
+          (item) =>
+              item.description == 'Total Security Plan' &&
+              item.lineTotal == '59.99',
+        ),
+        isTrue,
+      );
     },
   );
 
