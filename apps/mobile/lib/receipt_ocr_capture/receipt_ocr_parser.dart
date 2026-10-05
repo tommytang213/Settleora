@@ -92,6 +92,13 @@ class ReceiptOcrParser {
       layoutRows,
       currency,
     );
+    final ambiguousChargeRows = {
+      ...chargeTable.ambiguous,
+      ...boundedUtility.ambiguous,
+    };
+    layoutAdjustmentLines.removeWhere(
+      (index, _) => boundedUtility.ambiguous.contains(index),
+    );
     layoutAdjustmentLines.addAll(boundedUtility.adjustments);
     detachedAmountSignRows.removeAll({
       ...boundedUtility.items.keys,
@@ -107,6 +114,9 @@ class ReceiptOcrParser {
       ),
       ...boundedUtility.items,
     };
+    layoutChargeItems.removeWhere(
+      (index, _) => boundedUtility.ambiguous.contains(index),
+    );
     final recognizedChargeRows = {
       ...chargeTableRows,
       ...layoutChargeItems.keys,
@@ -124,7 +134,7 @@ class ReceiptOcrParser {
       layoutRows: layoutRows,
       chargeTableRows: recognizedChargeRows,
       layoutChargeItemRows: layoutChargeItems.keys.toSet(),
-      ambiguousChargeTableRows: chargeTable.ambiguous,
+      ambiguousChargeTableRows: ambiguousChargeRows,
       detachedAmountSignRows: detachedAmountSignRows,
       layoutAdjustmentLines: layoutAdjustmentLines,
     );
@@ -137,7 +147,7 @@ class ReceiptOcrParser {
       merchantLineIndices: merchantDetection?.lineIndices ?? const {},
       layoutRows: layoutRows,
       chargeTableRows: recognizedChargeRows,
-      ambiguousChargeTableRows: chargeTable.ambiguous,
+      ambiguousChargeTableRows: ambiguousChargeRows,
       layoutChargeItems: layoutChargeItems,
       layoutAdjustmentRows: layoutAdjustmentLines.keys.toSet(),
       detachedAmountSignRows: detachedAmountSignRows,
@@ -148,7 +158,7 @@ class ReceiptOcrParser {
         !extractedItems.truncated &&
         !extractedItems.unretainedPricedItem &&
         detachedAmountSignRows.isEmpty &&
-        !chargeTable.ambiguous.any(
+        !ambiguousChargeRows.any(
           (index) =>
               !layoutChargeItems.containsKey(index) &&
               !layoutAdjustmentLines.containsKey(index),
@@ -221,7 +231,7 @@ class ReceiptOcrParser {
     }
     if (unresolvedItemLines > 0 ||
         detachedAmountSignRows.isNotEmpty ||
-        chargeTable.ambiguous.any(
+        ambiguousChargeRows.any(
           (index) =>
               !layoutChargeItems.containsKey(index) &&
               !layoutAdjustmentLines.containsKey(index),
@@ -256,7 +266,7 @@ class ReceiptOcrParser {
         ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem,
       if (detachedAmountSignRows.isNotEmpty)
         ReceiptOcrIncompleteAdjustmentReason.detachedAmountSign,
-      if (chargeTable.ambiguous.any(
+      if (ambiguousChargeRows.any(
         (index) =>
             !layoutChargeItems.containsKey(index) &&
             !layoutAdjustmentLines.containsKey(index),
@@ -314,7 +324,7 @@ class ReceiptOcrParser {
           !extractedItems.truncated &&
           !extractedItems.unretainedPricedItem &&
           detachedAmountSignRows.isEmpty &&
-          !chargeTable.ambiguous.any(
+          !ambiguousChargeRows.any(
             (index) =>
                 !layoutChargeItems.containsKey(index) &&
                 !layoutAdjustmentLines.containsKey(index),
@@ -2323,7 +2333,11 @@ class ReceiptOcrParser {
   // Only this printed, bounded utility layout can recover a row whose
   // flattened text mixes a charge with a separate support panel. Other table
   // types and rows without a complete proof retain the existing parser paths.
-  ({Map<int, ReceiptOcrItemCandidate> items, Map<int, String> adjustments})
+  ({
+    Map<int, ReceiptOcrItemCandidate> items,
+    Map<int, String> adjustments,
+    Set<int> ambiguous,
+  })
   _boundedUtilityColumnRecovery(
     List<String> lines,
     List<List<ReceiptOcrBlockEvidence>> rows,
@@ -2331,8 +2345,13 @@ class ReceiptOcrParser {
   ) {
     final items = <int, ReceiptOcrItemCandidate>{};
     final adjustments = <int, String>{};
+    final ambiguous = <int>{};
+    final pluralFinancialRoles = RegExp(
+      r'\b(?:taxes|tips|gratuities|discounts|coupons|surcharges|fees|refunds|rebates|credits|deposits|levies|duties|donations|payments)\b',
+      caseSensitive: false,
+    );
     if (lines.length != rows.length || currency == null) {
-      return (items: items, adjustments: adjustments);
+      return (items: items, adjustments: adjustments, ambiguous: ambiguous);
     }
     for (var index = 0; index < rows.length; index++) {
       if (!_isBillChargeDetailHeader(lines, index)) continue;
@@ -2381,22 +2400,33 @@ class ReceiptOcrParser {
           break;
         }
         final row = rows[rowIndex];
-        // A printed total ends the table even without a complete service row.
-        // Use the existing extractor's projection inside the printed headings
-        // so a separate support panel cannot hide that boundary.
-        final tableText = _normalizeOcrLine(
-          row
-              .where((block) {
-                if (block.points.isEmpty) return false;
-                final center = (_blockLeft(block) + _blockRight(block)) / 2;
-                return center >= _blockLeft(descriptionHeader) - 12 &&
-                    center <= _blockRight(amountHeader) + 12;
-              })
-              .map((block) => block.text.trim())
-              .join(' '),
-        );
-        if (_hasTotalLabel(tableText, tableText.toLowerCase()) ||
-            _hasSubtotalLabel(tableText, tableText.toLowerCase())) {
+        // A printed total ends the table before service-row eligibility.
+        // Preserve the existing whole-table projection for wide total labels,
+        // and also check owned label/amount cells without period or panel text.
+        final boundaryProjections = [
+          row.where((block) {
+            if (block.points.isEmpty) return false;
+            final center = (_blockLeft(block) + _blockRight(block)) / 2;
+            return center >= _blockLeft(descriptionHeader) - 12 &&
+                center <= _blockRight(amountHeader) + 12;
+          }),
+          row.where((block) {
+            if (block.points.isEmpty) return false;
+            final left = _blockLeft(block);
+            final right = _blockRight(block);
+            return (left >= _blockLeft(descriptionHeader) - 12 &&
+                    right < _blockLeft(periodHeader)) ||
+                (left >= _blockLeft(amountHeader) - 12 &&
+                    right <= _blockRight(amountHeader) + 12);
+          }),
+        ];
+        if (boundaryProjections.any((blocks) {
+          final text = _normalizeOcrLine(
+            blocks.map((block) => block.text.trim()).join(' '),
+          );
+          return _hasTotalLabel(text, text.toLowerCase()) ||
+              _hasSubtotalLabel(text, text.toLowerCase());
+        })) {
           break;
         }
         if (row.any((block) => block.points.isEmpty)) continue;
@@ -2536,6 +2566,16 @@ class ReceiptOcrParser {
           unicode: true,
         ).hasMatch(description);
         if (discountLabel) {
+          final otherRoleLabel = normalizedDescription.replaceFirst(
+            RegExp(r'\b(?:discount|coupon|rebate)\b', caseSensitive: false),
+            '',
+          );
+          if (pluralFinancialRoles.hasMatch(otherRoleLabel) ||
+              _hasPotentialReceiptAdjustmentLabel(otherRoleLabel) ||
+              _isAdministrativeLine('$otherRoleLabel $monetaryText')) {
+            ambiguous.add(rowIndex);
+            continue;
+          }
           final separatedAmount = monetaryText.replaceRange(
             selectedAmount.start,
             selectedAmount.end,
@@ -2546,10 +2586,7 @@ class ReceiptOcrParser {
         }
         // Plural financial roles remain non-item evidence in this recovery
         // path. Keep the printed description and global classifiers intact.
-        if (RegExp(
-              r'\b(?:taxes|tips|gratuities|discounts|coupons|surcharges|refunds|rebates|credits|deposits|levies|duties|donations|payments)\b',
-              caseSensitive: false,
-            ).hasMatch(normalizedDescription) ||
+        if (pluralFinancialRoles.hasMatch(normalizedDescription) ||
             _hasPotentialReceiptAdjustmentLabel(normalizedDescription) ||
             _isAdministrativeLine(ownedText)) {
           continue;
@@ -2576,7 +2613,7 @@ class ReceiptOcrParser {
         );
       }
     }
-    return (items: items, adjustments: adjustments);
+    return (items: items, adjustments: adjustments, ambiguous: ambiguous);
   }
 
   Map<int, String> _layoutAdjustmentEvidenceLines(

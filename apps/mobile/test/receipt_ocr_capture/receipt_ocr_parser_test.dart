@@ -198,31 +198,73 @@ void main() {
     },
   );
 
-  test('bounded recovery stops at a total without a service period', () {
+  test('bounded recovery stops at a total before service-row eligibility', () {
     for (final label in ['Total Amount Due', 'Subtotal']) {
-      final original = _boundedUtilityBlocks(
-        description: 'Next Month Estimate',
+      for (final period in ['', 'Feb 5 – Mar 4, 2025', 'Feb 5 –']) {
+        final original = _boundedUtilityBlocks(
+          description: 'Next Month Estimate',
+        );
+        for (final labelRight in [383.0, if (period.isEmpty) 620.0]) {
+          final blocks = [
+            ...original.where((block) => block.row < 3),
+            _layoutBlock(label, 7, 3, 50, labelRight),
+            if (period.isNotEmpty) _layoutBlock(period, 8, 3, 417, 567),
+            _layoutBlock(r'$54.30', 9, 3, 659, 716),
+            _layoutBlock('Help 24/7', 10, 3, 828, 1020),
+            for (final block in original.where((block) => block.row >= 3))
+              _layoutBlock(
+                block.text,
+                block.order + 4,
+                block.row + 1,
+                block.points[0].x,
+                block.points[1].x,
+              ),
+          ];
+          final preview = _parseBoundedUtility(blocks);
+          expect(
+            preview.items.any(
+              (item) => item.description == 'Next Month Estimate',
+            ),
+            isFalse,
+          );
+          expect(preview.blocks, containsAll(blocks));
+        }
+      }
+    }
+  });
+
+  test('bounded discounts retain evidence of conflicting financial roles', () {
+    List<ReceiptOcrBlockEvidence> blocksWithLabel(String label) {
+      final blocks = _boundedUtilityBlocks();
+      final index = blocks.indexWhere(
+        (block) => block.text == 'Loyalty Discount (12 months)',
       );
-      final blocks = [
-        ...original.where((block) => block.row < 3),
-        _layoutBlock(label, 7, 3, 50, 383),
-        _layoutBlock(r'$54.30', 8, 3, 659, 716),
-        _layoutBlock('Help 24/7', 9, 3, 828, 1020),
-        for (final block in original.where((block) => block.row >= 3))
-          _layoutBlock(
-            block.text,
-            block.order + 3,
-            block.row + 1,
-            block.points[0].x,
-            block.points[1].x,
-          ),
-      ];
+      blocks[index] = _layoutBlock(label, 12, 4, 51, 265);
+      return blocks;
+    }
+
+    for (final label in [
+      'Tax and Discount (12 months)',
+      'Tax Discount (12 months)',
+      'Service Charge and Discount (12 months)',
+      'Fees and Discount (12 months)',
+      'Shipping and Discount',
+      'Tax and Coupon (12 months)',
+      'Tax and Rebate (12 months)',
+      'Discount and Rebate (12 months)',
+    ]) {
+      final blocks = blocksWithLabel(label);
       final preview = _parseBoundedUtility(blocks);
-      expect(
-        preview.items.any((item) => item.description == 'Next Month Estimate'),
-        isFalse,
-      );
+      expect(preview.discount, isNull, reason: label);
+      expect(preview.reviewHints, isNotEmpty, reason: label);
       expect(preview.blocks, containsAll(blocks));
+    }
+    for (final role in ['Discount', 'Coupon', 'Rebate']) {
+      final preview = _parseBoundedUtility(
+        blocksWithLabel('Loyalty $role (12 months)'),
+      );
+      expect(preview.discount, '-10.00');
+      expect(preview.reviewHints, isEmpty);
     }
   });
 
@@ -251,6 +293,10 @@ void main() {
         'Coupons',
         'Surcharges',
         'Fees',
+        'Fee Monthly',
+        'Fees Monthly',
+        'Monthly Fee May',
+        'Monthly Fees May',
         'Refunds',
         'Rebates',
         'Credits',
