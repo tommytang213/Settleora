@@ -369,8 +369,22 @@ void main() {
         '2025-02-05 – 2025-03-04',
         '05.02.2025 – 04.03.2025',
         '02/05 – 03/04',
+        '2025/03/04',
+        '04/03/2025',
+        'Mar 4, 2025',
+        '2025/02/05 to 2025/03/04',
+        'Feb 5 to Mar 4, 2025',
+        '2025/02/05 TO 2025/03/04',
+        '2025/02/05 to',
       ])
         'Total $period',
+      for (final section in [
+        'Payment Summary',
+        'Remittance',
+        'Account Summary',
+        'Contact us',
+      ])
+        for (final decoration in ['* ', '# ', '• ']) '$decoration$section',
     ];
     for (final footer in footers) {
       final original = _boundedUtilityBlocks(
@@ -416,6 +430,14 @@ void main() {
       'Payment & Discount (12 months)',
       'Cash and Discount (12 months)',
       'Deposit Paid and Discount (12 months)',
+      'Payment and Loyalty Discount (12 months)',
+      'Amount Paid and Loyalty Discount (12 months)',
+      'Balance and Loyalty Discount (12 months)',
+      'Payment with Loyalty Coupon (12 months)',
+      'Tender and Seasonal Rebate (12 months)',
+      'Amount Paid & Loyalty Discount (12 months)',
+      'Balance and Monthly Loyalty Discount (12 months)',
+      'Payment (received) and Loyalty Discount (12 months)',
     ]) {
       final blocks = _boundedUtilityBlocks();
       final labelIndex = blocks.indexWhere(

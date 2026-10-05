@@ -2443,11 +2443,14 @@ class ReceiptOcrParser {
           ).replaceFirst(RegExp(r'^[^\p{L}\p{N}]+', unicode: true), '');
           // A strong printed footer role ends recovery even if its date is
           // incomplete or unreadable. This does not select a monetary value.
-          if (strongFooterLabel.hasMatch(projection)) return true;
+          if (_isChargeTableSectionBoundary(projection) ||
+              strongFooterLabel.hasMatch(projection)) {
+            return true;
+          }
           final text = projection.replaceAll(
             RegExp(
               '(?<![\\p{L}\\p{N}])'
-              '${_utilityPeriodPattern(allowIncompleteEnd: true, allowNumericDates: true)}'
+              '${_utilityBoundaryDatePattern()}'
               '(?![\\p{L}\\p{N}])',
               caseSensitive: false,
               unicode: true,
@@ -2500,15 +2503,17 @@ class ReceiptOcrParser {
                 ' ',
               )
               .trim();
-          if (_isBoundedUtilityAccountRole(
-                remainingRoleLabel,
-                financialMonetaryText,
-              ) ||
-              _isPaymentMetadataLine(
-                '$remainingRoleLabel $financialMonetaryText',
-              ) ||
-              _isAdministrativeLine(
-                '$remainingRoleLabel $financialMonetaryText',
+          // A qualifier belonging to the discount must not obscure a
+          // separate payment/account clause, e.g. Payment and Loyalty Discount.
+          final otherRoleClauses = financialLabel
+              .split(RegExp(r'\b(?:and|with)\b|&', caseSensitive: false))
+              .where((clause) => !discountRolePattern.hasMatch(clause))
+              .map(_boundedUtilityRoleText);
+          if ([remainingRoleLabel, ...otherRoleClauses].any(
+                (role) =>
+                    _isBoundedUtilityAccountRole(role, financialMonetaryText) ||
+                    _isPaymentMetadataLine('$role $financialMonetaryText') ||
+                    _isAdministrativeLine('$role $financialMonetaryText'),
               ) ||
               pluralFinancialRoles.hasMatch(otherRoleLabel) ||
               _hasPotentialReceiptAdjustmentLabel(otherRoleLabel) ||
@@ -4422,10 +4427,19 @@ bool _matchesUtilityPeriod(String text) => RegExp(
   unicode: true,
 ).hasMatch(text.trim());
 
-String _utilityPeriodPattern({
-  bool allowIncompleteEnd = false,
-  bool allowNumericDates = false,
-}) {
+String _utilityPeriodPattern() {
+  final date = _utilityDatePattern();
+  return '$date\\s*[\\p{Dash}➖]\\s*$date';
+}
+
+String _utilityBoundaryDatePattern() {
+  final date = _utilityDatePattern(allowNumericDates: true);
+  // A footer may print one date, a range, or an incomplete range. None of
+  // these boundary-only forms broadens service-row monetary eligibility.
+  return '$date(?:\\s*(?:[\\p{Dash}➖]|\\bto\\b)\\s*(?:$date)?)?';
+}
+
+String _utilityDatePattern({bool allowNumericDates = false}) {
   const month =
       r'(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|'
       r'Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|'
@@ -4443,9 +4457,7 @@ String _utilityPeriodPattern({
       '(?:$year$separator$numericMonth$separator$day|'
       '$day$separator$numericMonth(?:$separator$year)?|'
       '$numericMonth$separator$day(?:$separator$year)?)';
-  final date = allowNumericDates ? '(?:$namedDate|$numericDate)' : namedDate;
-  final endDate = allowIncompleteEnd ? '(?:$date)?' : date;
-  return '$date\\s*[\\p{Dash}➖]\\s*$endDate';
+  return allowNumericDates ? '(?:$namedDate|$numericDate)' : namedDate;
 }
 
 bool _isBoundedUtilitySupportCopy(String text) {
