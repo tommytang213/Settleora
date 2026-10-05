@@ -2489,8 +2489,9 @@ class ReceiptOcrParser {
           adjustments[rowIndex] = 'Discount $monetaryText';
           continue;
         }
-        if (_hasPotentialReceiptAdjustmentLabel(normalizedDescription))
+        if (_hasPotentialReceiptAdjustmentLabel(normalizedDescription)) {
           continue;
+        }
         final lineTotal = _lastAmountInLine(monetaryText, currency: currency);
         if (lineTotal == null || lineTotal.startsWith('-')) continue;
         items[rowIndex] = ReceiptOcrItemCandidate(
