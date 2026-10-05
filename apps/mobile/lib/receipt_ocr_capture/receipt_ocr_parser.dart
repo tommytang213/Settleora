@@ -2477,7 +2477,7 @@ class ReceiptOcrParser {
               ).hasMatch(block.text),
             ) ||
             RegExp(
-              r'(?<![\p{L}\p{N}])-\s*\d',
+              r'(?<![\p{L}\p{N}])-\s*\d|\d\s*-(?![\p{L}\p{N}])',
               unicode: true,
             ).hasMatch(_normalizeOcrLine(descriptionText))) {
           continue;
@@ -2530,7 +2530,13 @@ class ReceiptOcrParser {
           adjustments[rowIndex] = 'Discount ${separatedAmount.trim()}';
           continue;
         }
-        if (_hasPotentialReceiptAdjustmentLabel(normalizedDescription) ||
+        // Plural financial roles remain non-item evidence in this recovery
+        // path. Keep the printed description and global classifiers intact.
+        if (RegExp(
+              r'\b(?:taxes|tips|gratuities|discounts|coupons|surcharges|refunds|rebates|credits|deposits|levies|duties|donations|payments)\b',
+              caseSensitive: false,
+            ).hasMatch(normalizedDescription) ||
+            _hasPotentialReceiptAdjustmentLabel(normalizedDescription) ||
             _isAdministrativeLine(ownedText)) {
           continue;
         }

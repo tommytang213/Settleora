@@ -186,12 +186,34 @@ void main() {
         'Taxes and Regulatory Fees (Monthly)',
         'DCC Selected',
         'Suggested Tip',
+        'Taxes',
+        'Tips',
+        'Discounts',
+        'Payments',
+        'Gratuities',
+        'Coupons',
+        'Surcharges',
+        'Fees',
+        'Refunds',
+        'Rebates',
+        'Credits',
+        'Deposits',
+        'Levies',
+        'Duties',
+        'Donations',
         'Internet Plan -10.00 (12 months)',
         'Internet Plan 10.00 (12 months)',
         'Internet Plan -10 (12 months)',
         '-10 Internet Plan',
         'Internet Plan (-) 12 months',
         'Internet Plan (- 10) (12 months)',
+        'Internet Plan (10-)',
+        'Internet Plan (10−)',
+        'Internet Plan (10－)',
+        'Internet Plan 10-',
+        'Internet Plan (10 -)',
+        'Internet Plan (10-) 12 months',
+        'Internet Plan 10- (12 months)',
         'Internet Plan XPF 10',
         'Internet Plan XPF 10 (12 months)',
         'Internet Plan 10 XPF (12 months)',
@@ -219,12 +241,19 @@ void main() {
         expect(preview.reviewHints, isNotEmpty);
         expect(preview.blocks, containsAll(blocks));
       }
-      final namedPlan = _parseBoundedUtility(
-        _boundedUtilityBlocks(description: 'Internet Plan-10'),
-      );
-      expect(namedPlan.items.single.description, 'Internet Plan-10');
-      expect(namedPlan.items.single.lineTotal, '59.99');
-      expect(namedPlan.reviewHints, isEmpty);
+      for (final description in [
+        'Internet Plan-10',
+        'Internet Plan 10-20',
+        'Internet Plans 500',
+        'Internet Services',
+      ]) {
+        final namedPlan = _parseBoundedUtility(
+          _boundedUtilityBlocks(description: description),
+        );
+        expect(namedPlan.items.single.description, description);
+        expect(namedPlan.items.single.lineTotal, '59.99');
+        expect(namedPlan.reviewHints, isEmpty);
+      }
     },
   );
 
