@@ -4661,16 +4661,18 @@ bool _isOwnedSummaryCardHeaderRow(
     unicode: true,
   );
   final currencySymbol = RegExp(r'\p{Sc}', unicode: true);
-  final signOnly = RegExp(r'^[+\p{Dash}➖()\s]+$', unicode: true);
-  final numericFragment = RegExp(r'^[\p{N}\p{P}\p{S}\s]+$', unicode: true);
+  final punctuationOnly = RegExp(r'^[\p{P}\p{S}\s]+$', unicode: true);
   final digit = RegExp(r'\p{N}', unicode: true);
-  final decimalFragment = RegExp(r'\p{N}[.,]\p{N}', unicode: true);
   final creditDebit = RegExp(
     r'(?<![\p{L}\p{M}])(?:cr|dr|credit|debit)(?![\p{L}\p{M}])',
     caseSensitive: false,
     unicode: true,
   );
-  final numericRuns = RegExp(r'\p{N}+', unicode: true);
+  final invoiceReference = RegExp(
+    r'^(?:invoice|bill|statement)\s+(?:no\.?|number|#)\s*[:#]?\s*[A-Z0-9][A-Z0-9-]*$',
+    caseSensitive: false,
+  );
+  final words = RegExp(r'[\p{L}\p{M}]+', unicode: true);
   final amountHeight = amountBox.bottom - amountBox.top;
   for (final neighbor in allBlocks) {
     if (row.contains(neighbor) || neighbor == totalLabels.single) continue;
@@ -4696,21 +4698,36 @@ bool _isOwnedSummaryCardHeaderRow(
         .toList();
     final isCurrency =
         markers.isNotEmpty && text.replaceAll(currencyAtoms, '').trim().isEmpty;
-    // A complete named-date period explains its own numbers. Otherwise,
-    // multiple numbers remain competing evidence regardless of connector
-    // words, language or prose around them; do not enumerate operators.
+    // Only a complete period or explicitly labeled identifier explains a
+    // neighboring number. A comparison's other operand may be in the amount
+    // cell, so even one unexplained number must retain the ordinary fallback.
     final hasUnownedNumbers =
+        digit.hasMatch(text) &&
         !_matchesUtilityPeriod(text) &&
-        (decimalFragment.hasMatch(text) ||
-            (digit.hasMatch(text) && numericFragment.hasMatch(text)) ||
-            numericRuns.allMatches(text).take(2).length == 2);
+        !invoiceReference.hasMatch(text);
+    // Recognize the existing financial roles in plural or beside joined
+    // digits without changing shared classification or the raw OCR text.
+    final financialWords = words
+        .allMatches(text)
+        .expand((match) {
+          final word = match.group(0)!.toLowerCase();
+          return [
+            word,
+            if (word.endsWith('s')) word.substring(0, word.length - 1),
+            if (word.endsWith('es')) word.substring(0, word.length - 2),
+            if (word.endsWith('ies')) '${word.substring(0, word.length - 3)}y',
+          ];
+        })
+        .join(' ');
     if (!isCurrency &&
         !boundedCurrencyAtoms.hasMatch(text) &&
         !currencySymbol.hasMatch(text) &&
-        !signOnly.hasMatch(text) &&
-        !creditDebit.hasMatch(text) &&
-        !_hasPotentialReceiptAdjustmentLabel(text) &&
-        !RegExp(r'\badjustments?\b', caseSensitive: false).hasMatch(text) &&
+        !punctuationOnly.hasMatch(text) &&
+        !creditDebit.hasMatch(financialWords) &&
+        !_hasPotentialReceiptAdjustmentLabel(financialWords) &&
+        !RegExp(
+          r'\b(?:adjustment|percent|percentage|rate)\b',
+        ).hasMatch(financialWords) &&
         !hasUnownedNumbers) {
       continue;
     }

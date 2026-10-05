@@ -185,6 +185,26 @@ void main() {
       (5, '1200 DR', 955.0, 240.0, false),
       (5, '1200 and 4200', 955.0, 240.0, false),
       (5, '1200 less 4200', 955.0, 240.0, false),
+      (5, 'less 1200', 955.0, 240.0, false),
+      (5, 'versus 1200', 955.0, 240.0, false),
+      (5, 'Compare with 1200', 955.0, 240.0, false),
+      (5, 'Invoice No INV99', 955.0, 240.0, true),
+      (5, 'Invoice No 1200', 955.0, 240.0, true),
+      (5, 'Invoice No USD 1200', 955.0, 240.0, false),
+      (5, 'Invoice No INV99 1200', 955.0, 240.0, false),
+      for (final rate in [
+        '%',
+        '‰',
+        '‱',
+        'percent',
+        'percentages',
+        'rates',
+      ]) ...[
+        (3, rate, 710.0, 194.0, false),
+        (5, rate, 955.0, 240.0, false),
+        (5, rate, 1300.0, 240.0, true),
+      ],
+
       (5, '1200 versus 4200', 955.0, 240.0, false),
       (5, 'Compare 1200 against 4200', 955.0, 240.0, false),
       for (final qualifier in [
@@ -194,6 +214,14 @@ void main() {
         'Discount',
         'Refund',
         'Fee',
+        'Taxes',
+        'Discounts',
+        'Fees',
+        'Duties',
+        'Credits',
+        'Debits',
+        'Adjustment1200',
+        'Fee1200',
       ]) ...[
         (3, qualifier, 710.0, 194.0, false),
         (5, qualifier, 955.0, 240.0, false),
@@ -356,6 +384,9 @@ void main() {
       '1200 versus 4200',
       'Compare 1200 against 4200',
       '1200 moins 4200',
+      'less 1200',
+      'versus 1200',
+      'Compare with 1200',
     ]) {
       for (final competing in [false, true]) {
         final original = _summaryCardBlocks();
@@ -483,6 +514,8 @@ void main() {
 
   test('summary-card exclusion requires unambiguous printed denominations', () {
     for (final money in [
+      '42.00%',
+      'USD 42.00%',
       r'EUR $42.00',
       r'$42.00 EUR',
       r'USD €42.00',
