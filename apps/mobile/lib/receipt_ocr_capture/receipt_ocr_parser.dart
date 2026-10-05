@@ -2479,6 +2479,16 @@ class ReceiptOcrParser {
                     explicitMoney,
                     (match) => protect(match.group(0)!),
                   );
+                  // In a named date, 4,25 means day/year rather than money.
+                  // Owned money cells and explicit currency remain protected
+                  // first; only contextual bare tokens can belong to a date.
+                  final namedDates = RegExp(
+                    '(?<![\\p{L}\\p{N}])'
+                    '${_utilityDatePattern(allowFragmentedYear: true, allowTwoDigitYear: true)}'
+                    '(?![\\p{L}\\p{N}])',
+                    caseSensitive: false,
+                    unicode: true,
+                  ).allMatches(text).toList(growable: false);
                   // A merged footer may place bare money before or after its
                   // date. Do not match fragments of slash/dot date tokens.
                   text = text.replaceAllMapped(
@@ -2489,6 +2499,12 @@ class ReceiptOcrParser {
                     ),
                     (match) {
                       final amount = match.group(1)!;
+                      if (namedDates.any(
+                        (date) =>
+                            match.start >= date.start && match.end <= date.end,
+                      )) {
+                        return amount;
+                      }
                       return _hasChargeTableMonetaryEvidence(amount) &&
                               _normalizeAmount(amount, currency: currency) !=
                                   null
@@ -4613,7 +4629,10 @@ bool _isBoundedUtilitySupportCopy(String text) {
     ),
     '',
   );
-  return !RegExp(r'\d|[-−]\s*$').hasMatch(withoutClocks) &&
+  return !RegExp(
+        r'\d|[\p{Dash}➖]\s*$',
+        unicode: true,
+      ).hasMatch(withoutClocks) &&
       _unicodeLetterPattern.hasMatch(normalized);
 }
 

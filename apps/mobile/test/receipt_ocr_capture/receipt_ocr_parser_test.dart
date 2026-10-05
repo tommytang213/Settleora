@@ -102,6 +102,22 @@ void main() {
       'Credit - USD 10',
       '-',
       'Support ＵＳＤ １０．００; 8 AM - 8 PM PT',
+      for (final sign in [
+        '-',
+        '−',
+        '﹣',
+        '－',
+        '‐',
+        '‑',
+        '‒',
+        '–',
+        '—',
+        '⁻',
+        '₋',
+        '﹘',
+        '➖',
+      ])
+        'Mon - Fri, 8 AM - 8 PM PT $sign',
     ]) {
       final blocks = _boundedUtilityBlocks(support: support);
       final preview = _parseBoundedUtility(blocks);
@@ -111,6 +127,15 @@ void main() {
         reason: support,
       );
       expect(preview.reviewHints, isNotEmpty, reason: support);
+      expect(preview.blocks, containsAll(blocks));
+    }
+    for (final dayDash in ['-', '–', '‐', '‒']) {
+      final blocks = _boundedUtilityBlocks(
+        support: 'Mon $dayDash Fri, 8 AM - 8 PM PT',
+      );
+      final preview = _parseBoundedUtility(blocks);
+      expect(preview.items.any((item) => item.lineTotal == '59.99'), isTrue);
+      expect(preview.reviewHints, isEmpty);
       expect(preview.blocks, containsAll(blocks));
     }
   });
@@ -385,6 +410,13 @@ void main() {
         '03.04.25',
         '03-04-25',
         'Mar 4, 25',
+        'Mar 4,25',
+        'Mar 4,2025',
+        'March 4,25',
+        '4 Mar,25',
+        'Feb 5,25 – Mar 4,25',
+        'Mar 4,99',
+        'Mar 4,00',
         '4 Mar 25',
         '03/01/25 - 03/04/25',
         'Feb 5, 25 – Mar 4, 25',
