@@ -2387,19 +2387,29 @@ class ReceiptOcrParser {
           ..._boundedUtilityAnnotationRoles(label),
         ].expand((role) => role.split(financialConjunction)).any((clause) {
           final role = _boundedUtilityRoleText(clause);
-          if (!_hasPotentialReceiptAdjustmentLabel(role)) return false;
-          final matches = _potentialReceiptAdjustmentLabelPattern
-              .allMatches(role)
-              .toList(growable: false);
-          // One financial noun can name a service (Service Plan, Credit Monitoring
-          // Subscription). A second role or an established multiword charge cannot.
+          if (!_hasPotentialReceiptAdjustmentLabel(role) &&
+              !pluralFinancialRoles.hasMatch(role)) {
+            return false;
+          }
+          final matches = [
+            ..._potentialReceiptAdjustmentLabelPattern.allMatches(role),
+            ...pluralFinancialRoles.allMatches(role),
+          ];
+          // One singular or plural financial noun can occur anywhere in a named
+          // service clause. A second role or established multiword charge cannot.
           return matches.length != 1 ||
-              matches.single.start != 0 ||
               matches.single.group(0)!.contains(' ') ||
               !_boundedUtilityNamedServiceQualifier.hasMatch(
                 role.substring(matches.single.end),
               );
         });
+    // Boundary-only normalization joins OCR money/currency fragments without
+    // admitting that denomination as a selectable amount or changing evidence.
+    String boundaryText(String text) =>
+        _normalizeOcrLine(text).replaceAllMapped(
+          RegExp(r'(?<=\d)([A-Za-z]{3})(?![\p{L}\p{N}])', unicode: true),
+          (match) => ' ${match.group(1)!}',
+        );
     final discountLabelPattern = RegExp(
       r'^(?:[\p{L}\p{N} -]+\s+)?(?:discount|coupon|rebate)(?:\s*\([\p{L}\p{N} %.-]+\))?$',
       caseSensitive: false,
@@ -2461,7 +2471,9 @@ class ReceiptOcrParser {
           ...row,
           if (_isAdjacentRightColumnAmount(rows, rowIndex) &&
               (_isStandaloneAmountRow(lines[rowIndex + 1]) ||
-                  _hasUnsupportedIsoMonetaryEvidence(lines[rowIndex + 1])))
+                  _hasUnsupportedIsoMonetaryEvidence(
+                    boundaryText(lines[rowIndex + 1]),
+                  )))
             ...rows[rowIndex + 1],
         ];
         // A printed total ends the table before service-row eligibility.
@@ -2488,10 +2500,15 @@ class ReceiptOcrParser {
           // Keep monetary evidence opaque during date recognition: 12.10 can
           // otherwise look like a numeric date. Raw evidence is never changed.
           final originalProjection = blocks
-              .map((block) => _normalizeOcrLine(block.text.trim()))
+              .map((block) => boundaryText(block.text.trim()))
               .join(' ');
           final protectedMoney = <String, String>{};
           String protect(String value) {
+            // A separate currency block can bind an already protected owned
+            // amount. Flatten that earlier marker before protecting the pair.
+            for (final entry in protectedMoney.entries) {
+              value = value.replaceAll(entry.key, entry.value);
+            }
             var marker = 'BOUNDEDMONEY${protectedMoney.length}TOKEN';
             while (originalProjection.contains(marker)) {
               marker += 'X';
@@ -2508,33 +2525,43 @@ class ReceiptOcrParser {
               originalProjection,
             ).map((marker) => RegExp.escape(marker.group(0)!)),
           ].join('|');
+          final ownedMoneyProjection = _normalizeOcrLine(
+            blocks
+                .map((block) {
+                  final text = boundaryText(block.text.trim());
+                  if (_blockLeft(block) >= _blockLeft(amountHeader) - 12 &&
+                      _blockRight(block) <= _blockRight(amountHeader) + 12 &&
+                      _isStandaloneAmountRow(text) &&
+                      _hasChargeTableMonetaryEvidence(text)) {
+                    return protect(text);
+                  }
+                  return text;
+                })
+                .join(' '),
+          );
+          final boundaryAmountPattern = [
+            _amountTokenPattern,
+            ...protectedMoney.keys.map(RegExp.escape),
+          ].join('|');
+          // A denomination before another amount belongs to that following
+          // money, not to an earlier bare year in a printed billing period.
+          // A clock or date fragment cannot take that following-money role.
+          final suffixCurrencyPattern =
+              '(?:$boundaryCurrencyPattern)'
+              '(?!\\s*[:=]?\\s*(?:$boundaryAmountPattern)(?![.:/\\p{L}\\p{N}]))';
           final explicitMoney = RegExp(
             '(?<![\\p{L}\\p{N}])'
-            '(?:(?:$boundaryCurrencyPattern)\\s*[:=]?\\s*$_amountTokenPattern|'
-            '$_amountTokenPattern\\s*(?:$boundaryCurrencyPattern))'
+            '(?:(?:$boundaryCurrencyPattern)\\s*[:=]?\\s*(?:$boundaryAmountPattern)'
+            '(?:\\s*$suffixCurrencyPattern)?|'
+            '(?:$boundaryAmountPattern)\\s*$suffixCurrencyPattern)'
             '(?![\\p{L}\\p{N}])',
             caseSensitive: false,
             unicode: true,
           );
-          final monetaryProjection =
-              _normalizeOcrLine(
-                blocks
-                    .map((block) {
-                      final text = _normalizeOcrLine(block.text.trim());
-                      if (_blockLeft(block) >= _blockLeft(amountHeader) - 12 &&
-                          _blockRight(block) <=
-                              _blockRight(amountHeader) + 12 &&
-                          _isStandaloneAmountRow(text) &&
-                          _hasChargeTableMonetaryEvidence(text)) {
-                        return protect(text);
-                      }
-                      return text;
-                    })
-                    .join(' '),
-              ).replaceAllMapped(
-                explicitMoney,
-                (match) => protect(match.group(0)!),
-              );
+          final monetaryProjection = ownedMoneyProjection.replaceAllMapped(
+            explicitMoney,
+            (match) => protect(match.group(0)!),
+          );
           // Named-date context spans OCR blocks, including margin labels.
           // Owned money cells and explicit currency remain protected first;
           // only contextual bare tokens such as 4,25 can belong to a date.
@@ -2574,6 +2601,24 @@ class ReceiptOcrParser {
           // incomplete or unreadable. This does not select a monetary value.
           if (_isChargeTableSectionBoundary(projection) ||
               strongFooterLabel.hasMatch(projection)) {
+            return true;
+          }
+          // The Total role and explicit billing-period qualifier remain
+          // adjacent semantically even when printed money lies between them.
+          var temporalRoleProjection = projection;
+          for (final marker in protectedMoney.keys) {
+            temporalRoleProjection = temporalRoleProjection.replaceAll(
+              marker,
+              ' ',
+            );
+          }
+          if (protectedMoney.isNotEmpty &&
+              RegExp(
+                r'^(?:total|sub[\s-]?total)\s+(?:for\s+)?'
+                r'(?:(?:the|this|current)\s+)*(?:(?:billing|service|statement)\s+)?'
+                r'period\b',
+                caseSensitive: false,
+              ).hasMatch(_boundedUtilityRoleText(temporalRoleProjection))) {
             return true;
           }
           final boundaryContexts = RegExp(
@@ -2682,7 +2727,6 @@ class ReceiptOcrParser {
                 ...otherRoleClauses,
                 ..._boundedUtilityAnnotationRoles(financialLabel),
               ].any((role) => hasFinancialRole(role, financialMonetaryText)) ||
-              pluralFinancialRoles.hasMatch(otherRoleLabel) ||
               hasAdjustmentRole(otherRoleLabel) ||
               _isAdministrativeLine('$otherRoleLabel $financialMonetaryText')) {
             ambiguous.add(rowIndex);
@@ -4680,6 +4724,7 @@ String _utilityBoundaryDatePattern() {
     allowTwoDigitYear: true,
     allowOrdinalDay: true,
     allowWeekdayContext: true,
+    allowMonthYear: true,
   );
   // A footer may print one date, a range, or an incomplete range. None of
   // these boundary-only forms broadens service-row monetary eligibility.
@@ -4692,6 +4737,7 @@ String _utilityDatePattern({
   bool allowTwoDigitYear = false,
   bool allowOrdinalDay = false,
   bool allowWeekdayContext = false,
+  bool allowMonthYear = false,
 }) {
   const month =
       r'(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|'
@@ -4726,7 +4772,13 @@ String _utilityDatePattern({
       '(?:$fullYear$separator$numericMonth$separator$day|'
       '$day$separator$numericMonth(?:$separator$year)?|'
       '$numericMonth$separator$day(?:$separator$year)?$shortYearFirst)';
-  final date = allowNumericDates ? '(?:$namedDate|$numericDate)' : namedDate;
+  final dayDate = allowNumericDates ? '(?:$namedDate|$numericDate)' : namedDate;
+  // Month/year billing context is a footer proof only. Prefer it before the
+  // optional-year day syntax so March 2025 cannot be truncated to March 20.
+  final date = allowMonthYear
+      ? '(?:$month\\s*,?\\s*$fullYear|'
+            '$numericMonth$separator$fullYear|$fullYear$separator$numericMonth|$dayDate)'
+      : dayDate;
   // Weekday qualifiers identify footer context only. They cannot qualify a
   // service period for monetary recovery or consume an owned money cell.
   return allowWeekdayContext

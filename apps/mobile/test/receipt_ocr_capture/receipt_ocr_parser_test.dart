@@ -86,6 +86,9 @@ void main() {
         'ZAR 54.30',
         '54.30 ZAR',
         'ZAR: 54.30',
+        '54.30ZAR',
+        'ZAR54.30',
+        '54.30CLP',
       ]) {
         final original = _boundedUtilityBlocks(
           description: 'Next Month Estimate',
@@ -140,25 +143,59 @@ void main() {
         expect(preview.blocks, containsAll(blocks));
       }
     }
+    for (final code in ['ZAR', 'USD']) {
+      for (final suffix in [false, true]) {
+        final original = _boundedUtilityBlocks(
+          description: 'Next Month Estimate',
+        );
+        final blocks = [
+          ...original.where((b) => b.row < 3),
+          _layoutBlock('Total', 7, 3, 50, 140),
+          _layoutBlock(suffix ? '54.30' : code, 8, 3, 642, 657),
+          _layoutBlock(suffix ? code : '54.30', 9, 3, 659, 716),
+          for (final b in original.where((b) => b.row >= 3))
+            _layoutBlock(
+              b.text,
+              b.order + 3,
+              b.row + 1,
+              b.points[0].x,
+              b.points[1].x,
+            ),
+        ];
+        final preview = _parseBoundedUtility(blocks);
+        expect(preview.items.any((item) => item.lineTotal == '59.99'), isFalse);
+        expect(preview.blocks, containsAll(blocks));
+      }
+    }
   });
 
   test(
     'named service discounts retain whole-phrase financial classification',
     () {
-      for (final label in [
-        'Service Plan Discount (12 months)',
-        'Credit Monitoring Subscription Discount (12 months)',
-        'Service Package Discount (12 months)',
-        'Credit Monitoring Product Discount (12 months)',
-        'Service Charge Discount (12 months)',
-        'Credit Applied Discount (12 months)',
-        'Service Plan Discount (Payment received)',
-        'Service Plan Discount and Tax',
-      ]) {
-        final namedService =
-            label.endsWith('(12 months)') &&
-            !label.startsWith('Service Charge') &&
-            !label.startsWith('Credit Applied');
+      final expectedDiscounts = <String, String?>{
+        'Service Plan Discount (12 months)': '-10.00',
+        'Credit Monitoring Subscription Discount (12 months)': '-10.00',
+        'Service Package Discount (12 months)': '-10.00',
+        'Credit Monitoring Product Discount (12 months)': '-10.00',
+        'Internet Service Plan Discount (12 months)': '-10.00',
+        'Premium Service Plan Discount (12 months)': '-10.00',
+        'Internet Service Package Discount (12 months)': '-10.00',
+        'Payments Gateway Subscription Discount (12 months)': '-10.00',
+        'Loyalty Discount (Internet Service Plan)': '-10.00',
+        'Loyalty Discount (Payments Gateway Subscription)': '-10.00',
+        'Service Charge Discount (12 months)': null,
+        'Credit Applied Discount (12 months)': null,
+        'Service Plan Discount (Payment received)': null,
+        'Service Plan Discount and Tax': null,
+        'Internet Service Plan Tax Discount (12 months)': null,
+        'Service Charge Plan Discount (12 months)': null,
+        'Payment Received Subscription Discount (12 months)': null,
+        'Internet Service Charge Plan Discount (12 months)': null,
+        'Internet Service Plan Discount (Tax)': null,
+      };
+      for (final entry in expectedDiscounts.entries) {
+        final label = entry.key;
+        final namedService = entry.value != null;
         for (final support in [false, true]) {
           final blocks = _boundedUtilityBlocks(discountAmount: 'USD -10.00');
           final i = blocks.indexWhere(
@@ -167,7 +204,7 @@ void main() {
           blocks[i] = _layoutBlock(label, 12, 4, 51, 383);
           if (!support) blocks.removeWhere((b) => b.text == 'Live Chat');
           final preview = _parseBoundedUtility(blocks);
-          expect(preview.discount, namedService ? '-10.00' : isNull);
+          expect(preview.discount, entry.value);
           expect(preview.reviewHints, namedService ? isEmpty : isNotEmpty);
           expect(preview.blocks, containsAll(blocks));
         }
@@ -604,6 +641,7 @@ void main() {
   });
 
   test('footer date recognition preserves separate and merged money', () {
+    final unexpectedRecoveries = <String>[];
     for (final money in [
       r'$12.10',
       r'$1.20',
@@ -662,6 +700,12 @@ void main() {
           '12:30:45 UTC',
           'as of 12:30',
           'for billing period ending Mar 4, 2025',
+          'for billing period March 2025',
+          'for March 2025',
+          'March 2025',
+          'for billing period 03/2025',
+          'for billing period Q1 2025',
+          'for period ending March 2025',
           'for period ending Mar 4, 2025',
           'for the billing period ending Mar 4, 2025',
           'for this billing period ending Mar 4, 2025',
@@ -693,10 +737,15 @@ void main() {
             ),
         ];
         final preview = _parseBoundedUtility(blocks);
-        expect(preview.items.any((item) => item.lineTotal == '59.99'), isFalse);
+        if (preview.items.any((item) => item.lineTotal == '59.99')) {
+          unexpectedRecoveries.add(
+            '$footer | $money | separateMoney=$separateMoney',
+          );
+        }
         expect(preview.blocks, containsAll(blocks));
       }
     }
+    expect(unexpectedRecoveries, isEmpty);
   });
 
   test('mixed payment and discount stays ambiguous beside clock support', () {
