@@ -2471,27 +2471,43 @@ class ReceiptOcrParser {
             .map((block) => block.text.trim())
             .join(' ');
         if (descriptionCells.any(
-              (block) => RegExp(r'(^|\s)[-−－](?=\s|$)').hasMatch(block.text),
+              (block) => RegExp(
+                r'(?<![\p{L}\p{N}])[-−－](?![\p{L}\p{N}])',
+                unicode: true,
+              ).hasMatch(block.text),
             ) ||
             RegExp(
-              r'(?<![\p{L}\p{N}])-\d',
+              r'(?<![\p{L}\p{N}])-\s*\d',
               unicode: true,
             ).hasMatch(_normalizeOcrLine(descriptionText))) {
           continue;
         }
         final description = _cleanDescription(descriptionText);
         final normalizedDescription = _normalizeOcrLine(description);
+        final ownedText = '$normalizedDescription $monetaryText';
+        final ownedLower = ownedText.toLowerCase();
+        if (_hasTotalLabel(ownedText, ownedLower) ||
+            _hasSubtotalLabel(ownedText, ownedLower)) {
+          break;
+        }
         if (!_hasSubstantiveItemDescription(normalizedDescription) ||
-            _isAccountBalanceSummaryLine(
-              '$normalizedDescription $monetaryText',
-            ) ||
-            _isPaymentMetadataLine('$normalizedDescription $monetaryText') ||
+            _isAccountBalanceSummaryLine(ownedText) ||
+            _isPaymentMetadataLine(ownedText) ||
+            _isReceiptMetadataLine(ownedText) ||
             _isReceiptMetadataLine(
               normalizedDescription,
               allowBarePostal: false,
             ) ||
             _hasDetachedAmountSign(normalizedDescription) ||
             _printedCurrencyMarkerMatches(normalizedDescription).isNotEmpty ||
+            _unsupportedIsoCurrencyMarkers(normalizedDescription).isNotEmpty ||
+            RegExp(r'(?<=\d)[A-Za-z]{3}(?![\p{L}\p{N}])', unicode: true)
+                .allMatches(normalizedDescription)
+                .any(
+                  (marker) => _unsupportedIsoCurrencyMarkers(
+                    marker.group(0)!,
+                  ).isNotEmpty,
+                ) ||
             RegExp(r'\p{Sc}', unicode: true).hasMatch(normalizedDescription) ||
             RegExp(_amountTokenPattern)
                 .allMatches(normalizedDescription)
@@ -2515,6 +2531,14 @@ class ReceiptOcrParser {
           continue;
         }
         if (_hasPotentialReceiptAdjustmentLabel(normalizedDescription)) {
+          continue;
+        }
+        // Preserve the existing layout extractor's non-item fee grammar.
+        if (RegExp(
+              r'\b(?:fees?|surcharge)(?:\s*\([^)]*\))?$',
+              caseSensitive: false,
+            ).hasMatch(normalizedDescription) ||
+            _isExplicitNonItemFeeLine(ownedText)) {
           continue;
         }
         if (lineTotal.startsWith('-')) continue;
