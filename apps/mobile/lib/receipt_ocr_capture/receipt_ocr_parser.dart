@@ -4552,12 +4552,14 @@ bool _isOwnedSummaryCardHeaderRow(
 
   final first = rowIndex > 3 ? rowIndex - 3 : 0;
   final preceding = rows.sublist(first, rowIndex).expand((r) => r).toList();
+  final allBlocks = rows.expand((r) => r).toList(growable: false);
   final boxes =
       <
         ReceiptOcrBlockEvidence,
         ({double left, double top, double right, double bottom})
       >{};
-  for (final block in [...preceding, ...row]) {
+  for (final block in allBlocks) {
+    // Without a complete geometry map, cross-row competition is unresolved.
     if (block.points.length < 4 ||
         block.points.any((p) => !p.x.isFinite || !p.y.isFinite)) {
       return false;
@@ -4568,7 +4570,9 @@ bool _isOwnedSummaryCardHeaderRow(
       top: block.points.map((p) => p.y).reduce((a, b) => a < b ? a : b),
       bottom: block.points.map((p) => p.y).reduce((a, b) => a > b ? a : b),
     );
-    if (box.right <= box.left || box.bottom <= box.top) return false;
+    if (box.right <= box.left || box.bottom <= box.top) {
+      return false;
+    }
     boxes[block] = box;
   }
   bool directlyBelow(
@@ -4625,8 +4629,10 @@ bool _isOwnedSummaryCardHeaderRow(
       boxes[name]!.right >= dateLabelBox.left) {
     return false;
   }
-  if (preceding.any((b) {
-    final other = boxes[b]!;
+  if (allBlocks.any((b) {
+    if (b == dateLabel || b == date) return false;
+    final other = boxes[b];
+    if (other == null) return false;
     return other.right > dateLabelBox.left &&
         other.left < dateBox.right &&
         other.bottom > overlapTop &&
@@ -4644,10 +4650,11 @@ bool _isOwnedSummaryCardHeaderRow(
   );
   final signOnly = RegExp(r'^[+\p{Dash}➖\s]+$', unicode: true);
   final punctuationOnly = RegExp(r'^[^\p{L}\p{N}]*$', unicode: true);
+  final currencySymbol = RegExp(r'\p{Sc}', unicode: true);
   final amountHeight = amountBox.bottom - amountBox.top;
-  for (final neighbor in rows.expand((r) => r)) {
+  for (final neighbor in allBlocks) {
     if (row.contains(neighbor)) continue;
-    final text = neighbor.text.trim();
+    final text = _normalizeOcrLine(neighbor.text);
     final markers = currencyAtoms
         .allMatches(text)
         .map((m) => m.group(0)!)
@@ -4655,6 +4662,7 @@ bool _isOwnedSummaryCardHeaderRow(
     final remaining = text.replaceAll(currencyAtoms, '').trim();
     final isCurrency = markers.isNotEmpty && remaining.isEmpty;
     if (!isCurrency &&
+        !currencySymbol.hasMatch(text) &&
         !signOnly.hasMatch(remaining) &&
         !(markers.isNotEmpty && punctuationOnly.hasMatch(remaining)) &&
         !(_isStandaloneAmountRow(remaining) &&
@@ -4662,25 +4670,17 @@ bool _isOwnedSummaryCardHeaderRow(
                 _hasChargeTableMonetaryEvidence(remaining)))) {
       continue;
     }
-    if (neighbor.points.length < 4 ||
-        neighbor.points.any((p) => !p.x.isFinite || !p.y.isFinite)) {
-      return false;
-    }
-    final left = _blockLeft(neighbor), right = _blockRight(neighbor);
-    final top = neighbor.points.map((p) => p.y).reduce((a, b) => a < b ? a : b);
-    final bottom = neighbor.points
-        .map((p) => p.y)
-        .reduce((a, b) => a > b ? a : b);
-    if (right <= left || bottom <= top) return false;
-    final horizontalGap = right < amountBox.left
-        ? amountBox.left - right
-        : left > amountBox.right
-        ? left - amountBox.right
+    final other = boxes[neighbor];
+    if (other == null) return false;
+    final horizontalGap = other.right < amountBox.left
+        ? amountBox.left - other.right
+        : other.left > amountBox.right
+        ? other.left - amountBox.right
         : 0;
-    final verticalGap = bottom < amountBox.top
-        ? amountBox.top - bottom
-        : top > amountBox.bottom
-        ? top - amountBox.bottom
+    final verticalGap = other.bottom < amountBox.top
+        ? amountBox.top - other.bottom
+        : other.top > amountBox.bottom
+        ? other.top - amountBox.bottom
         : 0;
     if (horizontalGap > amountHeight || verticalGap > amountHeight * 0.5) {
       continue;
@@ -4704,9 +4704,10 @@ bool _isOwnedSummaryCardHeaderRow(
   ]) {
     final label = boxes[pair.$1]!;
     final value = boxes[pair.$2]!;
-    if ([...preceding, ...row].any((b) {
+    if (allBlocks.any((b) {
       if (b == pair.$1 || b == pair.$2) return false;
-      final other = boxes[b]!;
+      final other = boxes[b];
+      if (other == null) return false;
       return other.right > value.left &&
           other.left < value.right &&
           other.bottom > label.top &&

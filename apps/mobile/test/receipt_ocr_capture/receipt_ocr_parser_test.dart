@@ -147,6 +147,19 @@ void main() {
   test('summary-card ownership includes neighboring monetary fragments', () {
     for (final spec in [
       (3, 'EUR', 710.0, 194.0, false),
+      (3, 'ＥＵＲ', 710.0, 194.0, false),
+      (5, 'ＥＵＲ', 955.0, 240.0, false),
+      (5, 'ＵＳＤ１２．００', 955.0, 260.0, false),
+      (3, '₱', 710.0, 194.0, false),
+      (5, '₿', 955.0, 240.0, false),
+      (5, 'Pending', 800.0, 240.0, false),
+      (5, 'Pending', 475.0, 231.0, false),
+      (5, 'Pending', 35.0, 218.0, false),
+      (3, 'ＵＳＤ', 710.0, 194.0, true),
+      (5, 'ＥＵＲ', 1300.0, 240.0, true),
+      (5, '₱', 955.0, 600.0, true),
+      (5, 'Pending', 1300.0, 240.0, true),
+
       (5, 'EUR', 955.0, 240.0, false),
       (3, 'try', 710.0, 194.0, false),
       (5, 'rUb', 955.0, 240.0, false),
@@ -425,6 +438,10 @@ void main() {
             : b,
       );
       variant(
+        'unlocated later evidence',
+        (b) => b.row == 9 ? _summaryBlockVariant(b, withGeometry: false) : b,
+      );
+      variant(
         'distant label',
         (b) => b.text == 'Total Due' ? _summaryBlockVariant(b, dy: -80) : b,
       );
@@ -584,9 +601,23 @@ void main() {
       // An independently priced fee is retained even when the summary is owned.
       final withFee = [
         ...original,
-        _layoutBlock('County Network Fee USD 2.00', 30, 10, 50, 717),
+        ReceiptOcrBlockEvidence(
+          text: 'County Network Fee USD 2.00',
+          order: 30,
+          row: 10,
+          points: const [
+            ReceiptOcrPoint(x: 50, y: 1030),
+            ReceiptOcrPoint(x: 717, y: 1030),
+            ReceiptOcrPoint(x: 717, y: 1050),
+            ReceiptOcrPoint(x: 50, y: 1050),
+          ],
+        ),
       ];
       final feePreview = _parseBoundedUtility(withFee);
+      expect(
+        feePreview.itemLineDecisions[4],
+        ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+      );
       expect(
         feePreview.items.any(
           (i) => i.description == 'County Network Fee' && i.lineTotal == '2.00',
