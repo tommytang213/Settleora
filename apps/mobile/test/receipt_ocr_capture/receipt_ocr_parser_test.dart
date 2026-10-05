@@ -30,7 +30,126 @@ ReceiptOcrBlockEvidence _layoutBlock(
   ],
 );
 
+List<ReceiptOcrBlockEvidence> _boundedUtilityBlocks({
+  String support = 'Mon - Fri, 8 AM - 8 PM PT',
+  String period = 'Feb 5 – Mar 4, 2025',
+  bool splitDescription = false,
+  bool extraInteriorHeading = false,
+  String description = 'Internet Plan 500',
+  String discountAmount = r'-$10.00',
+}) => [
+  _layoutBlock('Network Utility', 0, 0, 20, 350),
+  _layoutBlock('Current Charges Detail', 1, 1, 20, 717),
+  _layoutBlock('Description', 2, 2, 49, 140),
+  if (extraInteriorHeading) _layoutBlock('Reference', 3, 2, 310, 365),
+  _layoutBlock('Service Period', 4, 2, 417, 529),
+  _layoutBlock('Amount', 5, 2, 652, 717),
+  _layoutBlock('Support', 6, 2, 828, 960),
+  if (splitDescription) ...[
+    _layoutBlock('Internet', 7, 3, 50, 140),
+    _layoutBlock('Plan 500', 8, 3, 180, 383),
+  ] else
+    _layoutBlock(description, 7, 3, 50, 383),
+  _layoutBlock(period, 9, 3, 417, 567),
+  _layoutBlock(r'$59.99', 10, 3, 659, 716),
+  _layoutBlock(support, 11, 3, 828, 1020),
+  _layoutBlock('Loyalty Discount (12 months)', 12, 4, 51, 265),
+  _layoutBlock(period, 13, 4, 417, 566),
+  _layoutBlock(discountAmount, 14, 4, 652, 718),
+  _layoutBlock('Live Chat', 15, 4, 827, 907),
+  _layoutBlock('State Tax', 16, 5, 51, 193),
+  _layoutBlock(period, 17, 5, 417, 566),
+  _layoutBlock(r'$4.31', 18, 5, 667, 717),
+  _layoutBlock('Total Current Charges USD 54.30', 19, 6, 50, 717),
+];
+
+ReceiptOcrPreview _parseBoundedUtility(List<ReceiptOcrBlockEvidence> blocks) {
+  final rows = <int, List<String>>{};
+  for (final block in blocks) {
+    (rows[block.row] ??= []).add(block.text);
+  }
+  return const ReceiptOcrParser().parse(
+    rows.values.map((row) => row.join(' ')).join('\n'),
+    fallbackCurrency: 'USD',
+    blocks: blocks,
+  );
+}
+
 void main() {
+  test(
+    'bounded utility columns recover service and discount beside support',
+    () {
+      for (final split in [false, true]) {
+        final blocks = _boundedUtilityBlocks(splitDescription: split);
+        final preview = _parseBoundedUtility(blocks);
+        expect(preview.items.map((item) => item.description), [
+          'Internet Plan 500',
+        ]);
+        expect(preview.items.single.lineTotal, '59.99');
+        expect(preview.discount, '-10.00');
+        expect(preview.tax, '4.31');
+        expect(preview.total, '54.30');
+        expect(preview.reviewHints, isEmpty);
+        expect(preview.blocks, containsAll(blocks));
+      }
+    },
+  );
+
+  test('bounded utility recovery never clears a panel credit sign', () {
+    for (final support in ['Credit - 10', 'Credit - USD 10', '-']) {
+      final blocks = _boundedUtilityBlocks(support: support);
+      final preview = _parseBoundedUtility(blocks);
+      expect(
+        preview.items.any((item) => item.description == 'Internet Plan 500'),
+        isFalse,
+        reason: support,
+      );
+      expect(preview.reviewHints, isNotEmpty, reason: support);
+      expect(preview.blocks, containsAll(blocks));
+    }
+  });
+
+  test('bounded utility recovery requires complete owned period evidence', () {
+    for (final period in ['Feb 5 –', 'Feb 5 – Mar 4, 2025 USD 10.00']) {
+      final blocks = _boundedUtilityBlocks(period: period);
+      final preview = _parseBoundedUtility(blocks);
+      expect(
+        preview.items.any((item) => item.description == 'Internet Plan 500'),
+        isFalse,
+        reason: period,
+      );
+      expect(preview.reviewHints, isNotEmpty, reason: period);
+      expect(preview.blocks, containsAll(blocks));
+    }
+    final blocks = _boundedUtilityBlocks(extraInteriorHeading: true);
+    final preview = _parseBoundedUtility(blocks);
+    expect(
+      preview.items.any((item) => item.description == 'Internet Plan 500'),
+      isFalse,
+    );
+    expect(preview.blocks, containsAll(blocks));
+  });
+
+  test(
+    'bounded recovery does not accept detached signs or stray currency',
+    () {
+      final signed = _boundedUtilityBlocks(discountAmount: '- USD 10،00');
+      final signedPreview = _parseBoundedUtility(signed);
+      expect(signedPreview.discount, isNull);
+      expect(signedPreview.blocks, containsAll(signed));
+      final currency = _boundedUtilityBlocks(description: 'Internet Plan USD');
+      final currencyPreview = _parseBoundedUtility(currency);
+      expect(
+        currencyPreview.items.any(
+          (item) => item.description == 'Internet Plan USD',
+        ),
+        isFalse,
+      );
+      expect(currencyPreview.reviewHints, isNotEmpty);
+      expect(currencyPreview.blocks, containsAll(currency));
+    },
+  );
+
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test('bounded item diagnostics retain fixed grammar and origin roles', () {

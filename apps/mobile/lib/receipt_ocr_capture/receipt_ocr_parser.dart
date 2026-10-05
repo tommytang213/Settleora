@@ -75,24 +75,38 @@ class ReceiptOcrParser {
       detachedAmountSignRows: detachedAmountSignRows,
     );
     final chargeTableRows = chargeTable.items;
-    final layoutAdjustmentLines = _layoutAdjustmentEvidenceLines(
-      lines,
-      layoutRows,
-      {...chargeTable.items, ...chargeTable.ambiguous},
-    );
+    final layoutAdjustmentLines = {
+      ..._layoutAdjustmentEvidenceLines(lines, layoutRows, {
+        ...chargeTable.items,
+        ...chargeTable.ambiguous,
+      }),
+    };
 
     final currencyDetection = _detectCurrency(
       lines,
       fallbackCurrency: fallbackCurrency,
     );
     final currency = currencyDetection.currency;
-    final layoutChargeItems = _extractLayoutChargeTableItems(
+    final boundedUtility = _boundedUtilityColumnRecovery(
       lines,
       layoutRows,
       currency,
-      detachedAmountSignRows: detachedAmountSignRows,
-      adjustmentRows: layoutAdjustmentLines.keys.toSet(),
     );
+    layoutAdjustmentLines.addAll(boundedUtility.adjustments);
+    detachedAmountSignRows.removeAll({
+      ...boundedUtility.items.keys,
+      ...boundedUtility.adjustments.keys,
+    });
+    final layoutChargeItems = {
+      ..._extractLayoutChargeTableItems(
+        lines,
+        layoutRows,
+        currency,
+        detachedAmountSignRows: detachedAmountSignRows,
+        adjustmentRows: layoutAdjustmentLines.keys.toSet(),
+      ),
+      ...boundedUtility.items,
+    };
     final recognizedChargeRows = {
       ...chargeTableRows,
       ...layoutChargeItems.keys,
@@ -2306,6 +2320,183 @@ class ReceiptOcrParser {
     );
   }
 
+  // Only this printed, bounded utility layout can recover a row whose
+  // flattened text mixes a charge with a separate support panel. Other table
+  // types and rows without a complete proof retain the existing parser paths.
+  ({Map<int, ReceiptOcrItemCandidate> items, Map<int, String> adjustments})
+  _boundedUtilityColumnRecovery(
+    List<String> lines,
+    List<List<ReceiptOcrBlockEvidence>> rows,
+    String? currency,
+  ) {
+    final items = <int, ReceiptOcrItemCandidate>{};
+    final adjustments = <int, String>{};
+    if (lines.length != rows.length || currency == null) {
+      return (items: items, adjustments: adjustments);
+    }
+    for (var index = 0; index < rows.length; index++) {
+      if (!_isBillChargeDetailHeader(lines, index)) continue;
+      final header = rows[index];
+      if (header.any((block) => block.points.isEmpty)) continue;
+      ReceiptOcrBlockEvidence? heading(String name) {
+        final matches = header.where(
+          (block) => block.text.trim().toLowerCase() == name,
+        );
+        return matches.length == 1 ? matches.single : null;
+      }
+
+      final descriptionHeader = heading('description');
+      final periodHeader = heading('service period');
+      final amountHeader = heading('amount');
+      if (descriptionHeader == null ||
+          periodHeader == null ||
+          amountHeader == null ||
+          _blockLeft(descriptionHeader) >= _blockRight(descriptionHeader) ||
+          _blockLeft(periodHeader) >= _blockRight(periodHeader) ||
+          _blockRight(descriptionHeader) >= _blockLeft(periodHeader) ||
+          _blockRight(periodHeader) >= _blockLeft(amountHeader) ||
+          _blockLeft(amountHeader) >= _blockRight(amountHeader)) {
+        continue;
+      }
+      final otherHeaders = header
+          .where(
+            (block) =>
+                block != descriptionHeader &&
+                block != periodHeader &&
+                block != amountHeader,
+          )
+          .toList();
+      if (otherHeaders.length > 1 ||
+          otherHeaders.any(
+            (block) => _blockLeft(block) <= _blockRight(amountHeader),
+          )) {
+        continue;
+      }
+      for (var rowIndex = index + 1; rowIndex < rows.length; rowIndex++) {
+        final line = lines[rowIndex];
+        if (_isSupportedChargeTableHeader(lines, rowIndex) ||
+            _isChargeTableSectionBoundary(line) ||
+            _hasTotalLabel(line, line.toLowerCase()) ||
+            _hasSubtotalLabel(line, line.toLowerCase())) {
+          break;
+        }
+        final row = rows[rowIndex];
+        if (row.any((block) => block.points.isEmpty)) continue;
+        final amountCells = row
+            .where(
+              (block) =>
+                  _blockRight(block) >= _blockLeft(amountHeader) - 12 &&
+                  _blockLeft(block) <= _blockRight(amountHeader) + 12 &&
+                  RegExp(_amountTokenPattern).hasMatch(block.text),
+            )
+            .toList();
+        if (amountCells.length != 1) continue;
+        final amountCell = amountCells.single;
+        if (_blockLeft(amountCell) < _blockLeft(amountHeader) - 12 ||
+            _blockRight(amountCell) > _blockRight(amountHeader) + 12) {
+          continue;
+        }
+        final monetaryText = _normalizeOcrLine(amountCell.text);
+        if (RegExp(r'[-−－]\s').hasMatch(amountCell.text) ||
+            _hasDetachedAmountSign(amountCell.text) ||
+            !_isStandaloneAmountRow(monetaryText) ||
+            !_hasChargeTableMonetaryEvidence(monetaryText) ||
+            RegExp(_amountTokenPattern).allMatches(monetaryText).length != 1 ||
+            _printedCurrencyMarkerMatches(monetaryText).length > 1 ||
+            _hasUnsupportedCurrencySymbolOnSelectedAmount(monetaryText) ||
+            _unsupportedIsoCodeAdjacentToSelectedAmount(monetaryText) != null) {
+          continue;
+        }
+        final printedCurrency = _explicitAdjustmentCurrencyFromLine(
+          monetaryText,
+          receiptCurrency: currency,
+        );
+        if (printedCurrency.hasExplicitEvidence &&
+            printedCurrency.currency != currency) {
+          continue;
+        }
+        final descriptionCells = row
+            .where(
+              (block) =>
+                  block != amountCell &&
+                  _blockLeft(block) >= _blockLeft(descriptionHeader) - 12 &&
+                  _blockRight(block) < _blockLeft(periodHeader),
+            )
+            .toList();
+        final periodCells = row
+            .where(
+              (block) =>
+                  block != amountCell &&
+                  _blockLeft(block) >= _blockLeft(periodHeader) &&
+                  _blockRight(block) <= _blockLeft(amountCell),
+            )
+            .toList();
+        if (descriptionCells.isEmpty ||
+            !descriptionCells.any(
+              (block) => _blockLeft(block) <= _blockRight(descriptionHeader),
+            ) ||
+            !_isCompleteUtilityPeriod(
+              periodCells.map((block) => block.text.trim()).join(' '),
+            )) {
+          continue;
+        }
+        final remaining = row
+            .where(
+              (block) =>
+                  block != amountCell &&
+                  !descriptionCells.contains(block) &&
+                  !periodCells.contains(block),
+            )
+            .toList();
+        if (remaining.isNotEmpty &&
+            (otherHeaders.length != 1 ||
+                remaining.any(
+                  (block) =>
+                      _blockLeft(block) <
+                          _blockLeft(otherHeaders.single) - 12 ||
+                      !_isBoundedUtilitySupportCopy(block.text),
+                ))) {
+          continue;
+        }
+        final description = _cleanDescription(
+          descriptionCells.map((block) => block.text.trim()).join(' '),
+        );
+        if (!_hasSubstantiveItemDescription(description) ||
+            _isReceiptMetadataLine(description, allowBarePostal: false) ||
+            _hasDetachedAmountSign(description) ||
+            _printedCurrencyMarkerMatches(description).isNotEmpty ||
+            RegExp(r'\p{Sc}', unicode: true).hasMatch(description) ||
+            _hasChargeTableMonetaryEvidence(description)) {
+          continue;
+        }
+        final discountLabel = RegExp(
+          r'^(?:[\p{L}\p{N} -]+\s+)?(?:discount|coupon|rebate)(?:\s*\([\p{L}\p{N} %.-]+\))?$',
+          caseSensitive: false,
+          unicode: true,
+        ).hasMatch(description);
+        if (discountLabel) {
+          adjustments[rowIndex] = 'Discount $monetaryText';
+          continue;
+        }
+        if (_hasPotentialReceiptAdjustmentLabel(description)) continue;
+        final lineTotal = _lastAmountInLine(monetaryText, currency: currency);
+        if (lineTotal == null || lineTotal.startsWith('-')) continue;
+        items[rowIndex] = ReceiptOcrItemCandidate(
+          description: description,
+          lineTotal: lineTotal,
+          currency: currency,
+          confidence: _averageBlockConfidence([
+            ...descriptionCells,
+            ...periodCells,
+            amountCell,
+          ]),
+          category: 'item_line',
+        );
+      }
+    }
+    return (items: items, adjustments: adjustments);
+  }
+
   Map<int, String> _layoutAdjustmentEvidenceLines(
     List<String> sourceLines,
     List<List<ReceiptOcrBlockEvidence>> layoutRows,
@@ -4000,6 +4191,43 @@ bool _hasExplicitTaxRate(String line) => RegExp(
   r'\btax\b\s*(?:\(\s*\d{1,3}(?:[.,]\d{1,2})?\s*%\s*\)|\d{1,3}(?:[.,]\d{1,2})?\s*%)',
   caseSensitive: false,
 ).hasMatch(line);
+
+bool _isCompleteUtilityPeriod(String text) {
+  const month =
+      r'(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|'
+      r'Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|'
+      r'Nov(?:ember)?|Dec(?:ember)?)\.?';
+  const day = r'(?:0?[1-9]|[12]\d|3[01])';
+  const year = r'(?:19|20)\d{2}';
+  const date =
+      '(?:$month\\s*$day|$day\\s*$month)'
+      '(?:(?:,\\s*|\\s+)$year)?';
+  return RegExp(
+    '^$date\\s*[-−–]\\s*$date\\s*\$',
+    caseSensitive: false,
+  ).hasMatch(text.trim());
+}
+
+bool _isBoundedUtilitySupportCopy(String text) {
+  if (_hasPotentialReceiptAdjustmentLabel(text) ||
+      _printedCurrencyMarkerMatches(text).isNotEmpty ||
+      RegExp(r'\p{Sc}', unicode: true).hasMatch(text)) {
+    return false;
+  }
+  // Only complete printed clock ranges explain numeric signs in the panel.
+  // Other numbers or trailing signs retain the original row's uncertainty.
+  final withoutClocks = text.replaceAll(
+    RegExp(
+      r'(?<![\p{L}\p{N}])(?:[1-9]|1[0-2])(?::[0-5]\d)?\s*(?:am|pm)\s*[-−–]\s*'
+      r'(?:[1-9]|1[0-2])(?::[0-5]\d)?\s*(?:am|pm)(?![\p{L}\p{N}])',
+      caseSensitive: false,
+      unicode: true,
+    ),
+    '',
+  );
+  return !RegExp(r'\d|[-−]\s*$').hasMatch(withoutClocks) &&
+      _unicodeLetterPattern.hasMatch(text);
+}
 
 bool _hasChargeTableMonetaryEvidence(String monetaryText) {
   final amountTokens = RegExp(_amountTokenPattern).allMatches(monetaryText);
