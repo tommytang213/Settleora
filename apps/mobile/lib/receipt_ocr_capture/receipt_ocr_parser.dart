@@ -2371,6 +2371,8 @@ class ReceiptOcrParser {
     // Apply the same clause grammar to visible notes and outer labels. Notes
     // cannot erase financial evidence before a service or discount is selected.
     bool hasFinancialRole(String label, String monetaryText) =>
+        (RegExp(r'^payment\b', caseSensitive: false).hasMatch(label.trim()) &&
+            _isInvoicePaymentFooterCopy(label)) ||
         [
               _boundedUtilityRoleText(label),
               ..._boundedUtilityAnnotationRoles(label),
@@ -2556,14 +2558,18 @@ class ReceiptOcrParser {
                 for (final marker in protectedMoney.keys) {
                   prefix = prefix.replaceAll(marker, ' ');
                 }
-                prefix = _boundedUtilityRoleText(prefix).replaceFirst(
-                  RegExp(
-                    r'\s+(?:as\s+of|on|at|for|through|thru|until|dated|'
-                    r'(?:billing\s+)?period\s+(?:ending|ended))\s*[:：]?$',
-                    caseSensitive: false,
-                  ),
-                  '',
+                prefix = _boundedUtilityRoleText(prefix);
+                final temporalIntroducer = RegExp(
+                  r'\s+(?:as\s+of|on|at|for|from|to|through|thru|until|dated|'
+                  r'(?:(?:the|this|current)\s+)*(?:(?:billing|service|statement)\s+)?'
+                  r'period(?:\s+(?:ending|ended))?)\s*[:：]?$',
+                  caseSensitive: false,
                 );
+                // Composed qualifiers, e.g. "for the billing period ending",
+                // retain the same Total role. Each step removes a known suffix.
+                while (temporalIntroducer.hasMatch(prefix)) {
+                  prefix = prefix.replaceFirst(temporalIntroducer, '').trim();
+                }
                 return RegExp(
                   r'^(?:total|sub[\s-]?total)\s*[:：]?$',
                   caseSensitive: false,
@@ -4582,9 +4588,14 @@ bool _hasBoundedUtilityFinancialPrefix(String label, String monetaryText) {
   final statusQualifier = RegExp(
     r'^(?:(?:is|was|has|have|had|been|being|will|be|not|now|still|already|'
     r'partially|fully|successfully|automatically|manually)\s+)*'
-    r'(?:received|made|pending|processed|completed|approved|accepted|declined|'
+    r'(?:received|made|pending|processed|processing|complete|completed|confirmed|confirmation|'
+    r'successful|success|paid|authorized|authorised|captured|rejected|approved|accepted|declined|'
     r'failed|refunded|reversed|cancelled|canceled|posted|applied|outstanding|'
     r'scheduled|due|deferred|cleared|settled|unsettled|unpaid|awaiting)\b',
+    caseSensitive: false,
+  );
+  final namedServiceQualifier = RegExp(
+    r'\b(?:plans?|boards?|gateways?|services?|subscriptions?|packages?|products?)\b',
     caseSensitive: false,
   );
   return [
@@ -4598,11 +4609,12 @@ bool _hasBoundedUtilityFinancialPrefix(String label, String monetaryText) {
     ];
     return ends.any((end) {
       final prefix = role.substring(0, end);
-      // Status words qualify a financial role. Ordinary named qualifiers such
-      // as Payment Plan and Balance Board still need more than one bare word.
+      // A financial head remains financial when qualified. A printed service
+      // kind, e.g. Payment Plan or Payment Processing Subscription, instead
+      // requires the complete phrase to establish a conflicting financial role.
       if (end != role.length &&
           !prefix.contains(' ') &&
-          !statusQualifier.hasMatch(role.substring(end).trim())) {
+          namedServiceQualifier.hasMatch(role.substring(end))) {
         return false;
       }
       return _isBoundedUtilityAccountRole(prefix, monetaryText) ||
