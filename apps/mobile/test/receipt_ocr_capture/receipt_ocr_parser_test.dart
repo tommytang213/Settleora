@@ -77,6 +77,59 @@ ReceiptOcrPreview _parseBoundedUtility(List<ReceiptOcrBlockEvidence> blocks) {
 }
 
 void main() {
+  test('footer roles survive month formatting and money placement', () {
+    for (final (label, mergedMoney) in [
+      for (final context in [
+        'Mar-2025',
+        'Mar ’25',
+        "Mar '25",
+        'Mar/2025',
+        'Mar.2025',
+        'Mar–2025',
+        'Mar-25',
+        'Mar/25',
+        'Mar 2 0 2 5',
+        "Mar '2 5",
+        'March—2025',
+      ])
+        ('Total $context', false),
+      for (final label in [
+        'Total USD 54.30 for Billing Cycle 47',
+        r'Total $54.30 for Billing Cycle 47',
+        'Total 54.30 USD for Billing Cycle 47',
+        'Total ZAR 54.30 for Billing Cycle 47',
+        'Total 54.30 for Billing Cycle 47',
+        'USD 54.30 Total for Billing Cycle 47',
+        'Total USD 54.30 for Weeks 1 to 4',
+      ])
+        (label, true),
+    ]) {
+      final original = _boundedUtilityBlocks(
+        description: 'Next Month Estimate',
+      );
+      final blocks = [
+        ...original.where((b) => b.row < 3),
+        _layoutBlock(label, 7, 3, 50, mergedMoney ? 717 : 640),
+        if (!mergedMoney) _layoutBlock('USD 54.30', 9, 3, 659, 716),
+        _layoutBlock('Contact us', 10, 3, 828, 1020),
+        for (final b in original.where((b) => b.row >= 3))
+          _layoutBlock(
+            b.text,
+            b.order + 4,
+            b.row + 1,
+            b.points[0].x,
+            b.points[1].x,
+          ),
+      ];
+      final preview = _parseBoundedUtility(blocks);
+      expect(
+        preview.items.any((i) => i.lineTotal == '59.99'),
+        isFalse,
+        reason: label,
+      );
+      expect(preview.blocks, containsAll(blocks));
+    }
+  });
   test('quarter and fiscal periods retain the printed Total role', () {
     for (final context in [
       'Q1 2025',
@@ -195,15 +248,23 @@ void main() {
   test(
     'financial phrase position preserves conflict and service distinctions',
     () {
-      for (final qualifier in [
-        'Partial',
-        'Full',
-        'Final',
-        'Initial',
-        'Additional',
-        'Advance',
+      for (final label in [
+        'Partial Payment',
+        'Full Payment',
+        'Final Payment',
+        'Initial Payment',
+        'Additional Payment',
+        'Advance Payment',
+        'Payment#1234',
+        'Payment=received',
+        'Payment@1234',
+        'Payment+received',
+        'Payment_received',
+        'Payment<received',
+        'Payment>received',
+        r'Payment\received',
+        'Payment~received',
       ]) {
-        final label = '$qualifier Payment';
         final serviceBlocks = _boundedUtilityBlocks(description: label);
         final service = _parseBoundedUtility(serviceBlocks);
         expect(
@@ -227,6 +288,10 @@ void main() {
         'Partial Payment Plan',
         'Full Payment Gateway',
         'Additional Payment Subscription',
+        'Payment#Plan',
+        'Payment=Plan',
+        'Payment_Gateway',
+        'Payment+Processing Subscription',
       ]) {
         final blocks = _boundedUtilityBlocks(description: label);
         final preview = _parseBoundedUtility(blocks);

@@ -2709,13 +2709,15 @@ class ReceiptOcrParser {
               ' ',
             );
           }
+          final temporalRole = _boundedUtilityRoleText(temporalRoleProjection);
           if (protectedMoney.isNotEmpty &&
-              RegExp(
-                r'^(?:total|sub[\s-]?total)\s+(?:for\s+)?'
-                r'(?:(?:the|this|current)\s+)*(?:(?:billing|service|statement)\s+)?'
-                r'period\b',
-                caseSensitive: false,
-              ).hasMatch(_boundedUtilityRoleText(temporalRoleProjection))) {
+              (strongFooterLabel.hasMatch(temporalRole) ||
+                  RegExp(
+                    r'^(?:total|sub[\s-]?total)\s+(?:for\s+)?'
+                    r'(?:(?:the|this|current)\s+)*(?:(?:billing|service|statement)\s+)?'
+                    r'period\b',
+                    caseSensitive: false,
+                  ).hasMatch(temporalRole))) {
             return true;
           }
           final boundaryContexts = RegExp(
@@ -4776,7 +4778,11 @@ final _boundedUtilityNamedServiceQualifier = RegExp(
 // Financial phrases survive leading and trailing qualifiers in bounded
 // conflict and item checks; their position does not erase the printed role.
 bool _hasBoundedUtilityFinancialPhrase(String label, String monetaryText) {
-  final normalizedRole = _boundedUtilityRoleText(label);
+  // Punctuation delimits words in this role-only view, including reference
+  // markers such as Payment#1234. Preserve the original service text.
+  final normalizedRole = _boundedUtilityRoleText(
+    label,
+  ).replaceAll(RegExp(r'[^\p{L}\p{M}\p{N}]+', unicode: true), ' ').trim();
   final starts = [
     0,
     ...RegExp(r'\s+').allMatches(normalizedRole).map((match) => match.end),
@@ -4900,7 +4906,7 @@ String _utilityDatePattern({
   // Month/year billing context is a footer proof only. Prefer it before the
   // optional-year day syntax so March 2025 cannot be truncated to March 20.
   final date = allowMonthYear
-      ? '(?:$month\\s*,?\\s*$fullYear|'
+      ? "(?:$month\\s*(?:[\\p{Dash}/,]\\s*)?(?:['’]\\s*)?$year|"
             '$numericMonth$separator$fullYear|$fullYear$separator$numericMonth|$dayDate)'
       : dayDate;
   // Weekday qualifiers identify footer context only. They cannot qualify a
