@@ -2503,7 +2503,7 @@ class ReceiptOcrParser {
           final namedDates = RegExp(
             '(?<![\\p{L}\\p{N}])'
             "(?<!\\d[.,/'’])"
-            '${_utilityDatePattern(allowFragmentedYear: true, allowTwoDigitYear: true, allowOrdinalDay: true)}'
+            '${_utilityDatePattern(allowFragmentedYear: true, allowTwoDigitYear: true, allowOrdinalDay: true, allowWeekdayContext: true)}'
             '(?![\\p{L}\\p{N}])',
             caseSensitive: false,
             unicode: true,
@@ -4513,6 +4513,12 @@ String _boundedUtilityRoleText(String text) {
   return role
       .replaceFirst(RegExp(r'^[^\p{L}\p{N}]+', unicode: true), '')
       .replaceFirst(RegExp(r'[^\p{L}\p{N}]+$', unicode: true), '')
+      // Joined alphabetic dashes are word separators for role classification,
+      // not grounds to discard the original printed service name.
+      .replaceAll(
+        RegExp(r'(?<=\p{L})[\p{Dash}➖]+(?=\p{L})', unicode: true),
+        ' ',
+      )
       .replaceAll(RegExp(r'\bbalances\b', caseSensitive: false), 'balance')
       .replaceAll(RegExp(r'\bamounts\b', caseSensitive: false), 'amount')
       .replaceAll(RegExp(r'\s+'), ' ')
@@ -4585,6 +4591,7 @@ String _utilityBoundaryDatePattern() {
     allowFragmentedYear: true,
     allowTwoDigitYear: true,
     allowOrdinalDay: true,
+    allowWeekdayContext: true,
   );
   // A footer may print one date, a range, or an incomplete range. None of
   // these boundary-only forms broadens service-row monetary eligibility.
@@ -4596,6 +4603,7 @@ String _utilityDatePattern({
   bool allowFragmentedYear = false,
   bool allowTwoDigitYear = false,
   bool allowOrdinalDay = false,
+  bool allowWeekdayContext = false,
 }) {
   const month =
       r'(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|'
@@ -4608,8 +4616,14 @@ String _utilityDatePattern({
   final shortYear = allowFragmentedYear ? r'\d\s*\d' : r'\d{2}';
   final year = allowTwoDigitYear ? '(?:$fullYear|$shortYear)' : fullYear;
   final namedDay = allowOrdinalDay ? '$day(?:st|nd|rd|th)?' : day;
+  const weekday =
+      r'(?:Mon(?:day)?|Tue(?:s(?:day)?)?|Wed(?:nesday)?|'
+      r'Thu(?:r(?:s(?:day)?)?)?|Fri(?:day)?|Sat(?:urday)?|Sun(?:day)?)(?:\s*\.)?';
+  const weekdayTag =
+      '(?:$weekday|\\(\\s*$weekday\\s*\\)|\\[\\s*$weekday\\s*\\])';
+  final weekdaySuffix = allowWeekdayContext ? '(?:\\s*,?\\s*$weekdayTag)?' : '';
   final namedDate =
-      '(?:$month\\s*$namedDay|$namedDay\\s*$month)'
+      '(?:$month\\s*$namedDay|$namedDay\\s*$month)$weekdaySuffix'
       '(?:(?:\\s*,\\s*|\\s+)$year)?';
   // Numeric dates only identify a footer boundary. They never broaden the
   // complete named-date evidence required to recover a service amount.
@@ -4624,7 +4638,12 @@ String _utilityDatePattern({
       '(?:$fullYear$separator$numericMonth$separator$day|'
       '$day$separator$numericMonth(?:$separator$year)?|'
       '$numericMonth$separator$day(?:$separator$year)?$shortYearFirst)';
-  return allowNumericDates ? '(?:$namedDate|$numericDate)' : namedDate;
+  final date = allowNumericDates ? '(?:$namedDate|$numericDate)' : namedDate;
+  // Weekday qualifiers identify footer context only. They cannot qualify a
+  // service period for monetary recovery or consume an owned money cell.
+  return allowWeekdayContext
+      ? '(?:$weekdayTag\\s*,?\\s*)?$date$weekdaySuffix'
+      : date;
 }
 
 bool _isBoundedUtilitySupportCopy(String text) {
