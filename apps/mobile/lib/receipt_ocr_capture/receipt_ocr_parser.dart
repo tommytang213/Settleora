@@ -4703,12 +4703,12 @@ bool _isOwnedSummaryCardHeaderRow(
         !boundedCurrencyAtoms.hasMatch(text) &&
         !currencySymbol.hasMatch(text) &&
         !signOnly.hasMatch(text) &&
+        !creditDebit.hasMatch(text) &&
         !decimalFragment.hasMatch(text) &&
         !(digit.hasMatch(text) &&
-            (creditDebit.hasMatch(text) ||
-                numericFragment.hasMatch(
-                  text.replaceAll(numericConnectors, ' '),
-                )))) {
+            numericFragment.hasMatch(
+              text.replaceAll(numericConnectors, ' '),
+            ))) {
       continue;
     }
     if (!isCurrency) return false;
