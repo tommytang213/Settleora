@@ -243,26 +243,35 @@ void main() {
   test('bounded recovery stops at merged total and period blocks', () {
     for (final label in ['Total Amount Due', 'Subtotal']) {
       for (final period in ['Feb 5 – Mar 4, 2025', 'Feb 5 –']) {
-        final original = _boundedUtilityBlocks(
-          description: 'Next Month Estimate',
-        );
-        final blocks = [
-          ...original.where((block) => block.row < 3),
-          _layoutBlock('$label $period', 7, 3, 50, 640),
-          _layoutBlock(r'$54.30', 9, 3, 659, 716),
-          _layoutBlock('Contact us', 10, 3, 828, 1020),
-          for (final block in original.where((block) => block.row >= 3))
-            _layoutBlock(
-              block.text,
-              block.order + 4,
-              block.row + 1,
-              block.points[0].x,
-              block.points[1].x,
-            ),
-        ];
-        final preview = _parseBoundedUtility(blocks);
-        expect(preview.items.any((item) => item.lineTotal == '59.99'), isFalse);
-        expect(preview.blocks, containsAll(blocks));
+        for (final (footer, separateAmount) in [
+          ('$label $period', true),
+          ('$label $period \$54.30', false),
+          ('$label \$54.30 $period', false),
+        ]) {
+          final original = _boundedUtilityBlocks(
+            description: 'Next Month Estimate',
+          );
+          final blocks = [
+            ...original.where((block) => block.row < 3),
+            _layoutBlock(footer, 7, 3, 50, separateAmount ? 640 : 717),
+            if (separateAmount) _layoutBlock(r'$54.30', 9, 3, 659, 716),
+            _layoutBlock('Contact us', 10, 3, 828, 1020),
+            for (final block in original.where((block) => block.row >= 3))
+              _layoutBlock(
+                block.text,
+                block.order + 4,
+                block.row + 1,
+                block.points[0].x,
+                block.points[1].x,
+              ),
+          ];
+          final preview = _parseBoundedUtility(blocks);
+          expect(
+            preview.items.any((item) => item.lineTotal == '59.99'),
+            isFalse,
+          );
+          expect(preview.blocks, containsAll(blocks));
+        }
       }
     }
   });

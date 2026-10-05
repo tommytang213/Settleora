@@ -2426,22 +2426,21 @@ class ReceiptOcrParser {
           }),
         ];
         if (boundaryProjections.any((blocks) {
-          final text = blocks
-              .map((block) {
-                final text = _normalizeOcrLine(block.text.trim());
-                // OCR can merge a footer label with its service-period suffix.
-                // Remove only the bounded date grammar for boundary recognition.
-                for (final gap in RegExp(r'\s+').allMatches(text)) {
-                  if (_matchesUtilityPeriod(
-                    text.substring(gap.end),
-                    allowIncompleteEnd: true,
-                  )) {
-                    return text.substring(0, gap.start);
-                  }
-                }
-                return text;
-              })
-              .join(' ');
+          // OCR may merge or split a footer's label, date and amount.
+          // Remove only recognized period syntax from this boundary projection.
+          final text =
+              _normalizeOcrLine(
+                blocks.map((block) => block.text.trim()).join(' '),
+              ).replaceAll(
+                RegExp(
+                  '(?<![\\p{L}\\p{N}])'
+                  '${_utilityPeriodPattern(allowIncompleteEnd: true)}'
+                  '(?![\\p{L}\\p{N}])',
+                  caseSensitive: false,
+                  unicode: true,
+                ),
+                ' ',
+              );
           return _hasTotalLabel(text, text.toLowerCase()) ||
               _hasSubtotalLabel(text, text.toLowerCase());
         })) {
@@ -4354,7 +4353,12 @@ bool _hasExplicitTaxRate(String line) => RegExp(
   caseSensitive: false,
 ).hasMatch(line);
 
-bool _matchesUtilityPeriod(String text, {bool allowIncompleteEnd = false}) {
+bool _matchesUtilityPeriod(String text) => RegExp(
+  '^${_utilityPeriodPattern()}\\s*\$',
+  caseSensitive: false,
+).hasMatch(text.trim());
+
+String _utilityPeriodPattern({bool allowIncompleteEnd = false}) {
   const month =
       r'(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|'
       r'Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|'
@@ -4365,10 +4369,7 @@ bool _matchesUtilityPeriod(String text, {bool allowIncompleteEnd = false}) {
       '(?:$month\\s*$day|$day\\s*$month)'
       '(?:(?:,\\s*|\\s+)$year)?';
   final endDate = allowIncompleteEnd ? '(?:$date)?' : date;
-  return RegExp(
-    '^$date\\s*[-−–]\\s*$endDate\\s*\$',
-    caseSensitive: false,
-  ).hasMatch(text.trim());
+  return '$date\\s*[-−–]\\s*$endDate';
 }
 
 bool _isBoundedUtilitySupportCopy(String text) {
