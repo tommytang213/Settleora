@@ -184,6 +184,7 @@ class ReceiptOcrParser {
       layoutRows: layoutRows,
       layoutChargeItemRows: layoutChargeItems.keys.toSet(),
       hasBoundedDccFooterBoundary: hasBoundedDccFooterBoundary,
+      nonItemSummaryRows: extractedItems.nonItemSummaryRows,
     );
     final hasCompleteItemEvidence =
         hasCompletePricedItemEvidence && unresolvedItemLines == 0;
@@ -1792,6 +1793,7 @@ class ReceiptOcrParser {
     bool unretainedPricedItem,
     List<ReceiptOcrItemLineDecision> lineDecisions,
     List<ReceiptOcrItemLineDecision> itemSelectionDecisions,
+    Set<int> nonItemSummaryRows,
   })
   _extractItems(
     List<String> lines,
@@ -1806,6 +1808,7 @@ class ReceiptOcrParser {
     Set<int> detachedAmountSignRows = const {},
   }) {
     final items = <ReceiptOcrItemCandidate>[];
+    final nonItemSummaryRows = <int>{};
     final itemSelectionDecisions = <ReceiptOcrItemLineDecision>[];
     final lineDecisions = List<ReceiptOcrItemLineDecision>.filled(
       lines.length,
@@ -1867,7 +1870,15 @@ class ReceiptOcrParser {
         wrappedDescriptionLines.clear();
         continue;
       }
-      if ((_isAdministrativeLine(line) &&
+      final isOwnedSummary = _isOwnedSummaryCardHeaderRow(
+        layoutRows,
+        lineIndex,
+        currency,
+        selectedTotal,
+      );
+      if (isOwnedSummary) nonItemSummaryRows.add(lineIndex);
+      if (isOwnedSummary ||
+          (_isAdministrativeLine(line) &&
               !chargeTableRows.contains(lineIndex)) ||
           (afterSubtotal &&
               !chargeTableRows.contains(lineIndex) &&
@@ -1883,12 +1894,6 @@ class ReceiptOcrParser {
                 allowDescriptiveSurchargeLabel: afterSubtotal,
               ) &&
               (afterSubtotal || _hasExplicitTaxRate(line))) ||
-          _isOwnedSummaryCardHeaderRow(
-            layoutRows,
-            lineIndex,
-            currency,
-            selectedTotal,
-          ) ||
           _isContextualReceiptMetadataLine(lines, lineIndex) ||
           _isChargeTableHeader(line) ||
           detachedAmountSignRows.contains(lineIndex) ||
@@ -2189,6 +2194,7 @@ class ReceiptOcrParser {
       truncated: items.length > 40,
       unretainedPricedItem: unretainedPricedItem,
       lineDecisions: lineDecisions,
+      nonItemSummaryRows: nonItemSummaryRows,
       itemSelectionDecisions: itemSelectionDecisions
           .take(40)
           .toList(growable: false),
@@ -3617,6 +3623,7 @@ class ReceiptOcrParser {
     List<List<ReceiptOcrBlockEvidence>> layoutRows = const [],
     Set<int> layoutChargeItemRows = const {},
     bool hasBoundedDccFooterBoundary = false,
+    Set<int> nonItemSummaryRows = const {},
   }) {
     var count = 0;
     final lastPricedTotal = lines.lastIndexWhere(
@@ -3822,6 +3829,7 @@ class ReceiptOcrParser {
       if (lineIndex + 1 < lines.length &&
           !_isPrintedModifierLine(line) &&
           _isWrappedItemDescriptionCandidate(cleaned) &&
+          !nonItemSummaryRows.contains(lineIndex + 1) &&
           _isPricedItemLine(lines[lineIndex + 1])) {
         continue;
       }
@@ -4488,7 +4496,16 @@ bool _isOwnedSummaryCardHeaderRow(
   final amounts = row.where((b) => _isStandaloneAmountRow(b.text)).toList();
   if (amounts.length != 1) return false;
   final amount = amounts.single;
-  if (!_hasChargeTableMonetaryEvidence(amount.text) ||
+  // The general standalone fallback tolerates stacked symbols. Exclusion
+  // needs a stricter cell: at most one denomination on each side, whose
+  // compatibility is then checked by the selected-currency helpers below.
+  final strictMoneyCell = RegExp(
+    '^\\s*(?:(?:$_currencyTokenPattern)\\s*)?$_amountTokenPattern'
+    '(?:\\s*(?:$_currencyTokenPattern))?\\s*\$',
+    caseSensitive: false,
+  );
+  if (!strictMoneyCell.hasMatch(amount.text) ||
+      !_hasChargeTableMonetaryEvidence(amount.text) ||
       _selectedItemCurrencyUnresolved(amount.text, currency) ||
       _itemCurrencyFromPrintedText(amount.text, currency) != currency ||
       _lastAmountInLine(amount.text, currency: currency) != selectedTotal) {

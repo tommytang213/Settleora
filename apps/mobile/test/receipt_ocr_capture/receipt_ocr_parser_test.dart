@@ -144,6 +144,125 @@ ReceiptOcrBlockEvidence _summaryBlockVariant(
 );
 
 void main() {
+  test('summary-card exclusion preserves pending description uncertainty', () {
+    final blocks = <ReceiptOcrBlockEvidence>[];
+    for (final b in _summaryCardBlocks()) {
+      if (b.row == 1) continue;
+      final row = b.row == 2
+          ? 1
+          : b.row == 3
+          ? 2
+          : b.row;
+      // Recognized metadata on the label rows prevents unrelated header
+      // warnings from masking the missing item's completeness check.
+      if (b.text == 'Total Due' || b.text == 'Customer Name') {
+        blocks.add(
+          ReceiptOcrBlockEvidence(
+            text: 'Invoice No INV99',
+            row: row,
+            order: 31,
+            points: const [
+              ReceiptOcrPoint(x: 1000, y: 160),
+              ReceiptOcrPoint(x: 1190, y: 160),
+              ReceiptOcrPoint(x: 1190, y: 180),
+              ReceiptOcrPoint(x: 1000, y: 180),
+            ],
+          ),
+        );
+      }
+      blocks.add(
+        ReceiptOcrBlockEvidence(
+          text: b.text,
+          row: row,
+          order: b.order,
+          points: b.points,
+        ),
+      );
+      if (b.text == 'AC987654321') {
+        blocks.add(
+          const ReceiptOcrBlockEvidence(
+            text: 'Premium Router Bundle',
+            row: 3,
+            order: 30,
+            points: [
+              ReceiptOcrPoint(x: 1000, y: 185),
+              ReceiptOcrPoint(x: 1180, y: 185),
+              ReceiptOcrPoint(x: 1180, y: 205),
+              ReceiptOcrPoint(x: 1000, y: 205),
+            ],
+          ),
+        );
+      }
+    }
+    final preview = _parseBoundedUtility(blocks);
+    expect(
+      preview.itemLineDecisions[4],
+      ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+    );
+    expect(preview.items.map((i) => i.description), [
+      'Broadband Plan',
+      'Router Rental',
+    ]);
+    expect(
+      preview.warnings.any((w) => w.contains('no traceable line amount')),
+      isTrue,
+    );
+    expect(
+      preview.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+    );
+    expect(preview.blocks, containsAll(blocks));
+    final withoutPending = _parseBoundedUtility(
+      blocks.where((b) => b.text != 'Premium Router Bundle').toList(),
+    );
+    expect(
+      withoutPending.warnings.any(
+        (w) => w.contains('no traceable line amount'),
+      ),
+      isFalse,
+    );
+    expect(
+      withoutPending.incompleteAdjustmentReasons,
+      isNot(
+        contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+      ),
+    );
+  });
+
+  test('summary-card exclusion requires unambiguous printed denominations', () {
+    for (final money in [
+      r'EUR $42.00',
+      r'$42.00 EUR',
+      r'USD €42.00',
+      'EUR 42.00 USD',
+      r'USD $42.00',
+      r'$42.00 $',
+    ]) {
+      final blocks = _summaryCardBlocks()
+          .map(
+            (b) => b.row == 4 && b.text == 'USD 42.00'
+                ? _summaryBlockVariant(b, text: money)
+                : b,
+          )
+          .toList();
+      final preview = _parseBoundedUtility(blocks);
+      if (money == r'$42.00 $') {
+        expect(
+          preview.itemLineDecisions[4],
+          ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+          reason: money,
+        );
+      } else {
+        expect(
+          preview.itemLineDecisions[4],
+          isNot(ReceiptOcrItemLineDecision.metadataOrHeaderSkipped),
+          reason: money,
+        );
+      }
+      expect(preview.blocks, containsAll(blocks), reason: money);
+    }
+  });
+
   test(
     'summary-card total belongs to its label, not adjacent header fields',
     () {
