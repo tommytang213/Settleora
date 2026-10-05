@@ -163,6 +163,14 @@ void main() {
       (5, '(', 955.0, 240.0, false),
       (5, ')', 955.0, 240.0, false),
       (5, '(', 1300.0, 240.0, true),
+      (5, '12.00 CR', 955.0, 240.0, false),
+      (5, '12.00 and 42.00', 955.0, 240.0, false),
+      (5, '12.00DR', 955.0, 240.0, false),
+      (5, 'CR 1200', 955.0, 240.0, false),
+      (5, '1200 DR', 955.0, 240.0, false),
+      (5, '1200 and 4200', 955.0, 240.0, false),
+      (5, '12.00 CR', 1300.0, 240.0, true),
+      (5, '12.00 and 42.00', 955.0, 600.0, true),
       (5, 'EUR +12.00', 955.0, 240.0, false),
       (5, 'EUR 12.00 / USD 42.00', 955.0, 240.0, false),
       (5, '12', 955.0, 240.0, false),
@@ -301,41 +309,43 @@ void main() {
   });
 
   test('whole-unit neighboring evidence declines JPY summary ownership', () {
-    for (final competing in [false, true]) {
-      final original = _summaryCardBlocks();
-      final blocks = <ReceiptOcrBlockEvidence>[];
-      for (var index = 0; index < original.length; index++) {
-        final block = original[index];
-        blocks.add(
-          _summaryBlockVariant(
-            block,
-            text: block.text.replaceAll('USD', 'JPY'),
-          ),
-        );
-        if (competing && block.row == 5 && original[index + 1].row != 5) {
+    for (final fragment in ['1200', 'CR 1200', '1200 DR', '1200 and 4200']) {
+      for (final competing in [false, true]) {
+        final original = _summaryCardBlocks();
+        final blocks = <ReceiptOcrBlockEvidence>[];
+        for (var index = 0; index < original.length; index++) {
+          final block = original[index];
           blocks.add(
-            const ReceiptOcrBlockEvidence(
-              text: '1200',
-              row: 5,
-              order: 30,
-              points: [
-                ReceiptOcrPoint(x: 955, y: 240),
-                ReceiptOcrPoint(x: 1090, y: 240),
-                ReceiptOcrPoint(x: 1090, y: 258),
-                ReceiptOcrPoint(x: 955, y: 258),
-              ],
+            _summaryBlockVariant(
+              block,
+              text: block.text.replaceAll('USD', 'JPY'),
             ),
           );
+          if (competing && block.row == 5 && original[index + 1].row != 5) {
+            blocks.add(
+              ReceiptOcrBlockEvidence(
+                text: fragment,
+                row: 5,
+                order: 30,
+                points: [
+                  ReceiptOcrPoint(x: 955, y: 240),
+                  ReceiptOcrPoint(x: 1090, y: 240),
+                  ReceiptOcrPoint(x: 1090, y: 258),
+                  ReceiptOcrPoint(x: 955, y: 258),
+                ],
+              ),
+            );
+          }
         }
+        final preview = _parseBoundedUtility(blocks);
+        expect(preview.currency, 'JPY');
+        expect(
+          preview.itemLineDecisions[4] ==
+              ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+          !competing,
+        );
+        expect(preview.blocks, containsAll(blocks));
       }
-      final preview = _parseBoundedUtility(blocks);
-      expect(preview.currency, 'JPY');
-      expect(
-        preview.itemLineDecisions[4] ==
-            ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
-        !competing,
-      );
-      expect(preview.blocks, containsAll(blocks));
     }
   });
 

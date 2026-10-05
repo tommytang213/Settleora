@@ -4664,6 +4664,16 @@ bool _isOwnedSummaryCardHeaderRow(
   final signOnly = RegExp(r'^[+\p{Dash}➖()\s]+$', unicode: true);
   final numericFragment = RegExp(r'^[\p{N}\p{P}\p{S}\s]+$', unicode: true);
   final digit = RegExp(r'\p{N}', unicode: true);
+  final decimalFragment = RegExp(r'\p{N}[.,]\p{N}', unicode: true);
+  final creditDebit = RegExp(
+    r'(?<![\p{L}\p{M}])(?:cr|dr|credit|debit)(?![\p{L}\p{M}])',
+    caseSensitive: false,
+    unicode: true,
+  );
+  final numericConnectors = RegExp(
+    r'\b(?:and|or|plus|minus|to)\b',
+    caseSensitive: false,
+  );
   final amountHeight = amountBox.bottom - amountBox.top;
   for (final neighbor in allBlocks) {
     if (row.contains(neighbor) || neighbor == totalLabels.single) continue;
@@ -4693,7 +4703,12 @@ bool _isOwnedSummaryCardHeaderRow(
         !boundedCurrencyAtoms.hasMatch(text) &&
         !currencySymbol.hasMatch(text) &&
         !signOnly.hasMatch(text) &&
-        !(numericFragment.hasMatch(text) && digit.hasMatch(text))) {
+        !decimalFragment.hasMatch(text) &&
+        !(digit.hasMatch(text) &&
+            (creditDebit.hasMatch(text) ||
+                numericFragment.hasMatch(
+                  text.replaceAll(numericConnectors, ' '),
+                )))) {
       continue;
     }
     if (!isCurrency) return false;
