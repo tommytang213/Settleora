@@ -376,6 +376,12 @@ void main() {
         'Feb 5 to Mar 4, 2025',
         '2025/02/05 TO 2025/03/04',
         '2025/02/05 to',
+        'Mar 4, 20 25',
+        'Mar 4, 2 0 2 5',
+        'Mar 4, 202 5',
+        '20 25/03/04',
+        'Feb 5 to Mar 4, 20 25',
+        '12.10',
       ])
         'Total $period',
       for (final section in [
@@ -412,14 +418,57 @@ void main() {
       );
       expect(preview.blocks, containsAll(blocks));
     }
-    final numericService = _parseBoundedUtility(
-      _boundedUtilityBlocks(period: '2025/02/05 – 2025/03/04'),
-    );
-    expect(
-      numericService.items.any((item) => item.lineTotal == '59.99'),
-      isFalse,
-    );
-    expect(numericService.reviewHints, isNotEmpty);
+    for (final period in [
+      '2025/02/05 – 2025/03/04',
+      'Feb 5 – Mar 4, 20 25',
+      'Feb 5 to Mar 4, 2025',
+    ]) {
+      final preview = _parseBoundedUtility(
+        _boundedUtilityBlocks(period: period),
+      );
+      expect(preview.items.any((item) => item.lineTotal == '59.99'), isFalse);
+      expect(preview.reviewHints, isNotEmpty);
+    }
+  });
+
+  test('footer date recognition preserves separate and merged money', () {
+    for (final money in [
+      r'$12.10',
+      r'$1.20',
+      '12.10',
+      'USD12.10',
+      '12.10USD',
+      '12.10 USD',
+    ]) {
+      for (final merged in [false, true]) {
+        final original = _boundedUtilityBlocks(
+          description: 'Next Month Estimate',
+        );
+        final blocks = [
+          ...original.where((block) => block.row < 3),
+          _layoutBlock(
+            merged ? 'Total Mar 4, 2025 $money' : 'Total Mar 4, 2025',
+            7,
+            3,
+            50,
+            merged ? 717 : 640,
+          ),
+          if (!merged) _layoutBlock(money, 9, 3, 659, 716),
+          _layoutBlock('Contact us', 10, 3, 828, 1020),
+          for (final block in original.where((block) => block.row >= 3))
+            _layoutBlock(
+              block.text,
+              block.order + 4,
+              block.row + 1,
+              block.points[0].x,
+              block.points[1].x,
+            ),
+        ];
+        final preview = _parseBoundedUtility(blocks);
+        expect(preview.items.any((item) => item.lineTotal == '59.99'), isFalse);
+        expect(preview.blocks, containsAll(blocks));
+      }
+    }
   });
 
   test('mixed payment and discount stays ambiguous beside clock support', () {
@@ -438,6 +487,14 @@ void main() {
       'Amount Paid & Loyalty Discount (12 months)',
       'Balance and Monthly Loyalty Discount (12 months)',
       'Payment (received) and Loyalty Discount (12 months)',
+      'Payment or Loyalty Discount (12 months)',
+      'Amount Paid or Loyalty Discount (12 months)',
+      'Balance or Loyalty Discount (12 months)',
+      'Tender or Seasonal Rebate (12 months)',
+      'Payment plus Loyalty Discount (12 months)',
+      'Amount Paid less Loyalty Discount (12 months)',
+      'Balance versus Loyalty Discount (12 months)',
+      'Tender minus Seasonal Rebate (12 months)',
     ]) {
       final blocks = _boundedUtilityBlocks();
       final labelIndex = blocks.indexWhere(
@@ -556,6 +613,13 @@ void main() {
       for (final description in [
         'Previous Balance',
         'Amount Paid (12 months)',
+        'Amount Paid [12 months]',
+        'Balance [12 months]',
+        'Current Balance [12 months]',
+        'Account Credit [12 months]',
+        'Deposit Paid [12 months]',
+        'Amount Paid {12 months}',
+        'Balance [monthly (12 months)]',
         'Balance (12 months)',
         'Previous Balances',
         'Remaining Balance (12 months)',

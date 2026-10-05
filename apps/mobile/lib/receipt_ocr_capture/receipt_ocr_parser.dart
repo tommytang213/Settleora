@@ -2360,6 +2360,10 @@ class ReceiptOcrParser {
       r'\b(?:discount|coupon|rebate)\b',
       caseSensitive: false,
     );
+    final financialConjunction = RegExp(
+      r'\b(?:and|or|with|plus|minus|less|versus|vs)\b|&',
+      caseSensitive: false,
+    );
     final discountLabelPattern = RegExp(
       r'^(?:[\p{L}\p{N} -]+\s+)?(?:discount|coupon|rebate)(?:\s*\([\p{L}\p{N} %.-]+\))?$',
       caseSensitive: false,
@@ -2437,9 +2441,65 @@ class ReceiptOcrParser {
         ];
         if (boundaryProjections.any((blocks) {
           // OCR may merge or split a footer's label, date and amount.
-          // Remove only recognized period syntax from this boundary projection.
+          // Keep monetary evidence opaque during date recognition: 12.10 can
+          // otherwise look like a numeric date. Raw evidence is never changed.
+          final originalProjection = blocks
+              .map((block) => _normalizeOcrLine(block.text.trim()))
+              .join(' ');
+          final protectedMoney = <String, String>{};
+          String protect(String value) {
+            var marker = 'BOUNDEDMONEY${protectedMoney.length}TOKEN';
+            while (originalProjection.contains(marker)) {
+              marker += 'X';
+            }
+            protectedMoney[marker] = value;
+            return marker;
+          }
+
+          final explicitMoney = RegExp(
+            '(?<![\\p{L}\\p{N}])'
+            '(?:(?:$_currencyTokenPattern)\\s*$_amountTokenPattern|'
+            '$_amountTokenPattern\\s*(?:$_currencyTokenPattern))'
+            '(?![\\p{L}\\p{N}])',
+            caseSensitive: false,
+            unicode: true,
+          );
           final projection = _normalizeOcrLine(
-            blocks.map((block) => block.text.trim()).join(' '),
+            blocks
+                .map((block) {
+                  var text = _normalizeOcrLine(block.text.trim());
+                  if (_blockLeft(block) >= _blockLeft(amountHeader) - 12 &&
+                      _blockRight(block) <= _blockRight(amountHeader) + 12 &&
+                      _isStandaloneAmountRow(text) &&
+                      _hasChargeTableMonetaryEvidence(text)) {
+                    return protect(text);
+                  }
+                  text = text.replaceAllMapped(
+                    explicitMoney,
+                    (match) => protect(match.group(0)!),
+                  );
+                  // A merged footer may end in a bare decimal amount. Dates with
+                  // several separators do not normalize as monetary values.
+                  final trailing = RegExp(
+                    '(?<![\\p{L}\\p{N}/])($_amountTokenPattern)\\s*\$',
+                    unicode: true,
+                  ).firstMatch(text);
+                  if (trailing != null &&
+                      _hasChargeTableMonetaryEvidence(trailing.group(1)!) &&
+                      _normalizeAmount(
+                            trailing.group(1)!,
+                            currency: currency,
+                          ) !=
+                          null) {
+                    text = text.replaceRange(
+                      trailing.start,
+                      trailing.end,
+                      protect(trailing.group(0)!),
+                    );
+                  }
+                  return text;
+                })
+                .join(' '),
           ).replaceFirst(RegExp(r'^[^\p{L}\p{N}]+', unicode: true), '');
           // A strong printed footer role ends recovery even if its date is
           // incomplete or unreadable. This does not select a monetary value.
@@ -2447,7 +2507,7 @@ class ReceiptOcrParser {
               strongFooterLabel.hasMatch(projection)) {
             return true;
           }
-          final text = projection.replaceAll(
+          var text = projection.replaceAll(
             RegExp(
               '(?<![\\p{L}\\p{N}])'
               '${_utilityBoundaryDatePattern()}'
@@ -2457,6 +2517,20 @@ class ReceiptOcrParser {
             ),
             ' ',
           );
+          var labelWithoutMoney = text;
+          for (final entry in protectedMoney.entries) {
+            labelWithoutMoney = labelWithoutMoney.replaceAll(entry.key, ' ');
+            text = text.replaceAll(entry.key, entry.value);
+          }
+          // Multiple date-like monetary cells must not hide an otherwise
+          // exact Total role. This ends recovery without selecting any money.
+          if (protectedMoney.isNotEmpty &&
+              RegExp(
+                r'^(?:total|sub[\s-]?total)\s*[:：]?$',
+                caseSensitive: false,
+              ).hasMatch(_boundedUtilityRoleText(labelWithoutMoney))) {
+            return true;
+          }
           final roleText = _boundedUtilityRoleText(text);
           return _hasTotalLabel(text, text.toLowerCase()) ||
               _hasSubtotalLabel(text, text.toLowerCase()) ||
@@ -2497,16 +2571,13 @@ class ReceiptOcrParser {
             discountRolePattern,
             '',
           );
-          final remainingRoleLabel = _boundedUtilityRoleText(otherRoleLabel)
-              .replaceAll(
-                RegExp(r'\b(?:and|with)\b|&', caseSensitive: false),
-                ' ',
-              )
-              .trim();
+          final remainingRoleLabel = _boundedUtilityRoleText(
+            otherRoleLabel,
+          ).replaceAll(financialConjunction, ' ').trim();
           // A qualifier belonging to the discount must not obscure a
           // separate payment/account clause, e.g. Payment and Loyalty Discount.
           final otherRoleClauses = financialLabel
-              .split(RegExp(r'\b(?:and|with)\b|&', caseSensitive: false))
+              .split(financialConjunction)
               .where((clause) => !discountRolePattern.hasMatch(clause))
               .map(_boundedUtilityRoleText);
           if ([remainingRoleLabel, ...otherRoleClauses].any(
@@ -4400,7 +4471,7 @@ bool _hasExplicitTaxRate(String line) => RegExp(
 // Role-only projections never replace the printed description or money.
 String _boundedUtilityRoleText(String text) {
   var role = text;
-  final notes = RegExp(r'\([^()]*\)');
+  final notes = RegExp(r'\([^()]*\)|\[[^\[\]]*\]|\{[^{}]*\}');
   while (notes.hasMatch(role)) {
     role = role.replaceAll(notes, ' ');
   }
@@ -4433,27 +4504,35 @@ String _utilityPeriodPattern() {
 }
 
 String _utilityBoundaryDatePattern() {
-  final date = _utilityDatePattern(allowNumericDates: true);
+  final date = _utilityDatePattern(
+    allowNumericDates: true,
+    allowFragmentedYear: true,
+  );
   // A footer may print one date, a range, or an incomplete range. None of
   // these boundary-only forms broadens service-row monetary eligibility.
   return '$date(?:\\s*(?:[\\p{Dash}➖]|\\bto\\b)\\s*(?:$date)?)?';
 }
 
-String _utilityDatePattern({bool allowNumericDates = false}) {
+String _utilityDatePattern({
+  bool allowNumericDates = false,
+  bool allowFragmentedYear = false,
+}) {
   const month =
       r'(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|'
       r'Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|'
       r'Nov(?:ember)?|Dec(?:ember)?)(?:\s*\.)?';
   const day = r'(?:0?[1-9]|[12]\d|3[01])';
-  const year = r'(?:19|20)\d{2}';
-  const namedDate =
+  final year = allowFragmentedYear
+      ? r'(?:1\s*9|2\s*0)\s*\d\s*\d'
+      : r'(?:19|20)\d{2}';
+  final namedDate =
       '(?:$month\\s*$day|$day\\s*$month)'
       '(?:(?:\\s*,\\s*|\\s+)$year)?';
   // Numeric dates only identify a footer boundary. They never broaden the
   // complete named-date evidence required to recover a service amount.
   const numericMonth = r'(?:0?[1-9]|1[0-2])';
   const separator = r'\s*[./-]\s*';
-  const numericDate =
+  final numericDate =
       '(?:$year$separator$numericMonth$separator$day|'
       '$day$separator$numericMonth(?:$separator$year)?|'
       '$numericMonth$separator$day(?:$separator$year)?)';
