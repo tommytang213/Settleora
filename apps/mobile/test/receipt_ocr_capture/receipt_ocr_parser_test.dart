@@ -77,6 +77,104 @@ ReceiptOcrPreview _parseBoundedUtility(List<ReceiptOcrBlockEvidence> blocks) {
 }
 
 void main() {
+  test('bounded recovery respects adjacent total rows', () {
+    for (final label in ['Total', 'Subtotal', 'Total:']) {
+      for (final money in [
+        r'$54.30',
+        'USD 54.30',
+        '54.30',
+        'ZAR 54.30',
+        '54.30 ZAR',
+        'ZAR: 54.30',
+      ]) {
+        final original = _boundedUtilityBlocks(
+          description: 'Next Month Estimate',
+        );
+        final blocks = [
+          ...original.where((b) => b.row < 3),
+          _layoutBlock(label, 7, 3, 50, 140),
+          _layoutBlock(money, 8, 4, 659, 716),
+          for (final b in original.where((b) => b.row >= 3))
+            _layoutBlock(
+              b.text,
+              b.order + 2,
+              b.row + 2,
+              b.points[0].x,
+              b.points[1].x,
+            ),
+        ];
+        final preview = _parseBoundedUtility(blocks);
+        expect(preview.items.any((item) => item.lineTotal == '59.99'), isFalse);
+        expect(preview.blocks, containsAll(blocks));
+      }
+    }
+  });
+
+  test('unsupported denominations cannot obscure a printed total boundary', () {
+    for (final money in ['ZAR 54.30', '54.30 ZAR', 'ZAR: 54.30', '54.30 INR']) {
+      for (final merged in [false, true]) {
+        final original = _boundedUtilityBlocks(
+          description: 'Next Month Estimate',
+        );
+        final blocks = [
+          ...original.where((b) => b.row < 3),
+          _layoutBlock(
+            merged ? 'Total $money' : 'Total',
+            7,
+            3,
+            50,
+            merged ? 717 : 140,
+          ),
+          if (!merged) _layoutBlock(money, 8, 3, 659, 716),
+          for (final b in original.where((b) => b.row >= 3))
+            _layoutBlock(
+              b.text,
+              b.order + 2,
+              b.row + 1,
+              b.points[0].x,
+              b.points[1].x,
+            ),
+        ];
+        final preview = _parseBoundedUtility(blocks);
+        expect(preview.items.any((item) => item.lineTotal == '59.99'), isFalse);
+        expect(preview.blocks, containsAll(blocks));
+      }
+    }
+  });
+
+  test(
+    'named service discounts retain whole-phrase financial classification',
+    () {
+      for (final label in [
+        'Service Plan Discount (12 months)',
+        'Credit Monitoring Subscription Discount (12 months)',
+        'Service Package Discount (12 months)',
+        'Credit Monitoring Product Discount (12 months)',
+        'Service Charge Discount (12 months)',
+        'Credit Applied Discount (12 months)',
+        'Service Plan Discount (Payment received)',
+        'Service Plan Discount and Tax',
+      ]) {
+        final namedService =
+            label.endsWith('(12 months)') &&
+            !label.startsWith('Service Charge') &&
+            !label.startsWith('Credit Applied');
+        for (final support in [false, true]) {
+          final blocks = _boundedUtilityBlocks(discountAmount: 'USD -10.00');
+          final i = blocks.indexWhere(
+            (b) => b.text == 'Loyalty Discount (12 months)',
+          );
+          blocks[i] = _layoutBlock(label, 12, 4, 51, 383);
+          if (!support) blocks.removeWhere((b) => b.text == 'Live Chat');
+          final preview = _parseBoundedUtility(blocks);
+          expect(preview.discount, namedService ? '-10.00' : isNull);
+          expect(preview.reviewHints, namedService ? isEmpty : isNotEmpty);
+          expect(preview.blocks, containsAll(blocks));
+        }
+      }
+    },
+  );
+
   test(
     'bounded utility columns recover service and discount beside support',
     () {

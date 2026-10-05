@@ -2381,6 +2381,25 @@ class ReceiptOcrParser {
             .any(
               (role) => _hasBoundedUtilityFinancialPrefix(role, monetaryText),
             );
+    bool hasAdjustmentRole(String label) =>
+        [
+          _boundedUtilityRoleText(label),
+          ..._boundedUtilityAnnotationRoles(label),
+        ].expand((role) => role.split(financialConjunction)).any((clause) {
+          final role = _boundedUtilityRoleText(clause);
+          if (!_hasPotentialReceiptAdjustmentLabel(role)) return false;
+          final matches = _potentialReceiptAdjustmentLabelPattern
+              .allMatches(role)
+              .toList(growable: false);
+          // One financial noun can name a service (Service Plan, Credit Monitoring
+          // Subscription). A second role or an established multiword charge cannot.
+          return matches.length != 1 ||
+              matches.single.start != 0 ||
+              matches.single.group(0)!.contains(' ') ||
+              !_boundedUtilityNamedServiceQualifier.hasMatch(
+                role.substring(matches.single.end),
+              );
+        });
     final discountLabelPattern = RegExp(
       r'^(?:[\p{L}\p{N} -]+\s+)?(?:discount|coupon|rebate)(?:\s*\([\p{L}\p{N} %.-]+\))?$',
       caseSensitive: false,
@@ -2436,17 +2455,26 @@ class ReceiptOcrParser {
           break;
         }
         final row = rows[rowIndex];
+        // Reuse established adjacent-row geometry for footer-only evidence.
+        // Unknown denominations can end recovery without selecting their value.
+        final boundaryRow = [
+          ...row,
+          if (_isAdjacentRightColumnAmount(rows, rowIndex) &&
+              (_isStandaloneAmountRow(lines[rowIndex + 1]) ||
+                  _hasUnsupportedIsoMonetaryEvidence(lines[rowIndex + 1])))
+            ...rows[rowIndex + 1],
+        ];
         // A printed total ends the table before service-row eligibility.
         // Preserve the existing whole-table projection for wide total labels,
         // and also check financial labels before the period column with owned
         // amount cells. Footer labels may begin at the page margin.
         final boundaryProjections = [
-          row.where((block) {
+          boundaryRow.where((block) {
             if (block.points.isEmpty) return false;
             final center = (_blockLeft(block) + _blockRight(block)) / 2;
             return center <= _blockRight(amountHeader) + 12;
           }),
-          row.where((block) {
+          boundaryRow.where((block) {
             if (block.points.isEmpty) return false;
             final left = _blockLeft(block);
             final right = _blockRight(block);
@@ -2472,10 +2500,18 @@ class ReceiptOcrParser {
             return marker;
           }
 
+          // Denomination support controls selection, not whether printed money
+          // ends a table. Keep known unsupported ISO codes opaque here as well.
+          final boundaryCurrencyPattern = [
+            _currencyTokenPattern,
+            ..._unsupportedIsoCurrencyMarkers(
+              originalProjection,
+            ).map((marker) => RegExp.escape(marker.group(0)!)),
+          ].join('|');
           final explicitMoney = RegExp(
             '(?<![\\p{L}\\p{N}])'
-            '(?:(?:$_currencyTokenPattern)\\s*$_amountTokenPattern|'
-            '$_amountTokenPattern\\s*(?:$_currencyTokenPattern))'
+            '(?:(?:$boundaryCurrencyPattern)\\s*[:=]?\\s*$_amountTokenPattern|'
+            '$_amountTokenPattern\\s*(?:$boundaryCurrencyPattern))'
             '(?![\\p{L}\\p{N}])',
             caseSensitive: false,
             unicode: true,
@@ -2647,7 +2683,7 @@ class ReceiptOcrParser {
                 ..._boundedUtilityAnnotationRoles(financialLabel),
               ].any((role) => hasFinancialRole(role, financialMonetaryText)) ||
               pluralFinancialRoles.hasMatch(otherRoleLabel) ||
-              _hasPotentialReceiptAdjustmentLabel(otherRoleLabel) ||
+              hasAdjustmentRole(otherRoleLabel) ||
               _isAdministrativeLine('$otherRoleLabel $financialMonetaryText')) {
             ambiguous.add(rowIndex);
             continue;
@@ -4581,6 +4617,11 @@ bool _isBoundedUtilityAccountRole(String label, String monetaryText) {
       ).hasMatch(role);
 }
 
+final _boundedUtilityNamedServiceQualifier = RegExp(
+  r'\b(?:plans?|boards?|gateways?|services?|subscriptions?|packages?|products?)\b',
+  caseSensitive: false,
+);
+
 // Leading financial phrases survive qualifiers in bounded conflict and item
 // checks. "in Advance" cannot erase an already printed Amount Paid role.
 bool _hasBoundedUtilityFinancialPrefix(String label, String monetaryText) {
@@ -4592,10 +4633,6 @@ bool _hasBoundedUtilityFinancialPrefix(String label, String monetaryText) {
     r'successful|success|paid|authorized|authorised|captured|rejected|approved|accepted|declined|'
     r'failed|refunded|reversed|cancelled|canceled|posted|applied|outstanding|'
     r'scheduled|due|deferred|cleared|settled|unsettled|unpaid|awaiting)\b',
-    caseSensitive: false,
-  );
-  final namedServiceQualifier = RegExp(
-    r'\b(?:plans?|boards?|gateways?|services?|subscriptions?|packages?|products?)\b',
     caseSensitive: false,
   );
   return [
@@ -4614,7 +4651,7 @@ bool _hasBoundedUtilityFinancialPrefix(String label, String monetaryText) {
       // requires the complete phrase to establish a conflicting financial role.
       if (end != role.length &&
           !prefix.contains(' ') &&
-          namedServiceQualifier.hasMatch(role.substring(end))) {
+          _boundedUtilityNamedServiceQualifier.hasMatch(role.substring(end))) {
         return false;
       }
       return _isBoundedUtilityAccountRole(prefix, monetaryText) ||
