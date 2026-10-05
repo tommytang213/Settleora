@@ -77,6 +77,87 @@ ReceiptOcrPreview _parseBoundedUtility(List<ReceiptOcrBlockEvidence> blocks) {
 }
 
 void main() {
+  test('support copy cannot change a bounded adjacent footer', () {
+    for (final support in [
+      'Contact us',
+      'Call 1800 1234',
+      'Hours: Mon - Fri, 8 AM - 8 PM PT',
+      'Balance - USD 10.00',
+    ]) {
+      for (final placement in ['label', 'amount', 'both']) {
+        for (final money in [r'$54.30', 'ZAR 54.30', '54.30ZAR', 'ＵＳＤ ５４．３０']) {
+          final original = _boundedUtilityBlocks(
+            description: 'Next Month Estimate',
+          );
+          final blocks = [
+            ...original.where((b) => b.row < 3),
+            _layoutBlock('Total', 7, 3, 50, 140),
+            if (placement != 'amount') _layoutBlock(support, 8, 3, 828, 1020),
+            _layoutBlock(money, 9, 4, 659, 716),
+            if (placement != 'label') _layoutBlock(support, 10, 4, 828, 1020),
+            for (final b in original.where((b) => b.row >= 3))
+              _layoutBlock(
+                b.text,
+                b.order + 4,
+                b.row + 2,
+                b.points[0].x,
+                b.points[1].x,
+              ),
+          ];
+          final preview = _parseBoundedUtility(blocks);
+          expect(
+            preview.items.any((item) => item.lineTotal == '59.99'),
+            isFalse,
+            reason: '$support | $placement | $money',
+          );
+          expect(preview.blocks, containsAll(blocks));
+        }
+      }
+    }
+  });
+
+  test(
+    'declined currency recovery retains existing foreign evidence and warnings',
+    () {
+      for (final code in ['EUR', 'GBP', 'CAD']) {
+        final serviceBlocks = _boundedUtilityBlocks()
+            .where((b) => b.row < 4 || b.row == 6)
+            .toList();
+        serviceBlocks.removeWhere((b) => b.order == 11);
+        final amountIndex = serviceBlocks.indexWhere(
+          (b) => b.text == r'$59.99',
+        );
+        serviceBlocks[amountIndex] = _layoutBlock(
+          '$code 59.99',
+          10,
+          3,
+          659,
+          716,
+        );
+        final service = _parseBoundedUtility(serviceBlocks);
+        expect(service.currency, 'USD');
+        expect(service.items.single.currency, code);
+        expect(service.items.single.lineTotal, '59.99');
+        expect(
+          service.reviewHintDecision,
+          ReceiptOcrReviewDecision.foreignItemCurrency,
+        );
+        expect(service.reviewHints, isNotEmpty);
+        expect(service.blocks, containsAll(serviceBlocks));
+        final discountBlocks = _boundedUtilityBlocks(
+          discountAmount: '$code -10.00',
+        ).where((b) => b.row != 5).toList();
+        discountBlocks.removeWhere((b) => b.order == 11 || b.order == 15);
+        final discount = _parseBoundedUtility(discountBlocks);
+        expect(discount.currency, 'USD');
+        expect(discount.discount, '-10.00');
+        expect(discount.discountCurrency, code);
+        expect(discount.reviewHints, isNotEmpty);
+        expect(discount.blocks, containsAll(discountBlocks));
+      }
+    },
+  );
+
   test('bounded recovery respects adjacent total rows', () {
     for (final label in ['Total', 'Subtotal', 'Total:']) {
       for (final money in [

@@ -2456,6 +2456,16 @@ class ReceiptOcrParser {
           )) {
         continue;
       }
+      List<ReceiptOcrBlockEvidence> tableProjection(
+        Iterable<ReceiptOcrBlockEvidence> sourceRow,
+      ) => sourceRow
+          .where((block) {
+            if (block.points.isEmpty) return false;
+            final center = (_blockLeft(block) + _blockRight(block)) / 2;
+            return center <= _blockRight(amountHeader) + 12;
+          })
+          .toList(growable: false);
+
       for (var rowIndex = index + 1; rowIndex < rows.length; rowIndex++) {
         final line = lines[rowIndex];
         if (_isSupportedChargeTableHeader(lines, rowIndex) ||
@@ -2465,27 +2475,30 @@ class ReceiptOcrParser {
           break;
         }
         final row = rows[rowIndex];
-        // Reuse established adjacent-row geometry for footer-only evidence.
-        // Unknown denominations can end recovery without selecting their value.
+        // Adjacent footer evidence belongs to the table, independently of a
+        // right-hand support panel on either physical OCR row.
+        final projectedRows = [
+          for (final sourceRow in rows.skip(rowIndex).take(2))
+            tableProjection(sourceRow),
+        ];
+        final followingTableLine = projectedRows.length == 2
+            ? boundaryText(
+                projectedRows.last.map((block) => block.text.trim()).join(' '),
+              )
+            : '';
         final boundaryRow = [
           ...row,
-          if (_isAdjacentRightColumnAmount(rows, rowIndex) &&
-              (_isStandaloneAmountRow(lines[rowIndex + 1]) ||
-                  _hasUnsupportedIsoMonetaryEvidence(
-                    boundaryText(lines[rowIndex + 1]),
-                  )))
-            ...rows[rowIndex + 1],
+          if (_isAdjacentRightColumnAmount(projectedRows, 0) &&
+              (_isStandaloneAmountRow(followingTableLine) ||
+                  _hasUnsupportedIsoMonetaryEvidence(followingTableLine)))
+            ...projectedRows.last,
         ];
         // A printed total ends the table before service-row eligibility.
         // Preserve the existing whole-table projection for wide total labels,
         // and also check financial labels before the period column with owned
         // amount cells. Footer labels may begin at the page margin.
         final boundaryProjections = [
-          boundaryRow.where((block) {
-            if (block.points.isEmpty) return false;
-            final center = (_blockLeft(block) + _blockRight(block)) / 2;
-            return center <= _blockRight(amountHeader) + 12;
-          }),
+          tableProjection(boundaryRow),
           boundaryRow.where((block) {
             if (block.points.isEmpty) return false;
             final left = _blockLeft(block);
@@ -2768,7 +2781,10 @@ class ReceiptOcrParser {
         );
         if (printedCurrency.hasExplicitEvidence &&
             printedCurrency.currency != currency) {
-          ambiguous.add(rowIndex);
+          // Declining same-currency recovery must not erase independently valid
+          // foreign-denominated evidence or its existing review warnings.
+          // An unresolved marker still cannot establish a candidate's currency.
+          if (printedCurrency.currency == null) ambiguous.add(rowIndex);
           continue;
         }
         final selectedAmount = amountTokens.single;
