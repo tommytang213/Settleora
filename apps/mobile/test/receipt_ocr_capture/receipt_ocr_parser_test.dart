@@ -184,6 +184,8 @@ void main() {
         'Subtotal',
         'Taxes and Regulatory Fees',
         'Taxes and Regulatory Fees (Monthly)',
+        'DCC Selected',
+        'Suggested Tip',
         'Internet Plan -10.00 (12 months)',
         'Internet Plan 10.00 (12 months)',
         'Internet Plan -10 (12 months)',

@@ -2530,7 +2530,8 @@ class ReceiptOcrParser {
           adjustments[rowIndex] = 'Discount ${separatedAmount.trim()}';
           continue;
         }
-        if (_hasPotentialReceiptAdjustmentLabel(normalizedDescription)) {
+        if (_hasPotentialReceiptAdjustmentLabel(normalizedDescription) ||
+            _isAdministrativeLine(ownedText)) {
           continue;
         }
         // Preserve the existing layout extractor's non-item fee grammar.
