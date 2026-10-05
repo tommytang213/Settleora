@@ -76,7 +76,306 @@ ReceiptOcrPreview _parseBoundedUtility(List<ReceiptOcrBlockEvidence> blocks) {
   );
 }
 
+List<ReceiptOcrBlockEvidence> _summaryCardBlocks() {
+  final blocks = <ReceiptOcrBlockEvidence>[];
+  void block(
+    String text,
+    int row,
+    double left,
+    double top,
+    double right,
+    double bottom,
+  ) {
+    blocks.add(
+      ReceiptOcrBlockEvidence(
+        text: text,
+        row: row,
+        order: blocks.length,
+        points: [
+          ReceiptOcrPoint(x: left, y: top),
+          ReceiptOcrPoint(x: right, y: top),
+          ReceiptOcrPoint(x: right, y: bottom),
+          ReceiptOcrPoint(x: left, y: bottom),
+        ],
+      ),
+    );
+  }
+
+  block('Orbit Communications', 0, 35, 35, 335, 55);
+  block('Internet Service Bill', 1, 35, 133, 343, 163);
+  block('Total Due', 2, 761, 162, 875, 191);
+  block('Customer Name', 3, 34, 192, 157, 213);
+  block('Account Number', 3, 372, 194, 494, 212);
+  block('AC987654321', 3, 530, 193, 639, 214);
+  block('Alex Q. Sample', 4, 35, 216, 187, 237);
+  block('Invoice Date', 4, 371, 229, 467, 249);
+  block('Apr 5, 2026', 4, 531, 230, 623, 250);
+  block('USD 42.00', 4, 761, 198, 945, 254);
+  block('Current Charges Detail', 5, 49, 675, 310, 695);
+  block('Description', 6, 49, 725, 140, 747);
+  block('Service Period', 6, 417, 725, 529, 745);
+  block('Amount', 6, 652, 725, 717, 747);
+  block('Broadband Plan', 7, 50, 758, 383, 779);
+  block('Mar 5 – Apr 4, 2026', 7, 417, 758, 567, 778);
+  block('USD 35.00', 7, 650, 756, 717, 780);
+  block('Router Rental', 8, 51, 789, 193, 811);
+  block('Mar 5 – Apr 4, 2026', 8, 417, 791, 566, 809);
+  block('USD 7.00', 8, 650, 788, 717, 812);
+  block('Total Current Charges', 9, 57, 976, 241, 997);
+  block('USD 42.00', 9, 642, 974, 717, 1002);
+  return blocks;
+}
+
+ReceiptOcrBlockEvidence _summaryBlockVariant(
+  ReceiptOcrBlockEvidence block, {
+  String? text,
+  double dx = 0,
+  double dy = 0,
+  bool withGeometry = true,
+}) => ReceiptOcrBlockEvidence(
+  text: text ?? block.text,
+  row: block.row,
+  order: block.order,
+  points: withGeometry
+      ? block.points
+            .map((p) => ReceiptOcrPoint(x: p.x + dx, y: p.y + dy))
+            .toList()
+      : const [],
+);
+
 void main() {
+  test(
+    'summary-card total belongs to its label, not adjacent header fields',
+    () {
+      for (final sample in [(0.5, 'USD '), (1.0, r'$'), (2.0, 'USD ')]) {
+        final scale = sample.$1;
+        final blocks = _summaryCardBlocks()
+            .map(
+              (b) => ReceiptOcrBlockEvidence(
+                text: b.text.replaceAll('USD ', sample.$2),
+                row: b.row,
+                order: b.order,
+                points: b.points
+                    .map(
+                      (p) => ReceiptOcrPoint(
+                        x: p.x * scale + 10,
+                        y: p.y * scale + 15,
+                      ),
+                    )
+                    .toList(),
+              ),
+            )
+            .toList();
+        final preview = _parseBoundedUtility(blocks);
+        expect(preview.items.map((i) => i.description), [
+          'Broadband Plan',
+          'Router Rental',
+        ]);
+        expect(preview.items.map((i) => i.lineTotal), ['35.00', '7.00']);
+        expect(preview.total, '42.00');
+        expect(preview.blocks, containsAll(blocks));
+        expect(
+          preview.itemLineDecisions[4],
+          ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+        );
+      }
+    },
+  );
+
+  test(
+    'summary-card ownership declines incomplete or conflicting evidence',
+    () {
+      final variants = <String, List<ReceiptOcrBlockEvidence>>{};
+      void variant(
+        String label,
+        ReceiptOcrBlockEvidence Function(ReceiptOcrBlockEvidence) change,
+      ) {
+        variants[label] = _summaryCardBlocks().map(change).toList();
+      }
+
+      variant(
+        'no geometry',
+        (b) => _summaryBlockVariant(b, withGeometry: false),
+      );
+      variant(
+        'one missing geometry',
+        (b) => b.text == 'Alex Q. Sample'
+            ? _summaryBlockVariant(b, withGeometry: false)
+            : b,
+      );
+      variant(
+        'distant label',
+        (b) => b.text == 'Total Due' ? _summaryBlockVariant(b, dy: -80) : b,
+      );
+      variant(
+        'unrelated column',
+        (b) => b.text == 'Total Due' ? _summaryBlockVariant(b, dx: -250) : b,
+      );
+      variant(
+        'product total label',
+        (b) => b.text == 'Total Due'
+            ? _summaryBlockVariant(b, text: 'Total Security Plan')
+            : b,
+      );
+      variant(
+        'unowned description',
+        (b) => b.text == 'Customer Name'
+            ? _summaryBlockVariant(b, text: 'Description')
+            : b,
+      );
+      variant(
+        'unowned date',
+        (b) => b.text == 'Invoice Date'
+            ? _summaryBlockVariant(b, text: 'Invoice Date Planner')
+            : b,
+      );
+      variant(
+        'non-date value',
+        (b) => b.text == 'Apr 5, 2026'
+            ? _summaryBlockVariant(b, text: 'Edition 5, 2026')
+            : b,
+      );
+      variant(
+        'date displaced',
+        (b) => b.text == 'Apr 5, 2026' ? _summaryBlockVariant(b, dy: 70) : b,
+      );
+      variant(
+        'currency conflict',
+        (b) => b.row == 4 && b.text == 'USD 42.00'
+            ? _summaryBlockVariant(b, text: 'EUR 42.00')
+            : b,
+      );
+      variant(
+        'different amount',
+        (b) => b.row == 4 && b.text == 'USD 42.00'
+            ? _summaryBlockVariant(b, text: 'USD 43.00')
+            : b,
+      );
+      variant(
+        'second amount',
+        (b) => b.text == 'Apr 5, 2026'
+            ? _summaryBlockVariant(b, text: 'USD 5.00')
+            : b,
+      );
+      variant(
+        'degenerate geometry',
+        (b) => b.text == 'Total Due'
+            ? ReceiptOcrBlockEvidence(
+                text: b.text,
+                row: b.row,
+                order: b.order,
+                points: List.filled(4, b.points.first),
+              )
+            : b,
+      );
+      variant(
+        'nonfinite geometry',
+        (b) =>
+            b.text == 'Total Due' ? _summaryBlockVariant(b, dx: double.nan) : b,
+      );
+      final original = _summaryCardBlocks();
+      final totalLabel = original.singleWhere((b) => b.text == 'Total Due');
+      variants['competing label'] = [
+        for (final b in original) ...[
+          b,
+          if (b.text == 'AC987654321')
+            ReceiptOcrBlockEvidence(
+              text: 'Balance Due',
+              row: 3,
+              order: 30,
+              points: totalLabel.points,
+            ),
+        ],
+      ];
+      for (final text in ['Balance Due', 'Pending']) {
+        variants['intervening $text'] = [
+          for (final b in original) ...[
+            b,
+            if (b.text == 'AC987654321')
+              ReceiptOcrBlockEvidence(
+                text: text,
+                row: 3,
+                order: 30,
+                points: totalLabel.points
+                    .map((p) => ReceiptOcrPoint(x: p.x, y: p.y + 31))
+                    .toList(),
+              ),
+          ],
+        ];
+      }
+      for (final entry in variants.entries) {
+        final preview = _parseBoundedUtility(entry.value);
+        expect(
+          preview.itemLineDecisions[4],
+          isNot(ReceiptOcrItemLineDecision.metadataOrHeaderSkipped),
+          reason: entry.key,
+        );
+        expect(
+          preview.items.any((i) => i.description.contains('Alex Q. Sample')),
+          isTrue,
+          reason: entry.key,
+        );
+        expect(preview.blocks, containsAll(entry.value), reason: entry.key);
+      }
+    },
+  );
+
+  test(
+    'summary-card ownership preserves nearby genuine items and fee evidence',
+    () {
+      final original = _summaryCardBlocks();
+      final blocks = <ReceiptOcrBlockEvidence>[
+        for (final b in original) ...[
+          b,
+          if (b.row == 4 && b.text == 'USD 42.00')
+            ReceiptOcrBlockEvidence(
+              text: 'Total Security Plan USD 42.00',
+              row: 4,
+              order: 30,
+              points: [
+                const ReceiptOcrPoint(x: 1000, y: 220),
+                const ReceiptOcrPoint(x: 1350, y: 220),
+                const ReceiptOcrPoint(x: 1350, y: 250),
+                const ReceiptOcrPoint(x: 1000, y: 250),
+              ],
+            ),
+        ],
+      ];
+      final preview = _parseBoundedUtility(blocks);
+      expect(
+        preview.items.any(
+          (i) =>
+              i.description.contains('Total Security Plan') &&
+              i.lineTotal == '42.00',
+        ),
+        isTrue,
+      );
+      expect(
+        preview.itemLineDecisions[4],
+        isNot(ReceiptOcrItemLineDecision.metadataOrHeaderSkipped),
+      );
+      expect(
+        preview.items.any((i) => i.description == 'Broadband Plan'),
+        isTrue,
+      );
+      expect(preview.blocks, containsAll(blocks));
+
+      // An independently priced fee is retained even when the summary is owned.
+      final withFee = [
+        ...original,
+        _layoutBlock('County Network Fee USD 2.00', 30, 10, 50, 717),
+      ];
+      final feePreview = _parseBoundedUtility(withFee);
+      expect(
+        feePreview.items.any(
+          (i) => i.description == 'County Network Fee' && i.lineTotal == '2.00',
+        ),
+        isTrue,
+      );
+      expect(feePreview.blocks, containsAll(withFee));
+    },
+  );
+
   test('qualified footers retain owned amounts beside adjacent periods', () {
     List<ReceiptOcrBlockEvidence> splitFooter(
       String label, {

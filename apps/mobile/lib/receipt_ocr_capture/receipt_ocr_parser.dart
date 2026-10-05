@@ -1883,6 +1883,12 @@ class ReceiptOcrParser {
                 allowDescriptiveSurchargeLabel: afterSubtotal,
               ) &&
               (afterSubtotal || _hasExplicitTaxRate(line))) ||
+          _isOwnedSummaryCardHeaderRow(
+            layoutRows,
+            lineIndex,
+            currency,
+            selectedTotal,
+          ) ||
           _isContextualReceiptMetadataLine(lines, lineIndex) ||
           _isChargeTableHeader(line) ||
           detachedAmountSignRows.contains(lineIndex) ||
@@ -4459,6 +4465,168 @@ List<List<ReceiptOcrBlockEvidence>> _matchingLayoutRows(
     if (_normalizeOcrLine(text) != lines[index]) return const [];
   }
   return rows;
+}
+
+// Some providers group a large summary-card amount with adjacent customer
+// and invoice-date fields. A matching total alone does not make that row
+// metadata: every block must have its own nearby, unambiguous printed label.
+// Unknown content keeps the ordinary item path and all raw evidence intact.
+bool _isOwnedSummaryCardHeaderRow(
+  List<List<ReceiptOcrBlockEvidence>> rows,
+  int rowIndex,
+  String? currency,
+  String? selectedTotal,
+) {
+  if (rowIndex >= rows.length ||
+      rowIndex == 0 ||
+      selectedTotal == null ||
+      currency == null) {
+    return false;
+  }
+  final row = rows[rowIndex];
+  if (row.length != 4) return false;
+  final amounts = row.where((b) => _isStandaloneAmountRow(b.text)).toList();
+  if (amounts.length != 1) return false;
+  final amount = amounts.single;
+  if (!_hasChargeTableMonetaryEvidence(amount.text) ||
+      _selectedItemCurrencyUnresolved(amount.text, currency) ||
+      _itemCurrencyFromPrintedText(amount.text, currency) != currency ||
+      _lastAmountInLine(amount.text, currency: currency) != selectedTotal) {
+    return false;
+  }
+  final dateLabels = row
+      .where(
+        (b) => RegExp(
+          r'^(?:invoice|bill|statement) date\s*:?$',
+          caseSensitive: false,
+        ).hasMatch(b.text.trim()),
+      )
+      .toList();
+  final dates = row
+      .where(
+        (b) => RegExp(
+          r'^(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+(?:[1-9]|[12]\d|3[01]),?\s+\d{4}$',
+          caseSensitive: false,
+        ).hasMatch(b.text.trim()),
+      )
+      .toList();
+  if (dateLabels.length != 1 || dates.length != 1) return false;
+  final dateLabel = dateLabels.single;
+  final date = dates.single;
+  final name = row.singleWhere(
+    (b) => b != amount && b != dateLabel && b != date,
+  );
+  if (!RegExp(
+    r'^[\p{L}\p{M}]+\.?(?:[ ’\x27-][\p{L}\p{M}]+\.?)*$',
+    unicode: true,
+  ).hasMatch(name.text.trim())) {
+    return false;
+  }
+
+  final first = rowIndex > 3 ? rowIndex - 3 : 0;
+  final preceding = rows.sublist(first, rowIndex).expand((r) => r).toList();
+  final boxes =
+      <
+        ReceiptOcrBlockEvidence,
+        ({double left, double top, double right, double bottom})
+      >{};
+  for (final block in [...preceding, ...row]) {
+    if (block.points.length < 4 ||
+        block.points.any((p) => !p.x.isFinite || !p.y.isFinite)) {
+      return false;
+    }
+    final box = (
+      left: _blockLeft(block),
+      right: _blockRight(block),
+      top: block.points.map((p) => p.y).reduce((a, b) => a < b ? a : b),
+      bottom: block.points.map((p) => p.y).reduce((a, b) => a > b ? a : b),
+    );
+    if (box.right <= box.left || box.bottom <= box.top) return false;
+    boxes[block] = box;
+  }
+  bool directlyBelow(
+    ReceiptOcrBlockEvidence label,
+    ReceiptOcrBlockEvidence value,
+  ) {
+    final a = boxes[label]!;
+    final b = boxes[value]!;
+    final height = a.bottom - a.top;
+    return (b.left - a.left).abs() <= height * 0.5 &&
+        b.top >= a.bottom &&
+        b.top - a.bottom <= height;
+  }
+
+  final totalLabels = preceding
+      .where(
+        (b) =>
+            RegExp(
+              r'^(?:total due|amount due|balance due|grand total)\s*:?$',
+              caseSensitive: false,
+            ).hasMatch(b.text.trim()) &&
+            directlyBelow(b, amount),
+      )
+      .toList();
+  final nameLabels = preceding
+      .where(
+        (b) =>
+            RegExp(
+              r'^(?:customer|client) name\s*:?$',
+              caseSensitive: false,
+            ).hasMatch(b.text.trim()) &&
+            directlyBelow(b, name),
+      )
+      .toList();
+  if (totalLabels.length != 1 || nameLabels.length != 1) return false;
+  final amountBox = boxes[amount]!;
+  if (row
+      .where((b) => b != amount)
+      .any((b) => boxes[b]!.right >= amountBox.left)) {
+    return false;
+  }
+  final dateLabelBox = boxes[dateLabel]!;
+  final dateBox = boxes[date]!;
+  final dateHeight = dateLabelBox.bottom - dateLabelBox.top;
+  final overlapTop = dateLabelBox.top > dateBox.top
+      ? dateLabelBox.top
+      : dateBox.top;
+  final overlapBottom = dateLabelBox.bottom < dateBox.bottom
+      ? dateLabelBox.bottom
+      : dateBox.bottom;
+  if (dateBox.left <= dateLabelBox.right ||
+      dateBox.left - dateLabelBox.right > dateHeight * 4 ||
+      overlapBottom - overlapTop < dateHeight * 0.5 ||
+      boxes[name]!.right >= dateLabelBox.left) {
+    return false;
+  }
+  if (preceding.any((b) {
+    final other = boxes[b]!;
+    return other.right > dateLabelBox.left &&
+        other.left < dateBox.right &&
+        other.bottom > overlapTop &&
+        other.top < overlapBottom;
+  })) {
+    return false;
+  }
+
+  // No competing text may occupy either vertical label/value corridor.
+  for (final pair in [
+    (totalLabels.single, amount),
+    (nameLabels.single, name),
+  ]) {
+    final label = boxes[pair.$1]!;
+    final value = boxes[pair.$2]!;
+    if ([...preceding, ...row].any((b) {
+      if (b == pair.$1 || b == pair.$2) return false;
+      final other = boxes[b]!;
+      return other.right > value.left &&
+          other.left < value.right &&
+          other.bottom > label.top &&
+          other.top < value.bottom;
+    })) {
+      return false;
+    }
+  }
+  return true;
 }
 
 bool _isAdjacentRightColumnAmount(
