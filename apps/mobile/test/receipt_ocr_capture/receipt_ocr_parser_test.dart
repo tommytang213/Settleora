@@ -36,6 +36,7 @@ List<ReceiptOcrBlockEvidence> _boundedUtilityBlocks({
   bool splitDescription = false,
   bool extraInteriorHeading = false,
   String description = 'Internet Plan 500',
+  String serviceAmount = r'$59.99',
   String discountAmount = r'-$10.00',
 }) => [
   _layoutBlock('Network Utility', 0, 0, 20, 350),
@@ -51,7 +52,7 @@ List<ReceiptOcrBlockEvidence> _boundedUtilityBlocks({
   ] else
     _layoutBlock(description, 7, 3, 50, 383),
   _layoutBlock(period, 9, 3, 417, 567),
-  _layoutBlock(r'$59.99', 10, 3, 659, 716),
+  _layoutBlock(serviceAmount, 10, 3, 659, 716),
   _layoutBlock(support, 11, 3, 828, 1020),
   _layoutBlock('Loyalty Discount (12 months)', 12, 4, 51, 265),
   _layoutBlock(period, 13, 4, 417, 566),
@@ -114,6 +115,22 @@ void main() {
     }
   });
 
+  test('bounded recovery normalizes the complete owned monetary token', () {
+    for (final serviceAmount in ['USD59.99', '59.99USD']) {
+      for (final discountAmount in ['USD-10.00', '-10.00USD']) {
+        final blocks = _boundedUtilityBlocks(
+          serviceAmount: serviceAmount,
+          discountAmount: discountAmount,
+        );
+        final preview = _parseBoundedUtility(blocks);
+        expect(preview.items.single.lineTotal, '59.99');
+        expect(preview.discount, '-10.00');
+        expect(preview.reviewHints, isEmpty);
+        expect(preview.blocks, containsAll(blocks));
+      }
+    }
+  });
+
   test('bounded utility recovery requires complete owned period evidence', () {
     for (final period in ['Feb 5 –', 'Feb 5 – Mar 4, 2025 USD 10.00']) {
       final blocks = _boundedUtilityBlocks(period: period);
@@ -160,6 +177,11 @@ void main() {
       for (final description in [
         'Previous Balance',
         'Payments Received',
+        'Balance',
+        'Amount Paid',
+        'Remaining Balance',
+        'Internet Plan -10.00 (12 months)',
+        'Internet Plan 10.00 (12 months)',
         'Internet Plan ＵＳＤ',
         'Paid by Cash',
         'Gift Card',

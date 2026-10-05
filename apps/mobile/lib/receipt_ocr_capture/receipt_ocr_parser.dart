@@ -2397,11 +2397,14 @@ class ReceiptOcrParser {
           continue;
         }
         final monetaryText = _normalizeOcrLine(amountCell.text);
+        final amountTokens = RegExp(
+          _amountTokenPattern,
+        ).allMatches(monetaryText).toList(growable: false);
         if (RegExp(r'[-−－]\s').hasMatch(amountCell.text) ||
             _hasDetachedAmountSign(amountCell.text) ||
             !_isStandaloneAmountRow(monetaryText) ||
             !_hasChargeTableMonetaryEvidence(monetaryText) ||
-            RegExp(_amountTokenPattern).allMatches(monetaryText).length != 1 ||
+            amountTokens.length != 1 ||
             _printedCurrencyMarkerMatches(monetaryText).length > 1 ||
             _hasUnsupportedCurrencySymbolOnSelectedAmount(monetaryText) ||
             _unsupportedIsoCodeAdjacentToSelectedAmount(monetaryText) != null) {
@@ -2415,6 +2418,12 @@ class ReceiptOcrParser {
             printedCurrency.currency != currency) {
           continue;
         }
+        final selectedAmount = amountTokens.single;
+        final lineTotal = _normalizeAmount(
+          selectedAmount.group(0)!,
+          currency: currency,
+        );
+        if (lineTotal == null) continue;
         final descriptionCells = row
             .where(
               (block) =>
@@ -2468,7 +2477,9 @@ class ReceiptOcrParser {
         );
         final normalizedDescription = _normalizeOcrLine(description);
         if (!_hasSubstantiveItemDescription(normalizedDescription) ||
-            _isAccountBalanceSummaryLine(normalizedDescription) ||
+            _isAccountBalanceSummaryLine(
+              '$normalizedDescription $monetaryText',
+            ) ||
             _isPaymentMetadataLine('$normalizedDescription $monetaryText') ||
             _isReceiptMetadataLine(
               normalizedDescription,
@@ -2477,7 +2488,11 @@ class ReceiptOcrParser {
             _hasDetachedAmountSign(normalizedDescription) ||
             _printedCurrencyMarkerMatches(normalizedDescription).isNotEmpty ||
             RegExp(r'\p{Sc}', unicode: true).hasMatch(normalizedDescription) ||
-            _hasChargeTableMonetaryEvidence(normalizedDescription)) {
+            RegExp(_amountTokenPattern)
+                .allMatches(normalizedDescription)
+                .any(
+                  (token) => _hasChargeTableMonetaryEvidence(token.group(0)!),
+                )) {
           continue;
         }
         final discountLabel = RegExp(
@@ -2486,14 +2501,18 @@ class ReceiptOcrParser {
           unicode: true,
         ).hasMatch(description);
         if (discountLabel) {
-          adjustments[rowIndex] = 'Discount $monetaryText';
+          final separatedAmount = monetaryText.replaceRange(
+            selectedAmount.start,
+            selectedAmount.end,
+            ' ${selectedAmount.group(0)!} ',
+          );
+          adjustments[rowIndex] = 'Discount ${separatedAmount.trim()}';
           continue;
         }
         if (_hasPotentialReceiptAdjustmentLabel(normalizedDescription)) {
           continue;
         }
-        final lineTotal = _lastAmountInLine(monetaryText, currency: currency);
-        if (lineTotal == null || lineTotal.startsWith('-')) continue;
+        if (lineTotal.startsWith('-')) continue;
         items[rowIndex] = ReceiptOcrItemCandidate(
           description: description,
           lineTotal: lineTotal,
