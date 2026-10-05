@@ -302,21 +302,25 @@ void main() {
   });
 
   test('bounded utility periods tolerate split OCR punctuation', () {
-    for (final label in ['Total Amount Due', 'Subtotal']) {
-      for (final (dateHead, dateTail) in [
-        ('Feb 5 – Mar 4', r', 2025 $54.30'),
-        ('Feb 5 – Mar', r'. 4, 2025 $54.30'),
-        ('Feb 5', r', 2025 – Mar 4, 2025 $54.30'),
-        ('Feb 5 — Mar 4, 2025', r'$54.30'),
-        ('Feb 5 ‒ Mar 4, 2025', r'$54.30'),
-        ('Feb 5 ﹣ Mar 4, 2025', r'$54.30'),
+    for (final label in ['Total Amount Due', 'Subtotal', 'Total']) {
+      for (final (dateHead, dateTail, left, right) in [
+        ('Feb 5 – Mar 4', r', 2025 $54.30', 50.0, 560.0),
+        ('Feb 5 – Mar', r'. 4, 2025 $54.30', 50.0, 560.0),
+        ('Feb 5', r', 2025 – Mar 4, 2025 $54.30', 50.0, 560.0),
+        ('Feb 5 — Mar 4, 2025', r'$54.30', 50.0, 560.0),
+        ('Feb 5 ‒ Mar 4, 2025', r'$54.30', 50.0, 560.0),
+        ('Feb 5 ﹣ Mar 4, 2025', r'$54.30', 50.0, 560.0),
+        ('Mar', r'4,25 $54.30', 50.0, 560.0),
+        ('March', r'4,99 $54.30', 50.0, 560.0),
+        ('Feb 5,25 – Mar', r'4,25 $54.30', 50.0, 560.0),
+        ('Mar', r'4,25 $54.30', 0.0, 35.0),
       ]) {
         final original = _boundedUtilityBlocks(
           description: 'Next Month Estimate',
         );
         final blocks = [
           ...original.where((block) => block.row < 3),
-          _layoutBlock('$label $dateHead', 7, 3, 50, 560),
+          _layoutBlock('$label $dateHead', 7, 3, left, right),
           _layoutBlock(dateTail, 9, 3, 565, 717),
           _layoutBlock('Contact us', 10, 3, 828, 1020),
           for (final block in original.where((block) => block.row >= 3))
@@ -485,11 +489,17 @@ void main() {
       'USD12.10',
       '12.10USD',
       '12.10 USD',
+      '12,10',
+      "1'234.10",
+      '1,234.10',
     ]) {
       for (final (footer, separateMoney) in [
         ('Total Mar 4, 2025', true),
         ('Total Mar 4, 2025 $money', false),
         ('Total $money Mar 4, 2025', false),
+        ('Total Mar 4,25', true),
+        ('Total Mar 4,25 $money', false),
+        ('Total $money Mar 4,25', false),
       ]) {
         final original = _boundedUtilityBlocks(
           description: 'Next Month Estimate',
@@ -694,6 +704,27 @@ void main() {
       for (final description in [
         'Previous Balance',
         'Amount Paid (12 months)',
+        'Amount Paid in Advance',
+        'Amount Paid today',
+        'Remaining Balance for March',
+        'Current Balance account 1234',
+        'Previous Account Balance as of March',
+        'Account Credit carryover',
+        'Deposit Paid in Advance',
+        'Amount Paid reference 1234',
+        'Balance after March',
+        'Balance before March',
+        'Payment after March',
+        'Tender before March',
+        'Balance for March',
+        'Payment in March',
+        'Tender by Cheque',
+        'Balance as of March',
+        'Payment via Bank',
+        'Payment on March 4',
+        'Payment from Bank',
+        'Payment to Account',
+        'Tender at Counter',
         'Paid',
         'Paid:',
         'Payment:',
@@ -866,6 +897,27 @@ void main() {
         expect(namedPlan.items.single.description, description);
         expect(namedPlan.items.single.lineTotal, '59.99');
         expect(namedPlan.reviewHints, isEmpty);
+      }
+      for (final description in [
+        'Payment Plan 500',
+        'Balance Board Plan',
+        'Monthly Internet Plan',
+        'Balance Board with Internet',
+        'Payment Plan with Internet',
+        'Balance Board for Internet',
+        'Payment Plan for Internet',
+      ]) {
+        final blocks = _boundedUtilityBlocks(description: description);
+        final preview = _parseBoundedUtility(blocks);
+        expect(
+          preview.items.any(
+            (item) =>
+                item.description == description && item.lineTotal == '59.99',
+          ),
+          isTrue,
+        );
+        expect(preview.reviewHints, isEmpty);
+        expect(preview.blocks, containsAll(blocks));
       }
       final totalNamedPlan = _parseBoundedUtility(
         _boundedUtilityBlocks(description: 'Total Security Plan'),

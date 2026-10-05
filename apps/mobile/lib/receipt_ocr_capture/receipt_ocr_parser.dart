@@ -2362,7 +2362,8 @@ class ReceiptOcrParser {
     );
     final financialConjunction = RegExp(
       r'\b(?:and|or|with|plus|minus|less|versus|vs|after|before|'
-      r'including|excluding|following|without|net\s+of)\b|&',
+      r'including|excluding|following|without|net\s+of|'
+      r'for|in|by|as\s+of|via|on|from|to|at)\b|&',
       caseSensitive: false,
     );
     final discountLabelPattern = RegExp(
@@ -2428,8 +2429,7 @@ class ReceiptOcrParser {
           row.where((block) {
             if (block.points.isEmpty) return false;
             final center = (_blockLeft(block) + _blockRight(block)) / 2;
-            return center >= _blockLeft(descriptionHeader) - 12 &&
-                center <= _blockRight(amountHeader) + 12;
+            return center <= _blockRight(amountHeader) + 12;
           }),
           row.where((block) {
             if (block.points.isEmpty) return false;
@@ -2465,57 +2465,60 @@ class ReceiptOcrParser {
             caseSensitive: false,
             unicode: true,
           );
-          final projection = _normalizeOcrLine(
-            blocks
-                .map((block) {
-                  var text = _normalizeOcrLine(block.text.trim());
-                  if (_blockLeft(block) >= _blockLeft(amountHeader) - 12 &&
-                      _blockRight(block) <= _blockRight(amountHeader) + 12 &&
-                      _isStandaloneAmountRow(text) &&
-                      _hasChargeTableMonetaryEvidence(text)) {
-                    return protect(text);
-                  }
-                  text = text.replaceAllMapped(
-                    explicitMoney,
-                    (match) => protect(match.group(0)!),
-                  );
-                  // In a named date, 4,25 means day/year rather than money.
-                  // Owned money cells and explicit currency remain protected
-                  // first; only contextual bare tokens can belong to a date.
-                  final namedDates = RegExp(
-                    '(?<![\\p{L}\\p{N}])'
-                    '${_utilityDatePattern(allowFragmentedYear: true, allowTwoDigitYear: true)}'
-                    '(?![\\p{L}\\p{N}])',
-                    caseSensitive: false,
-                    unicode: true,
-                  ).allMatches(text).toList(growable: false);
-                  // A merged footer may place bare money before or after its
-                  // date. Do not match fragments of slash/dot date tokens.
-                  text = text.replaceAllMapped(
-                    RegExp(
-                      '(?<![\\p{L}\\p{N}./])($_amountTokenPattern)'
-                      '(?![\\p{L}\\p{N}./])',
-                      unicode: true,
-                    ),
-                    (match) {
-                      final amount = match.group(1)!;
-                      if (namedDates.any(
-                        (date) =>
-                            match.start >= date.start && match.end <= date.end,
-                      )) {
-                        return amount;
+          final monetaryProjection =
+              _normalizeOcrLine(
+                blocks
+                    .map((block) {
+                      final text = _normalizeOcrLine(block.text.trim());
+                      if (_blockLeft(block) >= _blockLeft(amountHeader) - 12 &&
+                          _blockRight(block) <=
+                              _blockRight(amountHeader) + 12 &&
+                          _isStandaloneAmountRow(text) &&
+                          _hasChargeTableMonetaryEvidence(text)) {
+                        return protect(text);
                       }
-                      return _hasChargeTableMonetaryEvidence(amount) &&
-                              _normalizeAmount(amount, currency: currency) !=
-                                  null
-                          ? protect(amount)
-                          : amount;
-                    },
-                  );
-                  return text;
-                })
-                .join(' '),
-          ).replaceFirst(RegExp(r'^[^\p{L}\p{N}]+', unicode: true), '');
+                      return text;
+                    })
+                    .join(' '),
+              ).replaceAllMapped(
+                explicitMoney,
+                (match) => protect(match.group(0)!),
+              );
+          // Named-date context spans OCR blocks, including margin labels.
+          // Owned money cells and explicit currency remain protected first;
+          // only contextual bare tokens such as 4,25 can belong to a date.
+          final namedDates = RegExp(
+            '(?<![\\p{L}\\p{N}])'
+            "(?<!\\d[.,/'’])"
+            '${_utilityDatePattern(allowFragmentedYear: true, allowTwoDigitYear: true)}'
+            '(?![\\p{L}\\p{N}])',
+            caseSensitive: false,
+            unicode: true,
+          ).allMatches(monetaryProjection).toList(growable: false);
+          // Bare money may occur before or after a date. Do not match
+          // fragments of slash/dot date tokens.
+          final projection = monetaryProjection
+              .replaceAllMapped(
+                RegExp(
+                  '(?<![\\p{L}\\p{N}./])($_amountTokenPattern)'
+                  '(?![\\p{L}\\p{N}./])',
+                  unicode: true,
+                ),
+                (match) {
+                  final amount = match.group(1)!;
+                  if (namedDates.any(
+                    (date) =>
+                        match.start >= date.start && match.end <= date.end,
+                  )) {
+                    return amount;
+                  }
+                  return _hasChargeTableMonetaryEvidence(amount) &&
+                          _normalizeAmount(amount, currency: currency) != null
+                      ? protect(amount)
+                      : amount;
+                },
+              )
+              .replaceFirst(RegExp(r'^[^\p{L}\p{N}]+', unicode: true), '');
           // A strong printed footer role ends recovery even if its date is
           // incomplete or unreadable. This does not select a monetary value.
           if (_isChargeTableSectionBoundary(projection) ||
@@ -2525,6 +2528,7 @@ class ReceiptOcrParser {
           var text = projection.replaceAll(
             RegExp(
               '(?<![\\p{L}\\p{N}])'
+              "(?<!\\d[.,/'’])"
               '${_utilityBoundaryDatePattern()}'
               '(?![\\p{L}\\p{N}])',
               caseSensitive: false,
@@ -2762,9 +2766,15 @@ class ReceiptOcrParser {
           adjustments[rowIndex] = 'Discount ${separatedAmount.trim()}';
           continue;
         }
-        // Plural financial roles remain non-item evidence in this recovery
+        // Established financial roles remain non-item evidence in this recovery
         // path. Keep the printed description and global classifiers intact.
-        if (pluralFinancialRoles.hasMatch(normalizedDescription) ||
+        if (_boundedUtilityRoleText(normalizedDescription)
+                .split(financialConjunction)
+                .any(
+                  (role) =>
+                      _hasBoundedUtilityFinancialPrefix(role, monetaryText),
+                ) ||
+            pluralFinancialRoles.hasMatch(normalizedDescription) ||
             _hasPotentialReceiptAdjustmentLabel(normalizedDescription) ||
             _isAdministrativeLine(ownedText) ||
             _isAdministrativeLine(roleText)) {
@@ -4533,8 +4543,8 @@ bool _isBoundedUtilityAccountRole(String label, String monetaryText) {
       ).hasMatch(role);
 }
 
-// Only mixed discount evidence uses leading role phrases. Qualifiers such as
-// "after Loyalty" cannot erase an already printed Amount Paid/Payment role.
+// Leading financial phrases survive qualifiers in bounded conflict and item
+// checks. "in Advance" cannot erase an already printed Amount Paid role.
 bool _hasBoundedUtilityFinancialPrefix(String label, String monetaryText) {
   final role = _boundedUtilityRoleText(label);
   final ends = [
