@@ -144,6 +144,79 @@ ReceiptOcrBlockEvidence _summaryBlockVariant(
 );
 
 void main() {
+  test('summary-card ownership includes neighboring monetary fragments', () {
+    for (final spec in [
+      (3, 'EUR', 710.0, 194.0, false),
+      (5, 'EUR', 955.0, 240.0, false),
+      (3, 'try', 710.0, 194.0, false),
+      (5, 'rUb', 955.0, 240.0, false),
+      (3, 'DZD', 710.0, 194.0, false),
+      (5, r'EUR $', 955.0, 240.0, false),
+      (3, '−', 710.0, 194.0, false),
+      (5, 'EUR −', 955.0, 240.0, false),
+      (5, 'USD 12.00', 955.0, 260.0, false),
+      (5, r'DZD $12.00', 955.0, 260.0, false),
+      (5, 'USD / USD', 955.0, 240.0, false),
+      (3, 'USD', 710.0, 194.0, true),
+      (5, r'USD $', 955.0, 240.0, true),
+      (5, 'EUR', 1300.0, 240.0, true),
+      (5, 'EUR', 955.0, 600.0, true),
+    ]) {
+      for (final scale in [0.5, 1.0, 2.0]) {
+        final original = _summaryCardBlocks();
+        final blocks = <ReceiptOcrBlockEvidence>[];
+        for (var index = 0; index < original.length; index++) {
+          final b = original[index];
+          blocks.add(
+            b.row == 4 && b.text == 'USD 42.00'
+                ? _summaryBlockVariant(b, text: r'$42.00')
+                : b,
+          );
+          if (b.row == spec.$1 &&
+              (index + 1 == original.length ||
+                  original[index + 1].row != b.row)) {
+            blocks.add(
+              ReceiptOcrBlockEvidence(
+                text: spec.$2,
+                row: b.row,
+                order: 30,
+                points: [
+                  ReceiptOcrPoint(x: spec.$3, y: spec.$4),
+                  ReceiptOcrPoint(x: spec.$3 + 41, y: spec.$4),
+                  ReceiptOcrPoint(x: spec.$3 + 41, y: spec.$4 + 18),
+                  ReceiptOcrPoint(x: spec.$3, y: spec.$4 + 18),
+                ],
+              ),
+            );
+          }
+        }
+        final scaled = blocks
+            .map(
+              (b) => ReceiptOcrBlockEvidence(
+                text: b.text,
+                row: b.row,
+                order: b.order,
+                points: b.points
+                    .map((p) => ReceiptOcrPoint(x: p.x * scale, y: p.y * scale))
+                    .toList(),
+              ),
+            )
+            .toList();
+        final preview = _parseBoundedUtility(scaled);
+        final reason = '$spec at $scale';
+        expect(preview.currency, 'USD', reason: reason);
+        expect(preview.total, '42.00', reason: reason);
+        expect(
+          preview.itemLineDecisions[4] ==
+              ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+          spec.$5,
+          reason: reason,
+        );
+        expect(preview.blocks, containsAll(scaled), reason: reason);
+      }
+    }
+  });
+
   test('summary-card exclusion preserves pending description uncertainty', () {
     final blocks = <ReceiptOcrBlockEvidence>[];
     for (final b in _summaryCardBlocks()) {

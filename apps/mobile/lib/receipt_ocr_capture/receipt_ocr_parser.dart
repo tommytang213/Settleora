@@ -4635,6 +4635,68 @@ bool _isOwnedSummaryCardHeaderRow(
     return false;
   }
 
+  // A large amount can overlap smaller currency/sign fragments assigned to
+  // another OCR row. Check the physical neighborhood independently of row
+  // grouping before excluding monetary evidence from the draft.
+  final currencyAtoms = RegExp(
+    '(?:$_currencyTokenPattern|${_knownUnsupportedIsoCurrencyCodes.map(RegExp.escape).join('|')})',
+    caseSensitive: false,
+  );
+  final signOnly = RegExp(r'^[+\p{Dash}➖\s]+$', unicode: true);
+  final punctuationOnly = RegExp(r'^[^\p{L}\p{N}]*$', unicode: true);
+  final amountHeight = amountBox.bottom - amountBox.top;
+  for (final neighbor in rows.expand((r) => r)) {
+    if (row.contains(neighbor)) continue;
+    final text = neighbor.text.trim();
+    final markers = currencyAtoms
+        .allMatches(text)
+        .map((m) => m.group(0)!)
+        .toList();
+    final remaining = text.replaceAll(currencyAtoms, '').trim();
+    final isCurrency = markers.isNotEmpty && remaining.isEmpty;
+    if (!isCurrency &&
+        !signOnly.hasMatch(remaining) &&
+        !(markers.isNotEmpty && punctuationOnly.hasMatch(remaining)) &&
+        !(_isStandaloneAmountRow(remaining) &&
+            (markers.isNotEmpty ||
+                _hasChargeTableMonetaryEvidence(remaining)))) {
+      continue;
+    }
+    if (neighbor.points.length < 4 ||
+        neighbor.points.any((p) => !p.x.isFinite || !p.y.isFinite)) {
+      return false;
+    }
+    final left = _blockLeft(neighbor), right = _blockRight(neighbor);
+    final top = neighbor.points.map((p) => p.y).reduce((a, b) => a < b ? a : b);
+    final bottom = neighbor.points
+        .map((p) => p.y)
+        .reduce((a, b) => a > b ? a : b);
+    if (right <= left || bottom <= top) return false;
+    final horizontalGap = right < amountBox.left
+        ? amountBox.left - right
+        : left > amountBox.right
+        ? left - amountBox.right
+        : 0;
+    final verticalGap = bottom < amountBox.top
+        ? amountBox.top - bottom
+        : top > amountBox.bottom
+        ? top - amountBox.bottom
+        : 0;
+    if (horizontalGap > amountHeight || verticalGap > amountHeight * 0.5) {
+      continue;
+    }
+    if (!isCurrency) return false;
+    for (final marker in markers) {
+      final printed = _currencyAdjacentToSelectedAmount(
+        '$marker ${moneyCell.group(2)}',
+        currency,
+      );
+      if (!printed.hasExplicitEvidence || printed.currency != currency) {
+        return false;
+      }
+    }
+  }
+
   // No competing text may occupy either vertical label/value corridor.
   for (final pair in [
     (totalLabels.single, amount),
