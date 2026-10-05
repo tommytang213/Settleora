@@ -2361,7 +2361,8 @@ class ReceiptOcrParser {
       caseSensitive: false,
     );
     final financialConjunction = RegExp(
-      r'\b(?:and|or|with|plus|minus|less|versus|vs)\b|&',
+      r'\b(?:and|or|with|plus|minus|less|versus|vs|after|before|'
+      r'including|excluding|following|without|net\s+of)\b|&',
       caseSensitive: false,
     );
     final discountLabelPattern = RegExp(
@@ -2478,25 +2479,23 @@ class ReceiptOcrParser {
                     explicitMoney,
                     (match) => protect(match.group(0)!),
                   );
-                  // A merged footer may end in a bare decimal amount. Dates with
-                  // several separators do not normalize as monetary values.
-                  final trailing = RegExp(
-                    '(?<![\\p{L}\\p{N}/])($_amountTokenPattern)\\s*\$',
-                    unicode: true,
-                  ).firstMatch(text);
-                  if (trailing != null &&
-                      _hasChargeTableMonetaryEvidence(trailing.group(1)!) &&
-                      _normalizeAmount(
-                            trailing.group(1)!,
-                            currency: currency,
-                          ) !=
-                          null) {
-                    text = text.replaceRange(
-                      trailing.start,
-                      trailing.end,
-                      protect(trailing.group(0)!),
-                    );
-                  }
+                  // A merged footer may place bare money before or after its
+                  // date. Do not match fragments of slash/dot date tokens.
+                  text = text.replaceAllMapped(
+                    RegExp(
+                      '(?<![\\p{L}\\p{N}./])($_amountTokenPattern)'
+                      '(?![\\p{L}\\p{N}./])',
+                      unicode: true,
+                    ),
+                    (match) {
+                      final amount = match.group(1)!;
+                      return _hasChargeTableMonetaryEvidence(amount) &&
+                              _normalizeAmount(amount, currency: currency) !=
+                                  null
+                          ? protect(amount)
+                          : amount;
+                    },
+                  );
                   return text;
                 })
                 .join(' '),
@@ -2581,10 +2580,10 @@ class ReceiptOcrParser {
               .where((clause) => !discountRolePattern.hasMatch(clause))
               .map(_boundedUtilityRoleText);
           if ([remainingRoleLabel, ...otherRoleClauses].any(
-                (role) =>
-                    _isBoundedUtilityAccountRole(role, financialMonetaryText) ||
-                    _isPaymentMetadataLine('$role $financialMonetaryText') ||
-                    _isAdministrativeLine('$role $financialMonetaryText'),
+                (role) => _hasBoundedUtilityFinancialPrefix(
+                  role,
+                  financialMonetaryText,
+                ),
               ) ||
               pluralFinancialRoles.hasMatch(otherRoleLabel) ||
               _hasPotentialReceiptAdjustmentLabel(otherRoleLabel) ||
@@ -2708,6 +2707,9 @@ class ReceiptOcrParser {
             _isBoundedUtilityAccountRole(normalizedDescription, monetaryText) ||
             _isPaymentMetadataLine(ownedText) ||
             _isPaymentMetadataLine(roleText) ||
+            _isStandaloneTenderLabel(
+              _boundedUtilityRoleText(normalizedDescription),
+            ) ||
             _isReceiptMetadataLine(ownedText) ||
             _isReceiptMetadataLine(
               normalizedDescription,
@@ -4476,6 +4478,7 @@ String _boundedUtilityRoleText(String text) {
     role = role.replaceAll(notes, ' ');
   }
   return role
+      .replaceFirst(RegExp(r'^[^\p{L}\p{N}]+', unicode: true), '')
       .replaceAll(RegExp(r'\bbalances\b', caseSensitive: false), 'balance')
       .replaceAll(RegExp(r'\bamounts\b', caseSensitive: false), 'amount')
       .replaceAll(RegExp(r'\s+'), ' ')
@@ -4490,6 +4493,28 @@ bool _isBoundedUtilityAccountRole(String label, String monetaryText) {
         r'(?:(?:account|statement)\s+)?balance(?:\s+(?:forward|brought\s+forward))?$',
         caseSensitive: false,
       ).hasMatch(role);
+}
+
+// Only mixed discount evidence uses leading role phrases. Qualifiers such as
+// "after Loyalty" cannot erase an already printed Amount Paid/Payment role.
+bool _hasBoundedUtilityFinancialPrefix(String label, String monetaryText) {
+  final role = _boundedUtilityRoleText(label);
+  final ends = [
+    ...RegExp(r'\s+').allMatches(role).map((match) => match.start),
+    role.length,
+  ];
+  return ends.any((end) {
+    final prefix = role.substring(0, end);
+    // A lone word inside an ordinary qualifier, e.g. Payment Plan or Balance
+    // Board Discount, is not a separately stated financial role.
+    if (end != role.length && !prefix.contains(' ')) {
+      return false;
+    }
+    return _isBoundedUtilityAccountRole(prefix, monetaryText) ||
+        _isStandaloneTenderLabel(prefix) ||
+        _isPaymentMetadataLine('$prefix $monetaryText') ||
+        _isAdministrativeLine('$prefix $monetaryText');
+  });
 }
 
 bool _matchesUtilityPeriod(String text) => RegExp(

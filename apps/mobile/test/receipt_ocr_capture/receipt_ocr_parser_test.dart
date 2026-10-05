@@ -436,24 +436,24 @@ void main() {
       r'$12.10',
       r'$1.20',
       '12.10',
+      '1.20',
+      '3.04',
       'USD12.10',
       '12.10USD',
       '12.10 USD',
     ]) {
-      for (final merged in [false, true]) {
+      for (final (footer, separateMoney) in [
+        ('Total Mar 4, 2025', true),
+        ('Total Mar 4, 2025 $money', false),
+        ('Total $money Mar 4, 2025', false),
+      ]) {
         final original = _boundedUtilityBlocks(
           description: 'Next Month Estimate',
         );
         final blocks = [
           ...original.where((block) => block.row < 3),
-          _layoutBlock(
-            merged ? 'Total Mar 4, 2025 $money' : 'Total Mar 4, 2025',
-            7,
-            3,
-            50,
-            merged ? 717 : 640,
-          ),
-          if (!merged) _layoutBlock(money, 9, 3, 659, 716),
+          _layoutBlock(footer, 7, 3, 50, separateMoney ? 640 : 717),
+          if (separateMoney) _layoutBlock(money, 9, 3, 659, 716),
           _layoutBlock('Contact us', 10, 3, 828, 1020),
           for (final block in original.where((block) => block.row >= 3))
             _layoutBlock(
@@ -495,6 +495,13 @@ void main() {
       'Amount Paid less Loyalty Discount (12 months)',
       'Balance versus Loyalty Discount (12 months)',
       'Tender minus Seasonal Rebate (12 months)',
+      'Amount Paid after Loyalty Discount (12 months)',
+      'Amount Paid before Loyalty Discount (12 months)',
+      'Amount Paid including Loyalty Discount (12 months)',
+      'Amount Paid excluding Loyalty Discount (12 months)',
+      'Amount Paid following Loyalty Discount (12 months)',
+      'Amount Paid without Loyalty Discount (12 months)',
+      'Amount Paid net of Loyalty Discount (12 months)',
     ]) {
       final blocks = _boundedUtilityBlocks();
       final labelIndex = blocks.indexWhere(
@@ -514,6 +521,21 @@ void main() {
       final preview = _parseBoundedUtility(blocks);
       expect(preview.discount, isNull, reason: label);
       expect(preview.reviewHints, isNotEmpty, reason: label);
+      expect(preview.blocks, containsAll(blocks));
+    }
+    for (final label in [
+      'Payment Plan Discount (12 months)',
+      'Balance Board Discount (12 months)',
+      'Monthly Loyalty Discount (12 months)',
+    ]) {
+      final blocks = _boundedUtilityBlocks();
+      final index = blocks.indexWhere(
+        (block) => block.text == 'Loyalty Discount (12 months)',
+      );
+      blocks[index] = _layoutBlock(label, 12, 4, 51, 383);
+      final preview = _parseBoundedUtility(blocks);
+      expect(preview.discount, '-10.00', reason: label);
+      expect(preview.reviewHints, isEmpty, reason: label);
       expect(preview.blocks, containsAll(blocks));
     }
   });
@@ -613,6 +635,21 @@ void main() {
       for (final description in [
         'Previous Balance',
         'Amount Paid (12 months)',
+        'Paid',
+        'Paid [12 months]',
+        'Payment',
+        'Tender',
+        'Card',
+        'Credit Card',
+        'Debit Card',
+        'Visa',
+        'Mastercard',
+        '• Amount Paid [12 months]',
+        '• Balance [12 months]',
+        '◆ Amount Paid [12 months]',
+        '◆ Balance [12 months]',
+        '※ Amount Paid [12 months]',
+        '※ Balance [12 months]',
         'Amount Paid [12 months]',
         'Balance [12 months]',
         'Current Balance [12 months]',
