@@ -4496,20 +4496,30 @@ bool _isOwnedSummaryCardHeaderRow(
   final amounts = row.where((b) => _isStandaloneAmountRow(b.text)).toList();
   if (amounts.length != 1) return false;
   final amount = amounts.single;
-  // The general standalone fallback tolerates stacked symbols. Exclusion
-  // needs a stricter cell: at most one denomination on each side, whose
-  // compatibility is then checked by the selected-currency helpers below.
-  final strictMoneyCell = RegExp(
-    '^\\s*(?:(?:$_currencyTokenPattern)\\s*)?$_amountTokenPattern'
-    '(?:\\s*(?:$_currencyTokenPattern))?\\s*\$',
+  // Exclusion requires a strict cell and compatible evidence from every
+  // printed denomination. Item-word masking (such as lowercase TRY/RUB)
+  // must not erase a conflicting marker from a proven monetary cell.
+  final moneyCell = RegExp(
+    '^\\s*($_currencyTokenPattern)?\\s*($_amountTokenPattern)'
+    '(?:\\s*($_currencyTokenPattern))?\\s*\$',
     caseSensitive: false,
-  );
-  if (!strictMoneyCell.hasMatch(amount.text) ||
+  ).firstMatch(amount.text);
+  if (moneyCell == null ||
       !_hasChargeTableMonetaryEvidence(amount.text) ||
-      _selectedItemCurrencyUnresolved(amount.text, currency) ||
-      _itemCurrencyFromPrintedText(amount.text, currency) != currency ||
       _lastAmountInLine(amount.text, currency: currency) != selectedTotal) {
     return false;
+  }
+  for (final marker in [
+    moneyCell.group(1),
+    moneyCell.group(3),
+  ].whereType<String>()) {
+    final printed = _currencyAdjacentToSelectedAmount(
+      '$marker ${moneyCell.group(2)}',
+      currency,
+    );
+    if (!printed.hasExplicitEvidence || printed.currency != currency) {
+      return false;
+    }
   }
   final dateLabels = row
       .where(

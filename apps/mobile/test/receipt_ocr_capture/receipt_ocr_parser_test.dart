@@ -237,6 +237,11 @@ void main() {
       'EUR 42.00 USD',
       r'USD $42.00',
       r'$42.00 $',
+      'usd 42.00 USD',
+      for (final marker in ['try', 'Try', 'tRy', 'rub', 'Rub', 'rUb']) ...[
+        '$marker 42.00 USD',
+        'USD 42.00 $marker',
+      ],
     ]) {
       final blocks = _summaryCardBlocks()
           .map(
@@ -246,7 +251,7 @@ void main() {
           )
           .toList();
       final preview = _parseBoundedUtility(blocks);
-      if (money == r'$42.00 $') {
+      if (money == r'$42.00 $' || money == 'usd 42.00 USD') {
         expect(
           preview.itemLineDecisions[4],
           ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
@@ -260,6 +265,30 @@ void main() {
         );
       }
       expect(preview.blocks, containsAll(blocks), reason: money);
+    }
+    for (final code in ['TRY', 'RUB']) {
+      final blocks = _summaryCardBlocks()
+          .map(
+            (b) => _summaryBlockVariant(
+              b,
+              text: b.row == 4 && b.text == 'USD 42.00'
+                  ? '${code.toLowerCase()} 42.00 $code'
+                  : b.text.replaceAll('USD', code),
+            ),
+          )
+          .toList();
+      final preview = _parseBoundedUtility(blocks);
+      expect(preview.currency, code);
+      expect(
+        preview.itemLineDecisions[4],
+        ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+        reason: code,
+      );
+      expect(preview.items.map((i) => i.description), [
+        'Broadband Plan',
+        'Router Rental',
+      ], reason: code);
+      expect(preview.blocks, containsAll(blocks), reason: code);
     }
   });
 
