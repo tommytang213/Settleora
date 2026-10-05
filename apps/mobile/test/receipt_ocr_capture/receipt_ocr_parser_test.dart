@@ -77,6 +77,78 @@ ReceiptOcrPreview _parseBoundedUtility(List<ReceiptOcrBlockEvidence> blocks) {
 }
 
 void main() {
+  test('quarter and fiscal periods retain the printed Total role', () {
+    for (final context in [
+      'Q1 2025',
+      'Q4 2026',
+      '2025 Q1',
+      'Quarter 1 2025',
+      '1st Quarter 2025',
+      'First Quarter 2025',
+      'Q1 FY2025',
+      'FY2025 Q1',
+      'Q1/2025',
+      'Q12025',
+      'Q1 2025 - Q2 2025',
+      'FY2025',
+      'Fiscal Year 2025',
+      'Calendar Year 2025',
+      'Q1 25',
+      '25 Q1',
+      'FY25 Q1',
+      'Q1 FY25',
+      'FY25',
+      'Fiscal Year 25',
+      'Q1 2 5',
+      'Q1 ’25',
+      'Spring Season',
+      'Billing Cycle 47',
+      'Weeks 1 to 4',
+      'Cycle A',
+    ]) {
+      final original = _boundedUtilityBlocks(
+        description: 'Next Month Estimate',
+      );
+      final blocks = [
+        ...original.where((b) => b.row < 3),
+        _layoutBlock('Total for $context', 7, 3, 50, 640),
+        _layoutBlock(r'$54.30', 9, 3, 659, 716),
+        _layoutBlock('Contact us', 10, 3, 828, 1020),
+        for (final b in original.where((b) => b.row >= 3))
+          _layoutBlock(
+            b.text,
+            b.order + 4,
+            b.row + 1,
+            b.points[0].x,
+            b.points[1].x,
+          ),
+      ];
+      final preview = _parseBoundedUtility(blocks);
+      expect(
+        preview.items.any((i) => i.lineTotal == '59.99'),
+        isFalse,
+        reason: context,
+      );
+      expect(preview.blocks, containsAll(blocks));
+    }
+    for (final label in [
+      'Total Q1 Plan',
+      'Total Quarter Plan',
+      'Total FY Plan',
+    ]) {
+      final blocks = _boundedUtilityBlocks(description: label);
+      final preview = _parseBoundedUtility(blocks);
+      expect(
+        preview.items.any(
+          (i) => i.description == label && i.lineTotal == '59.99',
+        ),
+        isTrue,
+        reason: label,
+      );
+      expect(preview.blocks, containsAll(blocks));
+    }
+  });
+
   test('exact Total role survives separately printed amount context', () {
     for (final label in [
       'Total',
@@ -464,6 +536,19 @@ void main() {
         'Premium Service Plan Discount (12 months)': '-10.00',
         'Internet Service Package Discount (12 months)': '-10.00',
         'Internet Service Discount (12 months)': '-10.00',
+        'Internet Service Loyalty Discount (12 months)': '-10.00',
+        'Service Loyalty Discount (12 months)': '-10.00',
+        'Service Provider Discount (12 months)': '-10.00',
+        'Service Provider Loyalty Discount (12 months)': '-10.00',
+        'Internet Service Seasonal Discount (12 months)': '-10.00',
+        'Internet Service Renewal Discount (12 months)': '-10.00',
+        'Internet Service Promotional Discount (12 months)': '-10.00',
+        'Credit Monitoring Service Loyalty Discount (12 months)': '-10.00',
+        'Internet Service Charge Loyalty Discount': null,
+        'Internet Service Tax Loyalty Discount': null,
+        'Internet Service Loyalty Discount (Partial Payment)': null,
+        'Internet Service and Payment Loyalty Discount': null,
+        'Internet Service Fee Seasonal Discount': null,
         'Premium Service Discount (12 months)': '-10.00',
         'Tax Preparation Service Discount (12 months)': '-10.00',
         'Credit Monitoring Service Discount (12 months)': '-10.00',

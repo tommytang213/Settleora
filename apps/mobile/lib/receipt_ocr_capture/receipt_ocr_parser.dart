@@ -2352,7 +2352,7 @@ class ReceiptOcrParser {
     );
     final strongFooterLabel = RegExp(
       r'^(?:sub[\s-]?total|(?:grand|refund)\s+total|'
-      r'total\s+(?:(?:amount\s+)?due|current\s+charges|paid)|'
+      r'total\s+(?:(?:amount\s+)?due|current\s+charges|paid|for)|'
       r'paid\s+total|(?:amount|balance|payment)\s+due)\b',
       caseSensitive: false,
     );
@@ -2397,14 +2397,13 @@ class ReceiptOcrParser {
                     ...pluralFinancialRoles.allMatches(role),
                   ]
                   .where((match) {
-                    // A terminal Service qualifies a preceding name; it is not a
-                    // second charge role. Explicit Service Charge/Fee remains intact.
+                    // Service stays within a named phrase regardless of word order.
+                    // Explicit Service Charge/Fee remains intact.
                     return !(match.group(0)!.toLowerCase() == 'service' &&
-                        match.end == role.length &&
-                        RegExp(
-                          r'\p{L}',
-                          unicode: true,
-                        ).hasMatch(role.substring(0, match.start)));
+                        RegExp(r'\p{L}', unicode: true).hasMatch(
+                          role.substring(0, match.start) +
+                              role.substring(match.end),
+                        ));
                   })
                   .toList(growable: false);
           if (matches.isEmpty) return false;
@@ -4784,21 +4783,25 @@ bool _hasBoundedUtilityFinancialPhrase(String label, String monetaryText) {
   ];
   return starts.any((start) {
     final role = normalizedRole.substring(start);
-    // A terminal service-kind word belongs to its preceding name. Inspecting
-    // that word alone must not invent a second financial role.
+    // A service-kind word stays within its name regardless of word order.
+    // Longer explicit financial phrases still
+    // pass through the normal classifiers below.
     final qualifier = _boundedUtilityNamedServiceQualifier.firstMatch(role);
-    if (start > 0 &&
-        qualifier != null &&
-        qualifier.start == 0 &&
-        qualifier.end == role.length) {
-      return false;
-    }
     final ends = [
       ...RegExp(r'\s+').allMatches(role).map((match) => match.start),
       role.length,
     ];
     return ends.any((end) {
       final prefix = role.substring(0, end);
+      if (qualifier != null &&
+          qualifier.start == 0 &&
+          qualifier.end == end &&
+          RegExp(r'\p{L}', unicode: true).hasMatch(
+            normalizedRole.substring(0, start) +
+                normalizedRole.substring(start + end),
+          )) {
+        return false;
+      }
       // A financial head remains financial when qualified. A printed service
       // kind, e.g. Payment Plan or Payment Processing Subscription, instead
       // requires the complete phrase to establish a conflicting financial role.
@@ -4827,7 +4830,7 @@ String _utilityPeriodPattern() {
 }
 
 String _utilityBoundaryDatePattern() {
-  final date = _utilityDatePattern(
+  final dayDate = _utilityDatePattern(
     allowNumericDates: true,
     allowFragmentedYear: true,
     allowTwoDigitYear: true,
@@ -4835,6 +4838,18 @@ String _utilityBoundaryDatePattern() {
     allowWeekdayContext: true,
     allowMonthYear: true,
   );
+  // Quarter and fiscal/calendar-year context can label a financial total.
+  // Require a printed year for these forms; Q1 Plan remains a service name.
+  const year = r"(?:(?:1\s*9|2\s*0)\s*\d\s*\d|['’]?\s*\d\s*\d)";
+  const quarter =
+      r'(?:Q\s*[1-4]|quarter\s*[1-4]|'
+      r'(?:[1-4](?:st|nd|rd|th)?|first|second|third|fourth)\s+quarter)';
+  const yearLabel = r'(?:FY|CY|(?:fiscal|calendar)\s+year)';
+  const qualifiedYear = '(?:$yearLabel\\s*)?$year';
+  const quarterDate =
+      '(?:$quarter\\s*[,/-]?\\s*$qualifiedYear|'
+      '$qualifiedYear\\s*[,/-]?\\s*$quarter)';
+  final date = '(?:$quarterDate|$yearLabel\\s*$year|$dayDate)';
   // A footer may print one date, a range, or an incomplete range. None of
   // these boundary-only forms broadens service-row monetary eligibility.
   return '$date(?:\\s*(?:[\\p{Dash}➖]|\\bto\\b)\\s*(?:$date)?)?';
