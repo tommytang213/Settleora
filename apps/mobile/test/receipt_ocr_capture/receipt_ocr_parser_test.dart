@@ -77,6 +77,84 @@ ReceiptOcrPreview _parseBoundedUtility(List<ReceiptOcrBlockEvidence> blocks) {
 }
 
 void main() {
+  test('qualified footers retain owned amounts beside adjacent periods', () {
+    List<ReceiptOcrBlockEvidence> splitFooter(
+      String label, {
+      String period = 'Feb 5 – Mar 4, 2025',
+      String money = 'USD 54.30',
+      bool extraDescription = false,
+    }) {
+      final original = _boundedUtilityBlocks(
+        description: 'Next Month Estimate',
+      );
+      return [
+        ...original.where((b) => b.row < 3),
+        _layoutBlock(label, 7, 3, 50, 716),
+        if (extraDescription)
+          _layoutBlock('Independent Reference', 8, 4, 50, 383),
+        _layoutBlock(period, 9, 4, 417, 567),
+        _layoutBlock(money, 10, 4, 659, 716),
+        for (final b in original.where((b) => b.row >= 3))
+          _layoutBlock(
+            b.text,
+            b.order + 5,
+            b.row + 2,
+            b.points[0].x,
+            b.points[1].x,
+          ),
+      ];
+    }
+
+    for (final label in [
+      'Final Total',
+      'Final Subtotal',
+      'Final Sub Total',
+      'Revised Total',
+      'Summary and Final Total',
+    ]) {
+      for (final period in [
+        'Feb 5 – Mar 4, 2025',
+        'March 2025',
+        'Printed period unclear',
+      ]) {
+        for (final money in ['USD 54.30', '54.30']) {
+          final blocks = splitFooter(label, period: period, money: money);
+          final preview = _parseBoundedUtility(blocks);
+          expect(
+            preview.items.any((i) => i.lineTotal == '59.99'),
+            isFalse,
+            reason: '$label | $period | $money',
+          );
+          expect(preview.blocks, containsAll(blocks));
+        }
+      }
+    }
+    for (final label in [
+      'Final Total Security Plan',
+      'Premium Subtotal Plan',
+      'Payment Plan with Total Security Plan',
+      'Balance Board for Total Security Plan',
+    ]) {
+      final blocks = splitFooter(label);
+      final preview = _parseBoundedUtility(blocks);
+      expect(
+        preview.items.any((i) => i.lineTotal == '59.99'),
+        isTrue,
+        reason: label,
+      );
+      expect(preview.blocks, containsAll(blocks));
+    }
+    for (final label in ['Final Total', 'Final Subtotal']) {
+      final blocks = splitFooter(label, extraDescription: true);
+      final preview = _parseBoundedUtility(blocks);
+      expect(
+        preview.items.any((i) => i.lineTotal == '59.99'),
+        isTrue,
+        reason: label,
+      );
+      expect(preview.blocks, containsAll(blocks));
+    }
+  });
   test('established footer phrases survive leading qualifiers', () {
     for (final label in [
       'Final Total Amount Due',

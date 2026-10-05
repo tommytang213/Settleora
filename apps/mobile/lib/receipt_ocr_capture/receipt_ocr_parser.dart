@@ -2488,6 +2488,29 @@ class ReceiptOcrParser {
           })
           .toList(growable: false);
 
+      List<ReceiptOcrBlockEvidence> adjacentAmountCells(
+        List<ReceiptOcrBlockEvidence> sourceRow,
+      ) {
+        final amountCells = <ReceiptOcrBlockEvidence>[];
+        for (final block in sourceRow) {
+          final left = _blockLeft(block);
+          final right = _blockRight(block);
+          if (left >= right) return [];
+          if (left >= _blockLeft(amountHeader) - 12 &&
+              right <= _blockRight(amountHeader) + 12) {
+            amountCells.add(block);
+          } else if (left < _blockLeft(periodHeader) - 12 ||
+              right > _blockLeft(amountHeader) - 12) {
+            // A following description or a cell crossing column boundaries
+            // cannot lend its money to the preceding footer label.
+            return [];
+          }
+        }
+        // Period-column text can accompany an independently owned amount.
+        // This is boundary evidence only; it does not select adjacent money.
+        return amountCells;
+      }
+
       bool hasAdjacentOwnedAmount(
         List<List<ReceiptOcrBlockEvidence>> tableRows,
       ) {
@@ -2544,17 +2567,24 @@ class ReceiptOcrParser {
           for (final sourceRow in rows.skip(rowIndex).take(2))
             tableProjection(sourceRow),
         ];
-        final followingTableLine = projectedRows.length == 2
+        final adjacentAmountRows = [
+          projectedRows.first,
+          if (projectedRows.length == 2)
+            adjacentAmountCells(projectedRows.last),
+        ];
+        final followingAmountLine = adjacentAmountRows.length == 2
             ? boundaryText(
-                projectedRows.last.map((block) => block.text.trim()).join(' '),
+                adjacentAmountRows.last
+                    .map((block) => block.text.trim())
+                    .join(' '),
               )
             : '';
         final boundaryRow = [
           ...row,
-          if (hasAdjacentOwnedAmount(projectedRows) &&
-              (_isStandaloneAmountRow(followingTableLine) ||
-                  _hasUnsupportedIsoMonetaryEvidence(followingTableLine)))
-            ...projectedRows.last,
+          if (hasAdjacentOwnedAmount(adjacentAmountRows) &&
+              (_isStandaloneAmountRow(followingAmountLine) ||
+                  _hasUnsupportedIsoMonetaryEvidence(followingAmountLine)))
+            ...adjacentAmountRows.last,
         ];
         // A printed total ends the table before service-row eligibility.
         // Preserve the existing whole-table projection for wide total labels,
