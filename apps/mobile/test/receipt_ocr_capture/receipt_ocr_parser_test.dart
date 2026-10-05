@@ -94,6 +94,18 @@ void main() {
         'Total payable after Tax',
         'Total Taxes Included',
         'Total (including Tax)',
+        'Total Service Charge',
+        'Total Service Charges',
+        'Total Service Fee',
+        'Total Service Tax',
+        'Total Service Discount',
+        'Total Service Fees',
+        'Total Service Taxes',
+        'Total Service Discounts',
+        'Total Internet Service (Tax)',
+        'Total Security Plan (Service Charge)',
+        'Total Credit Monitoring Service (Payment Received)',
+        'Total Service (Charge)',
       ]) {
         for (final mergedMoney in [false, true]) {
           final original = _boundedUtilityBlocks(
@@ -150,6 +162,44 @@ void main() {
       }
     },
   );
+  test('named Total service rows preserve following genuine charges', () {
+    for (final label in [
+      'Total Internet Service',
+      'Total Tax Preparation Service',
+      'Total Credit Monitoring Service',
+      'Total Service Plan',
+      'Total Security Plan',
+      'Total Service Package',
+    ]) {
+      final original = _boundedUtilityBlocks(
+        description: 'Next Month Estimate',
+      );
+      final blocks = [
+        ...original.where((b) => b.row < 3),
+        _layoutBlock('$label USD', 7, 3, 50, 716),
+        _layoutBlock('Contact us', 8, 3, 828, 1020),
+        _layoutBlock('54.30', 9, 4, 659, 716),
+        for (final b in original.where((b) => b.row >= 3))
+          _layoutBlock(
+            b.text,
+            b.order + 4,
+            b.row + 2,
+            b.points[0].x,
+            b.points[1].x,
+          ),
+      ];
+      final preview = _parseBoundedUtility(blocks);
+      expect(
+        preview.items.any(
+          (i) =>
+              i.description == 'Next Month Estimate' && i.lineTotal == '59.99',
+        ),
+        isTrue,
+        reason: label,
+      );
+      expect(preview.blocks, containsAll(blocks));
+    }
+  });
   test('footer roles survive month formatting and money placement', () {
     for (final (label, mergedMoney) in [
       for (final context in [

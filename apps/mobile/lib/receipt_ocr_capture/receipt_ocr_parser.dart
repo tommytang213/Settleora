@@ -2347,7 +2347,7 @@ class ReceiptOcrParser {
     final adjustments = <int, String>{};
     final ambiguous = <int>{};
     final pluralFinancialRoles = RegExp(
-      r'\b(?:taxes|tips|gratuities|discounts|coupons|surcharges|fees|refunds|rebates|credits|deposits|levies|duties|donations|payments)\b',
+      r'\b(?:taxes|tips|gratuities|discounts|coupons|surcharges|charges|fees|refunds|rebates|credits|deposits|levies|duties|donations|payments)\b',
       caseSensitive: false,
     );
     final strongFooterLabel = RegExp(
@@ -2714,6 +2714,8 @@ class ReceiptOcrParser {
           // qualifiers and punctuation. Use the same word/phrase distinction as
           // item conflicts: a named service kind in that clause (Total Security
           // Plan) remains a product name, independently of its period evidence.
+          // Explicit financial phrases and notes take precedence over that
+          // naming exception, e.g. Service Charges or a separate tax note.
           final totalClause = _boundedUtilityFinancialWords(
             temporalRole,
           ).split(financialConjunction).first;
@@ -2723,9 +2725,14 @@ class ReceiptOcrParser {
           ).firstMatch(totalClause);
           if (protectedMoney.isNotEmpty &&
               totalHead != null &&
-              !_boundedUtilityNamedServiceQualifier.hasMatch(
-                totalClause.substring(totalHead.end),
-              )) {
+              (!_boundedUtilityNamedServiceQualifier.hasMatch(
+                    totalClause.substring(totalHead.end),
+                  ) ||
+                  hasAdjustmentRole(totalClause.substring(totalHead.end)) ||
+                  hasAdjustmentRole(temporalRoleProjection) ||
+                  protectedMoney.values.any(
+                    (money) => hasFinancialRole(temporalRoleProjection, money),
+                  ))) {
             return true;
           }
           if (protectedMoney.isNotEmpty &&
