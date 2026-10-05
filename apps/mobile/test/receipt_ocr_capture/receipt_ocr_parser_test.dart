@@ -192,6 +192,7 @@ void main() {
           final blocks = _boundedUtilityBlocks(discountAmount: money);
           final preview = _parseBoundedUtility(blocks);
           expect(preview.discount, isNull);
+          expect(preview.reviewHints, isNotEmpty);
           expect(preview.blocks, containsAll(blocks));
         }
       }
@@ -204,11 +205,17 @@ void main() {
         final original = _boundedUtilityBlocks(
           description: 'Next Month Estimate',
         );
-        for (final labelRight in [383.0, if (period.isEmpty) 620.0]) {
+        for (final (labelLeft, labelRight, periodLeft, periodRight) in [
+          (50.0, 383.0, 417.0, 567.0),
+          (50.0, 430.0, 440.0, 640.0),
+          (20.0, 430.0, 440.0, 640.0),
+          if (period.isEmpty) (50.0, 620.0, 417.0, 567.0),
+        ]) {
           final blocks = [
             ...original.where((block) => block.row < 3),
-            _layoutBlock(label, 7, 3, 50, labelRight),
-            if (period.isNotEmpty) _layoutBlock(period, 8, 3, 417, 567),
+            _layoutBlock(label, 7, 3, labelLeft, labelRight),
+            if (period.isNotEmpty)
+              _layoutBlock(period, 8, 3, periodLeft, periodRight),
             _layoutBlock(r'$54.30', 9, 3, 659, 716),
             _layoutBlock('Help 24/7', 10, 3, 828, 1020),
             for (final block in original.where((block) => block.row >= 3))
@@ -234,12 +241,44 @@ void main() {
   });
 
   test('bounded discounts retain evidence of conflicting financial roles', () {
-    List<ReceiptOcrBlockEvidence> blocksWithLabel(String label) {
+    List<ReceiptOcrBlockEvidence> blocksWithLabel(
+      String label, [
+      String? period,
+      bool wide = false,
+    ]) {
       final blocks = _boundedUtilityBlocks();
       final index = blocks.indexWhere(
         (block) => block.text == 'Loyalty Discount (12 months)',
       );
-      blocks[index] = _layoutBlock(label, 12, 4, 51, 265);
+      blocks[index] = _layoutBlock(
+        label,
+        12,
+        4,
+        wide ? 20 : 51,
+        wide ? 430 : 265,
+      );
+      if (period != null) {
+        final periodIndex = blocks.indexWhere(
+          (block) => block.row == 4 && block.order == 13,
+        );
+        if (period.isEmpty) {
+          blocks.removeAt(periodIndex);
+        } else {
+          blocks[periodIndex] = _layoutBlock(period, 13, 4, 417, 566);
+        }
+      }
+      if (wide && period != '') {
+        final periodIndex = blocks.indexWhere(
+          (block) => block.row == 4 && block.order == 13,
+        );
+        blocks[periodIndex] = _layoutBlock(
+          blocks[periodIndex].text,
+          13,
+          4,
+          440,
+          640,
+        );
+      }
       return blocks;
     }
 
@@ -252,14 +291,28 @@ void main() {
       'Tax and Coupon (12 months)',
       'Tax and Rebate (12 months)',
       'Discount and Rebate (12 months)',
+      'Tax and Ｄｉｓｃｏｕｎｔ (12 months)',
+      'Tax and Ｃｏｕｐｏｎ (12 months)',
+      'Tax and Ｒｅｂａｔｅ (12 months)',
     ]) {
-      final blocks = blocksWithLabel(label);
-      final preview = _parseBoundedUtility(blocks);
-      expect(preview.discount, isNull, reason: label);
-      expect(preview.reviewHints, isNotEmpty, reason: label);
-      expect(preview.blocks, containsAll(blocks));
+      for (final period in <String?>[null, '', 'Feb 5 –']) {
+        for (final wide in [false, true]) {
+          final blocks = blocksWithLabel(label, period, wide);
+          final preview = _parseBoundedUtility(blocks);
+          expect(preview.discount, isNull, reason: label);
+          expect(preview.reviewHints, isNotEmpty, reason: label);
+          expect(preview.blocks, containsAll(blocks));
+        }
+      }
     }
-    for (final role in ['Discount', 'Coupon', 'Rebate']) {
+    for (final role in [
+      'Discount',
+      'Coupon',
+      'Rebate',
+      'Ｄｉｓｃｏｕｎｔ',
+      'Ｃｏｕｐｏｎ',
+      'Ｒｅｂａｔｅ',
+    ]) {
       final preview = _parseBoundedUtility(
         blocksWithLabel('Loyalty $role (12 months)'),
       );

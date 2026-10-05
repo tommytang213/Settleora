@@ -2350,6 +2350,11 @@ class ReceiptOcrParser {
       r'\b(?:taxes|tips|gratuities|discounts|coupons|surcharges|fees|refunds|rebates|credits|deposits|levies|duties|donations|payments)\b',
       caseSensitive: false,
     );
+    final discountLabelPattern = RegExp(
+      r'^(?:[\p{L}\p{N} -]+\s+)?(?:discount|coupon|rebate)(?:\s*\([\p{L}\p{N} %.-]+\))?$',
+      caseSensitive: false,
+      unicode: true,
+    );
     if (lines.length != rows.length || currency == null) {
       return (items: items, adjustments: adjustments, ambiguous: ambiguous);
     }
@@ -2402,7 +2407,8 @@ class ReceiptOcrParser {
         final row = rows[rowIndex];
         // A printed total ends the table before service-row eligibility.
         // Preserve the existing whole-table projection for wide total labels,
-        // and also check owned label/amount cells without period or panel text.
+        // and also check financial labels before the period column with owned
+        // amount cells. Footer labels may begin at the page margin.
         final boundaryProjections = [
           row.where((block) {
             if (block.points.isEmpty) return false;
@@ -2414,8 +2420,7 @@ class ReceiptOcrParser {
             if (block.points.isEmpty) return false;
             final left = _blockLeft(block);
             final right = _blockRight(block);
-            return (left >= _blockLeft(descriptionHeader) - 12 &&
-                    right < _blockLeft(periodHeader)) ||
+            return left < _blockLeft(periodHeader) ||
                 (left >= _blockLeft(amountHeader) - 12 &&
                     right <= _blockRight(amountHeader) + 12);
           }),
@@ -2428,6 +2433,45 @@ class ReceiptOcrParser {
               _hasSubtotalLabel(text, text.toLowerCase());
         })) {
           break;
+        }
+        // Conflicting financial roles remain ambiguous before any charge-row
+        // eligibility check, including labels at the page margin. They do not
+        // assert a recovered monetary value.
+        final financialLabel = _normalizeOcrLine(
+          _cleanDescription(
+            row
+                .where(
+                  (block) =>
+                      block.points.isNotEmpty &&
+                      _blockLeft(block) < _blockLeft(periodHeader),
+                )
+                .map((block) => block.text.trim())
+                .join(' '),
+          ),
+        );
+        final financialMonetaryText = _normalizeOcrLine(
+          row
+              .where(
+                (block) =>
+                    block.points.isNotEmpty &&
+                    _blockLeft(block) >= _blockLeft(amountHeader) - 12 &&
+                    _blockRight(block) <= _blockRight(amountHeader) + 12,
+              )
+              .map((block) => block.text.trim())
+              .join(' '),
+        );
+        if (_lineHasAmount(financialMonetaryText) &&
+            discountLabelPattern.hasMatch(financialLabel)) {
+          final otherRoleLabel = financialLabel.replaceFirst(
+            RegExp(r'\b(?:discount|coupon|rebate)\b', caseSensitive: false),
+            '',
+          );
+          if (pluralFinancialRoles.hasMatch(otherRoleLabel) ||
+              _hasPotentialReceiptAdjustmentLabel(otherRoleLabel) ||
+              _isAdministrativeLine('$otherRoleLabel $financialMonetaryText')) {
+            ambiguous.add(rowIndex);
+            continue;
+          }
         }
         if (row.any((block) => block.points.isEmpty)) continue;
         final amountCells = row
@@ -2464,6 +2508,7 @@ class ReceiptOcrParser {
         );
         if (printedCurrency.hasExplicitEvidence &&
             printedCurrency.currency != currency) {
+          ambiguous.add(rowIndex);
           continue;
         }
         final selectedAmount = amountTokens.single;
@@ -2480,6 +2525,11 @@ class ReceiptOcrParser {
                   _blockRight(block) < _blockLeft(periodHeader),
             )
             .toList();
+        final descriptionText = descriptionCells
+            .map((block) => block.text.trim())
+            .join(' ');
+        final description = _cleanDescription(descriptionText);
+        final normalizedDescription = _normalizeOcrLine(description);
         final periodCells = row
             .where(
               (block) =>
@@ -2515,9 +2565,6 @@ class ReceiptOcrParser {
                 ))) {
           continue;
         }
-        final descriptionText = descriptionCells
-            .map((block) => block.text.trim())
-            .join(' ');
         if (descriptionCells.any(
           (block) => RegExp(
             r'(?<![\p{L}\p{N}])[-−－]|[-−－](?![\p{L}\p{N}])',
@@ -2526,8 +2573,6 @@ class ReceiptOcrParser {
         )) {
           continue;
         }
-        final description = _cleanDescription(descriptionText);
-        final normalizedDescription = _normalizeOcrLine(description);
         final ownedText = '$normalizedDescription $monetaryText';
         final ownedLower = ownedText.toLowerCase();
         if (_hasTotalLabel(ownedText, ownedLower) ||
@@ -2560,22 +2605,7 @@ class ReceiptOcrParser {
                 )) {
           continue;
         }
-        final discountLabel = RegExp(
-          r'^(?:[\p{L}\p{N} -]+\s+)?(?:discount|coupon|rebate)(?:\s*\([\p{L}\p{N} %.-]+\))?$',
-          caseSensitive: false,
-          unicode: true,
-        ).hasMatch(description);
-        if (discountLabel) {
-          final otherRoleLabel = normalizedDescription.replaceFirst(
-            RegExp(r'\b(?:discount|coupon|rebate)\b', caseSensitive: false),
-            '',
-          );
-          if (pluralFinancialRoles.hasMatch(otherRoleLabel) ||
-              _hasPotentialReceiptAdjustmentLabel(otherRoleLabel) ||
-              _isAdministrativeLine('$otherRoleLabel $monetaryText')) {
-            ambiguous.add(rowIndex);
-            continue;
-          }
+        if (discountLabelPattern.hasMatch(normalizedDescription)) {
           final separatedAmount = monetaryText.replaceRange(
             selectedAmount.start,
             selectedAmount.end,
