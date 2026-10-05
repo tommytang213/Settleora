@@ -2391,10 +2391,23 @@ class ReceiptOcrParser {
               !pluralFinancialRoles.hasMatch(role)) {
             return false;
           }
-          final matches = [
-            ..._potentialReceiptAdjustmentLabelPattern.allMatches(role),
-            ...pluralFinancialRoles.allMatches(role),
-          ];
+          final matches =
+              [
+                    ..._potentialReceiptAdjustmentLabelPattern.allMatches(role),
+                    ...pluralFinancialRoles.allMatches(role),
+                  ]
+                  .where((match) {
+                    // A terminal Service qualifies a preceding name; it is not a
+                    // second charge role. Explicit Service Charge/Fee remains intact.
+                    return !(match.group(0)!.toLowerCase() == 'service' &&
+                        match.end == role.length &&
+                        RegExp(
+                          r'\p{L}',
+                          unicode: true,
+                        ).hasMatch(role.substring(0, match.start)));
+                  })
+                  .toList(growable: false);
+          if (matches.isEmpty) return false;
           // One singular or plural financial noun can occur anywhere in a named
           // service clause. A second role or established multiword charge cannot.
           return matches.length != 1 ||
@@ -2471,6 +2484,47 @@ class ReceiptOcrParser {
           })
           .toList(growable: false);
 
+      bool hasAdjacentOwnedAmount(
+        List<List<ReceiptOcrBlockEvidence>> tableRows,
+      ) {
+        if (tableRows.length != 2 || tableRows.any((row) => row.isEmpty)) {
+          return false;
+        }
+        // The printed Amount heading proves horizontal ownership even when
+        // OCR merges a footer label and currency into one wide block.
+        if (tableRows.last.any(
+          (block) =>
+              _blockLeft(block) >= _blockRight(block) ||
+              _blockLeft(block) < _blockLeft(amountHeader) - 12 ||
+              _blockRight(block) > _blockRight(amountHeader) + 12,
+        )) {
+          return false;
+        }
+        ({double top, double bottom}) bounds(
+          List<ReceiptOcrBlockEvidence> row,
+        ) {
+          final ys = row
+              .expand((block) => block.points)
+              .map((point) => point.y);
+          return (
+            top: ys.reduce((a, b) => a < b ? a : b),
+            bottom: ys.reduce((a, b) => a > b ? a : b),
+          );
+        }
+
+        final label = bounds(tableRows.first);
+        final amount = bounds(tableRows.last);
+        final labelHeight = label.bottom - label.top;
+        final amountHeight = amount.bottom - amount.top;
+        final height = labelHeight > amountHeight ? labelHeight : amountHeight;
+        final gap = amount.top - label.bottom;
+        return height > 0 &&
+            (amount.top + amount.bottom) / 2 >
+                (label.top + label.bottom) / 2 + height * 0.5 &&
+            gap >= -height * 0.5 &&
+            gap <= height * 1.5;
+      }
+
       for (var rowIndex = index + 1; rowIndex < rows.length; rowIndex++) {
         final line = lines[rowIndex];
         if (_isSupportedChargeTableHeader(lines, rowIndex) ||
@@ -2491,28 +2545,9 @@ class ReceiptOcrParser {
                 projectedRows.last.map((block) => block.text.trim()).join(' '),
               )
             : '';
-        // Currency-only cells belong to the monetary evidence, not the width
-        // of the label above an adjacent amount. Retain them in boundaryRow.
-        final adjacentLabel = projectedRows.first
-            .where((block) {
-              final text = boundaryText(
-                block.text.trim(),
-              ).replaceFirst(RegExp(r'\s*[:=]\s*$'), '').trim();
-              return !RegExp(
-                    '^(?:$_currencyTokenPattern)\$',
-                    caseSensitive: false,
-                  ).hasMatch(text) &&
-                  !_unsupportedIsoCurrencyMarkers(text).any(
-                    (marker) => marker.start == 0 && marker.end == text.length,
-                  );
-            })
-            .toList(growable: false);
         final boundaryRow = [
           ...row,
-          if (_isAdjacentRightColumnAmount([
-                adjacentLabel,
-                if (projectedRows.length == 2) projectedRows.last,
-              ], 0) &&
+          if (hasAdjacentOwnedAmount(projectedRows) &&
               (_isStandaloneAmountRow(followingTableLine) ||
                   _hasUnsupportedIsoMonetaryEvidence(followingTableLine)))
             ...projectedRows.last,

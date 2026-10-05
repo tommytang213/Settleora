@@ -77,6 +77,48 @@ ReceiptOcrPreview _parseBoundedUtility(List<ReceiptOcrBlockEvidence> blocks) {
 }
 
 void main() {
+  test('merged footer width does not change adjacent amount ownership', () {
+    for (final label in [
+      'Total USD',
+      'Total ZAR',
+      r'Total $',
+      'Total ＵＳＤ',
+      'Total for March 2025 USD',
+      'Total March 2025 USD',
+    ]) {
+      for (final right in [383.0, 716.0]) {
+        for (final support in [false, true]) {
+          final original = _boundedUtilityBlocks(
+            description: 'Next Month Estimate',
+          );
+          final blocks = [
+            ...original.where((b) => b.row < 3),
+            _layoutBlock(label, 7, 3, 50, right),
+            if (support) _layoutBlock('Contact us', 8, 3, 828, 1020),
+            _layoutBlock('54.30', 9, 4, 659, 716),
+            if (support)
+              _layoutBlock('Hours Mon - Fri 8 AM - 8 PM', 10, 4, 828, 1020),
+            for (final b in original.where((b) => b.row >= 3))
+              _layoutBlock(
+                b.text,
+                b.order + 4,
+                b.row + 2,
+                b.points[0].x,
+                b.points[1].x,
+              ),
+          ];
+          final preview = _parseBoundedUtility(blocks);
+          expect(
+            preview.items.any((i) => i.lineTotal == '59.99'),
+            isFalse,
+            reason: '$label | $right | $support',
+          );
+          expect(preview.blocks, containsAll(blocks));
+        }
+      }
+    }
+  });
+
   test('currency-only footer cells do not widen the adjacent label', () {
     for (final label in ['Total', 'Total:', 'Subtotal']) {
       for (final code in [
@@ -328,6 +370,16 @@ void main() {
         'Internet Service Plan Discount (12 months)': '-10.00',
         'Premium Service Plan Discount (12 months)': '-10.00',
         'Internet Service Package Discount (12 months)': '-10.00',
+        'Internet Service Discount (12 months)': '-10.00',
+        'Premium Service Discount (12 months)': '-10.00',
+        'Tax Preparation Service Discount (12 months)': '-10.00',
+        'Credit Monitoring Service Discount (12 months)': '-10.00',
+        'Customer Service Discount (12 months)': '-10.00',
+        'Internet Services Discount (12 months)': '-10.00',
+        'Internet Service Tax Discount (12 months)': null,
+        'Internet Service and Tax Discount (12 months)': null,
+        'Internet Service Discount (Tax)': null,
+        'Payment Received Service Discount (12 months)': null,
         'Payments Gateway Subscription Discount (12 months)': '-10.00',
         'Loyalty Discount (Internet Service Plan)': '-10.00',
         'Loyalty Discount (Payments Gateway Subscription)': '-10.00',
