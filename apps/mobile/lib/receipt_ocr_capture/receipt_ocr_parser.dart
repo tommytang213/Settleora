@@ -4662,6 +4662,11 @@ bool _isOwnedSummaryCardHeaderRow(
   );
   final currencySymbol = RegExp(r'\p{Sc}', unicode: true);
   final punctuationOnly = RegExp(r'^[\p{P}\p{S}\s]+$', unicode: true);
+  final rateSymbol = RegExp(r'[%‰‱]');
+  final mixedSign = RegExp(
+    r'[\p{Sm}*/➖()]|(?<![\p{L}\p{M}])\p{Dash}|\p{Dash}(?![\p{L}\p{M}])',
+    unicode: true,
+  );
   final digit = RegExp(r'\p{N}', unicode: true);
   final creditDebit = RegExp(
     r'(?<![\p{L}\p{M}])(?:cr|dr|credit|debit)(?![\p{L}\p{M}])',
@@ -4701,10 +4706,13 @@ bool _isOwnedSummaryCardHeaderRow(
     // Only a complete period or explicitly labeled identifier explains a
     // neighboring number. A comparison's other operand may be in the amount
     // cell, so even one unexplained number must retain the ordinary fallback.
-    final hasUnownedNumbers =
-        digit.hasMatch(text) &&
-        !_matchesUtilityPeriod(text) &&
-        !invoiceReference.hasMatch(text);
+    final explainedMetadata =
+        _matchesUtilityPeriod(text) || invoiceReference.hasMatch(text);
+    final hasUnownedNumbers = digit.hasMatch(text) && !explainedMetadata;
+    final hasUnownedSign = !explainedMetadata && mixedSign.hasMatch(text);
+    final hasCompetingFinancialRole =
+        !explainedMetadata &&
+        _hasBoundedUtilityFinancialPhrase(text, amount.text);
     // Recognize the existing financial roles in plural or beside joined
     // digits without changing shared classification or the raw OCR text.
     final financialWords = words
@@ -4723,6 +4731,9 @@ bool _isOwnedSummaryCardHeaderRow(
         !boundedCurrencyAtoms.hasMatch(text) &&
         !currencySymbol.hasMatch(text) &&
         !punctuationOnly.hasMatch(text) &&
+        !rateSymbol.hasMatch(text) &&
+        !hasUnownedSign &&
+        !hasCompetingFinancialRole &&
         !creditDebit.hasMatch(financialWords) &&
         !_hasPotentialReceiptAdjustmentLabel(financialWords) &&
         !RegExp(
