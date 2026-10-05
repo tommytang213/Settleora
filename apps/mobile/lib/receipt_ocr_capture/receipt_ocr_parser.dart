@@ -2538,17 +2538,40 @@ class ReceiptOcrParser {
               strongFooterLabel.hasMatch(projection)) {
             return true;
           }
-          var text = projection.replaceAll(
-            RegExp(
-              '(?<![\\p{L}\\p{N}])'
-              "(?<!\\d[.,/'’])"
-              '${_utilityBoundaryDatePattern()}'
-              '(?![\\p{L}\\p{N}])',
-              caseSensitive: false,
-              unicode: true,
-            ),
-            ' ',
+          final boundaryContexts = RegExp(
+            r'(?<![\p{L}\p{N}])'
+            r"(?<!\d[.,/'’])"
+            '(?:${_utilityBoundaryDatePattern()}|'
+            r'(?:[01]?\d|2[0-3]):[0-5]\d(?::[0-5]\d)?(?:\s*[ap]m)?)'
+            r'(?:(?![\p{L}\p{N}])|(?=T(?:[01]\d|2[0-3]):[0-5]\d))',
+            caseSensitive: false,
+            unicode: true,
           );
+          // A printed Total role before a date or clock remains a boundary
+          // despite other trailing temporal context. This selects no money;
+          // an ordinary Total-prefixed service name is not an exact role.
+          if (protectedMoney.isNotEmpty &&
+              boundaryContexts.allMatches(projection).any((date) {
+                var prefix = projection.substring(0, date.start);
+                for (final marker in protectedMoney.keys) {
+                  prefix = prefix.replaceAll(marker, ' ');
+                }
+                prefix = _boundedUtilityRoleText(prefix).replaceFirst(
+                  RegExp(
+                    r'\s+(?:as\s+of|on|at|for|through|thru|until|dated|'
+                    r'(?:billing\s+)?period\s+(?:ending|ended))\s*[:：]?$',
+                    caseSensitive: false,
+                  ),
+                  '',
+                );
+                return RegExp(
+                  r'^(?:total|sub[\s-]?total)\s*[:：]?$',
+                  caseSensitive: false,
+                ).hasMatch(prefix.trim());
+              })) {
+            return true;
+          }
+          var text = projection.replaceAll(boundaryContexts, ' ');
           var labelWithoutMoney = text;
           for (final entry in protectedMoney.entries) {
             labelWithoutMoney = labelWithoutMoney.replaceAll(entry.key, ' ');
@@ -4555,22 +4578,38 @@ bool _isBoundedUtilityAccountRole(String label, String monetaryText) {
 // Leading financial phrases survive qualifiers in bounded conflict and item
 // checks. "in Advance" cannot erase an already printed Amount Paid role.
 bool _hasBoundedUtilityFinancialPrefix(String label, String monetaryText) {
-  final role = _boundedUtilityRoleText(label);
-  final ends = [
-    ...RegExp(r'\s+').allMatches(role).map((match) => match.start),
-    role.length,
-  ];
-  return ends.any((end) {
-    final prefix = role.substring(0, end);
-    // A lone word inside an ordinary qualifier, e.g. Payment Plan or Balance
-    // Board Discount, is not a separately stated financial role.
-    if (end != role.length && !prefix.contains(' ')) {
-      return false;
-    }
-    return _isBoundedUtilityAccountRole(prefix, monetaryText) ||
-        _isStandaloneTenderLabel(prefix) ||
-        _isPaymentMetadataLine('$prefix $monetaryText') ||
-        _isAdministrativeLine('$prefix $monetaryText');
+  final normalizedRole = _boundedUtilityRoleText(label);
+  final statusQualifier = RegExp(
+    r'^(?:(?:is|was|has|have|had|been|being|will|be|not|now|still|already|'
+    r'partially|fully|successfully|automatically|manually)\s+)*'
+    r'(?:received|made|pending|processed|completed|approved|accepted|declined|'
+    r'failed|refunded|reversed|cancelled|canceled|posted|applied|outstanding|'
+    r'scheduled|due|deferred|cleared|settled|unsettled|unpaid|awaiting)\b',
+    caseSensitive: false,
+  );
+  return [
+    normalizedRole,
+    if (statusQualifier.hasMatch(normalizedRole))
+      normalizedRole.replaceFirst(statusQualifier, '').trim(),
+  ].any((role) {
+    final ends = [
+      ...RegExp(r'\s+').allMatches(role).map((match) => match.start),
+      role.length,
+    ];
+    return ends.any((end) {
+      final prefix = role.substring(0, end);
+      // Status words qualify a financial role. Ordinary named qualifiers such
+      // as Payment Plan and Balance Board still need more than one bare word.
+      if (end != role.length &&
+          !prefix.contains(' ') &&
+          !statusQualifier.hasMatch(role.substring(end).trim())) {
+        return false;
+      }
+      return _isBoundedUtilityAccountRole(prefix, monetaryText) ||
+          _isStandaloneTenderLabel(prefix) ||
+          _isPaymentMetadataLine('$prefix $monetaryText') ||
+          _isAdministrativeLine('$prefix $monetaryText');
+    });
   });
 }
 
