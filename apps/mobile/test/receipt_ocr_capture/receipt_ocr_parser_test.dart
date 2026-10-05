@@ -184,6 +184,29 @@ void main() {
       (5, 'CR 1200', 955.0, 240.0, false),
       (5, '1200 DR', 955.0, 240.0, false),
       (5, '1200 and 4200', 955.0, 240.0, false),
+      (5, '1200 less 4200', 955.0, 240.0, false),
+      (5, '1200 versus 4200', 955.0, 240.0, false),
+      (5, 'Compare 1200 against 4200', 955.0, 240.0, false),
+      for (final qualifier in [
+        'Service Charge 1200',
+        'Adjustment 1200',
+        'Tax',
+        'Discount',
+        'Refund',
+        'Fee',
+      ]) ...[
+        (3, qualifier, 710.0, 194.0, false),
+        (5, qualifier, 955.0, 240.0, false),
+        (5, qualifier, 1300.0, 240.0, true),
+      ],
+
+      (5, '1200 moins 4200', 955.0, 240.0, false),
+      (5, '1200 less 4200', 1300.0, 240.0, true),
+      (5, 'Mar 5, 2026 – Apr 4, 2026', 955.0, 240.0, true),
+      (5, 'Mar5,2026–Apr4,2026', 955.0, 240.0, true),
+      (5, 'Mar 5, 2026 – Apr 4, 2026 CR', 955.0, 240.0, false),
+      (5, 'Mar 5, 2026 – Apr 4, 2026 1200', 955.0, 240.0, false),
+
       (5, '12.00 CR', 1300.0, 240.0, true),
       (5, '12.00 and 42.00', 955.0, 600.0, true),
       (5, 'EUR +12.00', 955.0, 240.0, false),
@@ -324,7 +347,16 @@ void main() {
   });
 
   test('whole-unit neighboring evidence declines JPY summary ownership', () {
-    for (final fragment in ['1200', 'CR 1200', '1200 DR', '1200 and 4200']) {
+    for (final fragment in [
+      '1200',
+      'CR 1200',
+      '1200 DR',
+      '1200 and 4200',
+      '1200 less 4200',
+      '1200 versus 4200',
+      'Compare 1200 against 4200',
+      '1200 moins 4200',
+    ]) {
       for (final competing in [false, true]) {
         final original = _summaryCardBlocks();
         final blocks = <ReceiptOcrBlockEvidence>[];

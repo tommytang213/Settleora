@@ -4670,10 +4670,7 @@ bool _isOwnedSummaryCardHeaderRow(
     caseSensitive: false,
     unicode: true,
   );
-  final numericConnectors = RegExp(
-    r'\b(?:and|or|plus|minus|to)\b',
-    caseSensitive: false,
-  );
+  final numericRuns = RegExp(r'\p{N}+', unicode: true);
   final amountHeight = amountBox.bottom - amountBox.top;
   for (final neighbor in allBlocks) {
     if (row.contains(neighbor) || neighbor == totalLabels.single) continue;
@@ -4699,16 +4696,22 @@ bool _isOwnedSummaryCardHeaderRow(
         .toList();
     final isCurrency =
         markers.isNotEmpty && text.replaceAll(currencyAtoms, '').trim().isEmpty;
+    // A complete named-date period explains its own numbers. Otherwise,
+    // multiple numbers remain competing evidence regardless of connector
+    // words, language or prose around them; do not enumerate operators.
+    final hasUnownedNumbers =
+        !_matchesUtilityPeriod(text) &&
+        (decimalFragment.hasMatch(text) ||
+            (digit.hasMatch(text) && numericFragment.hasMatch(text)) ||
+            numericRuns.allMatches(text).take(2).length == 2);
     if (!isCurrency &&
         !boundedCurrencyAtoms.hasMatch(text) &&
         !currencySymbol.hasMatch(text) &&
         !signOnly.hasMatch(text) &&
         !creditDebit.hasMatch(text) &&
-        !decimalFragment.hasMatch(text) &&
-        !(digit.hasMatch(text) &&
-            numericFragment.hasMatch(
-              text.replaceAll(numericConnectors, ' '),
-            ))) {
+        !_hasPotentialReceiptAdjustmentLabel(text) &&
+        !RegExp(r'\badjustments?\b', caseSensitive: false).hasMatch(text) &&
+        !hasUnownedNumbers) {
       continue;
     }
     if (!isCurrency) return false;
