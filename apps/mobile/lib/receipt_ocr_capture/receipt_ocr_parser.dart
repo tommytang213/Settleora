@@ -2467,14 +2467,19 @@ class ReceiptOcrParser {
                 ))) {
           continue;
         }
+        final descriptionText = descriptionCells
+            .map((block) => block.text.trim())
+            .join(' ');
         if (descriptionCells.any(
-          (block) => RegExp(r'(^|\s)[-−－](?=\s|$)').hasMatch(block.text),
-        )) {
+              (block) => RegExp(r'(^|\s)[-−－](?=\s|$)').hasMatch(block.text),
+            ) ||
+            RegExp(
+              r'(?<![\p{L}\p{N}])-\d',
+              unicode: true,
+            ).hasMatch(_normalizeOcrLine(descriptionText))) {
           continue;
         }
-        final description = _cleanDescription(
-          descriptionCells.map((block) => block.text.trim()).join(' '),
-        );
+        final description = _cleanDescription(descriptionText);
         final normalizedDescription = _normalizeOcrLine(description);
         if (!_hasSubstantiveItemDescription(normalizedDescription) ||
             _isAccountBalanceSummaryLine(

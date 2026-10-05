@@ -182,6 +182,8 @@ void main() {
         'Remaining Balance',
         'Internet Plan -10.00 (12 months)',
         'Internet Plan 10.00 (12 months)',
+        'Internet Plan -10 (12 months)',
+        '-10 Internet Plan',
         'Internet Plan ＵＳＤ',
         'Paid by Cash',
         'Gift Card',
@@ -205,6 +207,12 @@ void main() {
         expect(preview.reviewHints, isNotEmpty);
         expect(preview.blocks, containsAll(blocks));
       }
+      final namedPlan = _parseBoundedUtility(
+        _boundedUtilityBlocks(description: 'Internet Plan-10'),
+      );
+      expect(namedPlan.items.single.description, 'Internet Plan-10');
+      expect(namedPlan.items.single.lineTotal, '59.99');
+      expect(namedPlan.reviewHints, isEmpty);
     },
   );
 
