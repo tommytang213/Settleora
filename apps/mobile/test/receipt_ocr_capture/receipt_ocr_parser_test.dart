@@ -160,6 +160,16 @@ void main() {
       (5, '₱', 955.0, 600.0, true),
       (5, 'Pending', 1300.0, 240.0, true),
 
+      (5, '(', 955.0, 240.0, false),
+      (5, ')', 955.0, 240.0, false),
+      (5, '(', 1300.0, 240.0, true),
+      (5, 'EUR +12.00', 955.0, 240.0, false),
+      (5, 'EUR 12.00 / USD 42.00', 955.0, 240.0, false),
+      (5, '12', 955.0, 240.0, false),
+      (5, '1200', 955.0, 240.0, false),
+      (5, 'Pending', 955.0, 240.0, true),
+      (5, 'EUR +12.00', 1300.0, 240.0, true),
+      (5, '1200', 955.0, 600.0, true),
       (5, 'EUR', 955.0, 240.0, false),
       (3, 'try', 710.0, 194.0, false),
       (5, 'rUb', 955.0, 240.0, false),
@@ -227,6 +237,105 @@ void main() {
         );
         expect(preview.blocks, containsAll(scaled), reason: reason);
       }
+    }
+  });
+
+  test('summary-card date ownership rejects staggered competing labels', () {
+    for (final shift in [-11.0, 9.0]) {
+      for (final competing in [false, true]) {
+        for (final scale in [0.5, 1.0, 2.0]) {
+          final original = _summaryCardBlocks();
+          final blocks = <ReceiptOcrBlockEvidence>[];
+          for (var index = 0; index < original.length; index++) {
+            final block = original[index];
+            blocks.add(
+              block.text == 'Apr 5, 2026'
+                  ? _summaryBlockVariant(block, dy: shift)
+                  : block,
+            );
+            if (competing && block.row == 5 && original[index + 1].row != 5) {
+              final top = shift < 0 ? 209.0 : 249.0;
+              blocks.add(
+                ReceiptOcrBlockEvidence(
+                  text: 'Due Date',
+                  row: 5,
+                  order: 30,
+                  points: [
+                    ReceiptOcrPoint(x: 371, y: top),
+                    ReceiptOcrPoint(x: 467, y: top),
+                    ReceiptOcrPoint(x: 467, y: top + 20),
+                    ReceiptOcrPoint(x: 371, y: top + 20),
+                  ],
+                ),
+              );
+            }
+          }
+          final scaled = blocks
+              .map(
+                (block) => ReceiptOcrBlockEvidence(
+                  text: block.text,
+                  row: block.row,
+                  order: block.order,
+                  points: block.points
+                      .map(
+                        (point) => ReceiptOcrPoint(
+                          x: point.x * scale,
+                          y: point.y * scale,
+                        ),
+                      )
+                      .toList(),
+                ),
+              )
+              .toList();
+          final preview = _parseBoundedUtility(scaled);
+          expect(
+            preview.itemLineDecisions[4] ==
+                ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+            !competing,
+            reason: '$shift $competing $scale',
+          );
+          expect(preview.blocks, containsAll(scaled));
+        }
+      }
+    }
+  });
+
+  test('whole-unit neighboring evidence declines JPY summary ownership', () {
+    for (final competing in [false, true]) {
+      final original = _summaryCardBlocks();
+      final blocks = <ReceiptOcrBlockEvidence>[];
+      for (var index = 0; index < original.length; index++) {
+        final block = original[index];
+        blocks.add(
+          _summaryBlockVariant(
+            block,
+            text: block.text.replaceAll('USD', 'JPY'),
+          ),
+        );
+        if (competing && block.row == 5 && original[index + 1].row != 5) {
+          blocks.add(
+            const ReceiptOcrBlockEvidence(
+              text: '1200',
+              row: 5,
+              order: 30,
+              points: [
+                ReceiptOcrPoint(x: 955, y: 240),
+                ReceiptOcrPoint(x: 1090, y: 240),
+                ReceiptOcrPoint(x: 1090, y: 258),
+                ReceiptOcrPoint(x: 955, y: 258),
+              ],
+            ),
+          );
+        }
+      }
+      final preview = _parseBoundedUtility(blocks);
+      expect(preview.currency, 'JPY');
+      expect(
+        preview.itemLineDecisions[4] ==
+            ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+        !competing,
+      );
+      expect(preview.blocks, containsAll(blocks));
     }
   });
 

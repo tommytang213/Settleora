@@ -4629,47 +4629,44 @@ bool _isOwnedSummaryCardHeaderRow(
       boxes[name]!.right >= dateLabelBox.left) {
     return false;
   }
+  final dateRegionTop = dateLabelBox.top < dateBox.top
+      ? dateLabelBox.top
+      : dateBox.top;
+  final dateRegionBottom = dateLabelBox.bottom > dateBox.bottom
+      ? dateLabelBox.bottom
+      : dateBox.bottom;
   if (allBlocks.any((b) {
     if (b == dateLabel || b == date) return false;
     final other = boxes[b];
     if (other == null) return false;
     return other.right > dateLabelBox.left &&
         other.left < dateBox.right &&
-        other.bottom > overlapTop &&
-        other.top < overlapBottom;
+        other.bottom > dateRegionTop &&
+        other.top < dateRegionBottom;
   })) {
     return false;
   }
 
-  // A large amount can overlap smaller currency/sign fragments assigned to
-  // another OCR row. Check the physical neighborhood independently of row
-  // grouping before excluding monetary evidence from the draft.
+  // A large amount can overlap monetary fragments assigned to another OCR
+  // row. Currency/sign cues and numeric-only fragments remain evidence even
+  // when they cannot be selected as one amount. Ordinary neighboring text
+  // is checked by the ownership corridors, independently of this money proof.
   final currencyAtoms = RegExp(
     '(?:$_currencyTokenPattern|${_knownUnsupportedIsoCurrencyCodes.map(RegExp.escape).join('|')})',
     caseSensitive: false,
   );
-  final signOnly = RegExp(r'^[+\p{Dash}➖\s]+$', unicode: true);
-  final punctuationOnly = RegExp(r'^[^\p{L}\p{N}]*$', unicode: true);
+  final boundedCurrencyAtoms = RegExp(
+    '(?<![\\p{L}\\p{M}])${currencyAtoms.pattern}(?![\\p{L}\\p{M}])',
+    caseSensitive: false,
+    unicode: true,
+  );
   final currencySymbol = RegExp(r'\p{Sc}', unicode: true);
+  final signOnly = RegExp(r'^[+\p{Dash}➖()\s]+$', unicode: true);
+  final numericFragment = RegExp(r'^[\p{N}\p{P}\p{S}\s]+$', unicode: true);
+  final digit = RegExp(r'\p{N}', unicode: true);
   final amountHeight = amountBox.bottom - amountBox.top;
   for (final neighbor in allBlocks) {
-    if (row.contains(neighbor)) continue;
-    final text = _normalizeOcrLine(neighbor.text);
-    final markers = currencyAtoms
-        .allMatches(text)
-        .map((m) => m.group(0)!)
-        .toList();
-    final remaining = text.replaceAll(currencyAtoms, '').trim();
-    final isCurrency = markers.isNotEmpty && remaining.isEmpty;
-    if (!isCurrency &&
-        !currencySymbol.hasMatch(text) &&
-        !signOnly.hasMatch(remaining) &&
-        !(markers.isNotEmpty && punctuationOnly.hasMatch(remaining)) &&
-        !(_isStandaloneAmountRow(remaining) &&
-            (markers.isNotEmpty ||
-                _hasChargeTableMonetaryEvidence(remaining)))) {
-      continue;
-    }
+    if (row.contains(neighbor) || neighbor == totalLabels.single) continue;
     final other = boxes[neighbor];
     if (other == null) return false;
     final horizontalGap = other.right < amountBox.left
@@ -4683,6 +4680,20 @@ bool _isOwnedSummaryCardHeaderRow(
         ? other.top - amountBox.bottom
         : 0;
     if (horizontalGap > amountHeight || verticalGap > amountHeight * 0.5) {
+      continue;
+    }
+    final text = _normalizeOcrLine(neighbor.text);
+    final markers = currencyAtoms
+        .allMatches(text)
+        .map((m) => m.group(0)!)
+        .toList();
+    final isCurrency =
+        markers.isNotEmpty && text.replaceAll(currencyAtoms, '').trim().isEmpty;
+    if (!isCurrency &&
+        !boundedCurrencyAtoms.hasMatch(text) &&
+        !currencySymbol.hasMatch(text) &&
+        !signOnly.hasMatch(text) &&
+        !(numericFragment.hasMatch(text) && digit.hasMatch(text))) {
       continue;
     }
     if (!isCurrency) return false;
