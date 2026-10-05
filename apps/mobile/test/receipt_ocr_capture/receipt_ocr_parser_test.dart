@@ -77,6 +77,73 @@ ReceiptOcrPreview _parseBoundedUtility(List<ReceiptOcrBlockEvidence> blocks) {
 }
 
 void main() {
+  test('currency-only footer cells do not widen the adjacent label', () {
+    for (final label in ['Total', 'Total:', 'Subtotal']) {
+      for (final code in [
+        'USD',
+        'ZAR',
+        r'$',
+        'ＵＳＤ',
+        'USD:',
+        'ZAR:',
+        'USD =',
+        r'$:',
+      ]) {
+        for (final support in [false, true]) {
+          {
+            final original = _boundedUtilityBlocks(
+              description: 'Next Month Estimate',
+            );
+            final blocks = [
+              ...original.where((b) => b.row < 3),
+              _layoutBlock(label, 7, 3, 50, 140),
+              _layoutBlock(code, 8, 3, 659, 716),
+              if (support) _layoutBlock('Contact us', 9, 3, 828, 1020),
+              _layoutBlock('54.30', 10, 4, 659, 716),
+              if (support)
+                _layoutBlock('Hours Mon - Fri 8 AM - 8 PM', 11, 4, 828, 1020),
+              for (final b in original.where((b) => b.row >= 3))
+                _layoutBlock(
+                  b.text,
+                  b.order + 6,
+                  b.row + 2,
+                  b.points[0].x,
+                  b.points[1].x,
+                ),
+            ];
+            final after = _parseBoundedUtility(blocks);
+            expect(after.items.any((i) => i.lineTotal == '59.99'), isFalse);
+            expect(after.blocks, containsAll(blocks));
+          }
+        }
+      }
+    }
+  });
+  test('terminal discount role preserves named plans', () {
+    for (final label in [
+      'Coupon Plan Discount',
+      'Discount Plan Discount',
+      'Rebate Plan Coupon',
+    ]) {
+      for (final note in ['', ' (12 months)']) {
+        for (final support in [false, true]) {
+          {
+            final blocks = _boundedUtilityBlocks(
+              discountAmount: 'USD -10.00',
+            ).where((b) => b.row != 5).toList();
+            if (!support) blocks.removeWhere((b) => b.order == 15);
+            final i = blocks.indexWhere((b) => b.order == 12);
+            blocks[i] = _layoutBlock('$label$note', 12, 4, 51, 383);
+            final after = _parseBoundedUtility(blocks);
+            expect(after.discount, '-10.00');
+            expect(after.discountCurrency, 'USD');
+            expect(after.blocks, containsAll(blocks));
+          }
+        }
+      }
+    }
+  });
+
   test('support copy cannot change a bounded adjacent footer', () {
     for (final support in [
       'Contact us',

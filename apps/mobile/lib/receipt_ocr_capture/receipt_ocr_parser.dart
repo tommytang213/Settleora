@@ -2415,6 +2415,11 @@ class ReceiptOcrParser {
       caseSensitive: false,
       unicode: true,
     );
+    final terminalDiscountRole = RegExp(
+      r'\b(discount|coupon|rebate)(?=(?:\s*\([\p{L}\p{N} %.-]+\))?$)',
+      caseSensitive: false,
+      unicode: true,
+    );
     if (lines.length != rows.length || currency == null) {
       return (items: items, adjustments: adjustments, ambiguous: ambiguous);
     }
@@ -2486,9 +2491,28 @@ class ReceiptOcrParser {
                 projectedRows.last.map((block) => block.text.trim()).join(' '),
               )
             : '';
+        // Currency-only cells belong to the monetary evidence, not the width
+        // of the label above an adjacent amount. Retain them in boundaryRow.
+        final adjacentLabel = projectedRows.first
+            .where((block) {
+              final text = boundaryText(
+                block.text.trim(),
+              ).replaceFirst(RegExp(r'\s*[:=]\s*$'), '').trim();
+              return !RegExp(
+                    '^(?:$_currencyTokenPattern)\$',
+                    caseSensitive: false,
+                  ).hasMatch(text) &&
+                  !_unsupportedIsoCurrencyMarkers(text).any(
+                    (marker) => marker.start == 0 && marker.end == text.length,
+                  );
+            })
+            .toList(growable: false);
         final boundaryRow = [
           ...row,
-          if (_isAdjacentRightColumnAmount(projectedRows, 0) &&
+          if (_isAdjacentRightColumnAmount([
+                adjacentLabel,
+                if (projectedRows.length == 2) projectedRows.last,
+              ], 0) &&
               (_isStandaloneAmountRow(followingTableLine) ||
                   _hasUnsupportedIsoMonetaryEvidence(followingTableLine)))
             ...projectedRows.last,
@@ -2722,8 +2746,15 @@ class ReceiptOcrParser {
         );
         if (_lineHasAmount(financialMonetaryText) &&
             discountRolePattern.hasMatch(financialLabel)) {
-          final otherRoleLabel = financialLabel.replaceFirst(
-            discountRolePattern,
+          // A named service can itself contain a discount word. Remove the
+          // claimed terminal adjustment role, leaving the service and notes
+          // intact for the same conflicting-role checks.
+          final claimedRole =
+              terminalDiscountRole.firstMatch(financialLabel) ??
+              discountRolePattern.firstMatch(financialLabel)!;
+          final otherRoleLabel = financialLabel.replaceRange(
+            claimedRole.start,
+            claimedRole.end,
             '',
           );
           final remainingRoleLabel = _boundedUtilityRoleText(
