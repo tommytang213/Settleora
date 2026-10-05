@@ -276,6 +276,47 @@ void main() {
     }
   });
 
+  test('bounded utility periods tolerate split OCR punctuation', () {
+    for (final label in ['Total Amount Due', 'Subtotal']) {
+      for (final (dateHead, dateTail) in [
+        ('Feb 5 – Mar 4', r', 2025 $54.30'),
+        ('Feb 5 – Mar', r'. 4, 2025 $54.30'),
+        ('Feb 5', r', 2025 – Mar 4, 2025 $54.30'),
+        ('Feb 5 — Mar 4, 2025', r'$54.30'),
+        ('Feb 5 ‒ Mar 4, 2025', r'$54.30'),
+        ('Feb 5 ﹣ Mar 4, 2025', r'$54.30'),
+      ]) {
+        final original = _boundedUtilityBlocks(
+          description: 'Next Month Estimate',
+        );
+        final blocks = [
+          ...original.where((block) => block.row < 3),
+          _layoutBlock('$label $dateHead', 7, 3, 50, 560),
+          _layoutBlock(dateTail, 9, 3, 565, 717),
+          _layoutBlock('Contact us', 10, 3, 828, 1020),
+          for (final block in original.where((block) => block.row >= 3))
+            _layoutBlock(
+              block.text,
+              block.order + 4,
+              block.row + 1,
+              block.points[0].x,
+              block.points[1].x,
+            ),
+        ];
+        final preview = _parseBoundedUtility(blocks);
+        expect(preview.items.any((item) => item.lineTotal == '59.99'), isFalse);
+        expect(preview.blocks, containsAll(blocks));
+      }
+    }
+    for (final period in ['Feb 5 – Mar . 4 , 2025', 'Feb 5 — Mar 4, 2025']) {
+      final preview = _parseBoundedUtility(
+        _boundedUtilityBlocks(period: period),
+      );
+      expect(preview.items.single.lineTotal, '59.99');
+      expect(preview.reviewHints, isEmpty);
+    }
+  });
+
   test('bounded discounts retain evidence of conflicting financial roles', () {
     List<ReceiptOcrBlockEvidence> blocksWithLabel(
       String label, [
@@ -320,6 +361,12 @@ void main() {
 
     for (final label in [
       'Tax and Discount (12 months)',
+      'Balance and Discount (12 months)',
+      'Amount Paid and Discount (12 months)',
+      'Current Balance and Discount (12 months)',
+      'Previous Balances and Discount (12 months)',
+      'Tax & Discount (12 months)',
+      'Balance & Discount (12 months)',
       'Tax Discount (12 months)',
       'Service Charge and Discount (12 months)',
       'Fees and Discount (12 months)',
@@ -364,6 +411,27 @@ void main() {
     () {
       for (final description in [
         'Previous Balance',
+        'Amount Paid (12 months)',
+        'Balance (12 months)',
+        'Previous Balances',
+        'Remaining Balance (12 months)',
+        'Balances (12 months)',
+        'Amounts Paid (12 months)',
+        'Account Credit (12 months)',
+        'Deposit Paid (12 months)',
+        'Paid Deposit (12 months)',
+        'Total Amount Due (12 months)',
+        'Subtotal (12 months)',
+        'Balance Due (12 months)',
+        'Cash (12 months)',
+        'Current Balance',
+        'Account Balance',
+        'Ending Balance',
+        'Starting Balance',
+        'Current Balances (12 months)',
+        'Previous Statement Balance',
+        'Previous Account Balance',
+        'Outstanding Account Balance',
         'Payments Received',
         'Balance',
         'Amount Paid',

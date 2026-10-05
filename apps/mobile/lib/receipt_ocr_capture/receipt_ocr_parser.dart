@@ -2350,6 +2350,10 @@ class ReceiptOcrParser {
       r'\b(?:taxes|tips|gratuities|discounts|coupons|surcharges|fees|refunds|rebates|credits|deposits|levies|duties|donations|payments)\b',
       caseSensitive: false,
     );
+    final discountRolePattern = RegExp(
+      r'\b(?:discount|coupon|rebate)\b',
+      caseSensitive: false,
+    );
     final discountLabelPattern = RegExp(
       r'^(?:[\p{L}\p{N} -]+\s+)?(?:discount|coupon|rebate)(?:\s*\([\p{L}\p{N} %.-]+\))?$',
       caseSensitive: false,
@@ -2441,8 +2445,11 @@ class ReceiptOcrParser {
                 ),
                 ' ',
               );
+          final roleText = _boundedUtilityRoleText(text);
           return _hasTotalLabel(text, text.toLowerCase()) ||
-              _hasSubtotalLabel(text, text.toLowerCase());
+              _hasSubtotalLabel(text, text.toLowerCase()) ||
+              _hasTotalLabel(roleText, roleText.toLowerCase()) ||
+              _hasSubtotalLabel(roleText, roleText.toLowerCase());
         })) {
           break;
         }
@@ -2473,12 +2480,22 @@ class ReceiptOcrParser {
               .join(' '),
         );
         if (_lineHasAmount(financialMonetaryText) &&
-            discountLabelPattern.hasMatch(financialLabel)) {
+            discountRolePattern.hasMatch(financialLabel)) {
           final otherRoleLabel = financialLabel.replaceFirst(
-            RegExp(r'\b(?:discount|coupon|rebate)\b', caseSensitive: false),
+            discountRolePattern,
             '',
           );
-          if (pluralFinancialRoles.hasMatch(otherRoleLabel) ||
+          final accountRoleLabel = _boundedUtilityRoleText(otherRoleLabel)
+              .replaceAll(
+                RegExp(r'\b(?:and|with)\b|&', caseSensitive: false),
+                ' ',
+              )
+              .trim();
+          if (_isBoundedUtilityAccountRole(
+                accountRoleLabel,
+                financialMonetaryText,
+              ) ||
+              pluralFinancialRoles.hasMatch(otherRoleLabel) ||
               _hasPotentialReceiptAdjustmentLabel(otherRoleLabel) ||
               _isAdministrativeLine('$otherRoleLabel $financialMonetaryText')) {
             ambiguous.add(rowIndex);
@@ -2586,14 +2603,20 @@ class ReceiptOcrParser {
           continue;
         }
         final ownedText = '$normalizedDescription $monetaryText';
+        final roleText =
+            '${_boundedUtilityRoleText(normalizedDescription)} $monetaryText';
         final ownedLower = ownedText.toLowerCase();
         if (_hasTotalLabel(ownedText, ownedLower) ||
-            _hasSubtotalLabel(ownedText, ownedLower)) {
+            _hasSubtotalLabel(ownedText, ownedLower) ||
+            _hasTotalLabel(roleText, roleText.toLowerCase()) ||
+            _hasSubtotalLabel(roleText, roleText.toLowerCase())) {
           break;
         }
         if (!_hasSubstantiveItemDescription(normalizedDescription) ||
             _isAccountBalanceSummaryLine(ownedText) ||
+            _isBoundedUtilityAccountRole(normalizedDescription, monetaryText) ||
             _isPaymentMetadataLine(ownedText) ||
+            _isPaymentMetadataLine(roleText) ||
             _isReceiptMetadataLine(ownedText) ||
             _isReceiptMetadataLine(
               normalizedDescription,
@@ -2630,7 +2653,8 @@ class ReceiptOcrParser {
         // path. Keep the printed description and global classifiers intact.
         if (pluralFinancialRoles.hasMatch(normalizedDescription) ||
             _hasPotentialReceiptAdjustmentLabel(normalizedDescription) ||
-            _isAdministrativeLine(ownedText)) {
+            _isAdministrativeLine(ownedText) ||
+            _isAdministrativeLine(roleText)) {
           continue;
         }
         // Preserve the existing layout extractor's non-item fee grammar.
@@ -4353,23 +4377,48 @@ bool _hasExplicitTaxRate(String line) => RegExp(
   caseSensitive: false,
 ).hasMatch(line);
 
+// Role-only projections never replace the printed description or money.
+String _boundedUtilityRoleText(String text) {
+  var role = text;
+  final notes = RegExp(r'\([^()]*\)');
+  while (notes.hasMatch(role)) {
+    role = role.replaceAll(notes, ' ');
+  }
+  return role
+      .replaceAll(RegExp(r'\bbalances\b', caseSensitive: false), 'balance')
+      .replaceAll(RegExp(r'\bamounts\b', caseSensitive: false), 'amount')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+}
+
+bool _isBoundedUtilityAccountRole(String label, String monetaryText) {
+  final role = _boundedUtilityRoleText(label);
+  return _isAccountBalanceSummaryLine('$role $monetaryText') ||
+      RegExp(
+        r'^(?:(?:previous|prior|opening|closing|outstanding|remaining|current|ending|starting)\s+)?'
+        r'(?:(?:account|statement)\s+)?balance(?:\s+(?:forward|brought\s+forward))?$',
+        caseSensitive: false,
+      ).hasMatch(role);
+}
+
 bool _matchesUtilityPeriod(String text) => RegExp(
   '^${_utilityPeriodPattern()}\\s*\$',
   caseSensitive: false,
+  unicode: true,
 ).hasMatch(text.trim());
 
 String _utilityPeriodPattern({bool allowIncompleteEnd = false}) {
   const month =
       r'(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|'
       r'Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|'
-      r'Nov(?:ember)?|Dec(?:ember)?)\.?';
+      r'Nov(?:ember)?|Dec(?:ember)?)(?:\s*\.)?';
   const day = r'(?:0?[1-9]|[12]\d|3[01])';
   const year = r'(?:19|20)\d{2}';
   const date =
       '(?:$month\\s*$day|$day\\s*$month)'
-      '(?:(?:,\\s*|\\s+)$year)?';
+      '(?:(?:\\s*,\\s*|\\s+)$year)?';
   final endDate = allowIncompleteEnd ? '(?:$date)?' : date;
-  return '$date\\s*[-−–]\\s*$endDate';
+  return '$date\\s*[\\p{Dash}➖]\\s*$endDate';
 }
 
 bool _isBoundedUtilitySupportCopy(String text) {
