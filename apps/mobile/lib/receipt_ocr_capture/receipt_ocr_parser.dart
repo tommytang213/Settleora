@@ -2351,9 +2351,9 @@ class ReceiptOcrParser {
       caseSensitive: false,
     );
     final strongFooterLabel = RegExp(
-      r'^(?:sub[\s-]?total|(?:grand|refund)\s+total|'
-      r'total\s+(?:(?:amount\s+)?due|current\s+charges|paid|for)|'
-      r'paid\s+total|(?:amount|balance|payment)\s+due)\b',
+      r'(?:^sub[\s-]?total|\b(?:grand|refund)\s+total|'
+      r'\btotal\s+(?:(?:amount\s+)?due|current\s+charges|paid|for)|'
+      r'\bpaid\s+total|\b(?:amount|balance|payment)\s+due)\b',
       caseSensitive: false,
     );
     final discountRolePattern = RegExp(
@@ -2387,6 +2387,11 @@ class ReceiptOcrParser {
           ..._boundedUtilityAnnotationRoles(label),
         ].expand((role) => role.split(financialConjunction)).any((clause) {
           final role = _boundedUtilityRoleText(clause);
+          if (_boundedUtilityServiceChargePhrase.hasMatch(
+            _boundedUtilityFinancialWords(role),
+          )) {
+            return true;
+          }
           if (!_hasPotentialReceiptAdjustmentLabel(role) &&
               !pluralFinancialRoles.hasMatch(role)) {
             return false;
@@ -2710,29 +2715,33 @@ class ReceiptOcrParser {
             );
           }
           final temporalRole = _boundedUtilityRoleText(temporalRoleProjection);
-          // A leading Total financial noun keeps its aggregate role through
+          // A Total financial noun keeps its aggregate role through leading
           // qualifiers and punctuation. Use the same word/phrase distinction as
           // item conflicts: a named service kind in that clause (Total Security
           // Plan) remains a product name, independently of its period evidence.
           // Explicit financial phrases and notes take precedence over that
           // naming exception, e.g. Service Charges or a separate tax note.
-          final totalClause = _boundedUtilityFinancialWords(
-            temporalRole,
-          ).split(financialConjunction).first;
-          final totalHead = RegExp(
-            r'^(?:total|sub[\s-]?total)\b',
-            caseSensitive: false,
-          ).firstMatch(totalClause);
           if (protectedMoney.isNotEmpty &&
-              totalHead != null &&
-              (!_boundedUtilityNamedServiceQualifier.hasMatch(
-                    totalClause.substring(totalHead.end),
-                  ) ||
-                  hasAdjustmentRole(totalClause.substring(totalHead.end)) ||
-                  hasAdjustmentRole(temporalRoleProjection) ||
-                  protectedMoney.values.any(
-                    (money) => hasFinancialRole(temporalRoleProjection, money),
-                  ))) {
+              _boundedUtilityFinancialWords(
+                temporalRole,
+              ).split(financialConjunction).any((totalClause) {
+                final totalHead = RegExp(
+                  r'\b(?:total|sub[\s-]?total)\b',
+                  caseSensitive: false,
+                ).firstMatch(totalClause);
+                return totalHead != null &&
+                    (!_boundedUtilityNamedServiceQualifier.hasMatch(
+                          totalClause.substring(totalHead.end),
+                        ) ||
+                        hasAdjustmentRole(
+                          totalClause.substring(totalHead.end),
+                        ) ||
+                        hasAdjustmentRole(temporalRoleProjection) ||
+                        protectedMoney.values.any(
+                          (money) =>
+                              hasFinancialRole(temporalRoleProjection, money),
+                        ));
+              })) {
             return true;
           }
           if (protectedMoney.isNotEmpty &&
@@ -4800,6 +4809,13 @@ final _boundedUtilityNamedServiceQualifier = RegExp(
   caseSensitive: false,
 );
 
+// Explicit service-charge compounds stay financial in singular and plural,
+// even when a following product-kind word would otherwise qualify the noun.
+final _boundedUtilityServiceChargePhrase = RegExp(
+  r'\bservices?\s+(?:charges?|fees?)\b',
+  caseSensitive: false,
+);
+
 // Punctuation delimits words in role-only views, including reference markers
 // such as Payment#1234. Preserve original service text and monetary evidence.
 String _boundedUtilityFinancialWords(String label) => _boundedUtilityRoleText(
@@ -4810,6 +4826,7 @@ String _boundedUtilityFinancialWords(String label) => _boundedUtilityRoleText(
 // conflict and item checks; their position does not erase the printed role.
 bool _hasBoundedUtilityFinancialPhrase(String label, String monetaryText) {
   final normalizedRole = _boundedUtilityFinancialWords(label);
+  if (_boundedUtilityServiceChargePhrase.hasMatch(normalizedRole)) return true;
   final starts = [
     0,
     ...RegExp(r'\s+').allMatches(normalizedRole).map((match) => match.end),

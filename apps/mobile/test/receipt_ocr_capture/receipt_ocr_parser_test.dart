@@ -77,6 +77,96 @@ ReceiptOcrPreview _parseBoundedUtility(List<ReceiptOcrBlockEvidence> blocks) {
 }
 
 void main() {
+  test('established footer phrases survive leading qualifiers', () {
+    for (final label in [
+      'Final Total Amount Due',
+      'Adjusted Total Amount Due',
+      'Corrected Grand Total',
+      'Final Amount Due',
+      'Net Balance Due',
+      'Final Payment Due',
+      'Revised Total including Tax',
+      'Current Grand Total',
+      'Final Subtotal',
+      'Final Sub Total',
+      'Final Total for Billing Cycle 47',
+      'Summary and Final Total',
+      'Taxes and Total',
+      'Summary for Total',
+    ]) {
+      final original = _boundedUtilityBlocks(
+        description: 'Next Month Estimate',
+      );
+      final blocks = [
+        ...original.where((b) => b.row < 3),
+        _layoutBlock(label, 7, 3, 50, 640),
+        _layoutBlock('USD 54.30', 9, 3, 659, 716),
+        _layoutBlock('Contact us', 10, 3, 828, 1020),
+        for (final b in original.where((b) => b.row >= 3))
+          _layoutBlock(
+            b.text,
+            b.order + 4,
+            b.row + 1,
+            b.points[0].x,
+            b.points[1].x,
+          ),
+      ];
+      final preview = _parseBoundedUtility(blocks);
+      expect(
+        preview.items.any((i) => i.lineTotal == '59.99'),
+        isFalse,
+        reason: label,
+      );
+      expect(preview.blocks, containsAll(blocks));
+    }
+    for (final label in [
+      'Final Total Security Plan',
+      'Premium Subtotal Plan',
+      'Final Payment Plan',
+      'Payment Plan with Total Security Plan',
+      'Balance Board for Total Security Plan',
+      'Payment Processing Subscription',
+    ]) {
+      final blocks = _boundedUtilityBlocks(description: label);
+      final preview = _parseBoundedUtility(blocks);
+      expect(
+        preview.items.any(
+          (i) => i.description == label && i.lineTotal == '59.99',
+        ),
+        isTrue,
+        reason: label,
+      );
+      expect(preview.blocks, containsAll(blocks));
+    }
+  });
+  test('plural service-charge compounds preserve financial ambiguity', () {
+    final expectedDiscounts = <String, String?>{
+      for (final role in ['Service Charges', 'Service Fees'])
+        for (final kind in ['Plan', 'Package', 'Subscription'])
+          '$role $kind Discount (12 months)': null,
+      'Services Charges Plan Discount (12 months)': null,
+      'Services Fees Plan Discount (12 months)': null,
+      'Service-Charges Plan Discount (12 months)': null,
+      'Service-Fees Plan Discount (12 months)': null,
+      'Internet Service Charges Plan Discount (12 months)': null,
+      'Internet Service Fees Plan Discount (12 months)': null,
+      'Service Plan Discount (12 months)': '-10.00',
+      'Internet Service Plan Discount (12 months)': '-10.00',
+      'Service Package Discount (12 months)': '-10.00',
+      'Customer Service Discount (12 months)': '-10.00',
+    };
+    for (final entry in expectedDiscounts.entries) {
+      final blocks = _boundedUtilityBlocks(discountAmount: 'USD -10.00');
+      final i = blocks.indexWhere((b) => b.order == 12);
+      blocks[i] = _layoutBlock(entry.key, 12, 4, 51, 383);
+      final j = blocks.indexWhere((b) => b.order == 15);
+      blocks[j] = _layoutBlock('Mon - Fri, 8 AM - 8 PM PT', 15, 4, 828, 1020);
+      final preview = _parseBoundedUtility(blocks);
+      expect(preview.discount, entry.value, reason: entry.key);
+      if (entry.value == null) expect(preview.reviewHints, isNotEmpty);
+      expect(preview.blocks, containsAll(blocks));
+    }
+  });
   test(
     'qualified Total roles retain aggregate and named-service distinctions',
     () {
