@@ -2440,14 +2440,14 @@ class ReceiptOcrParser {
           // Remove only recognized period syntax from this boundary projection.
           final projection = _normalizeOcrLine(
             blocks.map((block) => block.text.trim()).join(' '),
-          );
+          ).replaceFirst(RegExp(r'^[^\p{L}\p{N}]+', unicode: true), '');
           // A strong printed footer role ends recovery even if its date is
           // incomplete or unreadable. This does not select a monetary value.
           if (strongFooterLabel.hasMatch(projection)) return true;
           final text = projection.replaceAll(
             RegExp(
               '(?<![\\p{L}\\p{N}])'
-              '${_utilityPeriodPattern(allowIncompleteEnd: true)}'
+              '${_utilityPeriodPattern(allowIncompleteEnd: true, allowNumericDates: true)}'
               '(?![\\p{L}\\p{N}])',
               caseSensitive: false,
               unicode: true,
@@ -2494,15 +2494,21 @@ class ReceiptOcrParser {
             discountRolePattern,
             '',
           );
-          final accountRoleLabel = _boundedUtilityRoleText(otherRoleLabel)
+          final remainingRoleLabel = _boundedUtilityRoleText(otherRoleLabel)
               .replaceAll(
                 RegExp(r'\b(?:and|with)\b|&', caseSensitive: false),
                 ' ',
               )
               .trim();
           if (_isBoundedUtilityAccountRole(
-                accountRoleLabel,
+                remainingRoleLabel,
                 financialMonetaryText,
+              ) ||
+              _isPaymentMetadataLine(
+                '$remainingRoleLabel $financialMonetaryText',
+              ) ||
+              _isAdministrativeLine(
+                '$remainingRoleLabel $financialMonetaryText',
               ) ||
               pluralFinancialRoles.hasMatch(otherRoleLabel) ||
               _hasPotentialReceiptAdjustmentLabel(otherRoleLabel) ||
@@ -4416,16 +4422,28 @@ bool _matchesUtilityPeriod(String text) => RegExp(
   unicode: true,
 ).hasMatch(text.trim());
 
-String _utilityPeriodPattern({bool allowIncompleteEnd = false}) {
+String _utilityPeriodPattern({
+  bool allowIncompleteEnd = false,
+  bool allowNumericDates = false,
+}) {
   const month =
       r'(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|'
       r'Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|'
       r'Nov(?:ember)?|Dec(?:ember)?)(?:\s*\.)?';
   const day = r'(?:0?[1-9]|[12]\d|3[01])';
   const year = r'(?:19|20)\d{2}';
-  const date =
+  const namedDate =
       '(?:$month\\s*$day|$day\\s*$month)'
       '(?:(?:\\s*,\\s*|\\s+)$year)?';
+  // Numeric dates only identify a footer boundary. They never broaden the
+  // complete named-date evidence required to recover a service amount.
+  const numericMonth = r'(?:0?[1-9]|1[0-2])';
+  const separator = r'\s*[./-]\s*';
+  const numericDate =
+      '(?:$year$separator$numericMonth$separator$day|'
+      '$day$separator$numericMonth(?:$separator$year)?|'
+      '$numericMonth$separator$day(?:$separator$year)?)';
+  final date = allowNumericDates ? '(?:$namedDate|$numericDate)' : namedDate;
   final endDate = allowIncompleteEnd ? '(?:$date)?' : date;
   return '$date\\s*[\\p{Dash}➖]\\s*$endDate';
 }

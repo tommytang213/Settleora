@@ -353,6 +353,92 @@ void main() {
     }
   });
 
+  test('decorated and numeric-date footers stop bounded recovery', () {
+    final footers = [
+      for (final label in [
+        'Total Amount Due',
+        'Subtotal',
+        'Balance Due',
+        'Total Current Charges',
+      ])
+        for (final decoration in ['* ', '# ', '• '])
+          '$decoration$label 2025/02/05 – 2025/03/04',
+      for (final period in [
+        '2025/02/05 – 2025/03/04',
+        '05/02/2025 – 04/03/2025',
+        '2025-02-05 – 2025-03-04',
+        '05.02.2025 – 04.03.2025',
+        '02/05 – 03/04',
+      ])
+        'Total $period',
+    ];
+    for (final footer in footers) {
+      final original = _boundedUtilityBlocks(
+        description: 'Next Month Estimate',
+      );
+      final blocks = [
+        ...original.where((block) => block.row < 3),
+        _layoutBlock(footer, 7, 3, 50, 640),
+        _layoutBlock(r'$54.30', 9, 3, 659, 716),
+        _layoutBlock('Contact us', 10, 3, 828, 1020),
+        for (final block in original.where((block) => block.row >= 3))
+          _layoutBlock(
+            block.text,
+            block.order + 4,
+            block.row + 1,
+            block.points[0].x,
+            block.points[1].x,
+          ),
+      ];
+      final preview = _parseBoundedUtility(blocks);
+      expect(
+        preview.items.any((item) => item.lineTotal == '59.99'),
+        isFalse,
+        reason: footer,
+      );
+      expect(preview.blocks, containsAll(blocks));
+    }
+    final numericService = _parseBoundedUtility(
+      _boundedUtilityBlocks(period: '2025/02/05 – 2025/03/04'),
+    );
+    expect(
+      numericService.items.any((item) => item.lineTotal == '59.99'),
+      isFalse,
+    );
+    expect(numericService.reviewHints, isNotEmpty);
+  });
+
+  test('mixed payment and discount stays ambiguous beside clock support', () {
+    for (final label in [
+      'Payment and Discount (12 months)',
+      'Payment with Discount (12 months)',
+      'Tender and Discount (12 months)',
+      'Payment & Discount (12 months)',
+      'Cash and Discount (12 months)',
+      'Deposit Paid and Discount (12 months)',
+    ]) {
+      final blocks = _boundedUtilityBlocks();
+      final labelIndex = blocks.indexWhere(
+        (block) => block.text == 'Loyalty Discount (12 months)',
+      );
+      blocks[labelIndex] = _layoutBlock(label, 12, 4, 51, 383);
+      final supportIndex = blocks.indexWhere(
+        (block) => block.text == 'Live Chat',
+      );
+      blocks[supportIndex] = _layoutBlock(
+        'Mon - Fri, 8 AM - 8 PM PT',
+        15,
+        4,
+        827,
+        1020,
+      );
+      final preview = _parseBoundedUtility(blocks);
+      expect(preview.discount, isNull, reason: label);
+      expect(preview.reviewHints, isNotEmpty, reason: label);
+      expect(preview.blocks, containsAll(blocks));
+    }
+  });
+
   test('bounded discounts retain evidence of conflicting financial roles', () {
     List<ReceiptOcrBlockEvidence> blocksWithLabel(
       String label, [
