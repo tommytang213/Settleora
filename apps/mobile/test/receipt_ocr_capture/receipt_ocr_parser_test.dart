@@ -77,6 +77,79 @@ ReceiptOcrPreview _parseBoundedUtility(List<ReceiptOcrBlockEvidence> blocks) {
 }
 
 void main() {
+  test(
+    'qualified Total roles retain aggregate and named-service distinctions',
+    () {
+      for (final label in [
+        'Total: for Billing Cycle 47',
+        'Total：for Billing Cycle 47',
+        'Total=for Billing Cycle 47',
+        'Total_for Billing Cycle 47',
+        'Total#for Billing Cycle 47',
+        'Total including Tax',
+        'Total incl. Tax',
+        'Total excluding Tax',
+        'Total before Discount',
+        'Total after Discount',
+        'Total payable after Tax',
+        'Total Taxes Included',
+        'Total (including Tax)',
+      ]) {
+        for (final mergedMoney in [false, true]) {
+          final original = _boundedUtilityBlocks(
+            description: 'Next Month Estimate',
+          );
+          final blocks = [
+            ...original.where((b) => b.row < 3),
+            _layoutBlock(
+              mergedMoney ? '$label USD 54.30' : label,
+              7,
+              3,
+              50,
+              mergedMoney ? 717 : 640,
+            ),
+            if (!mergedMoney) _layoutBlock('USD 54.30', 9, 3, 659, 716),
+            _layoutBlock('Contact us', 10, 3, 828, 1020),
+            for (final b in original.where((b) => b.row >= 3))
+              _layoutBlock(
+                b.text,
+                b.order + 4,
+                b.row + 1,
+                b.points[0].x,
+                b.points[1].x,
+              ),
+          ];
+          final preview = _parseBoundedUtility(blocks);
+          expect(
+            preview.items.any((i) => i.lineTotal == '59.99'),
+            isFalse,
+            reason: '$label | $mergedMoney',
+          );
+          expect(preview.blocks, containsAll(blocks));
+        }
+      }
+      for (final label in [
+        'Total Security Plan',
+        'Total Internet Plan',
+        'Total Q1 Plan',
+        'Total FY Plan',
+        'Total_Internet_Plan',
+        'Total#Security#Plan',
+        'Total Care Package',
+      ]) {
+        final blocks = _boundedUtilityBlocks(description: label);
+        final preview = _parseBoundedUtility(blocks);
+        expect(
+          preview.items.any(
+            (i) => i.description == label && i.lineTotal == '59.99',
+          ),
+          isTrue,
+          reason: label,
+        );
+        expect(preview.blocks, containsAll(blocks));
+      }
+    },
+  );
   test('footer roles survive month formatting and money placement', () {
     for (final (label, mergedMoney) in [
       for (final context in [

@@ -2710,6 +2710,24 @@ class ReceiptOcrParser {
             );
           }
           final temporalRole = _boundedUtilityRoleText(temporalRoleProjection);
+          // A leading Total financial noun keeps its aggregate role through
+          // qualifiers and punctuation. Use the same word/phrase distinction as
+          // item conflicts: a named service kind in that clause (Total Security
+          // Plan) remains a product name, independently of its period evidence.
+          final totalClause = _boundedUtilityFinancialWords(
+            temporalRole,
+          ).split(financialConjunction).first;
+          final totalHead = RegExp(
+            r'^(?:total|sub[\s-]?total)\b',
+            caseSensitive: false,
+          ).firstMatch(totalClause);
+          if (protectedMoney.isNotEmpty &&
+              totalHead != null &&
+              !_boundedUtilityNamedServiceQualifier.hasMatch(
+                totalClause.substring(totalHead.end),
+              )) {
+            return true;
+          }
           if (protectedMoney.isNotEmpty &&
               (strongFooterLabel.hasMatch(temporalRole) ||
                   RegExp(
@@ -4775,14 +4793,16 @@ final _boundedUtilityNamedServiceQualifier = RegExp(
   caseSensitive: false,
 );
 
+// Punctuation delimits words in role-only views, including reference markers
+// such as Payment#1234. Preserve original service text and monetary evidence.
+String _boundedUtilityFinancialWords(String label) => _boundedUtilityRoleText(
+  label,
+).replaceAll(RegExp(r'[^\p{L}\p{M}\p{N}]+', unicode: true), ' ').trim();
+
 // Financial phrases survive leading and trailing qualifiers in bounded
 // conflict and item checks; their position does not erase the printed role.
 bool _hasBoundedUtilityFinancialPhrase(String label, String monetaryText) {
-  // Punctuation delimits words in this role-only view, including reference
-  // markers such as Payment#1234. Preserve the original service text.
-  final normalizedRole = _boundedUtilityRoleText(
-    label,
-  ).replaceAll(RegExp(r'[^\p{L}\p{M}\p{N}]+', unicode: true), ' ').trim();
+  final normalizedRole = _boundedUtilityFinancialWords(label);
   final starts = [
     0,
     ...RegExp(r'\s+').allMatches(normalizedRole).map((match) => match.end),
