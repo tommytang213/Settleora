@@ -2579,7 +2579,11 @@ class ReceiptOcrParser {
               .split(financialConjunction)
               .where((clause) => !discountRolePattern.hasMatch(clause))
               .map(_boundedUtilityRoleText);
-          if ([remainingRoleLabel, ...otherRoleClauses].any(
+          if ([
+                remainingRoleLabel,
+                ...otherRoleClauses,
+                ..._boundedUtilityAnnotationRoles(financialLabel),
+              ].any(
                 (role) => _hasBoundedUtilityFinancialPrefix(
                   role,
                   financialMonetaryText,
@@ -4479,10 +4483,28 @@ String _boundedUtilityRoleText(String text) {
   }
   return role
       .replaceFirst(RegExp(r'^[^\p{L}\p{N}]+', unicode: true), '')
+      .replaceFirst(RegExp(r'[^\p{L}\p{N}]+$', unicode: true), '')
       .replaceAll(RegExp(r'\bbalances\b', caseSensitive: false), 'balance')
       .replaceAll(RegExp(r'\bamounts\b', caseSensitive: false), 'amount')
       .replaceAll(RegExp(r'\s+'), ' ')
       .trim();
+}
+
+// Notes can contain financial evidence as well as harmless durations. Inspect
+// every balanced annotation, including nested ones, before role-only cleanup.
+Iterable<String> _boundedUtilityAnnotationRoles(String text) sync* {
+  const pairs = {'(': ')', '[': ']', '{': '}'};
+  final openings = <({int start, String closing})>[];
+  for (var index = 0; index < text.length; index++) {
+    final character = text[index];
+    final closing = pairs[character];
+    if (closing != null) {
+      openings.add((start: index, closing: closing));
+    } else if (openings.isNotEmpty && character == openings.last.closing) {
+      final opening = openings.removeLast();
+      yield text.substring(opening.start + 1, index);
+    }
+  }
 }
 
 bool _isBoundedUtilityAccountRole(String label, String monetaryText) {
@@ -4532,6 +4554,7 @@ String _utilityBoundaryDatePattern() {
   final date = _utilityDatePattern(
     allowNumericDates: true,
     allowFragmentedYear: true,
+    allowTwoDigitYear: true,
   );
   // A footer may print one date, a range, or an incomplete range. None of
   // these boundary-only forms broadens service-row monetary eligibility.
@@ -4541,15 +4564,18 @@ String _utilityBoundaryDatePattern() {
 String _utilityDatePattern({
   bool allowNumericDates = false,
   bool allowFragmentedYear = false,
+  bool allowTwoDigitYear = false,
 }) {
   const month =
       r'(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|'
       r'Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|'
       r'Nov(?:ember)?|Dec(?:ember)?)(?:\s*\.)?';
   const day = r'(?:0?[1-9]|[12]\d|3[01])';
-  final year = allowFragmentedYear
+  final fullYear = allowFragmentedYear
       ? r'(?:1\s*9|2\s*0)\s*\d\s*\d'
       : r'(?:19|20)\d{2}';
+  final shortYear = allowFragmentedYear ? r'\d\s*\d' : r'\d{2}';
+  final year = allowTwoDigitYear ? '(?:$fullYear|$shortYear)' : fullYear;
   final namedDate =
       '(?:$month\\s*$day|$day\\s*$month)'
       '(?:(?:\\s*,\\s*|\\s+)$year)?';
@@ -4557,10 +4583,15 @@ String _utilityDatePattern({
   // complete named-date evidence required to recover a service amount.
   const numericMonth = r'(?:0?[1-9]|1[0-2])';
   const separator = r'\s*[./-]\s*';
+  // Prefer day/month forms before a short year-first alternative, otherwise
+  // 03/04/2 5 can be consumed as year 03, month 04, day 2 with a stray 5.
+  final shortYearFirst = allowTwoDigitYear
+      ? '|$shortYear$separator$numericMonth$separator$day'
+      : '';
   final numericDate =
-      '(?:$year$separator$numericMonth$separator$day|'
+      '(?:$fullYear$separator$numericMonth$separator$day|'
       '$day$separator$numericMonth(?:$separator$year)?|'
-      '$numericMonth$separator$day(?:$separator$year)?)';
+      '$numericMonth$separator$day(?:$separator$year)?$shortYearFirst)';
   return allowNumericDates ? '(?:$namedDate|$numericDate)' : namedDate;
 }
 

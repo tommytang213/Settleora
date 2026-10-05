@@ -381,6 +381,17 @@ void main() {
         'Mar 4, 202 5',
         '20 25/03/04',
         'Feb 5 to Mar 4, 20 25',
+        '03/04/25',
+        '03.04.25',
+        '03-04-25',
+        'Mar 4, 25',
+        '4 Mar 25',
+        '03/01/25 - 03/04/25',
+        'Feb 5, 25 – Mar 4, 25',
+        '03/01/2025 to 03/04/25',
+        'Mar 4, 2 5',
+        '03/04/2 5',
+        '25/03/04',
         '12.10',
       ])
         'Total $period',
@@ -422,6 +433,7 @@ void main() {
       '2025/02/05 – 2025/03/04',
       'Feb 5 – Mar 4, 20 25',
       'Feb 5 to Mar 4, 2025',
+      'Feb 5, 25 – Mar 4, 25',
     ]) {
       final preview = _parseBoundedUtility(
         _boundedUtilityBlocks(period: period),
@@ -502,6 +514,18 @@ void main() {
       'Amount Paid following Loyalty Discount (12 months)',
       'Amount Paid without Loyalty Discount (12 months)',
       'Amount Paid net of Loyalty Discount (12 months)',
+      'Loyalty Discount (Amount Paid)',
+      'Loyalty Discount (Current Balance)',
+      'Loyalty Discount (Paid)',
+      'Loyalty Discount (Payment)',
+      'Loyalty Discount (Tax)',
+      'Loyalty Discount (Fees)',
+      'Loyalty Discount [Amount Paid]',
+      'Loyalty Discount {Amount Paid}',
+      'Loyalty Discount ((Amount Paid))',
+      'Loyalty Discount (Paid (12 months))',
+      'Loyalty Discount (notes [Amount Paid])',
+      'Loyalty Discount [notes (Amount Paid)]',
     ]) {
       final blocks = _boundedUtilityBlocks();
       final labelIndex = blocks.indexWhere(
@@ -527,6 +551,9 @@ void main() {
       'Payment Plan Discount (12 months)',
       'Balance Board Discount (12 months)',
       'Monthly Loyalty Discount (12 months)',
+      'Loyalty Discount (Payment Plan)',
+      'Loyalty Discount (Balance Board)',
+      'Loyalty Discount (Monthly rate)',
     ]) {
       final blocks = _boundedUtilityBlocks();
       final index = blocks.indexWhere(
@@ -636,6 +663,15 @@ void main() {
         'Previous Balance',
         'Amount Paid (12 months)',
         'Paid',
+        'Paid:',
+        'Payment:',
+        'Tender:',
+        'Current Balance:',
+        'Balance:',
+        'Amount Paid:',
+        '• Paid：',
+        'Current Balance.',
+        'Amount Paid;',
         'Paid [12 months]',
         'Payment',
         'Tender',
