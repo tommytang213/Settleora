@@ -1212,6 +1212,155 @@ class ReceiptOcrParser {
     );
   }
 
+  String? _ownedTotalBesideContact(
+    List<String> lines,
+    List<List<ReceiptOcrBlockEvidence>> rows,
+    int index,
+    String? currency,
+  ) {
+    if (currency == null || lines.length != rows.length) return null;
+    final row = rows[index];
+    bool hasGeometry(ReceiptOcrBlockEvidence block) =>
+        block.points.length == 4 &&
+        block.points.every((point) => point.x.isFinite && point.y.isFinite);
+    // This proof covers a complete label, monetary cell and separate contact
+    // cell only. Extra/merged cells retain the existing ambiguity path.
+    if (row.length != 3 || row.any((block) => !hasGeometry(block))) {
+      return null;
+    }
+    final ordered = [...row]
+      ..sort((left, right) => _blockLeft(left).compareTo(_blockLeft(right)));
+    final label = ordered[0];
+    final money = ordered[1];
+    final contact = ordered[2];
+    final totalPrefix = RegExp(
+      r'^(?:total\s+(?:amount\s+)?due|total\s+current\s+charges|'
+      r'grand\s+total|amount\s+due|balance\s+due|payment\s+due|total)'
+      r'(?=\s|[:：]|$)\s*[:：]?\s*',
+      caseSensitive: false,
+    );
+    final labelText = _normalizeOcrLine(label.text);
+    final labelMatch = totalPrefix.firstMatch(labelText);
+    if (labelMatch == null || labelMatch.end != labelText.length) return null;
+    final contactText = _normalizeOcrLine(contact.text);
+    if (!RegExp(
+      r'^(?:call\s+us\s+at|call|tel(?:ephone)?|phone|contact|help\s+desk)'
+      r'\s*[:：]?\s*\+?\d[\d ()-]*\d$',
+      caseSensitive: false,
+    ).hasMatch(contactText)) {
+      return null;
+    }
+    final phoneDigits = RegExp(r'\d').allMatches(contactText).length;
+    if (phoneDigits < 7 || phoneDigits > 15) return null;
+    double top(ReceiptOcrBlockEvidence block) =>
+        block.points.map((p) => p.y).reduce((a, b) => a < b ? a : b);
+    double bottom(ReceiptOcrBlockEvidence block) =>
+        block.points.map((p) => p.y).reduce((a, b) => a > b ? a : b);
+    double height(ReceiptOcrBlockEvidence block) => bottom(block) - top(block);
+    if (ordered.any(
+      (block) => height(block) <= 0 || _blockLeft(block) >= _blockRight(block),
+    )) {
+      return null;
+    }
+    bool aligned(
+      ReceiptOcrBlockEvidence anchor,
+      ReceiptOcrBlockEvidence other,
+    ) {
+      final overlap =
+          (bottom(anchor) < bottom(other) ? bottom(anchor) : bottom(other)) -
+          (top(anchor) > top(other) ? top(anchor) : top(other));
+      final smallerHeight = height(anchor) < height(other)
+          ? height(anchor)
+          : height(other);
+      return overlap >= smallerHeight / 2;
+    }
+
+    if (_blockRight(label) >= _blockLeft(money) ||
+        _blockLeft(contact) - _blockRight(money) < height(money) ||
+        !aligned(money, label) ||
+        !aligned(money, contact)) {
+      return null;
+    }
+    String? ownedAmount(String text) {
+      final normalized = _normalizeOcrLine(text);
+      if (!_isStandaloneAmountRow(normalized) ||
+          _printedCurrencyMarkerMatches(normalized).length != 1 ||
+          RegExp(_amountTokenPattern).allMatches(normalized).length != 1 ||
+          _hasDetachedAmountSign(normalized)) {
+        return null;
+      }
+      final printed = _currencyAdjacentToSelectedAmount(normalized, currency);
+      final value = _lastAmountInLine(normalized, currency: currency);
+      return printed.hasExplicitEvidence &&
+              printed.currency == currency &&
+              value != null &&
+              !value.startsWith('-')
+          ? value
+          : null;
+    }
+
+    final value = ownedAmount(money.text);
+    if (value == null) return null;
+    // A phone-free projection must not newly reconcile a document that has a
+    // competing or unresolved printed total. Agreeing repetitions are allowed;
+    // unknown total syntax/currency/amount ownership declines this recovery.
+    for (var otherIndex = 0; otherIndex < rows.length; otherIndex++) {
+      if (otherIndex == index) continue;
+      final other = rows[otherIndex];
+      final labels = other
+          .where((block) => totalPrefix.hasMatch(_normalizeOcrLine(block.text)))
+          .toList();
+      if (labels.isEmpty) {
+        if (_isPrimaryTotalCurrencyLine(
+          lines[otherIndex],
+          lines[otherIndex].toLowerCase(),
+        )) {
+          return null;
+        }
+        continue;
+      }
+      if (labels.length != 1) return null;
+      final text = _normalizeOcrLine(labels.single.text);
+      final suffix = text.substring(totalPrefix.firstMatch(text)!.end);
+      final monetaryCells = other
+          .where(
+            (block) =>
+                block != labels.single &&
+                _isStandaloneAmountRow(_normalizeOcrLine(block.text)) &&
+                _hasChargeTableMonetaryEvidence(block.text),
+          )
+          .toList();
+      final amounts = suffix.isNotEmpty
+          ? [suffix]
+          : monetaryCells.map((block) => block.text).toList();
+      if (amounts.length != 1 || ownedAmount(amounts.single) != value) {
+        return null;
+      }
+      for (final extra in other) {
+        if (extra == labels.single ||
+            (suffix.isEmpty && extra == monetaryCells.single)) {
+          continue;
+        }
+        if (_printedCurrencyMarkerMatches(extra.text).isNotEmpty) return null;
+        if (!_isStandaloneAmountRow(_normalizeOcrLine(extra.text))) continue;
+        // A bare number aligned with another total is competing evidence too.
+        // Only a separately positioned, vertically separated numeric block can
+        // remain outside that total (for example a neighboring chart axis).
+        if (suffix.isNotEmpty ||
+            !hasGeometry(extra) ||
+            !hasGeometry(monetaryCells.single) ||
+            height(extra) <= 0 ||
+            height(monetaryCells.single) <= 0 ||
+            _blockLeft(extra) - _blockRight(monetaryCells.single) <
+                height(monetaryCells.single) ||
+            aligned(monetaryCells.single, extra)) {
+          return null;
+        }
+      }
+    }
+    return '$labelText ${_normalizeOcrLine(money.text)}';
+  }
+
   _LabeledReceiptAmounts _extractLabeledAmounts(
     List<String> lines,
     String? currency, {
@@ -1296,6 +1445,7 @@ class ReceiptOcrParser {
       }
       final line =
           layoutAdjustmentLines[lineIndex] ??
+          _ownedTotalBesideContact(lines, layoutRows, lineIndex, currency) ??
           (_isFinancialLabelWithAdjacentAmount(lines, layoutRows, lineIndex)
               ? '${lines[lineIndex]} ${lines[lineIndex + 1]}'
               : lines[lineIndex]);

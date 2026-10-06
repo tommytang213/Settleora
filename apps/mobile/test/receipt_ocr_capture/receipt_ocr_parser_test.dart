@@ -189,6 +189,153 @@ List<ReceiptOcrBlockEvidence> _ownedFeeBlocks({
 }
 
 void main() {
+  group('owned total beside a contact column', () {
+    ReceiptOcrPreview parse({
+      double scale = 1,
+      String label = 'Total Current Charges',
+      String contact = 'Call us at 1-800-555-0199',
+      String? priorTotal,
+      String? priorAmount,
+      String? priorExtra,
+      double priorExtraOffset = 0,
+      bool includeGeometry = true,
+    }) {
+      ReceiptOcrBlockEvidence cell(
+        String text,
+        int row,
+        double left,
+        double right, {
+        double offset = 0,
+      }) => ReceiptOcrBlockEvidence(
+        text: text,
+        order: row * 1000 + left.round(),
+        row: row,
+        points: includeGeometry
+            ? [
+                ReceiptOcrPoint(
+                  x: left * scale,
+                  y: (row * 60 + offset) * scale,
+                ),
+                ReceiptOcrPoint(
+                  x: right * scale,
+                  y: (row * 60 + offset) * scale,
+                ),
+                ReceiptOcrPoint(
+                  x: right * scale,
+                  y: (row * 60 + 20 + offset) * scale,
+                ),
+                ReceiptOcrPoint(
+                  x: left * scale,
+                  y: (row * 60 + 20 + offset) * scale,
+                ),
+              ]
+            : const [],
+      );
+      final blocks = [
+        cell('Sample Utility', 0, 50, 300),
+        cell('Broadband Plan', 1, 50, 300),
+        cell('USD 86.27', 1, 600, 720),
+        if (priorTotal != null)
+          cell(priorTotal, 2, 50, priorAmount == null ? 720 : 300),
+        if (priorAmount != null) cell(priorAmount, 2, 600, 720),
+        if (priorExtra != null)
+          cell(priorExtra, 2, 800, 950, offset: priorExtraOffset),
+        cell(label, 3, 50, 300),
+        cell(r'$86.27', 3, 600, 720),
+        cell(contact, 3, 800, 1050),
+      ];
+      final rows = <int, List<String>>{};
+      for (final block in blocks) {
+        (rows[block.row] ??= []).add(block.text);
+      }
+      final preview = const ReceiptOcrParser().parse(
+        rows.values.map((row) => row.join(' ')).join('\n'),
+        fallbackCurrency: 'USD',
+        blocks: blocks,
+      );
+      expect(preview.blocks, blocks);
+      return preview;
+    }
+
+    test('keeps the printed amount across phone suffixes and scales', () {
+      for (final scale in [0.5, 1.0, 2.0]) {
+        for (final label in [
+          'Total Current Charges',
+          'Total Due',
+          'Grand Total',
+        ]) {
+          for (final suffix in ['0199', '0123', '434']) {
+            expect(
+              parse(
+                scale: scale,
+                label: label,
+                contact: 'Call us at 1-800-555-$suffix',
+              ).total,
+              '86.27',
+              reason: '$scale $label $suffix',
+            );
+          }
+        }
+      }
+    });
+
+    test('retains a genuine conflicting total and its review', () {
+      for (final scale in [0.5, 1.0, 2.0]) {
+        final preview = parse(
+          scale: scale,
+          label: 'Grand Total',
+          priorTotal: 'Grand Total USD 90.00',
+        );
+        expect(preview.total, '90.00');
+        expect(preview.reviewHints, isNotEmpty);
+      }
+    });
+
+    test('retains competing cells beside an otherwise matching total', () {
+      for (final scale in [0.5, 1.0, 2.0]) {
+        for (final split in [false, true]) {
+          final preview = parse(
+            scale: scale,
+            label: 'Grand Total',
+            priorTotal: split ? 'Grand Total' : 'Grand Total USD 86.27',
+            priorAmount: split ? 'USD 86.27' : null,
+            priorExtra: '90',
+          );
+          expect(preview.total, '0199');
+        }
+      }
+    });
+
+    test('allows an agreeing total with a separate chart number', () {
+      for (final scale in [0.5, 1.0, 2.0]) {
+        expect(
+          parse(
+            scale: scale,
+            priorTotal: 'Total Amount Due',
+            priorAmount: 'USD 86.27',
+            priorExtra: '0',
+            priorExtraOffset: -15,
+          ).total,
+          '86.27',
+        );
+      }
+    });
+
+    test('requires geometry and does not discard unknown side-column text', () {
+      final noGeometry = parse(includeGeometry: false);
+      expect(noGeometry.total, '0199');
+      expect(noGeometry.reviewHints, isNotEmpty);
+      for (final scale in [0.5, 1.0, 2.0]) {
+        final competing = parse(scale: scale, contact: 'Total USD 90.00');
+        expect(competing.total, '90.00');
+        expect(competing.reviewHints, isNotEmpty);
+        final unknown = parse(scale: scale, contact: 'Chart usage 434');
+        expect(unknown.total, '434');
+        expect(unknown.reviewHints, isNotEmpty);
+      }
+    });
+  });
+
   test(
     'owned fee role and incomplete evidence are invariant to support copy',
     () {
