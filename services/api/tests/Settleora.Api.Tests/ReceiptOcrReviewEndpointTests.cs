@@ -232,6 +232,16 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
     [InlineData(true, "grandTotalAmount")]
     [InlineData(false, "lines")]
     [InlineData(true, "lines")]
+    [InlineData(false, "header_add")]
+    [InlineData(true, "header_add")]
+    [InlineData(false, "header_amount")]
+    [InlineData(true, "header_amount")]
+    [InlineData(false, "header_currency")]
+    [InlineData(true, "header_currency")]
+    [InlineData(false, "header_role")]
+    [InlineData(true, "header_role")]
+    [InlineData(false, "header_remove")]
+    [InlineData(true, "header_remove")]
     public async Task LegacyMaterialEditsCannotReuseIncludedTaxApprovalOrMutateAppliedItems(
         bool groupRoute, string changedField)
     {
@@ -261,6 +271,7 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
             ["status"] = "reviewed", ["source"] = "on_device", ["currency"] = "USD",
             ["subtotalAmount"] = "24", ["taxAmount"] = "4", ["grandTotalAmount"] = "24",
             ["taxReconciliationMode"] = "already_in_base",
+            ["headerEvidence"] = Array.Empty<object>(),
             ["lines"] = new[] { new { text = "Notebook", quantity = "1",
                 unitPriceAmount = "24", lineTotalAmount = "24" } }
         };
@@ -291,9 +302,22 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
             var approved = await Save(Body());
             await Apply(approved.UpdatedAtUtc, HttpStatusCode.OK);
             var editedBody = Body();
+            if (changedField.StartsWith("header_", StringComparison.Ordinal)
+                && changedField != "header_add")
+            {
+                // Existing persisted source modes may predate the new evidence
+                // gate. Saving the evidence is allowed; applying it is separate.
+                var priorEvidenceBody = Body();
+                priorEvidenceBody["headerEvidence"] = new[] { new {
+                    role = "service_charge", amount = "1", currency = "EUR" } };
+                testContext.TimeProvider.SetUtcNow(testContext.TimeProvider.GetUtcNow().AddMinutes(1));
+                approved = await Save(priorEvidenceBody);
+            }
             if (explicitNull) editedBody["taxReconciliationMode"] = null;
             else editedBody.Remove("taxReconciliationMode");
-            editedBody[changedField] = changedField switch
+            var payloadField = changedField.StartsWith("header_", StringComparison.Ordinal)
+                ? "headerEvidence" : changedField;
+            editedBody[payloadField] = changedField switch
             {
                 "currency" => "GBP",
                 "taxAmount" => "5",
@@ -301,6 +325,11 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
                 "grandTotalAmount" => "25",
                 "lines" => new[] { new { text = "Notebook", quantity = "1",
                     unitPriceAmount = "20", lineTotalAmount = "20" } },
+                "header_add" => new[] { new { role = "service_charge", amount = "1", currency = "EUR" } },
+                "header_amount" => new[] { new { role = "service_charge", amount = "2", currency = "EUR" } },
+                "header_currency" => new[] { new { role = "service_charge", amount = "1", currency = "GBP" } },
+                "header_role" => new[] { new { role = "discount", amount = "1", currency = "EUR" } },
+                "header_remove" => Array.Empty<object>(),
                 _ => throw new InvalidOperationException()
             };
             testContext.TimeProvider.SetUtcNow(testContext.TimeProvider.GetUtcNow().AddMinutes(1));
@@ -314,6 +343,25 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
                 preview.BlockedReasons);
             await Apply(approved.UpdatedAtUtc, HttpStatusCode.Conflict);
             await Apply(edited.UpdatedAtUtc, HttpStatusCode.Conflict);
+            if (payloadField == "headerEvidence" && changedField != "header_remove")
+            {
+                // An explicit client mode is not authority to ignore foreign
+                // financial evidence during preview or the fresh write gate.
+                editedBody["taxReconciliationMode"] = "already_in_base";
+                var explicitMode = await Save(editedBody);
+                using var explicitRequest = CreateBearerRequest(HttpMethod.Get, previewPath, owner.RawSessionToken);
+                using var explicitResponse = await client.SendAsync(explicitRequest);
+                var explicitPreview = ReadApplyPreviewPayload(await explicitResponse.Content.ReadAsStringAsync());
+                Assert.False(explicitPreview.CanApply);
+                Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.TaxReconciliationInvalid,
+                    explicitPreview.BlockedReasons);
+                await Apply(explicitMode.UpdatedAtUtc, HttpStatusCode.Conflict);
+                editedBody.Remove("headerEvidence");
+                editedBody.Remove("taxReconciliationMode");
+                var legacyRetry = await Save(editedBody);
+                Assert.Single(legacyRetry.HeaderEvidence);
+                await Apply(legacyRetry.UpdatedAtUtc, HttpStatusCode.Conflict);
+            }
         }
         // A source-supported explicit correction is checked afresh and remains
         // one gross contribution, even after repeated blocked edits and retries.

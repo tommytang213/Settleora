@@ -33,6 +33,136 @@ import 'package:mobile/ui/settleora_form_fields.dart';
 
 void main() {
   for (final group in [false, true]) {
+    for (final edited in [false, true]) {
+      testWidgets(
+        '${group ? "group" : "personal"} rejected taxed Apply preserves existing financial fields edited=$edited',
+        (tester) async {
+          await useLargeSurface(tester);
+          final prefix = group ? 'group-bill' : 'personal-bill';
+          final repository = FakeBillRepository();
+          final fileInput = FakeBillAttachmentFileInput(
+            pickedFile: samplePickedAttachmentFile(
+              filename: 'receipt.png',
+              contentType: 'image/png',
+              bytes: samplePngBytes(width: 64, height: 64),
+            ),
+          );
+          final provider = FakeReceiptOcrProvider(
+            ReceiptOcrResult.extracted(
+              ReceiptOcrPreview(
+                merchant: 'Notebook Shop',
+                currency: 'USD',
+                tax: '4.00',
+                taxIncludedInTotal: true,
+                total: '24.00',
+                items: [
+                  ReceiptOcrItemCandidate(
+                    description: 'Notebook',
+                    quantity: '1',
+                    lineTotal: edited ? '24.00' : '20.00',
+                    currency: 'USD',
+                  ),
+                ],
+              ),
+            ),
+          );
+          if (group) {
+            await _pumpGroupBillCreate(
+              tester,
+              repository: repository,
+              groupRepository: FakeGroupRepository(
+                members: [sampleGroupMember()],
+              ),
+              attachmentRepository: FakeBillAttachmentRepository(),
+              attachmentFileInput: fileInput,
+              receiptOcrProvider: provider,
+            );
+            await tester.tap(find.byKey(const Key('group-bill-list-create')));
+            await tester.pumpAndSettle();
+            await _goToGroupBillCreateStep(tester, 'basics');
+          } else {
+            await tester.pumpWidget(
+              MaterialApp(
+                home: SettleoraPersonalBillCreateScreen(
+                  repository: repository,
+                  attachmentRepository: FakeBillAttachmentRepository(),
+                  attachmentFileInput: fileInput,
+                  receiptOcrProvider: provider,
+                ),
+              ),
+            );
+            await tester.pumpAndSettle();
+          }
+          final billCurrency = find.byKey(
+            Key('$prefix-currency'),
+            skipOffstage: false,
+          );
+          await _selectCurrency(tester, billCurrency, 'HKD');
+          if (group) await _goToGroupBillCreateStep(tester, 'receiptItems');
+          final itemName = find.byKey(ValueKey('$prefix-item-name-0'));
+          final itemAmount = find.byKey(ValueKey('$prefix-item-amount-0'));
+          final itemCurrency = find.byKey(ValueKey('$prefix-item-currency-0'));
+          await tester.enterText(itemName, 'Existing item');
+          await tester.enterText(itemAmount, '10.00');
+          await tester.ensureVisible(find.byKey(Key('$prefix-scan-receipt')));
+          await tester.tap(find.byKey(Key('$prefix-scan-receipt')));
+          await tester.pumpAndSettle();
+          final currencySelection = find.byKey(
+            Key('$prefix-ocr-apply-currency'),
+          );
+          if (tester.widget<CheckboxListTile>(currencySelection).onChanged !=
+              null) {
+            await _setReceiptOcrSection(tester, prefix, 'currency', true);
+          }
+          if (edited) {
+            await _setReceiptOcrSection(tester, prefix, 'items', true);
+            final amount = find.byKey(
+              ValueKey('$prefix-ocr-item-line-total-0'),
+            );
+            await tester.ensureVisible(amount);
+            await tester.enterText(amount, '20.00');
+            await tester.pumpAndSettle();
+          }
+          await _setReceiptOcrSection(tester, prefix, 'merchant', true);
+          await _tapReceiptOcrApply(tester, prefix);
+          expect(
+            tester
+                .widget<CurrencySelector>(
+                  find.descendant(
+                    of: billCurrency,
+                    matching: find.byType(CurrencySelector, skipOffstage: false),
+                    skipOffstage: false,
+                  ),
+                )
+                .value,
+            'HKD',
+          );
+          expect(
+            tester
+                .widget<CurrencySelector>(
+                  find.descendant(
+                    of: itemCurrency,
+                    matching: find.byType(CurrencySelector, skipOffstage: false),
+                  ),
+                )
+                .value,
+            'HKD',
+          );
+          expect(
+            tester.widget<TextFormField>(itemName).controller?.text,
+            'Existing item',
+          );
+          expect(
+            tester.widget<TextFormField>(itemAmount).controller?.text,
+            '10.00',
+          );
+          expect(find.text('Suggestions applied'), findsNothing);
+        },
+      );
+    }
+  }
+
+  for (final group in [false, true]) {
     for (final included in [false, true]) {
       for (final scenario in ['net', 'gross', 'edited']) {
         testWidgets(
