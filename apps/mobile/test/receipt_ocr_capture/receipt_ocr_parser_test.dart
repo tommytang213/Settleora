@@ -238,6 +238,34 @@ void main() {
       }
     },
   );
+  test('item-inclusive fee clauses preserve genuine service candidates', () {
+    for (final connector in [
+      'including',
+      'with',
+      'and',
+      'plus',
+      '+',
+      '/',
+      '&',
+    ]) {
+      for (final scale in [0.5, 1.0, 2.0]) {
+        final label = 'Router Rental $connector Regulatory Fee';
+        final blocks = _ownedFeeBlocks(
+          label: label,
+          sidebar: true,
+          scale: scale,
+        );
+        final p = _parseBoundedUtility(blocks);
+        expect(p.items.length, 2, reason: '$connector $scale');
+        expect(p.items.last.description, startsWith(label));
+        expect(p.items.last.lineTotal, '0.89');
+        expect(p.blocks, blocks);
+        expect(p.adjustmentsComplete, isFalse);
+        expect(p.reviewHints, isNotEmpty);
+        expect(p.service, isNull);
+      }
+    }
+  });
   test('owned fee recovery does not absorb named merchandise', () {
     for (final sidebar in [false, true]) {
       for (final scale in [0.5, 1.0, 2.0]) {
@@ -1161,6 +1189,11 @@ void main() {
         'times',
         'divided by',
         'including',
+        'includes',
+        'included',
+        'inclusive of',
+        'incl.',
+        'incl',
         'excluding',
         'per month',
         'each',

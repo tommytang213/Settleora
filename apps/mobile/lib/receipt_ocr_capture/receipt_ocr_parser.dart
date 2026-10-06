@@ -3047,6 +3047,14 @@ class ReceiptOcrParser {
             : normalizedDescription.substring(0, feeRole.start).trim();
         final hasOwnedFeeRole =
             feeQualifier != null &&
+            // A shared amount on an item-plus-fee clause is not owned solely
+            // by the terminal fee. Keep that row on its existing review path.
+            !financialConjunction.hasMatch(feeQualifier) &&
+            !feeQualifier.contains('+') &&
+            !RegExp(
+              r'\bincl(?:ud(?:e[ds]?|ing)|usive)?\b',
+              caseSensitive: false,
+            ).hasMatch(feeQualifier) &&
             !hasFinancialRole(feeQualifier, monetaryText) &&
             !hasAdjustmentRole(feeQualifier) &&
             !_isAdministrativeLine('$feeQualifier $monetaryText') &&
