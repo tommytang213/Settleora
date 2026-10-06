@@ -1298,55 +1298,92 @@ class ReceiptOcrParser {
     }
     final financialSymbol = RegExp(r'[\p{Sc}%‰]', unicode: true);
     final detachedSign = RegExp(r'^[+\-−–—()]+$');
+    const weekday =
+        r'(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|'
+        r'fri(?:day)?|sat(?:urday)?|sun(?:day)?)';
+    const clockTime = r'(?:[1-9]|1[0-2])(?::[0-5]\d)?\s*[ap]\.?m\.?';
+    final supportSchedule = RegExp(
+      '^$weekday(?:\\s*(?:[-–—]|to|through)\\s*$weekday)?'
+      '\\s*,?\\s*$clockTime\\s*(?:[-–—]|to)\\s*$clockTime\$',
+      caseSensitive: false,
+    );
+    final contactHeading = RegExp(
+      r'^(?:need help|questions|contact(?: us)?|customer (?:service|support)|'
+      r'help(?: desk)?|support)\s*[:?]?$',
+      caseSensitive: false,
+    );
     bool competesWithTotal(
       ReceiptOcrBlockEvidence other,
       ReceiptOcrBlockEvidence ownedLabel,
       ReceiptOcrBlockEvidence ownedMoney,
-      double bandRight,
-    ) {
+      double bandRight, {
+      ReceiptOcrBlockEvidence? ownedContact,
+    }) {
       final text = _normalizeOcrLine(other.text);
       if (text.isEmpty) return false;
       if (!hasGeometry(other) || height(other) <= 0) return true;
-      final explicitOrStandaloneMoney =
-          _printedCurrencyMarkerMatches(text).isNotEmpty ||
-          _unsupportedIsoCurrencyMarkers(text).isNotEmpty ||
-          financialSymbol.hasMatch(text) ||
-          _isStandaloneAmountRow(text);
-      // Unknown text can be a split denomination or joined numeric fragment.
-      // Every nearby block competes; only the wider side-column band requires
-      // explicit monetary evidence, so separate support copy stays separate.
-      final rightBoundary = explicitOrStandaloneMoney
-          ? bandRight + height(ownedMoney)
-          : _blockRight(ownedMoney) + height(ownedMoney);
-      return bottom(other) > top(ownedMoney) &&
-          top(other) < bottom(ownedMoney) &&
+      // Only a complete schedule below, or a contact heading above, belongs
+      // to the proven phone column. Unknown side-column text stays ambiguous.
+      if (ownedContact != null &&
+          _blockLeft(other) - _blockRight(ownedMoney) >= height(ownedMoney)) {
+        if ((_blockLeft(other) >= _blockLeft(ownedContact) &&
+                top(other) >= bottom(ownedContact) &&
+                supportSchedule.hasMatch(text)) ||
+            (_blockLeft(other) >=
+                    _blockLeft(ownedContact) - height(ownedContact) / 2 &&
+                _blockRight(other) <=
+                    _blockRight(ownedContact) + height(ownedContact) / 2 &&
+                bottom(other) <= top(ownedContact) &&
+                contactHeading.hasMatch(text))) {
+          return false;
+        }
+      }
+      final bandTop = top(ownedLabel) < top(ownedMoney)
+          ? top(ownedLabel)
+          : top(ownedMoney);
+      final bandBottom = bottom(ownedLabel) > bottom(ownedMoney)
+          ? bottom(ownedLabel)
+          : bottom(ownedMoney);
+      // OCR grouping and token recognition cannot establish ownership. Scan
+      // every block across the proven total/contact band and both heights.
+      return bottom(other) > bandTop &&
+          top(other) < bandBottom &&
           _blockRight(other) > _blockLeft(ownedLabel) - height(ownedMoney) &&
-          _blockLeft(other) < rightBoundary;
+          _blockLeft(other) < bandRight + height(ownedMoney);
     }
 
     bool hasCompetingNeighbor(
       List<ReceiptOcrBlockEvidence> owner,
       ReceiptOcrBlockEvidence ownedLabel,
-      ReceiptOcrBlockEvidence ownedMoney,
-    ) {
+      ReceiptOcrBlockEvidence ownedMoney, {
+      ReceiptOcrBlockEvidence? ownedContact,
+    }) {
       if (owner.any((block) => !hasGeometry(block) || height(block) <= 0)) {
         return true;
       }
-      final bandRight = owner
-          .map(_blockRight)
-          .reduce((left, right) => left > right ? left : right);
+      // Unrelated chart or postal cells do not expand the total's neighborhood.
+      // The contact column expands it only after its ownership is established.
+      final bandRight = _blockRight(ownedContact ?? ownedMoney);
       return rows
           .expand((blocks) => blocks)
           .any(
             (block) =>
                 !owner.contains(block) &&
-                competesWithTotal(block, ownedLabel, ownedMoney, bandRight),
+                competesWithTotal(
+                  block,
+                  ownedLabel,
+                  ownedMoney,
+                  bandRight,
+                  ownedContact: ownedContact,
+                ),
           );
     }
 
     // OCR row grouping can separate boxes of different heights. Use the same
     // complete neighborhood proof for this total and every agreeing repetition.
-    if (hasCompetingNeighbor(row, label, money)) return null;
+    if (hasCompetingNeighbor(row, label, money, ownedContact: contact)) {
+      return null;
+    }
     final completeMonetaryCell = RegExp(
       '^(?:(?:$_currencyTokenPattern)\\s*(?:$_amountTokenPattern)'
       '|(?:$_amountTokenPattern)\\s*(?:$_currencyTokenPattern))\$',
@@ -1395,11 +1432,16 @@ class ReceiptOcrParser {
               '$effectiveLine 0',
               '${effectiveLine.toLowerCase()} 0',
             );
-        if (unresolvedLabel ||
-            _isPrimaryTotalCurrencyLine(
-              effectiveLine,
-              effectiveLine.toLowerCase(),
-            )) {
+        // Separate payment/support copy cannot erase a recognized total cell.
+        // Unknown localized ownership declines even when its amount agrees.
+        final separateTotal = other.any((block) {
+          final text = _normalizeOcrLine(block.text);
+          final probe = _lineHasAmount(text) ? text : '$text 0';
+          return _hasTotalLabel(probe, probe.toLowerCase());
+        });
+        if (separateTotal ||
+            unresolvedLabel ||
+            _hasTotalLabel(effectiveLine, effectiveLine.toLowerCase())) {
           return null;
         }
         continue;
@@ -1428,9 +1470,7 @@ class ReceiptOcrParser {
                   !aligned(ownedMoney, labels.single)))) {
         return null;
       }
-      final bandRight = other
-          .map(_blockRight)
-          .reduce((left, right) => left > right ? left : right);
+      final bandRight = _blockRight(ownedMoney);
       for (final extra in other) {
         if (extra == labels.single ||
             (suffix.isEmpty && extra == monetaryCells.single)) {

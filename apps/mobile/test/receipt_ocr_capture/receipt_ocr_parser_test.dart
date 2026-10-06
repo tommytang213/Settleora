@@ -199,10 +199,18 @@ void main() {
       double crossRowMoneyLeft = 730,
       String crossRowText = 'USD 90.00',
       bool crossRowSupport = false,
+      String supportText = 'Mon-Fri 8 am-5 pm',
+      double supportLeft = 800,
+      double supportOffset = -28,
+      bool tallTotalLabel = false,
+      String? phoneHeading,
+      double headingLeft = 798,
+      double headingOffset = 50,
       String itemAmount = 'USD 86.27',
       List<String> adjustments = const [],
       bool splitLocalizedTotal = false,
       bool priorCrossRowMoney = false,
+      bool priorSideChart = false,
       String? priorTotal,
       String? priorAmount,
       String? priorExtra,
@@ -243,7 +251,8 @@ void main() {
               ]
             : const [],
       );
-      final totalRow = (splitLocalizedTotal || priorCrossRowMoney)
+      final totalRow =
+          (splitLocalizedTotal || priorCrossRowMoney || priorSideChart)
           ? 4
           : 3 + adjustments.length;
       final blocks = [
@@ -261,6 +270,13 @@ void main() {
           cell('USD 86.27', 2, 600, 720, cellHeight: 40),
           cell('USD 90.00', 3, 730, 790, offset: -28, cellHeight: 10),
         ],
+        if (priorSideChart) ...[
+          cell('Total', 2, 50, 300, offset: 10),
+          cell('USD 86.27', 2, 600, 720, cellHeight: 40),
+          cell('0', 2, 780, 795, offset: -10, cellHeight: 19),
+          cell('compared to last month', 2, 900, 1050),
+          cell('Nov', 3, 810, 840, offset: -52, cellHeight: 15),
+        ],
         if (priorTotal != null)
           cell(priorTotal, 2, 50, priorAmount == null ? 720 : 300),
         if (priorAmount != null) cell(priorAmount, 2, 600, 720),
@@ -272,19 +288,34 @@ void main() {
             priorExtraRight,
             offset: priorExtraOffset,
           ),
+        if (phoneHeading != null)
+          cell(
+            phoneHeading,
+            totalRow - 1,
+            headingLeft,
+            headingLeft + 100,
+            offset: headingOffset,
+            cellHeight: 18,
+          ),
         cell(
           label,
           totalRow,
           50,
           300,
-          offset: (crossRowMoney || crossRowSupport) ? 10 : 0,
+          offset: !tallTotalLabel && (crossRowMoney || crossRowSupport)
+              ? 10
+              : 0,
+          cellHeight: tallTotalLabel ? 40 : 20,
         ),
         cell(
           totalMoney,
           totalRow,
           600,
           720,
-          cellHeight: (crossRowMoney || crossRowSupport) ? 40 : 20,
+          offset: tallTotalLabel ? 10 : 0,
+          cellHeight: !tallTotalLabel && (crossRowMoney || crossRowSupport)
+              ? 40
+              : 20,
         ),
         cell(
           contact,
@@ -304,11 +335,11 @@ void main() {
           ),
         if (crossRowSupport)
           cell(
-            'Mon-Fri 8 am-5 pm',
+            supportText,
             totalRow + 1,
-            800,
+            supportLeft,
             1050,
-            offset: -28,
+            offset: supportOffset,
             cellHeight: 10,
           ),
       ];
@@ -399,6 +430,28 @@ void main() {
       }
     });
 
+    test('separate payment copy cannot hide localized total evidence', () {
+      for (final scale in [0.5, 1.0, 2.0]) {
+        for (final label in ['Gesamt', '合計', 'الإجمالي']) {
+          for (final copy in [
+            'Payment information',
+            'Cash payments',
+            'Reference',
+          ]) {
+            final preview = parse(
+              scale: scale,
+              label: 'Grand Total',
+              priorTotal: label,
+              priorAmount: 'USD 90.00',
+              priorExtra: copy,
+            );
+            expect(preview.total, '0199');
+            expect(preview.reviewHints, isNotEmpty);
+          }
+        }
+      }
+    });
+
     test('does not reconcile discounts or clear their existing review', () {
       for (final scale in [0.5, 1.0, 2.0]) {
         final preview = parse(
@@ -456,7 +509,14 @@ void main() {
     test('checks competing money across OCR row assignments', () {
       for (final scale in [0.5, 1.0, 2.0]) {
         for (final left in [730.0, 770.0, 810.0]) {
-          for (final text in ['USD 90.00', 'ARS']) {
+          for (final text in [
+            'USD 90.00',
+            'ARS',
+            'or90',
+            '1e2',
+            'HK',
+            'maybe',
+          ]) {
             expect(
               parse(
                 scale: scale,
@@ -499,6 +559,117 @@ void main() {
       }
     });
 
+    test('only a complete schedule beneath the phone owns support numbers', () {
+      for (final scale in [0.5, 1.0, 2.0]) {
+        for (final schedule in [
+          'Mon-Fri 8 am-5 pm',
+          'Monday - Friday, 7 AM - 7 PM',
+          'Saturday 10:30 AM to 2 PM',
+        ]) {
+          expect(
+            parse(
+              scale: scale,
+              crossRowSupport: true,
+              supportText: schedule,
+            ).total,
+            '86.27',
+          );
+          for (final displaced in [
+            parse(
+              scale: scale,
+              crossRowSupport: true,
+              supportText: schedule,
+              supportLeft: 740,
+            ),
+            parse(
+              scale: scale,
+              crossRowSupport: true,
+              supportText: schedule,
+              supportOffset: -38,
+            ),
+          ]) {
+            expect(displaced.total, '0199');
+          }
+        }
+        for (final ambiguous in [
+          'Mon-Fri USD 90',
+          'Monday - Friday, 7 AM - 7 PM or90',
+          'Mon-Fri 8 am-5 pm HK',
+        ]) {
+          expect(
+            parse(
+              scale: scale,
+              crossRowSupport: true,
+              supportText: ambiguous,
+            ).total,
+            '0199',
+          );
+        }
+      }
+    });
+
+    test('checks competing evidence across the label and amount heights', () {
+      for (final scale in [0.5, 1.0, 2.0]) {
+        for (final text in [r'$90.00', 'or90', 'HK', 'maybe']) {
+          final preview = parse(
+            scale: scale,
+            label: 'Grand Total',
+            tallTotalLabel: true,
+            crossRowMoney: true,
+            crossRowMoneyLeft: 310,
+            crossRowText: text,
+          );
+          expect(preview.total, '0199');
+          expect(preview.reviewHints, isNotEmpty);
+        }
+      }
+    });
+
+    test('a complete contact heading must belong to the phone column', () {
+      for (final scale in [0.5, 1.0, 2.0]) {
+        for (final heading in [
+          'Need Help?',
+          'Contact Us',
+          'Customer Support',
+        ]) {
+          expect(
+            parse(
+              scale: scale,
+              crossRowSupport: true,
+              phoneHeading: heading,
+            ).total,
+            '86.27',
+          );
+          for (final displaced in [
+            parse(
+              scale: scale,
+              crossRowSupport: true,
+              phoneHeading: heading,
+              headingLeft: 740,
+            ),
+            parse(
+              scale: scale,
+              crossRowSupport: true,
+              phoneHeading: heading,
+              headingOffset: 55,
+            ),
+          ]) {
+            expect(displaced.total, '0199');
+          }
+        }
+        for (final unknown in ['Need Help or90', 'Customer USD 90', 'Maybe']) {
+          expect(
+            parse(
+              scale: scale,
+              crossRowSupport: true,
+              phoneHeading: unknown,
+            ).total,
+            '0199',
+          );
+        }
+      }
+    });
+
     test('checks geometry around every agreeing total', () {
       for (final scale in [0.5, 1.0, 2.0]) {
         expect(
@@ -525,6 +696,15 @@ void main() {
         }
       }
     });
+
+    test(
+      'separate chart metadata does not expand another total neighborhood',
+      () {
+        for (final scale in [0.5, 1.0, 2.0]) {
+          expect(parse(scale: scale, priorSideChart: true).total, '86.27');
+        }
+      },
+    );
 
     test('retains unresolved totals in supported scripts', () {
       for (final scale in [0.5, 1.0, 2.0]) {
