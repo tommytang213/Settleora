@@ -280,6 +280,18 @@ class ReceiptOcrParser {
         ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine,
     }.toList(growable: false);
 
+    // Keep the contact-column correction out of item/adjustment inference.
+    // A repaired total must not newly reconcile discounts or clear the
+    // incompleteness decisions established from the original evidence.
+    final contactColumnTotals = <String>{
+      for (var index = 0; index < lines.length; index++)
+        if (!recognizedChargeRows.contains(index) &&
+            !ambiguousChargeRows.contains(index) &&
+            !detachedAmountSignRows.contains(index) &&
+            !layoutAdjustmentLines.containsKey(index))
+          ?_ownedTotalBesideContact(lines, layoutRows, index, currency),
+    };
+
     return ReceiptOcrPreview(
       merchant: merchant,
       receiptDate: _detectDate(lines),
@@ -333,7 +345,9 @@ class ReceiptOcrParser {
           ) &&
           unresolvedItemLines == 0,
       incompleteAdjustmentReasons: incompleteAdjustmentReasons,
-      total: selectedTotal,
+      total: contactColumnTotals.length == 1
+          ? contactColumnTotals.single
+          : selectedTotal,
       rawTextLineCount: lines.length,
       confidence: _averageBlockConfidence(blocks),
       category: 'receipt',
@@ -1222,7 +1236,8 @@ class ReceiptOcrParser {
     final row = rows[index];
     bool hasGeometry(ReceiptOcrBlockEvidence block) =>
         block.points.length == 4 &&
-        block.points.every((point) => point.x.isFinite && point.y.isFinite);
+        block.points.every((point) => point.x.isFinite && point.y.isFinite) &&
+        _blockLeft(block) < _blockRight(block);
     // This proof covers a complete label, monetary cell and separate contact
     // cell only. Extra/merged cells retain the existing ambiguity path.
     if (row.length != 3 || row.any((block) => !hasGeometry(block))) {
@@ -1311,9 +1326,13 @@ class ReceiptOcrParser {
           .where((block) => totalPrefix.hasMatch(_normalizeOcrLine(block.text)))
           .toList();
       if (labels.isEmpty) {
+        final effectiveLine =
+            _isFinancialLabelWithAdjacentAmount(lines, rows, otherIndex)
+            ? '${lines[otherIndex]} ${lines[otherIndex + 1]}'
+            : lines[otherIndex];
         if (_isPrimaryTotalCurrencyLine(
-          lines[otherIndex],
-          lines[otherIndex].toLowerCase(),
+          effectiveLine,
+          effectiveLine.toLowerCase(),
         )) {
           return null;
         }
@@ -1342,7 +1361,31 @@ class ReceiptOcrParser {
           continue;
         }
         if (_printedCurrencyMarkerMatches(extra.text).isNotEmpty) return null;
-        if (!_isStandaloneAmountRow(_normalizeOcrLine(extra.text))) continue;
+        final extraText = _normalizeOcrLine(extra.text);
+        if (!RegExp(_amountTokenPattern).hasMatch(extraText)) continue;
+        // A complete city/state/postal block owns its digits as address
+        // metadata only outside the label/value corridor. Other numeric text
+        // (including alternatives such as "or 90") remains competing evidence.
+        final postal = RegExp(
+          r"^[a-z .'-]+,\s*[a-z]{2}\s+\d{5}(?:-\d{4})?$",
+          caseSensitive: false,
+        ).hasMatch(extraText);
+        if (postal &&
+            suffix.isEmpty &&
+            hasGeometry(extra) &&
+            hasGeometry(labels.single) &&
+            hasGeometry(monetaryCells.single) &&
+            height(extra) > 0 &&
+            height(labels.single) > 0 &&
+            height(monetaryCells.single) > 0 &&
+            _blockRight(labels.single) < _blockLeft(monetaryCells.single) &&
+            (_blockLeft(labels.single) - _blockRight(extra) >=
+                    height(monetaryCells.single) ||
+                _blockLeft(extra) - _blockRight(monetaryCells.single) >=
+                    height(monetaryCells.single))) {
+          continue;
+        }
+        if (!_isStandaloneAmountRow(extraText)) return null;
         // A bare number aligned with another total is competing evidence too.
         // Only a separately positioned, vertically separated numeric block can
         // remain outside that total (for example a neighboring chart axis).
@@ -1358,7 +1401,7 @@ class ReceiptOcrParser {
         }
       }
     }
-    return '$labelText ${_normalizeOcrLine(money.text)}';
+    return value;
   }
 
   _LabeledReceiptAmounts _extractLabeledAmounts(
@@ -1445,7 +1488,6 @@ class ReceiptOcrParser {
       }
       final line =
           layoutAdjustmentLines[lineIndex] ??
-          _ownedTotalBesideContact(lines, layoutRows, lineIndex, currency) ??
           (_isFinancialLabelWithAdjacentAmount(lines, layoutRows, lineIndex)
               ? '${lines[lineIndex]} ${lines[lineIndex + 1]}'
               : lines[lineIndex]);

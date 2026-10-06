@@ -194,6 +194,9 @@ void main() {
       double scale = 1,
       String label = 'Total Current Charges',
       String contact = 'Call us at 1-800-555-0199',
+      String itemAmount = 'USD 86.27',
+      List<String> adjustments = const [],
+      bool splitLocalizedTotal = false,
       String? priorTotal,
       String? priorAmount,
       String? priorExtra,
@@ -231,18 +234,25 @@ void main() {
               ]
             : const [],
       );
+      final totalRow = splitLocalizedTotal ? 4 : 3 + adjustments.length;
       final blocks = [
         cell('Sample Utility', 0, 50, 300),
         cell('Broadband Plan', 1, 50, 300),
-        cell('USD 86.27', 1, 600, 720),
+        cell(itemAmount, 1, 600, 720),
+        for (var index = 0; index < adjustments.length; index++)
+          cell(adjustments[index], index + 2, 50, 720),
+        if (splitLocalizedTotal) ...[
+          cell('合計', 2, 50, 300),
+          cell('USD 90.00', 3, 600, 720, offset: -35),
+        ],
         if (priorTotal != null)
           cell(priorTotal, 2, 50, priorAmount == null ? 720 : 300),
         if (priorAmount != null) cell(priorAmount, 2, 600, 720),
         if (priorExtra != null)
           cell(priorExtra, 2, 800, 950, offset: priorExtraOffset),
-        cell(label, 3, 50, 300),
-        cell(r'$86.27', 3, 600, 720),
-        cell(contact, 3, 800, 1050),
+        cell(label, totalRow, 50, 300),
+        cell(r'$86.27', totalRow, 600, 720),
+        cell(contact, totalRow, 800, 1050),
       ];
       final rows = <int, List<String>>{};
       for (final block in blocks) {
@@ -303,6 +313,71 @@ void main() {
           );
           expect(preview.total, '0199');
         }
+      }
+    });
+
+    test('retains split localized totals and text-bearing alternatives', () {
+      for (final scale in [0.5, 1.0, 2.0]) {
+        expect(
+          parse(
+            scale: scale,
+            label: 'Grand Total',
+            splitLocalizedTotal: true,
+          ).total,
+          '0199',
+        );
+        for (final extra in ['or 90', 'alternative 90.00', '90 otherwise']) {
+          expect(
+            parse(
+              scale: scale,
+              label: 'Grand Total',
+              priorTotal: 'Grand Total',
+              priorAmount: 'USD 86.27',
+              priorExtra: extra,
+            ).total,
+            '0199',
+          );
+        }
+      }
+    });
+
+    test('does not reconcile discounts or clear their existing review', () {
+      for (final scale in [0.5, 1.0, 2.0]) {
+        final preview = parse(
+          scale: scale,
+          label: 'Grand Total',
+          itemAmount: 'USD 100.00',
+          adjustments: [
+            'Subtotal USD 100.00',
+            'Discount USD -5.00',
+            'Coupon USD -8.73',
+          ],
+        );
+        expect(preview.total, '86.27');
+        expect(preview.discount, '-5.00');
+        expect(preview.adjustmentsComplete, isFalse);
+        expect(
+          preview.incompleteAdjustmentReasons,
+          containsAll([
+            ReceiptOcrIncompleteAdjustmentReason.repeatedAdjustmentRole,
+            ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence,
+          ]),
+        );
+        expect(preview.reviewHints, isNotEmpty);
+      }
+    });
+
+    test('keeps postal digits outside a repeated total ownership corridor', () {
+      for (final scale in [0.5, 1.0, 2.0]) {
+        expect(
+          parse(
+            scale: scale,
+            priorTotal: 'Total Amount Due',
+            priorAmount: 'USD 86.27',
+            priorExtra: 'Example City, NY 12345-6789',
+          ).total,
+          '86.27',
+        );
       }
     });
 
