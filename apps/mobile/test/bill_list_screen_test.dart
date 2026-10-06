@@ -97,7 +97,9 @@ void main() {
               skipOffstage: false,
             );
             await _selectCurrency(tester, billCurrency, 'HKD');
-            if (group) await _goToGroupBillCreateStep(tester, 'receiptItems');
+            if (group) {
+              await _goToGroupBillCreateStep(tester, 'receiptItems');
+            }
             final itemName = find.byKey(ValueKey('$prefix-item-name-0'));
             final itemAmount = find.byKey(ValueKey('$prefix-item-amount-0'));
             final itemCurrency = find.byKey(
@@ -112,9 +114,12 @@ void main() {
               final choice = find.byKey(Key('$prefix-ocr-apply-$section'));
               final enabled =
                   tester.widget<CheckboxListTile>(choice).onChanged != null;
-              if (acceptsItems) expect(enabled, isTrue);
-              if (enabled)
+              if (acceptsItems) {
+                expect(enabled, isTrue);
+              }
+              if (enabled) {
                 await _setReceiptOcrSection(tester, prefix, section, true);
+              }
             }
             await _setReceiptOcrSection(tester, prefix, 'merchant', true);
             await _tapReceiptOcrApply(tester, prefix);
@@ -155,7 +160,9 @@ void main() {
               tester.widget<TextFormField>(itemAmount).controller?.text,
               acceptsItems ? '18.00' : '10.00',
             );
-            if (group) await _goToGroupBillCreateStep(tester, 'basics');
+            if (group) {
+              await _goToGroupBillCreateStep(tester, 'basics');
+            }
             expect(
               tester
                   .widget<TextFormField>(
