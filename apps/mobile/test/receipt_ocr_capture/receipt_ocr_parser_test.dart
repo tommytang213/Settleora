@@ -144,6 +144,161 @@ ReceiptOcrBlockEvidence _summaryBlockVariant(
 );
 
 void main() {
+  test('date ownership requires positively explained nearby metadata', () {
+    ReceiptOcrBlockEvidence extra(
+      String text,
+      int row,
+      double left,
+      double top,
+      double right,
+      double bottom,
+      int order,
+    ) => ReceiptOcrBlockEvidence(
+      text: text,
+      row: row,
+      order: order,
+      points: [
+        ReceiptOcrPoint(x: left, y: top),
+        ReceiptOcrPoint(x: right, y: top),
+        ReceiptOcrPoint(x: right, y: bottom),
+        ReceiptOcrPoint(x: left, y: bottom),
+      ],
+    );
+    for (final scale in [0.5, 1.0, 2.0]) {
+      ReceiptOcrBlockEvidence scaled(ReceiptOcrBlockEvidence b) =>
+          ReceiptOcrBlockEvidence(
+            text: b.text,
+            row: b.row,
+            order: b.order,
+            points: b.points
+                .map((p) => ReceiptOcrPoint(x: p.x * scale, y: p.y * scale))
+                .toList(),
+          );
+      for (final distant in [false, true]) {
+        for (final text in [
+          'Pay Before',
+          'Valid Until',
+          'Unrecognized Heading',
+          '有効期限',
+          'Exp|ir|es',
+          'P|a|y|B|y',
+        ]) {
+          final original = _summaryCardBlocks();
+          final blocks = <ReceiptOcrBlockEvidence>[];
+          for (var i = 0; i < original.length; i++) {
+            final b = original[i];
+            blocks.add(b);
+            if (b.row == 3 && original[i + 1].row != 3) {
+              final parts = text.split('|');
+              final y = distant ? 107.0 : 207.0;
+              for (var j = 0; j < parts.length; j++) {
+                blocks.add(
+                  extra(
+                    parts[j],
+                    3,
+                    531 + j * 30,
+                    y,
+                    558 + j * 30,
+                    y + 20,
+                    30 + j,
+                  ),
+                );
+              }
+            }
+          }
+          final evidence = blocks.map(scaled).toList();
+          final p = _parseBoundedUtility(evidence);
+          expect(
+            p.itemLineDecisions[4] ==
+                ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+            distant,
+            reason: '$text distant=$distant scale=$scale',
+          );
+          expect(p.blocks, containsAll(evidence));
+        }
+      }
+      for (final label in [
+        'Account Number',
+        'Account No.',
+        'Customer ID',
+        'Client Number',
+        'Invoice No',
+        'Bill Number',
+        'Statement #',
+      ]) {
+        for (final variant in [
+          'valid',
+          'missing',
+          'duplicate',
+          'unexplained',
+          'money',
+          'obstructed',
+        ]) {
+          final original = _summaryCardBlocks();
+          final blocks = <ReceiptOcrBlockEvidence>[];
+          for (var i = 0; i < original.length; i++) {
+            final b = original[i];
+            if (b.text == 'AC987654321' && variant == 'missing') continue;
+            blocks.add(
+              _summaryBlockVariant(
+                b,
+                text: b.text == 'Account Number'
+                    ? label
+                    : b.text == 'AC987654321' && variant == 'unexplained'
+                    ? 'UNEXPLAINED'
+                    : b.text == 'AC987654321' && variant == 'money'
+                    ? 'USD 42.00'
+                    : b.text,
+              ),
+            );
+            if (b.text == 'AC987654321') {
+              if (variant == 'duplicate') {
+                blocks.add(extra('ID1234', 3, 530, 193, 639, 214, 30));
+              }
+              if (variant == 'obstructed') {
+                blocks.add(extra('Note', 3, 498, 193, 525, 214, 30));
+              }
+            }
+          }
+          final evidence = blocks.map(scaled).toList();
+          final p = _parseBoundedUtility(evidence);
+          expect(
+            p.itemLineDecisions[4] ==
+                ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+            variant == 'valid',
+            reason: '$label $variant scale=$scale',
+          );
+          expect(p.blocks, containsAll(evidence));
+        }
+      }
+      for (final reference in [
+        'Account No AC12345',
+        'Invoice Number INV99',
+        'Statement # 12345',
+      ]) {
+        final original = _summaryCardBlocks();
+        final blocks = <ReceiptOcrBlockEvidence>[];
+        for (final b in original) {
+          if (b.text == 'Account Number') continue;
+          blocks.add(
+            _summaryBlockVariant(
+              b,
+              text: b.text == 'AC987654321' ? reference : b.text,
+            ),
+          );
+        }
+        final evidence = blocks.map(scaled).toList();
+        final p = _parseBoundedUtility(evidence);
+        expect(
+          p.itemLineDecisions[4],
+          ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+          reason: '$reference scale=$scale',
+        );
+        expect(p.blocks, containsAll(evidence));
+      }
+    }
+  });
+
   test('summary ownership retains competing date and name owners', () {
     ReceiptOcrBlockEvidence label(
       String text,

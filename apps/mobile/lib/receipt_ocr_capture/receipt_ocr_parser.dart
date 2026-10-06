@@ -4680,18 +4680,8 @@ Set<int>? _ownedSummaryCardHeaderRows(
     return null;
   }
 
-  // Another nearby date heading can own the same value without intersecting
-  // the selected label/value rectangle (for example, a heading above it).
-  final dateOwner = RegExp(
-    // Include the primary and secondary roles already used by _detectDate.
-    r'\b(?:bill|invoice|statement|transaction|order|purchase|issued)\s*(?:date|on)?\b|'
-    r'\b(?:due|pay\s*by|payment|paid|previous|prior|last|refund|reference|meter|reading|billing\s*period|service\s*period|period\s*from|period\s*to)\b|'
-    r'(?<![\p{L}\p{M}])dates?(?![\p{L}\p{M}])|'
-    r'^(?:invoice|bill|statement|due|issue|payment|receipt|order|purchase|expiry|expiration)\s*date\s*:?$|'
-    r'^(?:issued|due|expires?|expiry|paid|received|billed|created|posted|processed|shipped|ordered|purchased)(?:\s+on)?\s*:?$',
-    caseSensitive: false,
-    unicode: true,
-  );
+  // Nearby blocks must explain their own role. A finite date-heading list
+  // cannot prove that unfamiliar words or fragmented headings are harmless.
   bool ownsSeparatePeriod(ReceiptOcrBlockEvidence label) {
     if (!RegExp(
       r'^(?:billing|service)\s+period\s*:?$',
@@ -4726,16 +4716,53 @@ Set<int>? _ownedSummaryCardHeaderRows(
     });
   }
 
-  // A heading may be split across OCR blocks or logical rows. Form bounded
-  // visual groups first; isolated token recognition cannot prove uniqueness.
-  final dateFragments = allBlocks.where((b) {
-    if (b == dateLabel ||
-        b == date ||
-        ownsSeparatePeriod(b) ||
-        _matchesUtilityPeriod(_normalizeOcrLine(b.text))) {
-      return false;
+  final referenceLabel = RegExp(
+    r'^(?:account|customer|client|invoice|bill|statement)\s+(?:no\.?|number|id|#)\s*:?$',
+    caseSensitive: false,
+  );
+  final referenceValue = RegExp(r'^[A-Z0-9][A-Z0-9-]*$', caseSensitive: false);
+  final inlineReference = RegExp(
+    r'^(?:account|customer|client|invoice|bill|statement)\s+(?:no\.?|number|id|#)\s*[:#]?\s*([A-Z0-9][A-Z0-9-]*)$',
+    caseSensitive: false,
+  );
+  final ownedReferences = <ReceiptOcrBlockEvidence>{};
+  for (final label in allBlocks) {
+    if (!referenceLabel.hasMatch(_normalizeOcrLine(label.text))) continue;
+    final a = boxes[label]!;
+    final height = a.bottom - a.top;
+    final values = allBlocks.where((b) {
+      final text = _normalizeOcrLine(b.text);
+      if (b == label ||
+          !referenceValue.hasMatch(text) ||
+          !RegExp(r'\d').hasMatch(text)) {
+        return false;
+      }
+      final value = boxes[b]!;
+      final top = a.top > value.top ? a.top : value.top;
+      final bottom = a.bottom < value.bottom ? a.bottom : value.bottom;
+      return value.left > a.right &&
+          value.left - a.right <= height * 4 &&
+          bottom - top >= height * 0.5;
+    }).toList();
+    if (values.length != 1) continue;
+    final value = boxes[values.single]!;
+    final top = a.top < value.top ? a.top : value.top;
+    final bottom = a.bottom > value.bottom ? a.bottom : value.bottom;
+    if (allBlocks.any((b) {
+      if (b == label || b == values.single) return false;
+      final other = boxes[b]!;
+      return other.right > a.left &&
+          other.left < value.right &&
+          other.bottom > top &&
+          other.top < bottom;
+    })) {
+      continue;
     }
-    final other = boxes[b]!;
+    ownedReferences.addAll([label, values.single]);
+  }
+  for (final neighbor in allBlocks) {
+    if (neighbor == dateLabel || neighbor == date) continue;
+    final other = boxes[neighbor]!;
     final horizontalGap = other.right < dateBox.left
         ? dateBox.left - other.right
         : other.left > dateBox.right
@@ -4746,91 +4773,19 @@ Set<int>? _ownedSummaryCardHeaderRows(
         : other.top > dateBox.bottom
         ? other.top - dateBox.bottom
         : 0;
-    // The extra line admits a two-line heading whose nearer fragment is an
-    // immediate neighbor. The assembled group must still touch the near zone.
-    return horizontalGap <= dateHeight * 4 && verticalGap <= dateHeight * 2;
-  }).toSet();
-  bool adjoining(
-    ReceiptOcrBlockEvidence first,
-    ReceiptOcrBlockEvidence second,
-  ) {
-    final a = boxes[first]!, b = boxes[second]!;
-    final horizontalGap = a.right < b.left
-        ? b.left - a.right
-        : b.right < a.left
-        ? a.left - b.right
-        : 0;
-    final verticalGap = a.bottom < b.top
-        ? b.top - a.bottom
-        : b.bottom < a.top
-        ? a.top - b.bottom
-        : 0;
-    final overlapX =
-        (a.right < b.right ? a.right : b.right) -
-        (a.left > b.left ? a.left : b.left);
-    final overlapY =
-        (a.bottom < b.bottom ? a.bottom : b.bottom) -
-        (a.top > b.top ? a.top : b.top);
-    final minHeight = (a.bottom - a.top) < (b.bottom - b.top)
-        ? a.bottom - a.top
-        : b.bottom - b.top;
-    final minWidth = (a.right - a.left) < (b.right - b.left)
-        ? a.right - a.left
-        : b.right - b.left;
-    return (overlapY >= minHeight * 0.5 && horizontalGap <= dateHeight * 2) ||
-        (overlapX >= minWidth * 0.5 && verticalGap <= dateHeight);
-  }
-
-  while (dateFragments.isNotEmpty) {
-    final group = <ReceiptOcrBlockEvidence>[dateFragments.first];
-    dateFragments.remove(group.first);
-    for (var index = 0; index < group.length; index++) {
-      final joined = dateFragments
-          .where((b) => adjoining(group[index], b))
-          .toList();
-      group.addAll(joined);
-      dateFragments.removeAll(joined);
+    if (horizontalGap > dateHeight * 4 || verticalGap > dateHeight) continue;
+    final text = _normalizeOcrLine(neighbor.text);
+    final inline = inlineReference.firstMatch(text);
+    if (ownedReferences.contains(neighbor) ||
+        ownsSeparatePeriod(neighbor) ||
+        _matchesUtilityPeriod(text) ||
+        (inline != null && RegExp(r'\d').hasMatch(inline.group(1)!))) {
+      continue;
     }
-    final nearValue = group.any((b) {
-      final box = boxes[b]!;
-      final gap = box.bottom < dateBox.top
-          ? dateBox.top - box.bottom
-          : box.top > dateBox.bottom
-          ? box.top - dateBox.bottom
-          : 0;
-      return gap <= dateHeight;
-    });
-    if (!nearValue) continue;
-    // Surrounding metadata must not conceal an individually recognized owner.
-    // Adjacent fragment pairs also remain visible when unrelated blocks join
-    // the same component or interleave in one reading order.
-    for (final fragment in group) {
-      final text = _normalizeOcrLine(fragment.text);
-      if (dateOwner.hasMatch(text)) return null;
-      for (final other in group) {
-        if (other == fragment || !adjoining(fragment, other)) continue;
-        for (final separator in [' ', '']) {
-          if (dateOwner.hasMatch(
-            '$text$separator${_normalizeOcrLine(other.text)}',
-          )) {
-            return null;
-          }
-        }
-      }
-    }
-    final horizontal = group.toList()
-      ..sort((a, b) => boxes[a]!.left.compareTo(boxes[b]!.left));
-    final vertical = group.toList()
-      ..sort((a, b) => boxes[a]!.top.compareTo(boxes[b]!.top));
-    for (final ordering in [horizontal, vertical]) {
-      for (final separator in [' ', '']) {
-        if (dateOwner.hasMatch(
-          ordering.map((b) => _normalizeOcrLine(b.text)).join(separator),
-        )) {
-          return null;
-        }
-      }
-    }
+    // Preserve the fallback, but do not let its disputed summary amount
+    // make a preceding unpriced description look resolved.
+    uncertainSummaryAmountRows.add(rowIndex);
+    return null;
   }
 
   // A large amount can overlap monetary fragments assigned to another OCR
