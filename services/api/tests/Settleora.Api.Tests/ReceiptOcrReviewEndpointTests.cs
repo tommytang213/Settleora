@@ -44,6 +44,70 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         this.factory = factory;
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task NetOnlyTaxReviewCannotApplyAnIncompleteReceiptContribution(bool groupRoute)
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var owner = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Tax Contribution Owner");
+        var groupId = groupRoute
+            ? await SeedGroupAsync(testFactory, owner.UserProfileId, "Tax Contribution Group",
+                InitialTimestamp, deletedAtUtc: null,
+                new MembershipSeed(owner.UserProfileId, GroupMembershipRoles.Owner,
+                    GroupMembershipStatuses.Active))
+            : (Guid?)null;
+        var billId = await SeedBillAsync(testFactory, owner.UserProfileId, groupId,
+            ExpenseBillStatuses.Draft, archivedAtUtc: null,
+            [owner.UserProfileId], [owner.UserProfileId], InitialTimestamp.AddMinutes(2));
+        var fileId = await SeedBillAttachmentAsync(testFactory, billId, owner.UserProfileId,
+            ExpenseBillAttachmentPurposes.Receipt, FileObjectPurposes.ReceiptImage,
+            FileObjectStatuses.Active, removedAtUtc: null);
+        var reviewPath = groupId.HasValue
+            ? GroupOcrReviewPath(groupId.Value, billId, fileId)
+            : PersonalOcrReviewPath(billId, fileId);
+        var previewPath = groupId.HasValue
+            ? GroupOcrReviewApplyPreviewPath(groupId.Value, billId, fileId)
+            : PersonalOcrReviewApplyPreviewPath(billId, fileId);
+        var applyPath = groupId.HasValue
+            ? GroupOcrReviewApplyPath(groupId.Value, billId, fileId)
+            : PersonalOcrReviewApplyPath(billId, fileId);
+        using var client = testFactory.CreateClient();
+        const string body = """
+            {"status":"reviewed","source":"on_device","currency":"USD",
+             "taxAmount":"4","grandTotalAmount":"24",
+             "lines":[{"text":"Notebook","quantity":"1","unitPriceAmount":"20","lineTotalAmount":"20"}]}
+            """;
+        using var putRequest = CreateJsonBearerRequest(HttpMethod.Put,
+            reviewPath, owner.RawSessionToken, body);
+        using var putResponse = await client.SendAsync(putRequest);
+        Assert.Equal(HttpStatusCode.Created, putResponse.StatusCode);
+        var saved = ReadReviewPayload(await putResponse.Content.ReadAsStringAsync());
+        var persisted = await ReadReceiptOcrReviewAsync(testFactory, saved.Id);
+        Assert.Null(persisted.SubtotalAmount);
+        Assert.Equal(4m, persisted.TaxAmount);
+        Assert.Equal(24m, persisted.GrandTotalAmount);
+        Assert.Equal(20m, Assert.Single(persisted.Lines).LineTotalAmount);
+        using var previewRequest = CreateBearerRequest(HttpMethod.Get,
+            previewPath, owner.RawSessionToken);
+        using var previewResponse = await client.SendAsync(previewRequest);
+        Assert.Equal(HttpStatusCode.OK, previewResponse.StatusCode);
+        var preview = ReadApplyPreviewPayload(await previewResponse.Content.ReadAsStringAsync());
+        var before = await ReadBillAsync(testFactory, billId);
+        using var applyRequest = CreateJsonBearerRequest(HttpMethod.Post,
+            applyPath, owner.RawSessionToken, ApplyRequestJson(persisted.UpdatedAtUtc));
+        using var applyResponse = await client.SendAsync(applyRequest);
+        var after = await ReadBillAsync(testFactory, billId);
+        Assert.True(applyResponse.StatusCode == HttpStatusCode.Conflict,
+            $"Incomplete tax contribution: group={groupRoute}, preview.CanApply={preview.CanApply}, " +
+            $"Apply={applyResponse.StatusCode}, bill delta={after.TotalAmount - before.TotalAmount}, expected receipt=24.");
+        Assert.False(preview.CanApply);
+        Assert.Equal(before.TotalAmount, after.TotalAmount);
+        Assert.DoesNotContain(after.Items, item =>
+            item.SourceReceiptOcrReviewId == persisted.Id && item.DeletedAtUtc is null);
+    }
+
     [Fact]
     public async Task PersonalBillOwnerCanSaveParticipantCanReadAndOwnerCanRemoveReceiptOcrReviewWithoutMutatingBillTruth()
     {
