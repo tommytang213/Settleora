@@ -146,6 +146,38 @@ ReceiptOcrBlockEvidence _summaryBlockVariant(
 void main() {
   test('summary-card ownership includes neighboring monetary fragments', () {
     for (final spec in [
+      for (final prefix in [
+        ('HK', false),
+        ('hk', false),
+        ('H.K.', false),
+        ('ＨＫ', false),
+        ('CA', false),
+        ('NZ', false),
+        ('NT', false),
+        ('A', false),
+        ('S', false),
+        ('R', false),
+        ('US', true),
+        ('U.S.', true),
+        ('U.S.D.', true),
+        ('D.Z.D.', false),
+      ]) ...[
+        (3, prefix.$1, 710.0, 194.0, prefix.$2),
+        (5, prefix.$1, 955.0, 240.0, prefix.$2),
+        (5, prefix.$1, 1300.0, 240.0, true),
+      ],
+      for (final qualifier in [
+        'Payments',
+        'payments',
+        'PAYMENTS',
+        '[Payments]',
+        '{Payments}',
+        '[{Payments}]',
+      ]) ...[
+        (3, qualifier, 710.0, 194.0, false),
+        (5, qualifier, 955.0, 240.0, false),
+        (5, qualifier, 1300.0, 240.0, true),
+      ],
       (3, 'EUR', 710.0, 194.0, false),
       (3, 'ＥＵＲ', 710.0, 194.0, false),
       (5, 'ＥＵＲ', 955.0, 240.0, false),
@@ -475,6 +507,68 @@ void main() {
       }
     }
   });
+
+  test(
+    'summary-card proven labels preserve completeness without hiding items',
+    () {
+      for (final grouped in [false, true]) {
+        for (final pending in [false, true]) {
+          final blocks = <ReceiptOcrBlockEvidence>[];
+          for (final b in _summaryCardBlocks()) {
+            if ([
+              'Internet Service Bill',
+              'Account Number',
+              'AC987654321',
+            ].contains(b.text))
+              continue;
+            blocks.add(
+              ReceiptOcrBlockEvidence(
+                text: b.text,
+                row: grouped && b.row == 2 ? 3 : b.row,
+                order: b.order,
+                points: b.points,
+              ),
+            );
+            if (pending && b.text == 'Customer Name') {
+              blocks.add(
+                const ReceiptOcrBlockEvidence(
+                  text: 'Premium Router Bundle',
+                  row: 3,
+                  order: 30,
+                  points: [
+                    ReceiptOcrPoint(x: 1000, y: 185),
+                    ReceiptOcrPoint(x: 1180, y: 185),
+                    ReceiptOcrPoint(x: 1180, y: 205),
+                    ReceiptOcrPoint(x: 1000, y: 205),
+                  ],
+                ),
+              );
+            }
+          }
+          final preview = _parseBoundedUtility(blocks);
+          final reason = 'grouped=$grouped pending=$pending';
+          expect(preview.items.map((i) => i.lineTotal), [
+            '35.00',
+            '7.00',
+          ], reason: reason);
+          expect(
+            preview.warnings.any((w) => w.contains('no traceable line amount')),
+            pending,
+            reason: reason,
+          );
+          expect(
+            preview.incompleteAdjustmentReasons.contains(
+              ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine,
+            ),
+            pending,
+            reason: reason,
+          );
+          expect(preview.adjustmentsComplete, !pending, reason: reason);
+          expect(preview.blocks, containsAll(blocks), reason: reason);
+        }
+      }
+    },
+  );
 
   test('summary-card exclusion preserves pending description uncertainty', () {
     final blocks = <ReceiptOcrBlockEvidence>[];

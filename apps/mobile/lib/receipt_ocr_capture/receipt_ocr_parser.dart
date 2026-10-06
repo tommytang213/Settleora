@@ -1870,14 +1870,16 @@ class ReceiptOcrParser {
         wrappedDescriptionLines.clear();
         continue;
       }
-      final isOwnedSummary = _isOwnedSummaryCardHeaderRow(
+      final ownedSummaryRows = _ownedSummaryCardHeaderRows(
         layoutRows,
         lineIndex,
         currency,
         selectedTotal,
       );
-      if (isOwnedSummary) nonItemSummaryRows.add(lineIndex);
-      if (isOwnedSummary ||
+      if (ownedSummaryRows != null) {
+        nonItemSummaryRows.addAll(ownedSummaryRows);
+      }
+      if (ownedSummaryRows != null ||
           (_isAdministrativeLine(line) &&
               !chargeTableRows.contains(lineIndex)) ||
           (afterSubtotal &&
@@ -3659,7 +3661,8 @@ class ReceiptOcrParser {
           );
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       final line = lines[lineIndex];
-      if (merchantLineIndices.contains(lineIndex)) {
+      if (merchantLineIndices.contains(lineIndex) ||
+          nonItemSummaryRows.contains(lineIndex)) {
         continue;
       }
       // Only a recognized buyer heading, its bounded paired address rows,
@@ -4479,7 +4482,7 @@ List<List<ReceiptOcrBlockEvidence>> _matchingLayoutRows(
 // and invoice-date fields. A matching total alone does not make that row
 // metadata: every block must have its own nearby, unambiguous printed label.
 // Unknown content keeps the ordinary item path and all raw evidence intact.
-bool _isOwnedSummaryCardHeaderRow(
+Set<int>? _ownedSummaryCardHeaderRows(
   List<List<ReceiptOcrBlockEvidence>> rows,
   int rowIndex,
   String? currency,
@@ -4489,12 +4492,12 @@ bool _isOwnedSummaryCardHeaderRow(
       rowIndex == 0 ||
       selectedTotal == null ||
       currency == null) {
-    return false;
+    return null;
   }
   final row = rows[rowIndex];
-  if (row.length != 4) return false;
+  if (row.length != 4) return null;
   final amounts = row.where((b) => _isStandaloneAmountRow(b.text)).toList();
-  if (amounts.length != 1) return false;
+  if (amounts.length != 1) return null;
   final amount = amounts.single;
   // Exclusion requires a strict cell and compatible evidence from every
   // printed denomination. Item-word masking (such as lowercase TRY/RUB)
@@ -4507,7 +4510,7 @@ bool _isOwnedSummaryCardHeaderRow(
   if (moneyCell == null ||
       !_hasChargeTableMonetaryEvidence(amount.text) ||
       _lastAmountInLine(amount.text, currency: currency) != selectedTotal) {
-    return false;
+    return null;
   }
   for (final marker in [
     moneyCell.group(1),
@@ -4518,7 +4521,7 @@ bool _isOwnedSummaryCardHeaderRow(
       currency,
     );
     if (!printed.hasExplicitEvidence || printed.currency != currency) {
-      return false;
+      return null;
     }
   }
   final dateLabels = row
@@ -4537,7 +4540,7 @@ bool _isOwnedSummaryCardHeaderRow(
         ).hasMatch(b.text.trim()),
       )
       .toList();
-  if (dateLabels.length != 1 || dates.length != 1) return false;
+  if (dateLabels.length != 1 || dates.length != 1) return null;
   final dateLabel = dateLabels.single;
   final date = dates.single;
   final name = row.singleWhere(
@@ -4547,7 +4550,7 @@ bool _isOwnedSummaryCardHeaderRow(
     r'^[\p{L}\p{M}]+\.?(?:[ ’\x27-][\p{L}\p{M}]+\.?)*$',
     unicode: true,
   ).hasMatch(name.text.trim())) {
-    return false;
+    return null;
   }
 
   final first = rowIndex > 3 ? rowIndex - 3 : 0;
@@ -4562,7 +4565,7 @@ bool _isOwnedSummaryCardHeaderRow(
     // Without a complete geometry map, cross-row competition is unresolved.
     if (block.points.length < 4 ||
         block.points.any((p) => !p.x.isFinite || !p.y.isFinite)) {
-      return false;
+      return null;
     }
     final box = (
       left: _blockLeft(block),
@@ -4571,7 +4574,7 @@ bool _isOwnedSummaryCardHeaderRow(
       bottom: block.points.map((p) => p.y).reduce((a, b) => a > b ? a : b),
     );
     if (box.right <= box.left || box.bottom <= box.top) {
-      return false;
+      return null;
     }
     boxes[block] = box;
   }
@@ -4607,12 +4610,12 @@ bool _isOwnedSummaryCardHeaderRow(
             directlyBelow(b, name),
       )
       .toList();
-  if (totalLabels.length != 1 || nameLabels.length != 1) return false;
+  if (totalLabels.length != 1 || nameLabels.length != 1) return null;
   final amountBox = boxes[amount]!;
   if (row
       .where((b) => b != amount)
       .any((b) => boxes[b]!.right >= amountBox.left)) {
-    return false;
+    return null;
   }
   final dateLabelBox = boxes[dateLabel]!;
   final dateBox = boxes[date]!;
@@ -4627,7 +4630,7 @@ bool _isOwnedSummaryCardHeaderRow(
       dateBox.left - dateLabelBox.right > dateHeight * 4 ||
       overlapBottom - overlapTop < dateHeight * 0.5 ||
       boxes[name]!.right >= dateLabelBox.left) {
-    return false;
+    return null;
   }
   final dateRegionTop = dateLabelBox.top < dateBox.top
       ? dateLabelBox.top
@@ -4644,7 +4647,7 @@ bool _isOwnedSummaryCardHeaderRow(
         other.bottom > dateRegionTop &&
         other.top < dateRegionBottom;
   })) {
-    return false;
+    return null;
   }
 
   // A large amount can overlap monetary fragments assigned to another OCR
@@ -4682,7 +4685,7 @@ bool _isOwnedSummaryCardHeaderRow(
   for (final neighbor in allBlocks) {
     if (row.contains(neighbor) || neighbor == totalLabels.single) continue;
     final other = boxes[neighbor];
-    if (other == null) return false;
+    if (other == null) return null;
     final horizontalGap = other.right < amountBox.left
         ? amountBox.left - other.right
         : other.left > amountBox.right
@@ -4701,8 +4704,27 @@ bool _isOwnedSummaryCardHeaderRow(
         .allMatches(text)
         .map((m) => m.group(0)!)
         .toList();
+    // OCR can split HK$ (and other prefixed dollars) into two blocks.
+    // Reconstruct only a complete known marker for compatibility inspection;
+    // never rewrite the printed cell or the retained neighboring evidence.
+    final compactMarker = text.replaceAll(RegExp(r'[\s.]'), '');
+    final dollarPrefix = '$compactMarker\$';
+    final wholeCurrencyAtom = RegExp(
+      '^(?:${currencyAtoms.pattern})\$',
+      caseSensitive: false,
+    );
+    final splitCurrencyMarker = !RegExp(r'\p{L}', unicode: true).hasMatch(text)
+        ? null
+        : wholeCurrencyAtom.hasMatch(compactMarker)
+        ? compactMarker
+        : wholeCurrencyAtom.hasMatch(dollarPrefix)
+        ? dollarPrefix
+        : null;
     final isCurrency =
-        markers.isNotEmpty && text.replaceAll(currencyAtoms, '').trim().isEmpty;
+        splitCurrencyMarker != null ||
+        (markers.isNotEmpty &&
+            text.replaceAll(currencyAtoms, '').trim().isEmpty);
+    if (splitCurrencyMarker != null) markers.add(splitCurrencyMarker);
     // Only a complete period or explicitly labeled identifier explains a
     // neighboring number. A comparison's other operand may be in the amount
     // cell, so even one unexplained number must retain the ordinary fallback.
@@ -4710,12 +4732,6 @@ bool _isOwnedSummaryCardHeaderRow(
         _matchesUtilityPeriod(text) || invoiceReference.hasMatch(text);
     final hasUnownedNumbers = digit.hasMatch(text) && !explainedMetadata;
     final hasUnownedSign = !explainedMetadata && mixedSign.hasMatch(text);
-    final hasCompetingFinancialRole =
-        !explainedMetadata &&
-        [
-          text,
-          ..._boundedUtilityAnnotationRoles(text),
-        ].any((role) => _hasBoundedUtilityFinancialPhrase(role, amount.text));
     // Recognize the existing financial roles in plural or beside joined
     // digits without changing shared classification or the raw OCR text.
     final financialWords = words
@@ -4730,6 +4746,13 @@ bool _isOwnedSummaryCardHeaderRow(
           ];
         })
         .join(' ');
+    final hasCompetingFinancialRole =
+        !explainedMetadata &&
+        [
+          text,
+          ..._boundedUtilityAnnotationRoles(text),
+          financialWords,
+        ].any((role) => _hasBoundedUtilityFinancialPhrase(role, amount.text));
     if (!isCurrency &&
         !boundedCurrencyAtoms.hasMatch(text) &&
         !currencySymbol.hasMatch(text) &&
@@ -4745,14 +4768,14 @@ bool _isOwnedSummaryCardHeaderRow(
         !hasUnownedNumbers) {
       continue;
     }
-    if (!isCurrency) return false;
+    if (!isCurrency) return null;
     for (final marker in markers) {
       final printed = _currencyAdjacentToSelectedAmount(
         '$marker ${moneyCell.group(2)}',
         currency,
       );
       if (!printed.hasExplicitEvidence || printed.currency != currency) {
-        return false;
+        return null;
       }
     }
   }
@@ -4773,10 +4796,17 @@ bool _isOwnedSummaryCardHeaderRow(
           other.bottom > label.top &&
           other.top < value.bottom;
     })) {
-      return false;
+      return null;
     }
   }
-  return true;
+  // Only rows made entirely of proven labels are explained. A pending
+  // description sharing a label row must still reach completeness accounting.
+  final labels = {totalLabels.single, nameLabels.single};
+  return {
+    rowIndex,
+    for (var index = first; index < rowIndex; index++)
+      if (rows[index].isNotEmpty && rows[index].every(labels.contains)) index,
+  };
 }
 
 bool _isAdjacentRightColumnAmount(
