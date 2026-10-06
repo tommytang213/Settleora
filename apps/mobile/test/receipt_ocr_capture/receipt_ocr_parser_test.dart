@@ -283,92 +283,6 @@ void main() {
       expect(preview.blocks, blocks, reason: reason);
     }
 
-    test('punctuated heading fragments preserve competing totals', () {
-      for (final heading in [
-        ['(Payment', 'Due)'],
-        ['[Amount', 'Due]'],
-        ['「合', '計」'],
-        ['(Pay', 'ment', 'Due)'],
-      ]) {
-        for (final scale in [0.5, 1.0, 2.0])
-          verifyFragmented(
-            fragmentedTotalEvidence(heading, scale),
-            '$heading $scale',
-          );
-      }
-    });
-    test('each accepted chart tick checks its own neighboring evidence', () {
-      for (final scale in [0.5, 1.0, 2.0])
-        for (final higher in [false, true]) {
-          verifyChartPositive(
-            chartTickEvidence(scale, higher: higher),
-            '$scale $higher',
-          );
-          for (final fragment in ['USD', 'HK', r'$', '-', 'or90', 'unknown']) {
-            verifyChartNegative(
-              chartTickEvidence(scale, fragment: fragment, higher: higher),
-              '$scale $fragment $higher',
-            );
-          }
-        }
-    });
-
-    test(
-      'closed chart ownership preserves only proven plotted values and headings',
-      () {
-        for (final scale in [0.5, 1.0, 2.0]) {
-          for (final title in [
-            null,
-            'Therms Used',
-            'kWh consumed',
-            'units usage',
-          ]) {
-            verifyChartPositive(
-              chartTickEvidence(scale, higher: true, point: '85', title: title),
-              '$scale $title',
-            );
-          }
-          for (final point in ['150', 'USD85', '85 maybe', '+85']) {
-            verifyChartNegative(
-              chartTickEvidence(scale, higher: true, point: point),
-              '$scale $point',
-            );
-          }
-          verifyChartNegative(
-            chartTickEvidence(scale, higher: true, point: '85', pointLeft: 825),
-            '$scale misaligned',
-          );
-          for (final fragment in ['USD', 'HK', r'$', '-', 'or90', 'unknown']) {
-            verifyChartNegative(
-              chartTickEvidence(
-                scale,
-                higher: true,
-                point: '85',
-                pointFragment: fragment,
-              ),
-              '$scale $fragment',
-            );
-          }
-          for (final title in ['USD', 'Therms Used USD90.00', 'maybe']) {
-            verifyChartNegative(
-              chartTickEvidence(scale, higher: true, point: '85', title: title),
-              '$scale $title',
-            );
-          }
-          verifyChartNegative(
-            chartTickEvidence(
-              scale,
-              higher: true,
-              point: '85',
-              title: 'Therms Used',
-              titleLeft: 750,
-            ),
-            '$scale displaced title',
-          );
-        }
-      },
-    );
-
     List<ReceiptOcrBlockEvidence> fragmentedTotalEvidence(
       List<String> heading,
       double scale, {
@@ -442,6 +356,94 @@ void main() {
       expect(preview.total, '0199', reason: reason);
       expect(preview.blocks, blocks, reason: reason);
     }
+
+    test('punctuated heading fragments preserve competing totals', () {
+      for (final heading in [
+        ['(Payment', 'Due)'],
+        ['[Amount', 'Due]'],
+        ['「合', '計」'],
+        ['(Pay', 'ment', 'Due)'],
+      ]) {
+        for (final scale in [0.5, 1.0, 2.0]) {
+          verifyFragmented(
+            fragmentedTotalEvidence(heading, scale),
+            '$heading $scale',
+          );
+        }
+      }
+    });
+    test('each accepted chart tick checks its own neighboring evidence', () {
+      for (final scale in [0.5, 1.0, 2.0]) {
+        for (final higher in [false, true]) {
+          verifyChartPositive(
+            chartTickEvidence(scale, higher: higher),
+            '$scale $higher',
+          );
+          for (final fragment in ['USD', 'HK', r'$', '-', 'or90', 'unknown']) {
+            verifyChartNegative(
+              chartTickEvidence(scale, fragment: fragment, higher: higher),
+              '$scale $fragment $higher',
+            );
+          }
+        }
+      }
+    });
+
+    test(
+      'closed chart ownership preserves only proven plotted values and headings',
+      () {
+        for (final scale in [0.5, 1.0, 2.0]) {
+          for (final title in [
+            null,
+            'Therms Used',
+            'kWh consumed',
+            'units usage',
+          ]) {
+            verifyChartPositive(
+              chartTickEvidence(scale, higher: true, point: '85', title: title),
+              '$scale $title',
+            );
+          }
+          for (final point in ['150', 'USD85', '85 maybe', '+85']) {
+            verifyChartNegative(
+              chartTickEvidence(scale, higher: true, point: point),
+              '$scale $point',
+            );
+          }
+          verifyChartNegative(
+            chartTickEvidence(scale, higher: true, point: '85', pointLeft: 825),
+            '$scale misaligned',
+          );
+          for (final fragment in ['USD', 'HK', r'$', '-', 'or90', 'unknown']) {
+            verifyChartNegative(
+              chartTickEvidence(
+                scale,
+                higher: true,
+                point: '85',
+                pointFragment: fragment,
+              ),
+              '$scale $fragment',
+            );
+          }
+          for (final title in ['USD', 'Therms Used USD90.00', 'maybe']) {
+            verifyChartNegative(
+              chartTickEvidence(scale, higher: true, point: '85', title: title),
+              '$scale $title',
+            );
+          }
+          verifyChartNegative(
+            chartTickEvidence(
+              scale,
+              higher: true,
+              point: '85',
+              title: 'Therms Used',
+              titleLeft: 750,
+            ),
+            '$scale displaced title',
+          );
+        }
+      },
+    );
 
     test('fragmented headings preserve conflicting total evidence', () {
       for (final heading in [
