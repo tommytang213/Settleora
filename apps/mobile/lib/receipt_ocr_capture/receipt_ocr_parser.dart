@@ -1296,9 +1296,45 @@ class ReceiptOcrParser {
         !aligned(money, contact)) {
       return null;
     }
+    final financialSymbol = RegExp(r'[\p{Sc}%‰]', unicode: true);
+    final detachedSign = RegExp(r'^[+\-−–—()]+$');
+    // OCR row grouping can separate nearby boxes of different heights. Inspect
+    // the label/value band, not just the blocks assigned to this OCR row.
+    for (final other in rows.expand((blocks) => blocks)) {
+      if (row.contains(other)) continue;
+      final text = _normalizeOcrLine(other.text);
+      final financial =
+          _lineHasAmount(text) ||
+          financialSymbol.hasMatch(text) ||
+          detachedSign.hasMatch(text) ||
+          _printedCurrencyMarkerMatches(text).isNotEmpty;
+      if (!financial) continue;
+      if (!hasGeometry(other) || height(other) <= 0) return null;
+      final explicitOrStandaloneMoney =
+          _printedCurrencyMarkerMatches(text).isNotEmpty ||
+          financialSymbol.hasMatch(text) ||
+          _isStandaloneAmountRow(text);
+      // Explicit money anywhere in the surrounding band is competing. Digits
+      // embedded in a separate support column are outside the value corridor.
+      final rightBoundary = explicitOrStandaloneMoney
+          ? _blockRight(contact) + height(money)
+          : _blockRight(money) + height(money);
+      if (bottom(other) > top(money) &&
+          top(other) < bottom(money) &&
+          _blockRight(other) > _blockLeft(label) - height(money) &&
+          _blockLeft(other) < rightBoundary) {
+        return null;
+      }
+    }
+    final completeMonetaryCell = RegExp(
+      '^(?:(?:$_currencyTokenPattern)\\s*(?:$_amountTokenPattern)'
+      '|(?:$_amountTokenPattern)\\s*(?:$_currencyTokenPattern))\$',
+      caseSensitive: false,
+    );
     String? ownedAmount(String text) {
       final normalized = _normalizeOcrLine(text);
-      if (!_isStandaloneAmountRow(normalized) ||
+      if (!completeMonetaryCell.hasMatch(normalized) ||
+          !_isStandaloneAmountRow(normalized) ||
           _printedCurrencyMarkerMatches(normalized).length != 1 ||
           RegExp(_amountTokenPattern).allMatches(normalized).length != 1 ||
           _hasDetachedAmountSign(normalized)) {
@@ -1330,10 +1366,19 @@ class ReceiptOcrParser {
             _isFinancialLabelWithAdjacentAmount(lines, rows, otherIndex)
             ? '${lines[otherIndex]} ${lines[otherIndex + 1]}'
             : lines[otherIndex];
-        if (_isPrimaryTotalCurrencyLine(
-          effectiveLine,
-          effectiveLine.toLowerCase(),
-        )) {
+        // The existing label grammar requires a number. Probe it with a
+        // sentinel only to recognize a missing total; it never supplies money.
+        final unresolvedLabel =
+            !_lineHasAmount(effectiveLine) &&
+            _hasTotalLabel(
+              '$effectiveLine 0',
+              '${effectiveLine.toLowerCase()} 0',
+            );
+        if (unresolvedLabel ||
+            _isPrimaryTotalCurrencyLine(
+              effectiveLine,
+              effectiveLine.toLowerCase(),
+            )) {
           return null;
         }
         continue;
@@ -1360,8 +1405,12 @@ class ReceiptOcrParser {
             (suffix.isEmpty && extra == monetaryCells.single)) {
           continue;
         }
-        if (_printedCurrencyMarkerMatches(extra.text).isNotEmpty) return null;
         final extraText = _normalizeOcrLine(extra.text);
+        if (_printedCurrencyMarkerMatches(extraText).isNotEmpty ||
+            financialSymbol.hasMatch(extraText) ||
+            detachedSign.hasMatch(extraText)) {
+          return null;
+        }
         if (!RegExp(_amountTokenPattern).hasMatch(extraText)) continue;
         // A complete city/state/postal block owns its digits as address
         // metadata only outside the label/value corridor. Other numeric text

@@ -194,6 +194,10 @@ void main() {
       double scale = 1,
       String label = 'Total Current Charges',
       String contact = 'Call us at 1-800-555-0199',
+      String totalMoney = r'$86.27',
+      bool crossRowMoney = false,
+      double crossRowMoneyLeft = 730,
+      bool crossRowSupport = false,
       String itemAmount = 'USD 86.27',
       List<String> adjustments = const [],
       bool splitLocalizedTotal = false,
@@ -209,6 +213,7 @@ void main() {
         double left,
         double right, {
         double offset = 0,
+        double cellHeight = 20,
       }) => ReceiptOcrBlockEvidence(
         text: text,
         order: row * 1000 + left.round(),
@@ -225,11 +230,11 @@ void main() {
                 ),
                 ReceiptOcrPoint(
                   x: right * scale,
-                  y: (row * 60 + 20 + offset) * scale,
+                  y: (row * 60 + cellHeight + offset) * scale,
                 ),
                 ReceiptOcrPoint(
                   x: left * scale,
-                  y: (row * 60 + 20 + offset) * scale,
+                  y: (row * 60 + cellHeight + offset) * scale,
                 ),
               ]
             : const [],
@@ -250,9 +255,45 @@ void main() {
         if (priorAmount != null) cell(priorAmount, 2, 600, 720),
         if (priorExtra != null)
           cell(priorExtra, 2, 800, 950, offset: priorExtraOffset),
-        cell(label, totalRow, 50, 300),
-        cell(r'$86.27', totalRow, 600, 720),
-        cell(contact, totalRow, 800, 1050),
+        cell(
+          label,
+          totalRow,
+          50,
+          300,
+          offset: (crossRowMoney || crossRowSupport) ? 10 : 0,
+        ),
+        cell(
+          totalMoney,
+          totalRow,
+          600,
+          720,
+          cellHeight: (crossRowMoney || crossRowSupport) ? 40 : 20,
+        ),
+        cell(
+          contact,
+          totalRow,
+          800,
+          1050,
+          offset: (crossRowMoney || crossRowSupport) ? 10 : 0,
+        ),
+        if (crossRowMoney)
+          cell(
+            'USD 90.00',
+            totalRow + 1,
+            crossRowMoneyLeft,
+            crossRowMoneyLeft + 60,
+            offset: -28,
+            cellHeight: 10,
+          ),
+        if (crossRowSupport)
+          cell(
+            'Mon-Fri 8 am-5 pm',
+            totalRow + 1,
+            800,
+            1050,
+            offset: -28,
+            cellHeight: 10,
+          ),
       ];
       final rows = <int, List<String>>{};
       for (final block in blocks) {
@@ -366,6 +407,97 @@ void main() {
         expect(preview.reviewHints, isNotEmpty);
       }
     });
+
+    test('requires one complete monetary denomination', () {
+      for (final scale in [0.5, 1.0, 2.0]) {
+        for (final money in [r'$86.27฿', r'$86.27₦', r'$86.27₽']) {
+          expect(
+            parse(scale: scale, label: 'Grand Total', totalMoney: money).total,
+            '0199',
+          );
+        }
+      }
+    });
+
+    test('retains detached financial symbols beside another total', () {
+      for (final scale in [0.5, 1.0, 2.0]) {
+        for (final symbol in ['-', '%']) {
+          expect(
+            parse(
+              scale: scale,
+              label: 'Grand Total',
+              priorTotal: 'Grand Total',
+              priorAmount: 'USD 86.27',
+              priorExtra: symbol,
+            ).total,
+            '0199',
+          );
+        }
+      }
+    });
+
+    test('checks competing money across OCR row assignments', () {
+      for (final scale in [0.5, 1.0, 2.0]) {
+        for (final left in [730.0, 770.0, 810.0]) {
+          expect(
+            parse(
+              scale: scale,
+              label: 'Grand Total',
+              crossRowMoney: true,
+              crossRowMoneyLeft: left,
+            ).total,
+            '0199',
+          );
+        }
+        expect(
+          parse(
+            scale: scale,
+            label: 'Grand Total',
+            crossRowSupport: true,
+          ).total,
+          '86.27',
+        );
+      }
+    });
+
+    test('retains unresolved totals in supported scripts', () {
+      for (final scale in [0.5, 1.0, 2.0]) {
+        for (final label in ['合計', '合计', 'Gesamt', 'الإجمالي']) {
+          expect(
+            parse(scale: scale, label: 'Grand Total', priorTotal: label).total,
+            '0199',
+          );
+        }
+      }
+    });
+
+    test(
+      'computed hints distinguish reconciled source from a real discrepancy',
+      () {
+        for (final scale in [0.5, 1.0, 2.0]) {
+          for (final discount in ['-13.73', '-13.53']) {
+            final preview = parse(
+              scale: scale,
+              label: 'Grand Total',
+              itemAmount: 'USD 100.00',
+              adjustments: ['Subtotal USD 100.00', 'Discount USD $discount'],
+            );
+            expect(preview.total, '86.27');
+            expect(preview.discount, discount);
+            expect(preview.adjustmentsComplete, isTrue);
+            expect(preview.incompleteAdjustmentReasons, isEmpty);
+            expect(
+              preview.reviewHintDecision,
+              discount == '-13.73'
+                  ? ReceiptOcrReviewDecision.none
+                  : ReceiptOcrReviewDecision
+                        .referenceAdjustmentUnreconciledWithSubtotal,
+            );
+            expect(preview.reviewHints.isEmpty, discount == '-13.73');
+          }
+        }
+      },
+    );
 
     test('keeps postal digits outside a repeated total ownership corridor', () {
       for (final scale in [0.5, 1.0, 2.0]) {
