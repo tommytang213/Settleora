@@ -4625,7 +4625,9 @@ Set<int>? _ownedSummaryCardHeaderRows(
   final nameBox = boxes[name]!;
   final nameHeight = nameBox.bottom - nameBox.top;
   if (allBlocks.any((b) {
-    if (b == name || b == nameLabels.single) return false;
+    if (row.contains(b) || b == nameLabels.single || b == totalLabels.single) {
+      return false;
+    }
     final other = boxes[b]!;
     final horizontalGap = other.right < nameBox.left
         ? nameBox.left - other.right
@@ -4637,7 +4639,9 @@ Set<int>? _ownedSummaryCardHeaderRows(
         : other.top > nameBox.bottom
         ? other.top - nameBox.bottom
         : 0;
-    return horizontalGap <= nameHeight && verticalGap <= nameHeight;
+    final otherHeight = other.bottom - other.top;
+    final neighborHeight = otherHeight > nameHeight ? otherHeight : nameHeight;
+    return horizontalGap <= neighborHeight && verticalGap <= neighborHeight;
   })) {
     return null;
   }
@@ -4761,7 +4765,11 @@ Set<int>? _ownedSummaryCardHeaderRows(
     ownedReferences.addAll([label, values.single]);
   }
   for (final neighbor in allBlocks) {
-    if (neighbor == dateLabel || neighbor == date) continue;
+    if (row.contains(neighbor) ||
+        neighbor == nameLabels.single ||
+        neighbor == totalLabels.single) {
+      continue;
+    }
     final other = boxes[neighbor]!;
     final horizontalGap = other.right < dateBox.left
         ? dateBox.left - other.right
@@ -4773,7 +4781,11 @@ Set<int>? _ownedSummaryCardHeaderRows(
         : other.top > dateBox.bottom
         ? other.top - dateBox.bottom
         : 0;
-    if (horizontalGap > dateHeight * 4 || verticalGap > dateHeight) continue;
+    final otherHeight = other.bottom - other.top;
+    final neighborHeight = otherHeight > dateHeight ? otherHeight : dateHeight;
+    if (horizontalGap > neighborHeight * 4 || verticalGap > neighborHeight) {
+      continue;
+    }
     final text = _normalizeOcrLine(neighbor.text);
     final inline = inlineReference.firstMatch(text);
     if (ownedReferences.contains(neighbor) ||
@@ -4834,7 +4846,11 @@ Set<int>? _ownedSummaryCardHeaderRows(
         : other.top > amountBox.bottom
         ? other.top - amountBox.bottom
         : 0;
-    if (horizontalGap > amountHeight || verticalGap > amountHeight * 0.5) {
+    final otherHeight = other.bottom - other.top;
+    final neighborHeight = otherHeight > amountHeight
+        ? otherHeight
+        : amountHeight;
+    if (horizontalGap > neighborHeight || verticalGap > neighborHeight * 0.5) {
       continue;
     }
     final text = _normalizeOcrLine(neighbor.text);

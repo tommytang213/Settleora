@@ -144,6 +144,111 @@ ReceiptOcrBlockEvidence _summaryBlockVariant(
 );
 
 void main() {
+  test('summary ownership measures competing heading sizes independently', () {
+    ReceiptOcrBlockEvidence extra(
+      String text,
+      double left,
+      double top,
+      double right,
+      double bottom,
+    ) => ReceiptOcrBlockEvidence(
+      text: text,
+      row: 3,
+      order: 30,
+      points: [
+        ReceiptOcrPoint(x: left, y: top),
+        ReceiptOcrPoint(x: right, y: top),
+        ReceiptOcrPoint(x: right, y: bottom),
+        ReceiptOcrPoint(x: left, y: bottom),
+      ],
+    );
+    for (final scale in [0.5, 1.0, 2.0]) {
+      ReceiptOcrBlockEvidence scaled(ReceiptOcrBlockEvidence b) =>
+          ReceiptOcrBlockEvidence(
+            text: b.text,
+            row: b.row,
+            order: b.order,
+            points: b.points
+                .map((p) => ReceiptOcrPoint(x: p.x * scale, y: p.y * scale))
+                .toList(),
+          );
+      for (final distant in [false, true]) {
+        for (final field in ['date', 'name', 'amount']) {
+          final original = _summaryCardBlocks();
+          final blocks = <ReceiptOcrBlockEvidence>[];
+          for (var i = 0; i < original.length; i++) {
+            final b = original[i];
+            if (field == 'date' &&
+                (b.text == 'Account Number' || b.text == 'AC987654321')) {
+              continue;
+            }
+            blocks.add(
+              _summaryBlockVariant(
+                b,
+                text: field == 'name' && b.text == 'Alex Q. Sample'
+                    ? 'Router Rental'
+                    : b.text,
+              ),
+            );
+            if (b.text == 'Customer Name') {
+              blocks.add(switch (field) {
+                'date' => extra(
+                  'Pay Before',
+                  531,
+                  distant ? 30 : 130,
+                  623,
+                  distant ? 100 : 200,
+                ),
+                'name' => extra(
+                  'Item',
+                  distant ? -200 : -60,
+                  205,
+                  distant ? -140 : 0,
+                  247,
+                ),
+                _ => extra(
+                  'Unit Price',
+                  distant ? 1310 : 1010,
+                  180,
+                  distant ? 1410 : 1110,
+                  250,
+                ),
+              });
+            }
+          }
+          final evidence = blocks.map(scaled).toList();
+          final p = _parseBoundedUtility(evidence);
+          expect(
+            p.itemLineDecisions[4] ==
+                ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+            distant,
+            reason: '$field distant=$distant scale=$scale',
+          );
+          expect(p.blocks, containsAll(evidence));
+        }
+      }
+      // Already owned neighboring fields do not become competing headings
+      // just because their columns are close or one field is printed larger.
+      final tight = _summaryCardBlocks()
+          .map(
+            (b) => b.text == 'Invoice Date'
+                ? _summaryBlockVariant(b, dx: -170)
+                : b.text == 'Apr 5, 2026'
+                ? _summaryBlockVariant(b, dx: -172)
+                : b,
+          )
+          .map(scaled)
+          .toList();
+      final p = _parseBoundedUtility(tight);
+      expect(
+        p.itemLineDecisions[4],
+        ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+        reason: 'owned tight fields scale=$scale',
+      );
+      expect(p.blocks, containsAll(tight));
+    }
+  });
+
   test('date ownership requires positively explained nearby metadata', () {
     ReceiptOcrBlockEvidence extra(
       String text,
