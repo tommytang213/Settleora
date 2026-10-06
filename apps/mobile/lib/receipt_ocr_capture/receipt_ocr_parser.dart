@@ -70,9 +70,12 @@ class ReceiptOcrParser {
     }
 
     final layoutRows = _matchingLayoutRows(lines, blocks);
+    final supportHoursRows = _ownedSupportHoursRows(layoutRows);
+    detachedAmountSignRows.removeAll(supportHoursRows);
     final chargeTable = _classifyChargeTableRows(
       lines,
       detachedAmountSignRows: detachedAmountSignRows,
+      nonItemEvidenceRows: supportHoursRows,
     );
     final chargeTableRows = chargeTable.items;
     final layoutAdjustmentLines = {
@@ -151,6 +154,7 @@ class ReceiptOcrParser {
       layoutChargeItems: layoutChargeItems,
       layoutAdjustmentRows: layoutAdjustmentLines.keys.toSet(),
       detachedAmountSignRows: detachedAmountSignRows,
+      nonItemEvidenceRows: supportHoursRows,
     );
     final itemCandidates = extractedItems.items;
     final dccCharge = _corroboratedDccCharge(lines);
@@ -184,7 +188,10 @@ class ReceiptOcrParser {
       layoutRows: layoutRows,
       layoutChargeItemRows: layoutChargeItems.keys.toSet(),
       hasBoundedDccFooterBoundary: hasBoundedDccFooterBoundary,
-      nonItemSummaryRows: extractedItems.nonItemSummaryRows,
+      nonItemSummaryRows: {
+        ...extractedItems.nonItemSummaryRows,
+        ...supportHoursRows,
+      },
       uncertainSummaryAmountRows: extractedItems.uncertainSummaryAmountRows,
     );
     final hasCompleteItemEvidence =
@@ -294,7 +301,12 @@ class ReceiptOcrParser {
 
     return ReceiptOcrPreview(
       merchant: merchant,
-      receiptDate: _detectDate(lines),
+      receiptDate: _detectDate(
+        lines,
+        onAmbiguousReceiptDate: () => warnings.add(
+          'Conflicting receipt dates were detected. Review the receipt date.',
+        ),
+      ),
       currency: currency,
       currencyProvenance: currencyDetection.provenance,
       subtotal: amounts.subtotal,
@@ -365,6 +377,8 @@ class ReceiptOcrParser {
     List<String> lines,
     List<List<ReceiptOcrBlockEvidence>> layoutRows,
   ) {
+    final issuer = _prominentLayoutIssuer(lines, layoutRows);
+    if (issuer != null) return issuer;
     // A multi-column letterhead may put a slogan beside the first name block
     // and the rest of the issuer name several rows below. Join aligned header
     // blocks only when a later single block repeats that full identity.
@@ -618,8 +632,12 @@ class ReceiptOcrParser {
     return (text: organization, lineIndices: indices);
   }
 
-  String? _detectDate(List<String> lines) {
+  String? _detectDate(
+    List<String> lines, {
+    void Function()? onAmbiguousReceiptDate,
+  }) {
     ({String date, int score})? best;
+    final explicitReceiptDates = <String>{};
     for (var index = 0; index < lines.length; index += 1) {
       final line = lines[index];
       final lower = line.toLowerCase();
@@ -627,7 +645,7 @@ class ReceiptOcrParser {
       // stronger than a distant unlabeled date on a long document.
       final positionScore = 100 - (index < 10 ? index : 10);
       final primaryLabel = RegExp(
-        r'\b(bill|invoice|statement|transaction|order|purchase|issued)\s*(date|on)?\b',
+        r'\b(receipt|bill|invoice|statement|transaction|order|purchase|issued)\s*(date|on)?\b',
       );
       final secondaryLabel = RegExp(
         r'\b(due|pay by|payment|paid|previous|prior|last|refund|reference|meter|reading|billing period|service period|period from|period to)\b',
@@ -649,15 +667,33 @@ class ReceiptOcrParser {
           final priorQualifier =
               !nearest.secondary &&
               RegExp(
-                r'\b(?:previous|prior|last|refund|reference|payment|paid)\s+$',
+                r'\b(?:previous|prior|last|refund|reference|payment|paid|due|order|pickup|service|stay)\s+$',
               ).hasMatch(lower.substring(0, nearest.start));
           score += nearest.secondary || priorQualifier ? -100 : 80;
+          // A printed receipt date identifies this document more directly
+          // than its order/pickup history. Only a directly attached label
+          // establishes that role; conflicting receipt dates stay unresolved.
+          if (date != null &&
+              !nearest.secondary &&
+              RegExp(
+                r'^receipt\s+date\s*[:：]?\s*$',
+              ).hasMatch(lower.substring(nearest.start, dateStart)) &&
+              !RegExp(
+                r'\b(?:previous|prior|last|refund|reference|payment|paid|due|order|pickup|service|stay)\s+$',
+              ).hasMatch(lower.substring(0, nearest.start))) {
+            explicitReceiptDates.add(date);
+          }
         } else if (index > 0 && !_lineHasAmount(lines[index - 1])) {
           final previous = lines[index - 1].toLowerCase();
           if (secondaryLabel.hasMatch(previous)) {
             score -= 30;
           } else if (primaryLabel.hasMatch(previous)) {
             score += 20;
+          }
+          if (date != null &&
+              RegExp(r'^\s*receipt\s+date\s*[:：]?\s*$').hasMatch(previous) &&
+              line.substring(0, dateStart).trim().isEmpty) {
+            explicitReceiptDates.add(date);
           }
         }
         if (date != null && (best == null || score > best!.score)) {
@@ -746,7 +782,11 @@ class ReceiptOcrParser {
         consider(formatted, separatedDate.start);
       }
     }
-    return best?.date;
+    if (explicitReceiptDates.length > 1) {
+      onAmbiguousReceiptDate?.call();
+      return null;
+    }
+    return explicitReceiptDates.singleOrNull ?? best?.date;
   }
 
   _ReceiptCurrencyDetection _detectCurrency(
@@ -2545,6 +2585,7 @@ class ReceiptOcrParser {
     Map<int, ReceiptOcrItemCandidate> layoutChargeItems = const {},
     Set<int> layoutAdjustmentRows = const {},
     Set<int> detachedAmountSignRows = const {},
+    Set<int> nonItemEvidenceRows = const {},
   }) {
     final items = <ReceiptOcrItemCandidate>[];
     final nonItemSummaryRows = <int>{};
@@ -2620,7 +2661,8 @@ class ReceiptOcrParser {
       if (ownedSummaryRows != null) {
         nonItemSummaryRows.addAll(ownedSummaryRows);
       }
-      if (ownedSummaryRows != null ||
+      if (nonItemEvidenceRows.contains(lineIndex) ||
+          ownedSummaryRows != null ||
           (_isAdministrativeLine(line) &&
               !chargeTableRows.contains(lineIndex)) ||
           _isIncludedTaxAmountLine(line) ||
@@ -4638,6 +4680,219 @@ class ReceiptOcrParser {
   }
 }
 
+// A standalone support-hours row can fall between charge rows in reading
+// order. Require a separate help/phone column beside a labeled amount column;
+// consume only the complete clock-range block, never neighboring money/text.
+Set<int> _ownedSupportHoursRows(List<List<ReceiptOcrBlockEvidence>> rows) {
+  final owned = <int>{};
+  double top(ReceiptOcrBlockEvidence b) =>
+      b.points.map((p) => p.y).reduce((a, b) => a < b ? a : b);
+  double bottom(ReceiptOcrBlockEvidence b) =>
+      b.points.map((p) => p.y).reduce((a, b) => a > b ? a : b);
+  double height(ReceiptOcrBlockEvidence b) => bottom(b) - top(b);
+  bool valid(ReceiptOcrBlockEvidence b) =>
+      b.points.length == 4 &&
+      b.points.every((p) => p.x.isFinite && p.y.isFinite) &&
+      _blockRight(b) > _blockLeft(b) &&
+      bottom(b) > top(b);
+  if (rows.expand((r) => r).any((b) => !valid(b))) return owned;
+  const day =
+      r'(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)';
+  const clock = r'(?:[1-9]|1[0-2])(?::[0-5]\d)?\s*[ap]\.?m\.?';
+  final hours = RegExp(
+    '^$day(?:\\s*(?:[-–—]|to)\\s*$day)?\\s*,?\\s*'
+    '$clock\\s*(?:[-–—]|to)\\s*$clock(?:\\s+(?:[PECMS]T|[PECMS][DS]T|UTC|GMT))?\$',
+    caseSensitive: false,
+  );
+  final help = RegExp(
+    r'^(?:need help|questions|contact(?: us)?|customer (?:service|support)|help(?: desk)?|support)\s*[:?]?$',
+    caseSensitive: false,
+  );
+  bool phone(ReceiptOcrBlockEvidence b) =>
+      RegExp(
+        r'^(?:(?:phone|tel|call)\s*[:：]?\s*)?\+?\d[\d ()-]*\d$',
+        caseSensitive: false,
+      ).hasMatch(b.text.trim()) &&
+      RegExp(r'\d').allMatches(b.text).length >= 7 &&
+      RegExp(r'\d').allMatches(b.text).length <= 15;
+  for (var header = 1; header < rows.length; header++) {
+    final amounts = rows[header]
+        .where(
+          (b) =>
+              valid(b) &&
+              RegExp(r'^amount\s*$', caseSensitive: false).hasMatch(b.text),
+        )
+        .toList();
+    final descriptions = rows[header]
+        .where(
+          (b) =>
+              valid(b) &&
+              RegExp(
+                r'^description\s*$',
+                caseSensitive: false,
+              ).hasMatch(b.text),
+        )
+        .toList();
+    if (amounts.length != 1 || descriptions.length != 1) continue;
+    final amount = amounts.single;
+    final description = descriptions.single;
+    if (_blockRight(description) >= _blockLeft(amount) ||
+        top(description) >= bottom(amount) ||
+        bottom(description) <= top(amount))
+      continue;
+    final headings = [...rows[header - 1], ...rows[header]]
+        .where(
+          (b) =>
+              valid(b) &&
+              help.hasMatch(b.text.trim()) &&
+              _blockLeft(b) - _blockRight(amount) >= height(amount) &&
+              bottom(b) <= bottom(amount),
+        )
+        .toList();
+    if (headings.length != 1) continue;
+    final heading = headings.single;
+    final phones = rows
+        .skip(header)
+        .take(3)
+        .expand((r) => r)
+        .where(
+          (b) =>
+              valid(b) &&
+              phone(b) &&
+              top(b) >= bottom(heading) &&
+              top(b) - bottom(heading) <= height(heading) * 4 &&
+              _blockLeft(b) >= _blockLeft(heading) - height(heading) / 2 &&
+              _blockLeft(b) - _blockRight(amount) >= height(amount),
+        )
+        .toList();
+    if (phones.length != 1) continue;
+    final contact = phones.single;
+    for (var i = header + 1; i < rows.length && i <= header + 5; i++) {
+      if (rows[i].length != 1) continue;
+      final b = rows[i].single;
+      if (!valid(b) ||
+          !hours.hasMatch(_normalizeOcrLine(b.text)) ||
+          top(b) < bottom(contact) ||
+          top(b) - bottom(contact) > height(contact) * 4 ||
+          (_blockLeft(b) - _blockLeft(contact)).abs() > height(contact) ||
+          _blockLeft(b) - _blockRight(amount) < height(amount))
+        continue;
+      // Misgrouped/overlapping evidence from another row cannot be hidden by
+      // a support label, even when this row itself contains only one block.
+      final overlap = rows
+          .expand((r) => r)
+          .any(
+            (other) =>
+                !identical(other, b) &&
+                valid(other) &&
+                top(other) < bottom(b) &&
+                bottom(other) > top(b) &&
+                _blockLeft(other) < _blockRight(b) &&
+                _blockRight(other) > _blockLeft(b),
+          );
+      if (!overlap) owned.add(i);
+    }
+  }
+  return owned;
+}
+
+// A provider row can flatten a large issuer logo together with a distant
+// slogan. Select the actual header blocks only when typography, a business
+// descriptor and a bounded header region agree. This does not classify other
+// blocks on the same row as merchant evidence.
+({String text, Set<int> lineIndices})? _prominentLayoutIssuer(
+  List<String> lines,
+  List<List<ReceiptOcrBlockEvidence>> rows,
+) {
+  if (rows.length != lines.length || rows.isEmpty) return null;
+  double top(ReceiptOcrBlockEvidence b) =>
+      b.points.map((p) => p.y).reduce((a, b) => a < b ? a : b);
+  double bottom(ReceiptOcrBlockEvidence b) =>
+      b.points.map((p) => p.y).reduce((a, b) => a > b ? a : b);
+  bool valid(ReceiptOcrBlockEvidence b) =>
+      b.points.length == 4 &&
+      b.points.every((p) => p.x.isFinite && p.y.isFinite) &&
+      _blockRight(b) > _blockLeft(b) &&
+      top(b) < bottom(b) &&
+      (b.confidence == null || b.confidence! >= 0.4);
+  double height(ReceiptOcrBlockEvidence b) => bottom(b) - top(b);
+  final measured = rows.expand((r) => r).where(valid).toList();
+  if (measured.length < 5) return null;
+  final heights = measured.map(height).toList()..sort();
+  final bodyHeight = heights[heights.length ~/ 2];
+  final boundary = RegExp(
+    r'^\s*(?:(?:bill(?:ed)?|sold|ship(?:ped)?|remit|pay)\s+to\b|customer\b|account\s+(?:number|no|id)\b|(?:receipt|bill|invoice|statement|order|purchase|due)\s+date\b|(?:description|qty|quantity)\b)',
+    caseSensitive: false,
+  );
+  var headerEnd = rows.length < 6 ? rows.length : 6;
+  for (var i = 0; i < headerEnd; i++) {
+    if (rows[i].any((b) => boundary.hasMatch(b.text)) ||
+        _isChargeTableHeader(lines[i]) ||
+        rows[i].any((b) => _hasChargeTableMonetaryEvidence(b.text))) {
+      headerEnd = i;
+      break;
+    }
+  }
+  final businessType = RegExp(
+    r'\b(?:water\s+services?|gas\s+utility|electric|mobile|parking|pharmacy|boutique|coffee\s+roasters|kitchen\s*[+&]\s*bar|fuel|market|store|restaurant|cafe|hotel)$',
+    caseSensitive: false,
+  );
+  bool name(ReceiptOcrBlockEvidence b) =>
+      valid(b) &&
+      RegExp(
+        r"^[\p{L}][\p{L}\s&+.'’−-]{2,79}$",
+        unicode: true,
+      ).hasMatch(b.text.trim()) &&
+      !_isAdministrativeLine(b.text) &&
+      !_isChargeTableHeader(b.text) &&
+      !boundary.hasMatch(b.text) &&
+      !RegExp(
+        r'\b(?:invoice|receipt|statement|bill|support|contact|phone|email)\b',
+        caseSensitive: false,
+      ).hasMatch(b.text);
+  final candidates =
+      <String, ({String text, Set<ReceiptOcrBlockEvidence> blocks})>{};
+  for (var i = 0; i < headerEnd; i++) {
+    for (final last in rows[i]) {
+      if (!name(last)) continue;
+      final type = businessType.firstMatch(last.text.trim());
+      if (type == null) continue;
+      final parts = <ReceiptOcrBlockEvidence>[last];
+      if (type.start == 0 && i > 0) {
+        final preceding = rows[i - 1].where((b) {
+          if (!name(b)) return false;
+          final gap = top(last) - bottom(b);
+          final width = _blockRight(b) - _blockLeft(b);
+          return height(b) >= height(last) &&
+              gap >= -height(b) * 0.5 &&
+              gap <= height(b) &&
+              ((_blockCenterX(b) - _blockCenterX(last)).abs() <= width * 0.2 ||
+                  (_blockLeft(b) - _blockLeft(last)).abs() <= height(b) * 0.5);
+        }).toList();
+        if (preceding.length != 1) continue;
+        parts.insert(0, preceding.single);
+      } else if (type.start == 0) {
+        continue;
+      }
+      if (!parts.any((b) => height(b) >= bodyHeight * 1.5)) continue;
+      final text = parts.map((b) => b.text.trim()).join(' ');
+      if (text.length > 80) continue;
+      final key = _foldOrganizationSegment(text);
+      final existing = candidates[key];
+      candidates[key] = (text: text, blocks: {...?existing?.blocks, ...parts});
+    }
+  }
+  if (candidates.length != 1) return null;
+  final selected = candidates.values.single;
+  return (
+    text: selected.text,
+    lineIndices: {
+      for (var i = 0; i < headerEnd; i++)
+        if (rows[i].isNotEmpty && rows[i].every(selected.blocks.contains)) i,
+    },
+  );
+}
+
 bool _isCardApplicationIdentifierLine(String line) => RegExp(
   r'^aid\s*[:#-]?\s*[a-f0-9]{10,32}$',
   caseSensitive: false,
@@ -5886,6 +6141,7 @@ bool _isFinancialLabelWithAdjacentAmount(
 ({Set<int> items, Set<int> ambiguous}) _classifyChargeTableRows(
   List<String> lines, {
   Set<int> detachedAmountSignRows = const {},
+  Set<int> nonItemEvidenceRows = const {},
 }) {
   final rows = <int>{};
   final ambiguous = <int>{};
@@ -5894,6 +6150,7 @@ bool _isFinancialLabelWithAdjacentAmount(
   var hasUsageColumn = false;
   var requiresLayoutAmountColumn = false;
   for (var index = 0; index < lines.length; index++) {
+    if (nonItemEvidenceRows.contains(index)) continue;
     final line = lines[index];
     final lower = line.toLowerCase();
     if (_isSupportedChargeTableHeader(lines, index)) {

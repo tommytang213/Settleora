@@ -2277,6 +2277,7 @@ class _SettleoraPersonalBillCreateScreenState
         defaultValue: _initialBillDate,
       ),
       currency:
+          _receiptOcrCurrencyCanApply(preview) &&
           preview.currencyProvenance !=
               ReceiptOcrCurrencyProvenance.defaultFallback &&
           preview.currencyProvenance !=
@@ -3794,7 +3795,9 @@ class _ReceiptOcrApplySelectionList extends StatelessWidget {
             color: Colors.transparent,
             child: CheckboxListTile(
               key: Key('$keyPrefix-ocr-apply-${option.section.name}'),
-              value: option.selected,
+              // A correction can make a previously selected financial
+              // section unavailable. Display only what Apply can accept.
+              value: option.selected && option.enabled,
               onChanged: enabled && option.enabled
                   ? (value) => onChanged(
                       selection.copyWithSection(
@@ -7228,6 +7231,7 @@ class _SettleoraGroupBillCreateScreenState
         defaultValue: _initialBillDate,
       ),
       currency:
+          _receiptOcrCurrencyCanApply(preview) &&
           preview.currencyProvenance !=
               ReceiptOcrCurrencyProvenance.defaultFallback &&
           preview.currencyProvenance !=

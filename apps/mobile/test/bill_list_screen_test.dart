@@ -32,6 +32,178 @@ import 'package:mobile/ui/settleora_components.dart';
 import 'package:mobile/ui/settleora_form_fields.dart';
 
 void main() {
+  testWidgets(
+    'editing selected OCR money keeps visible Apply choices truthful',
+    (tester) async {
+      await useLargeSurface(tester);
+      final preview = const ReceiptOcrParser().parse(
+        'Example Cafe\nCoffee USD 10.00\nTotal USD 10.00',
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraPersonalBillCreateScreen(
+            repository: FakeBillRepository(),
+            attachmentFileInput: FakeBillAttachmentFileInput(
+              pickedFile: samplePickedAttachmentFile(
+                filename: 'receipt.png',
+                contentType: 'image/png',
+                bytes: samplePngBytes(width: 64, height: 64),
+              ),
+            ),
+            receiptOcrProvider: FakeReceiptOcrProvider(
+              ReceiptOcrResult.extracted(preview),
+            ),
+            defaultCurrency: 'USD',
+            scanReceiptOnStart: true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final currency = find.byKey(
+        const Key('personal-bill-ocr-apply-currency'),
+      );
+      final items = find.byKey(const Key('personal-bill-ocr-apply-items'));
+      final amount = find.byKey(
+        const ValueKey('personal-bill-ocr-item-line-total-0'),
+      );
+      expect(tester.widget<CheckboxListTile>(currency).value, isTrue);
+      expect(tester.widget<CheckboxListTile>(items).value, isTrue);
+      await tester.enterText(amount, '');
+      await tester.pumpAndSettle();
+      for (final option in [currency, items]) {
+        expect(tester.widget<CheckboxListTile>(option).value, isFalse);
+        expect(tester.widget<CheckboxListTile>(option).onChanged, isNull);
+      }
+      await tester.enterText(amount, '10.00');
+      await tester.pumpAndSettle();
+      for (final option in [currency, items]) {
+        expect(tester.widget<CheckboxListTile>(option).value, isTrue);
+        expect(tester.widget<CheckboxListTile>(option).onChanged, isNotNull);
+      }
+      final billCurrency = find.descendant(
+        of: find.byKey(const Key('personal-bill-currency')),
+        matching: find.byType(CurrencySelector),
+      );
+      tester.widget<CurrencySelector>(billCurrency).onChanged('EUR');
+      await tester.pumpAndSettle();
+      await _tapReceiptOcrApply(tester, 'personal-bill');
+      expect(tester.widget<CurrencySelector>(billCurrency).value, 'USD');
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('personal-bill-item-amount-0')),
+            )
+            .controller
+            ?.text,
+        '10.00',
+      );
+    },
+  );
+  for (final group in [false, true]) {
+    testWidgets(
+      'tax-blocked currency is visibly unselected and stays unchanged group=$group',
+      (tester) async {
+        await useLargeSurface(tester);
+        final prefix = group ? 'group-bill' : 'personal-bill';
+        // Source-transcribed net-priced grocery shape, not a native OCR replay.
+        final preview = const ReceiptOcrParser().parse(
+          'Example Market\n'
+          'Good food for everyone\nDate: 2025-04-12\n'
+          'Bananas USD 1.25\nMilk USD 3.49\nBread USD 2.99\n'
+          'Eggs USD 3.29\nGreens USD 2.50\nSubtotal USD 13.52\n'
+          'Tax USD 0.95\nTotal USD 14.47',
+        );
+        expect(preview.currency, 'USD');
+        expect(preview.items, hasLength(5));
+        expect(preview.tax, '0.95');
+        expect(preview.total, '14.47');
+        final fileInput = FakeBillAttachmentFileInput(
+          pickedFile: samplePickedAttachmentFile(
+            filename: 'receipt.png',
+            contentType: 'image/png',
+            bytes: samplePngBytes(width: 64, height: 64),
+          ),
+        );
+        final provider = FakeReceiptOcrProvider(
+          ReceiptOcrResult.extracted(preview),
+        );
+        if (group) {
+          await _pumpGroupBillCreate(
+            tester,
+            repository: FakeBillRepository(),
+            groupRepository: FakeGroupRepository(
+              members: [sampleGroupMember()],
+            ),
+            attachmentRepository: FakeBillAttachmentRepository(),
+            attachmentFileInput: fileInput,
+            receiptOcrProvider: provider,
+          );
+          await tester.tap(find.byKey(const Key('group-bill-list-create')));
+          await tester.pumpAndSettle();
+          await _goToGroupBillCreateStep(tester, 'receiptItems');
+          await tester.ensureVisible(find.byKey(Key('$prefix-scan-receipt')));
+          await tester.tap(find.byKey(Key('$prefix-scan-receipt')));
+        } else {
+          await tester.pumpWidget(
+            MaterialApp(
+              home: SettleoraPersonalBillCreateScreen(
+                repository: FakeBillRepository(),
+                attachmentFileInput: fileInput,
+                receiptOcrProvider: provider,
+                defaultCurrency: 'USD',
+                scanReceiptOnStart: true,
+              ),
+            ),
+          );
+        }
+        await tester.pumpAndSettle();
+        final choice = find.byKey(Key('$prefix-ocr-apply-currency'));
+        final selected = tester.widget<CheckboxListTile>(choice).value;
+        final enabled =
+            tester.widget<CheckboxListTile>(choice).onChanged != null;
+        final billCurrency = find.descendant(
+          of: find.byKey(Key('$prefix-currency'), skipOffstage: false),
+          matching: find.byType(CurrencySelector, skipOffstage: false),
+          skipOffstage: false,
+        );
+        expect(billCurrency, findsOneWidget);
+        tester.widget<CurrencySelector>(billCurrency).onChanged('EUR');
+        await tester.pumpAndSettle();
+        await _setReceiptOcrSection(tester, prefix, 'merchant', true);
+        await _tapReceiptOcrApply(tester, prefix);
+        expect(billCurrency, findsOneWidget);
+        final actual = tester.widget<CurrencySelector>(billCurrency).value;
+        // Diagnoses the native stage's two possibilities without changing its
+        // expected USD: lookup succeeds, and rejected financial Apply keeps EUR.
+        print(
+          'UI_APPLY_TRACE group=$group selected=$selected enabled=$enabled '
+          'finderCount=${billCurrency.evaluate().length} after=$actual expected=${preview.currency}',
+        );
+        expect(actual, 'EUR');
+        expect(enabled, isFalse);
+        expect(selected, isFalse);
+        expect(tester.widget<CheckboxListTile>(choice).value, isFalse);
+        expect(
+          tester
+              .widget<TextFormField>(
+                find.byKey(ValueKey('$prefix-item-name-0')),
+              )
+              .controller
+              ?.text,
+          isEmpty,
+        );
+        expect(
+          tester
+              .widget<TextFormField>(
+                find.byKey(ValueKey('$prefix-item-amount-0')),
+              )
+              .controller
+              ?.text,
+          isEmpty,
+        );
+      },
+    );
+  }
   for (final group in [false, true]) {
     for (final role in ['tip', 'shipping']) {
       for (final evidence in [
