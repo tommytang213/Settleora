@@ -400,6 +400,17 @@ internal static class ReceiptOcrReviewEndpoints
             return ReceiptOcrReviewConflict();
         }
 
+        await using var transaction = await BeginReceiptReviewWriteTransactionAsync(
+            dbContext, billContext.BillId, cancellationToken);
+        // Re-read after waiting for the lock; the draft and review may have changed.
+        billContext = await LoadVisibleBillContextAsync(
+            dbContext, routeGroupId, billId, actor.UserProfileId, cancellationToken);
+        if (billContext is null || !CanMutateReview(billContext, actor.UserProfileId))
+        {
+            return BillUnavailable();
+        }
+        if (!CanChangeReviewInCurrentState(billContext)) return ReceiptOcrReviewConflict();
+
         var attachment = await LoadReadableReceiptAttachmentQuery(dbContext, billContext, fileId)
             .SingleOrDefaultAsync(cancellationToken);
         if (attachment is null)
@@ -460,6 +471,7 @@ internal static class ReceiptOcrReviewEndpoints
                     : ReceiptOcrReviewTaxReconciliationModes.Unresolved;
         }
 
+        var replaceLines = review is null || !HasSameSubmittedLines(review, submittedReview.Lines);
         if (review is null)
         {
             review = new ReceiptOcrReview
@@ -475,8 +487,20 @@ internal static class ReceiptOcrReviewEndpoints
         }
         else
         {
-            var existingLines = review.Lines.ToArray();
-            dbContext.Set<ReceiptOcrReviewLine>().RemoveRange(existingLines);
+            if (replaceLines)
+            {
+                var existingLineIds = review.Lines.Select(line => line.Id).ToArray();
+                if (await dbContext.Set<ExpenseBillItem>().AnyAsync(
+                    item => item.SourceReceiptOcrReviewLineId.HasValue
+                        && existingLineIds.Contains(item.SourceReceiptOcrReviewLineId.Value),
+                    cancellationToken))
+                {
+                    // Historical applied-line references cannot be discarded.
+                    // Material corrections need a separately approved retention migration.
+                    return ReceiptOcrReviewConflict();
+                }
+                dbContext.Set<ReceiptOcrReviewLine>().RemoveRange(review.Lines.ToArray());
+            }
             if (submittedReview.AdjustmentEvidenceSupplied)
             {
                 var existingAdjustments = review.Adjustments.ToArray();
@@ -485,7 +509,7 @@ internal static class ReceiptOcrReviewEndpoints
         }
 
         ApplySubmittedReview(review, submittedReview, taxMode, now);
-        AddSubmittedLines(dbContext, review, submittedReview.Lines, now);
+        if (replaceLines) AddSubmittedLines(dbContext, review, submittedReview.Lines, now);
         if (submittedReview.AdjustmentEvidenceSupplied)
         {
             AddSubmittedAdjustments(dbContext, review, submittedReview.AdjustmentEvidence, now);
@@ -509,9 +533,11 @@ internal static class ReceiptOcrReviewEndpoints
         try
         {
             await dbContext.SaveChangesAsync(cancellationToken);
+            if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         }
         catch (DbUpdateException)
         {
+            if (transaction is not null) await transaction.RollbackAsync(cancellationToken);
             dbContext.ChangeTracker.Clear();
             return ReceiptOcrReviewSaveFailed();
         }
@@ -1056,6 +1082,17 @@ internal static class ReceiptOcrReviewEndpoints
             return ReceiptOcrReviewConflict();
         }
 
+        await using var transaction = await BeginReceiptReviewWriteTransactionAsync(
+            dbContext, billContext.BillId, cancellationToken);
+        // Re-read after waiting for the lock; the draft and review may have changed.
+        billContext = await LoadVisibleBillContextAsync(
+            dbContext, routeGroupId, billId, actor.UserProfileId, cancellationToken);
+        if (billContext is null || !CanMutateReview(billContext, actor.UserProfileId))
+        {
+            return BillUnavailable();
+        }
+        if (!CanApplyReviewInCurrentState(billContext)) return ReceiptOcrReviewConflict();
+
         var attachment = await LoadReadableReceiptAttachmentQuery(dbContext, billContext, fileId)
             .SingleOrDefaultAsync(cancellationToken);
         if (attachment is null)
@@ -1088,14 +1125,8 @@ internal static class ReceiptOcrReviewEndpoints
             return ReceiptOcrReviewConflict();
         }
 
-        IDbContextTransaction? transaction = null;
         try
         {
-            if (dbContext.Database.IsRelational())
-            {
-                transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
-            }
-
             var bill = await LoadTrackedBillForApplyQuery(dbContext, billContext)
                 .SingleOrDefaultAsync(cancellationToken);
             if (bill is null)
@@ -1165,13 +1196,6 @@ internal static class ReceiptOcrReviewEndpoints
 
             dbContext.ChangeTracker.Clear();
             return ReceiptOcrReviewSaveFailed();
-        }
-        finally
-        {
-            if (transaction is not null)
-            {
-                await transaction.DisposeAsync();
-            }
         }
     }
 
@@ -3057,6 +3081,43 @@ internal static class ReceiptOcrReviewEndpoints
         }
     }
 
+    private static async Task<IDbContextTransaction?> BeginReceiptReviewWriteTransactionAsync(
+        SettleoraDbContext dbContext, Guid billId, CancellationToken cancellationToken)
+    {
+        if (!dbContext.Database.IsRelational()) return null;
+        var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            // Production persistence is PostgreSQL. Serialize save and Apply for
+            // this bill before reading review versions or replacing contributions.
+            await dbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT id FROM expense_bills WHERE id = {billId} FOR UPDATE", cancellationToken);
+            return transaction;
+        }
+        catch
+        {
+            await transaction.DisposeAsync();
+            throw;
+        }
+    }
+
+    private static bool HasSameSubmittedLines(
+        ReceiptOcrReview review, IReadOnlyList<SubmittedReceiptOcrReviewLine> lines)
+    {
+        var existing = review.Lines.OrderBy(line => line.SortOrder).ToArray();
+        if (existing.Length != lines.Count) return false;
+        for (var index = 0; index < existing.Length; index++)
+        {
+            var oldLine = existing[index];
+            var newLine = lines[index];
+            if (oldLine.SortOrder != newLine.SortOrder || oldLine.Text != newLine.Text
+                || oldLine.Quantity != newLine.Quantity
+                || oldLine.UnitPriceAmount != newLine.UnitPriceAmount
+                || oldLine.LineTotalAmount != newLine.LineTotalAmount) return false;
+        }
+        return true;
+    }
+
     private static bool HasSameTaxRelevantMoney(
         ReceiptOcrReview review,
         SubmittedReceiptOcrReview submitted)
@@ -3071,19 +3132,7 @@ internal static class ReceiptOcrReviewEndpoints
         {
             return false;
         }
-        var oldLines = review.Lines.OrderBy(line => line.SortOrder).ToArray();
-        for (var index = 0; index < oldLines.Length; index++)
-        {
-            var oldLine = oldLines[index];
-            var newLine = submitted.Lines[index];
-            if (oldLine.SortOrder != newLine.SortOrder || oldLine.Text != newLine.Text
-                || oldLine.Quantity != newLine.Quantity
-                || oldLine.UnitPriceAmount != newLine.UnitPriceAmount
-                || oldLine.LineTotalAmount != newLine.LineTotalAmount)
-            {
-                return false;
-            }
-        }
+        if (!HasSameSubmittedLines(review, submitted.Lines)) return false;
         if (submitted.AdjustmentEvidenceSupplied)
         {
             var oldAdjustments = review.Adjustments.OrderBy(item => item.SortOrder).ToArray();

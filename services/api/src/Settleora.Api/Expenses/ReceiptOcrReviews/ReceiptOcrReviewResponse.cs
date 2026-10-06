@@ -392,7 +392,9 @@ internal sealed record ReceiptOcrReviewApplyPreviewResponse(
         {
             return false;
         }
-        if (review.HeaderEvidence.Count > 0)
+        if (review.HeaderEvidence.Count > 0
+            || review.Adjustments.Any(adjustment =>
+                !string.Equals(adjustment.Currency, review.Currency, StringComparison.Ordinal)))
         {
             // Preserved foreign financial headers cannot be reconciled by the
             // same-currency scalar equation, even with an explicit client mode.
@@ -439,8 +441,7 @@ internal sealed record ReceiptOcrReviewApplyPreviewResponse(
             if (!string.Equals(adjustment.Currency, review.Currency, StringComparison.Ordinal))
             {
                 expectedHeaderTotal = 0m;
-                taxModeInvalid = mode is ReceiptOcrReviewTaxReconciliationModes.AddToBase
-                    or ReceiptOcrReviewTaxReconciliationModes.AlreadyInBase;
+                taxModeInvalid = true;
                 return false;
             }
             expectedHeaderTotal += adjustment.Direction is ReceiptOcrReviewAdjustmentDirections.Credit

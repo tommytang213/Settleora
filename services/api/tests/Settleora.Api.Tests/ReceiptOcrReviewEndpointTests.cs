@@ -83,7 +83,7 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
     [OcrPostgresTheory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task ReviewRoundThreeSaveAfterApplyKeepsHistoricalSourceLines(bool groupRoute)
+    public async Task ReviewRoundThreeSaveRetryPreservesReferencesAndBlocksUnapprovedLineReplacement(bool groupRoute)
     {
         var context = await CreatePostgresFactoryAsync();
         using var testFactory = context.Factory;
@@ -101,8 +101,20 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
             using var request = CreateJsonBearerRequest(HttpMethod.Put, setup.ReviewPath,
                 setup.Token, body);
             using var saved = await client.SendAsync(request);
+            if (correction)
+            {
+                Assert.Equal(HttpStatusCode.Conflict, saved.StatusCode);
+                var unchanged = await ReadReceiptOcrReviewAsync(testFactory, setup.Review.Id);
+                Assert.Equal(originalLine.Id, Assert.Single(unchanged.Lines).Id);
+                Assert.Equal(24m, unchanged.Lines.Single().LineTotalAmount);
+                var unchangedBill = await ReadBillAsync(testFactory, setup.BillId);
+                Assert.Equal(34m, unchangedBill.TotalAmount);
+                Assert.Equal(24m, Assert.Single(unchangedBill.Items.Where(item =>
+                    item.DeletedAtUtc is null && item.SourceReceiptOcrReviewId == setup.Review.Id)).Amount);
+                continue;
+            }
             Assert.True(saved.IsSuccessStatusCode,
-                $"Save after Apply failed: {saved.StatusCode}; {await saved.Content.ReadAsStringAsync()}");
+                $"Save retry after Apply failed: {saved.StatusCode}; {await saved.Content.ReadAsStringAsync()}");
             var review = await ReadReceiptOcrReviewAsync(testFactory, setup.Review.Id);
             Assert.Equal(correction ? 2 : 1, review.Lines.Count);
             await using (var scope = testFactory.Services.CreateAsyncScope())

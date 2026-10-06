@@ -17640,7 +17640,7 @@ ReceiptOcrReviewSaveRequest _receiptOcrReviewSaveRequestFromSavedEdit(
   final preserveHeaderMoney =
       editedCurrency != null && editedCurrency == originalCurrency;
   final candidate = ReceiptOcrReviewSaveRequest(
-    status: ReceiptOcrReviewStatusValues.provisional,
+    status: review.status,
     source: review.source,
     merchantText: _nullableTrimmedText(preview.merchant),
     receiptIssuedAtUtc: _parseReceiptOcrReviewDate(preview.receiptDate),

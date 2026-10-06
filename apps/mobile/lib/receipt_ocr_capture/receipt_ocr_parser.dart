@@ -2382,7 +2382,12 @@ class ReceiptOcrParser {
       final totalMinor = totalCandidates.length == 1
           ? _ocrAmountMinorUnits(totalCandidates.single.value, currency)
           : null;
-      final adjustmentParts = <String?>[tax, service, tip, shipping];
+      final adjustmentParts = <String?>[
+        if (!taxIncludedInTotal) tax,
+        service,
+        tip,
+        shipping,
+      ];
       final adjustmentMinors = adjustmentParts
           .whereType<String>()
           .map((value) => _ocrAmountMinorUnits(value, currency))
