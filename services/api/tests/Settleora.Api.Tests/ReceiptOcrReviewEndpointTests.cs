@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Settleora.Api.Auth.Sessions;
@@ -42,6 +43,242 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
     public ReceiptOcrReviewEndpointTests(WebApplicationFactory<Program> factory)
     {
         this.factory = factory;
+    }
+
+    [OcrPostgresTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ReviewRoundThreeConcurrentApplyKeepsOneContribution(bool groupRoute)
+    {
+        var barrier = new OcrApplySaveBarrier();
+        var context = await CreatePostgresFactoryAsync(barrier);
+        using var testFactory = context.Factory;
+        var setup = await SeedRoundThreeReviewAsync(context, groupRoute);
+        using var client = testFactory.CreateClient();
+        barrier.Enabled = true;
+        using var firstRequest = CreateJsonBearerRequest(HttpMethod.Post, setup.ApplyPath,
+            setup.Token, ApplyRequestJson(setup.Review.UpdatedAtUtc));
+        var first = client.SendAsync(firstRequest);
+        await barrier.FirstSave.Task.WaitAsync(TimeSpan.FromSeconds(15));
+        using var secondRequest = CreateJsonBearerRequest(HttpMethod.Post, setup.ApplyPath,
+            setup.Token, ApplyRequestJson(setup.Review.UpdatedAtUtc));
+        var second = client.SendAsync(secondRequest);
+        // Before the fix both requests reach SaveChanges with stale bill snapshots.
+        // A serialized second request must wait until the first transaction ends.
+        await Task.WhenAny(barrier.SecondSave.Task, Task.Delay(TimeSpan.FromSeconds(2)));
+        var simultaneousSaves = barrier.Saves;
+        barrier.Release.TrySetResult();
+        using var firstResponse = await first.WaitAsync(TimeSpan.FromSeconds(15));
+        using var secondResponse = await second.WaitAsync(TimeSpan.FromSeconds(15));
+        Assert.Equal(HttpStatusCode.OK, firstResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, secondResponse.StatusCode);
+        var bill = await ReadBillAsync(testFactory, setup.BillId);
+        var active = bill.Items.Where(item => item.DeletedAtUtc is null).ToArray();
+        Assert.True(active.Sum(item => item.Amount) == 34m,
+            $"Concurrent Apply reached {simultaneousSaves} saves before release; active item sum={active.Sum(item => item.Amount)}, stored total={bill.TotalAmount}");
+        Assert.Single(active, item => item.SourceReceiptOcrReviewId == setup.Review.Id);
+        Assert.Equal(34m, bill.TotalAmount);
+    }
+
+    [OcrPostgresTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ReviewRoundThreeSaveAfterApplyKeepsHistoricalSourceLines(bool groupRoute)
+    {
+        var context = await CreatePostgresFactoryAsync();
+        using var testFactory = context.Factory;
+        var setup = await SeedRoundThreeReviewAsync(context, groupRoute);
+        using var client = testFactory.CreateClient();
+        using (var request = CreateJsonBearerRequest(HttpMethod.Post, setup.ApplyPath,
+            setup.Token, ApplyRequestJson(setup.Review.UpdatedAtUtc)))
+        using (var applied = await client.SendAsync(request))
+            Assert.Equal(HttpStatusCode.OK, applied.StatusCode);
+        var originalLine = setup.Review.Lines.Single();
+        foreach (var correction in new[] { false, true })
+        {
+            context.TimeProvider.SetUtcNow(context.TimeProvider.GetUtcNow().AddMinutes(1));
+            var body = RoundThreeReviewBody(correction);
+            using var request = CreateJsonBearerRequest(HttpMethod.Put, setup.ReviewPath,
+                setup.Token, body);
+            using var saved = await client.SendAsync(request);
+            Assert.True(saved.IsSuccessStatusCode,
+                $"Save after Apply failed: {saved.StatusCode}; {await saved.Content.ReadAsStringAsync()}");
+            var review = await ReadReceiptOcrReviewAsync(testFactory, setup.Review.Id);
+            Assert.Equal(correction ? 2 : 1, review.Lines.Count);
+            await using (var scope = testFactory.Services.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+                var historical = await db.Set<ReceiptOcrReviewLine>().IgnoreQueryFilters()
+                    .SingleAsync(line => line.Id == originalLine.Id);
+                Assert.Equal(originalLine.Text, historical.Text);
+                Assert.Equal(24m, historical.LineTotalAmount);
+            }
+            var before = await ReadBillAsync(testFactory, setup.BillId);
+            Assert.Equal(34m, before.TotalAmount);
+            Assert.Contains(before.Items, item => item.SourceReceiptOcrReviewLineId == originalLine.Id);
+            using var apply = CreateJsonBearerRequest(HttpMethod.Post, setup.ApplyPath,
+                setup.Token, ApplyRequestJson(review.UpdatedAtUtc));
+            using var applied = await client.SendAsync(apply);
+            Assert.Equal(HttpStatusCode.OK, applied.StatusCode);
+            var after = await ReadBillAsync(testFactory, setup.BillId);
+            Assert.Equal(34m, after.TotalAmount);
+            Assert.Equal(correction ? 2 : 1, after.Items.Count(item =>
+                item.DeletedAtUtc is null && item.SourceReceiptOcrReviewId == setup.Review.Id));
+        }
+    }
+
+    private static string RoundThreeReviewBody(bool split = false) => JsonSerializer.Serialize(new
+    {
+        status = "reviewed", source = "on_device", merchantText = split ? "Corrected shop" : "Book shop",
+        currency = "USD", subtotalAmount = "24", taxAmount = "4",
+        taxReconciliationMode = "already_in_base", grandTotalAmount = "24",
+        lines = split
+            ? new[] { new { text = "Book", quantity = "1", unitPriceAmount = "10", lineTotalAmount = "10" },
+                new { text = "Paper", quantity = "1", unitPriceAmount = "14", lineTotalAmount = "14" } }
+            : new[] { new { text = "Book", quantity = "1", unitPriceAmount = "24", lineTotalAmount = "24" } }
+    });
+
+    private async Task<(Guid BillId, string ReviewPath, string ApplyPath, string Token, ReceiptOcrReview Review)>
+        SeedRoundThreeReviewAsync(FactoryTestContext context, bool groupRoute)
+    {
+        var testFactory = context.Factory;
+        var owner = await SeedSessionActorAsync(testFactory, context.TimeProvider, "Relational OCR owner");
+        var groupId = groupRoute ? await SeedGroupAsync(testFactory, owner.UserProfileId,
+            "Relational OCR group", InitialTimestamp, deletedAtUtc: null,
+            new MembershipSeed(owner.UserProfileId, GroupMembershipRoles.Owner,
+                GroupMembershipStatuses.Active)) : (Guid?)null;
+        var billId = await SeedBillAsync(testFactory, owner.UserProfileId, groupId,
+            ExpenseBillStatuses.Draft, archivedAtUtc: null, [owner.UserProfileId],
+            [owner.UserProfileId], InitialTimestamp.AddMinutes(2));
+        var fileId = await SeedBillAttachmentAsync(testFactory, billId, owner.UserProfileId,
+            ExpenseBillAttachmentPurposes.Receipt, FileObjectPurposes.ReceiptImage,
+            FileObjectStatuses.Active, removedAtUtc: null);
+        var reviewPath = groupId.HasValue ? GroupOcrReviewPath(groupId.Value, billId, fileId)
+            : PersonalOcrReviewPath(billId, fileId);
+        var applyPath = groupId.HasValue ? GroupOcrReviewApplyPath(groupId.Value, billId, fileId)
+            : PersonalOcrReviewApplyPath(billId, fileId);
+        using var client = testFactory.CreateClient();
+        using var request = CreateJsonBearerRequest(HttpMethod.Put, reviewPath,
+            owner.RawSessionToken, RoundThreeReviewBody());
+        using var response = await client.SendAsync(request);
+        Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
+        var saved = ReadReviewPayload(await response.Content.ReadAsStringAsync());
+        return (billId, reviewPath, applyPath, owner.RawSessionToken,
+            await ReadReceiptOcrReviewAsync(testFactory, saved.Id));
+    }
+
+    private async Task<FactoryTestContext> CreatePostgresFactoryAsync(OcrApplySaveBarrier? barrier = null)
+    {
+        var settings = new Npgsql.NpgsqlConnectionStringBuilder(
+            Environment.GetEnvironmentVariable("SETTLEORA_OCR_TEST_POSTGRES"));
+        // This opt-in suite requires the dedicated disposable test server.
+        Assert.StartsWith("settleora_ocr_test", settings.Database);
+        var database = "settleora_ocr_test_" + Guid.NewGuid().ToString("N");
+        await using (var connection = new Npgsql.NpgsqlConnection(settings.ConnectionString))
+        {
+            await connection.OpenAsync();
+            await using var command = new Npgsql.NpgsqlCommand($"CREATE DATABASE \"{database}\"", connection);
+            await command.ExecuteNonQueryAsync();
+        }
+        settings.Database = database;
+        var context = CreateFactory(settings.ConnectionString, barrier);
+        await using var scope = context.Factory.Services.CreateAsyncScope();
+        await scope.ServiceProvider.GetRequiredService<SettleoraDbContext>().Database.MigrateAsync();
+        return context;
+    }
+
+    private sealed class OcrApplySaveBarrier : Microsoft.EntityFrameworkCore.Diagnostics.SaveChangesInterceptor
+    {
+        public bool Enabled { get; set; }
+        private int saves;
+        public int Saves => Volatile.Read(ref saves);
+        public TaskCompletionSource FirstSave { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource SecondSave { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public override async ValueTask<Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData, Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (Enabled && eventData.Context!.ChangeTracker.Entries<ExpenseBillItem>()
+                .Any(entry => entry.State == EntityState.Added
+                    && entry.Entity.SourceKind == ExpenseBillItemSourceKinds.ReceiptOcrReviewApply))
+            {
+                if (Interlocked.Increment(ref saves) == 1) FirstSave.TrySetResult();
+                else SecondSave.TrySetResult();
+                await Release.Task.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
+            }
+            return result;
+        }
+    }
+
+    public sealed class OcrPostgresTheoryAttribute : TheoryAttribute
+    {
+        public OcrPostgresTheoryAttribute()
+        {
+            if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("SETTLEORA_OCR_TEST_POSTGRES")))
+                Skip = "Requires an explicitly provided disposable PostgreSQL test server.";
+        }
+    }
+
+    [Theory]
+    [InlineData(false, null)]
+    [InlineData(true, null)]
+    [InlineData(false, "4")]
+    [InlineData(true, "4")]
+    public async Task ReviewRoundThreeForeignAdjustmentCannotBypassPreviewAndApply(bool groupRoute, string? tax)
+    {
+        var context = CreateFactory();
+        using var testFactory = context.Factory;
+        var owner = await SeedSessionActorAsync(testFactory, context.TimeProvider, "Foreign Header Owner");
+        var groupId = groupRoute
+            ? await SeedGroupAsync(testFactory, owner.UserProfileId, "Foreign Header Group",
+                InitialTimestamp, deletedAtUtc: null,
+                new MembershipSeed(owner.UserProfileId, GroupMembershipRoles.Owner,
+                    GroupMembershipStatuses.Active)) : (Guid?)null;
+        var billId = await SeedBillAsync(testFactory, owner.UserProfileId, groupId,
+            ExpenseBillStatuses.Draft, archivedAtUtc: null,
+            [owner.UserProfileId], [owner.UserProfileId], InitialTimestamp.AddMinutes(2));
+        var fileId = await SeedBillAttachmentAsync(testFactory, billId, owner.UserProfileId,
+            ExpenseBillAttachmentPurposes.Receipt, FileObjectPurposes.ReceiptImage,
+            FileObjectStatuses.Active, removedAtUtc: null);
+        var reviewPath = groupId.HasValue ? GroupOcrReviewPath(groupId.Value, billId, fileId)
+            : PersonalOcrReviewPath(billId, fileId);
+        var previewPath = groupId.HasValue ? GroupOcrReviewApplyPreviewPath(groupId.Value, billId, fileId)
+            : PersonalOcrReviewApplyPreviewPath(billId, fileId);
+        var applyPath = groupId.HasValue ? GroupOcrReviewApplyPath(groupId.Value, billId, fileId)
+            : PersonalOcrReviewApplyPath(billId, fileId);
+        using var client = testFactory.CreateClient();
+        foreach (var explicitNull in new[] { false, true })
+        {
+            var body = new Dictionary<string, object?>
+            {
+                ["status"] = "reviewed", ["source"] = "on_device", ["currency"] = "USD",
+                ["subtotalAmount"] = "24", ["grandTotalAmount"] = "24",
+                ["lines"] = new[] { new { text = "Book", quantity = "1", unitPriceAmount = "24", lineTotalAmount = "24" } },
+                ["adjustmentEvidence"] = new[] { new { kind = "other", originalLabel = "Foreign fee", amount = "1", currency = "EUR", direction = "charge" } }
+            };
+            if (tax is not null) body["taxAmount"] = tax;
+            if (explicitNull) body["taxReconciliationMode"] = null;
+            using var put = CreateJsonBearerRequest(HttpMethod.Put, reviewPath, owner.RawSessionToken, JsonSerializer.Serialize(body));
+            using var savedResponse = await client.SendAsync(put);
+            Assert.True(savedResponse.IsSuccessStatusCode, await savedResponse.Content.ReadAsStringAsync());
+            var saved = ReadReviewPayload(await savedResponse.Content.ReadAsStringAsync());
+            var persisted = await ReadReceiptOcrReviewAsync(testFactory, saved.Id);
+            Assert.Single(persisted.Adjustments);
+            using var get = CreateBearerRequest(HttpMethod.Get, previewPath, owner.RawSessionToken);
+            using var response = await client.SendAsync(get);
+            var preview = ReadApplyPreviewPayload(await response.Content.ReadAsStringAsync());
+            var before = await ReadBillAsync(testFactory, billId);
+            using var apply = CreateJsonBearerRequest(HttpMethod.Post, applyPath, owner.RawSessionToken, ApplyRequestJson(persisted.UpdatedAtUtc));
+            using var applied = await client.SendAsync(apply);
+            var after = await ReadBillAsync(testFactory, billId);
+            Assert.True(applied.StatusCode == HttpStatusCode.Conflict,
+                $"Foreign header bypass: group={groupRoute}, tax={tax}, preview={preview.CanApply}, Apply={applied.StatusCode}, bill delta={after.TotalAmount-before.TotalAmount}");
+            Assert.False(preview.CanApply);
+            Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.TaxReconciliationInvalid, preview.BlockedReasons);
+            Assert.Equal(before.TotalAmount, after.TotalAmount);
+            Assert.DoesNotContain(after.Items, item => item.SourceReceiptOcrReviewId == persisted.Id);
+        }
     }
 
     [Theory]
@@ -3594,7 +3831,7 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         Assert.DoesNotContain("ocr.failed", webModels);
     }
 
-    private FactoryTestContext CreateFactory()
+    private FactoryTestContext CreateFactory(string? postgresConnection = null, OcrApplySaveBarrier? barrier = null)
     {
         var databaseName = Guid.NewGuid().ToString();
         var timeProvider = new ReceiptOcrReviewTestTimeProvider(InitialTimestamp);
@@ -3609,7 +3846,9 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
                 services.RemoveAll<IDbContextOptionsConfiguration<SettleoraDbContext>>();
                 services.AddDbContext<SettleoraDbContext>(options =>
                 {
-                    options.UseInMemoryDatabase(databaseName);
+                    if (postgresConnection is null) options.UseInMemoryDatabase(databaseName);
+                    else options.UseNpgsql(postgresConnection);
+                    if (barrier is not null) options.AddInterceptors(barrier);
                 });
 
                 services.RemoveAll<TimeProvider>();
@@ -4249,6 +4488,7 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
             .AsNoTracking()
             .Include(review => review.Lines)
             .Include(review => review.HeaderEvidence)
+            .Include(review => review.Adjustments)
             .SingleAsync(review => review.Id == reviewId);
     }
 

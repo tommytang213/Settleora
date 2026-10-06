@@ -189,6 +189,25 @@ List<ReceiptOcrBlockEvidence> _ownedFeeBlocks({
 }
 
 void main() {
+  for (final included in [true, false]) {
+    test(
+      'review round three aggregates coupons with included tax=$included',
+      () {
+        final preview = const ReceiptOcrParser().parse(
+          'Market\nBook GBP 24.00\nSubtotal GBP 24.00\n'
+          'Store Coupon GBP -1.00\nLoyalty Discount GBP -1.00\n'
+          '${included ? "VAT included" : "VAT"} GBP 4.00\n'
+          'Total GBP ${included ? "22.00" : "26.00"}',
+        );
+        expect(preview.discount, '-2.00');
+        expect(preview.tax, '4.00');
+        expect(preview.taxIncludedInTotal, included);
+        expect(preview.adjustmentsComplete, isTrue);
+        expect(preview.incompleteAdjustmentReasons, isEmpty);
+      },
+    );
+  }
+
   group('included-tax currency ownership', () {
     for (final cell in <(String, String?)>[
       ('eur4.00', 'EUR'),

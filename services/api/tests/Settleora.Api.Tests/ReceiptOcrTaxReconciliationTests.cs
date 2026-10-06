@@ -98,7 +98,8 @@ public sealed class ReceiptOcrTaxReconciliationTests
     [Theory]
     [InlineData(ReceiptOcrReviewTaxReconciliationModes.AddToBase)]
     [InlineData(ReceiptOcrReviewTaxReconciliationModes.AlreadyInBase)]
-    public void ExplicitTaxModeBlocksForeignAdjustmentInsteadOfSkippingHeaderCheck(string mode)
+    [InlineData(null)]
+    public void AllTaxModesBlockForeignAdjustmentInsteadOfSkippingHeaderCheck(string? mode)
     {
         var review = CreateReview(mode, 24m, 24m, 24m);
         review.Adjustments.Add(new ReceiptOcrReviewAdjustment

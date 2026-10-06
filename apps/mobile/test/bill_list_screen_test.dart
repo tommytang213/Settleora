@@ -32,6 +32,108 @@ import 'package:mobile/ui/settleora_components.dart';
 import 'package:mobile/ui/settleora_form_fields.dart';
 
 void main() {
+  for (final group in [false, true]) {
+    for (final status in ['reviewed', 'provisional']) {
+      testWidgets(
+        'review round three saved merchant correction retains $status group=$group',
+        (tester) async {
+          await useLargeSurface(tester);
+          final route = ReceiptOcrReviewRoute(
+            billId: _billId,
+            fileId: _uploadedFileId,
+            groupId: group ? _groupId : null,
+          );
+          final review = ReceiptOcrReviewDetail(
+            id: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+            billId: route.billId,
+            fileId: route.fileId,
+            groupId: route.groupId,
+            status: status,
+            source: ReceiptOcrReviewSourceValues.onDevice,
+            merchantText: 'Book Shop',
+            receiptIssuedAtUtc: null,
+            serviceChargeAmount: null,
+            discountAmount: null,
+            currency: 'USD',
+            subtotalAmount: '24.00',
+            taxAmount: '4.00',
+            taxReconciliationMode:
+                ReceiptOcrTaxReconciliationModeValues.alreadyInBase,
+            grandTotalAmount: '24.00',
+            lines: [
+              ReceiptOcrReviewLine(
+                id: 'dddddddd-dddd-dddd-dddd-dddddddddddd',
+                sortOrder: 0,
+                text: 'Book',
+                quantity: '1',
+                unitPriceAmount: '24.00',
+                lineTotalAmount: '24.00',
+                createdAtUtc: _createdAtUtc,
+                updatedAtUtc: _updatedAtUtc,
+              ),
+            ],
+            createdAtUtc: _createdAtUtc,
+            updatedAtUtc: _updatedAtUtc,
+          );
+          final receiptRepository = FakeReceiptOcrReviewRepository(
+            reviewDetail: review,
+          );
+          final handoff = ReceiptOcrReviewHandoff.saved(reviewRoute: route);
+          await tester.pumpWidget(
+            MaterialApp(
+              home: group
+                  ? SettleoraGroupBillDetailScreen(
+                      repository: FakeBillRepository(),
+                      groupId: _groupId,
+                      groupName: 'Books',
+                      billId: _billId,
+                      initialBill: sampleBillDetail(id: _billId),
+                      receiptOcrReviewRepository: receiptRepository,
+                      initialReceiptOcrReviewHandoff: handoff,
+                    )
+                  : SettleoraBillDetailScreen(
+                      repository: FakeBillRepository(),
+                      billId: _billId,
+                      initialBill: sampleBillDetail(id: _billId),
+                      receiptOcrReviewRepository: receiptRepository,
+                      initialReceiptOcrReviewHandoff: handoff,
+                    ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          await tester.tap(
+            find.byKey(
+              Key('${group ? "group-bill" : "bill"}-detail-ocr-review-open'),
+            ),
+          );
+          await tester.pumpAndSettle();
+          await tester.tap(find.byKey(const Key('saved-ocr-review-edit')));
+          await tester.pumpAndSettle();
+          await tester.enterText(
+            find.byKey(const Key('saved-ocr-review-ocr-edit-merchant')),
+            'Corrected Shop',
+          );
+          await _scrollSavedOcrReviewEditActionsIntoView(tester);
+          await tester.tap(find.byKey(const Key('saved-ocr-review-edit-save')));
+          await tester.pumpAndSettle();
+          expect(receiptRepository.lastSaveRequest?.status, status);
+          expect(
+            receiptRepository.lastSaveRequest?.merchantText,
+            'Corrected Shop',
+          );
+          expect(
+            receiptRepository.lastSaveRequest?.taxReconciliationMode,
+            ReceiptOcrTaxReconciliationModeValues.alreadyInBase,
+          );
+          expect(
+            receiptRepository.lastSaveRequest?.lines.single.lineTotalAmount,
+            '24.00',
+          );
+        },
+      );
+    }
+  }
+
   test('review round two clear zero included tax saves a resolved mode', () {
     final preview = const ReceiptOcrParser().parse(
       'Sample Shop\nBook GBP 24.00\nTotal incl. VAT GBP 24.00\n'
