@@ -153,11 +153,13 @@ void main() {
                 tester.widget<CheckboxListTile>(itemsSelection).onChanged !=
                 null;
             if (acceptsItems) expect(enabled, isTrue);
-            if (enabled)
+            if (enabled) {
               await _setReceiptOcrSection(tester, prefix, 'items', true);
+            }
           }
-          if (acceptsItems)
+          if (acceptsItems) {
             await _setReceiptOcrSection(tester, prefix, 'currency', false);
+          }
           await _setReceiptOcrSection(tester, prefix, 'merchant', true);
           await _tapReceiptOcrApply(tester, prefix);
           expect(
