@@ -34,6 +34,10 @@ namespace Settleora.Api.Persistence.Migrations
         {
             // Refuse before any destructive DDL: old runtimes cannot safely
             // distinguish retained historical lines from active review lines.
+            // Wait for existing writers before checking, then exclude new
+            // retirements until the migration transaction finishes.
+            migrationBuilder.Sql("LOCK TABLE receipt_ocr_review_lines IN ACCESS EXCLUSIVE MODE;");
+
             migrationBuilder.Sql("""
                 DO $$
                 BEGIN

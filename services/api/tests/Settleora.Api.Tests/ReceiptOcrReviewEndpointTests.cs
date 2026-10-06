@@ -85,6 +85,114 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
     [OcrPostgresTheory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ApprovedLineHistoryRollbackWaitsForConcurrentRetirement(bool groupRoute)
+    {
+        var barrier = new OcrRetirementFlushBarrier();
+        var context = await CreatePostgresFactoryAsync(extraInterceptor: barrier);
+        using var testFactory = context.Factory;
+        var setup = await SeedRoundThreeReviewAsync(context, groupRoute);
+        using var client = testFactory.CreateClient();
+        using (var request = CreateJsonBearerRequest(HttpMethod.Post, setup.ApplyPath,
+            setup.Token, ApplyRequestJson(setup.Review.UpdatedAtUtc)))
+        using (var applied = await client.SendAsync(request)) Assert.Equal(HttpStatusCode.OK, applied.StatusCode);
+        var originalLine = setup.Review.Lines.Single();
+        barrier.Enabled = true;
+        context.TimeProvider.SetUtcNow(WriteTimestamp);
+        using var correctionRequest = CreateJsonBearerRequest(HttpMethod.Put, setup.ReviewPath,
+            setup.Token, JsonSerializer.Serialize(new
+            {
+                status = "reviewed", source = "on_device", merchantText = "Corrected shop",
+                currency = "USD", lines = Array.Empty<object>()
+            }));
+        var correction = client.SendAsync(correctionRequest);
+        await barrier.RetirementFlushed.Task.WaitAsync(TimeSpan.FromSeconds(15));
+        await using var migrationScope = testFactory.Services.CreateAsyncScope();
+        var migrationDb = migrationScope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        await migrationDb.Database.OpenConnectionAsync();
+        int migrationPid;
+        await using (var command = migrationDb.Database.GetDbConnection().CreateCommand())
+        {
+            command.CommandText = "SELECT pg_backend_pid()";
+            migrationPid = (int)(await command.ExecuteScalarAsync())!;
+        }
+        var rollback = Record.ExceptionAsync(() => migrationDb
+            .GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>().MigrateAsync(BeforeLineHistoryMigration));
+        try
+        {
+            await WaitForBlockedLineMigrationAsync(testFactory, migrationPid);
+            Assert.False(rollback.IsCompleted);
+        }
+        finally { barrier.Release.TrySetResult(); }
+        var rollbackError = await rollback.WaitAsync(TimeSpan.FromSeconds(15));
+        HttpResponseMessage? saved = null;
+        var saveError = await Record.ExceptionAsync(async () => { saved = await correction.WaitAsync(TimeSpan.FromSeconds(15)); });
+        using (saved)
+        {
+            Assert.True(rollbackError is Npgsql.PostgresException { SqlState: "P0001" },
+                $"Rollback must refuse the newly committed history; actual={rollbackError?.GetType().Name ?? "succeeded"}, save={saveError?.GetType().Name ?? saved?.StatusCode.ToString()}");
+            Assert.Null(saveError);
+            Assert.Equal(HttpStatusCode.OK, saved!.StatusCode);
+        }
+        Assert.Empty((await ReadReceiptOcrReviewAsync(testFactory, setup.Review.Id)).Lines);
+        await using var scope = testFactory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        var historical = await db.Set<ReceiptOcrReviewLine>().IgnoreQueryFilters().SingleAsync(line => line.Id == originalLine.Id);
+        Assert.Equal(WriteTimestamp, historical.SupersededAtUtc);
+        Assert.Equal(originalLine.CreatedAtUtc, historical.CreatedAtUtc);
+        Assert.Equal(originalLine.UpdatedAtUtc, historical.UpdatedAtUtc);
+        Assert.Equal(originalLine.LineTotalAmount, historical.LineTotalAmount);
+        Assert.Contains(await db.Database.GetAppliedMigrationsAsync(), name => name.EndsWith("_RetainAppliedReceiptOcrReviewLines"));
+        var bill = await ReadBillAsync(testFactory, setup.BillId);
+        Assert.Equal(34m, bill.TotalAmount);
+        Assert.Equal(34m, bill.Items.Where(item => item.DeletedAtUtc is null).Sum(item => item.Amount));
+        Assert.Contains(bill.Items, item => item.SourceReceiptOcrReviewLineId == originalLine.Id);
+    }
+
+    private static async Task WaitForBlockedLineMigrationAsync(WebApplicationFactory<Program> testFactory, int migrationPid)
+    {
+        await using var scope = testFactory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        await db.Database.OpenConnectionAsync();
+        await using var command = db.Database.GetDbConnection().CreateCommand();
+        command.CommandText = """
+            SELECT EXISTS (
+              SELECT 1 FROM pg_locks l JOIN pg_class c ON c.oid = l.relation
+              WHERE l.pid = @pid AND NOT l.granted
+                AND c.relname IN ('receipt_ocr_review_lines', 'ux_receipt_ocr_review_lines_review_sort_order'))
+            """;
+        var parameter = command.CreateParameter(); parameter.ParameterName = "pid";
+        parameter.Value = migrationPid; command.Parameters.Add(parameter);
+        var deadline = DateTime.UtcNow.AddSeconds(15);
+        do
+        {
+            if ((bool)(await command.ExecuteScalarAsync())!) return;
+            await Task.Delay(25);
+        } while (DateTime.UtcNow < deadline);
+        Assert.Fail("The rollback did not reach a line-table/index lock blocked by the uncommitted Save.");
+    }
+
+    private sealed class OcrRetirementFlushBarrier : SaveChangesInterceptor
+    {
+        public bool Enabled { get; set; }
+        private int held;
+        public TaskCompletionSource RetirementFlushed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public override async ValueTask<int> SavedChangesAsync(
+            SaveChangesCompletedEventData eventData, int result, CancellationToken cancellationToken = default)
+        {
+            if (Enabled && eventData.Context!.ChangeTracker.Entries<ReceiptOcrReviewLine>()
+                .Any(entry => entry.Entity.SupersededAtUtc != null) && Interlocked.Exchange(ref held, 1) == 0)
+            {
+                RetirementFlushed.TrySetResult();
+                await Release.Task.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken);
+            }
+            return result;
+        }
+    }
+
+    [OcrPostgresTheory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ApprovedLineHistorySavesCorrectionsAfterApply(bool groupRoute)
     {
         var context = await CreatePostgresFactoryAsync();
