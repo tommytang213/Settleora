@@ -185,6 +185,7 @@ class ReceiptOcrParser {
       layoutChargeItemRows: layoutChargeItems.keys.toSet(),
       hasBoundedDccFooterBoundary: hasBoundedDccFooterBoundary,
       nonItemSummaryRows: extractedItems.nonItemSummaryRows,
+      uncertainSummaryAmountRows: extractedItems.uncertainSummaryAmountRows,
     );
     final hasCompleteItemEvidence =
         hasCompletePricedItemEvidence && unresolvedItemLines == 0;
@@ -1794,6 +1795,7 @@ class ReceiptOcrParser {
     List<ReceiptOcrItemLineDecision> lineDecisions,
     List<ReceiptOcrItemLineDecision> itemSelectionDecisions,
     Set<int> nonItemSummaryRows,
+    Set<int> uncertainSummaryAmountRows,
   })
   _extractItems(
     List<String> lines,
@@ -1809,6 +1811,7 @@ class ReceiptOcrParser {
   }) {
     final items = <ReceiptOcrItemCandidate>[];
     final nonItemSummaryRows = <int>{};
+    final uncertainSummaryAmountRows = <int>{};
     final itemSelectionDecisions = <ReceiptOcrItemLineDecision>[];
     final lineDecisions = List<ReceiptOcrItemLineDecision>.filled(
       lines.length,
@@ -1875,6 +1878,7 @@ class ReceiptOcrParser {
         lineIndex,
         currency,
         selectedTotal,
+        uncertainSummaryAmountRows,
       );
       if (ownedSummaryRows != null) {
         nonItemSummaryRows.addAll(ownedSummaryRows);
@@ -2197,6 +2201,7 @@ class ReceiptOcrParser {
       unretainedPricedItem: unretainedPricedItem,
       lineDecisions: lineDecisions,
       nonItemSummaryRows: nonItemSummaryRows,
+      uncertainSummaryAmountRows: uncertainSummaryAmountRows,
       itemSelectionDecisions: itemSelectionDecisions
           .take(40)
           .toList(growable: false),
@@ -3626,6 +3631,7 @@ class ReceiptOcrParser {
     Set<int> layoutChargeItemRows = const {},
     bool hasBoundedDccFooterBoundary = false,
     Set<int> nonItemSummaryRows = const {},
+    Set<int> uncertainSummaryAmountRows = const {},
   }) {
     var count = 0;
     final lastPricedTotal = lines.lastIndexWhere(
@@ -3833,6 +3839,7 @@ class ReceiptOcrParser {
           !_isPrintedModifierLine(line) &&
           _isWrappedItemDescriptionCandidate(cleaned) &&
           !nonItemSummaryRows.contains(lineIndex + 1) &&
+          !uncertainSummaryAmountRows.contains(lineIndex + 1) &&
           _isPricedItemLine(lines[lineIndex + 1])) {
         continue;
       }
@@ -4487,6 +4494,7 @@ Set<int>? _ownedSummaryCardHeaderRows(
   int rowIndex,
   String? currency,
   String? selectedTotal,
+  Set<int> uncertainSummaryAmountRows,
 ) {
   if (rowIndex >= rows.length ||
       rowIndex == 0 ||
@@ -4655,7 +4663,7 @@ Set<int>? _ownedSummaryCardHeaderRows(
   final dateOwner = RegExp(
     // Include the primary and secondary roles already used by _detectDate.
     r'\b(?:bill|invoice|statement|transaction|order|purchase|issued)\s*(?:date|on)?\b|'
-    r'\b(?:due|pay\s+by|payment|paid|previous|prior|last|refund|reference|meter|reading|billing\s+period|service\s+period|period\s+from|period\s+to)\b|'
+    r'\b(?:due|pay\s*by|payment|paid|previous|prior|last|refund|reference|meter|reading|billing\s*period|service\s*period|period\s*from|period\s*to)\b|'
     r'(?<![\p{L}\p{M}])dates?(?![\p{L}\p{M}])|'
     r'^(?:invoice|bill|statement|due|issue|payment|receipt|order|purchase|expiry|expiration)\s*date\s*:?$|'
     r'^(?:issued|due|expires?|expiry|paid|received|billed|created|posted|processed|shipped|ordered|purchased)(?:\s+on)?\s*:?$',
@@ -4696,11 +4704,13 @@ Set<int>? _ownedSummaryCardHeaderRows(
     });
   }
 
-  if (allBlocks.any((b) {
+  // A heading may be split across OCR blocks or logical rows. Form bounded
+  // visual groups first; isolated token recognition cannot prove uniqueness.
+  final dateFragments = allBlocks.where((b) {
     if (b == dateLabel ||
         b == date ||
-        !dateOwner.hasMatch(_normalizeOcrLine(b.text)) ||
-        ownsSeparatePeriod(b)) {
+        ownsSeparatePeriod(b) ||
+        _matchesUtilityPeriod(_normalizeOcrLine(b.text))) {
       return false;
     }
     final other = boxes[b]!;
@@ -4714,15 +4724,80 @@ Set<int>? _ownedSummaryCardHeaderRows(
         : other.top > dateBox.bottom
         ? other.top - dateBox.bottom
         : 0;
-    return horizontalGap <= dateHeight * 4 && verticalGap <= dateHeight;
-  })) {
-    return null;
+    // The extra line admits a two-line heading whose nearer fragment is an
+    // immediate neighbor. The assembled group must still touch the near zone.
+    return horizontalGap <= dateHeight * 4 && verticalGap <= dateHeight * 2;
+  }).toSet();
+  bool adjoining(
+    ReceiptOcrBlockEvidence first,
+    ReceiptOcrBlockEvidence second,
+  ) {
+    final a = boxes[first]!, b = boxes[second]!;
+    final horizontalGap = a.right < b.left
+        ? b.left - a.right
+        : b.right < a.left
+        ? a.left - b.right
+        : 0;
+    final verticalGap = a.bottom < b.top
+        ? b.top - a.bottom
+        : b.bottom < a.top
+        ? a.top - b.bottom
+        : 0;
+    final overlapX =
+        (a.right < b.right ? a.right : b.right) -
+        (a.left > b.left ? a.left : b.left);
+    final overlapY =
+        (a.bottom < b.bottom ? a.bottom : b.bottom) -
+        (a.top > b.top ? a.top : b.top);
+    final minHeight = (a.bottom - a.top) < (b.bottom - b.top)
+        ? a.bottom - a.top
+        : b.bottom - b.top;
+    final minWidth = (a.right - a.left) < (b.right - b.left)
+        ? a.right - a.left
+        : b.right - b.left;
+    return (overlapY >= minHeight * 0.5 && horizontalGap <= dateHeight * 2) ||
+        (overlapX >= minWidth * 0.5 && verticalGap <= dateHeight);
+  }
+
+  while (dateFragments.isNotEmpty) {
+    final group = <ReceiptOcrBlockEvidence>[dateFragments.first];
+    dateFragments.remove(group.first);
+    for (var index = 0; index < group.length; index++) {
+      final joined = dateFragments
+          .where((b) => adjoining(group[index], b))
+          .toList();
+      group.addAll(joined);
+      dateFragments.removeAll(joined);
+    }
+    final nearValue = group.any((b) {
+      final box = boxes[b]!;
+      final gap = box.bottom < dateBox.top
+          ? dateBox.top - box.bottom
+          : box.top > dateBox.bottom
+          ? box.top - dateBox.bottom
+          : 0;
+      return gap <= dateHeight;
+    });
+    if (!nearValue) continue;
+    final horizontal = group.toList()
+      ..sort((a, b) => boxes[a]!.left.compareTo(boxes[b]!.left));
+    final vertical = group.toList()
+      ..sort((a, b) => boxes[a]!.top.compareTo(boxes[b]!.top));
+    for (final ordering in [horizontal, vertical]) {
+      for (final separator in [' ', '']) {
+        if (dateOwner.hasMatch(
+          ordering.map((b) => _normalizeOcrLine(b.text)).join(separator),
+        )) {
+          return null;
+        }
+      }
+    }
   }
 
   // A large amount can overlap monetary fragments assigned to another OCR
   // row. Currency/sign cues and numeric-only fragments remain evidence even
-  // when they cannot be selected as one amount. Ordinary neighboring text
-  // is checked by the ownership corridors, independently of this money proof.
+  // when they cannot be selected as one amount. Every other neighbor must
+  // have an explained nonfinancial role; absent keywords do not prove ownership.
   final currencyAtoms = RegExp(
     '(?:$_currencyTokenPattern|${_knownUnsupportedIsoCurrencyCodes.map(RegExp.escape).join('|')})',
     caseSensitive: false,
@@ -4806,6 +4881,43 @@ Set<int>? _ownedSummaryCardHeaderRows(
     // cell, so even one unexplained number must retain the ordinary fallback.
     final explainedMetadata =
         _matchesUtilityPeriod(text) || invoiceReference.hasMatch(text);
+    final completeNamedCurrency = RegExp(
+      r'^(?:(?:hong\s+kong|hk)|(?:us|u\.s\.|united\s+states))\s+dollars?$',
+      caseSensitive: false,
+    ).hasMatch(text);
+    // Only balanced annotations may decorate a bounded status. Unknown prose
+    // is not harmless merely because it misses known monetary keywords.
+    const statusBrackets = {'(': ')', '[': ']', '{': '}'};
+    final closingStatusBrackets = <String>[];
+    var balancedStatus = true;
+    final statusProjection = StringBuffer();
+    for (final character in text.split('')) {
+      final closing = statusBrackets[character];
+      if (closing != null) {
+        closingStatusBrackets.add(closing);
+        statusProjection.write(' ');
+      } else if (statusBrackets.containsValue(character)) {
+        if (closingStatusBrackets.isEmpty ||
+            closingStatusBrackets.removeLast() != character) {
+          balancedStatus = false;
+          break;
+        }
+        statusProjection.write(' ');
+      } else {
+        statusProjection.write(character);
+      }
+    }
+    final statusText = statusProjection
+        .toString()
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    final explainedStatus =
+        balancedStatus &&
+        closingStatusBrackets.isEmpty &&
+        RegExp(
+          r'^(?:pending(?:[ -]+review)?|(?:note\s+)?review|auto[ -]?pay\s+(?:enabled|disabled|active|inactive|pending))$',
+          caseSensitive: false,
+        ).hasMatch(statusText);
     final hasUnownedNumbers = digit.hasMatch(text) && !explainedMetadata;
     final hasUnownedSign = !explainedMetadata && mixedSign.hasMatch(text);
     // A single OCR letter can be one part of a split denomination such as
@@ -4860,6 +4972,13 @@ Set<int>? _ownedSummaryCardHeaderRows(
           r'\b(?:adjustment|percent|percentage|rate)\b',
         ).hasMatch(financialWords) &&
         !hasUnownedNumbers) {
+      if (!explainedMetadata && !completeNamedCurrency && !explainedStatus) {
+        // Keep the existing item fallback, but this disputed summary amount
+        // cannot establish that a preceding unpriced description was resolved.
+        // It is not an excluded row and receives no metadata exemption.
+        uncertainSummaryAmountRows.add(rowIndex);
+        return null;
+      }
       continue;
     }
     if (!isCurrency) return null;

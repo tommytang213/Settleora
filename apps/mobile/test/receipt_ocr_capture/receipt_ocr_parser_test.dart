@@ -144,6 +144,187 @@ ReceiptOcrBlockEvidence _summaryBlockVariant(
 );
 
 void main() {
+  test('summary-card proof retains unexplained neighbors and split headings', () {
+    ReceiptOcrBlockEvidence extra(
+      String text,
+      int row,
+      double left,
+      double top,
+      double right,
+      double bottom,
+      int order,
+    ) => ReceiptOcrBlockEvidence(
+      text: text,
+      row: row,
+      order: order,
+      points: [
+        ReceiptOcrPoint(x: left, y: top),
+        ReceiptOcrPoint(x: right, y: top),
+        ReceiptOcrPoint(x: right, y: bottom),
+        ReceiptOcrPoint(x: left, y: bottom),
+      ],
+    );
+    for (final scale in [0.5, 1.0, 2.0]) {
+      ReceiptOcrBlockEvidence scaled(ReceiptOcrBlockEvidence b) =>
+          ReceiptOcrBlockEvidence(
+            text: b.text,
+            row: b.row,
+            order: b.order,
+            points: b.points
+                .map((p) => ReceiptOcrPoint(x: p.x * scale, y: p.y * scale))
+                .toList(),
+          );
+      for (final distant in [false, true]) {
+        for (final spec in [
+          ('Unit Price', false),
+          ('Unit', false),
+          ('Price', false),
+          ('Hong Kong', false),
+          ('Dollars', false),
+          ('Alpha Beta', false),
+          ('MonthlyPrice', false),
+          ('単価', false),
+          ('AutoPay Enabled', true),
+          ('AutoPay Disabled', true),
+          ('Auto Pay Active', true),
+          ('Pending', true),
+          ('[{Pending}]', true),
+          ('Note [Review]', true),
+          ('[Pending', false),
+          ('Pending]', false),
+          ('[{Pending}] Unit Price', false),
+        ]) {
+          final original = _summaryCardBlocks();
+          final blocks = <ReceiptOcrBlockEvidence>[];
+          for (var i = 0; i < original.length; i++) {
+            final b = original[i];
+            blocks.add(b);
+            if (b.row == 3 && original[i + 1].row != 3) {
+              blocks.add(
+                extra(
+                  spec.$1,
+                  3,
+                  distant ? 1300 : 955,
+                  240,
+                  distant ? 1450 : 1105,
+                  258,
+                  30,
+                ),
+              );
+            }
+          }
+          final evidence = blocks.map(scaled).toList();
+          final p = _parseBoundedUtility(evidence);
+          expect(
+            p.itemLineDecisions[4] ==
+                ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+            distant || spec.$2,
+            reason: '${spec.$1} distant=$distant scale=$scale',
+          );
+          expect(p.blocks, containsAll(evidence));
+        }
+        for (final stacked in [false, true]) {
+          for (final crossRow in [false, true]) {
+            final blocks = <ReceiptOcrBlockEvidence>[];
+            for (final b in _summaryCardBlocks()) {
+              if (b.text == 'Account Number' || b.text == 'AC987654321') {
+                continue;
+              }
+              blocks.add(b);
+              if (b.text == 'Total Due' && crossRow) {
+                blocks.add(
+                  extra(
+                    'Pay',
+                    2,
+                    531,
+                    (stacked ? 183 : 207) - (distant ? 100 : 0),
+                    568,
+                    (stacked ? 203 : 227) - (distant ? 100 : 0),
+                    30,
+                  ),
+                );
+              }
+              if (b.text == 'Customer Name') {
+                if (!crossRow) {
+                  blocks.add(
+                    extra(
+                      'Pay',
+                      3,
+                      531,
+                      (stacked ? 183 : 207) - (distant ? 100 : 0),
+                      568,
+                      (stacked ? 203 : 227) - (distant ? 100 : 0),
+                      30,
+                    ),
+                  );
+                }
+                blocks.add(
+                  extra(
+                    'By',
+                    3,
+                    stacked ? 531 : 572,
+                    207 - (distant ? 100 : 0),
+                    stacked ? 559 : 600,
+                    227 - (distant ? 100 : 0),
+                    31,
+                  ),
+                );
+              }
+            }
+            final evidence = blocks.map(scaled).toList();
+            final p = _parseBoundedUtility(evidence);
+            expect(
+              p.itemLineDecisions[4] ==
+                  ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+              distant,
+              reason:
+                  'Pay/By stacked=$stacked crossRow=$crossRow distant=$distant scale=$scale',
+            );
+            expect(p.blocks, containsAll(evidence));
+          }
+          final blocks = <ReceiptOcrBlockEvidence>[];
+          final original = _summaryCardBlocks();
+          for (var i = 0; i < original.length; i++) {
+            final b = original[i];
+            blocks.add(
+              _summaryBlockVariant(
+                b,
+                text: b.row == 4 && b.text == 'USD 42.00' ? r'$42.00' : b.text,
+              ),
+            );
+            if (b.row == 3 && original[i + 1].row != 3) {
+              final dx = distant ? 500.0 : 0.0;
+              blocks.add(
+                extra('Hong Kong', 3, 955 + dx, 198, 1048 + dx, 218, 30),
+              );
+              blocks.add(
+                extra(
+                  'Dollars',
+                  3,
+                  (stacked ? 955 : 1052) + dx,
+                  stacked ? 222 : 198,
+                  (stacked ? 1035 : 1132) + dx,
+                  stacked ? 242 : 218,
+                  31,
+                ),
+              );
+            }
+          }
+          final evidence = blocks.map(scaled).toList();
+          final p = _parseBoundedUtility(evidence);
+          expect(
+            p.itemLineDecisions[4] ==
+                ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+            distant,
+            reason:
+                'split denomination stacked=$stacked distant=$distant scale=$scale',
+          );
+          expect(p.blocks, containsAll(evidence));
+        }
+      }
+    }
+  });
+
   test('summary-card ownership includes neighboring monetary fragments', () {
     for (final spec in [
       for (final prefix in [
@@ -784,59 +965,66 @@ void main() {
     () {
       for (final grouped in [false, true]) {
         for (final pending in [false, true]) {
-          final blocks = <ReceiptOcrBlockEvidence>[];
-          for (final b in _summaryCardBlocks()) {
-            if ([
-              'Internet Service Bill',
-              'Account Number',
-              'AC987654321',
-            ].contains(b.text)) {
-              continue;
-            }
-            blocks.add(
-              ReceiptOcrBlockEvidence(
-                text: b.text,
-                row: grouped && b.row == 2 ? 3 : b.row,
-                order: b.order,
-                points: b.points,
-              ),
-            );
-            if (pending && b.text == 'Customer Name') {
+          for (final distant in [false, true]) {
+            final blocks = <ReceiptOcrBlockEvidence>[];
+            for (final b in _summaryCardBlocks()) {
+              if ([
+                'Internet Service Bill',
+                'Account Number',
+                'AC987654321',
+              ].contains(b.text)) {
+                continue;
+              }
               blocks.add(
-                const ReceiptOcrBlockEvidence(
-                  text: 'Premium Router Bundle',
-                  row: 3,
-                  order: 30,
-                  points: [
-                    ReceiptOcrPoint(x: 1000, y: 185),
-                    ReceiptOcrPoint(x: 1180, y: 185),
-                    ReceiptOcrPoint(x: 1180, y: 205),
-                    ReceiptOcrPoint(x: 1000, y: 205),
-                  ],
+                ReceiptOcrBlockEvidence(
+                  text: b.text,
+                  row: grouped && b.row == 2 ? 3 : b.row,
+                  order: b.order,
+                  points: b.points,
                 ),
               );
+              if (pending && b.text == 'Customer Name') {
+                blocks.add(
+                  ReceiptOcrBlockEvidence(
+                    text: 'Premium Router Bundle',
+                    row: 3,
+                    order: 30,
+                    points: [
+                      ReceiptOcrPoint(x: distant ? 1200 : 1000, y: 185),
+                      ReceiptOcrPoint(x: distant ? 1380 : 1180, y: 185),
+                      ReceiptOcrPoint(x: distant ? 1380 : 1180, y: 205),
+                      ReceiptOcrPoint(x: distant ? 1200 : 1000, y: 205),
+                    ],
+                  ),
+                );
+              }
             }
+            final preview = _parseBoundedUtility(blocks);
+            final reason = 'grouped=$grouped pending=$pending distant=$distant';
+            // Nearby unexplained prose keeps fallback and its uncertainty; a
+            // distant pending description cannot borrow the proven summary amount.
+            expect(preview.items.map((i) => i.lineTotal), [
+              if (pending && !distant) '42.00',
+              '35.00',
+              '7.00',
+            ], reason: reason);
+            expect(
+              preview.warnings.any(
+                (w) => w.contains('no traceable line amount'),
+              ),
+              pending,
+              reason: reason,
+            );
+            expect(
+              preview.incompleteAdjustmentReasons.contains(
+                ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine,
+              ),
+              pending,
+              reason: reason,
+            );
+            expect(preview.adjustmentsComplete, !pending, reason: reason);
+            expect(preview.blocks, containsAll(blocks), reason: reason);
           }
-          final preview = _parseBoundedUtility(blocks);
-          final reason = 'grouped=$grouped pending=$pending';
-          expect(preview.items.map((i) => i.lineTotal), [
-            '35.00',
-            '7.00',
-          ], reason: reason);
-          expect(
-            preview.warnings.any((w) => w.contains('no traceable line amount')),
-            pending,
-            reason: reason,
-          );
-          expect(
-            preview.incompleteAdjustmentReasons.contains(
-              ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine,
-            ),
-            pending,
-            reason: reason,
-          );
-          expect(preview.adjustmentsComplete, !pending, reason: reason);
-          expect(preview.blocks, containsAll(blocks), reason: reason);
         }
       }
     },
@@ -879,14 +1067,16 @@ void main() {
       if (b.text == 'AC987654321') {
         blocks.add(
           const ReceiptOcrBlockEvidence(
+            // Outside the summary's monetary neighborhood, but still on
+            // the preceding logical row used by completeness accounting.
             text: 'Premium Router Bundle',
             row: 3,
             order: 30,
             points: [
-              ReceiptOcrPoint(x: 1000, y: 185),
-              ReceiptOcrPoint(x: 1180, y: 185),
-              ReceiptOcrPoint(x: 1180, y: 205),
-              ReceiptOcrPoint(x: 1000, y: 205),
+              ReceiptOcrPoint(x: 1200, y: 185),
+              ReceiptOcrPoint(x: 1380, y: 185),
+              ReceiptOcrPoint(x: 1380, y: 205),
+              ReceiptOcrPoint(x: 1200, y: 205),
             ],
           ),
         );
