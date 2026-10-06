@@ -4598,6 +4598,16 @@ Set<int>? _ownedSummaryCardHeaderRows(
         b.top - a.bottom <= height;
   }
 
+  // Competition is measured against every participant, independently of
+  // which label/value supplied the rectangle used for gap measurement.
+  double ownershipHeight(
+    ReceiptOcrBlockEvidence label,
+    ReceiptOcrBlockEvidence value,
+    ReceiptOcrBlockEvidence neighbor,
+  ) => [label, value, neighbor]
+      .map((block) => boxes[block]!.bottom - boxes[block]!.top)
+      .reduce((a, b) => a > b ? a : b);
+
   final totalLabels = preceding
       .where(
         (b) =>
@@ -4623,7 +4633,6 @@ Set<int>? _ownedSummaryCardHeaderRows(
   // block can describe the same value. Inspect all physical neighbors rather
   // than relying on a finite vocabulary of Item/Description/Product labels.
   final nameBox = boxes[name]!;
-  final nameHeight = nameBox.bottom - nameBox.top;
   if (allBlocks.any((b) {
     if (row.contains(b) || b == nameLabels.single || b == totalLabels.single) {
       return false;
@@ -4639,8 +4648,7 @@ Set<int>? _ownedSummaryCardHeaderRows(
         : other.top > nameBox.bottom
         ? other.top - nameBox.bottom
         : 0;
-    final otherHeight = other.bottom - other.top;
-    final neighborHeight = otherHeight > nameHeight ? otherHeight : nameHeight;
+    final neighborHeight = ownershipHeight(nameLabels.single, name, b);
     return horizontalGap <= neighborHeight && verticalGap <= neighborHeight;
   })) {
     return null;
@@ -4729,6 +4737,21 @@ Set<int>? _ownedSummaryCardHeaderRows(
     r'^(?:account|customer|client|invoice|bill|statement)\s+(?:no\.?|number|id|#)\s*[:#]?\s*([A-Z0-9][A-Z0-9-]*)$',
     caseSensitive: false,
   );
+  final referenceDigit = RegExp(r'\d');
+  bool isReferenceValue(String text) =>
+      referenceValue.hasMatch(text) && referenceDigit.hasMatch(text);
+  bool isInlineReference(String text) {
+    final match = inlineReference.firstMatch(text);
+    return match != null && isReferenceValue(match.group(1)!);
+  }
+
+  Set<int>? retainDisputedSummary() {
+    // A rejected monetary ownership proof cannot resolve a preceding
+    // unpriced description through the ordinary item fallback.
+    uncertainSummaryAmountRows.add(rowIndex);
+    return null;
+  }
+
   final ownedReferences = <ReceiptOcrBlockEvidence>{};
   for (final label in allBlocks) {
     if (!referenceLabel.hasMatch(_normalizeOcrLine(label.text))) continue;
@@ -4736,9 +4759,7 @@ Set<int>? _ownedSummaryCardHeaderRows(
     final height = a.bottom - a.top;
     final values = allBlocks.where((b) {
       final text = _normalizeOcrLine(b.text);
-      if (b == label ||
-          !referenceValue.hasMatch(text) ||
-          !RegExp(r'\d').hasMatch(text)) {
+      if (b == label || !isReferenceValue(text)) {
         return false;
       }
       final value = boxes[b]!;
@@ -4781,23 +4802,18 @@ Set<int>? _ownedSummaryCardHeaderRows(
         : other.top > dateBox.bottom
         ? other.top - dateBox.bottom
         : 0;
-    final otherHeight = other.bottom - other.top;
-    final neighborHeight = otherHeight > dateHeight ? otherHeight : dateHeight;
+    final neighborHeight = ownershipHeight(dateLabel, date, neighbor);
     if (horizontalGap > neighborHeight * 4 || verticalGap > neighborHeight) {
       continue;
     }
     final text = _normalizeOcrLine(neighbor.text);
-    final inline = inlineReference.firstMatch(text);
     if (ownedReferences.contains(neighbor) ||
         ownsSeparatePeriod(neighbor) ||
         _matchesUtilityPeriod(text) ||
-        (inline != null && RegExp(r'\d').hasMatch(inline.group(1)!))) {
+        isInlineReference(text)) {
       continue;
     }
-    // Preserve the fallback, but do not let its disputed summary amount
-    // make a preceding unpriced description look resolved.
-    uncertainSummaryAmountRows.add(rowIndex);
-    return null;
+    return retainDisputedSummary();
   }
 
   // A large amount can overlap monetary fragments assigned to another OCR
@@ -4826,16 +4842,11 @@ Set<int>? _ownedSummaryCardHeaderRows(
     caseSensitive: false,
     unicode: true,
   );
-  final invoiceReference = RegExp(
-    r'^(?:invoice|bill|statement)\s+(?:no\.?|number|#)\s*[:#]?\s*[A-Z0-9][A-Z0-9-]*$',
-    caseSensitive: false,
-  );
   final words = RegExp(r'[\p{L}\p{M}]+', unicode: true);
-  final amountHeight = amountBox.bottom - amountBox.top;
   for (final neighbor in allBlocks) {
     if (row.contains(neighbor) || neighbor == totalLabels.single) continue;
     final other = boxes[neighbor];
-    if (other == null) return null;
+    if (other == null) return retainDisputedSummary();
     final horizontalGap = other.right < amountBox.left
         ? amountBox.left - other.right
         : other.left > amountBox.right
@@ -4846,10 +4857,11 @@ Set<int>? _ownedSummaryCardHeaderRows(
         : other.top > amountBox.bottom
         ? other.top - amountBox.bottom
         : 0;
-    final otherHeight = other.bottom - other.top;
-    final neighborHeight = otherHeight > amountHeight
-        ? otherHeight
-        : amountHeight;
+    final neighborHeight = ownershipHeight(
+      totalLabels.single,
+      amount,
+      neighbor,
+    );
     if (horizontalGap > neighborHeight || verticalGap > neighborHeight * 0.5) {
       continue;
     }
@@ -4859,7 +4871,7 @@ Set<int>? _ownedSummaryCardHeaderRows(
     final upper = text.toUpperCase();
     if ((_hasExplicitHongKongCurrencyMarker(upper) && currency != 'HKD') ||
         (_hasExplicitUnitedStatesCurrencyMarker(upper) && currency != 'USD')) {
-      return null;
+      return retainDisputedSummary();
     }
     final markers = currencyAtoms
         .allMatches(text)
@@ -4890,7 +4902,7 @@ Set<int>? _ownedSummaryCardHeaderRows(
     // neighboring number. A comparison's other operand may be in the amount
     // cell, so even one unexplained number must retain the ordinary fallback.
     final explainedMetadata =
-        _matchesUtilityPeriod(text) || invoiceReference.hasMatch(text);
+        _matchesUtilityPeriod(text) || isInlineReference(text);
     final completeNamedCurrency = RegExp(
       r'^(?:(?:hong\s+kong|hk)|(?:us|u\.s\.|united\s+states))\s+dollars?$',
       caseSensitive: false,
@@ -4986,19 +4998,18 @@ Set<int>? _ownedSummaryCardHeaderRows(
         // Keep the existing item fallback, but this disputed summary amount
         // cannot establish that a preceding unpriced description was resolved.
         // It is not an excluded row and receives no metadata exemption.
-        uncertainSummaryAmountRows.add(rowIndex);
-        return null;
+        return retainDisputedSummary();
       }
       continue;
     }
-    if (!isCurrency) return null;
+    if (!isCurrency) return retainDisputedSummary();
     for (final marker in markers) {
       final printed = _currencyAdjacentToSelectedAmount(
         '$marker ${moneyCell.group(2)}',
         currency,
       );
       if (!printed.hasExplicitEvidence || printed.currency != currency) {
-        return null;
+        return retainDisputedSummary();
       }
     }
   }

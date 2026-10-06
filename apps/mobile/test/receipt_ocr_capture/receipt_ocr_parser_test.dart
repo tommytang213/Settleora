@@ -144,6 +144,237 @@ ReceiptOcrBlockEvidence _summaryBlockVariant(
 );
 
 void main() {
+  test('ownership uses shared geometry and numeric reference evidence', () {
+    ReceiptOcrBlockEvidence box(
+      String text,
+      int row,
+      double left,
+      double top,
+      double right,
+      double bottom,
+      int order,
+    ) => ReceiptOcrBlockEvidence(
+      text: text,
+      row: row,
+      order: order,
+      points: [
+        ReceiptOcrPoint(x: left, y: top),
+        ReceiptOcrPoint(x: right, y: top),
+        ReceiptOcrPoint(x: right, y: bottom),
+        ReceiptOcrPoint(x: left, y: bottom),
+      ],
+    );
+    for (final scale in [0.5, 1.0, 2.0]) {
+      ReceiptOcrBlockEvidence scaled(ReceiptOcrBlockEvidence b) =>
+          ReceiptOcrBlockEvidence(
+            text: b.text,
+            row: b.row,
+            order: b.order,
+            points: b.points
+                .map((p) => ReceiptOcrPoint(x: p.x * scale, y: p.y * scale))
+                .toList(),
+          );
+      for (final labelHeight in [20.0, 40.0, 60.0]) {
+        for (final valueHeight in [20.0, 40.0, 60.0]) {
+          if (labelHeight > valueHeight * 2) continue;
+          for (final otherHeight in [20.0, 40.0, 60.0]) {
+            final basis = [
+              labelHeight,
+              valueHeight,
+              otherHeight,
+            ].reduce((a, b) => a > b ? a : b);
+            for (final distant in [false, true]) {
+              final original = _summaryCardBlocks();
+              final blocks = <ReceiptOcrBlockEvidence>[];
+              for (var i = 0; i < original.length; i++) {
+                final b = original[i];
+                blocks.add(
+                  b.text == 'Invoice Date'
+                      ? box(
+                          b.text,
+                          4,
+                          371,
+                          229,
+                          467,
+                          229 + labelHeight,
+                          b.order,
+                        )
+                      : b.text == 'Apr 5, 2026'
+                      ? box(
+                          b.text,
+                          4,
+                          531,
+                          230,
+                          623,
+                          230 + valueHeight,
+                          b.order,
+                        )
+                      : b,
+                );
+                if (b.row == 5 && original[i + 1].row != 5) {
+                  final bottom = (229 + labelHeight) > (230 + valueHeight)
+                      ? 229 + labelHeight
+                      : 230 + valueHeight;
+                  final top = bottom + basis * (distant ? 3 : 0.5);
+                  blocks.add(
+                    box('Pay Before', 5, 531, top, 623, top + otherHeight, 30),
+                  );
+                }
+              }
+              final evidence = blocks.map(scaled).toList();
+              final p = _parseBoundedUtility(evidence);
+              expect(
+                p.itemLineDecisions[4] ==
+                    ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+                distant,
+                reason:
+                    'label=$labelHeight value=$valueHeight other=$otherHeight distant=$distant scale=$scale',
+              );
+              expect(p.blocks, containsAll(evidence));
+            }
+          }
+        }
+      }
+      for (final prefix in [
+        'Invoice No',
+        'Bill Number',
+        'Statement #',
+        'Account No',
+        'Customer ID',
+      ]) {
+        for (final id in [
+          'INV99',
+          'A-9',
+          '2026',
+          'ALPHA',
+          'Previous-Balance',
+          'Amount-Paid',
+          'Credit',
+          'Tax',
+          'Discount',
+        ]) {
+          for (final distant in [false, true]) {
+            final original = _summaryCardBlocks();
+            final blocks = <ReceiptOcrBlockEvidence>[];
+            for (var i = 0; i < original.length; i++) {
+              final b = original[i];
+              blocks.add(b);
+              if (b.row == 3 && original[i + 1].row != 3) {
+                blocks.add(
+                  box(
+                    '$prefix $id',
+                    3,
+                    distant ? 1355 : 955,
+                    240,
+                    distant ? 1600 : 1200,
+                    260,
+                    30,
+                  ),
+                );
+              }
+            }
+            final evidence = blocks.map(scaled).toList();
+            final p = _parseBoundedUtility(evidence);
+            expect(
+              p.itemLineDecisions[4] ==
+                  ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+              distant || ['INV99', 'A-9', '2026'].contains(id),
+              reason: '$prefix $id distant=$distant scale=$scale',
+            );
+            expect(p.blocks, containsAll(evidence));
+          }
+        }
+      }
+    }
+  });
+
+  test('disputed reference metadata cannot price a pending description', () {
+    for (final reference in [
+      'Invoice No INV99',
+      'Invoice No Previous-Balance',
+      'Invoice No ALPHA',
+    ]) {
+      for (final pending in [false, true]) {
+        final blocks = <ReceiptOcrBlockEvidence>[];
+        for (final b in _summaryCardBlocks()) {
+          if (b.row == 1) continue;
+          final row = b.row == 2
+              ? 1
+              : b.row == 3
+              ? 2
+              : b.row;
+          if (b.text == 'Total Due' || b.text == 'Customer Name') {
+            blocks.add(
+              ReceiptOcrBlockEvidence(
+                text: 'Invoice No INV99',
+                row: row,
+                order: 31,
+                points: const [
+                  ReceiptOcrPoint(x: 1000, y: 160),
+                  ReceiptOcrPoint(x: 1190, y: 160),
+                  ReceiptOcrPoint(x: 1190, y: 180),
+                  ReceiptOcrPoint(x: 1000, y: 180),
+                ],
+              ),
+            );
+          }
+          blocks.add(
+            ReceiptOcrBlockEvidence(
+              text: b.text,
+              row: row,
+              order: b.order,
+              points: b.points,
+            ),
+          );
+          if (b.text == 'AC987654321') {
+            blocks.add(
+              ReceiptOcrBlockEvidence(
+                text: reference,
+                row: 2,
+                order: 32,
+                points: const [
+                  ReceiptOcrPoint(x: 955, y: 240),
+                  ReceiptOcrPoint(x: 1200, y: 240),
+                  ReceiptOcrPoint(x: 1200, y: 260),
+                  ReceiptOcrPoint(x: 955, y: 260),
+                ],
+              ),
+            );
+            if (pending) {
+              blocks.add(
+                const ReceiptOcrBlockEvidence(
+                  text: 'Premium Router Bundle',
+                  row: 3,
+                  order: 33,
+                  points: [
+                    ReceiptOcrPoint(x: 1250, y: 185),
+                    ReceiptOcrPoint(x: 1450, y: 185),
+                    ReceiptOcrPoint(x: 1450, y: 205),
+                    ReceiptOcrPoint(x: 1250, y: 205),
+                  ],
+                ),
+              );
+            }
+          }
+        }
+        final p = _parseBoundedUtility(blocks);
+        expect(
+          p.warnings.any((w) => w.contains('no traceable line amount')),
+          pending,
+          reason: '$reference pending=$pending',
+        );
+        expect(
+          p.incompleteAdjustmentReasons.contains(
+            ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine,
+          ),
+          pending,
+          reason: '$reference pending=$pending',
+        );
+        expect(p.blocks, containsAll(blocks));
+      }
+    }
+  });
+
   test('summary ownership measures competing heading sizes independently', () {
     ReceiptOcrBlockEvidence extra(
       String text,
