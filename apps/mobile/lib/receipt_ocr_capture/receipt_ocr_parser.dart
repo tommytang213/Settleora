@@ -1476,6 +1476,82 @@ class ReceiptOcrParser {
               _hasTotalLabel('$normalized 0', '$lower 0'));
     }
 
+    // The same printed heading can occupy one box, several words or separate
+    // glyphs. Match adjacent fragments against the existing label vocabulary,
+    // independently of row-wide text and unrelated agreeing totals. This is
+    // only a conflict guard; fragmented fields never establish a new owner.
+    String compactLabel(String text) =>
+        _normalizeOcrLine(text).toLowerCase().replaceAll(RegExp(r'[\s:：]'), '');
+    final totalHeadings = [
+      ..._englishTotalLabels,
+      '合計',
+      ..._localizedTotalLabels,
+    ].map(compactLabel).toSet();
+    final fragments = allBlocks.where((block) {
+      final text = compactLabel(block.text);
+      return text.isNotEmpty &&
+          hasGeometry(block) &&
+          height(block) > 0 &&
+          !hasTotalEvidence(block.text);
+    }).toList();
+    bool adjacentFragments(
+      ReceiptOcrBlockEvidence a,
+      ReceiptOcrBlockEvidence b,
+    ) {
+      final largerHeight = height(a) > height(b) ? height(a) : height(b);
+      final horizontalGap = _blockLeft(a) >= _blockRight(b)
+          ? _blockLeft(a) - _blockRight(b)
+          : _blockLeft(b) - _blockRight(a);
+      if (horizontalGap >= 0 &&
+          aligned(a, b) &&
+          (a.row == b.row || horizontalGap <= largerHeight * 2)) {
+        return true;
+      }
+      final verticalGap = top(a) >= bottom(b)
+          ? top(a) - bottom(b)
+          : top(b) - bottom(a);
+      return verticalGap >= 0 &&
+          verticalGap <= largerHeight &&
+          (_blockLeft(a) - _blockLeft(b)).abs() <= largerHeight / 2;
+    }
+
+    final fragmentNeighbors =
+        <ReceiptOcrBlockEvidence, List<ReceiptOcrBlockEvidence>>{
+          for (final block in fragments)
+            block: fragments
+                .where(
+                  (other) => other != block && adjacentFragments(block, other),
+                )
+                .toList(),
+        };
+    var fragmentBudget = 512;
+    bool hasUnresolvedFragmentedTotal(
+      List<ReceiptOcrBlockEvidence> path,
+      String text,
+    ) {
+      for (final next in fragmentNeighbors[path.last]!) {
+        if (path.contains(next)) continue;
+        final joined = '$text${compactLabel(next.text)}';
+        final completesHeading = totalHeadings.any(joined.startsWith);
+        if (!completesHeading &&
+            !totalHeadings.any((heading) => heading.startsWith(joined))) {
+          continue;
+        }
+        // Dense ambiguous layouts must decline, not silently exhaust a proof.
+        if (--fragmentBudget < 0 || completesHeading) return true;
+        if (hasUnresolvedFragmentedTotal([...path, next], joined)) return true;
+      }
+      return false;
+    }
+
+    if (fragments.any((block) {
+      final text = compactLabel(block.text);
+      return totalHeadings.any((heading) => heading.startsWith(text)) &&
+          hasUnresolvedFragmentedTotal([block], text);
+    })) {
+      return null;
+    }
+
     const months = [
       'january',
       'february',
@@ -8427,29 +8503,44 @@ bool _isPrimaryTotalCurrencyLine(String line, String normalized) {
               _attachedSupportedCodeOnSelectedAmount(line) != null));
 }
 
+const _englishTotalLabels = [
+  'total amount due',
+  'total due',
+  'total current charges',
+  'refund total',
+  'total paid',
+  'paid total',
+  'grand total',
+  'amount due',
+  'balance due',
+  'payment due',
+  'total',
+];
+const _localizedTotalLabels = [
+  'الإجمالي',
+  '合计',
+  '總計',
+  '합계',
+  'कुल',
+  'ยอดสุทธิ',
+  'Итого',
+  'итого',
+  'Gesamt',
+  'Razem',
+  'Toplam',
+  'Tổng',
+];
+
 bool _hasTotalLabel(String line, String normalized) {
   return _hasEnglishReceiptLabel(
         normalized,
         RegExp(
-          r'\b(total\s+(?:amount\s+)?due|total\s+current\s+charges|refund\s+total|total\s+paid|paid\s+total|grand\s+total|amount\s+due|balance\s+due|payment\s+due|total)\b',
+          '\\b(${_englishTotalLabels.map((label) => label.replaceAll(' ', r'\s+')).join('|')})\\b',
           caseSensitive: false,
         ),
       ) ||
       _hasJapaneseReceiptLabel(line, const ['合計']) ||
-      _hasLocalizedReceiptLabel(line, const [
-        'الإجمالي',
-        '合计',
-        '總計',
-        '합계',
-        'कुल',
-        'ยอดสุทธิ',
-        'Итого',
-        'итого',
-        'Gesamt',
-        'Razem',
-        'Toplam',
-        'Tổng',
-      ]);
+      _hasLocalizedReceiptLabel(line, _localizedTotalLabels);
 }
 
 bool _hasPriorityTotalLabel(String line) {

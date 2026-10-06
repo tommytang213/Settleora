@@ -190,6 +190,141 @@ List<ReceiptOcrBlockEvidence> _ownedFeeBlocks({
 
 void main() {
   group('owned total beside a contact column', () {
+    List<ReceiptOcrBlockEvidence> fragmentedTotalEvidence(
+      List<String> heading,
+      double scale, {
+      bool vertical = false,
+      bool splitRows = false,
+      bool reverse = false,
+      bool agreeing = true,
+      List<String> amount = const ['USD 90.00'],
+      bool splitOwnedMoney = false,
+    }) {
+      ReceiptOcrBlockEvidence b(
+        String t,
+        int row,
+        double left,
+        double top,
+        double right,
+        double bottom,
+      ) => ReceiptOcrBlockEvidence(
+        text: t,
+        row: row,
+        order: row * 1000 + left.round(),
+        points: [
+          ReceiptOcrPoint(x: left * scale, y: top * scale),
+          ReceiptOcrPoint(x: right * scale, y: top * scale),
+          ReceiptOcrPoint(x: right * scale, y: bottom * scale),
+          ReceiptOcrPoint(x: left * scale, y: bottom * scale),
+        ],
+      );
+      return [
+        b('Sample Utility', 0, 50, 0, 300, 20),
+        b('Broadband Plan', 1, 50, 60, 300, 80),
+        b('USD 86.27', 1, 600, 60, 720, 80),
+        if (agreeing) ...[
+          b('Total', 2, 50, 120, 300, 140),
+          b('USD 86.27', 2, 600, 120, 720, 140),
+        ],
+        b('Contact us for payment options', 2, 1300, 120, 1600, 140),
+        for (var i = 0; i < heading.length; i++)
+          b(
+            heading[i],
+            splitRows ? 2 + i : 2,
+            vertical ? 800 : 800 + (reverse ? heading.length - 1 - i : i) * 90,
+            vertical ? 120 + i * 24 : 120,
+            vertical ? 875 : 875 + (reverse ? heading.length - 1 - i : i) * 90,
+            vertical ? 140 + i * 24 : 140,
+          ),
+        for (var i = 0; i < amount.length; i++)
+          b(amount[i], 12 + i, 800 + i * 60, 370, 850 + i * 60, 390),
+        b('Grand Total', 20, 50, 500, 300, 520),
+        if (splitOwnedMoney) ...[
+          b('US', 20, 580, 500, 600, 520),
+          b(r'D $86', 20, 610, 500, 680, 520),
+          b('.27', 21, 684, 500, 720, 520),
+        ] else
+          b(r'$86.27', 20, 600, 500, 720, 520),
+        b('Call us at 1-800-555-0199', 20, 800, 500, 1050, 520),
+      ];
+    }
+
+    void verifyFragmented(List<ReceiptOcrBlockEvidence> blocks, String reason) {
+      final rows = <int, List<String>>{};
+      for (final b in blocks) {
+        (rows[b.row] ??= []).add(b.text);
+      }
+      final text = rows.values.map((r) => r.join(' ')).join('\n');
+      final preview = const ReceiptOcrParser().parse(
+        text,
+        fallbackCurrency: 'USD',
+        blocks: blocks,
+      );
+      expect(preview.total, '0199', reason: reason);
+      expect(preview.blocks, blocks, reason: reason);
+    }
+
+    test('fragmented headings preserve conflicting total evidence', () {
+      for (final heading in [
+        ['Payment', 'Due'],
+        ['Amount', 'Due'],
+        ['Balance', 'Due'],
+        ['Pay', 'ment', 'Due'],
+        ['A', 'm', 'o', 'u', 'n', 't', 'D', 'u', 'e'],
+        ['合', '計'],
+        ['總', '計'],
+        ['Ges', 'amt'],
+        ['ยอด', 'สุทธิ'],
+        ['Payment', 'DueUSD90.00'],
+        ['Bal', 'ance', r'Due$90.00'],
+      ]) {
+        for (final scale in [0.5, 1.0, 2.0]) {
+          for (final shape in [
+            'horizontal',
+            'cross-row',
+            'vertical',
+            'reverse',
+            'no-repetition',
+          ]) {
+            final blocks = fragmentedTotalEvidence(
+              heading,
+              scale,
+              vertical: shape == 'vertical',
+              splitRows: shape == 'cross-row' || shape == 'vertical',
+              reverse: shape == 'reverse',
+              agreeing: shape != 'no-repetition',
+            );
+            verifyFragmented(blocks, '$heading $scale $shape');
+          }
+        }
+      }
+    });
+    test(
+      'fragmented currency and amount cells never establish total ownership',
+      () {
+        for (final scale in [0.5, 1.0, 2.0]) {
+          for (final amount in [
+            ['US', 'D', '90', '.00'],
+            [r'$', '90', '.', '00'],
+            ['HK', r'$', '90.00'],
+            ['90.00', 'A', 'RS'],
+            ['-', 'USD', '90.00'],
+          ]) {
+            for (final splitOwnedMoney in [false, true]) {
+              final blocks = fragmentedTotalEvidence(
+                ['Pay', 'ment', 'Due'],
+                scale,
+                splitRows: true,
+                amount: amount,
+                splitOwnedMoney: splitOwnedMoney,
+              );
+              verifyFragmented(blocks, '$amount $scale $splitOwnedMoney');
+            }
+          }
+        }
+      },
+    );
+
     ReceiptOcrPreview parse({
       double scale = 1,
       String label = 'Total Current Charges',
