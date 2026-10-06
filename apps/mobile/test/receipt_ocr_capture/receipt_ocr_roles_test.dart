@@ -34,6 +34,56 @@ ReceiptOcrPreview parseBlocks(List<ReceiptOcrBlockEvidence> blocks) {
 }
 
 void main() {
+  group('critical review receipt role regressions', () {
+    for (final qualifier in ['Previous:', 'Prior —', 'Last (', 'Refund /']) {
+      test('historical punctuation $qualifier cannot own the receipt date', () {
+        final p = const ReceiptOcrParser().parse(
+          'Example Utility\nBill Date: 2026-09-17\n'
+          '$qualifier Receipt Date: 2026-09-10\n'
+          'Plan USD 18.00\nTotal USD 18.00',
+        );
+        expect(p.receiptDate, '2026-09-17');
+      });
+    }
+    for (final stay in [
+      'Stay: 2026-09-15 to 2026-09-17',
+      'Stay:\n2026-09-15 to 2026-09-17',
+      'Check-in: 2026-09-15\nCheck-out: 2026-09-17',
+    ]) {
+      test('stay-only dates are unavailable for Apply: $stay', () {
+        final p = const ReceiptOcrParser().parse(
+          'Example Hotel\n$stay\nRoom USD 180.00\nTotal USD 180.00',
+        );
+        expect(p.receiptDate, isNull);
+        expect(p.warnings, contains(contains('Stay dates')));
+        expect(p.items.single.lineTotal, '180.00');
+      });
+      test('an explicit transaction date remains available beside $stay', () {
+        final p = const ReceiptOcrParser().parse(
+          'Example Hotel\n$stay Receipt Date: 2026-09-18\n'
+          'Room USD 180.00\nTotal USD 180.00',
+        );
+        expect(p.receiptDate, '2026-09-18');
+        expect(p.warnings, isNot(contains(contains('Stay dates'))));
+      });
+    }
+    for (final heading in ['Buyer:', 'Buyer', 'Buyer：']) {
+      test('issuer prominence does not cross $heading', () {
+        final blocks = [
+          cell('Supplier Tools Ltd', 0, 20, 10, 300, 20),
+          cell(heading, 1, 20, 50, 100, 20),
+          cell('Recipient Market', 2, 20, 90, 350, 48),
+          cell('123 Sample Road', 3, 20, 155, 220, 20),
+          cell('Widget USD 10.00', 4, 20, 195, 300, 20),
+          cell('Total USD 10.00', 5, 20, 235, 300, 20),
+        ];
+        final p = parseBlocks(blocks);
+        expect(p.merchant, 'Supplier Tools Ltd');
+        expect(p.blocks, orderedEquals(blocks));
+        expect(p.items.single.lineTotal, '10.00');
+      });
+    }
+  });
   group('standalone support hours ownership', () {
     List<ReceiptOcrBlockEvidence> panel({
       String hours = 'Sat - Sun, 9 AM - 5 PM PT',
@@ -341,7 +391,8 @@ void main() {
         'Stay: 2026-09-15 to 2026-09-17\nRoom USD 180.00\n'
         'Tourism Fee USD 10.00\nAmount Due USD 190.00',
       );
-      expect(p.receiptDate, isNot('2026-09-17'));
+      expect(p.receiptDate, isNull);
+      expect(p.warnings, contains(contains('Stay dates')));
       expect(p.reviewHints, isNotEmpty);
     });
   });

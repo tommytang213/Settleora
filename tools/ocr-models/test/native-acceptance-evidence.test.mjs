@@ -39,19 +39,22 @@ function withLog(contents, callback) {
 }
 
 function protocolLog(...messages) {
-  const testNames = [
-    "bounded diagnostic matches whole item and amount tokens",
-    "native acceptance runner has no external network",
-    "all 101 real images match complete preview truth",
-    "a real fixture rotated 270 degrees matches complete truth",
-    "representative production receipt review UI uses real provider",
-  ];
-  const ownerIndex = (message) => message.startsWith("SETTLEORA_OCR_UI_SMOKE=") ? 4 : 2;
+  // Generate protocol input from the real harness declarations, so adding a
+  // native test without updating the collector cannot leave this suite green.
+  const harness = readFileSync(path.join(repoRoot,
+    "apps/mobile/integration_test/receipt_ocr_real_provider_test.dart"), "utf8");
+  const testNames = [...harness.matchAll(/\btest(?:Widgets)?\(\s*'([^']+)'/g)]
+    .map((match) => match[1]);
+  assert.equal(testNames.length, 6);
+  assert.equal(new Set(testNames).size, testNames.length);
+  const ownerIndex = (message) => testNames.indexOf(message.startsWith("SETTLEORA_OCR_UI_SMOKE=")
+    ? "representative production receipt review UI uses real provider"
+    : "all 101 real images match complete preview truth");
   return [
     { type: "start", time: 0, protocolVersion: "0.1.1", runnerVersion: null, pid: 1 },
     { type: "allSuites", time: 0, count: 1 },
     { type: "suite", time: 0, suite: { id: 1, platform: "vm", path: "integration_test/receipt_ocr_real_provider_test.dart" } },
-    { type: "group", time: 0, group: { id: 1, suiteID: 1, parentID: null, name: "", metadata: { skip: false, skipReason: null }, testCount: 5, line: null, column: null, url: null } },
+    { type: "group", time: 0, group: { id: 1, suiteID: 1, parentID: null, name: "", metadata: { skip: false, skipReason: null }, testCount: testNames.length, line: null, column: null, url: null } },
     ...testNames.flatMap((name, index) => [
       { type: "testStart", time: 1, test: { id: index + 1, suiteID: 1, groupIDs: [1], name, metadata: { skip: false, skipReason: null }, line: null, column: null, url: null } },
       ...messages.filter((message) => ownerIndex(message) === index).map((message) => ({ type: "print", time: 2, testID: index + 1, messageType: "print", message })),
@@ -84,6 +87,38 @@ test("accepts Flutter 3.44.8 start events with a null runner version", () => {
   withLog(protocolLog(), (log) => {
     assert.doesNotThrow(() => buildEvidence(evidenceArgs(log), repoRoot));
   });
+});
+
+test("requires the actual sixth native test to finish successfully", () => {
+  const events = protocolLog().trimEnd().split("\n").map(JSON.parse);
+  const identity = events.find((event) => event.type === "testStart" &&
+    event.test.name === "explicit item currency is separate from receipt currency").test.id;
+  withLog(protocolLog(), (log) => {
+    assert.equal(buildEvidence(evidenceArgs(log), repoRoot).execution.protocolSucceeded, true);
+  });
+  for (const mode of ["missing", "failed", "skipped", "duplicate", "unexpected"]) {
+    let changed = structuredClone(events);
+    if (mode === "missing") {
+      changed = changed.filter((event) => event.test?.id !== identity && event.testID !== identity);
+    } else if (mode === "failed" || mode === "skipped") {
+      const done = changed.find((event) => event.type === "testDone" && event.testID === identity);
+      if (mode === "failed") done.result = "failure";
+      else done.skipped = true;
+    } else {
+      const start = changed.find((event) => event.type === "testStart" && event.test.id === identity);
+      start.test.name = mode === "duplicate"
+        ? "bounded diagnostic matches whole item and amount tokens" : "unapproved native test";
+    }
+    withLog(changed.map((event) => JSON.stringify(event)).join("\n") + "\n", (log) => {
+      if (mode === "duplicate" || mode === "unexpected") {
+        assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot), /duplicate test|invalid suite/);
+      } else {
+        const evidence = buildEvidence(evidenceArgs(log), repoRoot);
+        assert.equal(evidence.execution.protocolSucceeded, false, mode);
+        assert.equal(isCompleteEvidence(evidence), false, mode);
+      }
+    });
+  }
 });
 
 test("binds package baseline evidence to source, dependency lock, and exact tooling", () => {
@@ -1198,7 +1233,7 @@ test("rejects malformed protocol ordering and inactive test references", () => {
     assert.throws(() => buildEvidence(evidenceArgs(logPath), repoRoot), /before start/);
   });
   const inactivePrint = protocolLog("SETTLEORA_OCR_UI_SMOKE={}")
-    .replace('"testID":5,"messageType"', '"testID":99,"messageType"');
+    .replace('"testID":6,"messageType"', '"testID":99,"messageType"');
   withLog(inactivePrint, (logPath) => {
     assert.throws(() => buildEvidence(evidenceArgs(logPath), repoRoot), /inactive test/);
   });
@@ -1217,21 +1252,21 @@ test("rejects malformed protocol ordering and inactive test references", () => {
 
 test("requires the exact declared acceptance tests and marker owners", () => {
   const missingRotation = protocolLog()
-    .replace(/\{"type":"testStart","time":1,"test":\{"id":4,[^\n]+\n/, "")
-    .replace('{"type":"testDone","time":3,"testID":4,"result":"success","skipped":false,"hidden":false}\n', "");
+    .replace(/\{"type":"testStart","time":1,"test":\{"id":5,[^\n]+\n/, "")
+    .replace('{"type":"testDone","time":3,"testID":5,"result":"success","skipped":false,"hidden":false}\n', "");
   withLog(missingRotation, (logPath) => {
     const evidence = buildEvidence(evidenceArgs(logPath), repoRoot);
     assert.equal(evidence.execution.protocolSucceeded, false);
   });
 
-  const wrongDeclaredCount = protocolLog().replace('"testCount":5', '"testCount":4');
+  const wrongDeclaredCount = protocolLog().replace('"testCount":6', '"testCount":5');
   withLog(wrongDeclaredCount, (logPath) => {
     const evidence = buildEvidence(evidenceArgs(logPath), repoRoot);
     assert.equal(evidence.execution.protocolSucceeded, false);
   });
 
   const uiMarker = "SETTLEORA_OCR_UI_SMOKE={}";
-  const wrongOwner = protocolLog(uiMarker).replace('"testID":5,"messageType"', '"testID":2,"messageType"');
+  const wrongOwner = protocolLog(uiMarker).replace('"testID":6,"messageType"', '"testID":2,"messageType"');
   withLog(wrongOwner, (logPath) => {
     assert.throws(() => buildEvidence(evidenceArgs(logPath), repoRoot), /inactive test|wrong test/);
   });

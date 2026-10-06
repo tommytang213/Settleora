@@ -303,8 +303,12 @@ class ReceiptOcrParser {
       merchant: merchant,
       receiptDate: _detectDate(
         lines,
+        selectTransactionDate: true,
         onAmbiguousReceiptDate: () => warnings.add(
           'Conflicting receipt dates were detected. Review the receipt date.',
+        ),
+        onStayOnlyDate: () => warnings.add(
+          'Stay dates were detected without a transaction date. Review the receipt date.',
         ),
       ),
       currency: currency,
@@ -634,10 +638,23 @@ class ReceiptOcrParser {
 
   String? _detectDate(
     List<String> lines, {
+    bool selectTransactionDate = false,
     void Function()? onAmbiguousReceiptDate,
+    void Function()? onStayOnlyDate,
   }) {
     ({String date, int score})? best;
     final explicitReceiptDates = <String>{};
+    var sawStayDate = false;
+    final receiptDateQualifier = RegExp(
+      r'\b(?:previous|prior|last|refund|reference|payment|paid|due|order|pickup|service|stay)[\s\p{P}]+$',
+      unicode: true,
+    );
+    final stayLabel = RegExp(
+      r'\b(?:stay|check[ -]?in|check[ -]?out|arrival|departure)\b',
+    );
+    final standaloneStayLabel = RegExp(
+      r'^\s*(?:stay|check[ -]?in|check[ -]?out|arrival|departure)(?:\s+(?:date|dates|period))?\s*[:：]?\s*$',
+    );
     for (var index = 0; index < lines.length; index += 1) {
       final line = lines[index];
       final lower = line.toLowerCase();
@@ -653,22 +670,36 @@ class ReceiptOcrParser {
       void consider(String? date, int dateStart) {
         var score = positionScore;
         final labels =
-            <({int start, bool secondary})>[
+            <({int start, bool secondary, bool stay})>[
                 ...primaryLabel
                     .allMatches(lower)
-                    .map((match) => (start: match.start, secondary: false)),
+                    .map(
+                      (match) =>
+                          (start: match.start, secondary: false, stay: false),
+                    ),
                 ...secondaryLabel
                     .allMatches(lower)
-                    .map((match) => (start: match.start, secondary: true)),
+                    .map(
+                      (match) =>
+                          (start: match.start, secondary: true, stay: false),
+                    ),
+                ...stayLabel
+                    .allMatches(lower)
+                    .map(
+                      (match) =>
+                          (start: match.start, secondary: true, stay: true),
+                    ),
               ].where((label) => label.start < dateStart).toList()
               ..sort((a, b) => a.start.compareTo(b.start));
         if (labels.isNotEmpty) {
           final nearest = labels.last;
+          if (date != null && selectTransactionDate && nearest.stay) {
+            sawStayDate = true;
+            return;
+          }
           final priorQualifier =
               !nearest.secondary &&
-              RegExp(
-                r'\b(?:previous|prior|last|refund|reference|payment|paid|due|order|pickup|service|stay)\s+$',
-              ).hasMatch(lower.substring(0, nearest.start));
+              receiptDateQualifier.hasMatch(lower.substring(0, nearest.start));
           score += nearest.secondary || priorQualifier ? -100 : 80;
           // A printed receipt date identifies this document more directly
           // than its order/pickup history. Only a directly attached label
@@ -678,13 +709,19 @@ class ReceiptOcrParser {
               RegExp(
                 r'^receipt\s+date\s*[:：]?\s*$',
               ).hasMatch(lower.substring(nearest.start, dateStart)) &&
-              !RegExp(
-                r'\b(?:previous|prior|last|refund|reference|payment|paid|due|order|pickup|service|stay)\s+$',
-              ).hasMatch(lower.substring(0, nearest.start))) {
+              !receiptDateQualifier.hasMatch(
+                lower.substring(0, nearest.start),
+              )) {
             explicitReceiptDates.add(date);
           }
         } else if (index > 0 && !_lineHasAmount(lines[index - 1])) {
           final previous = lines[index - 1].toLowerCase();
+          if (date != null &&
+              selectTransactionDate &&
+              standaloneStayLabel.hasMatch(previous)) {
+            sawStayDate = true;
+            return;
+          }
           if (secondaryLabel.hasMatch(previous)) {
             score -= 30;
           } else if (primaryLabel.hasMatch(previous)) {
@@ -786,7 +823,11 @@ class ReceiptOcrParser {
       onAmbiguousReceiptDate?.call();
       return null;
     }
-    return explicitReceiptDates.singleOrNull ?? best?.date;
+    final result = explicitReceiptDates.singleOrNull ?? best?.date;
+    if (result == null && sawStayDate) {
+      onStayOnlyDate?.call();
+    }
+    return result;
   }
 
   _ReceiptCurrencyDetection _detectCurrency(
@@ -4823,7 +4864,7 @@ Set<int> _ownedSupportHoursRows(List<List<ReceiptOcrBlockEvidence>> rows) {
   final heights = measured.map(height).toList()..sort();
   final bodyHeight = heights[heights.length ~/ 2];
   final boundary = RegExp(
-    r'^\s*(?:(?:bill(?:ed)?|sold|ship(?:ped)?|remit|pay)\s+to\b|customer\b|account\s+(?:number|no|id)\b|(?:receipt|bill|invoice|statement|order|purchase|due)\s+date\b|(?:description|qty|quantity)\b)',
+    r'^\s*(?:(?:bill(?:ed)?|sold|ship(?:ped)?|remit|pay)\s+to\b|buyer\s*(?:[:：]|$)|customer\b|account\s+(?:number|no|id)\b|(?:receipt|bill|invoice|statement|order|purchase|due)\s+date\b|(?:description|qty|quantity)\b)',
     caseSensitive: false,
   );
   var headerEnd = rows.length < 6 ? rows.length : 6;
