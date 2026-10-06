@@ -197,6 +197,7 @@ void main() {
       String totalMoney = r'$86.27',
       bool crossRowMoney = false,
       double crossRowMoneyLeft = 730,
+      String crossRowText = 'USD 90.00',
       bool crossRowSupport = false,
       String itemAmount = 'USD 86.27',
       List<String> adjustments = const [],
@@ -278,7 +279,7 @@ void main() {
         ),
         if (crossRowMoney)
           cell(
-            'USD 90.00',
+            crossRowText,
             totalRow + 1,
             crossRowMoneyLeft,
             crossRowMoneyLeft + 60,
@@ -419,9 +420,9 @@ void main() {
       }
     });
 
-    test('retains detached financial symbols beside another total', () {
+    test('retains detached financial markers beside another total', () {
       for (final scale in [0.5, 1.0, 2.0]) {
-        for (final symbol in ['-', '%']) {
+        for (final symbol in ['-', '%', 'ARS']) {
           expect(
             parse(
               scale: scale,
@@ -439,15 +440,18 @@ void main() {
     test('checks competing money across OCR row assignments', () {
       for (final scale in [0.5, 1.0, 2.0]) {
         for (final left in [730.0, 770.0, 810.0]) {
-          expect(
-            parse(
-              scale: scale,
-              label: 'Grand Total',
-              crossRowMoney: true,
-              crossRowMoneyLeft: left,
-            ).total,
-            '0199',
-          );
+          for (final text in ['USD 90.00', 'ARS']) {
+            expect(
+              parse(
+                scale: scale,
+                label: 'Grand Total',
+                crossRowMoney: true,
+                crossRowMoneyLeft: left,
+                crossRowText: text,
+              ).total,
+              '0199',
+            );
+          }
         }
         expect(
           parse(

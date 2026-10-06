@@ -1307,11 +1307,13 @@ class ReceiptOcrParser {
           _lineHasAmount(text) ||
           financialSymbol.hasMatch(text) ||
           detachedSign.hasMatch(text) ||
-          _printedCurrencyMarkerMatches(text).isNotEmpty;
+          _printedCurrencyMarkerMatches(text).isNotEmpty ||
+          _unsupportedIsoCurrencyMarkers(text).isNotEmpty;
       if (!financial) continue;
       if (!hasGeometry(other) || height(other) <= 0) return null;
       final explicitOrStandaloneMoney =
           _printedCurrencyMarkerMatches(text).isNotEmpty ||
+          _unsupportedIsoCurrencyMarkers(text).isNotEmpty ||
           financialSymbol.hasMatch(text) ||
           _isStandaloneAmountRow(text);
       // Explicit money anywhere in the surrounding band is competing. Digits
@@ -1407,6 +1409,7 @@ class ReceiptOcrParser {
         }
         final extraText = _normalizeOcrLine(extra.text);
         if (_printedCurrencyMarkerMatches(extraText).isNotEmpty ||
+            _unsupportedIsoCurrencyMarkers(extraText).isNotEmpty ||
             financialSymbol.hasMatch(extraText) ||
             detachedSign.hasMatch(extraText)) {
           return null;
