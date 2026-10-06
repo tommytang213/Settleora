@@ -432,17 +432,19 @@ void main() {
         point: kind == 'lower_bound' ? '5' : '85',
         title: kind == 'title' ? fragment : 'Therms Used',
       );
-      if (kind == 'lower_bound')
+      if (kind == 'lower_bound') {
         return blocks
             .map((b) => b.text == '0' ? changed(b, text: '10') : b)
             .toList();
-      if (kind == 'title')
+      }
+      if (kind == 'title') {
         return blocks
             .map(
               (b) =>
                   b.text == fragment ? changed(b, dy: -(gap - 5) * scale) : b,
             )
             .toList();
+      }
       blocks.add(
         ReceiptOcrBlockEvidence(
           text: fragment,
