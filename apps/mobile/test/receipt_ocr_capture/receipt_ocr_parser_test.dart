@@ -791,6 +791,172 @@ void main() {
       },
     );
 
+    test(
+      'requires scale-relative separation from vertical neighboring evidence',
+      () {
+        for (final scale in [0.5, 1.0, 2.0]) {
+          for (final offset in [-20.0, -19.0, -17.0, -5.0]) {
+            for (final text in ['USD 90.00', 'HK', 'or90', 'maybe']) {
+              final preview = parse(
+                scale: scale,
+                label: 'Grand Total',
+                crossRowSupport: true,
+                supportText: text,
+                supportLeft: 730,
+                supportOffset: offset,
+              );
+              expect(preview.total, '0199');
+              expect(preview.reviewHints, isNotEmpty);
+            }
+          }
+        }
+      },
+    );
+
+    test('only aligned bare ticks belong to a proven calendar axis', () {
+      for (final scale in [0.5, 1.0, 2.0]) {
+        for (final tick in ['50', 'USD 50', '+50', '50 maybe']) {
+          ReceiptOcrBlockEvidence cell(
+            String text,
+            int row,
+            double left,
+            double top,
+            double right,
+            double bottom,
+          ) => ReceiptOcrBlockEvidence(
+            text: text,
+            row: row,
+            order: row * 1000 + left.round(),
+            points: [
+              ReceiptOcrPoint(x: left * scale, y: top * scale),
+              ReceiptOcrPoint(x: right * scale, y: top * scale),
+              ReceiptOcrPoint(x: right * scale, y: bottom * scale),
+              ReceiptOcrPoint(x: left * scale, y: bottom * scale),
+            ],
+          );
+          final blocks = [
+            cell('Sample Utility', 0, 50, 0, 300, 20),
+            cell('Broadband Plan', 1, 50, 60, 300, 80),
+            cell('USD 86.27', 1, 600, 60, 720, 80),
+            cell(tick, 2, 790, 139, 830, 159),
+            cell('Total', 3, 50, 180, 300, 200),
+            cell('USD 86.27', 3, 600, 180, 720, 200),
+            cell('0', 3, 800, 165, 830, 185),
+            cell('Nov', 4, 841, 181, 866, 196),
+            cell('Dec', 4, 871, 181, 896, 196),
+            cell('Jan', 4, 901, 181, 926, 196),
+            cell('Grand Total', 5, 50, 300, 300, 320),
+            cell(r'$86.27', 5, 600, 300, 720, 320),
+            cell('Call us at 1-800-555-0199', 5, 800, 300, 1050, 320),
+          ];
+          final rows = <int, List<String>>{};
+          for (final block in blocks) {
+            (rows[block.row] ??= []).add(block.text);
+          }
+          final preview = const ReceiptOcrParser().parse(
+            rows.values.map((row) => row.join(' ')).join('\n'),
+            fallbackCurrency: 'USD',
+            blocks: blocks,
+          );
+          expect(preview.total, tick == '50' ? '86.27' : '0199');
+          expect(preview.blocks, blocks);
+        }
+      }
+    });
+
+    test('nearby dates and addresses require complete independent fields', () {
+      for (final scale in [0.5, 1.0, 2.0]) {
+        for (final kind in [
+          'valid',
+          'invalid_date',
+          'money_date',
+          'unknown_label',
+          'overlap',
+          'duplicate_date',
+          'money_address',
+          'misaligned_address',
+        ]) {
+          ReceiptOcrBlockEvidence cell(
+            String text,
+            int row,
+            double left,
+            double top,
+            double right,
+            double bottom,
+          ) => ReceiptOcrBlockEvidence(
+            text: text,
+            row: row,
+            order: row * 1000 + left.round(),
+            points: [
+              ReceiptOcrPoint(x: left * scale, y: top * scale),
+              ReceiptOcrPoint(x: right * scale, y: top * scale),
+              ReceiptOcrPoint(x: right * scale, y: bottom * scale),
+              ReceiptOcrPoint(x: left * scale, y: bottom * scale),
+            ],
+          );
+          final dateTop = kind == 'overlap' ? 145.0 : 124.0;
+          final blocks = [
+            cell('Sample Utility', 0, 50, 0, 300, 20),
+            cell('Broadband Plan', 1, 50, 60, 300, 80),
+            cell('USD 86.27', 1, 600, 60, 720, 80),
+            cell(
+              kind == 'unknown_label' ? 'Reference' : 'Due Date:',
+              2,
+              50,
+              dateTop,
+              300,
+              dateTop + 20,
+            ),
+            cell(
+              kind == 'invalid_date'
+                  ? 'Feb 30, 2025'
+                  : kind == 'money_date'
+                  ? 'USD 90.00'
+                  : 'Apr 4, 2025',
+              2,
+              600,
+              dateTop,
+              750,
+              dateTop + 20,
+            ),
+            if (kind == 'duplicate_date')
+              cell('Apr 5, 2025', 2, 760, dateTop, 890, dateTop + 20),
+            cell(
+              kind == 'money_address'
+                  ? 'P.O. Box 1234 USD 90'
+                  : 'P.O. Box 1234',
+              2,
+              kind == 'misaligned_address' ? 740 : 800,
+              128,
+              880,
+              148,
+            ),
+            cell('Total', 3, 50, 150, 300, 170),
+            cell('USD 86.27', 3, 600, 150, 720, 170),
+            cell('Example City, NY 12345', 3, 800, 150, 950, 170),
+            cell('Grand Total', 4, 50, 240, 300, 260),
+            cell(r'$86.27', 4, 600, 240, 720, 260),
+            cell('Call us at 1-800-555-0199', 4, 800, 240, 1050, 260),
+          ];
+          final rows = <int, List<String>>{};
+          for (final block in blocks) {
+            (rows[block.row] ??= []).add(block.text);
+          }
+          final preview = const ReceiptOcrParser().parse(
+            rows.values.map((row) => row.join(' ')).join('\n'),
+            fallbackCurrency: 'USD',
+            blocks: blocks,
+          );
+          expect(
+            preview.total,
+            kind == 'valid' ? '86.27' : '0199',
+            reason: kind,
+          );
+          expect(preview.blocks, blocks);
+        }
+      }
+    });
+
     test('retains unresolved totals in supported scripts', () {
       for (final scale in [0.5, 1.0, 2.0]) {
         for (final label in ['合計', '合计', 'Gesamt', 'الإجمالي']) {

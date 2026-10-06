@@ -1298,6 +1298,49 @@ class ReceiptOcrParser {
     }
     final financialSymbol = RegExp(r'[\p{Sc}%‰]', unicode: true);
     final detachedSign = RegExp(r'^[+\-−–—()]+$');
+    final completePostal = RegExp(
+      r"^[a-z .'-]+,\s*[a-z]{2}\s+\d{5}(?:-\d{4})?$",
+      caseSensitive: false,
+    );
+    final completePoBox = RegExp(
+      r'^(?:p\.?\s*o\.?\s*box|post\s+office\s+box)\s+\d+$',
+      caseSensitive: false,
+    );
+    final dateLabel = RegExp(
+      r'^(?:(?:bill|invoice|statement|transaction|order|purchase|due|payment|'
+      r'service)\s+)?date\s*[:：]?$',
+      caseSensitive: false,
+    );
+    final completeDate = RegExp(
+      r'^(?:[a-z]{3,9}\.?\s+\d{1,2},?\s+(?:19|20)\d{2}|'
+      r'(?:19|20)\d{2}[-/.]\d{1,2}[-/.]\d{1,2}|'
+      r'\d{1,2}[-/.]\d{1,2}[-/.](?:19|20)\d{2})$',
+      caseSensitive: false,
+    );
+    final allBlocks = rows.expand((row) => row).toList();
+    final ownedDates =
+        <ReceiptOcrBlockEvidence, List<ReceiptOcrBlockEvidence>>{};
+    for (final dateHeading in allBlocks) {
+      if (!hasGeometry(dateHeading) ||
+          height(dateHeading) <= 0 ||
+          !dateLabel.hasMatch(_normalizeOcrLine(dateHeading.text))) {
+        continue;
+      }
+      final values = allBlocks.where((block) {
+        final text = _normalizeOcrLine(block.text);
+        return hasGeometry(block) &&
+            height(block) > 0 &&
+            _blockLeft(block) > _blockRight(dateHeading) &&
+            aligned(dateHeading, block) &&
+            completeDate.hasMatch(text) &&
+            _detectDate([text]) != null;
+      }).toList();
+      if (values.length == 1) {
+        final pair = [dateHeading, values.single];
+        ownedDates[dateHeading] = pair;
+        ownedDates[values.single] = pair;
+      }
+    }
     const weekday =
         r'(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|'
         r'fri(?:day)?|sat(?:urday)?|sun(?:day)?)';
@@ -1344,10 +1387,23 @@ class ReceiptOcrParser {
       final bandBottom = bottom(ownedLabel) > bottom(ownedMoney)
           ? bottom(ownedLabel)
           : bottom(ownedMoney);
+      final datePair = ownedDates[other];
+      if (datePair != null &&
+          (datePair.every((block) => bottom(block) <= bandTop) ||
+              datePair.every((block) => top(block) >= bandBottom))) {
+        // A complete, independently aligned date field owns its printed digits.
+        return false;
+      }
+      final clearance =
+          (height(ownedLabel) > height(ownedMoney)
+              ? height(ownedLabel)
+              : height(ownedMoney)) /
+          2;
       // OCR grouping and token recognition cannot establish ownership. Scan
-      // every block across the proven total/contact band and both heights.
-      return bottom(other) > bandTop &&
-          top(other) < bandBottom &&
+      // every block across the proven total/contact band. Excluding a vertical
+      // neighbor requires at least half a label/value height of separation.
+      return bottom(other) > bandTop - clearance &&
+          top(other) < bandBottom + clearance &&
           _blockRight(other) > _blockLeft(ownedLabel) - height(ownedMoney) &&
           _blockLeft(other) < bandRight + height(ownedMoney);
     }
@@ -1481,6 +1537,10 @@ class ReceiptOcrParser {
       return false;
     }
 
+    bool hasCalendarAxis(ReceiptOcrBlockEvidence value) => rows
+        .expand((row) => row)
+        .any((block) => belongsToCalendarAxis(block, value));
+
     bool metadataHasAdjacentEvidence(ReceiptOcrBlockEvidence metadata) {
       if (!hasGeometry(metadata) || height(metadata) <= 0) return true;
       for (final block in rows.expand((row) => row)) {
@@ -1488,7 +1548,9 @@ class ReceiptOcrParser {
           continue;
         }
         if (!hasGeometry(block) || height(block) <= 0) return true;
-        if (bottom(block) <= top(metadata) || top(block) >= bottom(metadata)) {
+        final clearance = height(metadata) / 2;
+        if (bottom(block) <= top(metadata) - clearance ||
+            top(block) >= bottom(metadata) + clearance) {
           continue;
         }
         final leftGap = _blockLeft(metadata) - _blockRight(block);
@@ -1496,8 +1558,37 @@ class ReceiptOcrParser {
         if (leftGap >= height(metadata) || rightGap >= height(metadata)) {
           continue;
         }
+        if (completePostal.hasMatch(_normalizeOcrLine(metadata.text)) &&
+            completePoBox.hasMatch(_normalizeOcrLine(block.text)) &&
+            bottom(block) <= top(metadata) &&
+            (_blockLeft(block) - _blockLeft(metadata)).abs() <=
+                height(metadata) / 2 &&
+            _blockRight(block) <= _blockRight(metadata) &&
+            height(block) >= height(metadata) / 2 &&
+            height(block) <= height(metadata) * 2) {
+          // A complete PO-box line above an aligned city/state/postal line
+          // establishes the same address, not a competing monetary fragment.
+          continue;
+        }
         if (_isStandaloneAmountRow(metadata.text) &&
             belongsToCalendarAxis(block, metadata)) {
+          continue;
+        }
+        final axisNumber = int.tryParse(_normalizeOcrLine(metadata.text));
+        final neighborNumber = int.tryParse(_normalizeOcrLine(block.text));
+        if (axisNumber != null &&
+            axisNumber >= 0 &&
+            neighborNumber != null &&
+            neighborNumber > axisNumber &&
+            RegExp(r'^\d+$').hasMatch(_normalizeOcrLine(block.text)) &&
+            bottom(block) <= top(metadata) &&
+            (_blockRight(block) - _blockRight(metadata)).abs() <=
+                height(metadata) / 2 &&
+            height(block) >= height(metadata) / 2 &&
+            height(block) <= height(metadata) * 2 &&
+            hasCalendarAxis(metadata)) {
+          // A separate higher tick belongs to the already proven chart axis.
+          // Explicit money, signs and text-bearing fragments never qualify.
           continue;
         }
         // A fragment beside an apparent chart value can own its denomination
@@ -1579,10 +1670,7 @@ class ReceiptOcrParser {
         // metadata only outside the label/value corridor. Other numeric text
         // (including alternatives such as "or 90") remains competing evidence.
         if (metadataHasAdjacentEvidence(extra)) return null;
-        final postal = RegExp(
-          r"^[a-z .'-]+,\s*[a-z]{2}\s+\d{5}(?:-\d{4})?$",
-          caseSensitive: false,
-        ).hasMatch(extraText);
+        final postal = completePostal.hasMatch(extraText);
         if (postal &&
             suffix.isEmpty &&
             hasGeometry(extra) &&
@@ -1609,9 +1697,7 @@ class ReceiptOcrParser {
             _blockLeft(extra) - _blockRight(monetaryCells.single) <
                 height(monetaryCells.single) ||
             aligned(monetaryCells.single, extra) ||
-            !rows
-                .expand((row) => row)
-                .any((block) => belongsToCalendarAxis(block, extra))) {
+            !hasCalendarAxis(extra)) {
           return null;
         }
       }
