@@ -178,6 +178,31 @@ void main() {
         (5, qualifier, 955.0, 240.0, false),
         (5, qualifier, 1300.0, 240.0, true),
       ],
+      for (final qualifier in [
+        'Less',
+        'minus',
+        'plus',
+        'per cent',
+        'per mille',
+        'versus',
+        'vs',
+        'subtract',
+        'negative',
+        'positive',
+        'times',
+        'divided by',
+        'including',
+        'excluding',
+        'per month',
+        'each',
+        'H',
+        'K',
+        'D.',
+      ]) ...[
+        (3, qualifier, 710.0, 194.0, false),
+        (5, qualifier, 955.0, 240.0, false),
+        (5, qualifier, 1300.0, 240.0, true),
+      ],
       (3, 'EUR', 710.0, 194.0, false),
       (3, 'ＥＵＲ', 710.0, 194.0, false),
       (5, 'ＥＵＲ', 955.0, 240.0, false),
@@ -394,6 +419,120 @@ void main() {
       }
     }
   });
+
+  test(
+    'summary-card ownership checks split prefixes and alternative date owners',
+    () {
+      for (final scale in [0.5, 1.0, 2.0]) {
+        ReceiptOcrBlockEvidence scaled(ReceiptOcrBlockEvidence b) =>
+            ReceiptOcrBlockEvidence(
+              text: b.text,
+              row: b.row,
+              order: b.order,
+              points: b.points
+                  .map((p) => ReceiptOcrPoint(x: p.x * scale, y: p.y * scale))
+                  .toList(),
+            );
+        for (final distant in [false, true]) {
+          for (final fragments in [
+            ['H', 'K'],
+            ['E', 'U', 'R'],
+            ['U', 'S'],
+            ['D', 'Z', 'D'],
+          ]) {
+            final blocks = <ReceiptOcrBlockEvidence>[];
+            final original = _summaryCardBlocks();
+            for (var i = 0; i < original.length; i++) {
+              final b = original[i];
+              blocks.add(
+                _summaryBlockVariant(
+                  b,
+                  text: b.row == 4 && b.text == 'USD 42.00'
+                      ? r'$42.00'
+                      : b.text,
+                ),
+              );
+              if (b.row == 3 && original[i + 1].row != 3) {
+                for (var j = 0; j < fragments.length; j++) {
+                  final left = 701.0 + j * 16 + (distant ? 600 : 0);
+                  blocks.add(
+                    ReceiptOcrBlockEvidence(
+                      text: fragments[j],
+                      row: 3,
+                      order: 30 + j,
+                      points: [
+                        ReceiptOcrPoint(x: left, y: 214),
+                        ReceiptOcrPoint(x: left + 13, y: 214),
+                        ReceiptOcrPoint(x: left + 13, y: 232),
+                        ReceiptOcrPoint(x: left, y: 232),
+                      ],
+                    ),
+                  );
+                }
+              }
+            }
+            final evidence = blocks.map(scaled).toList();
+            final p = _parseBoundedUtility(evidence);
+            expect(
+              p.itemLineDecisions[4] ==
+                  ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+              distant,
+              reason: '$fragments distant=$distant scale=$scale',
+            );
+            expect(p.blocks, containsAll(evidence));
+          }
+        }
+        for (final heading in [
+          'Due Date',
+          'Issued on',
+          'Payment Date',
+          'Due',
+          'Expires',
+          'Date',
+          'InvoiceDate',
+        ]) {
+          for (final position in [
+            (531.0, 207.0, false),
+            (531.0, 253.0, false),
+            (640.0, 230.0, false),
+            (531.0, 130.0, true),
+          ]) {
+            final blocks = <ReceiptOcrBlockEvidence>[];
+            for (final b in _summaryCardBlocks()) {
+              if (b.text == 'Account Number' || b.text == 'AC987654321') {
+                continue;
+              }
+              blocks.add(b);
+              if (b.text == 'Customer Name') {
+                blocks.add(
+                  ReceiptOcrBlockEvidence(
+                    text: heading,
+                    row: 3,
+                    order: 30,
+                    points: [
+                      ReceiptOcrPoint(x: position.$1, y: position.$2),
+                      ReceiptOcrPoint(x: position.$1 + 92, y: position.$2),
+                      ReceiptOcrPoint(x: position.$1 + 92, y: position.$2 + 20),
+                      ReceiptOcrPoint(x: position.$1, y: position.$2 + 20),
+                    ],
+                  ),
+                );
+              }
+            }
+            final evidence = blocks.map(scaled).toList();
+            final p = _parseBoundedUtility(evidence);
+            expect(
+              p.itemLineDecisions[4] ==
+                  ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+              position.$3,
+              reason: '$heading $position scale=$scale',
+            );
+            expect(p.blocks, containsAll(evidence));
+          }
+        }
+      }
+    },
+  );
 
   test('summary-card date ownership rejects staggered competing labels', () {
     for (final shift in [-11.0, 9.0]) {

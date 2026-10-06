@@ -4650,6 +4650,37 @@ Set<int>? _ownedSummaryCardHeaderRows(
     return null;
   }
 
+  // Another nearby date heading can own the same value without intersecting
+  // the selected label/value rectangle (for example, a heading above it).
+  final dateOwner = RegExp(
+    r'(?<![\p{L}\p{M}])dates?(?![\p{L}\p{M}])|'
+    r'^(?:invoice|bill|statement|due|issue|payment|receipt|order|purchase|expiry|expiration)\s*date\s*:?$|'
+    r'^(?:issued|due|expires?|expiry|paid|received|billed|created|posted|processed|shipped|ordered|purchased)(?:\s+on)?\s*:?$',
+    caseSensitive: false,
+    unicode: true,
+  );
+  if (allBlocks.any((b) {
+    if (b == dateLabel ||
+        b == date ||
+        !dateOwner.hasMatch(_normalizeOcrLine(b.text))) {
+      return false;
+    }
+    final other = boxes[b]!;
+    final horizontalGap = other.right < dateBox.left
+        ? dateBox.left - other.right
+        : other.left > dateBox.right
+        ? other.left - dateBox.right
+        : 0;
+    final verticalGap = other.bottom < dateBox.top
+        ? dateBox.top - other.bottom
+        : other.top > dateBox.bottom
+        ? other.top - dateBox.bottom
+        : 0;
+    return horizontalGap <= dateHeight * 4 && verticalGap <= dateHeight;
+  })) {
+    return null;
+  }
+
   // A large amount can overlap monetary fragments assigned to another OCR
   // row. Currency/sign cues and numeric-only fragments remain evidence even
   // when they cannot be selected as one amount. Ordinary neighboring text
@@ -4732,6 +4763,22 @@ Set<int>? _ownedSummaryCardHeaderRows(
         _matchesUtilityPeriod(text) || invoiceReference.hasMatch(text);
     final hasUnownedNumbers = digit.hasMatch(text) && !explainedMetadata;
     final hasUnownedSign = !explainedMetadata && mixedSign.hasMatch(text);
+    // A single OCR letter can be one part of a split denomination such as
+    // H + K + $. Without a complete compatible marker its ownership is unknown.
+    final hasUnownedLetter =
+        !isCurrency &&
+        RegExp(r'^[\p{L}\p{M}]$', unicode: true).hasMatch(compactMarker);
+    // The operator's numeric operand can live in the separate amount cell.
+    // Complete periods and explicit references keep their own explained words.
+    final hasTextualOperator =
+        !explainedMetadata &&
+        RegExp(
+          r'(?<![\p{L}\p{M}])(?:plus|minus|less|more|versus|vs|negative|positive|'
+          r'add(?:ed|ing|ition)?|subtract(?:ed|ing|ion)?|times|multiplied|divided|'
+          r'per|each|incl(?:uded|uding|usive)?|excl(?:uded|uding|usive)?)(?![\p{L}\p{M}])',
+          caseSensitive: false,
+          unicode: true,
+        ).hasMatch(text);
     // Recognize the existing financial roles in plural or beside joined
     // digits without changing shared classification or the raw OCR text.
     final financialWords = words
@@ -4759,6 +4806,8 @@ Set<int>? _ownedSummaryCardHeaderRows(
         !punctuationOnly.hasMatch(text) &&
         !rateSymbol.hasMatch(text) &&
         !hasUnownedSign &&
+        !hasUnownedLetter &&
+        !hasTextualOperator &&
         !hasCompetingFinancialRole &&
         !creditDebit.hasMatch(financialWords) &&
         !_hasPotentialReceiptAdjustmentLabel(financialWords) &&
