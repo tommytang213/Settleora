@@ -283,7 +283,7 @@ void main() {
     }
   });
 
-  for (final label in ['VAT included', 'Included VAT']) {
+  for (final label in ['VAT included', 'Included VAT', 'VAT (included)']) {
     test('review round two distinct included rates aggregate $label', () {
       final preview = const ReceiptOcrParser().parse(
         'Sample Shop\nBook GBP 11.00\nNotebook GBP 12.00\n'

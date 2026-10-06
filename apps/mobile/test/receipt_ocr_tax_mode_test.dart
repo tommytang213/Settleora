@@ -2,6 +2,76 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/receipt_ocr_review/receipt_ocr_review_repository.dart';
 
 void main() {
+  for (final previousMode in [
+    ReceiptOcrTaxReconciliationModeValues.sourceIncludedUnresolved,
+    ReceiptOcrTaxReconciliationModeValues.unresolved,
+  ]) {
+    test(
+      'review round two zero tax reopens with source provenance $previousMode',
+      () {
+        final now = DateTime.utc(2026, 10, 6);
+        final previous = ReceiptOcrReviewDetail(
+          id: 'review',
+          billId: 'bill',
+          fileId: 'file',
+          groupId: null,
+          status: ReceiptOcrReviewStatusValues.reviewed,
+          source: ReceiptOcrReviewSourceValues.onDevice,
+          merchantText: 'Books',
+          receiptIssuedAtUtc: null,
+          currency: 'GBP',
+          subtotalAmount: '24',
+          taxAmount: '0',
+          taxReconciliationMode: previousMode,
+          serviceChargeAmount: null,
+          discountAmount: null,
+          grandTotalAmount: '24',
+          lines: [
+            ReceiptOcrReviewLine(
+              id: 'line',
+              sortOrder: 0,
+              text: 'Book',
+              quantity: '1',
+              unitPriceAmount: '24',
+              lineTotalAmount: '24',
+              createdAtUtc: now,
+              updatedAtUtc: now,
+            ),
+          ],
+          createdAtUtc: now,
+          updatedAtUtc: now,
+        );
+        final candidate = ReceiptOcrReviewSaveRequest(
+          status: previous.status,
+          source: previous.source,
+          merchantText: previous.merchantText,
+          receiptIssuedAtUtc: null,
+          currency: 'GBP',
+          subtotalAmount: '24.00',
+          taxAmount: '0.00',
+          serviceChargeAmount: null,
+          discountAmount: null,
+          grandTotalAmount: '24.00',
+          lines: const [
+            ReceiptOcrReviewLineSaveRequest(
+              text: 'Book',
+              quantity: '1',
+              unitPriceAmount: '24.00',
+              lineTotalAmount: '24.00',
+            ),
+          ],
+        );
+        expect(
+          receiptOcrTaxModeForSavedEdit(previous, candidate),
+          previousMode ==
+                  ReceiptOcrTaxReconciliationModeValues.sourceIncludedUnresolved
+              ? ReceiptOcrTaxReconciliationModeValues.alreadyInBase
+              : ReceiptOcrTaxReconciliationModeValues.unresolved,
+        );
+      },
+    );
+  }
+
   for (final change in [
     'add',
     'amount',

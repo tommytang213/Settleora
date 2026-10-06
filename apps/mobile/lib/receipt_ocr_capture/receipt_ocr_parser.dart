@@ -2150,7 +2150,11 @@ class ReceiptOcrParser {
           transactionTaxInclusionModes.add(_isIncludedTaxAmountLine(line));
         }
         final printedRate = RegExp(
-          r'\b(?:sales\s+tax|tax|vat|gst|hst|iva|tva|kdv|mwst)\b\.?\s*\(?\s*(\d{1,3}(?:[.,]\d{1,2})?)\s*%\s*\)?',
+          _isIncludedTaxAmountLine(line)
+              // Complete included-tax grammar owns the sole optional rate,
+              // including the "VAT included 20%" word order.
+              ? r'(\d{1,3}(?:[.,]\d{1,2})?)\s*%'
+              : r'\b(?:sales\s+tax|tax|vat|gst|hst|iva|tva|kdv|mwst)\b\.?\s*\(?\s*(\d{1,3}(?:[.,]\d{1,2})?)\s*%\s*\)?',
         ).firstMatch(normalized);
         final rate = printedRate == null
             ? null

@@ -400,7 +400,16 @@ String? receiptOcrTaxModeForSavedEdit(
       }
     }
   }
-  if (sameEvidence) return mode;
+  if (sameEvidence) {
+    if (mode ==
+        ReceiptOcrTaxReconciliationModeValues.sourceIncludedUnresolved) {
+      final resolved = receiptOcrTaxModeFromSupportedEvidence(candidate);
+      if (resolved != ReceiptOcrTaxReconciliationModeValues.unresolved) {
+        return resolved;
+      }
+    }
+    return mode;
+  }
   // Only a stored source-supported interpretation can be recomputed after an
   // edit. Plain unresolved has no preserved inclusion evidence.
   if (candidate.currency != previous.currency ||
@@ -458,7 +467,7 @@ String receiptOcrTaxModeFromSupportedEvidence(
   if (adjustmentTotal == null) return unresolved;
   final tax = receiptOcrDecimalUnits(candidate.taxAmount);
   final total = receiptOcrDecimalUnits(candidate.grandTotalAmount);
-  if (tax == null || tax <= BigInt.zero || total == null) return unresolved;
+  if (tax == null || tax < BigInt.zero || total == null) return unresolved;
   BigInt? baseCandidate = receiptOcrDecimalUnits(candidate.subtotalAmount);
   if (baseCandidate == null) {
     if (candidate.lines.isEmpty) return unresolved;

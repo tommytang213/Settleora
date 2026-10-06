@@ -519,7 +519,8 @@ String? _receiptOcrTaxModeFromSource(
 }) {
   // A balanced total cannot settle printed adjustment rows whose roles or
   // inclusion are unresolved. Persist that uncertainty for the Apply gate.
-  if (!preview.adjustmentsComplete) {
+  if (!preview.adjustmentsComplete ||
+      _receiptOcrHasUnreconciledHeaderCurrency(preview)) {
     return ReceiptOcrTaxReconciliationModeValues.unresolved;
   }
   if (!preview.taxIncludedInTotal) return null;
@@ -4246,7 +4247,9 @@ bool _receiptOcrCurrencyCanApply(ReceiptOcrPreview preview) {
       preview.currencyProvenance != ReceiptOcrCurrencyProvenance.unresolved &&
       preview.currencyProvenance !=
           ReceiptOcrCurrencyProvenance.defaultFallback &&
-      (preview.items.isEmpty || _receiptOcrItemsCanApply(preview));
+      (preview.items.isEmpty
+          ? _receiptOcrTaxContributionCanApply(preview)
+          : _receiptOcrItemsCanApply(preview));
 }
 
 bool _receiptOcrItemsCanApply(ReceiptOcrPreview preview) {
@@ -4369,17 +4372,42 @@ bool _receiptOcrItemsCanApply(ReceiptOcrPreview preview) {
   return itemsAreValid && _receiptOcrTaxContributionCanApply(preview);
 }
 
-bool _receiptOcrTaxContributionCanApply(ReceiptOcrPreview preview) {
-  // Keep foreign headers as evidence and ordinary untaxed item edits usable.
-  // Source ambiguity is retained separately from edits that invalidate the
-  // original item/adjustment reconciliation.
-  if (!_receiptOcrHeaderAdjustmentCurrencyMatches(
-    _nullableUppercaseCurrency(preview.currency),
-    preview.taxCurrency,
-    preview.taxHasExplicitCurrencyEvidence,
-  )) {
-    return true;
+bool _receiptOcrHasUnreconciledHeaderCurrency(ReceiptOcrPreview preview) {
+  final currency = _nullableUppercaseCurrency(preview.currency);
+  for (final header in [
+    (
+      preview.subtotal,
+      preview.subtotalCurrency,
+      preview.subtotalHasExplicitCurrencyEvidence,
+    ),
+    (preview.tax, preview.taxCurrency, preview.taxHasExplicitCurrencyEvidence),
+    (
+      preview.service,
+      preview.serviceCurrency,
+      preview.serviceHasExplicitCurrencyEvidence,
+    ),
+    (
+      preview.discount,
+      preview.discountCurrency,
+      preview.discountHasExplicitCurrencyEvidence,
+    ),
+  ]) {
+    if ((header.$1 ?? '').trim().isNotEmpty &&
+        !_receiptOcrHeaderAdjustmentCurrencyMatches(
+          currency,
+          header.$2,
+          header.$3,
+        )) {
+      return true;
+    }
   }
+  return false;
+}
+
+bool _receiptOcrTaxContributionCanApply(ReceiptOcrPreview preview) {
+  // Financial source evidence must be reconciled before any early untaxed
+  // path; foreign/unknown headers are never authority to bypass this check.
+  if (_receiptOcrHasUnreconciledHeaderCurrency(preview)) return false;
   if ((preview.tax ?? '').trim().isEmpty &&
       !preview.taxIncludedInTotal &&
       preview.incompleteAdjustmentReasons.isEmpty) {
@@ -4399,7 +4427,6 @@ bool _receiptOcrTaxContributionCanApply(ReceiptOcrPreview preview) {
   if ((preview.tax ?? '').trim().isEmpty) return true;
   final tax = receiptOcrDecimalUnits(candidate.taxAmount);
   if (tax == null) return false;
-  if (tax == BigInt.zero) return true;
   if (candidate.headerEvidence.isNotEmpty) return false;
   final gross = receiptOcrDecimalUnits(candidate.grandTotalAmount);
   if (gross == null) return false;
@@ -7439,8 +7466,9 @@ class _SettleoraGroupBillCreateScreenState
             candidate.currency,
             preview.currency ?? _currencyController.text,
           );
-          if (settleoraIsSupportedCurrency(itemCurrency) &&
-              !item.currencyEditedByUser) {
+          if (settleoraIsSupportedCurrency(itemCurrency)) {
+            // Applying an item replaces its amount/currency pair together.
+            // Retaining a different manual currency would relabel the amount.
             item.setCurrencyFromBill(itemCurrency);
           }
         }

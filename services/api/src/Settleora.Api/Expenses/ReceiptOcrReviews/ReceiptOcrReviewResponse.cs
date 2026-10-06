@@ -312,7 +312,7 @@ internal sealed record ReceiptOcrReviewApplyPreviewResponse(
             // receipt's tax header. Reconciled net + tax arithmetic alone must
             // not allow a net-only contribution to replace the reviewed gross.
             // This also protects legacy reviews without a stored tax mode.
-            if (review.TaxAmount is > 0m
+            if (review.TaxAmount is >= 0m
                 && (!review.GrandTotalAmount.HasValue
                     || NormalizeAmount(proposedLineTotalSum) != NormalizeAmount(review.GrandTotalAmount.Value)))
             {
@@ -392,7 +392,7 @@ internal sealed record ReceiptOcrReviewApplyPreviewResponse(
         {
             return false;
         }
-        if (review.HeaderEvidence.Count > 0 && (mode is not null || review.TaxAmount is > 0m))
+        if (review.HeaderEvidence.Count > 0)
         {
             // Preserved foreign financial headers cannot be reconciled by the
             // same-currency scalar equation, even with an explicit client mode.
@@ -419,7 +419,7 @@ internal sealed record ReceiptOcrReviewApplyPreviewResponse(
 
         if ((mode is ReceiptOcrReviewTaxReconciliationModes.AddToBase
             or ReceiptOcrReviewTaxReconciliationModes.AlreadyInBase)
-            && (!review.TaxAmount.HasValue || review.TaxAmount.Value <= 0m
+            && (!review.TaxAmount.HasValue || review.TaxAmount.Value < 0m
                 || (mode is ReceiptOcrReviewTaxReconciliationModes.AlreadyInBase
                     && review.TaxAmount.Value > baseAmount)
                 || string.IsNullOrWhiteSpace(review.Currency)
