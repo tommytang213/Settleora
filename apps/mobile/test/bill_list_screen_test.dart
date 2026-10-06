@@ -10230,10 +10230,8 @@ Total USD 9.00
             merchant: 'Dim Sum House',
             receiptDate: '2026-06-11',
             currency: 'HKD',
-            subtotal: '68.00',
-            service: '6.00',
-            tax: '2.00',
-            adjustmentsComplete: false,
+            // This positive case isolates item/assignment preservation.
+            // Unresolved taxed drafts are blocked by the tax Apply matrix.
             total: '76.00',
             rawTextLineCount: 6,
             items: [
@@ -10360,24 +10358,12 @@ Total USD 9.00
       );
       expect(find.text('Receipt totals for review only'), findsOneWidget);
       expect(
-        find.text('Subtotal suggested: HKD 68.00 (review only)'),
-        findsOneWidget,
-      );
-      expect(
-        find.text('Tax suggested: HKD 2.00 (review only)'),
-        findsOneWidget,
-      );
-      expect(
-        find.text('Service charge suggested: HKD 6.00 (review only)'),
-        findsOneWidget,
-      );
-      expect(
         find.text('Grand total suggested: HKD 76.00 (review only)'),
         findsOneWidget,
       );
       expect(
         find.text(
-          'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
+          'OCR item total differs from detected grand total. Review the receipt before applying.',
         ),
         findsOneWidget,
       );
@@ -10426,7 +10412,7 @@ Total USD 9.00
       await tester.pumpAndSettle();
       expect(
         find.text(
-          'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
+          'OCR item total differs from detected grand total. Review the receipt before applying.',
         ),
         findsOneWidget,
       );
