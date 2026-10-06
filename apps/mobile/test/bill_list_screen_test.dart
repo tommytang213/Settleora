@@ -32,6 +32,177 @@ import 'package:mobile/ui/settleora_components.dart';
 import 'package:mobile/ui/settleora_form_fields.dart';
 
 void main() {
+  test('review round two clear zero included tax saves a resolved mode', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Sample Shop\nBook GBP 24.00\nTotal incl. VAT GBP 24.00\n'
+      'VAT included 0% GBP 0.00',
+    );
+    expect(preview.tax, '0.00');
+    expect(preview.taxIncludedInTotal, isTrue);
+    expect(preview.reviewHints, isEmpty);
+    final saved = receiptOcrReviewSaveRequestFromPreview(
+      preview,
+      originalCurrency: 'GBP',
+    );
+    expect(saved?.taxAmount, '0.00');
+    expect(
+      saved?.taxReconciliationMode,
+      ReceiptOcrTaxReconciliationModeValues.alreadyInBase,
+    );
+  });
+
+  for (final group in [false, true]) {
+    for (final variant in ['foreign', 'empty', 'destination', 'zero']) {
+      final acceptsItems = variant == 'destination' || variant == 'zero';
+      testWidgets(
+        '${group ? "group" : "personal"} review round two preserves financial pairs variant=$variant',
+        (tester) async {
+          await useLargeSurface(tester);
+          final prefix = group ? 'group-bill' : 'personal-bill';
+          final repository = FakeBillRepository();
+          final fileInput = FakeBillAttachmentFileInput(
+            pickedFile: samplePickedAttachmentFile(
+              filename: 'receipt.png',
+              contentType: 'image/png',
+              bytes: samplePngBytes(width: 64, height: 64),
+            ),
+          );
+          final provider = FakeReceiptOcrProvider(
+            ReceiptOcrResult.extracted(
+              ReceiptOcrPreview(
+                merchant: 'Notebook Shop',
+                currency: 'USD',
+                tax: variant == 'zero' ? '0.00' : '4.00',
+                taxCurrency: variant == 'foreign' ? 'EUR' : null,
+                taxHasExplicitCurrencyEvidence: variant == 'foreign',
+                taxIncludedInTotal: true,
+                total: '24.00',
+                items: [
+                  ReceiptOcrItemCandidate(
+                    description: 'Notebook',
+                    quantity: '1',
+                    lineTotal: acceptsItems ? '24.00' : '20.00',
+                    currency: 'USD',
+                  ),
+                ],
+              ),
+            ),
+          );
+          if (group) {
+            await _pumpGroupBillCreate(
+              tester,
+              repository: repository,
+              groupRepository: FakeGroupRepository(
+                members: [sampleGroupMember()],
+              ),
+              attachmentRepository: FakeBillAttachmentRepository(),
+              attachmentFileInput: fileInput,
+              receiptOcrProvider: provider,
+            );
+            await tester.tap(find.byKey(const Key('group-bill-list-create')));
+            await tester.pumpAndSettle();
+            await _goToGroupBillCreateStep(tester, 'basics');
+          } else {
+            await tester.pumpWidget(
+              MaterialApp(
+                home: SettleoraPersonalBillCreateScreen(
+                  repository: repository,
+                  attachmentRepository: FakeBillAttachmentRepository(),
+                  attachmentFileInput: fileInput,
+                  receiptOcrProvider: provider,
+                ),
+              ),
+            );
+            await tester.pumpAndSettle();
+          }
+          final billCurrency = find.byKey(
+            Key('$prefix-currency'),
+            skipOffstage: false,
+          );
+          await _selectCurrency(tester, billCurrency, 'HKD');
+          if (group) await _goToGroupBillCreateStep(tester, 'receiptItems');
+          final itemName = find.byKey(ValueKey('$prefix-item-name-0'));
+          final itemAmount = find.byKey(ValueKey('$prefix-item-amount-0'));
+          final itemCurrency = find.byKey(ValueKey('$prefix-item-currency-0'));
+          await tester.enterText(itemName, 'Existing item');
+          await tester.enterText(itemAmount, '10.00');
+          if (variant == 'destination') {
+            await _selectCurrency(tester, itemCurrency, 'EUR');
+            await _selectCurrency(tester, itemCurrency, 'HKD');
+          }
+          await tester.ensureVisible(find.byKey(Key('$prefix-scan-receipt')));
+          await tester.tap(find.byKey(Key('$prefix-scan-receipt')));
+          await tester.pumpAndSettle();
+          if (variant == 'empty') {
+            final remove = find.byKey(ValueKey('$prefix-ocr-remove-item-0'));
+            await tester.ensureVisible(remove);
+            await tester.tap(remove);
+            await tester.pumpAndSettle();
+          }
+          final currencySelection = find.byKey(
+            Key('$prefix-ocr-apply-currency'),
+          );
+          if (!acceptsItems &&
+              tester.widget<CheckboxListTile>(currencySelection).onChanged !=
+                  null) {
+            await _setReceiptOcrSection(tester, prefix, 'currency', true);
+          }
+          if (variant != 'empty') {
+            final itemsSelection = find.byKey(Key('$prefix-ocr-apply-items'));
+            final enabled =
+                tester.widget<CheckboxListTile>(itemsSelection).onChanged !=
+                null;
+            if (acceptsItems) expect(enabled, isTrue);
+            if (enabled)
+              await _setReceiptOcrSection(tester, prefix, 'items', true);
+          }
+          if (acceptsItems)
+            await _setReceiptOcrSection(tester, prefix, 'currency', false);
+          await _setReceiptOcrSection(tester, prefix, 'merchant', true);
+          await _tapReceiptOcrApply(tester, prefix);
+          expect(
+            tester
+                .widget<CurrencySelector>(
+                  find.descendant(
+                    of: billCurrency,
+                    matching: find.byType(
+                      CurrencySelector,
+                      skipOffstage: false,
+                    ),
+                    skipOffstage: false,
+                  ),
+                )
+                .value,
+            'HKD',
+          );
+          expect(
+            tester
+                .widget<CurrencySelector>(
+                  find.descendant(
+                    of: itemCurrency,
+                    matching: find.byType(
+                      CurrencySelector,
+                      skipOffstage: false,
+                    ),
+                  ),
+                )
+                .value,
+            acceptsItems ? 'USD' : 'HKD',
+          );
+          expect(
+            tester.widget<TextFormField>(itemName).controller?.text,
+            acceptsItems ? 'Notebook' : 'Existing item',
+          );
+          expect(
+            tester.widget<TextFormField>(itemAmount).controller?.text,
+            acceptsItems ? '24.00' : '10.00',
+          );
+          expect(find.text('Suggestions applied'), findsNothing);
+        },
+      );
+    }
+  }
+
   for (final group in [false, true]) {
     for (final edited in [false, true]) {
       testWidgets(

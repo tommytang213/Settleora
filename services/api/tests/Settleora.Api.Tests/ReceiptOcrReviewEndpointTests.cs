@@ -45,6 +45,67 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
     }
 
     [Theory]
+    [InlineData(false, null)]
+    [InlineData(true, null)]
+    [InlineData(false, "0")]
+    [InlineData(true, "0")]
+    public async Task LegacyForeignHeaderCannotBypassPreviewAndApplyWithoutPositiveTax(bool groupRoute, string? tax)
+    {
+        var context = CreateFactory();
+        using var testFactory = context.Factory;
+        var owner = await SeedSessionActorAsync(testFactory, context.TimeProvider, "Foreign Header Owner");
+        var groupId = groupRoute
+            ? await SeedGroupAsync(testFactory, owner.UserProfileId, "Foreign Header Group",
+                InitialTimestamp, deletedAtUtc: null,
+                new MembershipSeed(owner.UserProfileId, GroupMembershipRoles.Owner,
+                    GroupMembershipStatuses.Active)) : (Guid?)null;
+        var billId = await SeedBillAsync(testFactory, owner.UserProfileId, groupId,
+            ExpenseBillStatuses.Draft, archivedAtUtc: null,
+            [owner.UserProfileId], [owner.UserProfileId], InitialTimestamp.AddMinutes(2));
+        var fileId = await SeedBillAttachmentAsync(testFactory, billId, owner.UserProfileId,
+            ExpenseBillAttachmentPurposes.Receipt, FileObjectPurposes.ReceiptImage,
+            FileObjectStatuses.Active, removedAtUtc: null);
+        var reviewPath = groupId.HasValue ? GroupOcrReviewPath(groupId.Value, billId, fileId)
+            : PersonalOcrReviewPath(billId, fileId);
+        var previewPath = groupId.HasValue ? GroupOcrReviewApplyPreviewPath(groupId.Value, billId, fileId)
+            : PersonalOcrReviewApplyPreviewPath(billId, fileId);
+        var applyPath = groupId.HasValue ? GroupOcrReviewApplyPath(groupId.Value, billId, fileId)
+            : PersonalOcrReviewApplyPath(billId, fileId);
+        using var client = testFactory.CreateClient();
+        foreach (var explicitNull in new[] { false, true })
+        {
+            var body = new Dictionary<string, object?>
+            {
+                ["status"] = "reviewed", ["source"] = "on_device", ["currency"] = "USD",
+                ["subtotalAmount"] = "20", ["grandTotalAmount"] = "20",
+                ["lines"] = new[] { new { text = "Book", quantity = "1", unitPriceAmount = "20", lineTotalAmount = "20" } },
+                ["headerEvidence"] = new[] { new { role = "service_charge", amount = "1", currency = "EUR" } }
+            };
+            if (tax is not null) body["taxAmount"] = tax;
+            if (explicitNull) body["taxReconciliationMode"] = null;
+            using var put = CreateJsonBearerRequest(HttpMethod.Put, reviewPath, owner.RawSessionToken, JsonSerializer.Serialize(body));
+            using var savedResponse = await client.SendAsync(put);
+            Assert.True(savedResponse.IsSuccessStatusCode, await savedResponse.Content.ReadAsStringAsync());
+            var saved = ReadReviewPayload(await savedResponse.Content.ReadAsStringAsync());
+            var persisted = await ReadReceiptOcrReviewAsync(testFactory, saved.Id);
+            Assert.Single(persisted.HeaderEvidence);
+            using var get = CreateBearerRequest(HttpMethod.Get, previewPath, owner.RawSessionToken);
+            using var response = await client.SendAsync(get);
+            var preview = ReadApplyPreviewPayload(await response.Content.ReadAsStringAsync());
+            var before = await ReadBillAsync(testFactory, billId);
+            using var apply = CreateJsonBearerRequest(HttpMethod.Post, applyPath, owner.RawSessionToken, ApplyRequestJson(persisted.UpdatedAtUtc));
+            using var applied = await client.SendAsync(apply);
+            var after = await ReadBillAsync(testFactory, billId);
+            Assert.True(applied.StatusCode == HttpStatusCode.Conflict,
+                $"Foreign header bypass: group={groupRoute}, tax={tax}, preview={preview.CanApply}, Apply={applied.StatusCode}, bill delta={after.TotalAmount-before.TotalAmount}");
+            Assert.False(preview.CanApply);
+            Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.TaxReconciliationInvalid, preview.BlockedReasons);
+            Assert.Equal(before.TotalAmount, after.TotalAmount);
+            Assert.DoesNotContain(after.Items, item => item.SourceReceiptOcrReviewId == persisted.Id);
+        }
+    }
+
+    [Theory]
     [InlineData(false, null, false, false)]
     [InlineData(true, null, false, false)]
     [InlineData(false, "add_to_base", false, false)]
@@ -145,16 +206,22 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
     }
 
     [Theory]
-    [InlineData(false, "already_in_base", null)]
-    [InlineData(true, "already_in_base", null)]
-    [InlineData(false, "already_in_base", "24")]
-    [InlineData(true, "already_in_base", "24")]
-    [InlineData(false, "add_to_base", "20")]
-    [InlineData(true, "add_to_base", "20")]
-    [InlineData(false, null, null)]
-    [InlineData(true, null, null)]
+    [InlineData(false, "already_in_base", null, "4")]
+    [InlineData(true, "already_in_base", null, "4")]
+    [InlineData(false, "already_in_base", "24", "4")]
+    [InlineData(true, "already_in_base", "24", "4")]
+    [InlineData(false, "add_to_base", "20", "4")]
+    [InlineData(true, "add_to_base", "20", "4")]
+    [InlineData(false, null, null, "4")]
+    [InlineData(true, null, null, "4")]
+    [InlineData(false, "already_in_base", null, "0")]
+    [InlineData(true, "already_in_base", null, "0")]
+    [InlineData(false, "already_in_base", "24", "0")]
+    [InlineData(true, "already_in_base", "24", "0")]
+    [InlineData(false, null, null, "0")]
+    [InlineData(true, null, null, "0")]
     public async Task GrossTaxReviewAppliesExactlyOnceAcrossSaveReloadAndRetry(
-        bool groupRoute, string? mode, string? subtotal)
+        bool groupRoute, string? mode, string? subtotal, string tax)
     {
         var testContext = CreateFactory();
         using var testFactory = testContext.Factory;
@@ -184,7 +251,7 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         var body = JsonSerializer.Serialize(new
         {
             status = "reviewed", source = "on_device", currency = "USD",
-            subtotalAmount = subtotal, taxAmount = "4", taxReconciliationMode = mode,
+            subtotalAmount = subtotal, taxAmount = tax, taxReconciliationMode = mode,
             grandTotalAmount = "24",
             lines = new[] { new { text = "Gross notebook", quantity = "1",
                 unitPriceAmount = "24", lineTotalAmount = "24" } }
@@ -200,7 +267,7 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         using var reloaded = JsonDocument.Parse(await reloadResponse.Content.ReadAsStringAsync());
         Assert.Equal(mode, reloaded.RootElement.GetProperty("taxReconciliationMode").GetString());
         var persisted = await ReadReceiptOcrReviewAsync(testFactory, saved.Id);
-        Assert.Equal(4m, persisted.TaxAmount);
+        Assert.Equal(decimal.Parse(tax), persisted.TaxAmount);
         using var previewRequest = CreateBearerRequest(HttpMethod.Get,
             previewPath, owner.RawSessionToken);
         using var previewResponse = await client.SendAsync(previewRequest);

@@ -283,6 +283,21 @@ void main() {
     }
   });
 
+  for (final label in ['VAT included', 'Included VAT']) {
+    test('review round two distinct included rates aggregate $label', () {
+      final preview = const ReceiptOcrParser().parse(
+        'Sample Shop\nBook GBP 11.00\nNotebook GBP 12.00\n'
+        'Total incl. VAT GBP 23.00\n'
+        '$label 10% GBP 1.00\n$label 20% GBP 2.00',
+      );
+      expect(preview.tax, '3.00');
+      expect(preview.total, '23.00');
+      expect(preview.taxIncludedInTotal, isTrue);
+      expect(preview.items, hasLength(2));
+      expect(preview.reviewHints, isEmpty);
+    });
+  }
+
   group('included-tax financial summary ownership', () {
     for (final pair in [
       ('Total incl. VAT', 'VAT included 20%'),
