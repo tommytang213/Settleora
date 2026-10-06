@@ -4619,6 +4619,28 @@ Set<int>? _ownedSummaryCardHeaderRows(
       )
       .toList();
   if (totalLabels.length != 1 || nameLabels.length != 1) return null;
+  // A customer label above the value is insufficient if another nearby
+  // block can describe the same value. Inspect all physical neighbors rather
+  // than relying on a finite vocabulary of Item/Description/Product labels.
+  final nameBox = boxes[name]!;
+  final nameHeight = nameBox.bottom - nameBox.top;
+  if (allBlocks.any((b) {
+    if (b == name || b == nameLabels.single) return false;
+    final other = boxes[b]!;
+    final horizontalGap = other.right < nameBox.left
+        ? nameBox.left - other.right
+        : other.left > nameBox.right
+        ? other.left - nameBox.right
+        : 0;
+    final verticalGap = other.bottom < nameBox.top
+        ? nameBox.top - other.bottom
+        : other.top > nameBox.bottom
+        ? other.top - nameBox.bottom
+        : 0;
+    return horizontalGap <= nameHeight && verticalGap <= nameHeight;
+  })) {
+    return null;
+  }
   final amountBox = boxes[amount]!;
   if (row
       .where((b) => b != amount)
@@ -4779,6 +4801,23 @@ Set<int>? _ownedSummaryCardHeaderRows(
       return gap <= dateHeight;
     });
     if (!nearValue) continue;
+    // Surrounding metadata must not conceal an individually recognized owner.
+    // Adjacent fragment pairs also remain visible when unrelated blocks join
+    // the same component or interleave in one reading order.
+    for (final fragment in group) {
+      final text = _normalizeOcrLine(fragment.text);
+      if (dateOwner.hasMatch(text)) return null;
+      for (final other in group) {
+        if (other == fragment || !adjoining(fragment, other)) continue;
+        for (final separator in [' ', '']) {
+          if (dateOwner.hasMatch(
+            '$text$separator${_normalizeOcrLine(other.text)}',
+          )) {
+            return null;
+          }
+        }
+      }
+    }
     final horizontal = group.toList()
       ..sort((a, b) => boxes[a]!.left.compareTo(boxes[b]!.left));
     final vertical = group.toList()

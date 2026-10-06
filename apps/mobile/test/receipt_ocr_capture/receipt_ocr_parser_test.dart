@@ -144,6 +144,163 @@ ReceiptOcrBlockEvidence _summaryBlockVariant(
 );
 
 void main() {
+  test('summary ownership retains competing date and name owners', () {
+    ReceiptOcrBlockEvidence label(
+      String text,
+      int row,
+      double left,
+      double top,
+      double right,
+      double bottom,
+      int order,
+    ) => ReceiptOcrBlockEvidence(
+      text: text,
+      row: row,
+      order: order,
+      points: [
+        ReceiptOcrPoint(x: left, y: top),
+        ReceiptOcrPoint(x: right, y: top),
+        ReceiptOcrPoint(x: right, y: bottom),
+        ReceiptOcrPoint(x: left, y: bottom),
+      ],
+    );
+    for (final scale in [0.5, 1.0, 2.0]) {
+      ReceiptOcrBlockEvidence scaled(ReceiptOcrBlockEvidence b) =>
+          ReceiptOcrBlockEvidence(
+            text: b.text,
+            row: b.row,
+            order: b.order,
+            points: b.points
+                .map((p) => ReceiptOcrPoint(x: p.x * scale, y: p.y * scale))
+                .toList(),
+          );
+      for (final distant in [false, true]) {
+        for (final heading in [
+          'Expires',
+          'Expiry',
+          'Received',
+          'Created',
+          'Posted',
+          'Processed',
+          'Shipped',
+          'Ordered',
+          'Purchased',
+          'Pay By',
+        ]) {
+          for (final split in [false, true]) {
+            final original = _summaryCardBlocks();
+            final blocks = <ReceiptOcrBlockEvidence>[];
+            for (var i = 0; i < original.length; i++) {
+              final b = original[i];
+              blocks.add(b);
+              if (b.row == 3 && original[i + 1].row != 3) {
+                final y = distant ? 107.0 : 207.0;
+                if (split) {
+                  // Keep the existing account fields around both fragments.
+                  final words = heading == 'Pay By'
+                      ? ['Pay', 'By']
+                      : [heading.substring(0, 3), heading.substring(3)];
+                  blocks.add(label(words[0], 3, 531, y, 568, y + 20, 30));
+                  blocks.add(label(words[1], 3, 572, y, 623, y + 20, 31));
+                } else {
+                  blocks.add(label(heading, 3, 531, y, 623, y + 20, 30));
+                }
+              }
+            }
+            final evidence = blocks.map(scaled).toList();
+            final p = _parseBoundedUtility(evidence);
+            expect(
+              p.itemLineDecisions[4] ==
+                  ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+              distant,
+              reason:
+                  'date=$heading split=$split distant=$distant scale=$scale',
+            );
+            expect(p.blocks, containsAll(evidence));
+          }
+        }
+        for (final heading in [
+          'Item',
+          'Description',
+          'Product',
+          'Service',
+          'SKU',
+          '品目',
+          'Unknown Label',
+        ]) {
+          for (final side in ['left', 'right', 'above', 'below']) {
+            for (final laterRow in [false, true]) {
+              final original = _summaryCardBlocks();
+              final blocks = <ReceiptOcrBlockEvidence>[];
+              final dx = distant ? 1300.0 : 0.0;
+              final extra = switch (side) {
+                'left' => label(
+                  heading,
+                  laterRow ? 5 : 3,
+                  -dx,
+                  216,
+                  30 - dx,
+                  237,
+                  30,
+                ),
+                'right' => label(
+                  heading,
+                  laterRow ? 5 : 3,
+                  192 + dx,
+                  216,
+                  222 + dx,
+                  237,
+                  30,
+                ),
+                'above' => label(
+                  heading,
+                  laterRow ? 5 : 3,
+                  35 + dx,
+                  190,
+                  80 + dx,
+                  211,
+                  30,
+                ),
+                _ => label(
+                  heading,
+                  laterRow ? 5 : 3,
+                  35 + dx,
+                  242,
+                  80 + dx,
+                  263,
+                  30,
+                ),
+              };
+              for (var i = 0; i < original.length; i++) {
+                final b = original[i];
+                blocks.add(
+                  _summaryBlockVariant(
+                    b,
+                    text: b.text == 'Alex Q. Sample' ? 'Router Rental' : b.text,
+                  ),
+                );
+                final target = laterRow ? 5 : 3;
+                if (b.row == target && original[i + 1].row != target) {
+                  blocks.add(extra);
+                }
+              }
+              final evidence = blocks.map(scaled).toList();
+              final p = _parseBoundedUtility(evidence);
+              expect(
+                p.itemLineDecisions[4] ==
+                    ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+                distant,
+                reason:
+                    'name=$heading side=$side later=$laterRow distant=$distant scale=$scale',
+              );
+              expect(p.blocks, containsAll(evidence));
+            }
+          }
+        }
+      }
+    }
+  });
+
   test('summary-card proof retains unexplained neighbors and split headings', () {
     ReceiptOcrBlockEvidence extra(
       String text,
