@@ -1630,6 +1630,8 @@ class ReceiptOcrParser {
     }
 
     bool chartHasAdjacentEvidence(ReceiptOcrBlockEvidence axis) {
+      final axisNumber = int.tryParse(_normalizeOcrLine(axis.text));
+      if (axisNumber == null || axisNumber < 0) return true;
       // Establish the connected tick column from its proven calendar axis.
       // Every accepted bare tick needs the same full neighborhood proof as the
       // initial value; a denomination beside a higher tick cannot be hidden by
@@ -1656,6 +1658,14 @@ class ReceiptOcrParser {
               height(candidate) <= height(axis) * 2 &&
               sharesMetadataNeighborhood(current, candidate)) {
             ticks.add(candidate);
+          }
+        }
+      }
+      for (var i = 0; i < ticks.length; i++) {
+        for (var j = i + 1; j < ticks.length; j++) {
+          if (top(ticks[i]) < bottom(ticks[j]) &&
+              bottom(ticks[i]) > top(ticks[j])) {
+            return true;
           }
         }
       }
@@ -1697,11 +1707,18 @@ class ReceiptOcrParser {
           .map((tick) => int.parse(_normalizeOcrLine(tick.text)))
           .reduce((a, b) => a > b ? a : b);
       final members = <ReceiptOcrBlockEvidence>{...ticks};
+      final plottedColumns = <ReceiptOcrBlockEvidence>{};
       for (final block in allBlocks) {
         if (!hasGeometry(block) || height(block) <= 0) continue;
         final text = _normalizeOcrLine(block.text);
         final number = int.tryParse(text);
         final center = (_blockLeft(block) + _blockRight(block)) / 2;
+        final columns = calendar
+            .where(
+              (month) =>
+                  center >= _blockLeft(month) && center <= _blockRight(month),
+            )
+            .toList();
         if (number != null &&
             number >= 0 &&
             number <= maximum &&
@@ -1711,14 +1728,8 @@ class ReceiptOcrParser {
             bottom(block) <= bottom(axis) &&
             height(block) >= height(axis) / 2 &&
             height(block) <= height(axis) * 2 &&
-            calendar
-                    .where(
-                      (month) =>
-                          center >= _blockLeft(month) &&
-                          center <= _blockRight(month),
-                    )
-                    .length ==
-                1) {
+            columns.length == 1) {
+          if (!plottedColumns.add(columns.single)) return true;
           members.add(block);
         }
       }
@@ -1732,6 +1743,7 @@ class ReceiptOcrParser {
         r'(?:used|usage|consumed)$',
         caseSensitive: false,
       );
+      var hasUsageTitle = false;
       for (final block in allBlocks) {
         if (hasGeometry(block) &&
             height(block) > 0 &&
@@ -1743,6 +1755,8 @@ class ReceiptOcrParser {
             _blockRight(block) <= chartRight) {
           // A complete physical-usage heading above the plotted range owns its
           // unit words. Monetary units and appended amounts never qualify.
+          if (hasUsageTitle) return true;
+          hasUsageTitle = true;
           members.add(block);
         }
       }

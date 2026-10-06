@@ -357,6 +357,45 @@ void main() {
       expect(preview.blocks, blocks, reason: reason);
     }
 
+    List<ReceiptOcrBlockEvidence> ambiguousChart(double scale, String kind) {
+      final blocks = chartTickEvidence(
+        scale,
+        higher: true,
+        point: '85',
+        title: kind == 'titles' ? 'Therms Used' : null,
+      );
+      final text = kind == 'titles' ? 'kWh Used' : '90';
+      final left = kind == 'point' ? 841.0 : 790.0;
+      final right = kind == 'point'
+          ? 865.0
+          : kind == 'titles'
+          ? 920.0
+          : 830.0;
+      final top = kind == 'titles' ? 88.0 : 115.0;
+      blocks.add(
+        ReceiptOcrBlockEvidence(
+          text: text,
+          row: 2,
+          order: 2999,
+          points: [
+            ReceiptOcrPoint(x: left * scale, y: top * scale),
+            ReceiptOcrPoint(x: right * scale, y: top * scale),
+            ReceiptOcrPoint(x: right * scale, y: (top + 20) * scale),
+            ReceiptOcrPoint(x: left * scale, y: (top + 20) * scale),
+          ],
+        ),
+      );
+      return blocks;
+    }
+
+    test('chart fields require unique ownership', () {
+      for (final kind in ['point', 'ticks', 'titles']) {
+        for (final scale in [0.5, 1.0, 2.0]) {
+          verifyChartNegative(ambiguousChart(scale, kind), '$kind $scale');
+        }
+      }
+    });
+
     test('punctuated heading fragments preserve competing totals', () {
       for (final heading in [
         ['(Payment', 'Due)'],
