@@ -143,7 +143,147 @@ ReceiptOcrBlockEvidence _summaryBlockVariant(
       : const [],
 );
 
+List<ReceiptOcrBlockEvidence> _ownedFeeBlocks({
+  bool sidebar = false,
+  String label = 'Municipal Connectivity Fee (2.00%)',
+  double scale = 1,
+  String period = 'Feb 5 - Mar 4, 2025',
+  String? amount = 'USD 0.89',
+  bool duplicateAmount = false,
+  bool supportHeader = true,
+}) {
+  final blocks = <ReceiptOcrBlockEvidence>[];
+  void cell(String text, int row, double x, double right) {
+    blocks.add(
+      ReceiptOcrBlockEvidence(
+        text: text,
+        row: row,
+        order: blocks.length,
+        points: [
+          ReceiptOcrPoint(x: x * scale, y: row * 40 * scale),
+          ReceiptOcrPoint(x: right * scale, y: row * 40 * scale),
+          ReceiptOcrPoint(x: right * scale, y: (row * 40 + 20) * scale),
+          ReceiptOcrPoint(x: x * scale, y: (row * 40 + 20) * scale),
+        ],
+      ),
+    );
+  }
+
+  cell('Sample Utility', 0, 50, 250);
+  cell('Current Charges Detail', 1, 50, 320);
+  cell('Description', 2, 50, 180);
+  cell('Service Period', 2, 420, 540);
+  cell('Amount', 2, 650, 720);
+  if (supportHeader) cell('Support', 2, 780, 940);
+  cell('Broadband Plan', 3, 50, 270);
+  cell('Feb 5 - Mar 4, 2025', 3, 420, 610);
+  cell('USD 20.00', 3, 650, 720);
+  cell(label, 4, 50, 350);
+  cell(period, 4, 420, 610);
+  if (amount != null) cell(amount, 4, 650, 720);
+  if (duplicateAmount) cell('USD 0.90', 4, 650, 720);
+  if (sidebar) cell('Help Center', 4, 780, 940);
+  cell('Total Current Charges', 5, 50, 300);
+  cell('USD 20.89', 5, 650, 720);
+  return blocks;
+}
+
 void main() {
+  test(
+    'owned fee role and incomplete evidence are invariant to support copy',
+    () {
+      for (final label in [
+        'Municipal Connectivity Fee (2.00%)',
+        'Regulatory Recovery Fee',
+        'Connection Surcharge',
+      ]) {
+        for (final scale in [0.5, 1.0, 2.0]) {
+          final without = _parseBoundedUtility(
+            _ownedFeeBlocks(label: label, scale: scale),
+          );
+          for (final sidebar in [false, true]) {
+            final blocks = _ownedFeeBlocks(
+              label: label,
+              scale: scale,
+              sidebar: sidebar,
+            );
+            final p = _parseBoundedUtility(blocks);
+            expect(p.blocks, blocks);
+            expect(p.items.map((i) => i.description), ['Broadband Plan']);
+            expect(p.items.single.lineTotal, '20.00');
+            expect(p.total, '20.89');
+            expect(p.subtotal, isNull);
+            expect(p.tax, isNull);
+            expect(p.service, isNull);
+            expect(p.tip, isNull);
+            expect(p.shipping, isNull);
+            expect(p.discount, isNull);
+            expect(p.adjustmentsComplete, isFalse);
+            expect(
+              p.incompleteAdjustmentReasons,
+              contains(
+                ReceiptOcrIncompleteAdjustmentReason
+                    .unclassifiedAdjustmentLabel,
+              ),
+            );
+            expect(p.reviewHints, isNotEmpty);
+            expect(p.reviewHints, without.reviewHints);
+            expect(p.warnings, isEmpty, reason: '$label $sidebar $scale');
+            expect(
+              p.itemLineDecisions[4],
+              ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+            );
+          }
+        }
+      }
+    },
+  );
+  test('owned fee recovery does not absorb named merchandise', () {
+    for (final sidebar in [false, true]) {
+      for (final scale in [0.5, 1.0, 2.0]) {
+        final p = _parseBoundedUtility(
+          _ownedFeeBlocks(
+            label: 'Coffee Service Manual',
+            sidebar: sidebar,
+            scale: scale,
+          ),
+        );
+        expect(p.items.map((i) => i.description), [
+          'Broadband Plan',
+          'Coffee Service Manual',
+        ]);
+        expect(p.warnings, isEmpty);
+        expect(p.reviewHints, isEmpty);
+      }
+    }
+  });
+  test(
+    'incomplete fee ownership retains uncertainty and raw monetary evidence',
+    () {
+      final variants = [
+        _ownedFeeBlocks(amount: null),
+        _ownedFeeBlocks(duplicateAmount: true),
+        _ownedFeeBlocks(period: 'Feb 5 -'),
+        _ownedFeeBlocks(amount: 'EUR 0.89'),
+        _ownedFeeBlocks(amount: 'USD - 0.89'),
+        _ownedFeeBlocks(amount: 'USD -0.89'),
+        _ownedFeeBlocks(amount: 'USD EUR 0.89'),
+        _ownedFeeBlocks(label: 'Tax and Connectivity Fee'),
+        _ownedFeeBlocks(label: 'Payment and Connectivity Fee'),
+        _ownedFeeBlocks(label: 'Connectivity Fee (tax included)'),
+        _ownedFeeBlocks(sidebar: true, supportHeader: false),
+      ];
+      for (var i = 0; i < variants.length; i++) {
+        final p = _parseBoundedUtility(variants[i]);
+        expect(p.blocks, variants[i]);
+        expect(p.adjustmentsComplete, isFalse, reason: 'variant $i');
+        expect(p.reviewHints, isNotEmpty, reason: 'variant $i');
+        expect(p.service, isNull);
+        expect(p.subtotal, isNull);
+      }
+    },
+  );
+
   test('ownership uses shared geometry and numeric reference evidence', () {
     ReceiptOcrBlockEvidence box(
       String text,

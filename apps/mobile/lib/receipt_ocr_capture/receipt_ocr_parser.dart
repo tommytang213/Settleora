@@ -3035,6 +3035,22 @@ class ReceiptOcrParser {
             _hasSubtotalLabel(roleText, roleText.toLowerCase())) {
           break;
         }
+        // A terminal fee role can retain a printed percentage without treating
+        // that rate as a second monetary cell. Other notes/roles stay outside
+        // this proof, and the original label is kept for adjustment review.
+        final feeRole = RegExp(
+          r'\b(?:fee|surcharge)(?:\s*\(\d+(?:[.,]\d+)?%\))?$',
+          caseSensitive: false,
+        ).firstMatch(normalizedDescription);
+        final feeQualifier = feeRole == null
+            ? null
+            : normalizedDescription.substring(0, feeRole.start).trim();
+        final hasOwnedFeeRole =
+            feeQualifier != null &&
+            !hasFinancialRole(feeQualifier, monetaryText) &&
+            !hasAdjustmentRole(feeQualifier) &&
+            !_isAdministrativeLine('$feeQualifier $monetaryText') &&
+            !lineTotal.startsWith('-');
         if (!_hasSubstantiveItemDescription(normalizedDescription) ||
             _isAccountBalanceSummaryLine(ownedText) ||
             _isBoundedUtilityAccountRole(normalizedDescription, monetaryText) ||
@@ -3062,8 +3078,18 @@ class ReceiptOcrParser {
             RegExp(_amountTokenPattern)
                 .allMatches(normalizedDescription)
                 .any(
-                  (token) => _hasChargeTableMonetaryEvidence(token.group(0)!),
+                  (token) =>
+                      _hasChargeTableMonetaryEvidence(token.group(0)!) &&
+                      !(hasOwnedFeeRole &&
+                          token.start >= feeRole!.start &&
+                          RegExp(r'^\s*%').hasMatch(
+                            normalizedDescription.substring(token.end),
+                          )),
                 )) {
+          continue;
+        }
+        if (hasOwnedFeeRole) {
+          adjustments[rowIndex] = ownedText;
           continue;
         }
         if (discountLabelPattern.hasMatch(normalizedDescription)) {
