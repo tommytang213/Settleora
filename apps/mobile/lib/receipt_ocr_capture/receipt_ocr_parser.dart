@@ -1298,36 +1298,55 @@ class ReceiptOcrParser {
     }
     final financialSymbol = RegExp(r'[\p{Sc}%‰]', unicode: true);
     final detachedSign = RegExp(r'^[+\-−–—()]+$');
-    // OCR row grouping can separate nearby boxes of different heights. Inspect
-    // the label/value band, not just the blocks assigned to this OCR row.
-    for (final other in rows.expand((blocks) => blocks)) {
-      if (row.contains(other)) continue;
+    bool competesWithTotal(
+      ReceiptOcrBlockEvidence other,
+      ReceiptOcrBlockEvidence ownedLabel,
+      ReceiptOcrBlockEvidence ownedMoney,
+      double bandRight,
+    ) {
       final text = _normalizeOcrLine(other.text);
-      final financial =
-          _lineHasAmount(text) ||
-          financialSymbol.hasMatch(text) ||
-          detachedSign.hasMatch(text) ||
-          _printedCurrencyMarkerMatches(text).isNotEmpty ||
-          _unsupportedIsoCurrencyMarkers(text).isNotEmpty;
-      if (!financial) continue;
-      if (!hasGeometry(other) || height(other) <= 0) return null;
+      if (text.isEmpty) return false;
+      if (!hasGeometry(other) || height(other) <= 0) return true;
       final explicitOrStandaloneMoney =
           _printedCurrencyMarkerMatches(text).isNotEmpty ||
           _unsupportedIsoCurrencyMarkers(text).isNotEmpty ||
           financialSymbol.hasMatch(text) ||
           _isStandaloneAmountRow(text);
-      // Explicit money anywhere in the surrounding band is competing. Digits
-      // embedded in a separate support column are outside the value corridor.
+      // Unknown text can be a split denomination or joined numeric fragment.
+      // Every nearby block competes; only the wider side-column band requires
+      // explicit monetary evidence, so separate support copy stays separate.
       final rightBoundary = explicitOrStandaloneMoney
-          ? _blockRight(contact) + height(money)
-          : _blockRight(money) + height(money);
-      if (bottom(other) > top(money) &&
-          top(other) < bottom(money) &&
-          _blockRight(other) > _blockLeft(label) - height(money) &&
-          _blockLeft(other) < rightBoundary) {
-        return null;
-      }
+          ? bandRight + height(ownedMoney)
+          : _blockRight(ownedMoney) + height(ownedMoney);
+      return bottom(other) > top(ownedMoney) &&
+          top(other) < bottom(ownedMoney) &&
+          _blockRight(other) > _blockLeft(ownedLabel) - height(ownedMoney) &&
+          _blockLeft(other) < rightBoundary;
     }
+
+    bool hasCompetingNeighbor(
+      List<ReceiptOcrBlockEvidence> owner,
+      ReceiptOcrBlockEvidence ownedLabel,
+      ReceiptOcrBlockEvidence ownedMoney,
+    ) {
+      if (owner.any((block) => !hasGeometry(block) || height(block) <= 0)) {
+        return true;
+      }
+      final bandRight = owner
+          .map(_blockRight)
+          .reduce((left, right) => left > right ? left : right);
+      return rows
+          .expand((blocks) => blocks)
+          .any(
+            (block) =>
+                !owner.contains(block) &&
+                competesWithTotal(block, ownedLabel, ownedMoney, bandRight),
+          );
+    }
+
+    // OCR row grouping can separate boxes of different heights. Use the same
+    // complete neighborhood proof for this total and every agreeing repetition.
+    if (hasCompetingNeighbor(row, label, money)) return null;
     final completeMonetaryCell = RegExp(
       '^(?:(?:$_currencyTokenPattern)\\s*(?:$_amountTokenPattern)'
       '|(?:$_amountTokenPattern)\\s*(?:$_currencyTokenPattern))\$',
@@ -1402,6 +1421,16 @@ class ReceiptOcrParser {
       if (amounts.length != 1 || ownedAmount(amounts.single) != value) {
         return null;
       }
+      final ownedMoney = suffix.isEmpty ? monetaryCells.single : labels.single;
+      if (hasCompetingNeighbor(other, labels.single, ownedMoney) ||
+          (suffix.isEmpty &&
+              (_blockRight(labels.single) >= _blockLeft(ownedMoney) ||
+                  !aligned(ownedMoney, labels.single)))) {
+        return null;
+      }
+      final bandRight = other
+          .map(_blockRight)
+          .reduce((left, right) => left > right ? left : right);
       for (final extra in other) {
         if (extra == labels.single ||
             (suffix.isEmpty && extra == monetaryCells.single)) {
@@ -1414,7 +1443,12 @@ class ReceiptOcrParser {
             detachedSign.hasMatch(extraText)) {
           return null;
         }
-        if (!RegExp(_amountTokenPattern).hasMatch(extraText)) continue;
+        if (!RegExp(_amountTokenPattern).hasMatch(extraText)) {
+          if (competesWithTotal(extra, labels.single, ownedMoney, bandRight)) {
+            return null;
+          }
+          continue;
+        }
         // A complete city/state/postal block owns its digits as address
         // metadata only outside the label/value corridor. Other numeric text
         // (including alternatives such as "or 90") remains competing evidence.

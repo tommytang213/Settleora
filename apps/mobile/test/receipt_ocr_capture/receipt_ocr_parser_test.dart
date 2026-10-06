@@ -202,10 +202,13 @@ void main() {
       String itemAmount = 'USD 86.27',
       List<String> adjustments = const [],
       bool splitLocalizedTotal = false,
+      bool priorCrossRowMoney = false,
       String? priorTotal,
       String? priorAmount,
       String? priorExtra,
       double priorExtraOffset = 0,
+      double priorExtraLeft = 800,
+      double priorExtraRight = 950,
       bool includeGeometry = true,
     }) {
       ReceiptOcrBlockEvidence cell(
@@ -240,7 +243,9 @@ void main() {
               ]
             : const [],
       );
-      final totalRow = splitLocalizedTotal ? 4 : 3 + adjustments.length;
+      final totalRow = (splitLocalizedTotal || priorCrossRowMoney)
+          ? 4
+          : 3 + adjustments.length;
       final blocks = [
         cell('Sample Utility', 0, 50, 300),
         cell('Broadband Plan', 1, 50, 300),
@@ -251,11 +256,22 @@ void main() {
           cell('合計', 2, 50, 300),
           cell('USD 90.00', 3, 600, 720, offset: -35),
         ],
+        if (priorCrossRowMoney) ...[
+          cell('Total', 2, 50, 300, offset: 10),
+          cell('USD 86.27', 2, 600, 720, cellHeight: 40),
+          cell('USD 90.00', 3, 730, 790, offset: -28, cellHeight: 10),
+        ],
         if (priorTotal != null)
           cell(priorTotal, 2, 50, priorAmount == null ? 720 : 300),
         if (priorAmount != null) cell(priorAmount, 2, 600, 720),
         if (priorExtra != null)
-          cell(priorExtra, 2, 800, 950, offset: priorExtraOffset),
+          cell(
+            priorExtra,
+            2,
+            priorExtraLeft,
+            priorExtraRight,
+            offset: priorExtraOffset,
+          ),
         cell(
           label,
           totalRow,
@@ -453,6 +469,25 @@ void main() {
             );
           }
         }
+        for (final fragment in [
+          ('or90', 730.0),
+          ('1e2', 730.0),
+          ('HK', 540.0),
+          ('CA', 540.0),
+          ('R', 575.0),
+          ('maybe', 540.0),
+        ]) {
+          expect(
+            parse(
+              scale: scale,
+              label: 'Grand Total',
+              crossRowMoney: true,
+              crossRowMoneyLeft: fragment.$2,
+              crossRowText: fragment.$1,
+            ).total,
+            '0199',
+          );
+        }
         expect(
           parse(
             scale: scale,
@@ -461,6 +496,33 @@ void main() {
           ).total,
           '86.27',
         );
+      }
+    });
+
+    test('checks geometry around every agreeing total', () {
+      for (final scale in [0.5, 1.0, 2.0]) {
+        expect(
+          parse(
+            scale: scale,
+            label: 'Grand Total',
+            priorCrossRowMoney: true,
+          ).total,
+          '0199',
+        );
+        for (final extra in ['HK', 'maybe']) {
+          expect(
+            parse(
+              scale: scale,
+              label: 'Grand Total',
+              priorTotal: 'Total',
+              priorAmount: 'USD 86.27',
+              priorExtra: extra,
+              priorExtraLeft: 540,
+              priorExtraRight: 600,
+            ).total,
+            '0199',
+          );
+        }
       }
     });
 
