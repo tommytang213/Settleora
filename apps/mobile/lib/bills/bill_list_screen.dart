@@ -4386,6 +4386,12 @@ bool _receiptOcrHasUnreconciledHeaderCurrency(ReceiptOcrPreview preview) {
       preview.serviceCurrency,
       preview.serviceHasExplicitCurrencyEvidence,
     ),
+    (preview.tip, preview.tipCurrency, preview.tipHasExplicitCurrencyEvidence),
+    (
+      preview.shipping,
+      preview.shippingCurrency,
+      preview.shippingHasExplicitCurrencyEvidence,
+    ),
     (
       preview.discount,
       preview.discountCurrency,

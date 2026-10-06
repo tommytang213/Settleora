@@ -33,6 +33,164 @@ import 'package:mobile/ui/settleora_form_fields.dart';
 
 void main() {
   for (final group in [false, true]) {
+    for (final role in ['tip', 'shipping']) {
+      for (final evidence in [
+        'EUR 2.00',
+        'XPF 2.00',
+        'XPF 2.00 CHF',
+        'USD 2.00',
+      ]) {
+        final acceptsItems = evidence == 'USD 2.00';
+        testWidgets(
+          'review round four local $role financial currency group=$group evidence=$evidence',
+          (tester) async {
+            await useLargeSurface(tester);
+            final prefix = group ? 'group-bill' : 'personal-bill';
+            final preview = const ReceiptOcrParser().parse(
+              'Harbor Grill\nBurger USD 18.00\n'
+              '${role == "tip" ? "Tip" : "Delivery"} $evidence\n'
+              'Total USD 20.00',
+            );
+            expect(preview.currency, 'USD');
+            expect(preview.items.single.lineTotal, '18.00');
+            expect(role == 'tip' ? preview.tip : preview.shipping, '2.00');
+            final repository = FakeBillRepository();
+            final fileInput = FakeBillAttachmentFileInput(
+              pickedFile: samplePickedAttachmentFile(
+                filename: 'receipt.png',
+                contentType: 'image/png',
+                bytes: samplePngBytes(width: 64, height: 64),
+              ),
+            );
+            final provider = FakeReceiptOcrProvider(
+              ReceiptOcrResult.extracted(preview),
+            );
+            if (group) {
+              await _pumpGroupBillCreate(
+                tester,
+                repository: repository,
+                groupRepository: FakeGroupRepository(
+                  members: [sampleGroupMember()],
+                ),
+                attachmentRepository: FakeBillAttachmentRepository(),
+                attachmentFileInput: fileInput,
+                receiptOcrProvider: provider,
+              );
+              await tester.tap(find.byKey(const Key('group-bill-list-create')));
+              await tester.pumpAndSettle();
+              await _goToGroupBillCreateStep(tester, 'basics');
+            } else {
+              await tester.pumpWidget(
+                MaterialApp(
+                  home: SettleoraPersonalBillCreateScreen(
+                    repository: repository,
+                    attachmentRepository: FakeBillAttachmentRepository(),
+                    attachmentFileInput: fileInput,
+                    receiptOcrProvider: provider,
+                  ),
+                ),
+              );
+              await tester.pumpAndSettle();
+            }
+            final billCurrency = find.byKey(
+              Key('$prefix-currency'),
+              skipOffstage: false,
+            );
+            await _selectCurrency(tester, billCurrency, 'HKD');
+            if (group) await _goToGroupBillCreateStep(tester, 'receiptItems');
+            final itemName = find.byKey(ValueKey('$prefix-item-name-0'));
+            final itemAmount = find.byKey(ValueKey('$prefix-item-amount-0'));
+            final itemCurrency = find.byKey(
+              ValueKey('$prefix-item-currency-0'),
+            );
+            await tester.enterText(itemName, 'Existing item');
+            await tester.enterText(itemAmount, '10.00');
+            await tester.ensureVisible(find.byKey(Key('$prefix-scan-receipt')));
+            await tester.tap(find.byKey(Key('$prefix-scan-receipt')));
+            await tester.pumpAndSettle();
+            for (final section in ['currency', 'items']) {
+              final choice = find.byKey(Key('$prefix-ocr-apply-$section'));
+              final enabled =
+                  tester.widget<CheckboxListTile>(choice).onChanged != null;
+              if (acceptsItems) expect(enabled, isTrue);
+              if (enabled)
+                await _setReceiptOcrSection(tester, prefix, section, true);
+            }
+            await _setReceiptOcrSection(tester, prefix, 'merchant', true);
+            await _tapReceiptOcrApply(tester, prefix);
+            expect(
+              tester
+                  .widget<CurrencySelector>(
+                    find.descendant(
+                      of: billCurrency,
+                      matching: find.byType(
+                        CurrencySelector,
+                        skipOffstage: false,
+                      ),
+                      skipOffstage: false,
+                    ),
+                  )
+                  .value,
+              acceptsItems ? 'USD' : 'HKD',
+            );
+            expect(
+              tester
+                  .widget<CurrencySelector>(
+                    find.descendant(
+                      of: itemCurrency,
+                      matching: find.byType(
+                        CurrencySelector,
+                        skipOffstage: false,
+                      ),
+                    ),
+                  )
+                  .value,
+              acceptsItems ? 'USD' : 'HKD',
+            );
+            expect(
+              tester.widget<TextFormField>(itemName).controller?.text,
+              acceptsItems ? 'Burger' : 'Existing item',
+            );
+            expect(
+              tester.widget<TextFormField>(itemAmount).controller?.text,
+              acceptsItems ? '18.00' : '10.00',
+            );
+            if (group) await _goToGroupBillCreateStep(tester, 'basics');
+            expect(
+              tester
+                  .widget<TextFormField>(
+                    find.byKey(Key('$prefix-merchant-name')),
+                  )
+                  .controller
+                  ?.text,
+              'Harbor Grill',
+            );
+            final saved = receiptOcrReviewSaveRequestFromPreview(
+              preview,
+              originalCurrency: 'USD',
+            );
+            expect(saved, isNotNull);
+            if (evidence.startsWith('XPF')) {
+              expect(saved!.adjustmentEvidence, isEmpty);
+            } else {
+              expect(
+                saved!.adjustmentEvidence.single.currency,
+                evidence.split(' ').first,
+              );
+            }
+            expect(
+              saved.taxReconciliationMode,
+              acceptsItems
+                  ? null
+                  : ReceiptOcrTaxReconciliationModeValues.unresolved,
+            );
+          },
+        );
+      }
+    }
+  }
+
+  for (final group in [false, true]) {
     for (final status in ['reviewed', 'provisional']) {
       testWidgets(
         'review round three saved merchant correction retains $status group=$group',
