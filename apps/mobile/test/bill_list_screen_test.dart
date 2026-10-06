@@ -581,7 +581,7 @@ void main() {
     );
   });
 
-  testWidgets('personal bill scan receipt reviews and applies OCR suggestions', (
+  testWidgets('personal bill scan retains foreign evidence and blocks financial Apply', (
     tester,
   ) async {
     await useLargeSurface(tester);
@@ -808,6 +808,20 @@ void main() {
       findsNothing,
     );
 
+    await _selectCurrency(
+      tester,
+      find.byKey(const Key('personal-bill-currency')),
+      'HKD',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('personal-bill-item-name-0')),
+      'Manual item',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('personal-bill-item-amount-0')),
+      '10.00',
+    );
+
     await tester.enterText(
       find.byKey(const Key('personal-bill-ocr-edit-merchant')),
       'Corrected Market',
@@ -855,7 +869,17 @@ void main() {
 
     await _tapReceiptOcrApply(tester, 'personal-bill');
 
-    expect(find.text('Suggestions applied'), findsOneWidget);
+    expect(find.text('Suggestions applied'), findsNothing);
+    for (final section in ['currency', 'items']) {
+      expect(
+        tester
+            .widget<CheckboxListTile>(
+              find.byKey(Key('personal-bill-ocr-apply-$section')),
+            )
+            .onChanged,
+        isNull,
+      );
+    }
     expect(
       tester
           .widget<TextFormField>(
@@ -872,7 +896,7 @@ void main() {
           )
           .controller
           ?.text,
-      'Corrected milk',
+      'Manual item',
     );
     expect(
       tester
@@ -881,16 +905,20 @@ void main() {
           )
           .controller
           ?.text,
-      '3',
+      '1',
     );
     expect(
       tester
           .widget<TextFormField>(
-            find.byKey(const ValueKey('personal-bill-item-amount-1')),
+            find.byKey(const ValueKey('personal-bill-item-amount-0')),
           )
           .controller
           ?.text,
-      '2.31',
+      '10.00',
+    );
+    expect(
+      find.byKey(const ValueKey('personal-bill-item-amount-1')),
+      findsNothing,
     );
 
     await _tapSaveBill(tester);
@@ -901,15 +929,14 @@ void main() {
     expect(attachmentRepository.lastUpload?.bytes, isNotEmpty);
     expect(repository.lastCreateDraft?.merchantName, 'Corrected Market');
     expect(repository.lastCreateDraft?.billDate, '2026-06-13');
-    expect(repository.lastCreateDraft?.currency, 'USD');
+    expect(repository.lastCreateDraft?.currency, 'HKD');
     expect(repository.lastCreateDraft?.items.map((item) => item.name), [
-      'Corrected milk',
-      'Bread',
+      'Manual item',
     ]);
     expect(repository.lastCreateDraft?.items.map((item) => item.amount), [
-      '30.00',
-      '2.31',
+      '10.00',
     ]);
+    expect(repository.lastCreateDraft?.items.single.currency, 'HKD');
     expect(repository.lastCreateDraft?.adjustments, isEmpty);
     expect(receiptRepository.saveCalls, 1);
     expect(receiptRepository.lastSaveRoute?.billId, _createdBillId);
@@ -927,11 +954,26 @@ void main() {
     expect(
       receiptRepository.lastSaveRequest?.discountAmount,
       isNull,
-      reason: 'Signed OCR discounts remain visible locally but are not sent.',
+      reason: 'Foreign OCR discounts remain evidence, without scalar coercion.',
     );
     expect(receiptRepository.lastSaveRequest?.taxAmount, isNull);
     expect(receiptRepository.lastSaveRequest?.serviceChargeAmount, isNull);
     expect(receiptRepository.lastSaveRequest?.grandTotalAmount, isNull);
+    expect(
+      receiptRepository.lastSaveRequest?.taxReconciliationMode,
+      ReceiptOcrTaxReconciliationModeValues.unresolved,
+    );
+    expect(
+      receiptRepository.lastSaveRequest?.headerEvidence.map(
+        (entry) => (entry.role, entry.amount, entry.currency),
+      ),
+      [
+        ('subtotal', '45.00', 'EUR'),
+        ('tax', '5.00', 'EUR'),
+        ('service_charge', '6.00', 'GBP'),
+        ('discount', '2.00', 'EUR'),
+      ],
+    );
     expect(receiptRepository.lastSaveRequest?.lines.map((line) => line.text), [
       'Corrected milk',
       'Bread',
@@ -942,7 +984,7 @@ void main() {
       ),
       ['30.00', '2.31'],
       reason:
-          'The second amount is applied only after the user edits both its currency and value.',
+          'Edited OCR lines remain provisional evidence and do not change the manual bill.',
     );
     expect(
       receiptRepository.lastSaveRequest?.adjustmentEvidence.map(
