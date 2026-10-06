@@ -24,7 +24,13 @@ test('required-check budget documents every classifier lane', () => {
 
 test('scaffold orchestration preserves the stable fail-closed aggregate', () => {
   const scaffold = workflow('scaffold-validation.yml');
-  assert.deepEqual(scaffold.on.pull_request.branches, ['main', 'ai/integration']);
+  assert.deepEqual(scaffold.on.pull_request.branches, [
+    'main',
+    'ai/integration',
+    'test/1301-native-ocr-acceptance-20260918-0038',
+  ]);
+  assert.deepEqual(Object.keys(scaffold.on).sort(), ['pull_request', 'push']);
+  assert.deepEqual(scaffold.on.push.branches, ['main', 'feat/**', 'fix/**', 'chore/**', 'docs/**']);
   assert.equal(scaffold.on.pull_request.paths, undefined);
   assert.equal(scaffold.on.pull_request['paths-ignore'], undefined);
   assert.deepEqual(scaffold.permissions, { contents: 'read' });
