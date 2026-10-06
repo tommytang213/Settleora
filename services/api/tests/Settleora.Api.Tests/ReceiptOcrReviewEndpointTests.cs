@@ -4250,6 +4250,7 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
                 Id = Guid.NewGuid(),
                 ExpenseBillId = billId,
                 UserProfileId = payerId,
+                PayerFactsCreatedByUserProfileId = ownerProfileId,
                 Amount = totalAmount,
                 Currency = "USD",
                 CreatedAtUtc = createdAtUtc,
