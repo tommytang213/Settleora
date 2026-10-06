@@ -197,7 +197,7 @@ void main() {
       String? point,
       double pointLeft = 841,
       String? pointFragment,
-      String? title,
+      String? title = 'Therms Used',
       double titleLeft = 790,
     }) {
       ReceiptOcrBlockEvidence cell(
@@ -362,7 +362,7 @@ void main() {
         scale,
         higher: true,
         point: '85',
-        title: kind == 'titles' ? 'Therms Used' : null,
+        title: 'Therms Used',
       );
       final text = kind == 'titles' ? 'kWh Used' : '90';
       final left = kind == 'point' ? 841.0 : 790.0;
@@ -388,6 +388,204 @@ void main() {
       return blocks;
     }
 
+    ReceiptOcrBlockEvidence changed(
+      ReceiptOcrBlockEvidence b, {
+      String? text,
+      double dx = 0,
+      double dy = 0,
+    }) => ReceiptOcrBlockEvidence(
+      text: text ?? b.text,
+      row: b.row,
+      order: b.order,
+      points: b.points
+          .map((p) => ReceiptOcrPoint(x: p.x + dx, y: p.y + dy))
+          .toList(),
+    );
+    List<ReceiptOcrBlockEvidence> boundary(
+      String kind,
+      double scale, {
+      String fragment = 'USD',
+      double gap = 15,
+    }) {
+      if (kind == 'horizontal' || kind == 'vertical') {
+        final blocks = fragmentedTotalEvidence(
+          ['Payment', 'Due'],
+          scale,
+          vertical: kind == 'vertical',
+          splitRows: kind == 'vertical',
+        );
+        return blocks
+            .map(
+              (b) => b.text == 'Due'
+                  ? changed(
+                      b,
+                      dx: kind == 'horizontal' ? -16 * scale : 0,
+                      dy: kind == 'vertical' ? -5 * scale : 0,
+                    )
+                  : b,
+            )
+            .toList();
+      }
+      final blocks = chartTickEvidence(
+        scale,
+        higher: true,
+        point: kind == 'lower_bound' ? '5' : '85',
+        title: kind == 'title' ? fragment : 'Therms Used',
+      );
+      if (kind == 'lower_bound')
+        return blocks
+            .map((b) => b.text == '0' ? changed(b, text: '10') : b)
+            .toList();
+      if (kind == 'title')
+        return blocks
+            .map(
+              (b) =>
+                  b.text == fragment ? changed(b, dy: -(gap - 5) * scale) : b,
+            )
+            .toList();
+      blocks.add(
+        ReceiptOcrBlockEvidence(
+          text: fragment,
+          row: 4,
+          order: 4999,
+          points: [
+            ReceiptOcrPoint(x: 931 * scale, y: 181 * scale),
+            ReceiptOcrPoint(x: 1040 * scale, y: 181 * scale),
+            ReceiptOcrPoint(x: 1040 * scale, y: 196 * scale),
+            ReceiptOcrPoint(x: 931 * scale, y: 196 * scale),
+          ],
+        ),
+      );
+      return blocks;
+    }
+
+    List<ReceiptOcrBlockEvidence> yearPanel(String kind, double scale) {
+      final base = chartTickEvidence(
+        scale,
+        higher: true,
+        point: '85',
+        title: kind == 'title_missing' ? null : 'Therms Used',
+      );
+      ReceiptOcrBlockEvidence b(
+        String text,
+        int row,
+        int order,
+        double left,
+        double top,
+        double right,
+        double bottom,
+      ) => ReceiptOcrBlockEvidence(
+        text: text,
+        row: row,
+        order: order,
+        points: [
+          ReceiptOcrPoint(x: left * scale, y: top * scale),
+          ReceiptOcrPoint(x: right * scale, y: top * scale),
+          ReceiptOcrPoint(x: right * scale, y: bottom * scale),
+          ReceiptOcrPoint(x: left * scale, y: bottom * scale),
+        ],
+      );
+      final years = kind == 'bad_years'
+          ? '2023 2024 2024'
+          : kind == 'short_row'
+          ? '2023 2024'
+          : kind == 'money_suffix'
+          ? '2023 2023 2024 USD90.00'
+          : '2023 2023 2024';
+      return [
+        ...base
+            .where((b) => b.row != 5)
+            .map(
+              (b) => kind == 'decimal_axis' && b.text == '0'
+                  ? changed(b, text: '0.00')
+                  : b,
+            ),
+        b(years, 5, 5000, 841, 196, kind == 'wrong_width' ? 940 : 926, 213),
+        if (kind == 'foreign_beside') b('USD', 5, 5001, 930, 196, 960, 213),
+        if (kind == 'foreign_below') b('USD', 6, 6001, 841, 220, 870, 237),
+        ...base
+            .where((b) => b.row == 5)
+            .map(
+              (b) => ReceiptOcrBlockEvidence(
+                text: b.text,
+                row: 9,
+                order: b.order + 4000,
+                points: b.points,
+              ),
+            ),
+      ];
+    }
+
+    test('overlapping fragments preserve the complete heading conflict', () {
+      for (final kind in ['horizontal', 'vertical']) {
+        for (final scale in [0.5, 1.0, 2.0]) {
+          verifyChartNegative(boundary(kind, scale), '$kind $scale');
+        }
+      }
+    });
+    test('plotted values must fit the actual lower tick bound', () {
+      for (final scale in [0.5, 1.0, 2.0]) {
+        final blocks = boundary('lower_bound', scale);
+        verifyChartNegative(blocks, '$scale');
+        verifyChartPositive(
+          blocks
+              .map((b) => b.text == '5' ? changed(b, text: '85') : b)
+              .toList(),
+          'valid lower bound $scale',
+        );
+      }
+    });
+    test('every calendar member checks adjacent evidence', () {
+      for (final fragment in ['USD 90.00', 'HK', 'or90', 'unknown']) {
+        for (final scale in [0.5, 1.0, 2.0]) {
+          verifyChartNegative(
+            boundary('calendar', scale, fragment: fragment),
+            '$fragment $scale',
+          );
+          final edge = boundary('calendar', scale, fragment: fragment);
+          final last = edge.last;
+          edge[edge.length - 1] = changed(last, dx: 6 * scale);
+          verifyChartNegative(
+            edge,
+            'outside panel but adjacent: $fragment $scale',
+          );
+        }
+      }
+    });
+    test('unknown headings cannot escape inside the accepted title region', () {
+      for (final gap in [10.0, 15.0, 19.0]) {
+        for (final scale in [0.5, 1.0, 2.0]) {
+          verifyChartPositive(
+            boundary('title', scale, fragment: 'Therms Used', gap: gap),
+            '$gap $scale',
+          );
+          for (final fragment in ['USD', 'Therms Used USD90.00', 'unknown']) {
+            verifyChartNegative(
+              boundary('title', scale, fragment: fragment, gap: gap),
+              '$gap $fragment $scale',
+            );
+          }
+        }
+      }
+    });
+
+    test('bounded usage panels require complete unambiguous year captions', () {
+      for (final scale in [0.5, 1.0, 2.0]) {
+        verifyChartPositive(yearPanel('valid', scale), 'valid $scale');
+        for (final kind in [
+          'bad_years',
+          'short_row',
+          'money_suffix',
+          'wrong_width',
+          'foreign_beside',
+          'foreign_below',
+          'decimal_axis',
+          'title_missing',
+        ]) {
+          verifyChartNegative(yearPanel(kind, scale), '$kind $scale');
+        }
+      }
+    });
     test('chart fields require unique ownership', () {
       for (final kind in ['point', 'ticks', 'titles']) {
         for (final scale in [0.5, 1.0, 2.0]) {
@@ -438,7 +636,7 @@ void main() {
             'kWh consumed',
             'units usage',
           ]) {
-            verifyChartPositive(
+            (title == null ? verifyChartNegative : verifyChartPositive)(
               chartTickEvidence(scale, higher: true, point: '85', title: title),
               '$scale $title',
             );
@@ -1090,14 +1288,11 @@ void main() {
       }
     });
 
-    test(
-      'separate chart metadata does not expand another total neighborhood',
-      () {
-        for (final scale in [0.5, 1.0, 2.0]) {
-          expect(parse(scale: scale, priorSideChart: true).total, '86.27');
-        }
-      },
-    );
+    test('calendar words alone do not prove nonfinancial chart ownership', () {
+      for (final scale in [0.5, 1.0, 2.0]) {
+        expect(parse(scale: scale, priorSideChart: true).total, '0199');
+      }
+    });
 
     test(
       'numeric metadata requires independent ownership of adjacent fragments',
@@ -1213,7 +1408,24 @@ void main() {
             fallbackCurrency: 'USD',
             blocks: blocks,
           );
-          expect(preview.total, tick == '50' ? '86.27' : '0199');
+          // The original unlabelled input remains a negative control: the
+          // published selection/review survives without positive usage ownership.
+          expect(preview.total, '0199');
+          final strong = [
+            ...blocks,
+            cell('Therms Used', 2, 789, 114, 919, 134),
+          ];
+          final strongRows = <int, List<String>>{};
+          for (final block in strong) {
+            (strongRows[block.row] ??= []).add(block.text);
+          }
+          final owned = const ReceiptOcrParser().parse(
+            strongRows.values.map((row) => row.join(' ')).join('\n'),
+            fallbackCurrency: 'USD',
+            blocks: strong,
+          );
+          expect(owned.total, tick == '50' ? '86.27' : '0199');
+          expect(owned.blocks, strong);
           expect(preview.blocks, blocks);
         }
       }
