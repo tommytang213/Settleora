@@ -1607,6 +1607,13 @@ export const expectedAndroidPackageDigestsBySource = Object.freeze({
   "779ecbe1de749982eaee19967b47a01264443d250137d4caf161e5debe58e7a0": Object.freeze([
     "3c45a5d26d06d424f7f896140ffcebdb71bf845552a2ea075132d8e3af11a5ad",
   ]),
+  // #1309 reviewed summary-card ownership source at 40cc20a3.
+  // Fresh canonical-root Flutter 3.44.8 Release archive passed path, catalog,
+  // 14-model, legal-resource and 102-fixture-absence gates with a real local
+  // debug-signature check. Hosted package/native and release gates remain.
+  "68714fa9c53234b56cf86ba07fdb99b162dcd1f9821c1886d2021f5a1ee8da28": Object.freeze([
+    "c2fa4531c9969f8e7886c624cb18e4cfdb40a772bb3b3236883007ccc4f58c42",
+  ]),
 });
 export const expectedAndroidNonOcrEntries = Object.freeze([
   "AndroidManifest.xml",
