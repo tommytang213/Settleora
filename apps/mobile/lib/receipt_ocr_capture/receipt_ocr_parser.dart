@@ -2077,7 +2077,9 @@ class ReceiptOcrParser {
           );
         }
       }
-      if (adjustmentRole == null && hasPotentialAdjustment) {
+      if (adjustmentRole == null &&
+          hasPotentialAdjustment &&
+          !_includedTaxTotalLinePattern.hasMatch(line)) {
         adjustmentsComplete = false;
         incompleteReasons.add(
           ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
@@ -8329,7 +8331,8 @@ bool _hasTaxLabel(
   String normalized, {
   bool allowDescriptiveTaxLabel = false,
 }) {
-  return _hasEnglishReceiptLabel(
+  return _includedTaxAmountLinePattern.hasMatch(line) ||
+      _hasEnglishReceiptLabel(
         normalized,
         RegExp(
           r'\b(?:(?:city|state|local|county|municipal|tourist|tourism|occupancy)\s+tax|sales\s+tax|tax|vat|gst|hst|iva|tva|kdv|mwst)\b\.?',
@@ -8612,6 +8615,12 @@ bool _hasDiscountLabel(String line, String normalized) {
 }
 
 bool _isPrimaryTotalCurrencyLine(String line, String normalized) {
+  // The general multi-currency total fallback cannot assign ownership inside
+  // an incomplete or mixed included-tax row. Keep that row as review evidence.
+  if (_includedTaxTotalPrefixPattern.hasMatch(line) &&
+      !_includedTaxTotalLinePattern.hasMatch(line)) {
+    return false;
+  }
   if (RegExp(r'^\s*payment\s+due\b').hasMatch(normalized) &&
       _hasTotalLabel(line, normalized)) {
     return true;
@@ -8657,8 +8666,40 @@ const _localizedTotalLabels = [
   'Tổng',
 ];
 
+// An included-tax qualifier belongs to a complete financial summary label,
+// not to arbitrary product text containing "tax". Require the entire row to
+// contain that label and one monetary cell. A rate is label evidence only;
+// neither it nor the included amount is added to the printed gross total.
+const _includedTaxNamePattern =
+    r'(?:(?:sales\s+)?tax|vat|gst|hst|iva|tva|kdv|mwst)';
+const _includedTaxRatePattern =
+    r'(?:\s+\d{1,3}(?:[.,]\d{1,2})?\s*%|\s*\(\s*\d{1,3}(?:[.,]\d{1,2})?\s*%\s*\))?';
+final _includedTaxTotalPrefixPattern = RegExp(
+  r'^\s*(?:grand\s+)?total\s+(?:incl\b|including\b|included\b|inclusive\b|'
+  '\\(\\s*$_includedTaxNamePattern\\b)',
+  caseSensitive: false,
+);
+final _includedTaxTotalLinePattern = _includedTaxSummaryPattern(
+  r'(?:grand\s+)?total\s+(?:'
+  r'(?:incl\.?|including|inclusive\s+of)\s+'
+  '$_includedTaxNamePattern'
+  '|\\(\\s*$_includedTaxNamePattern\\s+included\\s*\\))',
+);
+final _includedTaxAmountLinePattern = _includedTaxSummaryPattern(
+  '(?:$_includedTaxNamePattern\\s+included'
+  '|included\\s+$_includedTaxNamePattern)$_includedTaxRatePattern',
+);
+
+RegExp _includedTaxSummaryPattern(String label) => RegExp(
+  '^\\s*(?:$label)\\s*:?\\s+'
+  '(?:(?:$_currencyTokenPattern)\\s*$_amountTokenPattern'
+  '|$_amountTokenPattern(?:\\s*(?:$_currencyTokenPattern))?)\\s*\$',
+  caseSensitive: false,
+);
+
 bool _hasTotalLabel(String line, String normalized) {
-  return _hasEnglishReceiptLabel(
+  return _includedTaxTotalLinePattern.hasMatch(line) ||
+      _hasEnglishReceiptLabel(
         normalized,
         RegExp(
           '\\b(${_englishTotalLabels.map((label) => label.replaceAll(' ', r'\s+')).join('|')})\\b',

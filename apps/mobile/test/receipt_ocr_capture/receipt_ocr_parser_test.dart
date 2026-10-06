@@ -189,6 +189,152 @@ List<ReceiptOcrBlockEvidence> _ownedFeeBlocks({
 }
 
 void main() {
+  group('included-tax financial summary ownership', () {
+    for (final pair in [
+      ('Total incl. VAT', 'VAT included 20%'),
+      ('Total including GST', 'GST included'),
+      ('Grand total inclusive of sales tax', 'Included sales tax (20%)'),
+      ('Total (VAT included)', 'VAT included (20%)'),
+    ]) {
+      test('complete labels ${pair.$1} and ${pair.$2}', () {
+        final texts = [
+          'Sample Shop',
+          'Notebook GBP 24.00',
+          '${pair.$1} GBP 24.00',
+          '${pair.$2} GBP 4.00',
+        ];
+        final blocks = [
+          for (final (index, text) in texts.indexed)
+            _layoutBlock(text, index, index, 20, 350),
+        ];
+        final preview = const ReceiptOcrParser().parse(
+          texts.join('\n'),
+          blocks: blocks,
+        );
+        expect(preview.total, '24.00');
+        expect(preview.tax, '4.00');
+        expect(preview.taxCurrency, 'GBP');
+        expect(preview.subtotal, isNull);
+        expect(preview.items, hasLength(1));
+        expect(preview.items.single.lineTotal, '24.00');
+        expect(preview.blocks, same(blocks));
+        // The current consumer has no included-tax mode. Its existing review
+        // guard remains until the separate Apply/included-tax work is ready.
+        expect(preview.reviewHints, isNotEmpty);
+      });
+    }
+
+    for (final description in [
+      'VAT Included Guide',
+      'Included Tax Workbook',
+      'Total incl. VAT Handbook',
+      'Total (VAT included) Poster',
+      'Notebook VAT included',
+    ]) {
+      test('product name survives: $description', () {
+        final preview = const ReceiptOcrParser().parse(
+          'Sample Shop\n$description GBP 24.00\nTotal GBP 24.00',
+        );
+        expect(preview.total, '24.00');
+        expect(preview.tax, isNull);
+        expect(preview.items, hasLength(1));
+        expect(preview.items.single.description, description);
+        expect(preview.items.single.lineTotal, '24.00');
+      });
+    }
+
+    for (final line in [
+      'VAT included 20% GBP 4.00 GBP 5.00',
+      'VAT included 20% GBP 4.00 EUR 4.00',
+      'VAT included 20% GBP 4.00 service GBP 2.00',
+      'VAT included 20% GBP 4.00 | Tax GBP 1.00',
+      'Notebook GBP 24.00 VAT included 20% GBP 4.00',
+      'Total incl. VAT GBP 24.00 GBP 28.00',
+      'Total incl. VAT GBP 24.00 EUR 28.00',
+      'Total incl. VAT GBP 24.00 | service GBP 2.00',
+      'VAT included',
+      'VAT included 20%',
+      'VAT included (20% GBP 4.00',
+      'Total incl. GBP 24.00',
+      'Total incl. GBP 24.00 GBP 28.00',
+      'Total (VAT included GBP 24.00 GBP 28.00',
+      'Total included GBP 24.00',
+      'Total incl. VAT',
+    ]) {
+      test('ambiguous or incomplete row stays unowned: $line', () {
+        final texts = [
+          'Sample Shop',
+          'Notebook GBP 24.00',
+          'Total GBP 24.00',
+          line,
+        ];
+        final blocks = [
+          for (final (index, text) in texts.indexed)
+            _layoutBlock(text, index, index, 20, 350),
+        ];
+        final preview = const ReceiptOcrParser().parse(
+          texts.join('\n'),
+          blocks: blocks,
+        );
+        expect(preview.tax, isNull);
+        expect(preview.total, '24.00');
+        expect(preview.blocks, same(blocks));
+      });
+    }
+  });
+
+  test('included-tax total never invents a missing tax or net subtotal', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Sample Shop\nNotebook GBP 24.00\nTotal incl. VAT GBP 24.00',
+    );
+    expect(preview.total, '24.00');
+    expect(preview.tax, isNull);
+    expect(preview.subtotal, isNull);
+    expect(preview.items, hasLength(1));
+    expect(preview.reviewHints, isEmpty);
+  });
+
+  test('included-tax conflicting printed tax remains unresolved', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Sample Shop\nNotebook GBP 24.00\nTotal incl. VAT GBP 24.00\n'
+      'VAT included 20% GBP 4.00\nVAT GBP 5.00',
+    );
+    expect(preview.total, '24.00');
+    expect(preview.tax, isNull);
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(preview.reviewHints, isNotEmpty);
+    expect(preview.items, hasLength(1));
+  });
+
+  test(
+    'included-tax recognition leaves exclusive tax reconciliation intact',
+    () {
+      final preview = const ReceiptOcrParser().parse(
+        'Sample Shop\nNotebook GBP 24.00\nSubtotal GBP 24.00\n'
+        'VAT GBP 4.00\nTotal GBP 28.00',
+      );
+      expect(preview.total, '28.00');
+      expect(preview.tax, '4.00');
+      expect(preview.subtotal, '24.00');
+      expect(preview.items.single.lineTotal, '24.00');
+      expect(preview.reviewHints, isEmpty);
+    },
+  );
+
+  test('included-tax summary labels preserve gross total and tax evidence', () {
+    final preview = const ReceiptOcrParser().parse('''
+Sample Shop
+Notebook GBP 24.00
+Total incl. VAT GBP 24.00
+VAT included 20% GBP 4.00
+''');
+    expect(preview.total, '24.00');
+    expect(preview.tax, '4.00');
+    expect(preview.items, hasLength(1));
+    expect(preview.items.single.description, 'Notebook');
+    expect(preview.items.single.lineTotal, '24.00');
+  });
+
   group('owned total beside a contact column', () {
     List<ReceiptOcrBlockEvidence> chartTickEvidence(
       double scale, {
