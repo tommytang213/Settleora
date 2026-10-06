@@ -211,6 +211,10 @@ void main() {
       bool splitLocalizedTotal = false,
       bool priorCrossRowMoney = false,
       bool priorSideChart = false,
+      bool completeCalendarAxis = true,
+      List<String> calendarMonths = const ['Nov', 'Dec', 'Jan'],
+      double calendarPeerOffset = -52,
+      String? chartFragment,
       String? priorTotal,
       String? priorAmount,
       String? priorExtra,
@@ -275,7 +279,27 @@ void main() {
           cell('USD 86.27', 2, 600, 720, cellHeight: 40),
           cell('0', 2, 780, 795, offset: -10, cellHeight: 19),
           cell('compared to last month', 2, 900, 1050),
-          cell('Nov', 3, 810, 840, offset: -52, cellHeight: 15),
+          cell(calendarMonths[0], 3, 810, 840, offset: -52, cellHeight: 15),
+          if (completeCalendarAxis) ...[
+            cell(
+              calendarMonths[1],
+              3,
+              850,
+              880,
+              offset: calendarPeerOffset,
+              cellHeight: 15,
+            ),
+            cell(
+              calendarMonths[2],
+              3,
+              890,
+              920,
+              offset: calendarPeerOffset,
+              cellHeight: 15,
+            ),
+          ],
+          if (chartFragment != null)
+            cell(chartFragment, 3, 760, 780, offset: -54, cellHeight: 6),
         ],
         if (priorTotal != null)
           cell(priorTotal, 2, 50, priorAmount == null ? 720 : 300),
@@ -720,6 +744,53 @@ void main() {
       },
     );
 
+    test(
+      'numeric metadata requires independent ownership of adjacent fragments',
+      () {
+        for (final scale in [0.5, 1.0, 2.0]) {
+          for (final fragment in ['USD', r'$', 'HK', 'or90', 'maybe', '%']) {
+            final preview = parse(
+              scale: scale,
+              priorSideChart: true,
+              chartFragment: fragment,
+            );
+            expect(preview.total, '0199');
+            expect(preview.reviewHints, isNotEmpty);
+          }
+          expect(
+            parse(
+              scale: scale,
+              priorSideChart: true,
+              completeCalendarAxis: false,
+            ).total,
+            '0199',
+          );
+          for (final months in [
+            ['Nov', 'Jan', 'Feb'],
+            ['Nov', 'Nov', 'Nov'],
+            ['Nov', 'USD 90', 'Jan'],
+          ]) {
+            expect(
+              parse(
+                scale: scale,
+                priorSideChart: true,
+                calendarMonths: months,
+              ).total,
+              '0199',
+            );
+          }
+          expect(
+            parse(
+              scale: scale,
+              priorSideChart: true,
+              calendarPeerOffset: -12,
+            ).total,
+            '0199',
+          );
+        }
+      },
+    );
+
     test('retains unresolved totals in supported scripts', () {
       for (final scale in [0.5, 1.0, 2.0]) {
         for (final label in ['合計', '合计', 'Gesamt', 'الإجمالي']) {
@@ -789,7 +860,7 @@ void main() {
       }
     });
 
-    test('allows an agreeing total with a separate chart number', () {
+    test('does not assume a separated bare number belongs to a chart', () {
       for (final scale in [0.5, 1.0, 2.0]) {
         expect(
           parse(
@@ -799,7 +870,7 @@ void main() {
             priorExtra: '0',
             priorExtraOffset: -15,
           ).total,
-          '86.27',
+          '0199',
         );
       }
     });

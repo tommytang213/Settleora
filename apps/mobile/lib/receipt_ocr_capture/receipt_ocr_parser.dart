@@ -1420,6 +1420,92 @@ class ReceiptOcrParser {
               _hasTotalLabel('$normalized 0', '$lower 0'));
     }
 
+    const months = [
+      'january',
+      'february',
+      'march',
+      'april',
+      'may',
+      'june',
+      'july',
+      'august',
+      'september',
+      'october',
+      'november',
+      'december',
+    ];
+    int monthIndex(ReceiptOcrBlockEvidence block) {
+      final text = _normalizeOcrLine(block.text).toLowerCase();
+      return months.indexWhere(
+        (month) => text == month || text == month.substring(0, 3),
+      );
+    }
+
+    bool belongsToCalendarAxis(
+      ReceiptOcrBlockEvidence block,
+      ReceiptOcrBlockEvidence axisValue,
+    ) {
+      if (!hasGeometry(block) || height(block) <= 0 || monthIndex(block) < 0) {
+        return false;
+      }
+      final gap = _blockLeft(block) - _blockRight(axisValue);
+      if (gap < height(axisValue) / 2 ||
+          gap >= height(axisValue) ||
+          bottom(block) <= top(axisValue) ||
+          top(block) >= bottom(axisValue)) {
+        return false;
+      }
+      final labels = rows.expand((row) => row).where((candidate) {
+        return hasGeometry(candidate) &&
+            height(candidate) > 0 &&
+            monthIndex(candidate) >= 0 &&
+            _blockLeft(candidate) - _blockRight(axisValue) >=
+                height(axisValue) / 2 &&
+            (top(candidate) + bottom(candidate)) / 2 > bottom(axisValue) &&
+            aligned(block, candidate);
+      }).toList()..sort((a, b) => _blockLeft(a).compareTo(_blockLeft(b)));
+      // A complete ordered calendar axis establishes the adjacent word's role;
+      // an isolated month-shaped fragment does not prove chart ownership.
+      for (var i = 0; i + 2 < labels.length; i++) {
+        final a = labels[i], b = labels[i + 1], c = labels[i + 2];
+        if ((a == block || b == block || c == block) &&
+            _blockRight(a) <= _blockLeft(b) &&
+            _blockRight(b) <= _blockLeft(c) &&
+            _blockLeft(b) - _blockRight(a) <= height(a) * 2 &&
+            _blockLeft(c) - _blockRight(b) <= height(b) * 2 &&
+            monthIndex(b) == (monthIndex(a) + 1) % 12 &&
+            monthIndex(c) == (monthIndex(b) + 1) % 12) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    bool metadataHasAdjacentEvidence(ReceiptOcrBlockEvidence metadata) {
+      if (!hasGeometry(metadata) || height(metadata) <= 0) return true;
+      for (final block in rows.expand((row) => row)) {
+        if (block == metadata || _normalizeOcrLine(block.text).isEmpty)
+          continue;
+        if (!hasGeometry(block) || height(block) <= 0) return true;
+        if (bottom(block) <= top(metadata) || top(block) >= bottom(metadata)) {
+          continue;
+        }
+        final leftGap = _blockLeft(metadata) - _blockRight(block);
+        final rightGap = _blockLeft(block) - _blockRight(metadata);
+        if (leftGap >= height(metadata) || rightGap >= height(metadata)) {
+          continue;
+        }
+        if (_isStandaloneAmountRow(metadata.text) &&
+            belongsToCalendarAxis(block, metadata)) {
+          continue;
+        }
+        // A fragment beside an apparent chart value can own its denomination
+        // despite a different OCR row. No token classifier can exclude it.
+        return true;
+      }
+      return false;
+    }
+
     final value = ownedAmount(money.text);
     if (value == null) return null;
     // A phone-free projection must not newly reconcile a document that has a
@@ -1491,6 +1577,7 @@ class ReceiptOcrParser {
         // A complete city/state/postal block owns its digits as address
         // metadata only outside the label/value corridor. Other numeric text
         // (including alternatives such as "or 90") remains competing evidence.
+        if (metadataHasAdjacentEvidence(extra)) return null;
         final postal = RegExp(
           r"^[a-z .'-]+,\s*[a-z]{2}\s+\d{5}(?:-\d{4})?$",
           caseSensitive: false,
@@ -1511,9 +1598,8 @@ class ReceiptOcrParser {
           continue;
         }
         if (!_isStandaloneAmountRow(extraText)) return null;
-        // A bare number aligned with another total is competing evidence too.
-        // Only a separately positioned, vertically separated numeric block can
-        // remain outside that total (for example a neighboring chart axis).
+        // Separation alone does not prove that an unexplained number is a
+        // chart value. Require its adjacent ordered calendar axis as well.
         if (suffix.isNotEmpty ||
             !hasGeometry(extra) ||
             !hasGeometry(monetaryCells.single) ||
@@ -1521,7 +1607,10 @@ class ReceiptOcrParser {
             height(monetaryCells.single) <= 0 ||
             _blockLeft(extra) - _blockRight(monetaryCells.single) <
                 height(monetaryCells.single) ||
-            aligned(monetaryCells.single, extra)) {
+            aligned(monetaryCells.single, extra) ||
+            !rows
+                .expand((row) => row)
+                .any((block) => belongsToCalendarAxis(block, extra))) {
           return null;
         }
       }
