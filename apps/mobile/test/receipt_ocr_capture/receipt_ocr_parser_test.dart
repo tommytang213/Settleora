@@ -717,6 +717,22 @@ void main() {
       }
     });
 
+    test('an agreeing total cannot absorb another unresolved total label', () {
+      for (final scale in [0.5, 1.0, 2.0]) {
+        for (final label in ['合計', '合计', 'Gesamt', 'الإجمالي']) {
+          final preview = parse(
+            scale: scale,
+            label: 'Grand Total',
+            priorTotal: 'Total',
+            priorAmount: 'USD 86.27',
+            priorExtra: label,
+          );
+          expect(preview.total, '0199');
+          expect(preview.reviewHints, isNotEmpty);
+        }
+      }
+    });
+
     test(
       'computed hints distinguish reconciled source from a real discrepancy',
       () {

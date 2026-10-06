@@ -1477,7 +1477,11 @@ class ReceiptOcrParser {
           continue;
         }
         final extraText = _normalizeOcrLine(extra.text);
-        if (_printedCurrencyMarkerMatches(extraText).isNotEmpty ||
+        final totalProbe = _lineHasAmount(extraText)
+            ? extraText
+            : '$extraText 0';
+        if (_hasTotalLabel(totalProbe, totalProbe.toLowerCase()) ||
+            _printedCurrencyMarkerMatches(extraText).isNotEmpty ||
             _unsupportedIsoCurrencyMarkers(extraText).isNotEmpty ||
             financialSymbol.hasMatch(extraText) ||
             detachedSign.hasMatch(extraText)) {
