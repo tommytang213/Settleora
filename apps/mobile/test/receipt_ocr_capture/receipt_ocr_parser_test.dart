@@ -189,6 +189,65 @@ List<ReceiptOcrBlockEvidence> _ownedFeeBlocks({
 }
 
 void main() {
+  group('included-tax currency ownership', () {
+    for (final cell in <(String, String?)>[
+      ('eur4.00', 'EUR'),
+      ('4.00eur', 'EUR'),
+      ('Eur4.00', 'EUR'),
+      ('kr4.00', null),
+      ('4.00kr', null),
+      ('Rs4.00', null),
+      ('4.00Rs', null),
+      (r'$4.00', null),
+      ('¥4.00', '¥'),
+    ]) {
+      test('foreign or ambiguous tax cell keeps evidence: ${cell.$1}', () {
+        for (final label in ['VAT included', 'VAT included 20%']) {
+          final preview = const ReceiptOcrParser().parse(
+            'Sample Shop\nNotebook GBP 20.00\nTotal incl. VAT GBP 24.00\n'
+            '$label ${cell.$1}',
+          );
+          expect(preview.currency, 'GBP');
+          expect(preview.total, '24.00');
+          expect(preview.tax, '4.00');
+          expect(preview.taxCurrency, cell.$2);
+          expect(preview.taxHasExplicitCurrencyEvidence, isTrue);
+          expect(preview.reviewHints, isNotEmpty);
+        }
+      });
+    }
+    for (final cell in [
+      ('GBP', 'gbp4.00'),
+      ('GBP', '4.00gBp'),
+      ('SEK', 'kr4.00'),
+      ('INR', '4.00Rs'),
+      ('USD', r'$4.00'),
+      ('JPY', '¥4'),
+    ]) {
+      test('compatible tax currency remains owned: ${cell.$1} ${cell.$2}', () {
+        for (final label in ['VAT included', 'VAT included 20%']) {
+          final preview = const ReceiptOcrParser().parse(
+            'Sample Shop\nNotebook ${cell.$1} 20.00\n'
+            'Total incl. VAT ${cell.$1} 24.00\n$label ${cell.$2}',
+          );
+          expect(preview.currency, cell.$1);
+          expect(double.parse(preview.tax!), 4);
+          expect(preview.taxCurrency, cell.$1);
+          expect(preview.taxHasExplicitCurrencyEvidence, isTrue);
+        }
+      });
+    }
+    test('bare tax amount does not invent printed currency evidence', () {
+      final preview = const ReceiptOcrParser().parse(
+        'Sample Shop\nNotebook GBP 20.00\nTotal incl. VAT GBP 24.00\n'
+        'VAT included 4.00',
+      );
+      expect(preview.tax, '4.00');
+      expect(preview.taxCurrency, isNull);
+      expect(preview.taxHasExplicitCurrencyEvidence, isFalse);
+    });
+  });
+
   test(
     'included-tax extraction preserves a printed net item without inventing a subtotal',
     () {

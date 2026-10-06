@@ -1155,6 +1155,12 @@ class ReceiptOcrParser {
 
   ({String? currency, bool hasExplicitEvidence})
   _explicitAdjustmentCurrencyFromLine(String line, {String? receiptCurrency}) {
+    // The owned summary grammar accepts case-insensitive attached codes and
+    // contextual symbols. Resolve its single monetary cell consistently,
+    // retaining unresolved printed markers instead of inheriting currency.
+    if (_includedTaxAmountLinePattern.hasMatch(line)) {
+      return _currencyAdjacentToSelectedAmount(line, receiptCurrency);
+    }
     if (_hasUnsupportedCurrencySymbolOnSelectedAmount(line)) {
       return (currency: null, hasExplicitEvidence: true);
     }
