@@ -1480,8 +1480,9 @@ class ReceiptOcrParser {
     // glyphs. Match adjacent fragments against the existing label vocabulary,
     // independently of row-wide text and unrelated agreeing totals. This is
     // only a conflict guard; fragmented fields never establish a new owner.
-    String compactLabel(String text) =>
-        _normalizeOcrLine(text).toLowerCase().replaceAll(RegExp(r'[\s:：]'), '');
+    String compactLabel(String text) => _normalizeOcrLine(text)
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^\p{L}\p{M}\p{N}]', unicode: true), '');
     final totalHeadings = [
       ..._englishTotalLabels,
       '合計',
@@ -1617,23 +1618,162 @@ class ReceiptOcrParser {
         .expand((row) => row)
         .any((block) => belongsToCalendarAxis(block, value));
 
+    bool sharesMetadataNeighborhood(
+      ReceiptOcrBlockEvidence anchor,
+      ReceiptOcrBlockEvidence other,
+    ) {
+      final clearance = height(anchor) / 2;
+      return bottom(other) > top(anchor) - clearance &&
+          top(other) < bottom(anchor) + clearance &&
+          _blockLeft(anchor) - _blockRight(other) < height(anchor) &&
+          _blockLeft(other) - _blockRight(anchor) < height(anchor);
+    }
+
+    bool chartHasAdjacentEvidence(ReceiptOcrBlockEvidence axis) {
+      // Establish the connected tick column from its proven calendar axis.
+      // Every accepted bare tick needs the same full neighborhood proof as the
+      // initial value; a denomination beside a higher tick cannot be hidden by
+      // that tick's proximity to another positively established chart member.
+      final ticks = [axis];
+      for (var i = 0; i < ticks.length; i++) {
+        final current = ticks[i];
+        final currentNumber = int.parse(_normalizeOcrLine(current.text));
+        for (final candidate in allBlocks) {
+          if (ticks.contains(candidate) ||
+              !hasGeometry(candidate) ||
+              height(candidate) <= 0) {
+            continue;
+          }
+          final text = _normalizeOcrLine(candidate.text);
+          final number = int.tryParse(text);
+          if (number != null &&
+              number > currentNumber &&
+              RegExp(r'^\d+$').hasMatch(text) &&
+              bottom(candidate) <= top(current) &&
+              (_blockRight(candidate) - _blockRight(axis)).abs() <=
+                  height(axis) / 2 &&
+              height(candidate) >= height(axis) / 2 &&
+              height(candidate) <= height(axis) * 2 &&
+              sharesMetadataNeighborhood(current, candidate)) {
+            ticks.add(candidate);
+          }
+        }
+      }
+      // Bare plotted values need positive ownership too: a complete ordered
+      // calendar axis below, one matching month column, and the established
+      // vertical tick range. Include them in the same closed neighborhood proof.
+      final calendar = <ReceiptOcrBlockEvidence>{};
+      for (final first in allBlocks.where(
+        (block) => belongsToCalendarAxis(block, axis),
+      )) {
+        final labels =
+            allBlocks
+                .where(
+                  (block) =>
+                      hasGeometry(block) &&
+                      height(block) > 0 &&
+                      monthIndex(block) >= 0 &&
+                      _blockLeft(block) >= _blockLeft(first) &&
+                      aligned(first, block) &&
+                      (top(block) + bottom(block)) / 2 > bottom(axis),
+                )
+                .toList()
+              ..sort((a, b) => _blockLeft(a).compareTo(_blockLeft(b)));
+        final run = [first];
+        for (final next in labels.where((block) => block != first)) {
+          final previous = run.last;
+          if (_blockRight(previous) - _blockLeft(next) > height(axis) / 2 ||
+              _blockLeft(next) - _blockRight(previous) > height(previous) * 2 ||
+              monthIndex(next) != (monthIndex(previous) + 1) % 12) {
+            break;
+          }
+          run.add(next);
+        }
+        if (run.length >= 3) calendar.addAll(run);
+      }
+      if (calendar.length < 3) return true;
+      final plotTop = ticks.map(top).reduce((a, b) => a < b ? a : b);
+      final maximum = ticks
+          .map((tick) => int.parse(_normalizeOcrLine(tick.text)))
+          .reduce((a, b) => a > b ? a : b);
+      final members = <ReceiptOcrBlockEvidence>{...ticks};
+      for (final block in allBlocks) {
+        if (!hasGeometry(block) || height(block) <= 0) continue;
+        final text = _normalizeOcrLine(block.text);
+        final number = int.tryParse(text);
+        final center = (_blockLeft(block) + _blockRight(block)) / 2;
+        if (number != null &&
+            number >= 0 &&
+            number <= maximum &&
+            RegExp(r'^\d+$').hasMatch(text) &&
+            _blockLeft(block) - _blockRight(axis) >= height(axis) / 2 &&
+            top(block) >= plotTop &&
+            bottom(block) <= bottom(axis) &&
+            height(block) >= height(axis) / 2 &&
+            height(block) <= height(axis) * 2 &&
+            calendar
+                    .where(
+                      (month) =>
+                          center >= _blockLeft(month) &&
+                          center <= _blockRight(month),
+                    )
+                    .length ==
+                1) {
+          members.add(block);
+        }
+      }
+      final topTick = ticks.reduce((a, b) => top(a) < top(b) ? a : b);
+      final chartRight = calendar
+          .map(_blockRight)
+          .reduce((a, b) => a > b ? a : b);
+      final usageTitle = RegExp(
+        r'^(?:kwh|m³|m3|therms?|gallons?|gal|units?|gb|minutes?|mins?|'
+        r'liters?|litres?|ml|kg|lbs?|miles?|hours?|hrs?)\s+'
+        r'(?:used|usage|consumed)$',
+        caseSensitive: false,
+      );
+      for (final block in allBlocks) {
+        if (hasGeometry(block) &&
+            height(block) > 0 &&
+            usageTitle.hasMatch(_normalizeOcrLine(block.text)) &&
+            bottom(block) <= plotTop &&
+            plotTop - bottom(block) < height(axis) &&
+            (_blockLeft(block) - _blockLeft(topTick)).abs() <=
+                height(axis) / 2 &&
+            _blockRight(block) <= chartRight) {
+          // A complete physical-usage heading above the plotted range owns its
+          // unit words. Monetary units and appended amounts never qualify.
+          members.add(block);
+        }
+      }
+      for (final tick in members) {
+        for (final other in allBlocks) {
+          if (members.contains(other) ||
+              _normalizeOcrLine(other.text).isEmpty) {
+            continue;
+          }
+          if (!hasGeometry(other) || height(other) <= 0) return true;
+          if (sharesMetadataNeighborhood(tick, other) &&
+              !calendar.contains(other)) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+
     bool metadataHasAdjacentEvidence(ReceiptOcrBlockEvidence metadata) {
       if (!hasGeometry(metadata) || height(metadata) <= 0) return true;
-      for (final block in rows.expand((row) => row)) {
+      if (RegExp(r'^\d+$').hasMatch(_normalizeOcrLine(metadata.text)) &&
+          hasCalendarAxis(metadata)) {
+        return chartHasAdjacentEvidence(metadata);
+      }
+      for (final block in allBlocks) {
         if (block == metadata || _normalizeOcrLine(block.text).isEmpty) {
           continue;
         }
         if (!hasGeometry(block) || height(block) <= 0) return true;
-        final clearance = height(metadata) / 2;
-        if (bottom(block) <= top(metadata) - clearance ||
-            top(block) >= bottom(metadata) + clearance) {
-          continue;
-        }
-        final leftGap = _blockLeft(metadata) - _blockRight(block);
-        final rightGap = _blockLeft(block) - _blockRight(metadata);
-        if (leftGap >= height(metadata) || rightGap >= height(metadata)) {
-          continue;
-        }
+        if (!sharesMetadataNeighborhood(metadata, block)) continue;
         if (completePostal.hasMatch(_normalizeOcrLine(metadata.text)) &&
             completePoBox.hasMatch(_normalizeOcrLine(block.text)) &&
             bottom(block) <= top(metadata) &&
@@ -1648,23 +1788,6 @@ class ReceiptOcrParser {
         }
         if (_isStandaloneAmountRow(metadata.text) &&
             belongsToCalendarAxis(block, metadata)) {
-          continue;
-        }
-        final axisNumber = int.tryParse(_normalizeOcrLine(metadata.text));
-        final neighborNumber = int.tryParse(_normalizeOcrLine(block.text));
-        if (axisNumber != null &&
-            axisNumber >= 0 &&
-            neighborNumber != null &&
-            neighborNumber > axisNumber &&
-            RegExp(r'^\d+$').hasMatch(_normalizeOcrLine(block.text)) &&
-            bottom(block) <= top(metadata) &&
-            (_blockRight(block) - _blockRight(metadata)).abs() <=
-                height(metadata) / 2 &&
-            height(block) >= height(metadata) / 2 &&
-            height(block) <= height(metadata) * 2 &&
-            hasCalendarAxis(metadata)) {
-          // A separate higher tick belongs to the already proven chart axis.
-          // Explicit money, signs and text-bearing fragments never qualify.
           continue;
         }
         // A fragment beside an apparent chart value can own its denomination

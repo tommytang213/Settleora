@@ -190,6 +190,185 @@ List<ReceiptOcrBlockEvidence> _ownedFeeBlocks({
 
 void main() {
   group('owned total beside a contact column', () {
+    List<ReceiptOcrBlockEvidence> chartTickEvidence(
+      double scale, {
+      String? fragment,
+      bool higher = false,
+      String? point,
+      double pointLeft = 841,
+      String? pointFragment,
+      String? title,
+      double titleLeft = 790,
+    }) {
+      ReceiptOcrBlockEvidence cell(
+        String text,
+        int row,
+        double left,
+        double top,
+        double right,
+        double bottom,
+      ) => ReceiptOcrBlockEvidence(
+        text: text,
+        row: row,
+        order: row * 1000 + left.round(),
+        points: [
+          ReceiptOcrPoint(x: left * scale, y: top * scale),
+          ReceiptOcrPoint(x: right * scale, y: top * scale),
+          ReceiptOcrPoint(x: right * scale, y: bottom * scale),
+          ReceiptOcrPoint(x: left * scale, y: bottom * scale),
+        ],
+      );
+      return [
+        cell('Sample Utility', 0, 50, 0, 300, 20),
+        cell('Broadband Plan', 1, 50, 60, 300, 80),
+        cell('USD 86.27', 1, 600, 60, 720, 80),
+        if (title != null)
+          cell(
+            title,
+            2,
+            titleLeft,
+            higher ? 88 : 114,
+            titleLeft + 130,
+            higher ? 108 : 134,
+          ),
+        if (fragment != null)
+          cell(fragment, 2, 750, higher ? 113 : 139, 785, higher ? 124 : 150),
+        if (higher) cell('100', 2, 790, 113, 830, 133),
+        cell('50', 2, 790, 139, 830, 159),
+        if (point != null) cell(point, 2, pointLeft, 132, pointLeft + 24, 152),
+        if (pointFragment != null) cell(pointFragment, 2, 869, 132, 890, 143),
+        cell('Total', 3, 50, 180, 300, 200),
+        cell('USD 86.27', 3, 600, 180, 720, 200),
+        cell('0', 3, 800, 165, 830, 185),
+        cell('Nov', 4, 841, 181, 866, 196),
+        cell('Dec', 4, 871, 181, 896, 196),
+        cell('Jan', 4, 901, 181, 926, 196),
+        cell('Grand Total', 5, 50, 300, 300, 320),
+        cell(r'$86.27', 5, 600, 300, 720, 320),
+        cell('Call us at 1-800-555-0199', 5, 800, 300, 1050, 320),
+      ];
+    }
+
+    void verifyChartPositive(
+      List<ReceiptOcrBlockEvidence> blocks,
+      String reason,
+    ) {
+      final rows = <int, List<String>>{};
+      for (final b in blocks) {
+        (rows[b.row] ??= []).add(b.text);
+      }
+      final preview = const ReceiptOcrParser().parse(
+        rows.values.map((r) => r.join(' ')).join('\n'),
+        fallbackCurrency: 'USD',
+        blocks: blocks,
+      );
+      expect(preview.total, '86.27', reason: reason);
+      expect(preview.blocks, blocks, reason: reason);
+    }
+
+    void verifyChartNegative(
+      List<ReceiptOcrBlockEvidence> blocks,
+      String reason,
+    ) {
+      final rows = <int, List<String>>{};
+      for (final b in blocks) {
+        (rows[b.row] ??= []).add(b.text);
+      }
+      final preview = const ReceiptOcrParser().parse(
+        rows.values.map((r) => r.join(' ')).join('\n'),
+        fallbackCurrency: 'USD',
+        blocks: blocks,
+      );
+      expect(preview.total, '0199', reason: reason);
+      expect(preview.blocks, blocks, reason: reason);
+    }
+
+    test('punctuated heading fragments preserve competing totals', () {
+      for (final heading in [
+        ['(Payment', 'Due)'],
+        ['[Amount', 'Due]'],
+        ['「合', '計」'],
+        ['(Pay', 'ment', 'Due)'],
+      ]) {
+        for (final scale in [0.5, 1.0, 2.0])
+          verifyFragmented(
+            fragmentedTotalEvidence(heading, scale),
+            '$heading $scale',
+          );
+      }
+    });
+    test('each accepted chart tick checks its own neighboring evidence', () {
+      for (final scale in [0.5, 1.0, 2.0])
+        for (final higher in [false, true]) {
+          verifyChartPositive(
+            chartTickEvidence(scale, higher: higher),
+            '$scale $higher',
+          );
+          for (final fragment in ['USD', 'HK', r'$', '-', 'or90', 'unknown']) {
+            verifyChartNegative(
+              chartTickEvidence(scale, fragment: fragment, higher: higher),
+              '$scale $fragment $higher',
+            );
+          }
+        }
+    });
+
+    test(
+      'closed chart ownership preserves only proven plotted values and headings',
+      () {
+        for (final scale in [0.5, 1.0, 2.0]) {
+          for (final title in [
+            null,
+            'Therms Used',
+            'kWh consumed',
+            'units usage',
+          ]) {
+            verifyChartPositive(
+              chartTickEvidence(scale, higher: true, point: '85', title: title),
+              '$scale $title',
+            );
+          }
+          for (final point in ['150', 'USD85', '85 maybe', '+85']) {
+            verifyChartNegative(
+              chartTickEvidence(scale, higher: true, point: point),
+              '$scale $point',
+            );
+          }
+          verifyChartNegative(
+            chartTickEvidence(scale, higher: true, point: '85', pointLeft: 825),
+            '$scale misaligned',
+          );
+          for (final fragment in ['USD', 'HK', r'$', '-', 'or90', 'unknown']) {
+            verifyChartNegative(
+              chartTickEvidence(
+                scale,
+                higher: true,
+                point: '85',
+                pointFragment: fragment,
+              ),
+              '$scale $fragment',
+            );
+          }
+          for (final title in ['USD', 'Therms Used USD90.00', 'maybe']) {
+            verifyChartNegative(
+              chartTickEvidence(scale, higher: true, point: '85', title: title),
+              '$scale $title',
+            );
+          }
+          verifyChartNegative(
+            chartTickEvidence(
+              scale,
+              higher: true,
+              point: '85',
+              title: 'Therms Used',
+              titleLeft: 750,
+            ),
+            '$scale displaced title',
+          );
+        }
+      },
+    );
+
     List<ReceiptOcrBlockEvidence> fragmentedTotalEvidence(
       List<String> heading,
       double scale, {
