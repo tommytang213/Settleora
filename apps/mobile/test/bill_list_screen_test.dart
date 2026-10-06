@@ -32,6 +32,129 @@ import 'package:mobile/ui/settleora_components.dart';
 import 'package:mobile/ui/settleora_form_fields.dart';
 
 void main() {
+  for (final group in [false, true]) {
+    for (final included in [false, true]) {
+      for (final scenario in ['net', 'gross', 'edited']) {
+        testWidgets(
+          '${group ? "group" : "personal"} OCR tax contribution protects Apply $scenario included=$included',
+          (tester) async {
+            await useLargeSurface(tester);
+            final prefix = group ? 'group-bill' : 'personal-bill';
+            final repository = FakeBillRepository();
+            final fileInput = FakeBillAttachmentFileInput(
+              pickedFile: samplePickedAttachmentFile(
+                filename: 'receipt.png',
+                contentType: 'image/png',
+                bytes: samplePngBytes(width: 64, height: 64),
+              ),
+            );
+            final provider = FakeReceiptOcrProvider(
+              ReceiptOcrResult.extracted(
+                ReceiptOcrPreview(
+                  merchant: 'Notebook Shop',
+                  currency: 'USD',
+                  tax: '4.00',
+                  taxIncludedInTotal: included,
+                  total: '24.00',
+                  items: [
+                    ReceiptOcrItemCandidate(
+                      description: 'Notebook',
+                      quantity: '1',
+                      lineTotal: scenario == 'net' ? '20.00' : '24.00',
+                      currency: 'USD',
+                    ),
+                  ],
+                ),
+              ),
+            );
+            if (group) {
+              await _pumpGroupBillCreate(
+                tester,
+                repository: repository,
+                groupRepository: FakeGroupRepository(
+                  members: [sampleGroupMember()],
+                ),
+                attachmentRepository: FakeBillAttachmentRepository(),
+                attachmentFileInput: fileInput,
+                receiptOcrProvider: provider,
+              );
+              await tester.tap(find.byKey(const Key('group-bill-list-create')));
+              await tester.pumpAndSettle();
+              await _goToGroupBillCreateStep(tester, 'receiptItems');
+            } else {
+              await tester.pumpWidget(
+                MaterialApp(
+                  home: SettleoraPersonalBillCreateScreen(
+                    repository: repository,
+                    attachmentRepository: FakeBillAttachmentRepository(),
+                    attachmentFileInput: fileInput,
+                    receiptOcrProvider: provider,
+                  ),
+                ),
+              );
+              await tester.pumpAndSettle();
+            }
+            await tester.tap(find.byKey(Key('$prefix-scan-receipt')));
+            await tester.pumpAndSettle();
+            final items = find.byKey(Key('$prefix-ocr-apply-items'));
+            final billAmount = find.byKey(ValueKey('$prefix-item-amount-0'));
+            final reviewedAmount = find.byKey(
+              ValueKey('$prefix-ocr-item-line-total-0'),
+            );
+            if (scenario == 'gross') {
+              expect(
+                tester.widget<CheckboxListTile>(items).onChanged,
+                isNotNull,
+              );
+              await _setReceiptOcrSection(tester, prefix, 'items', true);
+              await _tapReceiptOcrApply(tester, prefix);
+              expect(
+                tester.widget<TextFormField>(billAmount).controller?.text,
+                '24.00',
+              );
+            } else {
+              if (scenario == 'edited') {
+                expect(
+                  tester.widget<CheckboxListTile>(items).onChanged,
+                  isNotNull,
+                );
+                await _setReceiptOcrSection(tester, prefix, 'items', true);
+                await tester.ensureVisible(reviewedAmount);
+                await tester.enterText(reviewedAmount, '20.00');
+                await tester.pumpAndSettle();
+              }
+              expect(tester.widget<CheckboxListTile>(items).onChanged, isNull);
+              expect(
+                find.text('Review receipt totals before applying items'),
+                findsOneWidget,
+              );
+              await _tapReceiptOcrApply(tester, prefix);
+              expect(
+                tester.widget<TextFormField>(billAmount).controller?.text,
+                isEmpty,
+              );
+              // Keep corrections editable, but do not promote invalidated local
+              // source reconciliation by arithmetic alone. Saved review has the
+              // separate provenance-aware correction and server Apply path.
+              await tester.ensureVisible(reviewedAmount);
+              await tester.enterText(reviewedAmount, '24.00');
+              await tester.pumpAndSettle();
+              expect(
+                tester.widget<TextFormField>(reviewedAmount).controller?.text,
+                '24.00',
+              );
+              expect(tester.widget<CheckboxListTile>(items).onChanged, isNull);
+            }
+            expect(
+              find.text('Tax suggested: USD 4.00 (review only)'),
+              findsOneWidget,
+            );
+          },
+        );
+      }
+    }
+  }
+
   testWidgets('bill list queues archive and flushes through sync', (
     tester,
   ) async {
@@ -623,6 +746,171 @@ Grand Total USD 118.79
     await tester.enterText(
       find.byKey(const Key('personal-bill-ocr-edit-merchant')),
       'Corrected merchant',
+    );
+    await tester.pumpAndSettle();
+    expect(find.text(warning), findsNothing);
+  });
+
+  test(
+    'source-supported included VAT saves explicit gross or net tax mode',
+    () {
+      const parser = ReceiptOcrParser();
+      final gross = parser.parse('''
+London Books
+Book GBP 24.00
+Subtotal GBP 24.00
+Total incl. VAT GBP 24.00
+VAT included 20% GBP 4.00
+''');
+      final net = parser.parse('''
+London Books
+Book GBP 20.00
+Subtotal GBP 20.00
+Total incl. VAT GBP 24.00
+VAT included 20% GBP 4.00
+''');
+      final grossItemWithNetSubtotal = parser.parse('''
+London Books
+Book GBP 24.00
+Subtotal GBP 20.00
+Total incl. VAT GBP 24.00
+VAT included 20% GBP 4.00
+''');
+      final contradictory = parser.parse('''
+London Books
+Book GBP 20.00
+Subtotal GBP 20.00
+Total incl. VAT GBP 25.00
+VAT included 20% GBP 4.00
+''');
+      final ambiguousItems = parser.parse('''
+London Books
+Book GBP 19.00
+Subtotal GBP 20.00
+Total incl. VAT GBP 25.00
+VAT included 20% GBP 4.00
+''');
+      final mixedTax = parser.parse('''
+London Books
+Book GBP 24.00
+Subtotal GBP 24.00
+VAT included 10% GBP 2.00
+Sales tax 20% GBP 4.00
+Total GBP 24.00
+''');
+      final includedWithTip = parser.parse('''
+London Books
+Book GBP 24.00
+Subtotal GBP 24.00
+VAT included 20% GBP 4.00
+Tip GBP 2.00
+Total GBP 26.00
+''');
+      expect(
+        receiptOcrReviewSaveRequestFromPreview(
+          gross,
+          originalCurrency: 'GBP',
+        )?.taxReconciliationMode,
+        ReceiptOcrTaxReconciliationModeValues.alreadyInBase,
+      );
+      expect(
+        receiptOcrReviewSaveRequestFromPreview(
+          net,
+          originalCurrency: 'GBP',
+        )?.taxReconciliationMode,
+        ReceiptOcrTaxReconciliationModeValues.addToBase,
+      );
+      expect(grossItemWithNetSubtotal.reviewHints, isEmpty);
+      expect(
+        receiptOcrReviewSaveRequestFromPreview(
+          grossItemWithNetSubtotal,
+          originalCurrency: 'GBP',
+        )?.taxReconciliationMode,
+        ReceiptOcrTaxReconciliationModeValues.addToBase,
+      );
+      expect(
+        receiptOcrReviewSaveRequestFromPreview(
+          contradictory,
+          originalCurrency: 'GBP',
+        )?.taxReconciliationMode,
+        ReceiptOcrTaxReconciliationModeValues.sourceIncludedUnresolved,
+      );
+      expect(
+        receiptOcrReviewSaveRequestFromPreview(
+          ambiguousItems,
+          originalCurrency: 'GBP',
+        )?.taxReconciliationMode,
+        ReceiptOcrTaxReconciliationModeValues.sourceIncludedUnresolved,
+      );
+      final mixedSaved = receiptOcrReviewSaveRequestFromPreview(
+        mixedTax,
+        originalCurrency: 'GBP',
+      );
+      expect(mixedTax.adjustmentsComplete, isFalse);
+      expect(mixedSaved?.taxAmount, isNull);
+      expect(
+        mixedSaved?.taxReconciliationMode,
+        ReceiptOcrTaxReconciliationModeValues.unresolved,
+      );
+      final tipSaved = receiptOcrReviewSaveRequestFromPreview(
+        includedWithTip,
+        originalCurrency: 'GBP',
+      );
+      expect(tipSaved?.adjustmentEvidence.single.amount, '2.00');
+      expect(
+        tipSaved?.taxReconciliationMode,
+        ReceiptOcrTaxReconciliationModeValues.alreadyInBase,
+      );
+      expect(
+        receiptOcrReviewSaveRequestFromPreview(
+          contradictory,
+          originalCurrency: 'EUR',
+        )?.taxReconciliationMode,
+        ReceiptOcrTaxReconciliationModeValues.unresolved,
+      );
+    },
+  );
+
+  testWidgets('merchant edit retains printed included-tax evidence', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final preview = const ReceiptOcrParser().parse('''
+London Books
+Book GBP 24.00
+Total incl. VAT GBP 24.00
+VAT included 20% GBP 4.00
+''');
+    expect(preview.taxIncludedInTotal, isTrue);
+    expect(preview.reviewHints, isEmpty);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: FakeBillRepository(),
+          syncController: sampleBillSyncController(),
+          attachmentRepository: FakeBillAttachmentRepository(),
+          attachmentFileInput: FakeBillAttachmentFileInput(
+            pickedFile: samplePickedAttachmentFile(
+              filename: 'receipt.png',
+              contentType: 'image/png',
+              bytes: samplePngBytes(width: 640, height: 480),
+            ),
+          ),
+          receiptOcrProvider: FakeReceiptOcrProvider(
+            ReceiptOcrResult.extracted(preview),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-list-scan-receipt')));
+    await tester.pumpAndSettle();
+    const warning =
+        'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.';
+    expect(find.text(warning), findsNothing);
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-ocr-edit-merchant')),
+      'Corrected London Books',
     );
     await tester.pumpAndSettle();
     expect(find.text(warning), findsNothing);

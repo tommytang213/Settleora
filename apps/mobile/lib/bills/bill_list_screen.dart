@@ -300,6 +300,7 @@ ReceiptOcrPreview _copyReceiptOcrPreview(
     taxCurrency: retainTax ? preview.taxCurrency : null,
     taxHasExplicitCurrencyEvidence:
         retainTax && preview.taxHasExplicitCurrencyEvidence,
+    taxIncludedInTotal: retainTax && preview.taxIncludedInTotal,
     service: retainService ? preview.service : null,
     serviceCurrency: retainService ? preview.serviceCurrency : null,
     serviceHasExplicitCurrencyEvidence:
@@ -320,6 +321,7 @@ ReceiptOcrPreview _copyReceiptOcrPreview(
     discountBeforeSubtotal:
         retainSubtotal && retainDiscount && preview.discountBeforeSubtotal,
     adjustmentsComplete: preview.adjustmentsComplete && !itemEvidenceChanged,
+    incompleteAdjustmentReasons: preview.incompleteAdjustmentReasons,
     total: clearHeaderMoney ? null : preview.total,
     rawTextLineCount: preview.rawTextLineCount,
     confidence: preview.confidence,
@@ -443,7 +445,7 @@ ReceiptOcrReviewSaveRequest? receiptOcrReviewSaveRequestFromPreview(
   final reviewCurrencyChanged =
       _nullableUppercaseCurrency(originalCurrency) != currency;
 
-  return ReceiptOcrReviewSaveRequest(
+  final candidate = ReceiptOcrReviewSaveRequest(
     status: ReceiptOcrReviewStatusValues.provisional,
     source: ReceiptOcrReviewSourceValues.onDevice,
     merchantText: _nullableTrimmedText(preview.merchant),
@@ -501,6 +503,55 @@ ReceiptOcrReviewSaveRequest? receiptOcrReviewSaveRequestFromPreview(
       preserveMatchingEvidence: reviewCurrencyChanged,
     ),
   );
+  return candidate.withTaxReconciliationMode(
+    _receiptOcrTaxModeFromSource(
+      preview,
+      candidate,
+      reviewCurrencyChanged: reviewCurrencyChanged,
+    ),
+  );
+}
+
+String? _receiptOcrTaxModeFromSource(
+  ReceiptOcrPreview preview,
+  ReceiptOcrReviewSaveRequest candidate, {
+  required bool reviewCurrencyChanged,
+}) {
+  // A balanced total cannot settle printed adjustment rows whose roles or
+  // inclusion are unresolved. Persist that uncertainty for the Apply gate.
+  if (!preview.adjustmentsComplete) {
+    return ReceiptOcrTaxReconciliationModeValues.unresolved;
+  }
+  if (!preview.taxIncludedInTotal) return null;
+  if (reviewCurrencyChanged) {
+    return ReceiptOcrTaxReconciliationModeValues.unresolved;
+  }
+  final mode = receiptOcrTaxModeFromSupportedEvidence(
+    candidate,
+    hasAmbiguity: preview.reviewHints.isNotEmpty,
+  );
+  final arithmeticConflictOnly =
+      preview.reviewHintDecision == ReceiptOcrReviewDecision.none ||
+      preview.reviewHintDecision == ReceiptOcrReviewDecision.subtotalMismatch ||
+      preview.reviewHintDecision ==
+          ReceiptOcrReviewDecision.grandTotalMismatchWithSubtotal ||
+      preview.reviewHintDecision ==
+          ReceiptOcrReviewDecision.grandTotalMismatchWithoutSubtotal ||
+      preview.reviewHintDecision ==
+          ReceiptOcrReviewDecision
+              .referenceAdjustmentUnreconciledWithSubtotal ||
+      preview.reviewHintDecision ==
+          ReceiptOcrReviewDecision
+              .referenceAdjustmentUnreconciledWithoutSubtotal;
+  return mode == ReceiptOcrTaxReconciliationModeValues.unresolved &&
+          arithmeticConflictOnly &&
+          preview.adjustmentsComplete &&
+          candidate.currency != null &&
+          candidate.taxAmount != null &&
+          candidate.grandTotalAmount != null &&
+          receiptOcrSupportedAdjustmentTotal(candidate) != null
+      ? ReceiptOcrTaxReconciliationModeValues.sourceIncludedUnresolved
+      : mode;
 }
 
 @visibleForTesting
@@ -4206,7 +4257,7 @@ bool _receiptOcrItemsCanApply(ReceiptOcrPreview preview) {
     return false;
   }
 
-  return preview.items.every((candidate) {
+  final itemsAreValid = preview.items.every((candidate) {
     if (candidate.description.trim().isEmpty) {
       return false;
     }
@@ -4303,6 +4354,58 @@ bool _receiptOcrItemsCanApply(ReceiptOcrPreview preview) {
           quantity: parsedQuantity!,
         );
   });
+  return itemsAreValid && _receiptOcrTaxContributionCanApply(preview);
+}
+
+bool _receiptOcrTaxContributionCanApply(ReceiptOcrPreview preview) {
+  // Keep foreign headers as evidence and ordinary untaxed item edits usable.
+  // Source ambiguity is retained separately from edits that invalidate the
+  // original item/adjustment reconciliation.
+  if (!_receiptOcrHeaderAdjustmentCurrencyMatches(
+    _nullableUppercaseCurrency(preview.currency),
+    preview.taxCurrency,
+    preview.taxHasExplicitCurrencyEvidence,
+  )) {
+    return true;
+  }
+  if ((preview.tax ?? '').trim().isEmpty &&
+      !preview.taxIncludedInTotal &&
+      preview.incompleteAdjustmentReasons.isEmpty) {
+    return true;
+  }
+  final candidate = receiptOcrReviewSaveRequestFromPreview(
+    preview,
+    originalCurrency: preview.currency,
+  );
+  if (candidate == null ||
+      candidate.taxReconciliationMode ==
+          ReceiptOcrTaxReconciliationModeValues.unresolved ||
+      candidate.taxReconciliationMode ==
+          ReceiptOcrTaxReconciliationModeValues.sourceIncludedUnresolved) {
+    return false;
+  }
+  if ((preview.tax ?? '').trim().isEmpty) return true;
+  final tax = receiptOcrDecimalUnits(candidate.taxAmount);
+  if (tax == null) return false;
+  if (tax == BigInt.zero) return true;
+  final gross = receiptOcrDecimalUnits(candidate.grandTotalAmount);
+  if (gross == null) return false;
+  var contribution = BigInt.zero;
+  for (final line in candidate.lines) {
+    var amount = receiptOcrDecimalUnits(line.lineTotalAmount);
+    if (amount == null) {
+      final unit = receiptOcrDecimalUnits(line.unitPriceAmount);
+      final quantity = (line.quantity ?? '').isEmpty
+          ? 1
+          : _positiveWholeNumber(line.quantity!);
+      if (unit == null || quantity == null) return false;
+      amount = unit * BigInt.from(quantity);
+    }
+    contribution += amount;
+  }
+  // Applying suggestions copies item amounts; the tax header never creates
+  // another charge. Net-only rows must be corrected before copying them.
+  return contribution == gross;
 }
 
 String _receiptOcrAppliedQuantity(ReceiptOcrItemCandidate candidate) {
@@ -4342,6 +4445,9 @@ String _receiptOcrItemsApplyBlockReason(ReceiptOcrPreview preview) {
             itemCurrency != receiptCurrency;
       })) {
     return 'Review foreign-currency item amounts before applying';
+  }
+  if (!_receiptOcrTaxContributionCanApply(preview)) {
+    return 'Review receipt totals before applying items';
   }
   return 'Review item amounts before applying';
 }
@@ -17457,6 +17563,9 @@ ReceiptOcrPreview _receiptOcrPreviewFromSavedReview(
     subtotalCurrency: subtotalEvidence?.currency,
     subtotalHasExplicitCurrencyEvidence: subtotalEvidence != null,
     tax: review.taxAmount ?? taxEvidence?.amount,
+    taxIncludedInTotal:
+        review.taxReconciliationMode ==
+        ReceiptOcrTaxReconciliationModeValues.alreadyInBase,
     taxCurrency: taxEvidence?.currency,
     taxHasExplicitCurrencyEvidence: taxEvidence != null,
     service: review.serviceChargeAmount ?? serviceEvidence?.amount,
@@ -17489,7 +17598,7 @@ ReceiptOcrReviewSaveRequest _receiptOcrReviewSaveRequestFromSavedEdit(
   final originalCurrency = _nullableUppercaseCurrency(review.currency);
   final preserveHeaderMoney =
       editedCurrency != null && editedCurrency == originalCurrency;
-  return ReceiptOcrReviewSaveRequest(
+  final candidate = ReceiptOcrReviewSaveRequest(
     status: ReceiptOcrReviewStatusValues.provisional,
     source: review.source,
     merchantText: _nullableTrimmedText(preview.merchant),
@@ -17560,6 +17669,9 @@ ReceiptOcrReviewSaveRequest _receiptOcrReviewSaveRequestFromSavedEdit(
       preview,
       preserveMatchingEvidence: true,
     ),
+  );
+  return candidate.withTaxReconciliationMode(
+    receiptOcrTaxModeForSavedEdit(review, candidate),
   );
 }
 

@@ -45,9 +45,16 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task NetOnlyTaxReviewCannotApplyAnIncompleteReceiptContribution(bool groupRoute)
+    [InlineData(false, null, false, false)]
+    [InlineData(true, null, false, false)]
+    [InlineData(false, "add_to_base", false, false)]
+    [InlineData(true, "add_to_base", false, false)]
+    [InlineData(false, "add_to_base", true, false)]
+    [InlineData(true, "add_to_base", true, false)]
+    [InlineData(false, "add_to_base", false, true)]
+    [InlineData(true, "add_to_base", false, true)]
+    public async Task NetOnlyTaxReviewCannotApplyAnIncompleteReceiptContribution(
+        bool groupRoute, string? mode, bool printedSubtotal, bool editSavedGross)
     {
         var testContext = CreateFactory();
         using var testFactory = testContext.Factory;
@@ -74,18 +81,44 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
             ? GroupOcrReviewApplyPath(groupId.Value, billId, fileId)
             : PersonalOcrReviewApplyPath(billId, fileId);
         using var client = testFactory.CreateClient();
-        const string body = """
-            {"status":"reviewed","source":"on_device","currency":"USD",
-             "taxAmount":"4","grandTotalAmount":"24",
-             "lines":[{"text":"Notebook","quantity":"1","unitPriceAmount":"20","lineTotalAmount":"20"}]}
-            """;
+        string Body(string lineTotal, string? taxMode)
+        {
+            var payload = new Dictionary<string, object?>
+            {
+                ["status"] = "reviewed", ["source"] = "on_device", ["currency"] = "USD",
+                ["taxAmount"] = "4", ["grandTotalAmount"] = "24",
+                ["lines"] = new[] { new { text = "Notebook", quantity = "1",
+                    unitPriceAmount = lineTotal, lineTotalAmount = lineTotal } }
+            };
+            if (printedSubtotal) payload["subtotalAmount"] = lineTotal;
+            if (taxMode is not null) payload["taxReconciliationMode"] = taxMode;
+            return JsonSerializer.Serialize(payload);
+        }
+        Guid? originalReviewId = null;
+        if (editSavedGross)
+        {
+            using var originalRequest = CreateJsonBearerRequest(HttpMethod.Put,
+                reviewPath, owner.RawSessionToken, Body("24", "already_in_base"));
+            using var originalResponse = await client.SendAsync(originalRequest);
+            Assert.Equal(HttpStatusCode.Created, originalResponse.StatusCode);
+            originalReviewId = ReadReviewPayload(await originalResponse.Content.ReadAsStringAsync()).Id;
+            var original = await ReadReceiptOcrReviewAsync(testFactory, originalReviewId.Value);
+            Assert.Equal("already_in_base", original.TaxReconciliationMode);
+            using var originalApplyRequest = CreateJsonBearerRequest(HttpMethod.Post,
+                applyPath, owner.RawSessionToken, ApplyRequestJson(original.UpdatedAtUtc));
+            using var originalApplyResponse = await client.SendAsync(originalApplyRequest);
+            Assert.Equal(HttpStatusCode.OK, originalApplyResponse.StatusCode);
+            testContext.TimeProvider.SetUtcNow(WriteTimestamp);
+        }
         using var putRequest = CreateJsonBearerRequest(HttpMethod.Put,
-            reviewPath, owner.RawSessionToken, body);
+            reviewPath, owner.RawSessionToken, Body("20", mode));
         using var putResponse = await client.SendAsync(putRequest);
-        Assert.Equal(HttpStatusCode.Created, putResponse.StatusCode);
+        Assert.Equal(editSavedGross ? HttpStatusCode.OK : HttpStatusCode.Created, putResponse.StatusCode);
         var saved = ReadReviewPayload(await putResponse.Content.ReadAsStringAsync());
+        if (originalReviewId.HasValue) Assert.Equal(originalReviewId, saved.Id);
         var persisted = await ReadReceiptOcrReviewAsync(testFactory, saved.Id);
-        Assert.Null(persisted.SubtotalAmount);
+        Assert.Equal(printedSubtotal ? 20m : (decimal?)null, persisted.SubtotalAmount);
+        Assert.Equal(mode, persisted.TaxReconciliationMode);
         Assert.Equal(4m, persisted.TaxAmount);
         Assert.Equal(24m, persisted.GrandTotalAmount);
         Assert.Equal(20m, Assert.Single(persisted.Lines).LineTotalAmount);
@@ -103,9 +136,190 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
             $"Incomplete tax contribution: group={groupRoute}, preview.CanApply={preview.CanApply}, " +
             $"Apply={applyResponse.StatusCode}, bill delta={after.TotalAmount - before.TotalAmount}, expected receipt=24.");
         Assert.False(preview.CanApply);
+        Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.LineSumMismatch, preview.BlockedReasons);
         Assert.Equal(before.TotalAmount, after.TotalAmount);
-        Assert.DoesNotContain(after.Items, item =>
-            item.SourceReceiptOcrReviewId == persisted.Id && item.DeletedAtUtc is null);
+        var appliedItems = after.Items.Where(item =>
+            item.SourceReceiptOcrReviewId == persisted.Id && item.DeletedAtUtc is null).ToArray();
+        if (editSavedGross) Assert.Equal(24m, Assert.Single(appliedItems).Amount);
+        else Assert.Empty(appliedItems);
+    }
+
+    [Theory]
+    [InlineData(false, "already_in_base", null)]
+    [InlineData(true, "already_in_base", null)]
+    [InlineData(false, "already_in_base", "24")]
+    [InlineData(true, "already_in_base", "24")]
+    [InlineData(false, "add_to_base", "20")]
+    [InlineData(true, "add_to_base", "20")]
+    [InlineData(false, null, null)]
+    [InlineData(true, null, null)]
+    public async Task GrossTaxReviewAppliesExactlyOnceAcrossSaveReloadAndRetry(
+        bool groupRoute, string? mode, string? subtotal)
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var owner = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Gross Contribution Owner");
+        var groupId = groupRoute
+            ? await SeedGroupAsync(testFactory, owner.UserProfileId, "Gross Contribution Group",
+                InitialTimestamp, deletedAtUtc: null,
+                new MembershipSeed(owner.UserProfileId, GroupMembershipRoles.Owner,
+                    GroupMembershipStatuses.Active))
+            : (Guid?)null;
+        var billId = await SeedBillAsync(testFactory, owner.UserProfileId, groupId,
+            ExpenseBillStatuses.Draft, archivedAtUtc: null,
+            [owner.UserProfileId], [owner.UserProfileId], InitialTimestamp.AddMinutes(2));
+        var fileId = await SeedBillAttachmentAsync(testFactory, billId, owner.UserProfileId,
+            ExpenseBillAttachmentPurposes.Receipt, FileObjectPurposes.ReceiptImage,
+            FileObjectStatuses.Active, removedAtUtc: null);
+        var reviewPath = groupId.HasValue
+            ? GroupOcrReviewPath(groupId.Value, billId, fileId)
+            : PersonalOcrReviewPath(billId, fileId);
+        var previewPath = groupId.HasValue
+            ? GroupOcrReviewApplyPreviewPath(groupId.Value, billId, fileId)
+            : PersonalOcrReviewApplyPreviewPath(billId, fileId);
+        var applyPath = groupId.HasValue
+            ? GroupOcrReviewApplyPath(groupId.Value, billId, fileId)
+            : PersonalOcrReviewApplyPath(billId, fileId);
+        using var client = testFactory.CreateClient();
+        var body = JsonSerializer.Serialize(new
+        {
+            status = "reviewed", source = "on_device", currency = "USD",
+            subtotalAmount = subtotal, taxAmount = "4", taxReconciliationMode = mode,
+            grandTotalAmount = "24",
+            lines = new[] { new { text = "Gross notebook", quantity = "1",
+                unitPriceAmount = "24", lineTotalAmount = "24" } }
+        });
+        using var putRequest = CreateJsonBearerRequest(HttpMethod.Put,
+            reviewPath, owner.RawSessionToken, body);
+        using var putResponse = await client.SendAsync(putRequest);
+        Assert.Equal(HttpStatusCode.Created, putResponse.StatusCode);
+        var saved = ReadReviewPayload(await putResponse.Content.ReadAsStringAsync());
+        using var reloadRequest = CreateBearerRequest(HttpMethod.Get, reviewPath, owner.RawSessionToken);
+        using var reloadResponse = await client.SendAsync(reloadRequest);
+        Assert.Equal(HttpStatusCode.OK, reloadResponse.StatusCode);
+        using var reloaded = JsonDocument.Parse(await reloadResponse.Content.ReadAsStringAsync());
+        Assert.Equal(mode, reloaded.RootElement.GetProperty("taxReconciliationMode").GetString());
+        var persisted = await ReadReceiptOcrReviewAsync(testFactory, saved.Id);
+        Assert.Equal(4m, persisted.TaxAmount);
+        using var previewRequest = CreateBearerRequest(HttpMethod.Get,
+            previewPath, owner.RawSessionToken);
+        using var previewResponse = await client.SendAsync(previewRequest);
+        var preview = ReadApplyPreviewPayload(await previewResponse.Content.ReadAsStringAsync());
+        Assert.True(preview.CanApply);
+        Assert.DoesNotContain(ReceiptOcrReviewApplyPreviewIssueCodes.LineSumMismatch, preview.Warnings);
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            using var applyRequest = CreateJsonBearerRequest(HttpMethod.Post,
+                applyPath, owner.RawSessionToken, ApplyRequestJson(persisted.UpdatedAtUtc));
+            using var applyResponse = await client.SendAsync(applyRequest);
+            Assert.Equal(HttpStatusCode.OK, applyResponse.StatusCode);
+            var bill = await ReadBillAsync(testFactory, billId);
+            var applied = Assert.Single(bill.Items, item =>
+                item.SourceReceiptOcrReviewId == persisted.Id && item.DeletedAtUtc is null);
+            Assert.Equal(24m, applied.Amount);
+            Assert.Equal(34m, bill.TotalAmount); // Existing unrelated item10 remains.
+        }
+    }
+
+    [Theory]
+    [InlineData(false, "currency")]
+    [InlineData(true, "currency")]
+    [InlineData(false, "taxAmount")]
+    [InlineData(true, "taxAmount")]
+    [InlineData(false, "subtotalAmount")]
+    [InlineData(true, "subtotalAmount")]
+    [InlineData(false, "grandTotalAmount")]
+    [InlineData(true, "grandTotalAmount")]
+    [InlineData(false, "lines")]
+    [InlineData(true, "lines")]
+    public async Task LegacyMaterialEditsCannotReuseIncludedTaxApprovalOrMutateAppliedItems(
+        bool groupRoute, string changedField)
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var owner = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Edited Tax Owner");
+        var groupId = groupRoute
+            ? await SeedGroupAsync(testFactory, owner.UserProfileId, "Edited Tax Group",
+                InitialTimestamp, deletedAtUtc: null,
+                new MembershipSeed(owner.UserProfileId, GroupMembershipRoles.Owner,
+                    GroupMembershipStatuses.Active)) : (Guid?)null;
+        var billId = await SeedBillAsync(testFactory, owner.UserProfileId, groupId,
+            ExpenseBillStatuses.Draft, archivedAtUtc: null,
+            [owner.UserProfileId], [owner.UserProfileId], InitialTimestamp.AddMinutes(2));
+        var fileId = await SeedBillAttachmentAsync(testFactory, billId, owner.UserProfileId,
+            ExpenseBillAttachmentPurposes.Receipt, FileObjectPurposes.ReceiptImage,
+            FileObjectStatuses.Active, removedAtUtc: null);
+        var reviewPath = groupId.HasValue ? GroupOcrReviewPath(groupId.Value, billId, fileId)
+            : PersonalOcrReviewPath(billId, fileId);
+        var previewPath = groupId.HasValue ? GroupOcrReviewApplyPreviewPath(groupId.Value, billId, fileId)
+            : PersonalOcrReviewApplyPreviewPath(billId, fileId);
+        var applyPath = groupId.HasValue ? GroupOcrReviewApplyPath(groupId.Value, billId, fileId)
+            : PersonalOcrReviewApplyPath(billId, fileId);
+        using var client = testFactory.CreateClient();
+        Dictionary<string, object?> Body() => new()
+        {
+            ["status"] = "reviewed", ["source"] = "on_device", ["currency"] = "USD",
+            ["subtotalAmount"] = "24", ["taxAmount"] = "4", ["grandTotalAmount"] = "24",
+            ["taxReconciliationMode"] = "already_in_base",
+            ["lines"] = new[] { new { text = "Notebook", quantity = "1",
+                unitPriceAmount = "24", lineTotalAmount = "24" } }
+        };
+        async Task<ReceiptOcrReview> Save(Dictionary<string, object?> body)
+        {
+            using var request = CreateJsonBearerRequest(HttpMethod.Put, reviewPath,
+                owner.RawSessionToken, JsonSerializer.Serialize(body));
+            using var response = await client.SendAsync(request);
+            Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
+            var saved = ReadReviewPayload(await response.Content.ReadAsStringAsync());
+            return await ReadReceiptOcrReviewAsync(testFactory, saved.Id);
+        }
+        async Task Apply(DateTimeOffset version, HttpStatusCode expected)
+        {
+            using var request = CreateJsonBearerRequest(HttpMethod.Post, applyPath,
+                owner.RawSessionToken, ApplyRequestJson(version));
+            using var response = await client.SendAsync(request);
+            Assert.Equal(expected, response.StatusCode);
+            var bill = await ReadBillAsync(testFactory, billId);
+            Assert.Equal(34m, bill.TotalAmount);
+            Assert.Equal(24m, Assert.Single(bill.Items.Where(item =>
+                item.SourceKind == ExpenseBillItemSourceKinds.ReceiptOcrReviewApply
+                && item.DeletedAtUtc is null)).Amount);
+        }
+        foreach (var explicitNull in new[] { false, true })
+        {
+            testContext.TimeProvider.SetUtcNow(testContext.TimeProvider.GetUtcNow().AddMinutes(1));
+            var approved = await Save(Body());
+            await Apply(approved.UpdatedAtUtc, HttpStatusCode.OK);
+            var editedBody = Body();
+            if (explicitNull) editedBody["taxReconciliationMode"] = null;
+            else editedBody.Remove("taxReconciliationMode");
+            editedBody[changedField] = changedField switch
+            {
+                "currency" => "GBP",
+                "taxAmount" => "5",
+                "subtotalAmount" => "20",
+                "grandTotalAmount" => "25",
+                "lines" => new[] { new { text = "Notebook", quantity = "1",
+                    unitPriceAmount = "20", lineTotalAmount = "20" } },
+                _ => throw new InvalidOperationException()
+            };
+            testContext.TimeProvider.SetUtcNow(testContext.TimeProvider.GetUtcNow().AddMinutes(1));
+            var edited = await Save(editedBody);
+            Assert.Equal(ReceiptOcrReviewTaxReconciliationModes.Unresolved, edited.TaxReconciliationMode);
+            using var request = CreateBearerRequest(HttpMethod.Get, previewPath, owner.RawSessionToken);
+            using var response = await client.SendAsync(request);
+            var preview = ReadApplyPreviewPayload(await response.Content.ReadAsStringAsync());
+            Assert.False(preview.CanApply);
+            Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.TaxReconciliationUnresolved,
+                preview.BlockedReasons);
+            await Apply(approved.UpdatedAtUtc, HttpStatusCode.Conflict);
+            await Apply(edited.UpdatedAtUtc, HttpStatusCode.Conflict);
+        }
+        // A source-supported explicit correction is checked afresh and remains
+        // one gross contribution, even after repeated blocked edits and retries.
+        testContext.TimeProvider.SetUtcNow(testContext.TimeProvider.GetUtcNow().AddMinutes(1));
+        var corrected = await Save(Body());
+        await Apply(corrected.UpdatedAtUtc, HttpStatusCode.OK);
     }
 
     [Fact]
@@ -832,6 +1046,118 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         Assert.Empty(await ReadInAppNotificationsAsync(testFactory));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task IncludedTaxModeSurvivesLegacyRetriesAndMaterialEditBlocksApply(bool groupRoute)
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var owner = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Included Tax Owner");
+        var groupId = groupRoute
+            ? await SeedGroupAsync(testFactory, owner.UserProfileId, "Included Tax Group",
+                InitialTimestamp, deletedAtUtc: null,
+                new MembershipSeed(owner.UserProfileId, GroupMembershipRoles.Owner,
+                    GroupMembershipStatuses.Active))
+            : (Guid?)null;
+        var billId = await SeedBillAsync(testFactory, owner.UserProfileId, groupId,
+            ExpenseBillStatuses.Confirmed, archivedAtUtc: null,
+            [owner.UserProfileId], [owner.UserProfileId], InitialTimestamp.AddMinutes(2));
+        var fileId = await SeedBillAttachmentAsync(testFactory, billId, owner.UserProfileId,
+            ExpenseBillAttachmentPurposes.Receipt, FileObjectPurposes.ReceiptImage,
+            FileObjectStatuses.Active, removedAtUtc: null);
+        var reviewPath = groupId.HasValue
+            ? GroupOcrReviewPath(groupId.Value, billId, fileId)
+            : PersonalOcrReviewPath(billId, fileId);
+        var previewPath = groupId.HasValue
+            ? GroupOcrReviewApplyPreviewPath(groupId.Value, billId, fileId)
+            : PersonalOcrReviewApplyPreviewPath(billId, fileId);
+        using var client = testFactory.CreateClient();
+        testContext.TimeProvider.SetUtcNow(WriteTimestamp);
+
+        string Body(string modeField, string merchant, string subtotal, bool addAdjustment = false)
+        {
+            var payload = new Dictionary<string, object?>
+            {
+                ["status"] = "reviewed", ["source"] = "on_device",
+                ["merchantText"] = merchant, ["currency"] = "USD",
+                ["subtotalAmount"] = subtotal, ["taxAmount"] = "4",
+                ["grandTotalAmount"] = "24",
+                ["lines"] = new[] { new { text = "Book", quantity = "1",
+                    unitPriceAmount = "24", lineTotalAmount = "24" } }
+            };
+            if (addAdjustment)
+                payload["adjustmentEvidence"] = new[] { new {
+                    kind = "other", originalLabel = "Packaging fee", amount = "1",
+                    currency = "USD", direction = "charge" } };
+            if (modeField != "omit") payload["taxReconciliationMode"] =
+                modeField == "null" ? null : modeField;
+            return JsonSerializer.Serialize(payload);
+        }
+
+        async Task<(HttpStatusCode Status, Guid Id, string? Mode)> Put(string body)
+        {
+            using var request = CreateJsonBearerRequest(HttpMethod.Put,
+                reviewPath, owner.RawSessionToken, body);
+            using var response = await client.SendAsync(request);
+            using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            return (response.StatusCode, json.RootElement.GetProperty("id").GetGuid(),
+                json.RootElement.GetProperty("taxReconciliationMode").GetString());
+        }
+
+        var created = await Put(Body("already_in_base", "Books", "24"));
+        Assert.Equal(HttpStatusCode.Created, created.Status);
+        Assert.Equal("already_in_base", created.Mode);
+        using (var request = CreateBearerRequest(HttpMethod.Get,
+            previewPath, owner.RawSessionToken))
+        using (var response = await client.SendAsync(request))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.True(ReadApplyPreviewPayload(await response.Content.ReadAsStringAsync()).CanApply);
+        }
+        var omitted = await Put(Body("omit", "Books edited", "24"));
+        var explicitNull = await Put(Body("null", "Books edited", "24"));
+        Assert.Equal(created.Id, omitted.Id);
+        Assert.Equal(created.Id, explicitNull.Id);
+        Assert.Equal("already_in_base", omitted.Mode);
+        Assert.Equal("already_in_base", explicitNull.Mode);
+
+        var changed = await Put(Body("omit", "Books edited", "25"));
+        Assert.Equal(created.Id, changed.Id);
+        Assert.Equal("unresolved", changed.Mode);
+        using var blockedRequest = CreateBearerRequest(HttpMethod.Get,
+            previewPath, owner.RawSessionToken);
+        using var blockedResponse = await client.SendAsync(blockedRequest);
+        var blocked = ReadApplyPreviewPayload(await blockedResponse.Content.ReadAsStringAsync());
+        Assert.False(blocked.CanApply);
+        Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.TaxReconciliationUnresolved,
+            blocked.BlockedReasons);
+
+        var restored = await Put(Body("already_in_base", "Books edited", "24"));
+        Assert.Equal("already_in_base", restored.Mode);
+        var sourceConflict = await Put(Body("included_unresolved", "Books edited", "25"));
+        Assert.Equal(created.Id, sourceConflict.Id);
+        Assert.Equal("included_unresolved", sourceConflict.Mode);
+        var oldClientMerchantEdit = await Put(Body("omit", "Books edited again", "25"));
+        Assert.Equal("included_unresolved", oldClientMerchantEdit.Mode);
+        var oldClientMoneyEdit = await Put(Body("null", "Books edited again", "24"));
+        Assert.Equal("included_unresolved", oldClientMoneyEdit.Mode);
+        using (var request = CreateBearerRequest(HttpMethod.Get, previewPath, owner.RawSessionToken))
+        using (var response = await client.SendAsync(request))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var unresolvedPreview = ReadApplyPreviewPayload(await response.Content.ReadAsStringAsync());
+            Assert.False(unresolvedPreview.CanApply);
+            Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.TaxReconciliationUnresolved,
+                unresolvedPreview.BlockedReasons);
+        }
+        var sourceCorrection = await Put(Body("already_in_base", "Books edited again", "24"));
+        Assert.Equal("already_in_base", sourceCorrection.Mode);
+        var adjusted = await Put(Body("omit", "Books edited", "24", addAdjustment: true));
+        Assert.Equal(created.Id, adjusted.Id);
+        Assert.Equal("unresolved", adjusted.Mode);
+    }
+
     [Fact]
     public async Task PersonalReceiptOcrReviewApplyPreviewBuildsSafeDraftPreviewForVisibleParticipantWithoutMutationOrAudit()
     {
@@ -892,9 +1218,9 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         Assert.Equal(billId, previewPayload.BillId);
         Assert.Equal(fileId, previewPayload.FileId);
         Assert.Null(previewPayload.GroupId);
-        Assert.True(previewPayload.CanApply);
-        Assert.Empty(previewPayload.BlockedReasons);
-        Assert.Empty(previewPayload.Warnings);
+        Assert.False(previewPayload.CanApply);
+        Assert.Equal([ReceiptOcrReviewApplyPreviewIssueCodes.LineSumMismatch], previewPayload.BlockedReasons);
+        Assert.Equal([ReceiptOcrReviewApplyPreviewIssueCodes.LineSumMismatch], previewPayload.Warnings);
         Assert.Equal("Preview Cafe", previewPayload.ProposedMerchantText);
         Assert.Equal("USD", previewPayload.ProposedCurrency);
         Assert.Equal("11.5", previewPayload.ProposedGrandTotalAmount);
@@ -1187,7 +1513,7 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
             HttpMethod.Put,
             PersonalOcrReviewPath(billId, fileId),
             ownerSession.RawSessionToken,
-            ApplyPreviewReadyReviewJson());
+            ApplyReadyTaxFreeReviewJson());
         using var putResponse = await client.SendAsync(putRequest);
         var putContent = await putResponse.Content.ReadAsStringAsync();
 
@@ -1217,7 +1543,7 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         Assert.Equal(2, applyPayload.AppliedItemCount);
         Assert.Equal("USD", applyPayload.Currency);
         Assert.Equal("10.25", applyPayload.SubtotalAmount);
-        Assert.Equal("11.5", applyPayload.GrandTotalAmount);
+        Assert.Equal("10.25", applyPayload.GrandTotalAmount);
         Assert.Empty(applyPayload.BlockedReasons);
         Assert.Empty(applyPayload.Warnings);
         Assert.Equal(WriteTimestamp.AddMinutes(1), applyPayload.AppliedAtUtc);
@@ -1488,7 +1814,8 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         using (var previewResponse = await client.SendAsync(previewRequest))
         {
             var preview = ReadApplyPreviewPayload(await previewResponse.Content.ReadAsStringAsync());
-            Assert.True(preview.CanApply);
+            Assert.False(preview.CanApply);
+            Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.LineSumMismatch, preview.BlockedReasons);
             Assert.DoesNotContain(ReceiptOcrReviewApplyPreviewIssueCodes.UnsupportedLineState, preview.BlockedReasons);
             Assert.Equal(2, preview.ProposedLines.Count);
             Assert.Equal(7, preview.AdjustmentEvidence.Count);
@@ -1510,16 +1837,11 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         using var applyResponse = await client.SendAsync(applyRequest);
         var applyContent = await applyResponse.Content.ReadAsStringAsync();
 
-        Assert.Equal(HttpStatusCode.OK, applyResponse.StatusCode);
-        var apply = ReadApplyPayload(applyContent);
-        Assert.Equal(2, apply.AppliedItemCount);
-        Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.AdjustmentsNotAutoApplied, apply.Warnings);
+        Assert.Equal(HttpStatusCode.Conflict, applyResponse.StatusCode);
         var billAfterApply = await ReadBillAsync(testFactory, billId);
-        Assert.Equal(["Toast", "Tea"], billAfterApply.Items
-            .Where(item => item.SourceKind == ExpenseBillItemSourceKinds.ReceiptOcrReviewApply && item.DeletedAtUtc is null)
-            .OrderBy(item => item.SortOrder)
-            .Select(item => item.Name)
-            .ToArray());
+        Assert.Equal(10m, billAfterApply.TotalAmount);
+        Assert.Empty(billAfterApply.Items.Where(item =>
+            item.SourceKind == ExpenseBillItemSourceKinds.ReceiptOcrReviewApply));
         Assert.Equal(billAdjustmentsBefore, await CountBillAdjustmentsAsync(testFactory, billId));
     }
 
@@ -1719,6 +2041,61 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         Assert.Single((await ReadBillAsync(testFactory, billId)).Items, item =>
             item.SourceKind == ExpenseBillItemSourceKinds.ReceiptOcrReviewApply && item.DeletedAtUtc is null);
         Assert.Equal(0, await CountBillAdjustmentsAsync(testFactory, billId));
+    }
+
+    [Fact]
+    public async Task SingleGrossItemWithIncludedTaxCanPreviewAndApplyWithoutAddingTaxTwice()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var owner = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Gross Tax OCR Owner");
+        var billId = await SeedBillAsync(testFactory, owner.UserProfileId, groupId: null,
+            ExpenseBillStatuses.Draft, archivedAtUtc: null,
+            [owner.UserProfileId], [owner.UserProfileId], InitialTimestamp.AddMinutes(2));
+        var fileId = await SeedBillAttachmentAsync(testFactory, billId, owner.UserProfileId,
+            ExpenseBillAttachmentPurposes.Receipt, FileObjectPurposes.ReceiptImage,
+            FileObjectStatuses.Active, removedAtUtc: null);
+        using var client = testFactory.CreateClient();
+
+        const string reviewJson =
+            """
+            {
+              "status":"reviewed",
+              "source":"on_device",
+              "currency":"USD",
+              "subtotalAmount":"20",
+              "taxAmount":"4",
+              "taxReconciliationMode":"add_to_base",
+              "grandTotalAmount":"24",
+              "lines":[{"text":"Gross item","quantity":"1","unitPriceAmount":"24","lineTotalAmount":"24"}]
+            }
+            """;
+        using var putRequest = CreateJsonBearerRequest(HttpMethod.Put,
+            PersonalOcrReviewPath(billId, fileId), owner.RawSessionToken, reviewJson);
+        using var putResponse = await client.SendAsync(putRequest);
+        Assert.Equal(HttpStatusCode.Created, putResponse.StatusCode);
+        var saved = ReadReviewPayload(await putResponse.Content.ReadAsStringAsync());
+
+        using var previewRequest = CreateBearerRequest(HttpMethod.Get,
+            PersonalOcrReviewApplyPreviewPath(billId, fileId), owner.RawSessionToken);
+        using var previewResponse = await client.SendAsync(previewRequest);
+        Assert.Equal(HttpStatusCode.OK, previewResponse.StatusCode);
+        var preview = ReadApplyPreviewPayload(await previewResponse.Content.ReadAsStringAsync());
+        Assert.True(preview.CanApply);
+        Assert.DoesNotContain(ReceiptOcrReviewApplyPreviewIssueCodes.LineSumMismatch, preview.Warnings);
+
+        var persisted = await ReadReceiptOcrReviewAsync(testFactory, saved.Id);
+        using var applyRequest = CreateJsonBearerRequest(HttpMethod.Post,
+            PersonalOcrReviewApplyPath(billId, fileId), owner.RawSessionToken,
+            ApplyRequestJson(persisted.UpdatedAtUtc));
+        using var applyResponse = await client.SendAsync(applyRequest);
+        Assert.Equal(HttpStatusCode.OK, applyResponse.StatusCode);
+        Assert.Equal(1, ReadApplyPayload(await applyResponse.Content.ReadAsStringAsync()).AppliedItemCount);
+        var bill = await ReadBillAsync(testFactory, billId);
+        var applied = Assert.Single(bill.Items, item =>
+            item.SourceKind == ExpenseBillItemSourceKinds.ReceiptOcrReviewApply && item.DeletedAtUtc is null);
+        Assert.Equal(24m, applied.Amount);
+        Assert.Equal(34m, bill.TotalAmount);
     }
 
     [Fact]
@@ -3217,6 +3594,35 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
             """;
     }
 
+    private static string ApplyReadyTaxFreeReviewJson()
+    {
+        return $$"""
+            {
+              "status": "{{ReceiptOcrReviewStatuses.Reviewed}}",
+              "source": "{{ReceiptOcrReviewSources.ManualEntry}}",
+              "merchantText": "Preview Cafe",
+              "receiptIssuedAtUtc": "2026-05-12T10:00:00Z",
+              "currency": "USD",
+              "subtotalAmount": "10.25",
+              "grandTotalAmount": "10.25",
+              "lines": [
+                {
+                  "text": "Toast",
+                  "quantity": "1",
+                  "unitPriceAmount": "5.25",
+                  "lineTotalAmount": "5.25"
+                },
+                {
+                  "text": "Tea",
+                  "quantity": "2",
+                  "unitPriceAmount": "2.50",
+                  "lineTotalAmount": "5.00"
+                }
+              ]
+            }
+            """;
+    }
+
     private static string AdjustmentEvidenceReviewJson()
     {
         return $$"""
@@ -3967,6 +4373,7 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
                 "status",
                 "subtotalAmount",
                 "taxAmount",
+                "taxReconciliationMode",
                 "updatedAtUtc"
             ],
             root.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal).ToArray());
@@ -4111,6 +4518,7 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
                 "reviewId",
                 "source",
                 "status",
+                "taxReconciliationMode",
                 "updatedAtUtc"
             ],
             root.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal).ToArray());

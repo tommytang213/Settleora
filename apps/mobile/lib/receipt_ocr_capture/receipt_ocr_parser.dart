@@ -304,6 +304,7 @@ class ReceiptOcrParser {
       tax: amounts.tax,
       taxCurrency: amounts.taxCurrency,
       taxHasExplicitCurrencyEvidence: amounts.taxHasExplicitCurrencyEvidence,
+      taxIncludedInTotal: amounts.taxIncludedInTotal,
       service: amounts.service,
       serviceCurrency: amounts.serviceCurrency,
       serviceHasExplicitCurrencyEvidence:
@@ -1930,9 +1931,11 @@ class ReceiptOcrParser {
     String? tax;
     String? taxCurrency;
     var taxHasExplicitCurrencyEvidence = false;
+    var taxIncludedInTotal = false;
     final ratedTaxComponents =
         <({String rate, String amount, bool explicitCurrency})>[];
     final transactionTaxAmounts = <String>[];
+    final transactionTaxInclusionModes = <bool>[];
     var hasUnratedTax = false;
     String? service;
     String? serviceCurrency;
@@ -2144,6 +2147,7 @@ class ReceiptOcrParser {
         );
         if (!printed.hasExplicitEvidence || printed.currency == currency) {
           transactionTaxAmounts.add(amount);
+          transactionTaxInclusionModes.add(_isIncludedTaxAmountLine(line));
         }
         final printedRate = RegExp(
           r'\b(?:sales\s+tax|tax|vat|gst|hst|iva|tva|kdv|mwst)\b\.?\s*\(?\s*(\d{1,3}(?:[.,]\d{1,2})?)\s*%\s*\)?',
@@ -2173,6 +2177,7 @@ class ReceiptOcrParser {
           tax = amount;
           taxCurrency = printed.currency;
           taxHasExplicitCurrencyEvidence = printed.hasExplicitEvidence;
+          taxIncludedInTotal = _isIncludedTaxAmountLine(line);
         }
       } else if (_hasServiceChargeLabel(line, normalized)) {
         final printed = _explicitAdjustmentCurrencyFromLine(
@@ -2311,7 +2316,9 @@ class ReceiptOcrParser {
     // field. Aggregate only distinct rates in the established receipt
     // currency; a separate summary or conflicting denomination stays in
     // review rather than being double counted or converted.
+    final mixedTaxInclusion = transactionTaxInclusionModes.toSet().length > 1;
     if (!hasUnratedTax &&
+        !mixedTaxInclusion &&
         currency != null &&
         ratedTaxComponents.length > 1 &&
         ratedTaxComponents.map((component) => component.rate).toSet().length ==
@@ -2401,12 +2408,15 @@ class ReceiptOcrParser {
         ReceiptOcrIncompleteAdjustmentReason.repeatedAdjustmentRole,
       );
     }
-    if (!aggregatedRatedTax && transactionTaxAmounts.toSet().length > 1) {
+    if (mixedTaxInclusion ||
+        (!aggregatedRatedTax && transactionTaxAmounts.toSet().length > 1)) {
       // A component and a summary can carry the same tax role. Retaining one
-      // arbitrary component as the draft's tax would assert the wrong amount.
+      // arbitrary component or one side of mixed included/additive tax as the
+      // draft's tax would assert the wrong amount or inclusion meaning.
       tax = null;
       taxCurrency = null;
       taxHasExplicitCurrencyEvidence = false;
+      taxIncludedInTotal = false;
     }
 
     final sameCurrencySubtotal =
@@ -2434,7 +2444,7 @@ class ReceiptOcrParser {
         ? null
         : double.tryParse(discount)?.abs();
     final supportedParts = [
-      if (sameCurrencyTax) tax,
+      if (sameCurrencyTax && !taxIncludedInTotal) tax,
       if (sameCurrencyService) service,
       if (sameCurrencyTip) tip,
       if (sameCurrencyShipping) shipping,
@@ -2447,13 +2457,19 @@ class ReceiptOcrParser {
                 (a, b) => a + b,
               ) -
               (discountMagnitude ?? 0);
+    final includedTaxValue = sameCurrencyTax && taxIncludedInTotal
+        ? double.tryParse(tax ?? '')
+        : null;
     totalCandidates.sort((left, right) {
       int rank(({String value, int score, int order}) candidate) {
         final parsed = double.tryParse(candidate.value);
         final arithmetic =
             supportedSum != null &&
                 parsed != null &&
-                (parsed - supportedSum).abs() <= 0.02
+                ((parsed - supportedSum).abs() <= 0.02 ||
+                    (includedTaxValue != null &&
+                        (parsed - supportedSum - includedTaxValue).abs() <=
+                            0.02))
             ? 4
             : 0;
         return candidate.score + arithmetic;
@@ -2471,6 +2487,7 @@ class ReceiptOcrParser {
       tax: tax,
       taxCurrency: taxCurrency,
       taxHasExplicitCurrencyEvidence: taxHasExplicitCurrencyEvidence,
+      taxIncludedInTotal: taxIncludedInTotal,
       service: service,
       serviceCurrency: serviceCurrency,
       serviceHasExplicitCurrencyEvidence: serviceHasExplicitCurrencyEvidence,
@@ -2597,6 +2614,7 @@ class ReceiptOcrParser {
       if (ownedSummaryRows != null ||
           (_isAdministrativeLine(line) &&
               !chargeTableRows.contains(lineIndex)) ||
+          _isIncludedTaxAmountLine(line) ||
           (afterSubtotal &&
               !chargeTableRows.contains(lineIndex) &&
               _hasShippingLabel(
@@ -2611,6 +2629,9 @@ class ReceiptOcrParser {
                 allowDescriptiveSurchargeLabel: afterSubtotal,
               ) &&
               (afterSubtotal || _hasExplicitTaxRate(line))) ||
+          (afterSubtotal &&
+              !chargeTableRows.contains(lineIndex) &&
+              _isAmbiguousParenthesizedTaxLine(line)) ||
           _isContextualReceiptMetadataLine(lines, lineIndex) ||
           _isChargeTableHeader(line) ||
           detachedAmountSignRows.contains(lineIndex) ||
@@ -4481,7 +4502,7 @@ class ReceiptOcrParser {
                       )))) &&
           lastPricedTotal >= 0 &&
           lineIndex == lines.length - 1 &&
-          _hasOnlyPaymentOrSuggestedTipAmountsBeforeCourtesy(
+          _hasOnlyPaymentOrIncludedTaxOrSuggestedTipAmountsBeforeCourtesy(
             lines,
             lastPricedTotal,
             lineIndex,
@@ -4562,7 +4583,7 @@ class ReceiptOcrParser {
           layoutRows.isEmpty &&
           lastPricedTotal >= 0 &&
           lineIndex == lines.length - 1 &&
-          _hasOnlyPaymentOrSuggestedTipAmountsBeforeCourtesy(
+          _hasOnlyPaymentOrIncludedTaxOrSuggestedTipAmountsBeforeCourtesy(
             lines,
             lastPricedTotal,
             lineIndex,
@@ -4628,7 +4649,7 @@ bool _isCenteredPostTotalFooter(
   if (lastPricedTotal < 0 ||
       lineIndex <= lastPricedTotal ||
       layoutRows.length != lines.length ||
-      !_hasOnlyPaymentOrSuggestedTipAmountsBeforeCourtesy(
+      !_hasOnlyPaymentOrIncludedTaxOrSuggestedTipAmountsBeforeCourtesy(
         lines,
         lastPricedTotal,
         lineIndex,
@@ -4683,7 +4704,7 @@ bool _isCenteredPostTotalFooter(
   return (footerCenter - contentCenter).abs() <= contentWidth * 0.15;
 }
 
-bool _hasOnlyPaymentOrSuggestedTipAmountsBeforeCourtesy(
+bool _hasOnlyPaymentOrIncludedTaxOrSuggestedTipAmountsBeforeCourtesy(
   List<String> lines,
   int lastPricedTotal,
   int courtesyIndex,
@@ -4702,10 +4723,12 @@ bool _hasOnlyPaymentOrSuggestedTipAmountsBeforeCourtesy(
     if (sawPayment && _isPaymentTerminalIdentifierLine(lines[index])) {
       continue;
     }
-    // Printed percentage suggestions are not a charged tip. Keep the final
-    // courtesy footer in its role only when each intervening priced row has
-    // this bounded suggestion shape.
-    if (_isPrintedSuggestedTipOptionLine(lines[index])) continue;
+    // Printed tip suggestions and explicitly included tax below the total
+    // are informational; neither reopens the merchandise table.
+    if (_isPrintedSuggestedTipOptionLine(lines[index]) ||
+        _isIncludedTaxAmountLine(lines[index])) {
+      continue;
+    }
     // A zero balance following tender rows closes the payment sequence. A
     // nonzero balance or an item whose name contains "Balance" still needs
     // review rather than being mistaken for settled payment evidence.
@@ -6018,6 +6041,7 @@ bool _isAmbiguousRatedTaxCharge(String line) =>
     ).hasMatch(line);
 
 bool _isRatedTaxNamedLine(String line) =>
+    !_includedTaxAmountLinePattern.hasMatch(line) &&
     _hasExplicitTaxRate(line) &&
     RegExp(
       r'^\s*(?:[\p{L}]+[ -]+){1,3}tax\b',
@@ -6084,7 +6108,7 @@ bool _isPostSubtotalAdjustmentLine(
   }
   if (allowDescriptiveTaxLabel) {
     final describedTax = RegExp(
-      r'^(?:[\p{L}]+[ -]+){0,3}tax\s*\(\s*(?:federal|state|local|city|county|municipal|regional|provincial|standard|reduced|special|exempt|zero(?:[ -]rated)?|sales|use|vat|gst|hst)\s*\)\s+',
+      r'^(?:[\p{L}]+[ -]+){0,3}tax\s*\(\s*(?:federal|state|local|city|county|municipal|regional|provincial|standard|reduced|special|exempt|zero(?:[ -]rated)?|sales|use|vat|gst|hst|tourist|tourism|occupancy|lodging)\s*\)\s+',
       caseSensitive: false,
       unicode: true,
     ).firstMatch(trimmed);
@@ -6105,6 +6129,16 @@ bool _isPostSubtotalAdjustmentLine(
     }
   }
   return false;
+}
+
+bool _isAmbiguousParenthesizedTaxLine(String line) {
+  final match = RegExp(
+    r'^(?:[\p{L}]+[ -]+){0,3}tax\s*\(\s*(?:[\p{L}]{2,32}|(?:[\p{L}]+[ -]+){1,3}(?:tax|levy|duty|fee|surcharge|charge|rate|assessment|cess))\s*\)\s+',
+    caseSensitive: false,
+    unicode: true,
+  ).firstMatch(line.trim());
+  return match != null &&
+      _isStandaloneAmountRow(line.trim().substring(match.end));
 }
 
 bool _hasExplicitTaxRate(String line) => RegExp(
@@ -6443,6 +6477,7 @@ class _LabeledReceiptAmounts {
     this.tax,
     this.taxCurrency,
     this.taxHasExplicitCurrencyEvidence = false,
+    this.taxIncludedInTotal = false,
     this.service,
     this.serviceCurrency,
     this.serviceHasExplicitCurrencyEvidence = false,
@@ -6469,6 +6504,7 @@ class _LabeledReceiptAmounts {
   final String? tax;
   final String? taxCurrency;
   final bool taxHasExplicitCurrencyEvidence;
+  final bool taxIncludedInTotal;
   final String? service;
   final String? serviceCurrency;
   final bool serviceHasExplicitCurrencyEvidence;
@@ -8695,12 +8731,12 @@ final _includedTaxTotalPrefixPattern = RegExp(
 );
 final _includedTaxTotalLinePattern = _includedTaxSummaryPattern(
   r'(?:grand\s+)?total\s+(?:'
-  r'(?:incl\.?|including|inclusive\s+of)\s+'
+  r'(?:incl\.?|included|including|inclusive(?:\s+of)?)\s+'
   '$_includedTaxNamePattern'
   '|\\(\\s*$_includedTaxNamePattern\\s+included\\s*\\))',
 );
 final _includedTaxAmountLinePattern = _includedTaxSummaryPattern(
-  '(?:$_includedTaxNamePattern\\s+included'
+  '(?:$_includedTaxNamePattern(?:\\s+included|\\s*\\(included\\))'
   '|included\\s+$_includedTaxNamePattern)$_includedTaxRatePattern',
 );
 
@@ -8723,6 +8759,9 @@ bool _hasTotalLabel(String line, String normalized) {
       _hasJapaneseReceiptLabel(line, const ['合計']) ||
       _hasLocalizedReceiptLabel(line, _localizedTotalLabels);
 }
+
+bool _isIncludedTaxAmountLine(String line) =>
+    _includedTaxAmountLinePattern.hasMatch(line);
 
 bool _hasPriorityTotalLabel(String line) {
   const label =

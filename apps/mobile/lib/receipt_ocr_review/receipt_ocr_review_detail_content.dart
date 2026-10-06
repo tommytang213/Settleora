@@ -362,7 +362,7 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
     )?.toUpperCase();
     final originalCurrency = widget.review.currency?.trim().toUpperCase();
     final preserveMoney = editedCurrency == originalCurrency;
-    return ReceiptOcrReviewSaveRequest(
+    final candidate = ReceiptOcrReviewSaveRequest(
       status: widget.review.status,
       source: widget.review.source,
       merchantText: _nullableText(_merchantController.text),
@@ -390,6 +390,9 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
       headerEvidence: _headerEvidenceEditors
           .map((editors) => editors.toRequest())
           .toList(growable: false),
+    );
+    return candidate.withTaxReconciliationMode(
+      receiptOcrTaxModeForSavedEdit(widget.review, candidate),
     );
   }
 

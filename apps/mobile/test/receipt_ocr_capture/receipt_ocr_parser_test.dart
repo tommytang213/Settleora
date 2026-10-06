@@ -255,8 +255,8 @@ void main() {
         'Sample Shop\nNotebook GBP 20.00\nTotal incl. VAT GBP 24.00\n'
         'VAT included 20% GBP 4.00',
       );
-      // These are printed candidates. Their downstream Apply semantics remain
-      // blocked on the separately reviewed included-tax/Apply work.
+      // Preserve printed net lines. The downstream contribution gate blocks
+      // Apply until the reviewed rows represent the gross receipt amount.
       expect(preview.items.single.lineTotal, '20.00');
       expect(preview.total, '24.00');
       expect(preview.tax, '4.00');
@@ -273,7 +273,13 @@ void main() {
       expect(preview.tax, amount);
       expect(preview.total, '24.00');
       expect(preview.items.single.lineTotal, '24.00');
-      expect(preview.reviewHints, isNotEmpty);
+      expect(preview.taxIncludedInTotal, isTrue);
+      expect(
+        preview.reviewHints,
+        isEmpty,
+        reason:
+            '${preview.incompleteAdjustmentReasons} ${preview.reviewHintDecision}',
+      );
     }
   });
 
@@ -306,9 +312,14 @@ void main() {
         expect(preview.items, hasLength(1));
         expect(preview.items.single.lineTotal, '24.00');
         expect(preview.blocks, same(blocks));
-        // The current consumer has no included-tax mode. Its existing review
-        // guard remains until the separate Apply/included-tax work is ready.
-        expect(preview.reviewHints, isNotEmpty);
+        // The integrated mode preserves printed tax without adding it twice.
+        expect(preview.taxIncludedInTotal, isTrue);
+        expect(
+          preview.reviewHints,
+          isEmpty,
+          reason:
+              '${preview.incompleteAdjustmentReasons} ${preview.reviewHintDecision}',
+        );
       });
     }
 
@@ -9415,6 +9426,171 @@ Total TRY 55.00
     }
   });
 
+  test('printed included VAT is informational and not a purchased item', () {
+    final preview = const ReceiptOcrParser().parse('''
+London Books
+17/09/2026
+Book GBP 24.00
+Total incl. VAT GBP 24.00
+VAT included 20% GBP 4.00
+Thank you
+''');
+
+    expect(preview.currency, 'GBP');
+    expect(preview.items.map((item) => item.description), ['Book']);
+    expect(preview.items.single.lineTotal, '24.00');
+    expect(preview.total, '24.00');
+    expect(preview.tax, '4.00');
+    expect(preview.taxCurrency, 'GBP');
+    expect(preview.taxIncludedInTotal, isTrue);
+    expect(preview.reviewHints, isEmpty);
+  });
+
+  test('included tax remains reviewable when printed amounts conflict', () {
+    final preview = const ReceiptOcrParser().parse('''
+London Books
+Book GBP 24.00
+Total incl. VAT GBP 25.00
+VAT included 20% GBP 4.00
+''');
+
+    expect(preview.items.map((item) => item.description), ['Book']);
+    expect(preview.total, '25.00');
+    expect(preview.tax, '4.00');
+    expect(preview.reviewHints, isNotEmpty);
+  });
+
+  test('explicit included VAT can accompany a plain printed total', () {
+    final preview = const ReceiptOcrParser().parse('''
+London Books
+Book GBP 24.00
+Total GBP 24.00
+VAT included 20% GBP 4.00
+''');
+
+    expect(preview.taxIncludedInTotal, isTrue);
+    expect(preview.total, '24.00');
+    expect(preview.tax, '4.00');
+    expect(preview.reviewHintDecision, ReceiptOcrReviewDecision.none);
+  });
+
+  test('included VAT reconciles a net subtotal under gross item prices', () {
+    final preview = const ReceiptOcrParser().parse('''
+London Books
+Book GBP 24.00
+Subtotal GBP 20.00
+VAT included 20% GBP 4.00
+Total GBP 24.00
+''');
+
+    expect(preview.items.single.lineTotal, '24.00');
+    expect(preview.subtotal, '20.00');
+    expect(preview.taxIncludedInTotal, isTrue);
+    expect(preview.reviewHintDecision, ReceiptOcrReviewDecision.none);
+  });
+
+  test('included VAT cannot hide a contradictory pre-subtotal discount', () {
+    const preview = ReceiptOcrPreview(
+      currency: 'GBP',
+      subtotal: '20.00',
+      tax: '4.00',
+      taxIncludedInTotal: true,
+      discount: '-5.00',
+      discountBeforeSubtotal: true,
+      total: '19.00',
+      items: [ReceiptOcrItemCandidate(description: 'Book', lineTotal: '24.00')],
+    );
+
+    expect(
+      preview.reviewHintDecision,
+      ReceiptOcrReviewDecision.subtotalMismatch,
+    );
+  });
+
+  test('included VAT and a separately added service fee reconcile', () {
+    final preview = const ReceiptOcrParser().parse('''
+London Books
+Book GBP 24.00
+VAT included 20% GBP 4.00
+Service fee GBP 2.00
+Total GBP 26.00
+''');
+
+    expect(preview.items.single.lineTotal, '24.00');
+    expect(preview.tax, '4.00');
+    expect(preview.service, '2.00');
+    expect(preview.taxIncludedInTotal, isTrue);
+    expect(preview.total, '26.00');
+    expect(preview.reviewHintDecision, ReceiptOcrReviewDecision.none);
+  });
+
+  test('included VAT reconciles a printed net subtotal when supported', () {
+    const parser = ReceiptOcrParser();
+    final balanced = parser.parse('''
+London Books
+Book GBP 20.00
+Subtotal GBP 20.00
+Total incl. VAT GBP 24.00
+VAT included 20% GBP 4.00
+''');
+    expect(balanced.items.single.lineTotal, '20.00');
+    expect(balanced.subtotal, '20.00');
+    expect(balanced.total, '24.00');
+    expect(balanced.tax, '4.00');
+    expect(balanced.taxIncludedInTotal, isTrue);
+    expect(balanced.reviewHints, isEmpty);
+
+    final conflicting = parser.parse('''
+London Books
+Book GBP 20.00
+Subtotal GBP 20.00
+Total incl. VAT GBP 25.00
+VAT included 20% GBP 4.00
+''');
+    expect(conflicting.reviewHints, isNotEmpty);
+  });
+
+  test('ordinary additive VAT and merchandise wording keep their roles', () {
+    const parser = ReceiptOcrParser();
+    final additive = parser.parse('''
+London Books
+Book GBP 20.00
+VAT 20% GBP 4.00
+Total GBP 24.00
+''');
+    expect(additive.items.map((item) => item.description), ['Book']);
+    expect(additive.tax, '4.00');
+    expect(additive.taxIncludedInTotal, isFalse);
+    expect(additive.reviewHints, isEmpty);
+
+    final merchandise = parser.parse('''
+London Books
+VAT Included Guide GBP 12.00
+Total GBP 12.00
+''');
+    expect(merchandise.items.map((item) => item.description), [
+      'VAT Included Guide',
+    ]);
+    expect(merchandise.tax, isNull);
+    expect(merchandise.taxIncludedInTotal, isFalse);
+  });
+
+  test('mixed included and additive tax rows stay unresolved', () {
+    final preview = const ReceiptOcrParser().parse('''
+London Books
+Book GBP 20.00
+Subtotal GBP 20.00
+VAT included 10% GBP 2.00
+Sales tax 20% GBP 4.00
+Total GBP 24.00
+''');
+    expect(preview.currency, 'GBP');
+    expect(preview.tax, isNull);
+    expect(preview.taxIncludedInTotal, isFalse);
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(preview.reviewHints, isNotEmpty);
+  });
+
   test('parser preserves actual tip and shipping preview values', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse('''
@@ -11311,6 +11487,67 @@ Total USD 5.25
 ''');
     expect(preview.items.map((item) => item.description), ['Widget']);
     expect(preview.tax, '0.25');
+  });
+
+  test('parenthesized included tax stays out of merchandise', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Widget USD 10.00
+Subtotal USD 9.50
+Tax (Included) USD 0.50
+Total USD 10.00
+''');
+    expect(preview.items.map((item) => item.description), ['Widget']);
+    expect(preview.tax, '0.50');
+    expect(preview.taxIncludedInTotal, isTrue);
+  });
+
+  test('tourism tax qualifier remains a printed tax adjustment', () {
+    final preview = const ReceiptOcrParser().parse('''
+Hotel
+Room USD 5.00
+Subtotal USD 5.00
+Tax (Tourism) USD 0.50
+Total USD 5.50
+''');
+    expect(preview.items.map((item) => item.description), ['Room']);
+    expect(preview.tax, '0.50');
+  });
+
+  test('unknown single-word tax qualifier remains review evidence', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Widget USD 5.00
+Subtotal USD 5.00
+Tax (Ecology) USD 0.50
+Total USD 5.50
+''');
+    expect(preview.items.map((item) => item.description), ['Widget']);
+    expect(preview.tax, isNull);
+    expect(
+      preview.incompleteAdjustmentReasons,
+      contains(
+        ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
+      ),
+    );
+  });
+
+  test('unknown tax levy qualifier remains review evidence', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Widget USD 5.00
+Subtotal USD 5.00
+Tax (Environmental Levy) USD 0.50
+Total USD 5.50
+''');
+    expect(preview.items.map((item) => item.description), ['Widget']);
+    expect(preview.tax, isNull);
+    expect(
+      preview.incompleteAdjustmentReasons,
+      contains(
+        ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
+      ),
+    );
   });
 
   test(

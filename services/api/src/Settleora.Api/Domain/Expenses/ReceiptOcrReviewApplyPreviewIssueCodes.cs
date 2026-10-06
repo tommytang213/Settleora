@@ -14,6 +14,8 @@ public static class ReceiptOcrReviewApplyPreviewIssueCodes
     public const string LineTotalMismatch = "line_total_mismatch";
     public const string LineSumMismatch = "line_sum_mismatch";
     public const string HeaderTotalMismatch = "header_total_mismatch";
+    public const string TaxReconciliationUnresolved = "tax_reconciliation_unresolved";
+    public const string TaxReconciliationInvalid = "tax_reconciliation_invalid";
     public const string AdjustmentsNotAutoApplied = "adjustments_not_auto_applied";
     public const string AdjustmentCurrencyNotReconciled = "adjustment_currency_not_reconciled";
 
@@ -31,6 +33,8 @@ public static class ReceiptOcrReviewApplyPreviewIssueCodes
         LineTotalMismatch,
         LineSumMismatch,
         HeaderTotalMismatch,
+        TaxReconciliationUnresolved,
+        TaxReconciliationInvalid,
         AdjustmentsNotAutoApplied,
         AdjustmentCurrencyNotReconciled
     ];
