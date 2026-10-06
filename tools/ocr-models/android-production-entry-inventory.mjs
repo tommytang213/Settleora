@@ -1628,6 +1628,13 @@ export const expectedAndroidPackageDigestsBySource = Object.freeze({
   "9279944a35006d0e30420f8dc2dd7243e283f9895ea2a43f11f75d4e12d7bb7a": Object.freeze([
     "c60147e64d135efae8707b6196dfc74d82b4d8f9f406aea9109c58927b9f6343",
   ]),
+  // Included-tax and Apply safety at reconciled source 6faef7ae (19677820 tree).
+  // Canonical Flutter 3.44.8 Release APK passed real signature, archive/path,
+  // catalog, 14-model, legal-resource, and 102-fixture-absence checks.
+  // Exact-head hosted package/native acceptance remains required.
+  "3fbed51a018f9a471fa6f9ddbeef616d6cb8b4e34d685f94bd75f08480bc41e1": Object.freeze([
+    "eb28ec307e9111dbf3778dcc601fd9514d9a2828e2a068a709ed073604c3d255",
+  ]),
 });
 export const expectedAndroidNonOcrEntries = Object.freeze([
   "AndroidManifest.xml",
