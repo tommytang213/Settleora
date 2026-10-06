@@ -189,6 +189,35 @@ List<ReceiptOcrBlockEvidence> _ownedFeeBlocks({
 }
 
 void main() {
+  test(
+    'included-tax extraction preserves a printed net item without inventing a subtotal',
+    () {
+      final preview = const ReceiptOcrParser().parse(
+        'Sample Shop\nNotebook GBP 20.00\nTotal incl. VAT GBP 24.00\n'
+        'VAT included 20% GBP 4.00',
+      );
+      // These are printed candidates. Their downstream Apply semantics remain
+      // blocked on the separately reviewed included-tax/Apply work.
+      expect(preview.items.single.lineTotal, '20.00');
+      expect(preview.total, '24.00');
+      expect(preview.tax, '4.00');
+      expect(preview.subtotal, isNull);
+    },
+  );
+
+  test('included-tax attached code preserves the complete amount token', () {
+    for (final amount in ['4.00', '4.25']) {
+      final preview = const ReceiptOcrParser().parse(
+        'Sample Shop\nNotebook GBP 24.00\nTotal incl. VAT GBP24.00\n'
+        'VAT included 20% GBP$amount',
+      );
+      expect(preview.tax, amount);
+      expect(preview.total, '24.00');
+      expect(preview.items.single.lineTotal, '24.00');
+      expect(preview.reviewHints, isNotEmpty);
+    }
+  });
+
   group('included-tax financial summary ownership', () {
     for (final pair in [
       ('Total incl. VAT', 'VAT included 20%'),

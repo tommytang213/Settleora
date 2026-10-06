@@ -2034,10 +2034,18 @@ class ReceiptOcrParser {
       final amountCurrency = printedHeaderCurrency?.hasExplicitEvidence == true
           ? printedHeaderCurrency!.currency
           : currency;
-      final amount =
-          _isPrimaryTotalCurrencyLine(line, normalized) &&
-              !isSubtotal &&
-              adjustmentRole == null
+      final includedTaxSummary =
+          _includedTaxAmountLinePattern.firstMatch(line) ??
+          _includedTaxTotalLinePattern.firstMatch(line);
+      final amount = includedTaxSummary != null
+          ? _normalizeAmount(
+              includedTaxSummary.namedGroup('prefixAmount') ??
+                  includedTaxSummary.namedGroup('suffixAmount')!,
+              currency: amountCurrency,
+            )
+          : _isPrimaryTotalCurrencyLine(line, normalized) &&
+                !isSubtotal &&
+                adjustmentRole == null
           ? _selectedTotalAmountInLine(line, currency: currency)
           : _lastAmountInLine(line, currency: amountCurrency);
       if (adjustmentRoles.length > 1) {
@@ -8692,8 +8700,8 @@ final _includedTaxAmountLinePattern = _includedTaxSummaryPattern(
 
 RegExp _includedTaxSummaryPattern(String label) => RegExp(
   '^\\s*(?:$label)\\s*:?\\s+'
-  '(?:(?:$_currencyTokenPattern)\\s*$_amountTokenPattern'
-  '|$_amountTokenPattern(?:\\s*(?:$_currencyTokenPattern))?)\\s*\$',
+  '(?:(?:$_currencyTokenPattern)\\s*(?<prefixAmount>$_amountTokenPattern)'
+  '|(?<suffixAmount>$_amountTokenPattern)(?:\\s*(?:$_currencyTokenPattern))?)\\s*\$',
   caseSensitive: false,
 );
 
