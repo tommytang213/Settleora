@@ -1484,8 +1484,9 @@ class ReceiptOcrParser {
     bool metadataHasAdjacentEvidence(ReceiptOcrBlockEvidence metadata) {
       if (!hasGeometry(metadata) || height(metadata) <= 0) return true;
       for (final block in rows.expand((row) => row)) {
-        if (block == metadata || _normalizeOcrLine(block.text).isEmpty)
+        if (block == metadata || _normalizeOcrLine(block.text).isEmpty) {
           continue;
+        }
         if (!hasGeometry(block) || height(block) <= 0) return true;
         if (bottom(block) <= top(metadata) || top(block) >= bottom(metadata)) {
           continue;
