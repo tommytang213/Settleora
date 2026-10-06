@@ -314,6 +314,29 @@ String? receiptOcrTaxModeForSavedEdit(
 ) {
   final mode = previous.taxReconciliationMode;
   if (mode == null) return null;
+  // Header evidence is financial source evidence too. A changed role, currency,
+  // amount, addition or removal cannot inherit the prior tax interpretation.
+  final oldHeaders = [...previous.headerEvidence]
+    ..sort(
+      (a, b) => '${a.role}:${a.currency}'.compareTo('${b.role}:${b.currency}'),
+    );
+  final newHeaders = [...candidate.headerEvidence]
+    ..sort(
+      (a, b) => '${a.role}:${a.currency}'.compareTo('${b.role}:${b.currency}'),
+    );
+  if (oldHeaders.length != newHeaders.length) {
+    return ReceiptOcrTaxReconciliationModeValues.unresolved;
+  }
+  for (var index = 0; index < oldHeaders.length; index++) {
+    if (oldHeaders[index].role != newHeaders[index].role ||
+        oldHeaders[index].currency != newHeaders[index].currency ||
+        !_sameReceiptOcrDecimal(
+          oldHeaders[index].amount,
+          newHeaders[index].amount,
+        )) {
+      return ReceiptOcrTaxReconciliationModeValues.unresolved;
+    }
+  }
   final oldLines = [...previous.lines]
     ..sort((left, right) => left.sortOrder.compareTo(right.sortOrder));
   var sameEvidence =
@@ -424,7 +447,11 @@ String receiptOcrTaxModeFromSupportedEvidence(
   bool hasAmbiguity = false,
 }) {
   const unresolved = ReceiptOcrTaxReconciliationModeValues.unresolved;
-  if (hasAmbiguity || candidate.currency == null) {
+  if (hasAmbiguity ||
+      candidate.currency == null ||
+      candidate.headerEvidence.isNotEmpty) {
+    // Foreign financial headers remain visible evidence, not amounts that a
+    // same-currency tax reconciliation may silently ignore.
     return unresolved;
   }
   final adjustmentTotal = receiptOcrSupportedAdjustmentTotal(candidate);

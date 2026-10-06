@@ -2387,7 +2387,7 @@ class _SettleoraPersonalBillCreateScreenState
 
       final currency = preview.currency?.trim().toUpperCase();
       if (_receiptOcrApplySelection.currency &&
-          settleoraIsSupportedCurrency(currency)) {
+          _receiptOcrCurrencyCanApply(preview)) {
         _currencyController.text = currency!;
       }
 
@@ -3755,9 +3755,11 @@ class _ReceiptOcrApplySelectionList extends StatelessWidget {
         _ReceiptOcrApplyOption(
           section: _ReceiptOcrApplySection.currency,
           label: 'Currency',
-          subtitle: preview.currency!.trim().toUpperCase(),
+          subtitle: _receiptOcrCurrencyCanApply(preview)
+              ? preview.currency!.trim().toUpperCase()
+              : 'Review receipt items before applying currency',
           selected: selection.currency,
-          enabled: settleoraIsSupportedCurrency(preview.currency),
+          enabled: _receiptOcrCurrencyCanApply(preview),
         ),
       if (preview.items.isNotEmpty)
         _ReceiptOcrApplyOption(
@@ -4207,7 +4209,7 @@ bool _receiptOcrSelectionHasAvailableSections(
 ) {
   return (selection.merchant && (preview.merchant ?? '').trim().isNotEmpty) ||
       (selection.date && (preview.receiptDate ?? '').trim().isNotEmpty) ||
-      (selection.currency && settleoraIsSupportedCurrency(preview.currency)) ||
+      (selection.currency && _receiptOcrCurrencyCanApply(preview)) ||
       (selection.items && _receiptOcrItemsCanApply(preview));
 }
 
@@ -4222,7 +4224,7 @@ bool _receiptOcrSelectionFullyApplied(
     return false;
   }
   if ((preview.currency ?? '').trim().isNotEmpty &&
-      (!settleoraIsSupportedCurrency(preview.currency) ||
+      (!_receiptOcrCurrencyCanApply(preview) ||
           preview.currencyProvenance ==
               ReceiptOcrCurrencyProvenance.defaultFallback ||
           preview.currencyProvenance ==
@@ -4235,6 +4237,16 @@ bool _receiptOcrSelectionFullyApplied(
     return false;
   }
   return true;
+}
+
+bool _receiptOcrCurrencyCanApply(ReceiptOcrPreview preview) {
+  // Currency changes affect existing bill amounts. Reject that financial part
+  // of Apply when the accompanying item contribution cannot be accepted.
+  return settleoraIsSupportedCurrency(preview.currency) &&
+      preview.currencyProvenance != ReceiptOcrCurrencyProvenance.unresolved &&
+      preview.currencyProvenance !=
+          ReceiptOcrCurrencyProvenance.defaultFallback &&
+      (preview.items.isEmpty || _receiptOcrItemsCanApply(preview));
 }
 
 bool _receiptOcrItemsCanApply(ReceiptOcrPreview preview) {
@@ -4388,6 +4400,7 @@ bool _receiptOcrTaxContributionCanApply(ReceiptOcrPreview preview) {
   final tax = receiptOcrDecimalUnits(candidate.taxAmount);
   if (tax == null) return false;
   if (tax == BigInt.zero) return true;
+  if (candidate.headerEvidence.isNotEmpty) return false;
   final gross = receiptOcrDecimalUnits(candidate.grandTotalAmount);
   if (gross == null) return false;
   var contribution = BigInt.zero;
@@ -7390,7 +7403,7 @@ class _SettleoraGroupBillCreateScreenState
 
       final currency = preview.currency?.trim().toUpperCase();
       if (_receiptOcrApplySelection.currency &&
-          settleoraIsSupportedCurrency(currency)) {
+          _receiptOcrCurrencyCanApply(preview)) {
         final previousCurrency = _currencyController.text.trim().toUpperCase();
         _currencyController.text = currency!;
         for (final item in _itemControllers) {

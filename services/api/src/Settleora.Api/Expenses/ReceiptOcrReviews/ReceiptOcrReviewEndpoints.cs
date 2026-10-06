@@ -3103,6 +3103,23 @@ internal static class ReceiptOcrReviewEndpoints
                 }
             }
         }
+        if (submitted.HeaderEvidenceSupplied)
+        {
+            var oldHeaders = review.HeaderEvidence.OrderBy(item => item.Role, StringComparer.Ordinal)
+                .ThenBy(item => item.Currency, StringComparer.Ordinal).ToArray();
+            var newHeaders = submitted.HeaderEvidence.OrderBy(item => item.Role, StringComparer.Ordinal)
+                .ThenBy(item => item.Currency, StringComparer.Ordinal).ToArray();
+            if (oldHeaders.Length != newHeaders.Length) return false;
+            for (var index = 0; index < oldHeaders.Length; index++)
+            {
+                if (oldHeaders[index].Role != newHeaders[index].Role
+                    || oldHeaders[index].Currency != newHeaders[index].Currency
+                    || oldHeaders[index].Amount != newHeaders[index].Amount)
+                {
+                    return false;
+                }
+            }
+        }
         return true;
     }
 

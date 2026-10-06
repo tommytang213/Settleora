@@ -130,7 +130,10 @@ void main() {
                 .widget<CurrencySelector>(
                   find.descendant(
                     of: billCurrency,
-                    matching: find.byType(CurrencySelector, skipOffstage: false),
+                    matching: find.byType(
+                      CurrencySelector,
+                      skipOffstage: false,
+                    ),
                     skipOffstage: false,
                   ),
                 )
@@ -142,7 +145,10 @@ void main() {
                 .widget<CurrencySelector>(
                   find.descendant(
                     of: itemCurrency,
-                    matching: find.byType(CurrencySelector, skipOffstage: false),
+                    matching: find.byType(
+                      CurrencySelector,
+                      skipOffstage: false,
+                    ),
                   ),
                 )
                 .value,

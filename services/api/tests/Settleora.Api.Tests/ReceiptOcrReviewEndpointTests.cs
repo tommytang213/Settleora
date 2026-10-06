@@ -4181,6 +4181,7 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         return await dbContext.Set<ReceiptOcrReview>()
             .AsNoTracking()
             .Include(review => review.Lines)
+            .Include(review => review.HeaderEvidence)
             .SingleAsync(review => review.Id == reviewId);
     }
 

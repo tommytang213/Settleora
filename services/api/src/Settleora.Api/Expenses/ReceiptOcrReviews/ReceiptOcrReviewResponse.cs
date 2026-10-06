@@ -392,6 +392,13 @@ internal sealed record ReceiptOcrReviewApplyPreviewResponse(
         {
             return false;
         }
+        if (review.HeaderEvidence.Count > 0 && (mode is not null || review.TaxAmount is > 0m))
+        {
+            // Preserved foreign financial headers cannot be reconciled by the
+            // same-currency scalar equation, even with an explicit client mode.
+            taxModeInvalid = true;
+            return false;
+        }
         decimal baseAmount;
         if (review.SubtotalAmount.HasValue)
         {
