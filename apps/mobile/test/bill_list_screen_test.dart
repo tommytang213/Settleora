@@ -175,10 +175,6 @@ void main() {
         final actual = tester.widget<CurrencySelector>(billCurrency).value;
         // Diagnoses the native stage's two possibilities without changing its
         // expected USD: lookup succeeds, and rejected financial Apply keeps EUR.
-        print(
-          'UI_APPLY_TRACE group=$group selected=$selected enabled=$enabled '
-          'finderCount=${billCurrency.evaluate().length} after=$actual expected=${preview.currency}',
-        );
         expect(actual, 'EUR');
         expect(enabled, isFalse);
         expect(selected, isFalse);

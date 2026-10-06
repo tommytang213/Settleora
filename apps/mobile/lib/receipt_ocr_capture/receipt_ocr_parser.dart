@@ -4738,8 +4738,9 @@ Set<int> _ownedSupportHoursRows(List<List<ReceiptOcrBlockEvidence>> rows) {
     final description = descriptions.single;
     if (_blockRight(description) >= _blockLeft(amount) ||
         top(description) >= bottom(amount) ||
-        bottom(description) <= top(amount))
+        bottom(description) <= top(amount)) {
       continue;
+    }
     final headings = [...rows[header - 1], ...rows[header]]
         .where(
           (b) =>
@@ -4775,8 +4776,9 @@ Set<int> _ownedSupportHoursRows(List<List<ReceiptOcrBlockEvidence>> rows) {
           top(b) < bottom(contact) ||
           top(b) - bottom(contact) > height(contact) * 4 ||
           (_blockLeft(b) - _blockLeft(contact)).abs() > height(contact) ||
-          _blockLeft(b) - _blockRight(amount) < height(amount))
+          _blockLeft(b) - _blockRight(amount) < height(amount)) {
         continue;
+      }
       // Misgrouped/overlapping evidence from another row cannot be hidden by
       // a support label, even when this row itself contains only one block.
       final overlap = rows
