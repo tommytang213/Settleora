@@ -1408,6 +1408,18 @@ class ReceiptOcrParser {
           : null;
     }
 
+    bool hasTotalEvidence(String text) {
+      final normalized = _normalizeOcrLine(text);
+      final lower = normalized.toLowerCase();
+      // Preserve every existing total-recognition path, including joined labels
+      // and multi-amount priority totals. The sentinel recognizes labels only.
+      return _hasTotalLabel(normalized, lower) ||
+          _isPrimaryTotalCurrencyLine(normalized, lower) ||
+          _hasPriorityTotalLabel(normalized) ||
+          (!_lineHasAmount(normalized) &&
+              _hasTotalLabel('$normalized 0', '$lower 0'));
+    }
+
     final value = ownedAmount(money.text);
     if (value == null) return null;
     // A phone-free projection must not newly reconcile a document that has a
@@ -1424,24 +1436,10 @@ class ReceiptOcrParser {
             _isFinancialLabelWithAdjacentAmount(lines, rows, otherIndex)
             ? '${lines[otherIndex]} ${lines[otherIndex + 1]}'
             : lines[otherIndex];
-        // The existing label grammar requires a number. Probe it with a
-        // sentinel only to recognize a missing total; it never supplies money.
-        final unresolvedLabel =
-            !_lineHasAmount(effectiveLine) &&
-            _hasTotalLabel(
-              '$effectiveLine 0',
-              '${effectiveLine.toLowerCase()} 0',
-            );
         // Separate payment/support copy cannot erase a recognized total cell.
         // Unknown localized ownership declines even when its amount agrees.
-        final separateTotal = other.any((block) {
-          final text = _normalizeOcrLine(block.text);
-          final probe = _lineHasAmount(text) ? text : '$text 0';
-          return _hasTotalLabel(probe, probe.toLowerCase());
-        });
-        if (separateTotal ||
-            unresolvedLabel ||
-            _hasTotalLabel(effectiveLine, effectiveLine.toLowerCase())) {
+        if (other.any((block) => hasTotalEvidence(block.text)) ||
+            hasTotalEvidence(effectiveLine)) {
           return null;
         }
         continue;
@@ -1477,10 +1475,7 @@ class ReceiptOcrParser {
           continue;
         }
         final extraText = _normalizeOcrLine(extra.text);
-        final totalProbe = _lineHasAmount(extraText)
-            ? extraText
-            : '$extraText 0';
-        if (_hasTotalLabel(totalProbe, totalProbe.toLowerCase()) ||
+        if (hasTotalEvidence(extraText) ||
             _printedCurrencyMarkerMatches(extraText).isNotEmpty ||
             _unsupportedIsoCurrencyMarkers(extraText).isNotEmpty ||
             financialSymbol.hasMatch(extraText) ||

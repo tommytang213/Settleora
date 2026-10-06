@@ -390,6 +390,20 @@ void main() {
       }
     });
 
+    test('preserves joined-label multi-amount total conflicts', () {
+      for (final scale in [0.5, 1.0, 2.0]) {
+        for (final label in ['Grand Total', 'Total Due', 'Balance Due']) {
+          final preview = parse(
+            scale: scale,
+            label: 'Grand Total',
+            priorTotal: '$label\$90.00 / USD 91.00',
+          );
+          expect(preview.total, '91.00');
+          expect(preview.reviewHints, isNotEmpty);
+        }
+      }
+    });
+
     test('retains competing cells beside an otherwise matching total', () {
       for (final scale in [0.5, 1.0, 2.0]) {
         for (final split in [false, true]) {
