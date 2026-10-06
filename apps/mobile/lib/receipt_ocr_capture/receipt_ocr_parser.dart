@@ -4653,16 +4653,54 @@ Set<int>? _ownedSummaryCardHeaderRows(
   // Another nearby date heading can own the same value without intersecting
   // the selected label/value rectangle (for example, a heading above it).
   final dateOwner = RegExp(
+    // Include the primary and secondary roles already used by _detectDate.
+    r'\b(?:bill|invoice|statement|transaction|order|purchase|issued)\s*(?:date|on)?\b|'
+    r'\b(?:due|pay\s+by|payment|paid|previous|prior|last|refund|reference|meter|reading|billing\s+period|service\s+period|period\s+from|period\s+to)\b|'
     r'(?<![\p{L}\p{M}])dates?(?![\p{L}\p{M}])|'
     r'^(?:invoice|bill|statement|due|issue|payment|receipt|order|purchase|expiry|expiration)\s*date\s*:?$|'
     r'^(?:issued|due|expires?|expiry|paid|received|billed|created|posted|processed|shipped|ordered|purchased)(?:\s+on)?\s*:?$',
     caseSensitive: false,
     unicode: true,
   );
+  bool ownsSeparatePeriod(ReceiptOcrBlockEvidence label) {
+    if (!RegExp(
+      r'^(?:billing|service)\s+period\s*:?$',
+      caseSensitive: false,
+    ).hasMatch(_normalizeOcrLine(label.text))) {
+      return false;
+    }
+    final a = boxes[label]!;
+    final height = a.bottom - a.top;
+    final values = allBlocks.where((b) {
+      if (b == label || !_matchesUtilityPeriod(_normalizeOcrLine(b.text))) {
+        return false;
+      }
+      final value = boxes[b]!;
+      final top = a.top > value.top ? a.top : value.top;
+      final bottom = a.bottom < value.bottom ? a.bottom : value.bottom;
+      return value.left > a.right &&
+          value.left - a.right <= height * 4 &&
+          bottom - top >= height * 0.5;
+    }).toList();
+    if (values.length != 1) return false;
+    final value = boxes[values.single]!;
+    final top = a.top < value.top ? a.top : value.top;
+    final bottom = a.bottom > value.bottom ? a.bottom : value.bottom;
+    return !allBlocks.any((b) {
+      if (b == label || b == values.single) return false;
+      final other = boxes[b]!;
+      return other.right > a.left &&
+          other.left < value.right &&
+          other.bottom > top &&
+          other.top < bottom;
+    });
+  }
+
   if (allBlocks.any((b) {
     if (b == dateLabel ||
         b == date ||
-        !dateOwner.hasMatch(_normalizeOcrLine(b.text))) {
+        !dateOwner.hasMatch(_normalizeOcrLine(b.text)) ||
+        ownsSeparatePeriod(b)) {
       return false;
     }
     final other = boxes[b]!;
@@ -4696,14 +4734,14 @@ Set<int>? _ownedSummaryCardHeaderRows(
   );
   final currencySymbol = RegExp(r'\p{Sc}', unicode: true);
   final punctuationOnly = RegExp(r'^[\p{P}\p{S}\s]+$', unicode: true);
-  final rateSymbol = RegExp(r'[%‰‱]');
+  final rateSymbol = RegExp(r'[%‰‱٪؉؊％﹪]');
   final mixedSign = RegExp(
     r'[\p{Sm}*/➖()]|(?<![\p{L}\p{M}])\p{Dash}|\p{Dash}(?![\p{L}\p{M}])',
     unicode: true,
   );
   final digit = RegExp(r'\p{N}', unicode: true);
   final creditDebit = RegExp(
-    r'(?<![\p{L}\p{M}])(?:cr|dr|credit|debit)(?![\p{L}\p{M}])',
+    r'(?<![\p{L}\p{M}])(?:c[.\s]*r\.?|d[.\s]*r\.?|credit|debit)(?![\p{L}\p{M}])',
     caseSensitive: false,
     unicode: true,
   );
@@ -4731,6 +4769,13 @@ Set<int>? _ownedSummaryCardHeaderRows(
       continue;
     }
     final text = _normalizeOcrLine(neighbor.text);
+    // Check every existing named denomination independently: a priority
+    // resolver must not conceal a second conflicting denomination phrase.
+    final upper = text.toUpperCase();
+    if ((_hasExplicitHongKongCurrencyMarker(upper) && currency != 'HKD') ||
+        (_hasExplicitUnitedStatesCurrencyMarker(upper) && currency != 'USD')) {
+      return null;
+    }
     final markers = currencyAtoms
         .allMatches(text)
         .map((m) => m.group(0)!)

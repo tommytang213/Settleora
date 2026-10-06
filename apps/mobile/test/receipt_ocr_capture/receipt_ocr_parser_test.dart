@@ -203,6 +203,35 @@ void main() {
         (5, qualifier, 955.0, 240.0, false),
         (5, qualifier, 1300.0, 240.0, true),
       ],
+      for (final phrase in [
+        ('Hong Kong Dollars', false),
+        ('HK Dollars', false),
+        ('US Dollars', true),
+        ('U.S. Dollars', true),
+        ('United States Dollars', true),
+        ('Hong Kong Dollars and US Dollars', false),
+      ]) ...[
+        (3, phrase.$1, 710.0, 194.0, phrase.$2),
+        (5, phrase.$1, 955.0, 240.0, phrase.$2),
+        (5, phrase.$1, 1300.0, 240.0, true),
+      ],
+      for (final qualifier in [
+        'C.R.',
+        'D.R.',
+        'C R',
+        'D R',
+        'Note C.R.',
+        'Note D.R.',
+        '٪ p.a.',
+        '؉ p.a.',
+        '؊ p.a.',
+        '％ p.a.',
+        '﹪ p.a.',
+      ]) ...[
+        (3, qualifier, 710.0, 194.0, false),
+        (5, qualifier, 955.0, 240.0, false),
+        (5, qualifier, 1300.0, 240.0, true),
+      ],
       (3, 'EUR', 710.0, 194.0, false),
       (3, 'ＥＵＲ', 710.0, 194.0, false),
       (5, 'ＥＵＲ', 955.0, 240.0, false),
@@ -482,6 +511,88 @@ void main() {
             expect(p.blocks, containsAll(evidence));
           }
         }
+        for (final heading in ['Billing Period', 'Service Period']) {
+          for (final variant in [
+            'owned',
+            'missing',
+            'extra-money',
+            'duplicate',
+            'corridor',
+            'incomplete',
+          ]) {
+            final blocks = <ReceiptOcrBlockEvidence>[];
+            for (final b in _summaryCardBlocks()) {
+              blocks.add(
+                ReceiptOcrBlockEvidence(
+                  text: b.text,
+                  row: b.row >= 5 ? b.row + 1 : b.row,
+                  order: b.order,
+                  points: b.points,
+                ),
+              );
+              if (b.row == 4 && b.text == 'USD 42.00') {
+                blocks.add(
+                  ReceiptOcrBlockEvidence(
+                    text: heading,
+                    row: 5,
+                    order: 30,
+                    points: const [
+                      ReceiptOcrPoint(x: 371, y: 264),
+                      ReceiptOcrPoint(x: 467, y: 264),
+                      ReceiptOcrPoint(x: 467, y: 284),
+                      ReceiptOcrPoint(x: 371, y: 284),
+                    ],
+                  ),
+                );
+                if (variant != 'missing') {
+                  for (var n = 0; n < (variant == 'duplicate' ? 2 : 1); n++) {
+                    blocks.add(
+                      ReceiptOcrBlockEvidence(
+                        text: variant == 'extra-money'
+                            ? 'Mar 5, 2026 – Apr 4, 2026 1200'
+                            : variant == 'incomplete'
+                            ? 'Mar 5, 2026 –'
+                            : 'Mar 5, 2026 – Apr 4, 2026',
+                        row: 5,
+                        order: 31 + n,
+                        points: const [
+                          ReceiptOcrPoint(x: 531, y: 265),
+                          ReceiptOcrPoint(x: 699, y: 265),
+                          ReceiptOcrPoint(x: 699, y: 285),
+                          ReceiptOcrPoint(x: 531, y: 285),
+                        ],
+                      ),
+                    );
+                  }
+                }
+                if (variant == 'corridor') {
+                  blocks.add(
+                    const ReceiptOcrBlockEvidence(
+                      text: 'Note',
+                      row: 5,
+                      order: 34,
+                      points: [
+                        ReceiptOcrPoint(x: 485, y: 265),
+                        ReceiptOcrPoint(x: 515, y: 265),
+                        ReceiptOcrPoint(x: 515, y: 285),
+                        ReceiptOcrPoint(x: 485, y: 285),
+                      ],
+                    ),
+                  );
+                }
+              }
+            }
+            final evidence = blocks.map(scaled).toList();
+            final p = _parseBoundedUtility(evidence);
+            expect(
+              p.itemLineDecisions[4] ==
+                  ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+              variant == 'owned',
+              reason: '$heading $variant scale=$scale',
+            );
+            expect(p.blocks, containsAll(evidence));
+          }
+        }
         for (final heading in [
           'Due Date',
           'Issued on',
@@ -490,6 +601,27 @@ void main() {
           'Expires',
           'Date',
           'InvoiceDate',
+          'Bill',
+          'Invoice',
+          'Statement',
+          'Transaction',
+          'Order',
+          'Purchase',
+          'Issued',
+          'Pay By',
+          'Payment',
+          'Paid',
+          'Previous',
+          'Prior',
+          'Last',
+          'Refund',
+          'Reference',
+          'Meter',
+          'Reading',
+          'Billing Period',
+          'Service Period',
+          'Period From',
+          'Period To',
         ]) {
           for (final position in [
             (531.0, 207.0, false),
