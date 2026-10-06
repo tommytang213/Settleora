@@ -489,17 +489,35 @@ internal static class ReceiptOcrReviewEndpoints
         {
             if (replaceLines)
             {
-                var existingLineIds = review.Lines.Select(line => line.Id).ToArray();
-                if (await dbContext.Set<ExpenseBillItem>().AnyAsync(
-                    item => item.SourceReceiptOcrReviewLineId.HasValue
-                        && existingLineIds.Contains(item.SourceReceiptOcrReviewLineId.Value),
-                    cancellationToken))
+                var existingLines = review.Lines.ToArray();
+                var existingLineIds = existingLines.Select(line => line.Id).ToArray();
+                var referencedLineIds = (await dbContext.Set<ExpenseBillItem>()
+                    .Where(item => item.SourceReceiptOcrReviewLineId.HasValue
+                        && existingLineIds.Contains(item.SourceReceiptOcrReviewLineId.Value))
+                    .Select(item => item.SourceReceiptOcrReviewLineId!.Value)
+                    .Distinct().ToArrayAsync(cancellationToken)).ToHashSet();
+                foreach (var line in existingLines)
                 {
-                    // Historical applied-line references cannot be discarded.
-                    // Material corrections need a separately approved retention migration.
-                    return ReceiptOcrReviewConflict();
+                    // Only bill-item references justify historical retention.
+                    // Never-applied corrections retain the existing replacement behavior.
+                    if (referencedLineIds.Contains(line.Id)) line.SupersededAtUtc = now;
+                    else dbContext.Set<ReceiptOcrReviewLine>().Remove(line);
                 }
-                dbContext.Set<ReceiptOcrReviewLine>().RemoveRange(review.Lines.ToArray());
+                if (referencedLineIds.Count > 0 && transaction is not null)
+                {
+                    try
+                    {
+                        // Free active sort-order keys before adding replacements.
+                        // The outer Save/Apply transaction keeps both saves atomic.
+                        await dbContext.SaveChangesAsync(cancellationToken);
+                    }
+                    catch (DbUpdateException)
+                    {
+                        await transaction.RollbackAsync(cancellationToken);
+                        dbContext.ChangeTracker.Clear();
+                        return ReceiptOcrReviewSaveFailed();
+                    }
+                }
             }
             if (submittedReview.AdjustmentEvidenceSupplied)
             {

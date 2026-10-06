@@ -80,10 +80,12 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         Assert.Equal(34m, bill.TotalAmount);
     }
 
+    private const string BeforeLineHistoryMigration = "20261002094351_AddReceiptOcrReviewTaxReconciliationMode";
+
     [OcrPostgresTheory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task ReviewRoundThreeSaveRetryPreservesReferencesAndBlocksUnapprovedLineReplacement(bool groupRoute)
+    public async Task ApprovedLineHistorySavesCorrectionsAfterApply(bool groupRoute)
     {
         var context = await CreatePostgresFactoryAsync();
         using var testFactory = context.Factory;
@@ -94,29 +96,16 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         using (var applied = await client.SendAsync(request))
             Assert.Equal(HttpStatusCode.OK, applied.StatusCode);
         var originalLine = setup.Review.Lines.Single();
-        foreach (var correction in new[] { false, true })
+        foreach (var correction in new[] { false, true, false })
         {
             context.TimeProvider.SetUtcNow(context.TimeProvider.GetUtcNow().AddMinutes(1));
-            var body = RoundThreeReviewBody(correction);
             using var request = CreateJsonBearerRequest(HttpMethod.Put, setup.ReviewPath,
-                setup.Token, body);
+                setup.Token, RoundThreeReviewBody(correction));
             using var saved = await client.SendAsync(request);
-            if (correction)
-            {
-                Assert.Equal(HttpStatusCode.Conflict, saved.StatusCode);
-                var unchanged = await ReadReceiptOcrReviewAsync(testFactory, setup.Review.Id);
-                Assert.Equal(originalLine.Id, Assert.Single(unchanged.Lines).Id);
-                Assert.Equal(24m, unchanged.Lines.Single().LineTotalAmount);
-                var unchangedBill = await ReadBillAsync(testFactory, setup.BillId);
-                Assert.Equal(34m, unchangedBill.TotalAmount);
-                Assert.Equal(24m, Assert.Single(unchangedBill.Items.Where(item =>
-                    item.DeletedAtUtc is null && item.SourceReceiptOcrReviewId == setup.Review.Id)).Amount);
-                continue;
-            }
-            Assert.True(saved.IsSuccessStatusCode,
-                $"Save retry after Apply failed: {saved.StatusCode}; {await saved.Content.ReadAsStringAsync()}");
+            Assert.True(saved.IsSuccessStatusCode, await saved.Content.ReadAsStringAsync());
             var review = await ReadReceiptOcrReviewAsync(testFactory, setup.Review.Id);
             Assert.Equal(correction ? 2 : 1, review.Lines.Count);
+            Assert.All(review.Lines, line => Assert.Null(line.SupersededAtUtc));
             await using (var scope = testFactory.Services.CreateAsyncScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
@@ -124,6 +113,14 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
                     .SingleAsync(line => line.Id == originalLine.Id);
                 Assert.Equal(originalLine.Text, historical.Text);
                 Assert.Equal(24m, historical.LineTotalAmount);
+                Assert.Equal(originalLine.CreatedAtUtc, historical.CreatedAtUtc);
+                Assert.Equal(originalLine.UpdatedAtUtc, historical.UpdatedAtUtc);
+                var sourceIds = await db.Set<ExpenseBillItem>()
+                    .Where(item => item.SourceReceiptOcrReviewId == setup.Review.Id)
+                    .Select(item => item.SourceReceiptOcrReviewLineId!.Value).ToArrayAsync();
+                Assert.All(await db.Set<ReceiptOcrReviewLine>().IgnoreQueryFilters()
+                    .Where(line => line.ReceiptOcrReviewId == setup.Review.Id && line.SupersededAtUtc != null)
+                    .ToArrayAsync(), line => Assert.Contains(line.Id, sourceIds));
             }
             var before = await ReadBillAsync(testFactory, setup.BillId);
             Assert.Equal(34m, before.TotalAmount);
@@ -136,6 +133,224 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
             Assert.Equal(34m, after.TotalAmount);
             Assert.Equal(correction ? 2 : 1, after.Items.Count(item =>
                 item.DeletedAtUtc is null && item.SourceReceiptOcrReviewId == setup.Review.Id));
+        }
+        var snapshot = await RelationalReceiptSnapshotAsync(testFactory, setup.BillId, setup.Review.Id);
+        await using (var scope = testFactory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+            var error = await Assert.ThrowsAsync<Npgsql.PostgresException>(() =>
+                db.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>().MigrateAsync(BeforeLineHistoryMigration));
+            Assert.Equal("P0001", error.SqlState);
+            Assert.Contains("referenced historical lines exist", error.MessageText);
+        }
+        Assert.Equal(snapshot, await RelationalReceiptSnapshotAsync(testFactory, setup.BillId, setup.Review.Id));
+        await using (var scope = testFactory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+            Assert.Contains(await db.Database.GetAppliedMigrationsAsync(), name => name.EndsWith("_RetainAppliedReceiptOcrReviewLines"));
+            Assert.NotEmpty(await db.Set<ReceiptOcrReviewLine>().IgnoreQueryFilters()
+                .Where(line => line.ReceiptOcrReviewId == setup.Review.Id && line.SupersededAtUtc != null).ToArrayAsync());
+        }
+    }
+
+    [OcrPostgresTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ApprovedLineHistoryDoesNotRetainNeverAppliedCorrections(bool groupRoute)
+    {
+        var context = await CreatePostgresFactoryAsync();
+        using var testFactory = context.Factory;
+        var setup = await SeedRoundThreeReviewAsync(context, groupRoute);
+        using var client = testFactory.CreateClient();
+        var original = setup.Review.Lines.Single();
+        foreach (var split in new[] { true, false, true })
+        {
+            context.TimeProvider.SetUtcNow(context.TimeProvider.GetUtcNow().AddMinutes(1));
+            using var request = CreateJsonBearerRequest(HttpMethod.Put, setup.ReviewPath,
+                setup.Token, RoundThreeReviewBody(split));
+            using var response = await client.SendAsync(request);
+            Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
+            await using var scope = testFactory.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+            var allLines = await db.Set<ReceiptOcrReviewLine>().IgnoreQueryFilters()
+                .Where(line => line.ReceiptOcrReviewId == setup.Review.Id).ToArrayAsync();
+            Assert.Equal(split ? 2 : 1, allLines.Length);
+            Assert.DoesNotContain(allLines, line => line.Id == original.Id);
+            Assert.All(allLines, line => Assert.Null(line.SupersededAtUtc));
+        }
+        Assert.Equal(10m, (await ReadBillAsync(testFactory, setup.BillId)).TotalAmount);
+    }
+
+    [OcrPostgresTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ApprovedLineHistoryRollsBackRetirementWhenReplacementFails(bool groupRoute)
+    {
+        var failure = new OcrReplacementFailure();
+        var context = await CreatePostgresFactoryAsync(extraInterceptor: failure);
+        using var testFactory = context.Factory;
+        var setup = await SeedRoundThreeReviewAsync(context, groupRoute);
+        using var client = testFactory.CreateClient();
+        using (var request = CreateJsonBearerRequest(HttpMethod.Post, setup.ApplyPath,
+            setup.Token, ApplyRequestJson(setup.Review.UpdatedAtUtc)))
+        using (var applied = await client.SendAsync(request))
+            Assert.Equal(HttpStatusCode.OK, applied.StatusCode);
+        var snapshot = await RelationalReceiptSnapshotAsync(testFactory, setup.BillId, setup.Review.Id);
+        failure.Enabled = true;
+        context.TimeProvider.SetUtcNow(WriteTimestamp);
+        using var replacement = CreateJsonBearerRequest(HttpMethod.Put, setup.ReviewPath,
+            setup.Token, RoundThreeReviewBody(true));
+        using var rejected = await client.SendAsync(replacement);
+        Assert.Equal(HttpStatusCode.InternalServerError, rejected.StatusCode);
+        Assert.Equal(1, failure.CompletedRetirementFlushes);
+        Assert.Equal(1, failure.RejectedReplacementSaves);
+        Assert.Equal(snapshot, await RelationalReceiptSnapshotAsync(testFactory, setup.BillId, setup.Review.Id));
+        var restored = await ReadReceiptOcrReviewAsync(testFactory, setup.Review.Id);
+        Assert.Equal(setup.Review.UpdatedAtUtc, restored.UpdatedAtUtc);
+        Assert.Equal(setup.Review.Lines.Single().Id, Assert.Single(restored.Lines).Id);
+        Assert.Null(restored.Lines.Single().SupersededAtUtc);
+    }
+
+    [OcrPostgresTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ApprovedLineHistorySerializesCorrectionWithApplyAndRejectsStaleApply(bool groupRoute)
+    {
+        var barrier = new OcrApplySaveBarrier();
+        var observer = new OcrWriteLockObserver();
+        var context = await CreatePostgresFactoryAsync(barrier, observer);
+        using var testFactory = context.Factory;
+        var setup = await SeedRoundThreeReviewAsync(context, groupRoute);
+        using var client = testFactory.CreateClient();
+        barrier.Enabled = observer.Enabled = true;
+        using var applyRequest = CreateJsonBearerRequest(HttpMethod.Post, setup.ApplyPath,
+            setup.Token, ApplyRequestJson(setup.Review.UpdatedAtUtc));
+        var apply = client.SendAsync(applyRequest);
+        await barrier.FirstSave.Task.WaitAsync(TimeSpan.FromSeconds(15));
+        context.TimeProvider.SetUtcNow(WriteTimestamp);
+        using var correctionRequest = CreateJsonBearerRequest(HttpMethod.Put, setup.ReviewPath,
+            setup.Token, RoundThreeReviewBody(true));
+        var correction = client.SendAsync(correctionRequest);
+        try
+        {
+            await observer.SecondLockAttempt.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            Assert.False(correction.IsCompleted);
+        }
+        finally { barrier.Release.TrySetResult(); }
+        using var applied = await apply.WaitAsync(TimeSpan.FromSeconds(15));
+        using var corrected = await correction.WaitAsync(TimeSpan.FromSeconds(15));
+        Assert.Equal(HttpStatusCode.OK, applied.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, corrected.StatusCode);
+        var review = await ReadReceiptOcrReviewAsync(testFactory, setup.Review.Id);
+        Assert.Equal(2, review.Lines.Count);
+        Assert.NotEqual(setup.Review.UpdatedAtUtc, review.UpdatedAtUtc);
+        using (var stale = CreateJsonBearerRequest(HttpMethod.Post, setup.ApplyPath,
+            setup.Token, ApplyRequestJson(setup.Review.UpdatedAtUtc)))
+        using (var rejected = await client.SendAsync(stale)) Assert.Equal(HttpStatusCode.Conflict, rejected.StatusCode);
+        Assert.Equal(34m, (await ReadBillAsync(testFactory, setup.BillId)).TotalAmount);
+        using (var fresh = CreateJsonBearerRequest(HttpMethod.Post, setup.ApplyPath,
+            setup.Token, ApplyRequestJson(review.UpdatedAtUtc)))
+        using (var accepted = await client.SendAsync(fresh)) Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
+        var finalBill = await ReadBillAsync(testFactory, setup.BillId);
+        Assert.Equal(34m, finalBill.TotalAmount);
+        Assert.Equal(2, finalBill.Items.Count(item => item.DeletedAtUtc is null && item.SourceReceiptOcrReviewId == setup.Review.Id));
+    }
+
+    [OcrPostgresTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ApprovedLineHistoryUpgradeAndEmptyHistoryRollbackPreserveExistingData(bool groupRoute)
+    {
+        var context = await CreatePostgresFactoryAsync();
+        using var testFactory = context.Factory;
+        var setup = await SeedRoundThreeReviewAsync(context, groupRoute);
+        using var client = testFactory.CreateClient();
+        using (var request = CreateJsonBearerRequest(HttpMethod.Post, setup.ApplyPath,
+            setup.Token, ApplyRequestJson(setup.Review.UpdatedAtUtc)))
+        using (var applied = await client.SendAsync(request)) Assert.Equal(HttpStatusCode.OK, applied.StatusCode);
+        var before = await RelationalReceiptSnapshotAsync(testFactory, setup.BillId, setup.Review.Id, omitRetirementColumn: true);
+        await using (var scope = testFactory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+            await db.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>().MigrateAsync(BeforeLineHistoryMigration);
+            Assert.DoesNotContain(await db.Database.GetAppliedMigrationsAsync(), name => name.EndsWith("_RetainAppliedReceiptOcrReviewLines"));
+        }
+        Assert.Equal(before, await RelationalReceiptSnapshotAsync(testFactory, setup.BillId, setup.Review.Id, omitRetirementColumn: true));
+        await using (var scope = testFactory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+            await db.Database.MigrateAsync();
+            Assert.False(db.Database.HasPendingModelChanges());
+        }
+        Assert.Equal(before, await RelationalReceiptSnapshotAsync(testFactory, setup.BillId, setup.Review.Id, omitRetirementColumn: true));
+        var upgraded = await ReadReceiptOcrReviewAsync(testFactory, setup.Review.Id);
+        Assert.Equal(setup.Review.Lines.Single().Id, Assert.Single(upgraded.Lines).Id);
+        Assert.Null(upgraded.Lines.Single().SupersededAtUtc);
+        Assert.Equal(34m, (await ReadBillAsync(testFactory, setup.BillId)).TotalAmount);
+    }
+
+    private static async Task<string> RelationalReceiptSnapshotAsync(
+        WebApplicationFactory<Program> testFactory, Guid billId, Guid reviewId, bool omitRetirementColumn = false)
+    {
+        await using var scope = testFactory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        await db.Database.OpenConnectionAsync();
+        await using var command = db.Database.GetDbConnection().CreateCommand();
+        var lineProjection = omitRetirementColumn ? "to_jsonb(l) - 'superseded_at_utc'" : "to_jsonb(l)";
+        command.CommandText = $"""
+            SELECT jsonb_build_object(
+              'review', (SELECT to_jsonb(r) FROM receipt_ocr_reviews r WHERE r.id = @review),
+              'lines', (SELECT jsonb_agg({lineProjection} ORDER BY l.id) FROM receipt_ocr_review_lines l WHERE l.receipt_ocr_review_id = @review),
+              'bill', (SELECT to_jsonb(b) FROM expense_bills b WHERE b.id = @bill),
+              'items', (SELECT jsonb_agg(to_jsonb(i) ORDER BY i.id) FROM expense_bill_items i WHERE i.expense_bill_id = @bill),
+              'payers', (SELECT jsonb_agg(to_jsonb(p) ORDER BY p.id) FROM expense_bill_payers p WHERE p.expense_bill_id = @bill),
+              'participants', (SELECT jsonb_agg(to_jsonb(p) ORDER BY p.user_profile_id) FROM expense_bill_participants p WHERE p.expense_bill_id = @bill)
+            )::text
+            """;
+        foreach (var pair in new[] { ("review", reviewId), ("bill", billId) })
+        {
+            var parameter = command.CreateParameter(); parameter.ParameterName = pair.Item1;
+            parameter.Value = pair.Item2; command.Parameters.Add(parameter);
+        }
+        return (string)(await command.ExecuteScalarAsync())!;
+    }
+
+    private sealed class OcrReplacementFailure : SaveChangesInterceptor
+    {
+        public bool Enabled { get; set; }
+        public int CompletedRetirementFlushes { get; private set; }
+        public int RejectedReplacementSaves { get; private set; }
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            if (Enabled && eventData.Context!.ChangeTracker.Entries<ReceiptOcrReviewLine>().Any(entry => entry.State == EntityState.Added))
+            {
+                RejectedReplacementSaves++;
+                throw new DbUpdateException("Injected replacement insert failure after retirement flush.");
+            }
+            return ValueTask.FromResult(result);
+        }
+        public override ValueTask<int> SavedChangesAsync(
+            SaveChangesCompletedEventData eventData, int result, CancellationToken cancellationToken = default)
+        {
+            if (Enabled && eventData.Context!.ChangeTracker.Entries<ReceiptOcrReviewLine>().Any(entry => entry.Entity.SupersededAtUtc != null))
+                CompletedRetirementFlushes++;
+            return ValueTask.FromResult(result);
+        }
+    }
+
+    private sealed class OcrWriteLockObserver : DbCommandInterceptor
+    {
+        public bool Enabled { get; set; }
+        private int attempts;
+        public TaskCompletionSource SecondLockAttempt { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
+            System.Data.Common.DbCommand command, CommandEventData eventData,
+            InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            if (Enabled && command.CommandText.Contains("FOR UPDATE", StringComparison.Ordinal)
+                && Interlocked.Increment(ref attempts) == 2) SecondLockAttempt.TrySetResult();
+            return ValueTask.FromResult(result);
         }
     }
 
@@ -179,7 +394,7 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
             await ReadReceiptOcrReviewAsync(testFactory, saved.Id));
     }
 
-    private async Task<FactoryTestContext> CreatePostgresFactoryAsync(OcrApplySaveBarrier? barrier = null)
+    private async Task<FactoryTestContext> CreatePostgresFactoryAsync(OcrApplySaveBarrier? barrier = null, IInterceptor? extraInterceptor = null)
     {
         var settings = new Npgsql.NpgsqlConnectionStringBuilder(
             Environment.GetEnvironmentVariable("SETTLEORA_OCR_TEST_POSTGRES"));
@@ -193,7 +408,7 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
             await command.ExecuteNonQueryAsync();
         }
         settings.Database = database;
-        var context = CreateFactory(settings.ConnectionString, barrier);
+        var context = CreateFactory(settings.ConnectionString, barrier, extraInterceptor);
         await using var scope = context.Factory.Services.CreateAsyncScope();
         await scope.ServiceProvider.GetRequiredService<SettleoraDbContext>().Database.MigrateAsync();
         return context;
@@ -3843,7 +4058,7 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         Assert.DoesNotContain("ocr.failed", webModels);
     }
 
-    private FactoryTestContext CreateFactory(string? postgresConnection = null, OcrApplySaveBarrier? barrier = null)
+    private FactoryTestContext CreateFactory(string? postgresConnection = null, OcrApplySaveBarrier? barrier = null, IInterceptor? extraInterceptor = null)
     {
         var databaseName = Guid.NewGuid().ToString();
         var timeProvider = new ReceiptOcrReviewTestTimeProvider(InitialTimestamp);
@@ -3861,6 +4076,7 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
                     if (postgresConnection is null) options.UseInMemoryDatabase(databaseName);
                     else options.UseNpgsql(postgresConnection);
                     if (barrier is not null) options.AddInterceptors(barrier);
+                    if (extraInterceptor is not null) options.AddInterceptors(extraInterceptor);
                 });
 
                 services.RemoveAll<TimeProvider>();

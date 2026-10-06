@@ -3691,6 +3691,11 @@ public sealed class SettleoraDbContext : DbContext
             .HasColumnName("updated_at_utc")
             .IsRequired();
 
+        entity.Property(line => line.SupersededAtUtc)
+            .HasColumnName("superseded_at_utc");
+
+        entity.HasQueryFilter(line => line.SupersededAtUtc == null);
+
         entity.HasIndex(line => line.ReceiptOcrReviewId)
             .HasDatabaseName("ix_receipt_ocr_review_lines_review_id");
 
@@ -3700,6 +3705,7 @@ public sealed class SettleoraDbContext : DbContext
                 line.SortOrder
             })
             .IsUnique()
+            .HasFilter("superseded_at_utc IS NULL")
             .HasDatabaseName("ux_receipt_ocr_review_lines_review_sort_order");
 
         entity.HasOne(line => line.ReceiptOcrReview)
