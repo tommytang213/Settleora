@@ -519,8 +519,9 @@ void main() {
               'Internet Service Bill',
               'Account Number',
               'AC987654321',
-            ].contains(b.text))
+            ].contains(b.text)) {
               continue;
+            }
             blocks.add(
               ReceiptOcrBlockEvidence(
                 text: b.text,
