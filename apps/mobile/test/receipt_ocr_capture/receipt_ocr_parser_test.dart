@@ -192,6 +192,25 @@ void main() {
       (5, 'Invoice No INV-99', 955.0, 240.0, true),
       (5, 'Pending-review', 955.0, 240.0, true),
       for (final qualifier in [
+        '[Amount Paid]',
+        '{Previous Balance}',
+        'Note [Amount Paid]',
+        'Note {Previous Balance}',
+        '[{Amount Paid}]',
+        '{[Previous Balance]}',
+        '{Note [Payment Received]}',
+        '[Note {Closing Balance}]',
+      ]) ...[
+        (3, qualifier, 710.0, 194.0, false),
+        (5, qualifier, 955.0, 240.0, false),
+        (5, qualifier, 1300.0, 240.0, true),
+      ],
+      (5, '[Pending]', 955.0, 240.0, true),
+      (5, '{Pending}', 955.0, 240.0, true),
+      (5, '[{Pending}]', 955.0, 240.0, true),
+      (5, 'Note [Review]', 955.0, 240.0, true),
+
+      for (final qualifier in [
         'Previous Balance',
         'Amount Paid',
         'Estimated Previous Balance',

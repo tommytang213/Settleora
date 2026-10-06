@@ -4712,7 +4712,10 @@ bool _isOwnedSummaryCardHeaderRow(
     final hasUnownedSign = !explainedMetadata && mixedSign.hasMatch(text);
     final hasCompetingFinancialRole =
         !explainedMetadata &&
-        _hasBoundedUtilityFinancialPhrase(text, amount.text);
+        [
+          text,
+          ..._boundedUtilityAnnotationRoles(text),
+        ].any((role) => _hasBoundedUtilityFinancialPhrase(role, amount.text));
     // Recognize the existing financial roles in plural or beside joined
     // digits without changing shared classification or the raw OCR text.
     final financialWords = words
