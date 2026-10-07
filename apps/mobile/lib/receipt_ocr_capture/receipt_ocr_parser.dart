@@ -6819,7 +6819,7 @@ double _chargeTableDescriptionColumnEdge(
             2;
 }
 
-// A financial label may contain a marked percentage or an explicit reference,
+// A financial label may contain a marked percentage, reference or duration,
 // but an unexplained numeric token must not disappear during role projection.
 bool _hasUnexplainedFinancialLabelNumber(String label) {
   final withoutRates = label.replaceAll(
@@ -6833,7 +6833,15 @@ bool _hasUnexplainedFinancialLabelNumber(String label) {
     ),
     '',
   );
-  return RegExp(r'[^\s()]+').allMatches(withoutReferences).any((token) {
+  final withoutDurations = withoutReferences.replaceAll(
+    RegExp(
+      r'(?<![\p{L}\p{N}.,])\d+\s+(?:days?|weeks?|months?|years?)\b',
+      caseSensitive: false,
+      unicode: true,
+    ),
+    '',
+  );
+  return RegExp(r'[^\s()]+').allMatches(withoutDurations).any((token) {
     final text = token.group(0)!;
     return RegExp(r'\d').hasMatch(text) &&
         !_unicodeLetterPattern.hasMatch(text);

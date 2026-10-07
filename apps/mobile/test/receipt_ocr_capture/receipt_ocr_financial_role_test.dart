@@ -30,7 +30,7 @@ void main() {
           },
         );
       }
-      for (final qualifier in ['(10%)', '(PROMO7)', '(Ref 7)']) {
+      for (final qualifier in ['(10%)', '(PROMO7)', '(Ref 7)', '(12 months)']) {
         test(
           'role-number known qualifier stays complete: $role $qualifier period=$period',
           () {
