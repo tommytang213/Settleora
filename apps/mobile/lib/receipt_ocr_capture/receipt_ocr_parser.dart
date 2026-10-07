@@ -71,11 +71,12 @@ class ReceiptOcrParser {
 
     final layoutRows = _matchingLayoutRows(lines, blocks);
     final supportHoursRows = _ownedSupportHoursRows(layoutRows);
+    final meterReadingRows = _ownedMeterReadingRows(lines, layoutRows);
     detachedAmountSignRows.removeAll(supportHoursRows);
     final chargeTable = _classifyChargeTableRows(
       lines,
       detachedAmountSignRows: detachedAmountSignRows,
-      nonItemEvidenceRows: supportHoursRows,
+      nonItemEvidenceRows: {...supportHoursRows, ...meterReadingRows},
     );
     final chargeTableRows = chargeTable.items;
     final layoutAdjustmentLines = {
@@ -158,7 +159,11 @@ class ReceiptOcrParser {
       layoutChargeItems: layoutChargeItems,
       layoutAdjustmentRows: layoutAdjustmentLines.keys.toSet(),
       detachedAmountSignRows: detachedAmountSignRows,
-      nonItemEvidenceRows: {...supportHoursRows, ...localizedHeaderRows},
+      nonItemEvidenceRows: {
+        ...supportHoursRows,
+        ...meterReadingRows,
+        ...localizedHeaderRows,
+      },
     );
     final itemCandidates = extractedItems.items;
     final dccCharge = _corroboratedDccCharge(lines);
@@ -195,6 +200,7 @@ class ReceiptOcrParser {
       nonItemSummaryRows: {
         ...extractedItems.nonItemSummaryRows,
         ...supportHoursRows,
+        ...meterReadingRows,
         ...localizedHeaderRows,
       },
       uncertainSummaryAmountRows: extractedItems.uncertainSummaryAmountRows,
@@ -4770,6 +4776,207 @@ class ReceiptOcrParser {
   }
 }
 
+// A physical meter table can share OCR rows with an adjacent usage graph.
+// Own only complete reading-label/date rows whose extra integer cells sit in
+// that graph's separate column. Unknown words, money, signs or competing
+// geometry retain the normal item/review path; raw blocks are never removed.
+Set<int> _ownedMeterReadingRows(
+  List<String> lines,
+  List<List<ReceiptOcrBlockEvidence>> rows,
+) {
+  final owned = <int>{};
+  if (rows.isEmpty) return owned;
+  double top(ReceiptOcrBlockEvidence b) =>
+      b.points.map((p) => p.y).reduce((a, b) => a < b ? a : b);
+  double bottom(ReceiptOcrBlockEvidence b) =>
+      b.points.map((p) => p.y).reduce((a, b) => a > b ? a : b);
+  double height(ReceiptOcrBlockEvidence b) => bottom(b) - top(b);
+  bool valid(ReceiptOcrBlockEvidence b) =>
+      b.points.length == 4 &&
+      b.points.every((p) => p.x.isFinite && p.y.isFinite) &&
+      _blockRight(b) > _blockLeft(b) &&
+      bottom(b) > top(b);
+  if (rows.expand((r) => r).any((b) => !valid(b))) return owned;
+  const unit = r'(?:kwh|therms?|m³|m3|gallons?|gal)';
+  final graphHeading = RegExp(
+    '^(?:your\\s+)?(?:usage|consumption)\\s*\\(($unit)\\)\$',
+    caseSensitive: false,
+  );
+  final date = RegExp(
+    '^${_utilityDatePattern(allowNumericDates: false)}\$',
+    caseSensitive: false,
+  );
+  bool named(ReceiptOcrBlockEvidence b, String pattern) =>
+      RegExp(pattern, caseSensitive: false).hasMatch(b.text.trim());
+  bool sameBand(ReceiptOcrBlockEvidence a, ReceiptOcrBlockEvidence b) =>
+      top(a) < bottom(b) && bottom(a) > top(b);
+  bool alignedBelow(ReceiptOcrBlockEvidence b, ReceiptOcrBlockEvidence label) {
+    final center = (_blockLeft(b) + _blockRight(b)) / 2;
+    return center >= _blockLeft(label) &&
+        center <= _blockRight(label) &&
+        top(b) >= bottom(label) &&
+        top(b) - bottom(label) <= height(label) * 3;
+  }
+
+  for (var i = 1; i < rows.length; i++) {
+    final previous = rows[i]
+        .where((b) => named(b, r'^(?:previous|prior) reading$'))
+        .toList();
+    final current = rows[i]
+        .where((b) => named(b, r'^(?:current|present) reading$'))
+        .toList();
+    final usage = rows[i].where((b) => named(b, r'^usage$')).toList();
+    final graph = rows[i - 1]
+        .where((b) => graphHeading.hasMatch(b.text.trim()))
+        .toList();
+    if (previous.length != 1 ||
+        current.length != 1 ||
+        usage.length != 1 ||
+        graph.length != 1)
+      continue;
+    final p = previous.single;
+    final c = current.single;
+    final u = usage.single;
+    final g = graph.single;
+    if (!sameBand(p, c) ||
+        !sameBand(c, u) ||
+        _blockRight(p) >= _blockLeft(c) ||
+        _blockRight(c) >= _blockLeft(u) ||
+        _blockLeft(g) - _blockRight(u) < height(u) ||
+        bottom(g) > top(p) ||
+        top(p) - bottom(g) > height(g) * 3)
+      continue;
+    // The charge table is a subsequent section, never part of this exclusion.
+    var chargeHeader = -1;
+    for (var j = i + 2; j < rows.length && j <= i + 10; j++) {
+      if (_isBillChargeDetailHeader(lines, j)) {
+        chargeHeader = j;
+        break;
+      }
+    }
+    if (chargeHeader < 0) continue;
+    final meter = rows
+        .skip(i)
+        .take(3)
+        .expand((r) => r)
+        .where(
+          (b) =>
+              named(b, r'^meter (?:number|no\.?|id)$') &&
+              _blockRight(b) < _blockLeft(p) &&
+              top(b) >= top(p) &&
+              top(b) <= bottom(p) + height(p),
+        )
+        .toList();
+    if (meter.length != 1) continue;
+    // Bound the graph horizontally and vertically with an ordered month axis.
+    // A usage caption alone cannot own arbitrary numbers farther down/right.
+    const months = [
+      'jan',
+      'feb',
+      'mar',
+      'apr',
+      'may',
+      'jun',
+      'jul',
+      'aug',
+      'sep',
+      'oct',
+      'nov',
+      'dec',
+    ];
+    List<int> monthValues(ReceiptOcrBlockEvidence b) {
+      final tokens = b.text.trim().toLowerCase().split(RegExp(r'\s+'));
+      final values = tokens.map(months.indexOf).toList();
+      return values.any((value) => value < 0) ? const [] : values;
+    }
+
+    final axis =
+        rows
+            .skip(i + 1)
+            .take(chargeHeader - i - 2)
+            .expand((r) => r)
+            .where(
+              (b) =>
+                  _blockLeft(b) >= _blockLeft(g) &&
+                  top(b) > bottom(u) &&
+                  monthValues(b).isNotEmpty,
+            )
+            .toList()
+          ..sort((a, b) => _blockLeft(a).compareTo(_blockLeft(b)));
+    final axisMonths = axis.expand(monthValues).toList();
+    if (axisMonths.length < 3 ||
+        axisMonths.length > 12 ||
+        axis.any((b) => !sameBand(b, axis.first)) ||
+        axisMonths.indexed
+            .skip(1)
+            .any((entry) => entry.$2 != (axisMonths[entry.$1 - 1] + 1) % 12))
+      continue;
+    final graphRight = axis.map(_blockRight).reduce((a, b) => a > b ? a : b);
+    final graphBottom = axis.map(bottom).reduce((a, b) => a > b ? a : b);
+    final axisTop = axis.map(top).reduce((a, b) => a < b ? a : b);
+    final graphUnit = graphHeading.firstMatch(g.text.trim())!.group(1)!;
+    bool graphInteger(ReceiptOcrBlockEvidence b) =>
+        RegExp(r'^\d+$').hasMatch(b.text.trim()) &&
+        _blockLeft(b) >= _blockLeft(g) &&
+        _blockRight(b) <= graphRight + height(g) / 2 &&
+        top(b) >= bottom(g) &&
+        bottom(b) <= graphBottom;
+    final unknownGraphEvidence = rows
+        .expand((r) => r)
+        .any(
+          (b) =>
+              b != g &&
+              !axis.contains(b) &&
+              _blockRight(b) > _blockLeft(g) &&
+              _blockLeft(b) < graphRight + height(g) / 2 &&
+              bottom(b) > bottom(g) &&
+              top(b) < graphBottom &&
+              !graphInteger(b),
+        );
+    if (unknownGraphEvidence) continue;
+    if (rows[i].any((b) => b != p && b != c && b != u && !graphInteger(b))) {
+      continue;
+    }
+    for (var j = i + 1; j < chargeHeader - 1 && j <= i + 3; j++) {
+      final dates = rows[j].where((b) => date.hasMatch(b.text.trim())).toList();
+      final units = rows[j]
+          .where(
+            (b) =>
+                b.text.trim().toLowerCase() == '(${graphUnit.toLowerCase()})' &&
+                alignedBelow(b, u),
+          )
+          .toList();
+      if (dates.length != 2 ||
+          units.length != 1 ||
+          dates.any(
+            (b) => !sameBand(b, units.single) || bottom(b) >= axisTop,
+          ) ||
+          dates.where((b) => alignedBelow(b, p)).length != 1 ||
+          dates.where((b) => alignedBelow(b, c)).length != 1 ||
+          rows[j].any(
+            (b) => !dates.contains(b) && b != units.single && !graphInteger(b),
+          ))
+        continue;
+      final candidates = {...rows[i], ...rows[j]};
+      final competing = rows
+          .expand((r) => r)
+          .any(
+            (other) =>
+                !candidates.contains(other) &&
+                candidates.any(
+                  (b) =>
+                      _blockLeft(other) < _blockRight(b) &&
+                      _blockRight(other) > _blockLeft(b) &&
+                      top(other) < bottom(b) &&
+                      bottom(other) > top(b),
+                ),
+          );
+      if (!competing) owned.addAll([i, j]);
+    }
+  }
+  return owned;
+}
+
 // A standalone support-hours row can fall between charge rows in reading
 // order. Require a separate help/phone column beside a labeled amount column;
 // consume only the complete clock-range block, never neighboring money/text.
@@ -6802,7 +7009,7 @@ bool _isBillChargeDetailHeader(List<String> lines, int index) {
     return false;
   }
   return RegExp(
-    r'\b(?:current\s+charges?\s+detail|charges?\s+for\s+(?:this|the|current)\s+period|(?:itemized|detailed)\s+charges?|charges?\s+(?:detail|breakdown))\b',
+    r'\b(?:current\s+charges?\s+detail|details?\s+of\s+current\s+charges?|charges?\s+for\s+(?:this|the|current)\s+period|(?:itemized|detailed)\s+charges?|charges?\s+(?:detail|breakdown))\b',
     caseSensitive: false,
   ).hasMatch(lines[index - 1]);
 }
