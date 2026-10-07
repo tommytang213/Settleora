@@ -3,6 +3,56 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_parser.dart';
 import '../support/financial_role_receipt.dart';
 
 void main() {
+  for (final mirrored in [false, true]) {
+    for (final period in [
+      'Feb 5 - Mar 4, 2025',
+      '2025-02-05 - 2025-03-04',
+      '05.02.2025 - 04.03.2025',
+    ]) {
+      for (final evidence in ['reference', 'outside money', 'calendar money']) {
+        test(
+          'calendar ownership keeps extra evidence: $period $evidence mirrored=$mirrored',
+          () {
+            final source = financialRoleReceipt(
+              'Discounts',
+              labelBlocks: ['Discounts'],
+              total: 'USD 18.00',
+              amountOnLeft: mirrored,
+              servicePeriod: evidence == 'calendar money'
+                  ? '$period USD 7.00'
+                  : period,
+              rowNote: evidence == 'outside money' ? '7.00' : 'Ref 7',
+            );
+            final preview = const ReceiptOcrParser().parse(
+              source.text,
+              blocks: source.blocks,
+            );
+            if (evidence == 'reference') {
+              expect(preview.discount, '2.00');
+              if (period.startsWith('2025-')) {
+                // Existing ISO-period item recovery is independently ambiguous;
+                // calendar ownership adds no financial-role ambiguity.
+                expect(
+                  preview.incompleteAdjustmentReasons.map(
+                    (reason) => reason.name,
+                  ),
+                  everyElement('ambiguousChargeTable'),
+                );
+              } else {
+                expect(preview.adjustmentsComplete, isTrue);
+                expect(preview.reviewHints, isEmpty);
+              }
+            } else {
+              expect(preview.adjustmentsComplete, isFalse);
+              expect(preview.reviewHints, isNotEmpty);
+            }
+            expect(preview.blocks, source.blocks);
+          },
+        );
+      }
+    }
+  }
+
   for (final period in [false, true]) {
     for (final role in ['Discount', 'Coupons', 'Rebates']) {
       for (final label in [
@@ -46,6 +96,9 @@ void main() {
           'ZAR 7.00',
           '７．００ ＺＡＲ',
           '７．００-ＺＡＲ',
+          '7.00',
+          '７．００',
+          '7',
         ]) {
           test(
             'secondary evidence respects known qualifier: $note period=$period fragmented=$fragmented mirrored=$mirrored',

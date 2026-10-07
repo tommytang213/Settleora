@@ -88,7 +88,7 @@ void main() {
         ])
           (label, null, false, false),
         for (final period in [false, true])
-          for (final note in ['ZAR 7.00', 'USD 7.00', 'Ref ZAR-7'])
+          for (final note in ['ZAR 7.00', 'USD 7.00', 'Ref ZAR-7', '7.00'])
             for (final fragmented in [false, true])
               ('Discounts', note, fragmented, period),
       ]) {

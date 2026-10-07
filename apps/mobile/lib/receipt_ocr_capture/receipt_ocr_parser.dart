@@ -4222,6 +4222,59 @@ class ReceiptOcrParser {
           ? amountBlock.text.trim()
           : '${currencyBlocks.single.text.trim()} ${amountBlock.text.trim()}';
       if (!_hasChargeTableMonetaryEvidence(monetaryText)) continue;
+      // Calendar text is explained only by its printed column. A full date
+      // within that column cannot conceal an extra numeric or monetary cell.
+      final calendarBlocks = <ReceiptOcrBlockEvidence>{};
+      final positionedHeaders = layoutRows[headerIndex]
+          .where((block) => block.points.isNotEmpty)
+          .toList(growable: false);
+      for (final calendarHeader in positionedHeaders.where(
+        (block) => RegExp(
+          r'^(?:(?:service|billing|usage|statement)\s+)?(?:period|date)$',
+          caseSensitive: false,
+        ).hasMatch(block.text.trim()),
+      )) {
+        final center = _blockCenterX(calendarHeader);
+        final leftHeaders =
+            positionedHeaders
+                .where((block) => _blockCenterX(block) < center)
+                .toList()
+              ..sort((a, b) => _blockCenterX(b).compareTo(_blockCenterX(a)));
+        final rightHeaders =
+            positionedHeaders
+                .where((block) => _blockCenterX(block) > center)
+                .toList()
+              ..sort((a, b) => _blockCenterX(a).compareTo(_blockCenterX(b)));
+        final left = leftHeaders.isEmpty
+            ? double.negativeInfinity
+            : (_blockRight(leftHeaders.first) + _blockLeft(calendarHeader)) / 2;
+        final right = rightHeaders.isEmpty
+            ? double.infinity
+            : (_blockRight(calendarHeader) + _blockLeft(rightHeaders.first)) /
+                  2;
+        final cells = row
+            .where(
+              (block) =>
+                  block.points.isNotEmpty &&
+                  block != amountBlock &&
+                  !currencyBlocks.contains(block) &&
+                  !descriptionBlocks.contains(block) &&
+                  _blockCenterX(block) >= left &&
+                  _blockCenterX(block) <= right,
+            )
+            .toList();
+        final calendarText = _normalizeOcrLine(
+          cells.map((block) => block.text.trim()).join(' '),
+        );
+        if (RegExp(
+          '^${_utilityBoundaryDatePattern()}\\s*\$',
+          caseSensitive: false,
+          unicode: true,
+        ).hasMatch(calendarText)) {
+          calendarBlocks.addAll(cells);
+        }
+      }
+
       // The complete owned description already passed qualifier validation.
       // Join the remaining row fragments so separate currency/amount cells and
       // explicit reference IDs receive the same interpretation as whole labels.
@@ -4229,7 +4282,8 @@ class ReceiptOcrParser {
           .where((block) {
             if (block == amountBlock ||
                 currencyBlocks.contains(block) ||
-                descriptionBlocks.contains(block)) {
+                descriptionBlocks.contains(block) ||
+                calendarBlocks.contains(block)) {
               return false;
             }
             if (rateHeaders.length == 1 && block.points.isNotEmpty) {
@@ -4242,10 +4296,7 @@ class ReceiptOcrParser {
           })
           .map((block) => block.text.trim())
           .join(' ');
-      if (_hasUnexplainedFinancialLabelNumber(
-        outsideEvidence,
-        currencyAmountOnly: true,
-      )) {
+      if (_hasUnexplainedFinancialLabelNumber(outsideEvidence)) {
         continue;
       }
       if (RegExp(
@@ -6839,10 +6890,7 @@ String _financialProjectionLabelText(String label) =>
 
 // A financial label may contain a marked percentage, reference or duration,
 // but an unexplained numeric token must not disappear during role projection.
-bool _hasUnexplainedFinancialLabelNumber(
-  String label, {
-  bool currencyAmountOnly = false,
-}) {
+bool _hasUnexplainedFinancialLabelNumber(String label) {
   final withoutRates = _normalizeOcrLine(label).replaceAll(
     RegExp(r'(?<![\p{L}\p{N}])\d+(?:[.,]\d+)?\s*%', unicode: true),
     '',
@@ -6888,9 +6936,6 @@ bool _hasUnexplainedFinancialLabelNumber(
   })) {
     return true;
   }
-  // Outside columns may contain period dates; only competing monetary
-  // evidence, including unsupported currency codes, contradicts projection.
-  if (currencyAmountOnly) return false;
   return RegExp(r'[^\s()]+').allMatches(withoutDurations).any((token) {
     final text = token.group(0)!;
     return RegExp(r'\p{N}', unicode: true).hasMatch(text) &&
