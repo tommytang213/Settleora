@@ -52,16 +52,34 @@ void main() {
         'Surcharges',
         'Shipping Fee',
         'Shipping and Handling Fees',
+        'Taxes Advisory Plan',
+        'Taxes Return Kit',
+        'Discounts Book',
+        'Coupons Guide',
+        'Rebates Software',
+        'Tax Advisory Plan',
       ]) {
+        final namedProduct = [
+          'Taxes Advisory Plan',
+          'Taxes Return Kit',
+          'Discounts Book',
+          'Coupons Guide',
+          'Rebates Software',
+          'Tax Advisory Plan',
+        ].contains(label);
+        if (namedProduct && mode != 'split') continue;
         // Existing Apply semantics copy item amounts; net-only taxed rows
         // require correction before their contribution can equal the gross total.
         final shippingHeader = label.startsWith('Shipping');
         final acceptsItems =
-            label == 'Service Charge.' || label == 'Tips' || shippingHeader;
+            namedProduct ||
+            label == 'Service Charge.' ||
+            label == 'Tips' ||
+            shippingHeader;
         final compound = label.contains(' and ') && !shippingHeader;
         final unresolved =
             compound || ['Charges', 'Refunds', 'Surcharges'].contains(label);
-        final taxHeader = !compound && label.startsWith('Tax');
+        final taxHeader = !namedProduct && !compound && label.startsWith('Tax');
         testWidgets(
           'financial ownership survives save and explicit Apply group=$group mode=$mode label=$label',
           (tester) async {
@@ -70,7 +88,9 @@ void main() {
             final source = financialRoleReceipt(
               label,
               mode: mode,
-              labelBlocks: compound
+              labelBlocks: namedProduct
+                  ? [label.split(' ').first, label.split(' ').skip(1).join(' ')]
+                  : compound
                   ? [
                       label.split(' and ').first,
                       'and ${label.split(' and ').last}',
@@ -81,7 +101,8 @@ void main() {
               source.text,
               blocks: source.blocks,
             );
-            expect(preview.items.single.lineTotal, '20.00');
+            expect(preview.items.first.lineTotal, '20.00');
+            expect(preview.items.length, namedProduct ? 2 : 1);
             expect(preview.adjustmentsComplete, !unresolved);
             final repository = FakeBillRepository();
             final fileInput = FakeBillAttachmentFileInput(
@@ -203,6 +224,26 @@ void main() {
               tester.widget<TextFormField>(itemAmount).controller?.text,
               acceptsItems ? '20.00' : '10.00',
             );
+            if (namedProduct) {
+              expect(
+                tester
+                    .widget<TextFormField>(
+                      find.byKey(ValueKey('$prefix-item-name-1')),
+                    )
+                    .controller
+                    ?.text,
+                label,
+              );
+              expect(
+                tester
+                    .widget<TextFormField>(
+                      find.byKey(ValueKey('$prefix-item-amount-1')),
+                    )
+                    .controller
+                    ?.text,
+                '2.00',
+              );
+            }
             if (group) {
               await _goToGroupBillCreateStep(tester, 'basics');
             }
@@ -222,7 +263,10 @@ void main() {
             expect(saved, isNotNull);
             expect(
               saved!.lines.map((line) => (line.text, line.lineTotalAmount)),
-              [("Resident's Water Plan", '20.00')],
+              [
+                ("Resident's Water Plan", '20.00'),
+                if (namedProduct) (label, '2.00'),
+              ],
             );
             expect(saved.taxAmount, taxHeader ? '2.00' : null);
             expect(

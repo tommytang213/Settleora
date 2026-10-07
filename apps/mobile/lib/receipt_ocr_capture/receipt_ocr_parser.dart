@@ -4155,12 +4155,59 @@ class ReceiptOcrParser {
       final amountBlock = amountBlocks.single;
       final currencyBlocks = _nearbyCurrencyOnlyBlocks(row, amountBlock);
       if (currencyBlocks.length > 1) continue;
+      final descriptionHeaders = layoutRows[headerIndex].where(
+        (block) =>
+            block.points.isNotEmpty &&
+            RegExp(
+              r'^(?:description|product|service)$',
+              caseSensitive: false,
+            ).hasMatch(block.text.trim()),
+      );
+      bool isAdditionalDescription(ReceiptOcrBlockEvidence block) {
+        if (!_unicodeLetterPattern.hasMatch(block.text)) return false;
+        if (descriptionHeaders.length != 1 || block.points.isEmpty) {
+          return true;
+        }
+        final description = descriptionHeaders.single;
+        final amountOnRight =
+            _blockCenterX(amountHeaders.single) > _blockCenterX(description);
+        final neighbors = layoutRows[headerIndex].where(
+          (header) =>
+              header != description &&
+              header.points.isNotEmpty &&
+              (amountOnRight
+                  ? _blockLeft(header) > _blockRight(description)
+                  : _blockRight(header) < _blockLeft(description)),
+        );
+        if (neighbors.isEmpty) return true;
+        final nearestEdge = neighbors
+            .map(
+              (header) =>
+                  amountOnRight ? _blockLeft(header) : _blockRight(header),
+            )
+            .reduce(
+              (a, b) => amountOnRight ? (a < b ? a : b) : (a > b ? a : b),
+            );
+        final boundary =
+            (nearestEdge +
+                (amountOnRight
+                    ? _blockRight(description)
+                    : _blockLeft(description))) /
+            2;
+        return amountOnRight
+            ? _blockCenterX(block) <= boundary
+            : _blockCenterX(block) >= boundary;
+      }
+
+      // Project only a complete description. A product suffix in the same
+      // column is evidence even when it contains no financial-role keyword.
       if (row.any(
         (block) =>
             block != labels.single &&
             block != amountBlock &&
             !currencyBlocks.contains(block) &&
-            _hasPotentialReceiptAdjustmentLabel(block.text),
+            (_hasPotentialReceiptAdjustmentLabel(block.text) ||
+                isAdditionalDescription(block)),
       )) {
         continue;
       }

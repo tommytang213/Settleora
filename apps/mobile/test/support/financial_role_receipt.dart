@@ -51,11 +51,18 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
       } else {
         if (row == 4 && labelBlocks != null) {
           for (var i = 0; i < labelBlocks.length; i++) {
-            final left = 20 + i * 280 / labelBlocks.length;
-            final right = 20 + (i + 1) * 280 / labelBlocks.length;
+            final width = servicePeriod == null ? 280 : 230;
+            final left = 20 + i * width / labelBlocks.length;
+            final right = 20 + (i + 1) * width / labelBlocks.length;
             cell(labelBlocks[i], row, left, right);
           }
-          cell(amount, row, 400, 500);
+          if (servicePeriod != null) cell(servicePeriod, row, 280, 430);
+          cell(
+            amount,
+            row,
+            servicePeriod == null ? 400 : 470,
+            servicePeriod == null ? 500 : 570,
+          );
           continue;
         }
         for (var i = 0; i < cells.length; i++) {

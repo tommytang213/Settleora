@@ -3,6 +3,97 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_parser.dart';
 import '../support/financial_role_receipt.dart';
 
 void main() {
+  for (final period in [false, true]) {
+    for (final fragments
+        in period
+            ? [
+                ['Taxes', 'Advisory Plan'],
+                ['Tax', 'Advisory Plan'],
+                ['Discounts', 'Plan'],
+                ['Coupons', 'Plan'],
+              ]
+            : [
+                ['Taxes', 'Advisory Plan'],
+                ['Taxes', 'Return Kit'],
+                ['Discounts', 'Book'],
+                ['Coupons', 'Guide'],
+                ['Rebates', 'Software'],
+                ['Tax', 'Advisory Plan'],
+              ]) {
+      for (final fragmented in [false, true]) {
+        test(
+          'fragmented named product keeps whole description: $fragments period=$period fragmented=$fragmented',
+          () {
+            final source = financialRoleReceipt(
+              fragments.join(' '),
+              labelBlocks: fragmented ? fragments : null,
+              servicePeriod: period ? 'Feb 5 - Mar 4, 2025' : null,
+            );
+            final preview = const ReceiptOcrParser().parse(
+              source.text,
+              blocks: source.blocks,
+            );
+            expect(
+              preview.items.map((item) => (item.description, item.lineTotal)),
+              [
+                ("Resident's Water Plan", '20.00'),
+                (fragments.join(' '), '2.00'),
+              ],
+            );
+            expect(preview.tax, isNull);
+            expect(preview.discount, isNull);
+            expect(preview.service, isNull);
+            expect(preview.adjustmentsComplete, isTrue);
+            expect(preview.reviewHints, isEmpty);
+            expect(preview.blocks, source.blocks);
+          },
+        );
+      }
+    }
+  }
+  for (final fragments in [
+    ['Taxes', 'Miscellaneous'],
+    ['Discounts', 'Miscellaneous'],
+  ]) {
+    test(
+      'fragmented unknown financial suffix stays unresolved: $fragments',
+      () {
+        final source = financialRoleReceipt(
+          fragments.join(' '),
+          labelBlocks: fragments,
+        );
+        final preview = const ReceiptOcrParser().parse(
+          source.text,
+          blocks: source.blocks,
+        );
+        expect(preview.items.single.description, "Resident's Water Plan");
+        expect(preview.tax, isNull);
+        expect(preview.discount, isNull);
+        expect(preview.adjustmentsComplete, isFalse);
+        expect(preview.reviewHints, isNotEmpty);
+      },
+    );
+  }
+  for (final fragments in [
+    ['State', 'Taxes'],
+    ['Service', 'Charges'],
+  ]) {
+    test('fragmented complete header retains whole role: $fragments', () {
+      final source = financialRoleReceipt(
+        fragments.join(' '),
+        labelBlocks: fragments,
+      );
+      final preview = const ReceiptOcrParser().parse(
+        source.text,
+        blocks: source.blocks,
+      );
+      expect(preview.items.single.description, "Resident's Water Plan");
+      expect(preview.tax, fragments.first == 'State' ? '2.00' : null);
+      expect(preview.service, fragments.first == 'Service' ? '2.00' : null);
+      expect(preview.adjustmentsComplete, isTrue);
+      expect(preview.reviewHints, isEmpty);
+    });
+  }
   for (final item in [
     'Taxes Plan',
     'Discounts Plan',
