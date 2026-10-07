@@ -32,6 +32,123 @@ import 'package:mobile/ui/settleora_components.dart';
 import 'package:mobile/ui/settleora_form_fields.dart';
 
 void main() {
+  for (final group in [false, true]) {
+    for (final edit in ['merchant', 'date']) {
+      testWidgets(
+        'round3 unresolved populated item currency survives $edit group=$group',
+        (tester) async {
+          await useLargeSurface(tester);
+          final prefix = group ? 'group-bill' : 'personal-bill';
+          final preview = const ReceiptOcrParser().parse(
+            'Exchange Cafe\nCoffee XPF 100 / 1.00\nTotal USD 1.00',
+          );
+          expect(preview.items.single.currency, 'USD');
+          expect(preview.items.single.currencyUnresolved, isTrue);
+          expect(
+            receiptOcrReviewSaveRequestFromPreview(
+              preview,
+              originalCurrency: 'USD',
+            )!.lines.single.lineTotalAmount,
+            isNull,
+          );
+          final fileInput = FakeBillAttachmentFileInput(
+            pickedFile: samplePickedAttachmentFile(
+              filename: 'receipt.png',
+              contentType: 'image/png',
+              bytes: samplePngBytes(width: 64, height: 64),
+            ),
+          );
+          final provider = FakeReceiptOcrProvider(
+            ReceiptOcrResult.extracted(preview),
+          );
+          if (group) {
+            await _pumpGroupBillCreate(
+              tester,
+              repository: FakeBillRepository(),
+              groupRepository: FakeGroupRepository(
+                members: [sampleGroupMember()],
+              ),
+              attachmentRepository: FakeBillAttachmentRepository(),
+              attachmentFileInput: fileInput,
+              receiptOcrProvider: provider,
+            );
+            await tester.tap(find.byKey(const Key('group-bill-list-create')));
+            await tester.pumpAndSettle();
+            await _goToGroupBillCreateStep(tester, 'receiptItems');
+            await tester.ensureVisible(find.byKey(Key('$prefix-scan-receipt')));
+            await tester.tap(find.byKey(Key('$prefix-scan-receipt')));
+          } else {
+            await tester.pumpWidget(
+              MaterialApp(
+                home: SettleoraPersonalBillCreateScreen(
+                  repository: FakeBillRepository(),
+                  attachmentFileInput: fileInput,
+                  receiptOcrProvider: provider,
+                  defaultCurrency: 'USD',
+                  scanReceiptOnStart: true,
+                ),
+              ),
+            );
+          }
+          await tester.pumpAndSettle();
+          final items = find.byKey(Key('$prefix-ocr-apply-items'));
+          expect(tester.widget<CheckboxListTile>(items).onChanged, isNull);
+          if (edit == 'merchant') {
+            await tester.enterText(
+              find.byKey(Key('$prefix-ocr-edit-merchant')),
+              'Edited Exchange Cafe',
+            );
+          } else {
+            final date = tester.widget<DateField>(
+              find.byKey(Key('$prefix-ocr-edit-date')),
+            );
+            date.controller.text = '2026-09-18';
+            date.onChanged!('2026-09-18');
+          }
+          await tester.pumpAndSettle();
+          expect(
+            tester.widget<CheckboxListTile>(items).onChanged,
+            isNull,
+            reason:
+                'An unrelated edit cannot resolve the item currency evidence',
+          );
+          expect(tester.widget<CheckboxListTile>(items).value, isFalse);
+          final itemCurrency = find.byKey(
+            ValueKey('$prefix-ocr-item-currency-0'),
+          );
+          await _selectCurrency(tester, itemCurrency, 'USD');
+          await tester.pumpAndSettle();
+          expect(
+            tester.widget<CheckboxListTile>(items).onChanged,
+            isNotNull,
+            reason:
+                'Explicitly selecting the already displayed code resolves ambiguity',
+          );
+          await _setReceiptOcrSection(tester, prefix, 'items', true);
+          await _tapReceiptOcrApply(tester, prefix);
+          expect(
+            tester
+                .widget<TextFormField>(
+                  find.byKey(ValueKey('$prefix-item-amount-0')),
+                )
+                .controller!
+                .text,
+            '1.00',
+          );
+          final reset = find.byKey(Key('$prefix-ocr-reset-edits'));
+          await tester.ensureVisible(reset);
+          await tester.tap(reset);
+          await tester.pumpAndSettle();
+          expect(
+            tester.widget<CheckboxListTile>(items).onChanged,
+            isNull,
+            reason: 'Reset restores original unresolved source evidence',
+          );
+        },
+      );
+    }
+  }
+
   testWidgets(
     'editing selected OCR money keeps visible Apply choices truthful',
     (tester) async {

@@ -3383,8 +3383,7 @@ class _ReceiptOcrEditableReviewFormState
               unitPrice: item.unitPrice.text,
               lineTotal: item.lineTotal.text,
               currency: item.currency.text,
-              currencyUnresolved:
-                  item.currencyUnresolved && item.currency.text.trim().isEmpty,
+              currencyUnresolved: item.currencyUnresolved,
             ),
         ],
       ),
@@ -3600,7 +3599,7 @@ class _ReceiptOcrEditableItemControllers {
   final TextEditingController unitPrice;
   final TextEditingController lineTotal;
   final TextEditingController currency;
-  final bool currencyUnresolved;
+  bool currencyUnresolved;
 
   void dispose() {
     description.dispose();
@@ -3711,6 +3710,11 @@ class _ReceiptOcrEditableItemCard extends StatelessWidget {
               semanticLabel: 'Suggested receipt line currency selector',
               onChanged: (currency) {
                 controllers.currency.text = currency ?? '';
+                // Only an explicit supported line-currency selection resolves
+                // retained ambiguity, including selection of the same code.
+                controllers.currencyUnresolved = !settleoraIsSupportedCurrency(
+                  currency,
+                );
                 onChanged();
               },
             ),

@@ -381,6 +381,19 @@ class ReceiptOcrParser {
     List<String> lines,
     List<List<ReceiptOcrBlockEvidence>> layoutRows,
   ) {
+    // Every issuer strategy uses the same ownership boundary. Typography or
+    // a business suffix on a buyer cannot make that buyer the receipt issuer.
+    var issuerEnd = lines.length;
+    for (var index = 0; index < lines.length; index++) {
+      if (_isReceiptCounterpartyHeading(lines[index]) ||
+          (index < layoutRows.length &&
+              layoutRows[index].any(
+                (block) => _isReceiptCounterpartyHeading(block.text),
+              ))) {
+        issuerEnd = index;
+        break;
+      }
+    }
     final issuer = _prominentLayoutIssuer(lines, layoutRows);
     if (issuer != null) return issuer;
     // A multi-column letterhead may put a slogan beside the first name block
@@ -407,7 +420,9 @@ class ReceiptOcrParser {
             !_isReceiptMetadataLine(firstName)) {
           for (
             var rowIndex = 1;
-            rowIndex < layoutRows.length && rowIndex <= 5;
+            rowIndex < layoutRows.length &&
+                rowIndex < issuerEnd &&
+                rowIndex <= 5;
             rowIndex++
           ) {
             for (final block in layoutRows[rowIndex]) {
@@ -462,7 +477,7 @@ class ReceiptOcrParser {
     // A logo can share its OCR row with the document title while its second
     // word is printed below. Require the assembled identity to appear again
     // before a labeled metadata field before trusting that split header.
-    if (lines.length > 2) {
+    if (lines.length > 2 && issuerEnd > 1) {
       final titledLogo = RegExp(
         r'^\s*(.+?)\s+(?:invoice|receipt|statement|bill)\s*$',
         caseSensitive: false,
@@ -477,7 +492,7 @@ class ReceiptOcrParser {
           !_isReceiptMetadataLine(second)) {
         final identity = '$first $second';
         var corroborated = false;
-        for (final line in lines.skip(2).take(8)) {
+        for (final line in lines.take(issuerEnd).skip(2).take(8)) {
           // A later customer or payee section cannot corroborate the issuer.
           if (_isChargeTableHeader(line) ||
               RegExp(
@@ -508,7 +523,7 @@ class ReceiptOcrParser {
         .expand((row) => row)
         .expand((block) => block.points)
         .fold<double>(0, (right, point) => point.x > right ? point.x : right);
-    for (var index = 0; index < lines.length && index < 10; index += 1) {
+    for (var index = 0; index < issuerEnd && index < 10; index += 1) {
       final line = lines[index];
       if (_isAdministrativeLine(line) ||
           _isContextualReceiptMetadataLine(lines, index) ||
@@ -582,7 +597,7 @@ class ReceiptOcrParser {
     }
     for (
       var nextIndex = best.lineIndex + 1;
-      nextIndex < lines.length && parts.length < 3;
+      nextIndex < issuerEnd && parts.length < 3;
       nextIndex++
     ) {
       final next = lines[nextIndex];
@@ -603,12 +618,12 @@ class ReceiptOcrParser {
     if (parts.length == 1 &&
         !organization.contains(' ') &&
         organization.length >= 4 &&
-        best.lineIndex + 1 < lines.length) {
+        best.lineIndex + 1 < issuerEnd) {
       final adjacentIdentitySegment = _foldOrganizationSegment(
         lines[best.lineIndex + 1],
       );
       final prefix = '${organization.toLowerCase()} ';
-      for (var index = best.lineIndex + 1; index < lines.length; index++) {
+      for (var index = best.lineIndex + 1; index < issuerEnd; index++) {
         final candidate = _cleanDescription(lines[index]);
         if (!candidate.toLowerCase().startsWith(prefix) ||
             candidate.length > 80 ||
@@ -645,6 +660,7 @@ class ReceiptOcrParser {
     ({String date, int score})? best;
     final explicitReceiptDates = <String>{};
     var sawStayDate = false;
+    var precedingStayRange = false;
     final receiptDateQualifier = RegExp(
       r'\b(?:previous|prior|last|refund|reference|payment|paid|due|order|pickup|service|stay)[\s\p{P}]+$',
       unicode: true,
@@ -667,7 +683,8 @@ class ReceiptOcrParser {
       final secondaryLabel = RegExp(
         r'\b(due|pay by|payment|paid|previous|prior|last|refund|reference|meter|reading|billing period|service period|period from|period to)\b',
       );
-      void consider(String? date, int dateStart) {
+      int? ownedStayDateEnd;
+      void consider(String? date, int dateStart, int dateEnd) {
         var score = positionScore;
         final labels =
             <({int start, bool secondary, bool stay})>[
@@ -695,6 +712,7 @@ class ReceiptOcrParser {
           final nearest = labels.last;
           if (date != null && selectTransactionDate && nearest.stay) {
             sawStayDate = true;
+            ownedStayDateEnd = dateEnd;
             return;
           }
           final priorQualifier =
@@ -714,12 +732,23 @@ class ReceiptOcrParser {
               )) {
             explicitReceiptDates.add(date);
           }
+        } else if (date != null &&
+            selectTransactionDate &&
+            precedingStayRange &&
+            RegExp(
+              r'^\s*(?:(?:to|through|until)|[-–—])?\s*$',
+            ).hasMatch(lower.substring(0, dateStart))) {
+          // A wrapped range endpoint inherits its immediately preceding stay
+          // label. A new transaction label still establishes its own role.
+          sawStayDate = true;
+          return;
         } else if (index > 0 && !_lineHasAmount(lines[index - 1])) {
           final previous = lines[index - 1].toLowerCase();
           if (date != null &&
               selectTransactionDate &&
               standaloneStayLabel.hasMatch(previous)) {
             sawStayDate = true;
+            ownedStayDateEnd = dateEnd;
             return;
           }
           if (secondaryLabel.hasMatch(previous)) {
@@ -766,6 +795,7 @@ class ReceiptOcrParser {
             int.parse(month.group(2)!),
           ),
           month.start,
+          month.end,
         );
       }
       final eastAsianMatches = RegExp(
@@ -777,7 +807,7 @@ class ReceiptOcrParser {
           int.parse(eastAsian.group(2)!),
           int.parse(eastAsian.group(3)!),
         );
-        consider(formatted, eastAsian.start);
+        consider(formatted, eastAsian.start, eastAsian.end);
       }
 
       final isoMatches = RegExp(
@@ -789,7 +819,7 @@ class ReceiptOcrParser {
           int.parse(iso.group(2)!),
           int.parse(iso.group(3)!),
         );
-        consider(formatted, iso.start);
+        consider(formatted, iso.start, iso.end);
       }
 
       final slashMatches = RegExp(
@@ -802,7 +832,7 @@ class ReceiptOcrParser {
         final formatted = first > 12
             ? _formatDate(year, second, first)
             : _formatDate(year, first, second);
-        consider(formatted, slash.start);
+        consider(formatted, slash.start, slash.end);
       }
 
       final separatedDateMatches = RegExp(
@@ -816,8 +846,15 @@ class ReceiptOcrParser {
         final formatted = first > 12 || (separator == '.' && second <= 12)
             ? _formatDate(year, second, first)
             : _formatDate(year, first, second);
-        consider(formatted, separatedDate.start);
+        consider(formatted, separatedDate.start, separatedDate.end);
       }
+      // Carry a directly owned stay range across only one adjacent row, and
+      // only while its remaining text is empty or a complete range separator.
+      precedingStayRange =
+          ownedStayDateEnd != null &&
+          RegExp(
+            r'^\s*(?:(?:to|through|until)|[-–—])?\s*$',
+          ).hasMatch(lower.substring(ownedStayDateEnd!));
     }
     if (explicitReceiptDates.length > 1) {
       onAmbiguousReceiptDate?.call();
@@ -2203,8 +2240,8 @@ class ReceiptOcrParser {
             ? printed.currency
             : currency;
         if (subtotal != null &&
-            retainedCurrency == printedCurrency &&
-            double.tryParse(subtotal) != double.tryParse(amount)) {
+            (retainedCurrency != printedCurrency ||
+                double.tryParse(subtotal) != double.tryParse(amount))) {
           adjustmentsComplete = false;
           incompleteReasons.add(
             ReceiptOcrIncompleteAdjustmentReason.conflictingSubtotal,
@@ -4843,6 +4880,11 @@ Set<int> _ownedSupportHoursRows(List<List<ReceiptOcrBlockEvidence>> rows) {
 // slogan. Select the actual header blocks only when typography, a business
 // descriptor and a bounded header region agree. This does not classify other
 // blocks on the same row as merchant evidence.
+bool _isReceiptCounterpartyHeading(String line) => RegExp(
+  r'^\s*(?:(?:bill(?:ed)?|sold|ship(?:ped)?|deliver(?:ed)?|remit|pay)[\s-]*to\b|(?:customer|buyer|purchaser|recipient|payee|client|billing|shipping|remittance)(?:\s+(?:name|details|information|address))?\s*(?:[:：]|$))',
+  caseSensitive: false,
+).hasMatch(line);
+
 ({String text, Set<int> lineIndices})? _prominentLayoutIssuer(
   List<String> lines,
   List<List<ReceiptOcrBlockEvidence>> rows,
@@ -4869,7 +4911,11 @@ Set<int> _ownedSupportHoursRows(List<List<ReceiptOcrBlockEvidence>> rows) {
   );
   var headerEnd = rows.length < 6 ? rows.length : 6;
   for (var i = 0; i < headerEnd; i++) {
-    if (rows[i].any((b) => boundary.hasMatch(b.text)) ||
+    if (rows[i].any(
+          (b) =>
+              boundary.hasMatch(b.text) ||
+              _isReceiptCounterpartyHeading(b.text),
+        ) ||
         _isChargeTableHeader(lines[i]) ||
         rows[i].any((b) => _hasChargeTableMonetaryEvidence(b.text))) {
       headerEnd = i;

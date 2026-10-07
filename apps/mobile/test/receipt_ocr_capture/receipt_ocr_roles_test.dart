@@ -1,4 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mobile/bills/bill_list_screen.dart';
+import 'package:mobile/receipt_ocr_review/receipt_ocr_review_repository.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_parser.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
 
@@ -34,6 +36,139 @@ ReceiptOcrPreview parseBlocks(List<ReceiptOcrBlockEvidence> blocks) {
 }
 
 void main() {
+  for (final heading in [
+    'Buyer:',
+    'Buyer',
+    'Bill To:',
+    'Billed To:',
+    'Bill-To:',
+    'Recipient:',
+  ]) {
+    for (final prominent in [false, true]) {
+      test(
+        'fallback issuer owns ordinary geometry before $heading prominent=$prominent',
+        () {
+          final texts = [
+            'Acme Supplies',
+            heading,
+            'Recipient Market',
+            'Widget USD 10.00',
+            'Total USD 10.00',
+          ];
+          final blocks = <ReceiptOcrBlockEvidence>[
+            for (var row = 0; row < texts.length; row++)
+              ReceiptOcrBlockEvidence(
+                text: texts[row],
+                row: row,
+                order: row,
+                points: [
+                  ReceiptOcrPoint(x: 20, y: row * 80.0 + 10),
+                  ReceiptOcrPoint(x: 320, y: row * 80.0 + 10),
+                  ReceiptOcrPoint(
+                    x: 320,
+                    y: row * 80.0 + 10 + (row == 2 && prominent ? 48 : 20),
+                  ),
+                  ReceiptOcrPoint(
+                    x: 20,
+                    y: row * 80.0 + 10 + (row == 2 && prominent ? 48 : 20),
+                  ),
+                ],
+              ),
+          ];
+          final p = const ReceiptOcrParser().parse(
+            texts.join('\n'),
+            blocks: blocks,
+          );
+          expect(p.merchant, 'Acme Supplies');
+          expect(p.blocks, orderedEquals(blocks));
+        },
+      );
+    }
+  }
+  test('business name containing Buyer remains valid issuer evidence', () {
+    final p = const ReceiptOcrParser().parse(
+      'Buyer Market\nCoffee USD 5.00\nTotal USD 5.00',
+    );
+    expect(p.merchant, 'Buyer Market');
+  });
+
+  for (final heading in ['Buyer:', 'Buyer', 'Bill To:']) {
+    test(
+      'fallback issuer stays before $heading without a corporate suffix',
+      () {
+        final p = const ReceiptOcrParser().parse(
+          'Acme Supplies\n$heading\nRecipient Market\n'
+          'Widget USD 10.00\nTotal USD 10.00',
+        );
+        expect(p.merchant, 'Acme Supplies');
+      },
+    );
+  }
+  for (final stay in [
+    'Stay: 2026-09-15 to\n2026-09-17',
+    'Stay:\n2026-09-15 to\n2026-09-17',
+    'Stay: 2026-09-15\nto 2026-09-17',
+    'Stay: 2026-09-15 —\n2026-09-17',
+    'Stay: September 15, 2026 to\nSeptember 17, 2026',
+  ]) {
+    test('wrapped stay endpoint is not a transaction: $stay', () {
+      final p = const ReceiptOcrParser().parse(
+        'Example Hotel\n$stay\nRoom USD 180.00\nTotal USD 180.00',
+      );
+      expect(p.receiptDate, isNull);
+      expect(p.warnings, contains(contains('Stay dates')));
+    });
+    test('explicit receipt date retains its role after wrapped stay: $stay', () {
+      final p = const ReceiptOcrParser().parse(
+        'Example Hotel\n$stay\nReceipt Date: 2026-09-18\nRoom USD 180.00\nTotal USD 180.00',
+      );
+      expect(p.receiptDate, '2026-09-18');
+      expect(p.warnings, isNot(contains(contains('Stay dates'))));
+    });
+  }
+  for (final foreign in ['EUR 20.00', 'EUR 24.00', 'XPF 20.00']) {
+    for (final foreignFirst in [true, false]) {
+      test(
+        'foreign subtotal survives financial reconciliation $foreign first=$foreignFirst',
+        () {
+          final headers = ['Subtotal $foreign', 'Subtotal USD 24.00'];
+          final p = const ReceiptOcrParser().parse(
+            'Market\nMeal USD 24.00\n'
+            '${(foreignFirst ? headers : headers.reversed).join('\n')}\n'
+            'Tax included USD 4.00\nTotal USD 24.00',
+          );
+          final saved = receiptOcrReviewSaveRequestFromPreview(
+            p,
+            originalCurrency: 'USD',
+          )!;
+          expect(
+            saved.taxReconciliationMode,
+            isNot(ReceiptOcrTaxReconciliationModeValues.alreadyInBase),
+          );
+          if (!foreign.startsWith('XPF')) {
+            expect(p.adjustmentsComplete, isFalse);
+          }
+          expect(p.reviewHints, isNotEmpty);
+        },
+      );
+    }
+  }
+  test('equivalent same-currency subtotal corroboration still reconciles', () {
+    final p = const ReceiptOcrParser().parse(
+      'Market\nMeal USD 24.00\nSubtotal USD 24.00\nSubtotal USD 24.00\n'
+      'Tax included USD 4.00\nTotal USD 24.00',
+    );
+    final saved = receiptOcrReviewSaveRequestFromPreview(
+      p,
+      originalCurrency: 'USD',
+    )!;
+    expect(
+      saved.taxReconciliationMode,
+      ReceiptOcrTaxReconciliationModeValues.alreadyInBase,
+    );
+    expect(p.adjustmentsComplete, isTrue);
+  });
+
   group('critical review receipt role regressions', () {
     for (final qualifier in ['Previous:', 'Prior —', 'Last (', 'Refund /']) {
       test('historical punctuation $qualifier cannot own the receipt date', () {

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstatSync, readFileSync, readlinkSync, readdirSync } from "node:fs";
+import { lstatSync, readFileSync, readlinkSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -9,6 +9,7 @@ export function hashDirectory(root) {
   if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
     throw new Error("Artifact root must be a real directory");
   }
+  const realRoot = realpathSync.native(resolvedRoot);
   const digest = createHash("sha256");
   const visit = (directory, prefix = "") => {
     for (const name of readdirSync(directory).sort()) {
@@ -20,6 +21,18 @@ export function hashDirectory(root) {
         if (path.isAbsolute(target)) throw new Error(`Artifact contains an absolute symbolic link: ${relative}`);
         const resolvedTarget = path.resolve(directory, target);
         if (resolvedTarget !== resolvedRoot && !resolvedTarget.startsWith(`${resolvedRoot}${path.sep}`)) {
+          throw new Error(`Artifact contains an escaping symbolic link: ${relative}`);
+        }
+        // Lexical normalization alone loses the order of symlink traversal
+        // and "..". Use native filesystem resolution, not JS realpath's
+        // lexical fast path, and reject dangling/cyclic targets as unbound.
+        let realTarget;
+        try {
+          realTarget = realpathSync.native(absolute);
+        } catch {
+          throw new Error(`Artifact contains an unresolved symbolic link: ${relative}`);
+        }
+        if (realTarget !== realRoot && !realTarget.startsWith(`${realRoot}${path.sep}`)) {
           throw new Error(`Artifact contains an escaping symbolic link: ${relative}`);
         }
         digest.update(`symlink\0${relative}\0${target}\0`);

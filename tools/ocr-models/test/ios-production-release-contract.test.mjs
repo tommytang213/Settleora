@@ -1309,3 +1309,39 @@ test("directory hasher CLI rejects symlinked fixed build ancestors", () => {
 function rootForUnsafeCli() {
   return path.resolve(os.tmpdir(), "untrusted-artifact-root");
 }
+
+test('directory identity rejects filesystem escapes hidden by lexical normalization', () => {
+  const owned=mkdtempSync(path.join(os.tmpdir(),'settleora-ios-hash-escape-'));
+  try {
+    const bundle=path.join(owned,'Runner.app');
+    mkdirSync(bundle);
+    writeFileSync(path.join(owned,'outside.bin'),'owned synthetic external payload');
+    symlinkSync('.',path.join(bundle,'anchor'));
+    symlinkSync('anchor/../outside.bin',path.join(bundle,'payload'));
+    // A direct open verifies actual filesystem traversal, independently of
+    // path normalization or Node's non-native realpath implementation.
+    assert.equal(readFileSync(path.join(bundle,'payload'),'utf8'),'owned synthetic external payload');
+    assert.throws(()=>hashDirectory(bundle),/escaping symbolic link/);
+  }finally{rmSync(owned,{recursive:true,force:true});}
+});
+for(const kind of ['dangling','cycle']) {
+  test(`directory identity rejects ${kind} symbolic links`,()=>{
+    const root=mkdtempSync(path.join(os.tmpdir(),'settleora-ios-hash-unresolved-'));
+    try {
+      symlinkSync(kind==='cycle'?'payload':'missing',path.join(root,'payload'));
+      assert.throws(()=>hashDirectory(root),/unresolved symbolic link/);
+    }finally{rmSync(root,{recursive:true,force:true});}
+  });
+}
+test('directory identity accepts and binds contained versioned framework symlinks',()=>{
+  const root=mkdtempSync(path.join(os.tmpdir(),'settleora-ios-hash-framework-'));
+  try {
+    mkdirSync(path.join(root,'Versions','A'),{recursive:true});
+    writeFileSync(path.join(root,'Versions','A','Framework'),'first');
+    symlinkSync('A',path.join(root,'Versions','Current'));
+    symlinkSync('Versions/Current/Framework',path.join(root,'Framework'));
+    const first=hashDirectory(root);
+    writeFileSync(path.join(root,'Versions','A','Framework'),'changed');
+    assert.notEqual(hashDirectory(root),first);
+  }finally{rmSync(root,{recursive:true,force:true});}
+});
