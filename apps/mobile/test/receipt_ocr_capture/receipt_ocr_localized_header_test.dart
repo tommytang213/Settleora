@@ -8,14 +8,20 @@ ReceiptOcrPreview _parse(List<String> lines, {bool layout = false}) {
     for (var row = 0; row < lines.length; row++) {
       // Split date labels from their value to exercise reconstructed rows.
       final parts = lines[row].split(': ');
+      if (parts.length > 1) parts[0] = '${parts[0]}:';
+      final extraPrice = RegExp(
+        r'^(.*?)(\s+(?:USD\s+)?3\.00)$',
+      ).firstMatch(parts.last);
+      if (extraPrice != null) {
+        parts.removeLast();
+        parts.addAll([extraPrice.group(1)!, extraPrice.group(2)!.trim()]);
+      }
       for (var column = 0; column < parts.length; column++) {
         final left = row == lines.length - 1 ? 190.0 : 40.0 + column * 300;
         final top = 50.0 + row * 45;
         blocks.add(
           ReceiptOcrBlockEvidence(
-            text: column == 0 && parts.length > 1
-                ? '${parts[column]}:'
-                : parts[column],
+            text: parts[column],
             order: blocks.length,
             row: row,
             points: [
@@ -160,63 +166,95 @@ void main() {
   });
 
   test('invalid, incomplete, or mixed date fields remain reviewable', () {
-    for (final field in [
-      'Datum: 2026/02/30',
-      'Datum: 2026/09',
-      'Datum: 2026/09-17',
-      'Datum: 2026□09□17□',
-      'Datum: 2026/09/17 USD 3.00',
-      'Datum: 2026/09/17 3.00',
-      'Datum tea 2026/09/17',
-      '日期: 2026/09/17 押金 3.00',
-    ]) {
-      final p = _parse([
-        'Corner Market',
-        field,
-        'Tea USD 2.00',
-        'Subtotal USD 2.00',
-        'Total USD 2.00',
-      ]);
-      expect(
-        p.itemLineDecisions[1],
-        isNot(ReceiptOcrItemLineDecision.metadataOrHeaderSkipped),
-        reason: field,
-      );
-      expect(p.reviewHints, isNotEmpty, reason: field);
-      if (field.contains('3.00')) {
+    for (final layout in [false, true]) {
+      for (final field in [
+        'Datum: 2026/02/30',
+        'Datum: 2026/09',
+        'Datum: 2026/09-17',
+        'Datum: 2026□09□17□',
+        'Datum: 2026/09/17 USD 3.00',
+        'Datum: 2026/09/17 3.00',
+        'Datum tea 2026/09/17',
+        '日期: 2026/09/17 押金 3.00',
+      ]) {
+        final p = _parse([
+          'Corner Market',
+          field,
+          'Tea USD 2.00',
+          'Subtotal USD 2.00',
+          'Total USD 2.00',
+        ], layout: layout);
         expect(
-          p.items.any((item) => item.lineTotal == '3.00'),
-          isTrue,
-          reason: field,
+          p.itemLineDecisions[1],
+          isNot(ReceiptOcrItemLineDecision.metadataOrHeaderSkipped),
+          reason: '$field layout=$layout',
         );
+        expect(p.reviewHints, isNotEmpty, reason: '$field layout=$layout');
+        if (field.contains('3.00')) {
+          final retained = p.items.where((item) => item.lineTotal == '3.00');
+          expect(retained, hasLength(1), reason: '$field layout=$layout');
+          expect(retained.single.currency, 'USD');
+          expect(
+            retained.single.description,
+            field.replaceFirst(RegExp(r'\s+(?:USD\s+)?3\.00$'), ''),
+          );
+          expect(
+            p.reviewHintDecision,
+            ReceiptOcrReviewDecision.subtotalMismatch,
+          );
+        }
       }
     }
   });
 
   test('localized address needs adjacent merchant and complete date', () {
-    for (final address in ['Lindenstraße 42, Bremen', '新竹市東區林森路23號']) {
-      final p = _parse([
-        'Corner Market',
-        address,
-        'Datum: 2026/09/17',
-        'Tea USD 2.00',
-        'Subtotal USD 2.00',
-        'Total USD 2.00',
-      ]);
-      expect(p.incompleteAdjustmentReasons, isEmpty, reason: address);
-      for (final rows in [
-        ['Corner Market', 'Tea USD 2.00', address, 'Datum: 2026/09/17'],
-        ['Corner Market', address, 'Tea USD 2.00'],
-        ['Corner Market', address, 'Datum: 2026/02/30', 'Tea USD 2.00'],
-        [
+    for (final layout in [false, true]) {
+      for (final address in ['Lindenstraße 42, Bremen', '新竹市東區林森路23號']) {
+        final p = _parse([
           'Corner Market',
-          '$address USD 3.00',
+          address,
           'Datum: 2026/09/17',
           'Tea USD 2.00',
-        ],
-      ]) {
-        final q = _parse([...rows, 'Subtotal USD 2.00', 'Total USD 2.00']);
-        expect(q.reviewHints, isNotEmpty, reason: rows.join(' | '));
+          'Subtotal USD 2.00',
+          'Total USD 2.00',
+        ], layout: layout);
+        expect(p.incompleteAdjustmentReasons, isEmpty, reason: address);
+        for (final rows in [
+          ['Corner Market', 'Tea USD 2.00', address, 'Datum: 2026/09/17'],
+          ['Corner Market', address, 'Tea USD 2.00'],
+          ['Corner Market', address, 'Datum: 2026/02/30', 'Tea USD 2.00'],
+          [
+            'Corner Market',
+            '$address USD 3.00',
+            'Datum: 2026/09/17',
+            'Tea USD 2.00',
+          ],
+        ]) {
+          final q = _parse([
+            ...rows,
+            'Subtotal USD 2.00',
+            'Total USD 2.00',
+          ], layout: layout);
+          final addressIndex = rows.indexWhere(
+            (row) => row.startsWith(address),
+          );
+          expect(
+            q.itemLineDecisions[addressIndex],
+            isNot(ReceiptOcrItemLineDecision.metadataOrHeaderSkipped),
+            reason: '${rows.join(' | ')} layout=$layout',
+          );
+          expect(q.reviewHints, isNotEmpty, reason: rows.join(' | '));
+          if (rows[addressIndex].endsWith('3.00')) {
+            final retained = q.items.where((item) => item.lineTotal == '3.00');
+            expect(retained, hasLength(1));
+            expect(retained.single.description, address);
+            expect(retained.single.currency, 'USD');
+            expect(
+              q.reviewHintDecision,
+              ReceiptOcrReviewDecision.subtotalMismatch,
+            );
+          }
+        }
       }
     }
   });
