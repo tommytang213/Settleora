@@ -3755,13 +3755,18 @@ class ReceiptOcrParser {
         // Conflicting financial roles remain ambiguous before any charge-row
         // eligibility check, including labels at the page margin. They do not
         // assert a recovered monetary value.
+        final financialDescriptionBoundary = _chargeTableDescriptionColumnEdge(
+          header,
+          [descriptionHeader],
+          [amountHeader],
+        );
         final financialLabel = _normalizeOcrLine(
           _cleanDescription(
             row
                 .where(
                   (block) =>
                       block.points.isNotEmpty &&
-                      _blockLeft(block) < _blockLeft(periodHeader),
+                      _blockCenterX(block) <= financialDescriptionBoundary,
                 )
                 .map((block) => block.text.trim())
                 .join(' '),
@@ -6839,23 +6844,7 @@ String _financialProjectionLabelText(String label) =>
 // A financial label may contain a marked percentage, reference or duration,
 // but an unexplained numeric token must not disappear during role projection.
 bool _hasUnexplainedFinancialLabelNumber(String label) {
-  final normalized = _normalizeOcrLine(label);
-  final currencyMarkers = [
-    ..._printedCurrencyMarkerMatches(normalized),
-    ..._unsupportedIsoCurrencyMarkers(normalized),
-    ...RegExp(r'(?<=\d)[A-Za-z]{3}(?![\p{L}\p{N}])', unicode: true)
-        .allMatches(normalized)
-        .where(
-          (marker) =>
-              _unsupportedIsoCurrencyMarkers(marker.group(0)!).isNotEmpty,
-        ),
-  ];
-  if (currencyMarkers.any(
-    (marker) => _currencyMarkerTouchesAmount(normalized, marker),
-  )) {
-    return true;
-  }
-  final withoutRates = normalized.replaceAll(
+  final withoutRates = _normalizeOcrLine(label).replaceAll(
     RegExp(r'(?<![\p{L}\p{N}])\d+(?:[.,]\d+)?\s*%', unicode: true),
     '',
   );
@@ -6874,6 +6863,33 @@ bool _hasUnexplainedFinancialLabelNumber(String label) {
     ),
     '',
   );
+  final currencyMarkers = [
+    ..._printedCurrencyMarkerMatches(withoutDurations),
+    ..._unsupportedIsoCurrencyMarkers(withoutDurations),
+    ...RegExp(r'(?<=\d)[A-Za-z]{3}(?![\p{L}\p{N}])', unicode: true)
+        .allMatches(withoutDurations)
+        .where(
+          (marker) =>
+              _unsupportedIsoCurrencyMarkers(marker.group(0)!).isNotEmpty,
+        ),
+  ];
+  // Annotation text after an amount does not remove its monetary evidence.
+  // Explicit reference/rate/duration qualifiers were handled above.
+  if (currencyMarkers.any((marker) {
+    final after = withoutDurations
+        .substring(marker.end)
+        .replaceFirst(RegExp(r'^\s*[:=]?\s*\+?\s*'), '');
+    if (RegExp(_amountTokenPattern).matchAsPrefix(after) != null) return true;
+    final before = withoutDurations.substring(0, marker.start);
+    return RegExp(_amountTokenPattern)
+        .allMatches(before)
+        .any(
+          (amount) =>
+              RegExp(r'^\s*[:=]?\s*$').hasMatch(before.substring(amount.end)),
+        );
+  })) {
+    return true;
+  }
   return RegExp(r'[^\s()]+').allMatches(withoutDurations).any((token) {
     final text = token.group(0)!;
     return RegExp(r'\p{N}', unicode: true).hasMatch(text) &&

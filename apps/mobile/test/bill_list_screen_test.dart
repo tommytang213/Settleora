@@ -66,6 +66,7 @@ void main() {
         'Discounts (7.00)',
         'Discounts (７.００)',
         'Discounts (ＵＳＤ７．００)',
+        'Discounts (ＵＳＤ７．００ max)',
         'Coupons (٧.٠٠)',
         'Rebates (๗.๐๐)',
         '7.00 Coupons',
@@ -73,6 +74,7 @@ void main() {
         'Discounts (10%)',
         'Coupons (PROMO7)',
         'Rebates (Ref 7)',
+        'Rebates (Ref USD7)',
         'Service Charge 10%',
         'Service Charge 10 %',
         'Service Fees ( 10.5 % )',
@@ -96,6 +98,7 @@ void main() {
           'Discounts (7.00)',
           'Discounts (７.００)',
           'Discounts (ＵＳＤ７．００)',
+          'Discounts (ＵＳＤ７．００ max)',
           'Coupons (٧.٠٠)',
           'Rebates (๗.๐๐)',
           '7.00 Coupons',
@@ -105,6 +108,7 @@ void main() {
           'Discounts (10%)',
           'Coupons (PROMO7)',
           'Rebates (Ref 7)',
+          'Rebates (Ref USD7)',
         ].contains(label);
         final serviceRate = [
           'Service Charge 10%',
@@ -152,6 +156,7 @@ void main() {
               mode: mode,
               total: discountCase ? 'USD 18.00' : 'USD 22.00',
               servicePeriod: serviceRate ? 'Feb 5 - Mar 4, 2025' : null,
+              servicePeriodBounds: serviceRate ? (left: 270, right: 430) : null,
               labelBounds: namedProduct
                   ? [(left: 20, right: 160), (left: 330, right: 380)]
                   : null,

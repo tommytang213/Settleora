@@ -13,6 +13,7 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
   List<({double left, double right})>? labelBounds,
   bool amountOnLeft = false,
   String? servicePeriod,
+  ({double left, double right})? servicePeriodBounds,
 }) {
   final rows = <List<String>>[
     ['Regional Utility'],
@@ -62,7 +63,14 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
                 bounds?.right ?? 20 + (i + 1) * width / labelBlocks.length;
             cell(labelBlocks[i], row, left, right);
           }
-          if (servicePeriod != null) cell(servicePeriod, row, 280, 430);
+          if (servicePeriod != null) {
+            cell(
+              servicePeriod,
+              row,
+              servicePeriodBounds?.left ?? 280,
+              servicePeriodBounds?.right ?? 430,
+            );
+          }
           cell(
             amount,
             row,

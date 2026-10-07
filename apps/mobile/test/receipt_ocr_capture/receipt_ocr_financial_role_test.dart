@@ -3,6 +3,36 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_parser.dart';
 import '../support/financial_role_receipt.dart';
 
 void main() {
+  for (final role in ['Taxes', 'Service Charge', 'Service Fees', 'Discounts']) {
+    for (final left in [266.0, 270.0, 279.0, 280.0]) {
+      test('period-boundary keeps owned $role at $left', () {
+        final source = financialRoleReceipt(
+          role == 'Discounts' ? role : '$role 10%',
+          labelBlocks: role == 'Discounts' ? [role] : [role, '10%'],
+          total: role == 'Discounts' ? 'USD 18.00' : 'USD 22.00',
+          servicePeriod: 'Feb 5 - Mar 4, 2025',
+          servicePeriodBounds: (left: left, right: 430),
+        );
+        final preview = const ReceiptOcrParser().parse(
+          source.text,
+          blocks: source.blocks,
+        );
+        expect(preview.items.single.description, "Resident's Water Plan");
+        expect(
+          role == 'Taxes'
+              ? preview.tax
+              : role == 'Discounts'
+              ? preview.discount
+              : preview.service,
+          '2.00',
+        );
+        expect(preview.adjustmentsComplete, isTrue);
+        expect(preview.reviewHints, isEmpty);
+        expect(preview.blocks, source.blocks);
+      });
+    }
+  }
+
   for (final period in [false, true]) {
     for (final role in ['Discounts', 'Coupons', 'Rebates']) {
       for (final number in [
@@ -17,6 +47,12 @@ void main() {
         'USD٧.٠٠',
         '７．００ＺＡＲ',
         '７．００ＵＳＤ',
+        'ＵＳＤ７．００ max',
+        'ＺＡＲ７．００ max',
+        '７．００ＺＡＲ max',
+        'USD7.00 per month',
+        '7.00USD yearly',
+        'USD7.00maximum',
       ]) {
         test(
           'unicode-or-split numeric qualifier: $role $number period=$period',
@@ -95,7 +131,14 @@ void main() {
           },
         );
       }
-      for (final qualifier in ['(10%)', '(PROMO7)', '(Ref 7)', '(12 months)']) {
+      for (final qualifier in [
+        '(10%)',
+        '(PROMO7)',
+        '(Ref 7)',
+        '(12 months)',
+        '(Ref USD7)',
+        '(Ref ZAR7)',
+      ]) {
         test(
           'role-number known qualifier stays complete: $role $qualifier period=$period',
           () {
