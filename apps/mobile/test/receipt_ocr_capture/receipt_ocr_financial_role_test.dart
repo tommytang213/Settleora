@@ -4,104 +4,132 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
 import '../support/financial_role_receipt.dart';
 
 void main() {
-  for (final variant in [
-    'valid',
-    'money',
-    'split money',
-    'unsupported money',
-    'bare decimal',
-    'unknown word',
-    'missing unit',
-    'unordered months',
-    'unordered ticks',
-    'extra neighbor',
-  ]) {
-    test('financial projection owns only a complete usage graph: $variant', () {
-      final blocks = <ReceiptOcrBlockEvidence>[];
-      void cell(String text, int row, double left, double right) {
-        blocks.add(
-          ReceiptOcrBlockEvidence(
-            text: text,
-            row: row,
-            order: blocks.length,
-            confidence: 0.97,
-            points: [
-              ReceiptOcrPoint(x: left, y: row * 30.0),
-              ReceiptOcrPoint(x: right, y: row * 30.0),
-              ReceiptOcrPoint(x: right, y: row * 30.0 + 20),
-              ReceiptOcrPoint(x: left, y: row * 30.0 + 20),
-            ],
-          ),
-        );
-      }
+  for (final splitAxis in [false, true]) {
+    for (final variant in [
+      'valid',
+      'money',
+      'split money',
+      'unsupported money',
+      'bare decimal',
+      'unknown word',
+      'missing unit',
+      'unordered months',
+      'unordered ticks',
+      'extra neighbor',
+    ]) {
+      test(
+        'financial projection owns only a complete usage graph: $variant split=$splitAxis',
+        () {
+          final blocks = <ReceiptOcrBlockEvidence>[];
+          void cell(
+            String text,
+            int row,
+            double left,
+            double right, {
+            double dy = 0,
+          }) {
+            blocks.add(
+              ReceiptOcrBlockEvidence(
+                text: text,
+                row: row,
+                order: blocks.length,
+                confidence: 0.97,
+                points: [
+                  ReceiptOcrPoint(x: left, y: row * 30.0 + dy),
+                  ReceiptOcrPoint(x: right, y: row * 30.0 + dy),
+                  ReceiptOcrPoint(x: right, y: row * 30.0 + dy + 20),
+                  ReceiptOcrPoint(x: left, y: row * 30.0 + dy + 20),
+                ],
+              ),
+            );
+          }
 
-      cell('CURRENT CHARGES DETAIL', 0, 20, 400);
-      cell('USAGE SUMMARY', 0, 740, 980);
-      cell('Service', 1, 20, 150);
-      cell('Usage', 1, 275, 335);
-      cell('Rate', 1, 420, 475);
-      cell('Amount', 1, 600, 665);
-      cell(
-        variant == 'missing unit' ? 'Electricity' : 'Electricity (kWh)',
-        1,
-        755,
-        900,
-      );
-      cell('Electricity', 2, 20, 150);
-      cell('62 kWh', 2, 275, 335);
-      cell('USD 0.1580/kWh', 2, 420, 525);
-      cell('USD 9.80', 2, 600, 665);
-      cell('800', 2, 710, 750);
-      cell('Water', 3, 20, 150);
-      cell('900 gallons', 3, 275, 350);
-      cell('USD 0.0055/gallon', 3, 420, 540);
-      cell('USD 4.95', 3, 600, 665);
-      cell(variant == 'unordered ticks' ? '900' : '600', 3, 710, 750);
-      cell('Subtotal', 4, 20, 150);
-      cell('USD 14.75', 4, 600, 665);
-      cell(
-        switch (variant) {
-          'money' => 'USD 200',
-          'unsupported money' => 'ZAR 200',
-          'bare decimal' => '200.00',
-          'unknown word' => 'Plan 200',
-          _ => '200',
+          cell('CURRENT CHARGES DETAIL', 0, 20, 400);
+          cell('USAGE SUMMARY', 0, 740, 980);
+          cell('Service', 1, 20, 150);
+          cell('Usage', 1, 275, 335);
+          cell('Rate', 1, 420, 475);
+          cell('Amount', 1, 600, 665);
+          cell(
+            variant == 'missing unit' ? 'Electricity' : 'Electricity (kWh)',
+            1,
+            755,
+            900,
+          );
+          if (splitAxis) cell('Water (1,000 gal)', 1, 920, 1047);
+          cell('Electricity', 2, 20, 150);
+          cell('62 kWh', 2, 275, 335);
+          cell('USD 0.1580/kWh', 2, 420, 525);
+          cell('USD 9.80', 2, 600, 665);
+          cell('800', 2, 710, 750);
+          cell('Water', 3, 20, 150);
+          cell('900 gallons', 3, 275, 350);
+          cell('USD 0.0055/gallon', 3, 420, 540);
+          cell('USD 4.95', 3, 600, 665);
+          cell(variant == 'unordered ticks' ? '900' : '600', 3, 710, 750);
+          cell('Subtotal', 4, 20, 150);
+          cell('USD 14.75', 4, 600, 665);
+          cell(
+            switch (variant) {
+              'money' => 'USD 200',
+              'unsupported money' => 'ZAR 200',
+              'bare decimal' => '200.00',
+              'unknown word' => 'Plan 200',
+              _ => '200',
+            },
+            4,
+            710,
+            splitAxis ? 750 : 780,
+          );
+          if (variant == 'split money') cell('ZAR', 4, 785, 815);
+          if (variant == 'extra neighbor') cell('Plan', 4, 690, 707);
+          cell('City Utilities Tax (5%)', 5, 20, 260);
+          cell('USD 0.74', 5, 600, 665);
+          cell('0', 5, splitAxis ? 732 : 710, 750, dy: splitAxis ? -8 : 0);
+          if (splitAxis) {
+            final months = variant == 'unordered months'
+                ? ['Oct', 'Dec', 'Nov', 'Jan', 'Feb']
+                : ['Oct', 'Nov', 'Dec', 'Jan', 'Feb'];
+            for (var i = 0; i < months.length; i++) {
+              cell(months[i], 5, 780 + i * 60, 810 + i * 60);
+              cell(
+                i < 3 ? '2024' : '2025',
+                6,
+                778 + i * 60,
+                813 + i * 60,
+                dy: -12,
+              );
+            }
+          } else {
+            cell(
+              variant == 'unordered months' ? 'Oct Dec Nov' : 'Oct Nov Dec',
+              5,
+              780,
+              970,
+            );
+          }
+          cell('Total Current Charges', 7, 20, 250);
+          cell('USD 15.49', 7, 600, 665);
+          final rows = <int, List<String>>{};
+          for (final block in blocks) {
+            (rows[block.row] ??= []).add(block.text);
+          }
+          final preview = const ReceiptOcrParser().parse(
+            rows.values.map((parts) => parts.join(' ')).join('\n'),
+            blocks: blocks,
+            fallbackCurrency: 'USD',
+          );
+          if (variant == 'valid') {
+            expect(preview.subtotal, '14.75');
+            expect(preview.tax, '0.74');
+          } else {
+            expect(preview.subtotal, isNull);
+            expect(preview.adjustmentsComplete, isFalse);
+          }
+          expect(preview.blocks, blocks);
         },
-        4,
-        710,
-        780,
       );
-      if (variant == 'split money') cell('ZAR', 4, 785, 815);
-      if (variant == 'extra neighbor') cell('Plan', 4, 690, 707);
-      cell('City Utilities Tax (5%)', 5, 20, 260);
-      cell('USD 0.74', 5, 600, 665);
-      cell('0', 5, 710, 750);
-      cell(
-        variant == 'unordered months' ? 'Oct Dec Nov' : 'Oct Nov Dec',
-        5,
-        780,
-        970,
-      );
-      cell('Total Current Charges', 6, 20, 250);
-      cell('USD 15.49', 6, 600, 665);
-      final rows = <int, List<String>>{};
-      for (final block in blocks) {
-        (rows[block.row] ??= []).add(block.text);
-      }
-      final preview = const ReceiptOcrParser().parse(
-        rows.values.map((parts) => parts.join(' ')).join('\n'),
-        blocks: blocks,
-        fallbackCurrency: 'USD',
-      );
-      if (variant == 'valid') {
-        expect(preview.subtotal, '14.75');
-        expect(preview.tax, '0.74');
-      } else {
-        expect(preview.subtotal, isNull);
-        expect(preview.adjustmentsComplete, isFalse);
-      }
-      expect(preview.blocks, blocks);
-    });
+    }
   }
 
   for (final mirrored in [false, true]) {
