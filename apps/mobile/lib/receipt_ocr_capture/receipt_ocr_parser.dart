@@ -4885,6 +4885,12 @@ class ReceiptOcrParser {
                   ).hasMatch(lines[lineIndex + 1])))) {
         continue;
       }
+      // An unpriced modifier is not a receipt address or a price merely
+      // because its name contains a street/building number.
+      if (_isPrintedModifierLine(line) && !_isPricedItemLine(line)) {
+        count += 1;
+        continue;
+      }
       final courtesy = _isReceiptCourtesyLine(line);
       if (courtesy &&
           hasBoundedDccFooterBoundary &&
@@ -6082,21 +6088,27 @@ bool _isReceiptCourtesyLine(String line) {
       .trim();
   const courtesyPhrases = {
     'thank you',
+    'thankyou',
+    'thanks',
     'thank you for shopping',
     'thank you for shopping local',
     'merci',
     'vielen dank',
     'gracias',
+    'gracias por su compra',
     'obrigado',
     'obrigada',
     '謝謝光臨',
     '谢谢光临',
+    '谢谢惠顾',
+    '謝謝惠顧',
     '多謝',
     '多谢',
     'धन्यवाद',
     'ขอบคุณ',
     '감사합니다',
     'ありがとうございます',
+    'ありがとうございました',
     'cảm ơn',
     'شكرا',
     'شكراً',
@@ -9372,9 +9384,10 @@ _currencyAdjacentToSelectedAmount(
   return (currency: null, hasExplicitEvidence: otherPrintedCurrency);
 }
 
-// A numeric street address is header evidence only in the closed band
-// between the selected merchant and a complete, explicitly labeled date.
-// Do not discard address-shaped products elsewhere or rows with extra prices.
+// An address belongs to the header only in the closed band between the
+// selected merchant and a complete, explicitly labeled calendar date. Match
+// whole local address forms, not arbitrary centered words or a known merchant.
+// Prices, financial labels and modifiers cannot be laundered through this role.
 Set<int> _ownedLocalizedAddressRows(
   List<String> lines,
   Set<int> merchantLineIndices,
@@ -9382,27 +9395,54 @@ Set<int> _ownedLocalizedAddressRows(
   for (var index = 1; index + 1 < lines.length; index++)
     if (merchantLineIndices.contains(index - 1) &&
         _isLabeledCalendarDateLine(lines[index + 1]) &&
-        (RegExp(
-              r'^[\p{L}][\p{L} .’-]{1,60}(?:straße|strasse|str\.)\s+'
-              r'\d{1,5}[a-z]?\s*,\s*[\p{L}][\p{L} .’-]{1,40}$',
-              caseSensitive: false,
-              unicode: true,
-            ).hasMatch(lines[index].trim()) ||
-            RegExp(
-              r'^[\p{L}]{2,40}(?:市|區|区|縣|县)[\p{L}]{1,40}'
-              r'(?:路|街|道)\s*\d{1,5}\s*[號号]$',
-              unicode: true,
-            ).hasMatch(lines[index].trim())))
+        !_hasPotentialReceiptAdjustmentLabel(lines[index]) &&
+        !_isPrintedModifierLine(lines[index]) &&
+        _isWholeLocalizedAddress(lines[index]))
       index,
 };
+
+bool _isWholeLocalizedAddress(String line) {
+  final text = line.trim();
+  if (text.length > 160) return false;
+  return [
+    RegExp(
+      r'^[\p{L}][\p{L} .’-]{1,60}(?:straße|strasse|str\.)\s+'
+      r'\d{1,5}[a-z]?\s*,\s*[\p{L}][\p{L} .’-]{1,40}$',
+      caseSensitive: false,
+      unicode: true,
+    ),
+    RegExp(
+      r'^[\p{L}]{2,40}(?:市|區|区|縣|县)[\p{L}]{1,40}'
+      r'(?:路|街|道)\s*\d{1,5}\s*[號号]$',
+      unicode: true,
+    ),
+    RegExp(
+      r'^(?:av\.?|avenida|calle)\s+[\p{L}][\p{L} .’-]{1,60}'
+      r'\s+\d{1,5}[a-z]?\s*,\s*[\p{L}][\p{L} .’-]{1,60}$',
+      caseSensitive: false,
+      unicode: true,
+    ),
+    RegExp(
+      r'^[\p{L}]{1,12}(?:都|道|府|県)[\p{L}]{1,24}(?:市|区|町|村)'
+      r'\d{1,4}(?:-\d{1,4}){1,2}$',
+      unicode: true,
+    ),
+    RegExp(
+      r'^[\p{L}\p{M} ]{2,60} (?:प्लेस|मार्ग|सड़क|रोड),'
+      r'\s*[\p{L}\p{M} ]{2,60}$',
+      unicode: true,
+    ),
+    RegExp(r'^ถนน[\p{L}\p{M}]{2,60}\s+[\p{L}\p{M}]{2,40}$', unicode: true),
+  ].any((pattern) => pattern.hasMatch(text));
+}
 
 // Match a whole date field, not a product containing a date or an amount.
 // Keep the same calendar interpretation as _detectDate; unknown glyphs,
 // incomplete/invalid dates and additional numeric fields remain reviewable.
 bool _isLabeledCalendarDateLine(String line) {
   final match = RegExp(
-    r'^\s*(?:date|datum|fecha|data|日期|日付|날짜|дата|วันที่|तारीख)'
-    r'\s*[:：]\s*(?:(?<year>20\d{2}|19\d{2})(?<ys>[-/.])'
+    r'^\s*(?:date|datum|fecha|data|日期|日付|날짜|дата|วันที่|तारीख|दिनांक)'
+    r'\s*[:：]?\s*(?:(?<year>20\d{2}|19\d{2})(?<ys>[-/.])'
     r'(?<month>\d{1,2})\k<ys>(?<day>\d{1,2})|'
     r'(?<first>\d{1,2})(?<ds>[-/.])(?<second>\d{1,2})\k<ds>'
     r'(?<lastYear>20\d{2}|19\d{2}))\s*$',
@@ -9552,6 +9592,9 @@ bool _isPrintedTaxContextHeader(String line) {
 }
 
 bool _isLikelyNonItemDescription(String description, {bool pricedRow = false}) {
+  // A courtesy phrase with an explicit price is a possible product name.
+  // Footer classification applies to the complete unpriced row only.
+  if (pricedRow && _isReceiptCourtesyLine(description)) return false;
   final normalized = description.toLowerCase().trim();
   if (normalized.isEmpty ||
       _isReceiptMetadataLine(description, allowBarePostal: !pricedRow)) {
