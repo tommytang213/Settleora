@@ -63,6 +63,14 @@ void main() {
         'Tax. 7',
         'Taxes 7%',
         'Taxes (7%)',
+        'Discounts (7.00)',
+        '7.00 Coupons',
+        'Rebates (7)',
+        'Discounts (10%)',
+        'Coupons (PROMO7)',
+        'Rebates (Ref 7)',
+        'Service Charge 10%',
+        'Service Fees (10.5%)',
       ]) {
         final namedProduct = [
           'Taxes Advisory Plan',
@@ -78,7 +86,27 @@ void main() {
           'Tax. 7',
         ].contains(label);
         final fragmentedRate = ['Taxes 7%', 'Taxes (7%)'].contains(label);
-        if ((namedProduct || fragmentedNumber || fragmentedRate) &&
+        final discountUnknown = [
+          'Discounts (7.00)',
+          '7.00 Coupons',
+          'Rebates (7)',
+        ].contains(label);
+        final discountPositive = [
+          'Discounts (10%)',
+          'Coupons (PROMO7)',
+          'Rebates (Ref 7)',
+        ].contains(label);
+        final serviceRate = [
+          'Service Charge 10%',
+          'Service Fees (10.5%)',
+        ].contains(label);
+        final discountCase = discountUnknown || discountPositive;
+        final serviceHeader = label == 'Service Charge.' || serviceRate;
+        if ((namedProduct ||
+                fragmentedNumber ||
+                fragmentedRate ||
+                discountCase ||
+                serviceRate) &&
             mode != 'split') {
           continue;
         }
@@ -87,12 +115,14 @@ void main() {
         final shippingHeader = label.startsWith('Shipping');
         final acceptsItems =
             namedProduct ||
-            label == 'Service Charge.' ||
+            serviceHeader ||
+            discountPositive ||
             label == 'Tips' ||
             shippingHeader;
         final compound = label.contains(' and ') && !shippingHeader;
         final unresolved =
             fragmentedNumber ||
+            discountUnknown ||
             compound ||
             ['Charges', 'Refunds', 'Surcharges'].contains(label);
         final taxHeader =
@@ -108,10 +138,20 @@ void main() {
             final source = financialRoleReceipt(
               label,
               mode: mode,
+              total: discountCase ? 'USD 18.00' : 'USD 22.00',
+              servicePeriod: serviceRate ? 'Feb 5 - Mar 4, 2025' : null,
               labelBounds: namedProduct
                   ? [(left: 20, right: 160), (left: 330, right: 380)]
                   : null,
-              labelBlocks: namedProduct || fragmentedNumber || fragmentedRate
+              labelBlocks: serviceRate
+                  ? [
+                      label.split(' ').take(2).join(' '),
+                      label.split(' ').skip(2).join(' '),
+                    ]
+                  : namedProduct ||
+                        fragmentedNumber ||
+                        fragmentedRate ||
+                        discountCase
                   ? [label.split(' ').first, label.split(' ').skip(1).join(' ')]
                   : compound
                   ? [
@@ -292,11 +332,9 @@ void main() {
               ],
             );
             expect(saved.taxAmount, taxHeader ? '2.00' : null);
-            expect(
-              saved.serviceChargeAmount,
-              label == 'Service Charge.' ? '2.00' : null,
-            );
-            expect(saved.grandTotalAmount, '22.00');
+            expect(saved.serviceChargeAmount, serviceHeader ? '2.00' : null);
+            if (discountPositive) expect(saved.discountAmount, '2.00');
+            expect(saved.grandTotalAmount, discountCase ? '18.00' : '22.00');
             expect(saved.status, ReceiptOcrReviewStatusValues.provisional);
             expect(
               saved.adjustmentEvidence.map(

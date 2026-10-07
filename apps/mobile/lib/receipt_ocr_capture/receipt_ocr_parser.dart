@@ -3990,6 +3990,9 @@ class ReceiptOcrParser {
           continue;
         }
         if (discountLabelPattern.hasMatch(normalizedDescription)) {
+          if (_hasUnexplainedFinancialLabelNumber(normalizedDescription)) {
+            continue;
+          }
           final separatedAmount = monetaryText.replaceRange(
             selectedAmount.start,
             selectedAmount.end,
@@ -4112,7 +4115,12 @@ class ReceiptOcrParser {
       if (_hasNumericUsageCell(layoutRows, headerIndex, rowIndex)) {
         continue;
       }
+      final serviceLabelPattern = RegExp(
+        r'^services?\s+(?:charges?|fees?)(?:\s*(?:\(\d+(?:[.,]\d+)?%\)|\d+(?:[.,]\d+)?%))?$',
+        caseSensitive: false,
+      );
       bool isProjectionLabel(String description) {
+        if (_hasUnexplainedFinancialLabelNumber(description)) return false;
         return RegExp(
               r'^sub[\s-]?total$',
               caseSensitive: false,
@@ -4127,10 +4135,7 @@ class ReceiptOcrParser {
               caseSensitive: false,
               unicode: true,
             ).hasMatch(description) ||
-            RegExp(
-              r'^services?\s+(?:charges?|fees?)$',
-              caseSensitive: false,
-            ).hasMatch(description);
+            serviceLabelPattern.hasMatch(description);
       }
 
       final labels = row
@@ -4252,10 +4257,7 @@ class ReceiptOcrParser {
           ? 'Subtotal $monetaryText'
           : isTax
           ? 'Tax ${rate == null ? '' : '$rate '}$monetaryText'
-          : RegExp(
-              r'^services?\s+(?:charges?|fees?)$',
-              caseSensitive: false,
-            ).hasMatch(label)
+          : serviceLabelPattern.hasMatch(label)
           ? 'Service Charge $monetaryText'
           : 'Discount $monetaryText';
     }
@@ -6815,6 +6817,27 @@ double _chargeTableDescriptionColumnEdge(
             2
       : (descriptionRight + intermediateEdges.reduce((a, b) => a < b ? a : b)) /
             2;
+}
+
+// A financial label may contain a marked percentage or an explicit reference,
+// but an unexplained numeric token must not disappear during role projection.
+bool _hasUnexplainedFinancialLabelNumber(String label) {
+  final withoutRates = label.replaceAll(
+    RegExp(r'(?<![\p{L}\p{N}])\d+(?:[.,]\d+)?\s*%', unicode: true),
+    '',
+  );
+  final withoutReferences = withoutRates.replaceAll(
+    RegExp(
+      r'\b(?:ref(?:erence)?|code|id)\s*[:#]?\s+[A-Z0-9][A-Z0-9_-]*\b',
+      caseSensitive: false,
+    ),
+    '',
+  );
+  return RegExp(r'[^\s()]+').allMatches(withoutReferences).any((token) {
+    final text = token.group(0)!;
+    return RegExp(r'\d').hasMatch(text) &&
+        !_unicodeLetterPattern.hasMatch(text);
+  });
 }
 
 // Project only terminal label punctuation. Original text and blocks stay intact.

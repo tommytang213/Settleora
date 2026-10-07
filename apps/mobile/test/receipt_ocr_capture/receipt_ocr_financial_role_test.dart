@@ -3,6 +3,81 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_parser.dart';
 import '../support/financial_role_receipt.dart';
 
 void main() {
+  for (final period in [false, true]) {
+    for (final role in ['Discounts', 'Coupons', 'Rebates']) {
+      for (final fragments in [
+        [role, '(7.00)'],
+        ['7.00', role],
+        [role, '(7)'],
+      ]) {
+        test(
+          'role-number evidence remains unresolved: $fragments period=$period',
+          () {
+            final source = financialRoleReceipt(
+              fragments.join(' '),
+              labelBlocks: fragments,
+              total: 'USD 18.00',
+              servicePeriod: period ? 'Feb 5 - Mar 4, 2025' : null,
+            );
+            final preview = const ReceiptOcrParser().parse(
+              source.text,
+              blocks: source.blocks,
+            );
+            expect(preview.items.single.description, "Resident's Water Plan");
+            expect(preview.adjustmentsComplete, isFalse);
+            expect(preview.reviewHints, isNotEmpty);
+            expect(preview.blocks, source.blocks);
+          },
+        );
+      }
+      for (final qualifier in ['(10%)', '(PROMO7)', '(Ref 7)']) {
+        test(
+          'role-number known qualifier stays complete: $role $qualifier period=$period',
+          () {
+            final source = financialRoleReceipt(
+              '$role $qualifier',
+              labelBlocks: [role, qualifier],
+              total: 'USD 18.00',
+              servicePeriod: period ? 'Feb 5 - Mar 4, 2025' : null,
+            );
+            final preview = const ReceiptOcrParser().parse(
+              source.text,
+              blocks: source.blocks,
+            );
+            expect(preview.items.single.description, "Resident's Water Plan");
+            expect(preview.discount, '2.00');
+            expect(preview.adjustmentsComplete, isTrue);
+            expect(preview.reviewHints, isEmpty);
+            expect(preview.blocks, source.blocks);
+          },
+        );
+      }
+    }
+    for (final role in ['Service Charge', 'Service Fees']) {
+      for (final rate in ['10%', '(10%)', '10.5%', '(10.5%)']) {
+        test(
+          'role-number service rate stays complete: $role $rate period=$period',
+          () {
+            final source = financialRoleReceipt(
+              '$role $rate',
+              labelBlocks: [role, rate],
+              servicePeriod: period ? 'Feb 5 - Mar 4, 2025' : null,
+            );
+            final preview = const ReceiptOcrParser().parse(
+              source.text,
+              blocks: source.blocks,
+            );
+            expect(preview.items.single.description, "Resident's Water Plan");
+            expect(preview.service, '2.00');
+            expect(preview.discount, isNull);
+            expect(preview.adjustmentsComplete, isTrue);
+            expect(preview.reviewHints, isEmpty);
+            expect(preview.blocks, source.blocks);
+          },
+        );
+      }
+    }
+  }
   for (final amountOnLeft in [false, true]) {
     for (final fragments in [
       ['Taxes', 'Advisory Plan'],
