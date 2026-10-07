@@ -512,7 +512,7 @@ test("complete evidence requires both package measurements and a positive delta"
   assert.equal(isCompleteEvidence(evidence), true);
   // A recovered failure envelope cannot become accepted proof by attaching
   // otherwise complete execution/package fields or clearing its marker value.
-  for (const key of ["collectionFailure", "collectionFailureReason"]) {
+  for (const key of ["collectionFailure", "collectionFailureReason", "stderrDiagnostic"]) {
     for (const value of ["invalid_or_unavailable_bounded_evidence", "unclassified", null, ""]) {
       assert.equal(isCompleteEvidence({ ...evidence, [key]: value }), false);
     }
@@ -747,6 +747,7 @@ test("failure evidence retains bounded phase and status before environment colle
       diagnostics: [],
       collectionFailure: "invalid_or_unavailable_bounded_evidence",
       collectionFailureReason: "unclassified",
+      stderrDiagnostic: "not_classified",
     },
   );
   const rejected = buildFailureEvidence({
@@ -1188,6 +1189,7 @@ test("CLI classifies rejected stderr while retaining only diagnostic markers", (
         const evidence = JSON.parse(retained);
         assert.equal(evidence.collectionFailure, "invalid_or_unavailable_bounded_evidence");
         assert.equal(evidence.collectionFailureReason, "non_allowlisted_stderr");
+        assert.equal(evidence.stderrDiagnostic, "other_nonempty");
         assert.equal(evidence.execution.stderrBytes, 233);
         assert.equal(evidence.execution.testExitStatus, Number(status));
         assert.deepEqual(evidence.acceptance, acceptance);
@@ -1213,8 +1215,74 @@ test("collection reasons cannot be supplied by arbitrary error text or propertie
     }, new Error("Acceptance runner emitted non-allowlisted stderr")]) {
       const evidence = buildFailureEvidence(evidenceArgs(log), repoRoot, supplied);
       assert.equal(evidence.collectionFailureReason, "unclassified");
+      assert.equal(evidence.stderrDiagnostic, "not_classified");
       assert.equal(isCompleteEvidence(evidence), false);
       assert.doesNotMatch(JSON.stringify(evidence), /private|Acceptance runner/);
+    }
+  });
+});
+
+test("known compiler notes are classified by exact bytes and remain rejected", () => {
+  const notes = Buffer.from(
+    "Note: /home/runner/.pub-cache/hosted/pub.dev/google_mlkit_commons-0.11.1/android/src/main/java/com/google_mlkit_commons/InputImageConverter.java uses unchecked or unsafe operations.\n" +
+    "Note: Recompile with -Xlint:unchecked for details.\n",
+  );
+  assert.equal(notes.length, 233);
+  const known = "known_javac_unchecked_notes_only";
+  const other = "other_nonempty";
+  const cases = [
+    ["exact Android notes", "android", notes, known],
+    ["wrong platform", "ios", notes, other],
+    ["same length", "android", Buffer.alloc(233, 120), other],
+    ["extra line", "android", Buffer.concat([notes, Buffer.from("private extra diagnostic\n")]), other],
+    ["duplicate notes", "android", Buffer.concat([notes, notes]), other],
+    ["preamble", "android", Buffer.concat([Buffer.from("private preamble\n"), notes]), other],
+    ["truncated", "android", notes.subarray(0, -1), other],
+    ["different path", "android", Buffer.from(notes.toString().replace("InputImageConverter", "PrivateSource")), other],
+    ["different version", "android", Buffer.from(notes.toString().replace("0.11.1", "0.11.2")), other],
+    ["CRLF", "android", Buffer.from(notes.toString().replaceAll("\n", "\r\n")), other],
+    ["invalid UTF8", "android", Buffer.concat([notes.subarray(0, -1), Buffer.from([255])]), other],
+  ];
+  for (const [name, platform, bytes, expected] of cases) {
+    withLog(protocolLog(), (log) => {
+      writeFileSync(`${log}.stderr`, bytes, { mode: 0o600 });
+      let caught;
+      assert.throws(() => {
+        try { buildEvidence(evidenceArgs(log, platform), repoRoot); }
+        catch (error) { caught = error; throw error; }
+      }, /non-allowlisted stderr/, name);
+      const evidence = buildFailureEvidence(evidenceArgs(log, platform), repoRoot, caught);
+      assert.equal(evidence.stderrDiagnostic, expected, name);
+      assert.equal(evidence.collectionFailureReason, "non_allowlisted_stderr", name);
+      assert.equal(evidence.execution.stderrBytes, bytes.length, name);
+      assert.equal(isCompleteEvidence(evidence), false, name);
+      assert.doesNotMatch(JSON.stringify(evidence), /private|PrivateSource|InputImageConverter|\/home\/runner/);
+      // Even a mutated caught object cannot serialize an arbitrary value.
+      caught.diagnostic = "private error content";
+      const changed = buildFailureEvidence(evidenceArgs(log, platform), repoRoot, caught);
+      assert.equal(changed.stderrDiagnostic, other);
+      assert.equal(JSON.stringify(changed).includes("private error content"), false);
+    });
+  }
+  withLog(protocolLog(), (log) => {
+    const clean = buildEvidence(evidenceArgs(log), repoRoot);
+    assert.equal(clean.execution.protocolSucceeded, true);
+    assert.equal(Object.hasOwn(clean, "stderrDiagnostic"), false);
+    writeFileSync(`${log}.stderr`, notes, { mode: 0o600 });
+    for (const status of ["0", "1"]) {
+      const args = { ...evidenceArgs(log), "test-status": status,
+        out: `${log}.evidence.json`, "require-complete": "true" };
+      const result = spawnSync(process.execPath, [
+        path.join(repoRoot, "tools/ocr-models/native-acceptance-evidence.mjs"),
+        ...Object.entries(args).map(([key, value]) => `--${key}=${value}`),
+      ], { cwd: repoRoot, encoding: "utf8" });
+      assert.equal(result.status, 1);
+      assert.equal(result.stdout, "");
+      assert.equal(result.stderr, "bounded_native_ocr_evidence_failed\n");
+      const evidence = JSON.parse(readFileSync(args.out, "utf8"));
+      assert.equal(evidence.stderrDiagnostic, known);
+      assert.equal(evidence.collectionFailureReason, "non_allowlisted_stderr");
+      assert.equal(isCompleteEvidence(evidence), false);
     }
   });
 });

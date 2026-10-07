@@ -7,11 +7,21 @@ const maxLogBytes = 32 * 1024 * 1024;
 const maxMarkerBytes = 512 * 1024;
 const safeToken = /^[A-Za-z0-9_.:[\]-]{1,160}$/;
 const reviewedUiFixtureId = "existing_12_freshmart_grocery_en_US";
+// Observed verbatim in three successful package builds of Android job
+// 112615006322 (Flutter 3.44.8, google_mlkit_commons 0.11.1). This identifies
+// diagnostic content only; even this exact stream remains rejected.
+const knownAndroidJavacNotes = Buffer.from(
+  "Note: /home/runner/.pub-cache/hosted/pub.dev/google_mlkit_commons-0.11.1/android/src/main/java/com/google_mlkit_commons/InputImageConverter.java uses unchecked or unsafe operations.\n" +
+  "Note: Recompile with -Xlint:unchecked for details.\n",
+);
 // Only this internal error type can classify a collection failure. Never
 // serialize arbitrary errors, messages, paths, or native/plugin output.
 class NonAllowlistedStderrError extends Error {
-  constructor() {
+  constructor(stderrBytes, platform) {
     super("Acceptance runner emitted non-allowlisted stderr");
+    this.diagnostic = platform === "android" && stderrBytes.equals(knownAndroidJavacNotes)
+      ? "known_javac_unchecked_notes_only"
+      : "other_nonempty";
   }
 }
 const androidPreflightFailurePhases = new Set([
@@ -144,6 +154,10 @@ export function buildFailureEvidence(args, repoRoot = process.cwd(), collectionE
     collectionFailureReason: collectionError instanceof NonAllowlistedStderrError
       ? "non_allowlisted_stderr"
       : "unclassified",
+    stderrDiagnostic: collectionError instanceof NonAllowlistedStderrError
+      ? (collectionError.diagnostic === "known_javac_unchecked_notes_only"
+        ? "known_javac_unchecked_notes_only" : "other_nonempty")
+      : "not_classified",
   };
 }
 
@@ -382,13 +396,12 @@ function sanitizeEnvironment(args) {
   };
 }
 
-function parseSafeRunnerLog(log, stderrLog) {
-  // Successful acceptance must be silent on stderr. Inspect only its byte
-  // length so a rejected stream can never be copied into bounded evidence.
-  // This closes the privacy boundary around native/plugin diagnostics while
-  // keeping failure evidence limited to a content-free byte count.
-  if (Buffer.byteLength(stderrLog, "utf8") !== 0) {
-    throw new NonAllowlistedStderrError();
+function parseSafeRunnerLog(log, stderrBytes, platform) {
+  // Successful acceptance must be silent on stderr. Retain only a fixed
+  // diagnostic enum from whole-buffer equality, never text or arbitrary
+  // hashes. Known compiler notes do not bypass the rejection.
+  if (stderrBytes.length !== 0) {
+    throw new NonAllowlistedStderrError(stderrBytes, platform);
   }
   const allowedEventTypes = new Set([
     "start", "allSuites", "suite", "group", "testStart", "testDone", "done", "error",
@@ -1100,8 +1113,8 @@ export function buildEvidence(args, repoRoot = process.cwd()) {
     throw new Error("Acceptance stderr log exceeds the bounded parser limit");
   }
   const log = readFileSync(args.log, "utf8");
-  const stderrLog = readFileSync(args["stderr-log"], "utf8");
-  const protocol = parseSafeRunnerLog(log, stderrLog);
+  const stderrBytes = readFileSync(args["stderr-log"]);
+  const protocol = parseSafeRunnerLog(log, stderrBytes, args.platform);
   const catalogPath = path.join(repoRoot, "apps/mobile/assets/receipt_ocr_models/catalog.json");
   const manifestPath = path.join(repoRoot, "apps/mobile/test/fixtures/receipt_ocr/manifest.json");
   const expectedFixtureIds = immutableFixtureIds(repoRoot);
@@ -1235,6 +1248,7 @@ export function isCompleteEvidence(evidence) {
   return Boolean(
     !Object.hasOwn(evidence, "collectionFailure") &&
       !Object.hasOwn(evidence, "collectionFailureReason") &&
+      !Object.hasOwn(evidence, "stderrDiagnostic") &&
       Array.isArray(evidence.diagnostics) &&
       evidence.diagnostics.length === 0 &&
       evidence.execution.preflightFailurePhase == null &&
