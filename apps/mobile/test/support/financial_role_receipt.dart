@@ -6,6 +6,7 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
   String mode = 'split',
   String item = "Resident's Water Plan",
   String amount = 'USD 2.00',
+  String total = 'USD 22.00',
   String heading = 'Current Charges Detail',
   List<String> columns = const ['Description', 'Amount'],
   List<String>? labelBlocks,
@@ -16,7 +17,7 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
     columns,
     [item, 'USD 20.00'],
     [label, amount],
-    ['Total Amount Due USD 22.00'],
+    ['Total Amount Due $total'],
   ];
   final blocks = <ReceiptOcrBlockEvidence>[];
   void cell(String text, int row, double left, double right) {

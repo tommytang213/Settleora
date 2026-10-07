@@ -46,11 +46,17 @@ void main() {
         'Tax. and Service Fee',
         'Service Charge. and Tax',
         'Taxes. and Fees',
+        'Tips',
+        'Charges',
+        'Refunds',
+        'Surcharges',
       ]) {
         // Existing Apply semantics copy item amounts; net-only taxed rows
         // require correction before their contribution can equal the gross total.
-        final acceptsItems = label == 'Service Charge.';
+        final acceptsItems = label == 'Service Charge.' || label == 'Tips';
         final compound = label.contains(' and ');
+        final unresolved =
+            compound || ['Charges', 'Refunds', 'Surcharges'].contains(label);
         final taxHeader = !compound && label.startsWith('Tax');
         testWidgets(
           'financial ownership survives save and explicit Apply group=$group mode=$mode label=$label',
@@ -72,7 +78,7 @@ void main() {
               blocks: source.blocks,
             );
             expect(preview.items.single.lineTotal, '20.00');
-            expect(preview.adjustmentsComplete, !compound);
+            expect(preview.adjustmentsComplete, !unresolved);
             final repository = FakeBillRepository();
             final fileInput = FakeBillAttachmentFileInput(
               pickedFile: samplePickedAttachmentFile(
@@ -221,10 +227,15 @@ void main() {
             );
             expect(saved.grandTotalAmount, '22.00');
             expect(saved.status, ReceiptOcrReviewStatusValues.provisional);
-            expect(saved.adjustmentEvidence, isEmpty);
+            expect(
+              saved.adjustmentEvidence.map(
+                (a) => (a.kind, a.amount, a.currency),
+              ),
+              label == 'Tips' ? [('tip', '2.00', 'USD')] : [],
+            );
             expect(
               saved.taxReconciliationMode,
-              compound
+              unresolved
                   ? ReceiptOcrTaxReconciliationModeValues.unresolved
                   : null,
             );

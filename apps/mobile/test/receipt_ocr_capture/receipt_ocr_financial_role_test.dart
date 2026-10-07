@@ -13,6 +13,10 @@ void main() {
       'Taxes.',
       'Service Charge',
       'Service Charge.',
+      'Service Charges',
+      'Service Fees.',
+      'Tips',
+      'Tips.',
     ]) {
       test(
         '$mode maps complete $label to header money, retaining item punctuation',
@@ -27,6 +31,7 @@ void main() {
           ]);
           expect(preview.tax, label.startsWith('Tax') ? '2.00' : null);
           expect(preview.service, label.startsWith('Service') ? '2.00' : null);
+          expect(preview.tip, label.startsWith('Tip') ? '2.00' : null);
           expect(preview.adjustmentsComplete, isTrue);
           expect(preview.reviewHints, isEmpty);
           expect(preview.blocks, source.blocks);
@@ -43,8 +48,18 @@ void main() {
       'Service Charge Plan',
       'Monthly Service Fee',
       'Taxes and Fees',
+      'Discounts and Tips',
       'Environmental Levy',
       'Regulatory Fee',
+      'Charges',
+      'Fees',
+      'Surcharges',
+      'Refunds',
+      'Credits',
+      'Deposits',
+      'Levies',
+      'Duties',
+      'Donations',
     ]) {
       test('$mode keeps compound $label unresolved', () {
         final source = financialRoleReceipt(label, mode: mode);
@@ -75,6 +90,48 @@ void main() {
       expect(preview.items.single.description, 'Resident Water Co.');
       expect(preview.tax, '2.00');
     });
+  }
+  for (final mode in ['none', 'merged', 'split']) {
+    test('$mode keeps suggested plural tips out of header money', () {
+      final source = financialRoleReceipt(
+        'Suggested Tips',
+        mode: mode,
+        total: 'USD 20.00',
+      );
+      final preview = const ReceiptOcrParser().parse(
+        source.text,
+        blocks: source.blocks,
+      );
+      expect(preview.items.single.description, "Resident's Water Plan");
+      expect(preview.tip, isNull);
+      expect(preview.adjustmentsComplete, isTrue);
+      expect(preview.reviewHints, isEmpty);
+    });
+    for (final label in [
+      'Discounts',
+      'Discounts.',
+      'Coupons',
+      'Coupons.',
+      'Rebates',
+      'Rebates.',
+    ]) {
+      test('$mode retains plural $label as a discount', () {
+        final source = financialRoleReceipt(
+          label,
+          mode: mode,
+          total: 'USD 18.00',
+        );
+        final preview = const ReceiptOcrParser().parse(
+          source.text,
+          blocks: source.blocks,
+        );
+        expect(preview.items.single.description, "Resident's Water Plan");
+        expect(preview.discount, '2.00');
+        expect(preview.adjustmentsComplete, isTrue);
+        expect(preview.reviewHints, isEmpty);
+        expect(preview.blocks, source.blocks);
+      });
+    }
   }
   for (final labels in [
     ['Tax.', 'and Service Fee'],
@@ -107,6 +164,10 @@ void main() {
     'Tax Return Kit',
     'Taxes Advisory Plan',
     'Taxes Return Kit',
+    'Tips Guide',
+    'Discounts Book',
+    'Energy Charges',
+    'Water Services',
     'Payment Processing Subscription',
     'Water Service',
     'Energy Charge',

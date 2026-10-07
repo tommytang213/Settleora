@@ -5,7 +5,7 @@ import '../ui/settleora_form_fields.dart';
 
 final _unicodeLetterPattern = RegExp(r'\p{L}', unicode: true);
 final _potentialReceiptAdjustmentLabelPattern = RegExp(
-  r'\b(?:sales\s+tax(?:es)?|tax(?:es)?|vat|gst|hst|iva|tva|kdv|mwst|service(?:\s+(?:charge|fee))?|tip|gratuity|shipping|delivery(?:\s+(?:charge|fee))?|discount|coupon|promo\s+code|loyalty[\s-]+savings?|surcharge|charge|fee|refund|rebate|credit|deposit|levy|duty|donation|round(?:ing|[\s-]*off))\b',
+  r'\b(?:sales\s+tax(?:es)?|tax(?:es)?|vat|gst|hst|iva|tva|kdv|mwst|services?(?:\s+(?:charges?|fees?))?|tips?|gratuity|gratuities|shipping|delivery(?:\s+(?:charges?|fees?))?|discounts?|coupons?|promo\s+code|loyalty[\s-]+savings?|surcharges?|charges?|fees?|refunds?|rebates?|credits?|deposits?|levy|levies|duty|duties|donations?|round(?:ing|[\s-]*off))\b',
   caseSensitive: false,
 );
 const _localizedReceiptAdjustmentLabels = [
@@ -4118,12 +4118,12 @@ class ReceiptOcrParser {
                   unicode: true,
                 ).hasMatch(description) ||
                 RegExp(
-                  r'^(?:[\p{L}\p{N} -]+\s+)?(?:discount|coupon|rebate)(?:\s*\([\p{L}\p{N} %.-]+\))?$',
+                  r'^(?:[\p{L}\p{N} -]+\s+)?(?:discounts?|coupons?|rebates?)(?:\s*\([\p{L}\p{N} %.-]+\))?$',
                   caseSensitive: false,
                   unicode: true,
                 ).hasMatch(description) ||
                 RegExp(
-                  r'^service\s+(?:charge|fee)$',
+                  r'^services?\s+(?:charges?|fees?)$',
                   caseSensitive: false,
                 ).hasMatch(description);
           })
@@ -4197,7 +4197,7 @@ class ReceiptOcrParser {
           : isTax
           ? 'Tax ${rate == null ? '' : '$rate '}$monetaryText'
           : RegExp(
-              r'^service\s+(?:charge|fee)$',
+              r'^services?\s+(?:charges?|fees?)$',
               caseSensitive: false,
             ).hasMatch(label)
           ? 'Service Charge $monetaryText'
@@ -6633,6 +6633,7 @@ _classifyChargeTableRows(
       ambiguous.add(index);
       continue;
     }
+    if (_isSuggestedTipLine(lower)) continue;
     // A complete two-column header has no rate/quantity/date column to
     // confuse with Amount. Keep ordinary punctuation in item names, but do
     // not flatten additional numeric, currency or detached-sign evidence.
@@ -6755,7 +6756,10 @@ bool _hasUnresolvedSimpleFinancialLabel(String label) {
   if (roles.length != 1) return true;
   final role = roles.single;
   final word = role.group(0)!.toLowerCase();
-  if ((word == 'service' || word == 'charge') &&
+  if ((word == 'service' ||
+          word == 'services' ||
+          word == 'charge' ||
+          word == 'charges') &&
       _unicodeLetterPattern.hasMatch(
         label.substring(0, role.start) + label.substring(role.end),
       )) {
@@ -6793,7 +6797,8 @@ bool _hasCompoundAdjustmentLabel(String line) {
       .where((match) {
         // A named service is not itself an adjustment. An explicit Service
         // Charge/Fee remains a role, including inside parenthesized evidence.
-        return match.group(0)!.toLowerCase() != 'service';
+        final role = match.group(0)!.toLowerCase();
+        return role != 'service' && role != 'services';
       })
       .toList(growable: false);
   return roles.length > 1;
@@ -9258,7 +9263,7 @@ bool _hasTaxLabel(
 bool _hasServiceChargeLabel(String line, String normalized) {
   return _hasEnglishReceiptLabel(
         normalized,
-        RegExp(r'\bservice\s*(charge|fee)?\b\.?', caseSensitive: false),
+        RegExp(r'\bservices?\s*(charges?|fees?)?\b\.?', caseSensitive: false),
       ) ||
       _hasJapaneseReceiptLabel(line, const ['サービス料']) ||
       _hasLocalizedReceiptLabel(line, const [
@@ -9275,7 +9280,7 @@ bool _hasServiceChargeLabel(String line, String normalized) {
 bool _hasActualTipChargeLabel(String line, String normalized) {
   if (_isSuggestedTipLine(normalized)) return false;
   final labelPattern = RegExp(
-    r'\b(?:actual\s+tip|gratuity|tip)\b',
+    r'\b(?:actual\s+tips?|gratuity|gratuities|tips?)\b\.?',
     caseSensitive: false,
   );
   return _hasEnglishReceiptLabel(normalized, labelPattern) ||
@@ -9286,7 +9291,7 @@ bool _hasActualTipChargeLabel(String line, String normalized) {
 }
 
 bool _isSuggestedTipLine(String normalized) => RegExp(
-  r'\b(?:suggested|optional|recommended)\s+tip\b',
+  r'\b(?:suggested|optional|recommended)\s+tips?\b',
 ).hasMatch(normalized);
 
 bool _isPrintedSuggestedTipOptionLine(String line) => RegExp(
@@ -9490,7 +9495,7 @@ String _withoutBoundedExplicitCurrencyCode(String line) {
 bool _hasDiscountLabel(String line, String normalized) {
   return _hasEnglishReceiptLabel(
         normalized,
-        RegExp(r'\b(discount|coupon)\b', caseSensitive: false),
+        RegExp(r'\b(discounts?|coupons?|rebates?)\b\.?', caseSensitive: false),
       ) ||
       (_lastAmountInLine(line)?.startsWith('-') == true &&
           _isLabeledStandaloneMoneyLine(
