@@ -4938,8 +4938,9 @@ Set<ReceiptOcrBlockEvidence> _ownedChargeTableGraphBlocks(
     if (b.points.length != 4 ||
         b.points.any((p) => !p.x.isFinite || !p.y.isFinite) ||
         _blockRight(b) <= _blockLeft(b) ||
-        bottom(b) <= top(b))
+        bottom(b) <= top(b)) {
       return false;
+    }
     final turns = [
       for (var i = 0; i < 4; i++)
         (b.points[(i + 1) % 4].x - b.points[i].x) *
@@ -5022,8 +5023,9 @@ Set<ReceiptOcrBlockEvidence> _ownedChargeTableGraphBlocks(
             (e) =>
                 _blockLeft(e.$2) < _blockRight(axis[e.$1 - 1]) ||
                 _blockLeft(e.$2) - _blockRight(axis[e.$1 - 1]) > scale * 3,
-          ))
+          )) {
     return const {};
+  }
   final axisTop = axis.map(top).reduce((a, b) => a < b ? a : b);
   final axisBottom = axis.map(bottom).reduce((a, b) => a > b ? a : b);
   // A separate year belongs to a month only through matching horizontal
@@ -5056,8 +5058,9 @@ Set<ReceiptOcrBlockEvidence> _ownedChargeTableGraphBlocks(
                   int.parse(e.$2.text.trim()) !=
                   int.parse(years[e.$1 - 1].text.trim()) +
                       (values[e.$1] == 0 ? 1 : 0),
-            ))
+            )) {
       return const {};
+    }
   }
   final panelLeft = _blockRight(amountHeader) + scale;
   final panelRight = _blockRight(axis.last);
@@ -5106,8 +5109,9 @@ Set<ReceiptOcrBlockEvidence> _ownedChargeTableGraphBlocks(
           ) ||
       ticks.last.text.trim() != '0' ||
       top(ticks.last) >= axisBottom ||
-      bottom(ticks.last) <= axisTop)
+      bottom(ticks.last) <= axisTop) {
     return const {};
+  }
   return {...ticks, ...axis, ...years};
 }
 
