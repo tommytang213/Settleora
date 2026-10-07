@@ -19,7 +19,7 @@ using Settleora.Api.Persistence;
 
 namespace Settleora.Api.Tests;
 
-public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed partial class SyncOfflineServerFoundationEndpointTests : IClassFixture<WebApplicationFactory<Program>>
 {
     private const string WrongRawToken = "wrong-sync-offline-server-token";
     private static readonly DateTimeOffset InitialTimestamp = new(2026, 5, 17, 10, 0, 0, TimeSpan.Zero);
