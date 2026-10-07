@@ -67,6 +67,7 @@ void main() {
         'Discounts (７.００)',
         'Discounts (ＵＳＤ７．００)',
         'Discounts (ＵＳＤ７．００ max)',
+        'Discounts (７．００-ＵＳＤ)',
         'Coupons (٧.٠٠)',
         'Rebates (๗.๐๐)',
         '7.00 Coupons',
@@ -75,6 +76,7 @@ void main() {
         'Coupons (PROMO7)',
         'Rebates (Ref 7)',
         'Rebates (Ref USD7)',
+        'Rebates (Ref ＵＳＤ７)',
         'Service Charge 10%',
         'Service Charge 10 %',
         'Service Fees ( 10.5 % )',
@@ -99,6 +101,7 @@ void main() {
           'Discounts (７.００)',
           'Discounts (ＵＳＤ７．００)',
           'Discounts (ＵＳＤ７．００ max)',
+          'Discounts (７．００-ＵＳＤ)',
           'Coupons (٧.٠٠)',
           'Rebates (๗.๐๐)',
           '7.00 Coupons',
@@ -109,6 +112,7 @@ void main() {
           'Coupons (PROMO7)',
           'Rebates (Ref 7)',
           'Rebates (Ref USD7)',
+          'Rebates (Ref ＵＳＤ７)',
         ].contains(label);
         final serviceRate = [
           'Service Charge 10%',

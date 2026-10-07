@@ -53,6 +53,14 @@ void main() {
         'USD7.00 per month',
         '7.00USD yearly',
         'USD7.00maximum',
+        '7.00-USD',
+        '７．００-ＵＳＤ',
+        '７．００−ＵＳＤ',
+        '７．００–ＵＳＤ',
+        '７．００＋ＵＳＤ',
+        '７．００-ＺＡＲ',
+        'ＵＳＤ–７．００',
+        'ＺＡＲ−７．００',
       ]) {
         test(
           'unicode-or-split numeric qualifier: $role $number period=$period',
@@ -138,6 +146,7 @@ void main() {
         '(12 months)',
         '(Ref USD7)',
         '(Ref ZAR7)',
+        '(Ref ＵＳＤ７)',
       ]) {
         test(
           'role-number known qualifier stays complete: $role $qualifier period=$period',

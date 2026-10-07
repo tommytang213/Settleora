@@ -4244,11 +4244,12 @@ class ReceiptOcrParser {
             return false;
           }
         }
+        final normalizedBlockText = _normalizeOcrLine(block.text);
         return RegExp(
               _currencyTokenPattern,
               caseSensitive: false,
-            ).hasMatch(block.text) &&
-            _lineHasAmount(block.text);
+            ).hasMatch(normalizedBlockText) &&
+            _lineHasAmount(normalizedBlockText);
       })) {
         continue;
       }
@@ -6876,17 +6877,16 @@ bool _hasUnexplainedFinancialLabelNumber(String label) {
   // Annotation text after an amount does not remove its monetary evidence.
   // Explicit reference/rate/duration qualifiers were handled above.
   if (currencyMarkers.any((marker) {
-    final after = withoutDurations
-        .substring(marker.end)
-        .replaceFirst(RegExp(r'^\s*[:=]?\s*\+?\s*'), '');
-    if (RegExp(_amountTokenPattern).matchAsPrefix(after) != null) return true;
-    final before = withoutDurations.substring(0, marker.start);
-    return RegExp(_amountTokenPattern)
-        .allMatches(before)
-        .any(
-          (amount) =>
-              RegExp(r'^\s*[:=]?\s*$').hasMatch(before.substring(amount.end)),
-        );
+    // A sign or punctuation can separate either side of a printed currency
+    // marker from its number, including a trailing credit/minus sign.
+    return RegExp(
+          r'^[^\p{L}\p{N}]*\p{N}',
+          unicode: true,
+        ).hasMatch(withoutDurations.substring(marker.end)) ||
+        RegExp(
+          r'\p{N}[^\p{L}\p{N}]*$',
+          unicode: true,
+        ).hasMatch(withoutDurations.substring(0, marker.start));
   })) {
     return true;
   }
