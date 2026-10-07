@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_parser.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
@@ -13,6 +15,10 @@ ReceiptOcrBlockEvidence _cell(
   text: text,
   row: row,
   order: row * 10,
+  confidence: 0.97,
+  modelPackId: 'unit-test-latin',
+  modelVersion: 'unit-test-v1',
+  textDirection: 'ltr',
   points: [
     ReceiptOcrPoint(x: left, y: top),
     ReceiptOcrPoint(x: right, y: top),
@@ -67,6 +73,7 @@ List<ReceiptOcrBlockEvidence> _meterBlocks({
 ReceiptOcrPreview _parse(
   List<ReceiptOcrBlockEvidence> blocks, {
   bool includeGeometry = true,
+  ReceiptOcrRunEvidence? runEvidence,
 }) {
   // Native evidence assigns a unique sequence ordinal to every block.
   for (var i = 0; i < blocks.length; i++) {
@@ -76,6 +83,10 @@ ReceiptOcrPreview _parse(
       row: b.row,
       order: i,
       points: b.points,
+      confidence: b.confidence,
+      modelPackId: b.modelPackId,
+      modelVersion: b.modelVersion,
+      textDirection: b.textDirection,
     );
   }
   final rows = <int, List<String>>{};
@@ -85,81 +96,102 @@ ReceiptOcrPreview _parse(
   return const ReceiptOcrParser().parse(
     rows.values.map((row) => row.join(' ')).join('\n'),
     blocks: includeGeometry ? blocks : const [],
+    runEvidence: runEvidence,
   );
 }
 
+String _blockSnapshot(List<ReceiptOcrBlockEvidence> blocks) => jsonEncode([
+  for (final b in blocks)
+    {
+      'text': b.text,
+      'row': b.row,
+      'order': b.order,
+      'confidence': b.confidence,
+      'modelPackId': b.modelPackId,
+      'modelVersion': b.modelVersion,
+      'textDirection': b.textDirection,
+      'points': [
+        for (final p in b.points) [p.x, p.y],
+      ],
+    },
+]);
+String _runSnapshot(ReceiptOcrRunEvidence run) => jsonEncode([
+  run.detectionModelPackId,
+  run.detectionModelVersion,
+  run.runtime,
+  run.coldLoadTimeMs,
+  run.detectionTimeMs,
+  run.recognitionTimeMs,
+  run.totalTimeMs,
+]);
+
 void main() {
-  test('round3 currency-qualified simple headers preserve item amounts', () {
-    for (final header in [
-      'Description Amount (USD)',
-      'Description Amount USD',
-      r'Description Amount ($)',
-      'Description Amount (EUR)',
-    ]) {
-      for (final geometry in [false, true]) {
-        final blocks = [
-          _cell('Regional Utility', 0, 20, 0, 350, 12),
-          _cell('Details of Current Charges', 1, 20, 20, 350, 32),
-          _cell(header, 2, 20, 40, 700, 52),
-          _cell('Water Plan USD 20.00', 3, 20, 60, 700, 72),
-          _cell('Total Amount Due USD 20.00', 4, 20, 80, 700, 92),
-        ];
-        final preview = _parse(blocks, includeGeometry: geometry);
-        expect(
-          preview.items.map((i) => i.description),
-          ['Water Plan'],
-          reason: '$header geometry=$geometry',
-        );
-        expect(preview.items.single.lineTotal, '20.00');
-        expect(preview.items.single.currency, 'USD');
-        expect(
-          preview.itemLineDecisions[3],
-          ReceiptOcrItemLineDecision.pricedItemSelected,
-        );
-      }
+  test('owned rows preserve complete immutable block and run evidence', () {
+    final blocks = _meterBlocks();
+    // Assign the same sequence ordinals used by the provider adapter first.
+    _parse(blocks);
+    const run = ReceiptOcrRunEvidence(
+      detectionModelPackId: 'unit-test-detector',
+      detectionModelVersion: 'unit-test-v2',
+      runtime: 'unit-test-offline',
+      coldLoadTimeMs: 1,
+      detectionTimeMs: 2,
+      recognitionTimeMs: 3,
+      totalTimeMs: 6,
+    );
+    final beforeBlocks = _blockSnapshot(blocks);
+    final beforeRun = _runSnapshot(run);
+    final preview = _parse(blocks, runEvidence: run);
+    expect(preview.items.map((i) => i.description), ['Energy Charge']);
+    expect(_blockSnapshot(blocks), beforeBlocks);
+    expect(_blockSnapshot(preview.blocks), beforeBlocks);
+    expect(_runSnapshot(preview.runEvidence!), beforeRun);
+    expect(_runSnapshot(run), beforeRun);
+  });
+
+  test('nonconvex or degenerate quadrilaterals cannot prove ownership', () {
+    const invalid = [
+      [
+        ReceiptOcrPoint(x: 991, y: 435),
+        ReceiptOcrPoint(x: 1020, y: 435),
+        ReceiptOcrPoint(x: 1020, y: 453),
+        ReceiptOcrPoint(x: 991, y: 435),
+      ],
+      [
+        ReceiptOcrPoint(x: 991, y: 435),
+        ReceiptOcrPoint(x: 1000, y: 441),
+        ReceiptOcrPoint(x: 1009, y: 447),
+        ReceiptOcrPoint(x: 1018, y: 453),
+      ],
+      [
+        ReceiptOcrPoint(x: 991, y: 435),
+        ReceiptOcrPoint(x: 1020, y: 453),
+        ReceiptOcrPoint(x: 1020, y: 435),
+        ReceiptOcrPoint(x: 991, y: 453),
+      ],
+    ];
+    for (final points in invalid) {
+      final blocks = _meterBlocks();
+      blocks[7] = ReceiptOcrBlockEvidence(
+        text: '510',
+        row: 2,
+        order: 7,
+        points: points,
+      );
+      final preview = _parse(blocks);
+      expect(
+        preview.itemLineDecisions[2],
+        ReceiptOcrItemLineDecision.pricedItemSelected,
+      );
+      expect(
+        preview.itemLineDecisions[4],
+        ReceiptOcrItemLineDecision.pricedItemSelected,
+      );
+      expect(preview.blocks, blocks);
     }
   });
 
-  test(
-    'round3 plain adjustments keep their labeled path under simple headers',
-    () {
-      for (final geometry in [false, true]) {
-        for (final header in [
-          'Description Amount',
-          'Description Amount (USD)',
-        ]) {
-          final blocks = [
-            _cell('Regional Utility', 0, 20, 0, 350, 12),
-            _cell('Details of Current Charges', 1, 20, 20, 350, 32),
-            _cell(header, 2, 20, 40, 700, 52),
-            _cell('Water Plan USD 20.00', 3, 20, 60, 700, 72),
-            _cell('Tax USD 2.00', 4, 20, 80, 700, 92),
-            _cell('Service Fee USD 1.00', 5, 20, 100, 700, 112),
-            _cell('Tip USD 1.00', 6, 20, 120, 700, 132),
-            _cell('Shipping USD 1.00', 7, 20, 140, 700, 152),
-            _cell('Discount USD 1.00', 8, 20, 160, 700, 172),
-            _cell('Total Amount Due USD 24.00', 9, 20, 180, 700, 192),
-          ];
-          final preview = _parse(blocks, includeGeometry: geometry);
-          expect(preview.tax, '2.00');
-          expect(preview.service, '1.00');
-          expect(preview.tip, '1.00');
-          expect(preview.shipping, '1.00');
-          expect(preview.discount, '1.00');
-          expect(preview.items.map((i) => i.description), ['Water Plan']);
-          for (var row = 4; row <= 8; row++) {
-            expect(
-              preview.itemLineDecisions[row],
-              ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
-              reason: 'row $row',
-            );
-          }
-        }
-      }
-    },
-  );
-
-  test('round3 every nearby fragment needs a proven nonfinancial role', () {
+  test('every nearby fragment needs a proven nonfinancial role', () {
     for (final marker in ['ZAR', 'CR', 'Sensor', 'XYZ', 'E', 'UR']) {
       final blocks = _meterBlocks();
       blocks.insert(8, _cell(marker, 3, 712, 425, 738, 444));
@@ -179,7 +211,7 @@ void main() {
     }
   });
 
-  test('round3 horizontal calendar gaps cannot extend a local graph', () {
+  test('horizontal calendar gaps cannot extend a local graph', () {
     final distant = _meterBlocks();
     final index = distant.indexWhere((b) => b.text == 'Dec Jan Feb Mar Apr');
     distant[index] = _cell('Dec Jan Feb Mar Apr', 6, 2789, 535, 3021, 553);
@@ -204,98 +236,45 @@ void main() {
     }
   });
 
-  test(
-    'round3 unique anchors cannot be replaced by missing or repeated labels',
-    () {
-      for (final text in [
-        'Previous Reading',
-        'Current Reading',
-        'Usage',
-        'Meter Number',
-        'Your Usage (kWh)',
-      ]) {
-        for (final duplicate in [false, true]) {
-          final blocks = _meterBlocks();
-          final b = blocks.singleWhere((b) => b.text == text);
-          if (duplicate) {
-            blocks.add(b);
-          } else {
-            blocks.remove(b);
-          }
-          final preview = _parse(blocks);
-          expect(
-            preview.itemLineDecisions[2],
-            duplicate &&
-                    [
-                      'Previous Reading',
-                      'Current Reading',
-                      'Usage',
-                    ].contains(text)
-                ? ReceiptOcrItemLineDecision.unretainedPricedRow
-                : ReceiptOcrItemLineDecision.pricedItemSelected,
-            reason: '$text duplicate=$duplicate',
-          );
-          expect(
-            preview.itemLineDecisions[4],
-            ReceiptOcrItemLineDecision.pricedItemSelected,
-          );
-          expect(preview.blocks, blocks);
+  test('unique anchors cannot be replaced by missing or repeated labels', () {
+    for (final text in [
+      'Previous Reading',
+      'Current Reading',
+      'Usage',
+      'Meter Number',
+      'Your Usage (kWh)',
+    ]) {
+      for (final duplicate in [false, true]) {
+        final blocks = _meterBlocks();
+        final b = blocks.singleWhere((b) => b.text == text);
+        if (duplicate) {
+          blocks.add(b);
+        } else {
+          blocks.remove(b);
         }
-      }
-    },
-  );
-
-  test('round3 qualified headers do not waive mixed or rated adjustments', () {
-    for (final header in [
-      'Description Amount (USD)',
-      'Description Rate Amount (USD)',
-      'Description Amount (USD) Rate',
-    ]) {
-      for (final line in [
-        'Taxes and Regulatory Fees USD 2.00',
-        'State Gas Tax (2.5%) 10 therms USD 0.10',
-        'Service Fee and Tax USD 2.00',
-      ]) {
-        final preview = const ReceiptOcrParser().parse(
-          'Regional Utility\nDetails of Current Charges\n$header\n'
-          '$line\nTotal Amount Due USD 2.00',
-        );
-        expect(preview.tax, isNull, reason: '$header / $line');
-        expect(preview.service, isNull);
+        final preview = _parse(blocks);
         expect(
-          preview.itemLineDecisions[3],
-          ReceiptOcrItemLineDecision.ambiguousChargeSkipped,
+          preview.itemLineDecisions[2],
+          duplicate &&
+                  [
+                    'Previous Reading',
+                    'Current Reading',
+                    'Usage',
+                  ].contains(text)
+              ? ReceiptOcrItemLineDecision.unretainedPricedRow
+              : ReceiptOcrItemLineDecision.pricedItemSelected,
+          reason: '$text duplicate=$duplicate',
         );
-        expect(preview.reviewHints, isNotEmpty);
-      }
-    }
-  });
-
-  test('round2 simple bill amounts survive text-only and merged headings', () {
-    for (final heading in [
-      'Details of Current Charges',
-      'Detail of Current Charge',
-    ]) {
-      for (final geometry in [false, true]) {
-        final blocks = [
-          _cell('Regional Utility', 0, 20, 0, 350, 12),
-          _cell(heading, 1, 20, 20, 350, 32),
-          _cell('Description Amount', 2, 20, 40, 700, 52),
-          _cell('Water Plan USD 20.00', 3, 20, 60, 700, 72),
-          _cell('Total Amount Due USD 20.00', 4, 20, 80, 700, 92),
-        ];
-        final preview = _parse(blocks, includeGeometry: geometry);
-        expect(preview.items.map((i) => i.description), ['Water Plan']);
-        expect(preview.items.single.lineTotal, '20.00');
         expect(
-          preview.itemLineDecisions[3],
+          preview.itemLineDecisions[4],
           ReceiptOcrItemLineDecision.pricedItemSelected,
         );
+        expect(preview.blocks, blocks);
       }
     }
   });
 
-  test('round2 adjacent currency and signs prevent meter graph ownership', () {
+  test('adjacent currency and signs prevent meter graph ownership', () {
     for (final marker in ['EUR', r'$', '-', '−', '+']) {
       final blocks = _meterBlocks();
       blocks.insert(8, _cell(marker, 3, 712, 425, 738, 444));
@@ -320,7 +299,7 @@ void main() {
     }
   });
 
-  test('round2 meter label on the reading header remains nonfinancial', () {
+  test('meter label on the reading header remains nonfinancial', () {
     final blocks = _meterBlocks();
     blocks[8] = _cell('Meter Number', 2, 82, 438, 190, 458);
     final preview = _parse(blocks);
@@ -340,7 +319,7 @@ void main() {
     expect(preview.blocks, blocks);
   });
 
-  test('round2 overlapping or distant calendar cannot prove a graph', () {
+  test('overlapping or distant calendar cannot prove a graph', () {
     final overlapping = _meterBlocks();
     overlapping.removeWhere((b) => b.text == 'Dec Jan Feb Mar Apr');
     final axisIndex = overlapping.indexWhere((b) => b.row == 7);
@@ -365,62 +344,21 @@ void main() {
     }
   });
 
-  test(
-    'round2 missing reading values do not turn proven labels into prices',
-    () {
-      final blocks = _meterBlocks();
-      blocks.removeWhere((b) => b.row == 5 && b.text != '250');
-      final preview = _parse(blocks);
-      expect(preview.items.map((i) => i.description), ['Energy Charge']);
-      expect(
-        preview.itemLineDecisions[2],
-        ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
-      );
-      expect(
-        preview.itemLineDecisions[4],
-        ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
-      );
-      expect(preview.blocks, blocks);
-    },
-  );
-
-  test(
-    'round2 simple heading fallback cannot promote rate or period numbers',
-    () {
-      for (final heading in [
-        'Current Charges Detail',
-        'Details of Current Charges',
-        'Detail of Current Charge',
-      ]) {
-        for (final row in [
-          'Water Charge 25 m3 @ USD 1.80',
-          'Water Plan (Apr 1 - Apr 30) USD 20.00',
-          'State Gas Tax (2.5%) 10 therms USD 0.10',
-          'Energy Charge USD 0.20 USD 10.00',
-        ]) {
-          final preview = const ReceiptOcrParser().parse(
-            'Regional Utility\n$heading\nDescription Amount\n$row\n'
-            'Total Amount Due USD 20.00',
-          );
-          expect(preview.items, isEmpty, reason: '$heading / $row');
-          expect(
-            preview.itemLineDecisions[3],
-            ReceiptOcrItemLineDecision.ambiguousChargeSkipped,
-          );
-          expect(preview.reviewHints, isNotEmpty);
-        }
-        final preview = const ReceiptOcrParser().parse(
-          'Regional Utility\n$heading\nDescription Rate Amount\n'
-          'Water Plan USD 0.20\nTotal Amount Due USD 20.00',
-        );
-        expect(preview.items, isEmpty);
-        expect(
-          preview.itemLineDecisions[3],
-          ReceiptOcrItemLineDecision.ambiguousChargeSkipped,
-        );
-      }
-    },
-  );
+  test('missing reading values do not turn proven labels into prices', () {
+    final blocks = _meterBlocks();
+    blocks.removeWhere((b) => b.row == 5 && b.text != '250');
+    final preview = _parse(blocks);
+    expect(preview.items.map((i) => i.description), ['Energy Charge']);
+    expect(
+      preview.itemLineDecisions[2],
+      ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+    );
+    expect(
+      preview.itemLineDecisions[4],
+      ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+    );
+    expect(preview.blocks, blocks);
+  });
 
   test('bounded meter table and usage graph are not priced items', () {
     final blocks = _meterBlocks();
@@ -442,6 +380,10 @@ void main() {
       ]) {
         final preview = _parse(blocks);
         expect(preview.items.length, greaterThan(1));
+        expect(
+          preview.itemLineDecisions[4],
+          ReceiptOcrItemLineDecision.pricedItemSelected,
+        );
         expect(preview.reviewHints, isNotEmpty);
         expect(preview.blocks, blocks);
       }
@@ -467,6 +409,10 @@ void main() {
         final blocks = _meterBlocks(graphValue: value);
         final preview = _parse(blocks);
         expect(preview.items.length, greaterThan(1), reason: value);
+        expect(
+          preview.itemLineDecisions[4],
+          ReceiptOcrItemLineDecision.pricedItemSelected,
+        );
         expect(preview.reviewHints, isNotEmpty, reason: value);
         expect(preview.blocks, blocks);
       }
@@ -485,6 +431,16 @@ void main() {
         blocks.insert(index, _cell(extra, 4, 1040, 461, 1300, 480));
         final preview = _parse(blocks);
         expect(preview.items.length, greaterThan(1));
+        expect(
+          preview.itemLineDecisions[2],
+          ReceiptOcrItemLineDecision.pricedItemSelected,
+        );
+        expect(
+          preview.itemLineDecisions[4],
+          extra == 'Replacement Sensor'
+              ? ReceiptOcrItemLineDecision.unretainedPricedRow
+              : ReceiptOcrItemLineDecision.pricedItemSelected,
+        );
         expect(preview.reviewHints, isNotEmpty);
         expect(preview.blocks, blocks);
       }
@@ -503,12 +459,20 @@ void main() {
       blocks[7] = target;
       final preview = _parse(blocks);
       expect(preview.items.length, greaterThan(1));
+      expect(
+        preview.itemLineDecisions[4],
+        ReceiptOcrItemLineDecision.pricedItemSelected,
+      );
       expect(preview.reviewHints, isNotEmpty);
     }
     final competing = [...source];
     competing.insert(8, _cell('Sensor', 3, 990, 435, 1021, 453));
     final preview = _parse(competing);
     expect(preview.items.length, greaterThan(1));
+    expect(
+      preview.itemLineDecisions[4],
+      ReceiptOcrItemLineDecision.pricedItemSelected,
+    );
     expect(preview.reviewHints, isNotEmpty);
     expect(preview.blocks, competing);
   });
@@ -522,12 +486,20 @@ void main() {
         blocks[index] = _cell(text, 6, 789, 535, 1021, 553);
         final preview = _parse(blocks);
         expect(preview.items.length, greaterThan(1), reason: text);
+        expect(
+          preview.itemLineDecisions[4],
+          ReceiptOcrItemLineDecision.pricedItemSelected,
+        );
         expect(preview.reviewHints, isNotEmpty, reason: text);
       }
       final blocks = _meterBlocks();
       blocks.insert(8, _cell('Solar credit USD 10.00', 3, 790, 483, 1000, 503));
       final preview = _parse(blocks);
       expect(preview.items.length, greaterThan(1));
+      expect(
+        preview.itemLineDecisions[4],
+        ReceiptOcrItemLineDecision.pricedItemSelected,
+      );
       expect(preview.reviewHints, isNotEmpty);
       expect(preview.blocks, blocks);
     },
@@ -543,32 +515,5 @@ void main() {
     ]);
     expect(preview.items.last.lineTotal, '9.00');
     expect(preview.reviewHints, isNotEmpty);
-  });
-
-  test('current-charge heading variants preserve ambiguous fee evidence', () {
-    for (final heading in [
-      'Current Charges Detail',
-      'Details of Current Charges',
-      'Detail of Current Charge',
-    ]) {
-      final blocks = [
-        _cell('Regional Utility', 0, 20, 0, 350, 12),
-        _cell(heading, 1, 20, 20, 350, 32),
-        _cell('Description', 2, 20, 40, 300, 52),
-        _cell('Amount', 2, 600, 40, 700, 52),
-        _cell('Water Plan', 3, 20, 60, 300, 72),
-        _cell('USD 20.00', 3, 600, 60, 700, 72),
-        _cell('Taxes and Regulatory Fees', 4, 20, 80, 300, 92),
-        _cell('USD 2.00', 4, 600, 80, 700, 92),
-        _cell('Total Current Charges USD 22.00', 5, 20, 100, 700, 112),
-      ];
-      final preview = _parse(blocks);
-      expect(preview.items.map((item) => item.description), [
-        'Water Plan',
-      ], reason: heading);
-      expect(preview.tax, isNull);
-      expect(preview.reviewHints, isNotEmpty);
-      expect(preview.blocks, blocks);
-    }
   });
 }

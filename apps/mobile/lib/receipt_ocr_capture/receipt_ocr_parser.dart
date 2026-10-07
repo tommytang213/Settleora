@@ -4791,11 +4791,26 @@ Set<int> _ownedMeterReadingRows(
   double bottom(ReceiptOcrBlockEvidence b) =>
       b.points.map((p) => p.y).reduce((a, b) => a > b ? a : b);
   double height(ReceiptOcrBlockEvidence b) => bottom(b) - top(b);
-  bool valid(ReceiptOcrBlockEvidence b) =>
-      b.points.length == 4 &&
-      b.points.every((p) => p.x.isFinite && p.y.isFinite) &&
-      _blockRight(b) > _blockLeft(b) &&
-      bottom(b) > top(b);
+  bool valid(ReceiptOcrBlockEvidence b) {
+    if (b.points.length != 4 ||
+        b.points.any((p) => !p.x.isFinite || !p.y.isFinite) ||
+        _blockRight(b) <= _blockLeft(b) ||
+        bottom(b) <= top(b)) {
+      return false;
+    }
+    // A bounding box alone cannot establish ownership for a repeated,
+    // collinear or self-intersecting detector quadrilateral.
+    final turns = [
+      for (var i = 0; i < 4; i++)
+        (b.points[(i + 1) % 4].x - b.points[i].x) *
+                (b.points[(i + 2) % 4].y - b.points[(i + 1) % 4].y) -
+            (b.points[(i + 1) % 4].y - b.points[i].y) *
+                (b.points[(i + 2) % 4].x - b.points[(i + 1) % 4].x),
+    ];
+    return turns.every((turn) => turn.isFinite && turn > 0) ||
+        turns.every((turn) => turn.isFinite && turn < 0);
+  }
+
   if (rows.expand((r) => r).any((b) => !valid(b))) return owned;
   const unit = r'(?:kwh|therms?|m³|m3|gallons?|gal)';
   final graphHeading = RegExp(
@@ -6519,7 +6534,6 @@ bool _isFinancialLabelWithAdjacentAmount(
   var hasRateColumn = false;
   var hasUsageColumn = false;
   var requiresLayoutAmountColumn = false;
-  var simpleBillTable = false;
   for (var index = 0; index < lines.length; index++) {
     if (nonItemEvidenceRows.contains(index)) continue;
     final line = lines[index];
@@ -6531,9 +6545,6 @@ bool _isFinancialLabelWithAdjacentAmount(
         r'\b(?:usage|qty|quantity)\b',
         caseSensitive: false,
       ).hasMatch(line);
-      simpleBillTable =
-          _isBillChargeDetailHeader(lines, index) &&
-          _isSimpleBillAmountHeader(line);
       requiresLayoutAmountColumn =
           _isInvoiceProductTableHeader(line) ||
           _isBillChargeDetailHeader(lines, index);
@@ -6572,44 +6583,10 @@ bool _isFinancialLabelWithAdjacentAmount(
     // An invoice's unit price or a bill's rate/date can be the last
     // recognized number when its final amount cell is missing. Only the
     // labeled amount column's geometry can select line money in these tables.
-    // A complete two-column label and one monetary value after a wholly
-    // textual description need no geometry. Numeric rate/usage/date context,
-    // fee ambiguity or any additional column still requires owned layout.
-    final simplePrintedMoney =
-        simpleBillTable &&
-        pricedRow != null &&
-        RegExp(
-          r'^[\p{L}\p{M}][\p{L}\p{M}\s\p{Pd}()/&]*$',
-          unicode: true,
-        ).hasMatch(prefix) &&
-        _hasChargeTableMonetaryEvidence(
-          '${pricedRow.group(2) ?? ''} ${pricedRow.group(3)} ${pricedRow.group(4) ?? ''}',
-        );
-    // Existing complete label grammars establish ordinary adjustment roles.
-    // Do not turn a plain Tax/Service/Tip/Shipping/Discount into a disputed
-    // charge merely because the bill section acquired a recognized heading.
-    final simpleAdjustment =
-        simplePrintedMoney &&
-        [
-              _hasTaxLabel(line, lower),
-              _hasServiceChargeLabel(line, lower),
-              _hasActualTipChargeLabel(line, lower),
-              _hasShippingLabel(line, lower),
-              _hasDiscountLabel(line, lower),
-            ].where((hasRole) => hasRole).length ==
-            1;
-    final simplePrintedItem =
-        simplePrintedMoney &&
-        !_isChargeTableSummaryLine(line) &&
-        !RegExp(
-          r'\b(?:fees?|surcharge)\b',
-          caseSensitive: false,
-        ).hasMatch(prefix);
-    if (requiresLayoutAmountColumn && !simplePrintedItem && !simpleAdjustment) {
+    if (requiresLayoutAmountColumn) {
       if (pricedRow != null) ambiguous.add(index);
       continue;
     }
-    if (simpleAdjustment) continue;
     // A rated tax row in a table with both Usage and Rate columns needs
     // geometry to prove whether the numeric cell is usage or only a rate.
     if (pricedRow != null &&
@@ -7093,18 +7070,6 @@ bool _isSupportedChargeTableHeader(List<String> lines, int index) =>
     _isChargeTableHeader(lines[index]) ||
     _isBillChargeDetailHeader(lines, index);
 
-bool _isSimpleBillAmountHeader(String line) {
-  // A denomination annotation qualifies the Amount column; it does not add
-  // a competing numeric column or change supported-currency policy.
-  final currency =
-      '(?:$_currencyTokenPattern|'
-      '${_knownUnsupportedIsoCurrencyCodes.map(RegExp.escape).join('|')})';
-  return RegExp(
-    '^description\\s+amount(?:\\s*\\($currency\\)|\\s+$currency)?\$',
-    caseSensitive: false,
-  ).hasMatch(line);
-}
-
 bool _isBillChargeDetailHeader(List<String> lines, int index) {
   if (index == 0) return false;
   if (_lineHasAmount(lines[index - 1])) return false;
@@ -7118,7 +7083,7 @@ bool _isBillChargeDetailHeader(List<String> lines, int index) {
     return false;
   }
   return RegExp(
-    r'\b(?:current\s+charges?\s+detail|details?\s+of\s+current\s+charges?|charges?\s+for\s+(?:this|the|current)\s+period|(?:itemized|detailed)\s+charges?|charges?\s+(?:detail|breakdown))\b',
+    r'\b(?:current\s+charges?\s+detail|charges?\s+for\s+(?:this|the|current)\s+period|(?:itemized|detailed)\s+charges?|charges?\s+(?:detail|breakdown))\b',
     caseSensitive: false,
   ).hasMatch(lines[index - 1]);
 }
