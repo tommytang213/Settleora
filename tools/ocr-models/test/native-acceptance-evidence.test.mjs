@@ -510,6 +510,13 @@ test("complete evidence requires both package measurements and a positive delta"
     identities: { baseCompositeSha256: "9".repeat(64) },
   };
   assert.equal(isCompleteEvidence(evidence), true);
+  // A recovered failure envelope cannot become accepted proof by attaching
+  // otherwise complete execution/package fields or clearing its marker value.
+  for (const key of ["collectionFailure", "collectionFailureReason"]) {
+    for (const value of ["invalid_or_unavailable_bounded_evidence", "unclassified", null, ""]) {
+      assert.equal(isCompleteEvidence({ ...evidence, [key]: value }), false);
+    }
+  }
   assert.equal(isCompleteEvidence({ ...evidence, acceptance: { ...evidence.acceptance,
     recognitionCoverage: evidence.acceptance.recognitionCoverage.map((row) => {
       const copy = { ...row }; delete copy.reviewDecision; return copy;
@@ -739,6 +746,7 @@ test("failure evidence retains bounded phase and status before environment colle
       uiSmoke: { completed: false },
       diagnostics: [],
       collectionFailure: "invalid_or_unavailable_bounded_evidence",
+      collectionFailureReason: "unclassified",
     },
   );
   const rejected = buildFailureEvidence({
@@ -1134,6 +1142,61 @@ test("rejects nonempty stderr without retaining its text", () => {
     assert.equal(failure.execution.stderrBytes, 43);
     assert.equal(JSON.stringify(failure).includes("private toolchain path"), false);
     assert.equal(JSON.stringify(failure).includes("diagnostic text"), false);
+  });
+});
+
+test("CLI classifies rejected stderr while retaining only diagnostic markers", () => {
+  for (const platform of ["android", "ios"]) {
+    const uiSmoke = {
+      schemaVersion: 1, platform, completed: true,
+      fixtureId: "existing_12_freshmart_grocery_en_US",
+      previewPanel: true, applyBoundaryVisible: true,
+    };
+    withLog(protocolLog(`SETTLEORA_OCR_UI_SMOKE=${JSON.stringify(uiSmoke)}`), (log) => {
+      const out = `${log}.evidence.json`;
+      // Same byte count as Android run 37566401353; synthetic content only.
+      const privateText = "private native diagnostic ".padEnd(233, "x");
+      writeFileSync(`${log}.stderr`, privateText, { mode: 0o600 });
+      for (const status of ["0", "1"]) {
+        const args = { ...evidenceArgs(log, platform), "test-status": status,
+          out, "require-complete": "true" };
+        const result = spawnSync(process.execPath, [
+          path.join(repoRoot, "tools/ocr-models/native-acceptance-evidence.mjs"),
+          ...Object.entries(args).map(([key, value]) => `--${key}=${value}`),
+        ], { cwd: repoRoot, encoding: "utf8" });
+        assert.equal(result.status, 1);
+        assert.equal(result.stdout, "");
+        assert.equal(result.stderr, "bounded_native_ocr_evidence_failed\n");
+        const retained = readFileSync(out, "utf8");
+        const evidence = JSON.parse(retained);
+        assert.equal(evidence.collectionFailure, "invalid_or_unavailable_bounded_evidence");
+        assert.equal(evidence.collectionFailureReason, "non_allowlisted_stderr");
+        assert.equal(evidence.execution.stderrBytes, 233);
+        assert.equal(evidence.execution.testExitStatus, Number(status));
+        assert.deepEqual(evidence.uiSmoke, uiSmoke);
+        assert.equal(isCompleteEvidence(evidence), false);
+        assert.equal(retained.includes("private native diagnostic"), false);
+        assert.equal(retained.includes(repoRoot), false);
+        assert.equal(Object.hasOwn(evidence, "packageEvidence"), false);
+      }
+    });
+  }
+});
+
+test("collection reasons cannot be supplied by arbitrary error text or properties", () => {
+  withLog("private invalid protocol\n", (log) => {
+    let error;
+    try { buildEvidence(evidenceArgs(log), repoRoot); } catch (caught) { error = caught; }
+    assert.ok(error instanceof Error);
+    for (const supplied of [error, "non_allowlisted_stderr", {
+      name: "NonAllowlistedStderrError", code: "non_allowlisted_stderr",
+      message: "private native diagnostic",
+    }, new Error("Acceptance runner emitted non-allowlisted stderr")]) {
+      const evidence = buildFailureEvidence(evidenceArgs(log), repoRoot, supplied);
+      assert.equal(evidence.collectionFailureReason, "unclassified");
+      assert.equal(isCompleteEvidence(evidence), false);
+      assert.doesNotMatch(JSON.stringify(evidence), /private|Acceptance runner/);
+    }
   });
 });
 

@@ -7,6 +7,13 @@ const maxLogBytes = 32 * 1024 * 1024;
 const maxMarkerBytes = 512 * 1024;
 const safeToken = /^[A-Za-z0-9_.:[\]-]{1,160}$/;
 const reviewedUiFixtureId = "existing_12_freshmart_grocery_en_US";
+// Only this internal error type can classify a collection failure. Never
+// serialize arbitrary errors, messages, paths, or native/plugin output.
+class NonAllowlistedStderrError extends Error {
+  constructor() {
+    super("Acceptance runner emitted non-allowlisted stderr");
+  }
+}
 const androidPreflightFailurePhases = new Set([
   "kvm_setup",
   "kvm_preflight",
@@ -77,7 +84,7 @@ function immutableFixtureIds(repoRoot) {
   return expectedFixtureIds;
 }
 
-export function buildFailureEvidence(args, repoRoot = process.cwd()) {
+export function buildFailureEvidence(args, repoRoot = process.cwd(), collectionError) {
   const platform = new Set(["android", "ios"]).has(args.platform) ? args.platform : null;
   const statusToken = args["test-status"];
   const parsedStatus = typeof statusToken === "string" && /^(0|[1-9][0-9]*)$/.test(statusToken)
@@ -134,6 +141,9 @@ export function buildFailureEvidence(args, repoRoot = process.cwd()) {
     uiSmoke,
     diagnostics: extractFailureDiagnostics(args, platform, expectedFixtureIds),
     collectionFailure: "invalid_or_unavailable_bounded_evidence",
+    collectionFailureReason: collectionError instanceof NonAllowlistedStderrError
+      ? "non_allowlisted_stderr"
+      : "unclassified",
   };
 }
 
@@ -378,7 +388,7 @@ function parseSafeRunnerLog(log, stderrLog) {
   // This closes the privacy boundary around native/plugin diagnostics while
   // keeping failure evidence limited to a content-free byte count.
   if (Buffer.byteLength(stderrLog, "utf8") !== 0) {
-    throw new Error("Acceptance runner emitted non-allowlisted stderr");
+    throw new NonAllowlistedStderrError();
   }
   const allowedEventTypes = new Set([
     "start", "allSuites", "suite", "group", "testStart", "testDone", "done", "error",
@@ -1223,7 +1233,9 @@ function parseArgs(values) {
 
 export function isCompleteEvidence(evidence) {
   return Boolean(
-    Array.isArray(evidence.diagnostics) &&
+    !Object.hasOwn(evidence, "collectionFailure") &&
+      !Object.hasOwn(evidence, "collectionFailureReason") &&
+      Array.isArray(evidence.diagnostics) &&
       evidence.diagnostics.length === 0 &&
       evidence.execution.preflightFailurePhase == null &&
       evidence.acceptance.completed &&
@@ -1286,8 +1298,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
     let evidence;
     try {
       evidence = buildEvidence(args);
-    } catch {
-      evidence = buildFailureEvidence(args);
+    } catch (collectionError) {
+      evidence = buildFailureEvidence(args, process.cwd(), collectionError);
       writeFileSync(args.out, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
       throw new Error("bounded collection failed");
     }
