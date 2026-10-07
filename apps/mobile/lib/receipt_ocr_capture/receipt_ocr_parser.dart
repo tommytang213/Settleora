@@ -6766,11 +6766,15 @@ bool _hasUnresolvedSimpleFinancialLabel(String label) {
   if ((word == 'service' || word == 'charge') &&
       _unicodeLetterPattern.hasMatch(
         label.substring(0, role.start) + label.substring(role.end),
-      ))
+      )) {
     return false;
+  }
   if (!word.contains(' ') &&
-      _boundedUtilityNamedServiceQualifier.hasMatch(label.substring(role.end)))
+      _boundedUtilityNamedServiceQualifier.hasMatch(
+        label.substring(role.end),
+      )) {
     return false;
+  }
   return true;
 }
 
