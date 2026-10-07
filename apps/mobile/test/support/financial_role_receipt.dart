@@ -13,6 +13,7 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
   List<({double left, double right})>? labelBounds,
   bool amountOnLeft = false,
   String? servicePeriod,
+  String? rowNote,
   ({double left, double right})? servicePeriodBounds,
 }) {
   final rows = <List<String>>[
@@ -22,7 +23,7 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
         ? columns
         : ['Description', 'Service Period', 'Amount'],
     [item, ?servicePeriod, 'USD 20.00'],
-    [label, ?servicePeriod, amount],
+    [label, ?servicePeriod, amount, ?rowNote],
     ['Total Amount Due $total'],
   ];
   final blocks = <ReceiptOcrBlockEvidence>[];
@@ -77,6 +78,7 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
             servicePeriod == null ? 400 : 470,
             servicePeriod == null ? 500 : 570,
           );
+          if (rowNote != null) cell(rowNote, row, 700, 900);
           continue;
         }
         for (var i = 0; i < cells.length; i++) {

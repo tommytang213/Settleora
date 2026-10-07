@@ -4235,7 +4235,11 @@ class ReceiptOcrParser {
           : '${currencyBlocks.single.text.trim()} ${amountBlock.text.trim()}';
       if (!_hasChargeTableMonetaryEvidence(monetaryText)) continue;
       if (row.any((block) {
-        if (block == amountBlock || currencyBlocks.contains(block)) {
+        // The complete owned description already passed qualifier validation.
+        // Only additional monetary evidence outside it can contradict this row.
+        if (block == amountBlock ||
+            currencyBlocks.contains(block) ||
+            descriptionBlocks.contains(block)) {
           return false;
         }
         if (rateHeaders.length == 1 && block.points.isNotEmpty) {
@@ -4245,11 +4249,8 @@ class ReceiptOcrParser {
           }
         }
         final normalizedBlockText = _normalizeOcrLine(block.text);
-        return RegExp(
-              _currencyTokenPattern,
-              caseSensitive: false,
-            ).hasMatch(normalizedBlockText) &&
-            _lineHasAmount(normalizedBlockText);
+        return _printedCurrencyMarkerMatches(normalizedBlockText).isNotEmpty &&
+            _hasUnexplainedFinancialLabelNumber(normalizedBlockText);
       })) {
         continue;
       }

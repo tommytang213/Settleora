@@ -3,6 +3,67 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_parser.dart';
 import '../support/financial_role_receipt.dart';
 
 void main() {
+  for (final period in [false, true]) {
+    for (final role in ['Discount', 'Coupons', 'Rebates']) {
+      for (final label in [
+        '$role (Ref USD-7)',
+        '$role (Ref ＵＳＤ-７)',
+        'First Purchase $role (10%)',
+        'First Purchase $role (１０％)',
+        'First Year $role (12 months)',
+        'First Year $role (１２ months)',
+      ]) {
+        test(
+          'qualified financial label stays complete: $label period=$period',
+          () {
+            final source = financialRoleReceipt(
+              label,
+              labelBlocks: [label],
+              total: 'USD 18.00',
+              servicePeriod: period ? 'Feb 5 - Mar 4, 2025' : null,
+            );
+            final preview = const ReceiptOcrParser().parse(
+              source.text,
+              blocks: source.blocks,
+            );
+            expect(preview.items.single.description, "Resident's Water Plan");
+            expect(preview.discount, '2.00');
+            expect(preview.adjustmentsComplete, isTrue);
+            expect(preview.reviewHints, isEmpty);
+            expect(preview.blocks, source.blocks);
+          },
+        );
+      }
+    }
+    for (final note in ['Ref USD-7', 'Ref ＵＳＤ-７', 'USD 7.00', 'ＵＳＤ ７．００']) {
+      test(
+        'secondary evidence respects known qualifier: $note period=$period',
+        () {
+          final source = financialRoleReceipt(
+            'Discounts',
+            labelBlocks: ['Discounts'],
+            total: 'USD 18.00',
+            servicePeriod: period ? 'Feb 5 - Mar 4, 2025' : null,
+            rowNote: note,
+          );
+          final preview = const ReceiptOcrParser().parse(
+            source.text,
+            blocks: source.blocks,
+          );
+          if (note.startsWith('Ref')) {
+            expect(preview.discount, '2.00');
+            expect(preview.adjustmentsComplete, isTrue);
+            expect(preview.reviewHints, isEmpty);
+          } else {
+            expect(preview.adjustmentsComplete, isFalse);
+            expect(preview.reviewHints, isNotEmpty);
+          }
+          expect(preview.blocks, source.blocks);
+        },
+      );
+    }
+  }
+
   for (final role in ['Taxes', 'Service Charge', 'Service Fees', 'Discounts']) {
     for (final left in [266.0, 270.0, 279.0, 280.0]) {
       test('period-boundary keeps owned $role at $left', () {

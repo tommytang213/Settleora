@@ -77,6 +77,9 @@ void main() {
         'Rebates (Ref 7)',
         'Rebates (Ref USD7)',
         'Rebates (Ref ＵＳＤ７)',
+        'Discounts (Ref ＵＳＤ-７)',
+        'First Purchase Discount (１０％)',
+        'First Year Discount (１２ months)',
         'Service Charge 10%',
         'Service Charge 10 %',
         'Service Fees ( 10.5 % )',
@@ -113,6 +116,9 @@ void main() {
           'Rebates (Ref 7)',
           'Rebates (Ref USD7)',
           'Rebates (Ref ＵＳＤ７)',
+          'Discounts (Ref ＵＳＤ-７)',
+          'First Purchase Discount (１０％)',
+          'First Year Discount (１２ months)',
         ].contains(label);
         final serviceRate = [
           'Service Charge 10%',
@@ -164,7 +170,9 @@ void main() {
               labelBounds: namedProduct
                   ? [(left: 20, right: 160), (left: 330, right: 380)]
                   : null,
-              labelBlocks: serviceRate
+              labelBlocks: label.startsWith('First ')
+                  ? [label]
+                  : serviceRate
                   ? [
                       label.split(' ').take(2).join(' '),
                       ...label.split(' ').skip(2),
