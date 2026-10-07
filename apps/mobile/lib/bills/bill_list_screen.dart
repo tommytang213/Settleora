@@ -3712,9 +3712,9 @@ class _ReceiptOcrEditableItemCard extends StatelessWidget {
                 controllers.currency.text = currency ?? '';
                 // Only an explicit supported line-currency selection resolves
                 // retained ambiguity, including selection of the same code.
-                controllers.currencyUnresolved = !settleoraIsSupportedCurrency(
-                  currency,
-                );
+                if (settleoraIsSupportedCurrency(currency)) {
+                  controllers.currencyUnresolved = false;
+                }
                 onChanged();
               },
             ),

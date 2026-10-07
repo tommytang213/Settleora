@@ -23,6 +23,7 @@ import {
   validateManifest,
 } from './day1-release-identity.mjs';
 import { assertTrackedWorktreeMatchesHead, assertUniqueJsonMembers, createUserWebDistManifest, scanPublicArtifact } from '../ci/user-web-dist-manifest.mjs';
+import { prepareProductionFlutterPlugins } from '../ocr-models/prepare-production-flutter-plugins.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const invokedDirectly = Boolean(process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url));
@@ -1589,6 +1590,28 @@ while (written < payload.length) written += writeSync(${captureFd}, payload, wri
   });
 }
 
+export function prepareAndroidProductionBuildInputs(snapshotRoot) {
+  const mobileRoot = path.join(snapshotRoot, 'apps/mobile');
+  prepareProductionFlutterPlugins(path.join(mobileRoot, '.flutter-plugins-dependencies'), {
+    requireIntegrationTest: true,
+    packageConfigPath: path.join(mobileRoot, '.dart_tool/package_config.json'),
+    packageGraphPath: path.join(mobileRoot, '.dart_tool/package_graph.json'),
+  });
+  const sealedGeneratedInputPaths = [
+    'apps/mobile/.dart_tool/package_config.json',
+    'apps/mobile/.dart_tool/package_graph.json',
+    'apps/mobile/.dart_tool/version',
+    'apps/mobile/.flutter-plugins-dependencies',
+    'apps/mobile/android/app/src/main/java',
+  ];
+  for (const relativeInput of sealedGeneratedInputPaths) {
+    const absoluteInput = path.join(snapshotRoot, relativeInput);
+    if (!lstatSync(absoluteInput, { throwIfNoEntry: false })) throw new Error(`Android generated build input is missing: ${relativeInput}`);
+    makeTreeReadOnly(absoluteInput, `Android generated build input ${relativeInput}`);
+  }
+  return sealedGeneratedInputPaths;
+}
+
 function collectAndroidUnsafe(options, emit = true) {
   const flutter = trustedFlutter(options.flutter);
   const androidSdkRoot = path.resolve(options['android-sdk-root'] ?? '');
@@ -1683,18 +1706,7 @@ function collectAndroidUnsafe(options, emit = true) {
     executeGuardedFlutter(flutter, [
       ['pub', 'get'],
     ], mobileRoot, [...toolchainConfiguration, prefetchSourceGuard, { label: 'android-signing-home', root: path.join(buildHome, '.android'), excludedPrefixes: [] }]);
-    const sealedGeneratedInputPaths = [
-      'apps/mobile/.dart_tool/package_config.json',
-      'apps/mobile/.dart_tool/package_graph.json',
-      'apps/mobile/.dart_tool/version',
-      'apps/mobile/.flutter-plugins-dependencies',
-      'apps/mobile/android/app/src/main/java',
-    ];
-    for (const relativeInput of sealedGeneratedInputPaths) {
-      const absoluteInput = path.join(snapshotRoot, relativeInput);
-      if (!lstatSync(absoluteInput, { throwIfNoEntry: false })) throw new Error(`Android generated build input is missing: ${relativeInput}`);
-      makeTreeReadOnly(absoluteInput, `Android generated build input ${relativeInput}`);
-    }
+    const sealedGeneratedInputPaths = prepareAndroidProductionBuildInputs(snapshotRoot);
     const dartToolRoot = path.join(mobileRoot, '.dart_tool');
     const dartToolExcludedPaths = ['flutter_build', 'hooks_runner'];
     const prefetchBuildGeneratedPaths = prefetchSourceGeneratedPaths.filter((entry) => !['apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/app/src/main/java'].includes(entry));

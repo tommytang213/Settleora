@@ -116,6 +116,16 @@ void main() {
           final itemCurrency = find.byKey(
             ValueKey('$prefix-ocr-item-currency-0'),
           );
+          await tester.ensureVisible(itemCurrency);
+          await tester.tap(itemCurrency);
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('No currency preference').last);
+          await tester.pumpAndSettle();
+          expect(
+            tester.widget<CheckboxListTile>(items).onChanged,
+            isNull,
+            reason: 'Clearing the code does not resolve source ambiguity',
+          );
           await _selectCurrency(tester, itemCurrency, 'USD');
           await tester.pumpAndSettle();
           expect(
