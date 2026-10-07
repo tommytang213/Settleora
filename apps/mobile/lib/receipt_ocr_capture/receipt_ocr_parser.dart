@@ -5,7 +5,7 @@ import '../ui/settleora_form_fields.dart';
 
 final _unicodeLetterPattern = RegExp(r'\p{L}', unicode: true);
 final _potentialReceiptAdjustmentLabelPattern = RegExp(
-  r'\b(?:sales\s+tax(?:es)?|tax(?:es)?|vat|gst|hst|iva|tva|kdv|mwst|services?(?:\s+(?:charges?|fees?))?|tips?|gratuity|gratuities|shipping|delivery(?:\s+(?:charges?|fees?))?|discounts?|coupons?|promo\s+code|loyalty[\s-]+savings?|surcharges?|charges?|fees?|refunds?|rebates?|credits?|deposits?|levy|levies|duty|duties|donations?|round(?:ing|[\s-]*off))\b',
+  r'\b(?:sales\s+tax(?:es)?|tax(?:es)?|vat|gst|hst|iva|tva|kdv|mwst|service(?:s?\s+(?:charges?|fees?))?|tips?|gratuity|gratuities|shipping|delivery(?:\s+(?:charges?|fees?))?|discounts?|coupons?|promo\s+code|loyalty[\s-]+savings?|surcharges?|charges?|fees?|refunds?|rebates?|credits?|deposits?|levy|levies|duty|duties|donations?|round(?:ing|[\s-]*off))\b',
   caseSensitive: false,
 );
 const _localizedReceiptAdjustmentLabels = [
@@ -2235,6 +2235,7 @@ class ReceiptOcrParser {
       }
       if (adjustmentRole == null &&
           hasPotentialAdjustment &&
+          !_hasTotalLabel(line, normalized) &&
           !_includedTaxTotalLinePattern.hasMatch(line)) {
         adjustmentsComplete = false;
         incompleteReasons.add(
@@ -3298,14 +3299,20 @@ class ReceiptOcrParser {
             return false;
           }
           final matches =
-              [
-                    ..._potentialReceiptAdjustmentLabelPattern.allMatches(role),
-                    ...pluralFinancialRoles.allMatches(role),
-                  ]
+              {
+                    for (final match in [
+                      ..._potentialReceiptAdjustmentLabelPattern.allMatches(
+                        role,
+                      ),
+                      ...pluralFinancialRoles.allMatches(role),
+                    ])
+                      (match.start, match.end): match,
+                  }.values
                   .where((match) {
                     // Service stays within a named phrase regardless of word order.
                     // Explicit Service Charge/Fee remains intact.
-                    return !(match.group(0)!.toLowerCase() == 'service' &&
+                    final word = match.group(0)!.toLowerCase();
+                    return !((word == 'service' || word == 'services') &&
                         RegExp(r'\p{L}', unicode: true).hasMatch(
                           role.substring(0, match.start) +
                               role.substring(match.end),

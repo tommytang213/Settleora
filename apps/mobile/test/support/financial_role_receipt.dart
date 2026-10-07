@@ -10,13 +10,16 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
   String heading = 'Current Charges Detail',
   List<String> columns = const ['Description', 'Amount'],
   List<String>? labelBlocks,
+  String? servicePeriod,
 }) {
   final rows = <List<String>>[
     ['Regional Utility'],
     [heading],
-    columns,
-    [item, 'USD 20.00'],
-    [label, amount],
+    servicePeriod == null
+        ? columns
+        : ['Description', 'Service Period', 'Amount'],
+    [item, ?servicePeriod, 'USD 20.00'],
+    [label, ?servicePeriod, amount],
     ['Total Amount Due $total'],
   ];
   final blocks = <ReceiptOcrBlockEvidence>[];
@@ -56,7 +59,16 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
           continue;
         }
         for (var i = 0; i < cells.length; i++) {
-          cell(cells[i], row, i == 0 ? 20 : 400, i == 0 ? 300 : 500);
+          if (servicePeriod != null && cells.length == 3) {
+            cell(
+              cells[i],
+              row,
+              [20.0, 280.0, 470.0][i],
+              [250.0, 430.0, 570.0][i],
+            );
+          } else {
+            cell(cells[i], row, i == 0 ? 20 : 400, i == 0 ? 300 : 500);
+          }
         }
       }
     }

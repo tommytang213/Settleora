@@ -3,6 +3,28 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_parser.dart';
 import '../support/financial_role_receipt.dart';
 
 void main() {
+  for (final item in [
+    'Taxes Plan',
+    'Discounts Plan',
+    'Coupons Plan',
+    'Water Services',
+  ]) {
+    test('bounded period columns retain one named plural role: $item', () {
+      final source = financialRoleReceipt(
+        'Tax.',
+        item: item,
+        servicePeriod: 'Feb 5 - Mar 4, 2025',
+      );
+      final preview = const ReceiptOcrParser().parse(
+        source.text,
+        blocks: source.blocks,
+      );
+      expect(preview.items.single.description, item);
+      expect(preview.tax, '2.00');
+      expect(preview.adjustmentsComplete, isTrue);
+      expect(preview.reviewHints, isEmpty);
+    });
+  }
   for (final mode in ['none', 'merged', 'split']) {
     for (final label in [
       'Tax',
