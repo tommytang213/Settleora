@@ -1147,12 +1147,29 @@ test("rejects nonempty stderr without retaining its text", () => {
 
 test("CLI classifies rejected stderr while retaining only diagnostic markers", () => {
   for (const platform of ["android", "ios"]) {
+    const acceptance = {
+      schemaVersion: 1, platform, completed: true, networkIsolated: true,
+      fixtureCount: 101, passedFixtureCount: 100, mismatchCount: 1,
+      mismatches: [{ fixtureId: manifestFixtureIds[0], field: "items[0].description" }],
+      runtime: platform === "android" ? "onnxruntime-android:1.21.1:cpu" : "onnxruntime-objc:1.24.3:cpu",
+      coldLoadTimeMs: 25,
+      endToEndLatencyMs: { sampleCount: 101, cold: 30, warmP50: 20, warmP95: 24, max: 30 },
+      nativeLatencyMs: { sampleCount: 101, cold: 28, warmP50: 18, warmP95: 22, max: 28 },
+      peakRssBytes: 123456, perScript: { Latin: { total: 101, passed: 100 } },
+    };
+    const diagnostic = {
+      schemaVersion: 1, platform, stage: "corpus_evidence", fixtureId: null,
+    };
     const uiSmoke = {
       schemaVersion: 1, platform, completed: true,
       fixtureId: "existing_12_freshmart_grocery_en_US",
       previewPanel: true, applyBoundaryVisible: true,
     };
-    withLog(protocolLog(`SETTLEORA_OCR_UI_SMOKE=${JSON.stringify(uiSmoke)}`), (log) => {
+    withLog(protocolLog(
+      `SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify(acceptance)}`,
+      `SETTLEORA_OCR_DIAGNOSTIC=${JSON.stringify(diagnostic)}`,
+      `SETTLEORA_OCR_UI_SMOKE=${JSON.stringify(uiSmoke)}`,
+    ), (log) => {
       const out = `${log}.evidence.json`;
       // Same byte count as Android run 37566401353; synthetic content only.
       const privateText = "private native diagnostic ".padEnd(233, "x");
@@ -1173,6 +1190,8 @@ test("CLI classifies rejected stderr while retaining only diagnostic markers", (
         assert.equal(evidence.collectionFailureReason, "non_allowlisted_stderr");
         assert.equal(evidence.execution.stderrBytes, 233);
         assert.equal(evidence.execution.testExitStatus, Number(status));
+        assert.deepEqual(evidence.acceptance, acceptance);
+        assert.deepEqual(evidence.diagnostics, [diagnostic]);
         assert.deepEqual(evidence.uiSmoke, uiSmoke);
         assert.equal(isCompleteEvidence(evidence), false);
         assert.equal(retained.includes("private native diagnostic"), false);

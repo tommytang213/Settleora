@@ -704,6 +704,14 @@ test('native fixture scoring policy rejects removed comparisons and disconnected
     ['discarded shared mismatches', 'harness',
       'mismatches.addAll(\n    receiptOcrFixtureFieldMismatches(',
       '<_BoundedMismatch>[].addAll(\n    receiptOcrFixtureFieldMismatches('],
+    ['missing-field early return in contract', 'contract',
+      'final expectedValue = expected[field];',
+      'if (!expected.containsKey(field)) return;\n  final expectedValue = expected[field];'],
+    ['missing-field early return in harness', 'harness',
+      'List<_BoundedMismatch> _completePreviewMismatches(',
+      'void _skipMissingField(Map<String, Object?> expected, String field) {\n' +
+        '  if (!expected.containsKey(field)) return;\n}\n\n' +
+        'List<_BoundedMismatch> _completePreviewMismatches('],
   ];
   for (const [name, target, before, after] of mutations) {
     await t.test(name, () => {
