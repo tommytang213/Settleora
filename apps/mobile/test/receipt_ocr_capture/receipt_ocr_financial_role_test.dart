@@ -3,6 +3,85 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_parser.dart';
 import '../support/financial_role_receipt.dart';
 
 void main() {
+  for (final amountOnLeft in [false, true]) {
+    for (final fragments in [
+      ['Taxes', 'Advisory Plan'],
+      ['Discounts', 'Book'],
+    ]) {
+      test(
+        'complete column retains gap product: $fragments left=$amountOnLeft',
+        () {
+          final source = financialRoleReceipt(
+            fragments.join(' '),
+            labelBlocks: fragments,
+            labelBounds: [(left: 20, right: 160), (left: 330, right: 380)],
+            amountOnLeft: amountOnLeft,
+          );
+          final preview = const ReceiptOcrParser().parse(
+            source.text,
+            blocks: source.blocks,
+          );
+          expect(
+            preview.items.map((item) => (item.description, item.lineTotal)),
+            [("Resident's Water Plan", '20.00'), (fragments.join(' '), '2.00')],
+          );
+          expect(preview.tax, isNull);
+          expect(preview.discount, isNull);
+          expect(preview.adjustmentsComplete, isTrue);
+          expect(preview.reviewHints, isEmpty);
+          expect(preview.blocks, source.blocks);
+        },
+      );
+    }
+  }
+  for (final period in [false, true]) {
+    for (final fragments in [
+      ['Taxes', '7'],
+      ['Taxes', '7.00'],
+      ['Tax.', '7'],
+    ]) {
+      test(
+        'complete column preserves unresolved number: $fragments period=$period',
+        () {
+          final source = financialRoleReceipt(
+            fragments.join(' '),
+            labelBlocks: fragments,
+            servicePeriod: period ? 'Feb 5 - Mar 4, 2025' : null,
+          );
+          final preview = const ReceiptOcrParser().parse(
+            source.text,
+            blocks: source.blocks,
+          );
+          expect(preview.items.single.description, "Resident's Water Plan");
+          expect(preview.tax, isNull);
+          expect(preview.adjustmentsComplete, isFalse);
+          expect(preview.reviewHints, isNotEmpty);
+          expect(preview.blocks, source.blocks);
+        },
+      );
+    }
+    for (final rate in ['7%', '(7%)']) {
+      test(
+        'complete column retains known split percentage: $rate period=$period',
+        () {
+          final source = financialRoleReceipt(
+            'Taxes $rate',
+            labelBlocks: ['Taxes', rate],
+            servicePeriod: period ? 'Feb 5 - Mar 4, 2025' : null,
+          );
+          final preview = const ReceiptOcrParser().parse(
+            source.text,
+            blocks: source.blocks,
+          );
+          expect(preview.items.single.description, "Resident's Water Plan");
+          expect(preview.tax, '2.00');
+          expect(preview.adjustmentsComplete, isTrue);
+          expect(preview.reviewHints, isEmpty);
+          expect(preview.blocks, source.blocks);
+        },
+      );
+    }
+  }
   for (final period in [false, true]) {
     for (final fragments
         in period

@@ -58,6 +58,11 @@ void main() {
         'Coupons Guide',
         'Rebates Software',
         'Tax Advisory Plan',
+        'Taxes 7',
+        'Taxes 7.00',
+        'Tax. 7',
+        'Taxes 7%',
+        'Taxes (7%)',
       ]) {
         final namedProduct = [
           'Taxes Advisory Plan',
@@ -67,7 +72,16 @@ void main() {
           'Rebates Software',
           'Tax Advisory Plan',
         ].contains(label);
-        if (namedProduct && mode != 'split') continue;
+        final fragmentedNumber = [
+          'Taxes 7',
+          'Taxes 7.00',
+          'Tax. 7',
+        ].contains(label);
+        final fragmentedRate = ['Taxes 7%', 'Taxes (7%)'].contains(label);
+        if ((namedProduct || fragmentedNumber || fragmentedRate) &&
+            mode != 'split') {
+          continue;
+        }
         // Existing Apply semantics copy item amounts; net-only taxed rows
         // require correction before their contribution can equal the gross total.
         final shippingHeader = label.startsWith('Shipping');
@@ -78,8 +92,14 @@ void main() {
             shippingHeader;
         final compound = label.contains(' and ') && !shippingHeader;
         final unresolved =
-            compound || ['Charges', 'Refunds', 'Surcharges'].contains(label);
-        final taxHeader = !namedProduct && !compound && label.startsWith('Tax');
+            fragmentedNumber ||
+            compound ||
+            ['Charges', 'Refunds', 'Surcharges'].contains(label);
+        final taxHeader =
+            !namedProduct &&
+            !fragmentedNumber &&
+            !compound &&
+            label.startsWith('Tax');
         testWidgets(
           'financial ownership survives save and explicit Apply group=$group mode=$mode label=$label',
           (tester) async {
@@ -88,7 +108,10 @@ void main() {
             final source = financialRoleReceipt(
               label,
               mode: mode,
-              labelBlocks: namedProduct
+              labelBounds: namedProduct
+                  ? [(left: 20, right: 160), (left: 330, right: 380)]
+                  : null,
+              labelBlocks: namedProduct || fragmentedNumber || fragmentedRate
                   ? [label.split(' ').first, label.split(' ').skip(1).join(' ')]
                   : compound
                   ? [

@@ -4050,7 +4050,7 @@ class ReceiptOcrParser {
       );
       final hasPrintedTaxBlock = layoutRows[rowIndex].any(
         (block) => RegExp(
-          r'^(?:[\p{L}\p{N} -]+\s+)?(?:tax(?:es)?|vat|gst|hst|iva|tva|kdv|mwst)(?:\s*\(\d+(?:[.,]\d+)?%\))?$',
+          r'^(?:[\p{L}\p{N} -]+\s+)?(?:tax(?:es)?|vat|gst|hst|iva|tva|kdv|mwst)(?:\s*(?:\(\d+(?:[.,]\d+)?%\)|\d+(?:[.,]\d+)?%))?$',
           caseSensitive: false,
           unicode: true,
         ).hasMatch(_chargeTableLabelText(block.text)),
@@ -4112,28 +4112,31 @@ class ReceiptOcrParser {
       if (_hasNumericUsageCell(layoutRows, headerIndex, rowIndex)) {
         continue;
       }
+      bool isProjectionLabel(String description) {
+        return RegExp(
+              r'^sub[\s-]?total$',
+              caseSensitive: false,
+            ).hasMatch(description) ||
+            RegExp(
+              r'^(?:[\p{L}\p{N} -]+\s+)?(?:tax(?:es)?|vat|gst|hst|iva|tva|kdv|mwst)(?:\s*(?:\(\d+(?:[.,]\d+)?%\)|\d+(?:[.,]\d+)?%))?$',
+              caseSensitive: false,
+              unicode: true,
+            ).hasMatch(description) ||
+            RegExp(
+              r'^(?:[\p{L}\p{N} -]+\s+)?(?:discounts?|coupons?|rebates?)(?:\s*\([\p{L}\p{N} %.-]+\))?$',
+              caseSensitive: false,
+              unicode: true,
+            ).hasMatch(description) ||
+            RegExp(
+              r'^services?\s+(?:charges?|fees?)$',
+              caseSensitive: false,
+            ).hasMatch(description);
+      }
+
       final labels = row
-          .where((block) {
-            final description = _chargeTableLabelText(block.text);
-            return RegExp(
-                  r'^sub[\s-]?total$',
-                  caseSensitive: false,
-                ).hasMatch(description) ||
-                RegExp(
-                  r'^(?:[\p{L}\p{N} -]+\s+)?(?:tax(?:es)?|vat|gst|hst|iva|tva|kdv|mwst)(?:\s*\(\d+(?:[.,]\d+)?%\))?$',
-                  caseSensitive: false,
-                  unicode: true,
-                ).hasMatch(description) ||
-                RegExp(
-                  r'^(?:[\p{L}\p{N} -]+\s+)?(?:discounts?|coupons?|rebates?)(?:\s*\([\p{L}\p{N} %.-]+\))?$',
-                  caseSensitive: false,
-                  unicode: true,
-                ).hasMatch(description) ||
-                RegExp(
-                  r'^services?\s+(?:charges?|fees?)$',
-                  caseSensitive: false,
-                ).hasMatch(description);
-          })
+          .where(
+            (block) => isProjectionLabel(_chargeTableLabelText(block.text)),
+          )
           .toList(growable: false);
       final amountBlocks = row
           .where((block) {
@@ -4151,63 +4154,62 @@ class ReceiptOcrParser {
           })
           .toList(growable: false);
       if (labels.length != 1 || amountBlocks.length != 1) continue;
-      final label = _chargeTableLabelText(labels.single.text);
       final amountBlock = amountBlocks.single;
       final currencyBlocks = _nearbyCurrencyOnlyBlocks(row, amountBlock);
       if (currencyBlocks.length > 1) continue;
-      final descriptionHeaders = layoutRows[headerIndex].where(
-        (block) =>
-            block.points.isNotEmpty &&
-            RegExp(
-              r'^(?:description|product|service)$',
-              caseSensitive: false,
-            ).hasMatch(block.text.trim()),
-      );
-      bool isAdditionalDescription(ReceiptOcrBlockEvidence block) {
-        if (!_unicodeLetterPattern.hasMatch(block.text)) return false;
+      final descriptionHeaders = layoutRows[headerIndex]
+          .where(
+            (block) =>
+                block.points.isNotEmpty &&
+                RegExp(
+                  r'^(?:description|product|service)$',
+                  caseSensitive: false,
+                ).hasMatch(block.text.trim()),
+          )
+          .toList(growable: false);
+      bool belongsToDescription(ReceiptOcrBlockEvidence block) {
+        if (block.text.trim().isEmpty) return false;
         if (descriptionHeaders.length != 1 || block.points.isEmpty) {
           return true;
         }
         final description = descriptionHeaders.single;
+        final amountOnLeft =
+            _blockRight(amountHeaders.single) < _blockLeft(description);
         final amountOnRight =
-            _blockCenterX(amountHeaders.single) > _blockCenterX(description);
-        final neighbors = layoutRows[headerIndex].where(
-          (header) =>
-              header != description &&
-              header.points.isNotEmpty &&
-              (amountOnRight
-                  ? _blockLeft(header) > _blockRight(description)
-                  : _blockRight(header) < _blockLeft(description)),
+            _blockLeft(amountHeaders.single) > _blockRight(description);
+        if (!amountOnLeft && !amountOnRight) return true;
+        final boundary = _chargeTableDescriptionColumnEdge(
+          layoutRows[headerIndex],
+          descriptionHeaders,
+          amountHeaders,
         );
-        if (neighbors.isEmpty) return true;
-        final nearestEdge = neighbors
-            .map(
-              (header) =>
-                  amountOnRight ? _blockLeft(header) : _blockRight(header),
-            )
-            .reduce(
-              (a, b) => amountOnRight ? (a < b ? a : b) : (a > b ? a : b),
-            );
-        final boundary =
-            (nearestEdge +
-                (amountOnRight
-                    ? _blockRight(description)
-                    : _blockLeft(description))) /
-            2;
-        return amountOnRight
-            ? _blockCenterX(block) <= boundary
-            : _blockCenterX(block) >= boundary;
+        return amountOnLeft
+            ? _blockCenterX(block) >= boundary
+            : _blockCenterX(block) <= boundary;
       }
 
-      // Project only a complete description. A product suffix in the same
-      // column is evidence even when it contains no financial-role keyword.
+      // Projection and item extraction share the complete description column.
+      // Numeric and punctuation fragments are evidence too. Validate the whole
+      // label so a product suffix cannot disappear and a split rate survives.
+      final descriptionBlocks = row
+          .where(
+            (block) =>
+                block == labels.single ||
+                (block != amountBlock &&
+                    !currencyBlocks.contains(block) &&
+                    belongsToDescription(block)),
+          )
+          .toList(growable: false);
+      final label = _chargeTableLabelText(
+        descriptionBlocks.map((block) => block.text.trim()).join(' '),
+      );
+      if (!isProjectionLabel(label)) continue;
       if (row.any(
         (block) =>
-            block != labels.single &&
+            !descriptionBlocks.contains(block) &&
             block != amountBlock &&
             !currencyBlocks.contains(block) &&
-            (_hasPotentialReceiptAdjustmentLabel(block.text) ||
-                isAdditionalDescription(block)),
+            _hasPotentialReceiptAdjustmentLabel(block.text),
       )) {
         continue;
       }
@@ -4241,7 +4243,7 @@ class ReceiptOcrParser {
         continue;
       }
       final isTax = RegExp(
-        r'\b(?:tax(?:es)?|vat|gst|hst|iva|tva|kdv|mwst)(?:\s*\(\d+(?:[.,]\d+)?%\))?$',
+        r'\b(?:tax(?:es)?|vat|gst|hst|iva|tva|kdv|mwst)(?:\s*(?:\(\d+(?:[.,]\d+)?%\)|\d+(?:[.,]\d+)?%))?$',
         caseSensitive: false,
       ).hasMatch(label);
       final rate = RegExp(r'\d+(?:[.,]\d+)?%').firstMatch(label)?.group(0);
@@ -4330,29 +4332,11 @@ class ReceiptOcrParser {
       if ((!amountOnLeft && !amountOnRight) || amountRight <= amountLeft) {
         continue;
       }
-      final intermediateHeaderEdges = header
-          .where(
-            (block) =>
-                block.points.isNotEmpty &&
-                !descriptionBlocks.contains(block) &&
-                !amountBlocks.contains(block),
-          )
-          .expand((block) => block.points.map((point) => point.x))
-          .where(
-            (x) => amountOnLeft
-                ? x < descriptionLeft && x > amountRight
-                : x > descriptionRight && x < amountLeft,
-          )
-          .toList(growable: false);
-      final descriptionColumnEdge = intermediateHeaderEdges.isEmpty
-          ? (amountOnLeft ? amountRight : amountLeft)
-          : amountOnLeft
-          ? (descriptionLeft +
-                    intermediateHeaderEdges.reduce((a, b) => a > b ? a : b)) /
-                2
-          : (descriptionRight +
-                    intermediateHeaderEdges.reduce((a, b) => a < b ? a : b)) /
-                2;
+      final descriptionColumnEdge = _chargeTableDescriptionColumnEdge(
+        header,
+        descriptionBlocks,
+        amountBlocks,
+      );
 
       for (
         var rowIndex = headerIndex + 1;
@@ -6794,6 +6778,43 @@ bool _hasCompleteUsageRateColumns(String prefix) {
     r'\d+(?:[.,]\d+)?\s*$',
     caseSensitive: false,
   ).hasMatch(prefix);
+}
+
+// Keep adjustment projection and item extraction on the same column boundary.
+double _chargeTableDescriptionColumnEdge(
+  List<ReceiptOcrBlockEvidence> header,
+  List<ReceiptOcrBlockEvidence> descriptions,
+  List<ReceiptOcrBlockEvidence> amounts,
+) {
+  final descriptionLeft = descriptions
+      .map(_blockLeft)
+      .reduce((a, b) => a < b ? a : b);
+  final descriptionRight = descriptions
+      .map(_blockRight)
+      .reduce((a, b) => a > b ? a : b);
+  final amountLeft = amounts.map(_blockLeft).reduce((a, b) => a < b ? a : b);
+  final amountRight = amounts.map(_blockRight).reduce((a, b) => a > b ? a : b);
+  final amountOnLeft = amountRight < descriptionLeft;
+  final intermediateEdges = header
+      .where(
+        (block) =>
+            block.points.isNotEmpty &&
+            !descriptions.contains(block) &&
+            !amounts.contains(block),
+      )
+      .expand((block) => block.points.map((point) => point.x))
+      .where(
+        (x) => amountOnLeft
+            ? x < descriptionLeft && x > amountRight
+            : x > descriptionRight && x < amountLeft,
+      )
+      .toList(growable: false);
+  if (intermediateEdges.isEmpty) return amountOnLeft ? amountRight : amountLeft;
+  return amountOnLeft
+      ? (descriptionLeft + intermediateEdges.reduce((a, b) => a > b ? a : b)) /
+            2
+      : (descriptionRight + intermediateEdges.reduce((a, b) => a < b ? a : b)) /
+            2;
 }
 
 // Project only terminal label punctuation. Original text and blocks stay intact.

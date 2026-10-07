@@ -10,6 +10,8 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
   String heading = 'Current Charges Detail',
   List<String> columns = const ['Description', 'Amount'],
   List<String>? labelBlocks,
+  List<({double left, double right})>? labelBounds,
+  bool amountOnLeft = false,
   String? servicePeriod,
 }) {
   final rows = <List<String>>[
@@ -24,6 +26,8 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
   ];
   final blocks = <ReceiptOcrBlockEvidence>[];
   void cell(String text, int row, double left, double right) {
+    final start = amountOnLeft ? 600 - right : left;
+    final end = amountOnLeft ? 600 - left : right;
     blocks.add(
       ReceiptOcrBlockEvidence(
         text: text,
@@ -34,10 +38,10 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
         modelVersion: 'test-v1',
         textDirection: 'ltr',
         points: [
-          ReceiptOcrPoint(x: left, y: row * 30.0),
-          ReceiptOcrPoint(x: right, y: row * 30.0),
-          ReceiptOcrPoint(x: right, y: row * 30.0 + 20),
-          ReceiptOcrPoint(x: left, y: row * 30.0 + 20),
+          ReceiptOcrPoint(x: start, y: row * 30.0),
+          ReceiptOcrPoint(x: end, y: row * 30.0),
+          ReceiptOcrPoint(x: end, y: row * 30.0 + 20),
+          ReceiptOcrPoint(x: start, y: row * 30.0 + 20),
         ],
       ),
     );
@@ -52,8 +56,10 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
         if (row == 4 && labelBlocks != null) {
           for (var i = 0; i < labelBlocks.length; i++) {
             final width = servicePeriod == null ? 280 : 230;
-            final left = 20 + i * width / labelBlocks.length;
-            final right = 20 + (i + 1) * width / labelBlocks.length;
+            final bounds = labelBounds?[i];
+            final left = bounds?.left ?? 20 + i * width / labelBlocks.length;
+            final right =
+                bounds?.right ?? 20 + (i + 1) * width / labelBlocks.length;
             cell(labelBlocks[i], row, left, right);
           }
           if (servicePeriod != null) cell(servicePeriod, row, 280, 430);
