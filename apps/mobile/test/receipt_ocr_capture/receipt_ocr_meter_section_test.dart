@@ -68,6 +68,16 @@ ReceiptOcrPreview _parse(
   List<ReceiptOcrBlockEvidence> blocks, {
   bool includeGeometry = true,
 }) {
+  // Native evidence assigns a unique sequence ordinal to every block.
+  for (var i = 0; i < blocks.length; i++) {
+    final b = blocks[i];
+    blocks[i] = ReceiptOcrBlockEvidence(
+      text: b.text,
+      row: b.row,
+      order: i,
+      points: b.points,
+    );
+  }
   final rows = <int, List<String>>{};
   for (final block in blocks) {
     (rows[block.row] ??= []).add(block.text);
@@ -79,6 +89,157 @@ ReceiptOcrPreview _parse(
 }
 
 void main() {
+  test('round2 simple bill amounts survive text-only and merged headings', () {
+    for (final heading in [
+      'Details of Current Charges',
+      'Detail of Current Charge',
+    ]) {
+      for (final geometry in [false, true]) {
+        final blocks = [
+          _cell('Regional Utility', 0, 20, 0, 350, 12),
+          _cell(heading, 1, 20, 20, 350, 32),
+          _cell('Description Amount', 2, 20, 40, 700, 52),
+          _cell('Water Plan USD 20.00', 3, 20, 60, 700, 72),
+          _cell('Total Amount Due USD 20.00', 4, 20, 80, 700, 92),
+        ];
+        final preview = _parse(blocks, includeGeometry: geometry);
+        expect(preview.items.map((i) => i.description), ['Water Plan']);
+        expect(preview.items.single.lineTotal, '20.00');
+        expect(
+          preview.itemLineDecisions[3],
+          ReceiptOcrItemLineDecision.pricedItemSelected,
+        );
+      }
+    }
+  });
+
+  test('round2 adjacent currency and signs prevent meter graph ownership', () {
+    for (final marker in ['EUR', r'$', '-', '−', '+']) {
+      final blocks = _meterBlocks();
+      blocks.insert(8, _cell(marker, 3, 712, 425, 738, 444));
+      final preview = _parse(blocks);
+      expect(
+        preview.itemLineDecisions[2],
+        ReceiptOcrItemLineDecision.pricedItemSelected,
+        reason: marker,
+      );
+      expect(
+        preview.itemLineDecisions[4],
+        ReceiptOcrItemLineDecision.pricedItemSelected,
+        reason: marker,
+      );
+      expect(
+        preview.items.any((i) => i.description.contains('Previous Reading')),
+        isTrue,
+        reason: marker,
+      );
+      expect(preview.reviewHints, isNotEmpty);
+      expect(preview.blocks, blocks);
+    }
+  });
+
+  test('round2 meter label on the reading header remains nonfinancial', () {
+    final blocks = _meterBlocks();
+    blocks[8] = _cell('Meter Number', 2, 82, 438, 190, 458);
+    final preview = _parse(blocks);
+    expect(preview.items.map((i) => i.description), ['Energy Charge']);
+    expect(
+      preview.itemLineDecisions[2],
+      ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+    );
+    expect(
+      preview.itemLineDecisions[4],
+      ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+    );
+    expect(
+      preview.blocks.map((b) => b.order),
+      List.generate(blocks.length, (i) => i),
+    );
+    expect(preview.blocks, blocks);
+  });
+
+  test('round2 overlapping or distant calendar cannot prove a graph', () {
+    final overlapping = _meterBlocks();
+    overlapping.removeWhere((b) => b.text == 'Dec Jan Feb Mar Apr');
+    final axisIndex = overlapping.indexWhere((b) => b.row == 7);
+    overlapping.insertAll(axisIndex, [
+      _cell('Dec Jan Feb', 6, 789, 535, 950, 553),
+      _cell('Mar Apr', 6, 920, 535, 1021, 553),
+    ]);
+    final distant = _meterBlocks();
+    final index = distant.indexWhere((b) => b.text == 'Dec Jan Feb Mar Apr');
+    distant[index] = _cell('Dec Jan Feb Mar Apr', 6, 789, 1535, 1021, 1553);
+    for (final blocks in [overlapping, distant]) {
+      final preview = _parse(blocks);
+      expect(
+        preview.itemLineDecisions[2],
+        ReceiptOcrItemLineDecision.pricedItemSelected,
+      );
+      expect(
+        preview.itemLineDecisions[4],
+        ReceiptOcrItemLineDecision.pricedItemSelected,
+      );
+      expect(preview.blocks, blocks);
+    }
+  });
+
+  test(
+    'round2 missing reading values do not turn proven labels into prices',
+    () {
+      final blocks = _meterBlocks();
+      blocks.removeWhere((b) => b.row == 5 && b.text != '250');
+      final preview = _parse(blocks);
+      expect(preview.items.map((i) => i.description), ['Energy Charge']);
+      expect(
+        preview.itemLineDecisions[2],
+        ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+      );
+      expect(
+        preview.itemLineDecisions[4],
+        ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+      );
+      expect(preview.blocks, blocks);
+    },
+  );
+
+  test(
+    'round2 simple heading fallback cannot promote rate or period numbers',
+    () {
+      for (final heading in [
+        'Current Charges Detail',
+        'Details of Current Charges',
+        'Detail of Current Charge',
+      ]) {
+        for (final row in [
+          'Water Charge 25 m3 @ USD 1.80',
+          'Water Plan (Apr 1 - Apr 30) USD 20.00',
+          'State Gas Tax (2.5%) 10 therms USD 0.10',
+          'Energy Charge USD 0.20 USD 10.00',
+        ]) {
+          final preview = const ReceiptOcrParser().parse(
+            'Regional Utility\n$heading\nDescription Amount\n$row\n'
+            'Total Amount Due USD 20.00',
+          );
+          expect(preview.items, isEmpty, reason: '$heading / $row');
+          expect(
+            preview.itemLineDecisions[3],
+            ReceiptOcrItemLineDecision.ambiguousChargeSkipped,
+          );
+          expect(preview.reviewHints, isNotEmpty);
+        }
+        final preview = const ReceiptOcrParser().parse(
+          'Regional Utility\n$heading\nDescription Rate Amount\n'
+          'Water Plan USD 0.20\nTotal Amount Due USD 20.00',
+        );
+        expect(preview.items, isEmpty);
+        expect(
+          preview.itemLineDecisions[3],
+          ReceiptOcrItemLineDecision.ambiguousChargeSkipped,
+        );
+      }
+    },
+  );
+
   test('bounded meter table and usage graph are not priced items', () {
     final blocks = _meterBlocks();
     final preview = _parse(blocks);

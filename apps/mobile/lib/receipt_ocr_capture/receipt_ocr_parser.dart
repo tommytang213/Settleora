@@ -4909,6 +4909,12 @@ Set<int> _ownedMeterReadingRows(
     if (axisMonths.length < 3 ||
         axisMonths.length > 12 ||
         axis.any((b) => !sameBand(b, axis.first)) ||
+        axis.indexed
+            .skip(1)
+            .any(
+              (entry) =>
+                  _blockRight(axis[entry.$1 - 1]) >= _blockLeft(entry.$2),
+            ) ||
         axisMonths.indexed
             .skip(1)
             .any((entry) => entry.$2 != (axisMonths[entry.$1 - 1] + 1) % 12)) {
@@ -4917,6 +4923,12 @@ Set<int> _ownedMeterReadingRows(
     final graphRight = axis.map(_blockRight).reduce((a, b) => a > b ? a : b);
     final graphBottom = axis.map(bottom).reduce((a, b) => a > b ? a : b);
     final axisTop = axis.map(top).reduce((a, b) => a < b ? a : b);
+    final nextSectionTop = rows[chargeHeader - 1]
+        .map(top)
+        .reduce((a, b) => a < b ? a : b);
+    if (graphBottom >= nextSectionTop || axisTop - bottom(g) > height(g) * 10) {
+      continue;
+    }
     final graphUnit = graphHeading.firstMatch(g.text.trim())!.group(1)!;
     bool graphInteger(ReceiptOcrBlockEvidence b) =>
         RegExp(r'^\d+$').hasMatch(b.text.trim()) &&
@@ -4937,7 +4949,10 @@ Set<int> _ownedMeterReadingRows(
               !graphInteger(b),
         );
     if (unknownGraphEvidence) continue;
-    if (rows[i].any((b) => b != p && b != c && b != u && !graphInteger(b))) {
+    if (rows[i].any(
+      (b) =>
+          b != p && b != c && b != u && b != meter.single && !graphInteger(b),
+    )) {
       continue;
     }
     for (var j = i + 1; j < chargeHeader - 1 && j <= i + 3; j++) {
@@ -4962,6 +4977,37 @@ Set<int> _ownedMeterReadingRows(
         continue;
       }
       final candidates = {...rows[i], ...rows[j]};
+      // Provider row grouping can separate a sign/currency cell from its
+      // neighboring numeral. Inspect nearby geometry on both sides of the
+      // graph boundary; lack of overlap does not prove nonfinancial meaning.
+      final graphNumbers = candidates.where(graphInteger).toList();
+      final monetaryNeighbor = rows.expand((r) => r).any((other) {
+        if (candidates.contains(other)) return false;
+        final text = other.text.trim();
+        if (_printedCurrencyMarkerMatches(text).isEmpty &&
+            !RegExp(r'\p{Sc}|^[\p{Dash}➖+]$', unicode: true).hasMatch(text) &&
+            !_hasChargeTableMonetaryEvidence(text) &&
+            !_hasPotentialReceiptAdjustmentLabel(text)) {
+          return false;
+        }
+        return graphNumbers.any((number) {
+          final scale = height(number) > height(other)
+              ? height(number)
+              : height(other);
+          final xGap = _blockRight(other) < _blockLeft(number)
+              ? _blockLeft(number) - _blockRight(other)
+              : _blockLeft(other) > _blockRight(number)
+              ? _blockLeft(other) - _blockRight(number)
+              : 0;
+          final yGap = bottom(other) < top(number)
+              ? top(number) - bottom(other)
+              : top(other) > bottom(number)
+              ? top(other) - bottom(number)
+              : 0;
+          return xGap <= scale && yGap <= scale / 2;
+        });
+      });
+      if (monetaryNeighbor) continue;
       final competing = rows
           .expand((r) => r)
           .any(
@@ -6464,6 +6510,7 @@ bool _isFinancialLabelWithAdjacentAmount(
   var hasRateColumn = false;
   var hasUsageColumn = false;
   var requiresLayoutAmountColumn = false;
+  var simpleBillTable = false;
   for (var index = 0; index < lines.length; index++) {
     if (nonItemEvidenceRows.contains(index)) continue;
     final line = lines[index];
@@ -6475,6 +6522,12 @@ bool _isFinancialLabelWithAdjacentAmount(
         r'\b(?:usage|qty|quantity)\b',
         caseSensitive: false,
       ).hasMatch(line);
+      simpleBillTable =
+          _isBillChargeDetailHeader(lines, index) &&
+          RegExp(
+            r'^description\s+amount$',
+            caseSensitive: false,
+          ).hasMatch(line);
       requiresLayoutAmountColumn =
           _isInvoiceProductTableHeader(line) ||
           _isBillChargeDetailHeader(lines, index);
@@ -6513,7 +6566,25 @@ bool _isFinancialLabelWithAdjacentAmount(
     // An invoice's unit price or a bill's rate/date can be the last
     // recognized number when its final amount cell is missing. Only the
     // labeled amount column's geometry can select line money in these tables.
-    if (requiresLayoutAmountColumn) {
+    // A complete two-column label and one monetary value after a wholly
+    // textual description need no geometry. Numeric rate/usage/date context,
+    // fee ambiguity or any additional column still requires owned layout.
+    final simplePrintedItem =
+        simpleBillTable &&
+        pricedRow != null &&
+        RegExp(
+          r'^[\p{L}\p{M}][\p{L}\p{M}\s\p{Pd}()/&]*$',
+          unicode: true,
+        ).hasMatch(prefix) &&
+        !_isChargeTableSummaryLine(line) &&
+        !RegExp(
+          r'\b(?:fees?|surcharge)\b',
+          caseSensitive: false,
+        ).hasMatch(prefix) &&
+        _hasChargeTableMonetaryEvidence(
+          '${pricedRow.group(2) ?? ''} ${pricedRow.group(3)} ${pricedRow.group(4) ?? ''}',
+        );
+    if (requiresLayoutAmountColumn && !simplePrintedItem) {
       if (pricedRow != null) ambiguous.add(index);
       continue;
     }
