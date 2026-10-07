@@ -111,8 +111,9 @@ bool _unsupportedRolesMatch(
   Map<String, Object?> expected,
 ) {
   final roles = expected['expected_review_roles'];
-  if (roles is! List<Object?> || roles.isEmpty || roles.length > 4)
+  if (roles is! List<Object?> || roles.isEmpty || roles.length > 4) {
     return false;
+  }
   final rows = <int, List<ReceiptOcrBlockEvidence>>{};
   for (final block in preview.blocks) {
     (rows[block.row] ??= []).add(block);
@@ -127,8 +128,9 @@ bool _unsupportedRolesMatch(
         (role.length != 3 && role.length != 4) ||
         role.keys.any(
           (key) => !{'kind', 'label', 'amount', 'source_context'}.contains(key),
-        ))
+        )) {
       return false;
+    }
     final kind = role['kind'];
     final label = role['label'];
     final amount = role['amount'];
@@ -136,23 +138,26 @@ bool _unsupportedRolesMatch(
     if (role.containsKey('source_context') &&
         (sourceContext is! String ||
             sourceContext.trim().isEmpty ||
-            sourceContext.length > 100))
+            sourceContext.length > 100)) {
       return false;
+    }
     if (kind is! String ||
         label is! String ||
         amount is! String ||
         !{'fee', 'combined_tax_fee', 'payment_credit'}.contains(kind) ||
         label.trim().isEmpty ||
         label.length > 100 ||
-        !RegExp(r'^-?(?:0|[1-9]\d*)\.\d{2}$').hasMatch(amount))
+        !RegExp(r'^-?(?:0|[1-9]\d*)\.\d{2}$').hasMatch(amount)) {
       return false;
+    }
     if ((kind == 'payment_credit') != amount.startsWith('-')) return false;
     final normalizedLabel = _normalizedText(label).toLowerCase();
     if (!labels.add(normalizedLabel)) return false;
     kinds.add(kind);
     final currency = expected['currency'];
-    if (currency is! String || !RegExp(r'^[A-Z]{3}$').hasMatch(currency))
+    if (currency is! String || !RegExp(r'^[A-Z]{3}$').hasMatch(currency)) {
       return false;
+    }
     final currencyPattern =
         '(?:${RegExp.escape(currency.toLowerCase())}|'
         r'\$)';
@@ -160,12 +165,7 @@ bool _unsupportedRolesMatch(
         ? r'[-−]\s*' + RegExp.escape(amount.substring(1))
         : r'\+?\s*' + RegExp.escape(amount);
     final amountPattern = RegExp(
-      '^(?:$currencyPattern'
-              r'\s*)?' +
-          signedAmount +
-          r'(?:\s*' +
-          currencyPattern +
-          r')?$',
+      '^(?:$currencyPattern\\s*)?$signedAmount(?:\\s*$currencyPattern)?\$',
     );
     final sourcePrefix = _normalizedText(
       '$label${sourceContext == null ? '' : ' $sourceContext'}',
@@ -185,8 +185,9 @@ bool _unsupportedRolesMatch(
         if (end == blocks.length) return true;
         final amountBlock = blocks[end - 1];
         if (amountBlock.points.length != 4 ||
-            amountBlock.points.any((p) => !p.x.isFinite || !p.y.isFinite))
+            amountBlock.points.any((p) => !p.x.isFinite || !p.y.isFinite)) {
           continue;
+        }
         final right = amountBlock.points
             .map((p) => p.x)
             .reduce((a, b) => a > b ? a : b);
@@ -210,8 +211,9 @@ bool _unsupportedRolesMatch(
                   ) &&
                   RegExp(r'^[a-zA-Z ]+$').hasMatch(block.text) &&
                   !labels.contains(_normalizedText(block.text).toLowerCase()),
-            ))
+            )) {
           return true;
+        }
       }
       return false;
     }).length;
@@ -223,14 +225,16 @@ bool _unsupportedRolesMatch(
   if (condition == 'printed unsupported fees need manual review' &&
       (kinds.length != 2 ||
           kinds.any((kind) => kind != 'fee') ||
-          expected['subtotal'] != null))
+          expected['subtotal'] != null)) {
     return false;
+  }
   if (condition == 'printed combined taxes and fees need manual review' &&
       (kinds.length != 1 ||
           kinds.single != 'combined_tax_fee' ||
           expected['tax'] != null ||
-          expected['subtotal'] == null))
+          expected['subtotal'] == null)) {
     return false;
+  }
   if (hotel &&
       (kinds.length != 2 ||
           !kinds.contains('fee') ||
@@ -239,8 +243,9 @@ bool _unsupportedRolesMatch(
           preview.receiptDate != null ||
           expected['discount'] != null ||
           preview.discount != null ||
-          expected['subtotal'] == null))
+          expected['subtotal'] == null)) {
     return false;
+  }
   const allowedReasons = {
     ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence,
     ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
@@ -254,8 +259,9 @@ bool _unsupportedRolesMatch(
       ) ||
       preview.incompleteAdjustmentReasons.any(
         (reason) => !allowedReasons.contains(reason),
-      ))
+      )) {
     return false;
+  }
   const incompleteWarning =
       'Some OCR lines need manual review because no traceable line amount was found.';
   const stayWarning =
@@ -263,8 +269,9 @@ bool _unsupportedRolesMatch(
   final allowedWarnings = {incompleteWarning, if (hotel) stayWarning};
   if (preview.warnings.toSet().length != preview.warnings.length ||
       preview.warnings.any((warning) => !allowedWarnings.contains(warning)) ||
-      (hotel && !preview.warnings.contains(stayWarning)))
+      (hotel && !preview.warnings.contains(stayWarning))) {
     return false;
+  }
   final expectedDecision = expected['subtotal'] == null
       ? ReceiptOcrReviewDecision.incompleteAdjustmentWithoutSubtotal
       : ReceiptOcrReviewDecision.subtotalMismatch;

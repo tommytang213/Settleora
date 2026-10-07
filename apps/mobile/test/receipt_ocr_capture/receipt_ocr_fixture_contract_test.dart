@@ -108,7 +108,7 @@ void main() {
         var expected = e;
         var blocks = p.blocks;
         if (mutation == 'missing evidence') blocks = [];
-        if (mutation == 'duplicate evidence')
+        if (mutation == 'duplicate evidence') {
           blocks = [
             ...blocks,
             ReceiptOcrBlockEvidence(
@@ -117,6 +117,7 @@ void main() {
               order: 99,
             ),
           ];
+        }
         if ([
           'wrong amount',
           'wrong sign',
@@ -141,8 +142,9 @@ void main() {
             ...blocks.skip(1),
           ];
         }
-        if (mutation == 'unknown condition')
+        if (mutation == 'unknown condition') {
           expected = {...e, 'expected_review_condition': 'accept all warnings'};
+        }
         if (mutation == 'extra role key' ||
             mutation == 'invalid role context') {
           final roles = (e['expected_review_roles']! as List)
