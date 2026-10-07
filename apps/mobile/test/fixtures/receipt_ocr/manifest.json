@@ -73,6 +73,21 @@
             "Wi-Fi Router Rental",
             "7.00"
           ]
+        ],
+        "expected_review_condition": "printed unsupported fees need manual review",
+        "expected_review_roles": [
+          {
+            "kind": "fee",
+            "label": "Regulatory Recovery Fee",
+            "amount": "1.99",
+            "source_context": "Feb 5 - Mar 4, 2025"
+          },
+          {
+            "kind": "fee",
+            "label": "County Communications Fee (1.75%)",
+            "amount": "0.89",
+            "source_context": "Feb 5 - Mar 4, 2025"
+          }
         ]
       },
       "notes": "Source charge table separately labels the priced service and rental, a loyalty discount, sales tax, and two fees. Discount and tax are adjustments; fees remain visible review evidence because the draft has no matching fee field."
@@ -194,6 +209,14 @@
             "Public Purpose Programs",
             "5.21"
           ]
+        ],
+        "expected_review_condition": "printed combined taxes and fees need manual review",
+        "expected_review_roles": [
+          {
+            "kind": "combined_tax_fee",
+            "label": "Taxes and Fees",
+            "amount": "8.74"
+          }
         ]
       },
       "notes": "Source labels a combined taxes-and-fees row without a printed split. It is not merchandise and no tax-only value is asserted; keep its amount as review evidence."
@@ -2547,7 +2570,7 @@
       "fallback_currency": "USD",
       "expected": {
         "merchant": "Grand Bay Hotel",
-        "date": "2026-09-17",
+        "date": null,
         "currency": "USD",
         "subtotal": "388.00",
         "tax": "18.00",
@@ -2561,6 +2584,19 @@
             "Room Night 09/16",
             "180.00"
           ]
+        ],
+        "expected_review_condition": "printed fee and payment credit need manual review",
+        "expected_review_roles": [
+          {
+            "kind": "fee",
+            "label": "Tourism Fee",
+            "amount": "10.00"
+          },
+          {
+            "kind": "payment_credit",
+            "label": "Deposit Paid",
+            "amount": "-100.00"
+          }
         ]
       },
       "expected_currency_resolution": {
@@ -2571,7 +2607,7 @@
           "USD"
         ]
       },
-      "notes": "Source prints City Tax as tax and Deposit Paid as a payment credit, not a discount. Final payable is Amount Due after deposit; Tourism Fee remains visible non-item evidence."
+      "notes": "Only a Stay range is printed; transaction date is unknown. City Tax is 18.00; Deposit Paid -100.00 is a payment credit, not a discount. Preserve subtotal 388.00 and Amount Due 288.00; Tourism Fee and payment credit remain unresolved review evidence."
     },
     {
       "id": "layout_12_utility_previous_balance",
@@ -3278,10 +3314,9 @@
       "fallback_currency": "USD",
       "expected": {
         "merchant": "Grand Bay Hotel",
-        "date": "2026-09-17",
+        "date": null,
         "currency": "USD",
         "subtotal": "388.00",
-        "discount": "-100.00",
         "total": "288.00",
         "items": [
           [
@@ -3292,6 +3327,20 @@
             "Room Night 09/16",
             "180.00"
           ]
+        ],
+        "tax": "18.00",
+        "expected_review_condition": "printed fee and payment credit need manual review",
+        "expected_review_roles": [
+          {
+            "kind": "fee",
+            "label": "Tourism Fee",
+            "amount": "10.00"
+          },
+          {
+            "kind": "payment_credit",
+            "label": "Deposit Paid",
+            "amount": "-100.00"
+          }
         ]
       },
       "expected_currency_resolution": {
@@ -3302,7 +3351,7 @@
           "USD"
         ]
       },
-      "notes": "Final payable is Amount Due after deposit, not raw subtotal.",
+      "notes": "Only a Stay range is printed; transaction date is unknown. City Tax is 18.00; Deposit Paid -100.00 is a payment credit, not a discount. Preserve subtotal 388.00 and Amount Due 288.00; Tourism Fee and payment credit remain unresolved review evidence.",
       "variant_of": "layout_11_hotel_folio",
       "image_variant": "uneven diagonal shadow"
     },

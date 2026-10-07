@@ -1,3 +1,4 @@
+import 'support/receipt_ocr_fixture_contract.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
@@ -114,7 +115,7 @@ void main() {
   });
 
   test('explicit item currency is separate from receipt currency', () {
-    final item = _ExpectedItem.fromManifest({
+    final item = ReceiptOcrFixtureItem.fromManifest({
       'description': 'Dinner',
       'line_total': '780.00',
       'currency': 'HKD',
@@ -122,7 +123,7 @@ void main() {
     expect(item.lineTotal, '780.00');
     expect(item.currency, 'HKD');
     expect(
-      () => _ExpectedItem.fromManifest({
+      () => ReceiptOcrFixtureItem.fromManifest({
         'description': 'Dinner',
         'line_total': '780.00',
         'currency': r'HK$',
@@ -1262,6 +1263,7 @@ const _supportedExpectedKeys = <String>{
   'total',
   'items',
   'expected_review_condition',
+  'expected_review_roles',
 };
 
 List<_BoundedMismatch> _completePreviewMismatches(
@@ -1284,47 +1286,13 @@ List<_BoundedMismatch> _completePreviewMismatches(
       ),
     ];
   }
-  _collectField(mismatches, fixtureId, 'merchant', preview.merchant, expected);
-  _collectField(mismatches, fixtureId, 'date', preview.receiptDate, expected);
-  _collectField(mismatches, fixtureId, 'currency', preview.currency, expected);
-  _collectField(mismatches, fixtureId, 'subtotal', preview.subtotal, expected);
-  _collectField(mismatches, fixtureId, 'tax', preview.tax, expected);
-  _collectField(mismatches, fixtureId, 'service', preview.service, expected);
-  _collectField(mismatches, fixtureId, 'tip', preview.tip, expected);
-  _collectField(mismatches, fixtureId, 'shipping', preview.shipping, expected);
-  _collectField(mismatches, fixtureId, 'discount', preview.discount, expected);
-  _collectField(mismatches, fixtureId, 'total', preview.total, expected);
-
-  final expectedItems = (expected['items']! as List<Object?>)
-      .map((item) => _ExpectedItem.fromManifest(item, fixtureId))
-      .toList(growable: false);
-  if (preview.items.length != expectedItems.length) {
-    mismatches.add(_BoundedMismatch(fixtureId, 'items.length'));
-  }
-  final comparedItemCount = preview.items.length < expectedItems.length
-      ? preview.items.length
-      : expectedItems.length;
-  for (var index = 0; index < comparedItemCount; index += 1) {
-    final expectedItem = expectedItems[index];
-    final actualItem = preview.items[index];
-    if (_normalizedText(actualItem.description) !=
-        _normalizedText(expectedItem.description)) {
-      mismatches.add(_BoundedMismatch(fixtureId, 'items[$index].description'));
-    }
-    if (actualItem.lineTotal != expectedItem.lineTotal) {
-      mismatches.add(_BoundedMismatch(fixtureId, 'items[$index].lineTotal'));
-    }
-    if (actualItem.quantity != expectedItem.quantity) {
-      mismatches.add(_BoundedMismatch(fixtureId, 'items[$index].quantity'));
-    }
-    if (actualItem.unitPrice != expectedItem.unitPrice) {
-      mismatches.add(_BoundedMismatch(fixtureId, 'items[$index].unitPrice'));
-    }
-    if (actualItem.currency !=
-        (expectedItem.currency ?? expected['currency'])) {
-      mismatches.add(_BoundedMismatch(fixtureId, 'items[$index].currency'));
-    }
-  }
+  mismatches.addAll(
+    receiptOcrFixtureFieldMismatches(
+      preview,
+      expected,
+      fixtureId,
+    ).map((field) => _BoundedMismatch(fixtureId, field)),
+  );
 
   if (currencyResolution != null) {
     if (preview.currencyProvenance !=
@@ -1332,43 +1300,7 @@ List<_BoundedMismatch> _completePreviewMismatches(
       mismatches.add(_BoundedMismatch(fixtureId, 'currency_provenance'));
     }
   }
-  final expectedReviewCondition =
-      expected['expected_review_condition'] as String?;
-  final expectedHints = expectedReviewCondition == null
-      ? const <String>[]
-      : expectedReviewCondition ==
-            'printed total differs from visible charge-line arithmetic'
-      ? const <String>[
-          'OCR item total differs from detected grand total. Review the receipt before applying.',
-        ]
-      : expectedReviewCondition ==
-            'printed item currency differs from charged receipt currency'
-      ? const <String>[
-          'Some item prices use a different currency from the receipt. Review before applying.',
-        ]
-      : expectedReviewCondition ==
-            'printed surcharge and account credit need manual review'
-      ? const <String>[
-          'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
-        ]
-      : null;
-  final actualHints = preview.reviewHints;
-  final printedAdjustmentReviewIncomplete =
-      expectedReviewCondition ==
-          'printed surcharge and account credit need manual review' &&
-      (preview.adjustmentsComplete ||
-          !preview.incompleteAdjustmentReasons.contains(
-            ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
-          ) ||
-          !preview.incompleteAdjustmentReasons.contains(
-            ReceiptOcrIncompleteAdjustmentReason.chargeTableAdjustment,
-          ));
-  if (expectedHints == null ||
-      actualHints.length != expectedHints.length ||
-      !actualHints.asMap().entries.every(
-        (entry) => entry.value == expectedHints[entry.key],
-      ) ||
-      printedAdjustmentReviewIncomplete) {
+  if (!receiptOcrFixtureReviewMatches(preview, expected)) {
     mismatches.add(_BoundedMismatch(fixtureId, 'review_condition'));
   }
   if (preview.blocks.isEmpty) {
@@ -1450,7 +1382,7 @@ Map<String, Object> _boundedRecognitionCoverage(
       value is String && _containsAmountToken(allText, value);
 
   final expectedItems = (expected['items'] as List<Object?>)
-      .map((item) => _ExpectedItem.fromManifest(item, fixtureId))
+      .map((item) => ReceiptOcrFixtureItem.fromManifest(item, fixtureId))
       .toList(growable: false);
   final expectedDescriptionDecisionCounts = {
     for (final decision in ReceiptOcrItemLineDecision.values) decision.name: 0,
@@ -1589,7 +1521,10 @@ Map<String, Object> _boundedRecognitionCoverage(
   final merchantWords = expected['merchant'] is String
       ? _recognitionWordTokens(expected['merchant'] as String)
       : const <String>[];
-  bool descriptionAndAmountWithinRows(_ExpectedItem item, int distance) {
+  bool descriptionAndAmountWithinRows(
+    ReceiptOcrFixtureItem item,
+    int distance,
+  ) {
     final descriptionWords = _recognitionWordTokens(item.description);
     if (descriptionWords.isEmpty || item.lineTotal.isEmpty) return false;
     for (var index = 0; index < rows.length; index++) {
@@ -1610,7 +1545,7 @@ Map<String, Object> _boundedRecognitionCoverage(
   }
 
   bool descriptionAndAmountInCellShape(
-    _ExpectedItem item, {
+    ReceiptOcrFixtureItem item, {
     required bool sameBlock,
   }) {
     final descriptionWords = _recognitionWordTokens(item.description);
@@ -1938,25 +1873,6 @@ bool isValidNativeOcrBlockGeometry(
   return turnDirections.every((direction) => (direction < 0) == turnsClockwise);
 }
 
-void _collectField(
-  List<_BoundedMismatch> mismatches,
-  String fixtureId,
-  String field,
-  String? actual,
-  Map<String, Object?> expected,
-) {
-  final expectedValue = expected[field];
-  if (field == 'merchant' && expectedValue is String) {
-    if (_normalizedText(actual) != _normalizedText(expectedValue)) {
-      mismatches.add(_BoundedMismatch(fixtureId, field));
-    }
-    return;
-  }
-  if (actual != expectedValue) {
-    mismatches.add(_BoundedMismatch(fixtureId, field));
-  }
-}
-
 String _normalizedText(String? value) =>
     (value ?? '').replaceAll(RegExp(r'\s+'), ' ').trim();
 
@@ -2093,65 +2009,6 @@ ReceiptOcrCurrencyProvenance _currencyProvenance(String source) {
     'unresolved' => ReceiptOcrCurrencyProvenance.unresolved,
     _ => throw StateError('Unknown manifest currency source'),
   };
-}
-
-class _ExpectedItem {
-  const _ExpectedItem({
-    required this.description,
-    required this.lineTotal,
-    this.quantity,
-    this.unitPrice,
-    this.currency,
-  });
-
-  factory _ExpectedItem.fromManifest(Object? value, String fixtureId) {
-    if (value case [final String description, final String lineTotal]) {
-      return _ExpectedItem(description: description, lineTotal: lineTotal);
-    }
-    if (value is Map<String, Object?>) {
-      const supportedKeys = {
-        'description',
-        'quantity',
-        'unit_price',
-        'line_total',
-        'currency',
-      };
-      final unknownKeys = value.keys.toSet().difference(supportedKeys);
-      if (unknownKeys.isNotEmpty) {
-        throw StateError(
-          '$fixtureId item contains unvalidated keys: $unknownKeys',
-        );
-      }
-      final description = value['description'];
-      final quantity = value['quantity'];
-      final unitPrice = value['unit_price'];
-      final lineTotal = value['line_total'];
-      final currency = value['currency'];
-      if (description is! String ||
-          lineTotal is! String ||
-          (quantity != null && quantity is! String) ||
-          (unitPrice != null && unitPrice is! String) ||
-          (currency != null &&
-              (currency is! String ||
-                  !RegExp(r'^[A-Z]{3}$').hasMatch(currency)))) {
-        throw StateError('$fixtureId item ground truth must use strings');
-      }
-      return _ExpectedItem(
-        description: description,
-        quantity: quantity as String?,
-        unitPrice: unitPrice as String?,
-        lineTotal: lineTotal,
-        currency: currency as String?,
-      );
-    }
-    throw StateError('$fixtureId has an unsupported item representation');
-  }
-
-  final String description;
-  final String? quantity;
-  final String? unitPrice;
-  final String lineTotal;
-  final String? currency;
 }
 
 class _FixtureAttachmentInput implements SettleoraBillAttachmentFileInput {
