@@ -15,6 +15,25 @@ const runCommands = (job) => stepsFor(job).map((step) => step.run ?? step.with?.
 const flutterVersion = '3.44.8';
 const sharedMobileReleaseGate = './tool/validate-release.sh';
 
+function assertNativeFixtureScoringPolicy(nativeTest, fixtureContract) {
+  assert.match(nativeTest, /import 'support\/receipt_ocr_fixture_contract\.dart';/);
+  assert.match(
+    nativeTest,
+    /mismatches\.addAll\(\s*receiptOcrFixtureFieldMismatches\(\s*preview,\s*expected,\s*fixtureId,\s*\)\.map\(\(field\) => _BoundedMismatch\(fixtureId, field\)\),\s*\);/,
+  );
+  for (const source of [nativeTest, fixtureContract]) {
+    assert.doesNotMatch(source, /if \(!expected\.containsKey\(field\)\) return;/);
+  }
+  assert.match(
+    fixtureContract,
+    /if \(actualItem\.quantity != expectedItem\.quantity\) \{\s*mismatches\.add\('items\[\$index\]\.quantity'\);\s*\}/,
+  );
+  assert.match(
+    fixtureContract,
+    /if \(actualItem\.unitPrice != expectedItem\.unitPrice\) \{\s*mismatches\.add\('items\[\$index\]\.unitPrice'\);\s*\}/,
+  );
+}
+
 test('required-check budget documents every classifier lane', () => {
   const policy = read('docs/workflow/CODEX_VALIDATION_REPORT_BUDGET.md');
   assert.match(policy, /docs-only, full, mobile, iOS, and user-web routing decisions/);
@@ -173,6 +192,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   const native = workflow('mobile-ocr-native-acceptance.yml');
   const boundedCapture = read('tools/ocr-models/bounded-process-capture.mjs');
   const nativeTest = read('apps/mobile/integration_test/receipt_ocr_real_provider_test.dart');
+  const fixtureContract = read('apps/mobile/integration_test/support/receipt_ocr_fixture_contract.dart');
   const androidActivity = read('apps/mobile/android/app/src/main/kotlin/com/example/mobile/MainActivity.kt');
   const androidDebugHooks = read('apps/mobile/android/app/src/debug/kotlin/com/example/mobile/ReceiptOcrBuildVariantHooks.kt');
   const androidProfileHooks = read('apps/mobile/android/app/src/profile/kotlin/com/example/mobile/ReceiptOcrBuildVariantHooks.kt');
@@ -208,9 +228,7 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.match(nativeTest, /peakRssBytes is! int \|\| peakRssBytes <= 0/);
   assert.match(nativeTest, /finally \{\s*_isolate\.kill\(priority: Isolate\.immediate\);\s*_eventPort\.close\(\);/);
   assert.match(nativeTest, /finally \{\s*peakRssBytes = await rssSampler\.stop\(\);/);
-  assert.doesNotMatch(nativeTest, /if \(!expected\.containsKey\(field\)\) return;/);
-  assert.match(nativeTest, /if \(actualItem\.quantity != expectedItem\.quantity\)/);
-  assert.match(nativeTest, /if \(actualItem\.unitPrice != expectedItem\.unitPrice\)/);
+  assertNativeFixtureScoringPolicy(nativeTest, fixtureContract);
   assert.match(androidActivity, /ReceiptOcrBuildVariantHooks\.configure/);
   assert.doesNotMatch(androidActivity, /receipt_ocr_acceptance|loadModelCatalog|loadFixture/);
   assert.match(androidDebugHooks, /call\.method == "loadModelCatalog"/);
@@ -665,6 +683,42 @@ test('native OCR acceptance is exact-head, device-backed, and retains only bound
   assert.match(serialized, /ios-pre-native-Podfile\.lock/);
   assert.doesNotMatch(serialized, /temporary pre-native base lock|ios-base-pod-lock-/i);
   assert.doesNotMatch(serialized, /ios-pod-lock-/);
+});
+
+test('native fixture scoring policy rejects removed comparisons and disconnected scoring', async (t) => {
+  const nativeTest = read('apps/mobile/integration_test/receipt_ocr_real_provider_test.dart');
+  const fixtureContract = read('apps/mobile/integration_test/support/receipt_ocr_fixture_contract.dart');
+  const mutations = [
+    ['missing quantity comparison', 'contract',
+      'actualItem.quantity != expectedItem.quantity', 'false'],
+    ['missing unit-price comparison', 'contract',
+      'actualItem.unitPrice != expectedItem.unitPrice', 'false'],
+    ['missing quantity mismatch', 'contract',
+      "mismatches.add('items[$index].quantity');", ''],
+    ['missing unit-price mismatch', 'contract',
+      "mismatches.add('items[$index].unitPrice');", ''],
+    ['missing shared-contract import', 'harness',
+      "import 'support/receipt_ocr_fixture_contract.dart';", ''],
+    ['disconnected shared scorer', 'harness',
+      'receiptOcrFixtureFieldMismatches(', 'unusedFixtureFieldMismatches('],
+    ['discarded shared mismatches', 'harness',
+      'mismatches.addAll(\n    receiptOcrFixtureFieldMismatches(',
+      '<_BoundedMismatch>[].addAll(\n    receiptOcrFixtureFieldMismatches('],
+  ];
+  for (const [name, target, before, after] of mutations) {
+    await t.test(name, () => {
+      const source = target === 'contract' ? fixtureContract : nativeTest;
+      const mutated = source.replace(before, after);
+      assert.notEqual(mutated, source, 'negative control must change the real source');
+      assert.throws(
+        () => assertNativeFixtureScoringPolicy(
+          target === 'harness' ? mutated : nativeTest,
+          target === 'contract' ? mutated : fixtureContract,
+        ),
+        { code: 'ERR_ASSERTION' },
+      );
+    });
+  }
 });
 
 test('iOS linker diagnostic binds the needed-library flag to the exact Runner invocation', () => {
