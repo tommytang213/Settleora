@@ -4140,7 +4140,8 @@ class ReceiptOcrParser {
 
       final labels = row
           .where(
-            (block) => isProjectionLabel(_chargeTableLabelText(block.text)),
+            (block) =>
+                isProjectionLabel(_financialProjectionLabelText(block.text)),
           )
           .toList(growable: false);
       final amountBlocks = row
@@ -4205,7 +4206,7 @@ class ReceiptOcrParser {
                     belongsToDescription(block)),
           )
           .toList(growable: false);
-      final label = _chargeTableLabelText(
+      final label = _financialProjectionLabelText(
         descriptionBlocks.map((block) => block.text.trim()).join(' '),
       );
       if (!isProjectionLabel(label)) continue;
@@ -6819,10 +6820,20 @@ double _chargeTableDescriptionColumnEdge(
             2;
 }
 
+// Normalize interpretation only; every original block remains in the preview.
+// OCR can split a printed percentage across number and punctuation blocks.
+String _financialProjectionLabelText(String label) =>
+    _chargeTableLabelText(_normalizeOcrLine(label))
+        .replaceAll(RegExp(r'(?<=\d)\s+(?=%)'), '')
+        .replaceAllMapped(
+          RegExp(r'\(\s*(\d+(?:[.,]\d+)?%)\s*\)'),
+          (match) => '(${match[1]})',
+        );
+
 // A financial label may contain a marked percentage, reference or duration,
 // but an unexplained numeric token must not disappear during role projection.
 bool _hasUnexplainedFinancialLabelNumber(String label) {
-  final withoutRates = label.replaceAll(
+  final withoutRates = _normalizeOcrLine(label).replaceAll(
     RegExp(r'(?<![\p{L}\p{N}])\d+(?:[.,]\d+)?\s*%', unicode: true),
     '',
   );
@@ -6843,7 +6854,7 @@ bool _hasUnexplainedFinancialLabelNumber(String label) {
   );
   return RegExp(r'[^\s()]+').allMatches(withoutDurations).any((token) {
     final text = token.group(0)!;
-    return RegExp(r'\d').hasMatch(text) &&
+    return RegExp(r'\p{N}', unicode: true).hasMatch(text) &&
         !_unicodeLetterPattern.hasMatch(text);
   });
 }

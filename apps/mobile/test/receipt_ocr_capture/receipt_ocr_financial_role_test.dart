@@ -5,6 +5,59 @@ import '../support/financial_role_receipt.dart';
 void main() {
   for (final period in [false, true]) {
     for (final role in ['Discounts', 'Coupons', 'Rebates']) {
+      for (final number in ['７.００', '٧.٠٠', '۷.۰۰', '७.००', '๗.๐๐']) {
+        test(
+          'unicode-or-split numeric qualifier: $role $number period=$period',
+          () {
+            final source = financialRoleReceipt(
+              '$role ($number)',
+              labelBlocks: [role, '($number)'],
+              total: 'USD 18.00',
+              servicePeriod: period ? 'Feb 5 - Mar 4, 2025' : null,
+            );
+            final preview = const ReceiptOcrParser().parse(
+              source.text,
+              blocks: source.blocks,
+            );
+            expect(preview.items.single.description, "Resident's Water Plan");
+            expect(preview.adjustmentsComplete, isFalse);
+            expect(preview.reviewHints, isNotEmpty);
+            expect(preview.blocks, source.blocks);
+          },
+        );
+      }
+    }
+    for (final role in ['Taxes', 'Service Charge', 'Service Fees']) {
+      for (final rate in [
+        ['10', '%'],
+        ['(', '10', '%', ')'],
+        ['10.5', '%'],
+        ['(', '10.5', '%', ')'],
+        ['１０', '％'],
+      ]) {
+        test('unicode-or-split marked rate: $role $rate period=$period', () {
+          final source = financialRoleReceipt(
+            '$role ${rate.join(' ')}',
+            labelBlocks: [role, ...rate],
+            servicePeriod: period ? 'Feb 5 - Mar 4, 2025' : null,
+          );
+          final preview = const ReceiptOcrParser().parse(
+            source.text,
+            blocks: source.blocks,
+          );
+          expect(preview.items.single.description, "Resident's Water Plan");
+          expect(role == 'Taxes' ? preview.tax : preview.service, '2.00');
+          expect(preview.discount, isNull);
+          expect(preview.adjustmentsComplete, isTrue);
+          expect(preview.reviewHints, isEmpty);
+          expect(preview.blocks, source.blocks);
+        });
+      }
+    }
+  }
+
+  for (final period in [false, true]) {
+    for (final role in ['Discounts', 'Coupons', 'Rebates']) {
       for (final fragments in [
         [role, '(7.00)'],
         ['7.00', role],

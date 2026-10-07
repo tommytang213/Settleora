@@ -64,12 +64,17 @@ void main() {
         'Taxes 7%',
         'Taxes (7%)',
         'Discounts (7.00)',
+        'Discounts (７.００)',
+        'Coupons (٧.٠٠)',
+        'Rebates (๗.๐๐)',
         '7.00 Coupons',
         'Rebates (7)',
         'Discounts (10%)',
         'Coupons (PROMO7)',
         'Rebates (Ref 7)',
         'Service Charge 10%',
+        'Service Charge 10 %',
+        'Service Fees ( 10.5 % )',
         'Service Fees (10.5%)',
       ]) {
         final namedProduct = [
@@ -88,6 +93,9 @@ void main() {
         final fragmentedRate = ['Taxes 7%', 'Taxes (7%)'].contains(label);
         final discountUnknown = [
           'Discounts (7.00)',
+          'Discounts (７.００)',
+          'Coupons (٧.٠٠)',
+          'Rebates (๗.๐๐)',
           '7.00 Coupons',
           'Rebates (7)',
         ].contains(label);
@@ -98,6 +106,8 @@ void main() {
         ].contains(label);
         final serviceRate = [
           'Service Charge 10%',
+          'Service Charge 10 %',
+          'Service Fees ( 10.5 % )',
           'Service Fees (10.5%)',
         ].contains(label);
         final discountCase = discountUnknown || discountPositive;
@@ -146,7 +156,7 @@ void main() {
               labelBlocks: serviceRate
                   ? [
                       label.split(' ').take(2).join(' '),
-                      label.split(' ').skip(2).join(' '),
+                      ...label.split(' ').skip(2),
                     ]
                   : namedProduct ||
                         fragmentedNumber ||
