@@ -6617,8 +6617,9 @@ _classifyChargeTableRows(
     if (hasOnlyDescriptionAndAmount && pricedRow != null) {
       if (_isChargeTableSummaryLine(line) ||
           _hasServiceChargeLabel(line, lower) ||
-          _hasShippingLabel(line, lower))
+          _hasShippingLabel(line, lower)) {
         continue;
+      }
       if (RegExp(r'\d|%|[-−]\s*$').hasMatch(prefix) ||
           RegExp(
             _currencyTokenPattern,
