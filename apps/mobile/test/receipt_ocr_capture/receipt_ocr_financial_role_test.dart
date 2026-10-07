@@ -40,6 +40,8 @@ void main() {
       'Service Charge Plan',
       'Monthly Service Fee',
       'Taxes and Fees',
+      'Environmental Levy',
+      'Regulatory Fee',
     ]) {
       test('$mode keeps compound $label unresolved', () {
         final source = financialRoleReceipt(label, mode: mode);

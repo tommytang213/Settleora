@@ -4054,11 +4054,14 @@ class ReceiptOcrParser {
       var headerIndex = rowIndex - 1;
       while (headerIndex >= 0 &&
           !_isSupportedChargeTableHeader(sourceLines, headerIndex)) {
-        if (RegExp(
-              r'^\s*(?:total\b|payment\b|messages?\b|remittance\b)',
+        final priorLine = sourceLines[headerIndex];
+        if (_hasTotalLabel(priorLine, priorLine.toLowerCase()) ||
+            _isPaymentMetadataLine(priorLine) ||
+            RegExp(
+              r'^\s*(?:messages?\b|remittance\b)',
               caseSensitive: false,
-            ).hasMatch(sourceLines[headerIndex]) ||
-            _isChargeTableSectionBoundary(sourceLines[headerIndex])) {
+            ).hasMatch(priorLine) ||
+            _isChargeTableSectionBoundary(priorLine)) {
           break;
         }
         headerIndex--;
@@ -4092,6 +4095,16 @@ class ReceiptOcrParser {
                   r'^rate$',
                   caseSensitive: false,
                 ).hasMatch(_chargeTableLabelText(block.text)),
+          )
+          .toList(growable: false);
+      final periodHeaders = layoutRows[headerIndex]
+          .where(
+            (block) =>
+                block.points.isNotEmpty &&
+                RegExp(
+                  r'^(?:service\s+)?period$',
+                  caseSensitive: false,
+                ).hasMatch(block.text.trim()),
           )
           .toList(growable: false);
       final row = layoutRows[rowIndex];
@@ -4149,6 +4162,15 @@ class ReceiptOcrParser {
       if (!_hasChargeTableMonetaryEvidence(monetaryText)) continue;
       if (row.any((block) {
         if (block == amountBlock || currencyBlocks.contains(block)) {
+          return false;
+        }
+        if (periodHeaders.length == 1 &&
+            block.points.isNotEmpty &&
+            _matchesUtilityPeriod(block.text) &&
+            (_blockCenterX(block) - _blockCenterX(periodHeaders.single))
+                    .abs() <=
+                60 &&
+            block.points.every((point) => point.x < headerLeft - 12)) {
           return false;
         }
         if (rateHeaders.length == 1 && block.points.isNotEmpty) {
@@ -4422,6 +4444,13 @@ class ReceiptOcrParser {
         final description = columnDescription;
         if (!_hasSubstantiveItemDescription(description) ||
             _isReceiptMetadataLine(description, allowBarePostal: false)) {
+          continue;
+        }
+        if (RegExp(
+              r'^description\s+amount$',
+              caseSensitive: false,
+            ).hasMatch(lines[headerIndex].trim()) &&
+            _hasUnresolvedSimpleFinancialLabel(description)) {
           continue;
         }
         // Geometry can identify the amount column, not erase a financial
@@ -6626,6 +6655,7 @@ _classifyChargeTableRows(
             caseSensitive: false,
           ).hasMatch(prefix) ||
           _hasBoundedUtilityFinancialPhrase(prefix, pricedRow.group(3)!) ||
+          _hasUnresolvedSimpleFinancialLabel(prefix) ||
           RegExp(
             r'\b(?:fees?|surcharges?)\s*$',
             caseSensitive: false,
@@ -6722,6 +6752,27 @@ bool _hasCompleteUsageRateColumns(String prefix) {
 // Project only terminal label punctuation. Original text and blocks stay intact.
 String _chargeTableLabelText(String label) =>
     label.trim().replaceFirst(RegExp(r'[.:：]$'), '').trim();
+
+// In a simple two-column table, an unsupported financial label still needs
+// review. A lone role noun inside a named product is not enough to retype it.
+bool _hasUnresolvedSimpleFinancialLabel(String label) {
+  final roles = _potentialReceiptAdjustmentLabelPattern
+      .allMatches(label)
+      .toList(growable: false);
+  if (roles.isEmpty) return _hasPotentialReceiptAdjustmentLabel(label);
+  if (roles.length != 1) return true;
+  final role = roles.single;
+  final word = role.group(0)!.toLowerCase();
+  if ((word == 'service' || word == 'charge') &&
+      _unicodeLetterPattern.hasMatch(
+        label.substring(0, role.start) + label.substring(role.end),
+      ))
+    return false;
+  if (!word.contains(' ') &&
+      _boundedUtilityNamedServiceQualifier.hasMatch(label.substring(role.end)))
+    return false;
+  return true;
+}
 
 bool _hasCompoundAdjustmentLabel(String line) {
   final amounts = RegExp(_amountTokenPattern).allMatches(line);
