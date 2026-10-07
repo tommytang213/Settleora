@@ -65,6 +65,7 @@ void main() {
         'Taxes (7%)',
         'Discounts (7.00)',
         'Discounts (７.００)',
+        'Discounts (ＵＳＤ７．００)',
         'Coupons (٧.٠٠)',
         'Rebates (๗.๐๐)',
         '7.00 Coupons',
@@ -94,6 +95,7 @@ void main() {
         final discountUnknown = [
           'Discounts (7.00)',
           'Discounts (７.００)',
+          'Discounts (ＵＳＤ７．００)',
           'Coupons (٧.٠٠)',
           'Rebates (๗.๐๐)',
           '7.00 Coupons',

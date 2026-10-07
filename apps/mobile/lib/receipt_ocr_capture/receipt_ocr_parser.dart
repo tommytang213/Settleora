@@ -3779,6 +3779,12 @@ class ReceiptOcrParser {
               .join(' '),
         );
         if (_lineHasAmount(financialMonetaryText) &&
+            _hasUnresolvedSimpleFinancialLabel(financialLabel) &&
+            _hasUnexplainedFinancialLabelNumber(financialLabel)) {
+          ambiguous.add(rowIndex);
+          continue;
+        }
+        if (_lineHasAmount(financialMonetaryText) &&
             discountRolePattern.hasMatch(financialLabel)) {
           // A named service can itself contain a discount word. Remove the
           // claimed terminal adjustment role, leaving the service and notes
@@ -6833,7 +6839,23 @@ String _financialProjectionLabelText(String label) =>
 // A financial label may contain a marked percentage, reference or duration,
 // but an unexplained numeric token must not disappear during role projection.
 bool _hasUnexplainedFinancialLabelNumber(String label) {
-  final withoutRates = _normalizeOcrLine(label).replaceAll(
+  final normalized = _normalizeOcrLine(label);
+  final currencyMarkers = [
+    ..._printedCurrencyMarkerMatches(normalized),
+    ..._unsupportedIsoCurrencyMarkers(normalized),
+    ...RegExp(r'(?<=\d)[A-Za-z]{3}(?![\p{L}\p{N}])', unicode: true)
+        .allMatches(normalized)
+        .where(
+          (marker) =>
+              _unsupportedIsoCurrencyMarkers(marker.group(0)!).isNotEmpty,
+        ),
+  ];
+  if (currencyMarkers.any(
+    (marker) => _currencyMarkerTouchesAmount(normalized, marker),
+  )) {
+    return true;
+  }
+  final withoutRates = normalized.replaceAll(
     RegExp(r'(?<![\p{L}\p{N}])\d+(?:[.,]\d+)?\s*%', unicode: true),
     '',
   );

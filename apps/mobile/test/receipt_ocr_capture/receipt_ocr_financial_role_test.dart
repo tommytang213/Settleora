@@ -5,7 +5,19 @@ import '../support/financial_role_receipt.dart';
 void main() {
   for (final period in [false, true]) {
     for (final role in ['Discounts', 'Coupons', 'Rebates']) {
-      for (final number in ['７.００', '٧.٠٠', '۷.۰۰', '७.००', '๗.๐๐']) {
+      for (final number in [
+        '７.００',
+        '٧.٠٠',
+        '۷.۰۰',
+        '७.००',
+        '๗.๐๐',
+        'USD7.00',
+        'ＵＳＤ７．００',
+        'ＺＡＲ７．００',
+        'USD٧.٠٠',
+        '７．００ＺＡＲ',
+        '７．００ＵＳＤ',
+      ]) {
         test(
           'unicode-or-split numeric qualifier: $role $number period=$period',
           () {
