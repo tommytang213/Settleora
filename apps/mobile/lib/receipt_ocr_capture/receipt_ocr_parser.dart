@@ -4908,12 +4908,20 @@ Set<int> _ownedMeterReadingRows(
     final axisMonths = axis.expand(monthValues).toList();
     if (axisMonths.length < 3 ||
         axisMonths.length > 12 ||
-        axis.any((b) => !sameBand(b, axis.first)) ||
+        axis.any(
+          (b) =>
+              !sameBand(b, axis.first) ||
+              _blockRight(b) - _blockLeft(b) >
+                  height(b) * monthValues(b).length * 6,
+        ) ||
+        _blockLeft(axis.first) - _blockRight(g) > height(g) * 4 ||
         axis.indexed
             .skip(1)
             .any(
               (entry) =>
-                  _blockRight(axis[entry.$1 - 1]) >= _blockLeft(entry.$2),
+                  _blockRight(axis[entry.$1 - 1]) >= _blockLeft(entry.$2) ||
+                  _blockLeft(entry.$2) - _blockRight(axis[entry.$1 - 1]) >
+                      height(entry.$2) * 6,
             ) ||
         axisMonths.indexed
             .skip(1)
@@ -4977,17 +4985,18 @@ Set<int> _ownedMeterReadingRows(
         continue;
       }
       final candidates = {...rows[i], ...rows[j]};
-      // Provider row grouping can separate a sign/currency cell from its
+      // Provider row grouping can separate a description or monetary cell from its
       // neighboring numeral. Inspect nearby geometry on both sides of the
       // graph boundary; lack of overlap does not prove nonfinancial meaning.
       final graphNumbers = candidates.where(graphInteger).toList();
-      final monetaryNeighbor = rows.expand((r) => r).any((other) {
-        if (candidates.contains(other)) return false;
-        final text = other.text.trim();
-        if (_printedCurrencyMarkerMatches(text).isEmpty &&
-            !RegExp(r'\p{Sc}|^[\p{Dash}➖+]$', unicode: true).hasMatch(text) &&
-            !_hasChargeTableMonetaryEvidence(text) &&
-            !_hasPotentialReceiptAdjustmentLabel(text)) {
+      final unexplainedNeighbor = rows.expand((r) => r).any((other) {
+        // These are positively proven chart roles. Every other nearby
+        // fragment competes, including unsupported currency codes, split
+        // denominations and arbitrary product words outside the graph edge.
+        if (candidates.contains(other) ||
+            other == g ||
+            axis.contains(other) ||
+            graphInteger(other)) {
           return false;
         }
         return graphNumbers.any((number) {
@@ -5007,7 +5016,7 @@ Set<int> _ownedMeterReadingRows(
           return xGap <= scale && yGap <= scale / 2;
         });
       });
-      if (monetaryNeighbor) continue;
+      if (unexplainedNeighbor) continue;
       final competing = rows
           .expand((r) => r)
           .any(
@@ -6524,10 +6533,7 @@ bool _isFinancialLabelWithAdjacentAmount(
       ).hasMatch(line);
       simpleBillTable =
           _isBillChargeDetailHeader(lines, index) &&
-          RegExp(
-            r'^description\s+amount$',
-            caseSensitive: false,
-          ).hasMatch(line);
+          _isSimpleBillAmountHeader(line);
       requiresLayoutAmountColumn =
           _isInvoiceProductTableHeader(line) ||
           _isBillChargeDetailHeader(lines, index);
@@ -6569,25 +6575,41 @@ bool _isFinancialLabelWithAdjacentAmount(
     // A complete two-column label and one monetary value after a wholly
     // textual description need no geometry. Numeric rate/usage/date context,
     // fee ambiguity or any additional column still requires owned layout.
-    final simplePrintedItem =
+    final simplePrintedMoney =
         simpleBillTable &&
         pricedRow != null &&
         RegExp(
           r'^[\p{L}\p{M}][\p{L}\p{M}\s\p{Pd}()/&]*$',
           unicode: true,
         ).hasMatch(prefix) &&
+        _hasChargeTableMonetaryEvidence(
+          '${pricedRow.group(2) ?? ''} ${pricedRow.group(3)} ${pricedRow.group(4) ?? ''}',
+        );
+    // Existing complete label grammars establish ordinary adjustment roles.
+    // Do not turn a plain Tax/Service/Tip/Shipping/Discount into a disputed
+    // charge merely because the bill section acquired a recognized heading.
+    final simpleAdjustment =
+        simplePrintedMoney &&
+        [
+              _hasTaxLabel(line, lower),
+              _hasServiceChargeLabel(line, lower),
+              _hasActualTipChargeLabel(line, lower),
+              _hasShippingLabel(line, lower),
+              _hasDiscountLabel(line, lower),
+            ].where((hasRole) => hasRole).length ==
+            1;
+    final simplePrintedItem =
+        simplePrintedMoney &&
         !_isChargeTableSummaryLine(line) &&
         !RegExp(
           r'\b(?:fees?|surcharge)\b',
           caseSensitive: false,
-        ).hasMatch(prefix) &&
-        _hasChargeTableMonetaryEvidence(
-          '${pricedRow.group(2) ?? ''} ${pricedRow.group(3)} ${pricedRow.group(4) ?? ''}',
-        );
-    if (requiresLayoutAmountColumn && !simplePrintedItem) {
+        ).hasMatch(prefix);
+    if (requiresLayoutAmountColumn && !simplePrintedItem && !simpleAdjustment) {
       if (pricedRow != null) ambiguous.add(index);
       continue;
     }
+    if (simpleAdjustment) continue;
     // A rated tax row in a table with both Usage and Rate columns needs
     // geometry to prove whether the numeric cell is usage or only a rate.
     if (pricedRow != null &&
@@ -7070,6 +7092,18 @@ bool _isChargeTableHeader(String line) {
 bool _isSupportedChargeTableHeader(List<String> lines, int index) =>
     _isChargeTableHeader(lines[index]) ||
     _isBillChargeDetailHeader(lines, index);
+
+bool _isSimpleBillAmountHeader(String line) {
+  // A denomination annotation qualifies the Amount column; it does not add
+  // a competing numeric column or change supported-currency policy.
+  final currency =
+      '(?:$_currencyTokenPattern|'
+      '${_knownUnsupportedIsoCurrencyCodes.map(RegExp.escape).join('|')})';
+  return RegExp(
+    '^description\\s+amount(?:\\s*\\($currency\\)|\\s+$currency)?\$',
+    caseSensitive: false,
+  ).hasMatch(line);
+}
 
 bool _isBillChargeDetailHeader(List<String> lines, int index) {
   if (index == 0) return false;

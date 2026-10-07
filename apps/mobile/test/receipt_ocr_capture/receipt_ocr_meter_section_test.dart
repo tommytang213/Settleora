@@ -89,6 +89,188 @@ ReceiptOcrPreview _parse(
 }
 
 void main() {
+  test('round3 currency-qualified simple headers preserve item amounts', () {
+    for (final header in [
+      'Description Amount (USD)',
+      'Description Amount USD',
+      r'Description Amount ($)',
+      'Description Amount (EUR)',
+    ]) {
+      for (final geometry in [false, true]) {
+        final blocks = [
+          _cell('Regional Utility', 0, 20, 0, 350, 12),
+          _cell('Details of Current Charges', 1, 20, 20, 350, 32),
+          _cell(header, 2, 20, 40, 700, 52),
+          _cell('Water Plan USD 20.00', 3, 20, 60, 700, 72),
+          _cell('Total Amount Due USD 20.00', 4, 20, 80, 700, 92),
+        ];
+        final preview = _parse(blocks, includeGeometry: geometry);
+        expect(
+          preview.items.map((i) => i.description),
+          ['Water Plan'],
+          reason: '$header geometry=$geometry',
+        );
+        expect(preview.items.single.lineTotal, '20.00');
+        expect(preview.items.single.currency, 'USD');
+        expect(
+          preview.itemLineDecisions[3],
+          ReceiptOcrItemLineDecision.pricedItemSelected,
+        );
+      }
+    }
+  });
+
+  test(
+    'round3 plain adjustments keep their labeled path under simple headers',
+    () {
+      for (final geometry in [false, true]) {
+        for (final header in [
+          'Description Amount',
+          'Description Amount (USD)',
+        ]) {
+          final blocks = [
+            _cell('Regional Utility', 0, 20, 0, 350, 12),
+            _cell('Details of Current Charges', 1, 20, 20, 350, 32),
+            _cell(header, 2, 20, 40, 700, 52),
+            _cell('Water Plan USD 20.00', 3, 20, 60, 700, 72),
+            _cell('Tax USD 2.00', 4, 20, 80, 700, 92),
+            _cell('Service Fee USD 1.00', 5, 20, 100, 700, 112),
+            _cell('Tip USD 1.00', 6, 20, 120, 700, 132),
+            _cell('Shipping USD 1.00', 7, 20, 140, 700, 152),
+            _cell('Discount USD 1.00', 8, 20, 160, 700, 172),
+            _cell('Total Amount Due USD 24.00', 9, 20, 180, 700, 192),
+          ];
+          final preview = _parse(blocks, includeGeometry: geometry);
+          expect(preview.tax, '2.00');
+          expect(preview.service, '1.00');
+          expect(preview.tip, '1.00');
+          expect(preview.shipping, '1.00');
+          expect(preview.discount, '1.00');
+          expect(preview.items.map((i) => i.description), ['Water Plan']);
+          for (var row = 4; row <= 8; row++) {
+            expect(
+              preview.itemLineDecisions[row],
+              ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+              reason: 'row $row',
+            );
+          }
+        }
+      }
+    },
+  );
+
+  test('round3 every nearby fragment needs a proven nonfinancial role', () {
+    for (final marker in ['ZAR', 'CR', 'Sensor', 'XYZ', 'E', 'UR']) {
+      final blocks = _meterBlocks();
+      blocks.insert(8, _cell(marker, 3, 712, 425, 738, 444));
+      final preview = _parse(blocks);
+      expect(
+        preview.itemLineDecisions[2],
+        ReceiptOcrItemLineDecision.pricedItemSelected,
+        reason: marker,
+      );
+      expect(
+        preview.itemLineDecisions[4],
+        ReceiptOcrItemLineDecision.pricedItemSelected,
+        reason: marker,
+      );
+      expect(preview.blocks, blocks);
+      expect(preview.reviewHints, isNotEmpty);
+    }
+  });
+
+  test('round3 horizontal calendar gaps cannot extend a local graph', () {
+    final distant = _meterBlocks();
+    final index = distant.indexWhere((b) => b.text == 'Dec Jan Feb Mar Apr');
+    distant[index] = _cell('Dec Jan Feb Mar Apr', 6, 2789, 535, 3021, 553);
+    final split = _meterBlocks();
+    split.removeWhere((b) => b.text == 'Dec Jan Feb Mar Apr');
+    final axisIndex = split.indexWhere((b) => b.row == 7);
+    split.insertAll(axisIndex, [
+      _cell('Dec Jan Feb', 6, 789, 535, 950, 553),
+      _cell('Mar Apr', 6, 2920, 535, 3021, 553),
+    ]);
+    for (final blocks in [distant, split]) {
+      final preview = _parse(blocks);
+      expect(
+        preview.itemLineDecisions[2],
+        ReceiptOcrItemLineDecision.pricedItemSelected,
+      );
+      expect(
+        preview.itemLineDecisions[4],
+        ReceiptOcrItemLineDecision.pricedItemSelected,
+      );
+      expect(preview.blocks, blocks);
+    }
+  });
+
+  test(
+    'round3 unique anchors cannot be replaced by missing or repeated labels',
+    () {
+      for (final text in [
+        'Previous Reading',
+        'Current Reading',
+        'Usage',
+        'Meter Number',
+        'Your Usage (kWh)',
+      ]) {
+        for (final duplicate in [false, true]) {
+          final blocks = _meterBlocks();
+          final b = blocks.singleWhere((b) => b.text == text);
+          if (duplicate) {
+            blocks.add(b);
+          } else {
+            blocks.remove(b);
+          }
+          final preview = _parse(blocks);
+          expect(
+            preview.itemLineDecisions[2],
+            duplicate &&
+                    [
+                      'Previous Reading',
+                      'Current Reading',
+                      'Usage',
+                    ].contains(text)
+                ? ReceiptOcrItemLineDecision.unretainedPricedRow
+                : ReceiptOcrItemLineDecision.pricedItemSelected,
+            reason: '$text duplicate=$duplicate',
+          );
+          expect(
+            preview.itemLineDecisions[4],
+            ReceiptOcrItemLineDecision.pricedItemSelected,
+          );
+          expect(preview.blocks, blocks);
+        }
+      }
+    },
+  );
+
+  test('round3 qualified headers do not waive mixed or rated adjustments', () {
+    for (final header in [
+      'Description Amount (USD)',
+      'Description Rate Amount (USD)',
+      'Description Amount (USD) Rate',
+    ]) {
+      for (final line in [
+        'Taxes and Regulatory Fees USD 2.00',
+        'State Gas Tax (2.5%) 10 therms USD 0.10',
+        'Service Fee and Tax USD 2.00',
+      ]) {
+        final preview = const ReceiptOcrParser().parse(
+          'Regional Utility\nDetails of Current Charges\n$header\n'
+          '$line\nTotal Amount Due USD 2.00',
+        );
+        expect(preview.tax, isNull, reason: '$header / $line');
+        expect(preview.service, isNull);
+        expect(
+          preview.itemLineDecisions[3],
+          ReceiptOcrItemLineDecision.ambiguousChargeSkipped,
+        );
+        expect(preview.reviewHints, isNotEmpty);
+      }
+    }
+  });
+
   test('round2 simple bill amounts survive text-only and merged headings', () {
     for (final heading in [
       'Details of Current Charges',
