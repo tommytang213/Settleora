@@ -4275,6 +4275,11 @@ class ReceiptOcrParser {
         }
       }
 
+      final graphBlocks = _ownedChargeTableGraphBlocks(
+        layoutRows,
+        headerIndex,
+        amountHeaders.single,
+      );
       // The complete owned description already passed qualifier validation.
       // Join the remaining row fragments so separate currency/amount cells and
       // explicit reference IDs receive the same interpretation as whole labels.
@@ -4283,7 +4288,8 @@ class ReceiptOcrParser {
             if (block == amountBlock ||
                 currencyBlocks.contains(block) ||
                 descriptionBlocks.contains(block) ||
-                calendarBlocks.contains(block)) {
+                calendarBlocks.contains(block) ||
+                graphBlocks.contains(block)) {
               return false;
             }
             if (rateHeaders.length == 1 && block.points.isNotEmpty) {
@@ -4914,6 +4920,126 @@ class ReceiptOcrParser {
 
     return count;
   }
+}
+
+// An adjacent physical-usage graph owns its integer axis only when a unit
+// caption, descending ticks and an ordered month axis form a closed panel.
+// Unknown words, money or split denomination fragments invalidate the panel.
+Set<ReceiptOcrBlockEvidence> _ownedChargeTableGraphBlocks(
+  List<List<ReceiptOcrBlockEvidence>> rows,
+  int headerIndex,
+  ReceiptOcrBlockEvidence amountHeader,
+) {
+  double top(ReceiptOcrBlockEvidence b) =>
+      b.points.map((p) => p.y).reduce((a, b) => a < b ? a : b);
+  double bottom(ReceiptOcrBlockEvidence b) =>
+      b.points.map((p) => p.y).reduce((a, b) => a > b ? a : b);
+  bool valid(ReceiptOcrBlockEvidence b) =>
+      b.points.length == 4 &&
+      b.points.every((p) => p.x.isFinite && p.y.isFinite) &&
+      _blockRight(b) > _blockLeft(b) &&
+      bottom(b) > top(b);
+  if (!valid(amountHeader)) return const {};
+  final scale = bottom(amountHeader) - top(amountHeader);
+  final headings = rows[headerIndex]
+      .where(
+        (b) =>
+            valid(b) &&
+            _blockLeft(b) > _blockRight(amountHeader) + scale &&
+            RegExp(
+              r'^[\p{L} ]+\s*\((?:kwh|therms?|m³|m3|gallons?|gal)\)$',
+              caseSensitive: false,
+              unicode: true,
+            ).hasMatch(b.text.trim()),
+      )
+      .toList();
+  if (headings.length != 1) return const {};
+  final heading = headings.single;
+  const months = [
+    'jan',
+    'feb',
+    'mar',
+    'apr',
+    'may',
+    'jun',
+    'jul',
+    'aug',
+    'sep',
+    'oct',
+    'nov',
+    'dec',
+  ];
+  bool monthAxis(ReceiptOcrBlockEvidence b) {
+    final values = b.text
+        .trim()
+        .toLowerCase()
+        .split(RegExp(r'\s+'))
+        .map(months.indexOf)
+        .toList();
+    return values.length >= 3 &&
+        values.length <= 12 &&
+        values.every((v) => v >= 0) &&
+        values.indexed
+            .skip(1)
+            .every((e) => e.$2 == (values[e.$1 - 1] + 1) % 12);
+  }
+
+  final all = rows.expand((row) => row).toList();
+  final axes = all
+      .where(
+        (b) =>
+            valid(b) &&
+            monthAxis(b) &&
+            top(b) > bottom(heading) &&
+            top(b) - bottom(heading) <= scale * 12 &&
+            _blockLeft(b) >= _blockLeft(heading) &&
+            _blockLeft(b) <= _blockRight(heading),
+      )
+      .toList();
+  if (axes.length != 1) return const {};
+  final axis = axes.single;
+  final panelLeft = _blockRight(amountHeader) + scale;
+  final panelRight = _blockRight(axis);
+  final panel = all
+      .where(
+        (b) =>
+            b != heading &&
+            b.text.trim().isNotEmpty &&
+            (!valid(b) ||
+                (_blockRight(b) > panelLeft &&
+                    _blockLeft(b) < panelRight + scale / 2 &&
+                    bottom(b) > bottom(heading) &&
+                    top(b) < bottom(axis) + scale / 2)),
+      )
+      .toList();
+  final ticks = panel.where((b) => b != axis).toList()
+    ..sort((a, b) => top(a).compareTo(top(b)));
+  if (ticks.length < 3 ||
+      ticks.any(
+        (b) =>
+            !valid(b) ||
+            !RegExp(r'^\d+$').hasMatch(b.text.trim()) ||
+            _blockLeft(b) < panelLeft ||
+            _blockRight(b) > _blockLeft(axis) ||
+            bottom(b) > bottom(axis) ||
+            (_blockLeft(b) - _blockLeft(ticks.first)).abs() > scale / 2,
+      ) ||
+      ticks.indexed
+          .skip(1)
+          .any(
+            (e) =>
+                top(e.$2) <= bottom(ticks[e.$1 - 1]) ||
+                int.tryParse(e.$2.text.trim()) == null ||
+                int.tryParse(ticks[e.$1 - 1].text.trim()) == null ||
+                int.parse(e.$2.text.trim()) >=
+                    int.parse(ticks[e.$1 - 1].text.trim()),
+          ) ||
+      ticks.last.text.trim() != '0' ||
+      top(ticks.last) >= bottom(axis) ||
+      bottom(ticks.last) <= top(axis)) {
+    return const {};
+  }
+  return {...ticks, axis};
 }
 
 // A physical meter table can share OCR rows with an adjacent usage graph.

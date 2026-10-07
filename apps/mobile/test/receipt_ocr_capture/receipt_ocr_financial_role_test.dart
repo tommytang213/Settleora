@@ -1,8 +1,109 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_parser.dart';
+import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
 import '../support/financial_role_receipt.dart';
 
 void main() {
+  for (final variant in [
+    'valid',
+    'money',
+    'split money',
+    'unsupported money',
+    'bare decimal',
+    'unknown word',
+    'missing unit',
+    'unordered months',
+    'unordered ticks',
+    'extra neighbor',
+  ]) {
+    test('financial projection owns only a complete usage graph: $variant', () {
+      final blocks = <ReceiptOcrBlockEvidence>[];
+      void cell(String text, int row, double left, double right) {
+        blocks.add(
+          ReceiptOcrBlockEvidence(
+            text: text,
+            row: row,
+            order: blocks.length,
+            confidence: 0.97,
+            points: [
+              ReceiptOcrPoint(x: left, y: row * 30.0),
+              ReceiptOcrPoint(x: right, y: row * 30.0),
+              ReceiptOcrPoint(x: right, y: row * 30.0 + 20),
+              ReceiptOcrPoint(x: left, y: row * 30.0 + 20),
+            ],
+          ),
+        );
+      }
+
+      cell('CURRENT CHARGES DETAIL', 0, 20, 400);
+      cell('USAGE SUMMARY', 0, 740, 980);
+      cell('Service', 1, 20, 150);
+      cell('Usage', 1, 275, 335);
+      cell('Rate', 1, 420, 475);
+      cell('Amount', 1, 600, 665);
+      cell(
+        variant == 'missing unit' ? 'Electricity' : 'Electricity (kWh)',
+        1,
+        755,
+        900,
+      );
+      cell('Electricity', 2, 20, 150);
+      cell('62 kWh', 2, 275, 335);
+      cell('USD 0.1580/kWh', 2, 420, 525);
+      cell('USD 9.80', 2, 600, 665);
+      cell('800', 2, 710, 750);
+      cell('Water', 3, 20, 150);
+      cell('900 gallons', 3, 275, 350);
+      cell('USD 0.0055/gallon', 3, 420, 540);
+      cell('USD 4.95', 3, 600, 665);
+      cell(variant == 'unordered ticks' ? '900' : '600', 3, 710, 750);
+      cell('Subtotal', 4, 20, 150);
+      cell('USD 14.75', 4, 600, 665);
+      cell(
+        switch (variant) {
+          'money' => 'USD 200',
+          'unsupported money' => 'ZAR 200',
+          'bare decimal' => '200.00',
+          'unknown word' => 'Plan 200',
+          _ => '200',
+        },
+        4,
+        710,
+        780,
+      );
+      if (variant == 'split money') cell('ZAR', 4, 785, 815);
+      if (variant == 'extra neighbor') cell('Plan', 4, 690, 707);
+      cell('City Utilities Tax (5%)', 5, 20, 260);
+      cell('USD 0.74', 5, 600, 665);
+      cell('0', 5, 710, 750);
+      cell(
+        variant == 'unordered months' ? 'Oct Dec Nov' : 'Oct Nov Dec',
+        5,
+        780,
+        970,
+      );
+      cell('Total Current Charges', 6, 20, 250);
+      cell('USD 15.49', 6, 600, 665);
+      final rows = <int, List<String>>{};
+      for (final block in blocks) {
+        (rows[block.row] ??= []).add(block.text);
+      }
+      final preview = const ReceiptOcrParser().parse(
+        rows.values.map((parts) => parts.join(' ')).join('\n'),
+        blocks: blocks,
+        fallbackCurrency: 'USD',
+      );
+      if (variant == 'valid') {
+        expect(preview.subtotal, '14.75');
+        expect(preview.tax, '0.74');
+      } else {
+        expect(preview.subtotal, isNull);
+        expect(preview.adjustmentsComplete, isFalse);
+      }
+      expect(preview.blocks, blocks);
+    });
+  }
+
   for (final mirrored in [false, true]) {
     for (final period in [
       'Feb 5 - Mar 4, 2025',
