@@ -2236,6 +2236,13 @@ class ReceiptOcrParser {
       if (adjustmentRole == null &&
           hasPotentialAdjustment &&
           !_hasTotalLabel(line, normalized) &&
+          // A complete current-charge summary already has a non-item role.
+          // The plural "charges" must not introduce an unresolved fee. Keep
+          // compound labels and extra/missing monetary evidence in review.
+          !_isLabeledStandaloneMoneyLine(
+            line,
+            RegExp(r'^current\s+charges\b', caseSensitive: false),
+          ) &&
           !_includedTaxTotalLinePattern.hasMatch(line)) {
         adjustmentsComplete = false;
         incompleteReasons.add(
@@ -4188,6 +4195,37 @@ class ReceiptOcrParser {
           descriptionHeaders,
           amountHeaders,
         );
+        // Another printed column on the outer side bounds Description too.
+        // Otherwise a separate panel's caption can swallow a valid tax label.
+        // Excluded cells still pass the outside financial/numeric guards below;
+        // this only separates the owned description, never erases evidence.
+        final outerHeaders = layoutRows[headerIndex].where(
+          (candidate) =>
+              candidate != description &&
+              candidate != amountHeaders.single &&
+              candidate.points.isNotEmpty &&
+              (amountOnLeft
+                  ? _blockLeft(candidate) > _blockRight(description)
+                  : _blockRight(candidate) < _blockLeft(description)),
+        );
+        if (outerHeaders.isNotEmpty) {
+          final outerEdge = amountOnLeft
+              ? (_blockRight(description) +
+                        outerHeaders
+                            .map(_blockLeft)
+                            .reduce((a, b) => a < b ? a : b)) /
+                    2
+              : (_blockLeft(description) +
+                        outerHeaders
+                            .map(_blockRight)
+                            .reduce((a, b) => a > b ? a : b)) /
+                    2;
+          if (amountOnLeft
+              ? _blockCenterX(block) > outerEdge
+              : _blockCenterX(block) < outerEdge) {
+            return false;
+          }
+        }
         return amountOnLeft
             ? _blockCenterX(block) >= boundary
             : _blockCenterX(block) <= boundary;

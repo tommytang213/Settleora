@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { summarizeFlutterRunner } from "./flutter-runner-diagnostics.mjs";
 
 const maxLogBytes = 32 * 1024 * 1024;
 const maxMarkerBytes = 512 * 1024;
@@ -150,6 +151,7 @@ export function buildFailureEvidence(args, repoRoot = process.cwd(), collectionE
     acceptance,
     uiSmoke,
     diagnostics: extractFailureDiagnostics(args, platform, expectedFixtureIds),
+    ...(platform === "ios" ? { flutterRunnerDiagnostics: summarizeFlutterRunner(args.log, args["stderr-log"]) } : {}),
     collectionFailure: "invalid_or_unavailable_bounded_evidence",
     collectionFailureReason: collectionError instanceof NonAllowlistedStderrError
       ? "non_allowlisted_stderr"
@@ -1197,6 +1199,7 @@ export function buildEvidence(args, repoRoot = process.cwd()) {
     acceptance,
     uiSmoke,
     diagnostics,
+    ...(args.platform === "ios" ? { flutterRunnerDiagnostics: summarizeFlutterRunner(args.log, args["stderr-log"]) } : {}),
     packageEvidence: {
       fullBytes,
       baselineWithoutBundledModelPayloadBytes: modelFreeBytes,
