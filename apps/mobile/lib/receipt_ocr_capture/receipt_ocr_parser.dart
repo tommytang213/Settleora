@@ -137,7 +137,10 @@ class ReceiptOcrParser {
       currency,
       layoutRows: layoutRows,
       chargeTableRows: recognizedChargeRows,
-      layoutChargeItemRows: layoutChargeItems.keys.toSet(),
+      ownedChargeItemRows: {
+        ...layoutChargeItems.keys,
+        ...chargeTable.textOwnedItems,
+      },
       ambiguousChargeTableRows: ambiguousChargeRows,
       detachedAmountSignRows: detachedAmountSignRows,
       layoutAdjustmentLines: layoutAdjustmentLines,
@@ -2055,7 +2058,7 @@ class ReceiptOcrParser {
     String? currency, {
     List<List<ReceiptOcrBlockEvidence>> layoutRows = const [],
     Set<int> chargeTableRows = const {},
-    Set<int> layoutChargeItemRows = const {},
+    Set<int> ownedChargeItemRows = const {},
     Set<int> ambiguousChargeTableRows = const {},
     Set<int> detachedAmountSignRows = const {},
     Map<int, String> layoutAdjustmentLines = const {},
@@ -2146,7 +2149,7 @@ class ReceiptOcrParser {
               ambiguousChargeTableRows.contains(lineIndex)) &&
           !layoutAdjustmentLines.containsKey(lineIndex)) {
         if (hasPotentialAdjustment &&
-            !layoutChargeItemRows.contains(lineIndex)) {
+            !ownedChargeItemRows.contains(lineIndex)) {
           adjustmentsComplete = false;
           incompleteReasons.add(
             ReceiptOcrIncompleteAdjustmentReason.chargeTableAdjustment,
@@ -4041,7 +4044,7 @@ class ReceiptOcrParser {
           r'^(?:[\p{L}\p{N} -]+\s+)?(?:tax|vat|gst|hst|iva|tva|kdv|mwst)(?:\s*\(\d+(?:[.,]\d+)?%\))?$',
           caseSensitive: false,
           unicode: true,
-        ).hasMatch(block.text.trim()),
+        ).hasMatch(_chargeTableLabelText(block.text)),
       );
       if (!ambiguousRows.contains(rowIndex) &&
           !hasPrintedSubtotalBlock &&
@@ -4071,7 +4074,7 @@ class ReceiptOcrParser {
                 RegExp(
                   r'^(?:amount|line\s+total|total)$',
                   caseSensitive: false,
-                ).hasMatch(block.text.trim()),
+                ).hasMatch(_chargeTableLabelText(block.text)),
           )
           .toList(growable: false);
       if (amountHeaders.length != 1) continue;
@@ -4088,7 +4091,7 @@ class ReceiptOcrParser {
                 RegExp(
                   r'^rate$',
                   caseSensitive: false,
-                ).hasMatch(block.text.trim()),
+                ).hasMatch(_chargeTableLabelText(block.text)),
           )
           .toList(growable: false);
       final row = layoutRows[rowIndex];
@@ -4099,7 +4102,7 @@ class ReceiptOcrParser {
       }
       final labels = row
           .where((block) {
-            final description = block.text.trim();
+            final description = _chargeTableLabelText(block.text);
             return RegExp(
                   r'^sub[\s-]?total$',
                   caseSensitive: false,
@@ -4136,7 +4139,7 @@ class ReceiptOcrParser {
           })
           .toList(growable: false);
       if (labels.length != 1 || amountBlocks.length != 1) continue;
-      final label = labels.single.text.trim();
+      final label = _chargeTableLabelText(labels.single.text);
       final amountBlock = amountBlocks.single;
       final currencyBlocks = _nearbyCurrencyOnlyBlocks(row, amountBlock);
       if (currencyBlocks.length > 1) continue;
@@ -4323,6 +4326,7 @@ class ReceiptOcrParser {
           tableBlocks.map((block) => block.text.trim()).join(' '),
         );
         final lower = tableText.toLowerCase();
+        if (_hasCompoundAdjustmentLabel(tableText)) continue;
         if (_hasTotalLabel(tableText, lower) ||
             _hasSubtotalLabel(tableText, lower)) {
           break;
@@ -4334,7 +4338,10 @@ class ReceiptOcrParser {
         );
         if ((invoiceColumns || billDetailColumns
                 ? _isAccountBalanceSummaryLine(tableText) ||
-                      _isPaymentMetadataLine(tableText)
+                      _isPaymentMetadataLine(tableText) ||
+                      (_isChargeTableSummaryLine(tableText) &&
+                          !(_isRatedTaxNamedLine(tableText) &&
+                              hasNumericUsageCell))
                 : _isChargeTableSummaryLine(tableText) &&
                       !(_isRatedTaxNamedLine(tableText) &&
                           hasNumericUsageCell)) ||
@@ -4415,6 +4422,18 @@ class ReceiptOcrParser {
         final description = columnDescription;
         if (!_hasSubstantiveItemDescription(description) ||
             _isReceiptMetadataLine(description, allowBarePostal: false)) {
+          continue;
+        }
+        // Geometry can identify the amount column, not erase a financial
+        // role or a compound service label. Usage-backed rated tax items keep
+        // their existing role; other financial labels remain review evidence.
+        final ownedLine = '$description $lineTotal';
+        if ((_isChargeTableSummaryLine(ownedLine) ||
+                _hasServiceChargeLabel(ownedLine, ownedLine.toLowerCase()) ||
+                _boundedUtilityServiceChargePhrase.hasMatch(
+                  _boundedUtilityFinancialWords(description),
+                )) &&
+            !(_isRatedTaxNamedLine(ownedLine) && hasNumericUsageCell)) {
           continue;
         }
         if (RegExp(
@@ -6523,17 +6542,20 @@ bool _isFinancialLabelWithAdjacentAmount(
 // A printed charge table can contain usage and rate columns before its final
 // amount. Those columns are evidence, but they are not part of the item name
 // and they do not establish a bill-item quantity without a quantity label.
-({Set<int> items, Set<int> ambiguous}) _classifyChargeTableRows(
+({Set<int> items, Set<int> ambiguous, Set<int> textOwnedItems})
+_classifyChargeTableRows(
   List<String> lines, {
   Set<int> detachedAmountSignRows = const {},
   Set<int> nonItemEvidenceRows = const {},
 }) {
   final rows = <int>{};
+  final textOwnedItems = <int>{};
   final ambiguous = <int>{};
   var inTable = false;
   var hasRateColumn = false;
   var hasUsageColumn = false;
   var requiresLayoutAmountColumn = false;
+  var hasOnlyDescriptionAndAmount = false;
   for (var index = 0; index < lines.length; index++) {
     if (nonItemEvidenceRows.contains(index)) continue;
     final line = lines[index];
@@ -6545,9 +6567,14 @@ bool _isFinancialLabelWithAdjacentAmount(
         r'\b(?:usage|qty|quantity)\b',
         caseSensitive: false,
       ).hasMatch(line);
+      hasOnlyDescriptionAndAmount = RegExp(
+        r'^description\s+amount$',
+        caseSensitive: false,
+      ).hasMatch(line.trim());
       requiresLayoutAmountColumn =
-          _isInvoiceProductTableHeader(line) ||
-          _isBillChargeDetailHeader(lines, index);
+          !hasOnlyDescriptionAndAmount &&
+          (_isInvoiceProductTableHeader(line) ||
+              _isBillChargeDetailHeader(lines, index));
       continue;
     }
     if (!inTable) continue;
@@ -6579,6 +6606,32 @@ bool _isFinancialLabelWithAdjacentAmount(
     if (detachedAmountSignRows.contains(index)) {
       ambiguous.add(index);
       continue;
+    }
+    if (_hasCompoundAdjustmentLabel(line)) {
+      ambiguous.add(index);
+      continue;
+    }
+    // A complete two-column header has no rate/quantity/date column to
+    // confuse with Amount. Keep ordinary punctuation in item names, but do
+    // not flatten additional numeric, currency or detached-sign evidence.
+    if (hasOnlyDescriptionAndAmount && pricedRow != null) {
+      if (_isChargeTableSummaryLine(line) ||
+          _hasServiceChargeLabel(line, lower) ||
+          _hasShippingLabel(line, lower))
+        continue;
+      if (RegExp(r'\d|%|[-−]\s*$').hasMatch(prefix) ||
+          RegExp(
+            _currencyTokenPattern,
+            caseSensitive: false,
+          ).hasMatch(prefix) ||
+          _hasBoundedUtilityFinancialPhrase(prefix, pricedRow.group(3)!) ||
+          RegExp(
+            r'\b(?:fees?|surcharges?)\s*$',
+            caseSensitive: false,
+          ).hasMatch(prefix)) {
+        ambiguous.add(index);
+        continue;
+      }
     }
     // An invoice's unit price or a bill's rate/date can be the last
     // recognized number when its final amount cell is missing. Only the
@@ -6619,9 +6672,10 @@ bool _isFinancialLabelWithAdjacentAmount(
         ) &&
         _hasTraceableItemAmountToken(line, pricedRow.group(3)!)) {
       rows.add(index);
+      if (hasOnlyDescriptionAndAmount) textOwnedItems.add(index);
     }
   }
-  return (items: rows, ambiguous: ambiguous);
+  return (items: rows, ambiguous: ambiguous, textOwnedItems: textOwnedItems);
 }
 
 bool _hasEarlierPrintedMonetaryAmount(String prefix) {
@@ -6662,6 +6716,35 @@ bool _hasCompleteUsageRateColumns(String prefix) {
     r'\d+(?:[.,]\d+)?\s*$',
     caseSensitive: false,
   ).hasMatch(prefix);
+}
+
+// Project only terminal label punctuation. Original text and blocks stay intact.
+String _chargeTableLabelText(String label) =>
+    label.trim().replaceFirst(RegExp(r'[.:：]$'), '').trim();
+
+bool _hasCompoundAdjustmentLabel(String line) {
+  final amounts = RegExp(_amountTokenPattern).allMatches(line);
+  if (amounts.isEmpty) return false;
+  final label = line
+      .substring(0, amounts.last.start)
+      .replaceAllMapped(
+        RegExp(
+          r'\b(taxes|fees|charges|discounts|coupons|rebates|tips|surcharges)\b',
+          caseSensitive: false,
+        ),
+        (match) => match.group(0)!.toLowerCase() == 'taxes'
+            ? 'tax'
+            : match.group(0)!.substring(0, match.group(0)!.length - 1),
+      );
+  final roles = _potentialReceiptAdjustmentLabelPattern
+      .allMatches(label)
+      .where((match) {
+        // A named service is not itself an adjustment. An explicit Service
+        // Charge/Fee remains a role, including inside parenthesized evidence.
+        return match.group(0)!.toLowerCase() != 'service';
+      })
+      .toList(growable: false);
+  return roles.length > 1;
 }
 
 bool _isChargeTableSummaryLine(String line) {
@@ -9123,7 +9206,7 @@ bool _hasTaxLabel(
 bool _hasServiceChargeLabel(String line, String normalized) {
   return _hasEnglishReceiptLabel(
         normalized,
-        RegExp(r'\bservice\s*(charge|fee)?\b', caseSensitive: false),
+        RegExp(r'\bservice\s*(charge|fee)?\b\.?', caseSensitive: false),
       ) ||
       _hasJapaneseReceiptLabel(line, const ['サービス料']) ||
       _hasLocalizedReceiptLabel(line, const [

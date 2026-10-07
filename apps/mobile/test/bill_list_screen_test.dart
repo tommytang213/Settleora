@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'support/financial_role_receipt.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
@@ -32,6 +34,185 @@ import 'package:mobile/ui/settleora_components.dart';
 import 'package:mobile/ui/settleora_form_fields.dart';
 
 void main() {
+  for (final group in [false, true]) {
+    for (final mode in ['none', 'merged', 'split']) {
+      for (final label in ['Tax.', 'Service Charge.', 'Service Fee and Tax']) {
+        // Existing Apply semantics copy item amounts; net-only taxed rows
+        // require correction before their contribution can equal the gross total.
+        final acceptsItems = label == 'Service Charge.';
+        testWidgets(
+          'financial ownership survives save and explicit Apply group=$group mode=$mode label=$label',
+          (tester) async {
+            await useLargeSurface(tester);
+            final prefix = group ? 'group-bill' : 'personal-bill';
+            final source = financialRoleReceipt(label, mode: mode);
+            final preview = const ReceiptOcrParser().parse(
+              source.text,
+              blocks: source.blocks,
+            );
+            expect(preview.items.single.lineTotal, '20.00');
+            expect(preview.adjustmentsComplete, label != 'Service Fee and Tax');
+            final repository = FakeBillRepository();
+            final fileInput = FakeBillAttachmentFileInput(
+              pickedFile: samplePickedAttachmentFile(
+                filename: 'receipt.png',
+                contentType: 'image/png',
+                bytes: samplePngBytes(width: 64, height: 64),
+              ),
+            );
+            final provider = FakeReceiptOcrProvider(
+              ReceiptOcrResult.extracted(preview),
+            );
+            if (group) {
+              await _pumpGroupBillCreate(
+                tester,
+                repository: repository,
+                groupRepository: FakeGroupRepository(
+                  members: [sampleGroupMember()],
+                ),
+                attachmentRepository: FakeBillAttachmentRepository(),
+                attachmentFileInput: fileInput,
+                receiptOcrProvider: provider,
+              );
+              await tester.tap(find.byKey(const Key('group-bill-list-create')));
+              await tester.pumpAndSettle();
+              await _goToGroupBillCreateStep(tester, 'basics');
+            } else {
+              await tester.pumpWidget(
+                MaterialApp(
+                  home: SettleoraPersonalBillCreateScreen(
+                    repository: repository,
+                    attachmentRepository: FakeBillAttachmentRepository(),
+                    attachmentFileInput: fileInput,
+                    receiptOcrProvider: provider,
+                  ),
+                ),
+              );
+              await tester.pumpAndSettle();
+            }
+            final billCurrency = find.byKey(
+              Key('$prefix-currency'),
+              skipOffstage: false,
+            );
+            await _selectCurrency(tester, billCurrency, 'HKD');
+            if (group) {
+              await _goToGroupBillCreateStep(tester, 'receiptItems');
+            }
+            final itemName = find.byKey(ValueKey('$prefix-item-name-0'));
+            final itemAmount = find.byKey(ValueKey('$prefix-item-amount-0'));
+            final itemCurrency = find.byKey(
+              ValueKey('$prefix-item-currency-0'),
+            );
+            await tester.enterText(itemName, 'Existing item');
+            await tester.enterText(itemAmount, '10.00');
+            await tester.ensureVisible(find.byKey(Key('$prefix-scan-receipt')));
+            await tester.tap(find.byKey(Key('$prefix-scan-receipt')));
+            await tester.pumpAndSettle();
+            expect(
+              tester.widget<TextFormField>(itemName).controller?.text,
+              'Existing item',
+            );
+            expect(
+              tester.widget<TextFormField>(itemAmount).controller?.text,
+              '10.00',
+            );
+            await tester.enterText(
+              find.byKey(Key('$prefix-ocr-edit-merchant')),
+              'Regional Utility',
+            );
+            await tester.pumpAndSettle();
+            for (final section in ['currency', 'items']) {
+              final choice = find.byKey(Key('$prefix-ocr-apply-$section'));
+              final enabled =
+                  tester.widget<CheckboxListTile>(choice).onChanged != null;
+              expect(enabled, acceptsItems);
+              if (!acceptsItems) {
+                expect(tester.widget<CheckboxListTile>(choice).value, isFalse);
+              }
+              if (enabled) {
+                await _setReceiptOcrSection(tester, prefix, section, true);
+              }
+            }
+            await _setReceiptOcrSection(tester, prefix, 'merchant', true);
+            await _tapReceiptOcrApply(tester, prefix);
+            expect(
+              tester
+                  .widget<CurrencySelector>(
+                    find.descendant(
+                      of: billCurrency,
+                      matching: find.byType(
+                        CurrencySelector,
+                        skipOffstage: false,
+                      ),
+                      skipOffstage: false,
+                    ),
+                  )
+                  .value,
+              acceptsItems ? 'USD' : 'HKD',
+            );
+            expect(
+              tester
+                  .widget<CurrencySelector>(
+                    find.descendant(
+                      of: itemCurrency,
+                      matching: find.byType(
+                        CurrencySelector,
+                        skipOffstage: false,
+                      ),
+                    ),
+                  )
+                  .value,
+              acceptsItems ? 'USD' : 'HKD',
+            );
+            expect(
+              tester.widget<TextFormField>(itemName).controller?.text,
+              acceptsItems ? "Resident's Water Plan" : 'Existing item',
+            );
+            expect(
+              tester.widget<TextFormField>(itemAmount).controller?.text,
+              acceptsItems ? '20.00' : '10.00',
+            );
+            if (group) {
+              await _goToGroupBillCreateStep(tester, 'basics');
+            }
+            expect(
+              tester
+                  .widget<TextFormField>(
+                    find.byKey(Key('$prefix-merchant-name')),
+                  )
+                  .controller
+                  ?.text,
+              'Regional Utility',
+            );
+            final saved = receiptOcrReviewSaveRequestFromPreview(
+              preview,
+              originalCurrency: 'USD',
+            );
+            expect(saved, isNotNull);
+            expect(
+              saved!.lines.map((line) => (line.text, line.lineTotalAmount)),
+              [("Resident's Water Plan", '20.00')],
+            );
+            expect(saved.taxAmount, label == 'Tax.' ? '2.00' : null);
+            expect(
+              saved.serviceChargeAmount,
+              label == 'Service Charge.' ? '2.00' : null,
+            );
+            expect(saved.grandTotalAmount, '22.00');
+            expect(saved.status, ReceiptOcrReviewStatusValues.provisional);
+            expect(saved.adjustmentEvidence, isEmpty);
+            expect(
+              saved.taxReconciliationMode,
+              label == 'Service Fee and Tax'
+                  ? ReceiptOcrTaxReconciliationModeValues.unresolved
+                  : null,
+            );
+          },
+        );
+      }
+    }
+  }
+
   for (final group in [false, true]) {
     for (final edit in ['merchant', 'date']) {
       testWidgets(
