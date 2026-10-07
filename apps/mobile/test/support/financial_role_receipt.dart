@@ -8,6 +8,7 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
   String amount = 'USD 2.00',
   String heading = 'Current Charges Detail',
   List<String> columns = const ['Description', 'Amount'],
+  List<String>? labelBlocks,
 }) {
   final rows = <List<String>>[
     ['Regional Utility'],
@@ -44,6 +45,15 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
       if (mode == 'merged' || cells.length == 1) {
         cell(cells.join(' '), row, 20, 500);
       } else {
+        if (row == 4 && labelBlocks != null) {
+          for (var i = 0; i < labelBlocks.length; i++) {
+            final left = 20 + i * 280 / labelBlocks.length;
+            final right = 20 + (i + 1) * 280 / labelBlocks.length;
+            cell(labelBlocks[i], row, left, right);
+          }
+          cell(amount, row, 400, 500);
+          continue;
+        }
         for (var i = 0; i < cells.length; i++) {
           cell(cells[i], row, i == 0 ? 20 : 400, i == 0 ? 300 : 500);
         }

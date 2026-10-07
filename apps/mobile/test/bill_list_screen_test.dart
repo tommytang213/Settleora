@@ -36,22 +36,43 @@ import 'package:mobile/ui/settleora_form_fields.dart';
 void main() {
   for (final group in [false, true]) {
     for (final mode in ['none', 'merged', 'split']) {
-      for (final label in ['Tax.', 'Service Charge.', 'Service Fee and Tax']) {
+      for (final label in [
+        'Tax.',
+        'Taxes',
+        'Taxes:',
+        'Taxes.',
+        'Service Charge.',
+        'Service Fee and Tax',
+        'Tax. and Service Fee',
+        'Service Charge. and Tax',
+        'Taxes. and Fees',
+      ]) {
         // Existing Apply semantics copy item amounts; net-only taxed rows
         // require correction before their contribution can equal the gross total.
         final acceptsItems = label == 'Service Charge.';
+        final compound = label.contains(' and ');
+        final taxHeader = !compound && label.startsWith('Tax');
         testWidgets(
           'financial ownership survives save and explicit Apply group=$group mode=$mode label=$label',
           (tester) async {
             await useLargeSurface(tester);
             final prefix = group ? 'group-bill' : 'personal-bill';
-            final source = financialRoleReceipt(label, mode: mode);
+            final source = financialRoleReceipt(
+              label,
+              mode: mode,
+              labelBlocks: compound
+                  ? [
+                      label.split(' and ').first,
+                      'and ${label.split(' and ').last}',
+                    ]
+                  : null,
+            );
             final preview = const ReceiptOcrParser().parse(
               source.text,
               blocks: source.blocks,
             );
             expect(preview.items.single.lineTotal, '20.00');
-            expect(preview.adjustmentsComplete, label != 'Service Fee and Tax');
+            expect(preview.adjustmentsComplete, !compound);
             final repository = FakeBillRepository();
             final fileInput = FakeBillAttachmentFileInput(
               pickedFile: samplePickedAttachmentFile(
@@ -193,7 +214,7 @@ void main() {
               saved!.lines.map((line) => (line.text, line.lineTotalAmount)),
               [("Resident's Water Plan", '20.00')],
             );
-            expect(saved.taxAmount, label == 'Tax.' ? '2.00' : null);
+            expect(saved.taxAmount, taxHeader ? '2.00' : null);
             expect(
               saved.serviceChargeAmount,
               label == 'Service Charge.' ? '2.00' : null,
@@ -203,7 +224,7 @@ void main() {
             expect(saved.adjustmentEvidence, isEmpty);
             expect(
               saved.taxReconciliationMode,
-              label == 'Service Fee and Tax'
+              compound
                   ? ReceiptOcrTaxReconciliationModeValues.unresolved
                   : null,
             );

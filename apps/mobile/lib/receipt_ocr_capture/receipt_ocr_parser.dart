@@ -5,7 +5,7 @@ import '../ui/settleora_form_fields.dart';
 
 final _unicodeLetterPattern = RegExp(r'\p{L}', unicode: true);
 final _potentialReceiptAdjustmentLabelPattern = RegExp(
-  r'\b(?:sales\s+tax|tax|vat|gst|hst|iva|tva|kdv|mwst|service(?:\s+(?:charge|fee))?|tip|gratuity|shipping|delivery(?:\s+(?:charge|fee))?|discount|coupon|promo\s+code|loyalty[\s-]+savings?|surcharge|charge|fee|refund|rebate|credit|deposit|levy|duty|donation|round(?:ing|[\s-]*off))\b',
+  r'\b(?:sales\s+tax(?:es)?|tax(?:es)?|vat|gst|hst|iva|tva|kdv|mwst|service(?:\s+(?:charge|fee))?|tip|gratuity|shipping|delivery(?:\s+(?:charge|fee))?|discount|coupon|promo\s+code|loyalty[\s-]+savings?|surcharge|charge|fee|refund|rebate|credit|deposit|levy|duty|donation|round(?:ing|[\s-]*off))\b',
   caseSensitive: false,
 );
 const _localizedReceiptAdjustmentLabels = [
@@ -4033,6 +4033,8 @@ class ReceiptOcrParser {
     if (sourceLines.length != layoutRows.length) return const {};
     final lines = <int, String>{};
     for (var rowIndex = 0; rowIndex < layoutRows.length; rowIndex++) {
+      // A partial label block cannot replace the full row's financial meaning.
+      if (_hasCompoundAdjustmentLabel(sourceLines[rowIndex])) continue;
       final hasPrintedSubtotalBlock = layoutRows[rowIndex].any(
         (block) => RegExp(
           r'^\s*sub[\s-]?total\s*$',
@@ -4041,7 +4043,7 @@ class ReceiptOcrParser {
       );
       final hasPrintedTaxBlock = layoutRows[rowIndex].any(
         (block) => RegExp(
-          r'^(?:[\p{L}\p{N} -]+\s+)?(?:tax|vat|gst|hst|iva|tva|kdv|mwst)(?:\s*\(\d+(?:[.,]\d+)?%\))?$',
+          r'^(?:[\p{L}\p{N} -]+\s+)?(?:tax(?:es)?|vat|gst|hst|iva|tva|kdv|mwst)(?:\s*\(\d+(?:[.,]\d+)?%\))?$',
           caseSensitive: false,
           unicode: true,
         ).hasMatch(_chargeTableLabelText(block.text)),
@@ -4111,7 +4113,7 @@ class ReceiptOcrParser {
                   caseSensitive: false,
                 ).hasMatch(description) ||
                 RegExp(
-                  r'^(?:[\p{L}\p{N} -]+\s+)?(?:tax|vat|gst|hst|iva|tva|kdv|mwst)(?:\s*\(\d+(?:[.,]\d+)?%\))?$',
+                  r'^(?:[\p{L}\p{N} -]+\s+)?(?:tax(?:es)?|vat|gst|hst|iva|tva|kdv|mwst)(?:\s*\(\d+(?:[.,]\d+)?%\))?$',
                   caseSensitive: false,
                   unicode: true,
                 ).hasMatch(description) ||
@@ -4146,6 +4148,15 @@ class ReceiptOcrParser {
       final amountBlock = amountBlocks.single;
       final currencyBlocks = _nearbyCurrencyOnlyBlocks(row, amountBlock);
       if (currencyBlocks.length > 1) continue;
+      if (row.any(
+        (block) =>
+            block != labels.single &&
+            block != amountBlock &&
+            !currencyBlocks.contains(block) &&
+            _hasPotentialReceiptAdjustmentLabel(block.text),
+      )) {
+        continue;
+      }
       final monetaryText = currencyBlocks.isEmpty
           ? amountBlock.text.trim()
           : '${currencyBlocks.single.text.trim()} ${amountBlock.text.trim()}';
@@ -4169,14 +4180,14 @@ class ReceiptOcrParser {
         continue;
       }
       if (RegExp(
-            r'\b(?:tax|vat|gst|hst|iva|tva|kdv|mwst)\b',
+            r'\b(?:tax(?:es)?|vat|gst|hst|iva|tva|kdv|mwst)\b',
             caseSensitive: false,
           ).hasMatch(label) &&
           !_isChargeTableSummaryLine('$label $monetaryText')) {
         continue;
       }
       final isTax = RegExp(
-        r'\b(?:tax|vat|gst|hst|iva|tva|kdv|mwst)(?:\s*\(\d+(?:[.,]\d+)?%\))?$',
+        r'\b(?:tax(?:es)?|vat|gst|hst|iva|tva|kdv|mwst)(?:\s*\(\d+(?:[.,]\d+)?%\))?$',
         caseSensitive: false,
       ).hasMatch(label);
       final rate = RegExp(r'\d+(?:[.,]\d+)?%').firstMatch(label)?.group(0);
@@ -9218,7 +9229,7 @@ bool _hasTaxLabel(
       _hasEnglishReceiptLabel(
         normalized,
         RegExp(
-          r'\b(?:(?:city|state|local|county|municipal|tourist|tourism|occupancy)\s+tax|sales\s+tax|tax|vat|gst|hst|iva|tva|kdv|mwst)\b\.?',
+          r'\b(?:(?:city|state|local|county|municipal|tourist|tourism|occupancy)\s+tax(?:es)?|sales\s+tax(?:es)?|tax(?:es)?|vat|gst|hst|iva|tva|kdv|mwst)\b\.?',
           caseSensitive: false,
         ),
       ) ||

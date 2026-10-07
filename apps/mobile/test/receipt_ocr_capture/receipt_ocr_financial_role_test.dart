@@ -8,6 +8,9 @@ void main() {
       'Tax',
       'Tax:',
       'Tax.',
+      'Taxes',
+      'Taxes:',
+      'Taxes.',
       'Service Charge',
       'Service Charge.',
     ]) {
@@ -73,9 +76,37 @@ void main() {
       expect(preview.tax, '2.00');
     });
   }
+  for (final labels in [
+    ['Tax.', 'and Service Fee'],
+    ['Service Charge.', 'and Tax'],
+    ['Tax.', 'and', 'Service', 'Fee'],
+    ['Taxes.', 'and Fees'],
+  ]) {
+    test('fragmented financial labels retain all roles: $labels', () {
+      final source = financialRoleReceipt(
+        labels.join(' '),
+        labelBlocks: labels,
+      );
+      final preview = const ReceiptOcrParser().parse(
+        source.text,
+        blocks: source.blocks,
+      );
+      expect(preview.items.map((i) => (i.description, i.lineTotal)), [
+        ("Resident's Water Plan", '20.00'),
+      ]);
+      expect(preview.tax, isNull);
+      expect(preview.service, isNull);
+      expect(preview.adjustmentsComplete, isFalse);
+      expect(preview.reviewHints, isNotEmpty);
+      expect(preview.rawTextLineCount, source.text.split('\n').length);
+      expect(preview.blocks, source.blocks);
+    });
+  }
   for (final item in [
     'Tax Advisory Plan',
     'Tax Return Kit',
+    'Taxes Advisory Plan',
+    'Taxes Return Kit',
     'Payment Processing Subscription',
     'Water Service',
     'Energy Charge',
@@ -94,26 +125,28 @@ void main() {
     }
   }
   for (final mode in ['none', 'merged', 'split']) {
-    for (final amount in ['USD 1.00 USD 2.00', '2.00%', '- USD 2.00']) {
-      test(
-        '$mode does not promote competing/rate/signed tax amount $amount',
-        () {
-          final source = financialRoleReceipt(
-            'Tax.',
-            mode: mode,
-            amount: amount,
-          );
-          final preview = const ReceiptOcrParser().parse(
-            source.text,
-            blocks: source.blocks,
-          );
-          expect(preview.items.map((i) => i.description), [
-            "Resident's Water Plan",
-          ]);
-          expect(preview.adjustmentsComplete, isFalse);
-          expect(preview.reviewHints, isNotEmpty);
-        },
-      );
+    for (final label in ['Tax.', 'Taxes.']) {
+      for (final amount in ['USD 1.00 USD 2.00', '2.00%', '- USD 2.00']) {
+        test(
+          '$mode does not promote competing/rate/signed $label amount $amount',
+          () {
+            final source = financialRoleReceipt(
+              label,
+              mode: mode,
+              amount: amount,
+            );
+            final preview = const ReceiptOcrParser().parse(
+              source.text,
+              blocks: source.blocks,
+            );
+            expect(preview.items.map((i) => i.description), [
+              "Resident's Water Plan",
+            ]);
+            expect(preview.adjustmentsComplete, isFalse);
+            expect(preview.reviewHints, isNotEmpty);
+          },
+        );
+      }
     }
   }
   for (final row in [
