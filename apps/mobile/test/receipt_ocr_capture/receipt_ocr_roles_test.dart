@@ -36,6 +36,53 @@ ReceiptOcrPreview parseBlocks(List<ReceiptOcrBlockEvidence> blocks) {
 }
 
 void main() {
+  for (final separator in ['to', 'through', 'until', '-', '–', '—']) {
+    test('separator-only stay endpoint $separator', () {
+      final p = const ReceiptOcrParser().parse(
+        'Example Hotel\nStay: 2026-09-15\n$separator\n2026-09-17\nRoom USD 180.00\nTotal USD 180.00',
+      );
+      expect(p.receiptDate, isNull);
+      expect(p.warnings, contains(contains('Stay dates')));
+    });
+    test('explicit receipt date after standalone separator $separator', () {
+      final p = const ReceiptOcrParser().parse(
+        'Example Hotel\nStay: 2026-09-15\n$separator\n2026-09-17\nReceipt Date: 2026-09-18\nRoom USD 180.00\nTotal USD 180.00',
+      );
+      expect(p.receiptDate, '2026-09-18');
+    });
+  }
+  for (final heading in [
+    ['Bill', 'To:'],
+    ['Billed', 'To:'],
+    ['Ship', 'To:'],
+    ['Buyer', ':'],
+  ]) {
+    test('split counterparty heading $heading', () {
+      final blocks = [
+        cell('Acme Supplies', 0, 20, 0, 300, 20),
+        cell(heading[0], 1, 20, 80, 100, 20),
+        cell(heading[1], 1, 125, 80, 70, 20),
+        cell('Recipient Market', 2, 20, 160, 300, 48),
+        cell('Widget USD 10.00', 3, 20, 240, 300, 20),
+        cell('Total USD 10.00', 4, 20, 320, 300, 20),
+      ];
+      final p = const ReceiptOcrParser().parse(
+        'Acme Supplies\n${heading.join(' ')}\nRecipient Market\nWidget USD 10.00\nTotal USD 10.00',
+        blocks: blocks,
+      );
+      expect(p.merchant, 'Acme Supplies');
+      expect(p.blocks, orderedEquals(blocks));
+    });
+  }
+  for (final between in ['Contact reception', 'to\nthrough']) {
+    test('stay does not cross unrelated or repeated separators $between', () {
+      final p = const ReceiptOcrParser().parse(
+        'Example Hotel\nStay: 2026-09-15\n$between\n2026-09-17\nRoom USD 180.00\nTotal USD 180.00',
+      );
+      expect(p.receiptDate, '2026-09-17');
+    });
+  }
+
   for (final heading in [
     'Buyer:',
     'Buyer',

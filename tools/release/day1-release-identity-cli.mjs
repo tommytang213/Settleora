@@ -2365,7 +2365,12 @@ function replaceClosureToken(source, token, replacement, label, expectedOccurren
   return source.replace(token, replacement);
 }
 
-function sealedCollectorClosure() {
+export function sealedCollectorClosure() {
+  let pluginSource = committedModuleSource('tools/ocr-models/prepare-production-flutter-plugins.mjs');
+  pluginSource = replaceClosureToken(pluginSource,
+    'if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {',
+    'if (false) {', 'plugin direct execution');
+  const pluginUrl = `data:text/javascript;base64,${Buffer.from(pluginSource).toString('base64')}`;
   let webSource = committedModuleSource('tools/ci/user-web-dist-manifest.mjs');
   webSource = replaceClosureToken(webSource,
     "const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');",
@@ -2375,6 +2380,7 @@ function sealedCollectorClosure() {
   manifestSource = replaceClosureToken(manifestSource, "'../ci/user-web-dist-manifest.mjs'", JSON.stringify(webUrl), 'manifest web import');
   const manifestUrl = `data:text/javascript;base64,${Buffer.from(manifestSource).toString('base64')}`;
   let cliSource = committedModuleSource('tools/release/day1-release-identity-cli.mjs');
+  cliSource = replaceClosureToken(cliSource, "'../ocr-models/prepare-production-flutter-plugins.mjs'", JSON.stringify(pluginUrl), 'CLI plugin import', 2);
   cliSource = replaceClosureToken(cliSource, "'./day1-release-identity.mjs'", JSON.stringify(manifestUrl), 'CLI manifest import', 2);
   cliSource = replaceClosureToken(cliSource, "'../ci/user-web-dist-manifest.mjs'", JSON.stringify(webUrl), 'CLI web import', 3);
   cliSource = replaceClosureToken(cliSource,

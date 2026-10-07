@@ -394,7 +394,7 @@ class ReceiptOcrParser {
         break;
       }
     }
-    final issuer = _prominentLayoutIssuer(lines, layoutRows);
+    final issuer = _prominentLayoutIssuer(lines, layoutRows, issuerEnd);
     if (issuer != null) return issuer;
     // A multi-column letterhead may put a slogan beside the first name block
     // and the rest of the issuer name several rows below. Join aligned header
@@ -661,6 +661,7 @@ class ReceiptOcrParser {
     final explicitReceiptDates = <String>{};
     var sawStayDate = false;
     var precedingStayRange = false;
+    var precedingStaySeparator = false;
     final receiptDateQualifier = RegExp(
       r'\b(?:previous|prior|last|refund|reference|payment|paid|due|order|pickup|service|stay)[\s\p{P}]+$',
       unicode: true,
@@ -848,13 +849,19 @@ class ReceiptOcrParser {
             : _formatDate(year, first, second);
         consider(formatted, separatedDate.start, separatedDate.end);
       }
-      // Carry a directly owned stay range across only one adjacent row, and
-      // only while its remaining text is empty or a complete range separator.
+      // A wrapped endpoint can cross one complete separator-only row. Other
+      // text, repeated separators, and consumed endpoints end the inheritance.
+      final standaloneSeparator =
+          precedingStayRange &&
+          !precedingStaySeparator &&
+          RegExp(r'^\s*(?:to|through|until|[-–—])\s*$').hasMatch(lower);
       precedingStayRange =
-          ownedStayDateEnd != null &&
-          RegExp(
-            r'^\s*(?:(?:to|through|until)|[-–—])?\s*$',
-          ).hasMatch(lower.substring(ownedStayDateEnd!));
+          standaloneSeparator ||
+          (ownedStayDateEnd != null &&
+              RegExp(
+                r'^\s*(?:(?:to|through|until)|[-–—])?\s*$',
+              ).hasMatch(lower.substring(ownedStayDateEnd!)));
+      precedingStaySeparator = standaloneSeparator;
     }
     if (explicitReceiptDates.length > 1) {
       onAmbiguousReceiptDate?.call();
@@ -4888,6 +4895,7 @@ bool _isReceiptCounterpartyHeading(String line) => RegExp(
 ({String text, Set<int> lineIndices})? _prominentLayoutIssuer(
   List<String> lines,
   List<List<ReceiptOcrBlockEvidence>> rows,
+  int issuerEnd,
 ) {
   if (rows.length != lines.length || rows.isEmpty) return null;
   double top(ReceiptOcrBlockEvidence b) =>
@@ -4909,7 +4917,9 @@ bool _isReceiptCounterpartyHeading(String line) => RegExp(
     r'^\s*(?:(?:bill(?:ed)?|sold|ship(?:ped)?|remit|pay)\s+to\b|buyer\s*(?:[:：]|$)|customer\b|account\s+(?:number|no|id)\b|(?:receipt|bill|invoice|statement|order|purchase|due)\s+date\b|(?:description|qty|quantity)\b)',
     caseSensitive: false,
   );
-  var headerEnd = rows.length < 6 ? rows.length : 6;
+  // Reuse the joined-row ownership boundary even when its heading is split
+  // across several OCR blocks. Typography cannot override counterparty roles.
+  var headerEnd = issuerEnd < 6 ? issuerEnd : 6;
   for (var i = 0; i < headerEnd; i++) {
     if (rows[i].any(
           (b) =>

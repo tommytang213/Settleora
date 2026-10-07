@@ -23,7 +23,7 @@ import {
   validatePublicationRunDocument,
   validatePublicationRunUrl,
 } from '../day1-release-identity.mjs';
-import { prepareAndroidProductionBuildInputs, assertCleanCompletion, assertCommitHasNoSymlinks, assertReviewedApkSigningBlockIds, canonicalAndroidInput, canonicalManifestPath, canonicalReleaseNotesInput, canonicalWebInput, copyBoundedFile, deterministicAndroidRebuildProjection, parseCanonicalJson, parseSingleApkSigner, retainReleaseNotes, runGuardedFailureDescendantFixture, runGuardedOutputDescriptorFixture, runToolchainMutationGuardFixture, safeInput, sanitizedErrorMessage, toolchainTreeDigest, verificationRegistryReference } from '../day1-release-identity-cli.mjs';
+import { sealedCollectorClosure, prepareAndroidProductionBuildInputs, assertCleanCompletion, assertCommitHasNoSymlinks, assertReviewedApkSigningBlockIds, canonicalAndroidInput, canonicalManifestPath, canonicalReleaseNotesInput, canonicalWebInput, copyBoundedFile, deterministicAndroidRebuildProjection, parseCanonicalJson, parseSingleApkSigner, retainReleaseNotes, runGuardedFailureDescendantFixture, runGuardedOutputDescriptorFixture, runToolchainMutationGuardFixture, safeInput, sanitizedErrorMessage, toolchainTreeDigest, verificationRegistryReference } from '../day1-release-identity-cli.mjs';
 
 
 function productionInputFixture(t, { unknownDevPlugin = false } = {}) {
@@ -62,23 +62,35 @@ function productionInputFixture(t, { unknownDevPlugin = false } = {}) {
   return root;
 }
 
-test('Android release inputs contain only production plugins before becoming immutable', (t) => {
-  const root = productionInputFixture(t);
-  const inputs = prepareAndroidProductionBuildInputs(root);
-  assert.equal(inputs.length, 5);
-  for (const relative of inputs) {
-    assert.equal(lstatSync(path.join(root, relative)).mode & 0o222, 0, relative);
-  }
-  const mobile = path.join(root, 'apps/mobile');
-  const metadata = JSON.parse(readFileSync(path.join(mobile, '.flutter-plugins-dependencies')));
-  assert.deepEqual(metadata.plugins.android.map((entry) => entry.name), ['production_plugin']);
-  assert.deepEqual(metadata.dependencyGraph.map((entry) => entry.name), ['production_plugin']);
-  assert.deepEqual(JSON.parse(readFileSync(path.join(mobile, '.dart_tool/package_config.json'))).packages.map((entry) => entry.name), ['production_plugin']);
-  const graph = JSON.parse(readFileSync(path.join(mobile, '.dart_tool/package_graph.json')));
-  assert.deepEqual(graph.packages.map((entry) => entry.name), ['mobile', 'production_plugin']);
-  assert.deepEqual(graph.packages[0].devDependencies, []);
-  assert.equal(readFileSync(path.join(mobile, 'android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java'), 'utf8'), 'production plugin\nproduction plugin tail\n');
-});
+for (const sealed of [false, true]) {
+  test(`Android release inputs contain only production plugins before becoming immutable (sealed=${sealed})`, (t) => {
+    const root = productionInputFixture(t);
+    // Exercise stdin module loading from an unrelated directory, as used by the
+    // sealed bootstrap. Disable only collector entry dispatch in this import test:
+    // no credentials, network, build, or release command is needed to run projection.
+    const closure = sealed ? sealedCollectorClosure().replace(
+      'const invokedDirectly = true;', 'const invokedDirectly = false;') : null;
+    const inputs = sealed ? JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-'], {
+      cwd: root,
+      input: `${closure}\nconsole.log(JSON.stringify(prepareAndroidProductionBuildInputs(${JSON.stringify(root)})));`,
+      encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, timeout: 15000,
+    })) : prepareAndroidProductionBuildInputs(root);
+    assert.equal(inputs.length, 5);
+    for (const relative of inputs) {
+      assert.equal(lstatSync(path.join(root, relative)).mode & 0o222, 0, relative);
+    }
+    const mobile = path.join(root, 'apps/mobile');
+    const metadata = JSON.parse(readFileSync(path.join(mobile, '.flutter-plugins-dependencies')));
+    assert.deepEqual(metadata.plugins.android.map((entry) => entry.name), ['production_plugin']);
+    assert.deepEqual(metadata.dependencyGraph.map((entry) => entry.name), ['production_plugin']);
+    assert.deepEqual(JSON.parse(readFileSync(path.join(mobile, '.dart_tool/package_config.json'))).packages.map((entry) => entry.name), ['production_plugin']);
+    const graph = JSON.parse(readFileSync(path.join(mobile, '.dart_tool/package_graph.json')));
+    assert.deepEqual(graph.packages.map((entry) => entry.name), ['mobile', 'production_plugin']);
+    assert.deepEqual(graph.packages[0].devDependencies, []);
+    assert.equal(readFileSync(path.join(mobile, 'android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java'), 'utf8'), 'production plugin\nproduction plugin tail\n');
+  });
+
+}
 
 test('Android release inputs still reject an unreviewed development plugin', (t) => {
   const root = productionInputFixture(t, { unknownDevPlugin: true });
