@@ -143,6 +143,10 @@ class ReceiptOcrParser {
     );
     final merchantDetection = _detectMerchant(lines, layoutRows);
     final merchant = merchantDetection?.text;
+    final localizedHeaderRows = _ownedLocalizedAddressRows(
+      lines,
+      merchantDetection?.lineIndices ?? const {},
+    );
     final extractedItems = _extractItems(
       lines,
       currency,
@@ -154,7 +158,7 @@ class ReceiptOcrParser {
       layoutChargeItems: layoutChargeItems,
       layoutAdjustmentRows: layoutAdjustmentLines.keys.toSet(),
       detachedAmountSignRows: detachedAmountSignRows,
-      nonItemEvidenceRows: supportHoursRows,
+      nonItemEvidenceRows: {...supportHoursRows, ...localizedHeaderRows},
     );
     final itemCandidates = extractedItems.items;
     final dccCharge = _corroboratedDccCharge(lines);
@@ -191,6 +195,7 @@ class ReceiptOcrParser {
       nonItemSummaryRows: {
         ...extractedItems.nonItemSummaryRows,
         ...supportHoursRows,
+        ...localizedHeaderRows,
       },
       uncertainSummaryAmountRows: extractedItems.uncertainSummaryAmountRows,
     );
@@ -8503,8 +8508,66 @@ _currencyAdjacentToSelectedAmount(
   return (currency: null, hasExplicitEvidence: otherPrintedCurrency);
 }
 
+// A numeric street address is header evidence only in the closed band
+// between the selected merchant and a complete, explicitly labeled date.
+// Do not discard address-shaped products elsewhere or rows with extra prices.
+Set<int> _ownedLocalizedAddressRows(
+  List<String> lines,
+  Set<int> merchantLineIndices,
+) => {
+  for (var index = 1; index + 1 < lines.length; index++)
+    if (merchantLineIndices.contains(index - 1) &&
+        _isLabeledCalendarDateLine(lines[index + 1]) &&
+        (RegExp(
+              r'^[\p{L}][\p{L} .’-]{1,60}(?:straße|strasse|str\.)\s+'
+              r'\d{1,5}[a-z]?\s*,\s*[\p{L}][\p{L} .’-]{1,40}$',
+              caseSensitive: false,
+              unicode: true,
+            ).hasMatch(lines[index].trim()) ||
+            RegExp(
+              r'^[\p{L}]{2,40}(?:市|區|区|縣|县)[\p{L}]{1,40}'
+              r'(?:路|街|道)\s*\d{1,5}\s*[號号]$',
+              unicode: true,
+            ).hasMatch(lines[index].trim())))
+      index,
+};
+
+// Match a whole date field, not a product containing a date or an amount.
+// Keep the same calendar interpretation as _detectDate; unknown glyphs,
+// incomplete/invalid dates and additional numeric fields remain reviewable.
+bool _isLabeledCalendarDateLine(String line) {
+  final match = RegExp(
+    r'^\s*(?:date|datum|fecha|data|日期|日付|날짜|дата|วันที่|तारीख)'
+    r'\s*[:：]\s*(?:(?<year>20\d{2}|19\d{2})(?<ys>[-/.])'
+    r'(?<month>\d{1,2})\k<ys>(?<day>\d{1,2})|'
+    r'(?<first>\d{1,2})(?<ds>[-/.])(?<second>\d{1,2})\k<ds>'
+    r'(?<lastYear>20\d{2}|19\d{2}))\s*$',
+    caseSensitive: false,
+  ).firstMatch(line);
+  if (match == null) return false;
+  if (match.namedGroup('year') != null) {
+    return _formatDate(
+          int.parse(match.namedGroup('year')!),
+          int.parse(match.namedGroup('month')!),
+          int.parse(match.namedGroup('day')!),
+        ) !=
+        null;
+  }
+  final first = int.parse(match.namedGroup('first')!);
+  final second = int.parse(match.namedGroup('second')!);
+  final dayFirst =
+      first > 12 || (match.namedGroup('ds') == '.' && second <= 12);
+  return _formatDate(
+        int.parse(match.namedGroup('lastYear')!),
+        dayFirst ? second : first,
+        dayFirst ? first : second,
+      ) !=
+      null;
+}
+
 bool _isContextualReceiptMetadataLine(List<String> lines, int index) {
   final line = lines[index];
+  if (_isLabeledCalendarDateLine(line)) return true;
   if (_isReceiptMetadataLine(line)) return true;
   if (!_isCityPostalLine(line) || index == 0) return false;
   var addressIndex = index - 1;
