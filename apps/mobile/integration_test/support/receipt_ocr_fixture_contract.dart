@@ -167,9 +167,20 @@ bool _unsupportedRolesMatch(
     final amountPattern = RegExp(
       '^(?:$currencyPattern\\s*)?$signedAmount(?:\\s*$currencyPattern)?\$',
     );
-    final sourcePrefix = _normalizedText(
-      '$label${sourceContext == null ? '' : ' $sourceContext'}',
-    ).toLowerCase();
+    final normalizedContext = sourceContext is String
+        ? _normalizedText(sourceContext).toLowerCase()
+        : null;
+    // Fold equivalent printed separators only inside declared non-money
+    // context. Never rewrite the amount or its sign.
+    final contextPattern = normalizedContext == null
+        ? null
+        : RegExp(
+            '^${RegExp.escape(normalizedContext).replaceAll(RegExp(r'[-–—]'), r'[-–—]')}'
+            r'(?=\s|$)',
+          );
+    final placeholderContext =
+        normalizedContext != null &&
+        RegExp(r'^[-–—](?: [-–—])+$').hasMatch(normalizedContext);
     final matchingRows = rows.values.where((blocks) {
       // A source role may span several OCR blocks. Only a separate, distant,
       // nonnumeric column after the amount may be excluded from its row.
@@ -177,10 +188,20 @@ bool _unsupportedRolesMatch(
         final line = _normalizedText(
           blocks.take(end).map((b) => b.text).join(' '),
         ).toLowerCase();
-        if (!line.startsWith(sourcePrefix)) continue;
-        final tail = line
-            .substring(sourcePrefix.length)
+        if (!line.startsWith(normalizedLabel)) continue;
+        var tail = line
+            .substring(normalizedLabel.length)
             .replaceFirst(RegExp(r'^\s*[:：]?\s*'), '');
+        if (contextPattern != null) {
+          final match = contextPattern.firstMatch(tail);
+          if (match == null) continue;
+          tail = tail.substring(match.end).trimLeft();
+        }
+        // The printed empty cells precede a currency-prefixed amount. Without
+        // that boundary a spaced negative sign could masquerade as a cell.
+        if (placeholderContext && !RegExp('^$currencyPattern').hasMatch(tail)) {
+          continue;
+        }
         if (!amountPattern.hasMatch(tail)) continue;
         if (end == blocks.length) return true;
         final amountBlock = blocks[end - 1];

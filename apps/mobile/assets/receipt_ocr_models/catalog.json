@@ -21,9 +21,9 @@
       "path": "apps/mobile/test/fixtures/receipt_ocr",
       "schemaVersion": 2,
       "entryCount": 101,
-      "manifestSha256": "69e5695c489bb06e95977971e669d726abbb994cb0aad3a711f1ab22b30458c5",
+      "manifestSha256": "1ae76a7ed390766c09f76f378e9be0bad6ca0db0f6b6e082a46547d28cc82644",
       "treeDigestAlgorithm": "sha256-of-sorted-sha256sum-v1",
-      "treeSha256": "dc5bb248b51dd8604c77fe93d519b00edbfef3098a1b1580bb49df511f26c23c"
+      "treeSha256": "739c0762b9c3caa58d4ae78c110b5837e6b7897886180f1921ea1998fc511c6d"
     },
     "preprocessing": {
       "files": [
@@ -40,7 +40,7 @@
     "nativeSemantics": {
       "files": [
         { "path": "apps/mobile/integration_test/receipt_ocr_real_provider_test.dart", "sha256": "c456c6b812bb38f0bb1b658da35806e7ee297f1a34d510f5fabb77d0c79fec1f" },
-        { "path": "apps/mobile/integration_test/support/receipt_ocr_fixture_contract.dart", "sha256": "6893bdb077d82c2de99990c6e9d6dda164447241a12c8d10cbf7504fe9f33793" },
+        { "path": "apps/mobile/integration_test/support/receipt_ocr_fixture_contract.dart", "sha256": "75149e22789d9007e78a44679a356b1df6ea7cd13dece009590d859bc5a349c4" },
         { "path": "apps/mobile/lib/app/app_bootstrap.dart", "sha256": "bfc2ea06825d3b7162f6f08b68b0413e62320523b3c087a6abc27aecc8b1d875" },
         { "path": "apps/mobile/lib/app/server_mode_shell.dart", "sha256": "7bc1b89910d260c5652810265b8a9985896fe62e852f65aa24d44d5fa2d8459e" },
         { "path": "apps/mobile/lib/bills/bill_list_screen.dart", "sha256": "ad2f07f227155159ed0dae9e71f9522802954c0e39d9d042cb2ec26a1f9a2407" },

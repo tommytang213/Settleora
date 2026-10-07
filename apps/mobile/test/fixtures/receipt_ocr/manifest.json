@@ -215,7 +215,8 @@
           {
             "kind": "combined_tax_fee",
             "label": "Taxes and Fees",
-            "amount": "8.74"
+            "amount": "8.74",
+            "source_context": "— —"
           }
         ]
       },

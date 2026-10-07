@@ -320,6 +320,97 @@ void main() {
       );
     },
   );
+  test(
+    'printed fee service-period separators preserve exact dates and money',
+    () {
+      final e =
+          (entries.singleWhere(
+                    (row) =>
+                        row['id'] == 'existing_02_fiberwave_internet_en_US',
+                  )['expected']
+                  as Map)
+              .cast<String, Object?>();
+      final original = sourceDraft(e);
+      for (final separator in ['-', '–', '—']) {
+        final blocks = [
+          for (final block in original.blocks)
+            ReceiptOcrBlockEvidence(
+              text: block.text.replaceAll(
+                'Feb 5 - Mar 4, 2025',
+                'Feb 5 $separator Mar 4, 2025',
+              ),
+              row: block.row,
+              order: block.order,
+            ),
+        ];
+        expect(
+          receiptOcrFixtureReviewMatches(sourceDraft(e, blocks: blocks), e),
+          isTrue,
+          reason: 'printed context $separator',
+        );
+      }
+      final wrongPeriod = [
+        for (final block in original.blocks)
+          ReceiptOcrBlockEvidence(
+            text: block.text.replaceAll(
+              'Feb 5 - Mar 4, 2025',
+              'Feb 5 – Mar 9, 2025',
+            ),
+            row: block.row,
+            order: block.order,
+          ),
+      ];
+      expect(
+        receiptOcrFixtureReviewMatches(sourceDraft(e, blocks: wrongPeriod), e),
+        isFalse,
+      );
+    },
+  );
+  test(
+    'printed combined-tax placeholders are bounded and cannot consume a money sign',
+    () {
+      final e =
+          (entries.singleWhere(
+                    (row) =>
+                        row['id'] == 'existing_06_metrogrid_electric_en_US',
+                  )['expected']
+                  as Map)
+              .cast<String, Object?>();
+      ReceiptOcrPreview row(String text) => sourceDraft(
+        e,
+        blocks: [ReceiptOcrBlockEvidence(text: text, row: 0, order: 0)],
+      );
+      // The image prints two empty-cell dashes before a dollar-prefixed amount.
+      for (final text in [
+        r'Taxes and Fees — — $8.74',
+        r'Taxes and Fees - - $8.74',
+        'Taxes and Fees – — USD 8.74',
+      ]) {
+        expect(
+          receiptOcrFixtureReviewMatches(row(text), e),
+          isTrue,
+          reason: text,
+        );
+      }
+      for (final text in [
+        r'Taxes and Fees — $8.74',
+        r'Taxes and Fees — — — $8.74',
+        'Taxes and Fees — -8.74',
+        'Taxes and Fees — - 8.74',
+        r'Taxes and Fees — — -$8.74',
+        r'Taxes and Fees — — $-8.74',
+        r'Taxes and Fees — x $8.74',
+        'Taxes and Fees — — EUR 8.74',
+        r'Taxes and Fees — — $8.74 $2.00',
+      ]) {
+        expect(
+          receiptOcrFixtureReviewMatches(row(text), e),
+          isFalse,
+          reason: text,
+        );
+      }
+    },
+  );
   test('legacy absent review condition still requires no hints', () {
     const p = ReceiptOcrPreview(
       currency: 'USD',
