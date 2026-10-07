@@ -4097,16 +4097,6 @@ class ReceiptOcrParser {
                 ).hasMatch(_chargeTableLabelText(block.text)),
           )
           .toList(growable: false);
-      final periodHeaders = layoutRows[headerIndex]
-          .where(
-            (block) =>
-                block.points.isNotEmpty &&
-                RegExp(
-                  r'^(?:service\s+)?period$',
-                  caseSensitive: false,
-                ).hasMatch(block.text.trim()),
-          )
-          .toList(growable: false);
       final row = layoutRows[rowIndex];
       // A numeric usage or quantity cell is item evidence even when the
       // charge name contains "tax"; a printed rate column is not required.
@@ -4162,15 +4152,6 @@ class ReceiptOcrParser {
       if (!_hasChargeTableMonetaryEvidence(monetaryText)) continue;
       if (row.any((block) {
         if (block == amountBlock || currencyBlocks.contains(block)) {
-          return false;
-        }
-        if (periodHeaders.length == 1 &&
-            block.points.isNotEmpty &&
-            _matchesUtilityPeriod(block.text) &&
-            (_blockCenterX(block) - _blockCenterX(periodHeaders.single))
-                    .abs() <=
-                60 &&
-            block.points.every((point) => point.x < headerLeft - 12)) {
           return false;
         }
         if (rateHeaders.length == 1 && block.points.isNotEmpty) {
@@ -4450,7 +4431,8 @@ class ReceiptOcrParser {
               r'^description\s+amount$',
               caseSensitive: false,
             ).hasMatch(lines[headerIndex].trim()) &&
-            _hasUnresolvedSimpleFinancialLabel(description)) {
+            _hasUnresolvedSimpleFinancialLabel(description) &&
+            !_isAmbiguousRatedTaxCharge('$description $lineTotal')) {
           continue;
         }
         // Geometry can identify the amount column, not erase a financial
@@ -6654,7 +6636,6 @@ _classifyChargeTableRows(
             _currencyTokenPattern,
             caseSensitive: false,
           ).hasMatch(prefix) ||
-          _hasBoundedUtilityFinancialPhrase(prefix, pricedRow.group(3)!) ||
           _hasUnresolvedSimpleFinancialLabel(prefix) ||
           RegExp(
             r'\b(?:fees?|surcharges?)\s*$',
@@ -6770,9 +6751,13 @@ bool _hasUnresolvedSimpleFinancialLabel(String label) {
     return false;
   }
   if (!word.contains(' ') &&
-      _boundedUtilityNamedServiceQualifier.hasMatch(
-        label.substring(role.end),
-      )) {
+      (_boundedUtilityNamedServiceQualifier.hasMatch(
+            label.substring(role.end),
+          ) ||
+          RegExp(
+            r'\b(?:kits?|books?|guides?|software|tools?)\b',
+            caseSensitive: false,
+          ).hasMatch(label.substring(role.end)))) {
     return false;
   }
   return true;

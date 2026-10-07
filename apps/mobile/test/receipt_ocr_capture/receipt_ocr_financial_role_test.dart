@@ -75,6 +75,7 @@ void main() {
   }
   for (final item in [
     'Tax Advisory Plan',
+    'Tax Return Kit',
     'Payment Processing Subscription',
     'Water Service',
     'Energy Charge',
