@@ -5004,11 +5004,14 @@ Set<ReceiptOcrBlockEvidence> _ownedChargeTableGraphBlocks(
                 top(b) > bottom(heading) &&
                 top(b) - bottom(heading) <= scale * 12 &&
                 _blockLeft(b) >= _blockLeft(heading) - scale &&
-                _blockRight(b) <= _blockRight(headings.last) + scale * 4,
+                _blockRight(b) - _blockLeft(b) <=
+                    scale * monthValues(b).length * 6,
           )
           .toList()
         ..sort((a, b) => _blockLeft(a).compareTo(_blockLeft(b)));
-  if (possible.isEmpty) return const {};
+  if (possible.isEmpty || _blockLeft(possible.first) > _blockRight(heading)) {
+    return const {};
+  }
   final axis = possible;
   final values = axis.expand(monthValues).toList();
   if (values.length < 3 ||
