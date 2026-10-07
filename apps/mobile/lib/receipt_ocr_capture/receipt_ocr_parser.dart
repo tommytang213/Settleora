@@ -5082,6 +5082,8 @@ Set<ReceiptOcrBlockEvidence> _ownedChargeTableGraphBlocks(
                     top(b) < panelBottom)),
       )
       .toList();
+  // Invalid geometry retains ordinary parsing; never sort unknown points.
+  if (panel.any((block) => !valid(block))) return const {};
   final ticks =
       panel.where((b) => !axis.contains(b) && !years.contains(b)).toList()
         ..sort((a, b) => top(a).compareTo(top(b)));

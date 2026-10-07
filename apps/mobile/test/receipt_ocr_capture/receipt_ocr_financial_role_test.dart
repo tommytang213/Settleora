@@ -1,3 +1,6 @@
+import 'package:flutter/foundation.dart';
+import 'package:mobile/receipt_ocr_capture/paddle_receipt_ocr_provider.dart';
+import 'package:mobile/receipt_ocr_capture/receipt_ocr_provider.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_parser.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
@@ -16,10 +19,14 @@ void main() {
       'unordered months',
       'unordered ticks',
       'extra neighbor',
+      'missing tick geometry parser',
+      'missing tick geometry provider',
+      'missing unrelated geometry parser',
+      'missing unrelated geometry provider',
     ]) {
       test(
         'financial projection owns only a complete usage graph: $variant split=$splitAxis',
-        () {
+        () async {
           final blocks = <ReceiptOcrBlockEvidence>[];
           void cell(
             String text,
@@ -34,12 +41,17 @@ void main() {
                 row: row,
                 order: blocks.length,
                 confidence: 0.97,
-                points: [
-                  ReceiptOcrPoint(x: left, y: row * 30.0 + dy),
-                  ReceiptOcrPoint(x: right, y: row * 30.0 + dy),
-                  ReceiptOcrPoint(x: right, y: row * 30.0 + dy + 20),
-                  ReceiptOcrPoint(x: left, y: row * 30.0 + dy + 20),
-                ],
+                points:
+                    (variant.startsWith('missing tick') && text == '800') ||
+                        (variant.startsWith('missing unrelated') &&
+                            text == 'USAGE SUMMARY')
+                    ? const []
+                    : [
+                        ReceiptOcrPoint(x: left, y: row * 30.0 + dy),
+                        ReceiptOcrPoint(x: right, y: row * 30.0 + dy),
+                        ReceiptOcrPoint(x: right, y: row * 30.0 + dy + 20),
+                        ReceiptOcrPoint(x: left, y: row * 30.0 + dy + 20),
+                      ],
               ),
             );
           }
@@ -114,11 +126,37 @@ void main() {
           for (final block in blocks) {
             (rows[block.row] ??= []).add(block.text);
           }
-          final preview = const ReceiptOcrParser().parse(
-            rows.values.map((parts) => parts.join(' ')).join('\n'),
-            blocks: blocks,
-            fallbackCurrency: 'USD',
-          );
+          ReceiptOcrPreview preview;
+          if (variant.endsWith('provider')) {
+            debugDefaultTargetPlatformOverride = TargetPlatform.android;
+            addTearDown(() => debugDefaultTargetPlatformOverride = null);
+            final result =
+                await PaddleReceiptOcrProvider(
+                  channel: _FinancialGraphChannel(blocks),
+                ).extractReceipt(
+                  ReceiptOcrRequest(
+                    bytes: const [1],
+                    contentType: 'image/jpeg',
+                    fallbackCurrency: 'USD',
+                  ),
+                );
+            expect(result.status, ReceiptOcrStatus.extracted);
+            expect(result.failureCategory, isNull);
+            preview = result.preview!;
+            final missingText = variant.startsWith('missing tick')
+                ? '800'
+                : 'USAGE SUMMARY';
+            expect(
+              preview.blocks.singleWhere((b) => b.text == missingText).points,
+              isEmpty,
+            );
+          } else {
+            preview = const ReceiptOcrParser().parse(
+              rows.values.map((parts) => parts.join(' ')).join('\n'),
+              blocks: blocks,
+              fallbackCurrency: 'USD',
+            );
+          }
           if (variant == 'valid') {
             expect(preview.subtotal, '14.75');
             expect(preview.tax, '0.74');
@@ -126,7 +164,14 @@ void main() {
             expect(preview.subtotal, isNull);
             expect(preview.adjustmentsComplete, isFalse);
           }
-          expect(preview.blocks, blocks);
+          if (variant.endsWith('provider')) {
+            expect(
+              preview.blocks.map((b) => b.text),
+              blocks.map((b) => b.text),
+            );
+          } else {
+            expect(preview.blocks, blocks);
+          }
         },
       );
     }
@@ -895,4 +940,23 @@ void main() {
       expect(preview.adjustmentsComplete, isFalse);
     });
   }
+}
+
+class _FinancialGraphChannel implements PaddleReceiptOcrChannel {
+  _FinancialGraphChannel(this.blocks);
+  final List<ReceiptOcrBlockEvidence> blocks;
+  @override
+  Future<Map<Object?, Object?>?> recognize(Uint8List imageBytes) async => {
+    'blocks': blocks
+        .map(
+          (b) => <Object?, Object?>{
+            'text': b.text,
+            'row': b.row,
+            'order': b.order,
+            'confidence': b.confidence,
+            'points': b.points.map((p) => {'x': p.x, 'y': p.y}).toList(),
+          },
+        )
+        .toList(),
+  };
 }
