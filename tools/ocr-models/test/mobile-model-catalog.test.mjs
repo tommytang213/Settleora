@@ -28,6 +28,7 @@ test("native semantic binding covers the exact provider execution path", () => {
   const { catalog } = loadCatalog(repoRoot);
   const expected = [
     "apps/mobile/integration_test/receipt_ocr_real_provider_test.dart",
+    "apps/mobile/integration_test/support/receipt_ocr_fixture_contract.dart",
     "apps/mobile/lib/app/app_bootstrap.dart",
     "apps/mobile/lib/app/server_mode_shell.dart",
     "apps/mobile/lib/bills/bill_list_screen.dart",
