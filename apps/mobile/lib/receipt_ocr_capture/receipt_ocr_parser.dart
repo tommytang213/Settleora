@@ -4832,8 +4832,9 @@ Set<int> _ownedMeterReadingRows(
     if (previous.length != 1 ||
         current.length != 1 ||
         usage.length != 1 ||
-        graph.length != 1)
+        graph.length != 1) {
       continue;
+    }
     final p = previous.single;
     final c = current.single;
     final u = usage.single;
@@ -4844,8 +4845,9 @@ Set<int> _ownedMeterReadingRows(
         _blockRight(c) >= _blockLeft(u) ||
         _blockLeft(g) - _blockRight(u) < height(u) ||
         bottom(g) > top(p) ||
-        top(p) - bottom(g) > height(g) * 3)
+        top(p) - bottom(g) > height(g) * 3) {
       continue;
+    }
     // The charge table is a subsequent section, never part of this exclusion.
     var chargeHeader = -1;
     for (var j = i + 2; j < rows.length && j <= i + 10; j++) {
@@ -4909,8 +4911,9 @@ Set<int> _ownedMeterReadingRows(
         axis.any((b) => !sameBand(b, axis.first)) ||
         axisMonths.indexed
             .skip(1)
-            .any((entry) => entry.$2 != (axisMonths[entry.$1 - 1] + 1) % 12))
+            .any((entry) => entry.$2 != (axisMonths[entry.$1 - 1] + 1) % 12)) {
       continue;
+    }
     final graphRight = axis.map(_blockRight).reduce((a, b) => a > b ? a : b);
     final graphBottom = axis.map(bottom).reduce((a, b) => a > b ? a : b);
     final axisTop = axis.map(top).reduce((a, b) => a < b ? a : b);
@@ -4955,8 +4958,9 @@ Set<int> _ownedMeterReadingRows(
           dates.where((b) => alignedBelow(b, c)).length != 1 ||
           rows[j].any(
             (b) => !dates.contains(b) && b != units.single && !graphInteger(b),
-          ))
+          )) {
         continue;
+      }
       final candidates = {...rows[i], ...rows[j]};
       final competing = rows
           .expand((r) => r)
