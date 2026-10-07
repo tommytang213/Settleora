@@ -14,6 +14,7 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
   bool amountOnLeft = false,
   String? servicePeriod,
   String? rowNote,
+  List<String>? rowNoteBlocks,
   ({double left, double right})? servicePeriodBounds,
 }) {
   final rows = <List<String>>[
@@ -78,7 +79,18 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
             servicePeriod == null ? 400 : 470,
             servicePeriod == null ? 500 : 570,
           );
-          if (rowNote != null) cell(rowNote, row, 700, 900);
+          if (rowNoteBlocks != null) {
+            for (var i = 0; i < rowNoteBlocks.length; i++) {
+              cell(
+                rowNoteBlocks[i],
+                row,
+                700 + i * 200 / rowNoteBlocks.length,
+                700 + (i + 1) * 200 / rowNoteBlocks.length,
+              );
+            }
+          } else if (rowNote != null) {
+            cell(rowNote, row, 700, 900);
+          }
           continue;
         }
         for (var i = 0; i < cells.length; i++) {

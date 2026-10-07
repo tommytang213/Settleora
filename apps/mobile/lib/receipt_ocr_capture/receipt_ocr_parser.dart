@@ -4053,25 +4053,36 @@ class ReceiptOcrParser {
   ) {
     if (sourceLines.length != layoutRows.length) return const {};
     final lines = <int, String>{};
+    final serviceLabelPattern = RegExp(
+      r'^services?\s+(?:charges?|fees?)(?:\s*(?:\(\d+(?:[.,]\d+)?%\)|\d+(?:[.,]\d+)?%))?$',
+      caseSensitive: false,
+    );
+    bool isProjectionLabel(String description) {
+      if (_hasUnexplainedFinancialLabelNumber(description)) return false;
+      return RegExp(
+            r'^sub[\s-]?total$',
+            caseSensitive: false,
+          ).hasMatch(description) ||
+          RegExp(
+            r'^(?:[\p{L}\p{N} -]+\s+)?(?:tax(?:es)?|vat|gst|hst|iva|tva|kdv|mwst)(?:\s*(?:\(\d+(?:[.,]\d+)?%\)|\d+(?:[.,]\d+)?%))?$',
+            caseSensitive: false,
+            unicode: true,
+          ).hasMatch(description) ||
+          RegExp(
+            r'^(?:[\p{L}\p{N} -]+\s+)?(?:discounts?|coupons?|rebates?)(?:\s*\([\p{L}\p{N} %.-]+\))?$',
+            caseSensitive: false,
+            unicode: true,
+          ).hasMatch(description) ||
+          serviceLabelPattern.hasMatch(description);
+    }
+
     for (var rowIndex = 0; rowIndex < layoutRows.length; rowIndex++) {
       // A partial label block cannot replace the full row's financial meaning.
       if (_hasCompoundAdjustmentLabel(sourceLines[rowIndex])) continue;
-      final hasPrintedSubtotalBlock = layoutRows[rowIndex].any(
-        (block) => RegExp(
-          r'^\s*sub[\s-]?total\s*$',
-          caseSensitive: false,
-        ).hasMatch(block.text),
+      final hasPrintedProjectionBlock = layoutRows[rowIndex].any(
+        (block) => isProjectionLabel(_financialProjectionLabelText(block.text)),
       );
-      final hasPrintedTaxBlock = layoutRows[rowIndex].any(
-        (block) => RegExp(
-          r'^(?:[\p{L}\p{N} -]+\s+)?(?:tax(?:es)?|vat|gst|hst|iva|tva|kdv|mwst)(?:\s*(?:\(\d+(?:[.,]\d+)?%\)|\d+(?:[.,]\d+)?%))?$',
-          caseSensitive: false,
-          unicode: true,
-        ).hasMatch(_chargeTableLabelText(block.text)),
-      );
-      if (!ambiguousRows.contains(rowIndex) &&
-          !hasPrintedSubtotalBlock &&
-          !hasPrintedTaxBlock) {
+      if (!ambiguousRows.contains(rowIndex) && !hasPrintedProjectionBlock) {
         continue;
       }
       var headerIndex = rowIndex - 1;
@@ -4126,29 +4137,6 @@ class ReceiptOcrParser {
       if (_hasNumericUsageCell(layoutRows, headerIndex, rowIndex)) {
         continue;
       }
-      final serviceLabelPattern = RegExp(
-        r'^services?\s+(?:charges?|fees?)(?:\s*(?:\(\d+(?:[.,]\d+)?%\)|\d+(?:[.,]\d+)?%))?$',
-        caseSensitive: false,
-      );
-      bool isProjectionLabel(String description) {
-        if (_hasUnexplainedFinancialLabelNumber(description)) return false;
-        return RegExp(
-              r'^sub[\s-]?total$',
-              caseSensitive: false,
-            ).hasMatch(description) ||
-            RegExp(
-              r'^(?:[\p{L}\p{N} -]+\s+)?(?:tax(?:es)?|vat|gst|hst|iva|tva|kdv|mwst)(?:\s*(?:\(\d+(?:[.,]\d+)?%\)|\d+(?:[.,]\d+)?%))?$',
-              caseSensitive: false,
-              unicode: true,
-            ).hasMatch(description) ||
-            RegExp(
-              r'^(?:[\p{L}\p{N} -]+\s+)?(?:discounts?|coupons?|rebates?)(?:\s*\([\p{L}\p{N} %.-]+\))?$',
-              caseSensitive: false,
-              unicode: true,
-            ).hasMatch(description) ||
-            serviceLabelPattern.hasMatch(description);
-      }
-
       final labels = row
           .where(
             (block) =>
@@ -4234,24 +4222,30 @@ class ReceiptOcrParser {
           ? amountBlock.text.trim()
           : '${currencyBlocks.single.text.trim()} ${amountBlock.text.trim()}';
       if (!_hasChargeTableMonetaryEvidence(monetaryText)) continue;
-      if (row.any((block) {
-        // The complete owned description already passed qualifier validation.
-        // Only additional monetary evidence outside it can contradict this row.
-        if (block == amountBlock ||
-            currencyBlocks.contains(block) ||
-            descriptionBlocks.contains(block)) {
-          return false;
-        }
-        if (rateHeaders.length == 1 && block.points.isNotEmpty) {
-          final rateCenter = _blockCenterX(rateHeaders.single);
-          if ((_blockCenterX(block) - rateCenter).abs() <= 60) {
-            return false;
-          }
-        }
-        final normalizedBlockText = _normalizeOcrLine(block.text);
-        return _printedCurrencyMarkerMatches(normalizedBlockText).isNotEmpty &&
-            _hasUnexplainedFinancialLabelNumber(normalizedBlockText);
-      })) {
+      // The complete owned description already passed qualifier validation.
+      // Join the remaining row fragments so separate currency/amount cells and
+      // explicit reference IDs receive the same interpretation as whole labels.
+      final outsideEvidence = row
+          .where((block) {
+            if (block == amountBlock ||
+                currencyBlocks.contains(block) ||
+                descriptionBlocks.contains(block)) {
+              return false;
+            }
+            if (rateHeaders.length == 1 && block.points.isNotEmpty) {
+              final rateCenter = _blockCenterX(rateHeaders.single);
+              if ((_blockCenterX(block) - rateCenter).abs() <= 60) {
+                return false;
+              }
+            }
+            return true;
+          })
+          .map((block) => block.text.trim())
+          .join(' ');
+      if (_hasUnexplainedFinancialLabelNumber(
+        outsideEvidence,
+        currencyAmountOnly: true,
+      )) {
         continue;
       }
       if (RegExp(
@@ -6845,7 +6839,10 @@ String _financialProjectionLabelText(String label) =>
 
 // A financial label may contain a marked percentage, reference or duration,
 // but an unexplained numeric token must not disappear during role projection.
-bool _hasUnexplainedFinancialLabelNumber(String label) {
+bool _hasUnexplainedFinancialLabelNumber(
+  String label, {
+  bool currencyAmountOnly = false,
+}) {
   final withoutRates = _normalizeOcrLine(label).replaceAll(
     RegExp(r'(?<![\p{L}\p{N}])\d+(?:[.,]\d+)?\s*%', unicode: true),
     '',
@@ -6891,6 +6888,9 @@ bool _hasUnexplainedFinancialLabelNumber(String label) {
   })) {
     return true;
   }
+  // Outside columns may contain period dates; only competing monetary
+  // evidence, including unsupported currency codes, contradicts projection.
+  if (currencyAmountOnly) return false;
   return RegExp(r'[^\s()]+').allMatches(withoutDurations).any((token) {
     final text = token.group(0)!;
     return RegExp(r'\p{N}', unicode: true).hasMatch(text) &&

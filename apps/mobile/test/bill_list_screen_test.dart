@@ -36,55 +36,63 @@ import 'package:mobile/ui/settleora_form_fields.dart';
 void main() {
   for (final group in [false, true]) {
     for (final mode in ['none', 'merged', 'split']) {
-      for (final label in [
-        'Tax.',
-        'Taxes',
-        'Taxes:',
-        'Taxes.',
-        'Service Charge.',
-        'Service Fee and Tax',
-        'Tax. and Service Fee',
-        'Service Charge. and Tax',
-        'Taxes. and Fees',
-        'Tips',
-        'Charges',
-        'Refunds',
-        'Surcharges',
-        'Shipping Fee',
-        'Shipping and Handling Fees',
-        'Taxes Advisory Plan',
-        'Taxes Return Kit',
-        'Discounts Book',
-        'Coupons Guide',
-        'Rebates Software',
-        'Tax Advisory Plan',
-        'Taxes 7',
-        'Taxes 7.00',
-        'Tax. 7',
-        'Taxes 7%',
-        'Taxes (7%)',
-        'Discounts (7.00)',
-        'Discounts (７.００)',
-        'Discounts (ＵＳＤ７．００)',
-        'Discounts (ＵＳＤ７．００ max)',
-        'Discounts (７．００-ＵＳＤ)',
-        'Coupons (٧.٠٠)',
-        'Rebates (๗.๐๐)',
-        '7.00 Coupons',
-        'Rebates (7)',
-        'Discounts (10%)',
-        'Coupons (PROMO7)',
-        'Rebates (Ref 7)',
-        'Rebates (Ref USD7)',
-        'Rebates (Ref ＵＳＤ７)',
-        'Discounts (Ref ＵＳＤ-７)',
-        'First Purchase Discount (１０％)',
-        'First Year Discount (１２ months)',
-        'Service Charge 10%',
-        'Service Charge 10 %',
-        'Service Fees ( 10.5 % )',
-        'Service Fees (10.5%)',
+      for (final (label, rowNote, fragmentNote, periodNote) in [
+        for (final label in [
+          'Tax.',
+          'Taxes',
+          'Taxes:',
+          'Taxes.',
+          'Service Charge.',
+          'Service Fee and Tax',
+          'Tax. and Service Fee',
+          'Service Charge. and Tax',
+          'Taxes. and Fees',
+          'Tips',
+          'Charges',
+          'Refunds',
+          'Surcharges',
+          'Shipping Fee',
+          'Shipping and Handling Fees',
+          'Taxes Advisory Plan',
+          'Taxes Return Kit',
+          'Discounts Book',
+          'Coupons Guide',
+          'Rebates Software',
+          'Tax Advisory Plan',
+          'Taxes 7',
+          'Taxes 7.00',
+          'Tax. 7',
+          'Taxes 7%',
+          'Taxes (7%)',
+          'Discounts (7.00)',
+          'Discounts (７.００)',
+          'Discounts (ＵＳＤ７．００)',
+          'Discounts (ＵＳＤ７．００ max)',
+          'Discounts (７．００-ＵＳＤ)',
+          'Coupons (٧.٠٠)',
+          'Rebates (๗.๐๐)',
+          '7.00 Coupons',
+          'Rebates (7)',
+          'Discounts (10%)',
+          'Coupons (PROMO7)',
+          'Rebates (Ref 7)',
+          'Rebates (Ref USD7)',
+          'Rebates (Ref ＵＳＤ７)',
+          'Discounts (Ref ＵＳＤ-７)',
+          'First Purchase Discount (１０％)',
+          'First Year Discount (１２ months)',
+          'Service Charge 10%',
+          'Service Charge 10 %',
+          'Service Fees ( 10.5 % )',
+          'Service Fees (10.5%)',
+        ])
+          (label, null, false, false),
+        for (final period in [false, true])
+          for (final note in ['ZAR 7.00', 'USD 7.00', 'Ref ZAR-7'])
+            for (final fragmented in [false, true])
+              ('Discounts', note, fragmented, period),
       ]) {
+        final outsideNote = rowNote != null;
         final namedProduct = [
           'Taxes Advisory Plan',
           'Taxes Return Kit',
@@ -99,27 +107,31 @@ void main() {
           'Tax. 7',
         ].contains(label);
         final fragmentedRate = ['Taxes 7%', 'Taxes (7%)'].contains(label);
-        final discountUnknown = [
-          'Discounts (7.00)',
-          'Discounts (７.００)',
-          'Discounts (ＵＳＤ７．００)',
-          'Discounts (ＵＳＤ７．００ max)',
-          'Discounts (７．００-ＵＳＤ)',
-          'Coupons (٧.٠٠)',
-          'Rebates (๗.๐๐)',
-          '7.00 Coupons',
-          'Rebates (7)',
-        ].contains(label);
-        final discountPositive = [
-          'Discounts (10%)',
-          'Coupons (PROMO7)',
-          'Rebates (Ref 7)',
-          'Rebates (Ref USD7)',
-          'Rebates (Ref ＵＳＤ７)',
-          'Discounts (Ref ＵＳＤ-７)',
-          'First Purchase Discount (１０％)',
-          'First Year Discount (１２ months)',
-        ].contains(label);
+        final discountUnknown =
+            [
+              'Discounts (7.00)',
+              'Discounts (７.００)',
+              'Discounts (ＵＳＤ７．００)',
+              'Discounts (ＵＳＤ７．００ max)',
+              'Discounts (７．００-ＵＳＤ)',
+              'Coupons (٧.٠٠)',
+              'Rebates (๗.๐๐)',
+              '7.00 Coupons',
+              'Rebates (7)',
+            ].contains(label) ||
+            (outsideNote && !rowNote.startsWith('Ref'));
+        final discountPositive =
+            [
+              'Discounts (10%)',
+              'Coupons (PROMO7)',
+              'Rebates (Ref 7)',
+              'Rebates (Ref USD7)',
+              'Rebates (Ref ＵＳＤ７)',
+              'Discounts (Ref ＵＳＤ-７)',
+              'First Purchase Discount (１０％)',
+              'First Year Discount (１２ months)',
+            ].contains(label) ||
+            (outsideNote && rowNote.startsWith('Ref'));
         final serviceRate = [
           'Service Charge 10%',
           'Service Charge 10 %',
@@ -157,7 +169,7 @@ void main() {
             !compound &&
             label.startsWith('Tax');
         testWidgets(
-          'financial ownership survives save and explicit Apply group=$group mode=$mode label=$label',
+          'financial ownership survives save and explicit Apply group=$group mode=$mode label=$label note=$rowNote fragmented=$fragmentNote period=$periodNote',
           (tester) async {
             await useLargeSurface(tester);
             final prefix = group ? 'group-bill' : 'personal-bill';
@@ -165,12 +177,16 @@ void main() {
               label,
               mode: mode,
               total: discountCase ? 'USD 18.00' : 'USD 22.00',
-              servicePeriod: serviceRate ? 'Feb 5 - Mar 4, 2025' : null,
+              servicePeriod: serviceRate || periodNote
+                  ? 'Feb 5 - Mar 4, 2025'
+                  : null,
+              rowNote: rowNote,
+              rowNoteBlocks: fragmentNote ? rowNote!.split(' ') : null,
               servicePeriodBounds: serviceRate ? (left: 270, right: 430) : null,
               labelBounds: namedProduct
                   ? [(left: 20, right: 160), (left: 330, right: 380)]
                   : null,
-              labelBlocks: label.startsWith('First ')
+              labelBlocks: outsideNote || label.startsWith('First ')
                   ? [label]
                   : serviceRate
                   ? [

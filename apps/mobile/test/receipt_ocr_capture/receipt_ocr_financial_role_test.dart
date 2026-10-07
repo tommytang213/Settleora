@@ -35,32 +35,47 @@ void main() {
         );
       }
     }
-    for (final note in ['Ref USD-7', 'Ref ＵＳＤ-７', 'USD 7.00', 'ＵＳＤ ７．００']) {
-      test(
-        'secondary evidence respects known qualifier: $note period=$period',
-        () {
-          final source = financialRoleReceipt(
-            'Discounts',
-            labelBlocks: ['Discounts'],
-            total: 'USD 18.00',
-            servicePeriod: period ? 'Feb 5 - Mar 4, 2025' : null,
-            rowNote: note,
+    for (final mirrored in [false, true]) {
+      for (final fragmented in [false, true]) {
+        for (final note in [
+          'Ref USD-7',
+          'Ref ＵＳＤ-７',
+          'Ref ZAR-7',
+          'USD 7.00',
+          'ＵＳＤ ７．００',
+          'ZAR 7.00',
+          '７．００ ＺＡＲ',
+          '７．００-ＺＡＲ',
+        ]) {
+          test(
+            'secondary evidence respects known qualifier: $note period=$period fragmented=$fragmented mirrored=$mirrored',
+            () {
+              final source = financialRoleReceipt(
+                'Discounts',
+                labelBlocks: ['Discounts'],
+                total: 'USD 18.00',
+                servicePeriod: period ? 'Feb 5 - Mar 4, 2025' : null,
+                rowNote: note,
+                rowNoteBlocks: fragmented ? note.split(' ') : null,
+                amountOnLeft: mirrored,
+              );
+              final preview = const ReceiptOcrParser().parse(
+                source.text,
+                blocks: source.blocks,
+              );
+              if (note.startsWith('Ref')) {
+                expect(preview.discount, '2.00');
+                expect(preview.adjustmentsComplete, isTrue);
+                expect(preview.reviewHints, isEmpty);
+              } else {
+                expect(preview.adjustmentsComplete, isFalse);
+                expect(preview.reviewHints, isNotEmpty);
+              }
+              expect(preview.blocks, source.blocks);
+            },
           );
-          final preview = const ReceiptOcrParser().parse(
-            source.text,
-            blocks: source.blocks,
-          );
-          if (note.startsWith('Ref')) {
-            expect(preview.discount, '2.00');
-            expect(preview.adjustmentsComplete, isTrue);
-            expect(preview.reviewHints, isEmpty);
-          } else {
-            expect(preview.adjustmentsComplete, isFalse);
-            expect(preview.reviewHints, isNotEmpty);
-          }
-          expect(preview.blocks, source.blocks);
-        },
-      );
+        }
+      }
     }
   }
 
