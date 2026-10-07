@@ -39,6 +39,11 @@ void main() {
       'Service Fees.',
       'Tips',
       'Tips.',
+      'Shipping Fee',
+      'Shipping Charges',
+      'Shipping and Handling Fees',
+      'Delivery Fee',
+      'Delivery Charges',
     ]) {
       test(
         '$mode maps complete $label to header money, retaining item punctuation',
@@ -54,6 +59,12 @@ void main() {
           expect(preview.tax, label.startsWith('Tax') ? '2.00' : null);
           expect(preview.service, label.startsWith('Service') ? '2.00' : null);
           expect(preview.tip, label.startsWith('Tip') ? '2.00' : null);
+          expect(
+            preview.shipping,
+            label.startsWith('Shipping') || label.startsWith('Delivery')
+                ? '2.00'
+                : null,
+          );
           expect(preview.adjustmentsComplete, isTrue);
           expect(preview.reviewHints, isEmpty);
           expect(preview.blocks, source.blocks);
@@ -71,6 +82,7 @@ void main() {
       'Monthly Service Fee',
       'Taxes and Fees',
       'Discounts and Tips',
+      'Shipping Fee and Tax',
       'Environmental Levy',
       'Regulatory Fee',
       'Charges',

@@ -50,11 +50,15 @@ void main() {
         'Charges',
         'Refunds',
         'Surcharges',
+        'Shipping Fee',
+        'Shipping and Handling Fees',
       ]) {
         // Existing Apply semantics copy item amounts; net-only taxed rows
         // require correction before their contribution can equal the gross total.
-        final acceptsItems = label == 'Service Charge.' || label == 'Tips';
-        final compound = label.contains(' and ');
+        final shippingHeader = label.startsWith('Shipping');
+        final acceptsItems =
+            label == 'Service Charge.' || label == 'Tips' || shippingHeader;
+        final compound = label.contains(' and ') && !shippingHeader;
         final unresolved =
             compound || ['Charges', 'Refunds', 'Surcharges'].contains(label);
         final taxHeader = !compound && label.startsWith('Tax');
@@ -231,7 +235,11 @@ void main() {
               saved.adjustmentEvidence.map(
                 (a) => (a.kind, a.amount, a.currency),
               ),
-              label == 'Tips' ? [('tip', '2.00', 'USD')] : [],
+              label == 'Tips'
+                  ? [('tip', '2.00', 'USD')]
+                  : shippingHeader
+                  ? [('shipping', '2.00', 'USD')]
+                  : [],
             );
             expect(
               saved.taxReconciliationMode,
