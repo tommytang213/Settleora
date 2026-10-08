@@ -88,7 +88,7 @@ async function isolated(run) {
 function execute(smoke, cfg, options) {
   return smoke ? runGeminiReviewerSmokeTest(cfg, { liveExternalReviewerCalls: true, ...options }) : runGeminiIntegratedReview(cfg, packet, options);
 }
-const env = { GEMINI_API_KEY: "offline-test-placeholder" };
+const env = { GEMINI_API_KEY: "test-offline-placeholder" };
 for (const smoke of [true, false]) {
   test(`${smoke ? "smoke" : "integrated"} blocks incompatible models before key access/fetch/accounting`, async () => {
     for (const model of blocked.filter(Boolean)) await isolated(async (root) => {
