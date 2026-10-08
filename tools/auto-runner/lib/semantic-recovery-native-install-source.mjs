@@ -17,9 +17,11 @@ const oidPattern = /^[a-f0-9]{40}$/u;
 const digestPattern = /^[a-f0-9]{64}$/u;
 const repositoryPattern = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
 const correlationPattern = /^[a-z0-9][a-z0-9._:-]{7,127}$/u;
-const maximumObjectBytes = 16 * 1024 * 1024;
+// Match the fixed Git readers. Full-tree authentication never exempts assets.
+const maximumObjectBytes = 32 * 1024 * 1024;
 const maximumTreeEntries = 100_000;
-const maximumAggregateBytes = 512 * 1024 * 1024;
+// Base 77e35bf4 has ~165 MiB of blob payloads; retain a bounded 256 MiB ceiling.
+const maximumAggregateBytes = 256 * 1024 * 1024;
 
 export function normalizeNativeInstallSourceHint(value) {
   assertExactKeys(value, ["bootstrapBlob", "contract", "repository", "sourceCommit", "taskCorrelation", "version"]);
@@ -164,12 +166,14 @@ export function verifyAuthenticatedNativeInstallSource(value) {
         || sourceManifestDigest !== sha256(canonicalJson(core))
         || !correlationPattern.test(String(manifest.taskCorrelation || ""))
         || !Number.isSafeInteger(manifest.traversedEntryCount) || manifest.traversedEntryCount < 1
+        || manifest.traversedEntryCount > maximumTreeEntries
         || !Array.isArray(manifest.objects) || manifest.objectCount !== manifest.objects.length
         || manifest.objects.some((entry) => {
           assertExactKeys(entry, ["byteCount", "oid", "type"]);
           return !oidPattern.test(String(entry.oid || "")) || !["commit", "tree", "blob"].includes(entry.type)
             || !Number.isSafeInteger(entry.byteCount) || entry.byteCount < 0 || entry.byteCount > maximumObjectBytes;
         })
+        || manifest.objects.reduce((total, entry) => total + entry.byteCount, 0) > maximumAggregateBytes
         || new Set(manifest.objects.map((entry) => entry.oid)).size !== manifest.objects.length
         || manifest.treeCount !== manifest.objects.filter((entry) => entry.type === "tree").length
         || manifest.blobCount !== manifest.objects.filter((entry) => entry.type === "blob").length

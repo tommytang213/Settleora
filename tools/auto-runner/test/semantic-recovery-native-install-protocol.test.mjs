@@ -176,6 +176,127 @@ test("the exact candidate Git tree authenticates with the real source and helper
   assert.equal(authenticated.supportFiles.find((entry) => entry.source === nativeInstallProducerEntrypoint)?.executable, true);
 });
 
+// Generate large objects on demand so aggregate controls do not retain a second
+// complete fixture tree in memory. None of these payloads is a trusted filename.
+function largeSourceFixture(sizes) {
+  const fixture = gitFixture();
+  const large = new Map();
+  const entries = sizes.map((size, index) => {
+    const tag = index + 1;
+    const oid = gitObjectOid("blob", Buffer.alloc(size, tag));
+    large.set(oid, { size, tag });
+    return Buffer.concat([Buffer.from(`100644 capacity-${index}.bin\0`), Buffer.from(oid, "hex")]);
+  });
+  const treeBytes = Buffer.concat([...entries, fixture.objects.get(fixture.rootTree).bytes]);
+  const treeOid = gitObjectOid("tree", treeBytes);
+  fixture.objects.set(treeOid, { oid: treeOid, type: "tree", bytes: treeBytes });
+  const commitBytes = Buffer.from(fixture.objects.get(fixture.commit).bytes.toString().replace(fixture.rootTree, treeOid));
+  const commitOid = gitObjectOid("commit", commitBytes);
+  fixture.objects.set(commitOid, { oid: commitOid, type: "commit", bytes: commitBytes });
+  fixture.hint = { ...fixture.hint, sourceCommit: commitOid };
+  fixture.objectReader.resolveRepository = () => ({ repository: fixture.hint.repository, commit: commitOid, transport: "authenticated_github_https" });
+  fixture.objectReader.readObject = (oid) => {
+    const member = large.get(oid);
+    return member ? { oid, type: "blob", bytes: Buffer.alloc(member.size, member.tag) } : fixture.objects.get(oid);
+  };
+  return { ...fixture, large };
+}
+
+test("complete source authentication accepts a 32MiB non-support blob and rejects corruption of those bytes", () => {
+  const fixture = largeSourceFixture([32 * 1024 * 1024]);
+  const authenticated = authenticateNativeInstallGitSource(fixture);
+  const largeOid = [...fixture.large.keys()][0];
+  assert.equal(authenticated.manifest.objects.find((entry) => entry.oid === largeOid).byteCount, 32 * 1024 * 1024);
+  assert.equal(authenticated.supportFiles.some((entry) => entry.gitBlobOid === largeOid), false);
+  assert.equal(verifyAuthenticatedNativeInstallSource(authenticated).ok, true);
+  const reader = fixture.objectReader.readObject;
+  fixture.objectReader.readObject = (oid) => {
+    const value = reader(oid);
+    if (oid === largeOid) value.bytes[0] ^= 1;
+    return value;
+  };
+  assert.throws(() => authenticateNativeInstallGitSource(fixture), /Git object identity mismatch/u);
+});
+
+test("source object and full closure limits still reject authenticated oversized payloads", () => {
+  const oversized = largeSourceFixture([32 * 1024 * 1024 + 1]);
+  assert.throws(() => authenticateNativeInstallGitSource(oversized), /Git object identity mismatch/u);
+  // Eight individually valid 32MiB blobs plus the commit/tree exceed 256MiB.
+  const aggregate = largeSourceFixture(Array(8).fill(32 * 1024 * 1024));
+  assert.throws(() => authenticateNativeInstallGitSource(aggregate), /Git object closure too large/u);
+});
+
+test("authenticated source manifest applies the same object, aggregate and traversal ceilings", () => {
+  const authenticated = authenticateNativeInstallGitSource(gitFixture());
+  for (const kind of ["object", "aggregate", "entries"]) {
+    const changed = structuredClone(authenticated);
+    if (kind === "entries") changed.manifest.traversedEntryCount = 100_001;
+    else {
+      const count = kind === "aggregate" ? 9 : 1;
+      for (let index = 0; index < count; index++) changed.manifest.objects.push({
+        oid: sha256(`non-support-fixture-${index}`).slice(0, 40), type: "blob",
+        byteCount: 32 * 1024 * 1024 + (kind === "object" ? 1 : 0),
+      });
+      changed.manifest.blobCount += count;
+      changed.manifest.objectCount += count;
+    }
+    const { sourceManifestDigest: _digest, ...core } = changed.manifest;
+    changed.manifest.sourceManifestDigest = sha256(canonicalJson(core));
+    assert.equal(verifyAuthenticatedNativeInstallSource(changed).ok, false, kind);
+  }
+});
+
+function runCapacityHarness(arguments_) {
+  // Both code inputs are fixed repository files. Scenario arguments only reach
+  // the generated script's argument validator, never its source or a shell.
+  const template = readFileSync(new URL("./fixtures/native-install-capacity-harness.py", import.meta.url), "utf8");
+  const bootstrap = readFileSync(new URL("../semantic-recovery-native-install-bootstrap.sh", import.meta.url), "utf8");
+  const programs = [...bootstrap.matchAll(/<<'PY'\n([\s\S]*?)\nPY\n/gu)];
+  assert.equal(programs.length, 2);
+  const marker = '            raise RuntimeError("ACTUAL_MATERIALIZER_INSERTION_REQUIRED")';
+  assert.equal(template.split(marker).length, 2);
+  const program = programs[1][1].split("\n").map((line) => `            ${line}`).join("\n");
+  const root = mkdtempSync(path.join(tmpdir(), "settleora-capacity-child-"));
+  try {
+    const script = path.join(root, "harness.py");
+    writeFileSync(script, template.replace(marker, () => program), { flag: "wx", mode: 0o600 });
+    return spawnSync("/usr/bin/python3", ["-I", script, ...arguments_], {
+      cwd: root, encoding: "utf8", maxBuffer: 64 * 1024, timeout: 60_000,
+      env: { HOME: "/nonexistent", LANG: "C", LC_ALL: "C", PATH: "/usr/bin:/bin", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_DEFAULT_HASH: "sha1" },
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test("capacity harness rejects a caller-supplied bootstrap path before reading it", () => {
+  const child = runCapacityHarness(["/nonexistent/caller-selected-bootstrap.sh", "large-valid"]);
+  assert.equal(child.status, 2);
+  assert.match(child.stderr, /^usage: native-install-capacity-harness\.py SCENARIO\n$/u);
+  assert.equal(child.stdout, "");
+});
+
+test("actual embedded bootstrap retains large-blob integrity, object and aggregate controls without installation", () => {
+  for (const scenario of ["large-valid", "limit-valid", "corrupt-large", "object-over-limit", "aggregate-over-limit", "repeated-blob-over-limit", "symlink-large", "escaping-large"]) {
+    const child = runCapacityHarness([scenario]);
+    assert.equal(child.status, 0, `${scenario}: ${child.stderr}`);
+    const result = JSON.parse(child.stdout);
+    const valid = scenario === "large-valid" || scenario === "limit-valid";
+    assert.equal(result.status, valid ? 0 : 1, scenario);
+    assert.equal(result.networkCalls, 0);
+    assert.equal(result.realOwnershipChanges, 0);
+    assert.equal(result.bootstrapExecuted, false);
+    assert.equal(result.createdFiles.length, valid ? 2 : 0, scenario);
+    if (valid || scenario === "corrupt-large" || scenario === "object-over-limit") {
+      assert.ok(result.reads[0].bytes > 16 * 1024 * 1024, scenario);
+    }
+    if (scenario === "repeated-blob-over-limit") {
+      assert.equal(result.reads.length, 9);
+      assert.equal(new Set(result.reads.map((entry) => entry.oid)).size, 1);
+    }
+  }
+});
+
 test("wrong repository, source, transport, object bytes, dependency and symlink tree entry fail closed", () => {
   for (const overrides of [
     { repository: "other/repo" },

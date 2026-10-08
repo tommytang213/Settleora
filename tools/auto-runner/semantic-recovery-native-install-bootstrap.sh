@@ -266,8 +266,10 @@ import stat
 import subprocess
 import sys
 
-MAXIMUM_BLOB_BYTES = 2 * 1024 * 1024
-MAXIMUM_REPOSITORY_BYTES = 128 * 1024 * 1024
+# Match the fixed 32 MiB Git readers and the bounded source-verifier ceiling.
+# Every member is still read and rehashed, including non-materialized assets.
+MAXIMUM_BLOB_BYTES = 32 * 1024 * 1024
+MAXIMUM_REPOSITORY_BYTES = 256 * 1024 * 1024
 
 def git(root, arguments):
     environment = {
