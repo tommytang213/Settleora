@@ -14,11 +14,18 @@ import tempfile
 from types import SimpleNamespace
 from unittest.mock import patch
 
-source = Path(sys.argv[1]).read_text()
+if len(sys.argv) != 2:
+    print("usage: native-install-capacity-harness.py SCENARIO", file=sys.stderr)
+    raise SystemExit(2)
+
+# This fixture exercises only the repository's own bootstrap. A caller may
+# choose a synthetic scenario, never the source code read by the harness.
+source = (Path(__file__).resolve().parents[2] /
+          "semantic-recovery-native-install-bootstrap.sh").read_text(encoding="utf-8")
 programs = re.findall(r"<<'PY'\n([\s\S]*?)\nPY\n", source)
 assert len(programs) == 2
 program = programs[1]
-scenario = sys.argv[2]
+scenario = sys.argv[1]
 mib = 1024 * 1024
 sizes = {
     "large-valid": [21159378],

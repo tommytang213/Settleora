@@ -246,11 +246,21 @@ test("authenticated source manifest applies the same object, aggregate and trave
   }
 });
 
+test("capacity harness rejects a caller-supplied bootstrap path before reading it", () => {
+  const harness = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "fixtures/native-install-capacity-harness.py");
+  const child = spawnSync("/usr/bin/python3", ["-I", harness, "/nonexistent/caller-selected-bootstrap.sh", "large-valid"], {
+    encoding: "utf8", maxBuffer: 64 * 1024, timeout: 60_000,
+    env: { HOME: "/nonexistent", LANG: "C", LC_ALL: "C", PATH: "/usr/bin:/bin" },
+  });
+  assert.equal(child.status, 2);
+  assert.match(child.stderr, /^usage: native-install-capacity-harness\.py SCENARIO\n$/u);
+  assert.equal(child.stdout, "");
+});
+
 test("actual embedded bootstrap retains large-blob integrity, object and aggregate controls without installation", () => {
-  const source = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../semantic-recovery-native-install-bootstrap.sh");
   const harness = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "fixtures/native-install-capacity-harness.py");
   for (const scenario of ["large-valid", "limit-valid", "corrupt-large", "object-over-limit", "aggregate-over-limit", "repeated-blob-over-limit", "symlink-large", "escaping-large"]) {
-    const child = spawnSync("/usr/bin/python3", ["-I", harness, source, scenario], {
+    const child = spawnSync("/usr/bin/python3", ["-I", harness, scenario], {
       encoding: "utf8", maxBuffer: 64 * 1024, timeout: 60_000,
       env: { HOME: "/nonexistent", LANG: "C", LC_ALL: "C", PATH: "/usr/bin:/bin" },
     });
