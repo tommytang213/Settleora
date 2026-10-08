@@ -2052,6 +2052,29 @@ SHA-256, owner, group, mode, link count, and relative realpath immediately
 before the root-authoritative producer path runs. The selected main SHA is
 frozen in the plan and policy, and a final independent full authority-context
 reread must match immediately before publication.
+
+Source capacity is explicitly bounded: each Git object is at most 32 MiB,
+matching the fixed Node Git readers, and the JavaScript authenticator accepts
+at most 256 MiB of unique commit/tree/blob bytes. Its manifest verifier enforces
+the same per-object and aggregate bounds, plus the 100,000 traversed-entry cap.
+The trusted bootstrap also caps each blob at 32 MiB and its complete recursive
+listing at 256 MiB of blob bytes, counting every path (including repeated blob
+IDs). The two aggregate measurements differ deliberately: JavaScript includes
+commit/tree metadata and caches authenticated objects; the bootstrap counts
+all file payload occurrences. Both checks must pass.
+
+The measured base `77e35bf47992fbb9b15747ac8eb09b676d8e7580` contains
+173,187,501 bytes of file payloads (about 165 MiB); its largest blob is
+21,159,378 bytes. The 256 MiB ceiling leaves bounded growth room while lowering
+the previous JavaScript 512 MiB ceiling. The old 2 MiB bootstrap / 16 MiB
+JavaScript object limits and 128 MiB bootstrap aggregate could not authenticate
+that existing tree. These are source capacity limits, not filename exceptions:
+every reachable object is still checked, including assets outside the selected
+support closure. Hash, mode, path, symlink, repository/commit identity, ownership,
+materialization and publication checks are unchanged. Raising these bounds
+does not install anything or grant authority; any later installation still
+requires its existing owner-controlled gates.
+
 Grant planning is available only through the exact installed root-owned
 producer. Its closed request supplies the previously verified install package,
 one exact operation selector, and the semantic evidence packet; the producer
