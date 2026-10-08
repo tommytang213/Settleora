@@ -240,4 +240,60 @@ void main() {
     expect(p.items.map((i) => i.quantity), [null, null, null]);
     expect(p.items.map((i) => i.lineTotal), ['10.00', '5.00', '3.00']);
   });
+
+  for (final neighbor in [
+    null,
+    'EUR',
+    '-',
+    '99',
+    'Extra Purchase',
+    'crossed',
+  ]) {
+    test('independent footer ownership retains boundary $neighbor', () {
+      final original = _preview([
+        ['SAMPLE SHOP'],
+        ['Total USD1,234,'],
+        ['Notebook USD 42.00'],
+        ['Total Current Charges', 'USD42.00'],
+      ]);
+      final blocks = [
+        for (final b in original.blocks)
+          if (neighbor == 'crossed' && b.row == 3 && b.text == 'USD42.00')
+            ReceiptOcrBlockEvidence(
+              text: b.text,
+              row: b.row,
+              order: b.order,
+              confidence: b.confidence,
+              points: [b.points[0], b.points[2], b.points[1], b.points[3]],
+            )
+          else
+            b,
+        if (neighbor != null && neighbor != 'crossed')
+          ReceiptOcrBlockEvidence(
+            text: neighbor,
+            row: 4,
+            order: 20,
+            confidence: 0.99,
+            // A separate logical row still competes in the footer's band.
+            points: const [
+              ReceiptOcrPoint(x: 885, y: 150),
+              ReceiptOcrPoint(x: 1040, y: 150),
+              ReceiptOcrPoint(x: 1040, y: 180),
+              ReceiptOcrPoint(x: 885, y: 180),
+            ],
+          ),
+      ];
+      final rows = <int, List<String>>{};
+      for (final b in blocks) {
+        (rows[b.row] ??= []).add(b.text);
+      }
+      final p = const ReceiptOcrParser().parse(
+        rows.values.map((r) => r.join(' ')).join('\n'),
+        blocks: blocks,
+      );
+      expect(p.total, neighbor == null ? '42.00' : isNull);
+      expect(p.adjustmentsComplete, isFalse);
+      expect(p.blocks, blocks);
+    });
+  }
 }

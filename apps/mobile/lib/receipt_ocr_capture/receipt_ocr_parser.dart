@@ -2720,7 +2720,8 @@ class ReceiptOcrParser {
           // still be established by the existing bounded layout paths.
           if (layoutRows.length == lines.length &&
               layoutRows[candidate.order].length > 1 &&
-              !layoutAdjustmentLines.containsKey(candidate.order)) {
+              !layoutAdjustmentLines.containsKey(candidate.order) &&
+              !_isIndependentTotalRow(layoutRows, candidate.order, currency)) {
             return false;
           }
           final line =
@@ -6818,6 +6819,77 @@ Map<int, String> _skewedSummaryEvidenceLines(
   return result;
 }
 
+// A complete footer can remain usable when another total-like row contains an
+// unreadable amount or an identifier. OCR row membership alone is not proof:
+// the label and explicitly denominated amount need their own clear physical band.
+bool _isIndependentTotalRow(
+  List<List<ReceiptOcrBlockEvidence>> rows,
+  int rowIndex,
+  String? currency,
+) {
+  if (currency == null || rows[rowIndex].length != 2) return false;
+  final row = [...rows[rowIndex]]
+    ..sort((a, b) => _blockLeft(a).compareTo(_blockLeft(b)));
+  final label = row.first, money = row.last;
+  final labelText = _normalizeOcrLine(label.text);
+  final match = _completeTotalLabelPattern.firstMatch(labelText);
+  if (match == null ||
+      !RegExp(r'^\s*[:：]?\s*$').hasMatch(labelText.substring(match.end))) {
+    return false;
+  }
+  final moneyText = _normalizeOcrLine(money.text);
+  final printed = _currencyAdjacentToSelectedAmount(moneyText, currency);
+  if (!_isBoundedSummaryAmount(moneyText) ||
+      _lastAmountInLine(moneyText, currency: currency) == null ||
+      !printed.hasExplicitEvidence ||
+      printed.currency != currency ||
+      _printedCurrencyMarkerMatches(moneyText).length != 1) {
+    return false;
+  }
+  final boxes =
+      <
+        ReceiptOcrBlockEvidence,
+        ({double left, double top, double right, double bottom})
+      >{};
+  for (final block in rows.expand((r) => r)) {
+    final p = block.points;
+    if (p.length != 4 || p.any((v) => !v.x.isFinite || !v.y.isFinite)) {
+      return false;
+    }
+    for (var i = 0; i < 4; i++) {
+      final turn =
+          (p[(i + 1) % 4].x - p[i].x) * (p[(i + 2) % 4].y - p[(i + 1) % 4].y) -
+          (p[(i + 1) % 4].y - p[i].y) * (p[(i + 2) % 4].x - p[(i + 1) % 4].x);
+      if (!turn.isFinite || turn <= 0) return false;
+    }
+    boxes[block] = (
+      left: _blockLeft(block),
+      top: p.map((v) => v.y).reduce((a, b) => a < b ? a : b),
+      right: _blockRight(block),
+      bottom: p.map((v) => v.y).reduce((a, b) => a > b ? a : b),
+    );
+  }
+  final l = boxes[label]!, m = boxes[money]!;
+  final lh = l.bottom - l.top, mh = m.bottom - m.top;
+  final top = l.top < m.top ? l.top : m.top;
+  final bottom = l.bottom > m.bottom ? l.bottom : m.bottom;
+  final overlap =
+      (l.bottom < m.bottom ? l.bottom : m.bottom) -
+      (l.top > m.top ? l.top : m.top);
+  final clearance = (lh > mh ? lh : mh) / 2;
+  if (l.right >= m.left || overlap < (lh < mh ? lh : mh) / 2) {
+    return false;
+  }
+  return !boxes.entries.any((entry) {
+    if (row.contains(entry.key)) return false;
+    final b = entry.value;
+    return b.right > l.left - clearance &&
+        b.left < m.right + clearance &&
+        b.bottom > top - clearance &&
+        b.top < bottom + clearance;
+  });
+}
+
 // Some providers group a large summary-card amount with adjacent customer
 // and invoice-date fields. A matching total alone does not make that row
 // metadata: every block must have its own nearby, unambiguous printed label.
@@ -6829,10 +6901,7 @@ Set<int>? _ownedSummaryCardHeaderRows(
   String? selectedTotal,
   Set<int> uncertainSummaryAmountRows,
 ) {
-  if (rowIndex >= rows.length ||
-      rowIndex == 0 ||
-      selectedTotal == null ||
-      currency == null) {
+  if (rowIndex >= rows.length || rowIndex == 0 || currency == null) {
     return null;
   }
   final row = rows[rowIndex];
@@ -6850,7 +6919,10 @@ Set<int>? _ownedSummaryCardHeaderRows(
   ).firstMatch(amount.text);
   if (moneyCell == null ||
       !_hasChargeTableMonetaryEvidence(amount.text) ||
-      _lastAmountInLine(amount.text, currency: currency) != selectedTotal) {
+      _lastAmountInLine(amount.text, currency: currency) == null ||
+      (selectedTotal != null &&
+          _lastAmountInLine(amount.text, currency: currency) !=
+              selectedTotal)) {
     return null;
   }
   for (final marker in [
@@ -7368,6 +7440,9 @@ Set<int>? _ownedSummaryCardHeaderRows(
   }
   // Only rows made entirely of proven labels are explained. A pending
   // description sharing a label row must still reach completeness accounting.
+  // A missing selected total cannot prove this row is metadata, but must not
+  // let its summary amount price a preceding unowned item description either.
+  if (selectedTotal == null) return retainDisputedSummary();
   final labels = {totalLabels.single, nameLabels.single};
   return {
     rowIndex,
