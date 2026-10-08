@@ -1,7 +1,8 @@
 export function sanitizeGeminiUsage(metadata) {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
   return Object.fromEntries(
-    ["promptTokenCount", "candidatesTokenCount", "thoughtsTokenCount", "totalTokenCount"].map(
+    ["promptTokenCount", "candidatesTokenCount", "thoughtsTokenCount", "totalTokenCount"]
+      .filter((key) => Object.hasOwn(metadata, key)).map(
       (key) => [key, Number.isSafeInteger(metadata[key]) && metadata[key] >= 0 ? metadata[key] : null],
     ),
   );
@@ -17,7 +18,10 @@ export function geminiUsageCost(usage, estimated, pricing) {
     thoughtsTokenCount: thoughts, totalTokenCount: total } = clean;
   const output = (candidates ?? 0) + (thoughts ?? 0);
   const sum = (prompt ?? 0) + output;
-  const consistentTotal = total != null && Number.isSafeInteger(sum) && total >= sum;
+  const thoughtsOmitted = !Object.hasOwn(clean, "thoughtsTokenCount");
+  const consistentTotal = total != null && Number.isSafeInteger(sum) && (
+    thoughtsOmitted ? total >= sum : thoughts != null && total === sum
+  );
   const complete = prompt != null && candidates != null && consistentTotal;
   const cost = (inputTokens, outputTokens) => (inputTokens / 1_000_000) * pricing.inputUsdPerMillionTokens
     + (outputTokens / 1_000_000) * pricing.outputUsdPerMillionTokens;

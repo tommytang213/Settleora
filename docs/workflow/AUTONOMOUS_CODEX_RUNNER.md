@@ -871,7 +871,9 @@ blocked/truncated responses. Output charges include candidates plus thoughts;
 [usage metadata totals](https://ai.google.dev/api/generate-content#UsageMetadata)
 already include the prompt and both output categories and are not added again.
 Only nonnegative safe integer counts are accepted. A consistent total can
-recover omitted thinking counts. Incomplete or inconsistent usage keeps the
+recover an omitted thinking count; explicitly supplied component counts must
+sum exactly to the total, and invalid counts are not treated as omitted.
+Incomplete or inconsistent usage keeps the
 estimate and known token costs conservatively; failed calls with unknown usage
 reserve an estimate, not a claim about the final provider bill. Integrated
 retries recheck the unchanged monthly hard stop with prior attempt charges.

@@ -49,7 +49,7 @@ test("usage sanitizer rejects coercion, negatives, fractions, unsafe integers an
 
 test("thinking is billed once, including omitted counts recoverable from total", () => {
   for (const thoughts of [80, undefined]) {
-    const charge = geminiUsageCost({ promptTokenCount: 100, candidatesTokenCount: 20, thoughtsTokenCount: thoughts, totalTokenCount: 200 }, estimated, pricing);
+    const charge = geminiUsageCost({ promptTokenCount: 100, candidatesTokenCount: 20, ...(thoughts === undefined ? {} : { thoughtsTokenCount: thoughts }), totalTokenCount: 200 }, estimated, pricing);
     assert.equal(charge.costUsd, 0.00105);
     assert.equal(charge.basis, "provider_usage");
   }
@@ -58,7 +58,7 @@ test("thinking is billed once, including omitted counts recoverable from total",
 });
 
 test("partial/inconsistent/overflow usage never erases the estimate or known charges", () => {
-  for (const usage of [null, {}, { promptTokenCount: 0, candidatesTokenCount: null }, { promptTokenCount: 100, candidatesTokenCount: 20, thoughtsTokenCount: 80, totalTokenCount: 120 }, { promptTokenCount: -10, candidatesTokenCount: "20" }]) {
+  for (const usage of [null, {}, { promptTokenCount: 0, candidatesTokenCount: null }, { promptTokenCount: 100, candidatesTokenCount: 20, thoughtsTokenCount: 80, totalTokenCount: 120 }, { promptTokenCount: 100, candidatesTokenCount: 20, thoughtsTokenCount: 80, totalTokenCount: 220 }, { promptTokenCount: -10, candidatesTokenCount: "20" }]) {
     const charge = geminiUsageCost(usage, estimated, pricing);
     assert.ok(charge.costUsd >= estimated.costUsd);
     assert.equal(charge.basis, "conservative_estimate_or_partial_usage");
@@ -173,4 +173,49 @@ test("smoke accounting write failure blocks instead of reporting a pass", async 
   assert.equal(result.status, "blocked");
   assert.match(result.reason, /^blocked_reviewer_accounting_write_error:/);
   assert.equal(JSON.parse(readFileSync(result.reportPath)).status, "blocked");
+}));
+
+
+test("only omitted thinking counts allow total-remainder recovery", () => {
+  const omitted = sanitizeGeminiUsage({ promptTokenCount: 100, candidatesTokenCount: 20, totalTokenCount: 220 });
+  assert.equal(Object.hasOwn(omitted, "thoughtsTokenCount"), false);
+  assert.equal(geminiUsageCost(omitted, estimated, pricing).basis, "provider_usage");
+  for (const thoughts of [undefined, null, "80", -1, 0, 80]) {
+    const usage = sanitizeGeminiUsage({ promptTokenCount: 100, candidatesTokenCount: 20, thoughtsTokenCount: thoughts, totalTokenCount: 220 });
+    assert.equal(Object.hasOwn(usage, "thoughtsTokenCount"), true);
+    const charge = geminiUsageCost(usage, estimated, pricing);
+    assert.equal(charge.basis, "conservative_estimate_or_partial_usage");
+    assert.ok(charge.costUsd >= estimated.costUsd);
+  }
+});
+
+for (const smoke of [true, false]) {
+  test(`${smoke ? "smoke" : "integrated"} larger inconsistent total preserves estimate for ledger readback`, async () => isolated(async (root) => {
+    const result = await execute(smoke, config(root), { env, fetchImpl: async () => response(smoke, {
+      usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 20, thoughtsTokenCount: 80, totalTokenCount: 220 },
+    }) });
+    assert.equal(result.status, "pass");
+    assert.ok(result.recordedCostUsd >= result.estimated.costUsd);
+    const entries = JSON.parse(readFileSync(path.join(root, "state/reviewer-accounting.json"))).entries;
+    assert.equal(entries[0].costUsd, result.recordedCostUsd);
+    const blocked = await execute(smoke, config(root, "gemini-3.5-flash", {
+      reviewerBudget: { monthlyReviewerHardStopUsd: result.estimated.costUsd * 1.5 },
+    }), { env, fetchImpl: async () => { assert.fail("inconsistent usage must not admit next call"); } });
+    assert.equal(blocked.reason, "blocked_reviewer_budget_hard_stop");
+    assert.equal(blocked.liveCallAttempted, false);
+  }));
+}
+
+test("larger inconsistent total cannot admit a retry near the hard stop", async () => isolated(async (root) => {
+  const offline = await execute(false, config(root), { env: {} });
+  let calls = 0;
+  const result = await execute(false, config(root, "gemini-3.5-flash", {
+    reviewerBudget: { monthlyReviewerHardStopUsd: offline.estimated.costUsd * 1.5 },
+  }), { env, fetchImpl: async () => { calls++; return response(false, { status: 503,
+    usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 20, thoughtsTokenCount: 80, totalTokenCount: 220 },
+  }); } });
+  assert.equal(calls, 1);
+  assert.equal(result.reason, "blocked_reviewer_budget_hard_stop");
+  assert.ok(result.recordedCostUsd >= offline.estimated.costUsd);
+  assert.equal(result.providerAttempts[0].charge.basis, "conservative_estimate_or_partial_usage");
 }));
