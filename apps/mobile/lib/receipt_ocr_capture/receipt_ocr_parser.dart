@@ -171,6 +171,11 @@ class ReceiptOcrParser {
       layoutRows,
       merchantDetection?.lineIndices ?? const {},
     );
+    final headerAddressRows = _ownedHeaderAddressRows(
+      lines,
+      layoutRows,
+      merchantDetection?.lineIndices ?? const {},
+    );
     final extractedItems = _extractItems(
       lines,
       currency,
@@ -187,6 +192,7 @@ class ReceiptOcrParser {
         ...meterReadingRows,
         ...localizedHeaderRows,
         ...brandCopyRows,
+        ...headerAddressRows,
       },
     );
     final itemCandidates = extractedItems.items;
@@ -232,6 +238,7 @@ class ReceiptOcrParser {
         ...meterReadingRows,
         ...localizedHeaderRows,
         ...brandCopyRows,
+        ...headerAddressRows,
       },
       uncertainSummaryAmountRows: extractedItems.uncertainSummaryAmountRows,
     );
@@ -5724,6 +5731,104 @@ bool _isPaymentTerminalIdentifierLine(String line) => RegExp(
   r'^(?:terminal|term|till|pos)\s*(?:(?:id|no|number)\s*)?[:#-]?\s*[a-z]?\d{1,6}$',
   caseSensitive: false,
 ).hasMatch(line.trim());
+
+// A damaged region token must not turn a postal code into a purchase. Only a
+// complete street/postal/phone header owns these digits; no character is
+// corrected and no currency or locality is inferred from the damaged token.
+Set<int> _ownedHeaderAddressRows(
+  List<String> lines,
+  List<List<ReceiptOcrBlockEvidence>> rows,
+  Set<int> merchantRows,
+) {
+  if (rows.length != lines.length || merchantRows.isEmpty) return const {};
+  final merchantIndex = merchantRows.reduce((a, b) => a > b ? a : b);
+  final start = merchantIndex + 1;
+  if (merchantIndex > 2 || start + 2 >= rows.length) return const {};
+  final street = RegExp(
+    r"^\d{1,6}\s+(?:[a-z][a-z .'-]{1,50}\s+(?:street|st|road|rd|avenue|ave|boulevard|blvd|lane|ln|drive|dr|way)|(?:highway|hwy|route|rte)\s+\d{1,4}[a-z]?)\.?$",
+    caseSensitive: false,
+  );
+  final postal = RegExp(
+    r"^[a-z][a-z .'-]{1,40},\s*([a-z0-9]{2})\s+\d{5}(?:-\d{4})?$",
+    caseSensitive: false,
+  ).firstMatch(lines[start + 1]);
+  final phone = RegExp(
+    r'^(?:(?:phone|tel)\s*:?\s*)?(?:\+?1[ -]?)?(?:\(\d{3}\)|\d{3})[ -]?\d{3}[ -]\d{4}$',
+    caseSensitive: false,
+  );
+  if (!street.hasMatch(lines[start]) ||
+      postal == null ||
+      !RegExp(r'[a-z]', caseSensitive: false).hasMatch(postal.group(1)!) ||
+      !phone.hasMatch(lines[start + 2])) {
+    return const {};
+  }
+  double top(ReceiptOcrBlockEvidence b) =>
+      b.points.map((p) => p.y).reduce((a, b) => a < b ? a : b);
+  double bottom(ReceiptOcrBlockEvidence b) =>
+      b.points.map((p) => p.y).reduce((a, b) => a > b ? a : b);
+  bool valid(ReceiptOcrBlockEvidence b) {
+    if (b.points.length != 4 ||
+        b.points.any((p) => !p.x.isFinite || !p.y.isFinite)) {
+      return false;
+    }
+    final turns = [
+      for (var i = 0; i < 4; i++)
+        (b.points[(i + 1) % 4].x - b.points[i].x) *
+                (b.points[(i + 2) % 4].y - b.points[(i + 1) % 4].y) -
+            (b.points[(i + 1) % 4].y - b.points[i].y) *
+                (b.points[(i + 2) % 4].x - b.points[(i + 1) % 4].x),
+    ];
+    return turns.every((v) => v.isFinite && v > 0) ||
+        turns.every((v) => v.isFinite && v < 0);
+  }
+
+  final header = <ReceiptOcrBlockEvidence>[];
+  for (var index = merchantIndex; index <= start + 2; index++) {
+    if (rows[index].length != 1) return const {};
+    final block = rows[index].single;
+    if (!valid(block) ||
+        block.confidence == null ||
+        !block.confidence!.isFinite ||
+        block.confidence! > 1 ||
+        block.confidence! < 0.8) {
+      return const {};
+    }
+    header.add(block);
+  }
+  for (var i = 1; i < header.length; i++) {
+    final previous = header[i - 1];
+    final current = header[i];
+    final h = bottom(current) - top(current);
+    final gap = top(current) - bottom(previous);
+    if (gap < -h / 4 ||
+        gap > h * (i == 1 ? 2 : 1) ||
+        (_blockCenterX(current) - _blockCenterX(previous)).abs() > h / 2 ||
+        (i > 1 &&
+            (bottom(previous) - top(previous) < h / 2 ||
+                bottom(previous) - top(previous) > h * 2))) {
+      return const {};
+    }
+  }
+  final address = header.skip(1).toSet();
+  final left = address.map(_blockLeft).reduce((a, b) => a < b ? a : b);
+  final right = address.map(_blockRight).reduce((a, b) => a > b ? a : b);
+  final padding = address
+      .map((block) => bottom(block) - top(block))
+      .reduce((a, b) => a < b ? a : b);
+  for (final block in rows.expand((row) => row)) {
+    if (header.contains(block)) continue;
+    if (!valid(block)) return const {};
+    // A nearby separate currency or price fragment can own the apparent
+    // postal digits despite having a different OCR row. Keep that ambiguous.
+    if (_blockRight(block) > left - padding &&
+        _blockLeft(block) < right + padding &&
+        bottom(block) > top(header[1]) - padding / 2 &&
+        top(block) < bottom(header.last) + padding / 2) {
+      return const {};
+    }
+  }
+  return {start, start + 1, start + 2};
+}
 
 // Receipt copy needs a closed language pattern as well as its printed role.
 // Geometry alone cannot distinguish an unpriced product from a slogan. Keep
