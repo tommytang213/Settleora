@@ -98,7 +98,7 @@ workflows:
       - $CM_BUILD_DIR/apps/mobile/build/settleora-visual-qa/**/*.png
 
   mobile-ios-testflight-internal:
-    name: Mobile iOS internal TestFlight
+    name: Mobile iOS signed release candidate validation
     working_directory: apps/mobile
     instance_type: mac_mini_m2
     max_build_duration: 90
@@ -108,13 +108,14 @@ workflows:
 
     environment:
       flutter: 3.44.8
-      xcode: latest
-      cocoapods: default
+      xcode: "16.4"
+      cocoapods: 1.17.0
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.tommytang213.settleora
       vars:
         FLUTTER_BUILD_NAME: "1.0.0"
+        CODEMAGIC_CLI_TOOLS_VERSION: "0.69.0"
 
     cache:
       cache_paths:
@@ -131,41 +132,30 @@ workflows:
         script: |
           ./tool/validate-release.sh
 
-      - name: Set up iOS code signing settings
-        script: |
-          xcode-project use-profiles --custom-export-options='{"testFlightInternalTestingOnly": true}'
-
       - name: Build signed iOS IPA
         script: |
-          flutter build ipa --release \
+          test "$(git rev-parse HEAD)" = "$CM_COMMIT"
+          source_tree=$(git rev-parse 'HEAD^{tree}')
+          ./tool/build-production-ios.sh \
+            --mode=signed \
+            --source-sha="$CM_COMMIT" \
+            --source-tree="$source_tree" \
             --build-name="$FLUTTER_BUILD_NAME" \
             --build-number="$BUILD_NUMBER" \
-            --export-options-plist=/Users/builder/export_options.plist
+            --export-options-plist=/Users/builder/export_options.plist \
+            --provenance-out="$CM_BUILD_DIR/apps/mobile/build/ios/release-provenance.json"
 
-      - name: List signed iOS IPA artifacts
+      - name: Verify retained signed iOS artifacts
         script: |
-          echo "CM_BUILD_DIR=$CM_BUILD_DIR"
-          echo "PWD=$(pwd)"
-          find "$CM_BUILD_DIR" -path "*/build/ios/ipa/*.ipa" -print
-          find "$CM_BUILD_DIR" -path "*/build/ios/archive/*.xcarchive" -print
           IPA_COUNT=$(find "$CM_BUILD_DIR/apps/mobile/build/ios/ipa" -name "*.ipa" -type f 2>/dev/null | wc -l | tr -d ' ')
-          if [ "$IPA_COUNT" = "0" ]; then
-            echo "No IPA files were produced under $CM_BUILD_DIR/apps/mobile/build/ios/ipa"
-            exit 1
-          fi
+          test "$IPA_COUNT" = "1"
+          ARCHIVE_COUNT=$(find "$CM_BUILD_DIR/apps/mobile/build/ios/archive" -maxdepth 1 -name "*.xcarchive" -type d 2>/dev/null | wc -l | tr -d ' ')
+          test "$ARCHIVE_COUNT" = "1"
+          test -s "$CM_BUILD_DIR/apps/mobile/build/ios/release-provenance.json"
 
     artifacts:
       - $CM_BUILD_DIR/apps/mobile/build/ios/ipa/*.ipa
       - $CM_BUILD_DIR/apps/mobile/build/ios/archive/*.xcarchive
+      - $CM_BUILD_DIR/apps/mobile/build/ios/release-provenance.json
       - /tmp/xcodebuild_logs/*.log
       - $CM_BUILD_DIR/apps/mobile/flutter_drive.log
-
-    publishing:
-      app_store_connect:
-        auth: integration
-        # Upload the signed IPA to App Store Connect for internal TestFlight
-        # visibility only. Do not set beta_groups to "Internal Testers":
-        # Codemagic/App Store Connect beta group assignment is for supported
-        # beta distribution groups and fails for Apple's internal tester group.
-        submit_to_testflight: false
-        submit_to_app_store: false

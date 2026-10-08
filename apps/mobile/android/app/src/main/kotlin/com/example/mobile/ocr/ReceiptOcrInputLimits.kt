@@ -5,7 +5,7 @@ internal object ReceiptOcrInputLimits {
     private const val MAX_INPUT_PIXELS = 16_000_000L
     private const val MAX_INPUT_DIMENSION = 8192
     private const val MAX_SAMPLE_SIZE = 128
-    private const val MAX_RECOGNITION_LINES = 128
+    private const val MAX_RECOGNITION_LINES = 256
 
     fun acceptsEncodedSize(sizeBytes: Int): Boolean = sizeBytes in 1..MAX_INPUT_BYTES
 
