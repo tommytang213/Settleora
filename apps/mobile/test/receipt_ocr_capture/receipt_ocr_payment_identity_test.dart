@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mobile/bills/bill_list_screen.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_parser.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
+import 'package:mobile/receipt_ocr_review/receipt_ocr_review_repository.dart';
 
 ReceiptOcrPreview parsePayment(String payment, {bool layout = false}) {
   final lines = ['Corner Market', 'Tea USD 7.00', 'Total USD 7.00', payment];
@@ -32,6 +34,12 @@ void main() {
       'Debit · 6789 USD 7.00',
       'Debit ••••6789 7.00',
       'Credit ****6789 USD 7.00',
+      'Credit ****6789 7.00 USD',
+      'Credit ****6789 USD 7.00 USD',
+      r'Credit ****6789 US$7.00',
+      r'Credit ****6789 $7.00 USD',
+      r'Credit ****6789 USD 7.00$',
+      'Credit ****6789 EUR 7.00 €',
       'PAID WITH: Visa •●●.● 9191',
       'Paid with Mastercard **** 9191 USD 7.00',
       'Refund to VISA ****1234',
@@ -52,6 +60,38 @@ void main() {
         expect(p.blocks.length, layout ? 4 : 0);
         if (layout) expect(p.blocks.last.text, row);
       });
+    }
+    for (final amount in [
+      'USD 7.00 EUR',
+      'EUR 7.00 USD',
+      r'7.00$€',
+      r'$€7.00',
+      r'USD 7.00€',
+      r'€7.00 USD',
+      r'7.00 USD$',
+      'USD 7.00 XYZ',
+    ]) {
+      test(
+        'conflicting payment currency stays unresolved: $amount layout=$layout',
+        () {
+          final row = 'Credit ****6789 $amount';
+          final p = parsePayment(row, layout: layout);
+          expect(p.adjustmentsComplete, isFalse);
+          expect(p.reviewHints, isNotEmpty);
+          expect(p.total, '7.00');
+          final saved = receiptOcrReviewSaveRequestFromPreview(
+            p,
+            originalCurrency: p.currency,
+          );
+          expect(saved, isNotNull);
+          expect(saved!.status, ReceiptOcrReviewStatusValues.provisional);
+          expect(
+            saved.taxReconciliationMode,
+            ReceiptOcrTaxReconciliationModeValues.unresolved,
+          );
+          if (layout) expect(p.blocks.last.text, row);
+        },
+      );
     }
     for (final row in [
       'Approved author1234',

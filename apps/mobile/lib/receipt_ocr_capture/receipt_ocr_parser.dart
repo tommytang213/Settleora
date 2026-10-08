@@ -8496,7 +8496,7 @@ bool _isBoundedPaymentIdentityLine(String line) {
   ).firstMatch(normalized);
   if (maskedCard != null && RegExp(r'[*·•●]').hasMatch(maskedCard.group(1)!)) {
     final remainder = maskedCard.group(2)!.trim();
-    if (remainder.isEmpty || _isStandaloneAmountRow(remainder)) return true;
+    if (remainder.isEmpty || _isBoundedPaymentAmount(remainder)) return true;
   }
   if (RegExp(
     r'^approved\s+auth(?:orization)?(?=\s|[:#])\s*'
@@ -8507,6 +8507,29 @@ bool _isBoundedPaymentIdentityLine(String line) {
     return true;
   }
   return false;
+}
+
+bool _isBoundedPaymentAmount(String text) {
+  // Do not use the permissive standalone-row fallback: removing currency
+  // symbols can hide a conflict and incorrectly clear an adjustment warning.
+  final match = RegExp(
+    '^(?:(?<prefix>$_currencyTokenPattern)\\s*)?'
+    '(?<amount>$_amountTokenPattern)'
+    '(?:\\s*(?<suffix>$_currencyTokenPattern))?\$',
+    caseSensitive: false,
+  ).firstMatch(text);
+  if (match == null || _normalizeAmount(match.namedGroup('amount')!) == null) {
+    return false;
+  }
+  final prefix = match.namedGroup('prefix');
+  final suffix = match.namedGroup('suffix');
+  if (prefix == null || suffix == null) return true;
+  // When an amount has two printed markers, both must resolve consistently.
+  // A single marker supplies context only for its paired symbol, never for
+  // the receipt's transaction currency.
+  final context =
+      _currencyFromItemToken(prefix) ?? _currencyFromItemToken(suffix);
+  return _currencyAdjacentToSelectedAmount(text, context).currency != null;
 }
 
 bool _isPaymentMetadataLine(String line) {
