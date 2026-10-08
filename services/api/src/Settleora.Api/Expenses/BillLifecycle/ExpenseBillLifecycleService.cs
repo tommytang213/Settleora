@@ -135,7 +135,10 @@ internal sealed class ExpenseBillLifecycleService
             bill.GroupId.Value,
             cancellationToken);
 
+        // Sync lifecycle writes require the same bill authority as the online group route.
         return groupAuthorizationResult.Allowed
+            && (bill.CreatedByUserProfileId == actor.UserProfileId
+                || bill.BillOwnerUserProfileId == actor.UserProfileId)
             ? ExpenseBillLifecycleLoadResult.Visible(bill)
             : ExpenseBillLifecycleLoadResult.Unavailable();
     }
