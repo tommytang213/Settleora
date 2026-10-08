@@ -3,6 +3,32 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_parser.dart';
 
 void main() {
   for (final label in ['消費稅', '稅']) {
+    for (final cell in [
+      'EUR 1.0',
+      'EUR1.0',
+      'eur1.0',
+      'EUR 1.0USD',
+      'EUR1.0USD',
+    ]) {
+      test(
+        'currency joined to traditional tax label keeps its denomination: $label$cell',
+        () {
+          final preview = const ReceiptOcrParser().parse(
+            'Cafe\nDate: 2026/08/15\nTea USD 10.00\n'
+            'Subtotal USD 10.00\n$label$cell\nTotal USD 10.00',
+          );
+          expect(preview.tax, '1.0');
+          expect(preview.taxCurrency, cell.endsWith('USD') ? isNull : 'EUR');
+          expect(preview.taxHasExplicitCurrencyEvidence, isTrue);
+          expect(preview.currency, 'USD');
+          expect(preview.items.single.lineTotal, '10.00');
+          expect(preview.reviewHints, isNotEmpty);
+        },
+      );
+    }
+  }
+
+  for (final label in ['消費稅', '稅']) {
     for (final (cell, amount, currency) in [
       ('USD1.50', '1.50', 'USD'),
       ('1.50USD', '1.50', 'USD'),

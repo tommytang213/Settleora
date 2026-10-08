@@ -1325,9 +1325,17 @@ class ReceiptOcrParser {
     // The owned summary grammar accepts case-insensitive attached codes and
     // contextual symbols. Resolve its single monetary cell consistently,
     // retaining unresolved printed markers instead of inheriting currency.
-    if (_includedTaxAmountLinePattern.hasMatch(line) ||
-        _traditionalTaxAmountLinePattern.hasMatch(line)) {
+    if (_includedTaxAmountLinePattern.hasMatch(line)) {
       return _currencyAdjacentToSelectedAmount(line, receiptCurrency);
+    }
+    final traditionalTax = _traditionalTaxAmountLinePattern.firstMatch(line);
+    if (traditionalTax != null) {
+      // The label can touch a printed currency code. Resolve the owned cell
+      // independently so Unicode label boundaries cannot hide its denomination.
+      return _currencyAdjacentToSelectedAmount(
+        traditionalTax.namedGroup('monetaryCell')!,
+        receiptCurrency,
+      );
     }
     if (_hasUnsupportedCurrencySymbolOnSelectedAmount(line)) {
       return (currency: null, hasExplicitEvidence: true);
@@ -10172,8 +10180,8 @@ bool _hasTaxLabel(
 final _traditionalTaxAmountLinePattern = RegExp(
   '^\\s*(?:消費稅|稅)\\s*'
   '(?:[（(]\\s*\\d{1,3}(?:[.,]\\d{1,2})?\\s*%\\s*[)）]\\s*)?'
-  '[:：]?\\s*(?:$_currencyTokenPattern)?\\s*(?<amount>$_amountTokenPattern)'
-  '\\s*(?:$_currencyTokenPattern)?\\s*\$',
+  '[:：]?\\s*(?<monetaryCell>(?:$_currencyTokenPattern)?\\s*(?<amount>$_amountTokenPattern)'
+  '\\s*(?:$_currencyTokenPattern)?)\\s*\$',
   caseSensitive: false,
 );
 

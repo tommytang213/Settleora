@@ -58,6 +58,9 @@ void main() {
       'traditionalTaxConflict',
       'traditionalTaxZero',
       'traditionalTaxNet',
+      'traditionalTaxJoinedForeign',
+      'traditionalTaxJoinedConflict',
+      'traditionalTaxJoinedMatching',
     ]) {
       final confidentDraft = [
         'service',
@@ -80,17 +83,20 @@ void main() {
         'traditionalTaxSuffix',
         'traditionalTaxRate',
         'traditionalTaxLowercase',
+        'traditionalTaxJoinedMatching',
       ].contains(scenario);
       final preview = scenario.startsWith('traditionalTax')
           ? const ReceiptOcrParser().parse(
               'Cafe\nDate: 2026/08/15\nTea USD 10.00\nSubtotal USD 10.00\n'
-              '消費稅 ${switch (scenario) {
+              '消費稅${scenario.contains('Joined') ? '' : ' '}${switch (scenario) {
                 'traditionalTaxSuffix' => '1.0USD',
                 'traditionalTaxRate' => '(10%) USD1',
                 'traditionalTaxSign' => 'USD-1.0',
                 'traditionalTaxLowercase' => 'usd1.0',
                 'traditionalTaxConflict' => 'USD1.0EUR',
                 'traditionalTaxZero' => 'USD0.0',
+                'traditionalTaxJoinedForeign' => 'EUR1.0',
+                'traditionalTaxJoinedConflict' => 'EUR1.0USD',
                 _ => 'USD1.0',
               }}\nTotal USD ${scenario == 'traditionalTaxNet' ? '11.00' : '10.00'}',
             )
@@ -157,6 +163,8 @@ void main() {
             if ([
               'traditionalTaxSign',
               'traditionalTaxConflict',
+              'traditionalTaxJoinedForeign',
+              'traditionalTaxJoinedConflict',
             ].contains(scenario)) {
               expect(saved.taxAmount, isNull);
             } else {
@@ -171,7 +179,11 @@ void main() {
             // gate; it does not make the recognized tax role incomplete.
             confidentDraft ||
                     (scenario.startsWith('traditionalTax') &&
-                        scenario != 'traditionalTaxConflict')
+                        ![
+                          'traditionalTaxConflict',
+                          'traditionalTaxJoinedForeign',
+                          'traditionalTaxJoinedConflict',
+                        ].contains(scenario))
                 ? isNull
                 : ReceiptOcrTaxReconciliationModeValues.unresolved,
           );
