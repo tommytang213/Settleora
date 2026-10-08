@@ -1,9 +1,10 @@
-"""Execute only the bootstrap's embedded materializer with fake Git and ownership.
+"""Template for testing the actual embedded materializer with fake Git/ownership.
 
 No shell bootstrap, network, sudo, installation, or real ownership change runs.
-The only writes are tiny synthetic support files inside this harness's own tempdir.
+The Node test inserts the fixed repository materializer at the single marker,
+then runs the complete script in an isolated Python child. No code is evaluated
+from scenario arguments. Only tiny synthetic support files are materialized.
 """
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -18,13 +19,6 @@ if len(sys.argv) != 2:
     print("usage: native-install-capacity-harness.py SCENARIO", file=sys.stderr)
     raise SystemExit(2)
 
-# This fixture exercises only the repository's own bootstrap. A caller may
-# choose a synthetic scenario, never the source code read by the harness.
-source = (Path(__file__).resolve().parents[2] /
-          "semantic-recovery-native-install-bootstrap.sh").read_text(encoding="utf-8")
-programs = re.findall(r"<<'PY'\n([\s\S]*?)\nPY\n", source)
-assert len(programs) == 2
-program = programs[1]
 scenario = sys.argv[1]
 mib = 1024 * 1024
 sizes = {
@@ -39,7 +33,13 @@ sizes = {
 }[scenario]
 
 def oid(payload):
-    return hashlib.sha1(b"blob " + str(len(payload)).encode() + b"\0" + payload).hexdigest()
+    # Ask Git for its format-defined blob identity; this does not store objects
+    # or use a weak digest as a cryptographic authorization decision.
+    result = subprocess.run(["/usr/bin/git", "hash-object", "--stdin"],
+                            input=payload, capture_output=True, check=True)
+    value = result.stdout.decode("ascii").strip()
+    assert re.fullmatch(r"[a-f0-9]{40}", value)
+    return value
 
 members = []
 objects = {}
@@ -103,7 +103,7 @@ with tempfile.TemporaryDirectory(prefix="settleora-native-capacity-test-") as ro
             patch.object(sys, "argv", ["fixture-materializer", root, "0" * 40]):
         status = 0
         try:
-            exec(compile(program, "<actual-bootstrap-materializer>", "exec"), {})
+            raise RuntimeError("ACTUAL_MATERIALIZER_INSERTION_REQUIRED")
         except SystemExit as error:
             status = error.code
     assert all(name.startswith("tools/auto-runner/") for name in creation_paths)

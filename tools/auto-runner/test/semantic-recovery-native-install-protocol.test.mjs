@@ -246,24 +246,39 @@ test("authenticated source manifest applies the same object, aggregate and trave
   }
 });
 
+function runCapacityHarness(arguments_) {
+  // Both code inputs are fixed repository files. Scenario arguments only reach
+  // the generated script's argument validator, never its source or a shell.
+  const template = readFileSync(new URL("./fixtures/native-install-capacity-harness.py", import.meta.url), "utf8");
+  const bootstrap = readFileSync(new URL("../semantic-recovery-native-install-bootstrap.sh", import.meta.url), "utf8");
+  const programs = [...bootstrap.matchAll(/<<'PY'\n([\s\S]*?)\nPY\n/gu)];
+  assert.equal(programs.length, 2);
+  const marker = '            raise RuntimeError("ACTUAL_MATERIALIZER_INSERTION_REQUIRED")';
+  assert.equal(template.split(marker).length, 2);
+  const program = programs[1][1].split("\n").map((line) => `            ${line}`).join("\n");
+  const root = mkdtempSync(path.join(tmpdir(), "settleora-capacity-child-"));
+  try {
+    const script = path.join(root, "harness.py");
+    writeFileSync(script, template.replace(marker, () => program), { flag: "wx", mode: 0o600 });
+    return spawnSync("/usr/bin/python3", ["-I", script, ...arguments_], {
+      cwd: root, encoding: "utf8", maxBuffer: 64 * 1024, timeout: 60_000,
+      env: { HOME: "/nonexistent", LANG: "C", LC_ALL: "C", PATH: "/usr/bin:/bin", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_DEFAULT_HASH: "sha1" },
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
 test("capacity harness rejects a caller-supplied bootstrap path before reading it", () => {
-  const harness = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "fixtures/native-install-capacity-harness.py");
-  const child = spawnSync("/usr/bin/python3", ["-I", harness, "/nonexistent/caller-selected-bootstrap.sh", "large-valid"], {
-    encoding: "utf8", maxBuffer: 64 * 1024, timeout: 60_000,
-    env: { HOME: "/nonexistent", LANG: "C", LC_ALL: "C", PATH: "/usr/bin:/bin" },
-  });
+  const child = runCapacityHarness(["/nonexistent/caller-selected-bootstrap.sh", "large-valid"]);
   assert.equal(child.status, 2);
   assert.match(child.stderr, /^usage: native-install-capacity-harness\.py SCENARIO\n$/u);
   assert.equal(child.stdout, "");
 });
 
 test("actual embedded bootstrap retains large-blob integrity, object and aggregate controls without installation", () => {
-  const harness = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "fixtures/native-install-capacity-harness.py");
   for (const scenario of ["large-valid", "limit-valid", "corrupt-large", "object-over-limit", "aggregate-over-limit", "repeated-blob-over-limit", "symlink-large", "escaping-large"]) {
-    const child = spawnSync("/usr/bin/python3", ["-I", harness, scenario], {
-      encoding: "utf8", maxBuffer: 64 * 1024, timeout: 60_000,
-      env: { HOME: "/nonexistent", LANG: "C", LC_ALL: "C", PATH: "/usr/bin:/bin" },
-    });
+    const child = runCapacityHarness([scenario]);
     assert.equal(child.status, 0, `${scenario}: ${child.stderr}`);
     const result = JSON.parse(child.stdout);
     const valid = scenario === "large-valid" || scenario === "limit-valid";
