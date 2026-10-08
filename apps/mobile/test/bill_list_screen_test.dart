@@ -39,6 +39,9 @@ void main() {
     for (final scenario in [
       'service',
       'foreignService',
+      'serviceTrailingWord',
+      'serviceTrailingCurrencyWord',
+      'serviceAttachedCurrency',
       'subtotal',
       'competingSubtotal',
       'taxAnnotation',
@@ -55,6 +58,11 @@ void main() {
       final preview = switch (scenario) {
         'service' => joinedServicePreview(),
         'foreignService' => joinedServicePreview(amount: 'EUR 1.00'),
+        'serviceTrailingWord' => joinedServicePreview(amount: 'USD 1.00 guide'),
+        'serviceTrailingCurrencyWord' => joinedServicePreview(
+          amount: 'USD 1.00 USD guide',
+        ),
+        'serviceAttachedCurrency' => joinedServicePreview(amount: 'USD1.00'),
         'subtotal' => parseSummaryBlocks(skewedSummaryBlocks()),
         'competingSubtotal' => parseSummaryBlocks(
           skewedSummaryBlocks()

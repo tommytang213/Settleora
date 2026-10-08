@@ -64,6 +64,44 @@ void main() {
       expect(p.reviewHints, isNotEmpty);
     });
   }
+  for (final money in ['1.00 USD', 'USD 1.00 USD']) {
+    test('joined service owns a complete bounded money cell: $money', () {
+      final p = joinedServicePreview(amount: money);
+      expect(p.service, '1.00');
+      expect(p.adjustmentsComplete, isTrue);
+      expect(p.reviewHints, isEmpty);
+    });
+  }
+  for (final row in [
+    'Service Charge10% USD 1.00 guide',
+    'Service Fee5% USD 1.00 kit',
+    'Services Charges2.5% USD 1.00 product',
+    'Service10% USD 1.00 manual',
+    'guide USD 1.00 Service Charge10%',
+    'kit USD 1.00 Service Fee5%',
+    'Service Charge10% USD1.00',
+    'Service Charge10% USD-1.00',
+    'Service Charge10% 1.00USD',
+    'Service Charge10% USD1.00 USD',
+  ]) {
+    test('joined service retains unexplained text around money: $row', () {
+      final p = const ReceiptOcrParser().parse(
+        'Corner Market\nTea USD 10.00\nSubtotal USD 10.00\n$row\nTotal USD 11.00',
+      );
+      expect(p.service, isNull);
+      expect(p.adjustmentsComplete, isFalse);
+      expect(p.reviewHints, isNotEmpty);
+      final saved = receiptOcrReviewSaveRequestFromPreview(
+        p,
+        originalCurrency: p.currency,
+      );
+      expect(saved!.status, ReceiptOcrReviewStatusValues.provisional);
+      expect(
+        saved.taxReconciliationMode,
+        ReceiptOcrTaxReconciliationModeValues.unresolved,
+      );
+    });
+  }
   for (final scale in [0.5, 1.0, 2.0]) {
     test(
       'unique skewed subtotal/total ownership is scale invariant: $scale',
@@ -120,6 +158,9 @@ void main() {
     'USD 10.00 USD 9.00',
     'USD 10%',
     '10.00',
+    'USD10.00',
+    'USD-10.00',
+    '10.00USD',
   ]) {
     test('skewed summary does not consume uncertain money: $money', () {
       final blocks = skewedSummaryBlocks(subtotal: money);
@@ -240,6 +281,9 @@ void main() {
     'Tea - VAT 5% item EUR 20.00',
     'Subtotal VAT 5% item EUR 20.00',
     'Tea VAT 5% item USD 20.00',
+    'Tea VAT 5% item EUR20.00',
+    'Tea VAT 5% item EUR-20.00',
+    'Tea VAT 5% item 20.00EUR',
   ]) {
     test('tax annotation uncertainty keeps its review reason: $row', () {
       final p = const ReceiptOcrParser().parse(

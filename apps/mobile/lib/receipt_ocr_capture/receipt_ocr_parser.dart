@@ -6404,7 +6404,7 @@ Map<int, String> _skewedSummaryEvidenceLines(
     if (owned.any((b) => _hasDetachedAmountSign(b.text))) continue;
     bool money(ReceiptOcrBlockEvidence b) {
       final text = _normalizeOcrLine(b.text);
-      if (!_isBoundedPaymentAmount(text)) return false;
+      if (!_isBoundedSummaryAmount(text)) return false;
       final printed = _currencyAdjacentToSelectedAmount(text, currency);
       return printed.hasExplicitEvidence && printed.currency == currency;
     }
@@ -10007,18 +10007,37 @@ bool _isExplicitTaxAnnotatedItemLine(String line, String? currency) {
   }
   final money = match.namedGroup('money')!;
   final printed = _currencyAdjacentToSelectedAmount(money, currency);
-  return _isBoundedPaymentAmount(money) &&
+  return _isBoundedSummaryAmount(money) &&
       (!printed.hasExplicitEvidence || printed.currency == currency) &&
       _isPricedItemLine(line);
 }
 
+bool _isBoundedSummaryAmount(String text) {
+  if (!_isBoundedPaymentAmount(text)) return false;
+  final printed = RegExp(_amountTokenPattern).allMatches(text).toList();
+  final selected = RegExp(
+    '(?<![A-Za-z0-9])$_amountTokenPattern(?![A-Za-z0-9])',
+  ).allMatches(text).toList();
+  // The labeled-amount extractor must consume the whole printed amount.
+  // An attached code can otherwise leave only a decimal tail or lose a sign.
+  return printed.length == 1 &&
+      selected.length == 1 &&
+      printed.single.start == selected.single.start &&
+      printed.single.end == selected.single.end;
+}
+
 bool _hasServiceChargeLabel(String line, String normalized) {
-  return _hasEnglishReceiptLabel(
+  // The joined-rate extension must own the entire row, including the side
+  // after the amount. Unexplained product words retain their review reason.
+  final joinedRate = RegExp(
+    r'^services?\s*(?:charges?|fees?)?\d{1,3}(?:\.\d+)?%\s+(.+)$',
+    caseSensitive: false,
+  ).firstMatch(line);
+  return (joinedRate != null &&
+          _isBoundedSummaryAmount(joinedRate.group(1)!)) ||
+      _hasEnglishReceiptLabel(
         normalized,
-        RegExp(
-          r'\bservices?\s*(charges?|fees?)?(?:\b|(?=\d{1,3}(?:\.\d+)?%))\.?',
-          caseSensitive: false,
-        ),
+        RegExp(r'\bservices?\s*(charges?|fees?)?\b\.?', caseSensitive: false),
       ) ||
       _hasJapaneseReceiptLabel(line, const ['サービス料']) ||
       _hasLocalizedReceiptLabel(line, const [
