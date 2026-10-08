@@ -13,6 +13,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { userInfo } from "node:os";
+import { readGithubGetWithRetry } from "./github-get-retry.mjs";
 import { loadLogicalTaskBudget } from "./logical-task-budget.mjs";
 import { resumedGitRepositoryAuthorityIsTrusted } from "./preserved-recovery-deployment.mjs";
 import { authenticateAssociatedRecoverableState } from "./recovery-state.mjs";
@@ -790,8 +791,8 @@ function readGithubNoEffect({ repositoryRoot, repository, issueNumber, branch, m
     GH_PROMPT_DISABLED: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1",
   };
   if (githubRead !== null && typeof githubRead !== "function") throw new Error("semantic extraction GitHub reader invalid");
-  const read = githubRead || ((route) => JSON.parse(String(command("/usr/bin/gh", ["api", route], {
-    cwd: repositoryRoot, encoding: "utf8", env: githubEnvironment,
+  const read = githubRead || ((route) => JSON.parse(String(readGithubGetWithRetry({
+    route, command, options: { cwd: repositoryRoot, encoding: "utf8", env: githubEnvironment },
   })) || "{}"));
   const repositoryRecord = read(`repos/${repository}`);
   const mainRef = read(`repos/${repository}/git/ref/heads/main`);
@@ -934,7 +935,7 @@ function sameFileIdentity(left, right) {
     && left.mtimeMs === right.mtimeMs && left.ctimeMs === right.ctimeMs && left.mode === right.mode
     && left.uid === right.uid && left.gid === right.gid && left.nlink === right.nlink;
 }
-function defaultCommand(executable, args, options) { return execFileSync(executable, args, { ...options, maxBuffer: 4 * 1024 * 1024, timeout: 30_000 }); }
+function defaultCommand(executable, args, options) { return execFileSync(executable, args, { ...options, maxBuffer: 4 * 1024 * 1024, timeout: Math.min(options.timeout ?? 30_000, 30_000) }); }
 function digest64(value) { return /^[a-f0-9]{64}$/u.test(String(value || "")); }
 function canonicalJson(value) { return JSON.stringify(canonicalize(value)); }
 function canonicalize(value) { if (Array.isArray(value)) return value.map(canonicalize); if (value && typeof value === "object") return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalize(value[key])])); return value; }

@@ -426,7 +426,9 @@ function createFixtureCommand({ issueNumber, mainSha }) {
     assert.equal(options.env.PATH, "/usr/bin:/bin");
     assert.equal(options.env.GH_CONFIG_DIR, undefined);
     assert.equal(options.env.GH_HOST, undefined);
-    const joined = args.join(" ");
+    assert.deepEqual(args.slice(0, 3), ["api", "--method", "GET"]);
+    assert.ok(options.timeout > 0 && options.timeout <= 30_000);
+    const joined = [args[0], ...args.slice(3)].join(" ");
     if (joined === "api repos/example/repo") {
       return JSON.stringify({ full_name: "example/repo", default_branch: "main" });
     }
@@ -492,6 +494,56 @@ test("semantic GitHub no-effect fence is freshly requeried and exact-digest boun
       return fixture.sourceCommand(executable, args, options);
     };
     assert.throws(() => reauthenticateSemanticRecoveryGithubNoEffect({ repositoryRoot: fixture.repositoryRoot, manifest, command: laterBranch }), /later GitHub effect/u);
+  } finally { fixture.cleanup(); }
+});
+
+test("semantic GitHub retry keeps fresh independent reads, digest equality, and effect rejection", () => {
+  const fixture = makeFixture();
+  try {
+    const manifest = semanticGithubManifest(fixture);
+    const calls = [];
+    let failNext = true;
+    let returnLaterEffect = false;
+    const command = (executable, args, options) => {
+      if (executable === "/usr/bin/gh") {
+        const route = args.at(-1);
+        calls.push(route);
+        if (failNext) {
+          failNext = false;
+          throw Object.assign(new Error("transient fixture transport"), {
+            status: 1, signal: null, stdout: "", stderr: `Get "https://api.github.com/${route}": EOF`,
+          });
+        }
+        if (returnLaterEffect && route.includes("git/matching-refs/heads/")) return JSON.stringify([{ ref: `refs/heads/${fixture.claims.branch}` }]);
+      }
+      return fixture.sourceCommand(executable, args, options);
+    };
+    const read = () => reauthenticateSemanticRecoveryGithubNoEffect({ repositoryRoot: fixture.repositoryRoot, manifest, command });
+    const first = read();
+    assert.equal(calls.length, 7);
+    assert.equal(calls[0], calls[1]);
+    const second = read();
+    assert.equal(calls.length, 13);
+    assert.deepEqual(calls.slice(7), calls.slice(1, 7));
+    assert.equal(first.evidenceDigest, manifest.claims.prEvidenceDigest);
+    assert.equal(first.evidenceDigest, second.evidenceDigest);
+    assert.equal(Date.parse(second.expiresAt) - Date.parse(second.observedAt), 30_000);
+    returnLaterEffect = true;
+    assert.throws(read, /later GitHub effect/u);
+    assert.equal(calls.length, 19);
+  } finally { fixture.cleanup(); }
+});
+
+test("semantic GitHub malformed JSON is not retried", () => {
+  const fixture = makeFixture();
+  try {
+    let calls = 0;
+    const command = (executable, args, options) => {
+      if (executable === "/usr/bin/gh") { calls += 1; return "[malformed"; }
+      return fixture.sourceCommand(executable, args, options);
+    };
+    assert.throws(() => reauthenticateSemanticRecoveryGithubNoEffect({ repositoryRoot: fixture.repositoryRoot, manifest: semanticGithubManifest(fixture), command }), SyntaxError);
+    assert.equal(calls, 1);
   } finally { fixture.cleanup(); }
 });
 
