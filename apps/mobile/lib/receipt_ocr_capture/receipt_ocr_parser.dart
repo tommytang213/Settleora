@@ -165,6 +165,11 @@ class ReceiptOcrParser {
       lines,
       merchantDetection?.lineIndices ?? const {},
     );
+    final brandCopyRows = _ownedReceiptBrandCopyRows(
+      lines,
+      layoutRows,
+      merchantDetection?.lineIndices ?? const {},
+    );
     final extractedItems = _extractItems(
       lines,
       currency,
@@ -180,6 +185,7 @@ class ReceiptOcrParser {
         ...supportHoursRows,
         ...meterReadingRows,
         ...localizedHeaderRows,
+        ...brandCopyRows,
       },
     );
     final itemCandidates = extractedItems.items;
@@ -224,6 +230,7 @@ class ReceiptOcrParser {
         ...supportHoursRows,
         ...meterReadingRows,
         ...localizedHeaderRows,
+        ...brandCopyRows,
       },
       uncertainSummaryAmountRows: extractedItems.uncertainSummaryAmountRows,
     );
@@ -5699,6 +5706,174 @@ bool _isPaymentTerminalIdentifierLine(String line) => RegExp(
   r'^(?:terminal|term|till|pos)\s*(?:(?:id|no|number)\s*)?[:#-]?\s*[a-z]?\d{1,6}$',
   caseSensitive: false,
 ).hasMatch(line.trim());
+
+// Receipt copy needs a closed language pattern as well as its printed role.
+// Geometry alone cannot distinguish an unpriced product from a slogan. Keep
+// these rows in the raw evidence, and do not change text-only classification.
+Set<int> _ownedReceiptBrandCopyRows(
+  List<String> lines,
+  List<List<ReceiptOcrBlockEvidence>> rows,
+  Set<int> merchantRows,
+) {
+  final owned = <int>{};
+  if (rows.length != lines.length || rows.isEmpty) return owned;
+  ({double left, double right, double top, double bottom})? bounds(int i) {
+    if (rows[i].isEmpty) return null;
+    for (final b in rows[i]) {
+      if (b.confidence == null ||
+          !b.confidence!.isFinite ||
+          b.confidence! < 0.8 ||
+          b.points.length != 4 ||
+          b.points.any((p) => !p.x.isFinite || !p.y.isFinite)) {
+        return null;
+      }
+      final turns = [
+        for (var j = 0; j < 4; j++)
+          (b.points[(j + 1) % 4].x - b.points[j].x) *
+                  (b.points[(j + 2) % 4].y - b.points[(j + 1) % 4].y) -
+              (b.points[(j + 1) % 4].y - b.points[j].y) *
+                  (b.points[(j + 2) % 4].x - b.points[(j + 1) % 4].x),
+      ];
+      if (!turns.every((t) => t.isFinite && t > 0) &&
+          !turns.every((t) => t.isFinite && t < 0))
+        return null;
+    }
+    final points = rows[i].expand((b) => b.points).toList();
+    final xs = points.map((p) => p.x).toList()..sort();
+    final ys = points.map((p) => p.y).toList()..sort();
+    if (xs.last <= xs.first || ys.last <= ys.first) return null;
+    return (left: xs.first, right: xs.last, top: ys.first, bottom: ys.last);
+  }
+
+  bool unpricedCopy(String text) =>
+      !_lineHasAmount(text) &&
+      !_hasPotentialReceiptAdjustmentLabel(text) &&
+      !_isPrintedModifierLine(text) &&
+      RegExp(r'^[\p{L}\s,.!。！]+$', unicode: true).hasMatch(text.trim());
+
+  // A short aspirational food/day caption must be smaller than the selected
+  // logo and enclosed between it and the street/postal header. Unknown nouns,
+  // sizes, quantities, modifiers and product descriptions stay unresolved.
+  if (merchantRows.isNotEmpty) {
+    final lastMerchant = merchantRows.reduce((a, b) => a > b ? a : b);
+    final i = lastMerchant + 1;
+    if (lastMerchant <= 2 &&
+        i + 2 < lines.length &&
+        rows[i].length == 1 &&
+        unpricedCopy(lines[i]) &&
+        RegExp(
+          r'^(?:good|better|fresh)\s+food[.!]\s+(?:good|better|brighter)\s+days[.!]$',
+          caseSensitive: false,
+        ).hasMatch(lines[i].trim()) &&
+        _isStreetAddressLine(lines[i + 1]) &&
+        RegExp(
+          r"^\d{1,6}\s+[\p{L}\p{N} .'-]{2,60}\s+(?:st|street|rd|road|ave|avenue|blvd|boulevard|lane|ln|drive|dr|way|plaza)\.?$",
+          caseSensitive: false,
+          unicode: true,
+        ).hasMatch(lines[i + 1].trim()) &&
+        (_isCityPostalLine(lines[i + 2]) ||
+            _hasUsPostalAddress([lines[i + 1], lines[i + 2]]))) {
+      final logo = bounds(lastMerchant);
+      final caption = bounds(i);
+      final address = bounds(i + 1);
+      final postal = bounds(i + 2);
+      if (logo != null &&
+          caption != null &&
+          address != null &&
+          postal != null) {
+        final h = caption.bottom - caption.top;
+        final w = logo.right - logo.left;
+        final center = (logo.left + logo.right) / 2;
+        if (logo.bottom - logo.top >= h * 1.5 &&
+            caption.right - caption.left <= w * 1.2 &&
+            ((caption.left + caption.right) / 2 - center).abs() <= w * 0.1 &&
+            ((address.left + address.right) / 2 - center).abs() <= w * 0.15 &&
+            caption.top >= logo.bottom - h * 0.2 &&
+            caption.top <= logo.bottom + h &&
+            address.top >= caption.bottom &&
+            address.top <= caption.bottom + h * 1.5 &&
+            postal.top >= address.bottom - h * 0.2 &&
+            postal.top <= address.bottom + h) {
+          owned.add(i);
+        }
+      }
+    }
+  }
+
+  final total = lines.lastIndexWhere(
+    (line) => _hasTotalLabel(line, line.toLowerCase()) && _lineHasAmount(line),
+  );
+  if (total < 0) return owned;
+  // A trailing number might be a barcode identifier or a monetary field.
+  // Neither its length nor its placement proves the role; leave it reviewable.
+  final end = lines.length;
+  for (final count in [2, 1]) {
+    final start = end - count;
+    if (start <= total ||
+        !lines.sublist(start, end).every(unpricedCopy) ||
+        !_isClosedPostPaymentCourtesy(lines.sublist(start, end)) ||
+        !lines
+            .sublist(total + 1, start)
+            .any(
+              (line) => _isPaymentMetadataLine(line) && _lineHasAmount(line),
+            ) ||
+        !_hasOnlyPaymentOrIncludedTaxOrSuggestedTipAmountsBeforeCourtesy(
+          lines,
+          total,
+          start,
+        ))
+      continue;
+    final transaction = bounds(total);
+    if (transaction == null) continue;
+    final w = transaction.right - transaction.left;
+    final center = (transaction.left + transaction.right) / 2;
+    var bottom = transaction.bottom;
+    var valid = true;
+    for (var i = total + 1; i < start; i++) {
+      final b = bounds(i);
+      if (b == null) {
+        valid = false;
+        break;
+      }
+      if (b.bottom > bottom) bottom = b.bottom;
+    }
+    for (var i = start; valid && i < end; i++) {
+      final b = bounds(i);
+      if (b == null) {
+        valid = false;
+        break;
+      }
+      final h = b.bottom - b.top;
+      if (h > (transaction.bottom - transaction.top) * 1.8 ||
+          b.right - b.left > w * 0.98 ||
+          ((b.left + b.right) / 2 - center).abs() > w * 0.1 ||
+          b.top < bottom - h * 0.2 ||
+          b.top > bottom + h * (i == start ? 4 : 1.5)) {
+        valid = false;
+      }
+      bottom = b.bottom;
+    }
+    if (valid) {
+      owned.addAll(List.generate(count, (i) => start + i));
+      break;
+    }
+  }
+  return owned;
+}
+
+bool _isClosedPostPaymentCourtesy(List<String> lines) {
+  bool phrase(String line) =>
+      _isReceiptCourtesyLine(line) ||
+      RegExp(
+        r'^(?:thank you for visiting|feel better(?:, sooner)?|you look (?:good|great) here|(?:drive|travel) safe(?:ly)?|grazie|see you soon)[.!]?$',
+        caseSensitive: false,
+      ).hasMatch(line.trim());
+  if (lines.every(phrase)) return true;
+  return RegExp(
+    r'^thank you for (?:brewing|making)\s+a (?:brighter|better|good) day[.!]?$',
+    caseSensitive: false,
+  ).hasMatch(lines.join(' ').trim());
+}
 
 bool _isCenteredPostTotalFooter(
   List<String> lines,

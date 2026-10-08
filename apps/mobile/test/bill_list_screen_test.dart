@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'support/brand_copy_receipt.dart';
 import 'support/financial_role_receipt.dart';
 import 'support/summary_role_receipt.dart';
 
@@ -46,11 +47,16 @@ void main() {
       'competingSubtotal',
       'taxAnnotation',
       'foreignTaxItem',
+      'brandCaption',
+      'brandFooter',
+      'brandUnpriced',
     ]) {
       final confidentDraft = [
         'service',
         'subtotal',
         'taxAnnotation',
+        'brandCaption',
+        'brandFooter',
       ].contains(scenario);
       // Complete tax evidence can still describe net-only item amounts.
       // Preserve the existing #1324 gross-contribution Apply gate.
@@ -69,6 +75,18 @@ void main() {
             ..add(summaryBlock('USD 9.00', 8, 400, 220.2, 100, 30)),
         ),
         'taxAnnotation' => annotatedTaxItemPreview(),
+        'brandCaption' => parseBrandCopy(
+          brandCopyBlocks(caption: 'Better food. Brighter days.'),
+        ),
+        'brandFooter' => parseBrandCopy(
+          brandCopyBlocks(footer: ['Thank you for brewing', 'a brighter day!']),
+        ),
+        'brandUnpriced' => parseBrandCopy(
+          brandCopyBlocks(
+            footer: ['Thank you for visiting!'],
+            afterTotal: ['Unpriced dessert'],
+          ),
+        ),
         _ => annotatedTaxItemPreview(firstCurrency: 'USD'),
       };
       final firstDescription = scenario == 'taxAnnotation'
