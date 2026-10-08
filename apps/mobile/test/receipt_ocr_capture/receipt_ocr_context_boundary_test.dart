@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mobile/bills/bill_list_screen.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_parser.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
 
@@ -163,6 +164,44 @@ void main() {
           final p = parseRows(rows, layout: layout);
           expect(p.reviewHints, isNotEmpty);
         });
+      }
+    }
+  }
+  for (final layout in [false, true]) {
+    for (final label in ['Date', 'Datum', 'Fecha', 'Data']) {
+      for (final date in ['2026/09/17', '17/09/2026']) {
+        for (final separator in ['', ' ', ':', '：']) {
+          test('Latin date boundary $label$separator$date layout=$layout', () {
+            final rows = [
+              'Corner Market',
+              'Lindenstraße 42, Bremen',
+              '$label$separator$date',
+              'Tea USD 2.00',
+              'Subtotal USD 2.00',
+              'Total USD 2.00',
+            ];
+            final preview = parseRows(rows, layout: layout);
+            final saved = receiptOcrReviewSaveRequestFromPreview(
+              preview,
+              originalCurrency: 'USD',
+            );
+            expect(saved, isNotNull);
+            if (separator.isEmpty) {
+              expect(preview.receiptDate, isNull);
+              expect(preview.adjustmentsComplete, isFalse);
+              expect(preview.reviewHints, isNotEmpty);
+              expect(saved!.receiptIssuedAtUtc, isNull);
+            } else {
+              expect(preview.receiptDate, '2026-09-17');
+              expect(preview.adjustmentsComplete, isTrue);
+              expect(preview.reviewHints, isEmpty);
+              expect(saved!.receiptIssuedAtUtc, DateTime.utc(2026, 9, 17));
+            }
+            expect(preview.items.single.description, 'Tea');
+            expect(preview.items.single.lineTotal, '2.00');
+            if (layout) expect(preview.blocks.map((v) => v.text), rows);
+          });
+        }
       }
     }
   }

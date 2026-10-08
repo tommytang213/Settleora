@@ -9439,10 +9439,12 @@ bool _isWholeLocalizedAddress(String line) {
 // Match a whole date field, not a product containing a date or an amount.
 // Keep the same calendar interpretation as _detectDate; unknown glyphs,
 // incomplete/invalid dates and additional numeric fields remain reviewable.
+// The numeric date must have the same leading word boundary as _detectDate;
+// joined Latin labels such as Datum2026/09/17 are not extractable dates.
 bool _isLabeledCalendarDateLine(String line) {
   final match = RegExp(
     r'^\s*(?:date|datum|fecha|data|日期|日付|날짜|дата|วันที่|तारीख|दिनांक)'
-    r'\s*[:：]?\s*(?:(?<year>20\d{2}|19\d{2})(?<ys>[-/.])'
+    r'\s*[:：]?\s*\b(?:(?<year>20\d{2}|19\d{2})(?<ys>[-/.])'
     r'(?<month>\d{1,2})\k<ys>(?<day>\d{1,2})|'
     r'(?<first>\d{1,2})(?<ds>[-/.])(?<second>\d{1,2})\k<ds>'
     r'(?<lastYear>20\d{2}|19\d{2}))\s*$',
