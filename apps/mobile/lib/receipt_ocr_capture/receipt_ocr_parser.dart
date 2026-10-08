@@ -5735,8 +5735,9 @@ Set<int> _ownedReceiptBrandCopyRows(
                   (b.points[(j + 2) % 4].x - b.points[(j + 1) % 4].x),
       ];
       if (!turns.every((t) => t.isFinite && t > 0) &&
-          !turns.every((t) => t.isFinite && t < 0))
+          !turns.every((t) => t.isFinite && t < 0)) {
         return null;
+      }
     }
     final points = rows[i].expand((b) => b.points).toList();
     final xs = points.map((p) => p.x).toList()..sort();
@@ -5821,8 +5822,9 @@ Set<int> _ownedReceiptBrandCopyRows(
           lines,
           total,
           start,
-        ))
+        )) {
       continue;
+    }
     final transaction = bounds(total);
     if (transaction == null) continue;
     final w = transaction.right - transaction.left;

@@ -48,17 +48,25 @@ List<ReceiptOcrBlockEvidence> brandCopyBlocks({
   }
   add('Date: 2026-09-18', 300, 400, 40);
   y += 25;
-  for (final line in beforeItems) add(line, 120, 250, 40);
+  for (final line in beforeItems) {
+    add(line, 120, 250, 40);
+  }
   add('Tea USD 3.50', 120, 760, 40);
   add('Bread USD 6.50', 120, 760, 40);
-  for (final line in afterItems) add(line, 120, 250, 40);
+  for (final line in afterItems) {
+    add(line, 120, 250, 40);
+  }
   add('Subtotal USD 10.00', 120, 760, 40);
   add('Tax USD 1.00', 120, 760, 40);
   add('Total USD 11.00', 120, 760, 50);
   if (payment) add('Card **** 4422 USD 11.00', 120, 760, 40);
-  for (final line in afterTotal) add(line, 120, 250, 40);
+  for (final line in afterTotal) {
+    add(line, 120, 250, 40);
+  }
   y += 30;
-  for (final line in footer) add(line, footerLeft, 600, 40);
+  for (final line in footer) {
+    add(line, footerLeft, 600, 40);
+  }
   if (barcode) {
     y += 80;
     add('812345678901', 370, 260, 40);

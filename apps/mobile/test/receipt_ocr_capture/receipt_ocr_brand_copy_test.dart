@@ -49,8 +49,9 @@ void main() {
       if (condition == 'priced') caption += ' USD 3.00';
       if (condition == 'modifier') caption = '+ $caption';
       if (condition == 'adjustment') caption = 'Discount. Brighter days.';
-      if (condition == 'unpriced product')
+      if (condition == 'unpriced product') {
         caption = 'Chocolate Cookie. Family Size.';
+      }
       if (condition == 'quantity') caption = 'Better food 2. Brighter days.';
       final blocks = brandCopyBlocks(
         caption: condition == 'body' ? null : caption,
@@ -183,15 +184,18 @@ void main() {
   ]) {
     test('footer classification preserves $condition evidence', () {
       var footer = ['Thank you for visiting!'];
-      if (condition == 'unknown suffix')
+      if (condition == 'unknown suffix') {
         footer = ['Thank you for visiting! Gift'];
+      }
       if (condition == 'priced') footer = ['Thank you for visiting USD 3.00'];
       if (condition == 'modifier') footer = ['+ Thank you for visiting!'];
       if (condition == 'adjustment') footer = ['Thank you for donating!'];
-      if (condition == 'unknown continuation')
+      if (condition == 'unknown continuation') {
         footer = ['Thank you for brewing', 'Gift basket'];
-      if (condition == 'money continuation')
+      }
+      if (condition == 'money continuation') {
         footer = ['Thank you for brewing', 'Gift USD 3.00'];
+      }
       if (condition == 'named product') footer = ['Thank You Gift'];
       final blocks = brandCopyBlocks(
         footer: footer,
