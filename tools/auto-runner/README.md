@@ -2006,6 +2006,20 @@ ID/version/store kind and only matrix-owned claims. Equal bytes, reused
 provenance, request/bundle/expiry disagreement, foreign claims, or cross-owner
 contradiction fail closed.
 
+The semantic evidence extractor's `gh api` GET reads allow at most one retry
+for an explicit transport timeout, connection reset, or interrupted connection.
+Each GET has one 30-second monotonic budget including the 250ms retry delay;
+each attempt receives only the remaining time. JSON parsing, pagination checks, and
+semantic validation remain outside the retry boundary. HTTP failures
+(including authentication, authorization, rate limits, and server errors),
+certificate failures, process timeouts without transport evidence, partial
+response bodies, and unclassified errors fail immediately. In particular,
+the CLI's generic `error connecting` DNS message does not distinguish temporary
+failure from a nonexistent host and remains fail-closed. The adapter accepts
+only repository GET routes and supplies no mutation or cache option. Each
+authority still performs its own complete context read; retries neither reuse
+another context's response nor extend evidence freshness or admit a successor.
+
 The fixed future layout contains `producer/` for the root-owned executable,
 immutable module bundle and canonical policy; exactly eight
 `stores/<authority-class>.json` snapshots; one exact
