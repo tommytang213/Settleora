@@ -8499,7 +8499,7 @@ bool _isBoundedPaymentIdentityLine(String line) {
     if (remainder.isEmpty || _isStandaloneAmountRow(remainder)) return true;
   }
   if (RegExp(
-    r'^approved\s+auth(?:orization)?\s*'
+    r'^approved\s+auth(?:orization)?(?=\s|[:#])\s*'
     r'(?:(?:code|number|no\.?)\s*)?[:#]?\s*'
     r'(?=[a-z0-9]{0,11}\d)[a-z0-9]{4,12}$',
     caseSensitive: false,

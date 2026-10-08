@@ -36,6 +36,8 @@ void main() {
       'Paid with Mastercard **** 9191 USD 7.00',
       'Refund to VISA ****1234',
       'APPROVED AUTH # 293847',
+      'APPROVED AUTH#293847',
+      'APPROVED AUTH:293847',
       'Approved Authorization # A29384',
     ]) {
       test('payment identity is not a purchase: $row (layout $layout)', () {
@@ -50,6 +52,30 @@ void main() {
         expect(p.blocks.length, layout ? 4 : 0);
         if (layout) expect(p.blocks.last.text, row);
       });
+    }
+    for (final row in [
+      'Approved author1234',
+      'Approved authority6543',
+      'Approved authentic7',
+      'Approved auth1234',
+      'Approved authorizationCode1234',
+    ]) {
+      test(
+        'authorization label requires a boundary: $row (layout $layout)',
+        () {
+          final p = parsePayment(row, layout: layout);
+          expect(p.items.single.description, 'Tea');
+          expect(p.total, '7.00');
+          expect(
+            p.incompleteAdjustmentReasons,
+            contains(
+              ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine,
+            ),
+          );
+          expect(p.reviewHints, isNotEmpty);
+          if (layout) expect(p.blocks.last.text, row);
+        },
+      );
     }
     for (final row in [
       'Debit processing fee USD 4.00',
