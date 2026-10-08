@@ -1325,7 +1325,8 @@ class ReceiptOcrParser {
     // The owned summary grammar accepts case-insensitive attached codes and
     // contextual symbols. Resolve its single monetary cell consistently,
     // retaining unresolved printed markers instead of inheriting currency.
-    if (_includedTaxAmountLinePattern.hasMatch(line)) {
+    if (_includedTaxAmountLinePattern.hasMatch(line) ||
+        _traditionalTaxAmountLinePattern.hasMatch(line)) {
       return _currencyAdjacentToSelectedAmount(line, receiptCurrency);
     }
     if (_hasUnsupportedCurrencySymbolOnSelectedAmount(line)) {
@@ -2214,10 +2215,18 @@ class ReceiptOcrParser {
       final includedTaxSummary =
           _includedTaxAmountLinePattern.firstMatch(line) ??
           _includedTaxTotalLinePattern.firstMatch(line);
+      final traditionalTaxSummary = _traditionalTaxAmountLinePattern.firstMatch(
+        line,
+      );
       final amount = includedTaxSummary != null
           ? _normalizeAmount(
               includedTaxSummary.namedGroup('prefixAmount') ??
                   includedTaxSummary.namedGroup('suffixAmount')!,
+              currency: amountCurrency,
+            )
+          : traditionalTaxSummary != null
+          ? _normalizeAmount(
+              traditionalTaxSummary.namedGroup('amount')!,
               currency: amountCurrency,
             )
           : _isPrimaryTotalCurrencyLine(line, normalized) &&
@@ -10158,10 +10167,12 @@ bool _hasTaxLabel(
 // Preserve the recognized glyph. The traditional tax character can label a
 // complete tax amount, but a book/product containing it is still an item.
 // Require the entire row so an unknown suffix is not consumed as a tax role.
+// The tax extractor consumes this exact amount span: scanning again with word
+// boundaries can select only a decimal tail when a currency code is attached.
 final _traditionalTaxAmountLinePattern = RegExp(
   '^\\s*(?:消費稅|稅)\\s*'
   '(?:[（(]\\s*\\d{1,3}(?:[.,]\\d{1,2})?\\s*%\\s*[)）]\\s*)?'
-  '[:：]?\\s*(?:$_currencyTokenPattern)?\\s*$_amountTokenPattern'
+  '[:：]?\\s*(?:$_currencyTokenPattern)?\\s*(?<amount>$_amountTokenPattern)'
   '\\s*(?:$_currencyTokenPattern)?\\s*\$',
   caseSensitive: false,
 );

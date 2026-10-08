@@ -3,6 +3,49 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_parser.dart';
 
 void main() {
   for (final label in ['消費稅', '稅']) {
+    for (final (cell, amount, currency) in [
+      ('USD1.50', '1.50', 'USD'),
+      ('1.50USD', '1.50', 'USD'),
+      ('USD1.50USD', '1.50', 'USD'),
+      ('(10%) USD1.50', '1.50', 'USD'),
+      ('(10%) 1.50USD', '1.50', 'USD'),
+      ('(10%) USD1', '1', 'USD'),
+      ('(10%) 1USD', '1', 'USD'),
+      ('USD-1.50', '-1.50', 'USD'),
+      ('-1.50USD', '-1.50', 'USD'),
+      ('usd1.50', '1.50', 'USD'),
+      ('1.50usd', '1.50', 'USD'),
+      ('USD1,234.50', '1234.50', 'USD'),
+      ('1.234,50EUR', '1234.50', 'EUR'),
+    ]) {
+      test(
+        'traditional tax consumes its whole monetary cell: $label $cell',
+        () {
+          final preview = const ReceiptOcrParser().parse(
+            'Cafe\nDate: 2026/08/15\nTea USD 15.00\n'
+            'Subtotal USD 15.00\n$label $cell\nTotal USD 16.50',
+          );
+          expect(preview.tax, amount);
+          expect(preview.taxCurrency, currency);
+          expect(preview.taxHasExplicitCurrencyEvidence, isTrue);
+          expect(preview.items.single.lineTotal, '15.00');
+        },
+      );
+    }
+  }
+
+  test('opposed attached denominations retain unresolved currency', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Cafe\nDate: 2026/08/15\nTea USD 15.00\n'
+      'Subtotal USD 15.00\n消費稅 USD1.50EUR\nTotal USD 16.50',
+    );
+    expect(preview.tax, '1.50');
+    expect(preview.taxCurrency, isNull);
+    expect(preview.taxHasExplicitCurrencyEvidence, isTrue);
+    expect(preview.reviewHints, isNotEmpty);
+  });
+
+  for (final label in ['消費稅', '稅']) {
     for (final row in [
       '$label JPY 50',
       '$label 50 JPY',
@@ -60,6 +103,9 @@ void main() {
     '消費稅 ZZZ 50',
     '消費稅 JPY - 50',
     '消費稅',
+    '消費稅 USD1.50guide',
+    '消費稅 USD1.50 2.00',
+    '消費稅 USD1.50.2',
   ]) {
     test('incomplete or ambiguous traditional tax stays reviewable: $row', () {
       final preview = const ReceiptOcrParser().parse(

@@ -50,6 +50,14 @@ void main() {
       'brandCaption',
       'brandFooter',
       'brandUnpriced',
+      'traditionalTaxPrefix',
+      'traditionalTaxSuffix',
+      'traditionalTaxRate',
+      'traditionalTaxSign',
+      'traditionalTaxLowercase',
+      'traditionalTaxConflict',
+      'traditionalTaxZero',
+      'traditionalTaxNet',
     ]) {
       final confidentDraft = [
         'service',
@@ -57,38 +65,69 @@ void main() {
         'taxAnnotation',
         'brandCaption',
         'brandFooter',
+        'traditionalTaxZero',
+        'traditionalTaxNet',
       ].contains(scenario);
       // Complete tax evidence can still describe net-only item amounts.
       // Preserve the existing #1324 gross-contribution Apply gate.
-      final canApplyFinancial = ['service', 'subtotal'].contains(scenario);
-      final preview = switch (scenario) {
-        'service' => joinedServicePreview(),
-        'foreignService' => joinedServicePreview(amount: 'EUR 1.00'),
-        'serviceTrailingWord' => joinedServicePreview(amount: 'USD 1.00 guide'),
-        'serviceTrailingCurrencyWord' => joinedServicePreview(
-          amount: 'USD 1.00 USD guide',
-        ),
-        'serviceAttachedCurrency' => joinedServicePreview(amount: 'USD1.00'),
-        'subtotal' => parseSummaryBlocks(skewedSummaryBlocks()),
-        'competingSubtotal' => parseSummaryBlocks(
-          skewedSummaryBlocks()
-            ..add(summaryBlock('USD 9.00', 8, 400, 220.2, 100, 30)),
-        ),
-        'taxAnnotation' => annotatedTaxItemPreview(),
-        'brandCaption' => parseBrandCopy(
-          brandCopyBlocks(caption: 'Better food. Brighter days.'),
-        ),
-        'brandFooter' => parseBrandCopy(
-          brandCopyBlocks(footer: ['Thank you for brewing', 'a brighter day!']),
-        ),
-        'brandUnpriced' => parseBrandCopy(
-          brandCopyBlocks(
-            footer: ['Thank you for visiting!'],
-            afterTotal: ['Unpriced dessert'],
-          ),
-        ),
-        _ => annotatedTaxItemPreview(firstCurrency: 'USD'),
-      };
+      // Existing Apply copies item amounts only. Gross-matching items remain
+      // selectable even when header arithmetic warns; no tax charge is added.
+      final canApplyFinancial = [
+        'service',
+        'subtotal',
+        'traditionalTaxZero',
+        'traditionalTaxPrefix',
+        'traditionalTaxSuffix',
+        'traditionalTaxRate',
+        'traditionalTaxLowercase',
+      ].contains(scenario);
+      final preview = scenario.startsWith('traditionalTax')
+          ? const ReceiptOcrParser().parse(
+              'Cafe\nDate: 2026/08/15\nTea USD 10.00\nSubtotal USD 10.00\n'
+              '消費稅 ${switch (scenario) {
+                'traditionalTaxSuffix' => '1.0USD',
+                'traditionalTaxRate' => '(10%) USD1',
+                'traditionalTaxSign' => 'USD-1.0',
+                'traditionalTaxLowercase' => 'usd1.0',
+                'traditionalTaxConflict' => 'USD1.0EUR',
+                'traditionalTaxZero' => 'USD0.0',
+                _ => 'USD1.0',
+              }}\nTotal USD ${scenario == 'traditionalTaxNet' ? '11.00' : '10.00'}',
+            )
+          : switch (scenario) {
+              'service' => joinedServicePreview(),
+              'foreignService' => joinedServicePreview(amount: 'EUR 1.00'),
+              'serviceTrailingWord' => joinedServicePreview(
+                amount: 'USD 1.00 guide',
+              ),
+              'serviceTrailingCurrencyWord' => joinedServicePreview(
+                amount: 'USD 1.00 USD guide',
+              ),
+              'serviceAttachedCurrency' => joinedServicePreview(
+                amount: 'USD1.00',
+              ),
+              'subtotal' => parseSummaryBlocks(skewedSummaryBlocks()),
+              'competingSubtotal' => parseSummaryBlocks(
+                skewedSummaryBlocks()
+                  ..add(summaryBlock('USD 9.00', 8, 400, 220.2, 100, 30)),
+              ),
+              'taxAnnotation' => annotatedTaxItemPreview(),
+              'brandCaption' => parseBrandCopy(
+                brandCopyBlocks(caption: 'Better food. Brighter days.'),
+              ),
+              'brandFooter' => parseBrandCopy(
+                brandCopyBlocks(
+                  footer: ['Thank you for brewing', 'a brighter day!'],
+                ),
+              ),
+              'brandUnpriced' => parseBrandCopy(
+                brandCopyBlocks(
+                  footer: ['Thank you for visiting!'],
+                  afterTotal: ['Unpriced dessert'],
+                ),
+              ),
+              _ => annotatedTaxItemPreview(firstCurrency: 'USD'),
+            };
       final firstDescription = scenario == 'taxAnnotation'
           ? 'Tea VAT 5% item'
           : 'Tea';
@@ -108,9 +147,31 @@ void main() {
           );
           expect(saved, isNotNull);
           expect(saved!.status, ReceiptOcrReviewStatusValues.provisional);
+          if (scenario.startsWith('traditionalTax')) {
+            final expectedTax = scenario == 'traditionalTaxZero'
+                ? 0
+                : scenario == 'traditionalTaxSign'
+                ? -1
+                : 1;
+            expect(double.parse(preview.tax!), expectedTax);
+            if ([
+              'traditionalTaxSign',
+              'traditionalTaxConflict',
+            ].contains(scenario)) {
+              expect(saved.taxAmount, isNull);
+            } else {
+              expect(double.parse(saved.taxAmount!), expectedTax);
+            }
+            expect(preview.items.single.lineTotal, '10.00');
+            expect(preview.reviewHints.isEmpty, confidentDraft);
+          }
           expect(
             saved.taxReconciliationMode,
-            confidentDraft
+            // A contradictory total or negative amount has its own review
+            // gate; it does not make the recognized tax role incomplete.
+            confidentDraft ||
+                    (scenario.startsWith('traditionalTax') &&
+                        scenario != 'traditionalTaxConflict')
                 ? isNull
                 : ReceiptOcrTaxReconciliationModeValues.unresolved,
           );
