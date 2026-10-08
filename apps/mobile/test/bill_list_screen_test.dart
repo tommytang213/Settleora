@@ -64,6 +64,7 @@ void main() {
     ]) {
       final confidentDraft = [
         'service',
+        'serviceAttachedCurrency',
         'subtotal',
         'taxAnnotation',
         'brandCaption',
@@ -77,6 +78,7 @@ void main() {
       // selectable even when header arithmetic warns; no tax charge is added.
       final canApplyFinancial = [
         'service',
+        'serviceAttachedCurrency',
         'subtotal',
         'traditionalTaxZero',
         'traditionalTaxPrefix',

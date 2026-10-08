@@ -8681,7 +8681,14 @@ bool _hasUsPostalAddress(List<String> lines) {
 }
 
 bool _lineHasAmount(String line) {
-  return _lastAmountInLine(line) != null;
+  // This is a coarse evidence-presence check, not permission to publish a
+  // monetary value. Preserve numeric date/address/identifier boundaries so an
+  // unresolved row cannot be merged into an adjacent product description.
+  // Actual extracted values must use the complete numeric span below.
+  final candidate = RegExp(
+    '(?<![A-Za-z0-9])$_amountTokenPattern(?![A-Za-z0-9])',
+  ).allMatches(line).lastOrNull;
+  return candidate != null && _normalizeAmount(candidate.group(0)!) != null;
 }
 
 bool _isStandaloneAmountRow(String line) {
