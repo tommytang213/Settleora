@@ -72,6 +72,34 @@ void main() {
       expect(p.reviewHints, isEmpty);
     });
   }
+  for (final money in ['USD1.00', '1.00USD', 'USD1.00 USD', 'USD-1.00']) {
+    test('joined service retains a whole attached currency amount: $money', () {
+      final p = joinedServicePreview(amount: money);
+      expect(p.service, money.contains('-') ? '-1.00' : '1.00');
+      expect(p.serviceCurrency, 'USD');
+      expect(p.adjustmentsComplete, isTrue);
+      if (!money.contains('-')) expect(p.reviewHints, isEmpty);
+    });
+  }
+  for (final money in ['USD10.00', 'USD-10.00', '10.00USD']) {
+    test('owned skewed summary preserves attached currency amount: $money', () {
+      final blocks = skewedSummaryBlocks(subtotal: money);
+      final p = parseSummaryBlocks(blocks);
+      expect(p.subtotal, money.contains('-') ? '-10.00' : '10.00');
+      expect(p.blocks, same(blocks));
+    });
+  }
+  test('tax-annotated item preserves its whole trailing currency amount', () {
+    final p = const ReceiptOcrParser().parse(
+      'Corner Market\nTea VAT 5% item 20.00EUR\nSubtotal EUR 20.00\nTotal EUR 20.00',
+    );
+    expect(p.items.single.description, 'Tea VAT 5% item');
+    expect(p.items.single.lineTotal, '20.00');
+    expect(p.items.single.currency, 'EUR');
+    expect(p.tax, isNull);
+    expect(p.adjustmentsComplete, isTrue);
+    expect(p.reviewHints, isEmpty);
+  });
   for (final row in [
     'Service Charge10% USD 1.00 guide',
     'Service Fee5% USD 1.00 kit',
@@ -79,10 +107,6 @@ void main() {
     'Service10% USD 1.00 manual',
     'guide USD 1.00 Service Charge10%',
     'kit USD 1.00 Service Fee5%',
-    'Service Charge10% USD1.00',
-    'Service Charge10% USD-1.00',
-    'Service Charge10% 1.00USD',
-    'Service Charge10% USD1.00 USD',
   ]) {
     test('joined service retains unexplained text around money: $row', () {
       final p = const ReceiptOcrParser().parse(
@@ -158,9 +182,6 @@ void main() {
     'USD 10.00 USD 9.00',
     'USD 10%',
     '10.00',
-    'USD10.00',
-    'USD-10.00',
-    '10.00USD',
   ]) {
     test('skewed summary does not consume uncertain money: $money', () {
       final blocks = skewedSummaryBlocks(subtotal: money);
@@ -283,7 +304,6 @@ void main() {
     'Tea VAT 5% item USD 20.00',
     'Tea VAT 5% item EUR20.00',
     'Tea VAT 5% item EUR-20.00',
-    'Tea VAT 5% item 20.00EUR',
   ]) {
     test('tax annotation uncertainty keeps its review reason: $row', () {
       final p = const ReceiptOcrParser().parse(

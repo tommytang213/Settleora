@@ -297,7 +297,11 @@ class ReceiptOcrParser {
         'Some OCR lines need manual review because no traceable line amount was found.',
       );
     }
-    if (selectedTotal == null && itemCandidates.isEmpty) {
+    if (selectedTotal == null &&
+        (itemCandidates.isEmpty ||
+            amounts.incompleteReasons.contains(
+              ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence,
+            ))) {
       warnings.add('No clear total amount was detected.');
     }
     if (currencyDetection.usedFallbackForSymbolOnly) {
@@ -2142,6 +2146,7 @@ class ReceiptOcrParser {
     var aggregatedRatedTax = false;
     final totalCandidates = <({String value, int score, int order})>[];
     var seenPrintedSubtotal = false;
+    var hasUnextractablePrimaryTotal = false;
     bool preferMatchingPrintedCurrency(
       String? existing,
       String? existingCurrency,
@@ -2224,6 +2229,13 @@ class ReceiptOcrParser {
       final printedHeaderCurrency = isSubtotal || adjustmentRole != null
           ? _explicitAdjustmentCurrencyFromLine(line, receiptCurrency: currency)
           : null;
+      if (printedHeaderCurrency?.hasExplicitEvidence == true &&
+          printedHeaderCurrency!.currency == null) {
+        adjustmentsComplete = false;
+        incompleteReasons.add(
+          ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence,
+        );
+      }
       final amountCurrency = printedHeaderCurrency?.hasExplicitEvidence == true
           ? printedHeaderCurrency!.currency
           : currency;
@@ -2307,6 +2319,18 @@ class ReceiptOcrParser {
         adjustmentsComplete = false;
         incompleteReasons.add(
           ReceiptOcrIncompleteAdjustmentReason.subtotalAmountMissingOrRate,
+        );
+      }
+      if (amount == null &&
+          _isPrimaryTotalCurrencyLine(line, normalized) &&
+          _ownedTotalBesideContact(lines, layoutRows, lineIndex, currency) ==
+              null) {
+        // Rejecting a date/identifier/partial token must not promote an earlier
+        // unowned number into this unresolved total's place.
+        hasUnextractablePrimaryTotal = true;
+        adjustmentsComplete = false;
+        incompleteReasons.add(
+          ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence,
         );
       }
       if (amount == null || selectedAmountIsRate) continue;
@@ -2688,7 +2712,27 @@ class ReceiptOcrParser {
       final scoreOrder = rank(right).compareTo(rank(left));
       return scoreOrder != 0 ? scoreOrder : right.order.compareTo(left.order);
     });
-    final total = totalCandidates.firstOrNull?.value;
+    final total = totalCandidates
+        .where((candidate) {
+          if (!hasUnextractablePrimaryTotal) return true;
+          // Flattened cells can hide a competing amount in a neighboring row. A
+          // complete independent text block may survive; multi-cell ownership must
+          // still be established by the existing bounded layout paths.
+          if (layoutRows.length == lines.length &&
+              layoutRows[candidate.order].length > 1 &&
+              !layoutAdjustmentLines.containsKey(candidate.order)) {
+            return false;
+          }
+          final line =
+              layoutAdjustmentLines[candidate.order] ?? lines[candidate.order];
+          return _isLabeledStandaloneMoneyLine(
+                line,
+                _completeTotalLabelPattern,
+              ) ||
+              _hasPriorityTotalLabel(line);
+        })
+        .firstOrNull
+        ?.value;
 
     return _LabeledReceiptAmounts(
       subtotal: subtotal,
@@ -8663,31 +8707,51 @@ bool _isStandaloneTenderLabel(String line) => RegExp(
   caseSensitive: false,
 ).hasMatch(line.trim());
 
-String? _lastAmountInLine(String line, {String? currency}) {
-  final matches = RegExp(
-    '(?<![A-Za-z0-9])$_amountTokenPattern(?![A-Za-z0-9])',
-  ).allMatches(line).toList(growable: false);
-  if (matches.isEmpty) {
+final _amountPrefixCurrencyPattern = RegExp(
+  '(?<![\\p{L}\\p{N}])(?:$_currencyTokenPattern)\\s*\$',
+  caseSensitive: false,
+  unicode: true,
+);
+final _amountSuffixCurrencyPattern = RegExp(
+  '^\\s*(?:$_currencyTokenPattern)(?![\\p{L}\\p{N}])',
+  caseSensitive: false,
+  unicode: true,
+);
+
+// Select the complete numeric lexeme before testing its boundaries. Putting
+// lookarounds in the amount regexp lets it restart after a grouping separator,
+// backtrack to the first group, or discard a minus sign beside an identifier.
+RegExpMatch? _lastWholeAmountMatch(String line) {
+  final amount = RegExp(_amountTokenPattern).allMatches(line).lastOrNull;
+  if (amount == null) return null;
+  var before = line.substring(0, amount.start);
+  final after = line.substring(amount.end);
+  // A single printed plus has the same value; a conflicting sign does not.
+  if (before.endsWith('+') && !amount.group(0)!.startsWith('-')) {
+    before = before.substring(0, before.length - 1);
+  }
+  final prefixCurrency = _amountPrefixCurrencyPattern.firstMatch(before);
+  final suffixCurrency = _amountSuffixCurrencyPattern.firstMatch(after);
+  if (prefixCurrency == null &&
+      RegExp(r"[A-Za-z0-9.,'’/+\-]$").hasMatch(before)) {
     return null;
   }
-
-  return _normalizeAmount(matches.last.group(0)!, currency: currency);
-}
-
-String? _selectedTotalAmountInLine(String line, {String? currency}) {
-  final selected = RegExp(_amountTokenPattern).allMatches(line).lastOrNull;
-  if (selected != null &&
-      _supportedCurrencyCodes.contains(
-        _currencyAdjacentToSelectedAmount(
-          line,
-          currency,
-          allowPriorCurrencyConflict: true,
-        ).currency,
-      )) {
-    return _normalizeAmount(selected.group(0)!, currency: currency);
+  if (suffixCurrency == null &&
+      RegExp(r"^[A-Za-z0-9.,'’/+\-]").hasMatch(after)) {
+    return null;
   }
-  return _lastAmountInLine(line, currency: currency);
+  return amount;
 }
+
+String? _lastAmountInLine(String line, {String? currency}) {
+  final amount = _lastWholeAmountMatch(line);
+  return amount == null
+      ? null
+      : _normalizeAmount(amount.group(0)!, currency: currency);
+}
+
+String? _selectedTotalAmountInLine(String line, {String? currency}) =>
+    _lastAmountInLine(line, currency: currency);
 
 String? _attachedSupportedCodeOnSelectedAmount(String line) {
   final selected = RegExp(_amountTokenPattern).allMatches(line).lastOrNull;
@@ -8713,12 +8777,8 @@ String _originalReceiptAdjustmentLabel(
   String line, {
   required String fallback,
 }) {
-  final matches = RegExp(
-    '(?<![A-Za-z0-9])$_amountTokenPattern(?![A-Za-z0-9])',
-  ).allMatches(line).toList(growable: false);
-  if (matches.isEmpty) return fallback;
-
-  final amount = matches.last;
+  final amount = _lastWholeAmountMatch(line);
+  if (amount == null) return fallback;
   var beforeAmount = line.substring(0, amount.start);
   var afterAmount = line.substring(amount.end);
   beforeAmount = beforeAmount.replaceFirst(
@@ -8757,7 +8817,23 @@ String _truncateUtf16WithoutSplitting(String value, int maxCodeUnits) {
   return value.substring(0, end);
 }
 
+// Removing separators is safe only after the complete printed grouping is
+// valid. Do not repair malformed groups or infer separators from a balancing
+// total. Existing currency-scale interpretation follows this lexical check.
+final _validAmountGroupingPatterns = [
+  RegExp(r'^-?\d+(?:[.,]\d{1,3})?$'),
+  RegExp(r'^-?\d{1,3}(?:,\d{3})+(?:\.\d{1,3})?$'),
+  RegExp(r'^-?\d{1,3}(?:,\d{2})*,\d{3}(?:\.\d{1,3})?$'),
+  RegExp(r'^-?\d{1,3}(?:\.\d{3})+(?:,\d{1,3})?$'),
+  RegExp(r"^-?\d{1,3}([ \u00a0'’])\d{3}(?:\1\d{3})*(?:[.,]\d{1,3})?$"),
+];
+
+bool _hasValidAmountGrouping(String value) => _validAmountGroupingPatterns.any(
+  (pattern) => pattern.hasMatch(value.trim()),
+);
+
 String? _normalizeAmount(String value, {String? currency}) {
+  if (!_hasValidAmountGrouping(value)) return null;
   var normalized = value.replaceAll(RegExp(r"[\s'’]"), '').trim();
   if (normalized.contains(',') && normalized.contains('.')) {
     if (normalized.lastIndexOf(',') > normalized.lastIndexOf('.')) {
@@ -10329,15 +10405,11 @@ bool _isExplicitTaxAnnotatedItemLine(String line, String? currency) {
 bool _isBoundedSummaryAmount(String text) {
   if (!_isBoundedPaymentAmount(text)) return false;
   final printed = RegExp(_amountTokenPattern).allMatches(text).toList();
-  final selected = RegExp(
-    '(?<![A-Za-z0-9])$_amountTokenPattern(?![A-Za-z0-9])',
-  ).allMatches(text).toList();
-  // The labeled-amount extractor must consume the whole printed amount.
-  // An attached code can otherwise leave only a decimal tail or lose a sign.
+  final selected = _lastWholeAmountMatch(text);
   return printed.length == 1 &&
-      selected.length == 1 &&
-      printed.single.start == selected.single.start &&
-      printed.single.end == selected.single.end;
+      selected != null &&
+      printed.single.start == selected.start &&
+      printed.single.end == selected.end;
 }
 
 bool _hasServiceChargeLabel(String line, String normalized) {
@@ -10681,6 +10753,11 @@ RegExp _includedTaxSummaryPattern(String label) => RegExp(
   '^\\s*(?:$label)\\s*:?\\s+'
   '(?:(?:$_currencyTokenPattern)\\s*(?<prefixAmount>$_amountTokenPattern)'
   '|(?<suffixAmount>$_amountTokenPattern)(?:\\s*(?:$_currencyTokenPattern))?)\\s*\$',
+  caseSensitive: false,
+);
+
+final _completeTotalLabelPattern = RegExp(
+  '^\\s*(?:${([..._englishTotalLabels, ..._localizedTotalLabels]..sort((a, b) => b.length.compareTo(a.length))).map((label) => RegExp.escape(label).replaceAll(' ', r'\s+')).join('|')})',
   caseSensitive: false,
 );
 

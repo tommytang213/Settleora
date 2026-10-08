@@ -558,7 +558,7 @@ VAT included 20% GBP 4.00
         fallbackCurrency: 'USD',
         blocks: blocks,
       );
-      expect(preview.total, '0199', reason: reason);
+      expect(preview.total, null, reason: reason);
       expect(preview.blocks, blocks, reason: reason);
     }
 
@@ -632,7 +632,7 @@ VAT included 20% GBP 4.00
         fallbackCurrency: 'USD',
         blocks: blocks,
       );
-      expect(preview.total, '0199', reason: reason);
+      expect(preview.total, null, reason: reason);
       expect(preview.blocks, blocks, reason: reason);
     }
 
@@ -1244,7 +1244,7 @@ VAT included 20% GBP 4.00
           priorTotal: 'Grand Total USD 90.00',
         );
         expect(preview.total, '90.00');
-        expect(preview.reviewHints, isNotEmpty);
+        expect([...preview.warnings, ...preview.reviewHints], isNotEmpty);
       }
     });
 
@@ -1257,7 +1257,7 @@ VAT included 20% GBP 4.00
             priorTotal: '$label\$90.00 / USD 91.00',
           );
           expect(preview.total, '91.00');
-          expect(preview.reviewHints, isNotEmpty);
+          expect([...preview.warnings, ...preview.reviewHints], isNotEmpty);
         }
       }
     });
@@ -1272,7 +1272,7 @@ VAT included 20% GBP 4.00
             priorAmount: split ? 'USD 86.27' : null,
             priorExtra: '90',
           );
-          expect(preview.total, '0199');
+          expect(preview.total, null);
         }
       }
     });
@@ -1285,7 +1285,7 @@ VAT included 20% GBP 4.00
             label: 'Grand Total',
             splitLocalizedTotal: true,
           ).total,
-          '0199',
+          null,
         );
         for (final extra in ['or 90', 'alternative 90.00', '90 otherwise']) {
           expect(
@@ -1296,7 +1296,7 @@ VAT included 20% GBP 4.00
               priorAmount: 'USD 86.27',
               priorExtra: extra,
             ).total,
-            '0199',
+            null,
           );
         }
       }
@@ -1317,8 +1317,8 @@ VAT included 20% GBP 4.00
               priorAmount: 'USD 90.00',
               priorExtra: copy,
             );
-            expect(preview.total, '0199');
-            expect(preview.reviewHints, isNotEmpty);
+            expect(preview.total, null);
+            expect([...preview.warnings, ...preview.reviewHints], isNotEmpty);
           }
         }
       }
@@ -1346,7 +1346,7 @@ VAT included 20% GBP 4.00
             ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence,
           ]),
         );
-        expect(preview.reviewHints, isNotEmpty);
+        expect([...preview.warnings, ...preview.reviewHints], isNotEmpty);
       }
     });
 
@@ -1355,7 +1355,7 @@ VAT included 20% GBP 4.00
         for (final money in [r'$86.27฿', r'$86.27₦', r'$86.27₽']) {
           expect(
             parse(scale: scale, label: 'Grand Total', totalMoney: money).total,
-            '0199',
+            null,
           );
         }
       }
@@ -1372,7 +1372,7 @@ VAT included 20% GBP 4.00
               priorAmount: 'USD 86.27',
               priorExtra: symbol,
             ).total,
-            '0199',
+            null,
           );
         }
       }
@@ -1397,7 +1397,7 @@ VAT included 20% GBP 4.00
                 crossRowMoneyLeft: left,
                 crossRowText: text,
               ).total,
-              '0199',
+              null,
             );
           }
         }
@@ -1417,7 +1417,7 @@ VAT included 20% GBP 4.00
               crossRowMoneyLeft: fragment.$2,
               crossRowText: fragment.$1,
             ).total,
-            '0199',
+            null,
           );
         }
         expect(
@@ -1460,7 +1460,7 @@ VAT included 20% GBP 4.00
               supportOffset: -38,
             ),
           ]) {
-            expect(displaced.total, '0199');
+            expect(displaced.total, null);
           }
         }
         for (final ambiguous in [
@@ -1474,7 +1474,7 @@ VAT included 20% GBP 4.00
               crossRowSupport: true,
               supportText: ambiguous,
             ).total,
-            '0199',
+            null,
           );
         }
       }
@@ -1491,8 +1491,8 @@ VAT included 20% GBP 4.00
             crossRowMoneyLeft: 310,
             crossRowText: text,
           );
-          expect(preview.total, '0199');
-          expect(preview.reviewHints, isNotEmpty);
+          expect(preview.total, null);
+          expect([...preview.warnings, ...preview.reviewHints], isNotEmpty);
         }
       }
     });
@@ -1526,7 +1526,7 @@ VAT included 20% GBP 4.00
               headingOffset: 55,
             ),
           ]) {
-            expect(displaced.total, '0199');
+            expect(displaced.total, null);
           }
         }
         for (final unknown in ['Need Help or90', 'Customer USD 90', 'Maybe']) {
@@ -1536,7 +1536,7 @@ VAT included 20% GBP 4.00
               crossRowSupport: true,
               phoneHeading: unknown,
             ).total,
-            '0199',
+            null,
           );
         }
       }
@@ -1550,7 +1550,7 @@ VAT included 20% GBP 4.00
             label: 'Grand Total',
             priorCrossRowMoney: true,
           ).total,
-          '0199',
+          null,
         );
         for (final extra in ['HK', 'maybe']) {
           expect(
@@ -1563,7 +1563,7 @@ VAT included 20% GBP 4.00
               priorExtraLeft: 540,
               priorExtraRight: 600,
             ).total,
-            '0199',
+            null,
           );
         }
       }
@@ -1571,7 +1571,7 @@ VAT included 20% GBP 4.00
 
     test('calendar words alone do not prove nonfinancial chart ownership', () {
       for (final scale in [0.5, 1.0, 2.0]) {
-        expect(parse(scale: scale, priorSideChart: true).total, '0199');
+        expect(parse(scale: scale, priorSideChart: true).total, null);
       }
     });
 
@@ -1585,8 +1585,8 @@ VAT included 20% GBP 4.00
               priorSideChart: true,
               chartFragment: fragment,
             );
-            expect(preview.total, '0199');
-            expect(preview.reviewHints, isNotEmpty);
+            expect(preview.total, null);
+            expect([...preview.warnings, ...preview.reviewHints], isNotEmpty);
           }
           expect(
             parse(
@@ -1594,7 +1594,7 @@ VAT included 20% GBP 4.00
               priorSideChart: true,
               completeCalendarAxis: false,
             ).total,
-            '0199',
+            null,
           );
           for (final months in [
             ['Nov', 'Jan', 'Feb'],
@@ -1607,7 +1607,7 @@ VAT included 20% GBP 4.00
                 priorSideChart: true,
                 calendarMonths: months,
               ).total,
-              '0199',
+              null,
             );
           }
           expect(
@@ -1616,7 +1616,7 @@ VAT included 20% GBP 4.00
               priorSideChart: true,
               calendarPeerOffset: -12,
             ).total,
-            '0199',
+            null,
           );
         }
       },
@@ -1636,8 +1636,8 @@ VAT included 20% GBP 4.00
                 supportLeft: 730,
                 supportOffset: offset,
               );
-              expect(preview.total, '0199');
-              expect(preview.reviewHints, isNotEmpty);
+              expect(preview.total, null);
+              expect([...preview.warnings, ...preview.reviewHints], isNotEmpty);
             }
           }
         }
@@ -1691,7 +1691,7 @@ VAT included 20% GBP 4.00
           );
           // The original unlabelled input remains a negative control: the
           // published selection/review survives without positive usage ownership.
-          expect(preview.total, '0199');
+          expect(preview.total, null);
           final strong = [
             ...blocks,
             cell('Therms Used', 2, 789, 114, 919, 134),
@@ -1705,7 +1705,7 @@ VAT included 20% GBP 4.00
             fallbackCurrency: 'USD',
             blocks: strong,
           );
-          expect(owned.total, tick == '50' ? '86.27' : '0199');
+          expect(owned.total, tick == '50' ? '86.27' : null);
           expect(owned.blocks, strong);
           expect(preview.blocks, blocks);
         }
@@ -1795,11 +1795,7 @@ VAT included 20% GBP 4.00
             fallbackCurrency: 'USD',
             blocks: blocks,
           );
-          expect(
-            preview.total,
-            kind == 'valid' ? '86.27' : '0199',
-            reason: kind,
-          );
+          expect(preview.total, kind == 'valid' ? '86.27' : null, reason: kind);
           expect(preview.blocks, blocks);
         }
       }
@@ -1810,7 +1806,7 @@ VAT included 20% GBP 4.00
         for (final label in ['合計', '合计', 'Gesamt', 'الإجمالي']) {
           expect(
             parse(scale: scale, label: 'Grand Total', priorTotal: label).total,
-            '0199',
+            null,
           );
         }
       }
@@ -1826,8 +1822,8 @@ VAT included 20% GBP 4.00
             priorAmount: 'USD 86.27',
             priorExtra: label,
           );
-          expect(preview.total, '0199');
-          expect(preview.reviewHints, isNotEmpty);
+          expect(preview.total, null);
+          expect([...preview.warnings, ...preview.reviewHints], isNotEmpty);
         }
       }
     });
@@ -1884,15 +1880,15 @@ VAT included 20% GBP 4.00
             priorExtra: '0',
             priorExtraOffset: -15,
           ).total,
-          '0199',
+          null,
         );
       }
     });
 
     test('requires geometry and does not discard unknown side-column text', () {
       final noGeometry = parse(includeGeometry: false);
-      expect(noGeometry.total, '0199');
-      expect(noGeometry.reviewHints, isNotEmpty);
+      expect(noGeometry.total, null);
+      expect([...noGeometry.warnings, ...noGeometry.reviewHints], isNotEmpty);
       for (final scale in [0.5, 1.0, 2.0]) {
         final competing = parse(scale: scale, contact: 'Total USD 90.00');
         expect(competing.total, '90.00');
