@@ -30,6 +30,15 @@ remain authoritative. Nonempty stderr still fails, including known compiler
 notes. A diagnostic success event cannot make a failed recovery envelope pass.
 Historical results never transfer to the current source head.
 
+The rotation test's failure marker also preserves its comparison mismatch
+count and at most 128 field names. The collector accepts only fixed comparison
+fields or bounded item indexes and only for the existing rotation fixture at
+the comparison stage. Counts above the retained prefix remain visible. This
+contains no expected/actual values, receipt text, geometry or error strings.
+Missing comparison data means the comparison did not finish or its marker
+was unavailable; it never proves zero mismatches. Neither this marker nor an
+empty comparison changes strict scoring, process-exit or stderr requirements.
+
 Validation: `node --test tools/ocr-models/test/flutter-runner-diagnostics.test.mjs
 tools/ocr-models/test/native-acceptance-evidence.test.mjs`, plus the complete
 `npm run validate:ocr-models` suite before publication. This tooling change alters

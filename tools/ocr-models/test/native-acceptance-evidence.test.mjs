@@ -805,6 +805,70 @@ test("failure evidence recovers only bounded diagnostics from an otherwise inval
   });
 });
 
+test("rotation failure retains bounded comparison fields without granting acceptance", () => {
+  for (const platform of ["android", "ios"]) {
+    const diagnostic = {
+      schemaVersion: 1, platform, stage: "rotation_comparison",
+      fixtureId: "existing_12_freshmart_grocery_en_US",
+      comparison: { mismatchCount: 3, fields: ["review_condition", "items[0].quantity", "block_geometry"] },
+    };
+    const event = JSON.stringify({ type: "print", message: `SETTLEORA_OCR_DIAGNOSTIC=${JSON.stringify(diagnostic)}` });
+    withLog(`${event}\n`, (log) => {
+      writeFileSync(`${log}.stderr`, "private native stderr must never be retained\n");
+      const evidence = buildFailureEvidence({ ...evidenceArgs(log, platform), "test-status": "1" }, repoRoot);
+      assert.deepEqual(evidence.diagnostics, [diagnostic]);
+      assert.equal(evidence.execution.testExitStatus, 1);
+      assert.equal(isCompleteEvidence(evidence), false);
+      assert.equal(JSON.stringify(evidence).includes("private native stderr"), false);
+    });
+  }
+});
+
+test("rotation diagnostics reject arbitrary fields, malformed counts and unrelated stages", () => {
+  const valid = {
+    schemaVersion: 1, platform: "ios", stage: "rotation_comparison",
+    fixtureId: "existing_12_freshmart_grocery_en_US",
+    comparison: { mismatchCount: 1, fields: ["review_condition"] },
+  };
+  const invalid = [
+    { ...valid, stage: "rotation_provider" },
+    { ...valid, fixtureId: null },
+    { ...valid, fixtureId: manifestFixtureIds.find((id) => id !== valid.fixtureId) },
+    ...[
+      { mismatchCount: 1, fields: ["private_receipt_text"] },
+      { mismatchCount: 1, fields: ["items[1000].description"] },
+      { mismatchCount: 1, fields: ["items[0].privateValue"] },
+      { mismatchCount: -1, fields: [] },
+      { mismatchCount: 1.5, fields: ["total"] },
+      { mismatchCount: 2, fields: ["total"] },
+      { mismatchCount: 1, fields: ["total", "tax"] },
+      { mismatchCount: 2, fields: ["total", "total"] },
+      { mismatchCount: 4097, fields: [] },
+      { mismatchCount: 1, fields: ["total"], rawValue: "private" },
+      { mismatchCount: 129, fields: Array.from({ length: 129 }, (_, i) => `items[${i}].description`) },
+    ].map((comparison) => ({ ...valid, comparison })),
+  ];
+  for (const diagnostic of invalid) {
+    withLog(protocolLog(`SETTLEORA_OCR_DIAGNOSTIC=${JSON.stringify(diagnostic)}`), (log) => {
+      assert.throws(() => buildEvidence(evidenceArgs(log, "ios"), repoRoot));
+      assert.deepEqual(buildFailureEvidence(evidenceArgs(log, "ios"), repoRoot).diagnostics, []);
+    });
+  }
+});
+
+test("rotation diagnostics explicitly retain a bounded prefix of large comparisons", () => {
+  const diagnostic = {
+    schemaVersion: 1, platform: "android", stage: "rotation_comparison",
+    fixtureId: "existing_12_freshmart_grocery_en_US",
+    comparison: { mismatchCount: 150, fields: Array.from({ length: 128 }, (_, i) => `items[${i}].lineTotal`) },
+  };
+  withLog(protocolLog(`SETTLEORA_OCR_DIAGNOSTIC=${JSON.stringify(diagnostic)}`), (log) => {
+    const evidence = buildFailureEvidence(evidenceArgs(log), repoRoot);
+    assert.deepEqual(evidence.diagnostics, [diagnostic]);
+    assert.equal(isCompleteEvidence(evidence), false);
+  });
+});
+
 test("isolation failure evidence retains only allowlisted probe outcomes", () => {
   const diagnostic = {
     schemaVersion: 1,

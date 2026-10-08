@@ -593,6 +593,9 @@ void main() {
         imageWidth: artifact.height!,
         imageHeight: artifact.width!,
       );
+      failure.comparisonFields = mismatches
+          .map((mismatch) => mismatch.field)
+          .toList(growable: false);
       expect(
         mismatches.isEmpty,
         isTrue,
@@ -1230,10 +1233,12 @@ class _BoundedFailureStage {
   String stage;
   String? fixtureId;
   Map<String, String>? probeOutcomes;
+  List<String>? comparisonFields;
 
   void set(String value, {String? fixtureId}) {
     stage = value;
     this.fixtureId = fixtureId;
+    comparisonFields = null;
   }
 
   Future<void> run(Future<void> Function() body) async {
@@ -1241,9 +1246,17 @@ class _BoundedFailureStage {
       await body();
     } catch (_) {
       // Retain only a bounded stage, fixture identifier, and allowlisted
-      // isolation outcomes. Exception text can contain receipt data or paths.
+      // isolation outcomes or comparison field names. Exception text can
+      // contain receipt data or paths and is never emitted here.
       debugPrint(
-        'SETTLEORA_OCR_DIAGNOSTIC=${jsonEncode({'schemaVersion': 1, 'platform': Platform.operatingSystem, 'stage': stage, 'fixtureId': fixtureId, if (probeOutcomes != null) 'probes': probeOutcomes})}',
+        'SETTLEORA_OCR_DIAGNOSTIC=${jsonEncode({
+          'schemaVersion': 1,
+          'platform': Platform.operatingSystem,
+          'stage': stage,
+          'fixtureId': fixtureId,
+          if (probeOutcomes != null) 'probes': probeOutcomes,
+          if (comparisonFields != null) 'comparison': {'mismatchCount': comparisonFields!.length, 'fields': comparisonFields!.take(128).toList(growable: false)},
+        })}',
       );
       rethrow;
     }

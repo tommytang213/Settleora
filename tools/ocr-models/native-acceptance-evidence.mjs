@@ -992,15 +992,36 @@ const diagnosticStages = new Set([
   "ui_evidence",
 ]);
 
+const rotationComparisonFields = new Set([
+  "merchant", "date", "currency", "subtotal", "tax", "service", "tip", "shipping", "discount", "total",
+  "items.length", "currency_provenance", "review_condition", "ocr_evidence", "model_version",
+  "block_geometry", "block_order", "model_route", "detection_model", "runtime_evidence",
+  "provider_status", "provider_exception", "ocr_resource_lookup", "ocr_model_open", "ocr_model_configuration",
+  "ocr_runtime_initialization", "ocr_runtime_initialization_opencv", "ocr_runtime_initialization_onnxruntime",
+  "ocr_input_validation", "ocr_postprocessing", "ocr_detection_inference", "ocr_recognition_inference", "ocr_output_decode",
+]);
+
+function sanitizeRotationComparison(value) {
+  assertExactKeys(value, ["mismatchCount", "fields"], "rotation comparison");
+  if (!Number.isSafeInteger(value.mismatchCount) || value.mismatchCount < 0 || value.mismatchCount > 4096 ||
+      !Array.isArray(value.fields) || value.fields.length !== Math.min(value.mismatchCount, 128) ||
+      new Set(value.fields).size !== value.fields.length || value.fields.some((field) =>
+        typeof field !== "string" || (!rotationComparisonFields.has(field) &&
+          !/^items\[(?:0|[1-9][0-9]{0,2})\]\.(?:description|lineTotal|quantity|unitPrice|currency)$/.test(field)))) {
+    throw new Error("Rotation comparison fields are not bounded allowlisted diagnostics");
+  }
+  return { mismatchCount: value.mismatchCount, fields: [...value.fields] };
+}
+
 function sanitizeDiagnostic(value, platform, expectedFixtureIds) {
   if (value == null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Diagnostic marker must contain an object");
   }
   const hasProbes = Object.hasOwn(value, "probes");
+  const hasComparison = Object.hasOwn(value, "comparison");
   assertExactKeys(value,
-    hasProbes
-      ? ["schemaVersion", "platform", "stage", "fixtureId", "probes"]
-      : ["schemaVersion", "platform", "stage", "fixtureId"],
+    ["schemaVersion", "platform", "stage", "fixtureId",
+      ...(hasProbes ? ["probes"] : []), ...(hasComparison ? ["comparison"] : [])],
     "diagnostic marker");
   if (value.schemaVersion !== 1 || value.platform !== platform || !diagnosticStages.has(value.stage)) {
     throw new Error("Diagnostic marker identity is invalid");
@@ -1008,6 +1029,13 @@ function sanitizeDiagnostic(value, platform, expectedFixtureIds) {
   const fixtureId = boundedToken(value.fixtureId, "diagnostic.fixtureId", { nullable: true });
   if (fixtureId != null && !expectedFixtureIds?.has(fixtureId)) {
     throw new Error("Diagnostic fixture identity is not in the immutable corpus");
+  }
+  let comparison;
+  if (hasComparison) {
+    if (hasProbes || value.stage !== "rotation_comparison" || fixtureId !== "existing_12_freshmart_grocery_en_US") {
+      throw new Error("Rotation comparison diagnostic has an invalid owner");
+    }
+    comparison = sanitizeRotationComparison(value.comparison);
   }
   let probes;
   if (hasProbes) {
@@ -1037,6 +1065,7 @@ function sanitizeDiagnostic(value, platform, expectedFixtureIds) {
     stage: value.stage,
     fixtureId,
     ...(probes == null ? {} : { probes }),
+    ...(comparison == null ? {} : { comparison }),
   };
 }
 

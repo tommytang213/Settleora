@@ -11,6 +11,7 @@ final _potentialReceiptAdjustmentLabelPattern = RegExp(
 const _localizedReceiptAdjustmentLabels = [
   '消費税',
   '税',
+  '稅',
   'الضريبة',
   '税额',
   '稅額',
@@ -10139,6 +10140,7 @@ bool _hasTaxLabel(
           RegExp(r'\btax\b', caseSensitive: false).hasMatch(normalized) &&
           (allowDescriptiveTaxLabel || _hasExplicitTaxRate(line))) ||
       _hasJapaneseReceiptLabel(line, const ['消費税', '税']) ||
+      _traditionalTaxAmountLinePattern.hasMatch(line) ||
       _hasLocalizedReceiptLabel(line, const [
         'الضريبة',
         '税额',
@@ -10152,6 +10154,17 @@ bool _hasTaxLabel(
         'Thuế',
       ]);
 }
+
+// Preserve the recognized glyph. The traditional tax character can label a
+// complete tax amount, but a book/product containing it is still an item.
+// Require the entire row so an unknown suffix is not consumed as a tax role.
+final _traditionalTaxAmountLinePattern = RegExp(
+  '^\\s*(?:消費稅|稅)\\s*'
+  '(?:[（(]\\s*\\d{1,3}(?:[.,]\\d{1,2})?\\s*%\\s*[)）]\\s*)?'
+  '[:：]?\\s*(?:$_currencyTokenPattern)?\\s*$_amountTokenPattern'
+  '\\s*(?:$_currencyTokenPattern)?\\s*\$',
+  caseSensitive: false,
+);
 
 // An explicit item/product qualifier after a tax-rate annotation keeps that
 // rate in the merchandise description. Do not clear generic tax/fee ambiguity
