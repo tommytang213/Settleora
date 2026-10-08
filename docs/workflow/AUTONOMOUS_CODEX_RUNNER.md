@@ -836,6 +836,47 @@ updates; a bounded smoke or integrated provider proof; and exact-head
 rereview. This policy does not add or approve Claude or OpenAI reviewer
 provider wiring.
 
+### Gemini request compatibility and usage accounting
+
+The request policy is explicit per model in
+`tools/auto-runner/lib/gemini-request-policy.mjs`, separately from fixed endpoint
+recognition. Both smoke and integrated calls check it before key loading or
+network access. There is no family-prefix default or provider fallback.
+
+| Model | Approved request policy |
+| --- | --- |
+| `gemini-2.5-flash-lite`, `gemini-2.5-flash` | Preserve `temperature: 0` and `thinkingBudget: 0`. |
+| `gemini-3.5-flash` | Preserve the proven legacy-compatible request above; budget zero is not a promise of zero thinking tokens. |
+| `gemini-2.5-pro`, `gemini-3.1-pro-preview` | Block: no approved compatible thinking recipe; these models cannot disable thinking. |
+| The three previously recognized `*-latest` aliases | Block: the target and its parameter support can change. |
+| Unknown models, including `gemini-3.8-flash` | Block until a separate model-change gate approves endpoint, recipe, pricing, and review evidence. |
+
+Google's [3.5 compatibility guidance](https://ai.google.dev/gemini-api/docs/generate-content/whats-new-gemini-3.5)
+still accepts numeric thinking budgets while recommending levels. The
+[newer model migration guidance](https://ai.google.dev/gemini-api/docs/latest-model)
+requires different sampling/thinking parameters and does not support `minimal`.
+Do not apply those newer requirements indiscriminately to pinned 3.5, combine
+budget and level, or silently enable a different thinking level. These sources
+and the [thinking model matrix](https://ai.google.dev/gemini-api/docs/generate-content/thinking)
+were checked on 2026-10-08. This policy adds no new model, provider, credential,
+live configuration, or paid compatibility probe.
+
+JSON schemas, STOP-only verdict acceptance, output caps (320 smoke / 1000
+integrated), per-call cost caps, review requirements, and retry bounds remain.
+The output cap covers thinking plus visible output. `MAX_TOKENS` still blocks,
+even if its partial text resembles a passing verdict.
+
+Accounting records smoke calls and each integrated physical attempt, including
+blocked/truncated responses. Output charges include candidates plus thoughts;
+[usage metadata totals](https://ai.google.dev/api/generate-content#UsageMetadata)
+already include the prompt and both output categories and are not added again.
+Only nonnegative safe integer counts are accepted. A consistent total can
+recover omitted thinking counts. Incomplete or inconsistent usage keeps the
+estimate and known token costs conservatively; failed calls with unknown usage
+reserve an estimate, not a claim about the final provider bill. Integrated
+retries recheck the unchanged monthly hard stop with prior attempt charges.
+This ledger is local and is not a concurrent billing reservation system.
+
 Gemini API keys must be supplied from the process environment as
 `GEMINI_API_KEY` or from an explicitly configured external env file under
 `/workspace/logs/settleora-auto-runner/secrets/`, such as

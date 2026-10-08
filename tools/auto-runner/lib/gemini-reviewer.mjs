@@ -11,6 +11,8 @@ import {
   routeReviewer,
 } from "./reviewer-policy.mjs";
 import { analyzeReviewSecretBoundary, providerBoundReviewDiffChars, providerBoundReviewDigest } from "./review-secret-boundary.mjs";
+import { geminiReviewerRequestPolicy, geminiReviewerGenerationConfig } from "./gemini-request-policy.mjs";
+import { sanitizeGeminiUsage as sanitizeUsage, geminiUsageCost } from "./gemini-usage.mjs";
 
 const geminiApiOrigin = "https://generativelanguage.googleapis.com";
 export const supportedGeminiModelEndpoints = Object.freeze({
@@ -164,6 +166,8 @@ export async function runGeminiIntegratedReview(config, packageInfo, options = {
   if (tier.provider !== "gemini") return finishIntegrated(config, base, startedAtMs, "blocked_provider_tier_not_gemini");
   const endpoint = resolveGeminiModelEndpoint(model);
   if (!endpoint) return finishIntegrated(config, base, startedAtMs, "blocked_unsupported_gemini_model");
+  const requestPolicy = geminiReviewerRequestPolicy(model);
+  if (!requestPolicy.ok) return finishIntegrated(config, base, startedAtMs, requestPolicy.reason);
   if (estimatedCostUsd > integratedMaxEstimatedCostUsd) {
     return finishIntegrated(config, base, startedAtMs, "blocked_integrated_estimated_cost_over_cap");
   }
@@ -195,7 +199,7 @@ export async function runGeminiIntegratedReview(config, packageInfo, options = {
   if (!keyResult.ok) return finishIntegrated(config, base, startedAtMs, keyResult.reason.replace("smoke_test", "integrated_review"));
 
   const prompt = buildIntegratedReviewPrompt(promptSummary, diff);
-  const payload = buildIntegratedReviewPayload(prompt);
+  const payload = buildIntegratedReviewPayload(prompt, model);
   const url = new URL(endpoint);
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   if (typeof fetchImpl !== "function") return finishIntegrated(config, base, startedAtMs, "blocked_fetch_unavailable");
@@ -209,6 +213,8 @@ export async function runGeminiIntegratedReview(config, packageInfo, options = {
     fetchImpl,
     apiKey: keyResult.apiKey,
     sleep: options.sleep,
+    reviewerBudget,
+    currentMonthlySpendUsd: accounting.currentMonthlySpendUsd,
   });
 
   const finalBeforeReport = attachIntegratedAttestations({
@@ -235,7 +241,7 @@ export async function runGeminiIntegratedReview(config, packageInfo, options = {
   return finalBeforeReport;
 }
 
-async function callIntegratedGeminiWithRetry({ config, base, url, payload, fetchImpl, apiKey, sleep }) {
+async function callIntegratedGeminiWithRetry({ config, base, url, payload, fetchImpl, apiKey, sleep, reviewerBudget, currentMonthlySpendUsd }) {
   const retry = normalizeGeminiRetry(config.geminiReviewerRetry);
   const attempts = [];
   let lastResult = {
@@ -243,15 +249,27 @@ async function callIntegratedGeminiWithRetry({ config, base, url, payload, fetch
     status: "blocked",
     reason: "blocked_provider_not_called",
   };
+  let accumulatedCostUsd = 0;
   for (let attempt = 1; attempt <= retry.maxAttempts; attempt += 1) {
+    if (attempt > 1 && evaluateReviewerBudget({ reviewerBudget,
+      currentMonthlySpendUsd: currentMonthlySpendUsd + accumulatedCostUsd,
+      estimatedCostUsd: base.estimated.costUsd,
+    }).block) {
+      lastResult = { ...lastResult, status: "blocked", reason: "blocked_reviewer_budget_hard_stop" };
+      break;
+    }
     lastResult = await callIntegratedGeminiOnce({ base, url, payload, fetchImpl, apiKey });
-    attempts.push(sanitizeAttempt({ attempt, status: lastResult.status, reason: lastResult.reason, transient: isTransientProviderResult(lastResult) }));
+    const charge = geminiUsageCost(lastResult.actualUsage, base.estimated, base.pricing);
+    accumulatedCostUsd += charge.costUsd;
+    attempts.push(sanitizeAttempt({ attempt, status: lastResult.status, reason: lastResult.reason,
+      transient: isTransientProviderResult(lastResult), actualUsage: lastResult.actualUsage, charge }));
     if (!isTransientProviderResult(lastResult) || attempt === retry.maxAttempts) break;
     await (sleep || sleepPromise)(retry.backoffMs);
   }
   return {
     ...lastResult,
     providerAttempts: attempts,
+    recordedCostUsd: Math.round(accumulatedCostUsd * 1_000_000) / 1_000_000,
     transientAttemptCount: attempts.filter((attempt) => attempt.transient).length,
   };
 }
@@ -273,6 +291,7 @@ async function callIntegratedGeminiOnce({ base, url, payload, fetchImpl, apiKey 
       return {
         ...base,
         reason: transient ? `blocked_provider_transient_http_error:${response.status || "unknown"}` : "blocked_provider_http_error",
+        actualUsage: responseUsage(responseText),
         providerMetadata: {
           httpStatus: response.status || null,
           responseTextBytes: byteLength(responseText),
@@ -417,10 +436,14 @@ export async function runGeminiReviewerSmokeTest(config, options = {}) {
     inputUsdPerMillionTokens: tier?.inputUsdPerMillionTokens || 0,
     outputUsdPerMillionTokens: tier?.outputUsdPerMillionTokens || 0,
   });
-  const accounting = loadReviewerAccounting(config);
+  let accounting;
+  let accountingError;
+  try { accounting = loadReviewerAccounting(config); }
+  catch (error) { accountingError = bounded(error.message, 160); }
+  const finish = (result, reason) => finishSmoke(config, result, startedAtMs, reason, accounting);
   const budget = evaluateReviewerBudget({
     reviewerBudget,
-    currentMonthlySpendUsd: accounting.currentMonthlySpendUsd,
+    currentMonthlySpendUsd: accounting?.currentMonthlySpendUsd || 0,
     estimatedCostUsd,
   });
 
@@ -430,6 +453,10 @@ export async function runGeminiReviewerSmokeTest(config, options = {}) {
     tier: tierId,
     providerProfile: tier?.providerProfile || null,
     model,
+    pricing: {
+      inputUsdPerMillionTokens: tier?.inputUsdPerMillionTokens || 0,
+      outputUsdPerMillionTokens: tier?.outputUsdPerMillionTokens || 0,
+    },
     liveRequested,
     liveCallAttempted: false,
     verdict: "not_run",
@@ -447,26 +474,30 @@ export async function runGeminiReviewerSmokeTest(config, options = {}) {
     reportPath: null,
   };
 
-  if (!tier) return finishSmoke(config, base, startedAtMs, "blocked_unknown_tier");
-  if (!tier.enabled) return finishSmoke(config, base, startedAtMs, "skipped_provider_tier_disabled");
-  if (tier.provider !== "gemini") return finishSmoke(config, base, startedAtMs, "skipped_provider_tier_not_gemini");
-  if (budget.block) return finishSmoke(config, base, startedAtMs, "blocked_reviewer_budget_hard_stop");
-  if (estimatedCostUsd > base.estimated.capUsd) return finishSmoke(config, base, startedAtMs, "blocked_smoke_estimated_cost_over_cap");
+  if (accountingError) return finish(base, `blocked_reviewer_accounting_parse_error:${accountingError}`);
+  if (!tier) return finish(base, "blocked_unknown_tier");
+  if (!tier.enabled) return finish(base, "skipped_provider_tier_disabled");
+  if (tier.provider !== "gemini") return finish(base, "skipped_provider_tier_not_gemini");
+  if (budget.block) return finish(base, "blocked_reviewer_budget_hard_stop");
+  if (estimatedCostUsd > base.estimated.capUsd) return finish(base, "blocked_smoke_estimated_cost_over_cap");
   const endpoint = resolveGeminiModelEndpoint(model);
-  if (!endpoint) return finishSmoke(config, base, startedAtMs, "blocked_unsupported_gemini_model");
+  if (!endpoint) return finish(base, "blocked_unsupported_gemini_model");
+
+  const requestPolicy = geminiReviewerRequestPolicy(model);
+  if (!requestPolicy.ok) return finish(base, requestPolicy.reason);
 
   const keyResult = loadGeminiApiKey({
     env: options.env || process.env,
     envFilePath: profile.envFilePath || config.reviewerSmokeTest?.envFilePath || null,
     envKey: profile.apiKeyEnv || "GEMINI_API_KEY",
   });
-  if (!keyResult.ok) return finishSmoke(config, base, startedAtMs, keyResult.reason);
-  if (!liveRequested) return finishSmoke(config, base, startedAtMs, "blocked_live_external_reviewer_calls_not_opted_in");
+  if (!keyResult.ok) return finish(base, keyResult.reason);
+  if (!liveRequested) return finish(base, "blocked_live_external_reviewer_calls_not_opted_in");
 
-  const payload = buildGeminiSmokePayload();
+  const payload = buildGeminiSmokePayload(model);
   const url = new URL(endpoint);
   const fetchImpl = options.fetchImpl || globalThis.fetch;
-  if (typeof fetchImpl !== "function") return finishSmoke(config, base, startedAtMs, "blocked_fetch_unavailable");
+  if (typeof fetchImpl !== "function") return finish(base, "blocked_fetch_unavailable");
 
   base.liveCallAttempted = true;
   try {
@@ -480,23 +511,20 @@ export async function runGeminiReviewerSmokeTest(config, options = {}) {
     const responseText = responseBody.text;
     const sanitizedText = sanitizeSecretText(responseText, keyResult.apiKey);
     if (!response.ok) {
-      return finishSmoke(config, { ...base, sanitizedResponseSummary: bounded(sanitizedText) }, startedAtMs, "blocked_provider_http_error");
+      return finish({ ...base, actualUsage: responseUsage(responseText), sanitizedResponseSummary: bounded(sanitizedText) }, "blocked_provider_http_error");
     }
     const parsed = JSON.parse(responseText);
     const candidateCheck = evaluateGeminiCandidateResponse(parsed, responseBody);
     if (!candidateCheck.ok) {
-      return finishSmoke(
-        config,
+      return finish(
         { ...base, actualUsage: sanitizeUsage(parsed.usageMetadata), providerMetadata: candidateCheck.metadata },
-        startedAtMs,
         candidateCheck.reason,
       );
     }
     const text = candidateCheck.text;
     const verdict = parseSmokeVerdict(text);
     if (!verdict.ok) {
-      return finishSmoke(
-        config,
+      return finish(
         {
           ...base,
           actualUsage: sanitizeUsage(parsed.usageMetadata),
@@ -506,12 +534,10 @@ export async function runGeminiReviewerSmokeTest(config, options = {}) {
             verdictDetail: bounded(verdict.detail || verdict.reason, 240),
           },
         },
-        startedAtMs,
         verdict.reason === "malformed_json" ? "blocked_malformed_json_verdict" : "blocked_verdict_schema_validation_failed",
       );
     }
-    return finishSmoke(
-      config,
+    return finish(
       {
         ...base,
         status: "pass",
@@ -525,11 +551,10 @@ export async function runGeminiReviewerSmokeTest(config, options = {}) {
         },
         providerMetadata: candidateCheck.metadata,
       },
-      startedAtMs,
       "live_smoke_passed",
     );
   } catch (error) {
-    return finishSmoke(config, base, startedAtMs, `blocked_provider_exception:${sanitizeSecretText(error.message, keyResult.apiKey)}`);
+    return finish(base, `blocked_provider_exception:${sanitizeSecretText(error.message, keyResult.apiKey)}`);
   }
 }
 
@@ -694,7 +719,7 @@ function truncateProviderTextByBytes(text, maxBytes) {
   };
 }
 
-export function buildGeminiSmokePayload() {
+export function buildGeminiSmokePayload(model = "gemini-2.5-flash-lite") {
   return {
     contents: [
       {
@@ -711,13 +736,7 @@ export function buildGeminiSmokePayload() {
         ],
       },
     ],
-    generationConfig: {
-      temperature: 0,
-      maxOutputTokens: smokeOutputTokenEstimate,
-      responseMimeType: "application/json",
-      responseJsonSchema: smokeVerdictJsonSchema(),
-      thinkingConfig: { thinkingBudget: 0 },
-    },
+    generationConfig: geminiReviewerGenerationConfig(model, smokeOutputTokenEstimate, smokeVerdictJsonSchema()),
   };
 }
 
@@ -775,7 +794,7 @@ function buildIntegratedReviewPrompt(summary, diff) {
   ].join("\n");
 }
 
-export function buildIntegratedReviewPayload(prompt) {
+export function buildIntegratedReviewPayload(prompt, model = "gemini-2.5-flash-lite") {
   return {
     contents: [
       {
@@ -783,13 +802,7 @@ export function buildIntegratedReviewPayload(prompt) {
         parts: [{ text: prompt }],
       },
     ],
-    generationConfig: {
-      temperature: 0,
-      maxOutputTokens: integratedOutputTokenEstimate,
-      responseMimeType: "application/json",
-      responseJsonSchema: externalReviewVerdictJsonSchema(),
-      thinkingConfig: { thinkingBudget: 0 },
-    },
+    generationConfig: geminiReviewerGenerationConfig(model, integratedOutputTokenEstimate, externalReviewVerdictJsonSchema()),
   };
 }
 
@@ -884,7 +897,7 @@ export function resolveGeminiModelEndpoint(model) {
   return supportedGeminiModelEndpoints[normalized] || null;
 }
 
-function finishSmoke(config, result, startedAtMs, reason) {
+function finishSmoke(config, result, startedAtMs, reason, accounting = null) {
   const final = {
     ...result,
     status: result.status === "pass" ? "pass" : reason.startsWith("skipped") ? "skipped" : "blocked",
@@ -892,7 +905,20 @@ function finishSmoke(config, result, startedAtMs, reason) {
     elapsedMs: Date.now() - startedAtMs,
     completedAt: new Date().toISOString(),
   };
+  if (final.liveCallAttempted) {
+    const charge = geminiUsageCost(final.actualUsage, final.estimated, final.pricing);
+    final.recordedCostUsd = charge.costUsd;
+    final.usageCostBasis = charge.basis;
+  }
   final.reportPath = writeSmokeReport(config, final);
+  if (final.liveCallAttempted) {
+    try { writeReviewerAccounting(config, accounting, final); }
+    catch (error) {
+      final.status = "blocked";
+      final.reason = `blocked_reviewer_accounting_write_error:${bounded(error.message, 160)}`;
+      writeOwnerOnlyJson(final.reportPath, final);
+    }
+  }
   return final;
 }
 
@@ -951,19 +977,7 @@ function writeIntegratedReport(config, result) {
 
 function writeReviewerAccounting(config, accounting, result) {
   const entries = Array.isArray(accounting.entries) ? accounting.entries : [];
-  const usage = result.actualUsage || {};
-  const actualInputTokens = usage.promptTokenCount;
-  const actualOutputTokens = usage.candidatesTokenCount;
-  const actualCostUsd =
-    Number.isFinite(actualInputTokens) && Number.isFinite(actualOutputTokens)
-      ? estimateReviewerCostUsd({
-          inputTokens: actualInputTokens,
-          outputTokens: actualOutputTokens,
-          inputUsdPerMillionTokens: result.pricing?.inputUsdPerMillionTokens || 0,
-          outputUsdPerMillionTokens: result.pricing?.outputUsdPerMillionTokens || 0,
-        })
-      : null;
-  const recordedCostUsd = actualCostUsd ?? result.estimated.costUsd;
+  const recordedCostUsd = result.recordedCostUsd ?? geminiUsageCost(result.actualUsage, result.estimated, result.pricing).costUsd;
   const entry = {
     timestamp: new Date().toISOString(),
     monthKey: accounting.monthKey,
@@ -975,6 +989,8 @@ function writeReviewerAccounting(config, accounting, result) {
     estimatedOutputTokens: result.estimated.outputTokens,
     estimatedCostUsd: result.estimated.costUsd,
     actualUsage: result.actualUsage,
+    providerAttempts: result.providerAttempts || null,
+    usageCostBasis: result.usageCostBasis || "per_attempt_usage_or_estimate",
     recordedCostUsd,
     costUsd: recordedCostUsd,
     status: result.status,
@@ -987,17 +1003,9 @@ function sanitizeReviewResult(result) {
   return JSON.parse(sanitizeSecretText(JSON.stringify(result), ""));
 }
 
-function sanitizeUsage(usageMetadata) {
-  if (!usageMetadata || typeof usageMetadata !== "object") return null;
-  return {
-    promptTokenCount: numberOrNull(usageMetadata.promptTokenCount),
-    candidatesTokenCount: numberOrNull(usageMetadata.candidatesTokenCount),
-    totalTokenCount: numberOrNull(usageMetadata.totalTokenCount),
-  };
-}
-
-function numberOrNull(value) {
-  return Number.isFinite(Number(value)) ? Number(value) : null;
+function responseUsage(text) {
+  try { return sanitizeUsage(JSON.parse(text)?.usageMetadata); }
+  catch { return null; }
 }
 
 function byteLength(text) {
