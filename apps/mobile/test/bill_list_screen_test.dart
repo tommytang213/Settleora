@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'support/financial_role_receipt.dart';
+import 'support/summary_role_receipt.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -34,6 +35,151 @@ import 'package:mobile/ui/settleora_components.dart';
 import 'package:mobile/ui/settleora_form_fields.dart';
 
 void main() {
+  for (final group in [false, true]) {
+    for (final scenario in [
+      'service',
+      'foreignService',
+      'subtotal',
+      'competingSubtotal',
+      'taxAnnotation',
+      'foreignTaxItem',
+    ]) {
+      final confidentDraft = [
+        'service',
+        'subtotal',
+        'taxAnnotation',
+      ].contains(scenario);
+      // Complete tax evidence can still describe net-only item amounts.
+      // Preserve the existing #1324 gross-contribution Apply gate.
+      final canApplyFinancial = ['service', 'subtotal'].contains(scenario);
+      final preview = switch (scenario) {
+        'service' => joinedServicePreview(),
+        'foreignService' => joinedServicePreview(amount: 'EUR 1.00'),
+        'subtotal' => parseSummaryBlocks(skewedSummaryBlocks()),
+        'competingSubtotal' => parseSummaryBlocks(
+          skewedSummaryBlocks()
+            ..add(summaryBlock('USD 9.00', 8, 400, 220.2, 100, 30)),
+        ),
+        'taxAnnotation' => annotatedTaxItemPreview(),
+        _ => annotatedTaxItemPreview(firstCurrency: 'USD'),
+      };
+      final firstDescription = scenario == 'taxAnnotation'
+          ? 'Tea VAT 5% item'
+          : 'Tea';
+      final firstAmount = scenario == 'taxAnnotation'
+          ? '20.00'
+          : scenario == 'subtotal'
+          ? '3.50'
+          : '10.00';
+      final targetCurrency = scenario == 'taxAnnotation' ? 'EUR' : 'USD';
+      testWidgets(
+        'summary evidence survives provisional save and Apply group=$group scenario=$scenario',
+        (tester) async {
+          await useLargeSurface(tester);
+          final saved = receiptOcrReviewSaveRequestFromPreview(
+            preview,
+            originalCurrency: preview.currency,
+          );
+          expect(saved, isNotNull);
+          expect(saved!.status, ReceiptOcrReviewStatusValues.provisional);
+          expect(
+            saved.taxReconciliationMode,
+            confidentDraft
+                ? isNull
+                : ReceiptOcrTaxReconciliationModeValues.unresolved,
+          );
+          final repository = FakeBillRepository();
+          final fileInput = FakeBillAttachmentFileInput(
+            pickedFile: samplePickedAttachmentFile(
+              filename: 'receipt.png',
+              contentType: 'image/png',
+              bytes: samplePngBytes(width: 64, height: 64),
+            ),
+          );
+          final provider = FakeReceiptOcrProvider(
+            ReceiptOcrResult.extracted(preview),
+          );
+          final prefix = group ? 'group-bill' : 'personal-bill';
+          if (group) {
+            await _pumpGroupBillCreate(
+              tester,
+              repository: repository,
+              groupRepository: FakeGroupRepository(
+                members: [sampleGroupMember()],
+              ),
+              attachmentRepository: FakeBillAttachmentRepository(),
+              attachmentFileInput: fileInput,
+              receiptOcrProvider: provider,
+            );
+            await tester.tap(find.byKey(const Key('group-bill-list-create')));
+            await tester.pumpAndSettle();
+            await _goToGroupBillCreateStep(tester, 'basics');
+          } else {
+            await tester.pumpWidget(
+              MaterialApp(
+                home: SettleoraPersonalBillCreateScreen(
+                  repository: repository,
+                  attachmentRepository: FakeBillAttachmentRepository(),
+                  attachmentFileInput: fileInput,
+                  receiptOcrProvider: provider,
+                ),
+              ),
+            );
+            await tester.pumpAndSettle();
+          }
+          final billCurrency = find.byKey(
+            Key('$prefix-currency'),
+            skipOffstage: false,
+          );
+          await _selectCurrency(tester, billCurrency, 'HKD');
+          if (group) await _goToGroupBillCreateStep(tester, 'receiptItems');
+          final itemName = find.byKey(ValueKey('$prefix-item-name-0'));
+          final itemAmount = find.byKey(ValueKey('$prefix-item-amount-0'));
+          await tester.enterText(itemName, 'Existing item');
+          await tester.enterText(itemAmount, '10.00');
+          await tester.ensureVisible(find.byKey(Key('$prefix-scan-receipt')));
+          await tester.tap(find.byKey(Key('$prefix-scan-receipt')));
+          await tester.pumpAndSettle();
+          for (final section in ['currency', 'items']) {
+            final choice = tester.widget<CheckboxListTile>(
+              find.byKey(Key('$prefix-ocr-apply-$section')),
+            );
+            expect(choice.onChanged != null, canApplyFinancial);
+            if (canApplyFinancial) {
+              await _setReceiptOcrSection(tester, prefix, section, true);
+            } else {
+              expect(choice.value, isFalse);
+            }
+          }
+          await _setReceiptOcrSection(tester, prefix, 'merchant', true);
+          await _tapReceiptOcrApply(tester, prefix);
+          expect(
+            tester.widget<TextFormField>(itemName).controller?.text,
+            canApplyFinancial ? firstDescription : 'Existing item',
+          );
+          expect(
+            tester.widget<TextFormField>(itemAmount).controller?.text,
+            canApplyFinancial ? firstAmount : '10.00',
+          );
+          expect(
+            tester
+                .widget<CurrencySelector>(
+                  find.descendant(
+                    of: billCurrency,
+                    matching: find.byType(
+                      CurrencySelector,
+                      skipOffstage: false,
+                    ),
+                    skipOffstage: false,
+                  ),
+                )
+                .value,
+            canApplyFinancial ? targetCurrency : 'HKD',
+          );
+        },
+      );
+    }
+  }
   for (final group in [false, true]) {
     for (final layout in [false, true]) {
       for (final amount in ['USD 7.00', 'USD 7.00 EUR', r'7.00$€']) {

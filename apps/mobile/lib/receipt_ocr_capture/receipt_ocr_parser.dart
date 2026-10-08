@@ -105,6 +105,19 @@ class ReceiptOcrParser {
       (index, _) => boundedUtility.ambiguous.contains(index),
     );
     layoutAdjustmentLines.addAll(boundedUtility.adjustments);
+    final skewedSummaryLines = _skewedSummaryEvidenceLines(
+      lines,
+      layoutRows,
+      currency,
+      excludedRows: {
+        ...chargeTableRows,
+        ...ambiguousChargeRows,
+        ...boundedUtility.items.keys,
+        ...layoutAdjustmentLines.keys,
+        ...detachedAmountSignRows,
+      },
+    );
+    layoutAdjustmentLines.addAll(skewedSummaryLines);
     detachedAmountSignRows.removeAll({
       ...boundedUtility.items.keys,
       ...boundedUtility.adjustments.keys,
@@ -201,8 +214,13 @@ class ReceiptOcrParser {
       layoutRows: layoutRows,
       layoutChargeItemRows: layoutChargeItems.keys.toSet(),
       hasBoundedDccFooterBoundary: hasBoundedDccFooterBoundary,
+      ownedSummaryAmountRows: {
+        for (final entry in skewedSummaryLines.entries)
+          if (entry.value.isEmpty) entry.key,
+      },
       nonItemSummaryRows: {
         ...extractedItems.nonItemSummaryRows,
+        ...skewedSummaryLines.keys,
         ...supportHoursRows,
         ...meterReadingRows,
         ...localizedHeaderRows,
@@ -2114,7 +2132,9 @@ class ReceiptOcrParser {
             printed.currency == currency);
 
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-      if (_hasSubtotalLabel(lines[lineIndex], lines[lineIndex].toLowerCase())) {
+      final subtotalEvidence =
+          layoutAdjustmentLines[lineIndex] ?? lines[lineIndex];
+      if (_hasSubtotalLabel(subtotalEvidence, subtotalEvidence.toLowerCase())) {
         seenPrintedSubtotal = true;
       }
       // A printed registration or tax-context header describes the receipt.
@@ -2236,6 +2256,7 @@ class ReceiptOcrParser {
       }
       if (adjustmentRole == null &&
           hasPotentialAdjustment &&
+          !_isExplicitTaxAnnotatedItemLine(line, currency) &&
           !_hasTotalLabel(line, normalized) &&
           // A complete current-charge summary already has a non-item role.
           // The plural "charges" must not introduce an unresolved fee. Keep
@@ -4728,6 +4749,7 @@ class ReceiptOcrParser {
     List<List<ReceiptOcrBlockEvidence>> layoutRows = const [],
     Set<int> layoutChargeItemRows = const {},
     bool hasBoundedDccFooterBoundary = false,
+    Set<int> ownedSummaryAmountRows = const {},
     Set<int> nonItemSummaryRows = const {},
     Set<int> uncertainSummaryAmountRows = const {},
   }) {
@@ -4914,6 +4936,7 @@ class ReceiptOcrParser {
         layoutRows,
         lineIndex,
         lastPricedTotal,
+        ownedSummaryAmountRows: ownedSummaryAmountRows,
       )) {
         continue;
       }
@@ -5683,6 +5706,7 @@ bool _isCenteredPostTotalFooter(
   int lineIndex,
   int lastPricedTotal, {
   bool assumeCourtesy = false,
+  Set<int> ownedSummaryAmountRows = const {},
 }) {
   if (lastPricedTotal < 0 ||
       lineIndex <= lastPricedTotal ||
@@ -5691,6 +5715,7 @@ bool _isCenteredPostTotalFooter(
         lines,
         lastPricedTotal,
         lineIndex,
+        ownedSummaryAmountRows: ownedSummaryAmountRows,
       ) ||
       (!assumeCourtesy && !_isReceiptCourtesyLine(lines[lineIndex]))) {
     return false;
@@ -5745,10 +5770,14 @@ bool _isCenteredPostTotalFooter(
 bool _hasOnlyPaymentOrIncludedTaxOrSuggestedTipAmountsBeforeCourtesy(
   List<String> lines,
   int lastPricedTotal,
-  int courtesyIndex,
-) {
+  int courtesyIndex, {
+  Set<int> ownedSummaryAmountRows = const {},
+}) {
   var sawPayment = false;
   for (var index = lastPricedTotal + 1; index < lines.length; index++) {
+    // Geometry already assigned this entire row to the printed total. It
+    // still contributes its original points to the footer's vertical bounds.
+    if (ownedSummaryAmountRows.contains(index)) continue;
     if (!_lineHasAmount(lines[index])) continue;
     if (index >= courtesyIndex) return false;
     if (_isPaymentMetadataLine(lines[index])) {
@@ -6295,6 +6324,154 @@ List<List<ReceiptOcrBlockEvidence>> _matchingLayoutRows(
     if (_normalizeOcrLine(text) != lines[index]) return const [];
   }
   return rows;
+}
+
+// Perspective skew can put a subtotal's right-column amount beside the next
+// Total label, and the total's amount in the following provider row. Recover
+// only this closed four-block shape with unique, reciprocal geometric owners.
+// The raw text, block order/rows and quadrilaterals remain in the preview.
+Map<int, String> _skewedSummaryEvidenceLines(
+  List<String> lines,
+  List<List<ReceiptOcrBlockEvidence>> rows,
+  String? currency, {
+  Set<int> excludedRows = const {},
+}) {
+  if (currency == null || rows.length != lines.length) return const {};
+  final result = <int, String>{};
+  ({double x, double y, double height, double slope})? geometry(
+    ReceiptOcrBlockEvidence block,
+  ) {
+    final p = block.points;
+    if (p.length != 4 || p.any((v) => !v.x.isFinite || !v.y.isFinite)) {
+      return null;
+    }
+    // Ordered top-left, top-right, bottom-right, bottom-left quadrilaterals.
+    if (p[1].x <= p[0].x ||
+        p[2].x <= p[3].x ||
+        p[3].y <= p[0].y ||
+        p[2].y <= p[1].y) {
+      return null;
+    }
+    final turns = [
+      for (var i = 0; i < 4; i++)
+        (p[(i + 1) % 4].x - p[i].x) * (p[(i + 2) % 4].y - p[(i + 1) % 4].y) -
+            (p[(i + 1) % 4].y - p[i].y) * (p[(i + 2) % 4].x - p[(i + 1) % 4].x),
+    ];
+    if (turns.any((v) => !v.isFinite || v <= 0)) return null;
+    final leftX = (p[0].x + p[3].x) / 2;
+    final rightX = (p[1].x + p[2].x) / 2;
+    final leftY = (p[0].y + p[3].y) / 2;
+    final rightY = (p[1].y + p[2].y) / 2;
+    final slope = (rightY - leftY) / (rightX - leftX);
+    final topSlope = (p[1].y - p[0].y) / (p[1].x - p[0].x);
+    final bottomSlope = (p[2].y - p[3].y) / (p[2].x - p[3].x);
+    if (!slope.isFinite ||
+        slope.abs() > 0.2 ||
+        (topSlope - bottomSlope).abs() > 0.025) {
+      return null;
+    }
+    return (
+      x: (leftX + rightX) / 2,
+      y: (leftY + rightY) / 2,
+      height: ((p[3].y - p[0].y) + (p[2].y - p[1].y)) / 2,
+      slope: slope,
+    );
+  }
+
+  for (var i = 0; i + 2 < rows.length; i++) {
+    if ([i, i + 1, i + 2].any(excludedRows.contains) ||
+        [i, i + 1, i + 2].any(result.containsKey) ||
+        rows[i].length != 1 ||
+        rows[i + 1].length != 2 ||
+        rows[i + 2].length != 1 ||
+        !RegExp(r'^sub[\s-]?total$', caseSensitive: false).hasMatch(lines[i])) {
+      continue;
+    }
+    final subtotalLabel = rows[i].single;
+    final totalLabels = rows[i + 1]
+        .where(
+          (b) => RegExp(
+            r'^(?:grand\s+)?total$',
+            caseSensitive: false,
+          ).hasMatch(b.text.trim()),
+        )
+        .toList();
+    if (totalLabels.length != 1) continue;
+    final totalLabel = totalLabels.single;
+    final subtotalAmount = rows[i + 1].singleWhere((b) => b != totalLabel);
+    final totalAmount = rows[i + 2].single;
+    final owned = {subtotalLabel, subtotalAmount, totalLabel, totalAmount};
+    if (owned.any((b) => _hasDetachedAmountSign(b.text))) continue;
+    bool money(ReceiptOcrBlockEvidence b) {
+      final text = _normalizeOcrLine(b.text);
+      if (!_isBoundedPaymentAmount(text)) return false;
+      final printed = _currencyAdjacentToSelectedAmount(text, currency);
+      return printed.hasExplicitEvidence && printed.currency == currency;
+    }
+
+    if (!money(subtotalAmount) || !money(totalAmount)) continue;
+    final boxes = {for (final b in rows.expand((r) => r)) b: geometry(b)};
+    if (boxes.values.any((b) => b == null)) continue;
+    final sl = boxes[subtotalLabel]!, sa = boxes[subtotalAmount]!;
+    final tl = boxes[totalLabel]!, ta = boxes[totalAmount]!;
+    bool paired(ReceiptOcrBlockEvidence label, ReceiptOcrBlockEvidence amount) {
+      final l = boxes[label]!, a = boxes[amount]!;
+      final height = l.height < a.height ? l.height : a.height;
+      final dx = a.x - l.x, dy = a.y - l.y;
+      return _blockLeft(amount) > _blockRight(label) + height &&
+          (l.slope - a.slope).abs() <= 0.025 &&
+          (dy - dx * l.slope).abs() <= height * 0.35 &&
+          (dy - dx * a.slope).abs() <= height * 0.35;
+    }
+
+    final height = [
+      sl.height,
+      sa.height,
+      tl.height,
+      ta.height,
+    ].reduce((a, b) => a > b ? a : b);
+    if (!paired(subtotalLabel, subtotalAmount) ||
+        !paired(totalLabel, totalAmount) ||
+        paired(subtotalLabel, totalAmount) ||
+        paired(totalLabel, subtotalAmount) ||
+        tl.y - sl.y < height * 0.9 ||
+        tl.y - sl.y > height * 3 ||
+        ta.y - sa.y < height * 0.9 ||
+        ta.y - sa.y > height * 3 ||
+        (_blockLeft(subtotalLabel) - _blockLeft(totalLabel)).abs() >
+            height * 0.5 ||
+        (_blockRight(subtotalAmount) - _blockRight(totalAmount)).abs() >
+            height * 0.5) {
+      continue;
+    }
+    // A fifth block in either projected label/amount corridor competes for
+    // ownership, even when the provider assigned it to some other row.
+    bool competes(
+      ReceiptOcrBlockEvidence label,
+      ReceiptOcrBlockEvidence amount,
+    ) {
+      final l = boxes[label]!;
+      return boxes.entries.any((entry) {
+        if (owned.contains(entry.key)) return false;
+        final b = entry.value!;
+        return _blockRight(entry.key) > _blockLeft(label) &&
+            _blockLeft(entry.key) < _blockRight(amount) &&
+            (b.y - l.y - (b.x - l.x) * l.slope).abs() <=
+                (b.height + l.height) * 0.5;
+      });
+    }
+
+    if (competes(subtotalLabel, subtotalAmount) ||
+        competes(totalLabel, totalAmount)) {
+      continue;
+    }
+    result[i] = '${lines[i]} ${_normalizeOcrLine(subtotalAmount.text)}';
+    result[i + 1] = '${_normalizeOcrLine(totalLabel.text)} ${lines[i + 2]}';
+    // The entire final row is the already-owned total amount, not another
+    // adjustment or item. No numeric equality is used to establish ownership.
+    result[i + 2] = '';
+  }
+  return result;
 }
 
 // Some providers group a large summary-card amount with adjacent customer
@@ -9799,10 +9976,49 @@ bool _hasTaxLabel(
       ]);
 }
 
+// An explicit item/product qualifier after a tax-rate annotation keeps that
+// rate in the merchandise description. Do not clear generic tax/fee ambiguity
+// merely because a row also contains a price or balances a subtotal.
+bool _isExplicitTaxAnnotatedItemLine(String line, String? currency) {
+  final match = RegExp(
+    r'^(?<description>[\p{L}][\p{L} &\x27’-]*?)\s+'
+    r'(?:tax|vat|gst|hst|iva|tva|kdv|mwst)\s+'
+    r'(?:\d{1,2}(?:[.,]\d{1,2})?|100)\s*%\s+(?:item|product)\s+'
+    r'(?<money>.+)$',
+    caseSensitive: false,
+    unicode: true,
+  ).firstMatch(line);
+  if (match == null ||
+      currency == null ||
+      _hasPotentialReceiptAdjustmentLabel(match.namedGroup('description')!) ||
+      _hasDetachedAmountSign(line)) {
+    return false;
+  }
+  final description = match.namedGroup('description')!;
+  if (RegExp(
+        r'(?:^|\s)[+-](?:\s|$)|\b(?:sub[\s-]?total|total|balance|due|payment)\b',
+        caseSensitive: false,
+      ).hasMatch(description) ||
+      RegExp(
+        '\\b(?:${_supportedCurrencyCodes.join('|')})\\b',
+        caseSensitive: false,
+      ).hasMatch(description)) {
+    return false;
+  }
+  final money = match.namedGroup('money')!;
+  final printed = _currencyAdjacentToSelectedAmount(money, currency);
+  return _isBoundedPaymentAmount(money) &&
+      (!printed.hasExplicitEvidence || printed.currency == currency) &&
+      _isPricedItemLine(line);
+}
+
 bool _hasServiceChargeLabel(String line, String normalized) {
   return _hasEnglishReceiptLabel(
         normalized,
-        RegExp(r'\bservices?\s*(charges?|fees?)?\b\.?', caseSensitive: false),
+        RegExp(
+          r'\bservices?\s*(charges?|fees?)?(?:\b|(?=\d{1,3}(?:\.\d+)?%))\.?',
+          caseSensitive: false,
+        ),
       ) ||
       _hasJapaneseReceiptLabel(line, const ['サービス料']) ||
       _hasLocalizedReceiptLabel(line, const [
