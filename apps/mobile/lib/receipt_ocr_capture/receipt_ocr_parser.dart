@@ -32,6 +32,7 @@ const _localizedReceiptAdjustmentLabels = [
 ];
 
 bool _hasPotentialReceiptAdjustmentLabel(String line) {
+  if (_isBoundedPaymentIdentityLine(line)) return false;
   if (_isEmailOnlyMetadataLine(line)) return false;
   if (_isSuggestedTipLine(line.toLowerCase())) return false;
   if (_potentialReceiptAdjustmentLabelPattern.hasMatch(line)) return true;
@@ -8482,8 +8483,35 @@ bool _isExplicitNonItemFeeLine(String line) => _isLabeledStandaloneMoneyLine(
   ),
 );
 
+bool _isBoundedPaymentIdentityLine(String line) {
+  final normalized = line.toLowerCase().trim();
+  // A masked last-four identifier is payment evidence, not a second item
+  // amount. Require the whole row: arbitrary product suffixes, extra prices,
+  // unmasked numbers and longer account strings must keep their evidence.
+  final maskedCard = RegExp(
+    r'^(?:(?:paid\s+with|refund\s+to)\s*[:：]?\s*)?'
+    r'(?:debit|credit|visa|mastercard|master card|amex|american express|card)'
+    r'\s*[:：]?\s*([*·•●.]{1,12})\s*\d{4}(?=\s|$)(.*)$',
+    caseSensitive: false,
+  ).firstMatch(normalized);
+  if (maskedCard != null && RegExp(r'[*·•●]').hasMatch(maskedCard.group(1)!)) {
+    final remainder = maskedCard.group(2)!.trim();
+    if (remainder.isEmpty || _isStandaloneAmountRow(remainder)) return true;
+  }
+  if (RegExp(
+    r'^approved\s+auth(?:orization)?\s*'
+    r'(?:(?:code|number|no\.?)\s*)?[:#]?\s*'
+    r'(?=[a-z0-9]{0,11}\d)[a-z0-9]{4,12}$',
+    caseSensitive: false,
+  ).hasMatch(normalized)) {
+    return true;
+  }
+  return false;
+}
+
 bool _isPaymentMetadataLine(String line) {
   final normalized = line.toLowerCase().trim();
+  if (_isBoundedPaymentIdentityLine(line)) return true;
   if (_isLabeledStandaloneMoneyLine(
     line,
     RegExp(r'^(?:deposit\s+paid|paid\s+deposit)\b', caseSensitive: false),
