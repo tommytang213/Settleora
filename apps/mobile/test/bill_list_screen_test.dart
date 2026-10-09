@@ -43,6 +43,10 @@ void main() {
       'serviceTrailingWord',
       'serviceTrailingCurrencyWord',
       'serviceAttachedCurrency',
+      'foreignAttachedLowercasePrefix',
+      'foreignAttachedMixedPrefix',
+      'foreignAttachedLowercaseSuffix',
+      'foreignAttachedMixedSuffix',
       'subtotal',
       'competingSubtotal',
       'taxAnnotation',
@@ -87,7 +91,27 @@ void main() {
         'traditionalTaxLowercase',
         'traditionalTaxJoinedMatching',
       ].contains(scenario);
-      final preview = scenario.startsWith('traditionalTax')
+      final preview = scenario.startsWith('foreignAttached')
+          ? parseSummaryBlocks([
+              summaryBlock('Corner Market', 0, 20, 20, 200, 25),
+              summaryBlock('Tea', 1, 20, 70, 200, 25),
+              summaryBlock(
+                switch (scenario) {
+                  'foreignAttachedLowercasePrefix' => 'eur10.00',
+                  'foreignAttachedMixedPrefix' => 'eUr10.00',
+                  'foreignAttachedLowercaseSuffix' => '10.00eur',
+                  _ => '10.00eUr',
+                },
+                1,
+                600,
+                70,
+                180,
+                25,
+              ),
+              summaryBlock('Subtotal USD 10.00', 2, 20, 120, 300, 25),
+              summaryBlock('Total USD 10.00', 3, 20, 170, 300, 25),
+            ])
+          : scenario.startsWith('traditionalTax')
           ? const ReceiptOcrParser().parse(
               'Cafe\nDate: 2026/08/15\nTea USD 10.00\nSubtotal USD 10.00\n'
               '消費稅${scenario.contains('Joined') ? '' : ' '}${switch (scenario) {
@@ -155,6 +179,12 @@ void main() {
           );
           expect(saved, isNotNull);
           expect(saved!.status, ReceiptOcrReviewStatusValues.provisional);
+          if (scenario.startsWith('foreignAttached')) {
+            expect(preview.currency, 'USD');
+            expect(preview.items.single.currency, 'EUR');
+            expect(preview.items.single.lineTotal, '10.00');
+            expect(saved.lines.single.lineTotalAmount, isNull);
+          }
           if (scenario.startsWith('traditionalTax')) {
             final expectedTax = scenario == 'traditionalTaxZero'
                 ? 0
@@ -179,7 +209,10 @@ void main() {
             saved.taxReconciliationMode,
             // A contradictory total or negative amount has its own review
             // gate; it does not make the recognized tax role incomplete.
-            confidentDraft ||
+            // A foreign item is blocked by currency ownership, with no tax
+            // interpretation introduced for this otherwise tax-free receipt.
+            scenario.startsWith('foreignAttached') ||
+                    confidentDraft ||
                     (scenario.startsWith('traditionalTax') &&
                         ![
                           'traditionalTaxConflict',

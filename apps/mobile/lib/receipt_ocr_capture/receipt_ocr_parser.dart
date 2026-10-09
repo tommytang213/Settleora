@@ -3197,6 +3197,25 @@ class ReceiptOcrParser {
     );
   }
 
+  ({String? currency, bool hasExplicitEvidence}) _layoutItemCellCurrency(
+    String monetaryText,
+    String? receiptCurrency,
+  ) {
+    // The layout path has already admitted this monetary cell. Resolve its
+    // selected amount's printed marker before broader header rules, which
+    // intentionally require stronger code evidence in unrestricted prose.
+    final selected = _currencyAdjacentToSelectedAmount(
+      monetaryText,
+      receiptCurrency,
+    );
+    return selected.hasExplicitEvidence
+        ? selected
+        : _explicitAdjustmentCurrencyFromLine(
+            monetaryText,
+            receiptCurrency: receiptCurrency,
+          );
+  }
+
   ReceiptOcrItemCandidate? _extractLayoutItemFallback(
     List<String> lines,
     List<List<ReceiptOcrBlockEvidence>> layoutRows,
@@ -3305,10 +3324,7 @@ class ReceiptOcrParser {
     // A bare integer could be an account or reference number. The fallback
     // uses a printed denomination or a zero-minor-unit receipt currency plus
     // a bounded amount cell; the geometry and metadata guards still apply.
-    final printedCurrency = _explicitAdjustmentCurrencyFromLine(
-      monetaryText,
-      receiptCurrency: currency,
-    );
+    final printedCurrency = _layoutItemCellCurrency(monetaryText, currency);
     final lineCurrency = printedCurrency.hasExplicitEvidence
         ? printedCurrency.currency
         : currency;
@@ -4637,10 +4653,7 @@ class ReceiptOcrParser {
             ? _normalizeOcrLine(amountCell.text)
             : '${_normalizeOcrLine(currencyBlock.text)} ${_normalizeOcrLine(amountCell.text)}';
         if (!_hasChargeTableMonetaryEvidence(monetaryText)) continue;
-        final printedCurrency = _explicitAdjustmentCurrencyFromLine(
-          monetaryText,
-          receiptCurrency: currency,
-        );
+        final printedCurrency = _layoutItemCellCurrency(monetaryText, currency);
         final lineCurrency = printedCurrency.hasExplicitEvidence
             ? printedCurrency.currency
             : currency;
@@ -8814,6 +8827,17 @@ RegExpMatch? _lastWholeAmountMatch(String line) {
   }
   final prefixCurrency = _amountPrefixCurrencyPattern.firstMatch(before);
   final suffixCurrency = _amountSuffixCurrencyPattern.firstMatch(after);
+  // Currency markers cannot hide another sign outside the selected span.
+  // A valid leading sign was already moved beside its amount during line
+  // normalization; remaining prefix/suffix signs are unresolved evidence.
+  if ((prefixCurrency != null &&
+          RegExp(
+            r'[+-]\s*$',
+          ).hasMatch(before.substring(0, prefixCurrency.start))) ||
+      (suffixCurrency != null &&
+          RegExp(r'^\s*[+-]').hasMatch(after.substring(suffixCurrency.end)))) {
+    return null;
+  }
   if (prefixCurrency == null &&
       RegExp(r"[A-Za-z0-9.,'’/+\-]$").hasMatch(before)) {
     return null;

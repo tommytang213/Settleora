@@ -156,6 +156,16 @@ void main() {
     'USD+-14,000',
     'USD-+14,000',
     'USD++14,000',
+    '-USD-14,000',
+    '+USD-14,000',
+    '-USD+14,000',
+    '+USD+14,000',
+    '14,000USD-',
+    '14,000USD+',
+    '-14,000USD-',
+    '-14,000USD+',
+    'USD-14,000-',
+    'USD14,000+',
   ]) {
     test('does not salvage malformed or identifier amount $value', () {
       final p = _preview([
@@ -240,6 +250,49 @@ void main() {
     expect(p.items.map((i) => i.quantity), [null, null, null]);
     expect(p.items.map((i) => i.lineTotal), ['10.00', '5.00', '3.00']);
   });
+
+  for (final table in [false, true]) {
+    for (final money in [
+      'eur10.00',
+      'eUr10.00',
+      '10.00eur',
+      '10.00eUr',
+      'EUR10.00',
+      '10.00EUR',
+    ]) {
+      test('owned foreign denomination survives table=$table $money', () {
+        final p = _preview([
+          ['SAMPLE SHOP'],
+          if (table) ...[
+            ['Current Charges Detail'],
+            ['Description', 'Amount'],
+          ],
+          ['Notebook', money],
+          ['Subtotal USD 10.00'],
+          ['Total USD 10.00'],
+        ]);
+        expect(p.currency, 'USD');
+        expect(p.items.single.description, 'Notebook');
+        expect(p.items.single.lineTotal, '10.00');
+        expect(p.items.single.currency, 'EUR');
+        if (table) {
+          expect(
+            p.itemSelectionDecisions.single,
+            ReceiptOcrItemLineDecision.layoutChargeSelected,
+          );
+        }
+        final saved = receiptOcrReviewSaveRequestFromPreview(
+          p,
+          originalCurrency: 'USD',
+        );
+        expect(saved, isNotNull);
+        expect(saved!.status, ReceiptOcrReviewStatusValues.provisional);
+        expect(saved.lines.single.text, 'Notebook');
+        expect(saved.lines.single.lineTotalAmount, isNull);
+        expect(p.blocks.any((b) => b.text == money), isTrue);
+      });
+    }
+  }
 
   for (final neighbor in [
     null,
