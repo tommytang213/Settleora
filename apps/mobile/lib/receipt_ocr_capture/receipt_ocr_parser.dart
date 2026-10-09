@@ -2636,6 +2636,33 @@ class ReceiptOcrParser {
     // currency; a separate summary or conflicting denomination stays in
     // review rather than being double counted or converted.
     final mixedTaxInclusion = transactionTaxInclusionModes.toSet().length > 1;
+    final utilityTaxTables = utilityTaxComponents.values
+        .map((row) => row.table)
+        .toSet();
+    final utilityTaxTable = utilityTaxTables.singleOrNull;
+    final ratedTaxesShareUtilityTable =
+        utilityTaxComponents.isEmpty ||
+        (utilityTaxTable != null &&
+            transactionTaxRows.every(
+              (row) =>
+                  row > utilityTaxTable &&
+                  !List.generate(
+                    row - utilityTaxTable - 1,
+                    (offset) => utilityTaxTable + 1 + offset,
+                  ).any(
+                    (index) =>
+                        _isSupportedChargeTableHeader(lines, index) ||
+                        _isChargeTableSectionBoundary(lines[index]) ||
+                        _hasTotalLabel(
+                          lines[index],
+                          lines[index].toLowerCase(),
+                        ) ||
+                        _hasSubtotalLabel(
+                          lines[index],
+                          lines[index].toLowerCase(),
+                        ),
+                  ),
+            ));
     // Separately named taxes in one proven utility table can include a
     // per-unit component and a fixed component. Their printed Amount cells,
     // not rates, usage or a balancing total, supply this provisional sum.
@@ -2644,8 +2671,7 @@ class ReceiptOcrParser {
     final ownedUtilityTax =
         currency != null &&
         utilityTaxComponents.length > 1 &&
-        utilityTaxComponents.values.map((row) => row.table).toSet().length ==
-            1 &&
+        utilityTaxTables.length == 1 &&
         utilityTaxComponents.values
                 .map((row) => row.label.toLowerCase())
                 .toSet()
@@ -2680,6 +2706,7 @@ class ReceiptOcrParser {
     }
     if (!hasUnratedTax &&
         !aggregatedRatedTax &&
+        ratedTaxesShareUtilityTable &&
         !mixedTaxInclusion &&
         currency != null &&
         ratedTaxComponents.length > 1 &&
@@ -4606,7 +4633,21 @@ class ReceiptOcrParser {
           final rate = RegExp(r'\d+(?:[.,]\d+)?%').firstMatch(label)?.group(0);
           adjustments[rowIndex] =
               'Tax ${rate == null ? '' : '$rate '}$monetaryText';
-          taxComponents[rowIndex] = (table: headerIndex, label: label);
+          // Percentage typography does not create a distinct component:
+          // 5%, 05% and 5.00% name the same rate. Normalize only the internal
+          // identity, exactly as decimal text; keep original blocks and roles.
+          final identity = label.replaceAllMapped(
+            RegExp(r'(\d+)(?:[.,](\d+))?%'),
+            (match) {
+              final integer = match[1]!.replaceFirst(RegExp(r'^0+(?=\d)'), '');
+              final fraction = (match[2] ?? '').replaceFirst(
+                RegExp(r'0+$'),
+                '',
+              );
+              return '$integer${fraction.isEmpty ? '' : '.$fraction'}%';
+            },
+          );
+          taxComponents[rowIndex] = (table: headerIndex, label: identity);
         } else {
           reviewRows.add(rowIndex);
         }

@@ -5,6 +5,15 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
 // Generic printed table transcriptions, never private native OCR captures.
 void main() {
   for (final mirrored in [false, true]) {
+    test('distinct printed tax rates survive mirrored=$mirrored', () {
+      final receipt = _utilityTable(
+        mirrored: mirrored,
+        variant: 'distinct rate labels',
+      );
+      final preview = receipt.parse();
+      expect(preview.tax, '1.50');
+      expect(preview.blocks, receipt.blocks);
+    });
     test(
       'fully owned utility taxes need no extra review mirrored=$mirrored',
       () {
@@ -129,7 +138,13 @@ void main() {
       });
     }
 
-    for (final variant in ['duplicate tax', 'tax summary', 'included tax']) {
+    for (final variant in [
+      'duplicate tax',
+      'equivalent rate labels',
+      'separate tax tables',
+      'tax summary',
+      'included tax',
+    ]) {
       test('utility components retain $variant mirrored=$mirrored', () {
         final receipt = _utilityTable(mirrored: mirrored, variant: variant);
         final preview = receipt.parse();
@@ -247,7 +262,16 @@ _TableReceipt _utilityTable({
     charge('Taxes and Regulatory Fees', 'USD 4.00', 6);
   } else {
     if (variant != 'missing label') {
-      cell('State Utility Tax', 6, 30, 300);
+      cell(
+        variant == 'equivalent rate labels' ||
+                variant == 'separate tax tables' ||
+                variant == 'distinct rate labels'
+            ? 'State Utility Tax (5%)'
+            : 'State Utility Tax',
+        6,
+        30,
+        300,
+      );
     }
     if (usageColumns) {
       cell(variant == 'foreign usage' ? 'EUR 10' : '10', 6, 360, 400);
@@ -289,12 +313,28 @@ _TableReceipt _utilityTable({
       850,
       1040,
     );
-    charge(
-      variant == 'duplicate tax' ? 'State Utility Tax' : 'Local Utility Tax',
-      'USD 0.30',
-      7,
-    );
-    if (variant != 'taxes only') {
+    if (variant == 'separate tax tables') {
+      cell('Total Current Charges', 7, 30, 300);
+      cell('USD 46.20', 7, 660, 730);
+      cell('Current Charges Detail', 8, 30, 320);
+      cell('Description', 9, 30, 140);
+      cell('Usage', 9, 350, 410);
+      cell('Rate', 9, 480, 550);
+      cell('Amount', 9, 660, 730);
+      charge('Local Utility Tax (7%)', 'USD 0.30', 10);
+    } else {
+      charge(
+        switch (variant) {
+          'duplicate tax' => 'State Utility Tax',
+          'equivalent rate labels' => 'State Utility Tax (5.00%)',
+          'distinct rate labels' => 'State Utility Tax (7%)',
+          _ => 'Local Utility Tax',
+        },
+        'USD 0.30',
+        7,
+      );
+    }
+    if (variant != 'taxes only' && variant != 'separate tax tables') {
       charge(
         'Environmental Program Fee',
         variant == 'negative fee' ? 'USD -2.00' : 'USD 2.00',
