@@ -294,6 +294,28 @@ void main() {
     }
   }
 
+  for (final money in ['USD10.00₦', 'USD10.00₽', 'USD10.00฿']) {
+    test('whole charge-table cell retains currency conflict $money', () {
+      final p = _preview([
+        ['SAMPLE SHOP'],
+        ['Current Charges Detail'],
+        ['Description', 'Amount'],
+        ['Notebook', money],
+        ['Total USD 10.00'],
+      ]);
+      expect(p.items.single.lineTotal, '10.00');
+      expect(p.items.single.currency, isNull);
+      expect(p.items.single.currencyUnresolved, isTrue);
+      final saved = receiptOcrReviewSaveRequestFromPreview(
+        p,
+        originalCurrency: 'USD',
+      );
+      expect(saved!.status, ReceiptOcrReviewStatusValues.provisional);
+      expect(saved.lines.single.lineTotalAmount, isNull);
+      expect(p.blocks.any((b) => b.text == money), isTrue);
+    });
+  }
+
   for (final neighbor in [
     null,
     'EUR',

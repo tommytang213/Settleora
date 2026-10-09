@@ -3201,19 +3201,16 @@ class ReceiptOcrParser {
     String monetaryText,
     String? receiptCurrency,
   ) {
-    // The layout path has already admitted this monetary cell. Resolve its
-    // selected amount's printed marker before broader header rules, which
-    // intentionally require stronger code evidence in unrestricted prose.
-    final selected = _currencyAdjacentToSelectedAmount(
+    // Preserve every established explicit or conflicting denomination. Only
+    // when the broader header rules find no evidence may an admitted layout
+    // cell supply its own amount-adjacent, case-insensitive currency marker.
+    final established = _explicitAdjustmentCurrencyFromLine(
       monetaryText,
-      receiptCurrency,
+      receiptCurrency: receiptCurrency,
     );
-    return selected.hasExplicitEvidence
-        ? selected
-        : _explicitAdjustmentCurrencyFromLine(
-            monetaryText,
-            receiptCurrency: receiptCurrency,
-          );
+    return established.hasExplicitEvidence
+        ? established
+        : _currencyAdjacentToSelectedAmount(monetaryText, receiptCurrency);
   }
 
   ReceiptOcrItemCandidate? _extractLayoutItemFallback(
