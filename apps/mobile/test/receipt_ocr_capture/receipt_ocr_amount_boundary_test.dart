@@ -686,7 +686,7 @@ void main() {
       '-USD${separator}USD1.00',
       'USD1.00USD${separator}USD-',
       '-BIF${separator}USD1.00',
-      'USD1.00USD${separator}₦-',
+      'USD1.00USD$separator₦-',
     ]) {
       test('currency chain separators cannot conceal a sign $money', () {
         for (final geometry in [false, true]) {
