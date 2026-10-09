@@ -53,6 +53,12 @@ void main() {
       'separateCurrencyConflictSymbol',
       'separateCurrencyConflictDollar',
       'separateCurrencyMatching',
+      'summaryCurrencyConflictPrefix',
+      'summaryCurrencyConflictSuffix',
+      'summaryCurrencyConflictSymbol',
+      'summaryCurrencyConflictUnsupported',
+      'summaryCurrencyMatchingPrefix',
+      'summaryCurrencyMatchingSuffix',
       'subtotal',
       'competingSubtotal',
       'taxAnnotation',
@@ -73,6 +79,8 @@ void main() {
       'traditionalTaxJoinedMatching',
     ]) {
       final confidentDraft = [
+        'summaryCurrencyMatchingPrefix',
+        'summaryCurrencyMatchingSuffix',
         'separateCurrencyMatching',
         'service',
         'serviceAttachedCurrency',
@@ -88,6 +96,8 @@ void main() {
       // Existing Apply copies item amounts only. Gross-matching items remain
       // selectable even when header arithmetic warns; no tax charge is added.
       final canApplyFinancial = [
+        'summaryCurrencyMatchingPrefix',
+        'summaryCurrencyMatchingSuffix',
         'separateCurrencyMatching',
         'service',
         'serviceAttachedCurrency',
@@ -99,7 +109,18 @@ void main() {
         'traditionalTaxLowercase',
         'traditionalTaxJoinedMatching',
       ].contains(scenario);
-      final preview = scenario.startsWith('separateCurrency')
+      final preview = scenario.startsWith('summaryCurrency')
+          ? const ReceiptOcrParser().parse(
+              'Corner Market\nTea USD 10.00\nSubtotal ${switch (scenario) {
+                'summaryCurrencyConflictPrefix' => 'EUR USD10.00',
+                'summaryCurrencyConflictSuffix' => '10.00USD EUR',
+                'summaryCurrencyConflictSymbol' => '₦USD10.00',
+                'summaryCurrencyConflictUnsupported' => 'BIF USD10.00',
+                'summaryCurrencyMatchingPrefix' => 'USD USD10.00',
+                _ => 'USD10.00 USD',
+              }}\nTotal USD 10.00',
+            )
+          : scenario.startsWith('separateCurrency')
           ? parseSummaryBlocks([
               summaryBlock('Corner Market', 0, 20, 20, 200, 25),
               summaryBlock('Tea', 1, 20, 70, 200, 25),
@@ -219,6 +240,19 @@ void main() {
           );
           expect(saved, isNotNull);
           expect(saved!.status, ReceiptOcrReviewStatusValues.provisional);
+          if (scenario.startsWith('summaryCurrency')) {
+            final matching = scenario.contains('Matching');
+            expect(preview.currency, 'USD');
+            expect(
+              preview.subtotal,
+              matching ? '10.00' : anyOf(isNull, '10.00'),
+            );
+            expect(preview.subtotalCurrency, matching ? 'USD' : isNull);
+            if (preview.subtotal != null)
+              expect(preview.subtotalHasExplicitCurrencyEvidence, isTrue);
+            expect(saved.subtotalAmount, matching ? '10.00' : isNull);
+            if (!matching) expect(preview.adjustmentsComplete, isFalse);
+          }
           if (scenario.startsWith('separateCurrency')) {
             final matching = scenario == 'separateCurrencyMatching';
             expect(preview.currency, 'USD');

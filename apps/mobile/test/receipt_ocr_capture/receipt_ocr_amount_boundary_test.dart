@@ -456,6 +456,207 @@ void main() {
     });
   }
 
+  for (final role in [
+    'Subtotal',
+    'Tax',
+    'Service Charge',
+    'Tip',
+    'Shipping',
+    'Discount',
+  ]) {
+    for (final entry in <({String money, String? currency})>[
+      (money: 'EUR USD1.00', currency: null),
+      (money: 'USD1.00 EUR', currency: null),
+      (money: '1.00USD EUR', currency: null),
+      (money: '₦USD1.00', currency: null),
+      (money: 'BIF USD1.00', currency: null),
+      (money: 'USD USD1.00', currency: 'USD'),
+      (money: 'USD1.00 USD', currency: 'USD'),
+      (money: 'EUR EUR1.00', currency: 'EUR'),
+    ]) {
+      test(
+        'summary monetary chain retains every denomination $role $entry',
+        () {
+          final p = _preview([
+            ['SAMPLE SHOP'],
+            ['Tea USD 1.00'],
+            if (role != 'Subtotal') ['Subtotal USD 1.00'],
+            ['$role ${entry.money}'],
+            ['Total USD 1.00'],
+          ], geometry: false);
+          final evidence = switch (role) {
+            'Subtotal' => (
+              p.subtotal,
+              p.subtotalCurrency,
+              p.subtotalHasExplicitCurrencyEvidence,
+            ),
+            'Tax' => (p.tax, p.taxCurrency, p.taxHasExplicitCurrencyEvidence),
+            'Service Charge' => (
+              p.service,
+              p.serviceCurrency,
+              p.serviceHasExplicitCurrencyEvidence,
+            ),
+            'Tip' => (p.tip, p.tipCurrency, p.tipHasExplicitCurrencyEvidence),
+            'Shipping' => (
+              p.shipping,
+              p.shippingCurrency,
+              p.shippingHasExplicitCurrencyEvidence,
+            ),
+            _ => (
+              p.discount,
+              p.discountCurrency,
+              p.discountHasExplicitCurrencyEvidence,
+            ),
+          };
+          expect(
+            evidence.$1,
+            entry.currency == null ? anyOf(isNull, '1.00') : '1.00',
+          );
+          expect(evidence.$2, entry.currency);
+          if (evidence.$1 != null) expect(evidence.$3, isTrue);
+          final saved = receiptOcrReviewSaveRequestFromPreview(
+            p,
+            originalCurrency: 'USD',
+          );
+          expect(saved, isNotNull);
+          expect(saved!.status, ReceiptOcrReviewStatusValues.provisional);
+          if (entry.currency == null) {
+            expect(p.adjustmentsComplete, isFalse);
+            expect(p.reviewHints, isNotEmpty);
+            expect(
+              saved.taxReconciliationMode,
+              ReceiptOcrTaxReconciliationModeValues.unresolved,
+            );
+          }
+          if (!['Tip', 'Shipping'].contains(role)) {
+            final value = switch (role) {
+              'Subtotal' => saved.subtotalAmount,
+              'Tax' => saved.taxAmount,
+              'Service Charge' => saved.serviceChargeAmount,
+              _ => saved.discountAmount,
+            };
+            expect(value, entry.currency == 'USD' ? '1.00' : isNull);
+          }
+        },
+      );
+    }
+  }
+  for (final money in [
+    'EUR USD1.00',
+    'EUR / USD1.00',
+    'EUR or USD1.00',
+    'EUR|USD1.00',
+    'USD1.00 EUR',
+    '1.00USD EUR',
+    '₦USD1.00',
+    'BIF USD1.00',
+    'USD USD1.00',
+    'USD1.00 USD',
+  ]) {
+    test('primary total monetary chain retains conflict $money', () {
+      final matching = money == 'USD USD1.00' || money == 'USD1.00 USD';
+      final p = _preview([
+        ['SAMPLE SHOP'],
+        ['Tea USD 1.00'],
+        ['Subtotal USD 1.00'],
+        ['Total $money'],
+      ], geometry: false);
+      expect(p.total, matching ? '1.00' : isNull);
+      final saved = receiptOcrReviewSaveRequestFromPreview(
+        p,
+        originalCurrency: 'USD',
+      );
+      expect(saved!.grandTotalAmount, matching ? '1.00' : isNull);
+      if (!matching && money != 'USD1.00 EUR') {
+        expect(p.adjustmentsComplete, isFalse);
+        expect(p.warnings, contains('No clear total amount was detected.'));
+        expect(
+          saved.taxReconciliationMode,
+          ReceiptOcrTaxReconciliationModeValues.unresolved,
+        );
+      }
+    });
+  }
+  test('summary chain does not absorb separated reference text', () {
+    final p = _preview([
+      ['SAMPLE SHOP'],
+      ['Tea USD 1.00'],
+      ['Subtotal EUR reference USD1.00'],
+      ['Total USD 1.00'],
+    ], geometry: false);
+    // This row was not admitted as a subtotal before this repair.
+    expect(p.subtotal, isNull);
+  });
+  test('summary chain does not absorb a separate reference amount', () {
+    final p = _preview([
+      ['SAMPLE SHOP'],
+      ['Tea USD 1.00'],
+      ['Subtotal USD 1.00'],
+      ['Total EUR 9.00 / USD1.00'],
+    ], geometry: false);
+    expect(p.total, '1.00');
+  });
+  for (final label in ['소계', '小計']) {
+    for (final money in [
+      'EUR USD1.00',
+      'EUR / USD1.00',
+      'EUR or USD1.00',
+      'EUR|USD1.00',
+      '₦USD1.00',
+      'USD USD1.00',
+    ]) {
+      test('joined localized summary currency chain $label $money', () {
+        final matching = money == 'USD USD1.00';
+        final p = _preview([
+          ['SAMPLE SHOP'],
+          ['Tea USD 1.00'],
+          ['$label$money'],
+          ['Total USD 1.00'],
+        ], geometry: false);
+        expect(p.subtotal, '1.00');
+        expect(p.subtotalCurrency, matching ? 'USD' : isNull);
+        final saved = receiptOcrReviewSaveRequestFromPreview(
+          p,
+          originalCurrency: 'USD',
+        );
+        expect(saved!.subtotalAmount, matching ? '1.00' : isNull);
+        if (!matching) expect(p.adjustmentsComplete, isFalse);
+      });
+    }
+  }
+  for (final label in ['합계', '合計']) {
+    for (final money in ['EUR USD1.00', 'USD USD1.00']) {
+      test('joined localized total currency chain $label $money', () {
+        final matching = money == 'USD USD1.00';
+        final p = _preview([
+          ['SAMPLE SHOP'],
+          ['Tea USD 1.00'],
+          ['Subtotal USD 1.00'],
+          ['$label$money'],
+        ], geometry: false);
+        expect(p.total, matching ? '1.00' : isNull);
+        if (!matching) expect(p.adjustmentsComplete, isFalse);
+      });
+    }
+  }
+  test('recognized nonleading localized label retains currency conflict', () {
+    final p = _preview([
+      ['SAMPLE SHOP'], ['Tea USD 1.00'],
+      ['Summary 소계EUR USD1.00'], ['Total USD 1.00'],
+    ], geometry: false);
+    expect(p.subtotal, '1.00');
+    expect(p.subtotalCurrency, isNull);
+    expect(p.adjustmentsComplete, isFalse);
+  });
+  test('recognized nonleading total label retains currency conflict', () {
+    final p = _preview([
+      ['SAMPLE SHOP'], ['Tea USD 1.00'], ['Subtotal USD 1.00'],
+      ['Receipt 合計EUR USD1.00'],
+    ], geometry: false);
+    expect(p.total, isNull);
+    expect(p.adjustmentsComplete, isFalse);
+  });
+
   for (final neighbor in [
     null,
     'EUR',

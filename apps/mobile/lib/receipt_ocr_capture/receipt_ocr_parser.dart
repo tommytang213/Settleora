@@ -1333,6 +1333,32 @@ class ReceiptOcrParser {
 
   ({String? currency, bool hasExplicitEvidence})
   _explicitAdjustmentCurrencyFromLine(String line, {String? receiptCurrency}) {
+    return _currencyKeepingSelectedChain(
+      line,
+      receiptCurrency,
+      _classifiedAdjustmentCurrencyFromLine(
+        line,
+        receiptCurrency: receiptCurrency,
+      ),
+    );
+  }
+
+  ({String? currency, bool hasExplicitEvidence}) _currencyKeepingSelectedChain(
+    String line,
+    String? receiptCurrency,
+    ({String? currency, bool hasExplicitEvidence}) established,
+  ) {
+    final cell = _selectedMonetaryCurrencyCell(line);
+    return cell == null
+        ? established
+        : _retainOwnedCellCurrencyEvidence(cell, receiptCurrency, established);
+  }
+
+  ({String? currency, bool hasExplicitEvidence})
+  _classifiedAdjustmentCurrencyFromLine(
+    String line, {
+    String? receiptCurrency,
+  }) {
     // The owned summary grammar accepts case-insensitive attached codes and
     // contextual symbols. Resolve its single monetary cell consistently,
     // retaining unresolved printed markers instead of inheriting currency.
@@ -2485,11 +2511,27 @@ class ReceiptOcrParser {
           discountHasExplicitCurrencyEvidence = printed.hasExplicitEvidence;
         }
       } else if (_isPrimaryTotalCurrencyLine(line, normalized)) {
-        final selectedCurrency = _currencyAdjacentToSelectedAmount(
+        final originalCurrency = _currencyAdjacentToSelectedAmount(
           line,
           currency,
           allowPriorCurrencyConflict: true,
         );
+        final selectedCurrency = _currencyKeepingSelectedChain(
+          line,
+          currency,
+          originalCurrency,
+        );
+        if (selectedCurrency.hasExplicitEvidence &&
+            selectedCurrency.currency == null &&
+            (!originalCurrency.hasExplicitEvidence ||
+                originalCurrency.currency != null)) {
+          hasUnextractablePrimaryTotal = true;
+          adjustmentsComplete = false;
+          incompleteReasons.add(
+            ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence,
+          );
+          continue;
+        }
         final printedCurrencies = <String>{
           ..._supportedCurrencyCodes.where(
             (code) => _hasExplicitCurrencyCode([line], code),
@@ -3212,6 +3254,21 @@ class ReceiptOcrParser {
       monetaryText,
       receiptCurrency: receiptCurrency,
     );
+    return _retainOwnedCellCurrencyEvidence(
+      monetaryText,
+      receiptCurrency,
+      established,
+      resolveMissing: true,
+    );
+  }
+
+  ({String? currency, bool hasExplicitEvidence})
+  _retainOwnedCellCurrencyEvidence(
+    String monetaryText,
+    String? receiptCurrency,
+    ({String? currency, bool hasExplicitEvidence}) established, {
+    bool resolveMissing = false,
+  }) {
     if (established.hasExplicitEvidence && established.currency == null) {
       return established;
     }
@@ -3233,9 +3290,9 @@ class ReceiptOcrParser {
         for (final marker in _unsupportedIsoCurrencyMarkers(monetaryText))
           marker.group(1)!.toUpperCase(),
       };
-      // This text contains only the admitted amount cell and its owned
-      // currency-only neighbor. Resolve every marker against that same printed
-      // amount; an intervening denomination must not hide an earlier conflict.
+      // The caller supplies an owned monetary cell or the contiguous currency
+      // expression surrounding a selected summary amount. An intervening
+      // denomination must not hide an earlier conflict.
       for (final marker in markers) {
         final printed = _currencyAdjacentToSelectedAmount(
           '${marker.group(0)} $amount',
@@ -3250,7 +3307,7 @@ class ReceiptOcrParser {
         return (currency: null, hasExplicitEvidence: true);
       }
     }
-    return established.hasExplicitEvidence
+    return established.hasExplicitEvidence || !resolveMissing
         ? established
         : _currencyAdjacentToSelectedAmount(monetaryText, receiptCurrency);
   }
@@ -8907,6 +8964,55 @@ RegExpMatch? _lastWholeAmountMatch(String line) {
   return amount;
 }
 
+String? _selectedMonetaryCurrencyCell(String line) {
+  final amount = _lastWholeAmountMatch(line);
+  if (amount == null) return null;
+  // Existing localized labels may touch their denomination. Mask recognized
+  // labels for marker boundaries, preserving offsets and the source used for
+  // adjacency below. Summary role recognition remains unchanged.
+  final markerText = _maskAmbiguousSupportedItemWords(
+    line.replaceAllMapped(
+      _joinedSummaryLabelPattern,
+      (match) => ' ' * match.group(0)!.length,
+    ),
+  );
+  final markers =
+      [
+        ..._printedCurrencyMarkerMatches(markerText),
+        ..._unsupportedIsoCurrencyMarkers(markerText),
+        ...RegExp(r'\p{Sc}', unicode: true).allMatches(markerText),
+      ]..sort((a, b) {
+        final start = a.start.compareTo(b.start);
+        return start != 0 ? start : b.end.compareTo(a.end);
+      });
+  final separator = RegExp(
+    r'^(?:[\s:=+−\-/|;,&()\[\]]|(?:and|plus|or|vs\.?|versus|to)\b)*$',
+    caseSensitive: false,
+  );
+  var start = amount.start, end = amount.end;
+  // Overlapping code/symbol matches belong to the same printed marker. Stop
+  // expansion at other words or amounts. Currency alternatives/coordination
+  // still share this one amount; earlier reference amounts and surrounding
+  // prose cannot become owned evidence.
+  for (final marker in markers.reversed) {
+    if (marker.start < start &&
+        marker.end <= amount.start &&
+        (marker.end >= start ||
+            separator.hasMatch(line.substring(marker.end, start)))) {
+      start = marker.start;
+    }
+  }
+  for (final marker in markers) {
+    if (marker.end > end &&
+        marker.start >= amount.end &&
+        (marker.start <= end ||
+            separator.hasMatch(line.substring(end, marker.start)))) {
+      end = marker.end;
+    }
+  }
+  return line.substring(start, end);
+}
+
 String? _lastAmountInLine(String line, {String? currency}) {
   final amount = _lastWholeAmountMatch(line);
   return amount == null
@@ -10457,28 +10563,35 @@ bool _hasTraceableItemAmountToken(String line, String amountToken) {
   ).hasMatch(line);
 }
 
+const _localizedSubtotalLabels = [
+  'المجموع الفرعي',
+  '小计',
+  '小計',
+  '소계',
+  'उप-योग',
+  'उपयोग',
+  'ยอดรวมย่อย',
+  'Подытог',
+  'подытог',
+  'Sous-total',
+  'Zwischensumme',
+  'Suma',
+  'Ara toplam',
+  'Tạm tính',
+];
+
+final _joinedSummaryLabelPattern = RegExp(
+  '(?:${([..._localizedSubtotalLabels, ..._localizedReceiptAdjustmentLabels, ..._localizedTotalLabels, '合計', '消費稅']..sort((a, b) => b.length.compareTo(a.length))).map(RegExp.escape).join('|')})',
+  caseSensitive: false,
+);
+
 bool _hasSubtotalLabel(String line, String normalized) {
   return _hasEnglishReceiptLabel(
         normalized,
         RegExp(r'\bsub[\s-]?total\b', caseSensitive: false),
       ) ||
       _hasJapaneseReceiptLabel(line, const ['小計']) ||
-      _hasLocalizedReceiptLabel(line, const [
-        'المجموع الفرعي',
-        '小计',
-        '小計',
-        '소계',
-        'उप-योग',
-        'उपयोग',
-        'ยอดรวมย่อย',
-        'Подытог',
-        'подытог',
-        'Sous-total',
-        'Zwischensumme',
-        'Suma',
-        'Ara toplam',
-        'Tạm tính',
-      ]);
+      _hasLocalizedReceiptLabel(line, _localizedSubtotalLabels);
 }
 
 bool _hasTaxLabel(
