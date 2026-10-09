@@ -8825,14 +8825,26 @@ RegExpMatch? _lastWholeAmountMatch(String line) {
   final prefixCurrency = _amountPrefixCurrencyPattern.firstMatch(before);
   final suffixCurrency = _amountSuffixCurrencyPattern.firstMatch(after);
   // Currency markers cannot hide another sign outside the selected span.
+  // Inspect the entire adjacent marker chain: a duplicate denomination must
+  // not conceal a residual sign beyond the marker closest to the number.
   // A valid leading sign was already moved beside its amount during line
   // normalization; remaining prefix/suffix signs are unresolved evidence.
+  var prefixRemainder = before;
+  var prefixMarker = prefixCurrency;
+  while (prefixMarker != null) {
+    prefixRemainder = prefixRemainder.substring(0, prefixMarker.start);
+    prefixMarker = _amountPrefixCurrencyPattern.firstMatch(prefixRemainder);
+  }
+  var suffixRemainder = after;
+  var suffixMarker = suffixCurrency;
+  while (suffixMarker != null) {
+    suffixRemainder = suffixRemainder.substring(suffixMarker.end);
+    suffixMarker = _amountSuffixCurrencyPattern.firstMatch(suffixRemainder);
+  }
   if ((prefixCurrency != null &&
-          RegExp(
-            r'[+-]\s*$',
-          ).hasMatch(before.substring(0, prefixCurrency.start))) ||
+          RegExp(r'[+-]\s*$').hasMatch(prefixRemainder)) ||
       (suffixCurrency != null &&
-          RegExp(r'^\s*[+-]').hasMatch(after.substring(suffixCurrency.end)))) {
+          RegExp(r'^\s*[+-]').hasMatch(suffixRemainder))) {
     return null;
   }
   if (prefixCurrency == null &&

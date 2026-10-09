@@ -178,6 +178,75 @@ void main() {
     });
   }
 
+  for (final geometry in [false, true]) {
+    for (final money in [
+      '-USD USD1.00',
+      '+USD USD1.00',
+      '-usd USD USD1.00',
+      r'-USD $1.00',
+      '1.00USD USD-',
+      '1.00USD USD+',
+      '1.00USD usd USD-',
+      r'1.00$ USD-',
+    ]) {
+      test('repeated currency retains signed uncertainty $geometry $money', () {
+        final p = _preview([
+          ['SAMPLE SHOP'],
+          ['Tea USD 1.00'],
+          ['소계 $money'],
+          ['Total USD 1.00'],
+        ], geometry: geometry);
+        expect(p.subtotal, isNull);
+        expect(p.adjustmentsComplete, isFalse);
+        expect(p.reviewHints, isNotEmpty);
+        if (geometry) {
+          expect(p.blocks.any((b) => b.text == '소계 $money'), isTrue);
+        }
+        final saved = receiptOcrReviewSaveRequestFromPreview(
+          p,
+          originalCurrency: 'USD',
+        );
+        expect(saved, isNotNull);
+        expect(saved!.status, ReceiptOcrReviewStatusValues.provisional);
+        expect(saved.subtotalAmount, isNull);
+        expect(
+          saved.taxReconciliationMode,
+          ReceiptOcrTaxReconciliationModeValues.unresolved,
+        );
+      });
+    }
+    for (final entry in {
+      'USD USD1.00': '1.00',
+      '1.00USD USD': '1.00',
+      'USD USD-1.00': '-1.00',
+      '-1.00USD USD': '-1.00',
+    }.entries) {
+      test(
+        'repeated currency preserves an owned sign $geometry ${entry.key}',
+        () {
+          final p = _preview([
+            ['SAMPLE SHOP'],
+            ['Tea USD ${entry.value}'],
+            ['소계 ${entry.key}'],
+            ['Total USD ${entry.value}'],
+          ], geometry: geometry);
+          expect(p.subtotal, entry.value);
+          final saved = receiptOcrReviewSaveRequestFromPreview(
+            p,
+            originalCurrency: 'USD',
+          );
+          expect(saved, isNotNull);
+          // Negative draft evidence remains visible; the existing save boundary
+          // omits negative summary amounts from financial fields.
+          expect(
+            saved!.subtotalAmount,
+            entry.value.startsWith('-') ? isNull : entry.value,
+          );
+        },
+      );
+    }
+  }
+
   test('attached amount retains adjustment labels and signed discounts', () {
     final p = _preview([
       ['SAMPLE SHOP'],
