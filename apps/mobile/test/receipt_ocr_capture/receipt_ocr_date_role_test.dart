@@ -188,6 +188,55 @@ void main() {
     expect(p.warnings, isNot(contains(contains('Conflicting receipt dates'))));
   });
 
+  for (final role in ['Stay', 'Due', 'Prior']) {
+    for (final date in [
+      'Date: 2026-09-15',
+      '日期: 2026年09月15日',
+      '날짜: 2026. 09. 15.',
+    ]) {
+      for (final wrappedFirst in [false, true]) {
+        test(
+          'wrapped $role date retains document authority: $date first=$wrappedFirst',
+          () {
+            final wrapped = '$role\n$date';
+            const document = 'Receipt date: 2026-09-17';
+            final p = _receipt(
+              wrappedFirst ? '$wrapped\n$document' : '$document\n$wrapped',
+            );
+            expect(p.receiptDate, '2026-09-17');
+            expect(
+              p.warnings,
+              isNot(contains(contains('Conflicting receipt dates'))),
+            );
+            expect(p.items.map((item) => item.description), ['Tea']);
+          },
+        );
+      }
+    }
+  }
+
+  test('wrapped stay-only date remains unresolved as a transaction date', () {
+    final p = _receipt('Stay\n日期: 2026年09月15日');
+    expect(p.receiptDate, isNull);
+    expect(p.warnings, contains(contains('Stay dates were detected')));
+  });
+
+  test('a priced prior-named product cannot own the next generic date', () {
+    final p = _receipt(
+      'Prior Year Calendar USD 4.00\n日期: 2026年09月15日\nReceipt date: 2026-09-17',
+    );
+    expect(p.receiptDate, isNull);
+    expect(p.warnings, contains(contains('Conflicting receipt dates')));
+    expect(
+      p.items.any(
+        (item) =>
+            item.description == 'Prior Year Calendar' &&
+            item.lineTotal == '4.00',
+      ),
+      isTrue,
+    );
+  });
+
   test('multiple date values on one row do not become a whole date field', () {
     final p = _receipt('日期: 2026年09月17日 2026年09月18日');
     expect(

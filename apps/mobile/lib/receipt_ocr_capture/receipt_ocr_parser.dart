@@ -761,9 +761,6 @@ class ReceiptOcrParser {
       // Whole generic date fields contribute conflict evidence without
       // outranking specific bill/invoice/statement roles below.
       final labeledDate = _labeledCalendarDate(line);
-      if (labeledDate != null) {
-        labeledCalendarDates.add(labeledDate);
-      }
       // Reading order only breaks nearby ties; an explicit role must remain
       // stronger than a distant unlabeled date on a long document.
       final positionScore = 100 - (index < 10 ? index : 10);
@@ -776,6 +773,7 @@ class ReceiptOcrParser {
       int? ownedStayDateEnd;
       void consider(String? date, int dateStart, int dateEnd) {
         var score = positionScore;
+        var secondaryDate = false;
         final labels =
             <({int start, bool secondary, bool stay})>[
                 ...primaryLabel
@@ -808,7 +806,8 @@ class ReceiptOcrParser {
           final priorQualifier =
               !nearest.secondary &&
               receiptDateQualifier.hasMatch(lower.substring(0, nearest.start));
-          score += nearest.secondary || priorQualifier ? -100 : 80;
+          secondaryDate = nearest.secondary || priorQualifier;
+          score += secondaryDate ? -100 : 80;
           // A printed receipt date identifies this document more directly
           // than its order/pickup history. Only a directly attached label
           // establishes that role; conflicting receipt dates stay unresolved.
@@ -834,6 +833,9 @@ class ReceiptOcrParser {
           return;
         } else if (index > 0 && !_lineHasAmount(lines[index - 1])) {
           final previous = lines[index - 1].toLowerCase();
+          secondaryDate =
+              secondaryLabel.hasMatch(previous) ||
+              standaloneStayLabel.hasMatch(previous);
           if (date != null &&
               selectTransactionDate &&
               standaloneStayLabel.hasMatch(previous)) {
@@ -851,6 +853,11 @@ class ReceiptOcrParser {
               line.substring(0, dateStart).trim().isEmpty) {
             explicitReceiptDates.add(date);
           }
+        }
+        // Resolve inline and wrapped roles first: a stay/due/prior date is
+        // not conflicting document evidence just because it says "Date".
+        if (date != null && date == labeledDate && !secondaryDate) {
+          labeledCalendarDates.add(date);
         }
         if (date != null && (best == null || score > best!.score)) {
           best = (date: date, score: score);
