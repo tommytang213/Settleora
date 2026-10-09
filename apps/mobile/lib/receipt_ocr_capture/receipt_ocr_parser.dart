@@ -10903,6 +10903,20 @@ String? _labeledCalendarDate(String line) {
   ]) {
     final match = RegExp(pattern, caseSensitive: false).firstMatch(line);
     if (match != null) {
+      // Extraction can retain a provisional date with mixed separators, but
+      // that ambiguity must not acquire whole-field metadata authority.
+      final numericField = RegExp(
+        _yearFirstCalendarDatePattern,
+      ).firstMatch(line)?.group(0);
+      if (numericField != null &&
+          RegExp(r'[-/.]')
+                  .allMatches(numericField)
+                  .map((separator) => separator.group(0))
+                  .toSet()
+                  .length !=
+              1) {
+        return null;
+      }
       return _formatDate(
         int.parse(match.group(1)!),
         int.parse(match.group(2)!),

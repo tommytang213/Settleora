@@ -47,7 +47,6 @@ void main() {
       '날짜: 2026.09.17.',
       '日期: 2026 / 09 / 17',
       '日期: 2026 - 09 - 17',
-      '日期: 2026/09-17',
       '日期: ２０２６／０９／１７',
       '日期: ２０２６年０９月１７日',
     ]) {
@@ -98,6 +97,21 @@ void main() {
   test('compact digits do not supply a reconstructed date', () {
     expect(_receipt('日期: 20260917').receiptDate, isNull);
   });
+
+  for (final field in [
+    '日期: 2026/09-17',
+    '날짜: 2026. 09 / 17.',
+    'Datum: 2026-09.17',
+  ]) {
+    test('mixed calendar separators remain reviewable: $field', () {
+      final p = _receipt(field);
+      expect(
+        p.itemLineDecisions[1],
+        isNot(ReceiptOcrItemLineDecision.metadataOrHeaderSkipped),
+      );
+      expect(p.reviewHints, isNotEmpty);
+    });
+  }
 
   for (final field in ['日期: 2026 - 02 - 31', '日期: 2026 - 09 - 17 USD - 4.00']) {
     test('date-like evidence cannot erase a real detached sign: $field', () {
