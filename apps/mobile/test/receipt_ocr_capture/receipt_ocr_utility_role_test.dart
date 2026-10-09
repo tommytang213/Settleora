@@ -6,6 +6,104 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
 // Generic printed table transcriptions, never private native OCR captures.
 void main() {
   for (final mirrored in [false, true]) {
+    for (final label in [
+      'State EUR Tax',
+      'State eur Tax',
+      'State USD EUR Tax',
+      'State BHD Tax',
+      'State € Tax',
+      'State ¥ Tax',
+      'State ₿ Tax',
+    ]) {
+      test(
+        'description currency conflict remains visible $label mirrored=$mirrored',
+        () {
+          final receipt = _utilityTable(
+            mirrored: mirrored,
+            variant: 'taxes only',
+          );
+          receipt.replace('State Utility Tax', text: label);
+          _expectUnresolvedTax(receipt);
+          expect(receipt.parse().items.map((item) => item.description), [
+            'Network Service',
+            'Tax Guide',
+          ]);
+        },
+      );
+    }
+    for (final label in [
+      'State USD Tax',
+      'State usd Tax',
+      'State \$ Tax',
+      'State US\$ Tax',
+    ]) {
+      test(
+        'matching description currency stays confident $label mirrored=$mirrored',
+        () {
+          final receipt = _utilityTable(
+            mirrored: mirrored,
+            variant: 'taxes only',
+          );
+          receipt.replace('State Utility Tax', text: label);
+          final preview = receipt.parse();
+          expect(preview.tax, '1.50');
+          expect(preview.currency, 'USD');
+          expect(preview.adjustmentsComplete, isTrue);
+          expect(preview.reviewHints, isEmpty);
+          expect(preview.blocks, receipt.blocks);
+          final saved = receiptOcrReviewSaveRequestFromPreview(
+            preview,
+            originalCurrency: 'USD',
+          );
+          expect(saved!.taxAmount, '1.50');
+          expect(saved.taxReconciliationMode, isNot('unresolved'));
+        },
+      );
+    }
+    for (final marker in ['EUR', 'BHD', '€', 'USD']) {
+      test(
+        'split description currency is retained $marker mirrored=$mirrored',
+        () {
+          final receipt = _utilityTable(
+            mirrored: mirrored,
+            variant: 'taxes only',
+          );
+          double x(double value) => mirrored ? 1100 - value : value;
+          receipt.replace(
+            'State Utility Tax',
+            points: [
+              ReceiptOcrPoint(x: x(30), y: 210),
+              ReceiptOcrPoint(x: x(180), y: 210),
+              ReceiptOcrPoint(x: x(180), y: 230),
+              ReceiptOcrPoint(x: x(30), y: 230),
+            ],
+          );
+          receipt.cell(marker, 6, 190, 215, mirrored: mirrored);
+          if (marker == 'USD') {
+            final preview = receipt.parse();
+            expect(preview.tax, '1.50');
+            expect(preview.adjustmentsComplete, isTrue);
+            expect(preview.reviewHints, isEmpty);
+            expect(preview.blocks, receipt.blocks);
+          } else {
+            _expectUnresolvedTax(receipt);
+          }
+        },
+      );
+    }
+    test(
+      'currency annotation does not create a second tax component mirrored=$mirrored',
+      () {
+        final receipt = _utilityTable(
+          mirrored: mirrored,
+          variant: 'taxes only',
+        );
+        receipt.replace('State Utility Tax', text: 'State USD Tax');
+        receipt.replace('Local Utility Tax', text: 'State Tax');
+        _expectUnresolvedTax(receipt);
+      },
+    );
+
     for (final phrase in [
       'Included in total',
       'Already included',

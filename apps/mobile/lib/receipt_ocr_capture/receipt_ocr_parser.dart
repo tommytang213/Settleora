@@ -4454,6 +4454,32 @@ class ReceiptOcrParser {
       '^${taxSemanticQualifier.pattern}\$',
       caseSensitive: false,
     );
+    String currencyNeutralRole(String source) {
+      final markers = [
+        ..._printedCurrencyMarkerMatches(source),
+        ..._unsupportedIsoCurrencyMarkers(source),
+        ...RegExp(r'\p{Sc}', unicode: true).allMatches(source),
+      ]..sort((a, b) => a.start.compareTo(b.start));
+      final role = StringBuffer();
+      var cursor = 0;
+      for (final marker in markers) {
+        if (marker.end <= cursor) continue;
+        if (marker.start > cursor) {
+          role.write(source.substring(cursor, marker.start));
+        }
+        role.write(' ');
+        cursor = marker.end;
+      }
+      role.write(source.substring(cursor));
+      // This view establishes only the role and component identity. Every
+      // original denomination is checked with the owned amount below, and
+      // source blocks remain intact. Currency annotations cannot make two
+      // copies of the same named tax look like distinct components.
+      return _financialProjectionLabelText(
+        role.toString().replaceAll(RegExp(r'\s+'), ' '),
+      );
+    }
+
     bool usableRow(
       List<ReceiptOcrBlockEvidence> cells, {
       bool requireAlignment = true,
@@ -4638,11 +4664,12 @@ class ReceiptOcrParser {
         String columnText(int column) => _financialProjectionLabelText(
           (owned[column] ?? const []).map((cell) => cell.text.trim()).join(' '),
         );
-        final label = columnText(descriptionColumn);
-        if (_hasTotalLabel(label, label.toLowerCase()) ||
-            _hasSubtotalLabel(label, label.toLowerCase())) {
+        final description = columnText(descriptionColumn);
+        if (_hasTotalLabel(description, description.toLowerCase()) ||
+            _hasSubtotalLabel(description, description.toLowerCase())) {
           break;
         }
+        final label = currencyNeutralRole(description);
         if (!financialLabel(label)) continue;
         // Once the complete owned label says this is financial evidence,
         // failure to prove its amount must not re-admit it as merchandise.
@@ -4660,8 +4687,14 @@ class ReceiptOcrParser {
         final moneyCells = owned[amountColumn] ?? const [];
         final amount = _lastAmountInLine(monetaryText, currency: currency);
         final printed = _layoutItemCellCurrency(monetaryText, currency);
+        final rowCurrency = _layoutItemCellCurrency(
+          '$description $monetaryText',
+          currency,
+        );
         var uncertain =
             amount == null ||
+            (rowCurrency.hasExplicitEvidence &&
+                rowCurrency.currency != currency) ||
             !_isStandaloneAmountRow(monetaryText) ||
             !_hasChargeTableMonetaryEvidence(monetaryText) ||
             RegExp(_amountTokenPattern).allMatches(monetaryText).length != 1 ||
