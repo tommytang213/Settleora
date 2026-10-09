@@ -657,6 +657,19 @@ void main() {
     expect(p.adjustmentsComplete, isFalse);
   });
 
+  for (final prior in ['9.00 EUR', '9.00 BIF']) {
+    test('earlier suffixed amount retains selected currency conflict $prior', () {
+      final p = _preview([
+        ['SAMPLE SHOP'],
+        ['Tea USD 1.00'],
+        ['Subtotal USD 1.00'],
+        ['Total $prior / EUR USD1.00'],
+      ], geometry: false);
+      expect(p.total, isNull);
+      expect(p.adjustmentsComplete, isFalse);
+    });
+  }
+
   for (final neighbor in [
     null,
     'EUR',

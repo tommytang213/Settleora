@@ -8999,6 +8999,19 @@ String? _selectedMonetaryCurrencyCell(String line) {
         marker.end <= amount.start &&
         (marker.end >= start ||
             separator.hasMatch(line.substring(marker.end, start)))) {
+      final prefix = line.substring(0, marker.start);
+      final priorAmount = _lastWholeAmountMatch(prefix);
+      if (priorAmount != null &&
+          RegExp(r'^[\s:=]*$').hasMatch(prefix.substring(priorAmount.end)) &&
+          marker.end < start &&
+          RegExp(
+            r'[/|;,]|\b(?:and|plus|or|vs\.?|versus|to)\b',
+            caseSensitive: false,
+          ).hasMatch(line.substring(marker.end, start))) {
+        // This suffix belongs to an earlier printed amount, separated from
+        // the selected cell. Keep any later conflicting markers already found.
+        break;
+      }
       start = marker.start;
     }
   }
