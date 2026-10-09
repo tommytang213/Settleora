@@ -4574,8 +4574,9 @@ class ReceiptOcrParser {
       }
       int? columnFor(ReceiptOcrBlockEvidence cell) {
         if (cell.points.isEmpty ||
-            cell.points.any((point) => !point.x.isFinite))
+            cell.points.any((point) => !point.x.isFinite)) {
           return null;
+        }
         final center = _blockCenterX(cell);
         var column = 0;
         while (column + 1 < columns.length &&

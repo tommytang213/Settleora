@@ -16,11 +16,12 @@ void main() {
               variant: 'taxes only',
             );
             receipt.replace('State Utility Tax', text: 'State $qualifier Tax');
-            if (!mixed)
+            if (!mixed) {
               receipt.replace(
                 'Local Utility Tax',
                 text: 'Local $qualifier Tax',
               );
+            }
             _expectUnresolvedTax(receipt);
           },
         );
