@@ -3047,15 +3047,19 @@ class ReceiptOcrParser {
         description = '$wrappedDescription $description';
       }
       wrappedDescriptionLines.clear();
-      final lineCurrency = _itemCurrencyFromPrintedText(
-        line,
-        currency,
-        token: match.group(2) ?? match.group(4),
-      );
-      final currencyUnresolved = _selectedItemCurrencyUnresolved(
-        line,
-        currency,
-      );
+      // A text match cannot discard conflicting currency evidence already
+      // proven to belong to this row's bounded monetary cells.
+      final ownedCurrencyConflict = layoutFallback?.currencyUnresolved == true;
+      final lineCurrency = ownedCurrencyConflict
+          ? null
+          : _itemCurrencyFromPrintedText(
+              line,
+              currency,
+              token: match.group(2) ?? match.group(4),
+            );
+      final currencyUnresolved =
+          ownedCurrencyConflict ||
+          _selectedItemCurrencyUnresolved(line, currency);
       final lineConfidence = lineIndex < layoutRows.length
           ? _averageBlockConfidence(layoutRows[lineIndex])
           : null;
@@ -3208,6 +3212,31 @@ class ReceiptOcrParser {
       monetaryText,
       receiptCurrency: receiptCurrency,
     );
+    if (established.hasExplicitEvidence && established.currency == null) {
+      return established;
+    }
+    final amount = _lastWholeAmountMatch(monetaryText)?.group(0);
+    if (amount != null) {
+      final currencies = <String>{
+        if (established.hasExplicitEvidence) established.currency!,
+      };
+      // This text contains only the admitted amount cell and its owned
+      // currency-only neighbor. Resolve every marker against that same printed
+      // amount; an intervening denomination must not hide an earlier conflict.
+      for (final marker in _printedCurrencyMarkerMatches(monetaryText)) {
+        final printed = _currencyAdjacentToSelectedAmount(
+          '${marker.group(0)} $amount',
+          receiptCurrency,
+        );
+        if (printed.currency == null) {
+          return (currency: null, hasExplicitEvidence: true);
+        }
+        currencies.add(printed.currency!);
+      }
+      if (currencies.length > 1) {
+        return (currency: null, hasExplicitEvidence: true);
+      }
+    }
     return established.hasExplicitEvidence
         ? established
         : _currencyAdjacentToSelectedAmount(monetaryText, receiptCurrency);
@@ -8809,6 +8838,21 @@ final _amountSuffixCurrencyPattern = RegExp(
   caseSensitive: false,
   unicode: true,
 );
+// Sign inspection must also see adjacent code/symbol combinations such as
+// USD$. These broader chains only reject conflicting evidence; the original
+// single-marker patterns still govern numeric-token admission below.
+final _amountPrefixCurrencyChainPattern = RegExp(
+  '(?<![\\p{L}\\p{N}])(?:$_currencyTokenPattern)'
+  '(?:\\s*(?:$_currencyTokenPattern))*\\s*\$',
+  caseSensitive: false,
+  unicode: true,
+);
+final _amountSuffixCurrencyChainPattern = RegExp(
+  '^\\s*(?:$_currencyTokenPattern)'
+  '(?:\\s*(?:$_currencyTokenPattern))*(?![\\p{L}\\p{N}])',
+  caseSensitive: false,
+  unicode: true,
+);
 
 // Select the complete numeric lexeme before testing its boundaries. Putting
 // lookarounds in the amount regexp lets it restart after a grouping separator,
@@ -8829,22 +8873,14 @@ RegExpMatch? _lastWholeAmountMatch(String line) {
   // not conceal a residual sign beyond the marker closest to the number.
   // A valid leading sign was already moved beside its amount during line
   // normalization; remaining prefix/suffix signs are unresolved evidence.
-  var prefixRemainder = before;
-  var prefixMarker = prefixCurrency;
-  while (prefixMarker != null) {
-    prefixRemainder = prefixRemainder.substring(0, prefixMarker.start);
-    prefixMarker = _amountPrefixCurrencyPattern.firstMatch(prefixRemainder);
-  }
-  var suffixRemainder = after;
-  var suffixMarker = suffixCurrency;
-  while (suffixMarker != null) {
-    suffixRemainder = suffixRemainder.substring(suffixMarker.end);
-    suffixMarker = _amountSuffixCurrencyPattern.firstMatch(suffixRemainder);
-  }
-  if ((prefixCurrency != null &&
-          RegExp(r'[+-]\s*$').hasMatch(prefixRemainder)) ||
-      (suffixCurrency != null &&
-          RegExp(r'^\s*[+-]').hasMatch(suffixRemainder))) {
+  final prefixChain = _amountPrefixCurrencyChainPattern.firstMatch(before);
+  final suffixChain = _amountSuffixCurrencyChainPattern.firstMatch(after);
+  if ((prefixChain != null &&
+          RegExp(
+            r'[+-]\s*$',
+          ).hasMatch(before.substring(0, prefixChain.start))) ||
+      (suffixChain != null &&
+          RegExp(r'^\s*[+-]').hasMatch(after.substring(suffixChain.end)))) {
     return null;
   }
   if (prefixCurrency == null &&

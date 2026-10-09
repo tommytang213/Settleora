@@ -12,7 +12,13 @@ ReceiptOcrPreview _preview(
   final blocks = <ReceiptOcrBlockEvidence>[];
   for (var row = 0; row < rows.length; row++) {
     for (var col = 0; col < rows[row].length; col++) {
-      final x = col == 0 ? 50.0 : 700.0, y = row * 50.0;
+      final currencyCell = rows[row].length == 3 && col == 1;
+      final x = col == 0
+          ? 50.0
+          : currencyCell
+          ? 630.0
+          : 700.0;
+      final width = currencyCell ? 60.0 : 180.0, y = row * 50.0;
       blocks.add(
         ReceiptOcrBlockEvidence(
           text: rows[row][col],
@@ -21,8 +27,8 @@ ReceiptOcrPreview _preview(
           confidence: 0.99,
           points: [
             ReceiptOcrPoint(x: x, y: y),
-            ReceiptOcrPoint(x: x + 180, y: y),
-            ReceiptOcrPoint(x: x + 180, y: y + 30),
+            ReceiptOcrPoint(x: x + width, y: y),
+            ReceiptOcrPoint(x: x + width, y: y + 30),
             ReceiptOcrPoint(x: x, y: y + 30),
           ],
         ),
@@ -180,6 +186,10 @@ void main() {
 
   for (final geometry in [false, true]) {
     for (final money in [
+      r'-USD$ USD1.00',
+      r'1.00USD USD$-',
+      r'-USD$1.00',
+      r'1.00USD$-',
       '-USD USD1.00',
       '+USD USD1.00',
       '-usd USD USD1.00',
@@ -359,6 +369,58 @@ void main() {
         expect(saved.lines.single.text, 'Notebook');
         expect(saved.lines.single.lineTotalAmount, isNull);
         expect(p.blocks.any((b) => b.text == money), isTrue);
+      });
+    }
+  }
+
+  for (final table in [false, true]) {
+    for (final entry in <({String marker, String money, String? currency})>[
+      (marker: 'EUR', money: 'USD10.00', currency: null),
+      (marker: 'eur', money: 'USD10.00', currency: null),
+      (marker: 'USD', money: 'EUR10.00', currency: null),
+      (marker: 'USD', money: '10.00EUR', currency: null),
+      (marker: '€', money: 'USD10.00', currency: null),
+      (marker: 'EUR', money: r'$10.00', currency: null),
+      (marker: 'USD', money: 'USD10.00', currency: 'USD'),
+      (marker: 'USD', money: r'$10.00', currency: 'USD'),
+      (marker: 'EUR', money: 'EUR10.00', currency: 'EUR'),
+      (marker: '€', money: 'EUR10.00', currency: 'EUR'),
+    ]) {
+      test('owned monetary cells keep every denomination $table $entry', () {
+        final p = _preview([
+          ['SAMPLE SHOP'],
+          if (table) ...[
+            ['Current Charges Detail'],
+            ['Description', 'Amount'],
+          ],
+          ['Notebook', entry.marker, entry.money],
+          ['Subtotal USD 10.00'],
+          ['Total USD 10.00'],
+        ]);
+        expect(p.currency, 'USD');
+        // The ordinary dollar row already uses the text-item path. Preserve
+        // that description while retaining its owned currency conflict.
+        expect(
+          p.items.single.description,
+          !table && entry.money.startsWith(r'$')
+              ? 'Notebook ${entry.marker}'
+              : 'Notebook',
+        );
+        expect(p.items.single.lineTotal, '10.00');
+        expect(p.items.single.currency, entry.currency);
+        expect(p.items.single.currencyUnresolved, entry.currency == null);
+        final saved = receiptOcrReviewSaveRequestFromPreview(
+          p,
+          originalCurrency: 'USD',
+        );
+        expect(saved, isNotNull);
+        expect(saved!.status, ReceiptOcrReviewStatusValues.provisional);
+        expect(
+          saved.lines.single.lineTotalAmount,
+          entry.currency == 'USD' ? '10.00' : isNull,
+        );
+        expect(p.blocks.any((b) => b.text == entry.marker), isTrue);
+        expect(p.blocks.any((b) => b.text == entry.money), isTrue);
       });
     }
   }

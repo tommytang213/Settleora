@@ -47,6 +47,12 @@ void main() {
       'foreignAttachedMixedPrefix',
       'foreignAttachedLowercaseSuffix',
       'foreignAttachedMixedSuffix',
+      'separateCurrencyConflictPrefix',
+      'separateCurrencyConflictLowercase',
+      'separateCurrencyConflictSuffix',
+      'separateCurrencyConflictSymbol',
+      'separateCurrencyConflictDollar',
+      'separateCurrencyMatching',
       'subtotal',
       'competingSubtotal',
       'taxAnnotation',
@@ -67,6 +73,7 @@ void main() {
       'traditionalTaxJoinedMatching',
     ]) {
       final confidentDraft = [
+        'separateCurrencyMatching',
         'service',
         'serviceAttachedCurrency',
         'subtotal',
@@ -81,6 +88,7 @@ void main() {
       // Existing Apply copies item amounts only. Gross-matching items remain
       // selectable even when header arithmetic warns; no tax charge is added.
       final canApplyFinancial = [
+        'separateCurrencyMatching',
         'service',
         'serviceAttachedCurrency',
         'subtotal',
@@ -91,7 +99,39 @@ void main() {
         'traditionalTaxLowercase',
         'traditionalTaxJoinedMatching',
       ].contains(scenario);
-      final preview = scenario.startsWith('foreignAttached')
+      final preview = scenario.startsWith('separateCurrency')
+          ? parseSummaryBlocks([
+              summaryBlock('Corner Market', 0, 20, 20, 200, 25),
+              summaryBlock('Tea', 1, 20, 70, 200, 25),
+              summaryBlock(
+                switch (scenario) {
+                  'separateCurrencyMatching' => 'USD',
+                  'separateCurrencyConflictLowercase' => 'eur',
+                  'separateCurrencyConflictSymbol' => '€',
+                  _ => 'EUR',
+                },
+                1,
+                530,
+                70,
+                60,
+                25,
+              ),
+              summaryBlock(
+                switch (scenario) {
+                  'separateCurrencyConflictSuffix' => '10.00USD',
+                  'separateCurrencyConflictDollar' => r'$10.00',
+                  _ => 'USD10.00',
+                },
+                1,
+                600,
+                70,
+                180,
+                25,
+              ),
+              summaryBlock('Subtotal USD 10.00', 2, 20, 120, 300, 25),
+              summaryBlock('Total USD 10.00', 3, 20, 170, 300, 25),
+            ])
+          : scenario.startsWith('foreignAttached')
           ? parseSummaryBlocks([
               summaryBlock('Corner Market', 0, 20, 20, 200, 25),
               summaryBlock('Tea', 1, 20, 70, 200, 25),
@@ -179,6 +219,17 @@ void main() {
           );
           expect(saved, isNotNull);
           expect(saved!.status, ReceiptOcrReviewStatusValues.provisional);
+          if (scenario.startsWith('separateCurrency')) {
+            final matching = scenario == 'separateCurrencyMatching';
+            expect(preview.currency, 'USD');
+            expect(preview.items.single.currency, matching ? 'USD' : isNull);
+            expect(preview.items.single.currencyUnresolved, !matching);
+            expect(preview.items.single.lineTotal, '10.00');
+            expect(
+              saved.lines.single.lineTotalAmount,
+              matching ? '10.00' : isNull,
+            );
+          }
           if (scenario.startsWith('foreignAttached')) {
             expect(preview.currency, 'USD');
             expect(preview.items.single.currency, 'EUR');
@@ -212,6 +263,7 @@ void main() {
             // A foreign item is blocked by currency ownership, with no tax
             // interpretation introduced for this otherwise tax-free receipt.
             scenario.startsWith('foreignAttached') ||
+                    scenario.startsWith('separateCurrency') ||
                     confidentDraft ||
                     (scenario.startsWith('traditionalTax') &&
                         ![
