@@ -59,10 +59,11 @@ internal object ScriptRouteSelector {
         val selected = eligible.maxByOrNull(::score) ?: return null
         if (ScriptEvidence.COMMON in selected.pack.acceptedScripts) return selected
 
-        // A single letter replacing a printed currency symbol must not earn
-        // the full script bonus when every eligible candidate agrees on the
-        // remaining literal. This is a narrow selection exception, not currency
-        // inference: keep the candidate's text, confidence and provenance intact.
+        // Captured candidates demonstrate the rupee symbol being displaced by
+        // Devanagari ra solely because ra earns a script bonus. Limit this
+        // exception to that evidenced glyph pair: arbitrary currency symbols
+        // must not suppress genuine single-letter items or currency letters.
+        // Keep the selected candidate's text, confidence and provenance intact.
         val common = eligible.singleOrNull {
             ScriptEvidence.COMMON in it.pack.acceptedScripts
         } ?: return selected
@@ -70,16 +71,15 @@ internal object ScriptRouteSelector {
             common.confidence + 0.03f < selected.confidence
         ) return selected
         val monetary = monetaryGlyph(common.text) ?: return selected
-        if (Character.getType(monetary.marker.codePointAt(0)) !=
-            Character.CURRENCY_SYMBOL.toInt()
-        ) return selected
+        if (monetary.marker != "₹") return selected
         val agrees = eligible.all { candidate ->
             val shape = monetaryGlyph(candidate.text)
             shape != null && shape.skeleton == monetary.skeleton &&
                 if (ScriptEvidence.COMMON in candidate.pack.acceptedScripts) {
                     shape.marker == monetary.marker
                 } else {
-                    Character.isLetter(shape.marker.codePointAt(0))
+                    ScriptEvidence.DEVANAGARI in candidate.pack.acceptedScripts &&
+                        shape.marker == "र"
                 }
         }
         return if (agrees) common else selected

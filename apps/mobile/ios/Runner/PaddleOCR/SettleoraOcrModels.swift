@@ -122,14 +122,15 @@ enum ScriptRouteSelector {
     guard let selected = eligible.max(by: { score($0) < score($1) }) else { return nil }
     if selected.pack.acceptedScripts.contains(.common) { return selected }
 
-    // Match Android's narrow currency-symbol exception. Never infer a currency,
-    // rewrite text, or remove the existing preference for substantive script.
+    // Match Android's evidenced rupee-symbol/Devanagari-ra exception. Arbitrary
+    // symbol/letter pairs remain subject to the existing script calibration.
+    // Never infer a currency or rewrite the selected text and provenance.
     let commonCandidates = eligible.filter { $0.pack.acceptedScripts.contains(.common) }
     guard commonCandidates.count == 1, let common = commonCandidates.first,
           (Float(0.90)...Float(1)).contains(common.confidence),
           common.confidence + Float(0.03) >= selected.confidence,
           let monetary = monetaryGlyph(common.text),
-          monetary.marker.unicodeScalars.first?.properties.generalCategory == .currencySymbol
+          monetary.marker == "₹"
     else { return selected }
     let agrees = eligible.allSatisfy { candidate in
       guard let shape = monetaryGlyph(candidate.text), shape.skeleton == monetary.skeleton else {
@@ -138,7 +139,7 @@ enum ScriptRouteSelector {
       if candidate.pack.acceptedScripts.contains(.common) {
         return shape.marker == monetary.marker
       }
-      return shape.marker.unicodeScalars.allSatisfy { CharacterSet.letters.contains($0) }
+      return candidate.pack.acceptedScripts.contains(.devanagari) && shape.marker == "र"
     }
     return agrees ? common : selected
   }

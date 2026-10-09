@@ -233,7 +233,7 @@ class ScriptRouteSelectorTest {
         val cases = listOf(
             Case("symbol_beats_lower_confidence_letter", "₹ 8,765.43", 0.943f, "र 8,765.43", 0.93f, ScriptEvidence.DEVANAGARI, true),
             Case("symbol_beats_nearby_letter", "₹ 1,23,456.78", 0.943f, "र 1,23,456.78", 0.946f, ScriptEvidence.DEVANAGARI, true),
-            Case("suffix_symbol", "8.50 €", 0.95f, "8.50 р", 0.95f, ScriptEvidence.CYRILLIC, true),
+            Case("suffix_symbol", "8.50 ₹", 0.95f, "8.50 र", 0.95f, ScriptEvidence.DEVANAGARI, true),
             Case("leading_negative", "-₹8.50", 0.95f, "-र8.50", 0.95f, ScriptEvidence.DEVANAGARI, true),
             Case("inner_negative", "₹−8.50", 0.95f, "र−8.50", 0.95f, ScriptEvidence.DEVANAGARI, true),
             Case("explicit_positive", "+₹8.50", 0.95f, "+र8.50", 0.95f, ScriptEvidence.DEVANAGARI, true),
@@ -262,6 +262,12 @@ class ScriptRouteSelectorTest {
             Case("parenthesized", "(₹8.50)", 0.95f, "(र8.50)", 0.95f, ScriptEvidence.DEVANAGARI, false),
             Case("decimal_without_integer", "₹.50", 0.95f, "र.50", 0.95f, ScriptEvidence.DEVANAGARI, false),
             Case("letter_combining_sequence", "₹8.50", 0.95f, "ऱ8.50", 0.95f, ScriptEvidence.DEVANAGARI, false),
+            Case("genuine_single_letter_item_with_price", "₹8.50", 0.95f, "차 8.50", 0.95f, ScriptEvidence.KOREAN, false),
+            Case("currency_letter_with_price", "₹8.50", 0.95f, "р8.50", 0.95f, ScriptEvidence.CYRILLIC, false),
+            Case("unrelated_devanagari_letter", "₹8.50", 0.95f, "म8.50", 0.95f, ScriptEvidence.DEVANAGARI, false),
+            Case("precomposed_nukta_letter", "₹8.50", 0.95f, "ऱ8.50", 0.95f, ScriptEvidence.DEVANAGARI, false),
+            Case("unrelated_currency_symbol", "€8.50", 0.95f, "र8.50", 0.95f, ScriptEvidence.DEVANAGARI, false),
+            Case("unrelated_dollar_symbol", "$8.50", 0.95f, "र8.50", 0.95f, ScriptEvidence.DEVANAGARI, false),
             Case("integer", "₹850", 0.95f, "र850", 0.95f, ScriptEvidence.DEVANAGARI, true),
         )
         for (case in cases) {

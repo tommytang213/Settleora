@@ -226,7 +226,7 @@ class RunnerTests: XCTestCase {
     let cases: [(String, String, Float, String, Float, ScriptEvidence, Bool)] = [
       ("symbol_beats_lower_confidence_letter", "₹ 8,765.43", 0.943, "र 8,765.43", 0.93, .devanagari, true),
       ("symbol_beats_nearby_letter", "₹ 1,23,456.78", 0.943, "र 1,23,456.78", 0.946, .devanagari, true),
-      ("suffix_symbol", "8.50 €", 0.95, "8.50 р", 0.95, .cyrillic, true),
+      ("suffix_symbol", "8.50 ₹", 0.95, "8.50 र", 0.95, .devanagari, true),
       ("leading_negative", "-₹8.50", 0.95, "-र8.50", 0.95, .devanagari, true),
       ("inner_negative", "₹−8.50", 0.95, "र−8.50", 0.95, .devanagari, true),
       ("explicit_positive", "+₹8.50", 0.95, "+र8.50", 0.95, .devanagari, true),
@@ -255,6 +255,12 @@ class RunnerTests: XCTestCase {
       ("parenthesized", "(₹8.50)", 0.95, "(र8.50)", 0.95, .devanagari, false),
       ("decimal_without_integer", "₹.50", 0.95, "र.50", 0.95, .devanagari, false),
       ("letter_combining_sequence", "₹8.50", 0.95, "ऱ8.50", 0.95, .devanagari, false),
+      ("genuine_single_letter_item_with_price", "₹8.50", 0.95, "차 8.50", 0.95, .korean, false),
+      ("currency_letter_with_price", "₹8.50", 0.95, "р8.50", 0.95, .cyrillic, false),
+      ("unrelated_devanagari_letter", "₹8.50", 0.95, "म8.50", 0.95, .devanagari, false),
+      ("precomposed_nukta_letter", "₹8.50", 0.95, "ऱ8.50", 0.95, .devanagari, false),
+      ("unrelated_currency_symbol", "€8.50", 0.95, "र8.50", 0.95, .devanagari, false),
+      ("unrelated_dollar_symbol", "$8.50", 0.95, "र8.50", 0.95, .devanagari, false),
       ("integer", "₹850", 0.95, "र850", 0.95, .devanagari, true),
     ]
     for (name, commonText, commonConfidence, specialistText, specialistConfidence, script, preferCommon) in cases {
