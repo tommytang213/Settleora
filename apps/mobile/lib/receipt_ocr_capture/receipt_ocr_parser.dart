@@ -741,6 +741,7 @@ class ReceiptOcrParser {
   }) {
     ({String date, int score})? best;
     final explicitReceiptDates = <String>{};
+    final labeledCalendarDates = <String>{};
     var sawStayDate = false;
     var precedingStayRange = false;
     var precedingStaySeparator = false;
@@ -757,11 +758,11 @@ class ReceiptOcrParser {
     for (var index = 0; index < lines.length; index += 1) {
       final line = lines[index];
       final lower = line.toLowerCase();
-      // Whole labeled document dates carry the same authority in every
-      // supported format. Skipping them as money must not hide a conflict.
+      // Whole generic date fields contribute conflict evidence without
+      // outranking specific bill/invoice/statement roles below.
       final labeledDate = _labeledCalendarDate(line);
       if (labeledDate != null) {
-        explicitReceiptDates.add(labeledDate);
+        labeledCalendarDates.add(labeledDate);
       }
       // Reading order only breaks nearby ties; an explicit role must remain
       // stronger than a distant unlabeled date on a long document.
@@ -949,7 +950,7 @@ class ReceiptOcrParser {
               ).hasMatch(lower.substring(ownedStayDateEnd!)));
       precedingStaySeparator = standaloneSeparator;
     }
-    if (explicitReceiptDates.length > 1) {
+    if ({...explicitReceiptDates, ...labeledCalendarDates}.length > 1) {
       onAmbiguousReceiptDate?.call();
       return null;
     }

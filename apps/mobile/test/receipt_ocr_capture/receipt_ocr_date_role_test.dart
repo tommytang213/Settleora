@@ -156,6 +156,30 @@ void main() {
     expect(p.reviewHints, isEmpty);
   });
 
+  for (final generic in [
+    '日期: 2026年09月17日',
+    '날짜: 2026. 09. 17.',
+    'Date: 2026/09/17',
+  ]) {
+    for (final role in ['Bill', 'Invoice', 'Statement']) {
+      for (final genericFirst in [true, false]) {
+        test(
+          'generic date does not outrank $role date: $generic first=$genericFirst',
+          () {
+            final specific = '$role date: 2026-09-19';
+            final p = _receipt(
+              genericFirst ? '$generic\n$specific' : '$specific\n$generic',
+            );
+            _expectOrdinaryItem(p);
+            expect(p.receiptDate, '2026-09-19');
+            expect(p.warnings, isEmpty);
+            expect(p.reviewHints, isEmpty);
+          },
+        );
+      }
+    }
+  }
+
   test('due, prior and stay dates do not conflict with the document date', () {
     final p = _receipt(
       'Due date: 2026-09-30\nPrior receipt date: 2026-08-17\nStay 2026-09-15 to 2026-09-16\n日期: 2026年09月17日',
