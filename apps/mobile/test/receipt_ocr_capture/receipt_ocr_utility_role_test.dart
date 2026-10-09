@@ -6,6 +6,32 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
 // Generic printed table transcriptions, never private native OCR captures.
 void main() {
   for (final mirrored in [false, true]) {
+    test(
+      'separate support panel can be vertically offset mirrored=$mirrored',
+      () {
+        final receipt = _utilityTable(
+          mirrored: mirrored,
+          variant: 'taxes only',
+        );
+        for (final target in ['Information', 'Go Paperless']) {
+          final block = receipt.blocks.firstWhere(
+            (block) => block.text == target,
+          );
+          receipt.replace(
+            target,
+            points: [
+              for (final point in block.points)
+                ReceiptOcrPoint(x: point.x, y: point.y + 20),
+            ],
+          );
+        }
+        final preview = receipt.parse();
+        expect(preview.tax, '1.50');
+        expect(preview.adjustmentsComplete, isTrue);
+        expect(preview.reviewHints, isEmpty);
+        expect(preview.blocks, receipt.blocks);
+      },
+    );
     for (final qualifier in ['Included', 'Inclusive', 'Excluded', 'Exempt']) {
       for (final mixed in [false, true]) {
         test(

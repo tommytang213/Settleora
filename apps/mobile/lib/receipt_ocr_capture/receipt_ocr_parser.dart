@@ -4440,7 +4440,10 @@ class ReceiptOcrParser {
       caseSensitive: false,
       unicode: true,
     );
-    bool usableRow(List<ReceiptOcrBlockEvidence> cells) {
+    bool usableRow(
+      List<ReceiptOcrBlockEvidence> cells, {
+      bool requireAlignment = true,
+    }) {
       if (cells.isEmpty) return false;
       final bands = <({double top, double bottom})>[];
       for (final cell in cells) {
@@ -4466,6 +4469,7 @@ class ReceiptOcrParser {
         }
         bands.add((top: ys.first, bottom: ys.last));
       }
+      if (!requireAlignment) return true;
       // A provider row identifier cannot join cells on different printed rows.
       // Require substantial vertical overlap for every pair, independently of
       // horizontal column assignment and the amount's numerical plausibility.
@@ -4513,26 +4517,30 @@ class ReceiptOcrParser {
           ).hasMatch(label);
     }
 
+    void retainAmbiguousFinancialRows(int headerIndex) {
+      // Malformed column geometry must not send explicit financial cells
+      // back through a weaker priced-item selector with complete evidence.
+      for (var index = headerIndex + 1; index < rows.length; index++) {
+        final line = lines[index];
+        if (_isSupportedChargeTableHeader(lines, index) ||
+            _isChargeTableSectionBoundary(line) ||
+            _hasTotalLabel(line, line.toLowerCase()) ||
+            _hasSubtotalLabel(line, line.toLowerCase())) {
+          break;
+        }
+        if (rows[index].any(
+          (cell) => financialLabel(_financialProjectionLabelText(cell.text)),
+        )) {
+          ambiguous.add(index);
+        }
+      }
+    }
+
     for (var headerIndex = 1; headerIndex < rows.length; headerIndex++) {
       if (!_isBillChargeDetailHeader(lines, headerIndex)) continue;
       final header = rows[headerIndex];
-      if (header.length < 2 || !usableRow(header)) {
-        // Malformed column geometry must not send explicit financial cells
-        // back through a weaker priced-item selector with complete evidence.
-        for (var index = headerIndex + 1; index < rows.length; index++) {
-          final line = lines[index];
-          if (_isSupportedChargeTableHeader(lines, index) ||
-              _isChargeTableSectionBoundary(line) ||
-              _hasTotalLabel(line, line.toLowerCase()) ||
-              _hasSubtotalLabel(line, line.toLowerCase())) {
-            break;
-          }
-          if (rows[index].any(
-            (cell) => financialLabel(_financialProjectionLabelText(cell.text)),
-          )) {
-            ambiguous.add(index);
-          }
-        }
+      if (header.length < 2 || !usableRow(header, requireAlignment: false)) {
+        retainAmbiguousFinancialRows(headerIndex);
         continue;
       }
       final columns = header.toList()
@@ -4563,6 +4571,12 @@ class ReceiptOcrParser {
       // Separate multi-column meter/graph panels already have a dedicated
       // ownership path. Do not reinterpret their spanning captions here.
       if (innerStart + columns.length - innerEnd - 1 > 1) continue;
+      // A separately headed support panel owns no financial cells. Its text
+      // can be vertically offset without lending alignment to this table.
+      if (!usableRow(columns.sublist(innerStart, innerEnd + 1))) {
+        retainAmbiguousFinancialRows(headerIndex);
+        continue;
+      }
       if (columns
           .sublist(innerStart + 1, innerEnd)
           .any(
@@ -4618,7 +4632,13 @@ class ReceiptOcrParser {
         if (!financialLabel(label)) continue;
         // Once the complete owned label says this is financial evidence,
         // failure to prove its amount must not re-admit it as merchandise.
-        if (!usableRow(row) || row.any((cell) => columnFor(cell) == null)) {
+        final financialCells = [
+          for (var column = innerStart; column <= innerEnd; column++)
+            ...?owned[column],
+        ];
+        if (!usableRow(row, requireAlignment: false) ||
+            !usableRow(financialCells) ||
+            row.any((cell) => columnFor(cell) == null)) {
           ambiguous.add(rowIndex);
           continue;
         }
