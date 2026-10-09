@@ -718,6 +718,54 @@ void main() {
     });
   }
 
+  for (final rate in [r'$0.0250', r'$0.25']) {
+    test('layout fallback preserves rate-cell admission $rate', () {
+      final blocks = <ReceiptOcrBlockEvidence>[];
+      void cell(String text, int row, double left, double width) {
+        final top = row * 50.0;
+        blocks.add(
+          ReceiptOcrBlockEvidence(
+            text: text,
+            row: row,
+            order: blocks.length,
+            confidence: 0.99,
+            points: [
+              ReceiptOcrPoint(x: left, y: top),
+              ReceiptOcrPoint(x: left + width, y: top),
+              ReceiptOcrPoint(x: left + width, y: top + 24),
+              ReceiptOcrPoint(x: left, y: top + 24),
+            ],
+          ),
+        );
+      }
+
+      cell('UTILITY SHOP', 0, 50, 250);
+      cell('Usage Fee', 1, 50, 250);
+      cell('40', 1, 350, 35);
+      cell(rate, 1, 460, 80);
+      cell(r'$1.00', 1, 615, 80);
+      cell('manage your account online', 1, 780, 280);
+      cell('Total USD 1.00', 2, 50, 250);
+      final rows = <int, List<String>>{};
+      for (final block in blocks) {
+        (rows[block.row] ??= []).add(block.text);
+      }
+      final preview = const ReceiptOcrParser().parse(
+        rows.values.map((row) => row.join(' ')).join('\n'),
+        blocks: blocks,
+        fallbackCurrency: 'USD',
+      );
+      if (rate == r'$0.0250') {
+        expect(preview.items.single.description, 'Usage Fee');
+        expect(preview.items.single.lineTotal, '1.00');
+        expect(preview.items.single.currency, 'USD');
+      } else {
+        expect(preview.items, isEmpty);
+      }
+      expect(preview.blocks, blocks);
+    });
+  }
+
   for (final neighbor in [
     null,
     'EUR',

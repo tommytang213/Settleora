@@ -1332,7 +1332,11 @@ class ReceiptOcrParser {
   }
 
   ({String? currency, bool hasExplicitEvidence})
-  _explicitAdjustmentCurrencyFromLine(String line, {String? receiptCurrency}) {
+  _explicitAdjustmentCurrencyFromLine(
+    String line, {
+    String? receiptCurrency,
+    bool resolveMissing = true,
+  }) {
     return _currencyKeepingSelectedChain(
       line,
       receiptCurrency,
@@ -1340,14 +1344,16 @@ class ReceiptOcrParser {
         line,
         receiptCurrency: receiptCurrency,
       ),
+      resolveMissing: resolveMissing,
     );
   }
 
   ({String? currency, bool hasExplicitEvidence}) _currencyKeepingSelectedChain(
     String line,
     String? receiptCurrency,
-    ({String? currency, bool hasExplicitEvidence}) established,
-  ) {
+    ({String? currency, bool hasExplicitEvidence}) established, {
+    bool resolveMissing = true,
+  }) {
     final cell = _selectedMonetaryCurrencyCell(line);
     return cell == null
         ? established
@@ -1355,7 +1361,7 @@ class ReceiptOcrParser {
             cell,
             receiptCurrency,
             established,
-            resolveMissing: true,
+            resolveMissing: resolveMissing,
           );
   }
 
@@ -3346,9 +3352,12 @@ class ReceiptOcrParser {
     );
     bool hasMonetaryEvidence(ReceiptOcrBlockEvidence cell) {
       final cellText = _normalizeOcrLine(cell.text);
+      // Preserve admission before resolving the chosen cell's denomination.
+      // A fine-grained unit rate must not become another charge candidate.
       final printed = _explicitAdjustmentCurrencyFromLine(
         cellText,
         receiptCurrency: currency,
+        resolveMissing: false,
       );
       final adjacentCurrency = _nearbyCurrencyOnlyBlocks(row, cell);
       if (adjacentCurrency.length > 1) return false;
@@ -3357,6 +3366,7 @@ class ReceiptOcrParser {
           : _explicitAdjustmentCurrencyFromLine(
                   '${_normalizeOcrLine(adjacentCurrency.single.text)} $cellText',
                   receiptCurrency: currency,
+                  resolveMissing: false,
                 ).currency ??
                 currency;
       final minorDigits = _currencyMinorUnitDigits(cellCurrency);
