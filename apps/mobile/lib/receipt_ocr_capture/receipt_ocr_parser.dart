@@ -4440,8 +4440,14 @@ class ReceiptOcrParser {
       caseSensitive: false,
       unicode: true,
     );
+    const taxTreatmentPattern =
+        r'incl(?:uded|uding|usive)?|excl(?:uded|uding|usive)?|exempt|waived|withheld|paid|refunded|reversed|credited';
+    final taxTreatmentQualifier = RegExp(
+      '\\b(?:$taxTreatmentPattern)\\b',
+      caseSensitive: false,
+    );
     final taxSemanticQualifier = RegExp(
-      r'\b(?:no|not|non|without|incl(?:uded|uding|usive)?|excl(?:uded|uding|usive)?|exempt|waived|withheld|paid|refunded|reversed|credited)\b',
+      '\\b(?:no|not|non|without|$taxTreatmentPattern)\\b',
       caseSensitive: false,
     );
     final standaloneTaxQualifier = RegExp(
@@ -4705,9 +4711,13 @@ class ReceiptOcrParser {
           } else {
             // A separately headed panel may explain plain support text, never
             // another amount, missing geometry or a competing financial role.
+            // Treatment words retain their meaning inside a phrase, such as
+            // "Included in total". A bare negation without that meaning does
+            // not turn unrelated "No paper bills" copy into tax evidence.
             uncertain =
                 uncertain ||
                 _hasPotentialReceiptAdjustmentLabel(headerText) ||
+                taxTreatmentQualifier.hasMatch(text) ||
                 standaloneTaxQualifier.hasMatch(text) ||
                 _hasPotentialReceiptAdjustmentLabel(text) ||
                 _hasUnexplainedFinancialLabelNumber(text) ||

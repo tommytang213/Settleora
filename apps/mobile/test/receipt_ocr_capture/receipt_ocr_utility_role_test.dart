@@ -6,6 +6,27 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
 // Generic printed table transcriptions, never private native OCR captures.
 void main() {
   for (final mirrored in [false, true]) {
+    for (final phrase in [
+      'Included in total',
+      'Already included',
+      'Partially exempt',
+      'Already paid',
+      'Not included',
+      'Excluded from amount',
+    ]) {
+      test(
+        'tax treatment phrase remains reviewable $phrase mirrored=$mirrored',
+        () {
+          final receipt = _utilityTable(
+            mirrored: mirrored,
+            variant: 'taxes only',
+          );
+          receipt.replace('Go Paperless', text: phrase);
+          _expectUnresolvedTax(receipt);
+        },
+      );
+    }
+
     test(
       'unrelated negative support copy remains harmless mirrored=$mirrored',
       () {
