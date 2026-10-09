@@ -4440,6 +4440,52 @@ class ReceiptOcrParser {
       caseSensitive: false,
       unicode: true,
     );
+    bool usableRow(List<ReceiptOcrBlockEvidence> cells) {
+      if (cells.isEmpty) return false;
+      final bands = <({double top, double bottom})>[];
+      for (final cell in cells) {
+        final points = cell.points;
+        if (points.length != 4 ||
+            points.any((point) => !point.x.isFinite || !point.y.isFinite)) {
+          return false;
+        }
+        final turns = [
+          for (var i = 0; i < 4; i++)
+            (points[(i + 1) % 4].x - points[i].x) *
+                    (points[(i + 2) % 4].y - points[(i + 1) % 4].y) -
+                (points[(i + 1) % 4].y - points[i].y) *
+                    (points[(i + 2) % 4].x - points[(i + 1) % 4].x),
+        ];
+        if (!turns.every((turn) => turn.isFinite && turn > 0) &&
+            !turns.every((turn) => turn.isFinite && turn < 0)) {
+          return false;
+        }
+        final ys = points.map((point) => point.y).toList()..sort();
+        if (ys.last <= ys.first || _blockRight(cell) <= _blockLeft(cell)) {
+          return false;
+        }
+        bands.add((top: ys.first, bottom: ys.last));
+      }
+      // A provider row identifier cannot join cells on different printed rows.
+      // Require substantial vertical overlap for every pair, independently of
+      // horizontal column assignment and the amount's numerical plausibility.
+      for (var i = 0; i < bands.length; i++) {
+        for (var j = i + 1; j < bands.length; j++) {
+          final a = bands[i];
+          final b = bands[j];
+          final overlap =
+              (a.bottom < b.bottom ? a.bottom : b.bottom) -
+              (a.top > b.top ? a.top : b.top);
+          final aHeight = a.bottom - a.top;
+          final bHeight = b.bottom - b.top;
+          if (overlap < (aHeight < bHeight ? aHeight : bHeight) / 2) {
+            return false;
+          }
+        }
+      }
+      return true;
+    }
+
     bool financialLabel(String label) {
       if (_hasUnexplainedFinancialLabelNumber(label) ||
           RegExp(
@@ -4470,7 +4516,23 @@ class ReceiptOcrParser {
     for (var headerIndex = 1; headerIndex < rows.length; headerIndex++) {
       if (!_isBillChargeDetailHeader(lines, headerIndex)) continue;
       final header = rows[headerIndex];
-      if (header.length < 2 || header.any((cell) => cell.points.isEmpty)) {
+      if (header.length < 2 || !usableRow(header)) {
+        // Malformed column geometry must not send explicit financial cells
+        // back through a weaker priced-item selector with complete evidence.
+        for (var index = headerIndex + 1; index < rows.length; index++) {
+          final line = lines[index];
+          if (_isSupportedChargeTableHeader(lines, index) ||
+              _isChargeTableSectionBoundary(line) ||
+              _hasTotalLabel(line, line.toLowerCase()) ||
+              _hasSubtotalLabel(line, line.toLowerCase())) {
+            break;
+          }
+          if (rows[index].any(
+            (cell) => financialLabel(_financialProjectionLabelText(cell.text)),
+          )) {
+            ambiguous.add(index);
+          }
+        }
         continue;
       }
       final columns = header.toList()
@@ -4511,7 +4573,9 @@ class ReceiptOcrParser {
         continue;
       }
       int? columnFor(ReceiptOcrBlockEvidence cell) {
-        if (cell.points.isEmpty) return null;
+        if (cell.points.isEmpty ||
+            cell.points.any((point) => !point.x.isFinite))
+          return null;
         final center = _blockCenterX(cell);
         var column = 0;
         while (column + 1 < columns.length &&
@@ -4553,7 +4617,7 @@ class ReceiptOcrParser {
         if (!financialLabel(label)) continue;
         // Once the complete owned label says this is financial evidence,
         // failure to prove its amount must not re-admit it as merchandise.
-        if (row.any((cell) => columnFor(cell) == null)) {
+        if (!usableRow(row) || row.any((cell) => columnFor(cell) == null)) {
           ambiguous.add(rowIndex);
           continue;
         }
@@ -4625,6 +4689,13 @@ class ReceiptOcrParser {
           continue;
         }
         if (taxLabel.hasMatch(label) &&
+            // Simplifying a source label must not discard inclusion, exemption
+            // or reversal semantics. Keep qualified components in review; do
+            // not infer an additive amount from their matching arithmetic.
+            !RegExp(
+              r'\b(?:incl(?:uded|uding|usive)?|excl(?:uded|uding|usive)?|exempt|waived|withheld|paid|refunded|reversed|credited)\b',
+              caseSensitive: false,
+            ).hasMatch(label) &&
             currency != null &&
             printed.hasExplicitEvidence &&
             printed.currency == currency &&

@@ -1,10 +1,76 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mobile/bills/bill_list_screen.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_parser.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
 
 // Generic printed table transcriptions, never private native OCR captures.
 void main() {
   for (final mirrored in [false, true]) {
+    for (final qualifier in ['Included', 'Inclusive', 'Excluded', 'Exempt']) {
+      for (final mixed in [false, true]) {
+        test(
+          'qualified tax stays unresolved $qualifier mixed=$mixed mirrored=$mirrored',
+          () {
+            final receipt = _utilityTable(
+              mirrored: mirrored,
+              variant: 'taxes only',
+            );
+            receipt.replace('State Utility Tax', text: 'State $qualifier Tax');
+            if (!mixed)
+              receipt.replace(
+                'Local Utility Tax',
+                text: 'Local $qualifier Tax',
+              );
+            _expectUnresolvedTax(receipt);
+          },
+        );
+      }
+    }
+    for (final target in ['USD 1.20', 'State Utility Tax', 'Amount']) {
+      for (final defect in [
+        'one point',
+        'nonfinite y',
+        'bow tie',
+        'zero height',
+        'wrong row',
+      ]) {
+        test('invalid utility geometry $target $defect mirrored=$mirrored', () {
+          final receipt = _utilityTable(
+            mirrored: mirrored,
+            variant: 'taxes only',
+          );
+          final block = receipt.blocks.firstWhere(
+            (block) => block.text == target,
+          );
+          final points = block.points;
+          receipt.replace(
+            target,
+            points: switch (defect) {
+              'one point' => [
+                ReceiptOcrPoint(
+                  x: (points[0].x + points[1].x) / 2,
+                  y: points[0].y + 10,
+                ),
+              ],
+              'nonfinite y' => [
+                for (final point in points)
+                  ReceiptOcrPoint(x: point.x, y: double.nan),
+              ],
+              'bow tie' => [points[0], points[2], points[1], points[3]],
+              'zero height' => [
+                for (final point in points)
+                  ReceiptOcrPoint(x: point.x, y: points[0].y),
+              ],
+              _ => [
+                for (final point in points)
+                  ReceiptOcrPoint(x: point.x, y: point.y + 105),
+              ],
+            },
+          );
+          _expectUnresolvedTax(receipt);
+        });
+      }
+    }
     test('distinct printed tax rates survive mirrored=$mirrored', () {
       final receipt = _utilityTable(
         mirrored: mirrored,
@@ -168,8 +234,35 @@ void main() {
   }
 }
 
+void _expectUnresolvedTax(_TableReceipt receipt) {
+  final preview = receipt.parse();
+  expect(preview.tax, isNull);
+  expect(preview.adjustmentsComplete, isFalse);
+  expect(preview.reviewHints, isNotEmpty);
+  expect(preview.total, '46.50');
+  expect(preview.blocks, receipt.blocks);
+  final saved = receiptOcrReviewSaveRequestFromPreview(
+    preview,
+    originalCurrency: 'USD',
+  );
+  expect(saved, isNotNull);
+  expect(saved!.taxAmount, isNull);
+  expect(saved.taxReconciliationMode, 'unresolved');
+}
+
 class _TableReceipt {
   final blocks = <ReceiptOcrBlockEvidence>[];
+
+  void replace(String target, {String? text, List<ReceiptOcrPoint>? points}) {
+    final index = blocks.indexWhere((block) => block.text == target);
+    final block = blocks[index];
+    blocks[index] = ReceiptOcrBlockEvidence(
+      text: text ?? block.text,
+      order: block.order,
+      row: block.row,
+      points: points ?? block.points,
+    );
+  }
 
   void cell(
     String text,
