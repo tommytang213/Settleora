@@ -152,15 +152,17 @@ enum ScriptRouteSelector {
   // Preserve exact signs and decimal/grouping spelling; do not interpret values.
   // Local numerals, words, multiple amounts and malformed groups are excluded.
   private static let amountLiteral = try! NSRegularExpression(
-    pattern: #"(?:[0-9]+(?:[.,][0-9]{1,3})?|[0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]{1,3})?|[0-9]{1,2}(?:,[0-9]{2})+,[0-9]{3}(?:\.[0-9]{1,3})?|[0-9]{1,3}(?:\.[0-9]{3})+(?:,[0-9]{1,3})?)"#
+    pattern: #"\A(?:[0-9]+(?:[.,][0-9]{1,3})?|[0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]{1,3})?|[0-9]{1,2}(?:,[0-9]{2})+,[0-9]{3}(?:\.[0-9]{1,3})?|[0-9]{1,3}(?:\.[0-9]{3})+(?:,[0-9]{1,3})?)\z"#
   )
   private static let prefixGlyph = try! NSRegularExpression(
-    pattern: #"([+−-]?)([\p{Sc}\p{L}])[ \t]*([+−-]?)([0-9][0-9.,]*)"#
+    pattern: #"\A([+−-]?)([\p{Sc}\p{L}])[ \t]*([+−-]?)([0-9][0-9.,]*)\z"#
   )
   private static let suffixGlyph = try! NSRegularExpression(
-    pattern: #"([+−-]?)([0-9][0-9.,]*)[ \t]*([\p{Sc}\p{L}])"#
+    pattern: #"\A([+−-]?)([0-9][0-9.,]*)[ \t]*([\p{Sc}\p{L}])\z"#
   )
 
+  // Anchors must participate in matching so a short alternative cannot hide a
+  // valid grouped-number alternative. A post-match range check alone is insufficient.
   private static func wholeMatch(_ pattern: NSRegularExpression, _ text: String) -> [String]? {
     let source = text as NSString
     let range = NSRange(location: 0, length: source.length)

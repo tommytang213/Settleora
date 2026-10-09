@@ -2,6 +2,8 @@ package com.example.mobile.ocr
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import java.io.File
+import java.util.regex.Pattern
 
 class ScriptRouteSelectorTest {
     @Test
@@ -295,6 +297,36 @@ class ScriptRouteSelectorTest {
         assertEquals(common, ScriptRouteSelector.select(listOf(common)))
         assertEquals(specialist, ScriptRouteSelector.select(listOf(specialist)))
         assertEquals(null, ScriptRouteSelector.select(emptyList()))
+    }
+
+    @Test
+    fun swiftSearchPatternsConsumeWholeGroupedLiterals() {
+        // Exercise the actual Swift pattern literals with a search API. This
+        // catches prefix-alternative matches that Android's matches() hides;
+        // it supplements, but does not replace, the iOS native test target.
+        val swift = generateSequence(File(System.getProperty("user.dir"))) { it.parentFile }
+            .map { File(it, "apps/mobile/ios/Runner/PaddleOCR/SettleoraOcrModels.swift") }
+            .first { it.isFile }.readText()
+        val declarations = swift.substringAfter("private static let amountLiteral")
+            .substringBefore("private static func wholeMatch")
+        val patterns = Regex("""pattern: #"([^"]+)"#""").findAll(declarations)
+            .map { Pattern.compile(it.groupValues[1]) }.toList()
+        assertEquals(3, patterns.size)
+        for (amount in listOf("8,765.43", "1,23,456.78", "12.345,67", "8.50", "1,234")) {
+            val literals = listOf(amount, "₹ $amount", "$amount ₹")
+            for ((pattern, literal) in patterns.zip(literals)) {
+                val match = pattern.matcher(literal)
+                assertEquals(literal, true, match.find())
+                assertEquals(literal, 0, match.start())
+                assertEquals(literal, literal.length, match.end())
+                assertEquals(false, pattern.matcher("noise $literal").find())
+                assertEquals(false, pattern.matcher("$literal extra").find())
+                assertEquals(false, pattern.matcher("$literal\n").find())
+            }
+        }
+        for (invalid in listOf("1,2,3.50", ".50", "8.50 2.00")) {
+            assertEquals(false, patterns.first().matcher(invalid).find())
+        }
     }
 
     private fun candidate(
