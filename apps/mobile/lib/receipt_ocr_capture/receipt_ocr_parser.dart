@@ -4,6 +4,10 @@ import 'receipt_ocr_preview.dart';
 import '../ui/settleora_form_fields.dart';
 
 final _unicodeLetterPattern = RegExp(r'\p{L}', unicode: true);
+const _eastAsianCalendarDatePattern =
+    r'\b(20\d{2}|19\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日?';
+const _yearFirstCalendarDatePattern =
+    r'\b(20\d{2}|19\d{2})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{1,2})\b';
 final _potentialReceiptAdjustmentLabelPattern = RegExp(
   r'\b(?:sales\s+tax(?:es)?|tax(?:es)?|vat|gst|hst|iva|tva|kdv|mwst|service(?:s?\s+(?:charges?|fees?))?|tips?|gratuity|gratuities|(?:shipping|delivery)(?:\s+(?:fees?|charges?)|\s*(?:(?:&|and)\s*)?handling(?:\s+(?:fees?|charges?))?)?|discounts?|coupons?|promo\s+code|loyalty[\s-]+savings?|surcharges?|charges?|fees?|refunds?|rebates?|credits?|deposits?|levy|levies|duty|duties|donations?|round(?:ing|[\s-]*off))\b',
   caseSensitive: false,
@@ -62,7 +66,9 @@ class ReceiptOcrParser {
     final lines = sourceLines.map(_normalizeOcrLine).toList(growable: false);
     final detachedAmountSignRows = <int>{
       for (var index = 0; index < sourceLines.length; index++)
-        if (_hasDetachedAmountSign(sourceLines[index])) index,
+        if (_hasDetachedAmountSign(sourceLines[index]) &&
+            !_isLabeledCalendarDateLine(lines[index]))
+          index,
     };
     final warnings = <String>[];
     if (lines.isEmpty) {
@@ -751,6 +757,12 @@ class ReceiptOcrParser {
     for (var index = 0; index < lines.length; index += 1) {
       final line = lines[index];
       final lower = line.toLowerCase();
+      // Whole labeled document dates carry the same authority in every
+      // supported format. Skipping them as money must not hide a conflict.
+      final labeledDate = _labeledCalendarDate(line);
+      if (labeledDate != null) {
+        explicitReceiptDates.add(labeledDate);
+      }
       // Reading order only breaks nearby ties; an explicit role must remain
       // stronger than a distant unlabeled date on a long document.
       final positionScore = 100 - (index < 10 ? index : 10);
@@ -876,7 +888,7 @@ class ReceiptOcrParser {
         );
       }
       final eastAsianMatches = RegExp(
-        r'\b(20\d{2}|19\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日?',
+        _eastAsianCalendarDatePattern,
       ).allMatches(line);
       for (final eastAsian in eastAsianMatches) {
         final formatted = _formatDate(
@@ -887,9 +899,7 @@ class ReceiptOcrParser {
         consider(formatted, eastAsian.start, eastAsian.end);
       }
 
-      final isoMatches = RegExp(
-        r'\b(20\d{2}|19\d{2})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{1,2})\b',
-      ).allMatches(line);
+      final isoMatches = RegExp(_yearFirstCalendarDatePattern).allMatches(line);
       for (final iso in isoMatches) {
         final formatted = _formatDate(
           int.parse(iso.group(1)!),
@@ -10878,34 +10888,44 @@ bool _isWholeLocalizedAddress(String line) {
 // incomplete/invalid dates and additional numeric fields remain reviewable.
 // The numeric date must have the same leading word boundary as _detectDate;
 // joined Latin labels such as Datum2026/09/17 are not extractable dates.
-bool _isLabeledCalendarDateLine(String line) {
+bool _isLabeledCalendarDateLine(String line) =>
+    _labeledCalendarDate(line) != null;
+
+String? _labeledCalendarDate(String line) {
+  const label =
+      r'^\s*(?:date|datum|fecha|data|日期|日付|날짜|дата|วันที่|तारीख|दिनांक)'
+      r'\s*[:：]?\s*';
+  // Use extraction's complete calendar grammar, anchored to the field.
+  // A terminal full stop is punctuation, never another number or price.
+  for (final pattern in [
+    '$label$_eastAsianCalendarDatePattern\\s*\$',
+    '$label$_yearFirstCalendarDatePattern\\.?\\s*\$',
+  ]) {
+    final match = RegExp(pattern, caseSensitive: false).firstMatch(line);
+    if (match != null) {
+      return _formatDate(
+        int.parse(match.group(1)!),
+        int.parse(match.group(2)!),
+        int.parse(match.group(3)!),
+      );
+    }
+  }
   final match = RegExp(
-    r'^\s*(?:date|datum|fecha|data|日期|日付|날짜|дата|วันที่|तारीख|दिनांक)'
-    r'\s*[:：]?\s*\b(?:(?<year>20\d{2}|19\d{2})(?<ys>[-/.])'
-    r'(?<month>\d{1,2})\k<ys>(?<day>\d{1,2})|'
+    '$label\\b'
     r'(?<first>\d{1,2})(?<ds>[-/.])(?<second>\d{1,2})\k<ds>'
-    r'(?<lastYear>20\d{2}|19\d{2}))\s*$',
+    r'(?<lastYear>20\d{2}|19\d{2})\s*$',
     caseSensitive: false,
   ).firstMatch(line);
-  if (match == null) return false;
-  if (match.namedGroup('year') != null) {
-    return _formatDate(
-          int.parse(match.namedGroup('year')!),
-          int.parse(match.namedGroup('month')!),
-          int.parse(match.namedGroup('day')!),
-        ) !=
-        null;
-  }
+  if (match == null) return null;
   final first = int.parse(match.namedGroup('first')!);
   final second = int.parse(match.namedGroup('second')!);
   final dayFirst =
       first > 12 || (match.namedGroup('ds') == '.' && second <= 12);
   return _formatDate(
-        int.parse(match.namedGroup('lastYear')!),
-        dayFirst ? second : first,
-        dayFirst ? first : second,
-      ) !=
-      null;
+    int.parse(match.namedGroup('lastYear')!),
+    dayFirst ? second : first,
+    dayFirst ? first : second,
+  );
 }
 
 bool _isContextualReceiptMetadataLine(List<String> lines, int index) {
