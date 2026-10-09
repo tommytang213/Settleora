@@ -4440,6 +4440,14 @@ class ReceiptOcrParser {
       caseSensitive: false,
       unicode: true,
     );
+    final taxSemanticQualifier = RegExp(
+      r'\b(?:no|not|non|without|incl(?:uded|uding|usive)?|excl(?:uded|uding|usive)?|exempt|waived|withheld|paid|refunded|reversed|credited)\b',
+      caseSensitive: false,
+    );
+    final standaloneTaxQualifier = RegExp(
+      '^${taxSemanticQualifier.pattern}\$',
+      caseSensitive: false,
+    );
     bool usableRow(
       List<ReceiptOcrBlockEvidence> cells, {
       bool requireAlignment = true,
@@ -4665,6 +4673,7 @@ class ReceiptOcrParser {
             // into a quantity, rate, dash, or any monetary value.
             uncertain =
                 uncertain ||
+                taxSemanticQualifier.hasMatch(text) ||
                 _hasPotentialReceiptAdjustmentLabel(text) ||
                 _printedCurrencyMarkerMatches(text).isNotEmpty ||
                 _unsupportedIsoCurrencyMarkers(text).isNotEmpty ||
@@ -4698,6 +4707,8 @@ class ReceiptOcrParser {
             // another amount, missing geometry or a competing financial role.
             uncertain =
                 uncertain ||
+                _hasPotentialReceiptAdjustmentLabel(headerText) ||
+                standaloneTaxQualifier.hasMatch(text) ||
                 _hasPotentialReceiptAdjustmentLabel(text) ||
                 _hasUnexplainedFinancialLabelNumber(text) ||
                 _printedCurrencyMarkerMatches(text).isNotEmpty ||
@@ -4713,10 +4724,7 @@ class ReceiptOcrParser {
             // Simplifying a source label must not discard inclusion, exemption
             // or reversal semantics. Keep qualified components in review; do
             // not infer an additive amount from their matching arithmetic.
-            !RegExp(
-              r'\b(?:incl(?:uded|uding|usive)?|excl(?:uded|uding|usive)?|exempt|waived|withheld|paid|refunded|reversed|credited)\b',
-              caseSensitive: false,
-            ).hasMatch(label) &&
+            !taxSemanticQualifier.hasMatch(label) &&
             currency != null &&
             printed.hasExplicitEvidence &&
             printed.currency == currency &&

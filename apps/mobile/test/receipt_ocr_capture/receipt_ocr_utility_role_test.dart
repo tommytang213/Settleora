@@ -7,6 +7,44 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
 void main() {
   for (final mirrored in [false, true]) {
     test(
+      'unrelated negative support copy remains harmless mirrored=$mirrored',
+      () {
+        final receipt = _utilityTable(
+          mirrored: mirrored,
+          variant: 'taxes only',
+        );
+        receipt.replace('Go Paperless', text: 'No paper bills');
+        final preview = receipt.parse();
+        expect(preview.tax, '1.50');
+        expect(preview.adjustmentsComplete, isTrue);
+        expect(preview.reviewHints, isEmpty);
+        expect(preview.blocks, receipt.blocks);
+      },
+    );
+    for (final qualifier in ['Included', 'Exempt']) {
+      for (final location in ['treatment', 'information', 'usage']) {
+        test(
+          'separate tax qualifier $qualifier $location mirrored=$mirrored',
+          () {
+            final receipt = _utilityTable(
+              mirrored: mirrored,
+              variant: 'taxes only',
+            );
+            if (location == 'usage') {
+              receipt.replace('10', row: 6, text: qualifier);
+            } else {
+              if (location == 'treatment') {
+                receipt.replace('Information', text: 'Tax treatment');
+              }
+              receipt.replace('Go Paperless', text: qualifier);
+            }
+            _expectUnresolvedTax(receipt);
+          },
+        );
+      }
+    }
+
+    test(
       'separate support panel can be vertically offset mirrored=$mirrored',
       () {
         final receipt = _utilityTable(
@@ -32,7 +70,16 @@ void main() {
         expect(preview.blocks, receipt.blocks);
       },
     );
-    for (final qualifier in ['Included', 'Inclusive', 'Excluded', 'Exempt']) {
+    for (final qualifier in [
+      'Included',
+      'Inclusive',
+      'Excluded',
+      'Exempt',
+      'Non',
+      'No',
+      'Not',
+      'Without',
+    ]) {
       for (final mixed in [false, true]) {
         test(
           'qualified tax stays unresolved $qualifier mixed=$mixed mirrored=$mirrored',
@@ -280,8 +327,15 @@ void _expectUnresolvedTax(_TableReceipt receipt) {
 class _TableReceipt {
   final blocks = <ReceiptOcrBlockEvidence>[];
 
-  void replace(String target, {String? text, List<ReceiptOcrPoint>? points}) {
-    final index = blocks.indexWhere((block) => block.text == target);
+  void replace(
+    String target, {
+    int? row,
+    String? text,
+    List<ReceiptOcrPoint>? points,
+  }) {
+    final index = blocks.indexWhere(
+      (block) => block.text == target && (row == null || block.row == row),
+    );
     final block = blocks[index];
     blocks[index] = ReceiptOcrBlockEvidence(
       text: text ?? block.text,
