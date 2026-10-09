@@ -3215,15 +3215,28 @@ class ReceiptOcrParser {
     if (established.hasExplicitEvidence && established.currency == null) {
       return established;
     }
+    final markers = _printedCurrencyMarkerMatches(monetaryText).toList();
+    if (RegExp(r'\p{Sc}', unicode: true)
+        .allMatches(monetaryText)
+        .any(
+          (symbol) => !markers.any(
+            (marker) =>
+                marker.start <= symbol.start && marker.end >= symbol.end,
+          ),
+        )) {
+      return (currency: null, hasExplicitEvidence: true);
+    }
     final amount = _lastWholeAmountMatch(monetaryText)?.group(0);
     if (amount != null) {
       final currencies = <String>{
         if (established.hasExplicitEvidence) established.currency!,
+        for (final marker in _unsupportedIsoCurrencyMarkers(monetaryText))
+          marker.group(1)!.toUpperCase(),
       };
       // This text contains only the admitted amount cell and its owned
       // currency-only neighbor. Resolve every marker against that same printed
       // amount; an intervening denomination must not hide an earlier conflict.
-      for (final marker in _printedCurrencyMarkerMatches(monetaryText)) {
+      for (final marker in markers) {
         final printed = _currencyAdjacentToSelectedAmount(
           '${marker.group(0)} $amount',
           receiptCurrency,

@@ -425,7 +425,16 @@ void main() {
     }
   }
 
-  for (final money in ['USD10.00₦', 'USD10.00₽', 'USD10.00฿']) {
+  for (final money in [
+    'USD10.00₦',
+    'USD10.00₽',
+    'USD10.00฿',
+    '₦USD10.00',
+    '₽USD10.00',
+    '฿USD10.00',
+    'BIF USD10.00',
+    'USD10.00 BIF',
+  ]) {
     test('whole charge-table cell retains currency conflict $money', () {
       final p = _preview([
         ['SAMPLE SHOP'],
