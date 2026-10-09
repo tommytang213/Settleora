@@ -248,8 +248,9 @@ void main() {
               matching ? '10.00' : anyOf(isNull, '10.00'),
             );
             expect(preview.subtotalCurrency, matching ? 'USD' : isNull);
-            if (preview.subtotal != null)
+            if (preview.subtotal != null) {
               expect(preview.subtotalHasExplicitCurrencyEvidence, isTrue);
+            }
             expect(saved.subtotalAmount, matching ? '10.00' : isNull);
             if (!matching) expect(preview.adjustmentsComplete, isFalse);
           }
