@@ -98,14 +98,24 @@ class ReceiptOcrParser {
       layoutRows,
       currency,
     );
+    final utilityFinancial = _ownedUtilityFinancialRows(
+      lines,
+      layoutRows,
+      currency,
+    );
     final ambiguousChargeRows = {
       ...chargeTable.ambiguous,
       ...boundedUtility.ambiguous,
+      ...utilityFinancial.ambiguous,
     };
     layoutAdjustmentLines.removeWhere(
-      (index, _) => boundedUtility.ambiguous.contains(index),
+      (index, _) =>
+          boundedUtility.ambiguous.contains(index) ||
+          utilityFinancial.ambiguous.contains(index) ||
+          utilityFinancial.reviewRows.contains(index),
     );
     layoutAdjustmentLines.addAll(boundedUtility.adjustments);
+    layoutAdjustmentLines.addAll(utilityFinancial.adjustments);
     final skewedSummaryLines = _skewedSummaryEvidenceLines(
       lines,
       layoutRows,
@@ -115,6 +125,7 @@ class ReceiptOcrParser {
         ...ambiguousChargeRows,
         ...boundedUtility.items.keys,
         ...layoutAdjustmentLines.keys,
+        ...utilityFinancial.reviewRows,
         ...detachedAmountSignRows,
       },
     );
@@ -134,7 +145,11 @@ class ReceiptOcrParser {
       ...boundedUtility.items,
     };
     layoutChargeItems.removeWhere(
-      (index, _) => boundedUtility.ambiguous.contains(index),
+      (index, _) =>
+          boundedUtility.ambiguous.contains(index) ||
+          utilityFinancial.ambiguous.contains(index) ||
+          utilityFinancial.reviewRows.contains(index) ||
+          utilityFinancial.adjustments.containsKey(index),
     );
     final recognizedChargeRows = {
       ...chargeTableRows,
@@ -142,9 +157,11 @@ class ReceiptOcrParser {
     };
     final ambiguousRatedTaxRows = [
       for (var index = 0; index < lines.length; index++)
-        if (_isAmbiguousRatedTaxCharge(lines[index]) ||
-            (recognizedChargeRows.contains(index) &&
-                _isRatedTaxNamedLine(lines[index])))
+        if (!utilityFinancial.adjustments.containsKey(index) &&
+            !utilityFinancial.reviewRows.contains(index) &&
+            (_isAmbiguousRatedTaxCharge(lines[index]) ||
+                (recognizedChargeRows.contains(index) &&
+                    _isRatedTaxNamedLine(lines[index]))))
           index,
     ];
     final amounts = _extractLabeledAmounts(
@@ -159,6 +176,8 @@ class ReceiptOcrParser {
       ambiguousChargeTableRows: ambiguousChargeRows,
       detachedAmountSignRows: detachedAmountSignRows,
       layoutAdjustmentLines: layoutAdjustmentLines,
+      utilityTaxComponents: utilityFinancial.taxComponents,
+      retainedUtilityAdjustmentRows: utilityFinancial.reviewRows,
     );
     final merchantDetection = _detectMerchant(lines, layoutRows);
     final merchant = merchantDetection?.text;
@@ -185,7 +204,10 @@ class ReceiptOcrParser {
       chargeTableRows: recognizedChargeRows,
       ambiguousChargeTableRows: ambiguousChargeRows,
       layoutChargeItems: layoutChargeItems,
-      layoutAdjustmentRows: layoutAdjustmentLines.keys.toSet(),
+      layoutAdjustmentRows: {
+        ...layoutAdjustmentLines.keys,
+        ...utilityFinancial.reviewRows,
+      },
       detachedAmountSignRows: detachedAmountSignRows,
       nonItemEvidenceRows: {
         ...supportHoursRows,
@@ -239,6 +261,8 @@ class ReceiptOcrParser {
         ...localizedHeaderRows,
         ...brandCopyRows,
         ...headerAddressRows,
+        ...utilityFinancial.adjustments.keys,
+        ...utilityFinancial.reviewRows,
       },
       uncertainSummaryAmountRows: extractedItems.uncertainSummaryAmountRows,
     );
@@ -2146,6 +2170,8 @@ class ReceiptOcrParser {
     Set<int> ambiguousChargeTableRows = const {},
     Set<int> detachedAmountSignRows = const {},
     Map<int, String> layoutAdjustmentLines = const {},
+    Map<int, ({int table, String label})> utilityTaxComponents = const {},
+    Set<int> retainedUtilityAdjustmentRows = const {},
   }) {
     String? subtotal;
     int? selectedSubtotalRow;
@@ -2158,6 +2184,7 @@ class ReceiptOcrParser {
     final ratedTaxComponents =
         <({String rate, String amount, bool explicitCurrency})>[];
     final transactionTaxAmounts = <String>[];
+    final transactionTaxRows = <int>[];
     final transactionTaxInclusionModes = <bool>[];
     var hasUnratedTax = false;
     String? service;
@@ -2232,6 +2259,15 @@ class ReceiptOcrParser {
       if (_isEmailOnlyMetadataLine(line)) continue;
       final normalized = line.toLowerCase();
       final hasPotentialAdjustment = _hasPotentialReceiptAdjustmentLabel(line);
+      if (retainedUtilityAdjustmentRows.contains(lineIndex)) {
+        // The complete printed role is not an item, but no supported field
+        // owns its unsplit or otherwise unresolved monetary meaning.
+        adjustmentsComplete = false;
+        incompleteReasons.add(
+          ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
+        );
+        continue;
+      }
       if ((chargeTableRows.contains(lineIndex) ||
               ambiguousChargeTableRows.contains(lineIndex)) &&
           !layoutAdjustmentLines.containsKey(lineIndex)) {
@@ -2403,6 +2439,7 @@ class ReceiptOcrParser {
           subtotalHasExplicitCurrencyEvidence = printed.hasExplicitEvidence;
         }
       } else if (adjustmentRole == 'tax') {
+        transactionTaxRows.add(lineIndex);
         final printed = _explicitAdjustmentCurrencyFromLine(
           line,
           receiptCurrency: currency,
@@ -2599,7 +2636,50 @@ class ReceiptOcrParser {
     // currency; a separate summary or conflicting denomination stays in
     // review rather than being double counted or converted.
     final mixedTaxInclusion = transactionTaxInclusionModes.toSet().length > 1;
+    // Separately named taxes in one proven utility table can include a
+    // per-unit component and a fixed component. Their printed Amount cells,
+    // not rates, usage or a balancing total, supply this provisional sum.
+    // A repeated label, extra tax/summary, inclusion conflict or unresolved
+    // tax row prevents aggregation even if the resulting arithmetic matches.
+    final ownedUtilityTax =
+        currency != null &&
+        utilityTaxComponents.length > 1 &&
+        utilityTaxComponents.values.map((row) => row.table).toSet().length ==
+            1 &&
+        utilityTaxComponents.values
+                .map((row) => row.label.toLowerCase())
+                .toSet()
+                .length ==
+            utilityTaxComponents.length &&
+        transactionTaxRows.length == utilityTaxComponents.length &&
+        transactionTaxRows.every(utilityTaxComponents.containsKey) &&
+        transactionTaxAmounts.length == utilityTaxComponents.length &&
+        adjustmentRoleCounts['tax'] == utilityTaxComponents.length &&
+        transactionTaxInclusionModes.every((included) => !included) &&
+        !ambiguousChargeTableRows.any(
+          (row) =>
+              !utilityTaxComponents.containsKey(row) &&
+              !ownedChargeItemRows.contains(row) &&
+              RegExp(
+                r'\b(?:tax(?:es)?|vat|gst|hst)\b',
+                caseSensitive: false,
+              ).hasMatch(lines[row]),
+        );
+    if (ownedUtilityTax) {
+      final aggregate = _sumSameCurrencyOcrAmounts(
+        transactionTaxAmounts,
+        currency,
+      );
+      if (aggregate != null) {
+        aggregatedRatedTax = true;
+        tax = aggregate;
+        taxCurrency = currency;
+        taxHasExplicitCurrencyEvidence = true;
+        taxIncludedInTotal = false;
+      }
+    }
     if (!hasUnratedTax &&
+        !aggregatedRatedTax &&
         !mixedTaxInclusion &&
         currency != null &&
         ratedTaxComponents.length > 1 &&
@@ -2695,7 +2775,18 @@ class ReceiptOcrParser {
         ReceiptOcrIncompleteAdjustmentReason.repeatedAdjustmentRole,
       );
     }
-    if (mixedTaxInclusion ||
+    final unresolvedUtilityTax =
+        {...retainedUtilityAdjustmentRows, ...ambiguousChargeTableRows}.any(
+          (row) =>
+              !utilityTaxComponents.containsKey(row) &&
+              !ownedChargeItemRows.contains(row) &&
+              RegExp(
+                r'\b(?:tax(?:es)?|vat|gst|hst)\b',
+                caseSensitive: false,
+              ).hasMatch(lines[row]),
+        );
+    if ((utilityTaxComponents.isNotEmpty && unresolvedUtilityTax) ||
+        mixedTaxInclusion ||
         (!aggregatedRatedTax && transactionTaxAmounts.toSet().length > 1)) {
       // A component and a summary can carry the same tax role. Retaining one
       // arbitrary component or one side of mixed included/additive tax as the
@@ -4284,6 +4375,249 @@ class ReceiptOcrParser {
       }
     }
     return (items: items, adjustments: adjustments, ambiguous: ambiguous);
+  }
+
+  // A printed bill-detail heading and bounded columns establish row ownership.
+  // Keep the resulting financial role ahead of every item-selection path;
+  // numeric usage and rate cells alone cannot make an explicit tax an item.
+  ({
+    Map<int, String> adjustments,
+    Map<int, ({int table, String label})> taxComponents,
+    Set<int> reviewRows,
+    Set<int> ambiguous,
+  })
+  _ownedUtilityFinancialRows(
+    List<String> lines,
+    List<List<ReceiptOcrBlockEvidence>> rows,
+    String? currency,
+  ) {
+    final adjustments = <int, String>{};
+    final taxComponents = <int, ({int table, String label})>{};
+    final reviewRows = <int>{};
+    final ambiguous = <int>{};
+    if (lines.length != rows.length) {
+      return (
+        adjustments: adjustments,
+        taxComponents: taxComponents,
+        reviewRows: reviewRows,
+        ambiguous: ambiguous,
+      );
+    }
+    final usageHeader = RegExp(
+      r'^(?:usage(?:\s*/\s*units)?|qty|quantity|therms?|kwh|units?)$',
+      caseSensitive: false,
+    );
+    final taxLabel = RegExp(
+      r'^(?:state|local|county|city|municipal|federal|provincial|regional|sales|use|excise)'
+      r'(?:\s+[\p{L}]+){0,2}\s+tax(?:\s*\(\d+(?:[.,]\d+)?%\))?$',
+      caseSensitive: false,
+      unicode: true,
+    );
+    bool financialLabel(String label) {
+      if (_hasUnexplainedFinancialLabelNumber(label) ||
+          RegExp(
+            r'\b(?:kits?|books?|guides?|software|toolkits?|tools?)\b',
+            caseSensitive: false,
+          ).hasMatch(label)) {
+        return false;
+      }
+      final compound = _hasCompoundAdjustmentLabel('$label 1.00');
+      if (!compound &&
+          (_hasServiceChargeLabel('$label 1.00', '$label 1.00'.toLowerCase()) ||
+              _hasShippingLabel('$label 1.00', '$label 1.00'.toLowerCase()))) {
+        return false;
+      }
+      return taxLabel.hasMatch(label) ||
+          (compound &&
+              RegExp(
+                r'\b(?:fees?|surcharges?|tax(?:es)?)(?:\s*\(\d+(?:[.,]\d+)?%\))?$',
+                caseSensitive: false,
+              ).hasMatch(label)) ||
+          RegExp(
+            r'^[\p{L} &+/-]+\b(?:fees?|surcharges?)(?:\s*\(\d+(?:[.,]\d+)?%\))?$',
+            caseSensitive: false,
+            unicode: true,
+          ).hasMatch(label);
+    }
+
+    for (var headerIndex = 1; headerIndex < rows.length; headerIndex++) {
+      if (!_isBillChargeDetailHeader(lines, headerIndex)) continue;
+      final header = rows[headerIndex];
+      if (header.length < 2 || header.any((cell) => cell.points.isEmpty)) {
+        continue;
+      }
+      final columns = header.toList()
+        ..sort((a, b) => _blockCenterX(a).compareTo(_blockCenterX(b)));
+      final descriptionColumns = columns.where(
+        (cell) => cell.text.trim().toLowerCase() == 'description',
+      );
+      final amountColumns = columns.where(
+        (cell) => cell.text.trim().toLowerCase() == 'amount',
+      );
+      if (descriptionColumns.length != 1 || amountColumns.length != 1) {
+        continue;
+      }
+      if (List.generate(columns.length - 1, (index) => index).any(
+        (index) =>
+            _blockRight(columns[index]) >= _blockLeft(columns[index + 1]),
+      )) {
+        continue;
+      }
+      final descriptionColumn = columns.indexOf(descriptionColumns.single);
+      final amountColumn = columns.indexOf(amountColumns.single);
+      final innerStart = descriptionColumn < amountColumn
+          ? descriptionColumn
+          : amountColumn;
+      final innerEnd = descriptionColumn > amountColumn
+          ? descriptionColumn
+          : amountColumn;
+      // Separate multi-column meter/graph panels already have a dedicated
+      // ownership path. Do not reinterpret their spanning captions here.
+      if (innerStart + columns.length - innerEnd - 1 > 1) continue;
+      if (columns
+          .sublist(innerStart + 1, innerEnd)
+          .any(
+            (cell) =>
+                !usageHeader.hasMatch(cell.text.trim()) &&
+                cell.text.trim().toLowerCase() != 'rate',
+          )) {
+        continue;
+      }
+      int? columnFor(ReceiptOcrBlockEvidence cell) {
+        if (cell.points.isEmpty) return null;
+        final center = _blockCenterX(cell);
+        var column = 0;
+        while (column + 1 < columns.length &&
+            center >
+                (_blockCenterX(columns[column]) +
+                        _blockCenterX(columns[column + 1])) /
+                    2) {
+          column++;
+        }
+        // A centered cell still cannot span another printed column's center.
+        if ((column > 0 &&
+                _blockLeft(cell) <= _blockCenterX(columns[column - 1])) ||
+            (column + 1 < columns.length &&
+                _blockRight(cell) >= _blockCenterX(columns[column + 1]))) {
+          return null;
+        }
+        return column;
+      }
+
+      for (var rowIndex = headerIndex + 1; rowIndex < rows.length; rowIndex++) {
+        if (_isSupportedChargeTableHeader(lines, rowIndex) ||
+            _isChargeTableSectionBoundary(lines[rowIndex])) {
+          break;
+        }
+        final row = rows[rowIndex];
+        final owned = <int, List<ReceiptOcrBlockEvidence>>{};
+        for (final cell in row) {
+          final column = columnFor(cell);
+          if (column != null) (owned[column] ??= []).add(cell);
+        }
+        String columnText(int column) => _financialProjectionLabelText(
+          (owned[column] ?? const []).map((cell) => cell.text.trim()).join(' '),
+        );
+        final label = columnText(descriptionColumn);
+        if (_hasTotalLabel(label, label.toLowerCase()) ||
+            _hasSubtotalLabel(label, label.toLowerCase())) {
+          break;
+        }
+        if (!financialLabel(label)) continue;
+        // Once the complete owned label says this is financial evidence,
+        // failure to prove its amount must not re-admit it as merchandise.
+        if (row.any((cell) => columnFor(cell) == null)) {
+          ambiguous.add(rowIndex);
+          continue;
+        }
+        final monetaryText = columnText(amountColumn);
+        final moneyCells = owned[amountColumn] ?? const [];
+        final amount = _lastAmountInLine(monetaryText, currency: currency);
+        final printed = _layoutItemCellCurrency(monetaryText, currency);
+        var uncertain =
+            amount == null ||
+            !_isStandaloneAmountRow(monetaryText) ||
+            !_hasChargeTableMonetaryEvidence(monetaryText) ||
+            RegExp(_amountTokenPattern).allMatches(monetaryText).length != 1 ||
+            _hasDetachedAmountSign(monetaryText) ||
+            moneyCells.any(
+              (cell) => RegExp(r'^\s*[+\-−]\s*$').hasMatch(cell.text),
+            );
+        for (var column = 0; column < columns.length; column++) {
+          if (column == descriptionColumn || column == amountColumn) continue;
+          final text = columnText(column);
+          if (text.isEmpty) continue;
+          final headerText = columns[column].text.trim();
+          if (usageHeader.hasMatch(headerText)) {
+            // Usage remains opaque metadata. This does not translate a glyph
+            // into a quantity, rate, dash, or any monetary value.
+            uncertain =
+                uncertain ||
+                _hasPotentialReceiptAdjustmentLabel(text) ||
+                _printedCurrencyMarkerMatches(text).isNotEmpty ||
+                _unsupportedIsoCurrencyMarkers(text).isNotEmpty ||
+                RegExp(r'\p{Sc}', unicode: true).hasMatch(text) ||
+                !RegExp(
+                  r'^(?:\d+(?:[.,]\d+)?(?:\s*[\p{L}³]+)?|[\p{L}]+|[—–-])$',
+                  unicode: true,
+                ).hasMatch(text);
+          } else if (headerText.toLowerCase() == 'rate') {
+            final rateCurrency = _layoutItemCellCurrency(text, currency);
+            uncertain =
+                uncertain ||
+                (!RegExp(r'^[—–-]$').hasMatch(text) &&
+                    // A rate may have more precision than a monetary field.
+                    // Check its complete lexical cell without publishing or
+                    // rounding it as a line amount.
+                    (!RegExp(
+                          '^(?:(?:$_currencyTokenPattern)\\s*)?'
+                          '$_amountTokenPattern'
+                          '(?:\\s*(?:$_currencyTokenPattern))?\$',
+                          caseSensitive: false,
+                        ).hasMatch(text) ||
+                        RegExp(_amountTokenPattern).allMatches(text).length !=
+                            1 ||
+                        _hasDetachedAmountSign(text) ||
+                        RegExp(r'[\-−]\s*\d').hasMatch(text) ||
+                        (rateCurrency.hasExplicitEvidence &&
+                            rateCurrency.currency != currency)));
+          } else {
+            // A separately headed panel may explain plain support text, never
+            // another amount, missing geometry or a competing financial role.
+            uncertain =
+                uncertain ||
+                _hasPotentialReceiptAdjustmentLabel(text) ||
+                _hasUnexplainedFinancialLabelNumber(text) ||
+                _printedCurrencyMarkerMatches(text).isNotEmpty ||
+                _unsupportedIsoCurrencyMarkers(text).isNotEmpty ||
+                RegExp(r'\p{Sc}', unicode: true).hasMatch(text);
+          }
+        }
+        if (uncertain) {
+          ambiguous.add(rowIndex);
+          continue;
+        }
+        if (taxLabel.hasMatch(label) &&
+            currency != null &&
+            printed.hasExplicitEvidence &&
+            printed.currency == currency &&
+            !amount!.startsWith('-') &&
+            !_hasCompoundAdjustmentLabel('$label $monetaryText')) {
+          final rate = RegExp(r'\d+(?:[.,]\d+)?%').firstMatch(label)?.group(0);
+          adjustments[rowIndex] =
+              'Tax ${rate == null ? '' : '$rate '}$monetaryText';
+          taxComponents[rowIndex] = (table: headerIndex, label: label);
+        } else {
+          reviewRows.add(rowIndex);
+        }
+      }
+    }
+    return (
+      adjustments: adjustments,
+      taxComponents: taxComponents,
+      reviewRows: reviewRows,
+      ambiguous: ambiguous,
+    );
   }
 
   Map<int, String> _layoutAdjustmentEvidenceLines(
@@ -8406,7 +8740,7 @@ bool _isBillChargeDetailHeader(List<String> lines, int index) {
     return false;
   }
   return RegExp(
-    r'\b(?:current\s+charges?\s+detail|charges?\s+for\s+(?:this|the|current)\s+period|(?:itemized|detailed)\s+charges?|charges?\s+(?:detail|breakdown))\b',
+    r'\b(?:details?\s+of\s+(?:the\s+)?current\s+charges?|current\s+charges?\s+detail|charges?\s+for\s+(?:this|the|current)\s+period|(?:itemized|detailed)\s+charges?|charges?\s+(?:detail|breakdown))\b',
     caseSensitive: false,
   ).hasMatch(lines[index - 1]);
 }
