@@ -59,6 +59,10 @@ void main() {
       'summaryCurrencyConflictUnsupported',
       'summaryCurrencyMatchingPrefix',
       'summaryCurrencyMatchingSuffix',
+      'summaryCurrencyForeignLowercase',
+      'summaryCurrencyForeignMixedCase',
+      'summaryCurrencyMatchingLowercase',
+      'summaryCurrencyResidualSign',
       'subtotal',
       'competingSubtotal',
       'taxAnnotation',
@@ -81,6 +85,7 @@ void main() {
       final confidentDraft = [
         'summaryCurrencyMatchingPrefix',
         'summaryCurrencyMatchingSuffix',
+        'summaryCurrencyMatchingLowercase',
         'separateCurrencyMatching',
         'service',
         'serviceAttachedCurrency',
@@ -98,6 +103,7 @@ void main() {
       final canApplyFinancial = [
         'summaryCurrencyMatchingPrefix',
         'summaryCurrencyMatchingSuffix',
+        'summaryCurrencyMatchingLowercase',
         'separateCurrencyMatching',
         'service',
         'serviceAttachedCurrency',
@@ -111,12 +117,16 @@ void main() {
       ].contains(scenario);
       final preview = scenario.startsWith('summaryCurrency')
           ? const ReceiptOcrParser().parse(
-              'Corner Market\nTea USD 10.00\nSubtotal ${switch (scenario) {
+              'Corner Market\nTea USD 10.00\n${scenario == 'summaryCurrencyResidualSign' ? '소계' : 'Subtotal'} ${switch (scenario) {
                 'summaryCurrencyConflictPrefix' => 'EUR USD10.00',
                 'summaryCurrencyConflictSuffix' => '10.00USD EUR',
                 'summaryCurrencyConflictSymbol' => '₦USD10.00',
                 'summaryCurrencyConflictUnsupported' => 'BIF USD10.00',
                 'summaryCurrencyMatchingPrefix' => 'USD USD10.00',
+                'summaryCurrencyForeignLowercase' => 'eur10.00',
+                'summaryCurrencyForeignMixedCase' => 'EuR10.00',
+                'summaryCurrencyMatchingLowercase' => 'usd10.00',
+                'summaryCurrencyResidualSign' => '-USD / USD10.00',
                 _ => 'USD10.00 USD',
               }}\nTotal USD 10.00',
             )
@@ -247,12 +257,21 @@ void main() {
               preview.subtotal,
               matching ? '10.00' : anyOf(isNull, '10.00'),
             );
-            expect(preview.subtotalCurrency, matching ? 'USD' : isNull);
+            expect(
+              preview.subtotalCurrency,
+              scenario.contains('Foreign')
+                  ? 'EUR'
+                  : matching
+                  ? 'USD'
+                  : isNull,
+            );
             if (preview.subtotal != null) {
               expect(preview.subtotalHasExplicitCurrencyEvidence, isTrue);
             }
             expect(saved.subtotalAmount, matching ? '10.00' : isNull);
-            if (!matching) expect(preview.adjustmentsComplete, isFalse);
+            if (!matching && !scenario.contains('Foreign')) {
+              expect(preview.adjustmentsComplete, isFalse);
+            }
           }
           if (scenario.startsWith('separateCurrency')) {
             final matching = scenario == 'separateCurrencyMatching';

@@ -1351,7 +1351,12 @@ class ReceiptOcrParser {
     final cell = _selectedMonetaryCurrencyCell(line);
     return cell == null
         ? established
-        : _retainOwnedCellCurrencyEvidence(cell, receiptCurrency, established);
+        : _retainOwnedCellCurrencyEvidence(
+            cell,
+            receiptCurrency,
+            established,
+            resolveMissing: true,
+          );
   }
 
   ({String? currency, bool hasExplicitEvidence})
@@ -3305,6 +3310,13 @@ class ReceiptOcrParser {
       }
       if (currencies.length > 1) {
         return (currency: null, hasExplicitEvidence: true);
+      }
+      if (resolveMissing &&
+          !established.hasExplicitEvidence &&
+          currencies.length == 1) {
+        // An admitted monetary cell owns its sole printed denomination even
+        // when case or attachment kept the broader header rule from seeing it.
+        return (currency: currencies.single, hasExplicitEvidence: true);
       }
     }
     return established.hasExplicitEvidence || !resolveMissing
@@ -8908,18 +8920,24 @@ final _amountSuffixCurrencyPattern = RegExp(
   caseSensitive: false,
   unicode: true,
 );
-// Sign inspection must also see adjacent code/symbol combinations such as
-// USD$. These broader chains only reject conflicting evidence; the original
+// Sign inspection follows currency alternatives and adjacent code/symbol
+// combinations. These broader chains only reject residual signs; the original
 // single-marker patterns still govern numeric-token admission below.
+const _signCurrencySeparatorPattern =
+    r'(?:[\s:=/|;,&()\[\]]|(?:and|plus|or|vs\.?|versus|to)\b)';
+final _signCurrencyTokenPattern =
+    '(?:$_currencyTokenPattern|${_knownUnsupportedIsoCurrencyCodes.join('|')}|\\p{Sc})';
 final _amountPrefixCurrencyChainPattern = RegExp(
-  '(?<![\\p{L}\\p{N}])(?:$_currencyTokenPattern)'
-  '(?:\\s*(?:$_currencyTokenPattern))*\\s*\$',
+  '(?<![\\p{L}\\p{N}])$_signCurrencyTokenPattern'
+  '(?:$_signCurrencySeparatorPattern*$_signCurrencyTokenPattern)*'
+  '$_signCurrencySeparatorPattern*\$',
   caseSensitive: false,
   unicode: true,
 );
 final _amountSuffixCurrencyChainPattern = RegExp(
-  '^\\s*(?:$_currencyTokenPattern)'
-  '(?:\\s*(?:$_currencyTokenPattern))*(?![\\p{L}\\p{N}])',
+  '^$_signCurrencySeparatorPattern*$_signCurrencyTokenPattern'
+  '(?:$_signCurrencySeparatorPattern*$_signCurrencyTokenPattern)*'
+  '(?![\\p{L}\\p{N}])',
   caseSensitive: false,
   unicode: true,
 );
@@ -8947,10 +8965,14 @@ RegExpMatch? _lastWholeAmountMatch(String line) {
   final suffixChain = _amountSuffixCurrencyChainPattern.firstMatch(after);
   if ((prefixChain != null &&
           RegExp(
-            r'[+-]\s*$',
+            '[+−-]$_signCurrencySeparatorPattern*\$',
+            caseSensitive: false,
           ).hasMatch(before.substring(0, prefixChain.start))) ||
       (suffixChain != null &&
-          RegExp(r'^\s*[+-]').hasMatch(after.substring(suffixChain.end)))) {
+          RegExp(
+            '^$_signCurrencySeparatorPattern*[+−-]',
+            caseSensitive: false,
+          ).hasMatch(after.substring(suffixChain.end)))) {
     return null;
   }
   if (prefixCurrency == null &&

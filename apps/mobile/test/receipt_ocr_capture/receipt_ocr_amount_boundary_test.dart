@@ -473,6 +473,10 @@ void main() {
       (money: 'USD USD1.00', currency: 'USD'),
       (money: 'USD1.00 USD', currency: 'USD'),
       (money: 'EUR EUR1.00', currency: 'EUR'),
+      (money: 'eur1.00', currency: 'EUR'),
+      (money: 'EuR1.00', currency: 'EUR'),
+      (money: 'usd1.00', currency: 'USD'),
+      (money: 'uSd1.00', currency: 'USD'),
     ]) {
       test(
         'summary monetary chain retains every denomination $role $entry',
@@ -641,8 +645,10 @@ void main() {
   }
   test('recognized nonleading localized label retains currency conflict', () {
     final p = _preview([
-      ['SAMPLE SHOP'], ['Tea USD 1.00'],
-      ['Summary 소계EUR USD1.00'], ['Total USD 1.00'],
+      ['SAMPLE SHOP'],
+      ['Tea USD 1.00'],
+      ['Summary 소계EUR USD1.00'],
+      ['Total USD 1.00'],
     ], geometry: false);
     expect(p.subtotal, '1.00');
     expect(p.subtotalCurrency, isNull);
@@ -650,7 +656,9 @@ void main() {
   });
   test('recognized nonleading total label retains currency conflict', () {
     final p = _preview([
-      ['SAMPLE SHOP'], ['Tea USD 1.00'], ['Subtotal USD 1.00'],
+      ['SAMPLE SHOP'],
+      ['Tea USD 1.00'],
+      ['Subtotal USD 1.00'],
       ['Receipt 合計EUR USD1.00'],
     ], geometry: false);
     expect(p.total, isNull);
@@ -658,15 +666,55 @@ void main() {
   });
 
   for (final prior in ['9.00 EUR', '9.00 BIF']) {
-    test('earlier suffixed amount retains selected currency conflict $prior', () {
+    test(
+      'earlier suffixed amount retains selected currency conflict $prior',
+      () {
+        final p = _preview([
+          ['SAMPLE SHOP'],
+          ['Tea USD 1.00'],
+          ['Subtotal USD 1.00'],
+          ['Total $prior / EUR USD1.00'],
+        ], geometry: false);
+        expect(p.total, isNull);
+        expect(p.adjustmentsComplete, isFalse);
+      },
+    );
+  }
+
+  for (final separator in [' / ', ' or ', '|', '; ', ': ']) {
+    for (final money in [
+      '-USD${separator}USD1.00',
+      'USD1.00USD${separator}USD-',
+      '-BIF${separator}USD1.00',
+      'USD1.00USD${separator}₦-',
+    ]) {
+      test('currency chain separators cannot conceal a sign $money', () {
+        for (final geometry in [false, true]) {
+          final p = _preview([
+            ['SAMPLE SHOP'],
+            ['Tea USD 1.00'],
+            ['소계', money],
+            ['Total USD 1.00'],
+          ], geometry: geometry);
+          expect(p.subtotal, isNull);
+          expect(p.adjustmentsComplete, isFalse);
+          final saved = receiptOcrReviewSaveRequestFromPreview(
+            p,
+            originalCurrency: 'USD',
+          );
+          expect(saved!.subtotalAmount, isNull);
+        }
+      });
+    }
+    test('currency chain separators preserve unsigned values $separator', () {
       final p = _preview([
         ['SAMPLE SHOP'],
         ['Tea USD 1.00'],
-        ['Subtotal USD 1.00'],
-        ['Total $prior / EUR USD1.00'],
+        ['소계 USD${separator}USD1.00'],
+        ['Total USD 1.00'],
       ], geometry: false);
-      expect(p.total, isNull);
-      expect(p.adjustmentsComplete, isFalse);
+      expect(p.subtotal, '1.00');
+      expect(p.subtotalCurrency, 'USD');
     });
   }
 
