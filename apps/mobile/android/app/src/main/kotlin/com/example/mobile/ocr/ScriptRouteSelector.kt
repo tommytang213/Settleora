@@ -54,10 +54,64 @@ internal object ScriptRouteSelector {
             .distinct()
     }
 
-    fun select(candidates: Iterable<ScriptCandidate>): ScriptCandidate? = candidates
-        .filter { it.text.isNotEmpty() }
-        .filter { score(it).isFinite() }
-        .maxByOrNull(::score)
+    fun select(candidates: Iterable<ScriptCandidate>): ScriptCandidate? {
+        val eligible = candidates.filter { it.text.isNotEmpty() && score(it).isFinite() }
+        val selected = eligible.maxByOrNull(::score) ?: return null
+        if (ScriptEvidence.COMMON in selected.pack.acceptedScripts) return selected
+
+        // Captured candidates demonstrate the rupee symbol being displaced by
+        // Devanagari ra solely because ra earns a script bonus. Limit this
+        // exception to that evidenced glyph pair: arbitrary currency symbols
+        // must not suppress genuine single-letter items or currency letters.
+        // Keep the selected candidate's text, confidence and provenance intact.
+        val common = eligible.singleOrNull {
+            ScriptEvidence.COMMON in it.pack.acceptedScripts
+        } ?: return selected
+        if (common.confidence !in 0.90f..1.0f ||
+            common.confidence + 0.03f < selected.confidence
+        ) return selected
+        val monetary = monetaryGlyph(common.text) ?: return selected
+        if (monetary.marker != "₹") return selected
+        val agrees = eligible.all { candidate ->
+            val shape = monetaryGlyph(candidate.text)
+            shape != null && shape.skeleton == monetary.skeleton &&
+                if (ScriptEvidence.COMMON in candidate.pack.acceptedScripts) {
+                    shape.marker == monetary.marker
+                } else {
+                    ScriptEvidence.DEVANAGARI in candidate.pack.acceptedScripts &&
+                        shape.marker == "र"
+                }
+        }
+        return if (agrees) common else selected
+    }
+
+    private data class MonetaryGlyph(val marker: String, val skeleton: String)
+
+    // ASCII digits deliberately exclude local numerals and mixed-script words.
+    // Compare separator/sign spelling, never a parsed or rounded monetary value.
+    // Grouping may be locale-ambiguous (1,234); identical spelling is required.
+    private val amountLiteral = Regex(
+        """(?:[0-9]+(?:[.,][0-9]{1,3})?|[0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]{1,3})?|[0-9]{1,2}(?:,[0-9]{2})+,[0-9]{3}(?:\.[0-9]{1,3})?|[0-9]{1,3}(?:\.[0-9]{3})+(?:,[0-9]{1,3})?)""",
+    )
+    private val prefixGlyph = Regex("""([+−-]?)([\p{Sc}\p{L}])[ \t]*([+−-]?)([0-9][0-9.,]*)""")
+    private val suffixGlyph = Regex("""([+−-]?)([0-9][0-9.,]*)[ \t]*([\p{Sc}\p{L}])""")
+
+    private fun monetaryGlyph(text: String): MonetaryGlyph? {
+        val literal = text.trim(' ', '\t')
+        prefixGlyph.matchEntire(literal)?.let { match ->
+            val (before, marker, after, amount) = match.destructured
+            if ((before.isNotEmpty() && after.isNotEmpty()) ||
+                !amountLiteral.matches(amount)
+            ) return null
+            return MonetaryGlyph(marker, "$before#$after$amount")
+        }
+        suffixGlyph.matchEntire(literal)?.let { match ->
+            val (sign, amount, marker) = match.destructured
+            if (!amountLiteral.matches(amount)) return null
+            return MonetaryGlyph(marker, "$sign$amount#")
+        }
+        return null
+    }
 
     fun score(candidate: ScriptCandidate): Double {
         val strongScripts = candidate.text.codePoints()

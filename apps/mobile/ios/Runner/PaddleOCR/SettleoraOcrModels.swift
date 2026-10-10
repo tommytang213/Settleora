@@ -118,9 +118,75 @@ enum ScriptRouteSelector {
   private static let commonNeutralBias = 0.03
 
   static func select(_ candidates: [ScriptCandidate]) -> ScriptCandidate? {
-    candidates
-      .filter { !$0.text.isEmpty && score($0).isFinite }
-      .max { score($0) < score($1) }
+    let eligible = candidates.filter { !$0.text.isEmpty && score($0).isFinite }
+    guard let selected = eligible.max(by: { score($0) < score($1) }) else { return nil }
+    if selected.pack.acceptedScripts.contains(.common) { return selected }
+
+    // Match Android's evidenced rupee-symbol/Devanagari-ra exception. Arbitrary
+    // symbol/letter pairs remain subject to the existing script calibration.
+    // Never infer a currency or rewrite the selected text and provenance.
+    let commonCandidates = eligible.filter { $0.pack.acceptedScripts.contains(.common) }
+    guard commonCandidates.count == 1, let common = commonCandidates.first,
+          (Float(0.90)...Float(1)).contains(common.confidence),
+          common.confidence + Float(0.03) >= selected.confidence,
+          let monetary = monetaryGlyph(common.text),
+          monetary.marker == "₹"
+    else { return selected }
+    let agrees = eligible.allSatisfy { candidate in
+      guard let shape = monetaryGlyph(candidate.text), shape.skeleton == monetary.skeleton else {
+        return false
+      }
+      if candidate.pack.acceptedScripts.contains(.common) {
+        return shape.marker == monetary.marker
+      }
+      return candidate.pack.acceptedScripts.contains(.devanagari) && shape.marker == "र"
+    }
+    return agrees ? common : selected
+  }
+
+  private struct MonetaryGlyph {
+    let marker: String
+    let skeleton: String
+  }
+
+  // Preserve exact signs and decimal/grouping spelling; do not interpret values.
+  // Local numerals, words, multiple amounts and malformed groups are excluded.
+  private static let amountLiteral = try! NSRegularExpression(
+    pattern: #"\A(?:[0-9]+(?:[.,][0-9]{1,3})?|[0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]{1,3})?|[0-9]{1,2}(?:,[0-9]{2})+,[0-9]{3}(?:\.[0-9]{1,3})?|[0-9]{1,3}(?:\.[0-9]{3})+(?:,[0-9]{1,3})?)\z"#
+  )
+  private static let prefixGlyph = try! NSRegularExpression(
+    pattern: #"\A([+−-]?)([\p{Sc}\p{L}])[ \t]*([+−-]?)([0-9][0-9.,]*)\z"#
+  )
+  private static let suffixGlyph = try! NSRegularExpression(
+    pattern: #"\A([+−-]?)([0-9][0-9.,]*)[ \t]*([\p{Sc}\p{L}])\z"#
+  )
+
+  // Anchors must participate in matching so a short alternative cannot hide a
+  // valid grouped-number alternative. A post-match range check alone is insufficient.
+  private static func wholeMatch(_ pattern: NSRegularExpression, _ text: String) -> [String]? {
+    let source = text as NSString
+    let range = NSRange(location: 0, length: source.length)
+    guard let match = pattern.firstMatch(in: text, range: range), match.range == range else {
+      return nil
+    }
+    return (1..<match.numberOfRanges).map { source.substring(with: match.range(at: $0)) }
+  }
+
+  private static func monetaryGlyph(_ text: String) -> MonetaryGlyph? {
+    let literal = text.trimmingCharacters(in: CharacterSet(charactersIn: " \t"))
+    if let parts = wholeMatch(prefixGlyph, literal) {
+      let before = parts[0], marker = parts[1], after = parts[2], amount = parts[3]
+      guard before.isEmpty || after.isEmpty, wholeMatch(amountLiteral, amount) != nil else {
+        return nil
+      }
+      return MonetaryGlyph(marker: marker, skeleton: "\(before)#\(after)\(amount)")
+    }
+    if let parts = wholeMatch(suffixGlyph, literal) {
+      let sign = parts[0], amount = parts[1], marker = parts[2]
+      guard wholeMatch(amountLiteral, amount) != nil else { return nil }
+      return MonetaryGlyph(marker: marker, skeleton: "\(sign)\(amount)#")
+    }
+    return nil
   }
 
   static func score(_ candidate: ScriptCandidate) -> Double {

@@ -60,6 +60,9 @@ void main() {
       expect(summary.reviewId, _reviewId);
       expect(summary.groupId, _groupId);
       expect(summary.merchantText, 'Corner Market');
+      expect(summary.headerEvidence.single.role, 'discount');
+      expect(summary.headerEvidence.single.amount, '1.50');
+      expect(summary.headerEvidence.single.currency, 'EUR');
       expect(summary.createdAtUtc, _createdAtUtc);
       expect(client.lastStatus, ReceiptOcrReviewStatusValues.reviewed);
       expect(client.lastSource, ReceiptOcrReviewSourceValues.onDevice);
@@ -71,6 +74,8 @@ void main() {
       expect(detail.adjustmentEvidence.single.kind, 'tip');
       expect(detail.adjustmentEvidence.single.originalLabel, 'Driver gratuity');
       expect(detail.adjustmentEvidence.single.direction, 'charge');
+      expect(detail.headerEvidence.single.role, 'discount');
+      expect(detail.headerEvidence.single.currency, 'EUR');
       expect(detail.updatedAtUtc, _updatedAtUtc);
 
       final preview = await repository.previewApply(route);
@@ -141,6 +146,14 @@ void main() {
         expect(client.lastUpsertRequest?.currency, 'USD');
         expect(client.lastUpsertRequest?.lines?.single.text, 'Milk');
         expect(
+          client.lastUpsertRequest?.headerEvidence?.single.role,
+          'discount',
+        );
+        expect(
+          client.lastUpsertRequest?.headerEvidence?.single.currency,
+          'EUR',
+        );
+        expect(
           client.lastUpsertRequest?.adjustmentEvidence?.single.kind,
           'tip',
         );
@@ -158,11 +171,13 @@ void main() {
             'currency',
             'subtotalAmount',
             'taxAmount',
+            'taxReconciliationMode',
             'serviceChargeAmount',
             'discountAmount',
             'grandTotalAmount',
             'lines',
             'adjustmentEvidence',
+            'headerEvidence',
           ]),
         );
 
@@ -399,6 +414,7 @@ class FakeReceiptOcrReviewGeneratedClient
 
 api.ReceiptOcrReviewSummaryResponse sampleApiSummary() {
   return api.ReceiptOcrReviewSummaryResponse(
+    taxReconciliationMode: null,
     reviewId: _reviewId,
     billId: _billId,
     groupId: _groupId,
@@ -408,6 +424,13 @@ api.ReceiptOcrReviewSummaryResponse sampleApiSummary() {
     merchantText: 'Corner Market',
     currency: 'USD',
     lineCount: 1,
+    headerEvidence: const [
+      api.ReceiptOcrReviewHeaderEvidenceResponse(
+        role: 'discount',
+        amount: '1.50',
+        currency: 'EUR',
+      ),
+    ],
     createdAtUtc: _createdAtUtc,
     updatedAtUtc: _updatedAtUtc,
   );
@@ -415,6 +438,7 @@ api.ReceiptOcrReviewSummaryResponse sampleApiSummary() {
 
 api.ReceiptOcrReviewResponse sampleApiReview() {
   return api.ReceiptOcrReviewResponse(
+    taxReconciliationMode: null,
     id: _reviewId,
     billId: _billId,
     fileId: _fileId,
@@ -452,6 +476,13 @@ api.ReceiptOcrReviewResponse sampleApiReview() {
         direction: api.ReceiptOcrReviewAdjustmentDirectionValues.charge,
         createdAtUtc: _createdAtUtc,
         updatedAtUtc: _updatedAtUtc,
+      ),
+    ],
+    headerEvidence: const [
+      api.ReceiptOcrReviewHeaderEvidenceResponse(
+        role: 'discount',
+        amount: '1.50',
+        currency: 'EUR',
       ),
     ],
     createdAtUtc: _createdAtUtc,
@@ -494,6 +525,13 @@ ReceiptOcrReviewSaveRequest sampleSaveRequest() {
         amount: '2.00',
         currency: 'USD',
         direction: ReceiptOcrReviewAdjustmentDirectionValues.charge,
+      ),
+    ],
+    headerEvidence: const [
+      ReceiptOcrReviewHeaderEvidenceSaveRequest(
+        role: 'discount',
+        amount: '1.50',
+        currency: 'EUR',
       ),
     ],
   );

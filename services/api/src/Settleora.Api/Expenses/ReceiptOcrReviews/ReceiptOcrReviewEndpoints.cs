@@ -89,11 +89,13 @@ internal static class ReceiptOcrReviewEndpoints
         "currency",
         "subtotalAmount",
         "taxAmount",
+        "taxReconciliationMode",
         "serviceChargeAmount",
         "discountAmount",
         "grandTotalAmount",
         "lines",
-        "adjustmentEvidence"
+        "adjustmentEvidence",
+        "headerEvidence"
     ];
 
     private static readonly HashSet<string> AllowedLineProperties =
@@ -112,6 +114,8 @@ internal static class ReceiptOcrReviewEndpoints
         "currency",
         "direction"
     ];
+
+    private static readonly HashSet<string> AllowedHeaderEvidenceProperties = ["role", "amount", "currency"];
 
     private static readonly HashSet<string> AllowedQueueQueryProperties =
     [
@@ -257,11 +261,16 @@ internal static class ReceiptOcrReviewEndpoints
             query = query.Where(review => review.Source == filters.Source);
         }
 
-        var reviews = await query
+        var visibleReviews = await query
             .OrderByDescending(review => review.UpdatedAtUtc)
             .ThenByDescending(review => review.CreatedAtUtc)
             .ThenBy(review => review.Id)
             .Take(filters.Limit)
+            .Include(review => review.Lines)
+            .Include(review => review.HeaderEvidence)
+            .AsSplitQuery()
+            .ToArrayAsync(cancellationToken);
+        var reviews = visibleReviews
             .Select(review => new ReceiptOcrReviewSummaryResponse(
                 review.Id,
                 review.ExpenseBillId,
@@ -271,10 +280,13 @@ internal static class ReceiptOcrReviewEndpoints
                 review.Source,
                 review.MerchantText,
                 review.Currency,
+                review.TaxReconciliationMode,
                 review.Lines.Count,
+                review.HeaderEvidence.OrderBy(evidence => evidence.Role)
+                    .Select(ReceiptOcrReviewHeaderEvidenceResponse.From).ToArray(),
                 review.CreatedAtUtc,
                 review.UpdatedAtUtc))
-            .ToArrayAsync(cancellationToken);
+            .ToArray();
 
         return Results.Ok(new ReceiptOcrReviewListResponse(reviews));
     }
@@ -388,6 +400,17 @@ internal static class ReceiptOcrReviewEndpoints
             return ReceiptOcrReviewConflict();
         }
 
+        await using var transaction = await BeginReceiptReviewWriteTransactionAsync(
+            dbContext, billContext.BillId, cancellationToken);
+        // Re-read after waiting for the lock; the draft and review may have changed.
+        billContext = await LoadVisibleBillContextAsync(
+            dbContext, routeGroupId, billId, actor.UserProfileId, cancellationToken);
+        if (billContext is null || !CanMutateReview(billContext, actor.UserProfileId))
+        {
+            return BillUnavailable();
+        }
+        if (!CanChangeReviewInCurrentState(billContext)) return ReceiptOcrReviewConflict();
+
         var attachment = await LoadReadableReceiptAttachmentQuery(dbContext, billContext, fileId)
             .SingleOrDefaultAsync(cancellationToken);
         if (attachment is null)
@@ -400,12 +423,32 @@ internal static class ReceiptOcrReviewEndpoints
         var review = await dbContext.Set<ReceiptOcrReview>()
             .Include(candidate => candidate.Lines)
             .Include(candidate => candidate.Adjustments)
+            .Include(candidate => candidate.HeaderEvidence)
+            .AsSplitQuery()
             .Where(candidate => candidate.ExpenseBillId == billContext.BillId
                 && candidate.FileObjectId == attachment.FileObjectId
                 && candidate.RemovedAtUtc == null)
             .SingleOrDefaultAsync(cancellationToken);
 
         var created = review is null;
+        if (review is not null && !submittedReview.HeaderEvidenceSupplied)
+        {
+            var conflictErrors = new Dictionary<string, string[]>(StringComparer.Ordinal);
+            foreach (var evidence in review.HeaderEvidence)
+            {
+                var scalar = evidence.Role switch
+                {
+                    ReceiptOcrReviewHeaderRoles.Subtotal => submittedReview.SubtotalAmount,
+                    ReceiptOcrReviewHeaderRoles.Tax => submittedReview.TaxAmount,
+                    ReceiptOcrReviewHeaderRoles.ServiceCharge => submittedReview.ServiceChargeAmount,
+                    ReceiptOcrReviewHeaderRoles.Discount => submittedReview.DiscountAmount,
+                    _ => null
+                };
+                if (scalar.HasValue)
+                    conflictErrors["headerEvidence"] = ["Existing header evidence conflicts with the submitted scalar; supply headerEvidence to replace or clear it."];
+            }
+            if (conflictErrors.Count > 0) return InvalidReceiptOcrReview(conflictErrors);
+        }
         if (created && !submittedReview.HasMeaningfulPayload)
         {
             return InvalidReceiptOcrReview(new Dictionary<string, string[]>(StringComparer.Ordinal)
@@ -414,6 +457,21 @@ internal static class ReceiptOcrReviewEndpoints
             });
         }
 
+        var taxMode = submittedReview.TaxReconciliationMode;
+        if ((!submittedReview.TaxReconciliationModeSupplied || taxMode is null)
+            && review is not null && review.TaxReconciliationMode is not null)
+        {
+            // Absent and explicit null from older clients must never silently
+            // turn an included component into an additive charge.
+            taxMode = HasSameTaxRelevantMoney(review, submittedReview)
+                ? review.TaxReconciliationMode
+                : review.TaxReconciliationMode is ReceiptOcrReviewTaxReconciliationModes.SourceIncludedUnresolved
+                    && review.Currency == submittedReview.Currency
+                    ? ReceiptOcrReviewTaxReconciliationModes.SourceIncludedUnresolved
+                    : ReceiptOcrReviewTaxReconciliationModes.Unresolved;
+        }
+
+        var replaceLines = review is null || !HasSameSubmittedLines(review, submittedReview.Lines);
         if (review is null)
         {
             review = new ReceiptOcrReview
@@ -429,8 +487,38 @@ internal static class ReceiptOcrReviewEndpoints
         }
         else
         {
-            var existingLines = review.Lines.ToArray();
-            dbContext.Set<ReceiptOcrReviewLine>().RemoveRange(existingLines);
+            if (replaceLines)
+            {
+                var existingLines = review.Lines.ToArray();
+                var existingLineIds = existingLines.Select(line => line.Id).ToArray();
+                var referencedLineIds = (await dbContext.Set<ExpenseBillItem>()
+                    .Where(item => item.SourceReceiptOcrReviewLineId.HasValue
+                        && existingLineIds.Contains(item.SourceReceiptOcrReviewLineId.Value))
+                    .Select(item => item.SourceReceiptOcrReviewLineId!.Value)
+                    .Distinct().ToArrayAsync(cancellationToken)).ToHashSet();
+                foreach (var line in existingLines)
+                {
+                    // Only bill-item references justify historical retention.
+                    // Never-applied corrections retain the existing replacement behavior.
+                    if (referencedLineIds.Contains(line.Id)) line.SupersededAtUtc = now;
+                    else dbContext.Set<ReceiptOcrReviewLine>().Remove(line);
+                }
+                if (referencedLineIds.Count > 0 && transaction is not null)
+                {
+                    try
+                    {
+                        // Free active sort-order keys before adding replacements.
+                        // The outer Save/Apply transaction keeps both saves atomic.
+                        await dbContext.SaveChangesAsync(cancellationToken);
+                    }
+                    catch (DbUpdateException)
+                    {
+                        await transaction.RollbackAsync(cancellationToken);
+                        dbContext.ChangeTracker.Clear();
+                        return ReceiptOcrReviewSaveFailed();
+                    }
+                }
+            }
             if (submittedReview.AdjustmentEvidenceSupplied)
             {
                 var existingAdjustments = review.Adjustments.ToArray();
@@ -438,11 +526,15 @@ internal static class ReceiptOcrReviewEndpoints
             }
         }
 
-        ApplySubmittedReview(review, submittedReview, now);
-        AddSubmittedLines(dbContext, review, submittedReview.Lines, now);
+        ApplySubmittedReview(review, submittedReview, taxMode, now);
+        if (replaceLines) AddSubmittedLines(dbContext, review, submittedReview.Lines, now);
         if (submittedReview.AdjustmentEvidenceSupplied)
         {
             AddSubmittedAdjustments(dbContext, review, submittedReview.AdjustmentEvidence, now);
+        }
+        if (submittedReview.HeaderEvidenceSupplied)
+        {
+            ReconcileSubmittedHeaderEvidence(dbContext, review, submittedReview.HeaderEvidence, now);
         }
 
         await WriteReviewAuditAsync(
@@ -459,9 +551,11 @@ internal static class ReceiptOcrReviewEndpoints
         try
         {
             await dbContext.SaveChangesAsync(cancellationToken);
+            if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         }
         catch (DbUpdateException)
         {
+            if (transaction is not null) await transaction.RollbackAsync(cancellationToken);
             dbContext.ChangeTracker.Clear();
             return ReceiptOcrReviewSaveFailed();
         }
@@ -1006,6 +1100,17 @@ internal static class ReceiptOcrReviewEndpoints
             return ReceiptOcrReviewConflict();
         }
 
+        await using var transaction = await BeginReceiptReviewWriteTransactionAsync(
+            dbContext, billContext.BillId, cancellationToken);
+        // Re-read after waiting for the lock; the draft and review may have changed.
+        billContext = await LoadVisibleBillContextAsync(
+            dbContext, routeGroupId, billId, actor.UserProfileId, cancellationToken);
+        if (billContext is null || !CanMutateReview(billContext, actor.UserProfileId))
+        {
+            return BillUnavailable();
+        }
+        if (!CanApplyReviewInCurrentState(billContext)) return ReceiptOcrReviewConflict();
+
         var attachment = await LoadReadableReceiptAttachmentQuery(dbContext, billContext, fileId)
             .SingleOrDefaultAsync(cancellationToken);
         if (attachment is null)
@@ -1038,14 +1143,8 @@ internal static class ReceiptOcrReviewEndpoints
             return ReceiptOcrReviewConflict();
         }
 
-        IDbContextTransaction? transaction = null;
         try
         {
-            if (dbContext.Database.IsRelational())
-            {
-                transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
-            }
-
             var bill = await LoadTrackedBillForApplyQuery(dbContext, billContext)
                 .SingleOrDefaultAsync(cancellationToken);
             if (bill is null)
@@ -1115,13 +1214,6 @@ internal static class ReceiptOcrReviewEndpoints
 
             dbContext.ChangeTracker.Clear();
             return ReceiptOcrReviewSaveFailed();
-        }
-        finally
-        {
-            if (transaction is not null)
-            {
-                await transaction.DisposeAsync();
-            }
         }
     }
 
@@ -1926,11 +2018,21 @@ internal static class ReceiptOcrReviewEndpoints
 
             var subtotalAmount = ReadOptionalMoney(root, "subtotalAmount", currencyCode, errors);
             var taxAmount = ReadOptionalMoney(root, "taxAmount", currencyCode, errors);
+            var taxModeSupplied = root.TryGetProperty("taxReconciliationMode", out _);
+            var taxMode = ReadOptionalBoundedString(root, "taxReconciliationMode",
+                ReceiptOcrReviewConstraints.StatusMaxLength,
+                "Tax reconciliation mode must be a supported value.", errors);
+            if (taxMode is not null && !ReceiptOcrReviewTaxReconciliationModes.IsSupported(taxMode))
+            {
+                AddError(errors, "taxReconciliationMode", "Tax reconciliation mode must be a supported value.");
+            }
             var serviceChargeAmount = ReadOptionalMoney(root, "serviceChargeAmount", currencyCode, errors);
             var discountAmount = ReadOptionalMoney(root, "discountAmount", currencyCode, errors);
             var grandTotalAmount = ReadOptionalMoney(root, "grandTotalAmount", currencyCode, errors);
             var lines = ReadLines(root, currencyCode, errors);
             var adjustmentEvidence = ReadAdjustments(root, errors, out var adjustmentEvidenceSupplied);
+            var headerEvidence = ReadHeaderEvidence(root, subtotalAmount, taxAmount,
+                serviceChargeAmount, discountAmount, errors, out var headerEvidenceSupplied);
 
             var hasHeaderAmount = HeaderAmountProperties.Any(propertyName =>
                 root.TryGetProperty(propertyName, out var property) && property.ValueKind is not JsonValueKind.Null);
@@ -1940,7 +2042,8 @@ internal static class ReceiptOcrReviewEndpoints
                 || hasHeaderAmount
                 || lines.Count > 0
                 || adjustmentEvidence.Count > 0;
-            if (!hasMeaningfulPayload && !adjustmentEvidenceSupplied)
+            hasMeaningfulPayload = hasMeaningfulPayload || headerEvidence.Count > 0;
+            if (!hasMeaningfulPayload && !adjustmentEvidenceSupplied && !headerEvidenceSupplied)
             {
                 AddError(errors, "body", "At least one reviewed OCR field or line is required.");
             }
@@ -1959,12 +2062,16 @@ internal static class ReceiptOcrReviewEndpoints
                     currency,
                     subtotalAmount,
                     taxAmount,
+                    taxMode,
+                    taxModeSupplied,
                     serviceChargeAmount,
                     discountAmount,
                     grandTotalAmount,
                     lines,
                     adjustmentEvidence,
                     adjustmentEvidenceSupplied,
+                    headerEvidence,
+                    headerEvidenceSupplied,
                     hasMeaningfulPayload));
         }
     }
@@ -2249,6 +2356,76 @@ internal static class ReceiptOcrReviewEndpoints
         }
 
         return lines;
+    }
+
+    private static IReadOnlyList<SubmittedReceiptOcrReviewHeaderEvidence> ReadHeaderEvidence(
+        JsonElement root, decimal? subtotal, decimal? tax,
+        decimal? serviceCharge, decimal? discount,
+        Dictionary<string, List<string>> errors, out bool supplied)
+    {
+        supplied = root.TryGetProperty("headerEvidence", out var value);
+        if (!supplied) return [];
+        if (value.ValueKind is not JsonValueKind.Array)
+        {
+            AddError(errors, "headerEvidence", "Header evidence must be an array.");
+            return [];
+        }
+        if (value.GetArrayLength() > ReceiptOcrReviewConstraints.MaxHeaderEvidenceCount)
+        {
+            AddError(errors, "headerEvidence", "Too many header evidence entries were supplied.");
+            return [];
+        }
+        var evidence = new List<SubmittedReceiptOcrReviewHeaderEvidence>();
+        var seenRoles = new HashSet<string>(StringComparer.Ordinal);
+        var index = 0;
+        foreach (var entry in value.EnumerateArray())
+        {
+            var prefix = $"headerEvidence[{index++}]";
+            if (entry.ValueKind is not JsonValueKind.Object)
+            {
+                AddError(errors, prefix, "Header evidence must be an object.");
+                continue;
+            }
+            foreach (var property in entry.EnumerateObject())
+            {
+                if (!AllowedHeaderEvidenceProperties.Contains(property.Name))
+                    AddError(errors, $"{prefix}.{property.Name}", "Field is not supported for header evidence.");
+            }
+            var role = ReadRequiredSupportedString(entry, "role", ReceiptOcrReviewHeaderRoles.IsSupported,
+                "Header role is not supported.", errors, $"{prefix}.role");
+            var currency = ReadRequiredAdjustmentCurrency(entry, prefix, errors, out var currencyCode);
+            decimal? amount = null;
+            if (!entry.TryGetProperty("amount", out var amountValue) || amountValue.ValueKind is not JsonValueKind.String)
+                AddError(errors, $"{prefix}.amount", "Amount must be a plain non-negative base-10 decimal string.");
+            else if (currencyCode is not null)
+            {
+                var validation = MoneyAmount.TryParse(amountValue.GetString(), currencyCode,
+                    MoneyValidationOptions.Default with
+                    {
+                        AllowZero = true,
+                        AmountField = $"{prefix}.amount",
+                        CurrencyField = $"{prefix}.currency"
+                    }, SupportedCurrencyPolicy.Default, out var parsedAmount);
+                if (validation.Succeeded) amount = parsedAmount.Amount;
+                else AddError(errors, validation.Field, validation.Message);
+            }
+            if (role is not null)
+            {
+                if (!seenRoles.Add(role)) AddError(errors, $"{prefix}.role", "Duplicate header role is not allowed.");
+                var scalar = role switch
+                {
+                    ReceiptOcrReviewHeaderRoles.Subtotal => subtotal,
+                    ReceiptOcrReviewHeaderRoles.Tax => tax,
+                    ReceiptOcrReviewHeaderRoles.ServiceCharge => serviceCharge,
+                    ReceiptOcrReviewHeaderRoles.Discount => discount,
+                    _ => null
+                };
+                if (scalar.HasValue) AddError(errors, $"{prefix}.role", "A scalar amount and header evidence cannot share a role.");
+            }
+            if (role is not null && amount.HasValue && currency is not null)
+                evidence.Add(new SubmittedReceiptOcrReviewHeaderEvidence(role, amount.Value, currency));
+        }
+        return evidence;
     }
 
     private static IReadOnlyList<SubmittedReceiptOcrReviewAdjustment> ReadAdjustments(
@@ -2628,6 +2805,8 @@ internal static class ReceiptOcrReviewEndpoints
         var query = dbContext.Set<ReceiptOcrReview>()
             .Include(review => review.Lines)
             .Include(review => review.Adjustments)
+            .Include(review => review.HeaderEvidence)
+            .AsSplitQuery()
             .Where(review => review.ExpenseBillId == billContext.BillId
                 && review.FileObjectId == fileId
                 && review.GroupId == billContext.GroupId
@@ -2920,9 +3099,101 @@ internal static class ReceiptOcrReviewEndpoints
         }
     }
 
+    private static async Task<IDbContextTransaction?> BeginReceiptReviewWriteTransactionAsync(
+        SettleoraDbContext dbContext, Guid billId, CancellationToken cancellationToken)
+    {
+        if (!dbContext.Database.IsRelational()) return null;
+        var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            // Production persistence is PostgreSQL. Serialize save and Apply for
+            // this bill before reading review versions or replacing contributions.
+            await dbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT id FROM expense_bills WHERE id = {billId} FOR UPDATE", cancellationToken);
+            return transaction;
+        }
+        catch
+        {
+            await transaction.DisposeAsync();
+            throw;
+        }
+    }
+
+    private static bool HasSameSubmittedLines(
+        ReceiptOcrReview review, IReadOnlyList<SubmittedReceiptOcrReviewLine> lines)
+    {
+        var existing = review.Lines.OrderBy(line => line.SortOrder).ToArray();
+        if (existing.Length != lines.Count) return false;
+        for (var index = 0; index < existing.Length; index++)
+        {
+            var oldLine = existing[index];
+            var newLine = lines[index];
+            if (oldLine.SortOrder != newLine.SortOrder || oldLine.Text != newLine.Text
+                || oldLine.Quantity != newLine.Quantity
+                || oldLine.UnitPriceAmount != newLine.UnitPriceAmount
+                || oldLine.LineTotalAmount != newLine.LineTotalAmount) return false;
+        }
+        return true;
+    }
+
+    private static bool HasSameTaxRelevantMoney(
+        ReceiptOcrReview review,
+        SubmittedReceiptOcrReview submitted)
+    {
+        if (review.Currency != submitted.Currency
+            || review.SubtotalAmount != submitted.SubtotalAmount
+            || review.TaxAmount != submitted.TaxAmount
+            || review.ServiceChargeAmount != submitted.ServiceChargeAmount
+            || review.DiscountAmount != submitted.DiscountAmount
+            || review.GrandTotalAmount != submitted.GrandTotalAmount
+            || review.Lines.Count != submitted.Lines.Count)
+        {
+            return false;
+        }
+        if (!HasSameSubmittedLines(review, submitted.Lines)) return false;
+        if (submitted.AdjustmentEvidenceSupplied)
+        {
+            var oldAdjustments = review.Adjustments.OrderBy(item => item.SortOrder).ToArray();
+            if (oldAdjustments.Length != submitted.AdjustmentEvidence.Count) return false;
+            for (var index = 0; index < oldAdjustments.Length; index++)
+            {
+                var oldAdjustment = oldAdjustments[index];
+                var newAdjustment = submitted.AdjustmentEvidence[index];
+                if (oldAdjustment.SortOrder != newAdjustment.SortOrder
+                    || oldAdjustment.Kind != newAdjustment.Kind
+                    || oldAdjustment.OriginalLabel != newAdjustment.OriginalLabel
+                    || oldAdjustment.Amount != newAdjustment.Amount
+                    || oldAdjustment.Currency != newAdjustment.Currency
+                    || oldAdjustment.Direction != newAdjustment.Direction)
+                {
+                    return false;
+                }
+            }
+        }
+        if (submitted.HeaderEvidenceSupplied)
+        {
+            var oldHeaders = review.HeaderEvidence.OrderBy(item => item.Role, StringComparer.Ordinal)
+                .ThenBy(item => item.Currency, StringComparer.Ordinal).ToArray();
+            var newHeaders = submitted.HeaderEvidence.OrderBy(item => item.Role, StringComparer.Ordinal)
+                .ThenBy(item => item.Currency, StringComparer.Ordinal).ToArray();
+            if (oldHeaders.Length != newHeaders.Length) return false;
+            for (var index = 0; index < oldHeaders.Length; index++)
+            {
+                if (oldHeaders[index].Role != newHeaders[index].Role
+                    || oldHeaders[index].Currency != newHeaders[index].Currency
+                    || oldHeaders[index].Amount != newHeaders[index].Amount)
+                {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
     private static void ApplySubmittedReview(
         ReceiptOcrReview review,
         SubmittedReceiptOcrReview submittedReview,
+        string? taxReconciliationMode,
         DateTimeOffset now)
     {
         review.Status = submittedReview.Status;
@@ -2932,6 +3203,7 @@ internal static class ReceiptOcrReviewEndpoints
         review.Currency = submittedReview.Currency;
         review.SubtotalAmount = submittedReview.SubtotalAmount;
         review.TaxAmount = submittedReview.TaxAmount;
+        review.TaxReconciliationMode = taxReconciliationMode;
         review.ServiceChargeAmount = submittedReview.ServiceChargeAmount;
         review.DiscountAmount = submittedReview.DiscountAmount;
         review.GrandTotalAmount = submittedReview.GrandTotalAmount;
@@ -2999,6 +3271,37 @@ internal static class ReceiptOcrReviewEndpoints
         if (dbContext.Entry(review).State is EntityState.Unchanged or EntityState.Modified)
         {
             dbContext.Entry(review).State = EntityState.Modified;
+        }
+    }
+
+    private static void ReconcileSubmittedHeaderEvidence(
+        SettleoraDbContext dbContext, ReceiptOcrReview review,
+        IReadOnlyList<SubmittedReceiptOcrReviewHeaderEvidence> evidence, DateTimeOffset now)
+    {
+        var submittedRoles = evidence.Select(entry => entry.Role).ToHashSet(StringComparer.Ordinal);
+        foreach (var existing in review.HeaderEvidence.Where(row => !submittedRoles.Contains(row.Role)).ToArray())
+        {
+            dbContext.Set<ReceiptOcrReviewHeaderEvidence>().Remove(existing);
+            review.HeaderEvidence.Remove(existing);
+        }
+        foreach (var entry in evidence)
+        {
+            var existing = review.HeaderEvidence.SingleOrDefault(row => row.Role == entry.Role);
+            if (existing is not null)
+            {
+                existing.Amount = entry.Amount;
+                existing.Currency = entry.Currency;
+                existing.UpdatedAtUtc = now;
+                continue;
+            }
+            var row = new ReceiptOcrReviewHeaderEvidence
+            {
+                Id = Guid.NewGuid(), ReceiptOcrReviewId = review.Id, Role = entry.Role,
+                Amount = entry.Amount, Currency = entry.Currency,
+                CreatedAtUtc = now, UpdatedAtUtc = now
+            };
+            review.HeaderEvidence.Add(row);
+            dbContext.Entry(row).State = EntityState.Added;
         }
     }
 
@@ -3383,12 +3686,16 @@ internal static class ReceiptOcrReviewEndpoints
         string? Currency,
         decimal? SubtotalAmount,
         decimal? TaxAmount,
+        string? TaxReconciliationMode,
+        bool TaxReconciliationModeSupplied,
         decimal? ServiceChargeAmount,
         decimal? DiscountAmount,
         decimal? GrandTotalAmount,
         IReadOnlyList<SubmittedReceiptOcrReviewLine> Lines,
         IReadOnlyList<SubmittedReceiptOcrReviewAdjustment> AdjustmentEvidence,
         bool AdjustmentEvidenceSupplied,
+        IReadOnlyList<SubmittedReceiptOcrReviewHeaderEvidence> HeaderEvidence,
+        bool HeaderEvidenceSupplied,
         bool HasMeaningfulPayload);
 
     private sealed record SubmittedReceiptOcrReviewLine(
@@ -3405,6 +3712,8 @@ internal static class ReceiptOcrReviewEndpoints
         decimal Amount,
         string Currency,
         string Direction);
+
+    private sealed record SubmittedReceiptOcrReviewHeaderEvidence(string Role, decimal Amount, string Currency);
 
     private sealed record ReceiptOcrReviewContext(
         Guid BillId,

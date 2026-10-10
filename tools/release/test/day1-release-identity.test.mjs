@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -23,7 +23,94 @@ import {
   validatePublicationRunDocument,
   validatePublicationRunUrl,
 } from '../day1-release-identity.mjs';
-import { assertCleanCompletion, assertCommitHasNoSymlinks, canonicalAndroidInput, canonicalManifestPath, canonicalReleaseNotesInput, canonicalWebInput, copyBoundedFile, deterministicAndroidRebuildProjection, parseCanonicalJson, parseSingleApkSigner, retainReleaseNotes, runGuardedFailureDescendantFixture, runGuardedOutputDescriptorFixture, runToolchainMutationGuardFixture, safeInput, sanitizedErrorMessage, toolchainTreeDigest, verificationRegistryReference } from '../day1-release-identity-cli.mjs';
+import { sealedCollectorClosure, prepareAndroidProductionBuildInputs, assertCleanCompletion, assertCommitHasNoSymlinks, assertReviewedApkSigningBlockIds, canonicalAndroidInput, canonicalManifestPath, canonicalReleaseNotesInput, canonicalWebInput, copyBoundedFile, deterministicAndroidRebuildProjection, parseCanonicalJson, parseSingleApkSigner, retainReleaseNotes, runGuardedFailureDescendantFixture, runGuardedOutputDescriptorFixture, runToolchainMutationGuardFixture, safeInput, sanitizedErrorMessage, toolchainTreeDigest, verificationRegistryReference } from '../day1-release-identity-cli.mjs';
+
+
+function productionInputFixture(t, { unknownDevPlugin = false } = {}) {
+  const root = mkdtempSync(path.join(tmpdir(), 'release-production-inputs-'));
+  t.after(() => {
+    const writableDirectories = (current) => {
+      if (lstatSync(current).isDirectory()) {
+        chmodSync(current, 0o700);
+        for (const entry of readdirSync(current)) writableDirectories(path.join(current, entry));
+      }
+    };
+    writableDirectories(root);
+    rmSync(root, { recursive: true, force: true });
+  });
+  const mobile = 'apps/mobile/';
+  write(root, mobile + '.flutter-plugins-dependencies', JSON.stringify({
+    plugins: { android: [
+      { name: 'integration_test', dev_dependency: true, dependencies: [] },
+      { name: 'production_plugin', dev_dependency: false, dependencies: [] },
+      ...(unknownDevPlugin ? [{ name: 'unknown_dev', dev_dependency: true, dependencies: [] }] : []),
+    ] },
+    dependencyGraph: [{ name: 'integration_test', dependencies: [] }, { name: 'production_plugin', dependencies: [] }],
+  }));
+  write(root, mobile + '.dart_tool/package_config.json', JSON.stringify({
+    configVersion: 2, packages: [{ name: 'integration_test' }, { name: 'production_plugin' }],
+  }));
+  write(root, mobile + '.dart_tool/package_graph.json', JSON.stringify({
+    configVersion: 1, roots: ['mobile'], packages: [
+      { name: 'mobile', dependencies: ['production_plugin'], devDependencies: ['integration_test'] },
+      { name: 'integration_test', dependencies: [] }, { name: 'production_plugin', dependencies: [] },
+    ],
+  }));
+  write(root, mobile + '.dart_tool/version', '3.44.8');
+  write(root, mobile + 'android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java',
+    'production plugin\n    try {\n      flutterEngine.getPlugins().add(new dev.flutter.plugins.integration_test.IntegrationTestPlugin());\n    } catch (Exception e) {\n      Log.e(TAG, "Error registering plugin integration_test, dev.flutter.plugins.integration_test.IntegrationTestPlugin", e);\n    }\nproduction plugin tail\n');
+  return root;
+}
+
+for (const sealed of [false, true]) {
+  test(`Android release inputs contain only production plugins before becoming immutable (sealed=${sealed})`, (t) => {
+    const root = productionInputFixture(t);
+    // Exercise stdin module loading from an unrelated directory, as used by the
+    // sealed bootstrap. Disable only collector entry dispatch in this import test:
+    // no credentials, network, build, or release command is needed to run projection.
+    const closure = sealed ? sealedCollectorClosure().replace(
+      'const invokedDirectly = true;', 'const invokedDirectly = false;') : null;
+    const inputs = sealed ? JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-'], {
+      cwd: root,
+      input: `${closure}\nconsole.log(JSON.stringify(prepareAndroidProductionBuildInputs(${JSON.stringify(root)})));`,
+      encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, timeout: 15000,
+    })) : prepareAndroidProductionBuildInputs(root);
+    assert.equal(inputs.length, 5);
+    for (const relative of inputs) {
+      assert.equal(lstatSync(path.join(root, relative)).mode & 0o222, 0, relative);
+    }
+    const mobile = path.join(root, 'apps/mobile');
+    const metadata = JSON.parse(readFileSync(path.join(mobile, '.flutter-plugins-dependencies')));
+    assert.deepEqual(metadata.plugins.android.map((entry) => entry.name), ['production_plugin']);
+    assert.deepEqual(metadata.dependencyGraph.map((entry) => entry.name), ['production_plugin']);
+    assert.deepEqual(JSON.parse(readFileSync(path.join(mobile, '.dart_tool/package_config.json'))).packages.map((entry) => entry.name), ['production_plugin']);
+    const graph = JSON.parse(readFileSync(path.join(mobile, '.dart_tool/package_graph.json')));
+    assert.deepEqual(graph.packages.map((entry) => entry.name), ['mobile', 'production_plugin']);
+    assert.deepEqual(graph.packages[0].devDependencies, []);
+    assert.equal(readFileSync(path.join(mobile, 'android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java'), 'utf8'), 'production plugin\nproduction plugin tail\n');
+  });
+
+}
+
+test('Android release inputs still reject an unreviewed development plugin', (t) => {
+  const root = productionInputFixture(t, { unknownDevPlugin: true });
+  assert.throws(() => prepareAndroidProductionBuildInputs(root), /Unreviewed dev plugin/);
+});
+
+test('canonical APK signing inventory rejects the removed dependency-info block', () => {
+  assert.doesNotThrow(() => assertReviewedApkSigningBlockIds(['42726577', '7109871a']));
+  assert.throws(() => assertReviewedApkSigningBlockIds(['42726577', '504b4453', '7109871a']), /signing-block ID inventory/);
+  assert.throws(() => assertReviewedApkSigningBlockIds([]), /signing-block ID inventory/);
+});
+
+test('Android artifact size bounds agree across release verification layers', () => {
+  const cli = readFileSync(new URL('../day1-release-identity-cli.mjs', import.meta.url), 'utf8');
+  const collector = readFileSync(new URL('../day1-release-identity.mjs', import.meta.url), 'utf8');
+  const sealed = readFileSync(new URL('../sealed_android_verifier.py', import.meta.url), 'utf8');
+  assert.match(cli, /const maxAndroidArtifactBytes = 320 \* 1024 \* 1024;/);
+  assert.match(collector, /const maxAndroidArtifactBytes = 320 \* 1024 \* 1024;/);
+  assert.match(sealed, /MAX_ARTIFACT_BYTES = 320 \* 1024 \* 1024/);
+});
 
 const d = (character) => `sha256:${character.repeat(64)}`;
 const producerJson = (value) => `${JSON.stringify(value, null, 2)}\n`;

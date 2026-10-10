@@ -336,6 +336,16 @@ ReceiptOcrReviewSummary _mapSummary(
     merchantText: response.merchantText,
     currency: response.currency,
     lineCount: response.lineCount,
+    taxReconciliationMode: response.taxReconciliationMode,
+    headerEvidence: response.headerEvidence
+        .map(
+          (entry) => ReceiptOcrReviewHeaderEvidence(
+            role: entry.role,
+            amount: entry.amount,
+            currency: entry.currency,
+          ),
+        )
+        .toList(growable: false),
     createdAtUtc: response.createdAtUtc.toUtc(),
     updatedAtUtc: response.updatedAtUtc.toUtc(),
   );
@@ -354,12 +364,22 @@ ReceiptOcrReviewDetail _mapDetail(api.ReceiptOcrReviewResponse response) {
     currency: response.currency,
     subtotalAmount: response.subtotalAmount,
     taxAmount: response.taxAmount,
+    taxReconciliationMode: response.taxReconciliationMode,
     serviceChargeAmount: response.serviceChargeAmount,
     discountAmount: response.discountAmount,
     grandTotalAmount: response.grandTotalAmount,
     lines: response.lines.map(_mapLine).toList(growable: false),
     adjustmentEvidence: response.adjustmentEvidence
         .map(_mapAdjustment)
+        .toList(growable: false),
+    headerEvidence: response.headerEvidence
+        .map(
+          (entry) => ReceiptOcrReviewHeaderEvidence(
+            role: entry.role,
+            amount: entry.amount,
+            currency: entry.currency,
+          ),
+        )
         .toList(growable: false),
     createdAtUtc: response.createdAtUtc.toUtc(),
     updatedAtUtc: response.updatedAtUtc.toUtc(),
@@ -406,12 +426,22 @@ api.ReceiptOcrReviewUpsertRequest _mapSaveRequest(
     currency: request.currency,
     subtotalAmount: request.subtotalAmount,
     taxAmount: request.taxAmount,
+    taxReconciliationMode: request.taxReconciliationMode,
     serviceChargeAmount: request.serviceChargeAmount,
     discountAmount: request.discountAmount,
     grandTotalAmount: request.grandTotalAmount,
     lines: request.lines.map(_mapSaveLine).toList(growable: false),
     adjustmentEvidence: request.adjustmentEvidence
         .map(_mapSaveAdjustment)
+        .toList(growable: false),
+    headerEvidence: request.headerEvidence
+        .map(
+          (entry) => api.ReceiptOcrReviewHeaderEvidenceRequest(
+            role: entry.role,
+            amount: entry.amount,
+            currency: entry.currency,
+          ),
+        )
         .toList(growable: false),
   );
 }

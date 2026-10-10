@@ -48,6 +48,8 @@ OCR should attempt to detect:
 - Users must be able to edit every OCR-derived value before save.
 - Low-confidence fields should be visibly marked.
 - Unbalanced totals should be flagged.
+- Printed tax already included in a supported receipt base must remain visible without being added again when a saved review is applied. A high-confidence included-tax label remains attached to a contradictory saved review so an amount correction can be checked after reopen. Ambiguous tax meaning remains blocked even if numbers happen to balance; a contradictory review stays blocked until corrected.
+- Applying taxed receipt items must preserve the reviewed gross contribution. A net item of 20 with tax 4 and total 24 remains an editable review until a supported complete contribution is available; Apply must neither silently write 20 nor add tax again to a gross 24 item. Material edits must pass fresh reconciliation.
 - Duplicate-looking receipts/expenses should show warnings.
 - Users can continue with manual entry if OCR fails.
 

@@ -148,6 +148,7 @@ public sealed class SettleoraDbContext : DbContext
         modelBuilder.Entity<ExpenseBillAttachment>(ConfigureExpenseBillAttachment);
         modelBuilder.Entity<ReceiptOcrReview>(ConfigureReceiptOcrReview);
         modelBuilder.Entity<ReceiptOcrReviewAdjustment>(ConfigureReceiptOcrReviewAdjustment);
+        modelBuilder.Entity<ReceiptOcrReviewHeaderEvidence>(ConfigureReceiptOcrReviewHeaderEvidence);
         modelBuilder.Entity<ReceiptOcrReviewAssignment>(ConfigureReceiptOcrReviewAssignment);
         modelBuilder.Entity<ReceiptOcrReviewLine>(ConfigureReceiptOcrReviewLine);
         modelBuilder.Entity<ManualFinancialAccount>(ConfigureManualFinancialAccount);
@@ -2986,6 +2987,9 @@ public sealed class SettleoraDbContext : DbContext
                 "ck_receipt_ocr_reviews_subtotal_amount_non_negative",
                 "subtotal_amount IS NULL OR subtotal_amount >= 0");
             table.HasCheckConstraint(
+                "ck_receipt_ocr_reviews_tax_reconciliation_mode",
+                "tax_reconciliation_mode IS NULL OR tax_reconciliation_mode IN ('add_to_base', 'already_in_base', 'unresolved', 'included_unresolved')");
+            table.HasCheckConstraint(
                 "ck_receipt_ocr_reviews_tax_amount_non_negative",
                 "tax_amount IS NULL OR tax_amount >= 0");
             table.HasCheckConstraint(
@@ -3057,6 +3061,10 @@ public sealed class SettleoraDbContext : DbContext
             .HasPrecision(
                 ReceiptOcrReviewConstraints.MoneyAmountPrecision,
                 ReceiptOcrReviewConstraints.MoneyAmountScale);
+
+        entity.Property(review => review.TaxReconciliationMode)
+            .HasColumnName("tax_reconciliation_mode")
+            .HasMaxLength(ReceiptOcrReviewConstraints.StatusMaxLength);
 
         entity.Property(review => review.TaxAmount)
             .HasColumnName("tax_amount")
@@ -3144,6 +3152,33 @@ public sealed class SettleoraDbContext : DbContext
             .HasForeignKey(review => review.GroupId)
             .HasConstraintName("fk_receipt_ocr_reviews_user_groups_group_id")
             .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureReceiptOcrReviewHeaderEvidence(EntityTypeBuilder<ReceiptOcrReviewHeaderEvidence> entity)
+    {
+        entity.ToTable("receipt_ocr_review_header_evidence", table =>
+        {
+            table.HasCheckConstraint("ck_receipt_ocr_review_header_evidence_role", "role IN ('subtotal', 'tax', 'service_charge', 'discount')");
+            table.HasCheckConstraint("ck_receipt_ocr_review_header_evidence_currency", "currency ~ '^[A-Z]{3}$'");
+            table.HasCheckConstraint("ck_receipt_ocr_review_header_evidence_amount", "amount >= 0 AND amount <= 999999999999999.9999");
+        });
+        entity.HasKey(evidence => evidence.Id);
+        entity.Property(evidence => evidence.Id).HasColumnName("id");
+        entity.Property(evidence => evidence.ReceiptOcrReviewId).HasColumnName("receipt_ocr_review_id");
+        entity.Property(evidence => evidence.Role).HasColumnName("role").HasMaxLength(ReceiptOcrReviewConstraints.HeaderRoleMaxLength).IsRequired();
+        entity.Property(evidence => evidence.Amount).HasColumnName("amount")
+            .HasPrecision(ReceiptOcrReviewConstraints.MoneyAmountPrecision, ReceiptOcrReviewConstraints.MoneyAmountScale).IsRequired();
+        entity.Property(evidence => evidence.Currency).HasColumnName("currency")
+            .HasMaxLength(ReceiptOcrReviewConstraints.CurrencyMaxLength).IsRequired();
+        entity.Property(evidence => evidence.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+        entity.Property(evidence => evidence.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+        entity.HasIndex(evidence => new { evidence.ReceiptOcrReviewId, evidence.Role })
+            .IsUnique().HasDatabaseName("ux_receipt_ocr_review_header_evidence_review_role");
+        entity.HasOne(evidence => evidence.ReceiptOcrReview)
+            .WithMany(review => review.HeaderEvidence)
+            .HasForeignKey(evidence => evidence.ReceiptOcrReviewId)
+            .HasConstraintName("fk_receipt_ocr_review_header_evidence_review_id")
+            .OnDelete(DeleteBehavior.Cascade);
     }
 
     private static void ConfigureReceiptOcrReviewAssignment(EntityTypeBuilder<ReceiptOcrReviewAssignment> entity)
@@ -3656,6 +3691,11 @@ public sealed class SettleoraDbContext : DbContext
             .HasColumnName("updated_at_utc")
             .IsRequired();
 
+        entity.Property(line => line.SupersededAtUtc)
+            .HasColumnName("superseded_at_utc");
+
+        entity.HasQueryFilter(line => line.SupersededAtUtc == null);
+
         entity.HasIndex(line => line.ReceiptOcrReviewId)
             .HasDatabaseName("ix_receipt_ocr_review_lines_review_id");
 
@@ -3665,6 +3705,7 @@ public sealed class SettleoraDbContext : DbContext
                 line.SortOrder
             })
             .IsUnique()
+            .HasFilter("superseded_at_utc IS NULL")
             .HasDatabaseName("ux_receipt_ocr_review_lines_review_sort_order");
 
         entity.HasOne(line => line.ReceiptOcrReview)

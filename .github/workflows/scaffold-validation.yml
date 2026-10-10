@@ -5,6 +5,8 @@ on:
     branches:
       - main
       - ai/integration
+      # Existing OCR acceptance stack: run the same gates before integration.
+      - test/1301-native-ocr-acceptance-20260918-0038
   push:
     branches:
       - main

@@ -18251,6 +18251,14 @@ components:
         - on_device
         - manual_entry
         - imported_reviewed_data
+    ReceiptOcrTaxReconciliationMode:
+      type: string
+      description: Review-level relation of a printed same-currency tax component to the printed subtotal or complete reviewed item sum. It is not item tax allocation. Both unresolved states block draft Apply. included_unresolved retains high-confidence source evidence of an included-tax label while the reviewed arithmetic is contradictory; it does not authorize Apply or prove an amount. Omitted or null on a new review retains legacy additive behavior.
+      enum:
+        - add_to_base
+        - already_in_base
+        - unresolved
+        - included_unresolved
     ReceiptOcrCandidateAmount:
       type: string
       pattern: "^(0|[1-9][0-9]*)(\\.[0-9]{1,4})?$"
@@ -18343,6 +18351,43 @@ components:
         updatedAtUtc:
           type: string
           format: date-time
+    ReceiptOcrReviewHeaderRole:
+      type: string
+      description: Stable role of provisional printed header evidence.
+      enum:
+        - subtotal
+        - tax
+        - service_charge
+        - discount
+    ReceiptOcrReviewHeaderEvidenceRequest:
+      type: object
+      description: A bounded printed header candidate with its own supported currency. It is never authoritative bill money, including if the selected review currency later changes to match the printed currency.
+      additionalProperties: false
+      required:
+        - role
+        - amount
+        - currency
+      properties:
+        role:
+          $ref: "#/components/schemas/ReceiptOcrReviewHeaderRole"
+        amount:
+          $ref: "#/components/schemas/ReceiptOcrCandidateAmount"
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+    ReceiptOcrReviewHeaderEvidenceResponse:
+      type: object
+      description: Persisted provisional printed header candidate; apply ignores this collection.
+      required:
+        - role
+        - amount
+        - currency
+      properties:
+        role:
+          $ref: "#/components/schemas/ReceiptOcrReviewHeaderRole"
+        amount:
+          $ref: "#/components/schemas/ReceiptOcrCandidateAmount"
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
     ReceiptOcrReviewLineRequest:
       type: object
       description: One bounded OCR review line. Line text is reviewed/candidate text, not raw OCR full text. Amounts use the review-level currency and remain provisional.
@@ -18410,6 +18455,11 @@ components:
           oneOf:
             - $ref: "#/components/schemas/ReceiptOcrCandidateAmount"
             - type: "null"
+        taxReconciliationMode:
+          oneOf:
+            - $ref: "#/components/schemas/ReceiptOcrTaxReconciliationMode"
+            - type: "null"
+          description: Optional explicit review tax relation. An old-client omitted or null update preserves a stored explicit mode only when currency, header money, and ordered line values are unchanged; otherwise the server stores unresolved and blocks Apply. The server validates exact amounts before Apply.
         serviceChargeAmount:
           oneOf:
             - $ref: "#/components/schemas/ReceiptOcrCandidateAmount"
@@ -18435,6 +18485,12 @@ components:
           items:
             $ref: "#/components/schemas/ReceiptOcrReviewAdjustmentRequest"
           description: Optional ordered non-item adjustment evidence. The server derives stable order from array order; entries are not merchandise and are not automatically applied as bill adjustments.
+        headerEvidence:
+          type: array
+          maxItems: 4
+          items:
+            $ref: "#/components/schemas/ReceiptOcrReviewHeaderEvidenceRequest"
+          description: Optional provisional printed header candidates, usually foreign to the selected review currency. Evidence remains review-only if a later currency edit makes the currencies match. At most one entry per role; a scalar and evidence cannot share a role. Absent preserves existing evidence on update, while an empty array clears it. Never used as authoritative bill money.
     ReceiptOcrReviewLineResponse:
       type: object
       description: Safe receipt OCR review line response. It exposes bounded reviewed/candidate fields only and excludes raw OCR full text, file bytes, storage/provider internals, bill item mutation state, payment details, and unrelated users.
@@ -18497,7 +18553,9 @@ components:
         - source
         - merchantText
         - currency
+        - taxReconciliationMode
         - lineCount
+        - headerEvidence
         - createdAtUtc
         - updatedAtUtc
       properties:
@@ -18533,11 +18591,21 @@ components:
           oneOf:
             - $ref: "#/components/schemas/CurrencyCode"
             - type: "null"
+        taxReconciliationMode:
+          oneOf:
+            - $ref: "#/components/schemas/ReceiptOcrTaxReconciliationMode"
+            - type: "null"
+          description: Stored review-level tax reconciliation mode. Null is the legacy additive state.
         lineCount:
           type: integer
           minimum: 0
           maximum: 100
           description: Number of bounded reviewed/candidate line rows linked to the review.
+        headerEvidence:
+          type: array
+          maxItems: 4
+          items:
+            $ref: "#/components/schemas/ReceiptOcrReviewHeaderEvidenceResponse"
         createdAtUtc:
           type: string
           format: date-time
@@ -18557,6 +18625,7 @@ components:
         - merchantText
         - receiptIssuedAtUtc
         - currency
+        - taxReconciliationMode
         - subtotalAmount
         - taxAmount
         - serviceChargeAmount
@@ -18564,6 +18633,7 @@ components:
         - grandTotalAmount
         - lines
         - adjustmentEvidence
+        - headerEvidence
         - createdAtUtc
         - updatedAtUtc
       properties:
@@ -18603,6 +18673,11 @@ components:
           oneOf:
             - $ref: "#/components/schemas/CurrencyCode"
             - type: "null"
+        taxReconciliationMode:
+          oneOf:
+            - $ref: "#/components/schemas/ReceiptOcrTaxReconciliationMode"
+            - type: "null"
+          description: Stored review-level tax reconciliation mode. Null is the legacy additive state.
         subtotalAmount:
           oneOf:
             - type: string
@@ -18632,6 +18707,11 @@ components:
           maxItems: 50
           items:
             $ref: "#/components/schemas/ReceiptOcrReviewAdjustmentResponse"
+        headerEvidence:
+          type: array
+          maxItems: 4
+          items:
+            $ref: "#/components/schemas/ReceiptOcrReviewHeaderEvidenceResponse"
         createdAtUtc:
           type: string
           format: date-time
@@ -18795,6 +18875,8 @@ components:
         - line_total_mismatch
         - line_sum_mismatch
         - header_total_mismatch
+        - tax_reconciliation_unresolved
+        - tax_reconciliation_invalid
         - adjustments_not_auto_applied
         - adjustment_currency_not_reconciled
     ReceiptOcrReviewApplyPreviewLineCandidateResponse:

@@ -2,6 +2,8 @@ package com.example.mobile.ocr
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import java.io.File
+import java.util.regex.Pattern
 
 class ScriptRouteSelectorTest {
     @Test
@@ -219,6 +221,112 @@ class ScriptRouteSelectorTest {
                 ),
             )?.pack?.modelPackId,
         )
+    }
+
+
+    // Synthetic literals, not private receipt content or fixture expectations.
+    @Test
+    fun currencySymbolCompetitionPreservesLiteralAndScriptEvidence() {
+        data class Case(
+            val name: String, val common: String, val commonConfidence: Float,
+            val specialist: String, val specialistConfidence: Float,
+            val script: ScriptEvidence, val preferCommon: Boolean,
+        )
+        val cases = listOf(
+            Case("symbol_beats_lower_confidence_letter", "₹ 8,765.43", 0.943f, "र 8,765.43", 0.93f, ScriptEvidence.DEVANAGARI, true),
+            Case("symbol_beats_nearby_letter", "₹ 1,23,456.78", 0.943f, "र 1,23,456.78", 0.946f, ScriptEvidence.DEVANAGARI, true),
+            Case("suffix_symbol", "8.50 ₹", 0.95f, "8.50 र", 0.95f, ScriptEvidence.DEVANAGARI, true),
+            Case("leading_negative", "-₹8.50", 0.95f, "-र8.50", 0.95f, ScriptEvidence.DEVANAGARI, true),
+            Case("inner_negative", "₹−8.50", 0.95f, "र−8.50", 0.95f, ScriptEvidence.DEVANAGARI, true),
+            Case("explicit_positive", "+₹8.50", 0.95f, "+र8.50", 0.95f, ScriptEvidence.DEVANAGARI, true),
+            Case("decimal_comma", "₹8,50", 0.95f, "र8,50", 0.95f, ScriptEvidence.DEVANAGARI, true),
+            Case("western_grouping", "₹12,345.67", 0.95f, "र12,345.67", 0.95f, ScriptEvidence.DEVANAGARI, true),
+            Case("european_grouping", "₹12.345,67", 0.95f, "र12.345,67", 0.95f, ScriptEvidence.DEVANAGARI, true),
+            Case("ambiguous_identical_separator", "₹1,234", 0.95f, "र1,234", 0.95f, ScriptEvidence.DEVANAGARI, true),
+            Case("no_explicit_currency", "8.50", 0.95f, "र8.50", 0.95f, ScriptEvidence.DEVANAGARI, false),
+            Case("currency_code_is_not_symbol", "INR 8.50", 0.95f, "र8.50", 0.95f, ScriptEvidence.DEVANAGARI, false),
+            Case("currency_letters_remain_text", "₹8.50", 0.95f, "रुपये 8.50", 0.95f, ScriptEvidence.DEVANAGARI, false),
+            Case("single_glyph_item", "X", 0.99f, "차", 0.82f, ScriptEvidence.KOREAN, false),
+            Case("mixed_script_words", "₹8.50", 0.95f, "TOTAL रकम 8.50", 0.95f, ScriptEvidence.DEVANAGARI, false),
+            Case("local_numerals", "₹8.50", 0.95f, "र८.५०", 0.95f, ScriptEvidence.DEVANAGARI, false),
+            Case("low_common_confidence", "₹8.50", 0.89f, "र8.50", 0.9f, ScriptEvidence.DEVANAGARI, false),
+            Case("large_confidence_gap", "₹8.50", 0.91f, "र8.50", 0.99f, ScriptEvidence.DEVANAGARI, false),
+            Case("opposite_signs", "₹-8.50", 0.95f, "र+8.50", 0.95f, ScriptEvidence.DEVANAGARI, false),
+            Case("dropped_sign", "-₹8.50", 0.95f, "र8.50", 0.95f, ScriptEvidence.DEVANAGARI, false),
+            Case("moved_sign", "-₹8.50", 0.95f, "र-8.50", 0.95f, ScriptEvidence.DEVANAGARI, false),
+            Case("opposite_marker_position", "₹8.50", 0.95f, "8.50 र", 0.95f, ScriptEvidence.DEVANAGARI, false),
+            Case("different_digits", "₹8.50", 0.95f, "र8.60", 0.95f, ScriptEvidence.DEVANAGARI, false),
+            Case("different_separators", "₹8,50", 0.95f, "र8.50", 0.95f, ScriptEvidence.DEVANAGARI, false),
+            Case("different_grouping", "₹1,234.50", 0.95f, "र1234.50", 0.95f, ScriptEvidence.DEVANAGARI, false),
+            Case("bad_grouping", "₹1,2,3.50", 0.95f, "र1,2,3.50", 0.95f, ScriptEvidence.DEVANAGARI, false),
+            Case("two_amounts", "₹8.50 2.00", 0.95f, "र8.50 2.00", 0.95f, ScriptEvidence.DEVANAGARI, false),
+            Case("double_sign", "-₹-8.50", 0.95f, "-र-8.50", 0.95f, ScriptEvidence.DEVANAGARI, false),
+            Case("parenthesized", "(₹8.50)", 0.95f, "(र8.50)", 0.95f, ScriptEvidence.DEVANAGARI, false),
+            Case("decimal_without_integer", "₹.50", 0.95f, "र.50", 0.95f, ScriptEvidence.DEVANAGARI, false),
+            Case("letter_combining_sequence", "₹8.50", 0.95f, "ऱ8.50", 0.95f, ScriptEvidence.DEVANAGARI, false),
+            Case("genuine_single_letter_item_with_price", "₹8.50", 0.95f, "차 8.50", 0.95f, ScriptEvidence.KOREAN, false),
+            Case("currency_letter_with_price", "₹8.50", 0.95f, "р8.50", 0.95f, ScriptEvidence.CYRILLIC, false),
+            Case("unrelated_devanagari_letter", "₹8.50", 0.95f, "म8.50", 0.95f, ScriptEvidence.DEVANAGARI, false),
+            Case("precomposed_nukta_letter", "₹8.50", 0.95f, "ऱ8.50", 0.95f, ScriptEvidence.DEVANAGARI, false),
+            Case("unrelated_currency_symbol", "€8.50", 0.95f, "र8.50", 0.95f, ScriptEvidence.DEVANAGARI, false),
+            Case("unrelated_dollar_symbol", "$8.50", 0.95f, "र8.50", 0.95f, ScriptEvidence.DEVANAGARI, false),
+            Case("integer", "₹850", 0.95f, "र850", 0.95f, ScriptEvidence.DEVANAGARI, true),
+        )
+        for (case in cases) {
+            val common = candidate("common", ScriptEvidence.COMMON, case.common, case.commonConfidence)
+            val specialist = candidate("specialist", case.script, case.specialist, case.specialistConfidence)
+            for (ordered in listOf(listOf(common, specialist), listOf(specialist, common))) {
+                assertEquals(case.name, if (case.preferCommon) common else specialist, ScriptRouteSelector.select(ordered))
+            }
+        }
+    }
+
+    @Test
+    fun conflictingEligibleEvidenceRetainsTheCalibratedWinner() {
+        val common = candidate("common", ScriptEvidence.COMMON, "₹8.50", 0.95f)
+        val specialist = candidate("specialist", ScriptEvidence.DEVANAGARI, "र8.50", 0.95f)
+        for (conflict in listOf(
+            candidate("common2", ScriptEvidence.COMMON, "€8.50", 0.94f),
+            candidate("common2", ScriptEvidence.COMMON, "₹8.60", 0.94f),
+            candidate("arabic", ScriptEvidence.ARABIC, "د8.60", 0.94f),
+            candidate("korean", ScriptEvidence.KOREAN, "차 8.60", 0.94f),
+            candidate("arabic", ScriptEvidence.ARABIC, "مبلغ 8.50", 0.94f),
+        )) {
+            assertEquals(specialist, ScriptRouteSelector.select(listOf(common, specialist, conflict)))
+        }
+        assertEquals(common, ScriptRouteSelector.select(listOf(common)))
+        assertEquals(specialist, ScriptRouteSelector.select(listOf(specialist)))
+        assertEquals(null, ScriptRouteSelector.select(emptyList()))
+    }
+
+    @Test
+    fun swiftSearchPatternsConsumeWholeGroupedLiterals() {
+        // Exercise the actual Swift pattern literals with a search API. This
+        // catches prefix-alternative matches that Android's matches() hides;
+        // it supplements, but does not replace, the iOS native test target.
+        val swift = generateSequence(File(System.getProperty("user.dir"))) { it.parentFile }
+            .map { File(it, "apps/mobile/ios/Runner/PaddleOCR/SettleoraOcrModels.swift") }
+            .first { it.isFile }.readText()
+        val declarations = swift.substringAfter("private static let amountLiteral")
+            .substringBefore("private static func wholeMatch")
+        val patterns = Regex("""pattern: #"([^"]+)"#""").findAll(declarations)
+            .map { Pattern.compile(it.groupValues[1]) }.toList()
+        assertEquals(3, patterns.size)
+        for (amount in listOf("8,765.43", "1,23,456.78", "12.345,67", "8.50", "1,234")) {
+            val literals = listOf(amount, "₹ $amount", "$amount ₹")
+            for ((pattern, literal) in patterns.zip(literals)) {
+                val match = pattern.matcher(literal)
+                assertEquals(literal, true, match.find())
+                assertEquals(literal, 0, match.start())
+                assertEquals(literal, literal.length, match.end())
+                assertEquals(false, pattern.matcher("noise $literal").find())
+                assertEquals(false, pattern.matcher("$literal extra").find())
+                assertEquals(false, pattern.matcher("$literal\n").find())
+            }
+        }
+        for (invalid in listOf("1,2,3.50", ".50", "8.50 2.00")) {
+            assertEquals(false, patterns.first().matcher(invalid).find())
+        }
     }
 
     private fun candidate(

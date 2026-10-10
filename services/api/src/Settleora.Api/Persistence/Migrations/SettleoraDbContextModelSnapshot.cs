@@ -2978,6 +2978,11 @@ namespace Settleora.Api.Persistence.Migrations
                         .HasColumnType("numeric(19,4)")
                         .HasColumnName("tax_amount");
 
+                    b.Property<string>("TaxReconciliationMode")
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)")
+                        .HasColumnName("tax_reconciliation_mode");
+
                     b.Property<DateTimeOffset>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at_utc");
@@ -3035,6 +3040,8 @@ namespace Settleora.Api.Persistence.Migrations
                             t.HasCheckConstraint("ck_receipt_ocr_reviews_tax_amount_non_negative", "tax_amount IS NULL OR tax_amount >= 0");
 
                             t.HasCheckConstraint("ck_receipt_ocr_reviews_tax_amount_upper_bound", "tax_amount IS NULL OR tax_amount <= 999999999999999.9999");
+
+                            t.HasCheckConstraint("ck_receipt_ocr_reviews_tax_reconciliation_mode", "tax_reconciliation_mode IS NULL OR tax_reconciliation_mode IN ('add_to_base', 'already_in_base', 'unresolved', 'included_unresolved')");
                         });
                 });
 
@@ -3247,6 +3254,58 @@ namespace Settleora.Api.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Settleora.Api.Domain.Expenses.ReceiptOcrReviewHeaderEvidence", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(19, 4)
+                        .HasColumnType("numeric(19,4)")
+                        .HasColumnName("amount");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)")
+                        .HasColumnName("currency");
+
+                    b.Property<Guid>("ReceiptOcrReviewId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("receipt_ocr_review_id");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)")
+                        .HasColumnName("role");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReceiptOcrReviewId", "Role")
+                        .IsUnique()
+                        .HasDatabaseName("ux_receipt_ocr_review_header_evidence_review_role");
+
+                    b.ToTable("receipt_ocr_review_header_evidence", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_receipt_ocr_review_header_evidence_amount", "amount >= 0 AND amount <= 999999999999999.9999");
+
+                            t.HasCheckConstraint("ck_receipt_ocr_review_header_evidence_currency", "currency ~ '^[A-Z]{3}$'");
+
+                            t.HasCheckConstraint("ck_receipt_ocr_review_header_evidence_role", "role IN ('subtotal', 'tax', 'service_charge', 'discount')");
+                        });
+                });
+
             modelBuilder.Entity("Settleora.Api.Domain.Expenses.ReceiptOcrReviewLine", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3276,6 +3335,10 @@ namespace Settleora.Api.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("sort_order");
 
+                    b.Property<DateTimeOffset?>("SupersededAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("superseded_at_utc");
+
                     b.Property<string>("Text")
                         .IsRequired()
                         .HasMaxLength(240)
@@ -3298,7 +3361,8 @@ namespace Settleora.Api.Persistence.Migrations
 
                     b.HasIndex("ReceiptOcrReviewId", "SortOrder")
                         .IsUnique()
-                        .HasDatabaseName("ux_receipt_ocr_review_lines_review_sort_order");
+                        .HasDatabaseName("ux_receipt_ocr_review_lines_review_sort_order")
+                        .HasFilter("superseded_at_utc IS NULL");
 
                     b.ToTable("receipt_ocr_review_lines", null, t =>
                         {
@@ -6354,6 +6418,18 @@ namespace Settleora.Api.Persistence.Migrations
                     b.Navigation("SourceActorUserProfile");
                 });
 
+            modelBuilder.Entity("Settleora.Api.Domain.Expenses.ReceiptOcrReviewHeaderEvidence", b =>
+                {
+                    b.HasOne("Settleora.Api.Domain.Expenses.ReceiptOcrReview", "ReceiptOcrReview")
+                        .WithMany("HeaderEvidence")
+                        .HasForeignKey("ReceiptOcrReviewId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_receipt_ocr_review_header_evidence_review_id");
+
+                    b.Navigation("ReceiptOcrReview");
+                });
+
             modelBuilder.Entity("Settleora.Api.Domain.Expenses.ReceiptOcrReviewLine", b =>
                 {
                     b.HasOne("Settleora.Api.Domain.Expenses.ReceiptOcrReview", "ReceiptOcrReview")
@@ -7159,6 +7235,8 @@ namespace Settleora.Api.Persistence.Migrations
                     b.Navigation("Adjustments");
 
                     b.Navigation("Assignments");
+
+                    b.Navigation("HeaderEvidence");
 
                     b.Navigation("Lines");
                 });

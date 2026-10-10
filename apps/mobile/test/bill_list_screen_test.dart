@@ -1,5 +1,9 @@
 import 'dart:async';
 
+import 'support/brand_copy_receipt.dart';
+import 'support/financial_role_receipt.dart';
+import 'support/summary_role_receipt.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
@@ -32,6 +36,1890 @@ import 'package:mobile/ui/settleora_components.dart';
 import 'package:mobile/ui/settleora_form_fields.dart';
 
 void main() {
+  for (final group in [false, true]) {
+    for (final scenario in [
+      'service',
+      'foreignService',
+      'serviceTrailingWord',
+      'serviceTrailingCurrencyWord',
+      'serviceAttachedCurrency',
+      'foreignAttachedLowercasePrefix',
+      'foreignAttachedMixedPrefix',
+      'foreignAttachedLowercaseSuffix',
+      'foreignAttachedMixedSuffix',
+      'separateCurrencyConflictPrefix',
+      'separateCurrencyConflictLowercase',
+      'separateCurrencyConflictSuffix',
+      'separateCurrencyConflictSymbol',
+      'separateCurrencyConflictDollar',
+      'separateCurrencyMatching',
+      'summaryCurrencyConflictPrefix',
+      'summaryCurrencyConflictSuffix',
+      'summaryCurrencyConflictSymbol',
+      'summaryCurrencyConflictUnsupported',
+      'summaryCurrencyMatchingPrefix',
+      'summaryCurrencyMatchingSuffix',
+      'summaryCurrencyForeignLowercase',
+      'summaryCurrencyForeignMixedCase',
+      'summaryCurrencyMatchingLowercase',
+      'summaryCurrencyResidualSign',
+      'subtotal',
+      'competingSubtotal',
+      'taxAnnotation',
+      'foreignTaxItem',
+      'brandCaption',
+      'brandFooter',
+      'brandUnpriced',
+      'traditionalTaxPrefix',
+      'traditionalTaxSuffix',
+      'traditionalTaxRate',
+      'traditionalTaxSign',
+      'traditionalTaxLowercase',
+      'traditionalTaxConflict',
+      'traditionalTaxZero',
+      'traditionalTaxNet',
+      'traditionalTaxJoinedForeign',
+      'traditionalTaxJoinedConflict',
+      'traditionalTaxJoinedMatching',
+    ]) {
+      final confidentDraft = [
+        'summaryCurrencyMatchingPrefix',
+        'summaryCurrencyMatchingSuffix',
+        'summaryCurrencyMatchingLowercase',
+        'separateCurrencyMatching',
+        'service',
+        'serviceAttachedCurrency',
+        'subtotal',
+        'taxAnnotation',
+        'brandCaption',
+        'brandFooter',
+        'traditionalTaxZero',
+        'traditionalTaxNet',
+      ].contains(scenario);
+      // Complete tax evidence can still describe net-only item amounts.
+      // Preserve the existing #1324 gross-contribution Apply gate.
+      // Existing Apply copies item amounts only. Gross-matching items remain
+      // selectable even when header arithmetic warns; no tax charge is added.
+      final canApplyFinancial = [
+        'summaryCurrencyMatchingPrefix',
+        'summaryCurrencyMatchingSuffix',
+        'summaryCurrencyMatchingLowercase',
+        'separateCurrencyMatching',
+        'service',
+        'serviceAttachedCurrency',
+        'subtotal',
+        'traditionalTaxZero',
+        'traditionalTaxPrefix',
+        'traditionalTaxSuffix',
+        'traditionalTaxRate',
+        'traditionalTaxLowercase',
+        'traditionalTaxJoinedMatching',
+      ].contains(scenario);
+      final preview = scenario.startsWith('summaryCurrency')
+          ? const ReceiptOcrParser().parse(
+              'Corner Market\nTea USD 10.00\n${scenario == 'summaryCurrencyResidualSign' ? '소계' : 'Subtotal'} ${switch (scenario) {
+                'summaryCurrencyConflictPrefix' => 'EUR USD10.00',
+                'summaryCurrencyConflictSuffix' => '10.00USD EUR',
+                'summaryCurrencyConflictSymbol' => '₦USD10.00',
+                'summaryCurrencyConflictUnsupported' => 'BIF USD10.00',
+                'summaryCurrencyMatchingPrefix' => 'USD USD10.00',
+                'summaryCurrencyForeignLowercase' => 'eur10.00',
+                'summaryCurrencyForeignMixedCase' => 'EuR10.00',
+                'summaryCurrencyMatchingLowercase' => 'usd10.00',
+                'summaryCurrencyResidualSign' => '-USD / USD10.00',
+                _ => 'USD10.00 USD',
+              }}\nTotal USD 10.00',
+            )
+          : scenario.startsWith('separateCurrency')
+          ? parseSummaryBlocks([
+              summaryBlock('Corner Market', 0, 20, 20, 200, 25),
+              summaryBlock('Tea', 1, 20, 70, 200, 25),
+              summaryBlock(
+                switch (scenario) {
+                  'separateCurrencyMatching' => 'USD',
+                  'separateCurrencyConflictLowercase' => 'eur',
+                  'separateCurrencyConflictSymbol' => '€',
+                  _ => 'EUR',
+                },
+                1,
+                530,
+                70,
+                60,
+                25,
+              ),
+              summaryBlock(
+                switch (scenario) {
+                  'separateCurrencyConflictSuffix' => '10.00USD',
+                  'separateCurrencyConflictDollar' => r'$10.00',
+                  _ => 'USD10.00',
+                },
+                1,
+                600,
+                70,
+                180,
+                25,
+              ),
+              summaryBlock('Subtotal USD 10.00', 2, 20, 120, 300, 25),
+              summaryBlock('Total USD 10.00', 3, 20, 170, 300, 25),
+            ])
+          : scenario.startsWith('foreignAttached')
+          ? parseSummaryBlocks([
+              summaryBlock('Corner Market', 0, 20, 20, 200, 25),
+              summaryBlock('Tea', 1, 20, 70, 200, 25),
+              summaryBlock(
+                switch (scenario) {
+                  'foreignAttachedLowercasePrefix' => 'eur10.00',
+                  'foreignAttachedMixedPrefix' => 'eUr10.00',
+                  'foreignAttachedLowercaseSuffix' => '10.00eur',
+                  _ => '10.00eUr',
+                },
+                1,
+                600,
+                70,
+                180,
+                25,
+              ),
+              summaryBlock('Subtotal USD 10.00', 2, 20, 120, 300, 25),
+              summaryBlock('Total USD 10.00', 3, 20, 170, 300, 25),
+            ])
+          : scenario.startsWith('traditionalTax')
+          ? const ReceiptOcrParser().parse(
+              'Cafe\nDate: 2026/08/15\nTea USD 10.00\nSubtotal USD 10.00\n'
+              '消費稅${scenario.contains('Joined') ? '' : ' '}${switch (scenario) {
+                'traditionalTaxSuffix' => '1.0USD',
+                'traditionalTaxRate' => '(10%) USD1',
+                'traditionalTaxSign' => 'USD-1.0',
+                'traditionalTaxLowercase' => 'usd1.0',
+                'traditionalTaxConflict' => 'USD1.0EUR',
+                'traditionalTaxZero' => 'USD0.0',
+                'traditionalTaxJoinedForeign' => 'EUR1.0',
+                'traditionalTaxJoinedConflict' => 'EUR1.0USD',
+                _ => 'USD1.0',
+              }}\nTotal USD ${scenario == 'traditionalTaxNet' ? '11.00' : '10.00'}',
+            )
+          : switch (scenario) {
+              'service' => joinedServicePreview(),
+              'foreignService' => joinedServicePreview(amount: 'EUR 1.00'),
+              'serviceTrailingWord' => joinedServicePreview(
+                amount: 'USD 1.00 guide',
+              ),
+              'serviceTrailingCurrencyWord' => joinedServicePreview(
+                amount: 'USD 1.00 USD guide',
+              ),
+              'serviceAttachedCurrency' => joinedServicePreview(
+                amount: 'USD1.00',
+              ),
+              'subtotal' => parseSummaryBlocks(skewedSummaryBlocks()),
+              'competingSubtotal' => parseSummaryBlocks(
+                skewedSummaryBlocks()
+                  ..add(summaryBlock('USD 9.00', 8, 400, 220.2, 100, 30)),
+              ),
+              'taxAnnotation' => annotatedTaxItemPreview(),
+              'brandCaption' => parseBrandCopy(
+                brandCopyBlocks(caption: 'Better food. Brighter days.'),
+              ),
+              'brandFooter' => parseBrandCopy(
+                brandCopyBlocks(
+                  footer: ['Thank you for brewing', 'a brighter day!'],
+                ),
+              ),
+              'brandUnpriced' => parseBrandCopy(
+                brandCopyBlocks(
+                  footer: ['Thank you for visiting!'],
+                  afterTotal: ['Unpriced dessert'],
+                ),
+              ),
+              _ => annotatedTaxItemPreview(firstCurrency: 'USD'),
+            };
+      final firstDescription = scenario == 'taxAnnotation'
+          ? 'Tea VAT 5% item'
+          : 'Tea';
+      final firstAmount = scenario == 'taxAnnotation'
+          ? '20.00'
+          : scenario == 'subtotal'
+          ? '3.50'
+          : '10.00';
+      final targetCurrency = scenario == 'taxAnnotation' ? 'EUR' : 'USD';
+      testWidgets(
+        'summary evidence survives provisional save and Apply group=$group scenario=$scenario',
+        (tester) async {
+          await useLargeSurface(tester);
+          final saved = receiptOcrReviewSaveRequestFromPreview(
+            preview,
+            originalCurrency: preview.currency,
+          );
+          expect(saved, isNotNull);
+          expect(saved!.status, ReceiptOcrReviewStatusValues.provisional);
+          if (scenario.startsWith('summaryCurrency')) {
+            final matching = scenario.contains('Matching');
+            expect(preview.currency, 'USD');
+            expect(
+              preview.subtotal,
+              matching ? '10.00' : anyOf(isNull, '10.00'),
+            );
+            expect(
+              preview.subtotalCurrency,
+              scenario.contains('Foreign')
+                  ? 'EUR'
+                  : matching
+                  ? 'USD'
+                  : isNull,
+            );
+            if (preview.subtotal != null) {
+              expect(preview.subtotalHasExplicitCurrencyEvidence, isTrue);
+            }
+            expect(saved.subtotalAmount, matching ? '10.00' : isNull);
+            if (!matching && !scenario.contains('Foreign')) {
+              expect(preview.adjustmentsComplete, isFalse);
+            }
+          }
+          if (scenario.startsWith('separateCurrency')) {
+            final matching = scenario == 'separateCurrencyMatching';
+            expect(preview.currency, 'USD');
+            expect(preview.items.single.currency, matching ? 'USD' : isNull);
+            expect(preview.items.single.currencyUnresolved, !matching);
+            expect(preview.items.single.lineTotal, '10.00');
+            expect(
+              saved.lines.single.lineTotalAmount,
+              matching ? '10.00' : isNull,
+            );
+          }
+          if (scenario.startsWith('foreignAttached')) {
+            expect(preview.currency, 'USD');
+            expect(preview.items.single.currency, 'EUR');
+            expect(preview.items.single.lineTotal, '10.00');
+            expect(saved.lines.single.lineTotalAmount, isNull);
+          }
+          if (scenario.startsWith('traditionalTax')) {
+            final expectedTax = scenario == 'traditionalTaxZero'
+                ? 0
+                : scenario == 'traditionalTaxSign'
+                ? -1
+                : 1;
+            expect(double.parse(preview.tax!), expectedTax);
+            if ([
+              'traditionalTaxSign',
+              'traditionalTaxConflict',
+              'traditionalTaxJoinedForeign',
+              'traditionalTaxJoinedConflict',
+            ].contains(scenario)) {
+              expect(saved.taxAmount, isNull);
+            } else {
+              expect(double.parse(saved.taxAmount!), expectedTax);
+            }
+            expect(preview.items.single.lineTotal, '10.00');
+            expect(preview.reviewHints.isEmpty, confidentDraft);
+          }
+          expect(
+            saved.taxReconciliationMode,
+            // A contradictory total or negative amount has its own review
+            // gate; it does not make the recognized tax role incomplete.
+            // A foreign item is blocked by currency ownership, with no tax
+            // interpretation introduced for this otherwise tax-free receipt.
+            scenario.startsWith('foreignAttached') ||
+                    scenario.startsWith('separateCurrency') ||
+                    confidentDraft ||
+                    (scenario.startsWith('traditionalTax') &&
+                        ![
+                          'traditionalTaxConflict',
+                          'traditionalTaxJoinedForeign',
+                          'traditionalTaxJoinedConflict',
+                        ].contains(scenario))
+                ? isNull
+                : ReceiptOcrTaxReconciliationModeValues.unresolved,
+          );
+          final repository = FakeBillRepository();
+          final fileInput = FakeBillAttachmentFileInput(
+            pickedFile: samplePickedAttachmentFile(
+              filename: 'receipt.png',
+              contentType: 'image/png',
+              bytes: samplePngBytes(width: 64, height: 64),
+            ),
+          );
+          final provider = FakeReceiptOcrProvider(
+            ReceiptOcrResult.extracted(preview),
+          );
+          final prefix = group ? 'group-bill' : 'personal-bill';
+          if (group) {
+            await _pumpGroupBillCreate(
+              tester,
+              repository: repository,
+              groupRepository: FakeGroupRepository(
+                members: [sampleGroupMember()],
+              ),
+              attachmentRepository: FakeBillAttachmentRepository(),
+              attachmentFileInput: fileInput,
+              receiptOcrProvider: provider,
+            );
+            await tester.tap(find.byKey(const Key('group-bill-list-create')));
+            await tester.pumpAndSettle();
+            await _goToGroupBillCreateStep(tester, 'basics');
+          } else {
+            await tester.pumpWidget(
+              MaterialApp(
+                home: SettleoraPersonalBillCreateScreen(
+                  repository: repository,
+                  attachmentRepository: FakeBillAttachmentRepository(),
+                  attachmentFileInput: fileInput,
+                  receiptOcrProvider: provider,
+                ),
+              ),
+            );
+            await tester.pumpAndSettle();
+          }
+          final billCurrency = find.byKey(
+            Key('$prefix-currency'),
+            skipOffstage: false,
+          );
+          await _selectCurrency(tester, billCurrency, 'HKD');
+          if (group) await _goToGroupBillCreateStep(tester, 'receiptItems');
+          final itemName = find.byKey(ValueKey('$prefix-item-name-0'));
+          final itemAmount = find.byKey(ValueKey('$prefix-item-amount-0'));
+          await tester.enterText(itemName, 'Existing item');
+          await tester.enterText(itemAmount, '10.00');
+          await tester.ensureVisible(find.byKey(Key('$prefix-scan-receipt')));
+          await tester.tap(find.byKey(Key('$prefix-scan-receipt')));
+          await tester.pumpAndSettle();
+          for (final section in ['currency', 'items']) {
+            final choice = tester.widget<CheckboxListTile>(
+              find.byKey(Key('$prefix-ocr-apply-$section')),
+            );
+            expect(choice.onChanged != null, canApplyFinancial);
+            if (canApplyFinancial) {
+              await _setReceiptOcrSection(tester, prefix, section, true);
+            } else {
+              expect(choice.value, isFalse);
+            }
+          }
+          await _setReceiptOcrSection(tester, prefix, 'merchant', true);
+          await _tapReceiptOcrApply(tester, prefix);
+          expect(
+            tester.widget<TextFormField>(itemName).controller?.text,
+            canApplyFinancial ? firstDescription : 'Existing item',
+          );
+          expect(
+            tester.widget<TextFormField>(itemAmount).controller?.text,
+            canApplyFinancial ? firstAmount : '10.00',
+          );
+          expect(
+            tester
+                .widget<CurrencySelector>(
+                  find.descendant(
+                    of: billCurrency,
+                    matching: find.byType(
+                      CurrencySelector,
+                      skipOffstage: false,
+                    ),
+                    skipOffstage: false,
+                  ),
+                )
+                .value,
+            canApplyFinancial ? targetCurrency : 'HKD',
+          );
+        },
+      );
+    }
+  }
+  for (final group in [false, true]) {
+    for (final layout in [false, true]) {
+      for (final amount in ['USD 7.00', 'USD 7.00 EUR', r'7.00$€']) {
+        final unambiguous = amount == 'USD 7.00';
+        testWidgets(
+          'payment currency evidence survives save and Apply group=$group layout=$layout amount=$amount',
+          (tester) async {
+            await useLargeSurface(tester);
+            final rows = [
+              'Corner Market',
+              'Tea USD 7.00',
+              'Total USD 7.00',
+              'Credit ****6789 $amount',
+            ];
+            final preview = const ReceiptOcrParser().parse(
+              rows.join('\n'),
+              blocks: [
+                if (layout)
+                  for (var row = 0; row < rows.length; row++)
+                    ReceiptOcrBlockEvidence(
+                      text: rows[row],
+                      row: row,
+                      order: row,
+                      points: [
+                        ReceiptOcrPoint(x: 20, y: 20.0 + row * 40),
+                        ReceiptOcrPoint(x: 320, y: 20.0 + row * 40),
+                        ReceiptOcrPoint(x: 320, y: 40.0 + row * 40),
+                        ReceiptOcrPoint(x: 20, y: 40.0 + row * 40),
+                      ],
+                    ),
+              ],
+            );
+            final saved = receiptOcrReviewSaveRequestFromPreview(
+              preview,
+              originalCurrency: 'USD',
+            );
+            expect(saved, isNotNull);
+            expect(saved!.status, ReceiptOcrReviewStatusValues.provisional);
+            expect(
+              saved.taxReconciliationMode,
+              unambiguous
+                  ? isNull
+                  : ReceiptOcrTaxReconciliationModeValues.unresolved,
+            );
+            final repository = FakeBillRepository();
+            final fileInput = FakeBillAttachmentFileInput(
+              pickedFile: samplePickedAttachmentFile(
+                filename: 'receipt.png',
+                contentType: 'image/png',
+                bytes: samplePngBytes(width: 64, height: 64),
+              ),
+            );
+            final provider = FakeReceiptOcrProvider(
+              ReceiptOcrResult.extracted(preview),
+            );
+            final prefix = group ? 'group-bill' : 'personal-bill';
+            if (group) {
+              await _pumpGroupBillCreate(
+                tester,
+                repository: repository,
+                groupRepository: FakeGroupRepository(
+                  members: [sampleGroupMember()],
+                ),
+                attachmentRepository: FakeBillAttachmentRepository(),
+                attachmentFileInput: fileInput,
+                receiptOcrProvider: provider,
+              );
+              await tester.tap(find.byKey(const Key('group-bill-list-create')));
+              await tester.pumpAndSettle();
+              await _goToGroupBillCreateStep(tester, 'basics');
+            } else {
+              await tester.pumpWidget(
+                MaterialApp(
+                  home: SettleoraPersonalBillCreateScreen(
+                    repository: repository,
+                    attachmentRepository: FakeBillAttachmentRepository(),
+                    attachmentFileInput: fileInput,
+                    receiptOcrProvider: provider,
+                  ),
+                ),
+              );
+              await tester.pumpAndSettle();
+            }
+            final billCurrency = find.byKey(
+              Key('$prefix-currency'),
+              skipOffstage: false,
+            );
+            await _selectCurrency(tester, billCurrency, 'HKD');
+            if (group) await _goToGroupBillCreateStep(tester, 'receiptItems');
+            final itemName = find.byKey(ValueKey('$prefix-item-name-0'));
+            final itemAmount = find.byKey(ValueKey('$prefix-item-amount-0'));
+            await tester.enterText(itemName, 'Existing item');
+            await tester.enterText(itemAmount, '10.00');
+            await tester.ensureVisible(find.byKey(Key('$prefix-scan-receipt')));
+            await tester.tap(find.byKey(Key('$prefix-scan-receipt')));
+            await tester.pumpAndSettle();
+            for (final section in ['currency', 'items']) {
+              final choice = tester.widget<CheckboxListTile>(
+                find.byKey(Key('$prefix-ocr-apply-$section')),
+              );
+              expect(choice.onChanged != null, unambiguous);
+              if (unambiguous) {
+                await _setReceiptOcrSection(tester, prefix, section, true);
+              } else {
+                expect(choice.value, isFalse);
+              }
+            }
+            await _setReceiptOcrSection(tester, prefix, 'merchant', true);
+            await _tapReceiptOcrApply(tester, prefix);
+            expect(
+              tester.widget<TextFormField>(itemName).controller?.text,
+              unambiguous ? 'Tea' : 'Existing item',
+            );
+            expect(
+              tester.widget<TextFormField>(itemAmount).controller?.text,
+              unambiguous ? '7.00' : '10.00',
+            );
+            expect(
+              tester
+                  .widget<CurrencySelector>(
+                    find.descendant(
+                      of: billCurrency,
+                      matching: find.byType(
+                        CurrencySelector,
+                        skipOffstage: false,
+                      ),
+                      skipOffstage: false,
+                    ),
+                  )
+                  .value,
+              unambiguous ? 'USD' : 'HKD',
+            );
+          },
+        );
+      }
+    }
+  }
+  for (final group in [false, true]) {
+    for (final mode in ['none', 'merged', 'split']) {
+      for (final (label, rowNote, fragmentNote, periodNote) in [
+        for (final label in [
+          'Tax.',
+          'Taxes',
+          'Taxes:',
+          'Taxes.',
+          'Service Charge.',
+          'Service Fee and Tax',
+          'Tax. and Service Fee',
+          'Service Charge. and Tax',
+          'Taxes. and Fees',
+          'Tips',
+          'Charges',
+          'Refunds',
+          'Surcharges',
+          'Shipping Fee',
+          'Shipping and Handling Fees',
+          'Taxes Advisory Plan',
+          'Taxes Return Kit',
+          'Discounts Book',
+          'Coupons Guide',
+          'Rebates Software',
+          'Tax Advisory Plan',
+          'Taxes 7',
+          'Taxes 7.00',
+          'Tax. 7',
+          'Taxes 7%',
+          'Taxes (7%)',
+          'Discounts (7.00)',
+          'Discounts (７.００)',
+          'Discounts (ＵＳＤ７．００)',
+          'Discounts (ＵＳＤ７．００ max)',
+          'Discounts (７．００-ＵＳＤ)',
+          'Coupons (٧.٠٠)',
+          'Rebates (๗.๐๐)',
+          '7.00 Coupons',
+          'Rebates (7)',
+          'Discounts (10%)',
+          'Coupons (PROMO7)',
+          'Rebates (Ref 7)',
+          'Rebates (Ref USD7)',
+          'Rebates (Ref ＵＳＤ７)',
+          'Discounts (Ref ＵＳＤ-７)',
+          'First Purchase Discount (１０％)',
+          'First Year Discount (１２ months)',
+          'Service Charge 10%',
+          'Service Charge 10 %',
+          'Service Fees ( 10.5 % )',
+          'Service Fees (10.5%)',
+        ])
+          (label, null, false, false),
+        for (final period in [false, true])
+          for (final note in ['ZAR 7.00', 'USD 7.00', 'Ref ZAR-7', '7.00'])
+            for (final fragmented in [false, true])
+              ('Discounts', note, fragmented, period),
+      ]) {
+        final outsideNote = rowNote != null;
+        final namedProduct = [
+          'Taxes Advisory Plan',
+          'Taxes Return Kit',
+          'Discounts Book',
+          'Coupons Guide',
+          'Rebates Software',
+          'Tax Advisory Plan',
+        ].contains(label);
+        final fragmentedNumber = [
+          'Taxes 7',
+          'Taxes 7.00',
+          'Tax. 7',
+        ].contains(label);
+        final fragmentedRate = ['Taxes 7%', 'Taxes (7%)'].contains(label);
+        final discountUnknown =
+            [
+              'Discounts (7.00)',
+              'Discounts (７.００)',
+              'Discounts (ＵＳＤ７．００)',
+              'Discounts (ＵＳＤ７．００ max)',
+              'Discounts (７．００-ＵＳＤ)',
+              'Coupons (٧.٠٠)',
+              'Rebates (๗.๐๐)',
+              '7.00 Coupons',
+              'Rebates (7)',
+            ].contains(label) ||
+            (outsideNote && !rowNote.startsWith('Ref'));
+        final discountPositive =
+            [
+              'Discounts (10%)',
+              'Coupons (PROMO7)',
+              'Rebates (Ref 7)',
+              'Rebates (Ref USD7)',
+              'Rebates (Ref ＵＳＤ７)',
+              'Discounts (Ref ＵＳＤ-７)',
+              'First Purchase Discount (１０％)',
+              'First Year Discount (１２ months)',
+            ].contains(label) ||
+            (outsideNote && rowNote.startsWith('Ref'));
+        final serviceRate = [
+          'Service Charge 10%',
+          'Service Charge 10 %',
+          'Service Fees ( 10.5 % )',
+          'Service Fees (10.5%)',
+        ].contains(label);
+        final discountCase = discountUnknown || discountPositive;
+        final serviceHeader = label == 'Service Charge.' || serviceRate;
+        if ((namedProduct ||
+                fragmentedNumber ||
+                fragmentedRate ||
+                discountCase ||
+                serviceRate) &&
+            mode != 'split') {
+          continue;
+        }
+        // Existing Apply semantics copy item amounts; net-only taxed rows
+        // require correction before their contribution can equal the gross total.
+        final shippingHeader = label.startsWith('Shipping');
+        final acceptsItems =
+            namedProduct ||
+            serviceHeader ||
+            discountPositive ||
+            label == 'Tips' ||
+            shippingHeader;
+        final compound = label.contains(' and ') && !shippingHeader;
+        final unresolved =
+            fragmentedNumber ||
+            discountUnknown ||
+            compound ||
+            ['Charges', 'Refunds', 'Surcharges'].contains(label);
+        final taxHeader =
+            !namedProduct &&
+            !fragmentedNumber &&
+            !compound &&
+            label.startsWith('Tax');
+        testWidgets(
+          'financial ownership survives save and explicit Apply group=$group mode=$mode label=$label note=$rowNote fragmented=$fragmentNote period=$periodNote',
+          (tester) async {
+            await useLargeSurface(tester);
+            final prefix = group ? 'group-bill' : 'personal-bill';
+            final source = financialRoleReceipt(
+              label,
+              mode: mode,
+              total: discountCase ? 'USD 18.00' : 'USD 22.00',
+              servicePeriod: serviceRate || periodNote
+                  ? 'Feb 5 - Mar 4, 2025'
+                  : null,
+              rowNote: rowNote,
+              rowNoteBlocks: fragmentNote ? rowNote!.split(' ') : null,
+              servicePeriodBounds: serviceRate ? (left: 270, right: 430) : null,
+              labelBounds: namedProduct
+                  ? [(left: 20, right: 160), (left: 330, right: 380)]
+                  : null,
+              labelBlocks: outsideNote || label.startsWith('First ')
+                  ? [label]
+                  : serviceRate
+                  ? [
+                      label.split(' ').take(2).join(' '),
+                      ...label.split(' ').skip(2),
+                    ]
+                  : namedProduct ||
+                        fragmentedNumber ||
+                        fragmentedRate ||
+                        discountCase
+                  ? [label.split(' ').first, label.split(' ').skip(1).join(' ')]
+                  : compound
+                  ? [
+                      label.split(' and ').first,
+                      'and ${label.split(' and ').last}',
+                    ]
+                  : null,
+            );
+            final preview = const ReceiptOcrParser().parse(
+              source.text,
+              blocks: source.blocks,
+            );
+            expect(preview.items.first.lineTotal, '20.00');
+            expect(preview.items.length, namedProduct ? 2 : 1);
+            expect(preview.adjustmentsComplete, !unresolved);
+            final repository = FakeBillRepository();
+            final fileInput = FakeBillAttachmentFileInput(
+              pickedFile: samplePickedAttachmentFile(
+                filename: 'receipt.png',
+                contentType: 'image/png',
+                bytes: samplePngBytes(width: 64, height: 64),
+              ),
+            );
+            final provider = FakeReceiptOcrProvider(
+              ReceiptOcrResult.extracted(preview),
+            );
+            if (group) {
+              await _pumpGroupBillCreate(
+                tester,
+                repository: repository,
+                groupRepository: FakeGroupRepository(
+                  members: [sampleGroupMember()],
+                ),
+                attachmentRepository: FakeBillAttachmentRepository(),
+                attachmentFileInput: fileInput,
+                receiptOcrProvider: provider,
+              );
+              await tester.tap(find.byKey(const Key('group-bill-list-create')));
+              await tester.pumpAndSettle();
+              await _goToGroupBillCreateStep(tester, 'basics');
+            } else {
+              await tester.pumpWidget(
+                MaterialApp(
+                  home: SettleoraPersonalBillCreateScreen(
+                    repository: repository,
+                    attachmentRepository: FakeBillAttachmentRepository(),
+                    attachmentFileInput: fileInput,
+                    receiptOcrProvider: provider,
+                  ),
+                ),
+              );
+              await tester.pumpAndSettle();
+            }
+            final billCurrency = find.byKey(
+              Key('$prefix-currency'),
+              skipOffstage: false,
+            );
+            await _selectCurrency(tester, billCurrency, 'HKD');
+            if (group) {
+              await _goToGroupBillCreateStep(tester, 'receiptItems');
+            }
+            final itemName = find.byKey(ValueKey('$prefix-item-name-0'));
+            final itemAmount = find.byKey(ValueKey('$prefix-item-amount-0'));
+            final itemCurrency = find.byKey(
+              ValueKey('$prefix-item-currency-0'),
+            );
+            await tester.enterText(itemName, 'Existing item');
+            await tester.enterText(itemAmount, '10.00');
+            await tester.ensureVisible(find.byKey(Key('$prefix-scan-receipt')));
+            await tester.tap(find.byKey(Key('$prefix-scan-receipt')));
+            await tester.pumpAndSettle();
+            expect(
+              tester.widget<TextFormField>(itemName).controller?.text,
+              'Existing item',
+            );
+            expect(
+              tester.widget<TextFormField>(itemAmount).controller?.text,
+              '10.00',
+            );
+            await tester.enterText(
+              find.byKey(Key('$prefix-ocr-edit-merchant')),
+              'Regional Utility',
+            );
+            await tester.pumpAndSettle();
+            for (final section in ['currency', 'items']) {
+              final choice = find.byKey(Key('$prefix-ocr-apply-$section'));
+              final enabled =
+                  tester.widget<CheckboxListTile>(choice).onChanged != null;
+              expect(enabled, acceptsItems);
+              if (!acceptsItems) {
+                expect(tester.widget<CheckboxListTile>(choice).value, isFalse);
+              }
+              if (enabled) {
+                await _setReceiptOcrSection(tester, prefix, section, true);
+              }
+            }
+            await _setReceiptOcrSection(tester, prefix, 'merchant', true);
+            await _tapReceiptOcrApply(tester, prefix);
+            expect(
+              tester
+                  .widget<CurrencySelector>(
+                    find.descendant(
+                      of: billCurrency,
+                      matching: find.byType(
+                        CurrencySelector,
+                        skipOffstage: false,
+                      ),
+                      skipOffstage: false,
+                    ),
+                  )
+                  .value,
+              acceptsItems ? 'USD' : 'HKD',
+            );
+            expect(
+              tester
+                  .widget<CurrencySelector>(
+                    find.descendant(
+                      of: itemCurrency,
+                      matching: find.byType(
+                        CurrencySelector,
+                        skipOffstage: false,
+                      ),
+                    ),
+                  )
+                  .value,
+              acceptsItems ? 'USD' : 'HKD',
+            );
+            expect(
+              tester.widget<TextFormField>(itemName).controller?.text,
+              acceptsItems ? "Resident's Water Plan" : 'Existing item',
+            );
+            expect(
+              tester.widget<TextFormField>(itemAmount).controller?.text,
+              acceptsItems ? '20.00' : '10.00',
+            );
+            if (namedProduct) {
+              expect(
+                tester
+                    .widget<TextFormField>(
+                      find.byKey(ValueKey('$prefix-item-name-1')),
+                    )
+                    .controller
+                    ?.text,
+                label,
+              );
+              expect(
+                tester
+                    .widget<TextFormField>(
+                      find.byKey(ValueKey('$prefix-item-amount-1')),
+                    )
+                    .controller
+                    ?.text,
+                '2.00',
+              );
+            }
+            if (group) {
+              await _goToGroupBillCreateStep(tester, 'basics');
+            }
+            expect(
+              tester
+                  .widget<TextFormField>(
+                    find.byKey(Key('$prefix-merchant-name')),
+                  )
+                  .controller
+                  ?.text,
+              'Regional Utility',
+            );
+            final saved = receiptOcrReviewSaveRequestFromPreview(
+              preview,
+              originalCurrency: 'USD',
+            );
+            expect(saved, isNotNull);
+            expect(
+              saved!.lines.map((line) => (line.text, line.lineTotalAmount)),
+              [
+                ("Resident's Water Plan", '20.00'),
+                if (namedProduct) (label, '2.00'),
+              ],
+            );
+            expect(saved.taxAmount, taxHeader ? '2.00' : null);
+            expect(saved.serviceChargeAmount, serviceHeader ? '2.00' : null);
+            if (discountPositive) expect(saved.discountAmount, '2.00');
+            expect(saved.grandTotalAmount, discountCase ? '18.00' : '22.00');
+            expect(saved.status, ReceiptOcrReviewStatusValues.provisional);
+            expect(
+              saved.adjustmentEvidence.map(
+                (a) => (a.kind, a.amount, a.currency),
+              ),
+              label == 'Tips'
+                  ? [('tip', '2.00', 'USD')]
+                  : shippingHeader
+                  ? [('shipping', '2.00', 'USD')]
+                  : [],
+            );
+            expect(
+              saved.taxReconciliationMode,
+              unresolved
+                  ? ReceiptOcrTaxReconciliationModeValues.unresolved
+                  : null,
+            );
+          },
+        );
+      }
+    }
+  }
+
+  for (final group in [false, true]) {
+    for (final edit in ['merchant', 'date']) {
+      testWidgets(
+        'round3 unresolved populated item currency survives $edit group=$group',
+        (tester) async {
+          await useLargeSurface(tester);
+          final prefix = group ? 'group-bill' : 'personal-bill';
+          final preview = const ReceiptOcrParser().parse(
+            'Exchange Cafe\nCoffee XPF 100 / 1.00\nTotal USD 1.00',
+          );
+          expect(preview.items.single.currency, 'USD');
+          expect(preview.items.single.currencyUnresolved, isTrue);
+          expect(
+            receiptOcrReviewSaveRequestFromPreview(
+              preview,
+              originalCurrency: 'USD',
+            )!.lines.single.lineTotalAmount,
+            isNull,
+          );
+          final fileInput = FakeBillAttachmentFileInput(
+            pickedFile: samplePickedAttachmentFile(
+              filename: 'receipt.png',
+              contentType: 'image/png',
+              bytes: samplePngBytes(width: 64, height: 64),
+            ),
+          );
+          final provider = FakeReceiptOcrProvider(
+            ReceiptOcrResult.extracted(preview),
+          );
+          if (group) {
+            await _pumpGroupBillCreate(
+              tester,
+              repository: FakeBillRepository(),
+              groupRepository: FakeGroupRepository(
+                members: [sampleGroupMember()],
+              ),
+              attachmentRepository: FakeBillAttachmentRepository(),
+              attachmentFileInput: fileInput,
+              receiptOcrProvider: provider,
+            );
+            await tester.tap(find.byKey(const Key('group-bill-list-create')));
+            await tester.pumpAndSettle();
+            await _goToGroupBillCreateStep(tester, 'receiptItems');
+            await tester.ensureVisible(find.byKey(Key('$prefix-scan-receipt')));
+            await tester.tap(find.byKey(Key('$prefix-scan-receipt')));
+          } else {
+            await tester.pumpWidget(
+              MaterialApp(
+                home: SettleoraPersonalBillCreateScreen(
+                  repository: FakeBillRepository(),
+                  attachmentFileInput: fileInput,
+                  receiptOcrProvider: provider,
+                  defaultCurrency: 'USD',
+                  scanReceiptOnStart: true,
+                ),
+              ),
+            );
+          }
+          await tester.pumpAndSettle();
+          final items = find.byKey(Key('$prefix-ocr-apply-items'));
+          expect(tester.widget<CheckboxListTile>(items).onChanged, isNull);
+          if (edit == 'merchant') {
+            await tester.enterText(
+              find.byKey(Key('$prefix-ocr-edit-merchant')),
+              'Edited Exchange Cafe',
+            );
+          } else {
+            final date = tester.widget<DateField>(
+              find.byKey(Key('$prefix-ocr-edit-date')),
+            );
+            date.controller.text = '2026-09-18';
+            date.onChanged!('2026-09-18');
+          }
+          await tester.pumpAndSettle();
+          expect(
+            tester.widget<CheckboxListTile>(items).onChanged,
+            isNull,
+            reason:
+                'An unrelated edit cannot resolve the item currency evidence',
+          );
+          expect(tester.widget<CheckboxListTile>(items).value, isFalse);
+          final itemCurrency = find.byKey(
+            ValueKey('$prefix-ocr-item-currency-0'),
+          );
+          await tester.ensureVisible(itemCurrency);
+          await tester.tap(itemCurrency);
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('No currency preference').last);
+          await tester.pumpAndSettle();
+          expect(
+            tester.widget<CheckboxListTile>(items).onChanged,
+            isNull,
+            reason: 'Clearing the code does not resolve source ambiguity',
+          );
+          await _selectCurrency(tester, itemCurrency, 'USD');
+          await tester.pumpAndSettle();
+          expect(
+            tester.widget<CheckboxListTile>(items).onChanged,
+            isNotNull,
+            reason:
+                'Explicitly selecting the already displayed code resolves ambiguity',
+          );
+          await _setReceiptOcrSection(tester, prefix, 'items', true);
+          await _tapReceiptOcrApply(tester, prefix);
+          expect(
+            tester
+                .widget<TextFormField>(
+                  find.byKey(ValueKey('$prefix-item-amount-0')),
+                )
+                .controller!
+                .text,
+            '1.00',
+          );
+          final reset = find.byKey(Key('$prefix-ocr-reset-edits'));
+          await tester.ensureVisible(reset);
+          await tester.tap(reset);
+          await tester.pumpAndSettle();
+          expect(
+            tester.widget<CheckboxListTile>(items).onChanged,
+            isNull,
+            reason: 'Reset restores original unresolved source evidence',
+          );
+        },
+      );
+    }
+  }
+
+  testWidgets(
+    'editing selected OCR money keeps visible Apply choices truthful',
+    (tester) async {
+      await useLargeSurface(tester);
+      final preview = const ReceiptOcrParser().parse(
+        'Example Cafe\nCoffee USD 10.00\nTotal USD 10.00',
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraPersonalBillCreateScreen(
+            repository: FakeBillRepository(),
+            attachmentFileInput: FakeBillAttachmentFileInput(
+              pickedFile: samplePickedAttachmentFile(
+                filename: 'receipt.png',
+                contentType: 'image/png',
+                bytes: samplePngBytes(width: 64, height: 64),
+              ),
+            ),
+            receiptOcrProvider: FakeReceiptOcrProvider(
+              ReceiptOcrResult.extracted(preview),
+            ),
+            defaultCurrency: 'USD',
+            scanReceiptOnStart: true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final currency = find.byKey(
+        const Key('personal-bill-ocr-apply-currency'),
+      );
+      final items = find.byKey(const Key('personal-bill-ocr-apply-items'));
+      final amount = find.byKey(
+        const ValueKey('personal-bill-ocr-item-line-total-0'),
+      );
+      expect(tester.widget<CheckboxListTile>(currency).value, isTrue);
+      expect(tester.widget<CheckboxListTile>(items).value, isTrue);
+      await tester.enterText(amount, '');
+      await tester.pumpAndSettle();
+      for (final option in [currency, items]) {
+        expect(tester.widget<CheckboxListTile>(option).value, isFalse);
+        expect(tester.widget<CheckboxListTile>(option).onChanged, isNull);
+      }
+      await tester.enterText(amount, '10.00');
+      await tester.pumpAndSettle();
+      for (final option in [currency, items]) {
+        expect(tester.widget<CheckboxListTile>(option).value, isTrue);
+        expect(tester.widget<CheckboxListTile>(option).onChanged, isNotNull);
+      }
+      final billCurrency = find.descendant(
+        of: find.byKey(const Key('personal-bill-currency')),
+        matching: find.byType(CurrencySelector),
+      );
+      tester.widget<CurrencySelector>(billCurrency).onChanged('EUR');
+      await tester.pumpAndSettle();
+      await _tapReceiptOcrApply(tester, 'personal-bill');
+      expect(tester.widget<CurrencySelector>(billCurrency).value, 'USD');
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const ValueKey('personal-bill-item-amount-0')),
+            )
+            .controller
+            ?.text,
+        '10.00',
+      );
+    },
+  );
+  for (final group in [false, true]) {
+    testWidgets(
+      'tax-blocked currency is visibly unselected and stays unchanged group=$group',
+      (tester) async {
+        await useLargeSurface(tester);
+        final prefix = group ? 'group-bill' : 'personal-bill';
+        // Source-transcribed net-priced grocery shape, not a native OCR replay.
+        final preview = const ReceiptOcrParser().parse(
+          'Example Market\n'
+          'Good food for everyone\nDate: 2025-04-12\n'
+          'Bananas USD 1.25\nMilk USD 3.49\nBread USD 2.99\n'
+          'Eggs USD 3.29\nGreens USD 2.50\nSubtotal USD 13.52\n'
+          'Tax USD 0.95\nTotal USD 14.47',
+        );
+        expect(preview.currency, 'USD');
+        expect(preview.items, hasLength(5));
+        expect(preview.tax, '0.95');
+        expect(preview.total, '14.47');
+        final fileInput = FakeBillAttachmentFileInput(
+          pickedFile: samplePickedAttachmentFile(
+            filename: 'receipt.png',
+            contentType: 'image/png',
+            bytes: samplePngBytes(width: 64, height: 64),
+          ),
+        );
+        final provider = FakeReceiptOcrProvider(
+          ReceiptOcrResult.extracted(preview),
+        );
+        if (group) {
+          await _pumpGroupBillCreate(
+            tester,
+            repository: FakeBillRepository(),
+            groupRepository: FakeGroupRepository(
+              members: [sampleGroupMember()],
+            ),
+            attachmentRepository: FakeBillAttachmentRepository(),
+            attachmentFileInput: fileInput,
+            receiptOcrProvider: provider,
+          );
+          await tester.tap(find.byKey(const Key('group-bill-list-create')));
+          await tester.pumpAndSettle();
+          await _goToGroupBillCreateStep(tester, 'receiptItems');
+          await tester.ensureVisible(find.byKey(Key('$prefix-scan-receipt')));
+          await tester.tap(find.byKey(Key('$prefix-scan-receipt')));
+        } else {
+          await tester.pumpWidget(
+            MaterialApp(
+              home: SettleoraPersonalBillCreateScreen(
+                repository: FakeBillRepository(),
+                attachmentFileInput: fileInput,
+                receiptOcrProvider: provider,
+                defaultCurrency: 'USD',
+                scanReceiptOnStart: true,
+              ),
+            ),
+          );
+        }
+        await tester.pumpAndSettle();
+        final choice = find.byKey(Key('$prefix-ocr-apply-currency'));
+        final selected = tester.widget<CheckboxListTile>(choice).value;
+        final enabled =
+            tester.widget<CheckboxListTile>(choice).onChanged != null;
+        final billCurrency = find.descendant(
+          of: find.byKey(Key('$prefix-currency'), skipOffstage: false),
+          matching: find.byType(CurrencySelector, skipOffstage: false),
+          skipOffstage: false,
+        );
+        expect(billCurrency, findsOneWidget);
+        tester.widget<CurrencySelector>(billCurrency).onChanged('EUR');
+        await tester.pumpAndSettle();
+        await _setReceiptOcrSection(tester, prefix, 'merchant', true);
+        await _tapReceiptOcrApply(tester, prefix);
+        expect(billCurrency, findsOneWidget);
+        final actual = tester.widget<CurrencySelector>(billCurrency).value;
+        // Diagnoses the native stage's two possibilities without changing its
+        // expected USD: lookup succeeds, and rejected financial Apply keeps EUR.
+        expect(actual, 'EUR');
+        expect(enabled, isFalse);
+        expect(selected, isFalse);
+        expect(tester.widget<CheckboxListTile>(choice).value, isFalse);
+        expect(
+          tester
+              .widget<TextFormField>(
+                find.byKey(ValueKey('$prefix-item-name-0')),
+              )
+              .controller
+              ?.text,
+          isEmpty,
+        );
+        expect(
+          tester
+              .widget<TextFormField>(
+                find.byKey(ValueKey('$prefix-item-amount-0')),
+              )
+              .controller
+              ?.text,
+          isEmpty,
+        );
+      },
+    );
+  }
+  for (final group in [false, true]) {
+    for (final role in ['tip', 'shipping']) {
+      for (final evidence in [
+        'EUR 2.00',
+        'XPF 2.00',
+        'XPF 2.00 CHF',
+        'USD 2.00',
+      ]) {
+        final acceptsItems = evidence == 'USD 2.00';
+        testWidgets(
+          'review round four local $role financial currency group=$group evidence=$evidence',
+          (tester) async {
+            await useLargeSurface(tester);
+            final prefix = group ? 'group-bill' : 'personal-bill';
+            final preview = const ReceiptOcrParser().parse(
+              'Harbor Grill\nBurger USD 18.00\n'
+              '${role == "tip" ? "Tip" : "Delivery"} $evidence\n'
+              'Total USD 20.00',
+            );
+            expect(preview.currency, 'USD');
+            expect(preview.items.single.lineTotal, '18.00');
+            expect(role == 'tip' ? preview.tip : preview.shipping, '2.00');
+            final repository = FakeBillRepository();
+            final fileInput = FakeBillAttachmentFileInput(
+              pickedFile: samplePickedAttachmentFile(
+                filename: 'receipt.png',
+                contentType: 'image/png',
+                bytes: samplePngBytes(width: 64, height: 64),
+              ),
+            );
+            final provider = FakeReceiptOcrProvider(
+              ReceiptOcrResult.extracted(preview),
+            );
+            if (group) {
+              await _pumpGroupBillCreate(
+                tester,
+                repository: repository,
+                groupRepository: FakeGroupRepository(
+                  members: [sampleGroupMember()],
+                ),
+                attachmentRepository: FakeBillAttachmentRepository(),
+                attachmentFileInput: fileInput,
+                receiptOcrProvider: provider,
+              );
+              await tester.tap(find.byKey(const Key('group-bill-list-create')));
+              await tester.pumpAndSettle();
+              await _goToGroupBillCreateStep(tester, 'basics');
+            } else {
+              await tester.pumpWidget(
+                MaterialApp(
+                  home: SettleoraPersonalBillCreateScreen(
+                    repository: repository,
+                    attachmentRepository: FakeBillAttachmentRepository(),
+                    attachmentFileInput: fileInput,
+                    receiptOcrProvider: provider,
+                  ),
+                ),
+              );
+              await tester.pumpAndSettle();
+            }
+            final billCurrency = find.byKey(
+              Key('$prefix-currency'),
+              skipOffstage: false,
+            );
+            await _selectCurrency(tester, billCurrency, 'HKD');
+            if (group) {
+              await _goToGroupBillCreateStep(tester, 'receiptItems');
+            }
+            final itemName = find.byKey(ValueKey('$prefix-item-name-0'));
+            final itemAmount = find.byKey(ValueKey('$prefix-item-amount-0'));
+            final itemCurrency = find.byKey(
+              ValueKey('$prefix-item-currency-0'),
+            );
+            await tester.enterText(itemName, 'Existing item');
+            await tester.enterText(itemAmount, '10.00');
+            await tester.ensureVisible(find.byKey(Key('$prefix-scan-receipt')));
+            await tester.tap(find.byKey(Key('$prefix-scan-receipt')));
+            await tester.pumpAndSettle();
+            for (final section in ['currency', 'items']) {
+              final choice = find.byKey(Key('$prefix-ocr-apply-$section'));
+              final enabled =
+                  tester.widget<CheckboxListTile>(choice).onChanged != null;
+              if (acceptsItems) {
+                expect(enabled, isTrue);
+              }
+              if (enabled) {
+                await _setReceiptOcrSection(tester, prefix, section, true);
+              }
+            }
+            await _setReceiptOcrSection(tester, prefix, 'merchant', true);
+            await _tapReceiptOcrApply(tester, prefix);
+            expect(
+              tester
+                  .widget<CurrencySelector>(
+                    find.descendant(
+                      of: billCurrency,
+                      matching: find.byType(
+                        CurrencySelector,
+                        skipOffstage: false,
+                      ),
+                      skipOffstage: false,
+                    ),
+                  )
+                  .value,
+              acceptsItems ? 'USD' : 'HKD',
+            );
+            expect(
+              tester
+                  .widget<CurrencySelector>(
+                    find.descendant(
+                      of: itemCurrency,
+                      matching: find.byType(
+                        CurrencySelector,
+                        skipOffstage: false,
+                      ),
+                    ),
+                  )
+                  .value,
+              acceptsItems ? 'USD' : 'HKD',
+            );
+            expect(
+              tester.widget<TextFormField>(itemName).controller?.text,
+              acceptsItems ? 'Burger' : 'Existing item',
+            );
+            expect(
+              tester.widget<TextFormField>(itemAmount).controller?.text,
+              acceptsItems ? '18.00' : '10.00',
+            );
+            if (group) {
+              await _goToGroupBillCreateStep(tester, 'basics');
+            }
+            expect(
+              tester
+                  .widget<TextFormField>(
+                    find.byKey(Key('$prefix-merchant-name')),
+                  )
+                  .controller
+                  ?.text,
+              'Harbor Grill',
+            );
+            final saved = receiptOcrReviewSaveRequestFromPreview(
+              preview,
+              originalCurrency: 'USD',
+            );
+            expect(saved, isNotNull);
+            if (evidence.startsWith('XPF')) {
+              expect(saved!.adjustmentEvidence, isEmpty);
+            } else {
+              expect(
+                saved!.adjustmentEvidence.single.currency,
+                evidence.split(' ').first,
+              );
+            }
+            expect(
+              saved.taxReconciliationMode,
+              acceptsItems
+                  ? null
+                  : ReceiptOcrTaxReconciliationModeValues.unresolved,
+            );
+          },
+        );
+      }
+    }
+  }
+
+  for (final group in [false, true]) {
+    for (final status in ['reviewed', 'provisional']) {
+      testWidgets(
+        'review round three saved merchant correction retains $status group=$group',
+        (tester) async {
+          await useLargeSurface(tester);
+          final route = ReceiptOcrReviewRoute(
+            billId: _billId,
+            fileId: _uploadedFileId,
+            groupId: group ? _groupId : null,
+          );
+          final review = ReceiptOcrReviewDetail(
+            id: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+            billId: route.billId,
+            fileId: route.fileId,
+            groupId: route.groupId,
+            status: status,
+            source: ReceiptOcrReviewSourceValues.onDevice,
+            merchantText: 'Book Shop',
+            receiptIssuedAtUtc: null,
+            serviceChargeAmount: null,
+            discountAmount: null,
+            currency: 'USD',
+            subtotalAmount: '24.00',
+            taxAmount: '4.00',
+            taxReconciliationMode:
+                ReceiptOcrTaxReconciliationModeValues.alreadyInBase,
+            grandTotalAmount: '24.00',
+            lines: [
+              ReceiptOcrReviewLine(
+                id: 'dddddddd-dddd-dddd-dddd-dddddddddddd',
+                sortOrder: 0,
+                text: 'Book',
+                quantity: '1',
+                unitPriceAmount: '24.00',
+                lineTotalAmount: '24.00',
+                createdAtUtc: _createdAtUtc,
+                updatedAtUtc: _updatedAtUtc,
+              ),
+            ],
+            createdAtUtc: _createdAtUtc,
+            updatedAtUtc: _updatedAtUtc,
+          );
+          final receiptRepository = FakeReceiptOcrReviewRepository(
+            reviewDetail: review,
+          );
+          final handoff = ReceiptOcrReviewHandoff.saved(reviewRoute: route);
+          await tester.pumpWidget(
+            MaterialApp(
+              home: group
+                  ? SettleoraGroupBillDetailScreen(
+                      repository: FakeBillRepository(),
+                      groupId: _groupId,
+                      groupName: 'Books',
+                      billId: _billId,
+                      initialBill: sampleBillDetail(id: _billId),
+                      receiptOcrReviewRepository: receiptRepository,
+                      initialReceiptOcrReviewHandoff: handoff,
+                    )
+                  : SettleoraBillDetailScreen(
+                      repository: FakeBillRepository(),
+                      billId: _billId,
+                      initialBill: sampleBillDetail(id: _billId),
+                      receiptOcrReviewRepository: receiptRepository,
+                      initialReceiptOcrReviewHandoff: handoff,
+                    ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          await tester.tap(
+            find.byKey(
+              Key('${group ? "group-bill" : "bill"}-detail-ocr-review-open'),
+            ),
+          );
+          await tester.pumpAndSettle();
+          await tester.tap(find.byKey(const Key('saved-ocr-review-edit')));
+          await tester.pumpAndSettle();
+          await tester.enterText(
+            find.byKey(const Key('saved-ocr-review-ocr-edit-merchant')),
+            'Corrected Shop',
+          );
+          await _scrollSavedOcrReviewEditActionsIntoView(tester);
+          await tester.tap(find.byKey(const Key('saved-ocr-review-edit-save')));
+          await tester.pumpAndSettle();
+          expect(receiptRepository.lastSaveRequest?.status, status);
+          expect(
+            receiptRepository.lastSaveRequest?.merchantText,
+            'Corrected Shop',
+          );
+          expect(
+            receiptRepository.lastSaveRequest?.taxReconciliationMode,
+            ReceiptOcrTaxReconciliationModeValues.alreadyInBase,
+          );
+          expect(
+            receiptRepository.lastSaveRequest?.lines.single.lineTotalAmount,
+            '24.00',
+          );
+        },
+      );
+    }
+  }
+
+  test('review round two clear zero included tax saves a resolved mode', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Sample Shop\nBook GBP 24.00\nTotal incl. VAT GBP 24.00\n'
+      'VAT included 0% GBP 0.00',
+    );
+    expect(preview.tax, '0.00');
+    expect(preview.taxIncludedInTotal, isTrue);
+    expect(preview.reviewHints, isEmpty);
+    final saved = receiptOcrReviewSaveRequestFromPreview(
+      preview,
+      originalCurrency: 'GBP',
+    );
+    expect(saved?.taxAmount, '0.00');
+    expect(
+      saved?.taxReconciliationMode,
+      ReceiptOcrTaxReconciliationModeValues.alreadyInBase,
+    );
+  });
+
+  for (final group in [false, true]) {
+    for (final variant in ['foreign', 'empty', 'destination', 'zero']) {
+      final acceptsItems = variant == 'destination' || variant == 'zero';
+      testWidgets(
+        '${group ? "group" : "personal"} review round two preserves financial pairs variant=$variant',
+        (tester) async {
+          await useLargeSurface(tester);
+          final prefix = group ? 'group-bill' : 'personal-bill';
+          final repository = FakeBillRepository();
+          final fileInput = FakeBillAttachmentFileInput(
+            pickedFile: samplePickedAttachmentFile(
+              filename: 'receipt.png',
+              contentType: 'image/png',
+              bytes: samplePngBytes(width: 64, height: 64),
+            ),
+          );
+          final provider = FakeReceiptOcrProvider(
+            ReceiptOcrResult.extracted(
+              ReceiptOcrPreview(
+                merchant: 'Notebook Shop',
+                currency: 'USD',
+                tax: variant == 'zero' ? '0.00' : '4.00',
+                taxCurrency: variant == 'foreign' ? 'EUR' : null,
+                taxHasExplicitCurrencyEvidence: variant == 'foreign',
+                taxIncludedInTotal: true,
+                total: '24.00',
+                items: [
+                  ReceiptOcrItemCandidate(
+                    description: 'Notebook',
+                    quantity: '1',
+                    lineTotal: acceptsItems ? '24.00' : '20.00',
+                    currency: 'USD',
+                  ),
+                ],
+              ),
+            ),
+          );
+          if (group) {
+            await _pumpGroupBillCreate(
+              tester,
+              repository: repository,
+              groupRepository: FakeGroupRepository(
+                members: [sampleGroupMember()],
+              ),
+              attachmentRepository: FakeBillAttachmentRepository(),
+              attachmentFileInput: fileInput,
+              receiptOcrProvider: provider,
+            );
+            await tester.tap(find.byKey(const Key('group-bill-list-create')));
+            await tester.pumpAndSettle();
+            await _goToGroupBillCreateStep(tester, 'basics');
+          } else {
+            await tester.pumpWidget(
+              MaterialApp(
+                home: SettleoraPersonalBillCreateScreen(
+                  repository: repository,
+                  attachmentRepository: FakeBillAttachmentRepository(),
+                  attachmentFileInput: fileInput,
+                  receiptOcrProvider: provider,
+                ),
+              ),
+            );
+            await tester.pumpAndSettle();
+          }
+          final billCurrency = find.byKey(
+            Key('$prefix-currency'),
+            skipOffstage: false,
+          );
+          await _selectCurrency(tester, billCurrency, 'HKD');
+          if (group) await _goToGroupBillCreateStep(tester, 'receiptItems');
+          final itemName = find.byKey(ValueKey('$prefix-item-name-0'));
+          final itemAmount = find.byKey(ValueKey('$prefix-item-amount-0'));
+          final itemCurrency = find.byKey(ValueKey('$prefix-item-currency-0'));
+          await tester.enterText(itemName, 'Existing item');
+          await tester.enterText(itemAmount, '10.00');
+          if (variant == 'destination') {
+            await _selectCurrency(tester, itemCurrency, 'EUR');
+            await _selectCurrency(tester, itemCurrency, 'HKD');
+          }
+          await tester.ensureVisible(find.byKey(Key('$prefix-scan-receipt')));
+          await tester.tap(find.byKey(Key('$prefix-scan-receipt')));
+          await tester.pumpAndSettle();
+          if (variant == 'empty') {
+            final remove = find.byKey(ValueKey('$prefix-ocr-remove-item-0'));
+            await tester.ensureVisible(remove);
+            await tester.tap(remove);
+            await tester.pumpAndSettle();
+          }
+          final currencySelection = find.byKey(
+            Key('$prefix-ocr-apply-currency'),
+          );
+          if (!acceptsItems &&
+              tester.widget<CheckboxListTile>(currencySelection).onChanged !=
+                  null) {
+            await _setReceiptOcrSection(tester, prefix, 'currency', true);
+          }
+          if (variant != 'empty') {
+            final itemsSelection = find.byKey(Key('$prefix-ocr-apply-items'));
+            final enabled =
+                tester.widget<CheckboxListTile>(itemsSelection).onChanged !=
+                null;
+            if (acceptsItems) expect(enabled, isTrue);
+            if (enabled) {
+              await _setReceiptOcrSection(tester, prefix, 'items', true);
+            }
+          }
+          if (acceptsItems) {
+            await _setReceiptOcrSection(tester, prefix, 'currency', false);
+          }
+          await _setReceiptOcrSection(tester, prefix, 'merchant', true);
+          await _tapReceiptOcrApply(tester, prefix);
+          expect(
+            tester
+                .widget<CurrencySelector>(
+                  find.descendant(
+                    of: billCurrency,
+                    matching: find.byType(
+                      CurrencySelector,
+                      skipOffstage: false,
+                    ),
+                    skipOffstage: false,
+                  ),
+                )
+                .value,
+            'HKD',
+          );
+          expect(
+            tester
+                .widget<CurrencySelector>(
+                  find.descendant(
+                    of: itemCurrency,
+                    matching: find.byType(
+                      CurrencySelector,
+                      skipOffstage: false,
+                    ),
+                  ),
+                )
+                .value,
+            acceptsItems ? 'USD' : 'HKD',
+          );
+          expect(
+            tester.widget<TextFormField>(itemName).controller?.text,
+            acceptsItems ? 'Notebook' : 'Existing item',
+          );
+          expect(
+            tester.widget<TextFormField>(itemAmount).controller?.text,
+            acceptsItems ? '24.00' : '10.00',
+          );
+          expect(find.text('Suggestions applied'), findsNothing);
+        },
+      );
+    }
+  }
+
+  for (final group in [false, true]) {
+    for (final edited in [false, true]) {
+      testWidgets(
+        '${group ? "group" : "personal"} rejected taxed Apply preserves existing financial fields edited=$edited',
+        (tester) async {
+          await useLargeSurface(tester);
+          final prefix = group ? 'group-bill' : 'personal-bill';
+          final repository = FakeBillRepository();
+          final fileInput = FakeBillAttachmentFileInput(
+            pickedFile: samplePickedAttachmentFile(
+              filename: 'receipt.png',
+              contentType: 'image/png',
+              bytes: samplePngBytes(width: 64, height: 64),
+            ),
+          );
+          final provider = FakeReceiptOcrProvider(
+            ReceiptOcrResult.extracted(
+              ReceiptOcrPreview(
+                merchant: 'Notebook Shop',
+                currency: 'USD',
+                tax: '4.00',
+                taxIncludedInTotal: true,
+                total: '24.00',
+                items: [
+                  ReceiptOcrItemCandidate(
+                    description: 'Notebook',
+                    quantity: '1',
+                    lineTotal: edited ? '24.00' : '20.00',
+                    currency: 'USD',
+                  ),
+                ],
+              ),
+            ),
+          );
+          if (group) {
+            await _pumpGroupBillCreate(
+              tester,
+              repository: repository,
+              groupRepository: FakeGroupRepository(
+                members: [sampleGroupMember()],
+              ),
+              attachmentRepository: FakeBillAttachmentRepository(),
+              attachmentFileInput: fileInput,
+              receiptOcrProvider: provider,
+            );
+            await tester.tap(find.byKey(const Key('group-bill-list-create')));
+            await tester.pumpAndSettle();
+            await _goToGroupBillCreateStep(tester, 'basics');
+          } else {
+            await tester.pumpWidget(
+              MaterialApp(
+                home: SettleoraPersonalBillCreateScreen(
+                  repository: repository,
+                  attachmentRepository: FakeBillAttachmentRepository(),
+                  attachmentFileInput: fileInput,
+                  receiptOcrProvider: provider,
+                ),
+              ),
+            );
+            await tester.pumpAndSettle();
+          }
+          final billCurrency = find.byKey(
+            Key('$prefix-currency'),
+            skipOffstage: false,
+          );
+          await _selectCurrency(tester, billCurrency, 'HKD');
+          if (group) await _goToGroupBillCreateStep(tester, 'receiptItems');
+          final itemName = find.byKey(ValueKey('$prefix-item-name-0'));
+          final itemAmount = find.byKey(ValueKey('$prefix-item-amount-0'));
+          final itemCurrency = find.byKey(ValueKey('$prefix-item-currency-0'));
+          await tester.enterText(itemName, 'Existing item');
+          await tester.enterText(itemAmount, '10.00');
+          await tester.ensureVisible(find.byKey(Key('$prefix-scan-receipt')));
+          await tester.tap(find.byKey(Key('$prefix-scan-receipt')));
+          await tester.pumpAndSettle();
+          final currencySelection = find.byKey(
+            Key('$prefix-ocr-apply-currency'),
+          );
+          if (tester.widget<CheckboxListTile>(currencySelection).onChanged !=
+              null) {
+            await _setReceiptOcrSection(tester, prefix, 'currency', true);
+          }
+          if (edited) {
+            await _setReceiptOcrSection(tester, prefix, 'items', true);
+            final amount = find.byKey(
+              ValueKey('$prefix-ocr-item-line-total-0'),
+            );
+            await tester.ensureVisible(amount);
+            await tester.enterText(amount, '20.00');
+            await tester.pumpAndSettle();
+          }
+          await _setReceiptOcrSection(tester, prefix, 'merchant', true);
+          await _tapReceiptOcrApply(tester, prefix);
+          expect(
+            tester
+                .widget<CurrencySelector>(
+                  find.descendant(
+                    of: billCurrency,
+                    matching: find.byType(
+                      CurrencySelector,
+                      skipOffstage: false,
+                    ),
+                    skipOffstage: false,
+                  ),
+                )
+                .value,
+            'HKD',
+          );
+          expect(
+            tester
+                .widget<CurrencySelector>(
+                  find.descendant(
+                    of: itemCurrency,
+                    matching: find.byType(
+                      CurrencySelector,
+                      skipOffstage: false,
+                    ),
+                  ),
+                )
+                .value,
+            'HKD',
+          );
+          expect(
+            tester.widget<TextFormField>(itemName).controller?.text,
+            'Existing item',
+          );
+          expect(
+            tester.widget<TextFormField>(itemAmount).controller?.text,
+            '10.00',
+          );
+          expect(find.text('Suggestions applied'), findsNothing);
+        },
+      );
+    }
+  }
+
+  for (final group in [false, true]) {
+    for (final included in [false, true]) {
+      for (final scenario in ['net', 'gross', 'edited']) {
+        testWidgets(
+          '${group ? "group" : "personal"} OCR tax contribution protects Apply $scenario included=$included',
+          (tester) async {
+            await useLargeSurface(tester);
+            final prefix = group ? 'group-bill' : 'personal-bill';
+            final repository = FakeBillRepository();
+            final fileInput = FakeBillAttachmentFileInput(
+              pickedFile: samplePickedAttachmentFile(
+                filename: 'receipt.png',
+                contentType: 'image/png',
+                bytes: samplePngBytes(width: 64, height: 64),
+              ),
+            );
+            final provider = FakeReceiptOcrProvider(
+              ReceiptOcrResult.extracted(
+                ReceiptOcrPreview(
+                  merchant: 'Notebook Shop',
+                  currency: 'USD',
+                  tax: '4.00',
+                  taxIncludedInTotal: included,
+                  total: '24.00',
+                  items: [
+                    ReceiptOcrItemCandidate(
+                      description: 'Notebook',
+                      quantity: '1',
+                      lineTotal: scenario == 'net' ? '20.00' : '24.00',
+                      currency: 'USD',
+                    ),
+                  ],
+                ),
+              ),
+            );
+            if (group) {
+              await _pumpGroupBillCreate(
+                tester,
+                repository: repository,
+                groupRepository: FakeGroupRepository(
+                  members: [sampleGroupMember()],
+                ),
+                attachmentRepository: FakeBillAttachmentRepository(),
+                attachmentFileInput: fileInput,
+                receiptOcrProvider: provider,
+              );
+              await tester.tap(find.byKey(const Key('group-bill-list-create')));
+              await tester.pumpAndSettle();
+              await _goToGroupBillCreateStep(tester, 'receiptItems');
+            } else {
+              await tester.pumpWidget(
+                MaterialApp(
+                  home: SettleoraPersonalBillCreateScreen(
+                    repository: repository,
+                    attachmentRepository: FakeBillAttachmentRepository(),
+                    attachmentFileInput: fileInput,
+                    receiptOcrProvider: provider,
+                  ),
+                ),
+              );
+              await tester.pumpAndSettle();
+            }
+            await tester.tap(find.byKey(Key('$prefix-scan-receipt')));
+            await tester.pumpAndSettle();
+            final items = find.byKey(Key('$prefix-ocr-apply-items'));
+            final billAmount = find.byKey(ValueKey('$prefix-item-amount-0'));
+            final reviewedAmount = find.byKey(
+              ValueKey('$prefix-ocr-item-line-total-0'),
+            );
+            if (scenario == 'gross') {
+              expect(
+                tester.widget<CheckboxListTile>(items).onChanged,
+                isNotNull,
+              );
+              await _setReceiptOcrSection(tester, prefix, 'items', true);
+              await _tapReceiptOcrApply(tester, prefix);
+              expect(
+                tester.widget<TextFormField>(billAmount).controller?.text,
+                '24.00',
+              );
+            } else {
+              if (scenario == 'edited') {
+                expect(
+                  tester.widget<CheckboxListTile>(items).onChanged,
+                  isNotNull,
+                );
+                await _setReceiptOcrSection(tester, prefix, 'items', true);
+                await tester.ensureVisible(reviewedAmount);
+                await tester.enterText(reviewedAmount, '20.00');
+                await tester.pumpAndSettle();
+              }
+              expect(tester.widget<CheckboxListTile>(items).onChanged, isNull);
+              expect(
+                find.text('Review receipt totals before applying items'),
+                findsOneWidget,
+              );
+              await _tapReceiptOcrApply(tester, prefix);
+              expect(
+                tester.widget<TextFormField>(billAmount).controller?.text,
+                isEmpty,
+              );
+              // Keep corrections editable, but do not promote invalidated local
+              // source reconciliation by arithmetic alone. Saved review has the
+              // separate provenance-aware correction and server Apply path.
+              await tester.ensureVisible(reviewedAmount);
+              await tester.enterText(reviewedAmount, '24.00');
+              await tester.pumpAndSettle();
+              expect(
+                tester.widget<TextFormField>(reviewedAmount).controller?.text,
+                '24.00',
+              );
+              expect(tester.widget<CheckboxListTile>(items).onChanged, isNull);
+            }
+            expect(
+              find.text('Tax suggested: USD 4.00 (review only)'),
+              findsOneWidget,
+            );
+          },
+        );
+      }
+    }
+  }
+
   testWidgets('bill list queues archive and flushes through sync', (
     tester,
   ) async {
@@ -149,7 +2037,7 @@ void main() {
     );
   });
 
-  testWidgets('personal bill scan receipt reviews and applies OCR suggestions', (
+  testWidgets('personal bill scan retains foreign evidence and blocks financial Apply', (
     tester,
   ) async {
     await useLargeSurface(tester);
@@ -178,9 +2066,17 @@ void main() {
           receiptDate: '2026-06-12',
           currency: 'HKD',
           subtotal: '45.00',
+          subtotalCurrency: 'EUR',
+          subtotalHasExplicitCurrencyEvidence: true,
           discount: '-2.00',
-          tax: '0.00',
-          service: '0.00',
+          discountCurrency: 'EUR',
+          discountHasExplicitCurrencyEvidence: true,
+          tax: '5.00',
+          taxCurrency: 'EUR',
+          taxHasExplicitCurrencyEvidence: true,
+          service: '6.00',
+          serviceCurrency: 'GBP',
+          serviceHasExplicitCurrencyEvidence: true,
           tip: '3.00',
           tipLabel: 'Driver gratuity',
           tipCurrency: 'XPF',
@@ -323,16 +2219,16 @@ void main() {
     );
     expect(find.text('Receipt totals for review only'), findsOneWidget);
     expect(
-      find.text('Subtotal suggested: HKD 45.00 (review only)'),
+      find.text('Subtotal suggested: EUR 45.00 (review only)'),
       findsOneWidget,
     );
     expect(
-      find.text('Discount suggested: HKD -2.00 (review only)'),
+      find.text('Discount suggested: EUR -2.00 (review only)'),
       findsOneWidget,
     );
-    expect(find.text('Tax suggested: HKD 0.00 (review only)'), findsOneWidget);
+    expect(find.text('Tax suggested: EUR 5.00 (review only)'), findsOneWidget);
     expect(
-      find.text('Service charge suggested: HKD 0.00 (review only)'),
+      find.text('Service charge suggested: GBP 6.00 (review only)'),
       findsOneWidget,
     );
     expect(find.text('Tip suggested: XPF 3.00 (review only)'), findsOneWidget);
@@ -348,7 +2244,7 @@ void main() {
       find.text(
         'OCR item total differs from detected subtotal. Review the receipt before applying.',
       ),
-      findsOneWidget,
+      findsNothing,
     );
     expect(
       find.byKey(const Key('personal-bill-ocr-apply-subtotal')),
@@ -366,6 +2262,20 @@ void main() {
     expect(
       find.byKey(const Key('personal-bill-ocr-apply-total')),
       findsNothing,
+    );
+
+    await _selectCurrency(
+      tester,
+      find.byKey(const Key('personal-bill-currency')),
+      'HKD',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('personal-bill-item-name-0')),
+      'Manual item',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('personal-bill-item-amount-0')),
+      '10.00',
     );
 
     await tester.enterText(
@@ -403,10 +2313,29 @@ void main() {
       find.byKey(const ValueKey('personal-bill-ocr-item-currency-0')),
       'USD',
     );
+    await _selectCurrency(
+      tester,
+      find.byKey(const ValueKey('personal-bill-ocr-item-currency-1')),
+      'USD',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('personal-bill-ocr-item-line-total-1')),
+      '2.31',
+    );
 
     await _tapReceiptOcrApply(tester, 'personal-bill');
 
-    expect(find.text('Suggestions applied'), findsOneWidget);
+    expect(find.text('Suggestions applied'), findsNothing);
+    for (final section in ['currency', 'items']) {
+      expect(
+        tester
+            .widget<CheckboxListTile>(
+              find.byKey(Key('personal-bill-ocr-apply-$section')),
+            )
+            .onChanged,
+        isNull,
+      );
+    }
     expect(
       tester
           .widget<TextFormField>(
@@ -423,7 +2352,7 @@ void main() {
           )
           .controller
           ?.text,
-      'Corrected milk',
+      'Manual item',
     );
     expect(
       tester
@@ -432,16 +2361,20 @@ void main() {
           )
           .controller
           ?.text,
-      '3',
+      '1',
     );
     expect(
       tester
           .widget<TextFormField>(
-            find.byKey(const ValueKey('personal-bill-item-amount-1')),
+            find.byKey(const ValueKey('personal-bill-item-amount-0')),
           )
           .controller
           ?.text,
-      '18.00',
+      '10.00',
+    );
+    expect(
+      find.byKey(const ValueKey('personal-bill-item-amount-1')),
+      findsNothing,
     );
 
     await _tapSaveBill(tester);
@@ -452,15 +2385,14 @@ void main() {
     expect(attachmentRepository.lastUpload?.bytes, isNotEmpty);
     expect(repository.lastCreateDraft?.merchantName, 'Corrected Market');
     expect(repository.lastCreateDraft?.billDate, '2026-06-13');
-    expect(repository.lastCreateDraft?.currency, 'USD');
+    expect(repository.lastCreateDraft?.currency, 'HKD');
     expect(repository.lastCreateDraft?.items.map((item) => item.name), [
-      'Corrected milk',
-      'Bread',
+      'Manual item',
     ]);
     expect(repository.lastCreateDraft?.items.map((item) => item.amount), [
-      '30.00',
-      '18.00',
+      '10.00',
     ]);
+    expect(repository.lastCreateDraft?.items.single.currency, 'HKD');
     expect(repository.lastCreateDraft?.adjustments, isEmpty);
     expect(receiptRepository.saveCalls, 1);
     expect(receiptRepository.lastSaveRoute?.billId, _createdBillId);
@@ -474,15 +2406,30 @@ void main() {
       DateTime.utc(2026, 6, 13),
     );
     expect(receiptRepository.lastSaveRequest?.currency, 'USD');
-    expect(receiptRepository.lastSaveRequest?.subtotalAmount, '45.00');
+    expect(receiptRepository.lastSaveRequest?.subtotalAmount, isNull);
     expect(
       receiptRepository.lastSaveRequest?.discountAmount,
       isNull,
-      reason: 'Signed OCR discounts remain visible locally but are not sent.',
+      reason: 'Foreign OCR discounts remain evidence, without scalar coercion.',
     );
-    expect(receiptRepository.lastSaveRequest?.taxAmount, '0.00');
-    expect(receiptRepository.lastSaveRequest?.serviceChargeAmount, '0.00');
-    expect(receiptRepository.lastSaveRequest?.grandTotalAmount, '43.00');
+    expect(receiptRepository.lastSaveRequest?.taxAmount, isNull);
+    expect(receiptRepository.lastSaveRequest?.serviceChargeAmount, isNull);
+    expect(receiptRepository.lastSaveRequest?.grandTotalAmount, isNull);
+    expect(
+      receiptRepository.lastSaveRequest?.taxReconciliationMode,
+      ReceiptOcrTaxReconciliationModeValues.unresolved,
+    );
+    expect(
+      receiptRepository.lastSaveRequest?.headerEvidence.map(
+        (entry) => (entry.role, entry.amount, entry.currency),
+      ),
+      [
+        ('subtotal', '45.00', 'EUR'),
+        ('tax', '5.00', 'EUR'),
+        ('service_charge', '6.00', 'GBP'),
+        ('discount', '2.00', 'EUR'),
+      ],
+    );
     expect(receiptRepository.lastSaveRequest?.lines.map((line) => line.text), [
       'Corrected milk',
       'Bread',
@@ -491,9 +2438,9 @@ void main() {
       receiptRepository.lastSaveRequest?.lines.map(
         (line) => line.lineTotalAmount,
       ),
-      ['30.00', null],
+      ['30.00', '2.31'],
       reason:
-          'The second HKD line stays reviewable but its amount must not be relabeled as USD.',
+          'Edited OCR lines remain provisional evidence and do not change the manual bill.',
     );
     expect(
       receiptRepository.lastSaveRequest?.adjustmentEvidence.map(
@@ -552,12 +2499,228 @@ void main() {
     expect(find.text('Receipt totals'), findsOneWidget);
     expect(find.text('Review receipt lines'), findsOneWidget);
     expect(find.text('2 lines'), findsOneWidget);
-    expect(find.text('Grand total'), findsOneWidget);
+    expect(find.text('Grand total'), findsNothing);
     expect(find.text('10.80 USD'), findsWidgets);
     expect(find.text('Milk'), findsWidgets);
     expect(find.textContaining('raw OCR full text'), findsNothing);
     expect(find.textContaining('signed URL'), findsNothing);
     expect(find.textContaining('storage'), findsNothing);
+  });
+
+  testWidgets('merchant edit retains printed before-subtotal discount order', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final preview = const ReceiptOcrParser().parse('''
+Shop Invoice
+Headphones USD 120.00
+Promo Code USD -20.00
+Subtotal USD 100.00
+Shipping USD 9.99
+Tax USD 8.80
+Grand Total USD 118.79
+''');
+    expect(preview.discountBeforeSubtotal, isTrue);
+    expect(preview.reviewHints, isEmpty);
+    final fileInput = FakeBillAttachmentFileInput(
+      pickedFile: samplePickedAttachmentFile(
+        filename: 'receipt.png',
+        contentType: 'image/png',
+        bytes: samplePngBytes(width: 640, height: 480),
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: FakeBillRepository(),
+          syncController: sampleBillSyncController(),
+          attachmentRepository: FakeBillAttachmentRepository(),
+          attachmentFileInput: fileInput,
+          receiptOcrProvider: FakeReceiptOcrProvider(
+            ReceiptOcrResult.extracted(preview),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-list-scan-receipt')));
+    await tester.pumpAndSettle();
+    const warning =
+        'OCR item total differs from detected subtotal. Review the receipt before applying.';
+    expect(find.text(warning), findsNothing);
+
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-ocr-edit-merchant')),
+      'Corrected merchant',
+    );
+    await tester.pumpAndSettle();
+    expect(find.text(warning), findsNothing);
+  });
+
+  test(
+    'source-supported included VAT saves explicit gross or net tax mode',
+    () {
+      const parser = ReceiptOcrParser();
+      final gross = parser.parse('''
+London Books
+Book GBP 24.00
+Subtotal GBP 24.00
+Total incl. VAT GBP 24.00
+VAT included 20% GBP 4.00
+''');
+      final net = parser.parse('''
+London Books
+Book GBP 20.00
+Subtotal GBP 20.00
+Total incl. VAT GBP 24.00
+VAT included 20% GBP 4.00
+''');
+      final grossItemWithNetSubtotal = parser.parse('''
+London Books
+Book GBP 24.00
+Subtotal GBP 20.00
+Total incl. VAT GBP 24.00
+VAT included 20% GBP 4.00
+''');
+      final contradictory = parser.parse('''
+London Books
+Book GBP 20.00
+Subtotal GBP 20.00
+Total incl. VAT GBP 25.00
+VAT included 20% GBP 4.00
+''');
+      final ambiguousItems = parser.parse('''
+London Books
+Book GBP 19.00
+Subtotal GBP 20.00
+Total incl. VAT GBP 25.00
+VAT included 20% GBP 4.00
+''');
+      final mixedTax = parser.parse('''
+London Books
+Book GBP 24.00
+Subtotal GBP 24.00
+VAT included 10% GBP 2.00
+Sales tax 20% GBP 4.00
+Total GBP 24.00
+''');
+      final includedWithTip = parser.parse('''
+London Books
+Book GBP 24.00
+Subtotal GBP 24.00
+VAT included 20% GBP 4.00
+Tip GBP 2.00
+Total GBP 26.00
+''');
+      expect(
+        receiptOcrReviewSaveRequestFromPreview(
+          gross,
+          originalCurrency: 'GBP',
+        )?.taxReconciliationMode,
+        ReceiptOcrTaxReconciliationModeValues.alreadyInBase,
+      );
+      expect(
+        receiptOcrReviewSaveRequestFromPreview(
+          net,
+          originalCurrency: 'GBP',
+        )?.taxReconciliationMode,
+        ReceiptOcrTaxReconciliationModeValues.addToBase,
+      );
+      expect(grossItemWithNetSubtotal.reviewHints, isEmpty);
+      expect(
+        receiptOcrReviewSaveRequestFromPreview(
+          grossItemWithNetSubtotal,
+          originalCurrency: 'GBP',
+        )?.taxReconciliationMode,
+        ReceiptOcrTaxReconciliationModeValues.addToBase,
+      );
+      expect(
+        receiptOcrReviewSaveRequestFromPreview(
+          contradictory,
+          originalCurrency: 'GBP',
+        )?.taxReconciliationMode,
+        ReceiptOcrTaxReconciliationModeValues.sourceIncludedUnresolved,
+      );
+      expect(
+        receiptOcrReviewSaveRequestFromPreview(
+          ambiguousItems,
+          originalCurrency: 'GBP',
+        )?.taxReconciliationMode,
+        ReceiptOcrTaxReconciliationModeValues.sourceIncludedUnresolved,
+      );
+      final mixedSaved = receiptOcrReviewSaveRequestFromPreview(
+        mixedTax,
+        originalCurrency: 'GBP',
+      );
+      expect(mixedTax.adjustmentsComplete, isFalse);
+      expect(mixedSaved?.taxAmount, isNull);
+      expect(
+        mixedSaved?.taxReconciliationMode,
+        ReceiptOcrTaxReconciliationModeValues.unresolved,
+      );
+      final tipSaved = receiptOcrReviewSaveRequestFromPreview(
+        includedWithTip,
+        originalCurrency: 'GBP',
+      );
+      expect(tipSaved?.adjustmentEvidence.single.amount, '2.00');
+      expect(
+        tipSaved?.taxReconciliationMode,
+        ReceiptOcrTaxReconciliationModeValues.alreadyInBase,
+      );
+      expect(
+        receiptOcrReviewSaveRequestFromPreview(
+          contradictory,
+          originalCurrency: 'EUR',
+        )?.taxReconciliationMode,
+        ReceiptOcrTaxReconciliationModeValues.unresolved,
+      );
+    },
+  );
+
+  testWidgets('merchant edit retains printed included-tax evidence', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final preview = const ReceiptOcrParser().parse('''
+London Books
+Book GBP 24.00
+Total incl. VAT GBP 24.00
+VAT included 20% GBP 4.00
+''');
+    expect(preview.taxIncludedInTotal, isTrue);
+    expect(preview.reviewHints, isEmpty);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: FakeBillRepository(),
+          syncController: sampleBillSyncController(),
+          attachmentRepository: FakeBillAttachmentRepository(),
+          attachmentFileInput: FakeBillAttachmentFileInput(
+            pickedFile: samplePickedAttachmentFile(
+              filename: 'receipt.png',
+              contentType: 'image/png',
+              bytes: samplePngBytes(width: 640, height: 480),
+            ),
+          ),
+          receiptOcrProvider: FakeReceiptOcrProvider(
+            ReceiptOcrResult.extracted(preview),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-list-scan-receipt')));
+    await tester.pumpAndSettle();
+    const warning =
+        'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.';
+    expect(find.text(warning), findsNothing);
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-ocr-edit-merchant')),
+      'Corrected London Books',
+    );
+    await tester.pumpAndSettle();
+    expect(find.text(warning), findsNothing);
   });
 
   test('OCR adjustment adapter only emits API-valid positive magnitudes', () {
@@ -652,6 +2815,175 @@ void main() {
     expect(receiptOcrQuantityCandidateForSave('1.23456'), isNull);
   });
 
+  test('reconciled signed promotion saves its positive discount magnitude', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Cereal USD 6.00
+Milk USD 4.00
+Subtotal USD 10.00
+Store Coupon USD -2.00
+Loyalty Discount USD -1.00
+Tax USD 0.49
+Total USD 7.49
+''');
+    expect(preview.discount, '-3.00');
+    expect(preview.currency, 'USD');
+    expect(preview.discountCurrency, 'USD');
+    final saved = receiptOcrReviewSaveRequestFromPreview(
+      preview,
+      originalCurrency: preview.currency,
+    );
+    expect(saved?.discountAmount, '3.00');
+    expect(saved?.headerEvidence, isEmpty);
+
+    final editedCurrency = receiptOcrReviewSaveRequestFromPreview(
+      preview,
+      originalCurrency: 'EUR',
+    );
+    expect(editedCurrency?.discountAmount, isNull);
+    expect(
+      editedCurrency?.headerEvidence
+          .where((entry) => entry.role == 'discount')
+          .single
+          .amount,
+      '3.00',
+    );
+  });
+
+  test(
+    'foreign printed headers retain role amount and currency without scalar coercion',
+    () {
+      const preview = ReceiptOcrPreview(
+        currency: 'USD',
+        subtotal: '9.50',
+        subtotalCurrency: 'EUR',
+        subtotalHasExplicitCurrencyEvidence: true,
+        tax: '2.00',
+        taxCurrency: 'HKD',
+        taxHasExplicitCurrencyEvidence: true,
+        service: '1.00',
+        serviceCurrency: 'GBP',
+        serviceHasExplicitCurrencyEvidence: true,
+        discount: '1',
+        discountCurrency: 'JPY',
+        discountHasExplicitCurrencyEvidence: true,
+      );
+      final evidence = receiptOcrHeaderEvidenceFromPreview(preview);
+      expect(
+        evidence.map((entry) => (entry.role, entry.amount, entry.currency)),
+        [
+          ('subtotal', '9.50', 'EUR'),
+          ('tax', '2.00', 'HKD'),
+          ('service_charge', '1.00', 'GBP'),
+          ('discount', '1', 'JPY'),
+        ],
+      );
+      expect(
+        receiptOcrHeaderEvidenceFromPreview(
+          const ReceiptOcrPreview(
+            currency: 'USD',
+            tax: '1.00',
+            taxCurrency: 'USD',
+            taxHasExplicitCurrencyEvidence: true,
+            service: '2.00',
+            serviceCurrency: 'XPF',
+            serviceHasExplicitCurrencyEvidence: true,
+          ),
+        ),
+        isEmpty,
+      );
+    },
+  );
+
+  test(
+    'initial OCR save keeps a printed header provisional after currency edit',
+    () {
+      const preview = ReceiptOcrPreview(
+        currency: 'EUR',
+        tax: '2.50',
+        taxCurrency: 'EUR',
+        taxHasExplicitCurrencyEvidence: true,
+      );
+      final edited = receiptOcrReviewSaveRequestFromPreview(
+        preview,
+        originalCurrency: 'USD',
+      );
+      expect(edited?.currency, 'EUR');
+      expect(edited?.taxAmount, isNull);
+      expect(edited?.headerEvidence.single.role, 'tax');
+      expect(edited?.headerEvidence.single.amount, '2.50');
+      expect(edited?.headerEvidence.single.currency, 'EUR');
+
+      final unchanged = receiptOcrReviewSaveRequestFromPreview(
+        preview,
+        originalCurrency: 'EUR',
+      );
+      expect(unchanged?.taxAmount, '2.50');
+      expect(unchanged?.headerEvidence, isEmpty);
+    },
+  );
+
+  test('OCR save preserves four foreign printed header roles as evidence', () {
+    const preview = ReceiptOcrPreview(
+      currency: 'USD',
+      subtotal: '9.50',
+      subtotalCurrency: 'EUR',
+      subtotalHasExplicitCurrencyEvidence: true,
+      tax: '0.25',
+      taxCurrency: 'HKD',
+      taxHasExplicitCurrencyEvidence: true,
+      service: '0.15',
+      serviceCurrency: 'GBP',
+      serviceHasExplicitCurrencyEvidence: true,
+      discount: '-1',
+      discountCurrency: 'JPY',
+      discountHasExplicitCurrencyEvidence: true,
+    );
+    final saved = receiptOcrReviewSaveRequestFromPreview(preview);
+
+    expect(saved?.subtotalAmount, isNull);
+    expect(saved?.taxAmount, isNull);
+    expect(saved?.serviceChargeAmount, isNull);
+    expect(saved?.discountAmount, isNull);
+    expect(
+      saved?.headerEvidence
+          .map((entry) => (entry.role, entry.amount, entry.currency))
+          .toList(),
+      [
+        ('subtotal', '9.50', 'EUR'),
+        ('tax', '0.25', 'HKD'),
+        ('service_charge', '0.15', 'GBP'),
+        ('discount', '1', 'JPY'),
+      ],
+    );
+
+    final sameCurrency = receiptOcrReviewSaveRequestFromPreview(
+      const ReceiptOcrPreview(
+        currency: 'USD',
+        tax: '1.00',
+        taxCurrency: 'USD',
+        taxHasExplicitCurrencyEvidence: true,
+      ),
+      originalCurrency: 'USD',
+    );
+    expect(sameCurrency?.taxAmount, '1.00');
+    expect(sameCurrency?.headerEvidence, isEmpty);
+  });
+
+  test('OCR currency change does not relabel a printed grand total', () {
+    final changed = receiptOcrReviewSaveRequestFromPreview(
+      const ReceiptOcrPreview(currency: 'USD', total: '9.00'),
+      originalCurrency: 'EUR',
+    );
+    expect(changed?.grandTotalAmount, isNull);
+
+    final unchanged = receiptOcrReviewSaveRequestFromPreview(
+      const ReceiptOcrPreview(currency: 'USD', total: '9.00'),
+      originalCurrency: 'USD',
+    );
+    expect(unchanged?.grandTotalAmount, '9.00');
+  });
+
   test('OCR save adapter preserves line currency boundaries and API limit', () {
     final lines = receiptOcrReviewLinesFromPreview(
       ReceiptOcrPreview(
@@ -711,6 +3043,482 @@ Total USD 9.00
       expect(lines.last.lineTotalAmount, '5.00');
     },
   );
+
+  test('OCR parser-to-save omits bare yen money from a USD review', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Exchange Cafe
+Coffee ¥12000
+Tax ¥100
+Total USD 80.00
+''');
+    final lines = receiptOcrReviewLinesFromPreview(preview);
+
+    expect(preview.currency, 'USD');
+    expect(preview.items.single.currency, '¥');
+    expect(lines.single.text, 'Coffee');
+    expect(lines.single.lineTotalAmount, isNull);
+  });
+
+  test('OCR parser-to-save keeps ambiguous mixed item money unresolved', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Exchange Cafe
+Coffee ¥150 / \$1.00
+Total €2.00
+''');
+    final lines = receiptOcrReviewLinesFromPreview(preview);
+
+    expect(preview.currency, 'EUR');
+    expect(preview.items.where((item) => item.currencyUnresolved), isNotEmpty);
+    expect(lines.where((line) => line.text.contains('Coffee')), isNotEmpty);
+    expect(
+      lines.where((line) => line.text.contains('Coffee')).first.lineTotalAmount,
+      isNull,
+    );
+
+    final ordinary = receiptOcrReviewLinesFromPreview(
+      const ReceiptOcrPreview(
+        currency: 'EUR',
+        items: [
+          ReceiptOcrItemCandidate(description: 'Ordinary', lineTotal: '1.00'),
+        ],
+      ),
+    );
+    expect(ordinary.single.lineTotalAmount, '1.00');
+  });
+
+  test('OCR parser-to-save excludes foreign amount before addition', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(r'''
+Exchange Cafe
+Coffee EUR10.00 + $1.00
+Total USD 1.00
+''');
+    final lines = receiptOcrReviewLinesFromPreview(preview);
+
+    expect(preview.currency, 'USD');
+    expect(preview.items.where((item) => item.currencyUnresolved), isNotEmpty);
+    expect(lines.where((line) => line.text.contains('Coffee')), isNotEmpty);
+    expect(
+      lines.where((line) => line.text.contains('Coffee')).first.lineTotalAmount,
+      isNull,
+    );
+  });
+
+  test('OCR parser-to-save excludes word-separated mixed item money', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(r'''
+Exchange Cafe
+Coffee EUR 10.00 and $1.00
+Total USD 1.00
+''');
+    final lines = receiptOcrReviewLinesFromPreview(preview);
+
+    expect(preview.currency, 'USD');
+    expect(preview.items.where((item) => item.currencyUnresolved), isNotEmpty);
+    expect(lines.where((line) => line.text.contains('Coffee')), isNotEmpty);
+    expect(
+      lines.where((line) => line.text.contains('Coffee')).first.lineTotalAmount,
+      isNull,
+    );
+  });
+
+  test('OCR parser-to-save excludes trailing-code mixed item money', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(r'''
+Exchange Cafe
+Coffee 10.00 EUR and $1.00
+Total USD 1.00
+''');
+    final lines = receiptOcrReviewLinesFromPreview(preview);
+
+    expect(preview.currency, 'USD');
+    expect(preview.items.where((item) => item.currencyUnresolved), isNotEmpty);
+    expect(lines.where((line) => line.text.contains('Coffee')), isNotEmpty);
+    expect(
+      lines.where((line) => line.text.contains('Coffee')).first.lineTotalAmount,
+      isNull,
+    );
+  });
+
+  test('OCR parser-to-save excludes whole-unit mixed item money', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(r'''
+Exchange Cafe
+Coffee 10 EUR and $1.00
+Total USD 1.00
+''');
+    final lines = receiptOcrReviewLinesFromPreview(preview);
+
+    expect(preview.currency, 'USD');
+    expect(preview.items.where((item) => item.currencyUnresolved), isNotEmpty);
+    expect(lines.where((line) => line.text.contains('Coffee')), isNotEmpty);
+    expect(
+      lines.where((line) => line.text.contains('Coffee')).first.lineTotalAmount,
+      isNull,
+    );
+  });
+
+  test('OCR save does not relabel a printed dollar item as euro money', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(r'''
+Exchange Cafe
+Coffee $9.00
+Total EUR 9.00
+''');
+    final lines = receiptOcrReviewLinesFromPreview(preview);
+
+    expect(preview.currency, 'EUR');
+    expect(preview.items.single.currencyUnresolved, isTrue);
+    expect(lines.single.text, 'Coffee');
+    expect(lines.single.lineTotalAmount, isNull);
+  });
+
+  test('OCR save keeps unsupported item ISO money out of review scalars', () {
+    const parser = ReceiptOcrParser();
+    for (final printedCode in ['XPF', 'xpf']) {
+      final preview = parser.parse('''
+Exchange Cafe
+Coffee $printedCode 10.00
+Total USD 10.00
+''');
+      final lines = receiptOcrReviewLinesFromPreview(preview);
+
+      expect(preview.items.single.currency, 'XPF');
+      expect(preview.items.single.currencyUnresolved, isTrue);
+      expect(lines.single.text, contains('Coffee'));
+      expect(lines.single.lineTotalAmount, isNull);
+    }
+  });
+
+  test('OCR save keeps ordinary pen item money reviewable', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Office Shop
+Blue pen 10.00
+Total USD 10.00
+''');
+    final lines = receiptOcrReviewLinesFromPreview(preview);
+
+    expect(preview.items.single.currencyUnresolved, isFalse);
+    expect(lines.single.lineTotalAmount, '10.00');
+  });
+
+  test('OCR save keeps selected USD item amount after earlier XPF', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Exchange Cafe
+Coffee XPF 100 / USD 1.00
+Total USD 1.00
+''');
+    final lines = receiptOcrReviewLinesFromPreview(preview);
+
+    expect(preview.items.single.currencyUnresolved, isFalse);
+    expect(lines.single.lineTotalAmount, '1.00');
+  });
+
+  test('OCR save keeps lowercase rub item money reviewable', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+BBQ Shop
+BBQ rub 10.00
+Total USD 10.00
+''');
+    final lines = receiptOcrReviewLinesFromPreview(preview);
+
+    expect(preview.items.single.currency, 'USD');
+    expect(lines.single.lineTotalAmount, '10.00');
+  });
+
+  test('OCR save does not let lowercase rub set receipt currency', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(r'''
+BBQ Shop
+BBQ rub 10.00
+Total $10.00
+''', fallbackCurrency: 'USD');
+    final lines = receiptOcrReviewLinesFromPreview(preview);
+
+    expect(preview.currency, 'USD');
+    expect(lines.single.lineTotalAmount, '10.00');
+  });
+
+  test('OCR save keeps uppercase RUB item provisional under dollar total', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(r'''
+BBQ Shop
+BBQ RUB 10.00
+Total $10.00
+''', fallbackCurrency: 'USD');
+    final lines = receiptOcrReviewLinesFromPreview(preview);
+
+    expect(preview.currency, 'USD');
+    expect(lines.single.lineTotalAmount, isNull);
+  });
+
+  test('OCR save keeps detached signed fuel total out of item lines', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Fuel Stop
+FUEL Regular Unleaded
+GALLONS 1.5
+PRICE/GAL USD 2.00
+TOTAL USD− 3.00
+''');
+
+    expect(preview.items, isEmpty);
+    expect(receiptOcrReviewLinesFromPreview(preview), isEmpty);
+    final saved = receiptOcrReviewSaveRequestFromPreview(
+      preview,
+      originalCurrency: preview.currency,
+    );
+    expect(saved?.grandTotalAmount, isNull);
+  });
+
+  test('OCR save uses transaction total for fuel beside foreign payment', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Fuel Stop
+FUEL Regular Unleaded
+GALLONS 12.563
+PRICE/GAL USD 3.599
+TOTAL USD 45.22
+TOTAL PAID EUR 41.00
+''');
+
+    final lines = receiptOcrReviewLinesFromPreview(preview);
+    expect(lines, hasLength(1));
+    expect(lines.single.lineTotalAmount, '45.22');
+  });
+
+  test('OCR save preserves separate priced fuel-labelled purchase', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Fuel Stop
+FUEL Regular Unleaded
+GALLONS 10.000
+PRICE/GAL USD 3.000
+FUEL ADDITIVE USD 5.00
+TOTAL USD 35.00
+''');
+
+    final lines = receiptOcrReviewLinesFromPreview(preview);
+    expect(lines, hasLength(1));
+    expect(lines.single.lineTotalAmount, '5.00');
+  });
+
+  test('OCR save binds mixed total money to selected USD amount', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(r'''
+Market
+Coffee USD 10.00
+Total €9.00 $10.00
+''', fallbackCurrency: 'USD');
+    final saved = receiptOcrReviewSaveRequestFromPreview(
+      preview,
+      originalCurrency: preview.currency,
+    );
+
+    expect(preview.currency, 'USD');
+    expect(saved?.grandTotalAmount, '10.00');
+  });
+
+  test('OCR save keeps attached USD total amount with its currency', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Market
+Coffee USD 10.00
+Total €9.00 USD10.00
+''');
+    final saved = receiptOcrReviewSaveRequestFromPreview(
+      preview,
+      originalCurrency: preview.currency,
+    );
+
+    expect(preview.currency, 'USD');
+    expect(saved?.grandTotalAmount, '10.00');
+  });
+
+  test('OCR save retains single attached-code grand total', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Market
+Coffee 10.00
+Total USD10.00
+''');
+    final saved = receiptOcrReviewSaveRequestFromPreview(
+      preview,
+      originalCurrency: preview.currency,
+    );
+
+    expect(preview.currency, 'USD');
+    expect(saved?.grandTotalAmount, '10.00');
+  });
+
+  test('OCR save does not relabel a bare dollar tax as euro money', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(r'''
+Exchange Cafe
+Coffee EUR 9.00
+Tax $1.00
+Total EUR 10.00
+''');
+    final saved = receiptOcrReviewSaveRequestFromPreview(
+      preview,
+      originalCurrency: preview.currency,
+    );
+
+    expect(preview.taxHasExplicitCurrencyEvidence, isTrue);
+    expect(saved?.taxAmount, isNull);
+    expect(saved?.headerEvidence, isEmpty);
+  });
+
+  test('OCR save rejects opposing markers on one tax amount', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse('''
+Market
+Coffee USD 10.00
+Tax €1.00 USD
+Total USD 11.00
+''');
+    final saved = receiptOcrReviewSaveRequestFromPreview(
+      preview,
+      originalCurrency: preview.currency,
+    );
+
+    expect(preview.currency, 'USD');
+    expect(preview.taxHasExplicitCurrencyEvidence, isTrue);
+    expect(preview.taxCurrency, isNull);
+    expect(saved?.taxAmount, isNull);
+    expect(saved?.headerEvidence, isEmpty);
+
+    final unsupported = parser.parse('''
+Market
+Coffee USD 10.00
+Tax ₱+1.00 USD
+Total USD 11.00
+''');
+    final unsupportedSave = receiptOcrReviewSaveRequestFromPreview(
+      unsupported,
+      originalCurrency: unsupported.currency,
+    );
+    expect(unsupported.taxCurrency, isNull);
+    expect(unsupported.taxHasExplicitCurrencyEvidence, isTrue);
+    expect(unsupportedSave?.taxAmount, isNull);
+    expect(unsupportedSave?.headerEvidence, isEmpty);
+
+    final opposedSigned = parser.parse('''
+Market
+Coffee USD 10.00
+Tax €+1.00 USD
+Total USD 11.00
+''');
+    final opposedSignedSave = receiptOcrReviewSaveRequestFromPreview(
+      opposedSigned,
+      originalCurrency: opposedSigned.currency,
+    );
+    expect(opposedSigned.taxCurrency, isNull);
+    expect(opposedSignedSave?.taxAmount, isNull);
+
+    final negative = parser.parse('''
+Euro Market
+Tax €−1.00
+Total EUR 9.00
+''');
+    final negativeSave = receiptOcrReviewSaveRequestFromPreview(
+      negative,
+      originalCurrency: negative.currency,
+    );
+    expect(negative.tax, '-1.00');
+    expect(negativeSave?.taxAmount, isNull);
+
+    final detachedNegative = parser.parse('''
+Euro Market
+Tax €− 1.00
+Total EUR 9.00
+''');
+    final detachedSave = receiptOcrReviewSaveRequestFromPreview(
+      detachedNegative,
+      originalCurrency: detachedNegative.currency,
+    );
+    expect(detachedNegative.tax, isNull);
+    expect(detachedSave?.taxAmount, isNull);
+
+    for (final marker in ['USD', 'JPY', 'Rs', 'kr']) {
+      final detachedAfterCode = parser.parse('''
+Market
+Tax $marker− 1.00
+Total USD 9.00
+''');
+      final save = receiptOcrReviewSaveRequestFromPreview(
+        detachedAfterCode,
+        originalCurrency: detachedAfterCode.currency,
+      );
+      expect(detachedAfterCode.tax, isNull, reason: marker);
+      expect(save?.taxAmount, isNull, reason: marker);
+      expect(save?.headerEvidence, isEmpty, reason: marker);
+    }
+  });
+
+  testWidgets('editing OCR merchant keeps unresolved items out of Apply', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final receiptRepository = FakeReceiptOcrReviewRepository();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraPersonalBillCreateScreen(
+          repository: FakeBillRepository(
+            createdDetail: sampleBillDetail(id: _createdBillId),
+          ),
+          attachmentRepository: FakeBillAttachmentRepository(),
+          attachmentFileInput: FakeBillAttachmentFileInput(
+            pickedFile: samplePickedAttachmentFile(
+              filename: 'receipt.png',
+              contentType: 'image/png',
+              bytes: samplePngBytes(width: 64, height: 64),
+            ),
+          ),
+          receiptOcrProvider: FakeReceiptOcrProvider(
+            const ReceiptOcrResult.extracted(
+              ReceiptOcrPreview(
+                merchant: 'Exchange Cafe',
+                currency: 'EUR',
+                items: [
+                  ReceiptOcrItemCandidate(
+                    description: 'Coffee',
+                    lineTotal: '1.00',
+                    currencyUnresolved: true,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          receiptOcrReviewRepository: receiptRepository,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('personal-bill-scan-receipt')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('personal-bill-ocr-edit-merchant')),
+      'Edited Exchange Cafe',
+    );
+    expect(
+      tester
+          .widget<CheckboxListTile>(
+            find.byKey(const Key('personal-bill-ocr-apply-items')),
+          )
+          .onChanged,
+      isNull,
+    );
+    await _tapReceiptOcrApply(tester, 'personal-bill');
+    await _tapSaveBill(tester);
+
+    expect(receiptRepository.saveCalls, 0);
+  });
 
   testWidgets(
     'personal OCR uses selected currency fallback and keeps currency editable',
@@ -1190,6 +3998,56 @@ Total USD 9.00
     );
   });
 
+  testWidgets('editing an OCR item restores the adjustment warning', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final receiptOcrProvider = FakeReceiptOcrProvider(
+      const ReceiptOcrResult.extracted(
+        ReceiptOcrPreview(
+          currency: 'HKD',
+          tax: '2.00',
+          total: '12.00',
+          items: [
+            ReceiptOcrItemCandidate(
+              description: 'Meal',
+              lineTotal: '10.00',
+              currency: 'HKD',
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraPersonalBillCreateScreen(
+          repository: FakeBillRepository(),
+          attachmentRepository: FakeBillAttachmentRepository(),
+          attachmentFileInput: FakeBillAttachmentFileInput(
+            pickedFile: samplePickedAttachmentFile(
+              filename: 'receipt.png',
+              contentType: 'image/png',
+              bytes: samplePngBytes(width: 64, height: 64),
+            ),
+          ),
+          receiptOcrProvider: receiptOcrProvider,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('personal-bill-scan-receipt')));
+    await tester.pumpAndSettle();
+    const hint =
+        'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.';
+    expect(find.text(hint), findsNothing);
+    await tester.enterText(
+      find.byKey(const ValueKey('personal-bill-ocr-item-description-0')),
+      'Replacement meal',
+    );
+    await tester.pumpAndSettle();
+    expect(find.text(hint), findsOneWidget);
+  });
+
   testWidgets(
     'personal OCR preview clears when source receipt draft is removed',
     (tester) async {
@@ -1506,6 +4364,18 @@ Total USD 9.00
       reviewDetail: sampleReceiptOcrReviewDetail(
         route,
         adjustments: sampleBillReviewAdjustments(),
+        headerEvidence: const [
+          ReceiptOcrReviewHeaderEvidence(
+            role: 'service_charge',
+            amount: '2.50',
+            currency: 'EUR',
+          ),
+          ReceiptOcrReviewHeaderEvidence(
+            role: 'discount',
+            amount: '1.00',
+            currency: 'EUR',
+          ),
+        ],
       ),
     );
 
@@ -1662,6 +4532,31 @@ Total USD 9.00
     );
     expect(receiptRepository.lastSaveRequest?.currency, 'HKD');
     expect(receiptRepository.lastSaveRequest?.grandTotalAmount, isNull);
+    expect(receiptRepository.lastSaveRequest?.headerEvidence, hasLength(2));
+    expect(
+      receiptRepository.lastSaveRequest?.headerEvidence.first.role,
+      'service_charge',
+    );
+    expect(
+      receiptRepository.lastSaveRequest?.headerEvidence.first.amount,
+      '2.50',
+    );
+    expect(
+      receiptRepository.lastSaveRequest?.headerEvidence.first.currency,
+      'EUR',
+    );
+    expect(
+      receiptRepository.lastSaveRequest?.headerEvidence.last.role,
+      'discount',
+    );
+    expect(
+      receiptRepository.lastSaveRequest?.headerEvidence.last.amount,
+      '1.00',
+    );
+    expect(
+      receiptRepository.lastSaveRequest?.headerEvidence.last.currency,
+      'EUR',
+    );
     expect(receiptRepository.lastSaveRequest?.adjustmentEvidence, hasLength(1));
     expect(
       receiptRepository
@@ -1763,6 +4658,104 @@ Total USD 9.00
     expect(find.textContaining('raw OCR full text'), findsNothing);
     semantics.dispose();
   });
+
+  testWidgets(
+    'saved printed header stays visible and provisional when review currency matches',
+    (tester) async {
+      await useLargeSurface(tester);
+      final route = ReceiptOcrReviewRoute(
+        billId: _createdBillId,
+        fileId: _uploadedFileId,
+      );
+      final receiptRepository = FakeReceiptOcrReviewRepository(
+        reviewDetail: sampleReceiptOcrReviewDetail(
+          route,
+          includeScalarTotals: false,
+          headerEvidence: const [
+            ReceiptOcrReviewHeaderEvidence(
+              role: 'tax',
+              amount: '2.50',
+              currency: 'EUR',
+            ),
+          ],
+        ),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraBillDetailScreen(
+            repository: FakeBillRepository(
+              detail: sampleBillDetail(id: _createdBillId),
+            ),
+            billId: _createdBillId,
+            initialBill: sampleBillDetail(id: _createdBillId),
+            receiptOcrReviewRepository: receiptRepository,
+            initialReceiptOcrReviewHandoff: ReceiptOcrReviewHandoff.saved(
+              reviewRoute: route,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('bill-detail-ocr-review-open')));
+      await tester.pumpAndSettle();
+      expect(find.text('No receipt totals were saved.'), findsNothing);
+      expect(find.text('Printed tax (review only)'), findsOneWidget);
+      expect(find.text('2.50 EUR'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('saved-ocr-review-edit')));
+      await tester.pumpAndSettle();
+      expect(find.text('Printed tax (review only)'), findsOneWidget);
+      await _selectCurrency(
+        tester,
+        find.byKey(const Key('saved-ocr-review-ocr-edit-currency')),
+        'EUR',
+      );
+      await _scrollSavedOcrReviewEditActionsIntoView(tester);
+      await tester.tap(find.byKey(const Key('saved-ocr-review-edit-save')));
+      await tester.pumpAndSettle();
+      expect(receiptRepository.lastSaveRequest?.currency, 'EUR');
+      expect(receiptRepository.lastSaveRequest?.taxAmount, isNull);
+      expect(
+        receiptRepository.lastSaveRequest?.headerEvidence.single.role,
+        'tax',
+      );
+      expect(
+        receiptRepository.lastSaveRequest?.headerEvidence.single.amount,
+        '2.50',
+      );
+      expect(
+        receiptRepository.lastSaveRequest?.headerEvidence.single.currency,
+        'EUR',
+      );
+      expect(
+        receiptRepository.reviewDetail?.headerEvidence.single.currency,
+        'EUR',
+      );
+      expect(find.text('Printed tax (review only)'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('saved-ocr-review-edit')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('saved-ocr-review-ocr-edit-merchant')),
+        'Edited Market',
+      );
+      await _scrollSavedOcrReviewEditActionsIntoView(tester);
+      await tester.tap(find.byKey(const Key('saved-ocr-review-edit-save')));
+      await tester.pumpAndSettle();
+      expect(receiptRepository.saveCalls, 2);
+      expect(receiptRepository.lastSaveRequest?.merchantText, 'Edited Market');
+      expect(receiptRepository.lastSaveRequest?.taxAmount, isNull);
+      expect(
+        receiptRepository.lastSaveRequest?.headerEvidence.single.amount,
+        '2.50',
+      );
+      expect(
+        receiptRepository.lastSaveRequest?.headerEvidence.single.currency,
+        'EUR',
+      );
+      expect(find.text('Printed tax (review only)'), findsOneWidget);
+    },
+  );
 
   testWidgets(
     'personal saved OCR review edit cancel leaves repository unchanged',
@@ -3916,6 +6909,7 @@ Total USD 9.00
         findsOneWidget,
       );
 
+      await _setReceiptOcrSection(tester, 'personal-bill', 'items', true);
       await _tapReceiptOcrApply(tester, 'personal-bill');
       await _tapSaveBill(tester);
 
@@ -4654,6 +7648,80 @@ Total USD 9.00
       );
     },
   );
+
+  testWidgets('personal OCR keeps foreign-currency items in review', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraPersonalBillCreateScreen(
+          repository: FakeBillRepository(),
+          attachmentRepository: FakeBillAttachmentRepository(),
+          attachmentFileInput: FakeBillAttachmentFileInput(
+            pickedFile: samplePickedAttachmentFile(
+              filename: 'receipt.png',
+              contentType: 'image/png',
+              bytes: samplePngBytes(width: 64, height: 64),
+            ),
+          ),
+          receiptOcrProvider: FakeReceiptOcrProvider(
+            const ReceiptOcrResult.extracted(
+              ReceiptOcrPreview(
+                merchant: 'Central Card Terminal',
+                currency: 'USD',
+                currencyProvenance: ReceiptOcrCurrencyProvenance.explicit,
+                total: '100.00',
+                items: [
+                  ReceiptOcrItemCandidate(
+                    description: 'Dinner',
+                    lineTotal: '780.00',
+                    currency: 'HKD',
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('personal-bill-scan-receipt')));
+    await tester.pumpAndSettle();
+    expect(find.text('Dinner'), findsWidgets);
+    expect(find.text('780.00'), findsWidgets);
+    expect(
+      tester
+          .widget<CheckboxListTile>(
+            find.byKey(const Key('personal-bill-ocr-apply-items')),
+          )
+          .onChanged,
+      isNull,
+    );
+    expect(
+      find.text('Review foreign-currency item amounts before applying'),
+      findsOneWidget,
+    );
+    await _tapReceiptOcrApply(tester, 'personal-bill');
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const ValueKey('personal-bill-item-name-0')),
+          )
+          .controller
+          ?.text,
+      isEmpty,
+    );
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const ValueKey('personal-bill-item-amount-0')),
+          )
+          .controller
+          ?.text,
+      isEmpty,
+    );
+  });
 
   testWidgets(
     'personal OCR requires explicit resolution before applying currencyless items',
@@ -8500,6 +11568,7 @@ Total USD 9.00
         findsOneWidget,
       );
 
+      await _setReceiptOcrSection(tester, 'group-bill', 'items', true);
       await _tapReceiptOcrApply(tester, 'group-bill');
       await _assignFirstGroupBillItem(tester);
       await _tapSaveGroupBill(tester);
@@ -8684,6 +11753,82 @@ Total USD 9.00
     );
   });
 
+  testWidgets('group OCR keeps foreign-currency items in review', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    await _pumpGroupBillCreate(
+      tester,
+      repository: FakeBillRepository(),
+      groupRepository: FakeGroupRepository(
+        members: [sampleGroupMember(displayName: 'Alex')],
+      ),
+      attachmentRepository: FakeBillAttachmentRepository(),
+      attachmentFileInput: FakeBillAttachmentFileInput(
+        pickedFile: samplePickedAttachmentFile(
+          filename: 'group-receipt.png',
+          contentType: 'image/png',
+          bytes: samplePngBytes(width: 64, height: 64),
+        ),
+      ),
+      receiptOcrProvider: FakeReceiptOcrProvider(
+        const ReceiptOcrResult.extracted(
+          ReceiptOcrPreview(
+            merchant: 'Central Card Terminal',
+            currency: 'USD',
+            currencyProvenance: ReceiptOcrCurrencyProvenance.explicit,
+            total: '100.00',
+            items: [
+              ReceiptOcrItemCandidate(
+                description: 'Dinner',
+                lineTotal: '780.00',
+                currency: 'HKD',
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('group-bill-list-create')));
+    await tester.pumpAndSettle();
+    await _goToGroupBillCreateStep(tester, 'receiptItems');
+    await tester.tap(find.byKey(const Key('group-bill-scan-receipt')));
+    await tester.pumpAndSettle();
+    expect(find.text('Dinner'), findsWidgets);
+    expect(find.text('780.00'), findsWidgets);
+    expect(
+      tester
+          .widget<CheckboxListTile>(
+            find.byKey(const Key('group-bill-ocr-apply-items')),
+          )
+          .onChanged,
+      isNull,
+    );
+    expect(
+      find.text('Review foreign-currency item amounts before applying'),
+      findsOneWidget,
+    );
+    await _tapReceiptOcrApply(tester, 'group-bill');
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const ValueKey('group-bill-item-name-0')),
+          )
+          .controller
+          ?.text,
+      isEmpty,
+    );
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.byKey(const ValueKey('group-bill-item-amount-0')),
+          )
+          .controller
+          ?.text,
+      isEmpty,
+    );
+  });
+
   testWidgets('group OCR keeps unresolved-currency items out of bill fields', (
     tester,
   ) async {
@@ -8756,6 +11901,18 @@ Total USD 9.00
           .controller
           ?.text,
       isEmpty,
+    );
+    expect(
+      receiptOcrHeaderEvidenceFromPreview(
+        const ReceiptOcrPreview(
+          tax: '3.00',
+          taxCurrency: 'EUR',
+          taxHasExplicitCurrencyEvidence: true,
+        ),
+      ).single.currency,
+      'EUR',
+      reason:
+          'A known printed currency can be kept while the review currency is unresolved.',
     );
   });
 
@@ -8880,9 +12037,8 @@ Total USD 9.00
             merchant: 'Dim Sum House',
             receiptDate: '2026-06-11',
             currency: 'HKD',
-            subtotal: '68.00',
-            service: '6.00',
-            tax: '2.00',
+            // This positive case isolates item/assignment preservation.
+            // Unresolved taxed drafts are blocked by the tax Apply matrix.
             total: '76.00',
             rawTextLineCount: 6,
             items: [
@@ -9009,24 +12165,12 @@ Total USD 9.00
       );
       expect(find.text('Receipt totals for review only'), findsOneWidget);
       expect(
-        find.text('Subtotal suggested: HKD 68.00 (review only)'),
-        findsOneWidget,
-      );
-      expect(
-        find.text('Tax suggested: HKD 2.00 (review only)'),
-        findsOneWidget,
-      );
-      expect(
-        find.text('Service charge suggested: HKD 6.00 (review only)'),
-        findsOneWidget,
-      );
-      expect(
         find.text('Grand total suggested: HKD 76.00 (review only)'),
         findsOneWidget,
       );
       expect(
         find.text(
-          'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
+          'OCR item total differs from detected grand total. Review the receipt before applying.',
         ),
         findsOneWidget,
       );
@@ -9071,6 +12215,13 @@ Total USD 9.00
       await tester.enterText(
         find.byKey(const Key('group-bill-ocr-edit-merchant')),
         'Corrected Dim Sum',
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          'OCR item total differs from detected grand total. Review the receipt before applying.',
+        ),
+        findsOneWidget,
       );
       await tester.tap(find.byKey(const Key('group-bill-ocr-add-item')));
       await tester.pumpAndSettle();
@@ -14086,6 +17237,8 @@ ReceiptOcrReviewDetail sampleReceiptOcrReviewDetail(
   String currency = 'USD',
   DateTime? updatedAtUtc,
   List<ReceiptOcrReviewAdjustment> adjustments = const [],
+  List<ReceiptOcrReviewHeaderEvidence> headerEvidence = const [],
+  bool includeScalarTotals = true,
 }) {
   return ReceiptOcrReviewDetail(
     id: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
@@ -14097,11 +17250,11 @@ ReceiptOcrReviewDetail sampleReceiptOcrReviewDetail(
     merchantText: merchantText,
     receiptIssuedAtUtc: _createdAtUtc,
     currency: currency,
-    subtotalAmount: '10.00',
-    taxAmount: '0.80',
+    subtotalAmount: includeScalarTotals ? '10.00' : null,
+    taxAmount: includeScalarTotals ? '0.80' : null,
     serviceChargeAmount: null,
     discountAmount: null,
-    grandTotalAmount: '10.80',
+    grandTotalAmount: includeScalarTotals ? '10.80' : null,
     lines: [
       ReceiptOcrReviewLine(
         id: 'dddddddd-dddd-dddd-dddd-dddddddddddd',
@@ -14115,6 +17268,7 @@ ReceiptOcrReviewDetail sampleReceiptOcrReviewDetail(
       ),
     ],
     adjustmentEvidence: adjustments,
+    headerEvidence: headerEvidence,
     createdAtUtc: _createdAtUtc,
     updatedAtUtc: updatedAtUtc ?? _updatedAtUtc,
   );
@@ -14180,6 +17334,14 @@ ReceiptOcrReviewDetail sampleReceiptOcrReviewDetailFromRequest(
           direction: request.adjustmentEvidence[index].direction,
           createdAtUtc: _createdAtUtc,
           updatedAtUtc: _updatedAtUtc,
+        ),
+    ],
+    headerEvidence: [
+      for (final entry in request.headerEvidence)
+        ReceiptOcrReviewHeaderEvidence(
+          role: entry.role,
+          amount: entry.amount,
+          currency: entry.currency,
         ),
     ],
     createdAtUtc: _createdAtUtc,

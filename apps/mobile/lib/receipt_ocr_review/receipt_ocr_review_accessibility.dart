@@ -68,9 +68,15 @@ String _receiptOcrReviewSummarySemanticLabel(ReceiptOcrReviewSummary review) {
   final status = _receiptOcrReviewStatusSemanticLabel(review.status);
   final lineCount = _receiptOcrReviewLineCountSemanticLabel(review.lineCount);
   final currency = _receiptOcrReviewCurrencySemanticLabel(review.currency);
+  final printedHeaders = review.headerEvidence
+      .map(
+        (entry) =>
+            'Printed ${entry.role.replaceAll('_', ' ')} ${entry.amount} ${entry.currency}',
+      )
+      .join('. ');
 
   return 'Open $scope receipt review. Scope: $scope. Status: $status. '
-      '$lineCount. $currency. OCR data is provisional until applied by the server.';
+      '$lineCount. $currency. ${printedHeaders.isEmpty ? '' : '$printedHeaders. '}OCR data is provisional until applied by the server.';
 }
 
 String _receiptOcrReviewStatusSemanticLabel(ReceiptOcrReviewStatus status) {
