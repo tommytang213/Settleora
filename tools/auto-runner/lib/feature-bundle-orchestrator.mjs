@@ -59,6 +59,7 @@ import {
   executeAutoMerge,
   inspectAutoMergeGithubState,
   requiresIndependentAiReview,
+  reviewerManualGateOutcome,
   writeAutoMergeEvidence,
 } from "./auto-merge-policy.mjs";
 import {
@@ -418,6 +419,13 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   checkpoint("feature_bundle_local_codex_review", { externalReview: result.externalReview });
   result.review ||= runReviewPrompt(config, { ...result.reviewPackage, sessionLifecycle });
   checkpoint("feature_bundle_local_codex_review_complete", { review: result.review });
+  const initialManual = reviewerManualGateOutcome(result.externalReview, result.review);
+  if (initialManual) {
+    state = markBundleStopped(state, { reasonCode: "bundle_reviewer_manual_gate", reason: initialManual });
+    if (!config.dryRun) writeBundleState(config, state);
+    recovery?.stop("bundle_reviewer_manual_gate", initialManual, "manual_decision_required");
+    return stopBundle(result, initialManual, "bundle_reviewer_manual_gate", "Independent reviewer required a manual decision.", { state });
+  }
   if (result.review.sessionLifecycle) {
     sessionLifecycle = result.review.sessionLifecycle;
     result.sessionLifecycle = sessionLifecycle;
@@ -600,6 +608,7 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
 }
 
 function routeBundleStructuredFindingsToConvergence(result) {
+  if (reviewerManualGateOutcome(result.externalReview, result.review)) return false;
   const externalProvider = result.externalReview?.provider || "gemini";
   const external = structuredLargeCandidateFindings(result.largeCandidateReview, externalProvider).map(bundleConvergenceFinding);
   const codex = structuredLargeCandidateFindings(result.largeCandidateReview, "codex-local").map(bundleConvergenceFinding);
@@ -763,6 +772,13 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
       largeCandidateReview: postFix.largeCandidateReview,
       reviewMutationGuard: postFix.reviewMutationGuard,
     };
+    const postFixManual = reviewerManualGateOutcome(postFix.externalReview, postFix.review);
+    if (postFixManual) {
+      state = markBundleStopped(state, { reasonCode: "bundle_post_fix_reviewer_manual_gate", reason: postFixManual });
+      writeState(state);
+      input.recovery?.stop("bundle_post_fix_reviewer_manual_gate", postFixManual, "manual_decision_required");
+      return { ok: false, outcome: postFixManual, reasonCode: "bundle_post_fix_reviewer_manual_gate", state, attempts };
+    }
     if (postFix.externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation" && !postFix.largeCandidateReview?.ok) {
       const manualVerdict = structuredLargeCandidateManualVerdict(postFix.largeCandidateReview);
       if (manualVerdict) {

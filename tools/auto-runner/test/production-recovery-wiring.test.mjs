@@ -5,7 +5,19 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { resolveExistingPrRecoveryReviewerProvider, resolveOrdinaryParallelReviewerCheckpoint, resolveOrdinaryRecoveryManualGate } from "../settleora-auto-runner.mjs";
+import { resolveExistingPrRecoveryReviewerProvider, resolveOrdinaryParallelReviewerCheckpoint, resolveOrdinaryRecoveryManualGate, routeNormalStructuredFindingsToConvergence } from "../settleora-auto-runner.mjs";
+
+test("ordinary structured findings cannot replace a manual reviewer verdict", () => {
+  for (const [external, local] of [
+    [{ verdict: "danger_gate" }, { verdict: { verdict: "changes_requested" } }],
+    [{ verdict: "fail" }, { verdict: { verdict: "needs_tommy" } }],
+  ]) {
+    const iteration = { externalReview: external, review: local, largeCandidateReview: { ok: false } };
+    assert.equal(routeNormalStructuredFindingsToConvergence(iteration), false);
+    assert.equal(iteration.externalReview, external);
+    assert.equal(iteration.review, local);
+  }
+});
 
 test("durable recovery manual gate blocks replay of source-fix and review callbacks", () => {
   assert.deepEqual(resolveOrdinaryRecoveryManualGate({ evidence: {} }), { ok: true });

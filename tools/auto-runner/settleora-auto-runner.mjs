@@ -5424,6 +5424,14 @@ async function certifyNormalCumulativeLargeReview(config, iteration, changedFile
 }
 
 async function refreshNormalLargeCandidateReviewAfterFix(config, iteration, changedFiles, issue, recoveryRecorder) {
+  const independentManual = reviewerManualGateOutcome(iteration.externalReview, iteration.review);
+  if (independentManual) {
+    iteration.outcome = independentManual;
+    recoveryRecorder?.stop("post_fix_reviewer_manual_gate", independentManual, "manual_decision_required");
+    iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, `Post-fix exact-head review required a manual decision; no further mutation or push was attempted.`);
+    iteration.finishedAt = new Date().toISOString();
+    return false;
+  }
   if (iteration.externalReview?.route?.largeCandidateRouting?.route !== "large_bundle_escalation") {
     iteration.largeCandidateReview = { ok: true, route: "normal", state: "external_review_normal_ready" };
     return true;
@@ -5474,7 +5482,8 @@ async function refreshNormalLargeCandidateReviewAfterFix(config, iteration, chan
   return false;
 }
 
-function routeNormalStructuredFindingsToConvergence(iteration) {
+export function routeNormalStructuredFindingsToConvergence(iteration) {
+  if (reviewerManualGateOutcome(iteration.externalReview, iteration.review)) return false;
   const externalProvider = iteration.externalReview?.provider || "gemini";
   const external = structuredLargeCandidateFindings(iteration.largeCandidateReview, externalProvider).map(convergenceFinding);
   const codex = structuredLargeCandidateFindings(iteration.largeCandidateReview, "codex-local").map(convergenceFinding);
