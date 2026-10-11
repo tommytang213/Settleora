@@ -249,6 +249,15 @@ class ReceiptOcrParser {
               hasCompleteItemEvidence: hasCompletePricedItemEvidence,
             ) !=
             null;
+    final ownedModifierRows = _ownedUnpricedModifierRows(
+      lines,
+      layoutRows,
+      extractedItems.lineDecisions,
+      itemCandidates,
+      amounts,
+      currency,
+      hasCompletePricedItemEvidence: hasCompletePricedItemEvidence,
+    );
     final unresolvedItemLines = _countUnresolvedItemLikeLines(
       lines,
       merchantLineIndices: merchantDetection?.lineIndices ?? const {},
@@ -256,6 +265,7 @@ class ReceiptOcrParser {
       layoutRows: layoutRows,
       layoutChargeItemRows: layoutChargeItems.keys.toSet(),
       hasBoundedDccFooterBoundary: hasBoundedDccFooterBoundary,
+      ownedModifierRows: ownedModifierRows,
       ownedSummaryAmountRows: {
         for (final entry in skewedSummaryLines.entries)
           if (entry.value.isEmpty) entry.key,
@@ -5546,6 +5556,249 @@ class ReceiptOcrParser {
       RegExp(r'^(?:FUEL|PRODUCT)\b', caseSensitive: false).hasMatch(line) &&
       _hasChargeTableMonetaryEvidence(line);
 
+  // A mixed priced/unpriced option group can own its empty price cells only
+  // within a complete, reconciled receipt table. This changes completeness,
+  // never the retained item amounts, descriptions, decisions or raw blocks.
+  Set<int> _ownedUnpricedModifierRows(
+    List<String> lines,
+    List<List<ReceiptOcrBlockEvidence>> rows,
+    List<ReceiptOcrItemLineDecision> decisions,
+    List<ReceiptOcrItemCandidate> items,
+    _LabeledReceiptAmounts amounts,
+    String? currency, {
+    required bool hasCompletePricedItemEvidence,
+  }) {
+    if (!hasCompletePricedItemEvidence ||
+        !lines.any(_isPrintedModifierLine) ||
+        currency == null ||
+        rows.length != lines.length ||
+        rows.isEmpty ||
+        !amounts.adjustmentsComplete ||
+        amounts.taxIncludedInTotal ||
+        amounts.discount != null ||
+        amounts.service != null ||
+        amounts.tip != null ||
+        amounts.shipping != null ||
+        amounts.subtotal == null ||
+        amounts.total == null) {
+      return const {};
+    }
+    final subtotalRows = <int>[];
+    final totalRows = <int>[];
+    final taxRows = <int>[];
+    for (var i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      final folded = line.toLowerCase();
+      if (_hasSubtotalLabel(line, folded)) subtotalRows.add(i);
+      if (_isPrimaryTotalCurrencyLine(line, folded)) totalRows.add(i);
+      if (_hasTaxLabel(line, folded)) taxRows.add(i);
+    }
+    // Count all primary labels before considering their amount or currency.
+    if (subtotalRows.length != 1 ||
+        totalRows.length != 1 ||
+        taxRows.length > 1) {
+      return const {};
+    }
+    final subtotalRow = subtotalRows.single;
+    final totalRow = totalRows.single;
+    if (subtotalRow >= totalRow ||
+        taxRows.any((i) => i <= subtotalRow || i >= totalRow)) {
+      return const {};
+    }
+    final selectedRows = [
+      for (var i = 0; i < decisions.length; i++)
+        if (decisions[i] == ReceiptOcrItemLineDecision.pricedItemSelected) i,
+    ];
+    if (selectedRows.isEmpty ||
+        selectedRows.length != items.length ||
+        selectedRows.any((i) => i >= subtotalRow)) {
+      return const {};
+    }
+    final boxes =
+        <
+          ReceiptOcrBlockEvidence,
+          ({double left, double right, double top, double bottom})
+        >{};
+    for (final b in rows.expand((row) => row)) {
+      if (b.confidence == null ||
+          !b.confidence!.isFinite ||
+          b.confidence! < 0.8 ||
+          b.confidence! > 1 ||
+          b.points.length != 4 ||
+          b.points.any((p) => !p.x.isFinite || !p.y.isFinite)) {
+        return const {};
+      }
+      final turns = [
+        for (var i = 0; i < 4; i++)
+          (b.points[(i + 1) % 4].x - b.points[i].x) *
+                  (b.points[(i + 2) % 4].y - b.points[(i + 1) % 4].y) -
+              (b.points[(i + 1) % 4].y - b.points[i].y) *
+                  (b.points[(i + 2) % 4].x - b.points[(i + 1) % 4].x),
+      ];
+      if (!turns.every((v) => v.isFinite && v > 0) &&
+          !turns.every((v) => v.isFinite && v < 0)) {
+        return const {};
+      }
+      final xs = b.points.map((p) => p.x).toList()..sort();
+      final ys = b.points.map((p) => p.y).toList()..sort();
+      if (xs.last <= xs.first || ys.last <= ys.first) return const {};
+      boxes[b] = (
+        left: xs.first,
+        right: xs.last,
+        top: ys.first,
+        bottom: ys.last,
+      );
+    }
+    int? rowMoney(int index) {
+      // The description and amount must be distinct provider blocks. A split
+      // denomination is allowed only when it joins the adjacent amount cell.
+      final row = rows[index];
+      if (row.length < 2 || row.length > 3) return null;
+      final description = boxes[row.first]!;
+      final h = description.bottom - description.top;
+      if (boxes[row[1]]!.left - description.right < h) return null;
+      for (var j = 1; j < row.length; j++) {
+        final b = boxes[row[j]]!;
+        if (b.bottom - b.top < h / 2 ||
+            b.bottom - b.top > h * 2 ||
+            b.top > description.bottom - h / 2 ||
+            b.bottom < description.top + h / 2 ||
+            (j > 1 &&
+                (b.left < boxes[row[j - 1]]!.right ||
+                    b.left - boxes[row[j - 1]]!.right > h))) {
+          return null;
+        }
+      }
+      final text = row.skip(1).map((b) => b.text.trim()).join(' ');
+      if (!_isBoundedSummaryAmount(text)) return null;
+      final printed = _currencyAdjacentToSelectedAmount(text, currency);
+      if (!printed.hasExplicitEvidence || printed.currency != currency) {
+        return null;
+      }
+      final value = _lastAmountInLine(text, currency: currency);
+      return value == null ? null : _ocrAmountMinorUnits(value, currency);
+    }
+
+    final subtotal = rowMoney(subtotalRow);
+    final total = rowMoney(totalRow);
+    final tax = taxRows.isEmpty ? 0 : rowMoney(taxRows.single);
+    if (subtotal == null ||
+        total == null ||
+        tax == null ||
+        tax < 0 ||
+        subtotal != _ocrAmountMinorUnits(amounts.subtotal!, currency) ||
+        total != _ocrAmountMinorUnits(amounts.total!, currency) ||
+        subtotal + tax != total ||
+        (taxRows.isEmpty
+            ? amounts.tax != null
+            : amounts.tax == null ||
+                  tax != _ocrAmountMinorUnits(amounts.tax!, currency))) {
+      return const {};
+    }
+    var sum = 0;
+    for (var j = 0; j < selectedRows.length; j++) {
+      final item = items[j];
+      final money = rowMoney(selectedRows[j]);
+      if (money == null ||
+          money <= 0 ||
+          item.currencyUnresolved ||
+          item.currency != currency ||
+          item.lineTotal == null ||
+          money != _ocrAmountMinorUnits(item.lineTotal!, currency)) {
+        return const {};
+      }
+      sum += money;
+    }
+    if (sum != subtotal) return const {};
+    final moneyRows = [...selectedRows, subtotalRow, ...taxRows, totalRow];
+    final first = boxes[rows[selectedRows.first].first]!;
+    final h = first.bottom - first.top;
+    final right = boxes[rows[selectedRows.first].last]!.right;
+    var moneyLeft = right;
+    for (final i in moneyRows) {
+      final price = boxes[rows[i][1]]!;
+      if ((boxes[rows[i].last]!.right - right).abs() > h ||
+          (boxes[rows[i].first]!.left - first.left).abs() > h * 2) {
+        return const {};
+      }
+      if (price.left < moneyLeft) moneyLeft = price.left;
+    }
+    final owned = <int>{};
+    for (var parent = 0; parent < subtotalRow; parent++) {
+      if (!selectedRows.contains(parent) ||
+          _isPrintedModifierLine(lines[parent])) {
+        continue;
+      }
+      var end = parent + 1;
+      while (end < subtotalRow && _isPrintedModifierLine(lines[end])) {
+        end++;
+      }
+      if (end <= parent + 1) continue;
+      final unpriced = <int>[];
+      var pricedOptions = 0;
+      var valid = true;
+      for (var i = parent + 1; i < end; i++) {
+        if (_hasPotentialReceiptAdjustmentLabel(lines[i])) {
+          valid = false;
+          break;
+        }
+        if (selectedRows.contains(i)) {
+          pricedOptions++;
+        } else if (decisions[i] ==
+                ReceiptOcrItemLineDecision.unpricedDescription &&
+            rows[i].length == 1 &&
+            RegExp(
+              r"^\+\s+\p{L}[\p{L}\s.'()-]{1,78}$",
+              unicode: true,
+            ).hasMatch(lines[i]) &&
+            !RegExp(
+              r'\b(?:sub\s*total|total|balance|cash|change|payment)\b',
+              caseSensitive: false,
+            ).hasMatch(lines[i]) &&
+            !RegExp(
+              '(?:^|\\s)(?:$_currencyTokenPattern)(?=\\s|\$)',
+              caseSensitive: false,
+            ).hasMatch(lines[i])) {
+          unpriced.add(i);
+        } else {
+          valid = false;
+          break;
+        }
+        final current = boxes[rows[i].first]!;
+        final previous = boxes[rows[i - 1].first]!;
+        final height = current.bottom - current.top;
+        if (height < h / 2 ||
+            height > h * 2 ||
+            current.top < previous.bottom ||
+            current.top - previous.bottom > h * 1.5 ||
+            (current.left - first.left).abs() > h * 2 ||
+            current.right > moneyLeft - h / 2) {
+          valid = false;
+          break;
+        }
+        // Provider row IDs alone cannot exclude a detached price. Any block
+        // from another row physically beside an unpriced option stays ambiguous.
+        if (unpriced.contains(i)) {
+          for (final entry in boxes.entries) {
+            if (rows[i].contains(entry.key)) continue;
+            final b = entry.value;
+            if (b.bottom > current.top - h / 4 &&
+                b.top < current.bottom + h / 4 &&
+                b.right > current.right) {
+              valid = false;
+              break;
+            }
+          }
+        }
+      }
+      if (valid && pricedOptions > 0 && unpriced.isNotEmpty) {
+        owned.addAll(unpriced);
+      }
+      parent = end - 1;
+    }
+    return owned;
+  }
+
   int _countUnresolvedItemLikeLines(
     List<String> lines, {
     Set<int> merchantLineIndices = const {},
@@ -5553,6 +5806,7 @@ class ReceiptOcrParser {
     List<List<ReceiptOcrBlockEvidence>> layoutRows = const [],
     Set<int> layoutChargeItemRows = const {},
     bool hasBoundedDccFooterBoundary = false,
+    Set<int> ownedModifierRows = const {},
     Set<int> ownedSummaryAmountRows = const {},
     Set<int> nonItemSummaryRows = const {},
     Set<int> uncertainSummaryAmountRows = const {},
@@ -5715,6 +5969,7 @@ class ReceiptOcrParser {
       // An unpriced modifier is not a receipt address or a price merely
       // because its name contains a street/building number.
       if (_isPrintedModifierLine(line) && !_isPricedItemLine(line)) {
+        if (ownedModifierRows.contains(lineIndex)) continue;
         count += 1;
         continue;
       }

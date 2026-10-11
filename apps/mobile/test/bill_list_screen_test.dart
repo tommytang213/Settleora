@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'support/brand_copy_receipt.dart';
 import 'support/financial_role_receipt.dart';
+import 'support/modifier_receipt.dart';
 import 'support/summary_role_receipt.dart';
 
 import 'package:flutter/material.dart';
@@ -67,6 +68,9 @@ void main() {
       'competingSubtotal',
       'promotionForeignTotalBefore',
       'promotionForeignTotalAfter',
+      'modifierComplete',
+      'modifierNoLayout',
+      'modifierForeignTotal',
       'taxAnnotation',
       'foreignTaxItem',
       'brandCaption',
@@ -93,6 +97,7 @@ void main() {
         'serviceAttachedCurrency',
         'subtotal',
         'taxAnnotation',
+        'modifierComplete',
         'brandCaption',
         'brandFooter',
         'traditionalTaxZero',
@@ -208,6 +213,19 @@ void main() {
               '${scenario.endsWith('After') ? 'Total EUR 99.00\n' : ''}'
               'Thank you',
             )
+          : scenario.startsWith('modifier')
+          ? parseModifierReceipt(
+              modifierReceiptBlocks(
+                modifierReceiptRows()..addAll(
+                  scenario == 'modifierForeignTotal'
+                      ? [
+                          ['Total', 'EUR 14.30'],
+                        ]
+                      : [],
+                ),
+              ),
+              layout: scenario != 'modifierNoLayout',
+            )
           : switch (scenario) {
               'service' => joinedServicePreview(),
               'foreignService' => joinedServicePreview(amount: 'EUR 1.00'),
@@ -261,6 +279,18 @@ void main() {
           );
           expect(saved, isNotNull);
           expect(saved!.status, ReceiptOcrReviewStatusValues.provisional);
+          if (scenario.startsWith('modifier')) {
+            expect(preview.reviewHints.isEmpty, confidentDraft);
+            expect(preview.items, hasLength(3));
+            expect(saved.lines.map((line) => line.lineTotalAmount), [
+              '9.00',
+              '1.50',
+              '2.50',
+            ]);
+            expect(saved.subtotalAmount, '13.00');
+            expect(saved.taxAmount, '1.30');
+            expect(preview.total, '14.30');
+          }
           if (scenario.startsWith('summaryCurrency')) {
             final matching = scenario.contains('Matching');
             expect(preview.currency, 'USD');
