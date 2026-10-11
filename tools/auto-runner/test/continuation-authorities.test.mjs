@@ -25,6 +25,20 @@ test("ordinary continuation resumes each review and mutation boundary without fa
   }
 });
 
+test("source-failure fix propagates a manual reviewer stop", async () => {
+  const candidate = identity();
+  const state = createOrdinaryContinuationState({ logicalTaskKey: "root", issueNumber: 924,
+    branchName: "feature/test", identity: candidate, phase: "local_validation" });
+  const result = await continueOrdinaryCandidate(state, {
+    local_validation: async () => ({ ok: true, sourceFailures: [{ sourceKind: "local_validation",
+      structuredEvidence: true, failureType: "source", diagnostic: "synthetic failure", identity: candidate }] }),
+    source_failure_fix: async () => ({ ok: false, outcome: "danger_gate", reasonCode: "manual_reviewer_gate" }),
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.outcome, "danger_gate");
+  assert.equal(result.reasonCode, "manual_reviewer_gate");
+});
+
 test("ordinary continuation adopts exact effects and waits at real pending state", async () => {
   let pending = true;
   const handlers = Object.fromEntries(ordinaryContinuationPhases.map((phase) => [phase, async () => {

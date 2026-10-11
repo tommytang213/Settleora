@@ -5,7 +5,28 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { resolveExistingPrRecoveryReviewerProvider } from "../settleora-auto-runner.mjs";
+import { resolveExistingPrRecoveryReviewerProvider, resolveOrdinaryParallelReviewerCheckpoint, resolveOrdinaryRecoveryManualGate } from "../settleora-auto-runner.mjs";
+
+test("durable recovery manual gate blocks replay of source-fix and review callbacks", () => {
+  assert.deepEqual(resolveOrdinaryRecoveryManualGate({ evidence: {} }), { ok: true });
+  assert.equal(resolveOrdinaryRecoveryManualGate({ evidence: { ordinaryManualGate: {
+    outcome: "danger_gate", reasonCode: "source_failure_fix_post_fix_reviewer_manual_gate",
+    candidateHeadSha: "a".repeat(40),
+  } } }).outcome, "danger_gate");
+  assert.equal(resolveOrdinaryRecoveryManualGate({ evidence: { ordinaryManualGate: { outcome: "approve" } } }).reasonCode,
+    "ordinary_manual_gate_marker_invalid");
+});
+
+test("persisted parallel manual verdicts remain blocking on restart", () => {
+  const head = "a".repeat(40);
+  const checkpoint = { candidateHeadSha: head, providerPin: "grok",
+    external: { reviewedHead: head, verdict: "needs_tommy" },
+    codex: { reviewedHead: head, verdict: { verdict: "danger_gate" } } };
+  assert.equal(resolveOrdinaryParallelReviewerCheckpoint(checkpoint, { headSha: head }, "grok").outcome, "danger_gate");
+  assert.equal(resolveOrdinaryParallelReviewerCheckpoint({ ...checkpoint, codex: { reviewedHead: head, verdict: { verdict: "approve" } } }, { headSha: head }, "grok").outcome, "blocked_needs_tommy");
+  assert.equal(resolveOrdinaryParallelReviewerCheckpoint(checkpoint, { headSha: head }, "gemini").reasonCode, "ordinary_parallel_reviewer_checkpoint_identity_mismatch");
+  assert.equal(resolveOrdinaryParallelReviewerCheckpoint(checkpoint, { headSha: "b".repeat(40) }, "grok").checkpoint, null);
+});
 
 test("recovery provider pin uses the routed cheap or strong reviewer tier", () => {
   const config = { reviewerTiers: {
@@ -27,8 +48,15 @@ test("parallel reviewer sessions and manual verdicts are persisted before recove
 test("post-fix recovery paths stop on either reviewer's manual verdict before head adoption", () => {
   const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
   assert.match(runner, /source_failure_fix: async[\s\S]*?if \(!fixAttempt\.proceeded\) return \{ ok: false, outcome: fixAttempt\.reviewerManualOutcome/);
-  assert.match(runner, /source_failure_fix: async[\s\S]*?const postFixManual = reviewerManualGateOutcome\(postFix\.externalReview, postFix\.review\);[\s\S]*?if \(postFixManual\) return \{ ok: false, outcome: postFixManual[\s\S]*?sourceChanged: true/);
-  assert.match(runner, /review_convergence: async[\s\S]*?context\.externalReview = postFix\.externalReview;[\s\S]*?context\.review = postFix\.review;[\s\S]*?if \(postFixManual\) return \{ ok: false, outcome: postFixManual/);
+  assert.match(runner, /source_failure_fix: async[\s\S]*?const postFixManual = reviewerManualGateOutcome\(postFix\.externalReview, postFix\.review\);[\s\S]*?if \(postFixManual\) \{[\s\S]*?persistOrdinaryManualGate\(postFixManual[\s\S]*?return \{ ok: false, outcome: postFixManual[\s\S]*?sourceChanged: true/);
+  assert.match(runner, /review_convergence: async[\s\S]*?context\.externalReview = postFix\.externalReview;[\s\S]*?context\.review = postFix\.review;[\s\S]*?if \(postFixManual\) \{[\s\S]*?persistOrdinaryManualGate\(postFixManual[\s\S]*?return \{ ok: false, outcome: postFixManual/);
+});
+
+test("primary source-failure path requires exact-head dual recertification before proceeding", () => {
+  const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  assert.match(runner, /initialSourceFixManual = reviewerManualGateOutcome\(postFix\.externalReview, postFix\.review\)[\s\S]*?source_failure_post_fix_reviewer_manual_gate/);
+  assert.match(runner, /replacementManual = reviewerManualGateOutcome\(postFix\.externalReview, postFix\.review\)[\s\S]*?source_failure_post_fix_reviewer_manual_gate/);
+  assert.match(runner, /postFix\.reviewMutationGuard\?\.mutationDetected \|\| postFix\.externalReview\?\.status !== "pass"[\s\S]*?postFix\.review\?\.verdict\?\.verdict !== "approve"/);
 });
 import {
   advanceRecoveryPhase,
