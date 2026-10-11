@@ -37,6 +37,10 @@ function sanitizeValue(value) {
 
   const output = {};
   for (const [key, child] of Object.entries(value)) {
+    if (key === "changedFiles" || key === "attestedIntegrationBoundaries") {
+      output[key] = sanitizePathArray(child);
+      continue;
+    }
     if (shouldOmitKey(key)) {
       if (pathKeyPattern.test(key)) output[key] = sanitizeValue(child);
       continue;
@@ -82,12 +86,12 @@ function sanitizeReviewResult(review) {
     reviewedHead: stringOrNull(review.reviewedHead),
     reviewedBaseSha: stringOrNull(review.reviewedBaseSha),
     baseSha: stringOrNull(review.baseSha),
-    changedFiles: sanitizeStringArray(review.changedFiles),
+    changedFiles: sanitizePathArray(review.changedFiles),
     changedFilesDigest: stringOrNull(review.changedFilesDigest),
     attestationSource: stringOrNull(review.attestationSource),
     providerPromptBindingDigest: stringOrNull(review.providerPromptBindingDigest),
     attestedCandidateIdentity: sanitizeValue(review.attestedCandidateIdentity ?? null),
-    attestedIntegrationBoundaries: sanitizeStringArray(review.attestedIntegrationBoundaries),
+    attestedIntegrationBoundaries: sanitizePathArray(review.attestedIntegrationBoundaries),
     fullCandidatePrDelta: sanitizeValue(review.fullCandidatePrDelta ?? null),
     evidenceBinding: sanitizeValue(review.evidenceBinding ?? null),
     verdict: sanitizeReviewVerdict(review.verdict),
@@ -192,8 +196,12 @@ function booleanOrNull(value) {
   return typeof value === "boolean" ? value : null;
 }
 
-function sanitizeStringArray(value) {
-  return Array.isArray(value) ? value.filter((item) => typeof item === "string").map((item) => sanitizeString(item)) : [];
+function sanitizePathArray(value) {
+  return Array.isArray(value) ? value.filter((item) => typeof item === "string"
+    && item.length > 0 && item.length <= 400 && !item.startsWith("/")
+    && /^[A-Za-z0-9._/@+ -]+$/.test(item)
+    && item.split("/").every((segment) => segment && segment !== "." && segment !== "..")
+    && !/\b(?:xai-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9_]{20,})\b/i.test(item)) : [];
 }
 
 function sanitizeString(value) {

@@ -94,7 +94,8 @@ test("recovery sanitization preserves Grok pass and fail checkpoint fields", () 
 
 test("serialized ordinary reviewer checkpoints can certify a Grok large candidate", async () => {
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-grok-large-recovery-"));
-  const changedFiles = ["services/api/runtime.mjs", "tools/auto-runner/a.mjs"];
+  const changedFiles = ["docs/architecture/AUTH_REFRESH_TOKEN_ROTATION_POLICY.md",
+    "tools/auto-runner/lib/review-secret-boundary.mjs"];
   const digest = createHash("sha256").update(JSON.stringify(changedFiles)).digest("hex");
   const identity = { repository: "tommytang213/Settleora", headSha: "a".repeat(40),
     baseSha: "b".repeat(40), treeSha: "c".repeat(40), diffDigest: "d".repeat(64), changedFilesDigest: digest };
@@ -115,6 +116,8 @@ test("serialized ordinary reviewer checkpoints can certify a Grok large candidat
     const recovered = resolveOrdinaryParallelReviewerCheckpoint(state.evidence.parallelReviewerVerdicts, identity, "grok");
     assert.equal(recovered.ok, true);
     assert.equal(recovered.retryIncomplete, false);
+    assert.deepEqual(recovered.checkpoint.external.changedFiles, changedFiles);
+    assert.deepEqual(recovered.checkpoint.codex.changedFiles, changedFiles);
     const result = await persistCumulativeLargeCandidateReview({ config: { logsRoot, reviewerProviderPin: "grok" },
       taskKey: "recovered-large", candidateIdentity: identity, changedFiles, integrationBoundaries: boundaries,
       externalReview: recovered.checkpoint.external, codexReview: recovered.checkpoint.codex,
