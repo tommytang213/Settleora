@@ -639,6 +639,7 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
     const hasReviewHintCategory = Object.hasOwn(entry, "reviewHintCategory");
     const previewWarningKeys = ["previewPresent", "previewWarningCount", "previewWarningCategoryCounts"];
     const hasPreviewWarnings = previewWarningKeys.some((key) => Object.hasOwn(entry, key));
+    const hasHeaderFields = Object.hasOwn(entry, "headerFieldStates");
     const reviewDecisionKeys = ["reviewDecision", "incompleteAdjustmentReasons"];
     const hasReviewDecision = reviewDecisionKeys.some((key) => Object.hasOwn(entry, key));
     const itemDecisionKeys = ["itemLineDecisionCounts", "expectedDescriptionDecisionCounts"];
@@ -654,6 +655,7 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
       "expectedItemCount", "itemDescriptionsExactTextSeen", ...(hasLayoutCoverage ? layoutKeys : []),
       ...(hasCellCoverage ? cellKeys : []), ...(hasReviewHintCategory ? ["reviewHintCategory"] : []),
       ...(hasPreviewWarnings ? previewWarningKeys : []),
+      ...(hasHeaderFields ? ["headerFieldStates"] : []),
       ...(hasReviewDecision ? reviewDecisionKeys : []),
       ...(hasItemDecisions ? itemDecisionKeys : []),
       ...(hasRowShapes ? rowShapeKeys : []),
@@ -661,6 +663,19 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
       ...(hasDraftCoverage ? draftKeys : [])],
     `recognitionCoverage[${index}]`);
     const fixtureId = boundedToken(entry.fixtureId, `recognitionCoverage[${index}].fixtureId`);
+    let headerFieldStates = null;
+    if (hasHeaderFields) {
+      const fields = ["merchant", "date", "currency", "subtotal", "tax", "service", "tip", "shipping", "discount", "total"];
+      const states = ["matchingValue", "matchingAbsence", "missingValue", "differentValue", "unexpectedValue", "noPreview"];
+      const label = `recognitionCoverage[${index}].headerFieldStates`;
+      assertExactKeys(entry.headerFieldStates, fields, label);
+      if (!hasPreviewWarnings || typeof entry.previewPresent !== "boolean" || fields.some((field) =>
+        !states.includes(entry.headerFieldStates[field]) ||
+        (entry.headerFieldStates[field] === "noPreview") !== !entry.previewPresent)) {
+        throw new Error("Recognition coverage header field states are invalid");
+      }
+      headerFieldStates = Object.fromEntries(fields.map((field) => [field, entry.headerFieldStates[field]]));
+    }
     let previewWarningCount = null;
     let previewWarningCategoryCounts = null;
     if (hasPreviewWarnings) {
@@ -814,6 +829,7 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
       ...(hasReviewHintCategory ? { reviewHintCategory } : {}),
       ...(hasPreviewWarnings ? { previewPresent: entry.previewPresent, previewWarningCount,
         previewWarningCategoryCounts } : {}),
+      ...(hasHeaderFields ? { headerFieldStates } : {}),
       ...(hasReviewDecision ? { reviewDecision,
         incompleteAdjustmentReasons: entry.incompleteAdjustmentReasons } : {}),
       ...(hasItemDecisions ? { itemLineDecisionCounts: entry.itemLineDecisionCounts,
@@ -835,6 +851,10 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
   if (boundedRecognitionCoverage.some((entry) => Object.hasOwn(entry, "previewWarningCount")) &&
       boundedRecognitionCoverage.some((entry) => !Object.hasOwn(entry, "previewWarningCount"))) {
     throw new Error("Recognition coverage preview warnings are incomplete");
+  }
+  if (boundedRecognitionCoverage.some((entry) => Object.hasOwn(entry, "headerFieldStates")) &&
+      boundedRecognitionCoverage.some((entry) => !Object.hasOwn(entry, "headerFieldStates"))) {
+    throw new Error("Recognition coverage header field states are incomplete");
   }
   if (boundedRecognitionCoverage.some((entry) => Object.hasOwn(entry, "reviewDecision")) &&
       boundedRecognitionCoverage.some((entry) => !Object.hasOwn(entry, "reviewDecision"))) {

@@ -361,6 +361,44 @@ test("retains only the bounded native acceptance schema", () => {
     ...acceptance, recognitionCoverage: [acceptance.recognitionCoverage[0], ...withPreviewWarnings.slice(1)],
   })}`), (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot),
     /preview warnings are incomplete/));
+  const headerFields = ["merchant", "date", "currency", "subtotal", "tax", "service", "tip", "shipping", "discount", "total"];
+  const headerMap = (state) => Object.fromEntries(headerFields.map((field) => [field, state]));
+  const withHeaderFields = withPreviewWarnings.map((entry) => ({
+    ...entry, headerFieldStates: headerMap("matchingAbsence"),
+  }));
+  for (const state of ["matchingValue", "matchingAbsence", "missingValue", "differentValue", "unexpectedValue", "noPreview"]) {
+    const rows = withHeaderFields.map((entry) => ({ ...entry,
+      previewPresent: state !== "noPreview", headerFieldStates: headerMap(state),
+    }));
+    withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...acceptance, recognitionCoverage: rows,
+    })}`), (log) => assert.deepEqual(buildEvidence(evidenceArgs(log), repoRoot).acceptance.recognitionCoverage, rows));
+  }
+  const { total: omittedHeader, ...incompleteHeaders } = headerMap("matchingAbsence");
+  for (const invalid of [
+    { headerFieldStates: null }, { headerFieldStates: [] }, { headerFieldStates: "Private content" },
+    { headerFieldStates: incompleteHeaders },
+    { headerFieldStates: { ...headerMap("matchingAbsence"), privateText: "Private content" } },
+    ...[null, 0, true, {}, [], "72.19", "unknownState", "noPreview"].map((total) => ({
+      headerFieldStates: { ...headerMap("matchingAbsence"), total },
+    })),
+    { previewPresent: false },
+  ]) {
+    withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...acceptance, recognitionCoverage: [{ ...withHeaderFields[0], ...invalid }, ...withHeaderFields.slice(1)],
+    })}`), (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot),
+      /headerFieldStates|header field states/));
+  }
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+    ...acceptance, recognitionCoverage: [withPreviewWarnings[0], ...withHeaderFields.slice(1)],
+  })}`), (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot),
+    /header field states are incomplete/));
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+    ...acceptance, recognitionCoverage: acceptance.recognitionCoverage.map((entry) => ({
+      ...entry, headerFieldStates: headerMap("matchingAbsence"),
+    })),
+  })}`), (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot),
+    /header field states are invalid/));
   const withReviewDecisions = acceptance.recognitionCoverage.map((entry) => ({
     ...entry, reviewDecision: "none", incompleteAdjustmentReasons: [],
   }));

@@ -1,5 +1,48 @@
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
 
+// Fixed labels distinguish strict header mismatch shapes without retaining
+// receipt values or treating a warning-free value as calibrated confidence.
+Map<String, Object> receiptOcrHeaderFieldEvidence(
+  ReceiptOcrPreview? preview,
+  Map<String, Object?> expected,
+) {
+  final actual = <String, String?>{
+    'merchant': preview?.merchant,
+    'date': preview?.receiptDate,
+    'currency': preview?.currency,
+    'subtotal': preview?.subtotal,
+    'tax': preview?.tax,
+    'service': preview?.service,
+    'tip': preview?.tip,
+    'shipping': preview?.shipping,
+    'discount': preview?.discount,
+    'total': preview?.total,
+  };
+  return {
+    'headerFieldStates': {
+      for (final entry in actual.entries)
+        entry.key: preview == null
+            ? 'noPreview'
+            : _headerFieldState(entry.key, entry.value, expected),
+    },
+  };
+}
+
+String _headerFieldState(
+  String field,
+  String? actual,
+  Map<String, Object?> expected,
+) {
+  final mismatches = <String>[];
+  _collectField(mismatches, '', field, actual, expected);
+  if (mismatches.isEmpty) {
+    return actual == null ? 'matchingAbsence' : 'matchingValue';
+  }
+  if (actual == null) return 'missingValue';
+  if (expected[field] == null) return 'unexpectedValue';
+  return 'differentValue';
+}
+
 // Ordinary preview warnings are distinct from reconciliation review hints.
 // Emit only fixed categories and counts, never warning or receipt text. An
 // unknown warning remains counted so a future wording change cannot hide it.

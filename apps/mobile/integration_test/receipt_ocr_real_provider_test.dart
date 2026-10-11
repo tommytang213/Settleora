@@ -1619,6 +1619,7 @@ Map<String, Object> _boundedRecognitionCoverage(
     'expectedSubtotalTokenSeen': containsExpectedAmount(expected['subtotal']),
     'reviewHintCategory': _boundedReviewHintCategory(result.preview),
     ...receiptOcrPreviewWarningEvidence(result.preview),
+    ...receiptOcrHeaderFieldEvidence(result.preview, expected),
     'itemLineDecisionCounts': itemLineDecisionCounts,
     'expectedDescriptionDecisionCounts': expectedDescriptionDecisionCounts,
     'expectedUnretainedRowShapeCounts': expectedUnretainedRowShapeCounts,
