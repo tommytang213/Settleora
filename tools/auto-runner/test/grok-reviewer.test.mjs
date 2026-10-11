@@ -234,5 +234,6 @@ test("integrated Grok adapter accepts only a complete screened and head-bound re
     assert.equal(secret.status, "blocked");
     assert.equal(secret.reason, "blocked_grok_context_secret_boundary");
     assert.equal(secret.liveCallAttempted, false);
+    assert.notEqual(secret.reportPath, result.reportPath);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

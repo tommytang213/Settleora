@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
@@ -76,7 +76,7 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
     }
     const root = path.join(config.logsRoot, "reviews", "integrated");
     mkdirSync(root, { recursive: true, mode: 0o700 });
-    result.reportPath = path.join(root, `${safeTimestamp()}-${route.tier}-${process.pid}-${Date.now()}-grok-integrated-review.json`);
+    result.reportPath = path.join(root, `${safeTimestamp()}-${route.tier}-${randomUUID()}-grok-integrated-review.json`);
     writeFileSync(result.reportPath, `${JSON.stringify(result, null, 2)}\n`, { mode: 0o600, flag: "wx" });
     return result;
   };
