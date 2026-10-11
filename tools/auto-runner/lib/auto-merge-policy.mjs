@@ -899,6 +899,15 @@ export function evaluatePrePushReviewGate(input = {}) {
     return { ok: false, outcome: manualOutcome, reason: "exact_head_reviewer_manual_gate",
       message: `exact-head review requires ${manualOutcome === "danger_gate" ? "danger-gate" : "manual"} resolution` };
   }
+  if (requiresIndependentAiReview(laneDecision) && (externalReview?.status === "pass"
+      || externalReview?.reason === "blocked_external_reviewer_non_pass")
+    && (!/^[a-f0-9]{40}$/.test(expectedHead || "") || !/^[a-f0-9]{40}$/.test(expectedBase || "")
+      || !expectedFilesDigest || externalReview.reviewedHead !== expectedHead
+      || externalReview.baseSha !== expectedBase || externalReview.changedFilesDigest !== expectedFilesDigest)) {
+    return { ok: false, outcome: "review_changes_requested_retry_exhausted",
+      reason: "exact_head_independent_review_identity_mismatch",
+      message: "exact-head independent review is not bound to the candidate" };
+  }
   if (requiresIndependentAiReview(laneDecision) && externalReview?.status !== "pass") {
     const convergence = evaluatePrePushReviewConvergence(input, externalReview);
     if (convergence.ok) {
@@ -933,13 +942,17 @@ export function evaluatePrePushReviewGate(input = {}) {
       reason: "exact_head_independent_review_identity_mismatch",
       message: "exact-head independent review is not bound to the candidate" };
   }
-  if (!input.review || (input.review?.verdict?.verdict !== "approve"
-    || input.review.status !== 0 || input.review.signal || input.review.error
+  if (!input.review || input.review.status !== 0 || input.review.signal || input.review.error
     || !["passed", "completed"].includes(input.review.reviewStatus)
     || !/^[a-f0-9]{40}$/.test(expectedHead || "") || !/^[a-f0-9]{40}$/.test(expectedBase || "")
     || !expectedFilesDigest || input.review.reviewedHead !== expectedHead
     || input.review.baseSha !== expectedBase || input.review.reviewedBaseSha !== expectedBase
-    || input.review.changedFilesDigest !== expectedFilesDigest)) {
+    || input.review.changedFilesDigest !== expectedFilesDigest) {
+    return { ok: false, outcome: "review_changes_requested_retry_exhausted",
+      reason: "exact_head_codex_review_identity_mismatch",
+      message: "exact-head Codex review did not complete on the candidate" };
+  }
+  if (input.review.verdict?.verdict !== "approve") {
     const convergence = evaluatePrePushReviewConvergence(input, externalReview || {});
     return { ok: false,
       outcome: convergence.ok ? "review_convergence_required" : "review_changes_requested_retry_exhausted",

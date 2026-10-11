@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { ordinaryReviewerCheckpoint, persistOrdinaryParallelReviewerCheckpoint, resolveExistingPrRecoveryReviewerProvider, resolveOrdinaryParallelReviewerCheckpoint, resolveOrdinaryRecoveryManualGate, routeNormalStructuredFindingsToConvergence } from "../settleora-auto-runner.mjs";
+import { ordinaryReviewerCheckpoint, persistOrdinaryParallelReviewerCheckpoint, recordOrdinaryParallelReviewerResult, reserveOrdinaryParallelReviewerAttempt, resolveExistingPrRecoveryReviewerProvider, resolveOrdinaryParallelReviewerCheckpoint, resolveOrdinaryRecoveryManualGate, routeNormalStructuredFindingsToConvergence, validateOrdinaryParallelReviewIdentity } from "../settleora-auto-runner.mjs";
 import { extractReviewFixTrigger } from "../lib/review-fix-policy.mjs";
 
 test("ordinary structured findings cannot replace a manual reviewer verdict", () => {
@@ -191,6 +191,27 @@ test("interruption between reviewer completions retains the first same-head resu
   assert.match(runner, /runCodexReviewInWorker\(config, packageForCodex\)\.then\(\(review\) => \{[\s\S]*?persistOrdinaryParallelReviewerCheckpoint/);
 });
 
+test("startup recovery reserves a retry and persists a manual Grok verdict before Codex finishes", () => {
+  const head = "a".repeat(40);
+  const base = "b".repeat(40);
+  const initial = { evidence: {} };
+  const reserved = sanitizeRecoveryState(reserveOrdinaryParallelReviewerAttempt(initial, head, "grok"));
+  assert.equal(reserved.evidence.parallelReviewerVerdicts.attempts, 1);
+  const manual = { provider: "grok", reviewedHead: head, baseSha: base,
+    status: "blocked", reason: "blocked_external_reviewer_non_pass", verdict: "danger_gate",
+    sanitizedResponseSummary: { verdict: "danger_gate", findings: [] } };
+  const interrupted = JSON.parse(JSON.stringify(sanitizeRecoveryState(
+    recordOrdinaryParallelReviewerResult(reserved, "external", manual))));
+  assert.equal(interrupted.evidence.parallelReviewerVerdicts.codex, null);
+  assert.equal(resolveOrdinaryParallelReviewerCheckpoint(interrupted.evidence.parallelReviewerVerdicts,
+    { headSha: head, baseSha: base }, "grok").outcome, "danger_gate");
+  const retryReserved = reserveOrdinaryParallelReviewerAttempt(initial, head, "grok",
+    interrupted.evidence.parallelReviewerVerdicts);
+  assert.equal(retryReserved.evidence.parallelReviewerVerdicts.attempts, 2);
+  const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  assert.match(runner, /reserveOrdinaryParallelReviewerAttempt\([\s\S]*?\)\)\.state;[\s\S]*?runIntegratedReviewSource\(config, context\.reviewPackage, "startup-recovery"\)\.then\(\(review\) => \{[\s\S]*?persistReviewer\("external", review\)/);
+});
+
 test("recovery ignores saved parallel verdicts after a source-changing fix", () => {
   const headA = "a".repeat(40);
   const headB = "b".repeat(40);
@@ -223,7 +244,25 @@ test("recovery provider pin uses the routed cheap or strong reviewer tier", () =
 test("parallel reviewer sessions and manual verdicts are persisted before recovery effects", () => {
   const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
   assert.match(runner, /if \(iteration\.review\?\.sessionLifecycle\) \{[\s\S]*?recoveryRecorder\?\.annotate\(\{ sessionLifecycle: iteration\.review\.sessionLifecycle \}\)/);
-  assert.match(runner, /parallelReviewerVerdicts: \{[\s\S]*?external: ordinaryReviewerCheckpoint\(context\.externalReview[\s\S]*?codex: ordinaryReviewerCheckpoint\(context\.review[\s\S]*?const manual = reviewerManualGateOutcome\(context\.externalReview, context\.review\)/);
+  assert.match(runner, /reserveOrdinaryParallelReviewerAttempt\([\s\S]*?const persistReviewer = \(kind, review\) => \{[\s\S]*?recordOrdinaryParallelReviewerResult\(state, kind, review\)/);
+  assert.match(runner, /persistReviewer\("external", review\)[\s\S]*?persistReviewer\("codex", review\)[\s\S]*?const manual = reviewerManualGateOutcome\(context\.externalReview, context\.review\)/);
+});
+
+test("parallel reviewer evidence must bind to the same head, base, and file set", () => {
+  const headSha = "a".repeat(40);
+  const baseSha = "b".repeat(40);
+  const changedFiles = ["tools/auto-runner/lib/grok-reviewer.mjs"];
+  const changedFilesDigest = createHash("sha256").update(JSON.stringify(changedFiles)).digest("hex");
+  const identity = { headSha, baseSha, changedFiles };
+  const external = { status: "pass", reviewedHead: headSha, baseSha, changedFilesDigest };
+  const codex = { status: 0, reviewStatus: "completed", reviewedHead: headSha,
+    baseSha, reviewedBaseSha: baseSha, changedFilesDigest };
+  assert.equal(validateOrdinaryParallelReviewIdentity(external, codex, identity).ok, true);
+  assert.equal(validateOrdinaryParallelReviewIdentity({ ...external, changedFilesDigest: null }, codex, identity).reasonCode,
+    "ordinary_external_review_identity_mismatch");
+  assert.equal(validateOrdinaryParallelReviewIdentity(external, { ...codex, status: 1 }, identity).reasonCode,
+    "ordinary_codex_review_identity_mismatch");
+  assert.equal(validateOrdinaryParallelReviewIdentity(external, { ...codex, reviewedBaseSha: headSha }, identity).ok, false);
 });
 
 test("PR stack mechanics prompt follows the current PR instead of a historical stack", () => {

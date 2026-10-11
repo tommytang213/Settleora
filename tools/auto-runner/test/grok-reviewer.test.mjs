@@ -120,8 +120,10 @@ test("Grok resumes once for verified missing line ranges and still requires comp
   assert.equal(result.coveredLines, 2);
   assert.equal(result.coveragePasses, 2);
   assert.equal(calls.length, 2);
-  assert.equal(calls[0].includes("--continue"), false);
-  assert.equal(calls[1].includes("--continue"), true);
+  assert.equal(calls[0].includes("--session-id"), true);
+  assert.equal(calls[1].includes("--resume"), true);
+  assert.equal(calls[1][calls[1].indexOf("--resume") + 1], calls[0][calls[0].indexOf("--session-id") + 1]);
+  assert.equal(calls[1].includes("--continue"), false);
   assert.match(calls[1].at(-1), /snapshot\.diff: offset 2, limit 1/);
 });
 
@@ -358,13 +360,17 @@ test("integrated Grok adapter accepts only a complete screened and head-bound re
     const boundaryPaths = ["tools/auto-runner/settleora-auto-runner.mjs", "tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"];
     const summary = { repository: "tommytang213/Settleora", baseSha: "a".repeat(40), currentHead: "b".repeat(40),
       changedFiles: ["src/example.js"], laneDecision: { lane: "workflow-docs-tooling", reviewerTier: "cheap_independent" },
-      validation: { passed: true }, taskContract: { objective: "Review synthetic change" }, integrationBoundaries: boundaryPaths,
+      validation: { passed: true }, taskContract: { objective: "Review synthetic change" },
+      reviewFixMechanicsContext: { phase: "post_review_fix_mechanics", reviewerInstruction: "Review this synthetic exact head" },
+      integrationBoundaries: boundaryPaths,
       integrationBoundaryMaterial: boundaryPaths.map((sourcePath) => ({ path: sourcePath, content: "// Read-only gate fixture\n",
         sha256: createHash("sha256").update("// Read-only gate fixture\n").digest("hex") })) };
     const diff = "diff --git a/src/example.js b/src/example.js\n--- a/src/example.js\n+++ b/src/example.js\n@@ -1 +1 @@\n-old\n+new\n";
     const spawnWithVerdict = (reportedVerdict) => (_binary, args) => {
       const staged = args[args.indexOf("--cwd") + 1];
       assert.doesNotMatch(readFileSync(path.join(staged, "context.json"), "utf8"), /Read-only gate fixture/);
+      assert.equal(JSON.parse(readFileSync(path.join(staged, "context.json"), "utf8")).reviewFixMechanicsContext.phase,
+        "post_review_fix_mechanics");
       const events = [];
       for (const [index, name] of ["context.json", "snapshot.diff", "boundary-0.txt", "boundary-1.txt", "boundary-2.txt"].entries()) {
         const fullPath = path.join(staged, name);

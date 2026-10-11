@@ -5422,7 +5422,7 @@ test("pre-push gate requires an approving local review when one is supplied", ()
   const input = { laneDecision, expectedHeadSha, expectedBaseSha, changedFiles, externalReview };
   const missing = evaluatePrePushReviewGate(input);
   assert.equal(missing.ok, false);
-  assert.equal(missing.reason, "exact_head_codex_review_not_approved");
+  assert.equal(missing.reason, "exact_head_codex_review_identity_mismatch");
   for (const review of [
     { reviewStatus: "completed", verdict: { verdict: "changes_requested" } },
     { reviewStatus: "unable_to_review", verdict: { verdict: "unable_to_review" } },
@@ -5430,7 +5430,7 @@ test("pre-push gate requires an approving local review when one is supplied", ()
   ]) {
     const gate = evaluatePrePushReviewGate({ ...input, review });
     assert.equal(gate.ok, false);
-    assert.equal(gate.reason, "exact_head_codex_review_not_approved");
+    assert.equal(gate.reason, "exact_head_codex_review_identity_mismatch");
   }
 });
 
@@ -5454,11 +5454,24 @@ test("pre-push dual review requires successful exact-head process and file bindi
   ]) {
     const gate = evaluatePrePushReviewGate({ ...input, review: { ...input.review, ...review } });
     assert.equal(gate.ok, false);
-    assert.equal(gate.reason, "exact_head_codex_review_not_approved");
+    assert.equal(gate.reason, "exact_head_codex_review_identity_mismatch");
+    assert.equal(gate.outcome, "review_changes_requested_retry_exhausted");
   }
+  const staleWithFindings = evaluatePrePushReviewGate({ ...input,
+    config: { configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 },
+    review: { ...input.review, reviewedHead: "c".repeat(40), verdict: { verdict: "changes_requested",
+      recommended_next_action: "run_safe_fix_cycle", blocking_findings: ["fix stale head"] } } });
+  assert.equal(staleWithFindings.reason, "exact_head_codex_review_identity_mismatch");
+  assert.equal(staleWithFindings.outcome, "review_changes_requested_retry_exhausted");
   const externalMismatch = evaluatePrePushReviewGate({ ...input,
     externalReview: { ...input.externalReview, reviewedHead: "c".repeat(40) } });
   assert.equal(externalMismatch.reason, "exact_head_independent_review_identity_mismatch");
+  const staleFailedExternal = evaluatePrePushReviewGate({ ...input,
+    config: { configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 },
+    externalReview: { ...input.externalReview, status: "blocked", reason: "blocked_external_reviewer_non_pass",
+      verdict: "fail", changedFilesDigest: "wrong" } });
+  assert.equal(staleFailedExternal.reason, "exact_head_independent_review_identity_mismatch");
+  assert.equal(staleFailedExternal.outcome, "review_changes_requested_retry_exhausted");
 });
 
 test("auto-merge decision enforces exact issue contract paths even under approved lane prefix", () => {

@@ -118,12 +118,13 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
     taskContract: summary.taskContract || null, featureBundle: summary.featureBundle || null,
     changedFiles, diffStats: stats, validation: summary.validation || null,
     structuredReview: summary.structuredReview || null,
+    reviewFixMechanicsContext: summary.reviewFixMechanicsContext || null,
     integrationBoundaries: summary.integrationBoundaries || [],
     integrationBoundaryMaterial: materialFiles.map(({ name, path: sourcePath, sha256: digest }) => ({ name, path: sourcePath, sha256: digest })),
     candidateIdentity: { repository: base.repository, baseSha: base.baseSha, headSha: base.reviewedHead,
       treeSha: base.treeSha, diffDigest: base.rawDiffSha256, changedFilesDigest: base.changedFilesDigest },
   }, null, 2);
-  if (credentialPattern.test(context)) {
+  if (credentialPattern.test(context) || boundaryContainsCredential(context)) {
     return finish({ reason: "blocked_grok_context_secret_boundary" });
   }
   if (Buffer.byteLength(context) + Buffer.byteLength(diff)
@@ -243,7 +244,7 @@ export function parseGrokVerdict(answer) {
 }
 
 export async function invokeGrok({ files, prompt, staged, model, binary, spawnImpl = spawn, timeoutMs = deadlineMs,
-  coverageState = null, resume = false, coverageRetry = 0, previousUsage = null, previousTools = [], previousOutputBytes = 0 }) {
+  coverageState = null, resume = false, sessionId = randomUUID(), coverageRetry = 0, previousUsage = null, previousTools = [], previousOutputBytes = 0 }) {
   const started = Date.now();
   const args = ["--cwd", staged, "--model", model, "--reasoning-effort", "low",
     "--sandbox", "strict", "--permission-mode", "dontAsk", "--no-subagents",
@@ -252,7 +253,7 @@ export async function invokeGrok({ files, prompt, staged, model, binary, spawnIm
     "--deny", "WebFetch", "--deny", "WebSearch",
     "--deny", `Read(${path.join(os.homedir(), ".grok")}/**)`,
     "--disallowed-tools", disallowedTools, "--max-turns", "64",
-    "--output-format", "streaming-json", ...(resume ? ["--continue"] : []), "-p", prompt];
+    "--output-format", "streaming-json", ...(resume ? ["--resume", sessionId] : ["--session-id", sessionId]), "-p", prompt];
   // Build a minimal process environment so runner or CI credentials cannot
   // reach the subscriber CLI through unrelated variable names.
   const env = Object.fromEntries(["HOME", "USER", "LOGNAME", "PATH", "SHELL", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "TMPDIR",
@@ -332,7 +333,7 @@ export async function invokeGrok({ files, prompt, staged, model, binary, spawnIm
         ...missing.map(({ name, offset, limit }) => `${name}: offset ${offset}, limit ${limit}`),
       ].join("\n");
       return invokeGrok({ files, prompt: resumePrompt, staged, model, binary, spawnImpl, timeoutMs: remainingMs,
-        coverageState: coverage, resume: true, coverageRetry: 1, previousUsage: combinedUsage,
+        coverageState: coverage, resume: true, sessionId, coverageRetry: 1, previousUsage: combinedUsage,
         previousTools: allTools, previousOutputBytes: allOutputBytes });
     }
   }
