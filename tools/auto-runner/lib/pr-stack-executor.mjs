@@ -2169,6 +2169,9 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
       const verdict = review?.verdict?.verdict || review?.verdict;
       const fullDeltaCodexReview = { ...review, fullCandidatePrDelta: review?.fullCandidatePrDelta || fullCandidatePrDelta.delta };
       if (externalReview?.status !== "pass" || verdict !== "approve") {
+        if (hasManualReviewerGate(externalReview, review)) {
+          return fail("existing_pr_local_loop_manual_or_danger", "a reviewer requires a manual decision before source changes");
+        }
         const frozen = freezeMaterialFindingInventory(reviewFindingsFromSupportedContainers({ externalReview, review }));
         if (frozen.length === 0) {
           return fail(externalReview?.status !== "pass" ? "existing_pr_batch_fix_strong_review_failed" : "existing_pr_batch_fix_codex_review_failed", externalReview?.reason || review?.reviewFailureReason || "local reviewer did not pass and supplied no safe actionable finding");
@@ -6429,7 +6432,14 @@ export function digestStackPlan(plan) {
   return createHash("sha256").update(JSON.stringify(plan || {})).digest("hex");
 }
 
+function hasManualReviewerGate(externalReview, review) {
+  return [externalReview?.verdict?.verdict, externalReview?.verdict,
+    externalReview?.sanitizedResponseSummary?.verdict, review?.verdict?.verdict, review?.verdict]
+    .some((value) => ["needs_tommy", "danger_gate"].includes(value));
+}
+
 export const prStackExecutorTestInternals = Object.freeze({
+  hasManualReviewerGate,
   canonicalRepositoryFromOriginUrl,
   canonicalRepositorySlug,
   buildCanonicalCandidatePrDelta,

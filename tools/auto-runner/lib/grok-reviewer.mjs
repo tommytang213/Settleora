@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { StringDecoder } from "node:string_decoder";
 import { spawn } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
@@ -237,13 +238,14 @@ export async function invokeGrok({ files, prompt, staged, model, binary, spawnIm
   const coverage = new Map(files.map((file) => [file.fullPath, new Set()]));
   let answer = "", usage = null, stopReason = null, outputBytes = 0, exitCode = null;
   let reason = null, buffer = "";
+  const stdoutDecoder = new StringDecoder("utf8");
   const toolsObserved = [];
   const timer = setTimeout(() => { reason ||= "blocked_grok_timeout"; child.kill("SIGKILL"); }, timeoutMs);
   const fail = (value) => { reason ||= value; child.kill("SIGKILL"); };
   child.stdout.on("data", (chunk) => {
     outputBytes += chunk.length;
     if (outputBytes > maxEventBytes) { fail("blocked_grok_event_limit"); return; }
-    buffer += chunk.toString("utf8");
+    buffer += stdoutDecoder.write(chunk);
     for (;;) {
       const index = buffer.indexOf("\n");
       if (index < 0) break;

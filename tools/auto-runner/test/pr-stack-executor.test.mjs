@@ -26,6 +26,15 @@ const withTempDir = (callback) => {
   try { return callback(cwd); } finally { rmSync(cwd, { recursive: true, force: true }); }
 };
 
+test("stack source-fix gate gives either reviewer's manual verdict precedence", () => {
+  const gate = prStackExecutorTestInternals.hasManualReviewerGate;
+  assert.equal(gate({ verdict: "fail", sanitizedResponseSummary: { findings: ["fix"] } },
+    { verdict: { verdict: "danger_gate", blocking_findings: ["manual"] } }), true);
+  assert.equal(gate({ verdict: "needs_tommy", sanitizedResponseSummary: { findings: ["manual"] } },
+    { verdict: { verdict: "changes_requested", blocking_findings: ["fix"] } }), true);
+  assert.equal(gate({ verdict: "fail" }, { verdict: { verdict: "changes_requested" } }), false);
+});
+
 test("CLI accepts the documented stack mode and rejects incomplete or mixed stack invocations", () => {
   assert.throws(() => parseCliArgs(["--run-pr-stack"]), /requires an explicit --config/);
   assert.throws(() => parseCliArgs(["--run-pr-stack", "--config", "/tmp/config.json"]), /requires --stack-plan/);

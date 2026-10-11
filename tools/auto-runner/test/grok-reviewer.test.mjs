@@ -205,6 +205,29 @@ test("Grok review cannot pass with a missed line or outside-file read", async ()
   assert.equal(outside.reason, "blocked_grok_unapproved_tool_or_path");
 });
 
+test("Grok coverage survives a multibyte read marker split between stdout chunks", async () => {
+  const events = [...read(), { type: "text", data: "done" }, end];
+  const output = Buffer.from(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`);
+  const marker = output.indexOf(Buffer.from("→"));
+  assert.ok(marker > 0);
+  const spawnImpl = () => {
+    const child = new EventEmitter();
+    child.stdout = new PassThrough(); child.stderr = new PassThrough();
+    child.kill = () => {};
+    queueMicrotask(() => {
+      child.stdout.write(output.subarray(0, marker + 1));
+      child.stdout.end(output.subarray(marker + 1));
+      child.stderr.end();
+      child.emit("close", 0);
+    });
+    return child;
+  };
+  const result = await invokeGrok({ files: [file], prompt: "synthetic", staged: "/tmp/settleora-review-fixture",
+    model: "grok-4.7", binary: "grok", spawnImpl, timeoutMs: 1000 });
+  assert.equal(result.reason, null);
+  assert.equal(result.coveredLines, 2);
+});
+
 test("local Codex process runs off the main event loop alongside an external review", async () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-parallel-review-test-"));
   try {

@@ -3069,6 +3069,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
             expectedHeadSha: candidate.headSha,
             expectedOriginMainSha: continuation.expectedOriginMainSha,
             expectedRepository: config.repositorySlug,
+            reviewerProviderPin: providerBinding.provider,
             checkoutReconstructable: true,
             allowStateRebuildFromEvidence: true,
             exactHeadEvidence: { repositorySlug: config.repositorySlug, issueNumber: issue.number, prNumber, taskKey: state.taskKey || initial.logicalTaskKey, runnerRunId: state.run?.runId || config.runnerRunId, supervisorRunId: state.run?.supervisorRunId || null, headSha: candidate.headSha, baseSha: candidate.baseSha, historicalEffectMainSha, currentMainSha, changedFiles: candidate.changedFiles, changedFilesDigest: digestChangedFiles(candidate.changedFiles), recoveryStateRebuildable: true, prospectiveMergeValidationRequired: true },
