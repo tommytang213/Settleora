@@ -198,10 +198,13 @@ function booleanOrNull(value) {
 
 function sanitizePathArray(value) {
   return Array.isArray(value) ? value.filter((item) => typeof item === "string"
-    && item.length > 0 && item.length <= 400 && !item.startsWith("/")
-    && /^[A-Za-z0-9._/@+ -]+$/.test(item)
+    && item.length > 0 && item.length <= 400 && !item.startsWith("/") && !/^[A-Za-z]:/.test(item)
+    && !/[\\\x00-\x1f\x7f]/.test(item)
     && item.split("/").every((segment) => segment && segment !== "." && segment !== "..")
-    && !/\b(?:xai-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9_]{20,})\b/i.test(item)) : [];
+    && !/\b(?:AIza[0-9A-Za-z_-]{24,}|xai-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{20,})\b/i.test(item)
+    && !/\bbearer\s+[A-Za-z0-9._~+/-]{12,}/i.test(item)
+    && !/\b(?:api[_-]?key|authorization|password|credential)\s*[:=]\s*[A-Za-z0-9._~+/-]{8,}/i.test(item)
+    && !/\b(?:secret|token|password|credential)[-_][A-Za-z0-9]{16,}\b/i.test(item)) : [];
 }
 
 function sanitizeString(value) {
