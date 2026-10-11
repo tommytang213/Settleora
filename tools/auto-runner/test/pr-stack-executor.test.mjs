@@ -14,6 +14,7 @@ import {
   loadExecutableStackPlan,
   loadOrCreateStackState,
   prStackExecutorTestInternals,
+  runDurableStackParallelReviews,
   runPrStackExecution,
   validateExecutableStackPlan,
   validatePrStackState,
@@ -26,6 +27,81 @@ const withTempDir = (callback) => {
   const cwd = mkdtempSync(path.join(os.tmpdir(), "settleora-stack-content-identity-"));
   try { return callback(cwd); } finally { rmSync(cwd, { recursive: true, force: true }); }
 };
+
+test("both PR stack review phases preserve either early manual verdict across restart", async () => {
+  const source = readFileSync(new URL("../lib/pr-stack-executor.mjs", import.meta.url), "utf8");
+  assert.match(source, /runDurableStackParallelReviews\(targetConfig, \{[\s\S]*?phase: "local_candidate"/);
+  assert.match(source, /runDurableStackParallelReviews\(config, \{[\s\S]*?phase: "final_gate"/);
+  for (const phase of ["local_candidate", "final_gate"]) {
+    for (const first of ["strong", "codex"]) {
+      const logsRoot = mkdtempSync(path.join(os.tmpdir(), "settleora-stack-parallel-"));
+      try {
+        const candidate = { phase, prNumber: 921, headSha: sha("a"), baseSha: sha("b"),
+          changedFiles: ["tools/auto-runner/lib/pr-stack-executor.mjs"], candidateDigest: "c".repeat(64) };
+        const changedFilesDigest = createHash("sha256").update(JSON.stringify(candidate.changedFiles)).digest("hex");
+        const strong = { status: "pass", verdict: "pass", reviewedHead: candidate.headSha,
+          baseSha: candidate.baseSha, changedFiles: candidate.changedFiles, changedFilesDigest,
+          completedAt: "2026-10-11T19:00:00.000Z" };
+        const codex = { status: 0, reviewStatus: "completed", verdict: { verdict: "approve" },
+          reviewedHead: candidate.headSha, reviewedBaseSha: candidate.baseSha, baseSha: candidate.baseSha,
+          changedFiles: candidate.changedFiles, changedFilesDigest, completedAt: "2026-10-11T19:00:00.000Z" };
+        const manualStrong = { ...strong, status: "blocked", verdict: "needs_tommy",
+          reason: "blocked_external_reviewer_non_pass" };
+        const manualCodex = { ...codex, verdict: { verdict: "danger_gate" } };
+        let releasePeer;
+        const peer = new Promise((resolve) => { releasePeer = resolve; });
+        const config = { logsRoot, repositorySlug: "tommytang213/Settleora" };
+        const pending = runDurableStackParallelReviews(config, candidate,
+          () => first === "strong" ? manualStrong : peer,
+          () => first === "codex" ? manualCodex : peer);
+        await new Promise((resolve) => setImmediate(resolve));
+        const saved = readdirSync(path.join(logsRoot, "pr-stack-parallel-reviews"));
+        assert.equal(saved.length, 1);
+        const checkpoint = JSON.parse(readFileSync(path.join(logsRoot, "pr-stack-parallel-reviews", saved[0]), "utf8"));
+        assert.equal(checkpoint.attempts, 1);
+        assert.equal(first === "strong" ? checkpoint.strong.verdict : checkpoint.codex.verdict.verdict,
+          first === "strong" ? "needs_tommy" : "danger_gate");
+        const recovered = await runDurableStackParallelReviews(config, candidate,
+          () => { throw new Error("manual strong rerun"); },
+          () => { throw new Error("manual Codex rerun"); });
+        assert.equal(recovered.reasonCode, "stack_parallel_review_manual_gate_persisted");
+        releasePeer(first === "strong" ? codex : strong);
+        assert.equal((await pending).reasonCode, "stack_parallel_review_manual_gate_persisted");
+      } finally { rmSync(logsRoot, { recursive: true, force: true }); }
+    }
+  }
+});
+
+test("PR stack retry reuses a completed reviewer and invokes only the incomplete peer", async () => {
+  const logsRoot = mkdtempSync(path.join(os.tmpdir(), "settleora-stack-parallel-retry-"));
+  try {
+    const candidate = { phase: "final_gate", prNumber: 920, headSha: sha("d"), baseSha: sha("e"),
+      changedFiles: ["tools/auto-runner/lib/pr-stack-executor.mjs"], candidateDigest: "f".repeat(64) };
+    const changedFilesDigest = createHash("sha256").update(JSON.stringify(candidate.changedFiles)).digest("hex");
+    const strong = { status: "pass", verdict: "pass", reviewedHead: candidate.headSha,
+      baseSha: candidate.baseSha, changedFiles: candidate.changedFiles, changedFilesDigest,
+      completedAt: "2026-10-11T19:00:00.000Z", provider: "grok", tier: "strong_independent",
+      independent: true, reportPath: "/tmp/strong-review.json" };
+    const successor = { phase: "reviewed", headSha: candidate.headSha };
+    const codex = { status: 0, reviewStatus: "completed", verdict: { verdict: "approve" },
+      reviewedHead: candidate.headSha, reviewedBaseSha: candidate.baseSha,
+      baseSha: candidate.baseSha, changedFiles: candidate.changedFiles, changedFilesDigest,
+      completedAt: "2026-10-11T19:00:00.000Z", sessionLifecycle: successor };
+    const config = { logsRoot, repositorySlug: "tommytang213/Settleora" };
+    const first = await runDurableStackParallelReviews(config, candidate,
+      async () => ({ status: "blocked", reason: "provider_timeout" }), async () => codex);
+    assert.equal(first.reasonCode, "stack_parallel_review_identity_or_process_mismatch");
+    let codexRuns = 0;
+    const resumed = await runDurableStackParallelReviews(config, candidate,
+      async () => strong,
+      async () => { codexRuns += 1; throw new Error("Codex must not rerun"); });
+    assert.equal(resumed.ok, true);
+    assert.equal(codexRuns, 0);
+    assert.deepEqual(resumed.codexReview.sessionLifecycle, successor);
+    assert.deepEqual(resumed.codexReview.changedFiles, candidate.changedFiles);
+    assert.equal(resumed.codexReview.completedAt, codex.completedAt);
+  } finally { rmSync(logsRoot, { recursive: true, force: true }); }
+});
 
 test("PR stack reviewer pin survives resume and rejects provider switches", () => {
   const { plan } = stackFixture();

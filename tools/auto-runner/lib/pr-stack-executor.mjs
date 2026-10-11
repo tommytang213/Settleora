@@ -2176,12 +2176,15 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
         return fail("existing_pr_batch_fix_review_adapter_unconfigured", "strong and Codex review adapters are required before push");
       }
       const parallelGrok = targetConfig.reviewerTiers?.strong_independent?.provider === "grok";
-      persistLocalCandidateLoopState(loopState.statePath, { ...loopState.state, phase: parallelGrok ? "independent_reviews_running" : "gemini_running", candidateHead: candidate.newHead, candidateDigest: fullCandidatePrDelta.delta.normalizedPatchDigest });
-      const parallelReviews = parallelGrok ? Promise.all([
-        options.runStrongReview({ config: targetConfig, pr, changedFiles: reviewChangedFiles, fixDeltaFiles: changedFiles, fullCandidatePrDelta: fullCandidatePrDelta.delta, validation, headSha: candidate.newHead, baseSha: base.sha }),
-        options.runCodexReview({ config: targetConfig, pr, changedFiles: reviewChangedFiles, fixDeltaFiles: changedFiles, fullCandidatePrDelta: fullCandidatePrDelta.delta, validation, headSha: candidate.newHead, baseSha: base.sha, sessionLifecycle }),
-      ]) : null;
-      const [externalReview, parallelCodexReview] = parallelReviews ? await parallelReviews
+      loopState.state = persistLocalCandidateLoopState(loopState.statePath, { ...loopState.state, phase: parallelGrok ? "independent_reviews_running" : "gemini_running", candidateHead: candidate.newHead, candidateDigest: fullCandidatePrDelta.delta.normalizedPatchDigest });
+      const parallelReviews = parallelGrok ? await runDurableStackParallelReviews(targetConfig, {
+        phase: "local_candidate", prNumber: pr.number, headSha: candidate.newHead, baseSha: base.sha,
+        changedFiles: reviewChangedFiles, candidateDigest: fullCandidatePrDelta.delta.normalizedPatchDigest,
+      },
+      () => options.runStrongReview({ config: targetConfig, pr, changedFiles: reviewChangedFiles, fixDeltaFiles: changedFiles, fullCandidatePrDelta: fullCandidatePrDelta.delta, validation, headSha: candidate.newHead, baseSha: base.sha }),
+      () => options.runCodexReview({ config: targetConfig, pr, changedFiles: reviewChangedFiles, fixDeltaFiles: changedFiles, fullCandidatePrDelta: fullCandidatePrDelta.delta, validation, headSha: candidate.newHead, baseSha: base.sha, sessionLifecycle })) : null;
+      if (parallelReviews && !parallelReviews.ok) return fail(parallelReviews.reasonCode, parallelReviews.reasonCode);
+      const [externalReview, parallelCodexReview] = parallelReviews ? [parallelReviews.strongReview, parallelReviews.codexReview]
         : [await options.runStrongReview({ config: targetConfig, pr, changedFiles: reviewChangedFiles, fixDeltaFiles: changedFiles, fullCandidatePrDelta: fullCandidatePrDelta.delta, validation, headSha: candidate.newHead, baseSha: base.sha }), null];
       const fullDeltaExternalReview = { ...externalReview, fullCandidatePrDelta: externalReview?.fullCandidatePrDelta || fullCandidatePrDelta.delta };
       if (!parallelGrok) persistLocalCandidateLoopState(loopState.statePath, { ...loopState.state, phase: "codex_running", candidateHead: candidate.newHead, candidateDigest: fullCandidatePrDelta.delta.normalizedPatchDigest });
@@ -4368,6 +4371,108 @@ function advanceLocalCandidateHistory(candidateHistory, head, digest) {
   return { ok: true, changed: true, candidateHistory: [...history, { head, digest }].slice(-6) };
 }
 
+function stackParallelReviewCheckpoint(review, kind) {
+  if (!review) return null;
+  return {
+    status: review.status, reason: review.reason, verdict: review.verdict,
+    reviewStatus: kind === "codex" ? review.reviewStatus : undefined,
+    signal: kind === "codex" ? review.signal : undefined,
+    error: kind === "codex" ? review.error : undefined,
+    reviewedHead: review.reviewedHead, reviewedBaseSha: review.reviewedBaseSha,
+    baseSha: review.baseSha, changedFiles: review.changedFiles,
+    changedFilesDigest: review.changedFilesDigest, completedAt: review.completedAt,
+    finishedAt: review.finishedAt, provider: review.provider, tier: review.tier,
+    providerProfile: review.providerProfile, model: review.model,
+    independent: review.independent, reportPath: review.reportPath,
+    evidencePath: review.evidencePath, logPath: review.logPath,
+    findings: review.findings, sanitizedResponseSummary: review.sanitizedResponseSummary,
+    reviewFailureReason: review.reviewFailureReason,
+  };
+}
+
+function stackParallelReviewComplete(review, kind, identity) {
+  if (!review || review.reviewedHead !== identity.headSha
+    || review.changedFilesDigest !== identity.changedFilesDigest
+    || !sameStringSet(review.changedFiles, identity.changedFiles)) return false;
+  if (kind === "strong") return review.baseSha === identity.baseSha
+    && ((review.status === "pass" && review.verdict === "pass")
+      || (review.reason === "blocked_external_reviewer_non_pass"
+        && ["fail", "needs_tommy", "danger_gate"].includes(review.verdict)));
+  return review.status === 0 && !review.signal && !review.error
+    && ["passed", "completed"].includes(review.reviewStatus)
+    && review.baseSha === identity.baseSha && review.reviewedBaseSha === identity.baseSha
+    && ["approve", "changes_requested", "needs_tommy", "danger_gate"].includes(review.verdict?.verdict);
+}
+
+export async function runDurableStackParallelReviews(config, candidate, runStrongReview, runCodexReview) {
+  const identity = {
+    repository: config.repositorySlug || "tommytang213/Settleora",
+    phase: candidate.phase, prNumber: candidate.prNumber,
+    headSha: candidate.headSha, baseSha: candidate.baseSha,
+    candidateDigest: candidate.candidateDigest,
+    changedFiles: normalizeChangedFiles(candidate.changedFiles),
+    changedFilesDigest: digestStringSet(candidate.changedFiles),
+  };
+  if (!Number.isInteger(identity.prNumber) || !validSha(identity.headSha) || !validSha(identity.baseSha)
+    || !/^[a-f0-9]{64}$/.test(identity.candidateDigest || "")) {
+    return fail("stack_parallel_review_identity_invalid", "stack parallel review identity is incomplete");
+  }
+  const checkpointPath = path.join(config.logsRoot || "/workspace/logs/settleora-auto-runner",
+    "pr-stack-parallel-reviews", `${digestJson(identity)}.json`);
+  let saved = null;
+  if (!config.dryRun && existsSync(checkpointPath)) {
+    try { saved = readOwnerOnlyDurableJson(config, checkpointPath); }
+    catch { return fail("stack_parallel_review_checkpoint_unreadable", "stack parallel review checkpoint is unreadable"); }
+    if (saved?.version !== 1 || digestJson(saved.identity) !== digestJson(identity)) {
+      return fail("stack_parallel_review_checkpoint_identity_mismatch", "stack parallel review checkpoint identity changed");
+    }
+  }
+  if (hasManualReviewerGate(saved?.strong, saved?.codex)) {
+    return fail("stack_parallel_review_manual_gate_persisted", "saved reviewer verdict requires a manual decision");
+  }
+  const strongComplete = stackParallelReviewComplete(saved?.strong, "strong", identity);
+  const codexComplete = stackParallelReviewComplete(saved?.codex, "codex", identity);
+  if ((!strongComplete || !codexComplete) && (saved?.attempts || 0) >= 2) {
+    return fail("stack_parallel_review_retry_exhausted", "stack parallel review retry limit reached");
+  }
+  const persist = (next) => {
+    saved = sanitizeState(next);
+    if (config.dryRun) return;
+    validateDurableArtifactPath(config, checkpointPath);
+    mkdirSync(path.dirname(checkpointPath), { recursive: true, mode: 0o700 });
+    validateDurableArtifactPath(config, checkpointPath);
+    const bytes = `${JSON.stringify(saved, null, 2)}\n`;
+    if (Buffer.byteLength(bytes) > maxProtectedPlanAuthorizationBytes) throw new Error("stack_parallel_review_checkpoint_oversize");
+    const tmp = `${checkpointPath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
+    writeFileSync(tmp, bytes, { mode: 0o600 });
+    renameSync(tmp, checkpointPath);
+  };
+  if (!strongComplete || !codexComplete) persist({ version: 1, identity,
+    attempts: (saved?.attempts || 0) + 1, strong: saved?.strong || null,
+    codex: saved?.codex || null, codexSessionLifecycle: saved?.codexSessionLifecycle || null });
+  const record = (kind, review) => {
+    persist({ ...saved, [kind]: stackParallelReviewCheckpoint(review, kind),
+      ...(kind === "codex" && review?.sessionLifecycle
+        ? { codexSessionLifecycle: { headSha: identity.headSha, lifecycle: review.sessionLifecycle } } : {}) });
+    return review;
+  };
+  const [strongReview, codexReview] = await Promise.all([
+    strongComplete ? saved.strong : Promise.resolve().then(runStrongReview).then((review) => record("strong", review)),
+    codexComplete ? saved.codex : Promise.resolve().then(runCodexReview).then((review) => record("codex", review)),
+  ]);
+  if (codexComplete && saved.codexSessionLifecycle?.headSha === identity.headSha) {
+    codexReview.sessionLifecycle = saved.codexSessionLifecycle.lifecycle;
+  }
+  if (hasManualReviewerGate(strongReview, codexReview)) {
+    return fail("stack_parallel_review_manual_gate_persisted", "reviewer verdict requires a manual decision");
+  }
+  if (!stackParallelReviewComplete(strongReview, "strong", identity)
+    || !stackParallelReviewComplete(codexReview, "codex", identity)) {
+    return fail("stack_parallel_review_identity_or_process_mismatch", "reviewer evidence is incomplete or does not match the candidate");
+  }
+  return { ok: true, strongReview, codexReview, checkpointPath };
+}
+
 function localCandidateLoopStatePath({ config = {}, pr = {}, exactHead }) {
   const identity = digestJson({
     repository: config.repositorySlug || "tommytang213/Settleora",
@@ -5172,16 +5277,21 @@ async function prepareExactHeadFinalGateEvidence({ config, plan = {}, state, pr,
   });
   if (!validationCheck.ok) return validationCheck;
   const parallelGrok = config.reviewerTiers?.strong_independent?.provider === "grok";
-  const parallelReviews = parallelGrok ? Promise.all([runStrongReview({
+  const parallelReviews = parallelGrok ? await runDurableStackParallelReviews(config, {
+    phase: "final_gate", prNumber: pr.number, headSha: prereq.currentHead,
+    baseSha: prereq.currentOriginMainSha, changedFiles: prereq.changedFiles,
+    candidateDigest: candidateDelta.normalizedPatchDigest,
+  }, () => runStrongReview({
     config, pr: { ...pr, ...(prereq.inspection.pr || {}), headRefOid: prereq.currentHead },
     changedFiles: prereq.changedFiles, validation, headSha: prereq.currentHead,
     baseSha: prereq.currentOriginMainSha, fullCandidatePrDelta: candidateDelta,
-  }), runCodexReview({
+  }), () => runCodexReview({
     config, pr: { ...pr, ...(prereq.inspection.pr || {}), headRefOid: prereq.currentHead },
     changedFiles: prereq.changedFiles, validation, headSha: prereq.currentHead,
     baseSha: prereq.currentOriginMainSha, fullCandidatePrDelta: candidateDelta,
-  })]) : null;
-  const [strongReview, parallelCodexReview] = parallelReviews ? await parallelReviews : [await runStrongReview({
+  })) : null;
+  if (parallelReviews && !parallelReviews.ok) return fail(parallelReviews.reasonCode, parallelReviews.reasonCode);
+  const [strongReview, parallelCodexReview] = parallelReviews ? [parallelReviews.strongReview, parallelReviews.codexReview] : [await runStrongReview({
     config,
     pr: { ...pr, ...(prereq.inspection.pr || {}), headRefOid: prereq.currentHead },
     changedFiles: prereq.changedFiles,
