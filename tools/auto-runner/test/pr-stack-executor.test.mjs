@@ -12,6 +12,7 @@ import {
   createProductionPrStackAdapter,
   finalExternalGateStatus,
   loadExecutableStackPlan,
+  loadOrCreateStackState,
   prStackExecutorTestInternals,
   runPrStackExecution,
   validateExecutableStackPlan,
@@ -25,6 +26,26 @@ const withTempDir = (callback) => {
   const cwd = mkdtempSync(path.join(os.tmpdir(), "settleora-stack-content-identity-"));
   try { return callback(cwd); } finally { rmSync(cwd, { recursive: true, force: true }); }
 };
+
+test("PR stack reviewer pin survives resume and rejects provider switches", () => {
+  const { plan } = stackFixture();
+  const gemini = { reviewerTiers: { strong_independent: { provider: "gemini" } } };
+  const grok = { reviewerTiers: { strong_independent: { provider: "grok" } } };
+  withTempDir((root) => {
+    const statePath = path.join(root, "stack.json");
+    const initial = loadOrCreateStackState({ config: grok, plan, statePath });
+    assert.equal(initial.ok, true);
+    assert.equal(initial.state.reviewerProviderPin, "grok");
+    writePrStackState(statePath, initial.state);
+    assert.equal(loadOrCreateStackState({ config: grok, plan, statePath }).ok, true);
+    assert.equal(loadOrCreateStackState({ config: gemini, plan, statePath }).reasonCode, "stack_reviewer_provider_mismatch");
+    const legacy = createInitialPrStackState({ plan });
+    delete legacy.reviewerProviderPin;
+    writePrStackState(statePath, legacy);
+    assert.equal(loadOrCreateStackState({ config: gemini, plan, statePath }).ok, true);
+    assert.equal(loadOrCreateStackState({ config: grok, plan, statePath }).reasonCode, "stack_reviewer_provider_mismatch");
+  });
+});
 
 test("stack source-fix gate gives either reviewer's manual verdict precedence", () => {
   const gate = prStackExecutorTestInternals.hasManualReviewerGate;

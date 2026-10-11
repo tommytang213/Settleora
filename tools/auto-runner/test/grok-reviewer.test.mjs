@@ -274,6 +274,26 @@ test("local Codex process runs off the main event loop alongside an external rev
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("parallel Codex timeout waits for worker termination before returning", async () => {
+  let release;
+  let terminating = false;
+  class StalledWorker extends EventEmitter {
+    terminate() {
+      terminating = true;
+      return new Promise((resolve) => { release = resolve; });
+    }
+  }
+  let resolved = false;
+  const review = runCodexReviewInWorker({}, {}, { WorkerImpl: StalledWorker, timeoutMs: 10 });
+  review.then(() => { resolved = true; });
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.equal(terminating, true);
+  assert.equal(resolved, false);
+  release(0);
+  const result = await review;
+  assert.equal(result.reviewStatus, "unable_to_review");
+});
+
 test("integrated Grok adapter accepts only a complete screened and head-bound response", async () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-grok-integrated-test-"));
   try {

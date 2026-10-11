@@ -1109,10 +1109,25 @@ function processIdentity() {
   return { pid: process.pid, ppid: process.ppid, startedAt: new Date().toISOString() };
 }
 
-export function createInitialPrStackState({ plan, adapter = null } = {}) {
+function stackReviewerProvider(config = {}) {
+  return config.reviewerTiers?.strong_independent?.provider === "grok" ? "grok" : "gemini";
+}
+
+function checkStackReviewerProvider(state, config) {
+  const configured = stackReviewerProvider(config);
+  // Legacy journals predate the pin and can only continue on their original
+  // Gemini lane. Never infer Grok authorization from a changed config.
+  const pinned = state?.reviewerProviderPin || "gemini";
+  return pinned === configured
+    ? { ok: true }
+    : fail("stack_reviewer_provider_mismatch", "persisted reviewer provider differs from the configured reviewer");
+}
+
+export function createInitialPrStackState({ plan, adapter = null, config = {} } = {}) {
   const now = new Date().toISOString();
   const state = sanitizeState({
     stateVersion: prStackStateVersion,
+    reviewerProviderPin: stackReviewerProvider(config),
     stackId: plan.stackId,
     repository: plan.repository,
     issueNumber: plan.issueNumber ?? null,
@@ -1159,6 +1174,8 @@ export function loadOrCreateStackState({ config = {}, plan, statePath, adapter =
   if (existsSync(statePath)) {
     const loaded = loadPrStackState(statePath, plan);
     if (!loaded.ok) return loaded;
+    const providerCheck = checkStackReviewerProvider(loaded.state, config);
+    if (!providerCheck.ok) return providerCheck;
     if (loaded.state.terminal?.reasonCode === "controller_wiring_missing") {
       return {
         ok: true,
@@ -1201,6 +1218,7 @@ export function writePrStackState(statePath, state) {
 
 export function validatePrStackState(state = {}, plan = null) {
   if (state.stateVersion !== prStackStateVersion) return fail("stack_state_unknown_version", "unknown stack state schema version");
+  if (state.reviewerProviderPin !== undefined && !["gemini", "grok"].includes(state.reviewerProviderPin)) return fail("stack_reviewer_provider_pin_invalid", "stack reviewer provider pin is invalid");
   if (!validStackId(state.stackId)) return fail("stack_state_identity_missing", "stack state stackId missing");
   if (!state.repository || typeof state.repository !== "string") return fail("stack_state_repository_missing", "stack state repository missing");
   if (!Array.isArray(state.orderedPrs) || state.orderedPrs.length < 1 || state.orderedPrs.length > 4) return fail("stack_state_prs_invalid", "stack state PR list invalid");
@@ -1673,6 +1691,8 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
 	      };
 	    },
     async convergeExistingPr({ pr, findings = [], state = null, plan = null, sourceCycleBudget = null }) {
+      const providerCheck = checkStackReviewerProvider(state, config);
+      if (!providerCheck.ok) return providerCheck;
       const durableBudget = sourceCycleBudget || evaluateSourceCycleBudget({ config, state, pr, findings });
       if (!durableBudget.ok) return durableBudget;
       const sourceCycleOperationContext = createSourceCycleOperationContext({ config, plan, state, pr, sourceCycleBudget: durableBudget });
@@ -1697,6 +1717,8 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
     },
     async completeFinalGates({ config: cfg, plan, state, pr }) {
       const targetConfig = cfg || config;
+      const providerCheck = checkStackReviewerProvider(state, targetConfig);
+      if (!providerCheck.ok) return providerCheck;
       const repositoryContext = await buildRepositoryOperationContext({ config: targetConfig, plan, state, prNumber: pr.number, adapter: this });
       if (!repositoryContext.ok) return repositoryContext;
       const prepared = prepareExactHeadFinalGateWorktree({ config: targetConfig, pr, expectedHead: pr.headRefOid, runner: run, repositoryContext: repositoryContext.context });
@@ -4387,6 +4409,7 @@ function loadOrCreateLocalCandidateLoopState({ config = {}, pr = {}, exactHead, 
   }
   state ||= {
     stateVersion: 1,
+    reviewerProviderPin: stackReviewerProvider(config),
     repository: config.repositorySlug || "tommytang213/Settleora",
     prNumber: pr.number,
     sourceBranch: pr.headRefName || pr.branch || null,
@@ -4411,6 +4434,9 @@ function loadOrCreateLocalCandidateLoopState({ config = {}, pr = {}, exactHead, 
   if (state.stateVersion !== 1 || state.repository !== expected.repository || state.prNumber !== expected.prNumber || state.sourceBranch !== expected.sourceBranch || state.originalHead !== expected.originalHead) {
     return fail("existing_pr_local_loop_identity_mismatch", "local candidate loop state belongs to a different repository, PR, branch, or candidate parent");
   }
+  if (state.reviewerProviderPin !== undefined && !["gemini", "grok"].includes(state.reviewerProviderPin)) return fail("existing_pr_local_loop_provider_invalid", "local candidate reviewer provider pin is invalid");
+  const providerCheck = checkStackReviewerProvider(state, config);
+  if (!providerCheck.ok) return providerCheck;
   if (!Number.isInteger(state.localRound) || state.localRound < 0 || state.localRound > 50 || !Array.isArray(state.findingDigests)) {
     return fail("existing_pr_local_loop_state_contradictory", "local candidate loop counters or finding markers are contradictory");
   }

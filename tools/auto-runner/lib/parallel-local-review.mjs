@@ -2,7 +2,7 @@ import { Worker } from "node:worker_threads";
 
 // runReviewPrompt uses spawnSync. Run it in a worker so the independent CLI
 // reviewer can make progress at the same time, against the same frozen package.
-export function runCodexReviewInWorker(config, packageInfo) {
+export function runCodexReviewInWorker(config, packageInfo, { WorkerImpl = Worker, timeoutMs = 62 * 60 * 1000 } = {}) {
   return new Promise((resolve) => {
     let worker;
     try {
@@ -10,7 +10,7 @@ export function runCodexReviewInWorker(config, packageInfo) {
       // controller state, not review input, and cannot cross a worker boundary.
       const reviewConfig = JSON.parse(JSON.stringify(config, (_key, value) =>
         typeof value === "function" ? undefined : value));
-      worker = new Worker(new URL("./codex-review-worker.mjs", import.meta.url), {
+      worker = new WorkerImpl(new URL("./codex-review-worker.mjs", import.meta.url), {
         workerData: { config: reviewConfig, packageInfo },
       });
     } catch (error) {
@@ -18,10 +18,20 @@ export function runCodexReviewInWorker(config, packageInfo) {
       return;
     }
     let settled = false;
-    const timeout = setTimeout(() => {
+    let terminating = false;
+    // Codex may make two 30 minute spawnSync attempts. The controller must
+    // not resume while either attempt or its worker is still running.
+    const timeout = setTimeout(async () => {
+      if (settled) return;
+      terminating = true;
+      try {
+        await worker.terminate();
+      } catch (error) {
+        finish(failed(`worker_termination_failed: ${error?.message || error}`));
+        return;
+      }
       finish(failed("worker_timeout"));
-      void worker.terminate();
-    }, 31 * 60 * 1000);
+    }, timeoutMs);
     timeout.unref();
     const finish = (result) => {
       if (settled) return;
@@ -30,11 +40,11 @@ export function runCodexReviewInWorker(config, packageInfo) {
       resolve(result);
     };
     worker.once("message", (message) => {
-      if (settled) return;
+      if (settled || terminating) return;
       finish(message.ok ? message.result : failed(message.error));
       worker.postMessage({ acknowledged: true });
     });
-    worker.once("error", (error) => finish(failed(error?.message)));
+    worker.once("error", (error) => { if (!terminating) finish(failed(error?.message)); });
     worker.once("exit", (code) => finish(failed(`worker_exit_${code}_without_result`)));
   });
 }
