@@ -11948,6 +11948,15 @@ bool _isWholeLocalizedAddress(String line) {
       r'\d{1,4}(?:-\d{1,4}){1,2}$',
       unicode: true,
     ),
+    // A Cyrillic street name, explicit road type, building number and city
+    // form a complete address only inside the enclosing merchant/date band.
+    // Do not match a number without both named street and city components.
+    RegExp(
+      r"^[А-Яа-яЁё][А-Яа-яЁё .’'-]{1,60}\s+"
+      r'(?:улица|проспект|бульвар|переулок|проезд|шоссе)\s+'
+      r"[1-9]\d{0,4}[а-яё]?\s*,\s*[А-Яа-яЁё][А-Яа-яЁё .’'-]{1,60}$",
+      caseSensitive: false,
+    ),
     // A Korean road address needs both civic divisions and a named road.
     // Only the enclosing merchant/date band can own its building number;
     // currency, charges and body-position rows retain their existing roles.
