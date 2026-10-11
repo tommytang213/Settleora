@@ -1301,7 +1301,7 @@ function writeBundleReviewPackage(config, { issue, laneDecision, plan, state, ch
     diffTruncated: diff.truncated,
   };
   mkdirSync(path.dirname(packagePath), { recursive: true });
-  writeFileSync(packagePath, `${JSON.stringify({ summary, diff: diff.text }, null, 2)}\n`);
+  writeFileSync(packagePath, `${JSON.stringify({ summary, diff: diff.text }, null, 2)}\n`, { mode: 0o600 });
   return { packagePath, summary, diff: diff.text };
 }
 

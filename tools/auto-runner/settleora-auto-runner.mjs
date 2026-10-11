@@ -69,6 +69,7 @@ import { reviewerReadinessSummary } from "./lib/reviewer-policy.mjs";
 import { createLargeCandidateRoutingState, loadLargeCandidateRoutingState, persistCumulativeLargeCandidateReview, persistLargeCandidateSplitDecision, structuredLargeCandidateFindings, structuredLargeCandidateManualVerdict } from "./lib/large-candidate-review-routing.mjs";
 import { runIndependentIntegratedReview, runIndependentReviewerSmokeTest, independentReviewerProvider } from "./lib/independent-reviewer.mjs";
 import { resolveRecoveredReviewerProviderPin } from "./lib/reviewer-provider-pin.mjs";
+import { adoptRecoveredReviewSession } from "./lib/recovered-review-session.mjs";
 import { runCodexReviewInWorker } from "./lib/parallel-local-review.mjs";
 import { runReviewFixCanaryFixtureReview } from "./lib/review-fix-fixture.mjs";
 import {
@@ -100,6 +101,7 @@ import {
   writeAutoMergeEvidence,
   evaluateAutoMergeDecision,
   evaluatePrePushReviewGate,
+  reviewerManualGateOutcome,
   shouldGenerateExistingPrRecoveryEvidence,
 } from "./lib/auto-merge-policy.mjs";
 import {
@@ -1002,7 +1004,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     const findings = batch.findings.map((failure) => ({ provider: failure.sourceKind, severity: "high", path: failure.path || changedFiles[0] || "", title: "Post-Codex local validation failure", body: failure.diagnosticExcerpt || failure.diagnosticDigest, safelyFixable: true }));
     const fixAttempt = await runReviewFixCycle(config, { issue, laneDecision, branchName, promptInfo, changedFiles, forbiddenChangedFiles: forbidden, validation: iteration.validation, report: { found: true, recovered: true }, externalReview: null, review: { verdict: { verdict: "changes_requested", recommended_next_action: "run_safe_fix_cycle", blocking_findings: findings } }, iteration, sourceFailureFix: { batch, decision, candidateHead: initialIdentity.headSha, baseSha: initialIdentity.baseSha } });
     if (!fixAttempt.proceeded) {
-      iteration.outcome = "validation_failed";
+      iteration.outcome = fixAttempt.reviewerManualOutcome || "validation_failed";
       iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, `Auto-runner source-failure fix stopped safely: ${fixAttempt.reason}.`);
       recoveryRecorder?.stop("source_failure_fix_not_proceeded", fixAttempt.reason, "stop_fail_closed");
       iteration.finishedAt = new Date().toISOString();
@@ -1231,6 +1233,14 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     evidencePath: iteration.externalReview.reportPath || iteration.externalReview.evidencePath,
     summary: iteration.externalReview.reason,
   });
+  const initialReviewerManualOutcome = reviewerManualGateOutcome(iteration.externalReview, iteration.review);
+  if (initialReviewerManualOutcome) {
+    iteration.outcome = initialReviewerManualOutcome;
+    iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, `Auto-runner stopped #${issue.number} for a reviewer manual gate.`);
+    recoveryRecorder?.stop("reviewer_manual_gate", iteration.outcome, "manual_decision_required");
+    iteration.finishedAt = new Date().toISOString();
+    return iteration;
+  }
   if (iteration.externalReview.status === "blocked") {
     if (iteration.externalReview?.route?.largeCandidateRouting?.route === "split_or_block") {
       iteration.largeCandidateReview = persistNormalLargeCandidateSplit(config, iteration, changedFiles);
@@ -1272,12 +1282,12 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     if (promptInfo.sessionLifecycle?.state) iteration.sessionLifecycle = promptInfo.sessionLifecycle.state;
     if (!fixAttempt.proceeded) {
       markNormalDiagnosticReviewFixTerminal(config, iteration, fixAttempt.reason);
-      iteration.outcome =
+      iteration.outcome = fixAttempt.reviewerManualOutcome || (
         iteration.externalReview.reason === "blocked_external_reviewer_route_not_eligible" ||
         iteration.externalReview.reason === "blocked_external_reviewer_lane_not_eligible" ||
         iteration.externalReview.reason === "blocked_external_reviewer_path_not_eligible"
           ? "blocked_needs_tommy"
-          : "review_changes_requested_retry_exhausted";
+          : "review_changes_requested_retry_exhausted");
       iteration.issueComment = finishIssueOutcome(
         config,
         issue,
@@ -1519,6 +1529,14 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     return iteration;
   }
   while (true) {
+    const reviewerManualOutcome = reviewerManualGateOutcome(iteration.externalReview, iteration.review);
+    if (reviewerManualOutcome) {
+      iteration.outcome = reviewerManualOutcome;
+      iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, `Auto-runner stopped #${issue.number} for a reviewer manual gate.`);
+      recoveryRecorder?.stop("reviewer_manual_gate", iteration.outcome, "manual_decision_required");
+      iteration.finishedAt = new Date().toISOString();
+      return iteration;
+    }
     if (!config.dryRun && ((iteration.review?.verdict?.verdict && iteration.review.verdict.verdict !== "approve") || iteration.externalReview?.status === "blocked")) {
       recoveryRecorder?.advance("review_fix", "run_bounded_codex_review_convergence");
       const budget = evaluateNormalReviewConvergenceBudget(config, iteration, {
@@ -1551,12 +1569,12 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       if (promptInfo.sessionLifecycle?.state) iteration.sessionLifecycle = promptInfo.sessionLifecycle.state;
       if (!fixAttempt.proceeded) {
         markNormalDiagnosticReviewFixTerminal(config, iteration, fixAttempt.reason);
-        iteration.outcome =
+        iteration.outcome = fixAttempt.reviewerManualOutcome || reviewerManualGateOutcome(iteration.externalReview, iteration.review) || (
           iteration.review.verdict.verdict === "danger_gate"
             ? "danger_gate"
             : iteration.review.verdict.verdict === "needs_tommy"
               ? "blocked_needs_tommy"
-              : "review_changes_requested_retry_exhausted";
+              : "review_changes_requested_retry_exhausted");
         iteration.issueComment = finishIssueOutcome(
           config,
           issue,
@@ -1639,6 +1657,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       ...reviewConvergence.gateInput,
       laneDecision,
       externalReview: iteration.externalReview,
+      review: iteration.review,
       reviewMutationGuard: iteration.reviewMutationGuard,
     });
     iteration.prePushReviewGate = prePushReviewGate;
@@ -1686,7 +1705,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     if (promptInfo.sessionLifecycle?.state) iteration.sessionLifecycle = promptInfo.sessionLifecycle.state;
     if (!fixAttempt.proceeded) {
       markNormalDiagnosticReviewFixTerminal(config, iteration, fixAttempt.reason);
-      iteration.outcome = "review_changes_requested_retry_exhausted";
+      iteration.outcome = fixAttempt.reviewerManualOutcome || reviewerManualGateOutcome(iteration.externalReview, iteration.review) || "review_changes_requested_retry_exhausted";
       iteration.issueComment = finishIssueOutcome(
         config,
         issue,
@@ -2858,8 +2877,10 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       if (providerBinding.provider === "grok") {
         [context.externalReview, context.review] = await Promise.all([
           runIntegratedReviewSource(config, context.reviewPackage, "startup-recovery"),
-          runCodexReviewInWorker(config, { ...context.reviewPackage, sessionLifecycle: issue.sessionLifecycle || null }),
+          runCodexReviewInWorker(config, { ...context.reviewPackage, sessionLifecycle: state.sessionLifecycle || null }),
         ]);
+        state = await adoptRecoveredReviewSession({ state, issue, review: context.review,
+          persist: (next) => writeRecoveryState(config, next) });
       } else {
         context.review = null;
         context.externalReview = await runIntegratedReviewSource(config, context.reviewPackage, "startup-recovery");
@@ -2907,7 +2928,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       if (fixAttempt.sessionLifecycleState) {
         state = { ...state, sessionLifecycle: fixAttempt.sessionLifecycleState };
       }
-      if (!fixAttempt.proceeded) return { ok: false, outcome: "review_convergence_required", reasonCode: fixAttempt.reason || "ordinary_continuation_review_fix_blocked" };
+      if (!fixAttempt.proceeded) return { ok: false, outcome: fixAttempt.reviewerManualOutcome || "review_convergence_required", reasonCode: fixAttempt.reason || "ordinary_continuation_review_fix_blocked" };
       const postFix = await commitReviewFixAndRerunExactHeadReviews(config, {
         issue,
         laneDecision,
@@ -4703,7 +4724,7 @@ async function runReviewFixCycle(config, context) {
   }
 
   const beforeReview = await checkoutFingerprint();
-  const integratedReviewPackageAfter = await writeReviewPackage(config, {
+  let integratedReviewPackageAfter = await writeReviewPackage(config, {
     issue: context.issue,
     promptInfo: context.promptInfo,
     laneDecision: context.laneDecision,
@@ -4712,9 +4733,29 @@ async function runReviewFixCycle(config, context) {
     report: context.report,
   });
   const grokPostFix = independentReviewerProvider(config, integratedReviewPackageAfter) === "grok";
+  const mechanicsInput = {
+    issue: context.issue,
+    laneDecision: context.laneDecision,
+    trigger,
+    decision,
+    changedFilesBefore: context.changedFiles || [],
+    changedFilesAfter,
+    forbiddenChangedFilesAfter,
+    validationAfter,
+    preFixReport: context.report,
+    currentHead: config.dryRun ? null : getRefSha("HEAD"),
+  };
   let externalReviewAfter;
   let reviewAfter;
   if (grokPostFix) {
+    const pendingMechanics = buildPostReviewFixMechanicsContext({ ...mechanicsInput, externalReviewPending: true });
+    if (!pendingMechanics.ok) return finishBlocked(`review_fix_post_fix_mechanics_context_invalid:${pendingMechanics.reason}`,
+      { validationAfter: summarizeValidation(validationAfter) });
+    integratedReviewPackageAfter = await writeReviewPackage(config, {
+      issue: context.issue, promptInfo: context.promptInfo, laneDecision: context.laneDecision,
+      changedFiles: changedFilesAfter, validation: validationAfter, report: context.report,
+      reviewPhase: "post-review-fix-mechanics", reviewFixMechanicsContext: pendingMechanics.context,
+    });
     [externalReviewAfter, reviewAfter] = await Promise.all([
       runIntegratedReviewSource(config, integratedReviewPackageAfter, "post-fix"),
       runCodexReviewInWorker(config, { ...integratedReviewPackageAfter, sessionLifecycle: context.issue.sessionLifecycle || context.sessionLifecycle || null }),
@@ -4730,6 +4771,15 @@ async function runReviewFixCycle(config, context) {
       externalMutationGuardAfter,
     });
   }
+  const postFixManualOutcome = reviewerManualGateOutcome(externalReviewAfter, reviewAfter);
+  if (postFixManualOutcome) {
+    return finishBlocked("review_fix_post_fix_reviewer_manual_gate", {
+      reviewerManualOutcome: postFixManualOutcome,
+      validationAfter: summarizeValidation(validationAfter),
+      externalReviewAfter: summarizeExternalReview(externalReviewAfter),
+      reviewAfter: summarizeCodexReview(reviewAfter),
+    });
+  }
   if (externalReviewAfter.status === "blocked") {
     return finishBlocked("review_fix_integrated_review_still_blocking", {
       validationAfter: summarizeValidation(validationAfter),
@@ -4737,19 +4787,7 @@ async function runReviewFixCycle(config, context) {
       reviewPackageAfter: { packagePath: integratedReviewPackageAfter.packagePath },
     });
   }
-  const postFixContext = buildPostReviewFixMechanicsContext({
-    issue: context.issue,
-    laneDecision: context.laneDecision,
-    trigger,
-    decision,
-    changedFilesBefore: context.changedFiles || [],
-    changedFilesAfter,
-    forbiddenChangedFilesAfter,
-    validationAfter,
-    externalReviewAfter,
-    preFixReport: context.report,
-    currentHead: config.dryRun ? null : getRefSha("HEAD"),
-  });
+  const postFixContext = buildPostReviewFixMechanicsContext({ ...mechanicsInput, externalReviewAfter });
   if (!postFixContext.ok) {
     return finishBlocked(`review_fix_post_fix_mechanics_context_invalid:${postFixContext.reason}`, {
       validationAfter: summarizeValidation(validationAfter),
@@ -4892,6 +4930,17 @@ async function commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDeci
       reviewMutationGuard: { mutationDetected: true, reason: "review_fix_exact_head_dirty_after_commit" },
     };
   }
+  const grokExactHead = fixAttempt.reviewPackageAfter?.summary?.reviewerProviderPin === "grok";
+  const priorMechanics = fixAttempt.reviewPackageAfter?.summary?.reviewFixMechanicsContext;
+  if (grokExactHead && (priorMechanics?.phase !== "post_review_fix_mechanics"
+    || priorMechanics?.finalIntegratedReview?.status !== "pending")) {
+    return { changedFiles, forbiddenChangedFiles, validation, commit, runnerCreatedCommitSha,
+      reviewPackage: null, externalReview: { status: "blocked", reason: "review_fix_exact_head_mechanics_context_missing" },
+      review: { verdict: { verdict: "unable_to_review" } }, reviewMutationGuard: { mutationDetected: false } };
+  }
+  const exactHeadMechanicsContext = grokExactHead
+    ? { ...priorMechanics, currentHead: runnerCreatedCommitSha, changedFilesAfter: changedFiles }
+    : null;
   const beforeReview = await checkoutFingerprint();
   const reviewPackage = await writeReviewPackage(config, {
     reviewPhase: "post-review-fix-exact-head",
@@ -4901,6 +4950,7 @@ async function commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDeci
     changedFiles,
     validation,
     report,
+    reviewFixMechanicsContext: exactHeadMechanicsContext,
     diffBaseRef: "origin/main",
     diffHeadRef: "HEAD",
   });
@@ -5197,7 +5247,7 @@ async function writeReviewPackage(config, payload) {
     reviewFixMechanicsContext: payload.reviewFixMechanicsContext || null,
     diffTruncated: diff.truncated,
   };
-  writeFileSync(packagePath, `${JSON.stringify({ summary, diff: diff.text }, null, 2)}\n`);
+  writeFileSync(packagePath, `${JSON.stringify({ summary, diff: diff.text }, null, 2)}\n`, { mode: 0o600 });
   return { packagePath, summary, diff: diff.text };
 }
 

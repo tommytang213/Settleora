@@ -16,7 +16,7 @@ const maxReadCalls = 56;
 const deadlineMs = 30 * 60 * 1000;
 const disallowedTools = "search_replace,list_dir,grep,todo_write,scheduler_create,scheduler_delete,scheduler_list,monitor,search_tool,use_tool,workflow,enter_plan_mode,exit_plan_mode,ask_user_question,send_feedback,image_gen,image_edit,image_to_video,reference_to_video,write";
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
-const credentialPattern = /(?:-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----|\b(?:AIza[0-9A-Za-z_-]{24,}|sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{20,})\b|\b(?:api[_-]?key|password|secret|authorization|bearer|token)\s*[:=]\s*["']?[A-Za-z0-9._~+/-]{12,})/i;
+const credentialPattern = /(?:-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----|\b(?:AIza[0-9A-Za-z_-]{24,}|sk-[A-Za-z0-9_-]{8,}|ghp_[A-Za-z0-9_]{8,}|github_pat_[A-Za-z0-9_]{8,}|xox[baprs]-[A-Za-z0-9-]{8,})\b|\b(?:[A-Za-z][A-Za-z0-9]*[_-])*(?:api[_-]?key|password|secret|authorization|bearer|token|credential)(?:[_-][A-Za-z0-9]+)*["'\\]*\s*[:=]\s*(?:\\?["'])?[^\s"',;)}\]]{3,})/i;
 const boundaryKnownCredentialPattern = /(?:-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----|\b(?:AIza[0-9A-Za-z_-]{24,}|sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{20,})\b)/i;
 const boundaryAssignmentPattern = /\b(?:api[_-]?key|password|secret|authorization|bearer|token)\s*[:=]\s*["']?[A-Za-z0-9._~+/-]{12,}/gi;
 const boundaryPaths = new Set(["tools/auto-runner/settleora-auto-runner.mjs", "tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"]);
@@ -193,7 +193,8 @@ function boundaryContainsCredential(content) {
       // Calls assigning an authorization result are source code; bare and
       // quoted credential values still block.
       const knownFunctionAssignment = /^\s*const authorization\s*=\s*[A-Za-z_$][\w$]*\s*\(/.test(line);
-      if (!knownFunctionAssignment || !line.slice(match.index + match[0].length).trimStart().startsWith("(")) return true;
+      const callTail = line.slice(match.index + match[0].length).trimStart();
+      if (!knownFunctionAssignment || !callTail.startsWith("(") || credentialPattern.test(callTail)) return true;
     }
   }
   return false;

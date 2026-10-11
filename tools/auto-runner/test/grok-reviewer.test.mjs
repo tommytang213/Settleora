@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { invokeGrok, parseGrokVerdict, runGrokIntegratedReview } from "../lib/grok-reviewer.mjs";
 import { runCodexReviewInWorker } from "../lib/parallel-local-review.mjs";
 import { resolveRecoveredReviewerProviderPin } from "../lib/reviewer-provider-pin.mjs";
+import { adoptRecoveredReviewSession } from "../lib/recovered-review-session.mjs";
 import { reviewerReadinessSummary } from "../lib/reviewer-policy.mjs";
 import { independentReviewerProvider, runIndependentIntegratedReview, runIndependentReviewerSmokeTest } from "../lib/independent-reviewer.mjs";
 
@@ -47,6 +48,22 @@ test("recovery keeps its recorded independent reviewer across configuration chan
   assert.equal(resolveRecoveredReviewerProviderPin(geminiConfig, { reviewerProviderPin: "grok" }).reason, "recovery_reviewer_provider_pin_mismatch");
   const mixedTiers = { reviewerProviderPin: "grok", reviewerTiers: { strong_independent: { provider: "gemini", enabled: false }, cheap_independent: { provider: "grok", enabled: true } } };
   assert.deepEqual(resolveRecoveredReviewerProviderPin(mixedTiers, { reviewerProviderPin: "grok" }), { ok: true, provider: "grok" });
+});
+
+test("recovered parallel review persists its successor session before controller reuse", async () => {
+  const original = { sessionLifecycle: { sessions: { generation: 2 } } };
+  const issue = {};
+  const successor = { sessions: { generation: 3 } };
+  let durable = null;
+  const next = await adoptRecoveredReviewSession({ state: original, issue,
+    review: { verdict: { verdict: "approve" }, sessionLifecycle: successor },
+    persist: async (state) => { durable = state; } });
+  assert.equal(next.sessionLifecycle, successor);
+  assert.equal(durable.sessionLifecycle, successor);
+  assert.equal(issue.sessionLifecycle, successor);
+  assert.equal(original.sessionLifecycle.sessions.generation, 2);
+  await assert.rejects(adoptRecoveredReviewSession({ state: original, issue: {},
+    review: { sessionLifecycle: successor }, persist: async () => { throw Error("disk unavailable"); } }), /disk unavailable/);
 });
 
 test("Grok verdict parser accepts one bounded JSON object after CLI preface", () => {
@@ -191,6 +208,15 @@ test("three fixed feature-bundle gate files clear package preflight", async () =
       integrationBoundaries: paths, integrationBoundaryMaterial: [unsafe, ...material.slice(1)] }, diff },
     { spawnImpl: () => { throw Error("must not spawn"); } });
     assert.equal(blocked.reason, "blocked_grok_boundary_material_invalid_or_sensitive");
+    const callContent = `const authorization = verifyScope("${["sk-", "syntheticBoundaryValue123456789"].join("")}");`;
+    const callMaterial = { ...material[0], content: callContent,
+      sha256: createHash("sha256").update(callContent).digest("hex") };
+    const callBlocked = await runGrokIntegratedReview(config, { summary: { baseSha: "a".repeat(40), currentHead: "b".repeat(40),
+      changedFiles: ["docs/workflow/example.md"], taskContract: { objective: "Review synthetic docs" },
+      laneDecision: { lane: "workflow-docs-tooling", reviewerTier: "strong_independent" },
+      integrationBoundaries: paths, integrationBoundaryMaterial: [callMaterial, ...material.slice(1)] }, diff },
+    { spawnImpl: () => { throw Error("must not spawn"); } });
+    assert.equal(callBlocked.reason, "blocked_grok_boundary_material_invalid_or_sensitive");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -289,6 +315,17 @@ test("integrated Grok adapter accepts only a complete screened and head-bound re
     assert.equal(secret.status, "blocked");
     assert.equal(secret.reason, "blocked_grok_context_secret_boundary");
     assert.equal(secret.liveCallAttempted, false);
+    const credentialValue = ["synthetic", "credential", "value", "123456"].join("-");
+    const passwordKey = ["pass", "word"].join("");
+    const prefixedKey = ["SERVICE", "API", "KEY"].join("_");
+    for (const probe of [JSON.stringify({ [passwordKey]: credentialValue }), `${prefixedKey}=${credentialValue}`,
+      `\\"${passwordKey}\\":\\"${credentialValue}\\"`]) {
+      const blockedContext = await runGrokIntegratedReview(config, { summary: {
+        ...summary, taskContract: { objective: "Synthetic review", generatedPrompt: probe },
+      }, diff }, { spawnImpl: () => { throw Error("must not call vendor"); } });
+      assert.equal(blockedContext.reason, "blocked_grok_context_secret_boundary");
+      assert.equal(blockedContext.liveCallAttempted, false);
+    }
     assert.notEqual(secret.reportPath, result.reportPath);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

@@ -1271,6 +1271,12 @@ test("post-review-fix mechanics context fails closed without current final revie
   assert.equal(missing.ok, false);
   assert.equal(missing.reason, "post_fix_context_missing_final_integrated_review");
 
+  const blind = buildPostReviewFixMechanicsContext({ ...base, externalReviewPending: true });
+  assert.equal(blind.ok, true);
+  assert.equal(blind.context.authoritativeStatus, "post_fix_validation_passed_independent_review_pending");
+  assert.equal(blind.context.finalIntegratedReview.status, "pending");
+  assert.doesNotMatch(JSON.stringify(blind.context), /independent_review_passed|final_review_passed/);
+
   const staleHead = buildPostReviewFixMechanicsContext({
     ...base,
     externalReviewAfter: {
@@ -5382,6 +5388,21 @@ test("pre-push review gate blocks mutation and required independent-review failu
       message: "exact-head independent review returned skipped_external_reviewer_tier_disabled",
     },
   );
+});
+
+test("pre-push review gate preserves either reviewer's manual or danger verdict", () => {
+  const laneDecision = autoMergeLane({ lane: "workflow-docs-tooling" });
+  for (const [externalReview, review, outcome] of [
+    [{ status: "blocked", verdict: "needs_tommy" }, { verdict: { verdict: "approve" } }, "blocked_needs_tommy"],
+    [{ status: "blocked", verdict: "danger_gate" }, { verdict: { verdict: "changes_requested" } }, "danger_gate"],
+    [{ status: "blocked", verdict: "fail" }, { verdict: { verdict: "danger_gate" } }, "danger_gate"],
+  ]) {
+    const gate = evaluatePrePushReviewGate({ laneDecision, externalReview, review,
+      config: { configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 2 } });
+    assert.equal(gate.ok, false);
+    assert.equal(gate.outcome, outcome);
+    assert.equal(gate.reason, "exact_head_reviewer_manual_gate");
+  }
 });
 
 test("auto-merge decision enforces exact issue contract paths even under approved lane prefix", () => {

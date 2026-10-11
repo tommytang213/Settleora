@@ -556,6 +556,7 @@ export function buildPostReviewFixMechanicsContext(input = {}) {
   const forbiddenChangedFilesAfter = normalizeChangedFiles(input.forbiddenChangedFilesAfter || []);
   const validationAfter = input.validationAfter || null;
   const externalReviewAfter = input.externalReviewAfter || null;
+  const externalReviewPending = input.externalReviewPending === true;
   const preFixReport = input.preFixReport || null;
   const currentHead = input.currentHead || null;
   const currentIssueNumber = Number(issue.number);
@@ -568,18 +569,18 @@ export function buildPostReviewFixMechanicsContext(input = {}) {
   if (!changedFilesAfter.length) return block("post_fix_context_missing_changed_files_after");
   if (forbiddenChangedFilesAfter.length > 0) return block(`post_fix_context_forbidden_changed_files:${forbiddenChangedFilesAfter.join(",")}`);
   if (validationAfter?.passed !== true) return block("post_fix_context_validation_after_not_passed");
-  if (!externalReviewAfter || typeof externalReviewAfter !== "object") return block("post_fix_context_missing_final_integrated_review");
-  if (!["pass", "skipped"].includes(externalReviewAfter.status)) {
+  if (!externalReviewPending && (!externalReviewAfter || typeof externalReviewAfter !== "object")) return block("post_fix_context_missing_final_integrated_review");
+  if (!externalReviewPending && !["pass", "skipped"].includes(externalReviewAfter.status)) {
     return block(`post_fix_context_final_integrated_review_not_passed:${externalReviewAfter.status || "missing"}`);
   }
-  if (externalReviewAfter.issue?.number && Number(externalReviewAfter.issue.number) !== currentIssueNumber) {
+  if (!externalReviewPending && externalReviewAfter.issue?.number && Number(externalReviewAfter.issue.number) !== currentIssueNumber) {
     return block("post_fix_context_final_review_issue_mismatch");
   }
-  const finalReviewChangedFiles = normalizeChangedFiles(externalReviewAfter.changedFiles || []);
+  const finalReviewChangedFiles = normalizeChangedFiles(externalReviewAfter?.changedFiles || []);
   if (finalReviewChangedFiles.length > 0 && finalReviewChangedFiles.join("\n") !== changedFilesAfter.join("\n")) {
     return block("post_fix_context_final_review_files_mismatch");
   }
-  if (currentHead && externalReviewAfter.reviewedHead && externalReviewAfter.reviewedHead !== currentHead) {
+  if (!externalReviewPending && currentHead && externalReviewAfter.reviewedHead && externalReviewAfter.reviewedHead !== currentHead) {
     return block("post_fix_context_final_review_head_mismatch");
   }
   if (!trigger.actionable || !trigger.source || !(trigger.findings || []).length) {
@@ -592,7 +593,7 @@ export function buildPostReviewFixMechanicsContext(input = {}) {
     reason: "post_review_fix_mechanics_context_ready",
     context: {
       phase: "post_review_fix_mechanics",
-      authoritativeStatus: "post_fix_validation_and_final_review_passed",
+      authoritativeStatus: externalReviewPending ? "post_fix_validation_passed_independent_review_pending" : "post_fix_validation_and_final_review_passed",
       issue: {
         number: currentIssueNumber,
         title: issue.title || null,
@@ -628,9 +629,10 @@ export function buildPostReviewFixMechanicsContext(input = {}) {
       changedFilesAfter,
       forbiddenChangedFilesAfter,
       postFixValidation: summarizeValidationForContext(validationAfter),
-      finalIntegratedReview: summarizeExternalReviewForContext(externalReviewAfter),
-      reviewerInstruction:
-        "Judge the current post-fix checkout from changedFilesAfter, postFixValidation, finalIntegratedReview, and the diff. Do not fail solely because preFixReport says an earlier missing item was absent when post-fix evidence shows it is now resolved.",
+      finalIntegratedReview: externalReviewPending ? { status: "pending", reviewerInstruction: "The independent reviewer is assessing the same frozen package concurrently; decide without its verdict." } : summarizeExternalReviewForContext(externalReviewAfter),
+      reviewerInstruction: externalReviewPending
+        ? "Judge the current post-fix checkout from changedFilesAfter, postFixValidation, and the diff. The independent review is pending. Do not fail solely because preFixReport describes an earlier missing item that current evidence resolves."
+        : "Judge the current post-fix checkout from changedFilesAfter, postFixValidation, finalIntegratedReview, and the diff. Do not fail solely because preFixReport says an earlier missing item was absent when post-fix evidence shows it is now resolved.",
       secretBoundaryConfirmation:
         "This context contains sanitized marker IDs/status only and no raw fixture marker values, provider payloads, local config bodies, /workspace/logs contents, credentials, tokens, or secrets.",
     },

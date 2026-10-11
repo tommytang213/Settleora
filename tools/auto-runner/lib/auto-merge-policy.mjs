@@ -891,6 +891,11 @@ export function evaluatePrePushReviewGate(input = {}) {
       message: "exact-head review mutated the checkout",
     };
   }
+  const manualOutcome = reviewerManualGateOutcome(externalReview, input.review);
+  if (manualOutcome) {
+    return { ok: false, outcome: manualOutcome, reason: "exact_head_reviewer_manual_gate",
+      message: `exact-head review requires ${manualOutcome === "danger_gate" ? "danger-gate" : "manual"} resolution` };
+  }
   if (requiresIndependentAiReview(laneDecision) && externalReview?.status !== "pass") {
     const convergence = evaluatePrePushReviewConvergence(input, externalReview);
     if (convergence.ok) {
@@ -918,6 +923,14 @@ export function evaluatePrePushReviewGate(input = {}) {
     };
   }
   return { ok: true, reason: "pre_push_review_gates_passed" };
+}
+
+export function reviewerManualGateOutcome(...reviews) {
+  const verdicts = reviews.flatMap((review) => [review?.verdict?.verdict, review?.verdict,
+    review?.sanitizedResponseSummary?.verdict]);
+  if (verdicts.includes("danger_gate")) return "danger_gate";
+  if (verdicts.includes("needs_tommy")) return "blocked_needs_tommy";
+  return null;
 }
 
 function evaluatePrePushReviewConvergence(input = {}, externalReview = {}) {
