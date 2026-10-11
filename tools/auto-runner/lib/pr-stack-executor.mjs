@@ -1110,8 +1110,10 @@ function processIdentity() {
 }
 
 function stackReviewerProvider(config = {}) {
-  return config.reviewerProviderPin === "grok" || config.reviewerTiers?.strong_independent?.provider === "grok"
-    ? "grok" : "gemini";
+  if (config.reviewerProviderPin === "grok" || config.reviewerProviderPin === "gemini") {
+    return config.reviewerProviderPin;
+  }
+  return config.reviewerTiers?.strong_independent?.provider === "grok" ? "grok" : "gemini";
 }
 
 function checkStackReviewerProvider(state, config) {

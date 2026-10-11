@@ -16,6 +16,7 @@ const secretPathPatterns = Object.freeze([
 const knownCredentialValuePatterns = Object.freeze([
   /\bAIza[0-9A-Za-z_-]{24,}\b/,
   /\bsk-[A-Za-z0-9]{20,}\b/,
+  /\bxai-[A-Za-z0-9_-]{20,}\b/,
   /\bghp_[A-Za-z0-9_]{20,}\b/,
   /\bgithub_pat_[A-Za-z0-9_]{20,}\b/,
   /\bxox[baprs]-[A-Za-z0-9-]{20,}\b/,

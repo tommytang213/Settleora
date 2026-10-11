@@ -1187,8 +1187,9 @@ The operator signs in privately with `grok login` and keeps subscriber Auto Top
 Up disabled. The runner passes only a small allowlist of noncredential environment variables, stages only the
 secret-screened package and the fixed gate-source files in a fresh owner-only
 temporary directory, and calls
-the CLI with `--sandbox strict`, read-only tool permissions, web and subagents
-disabled, a 64-turn limit, and a 30-minute deadline. It verifies complete file
+the CLI with `--sandbox strict`, an explicit Read allow rule scoped to that
+staged directory, web, memory, subagents, and auto-update disabled, a 64-turn
+limit, and a 30-minute deadline. It verifies complete file
 coverage from tool events before accepting one strict-schema JSON verdict. Incomplete coverage,
 tool/path violation, unavailable login/quota, timeout, malformed output, or
 non-pass blocks. Packages above 768 KiB currently block for narrower review.

@@ -943,7 +943,7 @@ test("PR-stack Codex package stays blind when a task pins Grok with a disabled s
   const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
   const adapter = runner.slice(runner.indexOf("function createLivePrStackReviewAdapters"),
     runner.indexOf("function boundRunnerOutput"));
-  assert.match(adapter, /const grokConfigured = config\.reviewerProviderPin === "grok"[\s\S]*?\|\| config\.reviewerTiers\?\.strong_independent\?\.provider === "grok"/);
+  assert.match(adapter, /const grokConfigured = config\.reviewerProviderPin\s*\? config\.reviewerProviderPin === "grok"\s*: config\.reviewerTiers\?\.strong_independent\?\.provider === "grok"/);
   assert.match(adapter, /\.\.\.\(grokConfigured \? \{\} : \{ externalReview \}\)/);
   assert.match(adapter, /const review = grokConfigured\s*\? await runCodexReviewInWorker/);
 });

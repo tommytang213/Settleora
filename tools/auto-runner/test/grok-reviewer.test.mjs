@@ -94,6 +94,9 @@ test("Grok CLI invocation binds subscriber auth and verifies complete file cover
         assert.ok(args.includes("strict"));
         assert.ok(args.includes("read_file"));
         assert.ok(args.includes("--no-subagents"));
+        assert.ok(args.includes("--no-memory"));
+        assert.ok(args.includes("--no-auto-update"));
+        assert.equal(args[args.indexOf("--allow") + 1], "Read(/tmp/settleora-review-fixture/**)");
         assert.ok(args.includes("--disable-web-search"));
       }), timeoutMs: 1000 });
     assert.equal(result.reason, null);
@@ -455,6 +458,12 @@ test("integrated Grok adapter accepts only a complete screened and head-bound re
     assert.equal(secret.status, "blocked");
     assert.equal(secret.reason, "blocked_grok_context_secret_boundary");
     assert.equal(secret.liveCallAttempted, false);
+    const xaiKey = ["xai-", "Z".repeat(32)].join("");
+    const xaiSecret = await runGrokIntegratedReview(config, { summary: {
+      ...summary, issue: { title: "Synthetic", body: `Pasted key ${xaiKey}` },
+    }, diff }, { spawnImpl: () => { throw new Error("must not call vendor"); } });
+    assert.equal(xaiSecret.reason, "blocked_grok_context_secret_boundary");
+    assert.equal(xaiSecret.liveCallAttempted, false);
     const credentialValue = ["synthetic", "credential", "value", "123456"].join("-");
     const passwordKey = ["pass", "word"].join("");
     const prefixedKey = ["SERVICE", "API", "KEY"].join("_");
