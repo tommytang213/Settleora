@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { routeReviewer } from "../lib/reviewer-policy.mjs";
 import { extractReviewFixTrigger } from "../lib/review-fix-policy.mjs";
+import { routeNormalStructuredFindingsToConvergence } from "../settleora-auto-runner.mjs";
 import {
   blockLargeCandidateForContextLimit,
   buildLargeCandidateCoverageManifest,
@@ -78,6 +79,21 @@ test("Grok large-candidate route certifies two blind complete-candidate reviews 
     assert.equal(result.state.reviewerResults.every((review) => review.sections.length === 2 && review.integration?.status === "pass"), true);
     const resumed = await persistCumulativeLargeCandidateReview(input);
     assert.equal(resumed.ok, true);
+    const codexChange = await persistCumulativeLargeCandidateReview({ ...input,
+      codexReview: { ...codexReview, verdict: { verdict: "changes_requested", blocking_findings: [
+        { severity: "medium", file_path: changedFiles[0], body: "repair exact-head routing" },
+      ] } } });
+    assert.equal(codexChange.ok, false);
+    assert.equal(codexChange.reasonCode, "review_section_not_passed");
+    assert.equal(structuredLargeCandidateFindings(codexChange, "codex-local")[0].summary, "repair exact-head routing");
+    const iteration = { externalReview, review: codexReview, largeCandidateReview: codexChange };
+    assert.equal(routeNormalStructuredFindingsToConvergence(iteration), true);
+    assert.equal(iteration.review.verdict.blocking_findings[0].message, "repair exact-head routing");
+    const grokChange = await persistCumulativeLargeCandidateReview({ ...input,
+      externalReview: { ...externalReview, status: "blocked", reason: "blocked_external_reviewer_non_pass",
+        verdict: "fail", sanitizedResponseSummary: { findings: [{ severity: "high", path: changedFiles[1], message: "repair provider boundary" }] } } });
+    assert.equal(grokChange.ok, false);
+    assert.equal(structuredLargeCandidateFindings(grokChange, "grok")[0].summary, "repair provider boundary");
     for (const [name, mutate] of [
       ["wrong provider", (value) => { value.externalReview.provider = "gemini"; }],
       ["stale base", (value) => { value.externalReview.baseSha = "4".repeat(40); }],

@@ -187,7 +187,7 @@ export async function persistCumulativeLargeCandidateReview({ config, taskKey, c
     // Both full-candidate reviews already ran independently. Project only their
     // bound evidence into coverage sections; never make sequential model calls.
     if (config?.reviewerProviderPin !== "grok" || externalReview?.provider !== "grok"
-      || !grokCompleteCandidateEvidence(externalReview, codexReview, built.manifest)) {
+      || !grokBoundCandidateEvidence(externalReview, codexReview, built.manifest)) {
       return freeze({ ok: false, reasonCode: "grok_complete_candidate_evidence_missing" });
     }
     const seed = createLargeCandidateRoutingState({ taskKey, candidateIdentity, changedFiles,
@@ -225,18 +225,22 @@ export async function persistCumulativeLargeCandidateReview({ config, taskKey, c
   return freeze({ ...reviewed, state: persisted, statePath: largeCandidateRoutingStatePath(config, persisted) });
 }
 
-function grokCompleteCandidateEvidence(externalReview, codexReview, manifest) {
+function grokBoundCandidateEvidence(externalReview, codexReview, manifest) {
   const identity = manifest.candidateIdentity;
   const filesDigest = digest(normalizeFiles(manifest.changedFiles));
+  const externalVerdictComplete = (externalReview?.status === "pass" && externalReview.verdict === "pass")
+    || (externalReview?.reason === "blocked_external_reviewer_non_pass"
+      && ["fail", "needs_tommy", "danger_gate"].includes(externalReview.verdict));
   return identity.changedFilesDigest === manifest.changedFilesDigest
-    && externalReview?.status === "pass" && externalReview.verdict === "pass"
+    && externalVerdictComplete
     && externalReview.independent === true && externalReview.reviewedHead === identity.headSha
     && externalReview.baseSha === identity.baseSha && externalReview.changedFilesDigest === identity.changedFilesDigest
     && digest(normalizeFiles(externalReview.changedFiles)) === filesDigest
     && Boolean(externalReview.completedAt) && cumulativeEvidenceBound(externalReview, identity, manifest)
     && codexReview?.status === 0 && !codexReview.signal && !codexReview.error
     && ["passed", "completed"].includes(codexReview.reviewStatus)
-    && codexReview.verdict?.verdict === "approve" && codexReview.reviewedHead === identity.headSha
+    && ["approve", "changes_requested", "needs_tommy", "danger_gate"].includes(codexReview.verdict?.verdict)
+    && codexReview.reviewedHead === identity.headSha
     && codexReview.baseSha === identity.baseSha && codexReview.reviewedBaseSha === identity.baseSha
     && codexReview.changedFilesDigest === identity.changedFilesDigest
     && digest(normalizeFiles(codexReview.changedFiles)) === filesDigest
@@ -300,7 +304,10 @@ function cumulativeFindings(evidence) {
     ...(evidence?.verdict?.blocking_findings || []),
     ...(evidence?.verdict?.non_blocking_findings || []),
     ...(evidence?.findings || []),
-  ];
+  ].map((finding) => typeof finding === "string"
+    ? { severity: "reviewer", path: null, summary: finding.slice(0, 500) }
+    : { severity: finding?.severity || "reviewer", path: finding?.path || finding?.file_path || null,
+      summary: String(finding?.summary || finding?.message || finding?.body || finding?.title || "").slice(0, 500) });
 }
 function validPromptBinding(evidence, manifest) {
   return evidence?.attestationSource === "provider_prompt_binding"

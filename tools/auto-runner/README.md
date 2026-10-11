@@ -1196,7 +1196,8 @@ non-pass blocks. Packages above 832 KiB currently block for narrower review.
 For coherent large candidates whose complete package fits this cap, two
 independently completed, exact-head whole-candidate reviews can certify every
 coverage section and integration boundary. This projection makes no additional
-sequential provider calls and rejects missing or stale evidence. Larger packages
+sequential provider calls, retains actionable findings from a complete non-pass
+review for the bounded fix cycle, and rejects missing or stale evidence. Larger packages
 still block for narrower review. Grok automatic merge remains blocked until
 that route verifies complete exact-head local and hosted review evidence.
 If a headless turn ends before all indexed ranges are read, the adapter resumes
