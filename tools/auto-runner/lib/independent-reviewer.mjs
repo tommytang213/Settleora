@@ -6,6 +6,20 @@ import { buildLargeBundleReviewEvidence, runGeminiIntegratedReview, runGeminiRev
 import { runGrokIntegratedReview } from "./grok-reviewer.mjs";
 
 export function independentReviewerProvider(config, packageInfo) {
+  const route = independentReviewerRoute(config, packageInfo);
+  if (route.tier === "block_split_or_escalate") return "split_or_escalate";
+  const summary = packageInfo?.summary || {};
+  const tier = mergeReviewerPolicyConfig(config).reviewerTiers[route.tier];
+  const provider = tier?.provider || null;
+  const recordedProvider = summary.reviewerPolicy?.tiers?.[route.tier]?.provider || null;
+  // Old packages recorded the tier provider before reviewerProviderPin existed.
+  // A package with neither record must not silently become a Grok job.
+  const pin = summary.reviewerProviderPin || recordedProvider || config.reviewerProviderPin || null;
+  if (!summary.reviewerProviderPin && !recordedProvider && provider === "grok") return null;
+  return pin && provider !== pin ? null : provider;
+}
+
+function independentReviewerRoute(config, packageInfo) {
   const summary = packageInfo?.summary || {};
   const boundary = analyzeReviewSecretBoundary({ changedFiles: summary.changedFiles || [], diff: packageInfo?.diff || "",
     diffTruncated: summary.diffTruncated === true });
@@ -23,19 +37,15 @@ export function independentReviewerProvider(config, packageInfo) {
       reviewedHead: summary.currentHead || summary.headSha || summary.runnerCreatedCommitSha || null,
       baseSha: summary.baseSha || summary.baseRefSha || summary.baseOriginMainSha || null,
       diff: packageInfo?.diff || "" }) });
-  const tier = mergeReviewerPolicyConfig(config).reviewerTiers[route.tier];
-  const provider = tier?.provider || null;
-  const recordedProvider = summary.reviewerPolicy?.tiers?.[route.tier]?.provider || null;
-  // Old packages recorded the tier provider before reviewerProviderPin existed.
-  // A package with neither record must not silently become a Grok job.
-  const pin = summary.reviewerProviderPin || recordedProvider || config.reviewerProviderPin || null;
-  if (!summary.reviewerProviderPin && !recordedProvider && provider === "grok") return null;
-  return pin && provider !== pin ? null : provider;
+  return route;
 }
 
 export function runIndependentIntegratedReview(config, packageInfo, options = {}) {
   const provider = independentReviewerProvider(config, packageInfo);
   if (provider === "grok") return runGrokIntegratedReview(config, packageInfo, options);
+  if (provider === "split_or_escalate") return { status: "blocked", reason: "blocked_external_reviewer_split_required",
+    route: independentReviewerRoute(config, packageInfo), reviewedHead: packageInfo?.summary?.currentHead || null,
+    liveCallAttempted: false };
   if (provider !== "gemini") return { status: "blocked", reason: "blocked_reviewer_provider_pin_mismatch",
     provider: packageInfo?.summary?.reviewerProviderPin || config.reviewerProviderPin || null,
     reviewedHead: packageInfo?.summary?.currentHead || null, liveCallAttempted: false };

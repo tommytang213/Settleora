@@ -4235,8 +4235,15 @@ async function generateExistingPrRecoveryEvidence(config, {
       diffText: readPrDiff(config, pr.number || pr.url),
       reviewerProviderPin,
     });
-    const externalReview = await runIntegratedReviewSource(config, reviewPackage, "existing-pr-recovery");
-    const review = externalReview.status === "pass" ? runReviewPrompt(config, { ...reviewPackage, sessionLifecycle: issue.sessionLifecycle || null }) : null;
+    const parallelGrok = independentReviewerProvider(config, reviewPackage) === "grok";
+    const [externalReview, parallelCodexReview] = parallelGrok
+      ? await Promise.all([
+          runIntegratedReviewSource(config, reviewPackage, "existing-pr-recovery"),
+          runCodexReviewInWorker(config, { ...reviewPackage, sessionLifecycle: issue.sessionLifecycle || null }),
+        ])
+      : [await runIntegratedReviewSource(config, reviewPackage, "existing-pr-recovery"), null];
+    const review = parallelCodexReview || (externalReview.status === "pass"
+      ? runReviewPrompt(config, { ...reviewPackage, sessionLifecycle: issue.sessionLifecycle || null }) : null);
     return {
       reason: "recovery_evidence_generated",
       validation,
@@ -5151,8 +5158,8 @@ async function writeReviewPackage(config, payload) {
     report: payload.report,
     externalReview: payload.externalReview || null,
     fullCandidatePrDelta: payload.fullCandidatePrDelta || null,
-    integrationBoundaries: ["tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"],
-    integrationBoundaryMaterial: integrationBoundaryMaterial(config.repoRoot, ["tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"]),
+    integrationBoundaries: ["tools/auto-runner/settleora-auto-runner.mjs", "tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"],
+    integrationBoundaryMaterial: integrationBoundaryMaterial(config.repoRoot, ["tools/auto-runner/settleora-auto-runner.mjs", "tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"]),
     reviewFixMechanicsContext: payload.reviewFixMechanicsContext || null,
     diffTruncated: diff.truncated,
   };

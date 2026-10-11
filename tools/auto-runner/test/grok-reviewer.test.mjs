@@ -106,6 +106,13 @@ test("a pinned Gemini package cannot be sent through a later Grok config", async
   assert.equal(independentReviewerProvider(config, { ...legacy, summary: { ...legacy.summary, reviewerPolicy: undefined } }), null);
   assert.equal(independentReviewerProvider({ ...config, reviewerProviderPin: null },
     { ...legacy, summary: { ...legacy.summary, reviewerPolicy: undefined } }), null);
+  const split = { ...packageInfo, summary: { ...packageInfo.summary,
+    laneDecision: { lane: "workflow-docs-tooling", splitRequired: true },
+    diffStats: { additions: 1000, deletions: 0 } } };
+  assert.equal(independentReviewerProvider(config, split), "split_or_escalate");
+  const splitResult = await runIndependentIntegratedReview(config, split);
+  assert.equal(splitResult.reason, "blocked_external_reviewer_split_required");
+  assert.equal(splitResult.route.largeCandidateRouting.route, "split_or_block");
 });
 
 test("Grok invocation stops at the reviewer hard budget before spawn", async () => {
@@ -144,6 +151,14 @@ test("three fixed feature-bundle gate files clear package preflight", async () =
       integrationBoundaries: paths, integrationBoundaryMaterial: material }, diff },
     { spawnImpl: () => { throw Error("preflight completed"); } });
     assert.equal(result.reason, "blocked_grok_invocation:Error");
+    const unsafeContent = ["token=", "not-a-real-value-12345"].join("");
+    const unsafe = { ...material[0], content: unsafeContent,
+      sha256: createHash("sha256").update(unsafeContent).digest("hex") };
+    const blocked = await runGrokIntegratedReview(config, { summary: { baseSha: "a".repeat(40), currentHead: "b".repeat(40),
+      changedFiles: ["docs/workflow/example.md"], laneDecision: { lane: "workflow-docs-tooling", reviewerTier: "strong_independent" },
+      integrationBoundaries: paths, integrationBoundaryMaterial: [unsafe, ...material.slice(1)] }, diff },
+    { spawnImpl: () => { throw Error("must not spawn"); } });
+    assert.equal(blocked.reason, "blocked_grok_boundary_material_invalid_or_sensitive");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -166,7 +181,8 @@ test("local Codex process runs off the main event loop alongside an external rev
     writeFileSync(command, "#!/bin/sh\nsleep 0.2\n"); chmodSync(command, 0o700);
     let codexDone = false;
     const codex = runCodexReviewInWorker({ dryRun: false, logsRoot: root, repoRoot: root,
-      reviewerCommand: command, codexMechanicsReviewRetry: { maxAttempts: 1 } },
+      reviewerCommand: command, codexMechanicsReviewRetry: { maxAttempts: 1 },
+      operationalIterationCheckpoint: () => { throw Error("controller only"); } },
     { summary: { changedFiles: ["example.txt"], baseSha: "a".repeat(40), currentHead: "b".repeat(40) }, diff: "synthetic" });
     codex.then(() => { codexDone = true; });
     const external = new Promise((resolve) => setTimeout(() => resolve({ codexDoneAtExternalCompletion: codexDone }), 20));

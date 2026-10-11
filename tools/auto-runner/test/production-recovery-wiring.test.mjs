@@ -618,7 +618,7 @@ test("review mutation guards precede recovery and split side effects", () => {
   const bundleHeadCheckpoint = bundle.indexOf("recovery?.headChanged(runnerCreatedCommitSha", bundleFixCommit);
   const bundleReviewPackage = bundle.indexOf("const reviewPackage = writeBundleReviewPackage", bundleFixCommit);
   assert.ok(bundleFixCommit >= 0 && bundleHeadCheckpoint > bundleFixCommit && bundleHeadCheckpoint < bundleReviewPackage);
-  const reviewCall = bundle.indexOf("result.externalReview = await runGeminiIntegratedReview");
+  const reviewCall = bundle.indexOf("result.externalReview = await runIndependentIntegratedReview");
   const guard = bundle.indexOf("externalReviewMutationGuard", reviewCall);
   const splitRoute = bundle.indexOf('route === "split_or_block"', reviewCall);
   assert.ok(reviewCall >= 0 && guard > reviewCall && splitRoute > guard);
