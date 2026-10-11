@@ -214,6 +214,12 @@ class ReceiptOcrParser {
       layoutRows,
       merchantDetection?.lineIndices ?? const {},
     );
+    final pairedCourtesyRows = _ownedPairedCourtesyRows(
+      lines,
+      layoutRows,
+      amounts.total,
+      currency,
+    );
     final extractedItems = _extractItems(
       lines,
       currency,
@@ -235,6 +241,7 @@ class ReceiptOcrParser {
         ...brandCopyRows,
         ...headerAddressRows,
         ...headerRoles.locations,
+        ...pairedCourtesyRows,
       },
     );
     final itemCandidates = extractedItems.items;
@@ -292,6 +299,7 @@ class ReceiptOcrParser {
         ...brandCopyRows,
         ...headerAddressRows,
         ...headerRoles.locations,
+        ...pairedCourtesyRows,
         ...utilityFinancial.adjustments.keys,
         ...utilityFinancial.reviewRows,
       },
@@ -7147,6 +7155,113 @@ Set<int> _ownedReceiptBrandCopyRows(
     }
   }
   return owned;
+}
+
+// A complete closing pair can follow the total without a tender section.
+// Require the full phrases and their physical footer role; a courtesy-named
+// product, unknown qualifier or conflicting cell keeps its existing evidence.
+Set<int> _ownedPairedCourtesyRows(
+  List<String> lines,
+  List<List<ReceiptOcrBlockEvidence>> rows,
+  String? selectedTotal,
+  String? currency,
+) {
+  if (selectedTotal == null ||
+      lines.length < 4 ||
+      rows.length != lines.length) {
+    return const {};
+  }
+  final start = lines.length - 2;
+  bool thanks(String text) =>
+      _isReceiptCourtesyLine(text) ||
+      RegExp(r'^grazie[.!]?$', caseSensitive: false).hasMatch(text.trim());
+  if (!thanks(lines[start]) ||
+      !(thanks(lines.last) || _isSeeYouSoonFooterPhrase(lines.last)) ||
+      rows[start].length != 1 ||
+      rows.last.length != 1) {
+    return const {};
+  }
+  final total = lines.lastIndexWhere(
+    (line) =>
+        _isPrimaryTotalCurrencyLine(line, line.toLowerCase()) &&
+        _lastAmountInLine(line, currency: currency) == selectedTotal,
+  );
+  if (total < 0 ||
+      total >= start ||
+      !_hasOnlyPaymentOrIncludedTaxOrSuggestedTipAmountsBeforeCourtesy(
+        lines,
+        total,
+        start,
+      )) {
+    return const {};
+  }
+  ({double left, double right, double top, double bottom})? bounds(
+    List<ReceiptOcrBlockEvidence> blocks,
+  ) {
+    if (blocks.isEmpty) return null;
+    for (final block in blocks) {
+      if (block.confidence == null ||
+          !block.confidence!.isFinite ||
+          block.confidence! < 0.8 ||
+          block.points.length != 4 ||
+          block.points.any((point) => !point.x.isFinite || !point.y.isFinite)) {
+        return null;
+      }
+      final points = block.points;
+      final turns = [
+        for (var i = 0; i < 4; i++)
+          (points[(i + 1) % 4].x - points[i].x) *
+                  (points[(i + 2) % 4].y - points[(i + 1) % 4].y) -
+              (points[(i + 1) % 4].y - points[i].y) *
+                  (points[(i + 2) % 4].x - points[(i + 1) % 4].x),
+      ];
+      if (!turns.every((t) => t.isFinite && t > 0) &&
+          !turns.every((t) => t.isFinite && t < 0)) {
+        return null;
+      }
+    }
+    final xs = blocks.expand((b) => b.points).map((p) => p.x).toList()..sort();
+    final ys = blocks.expand((b) => b.points).map((p) => p.y).toList()..sort();
+    return (left: xs.first, right: xs.last, top: ys.first, bottom: ys.last);
+  }
+
+  final transaction = bounds(rows[total]);
+  final first = bounds(rows[start]);
+  final last = bounds(rows.last);
+  if (transaction == null || first == null || last == null) return const {};
+  final width = transaction.right - transaction.left;
+  final transactionHeight = transaction.bottom - transaction.top;
+  final center = (transaction.left + transaction.right) / 2;
+  final firstHeight = first.bottom - first.top;
+  final lastHeight = last.bottom - last.top;
+  final smallerHeight = firstHeight < lastHeight ? firstHeight : lastHeight;
+  if (first.top < transaction.bottom ||
+      first.top - transaction.bottom > transactionHeight * 3 ||
+      last.top < first.bottom - smallerHeight / 2 ||
+      last.top > first.bottom + lastHeight * 2) {
+    return const {};
+  }
+  for (final b in [first, last]) {
+    if (b.bottom - b.top > width / 2 ||
+        b.left < transaction.left ||
+        b.right > transaction.right ||
+        ((b.left + b.right) / 2 - center).abs() > width * 0.15) {
+      return const {};
+    }
+  }
+  for (var i = 0; i < start; i++) {
+    for (final block in rows[i]) {
+      final b = bounds([block]);
+      if (b == null ||
+          (b.right > transaction.left &&
+              b.left < transaction.right &&
+              b.bottom > first.top &&
+              b.top < last.bottom)) {
+        return const {};
+      }
+    }
+  }
+  return {start, start + 1};
 }
 
 bool _isClosedPostPaymentCourtesy(List<String> lines) {
