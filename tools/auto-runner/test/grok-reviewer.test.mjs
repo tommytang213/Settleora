@@ -208,7 +208,8 @@ test("three fixed feature-bundle gate files clear package preflight", async () =
       integrationBoundaries: paths, integrationBoundaryMaterial: [unsafe, ...material.slice(1)] }, diff },
     { spawnImpl: () => { throw Error("must not spawn"); } });
     assert.equal(blocked.reason, "blocked_grok_boundary_material_invalid_or_sensitive");
-    const callContent = `const authorization = verifyScope("${["sk-", "syntheticBoundaryValue123456789"].join("")}");`;
+    const callContent = ["const authorization", " = verifyScope(",
+      JSON.stringify(["sk-", "syntheticBoundaryValue123456789"].join("")), ");"].join("");
     const callMaterial = { ...material[0], content: callContent,
       sha256: createHash("sha256").update(callContent).digest("hex") };
     const callBlocked = await runGrokIntegratedReview(config, { summary: { baseSha: "a".repeat(40), currentHead: "b".repeat(40),
