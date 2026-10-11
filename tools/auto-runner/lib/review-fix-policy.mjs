@@ -557,6 +557,7 @@ export function buildPostReviewFixMechanicsContext(input = {}) {
   const validationAfter = input.validationAfter || null;
   const externalReviewAfter = input.externalReviewAfter || null;
   const externalReviewPending = input.externalReviewPending === true;
+  const exactHeadRereview = input.exactHeadRereview === true;
   const preFixReport = input.preFixReport || null;
   const currentHead = input.currentHead || null;
   const currentIssueNumber = Number(issue.number);
@@ -593,7 +594,8 @@ export function buildPostReviewFixMechanicsContext(input = {}) {
     reason: "post_review_fix_mechanics_context_ready",
     context: {
       phase: "post_review_fix_mechanics",
-      authoritativeStatus: externalReviewPending ? "post_fix_validation_passed_independent_review_pending" : "post_fix_validation_and_final_review_passed",
+      authoritativeStatus: exactHeadRereview ? "post_fix_committed_head_validation_passed_review_in_progress"
+        : externalReviewPending ? "post_fix_validation_passed_independent_review_pending" : "post_fix_validation_and_final_review_passed",
       issue: {
         number: currentIssueNumber,
         title: issue.title || null,
@@ -629,8 +631,10 @@ export function buildPostReviewFixMechanicsContext(input = {}) {
       changedFilesAfter,
       forbiddenChangedFilesAfter,
       postFixValidation: summarizeValidationForContext(validationAfter),
-      finalIntegratedReview: externalReviewPending ? { status: "pending", reviewerInstruction: "The independent reviewer is assessing the same frozen package concurrently; decide without its verdict." } : summarizeExternalReviewForContext(externalReviewAfter),
-      reviewerInstruction: externalReviewPending
+      finalIntegratedReview: exactHeadRereview ? null : externalReviewPending ? { status: "pending", reviewerInstruction: "The independent reviewer is assessing the same frozen package concurrently; decide without its verdict." } : summarizeExternalReviewForContext(externalReviewAfter),
+      reviewerInstruction: exactHeadRereview
+        ? "This package starts a fresh review of the committed exact head. Judge the current diff and validation independently; no reviewer verdict for this head is supplied."
+        : externalReviewPending
         ? "Judge the current post-fix checkout from changedFilesAfter, postFixValidation, and the diff. The independent review is pending. Do not fail solely because preFixReport describes an earlier missing item that current evidence resolves."
         : "Judge the current post-fix checkout from changedFilesAfter, postFixValidation, finalIntegratedReview, and the diff. Do not fail solely because preFixReport says an earlier missing item was absent when post-fix evidence shows it is now resolved.",
       secretBoundaryConfirmation:

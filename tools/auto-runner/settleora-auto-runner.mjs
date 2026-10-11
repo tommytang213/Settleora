@@ -1695,6 +1695,9 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     const prePushReviewGate = evaluatePrePushReviewGate({
       ...reviewConvergence.gateInput,
       laneDecision,
+      expectedHeadSha: iteration.runnerCreatedCommitSha,
+      expectedBaseSha: iteration.baseOriginMainSha,
+      changedFiles,
       externalReview: iteration.externalReview,
       review: iteration.review,
       reviewMutationGuard: iteration.reviewMutationGuard,
@@ -5115,15 +5118,30 @@ async function commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDeci
   }
   const grokExactHead = fixAttempt.reviewPackageAfter?.summary?.reviewerProviderPin === "grok";
   const priorMechanics = fixAttempt.reviewPackageAfter?.summary?.reviewFixMechanicsContext;
-  if (grokExactHead && (priorMechanics?.phase !== "post_review_fix_mechanics"
-    || priorMechanics?.finalIntegratedReview?.status !== "pending")) {
+  if (grokExactHead && priorMechanics?.phase !== "post_review_fix_mechanics") {
     return { changedFiles, forbiddenChangedFiles, validation, commit, runnerCreatedCommitSha,
       reviewPackage: null, externalReview: { status: "blocked", reason: "review_fix_exact_head_mechanics_context_missing" },
       review: { verdict: { verdict: "unable_to_review" } }, reviewMutationGuard: { mutationDetected: false } };
   }
-  const exactHeadMechanicsContext = grokExactHead
-    ? { ...priorMechanics, currentHead: runnerCreatedCommitSha, changedFilesAfter: changedFiles }
-    : null;
+  const refreshedMechanics = grokExactHead ? buildPostReviewFixMechanicsContext({
+    issue, laneDecision,
+    trigger: { ...priorMechanics.structuredReviewFixTrigger, actionable: true },
+    decision: priorMechanics.reviewFixDecision,
+    changedFilesBefore: priorMechanics.changedFilesBefore,
+    changedFilesAfter: changedFiles,
+    forbiddenChangedFilesAfter: forbiddenChangedFiles,
+    validationAfter: validation,
+    preFixReport: report,
+    currentHead: runnerCreatedCommitSha,
+    externalReviewPending: true,
+    exactHeadRereview: true,
+  }) : null;
+  if (grokExactHead && !refreshedMechanics.ok) {
+    return { changedFiles, forbiddenChangedFiles, validation, commit, runnerCreatedCommitSha,
+      reviewPackage: null, externalReview: { status: "blocked", reason: `review_fix_exact_head_mechanics_context_invalid:${refreshedMechanics.reason}` },
+      review: { verdict: { verdict: "unable_to_review" } }, reviewMutationGuard: { mutationDetected: false } };
+  }
+  const exactHeadMechanicsContext = refreshedMechanics?.context || null;
   const beforeReview = await checkoutFingerprint();
   const reviewPackage = await writeReviewPackage(config, {
     reviewPhase: "post-review-fix-exact-head",

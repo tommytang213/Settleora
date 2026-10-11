@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { parseCliArgs, loadConfig, normalizeAutoMergePolicy } from "../lib/config.mjs";
+import { digestChangedFiles, parseCliArgs, loadConfig, normalizeAutoMergePolicy } from "../lib/config.mjs";
 
 test("read-only observer config loading creates and chmods no project state", () => {
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-observer-config-"));
@@ -1276,6 +1276,13 @@ test("post-review-fix mechanics context fails closed without current final revie
   assert.equal(blind.context.authoritativeStatus, "post_fix_validation_passed_independent_review_pending");
   assert.equal(blind.context.finalIntegratedReview.status, "pending");
   assert.doesNotMatch(JSON.stringify(blind.context), /independent_review_passed|final_review_passed/);
+
+  const committedHead = buildPostReviewFixMechanicsContext({ ...base, currentHead: "b".repeat(40),
+    externalReviewPending: true, exactHeadRereview: true });
+  assert.equal(committedHead.ok, true);
+  assert.equal(committedHead.context.authoritativeStatus, "post_fix_committed_head_validation_passed_review_in_progress");
+  assert.equal(committedHead.context.finalIntegratedReview, null);
+  assert.match(committedHead.context.reviewerInstruction, /fresh review of the committed exact head/);
 
   const staleHead = buildPostReviewFixMechanicsContext({
     ...base,
@@ -5407,7 +5414,13 @@ test("pre-push review gate preserves either reviewer's manual or danger verdict"
 
 test("pre-push gate requires an approving local review when one is supplied", () => {
   const laneDecision = autoMergeLane({ lane: "workflow-docs-tooling" });
-  const missing = evaluatePrePushReviewGate({ laneDecision, externalReview: { status: "pass" } });
+  const expectedHeadSha = "a".repeat(40);
+  const expectedBaseSha = "b".repeat(40);
+  const changedFiles = ["tools/auto-runner/lib/auto-merge-policy.mjs"];
+  const externalReview = { status: "pass", reviewedHead: expectedHeadSha, baseSha: expectedBaseSha,
+    changedFilesDigest: digestChangedFiles(changedFiles) };
+  const input = { laneDecision, expectedHeadSha, expectedBaseSha, changedFiles, externalReview };
+  const missing = evaluatePrePushReviewGate(input);
   assert.equal(missing.ok, false);
   assert.equal(missing.reason, "exact_head_codex_review_not_approved");
   for (const review of [
@@ -5415,10 +5428,37 @@ test("pre-push gate requires an approving local review when one is supplied", ()
     { reviewStatus: "unable_to_review", verdict: { verdict: "unable_to_review" } },
     { reviewStatus: "completed", verdict: "approve" },
   ]) {
-    const gate = evaluatePrePushReviewGate({ laneDecision, externalReview: { status: "pass" }, review });
+    const gate = evaluatePrePushReviewGate({ ...input, review });
     assert.equal(gate.ok, false);
     assert.equal(gate.reason, "exact_head_codex_review_not_approved");
   }
+});
+
+test("pre-push dual review requires successful exact-head process and file bindings", () => {
+  const head = "a".repeat(40);
+  const base = "b".repeat(40);
+  const changedFiles = ["tools/auto-runner/lib/auto-merge-policy.mjs"];
+  const changedFilesDigest = digestChangedFiles(changedFiles);
+  const input = {
+    laneDecision: autoMergeLane({ lane: "workflow-docs-tooling" }),
+    expectedHeadSha: head, expectedBaseSha: base, changedFiles,
+    externalReview: { status: "pass", verdict: "pass", reviewedHead: head, baseSha: base, changedFilesDigest },
+    review: { status: 0, signal: null, error: null, reviewStatus: "completed",
+      reviewedHead: head, baseSha: base, reviewedBaseSha: base, changedFilesDigest,
+      verdict: { verdict: "approve" } },
+  };
+  assert.equal(evaluatePrePushReviewGate(input).ok, true);
+  for (const review of [
+    { status: 1 }, { reviewStatus: undefined }, { reviewedHead: "c".repeat(40) },
+    { reviewedBaseSha: "c".repeat(40) }, { changedFilesDigest: "wrong" },
+  ]) {
+    const gate = evaluatePrePushReviewGate({ ...input, review: { ...input.review, ...review } });
+    assert.equal(gate.ok, false);
+    assert.equal(gate.reason, "exact_head_codex_review_not_approved");
+  }
+  const externalMismatch = evaluatePrePushReviewGate({ ...input,
+    externalReview: { ...input.externalReview, reviewedHead: "c".repeat(40) } });
+  assert.equal(externalMismatch.reason, "exact_head_independent_review_identity_mismatch");
 });
 
 test("auto-merge decision enforces exact issue contract paths even under approved lane prefix", () => {

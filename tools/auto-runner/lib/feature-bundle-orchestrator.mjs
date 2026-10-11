@@ -510,7 +510,11 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   let prePushGate = evaluatePrePushReviewGate({
     ...reviewConvergence.gateInput,
     laneDecision: planned.laneDecision,
+    expectedHeadSha: finalHead,
+    expectedBaseSha: baseOriginMainSha,
+    changedFiles: aggregateFiles,
     externalReview: result.externalReview,
+    review: result.review,
     reviewMutationGuard: result.reviewMutationGuard,
   });
   checkpoint("feature_bundle_review_convergence", { validation: result.validation, externalReview: result.externalReview, review: result.review });
@@ -918,7 +922,11 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
     prePushGate = dependencies.evaluatePrePushGate({
       ...reviewConvergence.gateInput,
       laneDecision: input.laneDecision,
+      expectedHeadSha: postFix.runnerCreatedCommitSha,
+      expectedBaseSha: input.baseSha,
+      changedFiles: currentResult.changedFiles || input.changedFiles,
       externalReview: currentResult.externalReview,
+      review: currentResult.review,
       reviewMutationGuard: currentResult.reviewMutationGuard || { mutationDetected: false },
     });
   }

@@ -883,6 +883,9 @@ export function requiresIndependentAiReview(laneDecision = {}) {
 export function evaluatePrePushReviewGate(input = {}) {
   const laneDecision = input.laneDecision || {};
   const externalReview = input.externalReview || null;
+  const expectedHead = input.expectedHeadSha || null;
+  const expectedBase = input.expectedBaseSha || null;
+  const expectedFilesDigest = Array.isArray(input.changedFiles) ? digestChangedFiles(input.changedFiles) : null;
   if (input.reviewMutationGuard?.mutationDetected) {
     return {
       ok: false,
@@ -922,8 +925,21 @@ export function evaluatePrePushReviewGate(input = {}) {
       message: `exact-head independent review returned ${externalReview?.reason || externalReview?.status || "missing"} and bounded review convergence is unavailable: ${convergence.reason}`,
     };
   }
+  if (requiresIndependentAiReview(laneDecision) && (!/^[a-f0-9]{40}$/.test(expectedHead || "")
+    || !/^[a-f0-9]{40}$/.test(expectedBase || "") || !expectedFilesDigest
+    || externalReview?.reviewedHead !== expectedHead || externalReview?.baseSha !== expectedBase
+    || externalReview?.changedFilesDigest !== expectedFilesDigest)) {
+    return { ok: false, outcome: "review_changes_requested_retry_exhausted",
+      reason: "exact_head_independent_review_identity_mismatch",
+      message: "exact-head independent review is not bound to the candidate" };
+  }
   if (!input.review || (input.review?.verdict?.verdict !== "approve"
-    || (input.review.reviewStatus && !["passed", "completed"].includes(input.review.reviewStatus)))) {
+    || input.review.status !== 0 || input.review.signal || input.review.error
+    || !["passed", "completed"].includes(input.review.reviewStatus)
+    || !/^[a-f0-9]{40}$/.test(expectedHead || "") || !/^[a-f0-9]{40}$/.test(expectedBase || "")
+    || !expectedFilesDigest || input.review.reviewedHead !== expectedHead
+    || input.review.baseSha !== expectedBase || input.review.reviewedBaseSha !== expectedBase
+    || input.review.changedFilesDigest !== expectedFilesDigest)) {
     const convergence = evaluatePrePushReviewConvergence(input, externalReview || {});
     return { ok: false,
       outcome: convergence.ok ? "review_convergence_required" : "review_changes_requested_retry_exhausted",
