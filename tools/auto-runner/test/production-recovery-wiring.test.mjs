@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { ordinaryReviewerCheckpoint, persistOrdinaryParallelReviewerCheckpoint, recordOrdinaryParallelReviewerResult, reserveOrdinaryParallelReviewerAttempt, resolveExistingPrRecoveryReviewerProvider, resolveOrdinaryParallelReviewerCheckpoint, resolveOrdinaryRecoveryManualGate, routeNormalStructuredFindingsToConvergence, validateOrdinaryParallelReviewIdentity } from "../settleora-auto-runner.mjs";
 import { extractReviewFixTrigger } from "../lib/review-fix-policy.mjs";
+import { persistCumulativeLargeCandidateReview } from "../lib/large-candidate-review-routing.mjs";
 
 test("ordinary structured findings cannot replace a manual reviewer verdict", () => {
   for (const [external, local] of [
@@ -89,6 +90,39 @@ test("recovery sanitization preserves Grok pass and fail checkpoint fields", () 
     if (verdict === "fail") assert.equal(extractReviewFixTrigger({ externalReview: recovered.checkpoint.external,
       review: recovered.checkpoint.codex }).findings[0], finding);
   }
+});
+
+test("serialized ordinary reviewer checkpoints can certify a Grok large candidate", async () => {
+  const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-grok-large-recovery-"));
+  const changedFiles = ["services/api/runtime.mjs", "tools/auto-runner/a.mjs"];
+  const digest = createHash("sha256").update(JSON.stringify(changedFiles)).digest("hex");
+  const identity = { repository: "tommytang213/Settleora", headSha: "a".repeat(40),
+    baseSha: "b".repeat(40), treeSha: "c".repeat(40), diffDigest: "d".repeat(64), changedFilesDigest: digest };
+  const boundaries = ["tools/auto-runner/settleora-auto-runner.mjs"];
+  const bound = { attestedCandidateIdentity: identity, attestedIntegrationBoundaries: boundaries,
+    attestationSource: "provider_prompt_binding", providerPromptBindingDigest: "e".repeat(64) };
+  const external = { ...bound, provider: "grok", independent: true, status: "pass", verdict: "pass",
+    reviewedHead: identity.headSha, baseSha: identity.baseSha, changedFiles, changedFilesDigest: digest,
+    completedAt: "2026-10-11T00:00:00Z" };
+  const codex = { ...bound, status: 0, reviewStatus: "completed", verdict: { verdict: "approve" },
+    reviewedHead: identity.headSha, baseSha: identity.baseSha, reviewedBaseSha: identity.baseSha,
+    changedFiles, changedFilesDigest: digest, completedAt: "2026-10-11T00:00:00Z" };
+  try {
+    const state = JSON.parse(JSON.stringify(sanitizeRecoveryState({ evidence: { parallelReviewerVerdicts: {
+      candidateHeadSha: identity.headSha, providerPin: "grok", attempts: 1,
+      external: ordinaryReviewerCheckpoint(external, "external"), codex: ordinaryReviewerCheckpoint(codex, "codex"),
+    } } })));
+    const recovered = resolveOrdinaryParallelReviewerCheckpoint(state.evidence.parallelReviewerVerdicts, identity, "grok");
+    assert.equal(recovered.ok, true);
+    assert.equal(recovered.retryIncomplete, false);
+    const result = await persistCumulativeLargeCandidateReview({ config: { logsRoot, reviewerProviderPin: "grok" },
+      taskKey: "recovered-large", candidateIdentity: identity, changedFiles, integrationBoundaries: boundaries,
+      externalReview: recovered.checkpoint.external, codexReview: recovered.checkpoint.codex,
+      invokeSection: async () => { throw new Error("reviewer rerun"); },
+      invokeIntegration: async () => { throw new Error("reviewer rerun"); } });
+    assert.equal(result.ok, true, result.reasonCode);
+    assert.equal(result.state.reviewerResults.length, 2);
+  } finally { rmSync(logsRoot, { recursive: true, force: true }); }
 });
 
 test("incomplete parallel invocations retry once without replaying completed verdicts", () => {
