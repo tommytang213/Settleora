@@ -624,6 +624,18 @@ test("review mutation guards precede recovery and split side effects", () => {
   assert.ok(reviewCall >= 0 && guard > reviewCall && splitRoute > guard);
 });
 
+test("ordinary post-fix caller stops on a new manual verdict and carries the worker successor", () => {
+  const source = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  const initialFix = source.slice(source.indexOf('if (config.requirePrePrReview && (iteration.review.verdict.verdict !== "approve"'),
+    source.indexOf('if (config.requirePrePrReview && config.dryRun'));
+  assert.match(initialFix, /if \(fixAttempt\.reviewerManualOutcome\) \{[\s\S]*?iteration\.outcome = fixAttempt\.reviewerManualOutcome;[\s\S]*?return iteration;/);
+  const fixCycle = source.slice(source.indexOf("async function runReviewFixCycle"), source.indexOf("async function commitReviewFixAndRerunExactHeadReviews"));
+  assert.ok(fixCycle.indexOf("latestSessionLifecycle = reviewAfter.sessionLifecycle") < fixCycle.indexOf("const externalMutationGuardAfter"));
+  assert.match(fixCycle, /sessionLifecycleState: latestSessionLifecycle/);
+  assert.match(source, /-\$\{randomUUID\(\)\}\.json/);
+  assert.match(source, /writeFileSync\(packagePath,[^\n]+\{ mode: 0o600, flag: "wx" \}\)/);
+});
+
 test("head-changing commit invalidates every stale evidence binding", () => {
   let state = recoveryState();
   for (const kind of headBoundEvidenceKinds) {

@@ -29,7 +29,11 @@ export function runCodexReviewInWorker(config, packageInfo) {
       clearTimeout(timeout);
       resolve(result);
     };
-    worker.once("message", (message) => finish(message.ok ? message.result : failed(message.error)));
+    worker.once("message", (message) => {
+      if (settled) return;
+      finish(message.ok ? message.result : failed(message.error));
+      worker.postMessage({ acknowledged: true });
+    });
     worker.once("error", (error) => finish(failed(error?.message)));
     worker.once("exit", (code) => finish(failed(`worker_exit_${code}_without_result`)));
   });

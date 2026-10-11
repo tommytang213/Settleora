@@ -288,7 +288,7 @@ test("integrated Grok adapter accepts only a complete screened and head-bound re
       integrationBoundaryMaterial: boundaryPaths.map((sourcePath) => ({ path: sourcePath, content: "// Read-only gate fixture\n",
         sha256: createHash("sha256").update("// Read-only gate fixture\n").digest("hex") })) };
     const diff = "diff --git a/src/example.js b/src/example.js\n--- a/src/example.js\n+++ b/src/example.js\n@@ -1 +1 @@\n-old\n+new\n";
-    const spawnImpl = (_binary, args) => {
+    const spawnWithVerdict = (reportedVerdict) => (_binary, args) => {
       const staged = args[args.indexOf("--cwd") + 1];
       assert.doesNotMatch(readFileSync(path.join(staged, "context.json"), "utf8"), /Read-only gate fixture/);
       const events = [];
@@ -301,15 +301,23 @@ test("integrated Grok adapter accepts only a complete screened and head-bound re
         events.push({ type: "tool_call_update", toolCallId: id, status: "completed",
           content: [{ content: { text: lines.map((line, i) => `${i + 1}→${line}`).join("\n") } }] });
       }
-      events.push({ type: "text", data: JSON.stringify({ verdict: "pass", confidence: "medium", summary: "No introduced defect", findings: [] }) }, end);
+      events.push({ type: "text", data: JSON.stringify(reportedVerdict) }, end);
       return fakeSpawn(events)();
     };
+    const spawnImpl = spawnWithVerdict({ verdict: "pass", confidence: "medium", summary: "No introduced defect", findings: [] });
     const result = await runGrokIntegratedReview(config, { summary, diff }, { spawnImpl, timeoutMs: 1000 });
     assert.equal(result.status, "pass");
     assert.equal(result.provider, "grok");
     assert.equal(result.reviewedHead, summary.currentHead);
     assert.equal(result.attestedCandidateIdentity.headSha, summary.currentHead);
     assert.equal(result.providerMetadata.coveredLines, result.providerMetadata.totalLines);
+    const contradictory = await runGrokIntegratedReview(config, { summary, diff }, { timeoutMs: 1000,
+      spawnImpl: spawnWithVerdict({ verdict: "pass", confidence: "medium", summary: "Check input handling",
+        findings: ["A changed function returns the wrong status for a bounded input."] }) });
+    assert.equal(contradictory.status, "blocked");
+    assert.equal(contradictory.reason, "blocked_grok_pass_with_findings");
+    assert.equal(contradictory.verdict, "fail");
+    assert.equal(contradictory.sanitizedResponseSummary.providerReportedVerdict, "pass");
     const secret = await runGrokIntegratedReview(config, { summary: {
       ...summary, issue: { title: "Synthetic", body: ["api_key=", "sk-", "abcdefghijklmnopqrstuvwxyz123456"].join("") },
     }, diff }, { spawnImpl: () => { throw new Error("must not call vendor"); } });

@@ -175,9 +175,11 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
         answerLength: outcome.answer.length,
         answerPreview: outcome.answer.slice(0, 240) } });
     const verdict = parsed.verdict;
-    return finish({ liveCallAttempted: true, status: verdict.verdict === "pass" ? "pass" : "blocked",
-      reason: verdict.verdict === "pass" ? "integrated_review_passed" : "blocked_external_reviewer_non_pass",
-      verdict: verdict.verdict, sanitizedResponseSummary: verdict,
+    const passWithFindings = verdict.verdict === "pass" && verdict.findings.length > 0;
+    const effectiveVerdict = passWithFindings ? { ...verdict, verdict: "fail", providerReportedVerdict: "pass" } : verdict;
+    return finish({ liveCallAttempted: true, status: effectiveVerdict.verdict === "pass" ? "pass" : "blocked",
+      reason: passWithFindings ? "blocked_grok_pass_with_findings" : effectiveVerdict.verdict === "pass" ? "integrated_review_passed" : "blocked_external_reviewer_non_pass",
+      verdict: effectiveVerdict.verdict, sanitizedResponseSummary: effectiveVerdict,
       actualUsage: outcome.usage, providerMetadata: metadata });
   } catch (error) {
     return finish({ reason: `blocked_grok_invocation:${String(error.code || error.name || "error").slice(0, 80)}` });

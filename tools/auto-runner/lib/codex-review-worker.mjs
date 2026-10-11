@@ -1,8 +1,15 @@
 import { parentPort, workerData } from "node:worker_threads";
 import { runReviewPrompt } from "./codex-runner.mjs";
 
+let outcome;
 try {
-  parentPort.postMessage({ ok: true, result: runReviewPrompt(workerData.config, workerData.packageInfo) });
+  outcome = { ok: true, result: runReviewPrompt(workerData.config, workerData.packageInfo) };
 } catch (error) {
-  parentPort.postMessage({ ok: false, error: String(error?.message || error).slice(0, 240) });
+  outcome = { ok: false, error: String(error?.message || error).slice(0, 240) };
 }
+// Keep the worker alive until the parent receives the result. A normal exit
+// without an acknowledged message is therefore a real review failure.
+parentPort.once("message", (message) => {
+  if (message?.acknowledged === true) parentPort.close();
+});
+parentPort.postMessage(outcome);

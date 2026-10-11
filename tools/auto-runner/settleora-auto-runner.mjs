@@ -1279,7 +1279,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       diagnosticAuthorization: iteration.reviewConvergenceBudget?.diagnosticAuthorization,
     });
     iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
-    if (promptInfo.sessionLifecycle?.state) iteration.sessionLifecycle = promptInfo.sessionLifecycle.state;
+    if (fixAttempt.sessionLifecycleState || promptInfo.sessionLifecycle?.state) iteration.sessionLifecycle = fixAttempt.sessionLifecycleState || promptInfo.sessionLifecycle.state;
     if (!fixAttempt.proceeded) {
       markNormalDiagnosticReviewFixTerminal(config, iteration, fixAttempt.reason);
       iteration.outcome = fixAttempt.reviewerManualOutcome || (
@@ -1452,7 +1452,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       diagnosticAuthorization: iteration.reviewConvergenceBudget?.diagnosticAuthorization,
     });
     iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
-    if (promptInfo.sessionLifecycle?.state) iteration.sessionLifecycle = promptInfo.sessionLifecycle.state;
+    if (fixAttempt.sessionLifecycleState || promptInfo.sessionLifecycle?.state) iteration.sessionLifecycle = fixAttempt.sessionLifecycleState || promptInfo.sessionLifecycle.state;
     if (fixAttempt.proceeded) {
       const postFix = await commitReviewFixAndRerunExactHeadReviews(config, {
         issue,
@@ -1508,6 +1508,13 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       });
     } else {
       markNormalDiagnosticReviewFixTerminal(config, iteration, fixAttempt.reason);
+      if (fixAttempt.reviewerManualOutcome) {
+        iteration.outcome = fixAttempt.reviewerManualOutcome;
+        iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, `Auto-runner stopped #${issue.number} for a post-fix reviewer manual gate.`);
+        recoveryRecorder?.stop("review_fix_post_fix_reviewer_manual_gate", fixAttempt.reason, "manual_decision_required");
+        iteration.finishedAt = new Date().toISOString();
+        return iteration;
+      }
     }
   }
 
@@ -1566,7 +1573,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         diagnosticAuthorization: iteration.reviewConvergenceBudget?.diagnosticAuthorization,
       });
       iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
-      if (promptInfo.sessionLifecycle?.state) iteration.sessionLifecycle = promptInfo.sessionLifecycle.state;
+      if (fixAttempt.sessionLifecycleState || promptInfo.sessionLifecycle?.state) iteration.sessionLifecycle = fixAttempt.sessionLifecycleState || promptInfo.sessionLifecycle.state;
       if (!fixAttempt.proceeded) {
         markNormalDiagnosticReviewFixTerminal(config, iteration, fixAttempt.reason);
         iteration.outcome = fixAttempt.reviewerManualOutcome || reviewerManualGateOutcome(iteration.externalReview, iteration.review) || (
@@ -1702,7 +1709,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       diagnosticAuthorization: iteration.reviewConvergenceBudget?.diagnosticAuthorization,
     });
     iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
-    if (promptInfo.sessionLifecycle?.state) iteration.sessionLifecycle = promptInfo.sessionLifecycle.state;
+    if (fixAttempt.sessionLifecycleState || promptInfo.sessionLifecycle?.state) iteration.sessionLifecycle = fixAttempt.sessionLifecycleState || promptInfo.sessionLifecycle.state;
     if (!fixAttempt.proceeded) {
       markNormalDiagnosticReviewFixTerminal(config, iteration, fixAttempt.reason);
       iteration.outcome = fixAttempt.reviewerManualOutcome || reviewerManualGateOutcome(iteration.externalReview, iteration.review) || "review_changes_requested_retry_exhausted";
@@ -4663,6 +4670,7 @@ async function runReviewFixCycle(config, context) {
   }
   const changedFilesAfter = listWorkingTreeChangedFiles();
   const forbiddenChangedFilesAfter = filterForbiddenChangedFiles(changedFilesAfter, context.laneDecision);
+  let latestSessionLifecycle = codex.sessionLifecycle?.state || context.issue.sessionLifecycle || context.sessionLifecycle || null;
   const finishBlocked = (reason, extra = {}) => {
     const evidence = writeReviewFixEvidence(config, {
       ...baseEvidence,
@@ -4681,7 +4689,7 @@ async function runReviewFixCycle(config, context) {
       decision,
       promptPath,
       codex,
-      sessionLifecycleState: codex.sessionLifecycle?.state || null,
+      sessionLifecycleState: latestSessionLifecycle,
       changedFilesAfter,
       forbiddenChangedFilesAfter,
       evidence,
@@ -4763,6 +4771,12 @@ async function runReviewFixCycle(config, context) {
   } else {
     externalReviewAfter = await runIntegratedReviewSource(config, integratedReviewPackageAfter, "post-fix");
   }
+  if (reviewAfter?.sessionLifecycle) {
+    latestSessionLifecycle = reviewAfter.sessionLifecycle;
+    context.issue.sessionLifecycle = latestSessionLifecycle;
+    context.sessionLifecycle = latestSessionLifecycle;
+    if (context.promptInfo.sessionLifecycle) context.promptInfo.sessionLifecycle = { ...context.promptInfo.sessionLifecycle, state: latestSessionLifecycle };
+  }
   const externalMutationGuardAfter = compareFingerprints(beforeReview, await checkoutFingerprint());
   if (externalMutationGuardAfter.mutationDetected) {
     return finishBlocked("review_fix_post_fix_external_review_mutated_checkout", {
@@ -4807,6 +4821,7 @@ async function runReviewFixCycle(config, context) {
   });
   reviewAfter ||= runReviewPrompt(config, { ...reviewPackageAfter, sessionLifecycle: context.issue.sessionLifecycle || context.sessionLifecycle || null });
   if (reviewAfter.sessionLifecycle) {
+    latestSessionLifecycle = reviewAfter.sessionLifecycle;
     context.issue.sessionLifecycle = reviewAfter.sessionLifecycle;
     context.sessionLifecycle = reviewAfter.sessionLifecycle;
     if (context.promptInfo.sessionLifecycle) context.promptInfo.sessionLifecycle = { ...context.promptInfo.sessionLifecycle, state: reviewAfter.sessionLifecycle };
@@ -5205,7 +5220,7 @@ async function writeReviewPackage(config, payload) {
   const packagePath = path.join(
     config.logsRoot,
     "reviews",
-    `${safeTimestamp()}-issue-${payload.issue.number}-${slugify(payload.issue.title, 40)}.json`,
+    `${safeTimestamp()}-issue-${payload.issue.number}-${slugify(payload.issue.title, 40)}-${randomUUID()}.json`,
   );
   const summary = {
     reviewPhase: payload.reviewPhase || "pre-pr-review",
@@ -5247,7 +5262,7 @@ async function writeReviewPackage(config, payload) {
     reviewFixMechanicsContext: payload.reviewFixMechanicsContext || null,
     diffTruncated: diff.truncated,
   };
-  writeFileSync(packagePath, `${JSON.stringify({ summary, diff: diff.text }, null, 2)}\n`, { mode: 0o600 });
+  writeFileSync(packagePath, `${JSON.stringify({ summary, diff: diff.text }, null, 2)}\n`, { mode: 0o600, flag: "wx" });
   return { packagePath, summary, diff: diff.text };
 }
 
