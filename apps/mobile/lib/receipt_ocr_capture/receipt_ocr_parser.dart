@@ -11484,7 +11484,12 @@ Set<int> _ownedLocalizedAddressRows(
   for (var index = 1; index + 1 < lines.length; index++) {
     if (!merchantLineIndices.contains(index - 1) ||
         _hasPotentialReceiptAdjustmentLabel(lines[index]) ||
-        _isPrintedModifierLine(lines[index])) {
+        _isPrintedModifierLine(lines[index]) ||
+        RegExp(
+          '(?<![\\p{L}\\p{M}])$_signCurrencyTokenPattern(?![\\p{L}\\p{M}])',
+          caseSensitive: false,
+          unicode: true,
+        ).hasMatch(lines[index])) {
       continue;
     }
     if (_isLabeledCalendarDateLine(lines[index + 1]) &&

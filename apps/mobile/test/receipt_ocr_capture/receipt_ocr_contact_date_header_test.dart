@@ -2,6 +2,42 @@ import 'package:flutter_test/flutter_test.dart';
 import '../support/contact_date_receipt.dart';
 
 void main() {
+  for (final currency in ['EUR', 'BIF', 'eur', 'hKd', 'CZK', 'USD']) {
+    for (final contact in [false, true]) {
+      test(
+        'address currency remains financial evidence $currency contact=$contact',
+        () {
+          final rows = contactDateReceiptRows(
+            address: 'Avenida Central $currency 21, Madrid',
+            date: 'Date: 2026-10-04',
+            service: false,
+          );
+          if (!contact) rows.removeAt(2);
+          final p = parseContactDateReceipt(rows);
+          expect(p.currency, 'HKD');
+          expect(p.items.map((i) => [i.lineTotal, i.currency]), [
+            ['8.00', 'HKD'],
+            ['12.00', 'HKD'],
+          ]);
+          expect(p.total, '20.00');
+          expect(p.adjustmentsComplete, isFalse);
+          expect(p.reviewHints, isNotEmpty);
+        },
+      );
+    }
+  }
+  for (final street in ['Cadiz', 'Cadernos']) {
+    test(
+      'currency letters inside street name remain ordinary address $street',
+      () {
+        final p = parseContactDateReceipt(
+          contactDateReceiptRows(address: 'Avenida $street 21, Madrid'),
+        );
+        expect(p.adjustmentsComplete, isTrue);
+        expect(p.reviewHints, isEmpty);
+      },
+    );
+  }
   for (final address in [
     '九龍灣觀塘道中27號',
     '台北市大安區和平路18號',

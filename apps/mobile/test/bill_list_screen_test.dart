@@ -84,6 +84,8 @@ void main() {
       'contactDateComplete',
       'contactDateNoService',
       'contactDateUnownedPhone',
+      'contactDateForeignAddress',
+      'contactDateUnsupportedAddress',
       'taxAnnotation',
       'foreignTaxItem',
       'brandCaption',
@@ -273,7 +275,16 @@ void main() {
           : scenario.startsWith('contactDate')
           ? parseContactDateReceipt(
               contactDateReceiptRows(
-                service: scenario != 'contactDateNoService',
+                service:
+                    scenario == 'contactDateComplete' ||
+                    scenario == 'contactDateUnownedPhone',
+                address: switch (scenario) {
+                  'contactDateForeignAddress' =>
+                    'Avenida Central EUR 21, Madrid',
+                  'contactDateUnsupportedAddress' =>
+                    'Avenida Central BIF 21, Madrid',
+                  _ => '九龍灣觀塘道中27號',
+                },
                 phone: scenario == 'contactDateUnownedPhone'
                     ? 'Tel +852 2468 1357 fee'
                     : 'Tel +852 2468 1357',
@@ -358,11 +369,17 @@ void main() {
             expect(preview.currency, 'HKD');
             expect(
               preview.service,
-              scenario == 'contactDateNoService' ? isNull : '2.00',
+              scenario == 'contactDateComplete' ||
+                      scenario == 'contactDateUnownedPhone'
+                  ? '2.00'
+                  : isNull,
             );
             expect(
               preview.total,
-              scenario == 'contactDateNoService' ? '20.00' : '22.00',
+              scenario == 'contactDateComplete' ||
+                      scenario == 'contactDateUnownedPhone'
+                  ? '22.00'
+                  : '20.00',
             );
           }
           if (scenario.startsWith('headerReference')) {
