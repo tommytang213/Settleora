@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { ordinaryReviewerCheckpoint, resolveExistingPrRecoveryReviewerProvider, resolveOrdinaryParallelReviewerCheckpoint, resolveOrdinaryRecoveryManualGate, routeNormalStructuredFindingsToConvergence } from "../settleora-auto-runner.mjs";
+import { ordinaryReviewerCheckpoint, persistOrdinaryParallelReviewerCheckpoint, resolveExistingPrRecoveryReviewerProvider, resolveOrdinaryParallelReviewerCheckpoint, resolveOrdinaryRecoveryManualGate, routeNormalStructuredFindingsToConvergence } from "../settleora-auto-runner.mjs";
 import { extractReviewFixTrigger } from "../lib/review-fix-policy.mjs";
 
 test("ordinary structured findings cannot replace a manual reviewer verdict", () => {
@@ -99,6 +99,44 @@ test("failed Codex process cannot restore a saved approve verdict", () => {
   assert.equal(resumed.checkpoint.codex.status, 1);
   assert.equal(resolveOrdinaryParallelReviewerCheckpoint({ ...saved, attempts: 2 }, { headSha: head }, "grok").reasonCode,
     "ordinary_parallel_reviewer_retry_exhausted");
+});
+
+test("missing Codex base binding is never a reusable approval", () => {
+  const head = "a".repeat(40);
+  const base = "b".repeat(40);
+  const saved = { candidateHeadSha: head, providerPin: "grok", attempts: 1,
+    external: { reviewedHead: head, baseSha: base, status: "pass", verdict: "pass" },
+    codex: { reviewedHead: head, status: 0, reviewStatus: "completed", verdict: { verdict: "approve" } } };
+  assert.equal(resolveOrdinaryParallelReviewerCheckpoint(saved, { headSha: head, baseSha: base }, "grok").retryIncomplete, true);
+  assert.equal(resolveOrdinaryParallelReviewerCheckpoint({ ...saved, attempts: 2 }, { headSha: head, baseSha: base }, "grok").reasonCode,
+    "ordinary_parallel_reviewer_retry_exhausted");
+});
+
+test("primary and post-fix Grok reviews persist reusable exact-head checkpoints", () => {
+  const base = "c".repeat(40);
+  const headA = "a".repeat(40);
+  const headB = "b".repeat(40);
+  const recorder = { state: { evidence: { localValidation: { status: "passed" } } },
+    annotate(metadata) { this.state = { ...this.state, ...metadata }; return this.state; } };
+  const resultFor = (head) => ({
+    external: { provider: "grok", status: "pass", verdict: "pass", reviewedHead: head, baseSha: base },
+    codex: { status: 0, reviewStatus: "completed", reviewedHead: head, baseSha: base,
+      reviewedBaseSha: base, verdict: { verdict: "approve" } },
+  });
+  const first = resultFor(headA);
+  persistOrdinaryParallelReviewerCheckpoint(recorder, headA, first.external, first.codex);
+  assert.equal(recorder.state.evidence.localValidation.status, "passed");
+  assert.equal(resolveOrdinaryParallelReviewerCheckpoint(recorder.state.evidence.parallelReviewerVerdicts,
+    { headSha: headA, baseSha: base }, "grok").retryIncomplete, false);
+  assert.equal(resolveOrdinaryParallelReviewerCheckpoint(recorder.state.evidence.parallelReviewerVerdicts,
+    { headSha: headB, baseSha: base }, "grok").checkpoint, null);
+  const second = resultFor(headB);
+  persistOrdinaryParallelReviewerCheckpoint(recorder, headB, second.external, second.codex);
+  assert.equal(resolveOrdinaryParallelReviewerCheckpoint(recorder.state.evidence.parallelReviewerVerdicts,
+    { headSha: headB, baseSha: base }, "grok").retryIncomplete, false);
+  const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  assert.match(runner, /persistOrdinaryParallelReviewerCheckpoint\(recoveryRecorder, iteration\.runnerCreatedCommitSha/);
+  assert.match(runner, /function recordPostFixExactHeadEvidence[\s\S]*?persistOrdinaryParallelReviewerCheckpoint\(recoveryRecorder, headSha/);
 });
 
 test("recovery ignores saved parallel verdicts after a source-changing fix", () => {

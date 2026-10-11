@@ -1263,6 +1263,8 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     evidencePath: iteration.externalReview.reportPath || iteration.externalReview.evidencePath,
     summary: iteration.externalReview.reason,
   });
+  persistOrdinaryParallelReviewerCheckpoint(recoveryRecorder, iteration.runnerCreatedCommitSha,
+    iteration.externalReview, iteration.review);
   const initialReviewerManualOutcome = reviewerManualGateOutcome(iteration.externalReview, iteration.review);
   if (initialReviewerManualOutcome) {
     iteration.outcome = initialReviewerManualOutcome;
@@ -2706,6 +2708,8 @@ export function resolveOrdinaryParallelReviewerCheckpoint(saved, identity, provi
   if (!saved || saved.candidateHeadSha !== identity?.headSha) return { ok: true, checkpoint: null };
   if (saved.providerPin !== provider || [saved.external, saved.codex].some((review) =>
     review?.reviewedHead != null && review.reviewedHead !== identity.headSha)
+    || (identity.baseSha && [saved.external, saved.codex].some((review) =>
+      review?.baseSha != null && review.baseSha !== identity.baseSha))
     || [saved.external, saved.codex].some((review, index) =>
       ordinaryParallelReviewerComplete(review, index === 0 ? "external" : "codex")
       && review.reviewedHead !== identity.headSha)) {
@@ -2730,8 +2734,23 @@ function ordinaryParallelReviewerComplete(review, provider) {
   }
   return review?.status === 0 && !review.signal && !review.error
     && ["passed", "completed"].includes(review?.reviewStatus)
+    && /^[a-f0-9]{40}$/.test(review?.baseSha || "")
     && review.reviewedBaseSha === review.baseSha
     && ["approve", "changes_requested", "needs_tommy", "danger_gate"].includes(review?.verdict?.verdict);
+}
+
+export function persistOrdinaryParallelReviewerCheckpoint(recoveryRecorder, candidateHeadSha, externalReview, review) {
+  if (!recoveryRecorder || externalReview?.provider !== "grok") return null;
+  return recoveryRecorder.annotate({ evidence: {
+    ...recoveryRecorder.state.evidence,
+    parallelReviewerVerdicts: {
+      candidateHeadSha,
+      providerPin: "grok",
+      attempts: 1,
+      external: ordinaryReviewerCheckpoint(externalReview, "external"),
+      codex: ordinaryReviewerCheckpoint(review, "codex"),
+    },
+  } });
 }
 
 export function resolveOrdinaryRecoveryManualGate(state) {
@@ -4632,9 +4651,9 @@ function createLivePrStackReviewAdapters(config) {
       const review = await runIntegratedReviewSource(config, reviewPackage, "pr-stack-final-strong-exact-head");
       return {
         ...review,
-        reviewedHead: review.reviewedHead || headSha,
+        reviewedHead: review.reviewedHead,
         reviewedBaseSha: review.reviewedBaseSha,
-        baseSha: review.baseSha || baseSha,
+        baseSha: review.baseSha,
         changedFiles: review.changedFiles || changedFiles,
         changedFilesDigest: review.changedFilesDigest || digestRunnerStringSet(changedFiles),
         fullCandidatePrDelta: review.fullCandidatePrDelta || fullCandidatePrDelta,
@@ -4649,9 +4668,9 @@ function createLivePrStackReviewAdapters(config) {
         : runReviewPrompt(config, { ...reviewPackage, sessionLifecycle });
       return {
         ...review,
-        reviewedHead: review.reviewedHead || headSha,
+        reviewedHead: review.reviewedHead,
         reviewedBaseSha: review.reviewedBaseSha,
-        baseSha: review.baseSha || baseSha,
+        baseSha: review.baseSha,
         changedFiles: review.changedFiles || changedFiles,
         changedFilesDigest: review.changedFilesDigest || digestRunnerStringSet(changedFiles),
         fullCandidatePrDelta: review.fullCandidatePrDelta || fullCandidatePrDelta,
@@ -5355,6 +5374,7 @@ function recordPostFixExactHeadEvidence(recoveryRecorder, { validation, external
   if (persisted && !persisted.ok) {
     throw new Error(`Post-fix exact-head evidence persistence failed: ${persisted.reasonCode || "unknown"}`);
   }
+  persistOrdinaryParallelReviewerCheckpoint(recoveryRecorder, headSha, externalReview, review);
   return persisted;
 }
 
