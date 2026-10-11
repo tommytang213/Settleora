@@ -123,8 +123,9 @@ void main() {
         }
         if (variant == 'nearby currency') cell('EUR', 6, 333, 226, 35);
         if (variant == 'nearby amount') cell('9.00', 6, 333, 226, 40);
-        if (variant == 'competing total cell')
+        if (variant == 'competing total cell') {
           cell('USD 9.00', 6, 785, 207, 80);
+        }
         if (variant.contains('date')) {
           cell(
             variant == 'unlabeled adjacent date' ? 'Reference' : 'Due Date:',

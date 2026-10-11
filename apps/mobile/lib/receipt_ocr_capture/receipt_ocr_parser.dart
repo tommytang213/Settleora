@@ -8105,8 +8105,9 @@ bool _isIndependentTotalRow(
         .toList();
     if (labels.length != 1 ||
         dates.length != 1 ||
-        (block != labels.single && block != dates.single))
+        (block != labels.single && block != dates.single)) {
       return false;
+    }
     final dl = boxes[labels.single]!, dv = boxes[dates.single]!;
     final dh = dl.bottom - dl.top, vh = dv.bottom - dv.top;
     final dateTop = dl.top < dv.top ? dl.top : dv.top;
