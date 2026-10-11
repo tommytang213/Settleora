@@ -138,6 +138,23 @@ void main() {
     expect(p.reviewHints, isEmpty);
   });
 
+  for (final value in ['5.00', '8.00']) {
+    for (final before in [true, false]) {
+      test('foreign primary total $value before=$before retains review', () {
+        final other = 'Total EUR $value';
+        final p = parse(
+          promotion(
+            total: before ? '$other\nTotal USD 5.00' : 'Total USD 5.00\n$other',
+          ),
+        );
+        expect(p.currency, 'USD');
+        expect(p.total, '5.00');
+        expect(p.adjustmentsComplete, isFalse);
+        expect(p.reviewHints, isNotEmpty);
+      });
+    }
+  }
+
   for (final defect in <String, String>{
     'different amounts': promotion(
       summary: 'Discount USD -2.00',

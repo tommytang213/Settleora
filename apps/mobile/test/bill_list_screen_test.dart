@@ -65,6 +65,8 @@ void main() {
       'summaryCurrencyResidualSign',
       'subtotal',
       'competingSubtotal',
+      'promotionForeignTotalBefore',
+      'promotionForeignTotalAfter',
       'taxAnnotation',
       'foreignTaxItem',
       'brandCaption',
@@ -196,6 +198,15 @@ void main() {
                 'traditionalTaxJoinedConflict' => 'EUR1.0USD',
                 _ => 'USD1.0',
               }}\nTotal USD ${scenario == 'traditionalTaxNet' ? '11.00' : '10.00'}',
+            )
+          : scenario.startsWith('promotionForeignTotal')
+          ? const ReceiptOcrParser().parse(
+              'Corner Market\nTea USD 10.00\nPromotion USD -3.00\n'
+              'Subtotal USD 10.00\nDiscount USD -3.00\n'
+              '${scenario.endsWith('Before') ? 'Total EUR 99.00\n' : ''}'
+              'Total USD 7.00\n'
+              '${scenario.endsWith('After') ? 'Total EUR 99.00\n' : ''}'
+              'Thank you',
             )
           : switch (scenario) {
               'service' => joinedServicePreview(),

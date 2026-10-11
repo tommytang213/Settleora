@@ -2848,6 +2848,15 @@ class ReceiptOcrParser {
         ) &&
         _ocrAmountMinorUnits(discountComponents.first.amount, currency) ==
             _ocrAmountMinorUnits(discountComponents.last.amount, currency) &&
+        // A foreign primary total is competing printed evidence even when
+        // currency filtering excludes it from the selectable candidates.
+        lines
+                .where(
+                  (line) =>
+                      _isPrimaryTotalCurrencyLine(line, line.toLowerCase()),
+                )
+                .length ==
+            1 &&
         totalCandidates.length == 1 &&
         totalCandidates.single.order > discountRows.last &&
         _ocrAmountMinorUnits(subtotal, currency) != null &&
