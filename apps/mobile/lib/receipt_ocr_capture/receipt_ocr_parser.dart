@@ -2256,6 +2256,7 @@ class ReceiptOcrParser {
     final incompleteReasons = <ReceiptOcrIncompleteAdjustmentReason>{};
     var aggregatedRatedTax = false;
     final totalCandidates = <({String value, int score, int order})>[];
+    final addressSeparatedTotals = <int, String>{};
     var seenPrintedSubtotal = false;
     var hasUnextractablePrimaryTotal = false;
     bool preferMatchingPrintedCurrency(
@@ -2299,8 +2300,15 @@ class ReceiptOcrParser {
         }
         continue;
       }
+      final addressSeparatedTotal = layoutRows.length == lines.length
+          ? _ownedTotalBesideAddress(layoutRows, lineIndex, currency)
+          : null;
+      if (addressSeparatedTotal != null) {
+        addressSeparatedTotals[lineIndex] = addressSeparatedTotal;
+      }
       final line =
           layoutAdjustmentLines[lineIndex] ??
+          addressSeparatedTotal ??
           (_isFinancialLabelWithAdjacentAmount(lines, layoutRows, lineIndex)
               ? '${lines[lineIndex]} ${lines[lineIndex + 1]}'
               : lines[lineIndex]);
@@ -2998,11 +3006,14 @@ class ReceiptOcrParser {
           if (layoutRows.length == lines.length &&
               layoutRows[candidate.order].length > 1 &&
               !layoutAdjustmentLines.containsKey(candidate.order) &&
+              !addressSeparatedTotals.containsKey(candidate.order) &&
               !_isIndependentTotalRow(layoutRows, candidate.order, currency)) {
             return false;
           }
           final line =
-              layoutAdjustmentLines[candidate.order] ?? lines[candidate.order];
+              layoutAdjustmentLines[candidate.order] ??
+              addressSeparatedTotals[candidate.order] ??
+              lines[candidate.order];
           return _isLabeledStandaloneMoneyLine(
                 line,
                 _completeTotalLabelPattern,
@@ -8014,10 +8025,12 @@ Map<int, String> _skewedSummaryEvidenceLines(
 bool _isIndependentTotalRow(
   List<List<ReceiptOcrBlockEvidence>> rows,
   int rowIndex,
-  String? currency,
-) {
-  if (currency == null || rows[rowIndex].length != 2) return false;
-  final row = [...rows[rowIndex]]
+  String? currency, {
+  List<ReceiptOcrBlockEvidence>? ownedCells,
+}) {
+  final cells = ownedCells ?? rows[rowIndex];
+  if (currency == null || cells.length != 2) return false;
+  final row = [...cells]
     ..sort((a, b) => _blockLeft(a).compareTo(_blockLeft(b)));
   final label = row.first, money = row.last;
   final labelText = _normalizeOcrLine(label.text);
@@ -8069,14 +8082,177 @@ bool _isIndependentTotalRow(
   if (l.right >= m.left || overlap < (lh < mh ? lh : mh) / 2) {
     return false;
   }
+  bool ownedDateNeighbor(ReceiptOcrBlockEvidence block) {
+    if (ownedCells == null) return false;
+    final dateRow = rows.singleWhere((r) => r.contains(block));
+    final labels = dateRow
+        .where(
+          (b) => RegExp(
+            r'^(?:due|bill|invoice|statement)\s+date\s*:?$',
+            caseSensitive: false,
+          ).hasMatch(b.text.trim()),
+        )
+        .toList();
+    final dates = dateRow
+        .where(
+          (b) =>
+              RegExp(
+                r'^(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+(?:0?[1-9]|[12]\d|3[01]),?\s+\d{4}$',
+                caseSensitive: false,
+              ).hasMatch(b.text.trim()) &&
+              const ReceiptOcrParser()._detectDate([b.text]) != null,
+        )
+        .toList();
+    if (labels.length != 1 ||
+        dates.length != 1 ||
+        (block != labels.single && block != dates.single))
+      return false;
+    final dl = boxes[labels.single]!, dv = boxes[dates.single]!;
+    final dh = dl.bottom - dl.top, vh = dv.bottom - dv.top;
+    final dateTop = dl.top < dv.top ? dl.top : dv.top;
+    final dateBottom = dl.bottom > dv.bottom ? dl.bottom : dv.bottom;
+    final dateOverlap =
+        (dl.bottom < dv.bottom ? dl.bottom : dv.bottom) -
+        (dl.top > dv.top ? dl.top : dv.top);
+    if (dl.right >= dv.left ||
+        dateOverlap < (dh < vh ? dh : vh) / 2 ||
+        dh < lh / 2 ||
+        dh > lh * 2 ||
+        vh < mh / 2 ||
+        vh > mh * 2 ||
+        (dl.left - l.left).abs() > lh / 2 ||
+        (dv.left - m.left).abs() > mh / 2 ||
+        dateBottom > top ||
+        top - dateBottom > (lh > mh ? lh : mh)) {
+      return false;
+    }
+    // A complete calendar field owns this neighboring band. Any other cell
+    // intruding into that band prevents the exemption, regardless of OCR row.
+    return !boxes.entries.any(
+      (e) =>
+          e.key != labels.single &&
+          e.key != dates.single &&
+          e.value.right > dl.left &&
+          e.value.left < dv.right &&
+          e.value.bottom > dateTop &&
+          e.value.top < dateBottom,
+    );
+  }
+
   return !boxes.entries.any((entry) {
     if (row.contains(entry.key)) return false;
     final b = entry.value;
     return b.right > l.left - clearance &&
         b.left < m.right + clearance &&
         b.bottom > top - clearance &&
-        b.top < bottom + clearance;
+        b.top < bottom + clearance &&
+        !ownedDateNeighbor(entry.key);
   });
+}
+
+// A complete street/postal pair can own a separate left column even when the
+// provider places its street on the total's row. Only the proven label/money
+// pair is projected for total detection; every original block and unresolved
+// row remains available to item selection and review. Separation alone cannot
+// classify an unexplained number or arbitrary product as an address.
+String? _ownedTotalBesideAddress(
+  List<List<ReceiptOcrBlockEvidence>> rows,
+  int rowIndex,
+  String? currency,
+) {
+  if (currency == null ||
+      rows[rowIndex].length != 3 ||
+      rows[rowIndex].any(
+        (b) =>
+            b.points.length != 4 ||
+            b.points.any((p) => !p.x.isFinite || !p.y.isFinite),
+      )) {
+    return null;
+  }
+  final row = [...rows[rowIndex]]
+    ..sort((a, b) => _blockLeft(a).compareTo(_blockLeft(b)));
+  final street = row.first, label = row[1], money = row.last;
+  final streetText = _normalizeOcrLine(street.text);
+  if (!RegExp(
+        r"^\d{1,6}\s+[a-z][a-z .'-]{1,50}\s+(?:street|st|road|rd|avenue|ave|boulevard|blvd|lane|ln|drive|dr|way)\.?$",
+        caseSensitive: false,
+      ).hasMatch(streetText) ||
+      _printedCurrencyMarkerMatches(streetText).isNotEmpty ||
+      _unsupportedIsoCurrencyMarkers(streetText).isNotEmpty ||
+      !_isIndependentTotalRow(
+        rows,
+        rowIndex,
+        currency,
+        ownedCells: [label, money],
+      )) {
+    return null;
+  }
+  final selected = _lastAmountInLine(money.text, currency: currency);
+  final selectedMinor = selected == null
+      ? null
+      : _ocrAmountMinorUnits(selected, currency);
+  if (selectedMinor == null) return null;
+  for (var i = 0; i < rows.length; i++) {
+    if (i == rowIndex) continue;
+    final other = rows[i].map((b) => _normalizeOcrLine(b.text)).join(' ');
+    if (!_isLabeledStandaloneMoneyLine(other, _completeTotalLabelPattern)) {
+      continue;
+    }
+    final denomination = _currencyAdjacentToSelectedAmount(other, currency);
+    if (denomination.hasExplicitEvidence && denomination.currency != currency) {
+      continue;
+    }
+    final amount = _lastAmountInLine(other, currency: currency);
+    if (amount != null &&
+        _ocrAmountMinorUnits(amount, currency) != selectedMinor) {
+      // This recovery must not choose a new total over contradictory printed
+      // money. Preserve the existing candidate and its discrepancy review.
+      return null;
+    }
+  }
+  // The independent total proof above requires finite, convex geometry for
+  // every block, so all following bounds refer to validated quadrilaterals.
+  double top(ReceiptOcrBlockEvidence b) =>
+      b.points.map((p) => p.y).reduce((a, b) => a < b ? a : b);
+  double bottom(ReceiptOcrBlockEvidence b) =>
+      b.points.map((p) => p.y).reduce((a, b) => a > b ? a : b);
+  double height(ReceiptOcrBlockEvidence b) => bottom(b) - top(b);
+  final h = height(street);
+  final all = rows.expand((r) => r).toList();
+  final postal = all
+      .where(
+        (b) =>
+            b != street &&
+            _hasUsPostalAddress([_normalizeOcrLine(b.text)]) &&
+            (_blockLeft(b) - _blockLeft(street)).abs() <= h / 2 &&
+            top(b) >= bottom(street) &&
+            top(b) <= bottom(street) + h &&
+            height(b) >= h / 2 &&
+            height(b) <= h * 2,
+      )
+      .toList();
+  if (postal.length != 1) return null;
+  final city = postal.single;
+  final left = _blockLeft(street) < _blockLeft(city)
+      ? _blockLeft(street)
+      : _blockLeft(city);
+  final right = _blockRight(street) > _blockRight(city)
+      ? _blockRight(street)
+      : _blockRight(city);
+  final clearance = height(city) > h ? height(city) : h;
+  if (_blockLeft(label) - right < clearance * 2 ||
+      all.any(
+        (b) =>
+            b != street &&
+            b != city &&
+            _blockRight(b) > left - clearance / 2 &&
+            _blockLeft(b) < right + clearance / 2 &&
+            bottom(b) > top(street) - clearance / 2 &&
+            top(b) < bottom(city) + clearance / 2,
+      )) {
+    return null;
+  }
+  return '${_normalizeOcrLine(label.text)} ${_normalizeOcrLine(money.text)}';
 }
 
 // Some providers group a large summary-card amount with adjacent customer
