@@ -184,6 +184,7 @@ class ReceiptOcrParser {
       layoutAdjustmentLines: layoutAdjustmentLines,
       utilityTaxComponents: utilityFinancial.taxComponents,
       retainedUtilityAdjustmentRows: utilityFinancial.reviewRows,
+      ownedActivityFeeRows: _corroboratedActivityFeeRows(lines, currency),
     );
     final merchantDetection = _detectMerchant(lines, layoutRows);
     final merchant = merchantDetection?.text;
@@ -2190,6 +2191,7 @@ class ReceiptOcrParser {
     Map<int, String> layoutAdjustmentLines = const {},
     Map<int, ({int table, String label})> utilityTaxComponents = const {},
     Set<int> retainedUtilityAdjustmentRows = const {},
+    Set<int> ownedActivityFeeRows = const {},
   }) {
     String? subtotal;
     int? selectedSubtotalRow;
@@ -2275,6 +2277,9 @@ class ReceiptOcrParser {
               ? '${lines[lineIndex]} ${lines[lineIndex + 1]}'
               : lines[lineIndex]);
       if (_isEmailOnlyMetadataLine(line)) continue;
+      // These complete fee rows already belong to the explicitly described
+      // parking session or signed return. They remain ordinary item evidence.
+      if (ownedActivityFeeRows.contains(lineIndex)) continue;
       final normalized = line.toLowerCase();
       final hasPotentialAdjustment = _hasPotentialReceiptAdjustmentLabel(line);
       if (retainedUtilityAdjustmentRows.contains(lineIndex)) {
@@ -2809,11 +2814,57 @@ class ReceiptOcrParser {
         discountHasExplicitCurrencyEvidence = true;
       }
     }
+    // A promotion immediately before Subtotal can be restated by the single
+    // Discount immediately after it. Require the same explicit denomination,
+    // one negative amount and exact subtotal-to-total reconciliation; two
+    // independent discounts or merely equal numbers remain ambiguous.
+    final summarizedPromotion =
+        currency != null &&
+        adjustmentsComplete &&
+        selectedSubtotalRow != null &&
+        subtotal != null &&
+        lines
+                .where((line) => _hasSubtotalLabel(line, line.toLowerCase()))
+                .length ==
+            1 &&
+        subtotalHasExplicitCurrencyEvidence &&
+        subtotalCurrency == currency &&
+        discountComponents.length == 2 &&
+        adjustmentRoleCounts.length == 1 &&
+        adjustmentRoleCounts['discount'] == 2 &&
+        discountRows.length == 2 &&
+        discountRows.first == selectedSubtotalRow - 1 &&
+        discountRows.last == selectedSubtotalRow + 1 &&
+        _isLabeledStandaloneMoneyLine(
+          lines[discountRows.first],
+          RegExp(r'^(?:promotion|promo)\b', caseSensitive: false),
+        ) &&
+        _isLabeledStandaloneMoneyLine(
+          lines[discountRows.last],
+          RegExp(r'^discount\b', caseSensitive: false),
+        ) &&
+        discountComponents.every(
+          (component) => component.explicit && component.currency == currency,
+        ) &&
+        _ocrAmountMinorUnits(discountComponents.first.amount, currency) ==
+            _ocrAmountMinorUnits(discountComponents.last.amount, currency) &&
+        totalCandidates.length == 1 &&
+        totalCandidates.single.order > discountRows.last &&
+        _ocrAmountMinorUnits(subtotal, currency) != null &&
+        _ocrAmountMinorUnits(discountComponents.first.amount, currency) !=
+            null &&
+        _ocrAmountMinorUnits(subtotal, currency)! +
+                _ocrAmountMinorUnits(
+                  discountComponents.first.amount,
+                  currency,
+                )! ==
+            _ocrAmountMinorUnits(totalCandidates.single.value, currency);
     if (adjustmentRoleCounts.entries.any(
       (entry) =>
           entry.value > 1 &&
           (entry.key != 'tax' || !aggregatedRatedTax) &&
-          (entry.key != 'discount' || !aggregatedDiscount),
+          (entry.key != 'discount' ||
+              (!aggregatedDiscount && !summarizedPromotion)),
     )) {
       adjustmentsComplete = false;
       incompleteReasons.add(
@@ -9877,6 +9928,124 @@ bool _isLabeledStandaloneMoneyLine(String line, RegExp label) {
       .replaceFirst(RegExp(r'^\s*[:：]\s*'), '')
       .trim();
   return _isStandaloneAmountRow(remainder);
+}
+
+// A fee is not merchandise merely because it has a price or balances a total.
+// Only the closed activity below owns these named, already priced item rows.
+// Unknown fees, missing activity evidence and contradictory money stay in review.
+Set<int> _corroboratedActivityFeeRows(List<String> lines, String? currency) {
+  if (currency == null) return const {};
+  int? money(String text) {
+    if (!_isBoundedSummaryAmount(text)) return null;
+    final printed = _currencyAdjacentToSelectedAmount(text, currency);
+    if (!printed.hasExplicitEvidence || printed.currency != currency)
+      return null;
+    final amount = _lastAmountInLine(text, currency: currency);
+    return amount == null ? null : _ocrAmountMinorUnits(amount, currency);
+  }
+
+  final totals = <int>[
+    for (var i = 0; i < lines.length; i++)
+      if (_isPrimaryTotalCurrencyLine(lines[i], lines[i].toLowerCase())) i,
+  ];
+  if (totals.length != 1) return const {};
+  final totalIndex = totals.single;
+  final totalLabel = RegExp(
+    r'^(?:refund\s+)?total\s*[:：]?\s+',
+    caseSensitive: false,
+  ).firstMatch(lines[totalIndex]);
+  if (totalLabel == null) return const {};
+  final total = money(lines[totalIndex].substring(totalLabel.end));
+  if (total == null) return const {};
+  final fees = <({int row, String role, int? amount})>[];
+  final feePattern = RegExp(
+    r'^(parking|restocking)\s+fee\s*[:：]?\s+(.+)$',
+    caseSensitive: false,
+  );
+  for (var i = 0; i < lines.length; i++) {
+    final match = feePattern.firstMatch(lines[i]);
+    if (match != null) {
+      fees.add((
+        row: i,
+        role: match[1]!.toLowerCase(),
+        amount: money(match[2]!),
+      ));
+    }
+  }
+  if (fees.length != 1) return const {};
+  final fee = fees.single;
+  if (fee.row >= totalIndex ||
+      fee.amount == null ||
+      fee.amount! <= 0 ||
+      !_isPricedItemLine(lines[fee.row])) {
+    return const {};
+  }
+
+  if (fee.role == 'parking') {
+    if (fee.amount != total) return const {};
+    final times = <String, DateTime>{};
+    final pattern = RegExp(
+      r'^(entry|exit)\s*:\s*(\d{4})-(\d{2})-(\d{2})\s*'
+      r'(\d{2}):(\d{2})$',
+      caseSensitive: false,
+    );
+    for (var index = 0; index < lines.length; index++) {
+      final line = lines[index];
+      if (!RegExp(r'^(?:entry|exit)\b', caseSensitive: false).hasMatch(line)) {
+        continue;
+      }
+      if (index >= fee.row) return const {};
+      final match = pattern.firstMatch(line);
+      if (match == null) return const {};
+      final key = match[1]!.toLowerCase();
+      if (times.containsKey(key)) return const {};
+      final parts = [for (var i = 2; i <= 6; i++) int.parse(match[i]!)];
+      final value = DateTime.utc(
+        parts[0],
+        parts[1],
+        parts[2],
+        parts[3],
+        parts[4],
+      );
+      if (value.year != parts[0] ||
+          value.month != parts[1] ||
+          value.day != parts[2] ||
+          value.hour != parts[3] ||
+          value.minute != parts[4]) {
+        return const {};
+      }
+      times[key] = value;
+    }
+    if (times.length == 2 && times['exit']!.isAfter(times['entry']!)) {
+      return {fee.row};
+    }
+    return const {};
+  }
+
+  if (total >= 0 ||
+      !RegExp(
+        r'^refund\s+total\b',
+        caseSensitive: false,
+      ).hasMatch(lines[totalIndex])) {
+    return const {};
+  }
+  var returned = 0;
+  var sum = 0;
+  for (final line in lines.take(fee.row)) {
+    if (!_isPricedItemLine(line)) continue;
+    final match = RegExp(
+      r'^returned\s+[\p{L}][\p{L} .\x27’-]*?\s+'
+      '((?:$_currencyTokenPattern)?\\s*$_amountTokenPattern'
+      '(?:\\s*(?:$_currencyTokenPattern))?)\$',
+      caseSensitive: false,
+      unicode: true,
+    ).firstMatch(line);
+    final value = match == null ? null : money(match[1]!);
+    if (value == null || value >= 0) return const {};
+    returned++;
+    sum += value;
+  }
+  return returned > 0 && sum + fee.amount! == total ? {fee.row} : const {};
 }
 
 bool _isExplicitNonItemFeeLine(String line) => _isLabeledStandaloneMoneyLine(
