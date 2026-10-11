@@ -10,7 +10,7 @@ import { evaluateReviewerBudget, loadReviewerAccounting, mergeReviewerPolicyConf
 import { analyzeReviewSecretBoundary, providerBoundReviewDigest } from "./review-secret-boundary.mjs";
 import { buildLargeBundleReviewEvidence, parseIntegratedVerdict } from "./gemini-reviewer.mjs";
 
-const maxPackageBytes = 768 * 1024;
+const maxPackageBytes = 832 * 1024;
 const maxEventBytes = 6 * 1024 * 1024;
 const maxReadCalls = 56;
 const deadlineMs = 30 * 60 * 1000;
