@@ -21,9 +21,9 @@
       "path": "apps/mobile/test/fixtures/receipt_ocr",
       "schemaVersion": 2,
       "entryCount": 101,
-      "manifestSha256": "7039436847bca2641a1750178c06ffb69826ed5e2c7cdc8ea58a8a58270eb12d",
+      "manifestSha256": "7a790e8a28b949e50293ea51eac8ec2a5f6c63bf535428e36a6a99a7cf34b200",
       "treeDigestAlgorithm": "sha256-of-sorted-sha256sum-v1",
-      "treeSha256": "63b76378956ff76e433e205a635b0cb7c0ce8d9051ea935b5e7ed317b7049e75"
+      "treeSha256": "b3f81d47d25fde8310f1c9f601bb060c2cc98a02cf98f28a52a26b0e26d702fe"
     },
     "preprocessing": {
       "files": [

@@ -108,11 +108,11 @@
         "total": "109.72",
         "items": [
           [
-            "Water Charge",
+            "Water Charge (25 m³ @ $1.80)",
             "45.00"
           ],
           [
-            "Sewer Charge",
+            "Sewer Charge (25 m³ @ $2.10)",
             "52.50"
           ]
         ]
@@ -133,7 +133,7 @@
         "total": "82.17",
         "items": [
           [
-            "Horizon Unlimited Plan",
+            "Horizon Unlimited Plan (Mar 11 – Apr 10)",
             "60.00"
           ],
           [
@@ -268,7 +268,7 @@
         "total": "18.00",
         "items": [
           [
-            "Parking Fee",
+            "FEE:",
             "18.00"
           ]
         ]
