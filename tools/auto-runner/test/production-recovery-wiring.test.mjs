@@ -939,6 +939,15 @@ test("ordinary post-fix caller stops on a new manual verdict and carries the wor
   assert.match(source, /writeFileSync\(packagePath,[^\n]+\{ mode: 0o600, flag: "wx" \}\)/);
 });
 
+test("PR-stack Codex package stays blind when a task pins Grok with a disabled strong tier", () => {
+  const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  const adapter = runner.slice(runner.indexOf("function createLivePrStackReviewAdapters"),
+    runner.indexOf("function boundRunnerOutput"));
+  assert.match(adapter, /const grokConfigured = config\.reviewerProviderPin === "grok"[\s\S]*?\|\| config\.reviewerTiers\?\.strong_independent\?\.provider === "grok"/);
+  assert.match(adapter, /\.\.\.\(grokConfigured \? \{\} : \{ externalReview \}\)/);
+  assert.match(adapter, /const review = grokConfigured\s*\? await runCodexReviewInWorker/);
+});
+
 test("head-changing commit invalidates every stale evidence binding", () => {
   let state = recoveryState();
   for (const kind of headBoundEvidenceKinds) {

@@ -1110,7 +1110,8 @@ function processIdentity() {
 }
 
 function stackReviewerProvider(config = {}) {
-  return config.reviewerTiers?.strong_independent?.provider === "grok" ? "grok" : "gemini";
+  return config.reviewerProviderPin === "grok" || config.reviewerTiers?.strong_independent?.provider === "grok"
+    ? "grok" : "gemini";
 }
 
 function checkStackReviewerProvider(state, config) {
@@ -2175,7 +2176,7 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
       if (typeof options.runStrongReview !== "function" || typeof options.runCodexReview !== "function") {
         return fail("existing_pr_batch_fix_review_adapter_unconfigured", "strong and Codex review adapters are required before push");
       }
-      const parallelGrok = targetConfig.reviewerTiers?.strong_independent?.provider === "grok";
+      const parallelGrok = stackReviewerProvider(targetConfig) === "grok";
       loopState.state = persistLocalCandidateLoopState(loopState.statePath, { ...loopState.state, phase: parallelGrok ? "independent_reviews_running" : "gemini_running", candidateHead: candidate.newHead, candidateDigest: fullCandidatePrDelta.delta.normalizedPatchDigest });
       const parallelReviews = parallelGrok ? await runDurableStackParallelReviews(targetConfig, {
         phase: "local_candidate", prNumber: pr.number, headSha: candidate.newHead, baseSha: base.sha,
@@ -5278,7 +5279,7 @@ async function prepareExactHeadFinalGateEvidence({ config, plan = {}, state, pr,
     requireWorktreeProof: false,
   });
   if (!validationCheck.ok) return validationCheck;
-  const parallelGrok = config.reviewerTiers?.strong_independent?.provider === "grok";
+  const parallelGrok = stackReviewerProvider(config) === "grok";
   const parallelReviews = parallelGrok ? await runDurableStackParallelReviews(config, {
     phase: "final_gate", prNumber: pr.number, headSha: prereq.currentHead,
     baseSha: prereq.currentOriginMainSha, changedFiles: prereq.changedFiles,

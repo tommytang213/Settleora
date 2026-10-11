@@ -165,6 +165,10 @@ test("PR stack reviewer pin survives resume and rejects provider switches", () =
   const { plan } = stackFixture();
   const gemini = { reviewerTiers: { strong_independent: { provider: "gemini" } } };
   const grok = { reviewerTiers: { strong_independent: { provider: "grok" } } };
+  const grokWithDisabledStrong = { reviewerProviderPin: "grok", reviewerTiers: {
+    cheap_independent: { enabled: true, provider: "grok" },
+    strong_independent: { enabled: false, provider: "gemini" },
+  } };
   withTempDir((root) => {
     const statePath = path.join(root, "stack.json");
     const initial = loadOrCreateStackState({ config: grok, plan, statePath });
@@ -172,6 +176,7 @@ test("PR stack reviewer pin survives resume and rejects provider switches", () =
     assert.equal(initial.state.reviewerProviderPin, "grok");
     writePrStackState(statePath, initial.state);
     assert.equal(loadOrCreateStackState({ config: grok, plan, statePath }).ok, true);
+    assert.equal(loadOrCreateStackState({ config: grokWithDisabledStrong, plan, statePath }).ok, true);
     assert.equal(loadOrCreateStackState({ config: gemini, plan, statePath }).reasonCode, "stack_reviewer_provider_mismatch");
     const legacy = createInitialPrStackState({ plan });
     delete legacy.reviewerProviderPin;

@@ -4806,7 +4806,8 @@ function createLivePrStackReviewAdapters(config) {
       };
     },
     runCodexReview: async ({ pr, changedFiles, validation, externalReview, headSha, baseSha, fullCandidatePrDelta, sessionLifecycle = null }) => {
-      const grokConfigured = config.reviewerTiers?.strong_independent?.provider === "grok";
+      const grokConfigured = config.reviewerProviderPin === "grok"
+        || config.reviewerTiers?.strong_independent?.provider === "grok";
       const reviewPackage = await buildPackage({ reviewPhase: "pr-stack-final-codex-exact-head", pr, changedFiles, validation, headSha, baseSha, fullCandidatePrDelta,
         ...(grokConfigured ? {} : { externalReview }) });
       const review = grokConfigured
