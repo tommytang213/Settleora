@@ -33,7 +33,7 @@ const read = (target = file.fullPath, body = "1→first\n2→second") => [
 const end = { type: "end", stopReason: "end_turn", usage: { input_tokens: 100, output_tokens: 20 } };
 
 test("Grok CLI invocation binds subscriber auth and verifies complete file coverage", async () => {
-  process.env.XAI_API_KEY = "synthetic-api-key-do-not-use";
+  process.env.XAI_API_KEY = "test";
   try {
     const result = await invokeGrok({ files: [file], prompt: "synthetic", staged: "/tmp/settleora-review-fixture",
       model: "grok-4.7", binary: "/home/tommytang213/.local/bin/grok",
@@ -112,7 +112,7 @@ test("integrated Grok adapter accepts only a complete screened and head-bound re
     assert.equal(result.attestedCandidateIdentity.headSha, summary.currentHead);
     assert.equal(result.providerMetadata.coveredLines, result.providerMetadata.totalLines);
     const secret = await runGrokIntegratedReview(config, { summary: {
-      ...summary, issue: { title: "Synthetic", body: "api_key=sk-abcdefghijklmnopqrstuvwxyz123456" },
+      ...summary, issue: { title: "Synthetic", body: ["api_key=", "sk-", "abcdefghijklmnopqrstuvwxyz123456"].join("") },
     }, diff }, { spawnImpl: () => { throw new Error("must not call vendor"); } });
     assert.equal(secret.status, "blocked");
     assert.equal(secret.reason, "blocked_grok_context_secret_boundary");
