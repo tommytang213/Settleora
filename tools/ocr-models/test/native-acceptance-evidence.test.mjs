@@ -314,6 +314,53 @@ test("retains only the bounded native acceptance schema", () => {
     (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot),
       /Recognition coverage evidence is invalid/),
   );
+  const warningCounts = {
+    noReadableText: 0, dccAmountMissing: 0, itemChargedCurrencyConflict: 0,
+    itemReceiptCurrencyConflict: 0, noItems: 0, ratedTaxAmbiguity: 0,
+    untraceableItemAmount: 0, noTotal: 0, currencyFallback: 0,
+    symbolCurrencyUnresolved: 0, conflictingDate: 0, stayOnlyDate: 0, unknownWarning: 0,
+  };
+  const withPreviewWarnings = acceptance.recognitionCoverage.map((entry) => ({
+    ...entry, previewPresent: true, previewWarningCount: 0,
+    previewWarningCategoryCounts: { ...warningCounts },
+  }));
+  for (const changed of [
+    {},
+    { previewPresent: false },
+    { previewWarningCount: 3, previewWarningCategoryCounts: { ...warningCounts, noItems: 2, unknownWarning: 1 } },
+    { previewWarningCount: 100, previewWarningCategoryCounts: { ...warningCounts, unknownWarning: 100 } },
+  ]) {
+    const rows = [{ ...withPreviewWarnings[0], ...changed }, ...withPreviewWarnings.slice(1)];
+    withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...acceptance, recognitionCoverage: rows,
+    })}`), (log) => assert.deepEqual(buildEvidence(evidenceArgs(log), repoRoot).acceptance.recognitionCoverage, rows));
+  }
+  const { noItems: omittedWarning, ...incompleteWarningCounts } = warningCounts;
+  for (const invalid of [
+    { previewPresent: 'true' }, { previewPresent: null },
+    { previewPresent: undefined }, { previewWarningCount: undefined },
+    { previewWarningCategoryCounts: undefined },
+    { previewWarningCount: -1 }, { previewWarningCount: 0.5 }, { previewWarningCount: '0' },
+    { previewWarningCount: 1 },
+    { previewWarningCount: 101, previewWarningCategoryCounts: { ...warningCounts, unknownWarning: 101 } },
+    { previewPresent: false, previewWarningCount: 1, previewWarningCategoryCounts: { ...warningCounts, noItems: 1 } },
+    { previewWarningCategoryCounts: null }, { previewWarningCategoryCounts: [] },
+    { previewWarningCategoryCounts: incompleteWarningCounts },
+    { previewWarningCategoryCounts: { ...warningCounts, receiptText: 1 } },
+    { previewWarningCategoryCounts: { ...warningCounts, noItems: -1 } },
+    { previewWarningCategoryCounts: { ...warningCounts, noItems: 0.5 } },
+    { previewWarningCategoryCounts: { ...warningCounts, noItems: 'raw-content' } },
+    { previewWarningCategoryCounts: { ...warningCounts, noItems: 101 } },
+  ]) {
+    withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...acceptance, recognitionCoverage: [{ ...withPreviewWarnings[0], ...invalid }, ...withPreviewWarnings.slice(1)],
+    })}`), (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot),
+      /previewWarning|previewPresent|preview warnings|missing required fields/));
+  }
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+    ...acceptance, recognitionCoverage: [acceptance.recognitionCoverage[0], ...withPreviewWarnings.slice(1)],
+  })}`), (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot),
+    /preview warnings are incomplete/));
   const withReviewDecisions = acceptance.recognitionCoverage.map((entry) => ({
     ...entry, reviewDecision: "none", incompleteAdjustmentReasons: [],
   }));

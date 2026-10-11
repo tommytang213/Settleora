@@ -1,5 +1,49 @@
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
 
+// Ordinary preview warnings are distinct from reconciliation review hints.
+// Emit only fixed categories and counts, never warning or receipt text. An
+// unknown warning remains counted so a future wording change cannot hide it.
+Map<String, Object> receiptOcrPreviewWarningEvidence(
+  ReceiptOcrPreview? preview,
+) {
+  const categories = {
+    'No readable receipt text was found.': 'noReadableText',
+    'DCC selection needs a matching charged amount. Review the receipt currency.':
+        'dccAmountMissing',
+    'Item prices and the charged amount use different currencies. Review before applying.':
+        'itemChargedCurrencyConflict',
+    'Item prices and the receipt currency differ. Review before applying.':
+        'itemReceiptCurrencyConflict',
+    'No clear item lines were detected.': 'noItems',
+    'A rated tax-named charge may be an item or tax. Review it before applying.':
+        'ratedTaxAmbiguity',
+    'Some OCR lines need manual review because no traceable line amount was found.':
+        'untraceableItemAmount',
+    'No clear total amount was detected.': 'noTotal',
+    'The receipt only shows a currency symbol. Using the current bill currency; review it before applying.':
+        'currencyFallback',
+    'The receipt only shows a currency symbol. Choose the currency before applying.':
+        'symbolCurrencyUnresolved',
+    'Conflicting receipt dates were detected. Review the receipt date.':
+        'conflictingDate',
+    'Stay dates were detected without a transaction date. Review the receipt date.':
+        'stayOnlyDate',
+  };
+  final counts = <String, int>{
+    for (final category in categories.values) category: 0,
+    'unknownWarning': 0,
+  };
+  for (final warning in preview?.warnings ?? const <String>[]) {
+    final category = categories[warning] ?? 'unknownWarning';
+    counts[category] = counts[category]! + 1;
+  }
+  return {
+    'previewPresent': preview != null,
+    'previewWarningCount': preview?.warnings.length ?? 0,
+    'previewWarningCategoryCounts': counts,
+  };
+}
+
 List<String> receiptOcrFixtureFieldMismatches(
   ReceiptOcrPreview preview,
   Map<String, Object?> expected,

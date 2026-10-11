@@ -637,6 +637,8 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
     const cellKeys = ["parserLineCount", "itemDescriptionsSameBlockAsAmount", "itemDescriptionsWithDistinctAmountBlock"];
     const hasCellCoverage = cellKeys.some((key) => Object.hasOwn(entry, key));
     const hasReviewHintCategory = Object.hasOwn(entry, "reviewHintCategory");
+    const previewWarningKeys = ["previewPresent", "previewWarningCount", "previewWarningCategoryCounts"];
+    const hasPreviewWarnings = previewWarningKeys.some((key) => Object.hasOwn(entry, key));
     const reviewDecisionKeys = ["reviewDecision", "incompleteAdjustmentReasons"];
     const hasReviewDecision = reviewDecisionKeys.some((key) => Object.hasOwn(entry, key));
     const itemDecisionKeys = ["itemLineDecisionCounts", "expectedDescriptionDecisionCounts"];
@@ -651,6 +653,7 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
     assertExactKeys(entry, ["fixtureId", "blockCount", "merchantExactTextSeen", "totalExactTokenSeen",
       "expectedItemCount", "itemDescriptionsExactTextSeen", ...(hasLayoutCoverage ? layoutKeys : []),
       ...(hasCellCoverage ? cellKeys : []), ...(hasReviewHintCategory ? ["reviewHintCategory"] : []),
+      ...(hasPreviewWarnings ? previewWarningKeys : []),
       ...(hasReviewDecision ? reviewDecisionKeys : []),
       ...(hasItemDecisions ? itemDecisionKeys : []),
       ...(hasRowShapes ? rowShapeKeys : []),
@@ -658,6 +661,25 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
       ...(hasDraftCoverage ? draftKeys : [])],
     `recognitionCoverage[${index}]`);
     const fixtureId = boundedToken(entry.fixtureId, `recognitionCoverage[${index}].fixtureId`);
+    let previewWarningCount = null;
+    let previewWarningCategoryCounts = null;
+    if (hasPreviewWarnings) {
+      const categories = ["noReadableText", "dccAmountMissing", "itemChargedCurrencyConflict",
+        "itemReceiptCurrencyConflict", "noItems", "ratedTaxAmbiguity", "untraceableItemAmount",
+        "noTotal", "currencyFallback", "symbolCurrencyUnresolved", "conflictingDate", "stayOnlyDate", "unknownWarning"];
+      const label = `recognitionCoverage[${index}].previewWarningCategoryCounts`;
+      assertExactKeys(entry.previewWarningCategoryCounts, categories, label);
+      previewWarningCount = boundedInteger(entry.previewWarningCount,
+        `recognitionCoverage[${index}].previewWarningCount`);
+      previewWarningCategoryCounts = Object.fromEntries(categories.map((category) => [category,
+        boundedInteger(entry.previewWarningCategoryCounts[category], `${label}.${category}`)]));
+      if (typeof entry.previewPresent !== "boolean" || previewWarningCount > 100 ||
+          Object.values(previewWarningCategoryCounts).some((count) => count > 100) ||
+          Object.values(previewWarningCategoryCounts).reduce((sum, count) => sum + count, 0) !== previewWarningCount ||
+          (!entry.previewPresent && previewWarningCount !== 0)) {
+        throw new Error("Recognition coverage preview warnings are invalid");
+      }
+    }
     const blockCount = boundedInteger(entry.blockCount, `recognitionCoverage[${index}].blockCount`);
     const expectedItemCount = boundedInteger(entry.expectedItemCount, `recognitionCoverage[${index}].expectedItemCount`);
     const itemDescriptionsExactTextSeen = boundedInteger(entry.itemDescriptionsExactTextSeen, `recognitionCoverage[${index}].itemDescriptionsExactTextSeen`);
@@ -790,6 +812,8 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
       ...(hasCellCoverage ? { parserLineCount, itemDescriptionsSameBlockAsAmount: sameBlockCount,
         itemDescriptionsWithDistinctAmountBlock: distinctBlockCount } : {}),
       ...(hasReviewHintCategory ? { reviewHintCategory } : {}),
+      ...(hasPreviewWarnings ? { previewPresent: entry.previewPresent, previewWarningCount,
+        previewWarningCategoryCounts } : {}),
       ...(hasReviewDecision ? { reviewDecision,
         incompleteAdjustmentReasons: entry.incompleteAdjustmentReasons } : {}),
       ...(hasItemDecisions ? { itemLineDecisionCounts: entry.itemLineDecisionCounts,
@@ -807,6 +831,10 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
   if (boundedRecognitionCoverage.some((entry) => Object.hasOwn(entry, "reviewHintCategory")) &&
       boundedRecognitionCoverage.some((entry) => !Object.hasOwn(entry, "reviewHintCategory"))) {
     throw new Error("Recognition coverage review hint categories are incomplete");
+  }
+  if (boundedRecognitionCoverage.some((entry) => Object.hasOwn(entry, "previewWarningCount")) &&
+      boundedRecognitionCoverage.some((entry) => !Object.hasOwn(entry, "previewWarningCount"))) {
+    throw new Error("Recognition coverage preview warnings are incomplete");
   }
   if (boundedRecognitionCoverage.some((entry) => Object.hasOwn(entry, "reviewDecision")) &&
       boundedRecognitionCoverage.some((entry) => !Object.hasOwn(entry, "reviewDecision"))) {
