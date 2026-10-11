@@ -127,7 +127,10 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
       actualUsage: outcome.usage, providerMetadata: metadata });
     const parsed = parseIntegratedVerdict(outcome.answer);
     if (!parsed.ok) return finish({ liveCallAttempted: true, reason: "blocked_verdict_schema_validation_failed",
-      actualUsage: outcome.usage, providerMetadata: metadata });
+      actualUsage: outcome.usage, providerMetadata: { ...metadata,
+        verdictParseReason: parsed.reason, verdictParseDetail: String(parsed.detail || "").slice(0, 160),
+        answerLength: outcome.answer.length,
+        answerPreview: outcome.answer.slice(0, 240) } });
     const verdict = parsed.verdict;
     return finish({ liveCallAttempted: true, status: verdict.verdict === "pass" ? "pass" : "blocked",
       reason: verdict.verdict === "pass" ? "integrated_review_passed" : "blocked_external_reviewer_non_pass",
