@@ -2970,10 +2970,16 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     external_review: async (continuation) => {
       operationalCheckpoint?.("ordinary_recovery_external_review");
       const candidate = continuation.identity;
+      const candidateParallelGate = resolveOrdinaryParallelReviewerCheckpoint(
+        state.evidence?.parallelReviewerVerdicts, candidate, providerBinding.provider,
+      );
+      if (!candidateParallelGate.ok) return { ok: false, outcome: candidateParallelGate.outcome,
+        reasonCode: candidateParallelGate.reasonCode };
+      const candidateBoundParallel = candidateParallelGate.checkpoint;
       const before = await checkoutFingerprint();
       const changedFiles = candidate.changedFiles;
       context.reviewPackage = await writeReviewPackage(config, { issue, promptInfo: { promptPath: null }, laneDecision, changedFiles, validation: context.validation || state.evidence?.localValidation, report: { found: true, recovered: true }, diffBaseRef: candidate.baseSha, diffHeadRef: candidate.headSha, reviewerProviderPin: providerBinding.provider });
-      if (candidateBoundParallel && !parallelGate.retryIncomplete) {
+      if (candidateBoundParallel && !candidateParallelGate.retryIncomplete) {
         context.externalReview = candidateBoundParallel.external;
         context.review = candidateBoundParallel.codex;
       } else if (providerBinding.provider === "grok") {

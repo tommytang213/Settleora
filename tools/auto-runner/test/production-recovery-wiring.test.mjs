@@ -82,6 +82,22 @@ test("incomplete parallel invocations retry once without replaying completed ver
     "ordinary_parallel_reviewer_checkpoint_identity_mismatch");
 });
 
+test("recovery ignores saved parallel verdicts after a source-changing fix", () => {
+  const headA = "a".repeat(40);
+  const headB = "b".repeat(40);
+  const savedA = { candidateHeadSha: headA, providerPin: "grok", attempts: 1,
+    external: { reviewedHead: headA, status: "pass", verdict: "pass" },
+    codex: { reviewedHead: headA, verdict: { verdict: "approve" } } };
+  assert.equal(resolveOrdinaryParallelReviewerCheckpoint(savedA, { headSha: headA }, "grok").checkpoint, savedA);
+  assert.equal(resolveOrdinaryParallelReviewerCheckpoint(savedA, { headSha: headB }, "grok").checkpoint, null);
+  const savedB = { candidateHeadSha: headB, providerPin: "grok", attempts: 1,
+    external: { reviewedHead: headB, status: "pass", verdict: "pass" },
+    codex: { reviewedHead: headB, verdict: { verdict: "approve" } } };
+  assert.equal(resolveOrdinaryParallelReviewerCheckpoint(savedB, { headSha: headB }, "grok").checkpoint, savedB);
+  const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  assert.match(runner, /external_review: async \(continuation\) => \{[\s\S]*?const candidate = continuation\.identity;[\s\S]*?resolveOrdinaryParallelReviewerCheckpoint\(\s*state\.evidence\?\.parallelReviewerVerdicts, candidate, providerBinding\.provider/);
+});
+
 test("recovery provider pin uses the routed cheap or strong reviewer tier", () => {
   const config = { reviewerTiers: {
     cheap_independent: { enabled: true, provider: "grok" },
