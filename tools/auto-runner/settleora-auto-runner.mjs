@@ -1208,6 +1208,8 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       runCodexReviewInWorker(config, packageForCodex),
     ]);
     if (iteration.review?.sessionLifecycle) {
+      // Persist the worker's successor before any subsequent GitHub effect.
+      recoveryRecorder?.annotate({ sessionLifecycle: iteration.review.sessionLifecycle });
       iteration.sessionLifecycle = iteration.review.sessionLifecycle;
       issue.sessionLifecycle = iteration.review.sessionLifecycle;
       if (promptInfo.sessionLifecycle) promptInfo.sessionLifecycle = { ...promptInfo.sessionLifecycle, state: iteration.review.sessionLifecycle };
@@ -2889,13 +2891,19 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
         ]);
         state = await adoptRecoveredReviewSession({ state, issue, review: context.review,
           persist: (next) => writeRecoveryState(config, next) });
+        state = writeRecoveryState(config, { ...state, evidence: { ...state.evidence,
+          parallelReviewerVerdicts: {
+            external: ordinaryReviewerCheckpoint(context.externalReview, "external"),
+            codex: ordinaryReviewerCheckpoint(context.review, "codex"),
+          },
+        } }).state;
       } else {
         context.review = null;
         context.externalReview = await runIntegratedReviewSource(config, context.reviewPackage, "startup-recovery");
       }
       operationalCheckpoint?.("ordinary_recovery_external_review_complete", { externalReview: context.externalReview });
       if (compareFingerprints(before, await checkoutFingerprint()).mutationDetected) return { ok: false, reasonCode: "ordinary_continuation_external_review_mutated_checkout" };
-      const manual = recoveredReviewerManualVerdict(context.externalReview);
+      const manual = reviewerManualGateOutcome(context.externalReview, context.review);
       if (manual) return { ok: false, outcome: manual, reasonCode: context.externalReview.reason || `ordinary_continuation_external_review_${manual}` };
       return { ok: true, evidence: { status: context.externalReview.status === "pass" ? "passed" : "changes_requested", evidencePath: context.externalReview.reportPath, review: ordinaryReviewerCheckpoint(context.externalReview, "external") } };
     },

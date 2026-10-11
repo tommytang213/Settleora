@@ -5405,6 +5405,19 @@ test("pre-push review gate preserves either reviewer's manual or danger verdict"
   }
 });
 
+test("pre-push gate requires an approving local review when one is supplied", () => {
+  const laneDecision = autoMergeLane({ lane: "workflow-docs-tooling" });
+  for (const review of [
+    { reviewStatus: "completed", verdict: { verdict: "changes_requested" } },
+    { reviewStatus: "unable_to_review", verdict: { verdict: "unable_to_review" } },
+    { reviewStatus: "completed", verdict: "approve" },
+  ]) {
+    const gate = evaluatePrePushReviewGate({ laneDecision, externalReview: { status: "pass" }, review });
+    assert.equal(gate.ok, false);
+    assert.equal(gate.reason, "exact_head_codex_review_not_approved");
+  }
+});
+
 test("auto-merge decision enforces exact issue contract paths even under approved lane prefix", () => {
   const laneDecision = autoMergeLane({
     allowedPaths: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md"],

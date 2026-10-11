@@ -17,6 +17,12 @@ test("recovery provider pin uses the routed cheap or strong reviewer tier", () =
   assert.equal(resolveExistingPrRecoveryReviewerProvider(config, { laneDecision: { lane: "workflow-docs-tooling", reviewerTier: "cheap_independent" }, changedFiles, diff }), "grok");
   assert.equal(resolveExistingPrRecoveryReviewerProvider(config, { laneDecision: { lane: "workflow-docs-tooling", reviewerTier: "strong_independent" }, changedFiles, diff }), "gemini");
 });
+
+test("parallel reviewer sessions and manual verdicts are persisted before recovery effects", () => {
+  const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  assert.match(runner, /if \(iteration\.review\?\.sessionLifecycle\) \{[\s\S]*?recoveryRecorder\?\.annotate\(\{ sessionLifecycle: iteration\.review\.sessionLifecycle \}\)/);
+  assert.match(runner, /parallelReviewerVerdicts: \{[\s\S]*?external: ordinaryReviewerCheckpoint\(context\.externalReview[\s\S]*?codex: ordinaryReviewerCheckpoint\(context\.review[\s\S]*?const manual = reviewerManualGateOutcome\(context\.externalReview, context\.review\)/);
+});
 import {
   advanceRecoveryPhase,
   bindRecoveryEvidence,

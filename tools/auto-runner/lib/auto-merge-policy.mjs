@@ -922,6 +922,16 @@ export function evaluatePrePushReviewGate(input = {}) {
       message: `exact-head independent review returned ${externalReview?.reason || externalReview?.status || "missing"} and bounded review convergence is unavailable: ${convergence.reason}`,
     };
   }
+  if (input.review && (input.review?.verdict?.verdict !== "approve"
+    || (input.review.reviewStatus && !["passed", "completed"].includes(input.review.reviewStatus)))) {
+    const convergence = evaluatePrePushReviewConvergence(input, externalReview || {});
+    return { ok: false,
+      outcome: convergence.ok ? "review_convergence_required" : "review_changes_requested_retry_exhausted",
+      reason: "exact_head_codex_review_not_approved",
+      message: "exact-head Codex review did not approve the candidate",
+      ...(convergence.ok ? { convergence } : {}),
+    };
+  }
   return { ok: true, reason: "pre_push_review_gates_passed" };
 }
 
