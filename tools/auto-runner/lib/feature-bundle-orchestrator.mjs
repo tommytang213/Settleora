@@ -1283,6 +1283,8 @@ function writeBundleReviewPackage(config, { issue, laneDecision, plan, state, ch
     issue: { number: issue.number, title: issue.title, labels: issue.labels || [], url: issue.url || null },
     bundle: summarizeBundleState(state),
     featureBundle: { architectureConsistent: plan.architectureConsistent === true },
+    taskContract: { issueBody: issue.body || null,
+      bundleObjectives: plan.slices.map((slice) => `${slice.id}: ${slice.objective || slice.title}`).join("\n") },
     planDigest: plan.planDigest,
     laneDecision,
     reviewerPolicy: reviewerReadinessSummary(config, { changedFiles, laneDecision, stats: { additions: 0, deletions: 0 } }),

@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { mergeReviewerPolicyConfig, routeReviewer } from "./reviewer-policy.mjs";
 import { analyzeReviewSecretBoundary } from "./review-secret-boundary.mjs";
 import { providerBoundReviewDigest } from "./review-secret-boundary.mjs";
@@ -61,10 +64,18 @@ export function runIndependentReviewerSmokeTest(config, options = {}) {
   }
   const file = "docs/workflow/grok-review-smoke.md";
   const diff = `diff --git a/${file} b/${file}\nnew file mode 100644\n--- /dev/null\n+++ b/${file}\n@@ -0,0 +1 @@\n+Synthetic reviewer smoke fixture.\n`;
+  const integrationBoundaries = ["tools/auto-runner/settleora-auto-runner.mjs",
+    "tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"];
+  const integrationBoundaryMaterial = integrationBoundaries.map((sourcePath) => {
+    const content = readFileSync(path.join(config.repoRoot, sourcePath), "utf8");
+    return { path: sourcePath, content, sha256: createHash("sha256").update(content).digest("hex") };
+  });
   return runGrokIntegratedReview(config, { summary: {
     repository: config.repositorySlug || "tommytang213/Settleora",
     baseSha: "a".repeat(40), currentHead: "b".repeat(40), changedFiles: [file],
     laneDecision: { lane: "workflow-docs-tooling", reviewerTier: options.tierId || config.reviewerSmokeTest?.tier || "cheap_independent" },
     validation: { passed: true },
-  }, diff });
+    taskContract: { objective: "Review the synthetic one-line documentation change and the three fixed workflow gate sources." },
+    integrationBoundaries, integrationBoundaryMaterial,
+  }, diff }, options);
 }

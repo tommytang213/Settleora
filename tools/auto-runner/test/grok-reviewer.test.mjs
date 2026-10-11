@@ -11,7 +11,7 @@ import { invokeGrok, parseGrokVerdict, runGrokIntegratedReview } from "../lib/gr
 import { runCodexReviewInWorker } from "../lib/parallel-local-review.mjs";
 import { resolveRecoveredReviewerProviderPin } from "../lib/reviewer-provider-pin.mjs";
 import { reviewerReadinessSummary } from "../lib/reviewer-policy.mjs";
-import { independentReviewerProvider, runIndependentIntegratedReview } from "../lib/independent-reviewer.mjs";
+import { independentReviewerProvider, runIndependentIntegratedReview, runIndependentReviewerSmokeTest } from "../lib/independent-reviewer.mjs";
 
 function fakeSpawn(events, inspect = () => {}) {
   return (binary, args, options) => {
@@ -144,6 +144,18 @@ test("Grok invocation stops at the reviewer hard budget before spawn", async () 
     { spawnImpl: () => { throw Error("must not spawn"); } });
     assert.equal(result.reason, "blocked_reviewer_budget_hard_stop");
     assert.equal(result.liveCallAttempted, false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("live subscriber smoke assembles a complete synthetic package before CLI invocation", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-grok-smoke-test-"));
+  try {
+    const config = { logsRoot: root, repoRoot: path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../.."),
+      reviewerTiers: { cheap_independent: { enabled: true, provider: "grok", providerProfile: "grok", model: "grok-4.7" } },
+      reviewerProviderProfiles: { grok: { provider: "grok", command: "grok" } } };
+    const result = await runIndependentReviewerSmokeTest(config, { liveExternalReviewerCalls: true,
+      spawnImpl: () => { throw Error("synthetic_smoke_reached_cli"); } });
+    assert.equal(result.reason, "blocked_grok_invocation:Error");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

@@ -2861,6 +2861,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
           runCodexReviewInWorker(config, { ...context.reviewPackage, sessionLifecycle: issue.sessionLifecycle || null }),
         ]);
       } else {
+        context.review = null;
         context.externalReview = await runIntegratedReviewSource(config, context.reviewPackage, "startup-recovery");
       }
       operationalCheckpoint?.("ordinary_recovery_external_review_complete", { externalReview: context.externalReview });
@@ -4394,6 +4395,8 @@ function createLivePrStackReviewAdapters(config) {
     const autoMergeEligible = incomingContract.autoMergeEligible ?? incomingLaneDecision.autoMergeEligible ?? false;
     return writeReviewPackage(config, {
     reviewPhase,
+    taskContract: { objective: `Review the exact-head PR stack candidate for PR #${pr?.number || "unknown"} against its validated delta and issue requirements.`,
+      issueBody: pr?.issue?.body || pr?.body || config.prStackIssue?.body || null },
     issue: pr?.issue || config.prStackIssue || { number: pr?.issueNumber || pr?.number || 921, title: pr?.title || `PR #${pr?.number || "unknown"}`, labels: [] },
     promptInfo: { promptPath: `pr-stack:${reviewPhase}:pr-${pr?.number || "unknown"}:${headSha || "unknown"}` },
     laneDecision: {
@@ -4733,7 +4736,7 @@ async function runReviewFixCycle(config, context) {
       reviewPackageAfter: { packagePath: integratedReviewPackageAfter.packagePath },
     });
   }
-  const postFixContext = grokPostFix ? null : buildPostReviewFixMechanicsContext({
+  const postFixContext = buildPostReviewFixMechanicsContext({
     issue: context.issue,
     laneDecision: context.laneDecision,
     trigger,
@@ -4746,7 +4749,7 @@ async function runReviewFixCycle(config, context) {
     preFixReport: context.report,
     currentHead: config.dryRun ? null : getRefSha("HEAD"),
   });
-  if (postFixContext && !postFixContext.ok) {
+  if (!postFixContext.ok) {
     return finishBlocked(`review_fix_post_fix_mechanics_context_invalid:${postFixContext.reason}`, {
       validationAfter: summarizeValidation(validationAfter),
       externalReviewAfter: summarizeExternalReview(externalReviewAfter),
@@ -5165,7 +5168,7 @@ async function writeReviewPackage(config, payload) {
       labels: payload.issue.labels,
       url: payload.issue.url,
     },
-    taskContract: {
+    taskContract: payload.taskContract || {
       issueBody: payload.issue.body || null,
       generatedPrompt,
     },
