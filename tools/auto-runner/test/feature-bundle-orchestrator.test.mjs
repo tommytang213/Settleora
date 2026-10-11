@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import test from "node:test";
 import path from "node:path";
 import { featureBundleOrchestratorTestInternals, resolveBundleParallelReviewerCheckpoint, runDurableBundleParallelReviews } from "../lib/feature-bundle-orchestrator.mjs";
+import { sanitizeBundleState } from "../lib/feature-bundle-state.mjs";
 
 const repoRoot = process.cwd();
 const repositorySlug = "tommytang213/Settleora";
@@ -38,6 +39,58 @@ test("bundle recovery preserves a manual Grok verdict before Codex completes", a
   assert.equal(resumed.outcome, "blocked_needs_tommy");
   finishCodex(codex);
   assert.equal((await pending).outcome, "blocked_needs_tommy");
+});
+
+test("bundle recovery reuses completed Codex evidence and adopts its successor after Grok fails", async () => {
+  const headSha = "c".repeat(40);
+  const baseSha = "d".repeat(40);
+  const changedFiles = ["tools/auto-runner/lib/feature-bundle-orchestrator.mjs"];
+  const changedFilesDigest = createHash("sha256").update(JSON.stringify(changedFiles)).digest("hex");
+  const reviewPackage = { summary: { currentHead: headSha, baseSha, changedFiles } };
+  const initial = { finalization: { state: "reviewing" } };
+  const successor = { phase: "codex-successor", headSha };
+  const codex = { status: 0, reviewStatus: "completed", verdict: { verdict: "approve" },
+    reviewedHead: headSha, reviewedBaseSha: baseSha, baseSha, changedFilesDigest,
+    changedFiles, completedAt: "2026-10-11T19:00:00.000Z", sessionLifecycle: successor };
+  let persisted = initial;
+  let finishExternal;
+  const externalPending = new Promise((resolve) => { finishExternal = resolve; });
+  const first = runDurableBundleParallelReviews({}, reviewPackage, initial,
+    (next) => { persisted = sanitizeBundleState(next); }, null,
+    { runExternal: async () => externalPending, runCodex: async () => codex });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(persisted.finalization.parallelReviewerSessionLifecycle,
+    { headSha, lifecycle: successor });
+  assert.deepEqual(persisted.finalization.parallelReviewerVerdicts.codex.changedFiles, changedFiles);
+  assert.equal(persisted.finalization.parallelReviewerVerdicts.codex.completedAt, codex.completedAt);
+  finishExternal({ status: "blocked", reason: "provider_timeout" });
+  assert.equal((await first).ok, false);
+  const manualSaved = sanitizeBundleState({ ...persisted, finalization: { ...persisted.finalization,
+    parallelReviewerVerdicts: { ...persisted.finalization.parallelReviewerVerdicts,
+      external: { status: "blocked", reason: "blocked_external_reviewer_non_pass", verdict: "needs_tommy",
+        reviewedHead: headSha, baseSha, changedFilesDigest } } } });
+  const manualAdopted = [];
+  const manualRecovery = await runDurableBundleParallelReviews({}, reviewPackage, manualSaved,
+    () => { throw new Error("manual gate must not mutate checkpoint"); }, null,
+    { adoptSessionLifecycle: (value) => manualAdopted.push(value),
+      runExternal: async () => { throw new Error("manual rerun"); },
+      runCodex: async () => { throw new Error("manual rerun"); } });
+  assert.equal(manualRecovery.outcome, "blocked_needs_tommy");
+  assert.deepEqual(manualAdopted, [successor]);
+  const adopted = [];
+  let codexReruns = 0;
+  const resumed = await runDurableBundleParallelReviews({}, reviewPackage, persisted,
+    (next) => { persisted = sanitizeBundleState(next); }, null,
+    { runExternal: async () => ({ status: "pass", verdict: "pass", reviewedHead: headSha,
+      baseSha, changedFilesDigest }),
+    runCodex: async () => { codexReruns += 1; throw new Error("unexpected Codex rerun"); },
+    adoptSessionLifecycle: (value) => adopted.push(value) });
+  assert.equal(resumed.ok, true);
+  assert.equal(codexReruns, 0);
+  assert.deepEqual(adopted, [successor]);
+  assert.deepEqual(resumed.review.sessionLifecycle, successor);
+  assert.deepEqual(resumed.review.changedFiles, changedFiles);
+  assert.equal(resumed.review.completedAt, codex.completedAt);
 });
 
 function config(overrides = {}) {
