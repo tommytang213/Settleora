@@ -7185,8 +7185,9 @@ _ReceiptRoleBox? _receiptRoleBox(List<ReceiptOcrBlockEvidence> blocks) {
         block.confidence! < 0.8 ||
         block.confidence! > 1 ||
         points.length != 4 ||
-        points.any((p) => !p.x.isFinite || !p.y.isFinite))
+        points.any((p) => !p.x.isFinite || !p.y.isFinite)) {
       return null;
+    }
     final turns = [
       for (var i = 0; i < 4; i++)
         (points[(i + 1) % 4].x - points[i].x) *
@@ -7195,8 +7196,9 @@ _ReceiptRoleBox? _receiptRoleBox(List<ReceiptOcrBlockEvidence> blocks) {
                 (points[(i + 2) % 4].x - points[(i + 1) % 4].x),
     ];
     if (!turns.every((v) => v.isFinite && v > 0) &&
-        !turns.every((v) => v.isFinite && v < 0))
+        !turns.every((v) => v.isFinite && v < 0)) {
       return null;
+    }
   }
   final xs = blocks.expand((b) => b.points).map((p) => p.x).toList()..sort();
   final ys = blocks.expand((b) => b.points).map((p) => p.y).toList()..sort();
@@ -7249,8 +7251,9 @@ Set<int> _ownedFuelPumpRows(
         ) ||
         _lastAmountInLine(lines[i + 4], currency: fuel.currency) !=
             fuel.lineTotal ||
-        _cleanDescription(panel[1][1].text) != fuel.description)
+        _cleanDescription(panel[1][1].text) != fuel.description) {
       continue;
+    }
     final boxes = panel.map(_receiptRoleBox).toList();
     if (boxes.any((b) => b == null)) continue;
     final firstLabel = _receiptRoleBox([panel.first.first])!;
@@ -7327,8 +7330,9 @@ Set<int> _ownedClosedPaymentPanelRows(
       center = (panel.left + panel.right) / 2;
   for (final index in [start, start + 1, start + 2]) {
     final box = boxes[index - total]!;
-    if ((box.left - boxes[1]!.left).abs() > box.bottom - box.top)
+    if ((box.left - boxes[1]!.left).abs() > box.bottom - box.top) {
       return const {};
+    }
   }
   for (final index in [start + 3, start + 4]) {
     final phrase = boxes[index - total]!;
@@ -7348,8 +7352,9 @@ Set<int> _ownedClosedPaymentPanelRows(
         if (other.right > phrase.left - margin &&
             other.left < phrase.right + margin &&
             other.bottom > phrase.top - margin / 4 &&
-            other.top < phrase.bottom + margin / 4)
+            other.top < phrase.bottom + margin / 4) {
           return const {};
+        }
       }
     }
   }
