@@ -100,6 +100,44 @@ test("Grok CLI invocation binds subscriber auth and verifies complete file cover
   } finally { delete process.env.XAI_API_KEY; delete process.env.GH_TOKEN; }
 });
 
+test("Grok resumes once for verified missing line ranges and still requires complete coverage", async () => {
+  const fixture = { ...file, name: "snapshot.diff" };
+  const calls = [];
+  const singleRead = (offset, body) => [
+    { type: "tool_call", toolCallId: "read-1", toolName: "read_file",
+      rawInput: { target_file: fixture.fullPath, offset, limit: 1 } },
+    { type: "tool_call_update", toolCallId: "read-1", status: "completed",
+      content: [{ content: { text: `${offset}→${body}` } }] }, end,
+  ];
+  const spawnImpl = (binary, args, options) => {
+    calls.push(args);
+    return fakeSpawn(singleRead(calls.length, calls.length === 1 ? "first" : "second"))(binary, args, options);
+  };
+  const result = await invokeGrok({ files: [fixture], prompt: "synthetic read plan", staged: "/tmp/settleora-review-fixture",
+    model: "grok-4.7", binary: "grok", spawnImpl, timeoutMs: 5000 });
+  assert.equal(result.reason, null);
+  assert.equal(result.coveredLines, 2);
+  assert.equal(result.coveragePasses, 2);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].includes("--continue"), false);
+  assert.equal(calls[1].includes("--continue"), true);
+  assert.match(calls[1].at(-1), /snapshot\.diff: offset 2, limit 1/);
+});
+
+test("Grok blocks after one bounded continuation if required lines remain unread", async () => {
+  let calls = 0;
+  const spawnImpl = (binary, args, options) => {
+    calls += 1;
+    return fakeSpawn([end])(binary, args, options);
+  };
+  const result = await invokeGrok({ files: [{ ...file, name: "snapshot.diff" }], prompt: "synthetic",
+    staged: "/tmp/settleora-review-fixture", model: "grok-4.7", binary: "grok", spawnImpl, timeoutMs: 5000 });
+  assert.equal(calls, 2);
+  assert.equal(result.reason, "blocked_grok_incomplete_coverage");
+  assert.equal(result.missingRanges[0].offset, 1);
+  assert.equal(result.missingRanges[0].limit, 2);
+});
+
 test("malformed Grok streaming event shapes block without crashing", async () => {
   for (const event of [null, { type: "tool_call_update", status: "completed", content: {} }]) {
     const result = await invokeGrok({ files: [], prompt: "synthetic", staged: "/tmp/settleora-review-fixture",

@@ -5,8 +5,21 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
+  adoptBundleReviewerSession,
   runBundleReviewConvergence,
 } from "../lib/feature-bundle-orchestrator.mjs";
+
+test("bundle reviewer successor is persisted before a manual return", () => {
+  const successor = { sessions: { generation: 2 } };
+  const calls = [];
+  const recovery = { adoptSessionLifecycle(value) { calls.push("persist"); return value; }, stop() { calls.push("stop"); } };
+  assert.equal(adoptBundleReviewerSession(recovery, successor), successor);
+  recovery.stop();
+  assert.deepEqual(calls, ["persist", "stop"]);
+  assert.throws(() => adoptBundleReviewerSession({ adoptSessionLifecycle() { throw Error("disk failure"); } }, successor), /disk failure/);
+  const source = readFileSync(new URL("../lib/feature-bundle-orchestrator.mjs", import.meta.url), "utf8");
+  assert.match(source, /result\.review \|\|= runReviewPrompt[\s\S]*?adoptBundleReviewerSession\(recovery, result\.review\.sessionLifecycle\)[\s\S]*?const initialManual = reviewerManualGateOutcome/);
+});
 import {
   accountConvergenceEvent,
   analyzeConvergenceProgress,

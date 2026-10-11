@@ -165,7 +165,8 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
       spawnImpl: options.spawnImpl || spawn, timeoutMs: options.timeoutMs || deadlineMs });
     const metadata = { exitCode: outcome.exitCode, stopReason: outcome.stopReason,
       coveredLines: outcome.coveredLines, totalLines: outcome.totalLines,
-      toolsObserved: outcome.toolsObserved, outputBytes: outcome.outputBytes };
+      toolsObserved: outcome.toolsObserved, outputBytes: outcome.outputBytes,
+      coveragePasses: outcome.coveragePasses, missingRanges: outcome.missingRanges };
     if (outcome.reason) return finish({ liveCallAttempted: true, reason: outcome.reason,
       actualUsage: outcome.usage, providerMetadata: metadata });
     const parsed = parseGrokVerdict(outcome.answer);
@@ -241,7 +242,9 @@ export function parseGrokVerdict(answer) {
   return parseCandidate(candidates[0]);
 }
 
-export async function invokeGrok({ files, prompt, staged, model, binary, spawnImpl = spawn, timeoutMs = deadlineMs }) {
+export async function invokeGrok({ files, prompt, staged, model, binary, spawnImpl = spawn, timeoutMs = deadlineMs,
+  coverageState = null, resume = false, coverageRetry = 0, previousUsage = null, previousTools = [], previousOutputBytes = 0 }) {
+  const started = Date.now();
   const args = ["--cwd", staged, "--model", model, "--reasoning-effort", "low",
     "--sandbox", "strict", "--permission-mode", "dontAsk", "--no-subagents",
     "--disable-web-search", "--tools", "read_file",
@@ -249,7 +252,7 @@ export async function invokeGrok({ files, prompt, staged, model, binary, spawnIm
     "--deny", "WebFetch", "--deny", "WebSearch",
     "--deny", `Read(${path.join(os.homedir(), ".grok")}/**)`,
     "--disallowed-tools", disallowedTools, "--max-turns", "64",
-    "--output-format", "streaming-json", "-p", prompt];
+    "--output-format", "streaming-json", ...(resume ? ["--continue"] : []), "-p", prompt];
   // Build a minimal process environment so runner or CI credentials cannot
   // reach the subscriber CLI through unrelated variable names.
   const env = Object.fromEntries(["HOME", "USER", "LOGNAME", "PATH", "SHELL", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "TMPDIR",
@@ -257,7 +260,7 @@ export async function invokeGrok({ files, prompt, staged, model, binary, spawnIm
     .filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]));
   const child = spawnImpl(binary, args, { cwd: staged, env, stdio: ["ignore", "pipe", "pipe"] });
   const calls = new Map();
-  const coverage = new Map(files.map((file) => [file.fullPath, new Set()]));
+  const coverage = coverageState || new Map(files.map((file) => [file.fullPath, new Set()]));
   let answer = "", usage = null, stopReason = null, outputBytes = 0, exitCode = null;
   let reason = null, buffer = "";
   const stdoutDecoder = new StringDecoder("utf8");
@@ -266,7 +269,7 @@ export async function invokeGrok({ files, prompt, staged, model, binary, spawnIm
   const fail = (value) => { reason ||= value; child.kill("SIGKILL"); };
   child.stdout.on("data", (chunk) => {
     outputBytes += chunk.length;
-    if (outputBytes > maxEventBytes) { fail("blocked_grok_event_limit"); return; }
+    if (previousOutputBytes + outputBytes > maxEventBytes) { fail("blocked_grok_event_limit"); return; }
     buffer += stdoutDecoder.write(chunk);
     for (;;) {
       const index = buffer.indexOf("\n");
@@ -315,5 +318,39 @@ export async function invokeGrok({ files, prompt, staged, model, binary, spawnIm
   const coveredLines = [...coverage.values()].reduce((total, lines) => total + lines.size, 0);
   if (!reason && (exitCode !== 0 || stopReason !== "end_turn")) reason = "blocked_grok_incomplete_response";
   if (!reason && coveredLines !== totalLines) reason = "blocked_grok_incomplete_coverage";
-  return { answer, usage, stopReason, exitCode, coveredLines, totalLines, toolsObserved, outputBytes, reason };
+  const combinedUsage = previousUsage ? Object.fromEntries([...new Set([...Object.keys(previousUsage), ...Object.keys(usage || {})])]
+    .map((key) => [key, Number(previousUsage[key] || 0) + Number(usage?.[key] || 0)])) : usage;
+  const allTools = [...previousTools, ...toolsObserved];
+  const allOutputBytes = previousOutputBytes + outputBytes;
+  if (reason === "blocked_grok_incomplete_coverage" && coverageRetry === 0 && Date.now() - started < timeoutMs - 1000) {
+    const missing = missingReadRanges(files, coverage);
+    if (missing.length > 0 && missing.length <= maxReadCalls) {
+      const remainingMs = timeoutMs - (Date.now() - started);
+      const resumePrompt = [
+        "Continue the SAME isolated read-only review session. The adapter verified that some required lines were not read. Do not rely on the prior verdict.",
+        "Use read_file only. Read every missing indexed range below, one call at a time, then reassess the complete package before returning the strict JSON verdict. Do not use any other tool.",
+        ...missing.map(({ name, offset, limit }) => `${name}: offset ${offset}, limit ${limit}`),
+      ].join("\n");
+      return invokeGrok({ files, prompt: resumePrompt, staged, model, binary, spawnImpl, timeoutMs: remainingMs,
+        coverageState: coverage, resume: true, coverageRetry: 1, previousUsage: combinedUsage,
+        previousTools: allTools, previousOutputBytes: allOutputBytes });
+    }
+  }
+  return { answer, usage: combinedUsage, stopReason, exitCode, coveredLines, totalLines,
+    toolsObserved: allTools, outputBytes: allOutputBytes, reason, coveragePasses: coverageRetry + 1,
+    missingRanges: reason === "blocked_grok_incomplete_coverage" ? missingReadRanges(files, coverage) : [] };
+}
+
+function missingReadRanges(files, coverage) {
+  const missing = [];
+  for (const file of files) {
+    const read = coverage.get(file.fullPath) || new Set();
+    for (let line = 1; line <= file.lines.length;) {
+      if (read.has(line)) { line += 1; continue; }
+      const offset = line;
+      while (line <= file.lines.length && !read.has(line) && line - offset < 350) line += 1;
+      missing.push({ name: file.name, offset, limit: line - offset });
+    }
+  }
+  return missing;
 }

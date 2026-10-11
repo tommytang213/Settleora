@@ -1192,6 +1192,11 @@ disabled, a 64-turn limit, and a 30-minute deadline. It verifies complete file
 coverage from tool events before accepting one strict-schema JSON verdict. Incomplete coverage,
 tool/path violation, unavailable login/quota, timeout, malformed output, or
 non-pass blocks. Packages above 768 KiB currently block for narrower review.
+If a headless turn ends before all indexed ranges are read, the adapter resumes
+that isolated session once to request only the verified missing ranges within
+the same deadline. A verdict still requires complete coverage. Check remaining
+subscriber included usage in the account before an expensive rerun; `grok usage`
+reports session totals, not the account's remaining allowance.
 Grok sessions may retain the sent package in the user's local CLI history.
 After private subscriber sign-in and explicit trial authorization, a
 task-scoped config can exercise a synthetic one-call smoke check with

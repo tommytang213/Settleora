@@ -419,16 +419,16 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   checkpoint("feature_bundle_local_codex_review", { externalReview: result.externalReview });
   result.review ||= runReviewPrompt(config, { ...result.reviewPackage, sessionLifecycle });
   checkpoint("feature_bundle_local_codex_review_complete", { review: result.review });
+  if (result.review.sessionLifecycle) {
+    sessionLifecycle = adoptBundleReviewerSession(recovery, result.review.sessionLifecycle);
+    result.sessionLifecycle = sessionLifecycle;
+  }
   const initialManual = reviewerManualGateOutcome(result.externalReview, result.review);
   if (initialManual) {
     state = markBundleStopped(state, { reasonCode: "bundle_reviewer_manual_gate", reason: initialManual });
     if (!config.dryRun) writeBundleState(config, state);
     recovery?.stop("bundle_reviewer_manual_gate", initialManual, "manual_decision_required");
     return stopBundle(result, initialManual, "bundle_reviewer_manual_gate", "Independent reviewer required a manual decision.", { state });
-  }
-  if (result.review.sessionLifecycle) {
-    sessionLifecycle = result.review.sessionLifecycle;
-    result.sessionLifecycle = sessionLifecycle;
   }
   const codexReviewMutationGuard = compareBundleReviewCheckoutFingerprint(codexReviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
     phase: "bundle_codex_review",
@@ -449,7 +449,7 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     return stopForBundleReviewMutation({ config, result, state, recovery, guard: structuredReviewMutationGuard, phase: "bundle_structured_review" });
   }
   if (result.largeCandidateReview.sessionLifecycle) {
-    sessionLifecycle = result.largeCandidateReview.sessionLifecycle;
+    sessionLifecycle = adoptBundleReviewerSession(recovery, result.largeCandidateReview.sessionLifecycle);
     result.sessionLifecycle = sessionLifecycle;
   }
   if (result.externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation" && !result.largeCandidateReview.ok) {
@@ -722,7 +722,7 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
       sessionLifecycle: input.sessionLifecycle,
     });
     attempts.push(fixAttempt);
-    if (fixAttempt.sessionLifecycle) input.sessionLifecycle = fixAttempt.sessionLifecycle;
+    if (fixAttempt.sessionLifecycle) input.sessionLifecycle = adoptBundleReviewerSession(input.recovery, fixAttempt.sessionLifecycle);
     if (!fixAttempt.proceeded) {
       input.recovery?.stop("bundle_review_convergence_fix_not_proceeded", fixAttempt.reason, terminalNextAction(fixAttempt.reason));
       if (state.reviewConvergenceState?.diagnosticReviewFix?.status === "pending") {
@@ -755,7 +755,7 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
       sessionLifecycle: input.sessionLifecycle,
       recovery: input.recovery,
     });
-    if (postFix.sessionLifecycle) input.sessionLifecycle = postFix.sessionLifecycle;
+    if (postFix.sessionLifecycle) input.sessionLifecycle = adoptBundleReviewerSession(input.recovery, postFix.sessionLifecycle);
     changedFiles = postFix.changedFiles || changedFiles;
     forbiddenChangedFiles = postFix.forbiddenChangedFiles || forbiddenChangedFiles;
     currentResult = {
@@ -1450,6 +1450,11 @@ function stopBundle(result, outcome, reasonCode, reason, extra = {}) {
   };
 }
 
+export function adoptBundleReviewerSession(recovery, successor) {
+  if (!successor) return null;
+  return recovery?.adoptSessionLifecycle ? recovery.adoptSessionLifecycle(successor) : successor;
+}
+
 function stopForBundleReviewMutation({ config, result, state, recovery, guard, phase }) {
   const reason = guard.reason || `Bundle review command mutated checkout during ${phase}.`;
   const stoppedState = markBundleStopped(state, { reasonCode: "bundle_review_mutation_detected", reason });
@@ -1566,6 +1571,11 @@ function createBundleRecoveryRecorder(config, input) {
   return {
     get state() {
       return state;
+    },
+    adoptSessionLifecycle(next) {
+      const durable = config.sessionLifecycle?.enabled === true ? persistSessionLifecycleState(config, next) : { ok: true, state: next };
+      if (!durable.ok) throw new Error(durable.reasonCode || "bundle_session_lifecycle_persistence_failed");
+      return persist({ ...state, sessionLifecycle: durable.state }).sessionLifecycle;
     },
     setPr(pr) {
       return persist({
