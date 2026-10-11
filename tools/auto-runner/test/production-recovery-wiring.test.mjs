@@ -228,6 +228,8 @@ test("recovery ignores saved parallel verdicts after a source-changing fix", () 
   assert.equal(resolveOrdinaryParallelReviewerCheckpoint(savedB, { headSha: headB }, "grok").checkpoint, savedB);
   const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
   assert.match(runner, /external_review: async \(continuation\) => \{[\s\S]*?const candidate = continuation\.identity;[\s\S]*?resolveOrdinaryParallelReviewerCheckpoint\(\s*state\.evidence\?\.parallelReviewerVerdicts, candidate, providerBinding\.provider/);
+  assert.match(runner, /external_review: async \(continuation\) => \{[\s\S]*?writeReviewPackage\(config, \{[^\n]*headSha: candidate\.headSha, baseSha: candidate\.baseSha, diffBaseRef: candidate\.baseSha/);
+  assert.match(runner, /codex_review: async \(continuation\) => \{[\s\S]*?writeReviewPackage\(config, \{[^\n]*headSha: candidate\.headSha, baseSha: candidate\.baseSha, diffBaseRef: candidate\.baseSha/);
 });
 
 test("recovery provider pin uses the routed cheap or strong reviewer tier", () => {

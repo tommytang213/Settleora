@@ -3056,7 +3056,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       const candidateBoundParallel = candidateParallelGate.checkpoint;
       const before = await checkoutFingerprint();
       const changedFiles = candidate.changedFiles;
-      context.reviewPackage = await writeReviewPackage(config, { issue, promptInfo: { promptPath: null }, laneDecision, changedFiles, validation: context.validation || state.evidence?.localValidation, report: { found: true, recovered: true }, diffBaseRef: candidate.baseSha, diffHeadRef: candidate.headSha, reviewerProviderPin: providerBinding.provider });
+      context.reviewPackage = await writeReviewPackage(config, { issue, promptInfo: { promptPath: null }, laneDecision, changedFiles, validation: context.validation || state.evidence?.localValidation, report: { found: true, recovered: true }, headSha: candidate.headSha, baseSha: candidate.baseSha, diffBaseRef: candidate.baseSha, diffHeadRef: candidate.headSha, reviewerProviderPin: providerBinding.provider });
       if (candidateBoundParallel && !candidateParallelGate.retryIncomplete) {
         context.externalReview = candidateBoundParallel.external;
         context.review = candidateBoundParallel.codex;
@@ -3109,7 +3109,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       operationalCheckpoint?.("ordinary_recovery_local_codex_review");
       const candidate = continuation.identity;
       const before = await checkoutFingerprint();
-      context.reviewPackage ||= await writeReviewPackage(config, { issue, promptInfo: { promptPath: null }, laneDecision, changedFiles: candidate.changedFiles, validation: context.validation || state.evidence?.localValidation, report: { found: true, recovered: true }, diffBaseRef: candidate.baseSha, diffHeadRef: candidate.headSha, reviewerProviderPin: providerBinding.provider });
+      context.reviewPackage ||= await writeReviewPackage(config, { issue, promptInfo: { promptPath: null }, laneDecision, changedFiles: candidate.changedFiles, validation: context.validation || state.evidence?.localValidation, report: { found: true, recovered: true }, headSha: candidate.headSha, baseSha: candidate.baseSha, diffBaseRef: candidate.baseSha, diffHeadRef: candidate.headSha, reviewerProviderPin: providerBinding.provider });
       context.review ||= runReviewPrompt(config, context.reviewPackage);
       operationalCheckpoint?.("ordinary_recovery_local_codex_review_complete", { review: context.review });
       if (compareFingerprints(before, await checkoutFingerprint()).mutationDetected) return { ok: false, reasonCode: "ordinary_continuation_codex_review_mutated_checkout" };

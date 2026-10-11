@@ -66,6 +66,7 @@ import {
   advanceRecoveryPhase,
   bindRecoveryEvidence,
   createInitialRecoveryState,
+  digestChangedFiles,
   invalidateEvidenceForHeadChange,
   persistCompleteHeadEvidence,
   recordIdempotentMutation,
@@ -356,10 +357,11 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   const reviewFingerprintBefore = captureBundleReviewCheckoutFingerprint(config);
   checkpoint("feature_bundle_external_review", { validation: result.validation });
   if (independentReviewerProvider(config, result.reviewPackage) === "grok") {
-    [result.externalReview, result.review] = await Promise.all([
-      runIndependentIntegratedReview(config, result.reviewPackage),
-      runCodexReviewInWorker(config, { ...result.reviewPackage, sessionLifecycle }),
-    ]);
+    const parallel = await runDurableBundleParallelReviews(config, result.reviewPackage, state,
+      (next) => { state = config.dryRun ? next : writeBundleState(config, next).state; }, sessionLifecycle);
+    result.externalReview = parallel.externalReview;
+    result.review = parallel.review;
+    if (!parallel.ok) return stopBundle(result, parallel.outcome || "blocked", parallel.reasonCode, parallel.reasonCode);
   } else {
     result.externalReview = await runIndependentIntegratedReview(config, result.reviewPackage);
   }
@@ -759,6 +761,15 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
       sessionLifecycle: input.sessionLifecycle,
       recovery: input.recovery,
     });
+    if (postFix.bundleState) state = postFix.bundleState;
+    if (postFix.parallelReviewFailure) {
+      state = markBundleStopped(state, { reasonCode: postFix.parallelReviewFailure, reason: postFix.parallelReviewFailure });
+      writeState(state);
+      input.recovery?.stop(postFix.parallelReviewFailure, postFix.parallelReviewFailure,
+        postFix.parallelReviewOutcome ? "manual_decision_required" : "stop_fail_closed");
+      return { ok: false, outcome: postFix.parallelReviewOutcome || "blocked",
+        reasonCode: postFix.parallelReviewFailure, state, attempts };
+    }
     if (postFix.sessionLifecycle) input.sessionLifecycle = adoptBundleReviewerSession(input.recovery, postFix.sessionLifecycle);
     changedFiles = postFix.changedFiles || changedFiles;
     forbiddenChangedFiles = postFix.forbiddenChangedFiles || forbiddenChangedFiles;
@@ -1057,12 +1068,22 @@ async function commitBundleReviewFixAndRerunExactHeadReviews(config, { issue, la
   });
   const externalReviewFingerprintBefore = captureBundleReviewCheckoutFingerprint(config);
   const parallelReviews = independentReviewerProvider(config, reviewPackage) === "grok"
-    ? Promise.all([runIndependentIntegratedReview(config, reviewPackage),
-      runCodexReviewInWorker(config, { ...reviewPackage, sessionLifecycle: fixAttempt.sessionLifecycle || sessionLifecycle || null })])
+    ? await runDurableBundleParallelReviews(config, reviewPackage,
+      { ...state, lastVerifiedHead: runnerCreatedCommitSha || state.lastVerifiedHead },
+      (next) => { state = config.dryRun ? next : writeBundleState(config, next).state; },
+      fixAttempt.sessionLifecycle || sessionLifecycle || null)
     : null;
   const [externalReview, parallelCodexReview] = parallelReviews
-    ? await parallelReviews
+    ? [parallelReviews.externalReview, parallelReviews.review]
     : [await runIndependentIntegratedReview(config, reviewPackage), null];
+  if (parallelReviews && !parallelReviews.ok) return {
+    changedFiles, forbiddenChangedFiles, validation, commit, runnerCreatedCommitSha,
+    reviewPackage, externalReview, review: parallelCodexReview,
+    reviewMutationGuard: { mutationDetected: false },
+    parallelReviewFailure: parallelReviews.reasonCode,
+    parallelReviewOutcome: parallelReviews.outcome || null,
+    bundleState: state,
+  };
   const externalReviewMutationGuard = compareBundleReviewCheckoutFingerprint(externalReviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
     phase: "bundle_convergence_external_review",
   });
@@ -1099,6 +1120,7 @@ async function commitBundleReviewFixAndRerunExactHeadReviews(config, { issue, la
     reviewPackage,
     externalReview,
     review,
+    bundleState: state,
     largeCandidateReview,
     sessionLifecycle: largeCandidateReview.sessionLifecycle || review.sessionLifecycle || fixAttempt.sessionLifecycle || sessionLifecycle || null,
     reviewMutationGuard: mergeBundleReviewMutationGuards(externalReviewMutationGuard, codexReviewMutationGuard, structuredReviewMutationGuard),
@@ -1296,6 +1318,89 @@ Stop if this slice needs files outside its slice scope, changes parent contract 
   mkdirSync(path.dirname(promptPath), { recursive: true });
   writeFileSync(promptPath, prompt);
   return { promptPath, reportPath, timestampKey, prompt };
+}
+
+export function resolveBundleParallelReviewerCheckpoint(saved, identity) {
+  if (!saved || saved.headSha !== identity.headSha) return { ok: true, checkpoint: null };
+  if (saved.baseSha !== identity.baseSha || saved.changedFilesDigest !== identity.changedFilesDigest) {
+    return { ok: false, reasonCode: "bundle_parallel_reviewer_identity_mismatch" };
+  }
+  const manual = reviewerManualGateOutcome(saved.external, saved.codex);
+  if (manual) return { ok: false, outcome: manual, reasonCode: "bundle_parallel_reviewer_manual_gate_persisted" };
+  return { ok: true, checkpoint: saved };
+}
+
+function bundleReviewerCheckpoint(review, kind) {
+  if (!review) return null;
+  return {
+    status: review.status, reason: review.reason, verdict: review.verdict,
+    reviewedHead: review.reviewedHead, reviewedBaseSha: review.reviewedBaseSha,
+    baseSha: review.baseSha, changedFilesDigest: review.changedFilesDigest,
+    reviewStatus: kind === "codex" ? review.reviewStatus : undefined,
+    signal: kind === "codex" ? review.signal : undefined,
+    error: kind === "codex" ? review.error : undefined,
+    sanitizedResponseSummary: review.sanitizedResponseSummary,
+    findings: review.findings, route: review.route, provider: review.provider,
+    tier: review.tier, independent: review.independent,
+    reportPath: review.reportPath, logPath: review.logPath,
+    reviewFailureReason: review.reviewFailureReason,
+    reviewFailureCategory: review.reviewFailureCategory,
+  };
+}
+
+function bundleReviewerComplete(review, kind, identity) {
+  if (!review || review.reviewedHead !== identity.headSha || review.baseSha !== identity.baseSha
+    || review.changedFilesDigest !== identity.changedFilesDigest) return false;
+  if (kind === "external") return (review.status === "pass" && review.verdict === "pass")
+    || (review.reason === "blocked_external_reviewer_non_pass"
+      && ["fail", "needs_tommy", "danger_gate"].includes(review.verdict));
+  return review.status === 0 && !review.signal && !review.error
+    && ["passed", "completed"].includes(review.reviewStatus)
+    && review.reviewedBaseSha === identity.baseSha
+    && ["approve", "changes_requested", "needs_tommy", "danger_gate"].includes(review.verdict?.verdict);
+}
+
+export async function runDurableBundleParallelReviews(config, reviewPackage, startingState, persist, sessionLifecycle, deps = {}) {
+  const summary = reviewPackage.summary || {};
+  const identity = { headSha: summary.currentHead, baseSha: summary.baseSha,
+    changedFilesDigest: digestChangedFiles(summary.changedFiles || []) };
+  const resolved = resolveBundleParallelReviewerCheckpoint(
+    startingState.finalization?.parallelReviewerVerdicts, identity);
+  if (!resolved.ok) return { ...resolved, externalReview: resolved.checkpoint?.external || null,
+    review: resolved.checkpoint?.codex || null };
+  const prior = resolved.checkpoint;
+  const externalComplete = bundleReviewerComplete(prior?.external, "external", identity);
+  const codexComplete = bundleReviewerComplete(prior?.codex, "codex", identity);
+  if ((!externalComplete || !codexComplete) && (prior?.attempts || 0) >= 2) {
+    return { ok: false, reasonCode: "bundle_parallel_reviewer_retry_exhausted" };
+  }
+  let state = startingState;
+  const save = (checkpoint) => {
+    state = { ...state, finalization: { ...state.finalization, parallelReviewerVerdicts: checkpoint } };
+    persist(state);
+  };
+  if (!externalComplete || !codexComplete) save({ ...identity, attempts: (prior?.attempts || 0) + 1,
+    external: prior?.external || null, codex: prior?.codex || null });
+  const record = (kind, review) => {
+    save({ ...state.finalization.parallelReviewerVerdicts,
+      [kind]: bundleReviewerCheckpoint(review, kind) });
+    return review;
+  };
+  const [externalReview, review] = await Promise.all([
+    externalComplete ? prior.external : (deps.runExternal || runIndependentIntegratedReview)(config, reviewPackage)
+      .then((value) => record("external", value)),
+    codexComplete ? prior.codex : (deps.runCodex || runCodexReviewInWorker)(config, { ...reviewPackage, sessionLifecycle })
+      .then((value) => record("codex", value)),
+  ]);
+  const manual = reviewerManualGateOutcome(externalReview, review);
+  if (manual) return { ok: false, outcome: manual,
+    reasonCode: "bundle_parallel_reviewer_manual_gate_persisted", externalReview, review };
+  if (!bundleReviewerComplete(externalReview, "external", identity)
+    || !bundleReviewerComplete(review, "codex", identity)) {
+    return { ok: false, reasonCode: "bundle_parallel_reviewer_identity_or_process_mismatch",
+      externalReview, review };
+  }
+  return { ok: true, externalReview, review };
 }
 
 function writeBundleReviewPackage(config, { issue, laneDecision, plan, state, changedFiles, validation, headSha, baseSha }) {

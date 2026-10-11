@@ -1,10 +1,44 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import path from "node:path";
-import { featureBundleOrchestratorTestInternals } from "../lib/feature-bundle-orchestrator.mjs";
+import { featureBundleOrchestratorTestInternals, resolveBundleParallelReviewerCheckpoint, runDurableBundleParallelReviews } from "../lib/feature-bundle-orchestrator.mjs";
 
 const repoRoot = process.cwd();
 const repositorySlug = "tommytang213/Settleora";
+
+test("bundle recovery preserves a manual Grok verdict before Codex completes", async () => {
+  const headSha = "a".repeat(40);
+  const baseSha = "b".repeat(40);
+  const changedFiles = ["tools/auto-runner/lib/feature-bundle-orchestrator.mjs"];
+  const changedFilesDigest = createHash("sha256").update(JSON.stringify(changedFiles)).digest("hex");
+  const reviewPackage = { summary: { currentHead: headSha, baseSha, changedFiles } };
+  const initial = { finalization: { state: "reviewing" } };
+  let persisted = initial;
+  let finishCodex;
+  const codexPending = new Promise((resolve) => { finishCodex = resolve; });
+  const external = { status: "blocked", reason: "blocked_external_reviewer_non_pass",
+    verdict: "needs_tommy", reviewedHead: headSha, baseSha, changedFilesDigest };
+  const codex = { status: 0, reviewStatus: "completed", verdict: { verdict: "approve" },
+    reviewedHead: headSha, reviewedBaseSha: baseSha, baseSha, changedFilesDigest };
+  const pending = runDurableBundleParallelReviews({}, reviewPackage, initial,
+    (next) => { persisted = next; }, null,
+    { runExternal: async () => external, runCodex: async () => codexPending });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(persisted.finalization.parallelReviewerVerdicts.attempts, 1);
+  assert.equal(persisted.finalization.parallelReviewerVerdicts.external.verdict, "needs_tommy");
+  assert.equal(persisted.finalization.parallelReviewerVerdicts.codex, null);
+  const recovered = resolveBundleParallelReviewerCheckpoint(persisted.finalization.parallelReviewerVerdicts,
+    { headSha, baseSha, changedFilesDigest });
+  assert.equal(recovered.outcome, "blocked_needs_tommy");
+  const resumed = await runDurableBundleParallelReviews({}, reviewPackage, persisted,
+    () => { throw new Error("saved manual verdict must not be overwritten"); }, null,
+    { runExternal: async () => { throw new Error("external rerun"); },
+      runCodex: async () => { throw new Error("codex rerun"); } });
+  assert.equal(resumed.outcome, "blocked_needs_tommy");
+  finishCodex(codex);
+  assert.equal((await pending).outcome, "blocked_needs_tommy");
+});
 
 function config(overrides = {}) {
   return {
