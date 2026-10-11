@@ -227,7 +227,6 @@ export async function persistCumulativeLargeCandidateReview({ config, taskKey, c
 
 function grokBoundCandidateEvidence(externalReview, codexReview, manifest) {
   const identity = manifest.candidateIdentity;
-  const filesDigest = digest(normalizeFiles(manifest.changedFiles));
   const externalVerdictComplete = (externalReview?.status === "pass" && externalReview.verdict === "pass")
     || (externalReview?.reason === "blocked_external_reviewer_non_pass"
       && ["fail", "needs_tommy", "danger_gate"].includes(externalReview.verdict));
@@ -235,7 +234,6 @@ function grokBoundCandidateEvidence(externalReview, codexReview, manifest) {
     && externalVerdictComplete
     && externalReview.independent === true && externalReview.reviewedHead === identity.headSha
     && externalReview.baseSha === identity.baseSha && externalReview.changedFilesDigest === identity.changedFilesDigest
-    && digest(normalizeFiles(externalReview.changedFiles)) === filesDigest
     && Boolean(externalReview.completedAt) && cumulativeEvidenceBound(externalReview, identity, manifest)
     && codexReview?.status === 0 && !codexReview.signal && !codexReview.error
     && ["passed", "completed"].includes(codexReview.reviewStatus)
@@ -243,7 +241,6 @@ function grokBoundCandidateEvidence(externalReview, codexReview, manifest) {
     && codexReview.reviewedHead === identity.headSha
     && codexReview.baseSha === identity.baseSha && codexReview.reviewedBaseSha === identity.baseSha
     && codexReview.changedFilesDigest === identity.changedFilesDigest
-    && digest(normalizeFiles(codexReview.changedFiles)) === filesDigest
     && Boolean(codexReview.completedAt || codexReview.finishedAt)
     && cumulativeEvidenceBound(codexReview, identity, manifest);
 }

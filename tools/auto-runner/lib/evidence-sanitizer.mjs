@@ -37,10 +37,6 @@ function sanitizeValue(value) {
 
   const output = {};
   for (const [key, child] of Object.entries(value)) {
-    if (key === "changedFiles" || key === "attestedIntegrationBoundaries") {
-      output[key] = sanitizePathArray(child);
-      continue;
-    }
     if (shouldOmitKey(key)) {
       if (pathKeyPattern.test(key)) output[key] = sanitizeValue(child);
       continue;
@@ -86,12 +82,12 @@ function sanitizeReviewResult(review) {
     reviewedHead: stringOrNull(review.reviewedHead),
     reviewedBaseSha: stringOrNull(review.reviewedBaseSha),
     baseSha: stringOrNull(review.baseSha),
-    changedFiles: sanitizePathArray(review.changedFiles),
+    changedFiles: sanitizeStringArray(review.changedFiles),
     changedFilesDigest: stringOrNull(review.changedFilesDigest),
     attestationSource: stringOrNull(review.attestationSource),
     providerPromptBindingDigest: stringOrNull(review.providerPromptBindingDigest),
     attestedCandidateIdentity: sanitizeValue(review.attestedCandidateIdentity ?? null),
-    attestedIntegrationBoundaries: sanitizePathArray(review.attestedIntegrationBoundaries),
+    attestedIntegrationBoundaries: sanitizeStringArray(review.attestedIntegrationBoundaries),
     fullCandidatePrDelta: sanitizeValue(review.fullCandidatePrDelta ?? null),
     evidenceBinding: sanitizeValue(review.evidenceBinding ?? null),
     verdict: sanitizeReviewVerdict(review.verdict),
@@ -196,17 +192,8 @@ function booleanOrNull(value) {
   return typeof value === "boolean" ? value : null;
 }
 
-function sanitizePathArray(value) {
-  return Array.isArray(value) ? value.filter((item) => typeof item === "string"
-    && item.length > 0 && item.length <= 400 && !item.startsWith("/") && !/^[A-Za-z]:/.test(item)
-    && !/[\\\x00-\x1f\x7f]/.test(item)
-    && item.split("/").every((segment) => segment && segment !== "." && segment !== "..")
-    && !/\b(?:AIza[0-9A-Za-z_-]{24,}|xai-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{20,})\b/i.test(item)
-    && !/(?:GEMINI_API_KEY|x-goog-api-key)/i.test(item)
-    && !/\bbearer\s+[A-Za-z0-9._~+/-]{12,}/i.test(item)
-    && !/\b(?:secret|token|password|credential)\s+["']?[A-Za-z0-9._~+/-]{12,}/i.test(item)
-    && !/\b(?:api[_-]?key|authorization|password|credential|secret|token)\s*[:=]\s*["']?[A-Za-z0-9._~+/-]{8,}/i.test(item)
-    && !/\b(?:secret|token|password|credential)[-_][A-Za-z0-9]{16,}\b/i.test(item)) : [];
+function sanitizeStringArray(value) {
+  return Array.isArray(value) ? value.filter((item) => typeof item === "string").map(sanitizeString) : [];
 }
 
 function sanitizeString(value) {

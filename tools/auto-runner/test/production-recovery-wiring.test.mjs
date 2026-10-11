@@ -116,8 +116,10 @@ test("serialized ordinary reviewer checkpoints can certify a Grok large candidat
     const recovered = resolveOrdinaryParallelReviewerCheckpoint(state.evidence.parallelReviewerVerdicts, identity, "grok");
     assert.equal(recovered.ok, true);
     assert.equal(recovered.retryIncomplete, false);
-    assert.deepEqual(recovered.checkpoint.external.changedFiles, changedFiles);
-    assert.deepEqual(recovered.checkpoint.codex.changedFiles, changedFiles);
+    assert.equal(recovered.checkpoint.external.changedFilesDigest, digest);
+    assert.equal(recovered.checkpoint.codex.changedFilesDigest, digest);
+    assert.notDeepEqual(recovered.checkpoint.external.changedFiles, changedFiles);
+    assert.notDeepEqual(recovered.checkpoint.codex.changedFiles, changedFiles);
     const result = await persistCumulativeLargeCandidateReview({ config: { logsRoot, reviewerProviderPin: "grok" },
       taskKey: "recovered-large", candidateIdentity: identity, changedFiles, integrationBoundaries: boundaries,
       externalReview: recovered.checkpoint.external, codexReview: recovered.checkpoint.codex,

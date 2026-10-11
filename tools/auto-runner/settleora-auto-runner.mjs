@@ -3827,7 +3827,6 @@ export function ordinaryReviewerCheckpoint(review = {}, provider) {
     reviewedHead: review.reviewedHead,
     reviewedBaseSha: review.reviewedBaseSha,
     baseSha: review.baseSha,
-    changedFiles: review.changedFiles,
     changedFilesDigest: review.changedFilesDigest,
     independent: review.independent,
     completedAt: review.completedAt,
