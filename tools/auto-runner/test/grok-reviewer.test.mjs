@@ -71,6 +71,13 @@ test("Grok verdict parser accepts one bounded JSON object after CLI preface", ()
   assert.equal(parseGrokVerdict(`I'll review the package.\n${verdict}`).verdict.verdict, "fail");
   assert.equal(parseGrokVerdict(`${verdict}\n${verdict}`).ok, false);
   assert.equal(parseGrokVerdict("No JSON response").ok, false);
+  const structured = JSON.stringify({ verdict: "fail", confidence: "high", summary: "A defect", findings: [
+    { path: "file.js", line: 10, severity: "medium", message: "Input x fails" },
+  ] });
+  assert.match(parseGrokVerdict(structured).verdict.findings[0], /Input x fails/);
+  assert.equal(parseGrokVerdict(JSON.stringify({ verdict: "pass", confidence: "high", summary: "OK", findings: [
+    { message: "a potential concern" },
+  ] })).verdict.findings.length, 1);
 });
 
 test("Grok CLI invocation binds subscriber auth and verifies complete file coverage", async () => {

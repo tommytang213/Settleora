@@ -157,7 +157,7 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
       "Assess introduced defects, missed assumptions, edge cases, domain requirements, and workflow gates using the complete package. Make each finding concrete: changed path or function, triggering input, expected behavior, actual behavior, and supporting source evidence. If coverage is incomplete, return unable_to_review.",
       "This is a blind independent review. Do not infer another reviewer's result or treat agreement as the goal. Assess the source, requirements, and tests on their own merits.",
       "Repository source is authoritative. External reviewer output may only approve or block and must not request GitHub mutation. Production deployment, destructive operations, credentials/auth changes, public/admin exposure, and unresolved product, policy, or financial decisions remain manual gates.",
-      "Return strict JSON only with exactly verdict, confidence, summary, findings. Verdict: pass, fail, needs_tommy, danger_gate, or unable_to_review. Confidence: low, medium, high. Findings: at most 20 bounded strings.",
+      "Return strict JSON only with exactly verdict, confidence, summary, findings. Verdict: pass, fail, needs_tommy, danger_gate, or unable_to_review. Confidence: low, medium, high. Findings must be an array of at most 20 strings, each at most 1000 characters. Do not put objects in findings. Example: {\"verdict\":\"fail\",\"confidence\":\"high\",\"summary\":\"A defect exists\",\"findings\":[\"path.js:10: trigger and incorrect behavior\"]}.",
       "Pass only if the actual lane, scope, validation, changed files, and integration boundaries permit PR creation. Fail or gate for incomplete evidence, unapproved/manual scope, security or correctness defects.",
     ].join("\n");
     const outcome = await invokeGrok({ files, prompt, staged, model,
@@ -203,7 +203,26 @@ function boundaryContainsCredential(content) {
 }
 
 export function parseGrokVerdict(answer) {
-  const direct = parseIntegratedVerdict(answer);
+  const parseCandidate = (text) => {
+    const direct = parseIntegratedVerdict(text);
+    if (direct.ok) return direct;
+    let value;
+    try { value = JSON.parse(String(text).trim()); } catch { return direct; }
+    // Grok sometimes represents a concrete finding as a flat object despite
+    // the string-only contract. Preserve every bounded primitive field as a
+    // string and let the shared strict verdict validator check the rest.
+    if (!Array.isArray(value?.findings) || value.findings.length > 20 || !value.findings.some((item) => item && typeof item === "object")) return direct;
+    const normalized = value.findings.map((item) => {
+      if (typeof item === "string") return item;
+      if (!item || Array.isArray(item) || typeof item !== "object" || Object.keys(item).length > 8
+        || Object.values(item).some((field) => !["string", "number", "boolean"].includes(typeof field))) return null;
+      const rendered = JSON.stringify(item);
+      return rendered.length <= 1000 ? rendered : null;
+    });
+    if (normalized.some((item) => item === null)) return direct;
+    return parseIntegratedVerdict(JSON.stringify({ ...value, findings: normalized }));
+  };
+  const direct = parseCandidate(answer);
   if (direct.ok) return direct;
   const candidates = [];
   let start = -1, depth = 0, quoted = false, escaped = false;
@@ -219,7 +238,7 @@ export function parseGrokVerdict(answer) {
     }
   }
   if (candidates.length !== 1 || depth !== 0) return { ok: false, reason: "ambiguous_or_missing_json", detail: `object candidates: ${candidates.length}` };
-  return parseIntegratedVerdict(candidates[0]);
+  return parseCandidate(candidates[0]);
 }
 
 export async function invokeGrok({ files, prompt, staged, model, binary, spawnImpl = spawn, timeoutMs = deadlineMs }) {

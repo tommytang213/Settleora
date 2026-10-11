@@ -65,7 +65,8 @@ import { collectReport } from "./lib/report-collector.mjs";
 import { bindValidationEvidence, planValidation, runValidationPlan } from "./lib/validation-planner.mjs";
 import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } from "./lib/pr-manager.mjs";
 import { writeRecentSummary, writeRunSummary } from "./lib/summary-writer.mjs";
-import { reviewerReadinessSummary } from "./lib/reviewer-policy.mjs";
+import { reviewerReadinessSummary, routeReviewer, mergeReviewerPolicyConfig } from "./lib/reviewer-policy.mjs";
+import { analyzeReviewSecretBoundary } from "./lib/review-secret-boundary.mjs";
 import { createLargeCandidateRoutingState, loadLargeCandidateRoutingState, persistCumulativeLargeCandidateReview, persistLargeCandidateSplitDecision, structuredLargeCandidateFindings, structuredLargeCandidateManualVerdict } from "./lib/large-candidate-review-routing.mjs";
 import { runIndependentIntegratedReview, runIndependentReviewerSmokeTest, independentReviewerProvider } from "./lib/independent-reviewer.mjs";
 import { resolveRecoveredReviewerProviderPin } from "./lib/reviewer-provider-pin.mjs";
@@ -3851,12 +3852,15 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
   };
   const regenerationRequired = shouldGenerateExistingPrRecoveryEvidence(laneDecision, exactHeadEvidence);
   const recoveryProviderPin = exactHeadEvidence.geminiProvider || recoveryConfig.reviewerProviderPin || null;
-  if (regenerationRequired && !recoveryProviderPin && config.reviewerTiers?.strong_independent?.provider === "grok") {
+  const recoveryDiff = regenerationRequired ? readPrDiff(config, prNumber) : null;
+  const selectedRecoveryProvider = regenerationRequired
+    ? resolveExistingPrRecoveryReviewerProvider(config, { laneDecision, changedFiles, diff: recoveryDiff }) : null;
+  if (regenerationRequired && !recoveryProviderPin && selectedRecoveryProvider === "grok") {
     return { reason: "existing_pr_recovery_provider_pin_missing", terminalMutationBlocked: true,
       autoMerge: { result: "blocked", reason: "existing_pr_recovery_provider_pin_missing", recovery: true } };
   }
   if (regenerationRequired && recoveryProviderPin
-    && config.reviewerTiers?.strong_independent?.provider !== recoveryProviderPin) {
+    && selectedRecoveryProvider !== recoveryProviderPin) {
     return { reason: "existing_pr_recovery_provider_pin_mismatch", terminalMutationBlocked: true,
       autoMerge: { result: "blocked", reason: "existing_pr_recovery_provider_pin_mismatch", recovery: true } };
   }
@@ -3890,6 +3894,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
       expectedHeadSha,
       expectedOriginMainSha: recoveryConfig.expectedOriginMainSha || baseOriginMainSha,
       reviewerProviderPin: recoveryProviderPin,
+      diffText: recoveryDiff,
     });
     operationalCheckpoint("existing_pr_evidence_regeneration_complete", {
       validation: generatedRecoveryEvidence.validation || null,
@@ -4149,8 +4154,15 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
   };
 }
 
+export function resolveExistingPrRecoveryReviewerProvider(config, { laneDecision, changedFiles, diff }) {
+  const boundary = analyzeReviewSecretBoundary({ changedFiles, diff });
+  const route = routeReviewer({ changedFiles, laneDecision, stats: boundary.diffStats,
+    largeBundleReviewApproval: config.largeBundleReviewApproval });
+  return mergeReviewerPolicyConfig(config).reviewerTiers[route.tier]?.provider || null;
+}
+
 async function generateExistingPrRecoveryEvidence(config, {
-  issue, laneDecision, pr, changedFiles, expectedHeadSha, expectedOriginMainSha, reviewerProviderPin,
+  issue, laneDecision, pr, changedFiles, expectedHeadSha, expectedOriginMainSha, reviewerProviderPin, diffText,
 }) {
   if (config.dryRun) return { reason: "dry_run_no_recovery_evidence_generation" };
   const originalBranch = getCurrentBranch();
@@ -4276,7 +4288,7 @@ async function generateExistingPrRecoveryEvidence(config, {
       changedFiles,
       validation,
       report: { found: true, expectedPath: "existing-pr-recovery" },
-      diffText: readPrDiff(config, pr.number || pr.url),
+      diffText,
       reviewerProviderPin,
     });
     const parallelGrok = independentReviewerProvider(config, reviewPackage) === "grok";

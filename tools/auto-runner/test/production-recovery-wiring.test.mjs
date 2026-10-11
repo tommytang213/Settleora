@@ -5,6 +5,18 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { resolveExistingPrRecoveryReviewerProvider } from "../settleora-auto-runner.mjs";
+
+test("recovery provider pin uses the routed cheap or strong reviewer tier", () => {
+  const config = { reviewerTiers: {
+    cheap_independent: { enabled: true, provider: "grok" },
+    strong_independent: { enabled: false, provider: "gemini" },
+  } };
+  const changedFiles = ["docs/workflow/example.md"];
+  const diff = "diff --git a/docs/workflow/example.md b/docs/workflow/example.md\n--- a/docs/workflow/example.md\n+++ b/docs/workflow/example.md\n@@ -1 +1 @@\n-old\n+new\n";
+  assert.equal(resolveExistingPrRecoveryReviewerProvider(config, { laneDecision: { lane: "workflow-docs-tooling", reviewerTier: "cheap_independent" }, changedFiles, diff }), "grok");
+  assert.equal(resolveExistingPrRecoveryReviewerProvider(config, { laneDecision: { lane: "workflow-docs-tooling", reviewerTier: "strong_independent" }, changedFiles, diff }), "gemini");
+});
 import {
   advanceRecoveryPhase,
   bindRecoveryEvidence,
