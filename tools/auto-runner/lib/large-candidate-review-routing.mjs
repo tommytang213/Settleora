@@ -180,6 +180,11 @@ export async function runStructuredLargeCandidateReview({ state, manifest, revie
 }
 
 export async function persistCumulativeLargeCandidateReview({ config, taskKey, candidateIdentity, changedFiles, integrationBoundaries = [], externalReview, codexReview, invokeSection = null, invokeIntegration = null } = {}) {
+  // The structured loop exposes earlier section verdicts to later reviewers.
+  // Grok's trial requires blind peer reviews, so this route must stop before invocation.
+  if (config?.reviewerProviderPin === "grok" || externalReview?.provider === "grok") {
+    return freeze({ ok: false, reasonCode: "grok_structured_large_candidate_not_supported" });
+  }
   const built = buildLargeCandidateCoverageManifest({ candidateIdentity, changedFiles, integrationBoundaries });
   if (!built.ok) return built;
   const seed = createLargeCandidateRoutingState({ taskKey, candidateIdentity, changedFiles, classification: { state: "external_review_large_bundle_in_progress" }, coverageManifest: built.manifest, runtimeStructuredRequired: true });

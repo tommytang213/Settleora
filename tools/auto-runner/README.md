@@ -1193,6 +1193,8 @@ limit, and a 30-minute deadline. It verifies complete file
 coverage from tool events before accepting one strict-schema JSON verdict. Incomplete coverage,
 tool/path violation, unavailable login/quota, timeout, malformed output, or
 non-pass blocks. Packages above 832 KiB currently block for narrower review.
+Grok tasks also block structured large-candidate and automatic merge routes until
+those routes can preserve blind peer review and full exact-head evidence.
 If a headless turn ends before all indexed ranges are read, the adapter resumes
 that isolated session once to request only the verified missing ranges within
 the same deadline. A verdict still requires complete coverage. Check remaining

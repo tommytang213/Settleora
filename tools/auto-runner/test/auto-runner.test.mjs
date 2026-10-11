@@ -5506,6 +5506,16 @@ test("canary auto-merge decision requires explicit low-risk approval", () => {
   );
 });
 
+test("Grok trial cannot auto-merge even when other gates approve", () => {
+  const base = autoMergeContext();
+  const pinned = evaluateAutoMergeDecision(autoMergeContext({ config: { reviewerProviderPin: "grok" } }));
+  const observed = evaluateAutoMergeDecision(autoMergeContext({ externalReview: { ...base.externalReview, provider: "grok" } }));
+  assert.equal(pinned.eligible, false);
+  assert.equal(pinned.reason, "grok_auto_merge_not_enabled");
+  assert.equal(observed.eligible, false);
+  assert.equal(observed.reason, "grok_auto_merge_not_enabled");
+});
+
 test("sensitive product/security/storage/money/schema/OpenAPI/deployment/secret/public/admin paths block auto-merge", () => {
   for (const filePath of [
     "services/api/Auth/Session.cs",

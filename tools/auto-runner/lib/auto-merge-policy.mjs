@@ -91,6 +91,9 @@ export function evaluateAutoMergeDecision(input) {
   const block = (reason) => ({ ...result, reason });
 
   if (!config.allowAutoMerge) return block("auto_merge_disabled_by_config");
+  if (config.reviewerProviderPin === "grok" || input.externalReview?.provider === "grok") {
+    return block("grok_auto_merge_not_enabled");
+  }
   if (config.canary) {
     const approval = evaluateLowRiskAutoMergeCanaryApproval(config);
     if (!approval.approved) return block(`low_risk_auto_merge_canary_not_approved:${approval.reason}`);
