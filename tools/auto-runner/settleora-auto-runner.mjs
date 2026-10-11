@@ -1231,8 +1231,17 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   if (independentReviewerProvider(config, iteration.reviewPackage) === "grok") {
     const packageForCodex = { ...iteration.reviewPackage, sessionLifecycle: iteration.sessionLifecycle || iteration.issue?.sessionLifecycle || null };
     [iteration.externalReview, iteration.review] = await Promise.all([
-      runIntegratedReviewSource(config, iteration.reviewPackage, "pre-fix"),
-      runCodexReviewInWorker(config, packageForCodex),
+      runIntegratedReviewSource(config, iteration.reviewPackage, "pre-fix").then((externalReview) => {
+        persistOrdinaryParallelReviewerCheckpoint(recoveryRecorder, iteration.runnerCreatedCommitSha,
+          externalReview, null, "grok");
+        return externalReview;
+      }),
+      runCodexReviewInWorker(config, packageForCodex).then((review) => {
+        if (review?.sessionLifecycle) recoveryRecorder?.annotate({ sessionLifecycle: review.sessionLifecycle });
+        persistOrdinaryParallelReviewerCheckpoint(recoveryRecorder, iteration.runnerCreatedCommitSha,
+          null, review, "grok");
+        return review;
+      }),
     ]);
     if (iteration.review?.sessionLifecycle) {
       // Persist the worker's successor before any subsequent GitHub effect.
@@ -2742,16 +2751,18 @@ function ordinaryParallelReviewerComplete(review, provider) {
     && ["approve", "changes_requested", "needs_tommy", "danger_gate"].includes(review?.verdict?.verdict);
 }
 
-export function persistOrdinaryParallelReviewerCheckpoint(recoveryRecorder, candidateHeadSha, externalReview, review) {
-  if (!recoveryRecorder || externalReview?.provider !== "grok") return null;
+export function persistOrdinaryParallelReviewerCheckpoint(recoveryRecorder, candidateHeadSha, externalReview, review, providerPin = externalReview?.provider) {
+  if (!recoveryRecorder || providerPin !== "grok") return null;
+  const saved = recoveryRecorder.state.evidence?.parallelReviewerVerdicts;
+  const sameHead = saved?.candidateHeadSha === candidateHeadSha && saved?.providerPin === "grok";
   return recoveryRecorder.annotate({ evidence: {
     ...recoveryRecorder.state.evidence,
     parallelReviewerVerdicts: {
       candidateHeadSha,
       providerPin: "grok",
-      attempts: 1,
-      external: ordinaryReviewerCheckpoint(externalReview, "external"),
-      codex: ordinaryReviewerCheckpoint(review, "codex"),
+      attempts: sameHead ? saved.attempts || 1 : 1,
+      external: externalReview ? ordinaryReviewerCheckpoint(externalReview, "external") : sameHead ? saved.external : null,
+      codex: review ? ordinaryReviewerCheckpoint(review, "codex") : sameHead ? saved.codex : null,
     },
   } });
 }
@@ -5160,8 +5171,17 @@ async function commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDeci
   });
   const parallelGrok = independentReviewerProvider(config, reviewPackage) === "grok";
   const parallelReviews = parallelGrok ? Promise.all([
-    runIntegratedReviewSource(config, reviewPackage, "post-review-fix-exact-head"),
-    runCodexReviewInWorker(config, { ...reviewPackage, sessionLifecycle: issue.sessionLifecycle || promptInfo?.sessionLifecycle?.state || null }),
+    runIntegratedReviewSource(config, reviewPackage, "post-review-fix-exact-head").then((externalReview) => {
+      persistOrdinaryParallelReviewerCheckpoint(recoveryRecorder, runnerCreatedCommitSha,
+        externalReview, null, "grok");
+      return externalReview;
+    }),
+    runCodexReviewInWorker(config, { ...reviewPackage, sessionLifecycle: issue.sessionLifecycle || promptInfo?.sessionLifecycle?.state || null }).then((review) => {
+      if (review?.sessionLifecycle) recoveryRecorder?.annotate({ sessionLifecycle: review.sessionLifecycle });
+      persistOrdinaryParallelReviewerCheckpoint(recoveryRecorder, runnerCreatedCommitSha,
+        null, review, "grok");
+      return review;
+    }),
   ]) : null;
   const [externalReview, parallelCodexReview] = parallelReviews
     ? await parallelReviews

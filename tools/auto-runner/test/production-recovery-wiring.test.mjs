@@ -167,6 +167,30 @@ test("primary and post-fix Grok reviews persist reusable exact-head checkpoints"
   assert.match(runner, /function recordPostFixExactHeadEvidence[\s\S]*?persistOrdinaryParallelReviewerCheckpoint\(recoveryRecorder, headSha/);
 });
 
+test("interruption between reviewer completions retains the first same-head result", () => {
+  const head = "a".repeat(40);
+  const base = "b".repeat(40);
+  const recorder = { state: { evidence: {} },
+    annotate(metadata) { this.state = { ...this.state, ...metadata }; return this.state; } };
+  const manual = { provider: "grok", status: "blocked", reason: "blocked_external_reviewer_non_pass",
+    verdict: "needs_tommy", sanitizedResponseSummary: { verdict: "needs_tommy", findings: [] },
+    reviewedHead: head, baseSha: base };
+  persistOrdinaryParallelReviewerCheckpoint(recorder, head, manual, null, "grok");
+  const afterExternal = JSON.parse(JSON.stringify(sanitizeRecoveryState(recorder.state))).evidence.parallelReviewerVerdicts;
+  assert.equal(afterExternal.codex, null);
+  assert.equal(resolveOrdinaryParallelReviewerCheckpoint(afterExternal, { headSha: head, baseSha: base }, "grok").outcome,
+    "blocked_needs_tommy");
+  const approved = { status: 0, reviewStatus: "completed", reviewedHead: head, baseSha: base,
+    reviewedBaseSha: base, verdict: { verdict: "approve" } };
+  persistOrdinaryParallelReviewerCheckpoint(recorder, head, null, approved, "grok");
+  const both = JSON.parse(JSON.stringify(sanitizeRecoveryState(recorder.state))).evidence.parallelReviewerVerdicts;
+  assert.equal(both.external.verdict, "needs_tommy");
+  assert.equal(both.codex.verdict.verdict, "approve");
+  const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  assert.match(runner, /runIntegratedReviewSource\(config, iteration\.reviewPackage, "pre-fix"\)\.then\(\(externalReview\) => \{[\s\S]*?persistOrdinaryParallelReviewerCheckpoint/);
+  assert.match(runner, /runCodexReviewInWorker\(config, packageForCodex\)\.then\(\(review\) => \{[\s\S]*?persistOrdinaryParallelReviewerCheckpoint/);
+});
+
 test("recovery ignores saved parallel verdicts after a source-changing fix", () => {
   const headA = "a".repeat(40);
   const headB = "b".repeat(40);
