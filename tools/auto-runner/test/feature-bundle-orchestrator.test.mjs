@@ -1,13 +1,55 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import test from "node:test";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { featureBundleOrchestratorTestInternals, resolveBundleParallelReviewerCheckpoint, runDurableBundleParallelReviews } from "../lib/feature-bundle-orchestrator.mjs";
 import { sanitizeBundleState } from "../lib/feature-bundle-state.mjs";
+import { persistCumulativeLargeCandidateReview } from "../lib/large-candidate-review-routing.mjs";
 
 const repoRoot = process.cwd();
 const repositorySlug = "tommytang213/Settleora";
+
+test("serialized Grok feature-bundle checkpoints retain complete candidate bindings", async () => {
+  const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-grok-bundle-recovery-"));
+  const changedFiles = ["docs/architecture/AUTH_REFRESH_TOKEN_ROTATION_POLICY.md",
+    "tools/auto-runner/lib/review-secret-boundary.mjs"];
+  const changedFilesDigest = createHash("sha256").update(JSON.stringify(changedFiles)).digest("hex");
+  const identity = { repository: repositorySlug, headSha: "a".repeat(40), baseSha: "b".repeat(40),
+    treeSha: "c".repeat(40), diffDigest: "d".repeat(64), changedFilesDigest };
+  const boundaries = ["tools/auto-runner/settleora-auto-runner.mjs"];
+  const bound = { attestationSource: "provider_prompt_binding", providerPromptBindingDigest: "e".repeat(64),
+    attestedCandidateIdentity: identity, attestedIntegrationBoundaries: boundaries };
+  const external = { ...bound, provider: "grok", independent: true, status: "pass", verdict: "pass",
+    reviewedHead: identity.headSha, baseSha: identity.baseSha, changedFiles, changedFilesDigest,
+    completedAt: "2026-10-11T00:00:00Z" };
+  const codex = { ...bound, status: 0, reviewStatus: "completed", verdict: { verdict: "approve" },
+    reviewedHead: identity.headSha, baseSha: identity.baseSha, reviewedBaseSha: identity.baseSha,
+    changedFiles, changedFilesDigest, completedAt: "2026-10-11T00:00:00Z" };
+  const reviewPackage = { summary: { currentHead: identity.headSha, baseSha: identity.baseSha, changedFiles } };
+  let persisted = { finalization: { state: "reviewing" } };
+  const persist = (next) => { persisted = JSON.parse(JSON.stringify(sanitizeBundleState(next))); };
+  try {
+    const first = await runDurableBundleParallelReviews({}, reviewPackage, persisted, persist, null,
+      { runExternal: async () => external, runCodex: async () => codex });
+    assert.equal(first.ok, true);
+    const resumed = await runDurableBundleParallelReviews({}, reviewPackage, persisted, persist, null,
+      { runExternal: async () => { throw new Error("external rerun"); },
+        runCodex: async () => { throw new Error("Codex rerun"); } });
+    assert.equal(resumed.ok, true);
+    assert.notDeepEqual(resumed.externalReview.changedFiles, changedFiles);
+    assert.notDeepEqual(resumed.review.changedFiles, changedFiles);
+    assert.equal(resumed.externalReview.changedFilesDigest, changedFilesDigest);
+    assert.equal(resumed.review.changedFilesDigest, changedFilesDigest);
+    const certified = await persistCumulativeLargeCandidateReview({ config: { logsRoot, reviewerProviderPin: "grok" },
+      taskKey: "recovered-bundle", candidateIdentity: identity, changedFiles, integrationBoundaries: boundaries,
+      externalReview: resumed.externalReview, codexReview: resumed.review,
+      invokeSection: async () => { throw new Error("sequential reviewer call"); },
+      invokeIntegration: async () => { throw new Error("sequential reviewer call"); } });
+    assert.equal(certified.ok, true, certified.reasonCode);
+  } finally { rmSync(logsRoot, { recursive: true, force: true }); }
+});
 
 test("bundle Grok checkpoints survive sanitization and never rerun a completed verdict", async () => {
   const headSha = "a".repeat(40);
