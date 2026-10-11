@@ -411,7 +411,8 @@ class ReceiptOcrFixtureItem {
           (unitPrice != null && unitPrice is! String) ||
           (currency != null &&
               (currency is! String ||
-                  !RegExp(r'^[A-Z]{3}$').hasMatch(currency)))) {
+                  (currency != '¥' &&
+                      !RegExp(r'^[A-Z]{3}$').hasMatch(currency))))) {
         throw StateError('$fixtureId item ground truth must use strings');
       }
       return ReceiptOcrFixtureItem(
@@ -429,5 +430,7 @@ class ReceiptOcrFixtureItem {
   final String? quantity;
   final String? unitPrice;
   final String lineTotal;
+  // Match the preview's exact evidence: an ISO code or the unresolved printed
+  // yen marker. A marker does not resolve the receipt's currency/provenance.
   final String? currency;
 }

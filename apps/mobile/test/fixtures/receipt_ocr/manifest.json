@@ -1593,14 +1593,16 @@
         "currency": null,
         "total": "60",
         "items": [
-          [
-            "Noodles",
-            "50"
-          ],
-          [
-            "Tea",
-            "10"
-          ]
+          {
+            "description": "Noodles",
+            "line_total": "50",
+            "currency": "¥"
+          },
+          {
+            "description": "Tea",
+            "line_total": "10",
+            "currency": "¥"
+          }
         ]
       },
       "expected_currency_resolution": {
