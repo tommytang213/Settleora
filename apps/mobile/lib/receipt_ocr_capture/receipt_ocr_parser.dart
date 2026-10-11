@@ -9938,8 +9938,9 @@ Set<int> _corroboratedActivityFeeRows(List<String> lines, String? currency) {
   int? money(String text) {
     if (!_isBoundedSummaryAmount(text)) return null;
     final printed = _currencyAdjacentToSelectedAmount(text, currency);
-    if (!printed.hasExplicitEvidence || printed.currency != currency)
+    if (!printed.hasExplicitEvidence || printed.currency != currency) {
       return null;
+    }
     final amount = _lastAmountInLine(text, currency: currency);
     return amount == null ? null : _ocrAmountMinorUnits(amount, currency);
   }
