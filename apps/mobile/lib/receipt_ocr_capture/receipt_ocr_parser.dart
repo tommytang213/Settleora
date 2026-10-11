@@ -220,6 +220,12 @@ class ReceiptOcrParser {
       amounts.total,
       currency,
     );
+    final paymentPanelRows = _ownedClosedPaymentPanelRows(
+      lines,
+      layoutRows,
+      amounts.total,
+      currency,
+    );
     final extractedItems = _extractItems(
       lines,
       currency,
@@ -242,6 +248,7 @@ class ReceiptOcrParser {
         ...headerAddressRows,
         ...headerRoles.locations,
         ...pairedCourtesyRows,
+        ...paymentPanelRows,
       },
     );
     final itemCandidates = extractedItems.items;
@@ -300,6 +307,7 @@ class ReceiptOcrParser {
         ...headerAddressRows,
         ...headerRoles.locations,
         ...pairedCourtesyRows,
+        ...paymentPanelRows,
         ...utilityFinancial.adjustments.keys,
         ...utilityFinancial.reviewRows,
       },
@@ -3160,6 +3168,9 @@ class ReceiptOcrParser {
       items.add(fuelItem);
       itemSelectionDecisions.add(ReceiptOcrItemLineDecision.fuelItemSelected);
     }
+    final fuelPumpRows = fuelItem == null
+        ? const <int>{}
+        : _ownedFuelPumpRows(lines, layoutRows, fuelItem);
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       final line = lines[lineIndex];
       if (_hasSubtotalLabel(line, line.toLowerCase())) {
@@ -3199,6 +3210,7 @@ class ReceiptOcrParser {
         nonItemSummaryRows.addAll(ownedSummaryRows);
       }
       if (nonItemEvidenceRows.contains(lineIndex) ||
+          fuelPumpRows.contains(lineIndex) ||
           ownedSummaryRows != null ||
           (_isAdministrativeLine(line) &&
               !chargeTableRows.contains(lineIndex)) ||
@@ -7155,6 +7167,193 @@ Set<int> _ownedReceiptBrandCopyRows(
     }
   }
   return owned;
+}
+
+typedef _ReceiptRoleBox = ({
+  double left,
+  double right,
+  double top,
+  double bottom,
+});
+
+_ReceiptRoleBox? _receiptRoleBox(List<ReceiptOcrBlockEvidence> blocks) {
+  if (blocks.isEmpty) return null;
+  for (final block in blocks) {
+    final points = block.points;
+    if (block.confidence == null ||
+        !block.confidence!.isFinite ||
+        block.confidence! < 0.8 ||
+        block.confidence! > 1 ||
+        points.length != 4 ||
+        points.any((p) => !p.x.isFinite || !p.y.isFinite))
+      return null;
+    final turns = [
+      for (var i = 0; i < 4; i++)
+        (points[(i + 1) % 4].x - points[i].x) *
+                (points[(i + 2) % 4].y - points[(i + 1) % 4].y) -
+            (points[(i + 1) % 4].y - points[i].y) *
+                (points[(i + 2) % 4].x - points[(i + 1) % 4].x),
+    ];
+    if (!turns.every((v) => v.isFinite && v > 0) &&
+        !turns.every((v) => v.isFinite && v < 0))
+      return null;
+  }
+  final xs = blocks.expand((b) => b.points).map((p) => p.x).toList()..sort();
+  final ys = blocks.expand((b) => b.points).map((p) => p.y).toList()..sort();
+  return (left: xs.first, right: xs.last, top: ys.first, bottom: ys.last);
+}
+
+bool _receiptRoleFollows(_ReceiptRoleBox first, _ReceiptRoleBox next) {
+  final a = first.bottom - first.top, b = next.bottom - next.top;
+  final smaller = a < b ? a : b, larger = a > b ? a : b;
+  return next.top >= first.bottom - smaller / 2 &&
+      next.top <= first.bottom + larger * 2;
+}
+
+bool _receiptRoleColumns(List<ReceiptOcrBlockEvidence> row) {
+  if (row.length != 2) return false;
+  final left = _receiptRoleBox([row.first]);
+  final right = _receiptRoleBox([row.last]);
+  if (left == null || right == null || right.left <= left.right) return false;
+  final top = left.top > right.top ? left.top : right.top;
+  final bottom = left.bottom < right.bottom ? left.bottom : right.bottom;
+  final a = left.bottom - left.top, b = right.bottom - right.top;
+  return bottom - top >= (a < b ? a : b) / 2;
+}
+
+// A pump number belongs to a complete, aligned fuel measurement panel.
+// Neither the word "pump" nor agreement with the total alone owns a price.
+Set<int> _ownedFuelPumpRows(
+  List<String> lines,
+  List<List<ReceiptOcrBlockEvidence>> rows,
+  ReceiptOcrItemCandidate fuel,
+) {
+  if (rows.length != lines.length) return const {};
+  final owned = <int>{};
+  for (var i = 0; i + 4 < lines.length; i++) {
+    if (rows.skip(i).take(5).any((row) => !_receiptRoleColumns(row))) continue;
+    final panel = rows.sublist(i, i + 5);
+    bool label(int row, String pattern) => RegExp(
+      pattern,
+      caseSensitive: false,
+    ).hasMatch(panel[row][0].text.trim());
+    if (!label(0, r'^PUMP\s*[:#]?$') ||
+        !RegExp(r'^\d{1,4}$').hasMatch(panel[0][1].text.trim()) ||
+        int.parse(panel[0][1].text.trim()) == 0 ||
+        !label(1, r'^(?:FUEL|PRODUCT)\s*[:#]?$') ||
+        !label(2, r'^(?:GALLONS?|LIT(?:ER|RE)S?)\s*[:#]?$') ||
+        !label(3, r'^(?:PRICE\s*/\s*(?:GAL|L)|UNIT\s+PRICE)\s*[:#]?$') ||
+        !_isPrimaryTotalCurrencyLine(
+          lines[i + 4],
+          lines[i + 4].toLowerCase(),
+        ) ||
+        _lastAmountInLine(lines[i + 4], currency: fuel.currency) !=
+            fuel.lineTotal ||
+        _cleanDescription(panel[1][1].text) != fuel.description)
+      continue;
+    final boxes = panel.map(_receiptRoleBox).toList();
+    if (boxes.any((b) => b == null)) continue;
+    final firstLabel = _receiptRoleBox([panel.first.first])!;
+    final firstValue = _receiptRoleBox([panel.first.last])!;
+    var valid = true;
+    for (var j = 0; j < panel.length; j++) {
+      final left = _receiptRoleBox([panel[j].first])!;
+      final right = _receiptRoleBox([panel[j].last])!;
+      final height = boxes[j]!.bottom - boxes[j]!.top;
+      if (right.left <= left.right ||
+          (left.left - firstLabel.left).abs() > height ||
+          (right.left - firstValue.left).abs() > height ||
+          (j > 0 && !_receiptRoleFollows(boxes[j - 1]!, boxes[j]!))) {
+        valid = false;
+        break;
+      }
+    }
+    if (valid) owned.add(i);
+  }
+  return owned;
+}
+
+// A complete tender/approval panel proves its heading and closing copy.
+// The original card and authorization evidence stays in the raw blocks.
+Set<int> _ownedClosedPaymentPanelRows(
+  List<String> lines,
+  List<List<ReceiptOcrBlockEvidence>> rows,
+  String? selectedTotal,
+  String? currency,
+) {
+  if (selectedTotal == null ||
+      lines.length < 6 ||
+      rows.length != lines.length) {
+    return const {};
+  }
+  final start = lines.length - 5, total = start - 1;
+  if (rows[start].length != 1 ||
+      rows[start + 1].length != 1 ||
+      rows[start + 2].length != 2 ||
+      rows[start + 3].length != 1 ||
+      rows[start + 4].length != 1 ||
+      !_receiptRoleColumns(rows[start + 2]) ||
+      !RegExp(
+        r'^payment\s+method\s*[:：]?$',
+        caseSensitive: false,
+      ).hasMatch(lines[start].trim()) ||
+      !RegExp(
+        r'^(?:visa|mastercard|master card|amex|american express|(?:credit|debit)\s+card)\s+[•*·xX -]{0,20}\d{4}$',
+        caseSensitive: false,
+      ).hasMatch(lines[start + 1].trim()) ||
+      !RegExp(
+        r'^approved$',
+        caseSensitive: false,
+      ).hasMatch(rows[start + 2][0].text.trim()) ||
+      !RegExp(
+        r'^auth(?:orization)?\s*[:#=]?\s*[A-Z0-9]{4,12}$',
+        caseSensitive: false,
+      ).hasMatch(rows[start + 2][1].text.trim()) ||
+      !_isReceiptCourtesyLine(lines[start + 3]) ||
+      !_isClosedPostPaymentCourtesy([lines[start + 4]]) ||
+      !_isPrimaryTotalCurrencyLine(lines[total], lines[total].toLowerCase()) ||
+      _lastAmountInLine(lines[total], currency: currency) != selectedTotal) {
+    return const {};
+  }
+  final boxes = rows.skip(total).map(_receiptRoleBox).toList();
+  if (boxes.any((b) => b == null)) return const {};
+  for (var i = 1; i < boxes.length; i++) {
+    if (!_receiptRoleFollows(boxes[i - 1]!, boxes[i]!)) return const {};
+  }
+  final panel = _receiptRoleBox(
+    rows.skip(total).take(4).expand((b) => b).toList(),
+  )!;
+  final width = panel.right - panel.left,
+      center = (panel.left + panel.right) / 2;
+  for (final index in [start, start + 1, start + 2]) {
+    final box = boxes[index - total]!;
+    if ((box.left - boxes[1]!.left).abs() > box.bottom - box.top)
+      return const {};
+  }
+  for (final index in [start + 3, start + 4]) {
+    final phrase = boxes[index - total]!;
+    final height = phrase.bottom - phrase.top;
+    if (phrase.left < panel.left ||
+        phrase.right > panel.right ||
+        height > width / 2 ||
+        ((phrase.left + phrase.right) / 2 - center).abs() > width * 0.15) {
+      return const {};
+    }
+    for (var i = 0; i < start + 3; i++) {
+      for (final block in rows[i]) {
+        final other = _receiptRoleBox([block]);
+        if (other == null) return const {};
+        final otherHeight = other.bottom - other.top;
+        final margin = height < otherHeight ? height : otherHeight;
+        if (other.right > phrase.left - margin &&
+            other.left < phrase.right + margin &&
+            other.bottom > phrase.top - margin / 4 &&
+            other.top < phrase.bottom + margin / 4)
+          return const {};
+      }
+    }
+  }
+  return {start, start + 3, start + 4};
 }
 
 // A complete closing pair can follow the total without a tender section.
