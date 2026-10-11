@@ -112,6 +112,33 @@ struct ScriptCandidate {
   let pack: RecognizerSpec
 }
 
+// This optional recovery follows all mandatory common/specialist probes.
+enum CyrillicRecovery {
+  static let whiteMargin = 12
+
+  static func shouldProbe(_ candidates: [ScriptCandidate]) -> Bool {
+    let common = candidates.filter { $0.pack.acceptedScripts.contains(.common) }
+    guard common.count == 1, textOnly(common[0].text) else { return false }
+    guard let selected = ScriptRouteSelector.select(candidates) else { return true }
+    return selected.pack.acceptedScripts.contains(.common) &&
+      selected.confidence < 0.90 && textOnly(selected.text)
+  }
+
+  static func accepts(_ candidates: [ScriptCandidate], recovery: ScriptCandidate) -> Bool {
+    shouldProbe(candidates) && recovery.pack.acceptedScripts == [.cyrillic] &&
+      candidates.contains { $0.pack == recovery.pack } &&
+      (Float(0.1)...Float(1)).contains(recovery.confidence) && !recovery.text.isEmpty &&
+      textOnly(recovery.text) && ScriptRouteSelector.score(recovery).isFinite
+  }
+
+  private static func textOnly(_ text: String) -> Bool {
+    !text.unicodeScalars.contains {
+      $0.properties.generalCategory == .decimalNumber ||
+        $0.properties.generalCategory == .currencySymbol
+    }
+  }
+}
+
 enum ScriptRouteSelector {
   private static let scriptMatchBonus = 0.24
   private static let specialistBias = 0.20

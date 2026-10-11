@@ -160,6 +160,14 @@ final class SettleoraPaddleOcrEngine {
         rotatedCandidates[index].append(rotated[index])
       }
     }
+    if let cyrillic = recognizers.first(where: { $0.spec.acceptedScripts == [.cyrillic] }) {
+      let uprightRecovery = try await recognizeRecovery(cyrillic, crops: crops, original: uprightCandidates)
+      let rotatedRecovery = try await recognizeRecovery(cyrillic, crops: rotatedCrops, original: rotatedCandidates)
+      for index in crops.indices {
+        if let recovered = uprightRecovery[index] { uprightCandidates[index].append(recovered) }
+        if let recovered = rotatedRecovery[index] { rotatedCandidates[index].append(recovered) }
+      }
+    }
     let uprightOrientationCandidates = uprightCandidates.map {
       ScriptRouteSelector.select($0) ?? $0[0]
     }
@@ -234,6 +242,34 @@ final class SettleoraPaddleOcrEngine {
           pack: recognizer.spec
         )
       })
+    }
+    return output
+  }
+
+  private func recognizeRecovery(
+    _ recognizer: Recognizer, crops: [CGImage], original: [[ScriptCandidate]]
+  ) async throws -> [ScriptCandidate?] {
+    var output = [ScriptCandidate?](repeating: nil, count: crops.count)
+    // Match the original contiguous batches, including lines that need no
+    // recovery, so CTC receives the same full-batch width plus the fixed margin.
+    for indices in Array(crops.indices).chunked(maxCount: 4) {
+      guard indices.contains(where: { CyrillicRecovery.shouldProbe(original[$0]) }) else { continue }
+      let input = try recognizer.preprocessor.preprocessBatch(
+        indices.map { crops[$0] }, whiteMargin: CyrillicRecovery.whiteMargin
+      )
+      let raw = try await sessions.runRecognition(
+        packID: recognizer.spec.modelPackID, inputData: input.tensorData, shape: input.tensorShape
+      )
+      let decoded = try recognizer.decoder.decodeBatch(outputData: raw.data, outputShape: raw.shape)
+      guard decoded.count == indices.count else { throw SettleoraOcrError.invalidCatalog }
+      for (offset, value) in decoded.enumerated() {
+        let index = indices[offset]
+        let candidate = ScriptCandidate(
+          text: RecognizedTextNormalizer.normalize(value.text.trimmingCharacters(in: .whitespacesAndNewlines), pack: recognizer.spec),
+          confidence: value.confidence, pack: recognizer.spec
+        )
+        if CyrillicRecovery.accepts(original[index], recovery: candidate) { output[index] = candidate }
+      }
     }
     return output
   }

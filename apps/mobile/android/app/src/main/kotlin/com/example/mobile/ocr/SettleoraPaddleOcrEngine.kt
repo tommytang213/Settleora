@@ -121,10 +121,12 @@ class SettleoraPaddleOcrEngine(context: Context) {
                     sourceCrops: List<Mat>,
                     targetCandidates: List<MutableList<ScriptCandidate>>,
                     batchIndices: List<Int>,
+                    recovery: Boolean = false,
                 ) {
                     val batchStart = System.currentTimeMillis()
                     val input = RecPreprocessor.preprocessBatch(
                         batchIndices.map { index -> sourceCrops[index] },
+                        whiteMargin = if (recovery) CyrillicRecovery.WHITE_MARGIN else 0,
                     )
                     val decoded = sessions.runRecognitionDecoded(
                         pack.spec.modelPackId,
@@ -138,7 +140,7 @@ class SettleoraPaddleOcrEngine(context: Context) {
                     }
                     decoded.forEachIndexed { batchIndex, value ->
                         val lineIndex = batchIndices[batchIndex]
-                        targetCandidates[lineIndex] += ScriptCandidate(
+                        val candidate = ScriptCandidate(
                             text = RecognizedTextNormalizer.normalize(
                                 value.first.trim(),
                                 pack.spec,
@@ -146,6 +148,9 @@ class SettleoraPaddleOcrEngine(context: Context) {
                             confidence = value.second,
                             pack = pack.spec,
                         )
+                        if (!recovery || CyrillicRecovery.accepts(targetCandidates[lineIndex], candidate)) {
+                            targetCandidates[lineIndex] += candidate
+                        }
                     }
                 }
 
@@ -187,6 +192,20 @@ class SettleoraPaddleOcrEngine(context: Context) {
                                 rotatedCandidatesByLine,
                                 batchIndices,
                             )
+                        }
+                    }
+                    val cyrillic = packs.singleOrNull {
+                        it.spec.acceptedScripts == setOf(ScriptEvidence.CYRILLIC)
+                    }
+                    if (cyrillic != null) {
+                        // Keep the exact original batch and canvas when any line
+                        // needs recovery. Only eligible line outputs are admitted.
+                        for ((sourceCrops, target) in listOf(crops to candidatesByLine, rotatedCrops to rotatedCandidatesByLine)) {
+                            for (batchIndices in batchesFor(sourceCrops, sourceCrops.indices)) {
+                                if (batchIndices.any { CyrillicRecovery.shouldProbe(target[it]) }) {
+                                    recognizeBatch(cyrillic, sourceCrops, target, batchIndices, recovery = true)
+                                }
+                            }
                         }
                     }
                     val uprightOrientationCandidates = candidatesByLine.map { candidates ->

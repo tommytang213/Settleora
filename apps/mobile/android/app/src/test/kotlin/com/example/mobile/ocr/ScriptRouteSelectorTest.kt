@@ -329,6 +329,66 @@ class ScriptRouteSelectorTest {
         }
     }
 
+    @Test
+    fun cyrillicRecoveryKeepsOriginalCandidatesAndUsesExistingSelector() {
+        val common = candidate("common", ScriptEvidence.COMMON, "Cyr", 0.85f)
+        val original = candidate("cyrillic", ScriptEvidence.CYRILLIC, "Суr", 0.50f)
+        val recovery = candidate("cyrillic", ScriptEvidence.CYRILLIC, "Сыр", 0.68f)
+        val values = listOf(common, original)
+        assertEquals(common, ScriptRouteSelector.select(values))
+        assertEquals(true, CyrillicRecovery.shouldProbe(values))
+        assertEquals(true, CyrillicRecovery.accepts(values, recovery))
+        assertEquals(recovery, ScriptRouteSelector.select(values + recovery))
+        assertEquals(listOf(common, original), values)
+        val empty = listOf(common.copy(text = "", confidence = 0f), original.copy(text = "HAC"))
+        assertEquals(null, ScriptRouteSelector.select(empty))
+        assertEquals(true, CyrillicRecovery.accepts(empty, recovery))
+    }
+
+    @Test
+    fun cyrillicRecoveryPreservesStrongCommonAndExistingSpecialistWinners() {
+        val original = candidate("cyrillic", ScriptEvidence.CYRILLIC, "HAC", 0.5f)
+        val recovery = original.copy(text = "НАС", confidence = 0.99f)
+        for (confidence in listOf(0.90f, 0.99f, 1.0f)) {
+            val values = listOf(candidate("common", ScriptEvidence.COMMON, "Example", confidence), original)
+            assertEquals(false, CyrillicRecovery.shouldProbe(values))
+            assertEquals(false, CyrillicRecovery.accepts(values, recovery))
+        }
+        val winner = original.copy(text = "Сыр", confidence = 0.8f)
+        val values = listOf(candidate("common", ScriptEvidence.COMMON, "", 0f), winner)
+        assertEquals(winner, ScriptRouteSelector.select(values))
+        assertEquals(false, CyrillicRecovery.accepts(values, recovery))
+    }
+
+    @Test
+    fun cyrillicRecoveryRejectsDatesAllDecimalScriptsAndCurrencySymbols() {
+        val common = candidate("common", ScriptEvidence.COMMON, "Label", 0.8f)
+        val original = candidate("cyrillic", ScriptEvidence.CYRILLIC, "HAC", 0.5f)
+        val recovery = original.copy(text = "НАС", confidence = 0.8f)
+        val forbidden = listOf("Sep 09, 2025", "1", "٢", "३", "๔", "５", "𝟞", "$", "€", "₽", "₫", "₹")
+        for (literal in forbidden) {
+            assertEquals(literal, false, CyrillicRecovery.shouldProbe(listOf(common.copy(text = literal), original)))
+            assertEquals(literal, false, CyrillicRecovery.accepts(listOf(common, original), recovery.copy(text = "НАС $literal")))
+        }
+    }
+
+    @Test
+    fun cyrillicRecoveryRejectsInvalidConfidenceWrongPackAndIneligibleScript() {
+        val common = candidate("common", ScriptEvidence.COMMON, "Label", 0.8f)
+        val original = candidate("cyrillic", ScriptEvidence.CYRILLIC, "HAC", 0.5f)
+        val values = listOf(common, original)
+        for (confidence in listOf(-1f, 0f, 0.099f, 1.001f, Float.NaN, Float.POSITIVE_INFINITY)) {
+            assertEquals(false, CyrillicRecovery.accepts(values, original.copy(text = "НАС", confidence = confidence)))
+        }
+        for (text in listOf("", "HAC", "ภาษาไทย", "كلمة", "AБCDE")) {
+            assertEquals(false, CyrillicRecovery.accepts(values, original.copy(text = text, confidence = 0.8f)))
+        }
+        assertEquals(false, CyrillicRecovery.accepts(values, candidate("other", ScriptEvidence.CYRILLIC, "НАС", 0.8f)))
+        assertEquals(false, CyrillicRecovery.accepts(values, candidate("common", ScriptEvidence.COMMON, "Word", 0.8f)))
+        assertEquals(false, CyrillicRecovery.shouldProbe(listOf(original)))
+        assertEquals(false, CyrillicRecovery.shouldProbe(values + common))
+    }
+
     private fun candidate(
         id: String,
         script: ScriptEvidence,

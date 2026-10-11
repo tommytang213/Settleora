@@ -5,6 +5,68 @@ import XCTest
 
 class RunnerTests: XCTestCase {
 
+  func testCyrillicRecoveryPreservesWinnersAndNumericEvidence() {
+    func candidate(_ id: String, _ script: ScriptEvidence, _ text: String, _ confidence: Float) -> ScriptCandidate {
+      ScriptCandidate(text: text, confidence: confidence, pack: RecognizerSpec(
+        modelPackID: id, modelVersion: "test", modelPath: "/test", configPath: "/test", acceptedScripts: [script]
+      ))
+    }
+    let common = candidate("common", .common, "Cyr", 0.85)
+    let original = candidate("cyrillic", .cyrillic, "Суr", 0.50)
+    let recovery = candidate("cyrillic", .cyrillic, "Сыр", 0.68)
+    let values = [common, original]
+    XCTAssertEqual(ScriptRouteSelector.select(values)?.text, common.text)
+    XCTAssertTrue(CyrillicRecovery.shouldProbe(values))
+    XCTAssertTrue(CyrillicRecovery.accepts(values, recovery: recovery))
+    XCTAssertEqual(ScriptRouteSelector.select(values + [recovery])?.text, recovery.text)
+    XCTAssertEqual(values.count, 2)
+    let empty = [candidate("common", .common, "", 0), candidate("cyrillic", .cyrillic, "HAC", 0.5)]
+    XCTAssertNil(ScriptRouteSelector.select(empty))
+    XCTAssertTrue(CyrillicRecovery.accepts(empty, recovery: recovery))
+    for confidence in [Float(0.90), 0.99, 1] {
+      let strong = [candidate("common", .common, "Example", confidence), candidate("cyrillic", .cyrillic, "HAC", 0.5)]
+      XCTAssertFalse(CyrillicRecovery.shouldProbe(strong))
+      XCTAssertFalse(CyrillicRecovery.accepts(strong, recovery: recovery))
+    }
+    XCTAssertFalse(CyrillicRecovery.accepts([common, candidate("cyrillic", .cyrillic, "Сыр", 0.8)], recovery: recovery))
+    for literal in ["Sep 09, 2025", "1", "٢", "३", "๔", "５", "𝟞", "$", "€", "₽", "₫", "₹"] {
+      XCTAssertFalse(CyrillicRecovery.shouldProbe([candidate("common", .common, literal, 0.8), original]), literal)
+      XCTAssertFalse(CyrillicRecovery.accepts(values, recovery: candidate("cyrillic", .cyrillic, "НАС \(literal)", 0.8)), literal)
+    }
+    for confidence in [Float(-1), 0, 0.099, 1.001, .nan, .infinity] {
+      XCTAssertFalse(CyrillicRecovery.accepts(values, recovery: candidate("cyrillic", .cyrillic, "НАС", confidence)))
+    }
+    for text in ["", "HAC", "ภาษาไทย", "كلمة", "AБCDE"] {
+      XCTAssertFalse(CyrillicRecovery.accepts(values, recovery: candidate("cyrillic", .cyrillic, text, 0.8)))
+    }
+    XCTAssertFalse(CyrillicRecovery.accepts(values, recovery: candidate("other", .cyrillic, "НАС", 0.8)))
+    XCTAssertFalse(CyrillicRecovery.accepts(values, recovery: candidate("common", .common, "Word", 0.8)))
+    XCTAssertFalse(CyrillicRecovery.shouldProbe([original]))
+    XCTAssertFalse(CyrillicRecovery.shouldProbe(values + [common]))
+  }
+
+  func testCyrillicWhiteMarginPreservesFullBatchTensor() {
+    let source = (1...60).map { Float($0) / 100 }
+    let input = RecBatchPreprocessResult(tensorData: source, tensorShape: [2, 3, 2, 5])
+    XCTAssertEqual(input.withWhiteMargin(contentWidths: [2, 5], margin: 0).tensorData, source)
+    let output = input.withWhiteMargin(contentWidths: [2, 5], margin: 12)
+    XCTAssertEqual(output.tensorShape, [2, 3, 2, 29])
+    for batch in 0..<2 {
+      for channel in 0..<3 {
+        for row in 0..<2 {
+          let width = batch == 0 ? 2 : 5
+          let from = ((batch * 3 + channel) * 2 + row) * 5
+          let to = ((batch * 3 + channel) * 2 + row) * 29
+          XCTAssertEqual(Array(output.tensorData[to..<(to + 12)]), [Float](repeating: 1, count: 12))
+          XCTAssertEqual(Array(output.tensorData[(to + 12)..<(to + 12 + width)]), Array(source[from..<(from + width)]))
+          XCTAssertEqual(Array(output.tensorData[(to + 12 + width)..<(to + 24 + width)]), [Float](repeating: 1, count: 12))
+          XCTAssertEqual(Array(output.tensorData[(to + 24 + width)..<(to + 29)]), [Float](repeating: 0, count: 5 - width))
+        }
+      }
+    }
+    XCTAssertEqual(input.tensorData, source)
+  }
+
   func testQuadTextCropReusesOnePreparedReceiptRaster() throws {
     let width = 12
     let height = 8

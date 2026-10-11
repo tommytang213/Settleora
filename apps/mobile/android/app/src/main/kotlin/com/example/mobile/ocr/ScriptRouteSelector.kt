@@ -24,6 +24,34 @@ internal data class ScriptCandidate(
     val pack: RecognizerSpec,
 )
 
+// A second, fixed-margin Cyrillic pass is recovery only. The original common
+// and every specialist probe still run before this policy is considered.
+internal object CyrillicRecovery {
+    const val WHITE_MARGIN = 12
+
+    fun shouldProbe(candidates: List<ScriptCandidate>): Boolean {
+        val common = candidates.singleOrNull {
+            ScriptEvidence.COMMON in it.pack.acceptedScripts
+        } ?: return false
+        val selected = ScriptRouteSelector.select(candidates)
+        return textOnly(common.text) && (selected == null ||
+            (ScriptEvidence.COMMON in selected.pack.acceptedScripts &&
+                selected.confidence < 0.90f && textOnly(selected.text)))
+    }
+
+    fun accepts(candidates: List<ScriptCandidate>, recovery: ScriptCandidate): Boolean =
+        shouldProbe(candidates) &&
+            recovery.pack.acceptedScripts == setOf(ScriptEvidence.CYRILLIC) &&
+            candidates.any { it.pack == recovery.pack } &&
+            recovery.confidence in 0.1f..1.0f && recovery.text.isNotEmpty() &&
+            textOnly(recovery.text) && ScriptRouteSelector.score(recovery).isFinite()
+
+    private fun textOnly(text: String): Boolean = text.codePoints().noneMatch {
+        Character.getType(it) == Character.DECIMAL_DIGIT_NUMBER.toInt() ||
+            Character.getType(it) == Character.CURRENCY_SYMBOL.toInt()
+    }
+}
+
 internal object ScriptRouteSelector {
     // Confidence outputs from the broad and script-specific recognizers are not
     // directly comparable. Every specialist performs a bounded probe for every
