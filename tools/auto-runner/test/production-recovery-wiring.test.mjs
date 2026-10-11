@@ -63,6 +63,34 @@ test("persisted parallel Grok findings remain actionable after restart", () => {
   assert.equal(trigger.findings[0].message, finding.message);
 });
 
+test("recovery sanitization preserves Grok pass and fail checkpoint fields", () => {
+  const head = "a".repeat(40);
+  const base = "b".repeat(40);
+  for (const verdict of ["pass", "fail"]) {
+    const finding = "tools/auto-runner/a.mjs: repair routing";
+    const external = ordinaryReviewerCheckpoint({ provider: "grok", reviewedHead: head, baseSha: base,
+      status: verdict === "pass" ? "pass" : "blocked",
+      reason: verdict === "pass" ? "integrated_review_passed" : "blocked_external_reviewer_non_pass",
+      verdict, sanitizedResponseSummary: { verdict, findings: verdict === "fail" ? [finding] : [] } }, "external");
+    assert.equal(Object.hasOwn(external, "reviewStatus"), false);
+    const codex = ordinaryReviewerCheckpoint({ reviewedHead: head, baseSha: base, reviewedBaseSha: base,
+      status: 0, reviewStatus: "completed", verdict: { verdict: "approve" } }, "codex");
+    const saved = JSON.parse(JSON.stringify(sanitizeRecoveryState({ evidence: { parallelReviewerVerdicts: {
+      candidateHeadSha: head, providerPin: "grok", attempts: 1, external, codex,
+    } } })));
+    const checkpoint = saved.evidence.parallelReviewerVerdicts;
+    assert.equal(checkpoint.external.provider, "grok");
+    assert.equal(checkpoint.external.status, external.status);
+    assert.equal(checkpoint.external.reason, external.reason);
+    assert.equal(checkpoint.external.sanitizedResponseSummary.verdict, verdict);
+    const recovered = resolveOrdinaryParallelReviewerCheckpoint(checkpoint, { headSha: head, baseSha: base }, "grok");
+    assert.equal(recovered.ok, true);
+    assert.equal(recovered.retryIncomplete, false);
+    if (verdict === "fail") assert.equal(extractReviewFixTrigger({ externalReview: recovered.checkpoint.external,
+      review: recovered.checkpoint.codex }).findings[0], finding);
+  }
+});
+
 test("incomplete parallel invocations retry once without replaying completed verdicts", () => {
   const head = "a".repeat(40);
   const base = "c".repeat(40);

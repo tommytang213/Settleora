@@ -3726,13 +3726,8 @@ function ordinaryMergeEvidenceAsAutoMerge(evidence = {}) {
 }
 
 export function ordinaryReviewerCheckpoint(review = {}, provider) {
-  return {
+  const checkpoint = {
     status: review.status,
-    signal: review.signal,
-    error: review.error,
-    reviewStatus: review.reviewStatus,
-    reviewFailureCategory: review.reviewFailureCategory,
-    reviewFailureReason: review.reviewFailureReason,
     reason: review.reason,
     verdict: review.verdict,
     provider: review.provider || provider,
@@ -3752,6 +3747,14 @@ export function ordinaryReviewerCheckpoint(review = {}, provider) {
     attestedIntegrationBoundaries: review.attestedIntegrationBoundaries,
     contextLimited: review.contextLimited,
   };
+  if (provider === "codex") {
+    checkpoint.signal = review.signal;
+    checkpoint.error = review.error;
+    checkpoint.reviewStatus = review.reviewStatus;
+    checkpoint.reviewFailureCategory = review.reviewFailureCategory;
+    checkpoint.reviewFailureReason = review.reviewFailureReason;
+  }
+  return checkpoint;
 }
 
 function refreshOrdinaryContinuationAfterSourceChange(config, recoveryRecorder, iteration, issue, branchName, reasonCode) {
