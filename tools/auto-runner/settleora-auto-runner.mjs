@@ -3668,7 +3668,7 @@ function ordinaryMergeEvidenceAsAutoMerge(evidence = {}) {
   };
 }
 
-function ordinaryReviewerCheckpoint(review = {}, provider) {
+export function ordinaryReviewerCheckpoint(review = {}, provider) {
   return {
     status: review.status,
     reason: review.reason,
@@ -3682,6 +3682,7 @@ function ordinaryReviewerCheckpoint(review = {}, provider) {
     logPath: review.logPath,
     route: review.route,
     findings: review.findings,
+    sanitizedResponseSummary: review.sanitizedResponseSummary,
     attestationSource: review.attestationSource,
     providerPromptBindingDigest: review.providerPromptBindingDigest,
     attestedCandidateIdentity: review.attestedCandidateIdentity,

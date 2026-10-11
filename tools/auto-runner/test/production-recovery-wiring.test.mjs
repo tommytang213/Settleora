@@ -5,7 +5,8 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { resolveExistingPrRecoveryReviewerProvider, resolveOrdinaryParallelReviewerCheckpoint, resolveOrdinaryRecoveryManualGate, routeNormalStructuredFindingsToConvergence } from "../settleora-auto-runner.mjs";
+import { ordinaryReviewerCheckpoint, resolveExistingPrRecoveryReviewerProvider, resolveOrdinaryParallelReviewerCheckpoint, resolveOrdinaryRecoveryManualGate, routeNormalStructuredFindingsToConvergence } from "../settleora-auto-runner.mjs";
+import { extractReviewFixTrigger } from "../lib/review-fix-policy.mjs";
 
 test("ordinary structured findings cannot replace a manual reviewer verdict", () => {
   for (const [external, local] of [
@@ -38,6 +39,28 @@ test("persisted parallel manual verdicts remain blocking on restart", () => {
   assert.equal(resolveOrdinaryParallelReviewerCheckpoint({ ...checkpoint, codex: { reviewedHead: head, verdict: { verdict: "approve" } } }, { headSha: head }, "grok").outcome, "blocked_needs_tommy");
   assert.equal(resolveOrdinaryParallelReviewerCheckpoint(checkpoint, { headSha: head }, "gemini").reasonCode, "ordinary_parallel_reviewer_checkpoint_identity_mismatch");
   assert.equal(resolveOrdinaryParallelReviewerCheckpoint(checkpoint, { headSha: "b".repeat(40) }, "grok").checkpoint, null);
+});
+
+test("persisted parallel Grok findings remain actionable after restart", () => {
+  const head = "a".repeat(40);
+  const finding = { severity: "high", path: "tools/auto-runner/a.mjs", message: "repair review routing" };
+  const saved = JSON.parse(JSON.stringify({
+    candidateHeadSha: head,
+    providerPin: "grok",
+    external: ordinaryReviewerCheckpoint({
+      reviewedHead: head,
+      status: "blocked",
+      reason: "blocked_external_reviewer_non_pass",
+      verdict: "fail",
+      sanitizedResponseSummary: { verdict: "fail", findings: [finding] },
+    }, "external"),
+    codex: ordinaryReviewerCheckpoint({ reviewedHead: head, verdict: { verdict: "approve" } }, "codex"),
+  }));
+  const recovered = resolveOrdinaryParallelReviewerCheckpoint(saved, { headSha: head }, "grok");
+  assert.equal(recovered.ok, true);
+  const trigger = extractReviewFixTrigger({ externalReview: recovered.checkpoint.external, review: recovered.checkpoint.codex });
+  assert.equal(trigger.actionable, true);
+  assert.equal(trigger.findings[0].message, finding.message);
 });
 
 test("recovery provider pin uses the routed cheap or strong reviewer tier", () => {
