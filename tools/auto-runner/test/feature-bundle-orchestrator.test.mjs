@@ -9,6 +9,40 @@ import { sanitizeBundleState } from "../lib/feature-bundle-state.mjs";
 const repoRoot = process.cwd();
 const repositorySlug = "tommytang213/Settleora";
 
+test("bundle Grok checkpoints survive sanitization and never rerun a completed verdict", async () => {
+  const headSha = "a".repeat(40);
+  const baseSha = "b".repeat(40);
+  const changedFiles = ["tools/auto-runner/lib/feature-bundle-orchestrator.mjs"];
+  const changedFilesDigest = createHash("sha256").update(JSON.stringify(changedFiles)).digest("hex");
+  const reviewPackage = { summary: { currentHead: headSha, baseSha, changedFiles } };
+  const codex = { status: 0, reviewStatus: "completed", verdict: { verdict: "approve" },
+    reviewedHead: headSha, reviewedBaseSha: baseSha, baseSha, changedFilesDigest };
+  for (const verdict of ["pass", "fail"]) {
+    const external = { status: verdict === "pass" ? "pass" : "blocked",
+      reason: verdict === "pass" ? "integrated_review_passed" : "blocked_external_reviewer_non_pass",
+      verdict, provider: "grok", reviewedHead: headSha, baseSha, changedFilesDigest,
+      findings: [{ severity: "high", title: "preserved finding" }] };
+    let persisted = { finalization: { state: "reviewing" } };
+    const persist = (next) => { persisted = sanitizeBundleState(next); };
+    const first = await runDurableBundleParallelReviews({}, reviewPackage, persisted, persist, null,
+      { runExternal: async () => external, runCodex: async () => codex });
+    assert.equal(first.ok, true);
+    const saved = persisted.finalization.parallelReviewerVerdicts.external;
+    assert.equal(saved.status, external.status);
+    assert.equal(saved.reason, external.reason);
+    assert.equal(saved.provider, "grok");
+    assert.deepEqual(saved.findings, external.findings);
+    assert.equal(Object.hasOwn(saved, "reviewStatus"), false);
+    let reruns = 0;
+    const resumed = await runDurableBundleParallelReviews({}, reviewPackage, persisted, persist, null,
+      { runExternal: async () => { reruns += 1; throw new Error("completed Grok rerun"); },
+        runCodex: async () => { reruns += 1; throw new Error("completed Codex rerun"); } });
+    assert.equal(resumed.ok, true);
+    assert.equal(reruns, 0);
+    assert.deepEqual(resumed.externalReview.findings, external.findings);
+  }
+});
+
 test("bundle recovery preserves a manual Grok verdict before Codex completes", async () => {
   const headSha = "a".repeat(40);
   const baseSha = "b".repeat(40);

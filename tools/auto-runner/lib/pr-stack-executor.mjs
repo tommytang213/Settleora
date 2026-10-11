@@ -4375,9 +4375,7 @@ function stackParallelReviewCheckpoint(review, kind) {
   if (!review) return null;
   return {
     status: review.status, reason: review.reason, verdict: review.verdict,
-    reviewStatus: kind === "codex" ? review.reviewStatus : undefined,
-    signal: kind === "codex" ? review.signal : undefined,
-    error: kind === "codex" ? review.error : undefined,
+    ...(kind === "codex" ? { reviewStatus: review.reviewStatus, signal: review.signal, error: review.error } : {}),
     reviewedHead: review.reviewedHead, reviewedBaseSha: review.reviewedBaseSha,
     baseSha: review.baseSha, changedFiles: review.changedFiles,
     changedFilesDigest: review.changedFilesDigest, completedAt: review.completedAt,

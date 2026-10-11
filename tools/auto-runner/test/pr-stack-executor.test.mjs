@@ -28,6 +28,42 @@ const withTempDir = (callback) => {
   try { return callback(cwd); } finally { rmSync(cwd, { recursive: true, force: true }); }
 };
 
+test("stack Grok checkpoints survive disk sanitization and never rerun a completed verdict", async () => {
+  for (const verdict of ["pass", "fail"]) {
+    const logsRoot = mkdtempSync(path.join(os.tmpdir(), "settleora-stack-grok-roundtrip-"));
+    try {
+      const candidate = { phase: "final_gate", prNumber: 921, headSha: sha("a"), baseSha: sha("b"),
+        changedFiles: ["tools/auto-runner/lib/pr-stack-executor.mjs"], candidateDigest: "c".repeat(64) };
+      const changedFilesDigest = createHash("sha256").update(JSON.stringify(candidate.changedFiles)).digest("hex");
+      const strong = { status: verdict === "pass" ? "pass" : "blocked",
+        reason: verdict === "pass" ? "integrated_review_passed" : "blocked_external_reviewer_non_pass",
+        verdict, provider: "grok", reviewedHead: candidate.headSha, baseSha: candidate.baseSha,
+        changedFiles: candidate.changedFiles, changedFilesDigest,
+        findings: [{ severity: "high", title: "preserved finding" }] };
+      const codex = { status: 0, reviewStatus: "completed", verdict: { verdict: "approve" },
+        reviewedHead: candidate.headSha, reviewedBaseSha: candidate.baseSha, baseSha: candidate.baseSha,
+        changedFiles: candidate.changedFiles, changedFilesDigest };
+      const config = { logsRoot, repositorySlug: "tommytang213/Settleora" };
+      const first = await runDurableStackParallelReviews(config, candidate,
+        async () => strong, async () => codex);
+      assert.equal(first.ok, true);
+      const checkpoint = JSON.parse(readFileSync(first.checkpointPath, "utf8"));
+      assert.equal(checkpoint.strong.status, strong.status);
+      assert.equal(checkpoint.strong.reason, strong.reason);
+      assert.equal(checkpoint.strong.provider, "grok");
+      assert.deepEqual(checkpoint.strong.findings, strong.findings);
+      assert.equal(Object.hasOwn(checkpoint.strong, "reviewStatus"), false);
+      let reruns = 0;
+      const resumed = await runDurableStackParallelReviews(config, candidate,
+        async () => { reruns += 1; throw new Error("completed Grok rerun"); },
+        async () => { reruns += 1; throw new Error("completed Codex rerun"); });
+      assert.equal(resumed.ok, true);
+      assert.equal(reruns, 0);
+      assert.deepEqual(resumed.strongReview.findings, strong.findings);
+    } finally { rmSync(logsRoot, { recursive: true, force: true }); }
+  }
+});
+
 test("both PR stack review phases preserve either early manual verdict across restart", async () => {
   const source = readFileSync(new URL("../lib/pr-stack-executor.mjs", import.meta.url), "utf8");
   assert.match(source, /runDurableStackParallelReviews\(targetConfig, \{[\s\S]*?phase: "local_candidate"/);
