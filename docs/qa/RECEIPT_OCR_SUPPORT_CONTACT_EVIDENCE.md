@@ -1,0 +1,9 @@
+# Independent support contact panels
+
+A complete support panel can sit below a utility charge table, away from its header. The existing support-hours proof only covered a help heading beside the table header. Retained provider evidence and its source image showed a complete help heading, telephone and clock range in a separate panel; the clock range was incorrectly treated as a possible priced row and detached monetary sign.
+
+The parser now recognizes three consecutive, single-block rows containing a complete help heading, a complete telephone and a complete weekday/clock range. All three must have finite, ordered convex quadrilaterals, aligned left edges and bounded vertical gaps. Any extra block within the panel or its side margin prevents this ownership. Extra money, unknown suffixes, incomplete clocks, invalid phone lengths, mixed rows and invalid geometry remain outside the new rule. Existing support-hours ownership beside the charge-table header is preserved.
+
+Only those proven contact rows receive metadata ownership. Original text, rows, block order and coordinates remain in the preview. The rule does not derive amounts, change currencies, remove priced items, or override an unsupported financial role. Thirty focused controls cover scale, telephone variants, ordinary confident receipts, genuine surcharge review and competing or malformed content. Nine initial positive controls reproduce the previous ownership failure; eighteen exclusion controls retain incomplete evidence on the original parser.
+
+This is a provisional parser correction with source-bound catalog hashes. Fixture truth, images, strict scoring, native providers, models, preprocessing, preview/save/Apply, financial authority, API/schema, workflows, dependencies and signing configuration are unchanged. Hosted acceptance remains a separate exact-commit gate; neither metadata ownership nor fewer warnings alone proves a usable or safe draft.

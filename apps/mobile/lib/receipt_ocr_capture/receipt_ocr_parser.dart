@@ -6703,6 +6703,74 @@ Set<int> _ownedSupportHoursRows(List<List<ReceiptOcrBlockEvidence>> rows) {
       if (!overlap) owned.add(i);
     }
   }
+  // A separate contact panel may appear below the table heading. Own only
+  // three complete, consecutive, single-block help/phone/hours rows. Keep
+  // their original evidence and reject competing content in the panel.
+  bool convex(ReceiptOcrBlockEvidence b) {
+    if (!valid(b)) return false;
+    final p = b.points;
+    if (p[1].x <= p[0].x ||
+        p[2].x <= p[3].x ||
+        p[3].y <= p[0].y ||
+        p[2].y <= p[1].y) {
+      return false;
+    }
+    for (var i = 0; i < 4; i++) {
+      final turn =
+          (p[(i + 1) % 4].x - p[i].x) * (p[(i + 2) % 4].y - p[(i + 1) % 4].y) -
+          (p[(i + 1) % 4].y - p[i].y) * (p[(i + 2) % 4].x - p[(i + 1) % 4].x);
+      if (!turn.isFinite || turn <= 0) return false;
+    }
+    return true;
+  }
+
+  bool panelPhone(ReceiptOcrBlockEvidence b) =>
+      phone(b) ||
+      (RegExp(
+            r'^call\s+us\s+at\s+\+?\d[\d ()-]*\d$',
+            caseSensitive: false,
+          ).hasMatch(b.text.trim()) &&
+          RegExp(r'\d').allMatches(b.text).length >= 7 &&
+          RegExp(r'\d').allMatches(b.text).length <= 15);
+  for (var index = 0; index + 2 < rows.length; index++) {
+    if ([index, index + 1, index + 2].any((i) => rows[i].length != 1)) {
+      continue;
+    }
+    final panel = [
+      rows[index].single,
+      rows[index + 1].single,
+      rows[index + 2].single,
+    ];
+    if (panel.any((b) => !convex(b)) ||
+        !help.hasMatch(panel[0].text.trim()) ||
+        !panelPhone(panel[1]) ||
+        !hours.hasMatch(_normalizeOcrLine(panel[2].text))) {
+      continue;
+    }
+    final scale = panel.map(height).reduce((a, b) => a > b ? a : b);
+    if ([1, 2].any(
+      (i) =>
+          top(panel[i]) < bottom(panel[i - 1]) ||
+          top(panel[i]) - bottom(panel[i - 1]) > scale * 2 ||
+          (_blockLeft(panel[i]) - _blockLeft(panel[0])).abs() > scale,
+    )) {
+      continue;
+    }
+    final left = panel.map(_blockLeft).reduce((a, b) => a < b ? a : b) - scale;
+    final right =
+        panel.map(_blockRight).reduce((a, b) => a > b ? a : b) + scale;
+    final competing = rows
+        .expand((row) => row)
+        .any(
+          (other) =>
+              !panel.contains(other) &&
+              _blockRight(other) > left &&
+              _blockLeft(other) < right &&
+              bottom(other) > top(panel[0]) &&
+              top(other) < bottom(panel[2]),
+        );
+    if (!competing) owned.addAll([index, index + 1, index + 2]);
+  }
   return owned;
 }
 
