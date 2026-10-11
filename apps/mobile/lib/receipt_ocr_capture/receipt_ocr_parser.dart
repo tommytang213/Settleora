@@ -11550,6 +11550,14 @@ bool _isWholeLocalizedAddress(String line) {
       r'\d{1,4}(?:-\d{1,4}){1,2}$',
       unicode: true,
     ),
+    // A Korean road address needs both civic divisions and a named road.
+    // Only the enclosing merchant/date band can own its building number;
+    // currency, charges and body-position rows retain their existing roles.
+    RegExp(
+      r'^[가-힣]{2,20}(?:특별시|광역시|특별자치시|특별자치도|도|시)\s+'
+      r'(?:[가-힣]{1,20}(?:시|군|구)\s+){1,2}'
+      r'[가-힣]{1,30}(?:대로|로|길)\s+[1-9]\d{0,4}(?:-\d{1,5})?$',
+    ),
     RegExp(
       r'^[\p{L}\p{M} ]{2,60} (?:प्लेस|मार्ग|सड़क|रोड),'
       r'\s*[\p{L}\p{M} ]{2,60}$',

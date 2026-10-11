@@ -86,6 +86,8 @@ void main() {
       'contactDateUnownedPhone',
       'contactDateForeignAddress',
       'contactDateUnsupportedAddress',
+      'contactDateKoreanAddress',
+      'contactDateKoreanForeignAddress',
       'taxAnnotation',
       'foreignTaxItem',
       'brandCaption',
@@ -117,6 +119,7 @@ void main() {
         'headerReferenceComplete',
         'contactDateComplete',
         'contactDateNoService',
+        'contactDateKoreanAddress',
         'brandCaption',
         'brandFooter',
         'traditionalTaxZero',
@@ -129,6 +132,7 @@ void main() {
       final canApplyFinancial = [
         'contactDateComplete',
         'contactDateNoService',
+        'contactDateKoreanAddress',
         'headerReferenceComplete',
         'modifierNoTaxComplete',
         'summaryCurrencyMatchingPrefix',
@@ -279,6 +283,8 @@ void main() {
                     scenario == 'contactDateComplete' ||
                     scenario == 'contactDateUnownedPhone',
                 address: switch (scenario) {
+                  'contactDateKoreanAddress' => '부산광역시 해운대구 바다로 42',
+                  'contactDateKoreanForeignAddress' => '부산광역시 해운대구 바다로 EUR 42',
                   'contactDateForeignAddress' =>
                     'Avenida Central EUR 21, Madrid',
                   'contactDateUnsupportedAddress' =>
@@ -361,11 +367,21 @@ void main() {
           expect(saved!.status, ReceiptOcrReviewStatusValues.provisional);
           if (scenario.startsWith('contactDate')) {
             expect(preview.reviewHints.isEmpty, confidentDraft);
-            expect(preview.items, hasLength(2));
-            expect(saved.lines.map((line) => line.lineTotalAmount), [
-              '8.00',
-              '12.00',
-            ]);
+            final koreanCurrencyEvidence =
+                scenario == 'contactDateKoreanForeignAddress';
+            expect(preview.items, hasLength(koreanCurrencyEvidence ? 3 : 2));
+            expect(saved.lines.length, koreanCurrencyEvidence ? 3 : 2);
+            if (koreanCurrencyEvidence) {
+              expect(preview.items.first.lineTotal, '42');
+              expect(preview.items.first.currency, 'EUR');
+              expect(saved.lines.first.lineTotalAmount, isNull);
+            }
+            expect(
+              saved.lines
+                  .skip(koreanCurrencyEvidence ? 1 : 0)
+                  .map((line) => line.lineTotalAmount),
+              ['8.00', '12.00'],
+            );
             expect(preview.currency, 'HKD');
             expect(
               preview.service,
@@ -473,6 +489,7 @@ void main() {
             // A foreign item is blocked by currency ownership, with no tax
             // interpretation introduced for this otherwise tax-free receipt.
             scenario.startsWith('foreignAttached') ||
+                    scenario == 'contactDateKoreanForeignAddress' ||
                     scenario.startsWith('separateCurrency') ||
                     confidentDraft ||
                     (scenario.startsWith('traditionalTax') &&
