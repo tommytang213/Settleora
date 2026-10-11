@@ -68,6 +68,7 @@ import { writeRecentSummary, writeRunSummary } from "./lib/summary-writer.mjs";
 import { reviewerReadinessSummary } from "./lib/reviewer-policy.mjs";
 import { createLargeCandidateRoutingState, loadLargeCandidateRoutingState, persistCumulativeLargeCandidateReview, persistLargeCandidateSplitDecision, structuredLargeCandidateFindings, structuredLargeCandidateManualVerdict } from "./lib/large-candidate-review-routing.mjs";
 import { runIndependentIntegratedReview, runIndependentReviewerSmokeTest, independentReviewerProvider } from "./lib/independent-reviewer.mjs";
+import { resolveRecoveredReviewerProviderPin } from "./lib/reviewer-provider-pin.mjs";
 import { runCodexReviewInWorker } from "./lib/parallel-local-review.mjs";
 import { runReviewFixCanaryFixtureReview } from "./lib/review-fix-fixture.mjs";
 import {
@@ -1974,7 +1975,7 @@ export function chargeStartupRecoveryLogicalTask(config, runId, recovery) {
 
 function createProductionRecoveryRecorder(config, input) {
   if (config.dryRun) return null;
-  let state = createInitialRecoveryState(input);
+  let state = createInitialRecoveryState({ ...input, reviewerProviderPin: config.reviewerProviderPin || null });
   let statePath = null;
   const persist = (nextState) => {
     const written = writeRecoveryState(config, nextState);
@@ -2646,6 +2647,8 @@ function authenticateRecordedTaskWorkspace(config, state, candidate) {
 }
 
 async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint = null, currentRunId = null }) {
+  const providerBinding = resolveRecoveredReviewerProviderPin(config, state);
+  if (!providerBinding.ok) return { ok: false, outcome: "blocked", reasonCode: providerBinding.reason, state };
   const identity = checkpoint.candidateIdentity;
   let initial = state.ordinaryContinuation || createOrdinaryContinuationState({
     logicalTaskKey: state.logicalTask?.taskKey || state.taskKey,
@@ -2851,8 +2854,15 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       const candidate = continuation.identity;
       const before = await checkoutFingerprint();
       const changedFiles = candidate.changedFiles;
-      context.reviewPackage = await writeReviewPackage(config, { issue, promptInfo: { promptPath: null }, laneDecision, changedFiles, validation: context.validation || state.evidence?.localValidation, report: { found: true, recovered: true }, diffBaseRef: candidate.baseSha, diffHeadRef: candidate.headSha });
-      context.externalReview = await runIntegratedReviewSource(config, context.reviewPackage, "startup-recovery");
+      context.reviewPackage = await writeReviewPackage(config, { issue, promptInfo: { promptPath: null }, laneDecision, changedFiles, validation: context.validation || state.evidence?.localValidation, report: { found: true, recovered: true }, diffBaseRef: candidate.baseSha, diffHeadRef: candidate.headSha, reviewerProviderPin: providerBinding.provider });
+      if (providerBinding.provider === "grok") {
+        [context.externalReview, context.review] = await Promise.all([
+          runIntegratedReviewSource(config, context.reviewPackage, "startup-recovery"),
+          runCodexReviewInWorker(config, { ...context.reviewPackage, sessionLifecycle: issue.sessionLifecycle || null }),
+        ]);
+      } else {
+        context.externalReview = await runIntegratedReviewSource(config, context.reviewPackage, "startup-recovery");
+      }
       operationalCheckpoint?.("ordinary_recovery_external_review_complete", { externalReview: context.externalReview });
       if (compareFingerprints(before, await checkoutFingerprint()).mutationDetected) return { ok: false, reasonCode: "ordinary_continuation_external_review_mutated_checkout" };
       const manual = recoveredReviewerManualVerdict(context.externalReview);
@@ -2863,8 +2873,8 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       operationalCheckpoint?.("ordinary_recovery_local_codex_review");
       const candidate = continuation.identity;
       const before = await checkoutFingerprint();
-      context.reviewPackage ||= await writeReviewPackage(config, { issue, promptInfo: { promptPath: null }, laneDecision, changedFiles: candidate.changedFiles, validation: context.validation || state.evidence?.localValidation, report: { found: true, recovered: true }, diffBaseRef: candidate.baseSha, diffHeadRef: candidate.headSha });
-      context.review = runReviewPrompt(config, context.reviewPackage);
+      context.reviewPackage ||= await writeReviewPackage(config, { issue, promptInfo: { promptPath: null }, laneDecision, changedFiles: candidate.changedFiles, validation: context.validation || state.evidence?.localValidation, report: { found: true, recovered: true }, diffBaseRef: candidate.baseSha, diffHeadRef: candidate.headSha, reviewerProviderPin: providerBinding.provider });
+      context.review ||= runReviewPrompt(config, context.reviewPackage);
       operationalCheckpoint?.("ordinary_recovery_local_codex_review_complete", { review: context.review });
       if (compareFingerprints(before, await checkoutFingerprint()).mutationDetected) return { ok: false, reasonCode: "ordinary_continuation_codex_review_mutated_checkout" };
       const manual = recoveredReviewerManualVerdict(context.review);
@@ -3591,7 +3601,7 @@ function ordinaryStructuredReviewCheckpoint(evidence) {
 
 function ordinaryStructuredFindings(review) {
   if (Array.isArray(review?.findings) && review.findings.length) return review.findings;
-  return ["gemini", "codex-local"].flatMap((provider) => structuredLargeCandidateFindings(review, provider).map((finding) => ({ ...(typeof finding === "string" ? { summary: finding } : finding), provider })));
+  return ["grok", "gemini", "codex-local"].flatMap((provider) => structuredLargeCandidateFindings(review, provider).map((finding) => ({ ...(typeof finding === "string" ? { summary: finding } : finding), provider })));
 }
 
 function loadNormalLargeCandidateRecoveryCheckpoint(config, state, issue, laneDecision, lifecyclePhase) {
@@ -3810,7 +3820,11 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     title: recoveryConfig.prTitle ?? githubState.pr?.title,
   };
   const regenerationRequired = shouldGenerateExistingPrRecoveryEvidence(laneDecision, exactHeadEvidence);
-  const recoveryProviderPin = exactHeadEvidence.geminiProvider || config.reviewerProviderPin || null;
+  const recoveryProviderPin = exactHeadEvidence.geminiProvider || recoveryConfig.reviewerProviderPin || null;
+  if (regenerationRequired && !recoveryProviderPin && config.reviewerTiers?.strong_independent?.provider === "grok") {
+    return { reason: "existing_pr_recovery_provider_pin_missing", terminalMutationBlocked: true,
+      autoMerge: { result: "blocked", reason: "existing_pr_recovery_provider_pin_missing", recovery: true } };
+  }
   if (regenerationRequired && recoveryProviderPin
     && config.reviewerTiers?.strong_independent?.provider !== recoveryProviderPin) {
     return { reason: "existing_pr_recovery_provider_pin_mismatch", terminalMutationBlocked: true,
@@ -5208,7 +5222,7 @@ async function certifyNormalCumulativeLargeReview(config, iteration, changedFile
       changedFilesDigest: createHash("sha256").update(JSON.stringify([...changedFiles].sort())).digest("hex"),
     },
     changedFiles,
-    integrationBoundaries: ["tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"],
+    integrationBoundaries: ["tools/auto-runner/settleora-auto-runner.mjs", "tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"],
     externalReview: iteration.externalReview,
     codexReview: iteration.review,
     invokeSection: ({ provider, section, manifest }) => invoke(provider, { phase: "section", section, manifest }),
@@ -5269,14 +5283,15 @@ async function refreshNormalLargeCandidateReviewAfterFix(config, iteration, chan
 }
 
 function routeNormalStructuredFindingsToConvergence(iteration) {
-  const gemini = structuredLargeCandidateFindings(iteration.largeCandidateReview, "gemini").map(convergenceFinding);
+  const externalProvider = iteration.externalReview?.provider || "gemini";
+  const external = structuredLargeCandidateFindings(iteration.largeCandidateReview, externalProvider).map(convergenceFinding);
   const codex = structuredLargeCandidateFindings(iteration.largeCandidateReview, "codex-local").map(convergenceFinding);
-  if (gemini.length + codex.length === 0) return false;
-  if (gemini.length > 0) iteration.externalReview = {
+  if (external.length + codex.length === 0) return false;
+  if (external.length > 0) iteration.externalReview = {
     ...iteration.externalReview,
     status: "blocked",
     verdict: "fail",
-    sanitizedResponseSummary: { verdict: "fail", findings: gemini },
+    sanitizedResponseSummary: { verdict: "fail", findings: external },
     reason: "blocked_external_reviewer_non_pass",
   };
   if (codex.length > 0) iteration.review = {

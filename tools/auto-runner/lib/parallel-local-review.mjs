@@ -18,14 +18,20 @@ export function runCodexReviewInWorker(config, packageInfo) {
       return;
     }
     let settled = false;
+    const timeout = setTimeout(() => {
+      finish(failed("worker_timeout"));
+      void worker.terminate();
+    }, 31 * 60 * 1000);
+    timeout.unref();
     const finish = (result) => {
       if (settled) return;
       settled = true;
+      clearTimeout(timeout);
       resolve(result);
     };
     worker.once("message", (message) => finish(message.ok ? message.result : failed(message.error)));
     worker.once("error", (error) => finish(failed(error?.message)));
-    worker.once("exit", (code) => { if (code !== 0) finish(failed(`worker_exit_${code}`)); });
+    worker.once("exit", (code) => finish(failed(`worker_exit_${code}_without_result`)));
   });
 }
 

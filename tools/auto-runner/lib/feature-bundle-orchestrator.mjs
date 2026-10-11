@@ -33,6 +33,7 @@ import { bindValidationEvidence, planValidation, runValidationPlan } from "./val
 import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } from "./pr-manager.mjs";
 import { hktTimestamp, safeTimestamp, slugify } from "./logger.mjs";
 import { runIndependentIntegratedReview, independentReviewerProvider } from "./independent-reviewer.mjs";
+import { resolveRecoveredReviewerProviderPin } from "./reviewer-provider-pin.mjs";
 import { runCodexReviewInWorker } from "./parallel-local-review.mjs";
 import { reviewerReadinessSummary } from "./reviewer-policy.mjs";
 import { persistCumulativeLargeCandidateReview, persistLargeCandidateSplitDecision, structuredLargeCandidateFindings, structuredLargeCandidateManualVerdict } from "./large-candidate-review-routing.mjs";
@@ -135,8 +136,13 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
       baseSha: baseOriginMainSha,
       currentHeadSha: startingHead,
       taskKey: plan.taskKey || "auto-runner",
+      reviewerProviderPin: config.reviewerProviderPin || null,
     });
   }
+  const providerBinding = resolveRecoveredReviewerProviderPin(config, {
+    reviewerProviderPin: state.reviewerProviderPin || recoveryState?.reviewerProviderPin || null,
+  });
+  if (!providerBinding.ok) return stopBundle(result, "bundle_recovery_failed", providerBinding.reason, providerBinding.reason);
   if (!config.dryRun) {
     writeBundleState(config, state);
   }
@@ -594,14 +600,15 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
 }
 
 function routeBundleStructuredFindingsToConvergence(result) {
-  const gemini = structuredLargeCandidateFindings(result.largeCandidateReview, "gemini").map(bundleConvergenceFinding);
+  const externalProvider = result.externalReview?.provider || "gemini";
+  const external = structuredLargeCandidateFindings(result.largeCandidateReview, externalProvider).map(bundleConvergenceFinding);
   const codex = structuredLargeCandidateFindings(result.largeCandidateReview, "codex-local").map(bundleConvergenceFinding);
-  if (gemini.length + codex.length === 0) return false;
-  if (gemini.length > 0) result.externalReview = {
+  if (external.length + codex.length === 0) return false;
+  if (external.length > 0) result.externalReview = {
     ...result.externalReview,
     status: "blocked",
     verdict: "fail",
-    sanitizedResponseSummary: { verdict: "fail", findings: gemini },
+    sanitizedResponseSummary: { verdict: "fail", findings: external },
     reason: "blocked_external_reviewer_non_pass",
   };
   if (codex.length > 0) result.review = {
@@ -1279,7 +1286,7 @@ function writeBundleReviewPackage(config, { issue, laneDecision, plan, state, ch
     planDigest: plan.planDigest,
     laneDecision,
     reviewerPolicy: reviewerReadinessSummary(config, { changedFiles, laneDecision, stats: { additions: 0, deletions: 0 } }),
-    reviewerProviderPin: config.reviewerProviderPin || null,
+    reviewerProviderPin: state.reviewerProviderPin || config.reviewerProviderPin || null,
     changedFiles,
     currentHead: headSha,
     baseSha,
@@ -1522,6 +1529,7 @@ function createBundleRecoveryRecorder(config, input) {
     phase: "branch_setup",
     firstIncompleteAction: "recover_or_create_bundle_branch",
     featureBundle: input.featureBundle,
+    reviewerProviderPin: config.reviewerProviderPin || null,
   });
   let statePath = null;
   const persist = (nextState) => {

@@ -9,6 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { invokeGrok, parseGrokVerdict, runGrokIntegratedReview } from "../lib/grok-reviewer.mjs";
 import { runCodexReviewInWorker } from "../lib/parallel-local-review.mjs";
+import { resolveRecoveredReviewerProviderPin } from "../lib/reviewer-provider-pin.mjs";
 import { reviewerReadinessSummary } from "../lib/reviewer-policy.mjs";
 import { independentReviewerProvider, runIndependentIntegratedReview } from "../lib/independent-reviewer.mjs";
 
@@ -35,6 +36,16 @@ const read = (target = file.fullPath, body = "1→first\n2→second") => [
   { type: "tool_call_update", toolCallId: "read-1", status: "completed", content: [{ content: { text: body } }] },
 ];
 const end = { type: "end", stopReason: "end_turn", usage: { input_tokens: 100, output_tokens: 20 } };
+
+test("recovery keeps its recorded independent reviewer across configuration changes", () => {
+  const grokConfig = { reviewerProviderPin: "grok", reviewerTiers: { strong_independent: { provider: "grok" } } };
+  const geminiConfig = { reviewerProviderPin: "gemini", reviewerTiers: { strong_independent: { provider: "gemini" } } };
+  assert.deepEqual(resolveRecoveredReviewerProviderPin(grokConfig, { reviewerProviderPin: "grok" }), { ok: true, provider: "grok" });
+  assert.equal(resolveRecoveredReviewerProviderPin(grokConfig, { reviewerProviderPin: "gemini" }).reason, "recovery_reviewer_provider_pin_mismatch");
+  assert.equal(resolveRecoveredReviewerProviderPin(grokConfig, {}).reason, "recovery_reviewer_provider_pin_missing");
+  assert.deepEqual(resolveRecoveredReviewerProviderPin(geminiConfig, {}), { ok: true, provider: "gemini" });
+  assert.equal(resolveRecoveredReviewerProviderPin(geminiConfig, { reviewerProviderPin: "grok" }).reason, "recovery_reviewer_provider_pin_mismatch");
+});
 
 test("Grok verdict parser accepts one bounded JSON object after CLI preface", () => {
   const verdict = JSON.stringify({ verdict: "fail", confidence: "high", summary: "A concrete defect", findings: ["A changed function fails for input x."] });
