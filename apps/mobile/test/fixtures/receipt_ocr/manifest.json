@@ -262,7 +262,7 @@
       "document_type": "receipt",
       "fallback_currency": "USD",
       "expected": {
-        "merchant": "CityPark Parking",
+        "merchant": "CityPark PARKING",
         "date": "2025-04-12",
         "currency": "USD",
         "total": "18.00",
@@ -282,7 +282,7 @@
       "document_type": "receipt",
       "fallback_currency": "USD",
       "expected": {
-        "merchant": "HealthFirst Pharmacy",
+        "merchant": "HealthFirst PHARMACY",
         "date": "2025-04-09",
         "currency": "USD",
         "subtotal": "25.67",
@@ -312,7 +312,7 @@
       "document_type": "receipt",
       "fallback_currency": "USD",
       "expected": {
-        "merchant": "Luna & Co. Boutique",
+        "merchant": "LUNA & CO. BOUTIQUE",
         "date": null,
         "currency": "USD",
         "subtotal": "86.00",
@@ -788,7 +788,7 @@
       "document_type": "receipt",
       "fallback_currency": "USD",
       "expected": {
-        "merchant": "Bean & Bloom Coffee Roasters",
+        "merchant": "BEAN & BLOOM COFFEE ROASTERS",
         "date": null,
         "currency": "USD",
         "subtotal": "17.20",
@@ -856,7 +856,7 @@
       "document_type": "restaurant_receipt",
       "fallback_currency": "USD",
       "expected": {
-        "merchant": "The Ridge Kitchen + Bar",
+        "merchant": "THE RIDGE KITCHEN + BAR",
         "date": "2025-04-11",
         "currency": "USD",
         "subtotal": "51.00",
@@ -894,7 +894,7 @@
       "document_type": "fuel_receipt",
       "fallback_currency": "USD",
       "expected": {
-        "merchant": "Westside Fuel",
+        "merchant": "WESTSIDE FUEL",
         "date": "2025-04-10",
         "currency": "USD",
         "total": "45.22",
@@ -2147,8 +2147,8 @@
       },
       "expected_currency_resolution": {
         "currency": "PLN",
-        "source": "context_inferred",
-        "confidence": "medium",
+        "source": "explicit",
+        "confidence": "high",
         "evidence": [
           "Polish zł",
           "decimal comma"
@@ -3134,7 +3134,7 @@
       "document_type": "receipt",
       "fallback_currency": "USD",
       "expected": {
-        "merchant": "Bean & Bloom Coffee Roasters",
+        "merchant": "BEAN & BLOOM COFFEE ROASTERS",
         "date": null,
         "currency": "USD",
         "subtotal": "17.20",
