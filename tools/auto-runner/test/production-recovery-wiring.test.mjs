@@ -23,6 +23,13 @@ test("parallel reviewer sessions and manual verdicts are persisted before recove
   assert.match(runner, /if \(iteration\.review\?\.sessionLifecycle\) \{[\s\S]*?recoveryRecorder\?\.annotate\(\{ sessionLifecycle: iteration\.review\.sessionLifecycle \}\)/);
   assert.match(runner, /parallelReviewerVerdicts: \{[\s\S]*?external: ordinaryReviewerCheckpoint\(context\.externalReview[\s\S]*?codex: ordinaryReviewerCheckpoint\(context\.review[\s\S]*?const manual = reviewerManualGateOutcome\(context\.externalReview, context\.review\)/);
 });
+
+test("post-fix recovery paths stop on either reviewer's manual verdict before head adoption", () => {
+  const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  assert.match(runner, /source_failure_fix: async[\s\S]*?if \(!fixAttempt\.proceeded\) return \{ ok: false, outcome: fixAttempt\.reviewerManualOutcome/);
+  assert.match(runner, /source_failure_fix: async[\s\S]*?const postFixManual = reviewerManualGateOutcome\(postFix\.externalReview, postFix\.review\);[\s\S]*?if \(postFixManual\) return \{ ok: false, outcome: postFixManual[\s\S]*?sourceChanged: true/);
+  assert.match(runner, /review_convergence: async[\s\S]*?context\.externalReview = postFix\.externalReview;[\s\S]*?context\.review = postFix\.review;[\s\S]*?if \(postFixManual\) return \{ ok: false, outcome: postFixManual/);
+});
 import {
   advanceRecoveryPhase,
   bindRecoveryEvidence,

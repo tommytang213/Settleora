@@ -100,6 +100,14 @@ test("Grok CLI invocation binds subscriber auth and verifies complete file cover
   } finally { delete process.env.XAI_API_KEY; delete process.env.GH_TOKEN; }
 });
 
+test("malformed Grok streaming event shapes block without crashing", async () => {
+  for (const event of [null, { type: "tool_call_update", status: "completed", content: {} }]) {
+    const result = await invokeGrok({ files: [], prompt: "synthetic", staged: "/tmp/settleora-review-fixture",
+      model: "grok-4.7", binary: "grok", spawnImpl: fakeSpawn([event]), timeoutMs: 1000 });
+    assert.equal(result.reason, "blocked_grok_event_malformed");
+  }
+});
+
 test("Grok accepts a staged relative read path with complete coverage", async () => {
   const result = await invokeGrok({ files: [file], prompt: "synthetic", staged: "/tmp/settleora-review-fixture",
     model: "grok-4.7", binary: "grok", spawnImpl: fakeSpawn([

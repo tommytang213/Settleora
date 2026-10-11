@@ -274,6 +274,9 @@ export async function invokeGrok({ files, prompt, staged, model, binary, spawnIm
       const raw = buffer.slice(0, index); buffer = buffer.slice(index + 1);
       let event;
       try { event = JSON.parse(raw); } catch { fail("blocked_grok_event_malformed"); break; }
+      if (!event || typeof event !== "object" || Array.isArray(event) || typeof event.type !== "string") {
+        fail("blocked_grok_event_malformed"); break;
+      }
       if (event.type === "tool_call") {
         toolsObserved.push(event.toolName);
         const target = typeof event.rawInput?.target_file === "string"
@@ -281,6 +284,7 @@ export async function invokeGrok({ files, prompt, staged, model, binary, spawnIm
         if (event.toolName !== "read_file" || !coverage.has(target)) { fail("blocked_grok_unapproved_tool_or_path"); break; }
         calls.set(event.toolCallId, { ...event.rawInput, target_file: target });
       } else if (event.type === "tool_call_update" && event.status === "completed") {
+        if (!Array.isArray(event.content)) { fail("blocked_grok_event_malformed"); break; }
         const call = calls.get(event.toolCallId);
         const file = files.find((entry) => entry.fullPath === call?.target_file);
         const offset = call?.offset ?? 1, limit = call?.limit;
