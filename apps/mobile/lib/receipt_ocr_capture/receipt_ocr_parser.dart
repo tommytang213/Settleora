@@ -2265,29 +2265,13 @@ class ReceiptOcrParser {
                 ? '${lines[i]} ${lines[i + 1]}'
                 : lines[i]),
     ];
-    final addressCandidates = <int, String>{};
+    final addressSeparatedTotals = <int, String>{};
     if (layoutRows.length == lines.length) {
       for (var i = 0; i < lines.length; i++) {
         if (layoutAdjustmentLines.containsKey(i)) continue;
         final candidate = _ownedTotalBesideAddress(layoutRows, i, currency);
-        if (candidate != null) addressCandidates[i] = candidate;
+        if (candidate != null) addressSeparatedTotals[i] = candidate;
       }
-    }
-    final addressSeparatedTotals = {
-      for (final entry in addressCandidates.entries)
-        if (!_hasContradictoryOwnedTotal(
-          ownedAmountLines,
-          addressCandidates,
-          entry.key,
-          currency,
-        ))
-          entry.key: entry.value,
-    };
-    if (addressSeparatedTotals.length != addressCandidates.length) {
-      adjustmentsComplete = false;
-      incompleteReasons.add(
-        ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence,
-      );
     }
     var seenPrintedSubtotal = false;
     var hasUnextractablePrimaryTotal = false;
@@ -2712,6 +2696,33 @@ class ReceiptOcrParser {
         }
         totalCandidates.add((value: amount, score: score, order: lineIndex));
       }
+    }
+
+    // Compare the candidates admitted by the complete existing extraction
+    // path, including included-tax labels and selected monetary chains. A
+    // second label grammar here could silently omit a supported competing
+    // total. Filter all new address candidates simultaneously, before any
+    // total-dependent aggregation or ranking; retain every original block.
+    final conflictingAddressTotals = <int>{
+      for (final candidate in totalCandidates)
+        if (currency != null &&
+            addressSeparatedTotals.containsKey(candidate.order) &&
+            totalCandidates.any(
+              (other) =>
+                  other.order != candidate.order &&
+                  _ocrAmountMinorUnits(other.value, currency) !=
+                      _ocrAmountMinorUnits(candidate.value, currency),
+            ))
+          candidate.order,
+    };
+    if (conflictingAddressTotals.isNotEmpty) {
+      totalCandidates.removeWhere(
+        (candidate) => conflictingAddressTotals.contains(candidate.order),
+      );
+      adjustmentsComplete = false;
+      incompleteReasons.add(
+        ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence,
+      );
     }
 
     // Several printed rate rows can jointly describe one provisional tax
@@ -8255,42 +8266,6 @@ String? _ownedTotalBesideAddress(
     return null;
   }
   return '${_normalizeOcrLine(label.text)} ${_normalizeOcrLine(money.text)}';
-}
-
-bool _hasContradictoryOwnedTotal(
-  List<String> ownedAmountLines,
-  Map<int, String> addressCandidates,
-  int rowIndex,
-  String? currency,
-) {
-  if (currency == null) return true;
-  final selected = _lastAmountInLine(
-    addressCandidates[rowIndex]!,
-    currency: currency,
-  );
-  final selectedMinor = selected == null
-      ? null
-      : _ocrAmountMinorUnits(selected, currency);
-  if (selectedMinor == null) return true;
-  for (var i = 0; i < ownedAmountLines.length; i++) {
-    if (i == rowIndex) continue;
-    final other = addressCandidates[i] ?? ownedAmountLines[i];
-    if (!_isLabeledStandaloneMoneyLine(other, _completeTotalLabelPattern)) {
-      continue;
-    }
-    final denomination = _currencyAdjacentToSelectedAmount(other, currency);
-    if (denomination.hasExplicitEvidence && denomination.currency != currency) {
-      continue;
-    }
-    final amount = _lastAmountInLine(other, currency: currency);
-    if (amount != null &&
-        _ocrAmountMinorUnits(amount, currency) != selectedMinor) {
-      // This recovery must not choose a new total over contradictory printed
-      // money. Preserve the existing candidate and its discrepancy review.
-      return true;
-    }
-  }
-  return false;
 }
 
 // Some providers group a large summary-card amount with adjacent customer

@@ -13,6 +13,10 @@ void main() {
       'agreeing split prior total',
       'conflicting skewed prior total',
       'agreeing skewed prior total',
+      'conflicting included tax prior total',
+      'agreeing included tax prior total',
+      'conflicting selected chain prior total',
+      'agreeing selected chain prior total',
       'conflicting address prior total',
       'agreeing address prior total',
       'adjacent owned date',
@@ -83,9 +87,19 @@ void main() {
           cell('USD 27.00', 30, 820, 120, 100);
         }
         // The incomplete printed total must remain evidence and keep review.
-        cell('Grand Total', skewed ? 30 : 3, 600, skewed ? 146 : 120, 170);
         cell(
-          variant.startsWith('conflicting')
+          variant.contains('included tax prior')
+              ? 'Total incl. VAT'
+              : 'Grand Total',
+          skewed ? 30 : 3,
+          600,
+          skewed ? 146 : 120,
+          170,
+        );
+        cell(
+          variant.contains('selected chain prior')
+              ? 'USD 28.00 / USD ${variant.startsWith('conflicting') ? '29' : '27'}.00'
+              : variant.startsWith('conflicting')
               ? 'USD 29.00'
               : variant.startsWith('agreeing')
               ? 'USD 27.00'
