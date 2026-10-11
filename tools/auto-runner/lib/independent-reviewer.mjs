@@ -1,6 +1,8 @@
 import { mergeReviewerPolicyConfig, routeReviewer } from "./reviewer-policy.mjs";
 import { analyzeReviewSecretBoundary } from "./review-secret-boundary.mjs";
-import { runGeminiIntegratedReview, runGeminiReviewerSmokeTest } from "./gemini-reviewer.mjs";
+import { providerBoundReviewDigest } from "./review-secret-boundary.mjs";
+import { digestChangedFiles } from "./config.mjs";
+import { buildLargeBundleReviewEvidence, runGeminiIntegratedReview, runGeminiReviewerSmokeTest } from "./gemini-reviewer.mjs";
 import { runGrokIntegratedReview } from "./grok-reviewer.mjs";
 
 export function independentReviewerProvider(config, packageInfo) {
@@ -12,7 +14,15 @@ export function independentReviewerProvider(config, packageInfo) {
       ? Number(summary.diffStats[key]) : 0)]));
   const route = routeReviewer({ changedFiles: summary.changedFiles || [], laneDecision: summary.laneDecision || {},
     stats, featureBundle: summary.featureBundle || null,
-    taskContract: summary.taskContract || null, largeBundleReviewApproval: config.largeBundleReviewApproval });
+    taskContract: summary.taskContract || null, largeBundleReviewApproval: config.largeBundleReviewApproval,
+    reviewPackageEvidence: buildLargeBundleReviewEvidence({ config, summary,
+      changedFilesDigest: digestChangedFiles(summary.changedFiles || []),
+      rawDiffSha256: boundary.rawDiffSha256,
+      providerBoundDiffSha256: providerBoundReviewDigest(packageInfo?.diff || ""),
+      effectiveDiffStats: stats, secretBoundary: boundary,
+      reviewedHead: summary.currentHead || summary.headSha || summary.runnerCreatedCommitSha || null,
+      baseSha: summary.baseSha || summary.baseRefSha || summary.baseOriginMainSha || null,
+      diff: packageInfo?.diff || "" }) });
   const tier = mergeReviewerPolicyConfig(config).reviewerTiers[route.tier];
   return tier?.provider || null;
 }

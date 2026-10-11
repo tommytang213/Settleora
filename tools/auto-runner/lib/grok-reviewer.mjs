@@ -7,7 +7,7 @@ import { digestChangedFiles } from "./config.mjs";
 import { safeTimestamp } from "./logger.mjs";
 import { mergeReviewerPolicyConfig, routeReviewer } from "./reviewer-policy.mjs";
 import { analyzeReviewSecretBoundary, providerBoundReviewDigest } from "./review-secret-boundary.mjs";
-import { parseIntegratedVerdict } from "./gemini-reviewer.mjs";
+import { buildLargeBundleReviewEvidence, parseIntegratedVerdict } from "./gemini-reviewer.mjs";
 
 const maxPackageBytes = 128 * 1024;
 const maxEventBytes = 2 * 1024 * 1024;
@@ -26,9 +26,16 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
   const stats = Object.fromEntries(["additions", "deletions", "files"].map((key) => [key,
     Math.max(boundary.diffStats?.[key] || 0, Number.isFinite(Number(summary.diffStats?.[key])) && Number(summary.diffStats[key]) >= 0
       ? Number(summary.diffStats[key]) : 0)]));
+  const changedFilesDigest = digestChangedFiles(changedFiles);
+  const providerBoundDiffSha256 = providerBoundReviewDigest(diff);
+  const reviewedHead = summary.currentHead || summary.headSha || summary.runnerCreatedCommitSha || null;
+  const baseSha = summary.baseSha || summary.baseRefSha || summary.baseOriginMainSha || null;
   const route = routeReviewer({ changedFiles, laneDecision: summary.laneDecision || {}, stats,
     featureBundle: summary.featureBundle || null, taskContract: summary.taskContract || null,
-    largeBundleReviewApproval: config.largeBundleReviewApproval });
+    largeBundleReviewApproval: config.largeBundleReviewApproval,
+    reviewPackageEvidence: buildLargeBundleReviewEvidence({ config, summary, changedFilesDigest,
+      rawDiffSha256: boundary.rawDiffSha256, providerBoundDiffSha256, effectiveDiffStats: stats,
+      secretBoundary: boundary, reviewedHead, baseSha, diff }) });
   const { reviewerTiers } = mergeReviewerPolicyConfig(config);
   const tier = reviewerTiers[route.tier];
   const profile = config.reviewerProviderProfiles?.[tier?.providerProfile];
@@ -38,15 +45,15 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
     mode: "integrated-pre-pr-review", provider: "grok", independent: true,
     tier: route.tier, providerProfile: tier?.providerProfile || null, model, route,
     lane: summary.laneDecision?.lane || null, changedFiles,
-    changedFilesDigest: digestChangedFiles(changedFiles), packageDigest,
-    rawDiffSha256: boundary.rawDiffSha256, providerBoundDiffSha256: providerBoundReviewDigest(diff),
+    changedFilesDigest, packageDigest,
+    rawDiffSha256: boundary.rawDiffSha256, providerBoundDiffSha256,
     diffStats: stats,
     secretBoundary: { ok: boundary.ok, blocked: boundary.blocked, reason: boundary.reason,
       blockers: boundary.blockers, allowedReferences: boundary.allowedReferences },
-    baseSha: summary.baseSha || summary.baseRefSha || summary.baseOriginMainSha || null,
+    baseSha,
     treeSha: summary.treeSha || null, repository: summary.repository || null,
     integrationBoundaries: summary.integrationBoundaries || [], verdictSchemaVersion: 1,
-    reviewedHead: summary.currentHead || summary.headSha || summary.runnerCreatedCommitSha || null,
+    reviewedHead,
     issueNumber: summary.issue?.number || null, liveCallAttempted: false,
     status: "blocked", reason: null, verdict: "not_run", actualUsage: null,
   };
