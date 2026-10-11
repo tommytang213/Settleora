@@ -5,6 +5,7 @@ import 'support/contact_date_receipt.dart';
 import 'support/financial_role_receipt.dart';
 import 'support/header_reference_receipt.dart';
 import 'support/modifier_receipt.dart';
+import 'support/paired_courtesy_receipt.dart';
 import 'support/summary_role_receipt.dart';
 
 import 'package:flutter/material.dart';
@@ -41,6 +42,9 @@ import 'package:mobile/ui/settleora_form_fields.dart';
 void main() {
   for (final group in [false, true]) {
     for (final scenario in [
+      'pairedCourtesyComplete',
+      'pairedCourtesyDetachedLeft',
+      'pairedCourtesyDetachedRight',
       'service',
       'foreignService',
       'serviceTrailingWord',
@@ -106,6 +110,7 @@ void main() {
       'traditionalTaxJoinedMatching',
     ]) {
       final confidentDraft = [
+        'pairedCourtesyComplete',
         'summaryCurrencyMatchingPrefix',
         'summaryCurrencyMatchingSuffix',
         'summaryCurrencyMatchingLowercase',
@@ -130,6 +135,7 @@ void main() {
       // Existing Apply copies item amounts only. Gross-matching items remain
       // selectable even when header arithmetic warns; no tax charge is added.
       final canApplyFinancial = [
+        'pairedCourtesyComplete',
         'contactDateComplete',
         'contactDateNoService',
         'contactDateKoreanAddress',
@@ -149,7 +155,15 @@ void main() {
         'traditionalTaxLowercase',
         'traditionalTaxJoinedMatching',
       ].contains(scenario);
-      final preview = scenario.startsWith('summaryCurrency')
+      final preview = scenario.startsWith('pairedCourtesy')
+          ? parseCourtesy(
+              scenario == 'pairedCourtesyComplete'
+                  ? courtesyReceipt()
+                  : courtesyWithDetachedCell(
+                      left: scenario == 'pairedCourtesyDetachedLeft',
+                    ),
+            )
+          : scenario.startsWith('summaryCurrency')
           ? const ReceiptOcrParser().parse(
               'Corner Market\nTea USD 10.00\n${scenario == 'summaryCurrencyResidualSign' ? '소계' : 'Subtotal'} ${switch (scenario) {
                 'summaryCurrencyConflictPrefix' => 'EUR USD10.00',
@@ -339,7 +353,9 @@ void main() {
           : scenario == 'taxAnnotation'
           ? 'Tea VAT 5% item'
           : 'Tea';
-      final firstAmount = scenario.startsWith('contactDate')
+      final firstAmount = scenario.startsWith('pairedCourtesy')
+          ? '4.00'
+          : scenario.startsWith('contactDate')
           ? '8.00'
           : scenario == 'headerReferenceComplete'
           ? '7.00'

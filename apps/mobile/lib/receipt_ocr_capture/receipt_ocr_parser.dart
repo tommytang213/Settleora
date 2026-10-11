@@ -7259,6 +7259,22 @@ Set<int> _ownedPairedCourtesyRows(
               b.top < last.bottom)) {
         return const {};
       }
+      // Provider order is not physical ownership. A detached price can sit
+      // just outside the total's column or just above a phrase while being
+      // assigned an earlier row. Check a bounded neighborhood of each phrase.
+      // The proven total row is already wholly above the first phrase; its
+      // own box may legitimately touch that neighborhood.
+      if (i == total) continue;
+      for (final phrase in [first, last]) {
+        final height = phrase.bottom - phrase.top;
+        final margin = height < transactionHeight ? height : transactionHeight;
+        if (b.right > phrase.left - margin &&
+            b.left < phrase.right + margin &&
+            b.bottom > phrase.top - margin / 4 &&
+            b.top < phrase.bottom + margin / 4) {
+          return const {};
+        }
+      }
     }
   }
   return {start, start + 1};
