@@ -6704,8 +6704,9 @@ Set<int> _ownedSupportHoursRows(List<List<ReceiptOcrBlockEvidence>> rows) {
     }
   }
   // A separate contact panel may appear below the table heading. Own only
-  // three complete, consecutive, single-block help/phone/hours rows. Keep
-  // their original evidence and reject competing content in the panel.
+  // complete help/phone/hours blocks on consecutive rows. The phone may
+  // share its row with a separate column, which must remain unowned here.
+  // Keep original evidence and reject competing content in the panel.
   bool convex(ReceiptOcrBlockEvidence b) {
     if (!valid(b)) return false;
     final p = b.points;
@@ -6733,14 +6734,12 @@ Set<int> _ownedSupportHoursRows(List<List<ReceiptOcrBlockEvidence>> rows) {
           RegExp(r'\d').allMatches(b.text).length >= 7 &&
           RegExp(r'\d').allMatches(b.text).length <= 15);
   for (var index = 0; index + 2 < rows.length; index++) {
-    if ([index, index + 1, index + 2].any((i) => rows[i].length != 1)) {
+    if (rows[index].length != 1 || rows[index + 2].length != 1) {
       continue;
     }
-    final panel = [
-      rows[index].single,
-      rows[index + 1].single,
-      rows[index + 2].single,
-    ];
+    final phones = rows[index + 1].where(panelPhone).toList();
+    if (phones.length != 1) continue;
+    final panel = [rows[index].single, phones.single, rows[index + 2].single];
     if (panel.any((b) => !convex(b)) ||
         !help.hasMatch(panel[0].text.trim()) ||
         !panelPhone(panel[1]) ||
@@ -6769,7 +6768,10 @@ Set<int> _ownedSupportHoursRows(List<List<ReceiptOcrBlockEvidence>> rows) {
               bottom(other) > top(panel[0]) &&
               top(other) < bottom(panel[2]),
         );
-    if (!competing) owned.addAll([index, index + 1, index + 2]);
+    if (!competing) {
+      owned.addAll([index, index + 2]);
+      if (rows[index + 1].length == 1) owned.add(index + 1);
+    }
   }
   return owned;
 }

@@ -47,6 +47,8 @@ List<ReceiptOcrBlockEvidence> panel({
   bool crossedGeometry = false,
   bool nonfiniteGeometry = false,
   bool supportedTax = false,
+  bool parallelTotal = false,
+  bool parallelCharge = false,
 }) {
   final blocks = [
     cell('Example Utility', 0, 20, 10, 300, 20),
@@ -65,6 +67,10 @@ List<ReceiptOcrBlockEvidence> panel({
     ),
     cell('USD 2.00', 4, 650, 180, 100, 20),
     cell(heading, 5, 780, 200, 200, 20),
+    if (parallelTotal) cell('Total Current Charges', 6, 20, 228, 300, 20),
+    if (parallelTotal) cell('USD 12.00', 6, 650, 228, 100, 20),
+    if (parallelCharge) cell('Notebook', 6, 20, 228, 300, 20),
+    if (parallelCharge) cell('USD 3.00', 6, 650, 228, 100, 20),
     cell(phone, 6, 780, 228, 280, 20),
     if (sameRowMoney) cell('USD 3.00', 6, 1090, 228, 100, 20),
     cell(hours, 7, hoursX, hoursY, 340, 20),
@@ -97,6 +103,42 @@ List<ReceiptOcrBlockEvidence> panel({
 }
 
 void main() {
+  for (final scale in [0.5, 1.0, 2.0]) {
+    test('shared phone row preserves separate total at scale $scale', () {
+      final blocks = panel(parallelTotal: true, scale: scale);
+      final p = parseBlocks(blocks);
+      expect(
+        p.itemLineDecisions[7],
+        ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+      );
+      expect(
+        p.incompleteAdjustmentReasons,
+        isNot(
+          contains(ReceiptOcrIncompleteAdjustmentReason.detachedAmountSign),
+        ),
+      );
+      expect(p.items.single.lineTotal, '10.00');
+      expect(p.total, '12.00');
+      expect(p.adjustmentsComplete, isFalse);
+      expect(p.reviewHints, isNotEmpty);
+      expect(p.blocks, orderedEquals(blocks));
+    });
+  }
+  test('shared phone row preserves separate priced merchandise', () {
+    final blocks = panel(parallelCharge: true);
+    final p = parseBlocks(blocks);
+    expect(
+      p.itemLineDecisions[7],
+      ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+    );
+    expect(p.items.map((item) => [item.description, item.lineTotal]), [
+      ['Internet Plan', '10.00'],
+      ['Notebook', '3.00'],
+    ]);
+    expect(p.total, '12.00');
+    expect(p.adjustmentsComplete, isFalse);
+    expect(p.blocks, orderedEquals(blocks));
+  });
   for (final scale in [0.5, 1.0, 2.0]) {
     test('complete ordinary receipt stays confident at scale $scale', () {
       final blocks = panel(supportedTax: true, scale: scale);
