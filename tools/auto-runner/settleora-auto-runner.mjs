@@ -70,6 +70,7 @@ import { analyzeReviewSecretBoundary } from "./lib/review-secret-boundary.mjs";
 import { createLargeCandidateRoutingState, loadLargeCandidateRoutingState, persistCumulativeLargeCandidateReview, persistLargeCandidateSplitDecision, structuredLargeCandidateFindings, structuredLargeCandidateManualVerdict } from "./lib/large-candidate-review-routing.mjs";
 import { runIndependentIntegratedReview, runIndependentReviewerSmokeTest, independentReviewerProvider } from "./lib/independent-reviewer.mjs";
 import { resolveRecoveredReviewerProviderPin } from "./lib/reviewer-provider-pin.mjs";
+import { recoveredIndependentReviewEvidence } from "./lib/recovered-independent-evidence.mjs";
 import { runCodexReviewInWorker } from "./lib/parallel-local-review.mjs";
 import { runReviewFixCanaryFixtureReview } from "./lib/review-fix-fixture.mjs";
 import {
@@ -3133,6 +3134,11 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     },
     review_convergence: async (continuation) => {
       const candidate = continuation.identity;
+      const incomingManual = reviewerManualGateOutcome(context.externalReview, context.review);
+      if (incomingManual) {
+        persistOrdinaryManualGate(incomingManual, "ordinary_continuation_incoming_reviewer_manual_gate", candidate.headSha);
+        return { ok: false, outcome: incomingManual, reasonCode: "ordinary_continuation_incoming_reviewer_manual_gate" };
+      }
       if (context.externalReview?.status === "pass" && context.review?.verdict?.verdict === "approve" && (!context.largeCandidateReview || context.largeCandidateReview.ok)) return { ok: true, evidence: { exactHeadReviewPassed: true } };
       const promptInfo = { promptPath: null, ...(state.sessionLifecycle ? { sessionLifecycle: { state: state.sessionLifecycle } } : {}) };
       const structuredFindings = context.largeCandidateReview?.ok === false ? ordinaryStructuredFindings(context.largeCandidateReview) : [];
@@ -3142,7 +3148,11 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       if (fixAttempt.sessionLifecycleState) {
         state = { ...state, sessionLifecycle: fixAttempt.sessionLifecycleState };
       }
-      if (!fixAttempt.proceeded) return { ok: false, outcome: fixAttempt.reviewerManualOutcome || "review_convergence_required", reasonCode: fixAttempt.reason || "ordinary_continuation_review_fix_blocked" };
+      if (!fixAttempt.proceeded) {
+        const manual = fixAttempt.reviewerManualOutcome || reviewerManualGateOutcome(context.externalReview, context.review);
+        if (manual) persistOrdinaryManualGate(manual, "ordinary_continuation_review_fix_manual_gate", candidate.headSha);
+        return { ok: false, outcome: manual || "review_convergence_required", reasonCode: fixAttempt.reason || "ordinary_continuation_review_fix_blocked" };
+      }
       const postFix = await commitReviewFixAndRerunExactHeadReviews(config, {
         issue,
         laneDecision,
@@ -4079,7 +4089,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     title: recoveryConfig.prTitle ?? githubState.pr?.title,
   };
   const regenerationRequired = shouldGenerateExistingPrRecoveryEvidence(laneDecision, exactHeadEvidence);
-  const recoveryProviderPin = exactHeadEvidence.geminiProvider || recoveryConfig.reviewerProviderPin || null;
+  const recoveryProviderPin = recoveredIndependentReviewEvidence(exactHeadEvidence).provider || recoveryConfig.reviewerProviderPin || null;
   const recoveryDiff = regenerationRequired ? readPrDiff(config, prNumber) : null;
   const selectedRecoveryProvider = regenerationRequired
     ? resolveExistingPrRecoveryReviewerProvider(config, { laneDecision, changedFiles, diff: recoveryDiff }) : null;
@@ -4156,19 +4166,27 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
       headSha: expectedHeadSha,
       changedFiles: canonicalChangedFiles,
       validationPassed: generatedRecoveryEvidence.validation?.passed === true,
-      geminiPass: generatedRecoveryEvidence.externalReview?.status === "pass",
-      geminiHeadSha: expectedHeadSha,
-      geminiChangedFiles: canonicalChangedFiles,
-      geminiChangedFilesDigest: generatedRecoveryEvidence.externalReview?.changedFilesDigest || null,
-      geminiProvider: generatedRecoveryEvidence.externalReview?.provider || exactHeadEvidence.geminiProvider || null,
-      geminiTier: generatedRecoveryEvidence.externalReview?.tier || exactHeadEvidence.geminiTier || null,
-      geminiCompletedAt: generatedRecoveryEvidence.externalReview?.completedAt || null,
-      geminiBudget: generatedRecoveryEvidence.externalReview?.budget || null,
-      geminiEvidencePath:
-        generatedRecoveryEvidence.externalReview?.reportPath ||
-        generatedRecoveryEvidence.externalReview?.evidencePath ||
-        exactHeadEvidence.geminiEvidencePath ||
-        null,
+      independentReview: {
+        pass: generatedRecoveryEvidence.externalReview?.status === "pass",
+        headSha: generatedRecoveryEvidence.externalReview?.reviewedHead || null,
+        changedFiles: generatedRecoveryEvidence.externalReview?.changedFiles || null,
+        changedFilesDigest: generatedRecoveryEvidence.externalReview?.changedFilesDigest || null,
+        provider: generatedRecoveryEvidence.externalReview?.provider || null,
+        tier: generatedRecoveryEvidence.externalReview?.tier || null,
+        completedAt: generatedRecoveryEvidence.externalReview?.completedAt || null,
+        evidencePath: generatedRecoveryEvidence.externalReview?.reportPath || generatedRecoveryEvidence.externalReview?.evidencePath || null,
+      },
+      ...(generatedRecoveryEvidence.externalReview?.provider === "gemini" ? {
+        geminiPass: generatedRecoveryEvidence.externalReview?.status === "pass",
+        geminiHeadSha: generatedRecoveryEvidence.externalReview?.reviewedHead || null,
+        geminiChangedFiles: generatedRecoveryEvidence.externalReview?.changedFiles || null,
+        geminiChangedFilesDigest: generatedRecoveryEvidence.externalReview?.changedFilesDigest || null,
+        geminiProvider: "gemini",
+        geminiTier: generatedRecoveryEvidence.externalReview?.tier || null,
+        geminiCompletedAt: generatedRecoveryEvidence.externalReview?.completedAt || null,
+        geminiBudget: generatedRecoveryEvidence.externalReview?.budget || null,
+        geminiEvidencePath: generatedRecoveryEvidence.externalReview?.reportPath || generatedRecoveryEvidence.externalReview?.evidencePath || null,
+      } : {}),
       codexMechanicsApproved: generatedRecoveryEvidence.review?.verdict?.verdict === "approve",
       codexMechanicsHeadSha: expectedHeadSha,
       codexMechanicsChangedFiles: canonicalChangedFiles,
@@ -4205,6 +4223,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     };
   }
   const issueLinkageEvidence = buildIssueLinkageEvidence(prMetadata, issue.number);
+  const recoveredIndependent = recoveredIndependentReviewEvidence(exactHeadEvidence);
   const context = {
     config,
     issue: githubState.issue || { ...issue, state: issue.state || "OPEN", labels: issue.labels || [] },
@@ -4213,23 +4232,23 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     forbiddenChangedFiles: forbidden,
     changedFilesExactlyMatchAllowedPaths: forbidden.length === 0,
     externalReviewRequired: requiresIndependentAiReview(laneDecision),
-    externalReview: exactHeadEvidence.geminiPass
+    externalReview: recoveredIndependent.pass === true
       ? {
           status: "pass",
           verdict: "pass",
-          reason: "recovered_exact_head_gemini_evidence",
-          reviewedHead: exactHeadEvidence.geminiHeadSha || exactHeadEvidence.headSha || null,
+          reason: "recovered_exact_head_independent_evidence",
+          reviewedHead: recoveredIndependent.headSha || null,
           baseSha: exactHeadEvidence.currentMainSha || recoveryConfig.expectedOriginMainSha || baseOriginMainSha,
-          changedFiles: exactHeadEvidence.geminiChangedFiles || changedFiles,
-          changedFilesDigest: exactHeadEvidence.geminiChangedFilesDigest || exactHeadEvidence.changedFilesDigest || null,
-          provider: exactHeadEvidence.geminiProvider || "gemini",
-          tier: exactHeadEvidence.geminiTier || "cheap_independent",
+          changedFiles: recoveredIndependent.changedFiles,
+          changedFilesDigest: recoveredIndependent.changedFilesDigest || (!recoveredIndependent.neutral && exactHeadEvidence.changedFilesDigest) || null,
+          provider: recoveredIndependent.provider || "gemini",
+          tier: recoveredIndependent.tier || "cheap_independent",
           independent: true,
-          completedAt: exactHeadEvidence.geminiCompletedAt || exactHeadEvidence.completedAt || null,
+          completedAt: recoveredIndependent.completedAt || (!recoveredIndependent.neutral && exactHeadEvidence.completedAt) || null,
           budget: exactHeadEvidence.geminiBudget || null,
-          reportPath: exactHeadEvidence.geminiEvidencePath || null,
+          reportPath: recoveredIndependent.evidencePath || null,
         }
-      : { status: "blocked", reason: "missing_recovered_exact_head_gemini_evidence" },
+      : { status: "blocked", reason: "missing_recovered_exact_head_independent_evidence" },
     review: generatedRecoveryEvidence?.review ||
       (exactHeadEvidence.codexMechanicsApproved
         ? {
@@ -4898,6 +4917,7 @@ async function runReviewFixCycle(config, context) {
       attempted: false,
       proceeded: false,
       reason: decision.reason,
+      reviewerManualOutcome: reviewerManualGateOutcome(context.externalReview, context.review),
       decision,
       evidence,
     };

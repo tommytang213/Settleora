@@ -365,7 +365,13 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
       } });
     result.externalReview = parallel.externalReview;
     result.review = parallel.review;
-    if (!parallel.ok) return stopBundle(result, parallel.outcome || "blocked", parallel.reasonCode, parallel.reasonCode);
+    if (!parallel.ok) {
+      const guard = compareBundleReviewCheckoutFingerprint(reviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
+        phase: "bundle_external_review",
+      });
+      if (guard.mutationDetected) return stopForBundleReviewMutation({ config, result, state, recovery, guard, phase: "bundle_external_review" });
+      return stopBundle(result, parallel.outcome || "blocked", parallel.reasonCode, parallel.reasonCode);
+    }
   } else {
     result.externalReview = await runIndependentIntegratedReview(config, result.reviewPackage);
   }

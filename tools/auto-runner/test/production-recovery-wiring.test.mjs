@@ -287,9 +287,16 @@ test("PR stack mechanics prompt follows the current PR instead of a historical s
 
 test("post-fix recovery paths stop on either reviewer's manual verdict before head adoption", () => {
   const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
-  assert.match(runner, /source_failure_fix: async[\s\S]*?if \(!fixAttempt\.proceeded\) return \{ ok: false, outcome: fixAttempt\.reviewerManualOutcome/);
+  assert.match(runner, /source_failure_fix: async[\s\S]*?if \(!fixAttempt\.proceeded\) \{[\s\S]*?persistOrdinaryManualGate\(fixAttempt\.reviewerManualOutcome[\s\S]*?return \{ ok: false, outcome: fixAttempt\.reviewerManualOutcome/);
   assert.match(runner, /source_failure_fix: async[\s\S]*?const postFixManual = reviewerManualGateOutcome\(postFix\.externalReview, postFix\.review\);[\s\S]*?if \(postFixManual\) \{[\s\S]*?persistOrdinaryManualGate\(postFixManual[\s\S]*?return \{ ok: false, outcome: postFixManual[\s\S]*?sourceChanged: true/);
   assert.match(runner, /review_convergence: async[\s\S]*?context\.externalReview = postFix\.externalReview;[\s\S]*?context\.review = postFix\.review;[\s\S]*?if \(postFixManual\) \{[\s\S]*?persistOrdinaryManualGate\(postFixManual[\s\S]*?return \{ ok: false, outcome: postFixManual/);
+});
+
+test("ordinary review-fix recovery persists an incoming manual verdict before retry", () => {
+  const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  assert.match(runner, /review_convergence: async \(continuation\) => \{[\s\S]*?const incomingManual = reviewerManualGateOutcome\(context\.externalReview, context\.review\);[\s\S]*?persistOrdinaryManualGate\(incomingManual/);
+  assert.match(runner, /if \(!fixAttempt\.proceeded\) \{[\s\S]*?persistOrdinaryManualGate\(manual, "ordinary_continuation_review_fix_manual_gate"/);
+  assert.match(runner, /if \(!decision\.allowed\) \{[\s\S]*?reviewerManualOutcome: reviewerManualGateOutcome\(context\.externalReview, context\.review\)/);
 });
 
 test("primary source-failure path requires exact-head dual recertification before proceeding", () => {

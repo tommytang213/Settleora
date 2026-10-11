@@ -96,6 +96,9 @@ test("bundle recovery reuses completed Codex evidence and adopts its successor a
 
 test("post-fix bundle review checks checkout mutation before handling a failed parallel review", () => {
   const source = readFileSync(new URL("../lib/feature-bundle-orchestrator.mjs", import.meta.url), "utf8");
+  const initial = source.slice(source.indexOf("checkpoint(\"feature_bundle_external_review\""),
+    source.indexOf("checkpoint(\"feature_bundle_external_review_complete\""));
+  assert.match(initial, /if \(!parallel\.ok\) \{[\s\S]*?compareBundleReviewCheckoutFingerprint\([\s\S]*?if \(guard\.mutationDetected\) return stopForBundleReviewMutation/);
   const postFix = source.slice(source.indexOf("async function commitBundleReviewFixAndRerunExactHeadReviews"),
     source.indexOf("async function certifyLargeBundleCumulativeReview"));
   assert.match(postFix, /const externalReviewMutationGuard = compareBundleReviewCheckoutFingerprint\([\s\S]*?if \(parallelReviews && !parallelReviews\.ok\)/);

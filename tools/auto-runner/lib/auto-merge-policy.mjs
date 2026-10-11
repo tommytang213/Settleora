@@ -13,6 +13,7 @@ import { canonicalGithubEvidenceDigest, executeCanonicalGithubEffectSync } from 
 import { findPreEffectIntents } from "./pre-effect-intent.mjs";
 import { createCleanupOwnershipRecord, loadCleanupOwnership, persistCleanupOwnership } from "./post-merge-cleanup.mjs";
 import { assertRepositoryRemoteIdentity } from "./runtime-identity.mjs";
+import { recoveredIndependentReviewEvidence } from "./recovered-independent-evidence.mjs";
 
 export const lowRiskAutoMergeLanes = Object.freeze(["workflow-docs-tooling", "docs-planning", "client-ui-low-risk"]);
 export const approvedDomainAutoMergeLanes = Object.freeze([
@@ -153,6 +154,7 @@ export function evaluateExistingPrRecoveryDecision(input) {
   const issue = input.issue || {};
   const pr = input.pr || {};
   const evidence = input.exactHeadEvidence || {};
+  const independent = recoveredIndependentReviewEvidence(evidence);
   const linkageEvidence = input.issueLinkageEvidence || buildIssueLinkageEvidence(pr, issue.number);
   const changedFiles = input.changedFiles || [];
   const baseDecision = evaluateAutoMergeDecision(input);
@@ -171,10 +173,10 @@ export function evaluateExistingPrRecoveryDecision(input) {
   if (!pr.headRefName || !/^(feature|focused)\/auto-\d+-/.test(pr.headRefName)) return block("existing_pr_recovery_unowned_pr_branch");
   if (!linkageEvidence.available) return block("existing_pr_recovery_missing_pr_linkage_evidence");
   if (!linkageEvidence.linked) return block("existing_pr_recovery_pr_not_linked_to_issue");
-  if (requiresIndependentAiReview(input.laneDecision) && !evidence.geminiPass) {
+  if (requiresIndependentAiReview(input.laneDecision) && independent.pass !== true) {
     return block("existing_pr_recovery_missing_independent_review_evidence");
   }
-  if (!evidence.geminiPass && !evidence.codexMechanicsApproved) {
+  if (independent.pass !== true && !evidence.codexMechanicsApproved) {
     return block("existing_pr_recovery_missing_evidence_or_review");
   }
   if (!evidence.codexMechanicsApproved) {
@@ -183,11 +185,17 @@ export function evaluateExistingPrRecoveryDecision(input) {
   // Completed exact-head evidence remains bound to its recorded provider.
   // A later task's provider configuration must not invalidate a pinned job.
   if (evidence.headSha && evidence.headSha !== result.prHeadSha) return block("existing_pr_recovery_evidence_head_mismatch");
-  if (evidence.geminiPass && evidence.geminiHeadSha && evidence.geminiHeadSha !== result.prHeadSha) {
-    return block("existing_pr_recovery_gemini_head_mismatch");
+  if (independent.neutral && independent.pass === true
+    && (!independent.headSha || !Array.isArray(independent.changedFiles)
+      || independent.changedFilesDigest !== digestChangedFiles(changedFiles)
+      || !independent.provider || !independent.tier || !independent.completedAt)) {
+    return block("existing_pr_recovery_independent_evidence_incomplete");
   }
-  if (evidence.geminiPass && Array.isArray(evidence.geminiChangedFiles) && !sameStringSet(evidence.geminiChangedFiles, changedFiles)) {
-    return block("existing_pr_recovery_gemini_files_mismatch");
+  if (independent.pass === true && independent.headSha && independent.headSha !== result.prHeadSha) {
+    return block(independent.neutral ? "existing_pr_recovery_independent_head_mismatch" : "existing_pr_recovery_gemini_head_mismatch");
+  }
+  if (independent.pass === true && Array.isArray(independent.changedFiles) && !sameStringSet(independent.changedFiles, changedFiles)) {
+    return block(independent.neutral ? "existing_pr_recovery_independent_files_mismatch" : "existing_pr_recovery_gemini_files_mismatch");
   }
   if (evidence.codexMechanicsApproved && evidence.codexMechanicsHeadSha && evidence.codexMechanicsHeadSha !== result.prHeadSha) {
     return block("existing_pr_recovery_codex_review_head_mismatch");
@@ -995,15 +1003,17 @@ function evaluatePrePushReviewConvergence(input = {}, externalReview = {}) {
 }
 
 export function shouldGenerateExistingPrRecoveryEvidence(laneDecision = {}, exactHeadEvidence = {}) {
+  const independent = recoveredIndependentReviewEvidence(exactHeadEvidence);
   return Boolean(
     !exactHeadEvidence.validationPassed ||
       !exactHeadEvidence.codexMechanicsApproved ||
       !exactHeadEvidence.codexMechanicsHeadSha ||
       !Array.isArray(exactHeadEvidence.codexMechanicsChangedFiles) ||
       (requiresIndependentAiReview(laneDecision) &&
-        (!exactHeadEvidence.geminiPass ||
-          !exactHeadEvidence.geminiHeadSha ||
-          !Array.isArray(exactHeadEvidence.geminiChangedFiles))),
+        (independent.pass !== true || !independent.headSha ||
+          !Array.isArray(independent.changedFiles) ||
+          (independent.neutral && (!independent.changedFilesDigest || !independent.provider
+            || !independent.tier || !independent.completedAt)))),
   );
 }
 

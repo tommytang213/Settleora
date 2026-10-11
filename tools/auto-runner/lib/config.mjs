@@ -14,6 +14,7 @@ import { moduleRuntimeRoot, pathEntryExists, validateProjectRuntimeIdentity } fr
 import { verifyRuntimeBundle } from "./runtime-bundle.mjs";
 import { bindTrustedRepositoryContext } from "./git-workspace.mjs";
 import { defaultLogsRoot } from "./runtime-path-defaults.mjs";
+import { recoveredIndependentReviewEvidence } from "./recovered-independent-evidence.mjs";
 
 export { defaultLogsRoot };
 const mandatoryAutoMergeChecks = Object.freeze(["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"]);
@@ -1033,17 +1034,18 @@ export function validateRecoveryOnlyExactHeadEvidence(config = {}, recoveryConfi
   if (allowRebuild === true && evidence.recoveryStateRebuildable === true) {
     return { ok: true, rebuildRequired: true };
   }
+  const independent = recoveredIndependentReviewEvidence(evidence);
   const requiredChecks = [
     evidence.validationPassed === true,
     Array.isArray(evidence.validationResults),
     isNonEmptyString(evidence.validationCompletedAt || evidence.completedAt),
-    evidence.geminiPass === true,
-    evidence.geminiHeadSha === target.prHeadSha,
-    Array.isArray(evidence.geminiChangedFiles),
-    isNonEmptyString(evidence.geminiChangedFilesDigest || evidence.changedFilesDigest),
-    isNonEmptyString(evidence.geminiProvider),
-    isNonEmptyString(evidence.geminiTier),
-    isNonEmptyString(evidence.geminiCompletedAt || evidence.completedAt),
+    independent.pass === true,
+    independent.headSha === target.prHeadSha,
+    Array.isArray(independent.changedFiles),
+    isNonEmptyString(independent.changedFilesDigest || (!independent.neutral && evidence.changedFilesDigest)),
+    isNonEmptyString(independent.provider),
+    isNonEmptyString(independent.tier),
+    isNonEmptyString(independent.completedAt || (!independent.neutral && evidence.completedAt)),
     evidence.codexMechanicsApproved === true,
     evidence.codexMechanicsHeadSha === target.prHeadSha,
     Array.isArray(evidence.codexMechanicsChangedFiles),
@@ -1053,7 +1055,7 @@ export function validateRecoveryOnlyExactHeadEvidence(config = {}, recoveryConfi
   if (requiredChecks.some((ok) => !ok)) {
     return { ok: false, reason: "outage_recovery_exact_head_evidence_incomplete" };
   }
-  if (!sameCanonicalChangedFiles(evidence.geminiChangedFiles, canonicalChangedFiles)) {
+  if (!sameCanonicalChangedFiles(independent.changedFiles, canonicalChangedFiles)) {
     return { ok: false, reason: "outage_recovery_exact_head_evidence_invalid" };
   }
   if (!sameCanonicalChangedFiles(evidence.codexMechanicsChangedFiles, canonicalChangedFiles)) {
@@ -1061,7 +1063,7 @@ export function validateRecoveryOnlyExactHeadEvidence(config = {}, recoveryConfi
   }
   for (const digest of [
     evidence.changedFilesDigest,
-    evidence.geminiChangedFilesDigest,
+    independent.changedFilesDigest || (!independent.neutral && evidence.changedFilesDigest),
     evidence.codexMechanicsChangedFilesDigest,
   ]) {
     if (digest !== canonicalChangedFilesDigest) return { ok: false, reason: "outage_recovery_exact_head_evidence_invalid" };

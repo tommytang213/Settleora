@@ -6121,6 +6121,24 @@ test("existing low-risk canary PR recovery proceeds only with exact-head safe ev
   assert.equal(evaluateExistingPrRecoveryDecision(laterGrokConfig).eligible, true);
 });
 
+test("Grok-pinned existing PR recovery accepts provider-neutral evidence without Gemini fields", () => {
+  const base = existingPrRecoveryContext();
+  const digest = digestChangedFiles(base.changedFiles);
+  const exactHeadEvidence = { ...base.exactHeadEvidence,
+    independentReview: { pass: true, headSha: base.actualHeadSha,
+      changedFiles: base.changedFiles, changedFilesDigest: digest,
+      provider: "grok", tier: "strong_independent", completedAt: "2026-10-11T19:00:00.000Z" } };
+  for (const key of ["geminiPass", "geminiHeadSha", "geminiChangedFiles", "geminiChangedFilesDigest",
+    "geminiProvider", "geminiTier", "geminiCompletedAt"]) delete exactHeadEvidence[key];
+  assert.equal(shouldGenerateExistingPrRecoveryEvidence(base.laneDecision, exactHeadEvidence), false);
+  const decision = evaluateExistingPrRecoveryDecision({ ...base, exactHeadEvidence });
+  assert.equal(decision.eligible, true);
+  assert.equal(evaluateExistingPrRecoveryDecision({ ...base,
+    exactHeadEvidence: { ...exactHeadEvidence,
+      independentReview: { ...exactHeadEvidence.independentReview, changedFilesDigest: "bad" } } }).reason,
+  "existing_pr_recovery_independent_evidence_incomplete");
+});
+
 test("existing PR recovery regenerates missing Codex evidence outside independent-review lanes", () => {
   assert.equal(
     shouldGenerateExistingPrRecoveryEvidence(autoMergeLane({ lane: "workflow-docs-tooling" }), {
