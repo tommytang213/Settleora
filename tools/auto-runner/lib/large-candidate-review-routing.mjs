@@ -180,13 +180,28 @@ export async function runStructuredLargeCandidateReview({ state, manifest, revie
 }
 
 export async function persistCumulativeLargeCandidateReview({ config, taskKey, candidateIdentity, changedFiles, integrationBoundaries = [], externalReview, codexReview, invokeSection = null, invokeIntegration = null } = {}) {
-  // The structured loop exposes earlier section verdicts to later reviewers.
-  // Grok's trial requires blind peer reviews, so this route must stop before invocation.
-  if (config?.reviewerProviderPin === "grok" || externalReview?.provider === "grok") {
-    return freeze({ ok: false, reasonCode: "grok_structured_large_candidate_not_supported" });
-  }
+  const grokRoute = config?.reviewerProviderPin === "grok" || externalReview?.provider === "grok";
   const built = buildLargeCandidateCoverageManifest({ candidateIdentity, changedFiles, integrationBoundaries });
   if (!built.ok) return built;
+  if (grokRoute) {
+    // Both full-candidate reviews already ran independently. Project only their
+    // bound evidence into coverage sections; never make sequential model calls.
+    if (config?.reviewerProviderPin !== "grok" || externalReview?.provider !== "grok"
+      || !grokCompleteCandidateEvidence(externalReview, codexReview, built.manifest)) {
+      return freeze({ ok: false, reasonCode: "grok_complete_candidate_evidence_missing" });
+    }
+    const seed = createLargeCandidateRoutingState({ taskKey, candidateIdentity, changedFiles,
+      classification: { state: "external_review_large_bundle_in_progress" },
+      coverageManifest: built.manifest, runtimeStructuredRequired: true });
+    const evidence = { grok: externalReview, "codex-local": codexReview };
+    const reviewed = await runStructuredLargeCandidateReview({
+      state: seed, manifest: built.manifest, reviewers: ["grok", "codex-local"],
+      invokeSection: async ({ provider, section, manifest }) => cumulativeSectionEvidence(evidence[provider], provider, section, manifest),
+      invokeIntegration: async ({ provider, manifest }) => cumulativeIntegrationEvidence(evidence[provider], provider, manifest),
+    });
+    const persisted = writeLargeCandidateRoutingState(config, reviewed.state || seed);
+    return freeze({ ...reviewed, state: persisted, statePath: largeCandidateRoutingStatePath(config, persisted) });
+  }
   const seed = createLargeCandidateRoutingState({ taskKey, candidateIdentity, changedFiles, classification: { state: "external_review_large_bundle_in_progress" }, coverageManifest: built.manifest, runtimeStructuredRequired: true });
   const loaded = loadLargeCandidateRoutingState(config, seed);
   const state = loaded.ok ? { ...invalidateLargeCandidateEvidence(loaded.state, candidateIdentity), runtimeStructuredRequired: true } : seed;
@@ -208,6 +223,25 @@ export async function persistCumulativeLargeCandidateReview({ config, taskKey, c
   });
   const persisted = writeLargeCandidateRoutingState(config, reviewed.state || state);
   return freeze({ ...reviewed, state: persisted, statePath: largeCandidateRoutingStatePath(config, persisted) });
+}
+
+function grokCompleteCandidateEvidence(externalReview, codexReview, manifest) {
+  const identity = manifest.candidateIdentity;
+  const filesDigest = digest(normalizeFiles(manifest.changedFiles));
+  return identity.changedFilesDigest === manifest.changedFilesDigest
+    && externalReview?.status === "pass" && externalReview.verdict === "pass"
+    && externalReview.independent === true && externalReview.reviewedHead === identity.headSha
+    && externalReview.baseSha === identity.baseSha && externalReview.changedFilesDigest === identity.changedFilesDigest
+    && digest(normalizeFiles(externalReview.changedFiles)) === filesDigest
+    && Boolean(externalReview.completedAt) && cumulativeEvidenceBound(externalReview, identity, manifest)
+    && codexReview?.status === 0 && !codexReview.signal && !codexReview.error
+    && ["passed", "completed"].includes(codexReview.reviewStatus)
+    && codexReview.verdict?.verdict === "approve" && codexReview.reviewedHead === identity.headSha
+    && codexReview.baseSha === identity.baseSha && codexReview.reviewedBaseSha === identity.baseSha
+    && codexReview.changedFilesDigest === identity.changedFilesDigest
+    && digest(normalizeFiles(codexReview.changedFiles)) === filesDigest
+    && Boolean(codexReview.completedAt || codexReview.finishedAt)
+    && cumulativeEvidenceBound(codexReview, identity, manifest);
 }
 
 export function structuredLargeCandidateFindings(reviewResult, provider) {

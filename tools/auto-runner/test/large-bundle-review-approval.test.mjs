@@ -36,7 +36,7 @@ test("normal candidate retains normal review routing", () => {
   assert.equal(classifyLargeCandidate({ changedFiles: ["tools/auto-runner/lib/a.mjs"], stats: { additions: 3 } }).route, "normal");
 });
 
-test("Grok trial stops structured large-candidate review before invoking reviewers", async () => {
+test("Grok large-candidate route rejects incomplete evidence before invoking reviewers", async () => {
   let invoked = false;
   for (const [config, externalReview] of [
     [{ reviewerProviderPin: "grok" }, { provider: "gemini" }],
@@ -49,9 +49,47 @@ test("Grok trial stops structured large-candidate review before invoking reviewe
       invokeIntegration: async () => { invoked = true; },
     });
     assert.equal(result.ok, false);
-    assert.equal(result.reasonCode, "grok_structured_large_candidate_not_supported");
+    assert.equal(result.reasonCode, "grok_complete_candidate_evidence_missing");
   }
   assert.equal(invoked, false);
+});
+
+test("Grok large-candidate route certifies two blind complete-candidate reviews without new model calls", async () => {
+  const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-grok-large-"));
+  const changedFiles = ["services/api/runtime.mjs", "tools/auto-runner/a.mjs"];
+  const identity = { ...candidateIdentity, changedFilesDigest: h(JSON.stringify(changedFiles)) };
+  const boundaries = ["tools/auto-runner/settleora-auto-runner.mjs"];
+  const bound = { attestedCandidateIdentity: identity, attestedIntegrationBoundaries: boundaries,
+    attestationSource: "provider_prompt_binding", providerPromptBindingDigest: h("review package") };
+  const externalReview = { ...bound, provider: "grok", status: "pass", verdict: "pass", independent: true,
+    reviewedHead: identity.headSha, baseSha: identity.baseSha, changedFiles,
+    changedFilesDigest: identity.changedFilesDigest, completedAt: "2026-10-11T00:00:00Z" };
+  const codexReview = { ...bound, status: 0, reviewStatus: "passed", verdict: { verdict: "approve" },
+    reviewedHead: identity.headSha, baseSha: identity.baseSha, reviewedBaseSha: identity.baseSha,
+    changedFiles, changedFilesDigest: identity.changedFilesDigest, completedAt: "2026-10-11T00:00:00Z" };
+  const input = { config: { logsRoot, reviewerProviderPin: "grok" }, taskKey: "blind-complete",
+    candidateIdentity: identity, changedFiles, integrationBoundaries: boundaries, externalReview, codexReview,
+    invokeSection: async () => { throw new Error("sequential model call"); },
+    invokeIntegration: async () => { throw new Error("sequential model call"); } };
+  try {
+    const result = await persistCumulativeLargeCandidateReview(input);
+    assert.equal(result.ok, true);
+    assert.equal(result.state.reviewerResults.length, 2);
+    assert.equal(result.state.reviewerResults.every((review) => review.sections.length === 2 && review.integration?.status === "pass"), true);
+    const resumed = await persistCumulativeLargeCandidateReview(input);
+    assert.equal(resumed.ok, true);
+    for (const [name, mutate] of [
+      ["wrong provider", (value) => { value.externalReview.provider = "gemini"; }],
+      ["stale base", (value) => { value.externalReview.baseSha = "4".repeat(40); }],
+      ["incomplete Codex", (value) => { value.codexReview.reviewStatus = "failed"; }],
+      ["unbound package", (value) => { value.externalReview.attestedCandidateIdentity = candidateIdentity; }],
+    ]) {
+      const modified = { ...input, externalReview: { ...externalReview }, codexReview: { ...codexReview } };
+      mutate(modified);
+      const blocked = await persistCumulativeLargeCandidateReview(modified);
+      assert.equal(blocked.reasonCode, "grok_complete_candidate_evidence_missing", name);
+    }
+  } finally { rmSync(logsRoot, { recursive: true, force: true }); }
 });
 
 test("coherent large workflow candidate escalates without approval metadata", () => {
