@@ -63,6 +63,25 @@ test("persisted parallel Grok findings remain actionable after restart", () => {
   assert.equal(trigger.findings[0].message, finding.message);
 });
 
+test("incomplete parallel invocations retry once without replaying completed verdicts", () => {
+  const head = "a".repeat(40);
+  const timeout = { reviewedHead: head, status: "blocked", reason: "blocked_grok_timeout", verdict: "not_run" };
+  const approved = { reviewedHead: head, verdict: { verdict: "approve" } };
+  const first = { candidateHeadSha: head, providerPin: "grok", attempts: 1,
+    external: timeout, codex: approved };
+  const retry = resolveOrdinaryParallelReviewerCheckpoint(JSON.parse(JSON.stringify(first)), { headSha: head }, "grok");
+  assert.equal(retry.ok, true);
+  assert.equal(retry.retryIncomplete, true);
+  assert.equal(retry.checkpoint.codex.verdict.verdict, "approve");
+  assert.equal(resolveOrdinaryParallelReviewerCheckpoint({ ...first, attempts: 2 }, { headSha: head }, "grok").reasonCode,
+    "ordinary_parallel_reviewer_retry_exhausted");
+  const workerFailure = { ...first, external: { ...timeout, status: "pass", verdict: "pass" }, codex: { status: "blocked", reason: "worker_exit" } };
+  assert.equal(resolveOrdinaryParallelReviewerCheckpoint(workerFailure, { headSha: head }, "grok").retryIncomplete, true);
+  const mismatchedVerdict = { ...first, external: { ...timeout, status: "pass", verdict: "pass", reviewedHead: null } };
+  assert.equal(resolveOrdinaryParallelReviewerCheckpoint(mismatchedVerdict, { headSha: head }, "grok").reasonCode,
+    "ordinary_parallel_reviewer_checkpoint_identity_mismatch");
+});
+
 test("recovery provider pin uses the routed cheap or strong reviewer tier", () => {
   const config = { reviewerTiers: {
     cheap_independent: { enabled: true, provider: "grok" },

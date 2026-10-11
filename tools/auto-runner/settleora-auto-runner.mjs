@@ -2704,14 +2704,31 @@ function authenticateRecordedTaskWorkspace(config, state, candidate) {
 
 export function resolveOrdinaryParallelReviewerCheckpoint(saved, identity, provider) {
   if (!saved || saved.candidateHeadSha !== identity?.headSha) return { ok: true, checkpoint: null };
-  if (saved.providerPin !== provider || saved.external?.reviewedHead !== identity.headSha
-    || saved.codex?.reviewedHead !== identity.headSha) {
+  if (saved.providerPin !== provider || [saved.external, saved.codex].some((review) =>
+    review?.reviewedHead != null && review.reviewedHead !== identity.headSha)
+    || [saved.external, saved.codex].some((review, index) =>
+      ordinaryParallelReviewerComplete(review, index === 0 ? "external" : "codex")
+      && review.reviewedHead !== identity.headSha)) {
     return { ok: false, outcome: "blocked", reasonCode: "ordinary_parallel_reviewer_checkpoint_identity_mismatch" };
   }
   const manual = reviewerManualGateOutcome(saved.external, saved.codex);
-  return manual
-    ? { ok: false, outcome: manual, reasonCode: "ordinary_parallel_reviewer_manual_gate_persisted" }
-    : { ok: true, checkpoint: saved };
+  if (manual) return { ok: false, outcome: manual, reasonCode: "ordinary_parallel_reviewer_manual_gate_persisted" };
+  const incomplete = !ordinaryParallelReviewerComplete(saved.external, "external")
+    || !ordinaryParallelReviewerComplete(saved.codex, "codex");
+  if (incomplete && (saved.attempts ?? 1) >= 2) {
+    return { ok: false, outcome: "blocked", reasonCode: "ordinary_parallel_reviewer_retry_exhausted" };
+  }
+  return { ok: true, checkpoint: saved, retryIncomplete: incomplete };
+}
+
+function ordinaryParallelReviewerComplete(review, provider) {
+  if (provider === "external") {
+    const verdict = review?.sanitizedResponseSummary?.verdict || review?.verdict;
+    return (review?.status === "pass" && verdict === "pass")
+      || (review?.reason === "blocked_external_reviewer_non_pass"
+        && ["fail", "needs_tommy", "danger_gate"].includes(verdict));
+  }
+  return ["approve", "changes_requested", "needs_tommy", "danger_gate"].includes(review?.verdict?.verdict);
 }
 
 export function resolveOrdinaryRecoveryManualGate(state) {
@@ -2956,20 +2973,25 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       const before = await checkoutFingerprint();
       const changedFiles = candidate.changedFiles;
       context.reviewPackage = await writeReviewPackage(config, { issue, promptInfo: { promptPath: null }, laneDecision, changedFiles, validation: context.validation || state.evidence?.localValidation, report: { found: true, recovered: true }, diffBaseRef: candidate.baseSha, diffHeadRef: candidate.headSha, reviewerProviderPin: providerBinding.provider });
-      if (candidateBoundParallel && candidateBoundParallel.candidateHeadSha === candidate.headSha) {
+      if (candidateBoundParallel && !parallelGate.retryIncomplete) {
         context.externalReview = candidateBoundParallel.external;
         context.review = candidateBoundParallel.codex;
       } else if (providerBinding.provider === "grok") {
+        const externalComplete = ordinaryParallelReviewerComplete(candidateBoundParallel?.external, "external");
+        const codexComplete = ordinaryParallelReviewerComplete(candidateBoundParallel?.codex, "codex");
         [context.externalReview, context.review] = await Promise.all([
-          runIntegratedReviewSource(config, context.reviewPackage, "startup-recovery"),
-          runCodexReviewInWorker(config, { ...context.reviewPackage, sessionLifecycle: state.sessionLifecycle || null }),
+          externalComplete ? candidateBoundParallel.external : runIntegratedReviewSource(config, context.reviewPackage, "startup-recovery"),
+          codexComplete ? candidateBoundParallel.codex : runCodexReviewInWorker(config, { ...context.reviewPackage, sessionLifecycle: state.sessionLifecycle || null }),
         ]);
-        state = await adoptRecoveredReviewSession({ state, issue, review: context.review,
-          persist: (next) => writeRecoveryState(config, next) });
+        if (!codexComplete) {
+          state = await adoptRecoveredReviewSession({ state, issue, review: context.review,
+            persist: (next) => writeRecoveryState(config, next) });
+        }
         state = writeRecoveryState(config, { ...state, evidence: { ...state.evidence,
           parallelReviewerVerdicts: {
             candidateHeadSha: candidate.headSha,
             providerPin: providerBinding.provider,
+            attempts: (candidateBoundParallel?.attempts || 0) + 1,
             external: ordinaryReviewerCheckpoint(context.externalReview, "external"),
             codex: ordinaryReviewerCheckpoint(context.review, "codex"),
           },
@@ -2984,6 +3006,10 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       if (manual) {
         persistOrdinaryManualGate(manual, "ordinary_parallel_reviewer_manual_gate_persisted", candidate.headSha);
         return { ok: false, outcome: manual, reasonCode: "ordinary_parallel_reviewer_manual_gate_persisted" };
+      }
+      if (providerBinding.provider === "grok" && (!ordinaryParallelReviewerComplete(context.externalReview, "external")
+        || !ordinaryParallelReviewerComplete(context.review, "codex"))) {
+        return { ok: false, reasonCode: "ordinary_parallel_reviewer_invocation_incomplete" };
       }
       return { ok: true, evidence: { status: context.externalReview.status === "pass" ? "passed" : "changes_requested", evidencePath: context.externalReview.reportPath, review: ordinaryReviewerCheckpoint(context.externalReview, "external") } };
     },

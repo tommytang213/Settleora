@@ -1197,6 +1197,9 @@ that isolated session once to request only the verified missing ranges within
 the same deadline. A verdict still requires complete coverage. Check remaining
 subscriber included usage in the account before an expensive rerun; `grok usage`
 reports session totals, not the account's remaining allowance.
+On startup recovery, a transport or worker failure is not replayed as a verdict:
+the runner retains any completed same-head verdict, retries only the incomplete
+reviewer once, and blocks if that second invocation remains incomplete.
 Grok sessions may retain the sent package in the user's local CLI history.
 After private subscriber sign-in and explicit trial authorization, a
 task-scoped config can exercise a synthetic one-call smoke check with

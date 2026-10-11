@@ -179,7 +179,7 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
     const passWithFindings = verdict.verdict === "pass" && verdict.findings.length > 0;
     const effectiveVerdict = passWithFindings ? { ...verdict, verdict: "fail", providerReportedVerdict: "pass" } : verdict;
     return finish({ liveCallAttempted: true, status: effectiveVerdict.verdict === "pass" ? "pass" : "blocked",
-      reason: passWithFindings ? "blocked_grok_pass_with_findings" : effectiveVerdict.verdict === "pass" ? "integrated_review_passed" : "blocked_external_reviewer_non_pass",
+      reason: effectiveVerdict.verdict === "pass" ? "integrated_review_passed" : "blocked_external_reviewer_non_pass",
       verdict: effectiveVerdict.verdict, sanitizedResponseSummary: effectiveVerdict,
       actualUsage: outcome.usage, providerMetadata: metadata });
   } catch (error) {

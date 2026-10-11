@@ -13,6 +13,7 @@ import { resolveRecoveredReviewerProviderPin } from "../lib/reviewer-provider-pi
 import { adoptRecoveredReviewSession } from "../lib/recovered-review-session.mjs";
 import { reviewerReadinessSummary } from "../lib/reviewer-policy.mjs";
 import { independentReviewerProvider, runIndependentIntegratedReview, runIndependentReviewerSmokeTest } from "../lib/independent-reviewer.mjs";
+import { extractReviewFixTrigger } from "../lib/review-fix-policy.mjs";
 
 function fakeSpawn(events, inspect = () => {}) {
   return (binary, args, options) => {
@@ -388,9 +389,12 @@ test("integrated Grok adapter accepts only a complete screened and head-bound re
       spawnImpl: spawnWithVerdict({ verdict: "pass", confidence: "medium", summary: "Check input handling",
         findings: ["A changed function returns the wrong status for a bounded input."] }) });
     assert.equal(contradictory.status, "blocked");
-    assert.equal(contradictory.reason, "blocked_grok_pass_with_findings");
+    assert.equal(contradictory.reason, "blocked_external_reviewer_non_pass");
     assert.equal(contradictory.verdict, "fail");
     assert.equal(contradictory.sanitizedResponseSummary.providerReportedVerdict, "pass");
+    assert.equal(contradictory.attestedCandidateIdentity.headSha, summary.currentHead);
+    assert.equal(extractReviewFixTrigger({ externalReview: contradictory,
+      review: { verdict: { verdict: "approve" } } }).actionable, true);
     const secret = await runGrokIntegratedReview(config, { summary: {
       ...summary, issue: { title: "Synthetic", body: ["api_key=", "sk-", "abcdefghijklmnopqrstuvwxyz123456"].join("") },
     }, diff }, { spawnImpl: () => { throw new Error("must not call vendor"); } });
