@@ -81,6 +81,52 @@ void main() {
     expect(p.reviewHints, isEmpty);
   });
 
+  for (final withTax in [false, true]) {
+    for (final modifier in [
+      '+ Extra (EUR)',
+      '+ CZK extra',
+      '+ Extra(czk)',
+      '+ Extra-eUr',
+      '+ Extra.USD',
+      '+ Extra (BIF)',
+      '+ Extra (₦)',
+      '+ Extra (EUR)(CZK)',
+    ]) {
+      test('unpriced currency stays unresolved tax=$withTax $modifier', () {
+        final blocks = modifierReceiptBlocks(
+          modifierReceiptRows(withTax: withTax, unpricedModifier: modifier),
+        );
+        final p = parseModifierReceipt(blocks);
+        expect(p.adjustmentsComplete, isFalse);
+        expect(
+          p.incompleteAdjustmentReasons,
+          contains(ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine),
+        );
+        expect(p.reviewHints, isNotEmpty);
+        expect(p.blocks, blocks);
+        expect(p.items.map((i) => i.lineTotal), ['9.00', '1.50', '2.50']);
+        expect(p.subtotal, '13.00');
+        expect(p.tax, withTax ? '1.30' : isNull);
+        expect(p.total, withTax ? '14.30' : '13.00');
+      });
+    }
+    test(
+      'currency substrings inside option words remain descriptive tax=$withTax',
+      () {
+        final p = parseModifierReceipt(
+          modifierReceiptBlocks(
+            modifierReceiptRows(
+              withTax: withTax,
+              unpricedModifier: '+ European style',
+            ),
+          ),
+        );
+        expect(p.adjustmentsComplete, isTrue);
+        expect(p.reviewHints, isEmpty);
+      },
+    );
+  }
+
   final financialDefects = <String, void Function(List<List<String>>)>{
     'subtotal mismatch': (r) => r[7] = ['Subtotal', 'USD 12.00'],
     'total mismatch': (r) => r[9] = ['Total', 'USD 15.00'],

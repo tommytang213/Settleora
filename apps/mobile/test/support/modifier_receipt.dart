@@ -1,17 +1,21 @@
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_parser.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
 
-List<List<String>> modifierReceiptRows({String currency = 'USD'}) => [
+List<List<String>> modifierReceiptRows({
+  String currency = 'USD',
+  bool withTax = true,
+  String unpricedModifier = '+ No dressing',
+}) => [
   ['Orchard Counter'],
   ['Date: 2026-10-01'],
   ['Lunch Bowl', '$currency 9.00'],
-  ['+ No dressing'],
+  [unpricedModifier],
   ['+ Brown rice'],
   ['+ Avocado', '$currency 1.50'],
   ['Lemonade', '$currency 2.50'],
   ['Subtotal', '$currency 13.00'],
-  ['Tax', '$currency 1.30'],
-  ['Total', '$currency 14.30'],
+  if (withTax) ['Tax', '$currency 1.30'],
+  ['Total', '$currency ${withTax ? '14.30' : '13.00'}'],
   ['Thank you'],
 ];
 

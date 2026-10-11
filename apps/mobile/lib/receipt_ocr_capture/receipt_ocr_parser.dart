@@ -5756,8 +5756,10 @@ class ReceiptOcrParser {
               caseSensitive: false,
             ).hasMatch(lines[i]) &&
             !RegExp(
-              '(?:^|\\s)(?:$_currencyTokenPattern)(?=\\s|\$)',
+              '(?<![\\p{L}\\p{M}])$_signCurrencyTokenPattern'
+              '(?![\\p{L}\\p{M}])',
               caseSensitive: false,
+              unicode: true,
             ).hasMatch(lines[i])) {
           unpriced.add(i);
         } else {

@@ -71,6 +71,9 @@ void main() {
       'modifierComplete',
       'modifierNoLayout',
       'modifierForeignTotal',
+      'modifierNoTaxComplete',
+      'modifierNoTaxCurrencyPunctuation',
+      'modifierNoTaxUnsupportedCurrency',
       'taxAnnotation',
       'foreignTaxItem',
       'brandCaption',
@@ -98,6 +101,7 @@ void main() {
         'subtotal',
         'taxAnnotation',
         'modifierComplete',
+        'modifierNoTaxComplete',
         'brandCaption',
         'brandFooter',
         'traditionalTaxZero',
@@ -108,6 +112,7 @@ void main() {
       // Existing Apply copies item amounts only. Gross-matching items remain
       // selectable even when header arithmetic warns; no tax charge is added.
       final canApplyFinancial = [
+        'modifierNoTaxComplete',
         'summaryCurrencyMatchingPrefix',
         'summaryCurrencyMatchingSuffix',
         'summaryCurrencyMatchingLowercase',
@@ -216,7 +221,14 @@ void main() {
           : scenario.startsWith('modifier')
           ? parseModifierReceipt(
               modifierReceiptBlocks(
-                modifierReceiptRows()..addAll(
+                modifierReceiptRows(
+                  withTax: !scenario.startsWith('modifierNoTax'),
+                  unpricedModifier: switch (scenario) {
+                    'modifierNoTaxCurrencyPunctuation' => '+ Extra (EUR)',
+                    'modifierNoTaxUnsupportedCurrency' => '+ CZK extra',
+                    _ => '+ No dressing',
+                  },
+                )..addAll(
                   scenario == 'modifierForeignTotal'
                       ? [
                           ['Total', 'EUR 14.30'],
@@ -260,10 +272,14 @@ void main() {
               ),
               _ => annotatedTaxItemPreview(firstCurrency: 'USD'),
             };
-      final firstDescription = scenario == 'taxAnnotation'
+      final firstDescription = scenario == 'modifierNoTaxComplete'
+          ? 'Lunch Bowl'
+          : scenario == 'taxAnnotation'
           ? 'Tea VAT 5% item'
           : 'Tea';
-      final firstAmount = scenario == 'taxAnnotation'
+      final firstAmount = scenario == 'modifierNoTaxComplete'
+          ? '9.00'
+          : scenario == 'taxAnnotation'
           ? '20.00'
           : scenario == 'subtotal'
           ? '3.50'
@@ -288,8 +304,9 @@ void main() {
               '2.50',
             ]);
             expect(saved.subtotalAmount, '13.00');
-            expect(saved.taxAmount, '1.30');
-            expect(preview.total, '14.30');
+            final noTax = scenario.startsWith('modifierNoTax');
+            expect(saved.taxAmount, noTax ? isNull : '1.30');
+            expect(preview.total, noTax ? '13.00' : '14.30');
           }
           if (scenario.startsWith('summaryCurrency')) {
             final matching = scenario.contains('Matching');
