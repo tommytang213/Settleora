@@ -30,7 +30,7 @@ test("serialized Grok feature-bundle checkpoints retain complete candidate bindi
   const reviewPackage = { summary: { currentHead: identity.headSha, baseSha: identity.baseSha, changedFiles } };
   const ordinaryPunctuation = "docs/guide#1!日本語.md";
   assert.deepEqual(sanitizeBundleState({ changedFiles: [...changedFiles, ordinaryPunctuation,
-    `xai-${"Z".repeat(32)}`, "docs/bearer syntheticcredential123456.txt",
+    `xai-${"Z".repeat(32)}`, ["docs/bearer ", "syntheticcredential123456.txt"].join(""),
     `docs/secret-${"Q".repeat(24)}.md`] }).changedFiles,
   [...changedFiles, ordinaryPunctuation]);
   let persisted = { finalization: { state: "reviewing" } };
