@@ -2153,11 +2153,17 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
       if (typeof options.runStrongReview !== "function" || typeof options.runCodexReview !== "function") {
         return fail("existing_pr_batch_fix_review_adapter_unconfigured", "strong and Codex review adapters are required before push");
       }
-      persistLocalCandidateLoopState(loopState.statePath, { ...loopState.state, phase: "gemini_running", candidateHead: candidate.newHead, candidateDigest: fullCandidatePrDelta.delta.normalizedPatchDigest });
-      const externalReview = await options.runStrongReview({ config: targetConfig, pr, changedFiles: reviewChangedFiles, fixDeltaFiles: changedFiles, fullCandidatePrDelta: fullCandidatePrDelta.delta, validation, headSha: candidate.newHead, baseSha: base.sha });
+      const parallelGrok = targetConfig.reviewerTiers?.strong_independent?.provider === "grok";
+      persistLocalCandidateLoopState(loopState.statePath, { ...loopState.state, phase: parallelGrok ? "independent_reviews_running" : "gemini_running", candidateHead: candidate.newHead, candidateDigest: fullCandidatePrDelta.delta.normalizedPatchDigest });
+      const parallelReviews = parallelGrok ? Promise.all([
+        options.runStrongReview({ config: targetConfig, pr, changedFiles: reviewChangedFiles, fixDeltaFiles: changedFiles, fullCandidatePrDelta: fullCandidatePrDelta.delta, validation, headSha: candidate.newHead, baseSha: base.sha }),
+        options.runCodexReview({ config: targetConfig, pr, changedFiles: reviewChangedFiles, fixDeltaFiles: changedFiles, fullCandidatePrDelta: fullCandidatePrDelta.delta, validation, headSha: candidate.newHead, baseSha: base.sha, sessionLifecycle }),
+      ]) : null;
+      const [externalReview, parallelCodexReview] = parallelReviews ? await parallelReviews
+        : [await options.runStrongReview({ config: targetConfig, pr, changedFiles: reviewChangedFiles, fixDeltaFiles: changedFiles, fullCandidatePrDelta: fullCandidatePrDelta.delta, validation, headSha: candidate.newHead, baseSha: base.sha }), null];
       const fullDeltaExternalReview = { ...externalReview, fullCandidatePrDelta: externalReview?.fullCandidatePrDelta || fullCandidatePrDelta.delta };
-      persistLocalCandidateLoopState(loopState.statePath, { ...loopState.state, phase: "codex_running", candidateHead: candidate.newHead, candidateDigest: fullCandidatePrDelta.delta.normalizedPatchDigest });
-      const review = await options.runCodexReview({ config: targetConfig, pr, changedFiles: reviewChangedFiles, fixDeltaFiles: changedFiles, fullCandidatePrDelta: fullCandidatePrDelta.delta, validation, externalReview: fullDeltaExternalReview, headSha: candidate.newHead, baseSha: base.sha, sessionLifecycle });
+      if (!parallelGrok) persistLocalCandidateLoopState(loopState.statePath, { ...loopState.state, phase: "codex_running", candidateHead: candidate.newHead, candidateDigest: fullCandidatePrDelta.delta.normalizedPatchDigest });
+      const review = parallelCodexReview || await options.runCodexReview({ config: targetConfig, pr, changedFiles: reviewChangedFiles, fixDeltaFiles: changedFiles, fullCandidatePrDelta: fullCandidatePrDelta.delta, validation, externalReview: fullDeltaExternalReview, headSha: candidate.newHead, baseSha: base.sha, sessionLifecycle });
       if (review?.sessionLifecycle && codex) codex.sessionLifecycle = review.sessionLifecycle;
       const postReviewSessionLifecycle = review?.sessionLifecycle || codex?.sessionLifecycle || sessionLifecycle;
       const verdict = review?.verdict?.verdict || review?.verdict;
@@ -5136,7 +5142,17 @@ async function prepareExactHeadFinalGateEvidence({ config, plan = {}, state, pr,
     requireWorktreeProof: false,
   });
   if (!validationCheck.ok) return validationCheck;
-  const strongReview = await runStrongReview({
+  const parallelGrok = config.reviewerTiers?.strong_independent?.provider === "grok";
+  const parallelReviews = parallelGrok ? Promise.all([runStrongReview({
+    config, pr: { ...pr, ...(prereq.inspection.pr || {}), headRefOid: prereq.currentHead },
+    changedFiles: prereq.changedFiles, validation, headSha: prereq.currentHead,
+    baseSha: prereq.currentOriginMainSha, fullCandidatePrDelta: candidateDelta,
+  }), runCodexReview({
+    config, pr: { ...pr, ...(prereq.inspection.pr || {}), headRefOid: prereq.currentHead },
+    changedFiles: prereq.changedFiles, validation, headSha: prereq.currentHead,
+    baseSha: prereq.currentOriginMainSha, fullCandidatePrDelta: candidateDelta,
+  })]) : null;
+  const [strongReview, parallelCodexReview] = parallelReviews ? await parallelReviews : [await runStrongReview({
     config,
     pr: { ...pr, ...(prereq.inspection.pr || {}), headRefOid: prereq.currentHead },
     changedFiles: prereq.changedFiles,
@@ -5144,7 +5160,7 @@ async function prepareExactHeadFinalGateEvidence({ config, plan = {}, state, pr,
     headSha: prereq.currentHead,
     baseSha: prereq.currentOriginMainSha,
     fullCandidatePrDelta: candidateDelta,
-  });
+  }), null];
   const fullDeltaStrongReview = { ...strongReview, fullCandidatePrDelta: strongReview?.fullCandidatePrDelta || candidateDelta };
   const strongCheck = validateReviewEvidenceObject(fullDeltaStrongReview, {
     name: "strong_review",
@@ -5155,7 +5171,7 @@ async function prepareExactHeadFinalGateEvidence({ config, plan = {}, state, pr,
     requireIndependent: true,
   });
   if (!strongCheck.ok) return strongCheck;
-  const codexReview = await runCodexReview({
+  const codexReview = parallelCodexReview || await runCodexReview({
     config,
     pr: { ...pr, ...(prereq.inspection.pr || {}), headRefOid: prereq.currentHead },
     changedFiles: prereq.changedFiles,

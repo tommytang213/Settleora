@@ -1,5 +1,13 @@
 # Autonomous Codex Runner
 
+Provider note (2026-10-11): new task-scoped independent reviews use Grok Build
+through subscriber login. Gemini-specific procedures below describe pinned
+legacy jobs and historical evidence. Local Codex and Grok review the same
+frozen candidate independently and concurrently after local validation; both
+passes are required before push. Resolve conflicting findings against source,
+requirements, and tests, recording the basis. Agreement alone is not the
+measure of review quality; valid incremental findings matter.
+
 ## Terminal derivative projection boundary
 
 The preserved-recovery authority layer may project one exact legacy split
@@ -83,7 +91,8 @@ arbitrary persisted commands, broad prune, and force deletion are forbidden.
 ## Shared recursive source-failure authority
 
 Post-implementation failures do not gain a separate controller or accounting
-system. Local validation, GitHub checks, CodeQL, Semgrep, Trivy, Gemini, local
+system. Local validation, GitHub checks, CodeQL, Semgrep, Trivy, Grok (Gemini
+for pinned existing jobs), local
 Codex, and GitHub Codex use one bounded normalized finding contract. Structured
 exact-head evidence is sanitized, fingerprinted, frozen, deduplicated, and
 classified before action; an unstructured red status is
@@ -823,7 +832,7 @@ values, or personal credentials. Readiness and review-package summaries report
 only sanitized provider profile names, whether a command is configured, model
 names, and token-price numbers.
 
-The first approved provider profile direction is Google-only. When explicitly
+The earlier approved provider profile direction was Google-only. For jobs still explicitly
 configured outside the repository, `cheap_independent` should use a supported
 Gemini Flash or Flash-Lite class model for routine PRs. `strong_independent`
 and any enabled `tie_breaker` profile should use a specific stable Gemini

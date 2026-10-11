@@ -67,7 +67,8 @@ import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } 
 import { writeRecentSummary, writeRunSummary } from "./lib/summary-writer.mjs";
 import { reviewerReadinessSummary } from "./lib/reviewer-policy.mjs";
 import { createLargeCandidateRoutingState, loadLargeCandidateRoutingState, persistCumulativeLargeCandidateReview, persistLargeCandidateSplitDecision, structuredLargeCandidateFindings, structuredLargeCandidateManualVerdict } from "./lib/large-candidate-review-routing.mjs";
-import { runGeminiIntegratedReview, runGeminiReviewerSmokeTest } from "./lib/gemini-reviewer.mjs";
+import { runIndependentIntegratedReview, runIndependentReviewerSmokeTest, independentReviewerProvider } from "./lib/independent-reviewer.mjs";
+import { runCodexReviewInWorker } from "./lib/parallel-local-review.mjs";
 import { runReviewFixCanaryFixtureReview } from "./lib/review-fix-fixture.mjs";
 import {
   accountConvergenceEvent,
@@ -193,7 +194,7 @@ export async function main() {
     const config = loadConfig({ dryRun: false, run: false, configPath: cliArgs.configPath }, { outageResubmissionObserverAvailable: true });
     const packageText = readFileSync(cliArgs.reviewPackage, "utf8");
     const parsedPackage = JSON.parse(packageText);
-    const result = await runGeminiIntegratedReview(config, {
+    const result = await runIndependentIntegratedReview(config, {
       packagePath: cliArgs.reviewPackage,
       summary: parsedPackage.summary || parsedPackage,
       diff: parsedPackage.diff || "",
@@ -217,11 +218,11 @@ export async function main() {
   }
   if (cliArgs.reviewerSmokeTest) {
     const config = loadConfig(cliArgs, { outageResubmissionObserverAvailable: true });
-    const result = await runGeminiReviewerSmokeTest(config, {
+    const result = await runIndependentReviewerSmokeTest(config, {
       liveExternalReviewerCalls: cliArgs.liveExternalReviewerCalls,
       tierId: cliArgs.reviewerSmokeTier || config.reviewerSmokeTest?.tier,
     });
-    console.error(`Gemini reviewer smoke test: ${result.status} (${result.reason})`);
+    console.error(`${result.provider === "gemini" ? "Gemini" : result.provider === "grok" ? "Grok" : "Independent"} reviewer smoke test: ${result.status} (${result.reason})`);
     console.error(`Smoke report: ${result.reportPath}`);
     console.log(JSON.stringify(result, null, 2));
     process.exitCode =
@@ -1196,7 +1197,20 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   });
   iteration.phase = "external_review";
   checkpoint(iteration);
-  iteration.externalReview = await runIntegratedReviewSource(config, iteration.reviewPackage, "pre-fix");
+  if (independentReviewerProvider(config, iteration.reviewPackage) === "grok") {
+    const packageForCodex = { ...iteration.reviewPackage, sessionLifecycle: iteration.sessionLifecycle || iteration.issue?.sessionLifecycle || null };
+    [iteration.externalReview, iteration.review] = await Promise.all([
+      runIntegratedReviewSource(config, iteration.reviewPackage, "pre-fix"),
+      runCodexReviewInWorker(config, packageForCodex),
+    ]);
+    if (iteration.review?.sessionLifecycle) {
+      iteration.sessionLifecycle = iteration.review.sessionLifecycle;
+      issue.sessionLifecycle = iteration.review.sessionLifecycle;
+      if (promptInfo.sessionLifecycle) promptInfo.sessionLifecycle = { ...promptInfo.sessionLifecycle, state: iteration.review.sessionLifecycle };
+    }
+  } else {
+    iteration.externalReview = await runIntegratedReviewSource(config, iteration.reviewPackage, "pre-fix");
+  }
   iteration.phase = "external_review_complete";
   iteration.reviewMutationGuard = compareFingerprints(beforeReview, await checkoutFingerprint());
   checkpoint(iteration);
@@ -1248,7 +1262,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       validation: iteration.validation,
       report: iteration.report,
       externalReview: iteration.externalReview,
-      review: null,
+      review: iteration.review || null,
       attemptCount: iteration.reviewConvergenceState?.sourceChangingCycle ?? 0,
       reviewConvergenceState: iteration.reviewConvergenceState,
       diagnosticAuthorization: iteration.reviewConvergenceBudget?.diagnosticAuthorization,
@@ -1267,7 +1281,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         config,
         issue,
         iteration.outcome,
-        `Auto-runner did not open a PR for #${issue.number} because integrated Gemini pre-PR review returned ${iteration.externalReview.reason}. Review-fix status: ${fixAttempt.reason}.`,
+        `Auto-runner did not open a PR for #${issue.number} because independent pre-PR review returned ${iteration.externalReview.reason}. Review-fix status: ${fixAttempt.reason}.`,
       );
       recoveryRecorder?.attempt("review_fix_safe", "external_review_blocked", fixAttempt.reason);
       recoveryRecorder?.stop("external_review_fix_not_proceeded", fixAttempt.reason, "create_or_reuse_followup_or_escalate");
@@ -4417,8 +4431,12 @@ function createLivePrStackReviewAdapters(config) {
       };
     },
     runCodexReview: async ({ pr, changedFiles, validation, externalReview, headSha, baseSha, fullCandidatePrDelta, sessionLifecycle = null }) => {
-      const reviewPackage = await buildPackage({ reviewPhase: "pr-stack-final-codex-exact-head", pr, changedFiles, validation, headSha, baseSha, fullCandidatePrDelta, externalReview });
-      const review = runReviewPrompt(config, { ...reviewPackage, sessionLifecycle });
+      const grokConfigured = config.reviewerTiers?.strong_independent?.provider === "grok";
+      const reviewPackage = await buildPackage({ reviewPhase: "pr-stack-final-codex-exact-head", pr, changedFiles, validation, headSha, baseSha, fullCandidatePrDelta,
+        ...(grokConfigured ? {} : { externalReview }) });
+      const review = grokConfigured
+        ? await runCodexReviewInWorker(config, { ...reviewPackage, sessionLifecycle })
+        : runReviewPrompt(config, { ...reviewPackage, sessionLifecycle });
       return {
         ...review,
         reviewedHead: review.reviewedHead || headSha,
@@ -4843,13 +4861,20 @@ async function commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDeci
     diffBaseRef: "origin/main",
     diffHeadRef: "HEAD",
   });
-  const externalReview = await runIntegratedReviewSource(config, reviewPackage, "post-review-fix-exact-head");
+  const parallelGrok = independentReviewerProvider(config, reviewPackage) === "grok";
+  const parallelReviews = parallelGrok ? Promise.all([
+    runIntegratedReviewSource(config, reviewPackage, "post-review-fix-exact-head"),
+    runCodexReviewInWorker(config, { ...reviewPackage, sessionLifecycle: issue.sessionLifecycle || promptInfo?.sessionLifecycle?.state || null }),
+  ]) : null;
+  const [externalReview, parallelCodexReview] = parallelReviews
+    ? await parallelReviews
+    : [await runIntegratedReviewSource(config, reviewPackage, "post-review-fix-exact-head"), null];
   const afterExternalReview = await checkoutFingerprint();
   const externalReviewMutationGuard = compareFingerprints(beforeReview, afterExternalReview);
   if (externalReviewMutationGuard.mutationDetected) {
     return { changedFiles, forbiddenChangedFiles, validation, commit, runnerCreatedCommitSha, reviewPackage, externalReview, review: { verdict: { verdict: "unable_to_review" } }, reviewMutationGuard: externalReviewMutationGuard };
   }
-  const review = runReviewPrompt(config, { ...reviewPackage, sessionLifecycle: issue.sessionLifecycle || promptInfo?.sessionLifecycle?.state || null });
+  const review = parallelCodexReview || runReviewPrompt(config, { ...reviewPackage, sessionLifecycle: issue.sessionLifecycle || promptInfo?.sessionLifecycle?.state || null });
   if (review.sessionLifecycle) {
     issue.sessionLifecycle = review.sessionLifecycle;
     if (promptInfo?.sessionLifecycle) promptInfo.sessionLifecycle = { ...promptInfo.sessionLifecycle, state: review.sessionLifecycle };
@@ -5141,7 +5166,7 @@ async function runIntegratedReviewSource(config, reviewPackage, phase) {
       reviewedHead: config.dryRun ? null : getRefSha("HEAD"),
     });
   }
-  return runGeminiIntegratedReview(config, reviewPackage);
+  return runIndependentIntegratedReview(config, reviewPackage);
 }
 
 async function certifyNormalCumulativeLargeReview(config, iteration, changedFiles) {
@@ -5256,10 +5281,10 @@ function convergenceFinding(finding) {
 
 async function runNormalStructuredReviewCall(config, reviewPackage, provider, structuredReview, sessionLifecycle) {
   const scopedPackage = { ...reviewPackage, summary: { ...reviewPackage.summary, structuredReview: { phase: structuredReview.phase, sectionId: structuredReview.section?.id || null, changedPaths: structuredReview.section?.changedPaths || [], sections: (structuredReview.sections || []).map((entry) => ({ id: entry.id, status: entry.status, findings: (entry.findings || []).slice(0, 20) })), coverageSections: structuredReview.manifest.sections.map((entry) => ({ id: entry.id, changedPaths: entry.changedPaths })), manifestDigest: structuredReview.manifest.manifestDigest } } };
-  const evidence = provider === "gemini" ? await runIntegratedReviewSource(config, scopedPackage, `large-${structuredReview.phase}`) : runReviewPrompt(config, { ...scopedPackage, sessionLifecycle });
-  const pass = provider === "gemini" ? evidence?.status === "pass" && evidence?.verdict === "pass" : evidence?.verdict?.verdict === "approve";
+  const evidence = provider !== "codex-local" ? await runIntegratedReviewSource(config, scopedPackage, `large-${structuredReview.phase}`) : runReviewPrompt(config, { ...scopedPackage, sessionLifecycle });
+  const pass = provider !== "codex-local" ? evidence?.status === "pass" && evidence?.verdict === "pass" : evidence?.verdict?.verdict === "approve";
   const reasonCode = evidence?.reason || evidence?.reviewFailureReason || null;
-  const reviewerVerdict = provider === "gemini" ? evidence?.verdict || evidence?.sanitizedResponseSummary?.verdict : evidence?.verdict?.verdict;
+  const reviewerVerdict = provider !== "codex-local" ? evidence?.verdict || evidence?.sanitizedResponseSummary?.verdict : evidence?.verdict?.verdict;
   return { ...(structuredReview.section ? { id: structuredReview.section.id } : {}), status: pass ? "pass" : "blocked", reviewerVerdict, manifestDigest: structuredReview.manifest.manifestDigest, findings: normalStructuredFindings(evidence), evidencePath: evidence?.reportPath || evidence?.logPath || null, reasonCode, contextLimited: /context|token|truncat|over.?budget/i.test(reasonCode || ""), attestationSource: evidence?.attestationSource, providerPromptBindingDigest: evidence?.providerPromptBindingDigest, attestedCandidateIdentity: evidence?.attestedCandidateIdentity, attestedIntegrationBoundaries: evidence?.attestedIntegrationBoundaries, nextSessionLifecycle: evidence?.sessionLifecycle || null };
 }
 

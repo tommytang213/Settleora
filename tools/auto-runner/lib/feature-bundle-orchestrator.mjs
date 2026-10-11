@@ -32,7 +32,8 @@ import { collectReport } from "./report-collector.mjs";
 import { bindValidationEvidence, planValidation, runValidationPlan } from "./validation-planner.mjs";
 import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } from "./pr-manager.mjs";
 import { hktTimestamp, safeTimestamp, slugify } from "./logger.mjs";
-import { runGeminiIntegratedReview } from "./gemini-reviewer.mjs";
+import { runIndependentIntegratedReview, independentReviewerProvider } from "./independent-reviewer.mjs";
+import { runCodexReviewInWorker } from "./parallel-local-review.mjs";
 import { reviewerReadinessSummary } from "./reviewer-policy.mjs";
 import { persistCumulativeLargeCandidateReview, persistLargeCandidateSplitDecision, structuredLargeCandidateFindings, structuredLargeCandidateManualVerdict } from "./large-candidate-review-routing.mjs";
 import { createProductionSplitMaterializationAdapter, materializeFeatureBundleSplit, readSplitMaterializationState } from "./feature-bundle-split-materializer.mjs";
@@ -347,7 +348,14 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   });
   const reviewFingerprintBefore = captureBundleReviewCheckoutFingerprint(config);
   checkpoint("feature_bundle_external_review", { validation: result.validation });
-  result.externalReview = await runGeminiIntegratedReview(config, result.reviewPackage);
+  if (independentReviewerProvider(config, result.reviewPackage) === "grok") {
+    [result.externalReview, result.review] = await Promise.all([
+      runIndependentIntegratedReview(config, result.reviewPackage),
+      runCodexReviewInWorker(config, { ...result.reviewPackage, sessionLifecycle }),
+    ]);
+  } else {
+    result.externalReview = await runIndependentIntegratedReview(config, result.reviewPackage);
+  }
   checkpoint("feature_bundle_external_review_complete", { externalReview: result.externalReview });
   const externalReviewMutationGuard = compareBundleReviewCheckoutFingerprint(reviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
     phase: "bundle_external_review",
@@ -402,7 +410,7 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   const codexReviewFingerprintBefore = captureBundleReviewCheckoutFingerprint(config);
   recovery?.advance("codex_mechanics_security_review", "run_bundle_codex_review");
   checkpoint("feature_bundle_local_codex_review", { externalReview: result.externalReview });
-  result.review = runReviewPrompt(config, { ...result.reviewPackage, sessionLifecycle });
+  result.review ||= runReviewPrompt(config, { ...result.reviewPackage, sessionLifecycle });
   checkpoint("feature_bundle_local_codex_review_complete", { review: result.review });
   if (result.review.sessionLifecycle) {
     sessionLifecycle = result.review.sessionLifecycle;
@@ -1017,7 +1025,13 @@ async function commitBundleReviewFixAndRerunExactHeadReviews(config, { issue, la
     baseSha,
   });
   const externalReviewFingerprintBefore = captureBundleReviewCheckoutFingerprint(config);
-  const externalReview = await runGeminiIntegratedReview(config, reviewPackage);
+  const parallelReviews = independentReviewerProvider(config, reviewPackage) === "grok"
+    ? Promise.all([runIndependentIntegratedReview(config, reviewPackage),
+      runCodexReviewInWorker(config, { ...reviewPackage, sessionLifecycle: fixAttempt.sessionLifecycle || sessionLifecycle || null })])
+    : null;
+  const [externalReview, parallelCodexReview] = parallelReviews
+    ? await parallelReviews
+    : [await runIndependentIntegratedReview(config, reviewPackage), null];
   const externalReviewMutationGuard = compareBundleReviewCheckoutFingerprint(externalReviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
     phase: "bundle_convergence_external_review",
   });
@@ -1035,7 +1049,7 @@ async function commitBundleReviewFixAndRerunExactHeadReviews(config, { issue, la
     };
   }
   const codexReviewFingerprintBefore = captureBundleReviewCheckoutFingerprint(config);
-  const review = runReviewPrompt(config, { ...reviewPackage, sessionLifecycle: fixAttempt.sessionLifecycle || sessionLifecycle || null });
+  const review = parallelCodexReview || runReviewPrompt(config, { ...reviewPackage, sessionLifecycle: fixAttempt.sessionLifecycle || sessionLifecycle || null });
   const codexReviewMutationGuard = compareBundleReviewCheckoutFingerprint(codexReviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
     phase: "bundle_convergence_codex_review",
   });
@@ -1095,11 +1109,11 @@ function bundleIntegrationBoundaryMaterial(repoRoot, paths) {
 
 async function runBundleStructuredReviewCall(config, reviewPackage, provider, structuredReview, sessionLifecycle = null, onLifecycle = null) {
   const scopedPackage = { ...reviewPackage, summary: { ...reviewPackage.summary, structuredReview: { phase: structuredReview.phase, sectionId: structuredReview.section?.id || null, changedPaths: structuredReview.section?.changedPaths || [], sections: (structuredReview.sections || []).map((entry) => ({ id: entry.id, status: entry.status, findings: (entry.findings || []).slice(0, 20) })), coverageSections: structuredReview.manifest.sections.map((entry) => ({ id: entry.id, changedPaths: entry.changedPaths })), manifestDigest: structuredReview.manifest.manifestDigest } } };
-  const evidence = provider === "gemini" ? await runGeminiIntegratedReview(config, scopedPackage) : runReviewPrompt(config, { ...scopedPackage, sessionLifecycle });
+  const evidence = provider !== "codex-local" ? await runIndependentIntegratedReview(config, scopedPackage) : runReviewPrompt(config, { ...scopedPackage, sessionLifecycle });
   if (evidence?.sessionLifecycle && onLifecycle) onLifecycle(evidence.sessionLifecycle);
-  const pass = provider === "gemini" ? evidence?.status === "pass" && evidence?.verdict === "pass" : evidence?.verdict?.verdict === "approve";
+  const pass = provider !== "codex-local" ? evidence?.status === "pass" && evidence?.verdict === "pass" : evidence?.verdict?.verdict === "approve";
   const reasonCode = evidence?.reason || evidence?.reviewFailureReason || null;
-  const reviewerVerdict = provider === "gemini" ? evidence?.verdict || evidence?.sanitizedResponseSummary?.verdict : evidence?.verdict?.verdict;
+  const reviewerVerdict = provider !== "codex-local" ? evidence?.verdict || evidence?.sanitizedResponseSummary?.verdict : evidence?.verdict?.verdict;
   return { ...(structuredReview.section ? { id: structuredReview.section.id } : {}), status: pass ? "pass" : "blocked", reviewerVerdict, manifestDigest: structuredReview.manifest.manifestDigest, findings: bundleStructuredFindings(evidence), evidencePath: evidence?.reportPath || evidence?.logPath || null, reasonCode, contextLimited: /context|token|truncat|over.?budget/i.test(reasonCode || ""), attestationSource: evidence?.attestationSource, providerPromptBindingDigest: evidence?.providerPromptBindingDigest, attestedCandidateIdentity: evidence?.attestedCandidateIdentity, attestedIntegrationBoundaries: evidence?.attestedIntegrationBoundaries };
 }
 

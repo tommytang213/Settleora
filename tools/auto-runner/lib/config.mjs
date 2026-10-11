@@ -169,6 +169,11 @@ export const defaultConfig = Object.freeze({
   reviewerTiers: defaultReviewerTiers,
   reviewerBudget: defaultReviewerBudget,
   reviewerProviderProfiles: {
+    grok: {
+      provider: "grok",
+      command: "/home/tommytang213/.local/bin/grok",
+      defaultModel: "grok-4.7",
+    },
     gemini: {
       provider: "gemini",
       apiKeyEnv: "GEMINI_API_KEY",
@@ -1022,6 +1027,7 @@ export function validateRecoveryOnlyExactHeadEvidence(config = {}, recoveryConfi
     Array.isArray(evidence.geminiChangedFiles),
     isNonEmptyString(evidence.geminiChangedFilesDigest || evidence.changedFilesDigest),
     isNonEmptyString(evidence.geminiProvider),
+    config.reviewerTiers?.strong_independent?.provider !== "grok" || evidence.geminiProvider === "grok",
     isNonEmptyString(evidence.geminiTier),
     isNonEmptyString(evidence.geminiCompletedAt || evidence.completedAt),
     evidence.codexMechanicsApproved === true,
@@ -1690,8 +1696,15 @@ function normalizeReviewerProviderProfiles(profiles = {}) {
     if (profile.endpoint || profile.baseUrl || profile.url) {
       throw new Error(`Reviewer provider profile ${profileId} must not configure arbitrary endpoints`);
     }
-    if (profile.provider !== "gemini") {
+    if (profile.provider !== "gemini" && profile.provider !== "grok") {
       throw new Error(`Unsupported reviewer provider for profile ${profileId}: ${profile.provider}`);
+    }
+    if (profile.provider === "grok") {
+      if (profile.apiKeyEnv || profile.envFilePath) throw new Error(`Grok profile ${profileId} must use subscriber login, not an API key`);
+      const command = profile.command || "/home/tommytang213/.local/bin/grok";
+      if (command !== "/home/tommytang213/.local/bin/grok") throw new Error(`Grok profile ${profileId} must use the pinned user-local CLI`);
+      normalized[profileId] = { provider: "grok", command, defaultModel: profile.defaultModel || "grok-4.7" };
+      continue;
     }
     normalized[profileId] = {
       provider: "gemini",

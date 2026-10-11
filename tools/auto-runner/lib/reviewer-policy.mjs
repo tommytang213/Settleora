@@ -120,12 +120,12 @@ export function mergeReviewerTiers(tiers = {}) {
       provider: tier.provider ?? defaultReviewerTiers[tierId].provider,
       providerProfile: String(tier.providerProfile ?? defaultReviewerTiers[tierId].providerProfile),
       model: normalizeModelIdentifier(tier.model ?? defaultReviewerTiers[tierId].model),
-      inputUsdPerMillionTokens: tierId === "codex_mechanics" ? nonNegativeNumber(
+      inputUsdPerMillionTokens: tierId === "codex_mechanics" || tier.provider === "grok" ? nonNegativeNumber(
         tier.inputUsdPerMillionTokens ?? defaultReviewerTiers[tierId].inputUsdPerMillionTokens,
       ) : positiveNumber(
         tier.inputUsdPerMillionTokens ?? defaultReviewerTiers[tierId].inputUsdPerMillionTokens,
       ),
-      outputUsdPerMillionTokens: tierId === "codex_mechanics" ? nonNegativeNumber(
+      outputUsdPerMillionTokens: tierId === "codex_mechanics" || tier.provider === "grok" ? nonNegativeNumber(
         tier.outputUsdPerMillionTokens ?? defaultReviewerTiers[tierId].outputUsdPerMillionTokens,
       ) : positiveNumber(
         tier.outputUsdPerMillionTokens ?? defaultReviewerTiers[tierId].outputUsdPerMillionTokens,
@@ -466,11 +466,10 @@ export function reviewerReadinessSummary(config, sample = {}) {
         outputUsdPerMillionTokens: selectedTier.outputUsdPerMillionTokens,
       })
     : 0;
-  const budget = evaluateReviewerBudget({
-    reviewerBudget,
-    currentMonthlySpendUsd: accounting.currentMonthlySpendUsd,
-    estimatedCostUsd,
-  });
+  const budget = selectedTier?.provider === "grok"
+    ? { block: false, warn: false, subscriptionFunded: true, meteredApiCalls: false }
+    : evaluateReviewerBudget({ reviewerBudget,
+      currentMonthlySpendUsd: accounting.currentMonthlySpendUsd, estimatedCostUsd });
   return {
     tiers: Object.fromEntries(
       Object.entries(reviewerTiers).map(([tierId, tier]) => [
@@ -495,7 +494,8 @@ export function reviewerReadinessSummary(config, sample = {}) {
     },
     sampleRoute: {
       ...route,
-      selectedTierConfigured: Boolean(selectedTier?.enabled && selectedTier?.command),
+      selectedTierConfigured: Boolean(selectedTier?.enabled && (selectedTier?.command ||
+        (selectedTier.provider === "grok" && config.reviewerProviderProfiles?.[selectedTier.providerProfile]?.command))),
       estimatedCostUsd,
     },
   };

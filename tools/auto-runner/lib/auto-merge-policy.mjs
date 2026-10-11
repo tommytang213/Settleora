@@ -180,6 +180,9 @@ export function evaluateExistingPrRecoveryDecision(input) {
   if (!evidence.codexMechanicsApproved) {
     return block("existing_pr_recovery_missing_codex_mechanics_evidence");
   }
+  if (config.reviewerTiers?.strong_independent?.provider === "grok" && evidence.geminiProvider !== "grok") {
+    return block("existing_pr_recovery_independent_provider_mismatch");
+  }
   if (evidence.headSha && evidence.headSha !== result.prHeadSha) return block("existing_pr_recovery_evidence_head_mismatch");
   if (evidence.geminiPass && evidence.geminiHeadSha && evidence.geminiHeadSha !== result.prHeadSha) {
     return block("existing_pr_recovery_gemini_head_mismatch");

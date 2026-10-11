@@ -124,31 +124,31 @@
   },
   "reviewerTiers": {
     "cheap_independent": {
-      "enabled": false,
-      "provider": "gemini",
-      "providerProfile": "gemini-cheap",
+      "enabled": true,
+      "provider": "grok",
+      "providerProfile": "grok",
       "command": null,
-      "model": "gemini-2.5-flash-lite",
-      "inputUsdPerMillionTokens": 0.1,
-      "outputUsdPerMillionTokens": 0.4
+      "model": "grok-4.7",
+      "inputUsdPerMillionTokens": 0,
+      "outputUsdPerMillionTokens": 0
     },
     "strong_independent": {
-      "enabled": false,
-      "provider": "gemini",
-      "providerProfile": "gemini-strong",
+      "enabled": true,
+      "provider": "grok",
+      "providerProfile": "grok",
       "command": null,
-      "model": "gemini-3.5-flash",
-      "inputUsdPerMillionTokens": 1.5,
-      "outputUsdPerMillionTokens": 9
+      "model": "grok-4.7",
+      "inputUsdPerMillionTokens": 0,
+      "outputUsdPerMillionTokens": 0
     },
     "tie_breaker": {
-      "enabled": false,
-      "provider": "gemini",
-      "providerProfile": "gemini-strong",
+      "enabled": true,
+      "provider": "grok",
+      "providerProfile": "grok",
       "command": null,
-      "model": "gemini-3.5-flash",
-      "inputUsdPerMillionTokens": 1.5,
-      "outputUsdPerMillionTokens": 9
+      "model": "grok-4.7",
+      "inputUsdPerMillionTokens": 0,
+      "outputUsdPerMillionTokens": 0
     },
     "codex_mechanics": {
       "enabled": true,
@@ -161,6 +161,11 @@
     }
   },
   "reviewerProviderProfiles": {
+    "grok": {
+      "provider": "grok",
+      "command": "/home/tommytang213/.local/bin/grok",
+      "defaultModel": "grok-4.7"
+    },
     "gemini": {
       "provider": "gemini",
       "apiKeyEnv": "GEMINI_API_KEY",

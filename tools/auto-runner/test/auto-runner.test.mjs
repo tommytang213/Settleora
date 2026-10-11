@@ -2584,19 +2584,22 @@ test("integrated Gemini provider 404 blocks without fallback and stays sanitized
   }
 });
 
-test("runner example strong Gemini model and pricing stay synchronized", () => {
+test("runner example pins subscription-funded Grok while retaining legacy Gemini profile", () => {
   const example = JSON.parse(readFileSync(path.join(process.cwd(), "tools/auto-runner/runner-config.example.json"), "utf8"));
   const strong = example.reviewerTiers.strong_independent;
   const tieBreaker = example.reviewerTiers.tie_breaker;
-  const strongProfile = example.reviewerProviderProfiles["gemini-strong"];
+  const strongProfile = example.reviewerProviderProfiles.grok;
   for (const tier of [strong, tieBreaker]) {
-    assert.equal(tier.model, "gemini-3.5-flash");
-    assert.equal(tier.inputUsdPerMillionTokens, 1.5);
-    assert.equal(tier.outputUsdPerMillionTokens, 9);
+    assert.equal(tier.provider, "grok");
+    assert.equal(tier.providerProfile, "grok");
+    assert.equal(tier.model, "grok-4.7");
+    assert.equal(tier.inputUsdPerMillionTokens, 0);
+    assert.equal(tier.outputUsdPerMillionTokens, 0);
     assert.doesNotMatch(tier.model, /latest|preview|experimental/i);
   }
-  assert.equal(strongProfile.defaultModel, "gemini-3.5-flash");
-  assert.equal(resolveGeminiModelEndpoint(strong.model), supportedGeminiModelEndpoints["gemini-3.5-flash"]);
+  assert.equal(strongProfile.command, "/home/tommytang213/.local/bin/grok");
+  assert.equal(strongProfile.defaultModel, "grok-4.7");
+  assert.equal(example.reviewerProviderProfiles["gemini-strong"].defaultModel, "gemini-3.5-flash");
 });
 
 test("integrated Gemini retry count and delay are bounded even with pathological config", async () => {
