@@ -45,6 +45,8 @@ test("recovery keeps its recorded independent reviewer across configuration chan
   assert.equal(resolveRecoveredReviewerProviderPin(grokConfig, {}).reason, "recovery_reviewer_provider_pin_missing");
   assert.deepEqual(resolveRecoveredReviewerProviderPin(geminiConfig, {}), { ok: true, provider: "gemini" });
   assert.equal(resolveRecoveredReviewerProviderPin(geminiConfig, { reviewerProviderPin: "grok" }).reason, "recovery_reviewer_provider_pin_mismatch");
+  const mixedTiers = { reviewerProviderPin: "grok", reviewerTiers: { strong_independent: { provider: "gemini", enabled: false }, cheap_independent: { provider: "grok", enabled: true } } };
+  assert.deepEqual(resolveRecoveredReviewerProviderPin(mixedTiers, { reviewerProviderPin: "grok" }), { ok: true, provider: "grok" });
 });
 
 test("Grok verdict parser accepts one bounded JSON object after CLI preface", () => {
@@ -158,15 +160,22 @@ test("three fixed feature-bundle gate files clear package preflight", async () =
     } }, reviewerProviderProfiles: { grok: { provider: "grok", command: "grok" } } };
     const diff = "diff --git a/docs/workflow/example.md b/docs/workflow/example.md\nnew file mode 100644\n--- /dev/null\n+++ b/docs/workflow/example.md\n@@ -0,0 +1 @@\n+Synthetic.\n";
     const result = await runGrokIntegratedReview(config, { summary: { baseSha: "a".repeat(40), currentHead: "b".repeat(40),
-      changedFiles: ["docs/workflow/example.md"], laneDecision: { lane: "workflow-docs-tooling", reviewerTier: "strong_independent" },
+      changedFiles: ["docs/workflow/example.md"], taskContract: { objective: "Review synthetic docs" },
+      laneDecision: { lane: "workflow-docs-tooling", reviewerTier: "strong_independent" },
       integrationBoundaries: paths, integrationBoundaryMaterial: material }, diff },
     { spawnImpl: () => { throw Error("preflight completed"); } });
     assert.equal(result.reason, "blocked_grok_invocation:Error");
+    const omitted = await runGrokIntegratedReview(config, { summary: { baseSha: "a".repeat(40), currentHead: "b".repeat(40),
+      changedFiles: ["docs/workflow/example.md"], taskContract: { objective: "Review synthetic docs" },
+      laneDecision: { lane: "workflow-docs-tooling", reviewerTier: "strong_independent" } }, diff },
+    { spawnImpl: () => { throw Error("must not spawn"); } });
+    assert.equal(omitted.reason, "blocked_grok_boundary_material_invalid_or_sensitive");
     const unsafeContent = ["token=", "not-a-real-value-12345"].join("");
     const unsafe = { ...material[0], content: unsafeContent,
       sha256: createHash("sha256").update(unsafeContent).digest("hex") };
     const blocked = await runGrokIntegratedReview(config, { summary: { baseSha: "a".repeat(40), currentHead: "b".repeat(40),
-      changedFiles: ["docs/workflow/example.md"], laneDecision: { lane: "workflow-docs-tooling", reviewerTier: "strong_independent" },
+      changedFiles: ["docs/workflow/example.md"], taskContract: { objective: "Review synthetic docs" },
+      laneDecision: { lane: "workflow-docs-tooling", reviewerTier: "strong_independent" },
       integrationBoundaries: paths, integrationBoundaryMaterial: [unsafe, ...material.slice(1)] }, diff },
     { spawnImpl: () => { throw Error("must not spawn"); } });
     assert.equal(blocked.reason, "blocked_grok_boundary_material_invalid_or_sensitive");
@@ -210,18 +219,18 @@ test("integrated Grok adapter accepts only a complete screened and head-bound re
       cheap_independent: { enabled: true, provider: "grok", providerProfile: "grok", model: "grok-4.7", inputUsdPerMillionTokens: 0, outputUsdPerMillionTokens: 0 },
       strong_independent: { enabled: true, provider: "grok", providerProfile: "grok", model: "grok-4.7", inputUsdPerMillionTokens: 0, outputUsdPerMillionTokens: 0 },
     }, reviewerProviderProfiles: { grok: { provider: "grok", command: "/home/tommytang213/.local/bin/grok", defaultModel: "grok-4.7" } } };
+    const boundaryPaths = ["tools/auto-runner/settleora-auto-runner.mjs", "tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"];
     const summary = { repository: "tommytang213/Settleora", baseSha: "a".repeat(40), currentHead: "b".repeat(40),
       changedFiles: ["src/example.js"], laneDecision: { lane: "workflow-docs-tooling", reviewerTier: "cheap_independent" },
-      validation: { passed: true }, integrationBoundaryMaterial: [{
-        path: "tools/auto-runner/lib/auto-merge-policy.mjs", content: "// Read-only gate fixture\n",
-        sha256: createHash("sha256").update("// Read-only gate fixture\n").digest("hex"),
-      }] };
+      validation: { passed: true }, taskContract: { objective: "Review synthetic change" }, integrationBoundaries: boundaryPaths,
+      integrationBoundaryMaterial: boundaryPaths.map((sourcePath) => ({ path: sourcePath, content: "// Read-only gate fixture\n",
+        sha256: createHash("sha256").update("// Read-only gate fixture\n").digest("hex") })) };
     const diff = "diff --git a/src/example.js b/src/example.js\n--- a/src/example.js\n+++ b/src/example.js\n@@ -1 +1 @@\n-old\n+new\n";
     const spawnImpl = (_binary, args) => {
       const staged = args[args.indexOf("--cwd") + 1];
       assert.doesNotMatch(readFileSync(path.join(staged, "context.json"), "utf8"), /Read-only gate fixture/);
       const events = [];
-      for (const [index, name] of ["context.json", "snapshot.diff", "boundary-0.txt"].entries()) {
+      for (const [index, name] of ["context.json", "snapshot.diff", "boundary-0.txt", "boundary-1.txt", "boundary-2.txt"].entries()) {
         const fullPath = path.join(staged, name);
         const lines = readFileSync(fullPath, "utf8").trimEnd().split("\n");
         const id = `read-${index}`;

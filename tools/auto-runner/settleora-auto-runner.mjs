@@ -4707,7 +4707,17 @@ async function runReviewFixCycle(config, context) {
     validation: validationAfter,
     report: context.report,
   });
-  const externalReviewAfter = await runIntegratedReviewSource(config, integratedReviewPackageAfter, "post-fix");
+  const grokPostFix = independentReviewerProvider(config, integratedReviewPackageAfter) === "grok";
+  let externalReviewAfter;
+  let reviewAfter;
+  if (grokPostFix) {
+    [externalReviewAfter, reviewAfter] = await Promise.all([
+      runIntegratedReviewSource(config, integratedReviewPackageAfter, "post-fix"),
+      runCodexReviewInWorker(config, { ...integratedReviewPackageAfter, sessionLifecycle: context.issue.sessionLifecycle || context.sessionLifecycle || null }),
+    ]);
+  } else {
+    externalReviewAfter = await runIntegratedReviewSource(config, integratedReviewPackageAfter, "post-fix");
+  }
   const externalMutationGuardAfter = compareFingerprints(beforeReview, await checkoutFingerprint());
   if (externalMutationGuardAfter.mutationDetected) {
     return finishBlocked("review_fix_post_fix_external_review_mutated_checkout", {
@@ -4723,7 +4733,7 @@ async function runReviewFixCycle(config, context) {
       reviewPackageAfter: { packagePath: integratedReviewPackageAfter.packagePath },
     });
   }
-  const postFixContext = buildPostReviewFixMechanicsContext({
+  const postFixContext = grokPostFix ? null : buildPostReviewFixMechanicsContext({
     issue: context.issue,
     laneDecision: context.laneDecision,
     trigger,
@@ -4736,14 +4746,14 @@ async function runReviewFixCycle(config, context) {
     preFixReport: context.report,
     currentHead: config.dryRun ? null : getRefSha("HEAD"),
   });
-  if (!postFixContext.ok) {
+  if (postFixContext && !postFixContext.ok) {
     return finishBlocked(`review_fix_post_fix_mechanics_context_invalid:${postFixContext.reason}`, {
       validationAfter: summarizeValidation(validationAfter),
       externalReviewAfter: summarizeExternalReview(externalReviewAfter),
       reviewPackageAfter: { packagePath: integratedReviewPackageAfter.packagePath },
     });
   }
-  const reviewPackageAfter = await writeReviewPackage(config, {
+  const reviewPackageAfter = grokPostFix ? integratedReviewPackageAfter : await writeReviewPackage(config, {
     issue: context.issue,
     promptInfo: context.promptInfo,
     laneDecision: context.laneDecision,
@@ -4753,7 +4763,7 @@ async function runReviewFixCycle(config, context) {
     reviewPhase: "post-review-fix-mechanics",
     reviewFixMechanicsContext: postFixContext.context,
   });
-  const reviewAfter = runReviewPrompt(config, { ...reviewPackageAfter, sessionLifecycle: context.issue.sessionLifecycle || context.sessionLifecycle || null });
+  reviewAfter ||= runReviewPrompt(config, { ...reviewPackageAfter, sessionLifecycle: context.issue.sessionLifecycle || context.sessionLifecycle || null });
   if (reviewAfter.sessionLifecycle) {
     context.issue.sessionLifecycle = reviewAfter.sessionLifecycle;
     context.sessionLifecycle = reviewAfter.sessionLifecycle;
@@ -5131,6 +5141,8 @@ function recordPostFixExactHeadEvidence(recoveryRecorder, { validation, external
 }
 
 async function writeReviewPackage(config, payload) {
+  const generatedPrompt = payload.promptInfo?.promptPath && existsSync(payload.promptInfo.promptPath)
+    ? readFileSync(payload.promptInfo.promptPath, "utf8") : null;
   const diff = Object.hasOwn(payload, "diffText")
     ? { text: String(payload.diffText || ""), truncated: false }
     : payload.diffBaseRef || payload.diffHeadRef
@@ -5152,6 +5164,10 @@ async function writeReviewPackage(config, payload) {
       title: payload.issue.title,
       labels: payload.issue.labels,
       url: payload.issue.url,
+    },
+    taskContract: {
+      issueBody: payload.issue.body || null,
+      generatedPrompt,
     },
     taskPromptPath: payload.promptInfo.promptPath,
     laneDecision: payload.laneDecision,

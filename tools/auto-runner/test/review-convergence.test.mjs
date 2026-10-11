@@ -722,6 +722,25 @@ test("sensitive Codex changes-requested safe-fix trigger can enter mutation but 
   assert.equal(extractReviewFixTrigger({ review: { verdict: { verdict: "changes_requested", recommended_next_action: "manual_review", blocking_findings: ["manual"] } } }).actionable, false);
 });
 
+test("either independent reviewer's manual gate blocks a competing safe-fix request", () => {
+  const common = {
+    config: { configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 2 },
+    laneDecision: { lane: "workflow-docs-tooling", allowedToImplement: true, allowedPaths: ["docs/workflow/**"],
+      contract: { autoMergeEligible: true, manualMergeRequired: false } },
+    changedFiles: ["docs/workflow/example.md"], validation: { passed: true },
+    trigger: { actionable: true, findings: ["bounded fix"], source: "codex_mechanics" },
+  };
+  for (const input of [
+    { externalReview: { status: "blocked", verdict: "fail" }, review: { verdict: { verdict: "danger_gate" } } },
+    { externalReview: { status: "blocked", verdict: "danger_gate" }, review: { verdict: { verdict: "changes_requested" } } },
+    { externalReview: { status: "blocked", sanitizedResponseSummary: { verdict: "needs_tommy" } }, review: { verdict: { verdict: "changes_requested" } } },
+  ]) {
+    const decision = evaluateReviewFixMutationDecision({ ...common, ...input });
+    assert.equal(decision.allowed, false);
+    assert.equal(decision.reason, "reviewer_manual_or_danger_gate");
+  }
+});
+
 test("stack controller sequences parent merge, child retarget, delta proof, child merge, and hygiene", () => {
   const pr919 = { number: 919, state: "OPEN", baseRefName: "main", headRefName: "feature/parent", headRefOid: "9".repeat(40) };
   const pr920 = { number: 920, state: "OPEN", baseRefName: "feature/parent", headRefName: "feature/child", headRefOid: "8".repeat(40) };

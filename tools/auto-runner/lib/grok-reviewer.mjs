@@ -95,10 +95,15 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
     currentMonthlySpendUsd: accounting.currentMonthlySpendUsd };
   if (base.budget.block) return finish({ reason: "blocked_reviewer_budget_hard_stop" });
   if (summary.diffTruncated || !diff || !base.reviewedHead || !base.baseSha) return finish({ reason: "blocked_review_package_incomplete" });
+  if (!summary.taskContract || !Object.values(summary.taskContract).some((value) => typeof value === "string" && value.trim())) {
+    return finish({ reason: "blocked_grok_task_contract_missing" });
+  }
   if (!/^grok-[A-Za-z0-9.-]+$/.test(model)) return finish({ reason: "blocked_unsupported_grok_model" });
   const material = summary.integrationBoundaryMaterial || [];
   const requiredBoundaries = Array.isArray(summary.integrationBoundaries) ? summary.integrationBoundaries : [];
-  if (!Array.isArray(material) || material.length > boundaryPaths.size
+  if (!Array.isArray(material) || material.length !== boundaryPaths.size
+    || requiredBoundaries.length !== boundaryPaths.size
+    || [...boundaryPaths].some((sourcePath) => !requiredBoundaries.includes(sourcePath))
     || new Set(material.map((item) => item?.path)).size !== material.length
     || requiredBoundaries.some((sourcePath) => !material.some((item) => item?.path === sourcePath))
     || material.some((item) =>

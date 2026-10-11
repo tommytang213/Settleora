@@ -300,6 +300,12 @@ export function evaluateReviewFixMutationDecision(input) {
   };
   const block = (reason) => ({ ...result, reason });
 
+  if (["needs_tommy", "danger_gate"].includes(input.externalReview?.verdict)
+    || ["needs_tommy", "danger_gate"].includes(input.externalReview?.sanitizedResponseSummary?.verdict)
+    || ["needs_tommy", "danger_gate"].includes(input.review?.verdict?.verdict)) {
+    return block("reviewer_manual_or_danger_gate");
+  }
+
   if (normalized.malformed) return block("review_fix_budget_malformed");
   if (!config.allowReviewFixMutation || !normalized.enabled) return block("review_fix_mutation_disabled_by_config");
   if (!config.configPath) return block("review_fix_requires_external_config");
