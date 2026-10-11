@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { test } from "node:test";
@@ -138,12 +139,16 @@ test("integrated Grok adapter accepts only a complete screened and head-bound re
     }, reviewerProviderProfiles: { grok: { provider: "grok", command: "/home/tommytang213/.local/bin/grok", defaultModel: "grok-4.7" } } };
     const summary = { repository: "tommytang213/Settleora", baseSha: "a".repeat(40), currentHead: "b".repeat(40),
       changedFiles: ["src/example.js"], laneDecision: { lane: "workflow-docs-tooling", reviewerTier: "cheap_independent" },
-      validation: { passed: true } };
+      validation: { passed: true }, integrationBoundaryMaterial: [{
+        path: "tools/auto-runner/lib/auto-merge-policy.mjs", content: "// Read-only gate fixture\n",
+        sha256: createHash("sha256").update("// Read-only gate fixture\n").digest("hex"),
+      }] };
     const diff = "diff --git a/src/example.js b/src/example.js\n--- a/src/example.js\n+++ b/src/example.js\n@@ -1 +1 @@\n-old\n+new\n";
     const spawnImpl = (_binary, args) => {
       const staged = args[args.indexOf("--cwd") + 1];
+      assert.doesNotMatch(readFileSync(path.join(staged, "context.json"), "utf8"), /Read-only gate fixture/);
       const events = [];
-      for (const [index, name] of ["context.json", "snapshot.diff"].entries()) {
+      for (const [index, name] of ["context.json", "snapshot.diff", "boundary-0.txt"].entries()) {
         const fullPath = path.join(staged, name);
         const lines = readFileSync(fullPath, "utf8").trimEnd().split("\n");
         const id = `read-${index}`;

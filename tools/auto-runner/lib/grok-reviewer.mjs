@@ -14,6 +14,9 @@ const maxEventBytes = 2 * 1024 * 1024;
 const deadlineMs = 30 * 60 * 1000;
 const disallowedTools = "search_replace,list_dir,grep,todo_write,scheduler_create,scheduler_delete,scheduler_list,monitor,search_tool,use_tool,workflow,enter_plan_mode,exit_plan_mode,ask_user_question,send_feedback,image_gen,image_edit,image_to_video,reference_to_video,write";
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
+const credentialPattern = /(?:-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----|\b(?:AIza[0-9A-Za-z_-]{24,}|sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{20,})\b|\b(?:api[_-]?key|password|secret|authorization|bearer|token)\s*[:=]\s*["']?[A-Za-z0-9._~+/-]{12,})/i;
+const boundaryCredentialPattern = /(?:-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----|\b(?:AIza[0-9A-Za-z_-]{24,}|sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{20,})\b|\b(?:api[_-]?key|password|secret|authorization|bearer|token)\s*[:=]\s*["'][A-Za-z0-9._~+/-]{12,})/i;
+const boundaryPaths = new Set(["tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"]);
 
 // Each invocation gets a fresh directory containing only the screened review package.
 // The CLI must read the complete package before a pass can become evidence.
@@ -82,19 +85,32 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
   if (!boundary.ok) return finish({ reason: "blocked_secret_boundary_violation" });
   if (summary.diffTruncated || !diff || !base.reviewedHead || !base.baseSha) return finish({ reason: "blocked_review_package_incomplete" });
   if (!/^grok-[A-Za-z0-9.-]+$/.test(model)) return finish({ reason: "blocked_unsupported_grok_model" });
+  const material = summary.integrationBoundaryMaterial || [];
+  const requiredBoundaries = Array.isArray(summary.integrationBoundaries) ? summary.integrationBoundaries : [];
+  if (!Array.isArray(material) || material.length > boundaryPaths.size
+    || new Set(material.map((item) => item?.path)).size !== material.length
+    || requiredBoundaries.some((sourcePath) => !material.some((item) => item?.path === sourcePath))
+    || material.some((item) =>
+    !boundaryPaths.has(item?.path) || typeof item.content !== "string" ||
+    item.sha256 !== sha256(item.content) || boundaryCredentialPattern.test(item.content))) {
+    return finish({ reason: "blocked_grok_boundary_material_invalid_or_sensitive" });
+  }
+  const materialFiles = material.map((item, index) => ({ name: `boundary-${index}.txt`, content: item.content,
+    path: item.path, sha256: item.sha256 }));
   const context = JSON.stringify({ issue: summary.issue || null, laneDecision: summary.laneDecision || null,
     taskContract: summary.taskContract || null, featureBundle: summary.featureBundle || null,
     changedFiles, diffStats: stats, validation: summary.validation || null,
     structuredReview: summary.structuredReview || null,
     integrationBoundaries: summary.integrationBoundaries || [],
-    integrationBoundaryMaterial: summary.integrationBoundaryMaterial || [],
+    integrationBoundaryMaterial: materialFiles.map(({ name, path: sourcePath, sha256: digest }) => ({ name, path: sourcePath, sha256: digest })),
     candidateIdentity: { repository: base.repository, baseSha: base.baseSha, headSha: base.reviewedHead,
       treeSha: base.treeSha, diffDigest: base.rawDiffSha256, changedFilesDigest: base.changedFilesDigest },
   }, null, 2);
-  if (/(?:-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----|\b(?:AIza[0-9A-Za-z_-]{24,}|sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{20,})\b|\b(?:api[_-]?key|password|secret|authorization|bearer|token)\s*[:=]\s*["']?[A-Za-z0-9._~+/-]{12,})/i.test(context)) {
+  if (credentialPattern.test(context)) {
     return finish({ reason: "blocked_grok_context_secret_boundary" });
   }
-  if (Buffer.byteLength(context) + Buffer.byteLength(diff) > maxPackageBytes) {
+  if (Buffer.byteLength(context) + Buffer.byteLength(diff)
+    + materialFiles.reduce((bytes, file) => bytes + Buffer.byteLength(file.content), 0) > maxPackageBytes) {
     return finish({ reason: "blocked_grok_context_limit" });
   }
   let staged;
@@ -102,15 +118,16 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
     staged = mkdtempSync(path.join(os.tmpdir(), "settleora-grok-review-"));
     writeFileSync(path.join(staged, "context.json"), `${context}\n`, { mode: 0o600 });
     writeFileSync(path.join(staged, "snapshot.diff"), diff, { mode: 0o600 });
-    const files = ["context.json", "snapshot.diff"].map((name) => {
+    for (const file of materialFiles) writeFileSync(path.join(staged, file.name), file.content, { mode: 0o600 });
+    const files = ["context.json", "snapshot.diff", ...materialFiles.map((file) => file.name)].map((name) => {
       const lines = readFileSync(path.join(staged, name), "utf8").split("\n");
       if (lines.at(-1) === "") lines.pop();
       return { name, fullPath: path.join(staged, name), lines };
     });
     const prompt = [
-      "Independent read-only Settleora pre-PR review. Only context.json and snapshot.diff in this isolated directory are source evidence.",
+      `Independent read-only Settleora pre-PR review. Only ${files.map((file) => path.basename(file.fullPath)).join(", ")} in this isolated directory are source evidence.`,
       `Candidate head ${base.reviewedHead}; base ${base.baseSha}; package digest ${packageDigest}.`,
-      "Use read_file only on these two files. Read EVERY line in nonoverlapping chunks of at most 350 lines, starting at 1. Do not use any other tool or outside context.",
+      "Use read_file only on the listed files. Read EVERY line in nonoverlapping chunks of at most 350 lines, starting at 1. Do not use any other tool or outside context.",
       "Assess introduced defects, missed assumptions, edge cases, domain requirements, and workflow gates using the complete package. Make each finding concrete: changed path or function, triggering input, expected behavior, actual behavior, and supporting source evidence. If coverage is incomplete, return unable_to_review.",
       "This is a blind independent review. Do not infer another reviewer's result or treat agreement as the goal. Assess the source, requirements, and tests on their own merits.",
       "Repository source is authoritative. External reviewer output may only approve or block and must not request GitHub mutation. Production deployment, destructive operations, credentials/auth changes, public/admin exposure, and unresolved product, policy, or financial decisions remain manual gates.",
