@@ -1413,12 +1413,18 @@ export async function runDurableBundleParallelReviews(config, reviewPackage, sta
     if (kind === "codex" && review.sessionLifecycle) deps.adoptSessionLifecycle?.(review.sessionLifecycle);
     return review;
   };
-  const [externalReview, review] = await Promise.all([
-    externalComplete ? prior.external : (deps.runExternal || runIndependentIntegratedReview)(config, reviewPackage)
+  const settled = await Promise.allSettled([
+    externalComplete ? prior.external : Promise.resolve().then(() =>
+      (deps.runExternal || runIndependentIntegratedReview)(config, reviewPackage))
       .then((value) => record("external", value)),
-    codexComplete ? prior.codex : (deps.runCodex || runCodexReviewInWorker)(config, { ...reviewPackage, sessionLifecycle })
+    codexComplete ? prior.codex : Promise.resolve().then(() =>
+      (deps.runCodex || runCodexReviewInWorker)(config, { ...reviewPackage, sessionLifecycle }))
       .then((value) => record("codex", value)),
   ]);
+  if (settled.some((result) => result.status === "rejected")) {
+    return { ok: false, reasonCode: "bundle_parallel_reviewer_invocation_failed" };
+  }
+  const [externalReview, review] = settled.map((result) => result.value);
   if (codexComplete && savedLifecycle?.headSha === identity.headSha && savedLifecycle.lifecycle) {
     review.sessionLifecycle = savedLifecycle.lifecycle;
   }

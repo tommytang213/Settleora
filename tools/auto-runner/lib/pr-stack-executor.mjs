@@ -4456,10 +4456,14 @@ export async function runDurableStackParallelReviews(config, candidate, runStron
         ? { codexSessionLifecycle: { headSha: identity.headSha, lifecycle: review.sessionLifecycle } } : {}) });
     return review;
   };
-  const [strongReview, codexReview] = await Promise.all([
+  const settled = await Promise.allSettled([
     strongComplete ? saved.strong : Promise.resolve().then(runStrongReview).then((review) => record("strong", review)),
     codexComplete ? saved.codex : Promise.resolve().then(runCodexReview).then((review) => record("codex", review)),
   ]);
+  if (settled.some((result) => result.status === "rejected")) {
+    return fail("stack_parallel_review_invocation_failed", "one or both reviewers failed after both invocations settled");
+  }
+  const [strongReview, codexReview] = settled.map((result) => result.value);
   if (codexComplete && saved.codexSessionLifecycle?.headSha === identity.headSha) {
     codexReview.sessionLifecycle = saved.codexSessionLifecycle.lifecycle;
   }

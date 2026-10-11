@@ -187,8 +187,10 @@ test("interruption between reviewer completions retains the first same-head resu
   assert.equal(both.external.verdict, "needs_tommy");
   assert.equal(both.codex.verdict.verdict, "approve");
   const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
-  assert.match(runner, /runIntegratedReviewSource\(config, iteration\.reviewPackage, "pre-fix"\)\.then\(\(externalReview\) => \{[\s\S]*?persistOrdinaryParallelReviewerCheckpoint/);
-  assert.match(runner, /runCodexReviewInWorker\(config, packageForCodex\)\.then\(\(review\) => \{[\s\S]*?persistOrdinaryParallelReviewerCheckpoint/);
+  assert.match(runner, /Promise\.allSettled\(\[\s*Promise\.resolve\(\)\.then\(\(\) => runIntegratedReviewSource\(config, iteration\.reviewPackage, "pre-fix"\)\)\.then\(\(externalReview\) => \{[\s\S]*?persistOrdinaryParallelReviewerCheckpoint/);
+  assert.match(runner, /Promise\.allSettled\(\[\s*Promise\.resolve\(\)\.then\(\(\) => runIntegratedReviewSource\(config, integratedReviewPackageAfter, "post-fix"\)\)/);
+  assert.match(runner, /Promise\.allSettled\(\[\s*Promise\.resolve\(\)\.then\(\(\) => runIntegratedReviewSource\(config, reviewPackage, "post-review-fix-exact-head"\)\)/);
+  assert.match(runner, /Promise\.resolve\(\)\.then\(\(\) => runCodexReviewInWorker\(config, packageForCodex\)\)\.then\(\(review\) => \{[\s\S]*?persistOrdinaryParallelReviewerCheckpoint/);
 });
 
 test("startup recovery reserves a retry and persists a manual Grok verdict before Codex finishes", () => {
@@ -209,7 +211,7 @@ test("startup recovery reserves a retry and persists a manual Grok verdict befor
     interrupted.evidence.parallelReviewerVerdicts);
   assert.equal(retryReserved.evidence.parallelReviewerVerdicts.attempts, 2);
   const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
-  assert.match(runner, /reserveOrdinaryParallelReviewerAttempt\([\s\S]*?\)\)\.state;[\s\S]*?runIntegratedReviewSource\(config, context\.reviewPackage, "startup-recovery"\)\.then\(\(review\) => \{[\s\S]*?persistReviewer\("external", review\)/);
+  assert.match(runner, /reserveOrdinaryParallelReviewerAttempt\([\s\S]*?\)\)\.state;[\s\S]*?Promise\.resolve\(\)\.then\(\(\) => runIntegratedReviewSource\(config, context\.reviewPackage, "startup-recovery"\)\)\.then\(\(review\) => \{[\s\S]*?persistReviewer\("external", review\)/);
 });
 
 test("recovery ignores saved parallel verdicts after a source-changing fix", () => {
@@ -248,6 +250,7 @@ test("parallel reviewer sessions and manual verdicts are persisted before recove
   assert.match(runner, /if \(iteration\.review\?\.sessionLifecycle\) \{[\s\S]*?recoveryRecorder\?\.annotate\(\{ sessionLifecycle: iteration\.review\.sessionLifecycle \}\)/);
   assert.match(runner, /reserveOrdinaryParallelReviewerAttempt\([\s\S]*?const persistReviewer = \(kind, review\) => \{[\s\S]*?recordOrdinaryParallelReviewerResult\(state, kind, review\)/);
   assert.match(runner, /persistReviewer\("external", review\)[\s\S]*?persistReviewer\("codex", review\)[\s\S]*?const manual = reviewerManualGateOutcome\(context\.externalReview, context\.review\)/);
+  assert.match(runner, /const settled = await Promise\.allSettled\(\[[\s\S]*?ordinary_parallel_reviewer_invocation_failed/);
 });
 
 test("existing PR Grok regeneration checkpoints each reviewer and rejects checkout mutation or failed restore", () => {
@@ -930,7 +933,7 @@ test("ordinary post-fix caller stops on a new manual verdict and carries the wor
     source.indexOf('if (config.requirePrePrReview && config.dryRun'));
   assert.match(initialFix, /if \(fixAttempt\.reviewerManualOutcome\) \{[\s\S]*?iteration\.outcome = fixAttempt\.reviewerManualOutcome;[\s\S]*?return iteration;/);
   const fixCycle = source.slice(source.indexOf("async function runReviewFixCycle"), source.indexOf("async function commitReviewFixAndRerunExactHeadReviews"));
-  assert.ok(fixCycle.indexOf("latestSessionLifecycle = reviewAfter.sessionLifecycle") < fixCycle.indexOf("const externalMutationGuardAfter"));
+  assert.ok(fixCycle.indexOf("latestSessionLifecycle = reviewAfter.sessionLifecycle") < fixCycle.lastIndexOf("const externalMutationGuardAfter"));
   assert.match(fixCycle, /sessionLifecycleState: latestSessionLifecycle/);
   assert.match(source, /-\$\{randomUUID\(\)\}\.json/);
   assert.match(source, /writeFileSync\(packagePath,[^\n]+\{ mode: 0o600, flag: "wx" \}\)/);

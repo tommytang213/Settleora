@@ -1230,19 +1230,31 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   checkpoint(iteration);
   if (independentReviewerProvider(config, iteration.reviewPackage) === "grok") {
     const packageForCodex = { ...iteration.reviewPackage, sessionLifecycle: iteration.sessionLifecycle || iteration.issue?.sessionLifecycle || null };
-    [iteration.externalReview, iteration.review] = await Promise.all([
-      runIntegratedReviewSource(config, iteration.reviewPackage, "pre-fix").then((externalReview) => {
+    const settledReviews = await Promise.allSettled([
+      Promise.resolve().then(() => runIntegratedReviewSource(config, iteration.reviewPackage, "pre-fix")).then((externalReview) => {
         persistOrdinaryParallelReviewerCheckpoint(recoveryRecorder, iteration.runnerCreatedCommitSha,
           externalReview, null, "grok");
         return externalReview;
       }),
-      runCodexReviewInWorker(config, packageForCodex).then((review) => {
+      Promise.resolve().then(() => runCodexReviewInWorker(config, packageForCodex)).then((review) => {
         if (review?.sessionLifecycle) recoveryRecorder?.annotate({ sessionLifecycle: review.sessionLifecycle });
         persistOrdinaryParallelReviewerCheckpoint(recoveryRecorder, iteration.runnerCreatedCommitSha,
           null, review, "grok");
         return review;
       }),
     ]);
+    if (settledReviews.some((result) => result.status === "rejected")) {
+      iteration.reviewMutationGuard = compareFingerprints(beforeReview, await checkoutFingerprint());
+      iteration.outcome = "auto_failed";
+      iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome,
+        `Auto-runner blocked #${issue.number} because parallel reviewer invocation failed.`);
+      recoveryRecorder?.stop(iteration.reviewMutationGuard.mutationDetected
+        ? "external_review_mutated_checkout" : "ordinary_parallel_reviewer_invocation_failed",
+      "Parallel reviewer invocation failed after both reviewers settled.", "stop_fail_closed");
+      iteration.finishedAt = new Date().toISOString();
+      return iteration;
+    }
+    [iteration.externalReview, iteration.review] = settledReviews.map((result) => result.value);
     if (iteration.review?.sessionLifecycle) {
       // Persist the worker's successor before any subsequent GitHub effect.
       recoveryRecorder?.annotate({ sessionLifecycle: iteration.review.sessionLifecycle });
@@ -3069,14 +3081,14 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
         const persistReviewer = (kind, review) => {
           state = writeRecoveryState(config, recordOrdinaryParallelReviewerResult(state, kind, review)).state;
         };
-        [context.externalReview, context.review] = await Promise.all([
+        const settled = await Promise.allSettled([
           externalComplete ? candidateBoundParallel.external
-            : runIntegratedReviewSource(config, context.reviewPackage, "startup-recovery").then((review) => {
+            : Promise.resolve().then(() => runIntegratedReviewSource(config, context.reviewPackage, "startup-recovery")).then((review) => {
               persistReviewer("external", review);
               return review;
             }),
           codexComplete ? candidateBoundParallel.codex
-            : runCodexReviewInWorker(config, { ...context.reviewPackage, sessionLifecycle: state.sessionLifecycle || null }).then((review) => {
+            : Promise.resolve().then(() => runCodexReviewInWorker(config, { ...context.reviewPackage, sessionLifecycle: state.sessionLifecycle || null })).then((review) => {
               if (review?.sessionLifecycle) {
                 state = writeRecoveryState(config, { ...state, sessionLifecycle: review.sessionLifecycle }).state;
                 issue.sessionLifecycle = review.sessionLifecycle;
@@ -3085,6 +3097,10 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
               return review;
             }),
         ]);
+        if (settled.some((result) => result.status === "rejected")) {
+          return { ok: false, reasonCode: "ordinary_parallel_reviewer_invocation_failed" };
+        }
+        [context.externalReview, context.review] = settled.map((result) => result.value);
       } else {
         context.review = null;
         context.externalReview = await runIntegratedReviewSource(config, context.reviewPackage, "startup-recovery");
@@ -5059,10 +5075,17 @@ async function runReviewFixCycle(config, context) {
       changedFiles: changedFilesAfter, validation: validationAfter, report: context.report,
       reviewPhase: "post-review-fix-mechanics", reviewFixMechanicsContext: pendingMechanics.context,
     });
-    [externalReviewAfter, reviewAfter] = await Promise.all([
-      runIntegratedReviewSource(config, integratedReviewPackageAfter, "post-fix"),
-      runCodexReviewInWorker(config, { ...integratedReviewPackageAfter, sessionLifecycle: context.issue.sessionLifecycle || context.sessionLifecycle || null }),
+    const settledReviews = await Promise.allSettled([
+      Promise.resolve().then(() => runIntegratedReviewSource(config, integratedReviewPackageAfter, "post-fix")),
+      Promise.resolve().then(() => runCodexReviewInWorker(config, { ...integratedReviewPackageAfter, sessionLifecycle: context.issue.sessionLifecycle || context.sessionLifecycle || null })),
     ]);
+    if (settledReviews.some((result) => result.status === "rejected")) {
+      const externalMutationGuardAfter = compareFingerprints(beforeReview, await checkoutFingerprint());
+      return finishBlocked(externalMutationGuardAfter.mutationDetected
+        ? "review_fix_post_fix_external_review_mutated_checkout" : "review_fix_post_fix_parallel_reviewer_invocation_failed",
+      { validationAfter: summarizeValidation(validationAfter), externalMutationGuardAfter });
+    }
+    [externalReviewAfter, reviewAfter] = settledReviews.map((result) => result.value);
   } else {
     externalReviewAfter = await runIntegratedReviewSource(config, integratedReviewPackageAfter, "post-fix");
   }
@@ -5280,26 +5303,32 @@ async function commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDeci
     diffHeadRef: "HEAD",
   });
   const parallelGrok = independentReviewerProvider(config, reviewPackage) === "grok";
-  const parallelReviews = parallelGrok ? Promise.all([
-    runIntegratedReviewSource(config, reviewPackage, "post-review-fix-exact-head").then((externalReview) => {
+  const parallelReviews = parallelGrok ? Promise.allSettled([
+    Promise.resolve().then(() => runIntegratedReviewSource(config, reviewPackage, "post-review-fix-exact-head")).then((externalReview) => {
       persistOrdinaryParallelReviewerCheckpoint(recoveryRecorder, runnerCreatedCommitSha,
         externalReview, null, "grok");
       return externalReview;
     }),
-    runCodexReviewInWorker(config, { ...reviewPackage, sessionLifecycle: issue.sessionLifecycle || promptInfo?.sessionLifecycle?.state || null }).then((review) => {
+    Promise.resolve().then(() => runCodexReviewInWorker(config, { ...reviewPackage, sessionLifecycle: issue.sessionLifecycle || promptInfo?.sessionLifecycle?.state || null })).then((review) => {
       if (review?.sessionLifecycle) recoveryRecorder?.annotate({ sessionLifecycle: review.sessionLifecycle });
       persistOrdinaryParallelReviewerCheckpoint(recoveryRecorder, runnerCreatedCommitSha,
         null, review, "grok");
       return review;
     }),
   ]) : null;
-  const [externalReview, parallelCodexReview] = parallelReviews
-    ? await parallelReviews
+  const settledReviews = parallelReviews ? await parallelReviews : null;
+  const [externalReview, parallelCodexReview] = settledReviews
+    ? settledReviews.map((result) => result.status === "fulfilled" ? result.value : null)
     : [await runIntegratedReviewSource(config, reviewPackage, "post-review-fix-exact-head"), null];
   const afterExternalReview = await checkoutFingerprint();
   const externalReviewMutationGuard = compareFingerprints(beforeReview, afterExternalReview);
   if (externalReviewMutationGuard.mutationDetected) {
     return { changedFiles, forbiddenChangedFiles, validation, commit, runnerCreatedCommitSha, reviewPackage, externalReview, review: { verdict: { verdict: "unable_to_review" } }, reviewMutationGuard: externalReviewMutationGuard };
+  }
+  if (settledReviews?.some((result) => result.status === "rejected")) {
+    return { changedFiles, forbiddenChangedFiles, validation, commit, runnerCreatedCommitSha, reviewPackage,
+      externalReview: { status: "blocked", reason: "review_fix_exact_head_parallel_reviewer_invocation_failed" },
+      review: { verdict: { verdict: "unable_to_review" } }, reviewMutationGuard: externalReviewMutationGuard };
   }
   const review = parallelCodexReview || runReviewPrompt(config, { ...reviewPackage, sessionLifecycle: issue.sessionLifecycle || promptInfo?.sessionLifecycle?.state || null });
   if (review.sessionLifecycle) {

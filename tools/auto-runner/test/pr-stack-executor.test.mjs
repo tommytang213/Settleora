@@ -103,6 +103,28 @@ test("PR stack retry reuses a completed reviewer and invokes only the incomplete
   } finally { rmSync(logsRoot, { recursive: true, force: true }); }
 });
 
+test("PR stack waits for the surviving reviewer when its peer throws", async () => {
+  for (const thrown of ["strong", "codex"]) {
+    const logsRoot = mkdtempSync(path.join(os.tmpdir(), "settleora-stack-parallel-throw-"));
+    try {
+      const candidate = { phase: "existing_pr_recovery", prNumber: 921, headSha: sha("a"),
+        baseSha: sha("b"), changedFiles: ["tools/auto-runner/lib/pr-stack-executor.mjs"],
+        candidateDigest: "c".repeat(64) };
+      let releasePeer;
+      const peer = new Promise((resolve) => { releasePeer = resolve; });
+      let returned = false;
+      const pending = runDurableStackParallelReviews({ logsRoot }, candidate,
+        () => thrown === "strong" ? Promise.reject(new Error("reviewer failed")) : peer,
+        () => thrown === "codex" ? Promise.reject(new Error("reviewer failed")) : peer)
+        .then((result) => { returned = true; return result; });
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(returned, false, `${thrown} failure must wait for the peer`);
+      releasePeer({ status: "blocked", reason: "peer_complete" });
+      assert.equal((await pending).reasonCode, "stack_parallel_review_invocation_failed");
+    } finally { rmSync(logsRoot, { recursive: true, force: true }); }
+  }
+});
+
 test("PR stack reviewer pin survives resume and rejects provider switches", () => {
   const { plan } = stackFixture();
   const gemini = { reviewerTiers: { strong_independent: { provider: "gemini" } } };

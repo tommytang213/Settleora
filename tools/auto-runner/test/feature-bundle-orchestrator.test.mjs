@@ -105,6 +105,22 @@ test("post-fix bundle review checks checkout mutation before handling a failed p
   assert.match(postFix, /parallelReviewFailure: externalReviewMutationGuard\.mutationDetected[\s\S]*?"bundle_review_mutation_detected"/);
 });
 
+test("bundle parallel review waits for a peer after one invocation throws", async () => {
+  const reviewPackage = { summary: { currentHead: "a".repeat(40), baseSha: "b".repeat(40),
+    changedFiles: ["tools/auto-runner/lib/feature-bundle-orchestrator.mjs"] } };
+  let releasePeer;
+  const peer = new Promise((resolve) => { releasePeer = resolve; });
+  let returned = false;
+  const pending = runDurableBundleParallelReviews({}, reviewPackage,
+    { finalization: { state: "reviewing" } }, () => {}, null,
+    { runExternal: async () => { throw new Error("external failed"); },
+      runCodex: async () => peer }).then((result) => { returned = true; return result; });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(returned, false);
+  releasePeer({ status: 1, reason: "peer_complete" });
+  assert.equal((await pending).reasonCode, "bundle_parallel_reviewer_invocation_failed");
+});
+
 function config(overrides = {}) {
   return {
     dryRun: false,
