@@ -3,6 +3,13 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // #1309 reviewed header and native warning evidence.
+  // One clean pinned Flutter 3.44.8 archive; actual source fingerprint and
+  // representation measured with the unchanged real SDK signer.
+  // Prior mappings and entry paths remain; native acceptance is separate.
+  "8785d25c711583ef242dbfc2ac0ce39db869569ebfe151b0a7878ea1c91fd3f1": Object.freeze([
+    "8cb556520a4748c9a10e68f2ad2a230a229dd392852c93fa62abcc6ea3e31a83",
+  ]),
   // #1309 reviewed reconciled modifier option ownership.
   // One clean pinned Flutter 3.44.8 archive; actual source fingerprint and
   // representation measured with the unchanged real SDK signer.
