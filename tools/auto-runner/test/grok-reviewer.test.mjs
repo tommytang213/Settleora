@@ -102,6 +102,32 @@ test("Grok CLI invocation binds subscriber auth and verifies complete file cover
   } finally { delete process.env.XAI_API_KEY; delete process.env.GH_TOKEN; }
 });
 
+test("Grok rejects trailing stdout after a complete passing response", async () => {
+  for (const trailing of ["{malformed", JSON.stringify({ type: "tool_call", toolName: "write",
+    rawInput: { target_file: "/tmp/outside" } })]) {
+    const spawnImpl = () => {
+      const child = new EventEmitter();
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.kill = () => {};
+      queueMicrotask(() => {
+        for (const event of [...read(), { type: "text", data: "PASS" }, end]) {
+          child.stdout.write(`${JSON.stringify(event)}\n`);
+        }
+        child.stdout.end(trailing);
+        child.stderr.end();
+        child.emit("close", 0);
+      });
+      return child;
+    };
+    const result = await invokeGrok({ files: [file], prompt: "synthetic", staged: "/tmp/settleora-review-fixture",
+      model: "grok-4.7", spawnImpl, timeoutMs: 1000 });
+    assert.equal(result.coveredLines, 2);
+    assert.equal(result.stopReason, "end_turn");
+    assert.equal(result.reason, "blocked_grok_event_unterminated");
+  }
+});
+
 test("Grok resumes once for verified missing line ranges and still requires complete coverage", async () => {
   const fixture = { ...file, name: "snapshot.diff" };
   const calls = [];

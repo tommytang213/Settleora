@@ -317,6 +317,8 @@ export async function invokeGrok({ files, prompt, staged, model, spawnImpl = spa
     child.once("error", reject);
     child.once("close", resolve);
   }); } finally { clearTimeout(timer); }
+  buffer += stdoutDecoder.end();
+  if (buffer.length > 0) reason ||= "blocked_grok_event_unterminated";
   const totalLines = files.reduce((total, file) => total + file.lines.length, 0);
   const coveredLines = [...coverage.values()].reduce((total, lines) => total + lines.size, 0);
   if (!reason && (exitCode !== 0 || stopReason !== "end_turn")) reason = "blocked_grok_incomplete_response";
