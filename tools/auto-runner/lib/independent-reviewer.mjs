@@ -25,7 +25,11 @@ export function independentReviewerProvider(config, packageInfo) {
       diff: packageInfo?.diff || "" }) });
   const tier = mergeReviewerPolicyConfig(config).reviewerTiers[route.tier];
   const provider = tier?.provider || null;
-  const pin = packageInfo?.summary?.reviewerProviderPin || config.reviewerProviderPin || null;
+  const recordedProvider = summary.reviewerPolicy?.tiers?.[route.tier]?.provider || null;
+  // Old packages recorded the tier provider before reviewerProviderPin existed.
+  // A package with neither record must not silently become a Grok job.
+  const pin = summary.reviewerProviderPin || recordedProvider || config.reviewerProviderPin || null;
+  if (!summary.reviewerProviderPin && !recordedProvider && provider === "grok") return null;
   return pin && provider !== pin ? null : provider;
 }
 

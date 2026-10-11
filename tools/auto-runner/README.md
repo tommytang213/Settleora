@@ -1185,13 +1185,13 @@ given an API key or a metered API fallback.
 The Grok profile pins `/home/tommytang213/.local/bin/grok` and `grok-4.7`.
 The operator signs in privately with `grok login` and keeps subscriber Auto Top
 Up disabled. The runner passes only a small allowlist of noncredential environment variables, stages only the
-secret-screened package and two fixed gate-source files in a fresh owner-only
+secret-screened package and the fixed gate-source files in a fresh owner-only
 temporary directory, and calls
 the CLI with `--sandbox strict`, read-only tool permissions, web and subagents
-disabled, a 32-turn limit, and a 30-minute deadline. It verifies complete file
+disabled, a 64-turn limit, and a 30-minute deadline. It verifies complete file
 coverage from tool events before accepting one strict-schema JSON verdict. Incomplete coverage,
 tool/path violation, unavailable login/quota, timeout, malformed output, or
-non-pass blocks. Packages above 384 KiB currently block for narrower review.
+non-pass blocks. Packages above 768 KiB currently block for narrower review.
 Grok sessions may retain the sent package in the user's local CLI history.
 After private subscriber sign-in and explicit trial authorization, a
 task-scoped config can exercise a synthetic one-call smoke check with

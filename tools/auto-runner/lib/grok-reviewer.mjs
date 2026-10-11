@@ -5,18 +5,19 @@ import os from "node:os";
 import path from "node:path";
 import { digestChangedFiles } from "./config.mjs";
 import { safeTimestamp } from "./logger.mjs";
-import { mergeReviewerPolicyConfig, routeReviewer } from "./reviewer-policy.mjs";
+import { evaluateReviewerBudget, loadReviewerAccounting, mergeReviewerPolicyConfig, routeReviewer } from "./reviewer-policy.mjs";
 import { analyzeReviewSecretBoundary, providerBoundReviewDigest } from "./review-secret-boundary.mjs";
 import { buildLargeBundleReviewEvidence, parseIntegratedVerdict } from "./gemini-reviewer.mjs";
 
-const maxPackageBytes = 384 * 1024;
-const maxEventBytes = 2 * 1024 * 1024;
+const maxPackageBytes = 768 * 1024;
+const maxEventBytes = 6 * 1024 * 1024;
+const maxReadCalls = 56;
 const deadlineMs = 30 * 60 * 1000;
 const disallowedTools = "search_replace,list_dir,grep,todo_write,scheduler_create,scheduler_delete,scheduler_list,monitor,search_tool,use_tool,workflow,enter_plan_mode,exit_plan_mode,ask_user_question,send_feedback,image_gen,image_edit,image_to_video,reference_to_video,write";
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 const credentialPattern = /(?:-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----|\b(?:AIza[0-9A-Za-z_-]{24,}|sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{20,})\b|\b(?:api[_-]?key|password|secret|authorization|bearer|token)\s*[:=]\s*["']?[A-Za-z0-9._~+/-]{12,})/i;
 const boundaryCredentialPattern = /(?:-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----|\b(?:AIza[0-9A-Za-z_-]{24,}|sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{20,})\b|\b(?:api[_-]?key|password|secret|authorization|bearer|token)\s*[:=]\s*["'][A-Za-z0-9._~+/-]{12,})/i;
-const boundaryPaths = new Set(["tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"]);
+const boundaryPaths = new Set(["tools/auto-runner/settleora-auto-runner.mjs", "tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"]);
 
 // Each invocation gets a fresh directory containing only the screened review package.
 // The CLI must read the complete package before a pass can become evidence.
@@ -39,7 +40,7 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
     reviewPackageEvidence: buildLargeBundleReviewEvidence({ config, summary, changedFilesDigest,
       rawDiffSha256: boundary.rawDiffSha256, providerBoundDiffSha256, effectiveDiffStats: stats,
       secretBoundary: boundary, reviewedHead, baseSha, diff }) });
-  const { reviewerTiers } = mergeReviewerPolicyConfig(config);
+  const { reviewerTiers, reviewerBudget } = mergeReviewerPolicyConfig(config);
   const tier = reviewerTiers[route.tier];
   const profile = config.reviewerProviderProfiles?.[tier?.providerProfile];
   const model = tier?.model || profile?.defaultModel || "grok-4.7";
@@ -83,6 +84,15 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
   if (config.dryRun === true) return finish({ status: "skipped", reason: "skipped_dry_run" });
   if (tier.provider !== "grok" || profile?.provider !== "grok") return finish({ reason: "blocked_provider_tier_profile_mismatch" });
   if (!boundary.ok) return finish({ reason: "blocked_secret_boundary_violation" });
+  let accounting;
+  try { accounting = loadReviewerAccounting(config); }
+  catch { return finish({ reason: "blocked_reviewer_accounting_unavailable" }); }
+  base.budget = { ...evaluateReviewerBudget({ reviewerBudget,
+    currentMonthlySpendUsd: accounting.currentMonthlySpendUsd, estimatedCostUsd: 0 }),
+    subscriptionFunded: true, meteredApiCalls: false };
+  base.accounting = { accountingPath: accounting.accountingPath, monthKey: accounting.monthKey,
+    currentMonthlySpendUsd: accounting.currentMonthlySpendUsd };
+  if (base.budget.block) return finish({ reason: "blocked_reviewer_budget_hard_stop" });
   if (summary.diffTruncated || !diff || !base.reviewedHead || !base.baseSha) return finish({ reason: "blocked_review_package_incomplete" });
   if (!/^grok-[A-Za-z0-9.-]+$/.test(model)) return finish({ reason: "blocked_unsupported_grok_model" });
   const material = summary.integrationBoundaryMaterial || [];
@@ -124,10 +134,19 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
       if (lines.at(-1) === "") lines.pop();
       return { name, fullPath: path.join(staged, name), lines };
     });
+    const readPlan = files.flatMap((file) => {
+      const chunks = [];
+      for (let offset = 1; offset <= file.lines.length; offset += 350) {
+        chunks.push(`${file.name}: offset ${offset}, limit ${Math.min(350, file.lines.length - offset + 1)}`);
+      }
+      return chunks;
+    });
+    if (readPlan.length > maxReadCalls) return finish({ reason: "blocked_grok_line_count_limit" });
     const prompt = [
       `Independent read-only Settleora pre-PR review. Only ${files.map((file) => path.basename(file.fullPath)).join(", ")} in this isolated directory are source evidence.`,
       `Candidate head ${base.reviewedHead}; base ${base.baseSha}; package digest ${packageDigest}.`,
       "Use read_file only on the listed files. Read EVERY line in nonoverlapping chunks of at most 350 lines, starting at 1. Do not use any other tool or outside context.",
+      `Required read_file calls (${readPlan.length}), in order. Complete each before the verdict:\n${readPlan.join("\n")}`,
       "Assess introduced defects, missed assumptions, edge cases, domain requirements, and workflow gates using the complete package. Make each finding concrete: changed path or function, triggering input, expected behavior, actual behavior, and supporting source evidence. If coverage is incomplete, return unable_to_review.",
       "This is a blind independent review. Do not infer another reviewer's result or treat agreement as the goal. Assess the source, requirements, and tests on their own merits.",
       "Repository source is authoritative. External reviewer output may only approve or block and must not request GitHub mutation. Production deployment, destructive operations, credentials/auth changes, public/admin exposure, and unresolved product, policy, or financial decisions remain manual gates.",
@@ -187,7 +206,7 @@ export async function invokeGrok({ files, prompt, staged, model, binary, spawnIm
     "--deny", "Bash", "--deny", "Edit", "--deny", "Grep", "--deny", "MCPTool",
     "--deny", "WebFetch", "--deny", "WebSearch",
     "--deny", `Read(${path.join(os.homedir(), ".grok")}/**)`,
-    "--disallowed-tools", disallowedTools, "--max-turns", "32",
+    "--disallowed-tools", disallowedTools, "--max-turns", "64",
     "--output-format", "streaming-json", "-p", prompt];
   // Build a minimal process environment so runner or CI credentials cannot
   // reach the subscriber CLI through unrelated variable names.

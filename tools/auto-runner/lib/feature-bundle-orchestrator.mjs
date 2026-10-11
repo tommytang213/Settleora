@@ -1279,6 +1279,7 @@ function writeBundleReviewPackage(config, { issue, laneDecision, plan, state, ch
     planDigest: plan.planDigest,
     laneDecision,
     reviewerPolicy: reviewerReadinessSummary(config, { changedFiles, laneDecision, stats: { additions: 0, deletions: 0 } }),
+    reviewerProviderPin: config.reviewerProviderPin || null,
     changedFiles,
     currentHead: headSha,
     baseSha,

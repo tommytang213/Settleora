@@ -6,6 +6,7 @@ import { test } from "node:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, chmodSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { invokeGrok, parseGrokVerdict, runGrokIntegratedReview } from "../lib/grok-reviewer.mjs";
 import { runCodexReviewInWorker } from "../lib/parallel-local-review.mjs";
 import { reviewerReadinessSummary } from "../lib/reviewer-policy.mjs";
@@ -99,6 +100,51 @@ test("a pinned Gemini package cannot be sent through a later Grok config", async
   const result = await runIndependentIntegratedReview(config, packageInfo);
   assert.equal(result.reason, "blocked_reviewer_provider_pin_mismatch");
   assert.equal(result.liveCallAttempted, false);
+  const legacy = { ...packageInfo, summary: { ...packageInfo.summary, reviewerProviderPin: undefined,
+    reviewerPolicy: { tiers: { strong_independent: { provider: "gemini" } } } } };
+  assert.equal(independentReviewerProvider(config, legacy), null);
+  assert.equal(independentReviewerProvider(config, { ...legacy, summary: { ...legacy.summary, reviewerPolicy: undefined } }), null);
+  assert.equal(independentReviewerProvider({ ...config, reviewerProviderPin: null },
+    { ...legacy, summary: { ...legacy.summary, reviewerPolicy: undefined } }), null);
+});
+
+test("Grok invocation stops at the reviewer hard budget before spawn", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-grok-hard-stop-test-"));
+  try {
+    mkdirSync(path.join(root, "state"));
+    writeFileSync(path.join(root, "state", "reviewer-accounting.json"), JSON.stringify({ entries: [
+      { monthKey: new Date().toISOString().slice(0, 7), costUsd: 100 },
+    ] }));
+    const config = { logsRoot: root, reviewerTiers: { strong_independent: {
+      enabled: true, provider: "grok", providerProfile: "grok", model: "grok-4.7",
+    } }, reviewerProviderProfiles: { grok: { provider: "grok", command: "grok" } } };
+    const diff = "diff --git a/docs/workflow/example.md b/docs/workflow/example.md\nnew file mode 100644\n--- /dev/null\n+++ b/docs/workflow/example.md\n@@ -0,0 +1 @@\n+Synthetic.\n";
+    const result = await runGrokIntegratedReview(config, { summary: { baseSha: "a".repeat(40), currentHead: "b".repeat(40),
+      changedFiles: ["docs/workflow/example.md"], laneDecision: { lane: "workflow-docs-tooling", reviewerTier: "strong_independent" } }, diff },
+    { spawnImpl: () => { throw Error("must not spawn"); } });
+    assert.equal(result.reason, "blocked_reviewer_budget_hard_stop");
+    assert.equal(result.liveCallAttempted, false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("three fixed feature-bundle gate files clear package preflight", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-grok-bundle-shape-test-"));
+  try {
+    const paths = ["tools/auto-runner/settleora-auto-runner.mjs",
+      "tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"];
+    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+    const material = paths.map((sourcePath) => { const content = readFileSync(path.join(repoRoot, sourcePath), "utf8");
+      return { path: sourcePath, content, sha256: createHash("sha256").update(content).digest("hex") }; });
+    const config = { logsRoot: root, reviewerTiers: { strong_independent: {
+      enabled: true, provider: "grok", providerProfile: "grok", model: "grok-4.7",
+    } }, reviewerProviderProfiles: { grok: { provider: "grok", command: "grok" } } };
+    const diff = "diff --git a/docs/workflow/example.md b/docs/workflow/example.md\nnew file mode 100644\n--- /dev/null\n+++ b/docs/workflow/example.md\n@@ -0,0 +1 @@\n+Synthetic.\n";
+    const result = await runGrokIntegratedReview(config, { summary: { baseSha: "a".repeat(40), currentHead: "b".repeat(40),
+      changedFiles: ["docs/workflow/example.md"], laneDecision: { lane: "workflow-docs-tooling", reviewerTier: "strong_independent" },
+      integrationBoundaries: paths, integrationBoundaryMaterial: material }, diff },
+    { spawnImpl: () => { throw Error("preflight completed"); } });
+    assert.equal(result.reason, "blocked_grok_invocation:Error");
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("Grok review cannot pass with a missed line or outside-file read", async () => {
