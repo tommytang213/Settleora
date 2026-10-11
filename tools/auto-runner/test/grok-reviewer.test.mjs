@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { invokeGrok, parseGrokVerdict, runGrokIntegratedReview } from "../lib/grok-reviewer.mjs";
 import { runCodexReviewInWorker } from "../lib/parallel-local-review.mjs";
+import { reviewerReadinessSummary } from "../lib/reviewer-policy.mjs";
 
 function fakeSpawn(events, inspect = () => {}) {
   return (binary, args, options) => {
@@ -41,11 +42,13 @@ test("Grok verdict parser accepts one bounded JSON object after CLI preface", ()
 
 test("Grok CLI invocation binds subscriber auth and verifies complete file coverage", async () => {
   process.env.XAI_API_KEY = "test";
+  process.env.GH_TOKEN = "test";
   try {
     const result = await invokeGrok({ files: [file], prompt: "synthetic", staged: "/tmp/settleora-review-fixture",
       model: "grok-4.7", binary: "/home/tommytang213/.local/bin/grok",
       spawnImpl: fakeSpawn([...read(), { type: "text", data: "PASS" }, end], (_binary, args, options) => {
         assert.equal(options.env.XAI_API_KEY, undefined);
+        assert.equal(options.env.GH_TOKEN, undefined);
         assert.ok(args.includes("strict"));
         assert.ok(args.includes("read_file"));
         assert.ok(args.includes("--no-subagents"));
@@ -54,7 +57,32 @@ test("Grok CLI invocation binds subscriber auth and verifies complete file cover
     assert.equal(result.reason, null);
     assert.equal(result.coveredLines, 2);
     assert.equal(result.answer, "PASS");
-  } finally { delete process.env.XAI_API_KEY; }
+  } finally { delete process.env.XAI_API_KEY; delete process.env.GH_TOKEN; }
+});
+
+test("Grok accepts a staged relative read path with complete coverage", async () => {
+  const result = await invokeGrok({ files: [file], prompt: "synthetic", staged: "/tmp/settleora-review-fixture",
+    model: "grok-4.7", binary: "grok", spawnImpl: fakeSpawn([
+      ...read("snapshot.diff"), { type: "text", data: "PASS" }, end,
+    ]), timeoutMs: 1000 });
+  assert.equal(result.reason, null);
+  assert.equal(result.coveredLines, 2);
+});
+
+test("subscription Grok does not bypass the reviewer hard stop", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-grok-budget-test-"));
+  try {
+    mkdirSync(path.join(root, "state"));
+    writeFileSync(path.join(root, "state", "reviewer-accounting.json"), JSON.stringify({ entries: [
+      { monthKey: new Date().toISOString().slice(0, 7), costUsd: 100 },
+    ] }));
+    const result = reviewerReadinessSummary({ logsRoot: root, reviewerTiers: {
+      cheap_independent: { enabled: true, provider: "grok", providerProfile: "grok", model: "grok-4.7" },
+    }, reviewerProviderProfiles: { grok: { provider: "grok", command: "grok" } } },
+    { changedFiles: ["docs/workflow/example.md"] });
+    assert.equal(result.budget.block, true);
+    assert.equal(result.budget.subscriptionFunded, true);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("Grok review cannot pass with a missed line or outside-file read", async () => {

@@ -124,7 +124,7 @@
   },
   "reviewerTiers": {
     "cheap_independent": {
-      "enabled": true,
+      "enabled": false,
       "provider": "grok",
       "providerProfile": "grok",
       "command": null,
@@ -133,7 +133,7 @@
       "outputUsdPerMillionTokens": 0
     },
     "strong_independent": {
-      "enabled": true,
+      "enabled": false,
       "provider": "grok",
       "providerProfile": "grok",
       "command": null,
@@ -142,7 +142,7 @@
       "outputUsdPerMillionTokens": 0
     },
     "tie_breaker": {
-      "enabled": true,
+      "enabled": false,
       "provider": "grok",
       "providerProfile": "grok",
       "command": null,

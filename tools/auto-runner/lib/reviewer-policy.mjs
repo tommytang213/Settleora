@@ -466,10 +466,12 @@ export function reviewerReadinessSummary(config, sample = {}) {
         outputUsdPerMillionTokens: selectedTier.outputUsdPerMillionTokens,
       })
     : 0;
-  const budget = selectedTier?.provider === "grok"
-    ? { block: false, warn: false, subscriptionFunded: true, meteredApiCalls: false }
-    : evaluateReviewerBudget({ reviewerBudget,
-      currentMonthlySpendUsd: accounting.currentMonthlySpendUsd, estimatedCostUsd });
+  const budget = evaluateReviewerBudget({ reviewerBudget,
+    currentMonthlySpendUsd: accounting.currentMonthlySpendUsd, estimatedCostUsd });
+  if (selectedTier?.provider === "grok") {
+    budget.subscriptionFunded = true;
+    budget.meteredApiCalls = false;
+  }
   return {
     tiers: Object.fromEntries(
       Object.entries(reviewerTiers).map(([tierId, tier]) => [

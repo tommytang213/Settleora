@@ -1168,20 +1168,21 @@ reviewer hard stop, USD 200/month Codex subscription budget, USD 300/month
 total automation ceiling, and an 80% warning threshold. Cost estimates are
 local token-price arithmetic only and do not call external provider APIs.
 
-New task-scoped configs use the subscriber-funded Grok Build CLI as the
-independent external reviewer. Existing jobs pinned to Gemini retain their
-Gemini configuration and evidence. A provider change requires a new exact-head
+For new task-scoped configs, explicitly enable the subscriber-funded Grok Build
+CLI tiers after the review gates are ready. The example leaves them disabled.
+Keep existing jobs on their pinned Gemini configuration and evidence; do not
+switch a shared config while they run. A provider change requires a new exact-head
 review; evidence from the other provider cannot satisfy Grok recovery.
 Provider lifecycle failures are blockers, never review passes. Grok is not
 given an API key or a metered API fallback.
 
 The Grok profile pins `/home/tommytang213/.local/bin/grok` and `grok-4.7`.
 The operator signs in privately with `grok login` and keeps subscriber Auto Top
-Up disabled. The runner removes API-key environment variables, stages only the
+Up disabled. The runner passes only a small allowlist of noncredential environment variables, stages only the
 secret-screened package in a fresh owner-only temporary directory, and calls
 the CLI with `--sandbox strict`, read-only tool permissions, web and subagents
 disabled, a 32-turn limit, and a 30-minute deadline. It verifies complete file
-coverage from tool events before accepting strict JSON. Incomplete coverage,
+coverage from tool events before accepting one strict-schema JSON verdict. Incomplete coverage,
 tool/path violation, unavailable login/quota, timeout, malformed output, or
 non-pass blocks. Packages above 128 KiB currently block for narrower review.
 Grok sessions may retain the sent package in the user's local CLI history.

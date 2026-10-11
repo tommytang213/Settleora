@@ -172,8 +172,11 @@ export async function invokeGrok({ files, prompt, staged, model, binary, spawnIm
     "--deny", `Read(${path.join(os.homedir(), ".grok")}/**)`,
     "--disallowed-tools", disallowedTools, "--max-turns", "32",
     "--output-format", "streaming-json", "-p", prompt];
-  const env = { ...process.env };
-  for (const key of ["XAI_API_KEY", "GROK_DEPLOYMENT_KEY", "ANTHROPIC_API_KEY"]) delete env[key];
+  // Build a minimal process environment so runner or CI credentials cannot
+  // reach the subscriber CLI through unrelated variable names.
+  const env = Object.fromEntries(["HOME", "USER", "LOGNAME", "PATH", "SHELL", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "TMPDIR",
+    "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "XDG_RUNTIME_DIR", "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS"]
+    .filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]));
   const child = spawnImpl(binary, args, { cwd: staged, env, stdio: ["ignore", "pipe", "pipe"] });
   const calls = new Map();
   const coverage = new Map(files.map((file) => [file.fullPath, new Set()]));
@@ -194,9 +197,10 @@ export async function invokeGrok({ files, prompt, staged, model, binary, spawnIm
       try { event = JSON.parse(raw); } catch { fail("blocked_grok_event_malformed"); break; }
       if (event.type === "tool_call") {
         toolsObserved.push(event.toolName);
-        const target = event.rawInput?.target_file;
+        const target = typeof event.rawInput?.target_file === "string"
+          ? path.resolve(staged, event.rawInput.target_file) : null;
         if (event.toolName !== "read_file" || !coverage.has(target)) { fail("blocked_grok_unapproved_tool_or_path"); break; }
-        calls.set(event.toolCallId, event.rawInput);
+        calls.set(event.toolCallId, { ...event.rawInput, target_file: target });
       } else if (event.type === "tool_call_update" && event.status === "completed") {
         const call = calls.get(event.toolCallId);
         const file = files.find((entry) => entry.fullPath === call?.target_file);
