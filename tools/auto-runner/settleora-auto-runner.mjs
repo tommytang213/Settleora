@@ -4612,7 +4612,7 @@ function createLivePrStackReviewAdapters(config) {
     } : externalReview,
     fullCandidatePrDelta,
     reviewFixMechanicsContext: mechanicsPhase ? {
-      objective: "Converge and merge the exact-head PR #919 -> PR #920 development-stage stack through protected controller gates while PR #917 remains frozen.",
+      objective: `Review the exact-head PR #${pr?.number || "unknown"} delta and current issue requirements for mechanics and security. The controller handles merge gates separately.`,
       humanDirectedMergeGate: true,
       taskKey: config.taskKey || null,
       exactHead: headSha,

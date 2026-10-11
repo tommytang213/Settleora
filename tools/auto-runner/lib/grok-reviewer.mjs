@@ -99,7 +99,7 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
   if (!summary.taskContract || !Object.values(summary.taskContract).some((value) => typeof value === "string" && value.trim())) {
     return finish({ reason: "blocked_grok_task_contract_missing" });
   }
-  if (!/^grok-[A-Za-z0-9.-]+$/.test(model)) return finish({ reason: "blocked_unsupported_grok_model" });
+  if (model !== "grok-4.7") return finish({ reason: "blocked_unsupported_grok_model" });
   const material = summary.integrationBoundaryMaterial || [];
   const requiredBoundaries = Array.isArray(summary.integrationBoundaries) ? summary.integrationBoundaries : [];
   if (!Array.isArray(material) || material.length !== boundaryPaths.size

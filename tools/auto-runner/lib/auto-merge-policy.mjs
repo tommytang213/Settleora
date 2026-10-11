@@ -922,7 +922,7 @@ export function evaluatePrePushReviewGate(input = {}) {
       message: `exact-head independent review returned ${externalReview?.reason || externalReview?.status || "missing"} and bounded review convergence is unavailable: ${convergence.reason}`,
     };
   }
-  if (input.review && (input.review?.verdict?.verdict !== "approve"
+  if (!input.review || (input.review?.verdict?.verdict !== "approve"
     || (input.review.reviewStatus && !["passed", "completed"].includes(input.review.reviewStatus)))) {
     const convergence = evaluatePrePushReviewConvergence(input, externalReview || {});
     return { ok: false,

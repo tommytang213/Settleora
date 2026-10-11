@@ -136,6 +136,14 @@ test("parallel reviewer sessions and manual verdicts are persisted before recove
   assert.match(runner, /parallelReviewerVerdicts: \{[\s\S]*?external: ordinaryReviewerCheckpoint\(context\.externalReview[\s\S]*?codex: ordinaryReviewerCheckpoint\(context\.review[\s\S]*?const manual = reviewerManualGateOutcome\(context\.externalReview, context\.review\)/);
 });
 
+test("PR stack mechanics prompt follows the current PR instead of a historical stack", () => {
+  const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  const adapter = runner.slice(runner.indexOf("function createLivePrStackReviewAdapters"),
+    runner.indexOf("function createLivePrStackReviewAdapters") + 6500);
+  assert.match(adapter, /reviewFixMechanicsContext: mechanicsPhase \? \{[\s\S]*?objective: `Review the exact-head PR #\$\{pr\?\.number/);
+  assert.doesNotMatch(adapter, /PR #919|PR #920|PR #917/);
+});
+
 test("post-fix recovery paths stop on either reviewer's manual verdict before head adoption", () => {
   const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
   assert.match(runner, /source_failure_fix: async[\s\S]*?if \(!fixAttempt\.proceeded\) return \{ ok: false, outcome: fixAttempt\.reviewerManualOutcome/);

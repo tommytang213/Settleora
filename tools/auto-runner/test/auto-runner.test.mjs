@@ -5407,6 +5407,9 @@ test("pre-push review gate preserves either reviewer's manual or danger verdict"
 
 test("pre-push gate requires an approving local review when one is supplied", () => {
   const laneDecision = autoMergeLane({ lane: "workflow-docs-tooling" });
+  const missing = evaluatePrePushReviewGate({ laneDecision, externalReview: { status: "pass" } });
+  assert.equal(missing.ok, false);
+  assert.equal(missing.reason, "exact_head_codex_review_not_approved");
   for (const review of [
     { reviewStatus: "completed", verdict: { verdict: "changes_requested" } },
     { reviewStatus: "unable_to_review", verdict: { verdict: "unable_to_review" } },

@@ -395,6 +395,12 @@ test("integrated Grok adapter accepts only a complete screened and head-bound re
     assert.equal(contradictory.attestedCandidateIdentity.headSha, summary.currentHead);
     assert.equal(extractReviewFixTrigger({ externalReview: contradictory,
       review: { verdict: { verdict: "approve" } } }).actionable, true);
+    const alias = await runGrokIntegratedReview({ ...config, reviewerTiers: {
+      ...config.reviewerTiers,
+      cheap_independent: { ...config.reviewerTiers.cheap_independent, model: "grok-latest" },
+    } }, { summary, diff }, { spawnImpl: () => { throw new Error("alias must not invoke Grok"); } });
+    assert.equal(alias.reason, "blocked_unsupported_grok_model");
+    assert.equal(alias.liveCallAttempted, false);
     const secret = await runGrokIntegratedReview(config, { summary: {
       ...summary, issue: { title: "Synthetic", body: ["api_key=", "sk-", "abcdefghijklmnopqrstuvwxyz123456"].join("") },
     }, diff }, { spawnImpl: () => { throw new Error("must not call vendor"); } });
