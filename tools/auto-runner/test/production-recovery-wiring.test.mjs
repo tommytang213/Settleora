@@ -250,6 +250,16 @@ test("parallel reviewer sessions and manual verdicts are persisted before recove
   assert.match(runner, /persistReviewer\("external", review\)[\s\S]*?persistReviewer\("codex", review\)[\s\S]*?const manual = reviewerManualGateOutcome\(context\.externalReview, context\.review\)/);
 });
 
+test("existing PR Grok regeneration checkpoints each reviewer and rejects checkout mutation or failed restore", () => {
+  const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  const regeneration = runner.slice(runner.indexOf("async function generateExistingPrRecoveryEvidence"),
+    runner.indexOf("export function verifyProspectiveMergeValidation"));
+  assert.match(regeneration, /headSha: expectedHeadSha,[\s\S]*?baseSha: expectedOriginMainSha,[\s\S]*?const beforeReview = await checkoutFingerprint\(\)/);
+  assert.match(regeneration, /runDurableStackParallelReviews\(config, \{[\s\S]*?phase: "existing_pr_recovery"/);
+  assert.match(regeneration, /compareFingerprints\(beforeReview, await checkoutFingerprint\(\)\)\.mutationDetected/);
+  assert.match(regeneration, /finally \{[\s\S]*?const restored = restore\(\);[\s\S]*?recovery_evidence_generation_restore_failed/);
+});
+
 test("parallel reviewer evidence must bind to the same head, base, and file set", () => {
   const headSha = "a".repeat(40);
   const baseSha = "b".repeat(40);

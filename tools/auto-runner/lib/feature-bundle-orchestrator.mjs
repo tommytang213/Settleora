@@ -771,7 +771,8 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
       writeState(state);
       input.recovery?.stop(postFix.parallelReviewFailure, postFix.parallelReviewFailure,
         postFix.parallelReviewOutcome ? "manual_decision_required" : "stop_fail_closed");
-      return { ok: false, outcome: postFix.parallelReviewOutcome || "blocked",
+      return { ok: false, outcome: postFix.reviewMutationGuard?.mutationDetected
+        ? "auto_failed" : postFix.parallelReviewOutcome || "blocked",
         reasonCode: postFix.parallelReviewFailure, state, attempts };
     }
     if (postFix.sessionLifecycle) input.sessionLifecycle = adoptBundleReviewerSession(input.recovery, postFix.sessionLifecycle);
@@ -1083,17 +1084,18 @@ async function commitBundleReviewFixAndRerunExactHeadReviews(config, { issue, la
   const [externalReview, parallelCodexReview] = parallelReviews
     ? [parallelReviews.externalReview, parallelReviews.review]
     : [await runIndependentIntegratedReview(config, reviewPackage), null];
-  if (parallelReviews && !parallelReviews.ok) return {
-    changedFiles, forbiddenChangedFiles, validation, commit, runnerCreatedCommitSha,
-    reviewPackage, externalReview, review: parallelCodexReview,
-    reviewMutationGuard: { mutationDetected: false },
-    parallelReviewFailure: parallelReviews.reasonCode,
-    parallelReviewOutcome: parallelReviews.outcome || null,
-    bundleState: state,
-  };
   const externalReviewMutationGuard = compareBundleReviewCheckoutFingerprint(externalReviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
     phase: "bundle_convergence_external_review",
   });
+  if (parallelReviews && !parallelReviews.ok) return {
+    changedFiles, forbiddenChangedFiles, validation, commit, runnerCreatedCommitSha,
+    reviewPackage, externalReview, review: parallelCodexReview,
+    reviewMutationGuard: externalReviewMutationGuard,
+    parallelReviewFailure: externalReviewMutationGuard.mutationDetected
+      ? "bundle_review_mutation_detected" : parallelReviews.reasonCode,
+    parallelReviewOutcome: parallelReviews.outcome || null,
+    bundleState: state,
+  };
   if (externalReviewMutationGuard.mutationDetected) {
     return {
       changedFiles,

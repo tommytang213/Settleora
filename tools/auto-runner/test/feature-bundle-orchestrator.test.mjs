@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import path from "node:path";
 import { featureBundleOrchestratorTestInternals, resolveBundleParallelReviewerCheckpoint, runDurableBundleParallelReviews } from "../lib/feature-bundle-orchestrator.mjs";
@@ -91,6 +92,14 @@ test("bundle recovery reuses completed Codex evidence and adopts its successor a
   assert.deepEqual(resumed.review.sessionLifecycle, successor);
   assert.deepEqual(resumed.review.changedFiles, changedFiles);
   assert.equal(resumed.review.completedAt, codex.completedAt);
+});
+
+test("post-fix bundle review checks checkout mutation before handling a failed parallel review", () => {
+  const source = readFileSync(new URL("../lib/feature-bundle-orchestrator.mjs", import.meta.url), "utf8");
+  const postFix = source.slice(source.indexOf("async function commitBundleReviewFixAndRerunExactHeadReviews"),
+    source.indexOf("async function certifyLargeBundleCumulativeReview"));
+  assert.match(postFix, /const externalReviewMutationGuard = compareBundleReviewCheckoutFingerprint\([\s\S]*?if \(parallelReviews && !parallelReviews\.ok\)/);
+  assert.match(postFix, /parallelReviewFailure: externalReviewMutationGuard\.mutationDetected[\s\S]*?"bundle_review_mutation_detected"/);
 });
 
 function config(overrides = {}) {

@@ -137,7 +137,7 @@ import {
 import { evaluateExistingPrRecovery } from "./lib/recovery-orchestrator.mjs";
 import { runSecurityFindingsDryRun } from "./lib/security-findings-dry-run.mjs";
 import { runSecurityFindingsProductionPhase, securityFindingsProductionPhaseEnabled } from "./lib/security-findings-production.mjs";
-import { runPrStackExecution } from "./lib/pr-stack-executor.mjs";
+import { runDurableStackParallelReviews, runPrStackExecution } from "./lib/pr-stack-executor.mjs";
 import { chargeAcceptedLogicalTask, loadLogicalTaskBudget } from "./lib/logical-task-budget.mjs";
 import {
   createSessionLifecycleState,
@@ -4527,17 +4527,40 @@ async function generateExistingPrRecoveryEvidence(config, {
       validation,
       report: { found: true, expectedPath: "existing-pr-recovery" },
       diffText,
+      headSha: expectedHeadSha,
+      baseSha: expectedOriginMainSha,
       reviewerProviderPin,
     });
+    const beforeReview = await checkoutFingerprint();
     const parallelGrok = independentReviewerProvider(config, reviewPackage) === "grok";
-    const [externalReview, parallelCodexReview] = parallelGrok
-      ? await Promise.all([
-          runIntegratedReviewSource(config, reviewPackage, "existing-pr-recovery"),
-          runCodexReviewInWorker(config, { ...reviewPackage, sessionLifecycle: issue.sessionLifecycle || null }),
-        ])
+    const parallelReviews = parallelGrok
+      ? await runDurableStackParallelReviews(config, {
+          phase: "existing_pr_recovery", prNumber: pr.number, headSha: expectedHeadSha,
+          baseSha: expectedOriginMainSha, changedFiles,
+          candidateDigest: createHash("sha256").update(String(diffText || "")).digest("hex"),
+        },
+        () => runIntegratedReviewSource(config, reviewPackage, "existing-pr-recovery"),
+        () => runCodexReviewInWorker(config, { ...reviewPackage, sessionLifecycle: issue.sessionLifecycle || null }))
+      : null;
+    if (compareFingerprints(beforeReview, await checkoutFingerprint()).mutationDetected) {
+      return { reason: "recovery_evidence_generation_review_mutated_checkout",
+        validation: { passed: false, results: [] },
+        externalReview: { status: "blocked", reason: "recovery_evidence_generation_review_mutated_checkout" }, review: null };
+    }
+    if (parallelReviews && !parallelReviews.ok) {
+      return { reason: parallelReviews.reasonCode, validation: { passed: false, results: [] },
+        externalReview: { status: "blocked", reason: parallelReviews.reasonCode }, review: null };
+    }
+    const [externalReview, parallelCodexReview] = parallelReviews
+      ? [parallelReviews.strongReview, parallelReviews.codexReview]
       : [await runIntegratedReviewSource(config, reviewPackage, "existing-pr-recovery"), null];
     const review = parallelCodexReview || (externalReview.status === "pass"
       ? runReviewPrompt(config, { ...reviewPackage, sessionLifecycle: issue.sessionLifecycle || null }) : null);
+    if (compareFingerprints(beforeReview, await checkoutFingerprint()).mutationDetected) {
+      return { reason: "recovery_evidence_generation_review_mutated_checkout",
+        validation: { passed: false, results: [] },
+        externalReview: { status: "blocked", reason: "recovery_evidence_generation_review_mutated_checkout" }, review: null };
+    }
     return {
       reason: "recovery_evidence_generated",
       validation,
@@ -4547,7 +4570,13 @@ async function generateExistingPrRecoveryEvidence(config, {
       sessionLifecycle: review?.sessionLifecycle || issue.sessionLifecycle || null,
     };
   } finally {
-    restore();
+    const restored = restore();
+    if (restored.status !== 0 || restored.error || getRefSha("HEAD") !== originalHead
+      || getCurrentBranch() !== originalBranch || getStatusShort() !== "") {
+      return { reason: "recovery_evidence_generation_restore_failed",
+        validation: { passed: false, results: [] },
+        externalReview: { status: "blocked", reason: "recovery_evidence_generation_restore_failed" }, review: null };
+    }
   }
 }
 
