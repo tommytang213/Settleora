@@ -85,6 +85,9 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
   if (!tier?.enabled) return finish({ status: "skipped", reason: "skipped_external_reviewer_tier_disabled" });
   if (config.dryRun === true) return finish({ status: "skipped", reason: "skipped_dry_run" });
   if (tier.provider !== "grok" || profile?.provider !== "grok") return finish({ reason: "blocked_provider_tier_profile_mismatch" });
+  if (profile.command && profile.command !== "/home/tommytang213/.local/bin/grok") {
+    return finish({ reason: "blocked_grok_binary_not_pinned" });
+  }
   if (!boundary.ok) return finish({ reason: "blocked_secret_boundary_violation" });
   let accounting;
   try { accounting = loadReviewerAccounting(config); }
@@ -162,7 +165,6 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
       "Pass only if the actual lane, scope, validation, changed files, and integration boundaries permit PR creation. Fail or gate for incomplete evidence, unapproved/manual scope, security or correctness defects.",
     ].join("\n");
     const outcome = await invokeGrok({ files, prompt, staged, model,
-      binary: options.binary || profile.command || path.join(os.homedir(), ".local/bin/grok"),
       spawnImpl: options.spawnImpl || spawn, timeoutMs: options.timeoutMs || deadlineMs });
     const metadata = { exitCode: outcome.exitCode, stopReason: outcome.stopReason,
       coveredLines: outcome.coveredLines, totalLines: outcome.totalLines,
@@ -243,7 +245,7 @@ export function parseGrokVerdict(answer) {
   return parseCandidate(candidates[0]);
 }
 
-export async function invokeGrok({ files, prompt, staged, model, binary, spawnImpl = spawn, timeoutMs = deadlineMs,
+export async function invokeGrok({ files, prompt, staged, model, spawnImpl = spawn, timeoutMs = deadlineMs,
   coverageState = null, resume = false, sessionId = randomUUID(), coverageRetry = 0, previousUsage = null, previousTools = [], previousOutputBytes = 0 }) {
   const started = Date.now();
   const args = ["--cwd", staged, "--model", model, "--reasoning-effort", "low",
@@ -259,7 +261,7 @@ export async function invokeGrok({ files, prompt, staged, model, binary, spawnIm
   const env = Object.fromEntries(["HOME", "USER", "LOGNAME", "PATH", "SHELL", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "TMPDIR",
     "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "XDG_RUNTIME_DIR", "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS"]
     .filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]));
-  const child = spawnImpl(binary, args, { cwd: staged, env, stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawnImpl("/home/tommytang213/.local/bin/grok", args, { cwd: staged, env, stdio: ["ignore", "pipe", "pipe"] });
   const calls = new Map();
   const coverage = coverageState || new Map(files.map((file) => [file.fullPath, new Set()]));
   let answer = "", usage = null, stopReason = null, outputBytes = 0, exitCode = null;
@@ -332,7 +334,7 @@ export async function invokeGrok({ files, prompt, staged, model, binary, spawnIm
         "Use read_file only. Read every missing indexed range below, one call at a time, then reassess the complete package before returning the strict JSON verdict. Do not use any other tool.",
         ...missing.map(({ name, offset, limit }) => `${name}: offset ${offset}, limit ${limit}`),
       ].join("\n");
-      return invokeGrok({ files, prompt: resumePrompt, staged, model, binary, spawnImpl, timeoutMs: remainingMs,
+      return invokeGrok({ files, prompt: resumePrompt, staged, model, spawnImpl, timeoutMs: remainingMs,
         coverageState: coverage, resume: true, sessionId, coverageRetry: 1, previousUsage: combinedUsage,
         previousTools: allTools, previousOutputBytes: allOutputBytes });
     }
