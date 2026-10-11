@@ -41,6 +41,12 @@ bool _hasPotentialReceiptAdjustmentLabel(String line) {
   if (_isEmailOnlyMetadataLine(line)) return false;
   if (_isSuggestedTipLine(line.toLowerCase())) return false;
   if (_potentialReceiptAdjustmentLabelPattern.hasMatch(line)) return true;
+  if (RegExp(
+    r'\b(?:taxa\s+de\s+)?servi[çc]o\b',
+    caseSensitive: false,
+  ).hasMatch(line)) {
+    return true;
+  }
   final folded = line.toLowerCase();
   return _localizedReceiptAdjustmentLabels.any(folded.contains);
 }
@@ -1437,12 +1443,14 @@ class ReceiptOcrParser {
     if (_includedTaxAmountLinePattern.hasMatch(line)) {
       return _currencyAdjacentToSelectedAmount(line, receiptCurrency);
     }
-    final traditionalTax = _traditionalTaxAmountLinePattern.firstMatch(line);
-    if (traditionalTax != null) {
+    final localizedAdjustment =
+        _traditionalTaxAmountLinePattern.firstMatch(line) ??
+        _portugueseServiceAmountLinePattern.firstMatch(line);
+    if (localizedAdjustment != null) {
       // The label can touch a printed currency code. Resolve the owned cell
       // independently so Unicode label boundaries cannot hide its denomination.
       return _currencyAdjacentToSelectedAmount(
-        traditionalTax.namedGroup('monetaryCell')!,
+        localizedAdjustment.namedGroup('monetaryCell')!,
         receiptCurrency,
       );
     }
@@ -2358,18 +2366,18 @@ class ReceiptOcrParser {
       final includedTaxSummary =
           _includedTaxAmountLinePattern.firstMatch(line) ??
           _includedTaxTotalLinePattern.firstMatch(line);
-      final traditionalTaxSummary = _traditionalTaxAmountLinePattern.firstMatch(
-        line,
-      );
+      final localizedAdjustmentSummary =
+          _traditionalTaxAmountLinePattern.firstMatch(line) ??
+          _portugueseServiceAmountLinePattern.firstMatch(line);
       final amount = includedTaxSummary != null
           ? _normalizeAmount(
               includedTaxSummary.namedGroup('prefixAmount') ??
                   includedTaxSummary.namedGroup('suffixAmount')!,
               currency: amountCurrency,
             )
-          : traditionalTaxSummary != null
+          : localizedAdjustmentSummary != null
           ? _normalizeAmount(
-              traditionalTaxSummary.namedGroup('amount')!,
+              localizedAdjustmentSummary.namedGroup('amount')!,
               currency: amountCurrency,
             )
           : _isPrimaryTotalCurrencyLine(line, normalized) &&
@@ -11970,6 +11978,20 @@ bool _isBoundedSummaryAmount(String text) {
       printed.single.end == selected.end;
 }
 
+// Own the complete Portuguese label and monetary cell. Service-related product
+// names, extra words, incomplete rates and multiple prices remain item/review
+// evidence. Extract this exact cell so an attached code cannot hide its currency
+// or cause a decimal tail to be selected as the amount.
+final _portugueseServiceAmountLinePattern = RegExp(
+  '^\\s*(?:taxa\\s+de\\s+)?servi[çc]o'
+  '(?:\\s+(?:\\d{1,3}(?:[.,]\\d{1,2})?\\s*%|'
+  '[（(]\\s*\\d{1,3}(?:[.,]\\d{1,2})?\\s*%\\s*[)）]))?'
+  '(?:\\s*[:：]\\s*|\\s+)'
+  '(?<monetaryCell>(?:$_currencyTokenPattern)?\\s*'
+  '(?<amount>$_amountTokenPattern)\\s*(?:$_currencyTokenPattern)?)\\s*\$',
+  caseSensitive: false,
+);
+
 bool _hasServiceChargeLabel(String line, String normalized) {
   // The joined-rate extension must own the entire row, including the side
   // after the amount. Unexplained product words retain their review reason.
@@ -11977,8 +11999,8 @@ bool _hasServiceChargeLabel(String line, String normalized) {
     r'^services?\s*(?:charges?|fees?)?\d{1,3}(?:\.\d+)?%\s+(.+)$',
     caseSensitive: false,
   ).firstMatch(line);
-  return (joinedRate != null &&
-          _isBoundedSummaryAmount(joinedRate.group(1)!)) ||
+  return _portugueseServiceAmountLinePattern.hasMatch(line) ||
+      (joinedRate != null && _isBoundedSummaryAmount(joinedRate.group(1)!)) ||
       _hasEnglishReceiptLabel(
         normalized,
         RegExp(r'\bservices?\s*(charges?|fees?)?\b\.?', caseSensitive: false),
