@@ -7061,8 +7061,9 @@ bool _isClosedPostPaymentCourtesy(List<String> lines) {
       date + 1 >= rows.length ||
       rows[date].length != 1 ||
       rows[date + 1].length != 2 ||
-      !_isPricedItemLine(lines[date + 1]))
+      !_isPricedItemLine(lines[date + 1])) {
     return empty;
+  }
   final totals = [
     for (var i = date + 2; i < lines.length; i++)
       if (_isPrimaryTotalCurrencyLine(lines[i], lines[i].toLowerCase()) &&
@@ -7080,8 +7081,9 @@ bool _isClosedPostPaymentCourtesy(List<String> lines) {
         '(?<![\\p{L}\\p{M}])$_signCurrencyTokenPattern(?![\\p{L}\\p{M}])',
         caseSensitive: false,
         unicode: true,
-      ).hasMatch(name))
+      ).hasMatch(name)) {
     return empty;
+  }
   final nonfinancial = name
       .replaceAll(_potentialReceiptAdjustmentLabelPattern, ' ')
       .replaceAll(
@@ -7095,8 +7097,9 @@ bool _isClosedPostPaymentCourtesy(List<String> lines) {
         r'\p{L}[\p{L}\p{M}]*',
         unicode: true,
       ).allMatches(nonfinancial).length <
-      2)
+      2) {
     return empty;
+  }
   if (date == 2 &&
       (!RegExp(
             r"^[\p{L}\p{M}][\p{L}\p{M} .’'-]{1,65}\s+(?:international\s+)?airport$",
@@ -7109,8 +7112,9 @@ bool _isClosedPostPaymentCourtesy(List<String> lines) {
             caseSensitive: false,
             unicode: true,
           ).hasMatch(lines[1]) ||
-          rows[1].length != 1))
+          rows[1].length != 1)) {
     return empty;
+  }
   final boxes =
       <
         ReceiptOcrBlockEvidence,
@@ -7123,8 +7127,9 @@ bool _isClosedPostPaymentCourtesy(List<String> lines) {
           b.confidence! < 0.8 ||
           b.confidence! > 1 ||
           b.points.length != 4 ||
-          b.points.any((p) => !p.x.isFinite || !p.y.isFinite))
+          b.points.any((p) => !p.x.isFinite || !p.y.isFinite)) {
         return empty;
+      }
       final turns = [
         for (var i = 0; i < 4; i++)
           (b.points[(i + 1) % 4].x - b.points[i].x) *
@@ -7133,8 +7138,9 @@ bool _isClosedPostPaymentCourtesy(List<String> lines) {
                   (b.points[(i + 2) % 4].x - b.points[(i + 1) % 4].x),
       ];
       if (!turns.every((t) => t.isFinite && t > 0) &&
-          !turns.every((t) => t.isFinite && t < 0))
+          !turns.every((t) => t.isFinite && t < 0)) {
         return empty;
+      }
       final xs = b.points.map((p) => p.x).toList()..sort();
       final ys = b.points.map((p) => p.y).toList()..sort();
       if (xs.last <= xs.first || ys.last <= ys.first) return empty;
@@ -7157,8 +7163,9 @@ bool _isClosedPostPaymentCourtesy(List<String> lines) {
       price.bottom - price.top > h * 1.5 ||
       price.top > body.bottom - h / 2 ||
       price.bottom < body.top + h / 2 ||
-      ((title.left + title.right) - (body.left + price.right)).abs() > h * 4)
+      ((title.left + title.right) - (body.left + price.right)).abs() > h * 4) {
     return empty;
+  }
   var previous = title;
   for (var i = 1; i <= date + 1; i++) {
     final b = boxes[rows[i].first]!;
@@ -7166,8 +7173,9 @@ bool _isClosedPostPaymentCourtesy(List<String> lines) {
         b.top - previous.bottom > h * 2 ||
         b.bottom - b.top < h * 0.6 ||
         b.bottom - b.top > h * 1.5 ||
-        (b.left - body.left).abs() > h)
+        (b.left - body.left).abs() > h) {
       return empty;
+    }
     previous = b;
   }
   return (names: {0}, locations: {if (date == 2) 1});
