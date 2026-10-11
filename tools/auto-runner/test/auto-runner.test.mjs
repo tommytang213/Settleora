@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { parseCliArgs, loadConfig, normalizeAutoMergePolicy } from "../lib/config.mjs";
+import { digestChangedFiles, parseCliArgs, loadConfig, normalizeAutoMergePolicy } from "../lib/config.mjs";
 
 test("read-only observer config loading creates and chmods no project state", () => {
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-observer-config-"));
@@ -1270,6 +1270,19 @@ test("post-review-fix mechanics context fails closed without current final revie
   const missing = buildPostReviewFixMechanicsContext(base);
   assert.equal(missing.ok, false);
   assert.equal(missing.reason, "post_fix_context_missing_final_integrated_review");
+
+  const blind = buildPostReviewFixMechanicsContext({ ...base, externalReviewPending: true });
+  assert.equal(blind.ok, true);
+  assert.equal(blind.context.authoritativeStatus, "post_fix_validation_passed_independent_review_pending");
+  assert.equal(blind.context.finalIntegratedReview.status, "pending");
+  assert.doesNotMatch(JSON.stringify(blind.context), /independent_review_passed|final_review_passed/);
+
+  const committedHead = buildPostReviewFixMechanicsContext({ ...base, currentHead: "b".repeat(40),
+    externalReviewPending: true, exactHeadRereview: true });
+  assert.equal(committedHead.ok, true);
+  assert.equal(committedHead.context.authoritativeStatus, "post_fix_committed_head_validation_passed_review_in_progress");
+  assert.equal(committedHead.context.finalIntegratedReview, null);
+  assert.match(committedHead.context.reviewerInstruction, /fresh review of the committed exact head/);
 
   const staleHead = buildPostReviewFixMechanicsContext({
     ...base,
@@ -2584,19 +2597,22 @@ test("integrated Gemini provider 404 blocks without fallback and stays sanitized
   }
 });
 
-test("runner example strong Gemini model and pricing stay synchronized", () => {
+test("runner example pins subscription-funded Grok while retaining legacy Gemini profile", () => {
   const example = JSON.parse(readFileSync(path.join(process.cwd(), "tools/auto-runner/runner-config.example.json"), "utf8"));
   const strong = example.reviewerTiers.strong_independent;
   const tieBreaker = example.reviewerTiers.tie_breaker;
-  const strongProfile = example.reviewerProviderProfiles["gemini-strong"];
+  const strongProfile = example.reviewerProviderProfiles.grok;
   for (const tier of [strong, tieBreaker]) {
-    assert.equal(tier.model, "gemini-3.5-flash");
-    assert.equal(tier.inputUsdPerMillionTokens, 1.5);
-    assert.equal(tier.outputUsdPerMillionTokens, 9);
+    assert.equal(tier.provider, "grok");
+    assert.equal(tier.providerProfile, "grok");
+    assert.equal(tier.model, "grok-4.7");
+    assert.equal(tier.inputUsdPerMillionTokens, 0);
+    assert.equal(tier.outputUsdPerMillionTokens, 0);
     assert.doesNotMatch(tier.model, /latest|preview|experimental/i);
   }
-  assert.equal(strongProfile.defaultModel, "gemini-3.5-flash");
-  assert.equal(resolveGeminiModelEndpoint(strong.model), supportedGeminiModelEndpoints["gemini-3.5-flash"]);
+  assert.equal(strongProfile.command, "/home/tommytang213/.local/bin/grok");
+  assert.equal(strongProfile.defaultModel, "grok-4.7");
+  assert.equal(example.reviewerProviderProfiles["gemini-strong"].defaultModel, "gemini-3.5-flash");
 });
 
 test("integrated Gemini retry count and delay are bounded even with pathological config", async () => {
@@ -5381,6 +5397,83 @@ test("pre-push review gate blocks mutation and required independent-review failu
   );
 });
 
+test("pre-push review gate preserves either reviewer's manual or danger verdict", () => {
+  const laneDecision = autoMergeLane({ lane: "workflow-docs-tooling" });
+  for (const [externalReview, review, outcome] of [
+    [{ status: "blocked", verdict: "needs_tommy" }, { verdict: { verdict: "approve" } }, "blocked_needs_tommy"],
+    [{ status: "blocked", verdict: "danger_gate" }, { verdict: { verdict: "changes_requested" } }, "danger_gate"],
+    [{ status: "blocked", verdict: "fail" }, { verdict: { verdict: "danger_gate" } }, "danger_gate"],
+  ]) {
+    const gate = evaluatePrePushReviewGate({ laneDecision, externalReview, review,
+      config: { configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 2 } });
+    assert.equal(gate.ok, false);
+    assert.equal(gate.outcome, outcome);
+    assert.equal(gate.reason, "exact_head_reviewer_manual_gate");
+  }
+});
+
+test("pre-push gate requires an approving local review when one is supplied", () => {
+  const laneDecision = autoMergeLane({ lane: "workflow-docs-tooling" });
+  const expectedHeadSha = "a".repeat(40);
+  const expectedBaseSha = "b".repeat(40);
+  const changedFiles = ["tools/auto-runner/lib/auto-merge-policy.mjs"];
+  const externalReview = { status: "pass", reviewedHead: expectedHeadSha, baseSha: expectedBaseSha,
+    changedFilesDigest: digestChangedFiles(changedFiles) };
+  const input = { laneDecision, expectedHeadSha, expectedBaseSha, changedFiles, externalReview };
+  const missing = evaluatePrePushReviewGate(input);
+  assert.equal(missing.ok, false);
+  assert.equal(missing.reason, "exact_head_codex_review_identity_mismatch");
+  for (const review of [
+    { reviewStatus: "completed", verdict: { verdict: "changes_requested" } },
+    { reviewStatus: "unable_to_review", verdict: { verdict: "unable_to_review" } },
+    { reviewStatus: "completed", verdict: "approve" },
+  ]) {
+    const gate = evaluatePrePushReviewGate({ ...input, review });
+    assert.equal(gate.ok, false);
+    assert.equal(gate.reason, "exact_head_codex_review_identity_mismatch");
+  }
+});
+
+test("pre-push dual review requires successful exact-head process and file bindings", () => {
+  const head = "a".repeat(40);
+  const base = "b".repeat(40);
+  const changedFiles = ["tools/auto-runner/lib/auto-merge-policy.mjs"];
+  const changedFilesDigest = digestChangedFiles(changedFiles);
+  const input = {
+    laneDecision: autoMergeLane({ lane: "workflow-docs-tooling" }),
+    expectedHeadSha: head, expectedBaseSha: base, changedFiles,
+    externalReview: { status: "pass", verdict: "pass", reviewedHead: head, baseSha: base, changedFilesDigest },
+    review: { status: 0, signal: null, error: null, reviewStatus: "completed",
+      reviewedHead: head, baseSha: base, reviewedBaseSha: base, changedFilesDigest,
+      verdict: { verdict: "approve" } },
+  };
+  assert.equal(evaluatePrePushReviewGate(input).ok, true);
+  for (const review of [
+    { status: 1 }, { reviewStatus: undefined }, { reviewedHead: "c".repeat(40) },
+    { reviewedBaseSha: "c".repeat(40) }, { changedFilesDigest: "wrong" },
+  ]) {
+    const gate = evaluatePrePushReviewGate({ ...input, review: { ...input.review, ...review } });
+    assert.equal(gate.ok, false);
+    assert.equal(gate.reason, "exact_head_codex_review_identity_mismatch");
+    assert.equal(gate.outcome, "review_changes_requested_retry_exhausted");
+  }
+  const staleWithFindings = evaluatePrePushReviewGate({ ...input,
+    config: { configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 },
+    review: { ...input.review, reviewedHead: "c".repeat(40), verdict: { verdict: "changes_requested",
+      recommended_next_action: "run_safe_fix_cycle", blocking_findings: ["fix stale head"] } } });
+  assert.equal(staleWithFindings.reason, "exact_head_codex_review_identity_mismatch");
+  assert.equal(staleWithFindings.outcome, "review_changes_requested_retry_exhausted");
+  const externalMismatch = evaluatePrePushReviewGate({ ...input,
+    externalReview: { ...input.externalReview, reviewedHead: "c".repeat(40) } });
+  assert.equal(externalMismatch.reason, "exact_head_independent_review_identity_mismatch");
+  const staleFailedExternal = evaluatePrePushReviewGate({ ...input,
+    config: { configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 },
+    externalReview: { ...input.externalReview, status: "blocked", reason: "blocked_external_reviewer_non_pass",
+      verdict: "fail", changedFilesDigest: "wrong" } });
+  assert.equal(staleFailedExternal.reason, "exact_head_independent_review_identity_mismatch");
+  assert.equal(staleFailedExternal.outcome, "review_changes_requested_retry_exhausted");
+});
+
 test("auto-merge decision enforces exact issue contract paths even under approved lane prefix", () => {
   const laneDecision = autoMergeLane({
     allowedPaths: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md"],
@@ -5411,6 +5504,16 @@ test("canary auto-merge decision requires explicit low-risk approval", () => {
     evaluateAutoMergeDecision(autoMergeContext({ config: approvedLowRiskAutoMergeCanaryConfig() })).reason,
     "all_auto_merge_gates_passed",
   );
+});
+
+test("Grok trial cannot auto-merge even when other gates approve", () => {
+  const base = autoMergeContext();
+  const pinned = evaluateAutoMergeDecision(autoMergeContext({ config: { reviewerProviderPin: "grok" } }));
+  const observed = evaluateAutoMergeDecision(autoMergeContext({ externalReview: { ...base.externalReview, provider: "grok" } }));
+  assert.equal(pinned.eligible, false);
+  assert.equal(pinned.reason, "grok_auto_merge_not_enabled");
+  assert.equal(observed.eligible, false);
+  assert.equal(observed.reason, "grok_auto_merge_not_enabled");
 });
 
 test("sensitive product/security/storage/money/schema/OpenAPI/deployment/secret/public/admin paths block auto-merge", () => {
@@ -6022,6 +6125,28 @@ test("existing low-risk canary PR recovery proceeds only with exact-head safe ev
   assert.equal(decision.eligible, true);
   assert.equal(decision.reason, "existing_pr_recovery_gates_passed");
   assert.deepEqual(decision.issueLinkageEvidence.matchedSources, ["pr.title", "pr.body"]);
+  const laterGrokConfig = existingPrRecoveryContext({ config: { reviewerTiers: {
+    strong_independent: { provider: "grok" },
+  } } });
+  assert.equal(evaluateExistingPrRecoveryDecision(laterGrokConfig).eligible, true);
+});
+
+test("Grok-pinned existing PR recovery accepts provider-neutral evidence without Gemini fields", () => {
+  const base = existingPrRecoveryContext();
+  const digest = digestChangedFiles(base.changedFiles);
+  const exactHeadEvidence = { ...base.exactHeadEvidence,
+    independentReview: { pass: true, headSha: base.actualHeadSha,
+      changedFiles: base.changedFiles, changedFilesDigest: digest,
+      provider: "grok", tier: "strong_independent", completedAt: "2026-10-11T19:00:00.000Z" } };
+  for (const key of ["geminiPass", "geminiHeadSha", "geminiChangedFiles", "geminiChangedFilesDigest",
+    "geminiProvider", "geminiTier", "geminiCompletedAt"]) delete exactHeadEvidence[key];
+  assert.equal(shouldGenerateExistingPrRecoveryEvidence(base.laneDecision, exactHeadEvidence), false);
+  const decision = evaluateExistingPrRecoveryDecision({ ...base, exactHeadEvidence });
+  assert.equal(decision.eligible, true);
+  assert.equal(evaluateExistingPrRecoveryDecision({ ...base,
+    exactHeadEvidence: { ...exactHeadEvidence,
+      independentReview: { ...exactHeadEvidence.independentReview, changedFilesDigest: "bad" } } }).reason,
+  "existing_pr_recovery_independent_evidence_incomplete");
 });
 
 test("existing PR recovery regenerates missing Codex evidence outside independent-review lanes", () => {

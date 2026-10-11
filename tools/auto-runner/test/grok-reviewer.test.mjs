@@ -1,0 +1,480 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
+import { test } from "node:test";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, chmodSync, readFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { invokeGrok, parseGrokVerdict, runGrokIntegratedReview } from "../lib/grok-reviewer.mjs";
+import { runCodexReviewInWorker } from "../lib/parallel-local-review.mjs";
+import { resolveRecoveredReviewerProviderPin } from "../lib/reviewer-provider-pin.mjs";
+import { adoptRecoveredReviewSession } from "../lib/recovered-review-session.mjs";
+import { reviewerReadinessSummary } from "../lib/reviewer-policy.mjs";
+import { independentReviewerProvider, runIndependentIntegratedReview, runIndependentReviewerSmokeTest } from "../lib/independent-reviewer.mjs";
+import { extractReviewFixTrigger } from "../lib/review-fix-policy.mjs";
+
+function fakeSpawn(events, inspect = () => {}) {
+  return (binary, args, options) => {
+    inspect(binary, args, options);
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    let killed = false;
+    child.kill = () => { killed = true; queueMicrotask(() => child.emit("close", 1)); };
+    queueMicrotask(() => {
+      for (const event of events) { if (!killed) child.stdout.write(`${JSON.stringify(event)}\n`); }
+      child.stdout.end(); child.stderr.end();
+      if (!killed) child.emit("close", 0);
+    });
+    return child;
+  };
+}
+
+const file = { fullPath: "/tmp/settleora-review-fixture/snapshot.diff", lines: ["first", "second"] };
+const read = (target = file.fullPath, body = "1→first\n2→second") => [
+  { type: "tool_call", toolCallId: "read-1", toolName: "read_file", rawInput: { target_file: target, offset: 1, limit: 2 } },
+  { type: "tool_call_update", toolCallId: "read-1", status: "completed", content: [{ content: { text: body } }] },
+];
+const end = { type: "end", stopReason: "end_turn", usage: { input_tokens: 100, output_tokens: 20 } };
+
+test("recovery keeps its recorded independent reviewer across configuration changes", () => {
+  const grokConfig = { reviewerProviderPin: "grok", reviewerTiers: { strong_independent: { provider: "grok" } } };
+  const geminiConfig = { reviewerProviderPin: "gemini", reviewerTiers: { strong_independent: { provider: "gemini" } } };
+  assert.deepEqual(resolveRecoveredReviewerProviderPin(grokConfig, { reviewerProviderPin: "grok" }), { ok: true, provider: "grok" });
+  assert.equal(resolveRecoveredReviewerProviderPin(grokConfig, { reviewerProviderPin: "gemini" }).reason, "recovery_reviewer_provider_pin_mismatch");
+  assert.equal(resolveRecoveredReviewerProviderPin(grokConfig, {}).reason, "recovery_reviewer_provider_pin_missing");
+  assert.deepEqual(resolveRecoveredReviewerProviderPin(geminiConfig, {}), { ok: true, provider: "gemini" });
+  assert.equal(resolveRecoveredReviewerProviderPin(geminiConfig, { reviewerProviderPin: "grok" }).reason, "recovery_reviewer_provider_pin_mismatch");
+  const mixedTiers = { reviewerProviderPin: "grok", reviewerTiers: { strong_independent: { provider: "gemini", enabled: false }, cheap_independent: { provider: "grok", enabled: true } } };
+  assert.deepEqual(resolveRecoveredReviewerProviderPin(mixedTiers, { reviewerProviderPin: "grok" }), { ok: true, provider: "grok" });
+});
+
+test("recovered parallel review persists its successor session before controller reuse", async () => {
+  const original = { sessionLifecycle: { sessions: { generation: 2 } } };
+  const issue = {};
+  const successor = { sessions: { generation: 3 } };
+  let durable = null;
+  const next = await adoptRecoveredReviewSession({ state: original, issue,
+    review: { verdict: { verdict: "approve" }, sessionLifecycle: successor },
+    persist: async (state) => { durable = state; } });
+  assert.equal(next.sessionLifecycle, successor);
+  assert.equal(durable.sessionLifecycle, successor);
+  assert.equal(issue.sessionLifecycle, successor);
+  assert.equal(original.sessionLifecycle.sessions.generation, 2);
+  await assert.rejects(adoptRecoveredReviewSession({ state: original, issue: {},
+    review: { sessionLifecycle: successor }, persist: async () => { throw Error("disk unavailable"); } }), /disk unavailable/);
+});
+
+test("Grok verdict parser accepts one bounded JSON object after CLI preface", () => {
+  const verdict = JSON.stringify({ verdict: "fail", confidence: "high", summary: "A concrete defect", findings: ["A changed function fails for input x."] });
+  assert.equal(parseGrokVerdict(`I'll review the package.\n${verdict}`).verdict.verdict, "fail");
+  assert.equal(parseGrokVerdict(`${verdict}\n${verdict}`).ok, false);
+  assert.equal(parseGrokVerdict("No JSON response").ok, false);
+  const structured = JSON.stringify({ verdict: "fail", confidence: "high", summary: "A defect", findings: [
+    { path: "file.js", line: 10, severity: "medium", message: "Input x fails" },
+  ] });
+  assert.match(parseGrokVerdict(structured).verdict.findings[0], /Input x fails/);
+  assert.equal(parseGrokVerdict(JSON.stringify({ verdict: "pass", confidence: "high", summary: "OK", findings: [
+    { message: "a potential concern" },
+  ] })).verdict.findings.length, 1);
+});
+
+test("Grok CLI invocation binds subscriber auth and verifies complete file coverage", async () => {
+  process.env.XAI_API_KEY = "test";
+  process.env.GH_TOKEN = "test";
+  try {
+    const result = await invokeGrok({ files: [file], prompt: "synthetic", staged: "/tmp/settleora-review-fixture",
+      model: "grok-4.7",
+      spawnImpl: fakeSpawn([...read(), { type: "text", data: "PASS" }, end], (binary, args, options) => {
+        assert.equal(binary, "/home/tommytang213/.local/bin/grok");
+        assert.equal(options.env.XAI_API_KEY, undefined);
+        assert.equal(options.env.GH_TOKEN, undefined);
+        assert.ok(args.includes("strict"));
+        assert.ok(args.includes("read_file"));
+        assert.ok(args.includes("--no-subagents"));
+        assert.ok(args.includes("--no-memory"));
+        assert.ok(args.includes("--no-auto-update"));
+        assert.equal(args[args.indexOf("--allow") + 1], "Read(/tmp/settleora-review-fixture/**)");
+        assert.ok(args.includes("--disable-web-search"));
+      }), timeoutMs: 1000 });
+    assert.equal(result.reason, null);
+    assert.equal(result.coveredLines, 2);
+    assert.equal(result.answer, "PASS");
+  } finally { delete process.env.XAI_API_KEY; delete process.env.GH_TOKEN; }
+});
+
+test("Grok rejects trailing stdout after a complete passing response", async () => {
+  for (const trailing of ["{malformed", JSON.stringify({ type: "tool_call", toolName: "write",
+    rawInput: { target_file: "/tmp/outside" } })]) {
+    const spawnImpl = () => {
+      const child = new EventEmitter();
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.kill = () => {};
+      queueMicrotask(() => {
+        for (const event of [...read(), { type: "text", data: "PASS" }, end]) {
+          child.stdout.write(`${JSON.stringify(event)}\n`);
+        }
+        child.stdout.end(trailing);
+        child.stderr.end();
+        child.emit("close", 0);
+      });
+      return child;
+    };
+    const result = await invokeGrok({ files: [file], prompt: "synthetic", staged: "/tmp/settleora-review-fixture",
+      model: "grok-4.7", spawnImpl, timeoutMs: 1000 });
+    assert.equal(result.coveredLines, 2);
+    assert.equal(result.stopReason, "end_turn");
+    assert.equal(result.reason, "blocked_grok_event_unterminated");
+  }
+});
+
+test("Grok resumes once for verified missing line ranges and still requires complete coverage", async () => {
+  const fixture = { ...file, name: "snapshot.diff" };
+  const calls = [];
+  const singleRead = (offset, body) => [
+    { type: "tool_call", toolCallId: "read-1", toolName: "read_file",
+      rawInput: { target_file: fixture.fullPath, offset, limit: 1 } },
+    { type: "tool_call_update", toolCallId: "read-1", status: "completed",
+      content: [{ content: { text: `${offset}→${body}` } }] }, end,
+  ];
+  const spawnImpl = (binary, args, options) => {
+    calls.push(args);
+    return fakeSpawn(singleRead(calls.length, calls.length === 1 ? "first" : "second"))(binary, args, options);
+  };
+  const result = await invokeGrok({ files: [fixture], prompt: "synthetic read plan", staged: "/tmp/settleora-review-fixture",
+    model: "grok-4.7", spawnImpl, timeoutMs: 5000 });
+  assert.equal(result.reason, null);
+  assert.equal(result.coveredLines, 2);
+  assert.equal(result.coveragePasses, 2);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].includes("--session-id"), true);
+  assert.equal(calls[1].includes("--resume"), true);
+  assert.equal(calls[1][calls[1].indexOf("--resume") + 1], calls[0][calls[0].indexOf("--session-id") + 1]);
+  assert.equal(calls[1].includes("--continue"), false);
+  assert.match(calls[1].at(-1), /snapshot\.diff: offset 2, limit 1/);
+});
+
+test("Grok blocks after one bounded continuation if required lines remain unread", async () => {
+  let calls = 0;
+  const spawnImpl = (binary, args, options) => {
+    calls += 1;
+    return fakeSpawn([end])(binary, args, options);
+  };
+  const result = await invokeGrok({ files: [{ ...file, name: "snapshot.diff" }], prompt: "synthetic",
+    staged: "/tmp/settleora-review-fixture", model: "grok-4.7", spawnImpl, timeoutMs: 5000 });
+  assert.equal(calls, 2);
+  assert.equal(result.reason, "blocked_grok_incomplete_coverage");
+  assert.equal(result.missingRanges[0].offset, 1);
+  assert.equal(result.missingRanges[0].limit, 2);
+});
+
+test("malformed Grok streaming event shapes block without crashing", async () => {
+  for (const event of [null, { type: "tool_call_update", status: "completed", content: {} }]) {
+    const result = await invokeGrok({ files: [], prompt: "synthetic", staged: "/tmp/settleora-review-fixture",
+      model: "grok-4.7", spawnImpl: fakeSpawn([event]), timeoutMs: 1000 });
+    assert.equal(result.reason, "blocked_grok_event_malformed");
+  }
+});
+
+test("Grok accepts a staged relative read path with complete coverage", async () => {
+  const result = await invokeGrok({ files: [file], prompt: "synthetic", staged: "/tmp/settleora-review-fixture",
+    model: "grok-4.7", spawnImpl: fakeSpawn([
+      ...read("snapshot.diff"), { type: "text", data: "PASS" }, end,
+    ]), timeoutMs: 1000 });
+  assert.equal(result.reason, null);
+  assert.equal(result.coveredLines, 2);
+});
+
+test("subscription Grok does not bypass the reviewer hard stop", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-grok-budget-test-"));
+  try {
+    mkdirSync(path.join(root, "state"));
+    writeFileSync(path.join(root, "state", "reviewer-accounting.json"), JSON.stringify({ entries: [
+      { monthKey: new Date().toISOString().slice(0, 7), costUsd: 100 },
+    ] }));
+    const result = reviewerReadinessSummary({ logsRoot: root, reviewerTiers: {
+      cheap_independent: { enabled: true, provider: "grok", providerProfile: "grok", model: "grok-4.7" },
+    }, reviewerProviderProfiles: { grok: { provider: "grok", command: "/home/tommytang213/.local/bin/grok" } } },
+    { changedFiles: ["docs/workflow/example.md"] });
+    assert.equal(result.budget.block, true);
+    assert.equal(result.budget.subscriptionFunded, true);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("a pinned Gemini package cannot be sent through a later Grok config", async () => {
+  const config = { reviewerProviderPin: "grok", reviewerTiers: {
+    strong_independent: { enabled: true, provider: "grok", providerProfile: "grok", model: "grok-4.7" },
+  } };
+  const packageInfo = { summary: { reviewerProviderPin: "gemini", changedFiles: ["tools/auto-runner/lib/example.mjs"],
+    laneDecision: { lane: "workflow-docs-tooling", reviewerTier: "strong_independent" },
+    currentHead: "b".repeat(40) },
+  diff: "diff --git a/tools/auto-runner/lib/example.mjs b/tools/auto-runner/lib/example.mjs\n--- a/tools/auto-runner/lib/example.mjs\n+++ b/tools/auto-runner/lib/example.mjs\n@@ -1 +1 @@\n-old\n+new\n" };
+  assert.equal(independentReviewerProvider(config, packageInfo), null);
+  const result = await runIndependentIntegratedReview(config, packageInfo);
+  assert.equal(result.reason, "blocked_reviewer_provider_pin_mismatch");
+  assert.equal(result.liveCallAttempted, false);
+  const legacy = { ...packageInfo, summary: { ...packageInfo.summary, reviewerProviderPin: undefined,
+    reviewerPolicy: { tiers: { strong_independent: { provider: "gemini" } } } } };
+  assert.equal(independentReviewerProvider(config, legacy), null);
+  assert.equal(independentReviewerProvider(config, { ...legacy, summary: { ...legacy.summary, reviewerPolicy: undefined } }), null);
+  assert.equal(independentReviewerProvider({ ...config, reviewerProviderPin: null },
+    { ...legacy, summary: { ...legacy.summary, reviewerPolicy: undefined } }), null);
+  const split = { ...packageInfo, summary: { ...packageInfo.summary,
+    laneDecision: { lane: "workflow-docs-tooling", splitRequired: true },
+    diffStats: { additions: 1000, deletions: 0 } } };
+  assert.equal(independentReviewerProvider(config, split), "split_or_escalate");
+  const splitResult = await runIndependentIntegratedReview(config, split);
+  assert.equal(splitResult.reason, "blocked_external_reviewer_split_required");
+  assert.equal(splitResult.route.largeCandidateRouting.route, "split_or_block");
+});
+
+test("Grok adapter blocks an unpinned configured executable before spawn", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-grok-binary-pin-"));
+  try {
+    const result = await runGrokIntegratedReview({ logsRoot: root, reviewerTiers: {
+      strong_independent: { enabled: true, provider: "grok", providerProfile: "grok", model: "grok-4.7" },
+    }, reviewerProviderProfiles: { grok: { provider: "grok", command: "/tmp/alternate-grok" } } },
+    { summary: { changedFiles: ["docs/workflow/example.md"],
+      laneDecision: { lane: "workflow-docs-tooling", reviewerTier: "strong_independent" } },
+      diff: "diff --git a/docs/workflow/example.md b/docs/workflow/example.md\n" },
+    { spawnImpl: () => { throw Error("must not spawn"); } });
+    assert.equal(result.reason, "blocked_grok_binary_not_pinned");
+    assert.equal(result.liveCallAttempted, false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("Grok invocation stops at the reviewer hard budget before spawn", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-grok-hard-stop-test-"));
+  try {
+    mkdirSync(path.join(root, "state"));
+    writeFileSync(path.join(root, "state", "reviewer-accounting.json"), JSON.stringify({ entries: [
+      { monthKey: new Date().toISOString().slice(0, 7), costUsd: 100 },
+    ] }));
+    const config = { logsRoot: root, reviewerTiers: { strong_independent: {
+      enabled: true, provider: "grok", providerProfile: "grok", model: "grok-4.7",
+    } }, reviewerProviderProfiles: { grok: { provider: "grok", command: "/home/tommytang213/.local/bin/grok" } } };
+    const diff = "diff --git a/docs/workflow/example.md b/docs/workflow/example.md\nnew file mode 100644\n--- /dev/null\n+++ b/docs/workflow/example.md\n@@ -0,0 +1 @@\n+Synthetic.\n";
+    const result = await runGrokIntegratedReview(config, { summary: { baseSha: "a".repeat(40), currentHead: "b".repeat(40),
+      changedFiles: ["docs/workflow/example.md"], laneDecision: { lane: "workflow-docs-tooling", reviewerTier: "strong_independent" } }, diff },
+    { spawnImpl: () => { throw Error("must not spawn"); } });
+    assert.equal(result.reason, "blocked_reviewer_budget_hard_stop");
+    assert.equal(result.liveCallAttempted, false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("live subscriber smoke assembles a complete synthetic package before CLI invocation", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-grok-smoke-test-"));
+  try {
+    const config = { logsRoot: root, repoRoot: path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../.."),
+      reviewerTiers: { cheap_independent: { enabled: true, provider: "grok", providerProfile: "grok", model: "grok-4.7" } },
+      reviewerProviderProfiles: { grok: { provider: "grok", command: "/home/tommytang213/.local/bin/grok" } } };
+    const result = await runIndependentReviewerSmokeTest(config, { liveExternalReviewerCalls: true,
+      spawnImpl: () => { throw Error("synthetic_smoke_reached_cli"); } });
+    assert.equal(result.reason, "blocked_grok_invocation:Error");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("three fixed feature-bundle gate files clear package preflight", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-grok-bundle-shape-test-"));
+  try {
+    const paths = ["tools/auto-runner/settleora-auto-runner.mjs",
+      "tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"];
+    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+    const material = paths.map((sourcePath) => { const content = readFileSync(path.join(repoRoot, sourcePath), "utf8");
+      return { path: sourcePath, content, sha256: createHash("sha256").update(content).digest("hex") }; });
+    const config = { logsRoot: root, reviewerTiers: { strong_independent: {
+      enabled: true, provider: "grok", providerProfile: "grok", model: "grok-4.7",
+    } }, reviewerProviderProfiles: { grok: { provider: "grok", command: "/home/tommytang213/.local/bin/grok" } } };
+    const diff = "diff --git a/docs/workflow/example.md b/docs/workflow/example.md\nnew file mode 100644\n--- /dev/null\n+++ b/docs/workflow/example.md\n@@ -0,0 +1 @@\n+Synthetic.\n";
+    const result = await runGrokIntegratedReview(config, { summary: { baseSha: "a".repeat(40), currentHead: "b".repeat(40),
+      changedFiles: ["docs/workflow/example.md"], taskContract: { objective: "Review synthetic docs" },
+      laneDecision: { lane: "workflow-docs-tooling", reviewerTier: "strong_independent" },
+      integrationBoundaries: paths, integrationBoundaryMaterial: material }, diff },
+    { spawnImpl: () => { throw Error("preflight completed"); } });
+    assert.equal(result.reason, "blocked_grok_invocation:Error");
+    const omitted = await runGrokIntegratedReview(config, { summary: { baseSha: "a".repeat(40), currentHead: "b".repeat(40),
+      changedFiles: ["docs/workflow/example.md"], taskContract: { objective: "Review synthetic docs" },
+      laneDecision: { lane: "workflow-docs-tooling", reviewerTier: "strong_independent" } }, diff },
+    { spawnImpl: () => { throw Error("must not spawn"); } });
+    assert.equal(omitted.reason, "blocked_grok_boundary_material_invalid_or_sensitive");
+    const unsafeContent = ["token=", "not-a-real-value-12345"].join("");
+    const unsafe = { ...material[0], content: unsafeContent,
+      sha256: createHash("sha256").update(unsafeContent).digest("hex") };
+    const blocked = await runGrokIntegratedReview(config, { summary: { baseSha: "a".repeat(40), currentHead: "b".repeat(40),
+      changedFiles: ["docs/workflow/example.md"], taskContract: { objective: "Review synthetic docs" },
+      laneDecision: { lane: "workflow-docs-tooling", reviewerTier: "strong_independent" },
+      integrationBoundaries: paths, integrationBoundaryMaterial: [unsafe, ...material.slice(1)] }, diff },
+    { spawnImpl: () => { throw Error("must not spawn"); } });
+    assert.equal(blocked.reason, "blocked_grok_boundary_material_invalid_or_sensitive");
+    const callContent = ["const authorization", " = verifyScope(",
+      JSON.stringify(["sk-", "syntheticBoundaryValue123456789"].join("")), ");"].join("");
+    const callMaterial = { ...material[0], content: callContent,
+      sha256: createHash("sha256").update(callContent).digest("hex") };
+    const callBlocked = await runGrokIntegratedReview(config, { summary: { baseSha: "a".repeat(40), currentHead: "b".repeat(40),
+      changedFiles: ["docs/workflow/example.md"], taskContract: { objective: "Review synthetic docs" },
+      laneDecision: { lane: "workflow-docs-tooling", reviewerTier: "strong_independent" },
+      integrationBoundaries: paths, integrationBoundaryMaterial: [callMaterial, ...material.slice(1)] }, diff },
+    { spawnImpl: () => { throw Error("must not spawn"); } });
+    assert.equal(callBlocked.reason, "blocked_grok_boundary_material_invalid_or_sensitive");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("Grok review cannot pass with a missed line or outside-file read", async () => {
+  const missing = await invokeGrok({ files: [file], prompt: "synthetic", staged: "/tmp/settleora-review-fixture",
+    model: "grok-4.7", spawnImpl: fakeSpawn([
+      ...read(file.fullPath, "1→first"), { type: "text", data: "PASS" }, end,
+    ]), timeoutMs: 1000 });
+  assert.notEqual(missing.reason, null);
+  const outside = await invokeGrok({ files: [file], prompt: "synthetic", staged: "/tmp/settleora-review-fixture",
+    model: "grok-4.7", spawnImpl: fakeSpawn([...read("/tmp/outside/snapshot.diff"), end]), timeoutMs: 1000 });
+  assert.equal(outside.reason, "blocked_grok_unapproved_tool_or_path");
+});
+
+test("Grok coverage survives a multibyte read marker split between stdout chunks", async () => {
+  const events = [...read(), { type: "text", data: "done" }, end];
+  const output = Buffer.from(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`);
+  const marker = output.indexOf(Buffer.from("→"));
+  assert.ok(marker > 0);
+  const spawnImpl = () => {
+    const child = new EventEmitter();
+    child.stdout = new PassThrough(); child.stderr = new PassThrough();
+    child.kill = () => {};
+    queueMicrotask(() => {
+      child.stdout.write(output.subarray(0, marker + 1));
+      child.stdout.end(output.subarray(marker + 1));
+      child.stderr.end();
+      child.emit("close", 0);
+    });
+    return child;
+  };
+  const result = await invokeGrok({ files: [file], prompt: "synthetic", staged: "/tmp/settleora-review-fixture",
+    model: "grok-4.7", spawnImpl, timeoutMs: 1000 });
+  assert.equal(result.reason, null);
+  assert.equal(result.coveredLines, 2);
+});
+
+test("local Codex process runs off the main event loop alongside an external review", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-parallel-review-test-"));
+  try {
+    mkdirSync(path.join(root, "reviews"));
+    const command = path.join(root, "slow-review");
+    writeFileSync(command, "#!/bin/sh\nsleep 0.2\n"); chmodSync(command, 0o700);
+    let codexDone = false;
+    const codex = runCodexReviewInWorker({ dryRun: false, logsRoot: root, repoRoot: root,
+      reviewerCommand: command, codexMechanicsReviewRetry: { maxAttempts: 1 },
+      operationalIterationCheckpoint: () => { throw Error("controller only"); } },
+    { summary: { changedFiles: ["example.txt"], baseSha: "a".repeat(40), currentHead: "b".repeat(40) }, diff: "synthetic" });
+    codex.then(() => { codexDone = true; });
+    const external = new Promise((resolve) => setTimeout(() => resolve({ codexDoneAtExternalCompletion: codexDone }), 20));
+    const [codexResult, externalResult] = await Promise.all([codex, external]);
+    assert.equal(externalResult.codexDoneAtExternalCompletion, false);
+    assert.equal(codexResult.reviewedHead, "b".repeat(40));
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("parallel Codex timeout waits for worker termination before returning", async () => {
+  let release;
+  let terminating = false;
+  class StalledWorker extends EventEmitter {
+    terminate() {
+      terminating = true;
+      return new Promise((resolve) => { release = resolve; });
+    }
+  }
+  let resolved = false;
+  const review = runCodexReviewInWorker({}, {}, { WorkerImpl: StalledWorker, timeoutMs: 10 });
+  review.then(() => { resolved = true; });
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.equal(terminating, true);
+  assert.equal(resolved, false);
+  release(0);
+  const result = await review;
+  assert.equal(result.reviewStatus, "unable_to_review");
+});
+
+test("integrated Grok adapter accepts only a complete screened and head-bound response", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-grok-integrated-test-"));
+  try {
+    const config = { logsRoot: root, dryRun: false, reviewerTiers: {
+      cheap_independent: { enabled: true, provider: "grok", providerProfile: "grok", model: "grok-4.7", inputUsdPerMillionTokens: 0, outputUsdPerMillionTokens: 0 },
+      strong_independent: { enabled: true, provider: "grok", providerProfile: "grok", model: "grok-4.7", inputUsdPerMillionTokens: 0, outputUsdPerMillionTokens: 0 },
+    }, reviewerProviderProfiles: { grok: { provider: "grok", command: "/home/tommytang213/.local/bin/grok", defaultModel: "grok-4.7" } } };
+    const boundaryPaths = ["tools/auto-runner/settleora-auto-runner.mjs", "tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"];
+    const summary = { repository: "tommytang213/Settleora", baseSha: "a".repeat(40), currentHead: "b".repeat(40),
+      changedFiles: ["src/example.js"], laneDecision: { lane: "workflow-docs-tooling", reviewerTier: "cheap_independent" },
+      validation: { passed: true }, taskContract: { objective: "Review synthetic change" },
+      reviewFixMechanicsContext: { phase: "post_review_fix_mechanics", reviewerInstruction: "Review this synthetic exact head" },
+      integrationBoundaries: boundaryPaths,
+      integrationBoundaryMaterial: boundaryPaths.map((sourcePath) => ({ path: sourcePath, content: "// Read-only gate fixture\n",
+        sha256: createHash("sha256").update("// Read-only gate fixture\n").digest("hex") })) };
+    const diff = "diff --git a/src/example.js b/src/example.js\n--- a/src/example.js\n+++ b/src/example.js\n@@ -1 +1 @@\n-old\n+new\n";
+    const spawnWithVerdict = (reportedVerdict) => (_binary, args) => {
+      const staged = args[args.indexOf("--cwd") + 1];
+      assert.doesNotMatch(readFileSync(path.join(staged, "context.json"), "utf8"), /Read-only gate fixture/);
+      assert.equal(JSON.parse(readFileSync(path.join(staged, "context.json"), "utf8")).reviewFixMechanicsContext.phase,
+        "post_review_fix_mechanics");
+      const events = [];
+      for (const [index, name] of ["context.json", "snapshot.diff", "boundary-0.txt", "boundary-1.txt", "boundary-2.txt"].entries()) {
+        const fullPath = path.join(staged, name);
+        const lines = readFileSync(fullPath, "utf8").trimEnd().split("\n");
+        const id = `read-${index}`;
+        events.push({ type: "tool_call", toolCallId: id, toolName: "read_file",
+          rawInput: { target_file: fullPath, offset: 1, limit: lines.length } });
+        events.push({ type: "tool_call_update", toolCallId: id, status: "completed",
+          content: [{ content: { text: lines.map((line, i) => `${i + 1}→${line}`).join("\n") } }] });
+      }
+      events.push({ type: "text", data: JSON.stringify(reportedVerdict) }, end);
+      return fakeSpawn(events)();
+    };
+    const spawnImpl = spawnWithVerdict({ verdict: "pass", confidence: "medium", summary: "No introduced defect", findings: [] });
+    const result = await runGrokIntegratedReview(config, { summary, diff }, { spawnImpl, timeoutMs: 1000 });
+    assert.equal(result.status, "pass");
+    assert.equal(result.provider, "grok");
+    assert.equal(result.reviewedHead, summary.currentHead);
+    assert.equal(result.attestedCandidateIdentity.headSha, summary.currentHead);
+    assert.equal(result.providerMetadata.coveredLines, result.providerMetadata.totalLines);
+    const contradictory = await runGrokIntegratedReview(config, { summary, diff }, { timeoutMs: 1000,
+      spawnImpl: spawnWithVerdict({ verdict: "pass", confidence: "medium", summary: "Check input handling",
+        findings: ["A changed function returns the wrong status for a bounded input."] }) });
+    assert.equal(contradictory.status, "blocked");
+    assert.equal(contradictory.reason, "blocked_external_reviewer_non_pass");
+    assert.equal(contradictory.verdict, "fail");
+    assert.equal(contradictory.sanitizedResponseSummary.providerReportedVerdict, "pass");
+    assert.equal(contradictory.attestedCandidateIdentity.headSha, summary.currentHead);
+    assert.equal(extractReviewFixTrigger({ externalReview: contradictory,
+      review: { verdict: { verdict: "approve" } } }).actionable, true);
+    const alias = await runGrokIntegratedReview({ ...config, reviewerTiers: {
+      ...config.reviewerTiers,
+      cheap_independent: { ...config.reviewerTiers.cheap_independent, model: "grok-latest" },
+    } }, { summary, diff }, { spawnImpl: () => { throw new Error("alias must not invoke Grok"); } });
+    assert.equal(alias.reason, "blocked_unsupported_grok_model");
+    assert.equal(alias.liveCallAttempted, false);
+    const secret = await runGrokIntegratedReview(config, { summary: {
+      ...summary, issue: { title: "Synthetic", body: ["api_key=", "sk-", "abcdefghijklmnopqrstuvwxyz123456"].join("") },
+    }, diff }, { spawnImpl: () => { throw new Error("must not call vendor"); } });
+    assert.equal(secret.status, "blocked");
+    assert.equal(secret.reason, "blocked_grok_context_secret_boundary");
+    assert.equal(secret.liveCallAttempted, false);
+    const xaiKey = ["xai-", "Z".repeat(32)].join("");
+    const xaiSecret = await runGrokIntegratedReview(config, { summary: {
+      ...summary, issue: { title: "Synthetic", body: `Pasted key ${xaiKey}` },
+    }, diff }, { spawnImpl: () => { throw new Error("must not call vendor"); } });
+    assert.equal(xaiSecret.reason, "blocked_grok_context_secret_boundary");
+    assert.equal(xaiSecret.liveCallAttempted, false);
+    const credentialValue = ["synthetic", "credential", "value", "123456"].join("-");
+    const passwordKey = ["pass", "word"].join("");
+    const prefixedKey = ["SERVICE", "API", "KEY"].join("_");
+    for (const probe of [JSON.stringify({ [passwordKey]: credentialValue }), `${prefixedKey}=${credentialValue}`,
+      `\\"${passwordKey}\\":\\"${credentialValue}\\"`]) {
+      const blockedContext = await runGrokIntegratedReview(config, { summary: {
+        ...summary, taskContract: { objective: "Synthetic review", generatedPrompt: probe },
+      }, diff }, { spawnImpl: () => { throw Error("must not call vendor"); } });
+      assert.equal(blockedContext.reason, "blocked_grok_context_secret_boundary");
+      assert.equal(blockedContext.liveCallAttempted, false);
+    }
+    assert.notEqual(secret.reportPath, result.reportPath);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

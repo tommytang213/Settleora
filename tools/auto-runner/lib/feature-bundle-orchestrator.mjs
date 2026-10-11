@@ -32,7 +32,9 @@ import { collectReport } from "./report-collector.mjs";
 import { bindValidationEvidence, planValidation, runValidationPlan } from "./validation-planner.mjs";
 import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } from "./pr-manager.mjs";
 import { hktTimestamp, safeTimestamp, slugify } from "./logger.mjs";
-import { runGeminiIntegratedReview } from "./gemini-reviewer.mjs";
+import { runIndependentIntegratedReview, independentReviewerProvider } from "./independent-reviewer.mjs";
+import { resolveRecoveredReviewerProviderPin } from "./reviewer-provider-pin.mjs";
+import { runCodexReviewInWorker } from "./parallel-local-review.mjs";
 import { reviewerReadinessSummary } from "./reviewer-policy.mjs";
 import { persistCumulativeLargeCandidateReview, persistLargeCandidateSplitDecision, structuredLargeCandidateFindings, structuredLargeCandidateManualVerdict } from "./large-candidate-review-routing.mjs";
 import { createProductionSplitMaterializationAdapter, materializeFeatureBundleSplit, readSplitMaterializationState } from "./feature-bundle-split-materializer.mjs";
@@ -57,12 +59,14 @@ import {
   executeAutoMerge,
   inspectAutoMergeGithubState,
   requiresIndependentAiReview,
+  reviewerManualGateOutcome,
   writeAutoMergeEvidence,
 } from "./auto-merge-policy.mjs";
 import {
   advanceRecoveryPhase,
   bindRecoveryEvidence,
   createInitialRecoveryState,
+  digestChangedFiles,
   invalidateEvidenceForHeadChange,
   persistCompleteHeadEvidence,
   recordIdempotentMutation,
@@ -134,8 +138,13 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
       baseSha: baseOriginMainSha,
       currentHeadSha: startingHead,
       taskKey: plan.taskKey || "auto-runner",
+      reviewerProviderPin: config.reviewerProviderPin || null,
     });
   }
+  const providerBinding = resolveRecoveredReviewerProviderPin(config, {
+    reviewerProviderPin: state.reviewerProviderPin || recoveryState?.reviewerProviderPin || null,
+  });
+  if (!providerBinding.ok) return stopBundle(result, "bundle_recovery_failed", providerBinding.reason, providerBinding.reason);
   if (!config.dryRun) {
     writeBundleState(config, state);
   }
@@ -347,7 +356,25 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   });
   const reviewFingerprintBefore = captureBundleReviewCheckoutFingerprint(config);
   checkpoint("feature_bundle_external_review", { validation: result.validation });
-  result.externalReview = await runGeminiIntegratedReview(config, result.reviewPackage);
+  if (independentReviewerProvider(config, result.reviewPackage) === "grok") {
+    const parallel = await runDurableBundleParallelReviews(config, result.reviewPackage, state,
+      (next) => { state = config.dryRun ? next : writeBundleState(config, next).state; }, sessionLifecycle,
+      { adoptSessionLifecycle: (successor) => {
+        sessionLifecycle = adoptBundleReviewerSession(recovery, successor);
+        result.sessionLifecycle = sessionLifecycle;
+      } });
+    result.externalReview = parallel.externalReview;
+    result.review = parallel.review;
+    if (!parallel.ok) {
+      const guard = compareBundleReviewCheckoutFingerprint(reviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
+        phase: "bundle_external_review",
+      });
+      if (guard.mutationDetected) return stopForBundleReviewMutation({ config, result, state, recovery, guard, phase: "bundle_external_review" });
+      return stopBundle(result, parallel.outcome || "blocked", parallel.reasonCode, parallel.reasonCode);
+    }
+  } else {
+    result.externalReview = await runIndependentIntegratedReview(config, result.reviewPackage);
+  }
   checkpoint("feature_bundle_external_review_complete", { externalReview: result.externalReview });
   const externalReviewMutationGuard = compareBundleReviewCheckoutFingerprint(reviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
     phase: "bundle_external_review",
@@ -402,11 +429,18 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   const codexReviewFingerprintBefore = captureBundleReviewCheckoutFingerprint(config);
   recovery?.advance("codex_mechanics_security_review", "run_bundle_codex_review");
   checkpoint("feature_bundle_local_codex_review", { externalReview: result.externalReview });
-  result.review = runReviewPrompt(config, { ...result.reviewPackage, sessionLifecycle });
+  result.review ||= runReviewPrompt(config, { ...result.reviewPackage, sessionLifecycle });
   checkpoint("feature_bundle_local_codex_review_complete", { review: result.review });
   if (result.review.sessionLifecycle) {
-    sessionLifecycle = result.review.sessionLifecycle;
+    sessionLifecycle = adoptBundleReviewerSession(recovery, result.review.sessionLifecycle);
     result.sessionLifecycle = sessionLifecycle;
+  }
+  const initialManual = reviewerManualGateOutcome(result.externalReview, result.review);
+  if (initialManual) {
+    state = markBundleStopped(state, { reasonCode: "bundle_reviewer_manual_gate", reason: initialManual });
+    if (!config.dryRun) writeBundleState(config, state);
+    recovery?.stop("bundle_reviewer_manual_gate", initialManual, "manual_decision_required");
+    return stopBundle(result, initialManual, "bundle_reviewer_manual_gate", "Independent reviewer required a manual decision.", { state });
   }
   const codexReviewMutationGuard = compareBundleReviewCheckoutFingerprint(codexReviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
     phase: "bundle_codex_review",
@@ -427,7 +461,7 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     return stopForBundleReviewMutation({ config, result, state, recovery, guard: structuredReviewMutationGuard, phase: "bundle_structured_review" });
   }
   if (result.largeCandidateReview.sessionLifecycle) {
-    sessionLifecycle = result.largeCandidateReview.sessionLifecycle;
+    sessionLifecycle = adoptBundleReviewerSession(recovery, result.largeCandidateReview.sessionLifecycle);
     result.sessionLifecycle = sessionLifecycle;
   }
   if (result.externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation" && !result.largeCandidateReview.ok) {
@@ -488,7 +522,11 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   let prePushGate = evaluatePrePushReviewGate({
     ...reviewConvergence.gateInput,
     laneDecision: planned.laneDecision,
+    expectedHeadSha: finalHead,
+    expectedBaseSha: baseOriginMainSha,
+    changedFiles: aggregateFiles,
     externalReview: result.externalReview,
+    review: result.review,
     reviewMutationGuard: result.reviewMutationGuard,
   });
   checkpoint("feature_bundle_review_convergence", { validation: result.validation, externalReview: result.externalReview, review: result.review });
@@ -586,14 +624,16 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
 }
 
 function routeBundleStructuredFindingsToConvergence(result) {
-  const gemini = structuredLargeCandidateFindings(result.largeCandidateReview, "gemini").map(bundleConvergenceFinding);
+  if (reviewerManualGateOutcome(result.externalReview, result.review)) return false;
+  const externalProvider = result.externalReview?.provider || "gemini";
+  const external = structuredLargeCandidateFindings(result.largeCandidateReview, externalProvider).map(bundleConvergenceFinding);
   const codex = structuredLargeCandidateFindings(result.largeCandidateReview, "codex-local").map(bundleConvergenceFinding);
-  if (gemini.length + codex.length === 0) return false;
-  if (gemini.length > 0) result.externalReview = {
+  if (external.length + codex.length === 0) return false;
+  if (external.length > 0) result.externalReview = {
     ...result.externalReview,
     status: "blocked",
     verdict: "fail",
-    sanitizedResponseSummary: { verdict: "fail", findings: gemini },
+    sanitizedResponseSummary: { verdict: "fail", findings: external },
     reason: "blocked_external_reviewer_non_pass",
   };
   if (codex.length > 0) result.review = {
@@ -698,7 +738,7 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
       sessionLifecycle: input.sessionLifecycle,
     });
     attempts.push(fixAttempt);
-    if (fixAttempt.sessionLifecycle) input.sessionLifecycle = fixAttempt.sessionLifecycle;
+    if (fixAttempt.sessionLifecycle) input.sessionLifecycle = adoptBundleReviewerSession(input.recovery, fixAttempt.sessionLifecycle);
     if (!fixAttempt.proceeded) {
       input.recovery?.stop("bundle_review_convergence_fix_not_proceeded", fixAttempt.reason, terminalNextAction(fixAttempt.reason));
       if (state.reviewConvergenceState?.diagnosticReviewFix?.status === "pending") {
@@ -731,7 +771,17 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
       sessionLifecycle: input.sessionLifecycle,
       recovery: input.recovery,
     });
-    if (postFix.sessionLifecycle) input.sessionLifecycle = postFix.sessionLifecycle;
+    if (postFix.bundleState) state = postFix.bundleState;
+    if (postFix.parallelReviewFailure) {
+      state = markBundleStopped(state, { reasonCode: postFix.parallelReviewFailure, reason: postFix.parallelReviewFailure });
+      writeState(state);
+      input.recovery?.stop(postFix.parallelReviewFailure, postFix.parallelReviewFailure,
+        postFix.parallelReviewOutcome ? "manual_decision_required" : "stop_fail_closed");
+      return { ok: false, outcome: postFix.reviewMutationGuard?.mutationDetected
+        ? "auto_failed" : postFix.parallelReviewOutcome || "blocked",
+        reasonCode: postFix.parallelReviewFailure, state, attempts };
+    }
+    if (postFix.sessionLifecycle) input.sessionLifecycle = adoptBundleReviewerSession(input.recovery, postFix.sessionLifecycle);
     changedFiles = postFix.changedFiles || changedFiles;
     forbiddenChangedFiles = postFix.forbiddenChangedFiles || forbiddenChangedFiles;
     currentResult = {
@@ -748,6 +798,13 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
       largeCandidateReview: postFix.largeCandidateReview,
       reviewMutationGuard: postFix.reviewMutationGuard,
     };
+    const postFixManual = reviewerManualGateOutcome(postFix.externalReview, postFix.review);
+    if (postFixManual) {
+      state = markBundleStopped(state, { reasonCode: "bundle_post_fix_reviewer_manual_gate", reason: postFixManual });
+      writeState(state);
+      input.recovery?.stop("bundle_post_fix_reviewer_manual_gate", postFixManual, "manual_decision_required");
+      return { ok: false, outcome: postFixManual, reasonCode: "bundle_post_fix_reviewer_manual_gate", state, attempts };
+    }
     if (postFix.externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation" && !postFix.largeCandidateReview?.ok) {
       const manualVerdict = structuredLargeCandidateManualVerdict(postFix.largeCandidateReview);
       if (manualVerdict) {
@@ -887,7 +944,11 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
     prePushGate = dependencies.evaluatePrePushGate({
       ...reviewConvergence.gateInput,
       laneDecision: input.laneDecision,
+      expectedHeadSha: postFix.runnerCreatedCommitSha,
+      expectedBaseSha: input.baseSha,
+      changedFiles: currentResult.changedFiles || input.changedFiles,
       externalReview: currentResult.externalReview,
+      review: currentResult.review,
       reviewMutationGuard: currentResult.reviewMutationGuard || { mutationDetected: false },
     });
   }
@@ -1017,10 +1078,30 @@ async function commitBundleReviewFixAndRerunExactHeadReviews(config, { issue, la
     baseSha,
   });
   const externalReviewFingerprintBefore = captureBundleReviewCheckoutFingerprint(config);
-  const externalReview = await runGeminiIntegratedReview(config, reviewPackage);
+  const parallelReviews = independentReviewerProvider(config, reviewPackage) === "grok"
+    ? await runDurableBundleParallelReviews(config, reviewPackage,
+      { ...state, lastVerifiedHead: runnerCreatedCommitSha || state.lastVerifiedHead },
+      (next) => { state = config.dryRun ? next : writeBundleState(config, next).state; },
+      fixAttempt.sessionLifecycle || sessionLifecycle || null,
+      { adoptSessionLifecycle: (successor) => {
+        sessionLifecycle = adoptBundleReviewerSession(recovery, successor);
+      } })
+    : null;
+  const [externalReview, parallelCodexReview] = parallelReviews
+    ? [parallelReviews.externalReview, parallelReviews.review]
+    : [await runIndependentIntegratedReview(config, reviewPackage), null];
   const externalReviewMutationGuard = compareBundleReviewCheckoutFingerprint(externalReviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
     phase: "bundle_convergence_external_review",
   });
+  if (parallelReviews && !parallelReviews.ok) return {
+    changedFiles, forbiddenChangedFiles, validation, commit, runnerCreatedCommitSha,
+    reviewPackage, externalReview, review: parallelCodexReview,
+    reviewMutationGuard: externalReviewMutationGuard,
+    parallelReviewFailure: externalReviewMutationGuard.mutationDetected
+      ? "bundle_review_mutation_detected" : parallelReviews.reasonCode,
+    parallelReviewOutcome: parallelReviews.outcome || null,
+    bundleState: state,
+  };
   if (externalReviewMutationGuard.mutationDetected) {
     return {
       changedFiles,
@@ -1035,7 +1116,7 @@ async function commitBundleReviewFixAndRerunExactHeadReviews(config, { issue, la
     };
   }
   const codexReviewFingerprintBefore = captureBundleReviewCheckoutFingerprint(config);
-  const review = runReviewPrompt(config, { ...reviewPackage, sessionLifecycle: fixAttempt.sessionLifecycle || sessionLifecycle || null });
+  const review = parallelCodexReview || runReviewPrompt(config, { ...reviewPackage, sessionLifecycle: fixAttempt.sessionLifecycle || sessionLifecycle || null });
   const codexReviewMutationGuard = compareBundleReviewCheckoutFingerprint(codexReviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
     phase: "bundle_convergence_codex_review",
   });
@@ -1054,6 +1135,7 @@ async function commitBundleReviewFixAndRerunExactHeadReviews(config, { issue, la
     reviewPackage,
     externalReview,
     review,
+    bundleState: state,
     largeCandidateReview,
     sessionLifecycle: largeCandidateReview.sessionLifecycle || review.sessionLifecycle || fixAttempt.sessionLifecycle || sessionLifecycle || null,
     reviewMutationGuard: mergeBundleReviewMutationGuards(externalReviewMutationGuard, codexReviewMutationGuard, structuredReviewMutationGuard),
@@ -1095,11 +1177,11 @@ function bundleIntegrationBoundaryMaterial(repoRoot, paths) {
 
 async function runBundleStructuredReviewCall(config, reviewPackage, provider, structuredReview, sessionLifecycle = null, onLifecycle = null) {
   const scopedPackage = { ...reviewPackage, summary: { ...reviewPackage.summary, structuredReview: { phase: structuredReview.phase, sectionId: structuredReview.section?.id || null, changedPaths: structuredReview.section?.changedPaths || [], sections: (structuredReview.sections || []).map((entry) => ({ id: entry.id, status: entry.status, findings: (entry.findings || []).slice(0, 20) })), coverageSections: structuredReview.manifest.sections.map((entry) => ({ id: entry.id, changedPaths: entry.changedPaths })), manifestDigest: structuredReview.manifest.manifestDigest } } };
-  const evidence = provider === "gemini" ? await runGeminiIntegratedReview(config, scopedPackage) : runReviewPrompt(config, { ...scopedPackage, sessionLifecycle });
+  const evidence = provider !== "codex-local" ? await runIndependentIntegratedReview(config, scopedPackage) : runReviewPrompt(config, { ...scopedPackage, sessionLifecycle });
   if (evidence?.sessionLifecycle && onLifecycle) onLifecycle(evidence.sessionLifecycle);
-  const pass = provider === "gemini" ? evidence?.status === "pass" && evidence?.verdict === "pass" : evidence?.verdict?.verdict === "approve";
+  const pass = provider !== "codex-local" ? evidence?.status === "pass" && evidence?.verdict === "pass" : evidence?.verdict?.verdict === "approve";
   const reasonCode = evidence?.reason || evidence?.reviewFailureReason || null;
-  const reviewerVerdict = provider === "gemini" ? evidence?.verdict || evidence?.sanitizedResponseSummary?.verdict : evidence?.verdict?.verdict;
+  const reviewerVerdict = provider !== "codex-local" ? evidence?.verdict || evidence?.sanitizedResponseSummary?.verdict : evidence?.verdict?.verdict;
   return { ...(structuredReview.section ? { id: structuredReview.section.id } : {}), status: pass ? "pass" : "blocked", reviewerVerdict, manifestDigest: structuredReview.manifest.manifestDigest, findings: bundleStructuredFindings(evidence), evidencePath: evidence?.reportPath || evidence?.logPath || null, reasonCode, contextLimited: /context|token|truncat|over.?budget/i.test(reasonCode || ""), attestationSource: evidence?.attestationSource, providerPromptBindingDigest: evidence?.providerPromptBindingDigest, attestedCandidateIdentity: evidence?.attestedCandidateIdentity, attestedIntegrationBoundaries: evidence?.attestedIntegrationBoundaries };
 }
 
@@ -1253,6 +1335,108 @@ Stop if this slice needs files outside its slice scope, changes parent contract 
   return { promptPath, reportPath, timestampKey, prompt };
 }
 
+export function resolveBundleParallelReviewerCheckpoint(saved, identity) {
+  if (!saved || saved.headSha !== identity.headSha) return { ok: true, checkpoint: null };
+  if (saved.baseSha !== identity.baseSha || saved.changedFilesDigest !== identity.changedFilesDigest) {
+    return { ok: false, reasonCode: "bundle_parallel_reviewer_identity_mismatch" };
+  }
+  const manual = reviewerManualGateOutcome(saved.external, saved.codex);
+  if (manual) return { ok: false, outcome: manual, reasonCode: "bundle_parallel_reviewer_manual_gate_persisted" };
+  return { ok: true, checkpoint: saved };
+}
+
+function bundleReviewerCheckpoint(review, kind) {
+  if (!review) return null;
+  return {
+    status: review.status, reason: review.reason, verdict: review.verdict,
+    reviewedHead: review.reviewedHead, reviewedBaseSha: review.reviewedBaseSha,
+    baseSha: review.baseSha, changedFilesDigest: review.changedFilesDigest,
+    changedFiles: review.changedFiles, completedAt: review.completedAt,
+    ...(kind === "codex" ? { reviewStatus: review.reviewStatus, signal: review.signal, error: review.error } : {}),
+    sanitizedResponseSummary: review.sanitizedResponseSummary,
+    findings: review.findings, route: review.route, provider: review.provider,
+    tier: review.tier, independent: review.independent,
+    reportPath: review.reportPath, logPath: review.logPath,
+    reviewFailureReason: review.reviewFailureReason,
+    reviewFailureCategory: review.reviewFailureCategory,
+  };
+}
+
+function bundleReviewerComplete(review, kind, identity) {
+  if (!review || review.reviewedHead !== identity.headSha || review.baseSha !== identity.baseSha
+    || review.changedFilesDigest !== identity.changedFilesDigest) return false;
+  if (kind === "external") return (review.status === "pass" && review.verdict === "pass")
+    || (review.reason === "blocked_external_reviewer_non_pass"
+      && ["fail", "needs_tommy", "danger_gate"].includes(review.verdict));
+  return review.status === 0 && !review.signal && !review.error
+    && ["passed", "completed"].includes(review.reviewStatus)
+    && review.reviewedBaseSha === identity.baseSha
+    && ["approve", "changes_requested", "needs_tommy", "danger_gate"].includes(review.verdict?.verdict);
+}
+
+export async function runDurableBundleParallelReviews(config, reviewPackage, startingState, persist, sessionLifecycle, deps = {}) {
+  const summary = reviewPackage.summary || {};
+  const identity = { headSha: summary.currentHead, baseSha: summary.baseSha,
+    changedFilesDigest: digestChangedFiles(summary.changedFiles || []) };
+  const saved = startingState.finalization?.parallelReviewerVerdicts;
+  const savedLifecycle = startingState.finalization?.parallelReviewerSessionLifecycle;
+  if (saved?.headSha === identity.headSha && saved.baseSha === identity.baseSha
+    && saved.changedFilesDigest === identity.changedFilesDigest
+    && bundleReviewerComplete(saved.codex, "codex", identity)
+    && savedLifecycle?.headSha === identity.headSha && savedLifecycle.lifecycle) {
+    deps.adoptSessionLifecycle?.(savedLifecycle.lifecycle);
+  }
+  const resolved = resolveBundleParallelReviewerCheckpoint(
+    saved, identity);
+  if (!resolved.ok) return { ...resolved, externalReview: resolved.checkpoint?.external || null,
+    review: resolved.checkpoint?.codex || null };
+  const prior = resolved.checkpoint;
+  const externalComplete = bundleReviewerComplete(prior?.external, "external", identity);
+  const codexComplete = bundleReviewerComplete(prior?.codex, "codex", identity);
+  if ((!externalComplete || !codexComplete) && (prior?.attempts || 0) >= 2) {
+    return { ok: false, reasonCode: "bundle_parallel_reviewer_retry_exhausted" };
+  }
+  let state = startingState;
+  const save = (checkpoint) => {
+    state = { ...state, finalization: { ...state.finalization, parallelReviewerVerdicts: checkpoint } };
+    persist(state);
+  };
+  if (!externalComplete || !codexComplete) save({ ...identity, attempts: (prior?.attempts || 0) + 1,
+    external: prior?.external || null, codex: prior?.codex || null });
+  const record = (kind, review) => {
+    state = { ...state, finalization: { ...state.finalization,
+      ...(kind === "codex" && review.sessionLifecycle
+        ? { parallelReviewerSessionLifecycle: { headSha: identity.headSha, lifecycle: review.sessionLifecycle } } : {}) } };
+    save({ ...state.finalization.parallelReviewerVerdicts, [kind]: bundleReviewerCheckpoint(review, kind) });
+    if (kind === "codex" && review.sessionLifecycle) deps.adoptSessionLifecycle?.(review.sessionLifecycle);
+    return review;
+  };
+  const settled = await Promise.allSettled([
+    externalComplete ? prior.external : Promise.resolve().then(() =>
+      (deps.runExternal || runIndependentIntegratedReview)(config, reviewPackage))
+      .then((value) => record("external", value)),
+    codexComplete ? prior.codex : Promise.resolve().then(() =>
+      (deps.runCodex || runCodexReviewInWorker)(config, { ...reviewPackage, sessionLifecycle }))
+      .then((value) => record("codex", value)),
+  ]);
+  if (settled.some((result) => result.status === "rejected")) {
+    return { ok: false, reasonCode: "bundle_parallel_reviewer_invocation_failed" };
+  }
+  const [externalReview, review] = settled.map((result) => result.value);
+  if (codexComplete && savedLifecycle?.headSha === identity.headSha && savedLifecycle.lifecycle) {
+    review.sessionLifecycle = savedLifecycle.lifecycle;
+  }
+  const manual = reviewerManualGateOutcome(externalReview, review);
+  if (manual) return { ok: false, outcome: manual,
+    reasonCode: "bundle_parallel_reviewer_manual_gate_persisted", externalReview, review };
+  if (!bundleReviewerComplete(externalReview, "external", identity)
+    || !bundleReviewerComplete(review, "codex", identity)) {
+    return { ok: false, reasonCode: "bundle_parallel_reviewer_identity_or_process_mismatch",
+      externalReview, review };
+  }
+  return { ok: true, externalReview, review };
+}
+
 function writeBundleReviewPackage(config, { issue, laneDecision, plan, state, changedFiles, validation, headSha, baseSha }) {
   const diff = config.dryRun ? { text: "", truncated: false } : getBoundedDiff("origin/main", "HEAD");
   const packagePath = path.join(config.logsRoot, "reviews", `${safeTimestamp()}-issue-${issue.number}-feature-bundle.json`);
@@ -1262,9 +1446,12 @@ function writeBundleReviewPackage(config, { issue, laneDecision, plan, state, ch
     issue: { number: issue.number, title: issue.title, labels: issue.labels || [], url: issue.url || null },
     bundle: summarizeBundleState(state),
     featureBundle: { architectureConsistent: plan.architectureConsistent === true },
+    taskContract: { issueBody: issue.body || null,
+      bundleObjectives: plan.slices.map((slice) => `${slice.id}: ${slice.objective || slice.title}`).join("\n") },
     planDigest: plan.planDigest,
     laneDecision,
     reviewerPolicy: reviewerReadinessSummary(config, { changedFiles, laneDecision, stats: { additions: 0, deletions: 0 } }),
+    reviewerProviderPin: state.reviewerProviderPin || config.reviewerProviderPin || null,
     changedFiles,
     currentHead: headSha,
     baseSha,
@@ -1277,7 +1464,7 @@ function writeBundleReviewPackage(config, { issue, laneDecision, plan, state, ch
     diffTruncated: diff.truncated,
   };
   mkdirSync(path.dirname(packagePath), { recursive: true });
-  writeFileSync(packagePath, `${JSON.stringify({ summary, diff: diff.text }, null, 2)}\n`);
+  writeFileSync(packagePath, `${JSON.stringify({ summary, diff: diff.text }, null, 2)}\n`, { mode: 0o600 });
   return { packagePath, summary, diff: diff.text };
 }
 
@@ -1410,6 +1597,11 @@ function stopBundle(result, outcome, reasonCode, reason, extra = {}) {
   };
 }
 
+export function adoptBundleReviewerSession(recovery, successor) {
+  if (!successor) return null;
+  return recovery?.adoptSessionLifecycle ? recovery.adoptSessionLifecycle(successor) : successor;
+}
+
 function stopForBundleReviewMutation({ config, result, state, recovery, guard, phase }) {
   const reason = guard.reason || `Bundle review command mutated checkout during ${phase}.`;
   const stoppedState = markBundleStopped(state, { reasonCode: "bundle_review_mutation_detected", reason });
@@ -1507,6 +1699,7 @@ function createBundleRecoveryRecorder(config, input) {
     phase: "branch_setup",
     firstIncompleteAction: "recover_or_create_bundle_branch",
     featureBundle: input.featureBundle,
+    reviewerProviderPin: config.reviewerProviderPin || null,
   });
   let statePath = null;
   const persist = (nextState) => {
@@ -1525,6 +1718,11 @@ function createBundleRecoveryRecorder(config, input) {
   return {
     get state() {
       return state;
+    },
+    adoptSessionLifecycle(next) {
+      const durable = config.sessionLifecycle?.enabled === true ? persistSessionLifecycleState(config, next) : { ok: true, state: next };
+      if (!durable.ok) throw new Error(durable.reasonCode || "bundle_session_lifecycle_persistence_failed");
+      return persist({ ...state, sessionLifecycle: durable.state }).sessionLifecycle;
     },
     setPr(pr) {
       return persist({

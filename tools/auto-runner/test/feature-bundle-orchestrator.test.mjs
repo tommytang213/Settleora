@@ -1,10 +1,159 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import path from "node:path";
-import { featureBundleOrchestratorTestInternals } from "../lib/feature-bundle-orchestrator.mjs";
+import { featureBundleOrchestratorTestInternals, resolveBundleParallelReviewerCheckpoint, runDurableBundleParallelReviews } from "../lib/feature-bundle-orchestrator.mjs";
+import { sanitizeBundleState } from "../lib/feature-bundle-state.mjs";
 
 const repoRoot = process.cwd();
 const repositorySlug = "tommytang213/Settleora";
+
+test("bundle Grok checkpoints survive sanitization and never rerun a completed verdict", async () => {
+  const headSha = "a".repeat(40);
+  const baseSha = "b".repeat(40);
+  const changedFiles = ["tools/auto-runner/lib/feature-bundle-orchestrator.mjs"];
+  const changedFilesDigest = createHash("sha256").update(JSON.stringify(changedFiles)).digest("hex");
+  const reviewPackage = { summary: { currentHead: headSha, baseSha, changedFiles } };
+  const codex = { status: 0, reviewStatus: "completed", verdict: { verdict: "approve" },
+    reviewedHead: headSha, reviewedBaseSha: baseSha, baseSha, changedFilesDigest };
+  for (const verdict of ["pass", "fail"]) {
+    const external = { status: verdict === "pass" ? "pass" : "blocked",
+      reason: verdict === "pass" ? "integrated_review_passed" : "blocked_external_reviewer_non_pass",
+      verdict, provider: "grok", reviewedHead: headSha, baseSha, changedFilesDigest,
+      findings: [{ severity: "high", title: "preserved finding" }] };
+    let persisted = { finalization: { state: "reviewing" } };
+    const persist = (next) => { persisted = sanitizeBundleState(next); };
+    const first = await runDurableBundleParallelReviews({}, reviewPackage, persisted, persist, null,
+      { runExternal: async () => external, runCodex: async () => codex });
+    assert.equal(first.ok, true);
+    const saved = persisted.finalization.parallelReviewerVerdicts.external;
+    assert.equal(saved.status, external.status);
+    assert.equal(saved.reason, external.reason);
+    assert.equal(saved.provider, "grok");
+    assert.deepEqual(saved.findings, external.findings);
+    assert.equal(Object.hasOwn(saved, "reviewStatus"), false);
+    let reruns = 0;
+    const resumed = await runDurableBundleParallelReviews({}, reviewPackage, persisted, persist, null,
+      { runExternal: async () => { reruns += 1; throw new Error("completed Grok rerun"); },
+        runCodex: async () => { reruns += 1; throw new Error("completed Codex rerun"); } });
+    assert.equal(resumed.ok, true);
+    assert.equal(reruns, 0);
+    assert.deepEqual(resumed.externalReview.findings, external.findings);
+  }
+});
+
+test("bundle recovery preserves a manual Grok verdict before Codex completes", async () => {
+  const headSha = "a".repeat(40);
+  const baseSha = "b".repeat(40);
+  const changedFiles = ["tools/auto-runner/lib/feature-bundle-orchestrator.mjs"];
+  const changedFilesDigest = createHash("sha256").update(JSON.stringify(changedFiles)).digest("hex");
+  const reviewPackage = { summary: { currentHead: headSha, baseSha, changedFiles } };
+  const initial = { finalization: { state: "reviewing" } };
+  let persisted = initial;
+  let finishCodex;
+  const codexPending = new Promise((resolve) => { finishCodex = resolve; });
+  const external = { status: "blocked", reason: "blocked_external_reviewer_non_pass",
+    verdict: "needs_tommy", reviewedHead: headSha, baseSha, changedFilesDigest };
+  const codex = { status: 0, reviewStatus: "completed", verdict: { verdict: "approve" },
+    reviewedHead: headSha, reviewedBaseSha: baseSha, baseSha, changedFilesDigest };
+  const pending = runDurableBundleParallelReviews({}, reviewPackage, initial,
+    (next) => { persisted = next; }, null,
+    { runExternal: async () => external, runCodex: async () => codexPending });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(persisted.finalization.parallelReviewerVerdicts.attempts, 1);
+  assert.equal(persisted.finalization.parallelReviewerVerdicts.external.verdict, "needs_tommy");
+  assert.equal(persisted.finalization.parallelReviewerVerdicts.codex, null);
+  const recovered = resolveBundleParallelReviewerCheckpoint(persisted.finalization.parallelReviewerVerdicts,
+    { headSha, baseSha, changedFilesDigest });
+  assert.equal(recovered.outcome, "blocked_needs_tommy");
+  const resumed = await runDurableBundleParallelReviews({}, reviewPackage, persisted,
+    () => { throw new Error("saved manual verdict must not be overwritten"); }, null,
+    { runExternal: async () => { throw new Error("external rerun"); },
+      runCodex: async () => { throw new Error("codex rerun"); } });
+  assert.equal(resumed.outcome, "blocked_needs_tommy");
+  finishCodex(codex);
+  assert.equal((await pending).outcome, "blocked_needs_tommy");
+});
+
+test("bundle recovery reuses completed Codex evidence and adopts its successor after Grok fails", async () => {
+  const headSha = "c".repeat(40);
+  const baseSha = "d".repeat(40);
+  const changedFiles = ["tools/auto-runner/lib/feature-bundle-orchestrator.mjs"];
+  const changedFilesDigest = createHash("sha256").update(JSON.stringify(changedFiles)).digest("hex");
+  const reviewPackage = { summary: { currentHead: headSha, baseSha, changedFiles } };
+  const initial = { finalization: { state: "reviewing" } };
+  const successor = { phase: "codex-successor", headSha };
+  const codex = { status: 0, reviewStatus: "completed", verdict: { verdict: "approve" },
+    reviewedHead: headSha, reviewedBaseSha: baseSha, baseSha, changedFilesDigest,
+    changedFiles, completedAt: "2026-10-11T19:00:00.000Z", sessionLifecycle: successor };
+  let persisted = initial;
+  let finishExternal;
+  const externalPending = new Promise((resolve) => { finishExternal = resolve; });
+  const first = runDurableBundleParallelReviews({}, reviewPackage, initial,
+    (next) => { persisted = sanitizeBundleState(next); }, null,
+    { runExternal: async () => externalPending, runCodex: async () => codex });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(persisted.finalization.parallelReviewerSessionLifecycle,
+    { headSha, lifecycle: successor });
+  assert.deepEqual(persisted.finalization.parallelReviewerVerdicts.codex.changedFiles, changedFiles);
+  assert.equal(persisted.finalization.parallelReviewerVerdicts.codex.completedAt, codex.completedAt);
+  finishExternal({ status: "blocked", reason: "provider_timeout" });
+  assert.equal((await first).ok, false);
+  const manualSaved = sanitizeBundleState({ ...persisted, finalization: { ...persisted.finalization,
+    parallelReviewerVerdicts: { ...persisted.finalization.parallelReviewerVerdicts,
+      external: { status: "blocked", reason: "blocked_external_reviewer_non_pass", verdict: "needs_tommy",
+        reviewedHead: headSha, baseSha, changedFilesDigest } } } });
+  const manualAdopted = [];
+  const manualRecovery = await runDurableBundleParallelReviews({}, reviewPackage, manualSaved,
+    () => { throw new Error("manual gate must not mutate checkpoint"); }, null,
+    { adoptSessionLifecycle: (value) => manualAdopted.push(value),
+      runExternal: async () => { throw new Error("manual rerun"); },
+      runCodex: async () => { throw new Error("manual rerun"); } });
+  assert.equal(manualRecovery.outcome, "blocked_needs_tommy");
+  assert.deepEqual(manualAdopted, [successor]);
+  const adopted = [];
+  let codexReruns = 0;
+  const resumed = await runDurableBundleParallelReviews({}, reviewPackage, persisted,
+    (next) => { persisted = sanitizeBundleState(next); }, null,
+    { runExternal: async () => ({ status: "pass", verdict: "pass", reviewedHead: headSha,
+      baseSha, changedFilesDigest }),
+    runCodex: async () => { codexReruns += 1; throw new Error("unexpected Codex rerun"); },
+    adoptSessionLifecycle: (value) => adopted.push(value) });
+  assert.equal(resumed.ok, true);
+  assert.equal(codexReruns, 0);
+  assert.deepEqual(adopted, [successor]);
+  assert.deepEqual(resumed.review.sessionLifecycle, successor);
+  assert.deepEqual(resumed.review.changedFiles, changedFiles);
+  assert.equal(resumed.review.completedAt, codex.completedAt);
+});
+
+test("post-fix bundle review checks checkout mutation before handling a failed parallel review", () => {
+  const source = readFileSync(new URL("../lib/feature-bundle-orchestrator.mjs", import.meta.url), "utf8");
+  const initial = source.slice(source.indexOf("checkpoint(\"feature_bundle_external_review\""),
+    source.indexOf("checkpoint(\"feature_bundle_external_review_complete\""));
+  assert.match(initial, /if \(!parallel\.ok\) \{[\s\S]*?compareBundleReviewCheckoutFingerprint\([\s\S]*?if \(guard\.mutationDetected\) return stopForBundleReviewMutation/);
+  const postFix = source.slice(source.indexOf("async function commitBundleReviewFixAndRerunExactHeadReviews"),
+    source.indexOf("async function certifyLargeBundleCumulativeReview"));
+  assert.match(postFix, /const externalReviewMutationGuard = compareBundleReviewCheckoutFingerprint\([\s\S]*?if \(parallelReviews && !parallelReviews\.ok\)/);
+  assert.match(postFix, /parallelReviewFailure: externalReviewMutationGuard\.mutationDetected[\s\S]*?"bundle_review_mutation_detected"/);
+});
+
+test("bundle parallel review waits for a peer after one invocation throws", async () => {
+  const reviewPackage = { summary: { currentHead: "a".repeat(40), baseSha: "b".repeat(40),
+    changedFiles: ["tools/auto-runner/lib/feature-bundle-orchestrator.mjs"] } };
+  let releasePeer;
+  const peer = new Promise((resolve) => { releasePeer = resolve; });
+  let returned = false;
+  const pending = runDurableBundleParallelReviews({}, reviewPackage,
+    { finalization: { state: "reviewing" } }, () => {}, null,
+    { runExternal: async () => { throw new Error("external failed"); },
+      runCodex: async () => peer }).then((result) => { returned = true; return result; });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(returned, false);
+  releasePeer({ status: 1, reason: "peer_complete" });
+  assert.equal((await pending).reasonCode, "bundle_parallel_reviewer_invocation_failed");
+});
 
 function config(overrides = {}) {
   return {

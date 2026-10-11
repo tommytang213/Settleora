@@ -13,6 +13,7 @@ import { canonicalGithubEvidenceDigest, executeCanonicalGithubEffectSync } from 
 import { findPreEffectIntents } from "./pre-effect-intent.mjs";
 import { createCleanupOwnershipRecord, loadCleanupOwnership, persistCleanupOwnership } from "./post-merge-cleanup.mjs";
 import { assertRepositoryRemoteIdentity } from "./runtime-identity.mjs";
+import { recoveredIndependentReviewEvidence } from "./recovered-independent-evidence.mjs";
 
 export const lowRiskAutoMergeLanes = Object.freeze(["workflow-docs-tooling", "docs-planning", "client-ui-low-risk"]);
 export const approvedDomainAutoMergeLanes = Object.freeze([
@@ -90,6 +91,9 @@ export function evaluateAutoMergeDecision(input) {
   const block = (reason) => ({ ...result, reason });
 
   if (!config.allowAutoMerge) return block("auto_merge_disabled_by_config");
+  if (config.reviewerProviderPin === "grok" || input.externalReview?.provider === "grok") {
+    return block("grok_auto_merge_not_enabled");
+  }
   if (config.canary) {
     const approval = evaluateLowRiskAutoMergeCanaryApproval(config);
     if (!approval.approved) return block(`low_risk_auto_merge_canary_not_approved:${approval.reason}`);
@@ -153,6 +157,7 @@ export function evaluateExistingPrRecoveryDecision(input) {
   const issue = input.issue || {};
   const pr = input.pr || {};
   const evidence = input.exactHeadEvidence || {};
+  const independent = recoveredIndependentReviewEvidence(evidence);
   const linkageEvidence = input.issueLinkageEvidence || buildIssueLinkageEvidence(pr, issue.number);
   const changedFiles = input.changedFiles || [];
   const baseDecision = evaluateAutoMergeDecision(input);
@@ -171,21 +176,29 @@ export function evaluateExistingPrRecoveryDecision(input) {
   if (!pr.headRefName || !/^(feature|focused)\/auto-\d+-/.test(pr.headRefName)) return block("existing_pr_recovery_unowned_pr_branch");
   if (!linkageEvidence.available) return block("existing_pr_recovery_missing_pr_linkage_evidence");
   if (!linkageEvidence.linked) return block("existing_pr_recovery_pr_not_linked_to_issue");
-  if (requiresIndependentAiReview(input.laneDecision) && !evidence.geminiPass) {
+  if (requiresIndependentAiReview(input.laneDecision) && independent.pass !== true) {
     return block("existing_pr_recovery_missing_independent_review_evidence");
   }
-  if (!evidence.geminiPass && !evidence.codexMechanicsApproved) {
+  if (independent.pass !== true && !evidence.codexMechanicsApproved) {
     return block("existing_pr_recovery_missing_evidence_or_review");
   }
   if (!evidence.codexMechanicsApproved) {
     return block("existing_pr_recovery_missing_codex_mechanics_evidence");
   }
+  // Completed exact-head evidence remains bound to its recorded provider.
+  // A later task's provider configuration must not invalidate a pinned job.
   if (evidence.headSha && evidence.headSha !== result.prHeadSha) return block("existing_pr_recovery_evidence_head_mismatch");
-  if (evidence.geminiPass && evidence.geminiHeadSha && evidence.geminiHeadSha !== result.prHeadSha) {
-    return block("existing_pr_recovery_gemini_head_mismatch");
+  if (independent.neutral && independent.pass === true
+    && (!independent.headSha || !Array.isArray(independent.changedFiles)
+      || independent.changedFilesDigest !== digestChangedFiles(changedFiles)
+      || !independent.provider || !independent.tier || !independent.completedAt)) {
+    return block("existing_pr_recovery_independent_evidence_incomplete");
   }
-  if (evidence.geminiPass && Array.isArray(evidence.geminiChangedFiles) && !sameStringSet(evidence.geminiChangedFiles, changedFiles)) {
-    return block("existing_pr_recovery_gemini_files_mismatch");
+  if (independent.pass === true && independent.headSha && independent.headSha !== result.prHeadSha) {
+    return block(independent.neutral ? "existing_pr_recovery_independent_head_mismatch" : "existing_pr_recovery_gemini_head_mismatch");
+  }
+  if (independent.pass === true && Array.isArray(independent.changedFiles) && !sameStringSet(independent.changedFiles, changedFiles)) {
+    return block(independent.neutral ? "existing_pr_recovery_independent_files_mismatch" : "existing_pr_recovery_gemini_files_mismatch");
   }
   if (evidence.codexMechanicsApproved && evidence.codexMechanicsHeadSha && evidence.codexMechanicsHeadSha !== result.prHeadSha) {
     return block("existing_pr_recovery_codex_review_head_mismatch");
@@ -881,6 +894,9 @@ export function requiresIndependentAiReview(laneDecision = {}) {
 export function evaluatePrePushReviewGate(input = {}) {
   const laneDecision = input.laneDecision || {};
   const externalReview = input.externalReview || null;
+  const expectedHead = input.expectedHeadSha || null;
+  const expectedBase = input.expectedBaseSha || null;
+  const expectedFilesDigest = Array.isArray(input.changedFiles) ? digestChangedFiles(input.changedFiles) : null;
   if (input.reviewMutationGuard?.mutationDetected) {
     return {
       ok: false,
@@ -888,6 +904,20 @@ export function evaluatePrePushReviewGate(input = {}) {
       reason: "exact_head_review_mutated_checkout",
       message: "exact-head review mutated the checkout",
     };
+  }
+  const manualOutcome = reviewerManualGateOutcome(externalReview, input.review);
+  if (manualOutcome) {
+    return { ok: false, outcome: manualOutcome, reason: "exact_head_reviewer_manual_gate",
+      message: `exact-head review requires ${manualOutcome === "danger_gate" ? "danger-gate" : "manual"} resolution` };
+  }
+  if (requiresIndependentAiReview(laneDecision) && (externalReview?.status === "pass"
+      || externalReview?.reason === "blocked_external_reviewer_non_pass")
+    && (!/^[a-f0-9]{40}$/.test(expectedHead || "") || !/^[a-f0-9]{40}$/.test(expectedBase || "")
+      || !expectedFilesDigest || externalReview.reviewedHead !== expectedHead
+      || externalReview.baseSha !== expectedBase || externalReview.changedFilesDigest !== expectedFilesDigest)) {
+    return { ok: false, outcome: "review_changes_requested_retry_exhausted",
+      reason: "exact_head_independent_review_identity_mismatch",
+      message: "exact-head independent review is not bound to the candidate" };
   }
   if (requiresIndependentAiReview(laneDecision) && externalReview?.status !== "pass") {
     const convergence = evaluatePrePushReviewConvergence(input, externalReview);
@@ -915,7 +945,42 @@ export function evaluatePrePushReviewGate(input = {}) {
       message: `exact-head independent review returned ${externalReview?.reason || externalReview?.status || "missing"} and bounded review convergence is unavailable: ${convergence.reason}`,
     };
   }
+  if (requiresIndependentAiReview(laneDecision) && (!/^[a-f0-9]{40}$/.test(expectedHead || "")
+    || !/^[a-f0-9]{40}$/.test(expectedBase || "") || !expectedFilesDigest
+    || externalReview?.reviewedHead !== expectedHead || externalReview?.baseSha !== expectedBase
+    || externalReview?.changedFilesDigest !== expectedFilesDigest)) {
+    return { ok: false, outcome: "review_changes_requested_retry_exhausted",
+      reason: "exact_head_independent_review_identity_mismatch",
+      message: "exact-head independent review is not bound to the candidate" };
+  }
+  if (!input.review || input.review.status !== 0 || input.review.signal || input.review.error
+    || !["passed", "completed"].includes(input.review.reviewStatus)
+    || !/^[a-f0-9]{40}$/.test(expectedHead || "") || !/^[a-f0-9]{40}$/.test(expectedBase || "")
+    || !expectedFilesDigest || input.review.reviewedHead !== expectedHead
+    || input.review.baseSha !== expectedBase || input.review.reviewedBaseSha !== expectedBase
+    || input.review.changedFilesDigest !== expectedFilesDigest) {
+    return { ok: false, outcome: "review_changes_requested_retry_exhausted",
+      reason: "exact_head_codex_review_identity_mismatch",
+      message: "exact-head Codex review did not complete on the candidate" };
+  }
+  if (input.review.verdict?.verdict !== "approve") {
+    const convergence = evaluatePrePushReviewConvergence(input, externalReview || {});
+    return { ok: false,
+      outcome: convergence.ok ? "review_convergence_required" : "review_changes_requested_retry_exhausted",
+      reason: "exact_head_codex_review_not_approved",
+      message: "exact-head Codex review did not approve the candidate",
+      ...(convergence.ok ? { convergence } : {}),
+    };
+  }
   return { ok: true, reason: "pre_push_review_gates_passed" };
+}
+
+export function reviewerManualGateOutcome(...reviews) {
+  const verdicts = reviews.flatMap((review) => [review?.verdict?.verdict, review?.verdict,
+    review?.sanitizedResponseSummary?.verdict]);
+  if (verdicts.includes("danger_gate")) return "danger_gate";
+  if (verdicts.includes("needs_tommy")) return "blocked_needs_tommy";
+  return null;
 }
 
 function evaluatePrePushReviewConvergence(input = {}, externalReview = {}) {
@@ -941,15 +1006,17 @@ function evaluatePrePushReviewConvergence(input = {}, externalReview = {}) {
 }
 
 export function shouldGenerateExistingPrRecoveryEvidence(laneDecision = {}, exactHeadEvidence = {}) {
+  const independent = recoveredIndependentReviewEvidence(exactHeadEvidence);
   return Boolean(
     !exactHeadEvidence.validationPassed ||
       !exactHeadEvidence.codexMechanicsApproved ||
       !exactHeadEvidence.codexMechanicsHeadSha ||
       !Array.isArray(exactHeadEvidence.codexMechanicsChangedFiles) ||
       (requiresIndependentAiReview(laneDecision) &&
-        (!exactHeadEvidence.geminiPass ||
-          !exactHeadEvidence.geminiHeadSha ||
-          !Array.isArray(exactHeadEvidence.geminiChangedFiles))),
+        (independent.pass !== true || !independent.headSha ||
+          !Array.isArray(independent.changedFiles) ||
+          (independent.neutral && (!independent.changedFilesDigest || !independent.provider
+            || !independent.tier || !independent.completedAt)))),
   );
 }
 

@@ -1,5 +1,10 @@
 # Settleora Auto-Runner Tooling
 
+Provider note (2026-10-11): new task-scoped independent reviews use the
+subscriber-funded Grok Build CLI as described in the reviewer section below.
+Gemini-specific procedures in this document remain for jobs pinned to the
+legacy provider. Active jobs and their evidence are not migrated in place.
+
 ## Authenticated terminal validation-retry projection
 
 Deployment admission and targeted startup recovery share one read-only
@@ -1163,20 +1168,62 @@ reviewer hard stop, USD 200/month Codex subscription budget, USD 300/month
 total automation ceiling, and an 80% warning threshold. Cost estimates are
 local token-price arithmetic only and do not call external provider APIs.
 
-The approved independent reviewer provider direction is Google-only for now.
-`cheap_independent` may be configured to use a supported Gemini Flash or
-Flash-Lite class model. `strong_independent` and any enabled `tie_breaker`
-profile should use a specific stable Gemini model, currently
-`gemini-3.5-flash`, rather than a moving `latest` alias. Provider lifecycle
-changes such as an unavailable configured model are operational blockers, not
-review verdicts, and the runner must not silently fall back to weaker, preview,
-or alias models. Model changes require official model/deprecation/pricing
-verification, explicit endpoint support, token-price updates, a bounded smoke
-or integrated provider proof, and exact-head rereview. Claude and OpenAI
-reviewer provider wiring is intentionally absent.
+For new task-scoped configs, explicitly enable the subscriber-funded Grok Build
+CLI tiers after the review gates are ready. The example leaves them disabled.
+Keep existing jobs on their pinned Gemini configuration and evidence; do not
+switch a shared config while they run. A provider change requires a new exact-head
+review; evidence from the other provider cannot satisfy Grok recovery.
+Run new jobs from a separate, immutable task-scoped `--config` file with
+`reviewerProviderPin: "grok"`; the live runner rejects enabled Grok tiers without
+that pin and an explicit config path. A review package carries the pin, and a
+later config cannot silently send it to a different provider. Completed
+exact-head Gemini recovery evidence remains valid under its recorded provider;
+regeneration stops if the running config cannot honor that provider.
+Provider lifecycle failures are blockers, never review passes. Grok is not
+given an API key or a metered API fallback.
 
-Gemini provider configuration is disabled by default in
-`runner-config.example.json`. Model names, token prices, and provider profile
+The Grok profile pins `/home/tommytang213/.local/bin/grok` and `grok-4.7`.
+The operator signs in privately with `grok login` and keeps subscriber Auto Top
+Up disabled. The runner passes only a small allowlist of noncredential environment variables, stages only the
+secret-screened package and the fixed gate-source files in a fresh owner-only
+temporary directory, and calls
+the CLI with `--sandbox strict`, an explicit Read allow rule scoped to that
+staged directory, web, memory, subagents, and auto-update disabled, a 64-turn
+limit, and a 30-minute deadline. It verifies complete file
+coverage from tool events before accepting one strict-schema JSON verdict. Incomplete coverage,
+tool/path violation, unavailable login/quota, timeout, malformed output, or
+non-pass blocks. Packages above 832 KiB currently block for narrower review.
+Grok tasks also block structured large-candidate and automatic merge routes until
+those routes can preserve blind peer review and full exact-head evidence.
+If a headless turn ends before all indexed ranges are read, the adapter resumes
+that isolated session once to request only the verified missing ranges within
+the same deadline. A verdict still requires complete coverage. Check remaining
+subscriber included usage in the account before an expensive rerun; `grok usage`
+reports session totals, not the account's remaining allowance.
+On startup recovery, a transport or worker failure is not replayed as a verdict:
+the runner retains any completed same-head verdict, retries only the incomplete
+reviewer once, and blocks if that second invocation remains incomplete.
+Grok sessions may retain the sent package in the user's local CLI history.
+After private subscriber sign-in and explicit trial authorization, a
+task-scoped config can exercise a synthetic one-call smoke check with
+`--reviewer-smoke-test --live-external-reviewer-calls`. This is a provider
+call; the normal smoke check without that flag does not contact Grok.
+
+For a new candidate, local validation completes first; then Grok and local
+Codex independently review the same frozen package concurrently. Neither sees
+the other's answer. Review findings are checked against the requirements,
+source, and tests; a concrete Grok finding is not discarded because Codex
+passed, and conflicts are not decided by a vote. Record the resolution and
+repeat exact-head gates after any fix. Compare reviewers by valid incremental
+findings, including assumptions and domain edge cases that one reviewer missed.
+Both verdicts bind to the exact candidate head. Any source
+change invalidates both reviews and local validation, which must rerun before
+push. GitHub CI, scanners, and hosted Codex review follow the push.
+
+The older Gemini subscriber-independent path below remains for pinned jobs.
+
+Gemini provider configuration remains available for already pinned jobs.
+Model names, token prices, and provider profile
 names are configurable, but API keys must stay outside the repository. The
 runner first reads `GEMINI_API_KEY` from the process environment. An external
 env file can be configured only by explicit path under:

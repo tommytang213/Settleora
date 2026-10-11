@@ -5,8 +5,21 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
+  adoptBundleReviewerSession,
   runBundleReviewConvergence,
 } from "../lib/feature-bundle-orchestrator.mjs";
+
+test("bundle reviewer successor is persisted before a manual return", () => {
+  const successor = { sessions: { generation: 2 } };
+  const calls = [];
+  const recovery = { adoptSessionLifecycle(value) { calls.push("persist"); return value; }, stop() { calls.push("stop"); } };
+  assert.equal(adoptBundleReviewerSession(recovery, successor), successor);
+  recovery.stop();
+  assert.deepEqual(calls, ["persist", "stop"]);
+  assert.throws(() => adoptBundleReviewerSession({ adoptSessionLifecycle() { throw Error("disk failure"); } }, successor), /disk failure/);
+  const source = readFileSync(new URL("../lib/feature-bundle-orchestrator.mjs", import.meta.url), "utf8");
+  assert.match(source, /result\.review \|\|= runReviewPrompt[\s\S]*?adoptBundleReviewerSession\(recovery, result\.review\.sessionLifecycle\)[\s\S]*?const initialManual = reviewerManualGateOutcome/);
+});
 import {
   accountConvergenceEvent,
   analyzeConvergenceProgress,
@@ -722,6 +735,25 @@ test("sensitive Codex changes-requested safe-fix trigger can enter mutation but 
   assert.equal(extractReviewFixTrigger({ review: { verdict: { verdict: "changes_requested", recommended_next_action: "manual_review", blocking_findings: ["manual"] } } }).actionable, false);
 });
 
+test("either independent reviewer's manual gate blocks a competing safe-fix request", () => {
+  const common = {
+    config: { configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 2 },
+    laneDecision: { lane: "workflow-docs-tooling", allowedToImplement: true, allowedPaths: ["docs/workflow/**"],
+      contract: { autoMergeEligible: true, manualMergeRequired: false } },
+    changedFiles: ["docs/workflow/example.md"], validation: { passed: true },
+    trigger: { actionable: true, findings: ["bounded fix"], source: "codex_mechanics" },
+  };
+  for (const input of [
+    { externalReview: { status: "blocked", verdict: "fail" }, review: { verdict: { verdict: "danger_gate" } } },
+    { externalReview: { status: "blocked", verdict: "danger_gate" }, review: { verdict: { verdict: "changes_requested" } } },
+    { externalReview: { status: "blocked", sanitizedResponseSummary: { verdict: "needs_tommy" } }, review: { verdict: { verdict: "changes_requested" } } },
+  ]) {
+    const decision = evaluateReviewFixMutationDecision({ ...common, ...input });
+    assert.equal(decision.allowed, false);
+    assert.equal(decision.reason, "reviewer_manual_or_danger_gate");
+  }
+});
+
 test("stack controller sequences parent merge, child retarget, delta proof, child merge, and hygiene", () => {
   const pr919 = { number: 919, state: "OPEN", baseRefName: "main", headRefName: "feature/parent", headRefOid: "9".repeat(40) };
   const pr920 = { number: 920, state: "OPEN", baseRefName: "feature/parent", headRefName: "feature/child", headRefOid: "8".repeat(40) };
@@ -986,6 +1018,24 @@ test("feature-bundle Codex non-approve invokes bounded executor and consumes one
   assert.equal(persisted[0].headSha, newHead);
   assert.equal(persisted[0].externalReview.reviewedHead, newHead);
   assert.deepEqual(input.recovery.actions.filter((action) => action[0] === "advance")[0], ["advance", "review_fix", "run_bundle_codex_review_convergence"]);
+});
+
+test("bundle post-fix manual reviewer verdict stops before structured findings can replace it", async () => {
+  const input = bundleConvergenceInput({ writeState(next) { input.state = next; } });
+  const result = await runBundleReviewConvergence({ configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 }, input, {
+    async runFixCycle() { return { proceeded: true, changedFilesAfter: input.changedFiles,
+      validationAfter: input.validation, forbiddenChangedFilesAfter: [] }; },
+    async commitAndRerun() { return { runnerCreatedCommitSha: "b".repeat(40), changedFiles: input.changedFiles,
+      forbiddenChangedFiles: [], validation: input.validation,
+      externalReview: { status: "blocked", verdict: "danger_gate", route: { largeCandidateRouting: { route: "large_bundle_escalation" } } },
+      review: { verdict: { verdict: "changes_requested" } },
+      largeCandidateReview: { ok: false, findings: [{ path: input.changedFiles[0], summary: "ordinary fix" }] },
+      reviewMutationGuard: { mutationDetected: false } }; },
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.outcome, "danger_gate");
+  assert.equal(result.reasonCode, "bundle_post_fix_reviewer_manual_gate");
+  assert.equal(input.recovery.actions.some((entry) => entry[0] === "stop" && entry[1] === "bundle_post_fix_reviewer_manual_gate"), true);
 });
 
 test("feature-bundle stops no-progress before running another fix below budget", async () => {

@@ -36,6 +36,24 @@ test("normal candidate retains normal review routing", () => {
   assert.equal(classifyLargeCandidate({ changedFiles: ["tools/auto-runner/lib/a.mjs"], stats: { additions: 3 } }).route, "normal");
 });
 
+test("Grok trial stops structured large-candidate review before invoking reviewers", async () => {
+  let invoked = false;
+  for (const [config, externalReview] of [
+    [{ reviewerProviderPin: "grok" }, { provider: "gemini" }],
+    [{}, { provider: "grok" }],
+  ]) {
+    const result = await persistCumulativeLargeCandidateReview({
+      config, externalReview, candidateIdentity,
+      changedFiles: ["tools/auto-runner/a.mjs"],
+      invokeSection: async () => { invoked = true; },
+      invokeIntegration: async () => { invoked = true; },
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.reasonCode, "grok_structured_large_candidate_not_supported");
+  }
+  assert.equal(invoked, false);
+});
+
 test("coherent large workflow candidate escalates without approval metadata", () => {
   const route = routeReviewer({ changedFiles: workflowFiles(), stats: { additions: 2400 }, laneDecision: { lane: "workflow-docs-tooling" }, largeBundleReviewApproval: { enabled: false, approvals: [] } });
   assert.equal(route.tier, "strong_independent");

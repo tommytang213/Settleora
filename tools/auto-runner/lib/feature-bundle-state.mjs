@@ -24,11 +24,12 @@ export function bundleStatePath(config, planOrKey) {
   return path.join(config.logsRoot, stateRootName, `${key}.json`);
 }
 
-export function createInitialBundleState({ plan, runId, supervisorRunId = null, branchName, baseSha, currentHeadSha, taskKey }) {
+export function createInitialBundleState({ plan, runId, supervisorRunId = null, branchName, baseSha, currentHeadSha, taskKey, reviewerProviderPin = null }) {
   const now = new Date().toISOString();
   return {
     stateVersion: bundleStateVersion,
     taskKey: String(taskKey || ""),
+    ...(reviewerProviderPin ? { reviewerProviderPin } : {}),
     bundleId: plan.id,
     bundleVersion: plan.bundleVersion,
     strategy: plan.strategy,

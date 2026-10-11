@@ -1109,10 +1109,28 @@ function processIdentity() {
   return { pid: process.pid, ppid: process.ppid, startedAt: new Date().toISOString() };
 }
 
-export function createInitialPrStackState({ plan, adapter = null } = {}) {
+function stackReviewerProvider(config = {}) {
+  if (config.reviewerProviderPin === "grok" || config.reviewerProviderPin === "gemini") {
+    return config.reviewerProviderPin;
+  }
+  return config.reviewerTiers?.strong_independent?.provider === "grok" ? "grok" : "gemini";
+}
+
+function checkStackReviewerProvider(state, config) {
+  const configured = stackReviewerProvider(config);
+  // Legacy journals predate the pin and can only continue on their original
+  // Gemini lane. Never infer Grok authorization from a changed config.
+  const pinned = state?.reviewerProviderPin || "gemini";
+  return pinned === configured
+    ? { ok: true }
+    : fail("stack_reviewer_provider_mismatch", "persisted reviewer provider differs from the configured reviewer");
+}
+
+export function createInitialPrStackState({ plan, adapter = null, config = {} } = {}) {
   const now = new Date().toISOString();
   const state = sanitizeState({
     stateVersion: prStackStateVersion,
+    reviewerProviderPin: stackReviewerProvider(config),
     stackId: plan.stackId,
     repository: plan.repository,
     issueNumber: plan.issueNumber ?? null,
@@ -1159,6 +1177,8 @@ export function loadOrCreateStackState({ config = {}, plan, statePath, adapter =
   if (existsSync(statePath)) {
     const loaded = loadPrStackState(statePath, plan);
     if (!loaded.ok) return loaded;
+    const providerCheck = checkStackReviewerProvider(loaded.state, config);
+    if (!providerCheck.ok) return providerCheck;
     if (loaded.state.terminal?.reasonCode === "controller_wiring_missing") {
       return {
         ok: true,
@@ -1201,6 +1221,7 @@ export function writePrStackState(statePath, state) {
 
 export function validatePrStackState(state = {}, plan = null) {
   if (state.stateVersion !== prStackStateVersion) return fail("stack_state_unknown_version", "unknown stack state schema version");
+  if (state.reviewerProviderPin !== undefined && !["gemini", "grok"].includes(state.reviewerProviderPin)) return fail("stack_reviewer_provider_pin_invalid", "stack reviewer provider pin is invalid");
   if (!validStackId(state.stackId)) return fail("stack_state_identity_missing", "stack state stackId missing");
   if (!state.repository || typeof state.repository !== "string") return fail("stack_state_repository_missing", "stack state repository missing");
   if (!Array.isArray(state.orderedPrs) || state.orderedPrs.length < 1 || state.orderedPrs.length > 4) return fail("stack_state_prs_invalid", "stack state PR list invalid");
@@ -1673,6 +1694,8 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
 	      };
 	    },
     async convergeExistingPr({ pr, findings = [], state = null, plan = null, sourceCycleBudget = null }) {
+      const providerCheck = checkStackReviewerProvider(state, config);
+      if (!providerCheck.ok) return providerCheck;
       const durableBudget = sourceCycleBudget || evaluateSourceCycleBudget({ config, state, pr, findings });
       if (!durableBudget.ok) return durableBudget;
       const sourceCycleOperationContext = createSourceCycleOperationContext({ config, plan, state, pr, sourceCycleBudget: durableBudget });
@@ -1697,6 +1720,8 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
     },
     async completeFinalGates({ config: cfg, plan, state, pr }) {
       const targetConfig = cfg || config;
+      const providerCheck = checkStackReviewerProvider(state, targetConfig);
+      if (!providerCheck.ok) return providerCheck;
       const repositoryContext = await buildRepositoryOperationContext({ config: targetConfig, plan, state, prNumber: pr.number, adapter: this });
       if (!repositoryContext.ok) return repositoryContext;
       const prepared = prepareExactHeadFinalGateWorktree({ config: targetConfig, pr, expectedHead: pr.headRefOid, runner: run, repositoryContext: repositoryContext.context });
@@ -2153,16 +2178,28 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
       if (typeof options.runStrongReview !== "function" || typeof options.runCodexReview !== "function") {
         return fail("existing_pr_batch_fix_review_adapter_unconfigured", "strong and Codex review adapters are required before push");
       }
-      persistLocalCandidateLoopState(loopState.statePath, { ...loopState.state, phase: "gemini_running", candidateHead: candidate.newHead, candidateDigest: fullCandidatePrDelta.delta.normalizedPatchDigest });
-      const externalReview = await options.runStrongReview({ config: targetConfig, pr, changedFiles: reviewChangedFiles, fixDeltaFiles: changedFiles, fullCandidatePrDelta: fullCandidatePrDelta.delta, validation, headSha: candidate.newHead, baseSha: base.sha });
+      const parallelGrok = stackReviewerProvider(targetConfig) === "grok";
+      loopState.state = persistLocalCandidateLoopState(loopState.statePath, { ...loopState.state, phase: parallelGrok ? "independent_reviews_running" : "gemini_running", candidateHead: candidate.newHead, candidateDigest: fullCandidatePrDelta.delta.normalizedPatchDigest });
+      const parallelReviews = parallelGrok ? await runDurableStackParallelReviews(targetConfig, {
+        phase: "local_candidate", prNumber: pr.number, headSha: candidate.newHead, baseSha: base.sha,
+        changedFiles: reviewChangedFiles, candidateDigest: fullCandidatePrDelta.delta.normalizedPatchDigest,
+      },
+      () => options.runStrongReview({ config: targetConfig, pr, changedFiles: reviewChangedFiles, fixDeltaFiles: changedFiles, fullCandidatePrDelta: fullCandidatePrDelta.delta, validation, headSha: candidate.newHead, baseSha: base.sha }),
+      () => options.runCodexReview({ config: targetConfig, pr, changedFiles: reviewChangedFiles, fixDeltaFiles: changedFiles, fullCandidatePrDelta: fullCandidatePrDelta.delta, validation, headSha: candidate.newHead, baseSha: base.sha, sessionLifecycle })) : null;
+      if (parallelReviews && !parallelReviews.ok) return fail(parallelReviews.reasonCode, parallelReviews.reasonCode);
+      const [externalReview, parallelCodexReview] = parallelReviews ? [parallelReviews.strongReview, parallelReviews.codexReview]
+        : [await options.runStrongReview({ config: targetConfig, pr, changedFiles: reviewChangedFiles, fixDeltaFiles: changedFiles, fullCandidatePrDelta: fullCandidatePrDelta.delta, validation, headSha: candidate.newHead, baseSha: base.sha }), null];
       const fullDeltaExternalReview = { ...externalReview, fullCandidatePrDelta: externalReview?.fullCandidatePrDelta || fullCandidatePrDelta.delta };
-      persistLocalCandidateLoopState(loopState.statePath, { ...loopState.state, phase: "codex_running", candidateHead: candidate.newHead, candidateDigest: fullCandidatePrDelta.delta.normalizedPatchDigest });
-      const review = await options.runCodexReview({ config: targetConfig, pr, changedFiles: reviewChangedFiles, fixDeltaFiles: changedFiles, fullCandidatePrDelta: fullCandidatePrDelta.delta, validation, externalReview: fullDeltaExternalReview, headSha: candidate.newHead, baseSha: base.sha, sessionLifecycle });
+      if (!parallelGrok) persistLocalCandidateLoopState(loopState.statePath, { ...loopState.state, phase: "codex_running", candidateHead: candidate.newHead, candidateDigest: fullCandidatePrDelta.delta.normalizedPatchDigest });
+      const review = parallelCodexReview || await options.runCodexReview({ config: targetConfig, pr, changedFiles: reviewChangedFiles, fixDeltaFiles: changedFiles, fullCandidatePrDelta: fullCandidatePrDelta.delta, validation, externalReview: fullDeltaExternalReview, headSha: candidate.newHead, baseSha: base.sha, sessionLifecycle });
       if (review?.sessionLifecycle && codex) codex.sessionLifecycle = review.sessionLifecycle;
       const postReviewSessionLifecycle = review?.sessionLifecycle || codex?.sessionLifecycle || sessionLifecycle;
       const verdict = review?.verdict?.verdict || review?.verdict;
       const fullDeltaCodexReview = { ...review, fullCandidatePrDelta: review?.fullCandidatePrDelta || fullCandidatePrDelta.delta };
       if (externalReview?.status !== "pass" || verdict !== "approve") {
+        if (hasManualReviewerGate(externalReview, review)) {
+          return fail("existing_pr_local_loop_manual_or_danger", "a reviewer requires a manual decision before source changes");
+        }
         const frozen = freezeMaterialFindingInventory(reviewFindingsFromSupportedContainers({ externalReview, review }));
         if (frozen.length === 0) {
           return fail(externalReview?.status !== "pass" ? "existing_pr_batch_fix_strong_review_failed" : "existing_pr_batch_fix_codex_review_failed", externalReview?.reason || review?.reviewFailureReason || "local reviewer did not pass and supplied no safe actionable finding");
@@ -4337,6 +4374,110 @@ function advanceLocalCandidateHistory(candidateHistory, head, digest) {
   return { ok: true, changed: true, candidateHistory: [...history, { head, digest }].slice(-6) };
 }
 
+function stackParallelReviewCheckpoint(review, kind) {
+  if (!review) return null;
+  return {
+    status: review.status, reason: review.reason, verdict: review.verdict,
+    ...(kind === "codex" ? { reviewStatus: review.reviewStatus, signal: review.signal, error: review.error } : {}),
+    reviewedHead: review.reviewedHead, reviewedBaseSha: review.reviewedBaseSha,
+    baseSha: review.baseSha, changedFiles: review.changedFiles,
+    changedFilesDigest: review.changedFilesDigest, completedAt: review.completedAt,
+    finishedAt: review.finishedAt, provider: review.provider, tier: review.tier,
+    providerProfile: review.providerProfile, model: review.model,
+    independent: review.independent, reportPath: review.reportPath,
+    evidencePath: review.evidencePath, logPath: review.logPath,
+    findings: review.findings, sanitizedResponseSummary: review.sanitizedResponseSummary,
+    reviewFailureReason: review.reviewFailureReason,
+  };
+}
+
+function stackParallelReviewComplete(review, kind, identity) {
+  if (!review || review.reviewedHead !== identity.headSha
+    || review.changedFilesDigest !== identity.changedFilesDigest
+    || !sameStringSet(review.changedFiles, identity.changedFiles)) return false;
+  if (kind === "strong") return review.baseSha === identity.baseSha
+    && ((review.status === "pass" && review.verdict === "pass")
+      || (review.reason === "blocked_external_reviewer_non_pass"
+        && ["fail", "needs_tommy", "danger_gate"].includes(review.verdict)));
+  return review.status === 0 && !review.signal && !review.error
+    && ["passed", "completed"].includes(review.reviewStatus)
+    && review.baseSha === identity.baseSha && review.reviewedBaseSha === identity.baseSha
+    && ["approve", "changes_requested", "needs_tommy", "danger_gate"].includes(review.verdict?.verdict);
+}
+
+export async function runDurableStackParallelReviews(config, candidate, runStrongReview, runCodexReview) {
+  const identity = {
+    repository: config.repositorySlug || "tommytang213/Settleora",
+    phase: candidate.phase, prNumber: candidate.prNumber,
+    headSha: candidate.headSha, baseSha: candidate.baseSha,
+    candidateDigest: candidate.candidateDigest,
+    changedFiles: normalizeChangedFiles(candidate.changedFiles),
+    changedFilesDigest: digestStringSet(candidate.changedFiles),
+  };
+  if (!Number.isInteger(identity.prNumber) || !validSha(identity.headSha) || !validSha(identity.baseSha)
+    || !/^[a-f0-9]{64}$/.test(identity.candidateDigest || "")) {
+    return fail("stack_parallel_review_identity_invalid", "stack parallel review identity is incomplete");
+  }
+  const checkpointPath = path.join(config.logsRoot || "/workspace/logs/settleora-auto-runner",
+    "pr-stack-parallel-reviews", `${digestJson(identity)}.json`);
+  let saved = null;
+  if (!config.dryRun && existsSync(checkpointPath)) {
+    try { saved = readOwnerOnlyDurableJson(config, checkpointPath); }
+    catch { return fail("stack_parallel_review_checkpoint_unreadable", "stack parallel review checkpoint is unreadable"); }
+    if (saved?.version !== 1 || digestJson(saved.identity) !== digestJson(identity)) {
+      return fail("stack_parallel_review_checkpoint_identity_mismatch", "stack parallel review checkpoint identity changed");
+    }
+  }
+  if (hasManualReviewerGate(saved?.strong, saved?.codex)) {
+    return fail("stack_parallel_review_manual_gate_persisted", "saved reviewer verdict requires a manual decision");
+  }
+  const strongComplete = stackParallelReviewComplete(saved?.strong, "strong", identity);
+  const codexComplete = stackParallelReviewComplete(saved?.codex, "codex", identity);
+  if ((!strongComplete || !codexComplete) && (saved?.attempts || 0) >= 2) {
+    return fail("stack_parallel_review_retry_exhausted", "stack parallel review retry limit reached");
+  }
+  const persist = (next) => {
+    saved = sanitizeState(next);
+    if (config.dryRun) return;
+    validateDurableArtifactPath(config, checkpointPath);
+    mkdirSync(path.dirname(checkpointPath), { recursive: true, mode: 0o700 });
+    validateDurableArtifactPath(config, checkpointPath);
+    const bytes = `${JSON.stringify(saved, null, 2)}\n`;
+    if (Buffer.byteLength(bytes) > maxProtectedPlanAuthorizationBytes) throw new Error("stack_parallel_review_checkpoint_oversize");
+    const tmp = `${checkpointPath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
+    writeFileSync(tmp, bytes, { mode: 0o600 });
+    renameSync(tmp, checkpointPath);
+  };
+  if (!strongComplete || !codexComplete) persist({ version: 1, identity,
+    attempts: (saved?.attempts || 0) + 1, strong: saved?.strong || null,
+    codex: saved?.codex || null, codexSessionLifecycle: saved?.codexSessionLifecycle || null });
+  const record = (kind, review) => {
+    persist({ ...saved, [kind]: stackParallelReviewCheckpoint(review, kind),
+      ...(kind === "codex" && review?.sessionLifecycle
+        ? { codexSessionLifecycle: { headSha: identity.headSha, lifecycle: review.sessionLifecycle } } : {}) });
+    return review;
+  };
+  const settled = await Promise.allSettled([
+    strongComplete ? saved.strong : Promise.resolve().then(runStrongReview).then((review) => record("strong", review)),
+    codexComplete ? saved.codex : Promise.resolve().then(runCodexReview).then((review) => record("codex", review)),
+  ]);
+  if (settled.some((result) => result.status === "rejected")) {
+    return fail("stack_parallel_review_invocation_failed", "one or both reviewers failed after both invocations settled");
+  }
+  const [strongReview, codexReview] = settled.map((result) => result.value);
+  if (codexComplete && saved.codexSessionLifecycle?.headSha === identity.headSha) {
+    codexReview.sessionLifecycle = saved.codexSessionLifecycle.lifecycle;
+  }
+  if (hasManualReviewerGate(strongReview, codexReview)) {
+    return fail("stack_parallel_review_manual_gate_persisted", "reviewer verdict requires a manual decision");
+  }
+  if (!stackParallelReviewComplete(strongReview, "strong", identity)
+    || !stackParallelReviewComplete(codexReview, "codex", identity)) {
+    return fail("stack_parallel_review_identity_or_process_mismatch", "reviewer evidence is incomplete or does not match the candidate");
+  }
+  return { ok: true, strongReview, codexReview, checkpointPath };
+}
+
 function localCandidateLoopStatePath({ config = {}, pr = {}, exactHead }) {
   const identity = digestJson({
     repository: config.repositorySlug || "tommytang213/Settleora",
@@ -4378,6 +4519,7 @@ function loadOrCreateLocalCandidateLoopState({ config = {}, pr = {}, exactHead, 
   }
   state ||= {
     stateVersion: 1,
+    reviewerProviderPin: stackReviewerProvider(config),
     repository: config.repositorySlug || "tommytang213/Settleora",
     prNumber: pr.number,
     sourceBranch: pr.headRefName || pr.branch || null,
@@ -4402,6 +4544,9 @@ function loadOrCreateLocalCandidateLoopState({ config = {}, pr = {}, exactHead, 
   if (state.stateVersion !== 1 || state.repository !== expected.repository || state.prNumber !== expected.prNumber || state.sourceBranch !== expected.sourceBranch || state.originalHead !== expected.originalHead) {
     return fail("existing_pr_local_loop_identity_mismatch", "local candidate loop state belongs to a different repository, PR, branch, or candidate parent");
   }
+  if (state.reviewerProviderPin !== undefined && !["gemini", "grok"].includes(state.reviewerProviderPin)) return fail("existing_pr_local_loop_provider_invalid", "local candidate reviewer provider pin is invalid");
+  const providerCheck = checkStackReviewerProvider(state, config);
+  if (!providerCheck.ok) return providerCheck;
   if (!Number.isInteger(state.localRound) || state.localRound < 0 || state.localRound > 50 || !Array.isArray(state.findingDigests)) {
     return fail("existing_pr_local_loop_state_contradictory", "local candidate loop counters or finding markers are contradictory");
   }
@@ -5136,7 +5281,22 @@ async function prepareExactHeadFinalGateEvidence({ config, plan = {}, state, pr,
     requireWorktreeProof: false,
   });
   if (!validationCheck.ok) return validationCheck;
-  const strongReview = await runStrongReview({
+  const parallelGrok = stackReviewerProvider(config) === "grok";
+  const parallelReviews = parallelGrok ? await runDurableStackParallelReviews(config, {
+    phase: "final_gate", prNumber: pr.number, headSha: prereq.currentHead,
+    baseSha: prereq.currentOriginMainSha, changedFiles: prereq.changedFiles,
+    candidateDigest: candidateDelta.normalizedPatchDigest,
+  }, () => runStrongReview({
+    config, pr: { ...pr, ...(prereq.inspection.pr || {}), headRefOid: prereq.currentHead },
+    changedFiles: prereq.changedFiles, validation, headSha: prereq.currentHead,
+    baseSha: prereq.currentOriginMainSha, fullCandidatePrDelta: candidateDelta,
+  }), () => runCodexReview({
+    config, pr: { ...pr, ...(prereq.inspection.pr || {}), headRefOid: prereq.currentHead },
+    changedFiles: prereq.changedFiles, validation, headSha: prereq.currentHead,
+    baseSha: prereq.currentOriginMainSha, fullCandidatePrDelta: candidateDelta,
+  })) : null;
+  if (parallelReviews && !parallelReviews.ok) return fail(parallelReviews.reasonCode, parallelReviews.reasonCode);
+  const [strongReview, parallelCodexReview] = parallelReviews ? [parallelReviews.strongReview, parallelReviews.codexReview] : [await runStrongReview({
     config,
     pr: { ...pr, ...(prereq.inspection.pr || {}), headRefOid: prereq.currentHead },
     changedFiles: prereq.changedFiles,
@@ -5144,7 +5304,7 @@ async function prepareExactHeadFinalGateEvidence({ config, plan = {}, state, pr,
     headSha: prereq.currentHead,
     baseSha: prereq.currentOriginMainSha,
     fullCandidatePrDelta: candidateDelta,
-  });
+  }), null];
   const fullDeltaStrongReview = { ...strongReview, fullCandidatePrDelta: strongReview?.fullCandidatePrDelta || candidateDelta };
   const strongCheck = validateReviewEvidenceObject(fullDeltaStrongReview, {
     name: "strong_review",
@@ -5155,7 +5315,7 @@ async function prepareExactHeadFinalGateEvidence({ config, plan = {}, state, pr,
     requireIndependent: true,
   });
   if (!strongCheck.ok) return strongCheck;
-  const codexReview = await runCodexReview({
+  const codexReview = parallelCodexReview || await runCodexReview({
     config,
     pr: { ...pr, ...(prereq.inspection.pr || {}), headRefOid: prereq.currentHead },
     changedFiles: prereq.changedFiles,
@@ -6413,7 +6573,14 @@ export function digestStackPlan(plan) {
   return createHash("sha256").update(JSON.stringify(plan || {})).digest("hex");
 }
 
+function hasManualReviewerGate(externalReview, review) {
+  return [externalReview?.verdict?.verdict, externalReview?.verdict,
+    externalReview?.sanitizedResponseSummary?.verdict, review?.verdict?.verdict, review?.verdict]
+    .some((value) => ["needs_tommy", "danger_gate"].includes(value));
+}
+
 export const prStackExecutorTestInternals = Object.freeze({
+  hasManualReviewerGate,
   canonicalRepositoryFromOriginUrl,
   canonicalRepositorySlug,
   buildCanonicalCandidatePrDelta,
