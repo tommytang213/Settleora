@@ -9,7 +9,7 @@ import { mergeReviewerPolicyConfig, routeReviewer } from "./reviewer-policy.mjs"
 import { analyzeReviewSecretBoundary, providerBoundReviewDigest } from "./review-secret-boundary.mjs";
 import { buildLargeBundleReviewEvidence, parseIntegratedVerdict } from "./gemini-reviewer.mjs";
 
-const maxPackageBytes = 128 * 1024;
+const maxPackageBytes = 384 * 1024;
 const maxEventBytes = 2 * 1024 * 1024;
 const deadlineMs = 30 * 60 * 1000;
 const disallowedTools = "search_replace,list_dir,grep,todo_write,scheduler_create,scheduler_delete,scheduler_list,monitor,search_tool,use_tool,workflow,enter_plan_mode,exit_plan_mode,ask_user_question,send_feedback,image_gen,image_edit,image_to_video,reference_to_video,write";

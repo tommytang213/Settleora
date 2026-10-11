@@ -521,6 +521,21 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
   config.reviewerBudget = reviewerPolicy.reviewerBudget;
   config.largeBundleReviewApproval = normalizeLargeBundleReviewApprovalConfig(config.largeBundleReviewApproval);
   config.reviewerProviderProfiles = normalizeReviewerProviderProfiles(config.reviewerProviderProfiles);
+  const providerPin = config.reviewerProviderPin ?? null;
+  if (providerPin !== null && providerPin !== "gemini" && providerPin !== "grok") {
+    throw new Error("reviewerProviderPin must be gemini or grok");
+  }
+  for (const tierId of ["cheap_independent", "strong_independent", "tie_breaker"]) {
+    const tier = config.reviewerTiers[tierId];
+    if (providerPin && tier.enabled && tier.provider !== providerPin) {
+      throw new Error(`reviewerProviderPin conflicts with enabled ${tierId} tier`);
+    }
+  }
+  if (config.run && Object.values(config.reviewerTiers).some((tier) => tier.enabled && tier.provider === "grok")
+    && (!config.configPath || providerPin !== "grok")) {
+    throw new Error("live Grok review requires an explicit task-scoped config with reviewerProviderPin grok");
+  }
+  config.reviewerProviderPin = providerPin;
   config.autoMergePolicy = normalizeAutoMergePolicy(config.autoMergePolicy);
   config.reviewFixMutation = normalizeReviewFixMutationConfig(config);
   config.maxReviewFixCycles = config.reviewFixMutation.maxAttempts;
@@ -1027,7 +1042,6 @@ export function validateRecoveryOnlyExactHeadEvidence(config = {}, recoveryConfi
     Array.isArray(evidence.geminiChangedFiles),
     isNonEmptyString(evidence.geminiChangedFilesDigest || evidence.changedFilesDigest),
     isNonEmptyString(evidence.geminiProvider),
-    config.reviewerTiers?.strong_independent?.provider !== "grok" || evidence.geminiProvider === "grok",
     isNonEmptyString(evidence.geminiTier),
     isNonEmptyString(evidence.geminiCompletedAt || evidence.completedAt),
     evidence.codexMechanicsApproved === true,

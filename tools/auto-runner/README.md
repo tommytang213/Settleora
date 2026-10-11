@@ -1173,6 +1173,12 @@ CLI tiers after the review gates are ready. The example leaves them disabled.
 Keep existing jobs on their pinned Gemini configuration and evidence; do not
 switch a shared config while they run. A provider change requires a new exact-head
 review; evidence from the other provider cannot satisfy Grok recovery.
+Run new jobs from a separate, immutable task-scoped `--config` file with
+`reviewerProviderPin: "grok"`; the live runner rejects enabled Grok tiers without
+that pin and an explicit config path. A review package carries the pin, and a
+later config cannot silently send it to a different provider. Completed
+exact-head Gemini recovery evidence remains valid under its recorded provider;
+regeneration stops if the running config cannot honor that provider.
 Provider lifecycle failures are blockers, never review passes. Grok is not
 given an API key or a metered API fallback.
 
@@ -1184,7 +1190,7 @@ the CLI with `--sandbox strict`, read-only tool permissions, web and subagents
 disabled, a 32-turn limit, and a 30-minute deadline. It verifies complete file
 coverage from tool events before accepting one strict-schema JSON verdict. Incomplete coverage,
 tool/path violation, unavailable login/quota, timeout, malformed output, or
-non-pass blocks. Packages above 128 KiB currently block for narrower review.
+non-pass blocks. Packages above 384 KiB currently block for narrower review.
 Grok sessions may retain the sent package in the user's local CLI history.
 After private subscriber sign-in and explicit trial authorization, a
 task-scoped config can exercise a synthetic one-call smoke check with

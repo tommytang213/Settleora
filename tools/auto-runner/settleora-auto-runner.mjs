@@ -3810,6 +3810,12 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     title: recoveryConfig.prTitle ?? githubState.pr?.title,
   };
   const regenerationRequired = shouldGenerateExistingPrRecoveryEvidence(laneDecision, exactHeadEvidence);
+  const recoveryProviderPin = exactHeadEvidence.geminiProvider || config.reviewerProviderPin || null;
+  if (regenerationRequired && recoveryProviderPin
+    && config.reviewerTiers?.strong_independent?.provider !== recoveryProviderPin) {
+    return { reason: "existing_pr_recovery_provider_pin_mismatch", terminalMutationBlocked: true,
+      autoMerge: { result: "blocked", reason: "existing_pr_recovery_provider_pin_mismatch", recovery: true } };
+  }
   const exactEvidenceCheck = validateRecoveryOnlyExactHeadEvidence(config, recoveryConfig, {
     expectedHeadSha,
     changedFiles,
@@ -3839,6 +3845,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
       changedFiles,
       expectedHeadSha,
       expectedOriginMainSha: recoveryConfig.expectedOriginMainSha || baseOriginMainSha,
+      reviewerProviderPin: recoveryProviderPin,
     });
     operationalCheckpoint("existing_pr_evidence_regeneration_complete", {
       validation: generatedRecoveryEvidence.validation || null,
@@ -4099,7 +4106,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
 }
 
 async function generateExistingPrRecoveryEvidence(config, {
-  issue, laneDecision, pr, changedFiles, expectedHeadSha, expectedOriginMainSha,
+  issue, laneDecision, pr, changedFiles, expectedHeadSha, expectedOriginMainSha, reviewerProviderPin,
 }) {
   if (config.dryRun) return { reason: "dry_run_no_recovery_evidence_generation" };
   const originalBranch = getCurrentBranch();
@@ -4226,6 +4233,7 @@ async function generateExistingPrRecoveryEvidence(config, {
       validation,
       report: { found: true, expectedPath: "existing-pr-recovery" },
       diffText: readPrDiff(config, pr.number || pr.url),
+      reviewerProviderPin,
     });
     const externalReview = await runIntegratedReviewSource(config, reviewPackage, "existing-pr-recovery");
     const review = externalReview.status === "pass" ? runReviewPrompt(config, { ...reviewPackage, sessionLifecycle: issue.sessionLifecycle || null }) : null;
@@ -5134,6 +5142,7 @@ async function writeReviewPackage(config, payload) {
       estimatedOutputTokens: 0,
     }),
     changedFiles: payload.changedFiles,
+    reviewerProviderPin: payload.reviewerProviderPin || config.reviewerProviderPin || null,
     currentHead: payload.headSha || (config.dryRun ? null : getRefSha("HEAD")),
     baseSha: payload.baseSha || payload.baseRefSha || payload.baseOriginMainSha || (config.dryRun ? null : getRefSha("origin/main")),
     treeSha: config.dryRun ? payload.headSha || null : getRefSha("HEAD^{tree}"),

@@ -24,12 +24,17 @@ export function independentReviewerProvider(config, packageInfo) {
       baseSha: summary.baseSha || summary.baseRefSha || summary.baseOriginMainSha || null,
       diff: packageInfo?.diff || "" }) });
   const tier = mergeReviewerPolicyConfig(config).reviewerTiers[route.tier];
-  return tier?.provider || null;
+  const provider = tier?.provider || null;
+  const pin = packageInfo?.summary?.reviewerProviderPin || config.reviewerProviderPin || null;
+  return pin && provider !== pin ? null : provider;
 }
 
 export function runIndependentIntegratedReview(config, packageInfo, options = {}) {
   const provider = independentReviewerProvider(config, packageInfo);
   if (provider === "grok") return runGrokIntegratedReview(config, packageInfo, options);
+  if (provider !== "gemini") return { status: "blocked", reason: "blocked_reviewer_provider_pin_mismatch",
+    provider: packageInfo?.summary?.reviewerProviderPin || config.reviewerProviderPin || null,
+    reviewedHead: packageInfo?.summary?.currentHead || null, liveCallAttempted: false };
   // Existing pinned Gemini runs keep their provider, request policy, and evidence.
   return runGeminiIntegratedReview(config, packageInfo, options);
 }

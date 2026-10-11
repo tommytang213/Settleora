@@ -8,6 +8,7 @@ import path from "node:path";
 import { invokeGrok, parseGrokVerdict, runGrokIntegratedReview } from "../lib/grok-reviewer.mjs";
 import { runCodexReviewInWorker } from "../lib/parallel-local-review.mjs";
 import { reviewerReadinessSummary } from "../lib/reviewer-policy.mjs";
+import { independentReviewerProvider, runIndependentIntegratedReview } from "../lib/independent-reviewer.mjs";
 
 function fakeSpawn(events, inspect = () => {}) {
   return (binary, args, options) => {
@@ -83,6 +84,20 @@ test("subscription Grok does not bypass the reviewer hard stop", () => {
     assert.equal(result.budget.block, true);
     assert.equal(result.budget.subscriptionFunded, true);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("a pinned Gemini package cannot be sent through a later Grok config", async () => {
+  const config = { reviewerProviderPin: "grok", reviewerTiers: {
+    strong_independent: { enabled: true, provider: "grok", providerProfile: "grok", model: "grok-4.7" },
+  } };
+  const packageInfo = { summary: { reviewerProviderPin: "gemini", changedFiles: ["tools/auto-runner/lib/example.mjs"],
+    laneDecision: { lane: "workflow-docs-tooling", reviewerTier: "strong_independent" },
+    currentHead: "b".repeat(40) },
+  diff: "diff --git a/tools/auto-runner/lib/example.mjs b/tools/auto-runner/lib/example.mjs\n--- a/tools/auto-runner/lib/example.mjs\n+++ b/tools/auto-runner/lib/example.mjs\n@@ -1 +1 @@\n-old\n+new\n" };
+  assert.equal(independentReviewerProvider(config, packageInfo), null);
+  const result = await runIndependentIntegratedReview(config, packageInfo);
+  assert.equal(result.reason, "blocked_reviewer_provider_pin_mismatch");
+  assert.equal(result.liveCallAttempted, false);
 });
 
 test("Grok review cannot pass with a missed line or outside-file read", async () => {

@@ -6025,6 +6025,10 @@ test("existing low-risk canary PR recovery proceeds only with exact-head safe ev
   assert.equal(decision.eligible, true);
   assert.equal(decision.reason, "existing_pr_recovery_gates_passed");
   assert.deepEqual(decision.issueLinkageEvidence.matchedSources, ["pr.title", "pr.body"]);
+  const laterGrokConfig = existingPrRecoveryContext({ config: { reviewerTiers: {
+    strong_independent: { provider: "grok" },
+  } } });
+  assert.equal(evaluateExistingPrRecoveryDecision(laterGrokConfig).eligible, true);
 });
 
 test("existing PR recovery regenerates missing Codex evidence outside independent-review lanes", () => {

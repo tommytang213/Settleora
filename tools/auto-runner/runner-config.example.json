@@ -5,6 +5,7 @@
   "repoRoot": "/workspace/repos/Settleora",
   "logsRoot": "/workspace/logs/settleora-auto-runner",
   "repositorySlug": "tommytang213/Settleora",
+  "reviewerProviderPin": "grok",
   "eligibleLabels": ["auto-ready", "auto-bundle"],
   "stopLabels": [
     "needs-tommy",

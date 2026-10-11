@@ -335,6 +335,11 @@ test("recovery-only exact-head evidence must be complete and bound before genera
     validateRecoveryOnlyExactHeadEvidence(config, { prNumber: 919, expectedHeadSha: target.prHeadSha, exactHeadEvidence }, { expectedHeadSha: target.prHeadSha, changedFiles }),
     { ok: true },
   );
+  assert.deepEqual(
+    validateRecoveryOnlyExactHeadEvidence({ ...config, reviewerTiers: { strong_independent: { provider: "grok" } } },
+      { prNumber: 919, expectedHeadSha: target.prHeadSha, exactHeadEvidence }, { expectedHeadSha: target.prHeadSha, changedFiles }),
+    { ok: true },
+  );
   const advancedMainSha = "c".repeat(40);
   assert.deepEqual(
     validateRecoveryOnlyExactHeadEvidence(
