@@ -2256,7 +2256,39 @@ class ReceiptOcrParser {
     final incompleteReasons = <ReceiptOcrIncompleteAdjustmentReason>{};
     var aggregatedRatedTax = false;
     final totalCandidates = <({String value, int score, int order})>[];
-    final addressSeparatedTotals = <int, String>{};
+    // Use the same owned projections for extraction and contradiction checks.
+    // Provider row boundaries must not hide a competing printed total.
+    final ownedAmountLines = [
+      for (var i = 0; i < lines.length; i++)
+        layoutAdjustmentLines[i] ??
+            (_isFinancialLabelWithAdjacentAmount(lines, layoutRows, i)
+                ? '${lines[i]} ${lines[i + 1]}'
+                : lines[i]),
+    ];
+    final addressCandidates = <int, String>{};
+    if (layoutRows.length == lines.length) {
+      for (var i = 0; i < lines.length; i++) {
+        if (layoutAdjustmentLines.containsKey(i)) continue;
+        final candidate = _ownedTotalBesideAddress(layoutRows, i, currency);
+        if (candidate != null) addressCandidates[i] = candidate;
+      }
+    }
+    final addressSeparatedTotals = {
+      for (final entry in addressCandidates.entries)
+        if (!_hasContradictoryOwnedTotal(
+          ownedAmountLines,
+          addressCandidates,
+          entry.key,
+          currency,
+        ))
+          entry.key: entry.value,
+    };
+    if (addressSeparatedTotals.length != addressCandidates.length) {
+      adjustmentsComplete = false;
+      incompleteReasons.add(
+        ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence,
+      );
+    }
     var seenPrintedSubtotal = false;
     var hasUnextractablePrimaryTotal = false;
     bool preferMatchingPrintedCurrency(
@@ -2300,18 +2332,10 @@ class ReceiptOcrParser {
         }
         continue;
       }
-      final addressSeparatedTotal = layoutRows.length == lines.length
-          ? _ownedTotalBesideAddress(layoutRows, lineIndex, currency)
-          : null;
-      if (addressSeparatedTotal != null) {
-        addressSeparatedTotals[lineIndex] = addressSeparatedTotal;
-      }
       final line =
           layoutAdjustmentLines[lineIndex] ??
-          addressSeparatedTotal ??
-          (_isFinancialLabelWithAdjacentAmount(lines, layoutRows, lineIndex)
-              ? '${lines[lineIndex]} ${lines[lineIndex + 1]}'
-              : lines[lineIndex]);
+          addressSeparatedTotals[lineIndex] ??
+          ownedAmountLines[lineIndex];
       if (_isEmailOnlyMetadataLine(line)) continue;
       // These complete fee rows already belong to the explicitly described
       // parking session or signed return. They remain ordinary item evidence.
@@ -8188,29 +8212,6 @@ String? _ownedTotalBesideAddress(
       )) {
     return null;
   }
-  final selected = _lastAmountInLine(money.text, currency: currency);
-  final selectedMinor = selected == null
-      ? null
-      : _ocrAmountMinorUnits(selected, currency);
-  if (selectedMinor == null) return null;
-  for (var i = 0; i < rows.length; i++) {
-    if (i == rowIndex) continue;
-    final other = rows[i].map((b) => _normalizeOcrLine(b.text)).join(' ');
-    if (!_isLabeledStandaloneMoneyLine(other, _completeTotalLabelPattern)) {
-      continue;
-    }
-    final denomination = _currencyAdjacentToSelectedAmount(other, currency);
-    if (denomination.hasExplicitEvidence && denomination.currency != currency) {
-      continue;
-    }
-    final amount = _lastAmountInLine(other, currency: currency);
-    if (amount != null &&
-        _ocrAmountMinorUnits(amount, currency) != selectedMinor) {
-      // This recovery must not choose a new total over contradictory printed
-      // money. Preserve the existing candidate and its discrepancy review.
-      return null;
-    }
-  }
   // The independent total proof above requires finite, convex geometry for
   // every block, so all following bounds refer to validated quadrilaterals.
   double top(ReceiptOcrBlockEvidence b) =>
@@ -8254,6 +8255,42 @@ String? _ownedTotalBesideAddress(
     return null;
   }
   return '${_normalizeOcrLine(label.text)} ${_normalizeOcrLine(money.text)}';
+}
+
+bool _hasContradictoryOwnedTotal(
+  List<String> ownedAmountLines,
+  Map<int, String> addressCandidates,
+  int rowIndex,
+  String? currency,
+) {
+  if (currency == null) return true;
+  final selected = _lastAmountInLine(
+    addressCandidates[rowIndex]!,
+    currency: currency,
+  );
+  final selectedMinor = selected == null
+      ? null
+      : _ocrAmountMinorUnits(selected, currency);
+  if (selectedMinor == null) return true;
+  for (var i = 0; i < ownedAmountLines.length; i++) {
+    if (i == rowIndex) continue;
+    final other = addressCandidates[i] ?? ownedAmountLines[i];
+    if (!_isLabeledStandaloneMoneyLine(other, _completeTotalLabelPattern)) {
+      continue;
+    }
+    final denomination = _currencyAdjacentToSelectedAmount(other, currency);
+    if (denomination.hasExplicitEvidence && denomination.currency != currency) {
+      continue;
+    }
+    final amount = _lastAmountInLine(other, currency: currency);
+    if (amount != null &&
+        _ocrAmountMinorUnits(amount, currency) != selectedMinor) {
+      // This recovery must not choose a new total over contradictory printed
+      // money. Preserve the existing candidate and its discrepancy review.
+      return true;
+    }
+  }
+  return false;
 }
 
 // Some providers group a large summary-card amount with adjacent customer

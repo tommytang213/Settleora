@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mobile/bills/bill_list_screen.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_parser.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
 
@@ -8,6 +9,12 @@ void main() {
       'complete address',
       'conflicting prior total',
       'agreeing prior total',
+      'conflicting split prior total',
+      'agreeing split prior total',
+      'conflicting skewed prior total',
+      'agreeing skewed prior total',
+      'conflicting address prior total',
+      'agreeing address prior total',
       'adjacent owned date',
       'adjacent zero-padded date',
       'invalid adjacent date',
@@ -67,19 +74,34 @@ void main() {
         cell('Regional Services', 0, 20, 0, 220);
         cell('Bill Date 2026-08-09', 1, 20, 40, 220);
         cell('Maintenance USD 27.00', 2, 20, 80, 350);
+        if (variant.contains('address prior')) {
+          cell('456 Another Road', 3, 100, 120, 210);
+        }
+        final skewed = variant.contains('skewed prior');
+        if (skewed) {
+          cell('Subtotal', 3, 600, 120, 170);
+          cell('USD 27.00', 30, 820, 120, 100);
+        }
         // The incomplete printed total must remain evidence and keep review.
-        cell('Grand Total', 3, 600, 120, 170);
+        cell('Grand Total', skewed ? 30 : 3, 600, skewed ? 146 : 120, 170);
         cell(
-          switch (variant) {
-            'conflicting prior total' => 'USD 29.00',
-            'agreeing prior total' => 'USD 27.00',
-            _ => 'unreadable',
-          },
-          3,
+          variant.startsWith('conflicting')
+              ? 'USD 29.00'
+              : variant.startsWith('agreeing')
+              ? 'USD 27.00'
+              : 'unreadable',
+          skewed
+              ? 31
+              : variant.contains('split prior')
+              ? 30
+              : 3,
           820,
-          120,
+          skewed || variant.contains('split prior') ? 146 : 120,
           100,
         );
+        if (variant.contains('address prior')) {
+          cell('Another City, CA 12345', 31, 100, 146, 230);
+        }
         final street = switch (variant) {
           'unknown prefix' => 'Reference unknown',
           'bare number' => '40',
@@ -166,18 +188,24 @@ void main() {
             variant == 'adjacent zero-padded date';
         expect(
           preview.total,
-          accepted || variant == 'agreeing prior total'
+          accepted || variant.startsWith('agreeing')
               ? '27.00'
-              : variant == 'conflicting prior total'
+              : variant.startsWith('conflicting') &&
+                    !variant.contains('address prior')
               ? '29.00'
               : null,
         );
+        final saved = receiptOcrReviewSaveRequestFromPreview(
+          preview,
+          originalCurrency: 'USD',
+        )!;
+        expect(saved.grandTotalAmount, preview.total);
         expect(preview.blocks, blocks);
         if (accepted) {
           expect(preview.adjustmentsComplete, isFalse);
           expect([...preview.warnings, ...preview.reviewHints], isNotEmpty);
         }
-        if (variant == 'conflicting prior total') {
+        if (variant.startsWith('conflicting')) {
           expect([...preview.warnings, ...preview.reviewHints], isNotEmpty);
         }
       });
