@@ -3,6 +3,28 @@ import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
 import '../support/header_reference_receipt.dart';
 
 void main() {
+  for (final besideLocation in [false, true]) {
+    for (final row in [5, 6, 7]) {
+      for (final amount in ['USD 2.00', 'EUR 2.00']) {
+        test(
+          'detached header money remains reviewable location=$besideLocation row=$row amount=$amount',
+          () {
+            final blocks = headerReferenceDetachedMoneyBlocks(
+              besideLocation: besideLocation,
+              logicalRow: row,
+              amount: amount,
+            );
+            final p = parseHeaderReference(blocks);
+            expect(p.blocks, blocks);
+            expect(p.items.map((i) => i.lineTotal), ['7.00', '5.00']);
+            expect(p.total, '12.00');
+            expect(p.adjustmentsComplete, isFalse);
+            expect(p.reviewHints, isNotEmpty);
+          },
+        );
+      }
+    }
+  }
   for (final currency in ['USD', 'HKD']) {
     for (final scale in [0.5, 1.0, 2.0]) {
       test('corroborated header and reference roles $currency $scale', () {

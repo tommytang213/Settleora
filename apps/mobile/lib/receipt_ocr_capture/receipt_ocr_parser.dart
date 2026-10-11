@@ -7120,12 +7120,13 @@ bool _isClosedPostPaymentCourtesy(List<String> lines) {
         ReceiptOcrBlockEvidence,
         ({double left, double right, double top, double bottom})
       >{};
-  for (final row in rows.take(date + 2)) {
-    for (final b in row) {
-      if (b.confidence == null ||
-          !b.confidence!.isFinite ||
-          b.confidence! < 0.8 ||
-          b.confidence! > 1 ||
+  for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+    for (final b in rows[rowIndex]) {
+      if ((rowIndex <= date + 1 &&
+              (b.confidence == null ||
+                  !b.confidence!.isFinite ||
+                  b.confidence! < 0.8 ||
+                  b.confidence! > 1)) ||
           b.points.length != 4 ||
           b.points.any((p) => !p.x.isFinite || !p.y.isFinite)) {
         return empty;
@@ -7156,6 +7157,21 @@ bool _isClosedPostPaymentCourtesy(List<String> lines) {
   final body = boxes[rows[date + 1].first]!;
   final price = boxes[rows[date + 1].last]!;
   final h = body.bottom - body.top;
+  // Provider row IDs cannot exclude a physically adjacent price or label.
+  // Every other block must be outside each claimed header's vertical band;
+  // absent/invalid geometry above leaves ownership unproven as well.
+  for (final index in [0, if (date == 2) 1]) {
+    final ownedBlock = rows[index].single;
+    final owned = boxes[ownedBlock]!;
+    for (final entry in boxes.entries) {
+      if (identical(entry.key, ownedBlock)) continue;
+      final other = entry.value;
+      if (other.bottom > owned.top - h / 4 &&
+          other.top < owned.bottom + h / 4) {
+        return empty;
+      }
+    }
+  }
   if (title.bottom - title.top < h * 1.4 ||
       title.bottom - title.top > h * 3 ||
       price.left - body.right < h ||
@@ -11463,15 +11479,45 @@ _currencyAdjacentToSelectedAmount(
 Set<int> _ownedLocalizedAddressRows(
   List<String> lines,
   Set<int> merchantLineIndices,
-) => {
-  for (var index = 1; index + 1 < lines.length; index++)
-    if (merchantLineIndices.contains(index - 1) &&
-        _isLabeledCalendarDateLine(lines[index + 1]) &&
-        !_hasPotentialReceiptAdjustmentLabel(lines[index]) &&
-        !_isPrintedModifierLine(lines[index]) &&
-        _isWholeLocalizedAddress(lines[index]))
-      index,
-};
+) {
+  final owned = <int>{};
+  for (var index = 1; index + 1 < lines.length; index++) {
+    if (!merchantLineIndices.contains(index - 1) ||
+        _hasPotentialReceiptAdjustmentLabel(lines[index]) ||
+        _isPrintedModifierLine(lines[index])) {
+      continue;
+    }
+    if (_isLabeledCalendarDateLine(lines[index + 1]) &&
+        _isWholeLocalizedAddress(lines[index])) {
+      owned.add(index);
+    }
+    // A complete labeled phone field can close the same address/date band.
+    // The street-number form without an administrative suffix needs this
+    // additional contact evidence; arbitrary intervening rows never qualify.
+    if (index + 2 < lines.length &&
+        _isWholeHeaderTelephoneLine(lines[index + 1]) &&
+        _isLabeledCalendarDateLine(lines[index + 2]) &&
+        (_isWholeLocalizedAddress(lines[index]) ||
+            RegExp(
+              r'^[\u3400-\u9fff]{2,60}(?:路|街|道)[中東东西南北]?\s*\d{1,5}\s*[號号]$',
+            ).hasMatch(lines[index].trim()))) {
+      owned.add(index);
+    }
+  }
+  return owned;
+}
+
+bool _isWholeHeaderTelephoneLine(String line) {
+  final text = line.trim();
+  final digits = RegExp(r'\d').allMatches(text).length;
+  return digits >= 7 &&
+      digits <= 15 &&
+      RegExp(
+        r'^(?:tel(?:ephone)?|phone|電話|电话|tél)(?:\s*[:：]\s*|\s+)'
+        r'(?:\+\d{1,3}[ -]+)?\d{2,6}(?:[ -]\d{2,6}){1,3}$',
+        caseSensitive: false,
+      ).hasMatch(text);
+}
 
 bool _isWholeLocalizedAddress(String line) {
   final text = line.trim();
@@ -11517,9 +11563,9 @@ bool _isLabeledCalendarDateLine(String line) =>
     _labeledCalendarDate(line) != null;
 
 String? _labeledCalendarDate(String line) {
-  const label =
-      r'^\s*(?:date|datum|fecha|data|日期|日付|날짜|дата|วันที่|तारीख|दिनांक)'
-      r'\s*[:：]?\s*';
+  const labelName =
+      r'(?:date|datum|fecha|data|日期|日付|날짜|дата|วันที่|तारीख|दिनांक)';
+  const label = '^\\s*$labelName(?:\\s*/\\s*$labelName){0,2}\\s*[:：]?\\s*';
   // Use extraction's complete calendar grammar, anchored to the field.
   // A terminal full stop is punctuation, never another number or price.
   for (final pattern in [

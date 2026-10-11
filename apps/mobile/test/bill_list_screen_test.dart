@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'support/brand_copy_receipt.dart';
+import 'support/contact_date_receipt.dart';
 import 'support/financial_role_receipt.dart';
 import 'support/header_reference_receipt.dart';
 import 'support/modifier_receipt.dart';
@@ -78,6 +79,11 @@ void main() {
       'headerReferenceComplete',
       'headerReferenceNoLayout',
       'headerReferenceCurrencyConflict',
+      'headerReferenceDetachedTitle',
+      'headerReferenceDetachedLocation',
+      'contactDateComplete',
+      'contactDateNoService',
+      'contactDateUnownedPhone',
       'taxAnnotation',
       'foreignTaxItem',
       'brandCaption',
@@ -107,6 +113,8 @@ void main() {
         'modifierComplete',
         'modifierNoTaxComplete',
         'headerReferenceComplete',
+        'contactDateComplete',
+        'contactDateNoService',
         'brandCaption',
         'brandFooter',
         'traditionalTaxZero',
@@ -117,6 +125,8 @@ void main() {
       // Existing Apply copies item amounts only. Gross-matching items remain
       // selectable even when header arithmetic warns; no tax charge is added.
       final canApplyFinancial = [
+        'contactDateComplete',
+        'contactDateNoService',
         'headerReferenceComplete',
         'modifierNoTaxComplete',
         'summaryCurrencyMatchingPrefix',
@@ -246,14 +256,28 @@ void main() {
             )
           : scenario.startsWith('headerReference')
           ? parseHeaderReference(
-              headerReferenceBlocks(
-                headerReferenceRows(
-                  reference: scenario == 'headerReferenceCurrencyConflict'
-                      ? 'Reference HKD EUR11.00'
-                      : 'Reference EUR EUR11.00',
-                ),
-              ),
+              scenario.startsWith('headerReferenceDetached')
+                  ? headerReferenceDetachedMoneyBlocks(
+                      besideLocation:
+                          scenario == 'headerReferenceDetachedLocation',
+                    )
+                  : headerReferenceBlocks(
+                      headerReferenceRows(
+                        reference: scenario == 'headerReferenceCurrencyConflict'
+                            ? 'Reference HKD EUR11.00'
+                            : 'Reference EUR EUR11.00',
+                      ),
+                    ),
               layout: scenario != 'headerReferenceNoLayout',
+            )
+          : scenario.startsWith('contactDate')
+          ? parseContactDateReceipt(
+              contactDateReceiptRows(
+                service: scenario != 'contactDateNoService',
+                phone: scenario == 'contactDateUnownedPhone'
+                    ? 'Tel +852 2468 1357 fee'
+                    : 'Tel +852 2468 1357',
+              ),
             )
           : switch (scenario) {
               'service' => joinedServicePreview(),
@@ -289,14 +313,18 @@ void main() {
               ),
               _ => annotatedTaxItemPreview(firstCurrency: 'USD'),
             };
-      final firstDescription = scenario == 'headerReferenceComplete'
+      final firstDescription = scenario.startsWith('contactDate')
+          ? 'Soup'
+          : scenario == 'headerReferenceComplete'
           ? 'Tea Blend'
           : scenario == 'modifierNoTaxComplete'
           ? 'Lunch Bowl'
           : scenario == 'taxAnnotation'
           ? 'Tea VAT 5% item'
           : 'Tea';
-      final firstAmount = scenario == 'headerReferenceComplete'
+      final firstAmount = scenario.startsWith('contactDate')
+          ? '8.00'
+          : scenario == 'headerReferenceComplete'
           ? '7.00'
           : scenario == 'modifierNoTaxComplete'
           ? '9.00'
@@ -305,7 +333,11 @@ void main() {
           : scenario == 'subtotal'
           ? '3.50'
           : '10.00';
-      final targetCurrency = scenario == 'taxAnnotation' ? 'EUR' : 'USD';
+      final targetCurrency = scenario.startsWith('contactDate')
+          ? 'HKD'
+          : scenario == 'taxAnnotation'
+          ? 'EUR'
+          : 'USD';
       testWidgets(
         'summary evidence survives provisional save and Apply group=$group scenario=$scenario',
         (tester) async {
@@ -316,6 +348,23 @@ void main() {
           );
           expect(saved, isNotNull);
           expect(saved!.status, ReceiptOcrReviewStatusValues.provisional);
+          if (scenario.startsWith('contactDate')) {
+            expect(preview.reviewHints.isEmpty, confidentDraft);
+            expect(preview.items, hasLength(2));
+            expect(saved.lines.map((line) => line.lineTotalAmount), [
+              '8.00',
+              '12.00',
+            ]);
+            expect(preview.currency, 'HKD');
+            expect(
+              preview.service,
+              scenario == 'contactDateNoService' ? isNull : '2.00',
+            );
+            expect(
+              preview.total,
+              scenario == 'contactDateNoService' ? '20.00' : '22.00',
+            );
+          }
           if (scenario.startsWith('headerReference')) {
             expect(preview.reviewHints.isEmpty, confidentDraft);
             expect(preview.items, hasLength(2));

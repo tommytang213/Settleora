@@ -930,7 +930,8 @@
             "12.00"
           ]
         ],
-        "subtotal": "30.00"
+        "subtotal": "30.00",
+        "service": "3.00"
       },
       "expected_currency_resolution": {
         "currency": "HKD",
@@ -3177,7 +3178,8 @@
             "12.00"
           ]
         ],
-        "subtotal": "30.00"
+        "subtotal": "30.00",
+        "service": "3.00"
       },
       "expected_currency_resolution": {
         "currency": "HKD",

@@ -77,3 +77,42 @@ ReceiptOcrPreview parseHeaderReference(
     fallbackCurrency: 'USD',
   );
 }
+
+List<ReceiptOcrBlockEvidence> headerReferenceDetachedMoneyBlocks({
+  bool besideLocation = false,
+  int logicalRow = 5,
+  String amount = 'USD 2.00',
+}) {
+  final blocks = [
+    for (final b in headerReferenceBlocks(
+      headerReferenceRows(merchant: 'Riverside Tax Cafe'),
+    ))
+      ReceiptOcrBlockEvidence(
+        text: b.text,
+        row: b.row >= logicalRow ? b.row + 1 : b.row,
+        order: b.order,
+        confidence: b.confidence,
+        points: b.points,
+      ),
+  ];
+  final top = besideLocation ? 120.0 : 40.0;
+  blocks.add(
+    ReceiptOcrBlockEvidence(
+      text: amount,
+      row: logicalRow,
+      order: blocks.length,
+      confidence: 0.98,
+      points: [
+        ReceiptOcrPoint(x: 980, y: top),
+        ReceiptOcrPoint(x: 1100, y: top),
+        ReceiptOcrPoint(x: 1100, y: top + 30),
+        ReceiptOcrPoint(x: 980, y: top + 30),
+      ],
+    ),
+  );
+  blocks.sort(
+    (a, b) =>
+        a.row == b.row ? a.order.compareTo(b.order) : a.row.compareTo(b.row),
+  );
+  return blocks;
+}
