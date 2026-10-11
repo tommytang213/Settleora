@@ -65,8 +65,10 @@ test("persisted parallel Grok findings remain actionable after restart", () => {
 
 test("incomplete parallel invocations retry once without replaying completed verdicts", () => {
   const head = "a".repeat(40);
+  const base = "c".repeat(40);
   const timeout = { reviewedHead: head, status: "blocked", reason: "blocked_grok_timeout", verdict: "not_run" };
-  const approved = { reviewedHead: head, verdict: { verdict: "approve" } };
+  const approved = { reviewedHead: head, baseSha: base, reviewedBaseSha: base,
+    status: 0, reviewStatus: "completed", verdict: { verdict: "approve" } };
   const first = { candidateHeadSha: head, providerPin: "grok", attempts: 1,
     external: timeout, codex: approved };
   const retry = resolveOrdinaryParallelReviewerCheckpoint(JSON.parse(JSON.stringify(first)), { headSha: head }, "grok");
@@ -82,17 +84,36 @@ test("incomplete parallel invocations retry once without replaying completed ver
     "ordinary_parallel_reviewer_checkpoint_identity_mismatch");
 });
 
+test("failed Codex process cannot restore a saved approve verdict", () => {
+  const head = "a".repeat(40);
+  const base = "b".repeat(40);
+  const external = { reviewedHead: head, status: "pass", verdict: "pass" };
+  const failedApproval = ordinaryReviewerCheckpoint({ reviewedHead: head, baseSha: base,
+    reviewedBaseSha: base, status: 1, reviewStatus: "failed", reviewFailureReason: "process_exit",
+    verdict: { verdict: "approve" } }, "codex");
+  const saved = JSON.parse(JSON.stringify({ candidateHeadSha: head, providerPin: "grok", attempts: 1,
+    external, codex: failedApproval }));
+  const resumed = resolveOrdinaryParallelReviewerCheckpoint(saved, { headSha: head }, "grok");
+  assert.equal(resumed.ok, true);
+  assert.equal(resumed.retryIncomplete, true);
+  assert.equal(resumed.checkpoint.codex.status, 1);
+  assert.equal(resolveOrdinaryParallelReviewerCheckpoint({ ...saved, attempts: 2 }, { headSha: head }, "grok").reasonCode,
+    "ordinary_parallel_reviewer_retry_exhausted");
+});
+
 test("recovery ignores saved parallel verdicts after a source-changing fix", () => {
   const headA = "a".repeat(40);
   const headB = "b".repeat(40);
   const savedA = { candidateHeadSha: headA, providerPin: "grok", attempts: 1,
     external: { reviewedHead: headA, status: "pass", verdict: "pass" },
-    codex: { reviewedHead: headA, verdict: { verdict: "approve" } } };
+    codex: { reviewedHead: headA, baseSha: headB, reviewedBaseSha: headB,
+      status: 0, reviewStatus: "completed", verdict: { verdict: "approve" } } };
   assert.equal(resolveOrdinaryParallelReviewerCheckpoint(savedA, { headSha: headA }, "grok").checkpoint, savedA);
   assert.equal(resolveOrdinaryParallelReviewerCheckpoint(savedA, { headSha: headB }, "grok").checkpoint, null);
   const savedB = { candidateHeadSha: headB, providerPin: "grok", attempts: 1,
     external: { reviewedHead: headB, status: "pass", verdict: "pass" },
-    codex: { reviewedHead: headB, verdict: { verdict: "approve" } } };
+    codex: { reviewedHead: headB, baseSha: headA, reviewedBaseSha: headA,
+      status: 0, reviewStatus: "completed", verdict: { verdict: "approve" } } };
   assert.equal(resolveOrdinaryParallelReviewerCheckpoint(savedB, { headSha: headB }, "grok").checkpoint, savedB);
   const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
   assert.match(runner, /external_review: async \(continuation\) => \{[\s\S]*?const candidate = continuation\.identity;[\s\S]*?resolveOrdinaryParallelReviewerCheckpoint\(\s*state\.evidence\?\.parallelReviewerVerdicts, candidate, providerBinding\.provider/);

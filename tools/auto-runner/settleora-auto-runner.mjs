@@ -2728,7 +2728,10 @@ function ordinaryParallelReviewerComplete(review, provider) {
       || (review?.reason === "blocked_external_reviewer_non_pass"
         && ["fail", "needs_tommy", "danger_gate"].includes(verdict));
   }
-  return ["approve", "changes_requested", "needs_tommy", "danger_gate"].includes(review?.verdict?.verdict);
+  return review?.status === 0 && !review.signal && !review.error
+    && ["passed", "completed"].includes(review?.reviewStatus)
+    && review.reviewedBaseSha === review.baseSha
+    && ["approve", "changes_requested", "needs_tommy", "danger_gate"].includes(review?.verdict?.verdict);
 }
 
 export function resolveOrdinaryRecoveryManualGate(state) {
@@ -3703,11 +3706,17 @@ function ordinaryMergeEvidenceAsAutoMerge(evidence = {}) {
 export function ordinaryReviewerCheckpoint(review = {}, provider) {
   return {
     status: review.status,
+    signal: review.signal,
+    error: review.error,
+    reviewStatus: review.reviewStatus,
+    reviewFailureCategory: review.reviewFailureCategory,
+    reviewFailureReason: review.reviewFailureReason,
     reason: review.reason,
     verdict: review.verdict,
     provider: review.provider || provider,
     tier: review.tier,
     reviewedHead: review.reviewedHead,
+    reviewedBaseSha: review.reviewedBaseSha,
     baseSha: review.baseSha,
     changedFilesDigest: review.changedFilesDigest,
     reportPath: review.reportPath,
