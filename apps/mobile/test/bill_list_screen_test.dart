@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'support/brand_copy_receipt.dart';
 import 'support/financial_role_receipt.dart';
+import 'support/header_reference_receipt.dart';
 import 'support/modifier_receipt.dart';
 import 'support/summary_role_receipt.dart';
 
@@ -74,6 +75,9 @@ void main() {
       'modifierNoTaxComplete',
       'modifierNoTaxCurrencyPunctuation',
       'modifierNoTaxUnsupportedCurrency',
+      'headerReferenceComplete',
+      'headerReferenceNoLayout',
+      'headerReferenceCurrencyConflict',
       'taxAnnotation',
       'foreignTaxItem',
       'brandCaption',
@@ -102,6 +106,7 @@ void main() {
         'taxAnnotation',
         'modifierComplete',
         'modifierNoTaxComplete',
+        'headerReferenceComplete',
         'brandCaption',
         'brandFooter',
         'traditionalTaxZero',
@@ -112,6 +117,7 @@ void main() {
       // Existing Apply copies item amounts only. Gross-matching items remain
       // selectable even when header arithmetic warns; no tax charge is added.
       final canApplyFinancial = [
+        'headerReferenceComplete',
         'modifierNoTaxComplete',
         'summaryCurrencyMatchingPrefix',
         'summaryCurrencyMatchingSuffix',
@@ -238,6 +244,17 @@ void main() {
               ),
               layout: scenario != 'modifierNoLayout',
             )
+          : scenario.startsWith('headerReference')
+          ? parseHeaderReference(
+              headerReferenceBlocks(
+                headerReferenceRows(
+                  reference: scenario == 'headerReferenceCurrencyConflict'
+                      ? 'Reference HKD EUR11.00'
+                      : 'Reference EUR EUR11.00',
+                ),
+              ),
+              layout: scenario != 'headerReferenceNoLayout',
+            )
           : switch (scenario) {
               'service' => joinedServicePreview(),
               'foreignService' => joinedServicePreview(amount: 'EUR 1.00'),
@@ -272,12 +289,16 @@ void main() {
               ),
               _ => annotatedTaxItemPreview(firstCurrency: 'USD'),
             };
-      final firstDescription = scenario == 'modifierNoTaxComplete'
+      final firstDescription = scenario == 'headerReferenceComplete'
+          ? 'Tea Blend'
+          : scenario == 'modifierNoTaxComplete'
           ? 'Lunch Bowl'
           : scenario == 'taxAnnotation'
           ? 'Tea VAT 5% item'
           : 'Tea';
-      final firstAmount = scenario == 'modifierNoTaxComplete'
+      final firstAmount = scenario == 'headerReferenceComplete'
+          ? '7.00'
+          : scenario == 'modifierNoTaxComplete'
           ? '9.00'
           : scenario == 'taxAnnotation'
           ? '20.00'
@@ -295,6 +316,17 @@ void main() {
           );
           expect(saved, isNotNull);
           expect(saved!.status, ReceiptOcrReviewStatusValues.provisional);
+          if (scenario.startsWith('headerReference')) {
+            expect(preview.reviewHints.isEmpty, confidentDraft);
+            expect(preview.items, hasLength(2));
+            expect(saved.lines.map((line) => line.lineTotalAmount), [
+              '7.00',
+              '5.00',
+            ]);
+            expect(saved.taxAmount, isNull);
+            expect(preview.total, '12.00');
+            expect(preview.currency, 'USD');
+          }
           if (scenario.startsWith('modifier')) {
             expect(preview.reviewHints.isEmpty, confidentDraft);
             expect(preview.items, hasLength(3));

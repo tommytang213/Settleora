@@ -170,6 +170,13 @@ class ReceiptOcrParser {
                     _isRatedTaxNamedLine(lines[index]))))
           index,
     ];
+    final merchantDetection = _detectMerchant(lines, layoutRows);
+    final merchant = merchantDetection?.text;
+    final headerRoles = _ownedProminentReceiptHeader(
+      lines,
+      layoutRows,
+      merchantDetection?.lineIndices ?? const {},
+    );
     final amounts = _extractLabeledAmounts(
       lines,
       currency,
@@ -185,9 +192,8 @@ class ReceiptOcrParser {
       utilityTaxComponents: utilityFinancial.taxComponents,
       retainedUtilityAdjustmentRows: utilityFinancial.reviewRows,
       ownedActivityFeeRows: _corroboratedActivityFeeRows(lines, currency),
+      ownedMerchantNameRows: headerRoles.names,
     );
-    final merchantDetection = _detectMerchant(lines, layoutRows);
-    final merchant = merchantDetection?.text;
     final localizedHeaderRows = _ownedLocalizedAddressRows(
       lines,
       merchantDetection?.lineIndices ?? const {},
@@ -222,6 +228,7 @@ class ReceiptOcrParser {
         ...localizedHeaderRows,
         ...brandCopyRows,
         ...headerAddressRows,
+        ...headerRoles.locations,
       },
     );
     final itemCandidates = extractedItems.items;
@@ -278,6 +285,7 @@ class ReceiptOcrParser {
         ...localizedHeaderRows,
         ...brandCopyRows,
         ...headerAddressRows,
+        ...headerRoles.locations,
         ...utilityFinancial.adjustments.keys,
         ...utilityFinancial.reviewRows,
       },
@@ -2202,6 +2210,7 @@ class ReceiptOcrParser {
     Map<int, ({int table, String label})> utilityTaxComponents = const {},
     Set<int> retainedUtilityAdjustmentRows = const {},
     Set<int> ownedActivityFeeRows = const {},
+    Set<int> ownedMerchantNameRows = const {},
   }) {
     String? subtotal;
     int? selectedSubtotalRow;
@@ -2255,6 +2264,7 @@ class ReceiptOcrParser {
             printed.currency == currency);
 
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+      if (ownedMerchantNameRows.contains(lineIndex)) continue;
       final subtotalEvidence =
           layoutAdjustmentLines[lineIndex] ?? lines[lineIndex];
       if (_hasSubtotalLabel(subtotalEvidence, subtotalEvidence.toLowerCase())) {
@@ -7029,6 +7039,168 @@ bool _isClosedPostPaymentCourtesy(List<String> lines) {
   ).hasMatch(lines.join(' ').trim());
 }
 
+// Typography, an extractable date and the first priced body row corroborate
+// these header roles. Financial words in a name never own a price or a bare
+// financial label; weak or absent geometry leaves the existing review path.
+({Set<int> names, Set<int> locations}) _ownedProminentReceiptHeader(
+  List<String> lines,
+  List<List<ReceiptOcrBlockEvidence>> rows,
+  Set<int> merchantRows,
+) {
+  const empty = (names: <int>{}, locations: <int>{});
+  if (merchantRows.length != 1 ||
+      merchantRows.single != 0 ||
+      rows.length != lines.length ||
+      rows.length < 4 ||
+      rows.first.length != 1) {
+    return empty;
+  }
+  final date = lines.indexWhere(_isLabeledCalendarDateLine);
+  if (date < 1 ||
+      date > 2 ||
+      date + 1 >= rows.length ||
+      rows[date].length != 1 ||
+      rows[date + 1].length != 2 ||
+      !_isPricedItemLine(lines[date + 1]))
+    return empty;
+  final totals = [
+    for (var i = date + 2; i < lines.length; i++)
+      if (_isPrimaryTotalCurrencyLine(lines[i], lines[i].toLowerCase()) &&
+          _lineHasAmount(lines[i]))
+        i,
+  ];
+  if (totals.length != 1) return empty;
+  final name = lines.first.trim();
+  if (!RegExp(
+        r"^[\p{L}][\p{L}\p{M}\s&.'’()-]{2,79}$",
+        unicode: true,
+      ).hasMatch(name) ||
+      _lineHasAmount(name) ||
+      RegExp(
+        '(?<![\\p{L}\\p{M}])$_signCurrencyTokenPattern(?![\\p{L}\\p{M}])',
+        caseSensitive: false,
+        unicode: true,
+      ).hasMatch(name))
+    return empty;
+  final nonfinancial = name
+      .replaceAll(_potentialReceiptAdjustmentLabelPattern, ' ')
+      .replaceAll(
+        RegExp(
+          r'\b(?:sub\s*total|total|balance|cash|change|payment|amount|due|included|summary)\b',
+          caseSensitive: false,
+        ),
+        ' ',
+      );
+  if (RegExp(
+        r'\p{L}[\p{L}\p{M}]*',
+        unicode: true,
+      ).allMatches(nonfinancial).length <
+      2)
+    return empty;
+  if (date == 2 &&
+      (!RegExp(
+            r"^[\p{L}\p{M}][\p{L}\p{M} .’'-]{1,65}\s+(?:international\s+)?airport$",
+            caseSensitive: false,
+            unicode: true,
+          ).hasMatch(lines[1]) ||
+          _hasPotentialReceiptAdjustmentLabel(lines[1]) ||
+          RegExp(
+            '(?<![\\p{L}\\p{M}])$_signCurrencyTokenPattern(?![\\p{L}\\p{M}])',
+            caseSensitive: false,
+            unicode: true,
+          ).hasMatch(lines[1]) ||
+          rows[1].length != 1))
+    return empty;
+  final boxes =
+      <
+        ReceiptOcrBlockEvidence,
+        ({double left, double right, double top, double bottom})
+      >{};
+  for (final row in rows.take(date + 2)) {
+    for (final b in row) {
+      if (b.confidence == null ||
+          !b.confidence!.isFinite ||
+          b.confidence! < 0.8 ||
+          b.confidence! > 1 ||
+          b.points.length != 4 ||
+          b.points.any((p) => !p.x.isFinite || !p.y.isFinite))
+        return empty;
+      final turns = [
+        for (var i = 0; i < 4; i++)
+          (b.points[(i + 1) % 4].x - b.points[i].x) *
+                  (b.points[(i + 2) % 4].y - b.points[(i + 1) % 4].y) -
+              (b.points[(i + 1) % 4].y - b.points[i].y) *
+                  (b.points[(i + 2) % 4].x - b.points[(i + 1) % 4].x),
+      ];
+      if (!turns.every((t) => t.isFinite && t > 0) &&
+          !turns.every((t) => t.isFinite && t < 0))
+        return empty;
+      final xs = b.points.map((p) => p.x).toList()..sort();
+      final ys = b.points.map((p) => p.y).toList()..sort();
+      if (xs.last <= xs.first || ys.last <= ys.first) return empty;
+      boxes[b] = (
+        left: xs.first,
+        right: xs.last,
+        top: ys.first,
+        bottom: ys.last,
+      );
+    }
+  }
+  final title = boxes[rows[0].single]!;
+  final body = boxes[rows[date + 1].first]!;
+  final price = boxes[rows[date + 1].last]!;
+  final h = body.bottom - body.top;
+  if (title.bottom - title.top < h * 1.4 ||
+      title.bottom - title.top > h * 3 ||
+      price.left - body.right < h ||
+      price.bottom - price.top < h * 0.6 ||
+      price.bottom - price.top > h * 1.5 ||
+      price.top > body.bottom - h / 2 ||
+      price.bottom < body.top + h / 2 ||
+      ((title.left + title.right) - (body.left + price.right)).abs() > h * 4)
+    return empty;
+  var previous = title;
+  for (var i = 1; i <= date + 1; i++) {
+    final b = boxes[rows[i].first]!;
+    if (b.top < previous.bottom ||
+        b.top - previous.bottom > h * 2 ||
+        b.bottom - b.top < h * 0.6 ||
+        b.bottom - b.top > h * 1.5 ||
+        (b.left - body.left).abs() > h)
+      return empty;
+    previous = b;
+  }
+  return (names: {0}, locations: {if (date == 2) 1});
+}
+
+bool _isBoundedReferenceAmountLine(String line) {
+  final label = RegExp(
+    r'^(?:reference|conversion)(?:\s+(?:total|amount))?\s+(.+)$',
+    caseSensitive: false,
+  ).firstMatch(line.trim());
+  if (label == null) return false;
+  var money = label.group(1)!;
+  String? labelCurrency;
+  if (!_isBoundedSummaryAmount(money)) {
+    final marker = RegExp(
+      '^($_currencyTokenPattern)\\s+(.+)\$',
+      caseSensitive: false,
+    ).firstMatch(money);
+    if (marker == null) return false;
+    labelCurrency = _currencyFromItemToken(marker.group(1)!);
+    if (labelCurrency == null) return false;
+    money = marker.group(2)!;
+  }
+  if (!_isBoundedSummaryAmount(money)) return false;
+  final printed = _currencyAdjacentToSelectedAmount(money, labelCurrency);
+  final amount = _lastAmountInLine(money, currency: printed.currency);
+  return printed.hasExplicitEvidence &&
+      printed.currency != null &&
+      (labelCurrency == null || printed.currency == labelCurrency) &&
+      amount != null &&
+      !amount.startsWith('-');
+}
+
 bool _isCenteredPostTotalFooter(
   List<String> lines,
   List<List<ReceiptOcrBlockEvidence>> layoutRows,
@@ -7122,7 +7294,8 @@ bool _hasOnlyPaymentOrIncludedTaxOrSuggestedTipAmountsBeforeCourtesy(
     // Printed tip suggestions and explicitly included tax below the total
     // are informational; neither reopens the merchandise table.
     if (_isPrintedSuggestedTipOptionLine(lines[index]) ||
-        _isIncludedTaxAmountLine(lines[index])) {
+        _isIncludedTaxAmountLine(lines[index]) ||
+        _isBoundedReferenceAmountLine(lines[index])) {
       continue;
     }
     // A zero balance following tender rows closes the payment sequence. A
