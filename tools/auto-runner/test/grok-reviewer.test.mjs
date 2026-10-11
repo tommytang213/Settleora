@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, chmodSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { invokeGrok, runGrokIntegratedReview } from "../lib/grok-reviewer.mjs";
+import { invokeGrok, parseGrokVerdict, runGrokIntegratedReview } from "../lib/grok-reviewer.mjs";
 import { runCodexReviewInWorker } from "../lib/parallel-local-review.mjs";
 
 function fakeSpawn(events, inspect = () => {}) {
@@ -31,6 +31,13 @@ const read = (target = file.fullPath, body = "1→first\n2→second") => [
   { type: "tool_call_update", toolCallId: "read-1", status: "completed", content: [{ content: { text: body } }] },
 ];
 const end = { type: "end", stopReason: "end_turn", usage: { input_tokens: 100, output_tokens: 20 } };
+
+test("Grok verdict parser accepts one bounded JSON object after CLI preface", () => {
+  const verdict = JSON.stringify({ verdict: "fail", confidence: "high", summary: "A concrete defect", findings: ["A changed function fails for input x."] });
+  assert.equal(parseGrokVerdict(`I'll review the package.\n${verdict}`).verdict.verdict, "fail");
+  assert.equal(parseGrokVerdict(`${verdict}\n${verdict}`).ok, false);
+  assert.equal(parseGrokVerdict("No JSON response").ok, false);
+});
 
 test("Grok CLI invocation binds subscriber auth and verifies complete file coverage", async () => {
   process.env.XAI_API_KEY = "test";

@@ -125,7 +125,7 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
       toolsObserved: outcome.toolsObserved, outputBytes: outcome.outputBytes };
     if (outcome.reason) return finish({ liveCallAttempted: true, reason: outcome.reason,
       actualUsage: outcome.usage, providerMetadata: metadata });
-    const parsed = parseIntegratedVerdict(outcome.answer);
+    const parsed = parseGrokVerdict(outcome.answer);
     if (!parsed.ok) return finish({ liveCallAttempted: true, reason: "blocked_verdict_schema_validation_failed",
       actualUsage: outcome.usage, providerMetadata: { ...metadata,
         verdictParseReason: parsed.reason, verdictParseDetail: String(parsed.detail || "").slice(0, 160),
@@ -141,6 +141,26 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
   } finally {
     if (staged) rmSync(staged, { recursive: true, force: true });
   }
+}
+
+export function parseGrokVerdict(answer) {
+  const direct = parseIntegratedVerdict(answer);
+  if (direct.ok) return direct;
+  const candidates = [];
+  let start = -1, depth = 0, quoted = false, escaped = false;
+  for (let index = 0; index < answer.length; index++) {
+    const char = answer[index];
+    if (escaped) { escaped = false; continue; }
+    if (quoted && char === "\\") { escaped = true; continue; }
+    if (char === '"') { quoted = !quoted; continue; }
+    if (quoted) continue;
+    if (char === "{") { if (depth++ === 0) start = index; }
+    else if (char === "}" && depth > 0 && --depth === 0) {
+      candidates.push(answer.slice(start, index + 1));
+    }
+  }
+  if (candidates.length !== 1 || depth !== 0) return { ok: false, reason: "ambiguous_or_missing_json", detail: `object candidates: ${candidates.length}` };
+  return parseIntegratedVerdict(candidates[0]);
 }
 
 export async function invokeGrok({ files, prompt, staged, model, binary, spawnImpl = spawn, timeoutMs = deadlineMs }) {
