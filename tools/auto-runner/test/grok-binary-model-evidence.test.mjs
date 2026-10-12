@@ -76,3 +76,11 @@ test("Grok binary projection fails closed on altered diff, path list, or catalog
     changedFiles: [...changedFiles, "src/unapproved.bin"] }).reason,
     "blocked_grok_binary_unapproved_or_unverified_patch");
 });
+
+test("text changes mentioning the Git binary marker remain ordinary text", () => {
+  const textOnly = "diff --git a/src/example.js b/src/example.js\n--- a/src/example.js\n+++ b/src/example.js\n@@ -0,0 +1 @@\n+GIT binary patch\n";
+  const result = prepareGrokBinaryModelEvidence({ diff: textOnly });
+  assert.equal(result.ok, true);
+  assert.equal(result.reviewDiff, textOnly);
+  assert.deepEqual(result.binaryArtifacts, []);
+});

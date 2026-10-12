@@ -240,6 +240,7 @@ export function runGit(args, options = {}) {
     cwd,
     env: options.env ? { ...process.env, ...options.env } : process.env,
     encoding: "utf8",
+    ...(options.maxBuffer ? { maxBuffer: options.maxBuffer } : {}),
     windowsHide: true,
   });
   return {
@@ -474,7 +475,8 @@ export function workingTreeDiffHash() {
 }
 
 export function getBoundedDiff(baseRef = "origin/main", headRef = "HEAD", maxChars = providerBoundReviewDiffChars) {
-  const result = runGit(["diff", "--binary", `${baseRef}...${headRef}`]);
+  const result = runGit(["diff", "--binary", "--no-ext-diff", "--no-textconv", "--no-color", `${baseRef}...${headRef}`],
+    { maxBuffer: Math.max(16 * 1024 * 1024, maxChars + 1024) });
   assertGitSuccess(result, "Unable to read diff");
   if (result.stdout.length <= maxChars) {
     return { truncated: false, text: result.stdout };

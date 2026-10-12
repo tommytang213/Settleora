@@ -5576,7 +5576,8 @@ async function writeReviewPackage(config, payload) {
   const diff = Object.hasOwn(payload, "diffText")
     ? { text: String(payload.diffText || ""), truncated: false }
     : payload.diffBaseRef || payload.diffHeadRef
-      ? getBoundedDiff(payload.diffBaseRef || "origin/main", payload.diffHeadRef || "HEAD")
+      ? getBoundedDiff(payload.diffBaseRef || "origin/main", payload.diffHeadRef || "HEAD",
+        (payload.reviewerProviderPin || config.reviewerProviderPin) === "grok" ? 16 * 1024 * 1024 : undefined)
     : getBoundedWorkingTreeDiff();
   const packagePath = path.join(
     config.logsRoot,

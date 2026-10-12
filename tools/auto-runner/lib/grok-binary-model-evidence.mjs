@@ -44,7 +44,7 @@ function sameFiles(actual, expected) {
 export function prepareGrokBinaryModelEvidence({ repoRoot, baseSha, headSha, changedFiles, diff,
   readGit = gitRead, model = pinnedRupeeRecoveryModel } = {}) {
   const raw = String(diff || "");
-  if (!raw.includes("GIT binary patch") && !/^Binary files /m.test(raw)) {
+  if (!/^GIT binary patch$/m.test(raw) && !/^Binary files .+ differ$/m.test(raw)) {
     return { ok: true, reviewDiff: raw, originalDiffSha256: sha256(raw), binaryArtifacts: [] };
   }
   if (!fullSha.test(baseSha || "") || !fullSha.test(headSha || "")
