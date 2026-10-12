@@ -1205,8 +1205,9 @@ summary comments, resolves the reviewed commit prefix to its full SHA, and
 rejects current-head finding reviews. For dependent PRs it also requires the
 no-findings completion to follow the latest GitHub base-change event, since a
 retarget can change the reviewed diff without changing the head SHA. Empty
-GitHub review bodies are checked for inline findings; unattributable bot
-comments remain blocking. Missing, running, quota-limited, stale, or
+GitHub review bodies are checked for inline findings; the bot summary must
+match the observed finding-free format, and unattributable bot comments remain
+blocking. Missing, running, quota-limited, stale, or
 unreadable evidence blocks; no review quota is bypassed.
 If a headless turn ends before all indexed ranges are read, the adapter resumes
 that isolated session once to request only the verified missing ranges within

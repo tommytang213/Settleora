@@ -7,7 +7,27 @@ const head = "893a7f46d75d4c216dff36f7fa6008e43e7ad4ee";
 const staleHead = "b8222a7adf8be0a7efab54df655fe8067585fdf5";
 const bot = { login: "chatgpt-codex-connector[bot]", type: "Bot" };
 const summary = { ...bot, id: 1, created_at: "2026-10-11T22:47:59Z", updated_at: "2026-10-11T23:46:21Z",
-  body: '<!-- codex-pull-request-review-summary -->\n\n| Review | Status | Commit | Review trigger |\n| --- | --- | --- | --- |\n| 📝 **Code Review** | ✅ **Completed** | `893a7f4` | Manual request |' };
+  body: `<!-- codex-pull-request-review-summary -->
+
+## Codex Review Summary
+
+This comment shows the latest Codex review activity on this pull request.
+
+| Review | Status | Commit | Review trigger |
+| --- | --- | --- | --- |
+| 📝 **Code Review** | ✅ **Completed** <relative-time datetime="2026-10-11T23:46:21Z">2026-10-11T23:46:21Z</relative-time> | \`893a7f4\` | Manual request |
+
+<details> <summary>ℹ️ About Codex in GitHub</summary>
+<br/>
+
+[Your team has set up Codex to review pull requests in this repo](https://chatgpt.com/codex/cloud/settings/general). Reviews are triggered when you
+- Open a pull request for review
+- Mark a draft as ready
+- Comment "@codex review" or "@codex security review".
+
+Codex reacts with 👀 while any review is running, comments if it has suggestions, and reacts with 👍 once all reviews finish with no findings.
+
+</details>` };
 const footer = `<details> <summary>ℹ️ About Codex in GitHub</summary>
 <br/>
 
@@ -35,6 +55,8 @@ test("hosted Codex evidence fails closed on running, stale, quota, spoofed, and 
   assert.equal(evaluate([]).status, "pending");
   assert.equal(evaluate([{ ...summary, body: summary.body.replace("✅ **Completed**", "🔄 **Running**") }, completion]).status, "pending");
   assert.equal(evaluate([{ ...summary, body: summary.body.replace("893a7f4", staleHead.slice(0, 7)) }, completion]).status, "blocked");
+  assert.equal(evaluate([{ ...summary, body: `${summary.body}\nFinding: regression` }, completion]).reason,
+    "hosted_codex_review_summary_content_unverified");
   assert.equal(evaluate([summary, { ...completion, body: "Codex quota reached; review not run." }]).status, "blocked");
   assert.equal(evaluate([summary, { ...completion, login: "tommytang213", type: "User" }]).status, "blocked");
   assert.equal(evaluate([summary, { ...completion, body: completion.body.replace("893a7f46d7", staleHead.slice(0, 10)) }]).status, "blocked");

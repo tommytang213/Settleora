@@ -13,6 +13,23 @@ const completionFooter = [
   'Codex can also answer questions or update the PR. Try commenting "@codex address that feedback".',
   "</details>",
 ].join("\n");
+const summaryLinesBeforeRow = [
+  summaryMarker,
+  "## Codex Review Summary",
+  "This comment shows the latest Codex review activity on this pull request.",
+  "| Review | Status | Commit | Review trigger |",
+  "| --- | --- | --- | --- |",
+];
+const summaryLinesAfterRow = [
+  "<details> <summary>ℹ️ About Codex in GitHub</summary>",
+  "<br/>",
+  "[Your team has set up Codex to review pull requests in this repo](https://chatgpt.com/codex/cloud/settings/general). Reviews are triggered when you",
+  "- Open a pull request for review",
+  "- Mark a draft as ready",
+  '- Comment "@codex review" or "@codex security review".',
+  "Codex reacts with 👀 while any review is running, comments if it has suggestions, and reacts with 👍 once all reviews finish with no findings.",
+  "</details>",
+];
 
 export function inspectHostedCodexReview({ repositorySlug, prNumber, headSha, run }) {
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repositorySlug || "")
@@ -81,6 +98,9 @@ export function evaluateHostedCodexReview({ comments = [], reviews = [], headSha
   if (/\| 🔄 \*\*Running\*\*/.test(summaryRow)) return { status: "pending", reason: "hosted_codex_review_running" };
   const summaryMatch = summaryRow.match(/\| ✅ \*\*Completed\*\*[^|]*\| `([a-f0-9]{7,40})` \|/);
   if (!summaryMatch || !headSha.startsWith(summaryMatch[1])) return blocked("hosted_codex_review_summary_not_exact_head");
+  if (!isFindingFreeSummary(summary.body, summaryMatch[1])) {
+    return blocked("hosted_codex_review_summary_content_unverified");
+  }
   const otherComments = botComments.filter((item) => item.id !== summary.id)
     .sort((a, b) => Date.parse(b.created_at || "") - Date.parse(a.created_at || "") || Number(b.id) - Number(a.id));
   const completion = otherComments[0];
@@ -140,6 +160,18 @@ function parseNoFindingsCompletion(body) {
   const footer = content.slice(match[0].length).split(/\r?\n/)
     .map((line) => line.trim()).filter(Boolean).join("\n");
   return footer === completionFooter ? { reviewedPrefix: match[1] } : null;
+}
+
+function isFindingFreeSummary(body, reviewedPrefix) {
+  const lines = String(body || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const before = summaryLinesBeforeRow;
+  const after = summaryLinesAfterRow;
+  if (lines.length !== before.length + 1 + after.length
+    || !before.every((line, index) => lines[index] === line)
+    || !after.every((line, index) => lines[before.length + 1 + index] === line)) return false;
+  const row = lines[before.length];
+  const match = row.match(/^\| 📝 \*\*Code Review\*\* \| ✅ \*\*Completed\*\* <relative-time datetime="([^"]+)">\1<\/relative-time> \| `([a-f0-9]{7,40})` \| Manual request \|$/);
+  return Boolean(match) && Number.isFinite(Date.parse(match[1])) && match[2] === reviewedPrefix;
 }
 
 function blocked(reason) { return { status: "blocked", reason }; }
