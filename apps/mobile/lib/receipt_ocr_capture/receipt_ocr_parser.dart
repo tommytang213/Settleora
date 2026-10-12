@@ -5546,9 +5546,7 @@ class ReceiptOcrParser {
         // One OCR block may contain competing amounts or qualified text.
         // Own the entire column cell, including separately recognized words,
         // before allowing geometry to resolve the flattened row's ambiguity.
-        if (!_isStandaloneAmountRow(monetaryText) ||
-            RegExp(_amountTokenPattern).allMatches(monetaryText).length != 1 ||
-            !_hasChargeTableMonetaryEvidence(monetaryText)) {
+        if (!_hasCompleteChargeTableMonetaryCell(monetaryText)) {
           ambiguousAmountRows.add(rowIndex);
           continue;
         }
@@ -10176,6 +10174,32 @@ bool _isBoundedUtilitySupportCopy(String text) {
         unicode: true,
       ).hasMatch(withoutRanges) &&
       _unicodeLetterPattern.hasMatch(normalized);
+}
+
+bool _hasCompleteChargeTableMonetaryCell(String text) {
+  final amounts = RegExp(_amountTokenPattern).allMatches(text).toList();
+  if (amounts.length != 1 || !_hasChargeTableMonetaryEvidence(text)) {
+    return false;
+  }
+  // Denominations can agree, conflict, or be unsupported. Preserve them all
+  // for the currency-evidence decision rather than discarding the candidate.
+  // Every other character must belong to the single amount or be whitespace;
+  // arbitrary words, qualifications and additional values remain unresolved.
+  final evidence = <RegExpMatch>[
+    amounts.single,
+    ..._printedCurrencyMarkerMatches(text),
+    ..._unsupportedIsoCurrencyMarkers(text),
+    ...RegExp(r'\p{Sc}', unicode: true).allMatches(text),
+  ]..sort((left, right) => left.start.compareTo(right.start));
+  var coveredThrough = 0;
+  for (final span in evidence) {
+    if (span.start > coveredThrough &&
+        text.substring(coveredThrough, span.start).trim().isNotEmpty) {
+      return false;
+    }
+    if (span.end > coveredThrough) coveredThrough = span.end;
+  }
+  return text.substring(coveredThrough).trim().isEmpty;
 }
 
 bool _hasChargeTableMonetaryEvidence(String monetaryText) {

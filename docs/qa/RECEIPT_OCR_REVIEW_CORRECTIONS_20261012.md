@@ -125,7 +125,9 @@ blocks in the Amount column. Alternatives or residual qualifiers such as
 block or split across blocks. A rejected column cannot fall back to the last
 amount in the flattened row. Controls cover both column directions, preserve
 the original blocks, and retain confident ordinary amounts and separately
-recognized currency markers. No printed amount is reconstructed or relabeled.
+recognized currency markers. Multiple denominations around one amount remain
+editable currency evidence, with the existing unresolved-currency and saved-money
+guards intact. No printed amount is reconstructed or relabeled.
 
 The EF snapshot concern was checked with the pinned EF 9.0.15 tool and the
 three existing `ReceiptOcrReviewSchemaFoundationTests`. The model comparison
