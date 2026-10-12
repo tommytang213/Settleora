@@ -50,6 +50,15 @@ test("hosted Codex evidence fails closed on running, stale, quota, spoofed, and 
     commit_id: head, inlineCommentCount: 0 }]).status, "completed_no_findings");
   assert.equal(evaluate([summary, completion], [{ ...bot, id: 4, body: "", state: "APPROVED",
     commit_id: head, inlineCommentCount: 1 }]).status, "blocked");
+  assert.equal(evaluate([summary, completion], [{ ...bot, id: 4, body: null, state: "COMMENTED",
+    commit_id: head, inlineCommentCount: 0 }]).status, "completed_no_findings");
+  assert.equal(evaluate([summary, completion], [{ ...bot, id: 4, body: "", state: "COMMENTED",
+    commit_id: head.slice(0, 10), inlineCommentCount: 1 }]).reason, "hosted_codex_review_current_head_findings");
+  assert.equal(evaluate([summary, completion, { ...bot, id: 5, created_at: "2026-10-11T23:45:00Z",
+    body: `Codex Review: Found a bug.\n\n**Reviewed commit:** \`${head.slice(0, 10)}\`` }]).reason,
+  "hosted_codex_review_current_head_comment_findings");
+  assert.equal(evaluate([summary, completion, { ...bot, id: 6, created_at: "2026-10-11T23:44:00Z",
+    body: "Found a problem without a commit marker" }]).status, "blocked");
 });
 
 test("GitHub inspection resolves abbreviated commit and blocks unreadable or mismatched evidence", () => {
@@ -97,6 +106,23 @@ test("hosted completion must follow the latest PR base retarget", () => {
     "blocked");
   assert.equal(inspect({ status: 1, error: "unavailable" }).reason, "hosted_codex_review_base_history_unavailable");
   assert.equal(inspect({ status: 0, stdout: "{}" }).reason, "hosted_codex_review_base_history_unreadable");
+});
+
+test("GitHub inspection accepts a null-body empty review and checks its inline comments", () => {
+  const inspect = (inline) => inspectHostedCodexReview({ repositorySlug: "tommytang213/Settleora",
+    prNumber: 1332, headSha: head, run: (_command, args) => {
+      const endpoint = args.find((arg) => String(arg).startsWith("repos/"));
+      if (endpoint?.includes("/timeline?")) return { status: 0, stdout: "" };
+      if (endpoint?.includes("/issues/")) return { status: 0, stdout: [summary, completion].map(JSON.stringify).join("\n") };
+      if (endpoint?.includes("/reviews/") && endpoint?.includes("/comments?")) return { status: 0,
+        stdout: inline ? JSON.stringify({ id: 7 }) : "" };
+      if (endpoint?.includes("/reviews?")) return { status: 0, stdout: JSON.stringify({ ...bot, id: 4,
+        body: null, state: "COMMENTED", commit_id: head.slice(0, 10) }) };
+      if (endpoint?.includes("/commits/")) return { status: 0, stdout: head };
+      throw new Error("unexpected GitHub read");
+    } });
+  assert.equal(inspect(false).status, "completed_no_findings");
+  assert.equal(inspect(true).reason, "hosted_codex_review_current_head_findings");
 });
 
 test("existing auto-merge GitHub inspection reads hosted Codex evidence for Grok", () => {

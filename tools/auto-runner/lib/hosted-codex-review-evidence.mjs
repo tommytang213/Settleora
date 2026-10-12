@@ -22,10 +22,10 @@ export function inspectHostedCodexReview({ repositorySlug, prNumber, headSha, ru
     `${botFilter} | {id, login:.user.login, type:.user.type, body, created_at, updated_at}`);
   if (!comments.ok) return blocked("hosted_codex_review_comments_unavailable");
   const reviews = readBotRecords(run, `repos/${repositorySlug}/pulls/${prNumber}/reviews?per_page=100`,
-    `${botFilter} | {id, login:.user.login, type:.user.type, state, body, commit_id, submitted_at}`);
+    `${botFilter} | {id, login:.user.login, type:.user.type, state, body, commit_id, submitted_at}`, true);
   if (!reviews.ok) return blocked("hosted_codex_review_reviews_unavailable");
   for (const review of reviews.records) {
-    if (review.commit_id !== headSha || !["APPROVED", "COMMENTED"].includes(review.state)
+    if (!reviewMatchesHead(review, headSha) || !["APPROVED", "COMMENTED"].includes(review.state)
       || String(review.body || "").trim()) continue;
     const inline = run("gh", ["api", "--paginate",
       `repos/${repositorySlug}/pulls/${prNumber}/reviews/${review.id}/comments?per_page=100`,
@@ -89,12 +89,23 @@ export function evaluateHostedCodexReview({ comments = [], reviews = [], headSha
   const footer = String(completion.body).slice(completionMatch[0].length).split(/\r?\n/)
     .map((line) => line.trim()).filter(Boolean).join("\n");
   if (footer !== completionFooter) return blocked("hosted_codex_review_completion_body_malformed");
+  if (otherComments.slice(1).some((item) => {
+    const body = String(item.body || "");
+    const reviewed = body.match(/\*\*Reviewed commit:\*\* `([a-f0-9]{7,40})`/);
+    if (reviewed) return headSha.startsWith(reviewed[1])
+      && !body.startsWith("Codex Review: Didn't find any major issues.");
+    // Without a commit marker, an extra bot comment cannot be proven stale.
+    return true;
+  })) return blocked("hosted_codex_review_current_head_comment_findings");
   if (!Number.isFinite(Date.parse(completion.created_at || ""))
     || !Number.isFinite(Date.parse(summary.updated_at || ""))
     || Date.parse(summary.updated_at) < Date.parse(completion.created_at)) {
     return blocked("hosted_codex_review_completion_time_mismatch");
   }
-  if (reviews.some((review) => isBotRecord(review) && review.commit_id === headSha
+  if (reviews.some((review) => isBotRecord(review, true) && !/^[a-f0-9]{7,40}$/.test(review.commit_id || ""))) {
+    return blocked("hosted_codex_review_review_commit_unreadable");
+  }
+  if (reviews.some((review) => isBotRecord(review, true) && reviewMatchesHead(review, headSha)
     && (!['APPROVED', 'COMMENTED'].includes(review.state)
       || String(review.body || "").trim() || review.inlineCommentCount !== 0))) {
     return blocked("hosted_codex_review_current_head_findings");
@@ -103,19 +114,25 @@ export function evaluateHostedCodexReview({ comments = [], reviews = [], headSha
     summaryCommentId: summary.id, completionCommentId: completion.id, completedAt: completion.created_at };
 }
 
-function readBotRecords(run, endpoint, query) {
+function readBotRecords(run, endpoint, query, allowNullBody = false) {
   const result = run("gh", ["api", "--paginate", endpoint, "--jq", query]);
   if (result?.status !== 0 || result?.error) return { ok: false, records: [] };
   try {
     const lines = String(result.stdout || "").split(/\r?\n/).filter(Boolean);
-    const records = lines.map((line) => JSON.parse(line));
-    return { ok: records.every(isBotRecord), records };
+    const records = lines.map((line) => JSON.parse(line)).map((item) =>
+      allowNullBody && item?.body === null ? { ...item, body: "" } : item);
+    return { ok: records.every((item) => isBotRecord(item, allowNullBody)), records };
   } catch { return { ok: false, records: [] }; }
 }
 
-function isBotRecord(value) {
+function isBotRecord(value, allowNullBody = false) {
   return value && value.login === codexBotLogin && value.type === "Bot"
-    && Number.isSafeInteger(value.id) && value.id > 0 && typeof value.body === "string";
+    && Number.isSafeInteger(value.id) && value.id > 0
+    && (typeof value.body === "string" || (allowNullBody && value.body === null));
+}
+
+function reviewMatchesHead(review, headSha) {
+  return /^[a-f0-9]{7,40}$/.test(review?.commit_id || "") && headSha.startsWith(review.commit_id);
 }
 
 function blocked(reason) { return { status: "blocked", reason }; }
