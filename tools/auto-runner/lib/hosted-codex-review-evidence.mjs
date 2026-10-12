@@ -66,7 +66,7 @@ export function evaluateHostedCodexReview({ comments = [], reviews = [], headSha
   const otherComments = botComments.filter((item) => item.id !== summary.id)
     .sort((a, b) => Date.parse(b.created_at || "") - Date.parse(a.created_at || "") || Number(b.id) - Number(a.id));
   const completion = otherComments[0];
-  const completionMatch = String(completion?.body || "").match(/^Codex Review: Didn't find any major issues\. :\+1:\s*\n\n\*\*Reviewed commit:\*\* `([a-f0-9]{10,40})`(?:\r?\n|$)/);
+  const completionMatch = String(completion?.body || "").match(/^Codex Review: Didn't find any major issues\. (?::\+1:|You're on a roll\.)\s*\n\n\*\*Reviewed commit:\*\* `([a-f0-9]{10,40})`(?:\r?\n|$)/);
   if (!completionMatch || !headSha.startsWith(completionMatch[1])) return blocked("hosted_codex_review_no_exact_head_completion");
   const footer = String(completion.body).slice(completionMatch[0].length).split(/\r?\n/)
     .map((line) => line.trim()).filter(Boolean).join("\n");

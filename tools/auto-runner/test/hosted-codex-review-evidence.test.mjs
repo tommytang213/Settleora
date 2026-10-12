@@ -38,6 +38,8 @@ test("hosted Codex evidence fails closed on running, stale, quota, spoofed, and 
   assert.equal(evaluate([summary, { ...completion, body: "Codex quota reached; review not run." }]).status, "blocked");
   assert.equal(evaluate([summary, { ...completion, login: "tommytang213", type: "User" }]).status, "blocked");
   assert.equal(evaluate([summary, { ...completion, body: completion.body.replace("893a7f46d7", staleHead.slice(0, 10)) }]).status, "blocked");
+  assert.equal(evaluate([summary, { ...completion, body: completion.body.replace(":+1:", "You're on a roll.") }]).status,
+    "completed_no_findings");
   assert.equal(evaluate([summary, { ...completion, body: `${completion.body}\nFinding: regression` }]).status, "blocked");
   assert.equal(evaluate([summary, completion, { ...completion, id: 3, created_at: "2026-10-11T23:47:00Z", body: "Codex quota reached" }]).status, "blocked");
   assert.equal(evaluate([summary, completion], [{ ...bot, id: 4, body: "finding", commit_id: head }]).reason,
