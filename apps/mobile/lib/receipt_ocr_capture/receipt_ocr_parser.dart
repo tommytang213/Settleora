@@ -5633,11 +5633,15 @@ class ReceiptOcrParser {
             _hasDetachedAmountSign(amountCell.text)) {
           continue;
         }
+        // A denomination can extend beyond its printed column heading.
         final nearbyCurrencyBlocks = _nearbyCurrencyOnlyBlocks(
-          tableBlocks,
+          layoutRows[rowIndex],
           amountCell,
         );
-        if (nearbyCurrencyBlocks.length > 1) continue;
+        if (nearbyCurrencyBlocks.length > 1) {
+          ambiguousAmountRows.add(rowIndex);
+          continue;
+        }
         final currencyBlock = nearbyCurrencyBlocks.firstOrNull;
         final monetaryText = _normalizeOcrLine(
           [
@@ -5663,33 +5667,41 @@ class ReceiptOcrParser {
           currency: lineCurrency,
         );
         if (lineTotal == null) continue;
-        final columnDescription = _cleanDescription(
-          tableBlocks
-              .where((block) {
-                if (block == currencyBlock) return false;
-                final right = block.points
-                    .map((point) => point.x)
-                    .reduce((a, b) => a > b ? a : b);
-                final left = block.points
-                    .map((point) => point.x)
-                    .reduce((a, b) => a < b ? a : b);
-                final center = (left + right) / 2;
-                return (amountOnLeft
-                        ? left > amountRight + 12 &&
-                              center >= descriptionColumnEdge
-                        : right < amountLeft - 12 &&
-                              center <= descriptionColumnEdge) &&
-                    !_isStandaloneAmountRow(block.text) &&
-                    !RegExp(
-                      '^(?:$_currencyTokenPattern)\\s*[-+]?\\d',
-                      caseSensitive: false,
-                    ).hasMatch(block.text.trim()) &&
-                    _unicodeLetterPattern.hasMatch(block.text);
-              })
-              .map((block) => block.text.trim())
-              .join(' '),
+        final descriptionBlocks = tableBlocks
+            .where((block) {
+              if (block == currencyBlock) return false;
+              final right = block.points
+                  .map((point) => point.x)
+                  .reduce((a, b) => a > b ? a : b);
+              final left = block.points
+                  .map((point) => point.x)
+                  .reduce((a, b) => a < b ? a : b);
+              final center = (left + right) / 2;
+              return amountOnLeft
+                  ? left > amountRight + 12 && center >= descriptionColumnEdge
+                  : right < amountLeft - 12 && center <= descriptionColumnEdge;
+            })
+            .toList(growable: false);
+        // A number inside Description may be a model or size. Retain complete
+        // integer fragments instead of silently shortening the printed name.
+        // Other isolated monetary fragments remain ambiguous, not omitted.
+        if (descriptionBlocks.any((block) {
+          final text = block.text.trim();
+          if (RegExp(r'^\d+$').hasMatch(text)) return false;
+          return (_lineHasAmount(text) &&
+                  !_unicodeLetterPattern.hasMatch(text)) ||
+              _isStandaloneAmountRow(text) ||
+              RegExp(
+                '^(?:$_currencyTokenPattern)\\s*[-+]?\\d',
+                caseSensitive: false,
+              ).hasMatch(text);
+        })) {
+          ambiguousAmountRows.add(rowIndex);
+          continue;
+        }
+        final description = _cleanDescription(
+          descriptionBlocks.map((block) => block.text.trim()).join(' '),
         );
-        final description = columnDescription;
         if (!_hasSubstantiveItemDescription(description) ||
             _isReceiptMetadataLine(description, allowBarePostal: false)) {
           continue;

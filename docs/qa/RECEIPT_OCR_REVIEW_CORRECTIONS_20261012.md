@@ -158,6 +158,15 @@ markers, decimal prices, negative values and alternatives cannot be discarded
 as identifiers. Ordinary and mirrored controls preserve these distinctions.
 No merchant names, fixture values or source images were changed.
 
+Amount-column ownership now inspects adjacent currency blocks across the full
+provider row, including a denomination just beyond the heading's width. A
+separate EUR marker cannot disappear and cause an item to inherit USD; competing
+nearby markers remain unresolved. Description-column projection preserves
+complete integer model/size fragments and literal text instead of removing
+number-only blocks. Isolated monetary fragments remain review evidence rather
+than silently shortening the name. Ordinary and mirrored controls preserve raw
+blocks and verify both corrections without changing saved-review or Apply rules.
+
 The EF snapshot concern was checked with the pinned EF 9.0.15 tool and the
 three existing `ReceiptOcrReviewSchemaFoundationTests`. The model comparison
 reported no pending changes; all three metadata/schema-generation tests passed.

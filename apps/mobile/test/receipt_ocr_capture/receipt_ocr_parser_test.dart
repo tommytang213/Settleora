@@ -258,7 +258,129 @@ ReceiptOcrPreview _parseProjectionOwnershipTable({
   );
 }
 
+ReceiptOcrPreview _parseCompleteLayoutCell({
+  bool mirrored = false,
+  String? outsideCurrency,
+  String? secondCurrency,
+  String? descriptionSuffix,
+}) {
+  final blocks = <ReceiptOcrBlockEvidence>[];
+  void add(String text, int row, double left, double right) {
+    final start = mirrored ? 600 - right : left;
+    final end = mirrored ? 600 - left : right;
+    blocks.add(
+      ReceiptOcrBlockEvidence(
+        text: text,
+        row: row,
+        order: blocks.length,
+        points: [
+          ReceiptOcrPoint(x: start, y: row * 30),
+          ReceiptOcrPoint(x: end, y: row * 30),
+          ReceiptOcrPoint(x: end, y: row * 30 + 18),
+          ReceiptOcrPoint(x: start, y: row * 30 + 18),
+        ],
+      ),
+    );
+  }
+
+  add('Market', 0, 20, 460);
+  add('Date 2026-10-12', 1, 20, 460);
+  add('Description', 2, 20, 170);
+  add('Qty', 2, 220, 250);
+  add('Rate', 2, 300, 350);
+  add('Amount', 2, 400, 460);
+  add('Widget', 3, mirrored ? 110 : 20, mirrored ? 170 : 80);
+  if (descriptionSuffix != null) {
+    add(descriptionSuffix, 3, mirrored ? 70 : 90, mirrored ? 100 : 120);
+  }
+  add('1', 3, 225, 245);
+  add('10.00', 3, 300, 345);
+  add('10.00', 3, 410, 455);
+  if (outsideCurrency != null) add(outsideCurrency, 3, 463, 493);
+  if (secondCurrency != null) add(secondCurrency, 3, 494, 514);
+  add('Total USD 10.00', 4, 20, 460);
+  final rows = <int, List<String>>{};
+  for (final b in blocks) {
+    rows.putIfAbsent(b.row, () => []).add(b.text);
+  }
+  return const ReceiptOcrParser().parse(
+    rows.values.map((x) => x.join(' ')).join('\n'),
+    blocks: blocks,
+  );
+}
+
 void main() {
+  group('complete layout cell evidence', () {
+    for (final mirrored in [false, true]) {
+      for (final currency in ['USD', 'EUR']) {
+        test(
+          'retains adjacent $currency outside heading; mirrored=$mirrored',
+          () {
+            final preview = _parseCompleteLayoutCell(
+              outsideCurrency: currency,
+              mirrored: mirrored,
+            );
+            expect(preview.items.single.currency, currency);
+            expect(preview.items.single.lineTotal, '10.00');
+            expect(
+              preview.blocks.map((block) => block.text),
+              contains(currency),
+            );
+            if (currency == 'USD') expect(preview.reviewHints, isEmpty);
+          },
+        );
+      }
+      for (final model in ['2', '007', '2 or 3']) {
+        test('preserves complete model $model; mirrored=$mirrored', () {
+          final preview = _parseCompleteLayoutCell(
+            descriptionSuffix: model,
+            mirrored: mirrored,
+          );
+          expect(preview.items.single.description, 'Widget $model');
+          expect(preview.items.single.lineTotal, '10.00');
+          expect(preview.reviewHints, isEmpty);
+          expect(preview.blocks.map((block) => block.text), contains(model));
+        });
+      }
+      for (final fragment in ['2.50', 'USD 2.00']) {
+        test(
+          'retains ambiguous description fragment $fragment; mirrored=$mirrored',
+          () {
+            final preview = _parseCompleteLayoutCell(
+              descriptionSuffix: fragment,
+              mirrored: mirrored,
+            );
+            expect(preview.reviewHints, isNotEmpty);
+            expect(
+              preview.items.map((item) => item.description),
+              isNot(contains('Widget')),
+            );
+            expect(
+              preview.blocks.map((block) => block.text),
+              contains(fragment),
+            );
+          },
+        );
+      }
+      test('retains competing adjacent currencies; mirrored=$mirrored', () {
+        final preview = _parseCompleteLayoutCell(
+          outsideCurrency: 'EUR',
+          secondCurrency: 'USD',
+          mirrored: mirrored,
+        );
+        expect(preview.reviewHints, isNotEmpty);
+        expect(preview.blocks.map((block) => block.text), contains('EUR'));
+      });
+      test('keeps ordinary complete item; mirrored=$mirrored', () {
+        final preview = _parseCompleteLayoutCell(mirrored: mirrored);
+        expect(preview.items.single.description, 'Widget');
+        expect(preview.items.single.currency, 'USD');
+        expect(preview.items.single.lineTotal, '10.00');
+        expect(preview.reviewHints, isEmpty);
+      });
+    }
+  });
+
   group('projection row ownership', () {
     for (final mirrored in [false, true]) {
       for (final qualifier in ['included', '(included)']) {
