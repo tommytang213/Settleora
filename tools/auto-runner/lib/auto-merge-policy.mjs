@@ -284,7 +284,7 @@ export function writeAutoMergeEvidence(config, decision, context = {}) {
   return { evidencePath };
 }
 
-export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber, laneDecision } = {}, options = {}) {
+export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber, laneDecision, reviewerProvider } = {}, options = {}) {
   const runner = options.runner || (config.dryRun ? defaultRunner : null);
   const commandEvidence = [];
   const run = (command, args, runnerOptions = {}) => {
@@ -371,7 +371,7 @@ export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber, lane
   if (issueView.error || issueView.status !== 0) blockingMarkers.push("issue_view_failed");
 
   const reviewThreads = inspectReviewThreads(config, pr.number, blockingMarkers, run);
-  const hostedCodexReview = config.reviewerProviderPin === "grok"
+  const hostedCodexReview = (reviewerProvider || config.reviewerProviderPin) === "grok"
     ? inspectHostedCodexReview({ repositorySlug, prNumber: pr.number, headSha: pr.headRefOid,
       run: (command, args) => run(command, args, { cwd: config.repoRoot }) })
     : null;

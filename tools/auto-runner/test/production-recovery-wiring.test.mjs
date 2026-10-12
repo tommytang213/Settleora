@@ -26,6 +26,7 @@ test("existing PR continuation carries inspected hosted evidence into its first 
   const recovery = source.slice(source.indexOf("async function recoverExistingPrIfConfigured"),
     source.indexOf("export function resolveExistingPrRecoveryReviewerProvider"));
   assert.match(recovery, /hostedCodexReview: githubState\.hostedCodexReview \|\| null/);
+  assert.match(recovery, /reviewerProvider: persistedRecoveryProvider/);
   assert.match(recovery, /recoveryDecision\.reason !== "hosted_codex_review_pending"/);
 });
 

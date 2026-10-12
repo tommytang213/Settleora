@@ -2362,6 +2362,18 @@ test("production merge adapter carries real gate changed-file evidence", async (
   assert.equal(result.result.result, "dry_run_eligible");
 });
 
+test("production stack PR inspection carries fail-closed hosted evidence for a Grok pin", async () => {
+  const fixture = stackFixture();
+  const config = { ...fixture.config, reviewerProviderPin: "grok" };
+  const adapter = createProductionPrStackAdapter(config, { runner: fakeRunner });
+  const inspected = await adapter.inspectPr({ config, state: { reviewerProviderPin: "grok" }, prNumber: 919,
+    repositoryContext: { configuredRepositorySlug: "tommytang213/Settleora",
+      originRepositorySlug: "tommytang213/Settleora", argvRepository: "tommytang213/Settleora" } });
+  assert.equal(inspected.ok, true, inspected.reasonCode);
+  assert.ok(inspected.hostedCodexReview);
+  assert.notEqual(inspected.hostedCodexReview.status, "completed_no_findings");
+});
+
 test("production own-delta adapter recomputes the current PR patch", async () => {
   const fixture = stackFixture();
   const config = { ...fixture.config, repoRoot: fixture.root };

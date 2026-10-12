@@ -57,6 +57,7 @@ test("GitHub inspection resolves abbreviated commit and blocks unreadable or mis
   const run = (_command, args) => {
     calls.push(args);
     const endpoint = args.find((arg) => String(arg).startsWith("repos/"));
+    if (endpoint?.includes("/timeline?")) return { status: 0, stdout: "" };
     if (endpoint?.includes("/issues/")) return { status: 0, stdout: [summary, completion].map(JSON.stringify).join("\n") };
     if (endpoint?.includes("/reviews?")) return { status: 0, stdout: "" };
     if (endpoint?.includes("/commits/")) return { status: 0, stdout: `${head}\n` };
@@ -64,15 +65,38 @@ test("GitHub inspection resolves abbreviated commit and blocks unreadable or mis
   };
   const input = { repositorySlug: "tommytang213/Settleora", prNumber: 1332, headSha: head };
   assert.equal(inspectHostedCodexReview({ ...input, run }).reviewedHead, head);
-  assert.equal(calls.length, 3);
+  assert.equal(calls.length, 4);
   assert.equal(inspectHostedCodexReview({ ...input, run: (_cmd, args) => args.includes("--paginate")
     ? { status: 1, error: "unavailable" } : { status: 0, stdout: head } }).status, "blocked");
   assert.equal(inspectHostedCodexReview({ ...input, run: (_cmd, args) => {
     const endpoint = args.find((arg) => String(arg).startsWith("repos/"));
+    if (endpoint?.includes("/timeline?")) return { status: 0, stdout: "" };
     if (endpoint?.includes("/issues/")) return { status: 0, stdout: [summary, completion].map(JSON.stringify).join("\n") };
     if (endpoint?.includes("/reviews?")) return { status: 0, stdout: "" };
     return { status: 0, stdout: staleHead };
   } }).reason, "hosted_codex_review_commit_resolution_mismatch");
+});
+
+test("hosted completion must follow the latest PR base retarget", () => {
+  const inspect = (timelineResult) => inspectHostedCodexReview({ repositorySlug: "tommytang213/Settleora",
+    prNumber: 1332, headSha: head, run: (_command, args) => {
+      const endpoint = args.find((arg) => String(arg).startsWith("repos/"));
+      if (endpoint?.includes("/timeline?")) return timelineResult;
+      if (endpoint?.includes("/issues/")) return { status: 0, stdout: [summary, completion].map(JSON.stringify).join("\n") };
+      if (endpoint?.includes("/reviews?")) return { status: 0, stdout: "" };
+      if (endpoint?.includes("/commits/")) return { status: 0, stdout: head };
+      throw new Error("unexpected GitHub read");
+    } });
+  const baseChange = (created_at, event = "base_ref_changed") => ({ id: 11, event, created_at });
+  assert.equal(inspect({ status: 0, stdout: JSON.stringify(baseChange("2026-10-11T23:46:20Z")) }).reason,
+    "hosted_codex_review_predates_base_change");
+  assert.equal(inspect({ status: 0, stdout: JSON.stringify(baseChange(completion.created_at)) }).status, "blocked");
+  assert.equal(inspect({ status: 0, stdout: JSON.stringify(baseChange("2026-10-11T23:00:00Z")) }).status,
+    "completed_no_findings");
+  assert.equal(inspect({ status: 0, stdout: JSON.stringify(baseChange("2026-10-11T23:47:00Z", "automatic_base_change_succeeded")) }).status,
+    "blocked");
+  assert.equal(inspect({ status: 1, error: "unavailable" }).reason, "hosted_codex_review_base_history_unavailable");
+  assert.equal(inspect({ status: 0, stdout: "{}" }).reason, "hosted_codex_review_base_history_unreadable");
 });
 
 test("existing auto-merge GitHub inspection reads hosted Codex evidence for Grok", () => {
@@ -84,6 +108,7 @@ test("existing auto-merge GitHub inspection reads hosted Codex evidence for Grok
     if (args[0] === "issue") return { status: 0, stdout: JSON.stringify({ number: 1332, state: "OPEN" }) };
     if (args.includes("graphql")) return { status: 0, stdout: JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { nodes: [] } } } } }) };
     const endpoint = args.find((arg) => String(arg).startsWith("repos/") || String(arg).startsWith("/repos/"));
+    if (endpoint?.includes("/timeline?")) return { status: 0, stdout: "" };
     if (endpoint?.includes("/issues/")) return { status: 0, stdout: [summary, completion].map(JSON.stringify).join("\n") };
     if (endpoint?.includes("/reviews?")) return { status: 0, stdout: "" };
     if (endpoint?.includes("/commits/")) return { status: 0, stdout: head };
@@ -96,4 +121,7 @@ test("existing auto-merge GitHub inspection reads hosted Codex evidence for Grok
   assert.equal(state.hostedCodexReview.status, "completed_no_findings");
   assert.deepEqual(state.blockingMarkers, []);
   assert.equal(calls.some((call) => call.includes("/pulls/1332/reviews?")), true);
+  const persistedProvider = inspectAutoMergeGithubState({ repositorySlug: "tommytang213/Settleora", repoRoot: process.cwd(),
+    dryRun: false }, { issue: { number: 1332 }, prUrlOrNumber: 1332, reviewerProvider: "grok" }, { runner });
+  assert.equal(persistedProvider.hostedCodexReview.reviewedHead, head);
 });

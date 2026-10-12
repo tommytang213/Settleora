@@ -39,6 +39,23 @@ export function inspectHostedCodexReview({ repositorySlug, prNumber, headSha, ru
   }
   const evidence = evaluateHostedCodexReview({ comments: comments.records, reviews: reviews.records, headSha });
   if (evidence.status !== "completed_no_findings") return evidence;
+  // A dependent PR can be retargeted from its parent branch to main without
+  // changing its head. The old head review then covers a different diff.
+  const timeline = run("gh", ["api", "--paginate",
+    `repos/${repositorySlug}/issues/${prNumber}/timeline?per_page=100`, "--jq",
+    '.[] | select(.event == "base_ref_changed" or .event == "automatic_base_change_succeeded") | {id,event,created_at}']);
+  if (timeline?.status !== 0 || timeline?.error) return blocked("hosted_codex_review_base_history_unavailable");
+  let baseChanges;
+  try {
+    baseChanges = String(timeline.stdout || "").split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
+    if (!baseChanges.every((item) => Number.isSafeInteger(item.id) && item.id > 0
+      && ["base_ref_changed", "automatic_base_change_succeeded"].includes(item.event)
+      && Number.isFinite(Date.parse(item.created_at || "")))) throw new Error("invalid base event");
+  } catch { return blocked("hosted_codex_review_base_history_unreadable"); }
+  const latestBaseChange = baseChanges.reduce((latest, item) => Math.max(latest, Date.parse(item.created_at)), -Infinity);
+  if (Date.parse(evidence.completedAt) <= latestBaseChange) {
+    return blocked("hosted_codex_review_predates_base_change");
+  }
   // GitHub resolves the bot's abbreviated reviewed-commit identifier to the full SHA.
   // Ambiguous or stale prefixes fail closed rather than being treated as exact-head proof.
   const resolved = run("gh", ["api", `repos/${repositorySlug}/commits/${evidence.reviewedPrefix}`, "--jq", ".sha"]);
@@ -47,7 +64,8 @@ export function inspectHostedCodexReview({ repositorySlug, prNumber, headSha, ru
     || resolvedSha !== headSha) return blocked("hosted_codex_review_commit_resolution_mismatch");
   return { status: "completed_no_findings", reviewedHead: resolvedSha, prNumber: Number(prNumber),
     summaryCommentId: evidence.summaryCommentId, completionCommentId: evidence.completionCommentId,
-    completedAt: evidence.completedAt, source: "github_codex_bot_comments" };
+    completedAt: evidence.completedAt, latestBaseChangeAt: Number.isFinite(latestBaseChange)
+      ? new Date(latestBaseChange).toISOString() : null, source: "github_codex_bot_comments" };
 }
 
 export function evaluateHostedCodexReview({ comments = [], reviews = [], headSha } = {}) {
