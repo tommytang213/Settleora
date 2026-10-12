@@ -23,6 +23,7 @@ struct RecognizerSpec: Hashable {
 struct MobileOcrModelCatalog {
   let detection: DetectionModelSpec
   let recognizers: [RecognizerSpec]
+  let rupeeRecovery: RecognizerSpec?
 
   static func load() throws -> MobileOcrModelCatalog {
     let data = try Data(contentsOf: FlutterAssetResolver.url("assets/receipt_ocr_models/catalog.json"))
@@ -33,6 +34,7 @@ struct MobileOcrModelCatalog {
 
     var detection: DetectionModelSpec?
     var recognizers: [RecognizerSpec] = []
+    var rupeeRecovery: RecognizerSpec?
     for pack in packs {
       guard
         let id = pack["modelPackId"] as? String,
@@ -49,20 +51,28 @@ struct MobileOcrModelCatalog {
         detection = DetectionModelSpec(
           modelPackID: id, modelVersion: version, modelPath: modelPath, configPath: configPath
         )
-      } else if role == "recognition" {
-        recognizers.append(RecognizerSpec(
+      } else if role == "recognition" || role == "recognition_recovery" {
+        let spec = RecognizerSpec(
           modelPackID: id,
           modelVersion: version,
           modelPath: modelPath,
           configPath: configPath,
           acceptedScripts: try scripts(routeScripts)
-        ))
+        )
+        if role == "recognition_recovery" {
+          guard rupeeRecovery == nil,
+                pack["recoveryPolicy"] as? String == "corroborated_rupee_money",
+                spec.acceptedScripts == [.common] else { throw SettleoraOcrError.invalidCatalog }
+          rupeeRecovery = spec
+        } else {
+          recognizers.append(spec)
+        }
       } else {
         throw SettleoraOcrError.invalidCatalog
       }
     }
     guard let detection, !recognizers.isEmpty else { throw SettleoraOcrError.invalidCatalog }
-    return MobileOcrModelCatalog(detection: detection, recognizers: recognizers)
+    return MobileOcrModelCatalog(detection: detection, recognizers: recognizers, rupeeRecovery: rupeeRecovery)
   }
 
   private static func scripts(_ routes: [String]) throws -> Set<ScriptEvidence> {

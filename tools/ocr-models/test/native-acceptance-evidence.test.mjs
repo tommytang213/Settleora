@@ -208,7 +208,7 @@ test("retains only the bounded native acceptance schema", () => {
           "full-bytes": "200",
           "model-free-bytes": "150",
           "base-app-bytes": "100",
-          "verified-model-file-count": "14",
+          "verified-model-file-count": "16",
           "verified-catalog-file-count": "1",
           "verified-fixture-absence-count": "102",
           "package-sha256": "b".repeat(64),
@@ -220,8 +220,8 @@ test("retains only the bounded native acceptance schema", () => {
       assert.equal(evidence.uiSmoke.completed, true);
       assert.equal(evidence.packageEvidence.bundledModelPackageDeltaBytes, 50);
       assert.equal(evidence.packageEvidence.ocrStackPackageDeltaBytes, 100);
-      assert.equal(evidence.packageEvidence.catalogModelFileCount, 14);
-      assert.equal(evidence.packageEvidence.verifiedModelFileCount, 14);
+      assert.equal(evidence.packageEvidence.catalogModelFileCount, 16);
+      assert.equal(evidence.packageEvidence.verifiedModelFileCount, 16);
       assert.equal(evidence.packageEvidence.verifiedCatalogFileCount, 1);
       assert.equal(evidence.packageEvidence.verifiedFixtureAbsenceCount, 102);
       assert.equal(evidence.identities.fixtureTreeSha256.length, 64);

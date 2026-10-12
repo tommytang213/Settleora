@@ -27,6 +27,7 @@
 		B10000000000000000000017 /* PDBPolygonOffsetBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000017 /* PDBPolygonOffsetBridge.mm */; };
 		B10000000000000000000018 /* clipper.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000018 /* clipper.cpp */; };
 		B10000000000000000000019 /* ReceiptDocumentOrientation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000019 /* ReceiptDocumentOrientation.swift */; };
+		B10000000000000000000021 /* RupeeCurrencyRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000021 /* RupeeCurrencyRecovery.swift */; };
 		B10000000000000000000020 /* receipt_ocr_models in Resources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000020 /* receipt_ocr_models */; };
 		1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */; };
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
@@ -83,6 +84,7 @@
 		B20000000000000000000017 /* PDBPolygonOffsetBridge.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = "PaddleOCR/Engine/PDBPolygonOffsetBridge.mm"; sourceTree = "<group>"; };
 		B20000000000000000000018 /* clipper.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = "PaddleOCR/ThirdParty/Clipper1/clipper.cpp"; sourceTree = "<group>"; };
 		B20000000000000000000019 /* ReceiptDocumentOrientation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PaddleOCR/ReceiptDocumentOrientation.swift"; sourceTree = "<group>"; };
+		B20000000000000000000021 /* RupeeCurrencyRecovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PaddleOCR/RupeeCurrencyRecovery.swift"; sourceTree = "<group>"; };
 		B20000000000000000000020 /* receipt_ocr_models */ = {isa = PBXFileReference; lastKnownFileType = folder; name = receipt_ocr_models; path = ../../assets/receipt_ocr_models; sourceTree = "<group>"; };
 		1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GeneratedPluginRegistrant.h; sourceTree = "<group>"; };
 		1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GeneratedPluginRegistrant.m; sourceTree = "<group>"; };
@@ -175,6 +177,7 @@
 				B20000000000000000000017 /* PDBPolygonOffsetBridge.mm */,
 				B20000000000000000000018 /* clipper.cpp */,
 				B20000000000000000000019 /* ReceiptDocumentOrientation.swift */,
+				B20000000000000000000021 /* RupeeCurrencyRecovery.swift */,
 				B20000000000000000000020 /* receipt_ocr_models */,
 				97C146FA1CF9000F007C117D /* Main.storyboard */,
 				97C146FD1CF9000F007C117D /* Assets.xcassets */,
@@ -391,6 +394,7 @@
 				B10000000000000000000017 /* PDBPolygonOffsetBridge.mm in Sources */,
 				B10000000000000000000018 /* clipper.cpp in Sources */,
 				B10000000000000000000019 /* ReceiptDocumentOrientation.swift in Sources */,
+				B10000000000000000000021 /* RupeeCurrencyRecovery.swift in Sources */,
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
 				7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */,

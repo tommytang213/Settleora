@@ -5,6 +5,91 @@ import XCTest
 
 class RunnerTests: XCTestCase {
 
+  func testRupeeRecoveryRequiresOriginalCurrencyColumnAndExactMoney() {
+    let commonPack = RecognizerSpec(modelPackID: "common", modelVersion: "v1", modelPath: "common", configPath: "common.yml", acceptedScripts: [.common])
+    let devaPack = RecognizerSpec(modelPackID: "deva", modelVersion: "v1", modelPath: "deva", configPath: "deva.yml", acceptedScripts: [.devanagari])
+    let recoveryPack = RecognizerSpec(modelPackID: "recovery", modelVersion: "v1", modelPath: "recovery", configPath: "recovery.yml", acceptedScripts: [.common])
+    func candidate(_ text: String, _ confidence: Float = 0.95, _ pack: RecognizerSpec? = nil) -> ScriptCandidate {
+      ScriptCandidate(text: text, confidence: confidence, pack: pack ?? commonPack)
+    }
+    func box(_ x: Double, _ y: Double) -> [CalendarDateRecovery.Point] {
+      [.init(x: x, y: y), .init(x: x + 80, y: y), .init(x: x + 80, y: y + 20), .init(x: x, y: y + 20)]
+    }
+    let original: [ScriptCandidate?] = [candidate("Widget"), candidate("ऱ 12,34,567.89", 0.95, devaPack), candidate("Other"), candidate("₹45.00"), candidate("Total"), candidate("₹8,765.43")]
+    var common = original
+    common[1] = candidate("12,34,567.89")
+    let points = [box(20, 10), box(200, 10), box(20, 60), box(200, 60), box(20, 110), box(200, 110)]
+    let recovery = candidate("₹12,34,567.89", 0.95, recoveryPack)
+    func accepts(_ originals: [ScriptCandidate?], _ commons: [ScriptCandidate?], _ geometry: [[CalendarDateRecovery.Point]], _ recovered: ScriptCandidate) -> Bool {
+      RupeeCurrencyRecovery.accepts(1, original: originals, common: commons, points: geometry, recovery: recovered, recoveryPack: recoveryPack)
+    }
+    XCTAssertTrue(accepts(original, common, points, recovery))
+    XCTAssertTrue(accepts(original, common, points.map { Array($0.reversed()) }, recovery))
+    for value in ["0.00", "27.16", "2,345.67", "12,34,567.89", "-34.56", "+7.89", "−7.89"] {
+      for marker in ["र", "ऱ"] {
+        var originals = original, commons = common
+        originals[1] = candidate("\t\(marker) \(value) ", 0.95, devaPack)
+        commons[1] = candidate(" \(value)\t")
+        XCTAssertTrue(accepts(originals, commons, points, candidate(" ₹\t\(value) ", 0.95, recoveryPack)))
+      }
+    }
+    for value in ["₹12,34,567.88", "₹1,234,567.89", "₹-12,34,567.89", "₹12,34,567.890", "₹12,34,567", "₹१२,३४,५६७.८९", "₹12,34,567.89\n", "$12,34,567.89", "Rs12,34,567.89", "₹12,34,567.89 extra"] {
+      XCTAssertFalse(accepts(original, common, points, candidate(value, 0.95, recoveryPack)), value)
+    }
+    for text in ["रोटी 12,34,567.89", "A 12,34,567.89", "ر 12,34,567.89", "₹12,34,567.89", "ऱ 12,34,567.8", "ऱ 12,34,567.89\n", "ऱ -+12,34,567.89"] {
+      var changed = original; changed[1] = candidate(text, 0.95, devaPack)
+      XCTAssertFalse(accepts(changed, common, points, recovery), text)
+    }
+    for index in [3, 5] {
+      for text in ["45.00", "₹45.00 details", "₹4.5", ""] {
+        var changed = original; changed[index] = candidate(text)
+        XCTAssertFalse(accepts(changed, common, points, recovery))
+      }
+      var geometry = points; geometry[index] = box(400, index == 3 ? 60 : 110)
+      XCTAssertFalse(accepts(original, common, geometry, recovery))
+    }
+    var repeatedRow = points; repeatedRow[5] = points[3]
+    XCTAssertFalse(accepts(original, common, repeatedRow, recovery))
+    XCTAssertFalse(accepts(original + [candidate("€6.00")], common + [candidate("€6.00")], points + [box(20, 160)], recovery))
+    for index in original.indices {
+      var missing = original; missing[index] = nil
+      XCTAssertFalse(accepts(missing, common, points, recovery))
+    }
+    for text in ["12345", "Widget 5", "₹Widget", ""] {
+      var changed = original; changed[0] = candidate(text)
+      XCTAssertFalse(accepts(changed, common, points, recovery))
+    }
+    for labelBox in [box(300, 10), box(200, 10), box(20, 200), box(20, 29)] {
+      var geometry = points; geometry[0] = labelBox
+      XCTAssertFalse(accepts(original, common, geometry, recovery))
+    }
+    XCTAssertFalse(accepts(original + [candidate("extra")], common + [candidate("extra")], points + [box(350, 10)], recovery))
+    let invalid: [[CalendarDateRecovery.Point]] = [[], Array(points[1].prefix(3)), Array(repeating: points[1][0], count: 4), [points[1][0], points[1][2], points[1][1], points[1][3]], box(-1, 10), box(.nan, 10), box(.infinity, 10)]
+    for polygon in invalid {
+      for index in points.indices {
+        var geometry = points; geometry[index] = polygon
+        XCTAssertFalse(accepts(original, common, geometry, recovery))
+      }
+    }
+    XCTAssertFalse(accepts(original, common, Array(points.dropLast()), recovery))
+    XCTAssertFalse(accepts(original, Array(common.dropLast()), points, recovery))
+    XCTAssertFalse(RupeeCurrencyRecovery.shouldProbe(-1, original: original, common: common, points: points))
+    XCTAssertFalse(RupeeCurrencyRecovery.shouldProbe(original.count, original: original, common: common, points: points))
+    XCTAssertFalse(accepts(original, common, points, candidate(recovery.text)))
+    for value in [Float(-1), 0, 0.8999, 1.0001, .nan, .infinity, -.infinity] {
+      for index in [0, 1, 3, 5] {
+        var changed = original; changed[index] = candidate(original[index]!.text, value, original[index]!.pack)
+        XCTAssertFalse(accepts(changed, common, points, recovery))
+      }
+      var changed = common; changed[1] = candidate(common[1]!.text, value)
+      XCTAssertFalse(accepts(original, changed, points, recovery))
+      XCTAssertFalse(accepts(original, common, points, candidate(recovery.text, value, recoveryPack)))
+    }
+    for value in [Float(0.90), 1] {
+      XCTAssertTrue(accepts(original.map { candidate($0!.text, value, $0!.pack) }, common.map { candidate($0!.text, value, $0!.pack) }, points, candidate(recovery.text, value, recoveryPack)))
+    }
+  }
+
   func testCalendarDateRecoveryPreservesDigitsAndRequiresOriginalGeometry() {
     let pack = RecognizerSpec(modelPackID: "common", modelVersion: "test", modelPath: "/test", configPath: "/test", acceptedScripts: [.common])
     func candidate(_ text: String, _ confidence: Float = 0.95, _ spec: RecognizerSpec? = nil) -> ScriptCandidate {

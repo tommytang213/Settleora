@@ -66,6 +66,7 @@ final class SettleoraPaddleOcrEngine {
   private let sessions: ORTSessionManager
   private let detector: DetectionEngine
   private let recognizers: [Recognizer]
+  private let rupeeRecognizer: Recognizer?
   private let coldLoadTimeMs: Int
 
   static func make() async throws -> SettleoraPaddleOcrEngine {
@@ -74,7 +75,7 @@ final class SettleoraPaddleOcrEngine {
     let sessions = ORTSessionManager()
     try await sessions.loadModels(
       detectionPath: catalog.detection.modelPath,
-      recognizerPaths: Dictionary(uniqueKeysWithValues: catalog.recognizers.map {
+      recognizerPaths: Dictionary(uniqueKeysWithValues: (catalog.recognizers + [catalog.rupeeRecovery].compactMap { $0 }).map {
         ($0.modelPackID, $0.modelPath)
       })
     )
@@ -82,7 +83,7 @@ final class SettleoraPaddleOcrEngine {
       sessionManager: sessions,
       configPath: catalog.detection.configPath
     )
-    let recognizers = try catalog.recognizers.map { spec in
+    func recognizer(_ spec: RecognizerSpec) throws -> Recognizer {
       let config = try InferenceConfig.load(from: spec.configPath)
       return Recognizer(
         spec: spec,
@@ -90,11 +91,14 @@ final class SettleoraPaddleOcrEngine {
         decoder: try CTCDecoder(config: config)
       )
     }
+    let recognizers = try catalog.recognizers.map(recognizer)
+    let rupeeRecognizer = try catalog.rupeeRecovery.map(recognizer)
     return SettleoraPaddleOcrEngine(
       catalog: catalog,
       sessions: sessions,
       detector: detector,
       recognizers: recognizers,
+      rupeeRecognizer: rupeeRecognizer,
       coldLoadTimeMs: milliseconds(since: start)
     )
   }
@@ -104,12 +108,14 @@ final class SettleoraPaddleOcrEngine {
     sessions: ORTSessionManager,
     detector: DetectionEngine,
     recognizers: [Recognizer],
+    rupeeRecognizer: Recognizer?,
     coldLoadTimeMs: Int
   ) {
     self.catalog = catalog
     self.sessions = sessions
     self.detector = detector
     self.recognizers = recognizers
+    self.rupeeRecognizer = rupeeRecognizer
     self.coldLoadTimeMs = coldLoadTimeMs
   }
 
@@ -205,9 +211,16 @@ final class SettleoraPaddleOcrEngine {
     let commonRecovery = try await recognizeCommonRecovery(
       common, crops: rotateDocument ? rotatedCrops : crops, original: original, points: recoveryPoints
     )
+    let originalCommon = candidates.map { alternatives -> ScriptCandidate? in
+      let matching = alternatives.filter { $0.pack == common.spec }
+      return matching.count == 1 ? matching[0] : nil
+    }
+    let rupeeRecovery = try await recognizeRupeeRecovery(
+      crops: rotateDocument ? rotatedCrops : crops, original: original, common: originalCommon, points: recoveryPoints
+    )
     var blocks: [SettleoraOcrBlock] = []
     for index in candidates.indices {
-      guard let accepted = commonRecovery[index] ?? original[index],
+      guard let accepted = rupeeRecovery[index] ?? commonRecovery[index] ?? original[index],
             accepted.confidence >= 0.1 else { continue }
       let points = boxes[index].points.map { point -> SettleoraOcrPoint in
         documentOrientation.transform(
@@ -316,6 +329,37 @@ final class SettleoraPaddleOcrEngine {
           CalendarDateRecovery.accepts(index, original: original, points: points, recovery: candidate) {
           output[index] = candidate
         }
+      }
+    }
+    return output
+  }
+
+  private func recognizeRupeeRecovery(
+    crops: [CGImage], original: [ScriptCandidate?], common: [ScriptCandidate?],
+    points: [[CalendarDateRecovery.Point]]
+  ) async throws -> [ScriptCandidate?] {
+    var output = [ScriptCandidate?](repeating: nil, count: crops.count)
+    guard let recognizer = rupeeRecognizer else { return output }
+    // Keep the original complete batches, pixel scaling and canvas widths.
+    for indices in Array(crops.indices).chunked(maxCount: 4) {
+      guard indices.contains(where: {
+        RupeeCurrencyRecovery.shouldProbe($0, original: original, common: common, points: points)
+      }) else { continue }
+      let input = try recognizer.preprocessor.preprocessBatch(indices.map { crops[$0] })
+      let raw = try await sessions.runRecognition(
+        packID: recognizer.spec.modelPackID, inputData: input.tensorData, shape: input.tensorShape
+      )
+      let decoded = try recognizer.decoder.decodeBatch(outputData: raw.data, outputShape: raw.shape)
+      guard decoded.count == indices.count else { throw SettleoraOcrError.invalidCatalog }
+      for (offset, value) in decoded.enumerated() {
+        let index = indices[offset]
+        let candidate = ScriptCandidate(
+          text: RecognizedTextNormalizer.normalize(value.text.trimmingCharacters(in: .whitespacesAndNewlines), pack: recognizer.spec),
+          confidence: value.confidence, pack: recognizer.spec
+        )
+        if RupeeCurrencyRecovery.accepts(
+          index, original: original, common: common, points: points, recovery: candidate, recoveryPack: recognizer.spec
+        ) { output[index] = candidate }
       }
     }
     return output
