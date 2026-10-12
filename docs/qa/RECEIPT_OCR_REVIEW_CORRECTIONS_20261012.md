@@ -174,6 +174,15 @@ suppress a contradiction. Valid gross and net item conventions remain supported,
 including separate fees and discounts. These checks affect review hints only;
 they preserve all printed amounts and do not change saved-money or Apply policy.
 
+Due-date metadata now requires a complete, bounded field rather than a
+suffix match that could hide a priced item earlier in the row. Independent
+item/amount blocks remain editable candidates, including mirrored geometry.
+Without that geometry, an earlier valid amount remains unresolved evidence
+even when the trailing dotted date is not a monetary token. Complete due-date
+fields and adjacent complete customer/account/date fields retain their metadata
+role; a preceding price is not exempted. Source blocks and printed amounts are
+unchanged.
+
 The EF snapshot concern was checked with the pinned EF 9.0.15 tool and the
 three existing `ReceiptOcrReviewSchemaFoundationTests`. The model comparison
 reported no pending changes; all three metadata/schema-generation tests passed.

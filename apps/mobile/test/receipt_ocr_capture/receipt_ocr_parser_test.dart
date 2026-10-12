@@ -11966,6 +11966,148 @@ Total \$12.00
     );
   });
 
+  group('bounded due-date metadata', () {
+    for (final rtl in [false, true]) {
+      for (final amount in [r'$25.00', '25.00']) {
+        for (final annotation in [
+          'Due date: 2026/10/20',
+          'Customer Due Date: Oct 20, 2026',
+          'Bill Due Date：20.10.2026',
+        ]) {
+          test('keeps a separate priced cell $amount $annotation rtl=$rtl', () {
+            ReceiptOcrBlockEvidence cell(
+              String text,
+              int row,
+              int order,
+              double left,
+              double right,
+            ) => _layoutBlock(
+              text,
+              order,
+              row,
+              rtl ? 700 - right : left,
+              rtl ? 700 - left : right,
+              textDirection: rtl ? 'rtl' : null,
+            );
+            final blocks = [
+              cell('Rental Shop', 0, 0, 0, 180),
+              cell('Tripod rental', 1, 1, 0, 180),
+              cell(amount, 1, 2, 210, 280),
+              cell(annotation, 1, 3, 330, 590),
+              cell('Total USD 25.00', 2, 4, 0, 280),
+            ];
+            final preview = const ReceiptOcrParser().parse(
+              'Rental Shop\nTripod rental $amount $annotation\nTotal USD 25.00',
+              fallbackCurrency: 'USD',
+              blocks: blocks,
+            );
+            expect(preview.items.map((item) => item.description), [
+              'Tripod rental',
+            ]);
+            expect(preview.items.single.lineTotal, '25.00');
+            expect(preview.items.single.currency, 'USD');
+            expect(preview.blocks, blocks);
+            expect(
+              preview.itemLineDecisions[1],
+              ReceiptOcrItemLineDecision.layoutFallbackSelected,
+            );
+          });
+        }
+      }
+    }
+    for (final annotation in [
+      'Due date: 2026/10/20',
+      'Customer Due Date: Oct 20, 2026',
+      'Bill Due Date：20.10.2026',
+    ]) {
+      test(
+        'retains unresolved priced evidence without geometry: $annotation',
+        () {
+          final preview = const ReceiptOcrParser().parse(
+            'Rental Shop\nTripod rental USD 25.00 $annotation\nTotal USD 25.00',
+          );
+          expect(preview.items, isEmpty);
+          expect(preview.adjustmentsComplete, isFalse);
+          expect(
+            preview.incompleteAdjustmentReasons,
+            contains(ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem),
+          );
+          expect(
+            preview.itemLineDecisions[1],
+            isNot(ReceiptOcrItemLineDecision.metadataOrHeaderSkipped),
+          );
+        },
+      );
+    }
+    for (final line in [
+      'Duration 3h 30m',
+      'Customer Name Account Number PN100283746',
+      'Apt 4B Plan: Sample Unlimited',
+    ]) {
+      test('embedded identifier digits are not an unretained price: $line', () {
+        final preview = const ReceiptOcrParser().parse(
+          'Rental Shop\nNotebook 12.00\n$line\nTotal USD 12.00',
+        );
+        expect(preview.items.map((item) => item.description), ['Notebook']);
+        expect(
+          preview.incompleteAdjustmentReasons,
+          isNot(
+            contains(ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem),
+          ),
+        );
+      });
+    }
+    for (final prefix in [
+      'Customer Number: 22',
+      'Account Number: 1234',
+      'Account Number: PN1234',
+      'Customer Name: Sam Example',
+      'Bill Due Date: 2026/10/20',
+      'Bill Date: 2026/10/01',
+    ]) {
+      test('preserves complete neighboring metadata: $prefix', () {
+        final preview = const ReceiptOcrParser().parse(
+          'Rental Shop\n$prefix Due Date: 2026/10/20\nNotebook USD 12.00\nTotal USD 12.00',
+        );
+        expect(preview.items.map((item) => item.description), ['Notebook']);
+        expect(preview.adjustmentsComplete, isTrue);
+        expect(preview.reviewHints, isEmpty);
+      });
+    }
+    for (final prefix in [
+      'Customer Name: Tripod USD 25.00',
+      'Account Number: 22 USD 25.00',
+    ]) {
+      test('a priced prefix cannot acquire metadata ownership: $prefix', () {
+        final preview = const ReceiptOcrParser().parse(
+          'Rental Shop\n$prefix Due Date: 2026/10/20\nTotal USD 25.00',
+        );
+        expect(
+          preview.itemLineDecisions[1],
+          isNot(ReceiptOcrItemLineDecision.metadataOrHeaderSkipped),
+        );
+        expect(preview.adjustmentsComplete, isFalse);
+      });
+    }
+    for (final label in [
+      'Due Date',
+      'Customer Due Date',
+      'Account Due Date',
+      'Bill Due Date',
+      'Invoice Due Date',
+      'Statement Due Date',
+      'Payment Due Date',
+    ]) {
+      test('complete $label field stays metadata', () {
+        final preview = const ReceiptOcrParser().parse(
+          'Rental Shop\n$label: Mar 25, 2025\nNotebook 12.00\nTotal USD 12.00',
+        );
+        expect(preview.items.map((item) => item.description), ['Notebook']);
+        expect(preview.items.single.lineTotal, '12.00');
+      });
+    }
+  });
+
   test('repeated address and mixed due date rows stay out of items', () {
     final preview = const ReceiptOcrParser().parse('''
 Northport Supply

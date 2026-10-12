@@ -3431,8 +3431,14 @@ class ReceiptOcrParser {
         } else {
           wrappedDescriptionLines.clear();
         }
-        final printedAmount = RegExp(_amountTokenPattern).firstMatch(line);
-        if (printedAmount != null && _lineHasAmount(line)) {
+        final printedAmount = RegExp(
+          '(?<![A-Za-z0-9])$_amountTokenPattern(?![A-Za-z0-9])',
+        ).firstMatch(line);
+        // A later date or identifier may be an invalid monetary token. It
+        // cannot erase the earlier amount from unresolved-item accounting.
+        if (printedAmount != null &&
+            _normalizeAmount(printedAmount.group(0)!, currency: currency) !=
+                null) {
           final description = _cleanDescription(
             line.substring(0, printedAmount.start),
           );
@@ -12712,10 +12718,12 @@ bool _isReceiptMetadataLine(String line, {bool allowBarePostal = true}) {
       ).hasMatch(normalized)) {
     return true;
   }
-  if (RegExp(
-    r'\bdue\s+date\s*[:：]\s*(?:[a-z]{3,9}\.?\s+\d{1,2},?\s+\d{4}|\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{4})\s*$',
-    caseSensitive: false,
-  ).hasMatch(normalized)) {
+  // A due-date field owns its complete row only when the label starts it.
+  // A priced item before a separate due-date annotation still needs item
+  // extraction or unresolved-evidence accounting, not a metadata exemption.
+  const dueDateField =
+      r'(?:(?:customer|account|bill|invoice|statement|payment)\s+)?due\s+date\s*[:：]\s*(?:[a-z]{3,9}\.?\s+\d{1,2},?\s+\d{4}|\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{4})\s*$';
+  if (RegExp('^$dueDateField', caseSensitive: false).hasMatch(normalized)) {
     return true;
   }
 
@@ -12775,7 +12783,25 @@ bool _isReceiptMetadataLine(String line, {bool allowBarePostal = true}) {
     RegExp(r'\b(open|close|closed|served|powered by|welcome|visit again)\b'),
   ];
 
-  return metadataPatterns.any((pattern) => pattern.hasMatch(normalized));
+  if (metadataPatterns.any((pattern) => pattern.hasMatch(normalized))) {
+    return true;
+  }
+  // Flattened neighboring metadata fields can share a row. A trailing due
+  // date may extend a complete metadata field, never arbitrary product copy
+  // or a preceding price. Retain the complete-field checks for the prefix.
+  final dueDate = RegExp('\\b$dueDateField').firstMatch(normalized);
+  if (dueDate == null || dueDate.start == 0) return false;
+  final prefix = normalized.substring(0, dueDate.start).trim();
+  return RegExp('^$dueDateField').hasMatch(prefix) ||
+      _isLabeledCalendarDateLine(prefix) ||
+      metadataPatterns.any((pattern) => pattern.hasMatch(prefix)) ||
+      RegExp(
+        r'^(?:customer|client|account)\s+name\s*[:：]\s*[\p{L}\p{M}][\p{L}\p{M} .\x27-]{0,119}$',
+        unicode: true,
+      ).hasMatch(prefix) ||
+      RegExp(
+        r'^(?:customer|account|reference)\s+(?:number|no\.?|id)\s*[:#-]?\s*[a-z0-9][a-z0-9-]{0,63}$',
+      ).hasMatch(prefix);
 }
 
 bool _isPrintedTaxContextHeader(String line) {
