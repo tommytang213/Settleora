@@ -3431,14 +3431,16 @@ class ReceiptOcrParser {
         } else {
           wrappedDescriptionLines.clear();
         }
-        final printedAmount = RegExp(
+        final printedAmounts = RegExp(
           '(?<![A-Za-z0-9])$_amountTokenPattern(?![A-Za-z0-9])',
-        ).firstMatch(line);
-        // A later date or identifier may be an invalid monetary token. It
-        // cannot erase the earlier amount from unresolved-item accounting.
-        if (printedAmount != null &&
-            _normalizeAmount(printedAmount.group(0)!, currency: currency) !=
-                null) {
+        ).allMatches(line);
+        // A date or identifier is not a price. Keep looking so neither an
+        // earlier nor a later invalid token can erase real monetary evidence.
+        for (final printedAmount in printedAmounts) {
+          if (_normalizeAmount(printedAmount.group(0)!, currency: currency) ==
+              null) {
+            continue;
+          }
           final description = _cleanDescription(
             line.substring(0, printedAmount.start),
           );
@@ -3447,6 +3449,7 @@ class ReceiptOcrParser {
             unretainedPricedItem = true;
             lineDecisions[lineIndex] =
                 ReceiptOcrItemLineDecision.unretainedPricedRow;
+            break;
           }
         }
         if (lineDecisions[lineIndex] ==

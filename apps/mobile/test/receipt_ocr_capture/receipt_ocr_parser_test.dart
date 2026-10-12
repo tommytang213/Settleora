@@ -11967,6 +11967,42 @@ Total \$12.00
   });
 
   group('bounded due-date metadata', () {
+    for (final amount in ['USD 25.00', '25.00']) {
+      for (final row in [
+        'Tripod rental 20.10.2026 $amount Return after inspection',
+        'Tripod rental $amount 20.10.2026 Return after inspection',
+        '20.10.2026 Tripod rental $amount Return after inspection',
+      ]) {
+        test('invalid date tokens do not erase an unresolved price: $row', () {
+          final preview = const ReceiptOcrParser().parse(
+            'Rental Shop\n$row\nTotal USD 25.00',
+            fallbackCurrency: 'USD',
+          );
+          expect(preview.items, isEmpty);
+          expect(preview.adjustmentsComplete, isFalse);
+          expect(
+            preview.incompleteAdjustmentReasons,
+            contains(ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem),
+          );
+        });
+      }
+    }
+    for (final row in [
+      'Tripod rental 20.10.2026 Return after inspection',
+      'Pickup 20.10.2026 Return 21.10.2026 after inspection',
+    ]) {
+      test('date tokens alone are not unresolved prices: $row', () {
+        final preview = const ReceiptOcrParser().parse(
+          'Rental Shop\nNotebook USD 12.00\n$row\nTotal USD 12.00',
+        );
+        expect(
+          preview.incompleteAdjustmentReasons,
+          isNot(
+            contains(ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem),
+          ),
+        );
+      });
+    }
     for (final rtl in [false, true]) {
       for (final amount in [r'$25.00', '25.00']) {
         for (final annotation in [

@@ -180,7 +180,10 @@ item/amount blocks remain editable candidates, including mirrored geometry.
 Without that geometry, an earlier valid amount remains unresolved evidence
 even when the trailing dotted date is not a monetary token. Complete due-date
 fields and adjacent complete customer/account/date fields retain their metadata
-role; a preceding price is not exempted. Source blocks and printed amounts are
+role; a preceding price is not exempted. Unresolved-item accounting checks all
+bounded monetary candidates: a date-shaped token before or after a real price
+cannot hide that price. The scan does not reinterpret date-shaped tokens or
+embedded identifier digits as prices. Source blocks and printed amounts are
 unchanged.
 
 The EF snapshot concern was checked with the pinned EF 9.0.15 tool and the
