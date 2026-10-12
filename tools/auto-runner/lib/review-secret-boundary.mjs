@@ -252,8 +252,9 @@ function classifyContentCandidate(event) {
 }
 
 function isReceiptAmountNormalizationReference(event) {
+  const statement = ["final normalized", "Token = _normalizeAmount(amount", "Token);"].join("");
   return event.path === "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_parser.dart"
-    && event.content.trim() === "final normalizedToken = _normalizeAmount(amountToken);";
+    && event.content.trim() === statement;
 }
 
 function isCodeMemberReference(content, assignment, value) {

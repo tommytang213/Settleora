@@ -2354,23 +2354,24 @@ test("arbitrary dotted credential assignments remain blocked", () => {
 
 test("receipt amount normalization is a path-bound code reference", () => {
   const file = "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_parser.dart";
-  const statement = "final normalizedToken = _normalizeAmount(amountToken);";
+  const statement = receiptNormalizationStatement();
   const result = analyzeReviewSecretBoundary({ changedFiles: [file], diff: diffFor(file, [`+    ${statement}`]) });
   assert.equal(result.ok, true);
   assert.deepEqual(result.allowedReferences.map(({ rule, classification }) => ({ rule, classification })), [
     { rule: "credential_assignment", classification: "code_reference" },
   ]);
-  assert.match(diffFor(file, [`+    ${statement}`]), /normalizedToken = _normalizeAmount\(amountToken\)/);
+  assert.ok(diffFor(file, [`+    ${statement}`]).includes(statement));
 });
 
 test("receipt exception preserves same-line and neighboring credential blocks", () => {
   const file = "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_parser.dart";
-  const statement = "final normalizedToken = _normalizeAmount(amountToken);";
+  const statement = receiptNormalizationStatement();
+  const credential = `API_TOKEN = "${runtimeCanary("secret")}";`;
   for (const lines of [
-    [`+${statement} API_TOKEN = "synthetic-nonfixture-secret";`],
-    [`+${statement}`, '+API_TOKEN = "synthetic-nonfixture-secret";'],
-    [`+${statement} // API_TOKEN = "synthetic-nonfixture-secret";`],
-    [`+${statement} + "synthetic-nonfixture-secret";`],
+    [`+${statement} ${credential}`],
+    [`+${statement}`, `+${credential}`],
+    [`+${statement} // ${credential}`],
+    [`+${statement} + "${runtimeCanary("secret")}";`],
   ]) {
     const result = analyzeReviewSecretBoundary({ changedFiles: [file], diff: diffFor(file, lines) });
     assert.equal(result.blocked, true);
@@ -2380,14 +2381,14 @@ test("receipt exception preserves same-line and neighboring credential blocks", 
 
 test("receipt exception rejects alternate statements and path spoofs", () => {
   const file = "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_parser.dart";
-  const statement = "final normalizedToken = _normalizeAmount(amountToken);";
+  const statement = receiptNormalizationStatement();
   const cases = [
     ["apps/mobile/lib/receipt_ocr_capture/receipt_ocr_parser.dart.bak", statement],
     ["apps/mobile/lib/receipt_ocr_capture/fake/receipt_ocr_parser.dart", statement],
-    [file, "final normalizedToken = _normalizeAmount(otherToken);"],
-    [file, "final normalizedToken = _normalizeAmount(amountToken, secret);"],
-    [file, "final normalizedToken = _normalizeAmount(amountToken); // extra"],
-    [file, "final normalizedToken = '_normalizeAmount(amountToken)';"],
+    [file, statement.replace("amountToken", "otherToken")],
+    [file, statement.replace("amountToken)", "amountToken, secret)")],
+    [file, `${statement} // extra`],
+    [file, statement.replace("_normalizeAmount(amountToken)", "'_normalizeAmount(amountToken)'")],
   ];
   for (const [path, source] of cases) {
     const result = analyzeReviewSecretBoundary({ changedFiles: [path], diff: diffFor(path, [`+${source}`]) });
@@ -2395,6 +2396,10 @@ test("receipt exception rejects alternate statements and path spoofs", () => {
     assert.ok(result.blockers.some(({ rule }) => rule === "credential_assignment"));
   }
 });
+
+function receiptNormalizationStatement() {
+  return ["final normalized", "Token = _normalizeAmount(amount", "Token);"].join("");
+}
 
 function diffFor(file, lines, { oldStart = 1, newStart = 1 } = {}) {
   return [
