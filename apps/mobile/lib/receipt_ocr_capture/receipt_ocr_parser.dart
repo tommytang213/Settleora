@@ -153,6 +153,7 @@ class ReceiptOcrParser {
         lines,
         layoutRows,
         currency,
+        ambiguousAmountRows: ambiguousChargeRows,
         detachedAmountSignRows: detachedAmountSignRows,
         adjustmentRows: layoutAdjustmentLines.keys.toSet(),
       ),
@@ -5363,6 +5364,7 @@ class ReceiptOcrParser {
     List<String> lines,
     List<List<ReceiptOcrBlockEvidence>> layoutRows,
     String? currency, {
+    required Set<int> ambiguousAmountRows,
     Set<int> detachedAmountSignRows = const {},
     Set<int> adjustmentRows = const {},
   }) {
@@ -5497,7 +5499,7 @@ class ReceiptOcrParser {
             _isReceiptMetadataLine(tableText)) {
           continue;
         }
-        final amountCells = tableBlocks
+        final amountColumnBlocks = tableBlocks
             .where((block) {
               final left = block.points
                   .map((point) => point.x)
@@ -5506,15 +5508,20 @@ class ReceiptOcrParser {
                   .map((point) => point.x)
                   .reduce((a, b) => a > b ? a : b);
               final center = (left + right) / 2;
-              return (amountOnLeft
-                      ? center <= amountRight + 12 && left <= amountRight
-                      : center >= amountLeft - 12 && right >= amountLeft) &&
-                  _lineHasAmount(block.text);
+              return amountOnLeft
+                  ? center <= amountRight + 12 && left <= amountRight
+                  : center >= amountLeft - 12 && right >= amountLeft;
             })
+            .toList(growable: false);
+        final amountCells = amountColumnBlocks
+            .where((block) => _lineHasAmount(block.text))
             .toList(growable: false);
         // Column ownership does not choose between competing printed amounts.
         // Keep the original row unresolved instead of taking its last cell.
-        if (amountCells.length != 1) continue;
+        if (amountCells.length != 1) {
+          if (amountCells.isNotEmpty) ambiguousAmountRows.add(rowIndex);
+          continue;
+        }
         final amountCell = amountCells.single;
         // A detached sign cannot be dropped while promoting an otherwise
         // positive amount. Keep this row unresolved until the sign is bound.
@@ -5528,10 +5535,23 @@ class ReceiptOcrParser {
         );
         if (nearbyCurrencyBlocks.length > 1) continue;
         final currencyBlock = nearbyCurrencyBlocks.firstOrNull;
-        final monetaryText = currencyBlock == null
-            ? _normalizeOcrLine(amountCell.text)
-            : '${_normalizeOcrLine(currencyBlock.text)} ${_normalizeOcrLine(amountCell.text)}';
-        if (!_hasChargeTableMonetaryEvidence(monetaryText)) continue;
+        final monetaryText = _normalizeOcrLine(
+          [
+            if (currencyBlock != null &&
+                !amountColumnBlocks.contains(currencyBlock))
+              currencyBlock.text,
+            ...amountColumnBlocks.map((block) => block.text),
+          ].join(' '),
+        );
+        // One OCR block may contain competing amounts or qualified text.
+        // Own the entire column cell, including separately recognized words,
+        // before allowing geometry to resolve the flattened row's ambiguity.
+        if (!_isStandaloneAmountRow(monetaryText) ||
+            RegExp(_amountTokenPattern).allMatches(monetaryText).length != 1 ||
+            !_hasChargeTableMonetaryEvidence(monetaryText)) {
+          ambiguousAmountRows.add(rowIndex);
+          continue;
+        }
         final printedCurrency = _layoutItemCellCurrency(monetaryText, currency);
         final lineCurrency = printedCurrency.hasExplicitEvidence
             ? printedCurrency.currency

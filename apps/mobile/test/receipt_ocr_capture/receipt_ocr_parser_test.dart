@@ -8565,6 +8565,91 @@ Warranty Extension''');
     expect(preview.total, '12.00');
   });
 
+  group('layout amount-cell ownership', () {
+    ReceiptOcrPreview parse(List<String> amountParts, {bool mirrored = false}) {
+      final blocks = <ReceiptOcrBlockEvidence>[];
+      void add(String text, int row, double left, double right) {
+        blocks.add(_layoutBlock(text, blocks.length, row, left, right));
+      }
+
+      add('Market', 0, 20, 700);
+      add('Date 2026-10-12', 1, 20, 700);
+      add('Description', 2, mirrored ? 500 : 20, mirrored ? 700 : 220);
+      add('Usage', 2, mirrored ? 390 : 250, mirrored ? 440 : 300);
+      add('Rate', 2, mirrored ? 280 : 350, mirrored ? 340 : 410);
+      add('Amount', 2, mirrored ? 20 : 500, mirrored ? 220 : 700);
+      add('Notebook', 3, mirrored ? 500 : 20, mirrored ? 700 : 220);
+      for (var index = 0; index < amountParts.length; index += 1) {
+        final left = (mirrored ? 20.0 : 500.0) + index * 60;
+        add(amountParts[index], 3, left, left + 55);
+      }
+      add('Subtotal USD 10.00', 4, 20, 700);
+      add('Total USD 10.00', 5, 20, 700);
+      blocks.sort((left, right) {
+        final rowOrder = left.row.compareTo(right.row);
+        return rowOrder != 0
+            ? rowOrder
+            : left.points.first.x.compareTo(right.points.first.x);
+      });
+      final orderedBlocks = [
+        for (var index = 0; index < blocks.length; index += 1)
+          _layoutBlock(
+            blocks[index].text,
+            index,
+            blocks[index].row,
+            blocks[index].points.first.x,
+            blocks[index].points[1].x,
+          ),
+      ];
+      return const ReceiptOcrParser().parse(
+        'Market\nDate 2026-10-12\n'
+        '${mirrored ? 'Amount Rate Usage Description' : 'Description Usage Rate Amount'}\n'
+        '${mirrored ? '${amountParts.join(' ')} Notebook' : 'Notebook ${amountParts.join(' ')}'}\n'
+        'Subtotal USD 10.00\nTotal USD 10.00',
+        blocks: orderedBlocks,
+      );
+    }
+
+    for (final mirrored in [false, true]) {
+      for (final parts in [
+        ['USD 8.00 or USD 10.00 (estimate)'],
+        ['USD 10.00 (estimate)'],
+        ['USD 8.00 or USD 10.00'],
+        ['USD 8.00', 'or', 'USD 10.00'],
+        ['USD 10.00', '(estimate)'],
+      ]) {
+        test('keeps ${parts.join(' / ')} unresolved; mirrored=$mirrored', () {
+          final preview = parse(parts, mirrored: mirrored);
+          expect(preview.items, isEmpty);
+          expect(preview.total, '10.00');
+          expect(preview.reviewHints, isNotEmpty);
+          expect(
+            preview.blocks
+                .where((block) => block.row == 3)
+                .map((block) => block.text),
+            containsAll(['Notebook', ...parts]),
+          );
+        });
+      }
+      for (final parts in [
+        ['USD 10.00'],
+        ['10.00 USD'],
+        ['USD', '10.00'],
+        ['10.00'],
+      ]) {
+        test(
+          'keeps complete ${parts.join(' / ')} confident; mirrored=$mirrored',
+          () {
+            final preview = parse(parts, mirrored: mirrored);
+            expect(preview.items.single.description, 'Notebook');
+            expect(preview.items.single.lineTotal, '10.00');
+            expect(preview.reviewHints, isEmpty);
+          },
+        );
+      }
+    }
+  });
+
   test('mirrored right-to-left charge columns recover amount cells', () {
     final preview = const ReceiptOcrParser().parse(
       'متجر دبي\nAmount Rate Usage Description\n'
