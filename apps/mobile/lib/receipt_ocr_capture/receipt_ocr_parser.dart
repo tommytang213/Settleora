@@ -6328,8 +6328,8 @@ class ReceiptOcrParser {
   }
 }
 
-// A separately headed reference column can own a complete identifier, never
-// an explicit denomination or a decimal price omitted from the item column.
+// A separately headed reference or row-number column can own its complete
+// cell, never a denomination or decimal price omitted from the item column.
 Set<ReceiptOcrBlockEvidence> _ownedChargeTableReferenceBlocks(
   List<ReceiptOcrBlockEvidence> header,
   List<ReceiptOcrBlockEvidence> row,
@@ -6357,10 +6357,13 @@ Set<ReceiptOcrBlockEvidence> _ownedChargeTableReferenceBlocks(
   final owned = <ReceiptOcrBlockEvidence>{};
   for (var index = 0; index < columns.length; index++) {
     final column = columns[index];
-    if (!RegExp(
-      r'^(?:sku|item\s*(?:no|number)|ref(?:erence)?|code|id)$',
-      caseSensitive: false,
-    ).hasMatch(_chargeTableLabelText(column.text))) {
+    final heading = _chargeTableLabelText(column.text);
+    final isRowNumber = heading == '#';
+    if (!isRowNumber &&
+        !RegExp(
+          r'^(?:sku|item\s*(?:no|number)|ref(?:erence)?|code|id)$',
+          caseSensitive: false,
+        ).hasMatch(heading)) {
       continue;
     }
     final left = index == 0
@@ -6369,19 +6372,31 @@ Set<ReceiptOcrBlockEvidence> _ownedChargeTableReferenceBlocks(
     final right = index == columns.length - 1
         ? _blockRight(column) + 12
         : (_blockRight(column) + _blockLeft(columns[index + 1])) / 2;
-    for (final block in row) {
-      final text = block.text.trim();
-      if (valid(block) &&
-          _blockLeft(block) >= left &&
-          _blockRight(block) <= right &&
-          RegExp(
-            r'^[A-Z0-9][A-Z0-9_-]*$',
-            caseSensitive: false,
-          ).hasMatch(text) &&
-          _printedCurrencyMarkerMatches(text).isEmpty &&
-          _unsupportedIsoCurrencyMarkers(text).isEmpty) {
-        owned.add(block);
-      }
+    // A second overlapping block can be a split denomination or qualifier.
+    // Do not exempt only its numeric fragment from monetary validation.
+    final cells = row
+        .where(
+          (block) =>
+              block.points.isNotEmpty &&
+              _blockRight(block) > left &&
+              _blockLeft(block) < right,
+        )
+        .toList(growable: false);
+    if (cells.length != 1) continue;
+    final block = cells.single;
+    final text = block.text.trim();
+    if (valid(block) &&
+        _blockLeft(block) >= left &&
+        _blockRight(block) <= right &&
+        (isRowNumber
+            ? RegExp(r'^[1-9]\d*$').hasMatch(text)
+            : RegExp(
+                r'^[A-Z0-9][A-Z0-9_-]*$',
+                caseSensitive: false,
+              ).hasMatch(text)) &&
+        _printedCurrencyMarkerMatches(text).isEmpty &&
+        _unsupportedIsoCurrencyMarkers(text).isEmpty) {
+      owned.add(block);
     }
   }
   return owned;

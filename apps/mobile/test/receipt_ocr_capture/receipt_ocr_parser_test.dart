@@ -331,17 +331,25 @@ void main() {
       });
     }
 
-    ReceiptOcrPreview invoice(String sku) {
+    ReceiptOcrPreview invoice(
+      String sku, {
+      String heading = 'SKU',
+      bool mirrored = false,
+      bool splitCurrency = false,
+    }) {
       final cells = <(String, int, double, double)>[
         ('Market', 0, 20, 410),
         ('Date 2026-10-12', 1, 20, 410),
-        ('SKU', 2, 20, 60),
-        ('Product / Service', 2, 100, 220),
+        (heading, 2, 20, 60),
+        if (heading == '#') ('SKU', 2, 78, 95),
+        ('Product / Service', 2, 120, 220),
         ('Qty', 2, 230, 260),
         ('Unit Price', 2, 280, 335),
         ('Total', 2, 350, 410),
         (sku, 3, 20, 60),
-        ('Notebook', 3, 100, 220),
+        if (splitCurrency) ('USD', 3, 5, 18),
+        if (heading == '#') ('AB1', 3, 78, 95),
+        ('Notebook', 3, 120, 220),
         ('1', 3, 230, 260),
         ('USD 10.00', 3, 280, 335),
         ('USD 10.00', 3, 350, 410),
@@ -355,7 +363,13 @@ void main() {
         rows.values.map((row) => row.join(' ')).join('\n'),
         blocks: [
           for (var i = 0; i < cells.length; i++)
-            _layoutBlock(cells[i].$1, i, cells[i].$2, cells[i].$3, cells[i].$4),
+            _layoutBlock(
+              cells[i].$1,
+              i,
+              cells[i].$2,
+              mirrored ? 500 - cells[i].$4 : cells[i].$3,
+              mirrored ? 500 - cells[i].$3 : cells[i].$4,
+            ),
         ],
       );
     }
@@ -370,6 +384,32 @@ void main() {
       final preview = invoice('USD99');
       expect(preview.reviewHints, isNotEmpty);
     });
+    for (final mirrored in [false, true]) {
+      test('keeps a separately headed row number; mirrored=$mirrored', () {
+        final preview = invoice('27', heading: '#', mirrored: mirrored);
+        expect(preview.items.single.description, 'Notebook');
+        expect(preview.items.single.lineTotal, '10.00');
+        expect(preview.reviewHints, isEmpty);
+        expect(preview.blocks.map((block) => block.text), contains('27'));
+      });
+      for (final value in ['USD99', '99.00', '-1', '1 or 2']) {
+        test('row number cannot hide $value; mirrored=$mirrored', () {
+          final preview = invoice(value, heading: '#', mirrored: mirrored);
+          expect(preview.reviewHints, isNotEmpty);
+        });
+      }
+      for (final heading in ['#', 'SKU']) {
+        test('keeps split money under $heading; mirrored=$mirrored', () {
+          final preview = invoice(
+            '99',
+            heading: heading,
+            mirrored: mirrored,
+            splitCurrency: true,
+          );
+          expect(preview.reviewHints, isNotEmpty);
+        });
+      }
+    }
   });
 
   group('localized settlement label ownership', () {

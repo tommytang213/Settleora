@@ -150,6 +150,14 @@ block as non-monetary evidence for item projection. It does not consume another
 item or amount on that provider row. Missing roles, malformed geometry and
 competing panel content retain the existing rejection controls.
 
+Retained-capture comparison found that the new neighboring-money check also
+rejected five valid invoice items whose row numbers sit under a printed `#`
+heading. That separately bounded column now owns one complete positive integer.
+Reference and row-number ownership both inspect the whole cell: split currency
+markers, decimal prices, negative values and alternatives cannot be discarded
+as identifiers. Ordinary and mirrored controls preserve these distinctions.
+No merchant names, fixture values or source images were changed.
+
 The EF snapshot concern was checked with the pinned EF 9.0.15 tool and the
 three existing `ReceiptOcrReviewSchemaFoundationTests`. The model comparison
 reported no pending changes; all three metadata/schema-generation tests passed.
