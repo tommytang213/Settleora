@@ -86,7 +86,11 @@ class ReceiptOcrParser {
     }
 
     final layoutRows = _matchingLayoutRows(lines, blocks);
-    final supportHoursRows = _ownedSupportHoursRows(layoutRows);
+    final ownedContactBlocks = <ReceiptOcrBlockEvidence>{};
+    final supportHoursRows = _ownedSupportHoursRows(
+      layoutRows,
+      ownedContactBlocks: ownedContactBlocks,
+    );
     final meterReadingRows = _ownedMeterReadingRows(lines, layoutRows);
     detachedAmountSignRows.removeAll(supportHoursRows);
     final chargeTable = _classifyChargeTableRows(
@@ -158,6 +162,7 @@ class ReceiptOcrParser {
         layoutRows,
         currency,
         ambiguousAmountRows: ambiguousChargeRows,
+        ownedContactBlocks: ownedContactBlocks,
         detachedAmountSignRows: detachedAmountSignRows,
         adjustmentRows: layoutAdjustmentLines.keys.toSet(),
       ),
@@ -5436,6 +5441,7 @@ class ReceiptOcrParser {
     List<List<ReceiptOcrBlockEvidence>> layoutRows,
     String? currency, {
     required Set<int> ambiguousAmountRows,
+    Set<ReceiptOcrBlockEvidence> ownedContactBlocks = const {},
     Set<int> detachedAmountSignRows = const {},
     Set<int> adjustmentRows = const {},
   }) {
@@ -5610,7 +5616,8 @@ class ReceiptOcrParser {
               (block) =>
                   !tableBlocks.contains(block) &&
                   !graphBlocks.contains(block) &&
-                  !referenceBlocks.contains(block),
+                  !referenceBlocks.contains(block) &&
+                  !ownedContactBlocks.contains(block),
             )
             .map((block) => block.text.trim())
             .join(' ');
@@ -6856,7 +6863,10 @@ Set<int> _ownedMeterReadingRows(
 // A standalone support-hours row can fall between charge rows in reading
 // order. Require a separate help/phone column beside a labeled amount column;
 // consume only the complete clock-range block, never neighboring money/text.
-Set<int> _ownedSupportHoursRows(List<List<ReceiptOcrBlockEvidence>> rows) {
+Set<int> _ownedSupportHoursRows(
+  List<List<ReceiptOcrBlockEvidence>> rows, {
+  Set<ReceiptOcrBlockEvidence>? ownedContactBlocks,
+}) {
   final owned = <int>{};
   double top(ReceiptOcrBlockEvidence b) =>
       b.points.map((p) => p.y).reduce((a, b) => a < b ? a : b);
@@ -7034,6 +7044,9 @@ Set<int> _ownedSupportHoursRows(List<List<ReceiptOcrBlockEvidence>> rows) {
               top(other) < bottom(panel[2]),
         );
     if (!competing) {
+      // Retain the existing complete-panel proof at block granularity. A
+      // separate item on the phone's provider row still owns its own amount.
+      ownedContactBlocks?.add(panel[1]);
       owned.addAll([index, index + 2]);
       if (rows[index + 1].length == 1) owned.add(index + 1);
     }

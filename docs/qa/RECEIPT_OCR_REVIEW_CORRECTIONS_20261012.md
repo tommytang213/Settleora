@@ -145,6 +145,11 @@ tables, included and unresolved tax treatment, complete rates, adjacent prices,
 numeric SKUs and explicit money disguised as a reference. Saved-review and Apply
 authority are unchanged.
 
+The existing complete help/phone/hours-panel proof also retains its exact phone
+block as non-monetary evidence for item projection. It does not consume another
+item or amount on that provider row. Missing roles, malformed geometry and
+competing panel content retain the existing rejection controls.
+
 The EF snapshot concern was checked with the pinned EF 9.0.15 tool and the
 three existing `ReceiptOcrReviewSchemaFoundationTests`. The model comparison
 reported no pending changes; all three metadata/schema-generation tests passed.
