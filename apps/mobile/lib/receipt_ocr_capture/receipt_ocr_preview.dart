@@ -351,6 +351,15 @@ List<String> _receiptOcrReviewHints(
     return const [];
   }
 
+  // A foreign subtotal cannot corroborate receipt arithmetic, even when
+  // same-currency adjustments reconcile the item sum and grand total.
+  if (!subtotalMatchesCurrency && _hasReviewAmountText(preview.subtotal)) {
+    onDecision?.call(ReceiptOcrReviewDecision.foreignAdjustmentWithoutSubtotal);
+    return const [
+      'Detected adjustment currency differs from receipt currency. Review before applying.',
+    ];
+  }
+
   final total = _parseReceiptOcrReviewAmount(preview.total);
   if (total == null) {
     return const [];

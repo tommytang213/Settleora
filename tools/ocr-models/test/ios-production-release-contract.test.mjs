@@ -46,7 +46,9 @@ function makeStoredZip(entries, { prefix = Buffer.alloc(0), gap = Buffer.alloc(0
     const localName = Buffer.from(entry.localName ?? entry.name);
     const data = Buffer.from(entry.data ?? "");
     const method = entry.deflateLevel == null ? 0 : 8;
-    const stored = method === 8 ? deflateRawSync(data, { level: entry.deflateLevel }) : data;
+    const compressed = entry.compressedData ?? (method === 8 ? deflateRawSync(data, { level: entry.deflateLevel }) : data);
+    const stored = Buffer.concat([compressed, entry.compressedTail ?? Buffer.alloc(0)]);
+    const uncompressedSize = entry.uncompressedSize ?? data.length;
     const centralExtra = entry.centralExtra ?? Buffer.alloc(0);
     const centralComment = entry.centralComment ?? Buffer.alloc(0);
     const localExtra = entry.localExtra ?? Buffer.alloc(0);
@@ -59,7 +61,7 @@ function makeStoredZip(entries, { prefix = Buffer.alloc(0), gap = Buffer.alloc(0
       descriptor.writeUInt32LE(0x08074b50, 0);
       descriptor.writeUInt32LE(entry.descriptorCrc32 ?? dataCrc32, 4);
       descriptor.writeUInt32LE(entry.descriptorCompressedSize ?? stored.length, 8);
-      descriptor.writeUInt32LE(entry.descriptorUncompressedSize ?? data.length, 12);
+      descriptor.writeUInt32LE(entry.descriptorUncompressedSize ?? uncompressedSize, 12);
     }
     const local = Buffer.alloc(30);
     local.writeUInt32LE(0x04034b50, 0);
@@ -70,7 +72,7 @@ function makeStoredZip(entries, { prefix = Buffer.alloc(0), gap = Buffer.alloc(0
     local.writeUInt16LE(entry.localDate ?? 0x0221, 12);
     local.writeUInt32LE(entry.localCrc32 ?? (entry.dataDescriptor ? 0 : dataCrc32), 14);
     local.writeUInt32LE(entry.localCompressedSize ?? (entry.dataDescriptor ? 0 : stored.length), 18);
-    local.writeUInt32LE(entry.localUncompressedSize ?? (entry.dataDescriptor ? 0 : data.length), 22);
+    local.writeUInt32LE(entry.localUncompressedSize ?? (entry.dataDescriptor ? 0 : uncompressedSize), 22);
     local.writeUInt16LE(localName.length, 26);
     local.writeUInt16LE(localExtra.length, 28);
     localParts.push(local, localName, localExtra, stored, descriptor);
@@ -84,7 +86,7 @@ function makeStoredZip(entries, { prefix = Buffer.alloc(0), gap = Buffer.alloc(0
     central.writeUInt16LE(entry.centralDate ?? 0x0221, 14);
     central.writeUInt32LE(entry.centralCrc32 ?? dataCrc32, 16);
     central.writeUInt32LE(stored.length, 20);
-    central.writeUInt32LE(data.length, 24);
+    central.writeUInt32LE(uncompressedSize, 24);
     central.writeUInt16LE(name.length, 28);
     central.writeUInt16LE(centralExtra.length, 30);
     central.writeUInt16LE(centralComment.length, 32);
@@ -386,6 +388,60 @@ test("IPA namespace verifier rejects ambiguous and escaping ZIP entries before e
     }
     writeFileSync(archive, makeStoredZip([{ name: "Payload/", data: "hidden receipt evidence" }]));
     assert.throws(() => verifyTestIpa(archive), /directory entry contains payload bytes/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("IPA rejects bytes after a DEFLATE stream even with consistent ZIP metadata", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-ipa-deflate-tail-"));
+  const archive = path.join(root, "Runner.ipa");
+  try {
+    for (const dataDescriptor of [false, true]) {
+      const entry = { name: "Payload/Runner.app/Info.plist", data: "reviewed app bytes", deflateLevel: 6, dataDescriptor };
+      const clean = makeStoredZip([entry]);
+      writeFileSync(archive, clean);
+      assert.equal(verifyTestIpa(archive), sha256(clean));
+      for (const compressedTail of [Buffer.from("synthetic hidden bytes"), deflateRawSync(Buffer.from("second stream"))]) {
+        writeFileSync(archive, makeStoredZip([{ ...entry, compressedTail }]));
+        assert.throws(() => verifyTestIpa(archive), /compressed entry contains trailing bytes/);
+      }
+    }
+    const ipaDirectory = path.join(root, "build/ios/ipa");
+    mkdirSync(ipaDirectory, { recursive: true });
+    const hiddenArchive = readFileSync(archive);
+    const canonicalIpa = path.join(ipaDirectory, "Runner.ipa");
+    writeFileSync(canonicalIpa, hiddenArchive);
+    const result = spawnSync(process.execPath, [path.join(repoRoot, "tools/ocr-models/verify-ipa-archive.mjs")], {
+      cwd: root, encoding: "utf8",
+    });
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.equal(result.stderr, "canonical_ipa_verification_failed\n");
+    assert.equal(existsSync(path.join(root, "build/ios/.settleora-ipa-inspection")), false);
+    assert.equal(existsSync(path.join(ipaDirectory, ".settleora-verified-ipa")), false);
+    assert.deepEqual(readFileSync(canonicalIpa), hiddenArchive);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("IPA validates empty streams and rejects malformed or falsely bounded compressed entries", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-ipa-deflate-bounds-"));
+  const archive = path.join(root, "Runner.ipa");
+  const entry = { name: "Payload/Runner.app/file", deflateLevel: 6 };
+  try {
+    const empty = makeStoredZip([{ ...entry, data: "" }]);
+    writeFileSync(archive, empty);
+    assert.equal(verifyTestIpa(archive), sha256(empty));
+    for (const invalid of [
+      { data: "large expansion".repeat(32768), uncompressedSize: 1 },
+      { data: "short", uncompressedSize: 10 },
+      { data: "short", compressedData: Buffer.from([0xff, 0xff, 0xff]) },
+    ]) {
+      writeFileSync(archive, makeStoredZip([{ ...entry, ...invalid }]));
+      assert.throws(() => verifyTestIpa(archive), /invalid or exceeds its declared expanded size|expanded size differs/);
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

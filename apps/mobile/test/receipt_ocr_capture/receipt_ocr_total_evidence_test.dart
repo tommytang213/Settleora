@@ -97,6 +97,60 @@ void main() {
     ]);
   });
 
+  for (final total in [null, '11.00']) {
+    test(
+      'foreign subtotal stays warned with same-currency tax and total $total',
+      () {
+        final preview = ReceiptOcrPreview(
+          currency: 'USD',
+          subtotal: '9.00',
+          subtotalCurrency: 'EUR',
+          subtotalHasExplicitCurrencyEvidence: true,
+          tax: '1.00',
+          taxCurrency: 'USD',
+          taxHasExplicitCurrencyEvidence: true,
+          total: total,
+          items: [
+            ReceiptOcrItemCandidate(
+              description: 'Coffee',
+              lineTotal: '10.00',
+              currency: 'USD',
+            ),
+          ],
+        );
+
+        expect(preview.subtotal, '9.00');
+        expect(preview.subtotalCurrency, 'EUR');
+        expect(
+          preview.reviewHintDecision,
+          ReceiptOcrReviewDecision.foreignAdjustmentWithoutSubtotal,
+        );
+      },
+    );
+  }
+
+  test('reconciled same-currency tax and subtotal do not add a warning', () {
+    const preview = ReceiptOcrPreview(
+      currency: 'USD',
+      subtotal: '10.00',
+      subtotalCurrency: 'USD',
+      subtotalHasExplicitCurrencyEvidence: true,
+      tax: '1.00',
+      taxCurrency: 'USD',
+      taxHasExplicitCurrencyEvidence: true,
+      total: '11.00',
+      items: [
+        ReceiptOcrItemCandidate(
+          description: 'Coffee',
+          lineTotal: '10.00',
+          currency: 'USD',
+        ),
+      ],
+    );
+    expect(preview.reviewHints, isEmpty);
+    expect(preview.reviewHintDecision, ReceiptOcrReviewDecision.none);
+  });
+
   test('reconciled same-currency subtotal does not add a warning', () {
     const preview = ReceiptOcrPreview(
       currency: 'USD',

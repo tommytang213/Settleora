@@ -17,6 +17,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { inflateRawSync } from "node:zlib";
 
 const eocdSignature = 0x06054b50;
 const centralSignature = 0x02014b50;
@@ -269,6 +270,24 @@ export function inspectOpenedIpa(fd, { close = true } = {}) {
         entryEndOffset += signed ? 16 : 12;
       }
       if (entryEndOffset > centralOffset) fail("entry data extends into the central directory");
+      if (method === 8) {
+        // ZIP offsets account for the declared range, but an inflater stops
+        // at the first stream end. Require it to consume that entire range
+        // before any canonical snapshot can retain otherwise hidden bytes.
+        const compressed = readExact(fd, compressedSize, dataStart);
+        let expanded;
+        try {
+          expanded = inflateRawSync(compressed, {
+            info: true, maxOutputLength: Math.max(1, uncompressedSize),
+          });
+        } catch {
+          fail("compressed entry is invalid or exceeds its declared expanded size");
+        }
+        if (expanded.engine.bytesWritten !== compressedSize) fail("compressed entry contains trailing bytes");
+        if (expanded.buffer.length !== uncompressedSize) fail("entry expanded size differs from its declaration");
+      } else if (compressedSize !== uncompressedSize) {
+        fail("stored entry sizes disagree");
+      }
       occupiedRanges.push([localOffset, entryEndOffset]);
       cursor = entryEnd;
     }

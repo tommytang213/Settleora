@@ -22,3 +22,19 @@ These corrections do not qualify the later source head from the earlier
 projection above. Fresh exact-head tests, independent review, package evidence,
 and Android/iOS native results remain required; no fixture image or truth
 changes are part of this correction batch.
+
+The bounded Android package-comparison diagnostic also recognizes the current
+446-entry eight-pack inventory rather than the earlier 444-entry seven-pack
+inventory. Its output remains content hashes and bounded native structure;
+it does not grant package or signing acceptance. Missing, extra, duplicate,
+and malformed entries retain their rejection controls.
+
+The IPA archive verifier now checks that each DEFLATE stream consumes its
+entire declared compressed range before retaining the canonical archive.
+Synthetic controls cover appended bytes, a second compressed stream, data
+descriptors, valid alternate compression and bounded expanded sizes. This
+does not grant a signing or release qualification.
+
+Foreign subtotals also retain their localized currency warning when ordinary
+same-currency tax reconciles the item sum and total. A foreign subtotal is
+preserved as evidence and is never used to corroborate receipt arithmetic.

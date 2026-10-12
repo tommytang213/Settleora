@@ -21,6 +21,10 @@ MAX_EXPANDED_BYTES = 1024 * 1024 * 1024
 MAX_NATIVE_BYTES = 128 * 1024 * 1024
 MAX_ELF_SECTIONS = 128
 MAX_EVIDENCE_BYTES = 128 * 1024
+# 425 reviewed non-OCR entries, four legal files, one catalog, and the
+# sixteen model/configuration files in the eight-pack catalog. This bounds
+# diagnostics only; the separate strict verifier still owns package acceptance.
+EXPECTED_APK_ENTRY_COUNT = 446
 
 
 def _elf_summary(content):
@@ -185,7 +189,7 @@ def main():
     with ZipFile(args.package) as archive:
         entries = archive.infolist()
         names = [entry.filename for entry in entries]
-        if len(entries) != 444 or len(names) != len(set(names)):
+        if len(entries) != EXPECTED_APK_ENTRY_COUNT or len(names) != len(set(names)):
             raise ValueError("APK entry inventory differs from the reviewed bound")
         for entry in sorted(entries, key=lambda item: item.filename):
             if entry.is_dir() or entry.file_size < 0:
