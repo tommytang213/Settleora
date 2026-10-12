@@ -464,6 +464,11 @@ bool _hasReceiptOcrReferenceAdjustment(ReceiptOcrPreview preview) {
 
 bool _hasReceiptOcrForeignAdjustment(ReceiptOcrPreview preview) {
   final entries = [
+    (
+      preview.subtotal,
+      preview.subtotalCurrency,
+      preview.subtotalHasExplicitCurrencyEvidence,
+    ),
     (preview.tax, preview.taxCurrency, preview.taxHasExplicitCurrencyEvidence),
     (
       preview.service,

@@ -1894,8 +1894,8 @@ VAT included 20% GBP 4.00
         expect(competing.total, '90.00');
         expect(competing.reviewHints, isNotEmpty);
         final unknown = parse(scale: scale, contact: 'Chart usage 434');
-        expect(unknown.total, '434');
-        expect(unknown.reviewHints, isNotEmpty);
+        expect(unknown.total, isNull);
+        expect([...unknown.warnings, ...unknown.reviewHints], isNotEmpty);
       }
     });
   });

@@ -1,0 +1,24 @@
+# Receipt OCR review corrections
+
+The pinned model record in [Corroborated rupee recognition recovery](RECEIPT_OCR_RUPEE_RECOVERY_EVIDENCE.md) describes the retained projection at runtime source `776c17dab25af23124fa5d21330c92ab55cfa828`. Its counts do not qualify the later corrections below. The model bytes and original seven packs are unchanged.
+
+The native acceptance catalog reader now keeps normal script-route ownership
+separate from recognition-recovery identities. The Tiny pack remains a valid
+recognizer for block provenance without competing with Small for the Latin
+route. Duplicate primary routes, unknown roles, and unsupported recovery
+policies still fail closed.
+
+Independent source review also exposed a total-row geometry check that ran
+after sorting by polygon bounds, a missing foreign-subtotal review hint, and
+an unclassified side-column number that could replace the printed total.
+The corrections validate geometry before bounds, retain the foreign header
+warning without using its amount in receipt arithmetic, and withhold an
+unowned numeric tail while preserving the original blocks. Focused controls
+cover malformed geometry, currency separation, complete same-currency totals,
+and unchanged supported contact-column ownership. Unknown attached currency
+markers now have strict null assertions rather than permissive alternatives.
+
+These corrections do not qualify the later source head from the earlier
+projection above. Fresh exact-head tests, independent review, package evidence,
+and Android/iOS native results remain required; no fixture image or truth
+changes are part of this correction batch.

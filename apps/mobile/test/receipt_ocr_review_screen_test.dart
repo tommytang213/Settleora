@@ -2249,6 +2249,52 @@ void main() {
     );
 
     testWidgets(
+      'removes focused printed header evidence without a controller error',
+      (tester) async {
+        await useLargeSurface(tester);
+        final route = sampleRoute();
+        final repository = FakeReceiptOcrReviewRepository(
+          reviewResponse: sampleReview(
+            route,
+            taxAmount: null,
+            headerEvidence: const [
+              ReceiptOcrReviewHeaderEvidence(
+                role: 'tax',
+                amount: '2.50',
+                currency: 'EUR',
+              ),
+            ],
+          ),
+        );
+        await pumpDetail(tester, repository: repository, route: route);
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithIcon(IconButton, Icons.edit_outlined));
+        await tester.pumpAndSettle();
+        final amount = editableTextForKey(
+          const Key('receipt-review-edit-header-amount-tax'),
+        );
+        await tester.ensureVisible(amount);
+        await tester.enterText(amount, '3.50');
+        await tester.pump();
+        final remove = find.byKey(
+          const Key('receipt-review-edit-header-remove-tax'),
+        );
+        await tester.ensureVisible(remove);
+        await tester.tap(remove);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(remove, findsNothing);
+        await tester.ensureVisible(
+          find.byKey(const Key('receipt-review-edit-save')),
+        );
+        await tester.tap(find.byKey(const Key('receipt-review-edit-save')));
+        await tester.pumpAndSettle();
+        expect(repository.saveCalls, 1);
+        expect(repository.lastSaveRequest?.headerEvidence, isEmpty);
+      },
+    );
+
+    testWidgets(
       'requires removing printed evidence before entering its scalar',
       (tester) async {
         await useLargeSurface(tester);

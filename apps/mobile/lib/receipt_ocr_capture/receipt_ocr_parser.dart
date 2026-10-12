@@ -910,7 +910,9 @@ class ReceiptOcrParser {
       // A complete explicitly labeled date may use middle-dot separators.
       // Compact or mixed forms retain their unresolved evidence.
       if (labeledDate != null) {
-        final middleDot = RegExp(_middleDotCalendarDatePattern).firstMatch(line);
+        final middleDot = RegExp(
+          _middleDotCalendarDatePattern,
+        ).firstMatch(line);
         if (middleDot != null) {
           consider(labeledDate, middleDot.start, middleDot.end);
         }
@@ -2412,7 +2414,14 @@ class ReceiptOcrParser {
       final localizedAdjustmentSummary =
           _traditionalTaxAmountLinePattern.firstMatch(line) ??
           _portugueseServiceAmountLinePattern.firstMatch(line);
-      final amount = includedTaxSummary != null
+      final unownedTotalTail =
+          _isPrimaryTotalCurrencyLine(line, normalized) &&
+          line == lines[lineIndex] &&
+          layoutRows.length == lines.length &&
+          _hasUnownedTotalTail(layoutRows[lineIndex], line, currency);
+      final amount = unownedTotalTail
+          ? null
+          : includedTaxSummary != null
           ? _normalizeAmount(
               includedTaxSummary.namedGroup('prefixAmount') ??
                   includedTaxSummary.namedGroup('suffixAmount')!,
@@ -8552,24 +8561,6 @@ bool _isIndependentTotalRow(
 }) {
   final cells = ownedCells ?? rows[rowIndex];
   if (currency == null || cells.length != 2) return false;
-  final row = [...cells]
-    ..sort((a, b) => _blockLeft(a).compareTo(_blockLeft(b)));
-  final label = row.first, money = row.last;
-  final labelText = _normalizeOcrLine(label.text);
-  final match = _completeTotalLabelPattern.firstMatch(labelText);
-  if (match == null ||
-      !RegExp(r'^\s*[:：]?\s*$').hasMatch(labelText.substring(match.end))) {
-    return false;
-  }
-  final moneyText = _normalizeOcrLine(money.text);
-  final printed = _currencyAdjacentToSelectedAmount(moneyText, currency);
-  if (!_isBoundedSummaryAmount(moneyText) ||
-      _lastAmountInLine(moneyText, currency: currency) == null ||
-      !printed.hasExplicitEvidence ||
-      printed.currency != currency ||
-      _printedCurrencyMarkerMatches(moneyText).length != 1) {
-    return false;
-  }
   final boxes =
       <
         ReceiptOcrBlockEvidence,
@@ -8592,6 +8583,25 @@ bool _isIndependentTotalRow(
       right: _blockRight(block),
       bottom: p.map((v) => v.y).reduce((a, b) => a > b ? a : b),
     );
+  }
+  // Validate every polygon before any bounds calculation, including sorting.
+  final row = [...cells]
+    ..sort((a, b) => _blockLeft(a).compareTo(_blockLeft(b)));
+  final label = row.first, money = row.last;
+  final labelText = _normalizeOcrLine(label.text);
+  final match = _completeTotalLabelPattern.firstMatch(labelText);
+  if (match == null ||
+      !RegExp(r'^\s*[:：]?\s*$').hasMatch(labelText.substring(match.end))) {
+    return false;
+  }
+  final moneyText = _normalizeOcrLine(money.text);
+  final printed = _currencyAdjacentToSelectedAmount(moneyText, currency);
+  if (!_isBoundedSummaryAmount(moneyText) ||
+      _lastAmountInLine(moneyText, currency: currency) == null ||
+      !printed.hasExplicitEvidence ||
+      printed.currency != currency ||
+      _printedCurrencyMarkerMatches(moneyText).length != 1) {
+    return false;
   }
   final l = boxes[label]!, m = boxes[money]!;
   final lh = l.bottom - l.top, mh = m.bottom - m.top;
@@ -10801,6 +10811,37 @@ String? _lastAmountInLine(String line, {String? currency}) {
 
 String? _selectedTotalAmountInLine(String line, {String? currency}) =>
     _lastAmountInLine(line, currency: currency);
+
+bool _hasUnownedTotalTail(
+  List<ReceiptOcrBlockEvidence> row,
+  String line,
+  String? currency,
+) {
+  if (row.length < 3) return false;
+  final texts = row.map((block) => _normalizeOcrLine(block.text)).toList();
+  if (texts.join(' ') != line) return false;
+  final selected = texts.lastIndexWhere(
+    (text) => _lastAmountInLine(text, currency: currency) != null,
+  );
+  if (selected < 1 ||
+      _isBoundedSummaryAmount(texts[selected]) ||
+      _isLabeledStandaloneMoneyLine(
+        texts[selected],
+        _completeTotalLabelPattern,
+      )) {
+    return false;
+  }
+  // A prior standalone money cell cannot give an unrelated trailing cell a
+  // total role. Existing layout ownership may remove proven metadata before
+  // this fallback, but an unknown side-column number remains review evidence.
+  return texts
+      .take(selected)
+      .any(
+        (text) =>
+            _isBoundedSummaryAmount(text) &&
+            _lastAmountInLine(text, currency: currency) != null,
+      );
+}
 
 String? _attachedSupportedCodeOnSelectedAmount(String line) {
   final selected = RegExp(_amountTokenPattern).allMatches(line).lastOrNull;

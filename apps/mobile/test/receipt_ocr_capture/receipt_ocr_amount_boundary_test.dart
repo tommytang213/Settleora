@@ -79,21 +79,21 @@ void main() {
       ['SAMPLE SHOP'],
       ['소계', 'Q14,000'],
     ], geometry: false);
-    expect(p.subtotal, anyOf(isNull, '14000'));
+    expect(p.subtotal, isNull);
   });
   test('an unrecognized suffix never yields a numeric head', () {
     final p = _preview([
       ['SAMPLE SHOP'],
       ['Subtotal', '14,000Q'],
     ], geometry: false);
-    expect(p.subtotal, anyOf(isNull, '14000'));
+    expect(p.subtotal, isNull);
   });
   test('unrecognized prefix cannot discard the printed minus sign', () {
     final p = _preview([
       ['SAMPLE SHOP'],
       ['소계', 'Q-14,000'],
     ], geometry: false);
-    expect(p.subtotal, anyOf(isNull, '-14000'));
+    expect(p.subtotal, isNull);
   });
   test('a product identifier cannot yield a numeric tail', () {
     final p = _preview([
