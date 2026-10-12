@@ -4,7 +4,8 @@ import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSy
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { signedMachOCodeMatches, verifyApplicationSignature } from "../ios-code-equivalence.mjs";
+import { fileURLToPath } from "node:url";
+import { signedMachOCodeMatches, verifyApplicationSignature, verifySignedMachOFiles } from "../ios-code-equivalence.mjs";
 import { inspectXcarchive } from "../verify-ios-xcarchive.mjs";
 
 // Linux must report this as skipped. These ad-hoc controls use no signing
@@ -49,5 +50,37 @@ test("Apple signing tools preserve code equivalence across re-signing and reject
     sign(changed, "com.settleora.export-control");
     verifyApplicationSignature(changed);
     assert.equal(signedMachOCodeMatches(before, readFileSync(changed)), false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("Apple signing tools compare re-signed SwiftSupport dylib code without rewriting originals", {
+  skip: process.platform !== "darwin" ? "requires real macOS codesign and Xcode tools" : false,
+}, () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-real-swift-support-"));
+  const run = (command, args) => execFileSync(command, args, { stdio: ["ignore", "ignore", "pipe"], timeout: 120_000 });
+  const sign = (file, identifier) => run("/usr/bin/codesign", ["--force", "--sign", "-", "--identifier", identifier, file]);
+  try {
+    const source = path.join(root, "fixture.c"), original = path.join(root, "original.dylib");
+    const support = path.join(root, "support.dylib"), embedded = path.join(root, "embedded.dylib");
+    writeFileSync(source, "int library_value(void) { return 0; }\n");
+    run("/usr/bin/xcrun", ["clang", "-dynamiclib", source, "-o", original]);
+    copyFileSync(original, support); copyFileSync(original, embedded);
+    sign(support, "com.settleora.toolchain-control");
+    sign(embedded, "com.settleora.embedded-control");
+    const before = [readFileSync(support), readFileSync(embedded)];
+    assert(!before[0].equals(before[1]), "control must contain different signatures");
+    assert.deepEqual(verifySignedMachOFiles(support, embedded), {
+      signaturesVerified: true, signatureOnlyDifference: true,
+    });
+    run(process.execPath, [fileURLToPath(new URL("../ios-code-equivalence.mjs", import.meta.url)),
+      "--compare-signed-files", support, embedded]);
+    assert.deepEqual([readFileSync(support), readFileSync(embedded)], before);
+    run("/usr/bin/codesign", ["--remove-signature", embedded]);
+    assert.throws(() => verifySignedMachOFiles(support, embedded));
+    writeFileSync(source, "int library_value(void) { return 7; }\n");
+    run("/usr/bin/xcrun", ["clang", "-dynamiclib", source, "-o", embedded]);
+    sign(embedded, "com.settleora.embedded-control");
+    verifyApplicationSignature(embedded);
+    assert.throws(() => verifySignedMachOFiles(support, embedded), /content differs/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

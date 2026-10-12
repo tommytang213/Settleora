@@ -81,3 +81,17 @@ component is negative or exceeds its entire gross item base. Controls cover
 both printed and absent subtotals, valid zero-to-base components, and a
 separately proven net-item-plus-tax total. Printed amounts remain unchanged;
 the saved review and financial Apply authority are unchanged.
+
+Currency conflicts in incomplete total chains are evaluated before the stricter
+total-admission check. Competing denominations such as "EUR or USD1.00" retain
+their missing-total warning and unresolved saved-review mode, while product
+names still cannot supply a total.
+
+SwiftSupport verification now validates both original library signatures and
+compares executable content after stripping signatures from disposable copies.
+Identical signed bytes still require valid signatures. Changed executable
+content, invalid signatures, symlinks, oversized files and changes during
+verification fail closed; retained libraries are never rewritten. Synthetic
+controls run on Linux. Separate macOS controls compile and re-sign a dynamic
+library with Apple tools and exercise the wrapper's comparison entry point;
+they remain skipped on Linux and do not replace a real distribution export.

@@ -2660,7 +2660,7 @@ class ReceiptOcrParser {
           discountCurrency = printed.currency;
           discountHasExplicitCurrencyEvidence = printed.hasExplicitEvidence;
         }
-      } else if (_isPrimaryTotalCurrencyLine(line, normalized)) {
+      } else if (_hasPotentialPrimaryTotalCurrencyLine(line, normalized)) {
         final originalCurrency = _currencyAdjacentToSelectedAmount(
           line,
           currency,
@@ -2682,6 +2682,10 @@ class ReceiptOcrParser {
           );
           continue;
         }
+        // An incomplete monetary chain still needs its currency-conflict
+        // warning. Publishing a total additionally requires the complete
+        // financial label and cells, so product words cannot gain ownership.
+        if (!_isPrimaryTotalCurrencyLine(line, normalized)) continue;
         final printedCurrencies = <String>{
           ..._supportedCurrencyCodes.where(
             (code) => _hasExplicitCurrencyCode([line], code),

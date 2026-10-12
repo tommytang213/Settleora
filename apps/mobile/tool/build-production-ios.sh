@@ -304,7 +304,9 @@ if [[ "$mode" == signed ]]; then
       file -b -- "$candidate" | grep -Eq '^Mach-O( |$)' || fail "IPA SwiftSupport contains a non-Mach-O library"
       app_library="$app_path/Frameworks/$(basename "$candidate")"
       [[ -f "$app_library" ]] || fail "IPA SwiftSupport library has no application counterpart"
-      cmp -s "$candidate" "$app_library" || fail "IPA SwiftSupport library differs from its application counterpart"
+      node "$tool_root/tools/ocr-models/ios-code-equivalence.mjs" \
+        --compare-signed-files "$candidate" "$app_library" \
+        || fail "IPA SwiftSupport library differs from its application counterpart"
     done
     for candidate in "${app_swift_libraries[@]}"; do
       [[ -f "$inspection_root/SwiftSupport/iphoneos/$(basename "$candidate")" ]] || fail "application Swift library is absent from SwiftSupport"
