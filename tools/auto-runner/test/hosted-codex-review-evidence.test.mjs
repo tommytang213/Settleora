@@ -50,6 +50,25 @@ test("hosted Codex completion binds bot summary and no-findings artifact to one 
   });
 });
 
+test("hosted Codex accepts the observed Nice work completion without relaxing evidence checks", () => {
+  const niceWork = { ...completion, body: completion.body.replace(":+1:", "Nice work!")
+    .replace("it will react with 👍.\n\nCodex", "it will react with 👍.\n\n\n\nCodex") };
+  const evaluate = (comment, summaryComment = summary) => evaluateHostedCodexReview({
+    comments: [summaryComment, comment], reviews: [], headSha: head,
+  });
+  assert.equal(evaluate(niceWork).status, "completed_no_findings");
+  assert.equal(evaluate({ ...niceWork, login: "someone-else", type: "User" }).status, "blocked");
+  assert.equal(evaluate({ ...niceWork, body: niceWork.body.replace("893a7f46d7", staleHead.slice(0, 10)) }).status,
+    "blocked");
+  assert.equal(evaluate({ ...niceWork, body: niceWork.body.replace("Nice work!", "Nice work! Found a bug.") }).status,
+    "blocked");
+  assert.equal(evaluate({ ...niceWork, body: `${niceWork.body}\nFinding: regression` }).status, "blocked");
+  assert.equal(evaluate({ ...niceWork, body: niceWork.body.replace("@codex address that feedback", "@codex skip feedback") }).status,
+    "blocked");
+  assert.equal(evaluate(niceWork, { ...summary, body: summary.body.replace("893a7f4", staleHead.slice(0, 7)) }).status,
+    "blocked");
+});
+
 test("hosted Codex evidence fails closed on running, stale, quota, spoofed, and finding states", () => {
   const evaluate = (comments, reviews = []) => evaluateHostedCodexReview({ comments, reviews, headSha: head });
   assert.equal(evaluate([]).status, "pending");

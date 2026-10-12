@@ -167,7 +167,7 @@ function reviewMatchesHead(review, headSha) {
 
 function parseNoFindingsCompletion(body) {
   const content = String(body || "");
-  const match = content.match(/^Codex Review: Didn't find any major issues\. (?::\+1:|You're on a roll\.)\s*\n\n\*\*Reviewed commit:\*\* `([a-f0-9]{10,40})`(?:\r?\n|$)/);
+  const match = content.match(/^Codex Review: Didn't find any major issues\. (?::\+1:|You're on a roll\.|Nice work!)\s*\n\n\*\*Reviewed commit:\*\* `([a-f0-9]{10,40})`(?:\r?\n|$)/);
   if (!match) return null;
   const footer = content.slice(match[0].length).split(/\r?\n/)
     .map((line) => line.trim()).filter(Boolean).join("\n");
