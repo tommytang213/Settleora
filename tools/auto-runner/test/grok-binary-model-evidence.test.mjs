@@ -74,6 +74,8 @@ test("Grok binary projection fails closed on altered diff, path list, or catalog
     "blocked_grok_binary_catalog_contract_mismatch");
   assert.equal(fixture({ catalog: { packs: [] } }).reason,
     "blocked_grok_binary_catalog_contract_mismatch");
+  assert.equal(fixture({ catalog: { packs: [catalog.packs[0], catalog.packs[0]] } }).reason,
+    "blocked_grok_binary_catalog_contract_mismatch");
   const reversedInference = Object.fromEntries(Object.entries(catalog.packs[0].inference).reverse());
   assert.equal(fixture({ catalog: { packs: [{ ...catalog.packs[0], inference: reversedInference }] } }).ok, true);
   assert.equal(fixture({ validationRecord: "No model verification recorded" }).reason,
@@ -98,7 +100,7 @@ test("Grok binary projection fails closed on altered diff, path list, or catalog
 
 test("text changes mentioning the Git binary marker remain ordinary text", () => {
   const textOnly = "diff --git a/src/example.js b/src/example.js\n--- a/src/example.js\n+++ b/src/example.js\n@@ -0,0 +1 @@\n+GIT binary patch\n";
-  const result = prepareGrokBinaryModelEvidence({ diff: textOnly });
+  const result = prepareGrokBinaryModelEvidence({ diff: textOnly, changedFiles: ["src/example.js"], allowSynthetic: true });
   assert.equal(result.ok, true);
   assert.equal(result.reviewDiff, textOnly);
   assert.deepEqual(result.binaryArtifacts, []);
@@ -108,6 +110,24 @@ test("text changes mentioning the Git binary marker remain ordinary text", () =>
     changedFiles: ["src/example.js"], diff: textOnly,
     readGit: () => Buffer.from("different canonical diff") }).reason,
   "blocked_grok_text_diff_not_immutable_candidate");
+  assert.equal(prepareGrokBinaryModelEvidence({ repoRoot: "/synthetic", baseSha, headSha,
+    changedFiles: ["src/other.js"], diff: textOnly,
+    readGit: () => Buffer.from(textOnly) }).reason,
+  "blocked_grok_text_changed_path_coverage_mismatch");
+  assert.equal(prepareGrokBinaryModelEvidence({ changedFiles: ["src/example.js"], diff: textOnly }).reason,
+    "blocked_grok_text_candidate_identity_missing");
+});
+
+test("uncommitted text review binds the exact working-tree snapshot and blocks binary additions", () => {
+  const textDiff = "diff --git a/src/old.js b/src/old.js\n--- a/src/old.js\n+++ b/src/old.js\n@@ -1 +1 @@\n-old\n+new\n";
+  const args = { repoRoot: "/synthetic", changedFiles: ["src/old.js"], diff: textDiff,
+    workingTreeReview: true, workingTreeDiff: textDiff };
+  assert.equal(prepareGrokBinaryModelEvidence(args).ok, true);
+  assert.equal(prepareGrokBinaryModelEvidence({ ...args, workingTreeDiff: "stale" }).reason,
+    "blocked_grok_working_tree_diff_mismatch");
+  assert.equal(prepareGrokBinaryModelEvidence({ ...args, diff: binaryPatch,
+    changedFiles: [path], workingTreeDiff: binaryPatch }).reason,
+  "blocked_grok_binary_working_tree_requires_commit");
 });
 
 test("an unrelated rename preserves destination path coverage beside the model", () => {

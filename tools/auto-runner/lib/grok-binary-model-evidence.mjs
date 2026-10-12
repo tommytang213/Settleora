@@ -40,22 +40,49 @@ function sameFiles(actual, expected) {
     && JSON.stringify(unique(actual)) === JSON.stringify(unique(expected));
 }
 
+function diffBlocksAndPaths(raw) {
+  const blocks = raw.split(/(?=^diff --git )/m).filter(Boolean);
+  const paths = blocks.map((block) => {
+    const header = block.split(/\r?\n/, 1)[0];
+    const match = header.match(/^diff --git a\/(.+) b\/(.+)$/);
+    if (!match || match[1].startsWith('"') || match[2].startsWith('"')) return null;
+    if (match[1] !== match[2] && !(match[1] === "dev/null" && block.includes("new file mode "))
+      && (!block.includes(`rename from ${match[1]}\n`) || !block.includes(`rename to ${match[2]}\n`))) return null;
+    return match[2];
+  });
+  return { blocks, paths };
+}
+
 // This is a review-only text projection. It never asserts that a reviewer saw
 // ONNX tensor bytes. The original Git diff stays bound by its SHA-256 digest.
 export function prepareGrokBinaryModelEvidence({ repoRoot, baseSha, headSha, changedFiles, diff,
-  readGit = gitRead, model = pinnedRupeeRecoveryModel } = {}) {
+  readGit = gitRead, model = pinnedRupeeRecoveryModel,
+  workingTreeReview = false, workingTreeDiff = null, allowSynthetic = false } = {}) {
   const raw = String(diff || "");
-  if (!/^GIT binary patch$/m.test(raw) && !/^Binary files .+ differ$/m.test(raw)) {
+  const hasBinary = /^GIT binary patch$/m.test(raw) || /^Binary files .+ differ$/m.test(raw);
+  if (workingTreeReview && hasBinary) return fail("blocked_grok_binary_working_tree_requires_commit");
+  if (!hasBinary) {
     if (Array.isArray(changedFiles) && changedFiles.includes(model.path)) {
       return fail("blocked_grok_binary_model_patch_missing");
     }
-    if (repoRoot && fullSha.test(baseSha || "") && fullSha.test(headSha || "")) {
+    if (!Array.isArray(changedFiles) || Buffer.byteLength(raw) > maxRawDiffBytes) {
+      return fail("blocked_grok_text_candidate_identity_or_raw_size");
+    }
+    if (workingTreeReview) {
+      if (!repoRoot || workingTreeDiff !== raw) return fail("blocked_grok_working_tree_diff_mismatch");
+    } else if (repoRoot && fullSha.test(baseSha || "") && fullSha.test(headSha || "")) {
       let canonicalText;
       try {
         canonicalText = readGit(repoRoot, ["diff", "--binary", "--no-ext-diff", "--no-textconv", "--no-color",
           `${baseSha}...${headSha}`], maxRawDiffBytes + 1024).toString("utf8");
       } catch { return fail("blocked_grok_text_git_diff_unavailable"); }
       if (canonicalText !== raw) return fail("blocked_grok_text_diff_not_immutable_candidate");
+    } else if (!allowSynthetic) {
+      return fail("blocked_grok_text_candidate_identity_missing");
+    }
+    const { paths } = diffBlocksAndPaths(raw);
+    if (paths.some((entry) => !entry) || !sameFiles(paths, changedFiles)) {
+      return fail("blocked_grok_text_changed_path_coverage_mismatch");
     }
     return { ok: true, reviewDiff: raw, originalDiffSha256: sha256(raw), binaryArtifacts: [] };
   }
@@ -69,15 +96,7 @@ export function prepareGrokBinaryModelEvidence({ repoRoot, baseSha, headSha, cha
       `${baseSha}...${headSha}`], maxRawDiffBytes + 1024).toString("utf8");
   } catch { return fail("blocked_grok_binary_git_diff_unavailable"); }
   if (canonical !== raw) return fail("blocked_grok_binary_diff_not_immutable_candidate");
-  const blocks = raw.split(/(?=^diff --git )/m).filter(Boolean);
-  const paths = blocks.map((block) => {
-    const header = block.split(/\r?\n/, 1)[0];
-    const match = header.match(/^diff --git a\/(.+) b\/(.+)$/);
-    if (!match || match[1].startsWith('"') || match[2].startsWith('"')) return null;
-    if (match[1] !== match[2]
-      && (!block.includes(`rename from ${match[1]}\n`) || !block.includes(`rename to ${match[2]}\n`))) return null;
-    return match[2];
-  });
+  const { blocks, paths } = diffBlocksAndPaths(raw);
   if (paths.some((entry) => !entry) || !sameFiles(paths, changedFiles)) {
     return fail("blocked_grok_binary_changed_path_coverage_mismatch");
   }
@@ -110,8 +129,9 @@ export function prepareGrokBinaryModelEvidence({ repoRoot, baseSha, headSha, cha
     || !validationText.includes("no external tensor data")) {
     return fail("blocked_grok_binary_prior_validation_record_mismatch");
   }
-  const pack = Array.isArray(catalog?.packs) ? catalog.packs.find((entry) => entry?.assetDirectory
-    === "assets/receipt_ocr_models/ppocrv6-tiny-rec") : null;
+  const matchingPacks = Array.isArray(catalog?.packs) ? catalog.packs.filter((entry) => entry?.assetDirectory
+    === "assets/receipt_ocr_models/ppocrv6-tiny-rec") : [];
+  const pack = matchingPacks.length === 1 ? matchingPacks[0] : null;
   const recordedFiles = pack?.files;
   const expectedInference = Object.fromEntries(Object.entries(model.tensorContract)
     .filter(([key]) => key !== "externalTensorData"));

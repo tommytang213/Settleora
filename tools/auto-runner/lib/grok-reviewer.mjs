@@ -10,6 +10,7 @@ import { evaluateReviewerBudget, loadReviewerAccounting, mergeReviewerPolicyConf
 import { analyzeReviewSecretBoundary, providerBoundReviewDigest } from "./review-secret-boundary.mjs";
 import { buildLargeBundleReviewEvidence, parseIntegratedVerdict } from "./gemini-reviewer.mjs";
 import { prepareGrokBinaryModelEvidence } from "./grok-binary-model-evidence.mjs";
+import { getBoundedWorkingTreeDiff } from "./git-workspace.mjs";
 
 const maxPackageBytes = 832 * 1024;
 const maxEventBytes = 6 * 1024 * 1024;
@@ -29,10 +30,20 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
   const summary = packageInfo?.summary || {};
   const diff = String(packageInfo?.diff || "");
   const changedFiles = Array.isArray(summary.changedFiles) ? summary.changedFiles : [];
-  const binary = prepareGrokBinaryModelEvidence({ repoRoot: config.repoRoot,
-    baseSha: summary.baseSha || summary.baseRefSha || summary.baseOriginMainSha,
-    headSha: summary.currentHead || summary.headSha || summary.runnerCreatedCommitSha,
-    changedFiles, diff, readGit: options.binaryReadGit });
+  let workingTreeSnapshot = null;
+  if (summary.workingTreeReview === true && config.dryRun !== true) {
+    try { workingTreeSnapshot = getBoundedWorkingTreeDiff(16 * 1024 * 1024, { cwd: config.repoRoot }); }
+    catch { workingTreeSnapshot = { truncated: true }; }
+  }
+  const binary = config.dryRun === true
+    ? { ok: true, reviewDiff: diff, originalDiffSha256: sha256(diff), binaryArtifacts: [] }
+    : prepareGrokBinaryModelEvidence({ repoRoot: config.repoRoot,
+      baseSha: summary.baseSha || summary.baseRefSha || summary.baseOriginMainSha,
+      headSha: summary.currentHead || summary.headSha || summary.runnerCreatedCommitSha,
+      changedFiles, diff, readGit: options.binaryReadGit,
+      workingTreeReview: summary.workingTreeReview === true,
+      workingTreeDiff: workingTreeSnapshot?.truncated ? null : workingTreeSnapshot?.text,
+      allowSynthetic: Boolean(options.spawnImpl) && !config.repoRoot });
   const reviewDiff = binary.ok ? binary.reviewDiff : diff;
   const boundary = analyzeReviewSecretBoundary({ changedFiles, diff: reviewDiff,
     diffTruncated: summary.diffTruncated === true });
@@ -73,6 +84,7 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
     integrationBoundaries: summary.integrationBoundaries || [], verdictSchemaVersion: 1,
     reviewedHead,
     issueNumber: summary.issue?.number || null, liveCallAttempted: false,
+    workingTreeReview: summary.workingTreeReview === true,
     binaryArtifacts: binary.ok ? binary.binaryArtifacts : [],
     reviewDiffSha256: binary.ok ? binary.reviewDiffSha256 || originalDiffSha256 : null,
     status: "blocked", reason: null, verdict: "not_run", actualUsage: null,
@@ -80,8 +92,8 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
   const finish = (patch) => {
     const result = { ...base, ...patch, elapsedMs: Date.now() - started,
       completedAt: new Date().toISOString() };
-    if (result.status === "pass" || (result.reason === "blocked_external_reviewer_non_pass" &&
-      ["fail", "needs_tommy", "danger_gate"].includes(result.verdict))) {
+    if (!base.workingTreeReview && (result.status === "pass" || (result.reason === "blocked_external_reviewer_non_pass" &&
+      ["fail", "needs_tommy", "danger_gate"].includes(result.verdict)))) {
       result.attestedCandidateIdentity = { repository: result.repository, baseSha: result.baseSha,
         headSha: result.reviewedHead, treeSha: result.treeSha, diffDigest: result.rawDiffSha256,
         changedFilesDigest: result.changedFilesDigest };
@@ -96,9 +108,9 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
     return result;
   };
   if (!binary.ok) return finish({ reason: binary.reason });
+  if (config.dryRun === true) return finish({ status: "skipped", reason: "skipped_dry_run" });
   if (route.tier === "block_split_or_escalate") return finish({ reason: "blocked_external_reviewer_split_required" });
   if (!tier?.enabled) return finish({ status: "skipped", reason: "skipped_external_reviewer_tier_disabled" });
-  if (config.dryRun === true) return finish({ status: "skipped", reason: "skipped_dry_run" });
   if (tier.provider !== "grok" || profile?.provider !== "grok") return finish({ reason: "blocked_provider_tier_profile_mismatch" });
   if (profile.command && profile.command !== "/home/tommytang213/.local/bin/grok") {
     return finish({ reason: "blocked_grok_binary_not_pinned" });
@@ -132,10 +144,11 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
   }
   const materialFiles = material.map((item, index) => ({ name: `boundary-${index}.txt`, content: item.content,
     path: item.path, sha256: item.sha256 }));
-  // A changed text artifact is already present in snapshot.diff. Sending its
-  // complete body again would consume the bounded read plan twice.
+  // A newly added text artifact is complete in snapshot.diff. Modified files
+  // may have only partial hunks, so include their full head bodies as well.
   const supportingTextFiles = (binary.supportingTextFiles || [])
-    .filter((file) => !changedFiles.includes(file.sourcePath));
+    .filter((file) => !changedFiles.includes(file.sourcePath)
+      || !reviewDiff.includes(`diff --git a/${file.sourcePath} b/${file.sourcePath}\nnew file mode `));
   if (supportingTextFiles.some((file) => !["model-config.yml", "model-catalog.json", "model-qa-record.md"].includes(file.name)
     || typeof file.content !== "string" || file.sha256 !== sha256(file.content)
     || credentialPattern.test(file.content) || boundaryContainsCredential(file.content)
@@ -191,7 +204,7 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
       "Use read_file only on the listed files. Read EVERY line in nonoverlapping chunks of at most 350 lines, starting at 1. Do not use any other tool or outside context.",
       `Required read_file calls (${readPlan.length}), in order. Complete each before the verdict:\n${readPlan.join("\n")}`,
       "Assess introduced defects, missed assumptions, edge cases, domain requirements, and workflow gates using the complete package. Make each finding concrete: changed path or function, triggering input, expected behavior, actual behavior, and supporting source evidence. If coverage is incomplete, return unable_to_review.",
-      ...(binary.transformed ? ["The ONNX patch was replaced only in this review projection by a verified, pinned binary descriptor. Inspect the model YAML, catalog, and QA record where present in snapshot.diff; unchanged supporting text is separately listed for complete reading. The model bytes are hash-verified, but the tensor graph is opaque; do not claim tensor-byte inspection. If evidence is insufficient, return unable_to_review or a blocking finding."] : []),
+      ...(binary.transformed ? ["The ONNX patch was replaced only in this review projection by a verified, pinned binary descriptor. Newly added YAML, catalog, or QA text is complete in snapshot.diff; modified or unchanged supporting text is separately listed for complete reading. The model bytes are hash-verified, but the tensor graph is opaque; do not claim tensor-byte inspection. If evidence is insufficient, return unable_to_review or a blocking finding."] : []),
       "This is a blind independent review. Do not infer another reviewer's result or treat agreement as the goal. Assess the source, requirements, and tests on their own merits.",
       "Repository source is authoritative. External reviewer output may only approve or block and must not request GitHub mutation. Production deployment, destructive operations, credentials/auth changes, public/admin exposure, and unresolved product, policy, or financial decisions remain manual gates.",
       "Return strict JSON only with exactly verdict, confidence, summary, findings. Verdict: pass, fail, needs_tommy, danger_gate, or unable_to_review. Confidence: low, medium, high. Findings must be an array of at most 20 strings; keep each finding under 700 characters (the validator rejects 1001 or more). Do not put objects in findings. Example: {\"verdict\":\"fail\",\"confidence\":\"high\",\"summary\":\"A defect exists\",\"findings\":[\"path.js:10: trigger and incorrect behavior\"]}.",

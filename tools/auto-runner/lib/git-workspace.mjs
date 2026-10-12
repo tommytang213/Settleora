@@ -487,8 +487,8 @@ export function getBoundedDiff(baseRef = "origin/main", headRef = "HEAD", maxCha
   return { truncated: true, text: result.stdout.slice(0, maxChars) };
 }
 
-export function getBoundedWorkingTreeDiff(maxChars = providerBoundReviewDiffChars) {
-  const text = getWorkingTreeDiffText();
+export function getBoundedWorkingTreeDiff(maxChars = providerBoundReviewDiffChars, options = {}) {
+  const text = getWorkingTreeDiffText(options.cwd);
   if (text.length <= maxChars) {
     return { truncated: false, text };
   }
@@ -667,15 +667,16 @@ function dedupeSorted(lines) {
   return [...new Set(lines.map((line) => line.trim()).filter(Boolean))].sort();
 }
 
-function getWorkingTreeDiffText() {
-  const unstaged = runGit(["diff", "--binary"]);
+function getWorkingTreeDiffText(cwd = trustedRepositoryContext || process.cwd()) {
+  const gitOptions = { cwd, maxBuffer: maxGitOutputBytes };
+  const unstaged = runGit(["diff", "--binary"], gitOptions);
   assertGitSuccess(unstaged, "Unable to read unstaged diff");
-  const staged = runGit(["diff", "--cached", "--binary"]);
+  const staged = runGit(["diff", "--cached", "--binary"], gitOptions);
   assertGitSuccess(staged, "Unable to read staged diff");
-  const untracked = runGit(["ls-files", "--others", "--exclude-standard"]);
+  const untracked = runGit(["ls-files", "--others", "--exclude-standard"], gitOptions);
   assertGitSuccess(untracked, "Unable to list untracked files for diff");
   const untrackedDiffs = dedupeSorted(untracked.stdout.split(/\r?\n/)).map((file) => {
-    const result = runGit(["diff", "--no-index", "--binary", "--", "/dev/null", file]);
+    const result = runGit(["diff", "--no-index", "--binary", "--", "/dev/null", file], gitOptions);
     if (result.error || ![0, 1].includes(result.status)) {
       throw new Error(`Unable to read untracked diff for ${file}\n${result.command}\n${result.stderr || result.stdout || result.error}`);
     }

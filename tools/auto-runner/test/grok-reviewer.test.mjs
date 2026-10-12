@@ -81,6 +81,19 @@ test("Grok verdict parser accepts one bounded JSON object after CLI preface", ()
   ] })).verdict.findings.length, 1);
 });
 
+test("Grok dry-run skips before immutable diff validation or a provider call", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-grok-dry-run-"));
+  try {
+    const result = await runGrokIntegratedReview({ logsRoot: root, dryRun: true, repoRoot: root },
+      { summary: { baseSha: "a".repeat(40), currentHead: "b".repeat(40),
+        changedFiles: ["src/example.js"] }, diff: "noncanonical synthetic dry-run" },
+      { spawnImpl: () => { throw Error("dry-run must not call provider"); } });
+    assert.equal(result.status, "skipped");
+    assert.equal(result.reason, "skipped_dry_run");
+    assert.equal(result.liveCallAttempted, false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("Grok CLI invocation binds subscriber auth and verifies complete file coverage", async () => {
   process.env.XAI_API_KEY = "test";
   process.env.GH_TOKEN = "test";

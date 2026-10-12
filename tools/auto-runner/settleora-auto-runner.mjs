@@ -5575,6 +5575,8 @@ async function writeReviewPackage(config, payload) {
     ? readFileSync(payload.promptInfo.promptPath, "utf8") : null;
   const grokRecovery = payload.reviewPhase === "existing-pr-recovery"
     && (payload.reviewerProviderPin || config.reviewerProviderPin) === "grok";
+  const workingTreeReview = !grokRecovery && !Object.hasOwn(payload, "diffText")
+    && !payload.diffBaseRef && !payload.diffHeadRef;
   if (grokRecovery && (!/^[a-f0-9]{40}$/.test(payload.baseSha || "")
     || !/^[a-f0-9]{40}$/.test(payload.headSha || ""))) {
     throw new Error("Grok recovery review requires an authenticated exact base and head");
@@ -5594,6 +5596,7 @@ async function writeReviewPackage(config, payload) {
   );
   const summary = {
     reviewPhase: payload.reviewPhase || "pre-pr-review",
+    workingTreeReview,
     taskKey: config.taskKey || null,
     repository: config.repositorySlug || "tommytang213/Settleora",
     manualMergeRequired: payload.manualMergeRequired ?? payload.laneDecision?.manualMergeRequired ?? null,
