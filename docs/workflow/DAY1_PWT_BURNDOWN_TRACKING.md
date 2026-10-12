@@ -25,7 +25,7 @@ movement over time.
 | `Actual Done Date` | Date the task/report/PR reached the agreed done state. |
 | `Target PWT Week` / `Iteration` | Week or iteration bucket used to compare expected progress with actual completion. |
 | `Blocking Gate` | Current pre-work or pre-merge blocker, such as product decision, technical design, Figma/reference, architecture review, security, money, storage/privacy, API/OpenAPI, sync, migration, deployment, or manual approval. |
-| `Gate Owner` | Owner of the blocking gate. Tommy owns product/trust/scope/UX approvals and explicit disagreements; Assistant/Codex owns technical design, slicing, validation planning, and implementation breakdown. |
+| `Gate Owner` | Owner of the blocking gate. Tommy owns product/trust/scope/UX approvals and explicit disagreements; Assistant/Codex prepares technical design, slicing, validation, and implementation evidence; Atlas makes the delegated routine technical gate decision after exact-head checks. Record Atlas and the release condition in the task report or existing gate text without changing Project field options. |
 | `Forecast Status` / `Ahead/Behind` | Outcome classification from the task report: `Ahead`, `On track`, `Behind`, or `Not applicable`. |
 | Full-board total | Sum of `Man-days Remaining` for all open Day 1 issue items that carry an estimate, excluding blank parent/split tracking items so work is not double counted. |
 | Target-subset total | Sum of `Man-days Remaining` for a named subset, such as one technical gate packet, one area, one bundle, or one status filter. It must never be presented as the full-board total. |
