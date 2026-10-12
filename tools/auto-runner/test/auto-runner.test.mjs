@@ -5506,14 +5506,28 @@ test("canary auto-merge decision requires explicit low-risk approval", () => {
   );
 });
 
-test("Grok trial cannot auto-merge even when other gates approve", () => {
+test("Grok auto-merge remains blocked without hosted base-SHA proof after all head gates", () => {
   const base = autoMergeContext();
   const pinned = evaluateAutoMergeDecision(autoMergeContext({ config: { reviewerProviderPin: "grok" } }));
   const observed = evaluateAutoMergeDecision(autoMergeContext({ externalReview: { ...base.externalReview, provider: "grok" } }));
   assert.equal(pinned.eligible, false);
-  assert.equal(pinned.reason, "grok_auto_merge_not_enabled");
+  assert.equal(pinned.reason, "hosted_codex_review_not_verified:missing_or_stale_evidence");
   assert.equal(observed.eligible, false);
-  assert.equal(observed.reason, "grok_auto_merge_not_enabled");
+  assert.equal(observed.reason, "hosted_codex_review_not_verified:missing_or_stale_evidence");
+  const hosted = { status: "completed_no_findings", reviewedHead: "head123", prNumber: 1,
+    source: "github_codex_bot_comments" };
+  const exact = autoMergeContext({ config: { reviewerProviderPin: "grok" }, hostedCodexReview: hosted });
+  assert.equal(evaluateAutoMergeDecision(exact).reason, "hosted_codex_review_base_sha_unverified");
+  assert.equal(evaluateAutoMergeDecision({ ...exact, hostedCodexReview: { ...hosted, reviewedHead: "stale" } }).eligible, false);
+  assert.equal(evaluateAutoMergeDecision({ ...exact, hostedCodexReview: { ...hosted, prNumber: 2 } }).eligible, false);
+  assert.equal(evaluateAutoMergeDecision({ ...exact, hostedCodexReview: { status: "pending" } }).reason,
+    "hosted_codex_review_pending");
+  assert.equal(evaluateAutoMergeDecision({ ...exact, reviewThreads: [{ isResolved: false }] }).reason,
+    "unresolved_review_threads");
+  assert.equal(evaluateAutoMergeDecision({ ...exact, codeScanningAlerts: [{ state: "open" }] }).reason,
+    "open_code_scanning_alerts");
+  assert.equal(evaluateAutoMergeDecision({ ...autoMergeContext({ config: { reviewerProviderPin: "grok" } }),
+    reviewerProviderPin: "gemini" }).eligible, true);
 });
 
 test("sensitive product/security/storage/money/schema/OpenAPI/deployment/secret/public/admin paths block auto-merge", () => {
@@ -6101,6 +6115,27 @@ test("auto-merge final refresh catches newly failed unlisted exact-head checks",
   }
 });
 
+test("Grok auto-merge cannot reach merge with head-only hosted approval", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-grok-hosted-final-refresh-"));
+  try {
+    const calls = [];
+    const hostedCodexReview = { status: "completed_no_findings", reviewedHead: "head123", prNumber: 1,
+      source: "github_codex_bot_comments" };
+    const result = executeAutoMerge(
+      { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, reviewerProviderPin: "grok",
+        autoMergeWait: { maxAttempts: 1, delayMs: 0 } },
+      autoMergeContext({ config: { reviewerProviderPin: "grok" }, hostedCodexReview }),
+      { runner: createAutoMergeRunner(calls), inspectState: () => ({
+        pr: { mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", headRefOid: "head123" },
+        requiredChecks: autoMergeRequiredChecks(), reviewThreads: [], codeScanningAlerts: [], blockingMarkers: [],
+      }) },
+    );
+    assert.equal(result.result, "blocked");
+    assert.equal(result.reason, "hosted_codex_review_base_sha_unverified");
+    assert.equal(calls.some((call) => call.startsWith("gh pr merge")), false);
+  } finally { rmSync(tempRoot, { recursive: true, force: true }); }
+});
+
 test("auto-merge wait config clamps pathological values to safe bounds and buckets", () => {
   assert.deepEqual(normalizeAutoMergeWait({ maxAttempts: 999_999, delayMs: 999_999_999 }), {
     maxAttempts: 60,
@@ -6129,6 +6164,8 @@ test("existing low-risk canary PR recovery proceeds only with exact-head safe ev
     strong_independent: { provider: "grok" },
   } } });
   assert.equal(evaluateExistingPrRecoveryDecision(laterGrokConfig).eligible, true);
+  const changedPin = existingPrRecoveryContext({ config: { reviewerProviderPin: "grok" } });
+  assert.equal(evaluateExistingPrRecoveryDecision(changedPin).eligible, true);
 });
 
 test("Grok-pinned existing PR recovery accepts provider-neutral evidence without Gemini fields", () => {
@@ -6142,11 +6179,34 @@ test("Grok-pinned existing PR recovery accepts provider-neutral evidence without
     "geminiProvider", "geminiTier", "geminiCompletedAt"]) delete exactHeadEvidence[key];
   assert.equal(shouldGenerateExistingPrRecoveryEvidence(base.laneDecision, exactHeadEvidence), false);
   const decision = evaluateExistingPrRecoveryDecision({ ...base, exactHeadEvidence });
-  assert.equal(decision.eligible, true);
+  assert.equal(decision.reason,
+    "existing_pr_recovery_gate_blocked:hosted_codex_review_not_verified:missing_or_stale_evidence");
   assert.equal(evaluateExistingPrRecoveryDecision({ ...base,
     exactHeadEvidence: { ...exactHeadEvidence,
       independentReview: { ...exactHeadEvidence.independentReview, changedFilesDigest: "bad" } } }).reason,
   "existing_pr_recovery_independent_evidence_incomplete");
+});
+
+test("Grok existing PR recovery distinguishes completed, pending, stale, and missing hosted reviews", () => {
+  const base = existingPrRecoveryContext({ config: { reviewerProviderPin: "grok" } });
+  const exactHeadEvidence = { ...base.exactHeadEvidence, independentReview: {
+    pass: true, headSha: base.actualHeadSha, changedFiles: base.changedFiles,
+    changedFilesDigest: digestChangedFiles(base.changedFiles), provider: "grok",
+    tier: "strong_independent", completedAt: "2026-10-11T19:00:00.000Z",
+  } };
+  for (const key of ["geminiPass", "geminiHeadSha", "geminiChangedFiles", "geminiChangedFilesDigest",
+    "geminiProvider", "geminiTier", "geminiCompletedAt"]) delete exactHeadEvidence[key];
+  base.exactHeadEvidence = exactHeadEvidence;
+  const hosted = { status: "completed_no_findings", reviewedHead: base.expectedHeadSha,
+    prNumber: base.pr.number, source: "github_codex_bot_comments" };
+  assert.equal(evaluateExistingPrRecoveryDecision({ ...base, hostedCodexReview: hosted }).reason,
+    "existing_pr_recovery_gate_blocked:hosted_codex_review_base_sha_unverified");
+  assert.equal(evaluateExistingPrRecoveryDecision({ ...base,
+    hostedCodexReview: { status: "pending" } }).reason,
+  "existing_pr_recovery_waiting_for_refreshable_gate:hosted_codex_review_pending");
+  assert.equal(evaluateExistingPrRecoveryDecision({ ...base,
+    hostedCodexReview: { ...hosted, reviewedHead: "stale" } }).eligible, false);
+  assert.equal(evaluateExistingPrRecoveryDecision(base).eligible, false);
 });
 
 test("existing PR recovery regenerates missing Codex evidence outside independent-review lanes", () => {
@@ -7757,8 +7817,8 @@ test("production auto-merge inspection callers pass explicit live runner authori
   const runnerSource = readFileSync("tools/auto-runner/settleora-auto-runner.mjs", "utf8");
   const recoveryIndex = runnerSource.indexOf("async function recoverExistingPrIfConfigured");
   const recoveryRunnerIndex = runnerSource.indexOf("const autoMergeRunner = config.dryRun ? null : createLiveFixedArgvRunner(config);", recoveryIndex);
-  const recoveryInspectIndex = runnerSource.indexOf("inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: recoveryConfig.prNumber || recoveryConfig.prUrl, laneDecision }, { runner: autoMergeRunner })", recoveryIndex);
-  const recoveryWaitIndex = runnerSource.indexOf("inspectState: (cfg, ctx) => inspectAutoMergeGithubState(cfg, { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url, laneDecision }, { runner: autoMergeRunner })", recoveryIndex);
+  const recoveryInspectIndex = runnerSource.indexOf("inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: recoveryConfig.prNumber || recoveryConfig.prUrl,", recoveryIndex);
+  const recoveryWaitIndex = runnerSource.indexOf("inspectState: (cfg, ctx) => inspectAutoMergeGithubState(cfg, { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url,", recoveryIndex);
   assert.notEqual(recoveryRunnerIndex, -1);
   assert.notEqual(recoveryInspectIndex, -1);
   assert.notEqual(recoveryWaitIndex, -1);
@@ -7967,6 +8027,7 @@ function autoMergeContext(overrides = {}) {
     prospectiveMergeValidationVerified: overrides.prospectiveMergeValidationVerified ?? false,
     requiredChecks: overrides.requiredChecks || defaultRequiredChecks,
     reviewThreads: overrides.reviewThreads || [],
+    hostedCodexReview: overrides.hostedCodexReview || null,
     codeScanningAlerts: overrides.codeScanningAlerts || [],
     blockingMarkers: overrides.blockingMarkers || [],
   };

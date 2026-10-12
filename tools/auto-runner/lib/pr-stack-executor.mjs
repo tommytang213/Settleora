@@ -1678,7 +1678,8 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
 	      if (!proof.ok) return proof;
 	      const commandEvidence = normalizeLiveInspectCommandEvidence({ result: raw, runner: run, repositorySlug: repo, prNumber, parsed: pr, cwd: targetConfig.repoRoot });
 	      if (!commandEvidence.ok && run.settleoraRunnerMode === "live") return commandEvidence;
-	      const stateSnapshot = inspectAutoMergeGithubState({ ...targetConfig, repositorySlug: repo }, { issue: {}, prUrlOrNumber: prNumber }, { runner: run });
+	      const stateSnapshot = inspectAutoMergeGithubState({ ...targetConfig, repositorySlug: repo },
+          { issue: {}, prUrlOrNumber: prNumber, reviewerProvider: state?.reviewerProviderPin || stackReviewerProvider(targetConfig) }, { runner: run });
       const reviewThreads = stateSnapshot.reviewThreads || [];
       if (!pr?.number) return fail("inspect_pr_missing", "PR inspection did not return a PR");
       return {
@@ -1688,6 +1689,7 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
         requiredChecks: stackFlattenCheckRollup(pr.statusCheckRollup || []),
         reviewThreads,
 	        codeScanningAlerts: stateSnapshot.codeScanningAlerts || [],
+	        hostedCodexReview: stateSnapshot.hostedCodexReview || null,
 	        findings: unresolvedThreadsAsFindings(reviewThreads),
 	        repositoryContext: context,
 	        commandEvidence: commandEvidence.ok ? commandEvidence.evidence : null,
@@ -1830,6 +1832,7 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
         requiredChecks: gateEvidence.requiredChecks || inspection.requiredChecks || [],
         reviewThreads: gateEvidence.reviewThreads || inspection.reviewThreads || [],
         codeScanningAlerts: gateEvidence.codeScanningAlerts || inspection.codeScanningAlerts || [],
+        hostedCodexReview: inspection.hostedCodexReview || { status: "blocked", reason: "hosted_codex_review_refresh_missing" },
         blockingMarkers: gateEvidence.blockingMarkers || inspection.blockingMarkers || [],
         validation: gateEvidence.validation || {},
         externalReview: reviewEvidence.strongIndependent,
@@ -1840,7 +1843,13 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
         sessionLifecycle: state.sessionLifecycle || plan?.sessionLifecycle || null,
       };
       const mergeRunner = repositoryBoundGhRunner(run, repositoryContext.context);
-      const result = executeAutoMergeMergeOnly(targetConfig, context, { runner: mergeRunner, inspectState: () => ({ pr: inspection.pr, requiredChecks: inspection.requiredChecks, reviewThreads: inspection.reviewThreads, codeScanningAlerts: inspection.codeScanningAlerts, blockingMarkers: inspection.blockingMarkers || [] }) });
+      const result = executeAutoMergeMergeOnly(targetConfig, context, { runner: mergeRunner,
+        inspectState: (cfg, ctx) => inspectAutoMergeGithubState(
+          { ...cfg, repositorySlug: repositoryContext.context.argvRepository || cfg.repositorySlug },
+          { issue: ctx.issue, prUrlOrNumber: pr.number, laneDecision: ctx.laneDecision,
+            reviewerProvider: state?.reviewerProviderPin || stackReviewerProvider(cfg) },
+          { runner: mergeRunner }),
+      });
       return result.result === "merged" || result.result === "dry_run_eligible"
         ? { ok: true, merged: result.result === "merged", mergeSha: result.mergeSha || null, result }
         : fail(result.reason || "merge_blocked", result.reason || "merge blocked");
@@ -5440,6 +5449,7 @@ async function collectFinalGateEvidence({ config, plan = {}, state, pr, runner, 
     requiredChecks: inspection.requiredChecks || [],
     reviewThreads: inspection.reviewThreads || [],
     codeScanningAlerts: inspection.codeScanningAlerts || [],
+    hostedCodexReview: inspection.hostedCodexReview || null,
     blockingMarkers: inspection.blockingMarkers || [],
     validation: validation.validation,
     reviewEvidence: { strongIndependent: reviewEvidence.strongIndependent, codex: reviewEvidence.codex },
