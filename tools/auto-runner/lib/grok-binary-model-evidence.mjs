@@ -45,6 +45,9 @@ export function prepareGrokBinaryModelEvidence({ repoRoot, baseSha, headSha, cha
   readGit = gitRead, model = pinnedRupeeRecoveryModel } = {}) {
   const raw = String(diff || "");
   if (!/^GIT binary patch$/m.test(raw) && !/^Binary files .+ differ$/m.test(raw)) {
+    if (Array.isArray(changedFiles) && changedFiles.includes(model.path)) {
+      return fail("blocked_grok_binary_model_patch_missing");
+    }
     return { ok: true, reviewDiff: raw, originalDiffSha256: sha256(raw), binaryArtifacts: [] };
   }
   if (!fullSha.test(baseSha || "") || !fullSha.test(headSha || "")
@@ -58,7 +61,14 @@ export function prepareGrokBinaryModelEvidence({ repoRoot, baseSha, headSha, cha
   } catch { return fail("blocked_grok_binary_git_diff_unavailable"); }
   if (canonical !== raw) return fail("blocked_grok_binary_diff_not_immutable_candidate");
   const blocks = raw.split(/(?=^diff --git )/m).filter(Boolean);
-  const paths = blocks.map((block) => block.match(/^diff --git a\/(.+?) b\/\1(?:\r?\n|$)/)?.[1]);
+  const paths = blocks.map((block) => {
+    const header = block.split(/\r?\n/, 1)[0];
+    const match = header.match(/^diff --git a\/(.+) b\/(.+)$/);
+    if (!match || match[1].startsWith('"') || match[2].startsWith('"')) return null;
+    if (match[1] !== match[2]
+      && (!block.includes(`rename from ${match[1]}\n`) || !block.includes(`rename to ${match[2]}\n`))) return null;
+    return match[2];
+  });
   if (paths.some((entry) => !entry) || !sameFiles(paths, changedFiles)) {
     return fail("blocked_grok_binary_changed_path_coverage_mismatch");
   }

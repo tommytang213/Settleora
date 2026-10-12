@@ -234,6 +234,8 @@ function parseWorktrees(value) {
   return result;
 }
 
+const maxGitOutputBytes = 16 * 1024 * 1024;
+
 export function runGit(args, options = {}) {
   const cwd = options.cwd || trustedRepositoryContext || process.cwd();
   const result = spawnSync("git", args, {
@@ -275,7 +277,7 @@ export function sourceStateIdentityForCommit({ baseRef = "origin/main", headRef 
   const treeResult = runGit(["rev-parse", `${headRef}^{tree}`], { cwd });
   assertGitSuccess(treeResult, `Unable to resolve tree for ${headRef}`);
   const treeId = treeResult.stdout.trim();
-  const diff = runGit(["diff", "--binary", `${baseRef}...${headRef}`], { cwd });
+  const diff = runGit(["diff", "--binary", `${baseRef}...${headRef}`], { cwd, maxBuffer: maxGitOutputBytes });
   assertGitSuccess(diff, `Unable to read cumulative diff for ${baseRef}...${headRef}`);
   if (!diff.stdout.trim()) {
     return { exactHead, treeId, patchId: null, patchIdReason: "empty_cumulative_diff" };
@@ -284,6 +286,7 @@ export function sourceStateIdentityForCommit({ baseRef = "origin/main", headRef 
     cwd,
     input: diff.stdout,
     encoding: "utf8",
+    maxBuffer: maxGitOutputBytes,
     windowsHide: true,
   });
   if (patchId.error || patchId.status !== 0) {

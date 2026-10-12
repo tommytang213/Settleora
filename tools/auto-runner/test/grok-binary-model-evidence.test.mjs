@@ -64,7 +64,10 @@ test("Grok binary projection fails closed on altered diff, path list, or catalog
     "blocked_grok_binary_changed_path_coverage_mismatch");
   assert.equal(fixture({ catalog: { ...catalog, packs: [{ ...catalog.packs[0], files: [] }] } }).reason,
     "blocked_grok_binary_catalog_contract_mismatch");
-  assert.equal(fixture({ modelBytes: Buffer.from("same size but a different payload!") }).reason,
+  const alteredBytes = Buffer.from(modelBytes);
+  alteredBytes[0] ^= 1;
+  assert.equal(alteredBytes.length, modelBytes.length);
+  assert.equal(fixture({ modelBytes: alteredBytes }).reason,
     "blocked_grok_binary_model_hash_or_size_mismatch");
   const extraBinary = diff + binaryPatch;
   assert.equal(fixture({ diff: extraBinary, canonicalDiff: extraBinary,
@@ -83,4 +86,14 @@ test("text changes mentioning the Git binary marker remain ordinary text", () =>
   assert.equal(result.ok, true);
   assert.equal(result.reviewDiff, textOnly);
   assert.deepEqual(result.binaryArtifacts, []);
+  assert.equal(prepareGrokBinaryModelEvidence({ changedFiles: [path], diff: textOnly }).reason,
+    "blocked_grok_binary_model_patch_missing");
+});
+
+test("an unrelated rename preserves destination path coverage beside the model", () => {
+  const rename = "diff --git a/src/old.js b/src/new.js\nsimilarity index 100%\nrename from src/old.js\nrename to src/new.js\n";
+  const candidate = binaryPatch + rename;
+  const result = fixture({ diff: candidate, canonicalDiff: candidate, changedFiles: [path, "src/new.js"] });
+  assert.equal(result.ok, true);
+  assert.match(result.reviewDiff, /rename to src\/new.js/);
 });
