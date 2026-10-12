@@ -61,6 +61,7 @@ import {
 } from "./lib/historical-initial-candidate-lineage.mjs";
 import { generateTaskPrompt } from "./lib/task-prompt.mjs";
 import { runCodexPrompt, runReviewPrompt } from "./lib/codex-runner.mjs";
+import { pinnedRupeeRecoveryModel } from "./lib/grok-binary-model-evidence.mjs";
 import { collectReport } from "./lib/report-collector.mjs";
 import { bindValidationEvidence, planValidation, runValidationPlan } from "./lib/validation-planner.mjs";
 import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } from "./lib/pr-manager.mjs";
@@ -2935,7 +2936,9 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
   // Pre-change continuation states hashed getBoundedDiff()'s 512,000-character
   // projection. Authenticate that legacy digest only when the original bound
   // actually truncated this exact Git diff; keep the persisted identity and
-  // its phase targets unchanged for the remainder of recovery.
+  // its phase targets unchanged for the remainder of recovery. A legacy hash
+  // affected by color.ui, textconv, or an external diff cannot be reproduced
+  // safely here and must stop as a candidate identity mismatch.
   const exactIdentityMatches = ordinaryCandidateIdentityMatches(initial.identity, actualIdentity);
   const legacyDiff = exactIdentityMatches ? null : getBoundedDiff(initial.identity.baseSha, initial.identity.headSha);
   if (!ordinaryRecoveryIdentityMatches(initial.identity, actualIdentity, legacyDiff)) {
@@ -3795,7 +3798,11 @@ function recordTaskWorktreeOwnershipMarker(config, recoveryRecorder, branchName)
 
 function canonicalCandidateDiffDigest(baseSha, headSha) {
   const diff = getBoundedDiff(baseSha, headSha, 16 * 1024 * 1024);
-  if (diff.truncated) throw new Error("Candidate diff exceeds canonical identity bound");
+  if (diff.truncated) {
+    const error = new Error("Candidate diff exceeds canonical identity bound");
+    error.code = "candidate_diff_identity_unavailable_or_over_bound";
+    throw error;
+  }
   return createHash("sha256").update(diff.text).digest("hex");
 }
 
@@ -5095,7 +5102,29 @@ async function runReviewFixCycle(config, context) {
   };
   let externalReviewAfter;
   let reviewAfter;
-  if (grokPostFix) {
+  // An uncommitted binary patch has no immutable Git blob identity to attest.
+  // Review the dirty tree locally, then run both independent reviewers against
+  // the committed exact head in commitReviewFixAndRerunExactHeadReviews.
+  const binaryNeedsExactHead = grokPostFix && integratedReviewPackageAfter.summary?.workingTreeReview === true
+    && (changedFilesAfter.includes(pinnedRupeeRecoveryModel.path)
+      || /^(?:GIT binary patch|Binary files .+ differ)$/m.test(integratedReviewPackageAfter.diff || ""));
+  if (binaryNeedsExactHead) {
+    const pendingMechanics = buildPostReviewFixMechanicsContext({ ...mechanicsInput, externalReviewPending: true });
+    if (!pendingMechanics.ok) return finishBlocked(`review_fix_post_fix_mechanics_context_invalid:${pendingMechanics.reason}`,
+      { validationAfter: summarizeValidation(validationAfter) });
+    integratedReviewPackageAfter = await writeReviewPackage(config, {
+      issue: context.issue, promptInfo: context.promptInfo, laneDecision: context.laneDecision,
+      changedFiles: changedFilesAfter, validation: validationAfter, report: context.report,
+      reviewPhase: "post-review-fix-mechanics", reviewFixMechanicsContext: pendingMechanics.context,
+    });
+    externalReviewAfter = { status: "skipped", reason: "binary_review_deferred_until_committed_exact_head" };
+    try {
+      reviewAfter = await runCodexReviewInWorker(config, { ...integratedReviewPackageAfter,
+        sessionLifecycle: context.issue.sessionLifecycle || context.sessionLifecycle || null });
+    } catch {
+      return finishBlocked("review_fix_post_fix_local_reviewer_invocation_failed", { validationAfter: summarizeValidation(validationAfter) });
+    }
+  } else if (grokPostFix) {
     const pendingMechanics = buildPostReviewFixMechanicsContext({ ...mechanicsInput, externalReviewPending: true });
     if (!pendingMechanics.ok) return finishBlocked(`review_fix_post_fix_mechanics_context_invalid:${pendingMechanics.reason}`,
       { validationAfter: summarizeValidation(validationAfter) });
@@ -5989,7 +6018,11 @@ function renderSecurityFindingsDryRunText(result) {
 
 if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
   main().catch((error) => {
-    console.error(error.stack || error.message);
+    if (error.code === "candidate_diff_identity_unavailable_or_over_bound") {
+      console.error(JSON.stringify({ outcome: "blocked", reasonCode: error.code, detail: error.message }));
+    } else {
+      console.error(error.stack || error.message);
+    }
     process.exit(1);
   });
 }
