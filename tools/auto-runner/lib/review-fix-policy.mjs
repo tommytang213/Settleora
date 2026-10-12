@@ -458,6 +458,17 @@ export function requiredReviewFixReviewerTier(laneDecision = {}) {
   return laneDecision.reviewerTier || laneDecision.laneManifest?.reviewerTier || "cheap_independent";
 }
 
+function integratedReviewTriggerSource(externalReview) {
+  if (externalReview?.provider === "grok") return "integrated_grok";
+  if (externalReview?.provider === "review_fix_canary_fixture") return "review_fix_canary_fixture";
+  // Providerless and generic "external" checkpoints predate provider pinning
+  // and retain their legacy trigger. An unrecognized named provider is not actionable.
+  if (!externalReview?.provider || externalReview.provider === "external" || externalReview.provider === "gemini") {
+    return "integrated_gemini";
+  }
+  return null;
+}
+
 export function extractReviewFixTrigger(input = {}) {
   const externalReview = input.externalReview || null;
   const review = input.review || null;
@@ -471,9 +482,11 @@ export function extractReviewFixTrigger(input = {}) {
     Array.isArray(externalVerdict.findings) &&
     externalVerdict.findings.length > 0
   ) {
+    const source = integratedReviewTriggerSource(externalReview);
+    if (!source) return { actionable: false, source: "unknown", reason: "external_review_provider_unsupported", findings: [] };
     return {
       actionable: true,
-      source: externalReview.provider === "review_fix_canary_fixture" ? "review_fix_canary_fixture" : "integrated_gemini",
+      source,
       verdict: externalVerdict.verdict,
       findings: sanitizeFindings(externalVerdict.findings),
     };
@@ -493,7 +506,7 @@ export function extractReviewFixTrigger(input = {}) {
     };
   }
   if (externalReview?.status === "blocked") {
-    return { actionable: false, source: "integrated_gemini", reason: `external_review_not_actionable:${externalReview.reason || "unknown"}`, findings: [] };
+    return { actionable: false, source: integratedReviewTriggerSource(externalReview) || "unknown", reason: `external_review_not_actionable:${externalReview.reason || "unknown"}`, findings: [] };
   }
   if (verdict?.verdict) {
     return { actionable: false, source: "codex_mechanics", reason: `codex_review_not_actionable:${verdict.verdict}`, findings: [] };

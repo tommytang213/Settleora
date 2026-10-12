@@ -7506,7 +7506,8 @@ test("generated implementation prompts prohibit implementation Codex GitHub muta
     ).prompt;
     assert.match(prompt, /Do not push to any remote\./);
     assert.match(prompt, /Do not open or update pull requests\./);
-    assert.match(prompt, /Do not merge\./);
+    assert.match(prompt, /This is the local implementation-worker phase: do not invoke a merge here/);
+    assert.match(prompt, /The runner may merge the eventual PR only if its lane permits and its separate exact-head review, CI, scope, and applicable Atlas or protected-action gates pass/);
     assert.match(prompt, /Do not change GitHub labels, issues, or comments\./);
     assert.match(prompt, /The runner owns explicit-path staging, commit, push, PR creation\/update, CI watching, and issue outcome labels\/comments/);
     assert.match(prompt, /Do not commit; leave intended file changes in the local checkout/);
