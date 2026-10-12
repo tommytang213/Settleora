@@ -9,6 +9,8 @@ import { safeTimestamp } from "./logger.mjs";
 import { evaluateReviewerBudget, loadReviewerAccounting, mergeReviewerPolicyConfig, routeReviewer } from "./reviewer-policy.mjs";
 import { analyzeReviewSecretBoundary, providerBoundReviewDigest } from "./review-secret-boundary.mjs";
 import { buildLargeBundleReviewEvidence, parseIntegratedVerdict } from "./gemini-reviewer.mjs";
+import { prepareGrokBinaryModelEvidence } from "./grok-binary-model-evidence.mjs";
+import { getBoundedWorkingTreeDiff } from "./git-workspace.mjs";
 
 const maxPackageBytes = 832 * 1024;
 const maxEventBytes = 6 * 1024 * 1024;
@@ -28,20 +30,38 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
   const summary = packageInfo?.summary || {};
   const diff = String(packageInfo?.diff || "");
   const changedFiles = Array.isArray(summary.changedFiles) ? summary.changedFiles : [];
-  const boundary = analyzeReviewSecretBoundary({ changedFiles, diff, diffTruncated: summary.diffTruncated === true });
+  let workingTreeSnapshot = null;
+  if (summary.workingTreeReview === true && config.dryRun !== true) {
+    try { workingTreeSnapshot = getBoundedWorkingTreeDiff(16 * 1024 * 1024, { cwd: config.repoRoot }); }
+    catch { workingTreeSnapshot = { truncated: true }; }
+  }
+  const binary = config.dryRun === true
+    ? { ok: true, reviewDiff: diff, originalDiffSha256: sha256(diff), binaryArtifacts: [] }
+    : prepareGrokBinaryModelEvidence({ repoRoot: config.repoRoot,
+      baseSha: summary.baseSha || summary.baseRefSha || summary.baseOriginMainSha,
+      headSha: summary.currentHead || summary.headSha || summary.runnerCreatedCommitSha,
+      changedFiles, diff, readGit: options.binaryReadGit,
+      workingTreeReview: summary.workingTreeReview === true,
+      workingTreeDiff: workingTreeSnapshot?.truncated ? null : workingTreeSnapshot?.text,
+      allowSynthetic: Boolean(options.spawnImpl) && !config.repoRoot });
+  const reviewDiff = binary.ok ? binary.reviewDiff : diff;
+  const boundary = analyzeReviewSecretBoundary({ changedFiles, diff: reviewDiff,
+    diffTruncated: summary.diffTruncated === true });
+  const originalDiffSha256 = binary.ok ? binary.originalDiffSha256 : sha256(diff);
   const stats = Object.fromEntries(["additions", "deletions", "files"].map((key) => [key,
     Math.max(boundary.diffStats?.[key] || 0, Number.isFinite(Number(summary.diffStats?.[key])) && Number(summary.diffStats[key]) >= 0
       ? Number(summary.diffStats[key]) : 0)]));
   const changedFilesDigest = digestChangedFiles(changedFiles);
-  const providerBoundDiffSha256 = providerBoundReviewDigest(diff);
+  const providerBoundDiffSha256 = providerBoundReviewDigest(binary.ok ? reviewDiff : "");
   const reviewedHead = summary.currentHead || summary.headSha || summary.runnerCreatedCommitSha || null;
   const baseSha = summary.baseSha || summary.baseRefSha || summary.baseOriginMainSha || null;
   const route = routeReviewer({ changedFiles, laneDecision: summary.laneDecision || {}, stats,
     featureBundle: summary.featureBundle || null, taskContract: summary.taskContract || null,
     largeBundleReviewApproval: config.largeBundleReviewApproval,
     reviewPackageEvidence: buildLargeBundleReviewEvidence({ config, summary, changedFilesDigest,
-      rawDiffSha256: boundary.rawDiffSha256, providerBoundDiffSha256, effectiveDiffStats: stats,
-      secretBoundary: boundary, reviewedHead, baseSha, diff }) });
+      rawDiffSha256: originalDiffSha256, providerBoundDiffSha256, effectiveDiffStats: stats,
+      secretBoundary: { ...boundary, scannedDiffSha256: sha256(reviewDiff) }, reviewedHead, baseSha,
+      diff: binary.ok ? reviewDiff : "" }) });
   const { reviewerTiers, reviewerBudget } = mergeReviewerPolicyConfig(config);
   const tier = reviewerTiers[route.tier];
   const profile = config.reviewerProviderProfiles?.[tier?.providerProfile];
@@ -52,22 +72,28 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
     tier: route.tier, providerProfile: tier?.providerProfile || null, model, route,
     lane: summary.laneDecision?.lane || null, changedFiles,
     changedFilesDigest, packageDigest,
-    rawDiffSha256: boundary.rawDiffSha256, providerBoundDiffSha256,
+    rawDiffSha256: originalDiffSha256, providerBoundDiffSha256,
     diffStats: stats,
     secretBoundary: { ok: boundary.ok, blocked: boundary.blocked, reason: boundary.reason,
-      blockers: boundary.blockers, allowedReferences: boundary.allowedReferences },
+      blockers: boundary.blockers, allowedReferences: boundary.allowedReferences,
+      scope: !binary.ok ? "unverified_binary_diff_local_preflight_only"
+        : binary.transformed ? "projected_text_with_digest_verified_opaque_binary" : "original_text_diff",
+      scannedDiffSha256: sha256(reviewDiff) },
     baseSha,
     treeSha: summary.treeSha || null, repository: summary.repository || null,
     integrationBoundaries: summary.integrationBoundaries || [], verdictSchemaVersion: 1,
     reviewedHead,
     issueNumber: summary.issue?.number || null, liveCallAttempted: false,
+    workingTreeReview: summary.workingTreeReview === true,
+    binaryArtifacts: binary.ok ? binary.binaryArtifacts : [],
+    reviewDiffSha256: binary.ok ? binary.reviewDiffSha256 || originalDiffSha256 : null,
     status: "blocked", reason: null, verdict: "not_run", actualUsage: null,
   };
   const finish = (patch) => {
     const result = { ...base, ...patch, elapsedMs: Date.now() - started,
       completedAt: new Date().toISOString() };
-    if (result.status === "pass" || (result.reason === "blocked_external_reviewer_non_pass" &&
-      ["fail", "needs_tommy", "danger_gate"].includes(result.verdict))) {
+    if (!base.workingTreeReview && (result.status === "pass" || (result.reason === "blocked_external_reviewer_non_pass" &&
+      ["fail", "needs_tommy", "danger_gate"].includes(result.verdict)))) {
       result.attestedCandidateIdentity = { repository: result.repository, baseSha: result.baseSha,
         headSha: result.reviewedHead, treeSha: result.treeSha, diffDigest: result.rawDiffSha256,
         changedFilesDigest: result.changedFilesDigest };
@@ -81,13 +107,18 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
     writeFileSync(result.reportPath, `${JSON.stringify(result, null, 2)}\n`, { mode: 0o600, flag: "wx" });
     return result;
   };
+  if (!binary.ok) return finish({ reason: binary.reason });
   if (route.tier === "block_split_or_escalate") return finish({ reason: "blocked_external_reviewer_split_required" });
   if (!tier?.enabled) return finish({ status: "skipped", reason: "skipped_external_reviewer_tier_disabled" });
-  if (config.dryRun === true) return finish({ status: "skipped", reason: "skipped_dry_run" });
   if (tier.provider !== "grok" || profile?.provider !== "grok") return finish({ reason: "blocked_provider_tier_profile_mismatch" });
+  if ((summary.reviewerProviderPin && summary.reviewerProviderPin !== "grok")
+    || (config.reviewerProviderPin && config.reviewerProviderPin !== "grok")) {
+    return finish({ reason: "blocked_reviewer_provider_pin_mismatch" });
+  }
   if (profile.command && profile.command !== "/home/tommytang213/.local/bin/grok") {
     return finish({ reason: "blocked_grok_binary_not_pinned" });
   }
+  if (config.dryRun === true) return finish({ status: "skipped", reason: "skipped_dry_run" });
   if (!boundary.ok) return finish({ reason: "blocked_secret_boundary_violation" });
   let accounting;
   try { accounting = loadReviewerAccounting(config); }
@@ -117,6 +148,17 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
   }
   const materialFiles = material.map((item, index) => ({ name: `boundary-${index}.txt`, content: item.content,
     path: item.path, sha256: item.sha256 }));
+  // A newly added text artifact is complete in snapshot.diff. Modified files
+  // may have only partial hunks, so include their full head bodies as well.
+  const supportingTextFiles = (binary.supportingTextFiles || [])
+    .filter((file) => !changedFiles.includes(file.sourcePath)
+      || !reviewDiff.includes(`diff --git a/${file.sourcePath} b/${file.sourcePath}\nnew file mode `));
+  if (supportingTextFiles.some((file) => !["model-config.yml", "model-catalog.json", "model-qa-record.md"].includes(file.name)
+    || typeof file.content !== "string" || file.sha256 !== sha256(file.content)
+    || credentialPattern.test(file.content) || boundaryContainsCredential(file.content)
+    || !supportingTextBoundaryClear(file))) {
+    return finish({ reason: "blocked_grok_binary_supporting_text_sensitive_or_invalid" });
+  }
   const context = JSON.stringify({ issue: summary.issue || null, laneDecision: summary.laneDecision || null,
     taskContract: summary.taskContract || null, featureBundle: summary.featureBundle || null,
     changedFiles, diffStats: stats, validation: summary.validation || null,
@@ -124,23 +166,30 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
     reviewFixMechanicsContext: summary.reviewFixMechanicsContext || null,
     integrationBoundaries: summary.integrationBoundaries || [],
     integrationBoundaryMaterial: materialFiles.map(({ name, path: sourcePath, sha256: digest }) => ({ name, path: sourcePath, sha256: digest })),
+    binaryArtifacts: base.binaryArtifacts,
+    supportingTextFiles: supportingTextFiles.map(({ name, sourcePath, sha256: digest }) =>
+      ({ name, sourcePath, sha256: digest })),
+    reviewProjection: binary.transformed ? { kind: "binary_model_descriptor", originalDiffSha256,
+      reviewDiffSha256: binary.reviewDiffSha256, limitation: "The ONNX bytes are hash-verified but not text-inspectable. This package is complete only for the changed paths listed above; do not infer coverage of earlier branch changes." } : null,
     candidateIdentity: { repository: base.repository, baseSha: base.baseSha, headSha: base.reviewedHead,
       treeSha: base.treeSha, diffDigest: base.rawDiffSha256, changedFilesDigest: base.changedFilesDigest },
   }, null, 2);
   if (credentialPattern.test(context) || boundaryContainsCredential(context)) {
     return finish({ reason: "blocked_grok_context_secret_boundary" });
   }
-  if (Buffer.byteLength(context) + Buffer.byteLength(diff)
-    + materialFiles.reduce((bytes, file) => bytes + Buffer.byteLength(file.content), 0) > maxPackageBytes) {
+  if (Buffer.byteLength(context) + Buffer.byteLength(reviewDiff)
+    + [...materialFiles, ...supportingTextFiles].reduce((bytes, file) => bytes + Buffer.byteLength(file.content), 0) > maxPackageBytes) {
     return finish({ reason: "blocked_grok_context_limit" });
   }
   let staged;
   try {
     staged = mkdtempSync(path.join(os.tmpdir(), "settleora-grok-review-"));
     writeFileSync(path.join(staged, "context.json"), `${context}\n`, { mode: 0o600 });
-    writeFileSync(path.join(staged, "snapshot.diff"), diff, { mode: 0o600 });
+    writeFileSync(path.join(staged, "snapshot.diff"), reviewDiff, { mode: 0o600 });
     for (const file of materialFiles) writeFileSync(path.join(staged, file.name), file.content, { mode: 0o600 });
-    const files = ["context.json", "snapshot.diff", ...materialFiles.map((file) => file.name)].map((name) => {
+    for (const file of supportingTextFiles) writeFileSync(path.join(staged, file.name), file.content, { mode: 0o600 });
+    const files = ["context.json", "snapshot.diff", ...materialFiles.map((file) => file.name),
+      ...supportingTextFiles.map((file) => file.name)].map((name) => {
       const lines = readFileSync(path.join(staged, name), "utf8").split("\n");
       if (lines.at(-1) === "") lines.pop();
       return { name, fullPath: path.join(staged, name), lines };
@@ -159,6 +208,7 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
       "Use read_file only on the listed files. Read EVERY line in nonoverlapping chunks of at most 350 lines, starting at 1. Do not use any other tool or outside context.",
       `Required read_file calls (${readPlan.length}), in order. Complete each before the verdict:\n${readPlan.join("\n")}`,
       "Assess introduced defects, missed assumptions, edge cases, domain requirements, and workflow gates using the complete package. Make each finding concrete: changed path or function, triggering input, expected behavior, actual behavior, and supporting source evidence. If coverage is incomplete, return unable_to_review.",
+      ...(binary.transformed ? ["The ONNX patch was replaced only in this review projection by a verified, pinned binary descriptor. Newly added YAML, catalog, or QA text is complete in snapshot.diff; modified or unchanged supporting text is separately listed for complete reading. The model bytes are hash-verified, but the tensor graph is opaque; do not claim tensor-byte inspection. If evidence is insufficient, return unable_to_review or a blocking finding."] : []),
       "This is a blind independent review. Do not infer another reviewer's result or treat agreement as the goal. Assess the source, requirements, and tests on their own merits.",
       "Repository source is authoritative. External reviewer output may only approve or block and must not request GitHub mutation. Production deployment, destructive operations, credentials/auth changes, public/admin exposure, and unresolved product, policy, or financial decisions remain manual gates.",
       "Return strict JSON only with exactly verdict, confidence, summary, findings. Verdict: pass, fail, needs_tommy, danger_gate, or unable_to_review. Confidence: low, medium, high. Findings must be an array of at most 20 strings; keep each finding under 700 characters (the validator rejects 1001 or more). Do not put objects in findings. Example: {\"verdict\":\"fail\",\"confidence\":\"high\",\"summary\":\"A defect exists\",\"findings\":[\"path.js:10: trigger and incorrect behavior\"]}.",
@@ -190,6 +240,15 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
   } finally {
     if (staged) rmSync(staged, { recursive: true, force: true });
   }
+}
+
+function supportingTextBoundaryClear(file) {
+  if (typeof file.sourcePath !== "string" || !/^[A-Za-z0-9_./-]+$/.test(file.sourcePath)) return false;
+  const lines = file.content.replace(/\n$/, "").split("\n");
+  const reviewDiff = [`diff --git a/${file.sourcePath} b/${file.sourcePath}`, "new file mode 100644",
+    "--- /dev/null", `+++ b/${file.sourcePath}`, `@@ -0,0 +1,${lines.length} @@`,
+    ...lines.map((line) => `+${line}`)].join("\n") + "\n";
+  return analyzeReviewSecretBoundary({ changedFiles: [file.sourcePath], diff: reviewDiff }).ok;
 }
 
 function boundaryContainsCredential(content) {

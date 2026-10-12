@@ -81,6 +81,32 @@ test("Grok verdict parser accepts one bounded JSON object after CLI preface", ()
   ] })).verdict.findings.length, 1);
 });
 
+test("Grok dry-run skips before immutable diff validation or a provider call", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-grok-dry-run-"));
+  try {
+    const config = { logsRoot: root, dryRun: true, repoRoot: root, reviewerProviderPin: "grok",
+      reviewerTiers: Object.fromEntries(["cheap_independent", "strong_independent"].map((tier) => [tier,
+        { enabled: true, provider: "grok", providerProfile: "grok", model: "grok-4.7" }])),
+      reviewerProviderProfiles: { grok: { provider: "grok", command: "/home/tommytang213/.local/bin/grok" } } };
+    const summary = { baseSha: "a".repeat(40), currentHead: "b".repeat(40),
+      changedFiles: ["src/example.js"], reviewerProviderPin: "grok",
+      laneDecision: { lane: "workflow-docs-tooling", reviewerTier: "strong_independent" } };
+    const packageInfo = { summary, diff: "noncanonical synthetic dry-run" };
+    const options = { spawnImpl: () => { throw Error("dry-run must not call provider"); } };
+    const result = await runGrokIntegratedReview(config, packageInfo, options);
+    assert.equal(result.status, "skipped");
+    assert.equal(result.reason, "skipped_dry_run");
+    assert.equal(result.liveCallAttempted, false);
+    const split = await runGrokIntegratedReview(config, { ...packageInfo,
+      summary: { ...summary, laneDecision: { ...summary.laneDecision, splitRequired: true },
+        diffStats: { additions: 1000, deletions: 0 } } }, options);
+    assert.equal(split.reason, "blocked_external_reviewer_split_required");
+    const mispinned = await runGrokIntegratedReview(config, { ...packageInfo,
+      summary: { ...summary, reviewerProviderPin: "gemini" } }, options);
+    assert.equal(mispinned.reason, "blocked_reviewer_provider_pin_mismatch");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("Grok CLI invocation binds subscriber auth and verifies complete file coverage", async () => {
   process.env.XAI_API_KEY = "test";
   process.env.GH_TOKEN = "test";
