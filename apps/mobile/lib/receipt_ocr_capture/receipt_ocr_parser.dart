@@ -7223,6 +7223,71 @@ bool _receiptRoleColumns(List<ReceiptOcrBlockEvidence> row) {
   return bottom - top >= (a < b ? a : b) / 2;
 }
 
+// Provider row IDs cannot establish that a cell is outside a printed panel.
+// Check its complete physical band, including column gaps and short headings.
+bool _receiptRolePanelHasCompetingCells(
+  List<List<ReceiptOcrBlockEvidence>> rows,
+  int start,
+  int length,
+) {
+  final selected = rows.sublist(start, start + length);
+  final panel = _receiptRoleBox(selected.expand((row) => row).toList());
+  final boxes = selected.map(_receiptRoleBox).toList();
+  if (panel == null || boxes.any((box) => box == null)) return true;
+  final heights = boxes.map((box) => box!.bottom - box.top).toList()..sort();
+  for (var i = 0; i < rows.length; i++) {
+    if (i >= start && i < start + length) continue;
+    for (final block in rows[i]) {
+      final other = _receiptRoleBox([block]);
+      if (other == null) return true;
+      final otherHeight = other.bottom - other.top;
+      final margin = heights.first < otherHeight ? heights.first : otherHeight;
+      if (other.right > panel.left - margin &&
+          other.left < panel.right + margin &&
+          other.bottom > panel.top &&
+          other.top < panel.bottom) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+bool _receiptRoleFuelMeasurements(
+  List<List<ReceiptOcrBlockEvidence>> panel,
+  ReceiptOcrItemCandidate fuel,
+) {
+  // A three-digit comma suffix is ambiguous with the existing grouping
+  // parser. It cannot prove a complete measurement without locale evidence.
+  const number = r'\d+(?:\.\d{1,3}|,\d{1,2})?';
+  final volume = _normalizeOcrLine(panel[2][1].text).trim();
+  if (!RegExp('^$number\$').hasMatch(volume) ||
+      !RegExp(r'[1-9]').hasMatch(volume) ||
+      _normalizeAmount(volume) != fuel.quantity) {
+    return false;
+  }
+  final rate = RegExp(
+    '^($_currencyTokenPattern)?\\s*($number)'
+    '(?:\\s*($_currencyTokenPattern))?\$',
+    caseSensitive: false,
+  ).firstMatch(_normalizeOcrLine(panel[3][1].text).trim());
+  if (rate == null ||
+      !RegExp(r'[1-9]').hasMatch(rate.group(2)!) ||
+      _normalizeAmount(rate.group(2)!) != fuel.unitPrice) {
+    return false;
+  }
+  for (final marker in [rate.group(1), rate.group(3)].whereType<String>()) {
+    final printed = _currencyAdjacentToSelectedAmount(
+      '$marker ${rate.group(2)}',
+      fuel.currency,
+    );
+    if (!printed.hasExplicitEvidence || printed.currency != fuel.currency) {
+      return false;
+    }
+  }
+  return true;
+}
+
 // A pump number belongs to a complete, aligned fuel measurement panel.
 // Neither the word "pump" nor agreement with the total alone owns a price.
 Set<int> _ownedFuelPumpRows(
@@ -7251,7 +7316,8 @@ Set<int> _ownedFuelPumpRows(
         ) ||
         _lastAmountInLine(lines[i + 4], currency: fuel.currency) !=
             fuel.lineTotal ||
-        _cleanDescription(panel[1][1].text) != fuel.description) {
+        _cleanDescription(panel[1][1].text) != fuel.description ||
+        !_receiptRoleFuelMeasurements(panel, fuel)) {
       continue;
     }
     final boxes = panel.map(_receiptRoleBox).toList();
@@ -7271,7 +7337,9 @@ Set<int> _ownedFuelPumpRows(
         break;
       }
     }
-    if (valid) owned.add(i);
+    if (valid && !_receiptRolePanelHasCompetingCells(rows, i, 5)) {
+      owned.add(i);
+    }
   }
   return owned;
 }
@@ -7319,7 +7387,10 @@ Set<int> _ownedClosedPaymentPanelRows(
     return const {};
   }
   final boxes = rows.skip(total).map(_receiptRoleBox).toList();
-  if (boxes.any((b) => b == null)) return const {};
+  if (boxes.any((b) => b == null) ||
+      _receiptRolePanelHasCompetingCells(rows, total, 6)) {
+    return const {};
+  }
   for (var i = 1; i < boxes.length; i++) {
     if (!_receiptRoleFollows(boxes[i - 1]!, boxes[i]!)) return const {};
   }

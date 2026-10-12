@@ -1,119 +1,117 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mobile/receipt_ocr_capture/receipt_ocr_parser.dart';
+import '../support/fuel_metadata_receipt.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
 
-List<ReceiptOcrBlockEvidence> receipt({
-  String merchant = 'GARDEN FUEL STOP',
-  String pump = '7',
-  String volumeLabel = 'GALLONS',
-  String rateLabel = 'PRICE/GAL',
-  String heading = 'Payment Method',
-  String card = 'Mastercard  1234',
-  String approval = 'APPROVED',
-  String referenceText = 'AUTH # 543210',
-  String closing = 'Drive safe.',
-  bool omitRate = false,
-  bool extraPurchase = false,
-  bool extraFooterPrice = false,
-  bool weakGeometry = false,
-  double scale = 1,
-  double dx = 0,
-}) {
-  final rows = <List<String>>[
-    [merchant],
-    ['10 Meadow Road'],
-    ['Sample City, OR 97000'],
-    ['(555) 010-2323'],
-    ['DATE', '2026-02-11 12:30'],
-    ['PUMP', pump],
-    ['FUEL', 'Regular Unleaded'],
-    [volumeLabel, '12.500'],
-    if (!omitRate) [rateLabel, 'USD 3.200'],
-    if (extraPurchase) ['Water Pump', 'USD 5.00'],
-    ['TOTAL', 'USD 40.00'],
-    [heading],
-    [card],
-    [approval, referenceText],
-    ['Thank you!'],
-    [closing],
-  ];
-  final blocks = <ReceiptOcrBlockEvidence>[];
-  for (var row = 0; row < rows.length; row++) {
-    final parts = rows[row];
-    final y = row * 32.0 + (row >= rows.length - 5 ? 12 : 0);
-    for (var col = 0; col < parts.length; col++) {
-      final footer = row >= rows.length - 2;
-      final x = footer ? 100.0 : (col == 0 ? 10.0 : 180.0);
-      final width = footer ? 150.0 : (parts.length == 1 ? 230.0 : 140.0);
-      blocks.add(
-        ReceiptOcrBlockEvidence(
-          text: parts[col],
-          row: row,
-          order: blocks.length,
-          confidence: weakGeometry && row == rows.length - 5 ? 0.4 : 0.99,
-          points: [
-            ReceiptOcrPoint(x: dx + x * scale, y: y * scale),
-            ReceiptOcrPoint(x: dx + (x + width) * scale, y: y * scale),
-            ReceiptOcrPoint(x: dx + (x + width) * scale, y: (y + 20) * scale),
-            ReceiptOcrPoint(x: dx + x * scale, y: (y + 20) * scale),
-          ],
-        ),
+void main() {
+  for (final scale in [0.5, 2.0]) {
+    for (final gap in [0.0, 1.0, 5.0]) {
+      test(
+        'separate date immediately above fuel panel gap=$gap scale=$scale',
+        () {
+          final blocks = transform(
+            receipt(scale: scale),
+            (b) => b.row == 4,
+            points: (ps) => [
+              for (final point in ps)
+                ReceiptOcrPoint(x: point.x, y: point.y + (12 - gap) * scale),
+            ],
+          );
+          final preview = parse(blocks);
+          expect(preview.blocks, blocks);
+          expect(preview.adjustmentsComplete, isTrue);
+          expect(preview.reviewHints, isEmpty);
+        },
       );
     }
+    for (final edge in [(5, -19.0), (14, 19.0)]) {
+      for (final left in [false, true]) {
+        test(
+          'competing cell overlaps panel edge $edge left=$left scale=$scale',
+          () {
+            final blocks = withDetachedPanelCell(
+              targetRow: edge.$1,
+              dy: edge.$2,
+              left: left,
+              scale: scale,
+            );
+            final preview = parse(blocks);
+            expect(preview.blocks, blocks);
+            expect(preview.adjustmentsComplete, isFalse);
+            expect(preview.reviewHints, isNotEmpty);
+          },
+        );
+      }
+    }
   }
-  if (extraFooterPrice) {
-    final y = (rows.length - 2) * 32.0 + 12;
-    blocks.add(
-      ReceiptOcrBlockEvidence(
-        text: 'USD 5.00',
-        row: rows.length - 2,
-        order: blocks.length,
-        confidence: 0.99,
-        points: [
-          ReceiptOcrPoint(x: dx + 255 * scale, y: y * scale),
-          ReceiptOcrPoint(x: dx + 320 * scale, y: y * scale),
-          ReceiptOcrPoint(x: dx + 320 * scale, y: (y + 20) * scale),
-          ReceiptOcrPoint(x: dx + 255 * scale, y: (y + 20) * scale),
-        ],
-      ),
-    );
+  for (final values in [
+    ('12.50', 'USD 3.20'),
+    ('12,50', '3,20 USD'),
+    ('0012.500', 'USD 3.200 USD'),
+  ]) {
+    test('complete measurement forms $values preserve confidence', () {
+      final blocks = receipt(volume: values.$1, rate: values.$2);
+      final preview = parse(blocks);
+      expect(preview.blocks, blocks);
+      expect(preview.total, '40.00');
+      expect(preview.adjustmentsComplete, isTrue);
+      expect(preview.reviewHints, isEmpty);
+    });
   }
-  return blocks;
-}
-
-ReceiptOcrPreview parse(List<ReceiptOcrBlockEvidence> blocks) {
-  final rows = <int, List<String>>{};
-  for (final block in blocks) {
-    (rows[block.row] ??= []).add(block.text);
+  for (final scale in [0.5, 1.0, 2.0]) {
+    for (final row in [5, 6, 7, 8, 9, 10, 11, 12, 13, 14]) {
+      for (final left in [false, true]) {
+        test(
+          'competing cell across fuel/payment panel row $row left=$left scale=$scale',
+          () {
+            final blocks = withDetachedPanelCell(
+              targetRow: row,
+              left: left,
+              scale: scale,
+            );
+            final preview = parse(blocks);
+            expect(preview.blocks, blocks);
+            expect(preview.adjustmentsComplete, isFalse);
+            expect(preview.reviewHints, isNotEmpty);
+            expect(preview.total, '40.00');
+          },
+        );
+      }
+    }
   }
-  return const ReceiptOcrParser().parse(
-    rows.values.map((parts) => parts.join(' ')).join('\n'),
-    blocks: blocks,
-    fallbackCurrency: 'USD',
-  );
-}
-
-List<ReceiptOcrBlockEvidence> transform(
-  List<ReceiptOcrBlockEvidence> blocks,
-  bool Function(ReceiptOcrBlockEvidence) select, {
-  double? confidence,
-  bool missingConfidence = false,
-  List<ReceiptOcrPoint> Function(List<ReceiptOcrPoint>)? points,
-}) => [
-  for (final block in blocks)
-    if (!select(block))
-      block
-    else
-      ReceiptOcrBlockEvidence(
-        text: block.text,
-        row: block.row,
-        order: block.order,
-        confidence: missingConfidence ? null : (confidence ?? block.confidence),
-        points: points?.call(block.points) ?? block.points,
-      ),
-];
-
-void main() {
+  for (final volume in [
+    '12,500',
+    '12.500 or 12.600',
+    '12.500 12.600',
+    '12.500 litres extra',
+    '12.500 mug',
+    '-12.500',
+    '0.000',
+  ]) {
+    test('incomplete measurement volume $volume remains reviewable', () {
+      final blocks = receipt(volume: volume);
+      final preview = parse(blocks);
+      expect(preview.blocks, blocks);
+      expect(preview.adjustmentsComplete, isFalse);
+      expect(preview.reviewHints, isNotEmpty);
+    });
+  }
+  for (final rate in [
+    'USD 3,200',
+    'USD 3.200 or USD 3.300',
+    '3.200 3.300',
+    'USD 3.200 mug',
+    '-3.200',
+    'USD 0.000',
+    'USD 3.200 EUR',
+  ]) {
+    test('incomplete measurement rate $rate remains reviewable', () {
+      final blocks = receipt(rate: rate);
+      final preview = parse(blocks);
+      expect(preview.blocks, blocks);
+      expect(preview.adjustmentsComplete, isFalse);
+      expect(preview.reviewHints, isNotEmpty);
+    });
+  }
   for (final pump in ['1', '7', '24']) {
     for (final scale in [0.5, 1.0, 2.0]) {
       test('complete fuel/payment roles pump $pump scale $scale', () {

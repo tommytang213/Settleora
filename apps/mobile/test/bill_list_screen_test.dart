@@ -3,6 +3,7 @@ import 'dart:async';
 import 'support/brand_copy_receipt.dart';
 import 'support/contact_date_receipt.dart';
 import 'support/financial_role_receipt.dart';
+import 'support/fuel_metadata_receipt.dart' as fuel;
 import 'support/header_reference_receipt.dart';
 import 'support/modifier_receipt.dart';
 import 'support/paired_courtesy_receipt.dart';
@@ -42,6 +43,13 @@ import 'package:mobile/ui/settleora_form_fields.dart';
 void main() {
   for (final group in [false, true]) {
     for (final scenario in [
+      'fuelComplete',
+      'fuelPumpDetachedLeft',
+      'fuelPumpDetachedRight',
+      'fuelPaymentDetachedLeft',
+      'fuelPaymentDetachedRight',
+      'fuelVolumeAlternative',
+      'fuelRateAlternative',
       'pairedCourtesyComplete',
       'pairedCourtesyDetachedLeft',
       'pairedCourtesyDetachedRight',
@@ -110,6 +118,7 @@ void main() {
       'traditionalTaxJoinedMatching',
     ]) {
       final confidentDraft = [
+        'fuelComplete',
         'pairedCourtesyComplete',
         'summaryCurrencyMatchingPrefix',
         'summaryCurrencyMatchingSuffix',
@@ -135,6 +144,7 @@ void main() {
       // Existing Apply copies item amounts only. Gross-matching items remain
       // selectable even when header arithmetic warns; no tax charge is added.
       final canApplyFinancial = [
+        'fuelComplete',
         'pairedCourtesyComplete',
         'contactDateComplete',
         'contactDateNoService',
@@ -155,7 +165,31 @@ void main() {
         'traditionalTaxLowercase',
         'traditionalTaxJoinedMatching',
       ].contains(scenario);
-      final preview = scenario.startsWith('pairedCourtesy')
+      final preview = scenario.startsWith('fuel')
+          ? fuel.parse(switch (scenario) {
+              'fuelPumpDetachedLeft' => fuel.withDetachedPanelCell(
+                targetRow: 5,
+                left: true,
+              ),
+              'fuelPumpDetachedRight' => fuel.withDetachedPanelCell(
+                targetRow: 5,
+              ),
+              'fuelPaymentDetachedLeft' => fuel.withDetachedPanelCell(
+                targetRow: 10,
+                left: true,
+              ),
+              'fuelPaymentDetachedRight' => fuel.withDetachedPanelCell(
+                targetRow: 10,
+              ),
+              'fuelVolumeAlternative' => fuel.receipt(
+                volume: '12.500 or 12.600',
+              ),
+              'fuelRateAlternative' => fuel.receipt(
+                rate: 'USD 3.200 or USD 3.300',
+              ),
+              _ => fuel.receipt(),
+            })
+          : scenario.startsWith('pairedCourtesy')
           ? parseCourtesy(
               scenario == 'pairedCourtesyComplete'
                   ? courtesyReceipt()
@@ -344,7 +378,9 @@ void main() {
               ),
               _ => annotatedTaxItemPreview(firstCurrency: 'USD'),
             };
-      final firstDescription = scenario.startsWith('contactDate')
+      final firstDescription = scenario.startsWith('fuel')
+          ? 'Regular Unleaded'
+          : scenario.startsWith('contactDate')
           ? 'Soup'
           : scenario == 'headerReferenceComplete'
           ? 'Tea Blend'
@@ -353,7 +389,9 @@ void main() {
           : scenario == 'taxAnnotation'
           ? 'Tea VAT 5% item'
           : 'Tea';
-      final firstAmount = scenario.startsWith('pairedCourtesy')
+      final firstAmount = scenario.startsWith('fuel')
+          ? '40.00'
+          : scenario.startsWith('pairedCourtesy')
           ? '4.00'
           : scenario.startsWith('contactDate')
           ? '8.00'
@@ -381,6 +419,13 @@ void main() {
           );
           expect(saved, isNotNull);
           expect(saved!.status, ReceiptOcrReviewStatusValues.provisional);
+          if (scenario.startsWith('fuel')) {
+            expect(preview.adjustmentsComplete, confidentDraft);
+            expect(preview.reviewHints.isEmpty, confidentDraft);
+            expect(preview.items, hasLength(1));
+            expect(saved.lines.single.lineTotalAmount, '40.00');
+            expect(saved.grandTotalAmount, '40.00');
+          }
           if (scenario.startsWith('contactDate')) {
             expect(preview.reviewHints.isEmpty, confidentDraft);
             final koreanCurrencyEvidence =
