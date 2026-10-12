@@ -302,7 +302,12 @@ void main() {
         expect(preview.total, '95.00');
         expect(preview.items.single.lineTotal, '100.00');
         expect(preview.rawTextLineCount, 6);
-        expect(preview.reviewHints, isEmpty);
+        expect(preview.adjustmentsComplete, isFalse);
+        expect(
+          preview.incompleteAdjustmentReasons,
+          contains(ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence),
+        );
+        expect(preview.reviewHints, isNotEmpty);
       }
     });
 
@@ -332,7 +337,12 @@ void main() {
       expect(preview.total, '95.00');
       expect(preview.discount, '-5.00');
       expect(preview.items.single.lineTotal, '100.00');
-      expect(preview.reviewHints, isEmpty);
+      expect(preview.adjustmentsComplete, isFalse);
+      expect(
+        preview.incompleteAdjustmentReasons,
+        contains(ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence),
+      );
+      expect(preview.reviewHints, isNotEmpty);
     });
   });
 
@@ -3723,10 +3733,9 @@ VAT included 20% GBP 4.00
             }
             final preview = _parseBoundedUtility(blocks);
             final reason = 'grouped=$grouped pending=$pending distant=$distant';
-            // Nearby unexplained prose keeps fallback and its uncertainty; a
-            // distant pending description cannot borrow the proven summary amount.
+            // Unpriced prose cannot borrow a summary amount at either distance.
+            // The separately printed charge rows still own their line amounts.
             expect(preview.items.map((i) => i.lineTotal), [
-              if (pending && !distant) '42.00',
               '35.00',
               '7.00',
             ], reason: reason);
@@ -4076,9 +4085,22 @@ VAT included 20% GBP 4.00
         );
         expect(
           preview.items.any((i) => i.description.contains('Alex Q. Sample')),
-          isTrue,
+          entry.key != 'intervening Balance Due',
           reason: entry.key,
         );
+        if (entry.key == 'intervening Balance Due') {
+          // Competing summary ownership cannot turn the customer's name and
+          // header amount into an item, even when no separate prose is pending.
+          expect(preview.items.map((i) => i.lineTotal), ['35.00', '7.00']);
+          expect(preview.adjustmentsComplete, isFalse);
+          expect(preview.reviewHints, isNotEmpty);
+          expect(
+            preview.incompleteAdjustmentReasons,
+            contains(
+              ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence,
+            ),
+          );
+        }
         expect(preview.blocks, containsAll(entry.value), reason: entry.key);
       }
     },
@@ -11958,6 +11980,40 @@ Total USD 5.25
     );
     expect(preview.items.map((item) => item.description), ['Widget']);
     expect(preview.tax, '0.25');
+  });
+
+  test('generic tax table projection preserves printed inclusion', () {
+    for (final label in [
+      'Included Tax',
+      'Included VAT',
+      'VAT included',
+      'Tax',
+    ]) {
+      final included = label != 'Tax';
+      final total = included ? '10.00' : '11.00';
+      final blocks = [
+        _layoutBlock('Market', 0, 0, 20, 350),
+        _layoutBlock('Description', 1, 1, 20, 160),
+        _layoutBlock('Rate', 2, 1, 180, 230),
+        _layoutBlock('Amount', 3, 1, 300, 360),
+        _layoutBlock('Notebook', 4, 2, 20, 160),
+        _layoutBlock('EUR 10.00', 5, 2, 300, 360),
+        _layoutBlock(label, 6, 3, 20, 160),
+        _layoutBlock('EUR 1.00', 7, 3, 300, 360),
+        _layoutBlock('Total', 8, 4, 20, 160),
+        _layoutBlock('EUR $total', 9, 4, 300, 360),
+      ];
+      final preview = const ReceiptOcrParser().parse(
+        'Market\nDescription Rate Amount\nNotebook EUR 10.00\n'
+        '$label EUR 1.00\nTotal EUR $total',
+        blocks: blocks,
+      );
+      expect(preview.tax, '1.00', reason: label);
+      expect(preview.taxIncludedInTotal, included, reason: label);
+      expect(preview.total, total, reason: label);
+      expect(preview.items.map((i) => i.lineTotal), ['10.00'], reason: label);
+      expect(preview.blocks, containsAll(blocks), reason: label);
+    }
   });
 
   test('numeric usage keeps rated tax-named charge rows reviewable', () {

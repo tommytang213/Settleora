@@ -109,6 +109,16 @@ Priced product names beginning with words such as "Espèces" remain items.
 Controls cover product-name collisions and all supported localized payment
 labels with whitespace, colon and full-width-colon separators.
 
+Conflicting explicitly primary totals now keep a review requirement even when
+subtotal and discount arithmetic ranks one of them. Agreeing primary totals
+and uniquely reconciled ordinary generic totals retain their existing behavior.
+A disputed summary-card amount can no longer price adjacent customer/date
+fields or an unpriced description; independently printed charge rows remain
+editable items, and the disputed evidence remains visible for review. Generic
+table projection also preserves a complete printed included-tax label instead
+of simplifying it into additive tax. These corrections change provisional OCR
+interpretation only; they do not change saved-review or Apply authority.
+
 The EF snapshot concern was checked with the pinned EF 9.0.15 tool and the
 three existing `ReceiptOcrReviewSchemaFoundationTests`. The model comparison
 reported no pending changes; all three metadata/schema-generation tests passed.

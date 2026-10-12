@@ -258,6 +258,7 @@ class ReceiptOcrParser {
     final hasCompletePricedItemEvidence =
         !extractedItems.truncated &&
         !extractedItems.unretainedPricedItem &&
+        extractedItems.uncertainSummaryAmountRows.isEmpty &&
         detachedAmountSignRows.isEmpty &&
         !ambiguousChargeRows.any(
           (index) =>
@@ -383,6 +384,11 @@ class ReceiptOcrParser {
         'Some OCR lines need manual review because no traceable line amount was found.',
       );
     }
+    if (extractedItems.uncertainSummaryAmountRows.isNotEmpty) {
+      warnings.add(
+        'A summary amount has conflicting nearby evidence. Review it before applying.',
+      );
+    }
     if (selectedTotal == null &&
         (itemCandidates.isEmpty ||
             amounts.incompleteReasons.contains(
@@ -404,7 +410,8 @@ class ReceiptOcrParser {
     // independent row paths can identify the same ambiguity; keep the reason
     // and its review warning without emitting duplicate protocol values.
     final incompleteAdjustmentReasons = <ReceiptOcrIncompleteAdjustmentReason>{
-      if (!amounts.adjustmentsComplete)
+      if (!amounts.adjustmentsComplete ||
+          extractedItems.uncertainSummaryAmountRows.isNotEmpty)
         ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence,
       ...amounts.incompleteReasons,
       if (extractedItems.truncated)
@@ -480,6 +487,7 @@ class ReceiptOcrParser {
           ambiguousRatedTaxRows.isEmpty &&
           !extractedItems.truncated &&
           !extractedItems.unretainedPricedItem &&
+          extractedItems.uncertainSummaryAmountRows.isEmpty &&
           detachedAmountSignRows.isEmpty &&
           !ambiguousChargeRows.any(
             (index) =>
@@ -3068,10 +3076,21 @@ class ReceiptOcrParser {
                 (value - supportedSum - includedTaxValue).abs() <= 0.02)
               candidate.value,
     };
-    if (includedTaxInterpretations.length > 1) {
+    final priorityTotalValues = <String>{
+      for (final candidate in totalCandidates)
+        if (_hasPriorityTotalLabel(
+          layoutAdjustmentLines[candidate.order] ??
+              addressSeparatedTotals[candidate.order] ??
+              lines[candidate.order],
+        ))
+          candidate.value,
+    };
+    if (includedTaxInterpretations.length > 1 ||
+        priorityTotalValues.length > 1) {
       // Net and gross subtotals can both accompany included-tax evidence.
-      // Arithmetic may rank a printed candidate, but cannot make two
-      // conflicting primary totals confident or erase their source evidence.
+      // Distinct explicitly primary totals also remain competing evidence,
+      // even when only one matches the subtotal and adjustments. Ordinary
+      // generic totals can still be ranked by unambiguous additive tax.
       adjustmentsComplete = false;
       incompleteReasons.add(
         ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence,
@@ -3248,6 +3267,14 @@ class ReceiptOcrParser {
       );
       if (ownedSummaryRows != null) {
         nonItemSummaryRows.addAll(ownedSummaryRows);
+      }
+      if (uncertainSummaryAmountRows.contains(lineIndex)) {
+        // The amount has competing summary ownership. Keep the row unresolved
+        // rather than assigning its money to the neighboring customer/date
+        // fields or a preceding unpriced description. This is not a metadata
+        // exemption; completeness accounting still sees the original rows.
+        wrappedDescriptionLines.clear();
+        continue;
       }
       if (nonItemEvidenceRows.contains(lineIndex) ||
           fuelPumpRows.contains(lineIndex) ||
@@ -5321,6 +5348,8 @@ class ReceiptOcrParser {
       lines[rowIndex] =
           RegExp(r'^sub[\s-]?total$', caseSensitive: false).hasMatch(label)
           ? 'Subtotal $monetaryText'
+          : _isIncludedTaxAmountLine('$label $monetaryText')
+          ? '$label $monetaryText'
           : isTax
           ? 'Tax ${rate == null ? '' : '$rate '}$monetaryText'
           : serviceLabelPattern.hasMatch(label)
@@ -8790,7 +8819,9 @@ String? _ownedTotalBesideAddress(
 // Some providers group a large summary-card amount with adjacent customer
 // and invoice-date fields. A matching total alone does not make that row
 // metadata: every block must have its own nearby, unambiguous printed label.
-// Unknown content keeps the ordinary item path and all raw evidence intact.
+// Without these roles the ordinary item path stays available. Once the roles
+// are established, competing neighbors withhold the amount and require review.
+// Every path preserves the raw evidence.
 Set<int>? _ownedSummaryCardHeaderRows(
   List<List<ReceiptOcrBlockEvidence>> rows,
   int rowIndex,
@@ -9297,8 +9328,8 @@ Set<int>? _ownedSummaryCardHeaderRows(
         ).hasMatch(financialWords) &&
         !hasUnownedNumbers) {
       if (!explainedMetadata && !completeNamedCurrency && !explainedStatus) {
-        // Keep the existing item fallback, but this disputed summary amount
-        // cannot establish that a preceding unpriced description was resolved.
+        // This disputed summary amount cannot price a neighboring description
+        // or establish that a preceding unpriced description was resolved.
         // It is not an excluded row and receives no metadata exemption.
         return retainDisputedSummary();
       }
