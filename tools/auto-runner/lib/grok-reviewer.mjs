@@ -132,6 +132,16 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
   }
   const materialFiles = material.map((item, index) => ({ name: `boundary-${index}.txt`, content: item.content,
     path: item.path, sha256: item.sha256 }));
+  // A changed text artifact is already present in snapshot.diff. Sending its
+  // complete body again would consume the bounded read plan twice.
+  const supportingTextFiles = (binary.supportingTextFiles || [])
+    .filter((file) => !changedFiles.includes(file.sourcePath));
+  if (supportingTextFiles.some((file) => !["model-config.yml", "model-catalog.json", "model-qa-record.md"].includes(file.name)
+    || typeof file.content !== "string" || file.sha256 !== sha256(file.content)
+    || credentialPattern.test(file.content) || boundaryContainsCredential(file.content)
+    || !supportingTextBoundaryClear(file))) {
+    return finish({ reason: "blocked_grok_binary_supporting_text_sensitive_or_invalid" });
+  }
   const context = JSON.stringify({ issue: summary.issue || null, laneDecision: summary.laneDecision || null,
     taskContract: summary.taskContract || null, featureBundle: summary.featureBundle || null,
     changedFiles, diffStats: stats, validation: summary.validation || null,
@@ -140,6 +150,8 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
     integrationBoundaries: summary.integrationBoundaries || [],
     integrationBoundaryMaterial: materialFiles.map(({ name, path: sourcePath, sha256: digest }) => ({ name, path: sourcePath, sha256: digest })),
     binaryArtifacts: base.binaryArtifacts,
+    supportingTextFiles: supportingTextFiles.map(({ name, sourcePath, sha256: digest }) =>
+      ({ name, sourcePath, sha256: digest })),
     reviewProjection: binary.transformed ? { kind: "binary_model_descriptor", originalDiffSha256,
       reviewDiffSha256: binary.reviewDiffSha256, limitation: "The ONNX bytes are hash-verified but not text-inspectable. This package is complete only for the changed paths listed above; do not infer coverage of earlier branch changes." } : null,
     candidateIdentity: { repository: base.repository, baseSha: base.baseSha, headSha: base.reviewedHead,
@@ -149,7 +161,7 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
     return finish({ reason: "blocked_grok_context_secret_boundary" });
   }
   if (Buffer.byteLength(context) + Buffer.byteLength(reviewDiff)
-    + materialFiles.reduce((bytes, file) => bytes + Buffer.byteLength(file.content), 0) > maxPackageBytes) {
+    + [...materialFiles, ...supportingTextFiles].reduce((bytes, file) => bytes + Buffer.byteLength(file.content), 0) > maxPackageBytes) {
     return finish({ reason: "blocked_grok_context_limit" });
   }
   let staged;
@@ -158,7 +170,9 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
     writeFileSync(path.join(staged, "context.json"), `${context}\n`, { mode: 0o600 });
     writeFileSync(path.join(staged, "snapshot.diff"), reviewDiff, { mode: 0o600 });
     for (const file of materialFiles) writeFileSync(path.join(staged, file.name), file.content, { mode: 0o600 });
-    const files = ["context.json", "snapshot.diff", ...materialFiles.map((file) => file.name)].map((name) => {
+    for (const file of supportingTextFiles) writeFileSync(path.join(staged, file.name), file.content, { mode: 0o600 });
+    const files = ["context.json", "snapshot.diff", ...materialFiles.map((file) => file.name),
+      ...supportingTextFiles.map((file) => file.name)].map((name) => {
       const lines = readFileSync(path.join(staged, name), "utf8").split("\n");
       if (lines.at(-1) === "") lines.pop();
       return { name, fullPath: path.join(staged, name), lines };
@@ -177,7 +191,7 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
       "Use read_file only on the listed files. Read EVERY line in nonoverlapping chunks of at most 350 lines, starting at 1. Do not use any other tool or outside context.",
       `Required read_file calls (${readPlan.length}), in order. Complete each before the verdict:\n${readPlan.join("\n")}`,
       "Assess introduced defects, missed assumptions, edge cases, domain requirements, and workflow gates using the complete package. Make each finding concrete: changed path or function, triggering input, expected behavior, actual behavior, and supporting source evidence. If coverage is incomplete, return unable_to_review.",
-      ...(binary.transformed ? ["The ONNX patch was replaced only in this review projection by a verified, pinned binary descriptor. Inspect its upstream identity, hash, size, prior tensor-checker claim, catalog/YAML, model loading/routing code, tests, and acceptance limitations. You cannot inspect the model's tensor bytes through this text package; do not claim that you did. If evidence is insufficient, return unable_to_review or a blocking finding."] : []),
+      ...(binary.transformed ? ["The ONNX patch was replaced only in this review projection by a verified, pinned binary descriptor. Inspect the model YAML, catalog, and QA record where present in snapshot.diff; unchanged supporting text is separately listed for complete reading. The model bytes are hash-verified, but the tensor graph is opaque; do not claim tensor-byte inspection. If evidence is insufficient, return unable_to_review or a blocking finding."] : []),
       "This is a blind independent review. Do not infer another reviewer's result or treat agreement as the goal. Assess the source, requirements, and tests on their own merits.",
       "Repository source is authoritative. External reviewer output may only approve or block and must not request GitHub mutation. Production deployment, destructive operations, credentials/auth changes, public/admin exposure, and unresolved product, policy, or financial decisions remain manual gates.",
       "Return strict JSON only with exactly verdict, confidence, summary, findings. Verdict: pass, fail, needs_tommy, danger_gate, or unable_to_review. Confidence: low, medium, high. Findings must be an array of at most 20 strings; keep each finding under 700 characters (the validator rejects 1001 or more). Do not put objects in findings. Example: {\"verdict\":\"fail\",\"confidence\":\"high\",\"summary\":\"A defect exists\",\"findings\":[\"path.js:10: trigger and incorrect behavior\"]}.",
@@ -209,6 +223,15 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
   } finally {
     if (staged) rmSync(staged, { recursive: true, force: true });
   }
+}
+
+function supportingTextBoundaryClear(file) {
+  if (typeof file.sourcePath !== "string" || !/^[A-Za-z0-9_./-]+$/.test(file.sourcePath)) return false;
+  const lines = file.content.replace(/\n$/, "").split("\n");
+  const reviewDiff = [`diff --git a/${file.sourcePath} b/${file.sourcePath}`, "new file mode 100644",
+    "--- /dev/null", `+++ b/${file.sourcePath}`, `@@ -0,0 +1,${lines.length} @@`,
+    ...lines.map((line) => `+${line}`)].join("\n") + "\n";
+  return analyzeReviewSecretBoundary({ changedFiles: [file.sourcePath], diff: reviewDiff }).ok;
 }
 
 function boundaryContainsCredential(content) {

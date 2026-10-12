@@ -24,6 +24,7 @@ export const pinnedRupeeRecoveryModel = Object.freeze({
   tensorContract: Object.freeze({ irVersion: 6, opset: 11, inputName: "x", inputChannels: 3,
     inputHeight: 48, outputName: "fetch_name_0", outputClasses: 6906, externalTensorData: false }),
   validationEvidencePath: "docs/qa/RECEIPT_OCR_RUPEE_RECOVERY_EVIDENCE.md",
+  validationEvidenceSha256: "9ac8bbfc696d172c88432d124091b1ac90c4145a555e42c44cad2f85d8a1e725",
 });
 
 function gitRead(repoRoot, args, maxBuffer = 8 * 1024 * 1024) {
@@ -47,6 +48,14 @@ export function prepareGrokBinaryModelEvidence({ repoRoot, baseSha, headSha, cha
   if (!/^GIT binary patch$/m.test(raw) && !/^Binary files .+ differ$/m.test(raw)) {
     if (Array.isArray(changedFiles) && changedFiles.includes(model.path)) {
       return fail("blocked_grok_binary_model_patch_missing");
+    }
+    if (repoRoot && fullSha.test(baseSha || "") && fullSha.test(headSha || "")) {
+      let canonicalText;
+      try {
+        canonicalText = readGit(repoRoot, ["diff", "--binary", "--no-ext-diff", "--no-textconv", "--no-color",
+          `${baseSha}...${headSha}`], maxRawDiffBytes + 1024).toString("utf8");
+      } catch { return fail("blocked_grok_text_git_diff_unavailable"); }
+      if (canonicalText !== raw) return fail("blocked_grok_text_diff_not_immutable_candidate");
     }
     return { ok: true, reviewDiff: raw, originalDiffSha256: sha256(raw), binaryArtifacts: [] };
   }
@@ -80,11 +89,12 @@ export function prepareGrokBinaryModelEvidence({ repoRoot, baseSha, headSha, cha
     || !binaryBlocks[0].includes("new file mode 100644\n")) {
     return fail("blocked_grok_binary_unapproved_or_unverified_patch");
   }
-  let blob, config, catalog, validationRecord;
+  let blob, config, catalog, catalogBytes, validationRecord;
   try {
     blob = readGit(repoRoot, ["show", `${headSha}:${model.path}`], model.bytes + 1024);
     config = readGit(repoRoot, ["show", `${headSha}:${model.configPath}`], 128 * 1024);
-    catalog = JSON.parse(readGit(repoRoot, ["show", `${headSha}:${model.catalogPath}`], 512 * 1024).toString("utf8"));
+    catalogBytes = readGit(repoRoot, ["show", `${headSha}:${model.catalogPath}`], 512 * 1024);
+    catalog = JSON.parse(catalogBytes.toString("utf8"));
     validationRecord = readGit(repoRoot, ["show", `${headSha}:${model.validationEvidencePath}`], 128 * 1024);
   } catch { return fail("blocked_grok_binary_model_evidence_unavailable"); }
   if (blob.length !== model.bytes || sha256(blob) !== model.sha256
@@ -92,36 +102,44 @@ export function prepareGrokBinaryModelEvidence({ repoRoot, baseSha, headSha, cha
     return fail("blocked_grok_binary_model_hash_or_size_mismatch");
   }
   const validationText = validationRecord.toString("utf8");
-  if (!validationText.includes(model.sha256)
+  if (sha256(validationRecord) !== model.validationEvidenceSha256
+    || !validationText.includes(model.sha256)
     || !validationText.includes(model.configSha256)
     || !validationText.includes(model.upstreamRevision)
     || !validationText.includes(`ONNX checker ${model.checkerVersion.replace(/^onnx /, "")} full validation passes`)
     || !validationText.includes("no external tensor data")) {
     return fail("blocked_grok_binary_prior_validation_record_mismatch");
   }
-  const pack = catalog?.packs?.find((entry) => entry.assetDirectory
-    === "assets/receipt_ocr_models/ppocrv6-tiny-rec");
+  const pack = Array.isArray(catalog?.packs) ? catalog.packs.find((entry) => entry?.assetDirectory
+    === "assets/receipt_ocr_models/ppocrv6-tiny-rec") : null;
   const recordedFiles = pack?.files;
+  const expectedInference = Object.fromEntries(Object.entries(model.tensorContract)
+    .filter(([key]) => key !== "externalTensorData"));
+  const inference = pack?.inference;
+  const inferenceMatches = inference && typeof inference === "object" && !Array.isArray(inference)
+    && Object.keys(inference).length === Object.keys(expectedInference).length
+    && Object.entries(expectedInference).every(([key, value]) => inference[key] === value);
   if (pack?.sourceRepository !== model.upstreamRepository
-    || pack.modelVersion !== model.upstreamRevision || pack.role !== "recognition_recovery"
-    || pack.recoveryPolicy !== "corroborated_rupee_money"
-    || JSON.stringify(pack.inference) !== JSON.stringify(Object.fromEntries(
-      Object.entries(model.tensorContract).filter(([key]) => key !== "externalTensorData")))
+    || pack?.modelVersion !== model.upstreamRevision || pack?.role !== "recognition_recovery"
+    || pack?.recoveryPolicy !== "corroborated_rupee_money" || !inferenceMatches
     || !Array.isArray(recordedFiles) || recordedFiles.length !== 2
-    || !recordedFiles.some((entry) => entry.name === "inference.onnx"
+    || !recordedFiles.some((entry) => entry?.name === "inference.onnx"
       && entry.bytes === model.bytes && entry.sha256 === model.sha256)
-    || !recordedFiles.some((entry) => entry.name === "inference.yml"
+    || !recordedFiles.some((entry) => entry?.name === "inference.yml"
       && entry.bytes === model.configBytes && entry.sha256 === model.configSha256)) {
     return fail("blocked_grok_binary_catalog_contract_mismatch");
   }
-  const { checkerVersion, tensorContract, validationEvidencePath, ...verifiedPin } = model;
+  const { checkerVersion, tensorContract, validationEvidencePath, validationEvidenceSha256, ...verifiedPin } = model;
   const artifact = { ...verifiedPin, gitBlobSha: null, coverage: "opaque_binary_integrity_only",
     priorValidationClaims: { checkerVersion, tensorContract, validationEvidencePath,
-      validationEvidenceSha256: sha256(validationRecord) },
+      validationEvidenceSha256 },
     limitations: "Reviewer cannot inspect ONNX tensor bytes as source text. Tensor shape and checker result are claims in the head-bound QA record for this exact SHA-256, not checks performed by this adapter; associated catalog, configuration, routing code, and tests still require review." };
   try { artifact.gitBlobSha = readGit(repoRoot, ["rev-parse", `${headSha}:${model.path}`], 1024).toString("utf8").trim(); }
   catch { return fail("blocked_grok_binary_git_blob_identity_unavailable"); }
-  if (!fullSha.test(artifact.gitBlobSha)) return fail("blocked_grok_binary_git_blob_identity_unreadable");
+  const computedGitBlobSha = createHash("sha1").update(`blob ${blob.length}\0`).update(blob).digest("hex");
+  if (!fullSha.test(artifact.gitBlobSha) || artifact.gitBlobSha !== computedGitBlobSha) {
+    return fail("blocked_grok_binary_git_blob_identity_unreadable");
+  }
   const marker = [
     `diff --git a/${model.path} b/${model.path}`,
     "new file mode 100644",
@@ -131,6 +149,13 @@ export function prepareGrokBinaryModelEvidence({ repoRoot, baseSha, headSha, cha
     "+REVIEW-ONLY BINARY DESCRIPTOR: ONNX bytes are opaque; read binaryArtifacts in context.json. Do not claim tensor-byte inspection."
   ].join("\n") + "\n";
   const reviewDiff = blocks.map((block) => block === binaryBlocks[0] ? marker : block).join("");
-  return { ok: true, reviewDiff, originalDiffSha256: sha256(raw), binaryArtifacts: [artifact],
+  const supportingTextFiles = [
+    { name: "model-config.yml", sourcePath: model.configPath, sha256: sha256(config), content: config.toString("utf8") },
+    { name: "model-catalog.json", sourcePath: model.catalogPath,
+      sha256: sha256(catalogBytes), content: catalogBytes.toString("utf8") },
+    { name: "model-qa-record.md", sourcePath: validationEvidencePath,
+      sha256: validationEvidenceSha256, content: validationText },
+  ];
+  return { ok: true, reviewDiff, originalDiffSha256: sha256(raw), binaryArtifacts: [artifact], supportingTextFiles,
     reviewDiffSha256: sha256(reviewDiff), transformed: true };
 }
