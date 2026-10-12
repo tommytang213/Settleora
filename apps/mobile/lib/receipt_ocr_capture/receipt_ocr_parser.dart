@@ -13146,12 +13146,12 @@ bool _hasCompleteLabeledCurrencyCells(
   // An earlier reference amount may carry a known unsupported ISO code.
   // Recognizing that cell does not authorize its amount: the selected cell
   // still passes the existing supported-currency and conflict checks.
-  final currencyToken = includeUnsupportedCurrencyCodes
+  final currencyCellPattern = includeUnsupportedCurrencyCodes
       ? '$_currencyTokenPattern|${_knownUnsupportedIsoCurrencyCodes.join('|')}'
       : _currencyTokenPattern;
   final cellPattern = RegExp(
-    '(?:(?:$currencyToken)\\s*[:=]?\\s*\\+?\\s*$_amountTokenPattern'
-    '|\\+?\\s*$_amountTokenPattern\\s*[:=]?\\s*(?:$currencyToken))'
+    '(?:(?:$currencyCellPattern)\\s*[:=]?\\s*\\+?\\s*$_amountTokenPattern'
+    '|\\+?\\s*$_amountTokenPattern\\s*[:=]?\\s*(?:$currencyCellPattern))'
     '(?=$separators|\$)',
     caseSensitive: false,
   );
