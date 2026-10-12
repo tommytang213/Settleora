@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { continueOrdinaryCandidate, createOrdinaryContinuationState, ordinaryCandidateIdentityMatches, ordinaryContinuationPhaseTarget, ordinaryContinuationPhases } from "../lib/ordinary-candidate-continuation.mjs";
+import { continueOrdinaryCandidate, createOrdinaryContinuationState, ordinaryCandidateIdentityMatches, ordinaryRecoveryIdentityMatches, ordinaryContinuationPhaseTarget, ordinaryContinuationPhases } from "../lib/ordinary-candidate-continuation.mjs";
 import { createProductionSplitMaterializationAdapter, materializeFeatureBundleSplit, validateSplitMaterializationInput } from "../lib/feature-bundle-split-materializer.mjs";
 
 const sha = (value) => createHash("sha1").update(value).digest("hex");
@@ -241,6 +241,29 @@ test("ordinary candidate identity rejects stale tree, diff, and changed-file cov
     { diffDigest: digest("other-diff") },
     { changedFiles: ["a.mjs", "omitted.mjs"], changedFilesDigest: digest(["a.mjs", "omitted.mjs"]) },
   ]) assert.equal(ordinaryCandidateIdentityMatches(exact, { ...exact, ...changed }), false);
+});
+
+test("recovery authenticates a legacy truncated digest only for the same exact candidate", () => {
+  const legacyText = "synthetic canonical prefix";
+  const legacyDigest = createHash("sha256").update(legacyText).digest("hex");
+  const actual = { ...identity(), changedFilesDigest: digest(["a.mjs"]) };
+  const persisted = { ...actual, diffDigest: legacyDigest };
+  assert.equal(ordinaryRecoveryIdentityMatches(actual, actual), true);
+  assert.equal(ordinaryRecoveryIdentityMatches(persisted, actual,
+    { text: legacyText, truncated: true }), true);
+  assert.equal(ordinaryRecoveryIdentityMatches(persisted, actual,
+    { text: legacyText, truncated: false }), false);
+  assert.equal(ordinaryRecoveryIdentityMatches(persisted, actual,
+    { text: "different", truncated: true }), false);
+  for (const mismatch of [
+    { headSha: sha("different head") },
+    { treeSha: sha("different tree") },
+    { changedFiles: ["a.mjs", "unexpected.mjs"] },
+    { changedFilesDigest: digest(["unexpected.mjs"]) },
+  ]) {
+    assert.equal(ordinaryRecoveryIdentityMatches(persisted, { ...actual, ...mismatch },
+      { text: legacyText, truncated: true }), false);
+  }
 });
 
 function splitInput(dependent = false) {

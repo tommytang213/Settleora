@@ -1443,7 +1443,8 @@ export async function runDurableBundleParallelReviews(config, reviewPackage, sta
 }
 
 function writeBundleReviewPackage(config, { issue, laneDecision, plan, state, changedFiles, validation, headSha, baseSha }) {
-  const diff = config.dryRun ? { text: "", truncated: false } : getBoundedDiff("origin/main", "HEAD");
+  const diff = config.dryRun ? { text: "", truncated: false } : getBoundedDiff("origin/main", "HEAD",
+    (state.reviewerProviderPin || config.reviewerProviderPin) === "grok" ? 16 * 1024 * 1024 : undefined);
   const packagePath = path.join(config.logsRoot, "reviews", `${safeTimestamp()}-issue-${issue.number}-feature-bundle.json`);
   const summary = {
     repository: config.repositorySlug || "tommytang213/Settleora",

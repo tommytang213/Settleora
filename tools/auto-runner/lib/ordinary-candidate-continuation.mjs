@@ -136,6 +136,16 @@ export function ordinaryCandidateIdentityMatches(persisted, actual) {
     && (!persisted.changedFilesDigest || persisted.changedFilesDigest === actual.changedFilesDigest);
 }
 
+// The caller must supply the canonical legacy getBoundedDiff() result for the
+// same base/head. This is only for authenticating pre-change recovery state;
+// new candidate identities always use the complete canonical diff digest.
+export function ordinaryRecoveryIdentityMatches(persisted, actual, legacyDiff = null) {
+  if (ordinaryCandidateIdentityMatches(persisted, actual)) return true;
+  if (legacyDiff?.truncated !== true || typeof legacyDiff.text !== "string") return false;
+  const legacyDigest = createHash("sha256").update(legacyDiff.text).digest("hex");
+  return ordinaryCandidateIdentityMatches(persisted, { ...actual, diffDigest: legacyDigest });
+}
+
 export function ordinaryContinuationPhaseTarget(value, phase) {
   const normalized = normalizeState(value);
   return normalized.phase === "invalid" || !ordinaryContinuationPhases.includes(phase)

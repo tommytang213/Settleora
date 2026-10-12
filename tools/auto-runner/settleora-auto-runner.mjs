@@ -61,6 +61,7 @@ import {
 } from "./lib/historical-initial-candidate-lineage.mjs";
 import { generateTaskPrompt } from "./lib/task-prompt.mjs";
 import { runCodexPrompt, runReviewPrompt } from "./lib/codex-runner.mjs";
+import { pinnedRupeeRecoveryModel } from "./lib/grok-binary-model-evidence.mjs";
 import { collectReport } from "./lib/report-collector.mjs";
 import { bindValidationEvidence, planValidation, runValidationPlan } from "./lib/validation-planner.mjs";
 import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } from "./lib/pr-manager.mjs";
@@ -153,6 +154,7 @@ import {
   continueOrdinaryCandidate,
   createOrdinaryContinuationState,
   ordinaryCandidateIdentityMatches,
+  ordinaryRecoveryIdentityMatches,
   ordinaryContinuationPhaseTarget,
 } from "./lib/ordinary-candidate-continuation.mjs";
 import { continuePostMergeCleanup, createPostMergeCleanupGitAdapter, loadPostMergeCleanupState, persistPostMergeCleanupState, planPostMergeCleanup } from "./lib/post-merge-cleanup.mjs";
@@ -962,7 +964,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       baseSha: iteration.baseOriginMainSha,
       headSha: iteration.runnerCreatedCommitSha,
       treeSha: getRefSha("HEAD^{tree}"),
-      diffDigest: createHash("sha256").update(getBoundedDiff(iteration.baseOriginMainSha, iteration.runnerCreatedCommitSha).text).digest("hex"),
+      diffDigest: canonicalCandidateDiffDigest(iteration.baseOriginMainSha, iteration.runnerCreatedCommitSha),
       changedFiles,
       changedFilesDigest: digestChangedFiles(changedFiles),
     };
@@ -1198,7 +1200,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       baseSha: iteration.baseOriginMainSha,
       headSha: iteration.runnerCreatedCommitSha,
       treeSha: getRefSha("HEAD^{tree}"),
-      diffDigest: createHash("sha256").update(getBoundedDiff(iteration.baseOriginMainSha, iteration.runnerCreatedCommitSha).text).digest("hex"),
+      diffDigest: canonicalCandidateDiffDigest(iteration.baseOriginMainSha, iteration.runnerCreatedCommitSha),
       changedFiles,
       changedFilesDigest: digestChangedFiles(changedFiles),
     };
@@ -2918,15 +2920,28 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     return { ok: false, outcome: "blocked", reasonCode: "ordinary_continuation_live_candidate_mismatch", ordinaryContinuation: initial, largeCandidateReviewRecovery: checkpoint, state };
   }
   const actualChangedFiles = listChangedFiles(initial.identity.baseSha, initial.identity.headSha);
+  let actualDiffDigest;
+  try { actualDiffDigest = canonicalCandidateDiffDigest(initial.identity.baseSha, initial.identity.headSha); }
+  catch {
+    return { ok: false, outcome: "blocked", reasonCode: "ordinary_continuation_candidate_diff_unavailable_or_over_bound", ordinaryContinuation: initial, largeCandidateReviewRecovery: checkpoint, state };
+  }
   const actualIdentity = {
     baseSha: initial.identity.baseSha,
     headSha: initial.identity.headSha,
     treeSha: getRefSha(`${initial.identity.headSha}^{tree}`),
-    diffDigest: createHash("sha256").update(getBoundedDiff(initial.identity.baseSha, initial.identity.headSha).text).digest("hex"),
+    diffDigest: actualDiffDigest,
     changedFiles: actualChangedFiles,
     changedFilesDigest: createHash("sha256").update(JSON.stringify([...actualChangedFiles].sort())).digest("hex"),
   };
-  if (!ordinaryCandidateIdentityMatches(initial.identity, actualIdentity)) {
+  // Pre-change continuation states hashed getBoundedDiff()'s 512,000-character
+  // projection. Authenticate that legacy digest only when the original bound
+  // actually truncated this exact Git diff; keep the persisted identity and
+  // its phase targets unchanged for the remainder of recovery. A legacy hash
+  // affected by color.ui, textconv, or an external diff cannot be reproduced
+  // safely here and must stop as a candidate identity mismatch.
+  const exactIdentityMatches = ordinaryCandidateIdentityMatches(initial.identity, actualIdentity);
+  const legacyDiff = exactIdentityMatches ? null : getBoundedDiff(initial.identity.baseSha, initial.identity.headSha);
+  if (!ordinaryRecoveryIdentityMatches(initial.identity, actualIdentity, legacyDiff)) {
     return { ok: false, outcome: "blocked", reasonCode: "ordinary_continuation_candidate_identity_mismatch", ordinaryContinuation: initial, largeCandidateReviewRecovery: checkpoint, state };
   }
   if (preparedFixCanBeAdopted) {
@@ -3182,7 +3197,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
             executionKey: continuation.executionKey,
             issueNumber: continuation.issueNumber,
             branchName: continuation.branchName,
-            identity: { baseSha: candidate.baseSha, headSha, treeSha: getRefSha(`${headSha}^{tree}`), diffDigest: createHash("sha256").update(getBoundedDiff(candidate.baseSha, headSha).text).digest("hex"), changedFiles },
+            identity: { baseSha: candidate.baseSha, headSha, treeSha: getRefSha(`${headSha}^{tree}`), diffDigest: canonicalCandidateDiffDigest(candidate.baseSha, headSha), changedFiles },
             expectedOriginMainSha: currentMainSha,
             historicalEffectMainSha,
             phase: "candidate_reconciliation",
@@ -3222,7 +3237,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       }
       const changedFiles = postFix.changedFiles;
       operationalCheckpoint?.("ordinary_recovery_review_convergence_complete", { validation: postFix.validation, externalReview: postFix.externalReview, review: postFix.review });
-      const next = { baseSha: candidate.baseSha, headSha: postFix.runnerCreatedCommitSha, treeSha: getRefSha(`${postFix.runnerCreatedCommitSha}^{tree}`), diffDigest: createHash("sha256").update(getBoundedDiff(candidate.baseSha, postFix.runnerCreatedCommitSha).text).digest("hex"), changedFiles };
+      const next = { baseSha: candidate.baseSha, headSha: postFix.runnerCreatedCommitSha, treeSha: getRefSha(`${postFix.runnerCreatedCommitSha}^{tree}`), diffDigest: canonicalCandidateDiffDigest(candidate.baseSha, postFix.runnerCreatedCommitSha), changedFiles };
       return { ok: true, sourceChanged: true, identity: next };
     },
     push: async (continuation) => {
@@ -3781,13 +3796,23 @@ function recordTaskWorktreeOwnershipMarker(config, recoveryRecorder, branchName)
   } catch { /* absent proof deliberately leaves the worktree unowned */ }
 }
 
+function canonicalCandidateDiffDigest(baseSha, headSha) {
+  const diff = getBoundedDiff(baseSha, headSha, 16 * 1024 * 1024);
+  if (diff.truncated) {
+    const error = new Error("Candidate diff exceeds canonical identity bound");
+    error.code = "candidate_diff_identity_unavailable_or_over_bound";
+    throw error;
+  }
+  return createHash("sha256").update(diff.text).digest("hex");
+}
+
 function ordinaryIdentityForHead(baseSha, headSha) {
   const changedFiles = listChangedFiles(baseSha, headSha);
   return {
     baseSha,
     headSha,
     treeSha: getRefSha(`${headSha}^{tree}`),
-    diffDigest: createHash("sha256").update(getBoundedDiff(baseSha, headSha).text).digest("hex"),
+    diffDigest: canonicalCandidateDiffDigest(baseSha, headSha),
     changedFiles,
     changedFilesDigest: createHash("sha256").update(JSON.stringify([...changedFiles].sort())).digest("hex"),
   };
@@ -3861,7 +3886,7 @@ function refreshOrdinaryContinuationAfterSourceChange(config, recoveryRecorder, 
     baseSha: iteration.baseOriginMainSha,
     headSha: iteration.runnerCreatedCommitSha,
     treeSha: getRefSha(`${iteration.runnerCreatedCommitSha}^{tree}`),
-    diffDigest: createHash("sha256").update(getBoundedDiff(iteration.baseOriginMainSha, iteration.runnerCreatedCommitSha).text).digest("hex"),
+    diffDigest: canonicalCandidateDiffDigest(iteration.baseOriginMainSha, iteration.runnerCreatedCommitSha),
     changedFiles,
   };
   const ordinaryContinuation = createOrdinaryContinuationState({
@@ -3978,13 +4003,12 @@ function loadNormalLargeCandidateRecoveryCheckpoint(config, state, issue, laneDe
     headSha = provenIdentity.headSha;
   }
   const changedFiles = listChangedFiles(baseSha, headSha);
-  const diff = getBoundedDiff(baseSha, headSha);
   const candidateIdentity = provenIdentity || {
     repository: config.repositorySlug || "tommytang213/Settleora",
     baseSha,
     headSha,
     treeSha: getRefSha(`${headSha}^{tree}`),
-    diffDigest: createHash("sha256").update(diff.text).digest("hex"),
+    diffDigest: canonicalCandidateDiffDigest(baseSha, headSha),
     changedFilesDigest: createHash("sha256").update(JSON.stringify([...changedFiles].sort())).digest("hex"),
   };
   const seed = createLargeCandidateRoutingState({ taskKey: state.taskKey || `issue-${state.issue?.number || "unknown"}`, candidateIdentity, changedFiles });
@@ -4582,7 +4606,7 @@ async function generateExistingPrRecoveryEvidence(config, {
       ? await runDurableStackParallelReviews(config, {
           phase: "existing_pr_recovery", prNumber: pr.number, headSha: expectedHeadSha,
           baseSha: expectedOriginMainSha, changedFiles,
-          candidateDigest: createHash("sha256").update(String(diffText || "")).digest("hex"),
+          candidateDigest: reviewPackage.summary.rawDiffSha256,
         },
         () => runIntegratedReviewSource(config, reviewPackage, "existing-pr-recovery"),
         () => runCodexReviewInWorker(config, { ...reviewPackage, sessionLifecycle: issue.sessionLifecycle || null }))
@@ -5078,7 +5102,29 @@ async function runReviewFixCycle(config, context) {
   };
   let externalReviewAfter;
   let reviewAfter;
-  if (grokPostFix) {
+  // An uncommitted binary patch has no immutable Git blob identity to attest.
+  // Review the dirty tree locally, then run both independent reviewers against
+  // the committed exact head in commitReviewFixAndRerunExactHeadReviews.
+  const binaryNeedsExactHead = grokPostFix && integratedReviewPackageAfter.summary?.workingTreeReview === true
+    && (changedFilesAfter.includes(pinnedRupeeRecoveryModel.path)
+      || /^(?:GIT binary patch|Binary files .+ differ)$/m.test(integratedReviewPackageAfter.diff || ""));
+  if (binaryNeedsExactHead) {
+    const pendingMechanics = buildPostReviewFixMechanicsContext({ ...mechanicsInput, externalReviewPending: true });
+    if (!pendingMechanics.ok) return finishBlocked(`review_fix_post_fix_mechanics_context_invalid:${pendingMechanics.reason}`,
+      { validationAfter: summarizeValidation(validationAfter) });
+    integratedReviewPackageAfter = await writeReviewPackage(config, {
+      issue: context.issue, promptInfo: context.promptInfo, laneDecision: context.laneDecision,
+      changedFiles: changedFilesAfter, validation: validationAfter, report: context.report,
+      reviewPhase: "post-review-fix-mechanics", reviewFixMechanicsContext: pendingMechanics.context,
+    });
+    externalReviewAfter = { status: "skipped", reason: "binary_review_deferred_until_committed_exact_head" };
+    try {
+      reviewAfter = await runCodexReviewInWorker(config, { ...integratedReviewPackageAfter,
+        sessionLifecycle: context.issue.sessionLifecycle || context.sessionLifecycle || null });
+    } catch {
+      return finishBlocked("review_fix_post_fix_local_reviewer_invocation_failed", { validationAfter: summarizeValidation(validationAfter) });
+    }
+  } else if (grokPostFix) {
     const pendingMechanics = buildPostReviewFixMechanicsContext({ ...mechanicsInput, externalReviewPending: true });
     if (!pendingMechanics.ok) return finishBlocked(`review_fix_post_fix_mechanics_context_invalid:${pendingMechanics.reason}`,
       { validationAfter: summarizeValidation(validationAfter) });
@@ -5178,7 +5224,7 @@ async function runReviewFixCycle(config, context) {
   const evidence = writeReviewFixEvidence(config, {
     ...baseEvidence,
     fixAttemptHappened: true,
-    proceededToPrOrMergeEligibility: true,
+    proceededToPrOrMergeEligibility: !binaryNeedsExactHead,
     promptPath,
     codex: summarizeCodex(codex),
     headShaAfter: config.dryRun ? null : getRefSha("HEAD"),
@@ -5194,7 +5240,8 @@ async function runReviewFixCycle(config, context) {
   return {
     attempted: true,
     proceeded: true,
-    reason: "review_fix_passed_revalidation_and_reviews",
+    reason: binaryNeedsExactHead ? "review_fix_ready_for_committed_exact_head_reviews"
+      : "review_fix_passed_revalidation_and_reviews",
     decision,
     promptPath,
     codex,
@@ -5573,11 +5620,23 @@ function recordPostFixExactHeadEvidence(recoveryRecorder, { validation, external
 async function writeReviewPackage(config, payload) {
   const generatedPrompt = payload.promptInfo?.promptPath && existsSync(payload.promptInfo.promptPath)
     ? readFileSync(payload.promptInfo.promptPath, "utf8") : null;
-  const diff = Object.hasOwn(payload, "diffText")
+  const grokRecovery = payload.reviewPhase === "existing-pr-recovery"
+    && (payload.reviewerProviderPin || config.reviewerProviderPin) === "grok";
+  const workingTreeReview = !grokRecovery && !Object.hasOwn(payload, "diffText")
+    && !payload.diffBaseRef && !payload.diffHeadRef;
+  if (grokRecovery && (!/^[a-f0-9]{40}$/.test(payload.baseSha || "")
+    || !/^[a-f0-9]{40}$/.test(payload.headSha || ""))) {
+    throw new Error("Grok recovery review requires an authenticated exact base and head");
+  }
+  const diff = grokRecovery
+    ? getBoundedDiff(payload.baseSha, payload.headSha, 16 * 1024 * 1024)
+    : Object.hasOwn(payload, "diffText")
     ? { text: String(payload.diffText || ""), truncated: false }
     : payload.diffBaseRef || payload.diffHeadRef
-      ? getBoundedDiff(payload.diffBaseRef || "origin/main", payload.diffHeadRef || "HEAD")
-    : getBoundedWorkingTreeDiff();
+      ? getBoundedDiff(payload.diffBaseRef || "origin/main", payload.diffHeadRef || "HEAD",
+        (payload.reviewerProviderPin || config.reviewerProviderPin) === "grok" ? 16 * 1024 * 1024 : undefined)
+    : getBoundedWorkingTreeDiff((payload.reviewerProviderPin || config.reviewerProviderPin) === "grok"
+      ? 16 * 1024 * 1024 : undefined);
   const packagePath = path.join(
     config.logsRoot,
     "reviews",
@@ -5585,6 +5644,7 @@ async function writeReviewPackage(config, payload) {
   );
   const summary = {
     reviewPhase: payload.reviewPhase || "pre-pr-review",
+    workingTreeReview,
     taskKey: config.taskKey || null,
     repository: config.repositorySlug || "tommytang213/Settleora",
     manualMergeRequired: payload.manualMergeRequired ?? payload.laneDecision?.manualMergeRequired ?? null,
@@ -5959,7 +6019,11 @@ function renderSecurityFindingsDryRunText(result) {
 
 if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
   main().catch((error) => {
-    console.error(error.stack || error.message);
+    if (error.code === "candidate_diff_identity_unavailable_or_over_bound") {
+      console.error(JSON.stringify({ outcome: "blocked", reasonCode: error.code, detail: error.message }));
+    } else {
+      console.error(error.stack || error.message);
+    }
     process.exit(1);
   });
 }

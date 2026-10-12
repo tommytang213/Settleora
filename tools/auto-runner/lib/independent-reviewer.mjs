@@ -77,5 +77,5 @@ export function runIndependentReviewerSmokeTest(config, options = {}) {
     validation: { passed: true },
     taskContract: { objective: "Review the synthetic one-line documentation change and the three fixed workflow gate sources." },
     integrationBoundaries, integrationBoundaryMaterial,
-  }, diff }, options);
+  }, diff }, { ...options, binaryReadGit: () => Buffer.from(diff) });
 }
