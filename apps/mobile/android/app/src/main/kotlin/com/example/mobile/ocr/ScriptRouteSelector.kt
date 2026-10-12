@@ -52,6 +52,39 @@ internal object CyrillicRecovery {
     }
 }
 
+// Recovery uses another actual common-model output, never a glyph substitution.
+// A separate original complete zł cell corroborates the damaged suffix. Keep the
+// original number spelling, pack identity and document orientation unchanged.
+internal object PolishCurrencyRecovery {
+    const val WHITE_MARGIN = 12
+    private const val AMOUNT = """([+−-]?(?:[0-9]+[.,][0-9]{2}|[1-9][0-9]{0,2}(?:,[0-9]{3})+\.[0-9]{2}|[1-9][0-9]{0,2}(?:\.[0-9]{3})+,[0-9]{2}))"""
+    private val damaged = Regex(AMOUNT + """[ \t]+(?:zl|zì)""")
+    private val complete = Regex(AMOUNT + """[ \t]+zł""")
+
+    fun shouldProbe(index: Int, original: List<ScriptCandidate?>): Boolean {
+        val candidate = original.getOrNull(index) ?: return false
+        if (!confidentCommon(candidate) || amount(damaged, candidate.text) == null) return false
+        return original.withIndex().any { (otherIndex, other) ->
+            otherIndex != index && other != null && other.pack == candidate.pack &&
+                confidentCommon(other) && amount(complete, other.text) != null
+        }
+    }
+
+    fun accepts(index: Int, original: List<ScriptCandidate?>, recovery: ScriptCandidate): Boolean {
+        if (!shouldProbe(index, original)) return false
+        val candidate = original[index]!!
+        return recovery.pack == candidate.pack && confidentCommon(recovery) &&
+            amount(complete, recovery.text) == amount(damaged, candidate.text)
+    }
+
+    private fun confidentCommon(candidate: ScriptCandidate): Boolean =
+        ScriptEvidence.COMMON in candidate.pack.acceptedScripts &&
+            candidate.confidence.isFinite() && candidate.confidence in 0.8f..1.0f
+
+    private fun amount(pattern: Regex, text: String): String? =
+        pattern.matchEntire(text.trim(' ', '\t'))?.groupValues?.get(1)
+}
+
 internal object ScriptRouteSelector {
     // Confidence outputs from the broad and script-specific recognizers are not
     // directly comparable. Every specialist performs a bounded probe for every

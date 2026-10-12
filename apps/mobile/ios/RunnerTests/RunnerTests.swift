@@ -5,6 +5,66 @@ import XCTest
 
 class RunnerTests: XCTestCase {
 
+  func testPolishCurrencyRecoveryPreservesAmountsAndRejectsUnprovenChanges() {
+    let pack = RecognizerSpec(modelPackID: "common", modelVersion: "test", modelPath: "/test", configPath: "/test", acceptedScripts: [.common])
+    func candidate(_ text: String, _ confidence: Float = 0.95, _ spec: RecognizerSpec? = nil) -> ScriptCandidate {
+      ScriptCandidate(text: text, confidence: confidence, pack: spec ?? pack)
+    }
+    for amount in ["0,00", "7.20", "83,41", "-6,73", "+91.08", "−6,73", "1,823.41", "1.823,41", "9,876,543.21", "9.876.543,21"] {
+      for suffix in ["zl", "zì"] {
+        let original: [ScriptCandidate?] = [candidate("\(amount) \(suffix)"), candidate("2,18 zł"), candidate("$5.67")]
+        let recovery = candidate("\(amount) zł", 0.81)
+        XCTAssertTrue(PolishCurrencyRecovery.shouldProbe(0, original: original))
+        XCTAssertTrue(PolishCurrencyRecovery.accepts(0, original: original, recovery: recovery))
+        XCTAssertFalse(PolishCurrencyRecovery.shouldProbe(1, original: original))
+        XCTAssertFalse(PolishCurrencyRecovery.shouldProbe(2, original: original))
+        XCTAssertEqual(original[0]?.text, "\(amount) \(suffix)")
+        XCTAssertEqual(original[2]?.text, "$5.67")
+        XCTAssertEqual(recovery.confidence, Float(0.81))
+        XCTAssertEqual(recovery.pack, pack)
+      }
+    }
+    XCTAssertTrue(PolishCurrencyRecovery.accepts(0, original: [candidate(" \t83,41 zl\t "), candidate("2,18 zł")], recovery: candidate("83,41\tzł")))
+    for text in ["", "Word zl", "12 zl", "12,3 zl", "1,234 zl", "1,23,456.78 zl", "01,234.56 zl", "1.23,45 zl", "12.34zl", "12.34 zI", "12.34 zł", "12.34 PLN", "12.34 zł extra", "label 12.34 zl", "12.34 zl 56.78", "12.34 USD", "$12.34 zl", "12.34 €", "12/10/2026 zl", "١٢.٣٤ zl", "１２.３４ zl", "12.34\nzl", "12.34 zl", "--12.34 zl", "+-12.34 zl"] {
+      let original: [ScriptCandidate?] = [candidate(text), candidate("2,18 zł")]
+      XCTAssertFalse(PolishCurrencyRecovery.shouldProbe(0, original: original), text)
+      XCTAssertFalse(PolishCurrencyRecovery.accepts(0, original: original, recovery: candidate("83,41 zł")), text)
+    }
+    let damaged = candidate("83,41 zl"), proof = candidate("2,18 zł"), recovery = candidate("83,41 zł")
+    for text in ["83.41 zł", "83,42 zł", "8,341 zł", "-83,41 zł", "+83,41 zł", "083,41 zł", "83,410 zł", "83,41 zl", "83,41 zì", "83,41 PLN", "83,41 zł extra", "label 83,41 zł", "83,41 zł\nnoise", "83,41 $", ""] {
+      XCTAssertFalse(PolishCurrencyRecovery.accepts(0, original: [damaged, proof], recovery: candidate(text)), text)
+    }
+    for text in ["1823.41 zł", "1.823,41 zł", "1,823.42 zł"] {
+      XCTAssertFalse(PolishCurrencyRecovery.accepts(0, original: [candidate("1,823.41 zl"), proof], recovery: candidate(text)), text)
+    }
+    XCTAssertFalse(PolishCurrencyRecovery.shouldProbe(0, original: [damaged]))
+    XCTAssertFalse(PolishCurrencyRecovery.shouldProbe(0, original: [damaged, candidate("2,18 zl")]))
+    XCTAssertFalse(PolishCurrencyRecovery.shouldProbe(0, original: [damaged, candidate("VAT 2,18 zł")]))
+    XCTAssertFalse(PolishCurrencyRecovery.shouldProbe(-1, original: [damaged, proof]))
+    XCTAssertFalse(PolishCurrencyRecovery.shouldProbe(2, original: [damaged, proof]))
+    XCTAssertFalse(PolishCurrencyRecovery.shouldProbe(0, original: [nil, proof]))
+    let different = [
+      RecognizerSpec(modelPackID: "other", modelVersion: "test", modelPath: "/test", configPath: "/test", acceptedScripts: [.common]),
+      RecognizerSpec(modelPackID: "common", modelVersion: "next", modelPath: "/test", configPath: "/test", acceptedScripts: [.common]),
+      RecognizerSpec(modelPackID: "common", modelVersion: "test", modelPath: "/other", configPath: "/test", acceptedScripts: [.common]),
+      RecognizerSpec(modelPackID: "common", modelVersion: "test", modelPath: "/test", configPath: "/other", acceptedScripts: [.common]),
+      RecognizerSpec(modelPackID: "common", modelVersion: "test", modelPath: "/test", configPath: "/test", acceptedScripts: [.cyrillic]),
+    ]
+    for spec in different {
+      XCTAssertFalse(PolishCurrencyRecovery.shouldProbe(0, original: [damaged, candidate("2,18 zł", 0.95, spec)]))
+      XCTAssertFalse(PolishCurrencyRecovery.accepts(0, original: [damaged, proof], recovery: candidate("83,41 zł", 0.95, spec)))
+    }
+    XCTAssertFalse(PolishCurrencyRecovery.shouldProbe(0, original: [candidate("83,41 zl", 0.95, different.last!), proof]))
+    for confidence in [Float(-1), 0, 0.7999, 1.0001, .nan, .infinity, -.infinity] {
+      XCTAssertFalse(PolishCurrencyRecovery.accepts(0, original: [candidate("83,41 zl", confidence), proof], recovery: recovery))
+      XCTAssertFalse(PolishCurrencyRecovery.accepts(0, original: [damaged, candidate("2,18 zł", confidence)], recovery: recovery))
+      XCTAssertFalse(PolishCurrencyRecovery.accepts(0, original: [damaged, proof], recovery: candidate("83,41 zł", confidence)))
+    }
+    for confidence in [Float(0.8), 1] {
+      XCTAssertTrue(PolishCurrencyRecovery.accepts(0, original: [candidate("83,41 zl", confidence), candidate("2,18 zł", confidence)], recovery: candidate("83,41 zł", confidence)))
+    }
+  }
+
   func testCyrillicRecoveryPreservesWinnersAndNumericEvidence() {
     func candidate(_ id: String, _ script: ScriptEvidence, _ text: String, _ confidence: Float) -> ScriptCandidate {
       ScriptCandidate(text: text, confidence: confidence, pack: RecognizerSpec(

@@ -139,6 +139,42 @@ enum CyrillicRecovery {
   }
 }
 
+// Match Android: use actual fixed-margin common recognition only when a separate
+// original complete zł cell corroborates the damaged suffix. Never rewrite digits.
+enum PolishCurrencyRecovery {
+  static let whiteMargin = 12
+  private static let amount = #"([+−-]?(?:[0-9]+[.,][0-9]{2}|[1-9][0-9]{0,2}(?:,[0-9]{3})+\.[0-9]{2}|[1-9][0-9]{0,2}(?:\.[0-9]{3})+,[0-9]{2}))"#
+  private static let damaged = try! NSRegularExpression(pattern: #"\A"# + amount + #"[ \t]+(?:zl|zì)\z"#)
+  private static let complete = try! NSRegularExpression(pattern: #"\A"# + amount + #"[ \t]+zł\z"#)
+
+  static func shouldProbe(_ index: Int, original: [ScriptCandidate?]) -> Bool {
+    guard original.indices.contains(index), let candidate = original[index],
+          confidentCommon(candidate), amount(in: candidate.text, matching: damaged) != nil else { return false }
+    return original.enumerated().contains { otherIndex, other in
+      guard otherIndex != index, let other = other, other.pack == candidate.pack else { return false }
+      return confidentCommon(other) && amount(in: other.text, matching: complete) != nil
+    }
+  }
+
+  static func accepts(_ index: Int, original: [ScriptCandidate?], recovery: ScriptCandidate) -> Bool {
+    guard shouldProbe(index, original: original), let candidate = original[index] else { return false }
+    return recovery.pack == candidate.pack && confidentCommon(recovery) &&
+      amount(in: recovery.text, matching: complete) == amount(in: candidate.text, matching: damaged)
+  }
+
+  private static func confidentCommon(_ candidate: ScriptCandidate) -> Bool {
+    candidate.pack.acceptedScripts.contains(.common) && candidate.confidence.isFinite &&
+      (Float(0.8)...Float(1)).contains(candidate.confidence)
+  }
+
+  private static func amount(in text: String, matching pattern: NSRegularExpression) -> String? {
+    let literal = text.trimmingCharacters(in: CharacterSet(charactersIn: " \t")) as NSString
+    let range = NSRange(location: 0, length: literal.length)
+    guard let match = pattern.firstMatch(in: literal as String, range: range), match.range == range else { return nil }
+    return literal.substring(with: match.range(at: 1))
+  }
+}
+
 enum ScriptRouteSelector {
   private static let scriptMatchBonus = 0.24
   private static let specialistBias = 0.20

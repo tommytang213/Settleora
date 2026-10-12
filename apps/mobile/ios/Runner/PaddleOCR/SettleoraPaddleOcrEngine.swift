@@ -191,9 +191,14 @@ final class SettleoraPaddleOcrEngine {
       reverseRecognition: rotateDocument
     )
 
+    // Recovery cannot alter orientation or bootstrap corroboration from itself.
+    let original = candidates.map { ScriptRouteSelector.select($0) }
+    let currencyRecovery = try await recognizeCurrencyRecovery(
+      common, crops: rotateDocument ? rotatedCrops : crops, original: original
+    )
     var blocks: [SettleoraOcrBlock] = []
     for index in candidates.indices {
-      guard let accepted = ScriptRouteSelector.select(candidates[index]),
+      guard let accepted = currencyRecovery[index] ?? original[index],
             accepted.confidence >= 0.1 else { continue }
       let points = boxes[index].points.map { point -> SettleoraOcrPoint in
         documentOrientation.transform(
@@ -269,6 +274,33 @@ final class SettleoraPaddleOcrEngine {
           confidence: value.confidence, pack: recognizer.spec
         )
         if CyrillicRecovery.accepts(original[index], recovery: candidate) { output[index] = candidate }
+      }
+    }
+    return output
+  }
+
+  private func recognizeCurrencyRecovery(
+    _ recognizer: Recognizer, crops: [CGImage], original: [ScriptCandidate?]
+  ) async throws -> [ScriptCandidate?] {
+    var output = [ScriptCandidate?](repeating: nil, count: crops.count)
+    // Retain the original full batches and their canvas widths.
+    for indices in Array(crops.indices).chunked(maxCount: 4) {
+      guard indices.contains(where: { PolishCurrencyRecovery.shouldProbe($0, original: original) }) else { continue }
+      let input = try recognizer.preprocessor.preprocessBatch(
+        indices.map { crops[$0] }, whiteMargin: PolishCurrencyRecovery.whiteMargin
+      )
+      let raw = try await sessions.runRecognition(
+        packID: recognizer.spec.modelPackID, inputData: input.tensorData, shape: input.tensorShape
+      )
+      let decoded = try recognizer.decoder.decodeBatch(outputData: raw.data, outputShape: raw.shape)
+      guard decoded.count == indices.count else { throw SettleoraOcrError.invalidCatalog }
+      for (offset, value) in decoded.enumerated() {
+        let index = indices[offset]
+        let candidate = ScriptCandidate(
+          text: RecognizedTextNormalizer.normalize(value.text.trimmingCharacters(in: .whitespacesAndNewlines), pack: recognizer.spec),
+          confidence: value.confidence, pack: recognizer.spec
+        )
+        if PolishCurrencyRecovery.accepts(index, original: original, recovery: candidate) { output[index] = candidate }
       }
     }
     return output
