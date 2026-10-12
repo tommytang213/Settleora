@@ -59,6 +59,8 @@ test("hosted Codex evidence fails closed on running, stale, quota, spoofed, and 
   "hosted_codex_review_current_head_comment_findings");
   assert.equal(evaluate([summary, completion, { ...bot, id: 6, created_at: "2026-10-11T23:44:00Z",
     body: "Found a problem without a commit marker" }]).status, "blocked");
+  assert.equal(evaluate([summary, completion, { ...completion, id: 7, created_at: "2026-10-11T23:43:00Z",
+    body: `${completion.body}\nFinding: still unresolved` }]).status, "blocked");
 });
 
 test("GitHub inspection resolves abbreviated commit and blocks unreadable or mismatched evidence", () => {

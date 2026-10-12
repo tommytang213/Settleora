@@ -84,16 +84,14 @@ export function evaluateHostedCodexReview({ comments = [], reviews = [], headSha
   const otherComments = botComments.filter((item) => item.id !== summary.id)
     .sort((a, b) => Date.parse(b.created_at || "") - Date.parse(a.created_at || "") || Number(b.id) - Number(a.id));
   const completion = otherComments[0];
-  const completionMatch = String(completion?.body || "").match(/^Codex Review: Didn't find any major issues\. (?::\+1:|You're on a roll\.)\s*\n\n\*\*Reviewed commit:\*\* `([a-f0-9]{10,40})`(?:\r?\n|$)/);
-  if (!completionMatch || !headSha.startsWith(completionMatch[1])) return blocked("hosted_codex_review_no_exact_head_completion");
-  const footer = String(completion.body).slice(completionMatch[0].length).split(/\r?\n/)
-    .map((line) => line.trim()).filter(Boolean).join("\n");
-  if (footer !== completionFooter) return blocked("hosted_codex_review_completion_body_malformed");
+  const completionProof = parseNoFindingsCompletion(completion?.body);
+  if (!completionProof || !headSha.startsWith(completionProof.reviewedPrefix)) {
+    return blocked("hosted_codex_review_no_exact_head_completion");
+  }
   if (otherComments.slice(1).some((item) => {
     const body = String(item.body || "");
     const reviewed = body.match(/\*\*Reviewed commit:\*\* `([a-f0-9]{7,40})`/);
-    if (reviewed) return headSha.startsWith(reviewed[1])
-      && !body.startsWith("Codex Review: Didn't find any major issues.");
+    if (reviewed) return headSha.startsWith(reviewed[1]) && !parseNoFindingsCompletion(body);
     // Without a commit marker, an extra bot comment cannot be proven stale.
     return true;
   })) return blocked("hosted_codex_review_current_head_comment_findings");
@@ -110,7 +108,7 @@ export function evaluateHostedCodexReview({ comments = [], reviews = [], headSha
       || String(review.body || "").trim() || review.inlineCommentCount !== 0))) {
     return blocked("hosted_codex_review_current_head_findings");
   }
-  return { status: "completed_no_findings", reviewedPrefix: completionMatch[1],
+  return { status: "completed_no_findings", reviewedPrefix: completionProof.reviewedPrefix,
     summaryCommentId: summary.id, completionCommentId: completion.id, completedAt: completion.created_at };
 }
 
@@ -133,6 +131,15 @@ function isBotRecord(value, allowNullBody = false) {
 
 function reviewMatchesHead(review, headSha) {
   return /^[a-f0-9]{7,40}$/.test(review?.commit_id || "") && headSha.startsWith(review.commit_id);
+}
+
+function parseNoFindingsCompletion(body) {
+  const content = String(body || "");
+  const match = content.match(/^Codex Review: Didn't find any major issues\. (?::\+1:|You're on a roll\.)\s*\n\n\*\*Reviewed commit:\*\* `([a-f0-9]{10,40})`(?:\r?\n|$)/);
+  if (!match) return null;
+  const footer = content.slice(match[0].length).split(/\r?\n/)
+    .map((line) => line.trim()).filter(Boolean).join("\n");
+  return footer === completionFooter ? { reviewedPrefix: match[1] } : null;
 }
 
 function blocked(reason) { return { status: "blocked", reason }; }
