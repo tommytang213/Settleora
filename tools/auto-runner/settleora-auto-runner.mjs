@@ -962,7 +962,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       baseSha: iteration.baseOriginMainSha,
       headSha: iteration.runnerCreatedCommitSha,
       treeSha: getRefSha("HEAD^{tree}"),
-      diffDigest: createHash("sha256").update(getBoundedDiff(iteration.baseOriginMainSha, iteration.runnerCreatedCommitSha).text).digest("hex"),
+      diffDigest: canonicalCandidateDiffDigest(iteration.baseOriginMainSha, iteration.runnerCreatedCommitSha),
       changedFiles,
       changedFilesDigest: digestChangedFiles(changedFiles),
     };
@@ -1198,7 +1198,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       baseSha: iteration.baseOriginMainSha,
       headSha: iteration.runnerCreatedCommitSha,
       treeSha: getRefSha("HEAD^{tree}"),
-      diffDigest: createHash("sha256").update(getBoundedDiff(iteration.baseOriginMainSha, iteration.runnerCreatedCommitSha).text).digest("hex"),
+      diffDigest: canonicalCandidateDiffDigest(iteration.baseOriginMainSha, iteration.runnerCreatedCommitSha),
       changedFiles,
       changedFilesDigest: digestChangedFiles(changedFiles),
     };
@@ -2922,7 +2922,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     baseSha: initial.identity.baseSha,
     headSha: initial.identity.headSha,
     treeSha: getRefSha(`${initial.identity.headSha}^{tree}`),
-    diffDigest: createHash("sha256").update(getBoundedDiff(initial.identity.baseSha, initial.identity.headSha).text).digest("hex"),
+    diffDigest: canonicalCandidateDiffDigest(initial.identity.baseSha, initial.identity.headSha),
     changedFiles: actualChangedFiles,
     changedFilesDigest: createHash("sha256").update(JSON.stringify([...actualChangedFiles].sort())).digest("hex"),
   };
@@ -3182,7 +3182,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
             executionKey: continuation.executionKey,
             issueNumber: continuation.issueNumber,
             branchName: continuation.branchName,
-            identity: { baseSha: candidate.baseSha, headSha, treeSha: getRefSha(`${headSha}^{tree}`), diffDigest: createHash("sha256").update(getBoundedDiff(candidate.baseSha, headSha).text).digest("hex"), changedFiles },
+            identity: { baseSha: candidate.baseSha, headSha, treeSha: getRefSha(`${headSha}^{tree}`), diffDigest: canonicalCandidateDiffDigest(candidate.baseSha, headSha), changedFiles },
             expectedOriginMainSha: currentMainSha,
             historicalEffectMainSha,
             phase: "candidate_reconciliation",
@@ -3222,7 +3222,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       }
       const changedFiles = postFix.changedFiles;
       operationalCheckpoint?.("ordinary_recovery_review_convergence_complete", { validation: postFix.validation, externalReview: postFix.externalReview, review: postFix.review });
-      const next = { baseSha: candidate.baseSha, headSha: postFix.runnerCreatedCommitSha, treeSha: getRefSha(`${postFix.runnerCreatedCommitSha}^{tree}`), diffDigest: createHash("sha256").update(getBoundedDiff(candidate.baseSha, postFix.runnerCreatedCommitSha).text).digest("hex"), changedFiles };
+      const next = { baseSha: candidate.baseSha, headSha: postFix.runnerCreatedCommitSha, treeSha: getRefSha(`${postFix.runnerCreatedCommitSha}^{tree}`), diffDigest: canonicalCandidateDiffDigest(candidate.baseSha, postFix.runnerCreatedCommitSha), changedFiles };
       return { ok: true, sourceChanged: true, identity: next };
     },
     push: async (continuation) => {
@@ -3781,13 +3781,19 @@ function recordTaskWorktreeOwnershipMarker(config, recoveryRecorder, branchName)
   } catch { /* absent proof deliberately leaves the worktree unowned */ }
 }
 
+function canonicalCandidateDiffDigest(baseSha, headSha) {
+  const diff = getBoundedDiff(baseSha, headSha, 16 * 1024 * 1024);
+  if (diff.truncated) throw new Error("Candidate diff exceeds canonical identity bound");
+  return createHash("sha256").update(diff.text).digest("hex");
+}
+
 function ordinaryIdentityForHead(baseSha, headSha) {
   const changedFiles = listChangedFiles(baseSha, headSha);
   return {
     baseSha,
     headSha,
     treeSha: getRefSha(`${headSha}^{tree}`),
-    diffDigest: createHash("sha256").update(getBoundedDiff(baseSha, headSha).text).digest("hex"),
+    diffDigest: canonicalCandidateDiffDigest(baseSha, headSha),
     changedFiles,
     changedFilesDigest: createHash("sha256").update(JSON.stringify([...changedFiles].sort())).digest("hex"),
   };
@@ -3861,7 +3867,7 @@ function refreshOrdinaryContinuationAfterSourceChange(config, recoveryRecorder, 
     baseSha: iteration.baseOriginMainSha,
     headSha: iteration.runnerCreatedCommitSha,
     treeSha: getRefSha(`${iteration.runnerCreatedCommitSha}^{tree}`),
-    diffDigest: createHash("sha256").update(getBoundedDiff(iteration.baseOriginMainSha, iteration.runnerCreatedCommitSha).text).digest("hex"),
+    diffDigest: canonicalCandidateDiffDigest(iteration.baseOriginMainSha, iteration.runnerCreatedCommitSha),
     changedFiles,
   };
   const ordinaryContinuation = createOrdinaryContinuationState({
@@ -3978,13 +3984,12 @@ function loadNormalLargeCandidateRecoveryCheckpoint(config, state, issue, laneDe
     headSha = provenIdentity.headSha;
   }
   const changedFiles = listChangedFiles(baseSha, headSha);
-  const diff = getBoundedDiff(baseSha, headSha);
   const candidateIdentity = provenIdentity || {
     repository: config.repositorySlug || "tommytang213/Settleora",
     baseSha,
     headSha,
     treeSha: getRefSha(`${headSha}^{tree}`),
-    diffDigest: createHash("sha256").update(diff.text).digest("hex"),
+    diffDigest: canonicalCandidateDiffDigest(baseSha, headSha),
     changedFilesDigest: createHash("sha256").update(JSON.stringify([...changedFiles].sort())).digest("hex"),
   };
   const seed = createLargeCandidateRoutingState({ taskKey: state.taskKey || `issue-${state.issue?.number || "unknown"}`, candidateIdentity, changedFiles });

@@ -669,14 +669,14 @@ function dedupeSorted(lines) {
 
 function getWorkingTreeDiffText(cwd = trustedRepositoryContext || process.cwd()) {
   const gitOptions = { cwd, maxBuffer: maxGitOutputBytes };
-  const unstaged = runGit(["diff", "--binary"], gitOptions);
+  const unstaged = runGit(["diff", "--binary", "--no-ext-diff", "--no-textconv", "--no-color"], gitOptions);
   assertGitSuccess(unstaged, "Unable to read unstaged diff");
-  const staged = runGit(["diff", "--cached", "--binary"], gitOptions);
+  const staged = runGit(["diff", "--cached", "--binary", "--no-ext-diff", "--no-textconv", "--no-color"], gitOptions);
   assertGitSuccess(staged, "Unable to read staged diff");
   const untracked = runGit(["ls-files", "--others", "--exclude-standard"], gitOptions);
   assertGitSuccess(untracked, "Unable to list untracked files for diff");
   const untrackedDiffs = dedupeSorted(untracked.stdout.split(/\r?\n/)).map((file) => {
-    const result = runGit(["diff", "--no-index", "--binary", "--", "/dev/null", file], gitOptions);
+    const result = runGit(["diff", "--no-index", "--binary", "--no-ext-diff", "--no-textconv", "--no-color", "--", "/dev/null", file], gitOptions);
     if (result.error || ![0, 1].includes(result.status)) {
       throw new Error(`Unable to read untracked diff for ${file}\n${result.command}\n${result.stderr || result.stdout || result.error}`);
     }
