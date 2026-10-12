@@ -10140,6 +10140,100 @@ VAT included 20% GBP 4.00
     expect(preview.reviewHints, isNotEmpty);
   });
 
+  group('consistent included-tax interpretation', () {
+    for (final adjustment in [
+      (null, null, null, null, '24.00', '28.00'),
+      ('2.00', null, null, null, '26.00', '30.00'),
+      (null, '3.00', null, null, '27.00', '31.00'),
+      (null, null, '5.00', null, '29.00', '33.00'),
+      (null, null, null, '-1.00', '23.00', '27.00'),
+    ]) {
+      for (final contradictory in [false, true]) {
+        test(
+          'gross items with net subtotal $adjustment contradictory=$contradictory',
+          () {
+            final total = contradictory ? adjustment.$6 : adjustment.$5;
+            final preview = ReceiptOcrPreview(
+              currency: 'GBP',
+              subtotal: '20.00',
+              tax: '4.00',
+              taxIncludedInTotal: true,
+              service: adjustment.$1,
+              tip: adjustment.$2,
+              shipping: adjustment.$3,
+              discount: adjustment.$4,
+              total: total,
+              items: const [
+                ReceiptOcrItemCandidate(
+                  description: 'Book',
+                  lineTotal: '24.00',
+                  currency: 'GBP',
+                ),
+              ],
+            );
+            expect(preview.reviewHints.isNotEmpty, contradictory);
+            expect(
+              preview.reviewHintDecision,
+              contradictory
+                  ? ReceiptOcrReviewDecision
+                        .referenceAdjustmentUnreconciledWithSubtotal
+                  : ReceiptOcrReviewDecision.none,
+            );
+            expect(preview.total, total);
+            expect(preview.subtotal, '20.00');
+            expect(preview.tax, '4.00');
+            expect(preview.items.single.lineTotal, '24.00');
+          },
+        );
+      }
+    }
+    for (final amounts in [
+      ('24.00', '24.00', '24.00'),
+      ('20.00', '20.00', '24.00'),
+      ('24.00', '24.00', '28.00'),
+      ('24.00', null, '24.00'),
+      ('24.00', null, '28.00'),
+    ]) {
+      test('preserves supported item/subtotal/total $amounts', () {
+        final preview = ReceiptOcrPreview(
+          currency: 'GBP',
+          subtotal: amounts.$2,
+          tax: '4.00',
+          taxIncludedInTotal: true,
+          total: amounts.$3,
+          items: [
+            ReceiptOcrItemCandidate(
+              description: 'Book',
+              lineTotal: amounts.$1,
+              currency: 'GBP',
+            ),
+          ],
+        );
+        expect(preview.reviewHints, isEmpty);
+        expect(preview.reviewHintDecision, ReceiptOcrReviewDecision.none);
+      });
+    }
+    test('retains a supported discount before a net subtotal', () {
+      const preview = ReceiptOcrPreview(
+        currency: 'GBP',
+        subtotal: '20.00',
+        tax: '4.00',
+        taxIncludedInTotal: true,
+        discount: '-4.00',
+        discountBeforeSubtotal: true,
+        total: '24.00',
+        items: [
+          ReceiptOcrItemCandidate(
+            description: 'Book',
+            lineTotal: '24.00',
+            currency: 'GBP',
+          ),
+        ],
+      );
+      expect(preview.reviewHints, isEmpty);
+    });
+  });
+
   test('included tax component must fit its gross item base', () {
     for (final subtotal in [null, '24.00']) {
       for (final tax in ['25.00', '-1.00', '0.00', '4.00', '24.00']) {

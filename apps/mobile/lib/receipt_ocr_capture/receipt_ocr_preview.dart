@@ -293,17 +293,19 @@ List<String> _receiptOcrReviewHints(
             )
         ? _parseReceiptOcrReviewAmount(preview.discount)
         : null;
-    if (!_receiptOcrAmountsClose(itemTotal, subtotal) &&
-        (beforeSubtotalDiscount == null ||
-            !_receiptOcrAmountsClose(
-              itemTotal + beforeSubtotalDiscount,
-              subtotal,
-            )) &&
-        // A discount before the subtotal leaves the printed tax/discount
-        // order unresolved for the saved review's subtotal-based tax mode.
-        (includedTax == null ||
-            preview.discountBeforeSubtotal ||
-            !_receiptOcrAmountsClose(itemTotal, subtotal + includedTax))) {
+    final subtotalMatchesItems = _receiptOcrAmountsClose(itemTotal, subtotal);
+    final subtotalMatchesDiscountedItems =
+        beforeSubtotalDiscount != null &&
+        _receiptOcrAmountsClose(itemTotal + beforeSubtotalDiscount, subtotal);
+    // A discount before the subtotal leaves the printed tax/discount
+    // order unresolved for the saved review's subtotal-based tax mode.
+    final subtotalMatchesGrossItems =
+        includedTax != null &&
+        !preview.discountBeforeSubtotal &&
+        _receiptOcrAmountsClose(itemTotal, subtotal + includedTax);
+    if (!subtotalMatchesItems &&
+        !subtotalMatchesDiscountedItems &&
+        !subtotalMatchesGrossItems) {
       onDecision?.call(ReceiptOcrReviewDecision.subtotalMismatch);
       return const [
         'OCR item total differs from detected subtotal. Review the receipt before applying.',
@@ -323,7 +325,13 @@ List<String> _receiptOcrReviewHints(
       if (preview.adjustmentsComplete &&
           (preview.currency?.trim().isNotEmpty ?? false) &&
           _hasCompleteReceiptOcrItemLineTotals(preview.items) &&
-          _receiptOcrAdjustmentsReconcile(preview, itemTotal, total)) {
+          _receiptOcrAdjustmentsReconcile(
+            preview,
+            itemTotal,
+            total,
+            allowNetIncludedTaxItems:
+                subtotalMatchesItems || subtotalMatchesDiscountedItems,
+          )) {
         return const [];
       }
       onDecision?.call(
@@ -584,8 +592,9 @@ int? _reconcilableReceiptOcrAdjustments(ReceiptOcrPreview preview) {
 bool _receiptOcrAdjustmentsReconcile(
   ReceiptOcrPreview preview,
   int itemTotal,
-  int total,
-) {
+  int total, {
+  bool allowNetIncludedTaxItems = true,
+}) {
   final adjustments = _reconcilableReceiptOcrAdjustments(preview);
   if (adjustments == null) return false;
   final tax = preview.taxIncludedInTotal
@@ -597,9 +606,11 @@ bool _receiptOcrAdjustmentsReconcile(
     // Keep contradictory printed amounts and their review hint intact.
     return !preview.taxIncludedInTotal || tax! <= itemTotal;
   }
-  // Printed items may instead be net of the included component. This route
-  // proves the gross total by addition, so tax need not be below the net base.
-  return preview.taxIncludedInTotal &&
+  // Printed items may instead be net of the included component, unless the
+  // subtotal reconciled only by treating these same items as gross. Keep one
+  // interpretation across both checks rather than counting included tax twice.
+  return allowNetIncludedTaxItems &&
+      preview.taxIncludedInTotal &&
       _receiptOcrAmountsClose(itemTotal + adjustments + tax!, total);
 }
 

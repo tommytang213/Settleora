@@ -167,6 +167,13 @@ number-only blocks. Isolated monetary fragments remain review evidence rather
 than silently shortening the name. Ordinary and mirrored controls preserve raw
 blocks and verify both corrections without changing saved-review or Apply rules.
 
+Preview reconciliation now keeps one included-tax interpretation across the
+subtotal and grand-total checks. When items reconcile to a net subtotal only
+because they already include tax, the total check cannot add that tax again to
+suppress a contradiction. Valid gross and net item conventions remain supported,
+including separate fees and discounts. These checks affect review hints only;
+they preserve all printed amounts and do not change saved-money or Apply policy.
+
 The EF snapshot concern was checked with the pinned EF 9.0.15 tool and the
 three existing `ReceiptOcrReviewSchemaFoundationTests`. The model comparison
 reported no pending changes; all three metadata/schema-generation tests passed.
