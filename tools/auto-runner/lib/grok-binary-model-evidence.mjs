@@ -80,15 +80,24 @@ export function prepareGrokBinaryModelEvidence({ repoRoot, baseSha, headSha, cha
     || !binaryBlocks[0].includes("new file mode 100644\n")) {
     return fail("blocked_grok_binary_unapproved_or_unverified_patch");
   }
-  let blob, config, catalog;
+  let blob, config, catalog, validationRecord;
   try {
     blob = readGit(repoRoot, ["show", `${headSha}:${model.path}`], model.bytes + 1024);
     config = readGit(repoRoot, ["show", `${headSha}:${model.configPath}`], 128 * 1024);
     catalog = JSON.parse(readGit(repoRoot, ["show", `${headSha}:${model.catalogPath}`], 512 * 1024).toString("utf8"));
+    validationRecord = readGit(repoRoot, ["show", `${headSha}:${model.validationEvidencePath}`], 128 * 1024);
   } catch { return fail("blocked_grok_binary_model_evidence_unavailable"); }
   if (blob.length !== model.bytes || sha256(blob) !== model.sha256
     || config.length !== model.configBytes || sha256(config) !== model.configSha256) {
     return fail("blocked_grok_binary_model_hash_or_size_mismatch");
+  }
+  const validationText = validationRecord.toString("utf8");
+  if (!validationText.includes(model.sha256)
+    || !validationText.includes(model.configSha256)
+    || !validationText.includes(model.upstreamRevision)
+    || !validationText.includes(`ONNX checker ${model.checkerVersion.replace(/^onnx /, "")} full validation passes`)
+    || !validationText.includes("no external tensor data")) {
+    return fail("blocked_grok_binary_prior_validation_record_mismatch");
   }
   const pack = catalog?.packs?.find((entry) => entry.assetDirectory
     === "assets/receipt_ocr_models/ppocrv6-tiny-rec");
@@ -105,8 +114,11 @@ export function prepareGrokBinaryModelEvidence({ repoRoot, baseSha, headSha, cha
       && entry.bytes === model.configBytes && entry.sha256 === model.configSha256)) {
     return fail("blocked_grok_binary_catalog_contract_mismatch");
   }
-  const artifact = { ...model, gitBlobSha: null, coverage: "opaque_binary_integrity_only",
-    limitations: "Reviewer cannot inspect ONNX tensor bytes as source text. Tensor shape and checker result are pinned prior validation claims bound to this exact SHA-256; associated catalog, configuration, routing code, and tests still require review." };
+  const { checkerVersion, tensorContract, validationEvidencePath, ...verifiedPin } = model;
+  const artifact = { ...verifiedPin, gitBlobSha: null, coverage: "opaque_binary_integrity_only",
+    priorValidationClaims: { checkerVersion, tensorContract, validationEvidencePath,
+      validationEvidenceSha256: sha256(validationRecord) },
+    limitations: "Reviewer cannot inspect ONNX tensor bytes as source text. Tensor shape and checker result are claims in the head-bound QA record for this exact SHA-256, not checks performed by this adapter; associated catalog, configuration, routing code, and tests still require review." };
   try { artifact.gitBlobSha = readGit(repoRoot, ["rev-parse", `${headSha}:${model.path}`], 1024).toString("utf8").trim(); }
   catch { return fail("blocked_grok_binary_git_blob_identity_unavailable"); }
   if (!fullSha.test(artifact.gitBlobSha)) return fail("blocked_grok_binary_git_blob_identity_unreadable");

@@ -41,7 +41,7 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
     Math.max(boundary.diffStats?.[key] || 0, Number.isFinite(Number(summary.diffStats?.[key])) && Number(summary.diffStats[key]) >= 0
       ? Number(summary.diffStats[key]) : 0)]));
   const changedFilesDigest = digestChangedFiles(changedFiles);
-  const providerBoundDiffSha256 = providerBoundReviewDigest(diff);
+  const providerBoundDiffSha256 = providerBoundReviewDigest(binary.ok ? reviewDiff : "");
   const reviewedHead = summary.currentHead || summary.headSha || summary.runnerCreatedCommitSha || null;
   const baseSha = summary.baseSha || summary.baseRefSha || summary.baseOriginMainSha || null;
   const route = routeReviewer({ changedFiles, laneDecision: summary.laneDecision || {}, stats,
@@ -49,7 +49,8 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
     largeBundleReviewApproval: config.largeBundleReviewApproval,
     reviewPackageEvidence: buildLargeBundleReviewEvidence({ config, summary, changedFilesDigest,
       rawDiffSha256: originalDiffSha256, providerBoundDiffSha256, effectiveDiffStats: stats,
-      secretBoundary: { ...boundary, rawDiffSha256: originalDiffSha256 }, reviewedHead, baseSha, diff }) });
+      secretBoundary: { ...boundary, scannedDiffSha256: sha256(reviewDiff) }, reviewedHead, baseSha,
+      diff: binary.ok ? reviewDiff : "" }) });
   const { reviewerTiers, reviewerBudget } = mergeReviewerPolicyConfig(config);
   const tier = reviewerTiers[route.tier];
   const profile = config.reviewerProviderProfiles?.[tier?.providerProfile];
@@ -63,7 +64,10 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
     rawDiffSha256: originalDiffSha256, providerBoundDiffSha256,
     diffStats: stats,
     secretBoundary: { ok: boundary.ok, blocked: boundary.blocked, reason: boundary.reason,
-      blockers: boundary.blockers, allowedReferences: boundary.allowedReferences },
+      blockers: boundary.blockers, allowedReferences: boundary.allowedReferences,
+      scope: !binary.ok ? "unverified_binary_diff_local_preflight_only"
+        : binary.transformed ? "projected_text_with_digest_verified_opaque_binary" : "original_text_diff",
+      scannedDiffSha256: sha256(reviewDiff) },
     baseSha,
     treeSha: summary.treeSha || null, repository: summary.repository || null,
     integrationBoundaries: summary.integrationBoundaries || [], verdictSchemaVersion: 1,

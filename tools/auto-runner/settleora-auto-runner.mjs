@@ -5573,7 +5573,15 @@ function recordPostFixExactHeadEvidence(recoveryRecorder, { validation, external
 async function writeReviewPackage(config, payload) {
   const generatedPrompt = payload.promptInfo?.promptPath && existsSync(payload.promptInfo.promptPath)
     ? readFileSync(payload.promptInfo.promptPath, "utf8") : null;
-  const diff = Object.hasOwn(payload, "diffText")
+  const grokRecovery = payload.reviewPhase === "existing-pr-recovery"
+    && (payload.reviewerProviderPin || config.reviewerProviderPin) === "grok";
+  if (grokRecovery && (!/^[a-f0-9]{40}$/.test(payload.baseSha || "")
+    || !/^[a-f0-9]{40}$/.test(payload.headSha || ""))) {
+    throw new Error("Grok recovery review requires an authenticated exact base and head");
+  }
+  const diff = grokRecovery
+    ? getBoundedDiff(payload.baseSha, payload.headSha, 16 * 1024 * 1024)
+    : Object.hasOwn(payload, "diffText")
     ? { text: String(payload.diffText || ""), truncated: false }
     : payload.diffBaseRef || payload.diffHeadRef
       ? getBoundedDiff(payload.diffBaseRef || "origin/main", payload.diffHeadRef || "HEAD",

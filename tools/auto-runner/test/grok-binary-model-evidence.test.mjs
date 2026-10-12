@@ -15,7 +15,8 @@ const tensorContract = { irVersion: 6, opset: 11, inputName: "x", inputChannels:
   inputHeight: 48, outputName: "fetch_name_0", outputClasses: 6906, externalTensorData: false };
 const model = { path, bytes: modelBytes.length, sha256: sha256(modelBytes),
   upstreamRepository: "PaddlePaddle/PP-OCRv6_tiny_rec_onnx", upstreamRevision: "c".repeat(40),
-  catalogPath, configPath, configBytes: configBytes.length, configSha256: sha256(configBytes), tensorContract };
+  catalogPath, configPath, configBytes: configBytes.length, configSha256: sha256(configBytes),
+  checkerVersion: "onnx 1.17.0", validationEvidencePath: "docs/qa/model-evidence.md", tensorContract };
 const catalog = { packs: [{ assetDirectory: "assets/receipt_ocr_models/ppocrv6-tiny-rec",
   sourceRepository: model.upstreamRepository, modelVersion: model.upstreamRevision,
   role: "recognition_recovery", recoveryPolicy: "corroborated_rupee_money",
@@ -34,6 +35,8 @@ function fixture(overrides = {}) {
     [`show ${headSha}:${path}`, overrides.modelBytes ?? modelBytes],
     [`show ${headSha}:${configPath}`, configBytes],
     [`show ${headSha}:${catalogPath}`, Buffer.from(JSON.stringify(overrides.catalog ?? catalog))],
+    [`show ${headSha}:${model.validationEvidencePath}`, Buffer.from(overrides.validationRecord
+      ?? `Model ${model.sha256}, configuration ${model.configSha256}, revision ${model.upstreamRevision}; ONNX checker 1.17.0 full validation passes; no external tensor data.`)],
     [`rev-parse ${headSha}:${path}`, Buffer.from(`${"d".repeat(40)}\n`)],
   ]);
   return prepareGrokBinaryModelEvidence({ repoRoot: "/synthetic", baseSha, headSha,
@@ -55,6 +58,8 @@ test("Grok binary projection binds all paths to immutable Git objects and keeps 
   assert.match(result.reviewDiff, /src\/consumer.js/);
   assert.doesNotMatch(result.reviewDiff, /SYNTHETIC_BASE85_PAYLOAD/);
   assert.equal(result.binaryArtifacts[0].coverage, "opaque_binary_integrity_only");
+  assert.equal(result.binaryArtifacts[0].priorValidationClaims.checkerVersion, "onnx 1.17.0");
+  assert.equal(result.binaryArtifacts[0].tensorContract, undefined);
 });
 
 test("Grok binary projection fails closed on altered diff, path list, or catalog", () => {
@@ -64,6 +69,8 @@ test("Grok binary projection fails closed on altered diff, path list, or catalog
     "blocked_grok_binary_changed_path_coverage_mismatch");
   assert.equal(fixture({ catalog: { ...catalog, packs: [{ ...catalog.packs[0], files: [] }] } }).reason,
     "blocked_grok_binary_catalog_contract_mismatch");
+  assert.equal(fixture({ validationRecord: "No model verification recorded" }).reason,
+    "blocked_grok_binary_prior_validation_record_mismatch");
   const alteredBytes = Buffer.from(modelBytes);
   alteredBytes[0] ^= 1;
   assert.equal(alteredBytes.length, modelBytes.length);
