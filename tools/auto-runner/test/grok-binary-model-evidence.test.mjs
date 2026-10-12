@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import pathModule from "node:path";
 import { test } from "node:test";
 import { prepareGrokBinaryModelEvidence } from "../lib/grok-binary-model-evidence.mjs";
 
@@ -128,6 +132,32 @@ test("uncommitted text review binds the exact working-tree snapshot and blocks b
   assert.equal(prepareGrokBinaryModelEvidence({ ...args, diff: binaryPatch,
     changedFiles: [path], workingTreeDiff: binaryPatch }).reason,
   "blocked_grok_binary_working_tree_requires_commit");
+});
+
+test("committed text review reads a nonempty canonical diff from real Git", () => {
+  const repoRoot = mkdtempSync(pathModule.join(tmpdir(), "settleora-grok-committed-diff-"));
+  const git = (...args) => execFileSync("/usr/bin/git", args, { cwd: repoRoot, encoding: "utf8" }).trim();
+  try {
+    git("init");
+    git("config", "user.email", "codex@example.invalid");
+    git("config", "user.name", "Codex Test");
+    writeFileSync(pathModule.join(repoRoot, "sample.txt"), "before\n");
+    git("add", "sample.txt");
+    git("commit", "-m", "base");
+    const baseSha = git("rev-parse", "HEAD");
+    writeFileSync(pathModule.join(repoRoot, "sample.txt"), "after\n");
+    git("add", "sample.txt");
+    git("commit", "-m", "candidate");
+    const headSha = git("rev-parse", "HEAD");
+    const diff = execFileSync("/usr/bin/git", ["diff", "--binary", "--no-ext-diff", "--no-textconv", "--no-color", `${baseSha}...${headSha}`], { cwd: repoRoot, encoding: "utf8" });
+    assert.match(diff, /\+after/);
+    const result = prepareGrokBinaryModelEvidence({ repoRoot, baseSha, headSha,
+      changedFiles: ["sample.txt"], diff });
+    assert.equal(result.ok, true, result.reason);
+    assert.equal(result.reviewDiff, diff);
+  } finally {
+    rmSync(repoRoot, { recursive: true, force: true });
+  }
 });
 
 test("working-tree review retains staged and unstaged blocks for the same path", () => {
