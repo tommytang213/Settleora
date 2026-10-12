@@ -188,7 +188,190 @@ List<ReceiptOcrBlockEvidence> _ownedFeeBlocks({
   return blocks;
 }
 
+ReceiptOcrPreview _parseProjectionOwnershipTable({
+  bool mirrored = false,
+  String? taxRate,
+  bool competingPrice = false,
+  String competingText = 'USD 99.00',
+}) {
+  final blocks = <ReceiptOcrBlockEvidence>[];
+  void add(String text, int row, double left, double right) {
+    final start = mirrored ? 500 - right : left;
+    final end = mirrored ? 500 - left : right;
+    blocks.add(
+      ReceiptOcrBlockEvidence(
+        text: text,
+        order: blocks.length,
+        row: row,
+        points: [
+          ReceiptOcrPoint(x: start, y: row * 20),
+          ReceiptOcrPoint(x: end, y: row * 20),
+          ReceiptOcrPoint(x: end, y: row * 20 + 12),
+          ReceiptOcrPoint(x: start, y: row * 20 + 12),
+        ],
+      ),
+    );
+  }
+
+  add('Market', 0, 20, 360);
+  add('Date 2026-10-12', 1, 20, 360);
+  add('Details of current charges', 2, 20, 360);
+  add('Description', 3, 20, 140);
+  if (taxRate != null) add('Rate', 3, 200, 260);
+  add('Amount', 3, 300, 360);
+  add('Water', 4, 20, 120);
+  add('USD 10.00', 4, 300, 350);
+  if (competingPrice) add(competingText, 4, 365, 425);
+  if (taxRate != null) {
+    add('Tax', 5, 20, 100);
+    add(taxRate, 5, 200, 260);
+    add('USD 2.00', 5, 300, 350);
+  }
+  add(
+    taxRate == null || taxRate.contains('included')
+        ? 'Total USD 10.00'
+        : 'Total USD 12.00',
+    taxRate == null ? 5 : 6,
+    20,
+    360,
+  );
+  blocks.sort((a, b) {
+    final byRow = a.row.compareTo(b.row);
+    return byRow != 0 ? byRow : a.points.first.x.compareTo(b.points.first.x);
+  });
+  final ordered = [
+    for (var i = 0; i < blocks.length; i++)
+      ReceiptOcrBlockEvidence(
+        text: blocks[i].text,
+        order: i,
+        row: blocks[i].row,
+        points: blocks[i].points,
+      ),
+  ];
+  final lines = <int, List<String>>{};
+  for (final block in ordered) {
+    lines.putIfAbsent(block.row, () => []).add(block.text);
+  }
+  return const ReceiptOcrParser().parse(
+    lines.values.map((row) => row.join(' ')).join('\n'),
+    blocks: ordered,
+  );
+}
+
 void main() {
+  group('projection row ownership', () {
+    for (final mirrored in [false, true]) {
+      for (final qualifier in ['included', '(included)']) {
+        test('preserves $qualifier tax; mirrored=$mirrored', () {
+          final preview = _parseProjectionOwnershipTable(
+            taxRate: qualifier,
+            mirrored: mirrored,
+          );
+          expect(preview.tax, '2.00');
+          expect(preview.taxIncludedInTotal, isTrue);
+          expect(preview.adjustmentsComplete, isTrue);
+          expect(preview.reviewHints, isEmpty);
+          expect(
+            preview.blocks.map((block) => block.text),
+            contains(qualifier),
+          );
+        });
+      }
+      for (final qualifier in [
+        'exempt',
+        'included in total',
+        'estimate',
+        '5% estimated',
+        'USD 2.00 or USD 3.00',
+        'USD -0.50',
+      ]) {
+        test('retains unresolved rate $qualifier; mirrored=$mirrored', () {
+          final preview = _parseProjectionOwnershipTable(
+            taxRate: qualifier,
+            mirrored: mirrored,
+          );
+          expect(preview.tax, isNull);
+          expect(preview.adjustmentsComplete, isFalse);
+          expect(preview.reviewHints, isNotEmpty);
+          expect(
+            preview.blocks.map((block) => block.text),
+            contains(qualifier),
+          );
+        });
+      }
+      for (final price in ['USD 99.00', '99.00', 'USD 99.00 (estimate)']) {
+        test('retains outside price $price; mirrored=$mirrored', () {
+          final preview = _parseProjectionOwnershipTable(
+            competingPrice: true,
+            competingText: price,
+            mirrored: mirrored,
+          );
+          expect(preview.reviewHints, isNotEmpty);
+          expect(preview.total, '10.00');
+          expect(preview.blocks.map((block) => block.text), contains(price));
+        });
+      }
+      for (final rate in ['5%', '0.05', 'USD 0.05']) {
+        test('keeps ordinary rate $rate; mirrored=$mirrored', () {
+          final preview = _parseProjectionOwnershipTable(
+            taxRate: rate,
+            mirrored: mirrored,
+          );
+          expect(preview.tax, '2.00');
+          expect(preview.taxIncludedInTotal, isFalse);
+          expect(preview.adjustmentsComplete, isTrue);
+          expect(preview.reviewHints, isEmpty);
+        });
+      }
+      test('keeps a single item amount; mirrored=$mirrored', () {
+        final preview = _parseProjectionOwnershipTable(mirrored: mirrored);
+        expect(preview.items.single.description, 'Water');
+        expect(preview.items.single.lineTotal, '10.00');
+        expect(preview.reviewHints, isEmpty);
+      });
+    }
+
+    ReceiptOcrPreview invoice(String sku) {
+      final cells = <(String, int, double, double)>[
+        ('Market', 0, 20, 410),
+        ('Date 2026-10-12', 1, 20, 410),
+        ('SKU', 2, 20, 60),
+        ('Product / Service', 2, 100, 220),
+        ('Qty', 2, 230, 260),
+        ('Unit Price', 2, 280, 335),
+        ('Total', 2, 350, 410),
+        (sku, 3, 20, 60),
+        ('Notebook', 3, 100, 220),
+        ('1', 3, 230, 260),
+        ('USD 10.00', 3, 280, 335),
+        ('USD 10.00', 3, 350, 410),
+        ('Total USD 10.00', 4, 20, 410),
+      ];
+      final rows = <int, List<String>>{};
+      for (final cell in cells) {
+        rows.putIfAbsent(cell.$2, () => []).add(cell.$1);
+      }
+      return const ReceiptOcrParser().parse(
+        rows.values.map((row) => row.join(' ')).join('\n'),
+        blocks: [
+          for (var i = 0; i < cells.length; i++)
+            _layoutBlock(cells[i].$1, i, cells[i].$2, cells[i].$3, cells[i].$4),
+        ],
+      );
+    }
+
+    test('keeps a numeric SKU in its separately headed reference column', () {
+      final preview = invoice('1234');
+      expect(preview.items.single.description, 'Notebook');
+      expect(preview.items.single.lineTotal, '10.00');
+      expect(preview.reviewHints, isEmpty);
+    });
+    test('a reference column cannot hide an explicit price', () {
+      final preview = invoice('USD99');
+      expect(preview.reviewHints, isNotEmpty);
+    });
+  });
+
   group('localized settlement label ownership', () {
     test('priced product names sharing payment words remain items', () {
       for (final description in [

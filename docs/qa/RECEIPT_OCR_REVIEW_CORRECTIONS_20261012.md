@@ -129,6 +129,22 @@ recognized currency markers. Multiple denominations around one amount remain
 editable currency evidence, with the existing unresolved-currency and saved-money
 guards intact. No printed amount is reconstructed or relabeled.
 
+Adjustment projection now validates the complete printed Rate cell instead of
+discarding it by proximity to its heading. An unambiguous included-tax label
+split between Description and Rate retains its inclusion meaning. Other rate
+qualifiers, competing values and currency conflicts remain unresolved. Printed
+column boundaries keep neighboring usage values out of the Rate cell, preserving
+the existing usage-backed item treatment.
+
+Item projection also checks monetary evidence outside the heading's width before
+declaring its selected amount complete. A neighboring competing price retains
+ambiguity; the original blocks remain available. Complete identifiers inside a
+separately headed reference column and already proven physical-usage graphs keep
+their established non-monetary ownership. Controls cover ordinary and mirrored
+tables, included and unresolved tax treatment, complete rates, adjacent prices,
+numeric SKUs and explicit money disguised as a reference. Saved-review and Apply
+authority are unchanged.
+
 The EF snapshot concern was checked with the pinned EF 9.0.15 tool and the
 three existing `ReceiptOcrReviewSchemaFoundationTests`. The model comparison
 reported no pending changes; all three metadata/schema-generation tests passed.

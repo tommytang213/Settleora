@@ -95,18 +95,21 @@ class ReceiptOcrParser {
       nonItemEvidenceRows: {...supportHoursRows, ...meterReadingRows},
     );
     final chargeTableRows = chargeTable.items;
-    final layoutAdjustmentLines = {
-      ..._layoutAdjustmentEvidenceLines(lines, layoutRows, {
-        ...chargeTable.items,
-        ...chargeTable.ambiguous,
-      }),
-    };
-
     final currencyDetection = _detectCurrency(
       lines,
       fallbackCurrency: fallbackCurrency,
     );
     final currency = currencyDetection.currency;
+    final ambiguousProjectionRows = <int>{};
+    final layoutAdjustmentLines = {
+      ..._layoutAdjustmentEvidenceLines(
+        lines,
+        layoutRows,
+        {...chargeTable.items, ...chargeTable.ambiguous},
+        currency: currency,
+        unresolvedRows: ambiguousProjectionRows,
+      ),
+    };
     final boundedUtility = _boundedUtilityColumnRecovery(
       lines,
       layoutRows,
@@ -119,6 +122,7 @@ class ReceiptOcrParser {
     );
     final ambiguousChargeRows = {
       ...chargeTable.ambiguous,
+      ...ambiguousProjectionRows,
       ...boundedUtility.ambiguous,
       ...utilityFinancial.ambiguous,
     };
@@ -161,6 +165,7 @@ class ReceiptOcrParser {
     };
     layoutChargeItems.removeWhere(
       (index, _) =>
+          ambiguousProjectionRows.contains(index) ||
           boundedUtility.ambiguous.contains(index) ||
           utilityFinancial.ambiguous.contains(index) ||
           utilityFinancial.reviewRows.contains(index) ||
@@ -5047,8 +5052,10 @@ class ReceiptOcrParser {
   Map<int, String> _layoutAdjustmentEvidenceLines(
     List<String> sourceLines,
     List<List<ReceiptOcrBlockEvidence>> layoutRows,
-    Set<int> ambiguousRows,
-  ) {
+    Set<int> ambiguousRows, {
+    required String? currency,
+    required Set<int> unresolvedRows,
+  }) {
     if (sourceLines.length != layoutRows.length) return const {};
     final lines = <int, String>{};
     final serviceLabelPattern = RegExp(
@@ -5309,9 +5316,33 @@ class ReceiptOcrParser {
         headerIndex,
         amountHeaders.single,
       );
+      bool belongsToRate(ReceiptOcrBlockEvidence block) {
+        if (rateHeaders.length != 1 || block.points.isEmpty) return false;
+        final rate = rateHeaders.single;
+        final center = _blockCenterX(rate);
+        final preceding =
+            positionedHeaders
+                .where((header) => _blockCenterX(header) < center)
+                .toList()
+              ..sort((a, b) => _blockCenterX(b).compareTo(_blockCenterX(a)));
+        final following =
+            positionedHeaders
+                .where((header) => _blockCenterX(header) > center)
+                .toList()
+              ..sort((a, b) => _blockCenterX(a).compareTo(_blockCenterX(b)));
+        final left = preceding.isEmpty
+            ? _blockLeft(rate) - 12
+            : (_blockRight(preceding.first) + _blockLeft(rate)) / 2;
+        final right = following.isEmpty
+            ? _blockRight(rate) + 12
+            : (_blockRight(rate) + _blockLeft(following.first)) / 2;
+        return _blockCenterX(block) >= left && _blockCenterX(block) <= right;
+      }
+
       // The complete owned description already passed qualifier validation.
       // Join the remaining row fragments so separate currency/amount cells and
       // explicit reference IDs receive the same interpretation as whole labels.
+      final rateBlocks = <ReceiptOcrBlockEvidence>[];
       final outsideEvidence = row
           .where((block) {
             if (block == amountBlock ||
@@ -5321,19 +5352,59 @@ class ReceiptOcrParser {
                 graphBlocks.contains(block)) {
               return false;
             }
-            if (rateHeaders.length == 1 && block.points.isNotEmpty) {
-              final rateCenter = _blockCenterX(rateHeaders.single);
-              if ((_blockCenterX(block) - rateCenter).abs() <= 60) {
-                return false;
-              }
+            if (belongsToRate(block)) {
+              rateBlocks.add(block);
+              return false;
             }
             return true;
           })
           .map((block) => block.text.trim())
           .join(' ');
-      if (_hasUnexplainedFinancialLabelNumber(outsideEvidence)) {
+      final unexplainedOutsideNumber = _hasUnexplainedFinancialLabelNumber(
+        outsideEvidence,
+      );
+      if (RegExp(
+        r'\b(?:incl(?:uded|uding|usive)?|excl(?:uded|uding|usive)?|exempt|waived|withheld|paid|refunded|reversed|credited)\b',
+        caseSensitive: false,
+      ).hasMatch(outsideEvidence)) {
+        unresolvedRows.add(rowIndex);
         continue;
       }
+      final rateText = _normalizeOcrLine(
+        rateBlocks.map((block) => block.text.trim()).join(' '),
+      );
+      // A Rate heading cannot erase words printed beneath it. A complete
+      // included-tax label retains its meaning; other non-rate text remains
+      // unresolved rather than silently becoming an additive adjustment.
+      final qualifiedTax = '$label $rateText $monetaryText';
+      if (rateText.isNotEmpty && _isIncludedTaxAmountLine(qualifiedTax)) {
+        if (unexplainedOutsideNumber) {
+          unresolvedRows.add(rowIndex);
+        } else {
+          lines[rowIndex] = qualifiedTax;
+        }
+        continue;
+      }
+      if (rateText.isNotEmpty) {
+        final rateCurrency = _layoutItemCellCurrency(rateText, currency);
+        final completeRate = RegExp(
+          '^(?:[—–-]|\\d+(?:[.,]\\d+)?\\s*%|'
+          '(?:(?:$_currencyTokenPattern)\\s*)?$_amountTokenPattern'
+          '(?:\\s*(?:$_currencyTokenPattern))?)\$',
+          caseSensitive: false,
+        ).hasMatch(rateText);
+        if (!completeRate ||
+            _hasDetachedAmountSign(rateText) ||
+            RegExp(r'[\-−]\s*\d').hasMatch(rateText) ||
+            (rateCurrency.hasExplicitEvidence &&
+                rateCurrency.currency != currency)) {
+          unresolvedRows.add(rowIndex);
+          continue;
+        }
+      }
+      // A numeric usage cell can retain the existing priced-item path. It
+      // blocks this adjustment projection without retyping the whole row.
+      if (unexplainedOutsideNumber) continue;
       if (RegExp(
             r'\b(?:tax(?:es)?|vat|gst|hst|iva|tva|kdv|mwst)\b',
             caseSensitive: false,
@@ -5523,6 +5594,32 @@ class ReceiptOcrParser {
           continue;
         }
         final amountCell = amountCells.single;
+        final graphBlocks = amountBlocks.length == 1
+            ? _ownedChargeTableGraphBlocks(
+                layoutRows,
+                headerIndex,
+                amountBlocks.single,
+              )
+            : const <ReceiptOcrBlockEvidence>{};
+        final referenceBlocks = _ownedChargeTableReferenceBlocks(
+          header,
+          layoutRows[rowIndex],
+        );
+        final outsideEvidence = layoutRows[rowIndex]
+            .where(
+              (block) =>
+                  !tableBlocks.contains(block) &&
+                  !graphBlocks.contains(block) &&
+                  !referenceBlocks.contains(block),
+            )
+            .map((block) => block.text.trim())
+            .join(' ');
+        // The heading's width does not bound the printed monetary evidence.
+        // An unexplained neighboring price still competes with this cell.
+        if (_hasUnexplainedFinancialLabelNumber(outsideEvidence)) {
+          ambiguousAmountRows.add(rowIndex);
+          continue;
+        }
         // A detached sign cannot be dropped while promoting an otherwise
         // positive amount. Keep this row unresolved until the sign is bound.
         if (_hasUnboundChargeTableSign(tableBlocks, amountCell) ||
@@ -6222,6 +6319,65 @@ class ReceiptOcrParser {
 
     return count;
   }
+}
+
+// A separately headed reference column can own a complete identifier, never
+// an explicit denomination or a decimal price omitted from the item column.
+Set<ReceiptOcrBlockEvidence> _ownedChargeTableReferenceBlocks(
+  List<ReceiptOcrBlockEvidence> header,
+  List<ReceiptOcrBlockEvidence> row,
+) {
+  bool valid(ReceiptOcrBlockEvidence block) {
+    final points = block.points;
+    if (points.length != 4 ||
+        points.any((point) => !point.x.isFinite || !point.y.isFinite)) {
+      return false;
+    }
+    final turns = [
+      for (var i = 0; i < 4; i++)
+        (points[(i + 1) % 4].x - points[i].x) *
+                (points[(i + 2) % 4].y - points[(i + 1) % 4].y) -
+            (points[(i + 1) % 4].y - points[i].y) *
+                (points[(i + 2) % 4].x - points[(i + 1) % 4].x),
+    ];
+    return turns.every((turn) => turn.isFinite && turn > 0) ||
+        turns.every((turn) => turn.isFinite && turn < 0);
+  }
+
+  if (header.any((block) => !valid(block))) return const {};
+  final columns = header.toList()
+    ..sort((a, b) => _blockCenterX(a).compareTo(_blockCenterX(b)));
+  final owned = <ReceiptOcrBlockEvidence>{};
+  for (var index = 0; index < columns.length; index++) {
+    final column = columns[index];
+    if (!RegExp(
+      r'^(?:sku|item\s*(?:no|number)|ref(?:erence)?|code|id)$',
+      caseSensitive: false,
+    ).hasMatch(_chargeTableLabelText(column.text))) {
+      continue;
+    }
+    final left = index == 0
+        ? _blockLeft(column) - 12
+        : (_blockRight(columns[index - 1]) + _blockLeft(column)) / 2;
+    final right = index == columns.length - 1
+        ? _blockRight(column) + 12
+        : (_blockRight(column) + _blockLeft(columns[index + 1])) / 2;
+    for (final block in row) {
+      final text = block.text.trim();
+      if (valid(block) &&
+          _blockLeft(block) >= left &&
+          _blockRight(block) <= right &&
+          RegExp(
+            r'^[A-Z0-9][A-Z0-9_-]*$',
+            caseSensitive: false,
+          ).hasMatch(text) &&
+          _printedCurrencyMarkerMatches(text).isEmpty &&
+          _unsupportedIsoCurrencyMarkers(text).isEmpty) {
+        owned.add(block);
+      }
+    }
+  }
+  return owned;
 }
 
 // An adjacent physical-usage graph owns its integer axis only when a unit
