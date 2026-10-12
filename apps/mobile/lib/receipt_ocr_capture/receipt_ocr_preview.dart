@@ -351,16 +351,25 @@ List<String> _receiptOcrReviewHints(
     return const [];
   }
 
-  // A foreign subtotal cannot corroborate receipt arithmetic, even when
-  // same-currency adjustments reconcile the item sum and grand total.
-  if (!subtotalMatchesCurrency && _hasReviewAmountText(preview.subtotal)) {
+  final total = _parseReceiptOcrReviewAmount(preview.total);
+  final adjustmentsReconcile =
+      total != null &&
+      preview.adjustmentsComplete &&
+      (preview.currency?.trim().isNotEmpty ?? false) &&
+      _hasCompleteReceiptOcrItemLineTotals(preview.items) &&
+      _hasReceiptOcrReferenceAdjustment(preview) &&
+      _receiptOcrAdjustmentsReconcile(preview, itemTotal, total);
+  // Preserve existing mismatch/incomplete-evidence warning priority. A
+  // foreign subtotal still needs a hint where receipt arithmetic is quiet.
+  if (!subtotalMatchesCurrency &&
+      _hasReviewAmountText(preview.subtotal) &&
+      (total == null || adjustmentsReconcile)) {
     onDecision?.call(ReceiptOcrReviewDecision.foreignAdjustmentWithoutSubtotal);
     return const [
       'Detected adjustment currency differs from receipt currency. Review before applying.',
     ];
   }
 
-  final total = _parseReceiptOcrReviewAmount(preview.total);
   if (total == null) {
     return const [];
   }
@@ -375,10 +384,7 @@ List<String> _receiptOcrReviewHints(
   }
 
   if (_hasReceiptOcrReferenceAdjustment(preview)) {
-    if (preview.adjustmentsComplete &&
-        (preview.currency?.trim().isNotEmpty ?? false) &&
-        _hasCompleteReceiptOcrItemLineTotals(preview.items) &&
-        _receiptOcrAdjustmentsReconcile(preview, itemTotal, total)) {
+    if (adjustmentsReconcile) {
       return const [];
     }
     onDecision?.call(
