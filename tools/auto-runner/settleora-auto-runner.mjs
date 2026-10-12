@@ -153,6 +153,7 @@ import {
   continueOrdinaryCandidate,
   createOrdinaryContinuationState,
   ordinaryCandidateIdentityMatches,
+  ordinaryRecoveryIdentityMatches,
   ordinaryContinuationPhaseTarget,
 } from "./lib/ordinary-candidate-continuation.mjs";
 import { continuePostMergeCleanup, createPostMergeCleanupGitAdapter, loadPostMergeCleanupState, persistPostMergeCleanupState, planPostMergeCleanup } from "./lib/post-merge-cleanup.mjs";
@@ -2926,7 +2927,13 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     changedFiles: actualChangedFiles,
     changedFilesDigest: createHash("sha256").update(JSON.stringify([...actualChangedFiles].sort())).digest("hex"),
   };
-  if (!ordinaryCandidateIdentityMatches(initial.identity, actualIdentity)) {
+  // Pre-change continuation states hashed getBoundedDiff()'s 512,000-character
+  // projection. Authenticate that legacy digest only when the original bound
+  // actually truncated this exact Git diff; keep the persisted identity and
+  // its phase targets unchanged for the remainder of recovery.
+  const exactIdentityMatches = ordinaryCandidateIdentityMatches(initial.identity, actualIdentity);
+  const legacyDiff = exactIdentityMatches ? null : getBoundedDiff(initial.identity.baseSha, initial.identity.headSha);
+  if (!ordinaryRecoveryIdentityMatches(initial.identity, actualIdentity, legacyDiff)) {
     return { ok: false, outcome: "blocked", reasonCode: "ordinary_continuation_candidate_identity_mismatch", ordinaryContinuation: initial, largeCandidateReviewRecovery: checkpoint, state };
   }
   if (preparedFixCanBeAdopted) {
