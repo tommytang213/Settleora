@@ -21,6 +21,14 @@ test("ordinary structured findings cannot replace a manual reviewer verdict", ()
   }
 });
 
+test("existing PR continuation carries inspected hosted evidence into its first merge decision", () => {
+  const source = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  const recovery = source.slice(source.indexOf("async function recoverExistingPrIfConfigured"),
+    source.indexOf("export function resolveExistingPrRecoveryReviewerProvider"));
+  assert.match(recovery, /hostedCodexReview: githubState\.hostedCodexReview \|\| null/);
+  assert.match(recovery, /recoveryDecision\.reason !== "hosted_codex_review_pending"/);
+});
+
 test("durable recovery manual gate blocks replay of source-fix and review callbacks", () => {
   assert.deepEqual(resolveOrdinaryRecoveryManualGate({ evidence: {} }), { ok: true });
   assert.equal(resolveOrdinaryRecoveryManualGate({ evidence: { ordinaryManualGate: {

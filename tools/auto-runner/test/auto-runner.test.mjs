@@ -6183,6 +6183,19 @@ test("Grok-pinned existing PR recovery accepts provider-neutral evidence without
   "existing_pr_recovery_independent_evidence_incomplete");
 });
 
+test("Grok existing PR recovery distinguishes completed, pending, stale, and missing hosted reviews", () => {
+  const base = existingPrRecoveryContext({ config: { reviewerProviderPin: "grok" } });
+  const hosted = { status: "completed_no_findings", reviewedHead: base.expectedHeadSha,
+    prNumber: base.pr.number, source: "github_codex_bot_comments" };
+  assert.equal(evaluateExistingPrRecoveryDecision({ ...base, hostedCodexReview: hosted }).eligible, true);
+  assert.equal(evaluateExistingPrRecoveryDecision({ ...base,
+    hostedCodexReview: { status: "pending" } }).reason,
+  "existing_pr_recovery_waiting_for_refreshable_gate:hosted_codex_review_pending");
+  assert.equal(evaluateExistingPrRecoveryDecision({ ...base,
+    hostedCodexReview: { ...hosted, reviewedHead: "stale" } }).eligible, false);
+  assert.equal(evaluateExistingPrRecoveryDecision(base).eligible, false);
+});
+
 test("existing PR recovery regenerates missing Codex evidence outside independent-review lanes", () => {
   assert.equal(
     shouldGenerateExistingPrRecoveryEvidence(autoMergeLane({ lane: "workflow-docs-tooling" }), {

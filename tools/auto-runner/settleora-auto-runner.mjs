@@ -4309,6 +4309,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     pr: prMetadata,
     requiredChecks: githubState.requiredChecks || [],
     reviewThreads: githubState.reviewThreads || [],
+    hostedCodexReview: githubState.hostedCodexReview || null,
     codeScanningAlerts: githubState.codeScanningAlerts || [],
     blockingMarkers: githubState.blockingMarkers || [],
     actualHeadSha: githubState.pr?.headRefOid || null,
@@ -4392,7 +4393,8 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     };
   }
   const recoveryDecision = evaluateAutoMergeDecision(context);
-  if (!recoveryDecision.eligible && strictRecoveryDecision.nextAction !== "resume_ci_wait") {
+  if (!recoveryDecision.eligible && strictRecoveryDecision.nextAction !== "resume_ci_wait"
+    && recoveryDecision.reason !== "hosted_codex_review_pending") {
     const blocked = { ...recoveryDecision, recovery: true, strictRecoveryDecision, evidence: writeAutoMergeEvidence(config, recoveryDecision, context) };
     return {
       reason: recoveryDecision.reason,

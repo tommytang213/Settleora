@@ -2,6 +2,17 @@ const codexBotLogin = "chatgpt-codex-connector[bot]";
 const fullSha = /^[a-f0-9]{40}$/;
 const summaryMarker = "<!-- codex-pull-request-review-summary -->";
 const botFilter = `.[] | select(.user.login == "${codexBotLogin}" and .user.type == "Bot")`;
+const completionFooter = [
+  "<details> <summary>ℹ️ About Codex in GitHub</summary>",
+  "<br/>",
+  "[Your team has set up Codex to review pull requests in this repo](https://chatgpt.com/codex/cloud/settings/general). Reviews are triggered when you",
+  "- Open a pull request for review",
+  "- Mark a draft as ready",
+  '- Comment "@codex review".',
+  "If Codex has suggestions, it will comment; otherwise it will react with 👍.",
+  'Codex can also answer questions or update the PR. Try commenting "@codex address that feedback".',
+  "</details>",
+].join("\n");
 
 export function inspectHostedCodexReview({ repositorySlug, prNumber, headSha, run }) {
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repositorySlug || "")
@@ -13,6 +24,19 @@ export function inspectHostedCodexReview({ repositorySlug, prNumber, headSha, ru
   const reviews = readBotRecords(run, `repos/${repositorySlug}/pulls/${prNumber}/reviews?per_page=100`,
     `${botFilter} | {id, login:.user.login, type:.user.type, state, body, commit_id, submitted_at}`);
   if (!reviews.ok) return blocked("hosted_codex_review_reviews_unavailable");
+  for (const review of reviews.records) {
+    if (review.commit_id !== headSha || !["APPROVED", "COMMENTED"].includes(review.state)
+      || String(review.body || "").trim()) continue;
+    const inline = run("gh", ["api", "--paginate",
+      `repos/${repositorySlug}/pulls/${prNumber}/reviews/${review.id}/comments?per_page=100`,
+      "--jq", ".[] | {id}"]);
+    if (inline?.status !== 0 || inline?.error) return blocked("hosted_codex_review_inline_comments_unavailable");
+    try {
+      const records = String(inline.stdout || "").split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
+      if (!records.every((item) => Number.isSafeInteger(item.id) && item.id > 0)) throw new Error("invalid inline comment");
+      review.inlineCommentCount = records.length;
+    } catch { return blocked("hosted_codex_review_inline_comments_unreadable"); }
+  }
   const evidence = evaluateHostedCodexReview({ comments: comments.records, reviews: reviews.records, headSha });
   if (evidence.status !== "completed_no_findings") return evidence;
   // GitHub resolves the bot's abbreviated reviewed-commit identifier to the full SHA.
@@ -44,12 +68,17 @@ export function evaluateHostedCodexReview({ comments = [], reviews = [], headSha
   const completion = otherComments[0];
   const completionMatch = String(completion?.body || "").match(/^Codex Review: Didn't find any major issues\. :\+1:\s*\n\n\*\*Reviewed commit:\*\* `([a-f0-9]{10,40})`(?:\r?\n|$)/);
   if (!completionMatch || !headSha.startsWith(completionMatch[1])) return blocked("hosted_codex_review_no_exact_head_completion");
+  const footer = String(completion.body).slice(completionMatch[0].length).split(/\r?\n/)
+    .map((line) => line.trim()).filter(Boolean).join("\n");
+  if (footer !== completionFooter) return blocked("hosted_codex_review_completion_body_malformed");
   if (!Number.isFinite(Date.parse(completion.created_at || ""))
     || !Number.isFinite(Date.parse(summary.updated_at || ""))
     || Date.parse(summary.updated_at) < Date.parse(completion.created_at)) {
     return blocked("hosted_codex_review_completion_time_mismatch");
   }
-  if (reviews.some((review) => isBotRecord(review) && review.commit_id === headSha)) {
+  if (reviews.some((review) => isBotRecord(review) && review.commit_id === headSha
+    && (!['APPROVED', 'COMMENTED'].includes(review.state)
+      || String(review.body || "").trim() || review.inlineCommentCount !== 0))) {
     return blocked("hosted_codex_review_current_head_findings");
   }
   return { status: "completed_no_findings", reviewedPrefix: completionMatch[1],

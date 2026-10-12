@@ -8,8 +8,20 @@ const staleHead = "b8222a7adf8be0a7efab54df655fe8067585fdf5";
 const bot = { login: "chatgpt-codex-connector[bot]", type: "Bot" };
 const summary = { ...bot, id: 1, created_at: "2026-10-11T22:47:59Z", updated_at: "2026-10-11T23:46:21Z",
   body: '<!-- codex-pull-request-review-summary -->\n\n| Review | Status | Commit | Review trigger |\n| --- | --- | --- | --- |\n| 📝 **Code Review** | ✅ **Completed** | `893a7f4` | Manual request |' };
+const footer = `<details> <summary>ℹ️ About Codex in GitHub</summary>
+<br/>
+
+[Your team has set up Codex to review pull requests in this repo](https://chatgpt.com/codex/cloud/settings/general). Reviews are triggered when you
+- Open a pull request for review
+- Mark a draft as ready
+- Comment "@codex review".
+
+If Codex has suggestions, it will comment; otherwise it will react with 👍.
+
+Codex can also answer questions or update the PR. Try commenting "@codex address that feedback".
+</details>`;
 const completion = { ...bot, id: 2, created_at: "2026-10-11T23:46:19Z", updated_at: "2026-10-11T23:46:19Z",
-  body: "Codex Review: Didn't find any major issues. :+1:\n\n**Reviewed commit:** `893a7f46d7`\n" };
+  body: `Codex Review: Didn't find any major issues. :+1:\n\n**Reviewed commit:** \`893a7f46d7\`\n\n${footer}` };
 
 test("hosted Codex completion binds bot summary and no-findings artifact to one head", () => {
   assert.deepEqual(evaluateHostedCodexReview({ comments: [summary, completion], reviews: [], headSha: head }), {
@@ -26,11 +38,16 @@ test("hosted Codex evidence fails closed on running, stale, quota, spoofed, and 
   assert.equal(evaluate([summary, { ...completion, body: "Codex quota reached; review not run." }]).status, "blocked");
   assert.equal(evaluate([summary, { ...completion, login: "tommytang213", type: "User" }]).status, "blocked");
   assert.equal(evaluate([summary, { ...completion, body: completion.body.replace("893a7f46d7", staleHead.slice(0, 10)) }]).status, "blocked");
+  assert.equal(evaluate([summary, { ...completion, body: `${completion.body}\nFinding: regression` }]).status, "blocked");
   assert.equal(evaluate([summary, completion, { ...completion, id: 3, created_at: "2026-10-11T23:47:00Z", body: "Codex quota reached" }]).status, "blocked");
   assert.equal(evaluate([summary, completion], [{ ...bot, id: 4, body: "finding", commit_id: head }]).reason,
     "hosted_codex_review_current_head_findings");
   assert.equal(evaluate([summary, completion], [{ ...bot, id: 4, body: "old finding", commit_id: staleHead }]).status,
     "completed_no_findings");
+  assert.equal(evaluate([summary, completion], [{ ...bot, id: 4, body: "", state: "COMMENTED",
+    commit_id: head, inlineCommentCount: 0 }]).status, "completed_no_findings");
+  assert.equal(evaluate([summary, completion], [{ ...bot, id: 4, body: "", state: "APPROVED",
+    commit_id: head, inlineCommentCount: 1 }]).status, "blocked");
 });
 
 test("GitHub inspection resolves abbreviated commit and blocks unreadable or mismatched evidence", () => {
