@@ -1203,8 +1203,9 @@ local, CI, scanner, thread, scope, and manual gates plus an exact-head hosted
 Codex completion. The hosted gate reads GitHub's bot-authored completion and
 summary comments, resolves both reviewed commit prefixes to the full SHA, and
 rejects current-head finding reviews. For dependent PRs it also requires the
-no-findings completion to follow the latest GitHub base-change event, since a
-retarget can change the reviewed diff without changing the head SHA. Empty
+no-findings completion to follow the latest GitHub base-change event and the
+current head to be added after that event. An unchanged head after retarget
+cannot prove which diff a late completion reviewed and remains blocked. Empty
 GitHub review bodies are checked for inline findings; the bot summary must
 match the observed finding-free format, and unattributable bot comments remain
 blocking. Missing, running, quota-limited, stale, or

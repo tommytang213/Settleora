@@ -60,18 +60,28 @@ export function inspectHostedCodexReview({ repositorySlug, prNumber, headSha, ru
   // changing its head. The old head review then covers a different diff.
   const timeline = run("gh", ["api", "--paginate",
     `repos/${repositorySlug}/issues/${prNumber}/timeline?per_page=100`, "--jq",
-    '.[] | select(.event == "base_ref_changed" or .event == "automatic_base_change_succeeded") | {id,event,created_at}']);
+    '.[] | select(.event == "base_ref_changed" or .event == "automatic_base_change_succeeded" or .event == "committed") | {id,event,created_at,sha}']);
   if (timeline?.status !== 0 || timeline?.error) return blocked("hosted_codex_review_base_history_unavailable");
-  let baseChanges;
+  let timelineEvents;
   try {
-    baseChanges = String(timeline.stdout || "").split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
-    if (!baseChanges.every((item) => Number.isSafeInteger(item.id) && item.id > 0
-      && ["base_ref_changed", "automatic_base_change_succeeded"].includes(item.event)
-      && Number.isFinite(Date.parse(item.created_at || "")))) throw new Error("invalid base event");
+    timelineEvents = String(timeline.stdout || "").split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
+    if (!timelineEvents.every((item) => item.event === "committed"
+      ? fullSha.test(item.sha || "")
+      : Number.isSafeInteger(item.id) && item.id > 0
+        && ["base_ref_changed", "automatic_base_change_succeeded"].includes(item.event)
+        && Number.isFinite(Date.parse(item.created_at || "")))) throw new Error("invalid timeline event");
   } catch { return blocked("hosted_codex_review_base_history_unreadable"); }
+  const baseChanges = timelineEvents.filter((item) => item.event !== "committed");
   const latestBaseChange = baseChanges.reduce((latest, item) => Math.max(latest, Date.parse(item.created_at)), -Infinity);
   if (Date.parse(evidence.completedAt) <= latestBaseChange) {
     return blocked("hosted_codex_review_predates_base_change");
+  }
+  if (baseChanges.length > 0) {
+    const latestBaseIndex = timelineEvents.findLastIndex((item) => item.event !== "committed"
+      && Date.parse(item.created_at) === latestBaseChange);
+    if (!timelineEvents.slice(latestBaseIndex + 1).some((item) => item.event === "committed" && item.sha === headSha)) {
+      return blocked("hosted_codex_review_head_not_new_after_base_change");
+    }
   }
   // GitHub resolves the bot's abbreviated reviewed-commit identifier to the full SHA.
   // Ambiguous or stale prefixes fail closed rather than being treated as exact-head proof.

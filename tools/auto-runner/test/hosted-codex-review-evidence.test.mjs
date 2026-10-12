@@ -129,11 +129,18 @@ test("hosted completion must follow the latest PR base retarget", () => {
       throw new Error("unexpected GitHub read");
     } });
   const baseChange = (created_at, event = "base_ref_changed") => ({ id: 11, event, created_at });
+  const commit = (sha = head) => ({ event: "committed", sha });
   assert.equal(inspect({ status: 0, stdout: JSON.stringify(baseChange("2026-10-11T23:46:20Z")) }).reason,
     "hosted_codex_review_predates_base_change");
   assert.equal(inspect({ status: 0, stdout: JSON.stringify(baseChange(completion.created_at)) }).status, "blocked");
-  assert.equal(inspect({ status: 0, stdout: JSON.stringify(baseChange("2026-10-11T23:00:00Z")) }).status,
+  assert.equal(inspect({ status: 0, stdout: JSON.stringify(baseChange("2026-10-11T23:00:00Z")) }).reason,
+    "hosted_codex_review_head_not_new_after_base_change");
+  assert.equal(inspect({ status: 0, stdout: [commit(), baseChange("2026-10-11T23:00:00Z")].map(JSON.stringify).join("\n") }).reason,
+    "hosted_codex_review_head_not_new_after_base_change");
+  assert.equal(inspect({ status: 0, stdout: [baseChange("2026-10-11T23:00:00Z"), commit()].map(JSON.stringify).join("\n") }).status,
     "completed_no_findings");
+  assert.equal(inspect({ status: 0, stdout: [baseChange("2026-10-11T23:00:00Z"), commit(staleHead)].map(JSON.stringify).join("\n") }).status,
+    "blocked");
   assert.equal(inspect({ status: 0, stdout: JSON.stringify(baseChange("2026-10-11T23:47:00Z", "automatic_base_change_succeeded")) }).status,
     "blocked");
   assert.equal(inspect({ status: 1, error: "unavailable" }).reason, "hosted_codex_review_base_history_unavailable");
