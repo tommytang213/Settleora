@@ -1198,8 +1198,12 @@ independently completed, exact-head whole-candidate reviews can certify every
 coverage section and integration boundary. This projection makes no additional
 sequential provider calls, retains actionable findings from a complete non-pass
 review for the bounded fix cycle, and rejects missing or stale evidence. Larger packages
-still block for narrower review. Grok automatic merge remains blocked until
-that route verifies complete exact-head local and hosted review evidence.
+still block for narrower review. Grok automatic merge requires the existing
+local, CI, scanner, thread, scope, and manual gates plus an exact-head hosted
+Codex completion. The hosted gate reads GitHub's bot-authored completion and
+summary comments, resolves the reviewed commit prefix to its full SHA, and
+rejects current-head finding reviews. Missing, running, quota-limited, stale,
+or unreadable evidence blocks; no review quota is bypassed.
 If a headless turn ends before all indexed ranges are read, the adapter resumes
 that isolated session once to request only the verified missing ranges within
 the same deadline. A verdict still requires complete coverage. Check remaining

@@ -14,6 +14,7 @@ import { findPreEffectIntents } from "./pre-effect-intent.mjs";
 import { createCleanupOwnershipRecord, loadCleanupOwnership, persistCleanupOwnership } from "./post-merge-cleanup.mjs";
 import { assertRepositoryRemoteIdentity } from "./runtime-identity.mjs";
 import { recoveredIndependentReviewEvidence } from "./recovered-independent-evidence.mjs";
+import { inspectHostedCodexReview } from "./hosted-codex-review-evidence.mjs";
 
 export const lowRiskAutoMergeLanes = Object.freeze(["workflow-docs-tooling", "docs-planning", "client-ui-low-risk"]);
 export const approvedDomainAutoMergeLanes = Object.freeze([
@@ -91,9 +92,7 @@ export function evaluateAutoMergeDecision(input) {
   const block = (reason) => ({ ...result, reason });
 
   if (!config.allowAutoMerge) return block("auto_merge_disabled_by_config");
-  if (config.reviewerProviderPin === "grok" || input.externalReview?.provider === "grok") {
-    return block("grok_auto_merge_not_enabled");
-  }
+  const grokReview = config.reviewerProviderPin === "grok" || input.externalReview?.provider === "grok";
   if (config.canary) {
     const approval = evaluateLowRiskAutoMergeCanaryApproval(config);
     if (!approval.approved) return block(`low_risk_auto_merge_canary_not_approved:${approval.reason}`);
@@ -143,6 +142,14 @@ export function evaluateAutoMergeDecision(input) {
   if (issue.state !== "OPEN") return block("issue_not_open");
   const stopLabel = issueLabels.find((label) => autoMergeStopLabels.includes(label));
   if (stopLabel) return block(`issue_stop_label:${stopLabel}`);
+  if (grokReview) {
+    const hosted = input.hostedCodexReview || {};
+    if (hosted.status === "pending") return block("hosted_codex_review_pending");
+    if (hosted.status !== "completed_no_findings" || hosted.reviewedHead !== expectedHeadSha
+      || hosted.prNumber !== pr.number || hosted.source !== "github_codex_bot_comments") {
+      return block(`hosted_codex_review_not_verified:${hosted.reason || "missing_or_stale_evidence"}`);
+    }
+  }
 
   return {
     ...result,
@@ -271,6 +278,7 @@ export function writeAutoMergeEvidence(config, decision, context = {}) {
     autoMerge: decision,
     autoMergeCommandEvidence: context.autoMergeCommandEvidence || context.commandEvidence || decision.commandEvidence || null,
     issueLinkageEvidence: context.issueLinkageEvidence || decision.issueLinkageEvidence || null,
+    hostedCodexReview: context.hostedCodexReview || null,
   });
   writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
   return { evidencePath };
@@ -324,6 +332,7 @@ export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber, lane
       })),
       reviewThreads: [],
       codeScanningAlerts: [],
+      hostedCodexReview: null,
       blockingMarkers: [],
       commandEvidence,
     };
@@ -362,6 +371,10 @@ export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber, lane
   if (issueView.error || issueView.status !== 0) blockingMarkers.push("issue_view_failed");
 
   const reviewThreads = inspectReviewThreads(config, pr.number, blockingMarkers, run);
+  const hostedCodexReview = config.reviewerProviderPin === "grok"
+    ? inspectHostedCodexReview({ repositorySlug, prNumber: pr.number, headSha: pr.headRefOid,
+      run: (command, args) => run(command, args, { cwd: config.repoRoot }) })
+    : null;
   const codeScanningAlerts = inspectCodeScanningAlerts(config, pr.headRefName, blockingMarkers, run)
     .map((alert) => {
       const alertPath = alert?.most_recent_instance?.location?.path || alert?.mostRecentInstance?.location?.path || alert?.path;
@@ -373,6 +386,7 @@ export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber, lane
     issue: currentIssue,
     requiredChecks: enrichFailedCheckEvidence(config, flattenCheckRollup(pr.statusCheckRollup || []), run),
     reviewThreads,
+    hostedCodexReview,
     codeScanningAlerts,
     blockingMarkers,
     commandEvidence,
@@ -628,6 +642,7 @@ function executeCanonicalMergeEffect(config, context, { runner, repositorySlug, 
     baseSha,
     requiredChecks: (context.requiredChecks || []).map((check) => ({ name: bounded(check.name), status: bounded(check.status), conclusion: bounded(check.conclusion) })),
     reviewThreads: (context.reviewThreads || []).map((thread) => ({ id: bounded(thread.id), resolved: thread.isResolved === true })),
+    hostedCodexReview: context.hostedCodexReview || null,
     codeScanningAlerts: (context.codeScanningAlerts || []).map((alert) => ({ number: Number.isSafeInteger(alert.number) ? alert.number : null, state: bounded(alert.state), rule: bounded(alert.rule?.id || alert.ruleId) })),
     validation: { passed: context.validation?.passed === true, headSha: bounded(context.validation?.headSha), baseSha: bounded(context.validation?.baseSha), changedFilesDigest: bounded(context.validation?.changedFilesDigest) },
     externalReview: { status: bounded(context.externalReview?.status), verdict: bounded(context.externalReview?.verdict), reviewedHead: bounded(context.externalReview?.reviewedHead), changedFilesDigest: bounded(context.externalReview?.changedFilesDigest) },
@@ -830,6 +845,7 @@ function exactHeadGithubInspection(context = {}) {
     pr: context.pr ? { number: context.pr.number, state: context.pr.state, headRefOid: context.pr.headRefOid, baseRefName: context.pr.baseRefName, mergeable: context.pr.mergeable, mergeStateStatus: context.pr.mergeStateStatus } : null,
     requiredChecks: Array.isArray(context.requiredChecks) ? context.requiredChecks : [],
     reviewThreads: Array.isArray(context.reviewThreads) ? context.reviewThreads : [],
+    hostedCodexReview: context.hostedCodexReview || null,
     codeScanningAlerts: Array.isArray(context.codeScanningAlerts) ? context.codeScanningAlerts : [],
     blockingMarkers: Array.isArray(context.blockingMarkers) ? context.blockingMarkers : [],
   };
@@ -877,6 +893,7 @@ export function normalizeAutoMergeWait(wait = {}) {
 function shouldWaitForAutoMergeDecision(decision) {
   const reason = String(decision?.reason || "");
   if (reason === "required_checks_pending") return true;
+  if (reason === "hosted_codex_review_pending") return true;
   const mergeState = reason.match(/^pr_merge_state_not_clean:(.*)$/)?.[1];
   if (mergeState === undefined) return false;
   return refreshableMergeStates.has(mergeState.toUpperCase()) || refreshableMergeStates.has(mergeState);
@@ -1197,6 +1214,7 @@ function mergeAutoMergeContext(context, githubState = {}) {
     actualHeadSha: refreshedHeadSha,
     requiredChecks: githubState.requiredChecks || context.requiredChecks || [],
     reviewThreads: githubState.reviewThreads || context.reviewThreads || [],
+    hostedCodexReview: githubState.hostedCodexReview || { status: "blocked", reason: "hosted_codex_review_refresh_missing" },
     codeScanningAlerts: githubState.codeScanningAlerts || context.codeScanningAlerts || [],
     blockingMarkers: githubState.blockingMarkers || context.blockingMarkers || [],
   };
@@ -1224,6 +1242,7 @@ function snapshotAttempt(attempt, decision, context, previousAttempt = null, sta
     pendingChecksDecreasing,
     pendingChecksProgressing: pendingChecksDecreasing,
     blockingMarkers: context.blockingMarkers || [],
+    hostedCodexReview: context.hostedCodexReview || null,
   });
 }
 

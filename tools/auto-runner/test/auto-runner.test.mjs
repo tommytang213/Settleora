@@ -5506,14 +5506,26 @@ test("canary auto-merge decision requires explicit low-risk approval", () => {
   );
 });
 
-test("Grok trial cannot auto-merge even when other gates approve", () => {
+test("Grok auto-merge requires fresh hosted Codex completion in addition to existing gates", () => {
   const base = autoMergeContext();
   const pinned = evaluateAutoMergeDecision(autoMergeContext({ config: { reviewerProviderPin: "grok" } }));
   const observed = evaluateAutoMergeDecision(autoMergeContext({ externalReview: { ...base.externalReview, provider: "grok" } }));
   assert.equal(pinned.eligible, false);
-  assert.equal(pinned.reason, "grok_auto_merge_not_enabled");
+  assert.equal(pinned.reason, "hosted_codex_review_not_verified:missing_or_stale_evidence");
   assert.equal(observed.eligible, false);
-  assert.equal(observed.reason, "grok_auto_merge_not_enabled");
+  assert.equal(observed.reason, "hosted_codex_review_not_verified:missing_or_stale_evidence");
+  const hosted = { status: "completed_no_findings", reviewedHead: "head123", prNumber: 1,
+    source: "github_codex_bot_comments" };
+  const exact = autoMergeContext({ config: { reviewerProviderPin: "grok" }, hostedCodexReview: hosted });
+  assert.equal(evaluateAutoMergeDecision(exact).eligible, true);
+  assert.equal(evaluateAutoMergeDecision({ ...exact, hostedCodexReview: { ...hosted, reviewedHead: "stale" } }).eligible, false);
+  assert.equal(evaluateAutoMergeDecision({ ...exact, hostedCodexReview: { ...hosted, prNumber: 2 } }).eligible, false);
+  assert.equal(evaluateAutoMergeDecision({ ...exact, hostedCodexReview: { status: "pending" } }).reason,
+    "hosted_codex_review_pending");
+  assert.equal(evaluateAutoMergeDecision({ ...exact, reviewThreads: [{ isResolved: false }] }).reason,
+    "unresolved_review_threads");
+  assert.equal(evaluateAutoMergeDecision({ ...exact, codeScanningAlerts: [{ state: "open" }] }).reason,
+    "open_code_scanning_alerts");
 });
 
 test("sensitive product/security/storage/money/schema/OpenAPI/deployment/secret/public/admin paths block auto-merge", () => {
@@ -6099,6 +6111,28 @@ test("auto-merge final refresh catches newly failed unlisted exact-head checks",
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
+});
+
+test("Grok auto-merge final refresh cannot reuse an earlier hosted Codex approval", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-grok-hosted-final-refresh-"));
+  try {
+    const calls = [];
+    const hostedCodexReview = { status: "completed_no_findings", reviewedHead: "head123", prNumber: 1,
+      source: "github_codex_bot_comments" };
+    const result = executeAutoMerge(
+      { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, reviewerProviderPin: "grok",
+        autoMergeWait: { maxAttempts: 1, delayMs: 0 } },
+      autoMergeContext({ config: { reviewerProviderPin: "grok" }, hostedCodexReview }),
+      { runner: createAutoMergeRunner(calls), inspectState: () => ({
+        pr: { mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", headRefOid: "head123" },
+        requiredChecks: autoMergeRequiredChecks(), reviewThreads: [], codeScanningAlerts: [], blockingMarkers: [],
+      }) },
+    );
+    assert.equal(result.result, "blocked");
+    assert.equal(result.reason,
+      "final_refresh_blocked:hosted_codex_review_not_verified:hosted_codex_review_refresh_missing");
+    assert.equal(calls.some((call) => call.startsWith("gh pr merge")), false);
+  } finally { rmSync(tempRoot, { recursive: true, force: true }); }
 });
 
 test("auto-merge wait config clamps pathological values to safe bounds and buckets", () => {
@@ -7967,6 +8001,7 @@ function autoMergeContext(overrides = {}) {
     prospectiveMergeValidationVerified: overrides.prospectiveMergeValidationVerified ?? false,
     requiredChecks: overrides.requiredChecks || defaultRequiredChecks,
     reviewThreads: overrides.reviewThreads || [],
+    hostedCodexReview: overrides.hostedCodexReview || null,
     codeScanningAlerts: overrides.codeScanningAlerts || [],
     blockingMarkers: overrides.blockingMarkers || [],
   };
