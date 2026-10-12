@@ -7804,8 +7804,8 @@ test("production auto-merge inspection callers pass explicit live runner authori
   const runnerSource = readFileSync("tools/auto-runner/settleora-auto-runner.mjs", "utf8");
   const recoveryIndex = runnerSource.indexOf("async function recoverExistingPrIfConfigured");
   const recoveryRunnerIndex = runnerSource.indexOf("const autoMergeRunner = config.dryRun ? null : createLiveFixedArgvRunner(config);", recoveryIndex);
-  const recoveryInspectIndex = runnerSource.indexOf("inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: recoveryConfig.prNumber || recoveryConfig.prUrl, laneDecision }, { runner: autoMergeRunner })", recoveryIndex);
-  const recoveryWaitIndex = runnerSource.indexOf("inspectState: (cfg, ctx) => inspectAutoMergeGithubState(cfg, { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url, laneDecision }, { runner: autoMergeRunner })", recoveryIndex);
+  const recoveryInspectIndex = runnerSource.indexOf("inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: recoveryConfig.prNumber || recoveryConfig.prUrl,", recoveryIndex);
+  const recoveryWaitIndex = runnerSource.indexOf("inspectState: (cfg, ctx) => inspectAutoMergeGithubState(cfg, { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url,", recoveryIndex);
   assert.notEqual(recoveryRunnerIndex, -1);
   assert.notEqual(recoveryInspectIndex, -1);
   assert.notEqual(recoveryWaitIndex, -1);
