@@ -85,6 +85,71 @@ internal object PolishCurrencyRecovery {
         pattern.matchEntire(text.trim(' ', '\t'))?.groupValues?.get(1)
 }
 
+// A complete date label and its sole neighboring value establish a date role.
+// Recovery may restore separators, but must preserve every original digit.
+internal object CalendarDateRecovery {
+    data class Point(val x: Double, val y: Double)
+    private data class Bounds(val left: Double, val top: Double, val right: Double, val bottom: Double)
+    private val damaged = Regex("""((?:19|20)[0-9]{2})·([0-9]{2})([0-9]{2})""")
+    private val complete = Regex("""((?:19|20)[0-9]{2})·([0-9]{2})·([0-9]{2})·?""")
+    private val label = Regex("""(?:date|datum|fecha|data|日期|日付|날짜|дата|วันที่|तारीख|दिनांक)[ \t]*[:：]?""", RegexOption.IGNORE_CASE)
+
+    fun shouldProbe(index: Int, original: List<ScriptCandidate?>, points: List<List<Point>>): Boolean {
+        val candidate = original.getOrNull(index) ?: return false
+        if (points.size != original.size || !confidentCommon(candidate) ||
+            dateDigits(damaged, candidate.text) == null) return false
+        // Invalid or incomplete geometry cannot supply negative row evidence.
+        val rectangles = points.map { bounds(it) ?: return false }
+        val value = rectangles[index]
+        val neighbors = rectangles.indices.filter {
+            it != index && overlap(value, rectangles[it]) > 0
+        }
+        if (neighbors.size != 1) return false
+        val otherIndex = neighbors.single()
+        val other = original[otherIndex] ?: return false
+        val name = rectangles[otherIndex]
+        return other.pack == candidate.pack && confidentCommon(other) &&
+            label.matches(other.text.trim(' ', '\t')) && name.right <= value.left &&
+            overlap(value, name) >= minOf(value.bottom - value.top, name.bottom - name.top) / 2 &&
+            value.left - name.right <= 4 * maxOf(value.right - value.left, name.right - name.left)
+    }
+
+    fun accepts(index: Int, original: List<ScriptCandidate?>, points: List<List<Point>>, recovery: ScriptCandidate): Boolean {
+        if (!shouldProbe(index, original, points)) return false
+        val candidate = original[index]!!
+        return recovery.pack == candidate.pack && confidentCommon(recovery) &&
+            dateDigits(complete, recovery.text) == dateDigits(damaged, candidate.text)
+    }
+
+    private fun confidentCommon(candidate: ScriptCandidate): Boolean =
+        ScriptEvidence.COMMON in candidate.pack.acceptedScripts &&
+            candidate.confidence.isFinite() && candidate.confidence in 0.8f..1.0f
+
+    private fun dateDigits(pattern: Regex, text: String): String? {
+        val match = pattern.matchEntire(text.trim(' ', '\t')) ?: return null
+        val year = match.groupValues[1].toInt()
+        val month = match.groupValues[2].toInt()
+        val day = match.groupValues[3].toInt()
+        if (month !in 1..12) return null
+        val leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+        val days = listOf(31, if (leap) 29 else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+        if (day !in 1..days[month - 1]) return null
+        return match.groupValues.drop(1).joinToString("")
+    }
+
+    private fun bounds(points: List<Point>): Bounds? {
+        if (points.size != 4 || points.any { !it.x.isFinite() || !it.y.isFinite() || it.x < 0 || it.y < 0 }) return null
+        val crosses = points.indices.map { i ->
+            val a = points[i]; val b = points[(i + 1) % 4]; val c = points[(i + 2) % 4]
+            (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x)
+        }
+        if (crosses.any { !it.isFinite() } || !(crosses.all { it > 0 } || crosses.all { it < 0 })) return null
+        return Bounds(points.minOf { it.x }, points.minOf { it.y }, points.maxOf { it.x }, points.maxOf { it.y })
+    }
+
+    private fun overlap(a: Bounds, b: Bounds): Double = minOf(a.bottom, b.bottom) - maxOf(a.top, b.top)
+}
+
 internal object ScriptRouteSelector {
     // Confidence outputs from the broad and script-specific recognizers are not
     // directly comparable. Every specialist performs a bounded probe for every

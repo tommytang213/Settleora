@@ -193,12 +193,21 @@ final class SettleoraPaddleOcrEngine {
 
     // Recovery cannot alter orientation or bootstrap corroboration from itself.
     let original = candidates.map { ScriptRouteSelector.select($0) }
-    let currencyRecovery = try await recognizeCurrencyRecovery(
-      common, crops: rotateDocument ? rotatedCrops : crops, original: original
+    let recoveryPoints = boxes.map { box in
+      box.points.map { point -> CalendarDateRecovery.Point in
+        let normalized = documentOrientation.transform(
+          SettleoraOcrPoint(x: Double(point[0]), y: Double(point[1])),
+          sourceWidth: image.width, sourceHeight: image.height
+        )
+        return CalendarDateRecovery.Point(x: normalized.x, y: normalized.y)
+      }
+    }
+    let commonRecovery = try await recognizeCommonRecovery(
+      common, crops: rotateDocument ? rotatedCrops : crops, original: original, points: recoveryPoints
     )
     var blocks: [SettleoraOcrBlock] = []
     for index in candidates.indices {
-      guard let accepted = currencyRecovery[index] ?? original[index],
+      guard let accepted = commonRecovery[index] ?? original[index],
             accepted.confidence >= 0.1 else { continue }
       let points = boxes[index].points.map { point -> SettleoraOcrPoint in
         documentOrientation.transform(
@@ -279,13 +288,16 @@ final class SettleoraPaddleOcrEngine {
     return output
   }
 
-  private func recognizeCurrencyRecovery(
-    _ recognizer: Recognizer, crops: [CGImage], original: [ScriptCandidate?]
+  private func recognizeCommonRecovery(
+    _ recognizer: Recognizer, crops: [CGImage], original: [ScriptCandidate?], points: [[CalendarDateRecovery.Point]]
   ) async throws -> [ScriptCandidate?] {
     var output = [ScriptCandidate?](repeating: nil, count: crops.count)
     // Retain the original full batches and their canvas widths.
     for indices in Array(crops.indices).chunked(maxCount: 4) {
-      guard indices.contains(where: { PolishCurrencyRecovery.shouldProbe($0, original: original) }) else { continue }
+      guard indices.contains(where: {
+        PolishCurrencyRecovery.shouldProbe($0, original: original) ||
+          CalendarDateRecovery.shouldProbe($0, original: original, points: points)
+      }) else { continue }
       let input = try recognizer.preprocessor.preprocessBatch(
         indices.map { crops[$0] }, whiteMargin: PolishCurrencyRecovery.whiteMargin
       )
@@ -300,7 +312,10 @@ final class SettleoraPaddleOcrEngine {
           text: RecognizedTextNormalizer.normalize(value.text.trimmingCharacters(in: .whitespacesAndNewlines), pack: recognizer.spec),
           confidence: value.confidence, pack: recognizer.spec
         )
-        if PolishCurrencyRecovery.accepts(index, original: original, recovery: candidate) { output[index] = candidate }
+        if PolishCurrencyRecovery.accepts(index, original: original, recovery: candidate) ||
+          CalendarDateRecovery.accepts(index, original: original, points: points, recovery: candidate) {
+          output[index] = candidate
+        }
       }
     }
     return output

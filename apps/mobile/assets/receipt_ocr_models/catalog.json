@@ -64,10 +64,10 @@
         { "path": "apps/mobile/android/app/src/release/kotlin/com/example/mobile/ReceiptOcrBuildVariantHooks.kt", "sha256": "c5ad40a709e98116a2f758bff1c92b34ef21d5d79cb37842ba927ecf8b8e3677" },
         { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/MobileOcrModelCatalog.kt", "sha256": "ddd18b4bb539c600588973421e96fb4969154a45c2b0d70454ad8d7d280b69b2" },
         { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ReceiptOcrFailureClassifier.kt", "sha256": "37876e59de2484949d9adc60d27288f259ab5b27986e57bd0cfec40d6e848cc7" },
-        { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/SettleoraPaddleOcrEngine.kt", "sha256": "4d2967d8487d96fbcc916692ebd6ba03deb0b92fc2d7b4df65544f4abef7f757" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/SettleoraPaddleOcrEngine.kt", "sha256": "782f08c34da1be5952f4ea697be06ac33ec95bf61bb1e5075f1a0233923b77f5" },
         { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ReceiptDocumentOrientation.kt", "sha256": "9de568aea43c69b4946f1a7dcd01d75d16daf7f0d8364d892980551744a95ec0" },
         { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ReceiptOrientationSelector.kt", "sha256": "cc31a1f9a45c15d026fb25d39a36c0aeb70d1ac8eb1248cdc0ef8d6981f518de" },
-        { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ScriptRouteSelector.kt", "sha256": "fb4e4421a19f274658de265407b05ebe3bbdacbf402687f067552b12ef308dfb" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ScriptRouteSelector.kt", "sha256": "380c8a8ee85e3cd2a19b90f851a0be40e199b0c6cefe159cf3150a1bc5f70c7c" },
         { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/RecognizedTextNormalizer.kt", "sha256": "274f32c1223564d4f9bd4d061246782ed7c80a05a525c046c95ec6e5f5c30550" },
         { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ReceiptBlockOrder.kt", "sha256": "0261a7a1a04b6da653133767d07a6c168c2a9dd9dfacf34e2ce191386ada6871" },
         { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ReceiptOcrInputLimits.kt", "sha256": "202ece68e63930c667297115fe162a9780b6c85ff8b1bfb0344598fcad40c11d" },
@@ -115,8 +115,8 @@
         { "path": "apps/mobile/ios/Runner/PaddleOCR/ReceiptDocumentOrientation.swift", "sha256": "1ec4ab12524f6dd02f354557301c6aacee5211bbf06adf422afc824d8170decd" },
         { "path": "apps/mobile/ios/Runner/PaddleOCR/ReceiptOcrOrdering.swift", "sha256": "4f83557452e0df4032ec83e1e8ff842619947b059a19174f6448d871d2bdb43e" },
         { "path": "apps/mobile/ios/Runner/PaddleOCR/SettleoraORTSessionManager.swift", "sha256": "f08afd41d7e301105e49e2e92677071c4ac1e995e84c63b07e345329a26208c8" },
-        { "path": "apps/mobile/ios/Runner/PaddleOCR/SettleoraOcrModels.swift", "sha256": "ef85dd61083a25b4da35c68d32f301071c46de24b54f23b521e2c3499c8497c0" },
-        { "path": "apps/mobile/ios/Runner/PaddleOCR/SettleoraPaddleOcrEngine.swift", "sha256": "d6ce7818e0f98ec8a8d51363dcde6b61567900c265f06bb60d8639df596e28ae" },
+        { "path": "apps/mobile/ios/Runner/PaddleOCR/SettleoraOcrModels.swift", "sha256": "eb2146759a32f7532c1b5e9855ac2e572964c3bbc23deff0ce5925b70fa7178b" },
+        { "path": "apps/mobile/ios/Runner/PaddleOCR/SettleoraPaddleOcrEngine.swift", "sha256": "e5cea15a8b1b1763e8e4d2ba2517e3587f7169465e5bc51faa34210553432547" },
         { "path": "apps/mobile/ios/Runner/PaddleOCR/ThirdParty/Clipper1/clipper.cpp", "sha256": "711f4374ca6e80ca50d786fd53fba20db394a1bae2a8d0d71b38cff535698ec8" },
         { "path": "apps/mobile/ios/Runner/PaddleOCR/ThirdParty/Clipper1/clipper.hpp", "sha256": "e37c594a918940da4e5d0436c5ab91bd0f6148e6c16a5e9d362514ca8f3923e7" },
         { "path": "apps/mobile/ios/Runner/Runner-Bridging-Header.h", "sha256": "ba43def7f8ea1e275d951793d16d08bea9f7db12e89515eaee072bb72920350c" },
@@ -125,7 +125,7 @@
     },
     "parser": {
       "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_parser.dart",
-      "sha256": "13de0d2b972115594ea3e90df4360044c3167991265808628862ef37653430c2"
+      "sha256": "a05afaabedadaf500d5e9cd2d50d5da69229376fe5ee3af6bc198a74308f11ba"
     }
   },
   "totalBundledBytes": 76580102,

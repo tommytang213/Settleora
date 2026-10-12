@@ -8,6 +8,8 @@ const _eastAsianCalendarDatePattern =
     r'\b(20\d{2}|19\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日?';
 const _yearFirstCalendarDatePattern =
     r'\b(20\d{2}|19\d{2})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{1,2})\b';
+const _middleDotCalendarDatePattern =
+    r'\b(20[0-9]{2}|19[0-9]{2})·([0-9]{2})·([0-9]{2})·?';
 final _potentialReceiptAdjustmentLabelPattern = RegExp(
   r'\b(?:sales\s+tax(?:es)?|tax(?:es)?|vat|gst|hst|iva|tva|kdv|mwst|service(?:s?\s+(?:charges?|fees?))?|tips?|gratuity|gratuities|(?:shipping|delivery)(?:\s+(?:fees?|charges?)|\s*(?:(?:&|and)\s*)?handling(?:\s+(?:fees?|charges?))?)?|discounts?|coupons?|promo\s+code|loyalty[\s-]+savings?|surcharges?|charges?|fees?|refunds?|rebates?|credits?|deposits?|levy|levies|duty|duties|donations?|round(?:ing|[\s-]*off))\b',
   caseSensitive: false,
@@ -902,6 +904,15 @@ class ReceiptOcrParser {
         }
         if (date != null && (best == null || score > best!.score)) {
           best = (date: date, score: score);
+        }
+      }
+
+      // A complete explicitly labeled date may use middle-dot separators.
+      // Compact or mixed forms retain their unresolved evidence.
+      if (labeledDate != null) {
+        final middleDot = RegExp(_middleDotCalendarDatePattern).firstMatch(line);
+        if (middleDot != null) {
+          consider(labeledDate, middleDot.start, middleDot.end);
         }
       }
 
@@ -12265,6 +12276,7 @@ String? _labeledCalendarDate(String line) {
   // A terminal full stop is punctuation, never another number or price.
   for (final pattern in [
     '$label$_eastAsianCalendarDatePattern\\s*\$',
+    '$label$_middleDotCalendarDatePattern\\s*\$',
     '$label$_yearFirstCalendarDatePattern\\.?\\s*\$',
   ]) {
     final match = RegExp(pattern, caseSensitive: false).firstMatch(line);

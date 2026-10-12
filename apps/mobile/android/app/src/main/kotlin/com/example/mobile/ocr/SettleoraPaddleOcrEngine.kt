@@ -239,9 +239,20 @@ class SettleoraPaddleOcrEngine(context: Context) {
                     // Freeze the original winners and orientation. Recovery must
                     // not create its own corroboration or displace other probes.
                     val original = candidatesByLine.map(ScriptRouteSelector::select)
-                    val currencyRecovery = arrayOfNulls<ScriptCandidate>(crops.size)
+                    val recoveryPoints = validBoxes.map { (_, box) ->
+                        box.points.map { point ->
+                            val normalized = documentOrientation.transform(
+                                SettleoraOcrPoint(point.x, point.y), sourceWidth, sourceHeight,
+                            )
+                            CalendarDateRecovery.Point(normalized.x.toDouble(), normalized.y.toDouble())
+                        }
+                    }
+                    val commonRecovery = arrayOfNulls<ScriptCandidate>(crops.size)
                     for (batchIndices in batchesFor(crops, crops.indices)) {
-                        if (batchIndices.none { PolishCurrencyRecovery.shouldProbe(it, original) }) continue
+                        if (batchIndices.none {
+                            PolishCurrencyRecovery.shouldProbe(it, original) ||
+                                CalendarDateRecovery.shouldProbe(it, original, recoveryPoints)
+                        }) continue
                         val batchStart = System.currentTimeMillis()
                         val input = RecPreprocessor.preprocessBatch(
                             batchIndices.map { crops[it] },
@@ -258,14 +269,15 @@ class SettleoraPaddleOcrEngine(context: Context) {
                                 RecognizedTextNormalizer.normalize(value.first.trim(), commonPack.spec),
                                 value.second, commonPack.spec,
                             )
-                            if (PolishCurrencyRecovery.accepts(index, original, candidate)) {
-                                currencyRecovery[index] = candidate
+                            if (PolishCurrencyRecovery.accepts(index, original, candidate) ||
+                                CalendarDateRecovery.accepts(index, original, recoveryPoints, candidate)) {
+                                commonRecovery[index] = candidate
                             }
                         }
                     }
 
                     original.forEachIndexed { index, selected ->
-                        val accepted = currencyRecovery[index] ?: selected
+                        val accepted = commonRecovery[index] ?: selected
                         if (accepted != null && accepted.confidence >= config.recScoreThresh) {
                             val (order, box) = validBoxes[index]
                             blocks += SettleoraOcrBlock(

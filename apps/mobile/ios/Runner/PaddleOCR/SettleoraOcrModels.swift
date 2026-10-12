@@ -175,6 +175,69 @@ enum PolishCurrencyRecovery {
   }
 }
 
+// Match Android: require an original complete label and its sole row neighbor.
+// A recovered date restores separators only; every original digit must survive.
+enum CalendarDateRecovery {
+  struct Point { let x: Double; let y: Double }
+  private struct Bounds { let left: Double; let top: Double; let right: Double; let bottom: Double }
+  private static let damaged = try! NSRegularExpression(pattern: #"\A((?:19|20)[0-9]{2})·([0-9]{2})([0-9]{2})\z"#)
+  private static let complete = try! NSRegularExpression(pattern: #"\A((?:19|20)[0-9]{2})·([0-9]{2})·([0-9]{2})·?\z"#)
+  private static let label = try! NSRegularExpression(pattern: #"\A(?:date|datum|fecha|data|日期|日付|날짜|дата|วันที่|तारीख|दिनांक)[ \t]*[:：]?\z"#, options: [.caseInsensitive])
+
+  static func shouldProbe(_ index: Int, original: [ScriptCandidate?], points: [[Point]]) -> Bool {
+    guard original.indices.contains(index), let candidate = original[index], points.count == original.count,
+          confidentCommon(candidate), dateDigits(candidate.text, matching: damaged) != nil else { return false }
+    // Missing geometry cannot establish that the entire row has no competitor.
+    let rectangles = points.compactMap { bounds($0) }
+    guard rectangles.count == points.count else { return false }
+    let value = rectangles[index]
+    let neighbors = rectangles.indices.filter { $0 != index && overlap(value, rectangles[$0]) > 0 }
+    guard neighbors.count == 1, let otherIndex = neighbors.first, let other = original[otherIndex] else { return false }
+    let name = rectangles[otherIndex]
+    let literal = other.text.trimmingCharacters(in: CharacterSet(charactersIn: " \t")) as NSString
+    let range = NSRange(location: 0, length: literal.length)
+    return other.pack == candidate.pack && confidentCommon(other) &&
+      label.firstMatch(in: literal as String, range: range)?.range == range && name.right <= value.left &&
+      overlap(value, name) >= min(value.bottom - value.top, name.bottom - name.top) / 2 &&
+      value.left - name.right <= 4 * max(value.right - value.left, name.right - name.left)
+  }
+
+  static func accepts(_ index: Int, original: [ScriptCandidate?], points: [[Point]], recovery: ScriptCandidate) -> Bool {
+    guard shouldProbe(index, original: original, points: points), let candidate = original[index] else { return false }
+    return recovery.pack == candidate.pack && confidentCommon(recovery) &&
+      dateDigits(recovery.text, matching: complete) == dateDigits(candidate.text, matching: damaged)
+  }
+
+  private static func confidentCommon(_ candidate: ScriptCandidate) -> Bool {
+    candidate.pack.acceptedScripts.contains(.common) && candidate.confidence.isFinite &&
+      (Float(0.8)...Float(1)).contains(candidate.confidence)
+  }
+
+  private static func dateDigits(_ text: String, matching pattern: NSRegularExpression) -> String? {
+    let literal = text.trimmingCharacters(in: CharacterSet(charactersIn: " \t")) as NSString
+    let range = NSRange(location: 0, length: literal.length)
+    guard let match = pattern.firstMatch(in: literal as String, range: range), match.range == range else { return nil }
+    let fields = (1...3).map { literal.substring(with: match.range(at: $0)) }
+    guard let year = Int(fields[0]), let month = Int(fields[1]), let day = Int(fields[2]), (1...12).contains(month) else { return nil }
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+    let days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    guard (1...days[month - 1]).contains(day) else { return nil }
+    return fields.joined()
+  }
+
+  private static func bounds(_ points: [Point]) -> Bounds? {
+    guard points.count == 4, points.allSatisfy({ $0.x.isFinite && $0.y.isFinite && $0.x >= 0 && $0.y >= 0 }) else { return nil }
+    let crosses = points.indices.map { i -> Double in
+      let a = points[i], b = points[(i + 1) % 4], c = points[(i + 2) % 4]
+      return (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x)
+    }
+    guard crosses.allSatisfy({ $0.isFinite }), crosses.allSatisfy({ $0 > 0 }) || crosses.allSatisfy({ $0 < 0 }) else { return nil }
+    return Bounds(left: points.map(\.x).min()!, top: points.map(\.y).min()!, right: points.map(\.x).max()!, bottom: points.map(\.y).max()!)
+  }
+
+  private static func overlap(_ a: Bounds, _ b: Bounds) -> Double { min(a.bottom, b.bottom) - max(a.top, b.top) }
+}
+
 enum ScriptRouteSelector {
   private static let scriptMatchBonus = 0.24
   private static let specialistBias = 0.20
