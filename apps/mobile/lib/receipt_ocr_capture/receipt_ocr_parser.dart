@@ -3799,7 +3799,7 @@ class ReceiptOcrParser {
               .map((point) => point.x)
               .reduce((a, b) => a > b ? a : b);
           return rightToLeft
-              ? left >= amountRight + 8
+              ? left >= amountRight + 4
               : right <= amountLeft - 8;
         })
         .toList(growable: false);
@@ -8548,15 +8548,47 @@ List<ReceiptOcrBlockEvidence> _nearbyCurrencyOnlyBlocks(
   final amountRight = amountCell.points
       .map((point) => point.x)
       .reduce((left, right) => left > right ? left : right);
+  final currencyMarkerPattern =
+      '(?:$_currencyTokenPattern|${_knownUnsupportedIsoCurrencyCodes.join('|')}|\\p{Sc})';
   final currencyOnlyPattern = RegExp(
-    '^\\s*(?:$_currencyTokenPattern)\\s*\$',
+    '^\\s*$currencyMarkerPattern'
+    '(?:$_signCurrencySeparatorPattern*$currencyMarkerPattern)*\\s*\$',
     caseSensitive: false,
+    unicode: true,
   );
+  final currencyMarkers = RegExp(
+    currencyMarkerPattern,
+    caseSensitive: false,
+    unicode: true,
+  );
+  bool isCurrencyOnly(String text) {
+    if (!currencyOnlyPattern.hasMatch(text)) return false;
+    final unsupported = _unsupportedIsoCurrencyMarkers(text).toList();
+    // Keep the existing code/ordinary-word distinction. A nearby "pen" or
+    // "all" remains description text, even beside a genuine uppercase code.
+    return !currencyMarkers
+        .allMatches(text)
+        .any(
+          (marker) =>
+              _knownUnsupportedIsoCurrencyCodes.contains(
+                marker.group(0)!.toUpperCase(),
+              ) &&
+              !unsupported.any(
+                (accepted) =>
+                    accepted.start == marker.start &&
+                    accepted.end == marker.end,
+              ),
+        );
+  }
+
+  // Ownership retains complete denomination-only expressions, including
+  // unsupported symbols/codes and alternatives in one block. Dropping them
+  // would invent the receipt's currency for an otherwise bounded amount.
   return row
       .where((block) {
         if (block == amountCell ||
             block.points.isEmpty ||
-            !currencyOnlyPattern.hasMatch(_normalizeOcrLine(block.text))) {
+            !isCurrencyOnly(_normalizeOcrLine(block.text))) {
           return false;
         }
         final left = block.points

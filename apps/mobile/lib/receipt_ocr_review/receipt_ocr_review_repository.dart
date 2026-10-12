@@ -417,6 +417,14 @@ String? receiptOcrTaxModeForSavedEdit(
     return ReceiptOcrTaxReconciliationModeValues.unresolved;
   }
   final recalculated = receiptOcrTaxModeFromSupportedEvidence(candidate);
+  if (mode == ReceiptOcrTaxReconciliationModeValues.addToBase &&
+      recalculated == ReceiptOcrTaxReconciliationModeValues.alreadyInBase &&
+      receiptOcrDecimalUnits(candidate.taxAmount) == BigInt.zero) {
+    // Zero tax satisfies both equations. Keep the stored additive source
+    // interpretation after the same complete evidence checks; this does not
+    // infer an inclusion label from the edited amounts.
+    return ReceiptOcrTaxReconciliationModeValues.addToBase;
+  }
   // An additive source mode does not establish printed inclusion evidence.
   // Arithmetic changed by an edit cannot promote it to included tax.
   if (mode == ReceiptOcrTaxReconciliationModeValues.addToBase &&

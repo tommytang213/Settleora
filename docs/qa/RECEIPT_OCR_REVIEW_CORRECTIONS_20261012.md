@@ -186,6 +186,24 @@ cannot hide that price. The scan does not reinterpret date-shaped tokens or
 embedded identifier digits as prices. Source blocks and printed amounts are
 unchanged.
 
+Nearby currency-block ownership now retains unsupported Unicode currency
+symbols, so a separately recognized peso or bitcoin symbol cannot disappear
+and make its bounded item amount inherit USD. The existing currency resolver
+keeps that denomination unresolved; no new currency is admitted to financial
+Apply. Prefix/suffix and mirrored controls preserve the printed amount and
+original block, distant markers remain outside the cell, and competing adjacent
+markers cannot be silently discarded. Complete denomination-only expressions
+also retain combined symbols, known unsupported ISO codes and currency
+alternatives in one block; arbitrary descriptive words do not become currency
+tokens. Repeated agreeing denominations keep their established interpretation.
+
+An edit correcting a source-supported additive tax to zero now keeps that
+additive interpretation when the complete candidate reconciles. Zero satisfies
+both equations and cannot supply a new inclusion label. Changed currencies,
+foreign evidence, mismatched totals and plain unresolved modes retain their
+existing guards. This corrects the provisional saved-review mode only; API
+Save/Apply validation and accepted-money authority are unchanged.
+
 The EF snapshot concern was checked with the pinned EF 9.0.15 tool and the
 three existing `ReceiptOcrReviewSchemaFoundationTests`. The model comparison
 reported no pending changes; all three metadata/schema-generation tests passed.

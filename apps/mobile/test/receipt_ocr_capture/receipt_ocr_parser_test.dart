@@ -11721,6 +11721,177 @@ Total USD 10.00
     ]);
   });
 
+  for (final marker in ['₱', '₿']) {
+    for (final rightToLeft in [false, true]) {
+      for (final prefix in [false, true]) {
+        test('layout fallback retains unsupported symbol $marker '
+            'rtl=$rightToLeft prefix=$prefix', () {
+          final description = rightToLeft ? 'دفتر' : 'Notebook';
+          final amountLeft = rightToLeft ? 30.0 : 300.0;
+          final markerLeft = amountLeft + (prefix ? -35 : 125);
+          final monetaryText = prefix ? '$marker 10.00' : '10.00 $marker';
+          final preview = const ReceiptOcrParser().parse(
+            'Paper Shop\n$description $monetaryText .\nTotal USD 10.00',
+            blocks: [
+              _layoutBlock('Paper Shop', 0, 0, 20, 350),
+              _layoutBlock(
+                description,
+                1,
+                1,
+                rightToLeft ? 300 : 20,
+                rightToLeft ? 410 : 150,
+                textDirection: rightToLeft ? 'rtl' : 'ltr',
+              ),
+              if (prefix)
+                _layoutBlock(marker, 2, 1, markerLeft, markerLeft + 30),
+              _layoutBlock(
+                '10.00',
+                prefix ? 3 : 2,
+                1,
+                amountLeft,
+                amountLeft + 120,
+              ),
+              if (!prefix)
+                _layoutBlock(marker, 3, 1, markerLeft, markerLeft + 30),
+              _layoutBlock('.', 4, 1, 600, 610),
+              _layoutBlock('Total USD 10.00', 5, 2, 20, 350),
+            ],
+          );
+          expect(preview.currency, 'USD');
+          expect(preview.items, hasLength(1));
+          expect(preview.items.single.description, description);
+          expect(preview.items.single.lineTotal, '10.00');
+          expect(preview.items.single.currency, isNull);
+          expect(preview.items.single.currencyUnresolved, isTrue);
+          expect(preview.blocks.any((block) => block.text == marker), isTrue);
+        });
+      }
+    }
+  }
+
+  test(
+    'layout fallback retains an unsupported suffix without trailing noise',
+    () {
+      final preview = const ReceiptOcrParser().parse(
+        'Paper Shop\nNotebook 10.00 ₱\nTotal USD 10.00',
+        blocks: [
+          _layoutBlock('Paper Shop', 0, 0, 20, 350),
+          _layoutBlock('Notebook', 1, 1, 20, 150),
+          _layoutBlock('10.00', 2, 1, 300, 420),
+          _layoutBlock('₱', 3, 1, 425, 455),
+          _layoutBlock('Total USD 10.00', 4, 2, 20, 350),
+        ],
+      );
+      expect(preview.items.single.currency, isNull);
+      expect(preview.items.single.currencyUnresolved, isTrue);
+      expect(preview.items.single.lineTotal, '10.00');
+    },
+  );
+
+  for (final (marker, expectedCurrency) in <(String, String?)>[
+    ('USD', 'USD'),
+    ('EUR', 'EUR'),
+    ('₱', null),
+    ('USD ₱', null),
+    ('₱ USD', null),
+    ('₱₿', null),
+    ('EUR or USD', null),
+    ('USD/EUR', null),
+    ('USD USD', 'USD'),
+    ('DZD', 'DZD'),
+    ('DZD or USD', null),
+  ]) {
+    for (final nearby in [false, true]) {
+      test(
+        'layout fallback bounds split denomination $marker nearby=$nearby',
+        () {
+          final markerLeft = nearby ? 425.0 : 800.0;
+          final preview = const ReceiptOcrParser().parse(
+            'Paper Shop\nNotebook 10.00 $marker .\nTotal USD 10.00',
+            blocks: [
+              _layoutBlock('Paper Shop', 0, 0, 20, 350),
+              _layoutBlock('Notebook', 1, 1, 20, 150),
+              _layoutBlock('10.00', 2, 1, 300, 420),
+              _layoutBlock(marker, 3, 1, markerLeft, markerLeft + 30),
+              _layoutBlock('.', 4, 1, 900, 910),
+              _layoutBlock('Total USD 10.00', 5, 2, 20, 350),
+            ],
+          );
+          expect(preview.items, hasLength(1));
+          final unresolved = nearby && expectedCurrency == null;
+          expect(
+            preview.items.single.currency,
+            unresolved
+                ? isNull
+                : nearby
+                ? expectedCurrency
+                : 'USD',
+          );
+          expect(preview.items.single.currencyUnresolved, unresolved);
+          expect(preview.items.single.description, 'Notebook');
+          expect(preview.items.single.lineTotal, '10.00');
+        },
+      );
+    }
+  }
+
+  for (final word in ['pen', 'Pen', 'all', 'All']) {
+    for (final rightToLeft in [false, true]) {
+      test(
+        'layout fallback preserves ordinary word $word rtl=$rightToLeft',
+        () {
+          final description = rightToLeft ? 'دفتر' : 'Notebook';
+          final amountLeft = rightToLeft ? 30.0 : 300.0;
+          final wordLeft = amountLeft + (rightToLeft ? 125 : -40);
+          final preview = const ReceiptOcrParser().parse(
+            'Paper Shop\n$description $word 10.00 .\nTotal USD 10.00',
+            blocks: [
+              _layoutBlock('Paper Shop', 0, 0, 20, 350),
+              _layoutBlock(
+                description,
+                1,
+                1,
+                rightToLeft ? 300 : 20,
+                rightToLeft ? 410 : 150,
+                textDirection: rightToLeft ? 'rtl' : 'ltr',
+              ),
+              _layoutBlock(word, 2, 1, wordLeft, wordLeft + 30),
+              _layoutBlock('10.00', 3, 1, amountLeft, amountLeft + 120),
+              _layoutBlock('.', 4, 1, 900, 910),
+              _layoutBlock('Total USD 10.00', 5, 2, 20, 350),
+            ],
+          );
+          expect(preview.items, hasLength(1));
+          expect(preview.items.single.description, '$description $word');
+          expect(preview.items.single.currency, 'USD');
+          expect(preview.items.single.currencyUnresolved, isFalse);
+          expect(preview.items.single.lineTotal, '10.00');
+        },
+      );
+    }
+  }
+
+  test('layout fallback cannot drop one of two adjacent currency blocks', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Paper Shop\nNotebook 10.00 USD ₱ .\nTotal USD 10.00',
+      blocks: [
+        _layoutBlock('Paper Shop', 0, 0, 20, 350),
+        _layoutBlock('Notebook', 1, 1, 20, 150),
+        _layoutBlock('10.00', 2, 1, 300, 420),
+        _layoutBlock('USD', 3, 1, 425, 455),
+        _layoutBlock('₱', 4, 1, 460, 480),
+        _layoutBlock('.', 5, 1, 600, 610),
+        _layoutBlock('Total USD 10.00', 6, 2, 20, 350),
+      ],
+    );
+    expect(preview.items, isEmpty);
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(
+      preview.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem),
+    );
+  });
+
   test('layout fallback rejects bare identifier amounts', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse(

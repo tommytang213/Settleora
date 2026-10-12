@@ -277,6 +277,138 @@ void main() {
     );
   });
 
+  group('saved additive zero-tax correction', () {
+    ReceiptOcrReviewDetail previous({
+      String mode = ReceiptOcrTaxReconciliationModeValues.addToBase,
+    }) {
+      final now = DateTime.utc(2026, 10, 12);
+      return ReceiptOcrReviewDetail(
+        id: 'review',
+        billId: 'bill',
+        fileId: 'file',
+        groupId: null,
+        status: ReceiptOcrReviewStatusValues.reviewed,
+        source: ReceiptOcrReviewSourceValues.onDevice,
+        merchantText: 'Books',
+        receiptIssuedAtUtc: null,
+        currency: 'USD',
+        subtotalAmount: '20',
+        taxAmount: '4',
+        taxReconciliationMode: mode,
+        serviceChargeAmount: null,
+        discountAmount: null,
+        grandTotalAmount: '24',
+        lines: const [],
+        createdAtUtc: now,
+        updatedAtUtc: now,
+      );
+    }
+
+    ReceiptOcrReviewSaveRequest corrected({
+      String? currency = 'USD',
+      String tax = '0',
+      String total = '20',
+      bool useLines = false,
+      bool foreignHeader = false,
+      bool foreignAdjustment = false,
+      bool supportedCharges = false,
+    }) => ReceiptOcrReviewSaveRequest(
+      status: ReceiptOcrReviewStatusValues.reviewed,
+      source: ReceiptOcrReviewSourceValues.onDevice,
+      merchantText: 'Books',
+      receiptIssuedAtUtc: null,
+      currency: currency,
+      subtotalAmount: useLines ? null : '20',
+      taxAmount: tax,
+      serviceChargeAmount: supportedCharges ? '2' : null,
+      discountAmount: supportedCharges ? '1' : null,
+      grandTotalAmount: total,
+      lines: const [
+        ReceiptOcrReviewLineSaveRequest(
+          text: 'Book',
+          quantity: '1',
+          unitPriceAmount: '20',
+          lineTotalAmount: '20',
+        ),
+      ],
+      headerEvidence: foreignHeader
+          ? const [
+              ReceiptOcrReviewHeaderEvidenceSaveRequest(
+                role: 'tax',
+                amount: '0',
+                currency: 'EUR',
+              ),
+            ]
+          : const [],
+      adjustmentEvidence: foreignAdjustment || supportedCharges
+          ? [
+              ReceiptOcrReviewAdjustmentSaveRequest(
+                kind: ReceiptOcrReviewAdjustmentKindValues.shipping,
+                originalLabel: 'Shipping',
+                amount: '3',
+                currency: foreignAdjustment ? 'EUR' : 'USD',
+                direction: ReceiptOcrReviewAdjustmentDirectionValues.charge,
+              ),
+            ]
+          : const [],
+    );
+    for (final tax in ['0', '0.0000']) {
+      for (final useLines in [false, true]) {
+        test('preserves additive source for $tax, lines=$useLines', () {
+          expect(
+            receiptOcrTaxModeForSavedEdit(
+              previous(),
+              corrected(tax: tax, useLines: useLines),
+            ),
+            ReceiptOcrTaxReconciliationModeValues.addToBase,
+          );
+        });
+      }
+    }
+    test('reconciles supported service, discount and shipping', () {
+      expect(
+        receiptOcrTaxModeForSavedEdit(
+          previous(),
+          corrected(total: '24', supportedCharges: true),
+        ),
+        ReceiptOcrTaxReconciliationModeValues.addToBase,
+      );
+    });
+    for (final guard in [
+      'currency',
+      'missing currency',
+      'foreign header',
+      'foreign adjustment',
+      'total mismatch',
+      'positive included tax',
+      'plain unresolved',
+    ]) {
+      test('preserves $guard guard', () {
+        expect(
+          receiptOcrTaxModeForSavedEdit(
+            previous(
+              mode: guard == 'plain unresolved'
+                  ? ReceiptOcrTaxReconciliationModeValues.unresolved
+                  : ReceiptOcrTaxReconciliationModeValues.addToBase,
+            ),
+            corrected(
+              currency: guard == 'currency'
+                  ? 'EUR'
+                  : guard == 'missing currency'
+                  ? null
+                  : 'USD',
+              foreignHeader: guard == 'foreign header',
+              foreignAdjustment: guard == 'foreign adjustment',
+              total: guard == 'total mismatch' ? '21' : '20',
+              tax: guard == 'positive included tax' ? '4' : '0',
+            ),
+          ),
+          ReceiptOcrTaxReconciliationModeValues.unresolved,
+        );
+      });
+    }
+  });
+
   test('saved included tax survives merchant edit and numeric formatting', () {
     final now = DateTime.utc(2026, 10, 2);
     final review = ReceiptOcrReviewDetail(
