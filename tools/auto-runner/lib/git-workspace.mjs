@@ -251,6 +251,7 @@ export function runGit(args, options = {}) {
     stdout: result.stdout || "",
     stderr: result.stderr || "",
     error: result.error ? result.error.message : null,
+    errorCode: result.error?.code || null,
   };
 }
 
@@ -477,9 +478,14 @@ export function workingTreeDiffHash() {
   return createHash("sha256").update(getWorkingTreeDiffText()).digest("hex");
 }
 
-export function getBoundedDiff(baseRef = "origin/main", headRef = "HEAD", maxChars = providerBoundReviewDiffChars) {
+export function getBoundedDiff(baseRef = "origin/main", headRef = "HEAD", maxChars = providerBoundReviewDiffChars, options = {}) {
   const result = runGit(["diff", "--binary", "--no-ext-diff", "--no-textconv", "--no-color", `${baseRef}...${headRef}`],
-    { maxBuffer: Math.max(16 * 1024 * 1024, maxChars + 1024) });
+    { ...options, maxBuffer: Math.max(16 * 1024 * 1024, maxChars + 1024) });
+  // spawnSync terminates Git when stdout crosses maxBuffer. That is a bounded
+  // diff, not an unclassified Git failure; callers must see truncated=true.
+  if (result.errorCode === "ENOBUFS" || result.errorCode === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
+    return { truncated: true, text: result.stdout.slice(0, maxChars) };
+  }
   assertGitSuccess(result, "Unable to read diff");
   if (result.stdout.length <= maxChars) {
     return { truncated: false, text: result.stdout };

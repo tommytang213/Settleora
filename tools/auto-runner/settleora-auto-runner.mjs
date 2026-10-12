@@ -5224,7 +5224,7 @@ async function runReviewFixCycle(config, context) {
   const evidence = writeReviewFixEvidence(config, {
     ...baseEvidence,
     fixAttemptHappened: true,
-    proceededToPrOrMergeEligibility: true,
+    proceededToPrOrMergeEligibility: !binaryNeedsExactHead,
     promptPath,
     codex: summarizeCodex(codex),
     headShaAfter: config.dryRun ? null : getRefSha("HEAD"),
@@ -5240,7 +5240,8 @@ async function runReviewFixCycle(config, context) {
   return {
     attempted: true,
     proceeded: true,
-    reason: "review_fix_passed_revalidation_and_reviews",
+    reason: binaryNeedsExactHead ? "review_fix_ready_for_committed_exact_head_reviews"
+      : "review_fix_passed_revalidation_and_reviews",
     decision,
     promptPath,
     codex,

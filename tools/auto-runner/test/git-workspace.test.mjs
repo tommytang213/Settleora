@@ -7,6 +7,7 @@ import {
   adoptHistoricalTaskWorkspace,
   bindTrustedRepositoryContext,
   restoreControlPlaneRepositoryContext,
+  getBoundedDiff,
   getBoundedWorkingTreeDiff,
   runGit,
   sourceStateIdentityForCommit,
@@ -77,6 +78,20 @@ test("working-tree review reads raw staged and unstaged Git hunks despite extern
   } finally {
     repo.cleanup();
     rmSync(scriptRoot, { recursive: true, force: true });
+  }
+});
+
+test("committed diff reports truncation when Git reaches the output buffer limit", () => {
+  const repo = tempRepo();
+  try {
+    writeFileSync(path.join(repo.cwd, "large.txt"), `${"0123456789abcdef".repeat(1_100_000)}\n`);
+    repo.git("add", "large.txt");
+    repo.git("commit", "-m", "large candidate");
+    const diff = getBoundedDiff(repo.base, "HEAD", 16 * 1024 * 1024, { cwd: repo.cwd });
+    assert.equal(diff.truncated, true);
+    assert.equal(diff.text.length, 16 * 1024 * 1024);
+  } finally {
+    repo.cleanup();
   }
 });
 
