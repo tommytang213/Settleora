@@ -45,7 +45,7 @@ const completion = { ...bot, id: 2, created_at: "2026-10-11T23:46:19Z", updated_
 
 test("hosted Codex completion binds bot summary and no-findings artifact to one head", () => {
   assert.deepEqual(evaluateHostedCodexReview({ comments: [summary, completion], reviews: [], headSha: head }), {
-    status: "completed_no_findings", reviewedPrefix: "893a7f46d7", summaryCommentId: 1,
+    status: "completed_no_findings", summaryPrefix: "893a7f4", reviewedPrefix: "893a7f46d7", summaryCommentId: 1,
     completionCommentId: 2, completedAt: completion.created_at,
   });
 });
@@ -98,7 +98,7 @@ test("GitHub inspection resolves abbreviated commit and blocks unreadable or mis
   };
   const input = { repositorySlug: "tommytang213/Settleora", prNumber: 1332, headSha: head };
   assert.equal(inspectHostedCodexReview({ ...input, run }).reviewedHead, head);
-  assert.equal(calls.length, 4);
+  assert.equal(calls.length, 5);
   assert.equal(inspectHostedCodexReview({ ...input, run: (_cmd, args) => args.includes("--paginate")
     ? { status: 1, error: "unavailable" } : { status: 0, stdout: head } }).status, "blocked");
   assert.equal(inspectHostedCodexReview({ ...input, run: (_cmd, args) => {
@@ -107,6 +107,14 @@ test("GitHub inspection resolves abbreviated commit and blocks unreadable or mis
     if (endpoint?.includes("/issues/")) return { status: 0, stdout: [summary, completion].map(JSON.stringify).join("\n") };
     if (endpoint?.includes("/reviews?")) return { status: 0, stdout: "" };
     return { status: 0, stdout: staleHead };
+  } }).reason, "hosted_codex_review_commit_resolution_mismatch");
+  assert.equal(inspectHostedCodexReview({ ...input, run: (_cmd, args) => {
+    const endpoint = args.find((arg) => String(arg).startsWith("repos/"));
+    if (endpoint?.includes("/timeline?")) return { status: 0, stdout: "" };
+    if (endpoint?.includes("/issues/")) return { status: 0, stdout: [summary, completion].map(JSON.stringify).join("\n") };
+    if (endpoint?.includes("/reviews?")) return { status: 0, stdout: "" };
+    if (endpoint?.endsWith(`/commits/${head.slice(0, 7)}`)) return { status: 0, stdout: staleHead };
+    return { status: 0, stdout: head };
   } }).reason, "hosted_codex_review_commit_resolution_mismatch");
 });
 

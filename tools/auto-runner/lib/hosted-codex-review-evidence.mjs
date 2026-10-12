@@ -75,11 +75,13 @@ export function inspectHostedCodexReview({ repositorySlug, prNumber, headSha, ru
   }
   // GitHub resolves the bot's abbreviated reviewed-commit identifier to the full SHA.
   // Ambiguous or stale prefixes fail closed rather than being treated as exact-head proof.
-  const resolved = run("gh", ["api", `repos/${repositorySlug}/commits/${evidence.reviewedPrefix}`, "--jq", ".sha"]);
-  const resolvedSha = String(resolved?.stdout || "").trim();
-  if (resolved?.status !== 0 || resolved?.error || !fullSha.test(resolvedSha)
-    || resolvedSha !== headSha) return blocked("hosted_codex_review_commit_resolution_mismatch");
-  return { status: "completed_no_findings", reviewedHead: resolvedSha, prNumber: Number(prNumber),
+  for (const prefix of [evidence.summaryPrefix, evidence.reviewedPrefix]) {
+    const resolved = run("gh", ["api", `repos/${repositorySlug}/commits/${prefix}`, "--jq", ".sha"]);
+    const resolvedSha = String(resolved?.stdout || "").trim();
+    if (resolved?.status !== 0 || resolved?.error || !fullSha.test(resolvedSha)
+      || resolvedSha !== headSha) return blocked("hosted_codex_review_commit_resolution_mismatch");
+  }
+  return { status: "completed_no_findings", reviewedHead: headSha, prNumber: Number(prNumber),
     summaryCommentId: evidence.summaryCommentId, completionCommentId: evidence.completionCommentId,
     completedAt: evidence.completedAt, latestBaseChangeAt: Number.isFinite(latestBaseChange)
       ? new Date(latestBaseChange).toISOString() : null, source: "github_codex_bot_comments" };
@@ -128,7 +130,7 @@ export function evaluateHostedCodexReview({ comments = [], reviews = [], headSha
       || String(review.body || "").trim() || review.inlineCommentCount !== 0))) {
     return blocked("hosted_codex_review_current_head_findings");
   }
-  return { status: "completed_no_findings", reviewedPrefix: completionProof.reviewedPrefix,
+  return { status: "completed_no_findings", summaryPrefix: summaryMatch[1], reviewedPrefix: completionProof.reviewedPrefix,
     summaryCommentId: summary.id, completionCommentId: completion.id, completedAt: completion.created_at };
 }
 

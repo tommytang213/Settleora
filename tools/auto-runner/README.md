@@ -1201,7 +1201,7 @@ review for the bounded fix cycle, and rejects missing or stale evidence. Larger 
 still block for narrower review. Grok automatic merge requires the existing
 local, CI, scanner, thread, scope, and manual gates plus an exact-head hosted
 Codex completion. The hosted gate reads GitHub's bot-authored completion and
-summary comments, resolves the reviewed commit prefix to its full SHA, and
+summary comments, resolves both reviewed commit prefixes to the full SHA, and
 rejects current-head finding reviews. For dependent PRs it also requires the
 no-findings completion to follow the latest GitHub base-change event, since a
 retarget can change the reviewed diff without changing the head SHA. Empty
