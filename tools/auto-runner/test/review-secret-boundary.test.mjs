@@ -20,6 +20,7 @@ function runtimeCanary(label = "value") {
 
 test("review secret boundary blocks real secret files and credential content", () => {
   const realKey = `AIza${"A".repeat(30)}`;
+  const xaiKey = ["xai-", "Z".repeat(32)].join("");
   const cases = [
     {
       name: "changed env file",
@@ -37,6 +38,12 @@ test("review secret boundary blocks real secret files and credential content", (
       name: "api key assignment",
       files: ["tools/auto-runner/lib/example.mjs"],
       diff: diffFor("tools/auto-runner/lib/example.mjs", [`+const apiKey = "${realKey}";`]),
+      rule: "known_credential_format",
+    },
+    {
+      name: "bare xAI key in a changed line",
+      files: ["tools/auto-runner/lib/example.mjs"],
+      diff: diffFor("tools/auto-runner/lib/example.mjs", [`+const note = "Pasted ${xaiKey}";`]),
       rule: "known_credential_format",
     },
     {

@@ -182,6 +182,7 @@ export function createInitialRecoveryState({
   featureBundle = null,
   generatedWork = null,
   outageResubmission = null,
+  reviewerProviderPin = null,
 }) {
   const now = new Date().toISOString();
   const state = {
@@ -211,6 +212,7 @@ export function createInitialRecoveryState({
     featureBundle,
     generatedWork,
     outageResubmission: normalizeOutageResubmissionBinding(outageResubmission),
+    ...(reviewerProviderPin ? { reviewerProviderPin } : {}),
     mutationMarkers: {},
     stopReason: null,
     nextSafeAction: firstIncompleteAction,
@@ -926,6 +928,7 @@ export function sanitizeRecoveryState(state) {
 function validateRecoveryStateShape(state) {
   if (!state || typeof state !== "object" || Array.isArray(state)) return invalid("state must be an object");
   if (state.stateVersion !== recoveryStateVersion) return invalid("unsupported recovery state version");
+  if (state.reviewerProviderPin != null && !["gemini", "grok"].includes(state.reviewerProviderPin)) return invalid("invalid reviewer provider pin");
   for (const field of [
     "taskKey",
     "issue",

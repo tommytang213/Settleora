@@ -335,6 +335,24 @@ test("recovery-only exact-head evidence must be complete and bound before genera
     validateRecoveryOnlyExactHeadEvidence(config, { prNumber: 919, expectedHeadSha: target.prHeadSha, exactHeadEvidence }, { expectedHeadSha: target.prHeadSha, changedFiles }),
     { ok: true },
   );
+  assert.deepEqual(
+    validateRecoveryOnlyExactHeadEvidence({ ...config, reviewerTiers: { strong_independent: { provider: "grok" } } },
+      { prNumber: 919, expectedHeadSha: target.prHeadSha, exactHeadEvidence }, { expectedHeadSha: target.prHeadSha, changedFiles }),
+    { ok: true },
+  );
+  const grokEvidence = { ...exactHeadEvidence,
+    independentReview: { pass: true, headSha: target.prHeadSha, changedFiles,
+      changedFilesDigest: digest, provider: "grok", tier: "strong_independent",
+      completedAt: "2026-07-16T12:01:00.000Z" } };
+  for (const key of ["geminiPass", "geminiHeadSha", "geminiChangedFiles", "geminiChangedFilesDigest",
+    "geminiProvider", "geminiTier", "geminiCompletedAt"]) delete grokEvidence[key];
+  assert.deepEqual(validateRecoveryOnlyExactHeadEvidence(config,
+    { prNumber: 919, expectedHeadSha: target.prHeadSha, reviewerProviderPin: "grok", exactHeadEvidence: grokEvidence },
+    { expectedHeadSha: target.prHeadSha, changedFiles }), { ok: true });
+  assert.equal(validateRecoveryOnlyExactHeadEvidence(config,
+    { prNumber: 919, expectedHeadSha: target.prHeadSha,
+      exactHeadEvidence: { ...grokEvidence, independentReview: { ...grokEvidence.independentReview, changedFilesDigest: "bad" } } },
+    { expectedHeadSha: target.prHeadSha, changedFiles }).ok, false);
   const advancedMainSha = "c".repeat(40);
   assert.deepEqual(
     validateRecoveryOnlyExactHeadEvidence(

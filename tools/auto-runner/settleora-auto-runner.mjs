@@ -65,9 +65,13 @@ import { collectReport } from "./lib/report-collector.mjs";
 import { bindValidationEvidence, planValidation, runValidationPlan } from "./lib/validation-planner.mjs";
 import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } from "./lib/pr-manager.mjs";
 import { writeRecentSummary, writeRunSummary } from "./lib/summary-writer.mjs";
-import { reviewerReadinessSummary } from "./lib/reviewer-policy.mjs";
+import { reviewerReadinessSummary, routeReviewer, mergeReviewerPolicyConfig } from "./lib/reviewer-policy.mjs";
+import { analyzeReviewSecretBoundary } from "./lib/review-secret-boundary.mjs";
 import { createLargeCandidateRoutingState, loadLargeCandidateRoutingState, persistCumulativeLargeCandidateReview, persistLargeCandidateSplitDecision, structuredLargeCandidateFindings, structuredLargeCandidateManualVerdict } from "./lib/large-candidate-review-routing.mjs";
-import { runGeminiIntegratedReview, runGeminiReviewerSmokeTest } from "./lib/gemini-reviewer.mjs";
+import { runIndependentIntegratedReview, runIndependentReviewerSmokeTest, independentReviewerProvider } from "./lib/independent-reviewer.mjs";
+import { resolveRecoveredReviewerProviderPin } from "./lib/reviewer-provider-pin.mjs";
+import { recoveredIndependentReviewEvidence } from "./lib/recovered-independent-evidence.mjs";
+import { runCodexReviewInWorker } from "./lib/parallel-local-review.mjs";
 import { runReviewFixCanaryFixtureReview } from "./lib/review-fix-fixture.mjs";
 import {
   accountConvergenceEvent,
@@ -98,6 +102,7 @@ import {
   writeAutoMergeEvidence,
   evaluateAutoMergeDecision,
   evaluatePrePushReviewGate,
+  reviewerManualGateOutcome,
   shouldGenerateExistingPrRecoveryEvidence,
 } from "./lib/auto-merge-policy.mjs";
 import {
@@ -133,7 +138,7 @@ import {
 import { evaluateExistingPrRecovery } from "./lib/recovery-orchestrator.mjs";
 import { runSecurityFindingsDryRun } from "./lib/security-findings-dry-run.mjs";
 import { runSecurityFindingsProductionPhase, securityFindingsProductionPhaseEnabled } from "./lib/security-findings-production.mjs";
-import { runPrStackExecution } from "./lib/pr-stack-executor.mjs";
+import { runDurableStackParallelReviews, runPrStackExecution } from "./lib/pr-stack-executor.mjs";
 import { chargeAcceptedLogicalTask, loadLogicalTaskBudget } from "./lib/logical-task-budget.mjs";
 import {
   createSessionLifecycleState,
@@ -193,7 +198,7 @@ export async function main() {
     const config = loadConfig({ dryRun: false, run: false, configPath: cliArgs.configPath }, { outageResubmissionObserverAvailable: true });
     const packageText = readFileSync(cliArgs.reviewPackage, "utf8");
     const parsedPackage = JSON.parse(packageText);
-    const result = await runGeminiIntegratedReview(config, {
+    const result = await runIndependentIntegratedReview(config, {
       packagePath: cliArgs.reviewPackage,
       summary: parsedPackage.summary || parsedPackage,
       diff: parsedPackage.diff || "",
@@ -217,11 +222,11 @@ export async function main() {
   }
   if (cliArgs.reviewerSmokeTest) {
     const config = loadConfig(cliArgs, { outageResubmissionObserverAvailable: true });
-    const result = await runGeminiReviewerSmokeTest(config, {
+    const result = await runIndependentReviewerSmokeTest(config, {
       liveExternalReviewerCalls: cliArgs.liveExternalReviewerCalls,
       tierId: cliArgs.reviewerSmokeTier || config.reviewerSmokeTest?.tier,
     });
-    console.error(`Gemini reviewer smoke test: ${result.status} (${result.reason})`);
+    console.error(`${result.provider === "gemini" ? "Gemini" : result.provider === "grok" ? "Grok" : "Independent"} reviewer smoke test: ${result.status} (${result.reason})`);
     console.error(`Smoke report: ${result.reportPath}`);
     console.log(JSON.stringify(result, null, 2));
     process.exitCode =
@@ -1000,13 +1005,21 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     const findings = batch.findings.map((failure) => ({ provider: failure.sourceKind, severity: "high", path: failure.path || changedFiles[0] || "", title: "Post-Codex local validation failure", body: failure.diagnosticExcerpt || failure.diagnosticDigest, safelyFixable: true }));
     const fixAttempt = await runReviewFixCycle(config, { issue, laneDecision, branchName, promptInfo, changedFiles, forbiddenChangedFiles: forbidden, validation: iteration.validation, report: { found: true, recovered: true }, externalReview: null, review: { verdict: { verdict: "changes_requested", recommended_next_action: "run_safe_fix_cycle", blocking_findings: findings } }, iteration, sourceFailureFix: { batch, decision, candidateHead: initialIdentity.headSha, baseSha: initialIdentity.baseSha } });
     if (!fixAttempt.proceeded) {
-      iteration.outcome = "validation_failed";
+      iteration.outcome = fixAttempt.reviewerManualOutcome || "validation_failed";
       iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, `Auto-runner source-failure fix stopped safely: ${fixAttempt.reason}.`);
       recoveryRecorder?.stop("source_failure_fix_not_proceeded", fixAttempt.reason, "stop_fail_closed");
       iteration.finishedAt = new Date().toISOString();
       return iteration;
     }
     let postFix = await commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, promptInfo, report: { found: true, recovered: true }, fixAttempt, recoveryRecorder, branchName, commitMessage: `Auto-runner issue #${issue.number}: source-fix ${batch.batchIdentity.slice(0, 16)}` });
+    const initialSourceFixManual = reviewerManualGateOutcome(postFix.externalReview, postFix.review);
+    if (initialSourceFixManual) {
+      iteration.outcome = initialSourceFixManual;
+      recoveryRecorder?.stop("source_failure_post_fix_reviewer_manual_gate", initialSourceFixManual, "manual_decision_required");
+      iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, "Auto-runner stopped after exact-head source-fix review required a manual decision.");
+      iteration.finishedAt = new Date().toISOString();
+      return iteration;
+    }
     if (postFix.runnerCreatedCommitSha) {
       const accounted = accountNormalReviewFixCommit(iteration, postFix.runnerCreatedCommitSha, "initial_source_failure_fix_commit");
       persistNormalReviewConvergenceState(config, iteration, "source_failure_fix_commit_accounted");
@@ -1045,15 +1058,34 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       if (!replacementDecision.sourceFixEligible) break;
       const replacementFindings = replacementBatch.findings.map((failure) => ({ provider: failure.sourceKind, severity: "high", path: failure.path || postFix.changedFiles[0] || "", title: "Recursive post-fix validation failure", body: failure.diagnosticExcerpt || failure.diagnosticDigest, safelyFixable: true }));
       const replacementAttempt = await runReviewFixCycle(config, { issue, laneDecision, branchName, promptInfo, changedFiles: postFix.changedFiles, forbiddenChangedFiles: [], validation: postFix.validation, report: { found: true, recovered: true }, externalReview: null, review: { verdict: { verdict: "changes_requested", recommended_next_action: "run_safe_fix_cycle", blocking_findings: replacementFindings } }, iteration, sourceFailureFix: { batch: replacementBatch, decision: replacementDecision, candidateHead: replacementIdentity.headSha, baseSha: replacementIdentity.baseSha } });
-      if (!replacementAttempt.proceeded) break;
+      if (!replacementAttempt.proceeded) {
+        if (replacementAttempt.reviewerManualOutcome) {
+          iteration.outcome = replacementAttempt.reviewerManualOutcome;
+          recoveryRecorder?.stop("source_failure_post_fix_reviewer_manual_gate", iteration.outcome, "manual_decision_required");
+          iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, "Auto-runner stopped after source-fix review required a manual decision.");
+          iteration.finishedAt = new Date().toISOString();
+          return iteration;
+        }
+        break;
+      }
       postFix = await commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, promptInfo, report: { found: true, recovered: true }, fixAttempt: replacementAttempt, recoveryRecorder, branchName, commitMessage: `Auto-runner issue #${issue.number}: recursive source-fix ${replacementBatch.batchIdentity.slice(0, 16)}` });
+      const replacementManual = reviewerManualGateOutcome(postFix.externalReview, postFix.review);
+      if (replacementManual) {
+        iteration.outcome = replacementManual;
+        recoveryRecorder?.stop("source_failure_post_fix_reviewer_manual_gate", replacementManual, "manual_decision_required");
+        iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, "Auto-runner stopped after exact-head source-fix review required a manual decision.");
+        iteration.finishedAt = new Date().toISOString();
+        return iteration;
+      }
       if (postFix.runnerCreatedCommitSha) {
         const accounted = accountNormalReviewFixCommit(iteration, postFix.runnerCreatedCommitSha, "recursive_source_failure_fix_commit");
         persistNormalReviewConvergenceState(config, iteration, "recursive_source_failure_fix_commit_accounted");
         if (!accounted.consumedSourceCycle && accounted.reason === "local_source_changing_round_limit_exhausted") postFix = { ...postFix, forbiddenChangedFiles: ["source_round_limit_exhausted"] };
       }
     }
-    if (!postFix.runnerCreatedCommitSha || !postFix.validation?.passed || postFix.forbiddenChangedFiles?.length) {
+    if (!postFix.runnerCreatedCommitSha || !postFix.validation?.passed || postFix.forbiddenChangedFiles?.length
+      || postFix.reviewMutationGuard?.mutationDetected || postFix.externalReview?.status !== "pass"
+      || postFix.review?.verdict?.verdict !== "approve") {
       iteration.outcome = "validation_failed";
       iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, "Auto-runner source-failure replacement candidate did not pass complete recertification.");
       recoveryRecorder?.stop("source_failure_recertification_failed", "Replacement candidate failed validation or scope proof.", "stop_fail_closed");
@@ -1196,7 +1228,43 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   });
   iteration.phase = "external_review";
   checkpoint(iteration);
-  iteration.externalReview = await runIntegratedReviewSource(config, iteration.reviewPackage, "pre-fix");
+  if (independentReviewerProvider(config, iteration.reviewPackage) === "grok") {
+    const packageForCodex = { ...iteration.reviewPackage, sessionLifecycle: iteration.sessionLifecycle || iteration.issue?.sessionLifecycle || null };
+    const settledReviews = await Promise.allSettled([
+      Promise.resolve().then(() => runIntegratedReviewSource(config, iteration.reviewPackage, "pre-fix")).then((externalReview) => {
+        persistOrdinaryParallelReviewerCheckpoint(recoveryRecorder, iteration.runnerCreatedCommitSha,
+          externalReview, null, "grok");
+        return externalReview;
+      }),
+      Promise.resolve().then(() => runCodexReviewInWorker(config, packageForCodex)).then((review) => {
+        if (review?.sessionLifecycle) recoveryRecorder?.annotate({ sessionLifecycle: review.sessionLifecycle });
+        persistOrdinaryParallelReviewerCheckpoint(recoveryRecorder, iteration.runnerCreatedCommitSha,
+          null, review, "grok");
+        return review;
+      }),
+    ]);
+    if (settledReviews.some((result) => result.status === "rejected")) {
+      iteration.reviewMutationGuard = compareFingerprints(beforeReview, await checkoutFingerprint());
+      iteration.outcome = "auto_failed";
+      iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome,
+        `Auto-runner blocked #${issue.number} because parallel reviewer invocation failed.`);
+      recoveryRecorder?.stop(iteration.reviewMutationGuard.mutationDetected
+        ? "external_review_mutated_checkout" : "ordinary_parallel_reviewer_invocation_failed",
+      "Parallel reviewer invocation failed after both reviewers settled.", "stop_fail_closed");
+      iteration.finishedAt = new Date().toISOString();
+      return iteration;
+    }
+    [iteration.externalReview, iteration.review] = settledReviews.map((result) => result.value);
+    if (iteration.review?.sessionLifecycle) {
+      // Persist the worker's successor before any subsequent GitHub effect.
+      recoveryRecorder?.annotate({ sessionLifecycle: iteration.review.sessionLifecycle });
+      iteration.sessionLifecycle = iteration.review.sessionLifecycle;
+      issue.sessionLifecycle = iteration.review.sessionLifecycle;
+      if (promptInfo.sessionLifecycle) promptInfo.sessionLifecycle = { ...promptInfo.sessionLifecycle, state: iteration.review.sessionLifecycle };
+    }
+  } else {
+    iteration.externalReview = await runIntegratedReviewSource(config, iteration.reviewPackage, "pre-fix");
+  }
   iteration.phase = "external_review_complete";
   iteration.reviewMutationGuard = compareFingerprints(beforeReview, await checkoutFingerprint());
   checkpoint(iteration);
@@ -1216,6 +1284,16 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     evidencePath: iteration.externalReview.reportPath || iteration.externalReview.evidencePath,
     summary: iteration.externalReview.reason,
   });
+  persistOrdinaryParallelReviewerCheckpoint(recoveryRecorder, iteration.runnerCreatedCommitSha,
+    iteration.externalReview, iteration.review);
+  const initialReviewerManualOutcome = reviewerManualGateOutcome(iteration.externalReview, iteration.review);
+  if (initialReviewerManualOutcome) {
+    iteration.outcome = initialReviewerManualOutcome;
+    iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, `Auto-runner stopped #${issue.number} for a reviewer manual gate.`);
+    recoveryRecorder?.stop("reviewer_manual_gate", iteration.outcome, "manual_decision_required");
+    iteration.finishedAt = new Date().toISOString();
+    return iteration;
+  }
   if (iteration.externalReview.status === "blocked") {
     if (iteration.externalReview?.route?.largeCandidateRouting?.route === "split_or_block") {
       iteration.largeCandidateReview = persistNormalLargeCandidateSplit(config, iteration, changedFiles);
@@ -1248,26 +1326,26 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       validation: iteration.validation,
       report: iteration.report,
       externalReview: iteration.externalReview,
-      review: null,
+      review: iteration.review || null,
       attemptCount: iteration.reviewConvergenceState?.sourceChangingCycle ?? 0,
       reviewConvergenceState: iteration.reviewConvergenceState,
       diagnosticAuthorization: iteration.reviewConvergenceBudget?.diagnosticAuthorization,
     });
     iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
-    if (promptInfo.sessionLifecycle?.state) iteration.sessionLifecycle = promptInfo.sessionLifecycle.state;
+    if (fixAttempt.sessionLifecycleState || promptInfo.sessionLifecycle?.state) iteration.sessionLifecycle = fixAttempt.sessionLifecycleState || promptInfo.sessionLifecycle.state;
     if (!fixAttempt.proceeded) {
       markNormalDiagnosticReviewFixTerminal(config, iteration, fixAttempt.reason);
-      iteration.outcome =
+      iteration.outcome = fixAttempt.reviewerManualOutcome || (
         iteration.externalReview.reason === "blocked_external_reviewer_route_not_eligible" ||
         iteration.externalReview.reason === "blocked_external_reviewer_lane_not_eligible" ||
         iteration.externalReview.reason === "blocked_external_reviewer_path_not_eligible"
           ? "blocked_needs_tommy"
-          : "review_changes_requested_retry_exhausted";
+          : "review_changes_requested_retry_exhausted");
       iteration.issueComment = finishIssueOutcome(
         config,
         issue,
         iteration.outcome,
-        `Auto-runner did not open a PR for #${issue.number} because integrated Gemini pre-PR review returned ${iteration.externalReview.reason}. Review-fix status: ${fixAttempt.reason}.`,
+        `Auto-runner did not open a PR for #${issue.number} because independent pre-PR review returned ${iteration.externalReview.reason}. Review-fix status: ${fixAttempt.reason}.`,
       );
       recoveryRecorder?.attempt("review_fix_safe", "external_review_blocked", fixAttempt.reason);
       recoveryRecorder?.stop("external_review_fix_not_proceeded", fixAttempt.reason, "create_or_reuse_followup_or_escalate");
@@ -1427,7 +1505,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       diagnosticAuthorization: iteration.reviewConvergenceBudget?.diagnosticAuthorization,
     });
     iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
-    if (promptInfo.sessionLifecycle?.state) iteration.sessionLifecycle = promptInfo.sessionLifecycle.state;
+    if (fixAttempt.sessionLifecycleState || promptInfo.sessionLifecycle?.state) iteration.sessionLifecycle = fixAttempt.sessionLifecycleState || promptInfo.sessionLifecycle.state;
     if (fixAttempt.proceeded) {
       const postFix = await commitReviewFixAndRerunExactHeadReviews(config, {
         issue,
@@ -1483,6 +1561,13 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       });
     } else {
       markNormalDiagnosticReviewFixTerminal(config, iteration, fixAttempt.reason);
+      if (fixAttempt.reviewerManualOutcome) {
+        iteration.outcome = fixAttempt.reviewerManualOutcome;
+        iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, `Auto-runner stopped #${issue.number} for a post-fix reviewer manual gate.`);
+        recoveryRecorder?.stop("review_fix_post_fix_reviewer_manual_gate", fixAttempt.reason, "manual_decision_required");
+        iteration.finishedAt = new Date().toISOString();
+        return iteration;
+      }
     }
   }
 
@@ -1504,6 +1589,14 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     return iteration;
   }
   while (true) {
+    const reviewerManualOutcome = reviewerManualGateOutcome(iteration.externalReview, iteration.review);
+    if (reviewerManualOutcome) {
+      iteration.outcome = reviewerManualOutcome;
+      iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, `Auto-runner stopped #${issue.number} for a reviewer manual gate.`);
+      recoveryRecorder?.stop("reviewer_manual_gate", iteration.outcome, "manual_decision_required");
+      iteration.finishedAt = new Date().toISOString();
+      return iteration;
+    }
     if (!config.dryRun && ((iteration.review?.verdict?.verdict && iteration.review.verdict.verdict !== "approve") || iteration.externalReview?.status === "blocked")) {
       recoveryRecorder?.advance("review_fix", "run_bounded_codex_review_convergence");
       const budget = evaluateNormalReviewConvergenceBudget(config, iteration, {
@@ -1533,15 +1626,15 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         diagnosticAuthorization: iteration.reviewConvergenceBudget?.diagnosticAuthorization,
       });
       iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
-      if (promptInfo.sessionLifecycle?.state) iteration.sessionLifecycle = promptInfo.sessionLifecycle.state;
+      if (fixAttempt.sessionLifecycleState || promptInfo.sessionLifecycle?.state) iteration.sessionLifecycle = fixAttempt.sessionLifecycleState || promptInfo.sessionLifecycle.state;
       if (!fixAttempt.proceeded) {
         markNormalDiagnosticReviewFixTerminal(config, iteration, fixAttempt.reason);
-        iteration.outcome =
+        iteration.outcome = fixAttempt.reviewerManualOutcome || reviewerManualGateOutcome(iteration.externalReview, iteration.review) || (
           iteration.review.verdict.verdict === "danger_gate"
             ? "danger_gate"
             : iteration.review.verdict.verdict === "needs_tommy"
               ? "blocked_needs_tommy"
-              : "review_changes_requested_retry_exhausted";
+              : "review_changes_requested_retry_exhausted");
         iteration.issueComment = finishIssueOutcome(
           config,
           issue,
@@ -1623,7 +1716,11 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     const prePushReviewGate = evaluatePrePushReviewGate({
       ...reviewConvergence.gateInput,
       laneDecision,
+      expectedHeadSha: iteration.runnerCreatedCommitSha,
+      expectedBaseSha: iteration.baseOriginMainSha,
+      changedFiles,
       externalReview: iteration.externalReview,
+      review: iteration.review,
       reviewMutationGuard: iteration.reviewMutationGuard,
     });
     iteration.prePushReviewGate = prePushReviewGate;
@@ -1668,10 +1765,10 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       diagnosticAuthorization: iteration.reviewConvergenceBudget?.diagnosticAuthorization,
     });
     iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
-    if (promptInfo.sessionLifecycle?.state) iteration.sessionLifecycle = promptInfo.sessionLifecycle.state;
+    if (fixAttempt.sessionLifecycleState || promptInfo.sessionLifecycle?.state) iteration.sessionLifecycle = fixAttempt.sessionLifecycleState || promptInfo.sessionLifecycle.state;
     if (!fixAttempt.proceeded) {
       markNormalDiagnosticReviewFixTerminal(config, iteration, fixAttempt.reason);
-      iteration.outcome = "review_changes_requested_retry_exhausted";
+      iteration.outcome = fixAttempt.reviewerManualOutcome || reviewerManualGateOutcome(iteration.externalReview, iteration.review) || "review_changes_requested_retry_exhausted";
       iteration.issueComment = finishIssueOutcome(
         config,
         issue,
@@ -1960,7 +2057,7 @@ export function chargeStartupRecoveryLogicalTask(config, runId, recovery) {
 
 function createProductionRecoveryRecorder(config, input) {
   if (config.dryRun) return null;
-  let state = createInitialRecoveryState(input);
+  let state = createInitialRecoveryState({ ...input, reviewerProviderPin: config.reviewerProviderPin || null });
   let statePath = null;
   const persist = (nextState) => {
     const written = writeRecoveryState(config, nextState);
@@ -2631,8 +2728,120 @@ function authenticateRecordedTaskWorkspace(config, state, candidate) {
   };
 }
 
+export function resolveOrdinaryParallelReviewerCheckpoint(saved, identity, provider) {
+  if (!saved || saved.candidateHeadSha !== identity?.headSha) return { ok: true, checkpoint: null };
+  if (saved.providerPin !== provider || [saved.external, saved.codex].some((review) =>
+    review?.reviewedHead != null && review.reviewedHead !== identity.headSha)
+    || (identity.baseSha && [saved.external, saved.codex].some((review) =>
+      review?.baseSha != null && review.baseSha !== identity.baseSha))
+    || [saved.external, saved.codex].some((review, index) =>
+      ordinaryParallelReviewerComplete(review, index === 0 ? "external" : "codex")
+      && review.reviewedHead !== identity.headSha)) {
+    return { ok: false, outcome: "blocked", reasonCode: "ordinary_parallel_reviewer_checkpoint_identity_mismatch" };
+  }
+  const manual = reviewerManualGateOutcome(saved.external, saved.codex);
+  if (manual) return { ok: false, outcome: manual, reasonCode: "ordinary_parallel_reviewer_manual_gate_persisted" };
+  const incomplete = !ordinaryParallelReviewerComplete(saved.external, "external")
+    || !ordinaryParallelReviewerComplete(saved.codex, "codex");
+  if (incomplete && (saved.attempts ?? 1) >= 2) {
+    return { ok: false, outcome: "blocked", reasonCode: "ordinary_parallel_reviewer_retry_exhausted" };
+  }
+  return { ok: true, checkpoint: saved, retryIncomplete: incomplete };
+}
+
+function ordinaryParallelReviewerComplete(review, provider) {
+  if (provider === "external") {
+    const verdict = review?.sanitizedResponseSummary?.verdict || review?.verdict;
+    return (review?.status === "pass" && verdict === "pass")
+      || (review?.reason === "blocked_external_reviewer_non_pass"
+        && ["fail", "needs_tommy", "danger_gate"].includes(verdict));
+  }
+  return review?.status === 0 && !review.signal && !review.error
+    && ["passed", "completed"].includes(review?.reviewStatus)
+    && /^[a-f0-9]{40}$/.test(review?.baseSha || "")
+    && review.reviewedBaseSha === review.baseSha
+    && ["approve", "changes_requested", "needs_tommy", "danger_gate"].includes(review?.verdict?.verdict);
+}
+
+export function validateOrdinaryParallelReviewIdentity(externalReview, review, identity) {
+  const head = identity?.headSha;
+  const base = identity?.baseSha;
+  const digest = Array.isArray(identity?.changedFiles) ? digestChangedFiles(identity.changedFiles) : null;
+  if (!/^[a-f0-9]{40}$/.test(head || "") || !/^[a-f0-9]{40}$/.test(base || "") || !digest
+    || externalReview?.reviewedHead !== head || externalReview?.baseSha !== base
+    || externalReview?.changedFilesDigest !== digest) {
+    return { ok: false, reasonCode: "ordinary_external_review_identity_mismatch" };
+  }
+  if (review?.status !== 0 || review.signal || review.error
+    || !["passed", "completed"].includes(review.reviewStatus)
+    || review.reviewedHead !== head || review.baseSha !== base
+    || review.reviewedBaseSha !== base || review.changedFilesDigest !== digest) {
+    return { ok: false, reasonCode: "ordinary_codex_review_identity_mismatch" };
+  }
+  return { ok: true };
+}
+
+export function persistOrdinaryParallelReviewerCheckpoint(recoveryRecorder, candidateHeadSha, externalReview, review, providerPin = externalReview?.provider) {
+  if (!recoveryRecorder || providerPin !== "grok") return null;
+  const saved = recoveryRecorder.state.evidence?.parallelReviewerVerdicts;
+  const sameHead = saved?.candidateHeadSha === candidateHeadSha && saved?.providerPin === "grok";
+  return recoveryRecorder.annotate({ evidence: {
+    ...recoveryRecorder.state.evidence,
+    parallelReviewerVerdicts: {
+      candidateHeadSha,
+      providerPin: "grok",
+      attempts: sameHead ? saved.attempts || 1 : 1,
+      external: externalReview ? ordinaryReviewerCheckpoint(externalReview, "external") : sameHead ? saved.external : null,
+      codex: review ? ordinaryReviewerCheckpoint(review, "codex") : sameHead ? saved.codex : null,
+    },
+  } });
+}
+
+export function reserveOrdinaryParallelReviewerAttempt(state, candidateHeadSha, providerPin, prior = null) {
+  return { ...state, evidence: { ...state.evidence, parallelReviewerVerdicts: {
+    candidateHeadSha,
+    providerPin,
+    attempts: (prior?.attempts || 0) + 1,
+    external: prior?.external || null,
+    codex: prior?.codex || null,
+  } } };
+}
+
+export function recordOrdinaryParallelReviewerResult(state, kind, review) {
+  if (!["external", "codex"].includes(kind) || !state?.evidence?.parallelReviewerVerdicts) {
+    throw new Error("ordinary_parallel_reviewer_checkpoint_not_reserved");
+  }
+  return { ...state, evidence: { ...state.evidence, parallelReviewerVerdicts: {
+    ...state.evidence.parallelReviewerVerdicts,
+    [kind]: ordinaryReviewerCheckpoint(review, kind),
+  } } };
+}
+
+export function resolveOrdinaryRecoveryManualGate(state) {
+  const marker = state?.evidence?.ordinaryManualGate;
+  if (!marker) return { ok: true };
+  if (!["danger_gate", "blocked_needs_tommy"].includes(marker.outcome)) {
+    return { ok: false, outcome: "blocked", reasonCode: "ordinary_manual_gate_marker_invalid" };
+  }
+  return { ok: false, outcome: marker.outcome, reasonCode: marker.reasonCode || "ordinary_manual_gate_persisted" };
+}
+
 async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint = null, currentRunId = null }) {
+  const providerBinding = resolveRecoveredReviewerProviderPin(config, state);
+  if (!providerBinding.ok) return { ok: false, outcome: "blocked", reasonCode: providerBinding.reason, state };
+  const durableManualGate = resolveOrdinaryRecoveryManualGate(state);
+  if (!durableManualGate.ok) return { ...durableManualGate, state };
+  const persistOrdinaryManualGate = (outcome, reasonCode, candidateHeadSha) => {
+    state = writeRecoveryState(config, {
+      ...advanceRecoveryPhase(state, { phase: "stopped", firstIncompleteAction: state.firstIncompleteAction, nextSafeAction: "manual_decision_required" }),
+      evidence: { ...state.evidence, ordinaryManualGate: { outcome, reasonCode, candidateHeadSha } },
+      stopReason: { reasonCode, reason: outcome },
+    }).state;
+  };
   const identity = checkpoint.candidateIdentity;
+  const parallelGate = resolveOrdinaryParallelReviewerCheckpoint(state.evidence?.parallelReviewerVerdicts, identity, providerBinding.provider);
+  if (!parallelGate.ok) return { ...parallelGate, state };
+  const candidateBoundParallel = parallelGate.checkpoint;
   let initial = state.ordinaryContinuation || createOrdinaryContinuationState({
     logicalTaskKey: state.logicalTask?.taskKey || state.taskKey,
     executionKey: config.runnerRunId || null,
@@ -2761,8 +2970,8 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     checkpoint,
     validation: null,
     reviewPackage: null,
-    externalReview: initial.effects?.external_review?.evidence?.review || null,
-    review: initial.effects?.codex_review?.evidence?.review || null,
+    externalReview: initial.effects?.external_review?.evidence?.review || candidateBoundParallel?.external || null,
+    review: initial.effects?.codex_review?.evidence?.review || candidateBoundParallel?.codex || null,
     largeCandidateReview: ordinaryStructuredReviewCheckpoint(initial.effects?.structured_review?.evidence),
     pr: null,
   };
@@ -2821,10 +3030,27 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       if (fixAttempt.sessionLifecycleState) {
         state = { ...state, sessionLifecycle: fixAttempt.sessionLifecycleState };
       }
-      if (!fixAttempt.proceeded) return { ok: false, reasonCode: fixAttempt.reason || "source_failure_fix_not_proceeded" };
+      if (!fixAttempt.proceeded) {
+        if (fixAttempt.reviewerManualOutcome) persistOrdinaryManualGate(fixAttempt.reviewerManualOutcome, "source_failure_fix_reviewer_manual_gate", continuation.identity.headSha);
+        return { ok: false, outcome: fixAttempt.reviewerManualOutcome || null, reasonCode: fixAttempt.reason || "source_failure_fix_not_proceeded" };
+      }
       const postFix = await commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, promptInfo, report: { found: true, recovered: true }, fixAttempt, branchName: continuation.branchName, commitMessage: `Auto-runner issue #${issue.number}: source-fix ${batch.batchIdentity.slice(0, 16)}` });
       if (postFix.review?.sessionLifecycle) {
         state = { ...state, sessionLifecycle: postFix.review.sessionLifecycle };
+      }
+      const postFixManual = reviewerManualGateOutcome(postFix.externalReview, postFix.review);
+      if (postFixManual) {
+        persistOrdinaryManualGate(postFixManual, "source_failure_fix_post_fix_reviewer_manual_gate", postFix.runnerCreatedCommitSha);
+        return { ok: false, outcome: postFixManual, reasonCode: "source_failure_fix_post_fix_reviewer_manual_gate" };
+      }
+      if (postFix.reviewMutationGuard?.mutationDetected || postFix.externalReview?.status !== "pass"
+        || postFix.review?.verdict?.verdict !== "approve" || postFix.validation?.passed !== true) {
+        return { ok: false, reasonCode: "source_failure_fix_post_fix_recertification_failed" };
+      }
+      if (providerBinding.provider === "grok") {
+        const binding = validateOrdinaryParallelReviewIdentity(postFix.externalReview, postFix.review,
+          { headSha: postFix.runnerCreatedCommitSha, baseSha: continuation.identity.baseSha, changedFiles: postFix.changedFiles });
+        if (!binding.ok) return { ok: false, reasonCode: binding.reasonCode };
       }
       if (!postFix.runnerCreatedCommitSha || postFix.runnerCreatedCommitSha === continuation.identity.headSha || postFix.forbiddenChangedFiles?.length) {
         return { ok: false, reasonCode: "source_failure_fix_candidate_invalid" };
@@ -2835,22 +3061,73 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     external_review: async (continuation) => {
       operationalCheckpoint?.("ordinary_recovery_external_review");
       const candidate = continuation.identity;
+      const candidateParallelGate = resolveOrdinaryParallelReviewerCheckpoint(
+        state.evidence?.parallelReviewerVerdicts, candidate, providerBinding.provider,
+      );
+      if (!candidateParallelGate.ok) return { ok: false, outcome: candidateParallelGate.outcome,
+        reasonCode: candidateParallelGate.reasonCode };
+      const candidateBoundParallel = candidateParallelGate.checkpoint;
       const before = await checkoutFingerprint();
       const changedFiles = candidate.changedFiles;
-      context.reviewPackage = await writeReviewPackage(config, { issue, promptInfo: { promptPath: null }, laneDecision, changedFiles, validation: context.validation || state.evidence?.localValidation, report: { found: true, recovered: true }, diffBaseRef: candidate.baseSha, diffHeadRef: candidate.headSha });
-      context.externalReview = await runIntegratedReviewSource(config, context.reviewPackage, "startup-recovery");
+      context.reviewPackage = await writeReviewPackage(config, { issue, promptInfo: { promptPath: null }, laneDecision, changedFiles, validation: context.validation || state.evidence?.localValidation, report: { found: true, recovered: true }, headSha: candidate.headSha, baseSha: candidate.baseSha, diffBaseRef: candidate.baseSha, diffHeadRef: candidate.headSha, reviewerProviderPin: providerBinding.provider });
+      if (candidateBoundParallel && !candidateParallelGate.retryIncomplete) {
+        context.externalReview = candidateBoundParallel.external;
+        context.review = candidateBoundParallel.codex;
+      } else if (providerBinding.provider === "grok") {
+        const externalComplete = ordinaryParallelReviewerComplete(candidateBoundParallel?.external, "external");
+        const codexComplete = ordinaryParallelReviewerComplete(candidateBoundParallel?.codex, "codex");
+        state = writeRecoveryState(config, reserveOrdinaryParallelReviewerAttempt(
+          state, candidate.headSha, providerBinding.provider, candidateBoundParallel)).state;
+        const persistReviewer = (kind, review) => {
+          state = writeRecoveryState(config, recordOrdinaryParallelReviewerResult(state, kind, review)).state;
+        };
+        const settled = await Promise.allSettled([
+          externalComplete ? candidateBoundParallel.external
+            : Promise.resolve().then(() => runIntegratedReviewSource(config, context.reviewPackage, "startup-recovery")).then((review) => {
+              persistReviewer("external", review);
+              return review;
+            }),
+          codexComplete ? candidateBoundParallel.codex
+            : Promise.resolve().then(() => runCodexReviewInWorker(config, { ...context.reviewPackage, sessionLifecycle: state.sessionLifecycle || null })).then((review) => {
+              if (review?.sessionLifecycle) {
+                state = writeRecoveryState(config, { ...state, sessionLifecycle: review.sessionLifecycle }).state;
+                issue.sessionLifecycle = review.sessionLifecycle;
+              }
+              persistReviewer("codex", review);
+              return review;
+            }),
+        ]);
+        if (settled.some((result) => result.status === "rejected")) {
+          return { ok: false, reasonCode: "ordinary_parallel_reviewer_invocation_failed" };
+        }
+        [context.externalReview, context.review] = settled.map((result) => result.value);
+      } else {
+        context.review = null;
+        context.externalReview = await runIntegratedReviewSource(config, context.reviewPackage, "startup-recovery");
+      }
       operationalCheckpoint?.("ordinary_recovery_external_review_complete", { externalReview: context.externalReview });
       if (compareFingerprints(before, await checkoutFingerprint()).mutationDetected) return { ok: false, reasonCode: "ordinary_continuation_external_review_mutated_checkout" };
-      const manual = recoveredReviewerManualVerdict(context.externalReview);
-      if (manual) return { ok: false, outcome: manual, reasonCode: context.externalReview.reason || `ordinary_continuation_external_review_${manual}` };
+      const manual = reviewerManualGateOutcome(context.externalReview, context.review);
+      if (manual) {
+        persistOrdinaryManualGate(manual, "ordinary_parallel_reviewer_manual_gate_persisted", candidate.headSha);
+        return { ok: false, outcome: manual, reasonCode: "ordinary_parallel_reviewer_manual_gate_persisted" };
+      }
+      if (providerBinding.provider === "grok" && (!ordinaryParallelReviewerComplete(context.externalReview, "external")
+        || !ordinaryParallelReviewerComplete(context.review, "codex"))) {
+        return { ok: false, reasonCode: "ordinary_parallel_reviewer_invocation_incomplete" };
+      }
+      if (providerBinding.provider === "grok") {
+        const binding = validateOrdinaryParallelReviewIdentity(context.externalReview, context.review, candidate);
+        if (!binding.ok) return { ok: false, reasonCode: binding.reasonCode };
+      }
       return { ok: true, evidence: { status: context.externalReview.status === "pass" ? "passed" : "changes_requested", evidencePath: context.externalReview.reportPath, review: ordinaryReviewerCheckpoint(context.externalReview, "external") } };
     },
     codex_review: async (continuation) => {
       operationalCheckpoint?.("ordinary_recovery_local_codex_review");
       const candidate = continuation.identity;
       const before = await checkoutFingerprint();
-      context.reviewPackage ||= await writeReviewPackage(config, { issue, promptInfo: { promptPath: null }, laneDecision, changedFiles: candidate.changedFiles, validation: context.validation || state.evidence?.localValidation, report: { found: true, recovered: true }, diffBaseRef: candidate.baseSha, diffHeadRef: candidate.headSha });
-      context.review = runReviewPrompt(config, context.reviewPackage);
+      context.reviewPackage ||= await writeReviewPackage(config, { issue, promptInfo: { promptPath: null }, laneDecision, changedFiles: candidate.changedFiles, validation: context.validation || state.evidence?.localValidation, report: { found: true, recovered: true }, headSha: candidate.headSha, baseSha: candidate.baseSha, diffBaseRef: candidate.baseSha, diffHeadRef: candidate.headSha, reviewerProviderPin: providerBinding.provider });
+      context.review ||= runReviewPrompt(config, context.reviewPackage);
       operationalCheckpoint?.("ordinary_recovery_local_codex_review_complete", { review: context.review });
       if (compareFingerprints(before, await checkoutFingerprint()).mutationDetected) return { ok: false, reasonCode: "ordinary_continuation_codex_review_mutated_checkout" };
       const manual = recoveredReviewerManualVerdict(context.review);
@@ -2873,6 +3150,11 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     },
     review_convergence: async (continuation) => {
       const candidate = continuation.identity;
+      const incomingManual = reviewerManualGateOutcome(context.externalReview, context.review);
+      if (incomingManual) {
+        persistOrdinaryManualGate(incomingManual, "ordinary_continuation_incoming_reviewer_manual_gate", candidate.headSha);
+        return { ok: false, outcome: incomingManual, reasonCode: "ordinary_continuation_incoming_reviewer_manual_gate" };
+      }
       if (context.externalReview?.status === "pass" && context.review?.verdict?.verdict === "approve" && (!context.largeCandidateReview || context.largeCandidateReview.ok)) return { ok: true, evidence: { exactHeadReviewPassed: true } };
       const promptInfo = { promptPath: null, ...(state.sessionLifecycle ? { sessionLifecycle: { state: state.sessionLifecycle } } : {}) };
       const structuredFindings = context.largeCandidateReview?.ok === false ? ordinaryStructuredFindings(context.largeCandidateReview) : [];
@@ -2882,7 +3164,11 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       if (fixAttempt.sessionLifecycleState) {
         state = { ...state, sessionLifecycle: fixAttempt.sessionLifecycleState };
       }
-      if (!fixAttempt.proceeded) return { ok: false, outcome: "review_convergence_required", reasonCode: fixAttempt.reason || "ordinary_continuation_review_fix_blocked" };
+      if (!fixAttempt.proceeded) {
+        const manual = fixAttempt.reviewerManualOutcome || reviewerManualGateOutcome(context.externalReview, context.review);
+        if (manual) persistOrdinaryManualGate(manual, "ordinary_continuation_review_fix_manual_gate", candidate.headSha);
+        return { ok: false, outcome: manual || "review_convergence_required", reasonCode: fixAttempt.reason || "ordinary_continuation_review_fix_blocked" };
+      }
       const postFix = await commitReviewFixAndRerunExactHeadReviews(config, {
         issue,
         laneDecision,
@@ -2921,7 +3207,19 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       if (postFix.review?.sessionLifecycle) {
         state = { ...state, sessionLifecycle: postFix.review.sessionLifecycle };
       }
+      context.externalReview = postFix.externalReview;
+      context.review = postFix.review;
+      const postFixManual = reviewerManualGateOutcome(postFix.externalReview, postFix.review);
+      if (postFixManual) {
+        persistOrdinaryManualGate(postFixManual, "ordinary_continuation_post_fix_reviewer_manual_gate", postFix.runnerCreatedCommitSha);
+        return { ok: false, outcome: postFixManual, reasonCode: "ordinary_continuation_post_fix_reviewer_manual_gate" };
+      }
       if (postFix.reviewMutationGuard?.mutationDetected || postFix.externalReview?.status !== "pass" || postFix.review?.verdict?.verdict !== "approve" || postFix.forbiddenChangedFiles?.length) return { ok: false, outcome: "review_convergence_required", reasonCode: "ordinary_continuation_post_fix_recertification_failed" };
+      if (providerBinding.provider === "grok") {
+        const binding = validateOrdinaryParallelReviewIdentity(postFix.externalReview, postFix.review,
+          { headSha: postFix.runnerCreatedCommitSha, baseSha: candidate.baseSha, changedFiles: postFix.changedFiles });
+        if (!binding.ok) return { ok: false, reasonCode: binding.reasonCode };
+      }
       const changedFiles = postFix.changedFiles;
       operationalCheckpoint?.("ordinary_recovery_review_convergence_complete", { validation: postFix.validation, externalReview: postFix.externalReview, review: postFix.review });
       const next = { baseSha: candidate.baseSha, headSha: postFix.runnerCreatedCommitSha, treeSha: getRefSha(`${postFix.runnerCreatedCommitSha}^{tree}`), diffDigest: createHash("sha256").update(getBoundedDiff(candidate.baseSha, postFix.runnerCreatedCommitSha).text).digest("hex"), changedFiles };
@@ -3044,6 +3342,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
             expectedHeadSha: candidate.headSha,
             expectedOriginMainSha: continuation.expectedOriginMainSha,
             expectedRepository: config.repositorySlug,
+            reviewerProviderPin: providerBinding.provider,
             checkoutReconstructable: true,
             allowStateRebuildFromEvidence: true,
             exactHeadEvidence: { repositorySlug: config.repositorySlug, issueNumber: issue.number, prNumber, taskKey: state.taskKey || initial.logicalTaskKey, runnerRunId: state.run?.runId || config.runnerRunId, supervisorRunId: state.run?.supervisorRunId || null, headSha: candidate.headSha, baseSha: candidate.baseSha, historicalEffectMainSha, currentMainSha, changedFiles: candidate.changedFiles, changedFilesDigest: digestChangedFiles(candidate.changedFiles), recoveryStateRebuildable: true, prospectiveMergeValidationRequired: true },
@@ -3518,26 +3817,39 @@ function ordinaryMergeEvidenceAsAutoMerge(evidence = {}) {
   };
 }
 
-function ordinaryReviewerCheckpoint(review = {}, provider) {
-  return {
+export function ordinaryReviewerCheckpoint(review = {}, provider) {
+  const checkpoint = {
     status: review.status,
     reason: review.reason,
     verdict: review.verdict,
     provider: review.provider || provider,
     tier: review.tier,
     reviewedHead: review.reviewedHead,
+    reviewedBaseSha: review.reviewedBaseSha,
     baseSha: review.baseSha,
     changedFilesDigest: review.changedFilesDigest,
+    independent: review.independent,
+    completedAt: review.completedAt,
+    finishedAt: review.finishedAt,
     reportPath: review.reportPath,
     logPath: review.logPath,
     route: review.route,
     findings: review.findings,
+    sanitizedResponseSummary: review.sanitizedResponseSummary,
     attestationSource: review.attestationSource,
     providerPromptBindingDigest: review.providerPromptBindingDigest,
     attestedCandidateIdentity: review.attestedCandidateIdentity,
     attestedIntegrationBoundaries: review.attestedIntegrationBoundaries,
     contextLimited: review.contextLimited,
   };
+  if (provider === "codex") {
+    checkpoint.signal = review.signal;
+    checkpoint.error = review.error;
+    checkpoint.reviewStatus = review.reviewStatus;
+    checkpoint.reviewFailureCategory = review.reviewFailureCategory;
+    checkpoint.reviewFailureReason = review.reviewFailureReason;
+  }
+  return checkpoint;
 }
 
 function refreshOrdinaryContinuationAfterSourceChange(config, recoveryRecorder, iteration, issue, branchName, reasonCode) {
@@ -3577,7 +3889,7 @@ function ordinaryStructuredReviewCheckpoint(evidence) {
 
 function ordinaryStructuredFindings(review) {
   if (Array.isArray(review?.findings) && review.findings.length) return review.findings;
-  return ["gemini", "codex-local"].flatMap((provider) => structuredLargeCandidateFindings(review, provider).map((finding) => ({ ...(typeof finding === "string" ? { summary: finding } : finding), provider })));
+  return ["grok", "gemini", "codex-local"].flatMap((provider) => structuredLargeCandidateFindings(review, provider).map((finding) => ({ ...(typeof finding === "string" ? { summary: finding } : finding), provider })));
 }
 
 function loadNormalLargeCandidateRecoveryCheckpoint(config, state, issue, laneDecision, lifecyclePhase) {
@@ -3773,7 +4085,10 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
   const baseOriginMainSha = getRefSha("origin/main");
   const autoMergeRunner = config.dryRun ? null : createLiveFixedArgvRunner(config);
   operationalCheckpoint("existing_pr_live_reconciliation");
-  const githubState = inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: recoveryConfig.prNumber || recoveryConfig.prUrl, laneDecision }, { runner: autoMergeRunner });
+  const persistedRecoveryProvider = recoveredIndependentReviewEvidence(recoveryConfig.exactHeadEvidence || {}).provider
+    || recoveryConfig.reviewerProviderPin || config.reviewerProviderPin || null;
+  const githubState = inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: recoveryConfig.prNumber || recoveryConfig.prUrl,
+    laneDecision, reviewerProvider: persistedRecoveryProvider }, { runner: autoMergeRunner });
   operationalCheckpoint("existing_pr_live_reconciliation_complete", { pr: githubState.pr || null });
   const prNumber = githubState.pr?.number || recoveryConfig.prNumber || recoveryConfig.prUrl;
   const changedFiles = Array.isArray(recoveryConfig.changedFiles) && recoveryConfig.changedFiles.length > 0
@@ -3796,6 +4111,19 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     title: recoveryConfig.prTitle ?? githubState.pr?.title,
   };
   const regenerationRequired = shouldGenerateExistingPrRecoveryEvidence(laneDecision, exactHeadEvidence);
+  const recoveryProviderPin = recoveredIndependentReviewEvidence(exactHeadEvidence).provider || recoveryConfig.reviewerProviderPin || null;
+  const recoveryDiff = regenerationRequired ? readPrDiff(config, prNumber) : null;
+  const selectedRecoveryProvider = regenerationRequired
+    ? resolveExistingPrRecoveryReviewerProvider(config, { laneDecision, changedFiles, diff: recoveryDiff }) : null;
+  if (regenerationRequired && !recoveryProviderPin && selectedRecoveryProvider === "grok") {
+    return { reason: "existing_pr_recovery_provider_pin_missing", terminalMutationBlocked: true,
+      autoMerge: { result: "blocked", reason: "existing_pr_recovery_provider_pin_missing", recovery: true } };
+  }
+  if (regenerationRequired && recoveryProviderPin
+    && selectedRecoveryProvider !== recoveryProviderPin) {
+    return { reason: "existing_pr_recovery_provider_pin_mismatch", terminalMutationBlocked: true,
+      autoMerge: { result: "blocked", reason: "existing_pr_recovery_provider_pin_mismatch", recovery: true } };
+  }
   const exactEvidenceCheck = validateRecoveryOnlyExactHeadEvidence(config, recoveryConfig, {
     expectedHeadSha,
     changedFiles,
@@ -3825,6 +4153,8 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
       changedFiles,
       expectedHeadSha,
       expectedOriginMainSha: recoveryConfig.expectedOriginMainSha || baseOriginMainSha,
+      reviewerProviderPin: recoveryProviderPin,
+      diffText: recoveryDiff,
     });
     operationalCheckpoint("existing_pr_evidence_regeneration_complete", {
       validation: generatedRecoveryEvidence.validation || null,
@@ -3834,6 +4164,16 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     if (generatedRecoveryEvidence.sessionLifecycle) {
       sessionLifecycle = generatedRecoveryEvidence.sessionLifecycle;
       issue.sessionLifecycle = sessionLifecycle;
+    }
+    if (selectedRecoveryProvider === "grok" && generatedRecoveryEvidence.externalReview?.status === "pass") {
+      const binding = validateOrdinaryParallelReviewIdentity(generatedRecoveryEvidence.externalReview,
+        generatedRecoveryEvidence.review, {
+          headSha: expectedHeadSha,
+          baseSha: recoveryConfig.expectedOriginMainSha || baseOriginMainSha,
+          changedFiles: canonicalChangedFiles,
+        });
+      if (!binding.ok) return { reason: binding.reasonCode, terminalMutationBlocked: true,
+        autoMerge: { result: "blocked", reason: binding.reasonCode, recovery: true } };
     }
     exactHeadEvidence = {
       ...exactHeadEvidence,
@@ -3848,19 +4188,27 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
       headSha: expectedHeadSha,
       changedFiles: canonicalChangedFiles,
       validationPassed: generatedRecoveryEvidence.validation?.passed === true,
-      geminiPass: generatedRecoveryEvidence.externalReview?.status === "pass",
-      geminiHeadSha: expectedHeadSha,
-      geminiChangedFiles: canonicalChangedFiles,
-      geminiChangedFilesDigest: generatedRecoveryEvidence.externalReview?.changedFilesDigest || null,
-      geminiProvider: generatedRecoveryEvidence.externalReview?.provider || exactHeadEvidence.geminiProvider || null,
-      geminiTier: generatedRecoveryEvidence.externalReview?.tier || exactHeadEvidence.geminiTier || null,
-      geminiCompletedAt: generatedRecoveryEvidence.externalReview?.completedAt || null,
-      geminiBudget: generatedRecoveryEvidence.externalReview?.budget || null,
-      geminiEvidencePath:
-        generatedRecoveryEvidence.externalReview?.reportPath ||
-        generatedRecoveryEvidence.externalReview?.evidencePath ||
-        exactHeadEvidence.geminiEvidencePath ||
-        null,
+      independentReview: {
+        pass: generatedRecoveryEvidence.externalReview?.status === "pass",
+        headSha: generatedRecoveryEvidence.externalReview?.reviewedHead || null,
+        changedFiles: generatedRecoveryEvidence.externalReview?.changedFiles || null,
+        changedFilesDigest: generatedRecoveryEvidence.externalReview?.changedFilesDigest || null,
+        provider: generatedRecoveryEvidence.externalReview?.provider || null,
+        tier: generatedRecoveryEvidence.externalReview?.tier || null,
+        completedAt: generatedRecoveryEvidence.externalReview?.completedAt || null,
+        evidencePath: generatedRecoveryEvidence.externalReview?.reportPath || generatedRecoveryEvidence.externalReview?.evidencePath || null,
+      },
+      ...(generatedRecoveryEvidence.externalReview?.provider === "gemini" ? {
+        geminiPass: generatedRecoveryEvidence.externalReview?.status === "pass",
+        geminiHeadSha: generatedRecoveryEvidence.externalReview?.reviewedHead || null,
+        geminiChangedFiles: generatedRecoveryEvidence.externalReview?.changedFiles || null,
+        geminiChangedFilesDigest: generatedRecoveryEvidence.externalReview?.changedFilesDigest || null,
+        geminiProvider: "gemini",
+        geminiTier: generatedRecoveryEvidence.externalReview?.tier || null,
+        geminiCompletedAt: generatedRecoveryEvidence.externalReview?.completedAt || null,
+        geminiBudget: generatedRecoveryEvidence.externalReview?.budget || null,
+        geminiEvidencePath: generatedRecoveryEvidence.externalReview?.reportPath || generatedRecoveryEvidence.externalReview?.evidencePath || null,
+      } : {}),
       codexMechanicsApproved: generatedRecoveryEvidence.review?.verdict?.verdict === "approve",
       codexMechanicsHeadSha: expectedHeadSha,
       codexMechanicsChangedFiles: canonicalChangedFiles,
@@ -3897,31 +4245,33 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     };
   }
   const issueLinkageEvidence = buildIssueLinkageEvidence(prMetadata, issue.number);
+  const recoveredIndependent = recoveredIndependentReviewEvidence(exactHeadEvidence);
   const context = {
     config,
+    reviewerProviderPin: recoveryProviderPin || persistedRecoveryProvider,
     issue: githubState.issue || { ...issue, state: issue.state || "OPEN", labels: issue.labels || [] },
     laneDecision,
     changedFiles,
     forbiddenChangedFiles: forbidden,
     changedFilesExactlyMatchAllowedPaths: forbidden.length === 0,
     externalReviewRequired: requiresIndependentAiReview(laneDecision),
-    externalReview: exactHeadEvidence.geminiPass
+    externalReview: recoveredIndependent.pass === true
       ? {
           status: "pass",
           verdict: "pass",
-          reason: "recovered_exact_head_gemini_evidence",
-          reviewedHead: exactHeadEvidence.geminiHeadSha || exactHeadEvidence.headSha || null,
+          reason: "recovered_exact_head_independent_evidence",
+          reviewedHead: recoveredIndependent.headSha || null,
           baseSha: exactHeadEvidence.currentMainSha || recoveryConfig.expectedOriginMainSha || baseOriginMainSha,
-          changedFiles: exactHeadEvidence.geminiChangedFiles || changedFiles,
-          changedFilesDigest: exactHeadEvidence.geminiChangedFilesDigest || exactHeadEvidence.changedFilesDigest || null,
-          provider: exactHeadEvidence.geminiProvider || "gemini",
-          tier: exactHeadEvidence.geminiTier || "cheap_independent",
+          changedFiles: recoveredIndependent.changedFiles,
+          changedFilesDigest: recoveredIndependent.changedFilesDigest || (!recoveredIndependent.neutral && exactHeadEvidence.changedFilesDigest) || null,
+          provider: recoveredIndependent.provider || "gemini",
+          tier: recoveredIndependent.tier || "cheap_independent",
           independent: true,
-          completedAt: exactHeadEvidence.geminiCompletedAt || exactHeadEvidence.completedAt || null,
+          completedAt: recoveredIndependent.completedAt || (!recoveredIndependent.neutral && exactHeadEvidence.completedAt) || null,
           budget: exactHeadEvidence.geminiBudget || null,
-          reportPath: exactHeadEvidence.geminiEvidencePath || null,
+          reportPath: recoveredIndependent.evidencePath || null,
         }
-      : { status: "blocked", reason: "missing_recovered_exact_head_gemini_evidence" },
+      : { status: "blocked", reason: "missing_recovered_exact_head_independent_evidence" },
     review: generatedRecoveryEvidence?.review ||
       (exactHeadEvidence.codexMechanicsApproved
         ? {
@@ -3963,6 +4313,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     pr: prMetadata,
     requiredChecks: githubState.requiredChecks || [],
     reviewThreads: githubState.reviewThreads || [],
+    hostedCodexReview: githubState.hostedCodexReview || null,
     codeScanningAlerts: githubState.codeScanningAlerts || [],
     blockingMarkers: githubState.blockingMarkers || [],
     actualHeadSha: githubState.pr?.headRefOid || null,
@@ -4046,7 +4397,8 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     };
   }
   const recoveryDecision = evaluateAutoMergeDecision(context);
-  if (!recoveryDecision.eligible && strictRecoveryDecision.nextAction !== "resume_ci_wait") {
+  if (!recoveryDecision.eligible && strictRecoveryDecision.nextAction !== "resume_ci_wait"
+    && recoveryDecision.reason !== "hosted_codex_review_pending") {
     const blocked = { ...recoveryDecision, recovery: true, strictRecoveryDecision, evidence: writeAutoMergeEvidence(config, recoveryDecision, context) };
     return {
       reason: recoveryDecision.reason,
@@ -4065,7 +4417,8 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
   operationalCheckpoint("existing_pr_merge_evaluation", { pr: context.pr, validation: context.validation, review: context.review, externalReview: context.externalReview });
   const autoMerge = executeAutoMerge(config, context, {
     runner: autoMergeRunner,
-    inspectState: (cfg, ctx) => inspectAutoMergeGithubState(cfg, { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url, laneDecision }, { runner: autoMergeRunner }),
+    inspectState: (cfg, ctx) => inspectAutoMergeGithubState(cfg, { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url,
+      laneDecision, reviewerProvider: persistedRecoveryProvider }, { runner: autoMergeRunner }),
   });
   operationalCheckpoint("existing_pr_merge_evaluation_complete", { autoMerge });
   return {
@@ -4084,8 +4437,15 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
   };
 }
 
+export function resolveExistingPrRecoveryReviewerProvider(config, { laneDecision, changedFiles, diff }) {
+  const boundary = analyzeReviewSecretBoundary({ changedFiles, diff });
+  const route = routeReviewer({ changedFiles, laneDecision, stats: boundary.diffStats,
+    largeBundleReviewApproval: config.largeBundleReviewApproval });
+  return mergeReviewerPolicyConfig(config).reviewerTiers[route.tier]?.provider || null;
+}
+
 async function generateExistingPrRecoveryEvidence(config, {
-  issue, laneDecision, pr, changedFiles, expectedHeadSha, expectedOriginMainSha,
+  issue, laneDecision, pr, changedFiles, expectedHeadSha, expectedOriginMainSha, reviewerProviderPin, diffText,
 }) {
   if (config.dryRun) return { reason: "dry_run_no_recovery_evidence_generation" };
   const originalBranch = getCurrentBranch();
@@ -4211,10 +4571,41 @@ async function generateExistingPrRecoveryEvidence(config, {
       changedFiles,
       validation,
       report: { found: true, expectedPath: "existing-pr-recovery" },
-      diffText: readPrDiff(config, pr.number || pr.url),
+      diffText,
+      headSha: expectedHeadSha,
+      baseSha: expectedOriginMainSha,
+      reviewerProviderPin,
     });
-    const externalReview = await runIntegratedReviewSource(config, reviewPackage, "existing-pr-recovery");
-    const review = externalReview.status === "pass" ? runReviewPrompt(config, { ...reviewPackage, sessionLifecycle: issue.sessionLifecycle || null }) : null;
+    const beforeReview = await checkoutFingerprint();
+    const parallelGrok = independentReviewerProvider(config, reviewPackage) === "grok";
+    const parallelReviews = parallelGrok
+      ? await runDurableStackParallelReviews(config, {
+          phase: "existing_pr_recovery", prNumber: pr.number, headSha: expectedHeadSha,
+          baseSha: expectedOriginMainSha, changedFiles,
+          candidateDigest: createHash("sha256").update(String(diffText || "")).digest("hex"),
+        },
+        () => runIntegratedReviewSource(config, reviewPackage, "existing-pr-recovery"),
+        () => runCodexReviewInWorker(config, { ...reviewPackage, sessionLifecycle: issue.sessionLifecycle || null }))
+      : null;
+    if (compareFingerprints(beforeReview, await checkoutFingerprint()).mutationDetected) {
+      return { reason: "recovery_evidence_generation_review_mutated_checkout",
+        validation: { passed: false, results: [] },
+        externalReview: { status: "blocked", reason: "recovery_evidence_generation_review_mutated_checkout" }, review: null };
+    }
+    if (parallelReviews && !parallelReviews.ok) {
+      return { reason: parallelReviews.reasonCode, validation: { passed: false, results: [] },
+        externalReview: { status: "blocked", reason: parallelReviews.reasonCode }, review: null };
+    }
+    const [externalReview, parallelCodexReview] = parallelReviews
+      ? [parallelReviews.strongReview, parallelReviews.codexReview]
+      : [await runIntegratedReviewSource(config, reviewPackage, "existing-pr-recovery"), null];
+    const review = parallelCodexReview || (externalReview.status === "pass"
+      ? runReviewPrompt(config, { ...reviewPackage, sessionLifecycle: issue.sessionLifecycle || null }) : null);
+    if (compareFingerprints(beforeReview, await checkoutFingerprint()).mutationDetected) {
+      return { reason: "recovery_evidence_generation_review_mutated_checkout",
+        validation: { passed: false, results: [] },
+        externalReview: { status: "blocked", reason: "recovery_evidence_generation_review_mutated_checkout" }, review: null };
+    }
     return {
       reason: "recovery_evidence_generated",
       validation,
@@ -4224,7 +4615,13 @@ async function generateExistingPrRecoveryEvidence(config, {
       sessionLifecycle: review?.sessionLifecycle || issue.sessionLifecycle || null,
     };
   } finally {
-    restore();
+    const restored = restore();
+    if (restored.status !== 0 || restored.error || getRefSha("HEAD") !== originalHead
+      || getCurrentBranch() !== originalBranch || getStatusShort() !== "") {
+      return { reason: "recovery_evidence_generation_restore_failed",
+        validation: { passed: false, results: [] },
+        externalReview: { status: "blocked", reason: "recovery_evidence_generation_restore_failed" }, review: null };
+    }
   }
 }
 
@@ -4351,6 +4748,8 @@ function createLivePrStackReviewAdapters(config) {
     const autoMergeEligible = incomingContract.autoMergeEligible ?? incomingLaneDecision.autoMergeEligible ?? false;
     return writeReviewPackage(config, {
     reviewPhase,
+    taskContract: { objective: `Review the exact-head PR stack candidate for PR #${pr?.number || "unknown"} against its validated delta and issue requirements.`,
+      issueBody: pr?.issue?.body || pr?.body || config.prStackIssue?.body || null },
     issue: pr?.issue || config.prStackIssue || { number: pr?.issueNumber || pr?.number || 921, title: pr?.title || `PR #${pr?.number || "unknown"}`, labels: [] },
     promptInfo: { promptPath: `pr-stack:${reviewPhase}:pr-${pr?.number || "unknown"}:${headSha || "unknown"}` },
     laneDecision: {
@@ -4388,7 +4787,7 @@ function createLivePrStackReviewAdapters(config) {
     } : externalReview,
     fullCandidatePrDelta,
     reviewFixMechanicsContext: mechanicsPhase ? {
-      objective: "Converge and merge the exact-head PR #919 -> PR #920 development-stage stack through protected controller gates while PR #917 remains frozen.",
+      objective: `Review the exact-head PR #${pr?.number || "unknown"} delta and current issue requirements for mechanics and security. The controller handles merge gates separately.`,
       humanDirectedMergeGate: true,
       taskKey: config.taskKey || null,
       exactHead: headSha,
@@ -4408,24 +4807,30 @@ function createLivePrStackReviewAdapters(config) {
       const review = await runIntegratedReviewSource(config, reviewPackage, "pr-stack-final-strong-exact-head");
       return {
         ...review,
-        reviewedHead: review.reviewedHead || headSha,
+        reviewedHead: review.reviewedHead,
         reviewedBaseSha: review.reviewedBaseSha,
-        baseSha: review.baseSha || baseSha,
-        changedFiles: review.changedFiles || changedFiles,
-        changedFilesDigest: review.changedFilesDigest || digestRunnerStringSet(changedFiles),
+        baseSha: review.baseSha,
+        changedFiles: review.changedFiles,
+        changedFilesDigest: review.changedFilesDigest,
         fullCandidatePrDelta: review.fullCandidatePrDelta || fullCandidatePrDelta,
       };
     },
     runCodexReview: async ({ pr, changedFiles, validation, externalReview, headSha, baseSha, fullCandidatePrDelta, sessionLifecycle = null }) => {
-      const reviewPackage = await buildPackage({ reviewPhase: "pr-stack-final-codex-exact-head", pr, changedFiles, validation, headSha, baseSha, fullCandidatePrDelta, externalReview });
-      const review = runReviewPrompt(config, { ...reviewPackage, sessionLifecycle });
+      const grokConfigured = config.reviewerProviderPin
+        ? config.reviewerProviderPin === "grok"
+        : config.reviewerTiers?.strong_independent?.provider === "grok";
+      const reviewPackage = await buildPackage({ reviewPhase: "pr-stack-final-codex-exact-head", pr, changedFiles, validation, headSha, baseSha, fullCandidatePrDelta,
+        ...(grokConfigured ? {} : { externalReview }) });
+      const review = grokConfigured
+        ? await runCodexReviewInWorker(config, { ...reviewPackage, sessionLifecycle })
+        : runReviewPrompt(config, { ...reviewPackage, sessionLifecycle });
       return {
         ...review,
-        reviewedHead: review.reviewedHead || headSha,
+        reviewedHead: review.reviewedHead,
         reviewedBaseSha: review.reviewedBaseSha,
-        baseSha: review.baseSha || baseSha,
-        changedFiles: review.changedFiles || changedFiles,
-        changedFilesDigest: review.changedFilesDigest || digestRunnerStringSet(changedFiles),
+        baseSha: review.baseSha,
+        changedFiles: review.changedFiles,
+        changedFilesDigest: review.changedFilesDigest,
         fullCandidatePrDelta: review.fullCandidatePrDelta || fullCandidatePrDelta,
       };
     },
@@ -4446,10 +4851,6 @@ function sanitizeRunnerArg(value) {
   const text = String(value || "");
   const bounded = text.length > 240 ? `${text.slice(0, 240)}[truncated]` : text;
   return bounded.replace(/[A-Za-z0-9_=-]{32,}/g, "[redacted]");
-}
-
-function digestRunnerStringSet(values = []) {
-  return createHash("sha256").update(values.map((value) => String(value || "")).filter(Boolean).sort().join("\n")).digest("hex");
 }
 
 async function evaluateOrExecuteAutoMerge(config, { issue, iteration, branchName, changedFiles, forbidden }) {
@@ -4544,6 +4945,7 @@ async function runReviewFixCycle(config, context) {
       attempted: false,
       proceeded: false,
       reason: decision.reason,
+      reviewerManualOutcome: reviewerManualGateOutcome(context.externalReview, context.review),
       decision,
       evidence,
     };
@@ -4591,6 +4993,7 @@ async function runReviewFixCycle(config, context) {
   }
   const changedFilesAfter = listWorkingTreeChangedFiles();
   const forbiddenChangedFilesAfter = filterForbiddenChangedFiles(changedFilesAfter, context.laneDecision);
+  let latestSessionLifecycle = codex.sessionLifecycle?.state || context.issue.sessionLifecycle || context.sessionLifecycle || null;
   const finishBlocked = (reason, extra = {}) => {
     const evidence = writeReviewFixEvidence(config, {
       ...baseEvidence,
@@ -4609,7 +5012,7 @@ async function runReviewFixCycle(config, context) {
       decision,
       promptPath,
       codex,
-      sessionLifecycleState: codex.sessionLifecycle?.state || null,
+      sessionLifecycleState: latestSessionLifecycle,
       changedFilesAfter,
       forbiddenChangedFilesAfter,
       evidence,
@@ -4652,7 +5055,7 @@ async function runReviewFixCycle(config, context) {
   }
 
   const beforeReview = await checkoutFingerprint();
-  const integratedReviewPackageAfter = await writeReviewPackage(config, {
+  let integratedReviewPackageAfter = await writeReviewPackage(config, {
     issue: context.issue,
     promptInfo: context.promptInfo,
     laneDecision: context.laneDecision,
@@ -4660,13 +5063,65 @@ async function runReviewFixCycle(config, context) {
     validation: validationAfter,
     report: context.report,
   });
-  const externalReviewAfter = await runIntegratedReviewSource(config, integratedReviewPackageAfter, "post-fix");
+  const grokPostFix = independentReviewerProvider(config, integratedReviewPackageAfter) === "grok";
+  const mechanicsInput = {
+    issue: context.issue,
+    laneDecision: context.laneDecision,
+    trigger,
+    decision,
+    changedFilesBefore: context.changedFiles || [],
+    changedFilesAfter,
+    forbiddenChangedFilesAfter,
+    validationAfter,
+    preFixReport: context.report,
+    currentHead: config.dryRun ? null : getRefSha("HEAD"),
+  };
+  let externalReviewAfter;
+  let reviewAfter;
+  if (grokPostFix) {
+    const pendingMechanics = buildPostReviewFixMechanicsContext({ ...mechanicsInput, externalReviewPending: true });
+    if (!pendingMechanics.ok) return finishBlocked(`review_fix_post_fix_mechanics_context_invalid:${pendingMechanics.reason}`,
+      { validationAfter: summarizeValidation(validationAfter) });
+    integratedReviewPackageAfter = await writeReviewPackage(config, {
+      issue: context.issue, promptInfo: context.promptInfo, laneDecision: context.laneDecision,
+      changedFiles: changedFilesAfter, validation: validationAfter, report: context.report,
+      reviewPhase: "post-review-fix-mechanics", reviewFixMechanicsContext: pendingMechanics.context,
+    });
+    const settledReviews = await Promise.allSettled([
+      Promise.resolve().then(() => runIntegratedReviewSource(config, integratedReviewPackageAfter, "post-fix")),
+      Promise.resolve().then(() => runCodexReviewInWorker(config, { ...integratedReviewPackageAfter, sessionLifecycle: context.issue.sessionLifecycle || context.sessionLifecycle || null })),
+    ]);
+    if (settledReviews.some((result) => result.status === "rejected")) {
+      const externalMutationGuardAfter = compareFingerprints(beforeReview, await checkoutFingerprint());
+      return finishBlocked(externalMutationGuardAfter.mutationDetected
+        ? "review_fix_post_fix_external_review_mutated_checkout" : "review_fix_post_fix_parallel_reviewer_invocation_failed",
+      { validationAfter: summarizeValidation(validationAfter), externalMutationGuardAfter });
+    }
+    [externalReviewAfter, reviewAfter] = settledReviews.map((result) => result.value);
+  } else {
+    externalReviewAfter = await runIntegratedReviewSource(config, integratedReviewPackageAfter, "post-fix");
+  }
+  if (reviewAfter?.sessionLifecycle) {
+    latestSessionLifecycle = reviewAfter.sessionLifecycle;
+    context.issue.sessionLifecycle = latestSessionLifecycle;
+    context.sessionLifecycle = latestSessionLifecycle;
+    if (context.promptInfo.sessionLifecycle) context.promptInfo.sessionLifecycle = { ...context.promptInfo.sessionLifecycle, state: latestSessionLifecycle };
+  }
   const externalMutationGuardAfter = compareFingerprints(beforeReview, await checkoutFingerprint());
   if (externalMutationGuardAfter.mutationDetected) {
     return finishBlocked("review_fix_post_fix_external_review_mutated_checkout", {
       validationAfter: summarizeValidation(validationAfter),
       externalReviewAfter: summarizeExternalReview(externalReviewAfter),
       externalMutationGuardAfter,
+    });
+  }
+  const postFixManualOutcome = reviewerManualGateOutcome(externalReviewAfter, reviewAfter);
+  if (postFixManualOutcome) {
+    return finishBlocked("review_fix_post_fix_reviewer_manual_gate", {
+      reviewerManualOutcome: postFixManualOutcome,
+      validationAfter: summarizeValidation(validationAfter),
+      externalReviewAfter: summarizeExternalReview(externalReviewAfter),
+      reviewAfter: summarizeCodexReview(reviewAfter),
     });
   }
   if (externalReviewAfter.status === "blocked") {
@@ -4676,19 +5131,7 @@ async function runReviewFixCycle(config, context) {
       reviewPackageAfter: { packagePath: integratedReviewPackageAfter.packagePath },
     });
   }
-  const postFixContext = buildPostReviewFixMechanicsContext({
-    issue: context.issue,
-    laneDecision: context.laneDecision,
-    trigger,
-    decision,
-    changedFilesBefore: context.changedFiles || [],
-    changedFilesAfter,
-    forbiddenChangedFilesAfter,
-    validationAfter,
-    externalReviewAfter,
-    preFixReport: context.report,
-    currentHead: config.dryRun ? null : getRefSha("HEAD"),
-  });
+  const postFixContext = buildPostReviewFixMechanicsContext({ ...mechanicsInput, externalReviewAfter });
   if (!postFixContext.ok) {
     return finishBlocked(`review_fix_post_fix_mechanics_context_invalid:${postFixContext.reason}`, {
       validationAfter: summarizeValidation(validationAfter),
@@ -4696,7 +5139,7 @@ async function runReviewFixCycle(config, context) {
       reviewPackageAfter: { packagePath: integratedReviewPackageAfter.packagePath },
     });
   }
-  const reviewPackageAfter = await writeReviewPackage(config, {
+  const reviewPackageAfter = grokPostFix ? integratedReviewPackageAfter : await writeReviewPackage(config, {
     issue: context.issue,
     promptInfo: context.promptInfo,
     laneDecision: context.laneDecision,
@@ -4706,8 +5149,9 @@ async function runReviewFixCycle(config, context) {
     reviewPhase: "post-review-fix-mechanics",
     reviewFixMechanicsContext: postFixContext.context,
   });
-  const reviewAfter = runReviewPrompt(config, { ...reviewPackageAfter, sessionLifecycle: context.issue.sessionLifecycle || context.sessionLifecycle || null });
+  reviewAfter ||= runReviewPrompt(config, { ...reviewPackageAfter, sessionLifecycle: context.issue.sessionLifecycle || context.sessionLifecycle || null });
   if (reviewAfter.sessionLifecycle) {
+    latestSessionLifecycle = reviewAfter.sessionLifecycle;
     context.issue.sessionLifecycle = reviewAfter.sessionLifecycle;
     context.sessionLifecycle = reviewAfter.sessionLifecycle;
     if (context.promptInfo.sessionLifecycle) context.promptInfo.sessionLifecycle = { ...context.promptInfo.sessionLifecycle, state: reviewAfter.sessionLifecycle };
@@ -4831,6 +5275,32 @@ async function commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDeci
       reviewMutationGuard: { mutationDetected: true, reason: "review_fix_exact_head_dirty_after_commit" },
     };
   }
+  const grokExactHead = fixAttempt.reviewPackageAfter?.summary?.reviewerProviderPin === "grok";
+  const priorMechanics = fixAttempt.reviewPackageAfter?.summary?.reviewFixMechanicsContext;
+  if (grokExactHead && priorMechanics?.phase !== "post_review_fix_mechanics") {
+    return { changedFiles, forbiddenChangedFiles, validation, commit, runnerCreatedCommitSha,
+      reviewPackage: null, externalReview: { status: "blocked", reason: "review_fix_exact_head_mechanics_context_missing" },
+      review: { verdict: { verdict: "unable_to_review" } }, reviewMutationGuard: { mutationDetected: false } };
+  }
+  const refreshedMechanics = grokExactHead ? buildPostReviewFixMechanicsContext({
+    issue, laneDecision,
+    trigger: { ...priorMechanics.structuredReviewFixTrigger, actionable: true },
+    decision: priorMechanics.reviewFixDecision,
+    changedFilesBefore: priorMechanics.changedFilesBefore,
+    changedFilesAfter: changedFiles,
+    forbiddenChangedFilesAfter: forbiddenChangedFiles,
+    validationAfter: validation,
+    preFixReport: report,
+    currentHead: runnerCreatedCommitSha,
+    externalReviewPending: true,
+    exactHeadRereview: true,
+  }) : null;
+  if (grokExactHead && !refreshedMechanics.ok) {
+    return { changedFiles, forbiddenChangedFiles, validation, commit, runnerCreatedCommitSha,
+      reviewPackage: null, externalReview: { status: "blocked", reason: `review_fix_exact_head_mechanics_context_invalid:${refreshedMechanics.reason}` },
+      review: { verdict: { verdict: "unable_to_review" } }, reviewMutationGuard: { mutationDetected: false } };
+  }
+  const exactHeadMechanicsContext = refreshedMechanics?.context || null;
   const beforeReview = await checkoutFingerprint();
   const reviewPackage = await writeReviewPackage(config, {
     reviewPhase: "post-review-fix-exact-head",
@@ -4840,16 +5310,39 @@ async function commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDeci
     changedFiles,
     validation,
     report,
+    reviewFixMechanicsContext: exactHeadMechanicsContext,
     diffBaseRef: "origin/main",
     diffHeadRef: "HEAD",
   });
-  const externalReview = await runIntegratedReviewSource(config, reviewPackage, "post-review-fix-exact-head");
+  const parallelGrok = independentReviewerProvider(config, reviewPackage) === "grok";
+  const parallelReviews = parallelGrok ? Promise.allSettled([
+    Promise.resolve().then(() => runIntegratedReviewSource(config, reviewPackage, "post-review-fix-exact-head")).then((externalReview) => {
+      persistOrdinaryParallelReviewerCheckpoint(recoveryRecorder, runnerCreatedCommitSha,
+        externalReview, null, "grok");
+      return externalReview;
+    }),
+    Promise.resolve().then(() => runCodexReviewInWorker(config, { ...reviewPackage, sessionLifecycle: issue.sessionLifecycle || promptInfo?.sessionLifecycle?.state || null })).then((review) => {
+      if (review?.sessionLifecycle) recoveryRecorder?.annotate({ sessionLifecycle: review.sessionLifecycle });
+      persistOrdinaryParallelReviewerCheckpoint(recoveryRecorder, runnerCreatedCommitSha,
+        null, review, "grok");
+      return review;
+    }),
+  ]) : null;
+  const settledReviews = parallelReviews ? await parallelReviews : null;
+  const [externalReview, parallelCodexReview] = settledReviews
+    ? settledReviews.map((result) => result.status === "fulfilled" ? result.value : null)
+    : [await runIntegratedReviewSource(config, reviewPackage, "post-review-fix-exact-head"), null];
   const afterExternalReview = await checkoutFingerprint();
   const externalReviewMutationGuard = compareFingerprints(beforeReview, afterExternalReview);
   if (externalReviewMutationGuard.mutationDetected) {
     return { changedFiles, forbiddenChangedFiles, validation, commit, runnerCreatedCommitSha, reviewPackage, externalReview, review: { verdict: { verdict: "unable_to_review" } }, reviewMutationGuard: externalReviewMutationGuard };
   }
-  const review = runReviewPrompt(config, { ...reviewPackage, sessionLifecycle: issue.sessionLifecycle || promptInfo?.sessionLifecycle?.state || null });
+  if (settledReviews?.some((result) => result.status === "rejected")) {
+    return { changedFiles, forbiddenChangedFiles, validation, commit, runnerCreatedCommitSha, reviewPackage,
+      externalReview: { status: "blocked", reason: "review_fix_exact_head_parallel_reviewer_invocation_failed" },
+      review: { verdict: { verdict: "unable_to_review" } }, reviewMutationGuard: externalReviewMutationGuard };
+  }
+  const review = parallelCodexReview || runReviewPrompt(config, { ...reviewPackage, sessionLifecycle: issue.sessionLifecycle || promptInfo?.sessionLifecycle?.state || null });
   if (review.sessionLifecycle) {
     issue.sessionLifecycle = review.sessionLifecycle;
     if (promptInfo?.sessionLifecycle) promptInfo.sessionLifecycle = { ...promptInfo.sessionLifecycle, state: review.sessionLifecycle };
@@ -5073,10 +5566,13 @@ function recordPostFixExactHeadEvidence(recoveryRecorder, { validation, external
   if (persisted && !persisted.ok) {
     throw new Error(`Post-fix exact-head evidence persistence failed: ${persisted.reasonCode || "unknown"}`);
   }
+  persistOrdinaryParallelReviewerCheckpoint(recoveryRecorder, headSha, externalReview, review);
   return persisted;
 }
 
 async function writeReviewPackage(config, payload) {
+  const generatedPrompt = payload.promptInfo?.promptPath && existsSync(payload.promptInfo.promptPath)
+    ? readFileSync(payload.promptInfo.promptPath, "utf8") : null;
   const diff = Object.hasOwn(payload, "diffText")
     ? { text: String(payload.diffText || ""), truncated: false }
     : payload.diffBaseRef || payload.diffHeadRef
@@ -5085,7 +5581,7 @@ async function writeReviewPackage(config, payload) {
   const packagePath = path.join(
     config.logsRoot,
     "reviews",
-    `${safeTimestamp()}-issue-${payload.issue.number}-${slugify(payload.issue.title, 40)}.json`,
+    `${safeTimestamp()}-issue-${payload.issue.number}-${slugify(payload.issue.title, 40)}-${randomUUID()}.json`,
   );
   const summary = {
     reviewPhase: payload.reviewPhase || "pre-pr-review",
@@ -5099,6 +5595,10 @@ async function writeReviewPackage(config, payload) {
       labels: payload.issue.labels,
       url: payload.issue.url,
     },
+    taskContract: payload.taskContract || {
+      issueBody: payload.issue.body || null,
+      generatedPrompt,
+    },
     taskPromptPath: payload.promptInfo.promptPath,
     laneDecision: payload.laneDecision,
     reviewerPolicy: reviewerReadinessSummary(config, {
@@ -5109,6 +5609,7 @@ async function writeReviewPackage(config, payload) {
       estimatedOutputTokens: 0,
     }),
     changedFiles: payload.changedFiles,
+    reviewerProviderPin: payload.reviewerProviderPin || config.reviewerProviderPin || null,
     currentHead: payload.headSha || (config.dryRun ? null : getRefSha("HEAD")),
     baseSha: payload.baseSha || payload.baseRefSha || payload.baseOriginMainSha || (config.dryRun ? null : getRefSha("origin/main")),
     treeSha: config.dryRun ? payload.headSha || null : getRefSha("HEAD^{tree}"),
@@ -5117,12 +5618,12 @@ async function writeReviewPackage(config, payload) {
     report: payload.report,
     externalReview: payload.externalReview || null,
     fullCandidatePrDelta: payload.fullCandidatePrDelta || null,
-    integrationBoundaries: ["tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"],
-    integrationBoundaryMaterial: integrationBoundaryMaterial(config.repoRoot, ["tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"]),
+    integrationBoundaries: ["tools/auto-runner/settleora-auto-runner.mjs", "tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"],
+    integrationBoundaryMaterial: integrationBoundaryMaterial(config.repoRoot, ["tools/auto-runner/settleora-auto-runner.mjs", "tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"]),
     reviewFixMechanicsContext: payload.reviewFixMechanicsContext || null,
     diffTruncated: diff.truncated,
   };
-  writeFileSync(packagePath, `${JSON.stringify({ summary, diff: diff.text }, null, 2)}\n`);
+  writeFileSync(packagePath, `${JSON.stringify({ summary, diff: diff.text }, null, 2)}\n`, { mode: 0o600, flag: "wx" });
   return { packagePath, summary, diff: diff.text };
 }
 
@@ -5141,7 +5642,7 @@ async function runIntegratedReviewSource(config, reviewPackage, phase) {
       reviewedHead: config.dryRun ? null : getRefSha("HEAD"),
     });
   }
-  return runGeminiIntegratedReview(config, reviewPackage);
+  return runIndependentIntegratedReview(config, reviewPackage);
 }
 
 async function certifyNormalCumulativeLargeReview(config, iteration, changedFiles) {
@@ -5167,7 +5668,7 @@ async function certifyNormalCumulativeLargeReview(config, iteration, changedFile
       changedFilesDigest: createHash("sha256").update(JSON.stringify([...changedFiles].sort())).digest("hex"),
     },
     changedFiles,
-    integrationBoundaries: ["tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"],
+    integrationBoundaries: ["tools/auto-runner/settleora-auto-runner.mjs", "tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"],
     externalReview: iteration.externalReview,
     codexReview: iteration.review,
     invokeSection: ({ provider, section, manifest }) => invoke(provider, { phase: "section", section, manifest }),
@@ -5177,6 +5678,14 @@ async function certifyNormalCumulativeLargeReview(config, iteration, changedFile
 }
 
 async function refreshNormalLargeCandidateReviewAfterFix(config, iteration, changedFiles, issue, recoveryRecorder) {
+  const independentManual = reviewerManualGateOutcome(iteration.externalReview, iteration.review);
+  if (independentManual) {
+    iteration.outcome = independentManual;
+    recoveryRecorder?.stop("post_fix_reviewer_manual_gate", independentManual, "manual_decision_required");
+    iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, `Post-fix exact-head review required a manual decision; no further mutation or push was attempted.`);
+    iteration.finishedAt = new Date().toISOString();
+    return false;
+  }
   if (iteration.externalReview?.route?.largeCandidateRouting?.route !== "large_bundle_escalation") {
     iteration.largeCandidateReview = { ok: true, route: "normal", state: "external_review_normal_ready" };
     return true;
@@ -5227,15 +5736,17 @@ async function refreshNormalLargeCandidateReviewAfterFix(config, iteration, chan
   return false;
 }
 
-function routeNormalStructuredFindingsToConvergence(iteration) {
-  const gemini = structuredLargeCandidateFindings(iteration.largeCandidateReview, "gemini").map(convergenceFinding);
+export function routeNormalStructuredFindingsToConvergence(iteration) {
+  if (reviewerManualGateOutcome(iteration.externalReview, iteration.review)) return false;
+  const externalProvider = iteration.externalReview?.provider || "gemini";
+  const external = structuredLargeCandidateFindings(iteration.largeCandidateReview, externalProvider).map(convergenceFinding);
   const codex = structuredLargeCandidateFindings(iteration.largeCandidateReview, "codex-local").map(convergenceFinding);
-  if (gemini.length + codex.length === 0) return false;
-  if (gemini.length > 0) iteration.externalReview = {
+  if (external.length + codex.length === 0) return false;
+  if (external.length > 0) iteration.externalReview = {
     ...iteration.externalReview,
     status: "blocked",
     verdict: "fail",
-    sanitizedResponseSummary: { verdict: "fail", findings: gemini },
+    sanitizedResponseSummary: { verdict: "fail", findings: external },
     reason: "blocked_external_reviewer_non_pass",
   };
   if (codex.length > 0) iteration.review = {
@@ -5256,10 +5767,10 @@ function convergenceFinding(finding) {
 
 async function runNormalStructuredReviewCall(config, reviewPackage, provider, structuredReview, sessionLifecycle) {
   const scopedPackage = { ...reviewPackage, summary: { ...reviewPackage.summary, structuredReview: { phase: structuredReview.phase, sectionId: structuredReview.section?.id || null, changedPaths: structuredReview.section?.changedPaths || [], sections: (structuredReview.sections || []).map((entry) => ({ id: entry.id, status: entry.status, findings: (entry.findings || []).slice(0, 20) })), coverageSections: structuredReview.manifest.sections.map((entry) => ({ id: entry.id, changedPaths: entry.changedPaths })), manifestDigest: structuredReview.manifest.manifestDigest } } };
-  const evidence = provider === "gemini" ? await runIntegratedReviewSource(config, scopedPackage, `large-${structuredReview.phase}`) : runReviewPrompt(config, { ...scopedPackage, sessionLifecycle });
-  const pass = provider === "gemini" ? evidence?.status === "pass" && evidence?.verdict === "pass" : evidence?.verdict?.verdict === "approve";
+  const evidence = provider !== "codex-local" ? await runIntegratedReviewSource(config, scopedPackage, `large-${structuredReview.phase}`) : runReviewPrompt(config, { ...scopedPackage, sessionLifecycle });
+  const pass = provider !== "codex-local" ? evidence?.status === "pass" && evidence?.verdict === "pass" : evidence?.verdict?.verdict === "approve";
   const reasonCode = evidence?.reason || evidence?.reviewFailureReason || null;
-  const reviewerVerdict = provider === "gemini" ? evidence?.verdict || evidence?.sanitizedResponseSummary?.verdict : evidence?.verdict?.verdict;
+  const reviewerVerdict = provider !== "codex-local" ? evidence?.verdict || evidence?.sanitizedResponseSummary?.verdict : evidence?.verdict?.verdict;
   return { ...(structuredReview.section ? { id: structuredReview.section.id } : {}), status: pass ? "pass" : "blocked", reviewerVerdict, manifestDigest: structuredReview.manifest.manifestDigest, findings: normalStructuredFindings(evidence), evidencePath: evidence?.reportPath || evidence?.logPath || null, reasonCode, contextLimited: /context|token|truncat|over.?budget/i.test(reasonCode || ""), attestationSource: evidence?.attestationSource, providerPromptBindingDigest: evidence?.providerPromptBindingDigest, attestedCandidateIdentity: evidence?.attestedCandidateIdentity, attestedIntegrationBoundaries: evidence?.attestedIntegrationBoundaries, nextSessionLifecycle: evidence?.sessionLifecycle || null };
 }
 

@@ -14,6 +14,7 @@ import { moduleRuntimeRoot, pathEntryExists, validateProjectRuntimeIdentity } fr
 import { verifyRuntimeBundle } from "./runtime-bundle.mjs";
 import { bindTrustedRepositoryContext } from "./git-workspace.mjs";
 import { defaultLogsRoot } from "./runtime-path-defaults.mjs";
+import { recoveredIndependentReviewEvidence } from "./recovered-independent-evidence.mjs";
 
 export { defaultLogsRoot };
 const mandatoryAutoMergeChecks = Object.freeze(["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"]);
@@ -169,6 +170,11 @@ export const defaultConfig = Object.freeze({
   reviewerTiers: defaultReviewerTiers,
   reviewerBudget: defaultReviewerBudget,
   reviewerProviderProfiles: {
+    grok: {
+      provider: "grok",
+      command: "/home/tommytang213/.local/bin/grok",
+      defaultModel: "grok-4.7",
+    },
     gemini: {
       provider: "gemini",
       apiKeyEnv: "GEMINI_API_KEY",
@@ -516,6 +522,21 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
   config.reviewerBudget = reviewerPolicy.reviewerBudget;
   config.largeBundleReviewApproval = normalizeLargeBundleReviewApprovalConfig(config.largeBundleReviewApproval);
   config.reviewerProviderProfiles = normalizeReviewerProviderProfiles(config.reviewerProviderProfiles);
+  const providerPin = config.reviewerProviderPin ?? null;
+  if (providerPin !== null && providerPin !== "gemini" && providerPin !== "grok") {
+    throw new Error("reviewerProviderPin must be gemini or grok");
+  }
+  for (const tierId of ["cheap_independent", "strong_independent", "tie_breaker"]) {
+    const tier = config.reviewerTiers[tierId];
+    if (providerPin && tier.enabled && tier.provider !== providerPin) {
+      throw new Error(`reviewerProviderPin conflicts with enabled ${tierId} tier`);
+    }
+  }
+  if (config.run && Object.values(config.reviewerTiers).some((tier) => tier.enabled && tier.provider === "grok")
+    && (!config.configPath || providerPin !== "grok")) {
+    throw new Error("live Grok review requires an explicit task-scoped config with reviewerProviderPin grok");
+  }
+  config.reviewerProviderPin = providerPin;
   config.autoMergePolicy = normalizeAutoMergePolicy(config.autoMergePolicy);
   config.reviewFixMutation = normalizeReviewFixMutationConfig(config);
   config.maxReviewFixCycles = config.reviewFixMutation.maxAttempts;
@@ -1013,17 +1034,18 @@ export function validateRecoveryOnlyExactHeadEvidence(config = {}, recoveryConfi
   if (allowRebuild === true && evidence.recoveryStateRebuildable === true) {
     return { ok: true, rebuildRequired: true };
   }
+  const independent = recoveredIndependentReviewEvidence(evidence);
   const requiredChecks = [
     evidence.validationPassed === true,
     Array.isArray(evidence.validationResults),
     isNonEmptyString(evidence.validationCompletedAt || evidence.completedAt),
-    evidence.geminiPass === true,
-    evidence.geminiHeadSha === target.prHeadSha,
-    Array.isArray(evidence.geminiChangedFiles),
-    isNonEmptyString(evidence.geminiChangedFilesDigest || evidence.changedFilesDigest),
-    isNonEmptyString(evidence.geminiProvider),
-    isNonEmptyString(evidence.geminiTier),
-    isNonEmptyString(evidence.geminiCompletedAt || evidence.completedAt),
+    independent.pass === true,
+    independent.headSha === target.prHeadSha,
+    Array.isArray(independent.changedFiles),
+    isNonEmptyString(independent.changedFilesDigest || (!independent.neutral && evidence.changedFilesDigest)),
+    isNonEmptyString(independent.provider),
+    isNonEmptyString(independent.tier),
+    isNonEmptyString(independent.completedAt || (!independent.neutral && evidence.completedAt)),
     evidence.codexMechanicsApproved === true,
     evidence.codexMechanicsHeadSha === target.prHeadSha,
     Array.isArray(evidence.codexMechanicsChangedFiles),
@@ -1033,7 +1055,7 @@ export function validateRecoveryOnlyExactHeadEvidence(config = {}, recoveryConfi
   if (requiredChecks.some((ok) => !ok)) {
     return { ok: false, reason: "outage_recovery_exact_head_evidence_incomplete" };
   }
-  if (!sameCanonicalChangedFiles(evidence.geminiChangedFiles, canonicalChangedFiles)) {
+  if (!sameCanonicalChangedFiles(independent.changedFiles, canonicalChangedFiles)) {
     return { ok: false, reason: "outage_recovery_exact_head_evidence_invalid" };
   }
   if (!sameCanonicalChangedFiles(evidence.codexMechanicsChangedFiles, canonicalChangedFiles)) {
@@ -1041,7 +1063,7 @@ export function validateRecoveryOnlyExactHeadEvidence(config = {}, recoveryConfi
   }
   for (const digest of [
     evidence.changedFilesDigest,
-    evidence.geminiChangedFilesDigest,
+    independent.changedFilesDigest || (!independent.neutral && evidence.changedFilesDigest),
     evidence.codexMechanicsChangedFilesDigest,
   ]) {
     if (digest !== canonicalChangedFilesDigest) return { ok: false, reason: "outage_recovery_exact_head_evidence_invalid" };
@@ -1690,8 +1712,15 @@ function normalizeReviewerProviderProfiles(profiles = {}) {
     if (profile.endpoint || profile.baseUrl || profile.url) {
       throw new Error(`Reviewer provider profile ${profileId} must not configure arbitrary endpoints`);
     }
-    if (profile.provider !== "gemini") {
+    if (profile.provider !== "gemini" && profile.provider !== "grok") {
       throw new Error(`Unsupported reviewer provider for profile ${profileId}: ${profile.provider}`);
+    }
+    if (profile.provider === "grok") {
+      if (profile.apiKeyEnv || profile.envFilePath) throw new Error(`Grok profile ${profileId} must use subscriber login, not an API key`);
+      const command = profile.command || "/home/tommytang213/.local/bin/grok";
+      if (command !== "/home/tommytang213/.local/bin/grok") throw new Error(`Grok profile ${profileId} must use the pinned user-local CLI`);
+      normalized[profileId] = { provider: "grok", command, defaultModel: profile.defaultModel || "grok-4.7" };
+      continue;
     }
     normalized[profileId] = {
       provider: "gemini",

@@ -248,6 +248,8 @@ function runReviewPromptAttempt(config, command, prompt, attempt, sessionLifecyc
       input: prompt,
       stdio: ["pipe", stdoutFd, stderrFd],
       encoding: "utf8",
+      timeout: 30 * 60 * 1000,
+      killSignal: "SIGKILL",
     });
   } catch (error) {
     result = { status: null, signal: null, error };

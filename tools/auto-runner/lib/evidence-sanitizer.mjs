@@ -74,6 +74,9 @@ function sanitizeReviewResult(review) {
     reviewFailureCategory: stringOrNull(review.reviewFailureCategory),
     reviewFailureReason: stringOrNull(review.reviewFailureReason),
     completedAt: stringOrNull(review.completedAt),
+    finishedAt: stringOrNull(review.finishedAt),
+    independent: booleanOrNull(review.independent),
+    provider: stringOrNull(review.provider),
     attempts: sanitizeValue(review.attempts || []),
     attemptCount: numberOrNull(review.attemptCount ?? (Array.isArray(review.attempts) ? review.attempts.length : null)),
     reviewedHead: stringOrNull(review.reviewedHead),
@@ -81,6 +84,10 @@ function sanitizeReviewResult(review) {
     baseSha: stringOrNull(review.baseSha),
     changedFiles: sanitizeStringArray(review.changedFiles),
     changedFilesDigest: stringOrNull(review.changedFilesDigest),
+    attestationSource: stringOrNull(review.attestationSource),
+    providerPromptBindingDigest: stringOrNull(review.providerPromptBindingDigest),
+    attestedCandidateIdentity: sanitizeValue(review.attestedCandidateIdentity ?? null),
+    attestedIntegrationBoundaries: sanitizeStringArray(review.attestedIntegrationBoundaries),
     fullCandidatePrDelta: sanitizeValue(review.fullCandidatePrDelta ?? null),
     evidenceBinding: sanitizeValue(review.evidenceBinding ?? null),
     verdict: sanitizeReviewVerdict(review.verdict),
@@ -186,7 +193,7 @@ function booleanOrNull(value) {
 }
 
 function sanitizeStringArray(value) {
-  return Array.isArray(value) ? value.filter((item) => typeof item === "string").map((item) => sanitizeString(item)) : [];
+  return Array.isArray(value) ? value.filter((item) => typeof item === "string").map(sanitizeString) : [];
 }
 
 function sanitizeString(value) {
