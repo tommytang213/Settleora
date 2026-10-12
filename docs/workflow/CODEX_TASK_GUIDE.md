@@ -44,7 +44,7 @@ instructions:
 - Blocking gate expected after task:
 - Gate owner:
 - Figma/reference required: Yes / No
-- Manual approval required before merge: Yes / No
+- Manual approval required before merge: Yes / No; owner: Atlas / Tommy / other; release condition:
 ```
 
 Fill the fields as follows:
@@ -82,12 +82,16 @@ Fill the fields as follows:
   UX taste/approval, and explicit disagreements. Assistant/Codex owns technical
   design recommendations, architecture packets, API/schema slicing,
   security/money/storage/sync implementation planning, validation design, and
-  task breakdown. Figma/reference ownership depends on the visual artifact
-  review loop.
+  task breakdown. Atlas owns the final routine technical gate decision after
+  Codex prepares the exact-head evidence. Figma/reference ownership depends
+  on the visual artifact review loop.
 - `Figma/reference required` is `Yes` for UI-sensitive work without an
   approved screen, screenshot, design reference, or UX direction.
 - `Manual approval required before merge` is `Yes` for manual-gated domains
-  listed in this guide or in the task prompt.
+  listed in this guide or in the task prompt. Name Atlas for an agreed routine
+  technical gate, with release conditioned on Atlas's decision plus passing
+  exact-head tests, independent reviews, CI, and PR checks. Name Tommy only
+  when a product decision or protected action actually requires his approval.
 - Do not use target dates to hide blockers, fake progress, or move work to
   `Ready for Codex` before gates are clear.
 
@@ -226,7 +230,7 @@ Future OpenAPI/generated-client issue bodies must include a checklist covering:
 - Stage only the intended files by explicit path.
 - Commit with the requested message when one is provided.
 - Push only the task branch unless asked otherwise.
-- Do not merge to `main` unless the task explicitly asks for a PR/merge-gate action and the development-stage main merge policy permits it.
+- An implementation-only task stops before merge. For an explicit PR/merge-gate task, hold the merge until the named technical or protected-action gate owner decides and the development-stage exact-head main merge policy permits it. An Atlas decision on routine technical work does not create a separate Tommy code-review approval step.
 
 ## Day 1 PR Merge-Gate And CI Evidence
 

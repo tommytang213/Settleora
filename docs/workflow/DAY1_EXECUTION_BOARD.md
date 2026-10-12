@@ -96,6 +96,11 @@ API/schema slicing, security/money/storage/sync implementation planning,
 validation design, and task breakdown. No task should block on Tommy merely
 because technical implementation details are missing.
 
+Atlas makes the delegated routine technical gate decision after Codex prepares
+the contract or diff, exact-head validation, independent reviews, scope, and
+risks. Record Atlas and the release condition in the task report or existing
+`Blocking Gate` text; this does not add or change a Project field option.
+
 Figma/reference ownership depends on the visual artifact review loop. If the
 visual direction is missing, use `Needs Figma / Reference`; if the visual
 direction exists but technical slicing is missing, use `Needs Technical Design`.

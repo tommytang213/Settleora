@@ -974,9 +974,14 @@ function normalizeReviewFindingForFingerprint(finding, defaults = {}) {
 
 function canonicalClaimedFindingIdentity({ trigger = {}, source = null, externalReview = {}, review = {} } = {}) {
   const triggerSource = trigger.source || source || null;
-  if (triggerSource === "integrated_gemini") {
+  if (triggerSource === "integrated_gemini" || triggerSource === "integrated_grok") {
     const provider = externalReview?.provider || null;
-    if (!provider || provider === "external_review") return { ok: false, reason: "ambiguous_external_review_provider" };
+    if (!provider || provider === "external_review" || (triggerSource === "integrated_grok" && provider !== "grok")) {
+      return { ok: false, reason: "ambiguous_external_review_provider" };
+    }
+    // Older Grok checkpoints used integrated_gemini before provenance was
+    // provider-aware. Keep their authenticated provider while new runs use
+    // integrated_grok; finding fingerprints remain bound to the provider.
     return {
       ok: true,
       defaults: {

@@ -1710,6 +1710,41 @@ test("claimed review fingerprints preserve Gemini, Codex, and fixture provider i
   }), []);
 });
 
+test("review-fix trigger provenance distinguishes Grok from legacy Gemini and fixture evidence", () => {
+  const finding = {
+    severity: "high", path: "tools/auto-runner/lib/review-fix-policy.mjs", line: 1,
+    title: "Synthetic provider finding", body: "Bound to one reviewer",
+  };
+  const external = (provider) => ({
+    status: "blocked", reason: "blocked_external_reviewer_non_pass", provider,
+    sanitizedResponseSummary: { verdict: "fail", findings: [finding] },
+  });
+  const grok = external("grok");
+  const trigger = extractReviewFixTrigger({ externalReview: grok });
+  assert.equal(trigger.actionable, true);
+  assert.equal(trigger.source, "integrated_grok");
+  assert.deepEqual(claimedReviewFindingFingerprints({
+    fixAttempt: { decision: { trigger, sanitizedFindings: trigger.findings } }, externalReview: grok,
+  }), reviewFindingFingerprintsFromSupportedContainers({ externalReview: grok }));
+  assert.deepEqual(claimedReviewFindingFingerprints({
+    fixAttempt: { decision: { trigger: { source: "integrated_grok" }, sanitizedFindings: trigger.findings } },
+    externalReview: external("gemini"),
+  }), []);
+  // Previously persisted Grok fixes carried the old trigger label; their
+  // claimed findings remain authenticated against their recorded provider.
+  assert.deepEqual(claimedReviewFindingFingerprints({
+    fixAttempt: { decision: { trigger: { source: "integrated_gemini" }, sanitizedFindings: trigger.findings } },
+    externalReview: grok,
+  }), reviewFindingFingerprintsFromSupportedContainers({ externalReview: grok }));
+  assert.equal(extractReviewFixTrigger({ externalReview: external("gemini") }).source, "integrated_gemini");
+  assert.equal(extractReviewFixTrigger({ externalReview: external("external") }).source, "integrated_gemini");
+  assert.equal(extractReviewFixTrigger({ externalReview: external("review_fix_canary_fixture") }).source,
+    "review_fix_canary_fixture");
+  assert.deepEqual(extractReviewFixTrigger({ externalReview: external("unknown-provider") }), {
+    actionable: false, source: "unknown", reason: "external_review_provider_unsupported", findings: [],
+  });
+});
+
 test("structured review-fix findings survive trigger extraction, decision, and claimed fingerprinting", () => {
   const secret = "fake-cycle15-canary-fingerprint-value";
   const structured = {

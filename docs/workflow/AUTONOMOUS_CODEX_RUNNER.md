@@ -206,13 +206,13 @@ closed.
 
 Review correction uses two nested limits independent of logical-task count.
 The inner local epoch permits at most 50 source-changing batches and requires
-validation, fresh Gemini review, and fresh local Codex review bound to one exact
+validation, fresh configured independent-provider review, and fresh local Codex review bound to one exact
 candidate. The outer PR loop permits at most 50 frozen actionable GitHub
 finding batches per PR. Each starts a new local epoch and resets only its local
 round counter. Lifetime local source-changing rounds are telemetry only.
 
 Existing-PR stack correction uses a durable inner-local candidate journal.
-Validation, fresh Gemini, and fresh local Codex sessions bind to the same
+Validation, fresh configured independent-provider, and fresh local Codex sessions bind to the same
 committed-but-unpushed cumulative candidate. Material findings from both
 reviewers are frozen and deduplicated into one bounded batch; a safe in-scope
 fix invalidates all candidate evidence and repeats all three gates. Commit and
@@ -443,7 +443,7 @@ or latest issue and PR with head SHA where known, terminal outcome or stop
 reason, last event time, summary/report/log paths, and active control flags.
 `--json` also exposes `maxPrs`, `completedPrs`, and `estimatedRemainingPrs`
 aliases for the same iteration budget used by current canary/trusted runner
-loops. It must remain sanitized: no provider payloads, raw Gemini output,
+loops. It must remain sanitized: no provider payloads, raw independent-reviewer output,
 raw Codex mechanics output, provider request/response bodies, environment
 variables, API keys, authorization headers, `.env` values, or secrets. Run
 summaries, iteration state, active-run state, recent summaries, and event
@@ -751,7 +751,7 @@ existing-PR recovery enters the same bounded wait loop as normal auto-merge
 instead of requiring a second operator invocation.
 
 Fresh implementation runs create the runner-owned commit locally before any
-independent Gemini or Codex mechanics review runs. That local commit stays
+configured independent-provider or Codex mechanics review runs. That local commit stays
 unpushed until local validation and both required reviews pass. Review packages
 use the committed `origin/main...HEAD` diff, record the reviewed commit SHA and
 exact changed-file set, and the later push/PR step must use that same SHA. If a
@@ -781,14 +781,14 @@ independent review evidence must be unambiguous in PR bodies, PR comments,
 issue comments, summaries, and event listings:
 
 ```text
-Independent AI review: required; provider/tier: Gemini cheap_independent; verdict: pass; exact head: <sha>; evidence: <sanitized local path>
+Independent AI review: required; provider/tier: <pinned provider>/<required tier>; verdict: pass; exact head: <sha>; evidence: <sanitized local path>
 ```
 
 Disabled, skipped, missing, malformed, stale-head, mismatched-file,
 provider-failed, or non-pass independent review evidence is reported as
 blocked/fail-closed. The runner must not describe required real-code
-independent review as optional wording such as `Gemini when configured`, and
-must not post raw Gemini output to GitHub.
+independent review as optional wording such as `provider when configured`, and
+must not post raw independent-reviewer output to GitHub.
 
 Positive-scope danger scanning also stays fail-closed before implementation.
 Validated `client-ui-low-risk` contracts may use financial-domain display
@@ -1469,12 +1469,12 @@ or manual gate markers are present, and the issue is still open without stop
 labels such as `needs-tommy`, `danger-gate`, `blocked`, or `auto-failed`.
 
 Because `client-ui-low-risk` is real code, auto-merge for that lane also
-requires a passing independent Gemini review on the same head and changed-file
+requires a passing configured independent-provider review on the same head and changed-file
 set. Disabled, skipped, missing, malformed, stale-head, mismatched-file,
 provider-failed, or non-pass independent review evidence fails closed.
 Codex mechanics review remains required, but it is not sufficient by itself
 for real-code auto-merge. Existing-PR recovery for this lane requires both
-independent Gemini evidence and Codex mechanics evidence on the exact PR head.
+independent-provider evidence and Codex mechanics evidence on the exact PR head.
 
 The only merge method for this foundation is normal GitHub merge-commit
 semantics, equivalent to `gh pr merge <number> --merge`. The runner must not
@@ -1496,7 +1496,7 @@ Existing-PR recovery is disabled by default. A later explicit external config
 may enable `allowExistingPrRecovery` for a specific low-risk canary issue and
 PR. Recovery requires the PR branch/body to link the issue, exact changed
 files within the issue contract, exact-head local validation evidence,
-exact-head Gemini and/or Codex mechanics evidence, current successful checks,
+exact-head configured independent-provider and/or Codex mechanics evidence, current successful checks,
 clean mergeability, resolved review threads, no open PR-ref code-scanning
 alerts, no issue stop labels, no blocking comments/reviews, and the unchanged
 expected PR head. Missing or stale evidence fails closed.
@@ -1761,7 +1761,7 @@ under the authorized #912 activation.
 # Large-candidate review routing
 
 Large-candidate routing is a distinct versioned authority. Size alone routes a
-coherent candidate to mandatory strong cumulative Gemini and local Codex
+coherent candidate to mandatory strong cumulative configured independent-provider and local Codex
 review; it is not a manual gate and does not require routine exact approval
 metadata. Mixed architecture-sensitive combinations route to deterministic
 split planning and proceed only when exact issue/task ownership, allowed paths,
@@ -1772,7 +1772,7 @@ state migrates to split-required state and never counts as a review pass.
 
 Structured review freezes base/head/tree/diff/file-manifest identity, assigns
 every changed path to one domain section, records required unchanged integration
-boundaries, and requires fresh Gemini and local Codex section passes plus a
+boundaries, and requires fresh configured independent-provider and local Codex section passes plus a
 final cross-section integration pass from each reviewer. Missing, duplicate,
 stale, mismatched, malformed, truncated, over-budget, partial, or uncovered
 evidence blocks. Provider/context limits record exact uncovered scope and
@@ -2115,7 +2115,7 @@ observation records current `origin/main` separately and proves
 Recovery validation runs on the clean
 prospective merge tree of that exact main and candidate, records its tree and
 two-parent synthetic commit, and re-proves those bytes before merge evaluation;
-Gemini and Codex reviews remain bound to the exact candidate head. A restart
+Configured independent-provider and Codex reviews remain bound to the exact candidate head. A restart
 after validation or either local review may resume only when every completed
 pre-external phase has its exact continuation target and timestamp; any unknown,
 out-of-order, push, PR, comment, or merge effect remains a hard failure.

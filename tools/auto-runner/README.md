@@ -447,7 +447,7 @@ referenced state is never deleted.
 
 `source-failure-convergence.mjs` defines the versioned, bounded record used by
 ordinary continuation for local validation, GitHub checks, CodeQL, Semgrep,
-Trivy, Gemini, local Codex, and GitHub Codex findings. Records are sanitized,
+Trivy, configured independent-provider, local Codex, and GitHub Codex findings. Records are sanitized,
 exact-candidate bound, fingerprinted, frozen, and deduplicated; raw provider
 payloads, logs, prompts, diffs, environment data, credentials, and scanner
 artifacts are not persisted.
@@ -692,7 +692,7 @@ deduplicated actionable GitHub finding batch that starts a new local epoch;
 `lifetimeLocalSourceChangingRounds` is monotonic telemetry and never blocks.
 Polling, pending checks, provider retries, unchanged reruns, restarts, and
 session rotation consume no nested counter. A GitHub-triggered epoch resets
-only the per-epoch local counter and must complete validation plus fresh Gemini
+only the per-epoch local counter and must complete validation plus fresh configured independent-provider
 and local Codex reviews on the same candidate identity before push.
 The production existing-PR stack adapter journals each unpushed cumulative
 candidate, freezes and deduplicates combined local reviewer findings, applies
@@ -1074,7 +1074,7 @@ and active control flags. `--json` emits the same sanitized data as JSON,
 including `maxPrs`/`completedPrs` aliases for the iteration budget used by
 current canary/trusted runner loops. The status surface does not print
 environment variables, provider payloads, API keys, authorization headers,
-`.env` values, raw Gemini output, raw Codex mechanics output, selected
+`.env` values, raw independent-reviewer output, raw Codex mechanics output, selected
 response payloads, or provider request bodies. New run summaries,
 iteration-state JSON, active-run JSON, recent summaries, Markdown summaries,
 and list/status/event surfaces persist sanitized metadata and evidence paths
@@ -1382,7 +1382,7 @@ Dry-run mode previews the exact transient labels without mutating GitHub.
 
 Fresh implementation ordering is exact-head-first. After Codex implementation
 and local validation, the runner creates a normal local commit containing the
-validated files and does not push it. Gemini and Codex mechanics review then
+validated files and does not push it. The configured independent provider and Codex mechanics review then
 run against that committed `origin/main...HEAD` diff and record the reviewed
 head SHA plus the exact changed-file set. Push and PR creation use the same
 reviewed commit SHA. If an approved review-fix mode changes files, it creates a
@@ -1390,19 +1390,19 @@ new normal local follow-up commit and reruns exact-head reviews for that new
 head; stale evidence from the prior head is not accepted.
 
 For the real-code `client-ui-low-risk` lane, auto-merge additionally requires
-a passing independent Gemini review for the exact head and changed-file set.
+a passing configured independent-provider review for the exact head and changed-file set.
 Runner PR bodies, PR comments, issue comments, summaries, and event listings
 use explicit wording such as:
 
 ```text
-Independent AI review: required; provider/tier: Gemini cheap_independent; verdict: pass; exact head: <sha>; evidence: <sanitized local path>
+Independent AI review: required; provider/tier: <pinned provider>/<required tier>; verdict: pass; exact head: <sha>; evidence: <sanitized local path>
 ```
 
 Disabled, skipped, missing, malformed, stale-head, mismatched-file,
 provider-failed, or non-pass independent review evidence is reported as
 blocked/fail-closed, not as optional or merely unconfigured. Codex mechanics
 review is still required but does not replace the independent real-code review
-gate. Existing-PR recovery for this lane requires both independent Gemini
+gate. Existing-PR recovery for this lane requires both configured independent-provider
 evidence and Codex mechanics evidence on the exact PR head.
 
 Codex mechanics review capture is file-backed and attempt-oriented. Each
@@ -1448,7 +1448,7 @@ runner can evaluate an already-open auto-runner PR instead of creating a new
 branch. Recovery requires the low-risk canary contract, an open non-draft PR on
 `main`, current PR title/body metadata with exact `#<issue>` linkage, exact
 changed files within the issue contract, exact-head validation evidence,
-exact-head Gemini and/or Codex mechanics evidence, current successful checks,
+exact-head configured independent-provider and/or Codex mechanics evidence, current successful checks,
 clean mergeability, resolved review threads, no PR-ref code-scanning alerts,
 no stop labels, no blocking comments/reviews, and the unchanged expected PR
 head. Linkage is checked by deterministic text scanning with numeric boundary
@@ -1755,7 +1755,7 @@ and `manualMergeRequired: false`. Broad root paths, `**`, `docs/**`,
 storage/money/schema/OpenAPI/generated-client/Docker/deployment/env/secret/
 public/admin scope, stop labels, missing required independent AI review pass,
 missing Codex mechanics
-approval, missing independent Gemini pass for `client-ui-low-risk`, failing checks, unresolved review threads, PR-ref code-scanning
+approval, missing configured independent-provider pass for `client-ui-low-risk`, failing checks, unresolved review threads, PR-ref code-scanning
 alerts, stale PR heads, base mismatch, dirty worktrees, and issue-state
 mismatches remain blocking gates. This max-2 path exists only to prove the
 live auto-merge gates on two bounded low-risk issues after a separate explicit
@@ -1815,7 +1815,7 @@ to at least three source-changing cycles. Terminal reasons are:
 round 51 is refused. A diagnostic review may explain exhaustion, but cannot
 authorize another source mutation.
 
-The trigger must be structured and actionable: integrated Gemini must return a
+The trigger must be structured and actionable: the configured independent provider must return a
 bounded strict-JSON blocking finding, or Codex mechanics review must return
 `changes_requested` with `recommended_next_action: "run_safe_fix_cycle"` and
 blocking findings. Malformed review output, provider/accounting/key failures,
@@ -1829,7 +1829,7 @@ branch and exact `allowedPaths`, and prohibits unrelated cleanup, broad
 refactors, generated-client edits, secrets/env files, product/runtime/security/
 money/schema/OpenAPI changes, pushes, PR updates, GitHub comments, merges,
 branch deletion, and live provider calls. After the attempt, the runner reruns
-changed-file policy checks, local validation, integrated Gemini when
+changed-file policy checks, local validation, the configured independent provider when
 configured, and Codex mechanics review. Evidence is written only under
 `/workspace/logs/settleora-auto-runner/review-fix/`.
 
@@ -1845,14 +1845,14 @@ issue, head, or changed-file list.
 Review-fix canary fixture:
 
 A deterministic review-fix canary fixture exists only for a future one-issue
-live canary. It is disabled by default and has no effect on normal Gemini or
+live canary. It is disabled by default and has no effect on normal configured independent-provider or
 Codex mechanics review. To use it, an external uncommitted config must enable
 `reviewFixCanaryFixture.enabled`, provide a bounded single-line `marker` such
 as `review-fix-cycle: completed`, and invoke the runner with the same
 `--run --canary`, low-risk auto-merge canary, and review-fix mutation approval
 shape above.
 
-In fixture mode, the runner does not call Gemini for the integrated review
+In fixture mode, the runner does not call the configured independent provider for the integrated review
 source. It checks only the changed low-risk issue-contract files for the exact
 configured marker, writes sanitized evidence under
 `/workspace/logs/settleora-auto-runner/review-fix/`, returns a structured

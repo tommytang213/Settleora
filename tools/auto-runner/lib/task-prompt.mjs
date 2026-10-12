@@ -85,7 +85,7 @@ ${(laneDecision.contract?.requiredReading || []).map((item) => `- Contract requi
 - Implement locally, validate locally, and write the local report only.
 - Do not push to any remote.
 - Do not open or update pull requests.
-- Do not merge.
+- This is the local implementation-worker phase: do not invoke a merge here. The runner may merge the eventual PR only if its lane permits and its separate exact-head review, CI, scope, and applicable Atlas or protected-action gates pass.
 - Do not change GitHub labels, issues, or comments.
 - Do not create follow-up GitHub issues.
 - The runner owns explicit-path staging, commit, push, PR creation/update, CI watching, and issue outcome labels/comments after local validation and an approved pre-PR review verdict.
