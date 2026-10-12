@@ -2352,6 +2352,50 @@ test("arbitrary dotted credential assignments remain blocked", () => {
   assert.equal(result.blockers[0].classification, "credential_value");
 });
 
+test("receipt amount normalization is a path-bound code reference", () => {
+  const file = "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_parser.dart";
+  const statement = "final normalizedToken = _normalizeAmount(amountToken);";
+  const result = analyzeReviewSecretBoundary({ changedFiles: [file], diff: diffFor(file, [`+    ${statement}`]) });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.allowedReferences.map(({ rule, classification }) => ({ rule, classification })), [
+    { rule: "credential_assignment", classification: "code_reference" },
+  ]);
+  assert.match(diffFor(file, [`+    ${statement}`]), /normalizedToken = _normalizeAmount\(amountToken\)/);
+});
+
+test("receipt exception preserves same-line and neighboring credential blocks", () => {
+  const file = "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_parser.dart";
+  const statement = "final normalizedToken = _normalizeAmount(amountToken);";
+  for (const lines of [
+    [`+${statement} API_TOKEN = "synthetic-nonfixture-secret";`],
+    [`+${statement}`, '+API_TOKEN = "synthetic-nonfixture-secret";'],
+    [`+${statement} // API_TOKEN = "synthetic-nonfixture-secret";`],
+    [`+${statement} + "synthetic-nonfixture-secret";`],
+  ]) {
+    const result = analyzeReviewSecretBoundary({ changedFiles: [file], diff: diffFor(file, lines) });
+    assert.equal(result.blocked, true);
+    assert.ok(result.blockers.some(({ rule }) => rule === "credential_assignment"));
+  }
+});
+
+test("receipt exception rejects alternate statements and path spoofs", () => {
+  const file = "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_parser.dart";
+  const statement = "final normalizedToken = _normalizeAmount(amountToken);";
+  const cases = [
+    ["apps/mobile/lib/receipt_ocr_capture/receipt_ocr_parser.dart.bak", statement],
+    ["apps/mobile/lib/receipt_ocr_capture/fake/receipt_ocr_parser.dart", statement],
+    [file, "final normalizedToken = _normalizeAmount(otherToken);"],
+    [file, "final normalizedToken = _normalizeAmount(amountToken, secret);"],
+    [file, "final normalizedToken = _normalizeAmount(amountToken); // extra"],
+    [file, "final normalizedToken = '_normalizeAmount(amountToken)';"],
+  ];
+  for (const [path, source] of cases) {
+    const result = analyzeReviewSecretBoundary({ changedFiles: [path], diff: diffFor(path, [`+${source}`]) });
+    assert.equal(result.blocked, true, `${path}: ${source}`);
+    assert.ok(result.blockers.some(({ rule }) => rule === "credential_assignment"));
+  }
+});
+
 function diffFor(file, lines, { oldStart = 1, newStart = 1 } = {}) {
   return [
     `diff --git a/${file} b/${file}`,
