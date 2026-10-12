@@ -78,8 +78,9 @@ void main() {
             add('Description', 2, 20, 160);
             add('Amount', 2, 300, 500);
             add('Widget', 3, 20, 160);
-            if (competing)
+            if (competing) {
               add(reversed ? 'USD 20.00' : 'USD 10.00', 3, 310, 380);
+            }
             add(competing && reversed ? 'USD 10.00' : 'USD 20.00', 3, 400, 470);
             add('Total', 4, 20, 160);
             add('USD 20.00', 4, 400, 470);
