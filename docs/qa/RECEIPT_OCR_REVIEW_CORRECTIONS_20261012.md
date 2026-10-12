@@ -50,3 +50,34 @@ amount remains eligible without an additional warning. Regression controls
 cover three currencies, prices following street addresses, genuine postal
 headers, and normal and mirrored table geometry with reversed competing
 amounts. Neither correction changes receipt truth or financial Apply authority.
+
+A contact-column total is now selected before missing-total warnings are
+decided, so a recovered printed total cannot simultaneously be reported as
+missing. This selection remains after item and adjustment completeness
+decisions; it does not clear an unresolved discount or establish item money.
+Controls retain the warning when geometry or the monetary cell is missing.
+
+Changing a saved review's currency retains subtotal, tax, service-charge and
+discount suggestions as editable header evidence in their original currency.
+Scalar and item-money suggestions still clear instead of being relabeled.
+Repeated currency changes do not duplicate that evidence or restore an
+explicitly removed entry, and a changed explicit tax interpretation remains
+unresolved. The server's Save and Apply safeguards are unchanged.
+
+Fuel ambiguity controls explicitly verify that a second priced item leaves
+the printed grand total and a review hint visible. A unit rate and quantity
+are not permission to invent an unprinted fuel line total by multiplication.
+
+Total admission now requires the complete financial label and monetary cells.
+A product such as "Total Care Kit 2 USD 19.99" remains an item and cannot
+establish the receipt total. An attached alphabetic code can still be a SKU;
+that evidence keeps the existing traceability warning. Incomplete total-like
+rows remain inputs to ambiguity and layout guards, without gaining authority
+to supply an amount or currency. Complete repeated totals and earlier
+unsupported-currency reference cells retain the existing selected-cell checks.
+
+Preview reconciliation now keeps a review hint when a printed included-tax
+component is negative or exceeds its entire gross item base. Controls cover
+both printed and absent subtotals, valid zero-to-base components, and a
+separately proven net-item-plus-tax total. Printed amounts remain unchanged;
+the saved review and financial Apply authority are unchanged.

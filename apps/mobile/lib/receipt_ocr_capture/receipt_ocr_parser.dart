@@ -317,8 +317,21 @@ class ReceiptOcrParser {
     );
     final hasCompleteItemEvidence =
         hasCompletePricedItemEvidence && unresolvedItemLines == 0;
+    // Keep the contact-column correction out of item/adjustment inference.
+    // A repaired total must not newly reconcile discounts or clear the
+    // incompleteness decisions established from the original evidence.
+    final contactColumnTotals = <String>{
+      for (var index = 0; index < lines.length; index++)
+        if (!recognizedChargeRows.contains(index) &&
+            !ambiguousChargeRows.contains(index) &&
+            !detachedAmountSignRows.contains(index) &&
+            !layoutAdjustmentLines.containsKey(index))
+          ?_ownedTotalBesideContact(lines, layoutRows, index, currency),
+    };
+
     final selectedTotal =
         amounts.total ??
+        (contactColumnTotals.length == 1 ? contactColumnTotals.single : null) ??
         _boundedDccChargedTotal(
           lines,
           itemCandidates,
@@ -412,18 +425,6 @@ class ReceiptOcrParser {
         ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine,
     }.toList(growable: false);
 
-    // Keep the contact-column correction out of item/adjustment inference.
-    // A repaired total must not newly reconcile discounts or clear the
-    // incompleteness decisions established from the original evidence.
-    final contactColumnTotals = <String>{
-      for (var index = 0; index < lines.length; index++)
-        if (!recognizedChargeRows.contains(index) &&
-            !ambiguousChargeRows.contains(index) &&
-            !detachedAmountSignRows.contains(index) &&
-            !layoutAdjustmentLines.containsKey(index))
-          ?_ownedTotalBesideContact(lines, layoutRows, index, currency),
-    };
-
     return ReceiptOcrPreview(
       merchant: merchant,
       receiptDate: _detectDate(
@@ -487,9 +488,7 @@ class ReceiptOcrParser {
           ) &&
           unresolvedItemLines == 0,
       incompleteAdjustmentReasons: incompleteAdjustmentReasons,
-      total: contactColumnTotals.length == 1
-          ? contactColumnTotals.single
-          : selectedTotal,
+      total: selectedTotal,
       rawTextLineCount: lines.length,
       confidence: _averageBlockConfidence(blocks),
       category: 'receipt',
@@ -1798,7 +1797,7 @@ class ReceiptOcrParser {
       // Preserve every existing total-recognition path, including joined labels
       // and multi-amount priority totals. The sentinel recognizes labels only.
       return _hasTotalLabel(normalized, lower) ||
-          _isPrimaryTotalCurrencyLine(normalized, lower) ||
+          _hasPotentialPrimaryTotalCurrencyLine(normalized, lower) ||
           _hasPriorityTotalLabel(normalized) ||
           (!_lineHasAmount(normalized) &&
               _hasTotalLabel('$normalized 0', '$lower 0'));
@@ -2415,7 +2414,7 @@ class ReceiptOcrParser {
           _traditionalTaxAmountLinePattern.firstMatch(line) ??
           _portugueseServiceAmountLinePattern.firstMatch(line);
       final unownedTotalTail =
-          _isPrimaryTotalCurrencyLine(line, normalized) &&
+          _hasPotentialPrimaryTotalCurrencyLine(line, normalized) &&
           line == lines[lineIndex] &&
           layoutRows.length == lines.length &&
           _hasUnownedTotalTail(layoutRows[lineIndex], line, currency);
@@ -2498,7 +2497,7 @@ class ReceiptOcrParser {
         );
       }
       if (amount == null &&
-          _isPrimaryTotalCurrencyLine(line, normalized) &&
+          _hasPotentialPrimaryTotalCurrencyLine(line, normalized) &&
           _ownedTotalBesideContact(lines, layoutRows, lineIndex, currency) ==
               null) {
         // Rejecting a date/identifier/partial token must not promote an earlier
@@ -13010,11 +13009,29 @@ bool _isPrimaryTotalCurrencyLine(String line, String normalized) {
     return false;
   }
   return _hasTotalLabel(line, normalized) ||
-      (RegExp(
-            r'^\s*(?:grand\s+total|total\s+(?:amount\s+)?due|total|amount\s+due|balance\s+due)\b',
-          ).hasMatch(normalized) &&
-          (RegExp(_amountTokenPattern).allMatches(line).length > 1 ||
-              _attachedSupportedCodeOnSelectedAmount(line) != null));
+      _hasCompleteLabeledCurrencyCells(
+        line,
+        r'(?:total\s+current\s+charges|grand\s+total|total\s+(?:amount\s+)?due|total|amount\s+due|balance\s+due)',
+        includeUnsupportedCurrencyCodes: true,
+      );
+}
+
+bool _hasPotentialPrimaryTotalCurrencyLine(String line, String normalized) {
+  // Incomplete total-looking rows still participate in conflict and layout
+  // guards. This broader test must never establish a total or its currency.
+  if (_isPrimaryTotalCurrencyLine(line, normalized)) return true;
+  if ((_includedTaxTotalPrefixPattern.hasMatch(line) &&
+          !_includedTaxTotalLinePattern.hasMatch(line)) ||
+      RegExp(
+        r'\b(payment|tender|cash|change|previous|prior|reference)\b',
+      ).hasMatch(normalized)) {
+    return false;
+  }
+  return RegExp(
+        r'^\s*(?:grand\s+total|total\s+(?:amount\s+)?due|total|amount\s+due|balance\s+due)\b',
+      ).hasMatch(normalized) &&
+      (RegExp(_amountTokenPattern).allMatches(line).length > 1 ||
+          _attachedSupportedCodeOnSelectedAmount(line) != null);
 }
 
 const _englishTotalLabels = [
@@ -13103,8 +13120,17 @@ bool _hasPriorityTotalLabel(String line) {
   if (_hasEnglishReceiptLabel(line.toLowerCase(), RegExp('\\b$label\\b'))) {
     return true;
   }
+  return _hasCompleteLabeledCurrencyCells(line, label);
+}
+
+bool _hasCompleteLabeledCurrencyCells(
+  String line,
+  String label, {
+  bool includeUnsupportedCurrencyCodes = false,
+}) {
   // A total can show several currency amounts. Each extra amount needs its
-  // own currency marker: a bare edition year is not another monetary cell.
+  // own currency marker, and the complete suffix must be monetary cells.
+  // Neither an edition number nor an attached code owns a product's name.
   final prefix = RegExp(
     '^\\s*$label\\b',
     caseSensitive: false,
@@ -13112,9 +13138,16 @@ bool _hasPriorityTotalLabel(String line) {
   if (prefix == null) return false;
   const separators = r'[\s:=/|;,&()\[\]]';
   final separatorPattern = RegExp('$separators+');
+  final repeatedLabel = RegExp('$label\\b', caseSensitive: false);
+  // An earlier reference amount may carry a known unsupported ISO code.
+  // Recognizing that cell does not authorize its amount: the selected cell
+  // still passes the existing supported-currency and conflict checks.
+  final currencyToken = includeUnsupportedCurrencyCodes
+      ? '$_currencyTokenPattern|${_knownUnsupportedIsoCurrencyCodes.join('|')}'
+      : _currencyTokenPattern;
   final cellPattern = RegExp(
-    '(?:(?:$_currencyTokenPattern)\\s*[:=]?\\s*\\+?\\s*$_amountTokenPattern'
-    '|\\+?\\s*$_amountTokenPattern\\s*[:=]?\\s*(?:$_currencyTokenPattern))'
+    '(?:(?:$currencyToken)\\s*[:=]?\\s*\\+?\\s*$_amountTokenPattern'
+    '|\\+?\\s*$_amountTokenPattern\\s*[:=]?\\s*(?:$currencyToken))'
     '(?=$separators|\$)',
     caseSensitive: false,
   );
@@ -13123,6 +13156,16 @@ bool _hasPriorityTotalLabel(String line) {
   while (offset < line.length) {
     offset = separatorPattern.matchAsPrefix(line, offset)?.end ?? offset;
     if (offset == line.length) break;
+    // Flattened columns may contain another complete printed total. Retain
+    // the existing final-cell selection and discrepancy review in that case.
+    // Arbitrary product words cannot stand in for a repeated financial label.
+    if (cells > 0) {
+      final repeated = repeatedLabel.matchAsPrefix(line, offset);
+      if (repeated != null) {
+        offset = repeated.end;
+        offset = separatorPattern.matchAsPrefix(line, offset)?.end ?? offset;
+      }
+    }
     final cell = cellPattern.matchAsPrefix(line, offset);
     if (cell == null) return false;
     cells++;

@@ -1195,7 +1195,7 @@ void main() {
     );
 
     testWidgets(
-      'saved review currency change clears persisted money evidence',
+      'saved review currency change preserves printed header evidence',
       (tester) async {
         await useLargeSurface(tester);
         final route = sampleRoute();
@@ -1223,6 +1223,12 @@ void main() {
         expect(repository.saveCalls, 1);
         final saved = repository.lastSaveRequest!;
         expect(saved.currency, 'EUR');
+        expect(
+          saved.headerEvidence.map(
+            (entry) => (entry.role, entry.amount, entry.currency),
+          ),
+          [('subtotal', '10.00', 'USD'), ('tax', '0.80', 'USD')],
+        );
         expect(saved.subtotalAmount, isNull);
         expect(saved.taxAmount, isNull);
         expect(saved.serviceChargeAmount, isNull);
@@ -1234,6 +1240,77 @@ void main() {
         expect(saved.lines.single.lineTotalAmount, isNull);
       },
     );
+
+    for (final removeTax in [false, true]) {
+      testWidgets(
+        'repeated currency edits retain original header evidence remove=$removeTax',
+        (tester) async {
+          await useLargeSurface(tester);
+          final route = sampleRoute();
+          final repository = FakeReceiptOcrReviewRepository(
+            reviewResponse: sampleReview(
+              route,
+              serviceChargeAmount: '1.00',
+              discountAmount: '0.50',
+              grandTotalAmount: '11.30',
+              taxReconciliationMode:
+                  ReceiptOcrTaxReconciliationModeValues.addToBase,
+            ),
+          );
+          await pumpDetail(tester, repository: repository, route: route);
+          await tester.pumpAndSettle();
+          await tester.tap(
+            find.widgetWithIcon(IconButton, Icons.edit_outlined),
+          );
+          await tester.pumpAndSettle();
+          final selector = find.byKey(
+            const Key('receipt-review-edit-currency'),
+          );
+          tester.widget<CurrencySelector>(selector).onChanged('EUR');
+          await tester.pumpAndSettle();
+          if (removeTax) {
+            final remove = find.byKey(
+              const Key('receipt-review-edit-header-remove-tax'),
+            );
+            await tester.ensureVisible(remove);
+            await tester.tap(remove);
+            await tester.pumpAndSettle();
+          }
+          for (final currency in ['GBP', 'USD']) {
+            tester.widget<CurrencySelector>(selector).onChanged(currency);
+            await tester.pumpAndSettle();
+          }
+          final save = find.byKey(const Key('receipt-review-edit-save'));
+          await tester.ensureVisible(save);
+          await tester.tap(save);
+          await tester.pumpAndSettle();
+          expect(repository.saveCalls, 1);
+          final saved = repository.lastSaveRequest!;
+          expect(saved.currency, 'USD');
+          expect(
+            saved.headerEvidence.map(
+              (entry) => (entry.role, entry.amount, entry.currency),
+            ),
+            [
+              ('subtotal', '10.00', 'USD'),
+              if (!removeTax) ('tax', '0.80', 'USD'),
+              ('service_charge', '1.00', 'USD'),
+              ('discount', '0.50', 'USD'),
+            ],
+          );
+          expect(saved.subtotalAmount, isNull);
+          expect(saved.taxAmount, isNull);
+          expect(saved.serviceChargeAmount, isNull);
+          expect(saved.discountAmount, isNull);
+          expect(saved.grandTotalAmount, isNull);
+          expect(saved.lines.single.lineTotalAmount, isNull);
+          expect(
+            saved.taxReconciliationMode,
+            ReceiptOcrTaxReconciliationModeValues.unresolved,
+          );
+        },
+      );
+    }
 
     testWidgets('changing adjustment kind to credit refreshes direction', (
       tester,
@@ -2487,7 +2564,13 @@ void main() {
 
       expect(repository.saveCalls, 0);
       expect(find.text('Required when amounts are present'), findsOneWidget);
-      expect(find.text('Use a non-negative decimal amount'), findsNWidgets(4));
+      expect(find.text('Use a non-negative decimal amount'), findsNWidgets(3));
+      expect(
+        find.text(
+          'Remove printed subtotal evidence before entering this amount',
+        ),
+        findsOneWidget,
+      );
       expect(find.text('Use a positive decimal quantity'), findsOneWidget);
       expectVisibleTextOmitsUnsafeDetails(tester);
     });
@@ -3182,6 +3265,9 @@ ReceiptOcrReviewDetail sampleReview(
   String? currency = 'USD',
   String? subtotalAmount = '10.00',
   String? taxAmount = '0.80',
+  String? serviceChargeAmount,
+  String? discountAmount,
+  String? taxReconciliationMode,
   String? grandTotalAmount = '10.80',
   List<ReceiptOcrReviewLine>? lines,
   List<ReceiptOcrReviewAdjustment> adjustments = const [],
@@ -3201,8 +3287,9 @@ ReceiptOcrReviewDetail sampleReview(
     currency: currency,
     subtotalAmount: subtotalAmount,
     taxAmount: taxAmount,
-    serviceChargeAmount: null,
-    discountAmount: null,
+    taxReconciliationMode: taxReconciliationMode,
+    serviceChargeAmount: serviceChargeAmount,
+    discountAmount: discountAmount,
     grandTotalAmount: grandTotalAmount,
     lines: lines ?? sampleLines(),
     adjustmentEvidence: adjustments,

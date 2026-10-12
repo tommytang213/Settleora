@@ -20,9 +20,10 @@ import org.opencv.core.Mat
  * Settleora's Android PaddleOCR/ONNX Runtime boundary.
  *
  * Detection runs once. The common recognizer and all five Global Core
- * specialists probe both orientations before the fixed selector chooses a
- * compatible result. Bounded recovery follows the frozen original selection
- * and orientation without using phone locale.
+ * specialists probe both orientations, followed by eligible Cyrillic margin
+ * candidates, before the fixed selector chooses a compatible result. Polish,
+ * calendar-date and rupee recovery then use that frozen selection and
+ * orientation without using phone locale.
  */
 class SettleoraPaddleOcrEngine(context: Context) {
     private val appContext = context.applicationContext
@@ -243,8 +244,10 @@ class SettleoraPaddleOcrEngine(context: Context) {
                         reverseRecognition = reverseRecognition,
                     )
 
-                    // Freeze the original winners and orientation. Recovery must
-                    // not create its own corroboration or displace other probes.
+                    // Freeze the winners of the original probes plus eligible
+                    // Cyrillic margin candidates and their selected orientation.
+                    // Later Polish/date/rupee recovery cannot create its own
+                    // corroboration or change this orientation.
                     val original = candidatesByLine.map(ScriptRouteSelector::select)
                     val recoveryPoints = validBoxes.map { (_, box) ->
                         box.points.map { point ->

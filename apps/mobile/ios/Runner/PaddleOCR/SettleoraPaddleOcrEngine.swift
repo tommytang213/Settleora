@@ -197,7 +197,9 @@ final class SettleoraPaddleOcrEngine {
       reverseRecognition: rotateDocument
     )
 
-    // Recovery cannot alter orientation or bootstrap corroboration from itself.
+    // Freeze the original probes plus eligible Cyrillic margin candidates.
+    // Later Polish/date/rupee recovery cannot alter this selected orientation
+    // or bootstrap corroboration from its own output.
     let original = candidates.map { ScriptRouteSelector.select($0) }
     let recoveryPoints = boxes.map { box in
       box.points.map { point -> CalendarDateRecovery.Point in

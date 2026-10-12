@@ -1041,6 +1041,7 @@ VAT included 20% GBP 4.00
       double headingLeft = 798,
       double headingOffset = 50,
       String itemAmount = 'USD 86.27',
+      bool includeItem = true,
       List<String> adjustments = const [],
       bool splitLocalizedTotal = false,
       bool priorCrossRowMoney = false,
@@ -1095,8 +1096,10 @@ VAT included 20% GBP 4.00
           : 3 + adjustments.length;
       final blocks = [
         cell('Sample Utility', 0, 50, 300),
-        cell('Broadband Plan', 1, 50, 300),
-        cell(itemAmount, 1, 600, 720),
+        if (includeItem) ...[
+          cell('Broadband Plan', 1, 50, 300),
+          cell(itemAmount, 1, 600, 720),
+        ],
         for (var index = 0; index < adjustments.length; index++)
           cell(adjustments[index], index + 2, 50, 720),
         if (splitLocalizedTotal) ...[
@@ -1320,6 +1323,46 @@ VAT included 20% GBP 4.00
             expect(preview.total, null);
             expect([...preview.warnings, ...preview.reviewHints], isNotEmpty);
           }
+        }
+      }
+    });
+
+    test(
+      'owned contact total does not warn that the same total is missing',
+      () {
+        for (final scale in [0.5, 1.0, 2.0]) {
+          final preview = parse(scale: scale, includeItem: false);
+          expect(preview.total, '86.27');
+          expect(preview.items, isEmpty);
+          expect(
+            preview.warnings,
+            contains('No clear item lines were detected.'),
+          );
+          expect(
+            preview.warnings,
+            isNot(contains('No clear total amount was detected.')),
+          );
+          expect(preview.blocks, isNotEmpty);
+        }
+      },
+    );
+
+    test('unowned contact totals retain the missing-total warning', () {
+      for (final scale in [0.5, 1.0, 2.0]) {
+        for (final preview in [
+          parse(scale: scale, includeItem: false, totalMoney: 'unreadable'),
+          parse(scale: scale, includeItem: false, includeGeometry: false),
+        ]) {
+          expect(preview.total, isNull);
+          expect(preview.items, isEmpty);
+          expect(
+            preview.warnings,
+            contains('No clear total amount was detected.'),
+          );
+          expect(
+            preview.warnings,
+            contains('No clear item lines were detected.'),
+          );
         }
       }
     });
@@ -8815,6 +8858,11 @@ TOTAL USD 35.00
     expect(preview.items.single.description, 'FUEL ADDITIVE');
     expect(preview.items.single.lineTotal, '5.00');
     expect(preview.items.single.quantity, isNull);
+    expect(preview.total, '35.00');
+    expect(preview.reviewHints, isNotEmpty);
+    expect(preview.rawTextLineCount, 6);
+    // The receipt prints a unit rate and quantity, not a separate fuel total.
+    // Preserve review instead of inventing a 30.00 line by multiplication.
   });
 
   test('ordinary fuel-named item remains an editable item', () {
@@ -8846,6 +8894,9 @@ TOTAL USD 32.00
       expect(preview.items, hasLength(1));
       expect(preview.items.single.description, 'Snack');
       expect(preview.items.single.lineTotal, '2.00');
+      expect(preview.total, '32.00');
+      expect(preview.reviewHints, isNotEmpty);
+      expect(preview.rawTextLineCount, 6);
     },
   );
 
@@ -9488,6 +9539,59 @@ VAT included 20% GBP 4.00
     expect(preview.total, '25.00');
     expect(preview.tax, '4.00');
     expect(preview.reviewHints, isNotEmpty);
+  });
+
+  test('included tax component must fit its gross item base', () {
+    for (final subtotal in [null, '24.00']) {
+      for (final tax in ['25.00', '-1.00', '0.00', '4.00', '24.00']) {
+        final preview = ReceiptOcrPreview(
+          currency: 'GBP',
+          subtotal: subtotal,
+          tax: tax,
+          taxIncludedInTotal: true,
+          total: '24.00',
+          items: const [
+            ReceiptOcrItemCandidate(description: 'Book', lineTotal: '24.00'),
+          ],
+        );
+        final contradictory = tax == '25.00' || tax == '-1.00';
+        expect(preview.tax, tax);
+        expect(preview.total, '24.00');
+        expect(preview.subtotal, subtotal);
+        expect(
+          preview.reviewHints.isNotEmpty,
+          contradictory,
+          reason: 'subtotal=$subtotal tax=$tax',
+        );
+        expect(
+          preview.reviewHintDecision,
+          contradictory
+              ? subtotal == null
+                    ? ReceiptOcrReviewDecision
+                          .referenceAdjustmentUnreconciledWithoutSubtotal
+                    : ReceiptOcrReviewDecision
+                          .referenceAdjustmentUnreconciledWithSubtotal
+              : ReceiptOcrReviewDecision.none,
+        );
+      }
+    }
+  });
+
+  test('included tax can reconcile a smaller printed net item base', () {
+    for (final subtotal in [null, '24.00']) {
+      final preview = ReceiptOcrPreview(
+        currency: 'GBP',
+        subtotal: subtotal,
+        tax: '25.00',
+        taxIncludedInTotal: true,
+        total: '49.00',
+        items: const [
+          ReceiptOcrItemCandidate(description: 'Book', lineTotal: '24.00'),
+        ],
+      );
+      expect(preview.reviewHints, isEmpty);
+      expect(preview.reviewHintDecision, ReceiptOcrReviewDecision.none);
+    }
   });
 
   test('explicit included VAT can accompany a plain printed total', () {
@@ -10465,6 +10569,39 @@ Total €9.00 USD10.00
       expect(preview.total, '10.00');
     },
   );
+
+  test('priced Total product names cannot establish a receipt total', () {
+    const parser = ReceiptOcrParser();
+    for (final row in [
+      'Total Care Kit 2 USD 19.99',
+      'Grand Total Care Kit 2 EUR 19.99',
+      'Total Amount Due Guide 2 GBP 19.99',
+    ]) {
+      final preview = parser.parse('Market\nDate 2026-09-12\n$row');
+      expect(preview.total, isNull, reason: row);
+      expect(preview.items, hasLength(1), reason: row);
+      expect(
+        preview.items.single.description,
+        anyOf(contains('Kit'), contains('Guide')),
+      );
+      expect(preview.items.single.lineTotal, '19.99', reason: row);
+      expect(preview.rawTextLineCount, 3);
+    }
+  });
+
+  test('Total product with attached code retains unresolved evidence', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(
+      'Market\nDate 2026-09-12\nTotal Care Kit USD19.99',
+    );
+    expect(preview.total, isNull);
+    // An attached alphabetic code can also be a SKU. Keep the existing
+    // traceability guard instead of inventing a price from that identifier.
+    expect(preview.items, isEmpty);
+    expect(preview.warnings, contains('No clear item lines were detected.'));
+    expect(preview.warnings, contains('No clear total amount was detected.'));
+    expect(preview.rawTextLineCount, 3);
+  });
 
   test('single total with attached code establishes currency', () {
     const parser = ReceiptOcrParser();

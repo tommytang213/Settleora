@@ -588,11 +588,19 @@ bool _receiptOcrAdjustmentsReconcile(
 ) {
   final adjustments = _reconcilableReceiptOcrAdjustments(preview);
   if (adjustments == null) return false;
-  if (_receiptOcrAmountsClose(itemTotal + adjustments, total)) return true;
-  if (!preview.taxIncludedInTotal) return false;
-  final tax = _parseReceiptOcrReviewAmount(preview.tax);
-  return tax != null &&
-      _receiptOcrAmountsClose(itemTotal + adjustments + tax, total);
+  final tax = preview.taxIncludedInTotal
+      ? _parseReceiptOcrReviewAmount(preview.tax)
+      : null;
+  if (preview.taxIncludedInTotal && (tax == null || tax < 0)) return false;
+  if (_receiptOcrAmountsClose(itemTotal + adjustments, total)) {
+    // An included component cannot exceed the entire gross item base.
+    // Keep contradictory printed amounts and their review hint intact.
+    return !preview.taxIncludedInTotal || tax! <= itemTotal;
+  }
+  // Printed items may instead be net of the included component. This route
+  // proves the gross total by addition, so tax need not be below the net base.
+  return preview.taxIncludedInTotal &&
+      _receiptOcrAmountsClose(itemTotal + adjustments + tax!, total);
 }
 
 bool _adjustmentCurrencyMatchesReview({
