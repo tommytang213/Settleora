@@ -22,6 +22,8 @@ provenance_out=
 build_name=
 build_number=
 export_options_plist=
+export_sha=
+ipa_metadata_contract=
 podfile_lock_sha="$default_podfile_lock_sha"
 require_integration_test=true
 source_snapshot=
@@ -145,6 +147,8 @@ if [[ "$mode" == signed ]]; then
   codemagic_cli_tools_output=$(codemagic-cli-tools --version 2>/dev/null)
   codemagic_cli_tools_version=${codemagic_cli_tools_output##* }
   [[ "$codemagic_cli_tools_version" == "$expected_codemagic_cli_tools_version" ]] || fail "Codemagic CLI tools must be $expected_codemagic_cli_tools_version"
+  # Real Apple-tool controls, using only disposable ad-hoc-signed test binaries.
+  node --test "$tool_root/tools/ocr-models/test/ios-code-equivalence-macos.test.mjs"
 fi
 
 sha256_file() {
@@ -240,7 +244,18 @@ if [[ "$mode" == signed ]]; then
   archive_path=$(cd "$(dirname "${archive_paths[0]}")" && pwd -P)/$(basename "${archive_paths[0]}")
   inspection_root=$PWD/build/ios/.settleora-ipa-inspection
   [[ ! -e "$inspection_root" && ! -L "$inspection_root" ]] || fail "descriptor-backed IPA inspection root already exists"
-  preflight_ipa_sha=$(node "$tool_root/tools/ocr-models/verify-ipa-archive.mjs")
+  # Xcode owns export timestamps. Normalize only validated ZIP timestamp fields
+  # in a descriptor-backed copy before the unchanged strict representation gate.
+  # Signed payload bytes are never recompressed or rewritten.
+  ipa_metadata=$(node "$tool_root/tools/ocr-models/verify-ipa-archive.mjs" --canonicalize-export-metadata)
+  read -r preflight_ipa_sha export_sha ipa_metadata_contract < <(printf '%s' "$ipa_metadata" | node -e '
+    let text=""; process.stdin.on("data", chunk => text += chunk).on("end", () => {
+      const value=JSON.parse(text);
+      if (value.contract !== "settleora-ipa-zip-timestamps-v1" ||
+          !/^[0-9a-f]{64}$/.test(value.sha256) || !/^[0-9a-f]{64}$/.test(value.exportSha256)) process.exit(1);
+      process.stdout.write(`${value.sha256} ${value.exportSha256} ${value.contract}\n`);
+    });')
+  [[ -n "$preflight_ipa_sha" && -n "$export_sha" && -n "$ipa_metadata_contract" ]] || fail "IPA export metadata identity is missing"
   [[ -d "$inspection_root" && ! -L "$inspection_root" ]] || fail "descriptor-backed IPA inspection is missing"
   cleanup_inspection_root=true
   [[ "$(sha256_file "$artifact_path")" == "$preflight_ipa_sha" ]] || fail "retained IPA differs from descriptor-backed preflight"
@@ -978,6 +993,8 @@ if [[ "$artifact_class" == release-candidate ]]; then
     --source-tree="$source_tree" \
     --artifact="$artifact_path" \
     --artifact-sha256="$artifact_sha" \
+    --export-sha256="$export_sha" \
+    --ipa-metadata-contract="$ipa_metadata_contract" \
     --archive="$archive_path" \
     --archive-sha256="$archive_sha" \
     --bundle-identifier="$bundle_identifier" \

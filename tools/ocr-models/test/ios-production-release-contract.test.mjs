@@ -9,7 +9,7 @@ import { deflateRawSync } from "node:zlib";
 
 import { hashDirectory } from "../hash-directory.mjs";
 import { verifyIosAssetCatalogInfo } from "../verify-ios-asset-catalog.mjs";
-import { inspectOpenedIpa, verifyCanonicalIpa, verifyOpenedIpa } from "../verify-ipa-archive.mjs";
+import { canonicalizeOpenedIpa, inspectOpenedIpa, verifyCanonicalIpa, verifyOpenedIpa } from "../verify-ipa-archive.mjs";
 import { verifyIosTestPodfileLock } from "../verify-ios-test-podfile-lock.mjs";
 import { buildProvenance } from "../write-ios-release-provenance.mjs";
 
@@ -122,6 +122,8 @@ function provenanceArgs(root, mode = "signed") {
     "source-tree": "2".repeat(40),
     artifact,
     "artifact-sha256": "3".repeat(64),
+    "export-sha256": mode === "signed" ? "9".repeat(64) : "",
+    "ipa-metadata-contract": mode === "signed" ? "settleora-ipa-zip-timestamps-v1" : "",
     archive: mode === "signed" ? archive : "",
     "archive-sha256": mode === "signed" ? "8".repeat(64) : "",
     "bundle-identifier": "com.tommytang213.settleora",
@@ -176,6 +178,8 @@ test("signed provenance binds the exact artifact and forbids publication", () =>
     assert.equal(provenance.publicationPerformed, false);
     assert.equal(provenance.artifact.fileName, "Settleora.ipa");
     assert.equal(provenance.artifact.sha256, "3".repeat(64));
+    assert.equal(provenance.artifact.exportSha256, "9".repeat(64));
+    assert.equal(provenance.artifact.metadataNormalization, "settleora-ipa-zip-timestamps-v1");
     assert.equal(provenance.artifact.archiveSha256, "8".repeat(64));
     assert.equal(provenance.artifact.buildName, "1.0.0");
     assert.equal(provenance.artifact.buildNumber, "42");
@@ -1400,4 +1404,100 @@ test('directory identity accepts and binds contained versioned framework symlink
     writeFileSync(path.join(root,'Versions','A','Framework'),'changed');
     assert.notEqual(hashDirectory(root),first);
   }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+test("Xcode export timestamp normalization changes only reviewed metadata and binds both identities", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-export-metadata-"));
+  const input = path.join(root, "export.ipa");
+  const timestamp = Buffer.from([0x55, 0x54, 5, 0, 1, 0x10, 0x20, 0x30, 0x40]);
+  const canonicalTimestamp = Buffer.from([0x55, 0x54, 5, 0, 1, 0, 0, 0, 0]);
+  const date = ((2026 - 1980) << 9) | (10 << 5) | 12;
+  const time = (11 << 11) | (35 << 5) | 13;
+  try {
+    for (const [index, compression] of [{}, { deflateLevel: 6 }, { deflateLevel: 6, dataDescriptor: true }].entries()) {
+      const base = { name: "Payload/Runner.app/Runner", data: "unchanged signed payload".repeat(32), ...compression };
+      const exported = makeStoredZip([{ ...base, localTime: time, centralTime: time, localDate: date, centralDate: date, localExtra: timestamp, centralExtra: timestamp }]);
+      const expected = makeStoredZip([{ ...base, localExtra: canonicalTimestamp, centralExtra: canonicalTimestamp }]);
+      writeFileSync(input, exported);
+      assert.throws(() => verifyTestIpa(input), /DOS timestamp/);
+      const output = path.join(root, `canonical-${index}.ipa`);
+      const observed = canonicalizeOpenedIpa(openSync(input, "r"), output);
+      assert.equal(observed.exportSha256, sha256(exported));
+      assert.equal(observed.sha256, sha256(expected));
+      assert.equal(observed.metadataFieldsNormalized, 4);
+      assert.equal(observed.contract, "settleora-ipa-zip-timestamps-v1");
+      assert.deepEqual(readFileSync(output), expected);
+      assert.deepEqual(readFileSync(input), exported);
+      assert.equal(verifyTestIpa(output), observed.sha256);
+      const second = canonicalizeOpenedIpa(openSync(output, "r"), path.join(root, `second-${index}.ipa`));
+      assert.equal(second.metadataFieldsNormalized, 0);
+      assert.equal(second.exportSha256, observed.sha256);
+      assert.equal(second.sha256, observed.sha256);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("export normalization rejects malformed metadata and preserves namespace/integrity controls", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-export-rejections-"));
+  const input = path.join(root, "export.ipa"), output = path.join(root, "canonical.ipa");
+  const valid = { name: "Payload/Runner.app/Runner", data: "payload" };
+  try {
+    for (const change of [
+      { localDate: 0, centralDate: 0 },
+      { localDate: 0x5c5f, centralDate: 0x5c5f }, // February 31.
+      { localTime: 0xffff, centralTime: 0xffff },
+      { localTime: 0x0821, centralTime: 0x0822 },
+      { localExtra: Buffer.from([0x55, 0x54, 5, 0, 1, 1, 0, 0, 0]), centralExtra: Buffer.from([0x55, 0x54, 5, 0, 1, 2, 0, 0, 0]) },
+      { localExtra: Buffer.from([0x75, 0x78, 1, 0, 1]) },
+      { localExtra: Buffer.from([0x55, 0x54, 5, 0, 7, 0, 0, 0, 0]) },
+      { name: "Payload/../escape" },
+      { mode: 0o120777 },
+      { localCompressedSize: 1 },
+      { deflateLevel: 6, compressedTail: Buffer.from("hidden payload") },
+    ]) {
+      writeFileSync(input, makeStoredZip([{ ...valid, ...change }]));
+      assert.throws(() => canonicalizeOpenedIpa(openSync(input, "r"), output), /Unsafe IPA archive/);
+      assert.equal(existsSync(output), false);
+    }
+    writeFileSync(input, makeStoredZip([valid]));
+    writeFileSync(output, "retain existing evidence");
+    assert.throws(() => canonicalizeOpenedIpa(openSync(input, "r"), output), /EEXIST/);
+    assert.equal(readFileSync(output, "utf8"), "retain existing evidence");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("canonical CLI normalizes the producer output before unchanged integrity and extraction gates", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-export-cli-"));
+  const directory = path.join(root, "build/ios/ipa");
+  const ipa = path.join(directory, "Runner.ipa");
+  const verifier = path.join(repoRoot, "tools/ocr-models/verify-ipa-archive.mjs");
+  const base = { name: "Payload/Runner.app/Info.plist", data: "<plist><dict/></plist>", deflateLevel: 6 };
+  const currentDate = ((2026 - 1980) << 9) | (10 << 5) | 12;
+  try {
+    mkdirSync(directory, { recursive: true });
+    const original = makeStoredZip([{ ...base, localDate: currentDate, centralDate: currentDate }]);
+    const expected = makeStoredZip([base]);
+    writeFileSync(ipa, original);
+    const result = spawnSync(process.execPath, [verifier, "--canonicalize-export-metadata"], { cwd: root, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    const evidence = JSON.parse(result.stdout);
+    assert.equal(evidence.exportSha256, sha256(original));
+    assert.equal(evidence.sha256, sha256(expected));
+    assert.deepEqual(readFileSync(ipa), expected);
+    assert.equal(readFileSync(path.join(root, "build/ios/.settleora-ipa-inspection/Payload/Runner.app/Info.plist"), "utf8"), base.data);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("signed provenance requires the export identity and exact normalization contract", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-export-provenance-"));
+  try {
+    const args = provenanceArgs(root);
+    for (const [key, value, pattern] of [
+      ["export-sha256", "", /Xcode export identity/],
+      ["export-sha256", "unbound", /Xcode export identity/],
+      ["ipa-metadata-contract", "", /metadata contract/],
+      ["ipa-metadata-contract", "unreviewed-transform", /metadata contract/],
+    ]) assert.throws(() => buildProvenance(new Map([...args, [key, value]])), pattern);
+    assert.throws(() => buildProvenance(new Map([...args, ["mode", "unsigned"]])), /cannot have IPA export metadata/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

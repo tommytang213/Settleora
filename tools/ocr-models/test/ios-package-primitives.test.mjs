@@ -59,7 +59,7 @@ test("archive privacy inspects every file and rejects extra, hidden payload, and
     writeFileSync(path.join(archive, "Info.plist"), plist());
     writeFileSync(path.join(archive, "dSYMs/Runner.app.dSYM/Contents/Info.plist"), plist());
     writeFileSync(path.join(dwarf, "Runner"), Buffer.from([0xfe, 0xed, 0xfa, 0xcf, 0, 0, 0, 0]));
-    const inspect = () => inspectXcarchive(archive, app, (file) => readFileSync(file, "utf8"));
+    const inspect = () => inspectXcarchive(archive, app, (file) => readFileSync(file, "utf8"), { verifySignature() {} });
     const original = inspect();
     assert.equal(original.inspectedFileCount, 4);
     mkdirSync(path.join(archive, "unreviewed-empty"));

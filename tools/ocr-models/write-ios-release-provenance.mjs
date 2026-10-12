@@ -9,6 +9,8 @@ const allowedArguments = new Set([
   "source-tree",
   "artifact",
   "artifact-sha256",
+  "export-sha256",
+  "ipa-metadata-contract",
   "archive",
   "archive-sha256",
   "bundle-identifier",
@@ -34,7 +36,7 @@ function parseArgs(values) {
     result.set(key, value.slice(separator + 1));
   }
   for (const key of allowedArguments) {
-    if (!["archive", "archive-sha256"].includes(key) && !result.get(key)) {
+    if (!["archive", "archive-sha256", "export-sha256", "ipa-metadata-contract"].includes(key) && !result.get(key)) {
       throw new Error(`Missing provenance argument: ${key}`);
     }
   }
@@ -69,6 +71,10 @@ export function buildProvenance(args) {
   if (signed && codemagicCliTools !== "0.69.0") {
     throw new Error("Codemagic CLI tools version differs from the canonical contract");
   }
+  const metadataContract = args.get("ipa-metadata-contract");
+  const exportSha256 = args.get("export-sha256");
+  if (signed && metadataContract !== "settleora-ipa-zip-timestamps-v1") throw new Error("Signed IPA metadata contract is missing");
+  if (!signed && (metadataContract || exportSha256)) throw new Error("Unsigned artifact cannot have IPA export metadata");
   const artifact = args.get("artifact");
   const artifactStat = lstatSync(artifact);
   if (args.get("mode") === "signed" && !artifactStat.isFile()) throw new Error("Signed artifact is not a regular file");
@@ -97,6 +103,8 @@ export function buildProvenance(args) {
     artifact: {
       fileName: path.basename(artifact),
       sha256: requireDigest(args.get("artifact-sha256"), "artifact identity"),
+      exportSha256: signed ? requireDigest(exportSha256, "Xcode export identity") : null,
+      metadataNormalization: signed ? metadataContract : null,
       archiveName: archive ? path.basename(archive) : null,
       archiveSha256: archiveSha256 ? requireDigest(archiveSha256, "archive identity") : null,
       bundleIdentifier: args.get("bundle-identifier"),

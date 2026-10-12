@@ -140,8 +140,11 @@ The active signed-validation workflow:
 - Keeps Flutter Swift Package Manager integration disabled so the pinned CocoaPods graph remains the single reviewed native plugin recipe.
 - Projects only the reviewed `integration_test` development plugin out of production Flutter/Dart package metadata and registrants, while positively requiring FilePicker and Flutter secure storage registration.
 - Builds exactly one signed IPA/archive pair through the canonical wrapper.
-- Before extraction, verifies the IPA central directory has bounded size/expansion, unique safe relative UTF-8 names, only regular files/directories under `Payload` and optional `SwiftSupport`, matching local-header sizes/CRC/names and data descriptors, and a strict allowlist of timestamp/UID metadata extras. ZIP64, path/type/link-altering or unknown extras, encryption, symlinks, special files, path traversal, case collisions, overlapping entries, and unsupported flags/compression fail closed. It then verifies archive integrity and the unchanged IPA digest across extraction.
+- Runs real macOS ad-hoc-signing controls before the signed build. They use disposable generated binaries and do not access a signing identity or change a keychain. Linux reports these controls as skipped; Linux checks do not establish Xcode export success.
+- Canonicalizes the Xcode export's validated ZIP DOS timestamps and supported five-byte modification-time extras in a descriptor-backed copy. Only those metadata bytes change: entry content, compressed streams, signatures, CRCs, paths, offsets and lengths are preserved. The retained IPA uses the fixed timestamp representation; provenance binds both the original export SHA-256 and the final IPA SHA-256 under `settleora-ipa-zip-timestamps-v1`. The raw export is replaced only after the canonical copy passes structural verification; no unreviewed raw-export copy is retained as a release artifact.
+- Before extraction, verifies the IPA central directory has bounded size/expansion, unique safe relative UTF-8 names, only regular files/directories under `Payload` and optional `SwiftSupport`, matching local-header sizes/CRC/names and data descriptors, and a strict allowlist of modification-time metadata extras. ZIP64, path/type/link-altering or unknown extras, encryption, symlinks, special files, path traversal, case collisions, overlapping entries, and unsupported flags/compression fail closed. It then verifies archive integrity and the unchanged IPA digest across extraction.
 - Verifies the unchanged bundle identifier, signature, plugin calls/test-plugin absence, exact OCR catalog/models, and absence of acceptance fixtures, test classes/assets, and raw OCR evidence/log paths across the complete extracted IPA inventory. Signed IPA top-level content is fail-closed to `Payload` plus optional dylib-only `SwiftSupport`, and `Payload` may contain only the one application bundle.
+- Verifies both the archived and exported application signatures. Differing Mach-O files are compared after `/usr/bin/codesign --remove-signature` processes isolated temporary copies; every remaining executable byte must match. Ordinary resources still require byte equality. Both original bundles are hashed before and after inspection, and no signature is removed from a retained artifact. The macOS control covers re-signing, changed executable code, changed signed resources and preservation of the originals; a real distribution archive/export run remains required.
 - Verifies the packaged short version/build number against the requested signed-build identity and writes those values with source/tree, toolchain, lockfile, OCR catalog/manifest, artifact filenames, and immutable IPA/archive SHA-256 provenance.
 - Records historical package-size baselines as a composite identity of the base commit/tree, the dependency lock actually substituted into that source, and the exact candidate tooling commit; the base SHA alone is never presented as the complete built baseline identity.
 - Retains the IPA, archive, and provenance as Codemagic artifacts.
@@ -323,3 +326,28 @@ The repository has no Codemagic `triggering.events` configuration, and GitHub Ac
 4. Complete #1308 review and acceptance gates while leaving upload, tester assignment, and merge separately gated.
 5. Only after a later explicit promotion approval, provide the retained reviewed IPA to the separately authorized upload action without rebuilding.
 6. After any later approved upload, record App Store Connect processing and TestFlight install evidence in the Day 1 acceptance package.
+
+## Packaging correction validation boundary
+
+The archive/export signature-equivalence and ZIP metadata producer/consumer
+corrections have local format controls, including malformed metadata, unknown
+extras, path/link, compressed-tail, signature-failure and content-change cases.
+Run `npm run validate:ocr-models` and `npm run validate:docs` for source checks.
+On a real Mac, the Apple-tool control is:
+
+```bash
+node --test tools/ocr-models/test/ios-code-equivalence-macos.test.mjs
+```
+
+The authoritative archive/export validation route remains the existing manual
+`mobile-ios-testflight-internal` workflow on the exact reviewed commit. Its
+pinned environment is Flutter 3.44.8, Xcode 16.4, CocoaPods 1.17.0 and Codemagic
+CLI tools 0.69.0. It builds and retains artifacts without publishing them. The
+GitHub unsigned simulator/package lane cannot substitute for this signed run.
+
+An unpublished local candidate cannot be selected by Codemagic. When task
+rules require both independent reviews before pushing, a blocked reviewer is
+an explicit dependency of the signed run. Do not push an unreviewed candidate,
+dispatch another hosted run, alter signing setup or add an upload action to
+work around that dependency. A passing Linux check or a passing macOS ad-hoc
+control does not mark the real Xcode distribution archive/export as verified.

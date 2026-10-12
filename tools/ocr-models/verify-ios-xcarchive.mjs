@@ -4,6 +4,7 @@ import { lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { hashDirectory } from "./hash-directory.mjs";
+import { signedMachOCodeMatches, verifyApplicationSignature } from "./ios-code-equivalence.mjs";
 
 const forbiddenPath = /(^|\/)(?:test|tests|fixtures?|logs?|evidence)(?:\/|[._-]|$)|integration[_-]?test|receipt[_-]?ocr[_-]?(?:acceptance|real_provider)/i;
 const forbiddenContent = /IntegrationTestPlugin|dev\.flutter\.plugins\.integration_test|com\.settleora\.mobile\/receipt_ocr_acceptance|loadFixture|receipt_ocr_real_provider_test|BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY|BEGIN CERTIFICATE|api[_-]?token\s*[:=]/i;
@@ -15,7 +16,7 @@ function sha256(bytes) { return createHash("sha256").update(bytes).digest("hex")
 
 export function inspectXcarchive(root, ipaAppRoot, inspectPlist = (file) => execFileSync("plutil", ["-convert", "xml1", "-o", "-", file], {
   encoding: "utf8", maxBuffer: 1024 * 1024, stdio: ["ignore", "pipe", "ignore"],
-})) {
+}), { verifySignature = verifyApplicationSignature, codeMatches = signedMachOCodeMatches } = {}) {
   const stat = lstatSync(root);
   if (!stat.isDirectory() || stat.isSymbolicLink()) fail();
   const appRoot = "Products/Applications/Runner.app";
@@ -43,7 +44,15 @@ export function inspectXcarchive(root, ipaAppRoot, inspectPlist = (file) => exec
         ![...files].some((file) => file.startsWith(`${directory}/`))) fail();
   }
   if (!files.has("Info.plist") || !files.has(`${appRoot}/Info.plist`) || files.size > 50000) fail();
+  if (!ipaApp) fail();
+  const archiveBefore = hashDirectory(root);
+  const ipaBefore = hashDirectory(ipaApp);
+  try {
+    verifySignature(path.join(root, appRoot));
+    verifySignature(ipaApp);
+  } catch { fail(); }
   let appFiles = 0;
+  let resignatureComparisons = 0;
   let symbolFiles = 0;
   let inspectedBytes = 0;
   const profile = createHash("sha256");
@@ -69,7 +78,14 @@ export function inspectXcarchive(root, ipaAppRoot, inspectPlist = (file) => exec
       const counterpart = path.join(ipaApp, relative.slice(appRoot.length + 1));
       const counterpartStat = lstatSync(counterpart);
       if (!counterpartStat.isFile() || counterpartStat.isSymbolicLink() ||
-          counterpartStat.size !== fileStat.size || !readFileSync(counterpart).equals(bytes)) fail();
+          counterpartStat.size > 1024 * 1024 * 1024) fail();
+      const exportedBytes = readFileSync(counterpart);
+      if (!exportedBytes.equals(bytes)) {
+        try {
+          if (!codeMatches(bytes, exportedBytes)) fail();
+        } catch { fail(); }
+        resignatureComparisons += 1;
+      }
     }
     if (isDwarf && (bytes.length < 4 || !machoMagic.has(bytes.readUInt32BE(0)))) fail();
     for (let offset = 0; offset < bytes.length; offset += 1024 * 1024) {
@@ -87,8 +103,12 @@ export function inspectXcarchive(root, ipaAppRoot, inspectPlist = (file) => exec
     profile.update(`${relative}\0${fileStat.size}\0${sha256(bytes)}\0`);
   }
   if (ipaApp && appFiles !== ipaPaths.size) fail();
+  if (hashDirectory(root) !== archiveBefore || hashDirectory(ipaApp) !== ipaBefore) fail();
   return {
-    archiveSha256: hashDirectory(root),
+    archiveSha256: archiveBefore,
+    exportedApplicationSha256: ipaBefore,
+    applicationSignaturesVerified: true,
+    resignatureComparisons,
     inspectedFileCount: files.size,
     applicationFileCount: appFiles,
     symbolFileCount: symbolFiles,
