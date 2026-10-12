@@ -155,9 +155,30 @@ test("committed text review reads a nonempty canonical diff from real Git", () =
       changedFiles: ["sample.txt"], diff });
     assert.equal(result.ok, true, result.reason);
     assert.equal(result.reviewDiff, diff);
+    git("rm", "sample.txt");
+    git("commit", "-m", "delete sample");
+    const deletedHeadSha = git("rev-parse", "HEAD");
+    const deletedDiff = execFileSync("/usr/bin/git", ["diff", "--binary", "--no-ext-diff", "--no-textconv", "--no-color", `${headSha}...${deletedHeadSha}`], { cwd: repoRoot, encoding: "utf8" });
+    assert.match(deletedDiff, /diff --git a\/sample\.txt b\/sample\.txt/);
+    assert.match(deletedDiff, /\+\+\+ \/dev\/null/);
+    const deleted = prepareGrokBinaryModelEvidence({ repoRoot, baseSha: headSha, headSha: deletedHeadSha,
+      changedFiles: ["sample.txt"], diff: deletedDiff });
+    assert.equal(deleted.ok, true, deleted.reason);
+    assert.equal(deleted.reviewDiff, deletedDiff);
   } finally {
     rmSync(repoRoot, { recursive: true, force: true });
   }
+});
+
+test("copy metadata covers only the exact destination path", () => {
+  const copy = "diff --git a/src/original.js b/src/copied.js\nsimilarity index 100%\ncopy from src/original.js\ncopy to src/copied.js\n";
+  const args = { changedFiles: ["src/copied.js"], diff: copy, allowSynthetic: true };
+  assert.equal(prepareGrokBinaryModelEvidence(args).ok, true);
+  assert.equal(prepareGrokBinaryModelEvidence({ ...args, changedFiles: ["src/original.js"] }).reason,
+    "blocked_grok_text_changed_path_coverage_mismatch");
+  assert.equal(prepareGrokBinaryModelEvidence({ ...args,
+    diff: copy.replace("copy to src/copied.js", "copy to src/unrelated.js") }).reason,
+  "blocked_grok_text_changed_path_coverage_mismatch");
 });
 
 test("working-tree review retains staged and unstaged blocks for the same path", () => {

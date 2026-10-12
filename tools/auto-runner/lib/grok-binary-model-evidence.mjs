@@ -55,8 +55,10 @@ function diffBlocksAndPaths(raw) {
     const header = block.split(/\r?\n/, 1)[0];
     const match = header.match(/^diff --git a\/(.+) b\/(.+)$/);
     if (!match || match[1].startsWith('"') || match[2].startsWith('"')) return null;
+    const renamed = block.includes(`rename from ${match[1]}\n`) && block.includes(`rename to ${match[2]}\n`);
+    const copied = block.includes(`copy from ${match[1]}\n`) && block.includes(`copy to ${match[2]}\n`);
     if (match[1] !== match[2] && !(match[1] === "dev/null" && block.includes("new file mode "))
-      && (!block.includes(`rename from ${match[1]}\n`) || !block.includes(`rename to ${match[2]}\n`))) return null;
+      && !renamed && !copied) return null;
     return match[2];
   });
   return { blocks, paths };
