@@ -130,6 +130,25 @@ test("uncommitted text review binds the exact working-tree snapshot and blocks b
   "blocked_grok_binary_working_tree_requires_commit");
 });
 
+test("working-tree review retains staged and unstaged blocks for the same path", () => {
+  const staged = "diff --git a/src/old.js b/src/old.js\n--- a/src/old.js\n+++ b/src/old.js\n@@ -1 +1 @@\n-old\n+staged\n";
+  const unstaged = "diff --git a/src/old.js b/src/old.js\n--- a/src/old.js\n+++ b/src/old.js\n@@ -1 +1 @@\n-staged\n+unstaged\n";
+  const diff = staged + unstaged;
+  const args = { repoRoot: "/synthetic", changedFiles: ["src/old.js"], diff,
+    workingTreeReview: true, workingTreeDiff: diff };
+  const result = prepareGrokBinaryModelEvidence(args);
+  assert.equal(result.ok, true);
+  assert.equal(result.reviewDiff, diff);
+  for (const invalid of [
+    { changedFiles: ["src/old.js", "src/old.js"] },
+    { changedFiles: ["src/other.js"] },
+    { diff: diff + staged, workingTreeDiff: diff + staged },
+  ]) {
+    assert.equal(prepareGrokBinaryModelEvidence({ ...args, ...invalid }).reason,
+      "blocked_grok_text_changed_path_coverage_mismatch");
+  }
+});
+
 test("an unrelated rename preserves destination path coverage beside the model", () => {
   const rename = "diff --git a/src/old.js b/src/new.js\nsimilarity index 100%\nrename from src/old.js\nrename to src/new.js\n";
   const candidate = binaryPatch + rename;

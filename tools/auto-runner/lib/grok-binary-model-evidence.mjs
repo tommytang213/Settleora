@@ -40,6 +40,15 @@ function sameFiles(actual, expected) {
     && JSON.stringify(unique(actual)) === JSON.stringify(unique(expected));
 }
 
+function sameWorkingTreeFiles(actual, expected) {
+  const uniqueExpected = new Set(expected);
+  if (uniqueExpected.size !== expected.length || actual.length === 0) return false;
+  const counts = new Map();
+  for (const entry of actual) counts.set(entry, (counts.get(entry) || 0) + 1);
+  return counts.size === uniqueExpected.size
+    && [...counts].every(([entry, count]) => uniqueExpected.has(entry) && count <= 2);
+}
+
 function diffBlocksAndPaths(raw) {
   const blocks = raw.split(/(?=^diff --git )/m).filter(Boolean);
   const paths = blocks.map((block) => {
@@ -81,7 +90,8 @@ export function prepareGrokBinaryModelEvidence({ repoRoot, baseSha, headSha, cha
       return fail("blocked_grok_text_candidate_identity_missing");
     }
     const { paths } = diffBlocksAndPaths(raw);
-    if (paths.some((entry) => !entry) || !sameFiles(paths, changedFiles)) {
+    if (paths.some((entry) => !entry) || !(workingTreeReview
+      ? sameWorkingTreeFiles(paths, changedFiles) : sameFiles(paths, changedFiles))) {
       return fail("blocked_grok_text_changed_path_coverage_mismatch");
     }
     return { ok: true, reviewDiff: raw, originalDiffSha256: sha256(raw), binaryArtifacts: [] };
