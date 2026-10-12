@@ -4582,7 +4582,7 @@ async function generateExistingPrRecoveryEvidence(config, {
       ? await runDurableStackParallelReviews(config, {
           phase: "existing_pr_recovery", prNumber: pr.number, headSha: expectedHeadSha,
           baseSha: expectedOriginMainSha, changedFiles,
-          candidateDigest: createHash("sha256").update(String(diffText || "")).digest("hex"),
+          candidateDigest: reviewPackage.summary.rawDiffSha256,
         },
         () => runIntegratedReviewSource(config, reviewPackage, "existing-pr-recovery"),
         () => runCodexReviewInWorker(config, { ...reviewPackage, sessionLifecycle: issue.sessionLifecycle || null }))
@@ -5588,7 +5588,8 @@ async function writeReviewPackage(config, payload) {
     : payload.diffBaseRef || payload.diffHeadRef
       ? getBoundedDiff(payload.diffBaseRef || "origin/main", payload.diffHeadRef || "HEAD",
         (payload.reviewerProviderPin || config.reviewerProviderPin) === "grok" ? 16 * 1024 * 1024 : undefined)
-    : getBoundedWorkingTreeDiff();
+    : getBoundedWorkingTreeDiff((payload.reviewerProviderPin || config.reviewerProviderPin) === "grok"
+      ? 16 * 1024 * 1024 : undefined);
   const packagePath = path.join(
     config.logsRoot,
     "reviews",
