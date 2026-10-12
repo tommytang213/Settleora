@@ -5463,8 +5463,10 @@ class ReceiptOcrParser {
                   _lineHasAmount(block.text);
             })
             .toList(growable: false);
-        if (amountCells.isEmpty) continue;
-        final amountCell = amountCells.last;
+        // Column ownership does not choose between competing printed amounts.
+        // Keep the original row unresolved instead of taking its last cell.
+        if (amountCells.length != 1) continue;
+        final amountCell = amountCells.single;
         // A detached sign cannot be dropped while promoting an otherwise
         // positive amount. Keep this row unresolved until the sign is bound.
         if (_hasUnboundChargeTableSign(tableBlocks, amountCell) ||
@@ -12378,10 +12380,17 @@ bool _isStreetAddressLine(String line) => RegExp(
   caseSensitive: false,
 ).hasMatch(line);
 
-bool _isCityPostalLine(String line) => RegExp(
-  r"^[a-z][a-z .'-]{1,40}\s+\d{5}(?:-\d{4})?$",
-  caseSensitive: false,
-).hasMatch(line.trim());
+bool _hasPrintedReceiptMoneyMarker(String line) =>
+    _printedCurrencyMarkerMatches(
+      line,
+    ).any((match) => _currencyMarkerTouchesAmount(line, match));
+
+bool _isCityPostalLine(String line) =>
+    !_hasPrintedReceiptMoneyMarker(line) &&
+    RegExp(
+      r"^[a-z][a-z .'-]{1,40}\s+\d{5}(?:-\d{4})?$",
+      caseSensitive: false,
+    ).hasMatch(line.trim());
 
 bool _isAddressContinuationLine(String line) => RegExp(
   r'^\s*(room|rm|suite|unit|shop|floor|fl|level|lvl|block|blk|building|bldg|tower)\b\s*[#-]?\s*(?:[a-z]?\d[\w-]*|[a-z])\s*$',
@@ -12398,10 +12407,12 @@ bool _isReceiptMetadataLine(String line, {bool allowBarePostal = true}) {
     return true;
   }
   if (_isPrintedTaxContextHeader(line)) return true;
-  if (RegExp(
-    r"^([a-z][a-z .'-]{1,40},\s*[a-z]{2}\s+\d{5}(?:-\d{4})?)(?:\s+\1)+$",
-    caseSensitive: false,
-  ).hasMatch(normalized)) {
+  final hasPrintedMoneyMarker = _hasPrintedReceiptMoneyMarker(line);
+  if (!hasPrintedMoneyMarker &&
+      RegExp(
+        r"^([a-z][a-z .'-]{1,40},\s*[a-z]{2}\s+\d{5}(?:-\d{4})?)(?:\s+\1)+$",
+        caseSensitive: false,
+      ).hasMatch(normalized)) {
     return true;
   }
   if (RegExp(
@@ -12421,19 +12432,21 @@ bool _isReceiptMetadataLine(String line, {bool allowBarePostal = true}) {
     RegExp(r'\b\d{1,2}\s*/\s*f\b'),
     RegExp(r'\b(p\.?\s*o\.?\s*box|po box)\b'),
     RegExp(r'\b(zip|postal|postcode)\s*[:#-]?\s*[a-z0-9 -]{3,10}\b'),
-    RegExp(r"^[a-z .'-]+,\s*[a-z]{2}\s+\d{5}(?:-\d{4})?$"),
-    // Bare postal lines remain metadata. A priced product description can
-    // have the same shape, so it needs an explicit comma to count as address.
-    RegExp(
-      allowBarePostal
-          ? r"^[a-z .'-]+,?\s+[a-z]{2,3}\s+\d{4,5}(?:-\d{4})?$"
-          : r"^[a-z .'-]+,\s*[a-z]{2,3}\s+\d{4,5}(?:-\d{4})?$",
-    ),
-    RegExp(
-      allowBarePostal
-          ? r"^[a-z .'-]+,?\s+[a-z]{2}\s+[a-z]\d[a-z]\s?\d[a-z]\d$"
-          : r"^[a-z .'-]+,\s*[a-z]{2}\s+[a-z]\d[a-z]\s?\d[a-z]\d$",
-    ),
+    if (!hasPrintedMoneyMarker) ...[
+      RegExp(r"^[a-z .'-]+,\s*[a-z]{2}\s+\d{5}(?:-\d{4})?$"),
+      // Bare postal lines remain metadata. A priced product description can
+      // have the same shape, so it needs an explicit comma to count as address.
+      RegExp(
+        allowBarePostal
+            ? r"^[a-z .'-]+,?\s+[a-z]{2,3}\s+\d{4,5}(?:-\d{4})?$"
+            : r"^[a-z .'-]+,\s*[a-z]{2,3}\s+\d{4,5}(?:-\d{4})?$",
+      ),
+      RegExp(
+        allowBarePostal
+            ? r"^[a-z .'-]+,?\s+[a-z]{2}\s+[a-z]\d[a-z]\s?\d[a-z]\d$"
+            : r"^[a-z .'-]+,\s*[a-z]{2}\s+[a-z]\d[a-z]\s?\d[a-z]\d$",
+      ),
+    ],
     RegExp(
       r"^[a-z .'-]+\b(?:road|street|avenue|ave|lane|drive|boulevard|blvd)\b,\s*[a-z .'-]+\s+\d{4,6}$",
     ),

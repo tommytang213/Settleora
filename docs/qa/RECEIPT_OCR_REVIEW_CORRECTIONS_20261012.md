@@ -38,3 +38,15 @@ does not grant a signing or release qualification.
 Foreign subtotals also retain their localized currency warning when ordinary
 same-currency tax reconciles the item sum and total. A foreign subtotal is
 preserved as evidence and is never used to corroborate receipt arithmetic.
+
+Further parser review found two amount-ownership defects. A printed currency
+code next to a four- or five-digit item price could match a city/region/postal
+pattern and disappear as metadata. Postal classification now excludes an
+explicit currency marker touching the amount; ordinary address rows retain
+their existing treatment. A charge-table row with two monetary cells inside
+its Amount column could also silently select the last cell. Such rows now
+retain their unresolved evidence and review requirement. A single owned
+amount remains eligible without an additional warning. Regression controls
+cover three currencies, prices following street addresses, genuine postal
+headers, and normal and mirrored table geometry with reversed competing
+amounts. Neither correction changes receipt truth or financial Apply authority.
