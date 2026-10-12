@@ -2919,11 +2919,16 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     return { ok: false, outcome: "blocked", reasonCode: "ordinary_continuation_live_candidate_mismatch", ordinaryContinuation: initial, largeCandidateReviewRecovery: checkpoint, state };
   }
   const actualChangedFiles = listChangedFiles(initial.identity.baseSha, initial.identity.headSha);
+  let actualDiffDigest;
+  try { actualDiffDigest = canonicalCandidateDiffDigest(initial.identity.baseSha, initial.identity.headSha); }
+  catch {
+    return { ok: false, outcome: "blocked", reasonCode: "ordinary_continuation_candidate_diff_unavailable_or_over_bound", ordinaryContinuation: initial, largeCandidateReviewRecovery: checkpoint, state };
+  }
   const actualIdentity = {
     baseSha: initial.identity.baseSha,
     headSha: initial.identity.headSha,
     treeSha: getRefSha(`${initial.identity.headSha}^{tree}`),
-    diffDigest: canonicalCandidateDiffDigest(initial.identity.baseSha, initial.identity.headSha),
+    diffDigest: actualDiffDigest,
     changedFiles: actualChangedFiles,
     changedFilesDigest: createHash("sha256").update(JSON.stringify([...actualChangedFiles].sort())).digest("hex"),
   };

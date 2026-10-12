@@ -108,13 +108,17 @@ export async function runGrokIntegratedReview(config, packageInfo, options = {})
     return result;
   };
   if (!binary.ok) return finish({ reason: binary.reason });
-  if (config.dryRun === true) return finish({ status: "skipped", reason: "skipped_dry_run" });
   if (route.tier === "block_split_or_escalate") return finish({ reason: "blocked_external_reviewer_split_required" });
   if (!tier?.enabled) return finish({ status: "skipped", reason: "skipped_external_reviewer_tier_disabled" });
   if (tier.provider !== "grok" || profile?.provider !== "grok") return finish({ reason: "blocked_provider_tier_profile_mismatch" });
+  if ((summary.reviewerProviderPin && summary.reviewerProviderPin !== "grok")
+    || (config.reviewerProviderPin && config.reviewerProviderPin !== "grok")) {
+    return finish({ reason: "blocked_reviewer_provider_pin_mismatch" });
+  }
   if (profile.command && profile.command !== "/home/tommytang213/.local/bin/grok") {
     return finish({ reason: "blocked_grok_binary_not_pinned" });
   }
+  if (config.dryRun === true) return finish({ status: "skipped", reason: "skipped_dry_run" });
   if (!boundary.ok) return finish({ reason: "blocked_secret_boundary_violation" });
   let accounting;
   try { accounting = loadReviewerAccounting(config); }
