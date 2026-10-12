@@ -4248,6 +4248,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
   const recoveredIndependent = recoveredIndependentReviewEvidence(exactHeadEvidence);
   const context = {
     config,
+    reviewerProviderPin: recoveryProviderPin || persistedRecoveryProvider,
     issue: githubState.issue || { ...issue, state: issue.state || "OPEN", labels: issue.labels || [] },
     laneDecision,
     changedFiles,

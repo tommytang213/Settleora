@@ -92,7 +92,8 @@ export function evaluateAutoMergeDecision(input) {
   const block = (reason) => ({ ...result, reason });
 
   if (!config.allowAutoMerge) return block("auto_merge_disabled_by_config");
-  const grokReview = config.reviewerProviderPin === "grok" || input.externalReview?.provider === "grok";
+  const grokReview = (input.reviewerProviderPin || config.reviewerProviderPin) === "grok"
+    || input.externalReview?.provider === "grok";
   if (config.canary) {
     const approval = evaluateLowRiskAutoMergeCanaryApproval(config);
     if (!approval.approved) return block(`low_risk_auto_merge_canary_not_approved:${approval.reason}`);
@@ -149,6 +150,10 @@ export function evaluateAutoMergeDecision(input) {
       || hosted.prNumber !== pr.number || hosted.source !== "github_codex_bot_comments") {
       return block(`hosted_codex_review_not_verified:${hosted.reason || "missing_or_stale_evidence"}`);
     }
+    // GitHub's Codex review artifacts bind the head, but do not attest the base
+    // SHA they reviewed. A same-name main advance can change the PR diff without
+    // a PR base-change event. Keep automatic merge closed until that proof exists.
+    return block("hosted_codex_review_base_sha_unverified");
   }
 
   return {
@@ -167,7 +172,8 @@ export function evaluateExistingPrRecoveryDecision(input) {
   const independent = recoveredIndependentReviewEvidence(evidence);
   const linkageEvidence = input.issueLinkageEvidence || buildIssueLinkageEvidence(pr, issue.number);
   const changedFiles = input.changedFiles || [];
-  const baseDecision = evaluateAutoMergeDecision(input);
+  const baseDecision = evaluateAutoMergeDecision({ ...input,
+    reviewerProviderPin: independent.provider || input.reviewerProviderPin });
   const result = {
     eligible: false,
     result: "blocked",
