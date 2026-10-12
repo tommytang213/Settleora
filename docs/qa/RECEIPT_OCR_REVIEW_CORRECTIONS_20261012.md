@@ -95,3 +95,24 @@ verification fail closed; retained libraries are never rewritten. Synthetic
 controls run on Linux. Separate macOS controls compile and re-sign a dynamic
 library with Apple tools and exercise the wrapper's comparison entry point;
 they remain skipped on Linux and do not replace a real distribution export.
+
+Printed-total ranking now uses the existing discount-before-subtotal decision
+when checking arithmetic, so a discount already included in the subtotal is
+not subtracted twice. When printed totals support competing net and gross
+interpretations of included tax, the draft retains its review requirement.
+Repeated agreeing totals, unambiguous ordinary tax, and both supported
+included-tax subtotal conventions retain their existing confident treatment.
+These checks rank printed amounts; they do not manufacture a new total.
+
+Localized payment labels now require a complete monetary cell after the label.
+Priced product names beginning with words such as "Espèces" remain items.
+Controls cover product-name collisions and all supported localized payment
+labels with whitespace, colon and full-width-colon separators.
+
+The EF snapshot concern was checked with the pinned EF 9.0.15 tool and the
+three existing `ReceiptOcrReviewSchemaFoundationTests`. The model comparison
+reported no pending changes; all three metadata/schema-generation tests passed.
+EF excludes core query-filter annotations from generated snapshots and compares
+relational models for pending migrations. No snapshot or migration edit was
+needed. These checks did not connect to a database or apply migrations, and
+do not replace the separately required PostgreSQL integration checks.

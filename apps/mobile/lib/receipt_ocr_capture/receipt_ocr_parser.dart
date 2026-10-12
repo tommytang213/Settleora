@@ -3033,6 +3033,13 @@ class ReceiptOcrParser {
     final sameCurrencyDiscount =
         !discountHasExplicitCurrencyEvidence ||
         (currency != null && discountCurrency == currency);
+    final discountBeforeSubtotal =
+        currency != null &&
+        selectedSubtotalRow != null &&
+        discountRows.length == 1 &&
+        discountRows.single < selectedSubtotalRow &&
+        discount?.startsWith('-') == true &&
+        sameCurrencyDiscount;
     final discountMagnitude = discount == null || !sameCurrencyDiscount
         ? null
         : double.tryParse(discount)?.abs();
@@ -3049,10 +3056,27 @@ class ReceiptOcrParser {
                 0,
                 (a, b) => a + b,
               ) -
-              (discountMagnitude ?? 0);
+              (discountBeforeSubtotal ? 0 : discountMagnitude ?? 0);
     final includedTaxValue = sameCurrencyTax && taxIncludedInTotal
         ? double.tryParse(tax ?? '')
         : null;
+    final includedTaxInterpretations = <String>{
+      if (supportedSum != null && includedTaxValue != null)
+        for (final candidate in totalCandidates)
+          if (double.tryParse(candidate.value) case final value?)
+            if ((value - supportedSum).abs() <= 0.02 ||
+                (value - supportedSum - includedTaxValue).abs() <= 0.02)
+              candidate.value,
+    };
+    if (includedTaxInterpretations.length > 1) {
+      // Net and gross subtotals can both accompany included-tax evidence.
+      // Arithmetic may rank a printed candidate, but cannot make two
+      // conflicting primary totals confident or erase their source evidence.
+      adjustmentsComplete = false;
+      incompleteReasons.add(
+        ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence,
+      );
+    }
     totalCandidates.sort((left, right) {
       int rank(({String value, int score, int order}) candidate) {
         final parsed = double.tryParse(candidate.value);
@@ -3119,14 +3143,7 @@ class ReceiptOcrParser {
       discount: discount,
       discountCurrency: discountCurrency,
       discountHasExplicitCurrencyEvidence: discountHasExplicitCurrencyEvidence,
-      discountBeforeSubtotal:
-          currency != null &&
-          selectedSubtotalRow != null &&
-          discountRows.length == 1 &&
-          discountRows.single < selectedSubtotalRow &&
-          discount?.startsWith('-') == true &&
-          (!discountHasExplicitCurrencyEvidence ||
-              discountCurrency == currency),
+      discountBeforeSubtotal: discountBeforeSubtotal,
       adjustmentsComplete: adjustmentsComplete,
       incompleteReasons: incompleteReasons.toList(growable: false),
       total: total,
@@ -11314,14 +11331,20 @@ bool _isPaymentMetadataLine(String line) {
       _lineHasAmount(line)) {
     return true;
   }
-  // These labels describe settlement evidence, not merchandise. Keep the
-  // recognition rule anchored so a product name containing the word is not
-  // excluded solely for that reason.
-  if (RegExp(
-        r'^(?:gotówka|reszta|nakit|para üstü|tiền mặt|tiền thừa|dinheiro|troco|espèces|monnaie|наличные|сдача|نقدا|نقداً|الباقي|現金|お釣り|现金|現金支付|找零|현금|거스름돈|เงินสด|เงินทอน|नकद|बाकी)(?:\s|[:：])',
-        caseSensitive: false,
-      ).hasMatch(normalized) &&
-      _lineHasAmount(line)) {
+  // A payment word can also start a product name. Only the complete label
+  // followed by one bounded monetary cell establishes settlement metadata.
+  final localizedPaymentLabel = RegExp(
+    r'^(?:gotówka|reszta|nakit|para üstü|tiền mặt|tiền thừa|dinheiro|troco|espèces|monnaie|наличные|сдача|نقدا|نقداً|الباقي|現金|お釣り|现金|現金支付|找零|현금|거스름돈|เงินสด|เงินทอน|नकद|बाकी)(?=\s|[:：])',
+    caseSensitive: false,
+  ).firstMatch(line.trim());
+  if (localizedPaymentLabel != null &&
+      _isBoundedPaymentAmount(
+        line
+            .trim()
+            .substring(localizedPaymentLabel.end)
+            .replaceFirst(RegExp(r'^\s*[:：]\s*'), '')
+            .trim(),
+      )) {
     return true;
   }
   final paymentPrefix = RegExp(r'^(?:payment|tender)\b').firstMatch(normalized);

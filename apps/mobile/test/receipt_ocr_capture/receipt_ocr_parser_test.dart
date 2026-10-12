@@ -189,6 +189,153 @@ List<ReceiptOcrBlockEvidence> _ownedFeeBlocks({
 }
 
 void main() {
+  group('localized settlement label ownership', () {
+    test('priced product names sharing payment words remain items', () {
+      for (final description in [
+        'Espèces menacées',
+        'Monnaie ancienne',
+        'Dinheiro e economia',
+        'Gotówka poradnik',
+        'Nakit defteri',
+        'Наличные экономика',
+        '現金 管理手帳',
+      ]) {
+        final preview = const ReceiptOcrParser().parse(
+          'Bookshop\n$description 20,00 EUR\nTotal EUR 20.00',
+        );
+        expect(preview.items, hasLength(1), reason: description);
+        expect(preview.items.single.description, description);
+        expect(preview.items.single.lineTotal, '20.00');
+        expect(preview.items.single.currency, 'EUR');
+        expect(preview.total, '20.00');
+        expect(preview.reviewHints, isEmpty);
+      }
+    });
+
+    test(
+      'complete payment cells remain metadata without currency inference',
+      () {
+        for (final label in [
+          'Gotówka',
+          'Reszta',
+          'Nakit',
+          'Para üstü',
+          'Tiền mặt',
+          'Tiền thừa',
+          'Dinheiro',
+          'Troco',
+          'Espèces',
+          'Monnaie',
+          'Наличные',
+          'Сдача',
+          'نقدا',
+          'نقداً',
+          'الباقي',
+          '現金',
+          'お釣り',
+          '现金',
+          '現金支付',
+          '找零',
+          '현금',
+          '거스름돈',
+          'เงินสด',
+          'เงินทอน',
+          'नकद',
+          'बाकी',
+        ]) {
+          for (final money in [' 5,00 EUR', ': EUR 5.00', '：EUR5.00']) {
+            final preview = const ReceiptOcrParser().parse(
+              'Corner Cafe\nCoffee \$5.00\nTotal \$5.00\n$label$money',
+            );
+            expect(preview.items.map((item) => item.description), [
+              'Coffee',
+            ], reason: '$label$money');
+            expect(preview.currency, isNull, reason: '$label$money');
+            expect(
+              preview.currencyProvenance,
+              ReceiptOcrCurrencyProvenance.unresolved,
+            );
+            expect(preview.total, '5.00');
+          }
+        }
+      },
+    );
+  });
+
+  group('competing printed total reconciliation', () {
+    test('included tax cannot make distinct primary totals confident', () {
+      for (final totals in [
+        'Grand Total USD 100.00\nAmount Due USD 120.00',
+        'Amount Due USD 120.00\nGrand Total USD 100.00',
+      ]) {
+        final preview = const ReceiptOcrParser().parse(
+          'Market\nBook USD 100.00\nSubtotal USD 100.00\n'
+          'VAT included USD 20.00\n$totals',
+        );
+        expect(preview.tax, '20.00');
+        expect(preview.taxIncludedInTotal, isTrue);
+        expect(preview.subtotal, '100.00');
+        expect(preview.items.single.lineTotal, '100.00');
+        expect(preview.total, anyOf('100.00', '120.00'));
+        expect(preview.rawTextLineCount, 6);
+        expect(preview.adjustmentsComplete, isFalse);
+        expect(
+          preview.incompleteAdjustmentReasons,
+          contains(ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence),
+        );
+        expect(preview.reviewHints, isNotEmpty);
+      }
+    });
+
+    test('discount already in subtotal is not subtracted during ranking', () {
+      for (final totals in [
+        'Grand Total USD 95.00\nAmount Due USD 90.00',
+        'Amount Due USD 90.00\nGrand Total USD 95.00',
+      ]) {
+        final preview = const ReceiptOcrParser().parse(
+          'Market\nBook USD 100.00\nDiscount USD -5.00\n'
+          'Subtotal USD 95.00\n$totals',
+        );
+        expect(preview.discount, '-5.00');
+        expect(preview.discountBeforeSubtotal, isTrue);
+        expect(preview.subtotal, '95.00');
+        expect(preview.total, '95.00');
+        expect(preview.items.single.lineTotal, '100.00');
+        expect(preview.rawTextLineCount, 6);
+        expect(preview.reviewHints, isEmpty);
+      }
+    });
+
+    test('agreeing primary totals and net or gross tax stay confident', () {
+      for (final gross in [true, false]) {
+        final amount = gross ? '100.00' : '120.00';
+        final preview = const ReceiptOcrParser().parse(
+          'Market\nBook USD $amount\nSubtotal USD 100.00\n'
+          'VAT included USD 20.00\nGrand Total USD $amount\n'
+          'Amount Due USD $amount',
+        );
+        expect(preview.total, amount);
+        expect(preview.tax, '20.00');
+        expect(preview.taxIncludedInTotal, isTrue);
+        expect(preview.reviewHints, isEmpty);
+        expect(preview.incompleteAdjustmentReasons, isEmpty);
+      }
+    });
+
+    test('discount after subtotal still contributes to total ranking', () {
+      final preview = const ReceiptOcrParser().parse(
+        'Market\nBook USD 100.00\nSubtotal USD 100.00\n'
+        'Discount USD -5.00\nGrand Total USD 95.00\n'
+        'Amount Due USD 90.00',
+      );
+      expect(preview.discountBeforeSubtotal, isFalse);
+      expect(preview.total, '95.00');
+      expect(preview.discount, '-5.00');
+      expect(preview.items.single.lineTotal, '100.00');
+      expect(preview.reviewHints, isEmpty);
+    });
+  });
+
   for (final included in [true, false]) {
     test(
       'review round three aggregates coupons with included tax=$included',
