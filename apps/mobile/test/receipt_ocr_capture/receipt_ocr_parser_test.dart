@@ -608,6 +608,87 @@ void main() {
   });
 
   group('competing printed total reconciliation', () {
+    for (final values in [
+      ('USD', '100.00', '100.01'),
+      ('KWD', '1.003', '1.004'),
+      ('JPY', '100', '101'),
+    ]) {
+      for (final exactLast in [true, false]) {
+        final (currency, exact, competing) = values;
+        test(
+          'generic total exact minor units: $currency exactLast=$exactLast',
+          () {
+            final totals = exactLast
+                ? 'Total $currency $competing\nTotal $currency $exact'
+                : 'Total $currency $exact\nTotal $currency $competing';
+            final preview = const ReceiptOcrParser().parse(
+              'Market\nBook $currency $exact\nSubtotal $currency $exact\n$totals',
+            );
+            expect(preview.total, exact);
+            expect(preview.adjustmentsComplete, isFalse);
+            expect(
+              preview.incompleteAdjustmentReasons,
+              contains(
+                ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence,
+              ),
+            );
+            expect(preview.reviewHints, isNotEmpty);
+          },
+        );
+      }
+    }
+
+    test(
+      'explicit additive tax still explains ordinary net and final totals',
+      () {
+        for (final totals in [
+          'Total USD 100.00\nTotal USD 120.00',
+          'Total USD 120.00\nTotal USD 100.00',
+        ]) {
+          final preview = const ReceiptOcrParser().parse(
+            'Market\nBook USD 100.00\nSubtotal USD 100.00\nTax USD 20.00\n$totals',
+          );
+          expect(preview.total, '120.00');
+          expect(preview.adjustmentsComplete, isTrue);
+          expect(preview.incompleteAdjustmentReasons, isEmpty);
+          expect(preview.reviewHints, isEmpty);
+        }
+      },
+    );
+
+    test('exact decimal addition ranks the printed final generic total', () {
+      final preview = const ReceiptOcrParser().parse(
+        'Market\nBook USD 0.10\nSubtotal USD 0.10\nTax USD 0.20\n'
+        'Total USD 0.30\nTotal USD 0.10',
+      );
+      expect(preview.total, '0.30');
+      expect(preview.adjustmentsComplete, isTrue);
+      expect(preview.incompleteAdjustmentReasons, isEmpty);
+    });
+
+    test('equal primary amounts with different decimal spellings agree', () {
+      final preview = const ReceiptOcrParser().parse(
+        'Market\nBook USD 100.00\nSubtotal USD 100.00\n'
+        'Grand Total USD 100.0\nAmount Due USD 100.00',
+      );
+      expect(preview.total, '100.00');
+      expect(preview.adjustmentsComplete, isTrue);
+      expect(preview.incompleteAdjustmentReasons, isEmpty);
+      expect(preview.reviewHints, isEmpty);
+    });
+
+    test('distinct generic totals without subtotal retain ambiguity', () {
+      final preview = const ReceiptOcrParser().parse(
+        'Market\nBook USD 10.00\nTotal USD 10.00\nTotal USD 11.00',
+      );
+      expect(preview.total, anyOf('10.00', '11.00'));
+      expect(preview.adjustmentsComplete, isFalse);
+      expect(
+        preview.incompleteAdjustmentReasons,
+        contains(ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence),
+      );
+    });
+
     test('included tax cannot make distinct primary totals confident', () {
       for (final totals in [
         'Grand Total USD 100.00\nAmount Due USD 120.00',

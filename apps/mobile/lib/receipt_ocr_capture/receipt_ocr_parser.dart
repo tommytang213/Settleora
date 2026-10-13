@@ -3034,9 +3034,17 @@ class ReceiptOcrParser {
     final sameCurrencySubtotal =
         !subtotalHasExplicitCurrencyEvidence ||
         (currency != null && subtotalCurrency == currency);
+    int? rankingMoney(String? value) {
+      if (currency == null || value == null) return null;
+      return _ocrAmountMinorUnits(value, currency);
+    }
+
+    Object rankingValue(String value) =>
+        rankingMoney(value) ?? 'unresolved:$value';
+
     final subtotalValue = subtotal == null || !sameCurrencySubtotal
         ? null
-        : double.tryParse(subtotal);
+        : rankingMoney(subtotal);
     final sameCurrencyTax =
         !taxHasExplicitCurrencyEvidence ||
         (currency != null && taxCurrency == currency);
@@ -3061,47 +3069,70 @@ class ReceiptOcrParser {
         sameCurrencyDiscount;
     final discountMagnitude = discount == null || !sameCurrencyDiscount
         ? null
-        : double.tryParse(discount)?.abs();
-    final supportedParts = [
+        : rankingMoney(discount)?.abs();
+    final supportedAmounts = [
       if (sameCurrencyTax && !taxIncludedInTotal) tax,
       if (sameCurrencyService) service,
       if (sameCurrencyTip) tip,
       if (sameCurrencyShipping) shipping,
-    ].map((value) => value == null ? null : double.tryParse(value));
-    final supportedSum = subtotalValue == null
+    ];
+    final supportedParts = supportedAmounts.map(rankingMoney).toList();
+    final supportedPartsComplete = [
+      for (var i = 0; i < supportedAmounts.length; i++)
+        supportedAmounts[i] == null || supportedParts[i] != null,
+    ].every((valid) => valid);
+    final supportedSum =
+        subtotalValue == null ||
+            !supportedPartsComplete ||
+            (discount != null &&
+                sameCurrencyDiscount &&
+                discountMagnitude == null)
         ? null
         : subtotalValue +
-              supportedParts.whereType<double>().fold<double>(
-                0,
-                (a, b) => a + b,
-              ) -
+              supportedParts.whereType<int>().fold<int>(0, (a, b) => a + b) -
               (discountBeforeSubtotal ? 0 : discountMagnitude ?? 0);
     final includedTaxValue = sameCurrencyTax && taxIncludedInTotal
-        ? double.tryParse(tax ?? '')
+        ? rankingMoney(tax)
         : null;
-    final includedTaxInterpretations = <String>{
+    final includedTaxInterpretations = <int>{
       if (supportedSum != null && includedTaxValue != null)
         for (final candidate in totalCandidates)
-          if (double.tryParse(candidate.value) case final value?)
-            if ((value - supportedSum).abs() <= 0.02 ||
-                (value - supportedSum - includedTaxValue).abs() <= 0.02)
-              candidate.value,
+          if (rankingMoney(candidate.value) case final value?)
+            if (value == supportedSum ||
+                value == supportedSum + includedTaxValue)
+              value,
     };
-    final priorityTotalValues = <String>{
+    final priorityTotalValues = <Object>{
       for (final candidate in totalCandidates)
         if (_hasPriorityTotalLabel(
           layoutAdjustmentLines[candidate.order] ??
               addressSeparatedTotals[candidate.order] ??
               lines[candidate.order],
         ))
-          candidate.value,
+          rankingValue(candidate.value),
     };
+    // The existing label scores distinguish ordinary totals from paid,
+    // current-charge, net-payable and explicitly primary totals. Distinct
+    // ordinary totals need review unless printed adjustment roles explain
+    // each value as the subtotal or exact final sum. A close numerical
+    // neighbor is not another supported financial interpretation.
+    final genericTotalValues = <Object>{
+      for (final candidate in totalCandidates)
+        if (candidate.score == 10) rankingValue(candidate.value),
+    };
+    final unsupportedGenericInterpretation =
+        genericTotalValues.length > 1 &&
+        (supportedSum == null ||
+            genericTotalValues.any(
+              (value) =>
+                  value != subtotalValue &&
+                  value != supportedSum &&
+                  (includedTaxValue == null ||
+                      value != supportedSum + includedTaxValue),
+            ));
     if (includedTaxInterpretations.length > 1 ||
-        priorityTotalValues.length > 1) {
-      // Net and gross subtotals can both accompany included-tax evidence.
-      // Distinct explicitly primary totals also remain competing evidence,
-      // even when only one matches the subtotal and adjustments. Ordinary
-      // generic totals can still be ranked by unambiguous additive tax.
+        priorityTotalValues.length > 1 ||
+        unsupportedGenericInterpretation) {
       adjustmentsComplete = false;
       incompleteReasons.add(
         ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence,
@@ -3109,14 +3140,13 @@ class ReceiptOcrParser {
     }
     totalCandidates.sort((left, right) {
       int rank(({String value, int score, int order}) candidate) {
-        final parsed = double.tryParse(candidate.value);
+        final parsed = rankingMoney(candidate.value);
         final arithmetic =
             supportedSum != null &&
                 parsed != null &&
-                ((parsed - supportedSum).abs() <= 0.02 ||
+                (parsed == supportedSum ||
                     (includedTaxValue != null &&
-                        (parsed - supportedSum - includedTaxValue).abs() <=
-                            0.02))
+                        parsed == supportedSum + includedTaxValue))
             ? 4
             : 0;
         return candidate.score + arithmetic;
