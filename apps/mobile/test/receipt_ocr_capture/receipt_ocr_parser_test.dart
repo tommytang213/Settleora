@@ -7352,6 +7352,19 @@ Total USD 4.00
     );
   });
 
+  test('complete uppercase merchant does not absorb adjacent slogan', () {
+    final preview = const ReceiptOcrParser().parse('''
+CITY CAFE
+FRESH COFFEE DAILY
+Date: 2026-09-17
+Latte USD 4.00
+Total USD 4.00
+''');
+    expect(preview.merchant, 'CITY CAFE');
+    expect(preview.items.map((item) => item.description), ['Latte']);
+    expect(preview.reviewHints, isNotEmpty);
+  });
+
   test('uppercase charge columns do not extend the merchant', () {
     final preview = const ReceiptOcrParser().parse('''
 HARBOR UTILITY
@@ -8643,6 +8656,20 @@ Total 4.40''');
       '${prefix}Total CZK 100.00 / Total USD 10.00',
     );
     expect(oneSupported.adjustmentsComplete, isTrue);
+  });
+
+  test('conflicting Grand total cells in one row remain reviewable', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Item USD 10.00
+Grand total USD 10.00 / Grand total USD 15.00
+''');
+    expect(preview.total, '15.00');
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(
+      preview.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence),
+    );
   });
 
   test('country-named unpriced products remain unresolved inside a table', () {

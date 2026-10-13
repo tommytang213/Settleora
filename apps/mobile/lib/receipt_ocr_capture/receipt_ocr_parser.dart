@@ -741,6 +741,8 @@ class ReceiptOcrParser {
       final previous = lines[previousIndex];
       if (!_isUppercaseOrganizationSegment(previous) ||
           !_isUppercaseOrganizationSegment(parts.first) ||
+          (_hasMerchantIdentityNoun(parts.first) &&
+              previous.trim().split(RegExp(r'\s+')).length >= 3) ||
           _isAdministrativeLine(previous) ||
           _isChargeTableHeader(previous) ||
           _isReceiptMetadataLine(previous) ||
@@ -758,6 +760,9 @@ class ReceiptOcrParser {
       final next = lines[nextIndex];
       if (!_isUppercaseOrganizationSegment(parts.last) ||
           !_isUppercaseOrganizationSegment(next) ||
+          // A complete issuer name followed by another uppercase line does
+          // not own a slogan without corroborating identity evidence.
+          _hasMerchantIdentityNoun(parts.last) ||
           _isAdministrativeLine(next) ||
           _isChargeTableHeader(next) ||
           _isReceiptMetadataLine(next) ||
@@ -13532,6 +13537,11 @@ bool _hasSubstantiveItemDescription(String description) {
   return letters.length == 1 && letters.single > 0x7f;
 }
 
+bool _hasMerchantIdentityNoun(String value) => RegExp(
+  r'\b(?:utility|utilities|market|store|shop|restaurant|cafe|pharmacy|hotel|company|corp|inc|ltd|llc)\b',
+  caseSensitive: false,
+).hasMatch(value);
+
 bool _isUppercaseOrganizationSegment(String value) {
   final letters = value.replaceAll(RegExp(r'[^\p{L}]', unicode: true), '');
   return letters.length >= 3 &&
@@ -13861,7 +13871,7 @@ bool _hasPriorityTotalLabel(String line) {
 bool _hasConflictingRepeatedTotalCells(String line, String? currency) {
   if (currency == null) return false;
   final labels = RegExp(
-    r'\btotal\b',
+    r'\b(?:grand\s+)?total\b',
     caseSensitive: false,
   ).allMatches(line).toList(growable: false);
   if (labels.length < 2) return false;
@@ -13875,7 +13885,7 @@ bool _hasConflictingRepeatedTotalCells(String line, String? currency) {
         .trim();
     if (!_hasCompleteLabeledCurrencyCells(
       cell,
-      r'total',
+      r'(?:grand\s+)?total',
       includeUnsupportedCurrencyCodes: true,
     )) {
       continue;
