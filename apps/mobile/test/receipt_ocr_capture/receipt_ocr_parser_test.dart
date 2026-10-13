@@ -13053,6 +13053,39 @@ Total USD $amount
     }
   });
 
+  test('two-column alphanumeric product names retain their printed price', () {
+    for (final description in ['5G Plan', 'Router X2']) {
+      final preview = const ReceiptOcrParser().parse('''
+Example Store
+Itemized Charges
+Description Amount
+$description USD 10.00
+Total USD 10.00
+''');
+      expect(preview.items.map((item) => item.description), [description]);
+      expect(preview.items.single.lineTotal, '10.00');
+      expect(preview.items.single.currency, 'USD');
+    }
+  });
+
+  test(
+    'two-column independent numeric cell stays ambiguous without layout',
+    () {
+      final preview = const ReceiptOcrParser().parse('''
+Example Store
+Itemized Charges
+Description Amount
+Plan 2 USD 10.00
+Total USD 10.00
+''');
+      expect(preview.items, isEmpty);
+      expect(
+        preview.incompleteAdjustmentReasons,
+        contains(ReceiptOcrIncompleteAdjustmentReason.ambiguousChargeTable),
+      );
+    },
+  );
+
   test('two-column standalone currency markers stay ambiguous', () {
     for (final description in ['TRY Pastry', 'Rs Flowers']) {
       final preview = const ReceiptOcrParser().parse('''

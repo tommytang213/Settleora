@@ -3394,7 +3394,7 @@ class ReceiptOcrParser {
               !chargeTableRows.contains(lineIndex) &&
               _isAmbiguousParenthesizedTaxLine(line)) ||
           _isContextualReceiptMetadataLine(lines, lineIndex) ||
-          _isChargeTableHeader(line) ||
+          _isSupportedChargeTableHeader(lines, lineIndex) ||
           detachedAmountSignRows.contains(lineIndex) ||
           merchantLineIndices.contains(lineIndex) ||
           ((fuelItem != null || hasFuelMeasurementLayout) &&
@@ -9926,7 +9926,10 @@ _classifyChargeTableRows(
           _hasShippingLabel(line, lower)) {
         continue;
       }
-      if (RegExp(r'\d|%|[-−]\s*$').hasMatch(prefix) ||
+      if (RegExp(
+            r'(?<![\p{L}\p{N}])\d+(?![\p{L}\p{N}])|%|[-−]\s*$',
+            unicode: true,
+          ).hasMatch(prefix) ||
           RegExp(
             '(?<![\\p{L}\\p{N}])(?:$_currencyTokenPattern)(?![\\p{L}\\p{N}])',
             caseSensitive: false,
