@@ -14134,6 +14134,34 @@ Reference currency: EUR
     );
   });
 
+  test('suggested tips product keeps its printed item price', () {
+    final preview = const ReceiptOcrParser().parse('''
+Corner Shop
+Suggested Tips Book USD 10.00
+Subtotal USD 10.00
+Total USD 10.00
+''');
+    expect(preview.items.map((item) => item.description), [
+      'Suggested Tips Book',
+    ]);
+    expect(preview.items.single.lineTotal, '10.00');
+    expect(preview.tip, isNull);
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(preview.reviewHints, isNotEmpty);
+  });
+
+  test('priced reading service without meter context remains an item', () {
+    final preview = const ReceiptOcrParser().parse('''
+Bookshop
+Reading 12.00
+Subtotal USD 12.00
+Total USD 12.00
+''');
+    expect(preview.items.map((item) => item.description), ['Reading']);
+    expect(preview.items.single.lineTotal, '12.00');
+    expect(preview.adjustmentsComplete, isTrue);
+  });
+
   test('parser separates charged tips and excludes suggested tip options', () {
     const parser = ReceiptOcrParser();
 

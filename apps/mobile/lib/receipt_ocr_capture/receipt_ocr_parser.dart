@@ -13054,7 +13054,7 @@ bool _isReceiptMetadataLine(String line, {bool allowBarePostal = true}) {
       r'^\s*(date|dated|issued|printed|reprinted)\s*[:#-]?\s*\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}\b',
     ),
     RegExp(
-      r'^\s*(?:(?:(?:current|previous|prior|present|last)\s+)?(?:meter\s+)?reading|(?:meter|account|customer|reference)\s+(?:number|no|id))(?:\s*\([^)]{1,20}\))?\s*[:#-]?\s*\d+(?:[.,]\d+)*\s*$',
+      r'^\s*(?:(?:(?:current|previous|prior|present|last)\s+)?meter\s+reading|(?:meter|account|customer|reference)\s+(?:number|no|id))(?:\s*\([^)]{1,20}\))?\s*[:#-]?\s*\d+(?:[.,]\d+)*\s*$',
     ),
     RegExp(
       r'^\s*(?:(?:previous|prior|last|refund|reference|payment|paid)\s+)?(?:bill|invoice|statement|transaction|order|purchase|due|payment|refund|service|billing)\s+date\s*[:#-]?\s*(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{4}|[a-z]{3,9}\.?\s+\d{1,2},?\s+\d{4})\s*$',
@@ -13399,9 +13399,19 @@ bool _hasActualTipChargeLabel(String line, String normalized) {
       );
 }
 
-bool _isSuggestedTipLine(String normalized) => RegExp(
-  r'\b(?:suggested|optional|recommended)\s+tips?\b',
-).hasMatch(normalized);
+bool _isSuggestedTipLine(String normalized) {
+  // Own the complete suggestion label or its bounded monetary option. A
+  // product such as "Suggested Tips Book USD 10.00" is not tip advice.
+  final match = RegExp(
+    r'^\s*(?:suggested|optional|recommended)\s+tips?\b(?<rest>.*)$',
+  ).firstMatch(normalized);
+  if (match == null) return false;
+  final rest = match.namedGroup('rest')!.trim();
+  return rest.isEmpty ||
+      rest == ':' ||
+      _isBoundedSummaryAmount(rest) ||
+      _isPrintedSuggestedTipOptionLine(normalized);
+}
 
 bool _isPrintedSuggestedTipOptionLine(String line) => RegExp(
   '^\\s*(?:suggested|optional|recommended)\\s+tip\\s+'
