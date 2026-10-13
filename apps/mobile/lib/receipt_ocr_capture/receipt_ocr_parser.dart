@@ -5732,7 +5732,11 @@ class ReceiptOcrParser {
                 : _isChargeTableSummaryLine(tableText) &&
                       !(_isRatedTaxNamedLine(tableText) &&
                           hasNumericUsageCell)) ||
-            _isReceiptMetadataLine(tableText)) {
+            // A row of owned integer columns can resemble a phone number when
+            // flattened. The selected description receives its own metadata
+            // check after column ownership has been established.
+            (!(invoiceColumns || billDetailColumns) &&
+                _isReceiptMetadataLine(tableText))) {
           continue;
         }
         final amountColumnBlocks = tableBlocks
@@ -5813,14 +5817,17 @@ class ReceiptOcrParser {
         // One OCR block may contain competing amounts or qualified text.
         // Own the entire column cell, including separately recognized words,
         // before allowing geometry to resolve the flattened row's ambiguity.
-        if (!_hasCompleteChargeTableMonetaryCell(monetaryText)) {
-          ambiguousAmountRows.add(rowIndex);
-          continue;
-        }
         final printedCurrency = _layoutItemCellCurrency(monetaryText, currency);
         final lineCurrency = printedCurrency.hasExplicitEvidence
             ? printedCurrency.currency
             : currency;
+        if (!_hasCompleteChargeTableMonetaryCell(
+          monetaryText,
+          currency: lineCurrency,
+        )) {
+          ambiguousAmountRows.add(rowIndex);
+          continue;
+        }
         final lineTotal = _lastAmountInLine(
           monetaryText,
           currency: lineCurrency,
@@ -10567,9 +10574,14 @@ bool _isBoundedUtilitySupportCopy(String text) {
       _unicodeLetterPattern.hasMatch(normalized);
 }
 
-bool _hasCompleteChargeTableMonetaryCell(String text) {
+bool _hasCompleteChargeTableMonetaryCell(String text, {String? currency}) {
   final amounts = RegExp(_amountTokenPattern).allMatches(text).toList();
-  if (amounts.length != 1 || !_hasChargeTableMonetaryEvidence(text)) {
+  final zeroMinorIntegerEvidence =
+      currency != null &&
+      _currencyMinorUnitDigits(currency) == 0 &&
+      RegExp(r'^\s*\d{1,9}\s*$').hasMatch(text);
+  if (amounts.length != 1) return false;
+  if (!_hasChargeTableMonetaryEvidence(text) && !zeroMinorIntegerEvidence) {
     return false;
   }
   // Denominations can agree, conflict, or be unsupported. Preserve them all

@@ -8427,6 +8427,64 @@ Total 4.40''');
     expect(preview.reviewHints, isEmpty);
   });
 
+  test('owned JPY invoice integer total stays distinct from unit price', () {
+    final blocks = [
+      _layoutBlock('Warehouse', 0, 0, 20, 350),
+      _layoutBlock('Product / Service', 1, 1, 90, 300),
+      _layoutBlock('SKU', 2, 1, 520, 600),
+      _layoutBlock('Qty', 3, 1, 620, 650),
+      _layoutBlock('Unit Price', 4, 1, 680, 790),
+      _layoutBlock('Total', 5, 1, 850, 960),
+      _layoutBlock('Notebook', 6, 2, 90, 420),
+      _layoutBlock('ITEM001', 7, 2, 520, 600),
+      _layoutBlock('1', 8, 2, 620, 650),
+      _layoutBlock('500', 9, 2, 680, 790),
+      _layoutBlock('500', 10, 2, 850, 960),
+      _layoutBlock('Total JPY 500', 11, 3, 680, 960),
+    ];
+    const text =
+        'Warehouse\n'
+        'Product / Service SKU Qty Unit Price Total\n'
+        'Notebook ITEM001 1 500 500\n'
+        'Total JPY 500';
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(text, blocks: blocks);
+    expect(preview.currency, 'JPY');
+    expect(preview.items.map((item) => item.description), ['Notebook']);
+    expect(preview.items.single.lineTotal, '500');
+    expect(preview.items.single.currency, 'JPY');
+
+    final noLayout = parser.parse(text);
+    expect(noLayout.items, isEmpty);
+    final missingTotal = parser.parse(
+      text.replaceFirst('1 500 500', '1 500'),
+      blocks: blocks.where((block) => block.order != 10).toList(),
+    );
+    expect(missingTotal.items, isEmpty);
+    final competingTotal = parser.parse(
+      text.replaceFirst('1 500 500', '1 500 500 600'),
+      blocks: [
+        for (final block in blocks)
+          if (block.order == 10)
+            _layoutBlock('500 600', 10, 2, 850, 960)
+          else
+            block,
+      ],
+    );
+    expect(competingTotal.items, isEmpty);
+    final usd = parser.parse(
+      text.replaceFirst('JPY', 'USD'),
+      blocks: [
+        for (final block in blocks)
+          if (block.order == 11)
+            _layoutBlock('Total USD 500', 11, 3, 680, 960)
+          else
+            block,
+      ],
+    );
+    expect(usd.items, isEmpty);
+  });
+
   test('country-named unpriced products remain unresolved inside a table', () {
     final rows = <List<({String text, double left, double right})>>[
       [(text: 'Harbor Market', left: 20, right: 370)],
