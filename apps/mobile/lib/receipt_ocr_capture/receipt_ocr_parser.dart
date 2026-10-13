@@ -14,6 +14,13 @@ final _potentialReceiptAdjustmentLabelPattern = RegExp(
   r'\b(?:sales\s+tax(?:es)?|tax(?:es)?|vat|gst|hst|iva|tva|kdv|mwst|service(?:s?\s+(?:charges?|fees?))?|tips?|gratuity|gratuities|(?:shipping|delivery)(?:\s+(?:fees?|charges?)|\s*(?:(?:&|and)\s*)?handling(?:\s+(?:fees?|charges?))?)?|discounts?|coupons?|promo\s+code|loyalty[\s-]+savings?|surcharges?|charges?|fees?|refunds?|rebates?|credits?|deposits?|levy|levies|duty|duties|donations?|round(?:ing|[\s-]*off))\b',
   caseSensitive: false,
 );
+// A standalone printed tax label may be followed by a monetary cell or
+// unreadable OCR text. A tax character inside a product or note is not a label.
+final _boundedJapaneseTaxLabelPattern = RegExp(
+  r'(?<![\p{L}\p{N}])(?:消費税|税|稅)(?=$|[\s:：\d\p{Sc}（(])',
+  unicode: true,
+);
+
 const _localizedReceiptAdjustmentLabels = [
   '消費税',
   '税',
@@ -50,7 +57,10 @@ bool _hasPotentialReceiptAdjustmentLabel(String line) {
     return true;
   }
   final folded = line.toLowerCase();
-  return _localizedReceiptAdjustmentLabels.any(folded.contains);
+  return _boundedJapaneseTaxLabelPattern.hasMatch(line) ||
+      _localizedReceiptAdjustmentLabels
+          .where((label) => label != '消費税' && label != '税' && label != '稅')
+          .any(folded.contains);
 }
 
 bool _isEmailOnlyMetadataLine(String line) => RegExp(
@@ -13223,7 +13233,8 @@ bool _hasTaxLabel(
           ) &&
           RegExp(r'\btax\b', caseSensitive: false).hasMatch(normalized) &&
           (allowDescriptiveTaxLabel || _hasExplicitTaxRate(line))) ||
-      _hasJapaneseReceiptLabel(line, const ['消費税', '税']) ||
+      (_boundedJapaneseTaxLabelPattern.hasMatch(line) &&
+          _hasJapaneseReceiptLabel(line, const ['消費税', '税'])) ||
       _traditionalTaxAmountLinePattern.hasMatch(line) ||
       _hasLocalizedReceiptLabel(line, const [
         'الضريبة',

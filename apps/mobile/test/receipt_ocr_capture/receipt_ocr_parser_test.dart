@@ -15755,6 +15755,74 @@ Total USD 12.00
     ]);
   });
 
+  test('Japanese tax characters in priced product names remain items', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+免税饼干 10.00
+税務手帳 11.00
+稅務資訊 12.00
+Total USD 33.00
+''');
+    expect(preview.items.map((item) => item.description), [
+      '免税饼干',
+      '税務手帳',
+      '稅務資訊',
+    ]);
+    expect(preview.items.map((item) => item.lineTotal), [
+      '10.00',
+      '11.00',
+      '12.00',
+    ]);
+    expect(preview.tax, isNull);
+    expect(preview.adjustmentsComplete, isTrue);
+    expect(preview.incompleteAdjustmentReasons, isEmpty);
+  });
+
+  test('unpriced Japanese tax-character notes are not adjustments', () {
+    for (final note in ['税務情報', '稅務資訊']) {
+      final preview = const ReceiptOcrParser().parse('''
+Market
+Meal 10.00
+$note
+Total USD 10.00
+''');
+      expect(
+        preview.incompleteAdjustmentReasons,
+        isNot(
+          contains(
+            ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
+          ),
+        ),
+        reason: note,
+      );
+    }
+  });
+
+  test('bounded Japanese tax labels retain tax and missing-amount review', () {
+    for (final row in ['消費税 1.00', '税 1.00', '稅 1.00']) {
+      final preview = const ReceiptOcrParser().parse('''
+Market
+Meal 10.00
+$row
+Total USD 11.00
+''');
+      expect(preview.tax, '1.00', reason: row);
+    }
+    final malformed = const ReceiptOcrParser().parse('''
+Market
+Meal 10.00
+消費税 unreadable
+Total USD 10.00
+''');
+    expect(malformed.adjustmentsComplete, isFalse);
+    expect(
+      malformed.incompleteAdjustmentReasons,
+      contains(
+        ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
+      ),
+    );
+  });
+
   test('localized amountless adjustments keep review warning', () {
     for (final label in ['消費税', 'الضريبة', '割引']) {
       final preview = const ReceiptOcrParser().parse('''
