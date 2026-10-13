@@ -8678,7 +8678,7 @@ Total USD 15.00
 STORE
 Goods USD 10.00
 Subtotal USD 10.00
-${qualifier} sales tax USD 1.00
+$qualifier sales tax USD 1.00
 Total USD 9.00
 ''');
       expect(preview.tax, isNull, reason: qualifier);
