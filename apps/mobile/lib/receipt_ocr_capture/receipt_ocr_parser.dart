@@ -10443,6 +10443,7 @@ bool _isPostSubtotalAdjustmentLine(
   bool taxOnly = false,
 }) {
   final trimmed = line.trim();
+  if (_hasQualifiedNonAdditiveTaxTreatment(trimmed)) return false;
   final match = RegExp(
     '^(?:[\\p{L}]+[ -]+){0,3}(?:${taxOnly ? 'tax' : 'tax|surcharge'})(?:\\s*\\(\\d{1,3}(?:[.,]\\d{1,2})?\\s*%\\))?\\s+',
     caseSensitive: false,
@@ -11977,11 +11978,17 @@ bool _isPaymentMetadataLine(String line) {
   )) {
     return true;
   }
-  if (RegExp(
-        r'^(?:payment\s+(?:coupon|information|summary)|remittance)\b',
-      ).hasMatch(normalized) &&
-      _lineHasAmount(line)) {
-    return true;
+  final paymentSummary = RegExp(
+    r'^(?:payment\s+(?:coupon|information|summary)|remittance)\b',
+    caseSensitive: false,
+  ).firstMatch(line.trim());
+  if (paymentSummary != null) {
+    final remainder = line
+        .trim()
+        .substring(paymentSummary.end)
+        .replaceFirst(RegExp(r'^\s*[:：]\s*'), '')
+        .trim();
+    if (_isBoundedPaymentAmount(remainder)) return true;
   }
   // A payment word can also start a product name. Only the complete label
   // followed by one bounded monetary cell establishes settlement metadata.
@@ -13290,6 +13297,13 @@ bool _hasSubtotalLabel(String line, String normalized) {
       _hasLocalizedReceiptLabel(line, _localizedSubtotalLabels);
 }
 
+bool _hasQualifiedNonAdditiveTaxTreatment(String line) =>
+    RegExp(r'\btax\b', caseSensitive: false).hasMatch(line) &&
+    RegExp(
+      r'\b(?:included|inclusive|exempt|waived|withheld|withholding|refunded|reversed|credited|paid)\b',
+      caseSensitive: false,
+    ).hasMatch(line);
+
 bool _hasTaxLabel(
   String line,
   String normalized, {
@@ -13299,13 +13313,7 @@ bool _hasTaxLabel(
   // A treatment word changes the monetary meaning of a tax row. Only the
   // complete included-tax grammar above may assign that meaning. Qualified
   // rows outside it stay unresolved instead of becoming additive tax.
-  if (RegExp(r'\btax\b', caseSensitive: false).hasMatch(normalized) &&
-      RegExp(
-        r'\b(?:included|inclusive|exempt|waived)\b',
-        caseSensitive: false,
-      ).hasMatch(normalized)) {
-    return false;
-  }
+  if (_hasQualifiedNonAdditiveTaxTreatment(normalized)) return false;
   return _hasEnglishReceiptLabel(
         normalized,
         RegExp(

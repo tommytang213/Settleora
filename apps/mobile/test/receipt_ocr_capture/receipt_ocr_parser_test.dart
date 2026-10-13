@@ -8658,6 +8658,41 @@ Total 4.40''');
     expect(oneSupported.adjustmentsComplete, isTrue);
   });
 
+  test('priced payment summary guide remains item evidence', () {
+    final preview = const ReceiptOcrParser().parse('''
+BOOK SHOP
+Notebook USD 5.00
+Payment Summary Guide USD 10.00
+Total USD 15.00
+''');
+    expect(preview.items.map((item) => item.description), [
+      'Notebook',
+      'Payment Summary Guide',
+    ]);
+    expect(preview.items.map((item) => item.lineTotal), ['5.00', '10.00']);
+  });
+
+  test('qualified non-additive tax rows stay unresolved', () {
+    for (final qualifier in ['Withheld', 'Refunded', 'Reversed', 'Credited']) {
+      final preview = const ReceiptOcrParser().parse('''
+STORE
+Goods USD 10.00
+Subtotal USD 10.00
+${qualifier} sales tax USD 1.00
+Total USD 9.00
+''');
+      expect(preview.tax, isNull, reason: qualifier);
+      expect(preview.adjustmentsComplete, isFalse, reason: qualifier);
+      expect(
+        preview.incompleteAdjustmentReasons,
+        contains(
+          ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
+        ),
+        reason: qualifier,
+      );
+    }
+  });
+
   test('conflicting Grand total cells in one row remain reviewable', () {
     final preview = const ReceiptOcrParser().parse('''
 Market
