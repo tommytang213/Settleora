@@ -7018,6 +7018,48 @@ Total USD 40.00
     expect(noUnit.items, isEmpty);
   });
 
+  test('layout fallback retains detached credit signs for review', () {
+    for (final marker in ['CR', 'credit', '(', ')']) {
+      final isLeft = marker == '(';
+      final preview = const ReceiptOcrParser().parse(
+        'Market\nTea ${isLeft ? '$marker ' : ''}5.00 ${isLeft ? ')' : marker}\nTotal USD 5.00',
+        blocks: [
+          _layoutBlock('Market', 0, 0, 10, 250),
+          _layoutBlock('Tea', 1, 1, 10, 80),
+          if (isLeft) _layoutBlock('(', 2, 1, 145, 155),
+          _layoutBlock('5.00', 3, 1, 160, 200),
+          _layoutBlock(isLeft ? ')' : marker, 4, 1, 205, 230),
+          _layoutBlock('Total USD 5.00', 5, 2, 10, 250),
+        ],
+      );
+      expect(preview.items, isEmpty, reason: marker);
+      expect(
+        preview.incompleteAdjustmentReasons,
+        contains(ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem),
+        reason: marker,
+      );
+      expect(
+        preview.warnings,
+        contains(
+          'Some OCR lines need manual review because no traceable line amount was found.',
+        ),
+        reason: marker,
+      );
+    }
+    final taxCode = const ReceiptOcrParser().parse(
+      'Market\nTea 5.00 A\nTotal USD 5.00',
+      blocks: [
+        _layoutBlock('Market', 0, 0, 10, 250),
+        _layoutBlock('Tea', 1, 1, 10, 80),
+        _layoutBlock('5.00', 2, 1, 160, 200),
+        _layoutBlock('A', 3, 1, 205, 230),
+        _layoutBlock('Total USD 5.00', 4, 2, 10, 250),
+      ],
+    );
+    expect(taxCode.items.single.description, 'Tea');
+    expect(taxCode.items.single.lineTotal, '5.00');
+  });
+
   test('printed Qty ownership keeps a number under Item in its name', () {
     final underItem = const ReceiptOcrParser().parse(
       'Market\nQty Item Amount\n7 Up USD 3.00\nTotal USD 3.00',

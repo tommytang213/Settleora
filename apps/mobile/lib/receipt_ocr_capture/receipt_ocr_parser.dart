@@ -385,6 +385,7 @@ class ReceiptOcrParser {
       );
     }
     if (unresolvedItemLines > 0 ||
+        extractedItems.unretainedCreditOrAccountingItem ||
         detachedAmountSignRows.isNotEmpty ||
         ambiguousChargeRows.any(
           (index) =>
@@ -3261,6 +3262,7 @@ class ReceiptOcrParser {
     List<ReceiptOcrItemCandidate> items,
     bool truncated,
     bool unretainedPricedItem,
+    bool unretainedCreditOrAccountingItem,
     List<ReceiptOcrItemLineDecision> lineDecisions,
     List<ReceiptOcrItemLineDecision> itemSelectionDecisions,
     Set<int> nonItemSummaryRows,
@@ -3288,6 +3290,7 @@ class ReceiptOcrParser {
       ReceiptOcrItemLineDecision.unclassified,
     );
     var unretainedPricedItem = false;
+    var unretainedCreditOrAccountingItem = false;
     final wrappedDescriptionLines = <String>[];
     var afterSubtotal = false;
     final leadingQuantityRows = _leadingQuantityColumnRows(lines, layoutRows);
@@ -3539,6 +3542,15 @@ class ReceiptOcrParser {
           if (_hasSubstantiveItemDescription(description) &&
               !_isLikelyNonItemDescription(description, pricedRow: true)) {
             unretainedPricedItem = true;
+            if (layoutRows.length == lines.length &&
+                layoutRows[lineIndex].any(
+                  (block) => RegExp(
+                    r'^\s*(?:[()]|CR|DR|CREDIT|DEBIT)\s*$',
+                    caseSensitive: false,
+                  ).hasMatch(block.text),
+                )) {
+              unretainedCreditOrAccountingItem = true;
+            }
             lineDecisions[lineIndex] =
                 ReceiptOcrItemLineDecision.unretainedPricedRow;
             break;
@@ -3714,6 +3726,7 @@ class ReceiptOcrParser {
       items: items.take(40).toList(growable: false),
       truncated: items.length > 40,
       unretainedPricedItem: unretainedPricedItem,
+      unretainedCreditOrAccountingItem: unretainedCreditOrAccountingItem,
       lineDecisions: lineDecisions,
       nonItemSummaryRows: nonItemSummaryRows,
       uncertainSummaryAmountRows: uncertainSummaryAmountRows,
@@ -3902,7 +3915,13 @@ class ReceiptOcrParser {
         .toList(growable: false);
     if (amountCells.length != 1) return null;
     final amountCell = amountCells.single;
-    if (_nearbySignOnlyBlocks(row, amountCell).isNotEmpty) return null;
+    if (_nearbySignOnlyBlocks(
+      row,
+      amountCell,
+      includeCreditAndAccountingMarkers: true,
+    ).isNotEmpty) {
+      return null;
+    }
     final amountText = _normalizeOcrLine(amountCell.text);
     final amountLeft = amountCell.points
         .map((point) => point.x)
@@ -8828,8 +8847,9 @@ List<ReceiptOcrBlockEvidence> _nearbyCurrencyOnlyBlocks(
 
 List<ReceiptOcrBlockEvidence> _nearbySignOnlyBlocks(
   List<ReceiptOcrBlockEvidence> row,
-  ReceiptOcrBlockEvidence amountCell,
-) {
+  ReceiptOcrBlockEvidence amountCell, {
+  bool includeCreditAndAccountingMarkers = false,
+}) {
   if (amountCell.points.isEmpty) return const [];
   final amountLeft = amountCell.points
       .map((point) => point.x)
@@ -8844,7 +8864,12 @@ List<ReceiptOcrBlockEvidence> _nearbySignOnlyBlocks(
       .where((block) {
         if (block == amountCell ||
             block.points.isEmpty ||
-            !RegExp(r'^\s*[-−]\s*$').hasMatch(block.text)) {
+            !RegExp(
+              includeCreditAndAccountingMarkers
+                  ? r'^\s*(?:[-−()]|CR|DR|CREDIT|DEBIT)\s*$'
+                  : r'^\s*[-−]\s*$',
+              caseSensitive: false,
+            ).hasMatch(block.text)) {
           return false;
         }
         final signLeft = block.points
