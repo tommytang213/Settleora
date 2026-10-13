@@ -15808,19 +15808,22 @@ Total USD 11.00
 ''');
       expect(preview.tax, '1.00', reason: row);
     }
-    final malformed = const ReceiptOcrParser().parse('''
+    for (final label in ['消費税', '消費稅']) {
+      final malformed = const ReceiptOcrParser().parse('''
 Market
 Meal 10.00
-消費税 unreadable
+$label unreadable
 Total USD 10.00
 ''');
-    expect(malformed.adjustmentsComplete, isFalse);
-    expect(
-      malformed.incompleteAdjustmentReasons,
-      contains(
-        ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
-      ),
-    );
+      expect(malformed.adjustmentsComplete, isFalse, reason: label);
+      expect(
+        malformed.incompleteAdjustmentReasons,
+        contains(
+          ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
+        ),
+        reason: label,
+      );
+    }
   });
 
   test('localized amountless adjustments keep review warning', () {

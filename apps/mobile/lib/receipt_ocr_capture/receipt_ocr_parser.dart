@@ -17,7 +17,7 @@ final _potentialReceiptAdjustmentLabelPattern = RegExp(
 // A standalone printed tax label may be followed by a monetary cell or
 // unreadable OCR text. A tax character inside a product or note is not a label.
 final _boundedJapaneseTaxLabelPattern = RegExp(
-  r'(?<![\p{L}\p{N}])(?:消費税|税|稅)(?=$|[\s:：\d\p{Sc}（(])',
+  r'(?<![\p{L}\p{N}])(?:消費税|消費稅|税|稅)(?=$|[\s:：\d\p{Sc}（(])',
   unicode: true,
 );
 
