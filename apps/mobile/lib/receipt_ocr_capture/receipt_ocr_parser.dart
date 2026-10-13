@@ -4870,9 +4870,19 @@ class ReceiptOcrParser {
             _hasSubtotalLabel(line, line.toLowerCase())) {
           break;
         }
-        if (rows[index].any(
-          (cell) => financialLabel(_financialProjectionLabelText(cell.text)),
-        )) {
+        final row = rows[index];
+        // A malformed heading can coexist with a separately owned tax/fee
+        // panel. Retain ambiguity here only for the priced-row shape that a
+        // weaker item selector could promote: a rate and an amount printed in
+        // distinct monetary cells, beside a numeric usage cell.
+        if (row
+                    .where((cell) => _hasChargeTableMonetaryEvidence(cell.text))
+                    .length <
+                2 ||
+            !_hasNumericUsageCell(rows, headerIndex, index)) {
+          continue;
+        }
+        if (row.any((cell) => financialLabel(currencyNeutralRole(cell.text)))) {
           ambiguous.add(index);
         }
       }
@@ -4894,12 +4904,14 @@ class ReceiptOcrParser {
         (cell) => cell.text.trim().toLowerCase() == 'amount',
       );
       if (descriptionColumns.length != 1 || amountColumns.length != 1) {
+        retainAmbiguousFinancialRows(headerIndex);
         continue;
       }
       if (List.generate(columns.length - 1, (index) => index).any(
         (index) =>
             _blockRight(columns[index]) >= _blockLeft(columns[index + 1]),
       )) {
+        retainAmbiguousFinancialRows(headerIndex);
         continue;
       }
       final descriptionColumn = columns.indexOf(descriptionColumns.single);
@@ -4912,7 +4924,10 @@ class ReceiptOcrParser {
           : amountColumn;
       // Separate multi-column meter/graph panels already have a dedicated
       // ownership path. Do not reinterpret their spanning captions here.
-      if (innerStart + columns.length - innerEnd - 1 > 1) continue;
+      if (innerStart + columns.length - innerEnd - 1 > 1) {
+        retainAmbiguousFinancialRows(headerIndex);
+        continue;
+      }
       // A separately headed support panel owns no financial cells. Its text
       // can be vertically offset without lending alignment to this table.
       if (!usableRow(columns.sublist(innerStart, innerEnd + 1))) {
@@ -4926,6 +4941,7 @@ class ReceiptOcrParser {
                 !usageHeader.hasMatch(cell.text.trim()) &&
                 cell.text.trim().toLowerCase() != 'rate',
           )) {
+        retainAmbiguousFinancialRows(headerIndex);
         continue;
       }
       int? columnFor(ReceiptOcrBlockEvidence cell) {
@@ -4953,8 +4969,13 @@ class ReceiptOcrParser {
       }
 
       for (var rowIndex = headerIndex + 1; rowIndex < rows.length; rowIndex++) {
+        final line = lines[rowIndex];
+        // A split label/amount boundary is still the complete printed row.
+        // Description alone cannot establish the amount-bearing label guard.
         if (_isSupportedChargeTableHeader(lines, rowIndex) ||
-            _isChargeTableSectionBoundary(lines[rowIndex])) {
+            _isChargeTableSectionBoundary(line) ||
+            _hasTotalLabel(line, line.toLowerCase()) ||
+            _hasSubtotalLabel(line, line.toLowerCase())) {
           break;
         }
         final row = rows[rowIndex];

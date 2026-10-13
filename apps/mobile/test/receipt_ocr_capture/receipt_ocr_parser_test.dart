@@ -310,6 +310,171 @@ ReceiptOcrPreview _parseCompleteLayoutCell({
 }
 
 void main() {
+  test(
+    'utility financial ownership combines distinct taxes before the boundary',
+    () {
+      final preview = const ReceiptOcrParser().parse(
+        'Utility\nDetails of current charges\nDescription Usage Rate Amount\n'
+        'Water Plan 1 USD 10.00 USD 10.00\nState tax — — USD 1.00\n'
+        'Local tax — — USD 2.00\nTotal USD 13.00',
+        blocks: [
+          _layoutBlock('Utility', 0, 0, 20, 350),
+          _layoutBlock('Details of current charges', 1, 1, 20, 700),
+          _layoutBlock('Description', 2, 2, 20, 250),
+          _layoutBlock('Usage', 3, 2, 280, 400),
+          _layoutBlock('Rate', 4, 2, 430, 560),
+          _layoutBlock('Amount', 5, 2, 600, 700),
+          _layoutBlock('Water Plan', 6, 3, 20, 250),
+          _layoutBlock('1', 7, 3, 280, 400),
+          _layoutBlock('USD 10.00', 8, 3, 430, 560),
+          _layoutBlock('USD 10.00', 9, 3, 600, 700),
+          _layoutBlock('State tax', 10, 4, 20, 250),
+          _layoutBlock('—', 11, 4, 280, 400),
+          _layoutBlock('—', 12, 4, 430, 560),
+          _layoutBlock('USD 1.00', 13, 4, 600, 700),
+          _layoutBlock('Local tax', 14, 5, 20, 250),
+          _layoutBlock('—', 15, 5, 280, 400),
+          _layoutBlock('—', 16, 5, 430, 560),
+          _layoutBlock('USD 2.00', 17, 5, 600, 700),
+          _layoutBlock('Total', 18, 6, 20, 250),
+          _layoutBlock('USD 13.00', 19, 6, 600, 700),
+        ],
+      );
+      expect(preview.tax, '3.00');
+      expect(preview.adjustmentsComplete, isTrue);
+      expect(preview.reviewHints, isEmpty);
+      expect(preview.items.single.description, 'Water Plan');
+    },
+  );
+
+  for (final scenario in [
+    'valid',
+    'qualifiedDescription',
+    'duplicateDescription',
+    'duplicateAmount',
+    'overlap',
+    'twoOuter',
+    'innerPeriod',
+  ]) {
+    for (final label in [
+      'Regulatory Recovery Fee',
+      'State Tax (10%)',
+      'State Tax USD (10%)',
+    ]) {
+      test('utility financial ownership malformed header $scenario $label', () {
+        var order = 2;
+        final header = <ReceiptOcrBlockEvidence>[
+          if (scenario == 'twoOuter')
+            _layoutBlock('Messages', order++, 2, 0, 70),
+          _layoutBlock(
+            scenario == 'qualifiedDescription'
+                ? 'Item Description'
+                : 'Description',
+            order++,
+            2,
+            100,
+            250,
+          ),
+          if (scenario == 'duplicateDescription')
+            _layoutBlock('Description', order++, 2, 260, 290),
+          _layoutBlock(
+            'Usage',
+            order++,
+            2,
+            scenario == 'overlap' ? 230 : 260,
+            300,
+          ),
+          _layoutBlock('Rate', order++, 2, 310, 350),
+          if (scenario == 'innerPeriod')
+            _layoutBlock('Service Period', order++, 2, 270, 350),
+          _layoutBlock('Amount', order++, 2, 400, 500),
+          if (scenario == 'duplicateAmount')
+            _layoutBlock('Amount', order++, 2, 550, 610),
+          if (scenario == 'twoOuter')
+            _layoutBlock('Support', order++, 2, 550, 650),
+        ];
+        final preview = const ReceiptOcrParser().parse(
+          'Utility\nCurrent Charges Detail\n${header.map((v) => v.text).join(' ')}\nWater Plan 1 USD 10.00 USD 10.00\n$label 1 USD 2.00 USD 2.00\nTotal Current Charges USD 12.00',
+          blocks: [
+            _layoutBlock('Utility', 0, 0, 100, 400),
+            _layoutBlock('Current Charges Detail', 1, 1, 100, 500),
+            ...header,
+            _layoutBlock('Water Plan', order++, 3, 100, 250),
+            _layoutBlock('1', order++, 3, 260, 300),
+            _layoutBlock('USD 10.00', order++, 3, 310, 350),
+            _layoutBlock('USD 10.00', order++, 3, 400, 500),
+            _layoutBlock(label, order++, 4, 100, 250),
+            _layoutBlock('1', order++, 4, 260, 300),
+            _layoutBlock('USD 2.00', order++, 4, 310, 350),
+            _layoutBlock('USD 2.00', order++, 4, 400, 500),
+            _layoutBlock(
+              'Total Current Charges USD 12.00',
+              order++,
+              5,
+              100,
+              500,
+            ),
+          ],
+        );
+        if (scenario != 'duplicateDescription') {
+          expect(
+            preview.items.any((v) => v.description == 'Water Plan'),
+            isTrue,
+            reason:
+                'Control priced row must survive the same valid provider row ordering',
+          );
+        }
+        expect(
+          preview.items.any((v) => v.description.contains(label)),
+          isFalse,
+          reason:
+              'Malformed utility header must not classify an explicit financial row as merchandise',
+        );
+      });
+    }
+  }
+
+  for (final boundary in ['Total', 'Total Current Charges', 'Subtotal']) {
+    test(
+      'utility financial ownership boundary $boundary must end tax component ownership',
+      () {
+        final preview = const ReceiptOcrParser().parse(
+          'Utility\nDetails of current charges\nDescription Usage Rate Amount\nWater Plan 1 USD 10.00 USD 10.00\nState tax — — USD 1.00\n$boundary USD 11.00\nLocal tax — — USD 2.00',
+          blocks: [
+            _layoutBlock('Utility', 0, 0, 20, 350),
+            _layoutBlock('Details of current charges', 1, 1, 20, 700),
+            _layoutBlock('Description', 2, 2, 20, 250),
+            _layoutBlock('Usage', 3, 2, 280, 400),
+            _layoutBlock('Rate', 4, 2, 430, 560),
+            _layoutBlock('Amount', 5, 2, 600, 700),
+            _layoutBlock('Water Plan', 6, 3, 20, 250),
+            _layoutBlock('1', 7, 3, 280, 400),
+            _layoutBlock('USD 10.00', 8, 3, 430, 560),
+            _layoutBlock('USD 10.00', 9, 3, 600, 700),
+            _layoutBlock('State tax', 10, 4, 20, 250),
+            _layoutBlock('—', 11, 4, 280, 400),
+            _layoutBlock('—', 12, 4, 430, 560),
+            _layoutBlock('USD 1.00', 13, 4, 600, 700),
+            _layoutBlock(boundary, 14, 5, 20, 250),
+            _layoutBlock('USD 11.00', 15, 5, 600, 700),
+            _layoutBlock('Local tax', 16, 6, 20, 250),
+            _layoutBlock('—', 17, 6, 280, 400),
+            _layoutBlock('—', 18, 6, 430, 560),
+            _layoutBlock('USD 2.00', 19, 6, 600, 700),
+          ],
+        );
+        expect(
+          preview.tax,
+          isNot('3.00'),
+          reason:
+              'Components separated by a printed total cannot acquire the same table owner',
+        );
+        expect(preview.adjustmentsComplete, isFalse);
+        expect(preview.reviewHints, isNotEmpty);
+      },
+    );
+  }
+
   group('complete layout cell evidence', () {
     for (final mirrored in [false, true]) {
       for (final currency in ['USD', 'EUR']) {
