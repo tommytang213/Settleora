@@ -2724,7 +2724,8 @@ class ReceiptOcrParser {
         );
         if (selectedCurrency.hasExplicitEvidence &&
             selectedCurrency.currency == null &&
-            (!originalCurrency.hasExplicitEvidence ||
+            (currency == null ||
+                !originalCurrency.hasExplicitEvidence ||
                 originalCurrency.currency != null)) {
           hasUnextractablePrimaryTotal = true;
           adjustmentsComplete = false;
