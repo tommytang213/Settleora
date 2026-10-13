@@ -180,6 +180,7 @@ class ReceiptOcrParser {
     };
     layoutChargeItems.removeWhere(
       (index, _) =>
+          _isAmbiguousAccountBalanceSummaryLine(lines[index]) ||
           ambiguousProjectionRows.contains(index) ||
           boundedUtility.ambiguous.contains(index) ||
           utilityFinancial.ambiguous.contains(index) ||
@@ -3376,6 +3377,15 @@ class ReceiptOcrParser {
         // rather than assigning its money to the neighboring customer/date
         // fields or a preceding unpriced description. This is not a metadata
         // exemption; completeness accounting still sees the original rows.
+        wrappedDescriptionLines.clear();
+        continue;
+      }
+      // An account-summary prefix with unexplained product words or money is
+      // ambiguous. Do not promote it to a charge or silently clear completeness.
+      if (_isAmbiguousAccountBalanceSummaryLine(line) && _lineHasAmount(line)) {
+        unretainedPricedItem = true;
+        lineDecisions[lineIndex] =
+            ReceiptOcrItemLineDecision.unretainedPricedRow;
         wrappedDescriptionLines.clear();
         continue;
       }
@@ -11687,24 +11697,40 @@ bool _isAdministrativeLine(String line) {
       _isReceiptCourtesyLine(line);
 }
 
-bool _isAccountBalanceSummaryLine(String line) =>
-    RegExp(
-      r'^(?:(?:previous|prior|opening|closing|outstanding)\s+balance|balance\s+(?:forward|brought\s+forward)|payments?\s+(?:received|made)|current\s+(?:[\p{L}]+\s+){0,3}charges)\b',
-      caseSensitive: false,
-      unicode: true,
-    ).hasMatch(line.trim()) ||
-    _isLabeledStandaloneMoneyLine(
-      line,
-      RegExp(r'^balance\b', caseSensitive: false),
-    ) ||
-    _isLabeledStandaloneMoneyLine(
-      line,
-      RegExp(r'^account\s+credit\b', caseSensitive: false),
-    ) ||
-    _isLabeledStandaloneMoneyLine(
-      line,
-      RegExp(r'^(?:amount\s+paid|remaining\s+balance)\b', caseSensitive: false),
-    );
+final _accountBalanceSummaryPrefixPattern = RegExp(
+  r'^(?:(?:previous|prior|opening|closing|outstanding)\s+balance|balance\s+(?:forward|brought\s+forward)|payments?\s+(?:received|made)|current\s+(?:[\p{L}]+\s+){0,3}charges)\b',
+  caseSensitive: false,
+  unicode: true,
+);
+
+bool _isAmbiguousAccountBalanceSummaryLine(String line) =>
+    _accountBalanceSummaryPrefixPattern.hasMatch(line.trim()) &&
+    !_isAccountBalanceSummaryLine(line);
+
+bool _isAccountBalanceSummaryLine(String line) {
+  // A summary prefix does not own a product name that follows it. Only the
+  // complete label and its single monetary cell can suppress item evidence.
+  final boundedLine = line.trim().replaceFirst(RegExp(r'\s+\.$'), '');
+  return _isLabeledStandaloneMoneyLine(
+        boundedLine,
+        _accountBalanceSummaryPrefixPattern,
+      ) ||
+      _isLabeledStandaloneMoneyLine(
+        boundedLine,
+        RegExp(r'^balance\b', caseSensitive: false),
+      ) ||
+      _isLabeledStandaloneMoneyLine(
+        boundedLine,
+        RegExp(r'^account\s+credit\b', caseSensitive: false),
+      ) ||
+      _isLabeledStandaloneMoneyLine(
+        boundedLine,
+        RegExp(
+          r'^(?:amount\s+paid|remaining\s+balance)\b',
+          caseSensitive: false,
+        ),
+      );
+}
 
 bool _isLabeledStandaloneMoneyLine(String line, RegExp label) {
   final trimmed = line.trim();

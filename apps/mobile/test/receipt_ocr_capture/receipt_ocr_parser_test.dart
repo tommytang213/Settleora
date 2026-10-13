@@ -12206,6 +12206,20 @@ Total Amount Due \$12.00
     );
   });
 
+  test('account balance words in a priced product remain item evidence', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Stationery Shop\nOpening Balance Book USD 12.00\n'
+      'Notebook USD 3.00\nTotal USD 15.00',
+    );
+    expect(
+      preview.items.any(
+            (item) => item.description.contains('Opening Balance Book'),
+          ) ||
+          !preview.adjustmentsComplete,
+      isTrue,
+    );
+  });
+
   test('layout monetary cells recover items from noisy flattened rows', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse(
