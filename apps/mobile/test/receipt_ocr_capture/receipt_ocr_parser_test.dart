@@ -8681,6 +8681,9 @@ Subtotal USD 10.00
 $qualifier sales tax USD 1.00
 Total USD 9.00
 ''');
+      expect(preview.items.map((item) => item.description), [
+        'Goods',
+      ], reason: qualifier);
       expect(preview.tax, isNull, reason: qualifier);
       expect(preview.adjustmentsComplete, isFalse, reason: qualifier);
       expect(

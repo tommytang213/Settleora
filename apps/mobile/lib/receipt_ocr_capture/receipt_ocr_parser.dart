@@ -10443,7 +10443,6 @@ bool _isPostSubtotalAdjustmentLine(
   bool taxOnly = false,
 }) {
   final trimmed = line.trim();
-  if (_hasQualifiedNonAdditiveTaxTreatment(trimmed)) return false;
   final match = RegExp(
     '^(?:[\\p{L}]+[ -]+){0,3}(?:${taxOnly ? 'tax' : 'tax|surcharge'})(?:\\s*\\(\\d{1,3}(?:[.,]\\d{1,2})?\\s*%\\))?\\s+',
     caseSensitive: false,
