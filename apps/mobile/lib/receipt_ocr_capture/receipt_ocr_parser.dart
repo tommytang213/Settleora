@@ -5968,6 +5968,19 @@ class ReceiptOcrParser {
           ambiguousAmountRows.add(rowIndex);
           continue;
         }
+        // Provider row IDs are advisory. The selected price, currency and
+        // description cells must also share a physical printed row.
+        if (descriptionBlocks.isNotEmpty &&
+            !_chargeTableCellsSharePrintedRow([
+              ...amountColumnBlocks,
+              if (currencyBlock != null &&
+                  !amountColumnBlocks.contains(currencyBlock))
+                currencyBlock,
+              ...descriptionBlocks,
+            ])) {
+          ambiguousAmountRows.add(rowIndex);
+          continue;
+        }
         final description = _cleanDescription(
           descriptionBlocks.map((block) => block.text.trim()).join(' '),
         );
@@ -8617,6 +8630,37 @@ double _blockLeft(ReceiptOcrBlockEvidence block) =>
 
 double _blockRight(ReceiptOcrBlockEvidence block) =>
     block.points.map((point) => point.x).reduce((x, y) => x > y ? x : y);
+
+bool _chargeTableCellsSharePrintedRow(List<ReceiptOcrBlockEvidence> cells) {
+  if (cells.length < 2) return false;
+  final bands = <({double top, double bottom})>[];
+  for (final cell in cells) {
+    final points = cell.points;
+    if (points.length != 4 ||
+        points.any((point) => !point.x.isFinite || !point.y.isFinite)) {
+      return false;
+    }
+    final ys = points.map((point) => point.y).toList()..sort();
+    if (ys.last <= ys.first || _blockRight(cell) <= _blockLeft(cell)) {
+      return false;
+    }
+    bands.add((top: ys.first, bottom: ys.last));
+  }
+  for (var i = 0; i < bands.length; i++) {
+    for (var j = i + 1; j < bands.length; j++) {
+      final a = bands[i];
+      final b = bands[j];
+      final overlap =
+          (a.bottom < b.bottom ? a.bottom : b.bottom) -
+          (a.top > b.top ? a.top : b.top);
+      final smallerHeight = a.bottom - a.top < b.bottom - b.top
+          ? a.bottom - a.top
+          : b.bottom - b.top;
+      if (overlap < smallerHeight / 2) return false;
+    }
+  }
+  return true;
+}
 
 bool _isPairedInvoiceBuyerCopyRow(
   List<List<ReceiptOcrBlockEvidence>> layoutRows,

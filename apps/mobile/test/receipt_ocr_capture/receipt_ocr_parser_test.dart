@@ -13266,6 +13266,45 @@ Total USD 0.15
     );
   });
 
+  test('price-left item rejects vertically conflicting provider row', () {
+    ReceiptOcrBlockEvidence cell(
+      String text,
+      int order,
+      int row,
+      double left,
+      double right,
+      double top,
+      double bottom,
+    ) => ReceiptOcrBlockEvidence(
+      text: text,
+      order: order,
+      row: row,
+      points: [
+        ReceiptOcrPoint(x: left, y: top),
+        ReceiptOcrPoint(x: right, y: top),
+        ReceiptOcrPoint(x: right, y: bottom),
+        ReceiptOcrPoint(x: left, y: bottom),
+      ],
+    );
+
+    final blocks = [
+      cell('Cafe', 0, 0, 0, 300, 0, 20),
+      cell('Amount', 1, 1, 0, 80, 50, 70),
+      cell('Description', 2, 1, 150, 220, 50, 70),
+      cell('Qty', 3, 1, 250, 300, 50, 70),
+      cell('USD 50.00', 4, 2, 0, 80, 200, 220),
+      cell('Coffee', 5, 2, 150, 220, 100, 120),
+      cell('Total USD 50.00', 6, 3, 0, 300, 300, 320),
+    ];
+    final preview = const ReceiptOcrParser().parse(
+      'Cafe\nAmount Description Qty\nUSD 50.00 Coffee\nTotal USD 50.00',
+      blocks: blocks,
+    );
+    expect(preview.items, isEmpty);
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(preview.reviewHints, isNotEmpty);
+  });
+
   test('two-column item names do not supply embedded currency tokens', () {
     for (final (description, amount) in [
       ('Pastry', '10.00'),
