@@ -13246,8 +13246,18 @@ bool _hasTaxLabel(
   String normalized, {
   bool allowDescriptiveTaxLabel = false,
 }) {
-  return _includedTaxAmountLinePattern.hasMatch(line) ||
-      _hasEnglishReceiptLabel(
+  if (_includedTaxAmountLinePattern.hasMatch(line)) return true;
+  // A treatment word changes the monetary meaning of a tax row. Only the
+  // complete included-tax grammar above may assign that meaning. Qualified
+  // rows outside it stay unresolved instead of becoming additive tax.
+  if (RegExp(r'\btax\b', caseSensitive: false).hasMatch(normalized) &&
+      RegExp(
+        r'\b(?:included|inclusive|exempt|waived)\b',
+        caseSensitive: false,
+      ).hasMatch(normalized)) {
+    return false;
+  }
+  return _hasEnglishReceiptLabel(
         normalized,
         RegExp(
           r'\b(?:(?:city|state|local|county|municipal|tourist|tourism|occupancy)\s+tax(?:es)?|sales\s+tax(?:es)?|tax(?:es)?|vat|gst|hst|iva|tva|kdv|mwst)\b\.?',

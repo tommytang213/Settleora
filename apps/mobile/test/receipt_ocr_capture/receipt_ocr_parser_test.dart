@@ -15883,6 +15883,46 @@ $row
     }
   });
 
+  test('qualified included tax is not published as additive tax', () {
+    final preview = const ReceiptOcrParser().parse('''
+Tea Shop
+Tea USD 20.00
+Subtotal USD 20.00
+State included tax (5%) USD 1.00
+Total USD 20.00
+''');
+    expect(preview.items.map((item) => item.description), ['Tea']);
+    expect(preview.tax, isNull);
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(
+      preview.incompleteAdjustmentReasons,
+      contains(
+        ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
+      ),
+    );
+  });
+
+  for (final treatment in ['exempt', 'waived']) {
+    test('qualified $treatment tax is unresolved', () {
+      final preview = const ReceiptOcrParser().parse('''
+Tea Shop
+Tea USD 20.00
+Subtotal USD 20.00
+State $treatment tax (5%) USD 1.00
+Total USD 20.00
+''');
+      expect(preview.items.map((item) => item.description), ['Tea']);
+      expect(preview.tax, isNull);
+      expect(preview.adjustmentsComplete, isFalse);
+      expect(
+        preview.incompleteAdjustmentReasons,
+        contains(
+          ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
+        ),
+      );
+    });
+  }
+
   test('exempt qualified tax amount remains unresolved', () {
     final preview = const ReceiptOcrParser().parse('''
 Market
