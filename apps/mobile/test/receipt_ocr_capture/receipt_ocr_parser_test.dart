@@ -12966,6 +12966,44 @@ Total USD 0.15
     );
   });
 
+  test('two-column item names do not supply embedded currency tokens', () {
+    for (final (description, amount) in [
+      ('Pastry', '10.00'),
+      ('Flowers', '4.00'),
+    ]) {
+      final preview = const ReceiptOcrParser().parse('''
+Corner Store
+Itemized charges
+Description Amount
+$description $amount
+Total USD $amount
+''');
+      expect(preview.items.map((item) => item.description), [
+        description,
+      ], reason: description);
+      expect(preview.items.single.lineTotal, amount, reason: description);
+    }
+  });
+
+  test('two-column standalone currency markers stay ambiguous', () {
+    for (final description in ['TRY Pastry', 'Rs Flowers']) {
+      final preview = const ReceiptOcrParser().parse('''
+Corner Store
+Itemized charges
+Description Amount
+$description 10.00
+Total USD 10.00
+''');
+      expect(preview.items, isEmpty, reason: description);
+      expect(preview.adjustmentsComplete, isFalse, reason: description);
+      expect(
+        preview.incompleteAdjustmentReasons,
+        contains(ReceiptOcrIncompleteAdjustmentReason.ambiguousChargeTable),
+        reason: description,
+      );
+    }
+  });
+
   test('unfamiliar rated tax summary remains reviewable', () {
     final preview = const ReceiptOcrParser().parse('''
 Market

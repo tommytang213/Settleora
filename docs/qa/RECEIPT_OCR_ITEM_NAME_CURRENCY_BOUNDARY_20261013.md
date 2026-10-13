@@ -1,0 +1,7 @@
+# Two-column item-name currency boundary correction
+
+An exact-head Codex section-2 review of `3753e82bfdc1cab49e57711f72d5b64eb04e73fc` found that the two-column charge-table guard searched a description prefix for any substring of the currency vocabulary. In a text-only `Description Amount` table, `TRY` inside `Pastry` or `Rs` inside `Flowers` made an otherwise ordinary priced item ambiguous and removed it from provisional item suggestions. The focused Pastry regression failed on the reviewed head before the parser changed; its baseline log and exit code are in `settleora-item-name-currency-evidence-20261013`.
+
+The guard now recognizes currency markers only at Unicode letter and number token boundaries. It leaves numeric, percent, detached-sign, financial-label, fee-label, and layout ambiguity checks intact. The focused correction accepts the priced Pastry and Flowers rows while retaining ambiguity for standalone `TRY Pastry` and `Rs Flowers` prefixes. All five focused two-column controls passed. The parser's source hash and canonical trusted OCR catalog digest were refreshed; bundled model bytes remain unchanged.
+
+This is a provisional OCR parser correction. It changes no authoritative API money calculation, schema, auth, native OCR engine, fixture expectation, model bytes, deployment, or network setting. Full clean-commit validation, retained replay comparison, renewed exact-head independent reviews, native acceptance, hosted checks, and merge gates remain pending.

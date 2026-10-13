@@ -9842,8 +9842,9 @@ _classifyChargeTableRows(
       }
       if (RegExp(r'\d|%|[-−]\s*$').hasMatch(prefix) ||
           RegExp(
-            _currencyTokenPattern,
+            '(?<![\\p{L}\\p{N}])(?:$_currencyTokenPattern)(?![\\p{L}\\p{N}])',
             caseSensitive: false,
+            unicode: true,
           ).hasMatch(prefix) ||
           _hasUnresolvedSimpleFinancialLabel(prefix) ||
           RegExp(
