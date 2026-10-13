@@ -3992,7 +3992,7 @@ class ReceiptOcrParser {
     }
     final ownedDescriptionBlocks = <ReceiptOcrBlockEvidence>[
       ...descriptionBlocks,
-      if (includedSizeBlock != null) includedSizeBlock,
+      ?includedSizeBlock,
     ]..sort((left, right) => left.order.compareTo(right.order));
     final description = _cleanDescription(
       ownedDescriptionBlocks.map((block) => block.text.trim()).join(' '),
