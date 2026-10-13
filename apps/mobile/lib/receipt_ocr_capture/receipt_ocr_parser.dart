@@ -2737,6 +2737,10 @@ class ReceiptOcrParser {
                           (printedCurrencies.isNotEmpty &&
                               (printedCurrencies.length != 1 ||
                                   !printedCurrencies.contains(currency)))))) {
+          adjustmentsComplete = false;
+          incompleteReasons.add(
+            ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence,
+          );
           continue;
         }
         var score = 10;
@@ -3333,6 +3337,8 @@ class ReceiptOcrParser {
       if (nonItemEvidenceRows.contains(lineIndex) ||
           fuelPumpRows.contains(lineIndex) ||
           ownedSummaryRows != null ||
+          (_isPrimaryTotalCurrencyLine(line, line.toLowerCase()) &&
+              _unsupportedIsoCodeAdjacentToSelectedAmount(line) != null) ||
           (_isAdministrativeLine(line) &&
               !chargeTableRows.contains(lineIndex)) ||
           _isIncludedTaxAmountLine(line) ||

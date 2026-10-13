@@ -11547,6 +11547,32 @@ Total €9.00 $10.00
     expect(preview.total, '10.00');
   });
 
+  test('unsupported ISO primary total warns alongside priced items', () {
+    for (final totalLine in ['Total XPF 100', 'Grand Total XPF 100']) {
+      final preview = const ReceiptOcrParser().parse('''
+Market
+Coffee USD 10.00
+$totalLine
+''', fallbackCurrency: 'USD');
+      expect(preview.currency, 'USD', reason: totalLine);
+      expect(preview.total, isNull, reason: totalLine);
+      expect(preview.items.map((item) => item.description), [
+        'Coffee',
+      ], reason: totalLine);
+      expect(preview.adjustmentsComplete, isFalse, reason: totalLine);
+      expect(
+        preview.incompleteAdjustmentReasons,
+        contains(ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence),
+        reason: totalLine,
+      );
+      expect(
+        preview.warnings,
+        contains('No clear total amount was detected.'),
+        reason: totalLine,
+      );
+    }
+  });
+
   test('unsupported symbol on selected total stays provisional', () {
     const parser = ReceiptOcrParser();
     for (final printedTotal in ['Total ₱10.00', 'Total USD 9.00 ₱10.00']) {
