@@ -14906,6 +14906,35 @@ Total USD 2.00
     expect(compared.tax, isNull);
   });
 
+  test('one priced item cell with conflicting codes stays unresolved', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Widget EUR / GBP 9.99
+Total USD 9.99
+''');
+    expect(preview.currency, 'USD');
+    final item = preview.items.singleWhere((item) => item.lineTotal == '9.99');
+    expect(item.currency, isNull);
+    expect(item.currencyUnresolved, isTrue);
+  });
+
+  test(
+    'conflicting attached total codes cannot establish receipt currency',
+    () {
+      final preview = const ReceiptOcrParser().parse('''
+Market
+Widget 9.99
+Total EUR / USD9.99
+''');
+      expect(preview.currency, isNull);
+      expect(
+        preview.currencyProvenance,
+        ReceiptOcrCurrencyProvenance.unresolved,
+      );
+      expect(preview.total, isNull);
+    },
+  );
+
   test('item name suffix cannot become selected amount currency', () {
     const parser = ReceiptOcrParser();
     final compared = parser.parse('''

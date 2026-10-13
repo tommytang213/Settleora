@@ -1245,6 +1245,14 @@ class ReceiptOcrParser {
         primaryTotalLines.single,
       );
       if (attachedCode != null) {
+        final selected = _currencyKeepingSelectedChain(
+          primaryTotalLines.single,
+          normalizedFallback,
+          (currency: attachedCode, hasExplicitEvidence: true),
+        );
+        if (selected.hasExplicitEvidence && selected.currency == null) {
+          return const _ReceiptCurrencyDetection();
+        }
         return _ReceiptCurrencyDetection(
           currency: attachedCode,
           provenance: ReceiptOcrCurrencyProvenance.explicit,
@@ -3702,6 +3710,52 @@ class ReceiptOcrParser {
           .take(40)
           .toList(growable: false),
     );
+  }
+
+  String? _itemCurrencyFromPrintedText(
+    String text,
+    String? receiptCurrency, {
+    String? token,
+  }) {
+    final itemText = _maskAmbiguousSupportedItemWords(text);
+    final unsupportedSelected = _unsupportedIsoCodeAdjacentToSelectedAmount(
+      itemText,
+    );
+    if (unsupportedSelected != null) return unsupportedSelected;
+    final selected = _currencyKeepingSelectedChain(
+      itemText,
+      receiptCurrency,
+      _currencyAdjacentToSelectedAmount(itemText, receiptCurrency),
+    );
+    if (selected.hasExplicitEvidence) return selected.currency;
+    if (itemText.contains('¥') &&
+        receiptCurrency != null &&
+        receiptCurrency != 'JPY' &&
+        receiptCurrency != 'CNY') {
+      return _currencyAdjacentToSelectedAmountWithYen(itemText) ?? '¥';
+    }
+    final itemToken =
+        token == null || _maskAmbiguousSupportedItemWords(token).trim().isEmpty
+        ? null
+        : token;
+    return _currencyFromItemToken(itemToken) ??
+        _explicitCurrencyFromNormalizedLine(itemText.toUpperCase()) ??
+        receiptCurrency;
+  }
+
+  bool _selectedItemCurrencyUnresolved(String text, String? receiptCurrency) {
+    final itemText = _maskAmbiguousSupportedItemWords(text);
+    if (_unsupportedIsoCodeAdjacentToSelectedAmount(itemText) != null) {
+      return true;
+    }
+    final selected = _currencyKeepingSelectedChain(
+      itemText,
+      receiptCurrency,
+      _currencyAdjacentToSelectedAmount(itemText, receiptCurrency),
+    );
+    if (selected.hasExplicitEvidence && selected.currency != null) return false;
+    if (_hasUnsupportedIsoMonetaryEvidence(itemText)) return true;
+    return selected.hasExplicitEvidence && selected.currency == null;
   }
 
   ({String? currency, bool hasExplicitEvidence}) _layoutItemCellCurrency(
@@ -12075,44 +12129,6 @@ bool _currencyCompatibleWithBareDollar(String? currency) => const {
   'TWD',
   'USD',
 }.contains(currency);
-
-String? _itemCurrencyFromPrintedText(
-  String text,
-  String? receiptCurrency, {
-  String? token,
-}) {
-  final itemText = _maskAmbiguousSupportedItemWords(text);
-  final unsupportedSelected = _unsupportedIsoCodeAdjacentToSelectedAmount(
-    itemText,
-  );
-  if (unsupportedSelected != null) return unsupportedSelected;
-  final selected = _currencyAdjacentToSelectedAmount(itemText, receiptCurrency);
-  if (selected.hasExplicitEvidence) return selected.currency;
-  if (itemText.contains('¥') &&
-      receiptCurrency != null &&
-      receiptCurrency != 'JPY' &&
-      receiptCurrency != 'CNY') {
-    return _currencyAdjacentToSelectedAmountWithYen(itemText) ?? '¥';
-  }
-  final itemToken =
-      token == null || _maskAmbiguousSupportedItemWords(token).trim().isEmpty
-      ? null
-      : token;
-  return _currencyFromItemToken(itemToken) ??
-      _explicitCurrencyFromNormalizedLine(itemText.toUpperCase()) ??
-      receiptCurrency;
-}
-
-bool _selectedItemCurrencyUnresolved(String text, String? receiptCurrency) {
-  final itemText = _maskAmbiguousSupportedItemWords(text);
-  if (_unsupportedIsoCodeAdjacentToSelectedAmount(itemText) != null) {
-    return true;
-  }
-  final selected = _currencyAdjacentToSelectedAmount(itemText, receiptCurrency);
-  if (selected.hasExplicitEvidence && selected.currency != null) return false;
-  if (_hasUnsupportedIsoMonetaryEvidence(itemText)) return true;
-  return selected.hasExplicitEvidence && selected.currency == null;
-}
 
 String _maskAmbiguousSupportedItemWords(
   String text, {

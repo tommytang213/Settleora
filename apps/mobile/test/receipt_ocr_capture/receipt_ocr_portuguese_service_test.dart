@@ -140,11 +140,18 @@ void main() {
   });
 
   test('conflicting service currencies cannot be saved as USD', () {
+    final preview = _receipt('Serviço EUR1,50 USD', currency: 'USD');
+    expect(preview.service, '1.50');
+    expect(preview.serviceCurrency, isNull);
+    expect(preview.serviceHasExplicitCurrencyEvidence, isTrue);
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(preview.reviewHints, isNotEmpty);
     final request = receiptOcrReviewSaveRequestFromPreview(
-      _receipt('Serviço EUR1,50 USD', currency: 'USD'),
+      preview,
       originalCurrency: 'USD',
     )!;
     expect(request.serviceChargeAmount, isNull);
+    expect(request.taxReconciliationMode, 'unresolved');
     expect(
       request.headerEvidence.where((row) => row.role == 'service_charge'),
       isEmpty,
