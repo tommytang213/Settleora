@@ -2739,6 +2739,14 @@ class ReceiptOcrParser {
         // warning. Publishing a total additionally requires the complete
         // financial label and cells, so product words cannot gain ownership.
         if (!_isPrimaryTotalCurrencyLine(line, normalized)) continue;
+        // Multiple supported totals can share one flattened OCR row. The
+        // final-cell selector does not expose earlier cells as candidates.
+        if (_hasConflictingRepeatedTotalCells(line, currency)) {
+          adjustmentsComplete = false;
+          incompleteReasons.add(
+            ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence,
+          );
+        }
         final printedCurrencies = <String>{
           ..._supportedCurrencyCodes.where(
             (code) => _hasExplicitCurrencyCode([line], code),
@@ -2895,6 +2903,7 @@ class ReceiptOcrParser {
       }
     }
     if (!hasUnratedTax &&
+        adjustmentRoleCounts['tax'] == ratedTaxComponents.length &&
         !aggregatedRatedTax &&
         ratedTaxesShareUtilityTable &&
         !mixedTaxInclusion &&
@@ -13615,6 +13624,43 @@ bool _hasPriorityTotalLabel(String line) {
     return true;
   }
   return _hasCompleteLabeledCurrencyCells(line, label);
+}
+
+bool _hasConflictingRepeatedTotalCells(String line, String? currency) {
+  if (currency == null) return false;
+  final labels = RegExp(
+    r'\btotal\b',
+    caseSensitive: false,
+  ).allMatches(line).toList(growable: false);
+  if (labels.length < 2) return false;
+  final values = <int>{};
+  for (var index = 0; index < labels.length; index++) {
+    final cell = line
+        .substring(
+          labels[index].start,
+          index + 1 < labels.length ? labels[index + 1].start : line.length,
+        )
+        .trim();
+    if (!_hasCompleteLabeledCurrencyCells(
+      cell,
+      r'total',
+      includeUnsupportedCurrencyCodes: true,
+    )) {
+      continue;
+    }
+    final printed = _currencyAdjacentToSelectedAmount(
+      cell,
+      currency,
+      allowPriorCurrencyConflict: true,
+    );
+    if (!printed.hasExplicitEvidence || printed.currency != currency) continue;
+    final amount = _lastAmountInLine(cell, currency: currency);
+    final minor = amount == null
+        ? null
+        : _ocrAmountMinorUnits(amount, currency);
+    if (minor != null) values.add(minor);
+  }
+  return values.length > 1;
 }
 
 bool _hasCompleteLabeledCurrencyCells(

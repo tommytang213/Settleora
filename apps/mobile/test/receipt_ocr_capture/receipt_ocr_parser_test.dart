@@ -8485,6 +8485,49 @@ Total 4.40''');
     expect(usd.items, isEmpty);
   });
 
+  test('unresolved rated tax row cannot publish a partial aggregate', () {
+    const parser = ReceiptOcrParser();
+    const complete =
+        'Market\nItem USD 20.00\n'
+        'Tax 5% USD 1.00\nTax 10% USD 2.00\nTotal USD 23.00';
+    expect(parser.parse(complete).tax, '3.00');
+    final incomplete = parser.parse(
+      complete.replaceFirst(
+        'Total USD 23.00',
+        'Tax 15% USD ?\nTotal USD 23.00',
+      ),
+    );
+    expect(incomplete.tax, isNull);
+    expect(incomplete.adjustmentsComplete, isFalse);
+    expect(
+      incomplete.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.repeatedAdjustmentRole),
+    );
+  });
+
+  test('conflicting supported totals in one flattened row need review', () {
+    const parser = ReceiptOcrParser();
+    const prefix = 'Market\nItem USD 10.00\n';
+    final conflict = parser.parse(
+      '${prefix}Total CZK 100.00 / Total USD 5.00 / Total USD 10.00',
+    );
+    expect(conflict.total, '10.00');
+    expect(conflict.adjustmentsComplete, isFalse);
+    expect(
+      conflict.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence),
+    );
+    final matching = parser.parse(
+      '${prefix}Total CZK 100.00 / Total USD 10.00 / Total USD 10.00',
+    );
+    expect(matching.total, '10.00');
+    expect(matching.adjustmentsComplete, isTrue);
+    final oneSupported = parser.parse(
+      '${prefix}Total CZK 100.00 / Total USD 10.00',
+    );
+    expect(oneSupported.adjustmentsComplete, isTrue);
+  });
+
   test('country-named unpriced products remain unresolved inside a table', () {
     final rows = <List<({String text, double left, double right})>>[
       [(text: 'Harbor Market', left: 20, right: 370)],
