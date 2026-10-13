@@ -6989,6 +6989,81 @@ Total USD 40.00
     },
   );
 
+  test('layout fallback retains a bounded numeric size and unit', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Market\nCoffee 250 g 3.00 A\nTotal USD 3.00',
+      blocks: [
+        _layoutBlock('Market', 0, 0, 20, 350),
+        _layoutBlock('Coffee', 1, 1, 60, 120),
+        _layoutBlock('250', 2, 1, 130, 160),
+        _layoutBlock('g', 3, 1, 165, 180),
+        _layoutBlock('3.00', 4, 1, 300, 350),
+        _layoutBlock('A', 5, 1, 370, 390),
+        _layoutBlock('Total USD 3.00', 6, 2, 20, 350),
+      ],
+    );
+    expect(preview.items.single.description, 'Coffee 250 g');
+    expect(preview.items.single.lineTotal, '3.00');
+    final noUnit = const ReceiptOcrParser().parse(
+      'Market\nCoffee 250 3.00 A\nTotal USD 3.00',
+      blocks: [
+        _layoutBlock('Market', 0, 0, 20, 350),
+        _layoutBlock('Coffee', 1, 1, 60, 120),
+        _layoutBlock('250', 2, 1, 130, 160),
+        _layoutBlock('3.00', 3, 1, 300, 350),
+        _layoutBlock('A', 4, 1, 370, 390),
+        _layoutBlock('Total USD 3.00', 5, 2, 20, 350),
+      ],
+    );
+    expect(noUnit.items, isEmpty);
+  });
+
+  test('printed Qty ownership keeps a number under Item in its name', () {
+    final underItem = const ReceiptOcrParser().parse(
+      'Market\nQty Item Amount\n7 Up USD 3.00\nTotal USD 3.00',
+      blocks: [
+        _layoutBlock('Market', 0, 0, 20, 350),
+        _layoutBlock('Qty', 1, 1, 20, 65),
+        _layoutBlock('Item', 2, 1, 90, 220),
+        _layoutBlock('Amount', 3, 1, 300, 350),
+        _layoutBlock('7', 4, 2, 100, 115),
+        _layoutBlock('Up', 5, 2, 130, 200),
+        _layoutBlock('USD 3.00', 6, 2, 300, 350),
+        _layoutBlock('Total USD 3.00', 7, 3, 20, 350),
+      ],
+    );
+    expect(underItem.items.single.description, '7 Up');
+    expect(underItem.items.single.quantity, isNull);
+    final underQty = const ReceiptOcrParser().parse(
+      'Market\nQty Item Amount\n2 Rolls USD 3.00\nTotal USD 3.00',
+      blocks: [
+        _layoutBlock('Market', 0, 0, 20, 350),
+        _layoutBlock('Qty', 1, 1, 20, 65),
+        _layoutBlock('Item', 2, 1, 90, 220),
+        _layoutBlock('Amount', 3, 1, 300, 350),
+        _layoutBlock('2', 4, 2, 20, 28),
+        _layoutBlock('Rolls', 5, 2, 100, 200),
+        _layoutBlock('USD 3.00', 6, 2, 300, 350),
+        _layoutBlock('Total USD 3.00', 7, 3, 20, 350),
+      ],
+    );
+    expect(underQty.items.single.description, 'Rolls');
+    expect(underQty.items.single.quantity, '2');
+    final wideCombinedHeading = const ReceiptOcrParser().parse(
+      'Market\nQty Item Amount\n7 Up USD 3.00\nTotal USD 3.00',
+      blocks: [
+        _layoutBlock('Market', 0, 0, 20, 900),
+        _layoutBlock('Qty Item Amount', 1, 1, 20, 900),
+        _layoutBlock('7', 2, 2, 100, 115),
+        _layoutBlock('Up', 3, 2, 130, 200),
+        _layoutBlock('USD 3.00', 4, 2, 800, 900),
+        _layoutBlock('Total USD 3.00', 5, 3, 20, 900),
+      ],
+    );
+    expect(wideCombinedHeading.items.single.description, '7 Up');
+    expect(wideCombinedHeading.items.single.quantity, isNull);
+  });
+
   test('a number-prefixed product stays a name without a quantity column', () {
     final preview = const ReceiptOcrParser().parse('''
 Corner Market

@@ -3941,8 +3941,61 @@ class ReceiptOcrParser {
               : right <= amountLeft - 8;
         })
         .toList(growable: false);
+    // A separated size numeral can be part of the printed product name.
+    // Only bind one when a nearby word and a recognized unit bracket it;
+    // other left-column numeric cells may be quantity, rate or reference.
+    final numericFragments = row
+        .where((block) {
+          if (block == amountCell ||
+              block == currencyBlock ||
+              block.points.isEmpty ||
+              !RegExp(r'^\d{1,4}$').hasMatch(block.text.trim())) {
+            return false;
+          }
+          final right = block.points
+              .map((point) => point.x)
+              .reduce((a, b) => a > b ? a : b);
+          return right < amountLeft - 8;
+        })
+        .toList(growable: false);
+    if (numericFragments.length > 1) return null;
+    final sizeBlock = numericFragments.firstOrNull;
+    ReceiptOcrBlockEvidence? includedSizeBlock;
+    if (sizeBlock != null) {
+      final sizeLeft = sizeBlock.points
+          .map((point) => point.x)
+          .reduce((a, b) => a < b ? a : b);
+      final sizeRight = sizeBlock.points
+          .map((point) => point.x)
+          .reduce((a, b) => a > b ? a : b);
+      final hasLeftName = descriptionBlocks.any((block) {
+        final right = block.points
+            .map((point) => point.x)
+            .reduce((a, b) => a > b ? a : b);
+        return right <= sizeLeft && sizeLeft - right <= 24;
+      });
+      final hasRightUnit = descriptionBlocks.any((block) {
+        final left = block.points
+            .map((point) => point.x)
+            .reduce((a, b) => a < b ? a : b);
+        return left >= sizeRight &&
+            left - sizeRight <= 16 &&
+            RegExp(
+              r'^(?:g|kg|mg|ml|l|oz|lb|lbs|cm|mm|m|gb|mb|tb)$',
+              caseSensitive: false,
+            ).hasMatch(block.text.trim());
+      });
+      // A separate quantity column may have an isolated numeral. Keep the
+      // established priced item in that case, without inventing quantity.
+      if (hasLeftName != hasRightUnit) return null;
+      if (hasLeftName) includedSizeBlock = sizeBlock;
+    }
+    final ownedDescriptionBlocks = <ReceiptOcrBlockEvidence>[
+      ...descriptionBlocks,
+      if (includedSizeBlock != null) includedSizeBlock,
+    ]..sort((left, right) => left.order.compareTo(right.order));
     final description = _cleanDescription(
-      descriptionBlocks.map((block) => block.text.trim()).join(' '),
+      ownedDescriptionBlocks.map((block) => block.text.trim()).join(' '),
     );
     if (!_hasSubstantiveItemDescription(description) ||
         _isLikelyNonItemDescription(description, pricedRow: true)) {
@@ -13367,15 +13420,56 @@ Set<int> _leadingQuantityColumnRows(
   void finishRun() {
     final firstIndex = run.isEmpty ? 0 : run.first.index;
     final headerStart = firstIndex > 10 ? firstIndex - 10 : 0;
-    final hasQuantityHeader = lines
-        .sublist(headerStart, firstIndex)
-        .any(
-          (line) => RegExp(
-            r'^\s*(?:qty|quantity)\b.*\b(?:item|description|product|price|amount|total)\b',
-            caseSensitive: false,
-          ).hasMatch(line),
+    final headerIndices = [
+      for (var index = headerStart; index < firstIndex; index++)
+        if (RegExp(
+          r'^\s*(?:qty|quantity)\b.*\b(?:item|description|product|price|amount|total)\b',
+          caseSensitive: false,
+        ).hasMatch(lines[index]))
+          index,
+    ];
+    final headerIndex = headerIndices.lastOrNull;
+    var ownedByQuantityHeading = false;
+    if (headerIndex != null && headerIndex < layoutRows.length) {
+      final headings = layoutRows[headerIndex].where(
+        (block) => block.points.length == 4,
+      );
+      final quantityHeading = headings
+          .where(
+            (block) => RegExp(
+              r'^\s*(?:qty|quantity)\s*$',
+              caseSensitive: false,
+            ).hasMatch(block.text),
+          )
+          .singleOrNull;
+      final combinedHeading = quantityHeading == null
+          ? headings
+                .where(
+                  (block) => RegExp(
+                    r'^\s*(?:qty|quantity)\s+(?:item|description|product)\b',
+                    caseSensitive: false,
+                  ).hasMatch(block.text),
+                )
+                .singleOrNull
+          : null;
+      final heading = quantityHeading ?? combinedHeading;
+      if (heading != null) {
+        final left = heading.points
+            .map((point) => point.x)
+            .reduce((a, b) => a < b ? a : b);
+        final right = heading.points
+            .map((point) => point.x)
+            .reduce((a, b) => a > b ? a : b);
+        final leadingWidth = (right - left) * 0.15;
+        final ownedRight = quantityHeading != null
+            ? right + 12
+            : left + (leadingWidth <= 48 ? leadingWidth : 48);
+        ownedByQuantityHeading = run.every(
+          (entry) => entry.centerX >= left - 8 && entry.centerX <= ownedRight,
         );
-    if (hasQuantityHeader &&
+      }
+    }
+    if (ownedByQuantityHeading &&
         run.isNotEmpty &&
         run.map((entry) => entry.centerX).reduce((a, b) => a < b ? a : b) +
                 12 >=
