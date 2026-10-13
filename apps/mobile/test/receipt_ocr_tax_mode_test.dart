@@ -72,86 +72,89 @@ void main() {
     );
   }
 
-  for (final change in [
-    'add',
-    'amount',
-    'currency',
-    'role',
-    'remove',
-    'same',
+  for (final previousMode in <String?>[
+    null,
+    ReceiptOcrTaxReconciliationModeValues.alreadyInBase,
   ]) {
-    test(
-      'header evidence $change invalidates saved tax resolution when changed',
-      () {
-        final now = DateTime.utc(2026, 10, 6);
-        final previous = ReceiptOcrReviewDetail(
-          id: 'review',
-          billId: 'bill',
-          fileId: 'file',
-          groupId: null,
-          status: ReceiptOcrReviewStatusValues.reviewed,
-          source: ReceiptOcrReviewSourceValues.onDevice,
-          merchantText: 'Books',
-          receiptIssuedAtUtc: null,
-          currency: 'GBP',
-          subtotalAmount: '24',
-          taxAmount: '4',
-          taxReconciliationMode:
-              ReceiptOcrTaxReconciliationModeValues.alreadyInBase,
-          serviceChargeAmount: null,
-          discountAmount: null,
-          grandTotalAmount: '24',
-          lines: const [],
-          createdAtUtc: now,
-          updatedAtUtc: now,
-          headerEvidence: change == 'add'
-              ? const []
-              : const [
-                  ReceiptOcrReviewHeaderEvidence(
-                    role: 'service_charge',
-                    amount: '1.00',
-                    currency: 'EUR',
-                  ),
-                ],
-        );
-        final candidate = ReceiptOcrReviewSaveRequest(
-          status: previous.status,
-          source: previous.source,
-          merchantText: previous.merchantText,
-          receiptIssuedAtUtc: null,
-          currency: 'GBP',
-          subtotalAmount: '24',
-          taxAmount: '4',
-          serviceChargeAmount: null,
-          discountAmount: null,
-          grandTotalAmount: '24',
-          lines: const [],
-          headerEvidence: change == 'remove'
-              ? const []
-              : [
-                  ReceiptOcrReviewHeaderEvidenceSaveRequest(
-                    role: change == 'role' ? 'discount' : 'service_charge',
-                    amount: change == 'amount' ? '2' : '1',
-                    currency: change == 'currency' ? 'USD' : 'EUR',
-                  ),
-                ],
-        );
-        expect(
-          receiptOcrTaxModeForSavedEdit(previous, candidate),
-          change == 'same'
-              ? ReceiptOcrTaxReconciliationModeValues.alreadyInBase
-              : ReceiptOcrTaxReconciliationModeValues.unresolved,
-        );
-        if (candidate.headerEvidence.isNotEmpty) {
-          expect(
-            receiptOcrTaxModeFromSupportedEvidence(candidate),
-            ReceiptOcrTaxReconciliationModeValues.unresolved,
+    for (final change in [
+      'add',
+      'amount',
+      'currency',
+      'role',
+      'remove',
+      'same',
+    ]) {
+      test(
+        'header evidence $change invalidates saved tax resolution when changed mode=$previousMode',
+        () {
+          final now = DateTime.utc(2026, 10, 6);
+          final previous = ReceiptOcrReviewDetail(
+            id: 'review',
+            billId: 'bill',
+            fileId: 'file',
+            groupId: null,
+            status: ReceiptOcrReviewStatusValues.reviewed,
+            source: ReceiptOcrReviewSourceValues.onDevice,
+            merchantText: 'Books',
+            receiptIssuedAtUtc: null,
+            currency: 'GBP',
+            subtotalAmount: '24',
+            taxAmount: '4',
+            taxReconciliationMode: previousMode,
+            serviceChargeAmount: null,
+            discountAmount: null,
+            grandTotalAmount: '24',
+            lines: const [],
+            createdAtUtc: now,
+            updatedAtUtc: now,
+            headerEvidence: change == 'add'
+                ? const []
+                : const [
+                    ReceiptOcrReviewHeaderEvidence(
+                      role: 'service_charge',
+                      amount: '1.00',
+                      currency: 'EUR',
+                    ),
+                  ],
           );
-        }
-      },
-    );
+          final candidate = ReceiptOcrReviewSaveRequest(
+            status: previous.status,
+            source: previous.source,
+            merchantText: previous.merchantText,
+            receiptIssuedAtUtc: null,
+            currency: 'GBP',
+            subtotalAmount: '24',
+            taxAmount: '4',
+            serviceChargeAmount: null,
+            discountAmount: null,
+            grandTotalAmount: '24',
+            lines: const [],
+            headerEvidence: change == 'remove'
+                ? const []
+                : [
+                    ReceiptOcrReviewHeaderEvidenceSaveRequest(
+                      role: change == 'role' ? 'discount' : 'service_charge',
+                      amount: change == 'amount' ? '2' : '1',
+                      currency: change == 'currency' ? 'USD' : 'EUR',
+                    ),
+                  ],
+          );
+          expect(
+            receiptOcrTaxModeForSavedEdit(previous, candidate),
+            change == 'same'
+                ? previousMode
+                : ReceiptOcrTaxReconciliationModeValues.unresolved,
+          );
+          if (candidate.headerEvidence.isNotEmpty) {
+            expect(
+              receiptOcrTaxModeFromSupportedEvidence(candidate),
+              ReceiptOcrTaxReconciliationModeValues.unresolved,
+            );
+          }
+        },
+      );
+    }
   }
-
   test('included tax reconciles bounded same-currency tip or shipping', () {
     ReceiptOcrReviewSaveRequest candidate({
       required String subtotal,

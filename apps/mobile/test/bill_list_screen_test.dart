@@ -44,6 +44,8 @@ void main() {
   for (final group in [false, true]) {
     for (final scenario in [
       'lineTotal',
+      'description',
+      'emptyDescription',
       'unitPrice',
       'quantity',
       'changed',
@@ -51,7 +53,7 @@ void main() {
       'overprecision',
     ]) {
       testWidgets(
-        'representation-only OCR item edit retains included tax $scenario group=$group',
+        'OCR item edit retains correct included-tax eligibility $scenario group=$group',
         (tester) async {
           await useLargeSurface(tester);
           final prefix = group ? 'group-bill' : 'personal-bill';
@@ -121,6 +123,8 @@ void main() {
           );
           await _setReceiptOcrSection(tester, prefix, 'items', true);
           final key = switch (scenario) {
+            'description' ||
+            'emptyDescription' => '$prefix-ocr-item-description-0',
             'unitPrice' => '$prefix-ocr-item-unit-price-0',
             'quantity' => '$prefix-ocr-item-quantity-0',
             _ => '$prefix-ocr-item-line-total-0',
@@ -128,6 +132,8 @@ void main() {
           final edited = find.byKey(ValueKey(key));
           await tester.ensureVisible(edited);
           await tester.enterText(edited, switch (scenario) {
+            'description' => 'Corrected Notebook',
+            'emptyDescription' => '',
             'quantity' => '0.5',
             'changed' => '11.99',
             'invalid' => '12x',
@@ -136,6 +142,7 @@ void main() {
           });
           await tester.pumpAndSettle();
           final equivalent = [
+            'description',
             'lineTotal',
             'unitPrice',
             'quantity',
@@ -155,6 +162,13 @@ void main() {
               tester.widget<TextFormField>(billAmount).controller?.text,
               scenario == 'lineTotal' ? '12.0' : '12.00',
             );
+            if (scenario == 'description') {
+              final billName = find.byKey(ValueKey('$prefix-item-name-0'));
+              expect(
+                tester.widget<TextFormField>(billName).controller?.text,
+                'Corrected Notebook',
+              );
+            }
           }
         },
       );
@@ -4352,7 +4366,7 @@ Total USD 9.00
     );
   });
 
-  testWidgets('editing an OCR item restores the adjustment warning', (
+  testWidgets('editing OCR item money restores the adjustment warning', (
     tester,
   ) async {
     await useLargeSurface(tester);
@@ -4397,6 +4411,12 @@ Total USD 9.00
     await tester.enterText(
       find.byKey(const ValueKey('personal-bill-ocr-item-description-0')),
       'Replacement meal',
+    );
+    await tester.pumpAndSettle();
+    expect(find.text(hint), findsNothing);
+    await tester.enterText(
+      find.byKey(const ValueKey('personal-bill-ocr-item-line-total-0')),
+      '9.00',
     );
     await tester.pumpAndSettle();
     expect(find.text(hint), findsOneWidget);

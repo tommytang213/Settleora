@@ -3320,6 +3320,7 @@ class _ReceiptOcrEditableReviewFormState
     List<ReceiptOcrItemCandidate> items,
     List<_ReceiptOcrEditableItemControllers> controllers, {
     bool compareDecimalValues = false,
+    bool compareDescriptions = true,
   }) {
     bool decimalDiffers(String edited, String? source) {
       final original = source ?? '';
@@ -3339,7 +3340,8 @@ class _ReceiptOcrEditableReviewFormState
     for (var index = 0; index < items.length; index += 1) {
       final item = items[index];
       final controller = controllers[index];
-      if (controller.description.text != item.description ||
+      if ((compareDescriptions &&
+              controller.description.text != item.description) ||
           decimalDiffers(controller.quantity.text, item.quantity) ||
           decimalDiffers(controller.unitPrice.text, item.unitPrice) ||
           decimalDiffers(controller.lineTotal.text, item.lineTotal) ||
@@ -3388,6 +3390,9 @@ class _ReceiptOcrEditableReviewFormState
           widget.preview.items,
           _itemControllers,
           compareDecimalValues: true,
+          // Corrected item text is retained in the draft but does not change
+          // the printed financial amounts or their adjustment evidence.
+          compareDescriptions: false,
         ),
         items: [
           for (final item in _itemControllers)
