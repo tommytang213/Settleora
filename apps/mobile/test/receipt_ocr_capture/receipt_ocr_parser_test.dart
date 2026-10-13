@@ -15826,6 +15826,40 @@ Total USD 10.00
     }
   });
 
+  test('attached Japanese tax codes retain the printed denomination', () {
+    for (final row in ['消費税JPY 100', '税JPY 100', '消費稅JPY 100', '稅JPY 100']) {
+      final preview = const ReceiptOcrParser().parse('''
+Market
+Bread JPY 1000
+小計 JPY 1000
+$row
+合計 JPY 1100
+''');
+      expect(preview.tax, '100', reason: row);
+      expect(preview.taxCurrency, 'JPY', reason: row);
+      expect(preview.taxHasExplicitCurrencyEvidence, isTrue, reason: row);
+    }
+  });
+
+  test('exempt qualified tax amount remains unresolved', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Bread USD 100.00
+Subtotal USD 100.00
+Tax (exempt) USD 5.00
+Total USD 100.00
+''');
+    expect(preview.tax, isNull);
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(
+      preview.incompleteAdjustmentReasons,
+      contains(
+        ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
+      ),
+    );
+    expect(preview.items.map((item) => item.description), ['Bread']);
+  });
+
   test('localized amountless adjustments keep review warning', () {
     for (final label in ['消費税', 'الضريبة', '割引']) {
       final preview = const ReceiptOcrParser().parse('''

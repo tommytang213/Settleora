@@ -1534,7 +1534,7 @@ class ReceiptOcrParser {
       return _currencyAdjacentToSelectedAmount(line, receiptCurrency);
     }
     final localizedAdjustment =
-        _traditionalTaxAmountLinePattern.firstMatch(line) ??
+        _japaneseTaxAmountLinePattern.firstMatch(line) ??
         _portugueseServiceAmountLinePattern.firstMatch(line);
     if (localizedAdjustment != null) {
       // The label can touch a printed currency code. Resolve the owned cell
@@ -2473,7 +2473,7 @@ class ReceiptOcrParser {
           _includedTaxAmountLinePattern.firstMatch(line) ??
           _includedTaxTotalLinePattern.firstMatch(line);
       final localizedAdjustmentSummary =
-          _traditionalTaxAmountLinePattern.firstMatch(line) ??
+          _japaneseTaxAmountLinePattern.firstMatch(line) ??
           _portugueseServiceAmountLinePattern.firstMatch(line);
       final unownedTotalTail =
           _hasPotentialPrimaryTotalCurrencyLine(line, normalized) &&
@@ -10392,7 +10392,7 @@ bool _isPostSubtotalAdjustmentLine(
   }
   if (allowDescriptiveTaxLabel) {
     final describedTax = RegExp(
-      r'^(?:[\p{L}]+[ -]+){0,3}tax\s*\(\s*(?:federal|state|local|city|county|municipal|regional|provincial|standard|reduced|special|exempt|zero(?:[ -]rated)?|sales|use|vat|gst|hst|tourist|tourism|occupancy|lodging)\s*\)\s+',
+      r'^(?:[\p{L}]+[ -]+){0,3}tax\s*\(\s*(?:federal|state|local|city|county|municipal|regional|provincial|standard|reduced|special|zero(?:[ -]rated)?|sales|use|vat|gst|hst|tourist|tourism|occupancy|lodging)\s*\)\s+',
       caseSensitive: false,
       unicode: true,
     ).firstMatch(trimmed);
@@ -13235,7 +13235,7 @@ bool _hasTaxLabel(
           (allowDescriptiveTaxLabel || _hasExplicitTaxRate(line))) ||
       (_boundedJapaneseTaxLabelPattern.hasMatch(line) &&
           _hasJapaneseReceiptLabel(line, const ['消費税', '税'])) ||
-      _traditionalTaxAmountLinePattern.hasMatch(line) ||
+      _japaneseTaxAmountLinePattern.hasMatch(line) ||
       _hasLocalizedReceiptLabel(line, const [
         'الضريبة',
         '税额',
@@ -13250,13 +13250,14 @@ bool _hasTaxLabel(
       ]);
 }
 
-// Preserve the recognized glyph. The traditional tax character can label a
-// complete tax amount, but a book/product containing it is still an item.
+// Preserve the recognized glyph. Japanese tax characters can label a
+// complete tax amount even when a currency code touches the label; a
+// book/product containing them is still an item.
 // Require the entire row so an unknown suffix is not consumed as a tax role.
 // The tax extractor consumes this exact amount span: scanning again with word
 // boundaries can select only a decimal tail when a currency code is attached.
-final _traditionalTaxAmountLinePattern = RegExp(
-  '^\\s*(?:消費稅|稅)\\s*'
+final _japaneseTaxAmountLinePattern = RegExp(
+  '^\\s*(?:消費税|消費稅|税|稅)\\s*'
   '(?:[（(]\\s*\\d{1,3}(?:[.,]\\d{1,2})?\\s*%\\s*[)）]\\s*)?'
   '[:：]?\\s*(?<monetaryCell>(?:$_currencyTokenPattern)?\\s*(?<amount>$_amountTokenPattern)'
   '\\s*(?:$_currencyTokenPattern)?)\\s*\$',
