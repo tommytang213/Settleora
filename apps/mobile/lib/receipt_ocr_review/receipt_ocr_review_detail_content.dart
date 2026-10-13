@@ -360,29 +360,19 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
     final editedCurrency = _nullableText(
       _currencyController.text,
     )?.toUpperCase();
-    final originalCurrency = widget.review.currency?.trim().toUpperCase();
-    final preserveMoney = editedCurrency == originalCurrency;
     final candidate = ReceiptOcrReviewSaveRequest(
       status: widget.review.status,
       source: widget.review.source,
       merchantText: _nullableText(_merchantController.text),
       receiptIssuedAtUtc: _parseDate(_receiptDateController.text),
       currency: editedCurrency,
-      subtotalAmount: preserveMoney
-          ? _nullableText(_subtotalController.text)
-          : null,
-      taxAmount: preserveMoney ? _nullableText(_taxController.text) : null,
-      serviceChargeAmount: preserveMoney
-          ? _nullableText(_serviceChargeController.text)
-          : null,
-      discountAmount: preserveMoney
-          ? _nullableText(_discountController.text)
-          : null,
-      grandTotalAmount: preserveMoney
-          ? _nullableText(_grandTotalController.text)
-          : null,
+      subtotalAmount: _nullableText(_subtotalController.text),
+      taxAmount: _nullableText(_taxController.text),
+      serviceChargeAmount: _nullableText(_serviceChargeController.text),
+      discountAmount: _nullableText(_discountController.text),
+      grandTotalAmount: _nullableText(_grandTotalController.text),
       lines: _lineEditors
-          .map((editors) => editors.toRequest(omitMoney: !preserveMoney))
+          .map((editors) => editors.toRequest())
           .toList(growable: false),
       adjustmentEvidence: _adjustmentEditors
           .map((editors) => editors.toRequest())
@@ -1075,16 +1065,12 @@ class _ReceiptOcrReviewLineEditors {
         lineTotalAmountController.text.trim().isNotEmpty;
   }
 
-  ReceiptOcrReviewLineSaveRequest toRequest({bool omitMoney = false}) {
+  ReceiptOcrReviewLineSaveRequest toRequest() {
     return ReceiptOcrReviewLineSaveRequest(
       text: textController.text.trim(),
       quantity: _nullableText(quantityController.text),
-      unitPriceAmount: omitMoney
-          ? null
-          : _nullableText(unitPriceAmountController.text),
-      lineTotalAmount: omitMoney
-          ? null
-          : _nullableText(lineTotalAmountController.text),
+      unitPriceAmount: _nullableText(unitPriceAmountController.text),
+      lineTotalAmount: _nullableText(lineTotalAmountController.text),
     );
   }
 

@@ -1241,6 +1241,60 @@ void main() {
       },
     );
 
+    testWidgets(
+      'saved review keeps newly entered amounts after currency change',
+      (tester) async {
+        await useLargeSurface(tester);
+        final route = sampleRoute();
+        final repository = FakeReceiptOcrReviewRepository(
+          reviewResponse: sampleReview(route),
+        );
+
+        await pumpDetail(tester, repository: repository, route: route);
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithIcon(IconButton, Icons.edit_outlined));
+        await tester.pumpAndSettle();
+
+        final selector = find.byKey(const Key('receipt-review-edit-currency'));
+        tester.widget<CurrencySelector>(selector).onChanged('EUR');
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          editableTextForKey(const Key('receipt-review-edit-grand-total')),
+          '12.00',
+        );
+        await tester.enterText(
+          editableTextForKey(const ValueKey('receipt-review-edit-line-unit-0')),
+          '12.00',
+        );
+        await tester.enterText(
+          editableTextForKey(
+            const ValueKey('receipt-review-edit-line-total-0'),
+          ),
+          '12.00',
+        );
+
+        final save = find.byKey(const Key('receipt-review-edit-save'));
+        await tester.ensureVisible(save);
+        await tester.tap(save);
+        await tester.pumpAndSettle();
+
+        expect(repository.saveCalls, 1);
+        final saved = repository.lastSaveRequest!;
+        expect(saved.currency, 'EUR');
+        expect(saved.grandTotalAmount, '12.00');
+        expect(saved.lines.single.unitPriceAmount, '12.00');
+        expect(saved.lines.single.lineTotalAmount, '12.00');
+        expect(saved.subtotalAmount, isNull);
+        expect(saved.taxAmount, isNull);
+        expect(
+          saved.headerEvidence.map(
+            (entry) => (entry.role, entry.amount, entry.currency),
+          ),
+          [('subtotal', '10.00', 'USD'), ('tax', '0.80', 'USD')],
+        );
+      },
+    );
+
     for (final removeTax in [false, true]) {
       testWidgets(
         'repeated currency edits retain original header evidence remove=$removeTax',

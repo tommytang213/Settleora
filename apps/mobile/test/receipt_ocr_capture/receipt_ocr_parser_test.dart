@@ -11547,6 +11547,48 @@ Total €9.00 $10.00
     expect(preview.total, '10.00');
   });
 
+  test('printed receipt currency binds selected bare-dollar total', () {
+    const parser = ReceiptOcrParser();
+    for (final fallback in <String?>[null, 'USD']) {
+      final preview = parser.parse(r'''
+Market
+Currency CAD
+Item CAD 10.00
+Total EUR 6.80 / $10.00
+''', fallbackCurrency: fallback);
+      expect(preview.currency, 'CAD', reason: 'fallback=$fallback');
+      expect(
+        preview.currencyProvenance,
+        ReceiptOcrCurrencyProvenance.explicit,
+        reason: 'fallback=$fallback',
+      );
+      expect(preview.total, '10.00', reason: 'fallback=$fallback');
+    }
+
+    final incompatible = parser.parse(r'''
+Market
+Currency EUR
+Item EUR 9.00
+Total EUR 9.00 / $10.00
+''', fallbackCurrency: 'USD');
+    expect(incompatible.currency, isNull);
+    expect(
+      incompatible.currencyProvenance,
+      ReceiptOcrCurrencyProvenance.unresolved,
+    );
+    expect(incompatible.total, isNull);
+
+    final prefixed = parser.parse(r'''
+Market
+Currency CAD
+Item USD 10.00
+Total CAD 13.50 / US$10.00
+''', fallbackCurrency: 'CAD');
+    expect(prefixed.currency, 'USD');
+    expect(prefixed.currencyProvenance, ReceiptOcrCurrencyProvenance.explicit);
+    expect(prefixed.total, '10.00');
+  });
+
   test('unsupported ISO primary total warns alongside priced items', () {
     for (final totalLine in ['Total XPF 100', 'Grand Total XPF 100']) {
       final preview = const ReceiptOcrParser().parse('''

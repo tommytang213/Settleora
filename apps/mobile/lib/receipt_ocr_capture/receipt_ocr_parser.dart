@@ -1194,11 +1194,35 @@ class ReceiptOcrParser {
               : ReceiptOcrCurrencyProvenance.unresolved,
         );
       }
+      final bareDollar =
+          RegExp(r'(?<![A-Za-z])\$$').hasMatch(before) ||
+          after.startsWith(r'$');
+      if (bareDollar) {
+        // A receipt currency label outranks the caller's bill fallback for
+        // the selected bare dollar. Earlier foreign amounts and item codes
+        // do not establish its denomination.
+        final explicit = _rankedExplicitCurrencyCode(
+          transactionCurrencyLines
+              .where(
+                (candidate) => RegExp(
+                  r'^\s*(?:currency|curr)\b',
+                  caseSensitive: false,
+                ).hasMatch(candidate),
+              )
+              .toList(growable: false),
+        );
+        if (explicit != null) {
+          final compatible = _currencyCompatibleWithBareDollar(explicit);
+          return _ReceiptCurrencyDetection(
+            currency: compatible ? explicit : null,
+            provenance: compatible
+                ? ReceiptOcrCurrencyProvenance.explicit
+                : ReceiptOcrCurrencyProvenance.unresolved,
+          );
+        }
+      }
       if (selected.hasExplicitEvidence &&
           _supportedCurrencyCodes.contains(selected.currency)) {
-        final bareDollar =
-            RegExp(r'(?<![A-Za-z])\$$').hasMatch(before) ||
-            after.startsWith(r'$');
         return _ReceiptCurrencyDetection(
           currency: selected.currency,
           isSymbolOnly: bareDollar,
