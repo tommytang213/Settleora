@@ -7860,8 +7860,14 @@ Total \$9.81
 ''');
     expect(us.items.map((item) => item.description), ['Sandwich', 'Coffee']);
     expect(us.tax, '1.70');
-    expect(us.adjustmentsComplete, isTrue);
-    expect(us.reviewHints, isEmpty);
+    // The bare postal row has no printed street-address owner, so its
+    // possible priced-row interpretation remains visible for review.
+    expect(us.adjustmentsComplete, isFalse);
+    expect(
+      us.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem),
+    );
+    expect(us.reviewHints, isNotEmpty);
     expect(
       us.warnings,
       isNot(
@@ -7895,6 +7901,67 @@ Total \$145.00
     expect(mexico.items.map((item) => item.description), ['Tacos', 'Agua']);
     expect(mexico.tax, '20.00');
   });
+
+  for (final row in ['Tea XL 1500', 'Tea XXL 1500', 'Widget CA 15000']) {
+    final total = row.startsWith('Widget') ? '15500' : '2000';
+    test('unowned postal-shaped priced row retains ambiguity: $row', () {
+      final preview = const ReceiptOcrParser().parse(
+        'TEST CAFE\n$row\nCoffee 500\nTotal JPY $total',
+      );
+      expect(preview.items.map((item) => item.description), ['Coffee']);
+      expect(preview.adjustmentsComplete, isFalse);
+      expect(
+        preview.incompleteAdjustmentReasons,
+        contains(ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem),
+      );
+      expect(
+        preview.itemLineDecisions[1],
+        ReceiptOcrItemLineDecision.unretainedPricedRow,
+      );
+    });
+  }
+
+  for (final row in ['Seattle WA 98101', 'Sydney NSW 2000']) {
+    test('owned bare postal header stays metadata: $row', () {
+      final preview = const ReceiptOcrParser().parse(
+        'Corner Cafe\n123 Main Street\nSuite 2\n$row\nCoffee USD 5.00\nTotal USD 5.00',
+      );
+      expect(preview.items.map((item) => item.description), ['Coffee']);
+      expect(preview.adjustmentsComplete, isTrue);
+      expect(
+        preview.incompleteAdjustmentReasons,
+        isNot(
+          contains(ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem),
+        ),
+      );
+    });
+  }
+
+  test('priced street-name row cannot own a bare postal-shaped row', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Corner Cafe\n123 Main Street USD 15.00\nTea XL 1500\nCoffee 500\nTotal JPY 2000',
+    );
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(
+      preview.itemLineDecisions[2],
+      ReceiptOcrItemLineDecision.unretainedPricedRow,
+    );
+    expect(
+      preview.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem),
+    );
+  });
+
+  test(
+    'explicit comma postal header stays metadata without street context',
+    () {
+      final preview = const ReceiptOcrParser().parse(
+        'Corner Cafe\nSeattle, WA 98101\nCoffee USD 5.00\nTotal USD 5.00',
+      );
+      expect(preview.items.map((item) => item.description), ['Coffee']);
+      expect(preview.adjustmentsComplete, isTrue);
+    },
+  );
 
   test('priced products with region-shaped codes remain editable items', () {
     const parser = ReceiptOcrParser();

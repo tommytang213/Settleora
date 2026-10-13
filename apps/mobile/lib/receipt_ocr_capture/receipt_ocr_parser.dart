@@ -3287,6 +3287,19 @@ class ReceiptOcrParser {
         wrappedDescriptionLines.clear();
         continue;
       }
+      // A bare city/region/postal shape can also be a description and price.
+      // Without a preceding street address, retain that ambiguity instead of
+      // silently discarding a potentially priced row as header metadata.
+      if (_lineHasAmount(line) &&
+          _isReceiptMetadataLine(line) &&
+          !_isReceiptMetadataLine(line, allowBarePostal: false) &&
+          !_hasOwnedStreetAddressContext(lines, lineIndex)) {
+        unretainedPricedItem = true;
+        lineDecisions[lineIndex] =
+            ReceiptOcrItemLineDecision.unretainedPricedRow;
+        wrappedDescriptionLines.clear();
+        continue;
+      }
       if (nonItemEvidenceRows.contains(lineIndex) ||
           fuelPumpRows.contains(lineIndex) ||
           ownedSummaryRows != null ||
@@ -12705,12 +12718,19 @@ bool _isContextualReceiptMetadataLine(List<String> lines, int index) {
   final line = lines[index];
   if (_isLabeledCalendarDateLine(line)) return true;
   if (_isReceiptMetadataLine(line)) return true;
-  if (!_isCityPostalLine(line) || index == 0) return false;
+  if (!_isCityPostalLine(line)) return false;
+  return _hasOwnedStreetAddressContext(lines, index);
+}
+
+bool _hasOwnedStreetAddressContext(List<String> lines, int index) {
+  if (index == 0) return false;
   var addressIndex = index - 1;
   while (addressIndex >= 0 && _isAddressContinuationLine(lines[addressIndex])) {
     addressIndex -= 1;
   }
-  return addressIndex >= 0 && _isStreetAddressLine(lines[addressIndex]);
+  return addressIndex >= 0 &&
+      _isStreetAddressLine(lines[addressIndex]) &&
+      !_hasPrintedReceiptMoneyMarker(lines[addressIndex]);
 }
 
 bool _isStreetAddressLine(String line) => RegExp(
