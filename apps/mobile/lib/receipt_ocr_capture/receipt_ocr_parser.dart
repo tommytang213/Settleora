@@ -5898,7 +5898,7 @@ class ReceiptOcrParser {
           header,
           layoutRows[rowIndex],
         );
-        final outsideEvidence = layoutRows[rowIndex]
+        final outsideBlocks = layoutRows[rowIndex]
             .where(
               (block) =>
                   !tableBlocks.contains(block) &&
@@ -5906,6 +5906,8 @@ class ReceiptOcrParser {
                   !referenceBlocks.contains(block) &&
                   !ownedContactBlocks.contains(block),
             )
+            .toList(growable: false);
+        final outsideEvidence = outsideBlocks
             .map((block) => block.text.trim())
             .join(' ');
         // The heading's width does not bound the printed monetary evidence.
@@ -5942,6 +5944,24 @@ class ReceiptOcrParser {
         // Own the entire column cell, including separately recognized words,
         // before allowing geometry to resolve the flattened row's ambiguity.
         final printedCurrency = _layoutItemCellCurrency(monetaryText, currency);
+        // A complete denomination beyond the heading still belongs to this
+        // physical row. A repeated identical marker is harmless; conflicting
+        // or unresolved markers prevent a single-currency item assertion.
+        if (outsideBlocks.any((block) {
+          if (block == currencyBlock ||
+              !_isCurrencyOnlyOcrBlockText(_normalizeOcrLine(block.text))) {
+            return false;
+          }
+          final combined = _layoutItemCellCurrency(
+            '$monetaryText ${block.text}',
+            currency,
+          );
+          return !combined.hasExplicitEvidence ||
+              combined.currency != printedCurrency.currency;
+        })) {
+          ambiguousAmountRows.add(rowIndex);
+          continue;
+        }
         final lineCurrency = printedCurrency.hasExplicitEvidence
             ? printedCurrency.currency
             : currency;
@@ -8862,17 +8882,7 @@ double? _averageBlockConfidence(List<ReceiptOcrBlockEvidence> blocks) {
   return values.reduce((left, right) => left + right) / values.length;
 }
 
-List<ReceiptOcrBlockEvidence> _nearbyCurrencyOnlyBlocks(
-  List<ReceiptOcrBlockEvidence> row,
-  ReceiptOcrBlockEvidence amountCell,
-) {
-  if (amountCell.points.isEmpty) return const [];
-  final amountLeft = amountCell.points
-      .map((point) => point.x)
-      .reduce((left, right) => left < right ? left : right);
-  final amountRight = amountCell.points
-      .map((point) => point.x)
-      .reduce((left, right) => left > right ? left : right);
+bool _isCurrencyOnlyOcrBlockText(String text) {
   final currencyMarkerPattern =
       '(?:$_currencyTokenPattern|${_knownUnsupportedIsoCurrencyCodes.join('|')}|\\p{Sc})';
   final currencyOnlyPattern = RegExp(
@@ -8886,25 +8896,35 @@ List<ReceiptOcrBlockEvidence> _nearbyCurrencyOnlyBlocks(
     caseSensitive: false,
     unicode: true,
   );
-  bool isCurrencyOnly(String text) {
-    if (!currencyOnlyPattern.hasMatch(text)) return false;
-    final unsupported = _unsupportedIsoCurrencyMarkers(text).toList();
-    // Keep the existing code/ordinary-word distinction. A nearby "pen" or
-    // "all" remains description text, even beside a genuine uppercase code.
-    return !currencyMarkers
-        .allMatches(text)
-        .any(
-          (marker) =>
-              _knownUnsupportedIsoCurrencyCodes.contains(
-                marker.group(0)!.toUpperCase(),
-              ) &&
-              !unsupported.any(
-                (accepted) =>
-                    accepted.start == marker.start &&
-                    accepted.end == marker.end,
-              ),
-        );
-  }
+  if (!currencyOnlyPattern.hasMatch(text)) return false;
+  final unsupported = _unsupportedIsoCurrencyMarkers(text).toList();
+  // Keep the existing code/ordinary-word distinction. A nearby "pen" or
+  // "all" remains description text, even beside a genuine uppercase code.
+  return !currencyMarkers
+      .allMatches(text)
+      .any(
+        (marker) =>
+            _knownUnsupportedIsoCurrencyCodes.contains(
+              marker.group(0)!.toUpperCase(),
+            ) &&
+            !unsupported.any(
+              (accepted) =>
+                  accepted.start == marker.start && accepted.end == marker.end,
+            ),
+      );
+}
+
+List<ReceiptOcrBlockEvidence> _nearbyCurrencyOnlyBlocks(
+  List<ReceiptOcrBlockEvidence> row,
+  ReceiptOcrBlockEvidence amountCell,
+) {
+  if (amountCell.points.isEmpty) return const [];
+  final amountLeft = amountCell.points
+      .map((point) => point.x)
+      .reduce((left, right) => left < right ? left : right);
+  final amountRight = amountCell.points
+      .map((point) => point.x)
+      .reduce((left, right) => left > right ? left : right);
 
   // Ownership retains complete denomination-only expressions, including
   // unsupported symbols/codes and alternatives in one block. Dropping them
@@ -8913,7 +8933,7 @@ List<ReceiptOcrBlockEvidence> _nearbyCurrencyOnlyBlocks(
       .where((block) {
         if (block == amountCell ||
             block.points.isEmpty ||
-            !isCurrencyOnly(_normalizeOcrLine(block.text))) {
+            !_isCurrencyOnlyOcrBlockText(_normalizeOcrLine(block.text))) {
           return false;
         }
         final left = block.points

@@ -9492,6 +9492,53 @@ Warranty Extension''');
     ]);
   });
 
+  test('far currency-only table cell keeps item ownership unresolved', () {
+    for (final marker in ['EUR', 'JPY', 'CHF']) {
+      final preview = const ReceiptOcrParser().parse(
+        'Market\nItemized charges\nDescription Amount\n'
+        'Coffee USD 10.00 $marker\nTotal USD 10.00',
+        blocks: [
+          _layoutBlock('Market', 0, 0, 20, 260),
+          _layoutBlock('Itemized charges', 1, 1, 20, 260),
+          _layoutBlock('Description', 2, 2, 20, 140),
+          _layoutBlock('Amount', 3, 2, 200, 260),
+          _layoutBlock('Coffee', 4, 3, 20, 140),
+          _layoutBlock('USD 10.00', 5, 3, 200, 260),
+          _layoutBlock(marker, 6, 3, 325, 350),
+          _layoutBlock('Total USD 10.00', 7, 4, 20, 260),
+        ],
+      );
+      expect(preview.items, isEmpty, reason: marker);
+      expect(preview.adjustmentsComplete, isFalse, reason: marker);
+      expect(
+        preview.incompleteAdjustmentReasons,
+        contains(ReceiptOcrIncompleteAdjustmentReason.ambiguousChargeTable),
+        reason: marker,
+      );
+    }
+  });
+
+  test('far repeated matching currency cell keeps table item', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Market\nItemized charges\nDescription Amount\n'
+      'Coffee USD 10.00 USD\nTotal USD 10.00',
+      blocks: [
+        _layoutBlock('Market', 0, 0, 20, 260),
+        _layoutBlock('Itemized charges', 1, 1, 20, 260),
+        _layoutBlock('Description', 2, 2, 20, 140),
+        _layoutBlock('Amount', 3, 2, 200, 260),
+        _layoutBlock('Coffee', 4, 3, 20, 140),
+        _layoutBlock('USD 10.00', 5, 3, 200, 260),
+        _layoutBlock('USD', 6, 3, 325, 350),
+        _layoutBlock('Total USD 10.00', 7, 4, 20, 260),
+      ],
+    );
+    expect(preview.items.map((item) => item.description), ['Coffee']);
+    expect(preview.items.single.currency, 'USD');
+    expect(preview.items.single.currencyUnresolved, isFalse);
+    expect(preview.adjustmentsComplete, isTrue);
+  });
+
   test('amount-bearing payment summary ends a layout charge table', () {
     final preview = const ReceiptOcrParser().parse(
       'Harbor Utility\nDescription Usage Rate Amount\n'
