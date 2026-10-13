@@ -8672,6 +8672,34 @@ Total USD 15.00
     expect(preview.items.map((item) => item.lineTotal), ['5.00', '10.00']);
   });
 
+  test('tax excluded base amount is never published as additive tax', () {
+    for (final label in [
+      'Amount without tax',
+      'Amount before tax',
+      'Amount excluding VAT',
+    ]) {
+      final preview = const ReceiptOcrParser().parse('''
+Corner Market
+Bread USD 100.00
+Subtotal USD 100.00
+$label USD 100.00
+Total USD 100.00
+''');
+      expect(preview.items.map((item) => item.description), [
+        'Bread',
+      ], reason: label);
+      expect(preview.tax, isNull, reason: label);
+      expect(preview.adjustmentsComplete, isFalse, reason: label);
+      expect(
+        preview.incompleteAdjustmentReasons,
+        contains(
+          ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
+        ),
+        reason: label,
+      );
+    }
+  });
+
   test('qualified non-additive tax rows stay unresolved', () {
     for (final qualifier in ['Withheld', 'Refunded', 'Reversed', 'Credited']) {
       final preview = const ReceiptOcrParser().parse('''

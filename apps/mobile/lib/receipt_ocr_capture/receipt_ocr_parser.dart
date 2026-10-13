@@ -3422,6 +3422,10 @@ class ReceiptOcrParser {
                 line.toLowerCase(),
                 allowParenthesizedMethod: true,
               )) ||
+          (afterSubtotal &&
+              !chargeTableRows.contains(lineIndex) &&
+              _hasQualifiedNonAdditiveTaxTreatment(line) &&
+              _lineHasAmount(line)) ||
           (!chargeTableRows.contains(lineIndex) &&
               _isPostSubtotalAdjustmentLine(
                 line,
@@ -13297,9 +13301,12 @@ bool _hasSubtotalLabel(String line, String normalized) {
 }
 
 bool _hasQualifiedNonAdditiveTaxTreatment(String line) =>
-    RegExp(r'\btax\b', caseSensitive: false).hasMatch(line) &&
     RegExp(
-      r'\b(?:included|inclusive|exempt|waived|withheld|withholding|refunded|reversed|credited|paid)\b',
+      r'\b(?:tax|vat|gst|hst|iva|tva|kdv|mwst)\b',
+      caseSensitive: false,
+    ).hasMatch(line) &&
+    RegExp(
+      r'\b(?:incl(?:uded|uding|usive)?|excl(?:uded|uding|usive)?|without|before|after|exempt|waived|withheld|withholding|refunded|reversed|credited|paid|net(?:\s+of)?)\b',
       caseSensitive: false,
     ).hasMatch(line);
 
