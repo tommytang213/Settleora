@@ -9835,6 +9835,34 @@ Cash Tender USD 12.00
     expect(refund.total, '-12.00');
   });
 
+  test('product dates cannot outrank the printed receipt Date field', () {
+    for (final product in [
+      'Purchase Planner',
+      'Order Planner',
+      'Transaction Planner',
+      'Invoice Planner',
+      'Receipt Planner',
+      'Bill Planner',
+      'Issued Planner',
+    ]) {
+      final preview = const ReceiptOcrParser().parse('''
+North Cafe
+Date: 2026-10-13
+$product 2027-01-01 USD 10.00
+Total USD 10.00
+''');
+      expect(preview.receiptDate, '2026-10-13', reason: product);
+    }
+    final wrapped = const ReceiptOcrParser().parse('''
+North Cafe
+Date: 2026-10-13
+Purchase Planner
+2027-01-01 USD 10.00
+Total USD 10.00
+''');
+    expect(wrapped.receiptDate, '2026-10-13');
+  });
+
   test('explicit bill date outranks print date after a due date', () {
     final preview = const ReceiptOcrParser().parse('''
 River Utility
@@ -16054,6 +16082,38 @@ Total USD 20.00
       );
     });
   }
+
+  test('tax base and treatment amounts remain unresolved summaries', () {
+    for (final label in [
+      'Amount with tax',
+      'Amount subject to tax',
+      'Amount tax free',
+      'Pre-tax amount',
+      'Post-tax amount',
+      'Taxable amount',
+      'Tax deduction',
+    ]) {
+      final preview = const ReceiptOcrParser().parse('''
+Market
+Bread USD 100.00
+Subtotal USD 100.00
+$label USD 100.00
+Total USD 100.00
+''');
+      expect(preview.tax, isNull, reason: label);
+      expect(preview.items.map((item) => item.description), [
+        'Bread',
+      ], reason: label);
+      expect(preview.adjustmentsComplete, isFalse, reason: label);
+      expect(
+        preview.incompleteAdjustmentReasons,
+        contains(
+          ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
+        ),
+        reason: label,
+      );
+    }
+  });
 
   test('exempt qualified tax amount remains unresolved', () {
     final preview = const ReceiptOcrParser().parse('''

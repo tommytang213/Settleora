@@ -845,6 +845,11 @@ class ReceiptOcrParser {
       final primaryLabel = RegExp(
         r'\b(receipt|bill|invoice|statement|transaction|order|purchase|issued)\s*(date|on)?\b',
       );
+      // A role word only owns a date when its complete label touches that date.
+      // Product names such as "Purchase Planner" are not receipt date labels.
+      final directPrimaryDateLabel = RegExp(
+        r'^(?:receipt|bill|invoice|statement|transaction|order|purchase|issued)(?:\s+(?:date|on))?\s*[:：]?\s*$',
+      );
       final secondaryLabel = RegExp(
         r'\b(due|pay by|payment|paid|previous|prior|last|refund|reference|meter|reading|billing period|service period|period from|period to)\b',
       );
@@ -855,7 +860,12 @@ class ReceiptOcrParser {
         final labels =
             <({int start, bool secondary, bool stay})>[
                 ...primaryLabel
-                    .allMatches(lower)
+                    .allMatches(lower.substring(0, dateStart))
+                    .where(
+                      (match) => directPrimaryDateLabel.hasMatch(
+                        lower.substring(match.start, dateStart),
+                      ),
+                    )
                     .map(
                       (match) =>
                           (start: match.start, secondary: false, stay: false),
@@ -923,7 +933,7 @@ class ReceiptOcrParser {
           }
           if (secondaryLabel.hasMatch(previous)) {
             score -= 30;
-          } else if (primaryLabel.hasMatch(previous)) {
+          } else if (directPrimaryDateLabel.hasMatch(previous)) {
             score += 20;
           }
           if (date != null &&
@@ -2422,7 +2432,9 @@ class ReceiptOcrParser {
       // parking session or signed return. They remain ordinary item evidence.
       if (ownedActivityFeeRows.contains(lineIndex)) continue;
       final normalized = line.toLowerCase();
-      final hasPotentialAdjustment = _hasPotentialReceiptAdjustmentLabel(line);
+      final hasPotentialAdjustment =
+          _hasPotentialReceiptAdjustmentLabel(line) ||
+          (seenPrintedSubtotal && _isTaxBaseSummaryLine(line));
       if (retainedUtilityAdjustmentRows.contains(lineIndex)) {
         // The complete printed role is not an item, but no supported field
         // owns its unsplit or otherwise unresolved monetary meaning.
@@ -13300,15 +13312,21 @@ bool _hasSubtotalLabel(String line, String normalized) {
       _hasLocalizedReceiptLabel(line, _localizedSubtotalLabels);
 }
 
+bool _isTaxBaseSummaryLine(String line) => RegExp(
+  r'^\s*taxable\s+(?:amount|sales|base)\b',
+  caseSensitive: false,
+).hasMatch(line);
+
 bool _hasQualifiedNonAdditiveTaxTreatment(String line) =>
-    RegExp(
-      r'\b(?:tax|vat|gst|hst|iva|tva|kdv|mwst)\b',
-      caseSensitive: false,
-    ).hasMatch(line) &&
-    RegExp(
-      r'\b(?:incl(?:uded|uding|usive)?|excl(?:uded|uding|usive)?|without|before|after|exempt|waived|withheld|withholding|refunded|reversed|credited|paid|net(?:\s+of)?)\b',
-      caseSensitive: false,
-    ).hasMatch(line);
+    _isTaxBaseSummaryLine(line) ||
+    (RegExp(
+          r'\b(?:tax|vat|gst|hst|iva|tva|kdv|mwst)\b',
+          caseSensitive: false,
+        ).hasMatch(line) &&
+        RegExp(
+          r'\b(?:incl(?:uded|uding|usive)?|excl(?:uded|uding|usive)?|without|before|after|with|subject(?:\s+to)?|free|pre|post|deduction|exempt|waived|withheld|withholding|refunded|reversed|credited|paid|net(?:\s+of)?)\b',
+          caseSensitive: false,
+        ).hasMatch(line));
 
 bool _hasTaxLabel(
   String line,
