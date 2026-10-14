@@ -243,6 +243,12 @@ test("systemd and runner argv stay lane-neutral and shell-free", () => {
   assert.match(appBPlan.unitTemplate, /Description=AppB detached auto-runner/);
   assert.equal(appBPlan.unitTemplate.includes(`WorkingDirectory=${process.cwd()}/tools/auto-runner`), true);
   assert.match(appBPlan.unitTemplate, /--logs-root \/workspace\/logs\/auto-runner\/AppB/);
+  assert.match(appBPlan.unitTemplate, /ReadWritePaths=\/workspace\/repos\/AppB \/workspace\/logs\/auto-runner\/AppB /);
+  assert.equal(appBPlan.unitTemplate.includes(`-${process.cwd()}/tools/.auto-runner.consumers`), true);
+  assert.match(appBPlan.unitTemplate, /ReadOnlyPaths=.*\/tools\/auto-runner/);
+  for (const directive of ["NoNewPrivileges=yes", "PrivateTmp=yes", "PrivateUsers=yes", "ProtectSystem=strict", "ProtectHome=read-only", "RestrictSUIDSGID=yes", "LockPersonality=yes"]) {
+    assert.equal(appBPlan.unitTemplate.includes(directive), true);
+  }
   assert.doesNotMatch(appBPlan.unitTemplate, /\{\{[A-Z_]+\}\}|\/workspace\/repos\/AppB\/tools\/auto-runner/);
   assert.throws(
     () => buildSystemdStartPlan(runId, {

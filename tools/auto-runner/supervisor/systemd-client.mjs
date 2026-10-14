@@ -30,7 +30,11 @@ export function buildSystemdStartPlan(runId, {
   const unitName = unitNameForRunId(runId, safeProjectId);
   const unitTemplate = renderUnitTemplate(
     readFileSync(absoluteRuntimeEntry(safeRuntimeRoot, "systemd/settleora-auto-runner@.service"), "utf8"),
-    { projectId: safeProjectId, runtimeRoot: safeRuntimeRoot, repoRoot: safeRepoRoot, logsRoot: safeLogsRoot, launcher, nodeExecutable },
+    {
+      projectId: safeProjectId, runtimeRoot: safeRuntimeRoot, repoRoot: safeRepoRoot,
+      logsRoot: safeLogsRoot, launcher, nodeExecutable, homeDirectory,
+      consumersRoot: path.join(path.dirname(safeRuntimeRoot), `.${path.basename(safeRuntimeRoot)}.consumers`),
+    },
   );
   return {
     unitName,
@@ -67,6 +71,8 @@ function renderUnitTemplate(template, values) {
     RUNTIME_ROOT: values.runtimeRoot,
     REPO_ROOT: values.repoRoot,
     LOGS_ROOT: values.logsRoot,
+    HOME_DIRECTORY: values.homeDirectory,
+    CONSUMERS_ROOT: values.consumersRoot,
     LAUNCHER: values.launcher,
     NODE_EXECUTABLE: values.nodeExecutable,
   };
