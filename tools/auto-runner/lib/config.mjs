@@ -580,6 +580,10 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
   }
 
   if (!readOnlyObserver) {
+    if (config.runtimeMode !== "external") {
+      mkdirSync(config.logsRoot, { recursive: true, mode: 0o700 });
+      chmodSync(config.logsRoot, 0o700);
+    }
     for (const dir of [
       config.logsRoot,
       path.join(config.logsRoot, "state"),
@@ -597,7 +601,7 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
       path.join(config.logsRoot, "pr-stacks"),
     ]) {
       if (config.runtimeMode === "external") ensureOperationalDirectory(dir, config.logsRoot);
-      else mkdirSync(dir, { recursive: true });
+      else mkdirSync(dir, { recursive: true, mode: 0o700 });
     }
     const lifecycleRoot = path.join(config.logsRoot, "session-lifecycle");
     if (existsSync(lifecycleRoot)) {

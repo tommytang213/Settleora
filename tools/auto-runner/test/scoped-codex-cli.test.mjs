@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { resolveCodexCommand, runCodexPrompt } from "../lib/codex-runner.mjs";
 import { collectReport } from "../lib/report-collector.mjs";
-import { runScopedCodexCli, scopedCodexModel } from "../lib/scoped-codex-cli.mjs";
+import { CODEX_BINARY, runScopedCodexCli, scopedCodexModel } from "../lib/scoped-codex-cli.mjs";
 
 function fixture(run) {
   const parent = mkdtempSync(path.join(os.tmpdir(), "settleora-scoped-cli-"));
@@ -36,7 +36,14 @@ const invoke = (config, extra = {}) => runScopedCodexCli(config, {
 });
 
 test("preflight resolution accepts only the fixed CLI binary", () => {
-  assert.equal(resolveCodexCommand("codex", () => {}).command, "/home/tommytang213/.npm-global/bin/codex");
+  assert.equal(resolveCodexCommand("codex", () => {}).command, CODEX_BINARY);
+  const example = JSON.parse(readFileSync("tools/auto-runner/runner-config.example.json", "utf8"));
+  assert.deepEqual([example.codexCommand, example.reviewerCommand, example.reviewerTiers.codex_mechanics.command],
+    ["codex", "codex", "codex"]);
+  const fd = openSync(CODEX_BINARY, "r");
+  const magic = Buffer.alloc(4);
+  try { assert.equal(readSync(fd, magic, 0, 4, 0), 4); } finally { closeSync(fd); }
+  assert.deepEqual([...magic], [0x7f, 0x45, 0x4c, 0x46]); // Native ELF, not the npm JS launcher.
   assert.throws(() => resolveCodexCommand("codex-vm-full"), /unsafe_command_configured/);
 });
 
@@ -60,14 +67,20 @@ test("implementation uses fixed scoped arguments and a bounded process", () => f
   assert.equal(launch.command, "/usr/bin/flock");
   assert.deepEqual(launch.args.slice(0, 6), ["--exclusive", "--nonblock", "--conflict-exit-code", "75",
     path.join(logsRoot, ".scoped-codex-cli-launch.lock"), "/usr/bin/timeout"]);
-  assert.deepEqual(launch.args.slice(6, 10), ["--signal=TERM", "--kill-after=10s", "3600s",
-    "/home/tommytang213/.npm-global/bin/codex"]);
+  assert.deepEqual(launch.args.slice(6, 10), ["--signal=TERM", "--kill-after=10s", "3600s", CODEX_BINARY]);
   assert.equal(launch.args[launch.args.indexOf("--sandbox") + 1], "workspace-write");
   assert.equal(launch.args[launch.args.indexOf("--cd") + 1], root);
   assert.equal(launch.args[launch.args.indexOf("--model") + 1], "gpt-6.1-sol");
+  assert.ok(launch.args.includes("--ignore-user-config"));
+  assert.ok(launch.args.includes("--ignore-rules"));
+  assert.ok(launch.args.includes('shell_environment_policy.inherit="none"'));
+  assert.ok(launch.args.some((arg) => arg.startsWith("shell_environment_policy.set=")
+    && arg.includes(`PUB_CACHE=${JSON.stringify(path.join(logsRoot, "caches", "pub"))}`)));
   assert.ok(!launch.args.some((arg) => arg.includes("bypass")));
   assert.equal(launch.options.cwd, root);
   assert.equal(launch.options.input, "Change only task.txt");
+  assert.deepEqual(Object.keys(launch.options.env).sort(), ["CODEX_HOME", "DOTNET_CLI_HOME", "GRADLE_USER_HOME",
+    "HOME", "LANG", "LC_ALL", "LOGNAME", "NUGET_PACKAGES", "PATH", "PUB_CACHE", "TMPDIR", "USER", "XDG_CACHE_HOME"]);
   assert.equal(lstatSync(path.join(logsRoot, ".scoped-codex-cli-launch.lock")).isFile(), true);
 }));
 
@@ -146,6 +159,18 @@ test("wrong branch, repository, and bypass wrapper fail before launch", () => fi
     /checkout_repository_mismatch/);
   assert.throws(() => invoke({ ...config, codexCommand: "codex-vm-full" }, { spawnImpl: blocked }),
     /unsafe_command_configured/);
+}));
+
+test("GitHub repository casing does not block the same repository", () => fixture(({ config, git }) => {
+  git("remote", "set-url", "origin", "git@github.com:tommytang213/settleora.git");
+  assert.equal(invoke(config).status, 0);
+}));
+
+test("project Codex config cannot add capabilities to scoped runs", () => fixture(({ config, root }) => {
+  mkdirSync(path.join(root, ".codex"));
+  writeFileSync(path.join(root, ".codex", "config.toml"), "[mcp_servers.example]\ncommand = 'bad'\n");
+  assert.throws(() => invoke(config, { spawnImpl: () => assert.fail("must not launch") }),
+    /project_codex_config_untrusted/);
 }));
 
 test("a retained lock file is reusable after the OS lock is released", () => fixture(({ config, logsRoot }) => {

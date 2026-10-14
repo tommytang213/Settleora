@@ -27,6 +27,20 @@ test("read-only observer config loading creates and chmods no project state", ()
     rmSync(tempRoot, { recursive: true, force: true });
   }
 });
+
+test("development config prepares an owner-only log root for scoped CLI launches", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-development-logs-"));
+  try {
+    const logsRoot = path.join(tempRoot, "logs");
+    mkdirSync(logsRoot, { mode: 0o755 });
+    chmodSync(logsRoot, 0o755);
+    const configPath = path.join(tempRoot, "runner.json");
+    writeFileSync(configPath, `${JSON.stringify({ logsRoot })}\n`);
+    const loaded = loadConfig({ dryRun: true, run: false, configPath });
+    assert.equal(loaded.logsRoot, logsRoot);
+    assert.equal(statSync(logsRoot).mode & 0o777, 0o700);
+  } finally { rmSync(tempRoot, { recursive: true, force: true }); }
+});
 import {
   evaluateCanaryIssuePolicy,
   evaluateLowRiskAutoMergeCanaryApproval,

@@ -1,10 +1,15 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { closeSync, constants, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync,
+import { closeSync, constants, existsSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync,
   readFileSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-export const CODEX_BINARY = "/home/tommytang213/.npm-global/bin/codex";
+// The npm JavaScript launcher starts the native CLI with stdio: "inherit", which
+// closes the controller's pinned report descriptor. Invoke this reviewed native
+// binary directly so descriptor 3 survives through flock and timeout.
+export const CODEX_BINARY = "/home/tommytang213/.npm-global/codex-versions/0.162.1/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex";
+const SCOPED_HOME = "/home/tommytang213";
+const SCOPED_PATH = "/usr/local/bin:/usr/bin:/bin";
 const criticalUntil = Date.parse("2026-12-31T16:00:00Z"); // 2027-01-01 in Hong Kong.
 
 function fail(reason) { throw new Error(`scoped_codex_cli:${reason}`); }
@@ -89,7 +94,7 @@ export function verifyScopedCheckout(config, { branchName = null, expectedHead =
   const root = path.resolve(config.repoRoot || "");
   if (!path.isAbsolute(config.repoRoot || "") || realpathSync(root) !== root ||
       git(root, "rev-parse", "--show-toplevel") !== root) fail("checkout_root_untrusted");
-  if (repositorySlug(git(root, "remote", "get-url", "origin")) !== config.repositorySlug) {
+  if (repositorySlug(git(root, "remote", "get-url", "origin")).toLowerCase() !== config.repositorySlug.toLowerCase()) {
     fail("checkout_repository_mismatch");
   }
   const branch = gitBranch(root);
@@ -128,6 +133,8 @@ export function runScopedCodexCli(config, {
   if (purpose !== "review" && !branchName) fail("branch_binding_missing");
   if (!expectedHead) fail("head_binding_missing");
   const checkout = verifyScopedCheckout(config, { branchName, expectedHead });
+  // Project config would still be loaded even with --ignore-user-config.
+  if (existsSync(path.join(checkout.root, ".codex", "config.toml"))) fail("project_codex_config_untrusted");
   if (reportPath !== null) {
     if (purpose !== "implementation" || typeof reportPath !== "string"
         || path.dirname(reportPath) !== path.join(checkout.root, ".codex", "reports")
@@ -152,15 +159,27 @@ export function runScopedCodexCli(config, {
   try {
     const selected = scopedCodexModel(purpose === "review" ? "review" : modelMode, now);
     const seconds = purpose === "review" ? 1800 : 3600;
+    const cacheEnv = {
+      PUB_CACHE: path.join(logsRoot, "caches", "pub"),
+      GRADLE_USER_HOME: path.join(logsRoot, "caches", "gradle"),
+      NUGET_PACKAGES: path.join(logsRoot, "caches", "nuget"),
+      DOTNET_CLI_HOME: path.join(logsRoot, "caches", "dotnet"),
+      XDG_CACHE_HOME: path.join(logsRoot, "caches", "xdg"),
+    };
+    const shellEnv = { HOME: SCOPED_HOME, PATH: SCOPED_PATH, LANG: "C.UTF-8", TMPDIR: "/tmp", ...cacheEnv };
+    const shellSet = `{${Object.entries(shellEnv).map(([key, value]) => `${key}=${JSON.stringify(value)}`).join(",")}}`;
     const args = ["--exclusive", "--nonblock", "--conflict-exit-code", "75", lock,
       "/usr/bin/timeout", "--signal=TERM", "--kill-after=10s", `${seconds}s`, CODEX_BINARY,
-      "exec", "--model", selected.model, "--sandbox",
+      "exec", "--ignore-user-config", "--ignore-rules", "--model", selected.model, "--sandbox",
       purpose === "review" ? "read-only" : "workspace-write",
       "--cd", checkout.root, "-c", `model_reasoning_effort="${selected.effort}"`,
-      "-c", 'service_tier="default"',
+      "-c", 'service_tier="default"', "-c", 'shell_environment_policy.inherit="none"',
+      "-c", `shell_environment_policy.set=${shellSet}`,
       ...(captureFd !== null ? ["--output-last-message", "/proc/self/fd/3"] : []), "-"];
     const result = spawnImpl("/usr/bin/flock", args, {
       cwd: checkout.root, input: prompt, encoding: "utf8",
+      env: { HOME: SCOPED_HOME, USER: "tommytang213", LOGNAME: "tommytang213", PATH: SCOPED_PATH,
+        LANG: "C.UTF-8", LC_ALL: "C.UTF-8", TMPDIR: "/tmp", CODEX_HOME: path.join(SCOPED_HOME, ".codex"), ...cacheEnv },
       stdio: captureFd === null ? ["pipe", stdoutFd, stderrFd] : ["pipe", stdoutFd, stderrFd, captureFd],
       timeout: (seconds + 15) * 1000,
       killSignal: "SIGKILL",
