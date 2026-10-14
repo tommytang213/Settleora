@@ -114,8 +114,8 @@
   "allowSystemdEnablement": false,
   "maxFollowupIssuesPerRun": 3,
   "maxReviewFixCycles": 0,
-  "codexCommand": "codex-vm-full",
-  "reviewerCommand": "codex-vm-full",
+  "codexCommand": "codex",
+  "reviewerCommand": "codex",
   "reviewerBudget": {
     "monthlyReviewerBudgetUsd": 80,
     "monthlyReviewerHardStopUsd": 95,
@@ -155,7 +155,7 @@
       "enabled": true,
       "provider": "codex",
       "providerProfile": "codex-mechanics-default",
-      "command": "codex-vm-full",
+      "command": "codex",
       "model": "codex-subscription",
       "inputUsdPerMillionTokens": 0,
       "outputUsdPerMillionTokens": 0

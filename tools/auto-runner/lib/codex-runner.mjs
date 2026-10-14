@@ -60,7 +60,8 @@ export function runCodexPrompt(config, promptInfo, purpose = "implementation", i
     result = invoke(config, {
       purpose, prompt: promptInfo.prompt, branchName: promptInfo.branchName,
       expectedHead: promptInfo.expectedHeadSha || null,
-      modelMode: promptInfo.modelMode || "routine", reportPath: promptInfo.reportPath || null,
+      modelMode: promptInfo.modelMode || "routine",
+      reportPath: purpose === "implementation" ? promptInfo.reportPath || null : null,
       stdoutFd: fd, stderrFd: fd,
     });
   } catch (error) {

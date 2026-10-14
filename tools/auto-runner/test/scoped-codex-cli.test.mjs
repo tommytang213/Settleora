@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { resolveCodexCommand } from "../lib/codex-runner.mjs";
+import { resolveCodexCommand, runCodexPrompt } from "../lib/codex-runner.mjs";
+import { collectReport } from "../lib/report-collector.mjs";
 import { runScopedCodexCli, scopedCodexModel } from "../lib/scoped-codex-cli.mjs";
 
 function fixture(run) {
@@ -12,7 +13,7 @@ function fixture(run) {
   const root = path.join(parent, "task");
   const logsRoot = path.join(parent, "logs");
   mkdirSync(root);
-  mkdirSync(logsRoot);
+  mkdirSync(logsRoot, { mode: 0o700 });
   const git = (...args) => execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim();
   try {
     git("init", "-q", "-b", "main");
@@ -56,8 +57,10 @@ test("implementation uses fixed scoped arguments and a bounded process", () => f
     return { status: 0 };
   } });
   assert.equal(result.status, 0);
-  assert.equal(launch.command, "/usr/bin/timeout");
-  assert.deepEqual(launch.args.slice(0, 4), ["--signal=TERM", "--kill-after=10s", "3600s",
+  assert.equal(launch.command, "/usr/bin/flock");
+  assert.deepEqual(launch.args.slice(0, 6), ["--exclusive", "--nonblock", "--conflict-exit-code", "75",
+    path.join(logsRoot, ".scoped-codex-cli-launch.lock"), "/usr/bin/timeout"]);
+  assert.deepEqual(launch.args.slice(6, 10), ["--signal=TERM", "--kill-after=10s", "3600s",
     "/home/tommytang213/.npm-global/bin/codex"]);
   assert.equal(launch.args[launch.args.indexOf("--sandbox") + 1], "workspace-write");
   assert.equal(launch.args[launch.args.indexOf("--cd") + 1], root);
@@ -65,7 +68,7 @@ test("implementation uses fixed scoped arguments and a bounded process", () => f
   assert.ok(!launch.args.some((arg) => arg.includes("bypass")));
   assert.equal(launch.options.cwd, root);
   assert.equal(launch.options.input, "Change only task.txt");
-  assert.equal(existsSync(path.join(logsRoot, ".scoped-codex-cli-launch.lock")), false);
+  assert.equal(lstatSync(path.join(logsRoot, ".scoped-codex-cli-launch.lock")).isFile(), true);
 }));
 
 test("review is read-only and bound to the candidate head", () => fixture(({ config, head }) => {
@@ -89,14 +92,51 @@ test("SHA-bound recovery review accepts detached HEAD but mutation does not", ()
   assert.throws(() => invoke(config), /checkout_identity_mismatch/);
 }));
 
-test("controller-owned report output is bound to the protected report directory", () => fixture(({ config, root }) => {
+test("controller captures through a pinned descriptor and atomically replaces a report symlink", () => fixture(({ config, root }) => {
   const reportPath = path.join(root, ".codex", "reports", "settleora-codex-report-test.md");
+  const victim = path.join(root, "task.txt");
   let args;
-  invoke(config, { reportPath, spawnImpl: (_command, observed) => { args = observed; return { status: 0 }; } });
-  assert.equal(args[args.indexOf("--output-last-message") + 1], reportPath);
+  invoke(config, { reportPath, spawnImpl: (_command, observed, options) => {
+    args = observed;
+    symlinkSync(victim, reportPath);
+    writeFileSync(`/proc/self/fd/${options.stdio[3]}`, "Status: success\n");
+    return { status: 0 };
+  } });
+  assert.equal(args[args.indexOf("--output-last-message") + 1], "/proc/self/fd/3");
+  assert.equal(readFileSync(reportPath, "utf8"), "Status: success\n");
+  assert.equal(lstatSync(reportPath).isSymbolicLink(), false);
+  assert.equal(readFileSync(victim, "utf8"), "baseline\n");
   assert.throws(() => invoke(config, { reportPath: path.join(root, "other.md") }), /report_path_untrusted/);
   assert.throws(() => runScopedCodexCli(config, { purpose: "review", prompt: "Review", expectedHead: execFileSync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf8" }).trim(), reportPath,
     stdoutFd: 1, stderrFd: 2, spawnImpl: () => assert.fail("must not launch") }), /report_path_untrusted/);
+  assert.throws(() => invoke(config, { purpose: "review-fix", reportPath }), /report_path_untrusted/);
+}));
+
+test("review fixes cannot overwrite the implementation report", () => fixture(({ config, root, head, logsRoot }) => {
+  mkdirSync(path.join(logsRoot, "codex-runs"));
+  const reportPath = path.join(root, ".codex", "reports", "settleora-codex-report-test.md");
+  let passedReportPath = "unexpected";
+  const result = runCodexPrompt(config, { prompt: "Fix one issue", promptPath: "fixture", branchName: "main",
+    expectedHeadSha: head, reportPath }, "review-fix", (_config, invocation) => {
+    passedReportPath = invocation.reportPath;
+    return { status: 0 };
+  });
+  assert.equal(result.status, 0);
+  assert.equal(passedReportPath, null);
+}));
+
+test("report collection reads a regular file and refuses a substituted symlink", () => fixture(({ config, root }) => {
+  const reportRoot = path.join(root, ".codex", "reports");
+  mkdirSync(reportRoot, { recursive: true });
+  const reportPath = path.join(reportRoot, "settleora-codex-report-test.md");
+  writeFileSync(reportPath, "Status: success\n");
+  const collected = collectReport(config, { reportPath });
+  assert.equal(collected.found, true);
+  assert.equal(readFileSync(collected.copyPath, "utf8"), "Status: success\n");
+  rmSync(reportPath);
+  symlinkSync(path.join(root, "task.txt"), reportPath);
+  assert.equal(collectReport(config, { reportPath }).found, false);
+  assert.equal(readFileSync(collected.copyPath, "utf8"), "Status: success\n");
 }));
 
 test("wrong branch, repository, and bypass wrapper fail before launch", () => fixture(({ config }) => {
@@ -108,12 +148,20 @@ test("wrong branch, repository, and bypass wrapper fail before launch", () => fi
     /unsafe_command_configured/);
 }));
 
-test("duplicate launch fails closed while the first launch owns the lock", () => fixture(({ config, logsRoot }) => {
-  invoke(config, { spawnImpl: () => {
-    assert.throws(() => invoke(config), /duplicate_launch_or_stale_lock/);
-    return { status: 0 };
-  } });
-  assert.equal(existsSync(path.join(logsRoot, ".scoped-codex-cli-launch.lock")), false);
+test("a retained lock file is reusable after the OS lock is released", () => fixture(({ config, logsRoot }) => {
+  const lock = path.join(logsRoot, ".scoped-codex-cli-launch.lock");
+  writeFileSync(lock, "", { mode: 0o600 });
+  let args;
+  invoke(config, { spawnImpl: (_command, observed) => { args = observed; return { status: 0 }; } });
+  assert.equal(args[4], lock);
+  assert.equal(spawnSync("/usr/bin/flock", ["--exclusive", "--nonblock", lock, "/usr/bin/true"]).status, 0);
+  assert.equal(existsSync(lock), true);
+}));
+
+test("an unsafe lock file fails before launch", () => fixture(({ config, logsRoot }) => {
+  const lock = path.join(logsRoot, ".scoped-codex-cli-launch.lock");
+  symlinkSync(path.join(logsRoot, "other"), lock);
+  assert.throws(() => invoke(config, { spawnImpl: () => assert.fail("must not launch") }), /launch_lock_untrusted/);
 }));
 
 test("a CLI commit or checkout switch invalidates the launch result", () => fixture(({ config, git, root }) => {

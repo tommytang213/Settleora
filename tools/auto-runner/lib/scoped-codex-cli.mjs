@@ -1,11 +1,66 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, realpathSync, rmdirSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { closeSync, constants, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync,
+  readFileSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 export const CODEX_BINARY = "/home/tommytang213/.npm-global/bin/codex";
 const criticalUntil = Date.parse("2026-12-31T16:00:00Z"); // 2027-01-01 in Hong Kong.
 
 function fail(reason) { throw new Error(`scoped_codex_cli:${reason}`); }
+
+function trustedLaunchLock(logsRoot) {
+  const lock = path.join(logsRoot, ".scoped-codex-cli-launch.lock");
+  try {
+    closeSync(openSync(lock, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600));
+  } catch (error) {
+    if (error?.code !== "EEXIST") fail("launch_lock_unavailable");
+  }
+  const info = lstatSync(lock);
+  if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) !== 0
+      || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
+    fail("launch_lock_untrusted");
+  }
+  return lock;
+}
+
+function openReportCapture(logsRoot) {
+  const capturePath = path.join(logsRoot, `.scoped-codex-report-${randomUUID()}`);
+  const fd = openSync(capturePath, constants.O_RDWR | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+  try { unlinkSync(capturePath); }
+  catch (error) { closeSync(fd); throw error; }
+  return fd;
+}
+
+function publishReport(captureFd, reportPath, reportRoot) {
+  const capture = fstatSync(captureFd);
+  if (!capture.isFile() || capture.size > 1024 * 1024) fail("report_capture_untrusted");
+  const report = readFileSync(captureFd);
+  if (!report.length) fail("report_capture_empty");
+  if (realpathSync(reportRoot) !== reportRoot) fail("report_path_untrusted");
+  const dirFd = openSync(reportRoot, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+  let temporary = null;
+  try {
+    const directory = fstatSync(dirFd);
+    if (!directory.isDirectory() || (typeof process.getuid === "function" && directory.uid !== process.getuid())) {
+      fail("report_path_untrusted");
+    }
+    const pinnedRoot = `/proc/self/fd/${dirFd}`;
+    temporary = `${pinnedRoot}/.settleora-codex-report-${randomUUID()}.tmp`;
+    const fileFd = openSync(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+    try {
+      writeFileSync(fileFd, report);
+      fsyncSync(fileFd);
+    } finally { closeSync(fileFd); }
+    renameSync(temporary, `${pinnedRoot}/${path.basename(reportPath)}`);
+    temporary = null;
+    const current = statSync(reportRoot);
+    if (current.dev !== directory.dev || current.ino !== directory.ino) fail("report_path_changed");
+  } finally {
+    if (temporary) { try { rmSync(temporary); } catch { /* Preserve the first error. */ } }
+    closeSync(dirFd);
+  }
+}
 
 function git(root, ...args) {
   try {
@@ -74,7 +129,7 @@ export function runScopedCodexCli(config, {
   if (!expectedHead) fail("head_binding_missing");
   const checkout = verifyScopedCheckout(config, { branchName, expectedHead });
   if (reportPath !== null) {
-    if (purpose === "review" || typeof reportPath !== "string"
+    if (purpose !== "implementation" || typeof reportPath !== "string"
         || path.dirname(reportPath) !== path.join(checkout.root, ".codex", "reports")
         || !path.basename(reportPath).startsWith("settleora-codex-report-")
         || !reportPath.endsWith(".md")) fail("report_path_untrusted");
@@ -86,26 +141,37 @@ export function runScopedCodexCli(config, {
   if (!path.isAbsolute(config.logsRoot || "") || realpathSync(logsRoot) !== logsRoot) {
     fail("logs_root_untrusted");
   }
-  const lock = path.join(logsRoot, ".scoped-codex-cli-launch.lock");
-  try { mkdirSync(lock, { mode: 0o700 }); }
-  catch { fail("duplicate_launch_or_stale_lock"); }
+  const logsInfo = lstatSync(logsRoot);
+  if (!logsInfo.isDirectory() || (logsInfo.mode & 0o077) !== 0
+      || (typeof process.getuid === "function" && logsInfo.uid !== process.getuid())
+      || logsRoot === checkout.root || logsRoot.startsWith(`${checkout.root}${path.sep}`)) {
+    fail("logs_root_untrusted");
+  }
+  const lock = trustedLaunchLock(logsRoot);
+  const captureFd = reportPath ? openReportCapture(logsRoot) : null;
   try {
     const selected = scopedCodexModel(purpose === "review" ? "review" : modelMode, now);
     const seconds = purpose === "review" ? 1800 : 3600;
-    const args = ["--signal=TERM", "--kill-after=10s", `${seconds}s`, CODEX_BINARY,
+    const args = ["--exclusive", "--nonblock", "--conflict-exit-code", "75", lock,
+      "/usr/bin/timeout", "--signal=TERM", "--kill-after=10s", `${seconds}s`, CODEX_BINARY,
       "exec", "--model", selected.model, "--sandbox",
       purpose === "review" ? "read-only" : "workspace-write",
       "--cd", checkout.root, "-c", `model_reasoning_effort="${selected.effort}"`,
       "-c", 'service_tier="default"',
-      ...(reportPath ? ["--output-last-message", reportPath] : []), "-"];
-    const result = spawnImpl("/usr/bin/timeout", args, {
+      ...(captureFd !== null ? ["--output-last-message", "/proc/self/fd/3"] : []), "-"];
+    const result = spawnImpl("/usr/bin/flock", args, {
       cwd: checkout.root, input: prompt, encoding: "utf8",
-      stdio: ["pipe", stdoutFd, stderrFd], timeout: (seconds + 15) * 1000,
+      stdio: captureFd === null ? ["pipe", stdoutFd, stderrFd] : ["pipe", stdoutFd, stderrFd, captureFd],
+      timeout: (seconds + 15) * 1000,
       killSignal: "SIGKILL",
     });
     verifyScopedCheckout(config, { branchName: checkout.branch, expectedHead: checkout.head });
+    if (result.status === 75) fail("duplicate_launch_or_stale_lock");
+    if (captureFd !== null && result.status === 0 && !result.signal && !result.error) {
+      publishReport(captureFd, reportPath, path.dirname(reportPath));
+    }
     return { ...result, command: CODEX_BINARY, args, checkout };
   } finally {
-    rmdirSync(lock);
+    if (captureFd !== null) closeSync(captureFd);
   }
 }
