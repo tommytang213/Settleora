@@ -882,7 +882,8 @@ export function ensureOperationalDirectory(directory, logsRoot) {
   const relative = real ? path.relative(logsRoot, real) : "..";
   if (!real || relative.startsWith("..") || path.isAbsolute(relative)
       || (typeof process.getuid === "function" && info.uid !== process.getuid())
-      || (info.mode & 0o022) !== 0) {
+      || (info.mode & 0o022) !== 0
+      || (directory === logsRoot && (info.mode & 0o077) !== 0)) {
     throw new Error(`Operational logs directory is unsafe: ${path.basename(directory)}`);
   }
   return real;

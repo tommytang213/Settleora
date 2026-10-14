@@ -821,6 +821,10 @@ test("operational logs children refuse symlink escapes and unsafe permissions", 
     const logsRoot = path.join(root, "Settleora");
     const outside = path.join(root, "outside");
     mkdirSync(logsRoot, { mode: 0o700 });
+    chmodSync(logsRoot, 0o755);
+    assert.throws(() => ensureOperationalDirectory(logsRoot, logsRoot), /unsafe/);
+    chmodSync(logsRoot, 0o700);
+    assert.equal(ensureOperationalDirectory(logsRoot, logsRoot), logsRoot);
     mkdirSync(outside, { mode: 0o700 });
     const state = path.join(logsRoot, "state");
     symlinkSync(outside, state);

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -40,11 +40,14 @@ test("preflight resolution accepts only the fixed CLI binary", () => {
   const example = JSON.parse(readFileSync("tools/auto-runner/runner-config.example.json", "utf8"));
   assert.deepEqual([example.codexCommand, example.reviewerCommand, example.reviewerTiers.codex_mechanics.command],
     ["codex", "codex", "codex"]);
+  assert.throws(() => resolveCodexCommand("codex-vm-full"), /unsafe_command_configured/);
+});
+
+test("installed pinned Codex executable is native", { skip: !existsSync(CODEX_BINARY) }, () => {
   const fd = openSync(CODEX_BINARY, "r");
   const magic = Buffer.alloc(4);
   try { assert.equal(readSync(fd, magic, 0, 4, 0), 4); } finally { closeSync(fd); }
   assert.deepEqual([...magic], [0x7f, 0x45, 0x4c, 0x46]); // Native ELF, not the npm JS launcher.
-  assert.throws(() => resolveCodexCommand("codex-vm-full"), /unsafe_command_configured/);
 });
 
 test("model selection preserves routine and time-bounded critical policy", () => {
@@ -76,6 +79,11 @@ test("implementation uses fixed scoped arguments and a bounded process", () => f
   assert.ok(launch.args.includes('shell_environment_policy.inherit="none"'));
   assert.ok(launch.args.some((arg) => arg.startsWith("shell_environment_policy.set=")
     && arg.includes(`PUB_CACHE=${JSON.stringify(path.join(logsRoot, "caches", "pub"))}`)));
+  const writable = launch.args.flatMap((arg, index) => arg === "--add-dir" ? [launch.args[index + 1]] : []);
+  assert.deepEqual(writable, [path.join(logsRoot, "caches"), "/opt/flutter/bin/cache"]);
+  for (const directory of ["caches", "caches/pub", "caches/gradle", "caches/nuget", "caches/dotnet", "caches/xdg"]) {
+    assert.equal(statSync(path.join(logsRoot, directory)).mode & 0o777, 0o700);
+  }
   assert.ok(!launch.args.some((arg) => arg.includes("bypass")));
   assert.equal(launch.options.cwd, root);
   assert.equal(launch.options.input, "Change only task.txt");
@@ -92,6 +100,7 @@ test("review is read-only and bound to the candidate head", () => fixture(({ con
   assert.equal(args[args.indexOf("--sandbox") + 1], "read-only");
   assert.equal(args[args.indexOf("--model") + 1], "gpt-6.1-sol");
   assert.ok(args.includes("1800s"));
+  assert.ok(!args.includes("--add-dir"));
   assert.throws(() => runScopedCodexCli(config, { purpose: "review", prompt: "Review", expectedHead: "0".repeat(40),
     stdoutFd: 1, stderrFd: 2, spawnImpl: () => assert.fail("must not launch") }),
   /checkout_identity_mismatch/);
@@ -164,6 +173,25 @@ test("wrong branch, repository, and bypass wrapper fail before launch", () => fi
 test("GitHub repository casing does not block the same repository", () => fixture(({ config, git }) => {
   git("remote", "set-url", "origin", "git@github.com:tommytang213/settleora.git");
   assert.equal(invoke(config).status, 0);
+}));
+
+test("checkout verification ignores ambient Git controls", () => fixture(({ config, head }) => {
+  const prior = process.env.GIT_DIR;
+  process.env.GIT_DIR = "/nonexistent/scoped-cli-test/.git";
+  try {
+    const result = runScopedCodexCli(config, { purpose: "review", prompt: "Review", expectedHead: head,
+      stdoutFd: 1, stderrFd: 2, spawnImpl: () => ({ status: 0 }) });
+    assert.equal(result.status, 0);
+  } finally {
+    if (prior === undefined) delete process.env.GIT_DIR;
+    else process.env.GIT_DIR = prior;
+  }
+}));
+
+test("symlinked cache directories stop a mutable launch", () => fixture(({ config, logsRoot }) => {
+  mkdirSync(path.join(logsRoot, "caches"), { mode: 0o700 });
+  symlinkSync(logsRoot, path.join(logsRoot, "caches", "pub"));
+  assert.throws(() => invoke(config, { spawnImpl: () => assert.fail("must not launch") }), /cache_root_untrusted/);
 }));
 
 test("project Codex config cannot add capabilities to scoped runs", () => fixture(({ config, root }) => {

@@ -1,6 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { closeSync, constants, existsSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync,
+import { chmodSync, closeSync, constants, existsSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync,
   readFileSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
@@ -10,6 +10,10 @@ import path from "node:path";
 export const CODEX_BINARY = "/home/tommytang213/.npm-global/codex-versions/0.162.1/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex";
 const SCOPED_HOME = "/home/tommytang213";
 const SCOPED_PATH = "/usr/local/bin:/usr/bin:/bin";
+// The fixed DevBox Flutter CLI writes its startup lock inside this SDK cache.
+const FLUTTER_CACHE = "/opt/flutter/bin/cache";
+const GIT_ENV = Object.freeze({ PATH: SCOPED_PATH, LANG: "C.UTF-8", GIT_CONFIG_GLOBAL: "/dev/null",
+  GIT_CONFIG_NOSYSTEM: "1", GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0" });
 const criticalUntil = Date.parse("2026-12-31T16:00:00Z"); // 2027-01-01 in Hong Kong.
 
 function fail(reason) { throw new Error(`scoped_codex_cli:${reason}`); }
@@ -35,6 +39,29 @@ function openReportCapture(logsRoot) {
   try { unlinkSync(capturePath); }
   catch (error) { closeSync(fd); throw error; }
   return fd;
+}
+
+function privateCacheDirectory(directory) {
+  try { mkdirSync(directory, { mode: 0o700 }); }
+  catch (error) { if (error?.code !== "EEXIST") fail("cache_root_unavailable"); }
+  const info = lstatSync(directory);
+  if (!info.isDirectory() || info.isSymbolicLink() || realpathSync(directory) !== directory
+      || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
+    fail("cache_root_untrusted");
+  }
+  chmodSync(directory, 0o700);
+  return directory;
+}
+
+function scopedCacheEnvironment(logsRoot, writable) {
+  const cacheRoot = path.join(logsRoot, "caches");
+  if (writable) privateCacheDirectory(cacheRoot);
+  const directories = Object.fromEntries(Object.entries({
+    PUB_CACHE: "pub", GRADLE_USER_HOME: "gradle", NUGET_PACKAGES: "nuget",
+    DOTNET_CLI_HOME: "dotnet", XDG_CACHE_HOME: "xdg",
+  }).map(([key, name]) => [key, path.join(cacheRoot, name)]));
+  if (writable) for (const directory of Object.values(directories)) privateCacheDirectory(directory);
+  return directories;
 }
 
 function publishReport(captureFd, reportPath, reportRoot) {
@@ -70,14 +97,14 @@ function publishReport(captureFd, reportPath, reportRoot) {
 function git(root, ...args) {
   try {
     return execFileSync("/usr/bin/git", ["-C", root, ...args], {
-      encoding: "utf8", timeout: 10_000, stdio: ["ignore", "pipe", "ignore"],
+      encoding: "utf8", timeout: 10_000, stdio: ["ignore", "pipe", "ignore"], env: GIT_ENV,
     }).trim();
   } catch { fail("checkout_unavailable"); }
 }
 
 function gitBranch(root) {
   const result = spawnSync("/usr/bin/git", ["-C", root, "symbolic-ref", "-q", "--short", "HEAD"], {
-    encoding: "utf8", timeout: 10_000, stdio: ["ignore", "pipe", "ignore"],
+    encoding: "utf8", timeout: 10_000, stdio: ["ignore", "pipe", "ignore"], env: GIT_ENV,
   });
   if (result.status === 0 && !result.error) return result.stdout.trim();
   if (result.status === 1 && !result.error && !result.signal) return null;
@@ -159,13 +186,7 @@ export function runScopedCodexCli(config, {
   try {
     const selected = scopedCodexModel(purpose === "review" ? "review" : modelMode, now);
     const seconds = purpose === "review" ? 1800 : 3600;
-    const cacheEnv = {
-      PUB_CACHE: path.join(logsRoot, "caches", "pub"),
-      GRADLE_USER_HOME: path.join(logsRoot, "caches", "gradle"),
-      NUGET_PACKAGES: path.join(logsRoot, "caches", "nuget"),
-      DOTNET_CLI_HOME: path.join(logsRoot, "caches", "dotnet"),
-      XDG_CACHE_HOME: path.join(logsRoot, "caches", "xdg"),
-    };
+    const cacheEnv = scopedCacheEnvironment(logsRoot, purpose !== "review");
     const shellEnv = { HOME: SCOPED_HOME, PATH: SCOPED_PATH, LANG: "C.UTF-8", TMPDIR: "/tmp", ...cacheEnv };
     const shellSet = `{${Object.entries(shellEnv).map(([key, value]) => `${key}=${JSON.stringify(value)}`).join(",")}}`;
     const args = ["--exclusive", "--nonblock", "--conflict-exit-code", "75", lock,
@@ -175,6 +196,7 @@ export function runScopedCodexCli(config, {
       "--cd", checkout.root, "-c", `model_reasoning_effort="${selected.effort}"`,
       "-c", 'service_tier="default"', "-c", 'shell_environment_policy.inherit="none"',
       "-c", `shell_environment_policy.set=${shellSet}`,
+      ...(purpose === "review" ? [] : ["--add-dir", path.join(logsRoot, "caches"), "--add-dir", FLUTTER_CACHE]),
       ...(captureFd !== null ? ["--output-last-message", "/proc/self/fd/3"] : []), "-"];
     const result = spawnImpl("/usr/bin/flock", args, {
       cwd: checkout.root, input: prompt, encoding: "utf8",

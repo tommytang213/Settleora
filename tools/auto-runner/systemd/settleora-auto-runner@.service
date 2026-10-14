@@ -15,7 +15,8 @@ PrivateTmp=yes
 PrivateUsers=yes
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths={{REPO_ROOT}} {{LOGS_ROOT}} {{HOME_DIRECTORY}}/.codex {{HOME_DIRECTORY}}/.config/gh -{{CONSUMERS_ROOT}}
+# Flutter validation writes a startup lock in its fixed SDK cache.
+ReadWritePaths={{REPO_ROOT}} {{LOGS_ROOT}} /opt/flutter/bin/cache {{HOME_DIRECTORY}}/.codex {{HOME_DIRECTORY}}/.config/gh -{{CONSUMERS_ROOT}}
 ReadOnlyPaths={{RUNTIME_ROOT}}
 RestrictSUIDSGID=yes
 LockPersonality=yes
