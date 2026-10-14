@@ -5655,6 +5655,28 @@ VAT included 20% GBP 4.00
     },
   );
 
+  test('bounded utility amount requires the same physical printed row', () {
+    final blocks = _boundedUtilityBlocks();
+    final amountIndex = blocks.indexWhere((block) => block.text == r'$59.99');
+    final amount = blocks[amountIndex];
+    blocks[amountIndex] = ReceiptOcrBlockEvidence(
+      text: amount.text,
+      order: amount.order,
+      row: amount.row,
+      points: [
+        for (final point in amount.points)
+          ReceiptOcrPoint(x: point.x, y: point.y + 40),
+      ],
+    );
+    final preview = _parseBoundedUtility(blocks);
+    expect(
+      preview.items.any((item) => item.description == 'Internet Plan 500'),
+      isFalse,
+    );
+    expect(preview.reviewHints, isNotEmpty);
+    expect(preview.blocks, containsAll(blocks));
+  });
+
   test('bounded utility recovery never clears a panel credit sign', () {
     for (final support in [
       'Credit - 10',
@@ -8141,6 +8163,31 @@ Grand Total USD 118.79
       expect(afterSubtotal.reviewHints, isNotEmpty);
     },
   );
+
+  test('unsigned before-subtotal discount has one reducing magnitude', () {
+    ReceiptOcrPreview preview(String subtotal) => ReceiptOcrPreview(
+      currency: 'USD',
+      subtotal: subtotal,
+      discount: '10.00',
+      discountBeforeSubtotal: true,
+      total: '90.00',
+      items: const [
+        ReceiptOcrItemCandidate(
+          description: 'Book',
+          lineTotal: '100.00',
+          currency: 'USD',
+        ),
+      ],
+    );
+    expect(preview('90.00').reviewHintDecision, ReceiptOcrReviewDecision.none);
+    for (final contradictory in ['100.00', '110.00']) {
+      expect(
+        preview(contradictory).reviewHintDecision,
+        ReceiptOcrReviewDecision.subtotalMismatch,
+        reason: contradictory,
+      );
+    }
+  });
 
   test('split tenders and a printed balance stay out of merchandise', () {
     final preview = const ReceiptOcrParser().parse('''

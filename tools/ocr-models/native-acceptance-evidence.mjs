@@ -7,6 +7,10 @@ import { summarizeFlutterRunner } from "./flutter-runner-diagnostics.mjs";
 const maxLogBytes = 32 * 1024 * 1024;
 const maxMarkerBytes = 512 * 1024;
 const safeToken = /^[A-Za-z0-9_.:[\]-]{1,160}$/;
+// These are the only script labels in the immutable 101-fixture corpus.
+const acceptanceScripts = new Set([
+  "Arabic", "Chinese", "Cyrillic", "Devanagari", "Japanese", "Korean", "Latin", "Thai",
+]);
 const reviewedUiFixtureId = "existing_12_freshmart_grocery_en_US";
 // Observed verbatim in three successful package builds of Android job
 // 112615006322 (Flutter 3.44.8, google_mlkit_commons 0.11.1). This identifies
@@ -617,10 +621,11 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
     if (!expectedFixtureIds?.has(fixtureId)) {
       throw new Error("Acceptance mismatch fixture is outside the immutable corpus");
     }
-    return {
-      fixtureId,
-      field: boundedToken(entry.field, `mismatches[${index}].field`),
-    };
+    const field = boundedToken(entry.field, `mismatches[${index}].field`);
+    if (!isAllowedComparisonField(field)) {
+      throw new Error("Acceptance mismatch field is outside fixed comparison diagnostics");
+    }
+    return { fixtureId, field };
   });
   const recognitionCoverage = Object.hasOwn(value, "recognitionCoverage") ? value.recognitionCoverage : [];
   if (!Array.isArray(recognitionCoverage) || recognitionCoverage.length > 101) {
@@ -889,6 +894,9 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
   const perScript = Object.fromEntries(
     scriptEntries.map(([script, counts]) => {
       boundedToken(script, "perScript key");
+      if (!acceptanceScripts.has(script)) {
+        throw new Error("Acceptance script is outside the immutable corpus labels");
+      }
       if (counts == null || typeof counts !== "object" || Array.isArray(counts)) {
         throw new Error(`perScript.${script} must be an object`);
       }
@@ -1049,13 +1057,17 @@ const rotationComparisonFields = new Set([
   "ocr_input_validation", "ocr_postprocessing", "ocr_detection_inference", "ocr_recognition_inference", "ocr_output_decode",
 ]);
 
+function isAllowedComparisonField(field) {
+  return rotationComparisonFields.has(field) ||
+    /^items\[(?:0|[1-9][0-9]{0,2})\]\.(?:description|lineTotal|quantity|unitPrice|currency)$/.test(field);
+}
+
 function sanitizeRotationComparison(value) {
   assertExactKeys(value, ["mismatchCount", "fields"], "rotation comparison");
   if (!Number.isSafeInteger(value.mismatchCount) || value.mismatchCount < 0 || value.mismatchCount > 4096 ||
       !Array.isArray(value.fields) || value.fields.length !== Math.min(value.mismatchCount, 128) ||
       new Set(value.fields).size !== value.fields.length || value.fields.some((field) =>
-        typeof field !== "string" || (!rotationComparisonFields.has(field) &&
-          !/^items\[(?:0|[1-9][0-9]{0,2})\]\.(?:description|lineTotal|quantity|unitPrice|currency)$/.test(field)))) {
+        typeof field !== "string" || !isAllowedComparisonField(field))) {
     throw new Error("Rotation comparison fields are not bounded allowlisted diagnostics");
   }
   return { mismatchCount: value.mismatchCount, fields: [...value.fields] };

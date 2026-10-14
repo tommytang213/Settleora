@@ -58,18 +58,48 @@ test("archive privacy inspects every file and rejects extra, hidden payload, and
     writeFileSync(path.join(archivedApp, "Info.plist"), plist());
     writeFileSync(path.join(archive, "Info.plist"), plist());
     writeFileSync(path.join(archive, "dSYMs/Runner.app.dSYM/Contents/Info.plist"), plist());
-    writeFileSync(path.join(dwarf, "Runner"), Buffer.from([0xfe, 0xed, 0xfa, 0xcf, 0, 0, 0, 0]));
-    const inspect = () => inspectXcarchive(archive, app, (file) => readFileSync(file, "utf8"), { verifySignature() {} });
+    const symbolBytes = Buffer.from([0xfe, 0xed, 0xfa, 0xcf, 0, 0, 0, 0]);
+    const executableBytes = Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 0, 0, 0, 0]);
+    writeFileSync(path.join(dwarf, "Runner"), symbolBytes);
+    writeFileSync(path.join(app, "Runner"), executableBytes);
+    writeFileSync(path.join(archivedApp, "Runner"), executableBytes);
+    let mismatchUuid = false;
+    const uuid = "01234567-89AB-CDEF-0123-456789ABCDEF";
+    const dwarfTool = ([command, file]) => {
+      if (command === "--verify") {
+        if (!readFileSync(file).equals(symbolBytes)) throw new Error("invalid DWARF");
+        return "";
+      }
+      if (command === "--uuid") {
+        const observed = mismatchUuid && file.startsWith(dwarf)
+          ? "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA" : uuid;
+        return `UUID: ${observed} (arm64) ${file}\n`;
+      }
+      throw new Error("unexpected DWARF command");
+    };
+    const inspect = () => inspectXcarchive(archive, app, (file) => readFileSync(file, "utf8"), {
+      verifySignature() {}, dwarfTool,
+    });
     const original = inspect();
-    assert.equal(original.inspectedFileCount, 4);
+    assert.equal(original.inspectedFileCount, 5);
+    assert.equal(original.symbolFileCount, 1);
     mkdirSync(path.join(archive, "unreviewed-empty"));
     assert.throws(inspect, /unreviewed/);
     rmSync(path.join(archive, "unreviewed-empty"), { recursive: true });
     writeFileSync(path.join(archivedApp, "Info.plist"), `${plist()}altered`);
     assert.throws(inspect, /unreviewed/);
     writeFileSync(path.join(archivedApp, "Info.plist"), plist());
-    writeFileSync(path.join(dwarf, "Runner"), Buffer.from([0xfe, 0xed, 0xfa, 0xcf, 1, 0, 0, 0]));
+    writeFileSync(path.join(archive, "Info.plist"), `${plist()}<!-- reviewed -->`);
     assert.notEqual(inspect().archiveSha256, original.archiveSha256);
+    writeFileSync(path.join(archive, "Info.plist"), plist());
+    writeFileSync(path.join(dwarf, "Runner"), Buffer.concat([
+      symbolBytes, Buffer.from("PRIVATE_RECEIPT_TEXT_123"),
+    ]));
+    assert.throws(inspect, /unreviewed/);
+    writeFileSync(path.join(dwarf, "Runner"), symbolBytes);
+    mismatchUuid = true;
+    assert.throws(inspect, /unreviewed/);
+    mismatchUuid = false;
     writeFileSync(path.join(archive, "private-receipt.jpeg"), "receipt");
     assert.throws(inspect, /unreviewed/);
     rmSync(path.join(archive, "private-receipt.jpeg"));

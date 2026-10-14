@@ -14,9 +14,40 @@ const machoMagic = new Set([0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcffaedfe, 0xca
 function fail() { throw new Error("Retained xcarchive contains unreviewed or private content"); }
 function sha256(bytes) { return createHash("sha256").update(bytes).digest("hex"); }
 
+function runDwarfTool(args) {
+  return execFileSync("/usr/bin/xcrun", ["dwarfdump", ...args], {
+    encoding: "utf8", maxBuffer: 64 * 1024, timeout: 120_000,
+    stdio: ["ignore", args[0] === "--uuid" ? "pipe" : "ignore", "ignore"],
+  });
+}
+
+function dwarfUuidInventory(file, dwarfTool) {
+  const output = dwarfTool(["--uuid", file]);
+  if (typeof output !== "string" || output.length > 16 * 1024) fail();
+  const lines = output.trim().split(/\r?\n/);
+  const identities = lines.map((line) => {
+    const match = /^UUID: ([0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}) \(([A-Za-z0-9_+-]+)\) .+$/.exec(line);
+    if (!match) fail();
+    return `${match[2]}:${match[1].toLowerCase()}`;
+  });
+  if (identities.length === 0 || new Set(identities).size !== identities.length) fail();
+  return identities.sort().join("\n");
+}
+
+function verifyBoundDwarf(symbolFile, executableFile, dwarfTool) {
+  try {
+    // The magic bytes alone do not establish a valid symbol file. Verify its
+    // DWARF graph, then bind every architecture UUID to signed application code.
+    dwarfTool(["--verify", symbolFile]);
+    if (dwarfUuidInventory(symbolFile, dwarfTool) !==
+        dwarfUuidInventory(executableFile, dwarfTool)) fail();
+  } catch { fail(); }
+}
+
 export function inspectXcarchive(root, ipaAppRoot, inspectPlist = (file) => execFileSync("plutil", ["-convert", "xml1", "-o", "-", file], {
   encoding: "utf8", maxBuffer: 1024 * 1024, stdio: ["ignore", "pipe", "ignore"],
-}), { verifySignature = verifyApplicationSignature, codeMatches = signedMachOCodeMatches } = {}) {
+}), { verifySignature = verifyApplicationSignature, codeMatches = signedMachOCodeMatches,
+  dwarfTool = runDwarfTool } = {}) {
   const stat = lstatSync(root);
   if (!stat.isDirectory() || stat.isSymbolicLink()) fail();
   const appRoot = "Products/Applications/Runner.app";
@@ -59,9 +90,12 @@ export function inspectXcarchive(root, ipaAppRoot, inspectPlist = (file) => exec
   for (const relative of [...files].sort()) {
     if (forbiddenPath.test(relative) || relative.length > 512 || relative.includes("\\")) fail();
     const isApp = relative.startsWith(`${appRoot}/`);
-    const isPlist = relative === "Info.plist" || /^dSYMs\/[A-Za-z0-9_.+-]+\.dSYM\/Contents\/Info\.plist$/.test(relative);
-    const isDwarf = /^dSYMs\/[A-Za-z0-9_.+-]+\.dSYM\/Contents\/Resources\/DWARF\/[A-Za-z0-9_.+-]+$/.test(relative);
+    const symbolPlist = /^dSYMs\/([A-Za-z0-9_.+-]+)\.(app|framework|appex)\.dSYM\/Contents\/Info\.plist$/.exec(relative);
+    const symbol = /^dSYMs\/([A-Za-z0-9_.+-]+)\.(app|framework|appex)\.dSYM\/Contents\/Resources\/DWARF\/([A-Za-z0-9_.+-]+)$/.exec(relative);
+    const isPlist = relative === "Info.plist" || symbolPlist != null;
+    const isDwarf = symbol != null;
     if (!isApp && !isPlist && !isDwarf) fail();
+    if (symbolPlist && !files.has(`dSYMs/${symbolPlist[1]}.${symbolPlist[2]}.dSYM/Contents/Resources/DWARF/${symbolPlist[1]}`)) fail();
     if (isApp) {
       appFiles += 1;
       if (!ipaApp || !ipaPaths.has(relative.slice(appRoot.length + 1))) fail();
@@ -87,7 +121,23 @@ export function inspectXcarchive(root, ipaAppRoot, inspectPlist = (file) => exec
         resignatureComparisons += 1;
       }
     }
-    if (isDwarf && (bytes.length < 4 || !machoMagic.has(bytes.readUInt32BE(0)))) fail();
+    if (isDwarf) {
+      if (symbol[1] !== symbol[3] || bytes.length < 4 ||
+          !machoMagic.has(bytes.readUInt32BE(0)) ||
+          !files.has(`dSYMs/${symbol[1]}.${symbol[2]}.dSYM/Contents/Info.plist`)) fail();
+      const executableRelative = symbol[2] === "app"
+        ? `${appRoot}/${symbol[1]}`
+        : symbol[2] === "framework"
+          ? `${appRoot}/Frameworks/${symbol[1]}.framework/${symbol[1]}`
+          : `${appRoot}/PlugIns/${symbol[1]}.appex/${symbol[1]}`;
+      if (!files.has(executableRelative)) fail();
+      const executable = path.join(root, executableRelative);
+      const executableStat = lstatSync(executable);
+      if (!executableStat.isFile() || executableStat.size < 4 ||
+          executableStat.size > 256 * 1024 * 1024 ||
+          !machoMagic.has(readFileSync(executable).readUInt32BE(0))) fail();
+      verifyBoundDwarf(file, executable, dwarfTool);
+    }
     for (let offset = 0; offset < bytes.length; offset += 1024 * 1024) {
       const chunk = bytes.subarray(offset, Math.min(bytes.length, offset + 1024 * 1024 + 128)).toString("latin1");
       if (forbiddenContent.test(chunk) || receiptText.test(chunk)) fail();

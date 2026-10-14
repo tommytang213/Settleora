@@ -293,10 +293,15 @@ List<String> _receiptOcrReviewHints(
             )
         ? _parseReceiptOcrReviewAmount(preview.discount)
         : null;
-    final subtotalMatchesItems = _receiptOcrAmountsClose(itemTotal, subtotal);
+    final subtotalMatchesItems =
+        (beforeSubtotalDiscount == null || beforeSubtotalDiscount == 0) &&
+        _receiptOcrAmountsClose(itemTotal, subtotal);
     final subtotalMatchesDiscountedItems =
         beforeSubtotalDiscount != null &&
-        _receiptOcrAmountsClose(itemTotal + beforeSubtotalDiscount, subtotal);
+        _receiptOcrAmountsClose(
+          itemTotal - beforeSubtotalDiscount.abs(),
+          subtotal,
+        );
     // A discount before the subtotal leaves the printed tax/discount
     // order unresolved for the saved review's subtotal-based tax mode.
     final subtotalMatchesGrossItems =

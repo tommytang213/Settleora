@@ -1017,6 +1017,38 @@ test("isolation failure evidence retains only allowlisted probe outcomes", () =>
   }
 });
 
+test("acceptance and failure evidence reject private-looking field and script identities", () => {
+  const acceptance = {
+    schemaVersion: 1,
+    platform: "android",
+    completed: true,
+    networkIsolated: true,
+    fixtureCount: 101,
+    passedFixtureCount: 100,
+    mismatchCount: 1,
+    mismatches: [{ fixtureId: manifestFixtureIds[0], field: "merchant" }],
+    runtime: "onnxruntime-android:1.21.1:cpu",
+    coldLoadTimeMs: 25,
+    endToEndLatencyMs: { sampleCount: 101, cold: 30, warmP50: 20, warmP95: 24, max: 30 },
+    nativeLatencyMs: { sampleCount: 101, cold: 28, warmP50: 18, warmP95: 22, max: 28 },
+    peakRssBytes: 123456,
+    perScript: { Latin: { total: 101, passed: 100 } },
+  };
+  const privateToken = "PRIVATE_RECEIPT_TEXT_123";
+  for (const invalid of [
+    { ...acceptance, mismatches: [{ fixtureId: manifestFixtureIds[0], field: privateToken }] },
+    { ...acceptance, perScript: { [privateToken]: { total: 101, passed: 100 } } },
+  ]) {
+    withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify(invalid)}`), (log) => {
+      assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot),
+        /outside fixed comparison diagnostics|outside the immutable corpus labels/);
+      const failure = buildFailureEvidence({ ...evidenceArgs(log), "test-status": "1" }, repoRoot);
+      assert.deepEqual(failure.acceptance, { completed: false });
+      assert.equal(JSON.stringify(failure).includes(privateToken), false);
+    });
+  }
+});
+
 test("failure evidence recovers sanitized partial acceptance without trusting invalid protocol", () => {
   const acceptance = {
     schemaVersion: 1,

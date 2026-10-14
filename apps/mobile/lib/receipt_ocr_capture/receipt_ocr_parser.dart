@@ -4769,6 +4769,16 @@ class ReceiptOcrParser {
             )) {
           continue;
         }
+        // OCR row IDs can flatten physically separate lines. The three
+        // printed columns must still occupy the same physical charge row.
+        if (!_chargeTableCellsSharePrintedRow([
+          ...descriptionCells,
+          ...periodCells,
+          amountCell,
+        ])) {
+          ambiguous.add(rowIndex);
+          continue;
+        }
         final remaining = row
             .where(
               (block) =>
