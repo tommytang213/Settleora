@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -32,6 +33,11 @@ import { runCodexPrompt, runReviewPrompt } from "../lib/codex-runner.mjs";
 
 const sha = "a".repeat(40);
 const digest = "b".repeat(64);
+const fakeChildInvocation = (script) => (_config, options) => spawnSync(script, [], {
+  input: options.prompt,
+  encoding: "utf8",
+  stdio: ["pipe", options.stdoutFd, options.stderrFd],
+});
 function fixture(extra = {}) {
   return createSessionLifecycleState({
     repository: "owner/repo", issueNumber: 929, taskKey: "20260720-2110", runId: "run-1",
@@ -536,7 +542,7 @@ test("failed Codex child durably hands lifecycle authority back to a controller 
     prompt: "synthetic failed invocation",
     promptPath: path.join(root, "prompt.md"),
     sessionLifecycle: { state: persisted.state, newSessionId: "failed-child", mutationJournaled: true },
-  }, "failed-child-test");
+  }, "failed-child-test", fakeChildInvocation(command));
   assert.equal(result.status, 17);
   assert.equal(result.sessionLifecycle.ok, true);
   assert.match(result.sessionLifecycle.state.sessions.current, /^controller-successor:/);
@@ -555,7 +561,7 @@ test("failed Codex mechanics review also returns lifecycle authority", () => {
   const result = runReviewPrompt(config, {
     summary: { currentHead: sha, baseSha: sha, changedFiles: [] },
     sessionLifecycle: persisted.state,
-  });
+  }, fakeChildInvocation(command));
   assert.equal(result.status, 23);
   assert.match(result.sessionLifecycle.sessions.current, /^controller-successor:/);
   assert.equal(result.sessionLifecycle.mutationAuthority.ownerSessionId, result.sessionLifecycle.sessions.current);

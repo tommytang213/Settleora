@@ -1,40 +1,24 @@
-import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, openSync, readFileSync, statSync, writeFileSync, appendFileSync } from "node:fs";
+import { accessSync, closeSync, constants, openSync, readFileSync, statSync, writeFileSync, appendFileSync } from "node:fs";
 import path from "node:path";
 import { digestChangedFiles } from "./config.mjs";
 import { hktTimestamp, safeTimestamp, slugify } from "./logger.mjs";
 import { prepareFreshSessionInvocation } from "./session-lifecycle.mjs";
+import { CODEX_BINARY, runScopedCodexCli } from "./scoped-codex-cli.mjs";
 
-export function resolveCodexCommand(requested = "codex-vm-full") {
-  const absolute = requested === "codex-vm-full" ? "/home/tommytang213/bin/codex-vm-full" : requested;
-  if (requested === "codex-vm-full") {
-    const direct = spawnSync("bash", ["-lc", `test -x ${JSON.stringify(absolute)} && printf %s ${JSON.stringify(absolute)}`], {
-      encoding: "utf8",
-    });
-    if (direct.status === 0 && direct.stdout.trim()) {
-      return { command: direct.stdout.trim(), source: "absolute-devbox-path" };
-    }
+export function resolveCodexCommand(requested = "codex", checkExecutable = accessSync) {
+  if (requested !== "codex" && requested !== CODEX_BINARY) {
+    throw new Error("scoped_codex_cli:unsafe_command_configured");
   }
-  const result = spawnSync("bash", ["-lc", `command -v ${shellQuote(requested)}`], { encoding: "utf8" });
-  if (result.status === 0 && result.stdout.trim()) {
-    return { command: result.stdout.trim(), source: "login-shell-path" };
-  }
-  throw new Error(
-    [
-      `Unable to resolve ${requested}.`,
-      `Resolver: bash -lc 'command -v ${requested}'`,
-      `PATH: ${process.env.PATH || ""}`,
-      "Check nordvpn/watchdog/codex doctor if Codex or network auth is unavailable.",
-    ].join("\n"),
-  );
+  checkExecutable(CODEX_BINARY, constants.X_OK);
+  return { command: CODEX_BINARY, source: "scoped-cli" };
 }
 
-export function runCodexPrompt(config, promptInfo, purpose = "implementation") {
+export function runCodexPrompt(config, promptInfo, purpose = "implementation", invoke = runScopedCodexCli) {
   if (config.dryRun) {
     return { skipped: true, reason: "dry-run", purpose };
   }
-  const command = resolveCodexCommand(config.codexCommand);
+  const command = { command: CODEX_BINARY, source: "scoped-cli" };
   const logPath = path.join(
     config.logsRoot,
     "codex-runs",
@@ -73,11 +57,11 @@ export function runCodexPrompt(config, promptInfo, purpose = "implementation") {
   const invocationStartedAt = Date.now();
   let result;
   try {
-    result = spawnSync(command.command, [], {
-      cwd: config.repoRoot,
-      input: promptInfo.prompt,
-      stdio: ["pipe", fd, fd],
-      encoding: "utf8",
+    result = invoke(config, {
+      purpose, prompt: promptInfo.prompt, branchName: promptInfo.branchName,
+      expectedHead: promptInfo.expectedHeadSha || null,
+      modelMode: promptInfo.modelMode || "routine", reportPath: promptInfo.reportPath || null,
+      stdoutFd: fd, stderrFd: fd,
     });
   } catch (error) {
     result = { status: null, signal: null, error };
@@ -131,7 +115,7 @@ export function runCodexPrompt(config, promptInfo, purpose = "implementation") {
   };
 }
 
-export function runReviewPrompt(config, packageInfo) {
+export function runReviewPrompt(config, packageInfo, invoke = runScopedCodexCli) {
   const prompt = buildReviewPrompt(packageInfo);
   const promptPath = path.join(config.logsRoot, "reviews", `${safeTimestamp()}-review-prompt.md`);
   writeFileSync(promptPath, prompt);
@@ -153,7 +137,7 @@ export function runReviewPrompt(config, packageInfo) {
       completedAt: new Date().toISOString(),
     };
   }
-  const command = resolveCodexCommand(config.reviewerCommand || config.codexCommand);
+  const command = { command: CODEX_BINARY, source: "scoped-cli" };
   const retry = normalizeMechanicsReviewRetry(config.codexMechanicsReviewRetry || config.mechanicsReviewRetry);
   const attempts = [];
   let selected = null;
@@ -162,7 +146,7 @@ export function runReviewPrompt(config, packageInfo) {
     return { skipped: false, promptPath, status: null, error: "session_lifecycle_invocation_identity_missing", reviewStatus: "unable_to_review", reviewFailureReason: "session_lifecycle_invocation_identity_missing", attempts: [], sessionLifecycle: null };
   }
   for (let attempt = 1; attempt <= retry.maxAttempts; attempt += 1) {
-    const attemptResult = runReviewPromptAttempt(config, command, prompt, attempt, sessionLifecycle);
+    const attemptResult = runReviewPromptAttempt(config, command, prompt, attempt, sessionLifecycle, packageInfo, invoke);
     attempts.push(summarizeReviewAttempt(attemptResult));
     selected = attemptResult;
     sessionLifecycle = attemptResult.sessionLifecycle || sessionLifecycle;
@@ -219,7 +203,7 @@ export function runReviewPrompt(config, packageInfo) {
   return finalResult;
 }
 
-function runReviewPromptAttempt(config, command, prompt, attempt, sessionLifecycle = null) {
+function runReviewPromptAttempt(config, command, prompt, attempt, sessionLifecycle = null, packageInfo = null, invoke = runScopedCodexCli) {
   const timestamp = safeTimestamp();
   const logPath = path.join(config.logsRoot, "reviews", `${timestamp}-review${attempt > 1 ? `-attempt-${attempt}` : ""}.log`);
   const stdoutPath = path.join(config.logsRoot, "reviews", `${timestamp}-review${attempt > 1 ? `-attempt-${attempt}` : ""}.stdout`);
@@ -243,13 +227,11 @@ function runReviewPromptAttempt(config, command, prompt, attempt, sessionLifecyc
   }
   let result;
   try {
-    result = spawnSync(command.command, [], {
-      cwd: config.logsRoot,
-      input: prompt,
-      stdio: ["pipe", stdoutFd, stderrFd],
-      encoding: "utf8",
-      timeout: 30 * 60 * 1000,
-      killSignal: "SIGKILL",
+    result = invoke(config, {
+      purpose: "review", prompt,
+      branchName: packageInfo?.summary?.branchName || null,
+      expectedHead: packageInfo?.summary?.currentHead || packageInfo?.summary?.headSha,
+      stdoutFd, stderrFd,
     });
   } catch (error) {
     result = { status: null, signal: null, error };
@@ -807,8 +789,4 @@ function enumValue(value, allowed) {
 function tailText(filePath, maxLines = 80) {
   const lines = readFileSync(filePath, "utf8").split(/\r?\n/);
   return lines.slice(-maxLines).join("\n").trim();
-}
-
-function shellQuote(value) {
-  return `'${String(value).replace(/'/g, "'\\''")}'`;
 }

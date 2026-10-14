@@ -49,7 +49,7 @@ export const defaultReviewerTiers = Object.freeze({
     enabled: true,
     provider: "codex",
     providerProfile: "codex-mechanics-default",
-    command: "codex-vm-full",
+    command: "codex",
     model: "codex-subscription",
     inputUsdPerMillionTokens: 0,
     outputUsdPerMillionTokens: 0,

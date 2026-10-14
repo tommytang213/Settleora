@@ -165,8 +165,8 @@ export const defaultConfig = Object.freeze({
   allowSystemdEnablement: false,
   maxFollowupIssuesPerRun: 3,
   maxReviewFixCycles: 0,
-  reviewerCommand: "codex-vm-full",
-  codexCommand: "codex-vm-full",
+  reviewerCommand: "codex",
+  codexCommand: "codex",
   reviewerTiers: defaultReviewerTiers,
   reviewerBudget: defaultReviewerBudget,
   reviewerProviderProfiles: {

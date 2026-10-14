@@ -82,7 +82,7 @@ ${(laneDecision.contract?.requiredReading || []).map((item) => `- Contract requi
 
 - Start from latest \`origin/main\`.
 - Create and work only on \`${targetBranch}\`.
-- Implement locally, validate locally, and write the local report only.
+- Implement locally, validate locally, and return the local report as your final answer. The runner saves that answer to the expected report path.
 - Do not push to any remote.
 - Do not open or update pull requests.
 - This is the local implementation-worker phase: do not invoke a merge here. The runner may merge the eventual PR only if its lane permits and its separate exact-head review, CI, scope, and applicable Atlas or protected-action gates pass.
@@ -95,7 +95,7 @@ ${(laneDecision.contract?.requiredReading || []).map((item) => `- Contract requi
 - Do not amend commits.
 - Do not use \`git add .\`; stage explicit paths only.
 - Do not commit; leave intended file changes in the local checkout for the runner to stage explicitly after review.
-- Keep \`.codex/reports/\` local unless the task explicitly requires committing a report.
+- The runner writes \`.codex/reports/\` locally; do not edit that protected directory yourself or commit a report unless the task explicitly requires it.
 
 ## Scope and non-goals
 
@@ -115,7 +115,7 @@ ${(laneDecision.contract?.requiredReading || []).map((item) => `- Contract requi
 
 ## Report requirements
 
-Write \`${reportPath}\` with status, branch, base SHA, final SHA, files changed, validation commands/results, scope guard result, PR URL if created, human review or stop reason, and confirmation that no forbidden runtime/API/security/money/schema/deployment/secret/OpenAPI/generated-client/Docker/CI changes occurred.
+Return a final Markdown report for the runner to save at \`${reportPath}\`. Include status, branch, base SHA, final SHA, files changed, validation commands/results, scope guard result, PR URL if created, human review or stop reason, and confirmation that no forbidden runtime/API/security/money/schema/deployment/secret/OpenAPI/generated-client/Docker/CI changes occurred.
 
 ## Stop conditions
 

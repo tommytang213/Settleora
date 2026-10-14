@@ -1979,7 +1979,7 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
   const codexPromptRunner = options.runCodexPrompt || runCodexPrompt;
   const cwd = config.repoRoot;
   return {
-    async runCodexBatchFix({ fixTask, pr, exactHead, sessionLifecycle = null }) {
+    async runCodexBatchFix({ fixTask, pr, exactHead, laneDecision = null, sessionLifecycle = null }) {
       const loopState = loadOrCreateLocalCandidateLoopState({ config, pr, exactHead });
       if (!loopState.ok) return loopState;
       const promptDigest = digestJson(fixTask?.prompt || "");
@@ -2030,11 +2030,13 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
         { ...config, repoRoot: proof.worktreePath },
         {
           branchName: pr?.headRefName || pr?.branch || "unknown",
+          expectedHeadSha: proof.expectedHead,
+          modelMode: ["high", "sensitive"].includes(laneDecision?.implementationSensitivity) ? "critical" : "routine",
           prompt: fixTask?.prompt || "",
           promptPath,
           ...(lifecycleInvocation ? { sessionLifecycle: lifecycleInvocation } : {}),
         },
-        "existing-pr-stack-batch-fix",
+        "review-fix",
       );
       if (!codex.skipped && (codex.error || codex.status !== 0)) {
         return fail("existing_pr_batch_fix_codex_failed", codex.error || codex.tail || "Codex batch fix failed", { sessionLifecycle: codex.sessionLifecycle?.state || sessionLifecycle });
@@ -2079,7 +2081,7 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
         if (appliedIdentity.identityDigest !== loopState.state.appliedChangedFilesDigest) return fail("existing_pr_local_loop_applied_files_mismatch", "journal-authorized source-fix files changed after application");
       }
       if (["findings_frozen", "source_fix_reserved"].includes(loopState.state.phase)) {
-        const resumedFix = applyFrozenLocalFindingBatch({ config, runner, codexPromptRunner, cwd, pr, statePath: loopState.statePath, state: loopState.state, sessionLifecycle });
+        const resumedFix = applyFrozenLocalFindingBatch({ config, runner, codexPromptRunner, cwd, pr, laneDecision, statePath: loopState.statePath, state: loopState.state, sessionLifecycle });
         if (resumedFix.sessionLifecycle && codex) codex.sessionLifecycle = resumedFix.sessionLifecycle;
         if (!resumedFix.ok) return { ...resumedFix, sessionLifecycle: resumedFix.sessionLifecycle || sessionLifecycle };
         const cumulative = await this.listChangedFiles({ exactHead, allowJournaledDirty: resumedFix.state.phase === "source_fix_applied" });
@@ -2236,7 +2238,7 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
           findingDigests: [...(loopState.state.findingDigests || []), findingDigest],
           evidenceInvalidated: true,
         });
-        const resumedFix = applyFrozenLocalFindingBatch({ config, runner, codexPromptRunner, cwd, pr, statePath: loopState.statePath, state: frozenState, sessionLifecycle });
+        const resumedFix = applyFrozenLocalFindingBatch({ config, runner, codexPromptRunner, cwd, pr, laneDecision, statePath: loopState.statePath, state: frozenState, sessionLifecycle });
         if (resumedFix.sessionLifecycle && codex) codex.sessionLifecycle = resumedFix.sessionLifecycle;
         if (!resumedFix.ok) return { ...resumedFix, sessionLifecycle: resumedFix.sessionLifecycle || sessionLifecycle };
         const cumulative = await this.listChangedFiles({ exactHead, allowJournaledDirty: resumedFix.state.phase === "source_fix_applied" });
@@ -4302,7 +4304,7 @@ function persistAppliedSourceFix({ runner, cwd, statePath, state }) {
   return { ok: true, state: persistLocalCandidateLoopState(statePath, { ...state, phase: "source_fix_applied", appliedHead: applied.currentHead, appliedChangedFilesDigest: applied.identityDigest, evidenceInvalidated: true }) };
 }
 
-function applyFrozenLocalFindingBatch({ config, runner = defaultRunner, codexPromptRunner = runCodexPrompt, cwd, pr, statePath, state, sessionLifecycle = null }) {
+function applyFrozenLocalFindingBatch({ config, runner = defaultRunner, codexPromptRunner = runCodexPrompt, cwd, pr, laneDecision = null, statePath, state, sessionLifecycle = null }) {
   if (!["findings_frozen", "source_fix_reserved"].includes(state.phase) || !state.frozenFindingDigest || !Array.isArray(state.frozenFindings) || !state.frozenFixPrompt) {
     return fail("existing_pr_local_loop_frozen_batch_invalid", "frozen local finding batch is incomplete or contradictory");
   }
@@ -4340,10 +4342,12 @@ function applyFrozenLocalFindingBatch({ config, runner = defaultRunner, codexPro
     : null;
   const localFix = codexPromptRunner({ ...config, repoRoot: cwd }, {
     branchName: pr?.headRefName || pr?.branch || "unknown",
+    expectedHeadSha: recoveryHead.sha,
+    modelMode: ["high", "sensitive"].includes(laneDecision?.implementationSensitivity) ? "critical" : "routine",
     prompt: reserved.frozenFixPrompt,
     promptPath: localPromptPath,
     ...(lifecycleInvocation ? { sessionLifecycle: lifecycleInvocation } : {}),
-  }, "existing-pr-stack-inner-local-fix");
+  }, "review-fix");
   if (!localFix.skipped && (localFix.error || localFix.status !== 0)) return fail("existing_pr_local_loop_fix_failed", localFix.error || localFix.tail || "local finding batch fix failed", { sessionLifecycle: localFix.sessionLifecycle?.state || sessionLifecycle });
   return { ...persistAppliedSourceFix({ runner, cwd, statePath, state: reserved }), sessionLifecycle: localFix.sessionLifecycle?.state || sessionLifecycle };
 }
