@@ -3322,6 +3322,7 @@ class ReceiptOcrParser {
     var unretainedPricedItem = false;
     var unretainedCreditOrAccountingItem = false;
     final wrappedDescriptionLines = <String>[];
+    final rejectedPhysicalItemRows = <int>{};
     var afterSubtotal = false;
     final leadingQuantityRows = _leadingQuantityColumnRows(lines, layoutRows);
     final hasFuelMeasurementLayout =
@@ -3352,7 +3353,7 @@ class ReceiptOcrParser {
         ? const <int>{}
         : _ownedFuelPumpRows(lines, layoutRows, fuelItem);
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-      final line = lines[lineIndex];
+      var line = lines[lineIndex];
       if (_hasSubtotalLabel(line, line.toLowerCase())) {
         afterSubtotal = true;
       }
@@ -3472,7 +3473,31 @@ class ReceiptOcrParser {
         layoutRows,
         lineIndex,
         currency,
+        rejectedPhysicalRows: rejectedPhysicalItemRows,
       );
+      if (rejectedPhysicalItemRows.remove(lineIndex)) {
+        // A provider row ID cannot join a price to text printed elsewhere.
+        // A complete independent block can still supply its own item; the
+        // rejected cross-cell pairing still needs a completeness warning.
+        unretainedPricedItem = true;
+        lineDecisions[lineIndex] =
+            ReceiptOcrItemLineDecision.unretainedPricedRow;
+        wrappedDescriptionLines.clear();
+        final independentPricedBlocks = layoutRows[lineIndex]
+            .where((block) {
+              final text = _normalizeOcrLine(block.text);
+              final priced = _pricedItemRowPattern.firstMatch(text);
+              return block.points.length == 4 &&
+                  !_isStandaloneAmountRow(text) &&
+                  ((priced != null &&
+                          (priced.group(2) != null ||
+                              priced.group(4) != null)) ||
+                      _joinedSymbolPricedItemRowPattern.hasMatch(text));
+            })
+            .toList(growable: false);
+        if (independentPricedBlocks.length != 1) continue;
+        line = _normalizeOcrLine(independentPricedBlocks.single.text);
+      }
 
       final match =
           _pricedItemRowPattern.firstMatch(line) ??
@@ -3905,8 +3930,9 @@ class ReceiptOcrParser {
     List<String> lines,
     List<List<ReceiptOcrBlockEvidence>> layoutRows,
     int rowIndex,
-    String? currency,
-  ) {
+    String? currency, {
+    required Set<int> rejectedPhysicalRows,
+  }) {
     if (layoutRows.length != lines.length ||
         _isPaymentMetadataLine(lines[rowIndex]) ||
         _isAdministrativeLine(lines[rowIndex])) {
@@ -4056,6 +4082,15 @@ class ReceiptOcrParser {
       ...descriptionBlocks,
       ?includedSizeBlock,
     ]..sort((left, right) => left.order.compareTo(right.order));
+    if (ownedDescriptionBlocks.isNotEmpty &&
+        !_chargeTableCellsSharePrintedRow([
+          amountCell,
+          if (currencyBlock != null) currencyBlock,
+          ...ownedDescriptionBlocks,
+        ])) {
+      rejectedPhysicalRows.add(rowIndex);
+      return null;
+    }
     final description = _cleanDescription(
       ownedDescriptionBlocks.map((block) => block.text.trim()).join(' '),
     );
@@ -5543,6 +5578,14 @@ class ReceiptOcrParser {
         descriptionBlocks.map((block) => block.text.trim()).join(' '),
       );
       if (!isProjectionLabel(label)) continue;
+      if (!_chargeTableCellsSharePrintedRow([
+        amountBlock,
+        ...currencyBlocks,
+        ...descriptionBlocks,
+      ])) {
+        unresolvedRows.add(rowIndex);
+        continue;
+      }
       if (row.any(
         (block) =>
             !descriptionBlocks.contains(block) &&

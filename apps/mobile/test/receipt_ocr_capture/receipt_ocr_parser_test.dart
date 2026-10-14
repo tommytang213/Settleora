@@ -547,6 +547,41 @@ void main() {
   });
 
   group('projection row ownership', () {
+    test('tax amount printed below its label remains unresolved', () {
+      final amount = _layoutBlock('USD 2.00', 9, 5, 300, 350);
+      final displacedAmount = ReceiptOcrBlockEvidence(
+        text: amount.text,
+        order: amount.order,
+        row: amount.row,
+        points: [
+          for (final point in amount.points)
+            ReceiptOcrPoint(x: point.x, y: point.y + 40),
+        ],
+      );
+      final blocks = <ReceiptOcrBlockEvidence>[
+        _layoutBlock('Market', 0, 0, 20, 360),
+        _layoutBlock('Date 2026-10-12', 1, 1, 20, 360),
+        _layoutBlock('Detailed charges', 2, 2, 20, 360),
+        _layoutBlock('Description', 3, 3, 20, 140),
+        _layoutBlock('Amount', 4, 3, 300, 360),
+        _layoutBlock('Support', 5, 3, 390, 470),
+        _layoutBlock('Water', 6, 4, 20, 120),
+        _layoutBlock('USD 10.00', 7, 4, 300, 350),
+        _layoutBlock('VAT', 8, 5, 20, 100),
+        _layoutBlock('Need help', 10, 5, 390, 470),
+        displacedAmount,
+        _layoutBlock('Total USD 12.00', 11, 6, 20, 360),
+      ];
+      final preview = const ReceiptOcrParser().parse(
+        'Market\nDate 2026-10-12\nDetailed charges\nDescription Amount Support\nWater USD 10.00\nVAT Need help USD 2.00\nTotal USD 12.00',
+        blocks: blocks,
+      );
+      expect(preview.tax, isNull);
+      expect(preview.adjustmentsComplete, isFalse);
+      expect(preview.reviewHints, isNotEmpty);
+      expect(preview.blocks, containsAll(blocks));
+    });
+
     for (final mirrored in [false, true]) {
       for (final qualifier in ['included', '(included)']) {
         test('preserves $qualifier tax; mirrored=$mirrored', () {
@@ -4676,9 +4711,18 @@ VAT included 20% GBP 4.00
         );
         expect(
           preview.items.any((i) => i.description.contains('Alex Q. Sample')),
-          entry.key != 'intervening Balance Due',
+          const {
+            'no geometry',
+            'one missing geometry',
+            'second amount',
+          }.contains(entry.key),
           reason: entry.key,
         );
+        if (entry.key == 'unlocated later evidence') {
+          // One provider row spans separate customer and amount bands.
+          expect(preview.adjustmentsComplete, isFalse);
+          expect(preview.reviewHints, isNotEmpty);
+        }
         if (entry.key == 'intervening Balance Due') {
           // Competing summary ownership cannot turn the customer's name and
           // header amount into an item, even when no separate prose is pending.
@@ -7038,6 +7082,41 @@ Total USD 40.00
       ],
     );
     expect(noUnit.items, isEmpty);
+  });
+
+  test('layout fallback rejects a price below its provider-row description', () {
+    for (final amountFirst in [true, false]) {
+      final amount = _layoutBlock('USD 2.00', 1, 1, 300, 370);
+      final displacedAmount = ReceiptOcrBlockEvidence(
+        text: amount.text,
+        order: amount.order,
+        row: amount.row,
+        points: [
+          for (final point in amount.points)
+            ReceiptOcrPoint(x: point.x, y: point.y + 40),
+        ],
+      );
+      final blocks = <ReceiptOcrBlockEvidence>[
+        _layoutBlock('Market', 0, 0, 20, 350),
+        if (amountFirst) displacedAmount,
+        _layoutBlock('Coffee', 2, 1, 20, 100),
+        if (!amountFirst) displacedAmount,
+        _layoutBlock('Total USD 2.00', 3, 2, 20, 350),
+      ];
+      final preview = const ReceiptOcrParser().parse(
+        'Market\n${amountFirst ? 'USD 2.00 Coffee' : 'Coffee USD 2.00'}\nTotal USD 2.00',
+        blocks: blocks,
+      );
+      expect(preview.items, isEmpty, reason: '$amountFirst');
+      expect(preview.adjustmentsComplete, isFalse, reason: '$amountFirst');
+      expect(
+        preview.incompleteAdjustmentReasons,
+        contains(ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem),
+        reason: '$amountFirst',
+      );
+      expect(preview.reviewHints, isNotEmpty, reason: '$amountFirst');
+      expect(preview.blocks, containsAll(blocks));
+    }
   });
 
   test('layout fallback retains detached credit signs for review', () {
