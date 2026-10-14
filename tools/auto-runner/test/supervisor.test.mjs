@@ -244,9 +244,9 @@ test("systemd and runner argv stay lane-neutral and shell-free", () => {
   assert.equal(appBPlan.unitTemplate.includes(`WorkingDirectory=${process.cwd()}/tools/auto-runner`), true);
   assert.match(appBPlan.unitTemplate, /--logs-root \/workspace\/logs\/auto-runner\/AppB/);
   assert.match(appBPlan.unitTemplate, /ReadWritePaths=\/workspace\/repos\/AppB \/workspace\/logs\/auto-runner\/AppB /);
-  assert.match(appBPlan.unitTemplate, /ReadWritePaths=.* \/opt\/flutter\/bin\/cache /);
+  assert.match(appBPlan.unitTemplate, /ReadWritePaths=.* -\/opt\/flutter\/bin\/cache /);
   for (const cache of ["PUB_CACHE=caches/pub", "GRADLE_USER_HOME=caches/gradle", "NUGET_PACKAGES=caches/nuget",
-    "DOTNET_CLI_HOME=caches/dotnet", "XDG_CACHE_HOME=caches/xdg"]) {
+    "npm_config_cache=caches/npm", "DOTNET_CLI_HOME=caches/dotnet", "XDG_CACHE_HOME=caches/xdg"]) {
     const [name, suffix] = cache.split("=");
     assert.ok(appBPlan.expectedExecArgv.includes(`${name}=/workspace/logs/auto-runner/AppB/${suffix}`));
   }
@@ -1109,7 +1109,7 @@ test("systemd template is fixed, no restart, no enablement, and no embedded secr
   assert.match(text, /Type=exec/);
   assert.match(text, /WorkingDirectory=\{\{RUNTIME_ROOT\}\}/);
   assert.match(text, /ExecStart=\/usr\/bin\/env -i HOME=%h USER=%u LOGNAME=%u .*XDG_RUNTIME_DIR=%t DBUS_SESSION_BUS_ADDRESS=unix:path=%t\/bus .*\{\{NODE_EXECUTABLE\}\} \{\{LAUNCHER\}\}/);
-  for (const name of ["PUB_CACHE", "GRADLE_USER_HOME", "NUGET_PACKAGES", "DOTNET_CLI_HOME", "XDG_CACHE_HOME"]) {
+  for (const name of ["PUB_CACHE", "GRADLE_USER_HOME", "NUGET_PACKAGES", "npm_config_cache", "DOTNET_CLI_HOME", "XDG_CACHE_HOME"]) {
     assert.match(text, new RegExp(`${name}=\\{\\{LOGS_ROOT\\}\\}/caches/`));
   }
   assert.match(text, /UnsetEnvironment=.*NODE_OPTIONS.*NODE_PATH.*NODE_V8_COVERAGE/);

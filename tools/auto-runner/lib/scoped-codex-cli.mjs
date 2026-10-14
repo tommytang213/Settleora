@@ -57,11 +57,21 @@ function scopedCacheEnvironment(logsRoot, writable) {
   const cacheRoot = path.join(logsRoot, "caches");
   if (writable) privateCacheDirectory(cacheRoot);
   const directories = Object.fromEntries(Object.entries({
-    PUB_CACHE: "pub", GRADLE_USER_HOME: "gradle", NUGET_PACKAGES: "nuget",
+    PUB_CACHE: "pub", GRADLE_USER_HOME: "gradle", NUGET_PACKAGES: "nuget", npm_config_cache: "npm",
     DOTNET_CLI_HOME: "dotnet", XDG_CACHE_HOME: "xdg",
   }).map(([key, name]) => [key, path.join(cacheRoot, name)]));
   if (writable) for (const directory of Object.values(directories)) privateCacheDirectory(directory);
   return directories;
+}
+
+export function optionalScopedCachePath(cachePath) {
+  let info;
+  try { info = lstatSync(cachePath); }
+  catch (error) { if (error?.code === "ENOENT") return null; throw error; }
+  if (!info.isDirectory() || info.isSymbolicLink() || realpathSync(cachePath) !== cachePath) {
+    fail("flutter_cache_untrusted");
+  }
+  return cachePath;
 }
 
 function publishReport(captureFd, reportPath, reportRoot) {
@@ -196,7 +206,8 @@ export function runScopedCodexCli(config, {
       "--cd", checkout.root, "-c", `model_reasoning_effort="${selected.effort}"`,
       "-c", 'service_tier="default"', "-c", 'shell_environment_policy.inherit="none"',
       "-c", `shell_environment_policy.set=${shellSet}`,
-      ...(purpose === "review" ? [] : ["--add-dir", path.join(logsRoot, "caches"), "--add-dir", FLUTTER_CACHE]),
+      ...(purpose === "review" ? [] : ["--add-dir", path.join(logsRoot, "caches"),
+        ...(optionalScopedCachePath(FLUTTER_CACHE) ? ["--add-dir", FLUTTER_CACHE] : [])]),
       ...(captureFd !== null ? ["--output-last-message", "/proc/self/fd/3"] : []), "-"];
     const result = spawnImpl("/usr/bin/flock", args, {
       cwd: checkout.root, input: prompt, encoding: "utf8",

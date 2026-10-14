@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { resolveCodexCommand, runCodexPrompt } from "../lib/codex-runner.mjs";
 import { collectReport } from "../lib/report-collector.mjs";
-import { CODEX_BINARY, runScopedCodexCli, scopedCodexModel } from "../lib/scoped-codex-cli.mjs";
+import { CODEX_BINARY, optionalScopedCachePath, runScopedCodexCli, scopedCodexModel } from "../lib/scoped-codex-cli.mjs";
 
 function fixture(run) {
   const parent = mkdtempSync(path.join(os.tmpdir(), "settleora-scoped-cli-"));
@@ -50,6 +50,19 @@ test("installed pinned Codex executable is native", { skip: !existsSync(CODEX_BI
   assert.deepEqual([...magic], [0x7f, 0x45, 0x4c, 0x46]); // Native ELF, not the npm JS launcher.
 });
 
+test("optional Flutter cache is admitted only as a real directory", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-optional-flutter-"));
+  try {
+    const cache = path.join(root, "cache");
+    assert.equal(optionalScopedCachePath(cache), null);
+    symlinkSync(root, cache);
+    assert.throws(() => optionalScopedCachePath(cache), /flutter_cache_untrusted/);
+    rmSync(cache);
+    mkdirSync(cache);
+    assert.equal(optionalScopedCachePath(cache), cache);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("model selection preserves routine and time-bounded critical policy", () => {
   assert.deepEqual(scopedCodexModel("routine"), { model: "gpt-6.1-sol", effort: "medium" });
   assert.deepEqual(scopedCodexModel("critical", Date.parse("2026-10-14T00:00:00Z")),
@@ -80,15 +93,17 @@ test("implementation uses fixed scoped arguments and a bounded process", () => f
   assert.ok(launch.args.some((arg) => arg.startsWith("shell_environment_policy.set=")
     && arg.includes(`PUB_CACHE=${JSON.stringify(path.join(logsRoot, "caches", "pub"))}`)));
   const writable = launch.args.flatMap((arg, index) => arg === "--add-dir" ? [launch.args[index + 1]] : []);
-  assert.deepEqual(writable, [path.join(logsRoot, "caches"), "/opt/flutter/bin/cache"]);
-  for (const directory of ["caches", "caches/pub", "caches/gradle", "caches/nuget", "caches/dotnet", "caches/xdg"]) {
+  assert.deepEqual(writable, [path.join(logsRoot, "caches"),
+    ...(existsSync("/opt/flutter/bin/cache") ? ["/opt/flutter/bin/cache"] : [])]);
+  for (const directory of ["caches", "caches/pub", "caches/gradle", "caches/nuget", "caches/npm", "caches/dotnet", "caches/xdg"]) {
     assert.equal(statSync(path.join(logsRoot, directory)).mode & 0o777, 0o700);
   }
   assert.ok(!launch.args.some((arg) => arg.includes("bypass")));
   assert.equal(launch.options.cwd, root);
   assert.equal(launch.options.input, "Change only task.txt");
   assert.deepEqual(Object.keys(launch.options.env).sort(), ["CODEX_HOME", "DOTNET_CLI_HOME", "GRADLE_USER_HOME",
-    "HOME", "LANG", "LC_ALL", "LOGNAME", "NUGET_PACKAGES", "PATH", "PUB_CACHE", "TMPDIR", "USER", "XDG_CACHE_HOME"]);
+    "HOME", "LANG", "LC_ALL", "LOGNAME", "NUGET_PACKAGES", "PATH", "PUB_CACHE", "TMPDIR", "USER", "XDG_CACHE_HOME", "npm_config_cache"]);
+  assert.equal(launch.options.env.npm_config_cache, path.join(logsRoot, "caches", "npm"));
   assert.equal(lstatSync(path.join(logsRoot, ".scoped-codex-cli-launch.lock")).isFile(), true);
 }));
 
