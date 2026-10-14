@@ -14,6 +14,96 @@ const machoMagic = new Set([0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcffaedfe, 0xca
 function fail() { throw new Error("Retained xcarchive contains unreviewed or private content"); }
 function sha256(bytes) { return createHash("sha256").update(bytes).digest("hex"); }
 
+// Archive Info.plist is unsigned and has no exported IPA counterpart. Parse its
+// original XML so comments, duplicate keys and unrecognized metadata cannot
+// hide arbitrary receipt text behind plutil's normalized representation.
+function inspectArchiveInfoPlist(bytes) {
+  if (bytes.length > 64 * 1024) fail();
+  let xml = bytes.toString("utf8").trim();
+  if (xml.includes("\ufffd")) fail();
+  xml = xml.replace(/^<\?xml version=["']1\.0["'](?: encoding=["']UTF-8["'])?\?>\s*/i, "");
+  xml = xml.replace(/^<!DOCTYPE plist PUBLIC "-\/\/Apple\/\/DTD PLIST 1\.0\/\/EN" "http:\/\/www\.apple\.com\/DTDs\/PropertyList-1\.0\.dtd">\s*/, "");
+  const outer = /^<plist(?: version="1\.0")?>([\s\S]*)<\/plist>$/.exec(xml);
+  if (!outer) fail();
+  const source = outer[1];
+  const tokens = source.match(/<[^>]*>|[^<]+/g) || [];
+  if (tokens.join("") !== source) fail();
+  let index = 0;
+  const skipSpace = () => { while (index < tokens.length && /^\s+$/.test(tokens[index])) index++; };
+  const scalar = (tag) => {
+    if (tokens[index++] !== `<${tag}>`) fail();
+    const value = tokens[index++] || "";
+    if (value.startsWith("<") || tokens[index++] !== `</${tag}>` ||
+        /&(?!amp;|lt;|gt;|quot;|apos;)/.test(value)) fail();
+    return value.replace(/&(amp|lt|gt|quot|apos);/g,
+      (_, entity) => ({ amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" })[entity]);
+  };
+  const value = (depth = 0) => {
+    if (depth > 3) fail();
+    skipSpace();
+    const tag = tokens[index];
+    if (tag === "<dict/>" || tag === "<dict />") { index++; return new Map(); }
+    if (tag === "<dict>") {
+      index++;
+      const entries = new Map();
+      while (true) {
+        skipSpace();
+        if (tokens[index] === "</dict>") { index++; return entries; }
+        if (tokens[index] !== "<key>") fail();
+        const key = scalar("key");
+        if (entries.has(key)) fail();
+        entries.set(key, value(depth + 1));
+      }
+    }
+    if (tag === "<array/>" || tag === "<array />") { index++; return []; }
+    if (tag === "<array>") {
+      index++;
+      const entries = [];
+      while (true) {
+        skipSpace();
+        if (tokens[index] === "</array>") { index++; return entries; }
+        entries.push(value(depth + 1));
+        if (entries.length > 8) fail();
+      }
+    }
+    for (const kind of ["string", "integer", "date"]) {
+      if (tag === `<${kind}>`) return { kind, text: scalar(kind) };
+    }
+    fail();
+  };
+  const root = value();
+  skipSpace();
+  if (!(root instanceof Map) || index !== tokens.length) fail();
+  const typed = (entry, kind, pattern) =>
+    entry?.kind === kind && pattern.test(entry.text);
+  const topKeys = new Set(["ApplicationProperties", "ArchiveVersion", "CreationDate", "Name", "SchemeName"]);
+  for (const [key, entry] of root) {
+    if (!topKeys.has(key)) fail();
+    if (key === "ApplicationProperties") {
+      if (!(entry instanceof Map)) fail();
+      const appKeys = new Set(["ApplicationPath", "Architectures", "CFBundleIdentifier",
+        "CFBundleShortVersionString", "CFBundleVersion", "SigningIdentity", "Team"]);
+      for (const [appKey, appEntry] of entry) {
+        if (!appKeys.has(appKey)) fail();
+        if (appKey === "ApplicationPath" && !typed(appEntry, "string", /^Applications\/Runner\.app$/)) fail();
+        if (appKey === "Architectures" &&
+            (!Array.isArray(appEntry) || appEntry.length === 0 ||
+             !appEntry.every((arch) => typed(arch, "string", /^(?:arm64|arm64e)$/)))) fail();
+        if (appKey === "CFBundleIdentifier" &&
+            !typed(appEntry, "string", /^com\.tommytang213\.settleora$/)) fail();
+        if (["CFBundleShortVersionString", "CFBundleVersion"].includes(appKey) &&
+            !typed(appEntry, "string", /^\d+(?:\.\d+){0,3}$/)) fail();
+        if (appKey === "SigningIdentity" &&
+            !typed(appEntry, "string", /^(?:Apple Distribution|iPhone Distribution|Apple Development|iPhone Developer): [A-Za-z .,'&()-]{1,80} \([A-Z0-9]{10}\)$/)) fail();
+        if (appKey === "Team" && !typed(appEntry, "string", /^[A-Z0-9]{10}$/)) fail();
+      }
+    } else if (key === "ArchiveVersion" && !typed(entry, "integer", /^2$/)) fail();
+    else if (key === "CreationDate" &&
+        !typed(entry, "date", /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/)) fail();
+    else if (["Name", "SchemeName"].includes(key) && !typed(entry, "string", /^Runner$/)) fail();
+  }
+}
+
 function runDwarfTool(args) {
   return execFileSync("/usr/bin/xcrun", ["dwarfdump", ...args], {
     encoding: "utf8", maxBuffer: 64 * 1024, timeout: 120_000,
@@ -107,6 +197,7 @@ export function inspectXcarchive(root, ipaAppRoot, inspectPlist = (file) => exec
         inspectedBytes + fileStat.size > 2 * 1024 * 1024 * 1024) fail();
     inspectedBytes += fileStat.size;
     const bytes = readFileSync(file);
+    if (relative === "Info.plist") inspectArchiveInfoPlist(bytes);
     if (isApp && relative !== `${appRoot}/embedded.mobileprovision` &&
         !relative.includes("/_CodeSignature/")) {
       const counterpart = path.join(ipaApp, relative.slice(appRoot.length + 1));

@@ -3021,66 +3021,15 @@ class ReceiptOcrParser {
         discountHasExplicitCurrencyEvidence = true;
       }
     }
-    // A promotion immediately before Subtotal can be restated by the single
-    // Discount immediately after it. Require the same explicit denomination,
-    // one negative amount and exact subtotal-to-total reconciliation; two
-    // independent discounts or merely equal numbers remain ambiguous.
-    final summarizedPromotion =
-        currency != null &&
-        adjustmentsComplete &&
-        selectedSubtotalRow != null &&
-        subtotal != null &&
-        lines
-                .where((line) => _hasSubtotalLabel(line, line.toLowerCase()))
-                .length ==
-            1 &&
-        subtotalHasExplicitCurrencyEvidence &&
-        subtotalCurrency == currency &&
-        discountComponents.length == 2 &&
-        adjustmentRoleCounts.length == 1 &&
-        adjustmentRoleCounts['discount'] == 2 &&
-        discountRows.length == 2 &&
-        discountRows.first == selectedSubtotalRow - 1 &&
-        discountRows.last == selectedSubtotalRow + 1 &&
-        _isLabeledStandaloneMoneyLine(
-          lines[discountRows.first],
-          RegExp(r'^(?:promotion|promo)\b', caseSensitive: false),
-        ) &&
-        _isLabeledStandaloneMoneyLine(
-          lines[discountRows.last],
-          RegExp(r'^discount\b', caseSensitive: false),
-        ) &&
-        discountComponents.every(
-          (component) => component.explicit && component.currency == currency,
-        ) &&
-        _ocrAmountMinorUnits(discountComponents.first.amount, currency) ==
-            _ocrAmountMinorUnits(discountComponents.last.amount, currency) &&
-        // A foreign primary total is competing printed evidence even when
-        // currency filtering excludes it from the selectable candidates.
-        lines
-                .where(
-                  (line) =>
-                      _isPrimaryTotalCurrencyLine(line, line.toLowerCase()),
-                )
-                .length ==
-            1 &&
-        totalCandidates.length == 1 &&
-        totalCandidates.single.order > discountRows.last &&
-        _ocrAmountMinorUnits(subtotal, currency) != null &&
-        _ocrAmountMinorUnits(discountComponents.first.amount, currency) !=
-            null &&
-        _ocrAmountMinorUnits(subtotal, currency)! +
-                _ocrAmountMinorUnits(
-                  discountComponents.first.amount,
-                  currency,
-                )! ==
-            _ocrAmountMinorUnits(totalCandidates.single.value, currency);
+    // Equal promotion and discount amounts on opposite sides of Subtotal do
+    // not prove a restatement: Subtotal may already include the first discount.
+    // Keep both printed roles in review unless their exact sum is independently
+    // represented by the aggregate discount above.
     if (adjustmentRoleCounts.entries.any(
       (entry) =>
           entry.value > 1 &&
           (entry.key != 'tax' || !aggregatedRatedTax) &&
-          (entry.key != 'discount' ||
-              (!aggregatedDiscount && !summarizedPromotion)),
+          (entry.key != 'discount' || !aggregatedDiscount),
     )) {
       adjustmentsComplete = false;
       incompleteReasons.add(

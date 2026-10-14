@@ -7728,6 +7728,28 @@ Total USD 0.00
 ''');
     expect(preview.items.map((item) => item.description), ['Coffee']);
     expect(preview.total, '0.00');
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(
+      preview.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.repeatedAdjustmentRole),
+    );
+
+    final independentlyPrintedDiscounts = const ReceiptOcrParser().parse('''
+Promo Cafe
+Coffee USD 25.00
+Promotion USD -5.00
+Subtotal USD 20.00
+Discount USD -5.00
+Total USD 15.00
+''');
+    expect(independentlyPrintedDiscounts.items.map((item) => item.description), [
+      'Coffee',
+    ]);
+    expect(independentlyPrintedDiscounts.adjustmentsComplete, isFalse);
+    expect(
+      independentlyPrintedDiscounts.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.repeatedAdjustmentRole),
+    );
 
     final merchandise = const ReceiptOcrParser().parse('''
 Market

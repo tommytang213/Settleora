@@ -89,8 +89,33 @@ test("archive privacy inspects every file and rejects extra, hidden payload, and
     writeFileSync(path.join(archivedApp, "Info.plist"), `${plist()}altered`);
     assert.throws(inspect, /unreviewed/);
     writeFileSync(path.join(archivedApp, "Info.plist"), plist());
-    writeFileSync(path.join(archive, "Info.plist"), `${plist()}<!-- reviewed -->`);
+    writeFileSync(path.join(archive, "Info.plist"), `${plist()}<!-- hidden payload -->`);
+    assert.throws(inspect, /unreviewed/);
+    writeFileSync(path.join(archive, "Info.plist"),
+      '<plist><dict><key>RawReceiptText</key><string>Jane Doe\nMilk 2.99</string></dict></plist>');
+    assert.throws(inspect, /unreviewed/);
+    writeFileSync(path.join(archive, "Info.plist"),
+      '<plist><dict><key>Name</key><string>Runner</string><key>Name</key><string>Jane Doe</string></dict></plist>');
+    assert.throws(inspect, /unreviewed/);
+    writeFileSync(path.join(archive, "Info.plist"),
+      '<plist><dict><key>ArchiveVersion</key><integer>2</integer><key>Name</key><string>Runner</string><key>SchemeName</key><string>Runner</string></dict></plist>');
     assert.notEqual(inspect().archiveSha256, original.archiveSha256);
+    writeFileSync(path.join(archive, "Info.plist"), `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>ApplicationProperties</key><dict>
+<key>ApplicationPath</key><string>Applications/Runner.app</string>
+<key>Architectures</key><array><string>arm64</string></array>
+<key>CFBundleIdentifier</key><string>com.tommytang213.settleora</string>
+<key>CFBundleShortVersionString</key><string>1.0.0</string>
+<key>CFBundleVersion</key><string>1</string>
+<key>SigningIdentity</key><string>Apple Distribution: Example LLC (ABCDEFGHIJ)</string>
+<key>Team</key><string>ABCDEFGHIJ</string>
+</dict><key>ArchiveVersion</key><integer>2</integer>
+<key>CreationDate</key><date>2026-10-14T00:00:00Z</date>
+<key>Name</key><string>Runner</string><key>SchemeName</key><string>Runner</string>
+</dict></plist>`);
+    assert.equal(inspect().inspectedFileCount, original.inspectedFileCount);
     writeFileSync(path.join(archive, "Info.plist"), plist());
     writeFileSync(path.join(dwarf, "Runner"), Buffer.concat([
       symbolBytes, Buffer.from("PRIVATE_RECEIPT_TEXT_123"),
