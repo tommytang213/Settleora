@@ -4085,7 +4085,7 @@ class ReceiptOcrParser {
     if (ownedDescriptionBlocks.isNotEmpty &&
         !_chargeTableCellsSharePrintedRow([
           amountCell,
-          if (currencyBlock != null) currencyBlock,
+          ?currencyBlock,
           ...ownedDescriptionBlocks,
         ])) {
       rejectedPhysicalRows.add(rowIndex);
