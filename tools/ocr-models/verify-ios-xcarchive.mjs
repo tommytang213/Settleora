@@ -14,10 +14,10 @@ const machoMagic = new Set([0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcffaedfe, 0xca
 function fail() { throw new Error("Retained xcarchive contains unreviewed or private content"); }
 function sha256(bytes) { return createHash("sha256").update(bytes).digest("hex"); }
 
-// Archive Info.plist is unsigned and has no exported IPA counterpart. Parse its
-// original XML so comments, duplicate keys and unrecognized metadata cannot
-// hide arbitrary receipt text behind plutil's normalized representation.
-function inspectArchiveInfoPlist(bytes) {
+// Archive and dSYM metadata are unsigned and have no exported IPA counterpart.
+// Parse original XML so comments and duplicate keys cannot hide arbitrary text
+// behind plutil's normalized representation. Callers constrain keys and values.
+function parseUnsignedInfoPlist(bytes) {
   if (bytes.length > 64 * 1024) fail();
   let xml = bytes.toString("utf8").trim();
   if (xml.includes("\ufffd")) fail();
@@ -74,6 +74,11 @@ function inspectArchiveInfoPlist(bytes) {
   const root = value();
   skipSpace();
   if (!(root instanceof Map) || index !== tokens.length) fail();
+  return root;
+}
+
+function inspectArchiveInfoPlist(bytes) {
+  const root = parseUnsignedInfoPlist(bytes);
   const typed = (entry, kind, pattern) =>
     entry?.kind === kind && pattern.test(entry.text);
   const topKeys = new Set(["ApplicationProperties", "ArchiveVersion", "CreationDate", "Name", "SchemeName"]);
@@ -101,6 +106,36 @@ function inspectArchiveInfoPlist(bytes) {
     else if (key === "CreationDate" &&
         !typed(entry, "date", /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/)) fail();
     else if (["Name", "SchemeName"].includes(key) && !typed(entry, "string", /^Runner$/)) fail();
+  }
+}
+
+function inspectSymbolInfoPlist(bytes, symbolName, bundlePlistXml) {
+  const root = parseUnsignedInfoPlist(bytes);
+  // The application's resource is authenticated and compared with the IPA.
+  // Admit only its identifier or the actual symbol name, never arbitrary
+  // unsigned bundle-identifying text supplied by the dSYM itself.
+  const bundleIds = [...bundlePlistXml.matchAll(
+    /<key>CFBundleIdentifier<\/key>\s*<string>([A-Za-z0-9][A-Za-z0-9._-]{0,254})<\/string>/g,
+  )];
+  if (bundleIds.length !== 1) fail();
+  const identifiers = new Set([
+    `com.apple.xcode.dsym.${symbolName}`,
+    `com.apple.xcode.dsym.${bundleIds[0][1]}`,
+  ]);
+  const values = new Map([
+    ["CFBundleDevelopmentRegion", /^(?:English|en)$/],
+    ["CFBundleInfoDictionaryVersion", /^6\.0$/],
+    ["CFBundlePackageType", /^dSYM$/],
+    ["CFBundleSignature", /^\?{4}$/],
+    ["CFBundleShortVersionString", /^\d+(?:\.\d+){0,3}$/],
+    ["CFBundleVersion", /^\d+(?:\.\d+){0,3}$/],
+  ]);
+  if (!root.has("CFBundleIdentifier") || !root.has("CFBundlePackageType")) fail();
+  for (const [key, entry] of root) {
+    if (entry?.kind !== "string") fail();
+    if (key === "CFBundleIdentifier") {
+      if (!identifiers.has(entry.text)) fail();
+    } else if (!values.get(key)?.test(entry.text)) fail();
   }
 }
 
@@ -198,6 +233,19 @@ export function inspectXcarchive(root, ipaAppRoot, inspectPlist = (file) => exec
     inspectedBytes += fileStat.size;
     const bytes = readFileSync(file);
     if (relative === "Info.plist") inspectArchiveInfoPlist(bytes);
+    if (symbolPlist) {
+      const bundleRelative = symbolPlist[2] === "app"
+        ? appRoot
+        : symbolPlist[2] === "framework"
+          ? `${appRoot}/Frameworks/${symbolPlist[1]}.framework`
+          : `${appRoot}/PlugIns/${symbolPlist[1]}.appex`;
+      let bundlePlistXml;
+      try {
+        bundlePlistXml = inspectPlist(path.join(root, bundleRelative, "Info.plist"));
+      } catch { fail(); }
+      if (typeof bundlePlistXml !== "string" || bundlePlistXml.length > 1024 * 1024) fail();
+      inspectSymbolInfoPlist(bytes, symbolPlist[1], bundlePlistXml);
+    }
     if (isApp && relative !== `${appRoot}/embedded.mobileprovision` &&
         !relative.includes("/_CodeSignature/")) {
       const counterpart = path.join(ipaApp, relative.slice(appRoot.length + 1));

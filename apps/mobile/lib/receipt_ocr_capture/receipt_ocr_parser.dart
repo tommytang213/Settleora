@@ -5918,6 +5918,17 @@ class ReceiptOcrParser {
           ambiguousAmountRows.add(rowIndex);
           continue;
         }
+        // Accounting markers can extend past the heading just like currency.
+        // Inspect the full physical row before asserting a positive item;
+        // neither column clipping nor the later fallback may erase a credit.
+        if (_nearbySignOnlyBlocks(
+          layoutRows[rowIndex],
+          amountCell,
+          includeCreditAndAccountingMarkers: true,
+        ).any((marker) => _chargeTableCellsSharePrintedRow([amountCell, marker]))) {
+          ambiguousAmountRows.add(rowIndex);
+          continue;
+        }
         // A detached sign cannot be dropped while promoting an otherwise
         // positive amount. Keep this row unresolved until the sign is bound.
         if (_hasUnboundChargeTableSign(tableBlocks, amountCell) ||

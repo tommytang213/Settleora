@@ -8,6 +8,18 @@ import { inspectIosAssetCatalogInfo } from "../verify-ios-asset-catalog.mjs";
 import { inspectXcarchive } from "../verify-ios-xcarchive.mjs";
 
 const plist = () => "<?xml version=\"1.0\"?><plist><dict/></plist>";
+const appPlist = () => '<plist><dict><key>CFBundleIdentifier</key><string>com.tommytang213.settleora</string></dict></plist>';
+const symbolPlist = () => `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleDevelopmentRegion</key><string>English</string>
+<key>CFBundleIdentifier</key><string>com.apple.xcode.dsym.com.tommytang213.settleora</string>
+<key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+<key>CFBundlePackageType</key><string>dSYM</string>
+<key>CFBundleSignature</key><string>????</string>
+<key>CFBundleShortVersionString</key><string>1.0.0</string>
+<key>CFBundleVersion</key><string>1</string>
+</dict></plist>`;
 
 test("archive verifier CLI rejects caller-supplied paths", () => {
   const verifier = path.resolve(import.meta.dirname, "../verify-ios-xcarchive.mjs");
@@ -54,10 +66,11 @@ test("archive privacy inspects every file and rejects extra, hidden payload, and
     mkdirSync(app, { recursive: true });
     mkdirSync(archivedApp, { recursive: true });
     mkdirSync(dwarf, { recursive: true });
-    writeFileSync(path.join(app, "Info.plist"), plist());
-    writeFileSync(path.join(archivedApp, "Info.plist"), plist());
+    writeFileSync(path.join(app, "Info.plist"), appPlist());
+    writeFileSync(path.join(archivedApp, "Info.plist"), appPlist());
     writeFileSync(path.join(archive, "Info.plist"), plist());
-    writeFileSync(path.join(archive, "dSYMs/Runner.app.dSYM/Contents/Info.plist"), plist());
+    const symbolInfo = path.join(archive, "dSYMs/Runner.app.dSYM/Contents/Info.plist");
+    writeFileSync(symbolInfo, symbolPlist());
     const symbolBytes = Buffer.from([0xfe, 0xed, 0xfa, 0xcf, 0, 0, 0, 0]);
     const executableBytes = Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 0, 0, 0, 0]);
     writeFileSync(path.join(dwarf, "Runner"), symbolBytes);
@@ -77,18 +90,46 @@ test("archive privacy inspects every file and rejects extra, hidden payload, and
       }
       throw new Error("unexpected DWARF command");
     };
-    const inspect = () => inspectXcarchive(archive, app, (file) => readFileSync(file, "utf8"), {
+    // Model plutil normalization: comments vanish from its output. The privacy
+    // verifier must reject them in the original unsigned bytes nonetheless.
+    const inspect = () => inspectXcarchive(archive, app, (file) =>
+      readFileSync(file, "utf8").replace(/<!--[\s\S]*?-->/g, ""), {
       verifySignature() {}, dwarfTool,
     });
     const original = inspect();
     assert.equal(original.inspectedFileCount, 5);
     assert.equal(original.symbolFileCount, 1);
+    for (const mutation of [
+      symbolPlist().replace('<dict>', '<dict><!-- Jane Doe, 123 Main Street -->'),
+      `${symbolPlist()}<!-- Jane Doe, 123 Main Street -->`,
+      symbolPlist().replace('</dict>', '<key>RawReceiptText</key><string>Jane Doe, Milk 2.99</string></dict>'),
+      symbolPlist().replace('</dict>', '<key>CFBundleVersion</key><string>1</string></dict>'),
+      symbolPlist().replace('com.apple.xcode.dsym.com.tommytang213.settleora', 'com.apple.xcode.dsym.Jane.Doe'),
+      symbolPlist().replace('<string>English</string>', '<string>Jane Doe</string>'),
+      symbolPlist().replace('<string>dSYM</string>', '<string>Jane Doe</string>'),
+      symbolPlist().replace('<string>1.0.0</string>', '<string>Milk 2.99</string>'),
+      symbolPlist().replace('<string>1</string>', '<string><![CDATA[1]]></string>'),
+      symbolPlist().replace('<string>1</string>', '<string>&#49;</string>'),
+      symbolPlist().replace('<string>1</string>', '<dict/>'),
+      plist(),
+      Buffer.from('bplist00private metadata'),
+      Buffer.concat([Buffer.from(symbolPlist()), Buffer.from([0xff])]),
+      symbolPlist().replace('<dict>', `<dict>${' '.repeat(64 * 1024)}`),
+    ]) {
+      writeFileSync(symbolInfo, mutation);
+      assert.throws(inspect, /unreviewed/);
+    }
+    writeFileSync(symbolInfo, symbolPlist().replace(
+      'com.apple.xcode.dsym.com.tommytang213.settleora', 'com.apple.xcode.dsym.Runner'));
+    assert.equal(inspect().symbolFileCount, 1);
+    writeFileSync(symbolInfo, symbolPlist());
+    assert.equal(inspect().archiveSha256, original.archiveSha256);
     mkdirSync(path.join(archive, "unreviewed-empty"));
     assert.throws(inspect, /unreviewed/);
     rmSync(path.join(archive, "unreviewed-empty"), { recursive: true });
     writeFileSync(path.join(archivedApp, "Info.plist"), `${plist()}altered`);
     assert.throws(inspect, /unreviewed/);
-    writeFileSync(path.join(archivedApp, "Info.plist"), plist());
+    writeFileSync(path.join(archivedApp, "Info.plist"), appPlist());
     writeFileSync(path.join(archive, "Info.plist"), `${plist()}<!-- hidden payload -->`);
     assert.throws(inspect, /unreviewed/);
     writeFileSync(path.join(archive, "Info.plist"),

@@ -12395,6 +12395,102 @@ Total EUR 21.00
     }
   });
 
+  for (final marker in ['CR', 'cr', 'DR', 'CREDIT', 'DEBIT', '(', ')']) {
+    test('charge table retains adjacent $marker accounting ambiguity', () {
+      final blocks = [
+        _layoutBlock('Market USD', 0, 0, 20, 280),
+        _layoutBlock('Description', 1, 1, 20, 130),
+        _layoutBlock('Qty', 2, 1, 170, 190),
+        _layoutBlock('Amount', 3, 1, 240, 280),
+        _layoutBlock('Tea', 4, 2, 20, 130),
+        _layoutBlock('1', 5, 2, 170, 190),
+        _layoutBlock('USD 5.00', 6, 2, 240, 280),
+        // Adjacent to the price, but outside the Amount heading's width.
+        _layoutBlock(marker, 7, 2, 296, 310),
+        _layoutBlock('Total USD 5.00', 8, 3, 20, 280),
+      ];
+      final text =
+          'Market USD\nDescription Qty Amount\nTea 1 USD 5.00 $marker\nTotal USD 5.00';
+      final preview = const ReceiptOcrParser().parse(text, blocks: blocks);
+
+      expect(preview.items, isEmpty);
+      expect(preview.adjustmentsComplete, isFalse);
+      expect(preview.warnings, isNotEmpty);
+      expect(preview.rawTextLineCount, 4);
+      expect(preview.blocks.map((block) => block.text), contains(marker));
+    });
+  }
+
+  test('charge table retains credit beside a left-hand amount column', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Market USD\nAmount Qty Description\nCR USD 5.00 1 Tea\nTotal USD 5.00',
+      blocks: [
+        _layoutBlock('Market USD', 0, 0, 20, 280),
+        _layoutBlock('Amount', 1, 1, 20, 60),
+        _layoutBlock('Qty', 2, 1, 120, 140),
+        _layoutBlock('Description', 3, 1, 200, 280),
+        _layoutBlock('CR', 4, 2, 0, 10),
+        _layoutBlock('USD 5.00', 5, 2, 20, 60),
+        _layoutBlock('1', 6, 2, 120, 140),
+        _layoutBlock('Tea', 7, 2, 200, 280),
+        _layoutBlock('Total USD 5.00', 8, 3, 20, 280),
+      ],
+    );
+
+    expect(preview.items, isEmpty);
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(preview.warnings, isNotEmpty);
+  });
+
+  test('charge table ignores marker printed on a different physical row', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Market USD\nDescription Qty Amount\nTea 1 USD 5.00 CR\nTotal USD 5.00',
+      blocks: [
+        _layoutBlock('Market USD', 0, 0, 20, 280),
+        _layoutBlock('Description', 1, 1, 20, 130),
+        _layoutBlock('Qty', 2, 1, 170, 190),
+        _layoutBlock('Amount', 3, 1, 240, 280),
+        _layoutBlock('Tea', 4, 2, 20, 130),
+        _layoutBlock('1', 5, 2, 170, 190),
+        _layoutBlock('USD 5.00', 6, 2, 240, 280),
+        ReceiptOcrBlockEvidence(
+          text: 'CR',
+          order: 7,
+          row: 2,
+          points: _layoutBlock('CR', 7, 7, 296, 310).points,
+        ),
+        _layoutBlock('Total USD 5.00', 8, 3, 20, 280),
+      ],
+    );
+
+    expect(preview.items.single.description, 'Tea');
+    expect(preview.items.single.lineTotal, '5.00');
+    expect(preview.adjustmentsComplete, isTrue);
+  });
+
+  for (final marker in [null, 'CR']) {
+    test('charge table keeps positive amount with distant marker $marker', () {
+      final preview = const ReceiptOcrParser().parse(
+        'Market USD\nDescription Qty Amount\nTea 1 USD 5.00${marker == null ? '' : ' $marker'}\nTotal USD 5.00',
+        blocks: [
+          _layoutBlock('Market USD', 0, 0, 20, 280),
+          _layoutBlock('Description', 1, 1, 20, 130),
+          _layoutBlock('Qty', 2, 1, 170, 190),
+          _layoutBlock('Amount', 3, 1, 240, 280),
+          _layoutBlock('Tea', 4, 2, 20, 130),
+          _layoutBlock('1', 5, 2, 170, 190),
+          _layoutBlock('USD 5.00', 6, 2, 240, 280),
+          if (marker != null) _layoutBlock(marker, 7, 2, 500, 530),
+          _layoutBlock('Total USD 5.00', 8, 3, 20, 280),
+        ],
+      );
+
+      expect(preview.items.single.description, 'Tea');
+      expect(preview.items.single.lineTotal, '5.00');
+      expect(preview.adjustmentsComplete, isTrue);
+    });
+  }
+
   test('charge-table tax summary stays tax beside a tax-named charge', () {
     const parser = ReceiptOcrParser();
     const text = '''
