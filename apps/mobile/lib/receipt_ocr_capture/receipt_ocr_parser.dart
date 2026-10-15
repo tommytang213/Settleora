@@ -5915,6 +5915,14 @@ class ReceiptOcrParser {
                   (amountOnLeft
                       ? center > descriptionRight + 12
                       : center < descriptionLeft - 12)) {
+                // Keep a separate denomination in the shared outside-cell
+                // currency check: an identical repeated marker is harmless,
+                // while a conflicting marker must still prevent admission.
+                if (_isCurrencyOnlyOcrBlockText(
+                  _normalizeOcrLine(block.text),
+                )) {
+                  return false;
+                }
                 extendedDescriptionBlocks.add(block);
               }
               return inTable;

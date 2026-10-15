@@ -167,7 +167,17 @@ void main() {
         },
       );
     }
-    for (final outside in ['9.99', '120', 'USD', 'EUR', 'CHF 1.00']) {
+    for (final marker in ['USD', r'$']) {
+      test(
+        'matching side currency stays usable, amountLeft=$amountOnLeft, marker=$marker',
+        () {
+          _expectComplete(
+            _receipt(amountOnLeft: amountOnLeft, outsideText: marker),
+          );
+        },
+      );
+    }
+    for (final outside in ['9.99', '120', 'EUR', 'CHF 1.00']) {
       test(
         'expanded description cannot hide $outside, amountLeft=$amountOnLeft',
         () {
