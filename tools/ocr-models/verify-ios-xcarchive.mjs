@@ -205,6 +205,13 @@ export function inspectXcarchiveStructure(root, ipaAppRoot, inspectPlist = (file
   }
   if (!files.has("Info.plist") || !files.has(`${appRoot}/Info.plist`) || files.size > 50000) fail();
   if (!ipaApp) fail();
+  // Directories are package entries too: an unsigned empty path must not be
+  // introduced by export while all sealed file bytes remain unchanged.
+  const appDirectories = new Set([...archiveDirectories]
+    .filter((directory) => directory.startsWith(`${appRoot}/`))
+    .map((directory) => directory.slice(appRoot.length + 1)));
+  if (ipaDirectories.size !== appDirectories.size ||
+      [...ipaDirectories].some((directory) => !appDirectories.has(directory))) fail();
   const archiveBefore = hashDirectory(root);
   const ipaBefore = hashDirectory(ipaApp);
   try {

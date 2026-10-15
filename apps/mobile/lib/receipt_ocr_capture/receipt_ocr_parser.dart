@@ -3970,12 +3970,19 @@ class ReceiptOcrParser {
   bool _hasUnresolvedOutsideCellCurrency(
     Iterable<ReceiptOcrBlockEvidence> outsideBlocks,
     String monetaryText,
-    String? receiptCurrency,
-  ) {
+    String? receiptCurrency, {
+    bool amountInheritsReceiptCurrency = false,
+  }) {
     final printed = _layoutItemCellCurrency(monetaryText, receiptCurrency);
+    final selectedCurrency = printed.hasExplicitEvidence
+        ? printed.currency
+        : amountInheritsReceiptCurrency
+        ? receiptCurrency
+        : null;
     // Column clipping cannot discard another denomination on the same row.
     // A repeated identical marker is harmless; an unowned marker cannot
-    // establish or change the monetary cell's currency.
+    // establish or change the monetary cell's currency. A fallback amount
+    // that already inherits receipt currency may repeat that same marker.
     return outsideBlocks.any((block) {
       if (!_isCurrencyOnlyOcrBlockText(_normalizeOcrLine(block.text))) {
         return false;
@@ -3986,7 +3993,7 @@ class ReceiptOcrParser {
       );
       return !combined.hasExplicitEvidence ||
           combined.currency == null ||
-          combined.currency != printed.currency;
+          combined.currency != selectedCurrency;
     });
   }
 
@@ -4022,11 +4029,10 @@ class ReceiptOcrParser {
         resolveMissing: false,
       );
       final adjacentCurrency = _nearbyCurrencyOnlyBlocks(row, cell);
-      if (adjacentCurrency.length > 1) return false;
       final cellCurrency = adjacentCurrency.isEmpty
           ? printed.currency ?? currency
           : _explicitAdjustmentCurrencyFromLine(
-                  '${_normalizeOcrLine(adjacentCurrency.single.text)} $cellText',
+                  '${adjacentCurrency.map((block) => _normalizeOcrLine(block.text)).join(' ')} $cellText',
                   receiptCurrency: currency,
                   resolveMissing: false,
                 ).currency ??
@@ -4079,11 +4085,16 @@ class ReceiptOcrParser {
         .map((point) => point.x)
         .reduce((left, right) => left > right ? left : right);
     final nearbyCurrencyBlocks = _nearbyCurrencyOnlyBlocks(row, amountCell);
-    if (nearbyCurrencyBlocks.length > 1) return null;
-    final currencyBlock = nearbyCurrencyBlocks.firstOrNull;
-    final monetaryText = currencyBlock == null
+    final monetaryText = nearbyCurrencyBlocks.isEmpty
         ? amountText
-        : '${_normalizeOcrLine(currencyBlock.text)} $amountText';
+        : '${nearbyCurrencyBlocks.map((block) => _normalizeOcrLine(block.text)).join(' ')} $amountText';
+    if (nearbyCurrencyBlocks.length > 1 &&
+        _layoutItemCellCurrency(monetaryText, currency).currency == null) {
+      // Multiple competing cells do not establish a unique monetary owner.
+      // Identical repetitions are safe and remain usable below.
+      rejectedRows.add(rowIndex);
+      return null;
+    }
     final rightToLeft = row.any(
       (block) =>
           block != amountCell &&
@@ -4093,7 +4104,8 @@ class ReceiptOcrParser {
     final descriptionBlocks = row
         .where((block) {
           if (block == amountCell ||
-              block == currencyBlock ||
+              nearbyCurrencyBlocks.contains(block) ||
+              _isCurrencyOnlyOcrBlockText(_normalizeOcrLine(block.text)) ||
               !_unicodeLetterPattern.hasMatch(block.text) ||
               amountCellPattern.hasMatch(_normalizeOcrLine(block.text))) {
             return false;
@@ -4115,7 +4127,7 @@ class ReceiptOcrParser {
     final numericFragments = row
         .where((block) {
           if (block == amountCell ||
-              block == currencyBlock ||
+              nearbyCurrencyBlocks.contains(block) ||
               block.points.isEmpty ||
               !RegExp(r'^\d{1,4}$').hasMatch(block.text.trim())) {
             return false;
@@ -4165,7 +4177,7 @@ class ReceiptOcrParser {
     if (ownedDescriptionBlocks.isNotEmpty &&
         !_chargeTableCellsSharePrintedRow([
           amountCell,
-          ?currencyBlock,
+          ...nearbyCurrencyBlocks,
           ...ownedDescriptionBlocks,
         ])) {
       rejectedRows.add(rowIndex);
@@ -4174,7 +4186,7 @@ class ReceiptOcrParser {
     final outsideBlocks = row.where(
       (block) =>
           block != amountCell &&
-          block != currencyBlock &&
+          !nearbyCurrencyBlocks.contains(block) &&
           block != sizeBlock &&
           !ownedDescriptionBlocks.contains(block) &&
           // Preserve the original admission rule: a complete fine-precision
@@ -4204,6 +4216,17 @@ class ReceiptOcrParser {
             _normalizeOcrLine(block.text).toLowerCase(),
           ),
         );
+    if (_hasUnresolvedOutsideCellCurrency(
+      outsideBlocks,
+      monetaryText,
+      currency,
+      amountInheritsReceiptCurrency: true,
+    )) {
+      // Keep the independently owned item editable. The distant marker stays
+      // in source evidence and prevents a completeness claim; it cannot take
+      // ownership of the selected amount or disappear from review.
+      ambiguousRows.add(rowIndex);
+    }
     if (!outsideDateMetadata &&
         !outsideCalendarOnly &&
         _hasUnexplainedFinancialLabelNumber(outsideEvidence)) {
@@ -4245,6 +4268,14 @@ class ReceiptOcrParser {
     }
     final lineTotal = _lastAmountInLine(monetaryText, currency: lineCurrency);
     if (lineTotal == null) return null;
+    if (printedCurrency.hasExplicitEvidence &&
+        lineCurrency == null &&
+        currency != null) {
+      // Nearby conflicting denominations remain attached to this editable
+      // item, but cannot corroborate a draft in the resolved receipt currency.
+      // A globally unresolved currency already has its own review warning.
+      ambiguousRows.add(rowIndex);
+    }
     return ReceiptOcrItemCandidate(
       description: description,
       lineTotal: lineTotal,

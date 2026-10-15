@@ -65,7 +65,7 @@ function makeStoredZip(entries, { prefix = Buffer.alloc(0), gap = Buffer.alloc(0
     }
     const local = Buffer.alloc(30);
     local.writeUInt32LE(0x04034b50, 0);
-    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(entry.localVersion ?? entry.neededVersion ?? 20, 4);
     local.writeUInt16LE(flags, 6);
     local.writeUInt16LE(method, 8);
     local.writeUInt16LE(entry.localTime ?? 0x0821, 10);
@@ -78,8 +78,8 @@ function makeStoredZip(entries, { prefix = Buffer.alloc(0), gap = Buffer.alloc(0
     localParts.push(local, localName, localExtra, stored, descriptor);
     const central = Buffer.alloc(46);
     central.writeUInt32LE(0x02014b50, 0);
-    central.writeUInt16LE((3 << 8) | 20, 4);
-    central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(entry.madeBy ?? ((3 << 8) | 20), 4);
+    central.writeUInt16LE(entry.neededVersion ?? 20, 6);
     central.writeUInt16LE(flags, 8);
     central.writeUInt16LE(method, 10);
     central.writeUInt16LE(entry.centralTime ?? 0x0821, 12);
@@ -90,7 +90,8 @@ function makeStoredZip(entries, { prefix = Buffer.alloc(0), gap = Buffer.alloc(0
     central.writeUInt16LE(name.length, 28);
     central.writeUInt16LE(centralExtra.length, 30);
     central.writeUInt16LE(centralComment.length, 32);
-    central.writeUInt32LE((mode << 16) >>> 0, 38);
+    central.writeUInt16LE(entry.internalAttributes ?? 0, 36);
+    central.writeUInt32LE(entry.externalAttributes ?? ((mode << 16) >>> 0), 38);
     central.writeUInt32LE(localOffset, 42);
     centralParts.push(central, name, centralExtra, centralComment);
     localOffset += local.length + localName.length + localExtra.length + stored.length + descriptor.length;
@@ -1502,5 +1503,50 @@ test("signed provenance requires the export identity and exact normalization con
       ["ipa-metadata-contract", "unreviewed-transform", /metadata contract/],
     ]) assert.throws(() => buildProvenance(new Map([...args, [key, value]])), pattern);
     assert.throws(() => buildProvenance(new Map([...args, ["mode", "unsigned"]])), /cannot have IPA export metadata/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+for (const [field, value] of [
+  ['internalAttributes', 1], ['internalAttributes', 0x0100],
+  ['internalAttributes', 0x4142], ['internalAttributes', 0xffff],
+  ['madeBy', 0x4142], ['madeBy', (3 << 8) | 0xff],
+  ['neededVersion', 0x4142], ['localVersion', 0x4142],
+  ['externalAttributes', 0x81a44142], ['externalAttributes', 0x41a4],
+]) {
+  test(`unreviewed ZIP header ${field}=${value} cannot survive canonicalization`, () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), 'settleora-ipa-header-'));
+    const input = path.join(root, 'input.ipa'), output = path.join(root, 'output.ipa');
+    try {
+      const bytes = makeStoredZip([{ name: 'Payload/Runner.app/Runner', data: 'unchanged payload', [field]: value }]);
+      writeFileSync(input, bytes);
+      assert.throws(() => verifyTestIpa(input), /Unsafe IPA archive/);
+      assert.throws(() => canonicalizeOpenedIpa(openSync(input, 'r'), output), /Unsafe IPA archive/);
+      assert.equal(existsSync(output), false);
+      assert.deepEqual(readFileSync(input), bytes);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+}
+
+test('bounded ZIP producer and executable metadata preserve valid payloads', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'settleora-ipa-header-control-'));
+  try {
+    let index = 0;
+    for (const system of [3, 19]) for (const version of [20, 30]) {
+      for (const entry of [
+        { name: 'Payload/Runner.app/file', neededVersion: 10 },
+        { name: 'Payload/Runner.app/file', deflateLevel: 6 },
+        { name: 'Payload/Runner.app/Runner', mode: 0o100755, dataDescriptor: true },
+        { name: 'Payload/Runner.app/', mode: 0o040755 },
+      ]) {
+        const input = path.join(root, `input-${index}.ipa`);
+        const output = path.join(root, `output-${index++}.ipa`);
+        const bytes = makeStoredZip([{ ...entry, madeBy: (system << 8) | version }]);
+        writeFileSync(input, bytes);
+        assert.equal(verifyTestIpa(input), sha256(bytes));
+        const observed = canonicalizeOpenedIpa(openSync(input, 'r'), output);
+        assert.equal(observed.metadataFieldsNormalized, 0);
+        assert.deepEqual(readFileSync(output), bytes);
+      }
+    }
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

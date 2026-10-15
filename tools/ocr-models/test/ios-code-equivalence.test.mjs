@@ -46,6 +46,19 @@ test("archive comparison requires both signatures and rejects changed code, reso
     assert.deepEqual(verified, [archivedApp, app]);
     assert.equal(result.resignatureComparisons, 1);
     assert.equal(result.applicationSignaturesVerified, true);
+    for (const extra of ['unreviewed-empty', 'receipt_ocr_models/Private purchase 42']) {
+      const added = path.join(app, extra);
+      mkdirSync(added, { recursive: true });
+      assert.throws(inspect, /unreviewed/);
+      rmSync(path.join(app, extra.split('/')[0]), { recursive: true });
+      assert.equal(inspect().exportedApplicationSha256, result.exportedApplicationSha256);
+    }
+    for (const dir of [app, archivedApp]) {
+      mkdirSync(path.join(dir, 'known-resources'));
+      writeFileSync(path.join(dir, 'known-resources/value'), 'bound resource');
+    }
+    assert.equal(inspect().applicationFileCount, result.applicationFileCount + 1);
+    for (const dir of [app, archivedApp]) rmSync(path.join(dir, 'known-resources'), { recursive: true });
     for (const failed of [archivedApp, app]) assert.throws(() => inspect({ verifySignature(file) { if (file === failed) throw new Error("invalid signature"); } }), /unreviewed/);
     writeFileSync(path.join(app, "Runner"), image("evil-code", "bbb"));
     assert.throws(inspect, /unreviewed/);

@@ -157,8 +157,13 @@ function iosModelInventory(modelRoot) {
       if (entry.isSymbolicLink()) {
         throw new Error("Production iOS app model inventory contains a symbolic link");
       }
-      if (entry.isDirectory()) visit(path.join(directory, entry.name), relativePath);
-      else if (entry.isFile()) files.push(relativePath);
+      if (entry.isDirectory()) {
+        const before = files.length;
+        visit(path.join(directory, entry.name), relativePath);
+        if (files.length === before) {
+          throw new Error("Production iOS app model inventory contains an unreviewed empty directory");
+        }
+      } else if (entry.isFile()) files.push(relativePath);
       else throw new Error("Production iOS app model inventory contains an unsupported entry");
     }
   };

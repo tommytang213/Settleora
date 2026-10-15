@@ -198,7 +198,9 @@ function inspectIpaMetadata(fd, { close = true, patches = null } = {}) {
     let cursor = 0;
     for (let index = 0; index < totalEntries; index += 1) {
       if (cursor + 46 > central.length || central.readUInt32LE(cursor) !== centralSignature) fail("central directory entry is malformed");
-      const madeBySystem = central.readUInt16LE(cursor + 4) >>> 8;
+      const madeBy = central.readUInt16LE(cursor + 4);
+      const madeBySystem = madeBy >>> 8;
+      const neededVersion = central.readUInt16LE(cursor + 6);
       const flags = central.readUInt16LE(cursor + 8);
       const method = central.readUInt16LE(cursor + 10);
       const centralTime = central.readUInt16LE(cursor + 12);
@@ -211,11 +213,19 @@ function inspectIpaMetadata(fd, { close = true, patches = null } = {}) {
       const extraLength = central.readUInt16LE(cursor + 30);
       const commentLength = central.readUInt16LE(cursor + 32);
       const entryDisk = central.readUInt16LE(cursor + 34);
+      const internalAttributes = central.readUInt16LE(cursor + 36);
       const externalAttributes = central.readUInt32LE(cursor + 38);
       const localOffset = central.readUInt32LE(cursor + 42);
       const entryEnd = cursor + 46 + nameLength + extraLength + commentLength;
       if (entryEnd > central.length || nameLength === 0) fail("central directory entry lengths are malformed");
       if (commentLength !== 0) fail("entry comments are forbidden");
+      // These unsigned header bytes do not affect sealed payload contents.
+      // Keep a bounded Unix/Darwin stored/deflate profile, including binary
+      // internal attributes, instead of admitting arbitrary text in them.
+      if (![3, 19].includes(madeBySystem) || ![20, 30].includes(madeBy & 0xff) ||
+          ![10, 20].includes(neededVersion) || internalAttributes !== 0) {
+        fail("entry version or internal attributes are unreviewed");
+      }
       if (entryDisk !== 0 || compressedSize === 0xffffffff || uncompressedSize === 0xffffffff || localOffset === 0xffffffff) {
         fail("ZIP64 or multi-disk entries are forbidden");
       }
@@ -237,6 +247,14 @@ function inspectIpaMetadata(fd, { close = true, patches = null } = {}) {
       if (unixType !== 0 && unixType !== 0x4000 && unixType !== 0x8000) fail("symlink or special-file entry is forbidden");
       const directory = unixType === 0x4000 || (unixType === 0 && name.endsWith("/"));
       if (directory !== name.endsWith("/")) fail("entry type and directory marker disagree");
+      const allowedMode = directory ? unixMode === 0o040755 :
+        unixMode === 0o100644 || unixMode === 0o100755;
+      const dosAttributes = externalAttributes & 0xffff;
+      if (!allowedMode || !(directory ? [0, 0x10] : [0, 0x20]).includes(dosAttributes) ||
+          ((directory || method === 8) && neededVersion !== 20) ||
+          (method === 0 && (flags & 0x0006) !== 0)) {
+        fail("entry external attributes or extraction metadata are unreviewed");
+      }
       if (directory && (method !== 0 || crc32 !== 0 || compressedSize !== 0 || uncompressedSize !== 0 || (flags & 0x0008) !== 0)) {
         fail("directory entry contains payload bytes");
       }
@@ -250,6 +268,7 @@ function inspectIpaMetadata(fd, { close = true, patches = null } = {}) {
 
       const local = readExact(fd, 30, localOffset);
       if (local.readUInt32LE(0) !== localSignature) fail("local entry header is malformed");
+      if (local.readUInt16LE(4) !== neededVersion) fail("local and central extraction versions disagree");
       const localFlags = local.readUInt16LE(6);
       const localMethod = local.readUInt16LE(8);
       const localTime = local.readUInt16LE(10);
