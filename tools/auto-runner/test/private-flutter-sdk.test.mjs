@@ -8,8 +8,26 @@ import path from "node:path";
 import test from "node:test";
 import { cacheTreeDigests, privateFlutterSdkRoot, provisionPrivateFlutterSdk, verifyPrivateFlutterSdk } from "../lib/private-flutter-sdk.mjs";
 import { runValidationPlan } from "../lib/validation-planner.mjs";
+import { defaultProvisioningLogsRoot, resolveProvisioningLogsRoot } from "../provision-private-flutter-sdk.mjs";
+import { loadPrivateFlutterProvisioningLogsRoot } from "../lib/config.mjs";
 
 const hash = (file) => createHash("sha256").update(readFileSync(file)).digest("hex");
+
+test("provisioning CLI accepts only fixed or authenticated profile-bound logs roots", () => {
+  const approvedConfig = "/workspace/auto-runner/config/Settleora.json";
+  const approvedRoot = "/workspace/logs/auto-runner/Settleora";
+  const readProfile = (configPath) => {
+    assert.equal(configPath, approvedConfig);
+    return approvedRoot;
+  };
+  assert.equal(resolveProvisioningLogsRoot([]), defaultProvisioningLogsRoot);
+  assert.equal(resolveProvisioningLogsRoot(["--config", approvedConfig], readProfile), approvedRoot);
+  assert.equal(resolveProvisioningLogsRoot(["--config", approvedConfig, "--logs-root", approvedRoot], readProfile), approvedRoot);
+  assert.throws(() => resolveProvisioningLogsRoot(["--logs-root", "/tmp/attacker"], readProfile), /approved external profile/);
+  assert.throws(() => resolveProvisioningLogsRoot(["--config", approvedConfig, "--logs-root", "/tmp/attacker"], readProfile), /does not match/);
+  assert.throws(() => resolveProvisioningLogsRoot(["--config", `${approvedConfig}/../Settleora.json`], readProfile), /approved external profile/);
+  assert.throws(() => loadPrivateFlutterProvisioningLogsRoot("/tmp/attacker.json"), /outside_external_profile_root/);
+});
 
 function fixture(run) {
   const parent = mkdtempSync(path.join(os.tmpdir(), "settleora-private-flutter-"));

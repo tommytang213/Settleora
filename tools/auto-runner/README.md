@@ -1675,10 +1675,11 @@ private Flutter SDK under the existing owner-only `logsRoot/toolchains/` and
 prepends its `bin` directory to validation commands' PATH. The SDK must be
 provisioned once before a mobile lane with
 `node tools/auto-runner/provision-private-flutter-sdk.mjs`; this offline
-command accepts `--logs-root <configured absolute logsRoot>` for other runner
-configurations. The default is `/workspace/logs/auto-runner/Settleora`. The
-offline
-provisioner clones only the pinned local `/opt/flutter` commit without
+command uses `/workspace/logs/auto-runner/Settleora` by default. Other runner
+configurations must pass `--config <approved external profile>` so the logs root
+comes from the owner-controlled config directory. An optional `--logs-root`
+must exactly match the configured root; it cannot select another destination.
+The offline provisioner clones only the pinned local `/opt/flutter` commit without
 hardlinks, copies only a pinned whole-cache inventory, checks version and file
 hashes, verifies the copied cache, and publishes an owner-only copy atomically.
 Every constructed SDK child path is resolved inside its checked root; pinned

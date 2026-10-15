@@ -1272,6 +1272,22 @@ function readExternalProfileConfig(configPath, trustHooks = null) {
   }
 }
 
+// Provisioning precedes mobile validation and may precede runtime installation.
+// Resolve its destination only through the same owner-controlled external
+// profile directory used by trusted deployment, without starting a runner.
+export function loadPrivateFlutterProvisioningLogsRoot(configPath) {
+  const { config } = readExternalProfileConfig(configPath);
+  if (config.runtimeMode !== "external" || typeof config.projectId !== "string"
+      || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$/.test(config.projectId)
+      || typeof config.logsRoot !== "string" || !path.isAbsolute(config.logsRoot)
+      || path.resolve(config.logsRoot) !== config.logsRoot
+      || path.dirname(config.logsRoot) !== "/workspace/logs/auto-runner"
+      || path.basename(config.logsRoot) !== config.projectId) {
+    throw new Error("private Flutter provisioning requires a project-bound external profile");
+  }
+  return config.logsRoot;
+}
+
 export function validateExternalProfilePath(configPath, fixedRoot = externalProfileRoot) {
   if (path.dirname(configPath) !== fixedRoot || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,79}\.json$/u.test(path.basename(configPath))) {
     throw new Error("config_outside_external_profile_root: External profile must be a direct JSON child of the fixed config root.");
