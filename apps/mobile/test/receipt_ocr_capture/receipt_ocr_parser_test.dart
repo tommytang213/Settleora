@@ -12396,7 +12396,17 @@ Total EUR 21.00
     }
   });
 
-  for (final marker in ['CR', 'cr', 'DR', 'CREDIT', 'DEBIT', '(', ')']) {
+  for (final marker in [
+    'CR',
+    'cr',
+    'DR',
+    'CREDIT',
+    'DEBIT',
+    '(',
+    ')',
+    '–',
+    '—',
+  ]) {
     test('charge table retains adjacent $marker accounting ambiguity', () {
       final blocks = [
         _layoutBlock('Market USD', 0, 0, 20, 280),
@@ -12418,6 +12428,30 @@ Total EUR 21.00
       expect(preview.adjustmentsComplete, isFalse);
       expect(preview.warnings, isNotEmpty);
       expect(preview.rawTextLineCount, 4);
+      expect(preview.blocks.map((block) => block.text), contains(marker));
+    });
+  }
+
+  for (final marker in ['–', '—']) {
+    test('rated charge table retains detached $marker ambiguity', () {
+      final preview = const ReceiptOcrParser().parse(
+        'Market USD\nDescription Usage Rate Amount\nWidget 2 3.00 USD 6.00 $marker\nTotal USD 6.00',
+        blocks: [
+          _layoutBlock('Market USD', 0, 0, 20, 330),
+          _layoutBlock('Description', 1, 1, 20, 130),
+          _layoutBlock('Usage', 2, 1, 150, 180),
+          _layoutBlock('Rate', 3, 1, 210, 250),
+          _layoutBlock('Amount', 4, 1, 270, 320),
+          _layoutBlock('Widget', 5, 2, 20, 130),
+          _layoutBlock('2', 6, 2, 150, 180),
+          _layoutBlock('3.00', 7, 2, 210, 250),
+          _layoutBlock('USD 6.00', 8, 2, 270, 330),
+          _layoutBlock(marker, 9, 2, 340, 350),
+          _layoutBlock('Total USD 6.00', 10, 3, 20, 330),
+        ],
+      );
+      expect(preview.items, isEmpty);
+      expect(preview.adjustmentsComplete, isFalse);
       expect(preview.blocks.map((block) => block.text), contains(marker));
     });
   }
@@ -12469,7 +12503,7 @@ Total EUR 21.00
     expect(preview.adjustmentsComplete, isTrue);
   });
 
-  for (final marker in [null, 'CR']) {
+  for (final marker in [null, 'CR', '–', '—']) {
     test('charge table keeps positive amount with distant marker $marker', () {
       final preview = const ReceiptOcrParser().parse(
         'Market USD\nDescription Qty Amount\nTea 1 USD 5.00${marker == null ? '' : ' $marker'}\nTotal USD 5.00',

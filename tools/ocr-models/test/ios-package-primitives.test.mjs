@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { inspectIosAssetCatalogInfo } from "../verify-ios-asset-catalog.mjs";
+import { dsymFixture } from "./dsym-fixture.mjs";
 import { inspectXcarchive } from "../verify-ios-xcarchive.mjs";
 
 const plist = () => "<?xml version=\"1.0\"?><plist><dict/></plist>";
@@ -71,7 +72,7 @@ test("archive privacy inspects every file and rejects extra, hidden payload, and
     writeFileSync(path.join(archive, "Info.plist"), plist());
     const symbolInfo = path.join(archive, "dSYMs/Runner.app.dSYM/Contents/Info.plist");
     writeFileSync(symbolInfo, symbolPlist());
-    const symbolBytes = Buffer.from([0xfe, 0xed, 0xfa, 0xcf, 0, 0, 0, 0]);
+    const symbolBytes = dsymFixture().bytes;
     const executableBytes = Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 0, 0, 0, 0]);
     writeFileSync(path.join(dwarf, "Runner"), symbolBytes);
     writeFileSync(path.join(app, "Runner"), executableBytes);
@@ -80,7 +81,8 @@ test("archive privacy inspects every file and rejects extra, hidden payload, and
     const uuid = "01234567-89AB-CDEF-0123-456789ABCDEF";
     const dwarfTool = ([command, file]) => {
       if (command === "--verify") {
-        if (!readFileSync(file).equals(symbolBytes)) throw new Error("invalid DWARF");
+        // DWARF verification can ignore bytes outside declared sections.
+        if (!readFileSync(file).subarray(0, symbolBytes.length).equals(symbolBytes)) throw new Error("invalid DWARF");
         return "";
       }
       if (command === "--uuid") {

@@ -3359,7 +3359,8 @@ class ReceiptOcrParser {
       // A bare city/region/postal shape can also be a description and price.
       // Without a preceding street address, retain that ambiguity instead of
       // silently discarding a potentially priced row as header metadata.
-      if (_lineHasAmount(line) &&
+      if (!nonItemEvidenceRows.contains(lineIndex) &&
+          _lineHasAmount(line) &&
           _isReceiptMetadataLine(line) &&
           !_isReceiptMetadataLine(line, allowBarePostal: false) &&
           !_hasOwnedStreetAddressContext(lines, lineIndex)) {
@@ -5900,12 +5901,17 @@ class ReceiptOcrParser {
           header,
           layoutRows[rowIndex],
         );
+        final meterBlocks = _ownedChargeTableMeterBlocks(
+          layoutRows,
+          headerIndex,
+        );
         final outsideBlocks = layoutRows[rowIndex]
             .where(
               (block) =>
                   !tableBlocks.contains(block) &&
                   !graphBlocks.contains(block) &&
                   !referenceBlocks.contains(block) &&
+                  !meterBlocks.contains(block) &&
                   !ownedContactBlocks.contains(block),
             )
             .toList(growable: false);
@@ -6676,6 +6682,144 @@ class ReceiptOcrParser {
 
     return count;
   }
+}
+
+// A separate meter panel owns only complete cells below its four printed
+// headings. Require both the date/unit row and the reading row; an isolated
+// integer, a decimal amount or a split currency fragment is never exempted.
+Set<ReceiptOcrBlockEvidence> _ownedChargeTableMeterBlocks(
+  List<List<ReceiptOcrBlockEvidence>> rows,
+  int headerIndex,
+) {
+  if (headerIndex + 2 >= rows.length) return const {};
+  double top(ReceiptOcrBlockEvidence b) =>
+      b.points.map((p) => p.y).reduce((a, b) => a < b ? a : b);
+  double bottom(ReceiptOcrBlockEvidence b) =>
+      b.points.map((p) => p.y).reduce((a, b) => a > b ? a : b);
+  bool valid(ReceiptOcrBlockEvidence b) {
+    if (b.points.length != 4 ||
+        b.points.any((p) => !p.x.isFinite || !p.y.isFinite) ||
+        b.confidence == null ||
+        !b.confidence!.isFinite ||
+        b.confidence! < 0.8 ||
+        b.confidence! > 1) {
+      return false;
+    }
+    final turns = [
+      for (var i = 0; i < 4; i++)
+        (b.points[(i + 1) % 4].x - b.points[i].x) *
+                (b.points[(i + 2) % 4].y - b.points[(i + 1) % 4].y) -
+            (b.points[(i + 1) % 4].y - b.points[i].y) *
+                (b.points[(i + 2) % 4].x - b.points[(i + 1) % 4].x),
+    ];
+    return turns.every((v) => v.isFinite && v > 0) ||
+        turns.every((v) => v.isFinite && v < 0);
+  }
+
+  final header = rows[headerIndex];
+  if (header.any((b) => !valid(b))) return const {};
+  final columns = header.toList()
+    ..sort((a, b) => _blockLeft(a).compareTo(_blockLeft(b)));
+  final start = columns.indexWhere(
+    (b) => RegExp(
+      r'^meter\s+(?:number|no\.?)$',
+      caseSensitive: false,
+    ).hasMatch(b.text.trim()),
+  );
+  if (start < 0 || start + 3 >= columns.length) return const {};
+  final panel = columns.sublist(start, start + 4);
+  if (!RegExp(
+        r'^previous\s+read(?:ing)?$',
+        caseSensitive: false,
+      ).hasMatch(panel[1].text.trim()) ||
+      !RegExp(
+        r'^current\s+read(?:ing)?$',
+        caseSensitive: false,
+      ).hasMatch(panel[2].text.trim()) ||
+      panel[3].text.trim().toLowerCase() != 'consumption' ||
+      !_chargeTableCellsSharePrintedRow(header)) {
+    return const {};
+  }
+  final scale = bottom(panel.first) - top(panel.first);
+  if (scale <= 0) return const {};
+  final owned = <ReceiptOcrBlockEvidence>{};
+  final cells = <List<ReceiptOcrBlockEvidence>>[];
+  for (var r = 1; r <= 2; r++) {
+    final selected = <ReceiptOcrBlockEvidence>[];
+    for (var i = 0; i < 4; i++) {
+      final index = start + i;
+      final left = index == 0
+          ? _blockLeft(columns[index]) - scale / 2
+          : (_blockRight(columns[index - 1]) + _blockLeft(columns[index])) / 2;
+      final right = index == columns.length - 1
+          ? _blockRight(columns[index]) + scale / 2
+          : (_blockRight(columns[index]) + _blockLeft(columns[index + 1])) / 2;
+      final overlaps = rows[headerIndex + r]
+          .where(
+            (b) =>
+                b.points.isNotEmpty &&
+                _blockRight(b) > left &&
+                _blockLeft(b) < right,
+          )
+          .toList();
+      if (r == 1 && i == 0 && overlaps.isEmpty) continue;
+      if (overlaps.length != 1) return const {};
+      final b = overlaps.single;
+      if (!valid(b) ||
+          _blockLeft(b) < left ||
+          _blockRight(b) > right ||
+          top(b) < bottom(panel[i]) - scale / 4 ||
+          bottom(b) > bottom(panel[i]) + scale * 4 ||
+          _printedCurrencyMarkerMatches(b.text).isNotEmpty ||
+          _unsupportedIsoCurrencyMarkers(b.text).isNotEmpty) {
+        return const {};
+      }
+      selected.add(b);
+    }
+    if (selected.length != (r == 1 ? 3 : 4) ||
+        !_chargeTableCellsSharePrintedRow(selected)) {
+      return const {};
+    }
+    cells.add(selected);
+  }
+  final date = RegExp(
+    r'^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(?:[1-9]|[12]\d|3[01]),\s+\d{4}$',
+    caseSensitive: false,
+  );
+  final integer = RegExp(r'^(?:\d+|[1-9]\d{0,2}(?:,\d{3})+)$');
+  if (!date.hasMatch(cells[0][0].text.trim()) ||
+      !date.hasMatch(cells[0][1].text.trim()) ||
+      !RegExp(
+        r'^\((?:cubic meters|m³|m3|gallons|kwh|therms)\)$',
+        caseSensitive: false,
+      ).hasMatch(cells[0][2].text.trim()) ||
+      !RegExp(
+        r'^(?=[A-Z0-9-]*[A-Z])(?=[A-Z0-9-]*\d)[A-Z0-9]+(?:-[A-Z0-9]+)*$',
+        caseSensitive: false,
+      ).hasMatch(cells[1][0].text.trim()) ||
+      cells[1].skip(1).any((b) => !integer.hasMatch(b.text.trim())) ||
+      cells[0].map(bottom).reduce((a, b) => a > b ? a : b) >=
+          cells[1].map(top).reduce((a, b) => a < b ? a : b)) {
+    return const {};
+  }
+  owned.addAll(cells.expand((row) => row));
+  // OCR row grouping may put a competing denomination in a separate row.
+  // The whole panel must be closed spatially, not just in reading order.
+  final panelBottom = owned.map(bottom).reduce((a, b) => a > b ? a : b);
+  for (final other in rows.expand((row) => row)) {
+    if (header.contains(other) || owned.contains(other)) continue;
+    if (other.points.isEmpty ||
+        other.points.any((p) => !p.x.isFinite || !p.y.isFinite)) {
+      return const {};
+    }
+    if (_blockRight(other) > _blockLeft(panel.first) - scale / 2 &&
+        _blockLeft(other) < _blockRight(panel.last) + scale / 2 &&
+        bottom(other) > bottom(panel.first) &&
+        top(other) < panelBottom + scale / 2) {
+      return const {};
+    }
+  }
+  return owned;
 }
 
 // A separately headed reference or row-number column can own its complete
@@ -7539,7 +7683,7 @@ bool _isPaymentTerminalIdentifierLine(String line) => RegExp(
 ).hasMatch(line.trim());
 
 // A damaged region token must not turn a postal code into a purchase. Only a
-// complete street/postal/phone header owns these digits; no character is
+// complete street/postal/phone or Australian postal/ABN header owns digits; no character is
 // corrected and no currency or locality is inferred from the damaged token.
 Set<int> _ownedHeaderAddressRows(
   List<String> lines,
@@ -7549,7 +7693,7 @@ Set<int> _ownedHeaderAddressRows(
   if (rows.length != lines.length || merchantRows.isEmpty) return const {};
   final merchantIndex = merchantRows.reduce((a, b) => a > b ? a : b);
   final start = merchantIndex + 1;
-  if (merchantIndex > 2 || start + 2 >= rows.length) return const {};
+  if (merchantIndex > 2 || start + 1 >= rows.length) return const {};
   final street = RegExp(
     r"^\d{1,6}\s+(?:[a-z][a-z .'-]{1,50}\s+(?:street|st|road|rd|avenue|ave|boulevard|blvd|lane|ln|drive|dr|way)|(?:highway|hwy|route|rte)\s+\d{1,4}[a-z]?)\.?$",
     caseSensitive: false,
@@ -7562,12 +7706,23 @@ Set<int> _ownedHeaderAddressRows(
     r'^(?:(?:phone|tel)\s*:?\s*)?(?:\+?1[ -]?)?(?:\(\d{3}\)|\d{3})[ -]?\d{3}[ -]\d{4}$',
     caseSensitive: false,
   );
-  if (!street.hasMatch(lines[start]) ||
-      postal == null ||
-      !RegExp(r'[a-z]', caseSensitive: false).hasMatch(postal.group(1)!) ||
-      !phone.hasMatch(lines[start + 2])) {
-    return const {};
-  }
+  final australianPanel =
+      RegExp(
+        r"^[a-z][a-z .'-]{1,40},?\s+(?:NSW|VIC|QLD|SA|WA|TAS|NT|ACT)\s+\d{4}$",
+        caseSensitive: false,
+      ).hasMatch(lines[start]) &&
+      RegExp(
+        r'^ABN\s*:?\s*\d{2}\s?\d{3}\s?\d{3}\s?\d{3}$',
+        caseSensitive: false,
+      ).hasMatch(lines[start + 1]);
+  final streetPanel =
+      start + 2 < rows.length &&
+      street.hasMatch(lines[start]) &&
+      postal != null &&
+      RegExp(r'[a-z]', caseSensitive: false).hasMatch(postal.group(1)!) &&
+      phone.hasMatch(lines[start + 2]);
+  if (!australianPanel && !streetPanel) return const {};
+  final end = start + (australianPanel ? 1 : 2);
   double top(ReceiptOcrBlockEvidence b) =>
       b.points.map((p) => p.y).reduce((a, b) => a < b ? a : b);
   double bottom(ReceiptOcrBlockEvidence b) =>
@@ -7589,7 +7744,7 @@ Set<int> _ownedHeaderAddressRows(
   }
 
   final header = <ReceiptOcrBlockEvidence>[];
-  for (var index = merchantIndex; index <= start + 2; index++) {
+  for (var index = merchantIndex; index <= end; index++) {
     if (rows[index].length != 1) return const {};
     final block = rows[index].single;
     if (!valid(block) ||
@@ -7633,7 +7788,7 @@ Set<int> _ownedHeaderAddressRows(
       return const {};
     }
   }
-  return {start, start + 1, start + 2};
+  return {for (var index = start; index <= end; index++) index};
 }
 
 // Receipt copy needs a closed language pattern as well as its printed role.
@@ -8988,7 +9143,7 @@ List<ReceiptOcrBlockEvidence> _nearbySignOnlyBlocks(
             block.points.isEmpty ||
             !RegExp(
               includeCreditAndAccountingMarkers
-                  ? r'^\s*(?:[-−()]|CR|DR|CREDIT|DEBIT)\s*$'
+                  ? r'^\s*(?:[-−–—()]|CR|DR|CREDIT|DEBIT)\s*$'
                   : r'^\s*[-−]\s*$',
               caseSensitive: false,
             ).hasMatch(block.text)) {

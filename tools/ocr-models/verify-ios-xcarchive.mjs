@@ -3,13 +3,14 @@ import { execFileSync } from "node:child_process";
 import { lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { verifyDsymByteAccounting } from "./dsym-byte-accounting.mjs";
 import { hashDirectory } from "./hash-directory.mjs";
 import { signedMachOCodeMatches, verifyApplicationSignature } from "./ios-code-equivalence.mjs";
 
 const forbiddenPath = /(^|\/)(?:test|tests|fixtures?|logs?|evidence)(?:\/|[._-]|$)|integration[_-]?test|receipt[_-]?ocr[_-]?(?:acceptance|real_provider)/i;
 const forbiddenContent = /IntegrationTestPlugin|dev\.flutter\.plugins\.integration_test|com\.settleora\.mobile\/receipt_ocr_acceptance|loadFixture|receipt_ocr_real_provider_test|BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY|BEGIN CERTIFICATE|api[_-]?token\s*[:=]/i;
 const receiptText = /(?:^|[\r\n])\s*(?:TOTAL|SUBTOTAL|TAX|MERCHANT|RECEIPT)\s*[: ]+\$?\d+(?:\.\d{2})?/i;
-const machoMagic = new Set([0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcffaedfe, 0xcafebabe, 0xbebafeca]);
+const machoMagic = new Set([0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcffaedfe, 0xcafebabe, 0xbebafeca, 0xcafebabf, 0xbfbafeca]);
 
 function fail() { throw new Error("Retained xcarchive contains unreviewed or private content"); }
 function sha256(bytes) { return createHash("sha256").update(bytes).digest("hex"); }
@@ -275,6 +276,7 @@ export function inspectXcarchive(root, ipaAppRoot, inspectPlist = (file) => exec
       if (!executableStat.isFile() || executableStat.size < 4 ||
           executableStat.size > 256 * 1024 * 1024 ||
           !machoMagic.has(readFileSync(executable).readUInt32BE(0))) fail();
+      try { verifyDsymByteAccounting(bytes); } catch { fail(); }
       verifyBoundDwarf(file, executable, dwarfTool);
     }
     for (let offset = 0; offset < bytes.length; offset += 1024 * 1024) {
