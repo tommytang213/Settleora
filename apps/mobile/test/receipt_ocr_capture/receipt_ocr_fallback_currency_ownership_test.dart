@@ -84,9 +84,15 @@ void _expectUnresolved(
     // not acquire that ownership through the fallback.
     expect(preview.items.single.currency, isNull);
     expect(preview.items.single.currencyUnresolved, isTrue);
+    // This owned item stays unresolved; no printed item or adjustment was
+    // omitted. Item-currency review must not invent a tax interpretation.
+    expect(preview.adjustmentsComplete, isTrue);
+    expect(preview.incompleteAdjustmentReasons, isEmpty);
+    expect(preview.reviewHints, isEmpty);
+  } else {
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(preview.reviewHints, isNotEmpty);
   }
-  expect(preview.adjustmentsComplete, isFalse);
-  expect(preview.reviewHints, isNotEmpty);
 }
 
 void main() {

@@ -4268,14 +4268,9 @@ class ReceiptOcrParser {
     }
     final lineTotal = _lastAmountInLine(monetaryText, currency: lineCurrency);
     if (lineTotal == null) return null;
-    if (printedCurrency.hasExplicitEvidence &&
-        lineCurrency == null &&
-        currency != null) {
-      // Nearby conflicting denominations remain attached to this editable
-      // item, but cannot corroborate a draft in the resolved receipt currency.
-      // A globally unresolved currency already has its own review warning.
-      ambiguousRows.add(rowIndex);
-    }
+    // Owned currency conflicts are retained on the item below. They block
+    // that item's saved amount without inventing an unretained priced row or
+    // changing the independently recognized summary/tax role.
     return ReceiptOcrItemCandidate(
       description: description,
       lineTotal: lineTotal,
