@@ -677,6 +677,145 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         }
     }
 
+    public static IEnumerable<object[]> LegacyNullTaxHeaderCases()
+    {
+        foreach (var groupRoute in new[] { false, true })
+        foreach (var explicitNull in new[] { false, true })
+        foreach (var mutation in new[] {
+            "remove", "amount", "currency", "role", "add", "unchanged",
+            "omit_headers", "domestic_edit", "domestic_zero_tax_edit", "domestic_retry" })
+            yield return [groupRoute, explicitNull, mutation];
+    }
+
+    [Theory]
+    [MemberData(nameof(LegacyNullTaxHeaderCases))]
+    public async Task LegacyNullTaxModePreservesHeaderEvidenceDecisions(
+        bool groupRoute, bool explicitNull, string mutation)
+    {
+        var context = CreateFactory();
+        using var testFactory = context.Factory;
+        var owner = await SeedSessionActorAsync(testFactory, context.TimeProvider, "Legacy Header Owner");
+        var groupId = groupRoute
+            ? await SeedGroupAsync(testFactory, owner.UserProfileId, "Legacy Header Group",
+                InitialTimestamp, deletedAtUtc: null,
+                new MembershipSeed(owner.UserProfileId, GroupMembershipRoles.Owner,
+                    GroupMembershipStatuses.Active)) : (Guid?)null;
+        var billId = await SeedBillAsync(testFactory, owner.UserProfileId, groupId,
+            ExpenseBillStatuses.Draft, archivedAtUtc: null,
+            [owner.UserProfileId], [owner.UserProfileId], InitialTimestamp.AddMinutes(2));
+        var fileId = await SeedBillAttachmentAsync(testFactory, billId, owner.UserProfileId,
+            ExpenseBillAttachmentPurposes.Receipt, FileObjectPurposes.ReceiptImage,
+            FileObjectStatuses.Active, removedAtUtc: null);
+        var reviewPath = groupId.HasValue ? GroupOcrReviewPath(groupId.Value, billId, fileId)
+            : PersonalOcrReviewPath(billId, fileId);
+        var previewPath = groupId.HasValue ? GroupOcrReviewApplyPreviewPath(groupId.Value, billId, fileId)
+            : PersonalOcrReviewApplyPreviewPath(billId, fileId);
+        var applyPath = groupId.HasValue ? GroupOcrReviewApplyPath(groupId.Value, billId, fileId)
+            : PersonalOcrReviewApplyPath(billId, fileId);
+        using var client = testFactory.CreateClient();
+        var startsWithForeignHeader = mutation is not "add"
+            && !mutation.StartsWith("domestic_", StringComparison.Ordinal);
+        var invalidatesMode = mutation is "remove" or "amount" or "currency" or "role" or "add";
+        var blocked = startsWithForeignHeader || invalidatesMode;
+        var body = new Dictionary<string, object?>
+        {
+            ["status"] = "reviewed", ["source"] = "on_device", ["currency"] = "USD",
+            ["subtotalAmount"] = "20", ["grandTotalAmount"] = "20",
+            ["lines"] = new[] { new { text = "Book", quantity = "1", unitPriceAmount = "20", lineTotalAmount = "20" } },
+            ["headerEvidence"] = startsWithForeignHeader
+                ? new object[] { new { role = "tax", amount = "4", currency = "EUR" } }
+                : Array.Empty<object>()
+        };
+        if (mutation == "domestic_zero_tax_edit") body["taxAmount"] = "0";
+        if (explicitNull) body["taxReconciliationMode"] = null;
+        async Task<ReceiptOcrReview> Save()
+        {
+            using var put = CreateJsonBearerRequest(HttpMethod.Put, reviewPath,
+                owner.RawSessionToken, JsonSerializer.Serialize(body));
+            using var response = await client.SendAsync(put);
+            Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
+            return await ReadReceiptOcrReviewAsync(testFactory,
+                ReadReviewPayload(await response.Content.ReadAsStringAsync()).Id);
+        }
+        var original = await Save();
+        Assert.Null(original.TaxReconciliationMode);
+        if (startsWithForeignHeader)
+            Assert.Equal("EUR", Assert.Single(original.HeaderEvidence).Currency);
+        else Assert.Empty(original.HeaderEvidence);
+        using (var get = CreateBearerRequest(HttpMethod.Get, previewPath, owner.RawSessionToken))
+        using (var response = await client.SendAsync(get))
+        {
+            var preview = ReadApplyPreviewPayload(await response.Content.ReadAsStringAsync());
+            Assert.Equal(!startsWithForeignHeader, preview.CanApply);
+            if (startsWithForeignHeader)
+                Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.TaxReconciliationInvalid,
+                    preview.BlockedReasons);
+        }
+        var before = await ReadBillAsync(testFactory, billId);
+        context.TimeProvider.SetUtcNow(WriteTimestamp);
+        switch (mutation)
+        {
+            case "remove": body["headerEvidence"] = Array.Empty<object>(); break;
+            case "amount": body["headerEvidence"] = new[] { new { role = "tax", amount = "5", currency = "EUR" } }; break;
+            case "currency": body["headerEvidence"] = new[] { new { role = "tax", amount = "4", currency = "GBP" } }; break;
+            case "role": body["headerEvidence"] = new[] { new { role = "service_charge", amount = "4", currency = "EUR" } }; break;
+            case "add": body["headerEvidence"] = new[] { new { role = "tax", amount = "4", currency = "EUR" } }; break;
+            case "omit_headers": body.Remove("headerEvidence"); break;
+            case "domestic_edit":
+            case "domestic_zero_tax_edit":
+                body["subtotalAmount"] = "21";
+                body["grandTotalAmount"] = "21";
+                body["lines"] = new[] { new { text = "Book", quantity = "1", unitPriceAmount = "21", lineTotalAmount = "21" } };
+                break;
+            case "domestic_retry": body["merchantText"] = "Corrected book shop"; break;
+        }
+        var edited = await Save();
+        Assert.Equal(original.Id, edited.Id);
+        var expectedHeaderCount = (startsWithForeignHeader && mutation != "remove") || mutation == "add" ? 1 : 0;
+        Assert.Equal(expectedHeaderCount, edited.HeaderEvidence.Count);
+        var expectedMode = invalidatesMode ? ReceiptOcrReviewTaxReconciliationModes.Unresolved : null;
+        var expectedLineAmount = mutation is "domestic_edit" or "domestic_zero_tax_edit" ? 21m : 20m;
+        async Task AssertPreviewAndApplyAsync(ReceiptOcrReview saved)
+        {
+            using var previewRequest = CreateBearerRequest(HttpMethod.Get, previewPath, owner.RawSessionToken);
+            using var previewResponse = await client.SendAsync(previewRequest);
+            Assert.Equal(HttpStatusCode.OK, previewResponse.StatusCode);
+            var preview = ReadApplyPreviewPayload(await previewResponse.Content.ReadAsStringAsync());
+            using var apply = CreateJsonBearerRequest(HttpMethod.Post, applyPath,
+                owner.RawSessionToken, ApplyRequestJson(saved.UpdatedAtUtc));
+            using var applied = await client.SendAsync(apply);
+            var after = await ReadBillAsync(testFactory, billId);
+            Assert.True(applied.StatusCode == (blocked ? HttpStatusCode.Conflict : HttpStatusCode.OK),
+                $"Legacy header mutation: {mutation}, group={groupRoute}, explicitNull={explicitNull}, mode={saved.TaxReconciliationMode ?? "null"}, preview={preview.CanApply}, Apply={applied.StatusCode}, bill delta={after.TotalAmount-before.TotalAmount}");
+            Assert.Equal(expectedMode, saved.TaxReconciliationMode);
+            Assert.Equal(!blocked, preview.CanApply);
+            if (blocked)
+            {
+                Assert.Contains(invalidatesMode
+                    ? ReceiptOcrReviewApplyPreviewIssueCodes.TaxReconciliationUnresolved
+                    : ReceiptOcrReviewApplyPreviewIssueCodes.TaxReconciliationInvalid, preview.BlockedReasons);
+                Assert.Equal(before.TotalAmount, after.TotalAmount);
+                Assert.DoesNotContain(after.Items, item => item.SourceReceiptOcrReviewId == saved.Id);
+            }
+            else
+            {
+                Assert.Equal(before.TotalAmount + expectedLineAmount, after.TotalAmount);
+                Assert.Equal(expectedLineAmount, Assert.Single(after.Items, item =>
+                    item.SourceReceiptOcrReviewId == saved.Id && item.DeletedAtUtc is null).Amount);
+            }
+        }
+        await AssertPreviewAndApplyAsync(edited);
+        // Neither omitted nor explicit-null retries can clear the retained
+        // uncertainty. Valid domestic retries still produce one contribution.
+        context.TimeProvider.SetUtcNow(WriteTimestamp.AddMinutes(1));
+        if (explicitNull) body.Remove("taxReconciliationMode");
+        else body["taxReconciliationMode"] = null;
+        var retried = await Save();
+        Assert.Equal(edited.Id, retried.Id);
+        Assert.Equal(expectedHeaderCount, retried.HeaderEvidence.Count);
+        await AssertPreviewAndApplyAsync(retried);
+    }
+
     [Theory]
     [InlineData(false, null, false, false)]
     [InlineData(true, null, false, false)]
