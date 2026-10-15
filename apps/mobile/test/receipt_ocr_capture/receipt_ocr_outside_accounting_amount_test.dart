@@ -254,11 +254,12 @@ void main() {
               outsideHeading: outsideHeading,
             );
             expect(preview.total, '11.00');
-            if (outside != null)
+            if (outside != null) {
               expect(
                 preview.blocks.map((block) => block.text),
                 contains(outside),
               );
+            }
             if (outside == null || outside == 'Reference DR500') {
               expect(preview.tax, '1.00');
               expect(preview.adjustmentsComplete, isTrue);
