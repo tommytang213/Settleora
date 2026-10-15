@@ -188,6 +188,22 @@ test('iOS build procedure is reusable, manual, pinned, and simulator-only', () =
   assert.doesNotMatch(JSON.stringify(job), /continue-on-error|--no-fatal-warnings|\|\|\s*true/);
 });
 
+test('native OCR trigger covers the harness and each relative helper import', () => {
+  const native = workflow('mobile-ocr-native-acceptance.yml');
+  const entrypoint = 'apps/mobile/integration_test/receipt_ocr_real_provider_test.dart';
+  const helpers = [...read(entrypoint).matchAll(/^import '([^':]+)';$/gm)]
+    .map((match) => path.posix.join(path.posix.dirname(entrypoint), match[1]));
+  assert.ok(helpers.length > 0, 'the native harness has relative helper dependencies');
+  const selected = (file) => native.on.pull_request.paths.reduce((matches, pattern) => {
+    const excluded = pattern.startsWith('!');
+    return path.matchesGlob(file, excluded ? pattern.slice(1) : pattern) ? !excluded : matches;
+  }, false);
+  assert.ok(selected(entrypoint), 'the native harness itself triggers acceptance');
+  assert.equal(selected('docs/unrelated-notes.md'), false);
+  assert.deepEqual(helpers.filter((file) => !selected(file)), [],
+    'changes to native harness dependencies must trigger acceptance');
+});
+
 test('native OCR acceptance is exact-head, device-backed, and retains only bounded evidence', () => {
   const native = workflow('mobile-ocr-native-acceptance.yml');
   const boundedCapture = read('tools/ocr-models/bounded-process-capture.mjs');

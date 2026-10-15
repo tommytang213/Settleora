@@ -4144,6 +4144,9 @@ class ReceiptOcrParser {
               nearbyCurrencyBlocks.contains(block) ||
               _isCurrencyOnlyOcrBlockText(_normalizeOcrLine(block.text)) ||
               !_unicodeLetterPattern.hasMatch(block.text) ||
+              // A standalone credit/debit amount is not a product name just
+              // because its accounting marker contains letters.
+              _isAccountingMarkedNumber(_normalizeOcrLine(block.text)) ||
               amountCellPattern.hasMatch(_normalizeOcrLine(block.text))) {
             return false;
           }
@@ -4266,7 +4269,10 @@ class ReceiptOcrParser {
     }
     if (!outsideDateMetadata &&
         !outsideCalendarOnly &&
-        _hasUnexplainedFinancialLabelNumber(outsideEvidence)) {
+        _hasUnexplainedFinancialLabelNumber(
+          outsideEvidence,
+          includeAccountingMarkers: true,
+        )) {
       rejectedRows.add(rowIndex);
       return null;
     }
@@ -5513,7 +5519,10 @@ class ReceiptOcrParser {
                 taxTreatmentQualifier.hasMatch(text) ||
                 standaloneTaxQualifier.hasMatch(text) ||
                 _hasPotentialReceiptAdjustmentLabel(text) ||
-                _hasUnexplainedFinancialLabelNumber(text) ||
+                _hasUnexplainedFinancialLabelNumber(
+                  text,
+                  includeAccountingMarkers: true,
+                ) ||
                 _printedCurrencyMarkerMatches(text).isNotEmpty ||
                 _unsupportedIsoCurrencyMarkers(text).isNotEmpty ||
                 RegExp(r'\p{Sc}', unicode: true).hasMatch(text);
@@ -5895,6 +5904,7 @@ class ReceiptOcrParser {
           .join(' ');
       final unexplainedOutsideNumber = _hasUnexplainedFinancialLabelNumber(
         outsideEvidence,
+        includeAccountingMarkers: true,
       );
       if (RegExp(
         r'\b(?:incl(?:uded|uding|usive)?|excl(?:uded|uding|usive)?|exempt|waived|withheld|paid|refunded|reversed|credited)\b',
@@ -6142,7 +6152,10 @@ class ReceiptOcrParser {
         // number or denomination as part of a product name.
         if (extendedDescriptionBlocks.any(
           (block) =>
-              _hasUnexplainedFinancialLabelNumber(block.text) ||
+              _hasUnexplainedFinancialLabelNumber(
+                block.text,
+                includeAccountingMarkers: true,
+              ) ||
               _printedCurrencyMarkerMatches(block.text).isNotEmpty ||
               _unsupportedIsoCurrencyMarkers(block.text).isNotEmpty,
         )) {
@@ -6231,7 +6244,10 @@ class ReceiptOcrParser {
         }
         // The heading's width does not bound the printed monetary evidence.
         // An unexplained neighboring price still competes with this cell.
-        if (_hasUnexplainedFinancialLabelNumber(outsideEvidence)) {
+        if (_hasUnexplainedFinancialLabelNumber(
+          outsideEvidence,
+          includeAccountingMarkers: true,
+        )) {
           ambiguousAmountRows.add(rowIndex);
           continue;
         }
@@ -10808,7 +10824,10 @@ String _financialProjectionLabelText(String label) =>
 
 // A financial label may contain a marked percentage, reference or duration,
 // but an unexplained numeric token must not disappear during role projection.
-bool _hasUnexplainedFinancialLabelNumber(String label) {
+bool _hasUnexplainedFinancialLabelNumber(
+  String label, {
+  bool includeAccountingMarkers = false,
+}) {
   final withoutRates = _normalizeOcrLine(label).replaceAll(
     RegExp(r'(?<![\p{L}\p{N}])\d+(?:[.,]\d+)?\s*%', unicode: true),
     '',
@@ -10857,8 +10876,36 @@ bool _hasUnexplainedFinancialLabelNumber(String label) {
   return RegExp(r'[^\s()]+').allMatches(withoutDurations).any((token) {
     final text = token.group(0)!;
     return RegExp(r'\p{N}', unicode: true).hasMatch(text) &&
-        !_unicodeLetterPattern.hasMatch(text);
+        (!_unicodeLetterPattern.hasMatch(text) ||
+            (includeAccountingMarkers && _isAccountingMarkedNumber(text)));
   });
+}
+
+// An unowned credit/debit amount is competing evidence, even when OCR joins
+// its marker to digits or a sign. This detects evidence only: never assign a
+// sign or publish the numeric remainder. Product words and identifier letters
+// must not disappear with the marker (for example DR500 Coffee or ABC500CR).
+bool _isAccountingMarkedNumber(String text) {
+  final withoutMarker = text
+      .replaceFirstMapped(
+        RegExp(
+          r'^([^\p{L}\p{N}_]*)(?:CREDIT|DEBIT|CR|DR)',
+          caseSensitive: false,
+          unicode: true,
+        ),
+        (match) => match[1]!,
+      )
+      .replaceFirstMapped(
+        RegExp(
+          r'(?:CREDIT|DEBIT|CR|DR)([^\p{L}\p{N}_]*)$',
+          caseSensitive: false,
+          unicode: true,
+        ),
+        (match) => match[1]!,
+      );
+  return withoutMarker != text &&
+      RegExp(r'\p{N}', unicode: true).hasMatch(withoutMarker) &&
+      !_unicodeLetterPattern.hasMatch(withoutMarker);
 }
 
 // Project only terminal label punctuation. Original text and blocks stay intact.
