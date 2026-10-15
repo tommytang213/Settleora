@@ -27,6 +27,20 @@ test("read-only observer config loading creates and chmods no project state", ()
     rmSync(tempRoot, { recursive: true, force: true });
   }
 });
+
+test("development config prepares an owner-only log root for scoped CLI launches", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-development-logs-"));
+  try {
+    const logsRoot = path.join(tempRoot, "logs");
+    mkdirSync(logsRoot, { mode: 0o755 });
+    chmodSync(logsRoot, 0o755);
+    const configPath = path.join(tempRoot, "runner.json");
+    writeFileSync(configPath, `${JSON.stringify({ logsRoot })}\n`);
+    const loaded = loadConfig({ dryRun: true, run: false, configPath });
+    assert.equal(loaded.logsRoot, logsRoot);
+    assert.equal(statSync(logsRoot).mode & 0o777, 0o700);
+  } finally { rmSync(tempRoot, { recursive: true, force: true }); }
+});
 import {
   evaluateCanaryIssuePolicy,
   evaluateLowRiskAutoMergeCanaryApproval,
@@ -35,7 +49,7 @@ import {
   evaluateTrustPolicy,
   writeCanaryEvidence,
 } from "../lib/canary-policy.mjs";
-import { parseReviewVerdict, runReviewPrompt } from "../lib/codex-runner.mjs";
+import { parseReviewVerdict, resolveCodexCommand, runReviewPrompt } from "../lib/codex-runner.mjs";
 import { sanitizePersistedEvidence } from "../lib/evidence-sanitizer.mjs";
 import { canonicalGithubEvidenceDigest } from "../lib/github-effect-consumer.mjs";
 import {
@@ -1501,7 +1515,7 @@ test("readiness preflight succeeds with safe defaults and reports manual gates",
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-readiness-safe-"));
   try {
     const runner = createReadinessRunner();
-    const result = runPreflight(readinessConfig(tempRoot), { runner });
+    const result = runPreflight(readinessConfig(tempRoot), { runner, codexResolver: offlineCodexResolver });
     assert.equal(result.summary.fail, 0);
     assert.ok(result.summary.pass > 0);
     assert.ok(result.readinessReports.jsonPath.endsWith(".json"));
@@ -1518,7 +1532,7 @@ test("readiness preflight uses durable foundation completion and ignores later t
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-readiness-foundation-"));
   try {
     const runner = createReadinessRunner({ issueStates: { 800: "CLOSED", 805: "CLOSED", 910: "CLOSED" } });
-    const result = runPreflight(readinessConfig(tempRoot), { runner });
+    const result = runPreflight(readinessConfig(tempRoot), { runner, codexResolver: offlineCodexResolver });
     assert.equal(result.summary.fail, 0);
     assert.equal(result.checks.find((check) => check.name === "issue-800-state").status, "pass");
     assert.equal(result.checks.find((check) => check.name === "issue-910-state"), undefined);
@@ -1532,7 +1546,7 @@ test("readiness preflight binds every GitHub read to a non-Settleora repository"
   try {
     const repositorySlug = "example/AppB";
     const runner = createReadinessRunner({ repositorySlug });
-    const result = runPreflight({ ...readinessConfig(tempRoot), repositorySlug }, { runner });
+    const result = runPreflight({ ...readinessConfig(tempRoot), repositorySlug }, { runner, codexResolver: offlineCodexResolver });
     assert.equal(result.repo, repositorySlug);
     assert.equal(result.summary.fail, 0);
     assert.equal(result.checks.some((check) => check.name === "issue-800-state" || check.name === "issue-805-state"), false);
@@ -3546,9 +3560,9 @@ test("client-ui-low-risk validation profile uses bounded Flutter mobile UI check
     "git status --short",
     "git diff --name-only",
     "git diff --check",
-    "bash -lc cd apps/mobile && /opt/flutter/bin/flutter pub get",
-    "bash -lc cd apps/mobile && /opt/flutter/bin/flutter analyze",
-    "bash -lc cd apps/mobile && /opt/flutter/bin/flutter test test/ui/settleora_component_guardrail_test.dart",
+    "bash -c cd apps/mobile && flutter pub get",
+    "bash -c cd apps/mobile && flutter analyze",
+    "bash -c cd apps/mobile && flutter test test/ui/settleora_component_guardrail_test.dart",
   ]);
 });
 
@@ -3772,23 +3786,23 @@ test("mobile-build-config validation profile is exact and lane-scoped", () => {
     ["git", ["status", "--short"]],
     ["git", ["diff", "--name-only"]],
     ["git", ["diff", "--check"]],
-    ["bash", ["-lc", "PATH=/opt/flutter/bin:$PATH npm run doctor:mobile"]],
-    ["bash", ["-lc", "cd apps/mobile && /opt/flutter/bin/flutter pub get"]],
-    ["bash", ["-lc", "cd apps/mobile && /opt/flutter/bin/flutter analyze"]],
-    ["bash", ["-lc", "cd apps/mobile && /opt/flutter/bin/flutter test"]],
+    ["npm", ["run", "doctor:mobile"]],
+    ["bash", ["-c", "cd apps/mobile && flutter pub get"]],
+    ["bash", ["-c", "cd apps/mobile && flutter analyze"]],
+    ["bash", ["-c", "cd apps/mobile && flutter test"]],
   ]);
   assert.deepEqual(planValidation(["apps/mobile/pubspec.yaml"], { ...lane, validationProfile: null }).map((item) => item.display), [
     "git status --short",
     "git diff --name-only",
     "git diff --check",
-    "bash -lc PATH=/opt/flutter/bin:$PATH npm run doctor:mobile",
-    "bash -lc cd apps/mobile && /opt/flutter/bin/flutter pub get",
-    "bash -lc cd apps/mobile && /opt/flutter/bin/flutter analyze",
-    "bash -lc cd apps/mobile && /opt/flutter/bin/flutter test",
-    "bash -lc cd apps/mobile && /opt/flutter/bin/flutter build apk --debug",
+    "npm run doctor:mobile",
+    "bash -c cd apps/mobile && flutter pub get",
+    "bash -c cd apps/mobile && flutter analyze",
+    "bash -c cd apps/mobile && flutter test",
+    "bash -c cd apps/mobile && flutter build apk --debug",
     "bash -lc cd apps/mobile/android && ./gradlew :app:dependencies --configuration debugRuntimeClasspath",
     "bash -lc cd apps/mobile/android && ./gradlew :app:assembleDebug",
-    "bash -lc cd apps/mobile && /opt/flutter/bin/flutter build web",
+    "bash -c cd apps/mobile && flutter build web",
   ]);
   assert.deepEqual(inferMobileBuildPlatformRequirements(["apps/mobile/pubspec.yaml"], lane).externalCheckIds, [
     mobileBuildPlatformChecks.iosExternalBuild,
@@ -7190,6 +7204,7 @@ test("review prompt fails closed for conflicting verdicts across stdout and stde
         reviewerCommand: reviewer,
       },
       { packagePath: path.join(tempRoot, "package.json"), summary: { issue: { number: 805 } } },
+      fakeReviewerInvocation(reviewer),
     );
 
     assert.equal(result.verdict.verdict, "unable_to_review");
@@ -7226,6 +7241,7 @@ test("review prompt accepts one identical verdict duplicated into the diagnostic
         reviewerCommand: reviewer,
       },
       { packagePath: path.join(tempRoot, "package.json"), summary: { issue: { number: 805 } } },
+      fakeReviewerInvocation(reviewer),
     );
 
     assert.equal(result.verdict.verdict, "approve");
@@ -7257,6 +7273,7 @@ test("review prompt rejects cross-stream verdicts that differ beyond persisted f
         reviewerCommand: reviewer,
       },
       { packagePath: path.join(tempRoot, "package.json"), summary: { issue: { number: 805 } } },
+      fakeReviewerInvocation(reviewer),
     );
 
     assert.equal(result.verdict.verdict, "unable_to_review");
@@ -7283,6 +7300,7 @@ test("review prompt still fails closed for multiple verdicts inside selected std
         reviewerCommand: reviewer,
       },
       { packagePath: path.join(tempRoot, "package.json"), summary: { issue: { number: 805 } } },
+      fakeReviewerInvocation(reviewer),
     );
 
     assert.equal(result.verdict.verdict, "unable_to_review");
@@ -7310,6 +7328,7 @@ test("review prompt falls back to stderr only when stdout is empty and stderr ha
         reviewerCommand: reviewer,
       },
       { packagePath: path.join(tempRoot, "package.json"), summary: { issue: { number: 805 } } },
+      fakeReviewerInvocation(reviewer),
     );
 
     assert.equal(result.verdict.verdict, "approve");
@@ -7346,8 +7365,8 @@ test("Codex prompt attestation requires the reviewer-returned base to match the 
     mkdirSync(path.join(logsRoot, "reviews"), { recursive: true });
     const reviewer = writeFakeReviewer(tempRoot, [`printf '%s\\n' ${shellArg(reviewVerdictJson())}`]);
     const common = { dryRun: false, logsRoot, repoRoot: process.cwd(), reviewerCommand: reviewer };
-    const matching = runReviewPrompt(common, { summary: { repository: "tommytang213/Settleora", baseSha: "e".repeat(40) } });
-    const mismatched = runReviewPrompt(common, { summary: { repository: "tommytang213/Settleora", baseSha: "d".repeat(40) } });
+    const matching = runReviewPrompt(common, { summary: { repository: "tommytang213/Settleora", baseSha: "e".repeat(40) } }, fakeReviewerInvocation(reviewer));
+    const mismatched = runReviewPrompt(common, { summary: { repository: "tommytang213/Settleora", baseSha: "d".repeat(40) } }, fakeReviewerInvocation(reviewer));
 
     assert.equal(matching.attestationSource, "provider_prompt_binding");
     assert.equal(matching.attestedCandidateIdentity.baseSha, "e".repeat(40));
@@ -7376,6 +7395,7 @@ test("review prompt rejects conflicting stdout and stderr verdicts without fallb
         reviewerCommand: reviewer,
       },
       { packagePath: path.join(tempRoot, "package.json"), summary: { issue: { number: 805 }, currentHead: "head1", changedFiles: ["a.md"] } },
+      fakeReviewerInvocation(reviewer),
     );
 
     assert.equal(result.verdict.verdict, "unable_to_review");
@@ -7408,6 +7428,7 @@ test("review prompt retries missing selected response once and records attempts"
         codexMechanicsReviewRetry: { maxAttempts: 2 },
       },
       { packagePath: path.join(tempRoot, "package.json"), summary: { issue: { number: 805 }, currentHead: "head1", changedFiles: ["a.md"] } },
+      fakeReviewerInvocation(reviewer),
     );
 
     assert.equal(result.verdict.verdict, "approve");
@@ -7437,6 +7458,7 @@ test("review prompt does not retry substantive changes_requested verdict", () =>
         codexMechanicsReviewRetry: { maxAttempts: 2 },
       },
       { packagePath: path.join(tempRoot, "package.json"), summary: { issue: { number: 805 }, currentHead: "head1", changedFiles: ["a.md"] } },
+      fakeReviewerInvocation(reviewer),
     );
 
     assert.equal(result.verdict.verdict, "changes_requested");
@@ -7465,6 +7487,7 @@ test("review prompt does not retry substantive non-approve verdict with nonzero 
         codexMechanicsReviewRetry: { maxAttempts: 2 },
       },
       { packagePath: path.join(tempRoot, "package.json"), summary: { issue: { number: 805 }, currentHead: "head1", changedFiles: ["a.md"] } },
+      fakeReviewerInvocation(reviewer),
     );
 
     assert.equal(result.verdict.verdict, "changes_requested");
@@ -8278,6 +8301,16 @@ function writeFakeReviewer(root, bodyLines) {
   return filePath;
 }
 
+function fakeReviewerInvocation(script) {
+  return (_config, options) => spawnSync(script, [], {
+    input: options.prompt,
+    encoding: "utf8",
+    stdio: ["pipe", options.stdoutFd, options.stderrFd],
+  });
+}
+
+const offlineCodexResolver = (requested) => resolveCodexCommand(requested, () => {});
+
 function readinessConfig(logsRoot) {
   mkdirSync(logsRoot, { recursive: true });
   return {
@@ -8285,7 +8318,7 @@ function readinessConfig(logsRoot) {
     repoRoot: process.cwd(),
     repositorySlug: "tommytang213/Settleora",
     logsRoot,
-    codexCommand: "codex-vm-full",
+    codexCommand: "codex",
     trustedRealRunApproved: false,
     trustedRealRunCanaryApproved: false,
     lowRiskAutoMergeCanaryApproved: false,

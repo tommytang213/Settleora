@@ -881,7 +881,11 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   if (lifecycleInvocation) issue.sessionLifecycle = lifecycleInvocation.state;
   iteration.phase = "implementation";
   checkpoint(iteration);
-  const codexResult = runCodexPrompt(config, { ...promptInfo, branchName }, "implementation");
+  const codexResult = runCodexPrompt(config, {
+    ...promptInfo, branchName, expectedHeadSha: getRefSha("HEAD"),
+    modelMode: ["high", "sensitive"].includes(laneDecision.implementationSensitivity)
+      ? "critical" : "routine",
+  }, "implementation");
   if (codexResult.sessionLifecycle?.state && promptInfo.sessionLifecycle) {
     promptInfo.sessionLifecycle = { ...promptInfo.sessionLifecycle, state: codexResult.sessionLifecycle.state };
     iteration.sessionLifecycle = codexResult.sessionLifecycle.state;
@@ -5004,6 +5008,9 @@ async function runReviewFixCycle(config, context) {
     {
       ...context.promptInfo,
       branchName: context.branchName,
+      expectedHeadSha: getRefSha("HEAD"),
+      modelMode: ["high", "sensitive"].includes(context.laneDecision.implementationSensitivity)
+        ? "critical" : "routine",
       prompt,
       promptPath,
       ...(reviewFixLifecycle ? { sessionLifecycle: reviewFixLifecycle } : {}),

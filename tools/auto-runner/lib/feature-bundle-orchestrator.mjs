@@ -205,8 +205,10 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     const codex = runCodexPrompt(config, {
       ...promptInfo,
       branchName: bundleBranchName,
+      expectedHeadSha: config.dryRun ? null : getRefSha("HEAD"),
+      modelMode: ["high", "sensitive"].includes(planned.laneDecision.implementationSensitivity) ? "critical" : "routine",
       ...(sessionLifecycle ? { sessionLifecycle: bundleLifecycleInvocation(sessionLifecycle, `bundle-${slice.sequence}-${slice.id}`) } : {}),
-    }, `bundle-${slice.sequence}-${slice.id}`);
+    }, "implementation");
     checkpoint("feature_bundle_slice_implementation_complete");
     if (codex.sessionLifecycle?.state) {
       sessionLifecycle = codex.sessionLifecycle.state;
@@ -985,10 +987,12 @@ async function runBundleReviewFixCycle(config, context) {
   }
   const codex = runCodexPrompt(config, {
     branchName: context.branchName,
+    expectedHeadSha: config.dryRun ? null : getRefSha("HEAD"),
+    modelMode: ["high", "sensitive"].includes(context.laneDecision.implementationSensitivity) ? "critical" : "routine",
     prompt,
     promptPath,
     ...(lifecycleState ? { sessionLifecycle: bundleLifecycleInvocation(lifecycleState, "bundle-review-fix") } : {}),
-  }, "bundle-review-fix");
+  }, "review-fix");
   if (codex.sessionLifecycle?.state) context.sessionLifecycle = codex.sessionLifecycle.state;
   if (!codex.skipped && (codex.error || codex.status !== 0)) {
     return { attempted: true, proceeded: false, reason: "review_fix_codex_failed", decision, promptPath, codex };
@@ -1319,6 +1323,8 @@ Task timestamp key: ${timestampKey}
 - Parent lane: \`${laneDecision.lane}\`
 - Parent allowed paths: ${laneDecision.allowedPaths.join(", ")}
 - Expected local report path: \`${reportPath}\`
+
+Return the complete slice report as your final Markdown answer. The runner saves it to the protected report path; do not write that file directly.
 
 ## Prior Checkpoints
 

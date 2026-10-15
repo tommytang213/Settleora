@@ -127,7 +127,7 @@ if (quiescence.unresolvedExternalEffects || quiescence.active) {
   process.stderr.write(`${JSON.stringify({ deploymentQuiescence: quiescence })}\n`);
 }
 if (values.has("--rollback")) {
-  deploymentLock = acquireRuntimeDeploymentLock(destination);
+  deploymentLock = acquireRuntimeDeploymentLock(destination, logsRoot);
   const lockedQuiescence = inspectCurrentQuiescence();
   const lockedRuntimeConsumers = inspectRuntimeConsumers(destination);
   if (JSON.stringify(lockedQuiescence) !== JSON.stringify(quiescence)) throw new Error("runtime rollback quiescence proof changed after lock acquisition");
@@ -162,7 +162,7 @@ if (initialProjectAuthority?.runtimeInstallation === "bootstrap_absent") {
     throw new Error("trusted runtime bootstrap target does not equal authenticated config bundle digest");
   }
 }
-if (!values.has("--dry-run")) deploymentLock = acquireRuntimeDeploymentLock(destination);
+if (!values.has("--dry-run")) deploymentLock = acquireRuntimeDeploymentLock(destination, logsRoot);
 if (!values.has("--dry-run")) {
   const lockedQuiescence = inspectCurrentQuiescence();
   const lockedProofChanged = JSON.stringify(lockedQuiescence) !== JSON.stringify(quiescence);

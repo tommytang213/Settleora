@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { test } from "node:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, chmodSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -382,23 +382,24 @@ test("Grok coverage survives a multibyte read marker split between stdout chunks
   assert.equal(result.coveredLines, 2);
 });
 
-test("local Codex process runs off the main event loop alongside an external review", async () => {
-  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-parallel-review-test-"));
-  try {
-    mkdirSync(path.join(root, "reviews"));
-    const command = path.join(root, "slow-review");
-    writeFileSync(command, "#!/bin/sh\nsleep 0.2\n"); chmodSync(command, 0o700);
-    let codexDone = false;
-    const codex = runCodexReviewInWorker({ dryRun: false, logsRoot: root, repoRoot: root,
-      reviewerCommand: command, codexMechanicsReviewRetry: { maxAttempts: 1 },
-      operationalIterationCheckpoint: () => { throw Error("controller only"); } },
-    { summary: { changedFiles: ["example.txt"], baseSha: "a".repeat(40), currentHead: "b".repeat(40) }, diff: "synthetic" });
-    codex.then(() => { codexDone = true; });
-    const external = new Promise((resolve) => setTimeout(() => resolve({ codexDoneAtExternalCompletion: codexDone }), 20));
-    const [codexResult, externalResult] = await Promise.all([codex, external]);
-    assert.equal(externalResult.codexDoneAtExternalCompletion, false);
-    assert.equal(codexResult.reviewedHead, "b".repeat(40));
-  } finally { rmSync(root, { recursive: true, force: true }); }
+test("local Codex worker remains asynchronous alongside an external review", async () => {
+  class DeferredWorker extends EventEmitter {
+    constructor(_url, options) {
+      super();
+      assert.equal(options.workerData.config.operationalIterationCheckpoint, undefined);
+      setTimeout(() => this.emit("message", { ok: true, result: { reviewedHead: options.workerData.packageInfo.summary.currentHead } }), 200);
+    }
+    postMessage() {}
+    terminate() { return Promise.resolve(0); }
+  }
+  let codexDone = false;
+  const codex = runCodexReviewInWorker({ operationalIterationCheckpoint: () => { throw Error("controller only"); } },
+    { summary: { currentHead: "b".repeat(40) } }, { WorkerImpl: DeferredWorker });
+  codex.then(() => { codexDone = true; });
+  const external = new Promise((resolve) => setTimeout(() => resolve({ codexDoneAtExternalCompletion: codexDone }), 20));
+  const [codexResult, externalResult] = await Promise.all([codex, external]);
+  assert.equal(externalResult.codexDoneAtExternalCompletion, false);
+  assert.equal(codexResult.reviewedHead, "b".repeat(40));
 });
 
 test("parallel Codex timeout waits for worker termination before returning", async () => {

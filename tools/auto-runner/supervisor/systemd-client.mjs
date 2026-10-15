@@ -30,7 +30,10 @@ export function buildSystemdStartPlan(runId, {
   const unitName = unitNameForRunId(runId, safeProjectId);
   const unitTemplate = renderUnitTemplate(
     readFileSync(absoluteRuntimeEntry(safeRuntimeRoot, "systemd/settleora-auto-runner@.service"), "utf8"),
-    { projectId: safeProjectId, runtimeRoot: safeRuntimeRoot, repoRoot: safeRepoRoot, logsRoot: safeLogsRoot, launcher, nodeExecutable },
+    {
+      projectId: safeProjectId, runtimeRoot: safeRuntimeRoot, repoRoot: safeRepoRoot,
+      logsRoot: safeLogsRoot, launcher, nodeExecutable, homeDirectory,
+    },
   );
   return {
     unitName,
@@ -38,6 +41,10 @@ export function buildSystemdStartPlan(runId, {
       "/usr/bin/env", "-i", `HOME=${homeDirectory}`, `USER=${userName}`, `LOGNAME=${userName}`,
       "PATH=/usr/local/bin:/usr/bin:/bin", "LANG=C.UTF-8", "LC_ALL=C.UTF-8", "TMPDIR=/tmp",
       `XDG_RUNTIME_DIR=${runtimeDirectory}`, `DBUS_SESSION_BUS_ADDRESS=unix:path=${runtimeDirectory}/bus`,
+      `PUB_CACHE=${safeLogsRoot}/caches/pub`, `GRADLE_USER_HOME=${safeLogsRoot}/caches/gradle`,
+      `NUGET_PACKAGES=${safeLogsRoot}/caches/nuget`, `npm_config_cache=${safeLogsRoot}/caches/npm`,
+      `DOTNET_CLI_HOME=${safeLogsRoot}/caches/dotnet`,
+      `XDG_CACHE_HOME=${safeLogsRoot}/caches/xdg`,
       nodeExecutable, launcher, "--runtime-root", safeRuntimeRoot, "--entry", "supervisor/settleora-auto-runner-worker.mjs", "--",
       runId, "--logs-root", safeLogsRoot,
     ],
@@ -67,6 +74,7 @@ function renderUnitTemplate(template, values) {
     RUNTIME_ROOT: values.runtimeRoot,
     REPO_ROOT: values.repoRoot,
     LOGS_ROOT: values.logsRoot,
+    HOME_DIRECTORY: values.homeDirectory,
     LAUNCHER: values.launcher,
     NODE_EXECUTABLE: values.nodeExecutable,
   };

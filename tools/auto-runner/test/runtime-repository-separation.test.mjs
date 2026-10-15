@@ -5,11 +5,11 @@ import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, re
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { acquireRuntimeDeploymentLock, buildRuntimeManifest, deployRuntimeBundle, inspectDeploymentQuiescence, inspectRuntimeConsumers, releaseRuntimeDeploymentLock, rollbackRuntimeBundle, runtimeBundleFileList, verifyRuntimeBundle, verifyRuntimeSourceAgainstCommit } from "../lib/runtime-bundle.mjs";
+import { acquireRuntimeConsumer, acquireRuntimeDeploymentLock, buildRuntimeManifest, deployRuntimeBundle, inspectDeploymentQuiescence, inspectRuntimeConsumers, releaseRuntimeConsumer, releaseRuntimeDeploymentLock, rollbackRuntimeBundle, runtimeBundleFileList, verifyRuntimeBundle, verifyRuntimeSourceAgainstCommit } from "../lib/runtime-bundle.mjs";
 import { absoluteRuntimeEntry, assertRepositoryRemoteIdentity, assertSeparatedRoots, hasVerifiedExternalRuntimeEvidence, matchAuthorizedSupervisorProcess, pathEntryExists, repositoryAuthorityLockPath, validateProjectRuntimeIdentity } from "../lib/runtime-identity.mjs";
 import { fetchOriginMain } from "../lib/git-workspace.mjs";
 import { assertDeploymentBootstrapArtifactsAbsent, assertDeploymentBootstrapTransientStateAbsent, assertDeploymentProjectTopology, authenticateDeploymentArtifact, ensureOperationalDirectory, validateExternalProfilePath, verifyProjectNamespaceMarker } from "../lib/config.mjs";
-import { assertNodeCompatibility, reclaimStaleOwnMarker } from "../runtime-launcher.mjs";
+import { assertNodeCompatibility, launcherConsumerDirectory, reclaimStaleOwnMarker } from "../runtime-launcher.mjs";
 
 const sourceRoot = realpathSync(path.resolve("tools/auto-runner"));
 const sourceSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: path.resolve("."), encoding: "utf8" }).trim();
@@ -146,6 +146,21 @@ test("runtime launcher reclaims only a trusted stale marker for its reused PID",
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("detached worker launcher places its startup marker in owner-controlled logs", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-worker-launcher-marker-"));
+  try {
+    const runtime = path.join(root, "runtime"), logs = path.join(root, "logs");
+    mkdirSync(logs, { mode: 0o700 });
+    assert.equal(launcherConsumerDirectory(runtime, "supervisor/settleora-auto-runner-worker.mjs",
+      ["run-1", "--logs-root", logs]),
+    path.join(logs, "runtime-consumers", ".runtime.consumers"));
+    assert.equal(launcherConsumerDirectory(runtime, "settleora-auto-runnerctl.mjs", []),
+      path.join(root, ".runtime.consumers"));
+    assert.throws(() => launcherConsumerDirectory(runtime, "supervisor/settleora-auto-runner-worker.mjs",
+      ["run-1"]), /canonical --logs-root/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("runtime Node compatibility accepts only strict stable versions in the approved bounded range", () => {
@@ -821,6 +836,10 @@ test("operational logs children refuse symlink escapes and unsafe permissions", 
     const logsRoot = path.join(root, "Settleora");
     const outside = path.join(root, "outside");
     mkdirSync(logsRoot, { mode: 0o700 });
+    chmodSync(logsRoot, 0o755);
+    assert.throws(() => ensureOperationalDirectory(logsRoot, logsRoot), /unsafe/);
+    chmodSync(logsRoot, 0o700);
+    assert.equal(ensureOperationalDirectory(logsRoot, logsRoot), logsRoot);
     mkdirSync(outside, { mode: 0o700 });
     const state = path.join(logsRoot, "state");
     symlinkSync(outside, state);
@@ -892,6 +911,12 @@ test("deployment dry-run is inert and active/pending/old-digest guards refuse", 
     assert.equal(existsSync(staleMarker), false);
     assert.equal(statSync(consumers).mode & 0o777, 0o700);
     releaseRuntimeDeploymentLock(deploymentLock);
+    const logConsumer = acquireRuntimeConsumer(destination, logs);
+    assert.equal(logConsumer.marker.startsWith(path.join(logs, "runtime-consumers")), true);
+    assert.throws(() => acquireRuntimeDeploymentLock(destination, logs), /runtime consumers are registered/);
+    releaseRuntimeConsumer(logConsumer);
+    const logGuard = acquireRuntimeDeploymentLock(destination, logs);
+    releaseRuntimeDeploymentLock(logGuard);
     assert.equal(deployRuntimeBundle({ sourceRoot, destination, repoRoot: repo, logsRoot: logs, sourceSha, dryRun: true }).dryRun, true);
     assert.throws(() => deployRuntimeBundle({ sourceRoot, destination, repoRoot: repo, logsRoot: logs, sourceSha, active: true }), /active/);
     assert.throws(() => deployRuntimeBundle({ sourceRoot, destination, repoRoot: repo, logsRoot: logs, sourceSha, pendingEffects: true }), /unresolved/);

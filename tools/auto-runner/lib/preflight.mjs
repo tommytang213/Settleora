@@ -48,7 +48,7 @@ export function runPreflight(config, options = {}) {
     checks.push(checkIssueState(config, runner, 805, "CLOSED"));
   }
   checks.push(checkIssuePolling(config, runner));
-  checks.push(checkCodexResolution(config));
+  checks.push(checkCodexResolution(config, options.codexResolver || resolveCodexCommand));
   checks.push(checkNodeVersion());
   checks.push(checkLogsRoot(config));
   checks.push(checkLogWriteSanity(config));
@@ -279,16 +279,18 @@ function checkIssuePolling(config, runner) {
   };
 }
 
-function checkCodexResolution(config) {
+function checkCodexResolution(config, resolver) {
   try {
-    const resolution = resolveCodexCommand(config.codexCommand);
+    const implementation = resolver(config.codexCommand);
+    const review = resolver(config.reviewerCommand);
+    const reviewerTier = resolver(config.reviewerTiers?.codex_mechanics?.command ?? "codex");
     return {
       name: "codex-resolution",
       status: "pass",
-      detail: bounded(JSON.stringify({ command: resolution.command, source: resolution.source })),
+      detail: bounded(JSON.stringify({ implementation, review, reviewerTier })),
     };
   } catch (error) {
-    return { name: "codex-resolution", status: "warn", detail: bounded(error.message) };
+    return { name: "codex-resolution", status: "fail", detail: bounded(error.message) };
   }
 }
 

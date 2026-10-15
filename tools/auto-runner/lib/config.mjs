@@ -165,8 +165,8 @@ export const defaultConfig = Object.freeze({
   allowSystemdEnablement: false,
   maxFollowupIssuesPerRun: 3,
   maxReviewFixCycles: 0,
-  reviewerCommand: "codex-vm-full",
-  codexCommand: "codex-vm-full",
+  reviewerCommand: "codex",
+  codexCommand: "codex",
   reviewerTiers: defaultReviewerTiers,
   reviewerBudget: defaultReviewerBudget,
   reviewerProviderProfiles: {
@@ -580,6 +580,10 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
   }
 
   if (!readOnlyObserver) {
+    if (config.runtimeMode !== "external") {
+      mkdirSync(config.logsRoot, { recursive: true, mode: 0o700 });
+      chmodSync(config.logsRoot, 0o700);
+    }
     for (const dir of [
       config.logsRoot,
       path.join(config.logsRoot, "state"),
@@ -597,7 +601,7 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
       path.join(config.logsRoot, "pr-stacks"),
     ]) {
       if (config.runtimeMode === "external") ensureOperationalDirectory(dir, config.logsRoot);
-      else mkdirSync(dir, { recursive: true });
+      else mkdirSync(dir, { recursive: true, mode: 0o700 });
     }
     const lifecycleRoot = path.join(config.logsRoot, "session-lifecycle");
     if (existsSync(lifecycleRoot)) {
@@ -878,7 +882,8 @@ export function ensureOperationalDirectory(directory, logsRoot) {
   const relative = real ? path.relative(logsRoot, real) : "..";
   if (!real || relative.startsWith("..") || path.isAbsolute(relative)
       || (typeof process.getuid === "function" && info.uid !== process.getuid())
-      || (info.mode & 0o022) !== 0) {
+      || (info.mode & 0o022) !== 0
+      || (directory === logsRoot && (info.mode & 0o077) !== 0)) {
     throw new Error(`Operational logs directory is unsafe: ${path.basename(directory)}`);
   }
   return real;
@@ -1265,6 +1270,22 @@ function readExternalProfileConfig(configPath, trustHooks = null) {
   } finally {
     closeSync(fd);
   }
+}
+
+// Provisioning precedes mobile validation and may precede runtime installation.
+// Resolve its destination only through the same owner-controlled external
+// profile directory used by trusted deployment, without starting a runner.
+export function loadPrivateFlutterProvisioningLogsRoot(configPath) {
+  const { config } = readExternalProfileConfig(configPath);
+  if (config.runtimeMode !== "external" || typeof config.projectId !== "string"
+      || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$/.test(config.projectId)
+      || typeof config.logsRoot !== "string" || !path.isAbsolute(config.logsRoot)
+      || path.resolve(config.logsRoot) !== config.logsRoot
+      || path.dirname(config.logsRoot) !== "/workspace/logs/auto-runner"
+      || path.basename(config.logsRoot) !== config.projectId) {
+    throw new Error("private Flutter provisioning requires a project-bound external profile");
+  }
+  return config.logsRoot;
 }
 
 export function validateExternalProfilePath(configPath, fixedRoot = externalProfileRoot) {

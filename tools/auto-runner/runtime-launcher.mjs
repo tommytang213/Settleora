@@ -92,6 +92,20 @@ export function assertNodeCompatibility(range, version = process.versions.node) 
   return Object.freeze({ range, version: versionMatch[0], minimum, maximum });
 }
 
+export function launcherConsumerDirectory(runtimeRoot, entry, entryArgs) {
+  if (entry !== "supervisor/settleora-auto-runner-worker.mjs") {
+    return path.join(path.dirname(runtimeRoot), `.${path.basename(runtimeRoot)}.consumers`);
+  }
+  const index = entryArgs.indexOf("--logs-root");
+  const logsRoot = index >= 0 ? entryArgs[index + 1] : null;
+  if (typeof logsRoot !== "string" || !path.isAbsolute(logsRoot)
+      || path.resolve(logsRoot) !== logsRoot) {
+    throw new Error("runtime worker requires canonical --logs-root before startup");
+  }
+  assertOwnerControlledDirectory(logsRoot, "runtime logs root");
+  return path.join(logsRoot, "runtime-consumers", `.${path.basename(runtimeRoot)}.consumers`);
+}
+
 function verifyApprovedRuntime(runtimeRoot, launcherPath) {
   const parent = path.dirname(runtimeRoot);
   if (path.basename(runtimeRoot) !== "runtime") throw new Error("runtime bundle basename is invalid");
@@ -156,7 +170,7 @@ export async function main(argv = process.argv.slice(2)) {
   const parent = path.dirname(runtimeRoot);
   assertOwnerControlledDirectory(parent, "runtime deployment parent");
   const deploymentLock = path.join(parent, `.${path.basename(runtimeRoot)}.deployment.lock`);
-  const consumers = path.join(parent, `.${path.basename(runtimeRoot)}.consumers`);
+  const consumers = launcherConsumerDirectory(runtimeRoot, entry, argv.slice(5));
   mkdirSync(consumers, { recursive: true, mode: 0o700 });
   assertOwnerControlledDirectory(consumers, "runtime consumer directory");
   if (lockExists(deploymentLock)) throw new Error("runtime startup refused during deployment");

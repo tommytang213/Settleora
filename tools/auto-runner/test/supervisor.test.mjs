@@ -243,6 +243,18 @@ test("systemd and runner argv stay lane-neutral and shell-free", () => {
   assert.match(appBPlan.unitTemplate, /Description=AppB detached auto-runner/);
   assert.equal(appBPlan.unitTemplate.includes(`WorkingDirectory=${process.cwd()}/tools/auto-runner`), true);
   assert.match(appBPlan.unitTemplate, /--logs-root \/workspace\/logs\/auto-runner\/AppB/);
+  assert.match(appBPlan.unitTemplate, /ReadWritePaths=\/workspace\/repos\/AppB \/workspace\/logs\/auto-runner\/AppB /);
+  assert.doesNotMatch(appBPlan.unitTemplate, /\/opt\/flutter\/bin\/cache|\.runtime\.consumers/);
+  for (const cache of ["PUB_CACHE=caches/pub", "GRADLE_USER_HOME=caches/gradle", "NUGET_PACKAGES=caches/nuget",
+    "npm_config_cache=caches/npm", "DOTNET_CLI_HOME=caches/dotnet", "XDG_CACHE_HOME=caches/xdg"]) {
+    const [name, suffix] = cache.split("=");
+    assert.ok(appBPlan.expectedExecArgv.includes(`${name}=/workspace/logs/auto-runner/AppB/${suffix}`));
+  }
+  assert.equal(appBPlan.unitTemplate.includes(`-${process.cwd()}/tools/.auto-runner.consumers`), false);
+  assert.match(appBPlan.unitTemplate, /ReadOnlyPaths=.*\/tools\/auto-runner/);
+  for (const directive of ["NoNewPrivileges=yes", "PrivateTmp=yes", "PrivateUsers=yes", "ProtectSystem=strict", "ProtectHome=read-only", "RestrictSUIDSGID=yes", "LockPersonality=yes"]) {
+    assert.equal(appBPlan.unitTemplate.includes(directive), true);
+  }
   assert.doesNotMatch(appBPlan.unitTemplate, /\{\{[A-Z_]+\}\}|\/workspace\/repos\/AppB\/tools\/auto-runner/);
   assert.throws(
     () => buildSystemdStartPlan(runId, {
@@ -1096,7 +1108,10 @@ test("systemd template is fixed, no restart, no enablement, and no embedded secr
   const text = readFileSync("tools/auto-runner/systemd/settleora-auto-runner@.service", "utf8");
   assert.match(text, /Type=exec/);
   assert.match(text, /WorkingDirectory=\{\{RUNTIME_ROOT\}\}/);
-  assert.match(text, /ExecStart=\/usr\/bin\/env -i HOME=%h USER=%u LOGNAME=%u .*XDG_RUNTIME_DIR=%t DBUS_SESSION_BUS_ADDRESS=unix:path=%t\/bus \{\{NODE_EXECUTABLE\}\} \{\{LAUNCHER\}\}/);
+  assert.match(text, /ExecStart=\/usr\/bin\/env -i HOME=%h USER=%u LOGNAME=%u .*XDG_RUNTIME_DIR=%t DBUS_SESSION_BUS_ADDRESS=unix:path=%t\/bus .*\{\{NODE_EXECUTABLE\}\} \{\{LAUNCHER\}\}/);
+  for (const name of ["PUB_CACHE", "GRADLE_USER_HOME", "NUGET_PACKAGES", "npm_config_cache", "DOTNET_CLI_HOME", "XDG_CACHE_HOME"]) {
+    assert.match(text, new RegExp(`${name}=\\{\\{LOGS_ROOT\\}\\}/caches/`));
+  }
   assert.match(text, /UnsetEnvironment=.*NODE_OPTIONS.*NODE_PATH.*NODE_V8_COVERAGE/);
   assert.match(text, /UnsetEnvironment=.*LD_PRELOAD.*BASH_ENV/);
   assert.match(text, /UnsetEnvironment=.*GIT_CONFIG_GLOBAL.*GIT_SSH_COMMAND/);

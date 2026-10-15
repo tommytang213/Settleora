@@ -19,10 +19,17 @@ export const runtimeEntryPoints = Object.freeze([
   "supervisor/settleora-auto-runner-worker.mjs",
 ]);
 
-export function acquireRuntimeConsumer(runtimeRoot) {
+function runtimeConsumerDirectory(runtimeRoot, logsRoot = null) {
+  return logsRoot === null
+    ? path.join(path.dirname(runtimeRoot), `.${path.basename(runtimeRoot)}.consumers`)
+    : path.join(canonicalExistingDirectory(logsRoot, "runtime logs root"),
+      "runtime-consumers", `.${path.basename(runtimeRoot)}.consumers`);
+}
+
+export function acquireRuntimeConsumer(runtimeRoot, logsRoot = null) {
   const parent = canonicalExistingDirectory(path.dirname(runtimeRoot), "runtime parent");
   const deploymentLock = path.join(parent, `.${path.basename(runtimeRoot)}.deployment.lock`);
-  const consumers = path.join(parent, `.${path.basename(runtimeRoot)}.consumers`);
+  const consumers = runtimeConsumerDirectory(runtimeRoot, logsRoot);
   mkdirSync(consumers, { recursive: true, mode: 0o700 });
   const consumerDirectory = lstatSync(consumers);
   const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
@@ -53,7 +60,7 @@ export function releaseRuntimeConsumer(handle) {
   if (handle?.owned === true && handle.marker && existsSync(handle.marker)) rmSync(handle.marker);
 }
 
-export function acquireRuntimeDeploymentLock(destination) {
+export function acquireRuntimeDeploymentLock(destination, logsRoot = null) {
   const parent = canonicalExistingDirectory(path.dirname(destination), "runtime destination parent");
   const parentInfo = statSync(parent);
   if ((typeof process.getuid === "function" && parentInfo.uid !== process.getuid()) || (parentInfo.mode & 0o022) !== 0) {
@@ -82,16 +89,17 @@ export function acquireRuntimeDeploymentLock(destination) {
   if (acquired.status !== 0) {
     throw new Error(acquired.stderr?.trim() || "runtime deployment lock acquisition failed");
   }
-  const consumers = path.join(parent, `.${path.basename(destination)}.consumers`);
-  mkdirSync(consumers, { recursive: true, mode: 0o700 });
-  const consumerDirectory = lstatSync(consumers);
-  if (!consumerDirectory.isDirectory() || consumerDirectory.isSymbolicLink() || realpathSync(consumers) !== consumers
-      || (consumerDirectory.mode & 0o022) !== 0
-      || (typeof process.getuid === "function" && consumerDirectory.uid !== process.getuid())) {
-    rmSync(lock);
-    throw new Error("runtime consumer directory is unsafe");
-  }
-  if (existsSync(consumers)) {
+  const directories = [runtimeConsumerDirectory(destination),
+    ...(logsRoot === null ? [] : [runtimeConsumerDirectory(destination, logsRoot)])];
+  for (const consumers of directories) {
+    mkdirSync(consumers, { recursive: true, mode: 0o700 });
+    const consumerDirectory = lstatSync(consumers);
+    if (!consumerDirectory.isDirectory() || consumerDirectory.isSymbolicLink() || realpathSync(consumers) !== consumers
+        || (consumerDirectory.mode & 0o022) !== 0
+        || (typeof process.getuid === "function" && consumerDirectory.uid !== process.getuid())) {
+      rmSync(lock);
+      throw new Error("runtime consumer directory is unsafe");
+    }
     for (const name of readdirSync(consumers)) {
       const marker = path.join(consumers, name);
       const info = lstatSync(marker);
