@@ -972,6 +972,11 @@ if [[ "$artifact_class" == release-candidate ]]; then
   if [[ "$mode" == signed ]]; then
     [[ "$(sha256_file "$artifact_path")" == "$preflight_ipa_sha" ]] || fail "IPA changed after package inspection"
     artifact_sha=$preflight_ipa_sha
+    # Preserve Xcode's original archive locally; unsigned debug payloads have
+    # no authenticated IPA counterpart and must not enter retained artifacts.
+    node "$tool_root/tools/ocr-models/prepare-retained-xcarchive.mjs" ||
+      fail "signed xcarchive retention preparation failed"
+    archive_path=$PWD/build/ios/retained-archive/Runner.xcarchive
     # Inspect every retained archive file before claiming package privacy.
     [[ "$app_path" == "$inspection_root/Payload/Runner.app" ]] ||
       fail "signed IPA application path is not canonical"
@@ -982,7 +987,7 @@ if [[ "$artifact_class" == release-candidate ]]; then
   else
     artifact_sha=$(node "$tool_root/tools/ocr-models/hash-directory.mjs" app)
   fi
-  archive_sha=$(if [[ "$mode" == signed ]]; then node "$tool_root/tools/ocr-models/hash-directory.mjs" archive; else printf ''; fi)
+  archive_sha=$(if [[ "$mode" == signed ]]; then node "$tool_root/tools/ocr-models/hash-directory.mjs" retained-archive; else printf ''; fi)
   if [[ "$mode" == signed ]]; then
     inspected_archive_sha=$(printf '%s' "$archive_review" | node -e 'const fs=require("node:fs"); const v=JSON.parse(fs.readFileSync(0,"utf8")); if(!/^[0-9a-f]{64}$/.test(v.archiveSha256)) process.exit(1); process.stdout.write(v.archiveSha256)' ) ||
       fail "signed xcarchive inspection identity is invalid"

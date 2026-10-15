@@ -32,3 +32,46 @@ export function fatFixture({ wide = false, little = false } = {}) {
   slice.copy(bytes, 4096);
   return bytes;
 }
+
+// Minimal valid DWARF v4 compile unit: DW_AT_name references fixture.c at
+// string offset zero. Extra strings have no references. The Linux evidence
+// harness verifies both payload variants using the installed LLVM dwarfdump;
+// this fixture alone does not claim Apple signature or Xcode compatibility.
+export function structuredDsymFixture({ payload = '', symbolTable = false } = {}) {
+  const abbrev = Buffer.from([1, 0x11, 0, 3, 0x0e, 0, 0, 0]);
+  const info = Buffer.alloc(16);
+  info.writeUInt32LE(12); info.writeUInt16LE(4, 4); info[10] = 8; info[11] = 1;
+  const strings = Buffer.from(`fixture.c\0${symbolTable ? '' : `${payload}\0`}`);
+  const sections = [['__debug_abbrev', abbrev], ['__debug_info', info], ['__debug_str', strings]];
+  const dataEnd = 512 + sections.reduce((size, entry) => size + entry[1].length, 0);
+  const symbols = Buffer.from(`\0_symbol\0${symbolTable ? `${payload}\0` : ''}`);
+  const symoff = Math.ceil(dataEnd / 8) * 8;
+  const bytes = Buffer.alloc(symbolTable ? symoff + 16 + symbols.length : dataEnd);
+  bytes.writeUInt32LE(0xfeedfacf, 0); bytes.writeUInt32LE(0x100000c, 4); bytes.writeUInt32LE(10, 12);
+  bytes.writeUInt32LE(symbolTable ? 3 : 2, 16);
+  bytes.writeUInt32LE(24 + 72 + 80 * 3 + (symbolTable ? 24 : 0), 20);
+  bytes.writeUInt32LE(0x1b, 32); bytes.writeUInt32LE(24, 36); bytes.fill(1, 40, 56);
+  const segment = 56;
+  bytes.writeUInt32LE(0x19, segment); bytes.writeUInt32LE(72 + 240, segment + 4);
+  bytes.write('__DWARF', segment + 8);
+  bytes.writeBigUInt64LE(512n, segment + 40);
+  bytes.writeBigUInt64LE(BigInt(dataEnd - 512), segment + 48);
+  bytes.writeUInt32LE(3, segment + 64);
+  let offset = 512;
+  sections.forEach(([name, data], index) => {
+    const at = segment + 72 + index * 80;
+    bytes.write(name, at); bytes.write('__DWARF', at + 16);
+    bytes.writeBigUInt64LE(BigInt(data.length), at + 40);
+    bytes.writeUInt32LE(offset, at + 48);
+    data.copy(bytes, offset); offset += data.length;
+  });
+  if (symbolTable) {
+    const at = segment + 72 + 240;
+    bytes.writeUInt32LE(2, at); bytes.writeUInt32LE(24, at + 4);
+    bytes.writeUInt32LE(symoff, at + 8); bytes.writeUInt32LE(1, at + 12);
+    bytes.writeUInt32LE(symoff + 16, at + 16); bytes.writeUInt32LE(symbols.length, at + 20);
+    bytes.writeUInt32LE(1, symoff); bytes[symoff + 4] = 0x0e; bytes[symoff + 5] = 1;
+    symbols.copy(bytes, symoff + 16);
+  }
+  return bytes;
+}

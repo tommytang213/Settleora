@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { inspectIosAssetCatalogInfo } from "../verify-ios-asset-catalog.mjs";
 import { dsymFixture } from "./dsym-fixture.mjs";
-import { inspectXcarchive } from "../verify-ios-xcarchive.mjs";
+import { inspectXcarchiveStructure } from "../verify-ios-xcarchive.mjs";
 
 const plist = () => "<?xml version=\"1.0\"?><plist><dict/></plist>";
 const appPlist = () => '<plist><dict><key>CFBundleIdentifier</key><string>com.tommytang213.settleora</string></dict></plist>';
@@ -57,7 +57,7 @@ test("asset catalog emits bounded observed metadata without asserting a signed b
   assert.throws(() => inspectIosAssetCatalogInfo("[]"), /metadata is invalid/);
 });
 
-test("archive privacy inspects every file and rejects extra, hidden payload, and symlink", () => {
+test("archive structure rejects extra payload and symlinks without authenticating dSYM strings", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-archive-policy-"));
   try {
     const app = path.join(root, "ipa-app");
@@ -94,13 +94,14 @@ test("archive privacy inspects every file and rejects extra, hidden payload, and
     };
     // Model plutil normalization: comments vanish from its output. The privacy
     // verifier must reject them in the original unsigned bytes nonetheless.
-    const inspect = () => inspectXcarchive(archive, app, (file) =>
+    const inspect = () => inspectXcarchiveStructure(archive, app, (file) =>
       readFileSync(file, "utf8").replace(/<!--[\s\S]*?-->/g, ""), {
       verifySignature() {}, dwarfTool,
     });
     const original = inspect();
     assert.equal(original.inspectedFileCount, 5);
     assert.equal(original.symbolFileCount, 1);
+    assert.equal(original.unsignedSymbolsAuthenticated, false);
     for (const mutation of [
       symbolPlist().replace('<dict>', '<dict><!-- Jane Doe, 123 Main Street -->'),
       `${symbolPlist()}<!-- Jane Doe, 123 Main Street -->`,

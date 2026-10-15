@@ -149,13 +149,13 @@ workflows:
         script: |
           IPA_COUNT=$(find "$CM_BUILD_DIR/apps/mobile/build/ios/ipa" -name "*.ipa" -type f 2>/dev/null | wc -l | tr -d ' ')
           test "$IPA_COUNT" = "1"
-          ARCHIVE_COUNT=$(find "$CM_BUILD_DIR/apps/mobile/build/ios/archive" -maxdepth 1 -name "*.xcarchive" -type d 2>/dev/null | wc -l | tr -d ' ')
+          ARCHIVE_COUNT=$(find "$CM_BUILD_DIR/apps/mobile/build/ios/retained-archive" -maxdepth 1 -name "*.xcarchive" -type d 2>/dev/null | wc -l | tr -d ' ')
           test "$ARCHIVE_COUNT" = "1"
           test -s "$CM_BUILD_DIR/apps/mobile/build/ios/release-provenance.json"
 
     artifacts:
       - $CM_BUILD_DIR/apps/mobile/build/ios/ipa/*.ipa
-      - $CM_BUILD_DIR/apps/mobile/build/ios/archive/*.xcarchive
+      - $CM_BUILD_DIR/apps/mobile/build/ios/retained-archive/*.xcarchive
       - $CM_BUILD_DIR/apps/mobile/build/ios/release-provenance.json
       - /tmp/xcodebuild_logs/*.log
       - $CM_BUILD_DIR/apps/mobile/flutter_drive.log

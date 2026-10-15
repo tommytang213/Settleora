@@ -170,7 +170,10 @@ function verifyBoundDwarf(symbolFile, executableFile, dwarfTool) {
   } catch { fail(); }
 }
 
-export function inspectXcarchive(root, ipaAppRoot, inspectPlist = (file) => execFileSync("plutil", ["-convert", "xml1", "-o", "-", file], {
+// This inventory validates representation and app equivalence. Unsigned dSYM
+// strings are not authenticated by DWARF validity or the executable's UUID.
+// It is not a retention/privacy approval when symbolFileCount is nonzero.
+export function inspectXcarchiveStructure(root, ipaAppRoot, inspectPlist = (file) => execFileSync("plutil", ["-convert", "xml1", "-o", "-", file], {
   encoding: "utf8", maxBuffer: 1024 * 1024, stdio: ["ignore", "pipe", "ignore"],
 }), { verifySignature = verifyApplicationSignature, codeMatches = signedMachOCodeMatches,
   dwarfTool = runDwarfTool } = {}) {
@@ -303,8 +306,17 @@ export function inspectXcarchive(root, ipaAppRoot, inspectPlist = (file) => exec
     inspectedFileCount: files.size,
     applicationFileCount: appFiles,
     symbolFileCount: symbolFiles,
+    unsignedSymbolsAuthenticated: false,
     inventorySha256: profile.digest("hex"),
   };
+}
+
+export function inspectXcarchive(...args) {
+  const inventory = inspectXcarchiveStructure(...args);
+  // Only app bytes bound to the signed IPA and constrained archive metadata
+  // may enter retained artifacts. Preserve raw Xcode dSYMs outside that path.
+  if (inventory.symbolFileCount !== 0) fail();
+  return { ...inventory, retentionPolicy: "signed-app-and-constrained-metadata-only-v1" };
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
@@ -312,7 +324,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
     if (process.argv.length !== 2) fail();
     const buildRoot = path.resolve("build");
     const iosRoot = path.join(buildRoot, "ios");
-    const archiveRoot = path.join(iosRoot, "archive");
+    const archiveRoot = path.join(iosRoot, "retained-archive");
     const inspectionRoot = path.join(iosRoot, ".settleora-ipa-inspection");
     const appRoot = path.join(inspectionRoot, "Payload", "Runner.app");
     for (const directory of [buildRoot, iosRoot, archiveRoot, inspectionRoot,

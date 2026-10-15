@@ -181,6 +181,8 @@ test("signed provenance binds the exact artifact and forbids publication", () =>
     assert.equal(provenance.artifact.exportSha256, "9".repeat(64));
     assert.equal(provenance.artifact.metadataNormalization, "settleora-ipa-zip-timestamps-v1");
     assert.equal(provenance.artifact.archiveSha256, "8".repeat(64));
+    assert.equal(provenance.artifact.archiveRepresentation, "signed-app-and-constrained-metadata-only-v1");
+    assert.equal(provenance.verification.unsignedDebugSymbolsRetained, false);
     assert.equal(provenance.artifact.buildName, "1.0.0");
     assert.equal(provenance.artifact.buildNumber, "42");
     assert.equal(provenance.toolchain.codemagicCliTools, "0.69.0");
@@ -201,6 +203,7 @@ test("unsigned structural provenance is explicitly non-promotable", () => {
     assert.equal(provenance.contract, "settleora-ios-unsigned-structural-verification-v1");
     assert.equal(provenance.promotionPolicy, "not-promotable-unsigned-structural-evidence");
     assert.equal(provenance.verification.codeSignatureVerified, false);
+    assert.equal(provenance.artifact.archiveRepresentation, null);
     assert.equal(provenance.toolchain.codemagicCliTools, null);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -1278,7 +1281,7 @@ test("canonical wrapper rejects unsafe modes and release candidates without prov
   const directoryHasher = path.join(repoRoot, "tools/ocr-models/hash-directory.mjs");
   const arbitraryRoot = spawnSync(process.execPath, [directoryHasher, rootForUnsafeCli()], { encoding: "utf8" });
   assert.notEqual(arbitraryRoot.status, 0);
-  assert.match(arbitraryRoot.stderr, /Usage: hash-directory\.mjs <app\|archive>/);
+  assert.match(arbitraryRoot.stderr, /Usage: hash-directory\.mjs <app\|archive\|retained-archive>/);
 });
 
 test("signed wrapper rejects a non-Git source before trusting caller provenance", () => {
