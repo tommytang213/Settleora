@@ -944,6 +944,9 @@ class ReceiptOcrParser {
   }) {
     ({String date, int score})? best;
     final explicitReceiptDates = <String>{};
+    // Values owned by the same primary date role must corroborate. Keep
+    // different roles separate: an order date need not equal a receipt date.
+    final primaryRoleDates = <String, Set<String>>{};
     final labeledCalendarDates = <String>{};
     var sawStayDate = false;
     var precedingStayRange = false;
@@ -951,6 +954,9 @@ class ReceiptOcrParser {
     final receiptDateQualifier = RegExp(
       r'\b(?:previous|prior|last|refund|reference|payment|paid|due|order|pickup|service|stay)[\s\p{P}]+$',
       unicode: true,
+    );
+    final standaloneDateQualifier = RegExp(
+      r'^\s*(?:previous|prior|last|refund|reference|payment|paid|due|order|pickup|service|stay)\s*[:：]?\s*$',
     );
     final stayLabel = RegExp(
       r'\b(?:stay|check[ -]?in|check[ -]?out|arrival|departure)\b',
@@ -973,7 +979,7 @@ class ReceiptOcrParser {
       // A role word only owns a date when its complete label touches that date.
       // Product names such as "Purchase Planner" are not receipt date labels.
       final directPrimaryDateLabel = RegExp(
-        r'^(?:receipt|bill|invoice|statement|transaction|order|purchase|issued)(?:\s+(?:date|on))?\s*[:：]?\s*$',
+        r'^(receipt|bill|invoice|statement|transaction|order|purchase|issued)(?:\s+(?:date|on))?\s*[:：]?\s*$',
       );
       final secondaryLabel = RegExp(
         r'\b(due|pay by|payment|paid|previous|prior|last|refund|reference|meter|reading|billing period|service period|period from|period to)\b',
@@ -1018,9 +1024,24 @@ class ReceiptOcrParser {
           }
           final priorQualifier =
               !nearest.secondary &&
-              receiptDateQualifier.hasMatch(lower.substring(0, nearest.start));
+              (receiptDateQualifier.hasMatch(
+                    lower.substring(0, nearest.start),
+                  ) ||
+                  (lower.substring(0, nearest.start).trim().isEmpty &&
+                      index > 0 &&
+                      standaloneDateQualifier.hasMatch(
+                        lines[index - 1].toLowerCase(),
+                      )));
           secondaryDate = nearest.secondary || priorQualifier;
           score += secondaryDate ? -100 : 80;
+          if (date != null && !secondaryDate) {
+            final role = directPrimaryDateLabel
+                .firstMatch(lower.substring(nearest.start, dateStart))
+                ?.group(1);
+            if (role != null) {
+              (primaryRoleDates[role] ??= <String>{}).add(date);
+            }
+          }
           // A printed receipt date identifies this document more directly
           // than its order/pickup history. Only a directly attached label
           // establishes that role; conflicting receipt dates stay unresolved.
@@ -1060,6 +1081,14 @@ class ReceiptOcrParser {
             score -= 30;
           } else if (directPrimaryDateLabel.hasMatch(previous)) {
             score += 20;
+          }
+          if (date != null &&
+              !secondaryDate &&
+              line.substring(0, dateStart).trim().isEmpty) {
+            final role = directPrimaryDateLabel.firstMatch(previous)?.group(1);
+            if (role != null) {
+              (primaryRoleDates[role] ??= <String>{}).add(date);
+            }
           }
           if (date != null &&
               RegExp(r'^\s*receipt\s+date\s*[:：]?\s*$').hasMatch(previous) &&
@@ -1157,7 +1186,8 @@ class ReceiptOcrParser {
               ).hasMatch(lower.substring(ownedStayDateEnd!)));
       precedingStaySeparator = standaloneSeparator;
     }
-    if ({...explicitReceiptDates, ...labeledCalendarDates}.length > 1) {
+    if (primaryRoleDates.values.any((dates) => dates.length > 1) ||
+        {...explicitReceiptDates, ...labeledCalendarDates}.length > 1) {
       onAmbiguousReceiptDate?.call();
       return null;
     }
@@ -3113,7 +3143,10 @@ class ReceiptOcrParser {
           totalMinor != null &&
           adjustmentMinors.every((value) => value != null) &&
           subtotalMinor +
-                  adjustmentMinors.whereType<int>().fold(0, (a, b) => a + b) -
+                  adjustmentMinors.whereType<BigInt>().fold(
+                    BigInt.zero,
+                    (a, b) => a + b,
+                  ) -
                   discountMinor ==
               totalMinor) {
         aggregatedDiscount = true;
@@ -3162,7 +3195,7 @@ class ReceiptOcrParser {
     final sameCurrencySubtotal =
         !subtotalHasExplicitCurrencyEvidence ||
         (currency != null && subtotalCurrency == currency);
-    int? rankingMoney(String? value) {
+    BigInt? rankingMoney(String? value) {
       if (currency == null || value == null) return null;
       return _ocrAmountMinorUnits(value, currency);
     }
@@ -3217,12 +3250,17 @@ class ReceiptOcrParser {
                 discountMagnitude == null)
         ? null
         : subtotalValue +
-              supportedParts.whereType<int>().fold<int>(0, (a, b) => a + b) -
-              (discountBeforeSubtotal ? 0 : discountMagnitude ?? 0);
+              supportedParts.whereType<BigInt>().fold<BigInt>(
+                BigInt.zero,
+                (a, b) => a + b,
+              ) -
+              (discountBeforeSubtotal
+                  ? BigInt.zero
+                  : discountMagnitude ?? BigInt.zero);
     final includedTaxValue = sameCurrencyTax && taxIncludedInTotal
         ? rankingMoney(tax)
         : null;
-    final includedTaxInterpretations = <int>{
+    final includedTaxInterpretations = <BigInt>{
       if (supportedSum != null && includedTaxValue != null)
         for (final candidate in totalCandidates)
           if (rankingMoney(candidate.value) case final value?)
@@ -6604,7 +6642,7 @@ class ReceiptOcrParser {
         bottom: ys.last,
       );
     }
-    int? rowMoney(int index) {
+    BigInt? rowMoney(int index) {
       // The description and amount must be distinct provider blocks. A split
       // denomination is allowed only when it joins the adjacent amount cell.
       final row = rows[index];
@@ -6636,11 +6674,11 @@ class ReceiptOcrParser {
 
     final subtotal = rowMoney(subtotalRow);
     final total = rowMoney(totalRow);
-    final tax = taxRows.isEmpty ? 0 : rowMoney(taxRows.single);
+    final tax = taxRows.isEmpty ? BigInt.zero : rowMoney(taxRows.single);
     if (subtotal == null ||
         total == null ||
         tax == null ||
-        tax < 0 ||
+        tax.isNegative ||
         subtotal != _ocrAmountMinorUnits(amounts.subtotal!, currency) ||
         total != _ocrAmountMinorUnits(amounts.total!, currency) ||
         subtotal + tax != total ||
@@ -6650,12 +6688,12 @@ class ReceiptOcrParser {
                   tax != _ocrAmountMinorUnits(amounts.tax!, currency))) {
       return const {};
     }
-    var sum = 0;
+    var sum = BigInt.zero;
     for (var j = 0; j < selectedRows.length; j++) {
       final item = items[j];
       final money = rowMoney(selectedRows[j]);
       if (money == null ||
-          money <= 0 ||
+          money <= BigInt.zero ||
           item.currencyUnresolved ||
           item.currency != currency ||
           item.lineTotal == null ||
@@ -12283,46 +12321,43 @@ int _currencyMinorUnitDigits(String? currency) {
   };
 }
 
-int? _ocrAmountMinorUnits(String amount, String currency) {
+// Provisional OCR arithmetic must remain exact before any financial field or
+// evidence ownership is selected. Native int multiplication and sums can wrap
+// even when each printed whole amount parsed successfully.
+BigInt? _ocrAmountMinorUnits(String amount, String currency) {
   final minorDigits = _currencyMinorUnitDigits(currency);
   final match = RegExp(r'^(-?)(\d+)(?:\.(\d{1,3}))?$').firstMatch(amount);
   if (match == null) return null;
   final fraction = match.group(3) ?? '';
   if (fraction.length > minorDigits) return null;
-  final whole = int.tryParse(match.group(2)!);
+  final whole = BigInt.tryParse(match.group(2)!);
   final minor = fraction.isEmpty
-      ? 0
-      : int.tryParse(fraction.padRight(minorDigits, '0'));
+      ? BigInt.zero
+      : BigInt.tryParse(fraction.padRight(minorDigits, '0'));
   if (whole == null || minor == null) return null;
-  final scale = switch (minorDigits) {
+  final scale = BigInt.from(switch (minorDigits) {
     0 => 1,
     3 => 1000,
     _ => 100,
-  };
+  });
   final value = whole * scale + minor;
   return match.group(1) == '-' ? -value : value;
 }
 
 String? _sumSameCurrencyOcrAmounts(Iterable<String> amounts, String currency) {
   final minorDigits = _currencyMinorUnitDigits(currency);
-  final scale = switch (minorDigits) {
+  final scale = BigInt.from(switch (minorDigits) {
     0 => 1,
     3 => 1000,
     _ => 100,
-  };
-  var totalMinor = 0;
+  });
+  var totalMinor = BigInt.zero;
   var count = 0;
   for (final amount in amounts) {
-    final match = RegExp(r'^(\d+)(?:\.(\d{1,3}))?$').firstMatch(amount);
-    if (match == null) return null;
-    final whole = int.tryParse(match.group(1)!);
-    final fraction = match.group(2) ?? '';
-    if (whole == null || fraction.length > minorDigits) return null;
-    final minor = fraction.isEmpty
-        ? 0
-        : int.tryParse(fraction.padRight(minorDigits, '0'));
+    if (amount.startsWith('-')) return null;
+    final minor = _ocrAmountMinorUnits(amount, currency);
     if (minor == null) return null;
-    totalMinor += whole * scale + minor;
+    totalMinor += minor;
     count += 1;
   }
   if (count < 2) return null;
@@ -12414,7 +12449,7 @@ Set<int> _corroboratedActivityFeeRows(
   Set<int>? unresolvedEvidenceRows,
 }) {
   if (currency == null) return const {};
-  int? money(String text) {
+  BigInt? money(String text) {
     if (!_isBoundedSummaryAmount(text)) return null;
     final printed = _currencyAdjacentToSelectedAmount(text, currency);
     if (!printed.hasExplicitEvidence || printed.currency != currency) {
@@ -12437,7 +12472,7 @@ Set<int> _corroboratedActivityFeeRows(
   if (totalLabel == null) return const {};
   final total = money(lines[totalIndex].substring(totalLabel.end));
   if (total == null) return const {};
-  final fees = <({int row, String role, int? amount})>[];
+  final fees = <({int row, String role, BigInt? amount})>[];
   final feePattern = RegExp(
     r'^(parking|restocking)\s+fee\s*[:：]?\s+(.+)$',
     caseSensitive: false,
@@ -12456,7 +12491,7 @@ Set<int> _corroboratedActivityFeeRows(
   final fee = fees.single;
   if (fee.row >= totalIndex ||
       fee.amount == null ||
-      fee.amount! <= 0 ||
+      fee.amount! <= BigInt.zero ||
       !_isPricedItemLine(lines[fee.row])) {
     return const {};
   }
@@ -12531,7 +12566,7 @@ Set<int> _corroboratedActivityFeeRows(
     return const {};
   }
 
-  if (total >= 0 ||
+  if (total >= BigInt.zero ||
       !RegExp(
         r'^refund\s+total\b',
         caseSensitive: false,
@@ -12539,7 +12574,7 @@ Set<int> _corroboratedActivityFeeRows(
     return const {};
   }
   var returned = 0;
-  var sum = 0;
+  var sum = BigInt.zero;
   for (final line in lines.take(fee.row)) {
     if (!_isPricedItemLine(line)) continue;
     final match = RegExp(
@@ -12550,7 +12585,7 @@ Set<int> _corroboratedActivityFeeRows(
       unicode: true,
     ).firstMatch(line);
     final value = match == null ? null : money(match[1]!);
-    if (value == null || value >= 0) return const {};
+    if (value == null || value >= BigInt.zero) return const {};
     returned++;
     sum += value;
   }
@@ -14586,7 +14621,7 @@ bool _hasConflictingRepeatedTotalCells(String line, String? currency) {
     caseSensitive: false,
   ).allMatches(line).toList(growable: false);
   if (labels.length < 2) return false;
-  final values = <int>{};
+  final values = <BigInt>{};
   for (var index = 0; index < labels.length; index++) {
     final cell = line
         .substring(

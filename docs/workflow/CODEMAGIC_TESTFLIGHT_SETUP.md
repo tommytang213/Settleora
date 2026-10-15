@@ -147,7 +147,7 @@ The active signed-validation workflow:
 - Verifies both the archived and exported application signatures. Differing Mach-O files are compared after `/usr/bin/codesign --remove-signature` processes isolated temporary copies; every remaining executable byte must match. Ordinary resources still require byte equality. Both original bundles are hashed before and after inspection, and no signature is removed from a retained artifact. The macOS control covers re-signing, changed executable code, changed signed resources and preservation of the originals; a real distribution archive/export run remains required.
 - Verifies the packaged short version/build number against the requested signed-build identity and writes those values with source/tree, toolchain, lockfile, OCR catalog/manifest, artifact filenames, and immutable IPA/archive SHA-256 provenance.
 - Records historical package-size baselines as a composite identity of the base commit/tree, the dependency lock actually substituted into that source, and the exact candidate tooling commit; the base SHA alone is never presented as the complete built baseline identity.
-- Retains the IPA, archive, and provenance as Codemagic artifacts.
+- After package, archive, and provenance checks succeed, copies the verified IPA, constrained archive, and provenance into staging outside artifact selectors, checks their identities, and exposes the complete set through one same-filesystem rename to `build/ios/verified-artifacts/`. Codemagic retains only this completed set. Failed or interrupted outputs remain local outside those selectors.
 - Has no `publishing` block, `submit_to_testflight`, `submit_to_app_store`, or `beta_groups` configuration.
 
 Do not configure `beta_groups: Internal Testers`. App Store Connect internal tester groups are not valid Codemagic `beta_groups` assignment targets, and using that wiring can fail after the build has already uploaded and processed. If a future workflow adds external beta tester distribution, keep it explicitly external-only, require beta review intentionally, and never include the internal `Internal Testers` group in `beta_groups`.
@@ -167,7 +167,7 @@ path.
 The future promotion boundary is intentionally separate and is not implemented
 or activated here. A later explicitly approved TestFlight/App Store action must
 consume the retained, reviewed IPA whose SHA-256 appears in
-`build/ios/release-provenance.json`; it must not rebuild from source. If Apple
+`build/ios/verified-artifacts/release-provenance.json`; it must not rebuild from source. If Apple
 tooling later proves an unavoidable transformation is required, that constraint
 and the smallest transformation must be reviewed and recorded before promotion.
 

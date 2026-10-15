@@ -914,10 +914,13 @@ test('Codemagic stays manual-only and retains the signed release candidate witho
   assert.match(scripts, /--mode=signed/);
   assert.match(scripts, /--source-sha="\$CM_COMMIT"/);
   assert.match(scripts, /--build-number="\$BUILD_NUMBER"/);
-  assert.ok(internal.artifacts.includes('$CM_BUILD_DIR/apps/mobile/build/ios/ipa/*.ipa'));
-  assert.ok(internal.artifacts.includes('$CM_BUILD_DIR/apps/mobile/build/ios/retained-archive/*.xcarchive'));
+  assert.ok(internal.artifacts.includes('$CM_BUILD_DIR/apps/mobile/build/ios/verified-artifacts/ipa/*.ipa'));
+  assert.ok(internal.artifacts.includes('$CM_BUILD_DIR/apps/mobile/build/ios/verified-artifacts/retained-archive/*.xcarchive'));
   assert.ok(!internal.artifacts.includes('$CM_BUILD_DIR/apps/mobile/build/ios/archive/*.xcarchive'));
-  assert.ok(internal.artifacts.includes('$CM_BUILD_DIR/apps/mobile/build/ios/release-provenance.json'));
+  assert.ok(internal.artifacts.includes('$CM_BUILD_DIR/apps/mobile/build/ios/verified-artifacts/release-provenance.json'));
+  for (const unqualified of ['ipa/*.ipa', 'retained-archive/*.xcarchive', 'release-provenance.json']) {
+    assert.ok(!internal.artifacts.includes(`$CM_BUILD_DIR/apps/mobile/build/ios/${unqualified}`));
+  }
   assert.equal(internal.publishing, undefined);
   assert.doesNotMatch(JSON.stringify(internal), /submit_to_testflight|submit_to_app_store|beta_groups/);
 });

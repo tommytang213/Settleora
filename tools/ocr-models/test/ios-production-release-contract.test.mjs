@@ -1550,3 +1550,124 @@ test('bounded ZIP producer and executable metadata preserve valid payloads', () 
     }
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+function retainedSignedArtifactFixture() {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'settleora-verified-retention-'));
+  const mobile = path.join(root, 'apps/mobile');
+  const ipa = path.join(mobile, 'build/ios/ipa/Runner.ipa');
+  const archive = path.join(mobile, 'build/ios/retained-archive/Runner.xcarchive');
+  const provenance = path.join(mobile, 'build/ios/release-provenance.json');
+  mkdirSync(path.dirname(ipa), { recursive: true });
+  mkdirSync(archive, { recursive: true });
+  writeFileSync(ipa, 'disposable package retention control');
+  writeFileSync(path.join(archive, 'Info.plist'), 'disposable constrained archive');
+  writeFileSync(provenance, '{"test":"verified-set"}\n');
+  return { root, mobile, ipa, archive, provenance };
+}
+
+function selectedSignedArtifacts(fixture) {
+  const workflow = readFileSync(path.join(repoRoot, 'codemagic.yaml'), 'utf8');
+  const selectors = [...workflow.matchAll(/^\s+- (\$CM_BUILD_DIR\/apps\/mobile\/build\/ios\/.*)$/gm)]
+    .map((match) => match[1].replace('$CM_BUILD_DIR/', ''));
+  const ios = path.join(fixture.mobile, 'build/ios');
+  const relative = ['ipa/Runner.ipa', 'retained-archive/Runner.xcarchive', 'release-provenance.json'];
+  return ['', '.settleora-verified-artifacts/', 'verified-artifacts/'].flatMap((prefix) =>
+    relative.map((name) => path.join(ios, prefix, name)))
+    .filter((file) => existsSync(file) && selectors.some((selector) =>
+      path.matchesGlob(path.relative(fixture.root, file), selector)));
+}
+
+function stageSignedArtifactFixture(fixture, { ipaSha, archiveSha, prelude = '' } = {}) {
+  const script = readFileSync(path.join(repoRoot, 'apps/mobile/tool/build-production-ios.sh'), 'utf8');
+  const functionBody = script.match(/^retain_verified_signed_artifacts\(\) \{[\s\S]*?^\}/m)?.[0];
+  assert.ok(functionBody, 'wrapper must stage only the complete verified artifact set');
+  const result = spawnSync('bash', ['-c', `set -euo pipefail
+mobile_root=$1
+tool_root=$2
+artifact_path=$3
+archive_path=$4
+provenance_out=$5
+artifact_sha=$6
+archive_sha=$7
+fail() { printf '%s\\n' "$1" >&2; exit 1; }
+sha256_file() { shasum -a 256 "$1" | awk '{print $1}'; }
+${functionBody}
+${prelude}
+retain_verified_signed_artifacts
+`, 'retention-control', fixture.mobile, repoRoot, fixture.ipa, fixture.archive,
+    fixture.provenance, ipaSha ?? sha256(readFileSync(fixture.ipa)), archiveSha ?? hashDirectory(fixture.archive)],
+  { encoding: 'utf8' });
+  return result;
+}
+
+test('rejected IPA bytes and incomplete package outputs are outside artifact selectors', () => {
+  const fixture = retainedSignedArtifactFixture();
+  try {
+    const before = readFileSync(fixture.ipa);
+    const rejected = spawnSync(process.execPath, [path.join(repoRoot, 'tools/ocr-models/verify-ipa-archive.mjs'), '--canonicalize-export-metadata'], {
+      cwd: fixture.mobile, encoding: 'utf8',
+    });
+    assert.notEqual(rejected.status, 0);
+    assert.equal(rejected.stderr, 'canonical_ipa_verification_failed\n');
+    assert.deepEqual(selectedSignedArtifacts(fixture), []);
+    assert.deepEqual(readFileSync(fixture.ipa), before, 'rejected source evidence is preserved');
+    assert.ok(existsSync(fixture.archive), 'unqualified archive remains local, outside selectors');
+    assert.ok(existsSync(fixture.provenance), 'unqualified provenance is not selected');
+  } finally { rmSync(fixture.root, { recursive: true, force: true }); }
+});
+
+for (const failure of ['ipa identity', 'archive identity', 'copy failure', 'interrupted finalization']) {
+  test(`incomplete signed artifact staging is never retained: ${failure}`, () => {
+    const fixture = retainedSignedArtifactFixture();
+    try {
+      const result = stageSignedArtifactFixture(fixture, {
+        ...(failure === 'ipa identity' ? { ipaSha: '0'.repeat(64) } : {}),
+        ...(failure === 'archive identity' ? { archiveSha: '0'.repeat(64) } : {}),
+        prelude: failure === 'copy failure' ? 'cp() { command cp "$@"; return 9; }'
+          : failure === 'interrupted finalization' ? 'mv() { exit 9; }' : '',
+      });
+      assert.notEqual(result.status, 0, result.stderr);
+      if (failure === 'ipa identity') assert.match(result.stderr, /staged IPA identity differs/);
+      if (failure === 'archive identity') assert.match(result.stderr, /staged archive identity differs/);
+      if (failure === 'copy failure' || failure === 'interrupted finalization') assert.equal(result.status, 9);
+      assert.deepEqual(selectedSignedArtifacts(fixture), []);
+      assert.ok(existsSync(fixture.ipa));
+      assert.ok(existsSync(fixture.archive));
+      assert.ok(existsSync(fixture.provenance));
+    } finally { rmSync(fixture.root, { recursive: true, force: true }); }
+  });
+}
+
+test('only the complete identity-bound signed artifact set becomes retained', () => {
+  const fixture = retainedSignedArtifactFixture();
+  try {
+    const result = stageSignedArtifactFixture(fixture);
+    assert.equal(result.status, 0, result.stderr);
+    const retained = path.join(fixture.mobile, 'build/ios/verified-artifacts');
+    assert.deepEqual(selectedSignedArtifacts(fixture).sort(), [
+      path.join(retained, 'ipa/Runner.ipa'), path.join(retained, 'retained-archive/Runner.xcarchive'),
+      path.join(retained, 'release-provenance.json'),
+    ].sort());
+    assert.deepEqual(readFileSync(path.join(retained, 'ipa/Runner.ipa')), readFileSync(fixture.ipa));
+    assert.equal(hashDirectory(path.join(retained, 'retained-archive/Runner.xcarchive')), hashDirectory(fixture.archive));
+    assert.deepEqual(readFileSync(path.join(retained, 'release-provenance.json')), readFileSync(fixture.provenance));
+    const repeated = stageSignedArtifactFixture(fixture);
+    assert.notEqual(repeated.status, 0);
+    assert.match(repeated.stderr, /destination already exists/);
+    assert.equal(selectedSignedArtifacts(fixture).length, 3);
+  } finally { rmSync(fixture.root, { recursive: true, force: true }); }
+});
+
+test('signed artifact retention occurs only after package, archive and provenance verification', () => {
+  const script = readFileSync(path.join(repoRoot, 'apps/mobile/tool/build-production-ios.sh'), 'utf8');
+  const invocation = '\n    retain_verified_signed_artifacts\n';
+  assert.equal(script.split(invocation).length - 1, 1);
+  const boundary = script.indexOf(invocation);
+  for (const gate of ['verify-ipa-archive.mjs', 'verify-mobile-package.mjs', 'verify-ios-xcarchive.mjs',
+    'xcarchive changed after privacy inspection', 'write-ios-release-provenance.mjs',
+    'IPA changed while provenance was generated']) {
+    assert.ok(script.indexOf(gate) >= 0 && script.lastIndexOf(gate) < boundary, gate);
+  }
+  assert.match(script.slice(script.lastIndexOf('  if [[ "$mode" == signed ]]; then', boundary), boundary),
+    /IPA changed while provenance was generated/);
+});

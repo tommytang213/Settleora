@@ -34,6 +34,36 @@ inventory_file=
 symbols_file=
 icon_compare_root=
 
+# Only this complete, verified set is eligible for retained CI artifacts.
+# Incomplete staging and the original build outputs remain outside selectors.
+retain_verified_signed_artifacts() {
+  local staging="$mobile_root/build/ios/.settleora-verified-artifacts"
+  local retained="$mobile_root/build/ios/verified-artifacts"
+  local staged_ipa staged_archive staged_archive_sha provenance_sha
+  [[ ! -e "$staging" && ! -L "$staging" && ! -e "$retained" && ! -L "$retained" ]] ||
+    fail "verified artifact destination already exists"
+  mkdir "$staging"
+  mkdir "$staging/ipa" "$staging/retained-archive"
+  staged_ipa="$staging/ipa/$(basename "$artifact_path")"
+  staged_archive="$staging/retained-archive/$(basename "$archive_path")"
+  provenance_sha=$(sha256_file "$provenance_out")
+  cp -p -- "$artifact_path" "$staged_ipa"
+  cp -pR -- "$archive_path" "$staged_archive"
+  cp -p -- "$provenance_out" "$staging/release-provenance.json"
+  [[ "$(sha256_file "$staged_ipa")" == "$artifact_sha" ]] || fail "staged IPA identity differs"
+  staged_archive_sha=$(node --input-type=module -e '
+    import { pathToFileURL } from "node:url";
+    const { hashDirectory } = await import(pathToFileURL(process.argv[2]).href);
+    process.stdout.write(hashDirectory(process.argv[3]));
+  ' verify-staged-archive "$tool_root/tools/ocr-models/hash-directory.mjs" "$staged_archive") ||
+    fail "staged archive identity is unavailable"
+  [[ "$staged_archive_sha" == "$archive_sha" ]] || fail "staged archive identity differs"
+  [[ "$(sha256_file "$staging/release-provenance.json")" == "$provenance_sha" ]] ||
+    fail "staged provenance identity differs"
+  # Same-filesystem rename makes the complete verified set visible together.
+  mv -- "$staging" "$retained"
+}
+
 cleanup() {
   [[ -z "$inventory_file" ]] || rm -f -- "$inventory_file"
   [[ -z "$symbols_file" ]] || rm -f -- "$symbols_file"
@@ -1017,6 +1047,7 @@ if [[ "$artifact_class" == release-candidate ]]; then
     --fixture-manifest-sha256="$fixture_manifest_sha"
   if [[ "$mode" == signed ]]; then
     [[ "$(sha256_file "$artifact_path")" == "$artifact_sha" ]] || fail "IPA changed while provenance was generated"
+    retain_verified_signed_artifacts
   fi
   printf 'SETTLEORA_IOS_RELEASE_ARTIFACT=%s\n' "$(basename "$artifact_path")"
   printf 'SETTLEORA_IOS_RELEASE_SHA256=%s\n' "$artifact_sha"
