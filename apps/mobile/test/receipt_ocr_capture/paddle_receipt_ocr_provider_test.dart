@@ -25,6 +25,7 @@ void main() {
         {
           'text': 'TOTAL 12.50',
           'order': 2,
+          'row': 2,
           'confidence': 0.91,
           'modelPackId': 'common',
           'modelVersion': 'v1',
@@ -33,12 +34,16 @@ void main() {
             {'x': 1.0, 'y': 2.0},
           ],
         },
-        {'text': 'Corner Cafe', 'order': 0},
-        {'text': 'Tea 12.50', 'order': 1},
+        {'text': 'Corner Cafe', 'order': 0, 'row': 0},
+        {'text': 'Tea 12.50', 'order': 1, 'row': 1},
       ],
       'detectionModelPackId': 'detector',
       'detectionModelVersion': 'v2',
       'runtime': 'onnxruntime-android:1.21.1:cpu',
+      'coldLoadTimeMs': 80,
+      'detectionTimeMs': 20,
+      'recognitionTimeMs': 30,
+      'totalTimeMs': 55,
     });
     final provider = PaddleReceiptOcrProvider(channel: channel);
 
@@ -59,6 +64,10 @@ void main() {
     expect(result.preview?.blocks.last.points.single.x, 1.0);
     expect(result.preview?.runEvidence?.detectionModelPackId, 'detector');
     expect(result.preview?.runEvidence?.runtime, contains('onnxruntime'));
+    expect(result.preview?.runEvidence?.coldLoadTimeMs, 80);
+    expect(result.preview?.runEvidence?.detectionTimeMs, 20);
+    expect(result.preview?.runEvidence?.recognitionTimeMs, 30);
+    expect(result.preview?.runEvidence?.totalTimeMs, 55);
   });
 
   test('provider maps channel failures to bounded manual fallback', () async {
@@ -70,6 +79,28 @@ void main() {
     expect(result.status, ReceiptOcrStatus.failed);
     expect(result.message, contains('manual'));
     expect(result.failureCategory, ReceiptOcrFailureCategory.providerException);
+    expect(result.message, isNot(contains('private native details')));
+  });
+
+  test('provider rejects blocks without a native row field', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    final provider = PaddleReceiptOcrProvider(
+      channel: _FakeChannel({
+        'blocks': [
+          {'text': 'TOTAL 12.50', 'order': 0},
+        ],
+      }),
+    );
+
+    final result = await provider.extractReceipt(
+      ReceiptOcrRequest(bytes: const [1], contentType: 'image/jpeg'),
+    );
+
+    expect(result.status, ReceiptOcrStatus.failed);
+    expect(
+      result.failureCategory,
+      ReceiptOcrFailureCategory.invalidProviderResponse,
+    );
   });
 
   test(

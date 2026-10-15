@@ -77,7 +77,7 @@ const gitObjectId = (type, contents) => createHash('sha1').update(`${type} ${con
 const replacementRefs = gitExec(['for-each-ref', '--format=%(refname)', 'refs/replace'], { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 if (replacementRefs) throw new Error('Git replacement refs are not allowed for provenance collection');
 const maxTrustedToolBytes = 256 * 1024 * 1024;
-const maxAndroidArtifactBytes = 256 * 1024 * 1024;
+const maxAndroidArtifactBytes = 320 * 1024 * 1024;
 const maxAndroidMappingBytes = 128 * 1024 * 1024;
 const maxAndroidMetadataBytes = 4 * 1024 * 1024;
 const maxAndroidDebugKeystoreBytes = 1024 * 1024;
@@ -1275,10 +1275,14 @@ function sealedAndroidVerification(kind, artifact, tools, javaPath) {
     || canonicalJson([...result.signatureControlEntries].sort()) !== canonicalJson(result.signatureControlEntries)) {
     throw new Error(`Android ${kind.toUpperCase()} signature-control inventory is invalid`);
   }
-  if (kind === 'apk' && canonicalJson(result.apkSigningBlockIds) !== canonicalJson(['42726577', '504b4453', '7109871a'])) {
+  if (kind === 'apk') assertReviewedApkSigningBlockIds(result.apkSigningBlockIds);
+  return result;
+}
+
+export function assertReviewedApkSigningBlockIds(ids) {
+  if (canonicalJson(ids) !== canonicalJson(['42726577', '7109871a'])) {
     throw new Error('Android APK signing-block ID inventory is invalid');
   }
-  return result;
 }
 
 function trustedApksignerJar(sdkRoot) {

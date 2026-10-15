@@ -8,6 +8,7 @@ import pathlib
 import struct
 import tempfile
 import unittest
+from unittest.mock import patch
 import zipfile
 
 
@@ -19,6 +20,21 @@ SPEC.loader.exec_module(VERIFIER)
 
 
 class SealedAndroidVerifierTests(unittest.TestCase):
+    def test_artifact_snapshot_accepts_the_bound_and_rejects_one_more_byte(self):
+        with tempfile.TemporaryFile() as source, patch.object(VERIFIER, "MAX_ARTIFACT_BYTES", 32):
+            source.write(b"x" * 32)
+            source.seek(0)
+            descriptor, size, digest = VERIFIER.sealed_snapshot(source.fileno())
+            try:
+                self.assertEqual(size, 32)
+                self.assertEqual(digest, hashlib.sha256(b"x" * 32).hexdigest())
+            finally:
+                os.close(descriptor)
+            source.write(b"y")
+            source.seek(0)
+            with self.assertRaisesRegex(ValueError, "exceeds sealed verification limit"):
+                VERIFIER.sealed_snapshot(source.fileno())
+
     def test_aab_signature_control_digest_rejects_resigned_extra_metadata(self):
         payload = b"exact payload"
         payload_digest = base64.b64encode(hashlib.sha256(payload).digest()).decode("ascii")
@@ -478,7 +494,7 @@ class SealedAndroidVerifierTests(unittest.TestCase):
         with tempfile.TemporaryFile() as source:
             source.write(artifact(VERIFIER.EXPECTED_APK_SIGNING_BLOCK_IDS))
             source.seek(0)
-            self.assertEqual(VERIFIER.apk_signing_block_ids(source.fileno()), ["42726577", "504b4453", "7109871a"])
+            self.assertEqual(VERIFIER.apk_signing_block_ids(source.fileno()), ["42726577", "7109871a"])
         with tempfile.TemporaryFile() as source:
             source.write(artifact((*VERIFIER.EXPECTED_APK_SIGNING_BLOCK_IDS, 0xDEADBEEF)))
             source.seek(0)
