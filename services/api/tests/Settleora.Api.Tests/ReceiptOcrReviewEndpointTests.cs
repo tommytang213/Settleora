@@ -2730,8 +2730,13 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         Assert.Equal(0, await CountBillAdjustmentsAsync(testFactory, billId));
     }
 
-    [Fact]
-    public async Task SingleGrossItemWithIncludedTaxCanPreviewAndApplyWithoutAddingTaxTwice()
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task SingleGrossItemWithIncludedTaxCanPreviewAndApplyWithoutAddingTaxTwice(
+        bool explicitZeroServiceCharge, bool explicitZeroDiscount)
     {
         var testContext = CreateFactory();
         using var testFactory = testContext.Factory;
@@ -2744,8 +2749,8 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
             FileObjectStatuses.Active, removedAtUtc: null);
         using var client = testFactory.CreateClient();
 
-        const string reviewJson =
-            """
+        var reviewJson =
+            $$"""
             {
               "status":"reviewed",
               "source":"on_device",
@@ -2753,6 +2758,8 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
               "subtotalAmount":"20",
               "taxAmount":"4",
               "taxReconciliationMode":"add_to_base",
+              "serviceChargeAmount":{{(explicitZeroServiceCharge ? "\"0\"" : "null")}},
+              "discountAmount":{{(explicitZeroDiscount ? "\"0\"" : "null")}},
               "grandTotalAmount":"24",
               "lines":[{"text":"Gross item","quantity":"1","unitPriceAmount":"24","lineTotalAmount":"24"}]
             }
@@ -2768,21 +2775,23 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         using var previewResponse = await client.SendAsync(previewRequest);
         Assert.Equal(HttpStatusCode.OK, previewResponse.StatusCode);
         var preview = ReadApplyPreviewPayload(await previewResponse.Content.ReadAsStringAsync());
-        Assert.True(preview.CanApply);
-        Assert.DoesNotContain(ReceiptOcrReviewApplyPreviewIssueCodes.LineSumMismatch, preview.Warnings);
-
         var persisted = await ReadReceiptOcrReviewAsync(testFactory, saved.Id);
+        Assert.Equal(explicitZeroServiceCharge ? 0m : (decimal?)null, persisted.ServiceChargeAmount);
+        Assert.Equal(explicitZeroDiscount ? 0m : (decimal?)null, persisted.DiscountAmount);
         using var applyRequest = CreateJsonBearerRequest(HttpMethod.Post,
             PersonalOcrReviewApplyPath(billId, fileId), owner.RawSessionToken,
             ApplyRequestJson(persisted.UpdatedAtUtc));
         using var applyResponse = await client.SendAsync(applyRequest);
         Assert.Equal(HttpStatusCode.OK, applyResponse.StatusCode);
+        Assert.True(preview.CanApply);
+        Assert.DoesNotContain(ReceiptOcrReviewApplyPreviewIssueCodes.LineSumMismatch, preview.Warnings);
         Assert.Equal(1, ReadApplyPayload(await applyResponse.Content.ReadAsStringAsync()).AppliedItemCount);
         var bill = await ReadBillAsync(testFactory, billId);
         var applied = Assert.Single(bill.Items, item =>
             item.SourceKind == ExpenseBillItemSourceKinds.ReceiptOcrReviewApply && item.DeletedAtUtc is null);
         Assert.Equal(24m, applied.Amount);
         Assert.Equal(34m, bill.TotalAmount);
+        Assert.Equal(0, await CountBillAdjustmentsAsync(testFactory, billId));
     }
 
     [Fact]
