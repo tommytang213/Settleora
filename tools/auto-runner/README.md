@@ -1681,6 +1681,9 @@ offline
 provisioner clones only the pinned local `/opt/flutter` commit without
 hardlinks, copies only a pinned whole-cache inventory, checks version and file
 hashes, verifies the copied cache, and publishes an owner-only copy atomically.
+Every constructed SDK child path is resolved inside its checked root; pinned
+files and source-cache inventory reject symlinks before copying, and the
+copied cache digest is checked again before publication.
 Validation rechecks the pinned executable inventory before each mobile plan.
 Provisioning does not run from a model prompt. A missing or changed SDK fails
 validation closed. The scoped Codex

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, statSync,
-  rmSync, writeFileSync } from "node:fs";
+  rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -86,6 +86,25 @@ test("provisioner rejects a forged pin filename before accessing source paths", 
 test("provisioner rejects changed bytes inside an allowed cache subtree", () => fixture(({ source, logsRoot, pin }) => {
   writeFileSync(path.join(source, "bin/cache/dart-sdk/bin/hidden-file"), "unexpected bytes\n");
   assert.throws(() => provisionPrivateFlutterSdk(logsRoot, { sourceRoot: source, pin }), /cache_pin_mismatch/);
+}));
+
+test("cache inventory rejects symlink escapes and noncanonical roots", () => fixture(({ source, logsRoot, pin }) => {
+  const cache = path.join(source, "bin/cache");
+  assert.throws(() => cacheTreeDigests(`${cache}/../cache`), /path_untrusted/);
+  symlinkSync(path.join(source, "pubspec.lock"), path.join(cache, "dart-sdk", "outside"));
+  assert.throws(() => provisionPrivateFlutterSdk(logsRoot, { sourceRoot: source, pin }), /cache_source_untrusted/);
+  assert.equal(existsSync(path.join(logsRoot, "toolchains")), false);
+}));
+
+test("pinned files reject an intermediate directory symlink", () => fixture(({ parent, source, logsRoot, pin }) => {
+  const original = path.join(source, "packages/flutter_tools");
+  const replacement = path.join(parent, "replacement-tools");
+  mkdirSync(replacement, { mode: 0o700 });
+  writeFileSync(path.join(replacement, "pubspec.lock"), readFileSync(path.join(original, "pubspec.lock")));
+  rmSync(original, { recursive: true });
+  symlinkSync(replacement, original);
+  assert.throws(() => provisionPrivateFlutterSdk(logsRoot, { sourceRoot: source, pin }), /file_untrusted/);
+  assert.equal(existsSync(path.join(logsRoot, "toolchains")), false);
 }));
 
 test("validation rejects changed or newly executable SDK cache files", () => fixture(({ source, logsRoot, pin }) => {

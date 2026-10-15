@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, closeSync, constants, cpSync, existsSync, lstatSync, mkdirSync, openSync,
-  readFileSync, readdirSync, readSync, realpathSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+  readFileSync, readdirSync, readlinkSync, readSync, realpathSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 // This pin describes the already installed DevBox SDK. A different SDK needs
@@ -59,6 +59,13 @@ function validateAbsolutePath(value) {
   }
 }
 
+function pathWithin(root, ...segments) {
+  validateAbsolutePath(root);
+  const target = path.resolve(root, ...segments);
+  if (target !== root && !target.startsWith(`${root}${path.sep}`)) fail("path_escape");
+  return target;
+}
+
 function git(args) {
   const result = spawnSync("/usr/bin/git", args, { encoding: "utf8", timeout: 120_000,
     env: gitEnv, stdio: ["ignore", "pipe", "pipe"] });
@@ -77,7 +84,8 @@ function privateDirectory(directory) {
 
 function hashFile(file) {
   const info = lstatSync(file);
-  if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1) fail("file_untrusted");
+  if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1
+      || realpathSync(file) !== file) fail("file_untrusted");
   const digest = createHash("sha256");
   const fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW);
   const buffer = Buffer.allocUnsafe(1024 * 1024);
@@ -93,14 +101,14 @@ function hashFile(file) {
 
 function verifyPinnedFiles(root, pin) {
   for (const [name, expected] of Object.entries(pin.files)) {
-    if (hashFile(path.join(root, name)) !== expected) fail("pin_mismatch");
+    if (hashFile(pathWithin(root, name)) !== expected) fail("pin_mismatch");
   }
-  if (readFileSync(path.join(root, "bin/cache/flutter_tools.stamp"), "utf8").trim()
+  if (readFileSync(pathWithin(root, "bin/cache/flutter_tools.stamp"), "utf8").trim()
       !== `${pin.commit}:`) fail("snapshot_stamp_mismatch");
 }
 
 function verifyCacheSource(root) {
-  const cache = path.join(root, "bin/cache");
+  const cache = pathWithin(root, "bin/cache");
   if (realpathSync(cache) !== cache) fail("cache_source_untrusted");
   for (const entry of readdirSync(cache)) if (!CACHE_ENTRIES.has(entry)) fail("cache_source_unexpected_entry");
   return cacheTreeDigests(cache);
@@ -113,7 +121,7 @@ export function cacheTreeDigests(cache) {
   const entries = [];
   const scan = (directory) => {
     for (const entry of readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name, "en"))) {
-      const item = path.join(directory, entry.name), info = lstatSync(item);
+      const item = pathWithin(cache, path.relative(cache, directory), entry.name), info = lstatSync(item);
       if (++count > 20_000) fail("cache_source_too_large");
       if (info.isDirectory()) scan(item);
       else if (info.isFile() && !info.isSymbolicLink() && info.nlink === 1) {
@@ -133,8 +141,9 @@ export function cacheTreeDigests(cache) {
 
 function confineCopiedTree(directory, root) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    const item = path.join(directory, entry.name), info = lstatSync(item);
+    const item = pathWithin(root, path.relative(root, directory), entry.name), info = lstatSync(item);
     if (info.isSymbolicLink()) {
+      if (path.isAbsolute(readlinkSync(item))) fail("copied_symlink_absolute");
       const resolved = realpathSync(item);
       if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) fail("copied_symlink_escape");
     } else if (info.isDirectory()) {
@@ -149,19 +158,19 @@ function confineCopiedTree(directory, root) {
 export function privateFlutterSdkRoot(logsRoot, pin = FLUTTER_SDK_PIN) {
   validatePin(pin);
   validateAbsolutePath(logsRoot);
-  return path.join(logsRoot, "toolchains", `flutter-${pin.commit}`);
+  return pathWithin(logsRoot, "toolchains", `flutter-${pin.commit}`);
 }
 
 export function verifyPrivateFlutterSdk(logsRoot, pin = FLUTTER_SDK_PIN) {
   validatePin(pin);
   validateAbsolutePath(logsRoot);
   privateDirectory(logsRoot);
-  const toolchains = path.join(logsRoot, "toolchains"), root = privateFlutterSdkRoot(logsRoot, pin);
+  const toolchains = pathWithin(logsRoot, "toolchains"), root = privateFlutterSdkRoot(logsRoot, pin);
   privateDirectory(toolchains);
   privateDirectory(root);
-  privateDirectory(path.join(root, ".git"));
-  privateDirectory(path.join(root, "bin/cache"));
-  const markerPath = path.join(root, ".settleora-private-flutter.json");
+  privateDirectory(pathWithin(root, ".git"));
+  privateDirectory(pathWithin(root, "bin/cache"));
+  const markerPath = pathWithin(root, ".settleora-private-flutter.json");
   const markerInfo = lstatSync(markerPath);
   if (!markerInfo.isFile() || markerInfo.isSymbolicLink() || markerInfo.nlink !== 1
       || (markerInfo.mode & 0o777) !== 0o600
@@ -174,7 +183,7 @@ export function verifyPrivateFlutterSdk(logsRoot, pin = FLUTTER_SDK_PIN) {
   if (changed && changed !== "pubspec.lock") fail("tracked_source_changed");
   if (git(["-C", root, "diff", "--cached", "--name-only"])) fail("tracked_source_changed");
   verifyPinnedFiles(root, pin);
-  if (cacheTreeDigests(path.join(root, "bin/cache")).executableDigest !== pin.executableDigest) {
+  if (cacheTreeDigests(pathWithin(root, "bin/cache")).executableDigest !== pin.executableDigest) {
     fail("cache_executable_mismatch");
   }
   return root;
@@ -191,42 +200,47 @@ export function provisionPrivateFlutterSdk(logsRoot, { sourceRoot = SOURCE_ROOT,
   const sourceCache = verifyCacheSource(sourceRoot);
   if (sourceCache.cacheDigest !== pin.cacheDigest
       || sourceCache.executableDigest !== pin.executableDigest) fail("cache_pin_mismatch");
-  const toolchains = path.join(logsRoot, "toolchains"), root = privateFlutterSdkRoot(logsRoot, pin);
+  const toolchains = pathWithin(logsRoot, "toolchains"), root = privateFlutterSdkRoot(logsRoot, pin);
   if (!existsSync(toolchains)) mkdirSync(toolchains, { mode: 0o700 });
   privateDirectory(toolchains);
   if (existsSync(root)) return verifyPrivateFlutterSdk(logsRoot, pin);
-  const stagingParent = path.join(toolchains, `.flutter-stage-${randomUUID()}`);
+  const stagingParent = pathWithin(toolchains, `.flutter-stage-${randomUUID()}`);
   mkdirSync(stagingParent, { mode: 0o700 });
-  const staging = path.join(stagingParent, "sdk");
+  const staging = pathWithin(stagingParent, "sdk");
   try {
     // file:// and --no-local force independent object bytes. The clone copies
     // tracked SDK source, not arbitrary untracked files or source Git config.
     git(["clone", "--no-local", "--depth", "1", "--single-branch", "--branch", pin.branch,
       `file://${sourceRoot}`, staging]);
     if (git(["-C", staging, "rev-parse", "HEAD"]) !== pin.commit) fail("source_changed_during_copy");
-    cpSync(path.join(sourceRoot, "pubspec.lock"), path.join(staging, "pubspec.lock"),
-      { force: true, preserveTimestamps: true });
-    cpSync(path.join(sourceRoot, "packages/flutter_tools/pubspec.lock"),
-      path.join(staging, "packages/flutter_tools/pubspec.lock"),
-      { force: true, preserveTimestamps: true });
-    cpSync(path.join(sourceRoot, "bin/cache"), path.join(staging, "bin/cache"),
-      { recursive: true, force: false, errorOnExist: true, preserveTimestamps: true });
+    cpSync(pathWithin(sourceRoot, "pubspec.lock"), pathWithin(staging, "pubspec.lock"),
+      { force: true, preserveTimestamps: true, dereference: false });
+    cpSync(pathWithin(sourceRoot, "packages/flutter_tools/pubspec.lock"),
+      pathWithin(staging, "packages/flutter_tools/pubspec.lock"),
+      { force: true, preserveTimestamps: true, dereference: false });
+    cpSync(pathWithin(sourceRoot, "bin/cache"), pathWithin(staging, "bin/cache"),
+      { recursive: true, force: false, errorOnExist: true, preserveTimestamps: true, dereference: false });
     // Flutter's shell launcher compares the flutter_tools manifest and lock
     // timestamps before using the pinned snapshot. Git checkout gives both
     // fresh timestamps in an unpredictable order; keep the copied lock newer.
     for (const prefix of ["", "packages/flutter_tools/"]) {
-      const yaml = path.join(staging, prefix, "pubspec.yaml");
-      const lock = path.join(staging, prefix, "pubspec.lock");
+      const yaml = pathWithin(staging, prefix, "pubspec.yaml");
+      const lock = pathWithin(staging, prefix, "pubspec.lock");
+      for (const file of [yaml, lock]) {
+        const info = lstatSync(file);
+        if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1
+            || realpathSync(file) !== file) fail("staging_manifest_untrusted");
+      }
       const now = new Date(Math.max(Date.now(), statSync(yaml).mtimeMs + 1000));
       utimesSync(lock, now, now);
     }
     verifyPinnedFiles(staging, pin);
-    if (cacheTreeDigests(path.join(staging, "bin/cache")).cacheDigest !== pin.cacheDigest) {
+    if (cacheTreeDigests(pathWithin(staging, "bin/cache")).cacheDigest !== pin.cacheDigest) {
       fail("cache_copy_mismatch");
     }
     confineCopiedTree(staging, staging);
     chmodSync(staging, 0o700);
-    writeFileSync(path.join(staging, ".settleora-private-flutter.json"), JSON.stringify({
+    writeFileSync(pathWithin(staging, ".settleora-private-flutter.json"), JSON.stringify({
       commit: pin.commit, pinDigest: createHash("sha256").update(JSON.stringify(pin)).digest("hex"),
     }), { flag: "wx", mode: 0o600 });
     renameSync(staging, root);
