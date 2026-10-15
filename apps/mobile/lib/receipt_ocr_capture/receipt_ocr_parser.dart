@@ -683,6 +683,9 @@ class ReceiptOcrParser {
         }
       }
     }
+    // Repetition can corroborate header segments later in the document, but
+    // a customer/payee section cannot supply that issuer evidence.
+    final corroborationEnd = issuerEnd;
     // Without an independently corroborated layout identity, the printed
     // document date closes the issuer header. A business word in an unpriced
     // purchase below that boundary cannot outscore the actual issuer or gain
@@ -820,8 +823,8 @@ class ReceiptOcrParser {
     // arbitrary product words do not gain that role from capitalization.
     if (parts.length > 1) {
       final identity = _foldOrganizationSegment(parts.join(' '));
-      final corroboratingRows = List.generate(issuerEnd, (index) => index)
-          .where(
+      final corroboratingRows =
+          List.generate(corroborationEnd, (index) => index).where(
             (index) =>
                 !indices.contains(index) &&
                 _foldOrganizationSegment(lines[index]) == identity,
@@ -847,7 +850,7 @@ class ReceiptOcrParser {
         lines[best.lineIndex + 1],
       );
       final prefix = '${organization.toLowerCase()} ';
-      for (var index = best.lineIndex + 1; index < issuerEnd; index++) {
+      for (var index = best.lineIndex + 1; index < corroborationEnd; index++) {
         final candidate = _cleanDescription(lines[index]);
         if (!candidate.toLowerCase().startsWith(prefix) ||
             candidate.length > 80 ||

@@ -8,7 +8,9 @@ void main() {
       'Tea USD 5.00\nTotal USD 5.00',
     );
     expect(preview.merchant, 'ALPHA');
+    expect(preview.items.single.description, 'Tea');
     expect(preview.adjustmentsComplete, isFalse);
+    expect(preview.reviewHints, isNotEmpty);
   });
 
   test(
@@ -67,4 +69,57 @@ void main() {
     expect(preview.merchant, 'Date House Cafe');
     expect(preview.adjustmentsComplete, isTrue);
   });
+
+  for (final header in [
+    'Harborline\nWater Services',
+    'HARBORLINE\nWATER SERVICES',
+    'ACME\nPROVISIONS',
+  ]) {
+    final identity = header.replaceAll('\n', ' ');
+    test('later repetition corroborates pre-date issuer segments: $header', () {
+      final preview = const ReceiptOcrParser().parse(
+        '$header\nBill Date: 2026-09-17\n'
+        'Water Charge USD 25.00\nTotal USD 25.00\n$identity',
+      );
+      expect(preview.merchant, identity);
+      expect(preview.items.map((item) => item.description), ['Water Charge']);
+    });
+  }
+
+  test('a buyer repetition cannot corroborate uppercase header segments', () {
+    final preview = const ReceiptOcrParser().parse(
+      'ACME\nPROVISIONS\nReceipt Date: 2026-09-17\n'
+      'Tea USD 5.00\nTotal USD 5.00\nBill To:\nACME PROVISIONS',
+    );
+    expect(preview.merchant, 'ACME');
+    expect(preview.adjustmentsComplete, isFalse);
+  });
+
+  for (final laterIdentity in [
+    'Harborline Loyalty Card',
+    'Harborline Water Services Team',
+    'Harborline Water Services USD 5.00',
+    'Bill To:\nHarborline Water Services',
+    'Ship To:\nHarborline Water Services',
+    'Customer:\nHarborline Water Services',
+  ]) {
+    test('unowned later text cannot extend issuer: $laterIdentity', () {
+      final preview = const ReceiptOcrParser().parse(
+        'Harborline\nWater Services\nBill Date: 2026-09-17\n'
+        'Water Charge USD 25.00\nTotal USD 25.00\n$laterIdentity',
+      );
+      expect(preview.merchant, 'Harborline');
+    });
+  }
+
+  for (final item in ['Cafe Latte', 'CAFE LATTE', 'Market Blend']) {
+    test('later repetition cannot own a post-date purchase: $item', () {
+      final preview = const ReceiptOcrParser().parse(
+        'ALPHA\nReceipt Date: 2026-09-17\n$item\n'
+        'Tea USD 5.00\nTotal USD 5.00\nALPHA $item',
+      );
+      expect(preview.merchant, 'ALPHA');
+      expect(preview.adjustmentsComplete, isFalse);
+    });
+  }
 }
