@@ -179,6 +179,130 @@ test("successful loading cannot substitute for a required acceptance test", () =
   });
 });
 
+function protocolLogWithLifecycle() {
+  const events = protocolLogWithLoading();
+  events.splice(events.length - 1, 0,
+    { type: "testStart", time: 4, test: { id: 90, suiteID: 1, groupIDs: [1], name: "(tearDownAll)", metadata: { skip: false, skipReason: null }, line: 50, column: 5, url: "package:integration_test/integration_test.dart" } },
+    { type: "testDone", time: 5, testID: 90, result: "success", skipped: false, hidden: true },
+  );
+  events.at(-1).time = 6;
+  return events;
+}
+
+test("accepts loading and integration teardown around all six acceptance tests", () => {
+  for (const nativeOrder of [false, true]) {
+    const events = protocolLogWithLifecycle();
+    if (nativeOrder) {
+      const allSuites = events.splice(events.findIndex((event) => event.type === "allSuites"), 1)[0];
+      events.splice(events.findIndex((event) => event.type === "testDone"), 0, allSuites);
+      const suite = events.find((event) => event.type === "suite").suite;
+      suite.path = "/workspace/checkout/apps/mobile/integration_test/receipt_ocr_real_provider_test.dart";
+      events.find((event) => event.test?.id === 0).test.name = `loading ${suite.path}`;
+    }
+    withLog(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`, (log) => {
+      const evidence = buildEvidence(evidenceArgs(log), repoRoot);
+      assert.equal(evidence.execution.protocolSucceeded, true);
+      assert.equal(isCompleteEvidence(evidence), false, "lifecycle success alone is not acceptance/package evidence");
+    });
+  }
+});
+
+test("integration teardown requires the exact framework identity and completed acceptance lifecycle", () => {
+  for (const mode of ["name", "suite", "groups", "nested-group", "skip", "reason", "url", "line", "column", "zero-line", "duplicate", "unfinished", "reused-loading-id", "reused-acceptance-id", "repeated-completion", "early", "missing-acceptance", "unfinished-acceptance", "group-during-loading", "group-after-teardown", "after-done"]) {
+    const events = protocolLogWithLifecycle();
+    const start = events.find((event) => event.test?.id === 90);
+    const done = events.find((event) => event.type === "testDone" && event.testID === 90);
+    if (mode === "name") start.test.name = "arbitrary hidden test";
+    if (mode === "suite") start.test.suiteID = 2;
+    if (mode === "groups") start.test.groupIDs = [];
+    if (mode === "nested-group") {
+      const root = events.find((event) => event.type === "group");
+      events.splice(events.indexOf(root) + 1, 0, { ...root, group: { ...root.group, id: 2, parentID: 1 } });
+      start.test.groupIDs = [1, 2];
+    }
+    if (mode === "skip") start.test.metadata.skip = true;
+    if (mode === "reason") start.test.metadata.skipReason = "unexpected";
+    if (mode === "url") start.test.url = "package:mobile/arbitrary.dart";
+    if (mode === "line") start.test.line = null;
+    if (mode === "column") start.test.column = null;
+    if (mode === "zero-line") start.test.line = 0;
+    if (mode === "duplicate") events.splice(events.indexOf(start), 0, structuredClone(start));
+    if (mode === "unfinished") events.splice(events.indexOf(done), 1);
+    if (mode === "reused-loading-id") start.test.id = done.testID = 0;
+    if (mode === "reused-acceptance-id") start.test.id = done.testID = 1;
+    if (mode === "repeated-completion") events.splice(events.indexOf(done), 0, structuredClone(done));
+    if (mode === "early") {
+      events.splice(events.indexOf(start), 1);
+      events.splice(events.findIndex((event) => event.test?.id === 6), 0, start);
+    }
+    if (mode === "missing-acceptance") {
+      for (let index = events.length - 1; index >= 0; index--) {
+        if (events[index].test?.id === 6 || events[index].testID === 6) events.splice(index, 1);
+      }
+    }
+    if (mode === "unfinished-acceptance") events.splice(events.findIndex((event) => event.type === "testDone" && event.testID === 6), 1);
+    if (mode === "group-during-loading") {
+      const group = events.splice(events.findIndex((event) => event.type === "group"), 1)[0];
+      events.splice(events.findIndex((event) => event.type === "testDone" && event.testID === 0), 0, group);
+    }
+    if (mode === "group-after-teardown") {
+      const group = structuredClone(events.find((event) => event.type === "group"));
+      group.group.id = 2;
+      events.splice(events.indexOf(done), 0, group);
+    }
+    if (mode === "after-done") {
+      const terminal = events.pop();
+      events.splice(events.indexOf(start), 0, terminal);
+    }
+    withLog(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`, (log) => {
+      assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot), undefined, mode);
+    });
+  }
+});
+
+test("combined hidden lifecycles cannot conceal failures or skipped/visible completion", () => {
+  for (const testID of [0, 90]) {
+    for (const mode of ["failure", "skipped", "visible", "error", "non-failure-error"]) {
+      const events = protocolLogWithLifecycle();
+      const done = events.find((event) => event.type === "testDone" && event.testID === testID);
+      if (mode === "failure") done.result = "failure";
+      if (mode === "skipped") done.skipped = true;
+      if (mode === "visible") done.hidden = false;
+      if (mode === "error" || mode === "non-failure-error") events.splice(events.indexOf(done), 0, {
+        type: "error", time: done.time, testID, error: "synthetic hidden failure", stackTrace: "", isFailure: mode === "error",
+      });
+      withLog(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`, (log) => {
+        const evidence = buildEvidence(evidenceArgs(log), repoRoot);
+        assert.equal(evidence.execution.protocolSucceeded, false, `${testID}/${mode}`);
+        assert.equal(isCompleteEvidence(evidence), false);
+        assert.equal(JSON.stringify(evidence).includes("synthetic hidden failure"), false);
+      });
+    }
+  }
+  const events = protocolLogWithLifecycle();
+  events.find((event) => event.type === "testDone" && event.testID === 6).result = "failure";
+  withLog(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`, (log) => {
+    assert.equal(buildEvidence(evidenceArgs(log), repoRoot).execution.protocolSucceeded, false);
+  });
+});
+
+test("combined hidden lifecycles cannot own output or bypass stderr rejection", () => {
+  for (const testID of [0, 90]) {
+    for (const message of ["unexpected output", "SETTLEORA_OCR_ACCEPTANCE={}", "SETTLEORA_OCR_UI_SMOKE={}", "SETTLEORA_OCR_DIAGNOSTIC={}"]) {
+      const events = protocolLogWithLifecycle();
+      const index = events.findIndex((event) => event.type === "testDone" && event.testID === testID);
+      events.splice(index, 0, { type: "print", time: 0, testID, messageType: "print", message });
+      withLog(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`, (log) => {
+        assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot), /suite-loading or integration-teardown/);
+      });
+    }
+  }
+  withLog(`${protocolLogWithLifecycle().map((event) => JSON.stringify(event)).join("\n")}\n`, (log) => {
+    writeFileSync(`${log}.stderr`, "synthetic stderr\n");
+    assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot), /non-allowlisted stderr/);
+  });
+});
+
 test("requires the actual sixth native test to finish successfully", () => {
   const events = protocolLog().trimEnd().split("\n").map(JSON.parse);
   const identity = events.find((event) => event.type === "testStart" &&

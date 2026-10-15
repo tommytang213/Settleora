@@ -442,6 +442,8 @@ function parseSafeRunnerLog(log, stderrBytes, platform) {
   const loadingTests = new Map();
   const loadingSuites = new Set();
   const completedLoadingIds = new Set();
+  const teardownTests = new Map();
+  const completedTeardownIds = new Set();
   const groups = new Map();
   const completedTestIds = new Set();
   for (const [index, line] of log.split(/\r?\n/).entries()) {
@@ -497,6 +499,8 @@ function parseSafeRunnerLog(log, stderrBytes, platform) {
     if (event.type === "group") {
       if (
         groups.has(event.group.id) ||
+        completedLoadingIds.size !== loadingTests.size ||
+        teardownTests.size !== 0 ||
         !suites.has(event.group.suiteID) ||
         (event.group.parentID != null && !groups.has(event.group.parentID))
       ) {
@@ -542,9 +546,31 @@ function parseSafeRunnerLog(log, stderrBytes, platform) {
           group.suiteID === event.test.suiteID &&
           group.parentID === (groupIndex === 0 ? null : event.test.groupIDs[groupIndex - 1]),
       );
+      // integration_test registers one root tearDownAll hook. It is a hidden
+      // framework lifecycle test after the six acceptance tests, never an
+      // additional acceptance result or an owner of application output.
+      if (event.test.name === "(tearDownAll)") {
+        if (
+          teardownTests.size !== 0 || startedTests.has(event.test.id) ||
+          loadingTests.has(event.test.id) || !suites.has(event.test.suiteID) ||
+          completedLoadingIds.size !== loadingTests.size ||
+          startedTests.size !== expectedTests.size ||
+          completedTestIds.size !== expectedTests.size ||
+          !validGroupChain || event.test.groupIDs.length !== 1 ||
+          event.test.metadata.skip || event.test.metadata.skipReason !== null ||
+          event.test.url !== "package:integration_test/integration_test.dart" ||
+          event.test.line == null || event.test.line < 1 ||
+          event.test.column == null || event.test.column < 1
+        ) {
+          throw new Error("Acceptance runner emitted an invalid integration teardown test");
+        }
+        teardownTests.set(event.test.id, event.test.suiteID);
+        continue;
+      }
       if (
         startedTests.has(event.test.id) ||
         loadingTests.has(event.test.id) ||
+        teardownTests.size !== 0 ||
         completedLoadingIds.size !== loadingTests.size ||
         !expectedTests.has(event.test.name) ||
         !suites.has(event.test.suiteID) ||
@@ -559,14 +585,15 @@ function parseSafeRunnerLog(log, stderrBytes, platform) {
     }
     if (event.type === "print" || event.type === "error" || event.type === "testDone") {
       const testId = event.testID;
-      if (loadingTests.has(testId)) {
-        if (completedLoadingIds.has(testId) || event.type === "print") {
-          throw new Error("Acceptance runner emitted output from an inactive or suite-loading test");
+      if (loadingTests.has(testId) || teardownTests.has(testId)) {
+        const completed = loadingTests.has(testId) ? completedLoadingIds : completedTeardownIds;
+        if (completed.has(testId) || event.type === "print") {
+          throw new Error("Acceptance runner emitted output from an inactive, suite-loading or integration-teardown test");
         }
         if (event.type === "error") {
           failedProtocolEvent = true;
         } else {
-          completedLoadingIds.add(testId);
+          completed.add(testId);
           if (event.result !== "success" || event.skipped || !event.hidden) {
             failedProtocolEvent = true;
           }
@@ -580,7 +607,8 @@ function parseSafeRunnerLog(log, stderrBytes, platform) {
     }
     if (event.type === "done") {
       if (startedTests.size === 0 || completedTestIds.size !== startedTests.size ||
-          completedLoadingIds.size !== loadingTests.size) {
+          completedLoadingIds.size !== loadingTests.size ||
+          completedTeardownIds.size !== teardownTests.size) {
         throw new Error("Acceptance runner completed with unfinished tests");
       }
       doneCount += 1;
@@ -632,6 +660,7 @@ function parseSafeRunnerLog(log, stderrBytes, platform) {
       startedTests.size === expectedTests.size &&
       completedTestIds.size === startedTests.size &&
       completedLoadingIds.size === loadingTests.size &&
+      completedTeardownIds.size === teardownTests.size &&
       protocolSucceeded &&
       !failedProtocolEvent,
   };
