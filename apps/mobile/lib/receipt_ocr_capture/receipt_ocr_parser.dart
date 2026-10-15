@@ -4,6 +4,8 @@ import 'receipt_ocr_preview.dart';
 import '../ui/settleora_form_fields.dart';
 
 final _unicodeLetterPattern = RegExp(r'\p{L}', unicode: true);
+const _namedMonthCalendarDatePattern =
+    r'\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+(\d{1,2}),?\s+(20\d{2}|19\d{2})\b';
 const _eastAsianCalendarDatePattern =
     r'\b(20\d{2}|19\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日?';
 const _yearFirstCalendarDatePattern =
@@ -1034,35 +1036,11 @@ class ReceiptOcrParser {
       }
 
       final monthMatches = RegExp(
-        r'\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+(\d{1,2}),?\s+(20\d{2}|19\d{2})\b',
+        _namedMonthCalendarDatePattern,
         caseSensitive: false,
       ).allMatches(line);
       for (final month in monthMatches) {
-        final monthIndex =
-            const [
-              'jan',
-              'feb',
-              'mar',
-              'apr',
-              'may',
-              'jun',
-              'jul',
-              'aug',
-              'sep',
-              'oct',
-              'nov',
-              'dec',
-            ].indexOf(month.group(1)!.substring(0, 3).toLowerCase()) +
-            1;
-        consider(
-          _formatDate(
-            int.parse(month.group(3)!),
-            monthIndex,
-            int.parse(month.group(2)!),
-          ),
-          month.start,
-          month.end,
-        );
+        consider(_dateFromNamedMonthMatch(month), month.start, month.end);
       }
       final eastAsianMatches = RegExp(
         _eastAsianCalendarDatePattern,
@@ -6222,16 +6200,11 @@ class ReceiptOcrParser {
           layoutRows[rowIndex],
           amountCell,
         );
-        if (nearbyCurrencyBlocks.length > 1) {
-          ambiguousAmountRows.add(rowIndex);
-          continue;
-        }
-        final currencyBlock = nearbyCurrencyBlocks.firstOrNull;
         final monetaryText = _normalizeOcrLine(
           [
-            if (currencyBlock != null &&
-                !amountColumnBlocks.contains(currencyBlock))
-              currencyBlock.text,
+            ...nearbyCurrencyBlocks
+                .where((block) => !amountColumnBlocks.contains(block))
+                .map((block) => block.text),
             ...amountColumnBlocks.map((block) => block.text),
           ].join(' '),
         );
@@ -6239,11 +6212,18 @@ class ReceiptOcrParser {
         // Own the entire column cell, including separately recognized words,
         // before allowing geometry to resolve the flattened row's ambiguity.
         final printedCurrency = _layoutItemCellCurrency(monetaryText, currency);
+        if (nearbyCurrencyBlocks.length > 1 &&
+            printedCurrency.currency == null) {
+          // Repetition is harmless only when every owned marker agrees.
+          // Competing or unresolved denominations still prevent selection.
+          ambiguousAmountRows.add(rowIndex);
+          continue;
+        }
         // A complete denomination beyond the heading still belongs to this
         // physical row. A repeated identical marker is harmless; conflicting
         // or unresolved markers prevent a single-currency item assertion.
         if (_hasUnresolvedOutsideCellCurrency(
-          outsideBlocks.where((block) => block != currencyBlock),
+          outsideBlocks.where((block) => !nearbyCurrencyBlocks.contains(block)),
           monetaryText,
           currency,
         )) {
@@ -6267,7 +6247,7 @@ class ReceiptOcrParser {
         if (lineTotal == null) continue;
         final descriptionBlocks = tableBlocks
             .where((block) {
-              if (block == currencyBlock) return false;
+              if (nearbyCurrencyBlocks.contains(block)) return false;
               final right = block.points
                   .map((point) => point.x)
                   .reduce((a, b) => a > b ? a : b);
@@ -6302,9 +6282,9 @@ class ReceiptOcrParser {
         if (descriptionBlocks.isNotEmpty &&
             !_chargeTableCellsSharePrintedRow([
               ...amountColumnBlocks,
-              if (currencyBlock != null &&
-                  !amountColumnBlocks.contains(currencyBlock))
-                currencyBlock,
+              ...nearbyCurrencyBlocks.where(
+                (block) => !amountColumnBlocks.contains(block),
+              ),
               ...descriptionBlocks,
             ])) {
           ambiguousAmountRows.add(rowIndex);
@@ -13517,10 +13497,41 @@ bool _isWholeLocalizedAddress(String line) {
 bool _isLabeledCalendarDateLine(String line) =>
     _labeledCalendarDate(line) != null;
 
+String? _dateFromNamedMonthMatch(RegExpMatch match) {
+  final month =
+      const [
+        'jan',
+        'feb',
+        'mar',
+        'apr',
+        'may',
+        'jun',
+        'jul',
+        'aug',
+        'sep',
+        'oct',
+        'nov',
+        'dec',
+      ].indexOf(match.group(1)!.substring(0, 3).toLowerCase()) +
+      1;
+  return _formatDate(
+    int.parse(match.group(3)!),
+    month,
+    int.parse(match.group(2)!),
+  );
+}
+
 String? _labeledCalendarDate(String line) {
   const labelName =
       r'(?:date|datum|fecha|data|日期|日付|날짜|дата|วันที่|तारीख|दिनांक)';
   const label = '^\\s*$labelName(?:\\s*/\\s*$labelName){0,2}\\s*[:：]?\\s*';
+  // Named and numeric dates share extraction's grammar and validation. Only
+  // a complete generic field supplies conflict evidence or metadata authority.
+  final namedMonth = RegExp(
+    '$label$_namedMonthCalendarDatePattern\\.?\\s*\$',
+    caseSensitive: false,
+  ).firstMatch(line);
+  if (namedMonth != null) return _dateFromNamedMonthMatch(namedMonth);
   // Use extraction's complete calendar grammar, anchored to the field.
   // A terminal full stop is punctuation, never another number or price.
   for (final pattern in [
