@@ -3876,6 +3876,29 @@ class ReceiptOcrParser {
         : _currencyAdjacentToSelectedAmount(monetaryText, receiptCurrency);
   }
 
+  bool _hasUnresolvedOutsideCellCurrency(
+    Iterable<ReceiptOcrBlockEvidence> outsideBlocks,
+    String monetaryText,
+    String? receiptCurrency,
+  ) {
+    final printed = _layoutItemCellCurrency(monetaryText, receiptCurrency);
+    // Column clipping cannot discard another denomination on the same row.
+    // A repeated identical marker is harmless; an unowned marker cannot
+    // establish or change the monetary cell's currency.
+    return outsideBlocks.any((block) {
+      if (!_isCurrencyOnlyOcrBlockText(_normalizeOcrLine(block.text))) {
+        return false;
+      }
+      final combined = _layoutItemCellCurrency(
+        '$monetaryText ${block.text}',
+        receiptCurrency,
+      );
+      return !combined.hasExplicitEvidence ||
+          combined.currency == null ||
+          combined.currency != printed.currency;
+    });
+  }
+
   ReceiptOcrItemCandidate? _extractLayoutItemFallback(
     List<String> lines,
     List<List<ReceiptOcrBlockEvidence>> layoutRows,
@@ -5634,7 +5657,7 @@ class ReceiptOcrParser {
       // Join the remaining row fragments so separate currency/amount cells and
       // explicit reference IDs receive the same interpretation as whole labels.
       final rateBlocks = <ReceiptOcrBlockEvidence>[];
-      final outsideEvidence = row
+      final outsideBlocks = row
           .where((block) {
             if (block == amountBlock ||
                 currencyBlocks.contains(block) ||
@@ -5649,6 +5672,16 @@ class ReceiptOcrParser {
             }
             return true;
           })
+          .toList(growable: false);
+      if (_hasUnresolvedOutsideCellCurrency(
+        outsideBlocks,
+        monetaryText,
+        currency,
+      )) {
+        unresolvedRows.add(rowIndex);
+        continue;
+      }
+      final outsideEvidence = outsideBlocks
           .map((block) => block.text.trim())
           .join(' ');
       final unexplainedOutsideNumber = _hasUnexplainedFinancialLabelNumber(
@@ -5968,18 +6001,11 @@ class ReceiptOcrParser {
         // A complete denomination beyond the heading still belongs to this
         // physical row. A repeated identical marker is harmless; conflicting
         // or unresolved markers prevent a single-currency item assertion.
-        if (outsideBlocks.any((block) {
-          if (block == currencyBlock ||
-              !_isCurrencyOnlyOcrBlockText(_normalizeOcrLine(block.text))) {
-            return false;
-          }
-          final combined = _layoutItemCellCurrency(
-            '$monetaryText ${block.text}',
-            currency,
-          );
-          return !combined.hasExplicitEvidence ||
-              combined.currency != printedCurrency.currency;
-        })) {
+        if (_hasUnresolvedOutsideCellCurrency(
+          outsideBlocks.where((block) => block != currencyBlock),
+          monetaryText,
+          currency,
+        )) {
           ambiguousAmountRows.add(rowIndex);
           continue;
         }
