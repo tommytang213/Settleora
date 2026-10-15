@@ -683,6 +683,35 @@ class ReceiptOcrParser {
         }
       }
     }
+    // Without an independently corroborated layout identity, the printed
+    // document date closes the issuer header. A business word in an unpriced
+    // purchase below that boundary cannot outscore the actual issuer or gain
+    // a merchant-row exemption from completeness review.
+    const documentDateLabel =
+        r'(?:(?:receipt|bill|invoice|statement|transaction|order|purchase)\s+date|date|dated|issued(?:\s+on)?)';
+    final dateField = RegExp(
+      '^\\s*$documentDateLabel\\s*[:：]?\\s*'
+      '${_utilityBoundaryDatePattern()}'
+      r'(?:\s+\d{1,2}:\d{2}(?::\d{2})?(?:\s*[ap]m)?)?\s*$',
+      caseSensitive: false,
+      unicode: true,
+    );
+    final dateLabelOnly = RegExp(
+      '^\\s*$documentDateLabel\\s*[:：]?\\s*\$',
+      caseSensitive: false,
+    );
+    for (var index = 0; index < issuerEnd; index++) {
+      var field = lines[index];
+      if (dateLabelOnly.hasMatch(field) && index + 1 < issuerEnd) {
+        field = '$field ${lines[index + 1]}';
+      }
+      // This boundary grants no date-value authority: an unresolved calendar
+      // field still separates header identity from subsequent purchases.
+      if (_isLabeledCalendarDateLine(field) || dateField.hasMatch(field)) {
+        issuerEnd = index;
+        break;
+      }
+    }
     ({String text, int lineIndex, int score})? best;
     final documentRight = layoutRows
         .expand((row) => row)
