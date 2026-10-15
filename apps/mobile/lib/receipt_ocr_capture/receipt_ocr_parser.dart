@@ -6661,6 +6661,10 @@ class ReceiptOcrParser {
           _isWrappedItemDescriptionCandidate(cleaned) &&
           !nonItemSummaryRows.contains(lineIndex + 1) &&
           !uncertainSummaryAmountRows.contains(lineIndex + 1) &&
+          // A currency-only monetary row is not a priced description. Its
+          // ownership must pass the shared physical check below before this
+          // unpriced line can be exempted from completeness accounting.
+          !_isStandaloneAmountRow(lines[lineIndex + 1]) &&
           _isPricedItemLine(lines[lineIndex + 1])) {
         continue;
       }
@@ -10160,6 +10164,32 @@ bool _isAdjacentRightColumnAmount(
   int descriptionIndex,
 ) {
   if (descriptionIndex + 1 >= layoutRows.length) return false;
+  bool validGeometry(ReceiptOcrBlockEvidence block) {
+    final points = block.points;
+    if (points.length != 4 ||
+        points.any((point) => !point.x.isFinite || !point.y.isFinite)) {
+      return false;
+    }
+    final turns = [
+      for (var index = 0; index < 4; index++)
+        (points[(index + 1) % 4].x - points[index].x) *
+                (points[(index + 2) % 4].y - points[(index + 1) % 4].y) -
+            (points[(index + 1) % 4].y - points[index].y) *
+                (points[(index + 2) % 4].x - points[(index + 1) % 4].x),
+    ];
+    return turns.every((turn) => turn.isFinite && turn > 0) ||
+        turns.every((turn) => turn.isFinite && turn < 0);
+  }
+
+  final descriptionRow = layoutRows[descriptionIndex];
+  final amountRow = layoutRows[descriptionIndex + 1];
+  if (descriptionRow.any((block) => !validGeometry(block)) ||
+      amountRow.any((block) => !validGeometry(block)) ||
+      (descriptionRow.length > 1 &&
+          !_chargeTableCellsSharePrintedRow(descriptionRow)) ||
+      (amountRow.length > 1 && !_chargeTableCellsSharePrintedRow(amountRow))) {
+    return false;
+  }
   final descriptionPoints = layoutRows[descriptionIndex]
       .expand((block) => block.points)
       .toList(growable: false);
@@ -10193,11 +10223,42 @@ bool _isAdjacentRightColumnAmount(
   final verticalGap = amountTop - descriptionBottom;
   final descriptionCenter = (descriptionTop + descriptionBottom) / 2;
   final amountCenter = (amountTop + amountBottom) / 2;
-  return rowHeight > 0 &&
+  if (!(rowHeight > 0 &&
       amountCenter > descriptionCenter + rowHeight * 0.5 &&
       verticalGap >= -rowHeight * 0.5 &&
       verticalGap <= rowHeight * 1.5 &&
-      amountLeft > descriptionRight + 8;
+      amountLeft > descriptionRight + 8)) {
+    return false;
+  }
+
+  final descriptionLeft = descriptionPoints
+      .map((point) => point.x)
+      .reduce((left, right) => left < right ? left : right);
+  final amountRight = amountPoints
+      .map((point) => point.x)
+      .reduce((left, right) => left > right ? left : right);
+  // Reading-order adjacency cannot own a price when another physical cell
+  // competes in the label/value corridor. Inspect every OCR row, including
+  // labels grouped before or after the pair, without a payment-word allowlist.
+  // Low-confidence text still disputes ownership. Unlocated/malformed evidence
+  // cannot establish a unique pair, so retain the unpriced item for review.
+  for (final block in layoutRows.expand((row) => row)) {
+    if (descriptionRow.contains(block) || amountRow.contains(block)) continue;
+    if (!validGeometry(block)) return false;
+    final top = block.points
+        .map((point) => point.y)
+        .reduce((a, b) => a < b ? a : b);
+    final bottom = block.points
+        .map((point) => point.y)
+        .reduce((a, b) => a > b ? a : b);
+    if (_blockRight(block) > descriptionLeft - rowHeight &&
+        _blockLeft(block) < amountRight + rowHeight &&
+        bottom > descriptionTop &&
+        top < amountBottom) {
+      return false;
+    }
+  }
+  return true;
 }
 
 bool _isFinancialLabelWithAdjacentAmount(
