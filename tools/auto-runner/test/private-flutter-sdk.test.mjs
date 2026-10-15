@@ -75,6 +75,14 @@ test("provisioner blocks unexpected source cache files before copying", () => fi
   assert.equal(existsSync(path.join(logsRoot, "toolchains")), false);
 }));
 
+test("provisioner rejects a forged pin filename before accessing source paths", () => fixture(({ source, logsRoot, pin }) => {
+  const files = { ...pin.files, "../outside": "0".repeat(64) };
+  assert.throws(() => provisionPrivateFlutterSdk(logsRoot, {
+    sourceRoot: source, pin: { ...pin, files },
+  }), /pin_untrusted/);
+  assert.equal(existsSync(path.join(logsRoot, "toolchains")), false);
+}));
+
 test("provisioner rejects changed bytes inside an allowed cache subtree", () => fixture(({ source, logsRoot, pin }) => {
   writeFileSync(path.join(source, "bin/cache/dart-sdk/bin/hidden-file"), "unexpected bytes\n");
   assert.throws(() => provisionPrivateFlutterSdk(logsRoot, { sourceRoot: source, pin }), /cache_pin_mismatch/);

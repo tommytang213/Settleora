@@ -25,6 +25,7 @@ export const FLUTTER_SDK_PIN = Object.freeze({
 });
 
 const SOURCE_ROOT = "/opt/flutter";
+const PINNED_FILE_NAMES = Object.freeze(Object.keys(FLUTTER_SDK_PIN.files).sort());
 const CACHE_ENTRIES = new Set([
   ".dartignore", "LICENSE.dart_sdk_archive.md", "android-internal-build-artifacts.stamp",
   "android-sdk.stamp", "artifacts", "dart-sdk", "downloads", "engine-dart-sdk.stamp",
@@ -40,6 +41,23 @@ const gitEnv = Object.freeze({ PATH: "/usr/bin:/bin", LANG: "C.UTF-8",
   GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0" });
 
 function fail(reason) { throw new Error(`private_flutter_sdk:${reason}`); }
+
+function validatePin(pin) {
+  if (!pin || !/^[a-f0-9]{40}$/.test(pin.commit) || pin.branch !== "stable"
+      || !/^[a-f0-9]{64}$/.test(pin.cacheDigest)
+      || !/^[a-f0-9]{64}$/.test(pin.executableDigest)
+      || !pin.files || typeof pin.files !== "object"
+      || JSON.stringify(Object.keys(pin.files).sort()) !== JSON.stringify(PINNED_FILE_NAMES)
+      || Object.values(pin.files).some((digest) => !/^[a-f0-9]{64}$/.test(digest))) {
+    fail("pin_untrusted");
+  }
+}
+
+function validateAbsolutePath(value) {
+  if (typeof value !== "string" || !path.isAbsolute(value) || path.resolve(value) !== value) {
+    fail("path_untrusted");
+  }
+}
 
 function git(args) {
   const result = spawnSync("/usr/bin/git", args, { encoding: "utf8", timeout: 120_000,
@@ -89,6 +107,8 @@ function verifyCacheSource(root) {
 }
 
 export function cacheTreeDigests(cache) {
+  validateAbsolutePath(cache);
+  if (realpathSync(cache) !== cache || !lstatSync(cache).isDirectory()) fail("cache_source_untrusted");
   let count = 0, bytes = 0;
   const entries = [];
   const scan = (directory) => {
@@ -127,12 +147,14 @@ function confineCopiedTree(directory, root) {
 }
 
 export function privateFlutterSdkRoot(logsRoot, pin = FLUTTER_SDK_PIN) {
-  if (!/^[a-f0-9]{40}$/.test(pin.commit) || !path.isAbsolute(logsRoot)
-      || path.resolve(logsRoot) !== logsRoot) fail("path_untrusted");
+  validatePin(pin);
+  validateAbsolutePath(logsRoot);
   return path.join(logsRoot, "toolchains", `flutter-${pin.commit}`);
 }
 
 export function verifyPrivateFlutterSdk(logsRoot, pin = FLUTTER_SDK_PIN) {
+  validatePin(pin);
+  validateAbsolutePath(logsRoot);
   privateDirectory(logsRoot);
   const toolchains = path.join(logsRoot, "toolchains"), root = privateFlutterSdkRoot(logsRoot, pin);
   privateDirectory(toolchains);
@@ -159,6 +181,9 @@ export function verifyPrivateFlutterSdk(logsRoot, pin = FLUTTER_SDK_PIN) {
 }
 
 export function provisionPrivateFlutterSdk(logsRoot, { sourceRoot = SOURCE_ROOT, pin = FLUTTER_SDK_PIN } = {}) {
+  validatePin(pin);
+  validateAbsolutePath(logsRoot);
+  validateAbsolutePath(sourceRoot);
   privateDirectory(logsRoot);
   if (realpathSync(sourceRoot) !== sourceRoot || !lstatSync(sourceRoot).isDirectory()) fail("source_untrusted");
   if (git(["-C", sourceRoot, "rev-parse", "HEAD"]) !== pin.commit) fail("source_commit_mismatch");
