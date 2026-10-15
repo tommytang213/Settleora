@@ -7742,9 +7742,10 @@ Subtotal USD 20.00
 Discount USD -5.00
 Total USD 15.00
 ''');
-    expect(independentlyPrintedDiscounts.items.map((item) => item.description), [
-      'Coffee',
-    ]);
+    expect(
+      independentlyPrintedDiscounts.items.map((item) => item.description),
+      ['Coffee'],
+    );
     expect(independentlyPrintedDiscounts.adjustmentsComplete, isFalse);
     expect(
       independentlyPrintedDiscounts.incompleteAdjustmentReasons,

@@ -5925,7 +5925,9 @@ class ReceiptOcrParser {
           layoutRows[rowIndex],
           amountCell,
           includeCreditAndAccountingMarkers: true,
-        ).any((marker) => _chargeTableCellsSharePrintedRow([amountCell, marker]))) {
+        ).any(
+          (marker) => _chargeTableCellsSharePrintedRow([amountCell, marker]),
+        )) {
           ambiguousAmountRows.add(rowIndex);
           continue;
         }
