@@ -110,7 +110,8 @@ test('signed workflow retains only the prepared archive and preserves the Xcode 
   const repo = path.resolve(import.meta.dirname, '../../..');
   const wrapper = readFileSync(path.join(repo, 'apps/mobile/tool/build-production-ios.sh'), 'utf8');
   const workflow = readFileSync(path.join(repo, 'codemagic.yaml'), 'utf8');
-  assert.match(workflow, /- \$CM_BUILD_DIR\/apps\/mobile\/build\/ios\/retained-archive\/\*\.xcarchive/);
+  assert.match(workflow, /- \$CM_BUILD_DIR\/apps\/mobile\/build\/ios\/verified-artifacts\/retained-archive\/\*\.xcarchive/);
+  assert.doesNotMatch(workflow, /- \$CM_BUILD_DIR\/apps\/mobile\/build\/ios\/retained-archive\/\*\.xcarchive/);
   assert.doesNotMatch(workflow, /- \$CM_BUILD_DIR\/apps\/mobile\/build\/ios\/archive\/\*\.xcarchive/);
   assert(wrapper.indexOf('prepare-retained-xcarchive.mjs') < wrapper.indexOf('archive_review=$(node'));
   assert.match(wrapper, /archive_path=\$PWD\/build\/ios\/retained-archive\/Runner\.xcarchive/);
