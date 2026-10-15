@@ -202,8 +202,34 @@ class ReceiptOcrParser {
                     _isRatedTaxNamedLine(lines[index]))))
           index,
     ];
-    final merchantDetection = _detectMerchant(lines, layoutRows);
+    final ownedMerchantNameBlocks = <ReceiptOcrBlockEvidence>{};
+    final merchantDetection = _detectMerchant(
+      lines,
+      layoutRows,
+      ownedNameBlocks: ownedMerchantNameBlocks,
+    );
     final merchant = merchantDetection?.text;
+    // Corroborating a split issuer owns only the actual name blocks. Keep
+    // neighboring prices, unpriced descriptions and date fields in their
+    // original rows for item extraction and completeness/date decisions.
+    // Currency and summary amounts above retain the complete source evidence.
+    final itemLayoutRows = [
+      for (final row in layoutRows)
+        if (row.any((block) => !ownedMerchantNameBlocks.contains(block)))
+          row
+              .where((block) => !ownedMerchantNameBlocks.contains(block))
+              .toList()
+        else
+          row,
+    ];
+    final itemLines = ownedMerchantNameBlocks.isEmpty
+        ? lines
+        : [
+            for (final row in itemLayoutRows)
+              _normalizeOcrLine(
+                row.map((block) => block.text.trim()).join(' '),
+              ),
+          ];
     final headerRoles = _ownedProminentReceiptHeader(
       lines,
       layoutRows,
@@ -260,11 +286,15 @@ class ReceiptOcrParser {
       currency,
     );
     final extractedItems = _extractItems(
-      lines,
+      itemLines,
       currency,
       selectedTotal: amounts.total,
       merchantLineIndices: merchantDetection?.lineIndices ?? const {},
-      layoutRows: layoutRows,
+      mixedMerchantRows: {
+        for (var index = 0; index < layoutRows.length; index++)
+          if (itemLayoutRows[index].length < layoutRows[index].length) index,
+      },
+      layoutRows: itemLayoutRows,
       chargeTableRows: recognizedChargeRows,
       ambiguousChargeTableRows: ambiguousChargeRows,
       layoutChargeItems: layoutChargeItems,
@@ -312,8 +342,8 @@ class ReceiptOcrParser {
             ) !=
             null;
     final ownedModifierRows = _ownedUnpricedModifierRows(
-      lines,
-      layoutRows,
+      itemLines,
+      itemLayoutRows,
       extractedItems.lineDecisions,
       itemCandidates,
       amounts,
@@ -321,10 +351,10 @@ class ReceiptOcrParser {
       hasCompletePricedItemEvidence: hasCompletePricedItemEvidence,
     );
     final unresolvedItemLines = _countUnresolvedItemLikeLines(
-      lines,
+      itemLines,
       merchantLineIndices: merchantDetection?.lineIndices ?? const {},
       merchantName: merchant,
-      layoutRows: layoutRows,
+      layoutRows: itemLayoutRows,
       layoutChargeItemRows: layoutChargeItems.keys.toSet(),
       hasBoundedDccFooterBoundary: hasBoundedDccFooterBoundary,
       ownedModifierRows: ownedModifierRows,
@@ -470,7 +500,7 @@ class ReceiptOcrParser {
     return ReceiptOcrPreview(
       merchant: merchant,
       receiptDate: _detectDate(
-        lines,
+        itemLines,
         selectTransactionDate: true,
         onAmbiguousReceiptDate: () => warnings.add(
           'Conflicting receipt dates were detected. Review the receipt date.',
@@ -546,8 +576,9 @@ class ReceiptOcrParser {
 
   ({String text, Set<int> lineIndices})? _detectMerchant(
     List<String> lines,
-    List<List<ReceiptOcrBlockEvidence>> layoutRows,
-  ) {
+    List<List<ReceiptOcrBlockEvidence>> layoutRows, {
+    Set<ReceiptOcrBlockEvidence>? ownedNameBlocks,
+  }) {
     // Every issuer strategy uses the same ownership boundary. Typography or
     // a business suffix on a buyer cannot make that buyer the receipt issuer.
     var issuerEnd = lines.length;
@@ -634,7 +665,29 @@ class ReceiptOcrParser {
                 }
               }
               if (repeated) {
-                return (text: identity, lineIndices: {0, rowIndex});
+                final nameBlocks = {first, block};
+                // A row exemption requires complete ownership. Only validated
+                // nonfinancial name blocks may be removed from a mixed row;
+                // ambiguous geometry, currency and date evidence stay visible.
+                ownedNameBlocks?.addAll(
+                  nameBlocks.where(
+                    (name) =>
+                        _receiptRoleBox([name]) != null &&
+                        !_layoutItemCellCurrency(
+                          name.text,
+                          null,
+                        ).hasExplicitEvidence &&
+                        !_hasPotentialReceiptAdjustmentLabel(name.text) &&
+                        _detectDate([name.text]) == null,
+                  ),
+                );
+                return (
+                  text: identity,
+                  lineIndices: {
+                    for (final index in [0, rowIndex])
+                      if (layoutRows[index].every(nameBlocks.contains)) index,
+                  },
+                );
               }
             }
           }
@@ -3301,6 +3354,7 @@ class ReceiptOcrParser {
     String? currency, {
     String? selectedTotal,
     Set<int> merchantLineIndices = const {},
+    Set<int> mixedMerchantRows = const {},
     List<List<ReceiptOcrBlockEvidence>> layoutRows = const [],
     Set<int> chargeTableRows = const {},
     Set<int> ambiguousChargeTableRows = const {},
@@ -3598,7 +3652,12 @@ class ReceiptOcrParser {
               ReceiptOcrItemLineDecision.unpricedDescription;
           continue;
         }
-        if (lineIndex > 0 && _isWrappedItemDescriptionCandidate(cleaned)) {
+        // Removing an independently owned name block does not establish that
+        // its unpriced neighbor continues into the next complete priced item.
+        // The geometry-backed adjacent-amount path above remains available.
+        if (lineIndex > 0 &&
+            !mixedMerchantRows.contains(lineIndex) &&
+            _isWrappedItemDescriptionCandidate(cleaned)) {
           wrappedDescriptionLines.add((index: lineIndex, text: cleaned));
           // Keep the OCR continuation window bounded so unrelated earlier
           // receipt copy cannot be pulled into a later priced row.
