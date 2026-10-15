@@ -183,7 +183,12 @@ export async function runSupervisorWorker(
 }
 
 export async function main() {
-  const runtimeConsumer = acquireRuntimeConsumer(moduleRuntimeRoot());
+  const logsIndex = process.argv.indexOf("--logs-root");
+  const selectedLogsRoot = logsIndex >= 0 ? process.argv[logsIndex + 1] : null;
+  if (!selectedLogsRoot || !path.isAbsolute(selectedLogsRoot) || path.resolve(selectedLogsRoot) !== selectedLogsRoot) {
+    throw new Error("supervisor worker requires canonical absolute --logs-root");
+  }
+  const runtimeConsumer = acquireRuntimeConsumer(moduleRuntimeRoot(), selectedLogsRoot);
   try {
   const recoveryEnvironment = { ...process.env, GIT_NO_REPLACE_OBJECTS: "1" };
   if (!resumedGitEnvironmentIsTrusted(recoveryEnvironment)) {
@@ -196,11 +201,6 @@ export async function main() {
     recoveryEnvironment,
   )) {
     throw new Error("supervisor worker startup Git repository authority is not trusted");
-  }
-  const logsIndex = process.argv.indexOf("--logs-root");
-  const selectedLogsRoot = logsIndex >= 0 ? process.argv[logsIndex + 1] : null;
-  if (!selectedLogsRoot || !path.isAbsolute(selectedLogsRoot) || path.resolve(selectedLogsRoot) !== selectedLogsRoot) {
-    throw new Error("supervisor worker requires canonical absolute --logs-root");
   }
   failureLogsRoot = selectedLogsRoot;
   const priorState = readSupervisorState(process.argv[2], selectedLogsRoot).state;

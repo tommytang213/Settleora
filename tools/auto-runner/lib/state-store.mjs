@@ -36,7 +36,7 @@ export function acquireRunnerLock(config, metadata = {}) {
   const acquired = [];
   let runtimeConsumerLock = null;
   try {
-    if (config.runtimeMode === "external") runtimeConsumerLock = acquireRuntimeConsumer(config.runtimeRoot);
+    if (config.runtimeMode === "external") runtimeConsumerLock = acquireRuntimeConsumer(config.runtimeRoot, config.logsRoot);
     for (const [target, repositoryAuthority] of [[repositoryLockPath, true], [lockPath, false]]) {
       acquireOneLock(target, {
         projectId: config.projectId,

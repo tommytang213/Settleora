@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { digestChangedFiles } from "./config.mjs";
 import { getValidationProfile } from "./lane-policy.mjs";
+import { verifyPrivateFlutterSdk } from "./private-flutter-sdk.mjs";
 
 export const mobileBuildPlatformChecks = Object.freeze({
   androidFlutterBuildApkDebug: "mobile-build:android:flutter-build-apk-debug",
@@ -14,10 +15,10 @@ export const mobileBuildPlatformChecks = Object.freeze({
 });
 
 const mobileBuildLocalCommandMap = Object.freeze({
-  [mobileBuildPlatformChecks.androidFlutterBuildApkDebug]: ["bash", ["-lc", "cd apps/mobile && /opt/flutter/bin/flutter build apk --debug"]],
+  [mobileBuildPlatformChecks.androidFlutterBuildApkDebug]: ["bash", ["-c", "cd apps/mobile && flutter build apk --debug"]],
   [mobileBuildPlatformChecks.androidGradleDebugRuntimeClasspath]: ["bash", ["-lc", "cd apps/mobile/android && ./gradlew :app:dependencies --configuration debugRuntimeClasspath"]],
   [mobileBuildPlatformChecks.androidGradleAssembleDebug]: ["bash", ["-lc", "cd apps/mobile/android && ./gradlew :app:assembleDebug"]],
-  [mobileBuildPlatformChecks.webFlutterBuildWeb]: ["bash", ["-lc", "cd apps/mobile && /opt/flutter/bin/flutter build web"]],
+  [mobileBuildPlatformChecks.webFlutterBuildWeb]: ["bash", ["-c", "cd apps/mobile && flutter build web"]],
 });
 
 export function planValidation(changedFiles, laneDecision) {
@@ -38,14 +39,27 @@ export function planValidation(changedFiles, laneDecision) {
   return plan;
 }
 
-export function runValidationPlan(config, plan) {
+export function runValidationPlan(config, plan, verifySdk = verifyPrivateFlutterSdk) {
   const results = [];
+  let environment = process.env;
+  if (plan.some((item) => /(?:^|\s)flutter\s|doctor:mobile|validate:mobile/.test(item.display))) {
+    try {
+      const sdkRoot = verifySdk(config.logsRoot);
+      environment = { ...process.env, PATH: `${sdkRoot}/bin:${process.env.PATH || "/usr/bin:/bin"}`,
+        FLUTTER_ROOT: sdkRoot };
+    } catch (error) {
+      return { passed: false, results: [{ command: "private Flutter SDK preflight", status: null,
+        stdout: "", stderr: "", error: String(error.message || error), platformBuildCheckId: null }],
+      profile: plan.profile || null, completedAt: new Date().toISOString() };
+    }
+  }
   for (const item of plan) {
     const cwd = validationCommandCwd(config, item);
     const result = spawnSync(item.command, item.args, {
       cwd,
       encoding: "utf8",
       windowsHide: true,
+      env: environment,
     });
     results.push({
       command: item.display,

@@ -3560,9 +3560,9 @@ test("client-ui-low-risk validation profile uses bounded Flutter mobile UI check
     "git status --short",
     "git diff --name-only",
     "git diff --check",
-    "bash -lc cd apps/mobile && /opt/flutter/bin/flutter pub get",
-    "bash -lc cd apps/mobile && /opt/flutter/bin/flutter analyze",
-    "bash -lc cd apps/mobile && /opt/flutter/bin/flutter test test/ui/settleora_component_guardrail_test.dart",
+    "bash -c cd apps/mobile && flutter pub get",
+    "bash -c cd apps/mobile && flutter analyze",
+    "bash -c cd apps/mobile && flutter test test/ui/settleora_component_guardrail_test.dart",
   ]);
 });
 
@@ -3786,23 +3786,23 @@ test("mobile-build-config validation profile is exact and lane-scoped", () => {
     ["git", ["status", "--short"]],
     ["git", ["diff", "--name-only"]],
     ["git", ["diff", "--check"]],
-    ["bash", ["-lc", "PATH=/opt/flutter/bin:$PATH npm run doctor:mobile"]],
-    ["bash", ["-lc", "cd apps/mobile && /opt/flutter/bin/flutter pub get"]],
-    ["bash", ["-lc", "cd apps/mobile && /opt/flutter/bin/flutter analyze"]],
-    ["bash", ["-lc", "cd apps/mobile && /opt/flutter/bin/flutter test"]],
+    ["npm", ["run", "doctor:mobile"]],
+    ["bash", ["-c", "cd apps/mobile && flutter pub get"]],
+    ["bash", ["-c", "cd apps/mobile && flutter analyze"]],
+    ["bash", ["-c", "cd apps/mobile && flutter test"]],
   ]);
   assert.deepEqual(planValidation(["apps/mobile/pubspec.yaml"], { ...lane, validationProfile: null }).map((item) => item.display), [
     "git status --short",
     "git diff --name-only",
     "git diff --check",
-    "bash -lc PATH=/opt/flutter/bin:$PATH npm run doctor:mobile",
-    "bash -lc cd apps/mobile && /opt/flutter/bin/flutter pub get",
-    "bash -lc cd apps/mobile && /opt/flutter/bin/flutter analyze",
-    "bash -lc cd apps/mobile && /opt/flutter/bin/flutter test",
-    "bash -lc cd apps/mobile && /opt/flutter/bin/flutter build apk --debug",
+    "npm run doctor:mobile",
+    "bash -c cd apps/mobile && flutter pub get",
+    "bash -c cd apps/mobile && flutter analyze",
+    "bash -c cd apps/mobile && flutter test",
+    "bash -c cd apps/mobile && flutter build apk --debug",
     "bash -lc cd apps/mobile/android && ./gradlew :app:dependencies --configuration debugRuntimeClasspath",
     "bash -lc cd apps/mobile/android && ./gradlew :app:assembleDebug",
-    "bash -lc cd apps/mobile && /opt/flutter/bin/flutter build web",
+    "bash -c cd apps/mobile && flutter build web",
   ]);
   assert.deepEqual(inferMobileBuildPlatformRequirements(["apps/mobile/pubspec.yaml"], lane).externalCheckIds, [
     mobileBuildPlatformChecks.iosExternalBuild,

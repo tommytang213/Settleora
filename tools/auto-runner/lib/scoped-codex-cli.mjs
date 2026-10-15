@@ -10,8 +10,6 @@ import path from "node:path";
 export const CODEX_BINARY = "/home/tommytang213/.npm-global/codex-versions/0.162.1/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex";
 const SCOPED_HOME = "/home/tommytang213";
 const SCOPED_PATH = "/usr/local/bin:/usr/bin:/bin";
-// The fixed DevBox Flutter CLI writes its startup lock inside this SDK cache.
-const FLUTTER_CACHE = "/opt/flutter/bin/cache";
 const GIT_ENV = Object.freeze({ PATH: SCOPED_PATH, LANG: "C.UTF-8", GIT_CONFIG_GLOBAL: "/dev/null",
   GIT_CONFIG_NOSYSTEM: "1", GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0" });
 const criticalUntil = Date.parse("2026-12-31T16:00:00Z"); // 2027-01-01 in Hong Kong.
@@ -62,16 +60,6 @@ function scopedCacheEnvironment(logsRoot, writable) {
   }).map(([key, name]) => [key, path.join(cacheRoot, name)]));
   if (writable) for (const directory of Object.values(directories)) privateCacheDirectory(directory);
   return directories;
-}
-
-export function optionalScopedCachePath(cachePath) {
-  let info;
-  try { info = lstatSync(cachePath); }
-  catch (error) { if (error?.code === "ENOENT") return null; throw error; }
-  if (!info.isDirectory() || info.isSymbolicLink() || realpathSync(cachePath) !== cachePath) {
-    fail("flutter_cache_untrusted");
-  }
-  return cachePath;
 }
 
 function publishReport(captureFd, reportPath, reportRoot) {
@@ -206,8 +194,7 @@ export function runScopedCodexCli(config, {
       "--cd", checkout.root, "-c", `model_reasoning_effort="${selected.effort}"`,
       "-c", 'service_tier="default"', "-c", 'shell_environment_policy.inherit="none"',
       "-c", `shell_environment_policy.set=${shellSet}`,
-      ...(purpose === "review" ? [] : ["--add-dir", path.join(logsRoot, "caches"),
-        ...(optionalScopedCachePath(FLUTTER_CACHE) ? ["--add-dir", FLUTTER_CACHE] : [])]),
+      ...(purpose === "review" ? [] : ["--add-dir", path.join(logsRoot, "caches")]),
       ...(captureFd !== null ? ["--output-last-message", "/proc/self/fd/3"] : []), "-"];
     const result = spawnImpl("/usr/bin/flock", args, {
       cwd: checkout.root, input: prompt, encoding: "utf8",

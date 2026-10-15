@@ -1669,9 +1669,25 @@ native inputs.
 
 The base `mobile-build-config` validation profile is fixed in runner source as:
 `git status --short`, `git diff --name-only`, `git diff --check`,
-`PATH=/opt/flutter/bin:$PATH npm run doctor:mobile`, Flutter `pub get`,
-Flutter `analyze`, and full Flutter `test` from `apps/mobile` using
-`/opt/flutter/bin/flutter`. The validation planner appends platform build
+`npm run doctor:mobile`, Flutter `pub get`, Flutter `analyze`, and full
+Flutter `test` from `apps/mobile`. The validation planner verifies a pinned
+private Flutter SDK under the existing owner-only `logsRoot/toolchains/` and
+prepends its `bin` directory to validation commands' PATH. The SDK must be
+provisioned once before a mobile lane with
+`node tools/auto-runner/provision-private-flutter-sdk.mjs`; this offline
+command accepts `--logs-root <configured absolute logsRoot>` for other runner
+configurations. The default is `/workspace/logs/auto-runner/Settleora`. The
+offline
+provisioner clones only the pinned local `/opt/flutter` commit without
+hardlinks, copies only a pinned whole-cache inventory, checks version and file
+hashes, verifies the copied cache, and publishes an owner-only copy atomically.
+Validation rechecks the pinned executable inventory before each mobile plan.
+Provisioning does not run from a model prompt. A missing or changed SDK fails
+validation closed. The scoped Codex
+CLI can write only to its checkout and `logsRoot/caches`, not `toolchains` or
+`/opt/flutter`; a read-only review has no added writable directory. The
+worker's `ReadWritePaths` remains the previously installed repo, logs, Codex,
+and GitHub CLI paths. The validation planner appends platform build
 proof from actual changed files. Android native/project changes append
 `flutter build apk --debug`,
 `./gradlew :app:dependencies --configuration debugRuntimeClasspath`, and
