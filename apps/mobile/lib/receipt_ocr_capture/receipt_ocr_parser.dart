@@ -5832,6 +5832,29 @@ class ReceiptOcrParser {
         descriptionBlocks,
         amountBlocks,
       );
+      // A heading labels its column; its printed width does not bound the
+      // description. Only a neighboring column can bound the outer edge.
+      final outerColumnEdges = header
+          .where(
+            (block) =>
+                block.points.isNotEmpty &&
+                !descriptionBlocks.contains(block) &&
+                !amountBlocks.contains(block) &&
+                (amountOnLeft
+                    ? _blockLeft(block) > descriptionRight
+                    : _blockRight(block) < descriptionLeft),
+          )
+          .map((block) => amountOnLeft ? _blockLeft(block) : _blockRight(block))
+          .toList(growable: false);
+      final descriptionOuterEdge = outerColumnEdges.isEmpty
+          ? (amountOnLeft ? double.infinity : double.negativeInfinity)
+          : amountOnLeft
+          ? (descriptionRight +
+                    outerColumnEdges.reduce((a, b) => a < b ? a : b)) /
+                2
+          : (descriptionLeft +
+                    outerColumnEdges.reduce((a, b) => a > b ? a : b)) /
+                2;
 
       for (
         var rowIndex = headerIndex + 1;
@@ -5846,9 +5869,31 @@ class ReceiptOcrParser {
             adjustmentRows.contains(rowIndex)) {
           continue;
         }
+        final graphBlocks = amountBlocks.length == 1
+            ? _ownedChargeTableGraphBlocks(
+                layoutRows,
+                headerIndex,
+                amountBlocks.single,
+              )
+            : const <ReceiptOcrBlockEvidence>{};
+        final referenceBlocks = _ownedChargeTableReferenceBlocks(
+          header,
+          layoutRows[rowIndex],
+        );
+        final meterBlocks = _ownedChargeTableMeterBlocks(
+          layoutRows,
+          headerIndex,
+        );
+        final extendedDescriptionBlocks = <ReceiptOcrBlockEvidence>[];
         final tableBlocks = layoutRows[rowIndex]
             .where((block) {
-              if (block.points.isEmpty) return false;
+              if (block.points.isEmpty ||
+                  graphBlocks.contains(block) ||
+                  referenceBlocks.contains(block) ||
+                  meterBlocks.contains(block) ||
+                  ownedContactBlocks.contains(block)) {
+                return false;
+              }
               final center =
                   block.points
                           .map((point) => point.x)
@@ -5862,13 +5907,31 @@ class ReceiptOcrParser {
                             (left, right) => left > right ? left : right,
                           ) /
                       2;
-              return center >=
-                      (amountOnLeft ? amountLeft : descriptionLeft) - 12 &&
-                  center <=
-                      (amountOnLeft ? descriptionRight : amountRight) + 12;
+              final inTable = amountOnLeft
+                  ? center >= amountLeft - 12 && center <= descriptionOuterEdge
+                  : center >= descriptionOuterEdge &&
+                        center <= amountRight + 12;
+              if (inTable &&
+                  (amountOnLeft
+                      ? center > descriptionRight + 12
+                      : center < descriptionLeft - 12)) {
+                extendedDescriptionBlocks.add(block);
+              }
+              return inTable;
             })
             .toList(growable: false);
         if (tableBlocks.isEmpty) continue;
+        // Extending a text column must not reclassify an unowned neighboring
+        // number or denomination as part of a product name.
+        if (extendedDescriptionBlocks.any(
+          (block) =>
+              _hasUnexplainedFinancialLabelNumber(block.text) ||
+              _printedCurrencyMarkerMatches(block.text).isNotEmpty ||
+              _unsupportedIsoCurrencyMarkers(block.text).isNotEmpty,
+        )) {
+          ambiguousAmountRows.add(rowIndex);
+          continue;
+        }
         final tableText = _normalizeOcrLine(
           tableBlocks.map((block) => block.text.trim()).join(' '),
         );
@@ -5923,21 +5986,6 @@ class ReceiptOcrParser {
           continue;
         }
         final amountCell = amountCells.single;
-        final graphBlocks = amountBlocks.length == 1
-            ? _ownedChargeTableGraphBlocks(
-                layoutRows,
-                headerIndex,
-                amountBlocks.single,
-              )
-            : const <ReceiptOcrBlockEvidence>{};
-        final referenceBlocks = _ownedChargeTableReferenceBlocks(
-          header,
-          layoutRows[rowIndex],
-        );
-        final meterBlocks = _ownedChargeTableMeterBlocks(
-          layoutRows,
-          headerIndex,
-        );
         final outsideBlocks = layoutRows[rowIndex]
             .where(
               (block) =>
@@ -5951,6 +5999,19 @@ class ReceiptOcrParser {
         final outsideEvidence = outsideBlocks
             .map((block) => block.text.trim())
             .join(' ');
+        // Without usable geometry an unowned word may be part of Description.
+        // Do not publish a shortened name by silently dropping that evidence.
+        if (outsideBlocks.any(
+          (block) =>
+              block.text.trim().isNotEmpty &&
+              (block.points.length != 4 ||
+                  block.points.any(
+                    (point) => !point.x.isFinite || !point.y.isFinite,
+                  )),
+        )) {
+          ambiguousAmountRows.add(rowIndex);
+          continue;
+        }
         // The heading's width does not bound the printed monetary evidence.
         // An unexplained neighboring price still competes with this cell.
         if (_hasUnexplainedFinancialLabelNumber(outsideEvidence)) {
