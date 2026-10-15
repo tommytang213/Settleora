@@ -438,6 +438,10 @@ function parseSafeRunnerLog(log, stderrBytes, platform) {
   let protocolDone = false;
   const startedTests = new Map();
   const suites = new Set();
+  const suitePaths = new Map();
+  const loadingTests = new Map();
+  const loadingSuites = new Set();
+  const completedLoadingIds = new Set();
   const groups = new Map();
   const completedTestIds = new Set();
   for (const [index, line] of log.split(/\r?\n/).entries()) {
@@ -484,6 +488,7 @@ function parseSafeRunnerLog(log, stderrBytes, platform) {
     if (event.type === "suite") {
       if (suites.has(event.suite.id)) throw new Error("Acceptance runner emitted a duplicate suite");
       suites.add(event.suite.id);
+      suitePaths.set(event.suite.id, event.suite.path);
       suiteCount += 1;
       if (!event.suite.path.endsWith("integration_test/receipt_ocr_real_provider_test.dart")) {
         throw new Error("Acceptance runner suite identity is invalid");
@@ -513,6 +518,24 @@ function parseSafeRunnerLog(log, stderrBytes, platform) {
       }
     }
     if (event.type === "testStart") {
+      // Flutter reports suite loading as a hidden test with no groups. Bind
+      // that lifecycle to the declared suite path, separately from the six
+      // required acceptance tests; it can never own application markers.
+      if (event.test.name === `loading ${suitePaths.get(event.test.suiteID)}`) {
+        if (
+          startedTests.has(event.test.id) || loadingTests.has(event.test.id) ||
+          !suites.has(event.test.suiteID) || loadingSuites.has(event.test.suiteID) ||
+          startedTests.size !== 0 || groups.size !== 0 ||
+          event.test.groupIDs.length !== 0 || event.test.metadata.skip ||
+          event.test.metadata.skipReason !== null || event.test.line !== null ||
+          event.test.column !== null || event.test.url !== null
+        ) {
+          throw new Error("Acceptance runner emitted an invalid suite-loading test");
+        }
+        loadingTests.set(event.test.id, event.test.suiteID);
+        loadingSuites.add(event.test.suiteID);
+        continue;
+      }
       const referencedGroups = event.test.groupIDs.map((id) => groups.get(id));
       const validGroupChain = referencedGroups.length > 0 && referencedGroups.every(
         (group, groupIndex) => group != null &&
@@ -521,6 +544,8 @@ function parseSafeRunnerLog(log, stderrBytes, platform) {
       );
       if (
         startedTests.has(event.test.id) ||
+        loadingTests.has(event.test.id) ||
+        completedLoadingIds.size !== loadingTests.size ||
         !expectedTests.has(event.test.name) ||
         !suites.has(event.test.suiteID) ||
         !validGroupChain
@@ -534,13 +559,28 @@ function parseSafeRunnerLog(log, stderrBytes, platform) {
     }
     if (event.type === "print" || event.type === "error" || event.type === "testDone") {
       const testId = event.testID;
+      if (loadingTests.has(testId)) {
+        if (completedLoadingIds.has(testId) || event.type === "print") {
+          throw new Error("Acceptance runner emitted output from an inactive or suite-loading test");
+        }
+        if (event.type === "error") {
+          failedProtocolEvent = true;
+        } else {
+          completedLoadingIds.add(testId);
+          if (event.result !== "success" || event.skipped || !event.hidden) {
+            failedProtocolEvent = true;
+          }
+        }
+        continue;
+      }
       if (!startedTests.has(testId) || completedTestIds.has(testId)) {
         throw new Error("Acceptance runner referenced an inactive test");
       }
       if (event.type === "testDone") completedTestIds.add(testId);
     }
     if (event.type === "done") {
-      if (startedTests.size === 0 || completedTestIds.size !== startedTests.size) {
+      if (startedTests.size === 0 || completedTestIds.size !== startedTests.size ||
+          completedLoadingIds.size !== loadingTests.size) {
         throw new Error("Acceptance runner completed with unfinished tests");
       }
       doneCount += 1;
@@ -591,6 +631,7 @@ function parseSafeRunnerLog(log, stderrBytes, platform) {
       doneCount === 1 &&
       startedTests.size === expectedTests.size &&
       completedTestIds.size === startedTests.size &&
+      completedLoadingIds.size === loadingTests.size &&
       protocolSucceeded &&
       !failedProtocolEvent,
   };

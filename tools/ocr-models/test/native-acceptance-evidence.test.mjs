@@ -89,6 +89,96 @@ test("accepts Flutter 3.44.8 start events with a null runner version", () => {
   });
 });
 
+function protocolLogWithLoading() {
+  const events = protocolLog().trimEnd().split("\n").map(JSON.parse);
+  const suite = events.find((event) => event.type === "suite").suite;
+  const groupIndex = events.findIndex((event) => event.type === "group");
+  events.splice(groupIndex, 0,
+    { type: "testStart", time: 0, test: { id: 0, suiteID: suite.id, groupIDs: [], name: `loading ${suite.path}`, metadata: { skip: false, skipReason: null }, line: null, column: null, url: null } },
+    { type: "testDone", time: 0, testID: 0, result: "success", skipped: false, hidden: true },
+  );
+  return events;
+}
+
+test("accepts the bounded Flutter suite-loading lifecycle before all six tests", () => {
+  for (const suitePath of ["integration_test/receipt_ocr_real_provider_test.dart", "/workspace/checkout/apps/mobile/integration_test/receipt_ocr_real_provider_test.dart"]) {
+    const events = protocolLogWithLoading();
+    events.find((event) => event.type === "suite").suite.path = suitePath;
+    events.find((event) => event.test?.id === 0).test.name = `loading ${suitePath}`;
+    withLog(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`, (log) => {
+      assert.equal(buildEvidence(evidenceArgs(log), repoRoot).execution.protocolSucceeded, true);
+    });
+  }
+});
+
+test("suite loading remains bound to its declared identity and lifecycle", () => {
+  for (const mode of ["path", "suite", "groups", "skip", "reason", "location", "duplicate", "unfinished", "reused-id", "repeated-completion", "late"]) {
+    const events = protocolLogWithLoading();
+    const start = events.find((event) => event.test?.id === 0);
+    const done = events.find((event) => event.type === "testDone" && event.testID === 0);
+    if (mode === "path") start.test.name += ".other";
+    if (mode === "suite") start.test.suiteID = 2;
+    if (mode === "groups") start.test.groupIDs = [1];
+    if (mode === "skip") start.test.metadata.skip = true;
+    if (mode === "reason") start.test.metadata.skipReason = "unexpected";
+    if (mode === "location") start.test.url = "file:///unexpected.dart";
+    if (mode === "duplicate") events.splice(events.indexOf(start), 0, structuredClone(start));
+    if (mode === "unfinished") events.splice(events.indexOf(done), 1);
+    if (mode === "reused-id") events.find((event) => event.test?.id === 1).test.id = 0;
+    if (mode === "repeated-completion") events.splice(events.indexOf(done), 0, structuredClone(done));
+    if (mode === "late") {
+      events.splice(events.indexOf(start), 1);
+      events.splice(events.indexOf(done), 1);
+      events.splice(events.length - 1, 0, start, done);
+    }
+    withLog(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`, (log) => {
+      assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot), undefined, mode);
+    });
+  }
+});
+
+test("failed or visible loading cannot yield successful protocol evidence", () => {
+  for (const mode of ["failure", "skipped", "visible", "error", "non-failure-error"]) {
+    const events = protocolLogWithLoading();
+    const done = events.find((event) => event.type === "testDone" && event.testID === 0);
+    if (mode === "failure") done.result = "failure";
+    if (mode === "skipped") done.skipped = true;
+    if (mode === "visible") done.hidden = false;
+    if (mode === "error" || mode === "non-failure-error") {
+      events.splice(events.indexOf(done), 0, {
+        type: "error", time: 0, testID: 0, error: "synthetic load failure",
+        stackTrace: "", isFailure: mode === "error",
+      });
+    }
+    withLog(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`, (log) => {
+      const evidence = buildEvidence(evidenceArgs(log), repoRoot);
+      assert.equal(evidence.execution.protocolSucceeded, false, mode);
+      assert.equal(isCompleteEvidence(evidence), false, mode);
+      assert.equal(JSON.stringify(evidence).includes("synthetic load failure"), false);
+    });
+  }
+});
+
+test("suite loading cannot emit application output or acceptance markers", () => {
+  for (const message of ["unexpected output", "SETTLEORA_OCR_ACCEPTANCE={}", "SETTLEORA_OCR_UI_SMOKE={}", "SETTLEORA_OCR_DIAGNOSTIC={}"]) {
+    const events = protocolLogWithLoading();
+    const index = events.findIndex((event) => event.type === "testDone" && event.testID === 0);
+    events.splice(index, 0, { type: "print", time: 0, testID: 0, messageType: "print", message });
+    withLog(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`, (log) => {
+      assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot), /suite-loading/);
+    });
+  }
+});
+
+test("successful loading cannot substitute for a required acceptance test", () => {
+  const events = protocolLogWithLoading().filter((event) => event.test?.id !== 6 && event.testID !== 6);
+  withLog(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`, (log) => {
+    const evidence = buildEvidence(evidenceArgs(log), repoRoot);
+    assert.equal(evidence.execution.protocolSucceeded, false);
+    assert.equal(isCompleteEvidence(evidence), false);
+  });
+});
+
 test("requires the actual sixth native test to finish successfully", () => {
   const events = protocolLog().trimEnd().split("\n").map(JSON.parse);
   const identity = events.find((event) => event.type === "testStart" &&
