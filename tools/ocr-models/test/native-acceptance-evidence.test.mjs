@@ -766,8 +766,8 @@ test("retains only the bounded native acceptance schema", () => {
   );
 });
 
-test("complete evidence requires both package measurements and a positive delta", () => {
-  const evidence = {
+function completeEvidenceControl() {
+  return {
     platform: "android",
     execution: { testExitStatus: 0, protocolSucceeded: true, preflightFailurePhase: null },
     diagnostics: [],
@@ -808,6 +808,10 @@ test("complete evidence requires both package measurements and a positive delta"
     },
     identities: { baseCompositeSha256: "9".repeat(64) },
   };
+}
+
+test("complete evidence requires both package measurements and a positive delta", () => {
+  const evidence = completeEvidenceControl();
   assert.equal(isCompleteEvidence(evidence), true);
   // A recovered failure envelope cannot become accepted proof by attaching
   // otherwise complete execution/package fields or clearing its marker value.
@@ -1913,3 +1917,32 @@ test("rejects contradictory aggregate counts and package measurements", () => {
     );
   });
 });
+
+for (const lifecycle of [false, true]) {
+  for (const isFailure of [false, true]) {
+    test(`acceptance errors fail closed despite successful completion: lifecycle=${lifecycle}, assertion=${isFailure}`, () => {
+      for (let testID = 1; testID <= 6; testID += 1) {
+        const events = lifecycle ? protocolLogWithLifecycle() : protocolLog().trimEnd().split("\n").map(JSON.parse);
+        const complete = completeEvidenceControl();
+        withLog(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`, (log) => {
+          const clean = buildEvidence(evidenceArgs(log), repoRoot);
+          assert.equal(clean.execution.protocolSucceeded, true);
+          assert.equal(isCompleteEvidence({ ...complete, execution: clean.execution }), true);
+        });
+        const done = events.findIndex((event) => event.type === "testDone" && event.testID === testID);
+        events.splice(done, 0, {
+          type: "error", time: 2, testID, isFailure,
+          error: "synthetic acceptance error must not be retained",
+          stackTrace: "synthetic private path must not be retained",
+        });
+        withLog(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`, (log) => {
+          const evidence = buildEvidence(evidenceArgs(log), repoRoot);
+          assert.equal(evidence.execution.protocolSucceeded, false, `testID=${testID}`);
+          assert.equal(isCompleteEvidence({ ...complete, execution: evidence.execution }), false);
+          assert.equal(JSON.stringify(evidence).includes("synthetic acceptance error"), false);
+          assert.equal(JSON.stringify(evidence).includes("synthetic private path"), false);
+        });
+      }
+    });
+  }
+}

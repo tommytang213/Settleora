@@ -616,7 +616,7 @@ function parseSafeRunnerLog(log, stderrBytes, platform) {
       protocolDone = true;
     }
     if (
-      (event.type === "error" && event.isFailure) ||
+      event.type === "error" ||
       (event.type === "testDone" && (event.result !== "success" || event.skipped))
     ) {
       failedProtocolEvent = true;
