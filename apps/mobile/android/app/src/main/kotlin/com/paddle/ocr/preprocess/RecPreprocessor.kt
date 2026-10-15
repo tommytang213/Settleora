@@ -24,7 +24,29 @@ import kotlin.math.ceil
 data class RecPreprocessResult(
     val tensorData: FloatArray,
     val shape: LongArray,
-)
+) {
+    // Preserve original full-batch width, content pixels, and zero padding.
+    // A narrow crop must not be rebatched: its context affects CTC output.
+    fun withWhiteMargin(contentWidths: List<Int>, margin: Int): RecPreprocessResult {
+        require(margin == 0 || margin == 12)
+        if (margin == 0) return this
+        require(shape.size == 4 && shape.all { it > 0 && it <= Int.MAX_VALUE })
+        val (n, channels, height, width) = shape.map { it.toInt() }
+        require(contentWidths.size == n && contentWidths.all { it in 1..width })
+        require(n.toLong() * channels * height * width == tensorData.size.toLong())
+        val expandedWidth = width + margin * 2
+        val output = FloatArray(Math.multiplyExact(Math.multiplyExact(Math.multiplyExact(n, channels), height), expandedWidth))
+        for (batch in 0 until n) for (channel in 0 until channels) for (row in 0 until height) {
+            val source = ((batch * channels + channel) * height + row) * width
+            val target = ((batch * channels + channel) * height + row) * expandedWidth
+            val content = contentWidths[batch]
+            output.fill(1.0f, target, target + margin)
+            tensorData.copyInto(output, target + margin, source, source + content)
+            output.fill(1.0f, target + margin + content, target + margin * 2 + content)
+        }
+        return RecPreprocessResult(output, longArrayOf(n.toLong(), channels.toLong(), height.toLong(), expandedWidth.toLong()))
+    }
+}
 
 object RecPreprocessor {
     private const val FIXED_HEIGHT = 48
@@ -47,13 +69,15 @@ object RecPreprocessor {
         }
     }
 
-    fun preprocessBatch(crops: List<Mat>): RecPreprocessResult {
+    fun preprocessBatch(crops: List<Mat>, whiteMargin: Int = 0): RecPreprocessResult {
         // Bundled Paddle configs specify DecodeImage.img_mode=BGR. Keep that
         // channel order and resize to fixed height while preserving aspect ratio.
         val resizedMats = mutableListOf<Mat>()
         for (crop in crops) {
             resizedMats.add(resizeForRecognition(crop))
         }
+
+        val contentWidths = resizedMats.map { it.cols() }
 
         // Convert to float and normalize: (x / 255 - 0.5) / 0.5 = x / 127.5 - 1
         val floatMats = mutableListOf<Mat>()
@@ -108,6 +132,6 @@ object RecPreprocessor {
         return RecPreprocessResult(
             tensorData = tensorData,
             shape = longArrayOf(n.toLong(), 3, FIXED_HEIGHT.toLong(), maxW.toLong()),
-        )
+        ).withWhiteMargin(contentWidths, whiteMargin)
     }
 }

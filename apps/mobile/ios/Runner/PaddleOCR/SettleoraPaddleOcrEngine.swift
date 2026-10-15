@@ -132,7 +132,7 @@ final class SettleoraPaddleOcrEngine {
     )
     let detection = try await detector.detect(image, runtimeParams: runtime)
     let boxes = BoxSorter.sortInReadingOrder(detection.boxes)
-    guard boxes.count <= 128 else { throw SettleoraOcrError.tooManyLines }
+    guard boxes.count <= 256 else { throw SettleoraOcrError.tooManyLines }
     let crops: [CGImage]
     if boxes.isEmpty {
       crops = []
@@ -160,6 +160,14 @@ final class SettleoraPaddleOcrEngine {
         rotatedCandidates[index].append(rotated[index])
       }
     }
+    if let cyrillic = recognizers.first(where: { $0.spec.acceptedScripts == [.cyrillic] }) {
+      let uprightRecovery = try await recognizeRecovery(cyrillic, crops: crops, original: uprightCandidates)
+      let rotatedRecovery = try await recognizeRecovery(cyrillic, crops: rotatedCrops, original: rotatedCandidates)
+      for index in crops.indices {
+        if let recovered = uprightRecovery[index] { uprightCandidates[index].append(recovered) }
+        if let recovered = rotatedRecovery[index] { rotatedCandidates[index].append(recovered) }
+      }
+    }
     let uprightOrientationCandidates = uprightCandidates.map {
       ScriptRouteSelector.select($0) ?? $0[0]
     }
@@ -183,9 +191,23 @@ final class SettleoraPaddleOcrEngine {
       reverseRecognition: rotateDocument
     )
 
+    // Recovery cannot alter orientation or bootstrap corroboration from itself.
+    let original = candidates.map { ScriptRouteSelector.select($0) }
+    let recoveryPoints = boxes.map { box in
+      box.points.map { point -> CalendarDateRecovery.Point in
+        let normalized = documentOrientation.transform(
+          SettleoraOcrPoint(x: Double(point[0]), y: Double(point[1])),
+          sourceWidth: image.width, sourceHeight: image.height
+        )
+        return CalendarDateRecovery.Point(x: normalized.x, y: normalized.y)
+      }
+    }
+    let commonRecovery = try await recognizeCommonRecovery(
+      common, crops: rotateDocument ? rotatedCrops : crops, original: original, points: recoveryPoints
+    )
     var blocks: [SettleoraOcrBlock] = []
     for index in candidates.indices {
-      guard let accepted = ScriptRouteSelector.select(candidates[index]),
+      guard let accepted = commonRecovery[index] ?? original[index],
             accepted.confidence >= 0.1 else { continue }
       let points = boxes[index].points.map { point -> SettleoraOcrPoint in
         documentOrientation.transform(
@@ -234,6 +256,67 @@ final class SettleoraPaddleOcrEngine {
           pack: recognizer.spec
         )
       })
+    }
+    return output
+  }
+
+  private func recognizeRecovery(
+    _ recognizer: Recognizer, crops: [CGImage], original: [[ScriptCandidate]]
+  ) async throws -> [ScriptCandidate?] {
+    var output = [ScriptCandidate?](repeating: nil, count: crops.count)
+    // Match the original contiguous batches, including lines that need no
+    // recovery, so CTC receives the same full-batch width plus the fixed margin.
+    for indices in Array(crops.indices).chunked(maxCount: 4) {
+      guard indices.contains(where: { CyrillicRecovery.shouldProbe(original[$0]) }) else { continue }
+      let input = try recognizer.preprocessor.preprocessBatch(
+        indices.map { crops[$0] }, whiteMargin: CyrillicRecovery.whiteMargin
+      )
+      let raw = try await sessions.runRecognition(
+        packID: recognizer.spec.modelPackID, inputData: input.tensorData, shape: input.tensorShape
+      )
+      let decoded = try recognizer.decoder.decodeBatch(outputData: raw.data, outputShape: raw.shape)
+      guard decoded.count == indices.count else { throw SettleoraOcrError.invalidCatalog }
+      for (offset, value) in decoded.enumerated() {
+        let index = indices[offset]
+        let candidate = ScriptCandidate(
+          text: RecognizedTextNormalizer.normalize(value.text.trimmingCharacters(in: .whitespacesAndNewlines), pack: recognizer.spec),
+          confidence: value.confidence, pack: recognizer.spec
+        )
+        if CyrillicRecovery.accepts(original[index], recovery: candidate) { output[index] = candidate }
+      }
+    }
+    return output
+  }
+
+  private func recognizeCommonRecovery(
+    _ recognizer: Recognizer, crops: [CGImage], original: [ScriptCandidate?], points: [[CalendarDateRecovery.Point]]
+  ) async throws -> [ScriptCandidate?] {
+    var output = [ScriptCandidate?](repeating: nil, count: crops.count)
+    // Retain the original full batches and their canvas widths.
+    for indices in Array(crops.indices).chunked(maxCount: 4) {
+      guard indices.contains(where: {
+        PolishCurrencyRecovery.shouldProbe($0, original: original) ||
+          CalendarDateRecovery.shouldProbe($0, original: original, points: points)
+      }) else { continue }
+      let input = try recognizer.preprocessor.preprocessBatch(
+        indices.map { crops[$0] }, whiteMargin: PolishCurrencyRecovery.whiteMargin
+      )
+      let raw = try await sessions.runRecognition(
+        packID: recognizer.spec.modelPackID, inputData: input.tensorData, shape: input.tensorShape
+      )
+      let decoded = try recognizer.decoder.decodeBatch(outputData: raw.data, outputShape: raw.shape)
+      guard decoded.count == indices.count else { throw SettleoraOcrError.invalidCatalog }
+      for (offset, value) in decoded.enumerated() {
+        let index = indices[offset]
+        let candidate = ScriptCandidate(
+          text: RecognizedTextNormalizer.normalize(value.text.trimmingCharacters(in: .whitespacesAndNewlines), pack: recognizer.spec),
+          confidence: value.confidence, pack: recognizer.spec
+        )
+        if PolishCurrencyRecovery.accepts(index, original: original, recovery: candidate) ||
+          CalendarDateRecovery.accepts(index, original: original, points: points, recovery: candidate) {
+          output[index] = candidate
+        }
+      }
     }
     return output
   }

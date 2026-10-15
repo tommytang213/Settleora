@@ -1141,6 +1141,10 @@ String receiptOcrReviewIssueLabel(ReceiptOcrReviewApplyPreviewIssueCode issue) {
       'Line sum mismatch',
     ReceiptOcrReviewApplyPreviewIssueCodeValues.headerTotalMismatch =>
       'Header total mismatch',
+    ReceiptOcrReviewApplyPreviewIssueCodeValues.taxReconciliationUnresolved =>
+      'Tax inclusion needs review; correct the printed amounts or rescan before Apply',
+    ReceiptOcrReviewApplyPreviewIssueCodeValues.taxReconciliationInvalid =>
+      'Tax inclusion conflicts with subtotal, tax, or total; correct the amounts before Apply',
     ReceiptOcrReviewApplyPreviewIssueCodeValues.adjustmentsNotAutoApplied =>
       'Non-item adjustments are preserved but not automatically applied',
     ReceiptOcrReviewApplyPreviewIssueCodeValues

@@ -590,8 +590,9 @@ function collectWeb(repoRoot, input, source) {
 }
 
 function collectAndroid(repoRoot, input, source) {
-  const apk = exactRegularFile(input.apkPath, 'Android APK', input.evidenceRoot);
-  const aab = exactRegularFile(input.aabPath, 'Android AAB', input.evidenceRoot);
+  const maxAndroidArtifactBytes = 320 * 1024 * 1024;
+  const apk = exactRegularFile(input.apkPath, 'Android APK', input.evidenceRoot, maxAndroidArtifactBytes);
+  const aab = exactRegularFile(input.aabPath, 'Android AAB', input.evidenceRoot, maxAndroidArtifactBytes);
   const mapping = exactRegularFile(input.mappingPath, 'Android R8 mapping', input.evidenceRoot, 128 * 1024 * 1024);
   if (mapping.size === 0 || !mapping.bytes.toString('utf8').startsWith('# compiler: R8\n')) fail('Android R8 mapping must be a non-empty R8 mapping');
   if (hexDigest(input.embeddedR8MappingSha256, 'Android embedded R8 mapping SHA-256') !== sha256(mapping.bytes)) fail('Android R8 mapping does not match the signed AAB');

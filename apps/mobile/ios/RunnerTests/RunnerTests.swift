@@ -5,6 +5,201 @@ import XCTest
 
 class RunnerTests: XCTestCase {
 
+  func testCalendarDateRecoveryPreservesDigitsAndRequiresOriginalGeometry() {
+    let pack = RecognizerSpec(modelPackID: "common", modelVersion: "test", modelPath: "/test", configPath: "/test", acceptedScripts: [.common])
+    func candidate(_ text: String, _ confidence: Float = 0.95, _ spec: RecognizerSpec? = nil) -> ScriptCandidate {
+      ScriptCandidate(text: text, confidence: confidence, pack: spec ?? pack)
+    }
+    func box(_ x: Double, _ y: Double, _ width: Double = 80, _ height: Double = 20) -> [CalendarDateRecovery.Point] {
+      [.init(x: x, y: y), .init(x: x + width, y: y), .init(x: x + width, y: y + height), .init(x: x, y: y + height)]
+    }
+    let points = [box(20, 10), box(130, 10, 160)]
+    let original: [ScriptCandidate?] = [candidate("Date:"), candidate("2031·0419")]
+    let recovery = candidate("2031·04·19·", 0.81)
+    for label in ["Date", "DATE:", "datum", "Fecha:", "Data", "日期：", "日付", "날짜", "Дата:", "วันที่", "तारीख", "दिनांक"] {
+      for date in ["2031·0419", "2000·0229", "2024·0229", "1900·0228", "1999·1231", "2099·0101"] {
+        let original: [ScriptCandidate?] = [candidate(label), candidate(date)]
+        let complete = String(date.prefix(7)) + "·" + String(date.suffix(2))
+        for suffix in ["", "·"] {
+          let recovered = candidate(complete + suffix, 0.81)
+          XCTAssertTrue(CalendarDateRecovery.shouldProbe(1, original: original, points: points))
+          XCTAssertTrue(CalendarDateRecovery.accepts(1, original: original, points: points, recovery: recovered))
+          XCTAssertEqual(recovered.confidence, Float(0.81)); XCTAssertEqual(recovered.pack, pack)
+          XCTAssertEqual(original[1]?.text, date)
+        }
+        XCTAssertFalse(CalendarDateRecovery.shouldProbe(0, original: original, points: points))
+      }
+    }
+    XCTAssertTrue(CalendarDateRecovery.accepts(1, original: [candidate("\tDate: "), candidate(" 2031·0419\t")], points: points, recovery: candidate("\t2031·04·19· ")))
+    for text in ["", "20310419", "2031·419", "2031·00419", "2031·04190", "2031·04·19", "2031·04·19·", "2031·0019", "2031·1319", "2031·0400", "2031·0431", "2031·0229", "1900·0229", "2100·0101", "1899·0101", "２０３１·０４１９", "٢٠٣١·٠٤١٩", "item 2031·0419", "2031·0419 USD", "2031·0419 7.00", "2031·0419\n", "-2031·0419"] {
+      XCTAssertFalse(CalendarDateRecovery.shouldProbe(1, original: [original[0], candidate(text)], points: points), text)
+      XCTAssertFalse(CalendarDateRecovery.accepts(1, original: [original[0], candidate(text)], points: points, recovery: recovery), text)
+    }
+    for text in ["Code", "Receipt date", "Due date", "Stay date", "Order date", "Date item", "Update", "Date 5.00", "日期 1", "日付\n"] { XCTAssertFalse(CalendarDateRecovery.shouldProbe(1, original: [candidate(text), original[1]], points: points), text) }
+    for text in ["2031·04·18", "2031·01·49", "2031·04·190", "2031·4·19", "2031·04·9", "2031·0419", "2031/04/19", "2031·04/19", "2031·04·19..", "2031·04·19··", "2031·04·19 USD", "2031·04·19 5.00", "2031·04·19\n", "２０３１·０４·１９", "-2031·04·19"] { XCTAssertFalse(CalendarDateRecovery.accepts(1, original: original, points: points, recovery: candidate(text)), text) }
+    XCTAssertFalse(CalendarDateRecovery.shouldProbe(-1, original: original, points: points))
+    XCTAssertFalse(CalendarDateRecovery.shouldProbe(2, original: original, points: points))
+    XCTAssertFalse(CalendarDateRecovery.shouldProbe(1, original: [nil, original[1]], points: points))
+    XCTAssertFalse(CalendarDateRecovery.shouldProbe(1, original: [original[0], nil], points: points))
+    XCTAssertFalse(CalendarDateRecovery.shouldProbe(0, original: [original[1]], points: [points[1]]))
+    XCTAssertFalse(CalendarDateRecovery.shouldProbe(1, original: original, points: [points[0]]))
+    XCTAssertTrue(CalendarDateRecovery.accepts(1, original: original, points: points.map { Array($0.reversed()) }, recovery: recovery))
+    let invalidBoxes: [[CalendarDateRecovery.Point]] = [
+      [], Array(points[0].prefix(3)), [points[0][0], points[0][2], points[0][1], points[0][3]],
+      Array(repeating: points[0][0], count: 4), box(-1, 10), box(20, -1),
+      box(.nan, 10), box(.infinity, 10), box(20, 10, .greatestFiniteMagnitude),
+      box(20, 50), box(20, 25), box(400, 10), box(120, 10),
+    ]
+    for invalid in invalidBoxes { XCTAssertFalse(CalendarDateRecovery.shouldProbe(1, original: original, points: [invalid, points[1]])) }
+    XCTAssertFalse(CalendarDateRecovery.shouldProbe(1, original: original, points: [points[0], box(1000, 10)]))
+    let competitors: [ScriptCandidate?] = [candidate("other"), candidate("", 0), nil]
+    for third in competitors { XCTAssertFalse(CalendarDateRecovery.shouldProbe(1, original: original + [third], points: points + [box(500, 10)])) }
+    XCTAssertTrue(CalendarDateRecovery.accepts(1, original: original + [candidate("separate row")], points: points + [box(20, 60)], recovery: recovery))
+    XCTAssertFalse(CalendarDateRecovery.shouldProbe(1, original: original + [candidate("other")], points: points + [[]]))
+    let different = [
+      RecognizerSpec(modelPackID: "other", modelVersion: "test", modelPath: "/test", configPath: "/test", acceptedScripts: [.common]),
+      RecognizerSpec(modelPackID: "common", modelVersion: "next", modelPath: "/test", configPath: "/test", acceptedScripts: [.common]),
+      RecognizerSpec(modelPackID: "common", modelVersion: "test", modelPath: "/other", configPath: "/test", acceptedScripts: [.common]),
+      RecognizerSpec(modelPackID: "common", modelVersion: "test", modelPath: "/test", configPath: "/other", acceptedScripts: [.common]),
+      RecognizerSpec(modelPackID: "common", modelVersion: "test", modelPath: "/test", configPath: "/test", acceptedScripts: [.korean]),
+    ]
+    for spec in different {
+      XCTAssertFalse(CalendarDateRecovery.shouldProbe(1, original: [candidate("Date:", 0.95, spec), original[1]], points: points))
+      XCTAssertFalse(CalendarDateRecovery.shouldProbe(1, original: [original[0], candidate("2031·0419", 0.95, spec)], points: points))
+      XCTAssertFalse(CalendarDateRecovery.accepts(1, original: original, points: points, recovery: candidate("2031·04·19·", 0.95, spec)))
+    }
+    for confidence in [Float(-1), 0, 0.7999, 1.0001, .nan, .infinity, -.infinity] {
+      XCTAssertFalse(CalendarDateRecovery.accepts(1, original: [candidate("Date:", confidence), original[1]], points: points, recovery: recovery))
+      XCTAssertFalse(CalendarDateRecovery.accepts(1, original: [original[0], candidate("2031·0419", confidence)], points: points, recovery: recovery))
+      XCTAssertFalse(CalendarDateRecovery.accepts(1, original: original, points: points, recovery: candidate("2031·04·19·", confidence)))
+    }
+    for confidence in [Float(0.8), 1] {
+      XCTAssertTrue(CalendarDateRecovery.accepts(1, original: [candidate("Date:", confidence), candidate("2031·0419", confidence)], points: points, recovery: candidate("2031·04·19·", confidence)))
+    }
+  }
+
+  func testPolishCurrencyRecoveryPreservesAmountsAndRejectsUnprovenChanges() {
+    let pack = RecognizerSpec(modelPackID: "common", modelVersion: "test", modelPath: "/test", configPath: "/test", acceptedScripts: [.common])
+    func candidate(_ text: String, _ confidence: Float = 0.95, _ spec: RecognizerSpec? = nil) -> ScriptCandidate {
+      ScriptCandidate(text: text, confidence: confidence, pack: spec ?? pack)
+    }
+    for amount in ["0,00", "7.20", "83,41", "-6,73", "+91.08", "−6,73", "1,823.41", "1.823,41", "9,876,543.21", "9.876.543,21"] {
+      for suffix in ["zl", "zì"] {
+        let original: [ScriptCandidate?] = [candidate("\(amount) \(suffix)"), candidate("2,18 zł"), candidate("$5.67")]
+        let recovery = candidate("\(amount) zł", 0.81)
+        XCTAssertTrue(PolishCurrencyRecovery.shouldProbe(0, original: original))
+        XCTAssertTrue(PolishCurrencyRecovery.accepts(0, original: original, recovery: recovery))
+        XCTAssertFalse(PolishCurrencyRecovery.shouldProbe(1, original: original))
+        XCTAssertFalse(PolishCurrencyRecovery.shouldProbe(2, original: original))
+        XCTAssertEqual(original[0]?.text, "\(amount) \(suffix)")
+        XCTAssertEqual(original[2]?.text, "$5.67")
+        XCTAssertEqual(recovery.confidence, Float(0.81))
+        XCTAssertEqual(recovery.pack, pack)
+      }
+    }
+    XCTAssertTrue(PolishCurrencyRecovery.accepts(0, original: [candidate(" \t83,41 zl\t "), candidate("2,18 zł")], recovery: candidate("83,41\tzł")))
+    for text in ["", "Word zl", "12 zl", "12,3 zl", "1,234 zl", "1,23,456.78 zl", "01,234.56 zl", "1.23,45 zl", "12.34zl", "12.34 zI", "12.34 zł", "12.34 PLN", "12.34 zł extra", "label 12.34 zl", "12.34 zl 56.78", "12.34 USD", "$12.34 zl", "12.34 €", "12/10/2026 zl", "١٢.٣٤ zl", "１２.３４ zl", "12.34\nzl", "12.34 zl", "--12.34 zl", "+-12.34 zl"] {
+      let original: [ScriptCandidate?] = [candidate(text), candidate("2,18 zł")]
+      XCTAssertFalse(PolishCurrencyRecovery.shouldProbe(0, original: original), text)
+      XCTAssertFalse(PolishCurrencyRecovery.accepts(0, original: original, recovery: candidate("83,41 zł")), text)
+    }
+    let damaged = candidate("83,41 zl"), proof = candidate("2,18 zł"), recovery = candidate("83,41 zł")
+    for text in ["83.41 zł", "83,42 zł", "8,341 zł", "-83,41 zł", "+83,41 zł", "083,41 zł", "83,410 zł", "83,41 zl", "83,41 zì", "83,41 PLN", "83,41 zł extra", "label 83,41 zł", "83,41 zł\nnoise", "83,41 $", ""] {
+      XCTAssertFalse(PolishCurrencyRecovery.accepts(0, original: [damaged, proof], recovery: candidate(text)), text)
+    }
+    for text in ["1823.41 zł", "1.823,41 zł", "1,823.42 zł"] {
+      XCTAssertFalse(PolishCurrencyRecovery.accepts(0, original: [candidate("1,823.41 zl"), proof], recovery: candidate(text)), text)
+    }
+    XCTAssertFalse(PolishCurrencyRecovery.shouldProbe(0, original: [damaged]))
+    XCTAssertFalse(PolishCurrencyRecovery.shouldProbe(0, original: [damaged, candidate("2,18 zl")]))
+    XCTAssertFalse(PolishCurrencyRecovery.shouldProbe(0, original: [damaged, candidate("VAT 2,18 zł")]))
+    XCTAssertFalse(PolishCurrencyRecovery.shouldProbe(-1, original: [damaged, proof]))
+    XCTAssertFalse(PolishCurrencyRecovery.shouldProbe(2, original: [damaged, proof]))
+    XCTAssertFalse(PolishCurrencyRecovery.shouldProbe(0, original: [nil, proof]))
+    let different = [
+      RecognizerSpec(modelPackID: "other", modelVersion: "test", modelPath: "/test", configPath: "/test", acceptedScripts: [.common]),
+      RecognizerSpec(modelPackID: "common", modelVersion: "next", modelPath: "/test", configPath: "/test", acceptedScripts: [.common]),
+      RecognizerSpec(modelPackID: "common", modelVersion: "test", modelPath: "/other", configPath: "/test", acceptedScripts: [.common]),
+      RecognizerSpec(modelPackID: "common", modelVersion: "test", modelPath: "/test", configPath: "/other", acceptedScripts: [.common]),
+      RecognizerSpec(modelPackID: "common", modelVersion: "test", modelPath: "/test", configPath: "/test", acceptedScripts: [.cyrillic]),
+    ]
+    for spec in different {
+      XCTAssertFalse(PolishCurrencyRecovery.shouldProbe(0, original: [damaged, candidate("2,18 zł", 0.95, spec)]))
+      XCTAssertFalse(PolishCurrencyRecovery.accepts(0, original: [damaged, proof], recovery: candidate("83,41 zł", 0.95, spec)))
+    }
+    XCTAssertFalse(PolishCurrencyRecovery.shouldProbe(0, original: [candidate("83,41 zl", 0.95, different.last!), proof]))
+    for confidence in [Float(-1), 0, 0.7999, 1.0001, .nan, .infinity, -.infinity] {
+      XCTAssertFalse(PolishCurrencyRecovery.accepts(0, original: [candidate("83,41 zl", confidence), proof], recovery: recovery))
+      XCTAssertFalse(PolishCurrencyRecovery.accepts(0, original: [damaged, candidate("2,18 zł", confidence)], recovery: recovery))
+      XCTAssertFalse(PolishCurrencyRecovery.accepts(0, original: [damaged, proof], recovery: candidate("83,41 zł", confidence)))
+    }
+    for confidence in [Float(0.8), 1] {
+      XCTAssertTrue(PolishCurrencyRecovery.accepts(0, original: [candidate("83,41 zl", confidence), candidate("2,18 zł", confidence)], recovery: candidate("83,41 zł", confidence)))
+    }
+  }
+
+  func testCyrillicRecoveryPreservesWinnersAndNumericEvidence() {
+    func candidate(_ id: String, _ script: ScriptEvidence, _ text: String, _ confidence: Float) -> ScriptCandidate {
+      ScriptCandidate(text: text, confidence: confidence, pack: RecognizerSpec(
+        modelPackID: id, modelVersion: "test", modelPath: "/test", configPath: "/test", acceptedScripts: [script]
+      ))
+    }
+    let common = candidate("common", .common, "Cyr", 0.85)
+    let original = candidate("cyrillic", .cyrillic, "Суr", 0.50)
+    let recovery = candidate("cyrillic", .cyrillic, "Сыр", 0.68)
+    let values = [common, original]
+    XCTAssertEqual(ScriptRouteSelector.select(values)?.text, common.text)
+    XCTAssertTrue(CyrillicRecovery.shouldProbe(values))
+    XCTAssertTrue(CyrillicRecovery.accepts(values, recovery: recovery))
+    XCTAssertEqual(ScriptRouteSelector.select(values + [recovery])?.text, recovery.text)
+    XCTAssertEqual(values.count, 2)
+    let empty = [candidate("common", .common, "", 0), candidate("cyrillic", .cyrillic, "HAC", 0.5)]
+    XCTAssertNil(ScriptRouteSelector.select(empty))
+    XCTAssertTrue(CyrillicRecovery.accepts(empty, recovery: recovery))
+    for confidence in [Float(0.90), 0.99, 1] {
+      let strong = [candidate("common", .common, "Example", confidence), candidate("cyrillic", .cyrillic, "HAC", 0.5)]
+      XCTAssertFalse(CyrillicRecovery.shouldProbe(strong))
+      XCTAssertFalse(CyrillicRecovery.accepts(strong, recovery: recovery))
+    }
+    XCTAssertFalse(CyrillicRecovery.accepts([common, candidate("cyrillic", .cyrillic, "Сыр", 0.8)], recovery: recovery))
+    for literal in ["Sep 09, 2025", "1", "٢", "३", "๔", "５", "𝟞", "$", "€", "₽", "₫", "₹"] {
+      XCTAssertFalse(CyrillicRecovery.shouldProbe([candidate("common", .common, literal, 0.8), original]), literal)
+      XCTAssertFalse(CyrillicRecovery.accepts(values, recovery: candidate("cyrillic", .cyrillic, "НАС \(literal)", 0.8)), literal)
+    }
+    for confidence in [Float(-1), 0, 0.099, 1.001, .nan, .infinity] {
+      XCTAssertFalse(CyrillicRecovery.accepts(values, recovery: candidate("cyrillic", .cyrillic, "НАС", confidence)))
+    }
+    for text in ["", "HAC", "ภาษาไทย", "كلمة", "AБCDE"] {
+      XCTAssertFalse(CyrillicRecovery.accepts(values, recovery: candidate("cyrillic", .cyrillic, text, 0.8)))
+    }
+    XCTAssertFalse(CyrillicRecovery.accepts(values, recovery: candidate("other", .cyrillic, "НАС", 0.8)))
+    XCTAssertFalse(CyrillicRecovery.accepts(values, recovery: candidate("common", .common, "Word", 0.8)))
+    XCTAssertFalse(CyrillicRecovery.shouldProbe([original]))
+    XCTAssertFalse(CyrillicRecovery.shouldProbe(values + [common]))
+  }
+
+  func testCyrillicWhiteMarginPreservesFullBatchTensor() {
+    let source = (1...60).map { Float($0) / 100 }
+    let input = RecBatchPreprocessResult(tensorData: source, tensorShape: [2, 3, 2, 5])
+    XCTAssertEqual(input.withWhiteMargin(contentWidths: [2, 5], margin: 0).tensorData, source)
+    let output = input.withWhiteMargin(contentWidths: [2, 5], margin: 12)
+    XCTAssertEqual(output.tensorShape, [2, 3, 2, 29])
+    for batch in 0..<2 {
+      for channel in 0..<3 {
+        for row in 0..<2 {
+          let width = batch == 0 ? 2 : 5
+          let from = ((batch * 3 + channel) * 2 + row) * 5
+          let to = ((batch * 3 + channel) * 2 + row) * 29
+          XCTAssertEqual(Array(output.tensorData[to..<(to + 12)]), [Float](repeating: 1, count: 12))
+          XCTAssertEqual(Array(output.tensorData[(to + 12)..<(to + 12 + width)]), Array(source[from..<(from + width)]))
+          XCTAssertEqual(Array(output.tensorData[(to + 12 + width)..<(to + 24 + width)]), [Float](repeating: 1, count: 12))
+          XCTAssertEqual(Array(output.tensorData[(to + 24 + width)..<(to + 29)]), [Float](repeating: 0, count: 5 - width))
+        }
+      }
+    }
+    XCTAssertEqual(input.tensorData, source)
+  }
+
   func testQuadTextCropReusesOnePreparedReceiptRaster() throws {
     let width = 12
     let height = 8
@@ -218,6 +413,88 @@ class RunnerTests: XCTestCase {
     )
 
     XCTAssertEqual(RecognizedTextNormalizer.normalize("\u{FE8E}A", pack: arabic), "A\u{FE8E}")
+  }
+
+
+  // Synthetic literals, not private receipt content or fixture expectations.
+  func testCurrencySymbolCompetitionPreservesLiteralAndScriptEvidence() {
+    let cases: [(String, String, Float, String, Float, ScriptEvidence, Bool)] = [
+      ("symbol_beats_lower_confidence_letter", "₹ 8,765.43", 0.943, "र 8,765.43", 0.93, .devanagari, true),
+      ("symbol_beats_nearby_letter", "₹ 1,23,456.78", 0.943, "र 1,23,456.78", 0.946, .devanagari, true),
+      ("suffix_symbol", "8.50 ₹", 0.95, "8.50 र", 0.95, .devanagari, true),
+      ("leading_negative", "-₹8.50", 0.95, "-र8.50", 0.95, .devanagari, true),
+      ("inner_negative", "₹−8.50", 0.95, "र−8.50", 0.95, .devanagari, true),
+      ("explicit_positive", "+₹8.50", 0.95, "+र8.50", 0.95, .devanagari, true),
+      ("decimal_comma", "₹8,50", 0.95, "र8,50", 0.95, .devanagari, true),
+      ("western_grouping", "₹12,345.67", 0.95, "र12,345.67", 0.95, .devanagari, true),
+      ("european_grouping", "₹12.345,67", 0.95, "र12.345,67", 0.95, .devanagari, true),
+      ("ambiguous_identical_separator", "₹1,234", 0.95, "र1,234", 0.95, .devanagari, true),
+      ("no_explicit_currency", "8.50", 0.95, "र8.50", 0.95, .devanagari, false),
+      ("currency_code_is_not_symbol", "INR 8.50", 0.95, "र8.50", 0.95, .devanagari, false),
+      ("currency_letters_remain_text", "₹8.50", 0.95, "रुपये 8.50", 0.95, .devanagari, false),
+      ("single_glyph_item", "X", 0.99, "차", 0.82, .korean, false),
+      ("mixed_script_words", "₹8.50", 0.95, "TOTAL रकम 8.50", 0.95, .devanagari, false),
+      ("local_numerals", "₹8.50", 0.95, "र८.५०", 0.95, .devanagari, false),
+      ("low_common_confidence", "₹8.50", 0.89, "र8.50", 0.9, .devanagari, false),
+      ("large_confidence_gap", "₹8.50", 0.91, "र8.50", 0.99, .devanagari, false),
+      ("opposite_signs", "₹-8.50", 0.95, "र+8.50", 0.95, .devanagari, false),
+      ("dropped_sign", "-₹8.50", 0.95, "र8.50", 0.95, .devanagari, false),
+      ("moved_sign", "-₹8.50", 0.95, "र-8.50", 0.95, .devanagari, false),
+      ("opposite_marker_position", "₹8.50", 0.95, "8.50 र", 0.95, .devanagari, false),
+      ("different_digits", "₹8.50", 0.95, "र8.60", 0.95, .devanagari, false),
+      ("different_separators", "₹8,50", 0.95, "र8.50", 0.95, .devanagari, false),
+      ("different_grouping", "₹1,234.50", 0.95, "र1234.50", 0.95, .devanagari, false),
+      ("bad_grouping", "₹1,2,3.50", 0.95, "र1,2,3.50", 0.95, .devanagari, false),
+      ("two_amounts", "₹8.50 2.00", 0.95, "र8.50 2.00", 0.95, .devanagari, false),
+      ("double_sign", "-₹-8.50", 0.95, "-र-8.50", 0.95, .devanagari, false),
+      ("parenthesized", "(₹8.50)", 0.95, "(र8.50)", 0.95, .devanagari, false),
+      ("decimal_without_integer", "₹.50", 0.95, "र.50", 0.95, .devanagari, false),
+      ("letter_combining_sequence", "₹8.50", 0.95, "ऱ8.50", 0.95, .devanagari, false),
+      ("genuine_single_letter_item_with_price", "₹8.50", 0.95, "차 8.50", 0.95, .korean, false),
+      ("currency_letter_with_price", "₹8.50", 0.95, "р8.50", 0.95, .cyrillic, false),
+      ("unrelated_devanagari_letter", "₹8.50", 0.95, "म8.50", 0.95, .devanagari, false),
+      ("precomposed_nukta_letter", "₹8.50", 0.95, "ऱ8.50", 0.95, .devanagari, false),
+      ("unrelated_currency_symbol", "€8.50", 0.95, "र8.50", 0.95, .devanagari, false),
+      ("unrelated_dollar_symbol", "$8.50", 0.95, "र8.50", 0.95, .devanagari, false),
+      ("integer", "₹850", 0.95, "र850", 0.95, .devanagari, true),
+    ]
+    for (name, commonText, commonConfidence, specialistText, specialistConfidence, script, preferCommon) in cases {
+      let common = currencyCandidate("common", .common, commonText, commonConfidence)
+      let specialist = currencyCandidate("specialist", script, specialistText, specialistConfidence)
+      let expected = preferCommon ? common : specialist
+      for ordered in [[common, specialist], [specialist, common]] {
+        let selected = ScriptRouteSelector.select(ordered)
+        XCTAssertEqual(selected?.text, expected.text, name)
+        XCTAssertEqual(selected?.pack.modelPackID, expected.pack.modelPackID, name)
+        XCTAssertEqual(selected?.confidence, expected.confidence, name)
+      }
+    }
+  }
+
+  func testConflictingCurrencyCandidatesRetainCalibratedWinner() {
+    let common = currencyCandidate("common", .common, "₹8.50", 0.95)
+    let specialist = currencyCandidate("specialist", .devanagari, "र8.50", 0.95)
+    for conflict in [
+      currencyCandidate("common2", .common, "€8.50", 0.94),
+      currencyCandidate("common2", .common, "₹8.60", 0.94),
+      currencyCandidate("arabic", .arabic, "د8.60", 0.94),
+      currencyCandidate("korean", .korean, "차 8.60", 0.94),
+      currencyCandidate("arabic", .arabic, "مبلغ 8.50", 0.94),
+    ] {
+      XCTAssertEqual(ScriptRouteSelector.select([common, specialist, conflict])?.text, specialist.text)
+    }
+    XCTAssertEqual(ScriptRouteSelector.select([common])?.text, common.text)
+    XCTAssertEqual(ScriptRouteSelector.select([specialist])?.text, specialist.text)
+    XCTAssertNil(ScriptRouteSelector.select([]))
+  }
+
+  private func currencyCandidate(
+    _ id: String, _ script: ScriptEvidence, _ text: String, _ confidence: Float
+  ) -> ScriptCandidate {
+    ScriptCandidate(text: text, confidence: confidence, pack: RecognizerSpec(
+      modelPackID: id, modelVersion: "test", modelPath: "/test.onnx",
+      configPath: "/test.yml", acceptedScripts: [script]
+    ))
   }
 
 }

@@ -24,6 +24,12 @@ public sealed class ReceiptOcrReviewSchemaFoundationTests
         Assert.Equal(99999999999999.9999m, ReceiptOcrReviewConstraints.QuantityMaxValue);
         Assert.Equal(240, ReceiptOcrReviewConstraints.LineTextMaxLength);
         Assert.Equal(50, ReceiptOcrReviewConstraints.MaxAdjustmentCount);
+        Assert.Equal(4, ReceiptOcrReviewConstraints.MaxHeaderEvidenceCount);
+        Assert.True(ReceiptOcrReviewHeaderRoles.IsSupported(ReceiptOcrReviewHeaderRoles.Subtotal));
+        Assert.True(ReceiptOcrReviewHeaderRoles.IsSupported(ReceiptOcrReviewHeaderRoles.Tax));
+        Assert.True(ReceiptOcrReviewHeaderRoles.IsSupported(ReceiptOcrReviewHeaderRoles.ServiceCharge));
+        Assert.True(ReceiptOcrReviewHeaderRoles.IsSupported(ReceiptOcrReviewHeaderRoles.Discount));
+        Assert.False(ReceiptOcrReviewHeaderRoles.IsSupported("total"));
         Assert.Equal(120, ReceiptOcrReviewConstraints.AdjustmentOriginalLabelMaxLength);
 
         Assert.True(ReceiptOcrReviewAdjustmentKinds.IsSupported(ReceiptOcrReviewAdjustmentKinds.Tip));
@@ -159,6 +165,17 @@ public sealed class ReceiptOcrReviewSchemaFoundationTests
             adjustmentEntity.GetProperties().Select(property => property.GetColumnName(adjustmentStoreObject) ?? property.Name),
             IsStorageOrRawOcrColumnName);
 
+        var headerEntity = FindEntityType<ReceiptOcrReviewHeaderEvidence>(dbContext);
+        var headerStoreObject = StoreObjectIdentifier.Table("receipt_ocr_review_header_evidence", null);
+        AssertColumn(headerEntity, headerStoreObject, "Role", "role", isNullable: false, maxLength: 24);
+        AssertColumn(headerEntity, headerStoreObject, "Currency", "currency", isNullable: false, maxLength: 3);
+        AssertColumn(headerEntity, headerStoreObject, "Amount", "amount", isNullable: false,
+            precision: ReceiptOcrReviewConstraints.MoneyAmountPrecision, scale: ReceiptOcrReviewConstraints.MoneyAmountScale);
+        AssertIndex(headerEntity, "ux_receipt_ocr_review_header_evidence_review_role", ["ReceiptOcrReviewId", "Role"], isUnique: true);
+        AssertForeignKey(headerEntity, typeof(ReceiptOcrReview), ["ReceiptOcrReviewId"], DeleteBehavior.Cascade);
+        AssertCheckConstraint(headerEntity, "ck_receipt_ocr_review_header_evidence_role", "role IN ('subtotal', 'tax', 'service_charge', 'discount')");
+        Assert.DoesNotContain(headerEntity.GetProperties().Select(property => property.GetColumnName(headerStoreObject) ?? property.Name), IsStorageOrRawOcrColumnName);
+
         var assignmentEntity = FindEntityType<ReceiptOcrReviewAssignment>(dbContext);
         var assignmentStoreObject = StoreObjectIdentifier.Table("receipt_ocr_review_assignments", null);
 
@@ -216,6 +233,26 @@ public sealed class ReceiptOcrReviewSchemaFoundationTests
         Assert.Contains(
             dbContext.Database.GetMigrations(),
             migration => migration.EndsWith("_AddReceiptOcrReviewAdjustmentEvidence", StringComparison.Ordinal));
+        Assert.Contains(dbContext.Database.GetMigrations(),
+            migration => migration.EndsWith("_AddReceiptOcrReviewHeaderEvidence", StringComparison.Ordinal));
+        Assert.Contains(dbContext.Database.GetMigrations(),
+            migration => migration.EndsWith("_AddReceiptOcrReviewTaxReconciliationMode", StringComparison.Ordinal));
+        var taxModeMigration = new AddReceiptOcrReviewTaxReconciliationMode();
+        var taxModeColumn = Assert.Single(taxModeMigration.UpOperations.OfType<AddColumnOperation>());
+        Assert.Equal("receipt_ocr_reviews", taxModeColumn.Table);
+        Assert.Equal("tax_reconciliation_mode", taxModeColumn.Name);
+        Assert.True(taxModeColumn.IsNullable);
+        Assert.Single(taxModeMigration.UpOperations.OfType<AddCheckConstraintOperation>(),
+            constraint => constraint.Name == "ck_receipt_ocr_reviews_tax_reconciliation_mode"
+                && constraint.Sql.Contains("included_unresolved", StringComparison.Ordinal));
+        Assert.DoesNotContain(taxModeMigration.UpOperations,
+            operation => operation is DropTableOperation or DropColumnOperation or DropIndexOperation or
+                DropForeignKeyOperation or AlterColumnOperation or SqlOperation);
+        var headerMigration = new AddReceiptOcrReviewHeaderEvidence();
+        Assert.Single(headerMigration.UpOperations.OfType<CreateTableOperation>(), table => table.Name == "receipt_ocr_review_header_evidence");
+        Assert.DoesNotContain(headerMigration.UpOperations,
+            operation => operation is DropTableOperation or DropColumnOperation or DropIndexOperation or
+                DropForeignKeyOperation or AlterColumnOperation or SqlOperation);
 
         var migration = new AddReceiptOcrReviewIntakeFoundation();
         Assert.DoesNotContain(

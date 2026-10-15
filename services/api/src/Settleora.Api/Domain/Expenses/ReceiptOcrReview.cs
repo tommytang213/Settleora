@@ -34,6 +34,8 @@ public sealed class ReceiptOcrReview
 
     public decimal? TaxAmount { get; set; }
 
+    public string? TaxReconciliationMode { get; set; }
+
     public decimal? ServiceChargeAmount { get; set; }
 
     public decimal? DiscountAmount { get; set; }
@@ -49,6 +51,8 @@ public sealed class ReceiptOcrReview
     public ICollection<ReceiptOcrReviewLine> Lines { get; } = new List<ReceiptOcrReviewLine>();
 
     public ICollection<ReceiptOcrReviewAdjustment> Adjustments { get; } = new List<ReceiptOcrReviewAdjustment>();
+
+    public ICollection<ReceiptOcrReviewHeaderEvidence> HeaderEvidence { get; } = new List<ReceiptOcrReviewHeaderEvidence>();
 
     public ICollection<ReceiptOcrReviewAssignment> Assignments { get; } = new List<ReceiptOcrReviewAssignment>();
 }

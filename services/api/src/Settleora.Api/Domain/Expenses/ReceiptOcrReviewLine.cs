@@ -21,4 +21,6 @@ public sealed class ReceiptOcrReviewLine
     public DateTimeOffset CreatedAtUtc { get; set; }
 
     public DateTimeOffset UpdatedAtUtc { get; set; }
+
+    public DateTimeOffset? SupersededAtUtc { get; set; }
 }

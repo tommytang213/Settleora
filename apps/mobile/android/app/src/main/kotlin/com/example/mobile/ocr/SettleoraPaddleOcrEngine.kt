@@ -121,10 +121,12 @@ class SettleoraPaddleOcrEngine(context: Context) {
                     sourceCrops: List<Mat>,
                     targetCandidates: List<MutableList<ScriptCandidate>>,
                     batchIndices: List<Int>,
+                    recovery: Boolean = false,
                 ) {
                     val batchStart = System.currentTimeMillis()
                     val input = RecPreprocessor.preprocessBatch(
                         batchIndices.map { index -> sourceCrops[index] },
+                        whiteMargin = if (recovery) CyrillicRecovery.WHITE_MARGIN else 0,
                     )
                     val decoded = sessions.runRecognitionDecoded(
                         pack.spec.modelPackId,
@@ -138,7 +140,7 @@ class SettleoraPaddleOcrEngine(context: Context) {
                     }
                     decoded.forEachIndexed { batchIndex, value ->
                         val lineIndex = batchIndices[batchIndex]
-                        targetCandidates[lineIndex] += ScriptCandidate(
+                        val candidate = ScriptCandidate(
                             text = RecognizedTextNormalizer.normalize(
                                 value.first.trim(),
                                 pack.spec,
@@ -146,6 +148,9 @@ class SettleoraPaddleOcrEngine(context: Context) {
                             confidence = value.second,
                             pack = pack.spec,
                         )
+                        if (!recovery || CyrillicRecovery.accepts(targetCandidates[lineIndex], candidate)) {
+                            targetCandidates[lineIndex] += candidate
+                        }
                     }
                 }
 
@@ -189,6 +194,20 @@ class SettleoraPaddleOcrEngine(context: Context) {
                             )
                         }
                     }
+                    val cyrillic = packs.singleOrNull {
+                        it.spec.acceptedScripts == setOf(ScriptEvidence.CYRILLIC)
+                    }
+                    if (cyrillic != null) {
+                        // Keep the exact original batch and canvas when any line
+                        // needs recovery. Only eligible line outputs are admitted.
+                        for ((sourceCrops, target) in listOf(crops to candidatesByLine, rotatedCrops to rotatedCandidatesByLine)) {
+                            for (batchIndices in batchesFor(sourceCrops, sourceCrops.indices)) {
+                                if (batchIndices.any { CyrillicRecovery.shouldProbe(target[it]) }) {
+                                    recognizeBatch(cyrillic, sourceCrops, target, batchIndices, recovery = true)
+                                }
+                            }
+                        }
+                    }
                     val uprightOrientationCandidates = candidatesByLine.map { candidates ->
                         ScriptRouteSelector.select(candidates) ?: candidates.first()
                     }
@@ -217,8 +236,48 @@ class SettleoraPaddleOcrEngine(context: Context) {
                         reverseRecognition = reverseRecognition,
                     )
 
-                    candidatesByLine.forEachIndexed { index, candidates ->
-                        val accepted = ScriptRouteSelector.select(candidates)
+                    // Freeze the original winners and orientation. Recovery must
+                    // not create its own corroboration or displace other probes.
+                    val original = candidatesByLine.map(ScriptRouteSelector::select)
+                    val recoveryPoints = validBoxes.map { (_, box) ->
+                        box.points.map { point ->
+                            val normalized = documentOrientation.transform(
+                                SettleoraOcrPoint(point.x, point.y), sourceWidth, sourceHeight,
+                            )
+                            CalendarDateRecovery.Point(normalized.x.toDouble(), normalized.y.toDouble())
+                        }
+                    }
+                    val commonRecovery = arrayOfNulls<ScriptCandidate>(crops.size)
+                    for (batchIndices in batchesFor(crops, crops.indices)) {
+                        if (batchIndices.none {
+                            PolishCurrencyRecovery.shouldProbe(it, original) ||
+                                CalendarDateRecovery.shouldProbe(it, original, recoveryPoints)
+                        }) continue
+                        val batchStart = System.currentTimeMillis()
+                        val input = RecPreprocessor.preprocessBatch(
+                            batchIndices.map { crops[it] },
+                            whiteMargin = PolishCurrencyRecovery.WHITE_MARGIN,
+                        )
+                        val decoded = sessions.runRecognitionDecoded(
+                            commonPack.spec.modelPackId, input.tensorData, input.shape, commonPack.characters,
+                        )
+                        recognitionTimeMs += System.currentTimeMillis() - batchStart
+                        check(decoded.size == batchIndices.size) { "Recognition batch size mismatch" }
+                        decoded.forEachIndexed { offset, value ->
+                            val index = batchIndices[offset]
+                            val candidate = ScriptCandidate(
+                                RecognizedTextNormalizer.normalize(value.first.trim(), commonPack.spec),
+                                value.second, commonPack.spec,
+                            )
+                            if (PolishCurrencyRecovery.accepts(index, original, candidate) ||
+                                CalendarDateRecovery.accepts(index, original, recoveryPoints, candidate)) {
+                                commonRecovery[index] = candidate
+                            }
+                        }
+                    }
+
+                    original.forEachIndexed { index, selected ->
+                        val accepted = commonRecovery[index] ?: selected
                         if (accepted != null && accepted.confidence >= config.recScoreThresh) {
                             val (order, box) = validBoxes[index]
                             blocks += SettleoraOcrBlock(
