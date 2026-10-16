@@ -1046,7 +1046,7 @@ class ReceiptOcrParser {
           // than its order/pickup history. Only a directly attached label
           // establishes that role; conflicting receipt dates stay unresolved.
           if (date != null &&
-              !nearest.secondary &&
+              !secondaryDate &&
               RegExp(
                 r'^receipt\s+date\s*[:：]?\s*$',
               ).hasMatch(lower.substring(nearest.start, dateStart)) &&
@@ -1067,9 +1067,17 @@ class ReceiptOcrParser {
           return;
         } else if (index > 0 && !_lineHasAmount(lines[index - 1])) {
           final previous = lines[index - 1].toLowerCase();
+          // A standalone qualifier can own a wrapped primary label and its
+          // immediately following date, but cannot cross unrelated text.
+          final wrappedQualifier =
+              index > 1 &&
+              line.substring(0, dateStart).trim().isEmpty &&
+              directPrimaryDateLabel.hasMatch(previous) &&
+              standaloneDateQualifier.hasMatch(lines[index - 2].toLowerCase());
           secondaryDate =
               secondaryLabel.hasMatch(previous) ||
-              standaloneStayLabel.hasMatch(previous);
+              standaloneStayLabel.hasMatch(previous) ||
+              wrappedQualifier;
           if (date != null &&
               selectTransactionDate &&
               standaloneStayLabel.hasMatch(previous)) {
@@ -1077,7 +1085,7 @@ class ReceiptOcrParser {
             ownedStayDateEnd = dateEnd;
             return;
           }
-          if (secondaryLabel.hasMatch(previous)) {
+          if (secondaryLabel.hasMatch(previous) || wrappedQualifier) {
             score -= 30;
           } else if (directPrimaryDateLabel.hasMatch(previous)) {
             score += 20;
@@ -1091,6 +1099,7 @@ class ReceiptOcrParser {
             }
           }
           if (date != null &&
+              !secondaryDate &&
               RegExp(r'^\s*receipt\s+date\s*[:：]?\s*$').hasMatch(previous) &&
               line.substring(0, dateStart).trim().isEmpty) {
             explicitReceiptDates.add(date);
