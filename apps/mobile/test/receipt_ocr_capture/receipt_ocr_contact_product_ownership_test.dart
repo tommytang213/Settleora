@@ -29,6 +29,12 @@ const qualifiedContactFields = [
   'Tel / Fax No.: +44 20 7946 1234',
   'Tel./Fax.+44 20 7946 1234',
   'Phone & Tel number: +44 20 7946 1234',
+  'Phone No./Fax: +44 20 7946 1234',
+  'Phone number/Fax No.: +44 20 7946 1234',
+  'Tel.No./Fax.No.:+44 20 7946 1234',
+  'Phone No. & Fax number: +44 20 7946 1234',
+  'Phone number / Telephone number:+44 20 7946 1234',
+  'Tel No / Mobile No: +44 20 7946 1234',
 ];
 
 const dottedContactFields = [
@@ -117,6 +123,49 @@ ReceiptOcrPreview contactProductPreview(
     fallbackCurrency: 'USD',
     blocks: input.blocks,
   );
+}
+
+ReceiptOcrPreview repeatedNameAmountPreview({
+  (String, String) name = ('NORTH', 'MARKET'),
+  String money = 'USD 3.00',
+  double scale = 1,
+}) {
+  final blocks = <ReceiptOcrBlockEvidence>[];
+  void cell(String text, int row, double left, double right) {
+    blocks.add(
+      ReceiptOcrBlockEvidence(
+        text: text,
+        row: row,
+        order: blocks.length,
+        confidence: .99,
+        points: [
+          ReceiptOcrPoint(x: left * scale, y: row * 30 * scale),
+          ReceiptOcrPoint(x: right * scale, y: row * 30 * scale),
+          ReceiptOcrPoint(x: right * scale, y: (row * 30 + 15) * scale),
+          ReceiptOcrPoint(x: left * scale, y: (row * 30 + 15) * scale),
+        ],
+      ),
+    );
+  }
+
+  cell(name.$1, 0, 20, 140);
+  cell('Receipt', 0, 300, 650);
+  cell(name.$2, 1, 20, 140);
+  cell('Coffee USD 3.00', 2, 300, 650);
+  cell('Tea USD 2.00', 3, 300, 650);
+  cell('Total USD 5.00', 4, 20, 650);
+  cell('${name.$1} ${name.$2}', 5, 20, 220);
+  cell(money, 5, 300, 650);
+  final rows = <int, List<String>>{};
+  for (final block in blocks) {
+    (rows[block.row] ??= []).add(block.text);
+  }
+  final preview = const ReceiptOcrParser().parse(
+    rows.values.map((row) => row.join(' ')).join('\n'),
+    blocks: blocks,
+  );
+  expect(preview.blocks, orderedEquals(blocks));
+  return preview;
 }
 
 void main() {
@@ -327,4 +376,62 @@ void main() {
     expect(p.adjustmentsComplete, isTrue);
     expect(p.reviewHints, isEmpty);
   });
+  test('reviewer qualifier-before-combined-label retains only priced tea', () {
+    final p = const ReceiptOcrParser().parse(
+      'Example Shop\nReceipt date: 2026-06-18\n'
+      'Phone No./Fax: +44 20 7946 1234\n'
+      'Tea USD 5.00\nTotal USD 5.00',
+    );
+    expect(p.items.map((i) => [i.description, i.lineTotal]), [
+      ['Tea', '5.00'],
+    ]);
+    expect(p.adjustmentsComplete, isTrue);
+    expect(p.reviewHints, isEmpty);
+  });
+  for (final name in [
+    ('NORTH', 'MARKET'),
+    ('RIVER', 'SUPPLIES'),
+    ('SUNRISE', 'PROVISIONS'),
+  ]) {
+    for (final scale in [.5, 1.0, 2.0]) {
+      for (final money in ['USD 3.00', '3.00', 'EUR 3.00']) {
+        test(
+          'repeated issuer retains neighboring money: $name $scale $money',
+          () {
+            final p = repeatedNameAmountPreview(
+              name: name,
+              scale: scale,
+              money: money,
+            );
+            expect(p.merchant, '${name.$1} ${name.$2}');
+            expect(
+              p.items.map((i) => [i.description, i.lineTotal, i.currency]),
+              [
+                ['Coffee', '3.00', 'USD'],
+                ['Tea', '2.00', 'USD'],
+                [
+                  '${name.$1} ${name.$2}',
+                  '3.00',
+                  money.startsWith('EUR') ? 'EUR' : 'USD',
+                ],
+              ],
+            );
+            expect(p.reviewHints, isNotEmpty);
+            final request = receiptOcrReviewSaveRequestFromPreview(
+              p,
+              originalCurrency: p.currency,
+            )!;
+            expect(request.lines.map((i) => [i.text, i.lineTotalAmount]), [
+              ['Coffee', '3.00'],
+              ['Tea', '2.00'],
+              [
+                '${name.$1} ${name.$2}',
+                money.startsWith('EUR') ? null : '3.00',
+              ],
+            ]);
+          },
+        );
+      }
+    }
+  }
 }

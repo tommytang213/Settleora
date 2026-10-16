@@ -686,7 +686,29 @@ class ReceiptOcrParser {
                           null,
                         ).hasExplicitEvidence &&
                         !_hasPotentialReceiptAdjustmentLabel(name.text) &&
-                        _detectDate([name.text]) == null,
+                        _detectDate([name.text]) == null &&
+                        (!repeatedNameBlocks.contains(name) ||
+                            layoutRows
+                                .where((row) => row.contains(name))
+                                .every(
+                                  (row) => row.every(
+                                    (neighbor) =>
+                                        repeatedNameBlocks.contains(neighbor) ||
+                                        (!_layoutItemCellCurrency(
+                                              neighbor.text,
+                                              null,
+                                            ).hasExplicitEvidence &&
+                                            !_hasPotentialReceiptAdjustmentLabel(
+                                              neighbor.text,
+                                            ) &&
+                                            !_isStandaloneAmountRow(
+                                              neighbor.text,
+                                            ) &&
+                                            _isReceiptMetadataLine(
+                                              neighbor.text,
+                                            )),
+                                  ),
+                                )),
                   ),
                 );
                 return (
@@ -14071,10 +14093,10 @@ bool _isAddressContinuationLine(String line) => RegExp(
 bool _isCompleteReceiptContactLine(String line) {
   final text = line.trim();
   const contactLabel =
-      r'(?:tel(?:ephone)?|phone|fax|whatsapp|mobile|contact|電話|电话|tél|call(?: us at)?|help desk)';
+      r'(?:tel(?:ephone)?|phone|fax|whatsapp|mobile|contact|電話|电话|tél|call(?: us at)?|help desk)'
+      r'(?:(?:\.\s*|\s+)(?:no|number))?';
   final label = RegExp(
     '^$contactLabel(?:\\.?\\s*[/&]\\s*$contactLabel)?'
-    r'(?:(?:\.\s*|\s+)(?:no|number))?'
     r'(?:\.\s*[:：]?\s*|\s*[:：]\s*|\s+)',
     caseSensitive: false,
   ).firstMatch(text);
