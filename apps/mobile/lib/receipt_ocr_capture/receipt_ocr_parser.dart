@@ -116,6 +116,11 @@ class ReceiptOcrParser {
       fallbackCurrency: fallbackCurrency,
     );
     final currency = currencyDetection.currency;
+    final utilityAccountSummaryRows = _ownedUtilityAccountSummaryRows(
+      lines,
+      layoutRows,
+      currency,
+    );
     final ambiguousProjectionRows = <int>{};
     final layoutAdjustmentLines = {
       ..._layoutAdjustmentEvidenceLines(
@@ -258,6 +263,7 @@ class ReceiptOcrParser {
       retainedUtilityAdjustmentRows: utilityFinancial.reviewRows,
       ownedActivityFeeRows: ownedActivityFeeRows,
       ownedMerchantNameRows: headerRoles.names,
+      ownedAccountSummaryRows: utilityAccountSummaryRows,
     );
     final localizedHeaderRows = _ownedLocalizedAddressRows(
       lines,
@@ -303,6 +309,7 @@ class ReceiptOcrParser {
         ...utilityFinancial.reviewRows,
       },
       detachedAmountSignRows: detachedAmountSignRows,
+      ownedAccountSummaryRows: utilityAccountSummaryRows,
       nonItemEvidenceRows: {
         ...supportHoursRows,
         ...meterReadingRows,
@@ -377,6 +384,7 @@ class ReceiptOcrParser {
         ...utilityFinancial.adjustments.keys,
         ...utilityFinancial.reviewRows,
         ...ownedActivityEvidenceRows,
+        ...utilityAccountSummaryRows,
       },
       uncertainSummaryAmountRows: extractedItems.uncertainSummaryAmountRows,
     );
@@ -2466,6 +2474,7 @@ class ReceiptOcrParser {
     Set<int> retainedUtilityAdjustmentRows = const {},
     Set<int> ownedActivityFeeRows = const {},
     Set<int> ownedMerchantNameRows = const {},
+    Set<int> ownedAccountSummaryRows = const {},
   }) {
     String? subtotal;
     int? selectedSubtotalRow;
@@ -2536,7 +2545,10 @@ class ReceiptOcrParser {
             printed.currency == currency);
 
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-      if (ownedMerchantNameRows.contains(lineIndex)) continue;
+      if (ownedMerchantNameRows.contains(lineIndex) ||
+          ownedAccountSummaryRows.contains(lineIndex)) {
+        continue;
+      }
       final subtotalEvidence =
           layoutAdjustmentLines[lineIndex] ?? lines[lineIndex];
       if (_hasSubtotalLabel(subtotalEvidence, subtotalEvidence.toLowerCase())) {
@@ -3416,6 +3428,7 @@ class ReceiptOcrParser {
     Map<int, ReceiptOcrItemCandidate> layoutChargeItems = const {},
     Set<int> layoutAdjustmentRows = const {},
     Set<int> detachedAmountSignRows = const {},
+    Set<int> ownedAccountSummaryRows = const {},
     Set<int> nonItemEvidenceRows = const {},
   }) {
     final items = <ReceiptOcrItemCandidate>[];
@@ -3466,7 +3479,8 @@ class ReceiptOcrParser {
       if (_hasSubtotalLabel(line, line.toLowerCase())) {
         afterSubtotal = true;
       }
-      if (layoutAdjustmentRows.contains(lineIndex)) {
+      if (layoutAdjustmentRows.contains(lineIndex) ||
+          ownedAccountSummaryRows.contains(lineIndex)) {
         lineDecisions[lineIndex] =
             ReceiptOcrItemLineDecision.metadataOrHeaderSkipped;
         wrappedDescriptionLines.clear();
@@ -5212,6 +5226,156 @@ class ReceiptOcrParser {
       }
     }
     return (items: items, adjustments: adjustments, ambiguous: ambiguous);
+  }
+
+  // A location-only note does not turn a complete current-charge summary into
+  // merchandise or an unknown fee. Require bounded account-summary context
+  // and its printed columns; the note alone grants no metadata ownership.
+  Set<int> _ownedUtilityAccountSummaryRows(
+    List<String> lines,
+    List<List<ReceiptOcrBlockEvidence>> rows,
+    String? currency,
+  ) {
+    final owned = <int>{};
+    if (currency == null || rows.length != lines.length) return owned;
+    final label = RegExp(
+      r'^current\s+charges\s*\((?:see\s+)?details?\s+(?:above|below)\)\s*[:：]?$',
+      caseSensitive: false,
+    );
+    if (!rows.any(
+      (row) =>
+          row.length == 2 &&
+          row.any((block) => label.hasMatch(_normalizeOcrLine(block.text))),
+    )) {
+      return owned;
+    }
+    final boxes =
+        <
+          ReceiptOcrBlockEvidence,
+          ({double left, double right, double top, double bottom})
+        >{};
+    for (final block in rows.expand((row) => row)) {
+      final p = block.points;
+      if (p.length != 4 ||
+          p.any((point) => !point.x.isFinite || !point.y.isFinite) ||
+          p[1].x <= p[0].x ||
+          p[2].x <= p[3].x ||
+          p[3].y <= p[0].y ||
+          p[2].y <= p[1].y) {
+        return owned;
+      }
+      for (var i = 0; i < 4; i++) {
+        final turn =
+            (p[(i + 1) % 4].x - p[i].x) *
+                (p[(i + 2) % 4].y - p[(i + 1) % 4].y) -
+            (p[(i + 1) % 4].y - p[i].y) * (p[(i + 2) % 4].x - p[(i + 1) % 4].x);
+        if (!turn.isFinite || turn <= 0) return owned;
+      }
+      final ys = p.map((point) => point.y).toList()..sort();
+      boxes[block] = (
+        left: _blockLeft(block),
+        right: _blockRight(block),
+        top: ys.first,
+        bottom: ys.last,
+      );
+    }
+    final heading = RegExp(
+      r'^account\s+summary\s*[:：]?$',
+      caseSensitive: false,
+    );
+    List<ReceiptOcrBlockEvidence> ordered(int index) =>
+        rows[index].toList()
+          ..sort((a, b) => boxes[a]!.left.compareTo(boxes[b]!.left));
+    bool monetaryCell(ReceiptOcrBlockEvidence block) {
+      final text = _normalizeOcrLine(block.text);
+      final printed = _layoutItemCellCurrency(text, currency);
+      return _isBoundedSummaryAmount(text) &&
+          _hasChargeTableMonetaryEvidence(text) &&
+          !_hasDetachedAmountSign(text) &&
+          _lastAmountInLine(text, currency: currency) != null &&
+          printed.hasExplicitEvidence &&
+          printed.currency == currency;
+    }
+
+    bool separatedPair(List<ReceiptOcrBlockEvidence> pair) {
+      if (pair.length != 2 || !monetaryCell(pair.last)) return false;
+      final a = boxes[pair.first]!;
+      final b = boxes[pair.last]!;
+      final ah = a.bottom - a.top;
+      final bh = b.bottom - b.top;
+      final overlap =
+          (a.bottom < b.bottom ? a.bottom : b.bottom) -
+          (a.top > b.top ? a.top : b.top);
+      final h = ah > bh ? ah : bh;
+      if (a.right >= b.left ||
+          b.left - a.right > h * 20 ||
+          overlap < (ah < bh ? ah : bh) / 2) {
+        return false;
+      }
+      final top = a.top < b.top ? a.top : b.top;
+      final bottom = a.bottom > b.bottom ? a.bottom : b.bottom;
+      // Check all provider rows: a detached price or neighboring description
+      // in this physical corridor must not disappear behind a summary prefix.
+      return !boxes.entries.any((entry) {
+        if (pair.contains(entry.key)) return false;
+        final other = entry.value;
+        return other.right > a.left - h / 2 &&
+            other.left < b.right + h / 2 &&
+            other.bottom > top &&
+            other.top < bottom;
+      });
+    }
+
+    for (var index = 2; index < rows.length; index++) {
+      final row = ordered(index);
+      if (row.length != 2 ||
+          !label.hasMatch(_normalizeOcrLine(row.first.text)) ||
+          !separatedPair(row)) {
+        continue;
+      }
+      final anchor = ordered(index - 1);
+      if (!separatedPair(anchor) ||
+          !_isAccountBalanceSummaryLine(
+            _normalizeOcrLine(anchor.map((b) => b.text.trim()).join(' ')),
+          )) {
+        continue;
+      }
+      final a = boxes[row.first]!;
+      final b = boxes[row.last]!;
+      final previousLabel = boxes[anchor.first]!;
+      final previousMoney = boxes[anchor.last]!;
+      final h = (a.bottom - a.top) > (b.bottom - b.top)
+          ? a.bottom - a.top
+          : b.bottom - b.top;
+      final top = a.top < b.top ? a.top : b.top;
+      final previousBottom = previousLabel.bottom > previousMoney.bottom
+          ? previousLabel.bottom
+          : previousMoney.bottom;
+      if (top < previousBottom ||
+          top - previousBottom > h * 1.5 ||
+          (a.left - previousLabel.left).abs() > h ||
+          (b.right - previousMoney.right).abs() > h) {
+        continue;
+      }
+      for (var start = index - 2; start >= 0 && start >= index - 6; start--) {
+        if (rows[start].length == 1 && heading.hasMatch(lines[start])) {
+          final title = boxes[rows[start].single]!;
+          if ((title.left - a.left).abs() <= h * 2 &&
+              title.bottom <= previousLabel.top &&
+              top - title.bottom <= h * 12) {
+            owned.add(index);
+          }
+          break;
+        }
+        if (_isSupportedChargeTableHeader(lines, start) ||
+            _isChargeTableSectionBoundary(lines[start]) ||
+            _hasTotalLabel(lines[start], lines[start].toLowerCase()) ||
+            _hasSubtotalLabel(lines[start], lines[start].toLowerCase())) {
+          break;
+        }
+      }
+    }
+    return owned;
   }
 
   // A printed bill-detail heading and bounded columns establish row ownership.
