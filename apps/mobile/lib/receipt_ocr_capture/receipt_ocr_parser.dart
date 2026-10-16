@@ -5297,7 +5297,10 @@ class ReceiptOcrParser {
           printed.currency == currency;
     }
 
-    bool separatedPair(List<ReceiptOcrBlockEvidence> pair) {
+    bool separatedPair(
+      List<ReceiptOcrBlockEvidence> pair,
+      List<ReceiptOcrBlockEvidence> companion,
+    ) {
       if (pair.length != 2 || !monetaryCell(pair.last)) return false;
       final a = boxes[pair.first]!;
       final b = boxes[pair.last]!;
@@ -5314,30 +5317,35 @@ class ReceiptOcrParser {
       }
       final top = a.top < b.top ? a.top : b.top;
       final bottom = a.bottom > b.bottom ? a.bottom : b.bottom;
-      // Check all provider rows: a detached price or neighboring description
-      // in this physical corridor must not disappear behind a summary prefix.
+      // Require clearance around both proven pairs: a nearby detached price
+      // must not disappear merely because it misses the printed row band.
+      // The companion is checked independently below; both pairs must then
+      // satisfy the same column alignment and non-overlapping row order.
       return !boxes.entries.any((entry) {
-        if (pair.contains(entry.key)) return false;
+        if (pair.contains(entry.key) || companion.contains(entry.key)) {
+          return false;
+        }
         final other = entry.value;
         return other.right > a.left - h / 2 &&
             other.left < b.right + h / 2 &&
-            other.bottom > top &&
-            other.top < bottom;
+            other.bottom > top - h / 2 &&
+            other.top < bottom + h / 2;
       });
     }
 
     for (var index = 2; index < rows.length; index++) {
       final row = ordered(index);
       if (row.length != 2 ||
-          !label.hasMatch(_normalizeOcrLine(row.first.text)) ||
-          !separatedPair(row)) {
+          !label.hasMatch(_normalizeOcrLine(row.first.text))) {
         continue;
       }
       final anchor = ordered(index - 1);
-      if (!separatedPair(anchor) ||
+      if (anchor.length != 2 ||
           !_isAccountBalanceSummaryLine(
             _normalizeOcrLine(anchor.map((b) => b.text.trim()).join(' ')),
-          )) {
+          ) ||
+          !separatedPair(row, anchor) ||
+          !separatedPair(anchor, row)) {
         continue;
       }
       final a = boxes[row.first]!;
