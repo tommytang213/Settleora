@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/bills/bill_list_screen.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_provider.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
+import 'package:mobile/receipt_ocr_capture/receipt_ocr_parser.dart';
 import 'bill_list_screen_test.dart' as bills;
 import 'receipt_ocr_capture/receipt_ocr_contact_product_ownership_test.dart'
     as receipts;
@@ -228,6 +229,49 @@ void main() {
       );
       await applyPreviewAndExpect(tester, preview, [
         (product, '5.00'),
+        ('Tea', '5.00'),
+      ]);
+    });
+  }
+  for (final prefix in receipts.signedContactPrefixes) {
+    for (final contact in receipts.layoutContactFields) {
+      for (final layout in [false, true]) {
+        testWidgets(
+          'signed contact ambiguity blocks actual Apply $prefix $contact layout=$layout',
+          (tester) async {
+            final preview = layout
+                ? receipts.layoutContactPreview(
+                    contact,
+                    amount: prefix,
+                    mode: 'fallback',
+                    markFallbackAmount: false,
+                  )
+                : receipts.numericPrefixContactPreview(contact, prefix);
+            await applyPreviewAndExpect(
+              tester,
+              preview,
+              [],
+              itemsAllowed: false,
+            );
+          },
+        );
+      }
+    }
+  }
+  for (final product in [
+    'Phone Case',
+    'Mobile Stand',
+    'Contact Lens',
+    'Notebook',
+  ]) {
+    testWidgets('signed prefix product remains editable through Apply $product', (
+      tester,
+    ) async {
+      final preview = const ReceiptOcrParser().parse(
+        'Example Shop\nReceipt date: 2026-06-18\n+123 $product USD 5.00\nTea USD 5.00\nTotal USD 10.00',
+      );
+      await applyPreviewAndExpect(tester, preview, [
+        ('+123 $product', '5.00'),
         ('Tea', '5.00'),
       ]);
     });

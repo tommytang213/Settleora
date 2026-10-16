@@ -256,6 +256,19 @@ ReceiptOcrPreview numericPrefixContactPreview(
   'Example Shop\nReceipt date: 2026-06-18\n$prefix $contact\nTea USD 5.00\nTotal USD 5.00',
 );
 
+const signedContactPrefixes = [
+  '+123',
+  '+ 123',
+  'USD +123',
+  '+USD 123',
+  '123+',
+  '(123)',
+  '−123',
+  '- 123',
+  'CR123',
+  '123 DR',
+];
+
 void main() {
   for (final product in contactProducts) {
     for (final layout in [
@@ -667,6 +680,62 @@ void main() {
         expect(p.adjustmentsComplete, isTrue);
         expect(p.reviewHints, isEmpty);
       });
+    }
+  }
+  for (final prefix in signedContactPrefixes) {
+    for (final contact in layoutContactFields) {
+      test(
+        'signed numeric prefix cannot hide flat contact $prefix $contact',
+        () {
+          final p = numericPrefixContactPreview(contact, prefix);
+          expect(p.items.map((i) => [i.description, i.lineTotal]), [
+            ['Tea', '5.00'],
+          ]);
+          expect(p.adjustmentsComplete, isFalse);
+          expect(p.reviewHints, isNotEmpty);
+        },
+      );
+      for (final scale in [.5, 1.0, 2.0]) {
+        test(
+          'signed numeric fallback cannot price contact $prefix $contact $scale',
+          () {
+            final p = layoutContactPreview(
+              contact,
+              amount: prefix,
+              mode: 'fallback',
+              scale: scale,
+              markFallbackAmount: false,
+            );
+            expect(p.items.map((i) => [i.description, i.lineTotal]), [
+              ['Tea', '5.00'],
+            ]);
+            expect(p.adjustmentsComplete, isFalse);
+            expect(p.reviewHints, isNotEmpty);
+          },
+        );
+      }
+    }
+  }
+  for (final prefix in ['+123', 'USD +123']) {
+    for (final product in [
+      'Phone Case',
+      'Mobile Stand',
+      'Contact Lens',
+      'Notebook',
+    ]) {
+      test(
+        'signed prefix does not turn ordinary product into contact $prefix $product',
+        () {
+          final p = const ReceiptOcrParser().parse(
+            'Example Shop\nReceipt date: 2026-06-18\n$prefix $product USD 5.00\nTea USD 5.00\nTotal USD 10.00',
+          );
+          expect(p.items.length, 2);
+          expect(p.items.first.description, contains(product));
+          expect(p.items.first.lineTotal, '5.00');
+          expect(p.adjustmentsComplete, isTrue);
+          expect(p.reviewHints, isEmpty);
+        },
+      );
     }
   }
 }
