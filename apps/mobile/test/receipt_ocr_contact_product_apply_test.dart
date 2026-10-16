@@ -10,7 +10,10 @@ void main() {
   final cases = <({String product, String? contact})>[
     for (final product in receipts.contactProducts)
       (product: product, contact: null),
-    for (final contact in receipts.contactExtensionFields)
+    for (final contact in [
+      ...receipts.contactExtensionFields,
+      ...receipts.dottedContactFields,
+    ])
       (product: 'Notebook', contact: contact),
   ];
   for (final scenario in cases) {

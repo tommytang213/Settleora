@@ -13951,10 +13951,7 @@ String? _dateFromNamedMonthMatch(RegExpMatch match) {
   );
 }
 
-String? _labeledCalendarDate(
-  String line, {
-  bool includeSpecificRoles = false,
-}) {
+String? _labeledCalendarDate(String line, {bool includeSpecificRoles = false}) {
   const genericLabelName =
       r'(?:date|datum|dato|fecha|data|日期|日付|날짜|дата|วันที่|तारीख|दिनांक)';
   final labelName = includeSpecificRoles
@@ -14075,7 +14072,7 @@ bool _isCompleteReceiptContactLine(String line) {
   final text = line.trim();
   final label = RegExp(
     r'^(?:tel(?:ephone)?|phone|fax|whatsapp|mobile|contact|電話|电话|tél|call(?: us at)?|help desk)'
-    r'(?:\s*[:：]\s*|\s+)',
+    r'(?:\.\s*[:：]?\s*|\s*[:：]\s*|\s+)',
     caseSensitive: false,
   ).firstMatch(text);
   final value = label == null ? text : text.substring(label.end).trim();
