@@ -650,7 +650,7 @@ class ReceiptOcrParser {
                 ).hasMatch(line),
               );
               if (lastTotalRow <= rowIndex) continue;
-              var repeated = false;
+              final repeatedNameBlocks = <ReceiptOcrBlockEvidence>{};
               for (
                 var footerRow = lastTotalRow + 1;
                 footerRow < layoutRows.length;
@@ -664,16 +664,16 @@ class ReceiptOcrParser {
                 )) {
                   break;
                 }
-                if (layoutRows[footerRow].any(
-                  (later) =>
-                      later.text.trim().toLowerCase() == identity.toLowerCase(),
-                )) {
-                  repeated = true;
-                  break;
-                }
+                repeatedNameBlocks.addAll(
+                  layoutRows[footerRow].where(
+                    (later) =>
+                        later.text.trim().toLowerCase() ==
+                        identity.toLowerCase(),
+                  ),
+                );
               }
-              if (repeated) {
-                final nameBlocks = {first, block};
+              if (repeatedNameBlocks.isNotEmpty) {
+                final nameBlocks = {first, block, ...repeatedNameBlocks};
                 // A row exemption requires complete ownership. Only validated
                 // nonfinancial name blocks may be removed from a mixed row;
                 // ambiguous geometry, currency and date evidence stay visible.
@@ -3556,6 +3556,8 @@ class ReceiptOcrParser {
         continue;
       }
       if (nonItemEvidenceRows.contains(lineIndex) ||
+          _ownedTotalBesideContact(lines, layoutRows, lineIndex, currency) !=
+              null ||
           fuelPumpRows.contains(lineIndex) ||
           ownedSummaryRows != null ||
           (_isPrimaryTotalCurrencyLine(line, line.toLowerCase()) &&
@@ -7919,7 +7921,36 @@ Set<int> _ownedMeterReadingRows(
                       bottom(other) > top(b),
                 ),
           );
-      if (!competing) owned.addAll([i, j]);
+      if (!competing) {
+        owned.addAll([i, j]);
+        // The established table/graph proof also owns its complete meter
+        // identifier and reading cells. Require every cell in each additional
+        // row to have one of these bounded roles; nearby product/money text
+        // must not acquire ownership from a run of digits.
+        final readingNumber = RegExp(r'^\d+(?:,\d{3})*(?:\.\d+)?$');
+        for (var k = i + 1; k < chargeHeader - 1; k++) {
+          if (rows[k].every((b) {
+            if (b == meter.single || graphInteger(b) || axis.contains(b)) {
+              return true;
+            }
+            final text = b.text.trim();
+            if (alignedBelow(b, meter.single) &&
+                RegExp(
+                  r'^[A-Z0-9]+(?:-[A-Z0-9]+)*$',
+                  caseSensitive: false,
+                ).hasMatch(text) &&
+                RegExp(r'\d').hasMatch(text)) {
+              return true;
+            }
+            return readingNumber.hasMatch(text) &&
+                (alignedBelow(b, dates[0]) ||
+                    alignedBelow(b, dates[1]) ||
+                    alignedBelow(b, units.single));
+          })) {
+            owned.add(k);
+          }
+        }
+      }
     }
   }
   return owned;
@@ -12704,6 +12735,7 @@ Set<int> _corroboratedActivityFeeRows(
   if (fee.role == 'parking') {
     if (fee.amount != total) return const {};
     final times = <String, DateTime>{};
+    final timeRows = <int>{};
     final pattern = RegExp(
       r'^(entry|exit)\s*:\s*(\d{4})-(\d{2})-(\d{2})\s*'
       r'(\d{2}):(\d{2})$',
@@ -12735,8 +12767,12 @@ Set<int> _corroboratedActivityFeeRows(
         return const {};
       }
       times[key] = value;
+      timeRows.add(index);
     }
     if (times.length == 2 && times['exit']!.isAfter(times['entry']!)) {
+      // These whole timestamp rows belong to the validated closed activity,
+      // not to a telephone-number substring inside their calendar values.
+      ownedEvidenceRows?.addAll(timeRows);
       // A complete duration belongs to this proven parking activity only
       // when it agrees with the independently printed entry and exit times.
       final elapsed = times['exit']!.difference(times['entry']!).inMinutes;
@@ -14038,7 +14074,7 @@ bool _isAddressContinuationLine(String line) => RegExp(
 bool _isCompleteReceiptContactLine(String line) {
   final text = line.trim();
   final label = RegExp(
-    r'^(?:tel(?:ephone)?|phone|fax|whatsapp|mobile|contact|電話|电话|tél)'
+    r'^(?:tel(?:ephone)?|phone|fax|whatsapp|mobile|contact|電話|电话|tél|call(?: us at)?|help desk)'
     r'(?:\s*[:：]\s*|\s+)',
     caseSensitive: false,
   ).firstMatch(text);
