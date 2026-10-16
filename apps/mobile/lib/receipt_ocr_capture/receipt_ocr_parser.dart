@@ -14127,6 +14127,14 @@ bool _isCompleteReceiptContactLine(String line) {
 
 bool _hasUnownedAmountAfterContactField(String line) {
   if (_isCompleteReceiptContactLine(line)) return false;
+  // A proven telephone prefix cannot own additional numbers or other suffixes.
+  // Preserve the unresolved row instead of interpreting its final digits as
+  // a merchandise price. Ordinary product words never prove a phone prefix.
+  for (final boundary in RegExp(r'[\s/|,;:&]').allMatches(line)) {
+    if (_isCompleteReceiptContactLine(line.substring(0, boundary.start))) {
+      return true;
+    }
+  }
   // An extension is an identifier, not a price. Unsupported/malformed values
   // or extra money after a proven phone prefix remain unresolved evidence.
   for (final marker in RegExp(

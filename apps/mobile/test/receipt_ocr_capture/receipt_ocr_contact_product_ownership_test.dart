@@ -16,6 +16,17 @@ const contactProducts = [
   'Tel No Adapter',
 ];
 
+const unsupportedContactFields = [
+  'Phone: +44 20 7946 1234 / +44 20 7946 5678',
+  'Tel: +44 20 7946 1234;+44 20 7946 5678',
+  'Phone No./Fax No.: +44 20 7946 1234 | +44 20 7946 5678',
+  'Phone: +1 (212) 555-0100, +1 (212) 555-0199',
+  '+44 20 7946 1234/+44 20 7946 5678',
+  'Phone: +44 20 7946 1234 and +44 20 7946 5678',
+  'Phone: +44 20 7946 1234 reception 123',
+  'Phone: +44 20 7946 1234 service USD 2.00',
+];
+
 const qualifiedContactFields = [
   'Phone No: +44 20 7946 1234',
   'Phone No. +44 20 7946 1234',
@@ -434,4 +445,47 @@ void main() {
       }
     }
   }
+  for (final contact in unsupportedContactFields) {
+    for (final layout in ['flat', 'line', 'split']) {
+      test('unsupported contact field stays unresolved $contact $layout', () {
+        final input = contactProductInput(
+          'Notebook',
+          layout: layout,
+          contact: contact,
+        );
+        final p = const ReceiptOcrParser().parse(
+          input.text,
+          fallbackCurrency: 'USD',
+          blocks: input.blocks,
+        );
+        expect(p.items.map((i) => [i.description, i.lineTotal]), [
+          ['Notebook', '5.00'],
+          ['Tea', '5.00'],
+        ]);
+        expect(p.adjustmentsComplete, isFalse);
+        expect(p.reviewHints, isNotEmpty);
+        expect(p.blocks, orderedEquals(input.blocks));
+        final request = receiptOcrReviewSaveRequestFromPreview(
+          p,
+          originalCurrency: p.currency,
+        )!;
+        expect(request.lines.map((i) => [i.text, i.lineTotalAmount]), [
+          ['Notebook', '5.00'],
+          ['Tea', '5.00'],
+        ]);
+      });
+    }
+  }
+  test('reviewer multi-number trigger never creates a phone-priced item', () {
+    final p = const ReceiptOcrParser().parse(
+      'Example Shop\nReceipt date: 2026-06-18\n'
+      'Phone: +44 20 7946 1234 / +44 20 7946 5678\n'
+      'Tea USD 5.00\nTotal USD 5.00',
+    );
+    expect(p.items.map((i) => [i.description, i.lineTotal]), [
+      ['Tea', '5.00'],
+    ]);
+    expect(p.adjustmentsComplete, isFalse);
+    expect(p.reviewHints, isNotEmpty);
+  });
 }

@@ -10,8 +10,9 @@ import 'receipt_ocr_capture/receipt_ocr_contact_product_ownership_test.dart'
 Future<void> applyPreviewAndExpect(
   WidgetTester tester,
   ReceiptOcrPreview preview,
-  List<(String, String)> expected,
-) async {
+  List<(String, String)> expected, {
+  bool itemsAllowed = true,
+}) async {
   await bills.useLargeSurface(tester);
   final repository = bills.FakeBillRepository();
   final provider = bills.FakeReceiptOcrProvider(
@@ -34,13 +35,24 @@ Future<void> applyPreviewAndExpect(
     ),
   );
   await tester.pumpAndSettle();
+  Map<String, String> itemFields() => {
+    for (final field in tester.widgetList<TextFormField>(
+      find.byType(TextFormField),
+    ))
+      if (field.key case ValueKey<String>(value: final key)
+          when key.startsWith('personal-bill-item-name-') ||
+              key.startsWith('personal-bill-item-amount-'))
+        key: field.controller!.text,
+  };
+  final initialItems = itemFields();
   await tester.tap(find.byKey(const Key('personal-bill-scan-receipt')));
   await tester.pumpAndSettle();
   final choice = find.byKey(const Key('personal-bill-ocr-apply-items'));
   await tester.ensureVisible(choice);
   final tile = tester.widget<CheckboxListTile>(choice);
-  expect(tile.onChanged, isNotNull);
-  if (!tile.value!) {
+  expect(tile.onChanged, itemsAllowed ? isNotNull : isNull);
+  if (!itemsAllowed) expect(tile.value, isFalse);
+  if (itemsAllowed && !tile.value!) {
     await tester.tap(choice);
     await tester.pumpAndSettle();
   }
@@ -48,13 +60,17 @@ Future<void> applyPreviewAndExpect(
   await tester.ensureVisible(apply);
   await tester.tap(apply);
   await tester.pumpAndSettle();
-  expect(find.text('Suggestions applied'), findsOneWidget);
+  expect(
+    find.text('Suggestions applied'),
+    itemsAllowed ? findsOneWidget : findsNothing,
+  );
   String field(String key) =>
       tester.widget<TextFormField>(find.byKey(Key(key))).controller!.text;
   for (var index = 0; index < expected.length; index++) {
     expect(field('personal-bill-item-name-$index'), expected[index].$1);
     expect(field('personal-bill-item-amount-$index'), expected[index].$2);
   }
+  if (!itemsAllowed) expect(itemFields(), initialItems);
   expect(repository.lastCreateDraft, isNull);
   expect(provider.calls, 1);
 }
@@ -107,6 +123,21 @@ void main() {
             ('Tea', '2.00'),
             ('${name.$1} ${name.$2}', '3.00'),
           ]);
+        },
+      );
+    }
+  }
+  for (final contact in receipts.unsupportedContactFields) {
+    for (final layout in ['flat', 'split']) {
+      testWidgets(
+        'unsupported phone field cannot Apply items $contact $layout',
+        (tester) async {
+          final preview = receipts.contactProductPreview(
+            'Notebook',
+            layout: layout,
+            contact: contact,
+          );
+          await applyPreviewAndExpect(tester, preview, [], itemsAllowed: false);
         },
       );
     }
