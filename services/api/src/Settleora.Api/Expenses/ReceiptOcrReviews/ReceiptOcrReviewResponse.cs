@@ -332,6 +332,10 @@ internal sealed record ReceiptOcrReviewApplyPreviewResponse(
                 AddWarning(warnings, ReceiptOcrReviewApplyPreviewIssueCodes.LineSumMismatch);
             }
         }
+        else if (orderedLines.Length > 0)
+        {
+            AddBlockedIssue(blockedReasons, warnings, ReceiptOcrReviewApplyPreviewIssueCodes.LineSumMismatch);
+        }
 
         var summary = ReceiptOcrReviewApplyPreviewSummaryResponse.From(review, orderedLines);
         return new ReceiptOcrReviewApplyPreviewResponse(

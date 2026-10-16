@@ -2671,6 +2671,73 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         Assert.Equal(billAdjustmentsBefore, await CountBillAdjustmentsAsync(testFactory, billId));
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task AggregateRangePreviewAndApplyRejectWithoutChangingBill(
+        bool groupRoute, bool hasSubtotal)
+    {
+        var context = CreateFactory();
+        using var testFactory = context.Factory;
+        var owner = await SeedSessionActorAsync(testFactory, context.TimeProvider, "Aggregate Owner");
+        var groupId = groupRoute
+            ? await SeedGroupAsync(testFactory, owner.UserProfileId, "Aggregate Group",
+                InitialTimestamp, deletedAtUtc: null,
+                new MembershipSeed(owner.UserProfileId, GroupMembershipRoles.Owner,
+                    GroupMembershipStatuses.Active)) : (Guid?)null;
+        var billId = await SeedBillAsync(testFactory, owner.UserProfileId, groupId,
+            ExpenseBillStatuses.Draft, archivedAtUtc: null,
+            [owner.UserProfileId], [owner.UserProfileId], InitialTimestamp.AddMinutes(2));
+        var fileId = await SeedBillAttachmentAsync(testFactory, billId, owner.UserProfileId,
+            ExpenseBillAttachmentPurposes.Receipt, FileObjectPurposes.ReceiptImage,
+            FileObjectStatuses.Active, removedAtUtc: null);
+        var reviewPath = groupId.HasValue ? GroupOcrReviewPath(groupId.Value, billId, fileId)
+            : PersonalOcrReviewPath(billId, fileId);
+        var previewPath = groupId.HasValue ? GroupOcrReviewApplyPreviewPath(groupId.Value, billId, fileId)
+            : PersonalOcrReviewApplyPreviewPath(billId, fileId);
+        var applyPath = groupId.HasValue ? GroupOcrReviewApplyPath(groupId.Value, billId, fileId)
+            : PersonalOcrReviewApplyPath(billId, fileId);
+        var body = new Dictionary<string, object?>
+        {
+            ["status"] = "reviewed", ["source"] = "on_device", ["currency"] = "USD",
+            ["taxAmount"] = "0", ["grandTotalAmount"] = "1",
+            ["lines"] = new[]
+            {
+                new { text = "First item", quantity = "1", unitPriceAmount = "600000000000000", lineTotalAmount = "600000000000000" },
+                new { text = "Second item", quantity = "1", unitPriceAmount = "600000000000000", lineTotalAmount = "600000000000000" }
+            }
+        };
+        if (hasSubtotal) body["subtotalAmount"] = "1";
+        using var client = testFactory.CreateClient();
+        using var save = CreateJsonBearerRequest(HttpMethod.Put, reviewPath,
+            owner.RawSessionToken, JsonSerializer.Serialize(body));
+        using var saved = await client.SendAsync(save);
+        Assert.Equal(HttpStatusCode.Created, saved.StatusCode);
+        var review = await ReadReceiptOcrReviewAsync(testFactory,
+            ReadReviewPayload(await saved.Content.ReadAsStringAsync()).Id);
+        Assert.Null(review.TaxReconciliationMode);
+        Assert.Equal(2, review.Lines.Count);
+        var before = await ReadBillAsync(testFactory, billId);
+
+        using var previewRequest = CreateBearerRequest(HttpMethod.Get, previewPath, owner.RawSessionToken);
+        using var previewResponse = await client.SendAsync(previewRequest);
+        Assert.Equal(HttpStatusCode.OK, previewResponse.StatusCode);
+        var preview = ReadApplyPreviewPayload(await previewResponse.Content.ReadAsStringAsync());
+        Assert.False(preview.CanApply);
+        Assert.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.LineSumMismatch, preview.BlockedReasons);
+        using var apply = CreateJsonBearerRequest(HttpMethod.Post, applyPath,
+            owner.RawSessionToken, ApplyRequestJson(review.UpdatedAtUtc));
+        using var applied = await client.SendAsync(apply);
+
+        Assert.Equal(HttpStatusCode.Conflict, applied.StatusCode);
+        var after = await ReadBillAsync(testFactory, billId);
+        Assert.Equal(before.TotalAmount, after.TotalAmount);
+        Assert.Equal(before.UpdatedAtUtc, after.UpdatedAtUtc);
+        Assert.DoesNotContain(after.Items, item => item.SourceReceiptOcrReviewId == review.Id);
+    }
+
     [Fact]
     public void CrossCurrencyAdjustmentEvidenceRemainsVisibleWithoutClaimingReconciliation()
     {
