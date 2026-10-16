@@ -3467,6 +3467,7 @@ class ReceiptOcrParser {
     final ownedItemDescriptionRows = <int>{};
     final rejectedLayoutItemRows = <int>{};
     final ambiguousLayoutItemRows = <int>{};
+    final contactLayoutItemRows = <int>{};
     var afterSubtotal = false;
     final leadingQuantityRows = _leadingQuantityColumnRows(lines, layoutRows);
     final hasFuelMeasurementLayout =
@@ -3510,6 +3511,16 @@ class ReceiptOcrParser {
       }
       final layoutChargeItem = layoutChargeItems[lineIndex];
       if (layoutChargeItem != null) {
+        if (_hasReceiptContactPriceConflict(
+          layoutChargeItem.description,
+          layoutChargeItem.lineTotal ?? '',
+        )) {
+          unretainedPricedItem = true;
+          lineDecisions[lineIndex] =
+              ReceiptOcrItemLineDecision.unretainedPricedRow;
+          wrappedDescriptionLines.clear();
+          continue;
+        }
         lineDecisions[lineIndex] =
             ReceiptOcrItemLineDecision.layoutChargeSelected;
         items.add(layoutChargeItem);
@@ -3634,7 +3645,16 @@ class ReceiptOcrParser {
         currency,
         rejectedRows: rejectedLayoutItemRows,
         ambiguousRows: ambiguousLayoutItemRows,
+        contactRows: contactLayoutItemRows,
       );
+      if (contactLayoutItemRows.remove(lineIndex)) {
+        // A rejected contact cell cannot become merchandise when flattened.
+        unretainedPricedItem = true;
+        lineDecisions[lineIndex] =
+            ReceiptOcrItemLineDecision.unretainedPricedRow;
+        wrappedDescriptionLines.clear();
+        continue;
+      }
       if (ambiguousLayoutItemRows.remove(lineIndex)) {
         // Keep a complete text-derived draft with all printed evidence, but
         // do not treat its competing monetary cells as resolved ownership.
@@ -4145,6 +4165,7 @@ class ReceiptOcrParser {
     String? currency, {
     required Set<int> rejectedRows,
     required Set<int> ambiguousRows,
+    required Set<int> contactRows,
   }) {
     if (layoutRows.length != lines.length ||
         _isPaymentMetadataLine(lines[rowIndex]) ||
@@ -4383,6 +4404,10 @@ class ReceiptOcrParser {
     final description = _cleanDescription(
       ownedDescriptionBlocks.map((block) => block.text.trim()).join(' '),
     );
+    if (_hasReceiptContactPriceConflict(description, monetaryText)) {
+      contactRows.add(rowIndex);
+      return null;
+    }
     if (!_hasSubstantiveItemDescription(description) ||
         _isLikelyNonItemDescription(description, pricedRow: true)) {
       return null;
@@ -6630,6 +6655,10 @@ class ReceiptOcrParser {
         final description = _cleanDescription(
           descriptionBlocks.map((block) => block.text.trim()).join(' '),
         );
+        if (_hasReceiptContactPriceConflict(description, monetaryText)) {
+          ambiguousAmountRows.add(rowIndex);
+          continue;
+        }
         if (!_hasSubstantiveItemDescription(description) ||
             _isReceiptMetadataLine(description, allowBarePostal: false)) {
           continue;
@@ -14124,6 +14153,14 @@ bool _isCompleteReceiptContactLine(String line) {
       number.contains('(') ||
       RegExp(r'^(?:\d{1,3}-)?\d{2,4}-\d{3,4}-\d{3,4}$').hasMatch(number);
 }
+
+// Geometry identifies cells but cannot turn contact metadata or an unsupported
+// contact suffix into merchandise. Use the same ownership check before either
+// layout selector accepts an item and before the charge-item early return.
+bool _hasReceiptContactPriceConflict(String description, String monetaryText) =>
+    _isCompleteReceiptContactLine(description) ||
+    _hasUnownedAmountAfterContactField(description) ||
+    _hasUnownedAmountAfterContactField('$description $monetaryText');
 
 bool _hasUnownedAmountAfterContactField(String line) {
   if (_isCompleteReceiptContactLine(line)) return false;

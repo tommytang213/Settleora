@@ -142,4 +142,47 @@ void main() {
       );
     }
   }
+  for (final mode in ['charge', 'chargeRtl', 'fallback']) {
+    for (final description in receipts.layoutContactFields) {
+      for (final amount in ['12.34', '123']) {
+        testWidgets(
+          'layout contact ambiguity blocks actual Apply $mode $description $amount',
+          (tester) async {
+            final preview = receipts.layoutContactPreview(
+              description,
+              amount: amount,
+              mode: mode,
+            );
+            await applyPreviewAndExpect(
+              tester,
+              preview,
+              [],
+              itemsAllowed: false,
+            );
+          },
+        );
+      }
+    }
+    for (final product in [
+      'Phone Case',
+      'Mobile Stand',
+      'Contact Lens',
+      'Notebook',
+    ]) {
+      testWidgets('layout product reaches actual Apply $mode $product', (
+        tester,
+      ) async {
+        final preview = receipts.layoutContactPreview(
+          product,
+          amount: '5.00',
+          mode: mode,
+          product: true,
+        );
+        await applyPreviewAndExpect(tester, preview, [
+          (product, '5.00'),
+          ('Tea', '5.00'),
+        ]);
+      });
+    }
+  }
 }

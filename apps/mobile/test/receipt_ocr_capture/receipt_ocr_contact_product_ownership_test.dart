@@ -179,6 +179,71 @@ ReceiptOcrPreview repeatedNameAmountPreview({
   return preview;
 }
 
+const layoutContactFields = [
+  'Phone: +1 (212) 555-0100 ext.',
+  'Phone: +1 (212) 555-0100',
+  'Phone No./Fax: +44 20 7946 1234 / +44 20 7946 5678',
+];
+
+ReceiptOcrPreview layoutContactPreview(
+  String description, {
+  String amount = '12.34',
+  String mode = 'charge',
+  double scale = 1,
+  bool product = false,
+}) {
+  final blocks = <ReceiptOcrBlockEvidence>[];
+  final reversed = mode != 'charge';
+  void cell(String text, int row, double left, double right) {
+    blocks.add(
+      ReceiptOcrBlockEvidence(
+        text: text,
+        row: row,
+        order: blocks.length,
+        confidence: .99,
+        textDirection: reversed ? 'rtl' : 'ltr',
+        points: [
+          ReceiptOcrPoint(x: left * scale, y: row * 30 * scale),
+          ReceiptOcrPoint(x: right * scale, y: row * 30 * scale),
+          ReceiptOcrPoint(x: right * scale, y: (row * 30 + 15) * scale),
+          ReceiptOcrPoint(x: left * scale, y: (row * 30 + 15) * scale),
+        ],
+      ),
+    );
+  }
+
+  void pair(String text, String price, int row) {
+    if (reversed) {
+      cell(price, row, 20, 120);
+      cell(text, row, 200, 750);
+    } else {
+      cell(text, row, 20, 550);
+      cell(price, row, 600, 700);
+    }
+  }
+
+  cell('Example Shop', 0, 20, 750);
+  cell('Receipt date: 2026-06-18', 1, 20, 750);
+  var row = 2;
+  if (mode != 'fallback') {
+    cell('Current Charges Detail', row++, 20, 750);
+    pair('Description', 'Amount', row++);
+  }
+  pair(description, mode == 'fallback' ? 'USD $amount' : amount, row++);
+  pair('Tea', 'USD 5.00', row++);
+  cell('Total USD ${product ? '10.00' : '5.00'}', row, 20, 750);
+  final rows = <int, List<String>>{};
+  for (final block in blocks) {
+    (rows[block.row] ??= []).add(block.text);
+  }
+  final preview = const ReceiptOcrParser().parse(
+    rows.values.map((r) => r.join(' ')).join('\n'),
+    blocks: blocks,
+  );
+  expect(preview.blocks, orderedEquals(blocks));
+  return preview;
+}
+
 void main() {
   for (final product in contactProducts) {
     for (final layout in [
@@ -488,4 +553,48 @@ void main() {
     expect(p.adjustmentsComplete, isFalse);
     expect(p.reviewHints, isNotEmpty);
   });
+  for (final mode in ['charge', 'chargeRtl', 'fallback']) {
+    for (final scale in [.5, 1.0, 2.0]) {
+      for (final description in layoutContactFields) {
+        for (final amount in ['12.34', '123']) {
+          test(
+            'layout cannot price contact evidence $mode $scale $description $amount',
+            () {
+              final p = layoutContactPreview(
+                description,
+                amount: amount,
+                mode: mode,
+                scale: scale,
+              );
+              expect(p.items.map((i) => [i.description, i.lineTotal]), [
+                ['Tea', '5.00'],
+              ]);
+              expect(p.adjustmentsComplete, isFalse);
+              expect(p.reviewHints, isNotEmpty);
+            },
+          );
+        }
+      }
+      for (final product in contactProducts) {
+        test(
+          'layout retains ordinary contact-word product $mode $scale $product',
+          () {
+            final p = layoutContactPreview(
+              product,
+              amount: '5.00',
+              mode: mode,
+              scale: scale,
+              product: true,
+            );
+            expect(p.items.map((i) => [i.description, i.lineTotal]), [
+              [product, '5.00'],
+              ['Tea', '5.00'],
+            ]);
+            expect(p.adjustmentsComplete, isTrue);
+            expect(p.reviewHints, isEmpty);
+          },
+        );
+      }
+    }
+  }
 }
