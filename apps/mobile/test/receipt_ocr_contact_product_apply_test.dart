@@ -13,6 +13,7 @@ void main() {
     for (final contact in [
       ...receipts.contactExtensionFields,
       ...receipts.dottedContactFields,
+      ...receipts.qualifiedContactFields,
     ])
       (product: 'Notebook', contact: contact),
   ];

@@ -14070,8 +14070,11 @@ bool _isAddressContinuationLine(String line) => RegExp(
 
 bool _isCompleteReceiptContactLine(String line) {
   final text = line.trim();
+  const contactLabel =
+      r'(?:tel(?:ephone)?|phone|fax|whatsapp|mobile|contact|電話|电话|tél|call(?: us at)?|help desk)';
   final label = RegExp(
-    r'^(?:tel(?:ephone)?|phone|fax|whatsapp|mobile|contact|電話|电话|tél|call(?: us at)?|help desk)'
+    '^$contactLabel(?:\\.?\\s*[/&]\\s*$contactLabel)?'
+    r'(?:(?:\.\s*|\s+)(?:no|number))?'
     r'(?:\.\s*[:：]?\s*|\s*[:：]\s*|\s+)',
     caseSensitive: false,
   ).firstMatch(text);

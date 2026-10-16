@@ -12,6 +12,23 @@ const contactProducts = [
   'Notebook',
   'Phone. Case',
   'Tel. Adapter',
+  'Phone Number Case',
+  'Tel No Adapter',
+];
+
+const qualifiedContactFields = [
+  'Phone No: +44 20 7946 1234',
+  'Phone No. +44 20 7946 1234',
+  'Phone number: +44 20 7946 1234',
+  'Tel. No: +44 20 7946 1234',
+  'Tel.No.: +44 20 7946 1234',
+  'Mobile number: 0412 345 678',
+  'FAX NO.:+1 202 555 0131',
+  'Contact Number +852 2468 1357',
+  'Phone/Fax: +44 20 7946 1234',
+  'Tel / Fax No.: +44 20 7946 1234',
+  'Tel./Fax.+44 20 7946 1234',
+  'Phone & Tel number: +44 20 7946 1234',
 ];
 
 const dottedContactFields = [
@@ -155,6 +172,7 @@ void main() {
   for (final contact in [
     ...contactExtensionFields,
     ...dottedContactFields,
+    ...qualifiedContactFields,
     'Phone: +1 (212) 555-0100',
     'Tel: (555) 222-0199',
     'Telephone +44 20 7946 0958',
@@ -192,6 +210,7 @@ void main() {
   }
   for (final mixed in [
     ...dottedContactFields,
+    ...qualifiedContactFields,
     'Phone: +1 (212) 555-0100',
     'Mobile: 0412 345 678',
     'Contact: call reception',
@@ -288,6 +307,18 @@ void main() {
     final p = const ReceiptOcrParser().parse(
       'Example Shop\nReceipt date: 2026-06-18\n'
       'Tel. +44 20 7946 1234\n'
+      'Tea USD 5.00\nTotal USD 5.00',
+    );
+    expect(p.items.map((i) => [i.description, i.lineTotal]), [
+      ['Tea', '5.00'],
+    ]);
+    expect(p.adjustmentsComplete, isTrue);
+    expect(p.reviewHints, isEmpty);
+  });
+  test('reviewer qualified-contact trigger retains only its priced tea', () {
+    final p = const ReceiptOcrParser().parse(
+      'Example Shop\nReceipt date: 2026-06-18\n'
+      'Phone No: +44 20 7946 1234\n'
       'Tea USD 5.00\nTotal USD 5.00',
     );
     expect(p.items.map((i) => [i.description, i.lineTotal]), [
