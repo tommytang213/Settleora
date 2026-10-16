@@ -12,6 +12,15 @@ const contactProducts = [
   'Notebook',
 ];
 
+const contactExtensionFields = [
+  'Phone: +1 (212) 555-0100 ext. 123',
+  'Tel: +44 20 7946 0958 ext 42',
+  'Fax: +1 202 555 0131 extension 7',
+  'Mobile: 0412 345 678 x123',
+  'Contact: +852 2468 1357 #12',
+  'Phone:212-555-0100x123',
+];
+
 ({String text, List<ReceiptOcrBlockEvidence> blocks}) contactProductInput(
   String product, {
   String layout = 'flat',
@@ -70,8 +79,9 @@ const contactProducts = [
 ReceiptOcrPreview contactProductPreview(
   String product, {
   String layout = 'flat',
+  String? contact,
 }) {
-  final input = contactProductInput(product, layout: layout);
+  final input = contactProductInput(product, layout: layout, contact: contact);
   return const ReceiptOcrParser().parse(
     input.text,
     fallbackCurrency: 'USD',
@@ -130,6 +140,7 @@ void main() {
     }
   }
   for (final contact in [
+    ...contactExtensionFields,
     'Phone: +1 (212) 555-0100',
     'Tel: (555) 222-0199',
     'Telephone +44 20 7946 0958',
@@ -216,4 +227,46 @@ void main() {
       });
     }
   }
+  for (final suffix in [
+    'ext.',
+    'ext. reception',
+    'ext. 1234567',
+    'ext. -123',
+    'ext. 12.34',
+    'ext. 123 USD 2.00',
+  ]) {
+    for (final layout in ['flat', 'line', 'split']) {
+      test(
+        'unsupported phone extension retains ambiguity: $suffix $layout',
+        () {
+          final input = contactProductInput(
+            'Notebook',
+            layout: layout,
+            contact: 'Phone: +1 (212) 555-0100 $suffix',
+          );
+          final p = const ReceiptOcrParser().parse(
+            input.text,
+            fallbackCurrency: 'USD',
+            blocks: input.blocks,
+          );
+          expect(p.items.map((i) => i.description), ['Notebook', 'Tea']);
+          expect(p.adjustmentsComplete, isFalse);
+          expect(p.reviewHints, isNotEmpty);
+          expect(p.blocks, orderedEquals(input.blocks));
+        },
+      );
+    }
+  }
+  test('reviewer phone-extension trigger retains only its priced tea', () {
+    final p = const ReceiptOcrParser().parse(
+      'Example Shop\nReceipt date: 2026-06-18\n'
+      'Phone: +1 (212) 555-0100 ext. 123\n'
+      'Tea USD 5.00\nTotal USD 5.00',
+    );
+    expect(p.items.map((i) => [i.description, i.lineTotal]), [
+      ['Tea', '5.00'],
+    ]);
+    expect(p.adjustmentsComplete, isTrue);
+    expect(p.reviewHints, isEmpty);
+  });
 }

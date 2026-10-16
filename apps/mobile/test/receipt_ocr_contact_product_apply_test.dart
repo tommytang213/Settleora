@@ -7,16 +7,24 @@ import 'receipt_ocr_capture/receipt_ocr_contact_product_ownership_test.dart'
     as receipts;
 
 void main() {
-  for (final product in receipts.contactProducts) {
+  final cases = <({String product, String? contact})>[
+    for (final product in receipts.contactProducts)
+      (product: product, contact: null),
+    for (final contact in receipts.contactExtensionFields)
+      (product: 'Notebook', contact: contact),
+  ];
+  for (final scenario in cases) {
+    final product = scenario.product;
     for (final layout in ['flat', 'split']) {
       testWidgets(
-        'contact product reaches actual draft Apply: $product $layout',
+        'contact product reaches actual draft Apply: $product $layout ${scenario.contact ?? ''}',
         (tester) async {
           await bills.useLargeSurface(tester);
           final repository = bills.FakeBillRepository();
           final preview = receipts.contactProductPreview(
             product,
             layout: layout,
+            contact: scenario.contact,
           );
           final provider = bills.FakeReceiptOcrProvider(
             ReceiptOcrResult.extracted(preview),

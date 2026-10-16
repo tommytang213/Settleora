@@ -14078,7 +14078,14 @@ bool _isCompleteReceiptContactLine(String line) {
     r'(?:\s*[:：]\s*|\s+)',
     caseSensitive: false,
   ).firstMatch(text);
-  final number = label == null ? text : text.substring(label.end).trim();
+  final value = label == null ? text : text.substring(label.end).trim();
+  final extension = RegExp(
+    r'\s*(?:ext(?:ension)?\.?|x|#)\s*[:：]?\s*\d{1,6}$',
+    caseSensitive: false,
+  ).firstMatch(value);
+  final number = extension == null
+      ? value
+      : value.substring(0, extension.start).trim();
   final digits = RegExp(r'\d').allMatches(number).length;
   if (digits < 7 ||
       digits > 15 ||
@@ -14098,6 +14105,16 @@ bool _isCompleteReceiptContactLine(String line) {
 
 bool _hasUnownedAmountAfterContactField(String line) {
   if (_isCompleteReceiptContactLine(line)) return false;
+  // An extension is an identifier, not a price. Unsupported/malformed values
+  // or extra money after a proven phone prefix remain unresolved evidence.
+  for (final marker in RegExp(
+    r'(?:ext(?:ension)?\.?|x|#)\s*[:：]?\s*',
+    caseSensitive: false,
+  ).allMatches(line)) {
+    if (_isCompleteReceiptContactLine(line.substring(0, marker.start))) {
+      return true;
+    }
+  }
   final match =
       _pricedItemRowPattern.firstMatch(line) ??
       _joinedSymbolPricedItemRowPattern.firstMatch(line);
