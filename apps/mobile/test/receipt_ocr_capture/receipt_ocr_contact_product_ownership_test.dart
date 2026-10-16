@@ -189,4 +189,31 @@ void main() {
       );
     }
   }
+
+  for (final label in ['Dato', 'Dato/Datum', 'Datum/Dato']) {
+    for (final shape in ['complete', 'invalid', 'priced', 'product']) {
+      test('complete calendar contact-regression control: $label $shape', () {
+        final field = switch (shape) {
+          'complete' => '$label 2026-09-17',
+          'invalid' => '$label 2026-02-30',
+          'priced' => '$label 2026-09-17 USD 5.00',
+          _ => '$label Organizer USD 5.00',
+        };
+        final priced = shape == 'priced' || shape == 'product';
+        final p = const ReceiptOcrParser().parse(
+          'Example Shop\n$field\nTea USD 5.00\nTotal USD ${priced ? '10.00' : '5.00'}',
+          fallbackCurrency: 'USD',
+        );
+        if (shape == 'invalid') {
+          expect(p.adjustmentsComplete, isFalse);
+          expect(p.reviewHints, isNotEmpty);
+        } else {
+          expect(p.items.length, priced ? 2 : 1);
+          expect(p.adjustmentsComplete, isTrue);
+          expect(p.reviewHints, isEmpty);
+          if (priced) expect(p.items.first.lineTotal, '5.00');
+        }
+      });
+    }
+  }
 }

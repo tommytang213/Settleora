@@ -13956,7 +13956,7 @@ String? _labeledCalendarDate(
   bool includeSpecificRoles = false,
 }) {
   const genericLabelName =
-      r'(?:date|datum|fecha|data|日期|日付|날짜|дата|วันที่|तारीख|दिनांक)';
+      r'(?:date|datum|dato|fecha|data|日期|日付|날짜|дата|วันที่|तारीख|दिनांक)';
   final labelName = includeSpecificRoles
       ? '(?:$genericLabelName|$_calendarRoleQualifierPattern'
             '$_specificCalendarRolePattern(?:\\s+(?:date|on))?)'
