@@ -188,7 +188,790 @@ List<ReceiptOcrBlockEvidence> _ownedFeeBlocks({
   return blocks;
 }
 
+ReceiptOcrPreview _parseProjectionOwnershipTable({
+  bool mirrored = false,
+  String? taxRate,
+  bool competingPrice = false,
+  String competingText = 'USD 99.00',
+}) {
+  final blocks = <ReceiptOcrBlockEvidence>[];
+  void add(String text, int row, double left, double right) {
+    final start = mirrored ? 500 - right : left;
+    final end = mirrored ? 500 - left : right;
+    blocks.add(
+      ReceiptOcrBlockEvidence(
+        text: text,
+        order: blocks.length,
+        row: row,
+        points: [
+          ReceiptOcrPoint(x: start, y: row * 20),
+          ReceiptOcrPoint(x: end, y: row * 20),
+          ReceiptOcrPoint(x: end, y: row * 20 + 12),
+          ReceiptOcrPoint(x: start, y: row * 20 + 12),
+        ],
+      ),
+    );
+  }
+
+  add('Market', 0, 20, 360);
+  add('Date 2026-10-12', 1, 20, 360);
+  add('Details of current charges', 2, 20, 360);
+  add('Description', 3, 20, 140);
+  if (taxRate != null) add('Rate', 3, 200, 260);
+  add('Amount', 3, 300, 360);
+  add('Water', 4, 20, 120);
+  add('USD 10.00', 4, 300, 350);
+  if (competingPrice) add(competingText, 4, 365, 425);
+  if (taxRate != null) {
+    add('Tax', 5, 20, 100);
+    add(taxRate, 5, 200, 260);
+    add('USD 2.00', 5, 300, 350);
+  }
+  add(
+    taxRate == null || taxRate.contains('included')
+        ? 'Total USD 10.00'
+        : 'Total USD 12.00',
+    taxRate == null ? 5 : 6,
+    20,
+    360,
+  );
+  blocks.sort((a, b) {
+    final byRow = a.row.compareTo(b.row);
+    return byRow != 0 ? byRow : a.points.first.x.compareTo(b.points.first.x);
+  });
+  final ordered = [
+    for (var i = 0; i < blocks.length; i++)
+      ReceiptOcrBlockEvidence(
+        text: blocks[i].text,
+        order: i,
+        row: blocks[i].row,
+        points: blocks[i].points,
+      ),
+  ];
+  final lines = <int, List<String>>{};
+  for (final block in ordered) {
+    lines.putIfAbsent(block.row, () => []).add(block.text);
+  }
+  return const ReceiptOcrParser().parse(
+    lines.values.map((row) => row.join(' ')).join('\n'),
+    blocks: ordered,
+  );
+}
+
+ReceiptOcrPreview _parseCompleteLayoutCell({
+  bool mirrored = false,
+  String? outsideCurrency,
+  String? secondCurrency,
+  String? descriptionSuffix,
+}) {
+  final blocks = <ReceiptOcrBlockEvidence>[];
+  void add(String text, int row, double left, double right) {
+    final start = mirrored ? 600 - right : left;
+    final end = mirrored ? 600 - left : right;
+    blocks.add(
+      ReceiptOcrBlockEvidence(
+        text: text,
+        row: row,
+        order: blocks.length,
+        points: [
+          ReceiptOcrPoint(x: start, y: row * 30),
+          ReceiptOcrPoint(x: end, y: row * 30),
+          ReceiptOcrPoint(x: end, y: row * 30 + 18),
+          ReceiptOcrPoint(x: start, y: row * 30 + 18),
+        ],
+      ),
+    );
+  }
+
+  add('Market', 0, 20, 460);
+  add('Date 2026-10-12', 1, 20, 460);
+  add('Description', 2, 20, 170);
+  add('Qty', 2, 220, 250);
+  add('Rate', 2, 300, 350);
+  add('Amount', 2, 400, 460);
+  add('Widget', 3, mirrored ? 110 : 20, mirrored ? 170 : 80);
+  if (descriptionSuffix != null) {
+    add(descriptionSuffix, 3, mirrored ? 70 : 90, mirrored ? 100 : 120);
+  }
+  add('1', 3, 225, 245);
+  add('10.00', 3, 300, 345);
+  add('10.00', 3, 410, 455);
+  if (outsideCurrency != null) add(outsideCurrency, 3, 463, 493);
+  if (secondCurrency != null) add(secondCurrency, 3, 494, 514);
+  add('Total USD 10.00', 4, 20, 460);
+  final rows = <int, List<String>>{};
+  for (final b in blocks) {
+    rows.putIfAbsent(b.row, () => []).add(b.text);
+  }
+  return const ReceiptOcrParser().parse(
+    rows.values.map((x) => x.join(' ')).join('\n'),
+    blocks: blocks,
+  );
+}
+
 void main() {
+  test(
+    'utility financial ownership combines distinct taxes before the boundary',
+    () {
+      final preview = const ReceiptOcrParser().parse(
+        'Utility\nDetails of current charges\nDescription Usage Rate Amount\n'
+        'Water Plan 1 USD 10.00 USD 10.00\nState tax — — USD 1.00\n'
+        'Local tax — — USD 2.00\nTotal USD 13.00',
+        blocks: [
+          _layoutBlock('Utility', 0, 0, 20, 350),
+          _layoutBlock('Details of current charges', 1, 1, 20, 700),
+          _layoutBlock('Description', 2, 2, 20, 250),
+          _layoutBlock('Usage', 3, 2, 280, 400),
+          _layoutBlock('Rate', 4, 2, 430, 560),
+          _layoutBlock('Amount', 5, 2, 600, 700),
+          _layoutBlock('Water Plan', 6, 3, 20, 250),
+          _layoutBlock('1', 7, 3, 280, 400),
+          _layoutBlock('USD 10.00', 8, 3, 430, 560),
+          _layoutBlock('USD 10.00', 9, 3, 600, 700),
+          _layoutBlock('State tax', 10, 4, 20, 250),
+          _layoutBlock('—', 11, 4, 280, 400),
+          _layoutBlock('—', 12, 4, 430, 560),
+          _layoutBlock('USD 1.00', 13, 4, 600, 700),
+          _layoutBlock('Local tax', 14, 5, 20, 250),
+          _layoutBlock('—', 15, 5, 280, 400),
+          _layoutBlock('—', 16, 5, 430, 560),
+          _layoutBlock('USD 2.00', 17, 5, 600, 700),
+          _layoutBlock('Total', 18, 6, 20, 250),
+          _layoutBlock('USD 13.00', 19, 6, 600, 700),
+        ],
+      );
+      expect(preview.tax, '3.00');
+      expect(preview.adjustmentsComplete, isTrue);
+      expect(preview.reviewHints, isEmpty);
+      expect(preview.items.single.description, 'Water Plan');
+    },
+  );
+
+  for (final scenario in [
+    'valid',
+    'qualifiedDescription',
+    'duplicateDescription',
+    'duplicateAmount',
+    'overlap',
+    'twoOuter',
+    'innerPeriod',
+  ]) {
+    for (final label in [
+      'Regulatory Recovery Fee',
+      'State Tax (10%)',
+      'State Tax USD (10%)',
+    ]) {
+      test('utility financial ownership malformed header $scenario $label', () {
+        var order = 2;
+        final header = <ReceiptOcrBlockEvidence>[
+          if (scenario == 'twoOuter')
+            _layoutBlock('Messages', order++, 2, 0, 70),
+          _layoutBlock(
+            scenario == 'qualifiedDescription'
+                ? 'Item Description'
+                : 'Description',
+            order++,
+            2,
+            100,
+            250,
+          ),
+          if (scenario == 'duplicateDescription')
+            _layoutBlock('Description', order++, 2, 260, 290),
+          _layoutBlock(
+            'Usage',
+            order++,
+            2,
+            scenario == 'overlap' ? 230 : 260,
+            300,
+          ),
+          _layoutBlock('Rate', order++, 2, 310, 350),
+          if (scenario == 'innerPeriod')
+            _layoutBlock('Service Period', order++, 2, 270, 350),
+          _layoutBlock('Amount', order++, 2, 400, 500),
+          if (scenario == 'duplicateAmount')
+            _layoutBlock('Amount', order++, 2, 550, 610),
+          if (scenario == 'twoOuter')
+            _layoutBlock('Support', order++, 2, 550, 650),
+        ];
+        final preview = const ReceiptOcrParser().parse(
+          'Utility\nCurrent Charges Detail\n${header.map((v) => v.text).join(' ')}\nWater Plan 1 USD 10.00 USD 10.00\n$label 1 USD 2.00 USD 2.00\nTotal Current Charges USD 12.00',
+          blocks: [
+            _layoutBlock('Utility', 0, 0, 100, 400),
+            _layoutBlock('Current Charges Detail', 1, 1, 100, 500),
+            ...header,
+            _layoutBlock('Water Plan', order++, 3, 100, 250),
+            _layoutBlock('1', order++, 3, 260, 300),
+            _layoutBlock('USD 10.00', order++, 3, 310, 350),
+            _layoutBlock('USD 10.00', order++, 3, 400, 500),
+            _layoutBlock(label, order++, 4, 100, 250),
+            _layoutBlock('1', order++, 4, 260, 300),
+            _layoutBlock('USD 2.00', order++, 4, 310, 350),
+            _layoutBlock('USD 2.00', order++, 4, 400, 500),
+            _layoutBlock(
+              'Total Current Charges USD 12.00',
+              order++,
+              5,
+              100,
+              500,
+            ),
+          ],
+        );
+        if (scenario != 'duplicateDescription') {
+          expect(
+            preview.items.any((v) => v.description == 'Water Plan'),
+            isTrue,
+            reason:
+                'Control priced row must survive the same valid provider row ordering',
+          );
+        }
+        expect(
+          preview.items.any((v) => v.description.contains(label)),
+          isFalse,
+          reason:
+              'Malformed utility header must not classify an explicit financial row as merchandise',
+        );
+      });
+    }
+  }
+
+  for (final boundary in ['Total', 'Total Current Charges', 'Subtotal']) {
+    test(
+      'utility financial ownership boundary $boundary must end tax component ownership',
+      () {
+        final preview = const ReceiptOcrParser().parse(
+          'Utility\nDetails of current charges\nDescription Usage Rate Amount\nWater Plan 1 USD 10.00 USD 10.00\nState tax — — USD 1.00\n$boundary USD 11.00\nLocal tax — — USD 2.00',
+          blocks: [
+            _layoutBlock('Utility', 0, 0, 20, 350),
+            _layoutBlock('Details of current charges', 1, 1, 20, 700),
+            _layoutBlock('Description', 2, 2, 20, 250),
+            _layoutBlock('Usage', 3, 2, 280, 400),
+            _layoutBlock('Rate', 4, 2, 430, 560),
+            _layoutBlock('Amount', 5, 2, 600, 700),
+            _layoutBlock('Water Plan', 6, 3, 20, 250),
+            _layoutBlock('1', 7, 3, 280, 400),
+            _layoutBlock('USD 10.00', 8, 3, 430, 560),
+            _layoutBlock('USD 10.00', 9, 3, 600, 700),
+            _layoutBlock('State tax', 10, 4, 20, 250),
+            _layoutBlock('—', 11, 4, 280, 400),
+            _layoutBlock('—', 12, 4, 430, 560),
+            _layoutBlock('USD 1.00', 13, 4, 600, 700),
+            _layoutBlock(boundary, 14, 5, 20, 250),
+            _layoutBlock('USD 11.00', 15, 5, 600, 700),
+            _layoutBlock('Local tax', 16, 6, 20, 250),
+            _layoutBlock('—', 17, 6, 280, 400),
+            _layoutBlock('—', 18, 6, 430, 560),
+            _layoutBlock('USD 2.00', 19, 6, 600, 700),
+          ],
+        );
+        expect(
+          preview.tax,
+          isNot('3.00'),
+          reason:
+              'Components separated by a printed total cannot acquire the same table owner',
+        );
+        expect(preview.adjustmentsComplete, isFalse);
+        expect(preview.reviewHints, isNotEmpty);
+      },
+    );
+  }
+
+  group('complete layout cell evidence', () {
+    for (final mirrored in [false, true]) {
+      for (final currency in ['USD', 'EUR']) {
+        test(
+          'retains adjacent $currency outside heading; mirrored=$mirrored',
+          () {
+            final preview = _parseCompleteLayoutCell(
+              outsideCurrency: currency,
+              mirrored: mirrored,
+            );
+            expect(preview.items.single.currency, currency);
+            expect(preview.items.single.lineTotal, '10.00');
+            expect(
+              preview.blocks.map((block) => block.text),
+              contains(currency),
+            );
+            if (currency == 'USD') expect(preview.reviewHints, isEmpty);
+          },
+        );
+      }
+      for (final model in ['2', '007', '2 or 3']) {
+        test('preserves complete model $model; mirrored=$mirrored', () {
+          final preview = _parseCompleteLayoutCell(
+            descriptionSuffix: model,
+            mirrored: mirrored,
+          );
+          expect(preview.items.single.description, 'Widget $model');
+          expect(preview.items.single.lineTotal, '10.00');
+          expect(preview.reviewHints, isEmpty);
+          expect(preview.blocks.map((block) => block.text), contains(model));
+        });
+      }
+      for (final fragment in ['2.50', 'USD 2.00']) {
+        test(
+          'retains ambiguous description fragment $fragment; mirrored=$mirrored',
+          () {
+            final preview = _parseCompleteLayoutCell(
+              descriptionSuffix: fragment,
+              mirrored: mirrored,
+            );
+            expect(preview.reviewHints, isNotEmpty);
+            expect(
+              preview.items.map((item) => item.description),
+              isNot(contains('Widget')),
+            );
+            expect(
+              preview.blocks.map((block) => block.text),
+              contains(fragment),
+            );
+          },
+        );
+      }
+      test('retains competing adjacent currencies; mirrored=$mirrored', () {
+        final preview = _parseCompleteLayoutCell(
+          outsideCurrency: 'EUR',
+          secondCurrency: 'USD',
+          mirrored: mirrored,
+        );
+        expect(preview.reviewHints, isNotEmpty);
+        expect(preview.blocks.map((block) => block.text), contains('EUR'));
+      });
+      test('keeps ordinary complete item; mirrored=$mirrored', () {
+        final preview = _parseCompleteLayoutCell(mirrored: mirrored);
+        expect(preview.items.single.description, 'Widget');
+        expect(preview.items.single.currency, 'USD');
+        expect(preview.items.single.lineTotal, '10.00');
+        expect(preview.reviewHints, isEmpty);
+      });
+    }
+  });
+
+  group('projection row ownership', () {
+    test('tax amount printed below its label remains unresolved', () {
+      final amount = _layoutBlock('USD 2.00', 9, 5, 300, 350);
+      final displacedAmount = ReceiptOcrBlockEvidence(
+        text: amount.text,
+        order: amount.order,
+        row: amount.row,
+        points: [
+          for (final point in amount.points)
+            ReceiptOcrPoint(x: point.x, y: point.y + 40),
+        ],
+      );
+      final blocks = <ReceiptOcrBlockEvidence>[
+        _layoutBlock('Market', 0, 0, 20, 360),
+        _layoutBlock('Date 2026-10-12', 1, 1, 20, 360),
+        _layoutBlock('Detailed charges', 2, 2, 20, 360),
+        _layoutBlock('Description', 3, 3, 20, 140),
+        _layoutBlock('Amount', 4, 3, 300, 360),
+        _layoutBlock('Support', 5, 3, 390, 470),
+        _layoutBlock('Water', 6, 4, 20, 120),
+        _layoutBlock('USD 10.00', 7, 4, 300, 350),
+        _layoutBlock('VAT', 8, 5, 20, 100),
+        _layoutBlock('Need help', 10, 5, 390, 470),
+        displacedAmount,
+        _layoutBlock('Total USD 12.00', 11, 6, 20, 360),
+      ];
+      final preview = const ReceiptOcrParser().parse(
+        'Market\nDate 2026-10-12\nDetailed charges\nDescription Amount Support\nWater USD 10.00\nVAT Need help USD 2.00\nTotal USD 12.00',
+        blocks: blocks,
+      );
+      expect(preview.tax, isNull);
+      expect(preview.adjustmentsComplete, isFalse);
+      expect(preview.reviewHints, isNotEmpty);
+      expect(preview.blocks, containsAll(blocks));
+    });
+
+    for (final mirrored in [false, true]) {
+      for (final qualifier in ['included', '(included)']) {
+        test('preserves $qualifier tax; mirrored=$mirrored', () {
+          final preview = _parseProjectionOwnershipTable(
+            taxRate: qualifier,
+            mirrored: mirrored,
+          );
+          expect(preview.tax, '2.00');
+          expect(preview.taxIncludedInTotal, isTrue);
+          expect(preview.adjustmentsComplete, isTrue);
+          expect(preview.reviewHints, isEmpty);
+          expect(
+            preview.blocks.map((block) => block.text),
+            contains(qualifier),
+          );
+        });
+      }
+      for (final qualifier in [
+        'exempt',
+        'included in total',
+        'estimate',
+        '5% estimated',
+        'USD 2.00 or USD 3.00',
+        'USD -0.50',
+      ]) {
+        test('retains unresolved rate $qualifier; mirrored=$mirrored', () {
+          final preview = _parseProjectionOwnershipTable(
+            taxRate: qualifier,
+            mirrored: mirrored,
+          );
+          expect(preview.tax, isNull);
+          expect(preview.adjustmentsComplete, isFalse);
+          expect(preview.reviewHints, isNotEmpty);
+          expect(
+            preview.blocks.map((block) => block.text),
+            contains(qualifier),
+          );
+        });
+      }
+      for (final price in ['USD 99.00', '99.00', 'USD 99.00 (estimate)']) {
+        test('retains outside price $price; mirrored=$mirrored', () {
+          final preview = _parseProjectionOwnershipTable(
+            competingPrice: true,
+            competingText: price,
+            mirrored: mirrored,
+          );
+          expect(preview.reviewHints, isNotEmpty);
+          expect(preview.total, '10.00');
+          expect(preview.blocks.map((block) => block.text), contains(price));
+        });
+      }
+      for (final rate in ['5%', '0.05', 'USD 0.05']) {
+        test('keeps ordinary rate $rate; mirrored=$mirrored', () {
+          final preview = _parseProjectionOwnershipTable(
+            taxRate: rate,
+            mirrored: mirrored,
+          );
+          expect(preview.tax, '2.00');
+          expect(preview.taxIncludedInTotal, isFalse);
+          expect(preview.adjustmentsComplete, isTrue);
+          expect(preview.reviewHints, isEmpty);
+        });
+      }
+      test('keeps a single item amount; mirrored=$mirrored', () {
+        final preview = _parseProjectionOwnershipTable(mirrored: mirrored);
+        expect(preview.items.single.description, 'Water');
+        expect(preview.items.single.lineTotal, '10.00');
+        expect(preview.reviewHints, isEmpty);
+      });
+    }
+
+    ReceiptOcrPreview invoice(
+      String sku, {
+      String heading = 'SKU',
+      bool mirrored = false,
+      bool splitCurrency = false,
+    }) {
+      final cells = <(String, int, double, double)>[
+        ('Market', 0, 20, 410),
+        ('Date 2026-10-12', 1, 20, 410),
+        (heading, 2, 20, 60),
+        if (heading == '#') ('SKU', 2, 78, 95),
+        ('Product / Service', 2, 120, 220),
+        ('Qty', 2, 230, 260),
+        ('Unit Price', 2, 280, 335),
+        ('Total', 2, 350, 410),
+        (sku, 3, 20, 60),
+        if (splitCurrency) ('USD', 3, 5, 18),
+        if (heading == '#') ('AB1', 3, 78, 95),
+        ('Notebook', 3, 120, 220),
+        ('1', 3, 230, 260),
+        ('USD 10.00', 3, 280, 335),
+        ('USD 10.00', 3, 350, 410),
+        ('Total USD 10.00', 4, 20, 410),
+      ];
+      final rows = <int, List<String>>{};
+      for (final cell in cells) {
+        rows.putIfAbsent(cell.$2, () => []).add(cell.$1);
+      }
+      return const ReceiptOcrParser().parse(
+        rows.values.map((row) => row.join(' ')).join('\n'),
+        blocks: [
+          for (var i = 0; i < cells.length; i++)
+            _layoutBlock(
+              cells[i].$1,
+              i,
+              cells[i].$2,
+              mirrored ? 500 - cells[i].$4 : cells[i].$3,
+              mirrored ? 500 - cells[i].$3 : cells[i].$4,
+            ),
+        ],
+      );
+    }
+
+    test('keeps a numeric SKU in its separately headed reference column', () {
+      final preview = invoice('1234');
+      expect(preview.items.single.description, 'Notebook');
+      expect(preview.items.single.lineTotal, '10.00');
+      expect(preview.reviewHints, isEmpty);
+    });
+    test('a reference column cannot hide an explicit price', () {
+      final preview = invoice('USD99');
+      expect(preview.reviewHints, isNotEmpty);
+    });
+    for (final mirrored in [false, true]) {
+      test('keeps a separately headed row number; mirrored=$mirrored', () {
+        final preview = invoice('27', heading: '#', mirrored: mirrored);
+        expect(preview.items.single.description, 'Notebook');
+        expect(preview.items.single.lineTotal, '10.00');
+        expect(preview.reviewHints, isEmpty);
+        expect(preview.blocks.map((block) => block.text), contains('27'));
+      });
+      for (final value in ['USD99', '99.00', '-1', '1 or 2']) {
+        test('row number cannot hide $value; mirrored=$mirrored', () {
+          final preview = invoice(value, heading: '#', mirrored: mirrored);
+          expect(preview.reviewHints, isNotEmpty);
+        });
+      }
+      for (final heading in ['#', 'SKU']) {
+        test('keeps split money under $heading; mirrored=$mirrored', () {
+          final preview = invoice(
+            '99',
+            heading: heading,
+            mirrored: mirrored,
+            splitCurrency: true,
+          );
+          expect(preview.reviewHints, isNotEmpty);
+        });
+      }
+    }
+  });
+
+  group('localized settlement label ownership', () {
+    test('priced product names sharing payment words remain items', () {
+      for (final description in [
+        'Espèces menacées',
+        'Monnaie ancienne',
+        'Dinheiro e economia',
+        'Gotówka poradnik',
+        'Nakit defteri',
+        'Наличные экономика',
+        '現金 管理手帳',
+      ]) {
+        final preview = const ReceiptOcrParser().parse(
+          'Bookshop\n$description 20,00 EUR\nTotal EUR 20.00',
+        );
+        expect(preview.items, hasLength(1), reason: description);
+        expect(preview.items.single.description, description);
+        expect(preview.items.single.lineTotal, '20.00');
+        expect(preview.items.single.currency, 'EUR');
+        expect(preview.total, '20.00');
+        expect(preview.reviewHints, isEmpty);
+      }
+    });
+
+    test(
+      'complete payment cells remain metadata without currency inference',
+      () {
+        for (final label in [
+          'Gotówka',
+          'Reszta',
+          'Nakit',
+          'Para üstü',
+          'Tiền mặt',
+          'Tiền thừa',
+          'Dinheiro',
+          'Troco',
+          'Espèces',
+          'Monnaie',
+          'Наличные',
+          'Сдача',
+          'نقدا',
+          'نقداً',
+          'الباقي',
+          '現金',
+          'お釣り',
+          '现金',
+          '現金支付',
+          '找零',
+          '현금',
+          '거스름돈',
+          'เงินสด',
+          'เงินทอน',
+          'नकद',
+          'बाकी',
+        ]) {
+          for (final money in [' 5,00 EUR', ': EUR 5.00', '：EUR5.00']) {
+            final preview = const ReceiptOcrParser().parse(
+              'Corner Cafe\nCoffee \$5.00\nTotal \$5.00\n$label$money',
+            );
+            expect(preview.items.map((item) => item.description), [
+              'Coffee',
+            ], reason: '$label$money');
+            expect(preview.currency, isNull, reason: '$label$money');
+            expect(
+              preview.currencyProvenance,
+              ReceiptOcrCurrencyProvenance.unresolved,
+            );
+            expect(preview.total, '5.00');
+          }
+        }
+      },
+    );
+  });
+
+  group('competing printed total reconciliation', () {
+    for (final values in [
+      ('USD', '100.00', '100.01'),
+      ('KWD', '1.003', '1.004'),
+      ('JPY', '100', '101'),
+    ]) {
+      for (final exactLast in [true, false]) {
+        final (currency, exact, competing) = values;
+        test(
+          'generic total exact minor units: $currency exactLast=$exactLast',
+          () {
+            final totals = exactLast
+                ? 'Total $currency $competing\nTotal $currency $exact'
+                : 'Total $currency $exact\nTotal $currency $competing';
+            final preview = const ReceiptOcrParser().parse(
+              'Market\nBook $currency $exact\nSubtotal $currency $exact\n$totals',
+            );
+            expect(preview.total, exact);
+            expect(preview.adjustmentsComplete, isFalse);
+            expect(
+              preview.incompleteAdjustmentReasons,
+              contains(
+                ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence,
+              ),
+            );
+            expect(preview.reviewHints, isNotEmpty);
+          },
+        );
+      }
+    }
+
+    test(
+      'explicit additive tax still explains ordinary net and final totals',
+      () {
+        for (final totals in [
+          'Total USD 100.00\nTotal USD 120.00',
+          'Total USD 120.00\nTotal USD 100.00',
+        ]) {
+          final preview = const ReceiptOcrParser().parse(
+            'Market\nBook USD 100.00\nSubtotal USD 100.00\nTax USD 20.00\n$totals',
+          );
+          expect(preview.total, '120.00');
+          expect(preview.adjustmentsComplete, isTrue);
+          expect(preview.incompleteAdjustmentReasons, isEmpty);
+          expect(preview.reviewHints, isEmpty);
+        }
+      },
+    );
+
+    test('exact decimal addition ranks the printed final generic total', () {
+      final preview = const ReceiptOcrParser().parse(
+        'Market\nBook USD 0.10\nSubtotal USD 0.10\nTax USD 0.20\n'
+        'Total USD 0.30\nTotal USD 0.10',
+      );
+      expect(preview.total, '0.30');
+      expect(preview.adjustmentsComplete, isTrue);
+      expect(preview.incompleteAdjustmentReasons, isEmpty);
+    });
+
+    test('equal primary amounts with different decimal spellings agree', () {
+      final preview = const ReceiptOcrParser().parse(
+        'Market\nBook USD 100.00\nSubtotal USD 100.00\n'
+        'Grand Total USD 100.0\nAmount Due USD 100.00',
+      );
+      expect(preview.total, '100.00');
+      expect(preview.adjustmentsComplete, isTrue);
+      expect(preview.incompleteAdjustmentReasons, isEmpty);
+      expect(preview.reviewHints, isEmpty);
+    });
+
+    test('distinct generic totals without subtotal retain ambiguity', () {
+      final preview = const ReceiptOcrParser().parse(
+        'Market\nBook USD 10.00\nTotal USD 10.00\nTotal USD 11.00',
+      );
+      expect(preview.total, anyOf('10.00', '11.00'));
+      expect(preview.adjustmentsComplete, isFalse);
+      expect(
+        preview.incompleteAdjustmentReasons,
+        contains(ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence),
+      );
+    });
+
+    test('included tax cannot make distinct primary totals confident', () {
+      for (final totals in [
+        'Grand Total USD 100.00\nAmount Due USD 120.00',
+        'Amount Due USD 120.00\nGrand Total USD 100.00',
+      ]) {
+        final preview = const ReceiptOcrParser().parse(
+          'Market\nBook USD 100.00\nSubtotal USD 100.00\n'
+          'VAT included USD 20.00\n$totals',
+        );
+        expect(preview.tax, '20.00');
+        expect(preview.taxIncludedInTotal, isTrue);
+        expect(preview.subtotal, '100.00');
+        expect(preview.items.single.lineTotal, '100.00');
+        expect(preview.total, anyOf('100.00', '120.00'));
+        expect(preview.rawTextLineCount, 6);
+        expect(preview.adjustmentsComplete, isFalse);
+        expect(
+          preview.incompleteAdjustmentReasons,
+          contains(ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence),
+        );
+        expect(preview.reviewHints, isNotEmpty);
+      }
+    });
+
+    test('discount already in subtotal is not subtracted during ranking', () {
+      for (final totals in [
+        'Grand Total USD 95.00\nAmount Due USD 90.00',
+        'Amount Due USD 90.00\nGrand Total USD 95.00',
+      ]) {
+        final preview = const ReceiptOcrParser().parse(
+          'Market\nBook USD 100.00\nDiscount USD -5.00\n'
+          'Subtotal USD 95.00\n$totals',
+        );
+        expect(preview.discount, '-5.00');
+        expect(preview.discountBeforeSubtotal, isTrue);
+        expect(preview.subtotal, '95.00');
+        expect(preview.total, '95.00');
+        expect(preview.items.single.lineTotal, '100.00');
+        expect(preview.rawTextLineCount, 6);
+        expect(preview.adjustmentsComplete, isFalse);
+        expect(
+          preview.incompleteAdjustmentReasons,
+          contains(ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence),
+        );
+        expect(preview.reviewHints, isNotEmpty);
+      }
+    });
+
+    test('agreeing primary totals and net or gross tax stay confident', () {
+      for (final gross in [true, false]) {
+        final amount = gross ? '100.00' : '120.00';
+        final preview = const ReceiptOcrParser().parse(
+          'Market\nBook USD $amount\nSubtotal USD 100.00\n'
+          'VAT included USD 20.00\nGrand Total USD $amount\n'
+          'Amount Due USD $amount',
+        );
+        expect(preview.total, amount);
+        expect(preview.tax, '20.00');
+        expect(preview.taxIncludedInTotal, isTrue);
+        expect(preview.reviewHints, isEmpty);
+        expect(preview.incompleteAdjustmentReasons, isEmpty);
+      }
+    });
+
+    test('discount after subtotal still contributes to total ranking', () {
+      final preview = const ReceiptOcrParser().parse(
+        'Market\nBook USD 100.00\nSubtotal USD 100.00\n'
+        'Discount USD -5.00\nGrand Total USD 95.00\n'
+        'Amount Due USD 90.00',
+      );
+      expect(preview.discountBeforeSubtotal, isFalse);
+      expect(preview.total, '95.00');
+      expect(preview.discount, '-5.00');
+      expect(preview.items.single.lineTotal, '100.00');
+      expect(preview.adjustmentsComplete, isFalse);
+      expect(
+        preview.incompleteAdjustmentReasons,
+        contains(ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence),
+      );
+      expect(preview.reviewHints, isNotEmpty);
+    });
+  });
+
   for (final included in [true, false]) {
     test(
       'review round three aggregates coupons with included tax=$included',
@@ -1041,6 +1824,7 @@ VAT included 20% GBP 4.00
       double headingLeft = 798,
       double headingOffset = 50,
       String itemAmount = 'USD 86.27',
+      bool includeItem = true,
       List<String> adjustments = const [],
       bool splitLocalizedTotal = false,
       bool priorCrossRowMoney = false,
@@ -1095,8 +1879,10 @@ VAT included 20% GBP 4.00
           : 3 + adjustments.length;
       final blocks = [
         cell('Sample Utility', 0, 50, 300),
-        cell('Broadband Plan', 1, 50, 300),
-        cell(itemAmount, 1, 600, 720),
+        if (includeItem) ...[
+          cell('Broadband Plan', 1, 50, 300),
+          cell(itemAmount, 1, 600, 720),
+        ],
         for (var index = 0; index < adjustments.length; index++)
           cell(adjustments[index], index + 2, 50, 720),
         if (splitLocalizedTotal) ...[
@@ -1320,6 +2106,46 @@ VAT included 20% GBP 4.00
             expect(preview.total, null);
             expect([...preview.warnings, ...preview.reviewHints], isNotEmpty);
           }
+        }
+      }
+    });
+
+    test(
+      'owned contact total does not warn that the same total is missing',
+      () {
+        for (final scale in [0.5, 1.0, 2.0]) {
+          final preview = parse(scale: scale, includeItem: false);
+          expect(preview.total, '86.27');
+          expect(preview.items, isEmpty);
+          expect(
+            preview.warnings,
+            contains('No clear item lines were detected.'),
+          );
+          expect(
+            preview.warnings,
+            isNot(contains('No clear total amount was detected.')),
+          );
+          expect(preview.blocks, isNotEmpty);
+        }
+      },
+    );
+
+    test('unowned contact totals retain the missing-total warning', () {
+      for (final scale in [0.5, 1.0, 2.0]) {
+        for (final preview in [
+          parse(scale: scale, includeItem: false, totalMoney: 'unreadable'),
+          parse(scale: scale, includeItem: false, includeGeometry: false),
+        ]) {
+          expect(preview.total, isNull);
+          expect(preview.items, isEmpty);
+          expect(
+            preview.warnings,
+            contains('No clear total amount was detected.'),
+          );
+          expect(
+            preview.warnings,
+            contains('No clear item lines were detected.'),
+          );
         }
       }
     });
@@ -1894,8 +2720,8 @@ VAT included 20% GBP 4.00
         expect(competing.total, '90.00');
         expect(competing.reviewHints, isNotEmpty);
         final unknown = parse(scale: scale, contact: 'Chart usage 434');
-        expect(unknown.total, '434');
-        expect(unknown.reviewHints, isNotEmpty);
+        expect(unknown.total, isNull);
+        expect([...unknown.warnings, ...unknown.reviewHints], isNotEmpty);
       }
     });
   });
@@ -3533,10 +4359,9 @@ VAT included 20% GBP 4.00
             }
             final preview = _parseBoundedUtility(blocks);
             final reason = 'grouped=$grouped pending=$pending distant=$distant';
-            // Nearby unexplained prose keeps fallback and its uncertainty; a
-            // distant pending description cannot borrow the proven summary amount.
+            // Unpriced prose cannot borrow a summary amount at either distance.
+            // The separately printed charge rows still own their line amounts.
             expect(preview.items.map((i) => i.lineTotal), [
-              if (pending && !distant) '42.00',
               '35.00',
               '7.00',
             ], reason: reason);
@@ -3886,9 +4711,31 @@ VAT included 20% GBP 4.00
         );
         expect(
           preview.items.any((i) => i.description.contains('Alex Q. Sample')),
-          isTrue,
+          const {
+            'no geometry',
+            'one missing geometry',
+            'second amount',
+          }.contains(entry.key),
           reason: entry.key,
         );
+        if (entry.key == 'unlocated later evidence') {
+          // One provider row spans separate customer and amount bands.
+          expect(preview.adjustmentsComplete, isFalse);
+          expect(preview.reviewHints, isNotEmpty);
+        }
+        if (entry.key == 'intervening Balance Due') {
+          // Competing summary ownership cannot turn the customer's name and
+          // header amount into an item, even when no separate prose is pending.
+          expect(preview.items.map((i) => i.lineTotal), ['35.00', '7.00']);
+          expect(preview.adjustmentsComplete, isFalse);
+          expect(preview.reviewHints, isNotEmpty);
+          expect(
+            preview.incompleteAdjustmentReasons,
+            contains(
+              ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence,
+            ),
+          );
+        }
         expect(preview.blocks, containsAll(entry.value), reason: entry.key);
       }
     },
@@ -4851,6 +5698,28 @@ VAT included 20% GBP 4.00
       }
     },
   );
+
+  test('bounded utility amount requires the same physical printed row', () {
+    final blocks = _boundedUtilityBlocks();
+    final amountIndex = blocks.indexWhere((block) => block.text == r'$59.99');
+    final amount = blocks[amountIndex];
+    blocks[amountIndex] = ReceiptOcrBlockEvidence(
+      text: amount.text,
+      order: amount.order,
+      row: amount.row,
+      points: [
+        for (final point in amount.points)
+          ReceiptOcrPoint(x: point.x, y: point.y + 40),
+      ],
+    );
+    final preview = _parseBoundedUtility(blocks);
+    expect(
+      preview.items.any((item) => item.description == 'Internet Plan 500'),
+      isFalse,
+    );
+    expect(preview.reviewHints, isNotEmpty);
+    expect(preview.blocks, containsAll(blocks));
+  });
 
   test('bounded utility recovery never clears a panel credit sign', () {
     for (final support in [
@@ -6186,6 +7055,158 @@ Total USD 40.00
     },
   );
 
+  test('layout fallback retains a bounded numeric size and unit', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Market\nCoffee 250 g 3.00 A\nTotal USD 3.00',
+      blocks: [
+        _layoutBlock('Market', 0, 0, 20, 350),
+        _layoutBlock('Coffee', 1, 1, 60, 120),
+        _layoutBlock('250', 2, 1, 130, 160),
+        _layoutBlock('g', 3, 1, 165, 180),
+        _layoutBlock('3.00', 4, 1, 300, 350),
+        _layoutBlock('A', 5, 1, 370, 390),
+        _layoutBlock('Total USD 3.00', 6, 2, 20, 350),
+      ],
+    );
+    expect(preview.items.single.description, 'Coffee 250 g');
+    expect(preview.items.single.lineTotal, '3.00');
+    final noUnit = const ReceiptOcrParser().parse(
+      'Market\nCoffee 250 3.00 A\nTotal USD 3.00',
+      blocks: [
+        _layoutBlock('Market', 0, 0, 20, 350),
+        _layoutBlock('Coffee', 1, 1, 60, 120),
+        _layoutBlock('250', 2, 1, 130, 160),
+        _layoutBlock('3.00', 3, 1, 300, 350),
+        _layoutBlock('A', 4, 1, 370, 390),
+        _layoutBlock('Total USD 3.00', 5, 2, 20, 350),
+      ],
+    );
+    expect(noUnit.items, isEmpty);
+  });
+
+  test('layout fallback rejects a price below its provider-row description', () {
+    for (final amountFirst in [true, false]) {
+      final amount = _layoutBlock('USD 2.00', 1, 1, 300, 370);
+      final displacedAmount = ReceiptOcrBlockEvidence(
+        text: amount.text,
+        order: amount.order,
+        row: amount.row,
+        points: [
+          for (final point in amount.points)
+            ReceiptOcrPoint(x: point.x, y: point.y + 40),
+        ],
+      );
+      final blocks = <ReceiptOcrBlockEvidence>[
+        _layoutBlock('Market', 0, 0, 20, 350),
+        if (amountFirst) displacedAmount,
+        _layoutBlock('Coffee', 2, 1, 20, 100),
+        if (!amountFirst) displacedAmount,
+        _layoutBlock('Total USD 2.00', 3, 2, 20, 350),
+      ];
+      final preview = const ReceiptOcrParser().parse(
+        'Market\n${amountFirst ? 'USD 2.00 Coffee' : 'Coffee USD 2.00'}\nTotal USD 2.00',
+        blocks: blocks,
+      );
+      expect(preview.items, isEmpty, reason: '$amountFirst');
+      expect(preview.adjustmentsComplete, isFalse, reason: '$amountFirst');
+      expect(
+        preview.incompleteAdjustmentReasons,
+        contains(ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem),
+        reason: '$amountFirst',
+      );
+      expect(preview.reviewHints, isNotEmpty, reason: '$amountFirst');
+      expect(preview.blocks, containsAll(blocks));
+    }
+  });
+
+  test('layout fallback retains detached credit signs for review', () {
+    for (final marker in ['CR', 'credit', '(', ')']) {
+      final isLeft = marker == '(';
+      final preview = const ReceiptOcrParser().parse(
+        'Market\nTea ${isLeft ? '$marker ' : ''}5.00 ${isLeft ? ')' : marker}\nTotal USD 5.00',
+        blocks: [
+          _layoutBlock('Market', 0, 0, 10, 250),
+          _layoutBlock('Tea', 1, 1, 10, 80),
+          if (isLeft) _layoutBlock('(', 2, 1, 145, 155),
+          _layoutBlock('5.00', 3, 1, 160, 200),
+          _layoutBlock(isLeft ? ')' : marker, 4, 1, 205, 230),
+          _layoutBlock('Total USD 5.00', 5, 2, 10, 250),
+        ],
+      );
+      expect(preview.items, isEmpty, reason: marker);
+      expect(
+        preview.incompleteAdjustmentReasons,
+        contains(ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem),
+        reason: marker,
+      );
+      expect(
+        preview.warnings,
+        contains(
+          'Some OCR lines need manual review because no traceable line amount was found.',
+        ),
+        reason: marker,
+      );
+    }
+    final taxCode = const ReceiptOcrParser().parse(
+      'Market\nTea 5.00 A\nTotal USD 5.00',
+      blocks: [
+        _layoutBlock('Market', 0, 0, 10, 250),
+        _layoutBlock('Tea', 1, 1, 10, 80),
+        _layoutBlock('5.00', 2, 1, 160, 200),
+        _layoutBlock('A', 3, 1, 205, 230),
+        _layoutBlock('Total USD 5.00', 4, 2, 10, 250),
+      ],
+    );
+    expect(taxCode.items.single.description, 'Tea');
+    expect(taxCode.items.single.lineTotal, '5.00');
+  });
+
+  test('printed Qty ownership keeps a number under Item in its name', () {
+    final underItem = const ReceiptOcrParser().parse(
+      'Market\nQty Item Amount\n7 Up USD 3.00\nTotal USD 3.00',
+      blocks: [
+        _layoutBlock('Market', 0, 0, 20, 350),
+        _layoutBlock('Qty', 1, 1, 20, 65),
+        _layoutBlock('Item', 2, 1, 90, 220),
+        _layoutBlock('Amount', 3, 1, 300, 350),
+        _layoutBlock('7', 4, 2, 100, 115),
+        _layoutBlock('Up', 5, 2, 130, 200),
+        _layoutBlock('USD 3.00', 6, 2, 300, 350),
+        _layoutBlock('Total USD 3.00', 7, 3, 20, 350),
+      ],
+    );
+    expect(underItem.items.single.description, '7 Up');
+    expect(underItem.items.single.quantity, isNull);
+    final underQty = const ReceiptOcrParser().parse(
+      'Market\nQty Item Amount\n2 Rolls USD 3.00\nTotal USD 3.00',
+      blocks: [
+        _layoutBlock('Market', 0, 0, 20, 350),
+        _layoutBlock('Qty', 1, 1, 20, 65),
+        _layoutBlock('Item', 2, 1, 90, 220),
+        _layoutBlock('Amount', 3, 1, 300, 350),
+        _layoutBlock('2', 4, 2, 20, 28),
+        _layoutBlock('Rolls', 5, 2, 100, 200),
+        _layoutBlock('USD 3.00', 6, 2, 300, 350),
+        _layoutBlock('Total USD 3.00', 7, 3, 20, 350),
+      ],
+    );
+    expect(underQty.items.single.description, 'Rolls');
+    expect(underQty.items.single.quantity, '2');
+    final wideCombinedHeading = const ReceiptOcrParser().parse(
+      'Market\nQty Item Amount\n7 Up USD 3.00\nTotal USD 3.00',
+      blocks: [
+        _layoutBlock('Market', 0, 0, 20, 900),
+        _layoutBlock('Qty Item Amount', 1, 1, 20, 900),
+        _layoutBlock('7', 2, 2, 100, 115),
+        _layoutBlock('Up', 3, 2, 130, 200),
+        _layoutBlock('USD 3.00', 4, 2, 800, 900),
+        _layoutBlock('Total USD 3.00', 5, 3, 20, 900),
+      ],
+    );
+    expect(wideCombinedHeading.items.single.description, '7 Up');
+    expect(wideCombinedHeading.items.single.quantity, isNull);
+  });
+
   test('a number-prefixed product stays a name without a quantity column', () {
     final preview = const ReceiptOcrParser().parse('''
 Corner Market
@@ -6430,6 +7451,19 @@ Total USD 4.00
         ),
       ),
     );
+  });
+
+  test('complete uppercase merchant does not absorb adjacent slogan', () {
+    final preview = const ReceiptOcrParser().parse('''
+CITY CAFE
+FRESH COFFEE DAILY
+Date: 2026-09-17
+Latte USD 4.00
+Total USD 4.00
+''');
+    expect(preview.merchant, 'CITY CAFE');
+    expect(preview.items.map((item) => item.description), ['Latte']);
+    expect(preview.reviewHints, isNotEmpty);
   });
 
   test('uppercase charge columns do not extend the merchant', () {
@@ -6694,6 +7728,29 @@ Total USD 0.00
 ''');
     expect(preview.items.map((item) => item.description), ['Coffee']);
     expect(preview.total, '0.00');
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(
+      preview.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.repeatedAdjustmentRole),
+    );
+
+    final independentlyPrintedDiscounts = const ReceiptOcrParser().parse('''
+Promo Cafe
+Coffee USD 25.00
+Promotion USD -5.00
+Subtotal USD 20.00
+Discount USD -5.00
+Total USD 15.00
+''');
+    expect(
+      independentlyPrintedDiscounts.items.map((item) => item.description),
+      ['Coffee'],
+    );
+    expect(independentlyPrintedDiscounts.adjustmentsComplete, isFalse);
+    expect(
+      independentlyPrintedDiscounts.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.repeatedAdjustmentRole),
+    );
 
     final merchandise = const ReceiptOcrParser().parse('''
 Market
@@ -7209,6 +8266,31 @@ Grand Total USD 118.79
     },
   );
 
+  test('unsigned before-subtotal discount has one reducing magnitude', () {
+    ReceiptOcrPreview preview(String subtotal) => ReceiptOcrPreview(
+      currency: 'USD',
+      subtotal: subtotal,
+      discount: '10.00',
+      discountBeforeSubtotal: true,
+      total: '90.00',
+      items: const [
+        ReceiptOcrItemCandidate(
+          description: 'Book',
+          lineTotal: '100.00',
+          currency: 'USD',
+        ),
+      ],
+    );
+    expect(preview('90.00').reviewHintDecision, ReceiptOcrReviewDecision.none);
+    for (final contradictory in ['100.00', '110.00']) {
+      expect(
+        preview(contradictory).reviewHintDecision,
+        ReceiptOcrReviewDecision.subtotalMismatch,
+        reason: contradictory,
+      );
+    }
+  });
+
   test('split tenders and a printed balance stay out of merchandise', () {
     final preview = const ReceiptOcrParser().parse('''
 Family Market
@@ -7303,8 +8385,14 @@ Total \$9.81
 ''');
     expect(us.items.map((item) => item.description), ['Sandwich', 'Coffee']);
     expect(us.tax, '1.70');
-    expect(us.adjustmentsComplete, isTrue);
-    expect(us.reviewHints, isEmpty);
+    // The bare postal row has no printed street-address owner, so its
+    // possible priced-row interpretation remains visible for review.
+    expect(us.adjustmentsComplete, isFalse);
+    expect(
+      us.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem),
+    );
+    expect(us.reviewHints, isNotEmpty);
     expect(
       us.warnings,
       isNot(
@@ -7338,6 +8426,67 @@ Total \$145.00
     expect(mexico.items.map((item) => item.description), ['Tacos', 'Agua']);
     expect(mexico.tax, '20.00');
   });
+
+  for (final row in ['Tea XL 1500', 'Tea XXL 1500', 'Widget CA 15000']) {
+    final total = row.startsWith('Widget') ? '15500' : '2000';
+    test('unowned postal-shaped priced row retains ambiguity: $row', () {
+      final preview = const ReceiptOcrParser().parse(
+        'TEST CAFE\n$row\nCoffee 500\nTotal JPY $total',
+      );
+      expect(preview.items.map((item) => item.description), ['Coffee']);
+      expect(preview.adjustmentsComplete, isFalse);
+      expect(
+        preview.incompleteAdjustmentReasons,
+        contains(ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem),
+      );
+      expect(
+        preview.itemLineDecisions[1],
+        ReceiptOcrItemLineDecision.unretainedPricedRow,
+      );
+    });
+  }
+
+  for (final row in ['Seattle WA 98101', 'Sydney NSW 2000']) {
+    test('owned bare postal header stays metadata: $row', () {
+      final preview = const ReceiptOcrParser().parse(
+        'Corner Cafe\n123 Main Street\nSuite 2\n$row\nCoffee USD 5.00\nTotal USD 5.00',
+      );
+      expect(preview.items.map((item) => item.description), ['Coffee']);
+      expect(preview.adjustmentsComplete, isTrue);
+      expect(
+        preview.incompleteAdjustmentReasons,
+        isNot(
+          contains(ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem),
+        ),
+      );
+    });
+  }
+
+  test('priced street-name row cannot own a bare postal-shaped row', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Corner Cafe\n123 Main Street USD 15.00\nTea XL 1500\nCoffee 500\nTotal JPY 2000',
+    );
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(
+      preview.itemLineDecisions[2],
+      ReceiptOcrItemLineDecision.unretainedPricedRow,
+    );
+    expect(
+      preview.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem),
+    );
+  });
+
+  test(
+    'explicit comma postal header stays metadata without street context',
+    () {
+      final preview = const ReceiptOcrParser().parse(
+        'Corner Cafe\nSeattle, WA 98101\nCoffee USD 5.00\nTotal USD 5.00',
+      );
+      expect(preview.items.map((item) => item.description), ['Coffee']);
+      expect(preview.adjustmentsComplete, isTrue);
+    },
+  );
 
   test('priced products with region-shaped codes remain editable items', () {
     const parser = ReceiptOcrParser();
@@ -7555,6 +8704,187 @@ Total 4.40''');
     ]);
     expect(preview.items.map((item) => item.lineTotal), ['199.99', '19.99']);
     expect(preview.reviewHints, isEmpty);
+  });
+
+  test('owned JPY invoice integer total stays distinct from unit price', () {
+    final blocks = [
+      _layoutBlock('Warehouse', 0, 0, 20, 350),
+      _layoutBlock('Product / Service', 1, 1, 90, 300),
+      _layoutBlock('SKU', 2, 1, 520, 600),
+      _layoutBlock('Qty', 3, 1, 620, 650),
+      _layoutBlock('Unit Price', 4, 1, 680, 790),
+      _layoutBlock('Total', 5, 1, 850, 960),
+      _layoutBlock('Notebook', 6, 2, 90, 420),
+      _layoutBlock('ITEM001', 7, 2, 520, 600),
+      _layoutBlock('1', 8, 2, 620, 650),
+      _layoutBlock('500', 9, 2, 680, 790),
+      _layoutBlock('500', 10, 2, 850, 960),
+      _layoutBlock('Total JPY 500', 11, 3, 680, 960),
+    ];
+    const text =
+        'Warehouse\n'
+        'Product / Service SKU Qty Unit Price Total\n'
+        'Notebook ITEM001 1 500 500\n'
+        'Total JPY 500';
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(text, blocks: blocks);
+    expect(preview.currency, 'JPY');
+    expect(preview.items.map((item) => item.description), ['Notebook']);
+    expect(preview.items.single.lineTotal, '500');
+    expect(preview.items.single.currency, 'JPY');
+
+    final noLayout = parser.parse(text);
+    expect(noLayout.items, isEmpty);
+    final missingTotal = parser.parse(
+      text.replaceFirst('1 500 500', '1 500'),
+      blocks: blocks.where((block) => block.order != 10).toList(),
+    );
+    expect(missingTotal.items, isEmpty);
+    final competingTotal = parser.parse(
+      text.replaceFirst('1 500 500', '1 500 500 600'),
+      blocks: [
+        for (final block in blocks)
+          if (block.order == 10)
+            _layoutBlock('500 600', 10, 2, 850, 960)
+          else
+            block,
+      ],
+    );
+    expect(competingTotal.items, isEmpty);
+    final usd = parser.parse(
+      text.replaceFirst('JPY', 'USD'),
+      blocks: [
+        for (final block in blocks)
+          if (block.order == 11)
+            _layoutBlock('Total USD 500', 11, 3, 680, 960)
+          else
+            block,
+      ],
+    );
+    expect(usd.items, isEmpty);
+  });
+
+  test('unresolved rated tax row cannot publish a partial aggregate', () {
+    const parser = ReceiptOcrParser();
+    const complete =
+        'Market\nItem USD 20.00\n'
+        'Tax 5% USD 1.00\nTax 10% USD 2.00\nTotal USD 23.00';
+    expect(parser.parse(complete).tax, '3.00');
+    final incomplete = parser.parse(
+      complete.replaceFirst(
+        'Total USD 23.00',
+        'Tax 15% USD ?\nTotal USD 23.00',
+      ),
+    );
+    expect(incomplete.tax, isNull);
+    expect(incomplete.adjustmentsComplete, isFalse);
+    expect(
+      incomplete.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.repeatedAdjustmentRole),
+    );
+  });
+
+  test('conflicting supported totals in one flattened row need review', () {
+    const parser = ReceiptOcrParser();
+    const prefix = 'Market\nItem USD 10.00\n';
+    final conflict = parser.parse(
+      '${prefix}Total CZK 100.00 / Total USD 5.00 / Total USD 10.00',
+    );
+    expect(conflict.total, '10.00');
+    expect(conflict.adjustmentsComplete, isFalse);
+    expect(
+      conflict.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence),
+    );
+    final matching = parser.parse(
+      '${prefix}Total CZK 100.00 / Total USD 10.00 / Total USD 10.00',
+    );
+    expect(matching.total, '10.00');
+    expect(matching.adjustmentsComplete, isTrue);
+    final oneSupported = parser.parse(
+      '${prefix}Total CZK 100.00 / Total USD 10.00',
+    );
+    expect(oneSupported.adjustmentsComplete, isTrue);
+  });
+
+  test('priced payment summary guide remains item evidence', () {
+    final preview = const ReceiptOcrParser().parse('''
+BOOK SHOP
+Notebook USD 5.00
+Payment Summary Guide USD 10.00
+Total USD 15.00
+''');
+    expect(preview.items.map((item) => item.description), [
+      'Notebook',
+      'Payment Summary Guide',
+    ]);
+    expect(preview.items.map((item) => item.lineTotal), ['5.00', '10.00']);
+  });
+
+  test('tax excluded base amount is never published as additive tax', () {
+    for (final label in [
+      'Amount without tax',
+      'Amount before tax',
+      'Amount excluding VAT',
+    ]) {
+      final preview = const ReceiptOcrParser().parse('''
+Corner Market
+Bread USD 100.00
+Subtotal USD 100.00
+$label USD 100.00
+Total USD 100.00
+''');
+      expect(preview.items.map((item) => item.description), [
+        'Bread',
+      ], reason: label);
+      expect(preview.tax, isNull, reason: label);
+      expect(preview.adjustmentsComplete, isFalse, reason: label);
+      expect(
+        preview.incompleteAdjustmentReasons,
+        contains(
+          ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
+        ),
+        reason: label,
+      );
+    }
+  });
+
+  test('qualified non-additive tax rows stay unresolved', () {
+    for (final qualifier in ['Withheld', 'Refunded', 'Reversed', 'Credited']) {
+      final preview = const ReceiptOcrParser().parse('''
+STORE
+Goods USD 10.00
+Subtotal USD 10.00
+$qualifier sales tax USD 1.00
+Total USD 9.00
+''');
+      expect(preview.items.map((item) => item.description), [
+        'Goods',
+      ], reason: qualifier);
+      expect(preview.tax, isNull, reason: qualifier);
+      expect(preview.adjustmentsComplete, isFalse, reason: qualifier);
+      expect(
+        preview.incompleteAdjustmentReasons,
+        contains(
+          ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
+        ),
+        reason: qualifier,
+      );
+    }
+  });
+
+  test('conflicting Grand total cells in one row remain reviewable', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Item USD 10.00
+Grand total USD 10.00 / Grand total USD 15.00
+''');
+    expect(preview.total, '15.00');
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(
+      preview.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence),
+    );
   });
 
   test('country-named unpriced products remain unresolved inside a table', () {
@@ -8311,6 +9641,53 @@ Warranty Extension''');
     ]);
   });
 
+  test('far currency-only table cell keeps item ownership unresolved', () {
+    for (final marker in ['EUR', 'JPY', 'CHF']) {
+      final preview = const ReceiptOcrParser().parse(
+        'Market\nItemized charges\nDescription Amount\n'
+        'Coffee USD 10.00 $marker\nTotal USD 10.00',
+        blocks: [
+          _layoutBlock('Market', 0, 0, 20, 260),
+          _layoutBlock('Itemized charges', 1, 1, 20, 260),
+          _layoutBlock('Description', 2, 2, 20, 140),
+          _layoutBlock('Amount', 3, 2, 200, 260),
+          _layoutBlock('Coffee', 4, 3, 20, 140),
+          _layoutBlock('USD 10.00', 5, 3, 200, 260),
+          _layoutBlock(marker, 6, 3, 325, 350),
+          _layoutBlock('Total USD 10.00', 7, 4, 20, 260),
+        ],
+      );
+      expect(preview.items, isEmpty, reason: marker);
+      expect(preview.adjustmentsComplete, isFalse, reason: marker);
+      expect(
+        preview.incompleteAdjustmentReasons,
+        contains(ReceiptOcrIncompleteAdjustmentReason.ambiguousChargeTable),
+        reason: marker,
+      );
+    }
+  });
+
+  test('far repeated matching currency cell keeps table item', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Market\nItemized charges\nDescription Amount\n'
+      'Coffee USD 10.00 USD\nTotal USD 10.00',
+      blocks: [
+        _layoutBlock('Market', 0, 0, 20, 260),
+        _layoutBlock('Itemized charges', 1, 1, 20, 260),
+        _layoutBlock('Description', 2, 2, 20, 140),
+        _layoutBlock('Amount', 3, 2, 200, 260),
+        _layoutBlock('Coffee', 4, 3, 20, 140),
+        _layoutBlock('USD 10.00', 5, 3, 200, 260),
+        _layoutBlock('USD', 6, 3, 325, 350),
+        _layoutBlock('Total USD 10.00', 7, 4, 20, 260),
+      ],
+    );
+    expect(preview.items.map((item) => item.description), ['Coffee']);
+    expect(preview.items.single.currency, 'USD');
+    expect(preview.items.single.currencyUnresolved, isFalse);
+    expect(preview.adjustmentsComplete, isTrue);
+  });
+
   test('amount-bearing payment summary ends a layout charge table', () {
     final preview = const ReceiptOcrParser().parse(
       'Harbor Utility\nDescription Usage Rate Amount\n'
@@ -8351,6 +9728,91 @@ Warranty Extension''');
     );
     expect(preview.items.map((item) => item.description), ['Water Charge']);
     expect(preview.total, '12.00');
+  });
+
+  group('layout amount-cell ownership', () {
+    ReceiptOcrPreview parse(List<String> amountParts, {bool mirrored = false}) {
+      final blocks = <ReceiptOcrBlockEvidence>[];
+      void add(String text, int row, double left, double right) {
+        blocks.add(_layoutBlock(text, blocks.length, row, left, right));
+      }
+
+      add('Market', 0, 20, 700);
+      add('Date 2026-10-12', 1, 20, 700);
+      add('Description', 2, mirrored ? 500 : 20, mirrored ? 700 : 220);
+      add('Usage', 2, mirrored ? 390 : 250, mirrored ? 440 : 300);
+      add('Rate', 2, mirrored ? 280 : 350, mirrored ? 340 : 410);
+      add('Amount', 2, mirrored ? 20 : 500, mirrored ? 220 : 700);
+      add('Notebook', 3, mirrored ? 500 : 20, mirrored ? 700 : 220);
+      for (var index = 0; index < amountParts.length; index += 1) {
+        final left = (mirrored ? 20.0 : 500.0) + index * 60;
+        add(amountParts[index], 3, left, left + 55);
+      }
+      add('Subtotal USD 10.00', 4, 20, 700);
+      add('Total USD 10.00', 5, 20, 700);
+      blocks.sort((left, right) {
+        final rowOrder = left.row.compareTo(right.row);
+        return rowOrder != 0
+            ? rowOrder
+            : left.points.first.x.compareTo(right.points.first.x);
+      });
+      final orderedBlocks = [
+        for (var index = 0; index < blocks.length; index += 1)
+          _layoutBlock(
+            blocks[index].text,
+            index,
+            blocks[index].row,
+            blocks[index].points.first.x,
+            blocks[index].points[1].x,
+          ),
+      ];
+      return const ReceiptOcrParser().parse(
+        'Market\nDate 2026-10-12\n'
+        '${mirrored ? 'Amount Rate Usage Description' : 'Description Usage Rate Amount'}\n'
+        '${mirrored ? '${amountParts.join(' ')} Notebook' : 'Notebook ${amountParts.join(' ')}'}\n'
+        'Subtotal USD 10.00\nTotal USD 10.00',
+        blocks: orderedBlocks,
+      );
+    }
+
+    for (final mirrored in [false, true]) {
+      for (final parts in [
+        ['USD 8.00 or USD 10.00 (estimate)'],
+        ['USD 10.00 (estimate)'],
+        ['USD 8.00 or USD 10.00'],
+        ['USD 8.00', 'or', 'USD 10.00'],
+        ['USD 10.00', '(estimate)'],
+      ]) {
+        test('keeps ${parts.join(' / ')} unresolved; mirrored=$mirrored', () {
+          final preview = parse(parts, mirrored: mirrored);
+          expect(preview.items, isEmpty);
+          expect(preview.total, '10.00');
+          expect(preview.reviewHints, isNotEmpty);
+          expect(
+            preview.blocks
+                .where((block) => block.row == 3)
+                .map((block) => block.text),
+            containsAll(['Notebook', ...parts]),
+          );
+        });
+      }
+      for (final parts in [
+        ['USD 10.00'],
+        ['10.00 USD'],
+        ['USD', '10.00'],
+        ['10.00'],
+      ]) {
+        test(
+          'keeps complete ${parts.join(' / ')} confident; mirrored=$mirrored',
+          () {
+            final preview = parse(parts, mirrored: mirrored);
+            expect(preview.items.single.description, 'Notebook');
+            expect(preview.items.single.lineTotal, '10.00');
+            expect(preview.reviewHints, isEmpty);
+          },
+        );
+      }
+    }
   });
 
   test('mirrored right-to-left charge columns recover amount cells', () {
@@ -8567,6 +10029,34 @@ Refund Total USD -12.00
 Cash Tender USD 12.00
 ''');
     expect(refund.total, '-12.00');
+  });
+
+  test('product dates cannot outrank the printed receipt Date field', () {
+    for (final product in [
+      'Purchase Planner',
+      'Order Planner',
+      'Transaction Planner',
+      'Invoice Planner',
+      'Receipt Planner',
+      'Bill Planner',
+      'Issued Planner',
+    ]) {
+      final preview = const ReceiptOcrParser().parse('''
+North Cafe
+Date: 2026-10-13
+$product 2027-01-01 USD 10.00
+Total USD 10.00
+''');
+      expect(preview.receiptDate, '2026-10-13', reason: product);
+    }
+    final wrapped = const ReceiptOcrParser().parse('''
+North Cafe
+Date: 2026-10-13
+Purchase Planner
+2027-01-01 USD 10.00
+Total USD 10.00
+''');
+    expect(wrapped.receiptDate, '2026-10-13');
   });
 
   test('explicit bill date outranks print date after a due date', () {
@@ -8815,6 +10305,11 @@ TOTAL USD 35.00
     expect(preview.items.single.description, 'FUEL ADDITIVE');
     expect(preview.items.single.lineTotal, '5.00');
     expect(preview.items.single.quantity, isNull);
+    expect(preview.total, '35.00');
+    expect(preview.reviewHints, isNotEmpty);
+    expect(preview.rawTextLineCount, 6);
+    // The receipt prints a unit rate and quantity, not a separate fuel total.
+    // Preserve review instead of inventing a 30.00 line by multiplication.
   });
 
   test('ordinary fuel-named item remains an editable item', () {
@@ -8846,6 +10341,9 @@ TOTAL USD 32.00
       expect(preview.items, hasLength(1));
       expect(preview.items.single.description, 'Snack');
       expect(preview.items.single.lineTotal, '2.00');
+      expect(preview.total, '32.00');
+      expect(preview.reviewHints, isNotEmpty);
+      expect(preview.rawTextLineCount, 6);
     },
   );
 
@@ -9488,6 +10986,153 @@ VAT included 20% GBP 4.00
     expect(preview.total, '25.00');
     expect(preview.tax, '4.00');
     expect(preview.reviewHints, isNotEmpty);
+  });
+
+  group('consistent included-tax interpretation', () {
+    for (final adjustment in [
+      (null, null, null, null, '24.00', '28.00'),
+      ('2.00', null, null, null, '26.00', '30.00'),
+      (null, '3.00', null, null, '27.00', '31.00'),
+      (null, null, '5.00', null, '29.00', '33.00'),
+      (null, null, null, '-1.00', '23.00', '27.00'),
+    ]) {
+      for (final contradictory in [false, true]) {
+        test(
+          'gross items with net subtotal $adjustment contradictory=$contradictory',
+          () {
+            final total = contradictory ? adjustment.$6 : adjustment.$5;
+            final preview = ReceiptOcrPreview(
+              currency: 'GBP',
+              subtotal: '20.00',
+              tax: '4.00',
+              taxIncludedInTotal: true,
+              service: adjustment.$1,
+              tip: adjustment.$2,
+              shipping: adjustment.$3,
+              discount: adjustment.$4,
+              total: total,
+              items: const [
+                ReceiptOcrItemCandidate(
+                  description: 'Book',
+                  lineTotal: '24.00',
+                  currency: 'GBP',
+                ),
+              ],
+            );
+            expect(preview.reviewHints.isNotEmpty, contradictory);
+            expect(
+              preview.reviewHintDecision,
+              contradictory
+                  ? ReceiptOcrReviewDecision
+                        .referenceAdjustmentUnreconciledWithSubtotal
+                  : ReceiptOcrReviewDecision.none,
+            );
+            expect(preview.total, total);
+            expect(preview.subtotal, '20.00');
+            expect(preview.tax, '4.00');
+            expect(preview.items.single.lineTotal, '24.00');
+          },
+        );
+      }
+    }
+    for (final amounts in [
+      ('24.00', '24.00', '24.00'),
+      ('20.00', '20.00', '24.00'),
+      ('24.00', '24.00', '28.00'),
+      ('24.00', null, '24.00'),
+      ('24.00', null, '28.00'),
+    ]) {
+      test('preserves supported item/subtotal/total $amounts', () {
+        final preview = ReceiptOcrPreview(
+          currency: 'GBP',
+          subtotal: amounts.$2,
+          tax: '4.00',
+          taxIncludedInTotal: true,
+          total: amounts.$3,
+          items: [
+            ReceiptOcrItemCandidate(
+              description: 'Book',
+              lineTotal: amounts.$1,
+              currency: 'GBP',
+            ),
+          ],
+        );
+        expect(preview.reviewHints, isEmpty);
+        expect(preview.reviewHintDecision, ReceiptOcrReviewDecision.none);
+      });
+    }
+    test('retains a supported discount before a net subtotal', () {
+      const preview = ReceiptOcrPreview(
+        currency: 'GBP',
+        subtotal: '20.00',
+        tax: '4.00',
+        taxIncludedInTotal: true,
+        discount: '-4.00',
+        discountBeforeSubtotal: true,
+        total: '24.00',
+        items: [
+          ReceiptOcrItemCandidate(
+            description: 'Book',
+            lineTotal: '24.00',
+            currency: 'GBP',
+          ),
+        ],
+      );
+      expect(preview.reviewHints, isEmpty);
+    });
+  });
+
+  test('included tax component must fit its gross item base', () {
+    for (final subtotal in [null, '24.00']) {
+      for (final tax in ['25.00', '-1.00', '0.00', '4.00', '24.00']) {
+        final preview = ReceiptOcrPreview(
+          currency: 'GBP',
+          subtotal: subtotal,
+          tax: tax,
+          taxIncludedInTotal: true,
+          total: '24.00',
+          items: const [
+            ReceiptOcrItemCandidate(description: 'Book', lineTotal: '24.00'),
+          ],
+        );
+        final contradictory = tax == '25.00' || tax == '-1.00';
+        expect(preview.tax, tax);
+        expect(preview.total, '24.00');
+        expect(preview.subtotal, subtotal);
+        expect(
+          preview.reviewHints.isNotEmpty,
+          contradictory,
+          reason: 'subtotal=$subtotal tax=$tax',
+        );
+        expect(
+          preview.reviewHintDecision,
+          contradictory
+              ? subtotal == null
+                    ? ReceiptOcrReviewDecision
+                          .referenceAdjustmentUnreconciledWithoutSubtotal
+                    : ReceiptOcrReviewDecision
+                          .referenceAdjustmentUnreconciledWithSubtotal
+              : ReceiptOcrReviewDecision.none,
+        );
+      }
+    }
+  });
+
+  test('included tax can reconcile a smaller printed net item base', () {
+    for (final subtotal in [null, '24.00']) {
+      final preview = ReceiptOcrPreview(
+        currency: 'GBP',
+        subtotal: subtotal,
+        tax: '25.00',
+        taxIncludedInTotal: true,
+        total: '49.00',
+        items: const [
+          ReceiptOcrItemCandidate(description: 'Book', lineTotal: '24.00'),
+        ],
+      );
+      expect(preview.reviewHints, isEmpty);
+      expect(preview.reviewHintDecision, ReceiptOcrReviewDecision.none);
+    }
   });
 
   test('explicit included VAT can accompany a plain printed total', () {
@@ -10437,6 +12082,74 @@ Total €9.00 $10.00
     expect(preview.total, '10.00');
   });
 
+  test('printed receipt currency binds selected bare-dollar total', () {
+    const parser = ReceiptOcrParser();
+    for (final fallback in <String?>[null, 'USD']) {
+      final preview = parser.parse(r'''
+Market
+Currency CAD
+Item CAD 10.00
+Total EUR 6.80 / $10.00
+''', fallbackCurrency: fallback);
+      expect(preview.currency, 'CAD', reason: 'fallback=$fallback');
+      expect(
+        preview.currencyProvenance,
+        ReceiptOcrCurrencyProvenance.explicit,
+        reason: 'fallback=$fallback',
+      );
+      expect(preview.total, '10.00', reason: 'fallback=$fallback');
+    }
+
+    final incompatible = parser.parse(r'''
+Market
+Currency EUR
+Item EUR 9.00
+Total EUR 9.00 / $10.00
+''', fallbackCurrency: 'USD');
+    expect(incompatible.currency, isNull);
+    expect(
+      incompatible.currencyProvenance,
+      ReceiptOcrCurrencyProvenance.unresolved,
+    );
+    expect(incompatible.total, isNull);
+
+    final prefixed = parser.parse(r'''
+Market
+Currency CAD
+Item USD 10.00
+Total CAD 13.50 / US$10.00
+''', fallbackCurrency: 'CAD');
+    expect(prefixed.currency, 'USD');
+    expect(prefixed.currencyProvenance, ReceiptOcrCurrencyProvenance.explicit);
+    expect(prefixed.total, '10.00');
+  });
+
+  test('unsupported ISO primary total warns alongside priced items', () {
+    for (final totalLine in ['Total XPF 100', 'Grand Total XPF 100']) {
+      final preview = const ReceiptOcrParser().parse('''
+Market
+Coffee USD 10.00
+$totalLine
+''', fallbackCurrency: 'USD');
+      expect(preview.currency, 'USD', reason: totalLine);
+      expect(preview.total, isNull, reason: totalLine);
+      expect(preview.items.map((item) => item.description), [
+        'Coffee',
+      ], reason: totalLine);
+      expect(preview.adjustmentsComplete, isFalse, reason: totalLine);
+      expect(
+        preview.incompleteAdjustmentReasons,
+        contains(ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence),
+        reason: totalLine,
+      );
+      expect(
+        preview.warnings,
+        contains('No clear total amount was detected.'),
+        reason: totalLine,
+      );
+    }
+  });
+
   test('unsupported symbol on selected total stays provisional', () {
     const parser = ReceiptOcrParser();
     for (final printedTotal in ['Total ₱10.00', 'Total USD 9.00 ₱10.00']) {
@@ -10465,6 +12178,39 @@ Total €9.00 USD10.00
       expect(preview.total, '10.00');
     },
   );
+
+  test('priced Total product names cannot establish a receipt total', () {
+    const parser = ReceiptOcrParser();
+    for (final row in [
+      'Total Care Kit 2 USD 19.99',
+      'Grand Total Care Kit 2 EUR 19.99',
+      'Total Amount Due Guide 2 GBP 19.99',
+    ]) {
+      final preview = parser.parse('Market\nDate 2026-09-12\n$row');
+      expect(preview.total, isNull, reason: row);
+      expect(preview.items, hasLength(1), reason: row);
+      expect(
+        preview.items.single.description,
+        anyOf(contains('Kit'), contains('Guide')),
+      );
+      expect(preview.items.single.lineTotal, '19.99', reason: row);
+      expect(preview.rawTextLineCount, 3);
+    }
+  });
+
+  test('Total product with attached code retains unresolved evidence', () {
+    const parser = ReceiptOcrParser();
+    final preview = parser.parse(
+      'Market\nDate 2026-09-12\nTotal Care Kit USD19.99',
+    );
+    expect(preview.total, isNull);
+    // An attached alphabetic code can also be a SKU. Keep the existing
+    // traceability guard instead of inventing a price from that identifier.
+    expect(preview.items, isEmpty);
+    expect(preview.warnings, contains('No clear item lines were detected.'));
+    expect(preview.warnings, contains('No clear total amount was detected.'));
+    expect(preview.rawTextLineCount, 3);
+  });
 
   test('single total with attached code establishes currency', () {
     const parser = ReceiptOcrParser();
@@ -10650,6 +12396,136 @@ Total EUR 21.00
     }
   });
 
+  for (final marker in [
+    'CR',
+    'cr',
+    'DR',
+    'CREDIT',
+    'DEBIT',
+    '(',
+    ')',
+    '–',
+    '—',
+  ]) {
+    test('charge table retains adjacent $marker accounting ambiguity', () {
+      final blocks = [
+        _layoutBlock('Market USD', 0, 0, 20, 280),
+        _layoutBlock('Description', 1, 1, 20, 130),
+        _layoutBlock('Qty', 2, 1, 170, 190),
+        _layoutBlock('Amount', 3, 1, 240, 280),
+        _layoutBlock('Tea', 4, 2, 20, 130),
+        _layoutBlock('1', 5, 2, 170, 190),
+        _layoutBlock('USD 5.00', 6, 2, 240, 280),
+        // Adjacent to the price, but outside the Amount heading's width.
+        _layoutBlock(marker, 7, 2, 296, 310),
+        _layoutBlock('Total USD 5.00', 8, 3, 20, 280),
+      ];
+      final text =
+          'Market USD\nDescription Qty Amount\nTea 1 USD 5.00 $marker\nTotal USD 5.00';
+      final preview = const ReceiptOcrParser().parse(text, blocks: blocks);
+
+      expect(preview.items, isEmpty);
+      expect(preview.adjustmentsComplete, isFalse);
+      expect(preview.warnings, isNotEmpty);
+      expect(preview.rawTextLineCount, 4);
+      expect(preview.blocks.map((block) => block.text), contains(marker));
+    });
+  }
+
+  for (final marker in ['–', '—']) {
+    test('rated charge table retains detached $marker ambiguity', () {
+      final preview = const ReceiptOcrParser().parse(
+        'Market USD\nDescription Usage Rate Amount\nWidget 2 3.00 USD 6.00 $marker\nTotal USD 6.00',
+        blocks: [
+          _layoutBlock('Market USD', 0, 0, 20, 330),
+          _layoutBlock('Description', 1, 1, 20, 130),
+          _layoutBlock('Usage', 2, 1, 150, 180),
+          _layoutBlock('Rate', 3, 1, 210, 250),
+          _layoutBlock('Amount', 4, 1, 270, 320),
+          _layoutBlock('Widget', 5, 2, 20, 130),
+          _layoutBlock('2', 6, 2, 150, 180),
+          _layoutBlock('3.00', 7, 2, 210, 250),
+          _layoutBlock('USD 6.00', 8, 2, 270, 330),
+          _layoutBlock(marker, 9, 2, 340, 350),
+          _layoutBlock('Total USD 6.00', 10, 3, 20, 330),
+        ],
+      );
+      expect(preview.items, isEmpty);
+      expect(preview.adjustmentsComplete, isFalse);
+      expect(preview.blocks.map((block) => block.text), contains(marker));
+    });
+  }
+
+  test('charge table retains credit beside a left-hand amount column', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Market USD\nAmount Qty Description\nCR USD 5.00 1 Tea\nTotal USD 5.00',
+      blocks: [
+        _layoutBlock('Market USD', 0, 0, 20, 280),
+        _layoutBlock('Amount', 1, 1, 20, 60),
+        _layoutBlock('Qty', 2, 1, 120, 140),
+        _layoutBlock('Description', 3, 1, 200, 280),
+        _layoutBlock('CR', 4, 2, 0, 10),
+        _layoutBlock('USD 5.00', 5, 2, 20, 60),
+        _layoutBlock('1', 6, 2, 120, 140),
+        _layoutBlock('Tea', 7, 2, 200, 280),
+        _layoutBlock('Total USD 5.00', 8, 3, 20, 280),
+      ],
+    );
+
+    expect(preview.items, isEmpty);
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(preview.warnings, isNotEmpty);
+  });
+
+  test('charge table ignores marker printed on a different physical row', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Market USD\nDescription Qty Amount\nTea 1 USD 5.00 CR\nTotal USD 5.00',
+      blocks: [
+        _layoutBlock('Market USD', 0, 0, 20, 280),
+        _layoutBlock('Description', 1, 1, 20, 130),
+        _layoutBlock('Qty', 2, 1, 170, 190),
+        _layoutBlock('Amount', 3, 1, 240, 280),
+        _layoutBlock('Tea', 4, 2, 20, 130),
+        _layoutBlock('1', 5, 2, 170, 190),
+        _layoutBlock('USD 5.00', 6, 2, 240, 280),
+        ReceiptOcrBlockEvidence(
+          text: 'CR',
+          order: 7,
+          row: 2,
+          points: _layoutBlock('CR', 7, 7, 296, 310).points,
+        ),
+        _layoutBlock('Total USD 5.00', 8, 3, 20, 280),
+      ],
+    );
+
+    expect(preview.items.single.description, 'Tea');
+    expect(preview.items.single.lineTotal, '5.00');
+    expect(preview.adjustmentsComplete, isTrue);
+  });
+
+  for (final marker in [null, 'CR', '–', '—']) {
+    test('charge table keeps positive amount with distant marker $marker', () {
+      final preview = const ReceiptOcrParser().parse(
+        'Market USD\nDescription Qty Amount\nTea 1 USD 5.00${marker == null ? '' : ' $marker'}\nTotal USD 5.00',
+        blocks: [
+          _layoutBlock('Market USD', 0, 0, 20, 280),
+          _layoutBlock('Description', 1, 1, 20, 130),
+          _layoutBlock('Qty', 2, 1, 170, 190),
+          _layoutBlock('Amount', 3, 1, 240, 280),
+          _layoutBlock('Tea', 4, 2, 20, 130),
+          _layoutBlock('1', 5, 2, 170, 190),
+          _layoutBlock('USD 5.00', 6, 2, 240, 280),
+          if (marker != null) _layoutBlock(marker, 7, 2, 500, 530),
+          _layoutBlock('Total USD 5.00', 8, 3, 20, 280),
+        ],
+      );
+
+      expect(preview.items.single.description, 'Tea');
+      expect(preview.items.single.lineTotal, '5.00');
+      expect(preview.adjustmentsComplete, isTrue);
+    });
+  }
+
   test('charge-table tax summary stays tax beside a tax-named charge', () {
     const parser = ReceiptOcrParser();
     const text = '''
@@ -10777,6 +12653,20 @@ Total Amount Due \$12.00
     );
   });
 
+  test('account balance words in a priced product remain item evidence', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Stationery Shop\nOpening Balance Book USD 12.00\n'
+      'Notebook USD 3.00\nTotal USD 15.00',
+    );
+    expect(
+      preview.items.any(
+            (item) => item.description.contains('Opening Balance Book'),
+          ) ||
+          !preview.adjustmentsComplete,
+      isTrue,
+    );
+  });
+
   test('layout monetary cells recover items from noisy flattened rows', () {
     const parser = ReceiptOcrParser();
     final preview = parser.parse(
@@ -10889,6 +12779,177 @@ Total USD 10.00
     expect(preview.reviewHints, [
       'Some item prices use a different currency from the receipt. Review before applying.',
     ]);
+  });
+
+  for (final marker in ['₱', '₿']) {
+    for (final rightToLeft in [false, true]) {
+      for (final prefix in [false, true]) {
+        test('layout fallback retains unsupported symbol $marker '
+            'rtl=$rightToLeft prefix=$prefix', () {
+          final description = rightToLeft ? 'دفتر' : 'Notebook';
+          final amountLeft = rightToLeft ? 30.0 : 300.0;
+          final markerLeft = amountLeft + (prefix ? -35 : 125);
+          final monetaryText = prefix ? '$marker 10.00' : '10.00 $marker';
+          final preview = const ReceiptOcrParser().parse(
+            'Paper Shop\n$description $monetaryText .\nTotal USD 10.00',
+            blocks: [
+              _layoutBlock('Paper Shop', 0, 0, 20, 350),
+              _layoutBlock(
+                description,
+                1,
+                1,
+                rightToLeft ? 300 : 20,
+                rightToLeft ? 410 : 150,
+                textDirection: rightToLeft ? 'rtl' : 'ltr',
+              ),
+              if (prefix)
+                _layoutBlock(marker, 2, 1, markerLeft, markerLeft + 30),
+              _layoutBlock(
+                '10.00',
+                prefix ? 3 : 2,
+                1,
+                amountLeft,
+                amountLeft + 120,
+              ),
+              if (!prefix)
+                _layoutBlock(marker, 3, 1, markerLeft, markerLeft + 30),
+              _layoutBlock('.', 4, 1, 600, 610),
+              _layoutBlock('Total USD 10.00', 5, 2, 20, 350),
+            ],
+          );
+          expect(preview.currency, 'USD');
+          expect(preview.items, hasLength(1));
+          expect(preview.items.single.description, description);
+          expect(preview.items.single.lineTotal, '10.00');
+          expect(preview.items.single.currency, isNull);
+          expect(preview.items.single.currencyUnresolved, isTrue);
+          expect(preview.blocks.any((block) => block.text == marker), isTrue);
+        });
+      }
+    }
+  }
+
+  test(
+    'layout fallback retains an unsupported suffix without trailing noise',
+    () {
+      final preview = const ReceiptOcrParser().parse(
+        'Paper Shop\nNotebook 10.00 ₱\nTotal USD 10.00',
+        blocks: [
+          _layoutBlock('Paper Shop', 0, 0, 20, 350),
+          _layoutBlock('Notebook', 1, 1, 20, 150),
+          _layoutBlock('10.00', 2, 1, 300, 420),
+          _layoutBlock('₱', 3, 1, 425, 455),
+          _layoutBlock('Total USD 10.00', 4, 2, 20, 350),
+        ],
+      );
+      expect(preview.items.single.currency, isNull);
+      expect(preview.items.single.currencyUnresolved, isTrue);
+      expect(preview.items.single.lineTotal, '10.00');
+    },
+  );
+
+  for (final (marker, expectedCurrency) in <(String, String?)>[
+    ('USD', 'USD'),
+    ('EUR', 'EUR'),
+    ('₱', null),
+    ('USD ₱', null),
+    ('₱ USD', null),
+    ('₱₿', null),
+    ('EUR or USD', null),
+    ('USD/EUR', null),
+    ('USD USD', 'USD'),
+    ('DZD', 'DZD'),
+    ('DZD or USD', null),
+  ]) {
+    for (final nearby in [false, true]) {
+      test(
+        'layout fallback bounds split denomination $marker nearby=$nearby',
+        () {
+          final markerLeft = nearby ? 425.0 : 800.0;
+          final preview = const ReceiptOcrParser().parse(
+            'Paper Shop\nNotebook 10.00 $marker .\nTotal USD 10.00',
+            blocks: [
+              _layoutBlock('Paper Shop', 0, 0, 20, 350),
+              _layoutBlock('Notebook', 1, 1, 20, 150),
+              _layoutBlock('10.00', 2, 1, 300, 420),
+              _layoutBlock(marker, 3, 1, markerLeft, markerLeft + 30),
+              _layoutBlock('.', 4, 1, 900, 910),
+              _layoutBlock('Total USD 10.00', 5, 2, 20, 350),
+            ],
+          );
+          expect(preview.items, hasLength(1));
+          final unresolved = nearby && expectedCurrency == null;
+          expect(
+            preview.items.single.currency,
+            unresolved
+                ? isNull
+                : nearby
+                ? expectedCurrency
+                : 'USD',
+          );
+          expect(preview.items.single.currencyUnresolved, unresolved);
+          expect(preview.items.single.description, 'Notebook');
+          expect(preview.items.single.lineTotal, '10.00');
+        },
+      );
+    }
+  }
+
+  for (final word in ['pen', 'Pen', 'all', 'All']) {
+    for (final rightToLeft in [false, true]) {
+      test(
+        'layout fallback preserves ordinary word $word rtl=$rightToLeft',
+        () {
+          final description = rightToLeft ? 'دفتر' : 'Notebook';
+          final amountLeft = rightToLeft ? 30.0 : 300.0;
+          final wordLeft = amountLeft + (rightToLeft ? 125 : -40);
+          final preview = const ReceiptOcrParser().parse(
+            'Paper Shop\n$description $word 10.00 .\nTotal USD 10.00',
+            blocks: [
+              _layoutBlock('Paper Shop', 0, 0, 20, 350),
+              _layoutBlock(
+                description,
+                1,
+                1,
+                rightToLeft ? 300 : 20,
+                rightToLeft ? 410 : 150,
+                textDirection: rightToLeft ? 'rtl' : 'ltr',
+              ),
+              _layoutBlock(word, 2, 1, wordLeft, wordLeft + 30),
+              _layoutBlock('10.00', 3, 1, amountLeft, amountLeft + 120),
+              _layoutBlock('.', 4, 1, 900, 910),
+              _layoutBlock('Total USD 10.00', 5, 2, 20, 350),
+            ],
+          );
+          expect(preview.items, hasLength(1));
+          expect(preview.items.single.description, '$description $word');
+          expect(preview.items.single.currency, 'USD');
+          expect(preview.items.single.currencyUnresolved, isFalse);
+          expect(preview.items.single.lineTotal, '10.00');
+        },
+      );
+    }
+  }
+
+  test('layout fallback cannot drop one of two adjacent currency blocks', () {
+    final preview = const ReceiptOcrParser().parse(
+      'Paper Shop\nNotebook 10.00 USD ₱ .\nTotal USD 10.00',
+      blocks: [
+        _layoutBlock('Paper Shop', 0, 0, 20, 350),
+        _layoutBlock('Notebook', 1, 1, 20, 150),
+        _layoutBlock('10.00', 2, 1, 300, 420),
+        _layoutBlock('USD', 3, 1, 425, 455),
+        _layoutBlock('₱', 4, 1, 460, 480),
+        _layoutBlock('.', 5, 1, 600, 610),
+        _layoutBlock('Total USD 10.00', 6, 2, 20, 350),
+      ],
+    );
+    expect(preview.items, isEmpty);
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(
+      preview.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem),
+    );
   });
 
   test('layout fallback rejects bare identifier amounts', () {
@@ -11134,6 +13195,184 @@ Total \$12.00
       address.currencyProvenance,
       ReceiptOcrCurrencyProvenance.contextInferred,
     );
+  });
+
+  group('bounded due-date metadata', () {
+    for (final amount in ['USD 25.00', '25.00']) {
+      for (final row in [
+        'Tripod rental 20.10.2026 $amount Return after inspection',
+        'Tripod rental $amount 20.10.2026 Return after inspection',
+        '20.10.2026 Tripod rental $amount Return after inspection',
+      ]) {
+        test('invalid date tokens do not erase an unresolved price: $row', () {
+          final preview = const ReceiptOcrParser().parse(
+            'Rental Shop\n$row\nTotal USD 25.00',
+            fallbackCurrency: 'USD',
+          );
+          expect(preview.items, isEmpty);
+          expect(preview.adjustmentsComplete, isFalse);
+          expect(
+            preview.incompleteAdjustmentReasons,
+            contains(ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem),
+          );
+        });
+      }
+    }
+    for (final row in [
+      'Tripod rental 20.10.2026 Return after inspection',
+      'Pickup 20.10.2026 Return 21.10.2026 after inspection',
+    ]) {
+      test('date tokens alone are not unresolved prices: $row', () {
+        final preview = const ReceiptOcrParser().parse(
+          'Rental Shop\nNotebook USD 12.00\n$row\nTotal USD 12.00',
+        );
+        expect(
+          preview.incompleteAdjustmentReasons,
+          isNot(
+            contains(ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem),
+          ),
+        );
+      });
+    }
+    for (final rtl in [false, true]) {
+      for (final amount in [r'$25.00', '25.00']) {
+        for (final annotation in [
+          'Due date: 2026/10/20',
+          'Customer Due Date: Oct 20, 2026',
+          'Bill Due Date：20.10.2026',
+        ]) {
+          test('keeps a separate priced cell $amount $annotation rtl=$rtl', () {
+            ReceiptOcrBlockEvidence cell(
+              String text,
+              int row,
+              int order,
+              double left,
+              double right,
+            ) => _layoutBlock(
+              text,
+              order,
+              row,
+              rtl ? 700 - right : left,
+              rtl ? 700 - left : right,
+              textDirection: rtl ? 'rtl' : null,
+            );
+            final blocks = [
+              cell('Rental Shop', 0, 0, 0, 180),
+              cell('Tripod rental', 1, 1, 0, 180),
+              cell(amount, 1, 2, 210, 280),
+              cell(annotation, 1, 3, 330, 590),
+              cell('Total USD 25.00', 2, 4, 0, 280),
+            ];
+            final preview = const ReceiptOcrParser().parse(
+              'Rental Shop\nTripod rental $amount $annotation\nTotal USD 25.00',
+              fallbackCurrency: 'USD',
+              blocks: blocks,
+            );
+            expect(preview.items.map((item) => item.description), [
+              'Tripod rental',
+            ]);
+            expect(preview.items.single.lineTotal, '25.00');
+            expect(preview.items.single.currency, 'USD');
+            expect(preview.blocks, blocks);
+            expect(
+              preview.itemLineDecisions[1],
+              ReceiptOcrItemLineDecision.layoutFallbackSelected,
+            );
+          });
+        }
+      }
+    }
+    for (final annotation in [
+      'Due date: 2026/10/20',
+      'Customer Due Date: Oct 20, 2026',
+      'Bill Due Date：20.10.2026',
+    ]) {
+      test(
+        'retains unresolved priced evidence without geometry: $annotation',
+        () {
+          final preview = const ReceiptOcrParser().parse(
+            'Rental Shop\nTripod rental USD 25.00 $annotation\nTotal USD 25.00',
+          );
+          expect(preview.items, isEmpty);
+          expect(preview.adjustmentsComplete, isFalse);
+          expect(
+            preview.incompleteAdjustmentReasons,
+            contains(ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem),
+          );
+          expect(
+            preview.itemLineDecisions[1],
+            isNot(ReceiptOcrItemLineDecision.metadataOrHeaderSkipped),
+          );
+        },
+      );
+    }
+    for (final line in [
+      'Duration 3h 30m',
+      'Customer Name Account Number PN100283746',
+      'Apt 4B Plan: Sample Unlimited',
+    ]) {
+      test('embedded identifier digits are not an unretained price: $line', () {
+        final preview = const ReceiptOcrParser().parse(
+          'Rental Shop\nNotebook 12.00\n$line\nTotal USD 12.00',
+        );
+        expect(preview.items.map((item) => item.description), ['Notebook']);
+        expect(
+          preview.incompleteAdjustmentReasons,
+          isNot(
+            contains(ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem),
+          ),
+        );
+      });
+    }
+    for (final prefix in [
+      'Customer Number: 22',
+      'Account Number: 1234',
+      'Account Number: PN1234',
+      'Customer Name: Sam Example',
+      'Bill Due Date: 2026/10/20',
+      'Bill Date: 2026/10/01',
+    ]) {
+      test('preserves complete neighboring metadata: $prefix', () {
+        final preview = const ReceiptOcrParser().parse(
+          'Rental Shop\n$prefix Due Date: 2026/10/20\nNotebook USD 12.00\nTotal USD 12.00',
+        );
+        expect(preview.items.map((item) => item.description), ['Notebook']);
+        expect(preview.adjustmentsComplete, isTrue);
+        expect(preview.reviewHints, isEmpty);
+      });
+    }
+    for (final prefix in [
+      'Customer Name: Tripod USD 25.00',
+      'Account Number: 22 USD 25.00',
+    ]) {
+      test('a priced prefix cannot acquire metadata ownership: $prefix', () {
+        final preview = const ReceiptOcrParser().parse(
+          'Rental Shop\n$prefix Due Date: 2026/10/20\nTotal USD 25.00',
+        );
+        expect(
+          preview.itemLineDecisions[1],
+          isNot(ReceiptOcrItemLineDecision.metadataOrHeaderSkipped),
+        );
+        expect(preview.adjustmentsComplete, isFalse);
+      });
+    }
+    for (final label in [
+      'Due Date',
+      'Customer Due Date',
+      'Account Due Date',
+      'Bill Due Date',
+      'Invoice Due Date',
+      'Statement Due Date',
+      'Payment Due Date',
+    ]) {
+      test('complete $label field stays metadata', () {
+        final preview = const ReceiptOcrParser().parse(
+          'Rental Shop\n$label: Mar 25, 2025\nNotebook 12.00\nTotal USD 12.00',
+        );
+        expect(preview.items.map((item) => item.description), ['Notebook']);
+        expect(preview.items.single.lineTotal, '12.00');
+      });
+    }
   });
 
   test('repeated address and mixed due date rows stay out of items', () {
@@ -11474,6 +13713,116 @@ Total USD 0.15
     );
   });
 
+  test('price-left item rejects vertically conflicting provider row', () {
+    ReceiptOcrBlockEvidence cell(
+      String text,
+      int order,
+      int row,
+      double left,
+      double right,
+      double top,
+      double bottom,
+    ) => ReceiptOcrBlockEvidence(
+      text: text,
+      order: order,
+      row: row,
+      points: [
+        ReceiptOcrPoint(x: left, y: top),
+        ReceiptOcrPoint(x: right, y: top),
+        ReceiptOcrPoint(x: right, y: bottom),
+        ReceiptOcrPoint(x: left, y: bottom),
+      ],
+    );
+
+    final blocks = [
+      cell('Cafe', 0, 0, 0, 300, 0, 20),
+      cell('Amount', 1, 1, 0, 80, 50, 70),
+      cell('Description', 2, 1, 150, 220, 50, 70),
+      cell('Qty', 3, 1, 250, 300, 50, 70),
+      cell('USD 50.00', 4, 2, 0, 80, 200, 220),
+      cell('Coffee', 5, 2, 150, 220, 100, 120),
+      cell('Total USD 50.00', 6, 3, 0, 300, 300, 320),
+    ];
+    final preview = const ReceiptOcrParser().parse(
+      'Cafe\nAmount Description Qty\nUSD 50.00 Coffee\nTotal USD 50.00',
+      blocks: blocks,
+    );
+    expect(preview.items, isEmpty);
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(preview.reviewHints, isNotEmpty);
+  });
+
+  test('two-column item names do not supply embedded currency tokens', () {
+    for (final (description, amount) in [
+      ('Pastry', '10.00'),
+      ('Flowers', '4.00'),
+    ]) {
+      final preview = const ReceiptOcrParser().parse('''
+Corner Store
+Itemized charges
+Description Amount
+$description $amount
+Total USD $amount
+''');
+      expect(preview.items.map((item) => item.description), [
+        description,
+      ], reason: description);
+      expect(preview.items.single.lineTotal, amount, reason: description);
+    }
+  });
+
+  test('two-column alphanumeric product names retain their printed price', () {
+    for (final description in ['5G Plan', 'Router X2']) {
+      final preview = const ReceiptOcrParser().parse('''
+Example Store
+Itemized Charges
+Description Amount
+$description USD 10.00
+Total USD 10.00
+''');
+      expect(preview.items.map((item) => item.description), [description]);
+      expect(preview.items.single.lineTotal, '10.00');
+      expect(preview.items.single.currency, 'USD');
+    }
+  });
+
+  test(
+    'two-column independent numeric cell stays ambiguous without layout',
+    () {
+      final preview = const ReceiptOcrParser().parse('''
+Example Store
+Itemized Charges
+Description Amount
+Plan 2 USD 10.00
+Total USD 10.00
+''');
+      expect(preview.items, isEmpty);
+      expect(
+        preview.incompleteAdjustmentReasons,
+        contains(ReceiptOcrIncompleteAdjustmentReason.ambiguousChargeTable),
+      );
+    },
+  );
+
+  test('two-column standalone currency markers stay ambiguous', () {
+    for (final description in ['TRY Pastry', 'Rs Flowers']) {
+      final preview = const ReceiptOcrParser().parse('''
+Corner Store
+Itemized charges
+Description Amount
+$description 10.00
+Total USD 10.00
+''');
+      expect(preview.items, isEmpty, reason: description);
+      expect(preview.adjustmentsComplete, isFalse, reason: description);
+      expect(
+        preview.incompleteAdjustmentReasons,
+        contains(ReceiptOcrIncompleteAdjustmentReason.ambiguousChargeTable),
+        reason: description,
+      );
+    }
+  });
+
   test('unfamiliar rated tax summary remains reviewable', () {
     final preview = const ReceiptOcrParser().parse('''
 Market
@@ -11674,6 +14023,40 @@ Total USD 5.25
     );
     expect(preview.items.map((item) => item.description), ['Widget']);
     expect(preview.tax, '0.25');
+  });
+
+  test('generic tax table projection preserves printed inclusion', () {
+    for (final label in [
+      'Included Tax',
+      'Included VAT',
+      'VAT included',
+      'Tax',
+    ]) {
+      final included = label != 'Tax';
+      final total = included ? '10.00' : '11.00';
+      final blocks = [
+        _layoutBlock('Market', 0, 0, 20, 350),
+        _layoutBlock('Description', 1, 1, 20, 160),
+        _layoutBlock('Rate', 2, 1, 180, 230),
+        _layoutBlock('Amount', 3, 1, 300, 360),
+        _layoutBlock('Notebook', 4, 2, 20, 160),
+        _layoutBlock('EUR 10.00', 5, 2, 300, 360),
+        _layoutBlock(label, 6, 3, 20, 160),
+        _layoutBlock('EUR 1.00', 7, 3, 300, 360),
+        _layoutBlock('Total', 8, 4, 20, 160),
+        _layoutBlock('EUR $total', 9, 4, 300, 360),
+      ];
+      final preview = const ReceiptOcrParser().parse(
+        'Market\nDescription Rate Amount\nNotebook EUR 10.00\n'
+        '$label EUR 1.00\nTotal EUR $total',
+        blocks: blocks,
+      );
+      expect(preview.tax, '1.00', reason: label);
+      expect(preview.taxIncludedInTotal, included, reason: label);
+      expect(preview.total, total, reason: label);
+      expect(preview.items.map((i) => i.lineTotal), ['10.00'], reason: label);
+      expect(preview.blocks, containsAll(blocks), reason: label);
+    }
   });
 
   test('numeric usage keeps rated tax-named charge rows reviewable', () {
@@ -12235,6 +14618,34 @@ Reference currency: EUR
       preview.currencyProvenance,
       ReceiptOcrCurrencyProvenance.contextInferred,
     );
+  });
+
+  test('suggested tips product keeps its printed item price', () {
+    final preview = const ReceiptOcrParser().parse('''
+Corner Shop
+Suggested Tips Book USD 10.00
+Subtotal USD 10.00
+Total USD 10.00
+''');
+    expect(preview.items.map((item) => item.description), [
+      'Suggested Tips Book',
+    ]);
+    expect(preview.items.single.lineTotal, '10.00');
+    expect(preview.tip, isNull);
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(preview.reviewHints, isNotEmpty);
+  });
+
+  test('priced reading service without meter context remains an item', () {
+    final preview = const ReceiptOcrParser().parse('''
+Bookshop
+Reading 12.00
+Subtotal USD 12.00
+Total USD 12.00
+''');
+    expect(preview.items.map((item) => item.description), ['Reading']);
+    expect(preview.items.single.lineTotal, '12.00');
+    expect(preview.adjustmentsComplete, isTrue);
   });
 
   test('parser separates charged tips and excludes suggested tip options', () {
@@ -13274,6 +15685,35 @@ Total USD 2.00
     expect(compared.tax, isNull);
   });
 
+  test('one priced item cell with conflicting codes stays unresolved', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Widget EUR / GBP 9.99
+Total USD 9.99
+''');
+    expect(preview.currency, 'USD');
+    final item = preview.items.singleWhere((item) => item.lineTotal == '9.99');
+    expect(item.currency, isNull);
+    expect(item.currencyUnresolved, isTrue);
+  });
+
+  test(
+    'conflicting attached total codes cannot establish receipt currency',
+    () {
+      final preview = const ReceiptOcrParser().parse('''
+Market
+Widget 9.99
+Total EUR / USD9.99
+''');
+      expect(preview.currency, isNull);
+      expect(
+        preview.currencyProvenance,
+        ReceiptOcrCurrencyProvenance.unresolved,
+      );
+      expect(preview.total, isNull);
+    },
+  );
+
   test('item name suffix cannot become selected amount currency', () {
     const parser = ReceiptOcrParser();
     final compared = parser.parse('''
@@ -13841,6 +16281,183 @@ Total USD 12.00
     expect(preview.reviewHints, [
       'Detected tax/service/tip/shipping/discount may explain why item totals differ from the grand total.',
     ]);
+  });
+
+  test('Japanese tax characters in priced product names remain items', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+免税饼干 10.00
+税務手帳 11.00
+稅務資訊 12.00
+Total USD 33.00
+''');
+    expect(preview.items.map((item) => item.description), [
+      '免税饼干',
+      '税務手帳',
+      '稅務資訊',
+    ]);
+    expect(preview.items.map((item) => item.lineTotal), [
+      '10.00',
+      '11.00',
+      '12.00',
+    ]);
+    expect(preview.tax, isNull);
+    expect(preview.adjustmentsComplete, isTrue);
+    expect(preview.incompleteAdjustmentReasons, isEmpty);
+  });
+
+  test('unpriced Japanese tax-character notes are not adjustments', () {
+    for (final note in ['税務情報', '稅務資訊']) {
+      final preview = const ReceiptOcrParser().parse('''
+Market
+Meal 10.00
+$note
+Total USD 10.00
+''');
+      expect(
+        preview.incompleteAdjustmentReasons,
+        isNot(
+          contains(
+            ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
+          ),
+        ),
+        reason: note,
+      );
+    }
+  });
+
+  test('bounded Japanese tax labels retain tax and missing-amount review', () {
+    for (final row in ['消費税 1.00', '税 1.00', '稅 1.00']) {
+      final preview = const ReceiptOcrParser().parse('''
+Market
+Meal 10.00
+$row
+Total USD 11.00
+''');
+      expect(preview.tax, '1.00', reason: row);
+    }
+    for (final label in ['消費税', '消費稅']) {
+      final malformed = const ReceiptOcrParser().parse('''
+Market
+Meal 10.00
+$label unreadable
+Total USD 10.00
+''');
+      expect(malformed.adjustmentsComplete, isFalse, reason: label);
+      expect(
+        malformed.incompleteAdjustmentReasons,
+        contains(
+          ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
+        ),
+        reason: label,
+      );
+    }
+  });
+
+  test('attached Japanese tax codes retain the printed denomination', () {
+    for (final row in ['消費税JPY 100', '税JPY 100', '消費稅JPY 100', '稅JPY 100']) {
+      final preview = const ReceiptOcrParser().parse('''
+Market
+Bread JPY 1000
+小計 JPY 1000
+$row
+合計 JPY 1100
+''');
+      expect(preview.tax, '100', reason: row);
+      expect(preview.taxCurrency, 'JPY', reason: row);
+      expect(preview.taxHasExplicitCurrencyEvidence, isTrue, reason: row);
+    }
+  });
+
+  test('qualified included tax is not published as additive tax', () {
+    final preview = const ReceiptOcrParser().parse('''
+Tea Shop
+Tea USD 20.00
+Subtotal USD 20.00
+State included tax (5%) USD 1.00
+Total USD 20.00
+''');
+    expect(preview.items.map((item) => item.description), ['Tea']);
+    expect(preview.tax, isNull);
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(
+      preview.incompleteAdjustmentReasons,
+      contains(
+        ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
+      ),
+    );
+  });
+
+  for (final treatment in ['exempt', 'waived']) {
+    test('qualified $treatment tax is unresolved', () {
+      final preview = const ReceiptOcrParser().parse('''
+Tea Shop
+Tea USD 20.00
+Subtotal USD 20.00
+State $treatment tax (5%) USD 1.00
+Total USD 20.00
+''');
+      expect(preview.items.map((item) => item.description), ['Tea']);
+      expect(preview.tax, isNull);
+      expect(preview.adjustmentsComplete, isFalse);
+      expect(
+        preview.incompleteAdjustmentReasons,
+        contains(
+          ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
+        ),
+      );
+    });
+  }
+
+  test('tax base and treatment amounts remain unresolved summaries', () {
+    for (final label in [
+      'Amount with tax',
+      'Amount subject to tax',
+      'Amount tax free',
+      'Pre-tax amount',
+      'Post-tax amount',
+      'Taxable amount',
+      'Tax deduction',
+    ]) {
+      final preview = const ReceiptOcrParser().parse('''
+Market
+Bread USD 100.00
+Subtotal USD 100.00
+$label USD 100.00
+Total USD 100.00
+''');
+      expect(preview.tax, isNull, reason: label);
+      expect(preview.items.map((item) => item.description), [
+        'Bread',
+      ], reason: label);
+      expect(preview.adjustmentsComplete, isFalse, reason: label);
+      expect(
+        preview.incompleteAdjustmentReasons,
+        contains(
+          ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
+        ),
+        reason: label,
+      );
+    }
+  });
+
+  test('exempt qualified tax amount remains unresolved', () {
+    final preview = const ReceiptOcrParser().parse('''
+Market
+Bread USD 100.00
+Subtotal USD 100.00
+Tax (exempt) USD 5.00
+Total USD 100.00
+''');
+    expect(preview.tax, isNull);
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(
+      preview.incompleteAdjustmentReasons,
+      contains(
+        ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
+      ),
+    );
+    expect(preview.items.map((item) => item.description), ['Bread']);
   });
 
   test('localized amountless adjustments keep review warning', () {

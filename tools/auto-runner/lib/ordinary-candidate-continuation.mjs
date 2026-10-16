@@ -85,7 +85,10 @@ export async function continueOrdinaryCandidate(input, handlers = {}) {
         fixed = await handlers.adopt_source_failure_fix(Object.freeze({ ...state }), { batch, decision, originatingPhase: phase, intent });
       }
       if (!fixed?.ok) fixed = await handlers.source_failure_fix(Object.freeze({ ...state }), { batch, decision, originatingPhase: phase, intent });
-      if (!fixed?.ok || fixed.sourceChanged !== true || !validIdentity(fixed.identity)) return blocked(state, fixed?.reasonCode || "ordinary_continuation_source_failure_fix_failed");
+      if (!fixed?.ok || fixed.sourceChanged !== true || !validIdentity(fixed.identity)) {
+        return { ...blocked(state, fixed?.reasonCode || "ordinary_continuation_source_failure_fix_failed"),
+          outcome: fixed?.outcome || "blocked" };
+      }
       const preparedBeforeChange = state.preparedGithubSourceFailureBatch;
       state = invalidateForSourceChange(state, fixed.identity);
       state = { ...state, sourceFailureCommitEffect: phase === "github_convergence" ? { batchIdentity: batch.batchIdentity, oldHead: batch.candidate.headSha, newHead: fixed.identity.headSha, fingerprints: preparedBeforeChange?.fingerprints || [] } : null };
@@ -131,6 +134,16 @@ export function ordinaryCandidateIdentityMatches(persisted, actual) {
     && persisted.diffDigest === actual.diffDigest
     && JSON.stringify([...persisted.changedFiles].sort()) === JSON.stringify([...actual.changedFiles].sort())
     && (!persisted.changedFilesDigest || persisted.changedFilesDigest === actual.changedFilesDigest);
+}
+
+// The caller must supply the canonical legacy getBoundedDiff() result for the
+// same base/head. This is only for authenticating pre-change recovery state;
+// new candidate identities always use the complete canonical diff digest.
+export function ordinaryRecoveryIdentityMatches(persisted, actual, legacyDiff = null) {
+  if (ordinaryCandidateIdentityMatches(persisted, actual)) return true;
+  if (legacyDiff?.truncated !== true || typeof legacyDiff.text !== "string") return false;
+  const legacyDigest = createHash("sha256").update(legacyDiff.text).digest("hex");
+  return ordinaryCandidateIdentityMatches(persisted, { ...actual, diffDigest: legacyDigest });
 }
 
 export function ordinaryContinuationPhaseTarget(value, phase) {

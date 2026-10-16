@@ -6,6 +6,34 @@ namespace Settleora.Api.Tests;
 public sealed class ReceiptOcrTaxReconciliationTests
 {
     [Theory]
+    [InlineData(null, null, 24, true)]
+    [InlineData(0, null, 24, true)]
+    [InlineData(null, 0, 24, true)]
+    [InlineData(0, 0, 24, true)]
+    [InlineData(1, null, 25, false)]
+    [InlineData(null, 1, 23, false)]
+    [InlineData(1, 1, 24, false)]
+    public void SingleGrossItemAllowsZeroButNotUnallocatedNonzeroAdjustments(
+        int? serviceCharge, int? discount, int grandTotal, bool supported)
+    {
+        var review = CreateReview(ReceiptOcrReviewTaxReconciliationModes.AddToBase,
+            24m, 20m, grandTotal);
+        review.ServiceChargeAmount = serviceCharge;
+        review.DiscountAmount = discount;
+
+        var preview = ReceiptOcrReviewApplyPreviewResponse.From(review, "GBP");
+
+        Assert.Equal(!supported,
+            preview.Warnings.Contains(ReceiptOcrReviewApplyPreviewIssueCodes.LineSumMismatch));
+        if (supported)
+        {
+            Assert.True(preview.CanApply);
+            Assert.Empty(preview.BlockedReasons);
+            Assert.Equal("24", preview.Summary.ExpectedHeaderTotalAmount);
+        }
+    }
+
+    [Theory]
     [InlineData("already_in_base", "24", "24", "24", true, "24")]
     [InlineData("add_to_base", "20", "20", "24", false, "24")]
     [InlineData("add_to_base", "24", "20", "24", true, "24")]

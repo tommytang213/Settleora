@@ -3318,18 +3318,33 @@ class _ReceiptOcrEditableReviewFormState
 
   bool _itemsDiffer(
     List<ReceiptOcrItemCandidate> items,
-    List<_ReceiptOcrEditableItemControllers> controllers,
-  ) {
+    List<_ReceiptOcrEditableItemControllers> controllers, {
+    bool compareDecimalValues = false,
+    bool compareDescriptions = true,
+  }) {
+    bool decimalDiffers(String edited, String? source) {
+      final original = source ?? '';
+      if (!compareDecimalValues || edited == original) {
+        return edited != original;
+      }
+      // Representation-only edits do not change printed item evidence.
+      // Invalid or over-precision text cannot establish numeric equivalence.
+      final editedUnits = receiptOcrDecimalUnits(edited);
+      return editedUnits == null ||
+          editedUnits != receiptOcrDecimalUnits(original);
+    }
+
     if (items.length != controllers.length) {
       return true;
     }
     for (var index = 0; index < items.length; index += 1) {
       final item = items[index];
       final controller = controllers[index];
-      if (controller.description.text != item.description ||
-          controller.quantity.text != (item.quantity ?? '') ||
-          controller.unitPrice.text != (item.unitPrice ?? '') ||
-          controller.lineTotal.text != (item.lineTotal ?? '') ||
+      if ((compareDescriptions &&
+              controller.description.text != item.description) ||
+          decimalDiffers(controller.quantity.text, item.quantity) ||
+          decimalDiffers(controller.unitPrice.text, item.unitPrice) ||
+          decimalDiffers(controller.lineTotal.text, item.lineTotal) ||
           controller.currency.text != (item.currency ?? '') ||
           controller.currencyUnresolved != item.currencyUnresolved) {
         return true;
@@ -3374,6 +3389,10 @@ class _ReceiptOcrEditableReviewFormState
         itemEvidenceChanged: _itemsDiffer(
           widget.preview.items,
           _itemControllers,
+          compareDecimalValues: true,
+          // Corrected item text is retained in the draft but does not change
+          // the printed financial amounts or their adjustment evidence.
+          compareDescriptions: false,
         ),
         items: [
           for (final item in _itemControllers)

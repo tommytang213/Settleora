@@ -43,6 +43,140 @@ import 'package:mobile/ui/settleora_form_fields.dart';
 void main() {
   for (final group in [false, true]) {
     for (final scenario in [
+      'lineTotal',
+      'description',
+      'emptyDescription',
+      'unitPrice',
+      'quantity',
+      'changed',
+      'invalid',
+      'overprecision',
+    ]) {
+      testWidgets(
+        'OCR item edit retains correct included-tax eligibility $scenario group=$group',
+        (tester) async {
+          await useLargeSurface(tester);
+          final prefix = group ? 'group-bill' : 'personal-bill';
+          final repository = FakeBillRepository();
+          final fileInput = FakeBillAttachmentFileInput(
+            pickedFile: samplePickedAttachmentFile(
+              filename: 'receipt.png',
+              contentType: 'image/png',
+              bytes: samplePngBytes(width: 64, height: 64),
+            ),
+          );
+          final provider = FakeReceiptOcrProvider(
+            ReceiptOcrResult.extracted(
+              ReceiptOcrPreview(
+                merchant: 'Notebook Shop',
+                currency: 'EUR',
+                tax: '2.00',
+                taxIncludedInTotal: true,
+                total: '12.00',
+                items: [
+                  ReceiptOcrItemCandidate(
+                    description: 'Notebook',
+                    quantity: scenario == 'quantity' ? '0.50' : '1',
+                    unitPrice: scenario == 'quantity' ? '24.00' : '12.00',
+                    lineTotal: '12.00',
+                    currency: 'EUR',
+                  ),
+                ],
+              ),
+            ),
+          );
+          if (group) {
+            await _pumpGroupBillCreate(
+              tester,
+              repository: repository,
+              groupRepository: FakeGroupRepository(
+                members: [sampleGroupMember()],
+              ),
+              attachmentRepository: FakeBillAttachmentRepository(),
+              attachmentFileInput: fileInput,
+              receiptOcrProvider: provider,
+            );
+            await tester.tap(find.byKey(const Key('group-bill-list-create')));
+            await tester.pumpAndSettle();
+            await _goToGroupBillCreateStep(tester, 'receiptItems');
+          } else {
+            await tester.pumpWidget(
+              MaterialApp(
+                home: SettleoraPersonalBillCreateScreen(
+                  repository: repository,
+                  attachmentRepository: FakeBillAttachmentRepository(),
+                  attachmentFileInput: fileInput,
+                  receiptOcrProvider: provider,
+                ),
+              ),
+            );
+            await tester.pumpAndSettle();
+          }
+          await tester.tap(find.byKey(Key('$prefix-scan-receipt')));
+          await tester.pumpAndSettle();
+          final items = find.byKey(Key('$prefix-ocr-apply-items'));
+          final currency = find.byKey(Key('$prefix-ocr-apply-currency'));
+          expect(tester.widget<CheckboxListTile>(items).onChanged, isNotNull);
+          expect(
+            tester.widget<CheckboxListTile>(currency).onChanged,
+            isNotNull,
+          );
+          await _setReceiptOcrSection(tester, prefix, 'items', true);
+          final key = switch (scenario) {
+            'description' ||
+            'emptyDescription' => '$prefix-ocr-item-description-0',
+            'unitPrice' => '$prefix-ocr-item-unit-price-0',
+            'quantity' => '$prefix-ocr-item-quantity-0',
+            _ => '$prefix-ocr-item-line-total-0',
+          };
+          final edited = find.byKey(ValueKey(key));
+          await tester.ensureVisible(edited);
+          await tester.enterText(edited, switch (scenario) {
+            'description' => 'Corrected Notebook',
+            'emptyDescription' => '',
+            'quantity' => '0.5',
+            'changed' => '11.99',
+            'invalid' => '12x',
+            'overprecision' => '12.00000',
+            _ => '12.0',
+          });
+          await tester.pumpAndSettle();
+          final equivalent = [
+            'description',
+            'lineTotal',
+            'unitPrice',
+            'quantity',
+          ].contains(scenario);
+          expect(
+            tester.widget<CheckboxListTile>(items).onChanged,
+            equivalent ? isNotNull : isNull,
+          );
+          expect(
+            tester.widget<CheckboxListTile>(currency).onChanged,
+            equivalent ? isNotNull : isNull,
+          );
+          if (equivalent) {
+            await _tapReceiptOcrApply(tester, prefix);
+            final billAmount = find.byKey(ValueKey('$prefix-item-amount-0'));
+            expect(
+              tester.widget<TextFormField>(billAmount).controller?.text,
+              scenario == 'lineTotal' ? '12.0' : '12.00',
+            );
+            if (scenario == 'description') {
+              final billName = find.byKey(ValueKey('$prefix-item-name-0'));
+              expect(
+                tester.widget<TextFormField>(billName).controller?.text,
+                'Corrected Notebook',
+              );
+            }
+          }
+        },
+      );
+    }
+  }
+
+  for (final group in [false, true]) {
+    for (final scenario in [
       'fuelComplete',
       'fuelPumpDetachedLeft',
       'fuelPumpDetachedRight',
@@ -4232,7 +4366,7 @@ Total USD 9.00
     );
   });
 
-  testWidgets('editing an OCR item restores the adjustment warning', (
+  testWidgets('editing OCR item money restores the adjustment warning', (
     tester,
   ) async {
     await useLargeSurface(tester);
@@ -4277,6 +4411,12 @@ Total USD 9.00
     await tester.enterText(
       find.byKey(const ValueKey('personal-bill-ocr-item-description-0')),
       'Replacement meal',
+    );
+    await tester.pumpAndSettle();
+    expect(find.text(hint), findsNothing);
+    await tester.enterText(
+      find.byKey(const ValueKey('personal-bill-ocr-item-line-total-0')),
+      '9.00',
     );
     await tester.pumpAndSettle();
     expect(find.text(hint), findsOneWidget);

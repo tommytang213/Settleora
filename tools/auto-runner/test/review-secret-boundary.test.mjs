@@ -20,6 +20,7 @@ function runtimeCanary(label = "value") {
 
 test("review secret boundary blocks real secret files and credential content", () => {
   const realKey = `AIza${"A".repeat(30)}`;
+  const xaiKey = ["xai-", "Z".repeat(32)].join("");
   const cases = [
     {
       name: "changed env file",
@@ -37,6 +38,12 @@ test("review secret boundary blocks real secret files and credential content", (
       name: "api key assignment",
       files: ["tools/auto-runner/lib/example.mjs"],
       diff: diffFor("tools/auto-runner/lib/example.mjs", [`+const apiKey = "${realKey}";`]),
+      rule: "known_credential_format",
+    },
+    {
+      name: "bare xAI key in a changed line",
+      files: ["tools/auto-runner/lib/example.mjs"],
+      diff: diffFor("tools/auto-runner/lib/example.mjs", [`+const note = "Pasted ${xaiKey}";`]),
       rule: "known_credential_format",
     },
     {
@@ -2344,6 +2351,55 @@ test("arbitrary dotted credential assignments remain blocked", () => {
   assert.equal(result.blocked, true);
   assert.equal(result.blockers[0].classification, "credential_value");
 });
+
+test("receipt amount normalization is a path-bound code reference", () => {
+  const file = "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_parser.dart";
+  const statement = receiptNormalizationStatement();
+  const result = analyzeReviewSecretBoundary({ changedFiles: [file], diff: diffFor(file, [`+    ${statement}`]) });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.allowedReferences.map(({ rule, classification }) => ({ rule, classification })), [
+    { rule: "credential_assignment", classification: "code_reference" },
+  ]);
+  assert.ok(diffFor(file, [`+    ${statement}`]).includes(statement));
+});
+
+test("receipt exception preserves same-line and neighboring credential blocks", () => {
+  const file = "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_parser.dart";
+  const statement = receiptNormalizationStatement();
+  const credential = `API_TOKEN = "${runtimeCanary("secret")}";`;
+  for (const lines of [
+    [`+${statement} ${credential}`],
+    [`+${statement}`, `+${credential}`],
+    [`+${statement} // ${credential}`],
+    [`+${statement} + "${runtimeCanary("secret")}";`],
+  ]) {
+    const result = analyzeReviewSecretBoundary({ changedFiles: [file], diff: diffFor(file, lines) });
+    assert.equal(result.blocked, true);
+    assert.ok(result.blockers.some(({ rule }) => rule === "credential_assignment"));
+  }
+});
+
+test("receipt exception rejects alternate statements and path spoofs", () => {
+  const file = "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_parser.dart";
+  const statement = receiptNormalizationStatement();
+  const cases = [
+    ["apps/mobile/lib/receipt_ocr_capture/receipt_ocr_parser.dart.bak", statement],
+    ["apps/mobile/lib/receipt_ocr_capture/fake/receipt_ocr_parser.dart", statement],
+    [file, statement.replace("amountToken", "otherToken")],
+    [file, statement.replace("amountToken)", "amountToken, secret)")],
+    [file, `${statement} // extra`],
+    [file, statement.replace("_normalizeAmount(amountToken)", "'_normalizeAmount(amountToken)'")],
+  ];
+  for (const [path, source] of cases) {
+    const result = analyzeReviewSecretBoundary({ changedFiles: [path], diff: diffFor(path, [`+${source}`]) });
+    assert.equal(result.blocked, true, `${path}: ${source}`);
+    assert.ok(result.blockers.some(({ rule }) => rule === "credential_assignment"));
+  }
+});
+
+function receiptNormalizationStatement() {
+  return ["final normalized", "Token = _normalizeAmount(amount", "Token);"].join("");
+}
 
 function diffFor(file, lines, { oldStart = 1, newStart = 1 } = {}) {
   return [

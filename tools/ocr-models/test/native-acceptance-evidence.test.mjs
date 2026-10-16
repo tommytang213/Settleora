@@ -89,6 +89,220 @@ test("accepts Flutter 3.44.8 start events with a null runner version", () => {
   });
 });
 
+function protocolLogWithLoading() {
+  const events = protocolLog().trimEnd().split("\n").map(JSON.parse);
+  const suite = events.find((event) => event.type === "suite").suite;
+  const groupIndex = events.findIndex((event) => event.type === "group");
+  events.splice(groupIndex, 0,
+    { type: "testStart", time: 0, test: { id: 0, suiteID: suite.id, groupIDs: [], name: `loading ${suite.path}`, metadata: { skip: false, skipReason: null }, line: null, column: null, url: null } },
+    { type: "testDone", time: 0, testID: 0, result: "success", skipped: false, hidden: true },
+  );
+  return events;
+}
+
+test("accepts the bounded Flutter suite-loading lifecycle before all six tests", () => {
+  for (const suitePath of ["integration_test/receipt_ocr_real_provider_test.dart", "/workspace/checkout/apps/mobile/integration_test/receipt_ocr_real_provider_test.dart"]) {
+    const events = protocolLogWithLoading();
+    events.find((event) => event.type === "suite").suite.path = suitePath;
+    events.find((event) => event.test?.id === 0).test.name = `loading ${suitePath}`;
+    withLog(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`, (log) => {
+      assert.equal(buildEvidence(evidenceArgs(log), repoRoot).execution.protocolSucceeded, true);
+    });
+  }
+});
+
+test("suite loading remains bound to its declared identity and lifecycle", () => {
+  for (const mode of ["path", "suite", "groups", "skip", "reason", "location", "duplicate", "unfinished", "reused-id", "repeated-completion", "late"]) {
+    const events = protocolLogWithLoading();
+    const start = events.find((event) => event.test?.id === 0);
+    const done = events.find((event) => event.type === "testDone" && event.testID === 0);
+    if (mode === "path") start.test.name += ".other";
+    if (mode === "suite") start.test.suiteID = 2;
+    if (mode === "groups") start.test.groupIDs = [1];
+    if (mode === "skip") start.test.metadata.skip = true;
+    if (mode === "reason") start.test.metadata.skipReason = "unexpected";
+    if (mode === "location") start.test.url = "file:///unexpected.dart";
+    if (mode === "duplicate") events.splice(events.indexOf(start), 0, structuredClone(start));
+    if (mode === "unfinished") events.splice(events.indexOf(done), 1);
+    if (mode === "reused-id") events.find((event) => event.test?.id === 1).test.id = 0;
+    if (mode === "repeated-completion") events.splice(events.indexOf(done), 0, structuredClone(done));
+    if (mode === "late") {
+      events.splice(events.indexOf(start), 1);
+      events.splice(events.indexOf(done), 1);
+      events.splice(events.length - 1, 0, start, done);
+    }
+    withLog(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`, (log) => {
+      assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot), undefined, mode);
+    });
+  }
+});
+
+test("failed or visible loading cannot yield successful protocol evidence", () => {
+  for (const mode of ["failure", "skipped", "visible", "error", "non-failure-error"]) {
+    const events = protocolLogWithLoading();
+    const done = events.find((event) => event.type === "testDone" && event.testID === 0);
+    if (mode === "failure") done.result = "failure";
+    if (mode === "skipped") done.skipped = true;
+    if (mode === "visible") done.hidden = false;
+    if (mode === "error" || mode === "non-failure-error") {
+      events.splice(events.indexOf(done), 0, {
+        type: "error", time: 0, testID: 0, error: "synthetic load failure",
+        stackTrace: "", isFailure: mode === "error",
+      });
+    }
+    withLog(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`, (log) => {
+      const evidence = buildEvidence(evidenceArgs(log), repoRoot);
+      assert.equal(evidence.execution.protocolSucceeded, false, mode);
+      assert.equal(isCompleteEvidence(evidence), false, mode);
+      assert.equal(JSON.stringify(evidence).includes("synthetic load failure"), false);
+    });
+  }
+});
+
+test("suite loading cannot emit application output or acceptance markers", () => {
+  for (const message of ["unexpected output", "SETTLEORA_OCR_ACCEPTANCE={}", "SETTLEORA_OCR_UI_SMOKE={}", "SETTLEORA_OCR_DIAGNOSTIC={}"]) {
+    const events = protocolLogWithLoading();
+    const index = events.findIndex((event) => event.type === "testDone" && event.testID === 0);
+    events.splice(index, 0, { type: "print", time: 0, testID: 0, messageType: "print", message });
+    withLog(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`, (log) => {
+      assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot), /suite-loading/);
+    });
+  }
+});
+
+test("successful loading cannot substitute for a required acceptance test", () => {
+  const events = protocolLogWithLoading().filter((event) => event.test?.id !== 6 && event.testID !== 6);
+  withLog(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`, (log) => {
+    const evidence = buildEvidence(evidenceArgs(log), repoRoot);
+    assert.equal(evidence.execution.protocolSucceeded, false);
+    assert.equal(isCompleteEvidence(evidence), false);
+  });
+});
+
+function protocolLogWithLifecycle() {
+  const events = protocolLogWithLoading();
+  events.splice(events.length - 1, 0,
+    { type: "testStart", time: 4, test: { id: 90, suiteID: 1, groupIDs: [1], name: "(tearDownAll)", metadata: { skip: false, skipReason: null }, line: 50, column: 5, url: "package:integration_test/integration_test.dart" } },
+    { type: "testDone", time: 5, testID: 90, result: "success", skipped: false, hidden: true },
+  );
+  events.at(-1).time = 6;
+  return events;
+}
+
+test("accepts loading and integration teardown around all six acceptance tests", () => {
+  for (const nativeOrder of [false, true]) {
+    const events = protocolLogWithLifecycle();
+    if (nativeOrder) {
+      const allSuites = events.splice(events.findIndex((event) => event.type === "allSuites"), 1)[0];
+      events.splice(events.findIndex((event) => event.type === "testDone"), 0, allSuites);
+      const suite = events.find((event) => event.type === "suite").suite;
+      suite.path = "/workspace/checkout/apps/mobile/integration_test/receipt_ocr_real_provider_test.dart";
+      events.find((event) => event.test?.id === 0).test.name = `loading ${suite.path}`;
+    }
+    withLog(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`, (log) => {
+      const evidence = buildEvidence(evidenceArgs(log), repoRoot);
+      assert.equal(evidence.execution.protocolSucceeded, true);
+      assert.equal(isCompleteEvidence(evidence), false, "lifecycle success alone is not acceptance/package evidence");
+    });
+  }
+});
+
+test("integration teardown requires the exact framework identity and completed acceptance lifecycle", () => {
+  for (const mode of ["name", "suite", "groups", "nested-group", "skip", "reason", "url", "line", "column", "zero-line", "duplicate", "unfinished", "reused-loading-id", "reused-acceptance-id", "repeated-completion", "early", "missing-acceptance", "unfinished-acceptance", "group-during-loading", "group-after-teardown", "after-done"]) {
+    const events = protocolLogWithLifecycle();
+    const start = events.find((event) => event.test?.id === 90);
+    const done = events.find((event) => event.type === "testDone" && event.testID === 90);
+    if (mode === "name") start.test.name = "arbitrary hidden test";
+    if (mode === "suite") start.test.suiteID = 2;
+    if (mode === "groups") start.test.groupIDs = [];
+    if (mode === "nested-group") {
+      const root = events.find((event) => event.type === "group");
+      events.splice(events.indexOf(root) + 1, 0, { ...root, group: { ...root.group, id: 2, parentID: 1 } });
+      start.test.groupIDs = [1, 2];
+    }
+    if (mode === "skip") start.test.metadata.skip = true;
+    if (mode === "reason") start.test.metadata.skipReason = "unexpected";
+    if (mode === "url") start.test.url = "package:mobile/arbitrary.dart";
+    if (mode === "line") start.test.line = null;
+    if (mode === "column") start.test.column = null;
+    if (mode === "zero-line") start.test.line = 0;
+    if (mode === "duplicate") events.splice(events.indexOf(start), 0, structuredClone(start));
+    if (mode === "unfinished") events.splice(events.indexOf(done), 1);
+    if (mode === "reused-loading-id") start.test.id = done.testID = 0;
+    if (mode === "reused-acceptance-id") start.test.id = done.testID = 1;
+    if (mode === "repeated-completion") events.splice(events.indexOf(done), 0, structuredClone(done));
+    if (mode === "early") {
+      events.splice(events.indexOf(start), 1);
+      events.splice(events.findIndex((event) => event.test?.id === 6), 0, start);
+    }
+    if (mode === "missing-acceptance") {
+      for (let index = events.length - 1; index >= 0; index--) {
+        if (events[index].test?.id === 6 || events[index].testID === 6) events.splice(index, 1);
+      }
+    }
+    if (mode === "unfinished-acceptance") events.splice(events.findIndex((event) => event.type === "testDone" && event.testID === 6), 1);
+    if (mode === "group-during-loading") {
+      const group = events.splice(events.findIndex((event) => event.type === "group"), 1)[0];
+      events.splice(events.findIndex((event) => event.type === "testDone" && event.testID === 0), 0, group);
+    }
+    if (mode === "group-after-teardown") {
+      const group = structuredClone(events.find((event) => event.type === "group"));
+      group.group.id = 2;
+      events.splice(events.indexOf(done), 0, group);
+    }
+    if (mode === "after-done") {
+      const terminal = events.pop();
+      events.splice(events.indexOf(start), 0, terminal);
+    }
+    withLog(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`, (log) => {
+      assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot), undefined, mode);
+    });
+  }
+});
+
+test("combined hidden lifecycles cannot conceal failures or skipped/visible completion", () => {
+  for (const testID of [0, 90]) {
+    for (const mode of ["failure", "skipped", "visible", "error", "non-failure-error"]) {
+      const events = protocolLogWithLifecycle();
+      const done = events.find((event) => event.type === "testDone" && event.testID === testID);
+      if (mode === "failure") done.result = "failure";
+      if (mode === "skipped") done.skipped = true;
+      if (mode === "visible") done.hidden = false;
+      if (mode === "error" || mode === "non-failure-error") events.splice(events.indexOf(done), 0, {
+        type: "error", time: done.time, testID, error: "synthetic hidden failure", stackTrace: "", isFailure: mode === "error",
+      });
+      withLog(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`, (log) => {
+        const evidence = buildEvidence(evidenceArgs(log), repoRoot);
+        assert.equal(evidence.execution.protocolSucceeded, false, `${testID}/${mode}`);
+        assert.equal(isCompleteEvidence(evidence), false);
+        assert.equal(JSON.stringify(evidence).includes("synthetic hidden failure"), false);
+      });
+    }
+  }
+  const events = protocolLogWithLifecycle();
+  events.find((event) => event.type === "testDone" && event.testID === 6).result = "failure";
+  withLog(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`, (log) => {
+    assert.equal(buildEvidence(evidenceArgs(log), repoRoot).execution.protocolSucceeded, false);
+  });
+});
+
+test("combined hidden lifecycles cannot own output or bypass stderr rejection", () => {
+  for (const testID of [0, 90]) {
+    for (const message of ["unexpected output", "SETTLEORA_OCR_ACCEPTANCE={}", "SETTLEORA_OCR_UI_SMOKE={}", "SETTLEORA_OCR_DIAGNOSTIC={}"]) {
+      const events = protocolLogWithLifecycle();
+      const index = events.findIndex((event) => event.type === "testDone" && event.testID === testID);
+      events.splice(index, 0, { type: "print", time: 0, testID, messageType: "print", message });
+      withLog(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`, (log) => {
+        assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot), /suite-loading or integration-teardown/);
+      });
+    }
+  }
+  withLog(`${protocolLogWithLifecycle().map((event) => JSON.stringify(event)).join("\n")}\n`, (log) => {
+    writeFileSync(`${log}.stderr`, "synthetic stderr\n");
+    assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot), /non-allowlisted stderr/);
+  });
+});
+
 test("requires the actual sixth native test to finish successfully", () => {
   const events = protocolLog().trimEnd().split("\n").map(JSON.parse);
   const identity = events.find((event) => event.type === "testStart" &&
@@ -208,7 +422,7 @@ test("retains only the bounded native acceptance schema", () => {
           "full-bytes": "200",
           "model-free-bytes": "150",
           "base-app-bytes": "100",
-          "verified-model-file-count": "14",
+          "verified-model-file-count": "16",
           "verified-catalog-file-count": "1",
           "verified-fixture-absence-count": "102",
           "package-sha256": "b".repeat(64),
@@ -220,8 +434,8 @@ test("retains only the bounded native acceptance schema", () => {
       assert.equal(evidence.uiSmoke.completed, true);
       assert.equal(evidence.packageEvidence.bundledModelPackageDeltaBytes, 50);
       assert.equal(evidence.packageEvidence.ocrStackPackageDeltaBytes, 100);
-      assert.equal(evidence.packageEvidence.catalogModelFileCount, 14);
-      assert.equal(evidence.packageEvidence.verifiedModelFileCount, 14);
+      assert.equal(evidence.packageEvidence.catalogModelFileCount, 16);
+      assert.equal(evidence.packageEvidence.verifiedModelFileCount, 16);
       assert.equal(evidence.packageEvidence.verifiedCatalogFileCount, 1);
       assert.equal(evidence.packageEvidence.verifiedFixtureAbsenceCount, 102);
       assert.equal(evidence.identities.fixtureTreeSha256.length, 64);
@@ -552,8 +766,8 @@ test("retains only the bounded native acceptance schema", () => {
   );
 });
 
-test("complete evidence requires both package measurements and a positive delta", () => {
-  const evidence = {
+function completeEvidenceControl() {
+  return {
     platform: "android",
     execution: { testExitStatus: 0, protocolSucceeded: true, preflightFailurePhase: null },
     diagnostics: [],
@@ -594,6 +808,10 @@ test("complete evidence requires both package measurements and a positive delta"
     },
     identities: { baseCompositeSha256: "9".repeat(64) },
   };
+}
+
+test("complete evidence requires both package measurements and a positive delta", () => {
+  const evidence = completeEvidenceControl();
   assert.equal(isCompleteEvidence(evidence), true);
   // A recovered failure envelope cannot become accepted proof by attaching
   // otherwise complete execution/package fields or clearing its marker value.
@@ -1013,6 +1231,38 @@ test("isolation failure evidence retains only allowlisted probe outcomes", () =>
     withLog(protocolLog(`SETTLEORA_OCR_DIAGNOSTIC=${JSON.stringify(invalid)}`), (log) => {
       assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot));
       assert.deepEqual(buildFailureEvidence(evidenceArgs(log), repoRoot).diagnostics, []);
+    });
+  }
+});
+
+test("acceptance and failure evidence reject private-looking field and script identities", () => {
+  const acceptance = {
+    schemaVersion: 1,
+    platform: "android",
+    completed: true,
+    networkIsolated: true,
+    fixtureCount: 101,
+    passedFixtureCount: 100,
+    mismatchCount: 1,
+    mismatches: [{ fixtureId: manifestFixtureIds[0], field: "merchant" }],
+    runtime: "onnxruntime-android:1.21.1:cpu",
+    coldLoadTimeMs: 25,
+    endToEndLatencyMs: { sampleCount: 101, cold: 30, warmP50: 20, warmP95: 24, max: 30 },
+    nativeLatencyMs: { sampleCount: 101, cold: 28, warmP50: 18, warmP95: 22, max: 28 },
+    peakRssBytes: 123456,
+    perScript: { Latin: { total: 101, passed: 100 } },
+  };
+  const privateToken = "PRIVATE_RECEIPT_TEXT_123";
+  for (const invalid of [
+    { ...acceptance, mismatches: [{ fixtureId: manifestFixtureIds[0], field: privateToken }] },
+    { ...acceptance, perScript: { [privateToken]: { total: 101, passed: 100 } } },
+  ]) {
+    withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify(invalid)}`), (log) => {
+      assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot),
+        /outside fixed comparison diagnostics|outside the immutable corpus labels/);
+      const failure = buildFailureEvidence({ ...evidenceArgs(log), "test-status": "1" }, repoRoot);
+      assert.deepEqual(failure.acceptance, { completed: false });
+      assert.equal(JSON.stringify(failure).includes(privateToken), false);
     });
   }
 });
@@ -1667,3 +1917,32 @@ test("rejects contradictory aggregate counts and package measurements", () => {
     );
   });
 });
+
+for (const lifecycle of [false, true]) {
+  for (const isFailure of [false, true]) {
+    test(`acceptance errors fail closed despite successful completion: lifecycle=${lifecycle}, assertion=${isFailure}`, () => {
+      for (let testID = 1; testID <= 6; testID += 1) {
+        const events = lifecycle ? protocolLogWithLifecycle() : protocolLog().trimEnd().split("\n").map(JSON.parse);
+        const complete = completeEvidenceControl();
+        withLog(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`, (log) => {
+          const clean = buildEvidence(evidenceArgs(log), repoRoot);
+          assert.equal(clean.execution.protocolSucceeded, true);
+          assert.equal(isCompleteEvidence({ ...complete, execution: clean.execution }), true);
+        });
+        const done = events.findIndex((event) => event.type === "testDone" && event.testID === testID);
+        events.splice(done, 0, {
+          type: "error", time: 2, testID, isFailure,
+          error: "synthetic acceptance error must not be retained",
+          stackTrace: "synthetic private path must not be retained",
+        });
+        withLog(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`, (log) => {
+          const evidence = buildEvidence(evidenceArgs(log), repoRoot);
+          assert.equal(evidence.execution.protocolSucceeded, false, `testID=${testID}`);
+          assert.equal(isCompleteEvidence({ ...complete, execution: evidence.execution }), false);
+          assert.equal(JSON.stringify(evidence).includes("synthetic acceptance error"), false);
+          assert.equal(JSON.stringify(evidence).includes("synthetic private path"), false);
+        });
+      }
+    });
+  }
+}

@@ -360,29 +360,19 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
     final editedCurrency = _nullableText(
       _currencyController.text,
     )?.toUpperCase();
-    final originalCurrency = widget.review.currency?.trim().toUpperCase();
-    final preserveMoney = editedCurrency == originalCurrency;
     final candidate = ReceiptOcrReviewSaveRequest(
       status: widget.review.status,
       source: widget.review.source,
       merchantText: _nullableText(_merchantController.text),
       receiptIssuedAtUtc: _parseDate(_receiptDateController.text),
       currency: editedCurrency,
-      subtotalAmount: preserveMoney
-          ? _nullableText(_subtotalController.text)
-          : null,
-      taxAmount: preserveMoney ? _nullableText(_taxController.text) : null,
-      serviceChargeAmount: preserveMoney
-          ? _nullableText(_serviceChargeController.text)
-          : null,
-      discountAmount: preserveMoney
-          ? _nullableText(_discountController.text)
-          : null,
-      grandTotalAmount: preserveMoney
-          ? _nullableText(_grandTotalController.text)
-          : null,
+      subtotalAmount: _nullableText(_subtotalController.text),
+      taxAmount: _nullableText(_taxController.text),
+      serviceChargeAmount: _nullableText(_serviceChargeController.text),
+      discountAmount: _nullableText(_discountController.text),
+      grandTotalAmount: _nullableText(_grandTotalController.text),
       lines: _lineEditors
-          .map((editors) => editors.toRequest(omitMoney: !preserveMoney))
+          .map((editors) => editors.toRequest())
           .toList(growable: false),
       adjustmentEvidence: _adjustmentEditors
           .map((editors) => editors.toRequest())
@@ -497,6 +487,33 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
                         .trim()
                         .toUpperCase();
                     if (previousCurrency != nextCurrency) {
+                      // Changing the receipt currency cannot relabel printed
+                      // money. Keep each header with its original currency as
+                      // editable evidence before clearing scalar suggestions.
+                      if (RegExp(r'^[A-Z]{3}$').hasMatch(previousCurrency)) {
+                        for (final entry in {
+                          'subtotal': _subtotalController,
+                          'tax': _taxController,
+                          'service_charge': _serviceChargeController,
+                          'discount': _discountController,
+                        }.entries) {
+                          final amount = _nullableText(entry.value.text);
+                          if (amount != null &&
+                              !_headerEvidenceEditors.any(
+                                (evidence) => evidence.role == entry.key,
+                              )) {
+                            _headerEvidenceEditors.add(
+                              _ReceiptOcrReviewHeaderEvidenceEditors.fromEvidence(
+                                ReceiptOcrReviewHeaderEvidence(
+                                  role: entry.key,
+                                  amount: amount,
+                                  currency: previousCurrency,
+                                ),
+                              ),
+                            );
+                          }
+                        }
+                      }
                       _subtotalController.clear();
                       _taxController.clear();
                       _serviceChargeController.clear();
@@ -1048,16 +1065,12 @@ class _ReceiptOcrReviewLineEditors {
         lineTotalAmountController.text.trim().isNotEmpty;
   }
 
-  ReceiptOcrReviewLineSaveRequest toRequest({bool omitMoney = false}) {
+  ReceiptOcrReviewLineSaveRequest toRequest() {
     return ReceiptOcrReviewLineSaveRequest(
       text: textController.text.trim(),
       quantity: _nullableText(quantityController.text),
-      unitPriceAmount: omitMoney
-          ? null
-          : _nullableText(unitPriceAmountController.text),
-      lineTotalAmount: omitMoney
-          ? null
-          : _nullableText(lineTotalAmountController.text),
+      unitPriceAmount: _nullableText(unitPriceAmountController.text),
+      lineTotalAmount: _nullableText(lineTotalAmountController.text),
     );
   }
 

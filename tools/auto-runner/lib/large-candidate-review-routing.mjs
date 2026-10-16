@@ -78,7 +78,7 @@ export function validateLargeCandidateReviewEvidence({ manifest, reviewerResults
   if (assigned.length !== manifest.changedFiles?.length || new Set(assigned).size !== assigned.length || digest([...assigned].sort()) !== manifest.changedFilesDigest) return blocked("coverage_paths_missing_or_duplicate");
   if (!Array.isArray(reviewerResults) || reviewerResults.length !== 2) return blocked("dual_reviewer_evidence_missing");
   const providers = new Set(reviewerResults.map((result) => result.provider));
-  if (!providers.has("gemini") || !providers.has("codex-local")) return blocked("dual_reviewer_identity_invalid");
+  if ((!providers.has("gemini") && !providers.has("grok")) || !providers.has("codex-local")) return blocked("dual_reviewer_identity_invalid");
   for (const result of reviewerResults) {
     if (!sameIdentity(result.candidateIdentity, manifest.candidateIdentity) || result.manifestDigest !== manifest.manifestDigest) return blocked("review_candidate_identity_mismatch");
     if (result.truncated || result.malformed || result.overBudget || result.status === "partial") return blocked("review_evidence_incomplete");
@@ -180,13 +180,34 @@ export async function runStructuredLargeCandidateReview({ state, manifest, revie
 }
 
 export async function persistCumulativeLargeCandidateReview({ config, taskKey, candidateIdentity, changedFiles, integrationBoundaries = [], externalReview, codexReview, invokeSection = null, invokeIntegration = null } = {}) {
+  const grokRoute = config?.reviewerProviderPin === "grok" || externalReview?.provider === "grok";
   const built = buildLargeCandidateCoverageManifest({ candidateIdentity, changedFiles, integrationBoundaries });
   if (!built.ok) return built;
+  if (grokRoute) {
+    // Both full-candidate reviews already ran independently. Project only their
+    // bound evidence into coverage sections; never make sequential model calls.
+    if (config?.reviewerProviderPin !== "grok" || externalReview?.provider !== "grok"
+      || !grokBoundCandidateEvidence(externalReview, codexReview, built.manifest)) {
+      return freeze({ ok: false, reasonCode: "grok_complete_candidate_evidence_missing" });
+    }
+    const seed = createLargeCandidateRoutingState({ taskKey, candidateIdentity, changedFiles,
+      classification: { state: "external_review_large_bundle_in_progress" },
+      coverageManifest: built.manifest, runtimeStructuredRequired: true });
+    const evidence = { grok: externalReview, "codex-local": codexReview };
+    const reviewed = await runStructuredLargeCandidateReview({
+      state: seed, manifest: built.manifest, reviewers: ["grok", "codex-local"],
+      invokeSection: async ({ provider, section, manifest }) => cumulativeSectionEvidence(evidence[provider], provider, section, manifest),
+      invokeIntegration: async ({ provider, manifest }) => cumulativeIntegrationEvidence(evidence[provider], provider, manifest),
+    });
+    const persisted = writeLargeCandidateRoutingState(config, reviewed.state || seed);
+    return freeze({ ...reviewed, state: persisted, statePath: largeCandidateRoutingStatePath(config, persisted) });
+  }
   const seed = createLargeCandidateRoutingState({ taskKey, candidateIdentity, changedFiles, classification: { state: "external_review_large_bundle_in_progress" }, coverageManifest: built.manifest, runtimeStructuredRequired: true });
   const loaded = loadLargeCandidateRoutingState(config, seed);
   const state = loaded.ok ? { ...invalidateLargeCandidateEvidence(loaded.state, candidateIdentity), runtimeStructuredRequired: true } : seed;
-  const evidence = { gemini: externalReview, "codex-local": codexReview };
-  const limitedProvider = ["gemini", "codex-local"].find((provider) => providerContextLimited(evidence[provider]));
+  const externalProvider = ["gemini", "grok"].includes(externalReview?.provider) ? externalReview.provider : "gemini";
+  const evidence = { [externalProvider]: externalReview, "codex-local": codexReview };
+  const limitedProvider = [externalProvider, "codex-local"].find((provider) => providerContextLimited(evidence[provider]));
   if (limitedProvider) {
     const blockedState = blockLargeCandidateForContextLimit({ state: { ...state, coverageManifest: built.manifest }, uncoveredPaths: built.manifest.changedFiles, uncoveredSections: built.manifest.sections.map((section) => section.id), provider: limitedProvider, deterministicSplitPossible: false });
     const persisted = writeLargeCandidateRoutingState(config, blockedState);
@@ -195,13 +216,33 @@ export async function persistCumulativeLargeCandidateReview({ config, taskKey, c
   const reviewed = await runStructuredLargeCandidateReview({
     state,
     manifest: built.manifest,
-    reviewers: ["gemini", "codex-local"],
+    reviewers: [externalProvider, "codex-local"],
     invokeSection: invokeSection || (async ({ provider, section, manifest }) => cumulativeSectionEvidence(evidence[provider], provider, section, manifest)),
     invokeIntegration: invokeIntegration || (async ({ provider, manifest }) => cumulativeIntegrationEvidence(evidence[provider], provider, manifest)),
     onCheckpoint: async (checkpoint) => writeLargeCandidateRoutingState(config, checkpoint),
   });
   const persisted = writeLargeCandidateRoutingState(config, reviewed.state || state);
   return freeze({ ...reviewed, state: persisted, statePath: largeCandidateRoutingStatePath(config, persisted) });
+}
+
+function grokBoundCandidateEvidence(externalReview, codexReview, manifest) {
+  const identity = manifest.candidateIdentity;
+  const externalVerdictComplete = (externalReview?.status === "pass" && externalReview.verdict === "pass")
+    || (externalReview?.reason === "blocked_external_reviewer_non_pass"
+      && ["fail", "needs_tommy", "danger_gate"].includes(externalReview.verdict));
+  return identity.changedFilesDigest === manifest.changedFilesDigest
+    && externalVerdictComplete
+    && externalReview.independent === true && externalReview.reviewedHead === identity.headSha
+    && externalReview.baseSha === identity.baseSha && externalReview.changedFilesDigest === identity.changedFilesDigest
+    && Boolean(externalReview.completedAt) && cumulativeEvidenceBound(externalReview, identity, manifest)
+    && codexReview?.status === 0 && !codexReview.signal && !codexReview.error
+    && ["passed", "completed"].includes(codexReview.reviewStatus)
+    && ["approve", "changes_requested", "needs_tommy", "danger_gate"].includes(codexReview.verdict?.verdict)
+    && codexReview.reviewedHead === identity.headSha
+    && codexReview.baseSha === identity.baseSha && codexReview.reviewedBaseSha === identity.baseSha
+    && codexReview.changedFilesDigest === identity.changedFilesDigest
+    && Boolean(codexReview.completedAt || codexReview.finishedAt)
+    && cumulativeEvidenceBound(codexReview, identity, manifest);
 }
 
 export function structuredLargeCandidateFindings(reviewResult, provider) {
@@ -244,7 +285,7 @@ function cumulativeIntegrationEvidence(evidence, provider, manifest) {
 }
 
 function cumulativeEvidencePasses(evidence, provider, identity, manifest) {
-  const verdictPass = provider === "gemini" ? evidence?.status === "pass" && evidence?.verdict === "pass" : evidence?.verdict?.verdict === "approve";
+  const verdictPass = provider !== "codex-local" ? evidence?.status === "pass" && evidence?.verdict === "pass" : evidence?.verdict?.verdict === "approve";
   return verdictPass && cumulativeEvidenceBound(evidence, identity, manifest);
 }
 
@@ -260,7 +301,10 @@ function cumulativeFindings(evidence) {
     ...(evidence?.verdict?.blocking_findings || []),
     ...(evidence?.verdict?.non_blocking_findings || []),
     ...(evidence?.findings || []),
-  ];
+  ].map((finding) => typeof finding === "string"
+    ? { severity: "reviewer", path: null, summary: finding.slice(0, 500) }
+    : { severity: finding?.severity || "reviewer", path: finding?.path || finding?.file_path || null,
+      summary: String(finding?.summary || finding?.message || finding?.body || finding?.title || "").slice(0, 500) });
 }
 function validPromptBinding(evidence, manifest) {
   return evidence?.attestationSource === "provider_prompt_binding"
@@ -289,7 +333,7 @@ export function certifyCompleteCumulativeLargeReview({ candidateIdentity, change
   const externalPass = externalReview?.status === "pass" && (!externalReview.verdict || externalReview.verdict === "pass");
   const codexPass = codexReview?.verdict?.verdict === "approve" || codexReview?.verdict === "pass";
   const results = [
-    { provider: "gemini", candidateIdentity: manifest.candidateIdentity, manifestDigest: manifest.manifestDigest, verdict: externalPass ? "pass" : "blocked", sections: [{ id: section.id, status: externalPass ? "pass" : "blocked", manifestDigest: manifest.manifestDigest, findings: externalReview?.findings || [] }], integration: null },
+    { provider: externalReview?.provider === "grok" ? "grok" : "gemini", candidateIdentity: manifest.candidateIdentity, manifestDigest: manifest.manifestDigest, verdict: externalPass ? "pass" : "blocked", sections: [{ id: section.id, status: externalPass ? "pass" : "blocked", manifestDigest: manifest.manifestDigest, findings: externalReview?.findings || [] }], integration: null },
     { provider: "codex-local", candidateIdentity: manifest.candidateIdentity, manifestDigest: manifest.manifestDigest, verdict: codexPass ? "pass" : "blocked", sections: [{ id: section.id, status: codexPass ? "pass" : "blocked", manifestDigest: manifest.manifestDigest, findings: codexReview?.verdict?.findings || codexReview?.findings || [] }], integration: null },
   ];
   return { ...validateLargeCandidateReviewEvidence({ manifest, reviewerResults: results }), manifest, reviewerResults: results };

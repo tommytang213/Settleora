@@ -1064,7 +1064,7 @@ function sanitizeBoundaryForPrompt(boundary) {
   };
 }
 
-function buildLargeBundleReviewEvidence({
+export function buildLargeBundleReviewEvidence({
   config,
   summary,
   changedFilesDigest,

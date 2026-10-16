@@ -234,12 +234,15 @@ function parseWorktrees(value) {
   return result;
 }
 
+const maxGitOutputBytes = 16 * 1024 * 1024;
+
 export function runGit(args, options = {}) {
   const cwd = options.cwd || trustedRepositoryContext || process.cwd();
   const result = spawnSync("git", args, {
     cwd,
     env: options.env ? { ...process.env, ...options.env } : process.env,
     encoding: "utf8",
+    ...(options.maxBuffer ? { maxBuffer: options.maxBuffer } : {}),
     windowsHide: true,
   });
   return {
@@ -248,6 +251,7 @@ export function runGit(args, options = {}) {
     stdout: result.stdout || "",
     stderr: result.stderr || "",
     error: result.error ? result.error.message : null,
+    errorCode: result.error?.code || null,
   };
 }
 
@@ -274,7 +278,7 @@ export function sourceStateIdentityForCommit({ baseRef = "origin/main", headRef 
   const treeResult = runGit(["rev-parse", `${headRef}^{tree}`], { cwd });
   assertGitSuccess(treeResult, `Unable to resolve tree for ${headRef}`);
   const treeId = treeResult.stdout.trim();
-  const diff = runGit(["diff", "--binary", `${baseRef}...${headRef}`], { cwd });
+  const diff = runGit(["diff", "--binary", "--no-ext-diff", "--no-textconv", "--no-color", `${baseRef}...${headRef}`], { cwd, maxBuffer: maxGitOutputBytes });
   assertGitSuccess(diff, `Unable to read cumulative diff for ${baseRef}...${headRef}`);
   if (!diff.stdout.trim()) {
     return { exactHead, treeId, patchId: null, patchIdReason: "empty_cumulative_diff" };
@@ -283,6 +287,7 @@ export function sourceStateIdentityForCommit({ baseRef = "origin/main", headRef 
     cwd,
     input: diff.stdout,
     encoding: "utf8",
+    maxBuffer: maxGitOutputBytes,
     windowsHide: true,
   });
   if (patchId.error || patchId.status !== 0) {
@@ -473,8 +478,14 @@ export function workingTreeDiffHash() {
   return createHash("sha256").update(getWorkingTreeDiffText()).digest("hex");
 }
 
-export function getBoundedDiff(baseRef = "origin/main", headRef = "HEAD", maxChars = providerBoundReviewDiffChars) {
-  const result = runGit(["diff", "--binary", `${baseRef}...${headRef}`]);
+export function getBoundedDiff(baseRef = "origin/main", headRef = "HEAD", maxChars = providerBoundReviewDiffChars, options = {}) {
+  const result = runGit(["diff", "--binary", "--no-ext-diff", "--no-textconv", "--no-color", `${baseRef}...${headRef}`],
+    { ...options, maxBuffer: Math.max(16 * 1024 * 1024, maxChars + 1024) });
+  // spawnSync terminates Git when stdout crosses maxBuffer. That is a bounded
+  // diff, not an unclassified Git failure; callers must see truncated=true.
+  if (result.errorCode === "ENOBUFS" || result.errorCode === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
+    return { truncated: true, text: result.stdout.slice(0, maxChars) };
+  }
   assertGitSuccess(result, "Unable to read diff");
   if (result.stdout.length <= maxChars) {
     return { truncated: false, text: result.stdout };
@@ -482,8 +493,8 @@ export function getBoundedDiff(baseRef = "origin/main", headRef = "HEAD", maxCha
   return { truncated: true, text: result.stdout.slice(0, maxChars) };
 }
 
-export function getBoundedWorkingTreeDiff(maxChars = providerBoundReviewDiffChars) {
-  const text = getWorkingTreeDiffText();
+export function getBoundedWorkingTreeDiff(maxChars = providerBoundReviewDiffChars, options = {}) {
+  const text = getWorkingTreeDiffText(options.cwd);
   if (text.length <= maxChars) {
     return { truncated: false, text };
   }
@@ -662,15 +673,16 @@ function dedupeSorted(lines) {
   return [...new Set(lines.map((line) => line.trim()).filter(Boolean))].sort();
 }
 
-function getWorkingTreeDiffText() {
-  const unstaged = runGit(["diff", "--binary"]);
+function getWorkingTreeDiffText(cwd = trustedRepositoryContext || process.cwd()) {
+  const gitOptions = { cwd, maxBuffer: maxGitOutputBytes };
+  const unstaged = runGit(["diff", "--binary", "--no-ext-diff", "--no-textconv", "--no-color"], gitOptions);
   assertGitSuccess(unstaged, "Unable to read unstaged diff");
-  const staged = runGit(["diff", "--cached", "--binary"]);
+  const staged = runGit(["diff", "--cached", "--binary", "--no-ext-diff", "--no-textconv", "--no-color"], gitOptions);
   assertGitSuccess(staged, "Unable to read staged diff");
-  const untracked = runGit(["ls-files", "--others", "--exclude-standard"]);
+  const untracked = runGit(["ls-files", "--others", "--exclude-standard"], gitOptions);
   assertGitSuccess(untracked, "Unable to list untracked files for diff");
   const untrackedDiffs = dedupeSorted(untracked.stdout.split(/\r?\n/)).map((file) => {
-    const result = runGit(["diff", "--no-index", "--binary", "--", "/dev/null", file]);
+    const result = runGit(["diff", "--no-index", "--binary", "--no-ext-diff", "--no-textconv", "--no-color", "--", "/dev/null", file], gitOptions);
     if (result.error || ![0, 1].includes(result.status)) {
       throw new Error(`Unable to read untracked diff for ${file}\n${result.command}\n${result.stderr || result.stdout || result.error}`);
     }

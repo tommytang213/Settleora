@@ -300,6 +300,12 @@ export function evaluateReviewFixMutationDecision(input) {
   };
   const block = (reason) => ({ ...result, reason });
 
+  if (["needs_tommy", "danger_gate"].includes(input.externalReview?.verdict)
+    || ["needs_tommy", "danger_gate"].includes(input.externalReview?.sanitizedResponseSummary?.verdict)
+    || ["needs_tommy", "danger_gate"].includes(input.review?.verdict?.verdict)) {
+    return block("reviewer_manual_or_danger_gate");
+  }
+
   if (normalized.malformed) return block("review_fix_budget_malformed");
   if (!config.allowReviewFixMutation || !normalized.enabled) return block("review_fix_mutation_disabled_by_config");
   if (!config.configPath) return block("review_fix_requires_external_config");
@@ -452,6 +458,17 @@ export function requiredReviewFixReviewerTier(laneDecision = {}) {
   return laneDecision.reviewerTier || laneDecision.laneManifest?.reviewerTier || "cheap_independent";
 }
 
+function integratedReviewTriggerSource(externalReview) {
+  if (externalReview?.provider === "grok") return "integrated_grok";
+  if (externalReview?.provider === "review_fix_canary_fixture") return "review_fix_canary_fixture";
+  // Providerless and generic "external" checkpoints predate provider pinning
+  // and retain their legacy trigger. An unrecognized named provider is not actionable.
+  if (!externalReview?.provider || externalReview.provider === "external" || externalReview.provider === "gemini") {
+    return "integrated_gemini";
+  }
+  return null;
+}
+
 export function extractReviewFixTrigger(input = {}) {
   const externalReview = input.externalReview || null;
   const review = input.review || null;
@@ -465,9 +482,11 @@ export function extractReviewFixTrigger(input = {}) {
     Array.isArray(externalVerdict.findings) &&
     externalVerdict.findings.length > 0
   ) {
+    const source = integratedReviewTriggerSource(externalReview);
+    if (!source) return { actionable: false, source: "unknown", reason: "external_review_provider_unsupported", findings: [] };
     return {
       actionable: true,
-      source: externalReview.provider === "review_fix_canary_fixture" ? "review_fix_canary_fixture" : "integrated_gemini",
+      source,
       verdict: externalVerdict.verdict,
       findings: sanitizeFindings(externalVerdict.findings),
     };
@@ -487,7 +506,7 @@ export function extractReviewFixTrigger(input = {}) {
     };
   }
   if (externalReview?.status === "blocked") {
-    return { actionable: false, source: "integrated_gemini", reason: `external_review_not_actionable:${externalReview.reason || "unknown"}`, findings: [] };
+    return { actionable: false, source: integratedReviewTriggerSource(externalReview) || "unknown", reason: `external_review_not_actionable:${externalReview.reason || "unknown"}`, findings: [] };
   }
   if (verdict?.verdict) {
     return { actionable: false, source: "codex_mechanics", reason: `codex_review_not_actionable:${verdict.verdict}`, findings: [] };
@@ -550,6 +569,8 @@ export function buildPostReviewFixMechanicsContext(input = {}) {
   const forbiddenChangedFilesAfter = normalizeChangedFiles(input.forbiddenChangedFilesAfter || []);
   const validationAfter = input.validationAfter || null;
   const externalReviewAfter = input.externalReviewAfter || null;
+  const externalReviewPending = input.externalReviewPending === true;
+  const exactHeadRereview = input.exactHeadRereview === true;
   const preFixReport = input.preFixReport || null;
   const currentHead = input.currentHead || null;
   const currentIssueNumber = Number(issue.number);
@@ -562,18 +583,18 @@ export function buildPostReviewFixMechanicsContext(input = {}) {
   if (!changedFilesAfter.length) return block("post_fix_context_missing_changed_files_after");
   if (forbiddenChangedFilesAfter.length > 0) return block(`post_fix_context_forbidden_changed_files:${forbiddenChangedFilesAfter.join(",")}`);
   if (validationAfter?.passed !== true) return block("post_fix_context_validation_after_not_passed");
-  if (!externalReviewAfter || typeof externalReviewAfter !== "object") return block("post_fix_context_missing_final_integrated_review");
-  if (!["pass", "skipped"].includes(externalReviewAfter.status)) {
+  if (!externalReviewPending && (!externalReviewAfter || typeof externalReviewAfter !== "object")) return block("post_fix_context_missing_final_integrated_review");
+  if (!externalReviewPending && !["pass", "skipped"].includes(externalReviewAfter.status)) {
     return block(`post_fix_context_final_integrated_review_not_passed:${externalReviewAfter.status || "missing"}`);
   }
-  if (externalReviewAfter.issue?.number && Number(externalReviewAfter.issue.number) !== currentIssueNumber) {
+  if (!externalReviewPending && externalReviewAfter.issue?.number && Number(externalReviewAfter.issue.number) !== currentIssueNumber) {
     return block("post_fix_context_final_review_issue_mismatch");
   }
-  const finalReviewChangedFiles = normalizeChangedFiles(externalReviewAfter.changedFiles || []);
+  const finalReviewChangedFiles = normalizeChangedFiles(externalReviewAfter?.changedFiles || []);
   if (finalReviewChangedFiles.length > 0 && finalReviewChangedFiles.join("\n") !== changedFilesAfter.join("\n")) {
     return block("post_fix_context_final_review_files_mismatch");
   }
-  if (currentHead && externalReviewAfter.reviewedHead && externalReviewAfter.reviewedHead !== currentHead) {
+  if (!externalReviewPending && currentHead && externalReviewAfter.reviewedHead && externalReviewAfter.reviewedHead !== currentHead) {
     return block("post_fix_context_final_review_head_mismatch");
   }
   if (!trigger.actionable || !trigger.source || !(trigger.findings || []).length) {
@@ -586,7 +607,8 @@ export function buildPostReviewFixMechanicsContext(input = {}) {
     reason: "post_review_fix_mechanics_context_ready",
     context: {
       phase: "post_review_fix_mechanics",
-      authoritativeStatus: "post_fix_validation_and_final_review_passed",
+      authoritativeStatus: exactHeadRereview ? "post_fix_committed_head_validation_passed_review_in_progress"
+        : externalReviewPending ? "post_fix_validation_passed_independent_review_pending" : "post_fix_validation_and_final_review_passed",
       issue: {
         number: currentIssueNumber,
         title: issue.title || null,
@@ -622,9 +644,12 @@ export function buildPostReviewFixMechanicsContext(input = {}) {
       changedFilesAfter,
       forbiddenChangedFilesAfter,
       postFixValidation: summarizeValidationForContext(validationAfter),
-      finalIntegratedReview: summarizeExternalReviewForContext(externalReviewAfter),
-      reviewerInstruction:
-        "Judge the current post-fix checkout from changedFilesAfter, postFixValidation, finalIntegratedReview, and the diff. Do not fail solely because preFixReport says an earlier missing item was absent when post-fix evidence shows it is now resolved.",
+      finalIntegratedReview: exactHeadRereview ? null : externalReviewPending ? { status: "pending", reviewerInstruction: "The independent reviewer is assessing the same frozen package concurrently; decide without its verdict." } : summarizeExternalReviewForContext(externalReviewAfter),
+      reviewerInstruction: exactHeadRereview
+        ? "This package starts a fresh review of the committed exact head. Judge the current diff and validation independently; no reviewer verdict for this head is supplied."
+        : externalReviewPending
+        ? "Judge the current post-fix checkout from changedFilesAfter, postFixValidation, and the diff. The independent review is pending. Do not fail solely because preFixReport describes an earlier missing item that current evidence resolves."
+        : "Judge the current post-fix checkout from changedFilesAfter, postFixValidation, finalIntegratedReview, and the diff. Do not fail solely because preFixReport says an earlier missing item was absent when post-fix evidence shows it is now resolved.",
       secretBoundaryConfirmation:
         "This context contains sanitized marker IDs/status only and no raw fixture marker values, provider payloads, local config bodies, /workspace/logs contents, credentials, tokens, or secrets.",
     },

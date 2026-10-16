@@ -431,6 +431,14 @@ test("verifies the catalog, every model, and concrete fixture absence in iOS app
       { catalogFileCount: 1, modelFileCount: 1, fixtureFileCount: 102 },
     );
 
+    for (const extra of ['Private purchase 42', 'test-pack/Private purchase 42']) {
+      const directory = path.join(app, 'receipt_ocr_models', extra);
+      mkdirSync(directory, { recursive: true });
+      assert.throws(() => verifyMobilePackage({ platform: 'ios', packagePath: app, repoRoot: root }), /inventory/);
+      rmSync(directory, { recursive: true });
+      assert.equal(verifyMobilePackage({ platform: 'ios', packagePath: app, repoRoot: root }).modelFileCount, 1);
+    }
+
     writeFileSync(modelPath, Buffer.concat([model, Buffer.from("unreviewed")]));
     assert.throws(
       () => verifyMobilePackage({ platform: "ios", packagePath: app, repoRoot: root }),

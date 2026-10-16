@@ -4,12 +4,12 @@ import path from "node:path";
 
 export const catalogRelativePath = "apps/mobile/assets/receipt_ocr_models/catalog.json";
 const mobileRelativePath = "apps/mobile";
-const trustedCatalogSha256 = "6a92bcf329dea688ebf77959efb469fe31489492f8c4ad2621265a18789f2915";
+const trustedCatalogSha256 = "492fc36208f114bdd03e7c714f328d83fff7658b9ed856e06b0ffe2a617bd4c2";
 export const trustedLegalArtifacts = [
   { path: "assets/receipt_ocr_models/LICENSE-APACHE-2.0.txt", bytes: 11376, sha256: "3840c5c0c61c294264d2dd77b8777be6ddd90121ef4e0e64abcd22edea581d6e" },
   { path: "assets/receipt_ocr_models/LICENSE-ONNXRUNTIME-MIT.txt", bytes: 1073, sha256: "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c" },
   { path: "assets/receipt_ocr_models/LICENSE-OPENCV-BSD-3-CLAUSE.txt", bytes: 2036, sha256: "b6ff3f1ec79c429ac916f4c5632251694603172383b7b6e35b9c4f04c61d971e" },
-  { path: "assets/receipt_ocr_models/NOTICE.md", bytes: 2091, sha256: "80ccabe2819503308b4722867ca0312ca58afce83c8dd7c3da980b823f4857ca" },
+  { path: "assets/receipt_ocr_models/NOTICE.md", bytes: 2317, sha256: "f52dd968802201a13496ab8a7ec9e1acf5512e7be39aa96aca02c0c9d8f80a93" },
 ];
 
 export function loadCatalog(repoRoot) {
@@ -104,7 +104,7 @@ function validateCatalogShape(catalog) {
   if (catalog.schemaVersion !== 1) throw new Error("Unsupported OCR model catalog schema");
   if (
     catalog.catalogId !== "settleora-mobile-ocr-global-core" ||
-    catalog.catalogVersion !== "2026.09.18.1"
+    catalog.catalogVersion !== "2026.10.12.1"
   ) {
     throw new Error("Unexpected OCR model catalog identity");
   }
@@ -156,11 +156,16 @@ function validateCatalogShape(catalog) {
     }
     if (
       !/^assets\/receipt_ocr_models\/[a-z0-9-]+$/.test(pack.assetDirectory) ||
-      !["detection", "recognition"].includes(pack.role) ||
+      !["detection", "recognition", "recognition_recovery"].includes(pack.role) ||
       !Array.isArray(pack.routeScripts) ||
       pack.routeScripts.length === 0
     ) {
       throw new Error(`Model pack ${pack.modelPackId} has invalid routing metadata`);
+    }
+    if (pack.role === "recognition_recovery" &&
+        (pack.recoveryPolicy !== "corroborated_rupee_money" ||
+         pack.routeScripts.join(",") !== "Latin")) {
+      throw new Error(`Model pack ${pack.modelPackId} has unsupported recovery policy`);
     }
     validateInference(pack);
     if (!Array.isArray(pack.files) || pack.files.length !== 2) {

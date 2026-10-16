@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   adoptHistoricalTaskWorkspace,
   bindTrustedRepositoryContext,
   restoreControlPlaneRepositoryContext,
+  getBoundedDiff,
+  getBoundedWorkingTreeDiff,
   runGit,
   sourceStateIdentityForCommit,
 } from "../lib/git-workspace.mjs";
@@ -48,6 +50,46 @@ test("sourceStateIdentityForCommit returns exact head, tree, and stable patch ID
     assert.notEqual(secondHead, firstHead);
     assert.equal(second.treeId, first.treeId);
     assert.equal(second.patchId, first.patchId);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("working-tree review reads raw staged and unstaged Git hunks despite external diff settings", () => {
+  const repo = tempRepo();
+  const scriptRoot = mkdtempSync(path.join(tmpdir(), "settleora-external-diff-"));
+  try {
+    const externalDiff = path.join(scriptRoot, "external-diff.sh");
+    writeFileSync(externalDiff, "#!/bin/sh\nprintf 'FILTERED_OUTPUT\\n'\n");
+    chmodSync(externalDiff, 0o700);
+    repo.git("config", "diff.external", externalDiff);
+    repo.git("config", "color.ui", "always");
+    writeFileSync(path.join(repo.cwd, "base.txt"), "staged\n");
+    repo.git("add", "base.txt");
+    writeFileSync(path.join(repo.cwd, "base.txt"), "unstaged\n");
+    writeFileSync(path.join(repo.cwd, "untracked.txt"), "untracked\n");
+    const snapshot = getBoundedWorkingTreeDiff(undefined, { cwd: repo.cwd });
+    assert.equal(snapshot.truncated, false);
+    assert.equal((snapshot.text.match(/^diff --git a\/base\.txt b\/base\.txt$/gm) || []).length, 2);
+    assert.match(snapshot.text, /\+staged/);
+    assert.match(snapshot.text, /\+unstaged/);
+    assert.match(snapshot.text, /\+untracked/);
+    assert.doesNotMatch(snapshot.text, /FILTERED_OUTPUT|\u001b\[/);
+  } finally {
+    repo.cleanup();
+    rmSync(scriptRoot, { recursive: true, force: true });
+  }
+});
+
+test("committed diff reports truncation when Git reaches the output buffer limit", () => {
+  const repo = tempRepo();
+  try {
+    writeFileSync(path.join(repo.cwd, "large.txt"), `${"0123456789abcdef".repeat(1_100_000)}\n`);
+    repo.git("add", "large.txt");
+    repo.git("commit", "-m", "large candidate");
+    const diff = getBoundedDiff(repo.base, "HEAD", 16 * 1024 * 1024, { cwd: repo.cwd });
+    assert.equal(diff.truncated, true);
+    assert.equal(diff.text.length, 16 * 1024 * 1024);
   } finally {
     repo.cleanup();
   }

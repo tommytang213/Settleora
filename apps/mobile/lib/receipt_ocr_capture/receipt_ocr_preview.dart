@@ -293,17 +293,25 @@ List<String> _receiptOcrReviewHints(
             )
         ? _parseReceiptOcrReviewAmount(preview.discount)
         : null;
-    if (!_receiptOcrAmountsClose(itemTotal, subtotal) &&
+    final subtotalMatchesItems =
         (beforeSubtotalDiscount == null ||
-            !_receiptOcrAmountsClose(
-              itemTotal + beforeSubtotalDiscount,
-              subtotal,
-            )) &&
-        // A discount before the subtotal leaves the printed tax/discount
-        // order unresolved for the saved review's subtotal-based tax mode.
-        (includedTax == null ||
-            preview.discountBeforeSubtotal ||
-            !_receiptOcrAmountsClose(itemTotal, subtotal + includedTax))) {
+            beforeSubtotalDiscount == BigInt.zero) &&
+        _receiptOcrAmountsClose(itemTotal, subtotal);
+    final subtotalMatchesDiscountedItems =
+        beforeSubtotalDiscount != null &&
+        _receiptOcrAmountsClose(
+          itemTotal - beforeSubtotalDiscount.abs(),
+          subtotal,
+        );
+    // A discount before the subtotal leaves the printed tax/discount
+    // order unresolved for the saved review's subtotal-based tax mode.
+    final subtotalMatchesGrossItems =
+        includedTax != null &&
+        !preview.discountBeforeSubtotal &&
+        _receiptOcrAmountsClose(itemTotal, subtotal + includedTax);
+    if (!subtotalMatchesItems &&
+        !subtotalMatchesDiscountedItems &&
+        !subtotalMatchesGrossItems) {
       onDecision?.call(ReceiptOcrReviewDecision.subtotalMismatch);
       return const [
         'OCR item total differs from detected subtotal. Review the receipt before applying.',
@@ -323,7 +331,13 @@ List<String> _receiptOcrReviewHints(
       if (preview.adjustmentsComplete &&
           (preview.currency?.trim().isNotEmpty ?? false) &&
           _hasCompleteReceiptOcrItemLineTotals(preview.items) &&
-          _receiptOcrAdjustmentsReconcile(preview, itemTotal, total)) {
+          _receiptOcrAdjustmentsReconcile(
+            preview,
+            itemTotal,
+            total,
+            allowNetIncludedTaxItems:
+                subtotalMatchesItems || subtotalMatchesDiscountedItems,
+          )) {
         return const [];
       }
       onDecision?.call(
@@ -352,6 +366,24 @@ List<String> _receiptOcrReviewHints(
   }
 
   final total = _parseReceiptOcrReviewAmount(preview.total);
+  final adjustmentsReconcile =
+      total != null &&
+      preview.adjustmentsComplete &&
+      (preview.currency?.trim().isNotEmpty ?? false) &&
+      _hasCompleteReceiptOcrItemLineTotals(preview.items) &&
+      _hasReceiptOcrReferenceAdjustment(preview) &&
+      _receiptOcrAdjustmentsReconcile(preview, itemTotal, total);
+  // Preserve existing mismatch/incomplete-evidence warning priority. A
+  // foreign subtotal still needs a hint where receipt arithmetic is quiet.
+  if (!subtotalMatchesCurrency &&
+      _hasReviewAmountText(preview.subtotal) &&
+      (total == null || adjustmentsReconcile)) {
+    onDecision?.call(ReceiptOcrReviewDecision.foreignAdjustmentWithoutSubtotal);
+    return const [
+      'Detected adjustment currency differs from receipt currency. Review before applying.',
+    ];
+  }
+
   if (total == null) {
     return const [];
   }
@@ -366,10 +398,7 @@ List<String> _receiptOcrReviewHints(
   }
 
   if (_hasReceiptOcrReferenceAdjustment(preview)) {
-    if (preview.adjustmentsComplete &&
-        (preview.currency?.trim().isNotEmpty ?? false) &&
-        _hasCompleteReceiptOcrItemLineTotals(preview.items) &&
-        _receiptOcrAdjustmentsReconcile(preview, itemTotal, total)) {
+    if (adjustmentsReconcile) {
       return const [];
     }
     onDecision?.call(
@@ -399,11 +428,11 @@ List<String> _receiptOcrReviewHints(
   return const [];
 }
 
-int? _sumReceiptOcrItemLineTotals(
+BigInt? _sumReceiptOcrItemLineTotals(
   List<ReceiptOcrItemCandidate> items, {
   String? reviewCurrency,
 }) {
-  int? total;
+  BigInt? total;
   for (final item in items) {
     if (item.currencyUnresolved) return null;
     final amount = _parseReceiptOcrReviewAmount(item.lineTotal);
@@ -419,7 +448,7 @@ int? _sumReceiptOcrItemLineTotals(
       // cannot corroborate a subtotal or total in the receipt currency.
       return null;
     }
-    total = (total ?? 0) + amount;
+    total = (total ?? BigInt.zero) + amount;
   }
 
   return total;
@@ -464,6 +493,11 @@ bool _hasReceiptOcrReferenceAdjustment(ReceiptOcrPreview preview) {
 
 bool _hasReceiptOcrForeignAdjustment(ReceiptOcrPreview preview) {
   final entries = [
+    (
+      preview.subtotal,
+      preview.subtotalCurrency,
+      preview.subtotalHasExplicitCurrencyEvidence,
+    ),
     (preview.tax, preview.taxCurrency, preview.taxHasExplicitCurrencyEvidence),
     (
       preview.service,
@@ -493,7 +527,7 @@ bool _hasReceiptOcrForeignAdjustment(ReceiptOcrPreview preview) {
   );
 }
 
-int? _reconcilableReceiptOcrAdjustments(ReceiptOcrPreview preview) {
+BigInt? _reconcilableReceiptOcrAdjustments(ReceiptOcrPreview preview) {
   final entries = [
     (
       preview.tax,
@@ -531,7 +565,7 @@ int? _reconcilableReceiptOcrAdjustments(ReceiptOcrPreview preview) {
       false,
     ),
   ];
-  var total = 0;
+  var total = BigInt.zero;
   var found = false;
   for (final (
         text,
@@ -552,7 +586,7 @@ int? _reconcilableReceiptOcrAdjustments(ReceiptOcrPreview preview) {
     final amount = _parseReceiptOcrReviewAmount(text);
     if (amount == null) return null;
     total += isIncluded
-        ? 0
+        ? BigInt.zero
         : isDiscount
         ? -amount.abs()
         : amount;
@@ -563,16 +597,29 @@ int? _reconcilableReceiptOcrAdjustments(ReceiptOcrPreview preview) {
 
 bool _receiptOcrAdjustmentsReconcile(
   ReceiptOcrPreview preview,
-  int itemTotal,
-  int total,
-) {
+  BigInt itemTotal,
+  BigInt total, {
+  bool allowNetIncludedTaxItems = true,
+}) {
   final adjustments = _reconcilableReceiptOcrAdjustments(preview);
   if (adjustments == null) return false;
-  if (_receiptOcrAmountsClose(itemTotal + adjustments, total)) return true;
-  if (!preview.taxIncludedInTotal) return false;
-  final tax = _parseReceiptOcrReviewAmount(preview.tax);
-  return tax != null &&
-      _receiptOcrAmountsClose(itemTotal + adjustments + tax, total);
+  final tax = preview.taxIncludedInTotal
+      ? _parseReceiptOcrReviewAmount(preview.tax)
+      : null;
+  if (preview.taxIncludedInTotal && (tax == null || tax.isNegative)) {
+    return false;
+  }
+  if (_receiptOcrAmountsClose(itemTotal + adjustments, total)) {
+    // An included component cannot exceed the entire gross item base.
+    // Keep contradictory printed amounts and their review hint intact.
+    return !preview.taxIncludedInTotal || tax! <= itemTotal;
+  }
+  // Printed items may instead be net of the included component, unless the
+  // subtotal reconciled only by treating these same items as gross. Keep one
+  // interpretation across both checks rather than counting included tax twice.
+  return allowNetIncludedTaxItems &&
+      preview.taxIncludedInTotal &&
+      _receiptOcrAmountsClose(itemTotal + adjustments + tax!, total);
 }
 
 bool _adjustmentCurrencyMatchesReview({
@@ -592,32 +639,35 @@ bool _hasReviewAmountText(String? value) {
   return (value ?? '').trim().isNotEmpty;
 }
 
-bool _receiptOcrAmountsClose(int left, int right) {
-  return (left - right).abs() <= 10;
+bool _receiptOcrAmountsClose(BigInt left, BigInt right) {
+  return (left - right).abs() <= BigInt.from(10);
 }
 
-int? _parseReceiptOcrReviewAmount(String? value) {
+BigInt? _parseReceiptOcrReviewAmount(String? value) {
   final normalized = value?.trim();
   if (normalized == null ||
       !RegExp(r'^-?\d+(?:\.\d{1,3})?$').hasMatch(normalized)) {
     return null;
   }
 
-  final sign = normalized.startsWith('-') ? -1 : 1;
+  final negative = normalized.startsWith('-');
   final unsigned = normalized.startsWith('-')
       ? normalized.substring(1)
       : normalized;
   final parts = unsigned.split('.');
-  final major = int.tryParse(parts.first);
+  final major = BigInt.tryParse(parts.first);
   if (major == null) {
     return null;
   }
 
   final fraction = parts.length == 2 ? parts[1].padRight(3, '0') : '000';
-  final minor = int.tryParse(fraction);
+  final minor = BigInt.tryParse(fraction);
   if (minor == null) {
     return null;
   }
 
-  return sign * ((major * 1000) + minor);
+  // Provisional OCR values may exceed native integer limits. Keep scaling,
+  // sums and comparisons exact so overflow cannot suppress a review hint.
+  final amount = major * BigInt.from(1000) + minor;
+  return negative ? -amount : amount;
 }

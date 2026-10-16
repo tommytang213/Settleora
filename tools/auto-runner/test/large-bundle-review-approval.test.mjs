@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { routeReviewer } from "../lib/reviewer-policy.mjs";
 import { extractReviewFixTrigger } from "../lib/review-fix-policy.mjs";
+import { routeNormalStructuredFindingsToConvergence } from "../settleora-auto-runner.mjs";
 import {
   blockLargeCandidateForContextLimit,
   buildLargeCandidateCoverageManifest,
@@ -34,6 +35,77 @@ const workflowFiles = (count = 40) => Array.from({ length: count }, (_, index) =
 
 test("normal candidate retains normal review routing", () => {
   assert.equal(classifyLargeCandidate({ changedFiles: ["tools/auto-runner/lib/a.mjs"], stats: { additions: 3 } }).route, "normal");
+});
+
+test("Grok large-candidate route rejects incomplete evidence before invoking reviewers", async () => {
+  let invoked = false;
+  for (const [config, externalReview] of [
+    [{ reviewerProviderPin: "grok" }, { provider: "gemini" }],
+    [{}, { provider: "grok" }],
+  ]) {
+    const result = await persistCumulativeLargeCandidateReview({
+      config, externalReview, candidateIdentity,
+      changedFiles: ["tools/auto-runner/a.mjs"],
+      invokeSection: async () => { invoked = true; },
+      invokeIntegration: async () => { invoked = true; },
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.reasonCode, "grok_complete_candidate_evidence_missing");
+  }
+  assert.equal(invoked, false);
+});
+
+test("Grok large-candidate route certifies two blind complete-candidate reviews without new model calls", async () => {
+  const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-grok-large-"));
+  const changedFiles = ["services/api/runtime.mjs", "tools/auto-runner/a.mjs"];
+  const identity = { ...candidateIdentity, changedFilesDigest: h(JSON.stringify(changedFiles)) };
+  const boundaries = ["tools/auto-runner/settleora-auto-runner.mjs"];
+  const bound = { attestedCandidateIdentity: identity, attestedIntegrationBoundaries: boundaries,
+    attestationSource: "provider_prompt_binding", providerPromptBindingDigest: h("review package") };
+  const externalReview = { ...bound, provider: "grok", status: "pass", verdict: "pass", independent: true,
+    reviewedHead: identity.headSha, baseSha: identity.baseSha, changedFiles,
+    changedFilesDigest: identity.changedFilesDigest, completedAt: "2026-10-11T00:00:00Z" };
+  const codexReview = { ...bound, status: 0, reviewStatus: "passed", verdict: { verdict: "approve" },
+    reviewedHead: identity.headSha, baseSha: identity.baseSha, reviewedBaseSha: identity.baseSha,
+    changedFiles, changedFilesDigest: identity.changedFilesDigest, completedAt: "2026-10-11T00:00:00Z" };
+  const input = { config: { logsRoot, reviewerProviderPin: "grok" }, taskKey: "blind-complete",
+    candidateIdentity: identity, changedFiles, integrationBoundaries: boundaries, externalReview, codexReview,
+    invokeSection: async () => { throw new Error("sequential model call"); },
+    invokeIntegration: async () => { throw new Error("sequential model call"); } };
+  try {
+    const result = await persistCumulativeLargeCandidateReview(input);
+    assert.equal(result.ok, true);
+    assert.equal(result.state.reviewerResults.length, 2);
+    assert.equal(result.state.reviewerResults.every((review) => review.sections.length === 2 && review.integration?.status === "pass"), true);
+    const resumed = await persistCumulativeLargeCandidateReview(input);
+    assert.equal(resumed.ok, true);
+    const codexChange = await persistCumulativeLargeCandidateReview({ ...input,
+      codexReview: { ...codexReview, verdict: { verdict: "changes_requested", blocking_findings: [
+        { severity: "medium", file_path: changedFiles[0], body: "repair exact-head routing" },
+      ] } } });
+    assert.equal(codexChange.ok, false);
+    assert.equal(codexChange.reasonCode, "review_section_not_passed");
+    assert.equal(structuredLargeCandidateFindings(codexChange, "codex-local")[0].summary, "repair exact-head routing");
+    const iteration = { externalReview, review: codexReview, largeCandidateReview: codexChange };
+    assert.equal(routeNormalStructuredFindingsToConvergence(iteration), true);
+    assert.equal(iteration.review.verdict.blocking_findings[0].message, "repair exact-head routing");
+    const grokChange = await persistCumulativeLargeCandidateReview({ ...input,
+      externalReview: { ...externalReview, status: "blocked", reason: "blocked_external_reviewer_non_pass",
+        verdict: "fail", sanitizedResponseSummary: { findings: [{ severity: "high", path: changedFiles[1], message: "repair provider boundary" }] } } });
+    assert.equal(grokChange.ok, false);
+    assert.equal(structuredLargeCandidateFindings(grokChange, "grok")[0].summary, "repair provider boundary");
+    for (const [name, mutate] of [
+      ["wrong provider", (value) => { value.externalReview.provider = "gemini"; }],
+      ["stale base", (value) => { value.externalReview.baseSha = "4".repeat(40); }],
+      ["incomplete Codex", (value) => { value.codexReview.reviewStatus = "failed"; }],
+      ["unbound package", (value) => { value.externalReview.attestedCandidateIdentity = candidateIdentity; }],
+    ]) {
+      const modified = { ...input, externalReview: { ...externalReview }, codexReview: { ...codexReview } };
+      mutate(modified);
+      const blocked = await persistCumulativeLargeCandidateReview(modified);
+      assert.equal(blocked.reasonCode, "grok_complete_candidate_evidence_missing", name);
+    }
+  } finally { rmSync(logsRoot, { recursive: true, force: true }); }
 });
 
 test("coherent large workflow candidate escalates without approval metadata", () => {

@@ -13,6 +13,8 @@ import { canonicalGithubEvidenceDigest, executeCanonicalGithubEffectSync } from 
 import { findPreEffectIntents } from "./pre-effect-intent.mjs";
 import { createCleanupOwnershipRecord, loadCleanupOwnership, persistCleanupOwnership } from "./post-merge-cleanup.mjs";
 import { assertRepositoryRemoteIdentity } from "./runtime-identity.mjs";
+import { recoveredIndependentReviewEvidence } from "./recovered-independent-evidence.mjs";
+import { inspectHostedCodexReview } from "./hosted-codex-review-evidence.mjs";
 
 export const lowRiskAutoMergeLanes = Object.freeze(["workflow-docs-tooling", "docs-planning", "client-ui-low-risk"]);
 export const approvedDomainAutoMergeLanes = Object.freeze([
@@ -90,6 +92,8 @@ export function evaluateAutoMergeDecision(input) {
   const block = (reason) => ({ ...result, reason });
 
   if (!config.allowAutoMerge) return block("auto_merge_disabled_by_config");
+  const grokReview = (input.reviewerProviderPin || config.reviewerProviderPin) === "grok"
+    || input.externalReview?.provider === "grok";
   if (config.canary) {
     const approval = evaluateLowRiskAutoMergeCanaryApproval(config);
     if (!approval.approved) return block(`low_risk_auto_merge_canary_not_approved:${approval.reason}`);
@@ -139,6 +143,18 @@ export function evaluateAutoMergeDecision(input) {
   if (issue.state !== "OPEN") return block("issue_not_open");
   const stopLabel = issueLabels.find((label) => autoMergeStopLabels.includes(label));
   if (stopLabel) return block(`issue_stop_label:${stopLabel}`);
+  if (grokReview) {
+    const hosted = input.hostedCodexReview || {};
+    if (hosted.status === "pending") return block("hosted_codex_review_pending");
+    if (hosted.status !== "completed_no_findings" || hosted.reviewedHead !== expectedHeadSha
+      || hosted.prNumber !== pr.number || hosted.source !== "github_codex_bot_comments") {
+      return block(`hosted_codex_review_not_verified:${hosted.reason || "missing_or_stale_evidence"}`);
+    }
+    // GitHub's Codex review artifacts bind the head, but do not attest the base
+    // SHA they reviewed. A same-name main advance can change the PR diff without
+    // a PR base-change event. Keep automatic merge closed until that proof exists.
+    return block("hosted_codex_review_base_sha_unverified");
+  }
 
   return {
     ...result,
@@ -153,9 +169,11 @@ export function evaluateExistingPrRecoveryDecision(input) {
   const issue = input.issue || {};
   const pr = input.pr || {};
   const evidence = input.exactHeadEvidence || {};
+  const independent = recoveredIndependentReviewEvidence(evidence);
   const linkageEvidence = input.issueLinkageEvidence || buildIssueLinkageEvidence(pr, issue.number);
   const changedFiles = input.changedFiles || [];
-  const baseDecision = evaluateAutoMergeDecision(input);
+  const baseDecision = evaluateAutoMergeDecision({ ...input,
+    reviewerProviderPin: independent.provider || input.reviewerProviderPin });
   const result = {
     eligible: false,
     result: "blocked",
@@ -171,21 +189,29 @@ export function evaluateExistingPrRecoveryDecision(input) {
   if (!pr.headRefName || !/^(feature|focused)\/auto-\d+-/.test(pr.headRefName)) return block("existing_pr_recovery_unowned_pr_branch");
   if (!linkageEvidence.available) return block("existing_pr_recovery_missing_pr_linkage_evidence");
   if (!linkageEvidence.linked) return block("existing_pr_recovery_pr_not_linked_to_issue");
-  if (requiresIndependentAiReview(input.laneDecision) && !evidence.geminiPass) {
+  if (requiresIndependentAiReview(input.laneDecision) && independent.pass !== true) {
     return block("existing_pr_recovery_missing_independent_review_evidence");
   }
-  if (!evidence.geminiPass && !evidence.codexMechanicsApproved) {
+  if (independent.pass !== true && !evidence.codexMechanicsApproved) {
     return block("existing_pr_recovery_missing_evidence_or_review");
   }
   if (!evidence.codexMechanicsApproved) {
     return block("existing_pr_recovery_missing_codex_mechanics_evidence");
   }
+  // Completed exact-head evidence remains bound to its recorded provider.
+  // A later task's provider configuration must not invalidate a pinned job.
   if (evidence.headSha && evidence.headSha !== result.prHeadSha) return block("existing_pr_recovery_evidence_head_mismatch");
-  if (evidence.geminiPass && evidence.geminiHeadSha && evidence.geminiHeadSha !== result.prHeadSha) {
-    return block("existing_pr_recovery_gemini_head_mismatch");
+  if (independent.neutral && independent.pass === true
+    && (!independent.headSha || !Array.isArray(independent.changedFiles)
+      || independent.changedFilesDigest !== digestChangedFiles(changedFiles)
+      || !independent.provider || !independent.tier || !independent.completedAt)) {
+    return block("existing_pr_recovery_independent_evidence_incomplete");
   }
-  if (evidence.geminiPass && Array.isArray(evidence.geminiChangedFiles) && !sameStringSet(evidence.geminiChangedFiles, changedFiles)) {
-    return block("existing_pr_recovery_gemini_files_mismatch");
+  if (independent.pass === true && independent.headSha && independent.headSha !== result.prHeadSha) {
+    return block(independent.neutral ? "existing_pr_recovery_independent_head_mismatch" : "existing_pr_recovery_gemini_head_mismatch");
+  }
+  if (independent.pass === true && Array.isArray(independent.changedFiles) && !sameStringSet(independent.changedFiles, changedFiles)) {
+    return block(independent.neutral ? "existing_pr_recovery_independent_files_mismatch" : "existing_pr_recovery_gemini_files_mismatch");
   }
   if (evidence.codexMechanicsApproved && evidence.codexMechanicsHeadSha && evidence.codexMechanicsHeadSha !== result.prHeadSha) {
     return block("existing_pr_recovery_codex_review_head_mismatch");
@@ -258,12 +284,13 @@ export function writeAutoMergeEvidence(config, decision, context = {}) {
     autoMerge: decision,
     autoMergeCommandEvidence: context.autoMergeCommandEvidence || context.commandEvidence || decision.commandEvidence || null,
     issueLinkageEvidence: context.issueLinkageEvidence || decision.issueLinkageEvidence || null,
+    hostedCodexReview: context.hostedCodexReview || null,
   });
   writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
   return { evidencePath };
 }
 
-export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber, laneDecision } = {}, options = {}) {
+export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber, laneDecision, reviewerProvider } = {}, options = {}) {
   const runner = options.runner || (config.dryRun ? defaultRunner : null);
   const commandEvidence = [];
   const run = (command, args, runnerOptions = {}) => {
@@ -311,6 +338,7 @@ export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber, lane
       })),
       reviewThreads: [],
       codeScanningAlerts: [],
+      hostedCodexReview: null,
       blockingMarkers: [],
       commandEvidence,
     };
@@ -349,6 +377,10 @@ export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber, lane
   if (issueView.error || issueView.status !== 0) blockingMarkers.push("issue_view_failed");
 
   const reviewThreads = inspectReviewThreads(config, pr.number, blockingMarkers, run);
+  const hostedCodexReview = (reviewerProvider || config.reviewerProviderPin) === "grok"
+    ? inspectHostedCodexReview({ repositorySlug, prNumber: pr.number, headSha: pr.headRefOid,
+      run: (command, args) => run(command, args, { cwd: config.repoRoot }) })
+    : null;
   const codeScanningAlerts = inspectCodeScanningAlerts(config, pr.headRefName, blockingMarkers, run)
     .map((alert) => {
       const alertPath = alert?.most_recent_instance?.location?.path || alert?.mostRecentInstance?.location?.path || alert?.path;
@@ -360,6 +392,7 @@ export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber, lane
     issue: currentIssue,
     requiredChecks: enrichFailedCheckEvidence(config, flattenCheckRollup(pr.statusCheckRollup || []), run),
     reviewThreads,
+    hostedCodexReview,
     codeScanningAlerts,
     blockingMarkers,
     commandEvidence,
@@ -615,6 +648,7 @@ function executeCanonicalMergeEffect(config, context, { runner, repositorySlug, 
     baseSha,
     requiredChecks: (context.requiredChecks || []).map((check) => ({ name: bounded(check.name), status: bounded(check.status), conclusion: bounded(check.conclusion) })),
     reviewThreads: (context.reviewThreads || []).map((thread) => ({ id: bounded(thread.id), resolved: thread.isResolved === true })),
+    hostedCodexReview: context.hostedCodexReview || null,
     codeScanningAlerts: (context.codeScanningAlerts || []).map((alert) => ({ number: Number.isSafeInteger(alert.number) ? alert.number : null, state: bounded(alert.state), rule: bounded(alert.rule?.id || alert.ruleId) })),
     validation: { passed: context.validation?.passed === true, headSha: bounded(context.validation?.headSha), baseSha: bounded(context.validation?.baseSha), changedFilesDigest: bounded(context.validation?.changedFilesDigest) },
     externalReview: { status: bounded(context.externalReview?.status), verdict: bounded(context.externalReview?.verdict), reviewedHead: bounded(context.externalReview?.reviewedHead), changedFilesDigest: bounded(context.externalReview?.changedFilesDigest) },
@@ -817,6 +851,7 @@ function exactHeadGithubInspection(context = {}) {
     pr: context.pr ? { number: context.pr.number, state: context.pr.state, headRefOid: context.pr.headRefOid, baseRefName: context.pr.baseRefName, mergeable: context.pr.mergeable, mergeStateStatus: context.pr.mergeStateStatus } : null,
     requiredChecks: Array.isArray(context.requiredChecks) ? context.requiredChecks : [],
     reviewThreads: Array.isArray(context.reviewThreads) ? context.reviewThreads : [],
+    hostedCodexReview: context.hostedCodexReview || null,
     codeScanningAlerts: Array.isArray(context.codeScanningAlerts) ? context.codeScanningAlerts : [],
     blockingMarkers: Array.isArray(context.blockingMarkers) ? context.blockingMarkers : [],
   };
@@ -864,6 +899,7 @@ export function normalizeAutoMergeWait(wait = {}) {
 function shouldWaitForAutoMergeDecision(decision) {
   const reason = String(decision?.reason || "");
   if (reason === "required_checks_pending") return true;
+  if (reason === "hosted_codex_review_pending") return true;
   const mergeState = reason.match(/^pr_merge_state_not_clean:(.*)$/)?.[1];
   if (mergeState === undefined) return false;
   return refreshableMergeStates.has(mergeState.toUpperCase()) || refreshableMergeStates.has(mergeState);
@@ -881,6 +917,9 @@ export function requiresIndependentAiReview(laneDecision = {}) {
 export function evaluatePrePushReviewGate(input = {}) {
   const laneDecision = input.laneDecision || {};
   const externalReview = input.externalReview || null;
+  const expectedHead = input.expectedHeadSha || null;
+  const expectedBase = input.expectedBaseSha || null;
+  const expectedFilesDigest = Array.isArray(input.changedFiles) ? digestChangedFiles(input.changedFiles) : null;
   if (input.reviewMutationGuard?.mutationDetected) {
     return {
       ok: false,
@@ -888,6 +927,20 @@ export function evaluatePrePushReviewGate(input = {}) {
       reason: "exact_head_review_mutated_checkout",
       message: "exact-head review mutated the checkout",
     };
+  }
+  const manualOutcome = reviewerManualGateOutcome(externalReview, input.review);
+  if (manualOutcome) {
+    return { ok: false, outcome: manualOutcome, reason: "exact_head_reviewer_manual_gate",
+      message: `exact-head review requires ${manualOutcome === "danger_gate" ? "danger-gate" : "manual"} resolution` };
+  }
+  if (requiresIndependentAiReview(laneDecision) && (externalReview?.status === "pass"
+      || externalReview?.reason === "blocked_external_reviewer_non_pass")
+    && (!/^[a-f0-9]{40}$/.test(expectedHead || "") || !/^[a-f0-9]{40}$/.test(expectedBase || "")
+      || !expectedFilesDigest || externalReview.reviewedHead !== expectedHead
+      || externalReview.baseSha !== expectedBase || externalReview.changedFilesDigest !== expectedFilesDigest)) {
+    return { ok: false, outcome: "review_changes_requested_retry_exhausted",
+      reason: "exact_head_independent_review_identity_mismatch",
+      message: "exact-head independent review is not bound to the candidate" };
   }
   if (requiresIndependentAiReview(laneDecision) && externalReview?.status !== "pass") {
     const convergence = evaluatePrePushReviewConvergence(input, externalReview);
@@ -915,7 +968,42 @@ export function evaluatePrePushReviewGate(input = {}) {
       message: `exact-head independent review returned ${externalReview?.reason || externalReview?.status || "missing"} and bounded review convergence is unavailable: ${convergence.reason}`,
     };
   }
+  if (requiresIndependentAiReview(laneDecision) && (!/^[a-f0-9]{40}$/.test(expectedHead || "")
+    || !/^[a-f0-9]{40}$/.test(expectedBase || "") || !expectedFilesDigest
+    || externalReview?.reviewedHead !== expectedHead || externalReview?.baseSha !== expectedBase
+    || externalReview?.changedFilesDigest !== expectedFilesDigest)) {
+    return { ok: false, outcome: "review_changes_requested_retry_exhausted",
+      reason: "exact_head_independent_review_identity_mismatch",
+      message: "exact-head independent review is not bound to the candidate" };
+  }
+  if (!input.review || input.review.status !== 0 || input.review.signal || input.review.error
+    || !["passed", "completed"].includes(input.review.reviewStatus)
+    || !/^[a-f0-9]{40}$/.test(expectedHead || "") || !/^[a-f0-9]{40}$/.test(expectedBase || "")
+    || !expectedFilesDigest || input.review.reviewedHead !== expectedHead
+    || input.review.baseSha !== expectedBase || input.review.reviewedBaseSha !== expectedBase
+    || input.review.changedFilesDigest !== expectedFilesDigest) {
+    return { ok: false, outcome: "review_changes_requested_retry_exhausted",
+      reason: "exact_head_codex_review_identity_mismatch",
+      message: "exact-head Codex review did not complete on the candidate" };
+  }
+  if (input.review.verdict?.verdict !== "approve") {
+    const convergence = evaluatePrePushReviewConvergence(input, externalReview || {});
+    return { ok: false,
+      outcome: convergence.ok ? "review_convergence_required" : "review_changes_requested_retry_exhausted",
+      reason: "exact_head_codex_review_not_approved",
+      message: "exact-head Codex review did not approve the candidate",
+      ...(convergence.ok ? { convergence } : {}),
+    };
+  }
   return { ok: true, reason: "pre_push_review_gates_passed" };
+}
+
+export function reviewerManualGateOutcome(...reviews) {
+  const verdicts = reviews.flatMap((review) => [review?.verdict?.verdict, review?.verdict,
+    review?.sanitizedResponseSummary?.verdict]);
+  if (verdicts.includes("danger_gate")) return "danger_gate";
+  if (verdicts.includes("needs_tommy")) return "blocked_needs_tommy";
+  return null;
 }
 
 function evaluatePrePushReviewConvergence(input = {}, externalReview = {}) {
@@ -941,15 +1029,17 @@ function evaluatePrePushReviewConvergence(input = {}, externalReview = {}) {
 }
 
 export function shouldGenerateExistingPrRecoveryEvidence(laneDecision = {}, exactHeadEvidence = {}) {
+  const independent = recoveredIndependentReviewEvidence(exactHeadEvidence);
   return Boolean(
     !exactHeadEvidence.validationPassed ||
       !exactHeadEvidence.codexMechanicsApproved ||
       !exactHeadEvidence.codexMechanicsHeadSha ||
       !Array.isArray(exactHeadEvidence.codexMechanicsChangedFiles) ||
       (requiresIndependentAiReview(laneDecision) &&
-        (!exactHeadEvidence.geminiPass ||
-          !exactHeadEvidence.geminiHeadSha ||
-          !Array.isArray(exactHeadEvidence.geminiChangedFiles))),
+        (independent.pass !== true || !independent.headSha ||
+          !Array.isArray(independent.changedFiles) ||
+          (independent.neutral && (!independent.changedFilesDigest || !independent.provider
+            || !independent.tier || !independent.completedAt)))),
   );
 }
 
@@ -1130,6 +1220,7 @@ function mergeAutoMergeContext(context, githubState = {}) {
     actualHeadSha: refreshedHeadSha,
     requiredChecks: githubState.requiredChecks || context.requiredChecks || [],
     reviewThreads: githubState.reviewThreads || context.reviewThreads || [],
+    hostedCodexReview: githubState.hostedCodexReview || { status: "blocked", reason: "hosted_codex_review_refresh_missing" },
     codeScanningAlerts: githubState.codeScanningAlerts || context.codeScanningAlerts || [],
     blockingMarkers: githubState.blockingMarkers || context.blockingMarkers || [],
   };
@@ -1157,6 +1248,7 @@ function snapshotAttempt(attempt, decision, context, previousAttempt = null, sta
     pendingChecksDecreasing,
     pendingChecksProgressing: pendingChecksDecreasing,
     blockingMarkers: context.blockingMarkers || [],
+    hostedCodexReview: context.hostedCodexReview || null,
   });
 }
 

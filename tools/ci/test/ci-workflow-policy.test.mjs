@@ -188,6 +188,22 @@ test('iOS build procedure is reusable, manual, pinned, and simulator-only', () =
   assert.doesNotMatch(JSON.stringify(job), /continue-on-error|--no-fatal-warnings|\|\|\s*true/);
 });
 
+test('native OCR trigger covers the harness and each relative helper import', () => {
+  const native = workflow('mobile-ocr-native-acceptance.yml');
+  const entrypoint = 'apps/mobile/integration_test/receipt_ocr_real_provider_test.dart';
+  const helpers = [...read(entrypoint).matchAll(/^import '([^':]+)';$/gm)]
+    .map((match) => path.posix.join(path.posix.dirname(entrypoint), match[1]));
+  assert.ok(helpers.length > 0, 'the native harness has relative helper dependencies');
+  const selected = (file) => native.on.pull_request.paths.reduce((matches, pattern) => {
+    const excluded = pattern.startsWith('!');
+    return path.matchesGlob(file, excluded ? pattern.slice(1) : pattern) ? !excluded : matches;
+  }, false);
+  assert.ok(selected(entrypoint), 'the native harness itself triggers acceptance');
+  assert.equal(selected('docs/unrelated-notes.md'), false);
+  assert.deepEqual(helpers.filter((file) => !selected(file)), [],
+    'changes to native harness dependencies must trigger acceptance');
+});
+
 test('native OCR acceptance is exact-head, device-backed, and retains only bounded evidence', () => {
   const native = workflow('mobile-ocr-native-acceptance.yml');
   const boundedCapture = read('tools/ocr-models/bounded-process-capture.mjs');
@@ -898,9 +914,13 @@ test('Codemagic stays manual-only and retains the signed release candidate witho
   assert.match(scripts, /--mode=signed/);
   assert.match(scripts, /--source-sha="\$CM_COMMIT"/);
   assert.match(scripts, /--build-number="\$BUILD_NUMBER"/);
-  assert.ok(internal.artifacts.includes('$CM_BUILD_DIR/apps/mobile/build/ios/ipa/*.ipa'));
-  assert.ok(internal.artifacts.includes('$CM_BUILD_DIR/apps/mobile/build/ios/archive/*.xcarchive'));
-  assert.ok(internal.artifacts.includes('$CM_BUILD_DIR/apps/mobile/build/ios/release-provenance.json'));
+  assert.ok(internal.artifacts.includes('$CM_BUILD_DIR/apps/mobile/build/ios/verified-artifacts/ipa/*.ipa'));
+  assert.ok(internal.artifacts.includes('$CM_BUILD_DIR/apps/mobile/build/ios/verified-artifacts/retained-archive/*.xcarchive'));
+  assert.ok(!internal.artifacts.includes('$CM_BUILD_DIR/apps/mobile/build/ios/archive/*.xcarchive'));
+  assert.ok(internal.artifacts.includes('$CM_BUILD_DIR/apps/mobile/build/ios/verified-artifacts/release-provenance.json'));
+  for (const unqualified of ['ipa/*.ipa', 'retained-archive/*.xcarchive', 'release-provenance.json']) {
+    assert.ok(!internal.artifacts.includes(`$CM_BUILD_DIR/apps/mobile/build/ios/${unqualified}`));
+  }
   assert.equal(internal.publishing, undefined);
   assert.doesNotMatch(JSON.stringify(internal), /submit_to_testflight|submit_to_app_store|beta_groups/);
 });

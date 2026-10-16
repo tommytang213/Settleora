@@ -22,6 +22,8 @@ provenance_out=
 build_name=
 build_number=
 export_options_plist=
+export_sha=
+ipa_metadata_contract=
 podfile_lock_sha="$default_podfile_lock_sha"
 require_integration_test=true
 source_snapshot=
@@ -31,6 +33,36 @@ cleanup_inspection_root=false
 inventory_file=
 symbols_file=
 icon_compare_root=
+
+# Only this complete, verified set is eligible for retained CI artifacts.
+# Incomplete staging and the original build outputs remain outside selectors.
+retain_verified_signed_artifacts() {
+  local staging="$mobile_root/build/ios/.settleora-verified-artifacts"
+  local retained="$mobile_root/build/ios/verified-artifacts"
+  local staged_ipa staged_archive staged_archive_sha provenance_sha
+  [[ ! -e "$staging" && ! -L "$staging" && ! -e "$retained" && ! -L "$retained" ]] ||
+    fail "verified artifact destination already exists"
+  mkdir "$staging"
+  mkdir "$staging/ipa" "$staging/retained-archive"
+  staged_ipa="$staging/ipa/$(basename "$artifact_path")"
+  staged_archive="$staging/retained-archive/$(basename "$archive_path")"
+  provenance_sha=$(sha256_file "$provenance_out")
+  cp -p -- "$artifact_path" "$staged_ipa"
+  cp -pR -- "$archive_path" "$staged_archive"
+  cp -p -- "$provenance_out" "$staging/release-provenance.json"
+  [[ "$(sha256_file "$staged_ipa")" == "$artifact_sha" ]] || fail "staged IPA identity differs"
+  staged_archive_sha=$(node --input-type=module -e '
+    import { pathToFileURL } from "node:url";
+    const { hashDirectory } = await import(pathToFileURL(process.argv[2]).href);
+    process.stdout.write(hashDirectory(process.argv[3]));
+  ' verify-staged-archive "$tool_root/tools/ocr-models/hash-directory.mjs" "$staged_archive") ||
+    fail "staged archive identity is unavailable"
+  [[ "$staged_archive_sha" == "$archive_sha" ]] || fail "staged archive identity differs"
+  [[ "$(sha256_file "$staging/release-provenance.json")" == "$provenance_sha" ]] ||
+    fail "staged provenance identity differs"
+  # Same-filesystem rename makes the complete verified set visible together.
+  mv -- "$staging" "$retained"
+}
 
 cleanup() {
   [[ -z "$inventory_file" ]] || rm -f -- "$inventory_file"
@@ -145,6 +177,8 @@ if [[ "$mode" == signed ]]; then
   codemagic_cli_tools_output=$(codemagic-cli-tools --version 2>/dev/null)
   codemagic_cli_tools_version=${codemagic_cli_tools_output##* }
   [[ "$codemagic_cli_tools_version" == "$expected_codemagic_cli_tools_version" ]] || fail "Codemagic CLI tools must be $expected_codemagic_cli_tools_version"
+  # Real Apple-tool controls, using only disposable ad-hoc-signed test binaries.
+  node --test "$tool_root/tools/ocr-models/test/ios-code-equivalence-macos.test.mjs"
 fi
 
 sha256_file() {
@@ -240,7 +274,18 @@ if [[ "$mode" == signed ]]; then
   archive_path=$(cd "$(dirname "${archive_paths[0]}")" && pwd -P)/$(basename "${archive_paths[0]}")
   inspection_root=$PWD/build/ios/.settleora-ipa-inspection
   [[ ! -e "$inspection_root" && ! -L "$inspection_root" ]] || fail "descriptor-backed IPA inspection root already exists"
-  preflight_ipa_sha=$(node "$tool_root/tools/ocr-models/verify-ipa-archive.mjs")
+  # Xcode owns export timestamps. Normalize only validated ZIP timestamp fields
+  # in a descriptor-backed copy before the unchanged strict representation gate.
+  # Signed payload bytes are never recompressed or rewritten.
+  ipa_metadata=$(node "$tool_root/tools/ocr-models/verify-ipa-archive.mjs" --canonicalize-export-metadata)
+  read -r preflight_ipa_sha export_sha ipa_metadata_contract < <(printf '%s' "$ipa_metadata" | node -e '
+    let text=""; process.stdin.on("data", chunk => text += chunk).on("end", () => {
+      const value=JSON.parse(text);
+      if (value.contract !== "settleora-ipa-zip-timestamps-v1" ||
+          !/^[0-9a-f]{64}$/.test(value.sha256) || !/^[0-9a-f]{64}$/.test(value.exportSha256)) process.exit(1);
+      process.stdout.write(`${value.sha256} ${value.exportSha256} ${value.contract}\n`);
+    });')
+  [[ -n "$preflight_ipa_sha" && -n "$export_sha" && -n "$ipa_metadata_contract" ]] || fail "IPA export metadata identity is missing"
   [[ -d "$inspection_root" && ! -L "$inspection_root" ]] || fail "descriptor-backed IPA inspection is missing"
   cleanup_inspection_root=true
   [[ "$(sha256_file "$artifact_path")" == "$preflight_ipa_sha" ]] || fail "retained IPA differs from descriptor-backed preflight"
@@ -289,7 +334,9 @@ if [[ "$mode" == signed ]]; then
       file -b -- "$candidate" | grep -Eq '^Mach-O( |$)' || fail "IPA SwiftSupport contains a non-Mach-O library"
       app_library="$app_path/Frameworks/$(basename "$candidate")"
       [[ -f "$app_library" ]] || fail "IPA SwiftSupport library has no application counterpart"
-      cmp -s "$candidate" "$app_library" || fail "IPA SwiftSupport library differs from its application counterpart"
+      node "$tool_root/tools/ocr-models/ios-code-equivalence.mjs" \
+        --compare-signed-files "$candidate" "$app_library" \
+        || fail "IPA SwiftSupport library differs from its application counterpart"
     done
     for candidate in "${app_swift_libraries[@]}"; do
       [[ -f "$inspection_root/SwiftSupport/iphoneos/$(basename "$candidate")" ]] || fail "application Swift library is absent from SwiftSupport"
@@ -955,6 +1002,11 @@ if [[ "$artifact_class" == release-candidate ]]; then
   if [[ "$mode" == signed ]]; then
     [[ "$(sha256_file "$artifact_path")" == "$preflight_ipa_sha" ]] || fail "IPA changed after package inspection"
     artifact_sha=$preflight_ipa_sha
+    # Preserve Xcode's original archive locally; unsigned debug payloads have
+    # no authenticated IPA counterpart and must not enter retained artifacts.
+    node "$tool_root/tools/ocr-models/prepare-retained-xcarchive.mjs" ||
+      fail "signed xcarchive retention preparation failed"
+    archive_path=$PWD/build/ios/retained-archive/Runner.xcarchive
     # Inspect every retained archive file before claiming package privacy.
     [[ "$app_path" == "$inspection_root/Payload/Runner.app" ]] ||
       fail "signed IPA application path is not canonical"
@@ -965,7 +1017,7 @@ if [[ "$artifact_class" == release-candidate ]]; then
   else
     artifact_sha=$(node "$tool_root/tools/ocr-models/hash-directory.mjs" app)
   fi
-  archive_sha=$(if [[ "$mode" == signed ]]; then node "$tool_root/tools/ocr-models/hash-directory.mjs" archive; else printf ''; fi)
+  archive_sha=$(if [[ "$mode" == signed ]]; then node "$tool_root/tools/ocr-models/hash-directory.mjs" retained-archive; else printf ''; fi)
   if [[ "$mode" == signed ]]; then
     inspected_archive_sha=$(printf '%s' "$archive_review" | node -e 'const fs=require("node:fs"); const v=JSON.parse(fs.readFileSync(0,"utf8")); if(!/^[0-9a-f]{64}$/.test(v.archiveSha256)) process.exit(1); process.stdout.write(v.archiveSha256)' ) ||
       fail "signed xcarchive inspection identity is invalid"
@@ -978,6 +1030,8 @@ if [[ "$artifact_class" == release-candidate ]]; then
     --source-tree="$source_tree" \
     --artifact="$artifact_path" \
     --artifact-sha256="$artifact_sha" \
+    --export-sha256="$export_sha" \
+    --ipa-metadata-contract="$ipa_metadata_contract" \
     --archive="$archive_path" \
     --archive-sha256="$archive_sha" \
     --bundle-identifier="$bundle_identifier" \
@@ -993,6 +1047,7 @@ if [[ "$artifact_class" == release-candidate ]]; then
     --fixture-manifest-sha256="$fixture_manifest_sha"
   if [[ "$mode" == signed ]]; then
     [[ "$(sha256_file "$artifact_path")" == "$artifact_sha" ]] || fail "IPA changed while provenance was generated"
+    retain_verified_signed_artifacts
   fi
   printf 'SETTLEORA_IOS_RELEASE_ARTIFACT=%s\n' "$(basename "$artifact_path")"
   printf 'SETTLEORA_IOS_RELEASE_SHA256=%s\n' "$artifact_sha"

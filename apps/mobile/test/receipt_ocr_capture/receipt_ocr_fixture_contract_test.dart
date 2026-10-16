@@ -73,8 +73,59 @@ void main() {
           )
           as Map<String, dynamic>;
   final entries = (manifest['fixtures']! as List).cast<Map<String, dynamic>>();
+  test('source-printed unsplit charge is reviewable without a subtotal', () {
+    // Independent transcription of the image-bound evidence, not sourceDraft(e).
+    // The receipt prints no subtotal and does not split this charge into tax/fee.
+    const p = ReceiptOcrPreview(
+      merchant: 'Horizon Mobile',
+      receiptDate: '2025-04-10',
+      currency: 'USD',
+      total: '82.17',
+      adjustmentsComplete: false,
+      incompleteAdjustmentReasons: [
+        ReceiptOcrIncompleteAdjustmentReason.unclassifiedAdjustmentLabel,
+        ReceiptOcrIncompleteAdjustmentReason.chargeTableAdjustment,
+      ],
+      warnings: [incompleteWarning],
+      items: [
+        ReceiptOcrItemCandidate(
+          description: 'Horizon Unlimited Plan (Mar 11 – Apr 10)',
+          lineTotal: '60.00',
+          currency: 'USD',
+        ),
+        ReceiptOcrItemCandidate(
+          description: 'Data Add-on - 10 GB',
+          lineTotal: '10.00',
+          currency: 'USD',
+        ),
+        ReceiptOcrItemCandidate(
+          description: 'International Calls',
+          lineTotal: '4.50',
+          currency: 'USD',
+        ),
+      ],
+      blocks: [
+        ReceiptOcrBlockEvidence(
+          text: 'Taxes and Regulatory Fees USD 7.67',
+          row: 0,
+          order: 0,
+        ),
+      ],
+    );
+    final e =
+        (entries.singleWhere(
+                  (row) => row['id'] == 'existing_04_horizon_mobile_en_US',
+                )['expected']
+                as Map)
+            .cast<String, Object?>();
+    expect(receiptOcrFixtureFieldMismatches(p, e, 'source'), isEmpty);
+    expect(receiptOcrFixtureReviewMatches(p, e), isTrue);
+    expect(e['tax'], isNull);
+    expect(e['subtotal'], isNull);
+  });
   const ids = [
     'existing_02_fiberwave_internet_en_US',
+    'existing_04_horizon_mobile_en_US',
     'existing_06_metrogrid_electric_en_US',
     'layout_11_hotel_folio',
     'distortion_07_shadow_hotel',
@@ -87,6 +138,20 @@ void main() {
       expect(receiptOcrFixtureFieldMismatches(p, e, id), isEmpty);
       expect(receiptOcrFixtureReviewMatches(p, e), isTrue);
     });
+    if (e['expected_review_condition'] ==
+        'printed combined taxes and fees need manual review') {
+      test('combined charge cannot invent a tax-only value: $id', () {
+        final inventedTax = sourceDraft(e, tax: '7.67');
+        expect(
+          receiptOcrFixtureFieldMismatches(inventedTax, e, id),
+          contains('tax'),
+        );
+        expect(
+          receiptOcrFixtureReviewMatches(inventedTax, {...e, 'tax': '7.67'}),
+          isFalse,
+        );
+      });
+    }
     for (final mutation in [
       'arbitrary warning',
       'unrelated warning',

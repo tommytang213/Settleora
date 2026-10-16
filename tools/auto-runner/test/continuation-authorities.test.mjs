@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { continueOrdinaryCandidate, createOrdinaryContinuationState, ordinaryCandidateIdentityMatches, ordinaryContinuationPhaseTarget, ordinaryContinuationPhases } from "../lib/ordinary-candidate-continuation.mjs";
+import { continueOrdinaryCandidate, createOrdinaryContinuationState, ordinaryCandidateIdentityMatches, ordinaryRecoveryIdentityMatches, ordinaryContinuationPhaseTarget, ordinaryContinuationPhases } from "../lib/ordinary-candidate-continuation.mjs";
 import { createProductionSplitMaterializationAdapter, materializeFeatureBundleSplit, validateSplitMaterializationInput } from "../lib/feature-bundle-split-materializer.mjs";
 
 const sha = (value) => createHash("sha1").update(value).digest("hex");
@@ -23,6 +23,20 @@ test("ordinary continuation resumes each review and mutation boundary without fa
     assert.equal(calls[0], phase);
     assert.equal(result.state.counters.acceptedLogicalTasks, 1);
   }
+});
+
+test("source-failure fix propagates a manual reviewer stop", async () => {
+  const candidate = identity();
+  const state = createOrdinaryContinuationState({ logicalTaskKey: "root", issueNumber: 924,
+    branchName: "feature/test", identity: candidate, phase: "local_validation" });
+  const result = await continueOrdinaryCandidate(state, {
+    local_validation: async () => ({ ok: true, sourceFailures: [{ sourceKind: "local_validation",
+      structuredEvidence: true, failureType: "source", diagnostic: "synthetic failure", identity: candidate }] }),
+    source_failure_fix: async () => ({ ok: false, outcome: "danger_gate", reasonCode: "manual_reviewer_gate" }),
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.outcome, "danger_gate");
+  assert.equal(result.reasonCode, "manual_reviewer_gate");
 });
 
 test("ordinary continuation adopts exact effects and waits at real pending state", async () => {
@@ -227,6 +241,29 @@ test("ordinary candidate identity rejects stale tree, diff, and changed-file cov
     { diffDigest: digest("other-diff") },
     { changedFiles: ["a.mjs", "omitted.mjs"], changedFilesDigest: digest(["a.mjs", "omitted.mjs"]) },
   ]) assert.equal(ordinaryCandidateIdentityMatches(exact, { ...exact, ...changed }), false);
+});
+
+test("recovery authenticates a legacy truncated digest only for the same exact candidate", () => {
+  const legacyText = "synthetic canonical prefix";
+  const legacyDigest = createHash("sha256").update(legacyText).digest("hex");
+  const actual = { ...identity(), changedFilesDigest: digest(["a.mjs"]) };
+  const persisted = { ...actual, diffDigest: legacyDigest };
+  assert.equal(ordinaryRecoveryIdentityMatches(actual, actual), true);
+  assert.equal(ordinaryRecoveryIdentityMatches(persisted, actual,
+    { text: legacyText, truncated: true }), true);
+  assert.equal(ordinaryRecoveryIdentityMatches(persisted, actual,
+    { text: legacyText, truncated: false }), false);
+  assert.equal(ordinaryRecoveryIdentityMatches(persisted, actual,
+    { text: "different", truncated: true }), false);
+  for (const mismatch of [
+    { headSha: sha("different head") },
+    { treeSha: sha("different tree") },
+    { changedFiles: ["a.mjs", "unexpected.mjs"] },
+    { changedFilesDigest: digest(["unexpected.mjs"]) },
+  ]) {
+    assert.equal(ordinaryRecoveryIdentityMatches(persisted, { ...actual, ...mismatch },
+      { text: legacyText, truncated: true }), false);
+  }
 });
 
 function splitInput(dependent = false) {

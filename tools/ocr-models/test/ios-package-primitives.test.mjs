@@ -5,9 +5,22 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { inspectIosAssetCatalogInfo } from "../verify-ios-asset-catalog.mjs";
-import { inspectXcarchive } from "../verify-ios-xcarchive.mjs";
+import { dsymFixture } from "./dsym-fixture.mjs";
+import { inspectXcarchiveStructure } from "../verify-ios-xcarchive.mjs";
 
 const plist = () => "<?xml version=\"1.0\"?><plist><dict/></plist>";
+const appPlist = () => '<plist><dict><key>CFBundleIdentifier</key><string>com.tommytang213.settleora</string></dict></plist>';
+const symbolPlist = () => `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleDevelopmentRegion</key><string>English</string>
+<key>CFBundleIdentifier</key><string>com.apple.xcode.dsym.com.tommytang213.settleora</string>
+<key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+<key>CFBundlePackageType</key><string>dSYM</string>
+<key>CFBundleSignature</key><string>????</string>
+<key>CFBundleShortVersionString</key><string>1.0.0</string>
+<key>CFBundleVersion</key><string>1</string>
+</dict></plist>`;
 
 test("archive verifier CLI rejects caller-supplied paths", () => {
   const verifier = path.resolve(import.meta.dirname, "../verify-ios-xcarchive.mjs");
@@ -44,7 +57,7 @@ test("asset catalog emits bounded observed metadata without asserting a signed b
   assert.throws(() => inspectIosAssetCatalogInfo("[]"), /metadata is invalid/);
 });
 
-test("archive privacy inspects every file and rejects extra, hidden payload, and symlink", () => {
+test("archive structure rejects extra payload and symlinks without authenticating dSYM strings", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-archive-policy-"));
   try {
     const app = path.join(root, "ipa-app");
@@ -54,22 +67,108 @@ test("archive privacy inspects every file and rejects extra, hidden payload, and
     mkdirSync(app, { recursive: true });
     mkdirSync(archivedApp, { recursive: true });
     mkdirSync(dwarf, { recursive: true });
-    writeFileSync(path.join(app, "Info.plist"), plist());
-    writeFileSync(path.join(archivedApp, "Info.plist"), plist());
+    writeFileSync(path.join(app, "Info.plist"), appPlist());
+    writeFileSync(path.join(archivedApp, "Info.plist"), appPlist());
     writeFileSync(path.join(archive, "Info.plist"), plist());
-    writeFileSync(path.join(archive, "dSYMs/Runner.app.dSYM/Contents/Info.plist"), plist());
-    writeFileSync(path.join(dwarf, "Runner"), Buffer.from([0xfe, 0xed, 0xfa, 0xcf, 0, 0, 0, 0]));
-    const inspect = () => inspectXcarchive(archive, app, (file) => readFileSync(file, "utf8"));
+    const symbolInfo = path.join(archive, "dSYMs/Runner.app.dSYM/Contents/Info.plist");
+    writeFileSync(symbolInfo, symbolPlist());
+    const symbolBytes = dsymFixture().bytes;
+    const executableBytes = Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 0, 0, 0, 0]);
+    writeFileSync(path.join(dwarf, "Runner"), symbolBytes);
+    writeFileSync(path.join(app, "Runner"), executableBytes);
+    writeFileSync(path.join(archivedApp, "Runner"), executableBytes);
+    let mismatchUuid = false;
+    const uuid = "01234567-89AB-CDEF-0123-456789ABCDEF";
+    const dwarfTool = ([command, file]) => {
+      if (command === "--verify") {
+        // DWARF verification can ignore bytes outside declared sections.
+        if (!readFileSync(file).subarray(0, symbolBytes.length).equals(symbolBytes)) throw new Error("invalid DWARF");
+        return "";
+      }
+      if (command === "--uuid") {
+        const observed = mismatchUuid && file.startsWith(dwarf)
+          ? "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA" : uuid;
+        return `UUID: ${observed} (arm64) ${file}\n`;
+      }
+      throw new Error("unexpected DWARF command");
+    };
+    // Model plutil normalization: comments vanish from its output. The privacy
+    // verifier must reject them in the original unsigned bytes nonetheless.
+    const inspect = () => inspectXcarchiveStructure(archive, app, (file) =>
+      readFileSync(file, "utf8").replace(/<!--[\s\S]*?-->/g, ""), {
+      verifySignature() {}, dwarfTool,
+    });
     const original = inspect();
-    assert.equal(original.inspectedFileCount, 4);
+    assert.equal(original.inspectedFileCount, 5);
+    assert.equal(original.symbolFileCount, 1);
+    assert.equal(original.unsignedSymbolsAuthenticated, false);
+    for (const mutation of [
+      symbolPlist().replace('<dict>', '<dict><!-- Jane Doe, 123 Main Street -->'),
+      `${symbolPlist()}<!-- Jane Doe, 123 Main Street -->`,
+      symbolPlist().replace('</dict>', '<key>RawReceiptText</key><string>Jane Doe, Milk 2.99</string></dict>'),
+      symbolPlist().replace('</dict>', '<key>CFBundleVersion</key><string>1</string></dict>'),
+      symbolPlist().replace('com.apple.xcode.dsym.com.tommytang213.settleora', 'com.apple.xcode.dsym.Jane.Doe'),
+      symbolPlist().replace('<string>English</string>', '<string>Jane Doe</string>'),
+      symbolPlist().replace('<string>dSYM</string>', '<string>Jane Doe</string>'),
+      symbolPlist().replace('<string>1.0.0</string>', '<string>Milk 2.99</string>'),
+      symbolPlist().replace('<string>1</string>', '<string><![CDATA[1]]></string>'),
+      symbolPlist().replace('<string>1</string>', '<string>&#49;</string>'),
+      symbolPlist().replace('<string>1</string>', '<dict/>'),
+      plist(),
+      Buffer.from('bplist00private metadata'),
+      Buffer.concat([Buffer.from(symbolPlist()), Buffer.from([0xff])]),
+      symbolPlist().replace('<dict>', `<dict>${' '.repeat(64 * 1024)}`),
+    ]) {
+      writeFileSync(symbolInfo, mutation);
+      assert.throws(inspect, /unreviewed/);
+    }
+    writeFileSync(symbolInfo, symbolPlist().replace(
+      'com.apple.xcode.dsym.com.tommytang213.settleora', 'com.apple.xcode.dsym.Runner'));
+    assert.equal(inspect().symbolFileCount, 1);
+    writeFileSync(symbolInfo, symbolPlist());
+    assert.equal(inspect().archiveSha256, original.archiveSha256);
     mkdirSync(path.join(archive, "unreviewed-empty"));
     assert.throws(inspect, /unreviewed/);
     rmSync(path.join(archive, "unreviewed-empty"), { recursive: true });
     writeFileSync(path.join(archivedApp, "Info.plist"), `${plist()}altered`);
     assert.throws(inspect, /unreviewed/);
-    writeFileSync(path.join(archivedApp, "Info.plist"), plist());
-    writeFileSync(path.join(dwarf, "Runner"), Buffer.from([0xfe, 0xed, 0xfa, 0xcf, 1, 0, 0, 0]));
+    writeFileSync(path.join(archivedApp, "Info.plist"), appPlist());
+    writeFileSync(path.join(archive, "Info.plist"), `${plist()}<!-- hidden payload -->`);
+    assert.throws(inspect, /unreviewed/);
+    writeFileSync(path.join(archive, "Info.plist"),
+      '<plist><dict><key>RawReceiptText</key><string>Jane Doe\nMilk 2.99</string></dict></plist>');
+    assert.throws(inspect, /unreviewed/);
+    writeFileSync(path.join(archive, "Info.plist"),
+      '<plist><dict><key>Name</key><string>Runner</string><key>Name</key><string>Jane Doe</string></dict></plist>');
+    assert.throws(inspect, /unreviewed/);
+    writeFileSync(path.join(archive, "Info.plist"),
+      '<plist><dict><key>ArchiveVersion</key><integer>2</integer><key>Name</key><string>Runner</string><key>SchemeName</key><string>Runner</string></dict></plist>');
     assert.notEqual(inspect().archiveSha256, original.archiveSha256);
+    writeFileSync(path.join(archive, "Info.plist"), `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>ApplicationProperties</key><dict>
+<key>ApplicationPath</key><string>Applications/Runner.app</string>
+<key>Architectures</key><array><string>arm64</string></array>
+<key>CFBundleIdentifier</key><string>com.tommytang213.settleora</string>
+<key>CFBundleShortVersionString</key><string>1.0.0</string>
+<key>CFBundleVersion</key><string>1</string>
+<key>SigningIdentity</key><string>Apple Distribution: Example LLC (ABCDEFGHIJ)</string>
+<key>Team</key><string>ABCDEFGHIJ</string>
+</dict><key>ArchiveVersion</key><integer>2</integer>
+<key>CreationDate</key><date>2026-10-14T00:00:00Z</date>
+<key>Name</key><string>Runner</string><key>SchemeName</key><string>Runner</string>
+</dict></plist>`);
+    assert.equal(inspect().inspectedFileCount, original.inspectedFileCount);
+    writeFileSync(path.join(archive, "Info.plist"), plist());
+    writeFileSync(path.join(dwarf, "Runner"), Buffer.concat([
+      symbolBytes, Buffer.from("PRIVATE_RECEIPT_TEXT_123"),
+    ]));
+    assert.throws(inspect, /unreviewed/);
+    writeFileSync(path.join(dwarf, "Runner"), symbolBytes);
+    mismatchUuid = true;
+    assert.throws(inspect, /unreviewed/);
+    mismatchUuid = false;
     writeFileSync(path.join(archive, "private-receipt.jpeg"), "receipt");
     assert.throws(inspect, /unreviewed/);
     rmSync(path.join(archive, "private-receipt.jpeg"));

@@ -131,6 +131,14 @@
         "date": "2025-04-10",
         "currency": "USD",
         "total": "82.17",
+        "expected_review_condition": "printed combined taxes and fees need manual review",
+        "expected_review_roles": [
+          {
+            "kind": "combined_tax_fee",
+            "label": "Taxes and Regulatory Fees",
+            "amount": "7.67"
+          }
+        ],
         "items": [
           [
             "Horizon Unlimited Plan (Mar 11 – Apr 10)",

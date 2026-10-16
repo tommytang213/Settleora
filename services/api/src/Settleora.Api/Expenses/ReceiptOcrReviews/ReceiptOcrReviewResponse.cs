@@ -474,8 +474,8 @@ internal sealed record ReceiptOcrReviewApplyPreviewResponse(
             || !review.SubtotalAmount.HasValue
             || !review.TaxAmount.HasValue
             || review.TaxAmount.Value <= 0m
-            || review.ServiceChargeAmount.HasValue
-            || review.DiscountAmount.HasValue
+            || (review.ServiceChargeAmount ?? 0m) != 0m
+            || (review.DiscountAmount ?? 0m) != 0m
             || review.Adjustments.Count != 0
             || !hasExpectedHeaderTotal
             || taxModeInvalid

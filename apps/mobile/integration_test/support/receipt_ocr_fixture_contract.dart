@@ -339,8 +339,7 @@ bool _unsupportedRolesMatch(
   if (condition == 'printed combined taxes and fees need manual review' &&
       (kinds.length != 1 ||
           kinds.single != 'combined_tax_fee' ||
-          expected['tax'] != null ||
-          expected['subtotal'] == null)) {
+          expected['tax'] != null)) {
     return false;
   }
   if (hotel &&
@@ -380,6 +379,8 @@ bool _unsupportedRolesMatch(
       (hotel && !preview.warnings.contains(stayWarning))) {
     return false;
   }
+  // A combined tax/fee row remains ambiguous whether or not the source prints
+  // a subtotal. The exact decision and hint must match that printed structure.
   final expectedDecision = expected['subtotal'] == null
       ? ReceiptOcrReviewDecision.incompleteAdjustmentWithoutSubtotal
       : ReceiptOcrReviewDecision.subtotalMismatch;

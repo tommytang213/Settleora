@@ -9,7 +9,7 @@ import { deflateRawSync } from "node:zlib";
 
 import { hashDirectory } from "../hash-directory.mjs";
 import { verifyIosAssetCatalogInfo } from "../verify-ios-asset-catalog.mjs";
-import { inspectOpenedIpa, verifyCanonicalIpa, verifyOpenedIpa } from "../verify-ipa-archive.mjs";
+import { canonicalizeOpenedIpa, inspectOpenedIpa, verifyCanonicalIpa, verifyOpenedIpa } from "../verify-ipa-archive.mjs";
 import { verifyIosTestPodfileLock } from "../verify-ios-test-podfile-lock.mjs";
 import { buildProvenance } from "../write-ios-release-provenance.mjs";
 
@@ -46,7 +46,9 @@ function makeStoredZip(entries, { prefix = Buffer.alloc(0), gap = Buffer.alloc(0
     const localName = Buffer.from(entry.localName ?? entry.name);
     const data = Buffer.from(entry.data ?? "");
     const method = entry.deflateLevel == null ? 0 : 8;
-    const stored = method === 8 ? deflateRawSync(data, { level: entry.deflateLevel }) : data;
+    const compressed = entry.compressedData ?? (method === 8 ? deflateRawSync(data, { level: entry.deflateLevel }) : data);
+    const stored = Buffer.concat([compressed, entry.compressedTail ?? Buffer.alloc(0)]);
+    const uncompressedSize = entry.uncompressedSize ?? data.length;
     const centralExtra = entry.centralExtra ?? Buffer.alloc(0);
     const centralComment = entry.centralComment ?? Buffer.alloc(0);
     const localExtra = entry.localExtra ?? Buffer.alloc(0);
@@ -59,36 +61,37 @@ function makeStoredZip(entries, { prefix = Buffer.alloc(0), gap = Buffer.alloc(0
       descriptor.writeUInt32LE(0x08074b50, 0);
       descriptor.writeUInt32LE(entry.descriptorCrc32 ?? dataCrc32, 4);
       descriptor.writeUInt32LE(entry.descriptorCompressedSize ?? stored.length, 8);
-      descriptor.writeUInt32LE(entry.descriptorUncompressedSize ?? data.length, 12);
+      descriptor.writeUInt32LE(entry.descriptorUncompressedSize ?? uncompressedSize, 12);
     }
     const local = Buffer.alloc(30);
     local.writeUInt32LE(0x04034b50, 0);
-    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(entry.localVersion ?? entry.neededVersion ?? 20, 4);
     local.writeUInt16LE(flags, 6);
     local.writeUInt16LE(method, 8);
     local.writeUInt16LE(entry.localTime ?? 0x0821, 10);
     local.writeUInt16LE(entry.localDate ?? 0x0221, 12);
     local.writeUInt32LE(entry.localCrc32 ?? (entry.dataDescriptor ? 0 : dataCrc32), 14);
     local.writeUInt32LE(entry.localCompressedSize ?? (entry.dataDescriptor ? 0 : stored.length), 18);
-    local.writeUInt32LE(entry.localUncompressedSize ?? (entry.dataDescriptor ? 0 : data.length), 22);
+    local.writeUInt32LE(entry.localUncompressedSize ?? (entry.dataDescriptor ? 0 : uncompressedSize), 22);
     local.writeUInt16LE(localName.length, 26);
     local.writeUInt16LE(localExtra.length, 28);
     localParts.push(local, localName, localExtra, stored, descriptor);
     const central = Buffer.alloc(46);
     central.writeUInt32LE(0x02014b50, 0);
-    central.writeUInt16LE((3 << 8) | 20, 4);
-    central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(entry.madeBy ?? ((3 << 8) | 20), 4);
+    central.writeUInt16LE(entry.neededVersion ?? 20, 6);
     central.writeUInt16LE(flags, 8);
     central.writeUInt16LE(method, 10);
     central.writeUInt16LE(entry.centralTime ?? 0x0821, 12);
     central.writeUInt16LE(entry.centralDate ?? 0x0221, 14);
     central.writeUInt32LE(entry.centralCrc32 ?? dataCrc32, 16);
     central.writeUInt32LE(stored.length, 20);
-    central.writeUInt32LE(data.length, 24);
+    central.writeUInt32LE(uncompressedSize, 24);
     central.writeUInt16LE(name.length, 28);
     central.writeUInt16LE(centralExtra.length, 30);
     central.writeUInt16LE(centralComment.length, 32);
-    central.writeUInt32LE((mode << 16) >>> 0, 38);
+    central.writeUInt16LE(entry.internalAttributes ?? 0, 36);
+    central.writeUInt32LE(entry.externalAttributes ?? ((mode << 16) >>> 0), 38);
     central.writeUInt32LE(localOffset, 42);
     centralParts.push(central, name, centralExtra, centralComment);
     localOffset += local.length + localName.length + localExtra.length + stored.length + descriptor.length;
@@ -120,6 +123,8 @@ function provenanceArgs(root, mode = "signed") {
     "source-tree": "2".repeat(40),
     artifact,
     "artifact-sha256": "3".repeat(64),
+    "export-sha256": mode === "signed" ? "9".repeat(64) : "",
+    "ipa-metadata-contract": mode === "signed" ? "settleora-ipa-zip-timestamps-v1" : "",
     archive: mode === "signed" ? archive : "",
     "archive-sha256": mode === "signed" ? "8".repeat(64) : "",
     "bundle-identifier": "com.tommytang213.settleora",
@@ -174,7 +179,11 @@ test("signed provenance binds the exact artifact and forbids publication", () =>
     assert.equal(provenance.publicationPerformed, false);
     assert.equal(provenance.artifact.fileName, "Settleora.ipa");
     assert.equal(provenance.artifact.sha256, "3".repeat(64));
+    assert.equal(provenance.artifact.exportSha256, "9".repeat(64));
+    assert.equal(provenance.artifact.metadataNormalization, "settleora-ipa-zip-timestamps-v1");
     assert.equal(provenance.artifact.archiveSha256, "8".repeat(64));
+    assert.equal(provenance.artifact.archiveRepresentation, "signed-app-and-constrained-metadata-only-v1");
+    assert.equal(provenance.verification.unsignedDebugSymbolsRetained, false);
     assert.equal(provenance.artifact.buildName, "1.0.0");
     assert.equal(provenance.artifact.buildNumber, "42");
     assert.equal(provenance.toolchain.codemagicCliTools, "0.69.0");
@@ -195,6 +204,7 @@ test("unsigned structural provenance is explicitly non-promotable", () => {
     assert.equal(provenance.contract, "settleora-ios-unsigned-structural-verification-v1");
     assert.equal(provenance.promotionPolicy, "not-promotable-unsigned-structural-evidence");
     assert.equal(provenance.verification.codeSignatureVerified, false);
+    assert.equal(provenance.artifact.archiveRepresentation, null);
     assert.equal(provenance.toolchain.codemagicCliTools, null);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -386,6 +396,60 @@ test("IPA namespace verifier rejects ambiguous and escaping ZIP entries before e
     }
     writeFileSync(archive, makeStoredZip([{ name: "Payload/", data: "hidden receipt evidence" }]));
     assert.throws(() => verifyTestIpa(archive), /directory entry contains payload bytes/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("IPA rejects bytes after a DEFLATE stream even with consistent ZIP metadata", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-ipa-deflate-tail-"));
+  const archive = path.join(root, "Runner.ipa");
+  try {
+    for (const dataDescriptor of [false, true]) {
+      const entry = { name: "Payload/Runner.app/Info.plist", data: "reviewed app bytes", deflateLevel: 6, dataDescriptor };
+      const clean = makeStoredZip([entry]);
+      writeFileSync(archive, clean);
+      assert.equal(verifyTestIpa(archive), sha256(clean));
+      for (const compressedTail of [Buffer.from("synthetic hidden bytes"), deflateRawSync(Buffer.from("second stream"))]) {
+        writeFileSync(archive, makeStoredZip([{ ...entry, compressedTail }]));
+        assert.throws(() => verifyTestIpa(archive), /compressed entry contains trailing bytes/);
+      }
+    }
+    const ipaDirectory = path.join(root, "build/ios/ipa");
+    mkdirSync(ipaDirectory, { recursive: true });
+    const hiddenArchive = readFileSync(archive);
+    const canonicalIpa = path.join(ipaDirectory, "Runner.ipa");
+    writeFileSync(canonicalIpa, hiddenArchive);
+    const result = spawnSync(process.execPath, [path.join(repoRoot, "tools/ocr-models/verify-ipa-archive.mjs")], {
+      cwd: root, encoding: "utf8",
+    });
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.equal(result.stderr, "canonical_ipa_verification_failed\n");
+    assert.equal(existsSync(path.join(root, "build/ios/.settleora-ipa-inspection")), false);
+    assert.equal(existsSync(path.join(ipaDirectory, ".settleora-verified-ipa")), false);
+    assert.deepEqual(readFileSync(canonicalIpa), hiddenArchive);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("IPA validates empty streams and rejects malformed or falsely bounded compressed entries", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-ipa-deflate-bounds-"));
+  const archive = path.join(root, "Runner.ipa");
+  const entry = { name: "Payload/Runner.app/file", deflateLevel: 6 };
+  try {
+    const empty = makeStoredZip([{ ...entry, data: "" }]);
+    writeFileSync(archive, empty);
+    assert.equal(verifyTestIpa(archive), sha256(empty));
+    for (const invalid of [
+      { data: "large expansion".repeat(32768), uncompressedSize: 1 },
+      { data: "short", uncompressedSize: 10 },
+      { data: "short", compressedData: Buffer.from([0xff, 0xff, 0xff]) },
+    ]) {
+      writeFileSync(archive, makeStoredZip([{ ...entry, ...invalid }]));
+      assert.throws(() => verifyTestIpa(archive), /invalid or exceeds its declared expanded size|expanded size differs/);
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -1218,7 +1282,7 @@ test("canonical wrapper rejects unsafe modes and release candidates without prov
   const directoryHasher = path.join(repoRoot, "tools/ocr-models/hash-directory.mjs");
   const arbitraryRoot = spawnSync(process.execPath, [directoryHasher, rootForUnsafeCli()], { encoding: "utf8" });
   assert.notEqual(arbitraryRoot.status, 0);
-  assert.match(arbitraryRoot.stderr, /Usage: hash-directory\.mjs <app\|archive>/);
+  assert.match(arbitraryRoot.stderr, /Usage: hash-directory\.mjs <app\|archive\|retained-archive>/);
 });
 
 test("signed wrapper rejects a non-Git source before trusting caller provenance", () => {
@@ -1344,4 +1408,266 @@ test('directory identity accepts and binds contained versioned framework symlink
     writeFileSync(path.join(root,'Versions','A','Framework'),'changed');
     assert.notEqual(hashDirectory(root),first);
   }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+test("Xcode export timestamp normalization changes only reviewed metadata and binds both identities", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-export-metadata-"));
+  const input = path.join(root, "export.ipa");
+  const timestamp = Buffer.from([0x55, 0x54, 5, 0, 1, 0x10, 0x20, 0x30, 0x40]);
+  const canonicalTimestamp = Buffer.from([0x55, 0x54, 5, 0, 1, 0, 0, 0, 0]);
+  const date = ((2026 - 1980) << 9) | (10 << 5) | 12;
+  const time = (11 << 11) | (35 << 5) | 13;
+  try {
+    for (const [index, compression] of [{}, { deflateLevel: 6 }, { deflateLevel: 6, dataDescriptor: true }].entries()) {
+      const base = { name: "Payload/Runner.app/Runner", data: "unchanged signed payload".repeat(32), ...compression };
+      const exported = makeStoredZip([{ ...base, localTime: time, centralTime: time, localDate: date, centralDate: date, localExtra: timestamp, centralExtra: timestamp }]);
+      const expected = makeStoredZip([{ ...base, localExtra: canonicalTimestamp, centralExtra: canonicalTimestamp }]);
+      writeFileSync(input, exported);
+      assert.throws(() => verifyTestIpa(input), /DOS timestamp/);
+      const output = path.join(root, `canonical-${index}.ipa`);
+      const observed = canonicalizeOpenedIpa(openSync(input, "r"), output);
+      assert.equal(observed.exportSha256, sha256(exported));
+      assert.equal(observed.sha256, sha256(expected));
+      assert.equal(observed.metadataFieldsNormalized, 4);
+      assert.equal(observed.contract, "settleora-ipa-zip-timestamps-v1");
+      assert.deepEqual(readFileSync(output), expected);
+      assert.deepEqual(readFileSync(input), exported);
+      assert.equal(verifyTestIpa(output), observed.sha256);
+      const second = canonicalizeOpenedIpa(openSync(output, "r"), path.join(root, `second-${index}.ipa`));
+      assert.equal(second.metadataFieldsNormalized, 0);
+      assert.equal(second.exportSha256, observed.sha256);
+      assert.equal(second.sha256, observed.sha256);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("export normalization rejects malformed metadata and preserves namespace/integrity controls", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-export-rejections-"));
+  const input = path.join(root, "export.ipa"), output = path.join(root, "canonical.ipa");
+  const valid = { name: "Payload/Runner.app/Runner", data: "payload" };
+  try {
+    for (const change of [
+      { localDate: 0, centralDate: 0 },
+      { localDate: 0x5c5f, centralDate: 0x5c5f }, // February 31.
+      { localTime: 0xffff, centralTime: 0xffff },
+      { localTime: 0x0821, centralTime: 0x0822 },
+      { localExtra: Buffer.from([0x55, 0x54, 5, 0, 1, 1, 0, 0, 0]), centralExtra: Buffer.from([0x55, 0x54, 5, 0, 1, 2, 0, 0, 0]) },
+      { localExtra: Buffer.from([0x75, 0x78, 1, 0, 1]) },
+      { localExtra: Buffer.from([0x55, 0x54, 5, 0, 7, 0, 0, 0, 0]) },
+      { name: "Payload/../escape" },
+      { mode: 0o120777 },
+      { localCompressedSize: 1 },
+      { deflateLevel: 6, compressedTail: Buffer.from("hidden payload") },
+    ]) {
+      writeFileSync(input, makeStoredZip([{ ...valid, ...change }]));
+      assert.throws(() => canonicalizeOpenedIpa(openSync(input, "r"), output), /Unsafe IPA archive/);
+      assert.equal(existsSync(output), false);
+    }
+    writeFileSync(input, makeStoredZip([valid]));
+    writeFileSync(output, "retain existing evidence");
+    assert.throws(() => canonicalizeOpenedIpa(openSync(input, "r"), output), /EEXIST/);
+    assert.equal(readFileSync(output, "utf8"), "retain existing evidence");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("canonical CLI normalizes the producer output before unchanged integrity and extraction gates", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-export-cli-"));
+  const directory = path.join(root, "build/ios/ipa");
+  const ipa = path.join(directory, "Runner.ipa");
+  const verifier = path.join(repoRoot, "tools/ocr-models/verify-ipa-archive.mjs");
+  const base = { name: "Payload/Runner.app/Info.plist", data: "<plist><dict/></plist>", deflateLevel: 6 };
+  const currentDate = ((2026 - 1980) << 9) | (10 << 5) | 12;
+  try {
+    mkdirSync(directory, { recursive: true });
+    const original = makeStoredZip([{ ...base, localDate: currentDate, centralDate: currentDate }]);
+    const expected = makeStoredZip([base]);
+    writeFileSync(ipa, original);
+    const result = spawnSync(process.execPath, [verifier, "--canonicalize-export-metadata"], { cwd: root, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    const evidence = JSON.parse(result.stdout);
+    assert.equal(evidence.exportSha256, sha256(original));
+    assert.equal(evidence.sha256, sha256(expected));
+    assert.deepEqual(readFileSync(ipa), expected);
+    assert.equal(readFileSync(path.join(root, "build/ios/.settleora-ipa-inspection/Payload/Runner.app/Info.plist"), "utf8"), base.data);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("signed provenance requires the export identity and exact normalization contract", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-export-provenance-"));
+  try {
+    const args = provenanceArgs(root);
+    for (const [key, value, pattern] of [
+      ["export-sha256", "", /Xcode export identity/],
+      ["export-sha256", "unbound", /Xcode export identity/],
+      ["ipa-metadata-contract", "", /metadata contract/],
+      ["ipa-metadata-contract", "unreviewed-transform", /metadata contract/],
+    ]) assert.throws(() => buildProvenance(new Map([...args, [key, value]])), pattern);
+    assert.throws(() => buildProvenance(new Map([...args, ["mode", "unsigned"]])), /cannot have IPA export metadata/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+for (const [field, value] of [
+  ['internalAttributes', 1], ['internalAttributes', 0x0100],
+  ['internalAttributes', 0x4142], ['internalAttributes', 0xffff],
+  ['madeBy', 0x4142], ['madeBy', (3 << 8) | 0xff],
+  ['neededVersion', 0x4142], ['localVersion', 0x4142],
+  ['externalAttributes', 0x81a44142], ['externalAttributes', 0x41a4],
+]) {
+  test(`unreviewed ZIP header ${field}=${value} cannot survive canonicalization`, () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), 'settleora-ipa-header-'));
+    const input = path.join(root, 'input.ipa'), output = path.join(root, 'output.ipa');
+    try {
+      const bytes = makeStoredZip([{ name: 'Payload/Runner.app/Runner', data: 'unchanged payload', [field]: value }]);
+      writeFileSync(input, bytes);
+      assert.throws(() => verifyTestIpa(input), /Unsafe IPA archive/);
+      assert.throws(() => canonicalizeOpenedIpa(openSync(input, 'r'), output), /Unsafe IPA archive/);
+      assert.equal(existsSync(output), false);
+      assert.deepEqual(readFileSync(input), bytes);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+}
+
+test('bounded ZIP producer and executable metadata preserve valid payloads', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'settleora-ipa-header-control-'));
+  try {
+    let index = 0;
+    for (const system of [3, 19]) for (const version of [20, 30]) {
+      for (const entry of [
+        { name: 'Payload/Runner.app/file', neededVersion: 10 },
+        { name: 'Payload/Runner.app/file', deflateLevel: 6 },
+        { name: 'Payload/Runner.app/Runner', mode: 0o100755, dataDescriptor: true },
+        { name: 'Payload/Runner.app/', mode: 0o040755 },
+      ]) {
+        const input = path.join(root, `input-${index}.ipa`);
+        const output = path.join(root, `output-${index++}.ipa`);
+        const bytes = makeStoredZip([{ ...entry, madeBy: (system << 8) | version }]);
+        writeFileSync(input, bytes);
+        assert.equal(verifyTestIpa(input), sha256(bytes));
+        const observed = canonicalizeOpenedIpa(openSync(input, 'r'), output);
+        assert.equal(observed.metadataFieldsNormalized, 0);
+        assert.deepEqual(readFileSync(output), bytes);
+      }
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+function retainedSignedArtifactFixture() {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'settleora-verified-retention-'));
+  const mobile = path.join(root, 'apps/mobile');
+  const ipa = path.join(mobile, 'build/ios/ipa/Runner.ipa');
+  const archive = path.join(mobile, 'build/ios/retained-archive/Runner.xcarchive');
+  const provenance = path.join(mobile, 'build/ios/release-provenance.json');
+  mkdirSync(path.dirname(ipa), { recursive: true });
+  mkdirSync(archive, { recursive: true });
+  writeFileSync(ipa, 'disposable package retention control');
+  writeFileSync(path.join(archive, 'Info.plist'), 'disposable constrained archive');
+  writeFileSync(provenance, '{"test":"verified-set"}\n');
+  return { root, mobile, ipa, archive, provenance };
+}
+
+function selectedSignedArtifacts(fixture) {
+  const workflow = readFileSync(path.join(repoRoot, 'codemagic.yaml'), 'utf8');
+  const selectors = [...workflow.matchAll(/^\s+- (\$CM_BUILD_DIR\/apps\/mobile\/build\/ios\/.*)$/gm)]
+    .map((match) => match[1].replace('$CM_BUILD_DIR/', ''));
+  const ios = path.join(fixture.mobile, 'build/ios');
+  const relative = ['ipa/Runner.ipa', 'retained-archive/Runner.xcarchive', 'release-provenance.json'];
+  return ['', '.settleora-verified-artifacts/', 'verified-artifacts/'].flatMap((prefix) =>
+    relative.map((name) => path.join(ios, prefix, name)))
+    .filter((file) => existsSync(file) && selectors.some((selector) =>
+      path.matchesGlob(path.relative(fixture.root, file), selector)));
+}
+
+function stageSignedArtifactFixture(fixture, { ipaSha, archiveSha, prelude = '' } = {}) {
+  const script = readFileSync(path.join(repoRoot, 'apps/mobile/tool/build-production-ios.sh'), 'utf8');
+  const functionBody = script.match(/^retain_verified_signed_artifacts\(\) \{[\s\S]*?^\}/m)?.[0];
+  assert.ok(functionBody, 'wrapper must stage only the complete verified artifact set');
+  const result = spawnSync('bash', ['-c', `set -euo pipefail
+mobile_root=$1
+tool_root=$2
+artifact_path=$3
+archive_path=$4
+provenance_out=$5
+artifact_sha=$6
+archive_sha=$7
+fail() { printf '%s\\n' "$1" >&2; exit 1; }
+sha256_file() { shasum -a 256 "$1" | awk '{print $1}'; }
+${functionBody}
+${prelude}
+retain_verified_signed_artifacts
+`, 'retention-control', fixture.mobile, repoRoot, fixture.ipa, fixture.archive,
+    fixture.provenance, ipaSha ?? sha256(readFileSync(fixture.ipa)), archiveSha ?? hashDirectory(fixture.archive)],
+  { encoding: 'utf8' });
+  return result;
+}
+
+test('rejected IPA bytes and incomplete package outputs are outside artifact selectors', () => {
+  const fixture = retainedSignedArtifactFixture();
+  try {
+    const before = readFileSync(fixture.ipa);
+    const rejected = spawnSync(process.execPath, [path.join(repoRoot, 'tools/ocr-models/verify-ipa-archive.mjs'), '--canonicalize-export-metadata'], {
+      cwd: fixture.mobile, encoding: 'utf8',
+    });
+    assert.notEqual(rejected.status, 0);
+    assert.equal(rejected.stderr, 'canonical_ipa_verification_failed\n');
+    assert.deepEqual(selectedSignedArtifacts(fixture), []);
+    assert.deepEqual(readFileSync(fixture.ipa), before, 'rejected source evidence is preserved');
+    assert.ok(existsSync(fixture.archive), 'unqualified archive remains local, outside selectors');
+    assert.ok(existsSync(fixture.provenance), 'unqualified provenance is not selected');
+  } finally { rmSync(fixture.root, { recursive: true, force: true }); }
+});
+
+for (const failure of ['ipa identity', 'archive identity', 'copy failure', 'interrupted finalization']) {
+  test(`incomplete signed artifact staging is never retained: ${failure}`, () => {
+    const fixture = retainedSignedArtifactFixture();
+    try {
+      const result = stageSignedArtifactFixture(fixture, {
+        ...(failure === 'ipa identity' ? { ipaSha: '0'.repeat(64) } : {}),
+        ...(failure === 'archive identity' ? { archiveSha: '0'.repeat(64) } : {}),
+        prelude: failure === 'copy failure' ? 'cp() { command cp "$@"; return 9; }'
+          : failure === 'interrupted finalization' ? 'mv() { exit 9; }' : '',
+      });
+      assert.notEqual(result.status, 0, result.stderr);
+      if (failure === 'ipa identity') assert.match(result.stderr, /staged IPA identity differs/);
+      if (failure === 'archive identity') assert.match(result.stderr, /staged archive identity differs/);
+      if (failure === 'copy failure' || failure === 'interrupted finalization') assert.equal(result.status, 9);
+      assert.deepEqual(selectedSignedArtifacts(fixture), []);
+      assert.ok(existsSync(fixture.ipa));
+      assert.ok(existsSync(fixture.archive));
+      assert.ok(existsSync(fixture.provenance));
+    } finally { rmSync(fixture.root, { recursive: true, force: true }); }
+  });
+}
+
+test('only the complete identity-bound signed artifact set becomes retained', () => {
+  const fixture = retainedSignedArtifactFixture();
+  try {
+    const result = stageSignedArtifactFixture(fixture);
+    assert.equal(result.status, 0, result.stderr);
+    const retained = path.join(fixture.mobile, 'build/ios/verified-artifacts');
+    assert.deepEqual(selectedSignedArtifacts(fixture).sort(), [
+      path.join(retained, 'ipa/Runner.ipa'), path.join(retained, 'retained-archive/Runner.xcarchive'),
+      path.join(retained, 'release-provenance.json'),
+    ].sort());
+    assert.deepEqual(readFileSync(path.join(retained, 'ipa/Runner.ipa')), readFileSync(fixture.ipa));
+    assert.equal(hashDirectory(path.join(retained, 'retained-archive/Runner.xcarchive')), hashDirectory(fixture.archive));
+    assert.deepEqual(readFileSync(path.join(retained, 'release-provenance.json')), readFileSync(fixture.provenance));
+    const repeated = stageSignedArtifactFixture(fixture);
+    assert.notEqual(repeated.status, 0);
+    assert.match(repeated.stderr, /destination already exists/);
+    assert.equal(selectedSignedArtifacts(fixture).length, 3);
+  } finally { rmSync(fixture.root, { recursive: true, force: true }); }
+});
+
+test('signed artifact retention occurs only after package, archive and provenance verification', () => {
+  const script = readFileSync(path.join(repoRoot, 'apps/mobile/tool/build-production-ios.sh'), 'utf8');
+  const invocation = '\n    retain_verified_signed_artifacts\n';
+  assert.equal(script.split(invocation).length - 1, 1);
+  const boundary = script.indexOf(invocation);
+  for (const gate of ['verify-ipa-archive.mjs', 'verify-mobile-package.mjs', 'verify-ios-xcarchive.mjs',
+    'xcarchive changed after privacy inspection', 'write-ios-release-provenance.mjs',
+    'IPA changed while provenance was generated']) {
+    assert.ok(script.indexOf(gate) >= 0 && script.lastIndexOf(gate) < boundary, gate);
+  }
+  assert.match(script.slice(script.lastIndexOf('  if [[ "$mode" == signed ]]; then', boundary), boundary),
+    /IPA changed while provenance was generated/);
 });

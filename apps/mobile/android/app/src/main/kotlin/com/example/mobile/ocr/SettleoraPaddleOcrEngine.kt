@@ -19,10 +19,11 @@ import org.opencv.core.Mat
 /**
  * Settleora's Android PaddleOCR/ONNX Runtime boundary.
  *
- * Detection runs once. The always-available common recognizer routes strong
- * common-script lines directly; only ambiguous lines receive a bounded pass
- * through the five Global Core specialists. A fixed calibrated selector then
- * chooses the compatible result without using phone locale.
+ * Detection runs once. The common recognizer and all five Global Core
+ * specialists probe both orientations, followed by eligible Cyrillic margin
+ * candidates, before the fixed selector chooses a compatible result. Polish,
+ * calendar-date and rupee recovery then use that frozen selection and
+ * orientation without using phone locale.
  */
 class SettleoraPaddleOcrEngine(context: Context) {
     private val appContext = context.applicationContext
@@ -31,6 +32,7 @@ class SettleoraPaddleOcrEngine(context: Context) {
     private val sessions = ORTSessionManager(appContext, EngineConfig())
     private val detector: DetectionEngine
     private val packs: List<RecognizerPack>
+    private val rupeePack: RecognizerPack?
 
     val coldLoadTimeMs: Long
         get() = sessions.coldLoadTimeMs
@@ -46,16 +48,22 @@ class SettleoraPaddleOcrEngine(context: Context) {
                 characters = ModelConfig.parse(appContext, spec.configAssetPath).characterList,
             )
         }
+        val recoveryPack = catalog.rupeeRecovery?.let { spec ->
+            RecognizerPack(spec, ModelConfig.parse(appContext, spec.configAssetPath).characterList)
+        }
         try {
             sessions.loadModels(
                 catalog.detection.modelAssetPath,
-                configuredPacks.associate { it.spec.modelPackId to it.spec.modelAssetPath },
+                (configuredPacks + listOfNotNull(recoveryPack)).associate {
+                    it.spec.modelPackId to it.spec.modelAssetPath
+                },
             )
         } catch (error: Throwable) {
             sessions.release()
             throw error
         }
         packs = configuredPacks
+        rupeePack = recoveryPack
         detector = DetectionEngine(sessions, config)
     }
 
@@ -236,8 +244,10 @@ class SettleoraPaddleOcrEngine(context: Context) {
                         reverseRecognition = reverseRecognition,
                     )
 
-                    // Freeze the original winners and orientation. Recovery must
-                    // not create its own corroboration or displace other probes.
+                    // Freeze the winners of the original probes plus eligible
+                    // Cyrillic margin candidates and their selected orientation.
+                    // Later Polish/date/rupee recovery cannot create its own
+                    // corroboration or change this orientation.
                     val original = candidatesByLine.map(ScriptRouteSelector::select)
                     val recoveryPoints = validBoxes.map { (_, box) ->
                         box.points.map { point ->
@@ -276,8 +286,37 @@ class SettleoraPaddleOcrEngine(context: Context) {
                         }
                     }
 
+                    val rupeeRecovery = arrayOfNulls<ScriptCandidate>(crops.size)
+                    val originalCommon = candidatesByLine.map { candidates ->
+                        candidates.singleOrNull { it.pack == commonPack.spec }
+                    }
+                    rupeePack?.let { recoveryPack ->
+                        for (batchIndices in batchesFor(crops, crops.indices)) {
+                            if (batchIndices.none {
+                                RupeeCurrencyRecovery.shouldProbe(it, original, originalCommon, recoveryPoints)
+                            }) continue
+                            val batchStart = System.currentTimeMillis()
+                            val input = RecPreprocessor.preprocessBatch(batchIndices.map { crops[it] })
+                            val decoded = sessions.runRecognitionDecoded(
+                                recoveryPack.spec.modelPackId, input.tensorData, input.shape, recoveryPack.characters,
+                            )
+                            recognitionTimeMs += System.currentTimeMillis() - batchStart
+                            check(decoded.size == batchIndices.size) { "Recognition batch size mismatch" }
+                            decoded.forEachIndexed { offset, value ->
+                                val index = batchIndices[offset]
+                                val candidate = ScriptCandidate(
+                                    RecognizedTextNormalizer.normalize(value.first.trim(), recoveryPack.spec),
+                                    value.second, recoveryPack.spec,
+                                )
+                                if (RupeeCurrencyRecovery.accepts(
+                                    index, original, originalCommon, recoveryPoints, candidate, recoveryPack.spec,
+                                )) rupeeRecovery[index] = candidate
+                            }
+                        }
+                    }
+
                     original.forEachIndexed { index, selected ->
-                        val accepted = commonRecovery[index] ?: selected
+                        val accepted = rupeeRecovery[index] ?: commonRecovery[index] ?: selected
                         if (accepted != null && accepted.confidence >= config.recScoreThresh) {
                             val (order, box) = validBoxes[index]
                             blocks += SettleoraOcrBlock(

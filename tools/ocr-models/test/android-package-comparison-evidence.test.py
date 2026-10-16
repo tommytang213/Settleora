@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import warnings
 import zipfile
 from pathlib import Path
 
@@ -38,13 +39,16 @@ def elf(build_id=b"\x12" * 20, text=PRIVATE):
     return ident + header + note + text + null + note_header + text_header
 
 
-def package(path, libraries=None):
+def package(path, libraries=None, include_recovery=True):
     libraries = LIBRARIES if libraries is None else libraries
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for name in libraries:
             archive.writestr(name, elf())
         for index in range(444 - len(libraries)):
             archive.writestr(f"assets/safe-{index:03d}.bin", b"SAFE")
+        if include_recovery:
+            for name in ("inference.onnx", "inference.yml"):
+                archive.writestr(f"assets/receipt_ocr_models/ppocrv6-tiny-rec/{name}", b"SAFE")
 
 
 class PackageComparisonEvidenceTest(unittest.TestCase):
@@ -73,8 +77,8 @@ class PackageComparisonEvidenceTest(unittest.TestCase):
         self.assertNotIn(b"assets/safe-", raw)
         evidence = json.loads(raw)
         self.assertEqual(evidence["schemaVersion"], 2)
-        self.assertEqual(evidence["entryCount"], 444)
-        self.assertEqual(evidence["otherEntryCount"], 438)
+        self.assertEqual(evidence["entryCount"], 446)
+        self.assertEqual(evidence["otherEntryCount"], 440)
         self.assertEqual([row["path"] for row in evidence["nativeLibraries"]],
                          sorted(LIBRARIES))
         for row in evidence["nativeLibraries"]:
@@ -84,6 +88,42 @@ class PackageComparisonEvidenceTest(unittest.TestCase):
             self.assertEqual(row["zip"]["method"], 8)
             self.assertEqual(len(row["zip"]["compressedSha256"]), 64)
             self.assertEqual(row["elf"]["sections"][2]["bytes"], len(PRIVATE))
+
+    def test_additional_recovery_model_pair_produces_bounded_evidence(self):
+        package(self.apk, include_recovery=True)
+        result = self.run_tool()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        evidence = json.loads(self.output.read_text())
+        self.assertEqual(evidence["entryCount"], 446)
+        self.assertEqual(evidence["otherEntryCount"], 440)
+        self.assertNotIn(PRIVATE, self.output.read_bytes())
+
+    def test_rejects_missing_or_extra_entries(self):
+        with zipfile.ZipFile(self.apk) as archive:
+            original = [(entry.filename, archive.read(entry)) for entry in archive.infolist()]
+        for count in (444, 445, 447):
+            with self.subTest(count=count):
+                entries = (original[:count] if count < 446 else
+                           original + [("assets/extra.bin", b"SAFE")])
+                with zipfile.ZipFile(self.apk, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                    for name, content in entries:
+                        archive.writestr(name, content)
+                result = self.run_tool()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(self.output.exists())
+
+    def test_rejects_duplicate_at_expected_entry_count(self):
+        with zipfile.ZipFile(self.apk) as archive:
+            entries = [(entry.filename, archive.read(entry)) for entry in archive.infolist()]
+        entries[-1] = (entries[-2][0], entries[-1][1])
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            with zipfile.ZipFile(self.apk, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                for name, content in entries:
+                    archive.writestr(name, content)
+        result = self.run_tool()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.output.exists())
 
     def test_rejects_unlisted_or_missing_library(self):
         package(self.apk, LIBRARIES[:-1])
@@ -113,7 +153,7 @@ class PackageComparisonEvidenceTest(unittest.TestCase):
         with zipfile.ZipFile(self.apk, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             for name in LIBRARIES:
                 archive.writestr(name, bad if name == LIBRARIES[0] else elf())
-            for index in range(438):
+            for index in range(440):
                 archive.writestr(f"assets/safe-{index:03d}.bin", b"SAFE")
         result = self.run_tool()
         self.assertNotEqual(result.returncode, 0)
@@ -128,7 +168,7 @@ class PackageComparisonEvidenceTest(unittest.TestCase):
                 entry.compress_type = zipfile.ZIP_DEFLATED
                 entry.extra = struct.pack("<HH4s", 0xD935, 4, b"ABCD")
                 archive.writestr(entry, elf())
-            for index in range(438):
+            for index in range(440):
                 archive.writestr(f"assets/safe-{index:03d}.bin", b"SAFE")
         result = self.run_tool()
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -146,7 +186,7 @@ class PackageComparisonEvidenceTest(unittest.TestCase):
                 entry.compress_type = zipfile.ZIP_DEFLATED
                 entry.extra = struct.pack("<HH4s", 0xD935, 12, b"ABCD")
                 archive.writestr(entry, elf())
-            for index in range(438):
+            for index in range(440):
                 archive.writestr(f"assets/safe-{index:03d}.bin", b"SAFE")
         result = self.run_tool()
         self.assertNotEqual(result.returncode, 0)
@@ -164,7 +204,7 @@ class PackageComparisonEvidenceTest(unittest.TestCase):
         with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             for name in LIBRARIES:
                 archive.writestr(name, elf())
-            for index in range(438):
+            for index in range(440):
                 archive.writestr(f"assets/safe-{index:03d}.bin", b"SAFE")
         self.apk.write_bytes(output.getvalue())
 

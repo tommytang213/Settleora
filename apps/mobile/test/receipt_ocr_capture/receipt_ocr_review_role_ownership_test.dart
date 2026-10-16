@@ -113,7 +113,7 @@ void main() {
   }
 
   test(
-    'one promotion detail and its subtotal discount summary are one role',
+    'equal promotion and subtotal discount retain ambiguous ownership',
     () {
       final p = parse(promotion());
       expect(p.items.map((i) => [i.description, i.lineTotal]), [
@@ -121,8 +121,12 @@ void main() {
       ]);
       expect([p.subtotal, p.discount, p.total], ['8.00', '-3.00', '5.00']);
       expect(p.discountBeforeSubtotal, isFalse);
-      expect(p.adjustmentsComplete, isTrue);
-      expect(p.reviewHints, isEmpty);
+      expect(p.adjustmentsComplete, isFalse);
+      expect(
+        p.incompleteAdjustmentReasons,
+        contains(ReceiptOcrIncompleteAdjustmentReason.repeatedAdjustmentRole),
+      );
+      expect(p.reviewHints, isNotEmpty);
     },
   );
 
@@ -135,7 +139,12 @@ void main() {
       ),
     );
     expect([p.subtotal, p.discount, p.total], ['8.00', '-8.00', '0.00']);
-    expect(p.reviewHints, isEmpty);
+    expect(p.adjustmentsComplete, isFalse);
+    expect(
+      p.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.repeatedAdjustmentRole),
+    );
+    expect(p.reviewHints, isNotEmpty);
   });
 
   for (final value in ['5.00', '8.00']) {

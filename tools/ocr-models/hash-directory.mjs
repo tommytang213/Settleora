@@ -53,8 +53,8 @@ export function hashDirectory(root) {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
-  if (process.argv.length !== 3 || !new Set(["app", "archive"]).has(process.argv[2])) {
-    throw new Error("Usage: hash-directory.mjs <app|archive>");
+  if (process.argv.length !== 3 || !new Set(["app", "archive", "retained-archive"]).has(process.argv[2])) {
+    throw new Error("Usage: hash-directory.mjs <app|archive|retained-archive>");
   }
   const buildRoot = path.resolve("build");
   const iosBuildRoot = path.join(buildRoot, "ios");
@@ -73,7 +73,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
     }
     artifactRoot = path.join(appRoot, "Runner.app");
   } else {
-    const archiveRoot = path.join(iosBuildRoot, "archive");
+    const archiveRoot = path.join(iosBuildRoot, process.argv[2]);
     const archiveRootStat = lstatSync(archiveRoot);
     if (!archiveRootStat.isDirectory() || archiveRootStat.isSymbolicLink()) {
       throw new Error("iOS build path components must be real directories");

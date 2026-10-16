@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "catalogId": "settleora-mobile-ocr-global-core",
-  "catalogVersion": "2026.09.18.1",
+  "catalogVersion": "2026.10.12.1",
   "runtimeFormat": "onnx",
   "distribution": "bundled_global_core",
   "license": "Apache-2.0",
@@ -21,9 +21,9 @@
       "path": "apps/mobile/test/fixtures/receipt_ocr",
       "schemaVersion": 2,
       "entryCount": 101,
-      "manifestSha256": "7a790e8a28b949e50293ea51eac8ec2a5f6c63bf535428e36a6a99a7cf34b200",
+      "manifestSha256": "49db257fee1b111167629b4406d9a21dcca39bc418dccbd7e338418724b9a9a1",
       "treeDigestAlgorithm": "sha256-of-sorted-sha256sum-v1",
-      "treeSha256": "b3f81d47d25fde8310f1c9f601bb060c2cc98a02cf98f28a52a26b0e26d702fe"
+      "treeSha256": "ae083cac8b0c19dca168b9d47b79d50ef7cf19cb0c9ca0923adfe57fe7968231"
     },
     "preprocessing": {
       "files": [
@@ -39,17 +39,18 @@
     },
     "nativeSemantics": {
       "files": [
-        { "path": "apps/mobile/integration_test/receipt_ocr_real_provider_test.dart", "sha256": "34a6e1f35ebeefb801209a44e67cbc6b7ca79359420d038aceffcbf75499567d" },
-        { "path": "apps/mobile/integration_test/support/receipt_ocr_fixture_contract.dart", "sha256": "9b2287a1afb4dc8120680060386f58baa3e5443a5af2d075d99cb4bc0502ab90" },
+        { "path": "apps/mobile/integration_test/receipt_ocr_real_provider_test.dart", "sha256": "e60c95bf10de0400005621aafc671502546b22128fd03d641fdbc2f8af1e4e83" },
+        { "path": "apps/mobile/integration_test/support/receipt_ocr_fixture_contract.dart", "sha256": "458ca6cf027f74565fe611e8801b4f4bfcfa95b7fff317a716da7e7d3ede9fdd" },
+        { "path": "apps/mobile/integration_test/support/receipt_ocr_model_catalog_evidence.dart", "sha256": "061102214f5a2d02c1100b2e765c2bf00843f45145fa94b96d5794435f088bc7" },
         { "path": "apps/mobile/lib/app/app_bootstrap.dart", "sha256": "bfc2ea06825d3b7162f6f08b68b0413e62320523b3c087a6abc27aecc8b1d875" },
         { "path": "apps/mobile/lib/app/server_mode_shell.dart", "sha256": "7bc1b89910d260c5652810265b8a9985896fe62e852f65aa24d44d5fa2d8459e" },
-        { "path": "apps/mobile/lib/bills/bill_list_screen.dart", "sha256": "ad2f07f227155159ed0dae9e71f9522802954c0e39d9d042cb2ec26a1f9a2407" },
+        { "path": "apps/mobile/lib/bills/bill_list_screen.dart", "sha256": "0afc87aa1c7bca9a28c3a7cf7dd55acc54a2d5166cda3d77bc79c22e9046153e" },
         { "path": "apps/mobile/lib/groups/group_list_screen.dart", "sha256": "62497fd2753850b88d93b1b0e40d2e982ba560209fb36321aa986b7d1fbdc473" },
         { "path": "apps/mobile/lib/main.dart", "sha256": "b91c1fe701d9412c3a85880186016609d8ba460d1f6584fa3b5be5873ab36b89" },
         { "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_provider.dart", "sha256": "a3331597a312cc3bd90a9a026b4bd6901b07f0c38dd7dac00a2a7c2c19ada90e" },
         { "path": "apps/mobile/lib/receipt_ocr_capture/mlkit_receipt_ocr_provider.dart", "sha256": "a7f552b7e9601814e2fe2d6ed1b5d57b86678edd2438ccba8bcd3cb3e68ff9cb" },
         { "path": "apps/mobile/lib/receipt_ocr_capture/paddle_receipt_ocr_provider.dart", "sha256": "bab2702484fbcc48b3e5a985fbbb70467a5714713ad3e0c520aa542768620eeb" },
-        { "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_preview.dart", "sha256": "10b35ada0fc46876755dad0fc86824cdb0d0a4c8cf0b023e8038d0f55e427143" },
+        { "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_preview.dart", "sha256": "97826c2cffb0ce914c86b8df9708fde59d83e2f1e777636ce29e8ad2a3b73a0a" },
         { "path": "apps/mobile/lib/ui/settleora_form_fields.dart", "sha256": "ff5669f541437bef62d562109573f32506273dd90593874c8ffcde6355145079" },
         { "path": "apps/mobile/pubspec.yaml", "sha256": "f5a9968dbb7e1f7ab58b780e9b3f8e049d6008cd339e3df2d748e33e0ab76030" },
         { "path": "apps/mobile/pubspec.lock", "sha256": "065007a0c8b90d527aff6306936a02cd527d30f03800cc8e4229e8273d3afcc7" },
@@ -62,12 +63,13 @@
         { "path": "apps/mobile/android/app/src/debug/kotlin/com/example/mobile/ReceiptOcrBuildVariantHooks.kt", "sha256": "6dccabb35821036507d3b20f3cb8c2d32be9c440beb6f57df165cea3008db094" },
         { "path": "apps/mobile/android/app/src/profile/kotlin/com/example/mobile/ReceiptOcrBuildVariantHooks.kt", "sha256": "7211a67bc9eefb49508a355d99c2967a1132c7123b976c7698da44c406583bbe" },
         { "path": "apps/mobile/android/app/src/release/kotlin/com/example/mobile/ReceiptOcrBuildVariantHooks.kt", "sha256": "c5ad40a709e98116a2f758bff1c92b34ef21d5d79cb37842ba927ecf8b8e3677" },
-        { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/MobileOcrModelCatalog.kt", "sha256": "ddd18b4bb539c600588973421e96fb4969154a45c2b0d70454ad8d7d280b69b2" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/MobileOcrModelCatalog.kt", "sha256": "4dfeccf3a1e7eda93c164ea4d0dbfbc9294f8875f3af68af7e993947051331f5" },
         { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ReceiptOcrFailureClassifier.kt", "sha256": "37876e59de2484949d9adc60d27288f259ab5b27986e57bd0cfec40d6e848cc7" },
-        { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/SettleoraPaddleOcrEngine.kt", "sha256": "782f08c34da1be5952f4ea697be06ac33ec95bf61bb1e5075f1a0233923b77f5" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/SettleoraPaddleOcrEngine.kt", "sha256": "24147f62361659a09dabff69b8bf76ec0880d35051767e9b3079547ad03f779f" },
         { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ReceiptDocumentOrientation.kt", "sha256": "9de568aea43c69b4946f1a7dcd01d75d16daf7f0d8364d892980551744a95ec0" },
         { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ReceiptOrientationSelector.kt", "sha256": "cc31a1f9a45c15d026fb25d39a36c0aeb70d1ac8eb1248cdc0ef8d6981f518de" },
         { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ScriptRouteSelector.kt", "sha256": "380c8a8ee85e3cd2a19b90f851a0be40e199b0c6cefe159cf3150a1bc5f70c7c" },
+        { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/RupeeCurrencyRecovery.kt", "sha256": "fb0b7512a5a1c0f86326a3de148f94e1f090434bfb954b3d902919966bc9ec15" },
         { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/RecognizedTextNormalizer.kt", "sha256": "274f32c1223564d4f9bd4d061246782ed7c80a05a525c046c95ec6e5f5c30550" },
         { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ReceiptBlockOrder.kt", "sha256": "0261a7a1a04b6da653133767d07a6c168c2a9dd9dfacf34e2ce191386ada6871" },
         { "path": "apps/mobile/android/app/src/main/kotlin/com/example/mobile/ocr/ReceiptOcrInputLimits.kt", "sha256": "202ece68e63930c667297115fe162a9780b6c85ff8b1bfb0344598fcad40c11d" },
@@ -94,7 +96,7 @@
         { "path": "apps/mobile/ios/Podfile", "sha256": "8de8af012ce22e4f4ba2e6241733a61aa16e9af47dad342c4e7295fb474c52a5" },
         { "path": "apps/mobile/ios/Podfile.lock", "sha256": "a5b6068c71fe9b0a77743d5c639b5538dd2be10db7ddd4ecd9317fee03541903" },
         { "path": "tools/ocr-models/baselines/ios-pre-native-Podfile.lock", "sha256": "486ba24476c7ae0be32927fa9239599749f285d7a5a48129caebe4437ed6cc30" },
-        { "path": "apps/mobile/ios/Runner.xcodeproj/project.pbxproj", "sha256": "35b7e011a241fdb718c323ab58afdb72b7e3a7812d8e37de1ad03612407c12c9" },
+        { "path": "apps/mobile/ios/Runner.xcodeproj/project.pbxproj", "sha256": "35fe9c41447bcd6c63b12f15c635ec4b12402468ac4852682a07b5abc740c11a" },
         { "path": "apps/mobile/ios/Runner/AppDelegate.swift", "sha256": "991e81eb3b6be2a8f4625f2d7c00d5caa2996845c381b512d0efbf36300e3f17" },
         { "path": "apps/mobile/ios/Runner/PaddleOCR/Engine/BoxSorter.swift", "sha256": "8712e9972fcb64f14ed5da13dfceab3dd7d4f952372931c943cfee5526bec7de" },
         { "path": "apps/mobile/ios/Runner/PaddleOCR/Engine/CTCDecoder.swift", "sha256": "c6ad6b9d40bbe127971f89d9dfa943ed8d35174ebf35a2993d2edf3054f5e3c6" },
@@ -115,8 +117,9 @@
         { "path": "apps/mobile/ios/Runner/PaddleOCR/ReceiptDocumentOrientation.swift", "sha256": "1ec4ab12524f6dd02f354557301c6aacee5211bbf06adf422afc824d8170decd" },
         { "path": "apps/mobile/ios/Runner/PaddleOCR/ReceiptOcrOrdering.swift", "sha256": "4f83557452e0df4032ec83e1e8ff842619947b059a19174f6448d871d2bdb43e" },
         { "path": "apps/mobile/ios/Runner/PaddleOCR/SettleoraORTSessionManager.swift", "sha256": "f08afd41d7e301105e49e2e92677071c4ac1e995e84c63b07e345329a26208c8" },
-        { "path": "apps/mobile/ios/Runner/PaddleOCR/SettleoraOcrModels.swift", "sha256": "eb2146759a32f7532c1b5e9855ac2e572964c3bbc23deff0ce5925b70fa7178b" },
-        { "path": "apps/mobile/ios/Runner/PaddleOCR/SettleoraPaddleOcrEngine.swift", "sha256": "e5cea15a8b1b1763e8e4d2ba2517e3587f7169465e5bc51faa34210553432547" },
+        { "path": "apps/mobile/ios/Runner/PaddleOCR/SettleoraOcrModels.swift", "sha256": "01787c637497e963f07214e0cd21b1763cff929fdbc123a9c791e8294ec82fcc" },
+        { "path": "apps/mobile/ios/Runner/PaddleOCR/RupeeCurrencyRecovery.swift", "sha256": "4f12b299f6464797272a66d18cfeef6dd46e2247e99487e3d3eb76b3780cc81f" },
+        { "path": "apps/mobile/ios/Runner/PaddleOCR/SettleoraPaddleOcrEngine.swift", "sha256": "5fdc2bac7caf12cc2eb3456680b73746c0d28b21377676ffb09da58e0755ae50" },
         { "path": "apps/mobile/ios/Runner/PaddleOCR/ThirdParty/Clipper1/clipper.cpp", "sha256": "711f4374ca6e80ca50d786fd53fba20db394a1bae2a8d0d71b38cff535698ec8" },
         { "path": "apps/mobile/ios/Runner/PaddleOCR/ThirdParty/Clipper1/clipper.hpp", "sha256": "e37c594a918940da4e5d0436c5ab91bd0f6148e6c16a5e9d362514ca8f3923e7" },
         { "path": "apps/mobile/ios/Runner/Runner-Bridging-Header.h", "sha256": "ba43def7f8ea1e275d951793d16d08bea9f7db12e89515eaee072bb72920350c" },
@@ -125,10 +128,10 @@
     },
     "parser": {
       "path": "apps/mobile/lib/receipt_ocr_capture/receipt_ocr_parser.dart",
-      "sha256": "a05afaabedadaf500d5e9cd2d50d5da69229376fe5ee3af6bc198a74308f11ba"
+      "sha256": "017e5ebd462abf77f764b01ae3dd662e37e38b1aea78b8f0b9ab50a23cae1a0f"
     }
   },
-  "totalBundledBytes": 76580102,
+  "totalBundledBytes": 81098312,
   "packs": [
     {
       "modelPackId": "paddleocr.ppocrv6.small.det",
@@ -337,6 +340,39 @@
           "name": "inference.yml",
           "bytes": 4667,
           "sha256": "f6ba7fefc38ca1ff398ddafa75d67d16e0b3757c4e6c833adffee98a981766c9"
+        }
+      ]
+    },
+    {
+      "modelPackId": "paddleocr.ppocrv6.tiny.rec.common",
+      "modelVersion": "2612ab37152ae0a677521bae4e1e3d4fb4cf7c30",
+      "modelName": "PP-OCRv6_tiny_rec",
+      "role": "recognition_recovery",
+      "recoveryPolicy": "corroborated_rupee_money",
+      "routeScripts": [
+        "Latin"
+      ],
+      "inference": {
+        "irVersion": 6,
+        "opset": 11,
+        "inputName": "x",
+        "inputChannels": 3,
+        "inputHeight": 48,
+        "outputName": "fetch_name_0",
+        "outputClasses": 6906
+      },
+      "assetDirectory": "assets/receipt_ocr_models/ppocrv6-tiny-rec",
+      "sourceRepository": "PaddlePaddle/PP-OCRv6_tiny_rec_onnx",
+      "files": [
+        {
+          "name": "inference.onnx",
+          "bytes": 4462639,
+          "sha256": "9ef676d6ed3c88256a2d92c640c44f25b0c40947e111b14b8be8f594091563e6"
+        },
+        {
+          "name": "inference.yml",
+          "bytes": 55571,
+          "sha256": "66170210bad538e83fff3c4a3867e547d6bf20b50d64b20347c4b913f3034ea1"
         }
       ]
     }

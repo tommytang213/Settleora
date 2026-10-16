@@ -15,6 +15,9 @@ fixture scripts:
 - PP-OCRv6 Small detection;
 - PP-OCRv6 Small common Latin/Chinese/Japanese recognition;
 - PP-OCRv5 Mobile Arabic, Cyrillic, Devanagari, Korean, and Thai recognition.
+- PP-OCRv6 Tiny as a recovery-only recognizer for corroborated rupee money cells.
+  Small remains the common fast path. Tiny adds no general language-coverage
+  claim and remains subject to pending native provider acceptance.
 
 `catalog.json` binds the pending acceptance contract to the immutable fixture
 corpus plus the current preprocessing and parser source hashes. Its

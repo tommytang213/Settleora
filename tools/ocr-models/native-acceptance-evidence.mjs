@@ -7,6 +7,10 @@ import { summarizeFlutterRunner } from "./flutter-runner-diagnostics.mjs";
 const maxLogBytes = 32 * 1024 * 1024;
 const maxMarkerBytes = 512 * 1024;
 const safeToken = /^[A-Za-z0-9_.:[\]-]{1,160}$/;
+// These are the only script labels in the immutable 101-fixture corpus.
+const acceptanceScripts = new Set([
+  "Arabic", "Chinese", "Cyrillic", "Devanagari", "Japanese", "Korean", "Latin", "Thai",
+]);
 const reviewedUiFixtureId = "existing_12_freshmart_grocery_en_US";
 // Observed verbatim in three successful package builds of Android job
 // 112615006322 (Flutter 3.44.8, google_mlkit_commons 0.11.1). This identifies
@@ -434,6 +438,12 @@ function parseSafeRunnerLog(log, stderrBytes, platform) {
   let protocolDone = false;
   const startedTests = new Map();
   const suites = new Set();
+  const suitePaths = new Map();
+  const loadingTests = new Map();
+  const loadingSuites = new Set();
+  const completedLoadingIds = new Set();
+  const teardownTests = new Map();
+  const completedTeardownIds = new Set();
   const groups = new Map();
   const completedTestIds = new Set();
   for (const [index, line] of log.split(/\r?\n/).entries()) {
@@ -480,6 +490,7 @@ function parseSafeRunnerLog(log, stderrBytes, platform) {
     if (event.type === "suite") {
       if (suites.has(event.suite.id)) throw new Error("Acceptance runner emitted a duplicate suite");
       suites.add(event.suite.id);
+      suitePaths.set(event.suite.id, event.suite.path);
       suiteCount += 1;
       if (!event.suite.path.endsWith("integration_test/receipt_ocr_real_provider_test.dart")) {
         throw new Error("Acceptance runner suite identity is invalid");
@@ -488,6 +499,8 @@ function parseSafeRunnerLog(log, stderrBytes, platform) {
     if (event.type === "group") {
       if (
         groups.has(event.group.id) ||
+        completedLoadingIds.size !== loadingTests.size ||
+        teardownTests.size !== 0 ||
         !suites.has(event.group.suiteID) ||
         (event.group.parentID != null && !groups.has(event.group.parentID))
       ) {
@@ -509,14 +522,56 @@ function parseSafeRunnerLog(log, stderrBytes, platform) {
       }
     }
     if (event.type === "testStart") {
+      // Flutter reports suite loading as a hidden test with no groups. Bind
+      // that lifecycle to the declared suite path, separately from the six
+      // required acceptance tests; it can never own application markers.
+      if (event.test.name === `loading ${suitePaths.get(event.test.suiteID)}`) {
+        if (
+          startedTests.has(event.test.id) || loadingTests.has(event.test.id) ||
+          !suites.has(event.test.suiteID) || loadingSuites.has(event.test.suiteID) ||
+          startedTests.size !== 0 || groups.size !== 0 ||
+          event.test.groupIDs.length !== 0 || event.test.metadata.skip ||
+          event.test.metadata.skipReason !== null || event.test.line !== null ||
+          event.test.column !== null || event.test.url !== null
+        ) {
+          throw new Error("Acceptance runner emitted an invalid suite-loading test");
+        }
+        loadingTests.set(event.test.id, event.test.suiteID);
+        loadingSuites.add(event.test.suiteID);
+        continue;
+      }
       const referencedGroups = event.test.groupIDs.map((id) => groups.get(id));
       const validGroupChain = referencedGroups.length > 0 && referencedGroups.every(
         (group, groupIndex) => group != null &&
           group.suiteID === event.test.suiteID &&
           group.parentID === (groupIndex === 0 ? null : event.test.groupIDs[groupIndex - 1]),
       );
+      // integration_test registers one root tearDownAll hook. It is a hidden
+      // framework lifecycle test after the six acceptance tests, never an
+      // additional acceptance result or an owner of application output.
+      if (event.test.name === "(tearDownAll)") {
+        if (
+          teardownTests.size !== 0 || startedTests.has(event.test.id) ||
+          loadingTests.has(event.test.id) || !suites.has(event.test.suiteID) ||
+          completedLoadingIds.size !== loadingTests.size ||
+          startedTests.size !== expectedTests.size ||
+          completedTestIds.size !== expectedTests.size ||
+          !validGroupChain || event.test.groupIDs.length !== 1 ||
+          event.test.metadata.skip || event.test.metadata.skipReason !== null ||
+          event.test.url !== "package:integration_test/integration_test.dart" ||
+          event.test.line == null || event.test.line < 1 ||
+          event.test.column == null || event.test.column < 1
+        ) {
+          throw new Error("Acceptance runner emitted an invalid integration teardown test");
+        }
+        teardownTests.set(event.test.id, event.test.suiteID);
+        continue;
+      }
       if (
         startedTests.has(event.test.id) ||
+        loadingTests.has(event.test.id) ||
+        teardownTests.size !== 0 ||
+        completedLoadingIds.size !== loadingTests.size ||
         !expectedTests.has(event.test.name) ||
         !suites.has(event.test.suiteID) ||
         !validGroupChain
@@ -530,13 +585,30 @@ function parseSafeRunnerLog(log, stderrBytes, platform) {
     }
     if (event.type === "print" || event.type === "error" || event.type === "testDone") {
       const testId = event.testID;
+      if (loadingTests.has(testId) || teardownTests.has(testId)) {
+        const completed = loadingTests.has(testId) ? completedLoadingIds : completedTeardownIds;
+        if (completed.has(testId) || event.type === "print") {
+          throw new Error("Acceptance runner emitted output from an inactive, suite-loading or integration-teardown test");
+        }
+        if (event.type === "error") {
+          failedProtocolEvent = true;
+        } else {
+          completed.add(testId);
+          if (event.result !== "success" || event.skipped || !event.hidden) {
+            failedProtocolEvent = true;
+          }
+        }
+        continue;
+      }
       if (!startedTests.has(testId) || completedTestIds.has(testId)) {
         throw new Error("Acceptance runner referenced an inactive test");
       }
       if (event.type === "testDone") completedTestIds.add(testId);
     }
     if (event.type === "done") {
-      if (startedTests.size === 0 || completedTestIds.size !== startedTests.size) {
+      if (startedTests.size === 0 || completedTestIds.size !== startedTests.size ||
+          completedLoadingIds.size !== loadingTests.size ||
+          completedTeardownIds.size !== teardownTests.size) {
         throw new Error("Acceptance runner completed with unfinished tests");
       }
       doneCount += 1;
@@ -544,7 +616,7 @@ function parseSafeRunnerLog(log, stderrBytes, platform) {
       protocolDone = true;
     }
     if (
-      (event.type === "error" && event.isFailure) ||
+      event.type === "error" ||
       (event.type === "testDone" && (event.result !== "success" || event.skipped))
     ) {
       failedProtocolEvent = true;
@@ -587,6 +659,8 @@ function parseSafeRunnerLog(log, stderrBytes, platform) {
       doneCount === 1 &&
       startedTests.size === expectedTests.size &&
       completedTestIds.size === startedTests.size &&
+      completedLoadingIds.size === loadingTests.size &&
+      completedTeardownIds.size === teardownTests.size &&
       protocolSucceeded &&
       !failedProtocolEvent,
   };
@@ -617,10 +691,11 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
     if (!expectedFixtureIds?.has(fixtureId)) {
       throw new Error("Acceptance mismatch fixture is outside the immutable corpus");
     }
-    return {
-      fixtureId,
-      field: boundedToken(entry.field, `mismatches[${index}].field`),
-    };
+    const field = boundedToken(entry.field, `mismatches[${index}].field`);
+    if (!isAllowedComparisonField(field)) {
+      throw new Error("Acceptance mismatch field is outside fixed comparison diagnostics");
+    }
+    return { fixtureId, field };
   });
   const recognitionCoverage = Object.hasOwn(value, "recognitionCoverage") ? value.recognitionCoverage : [];
   if (!Array.isArray(recognitionCoverage) || recognitionCoverage.length > 101) {
@@ -889,6 +964,9 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
   const perScript = Object.fromEntries(
     scriptEntries.map(([script, counts]) => {
       boundedToken(script, "perScript key");
+      if (!acceptanceScripts.has(script)) {
+        throw new Error("Acceptance script is outside the immutable corpus labels");
+      }
       if (counts == null || typeof counts !== "object" || Array.isArray(counts)) {
         throw new Error(`perScript.${script} must be an object`);
       }
@@ -1049,13 +1127,17 @@ const rotationComparisonFields = new Set([
   "ocr_input_validation", "ocr_postprocessing", "ocr_detection_inference", "ocr_recognition_inference", "ocr_output_decode",
 ]);
 
+function isAllowedComparisonField(field) {
+  return rotationComparisonFields.has(field) ||
+    /^items\[(?:0|[1-9][0-9]{0,2})\]\.(?:description|lineTotal|quantity|unitPrice|currency)$/.test(field);
+}
+
 function sanitizeRotationComparison(value) {
   assertExactKeys(value, ["mismatchCount", "fields"], "rotation comparison");
   if (!Number.isSafeInteger(value.mismatchCount) || value.mismatchCount < 0 || value.mismatchCount > 4096 ||
       !Array.isArray(value.fields) || value.fields.length !== Math.min(value.mismatchCount, 128) ||
       new Set(value.fields).size !== value.fields.length || value.fields.some((field) =>
-        typeof field !== "string" || (!rotationComparisonFields.has(field) &&
-          !/^items\[(?:0|[1-9][0-9]{0,2})\]\.(?:description|lineTotal|quantity|unitPrice|currency)$/.test(field)))) {
+        typeof field !== "string" || !isAllowedComparisonField(field))) {
     throw new Error("Rotation comparison fields are not bounded allowlisted diagnostics");
   }
   return { mismatchCount: value.mismatchCount, fields: [...value.fields] };

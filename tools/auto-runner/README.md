@@ -1,5 +1,10 @@
 # Settleora Auto-Runner Tooling
 
+Provider note (2026-10-11): new task-scoped independent reviews use the
+subscriber-funded Grok Build CLI as described in the reviewer section below.
+Gemini-specific procedures in this document remain for jobs pinned to the
+legacy provider. Active jobs and their evidence are not migrated in place.
+
 ## Authenticated terminal validation-retry projection
 
 Deployment admission and targeted startup recovery share one read-only
@@ -442,7 +447,7 @@ referenced state is never deleted.
 
 `source-failure-convergence.mjs` defines the versioned, bounded record used by
 ordinary continuation for local validation, GitHub checks, CodeQL, Semgrep,
-Trivy, Gemini, local Codex, and GitHub Codex findings. Records are sanitized,
+Trivy, configured independent-provider, local Codex, and GitHub Codex findings. Records are sanitized,
 exact-candidate bound, fingerprinted, frozen, and deduplicated; raw provider
 payloads, logs, prompts, diffs, environment data, credentials, and scanner
 artifacts are not persisted.
@@ -687,7 +692,7 @@ deduplicated actionable GitHub finding batch that starts a new local epoch;
 `lifetimeLocalSourceChangingRounds` is monotonic telemetry and never blocks.
 Polling, pending checks, provider retries, unchanged reruns, restarts, and
 session rotation consume no nested counter. A GitHub-triggered epoch resets
-only the per-epoch local counter and must complete validation plus fresh Gemini
+only the per-epoch local counter and must complete validation plus fresh configured independent-provider
 and local Codex reviews on the same candidate identity before push.
 The production existing-PR stack adapter journals each unpushed cumulative
 candidate, freezes and deduplicates combined local reviewer findings, applies
@@ -1069,7 +1074,7 @@ and active control flags. `--json` emits the same sanitized data as JSON,
 including `maxPrs`/`completedPrs` aliases for the iteration budget used by
 current canary/trusted runner loops. The status surface does not print
 environment variables, provider payloads, API keys, authorization headers,
-`.env` values, raw Gemini output, raw Codex mechanics output, selected
+`.env` values, raw independent-reviewer output, raw Codex mechanics output, selected
 response payloads, or provider request bodies. New run summaries,
 iteration-state JSON, active-run JSON, recent summaries, Markdown summaries,
 and list/status/event surfaces persist sanitized metadata and evidence paths
@@ -1163,20 +1168,80 @@ reviewer hard stop, USD 200/month Codex subscription budget, USD 300/month
 total automation ceiling, and an 80% warning threshold. Cost estimates are
 local token-price arithmetic only and do not call external provider APIs.
 
-The approved independent reviewer provider direction is Google-only for now.
-`cheap_independent` may be configured to use a supported Gemini Flash or
-Flash-Lite class model. `strong_independent` and any enabled `tie_breaker`
-profile should use a specific stable Gemini model, currently
-`gemini-3.5-flash`, rather than a moving `latest` alias. Provider lifecycle
-changes such as an unavailable configured model are operational blockers, not
-review verdicts, and the runner must not silently fall back to weaker, preview,
-or alias models. Model changes require official model/deprecation/pricing
-verification, explicit endpoint support, token-price updates, a bounded smoke
-or integrated provider proof, and exact-head rereview. Claude and OpenAI
-reviewer provider wiring is intentionally absent.
+For new task-scoped configs, explicitly enable the subscriber-funded Grok Build
+CLI tiers after the review gates are ready. The example leaves them disabled.
+Keep existing jobs on their pinned Gemini configuration and evidence; do not
+switch a shared config while they run. A provider change requires a new exact-head
+review; evidence from the other provider cannot satisfy Grok recovery.
+Run new jobs from a separate, immutable task-scoped `--config` file with
+`reviewerProviderPin: "grok"`; the live runner rejects enabled Grok tiers without
+that pin and an explicit config path. A review package carries the pin, and a
+later config cannot silently send it to a different provider. Completed
+exact-head Gemini recovery evidence remains valid under its recorded provider;
+regeneration stops if the running config cannot honor that provider.
+Provider lifecycle failures are blockers, never review passes. Grok is not
+given an API key or a metered API fallback.
 
-Gemini provider configuration is disabled by default in
-`runner-config.example.json`. Model names, token prices, and provider profile
+The Grok profile pins `/home/tommytang213/.local/bin/grok` and `grok-4.7`.
+The operator signs in privately with `grok login` and keeps subscriber Auto Top
+Up disabled. The runner passes only a small allowlist of noncredential environment variables, stages only the
+secret-screened package and the fixed gate-source files in a fresh owner-only
+temporary directory, and calls
+the CLI with `--sandbox strict`, an explicit Read allow rule scoped to that
+staged directory, web, memory, subagents, and auto-update disabled, a 64-turn
+limit, and a 30-minute deadline. It verifies complete file
+coverage from tool events before accepting one strict-schema JSON verdict. Incomplete coverage,
+tool/path violation, unavailable login/quota, timeout, malformed output, or
+non-pass blocks. Packages above 832 KiB currently block for narrower review.
+For coherent large candidates whose complete package fits this cap, two
+independently completed, exact-head whole-candidate reviews can certify every
+coverage section and integration boundary. This projection makes no additional
+sequential provider calls, retains actionable findings from a complete non-pass
+review for the bounded fix cycle, and rejects missing or stale evidence. Larger packages
+still block for narrower review. Grok automatic merge remains fail-closed even
+after the existing local, CI, scanner, thread, scope, and manual gates and an
+exact-head hosted Codex completion: GitHub's Codex artifacts do not attest the
+reviewed base SHA. The hosted inspection reads GitHub's bot-authored completion and
+summary comments, resolves both reviewed commit prefixes to the full SHA, and
+rejects current-head finding reviews. For dependent PRs it also requires the
+no-findings completion to follow the latest GitHub base-change event and the
+current head to be added after that event. An unchanged head after retarget
+cannot prove which diff a late completion reviewed and remains blocked. Empty
+GitHub review bodies are checked for inline findings; the bot summary must
+match the observed finding-free format, and unattributable bot comments remain
+blocking. Missing, running, quota-limited, stale, or unreadable evidence
+blocks; no review quota is bypassed. Automatic merge reports
+`hosted_codex_review_base_sha_unverified` until authenticated base binding is
+available and validated.
+If a headless turn ends before all indexed ranges are read, the adapter resumes
+that isolated session once to request only the verified missing ranges within
+the same deadline. A verdict still requires complete coverage. Check remaining
+subscriber included usage in the account before an expensive rerun; `grok usage`
+reports session totals, not the account's remaining allowance.
+On startup recovery, a transport or worker failure is not replayed as a verdict:
+the runner retains any completed same-head verdict, retries only the incomplete
+reviewer once, and blocks if that second invocation remains incomplete.
+Grok sessions may retain the sent package in the user's local CLI history.
+After private subscriber sign-in and explicit trial authorization, a
+task-scoped config can exercise a synthetic one-call smoke check with
+`--reviewer-smoke-test --live-external-reviewer-calls`. This is a provider
+call; the normal smoke check without that flag does not contact Grok.
+
+For a new candidate, local validation completes first; then Grok and local
+Codex independently review the same frozen package concurrently. Neither sees
+the other's answer. Review findings are checked against the requirements,
+source, and tests; a concrete Grok finding is not discarded because Codex
+passed, and conflicts are not decided by a vote. Record the resolution and
+repeat exact-head gates after any fix. Compare reviewers by valid incremental
+findings, including assumptions and domain edge cases that one reviewer missed.
+Both verdicts bind to the exact candidate head. Any source
+change invalidates both reviews and local validation, which must rerun before
+push. GitHub CI, scanners, and hosted Codex review follow the push.
+
+The older Gemini subscriber-independent path below remains for pinned jobs.
+
+Gemini provider configuration remains available for already pinned jobs.
+Model names, token prices, and provider profile
 names are configurable, but API keys must stay outside the repository. The
 runner first reads `GEMINI_API_KEY` from the process environment. An external
 env file can be configured only by explicit path under:
@@ -1317,7 +1382,7 @@ Dry-run mode previews the exact transient labels without mutating GitHub.
 
 Fresh implementation ordering is exact-head-first. After Codex implementation
 and local validation, the runner creates a normal local commit containing the
-validated files and does not push it. Gemini and Codex mechanics review then
+validated files and does not push it. The configured independent provider and Codex mechanics review then
 run against that committed `origin/main...HEAD` diff and record the reviewed
 head SHA plus the exact changed-file set. Push and PR creation use the same
 reviewed commit SHA. If an approved review-fix mode changes files, it creates a
@@ -1325,19 +1390,19 @@ new normal local follow-up commit and reruns exact-head reviews for that new
 head; stale evidence from the prior head is not accepted.
 
 For the real-code `client-ui-low-risk` lane, auto-merge additionally requires
-a passing independent Gemini review for the exact head and changed-file set.
+a passing configured independent-provider review for the exact head and changed-file set.
 Runner PR bodies, PR comments, issue comments, summaries, and event listings
 use explicit wording such as:
 
 ```text
-Independent AI review: required; provider/tier: Gemini cheap_independent; verdict: pass; exact head: <sha>; evidence: <sanitized local path>
+Independent AI review: required; provider/tier: <pinned provider>/<required tier>; verdict: pass; exact head: <sha>; evidence: <sanitized local path>
 ```
 
 Disabled, skipped, missing, malformed, stale-head, mismatched-file,
 provider-failed, or non-pass independent review evidence is reported as
 blocked/fail-closed, not as optional or merely unconfigured. Codex mechanics
 review is still required but does not replace the independent real-code review
-gate. Existing-PR recovery for this lane requires both independent Gemini
+gate. Existing-PR recovery for this lane requires both configured independent-provider
 evidence and Codex mechanics evidence on the exact PR head.
 
 Codex mechanics review capture is file-backed and attempt-oriented. Each
@@ -1383,7 +1448,7 @@ runner can evaluate an already-open auto-runner PR instead of creating a new
 branch. Recovery requires the low-risk canary contract, an open non-draft PR on
 `main`, current PR title/body metadata with exact `#<issue>` linkage, exact
 changed files within the issue contract, exact-head validation evidence,
-exact-head Gemini and/or Codex mechanics evidence, current successful checks,
+exact-head configured independent-provider and/or Codex mechanics evidence, current successful checks,
 clean mergeability, resolved review threads, no PR-ref code-scanning alerts,
 no stop labels, no blocking comments/reviews, and the unchanged expected PR
 head. Linkage is checked by deterministic text scanning with numeric boundary
@@ -1690,7 +1755,7 @@ and `manualMergeRequired: false`. Broad root paths, `**`, `docs/**`,
 storage/money/schema/OpenAPI/generated-client/Docker/deployment/env/secret/
 public/admin scope, stop labels, missing required independent AI review pass,
 missing Codex mechanics
-approval, missing independent Gemini pass for `client-ui-low-risk`, failing checks, unresolved review threads, PR-ref code-scanning
+approval, missing configured independent-provider pass for `client-ui-low-risk`, failing checks, unresolved review threads, PR-ref code-scanning
 alerts, stale PR heads, base mismatch, dirty worktrees, and issue-state
 mismatches remain blocking gates. This max-2 path exists only to prove the
 live auto-merge gates on two bounded low-risk issues after a separate explicit
@@ -1750,7 +1815,7 @@ to at least three source-changing cycles. Terminal reasons are:
 round 51 is refused. A diagnostic review may explain exhaustion, but cannot
 authorize another source mutation.
 
-The trigger must be structured and actionable: integrated Gemini must return a
+The trigger must be structured and actionable: the configured independent provider must return a
 bounded strict-JSON blocking finding, or Codex mechanics review must return
 `changes_requested` with `recommended_next_action: "run_safe_fix_cycle"` and
 blocking findings. Malformed review output, provider/accounting/key failures,
@@ -1764,7 +1829,7 @@ branch and exact `allowedPaths`, and prohibits unrelated cleanup, broad
 refactors, generated-client edits, secrets/env files, product/runtime/security/
 money/schema/OpenAPI changes, pushes, PR updates, GitHub comments, merges,
 branch deletion, and live provider calls. After the attempt, the runner reruns
-changed-file policy checks, local validation, integrated Gemini when
+changed-file policy checks, local validation, the configured independent provider when
 configured, and Codex mechanics review. Evidence is written only under
 `/workspace/logs/settleora-auto-runner/review-fix/`.
 
@@ -1780,14 +1845,14 @@ issue, head, or changed-file list.
 Review-fix canary fixture:
 
 A deterministic review-fix canary fixture exists only for a future one-issue
-live canary. It is disabled by default and has no effect on normal Gemini or
+live canary. It is disabled by default and has no effect on normal configured independent-provider or
 Codex mechanics review. To use it, an external uncommitted config must enable
 `reviewFixCanaryFixture.enabled`, provide a bounded single-line `marker` such
 as `review-fix-cycle: completed`, and invoke the runner with the same
 `--run --canary`, low-risk auto-merge canary, and review-fix mutation approval
 shape above.
 
-In fixture mode, the runner does not call Gemini for the integrated review
+In fixture mode, the runner does not call the configured independent provider for the integrated review
 source. It checks only the changed low-risk issue-contract files for the exact
 configured marker, writes sanitized evidence under
 `/workspace/logs/settleora-auto-runner/review-fix/`, returns a structured

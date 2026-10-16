@@ -313,7 +313,6 @@ String? receiptOcrTaxModeForSavedEdit(
   ReceiptOcrReviewSaveRequest candidate,
 ) {
   final mode = previous.taxReconciliationMode;
-  if (mode == null) return null;
   // Header evidence is financial source evidence too. A changed role, currency,
   // amount, addition or removal cannot inherit the prior tax interpretation.
   final oldHeaders = [...previous.headerEvidence]
@@ -337,6 +336,9 @@ String? receiptOcrTaxModeForSavedEdit(
       return ReceiptOcrTaxReconciliationModeValues.unresolved;
     }
   }
+  // A legacy null mode remains null only while its printed header evidence
+  // is unchanged. A changed header must carry an explicit unresolved mode.
+  if (mode == null) return null;
   final oldLines = [...previous.lines]
     ..sort((left, right) => left.sortOrder.compareTo(right.sortOrder));
   var sameEvidence =
@@ -417,6 +419,14 @@ String? receiptOcrTaxModeForSavedEdit(
     return ReceiptOcrTaxReconciliationModeValues.unresolved;
   }
   final recalculated = receiptOcrTaxModeFromSupportedEvidence(candidate);
+  if (mode == ReceiptOcrTaxReconciliationModeValues.addToBase &&
+      recalculated == ReceiptOcrTaxReconciliationModeValues.alreadyInBase &&
+      receiptOcrDecimalUnits(candidate.taxAmount) == BigInt.zero) {
+    // Zero tax satisfies both equations. Keep the stored additive source
+    // interpretation after the same complete evidence checks; this does not
+    // infer an inclusion label from the edited amounts.
+    return ReceiptOcrTaxReconciliationModeValues.addToBase;
+  }
   // An additive source mode does not establish printed inclusion evidence.
   // Arithmetic changed by an edit cannot promote it to included tax.
   if (mode == ReceiptOcrTaxReconciliationModeValues.addToBase &&

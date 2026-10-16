@@ -7,6 +7,7 @@ on:
     paths:
       - ".github/workflows/mobile-ocr-native-acceptance.yml"
       - "apps/mobile/integration_test/receipt_ocr_real_provider_test.dart"
+      - "apps/mobile/integration_test/support/**"
       - "apps/mobile/android/**"
       - "apps/mobile/assets/receipt_ocr_models/**"
       - "apps/mobile/ios/**"

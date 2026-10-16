@@ -459,10 +459,14 @@ internal static class ReceiptOcrReviewEndpoints
 
         var taxMode = submittedReview.TaxReconciliationMode;
         if ((!submittedReview.TaxReconciliationModeSupplied || taxMode is null)
-            && review is not null && review.TaxReconciliationMode is not null)
+            && review is not null
+            && (review.TaxReconciliationMode is not null
+                || review.HeaderEvidence.Count > 0
+                || submittedReview.HeaderEvidence.Count > 0))
         {
             // Absent and explicit null from older clients must never silently
-            // turn an included component into an additive charge.
+            // turn an included component into an additive charge or discard
+            // unresolved foreign-header meaning from a legacy-null review.
             taxMode = HasSameTaxRelevantMoney(review, submittedReview)
                 ? review.TaxReconciliationMode
                 : review.TaxReconciliationMode is ReceiptOcrReviewTaxReconciliationModes.SourceIncludedUnresolved
