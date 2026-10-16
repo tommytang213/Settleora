@@ -87,7 +87,7 @@ class ReceiptOcrParser {
     final detachedAmountSignRows = <int>{
       for (var index = 0; index < sourceLines.length; index++)
         if (_hasDetachedAmountSign(sourceLines[index]) &&
-            !_isLabeledCalendarDateLine(lines[index]))
+            !_isCompleteCalendarMetadataLine(lines[index]))
           index,
     };
     final warnings = <String>[];
@@ -2568,6 +2568,13 @@ class ReceiptOcrParser {
           addressSeparatedTotals[lineIndex] ??
           ownedAmountLines[lineIndex];
       if (_isEmailOnlyMetadataLine(line)) continue;
+      // A complete calendar field can carry a secondary label such as
+      // Refund or Service without supplying a monetary adjustment.
+      if (_isCompleteCalendarMetadataLine(line) ||
+          (_specificCalendarFieldLabelPattern.hasMatch(line) &&
+              _isReceiptMetadataLine(line))) {
+        continue;
+      }
       // These complete fee rows already belong to the explicitly described
       // parking session or signed return. They remain ordinary item evidence.
       if (ownedActivityFeeRows.contains(lineIndex)) continue;
@@ -2745,7 +2752,8 @@ class ReceiptOcrParser {
             : currency;
         if (subtotal != null &&
             (retainedCurrency != printedCurrency ||
-                double.tryParse(subtotal) != double.tryParse(amount))) {
+                _ocrAmountScaledUnits(subtotal, 3) !=
+                    _ocrAmountScaledUnits(amount, 3))) {
           adjustmentsComplete = false;
           incompleteReasons.add(
             ReceiptOcrIncompleteAdjustmentReason.conflictingSubtotal,
@@ -3502,6 +3510,16 @@ class ReceiptOcrParser {
       // An account-summary prefix with unexplained product words or money is
       // ambiguous. Do not promote it to a charge or silently clear completeness.
       if (_isAmbiguousAccountBalanceSummaryLine(line) && _lineHasAmount(line)) {
+        unretainedPricedItem = true;
+        lineDecisions[lineIndex] =
+            ReceiptOcrItemLineDecision.unretainedPricedRow;
+        wrappedDescriptionLines.clear();
+        continue;
+      }
+      // A date field cannot own a separate trailing monetary cell. Keep that
+      // cell in completeness accounting even when its preceding date label
+      // would otherwise make the candidate description look like metadata.
+      if (_hasUnownedAmountAfterCalendarField(line)) {
         unretainedPricedItem = true;
         lineDecisions[lineIndex] =
             ReceiptOcrItemLineDecision.unretainedPricedRow;
@@ -12333,8 +12351,13 @@ int _currencyMinorUnitDigits(String? currency) {
 // Provisional OCR arithmetic must remain exact before any financial field or
 // evidence ownership is selected. Native int multiplication and sums can wrap
 // even when each printed whole amount parsed successfully.
-BigInt? _ocrAmountMinorUnits(String amount, String currency) {
-  final minorDigits = _currencyMinorUnitDigits(currency);
+BigInt? _ocrAmountMinorUnits(String amount, String currency) =>
+    _ocrAmountScaledUnits(amount, _currencyMinorUnitDigits(currency));
+
+// Normalized amounts preserve up to three fractional digits. Comparing at
+// that full precision also works before a receipt currency is resolved;
+// currency-specific arithmetic still uses _ocrAmountMinorUnits above.
+BigInt? _ocrAmountScaledUnits(String amount, int minorDigits) {
   final match = RegExp(r'^(-?)(\d+)(?:\.(\d{1,3}))?$').firstMatch(amount);
   if (match == null) return null;
   final fraction = match.group(3) ?? '';
@@ -13647,6 +13670,54 @@ bool _isWholeLocalizedAddress(String line) {
 bool _isLabeledCalendarDateLine(String line) =>
     _labeledCalendarDate(line) != null;
 
+const _specificCalendarRolePattern =
+    r'(?:receipt|bill|invoice|statement|transaction|order|purchase|issued)';
+const _calendarRoleQualifierPattern =
+    r'(?:(?:previous|prior|last|refund|reference|payment|paid|due|order|pickup|service|stay)\s+)?';
+final _specificCalendarFieldLabelPattern = RegExp(
+  '^\\s*$_calendarRoleQualifierPattern'
+  '(?:$_specificCalendarRolePattern\\s+(?:date|on)|issued)\\b'
+  '\\s*[:：]?\\s*',
+  caseSensitive: false,
+);
+
+// Metadata ownership is separate from transaction-date selection. Recognize
+// only a complete field, optionally followed by an unambiguous clock, so a
+// date separator is not a monetary sign and extra prices remain reviewable.
+bool _isCompleteCalendarMetadataLine(String line) {
+  if (_labeledCalendarDate(line, includeSpecificRoles: true) != null) {
+    return true;
+  }
+  final withoutClock = line.replaceFirst(
+    RegExp(
+      r'\s+(?:(?:[01]?\d|2[0-3]):[0-5]\d(?::[0-5]\d)?|'
+      r'(?:0?[1-9]|1[0-2]):[0-5]\d(?::[0-5]\d)?\s*(?:am|pm))\s*$',
+      caseSensitive: false,
+    ),
+    '',
+  );
+  return withoutClock != line &&
+      _labeledCalendarDate(withoutClock, includeSpecificRoles: true) != null;
+}
+
+bool _hasUnownedAmountAfterCalendarField(String line) {
+  // Explicit document-date roles cannot explain a neighboring price. Generic
+  // date-like descriptions retain the existing priced-product handling.
+  if (!_specificCalendarFieldLabelPattern.hasMatch(line)) return false;
+  final amount = _lastWholeAmountMatch(line);
+  if (amount == null) return false;
+  var moneyStart = amount.start;
+  final precedingCurrency = RegExp(
+    '(?:$_currencyTokenPattern)\\s*[:=]?\\s*\$',
+    caseSensitive: false,
+  ).firstMatch(line.substring(0, moneyStart));
+  if (precedingCurrency != null) moneyStart = precedingCurrency.start;
+  return _isCompleteCalendarMetadataLine(
+        line.substring(0, moneyStart).trim(),
+      ) &&
+      _isBoundedSummaryAmount(line.substring(moneyStart).trim());
+}
+
 String? _dateFromNamedMonthMatch(RegExpMatch match) {
   final month =
       const [
@@ -13671,12 +13742,20 @@ String? _dateFromNamedMonthMatch(RegExpMatch match) {
   );
 }
 
-String? _labeledCalendarDate(String line) {
-  const labelName =
+String? _labeledCalendarDate(
+  String line, {
+  bool includeSpecificRoles = false,
+}) {
+  const genericLabelName =
       r'(?:date|datum|fecha|data|日期|日付|날짜|дата|วันที่|तारीख|दिनांक)';
-  const label = '^\\s*$labelName(?:\\s*/\\s*$labelName){0,2}\\s*[:：]?\\s*';
-  // Named and numeric dates share extraction's grammar and validation. Only
-  // a complete generic field supplies conflict evidence or metadata authority.
+  final labelName = includeSpecificRoles
+      ? '(?:$genericLabelName|$_calendarRoleQualifierPattern'
+            '$_specificCalendarRolePattern(?:\\s+(?:date|on))?)'
+      : genericLabelName;
+  final label = '^\\s*$labelName(?:\\s*/\\s*$labelName){0,2}\\s*[:：]?\\s*';
+  // Named and numeric dates share extraction's grammar and validation. Date
+  // selection uses generic fields; metadata callers explicitly opt into the
+  // bounded specific-role labels without changing selection precedence.
   final namedMonth = RegExp(
     '$label$_namedMonthCalendarDatePattern\\.?\\s*\$',
     caseSensitive: false,
@@ -13781,6 +13860,15 @@ bool _isReceiptMetadataLine(String line, {bool allowBarePostal = true}) {
     return true;
   }
   if (_isPrintedTaxContextHeader(line)) return true;
+  // A specific date field must own its whole value before broader document
+  // identifier/contact rules can hide it. Bare labels still own wrapped
+  // dates; product suffixes, extra amounts and malformed calendars do not.
+  final dateLabel = _specificCalendarFieldLabelPattern.firstMatch(line);
+  if (dateLabel != null &&
+      (line.substring(dateLabel.end).trim().isEmpty ||
+          _isCompleteCalendarMetadataLine(line))) {
+    return true;
+  }
   final hasPrintedMoneyMarker = _hasPrintedReceiptMoneyMarker(line);
   if (!hasPrintedMoneyMarker &&
       RegExp(
@@ -13854,7 +13942,8 @@ bool _isReceiptMetadataLine(String line, {bool allowBarePostal = true}) {
     RegExp(r'\b(open|close|closed|served|powered by|welcome|visit again)\b'),
   ];
 
-  if (metadataPatterns.any((pattern) => pattern.hasMatch(normalized))) {
+  if (dateLabel == null &&
+      metadataPatterns.any((pattern) => pattern.hasMatch(normalized))) {
     return true;
   }
   // Flattened neighboring metadata fields can share a row. A trailing due
@@ -13864,8 +13953,9 @@ bool _isReceiptMetadataLine(String line, {bool allowBarePostal = true}) {
   if (dueDate == null || dueDate.start == 0) return false;
   final prefix = normalized.substring(0, dueDate.start).trim();
   return RegExp('^$dueDateField').hasMatch(prefix) ||
-      _isLabeledCalendarDateLine(prefix) ||
-      metadataPatterns.any((pattern) => pattern.hasMatch(prefix)) ||
+      _isCompleteCalendarMetadataLine(prefix) ||
+      (dateLabel == null &&
+          metadataPatterns.any((pattern) => pattern.hasMatch(prefix))) ||
       RegExp(
         r'^(?:customer|client|account)\s+name\s*[:：]\s*[\p{L}\p{M}][\p{L}\p{M} .\x27-]{0,119}$',
         unicode: true,
