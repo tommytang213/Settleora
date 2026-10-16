@@ -3567,7 +3567,7 @@ class ReceiptOcrParser {
       // Keep that cell in completeness accounting when its preceding label
       // would otherwise make the candidate description look like metadata.
       if (_hasUnownedAmountAfterCalendarField(line) ||
-          _hasUnownedAmountAfterContactField(line)) {
+          _hasUnownedAmountAroundContactField(line)) {
         unretainedPricedItem = true;
         lineDecisions[lineIndex] =
             ReceiptOcrItemLineDecision.unretainedPricedRow;
@@ -14159,35 +14159,53 @@ bool _isCompleteReceiptContactLine(String line) {
 // layout selector accepts an item and before the charge-item early return.
 bool _hasReceiptContactPriceConflict(String description, String monetaryText) =>
     _isCompleteReceiptContactLine(description) ||
-    _hasUnownedAmountAfterContactField(description) ||
-    _hasUnownedAmountAfterContactField('$description $monetaryText');
+    _hasUnownedAmountAroundContactField(description) ||
+    _hasUnownedAmountAroundContactField('$description $monetaryText');
 
-bool _hasUnownedAmountAfterContactField(String line) {
-  if (_isCompleteReceiptContactLine(line)) return false;
-  // A proven telephone prefix cannot own additional numbers or other suffixes.
-  // Preserve the unresolved row instead of interpreting its final digits as
-  // a merchandise price. Ordinary product words never prove a phone prefix.
-  for (final boundary in RegExp(r'[\s/|,;:&]').allMatches(line)) {
-    if (_isCompleteReceiptContactLine(line.substring(0, boundary.start))) {
+final _leadingContactAmountPattern = RegExp(
+  '^\\s*(?:(?:$_currencyTokenPattern)\\s*)?$_amountTokenPattern'
+  '(?:\\s*(?:$_currencyTokenPattern))?\\s+',
+  caseSensitive: false,
+);
+
+bool _hasUnownedAmountAroundContactField(String line) {
+  var hasLeadingAmount = false;
+  while (true) {
+    if (_isCompleteReceiptContactLine(line)) return hasLeadingAmount;
+    // A proven telephone prefix cannot own additional numbers or other suffixes.
+    // Preserve the unresolved row instead of interpreting its final digits as
+    // a merchandise price. Ordinary product words never prove a phone prefix.
+    for (final boundary in RegExp(r'[\s/|,;:&]').allMatches(line)) {
+      if (_isCompleteReceiptContactLine(line.substring(0, boundary.start))) {
+        return true;
+      }
+    }
+    // An extension is an identifier, not a price. Unsupported/malformed values
+    // or extra money after a proven phone prefix remain unresolved evidence.
+    for (final marker in RegExp(
+      r'(?:ext(?:ension)?\.?|x|#)\s*[:：]?\s*',
+      caseSensitive: false,
+    ).allMatches(line)) {
+      if (_isCompleteReceiptContactLine(line.substring(0, marker.start))) {
+        return true;
+      }
+    }
+    final match =
+        _pricedItemRowPattern.firstMatch(line) ??
+        _joinedSymbolPricedItemRowPattern.firstMatch(line);
+    if (match != null &&
+        _isCompleteReceiptContactLine(match.group(1)!) &&
+        _hasTraceableItemAmountToken(line, match.group(3)!)) {
       return true;
     }
+    // A numeric cell before a proven contact cannot own the phone digits.
+    // Check this before layout monetary admission, including unmarked integers;
+    // ordinary product names still never establish a complete contact field.
+    final leadingAmount = _leadingContactAmountPattern.firstMatch(line);
+    if (leadingAmount == null) return false;
+    line = line.substring(leadingAmount.end);
+    hasLeadingAmount = true;
   }
-  // An extension is an identifier, not a price. Unsupported/malformed values
-  // or extra money after a proven phone prefix remain unresolved evidence.
-  for (final marker in RegExp(
-    r'(?:ext(?:ension)?\.?|x|#)\s*[:：]?\s*',
-    caseSensitive: false,
-  ).allMatches(line)) {
-    if (_isCompleteReceiptContactLine(line.substring(0, marker.start))) {
-      return true;
-    }
-  }
-  final match =
-      _pricedItemRowPattern.firstMatch(line) ??
-      _joinedSymbolPricedItemRowPattern.firstMatch(line);
-  return match != null &&
-      _isCompleteReceiptContactLine(match.group(1)!) &&
-      _hasTraceableItemAmountToken(line, match.group(3)!);
 }
 
 bool _isReceiptMetadataLine(String line, {bool allowBarePostal = true}) {

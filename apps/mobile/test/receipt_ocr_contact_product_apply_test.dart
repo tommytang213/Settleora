@@ -185,4 +185,51 @@ void main() {
       });
     }
   }
+  for (final contact in receipts.layoutContactFields) {
+    for (final amount in ['123', '12.34', '-123']) {
+      testWidgets(
+        'unmarked fallback contact blocks actual Apply $contact $amount',
+        (tester) async {
+          final preview = receipts.layoutContactPreview(
+            contact,
+            amount: amount,
+            mode: 'fallback',
+            markFallbackAmount: false,
+          );
+          await applyPreviewAndExpect(tester, preview, [], itemsAllowed: false);
+        },
+      );
+    }
+    for (final prefix in ['123', 'USD 123']) {
+      testWidgets(
+        'leading numeric contact blocks actual Apply $prefix $contact',
+        (tester) async {
+          final preview = receipts.numericPrefixContactPreview(contact, prefix);
+          await applyPreviewAndExpect(tester, preview, [], itemsAllowed: false);
+        },
+      );
+    }
+  }
+  for (final product in [
+    'Phone Case',
+    'Mobile Stand',
+    'Contact Lens',
+    'Notebook',
+  ]) {
+    testWidgets('unmarked decimal product reaches actual Apply $product', (
+      tester,
+    ) async {
+      final preview = receipts.layoutContactPreview(
+        product,
+        amount: '5.00',
+        mode: 'fallback',
+        product: true,
+        markFallbackAmount: false,
+      );
+      await applyPreviewAndExpect(tester, preview, [
+        (product, '5.00'),
+        ('Tea', '5.00'),
+      ]);
+    });
+  }
 }

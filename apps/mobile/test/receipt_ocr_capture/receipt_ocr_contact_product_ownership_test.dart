@@ -191,6 +191,7 @@ ReceiptOcrPreview layoutContactPreview(
   String mode = 'charge',
   double scale = 1,
   bool product = false,
+  bool markFallbackAmount = true,
 }) {
   final blocks = <ReceiptOcrBlockEvidence>[];
   final reversed = mode != 'charge';
@@ -229,7 +230,11 @@ ReceiptOcrPreview layoutContactPreview(
     cell('Current Charges Detail', row++, 20, 750);
     pair('Description', 'Amount', row++);
   }
-  pair(description, mode == 'fallback' ? 'USD $amount' : amount, row++);
+  pair(
+    description,
+    mode == 'fallback' && markFallbackAmount ? 'USD $amount' : amount,
+    row++,
+  );
   pair('Tea', 'USD 5.00', row++);
   cell('Total USD ${product ? '10.00' : '5.00'}', row, 20, 750);
   final rows = <int, List<String>>{};
@@ -243,6 +248,13 @@ ReceiptOcrPreview layoutContactPreview(
   expect(preview.blocks, orderedEquals(blocks));
   return preview;
 }
+
+ReceiptOcrPreview numericPrefixContactPreview(
+  String contact,
+  String prefix,
+) => const ReceiptOcrParser().parse(
+  'Example Shop\nReceipt date: 2026-06-18\n$prefix $contact\nTea USD 5.00\nTotal USD 5.00',
+);
 
 void main() {
   for (final product in contactProducts) {
@@ -595,6 +607,66 @@ void main() {
           },
         );
       }
+    }
+  }
+  for (final mode in ['charge', 'chargeRtl', 'fallback']) {
+    for (final scale in [.5, 1.0, 2.0]) {
+      for (final contact in layoutContactFields) {
+        for (final amount in ['123', '12.34', '-123']) {
+          test(
+            'unmarked layout amount cannot price contact $mode $scale $contact $amount',
+            () {
+              final p = layoutContactPreview(
+                contact,
+                amount: amount,
+                mode: mode,
+                scale: scale,
+                markFallbackAmount: false,
+              );
+              expect(p.items.map((i) => [i.description, i.lineTotal]), [
+                ['Tea', '5.00'],
+              ]);
+              expect(p.adjustmentsComplete, isFalse);
+              expect(p.reviewHints, isNotEmpty);
+            },
+          );
+        }
+      }
+    }
+  }
+  for (final contact in layoutContactFields) {
+    for (final prefix in ['123', '12.34', 'USD 123', '123 USD', '2 123']) {
+      test(
+        'leading numeric evidence cannot hide flat contact $prefix $contact',
+        () {
+          final p = numericPrefixContactPreview(contact, prefix);
+          expect(p.items.map((i) => [i.description, i.lineTotal]), [
+            ['Tea', '5.00'],
+          ]);
+          expect(p.adjustmentsComplete, isFalse);
+          expect(p.reviewHints, isNotEmpty);
+        },
+      );
+    }
+  }
+  for (final scale in [.5, 1.0, 2.0]) {
+    for (final product in contactProducts) {
+      test('unmarked decimal retains fallback product $scale $product', () {
+        final p = layoutContactPreview(
+          product,
+          amount: '5.00',
+          mode: 'fallback',
+          scale: scale,
+          product: true,
+          markFallbackAmount: false,
+        );
+        expect(p.items.map((i) => [i.description, i.lineTotal]), [
+          [product, '5.00'],
+          ['Tea', '5.00'],
+        ]);
+        expect(p.adjustmentsComplete, isTrue);
+        expect(p.reviewHints, isEmpty);
+      });
     }
   }
 }
