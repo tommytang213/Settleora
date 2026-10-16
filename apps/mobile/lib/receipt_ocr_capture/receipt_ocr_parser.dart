@@ -3530,10 +3530,11 @@ class ReceiptOcrParser {
         wrappedDescriptionLines.clear();
         continue;
       }
-      // A date field cannot own a separate trailing monetary cell. Keep that
-      // cell in completeness accounting even when its preceding date label
+      // A date or contact field cannot own a separate trailing monetary cell.
+      // Keep that cell in completeness accounting when its preceding label
       // would otherwise make the candidate description look like metadata.
-      if (_hasUnownedAmountAfterCalendarField(line)) {
+      if (_hasUnownedAmountAfterCalendarField(line) ||
+          _hasUnownedAmountAfterContactField(line)) {
         unretainedPricedItem = true;
         lineDecisions[lineIndex] =
             ReceiptOcrItemLineDecision.unretainedPricedRow;
@@ -14034,6 +14035,41 @@ bool _isAddressContinuationLine(String line) => RegExp(
   caseSensitive: false,
 ).hasMatch(line.trim());
 
+bool _isCompleteReceiptContactLine(String line) {
+  final text = line.trim();
+  final label = RegExp(
+    r'^(?:tel(?:ephone)?|phone|fax|whatsapp|mobile|contact|電話|电话|tél)'
+    r'(?:\s*[:：]\s*|\s+)',
+    caseSensitive: false,
+  ).firstMatch(text);
+  final number = label == null ? text : text.substring(label.end).trim();
+  final digits = RegExp(r'\d').allMatches(number).length;
+  if (digits < 7 ||
+      digits > 15 ||
+      !RegExp(
+        r'^\+?(?:\d{1,3}[ -]?)?(?:\(\d{2,6}\)|\d{1,6})'
+        r'(?:[ -]?\d{1,6}){1,5}$',
+      ).hasMatch(number)) {
+    return false;
+  }
+  // Unlabeled numeric text needs a complete telephone format; digit count
+  // alone cannot distinguish a contact from an amount or product identifier.
+  return label != null ||
+      number.startsWith('+') ||
+      number.contains('(') ||
+      RegExp(r'^(?:\d{1,3}-)?\d{2,4}-\d{3,4}-\d{3,4}$').hasMatch(number);
+}
+
+bool _hasUnownedAmountAfterContactField(String line) {
+  if (_isCompleteReceiptContactLine(line)) return false;
+  final match =
+      _pricedItemRowPattern.firstMatch(line) ??
+      _joinedSymbolPricedItemRowPattern.firstMatch(line);
+  return match != null &&
+      _isCompleteReceiptContactLine(match.group(1)!) &&
+      _hasTraceableItemAmountToken(line, match.group(3)!);
+}
+
 bool _isReceiptMetadataLine(String line, {bool allowBarePostal = true}) {
   final normalized = line.toLowerCase().trim();
   if (normalized.isEmpty) {
@@ -14044,6 +14080,7 @@ bool _isReceiptMetadataLine(String line, {bool allowBarePostal = true}) {
     return true;
   }
   if (_isPrintedTaxContextHeader(line)) return true;
+  if (_isCompleteReceiptContactLine(line)) return true;
   // A specific date field must own its whole value before broader document
   // identifier/contact rules can hide it. Bare labels still own wrapped
   // dates; product suffixes, extra amounts and malformed calendars do not.
@@ -14107,8 +14144,6 @@ bool _isReceiptMetadataLine(String line, {bool allowBarePostal = true}) {
     RegExp(
       r'^\s*(?:(?:previous|prior|last|refund|reference|payment|paid)\s+)?(?:bill|invoice|statement|transaction|order|purchase|due|payment|refund|service|billing)\s+date\s*[:#-]?\s*(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{4}|[a-z]{3,9}\.?\s+\d{1,2},?\s+\d{4})\s*$',
     ),
-    RegExp(r'\b(tel|phone|fax|whatsapp|mobile|contact)\b'),
-    RegExp(r'\b(?:\+?\d[\d ()-]{6,}\d)\b(?![.,]\d)'),
     RegExp(r'\b(www\.|https?://|\.com\b|\.net\b|\.org\b|\.hk\b|@[\w.-]+\.)'),
     RegExp(r'\b(email|instagram|facebook|wechat|line id|twitter|xhs)\b'),
     RegExp(
