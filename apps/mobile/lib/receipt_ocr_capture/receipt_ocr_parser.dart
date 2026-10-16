@@ -13811,6 +13811,7 @@ String? _labeledCalendarDate(
 
 bool _isContextualReceiptMetadataLine(List<String> lines, int index) {
   final line = lines[index];
+  if (_isCompleteClockMetadataLine(line)) return true;
   if (_isLabeledCalendarDateLine(line)) return true;
   if (_isReceiptMetadataLine(line)) return true;
   if (!_isCityPostalLine(line)) return false;
@@ -13827,6 +13828,17 @@ bool _hasOwnedStreetAddressContext(List<String> lines, int index) {
       _isStreetAddressLine(lines[addressIndex]) &&
       !_hasPrintedReceiptMoneyMarker(lines[addressIndex]);
 }
+
+// A complete labeled clock has no item amount. Keep this at the whole-row
+// boundary: a clock-shaped product description followed by a separate price
+// must still reach item extraction. Extra words, money and invalid clocks
+// cannot acquire metadata ownership through a matching prefix.
+bool _isCompleteClockMetadataLine(String line) => RegExp(
+  r'^time\s+(?:in|out)\s*[:：]\s*'
+  r'(?:(?:0?[1-9]|1[0-2]):[0-5]\d(?::[0-5]\d)?\s*(?:am|pm)|'
+  r'(?:[01]?\d|2[0-3]):[0-5]\d(?::[0-5]\d)?)\s*$',
+  caseSensitive: false,
+).hasMatch(line.trim());
 
 bool _isStreetAddressLine(String line) => RegExp(
   r'\b\d{1,6}\s+[\w\s.#-]+\b(st|street|rd|road|ave|avenue|blvd|boulevard|lane|ln|drive|dr|way|plaza|building|tower|floor|fl|unit|suite|shop|room|rm)\b',
