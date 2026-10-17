@@ -276,4 +276,37 @@ void main() {
       ]);
     });
   }
+
+  for (final prefix in receipts.compactContactPrefixes) {
+    for (final contact in receipts.layoutContactFields) {
+      testWidgets('compact contact blocks actual Apply $prefix$contact', (
+        tester,
+      ) async {
+        final p = receipts.numericPrefixContactPreview(
+          contact,
+          prefix,
+          gap: '',
+        );
+        await applyPreviewAndExpect(tester, p, [], itemsAllowed: false);
+      });
+    }
+    for (final product in [
+      'Phone Case',
+      'Mobile Stand',
+      'Contact Lens',
+      'Notebook',
+    ]) {
+      testWidgets(
+        'compact product remains editable through Apply $prefix$product',
+        (tester) async {
+          final input = receipts.contactProductInput('$prefix$product');
+          final p = const ReceiptOcrParser().parse(input.text);
+          await applyPreviewAndExpect(tester, p, [
+            ('$prefix$product', '5.00'),
+            ('Tea', '5.00'),
+          ]);
+        },
+      );
+    }
+  }
 }

@@ -251,9 +251,10 @@ ReceiptOcrPreview layoutContactPreview(
 
 ReceiptOcrPreview numericPrefixContactPreview(
   String contact,
-  String prefix,
-) => const ReceiptOcrParser().parse(
-  'Example Shop\nReceipt date: 2026-06-18\n$prefix $contact\nTea USD 5.00\nTotal USD 5.00',
+  String prefix, {
+  String gap = ' ',
+}) => const ReceiptOcrParser().parse(
+  'Example Shop\nReceipt date: 2026-06-18\n$prefix$gap$contact\nTea USD 5.00\nTotal USD 5.00',
 );
 
 const signedContactPrefixes = [
@@ -272,6 +273,19 @@ const signedContactPrefixes = [
   '123 :',
   '123 ;',
   '123 ,',
+];
+
+const compactContactPrefixes = [
+  '123/',
+  '123|',
+  '123:',
+  '123;',
+  '123,',
+  '(123)',
+  '+123',
+  '123+',
+  'USD123',
+  '123',
 ];
 
 void main() {
@@ -741,6 +755,36 @@ void main() {
           expect(p.reviewHints, isEmpty);
         },
       );
+    }
+  }
+
+  for (final prefix in compactContactPrefixes) {
+    for (final contact in layoutContactFields) {
+      test('compact prefix cannot price contact $prefix$contact', () {
+        final p = numericPrefixContactPreview(contact, prefix, gap: '');
+        expect(p.items.map((i) => [i.description, i.lineTotal]), [
+          ['Tea', '5.00'],
+        ]);
+        expect(p.adjustmentsComplete, isFalse);
+        expect(p.reviewHints, isNotEmpty);
+      });
+    }
+    for (final product in [
+      'Phone Case',
+      'Mobile Stand',
+      'Contact Lens',
+      'Notebook',
+    ]) {
+      test('compact prefix retains ordinary product $prefix$product', () {
+        final input = contactProductInput('$prefix$product');
+        final p = const ReceiptOcrParser().parse(input.text);
+        expect(p.items.map((i) => [i.description, i.lineTotal]), [
+          ['$prefix$product', '5.00'],
+          ['Tea', '5.00'],
+        ]);
+        expect(p.adjustmentsComplete, isTrue);
+        expect(p.reviewHints, isEmpty);
+      });
     }
   }
 }
