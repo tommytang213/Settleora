@@ -1,15 +1,14 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import os from "node:os";
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { deflateRawSync } from "node:zlib";
 
-import { reviewedSourceTreeFingerprint, verifyAndroidSignature, verifyMobilePackage } from "../verify-mobile-package.mjs";
+import { reviewedSourceTreeFingerprint, verifyMobilePackage } from "../verify-mobile-package.mjs";
 import { expectedAndroidNonOcrEntries } from "../android-production-entry-inventory.mjs";
 import { trustedLegalArtifacts } from "../mobile-model-catalog.mjs";
+import { withPackageContract } from "./package-contract-fixture.mjs";
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
@@ -19,11 +18,6 @@ const placeholder = Buffer.from("reviewed-package-placeholder");
 const syntheticNative = Buffer.concat([Buffer.from([0x7f, 0x45, 0x4c, 0x46]), Buffer.alloc(4092)]);
 const nativeEntry = (name) => /^lib\/(?:arm64-v8a|armeabi-v7a|x86_64)\/(?:libapp|libdartjni)\.so$/.test(name);
 const syntheticEntryData = (name) => nativeEntry(name) ? syntheticNative : placeholder;
-
-test("APK signer rejects missing and same-size altered jar bytes", () => {
-  assert.throws(() => verifyAndroidSignature("ignored.apk", Buffer.alloc(1)), /toolchain is unreviewed/);
-  assert.throws(() => verifyAndroidSignature("ignored.apk", Buffer.alloc(1074241)), /toolchain is unreviewed/);
-});
 
 function crc32(bytes) {
   let crc = 0xffffffff;
@@ -130,49 +124,6 @@ function writeSyntheticApk(apk, packageRoot, { unsigned = false, firstLocalExtra
   end.writeUInt32LE(localOffset + block.length, 16);
   writeFileSync(apk, Buffer.concat([...local, block, directory, end]));
   return sha256(Buffer.from((reverseCentralOrder ? digestRecords.reverse() : digestRecords).join("")));
-}
-
-function withPackageContract(callback) {
-  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-mobile-package-"));
-  const model = Buffer.from("model-bytes");
-  try {
-    mkdirSync(path.join(root, "apps/mobile/assets/receipt_ocr_models"), { recursive: true });
-    mkdirSync(path.join(root, "apps/mobile/test/fixtures/receipt_ocr"), { recursive: true });
-    const catalog = Buffer.from(JSON.stringify({
-        packs: [{
-          assetDirectory: "assets/receipt_ocr_models/test-pack",
-          files: [{ name: "model.onnx", bytes: model.length, sha256: sha256(model) }],
-        }],
-      }));
-    writeFileSync(path.join(root, "apps/mobile/assets/receipt_ocr_models/catalog.json"), catalog);
-    for (const artifact of trustedLegalArtifacts) {
-      const bytes = readFileSync(path.join(repoRootForCli(), "apps/mobile", artifact.path));
-      writeFileSync(path.join(root, "apps/mobile", artifact.path), bytes);
-    }
-    writeFileSync(
-      path.join(root, "apps/mobile/test/fixtures/receipt_ocr/manifest.json"),
-      JSON.stringify({ fixtures: Array.from({ length: 101 }, (_, index) => ({ file: `script/fixture-${index}.png` })) }),
-    );
-    mkdirSync(path.join(root, "apps/mobile/lib"), { recursive: true });
-    writeFileSync(path.join(root, "apps/mobile/lib/source.dart"), "reviewed source");
-    mkdirSync(path.join(root, "tools/ocr-models"), { recursive: true });
-    writeFileSync(path.join(root, "tools/ocr-models/android-production-entry-inventory.mjs"), "reviewed inventory");
-    const git = (...args) => {
-      const result = spawnSync("git", ["-C", root, ...args], {
-        encoding: "utf8", env: { ...process.env, GIT_AUTHOR_NAME: "Settleora Test",
-          GIT_AUTHOR_EMAIL: "test@example.invalid", GIT_COMMITTER_NAME: "Settleora Test",
-          GIT_COMMITTER_EMAIL: "test@example.invalid" },
-      });
-      assert.equal(result.status, 0, result.stderr);
-      return result.stdout.trim();
-    };
-    git("init", "-q");
-    git("add", "apps/mobile", "tools/ocr-models/android-production-entry-inventory.mjs");
-    git("commit", "-qm", "reviewed source");
-    callback({ root, model, catalog, git, sourceSha: git("rev-parse", "HEAD") });
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
 }
 
 test("verifies the catalog, every model, and concrete fixture absence in Android APKs", () => {
@@ -404,100 +355,3 @@ test("rejects a reviewed APK from a different tracked source tree", () => {
     assert.throws(() => verifyAt(sourceSha), /source commit differs from checkout/);
   });
 });
-
-test("verifies the catalog, every model, and concrete fixture absence in iOS apps", () => {
-  withPackageContract(({ root, model, catalog }) => {
-    const app = path.join(root, "Runner.app");
-    const modelPath = path.join(app, "receipt_ocr_models/test-pack/model.onnx");
-    mkdirSync(path.dirname(modelPath), { recursive: true });
-    writeFileSync(modelPath, model);
-    writeFileSync(path.join(app, "receipt_ocr_models/catalog.json"), catalog);
-    for (const artifact of trustedLegalArtifacts) {
-      writeFileSync(
-        path.join(app, artifact.path.replace(/^assets\//, "")),
-        readFileSync(path.join(root, "apps/mobile", artifact.path)),
-      );
-    }
-
-    const extraModel = path.join(app, "receipt_ocr_models/test-pack/unlisted.onnx");
-    writeFileSync(extraModel, "unreviewed");
-    assert.throws(
-      () => verifyMobilePackage({ platform: "ios", packagePath: app, repoRoot: root }),
-      /inventory differs from the catalog/,
-    );
-    rmSync(extraModel);
-    assert.deepEqual(
-      verifyMobilePackage({ platform: "ios", packagePath: app, repoRoot: root }),
-      { catalogFileCount: 1, modelFileCount: 1, fixtureFileCount: 102 },
-    );
-
-    for (const extra of ['Private purchase 42', 'test-pack/Private purchase 42']) {
-      const directory = path.join(app, 'receipt_ocr_models', extra);
-      mkdirSync(directory, { recursive: true });
-      assert.throws(() => verifyMobilePackage({ platform: 'ios', packagePath: app, repoRoot: root }), /inventory/);
-      rmSync(directory, { recursive: true });
-      assert.equal(verifyMobilePackage({ platform: 'ios', packagePath: app, repoRoot: root }).modelFileCount, 1);
-    }
-
-    writeFileSync(modelPath, Buffer.concat([model, Buffer.from("unreviewed")]));
-    assert.throws(
-      () => verifyMobilePackage({ platform: "ios", packagePath: app, repoRoot: root }),
-      /model size differs from the catalog/,
-    );
-    writeFileSync(modelPath, model);
-
-    const legalArtifact = trustedLegalArtifacts[0];
-    const packagedLegalPath = path.join(app, legalArtifact.path.replace(/^assets\//, ""));
-    const legalBytes = readFileSync(packagedLegalPath);
-    writeFileSync(packagedLegalPath, Buffer.concat([legalBytes, Buffer.from("unreviewed")]));
-    assert.throws(
-      () => verifyMobilePackage({ platform: "ios", packagePath: app, repoRoot: root }),
-      /legal artifact size differs from the catalog/,
-    );
-    writeFileSync(packagedLegalPath, legalBytes);
-    writeFileSync(packagedLegalPath, "stale");
-    assert.throws(
-      () => verifyMobilePackage({ platform: "ios", packagePath: app, repoRoot: root }),
-      /legal artifact size differs from the catalog/,
-    );
-    writeFileSync(
-      packagedLegalPath,
-      readFileSync(path.join(root, "apps/mobile", legalArtifact.path)),
-    );
-
-    writeFileSync(path.join(app, "receipt_ocr_models/catalog.json"), "stale");
-    assert.throws(
-      () => verifyMobilePackage({ platform: "ios", packagePath: app, repoRoot: root }),
-      /catalog size differs from the catalog/,
-    );
-    writeFileSync(path.join(app, "receipt_ocr_models/catalog.json"), catalog);
-
-    const fixturePath = path.join(app, "receipt_ocr_acceptance/script/fixture-0.png");
-    mkdirSync(path.dirname(fixturePath), { recursive: true });
-    writeFileSync(fixturePath, "fixture");
-    assert.throws(
-      () => verifyMobilePackage({ platform: "ios", packagePath: app, repoRoot: root }),
-      /contains acceptance fixture/,
-    );
-  });
-});
-
-test("CLI reports bounded package-verification failures without local paths", () => {
-  withPackageContract(({ root }) => {
-    const missingPackage = path.join(root, "private-build-root/Runner.app");
-    const result = spawnSync(process.execPath, [
-      path.join(repoRootForCli(), "tools/ocr-models/verify-mobile-package.mjs"),
-      "--platform=ios",
-      `--package=${missingPackage}`,
-      `--repo-root=${root}`,
-    ], { encoding: "utf8" });
-    assert.notEqual(result.status, 0);
-    assert.equal(result.stdout, "");
-    assert.equal(result.stderr, "Production package verification failed: package contract mismatch\n");
-    assert.equal(result.stderr.includes(root), false);
-  });
-});
-
-function repoRootForCli() {
-  return path.resolve(import.meta.dirname, "../../..");
-}
