@@ -42,6 +42,129 @@ import 'package:mobile/ui/settleora_form_fields.dart';
 
 void main() {
   for (final group in [false, true]) {
+    for (final sourceComplete in [true, false]) {
+      for (final decimalTyping in [false, true]) {
+        testWidgets(
+          'review-restoration ${group ? "group" : "personal"} sourceComplete=$sourceComplete decimalTyping=$decimalTyping',
+          (tester) async {
+            await useLargeSurface(tester);
+            final prefix = group ? 'group-bill' : 'personal-bill';
+            final repository = FakeBillRepository();
+            final fileInput = FakeBillAttachmentFileInput(
+              pickedFile: samplePickedAttachmentFile(
+                filename: 'synthetic-receipt.png',
+                contentType: 'image/png',
+                bytes: samplePngBytes(width: 64, height: 64),
+              ),
+            );
+            final provider = FakeReceiptOcrProvider(
+              ReceiptOcrResult.extracted(
+                ReceiptOcrPreview(
+                  merchant: 'Notebook Shop',
+                  currency: 'USD',
+                  currencyProvenance: ReceiptOcrCurrencyProvenance.explicit,
+                  subtotal: '10.00',
+                  tax: '1.00',
+                  taxIncludedInTotal: true,
+                  total: '10.00',
+                  adjustmentsComplete: sourceComplete,
+                  items: const [
+                    ReceiptOcrItemCandidate(
+                      description: 'Notebook',
+                      quantity: '1',
+                      unitPrice: '10',
+                      lineTotal: '10.00',
+                      currency: 'USD',
+                    ),
+                  ],
+                ),
+              ),
+            );
+            if (group) {
+              await _pumpGroupBillCreate(
+                tester,
+                repository: repository,
+                groupRepository: FakeGroupRepository(
+                  members: [sampleGroupMember()],
+                ),
+                attachmentRepository: FakeBillAttachmentRepository(),
+                attachmentFileInput: fileInput,
+                receiptOcrProvider: provider,
+              );
+              await tester.tap(find.byKey(const Key('group-bill-list-create')));
+              await tester.pumpAndSettle();
+              await _goToGroupBillCreateStep(tester, 'receiptItems');
+            } else {
+              await tester.pumpWidget(
+                MaterialApp(
+                  home: SettleoraPersonalBillCreateScreen(
+                    repository: repository,
+                    attachmentRepository: FakeBillAttachmentRepository(),
+                    attachmentFileInput: fileInput,
+                    receiptOcrProvider: provider,
+                  ),
+                ),
+              );
+              await tester.pumpAndSettle();
+            }
+            final scan = find.byKey(Key('$prefix-scan-receipt'));
+            await tester.ensureVisible(scan);
+            await tester.tap(scan);
+            await tester.pumpAndSettle();
+            final choice = find.byKey(Key('$prefix-ocr-apply-items'));
+            bool itemsEnabled() =>
+                tester.widget<CheckboxListTile>(choice).onChanged != null;
+            expect(itemsEnabled(), sourceComplete);
+            final description = find.byKey(
+              ValueKey('$prefix-ocr-item-description-0'),
+            );
+            await tester.ensureVisible(description);
+            await tester.enterText(description, 'Corrected notebook');
+            await tester.pumpAndSettle();
+            final price = find.byKey(ValueKey('$prefix-ocr-item-unit-price-0'));
+            await tester.ensureVisible(price);
+            await tester.enterText(price, decimalTyping ? '10.' : '1');
+            await tester.pumpAndSettle();
+            expect(itemsEnabled(), isFalse);
+            await tester.enterText(price, decimalTyping ? '10.0' : '10');
+            await tester.pumpAndSettle();
+            expect(itemsEnabled(), sourceComplete);
+            expect(
+              tester.widget<TextFormField>(description).controller!.text,
+              'Corrected notebook',
+            );
+            if (sourceComplete) {
+              await _setReceiptOcrSection(tester, prefix, 'items', true);
+              await _setReceiptOcrSection(tester, prefix, 'currency', true);
+              await _tapReceiptOcrApply(tester, prefix);
+              expect(
+                tester
+                    .widget<TextFormField>(
+                      find.byKey(ValueKey('$prefix-item-name-0')),
+                    )
+                    .controller!
+                    .text,
+                'Corrected notebook',
+              );
+              expect(
+                tester
+                    .widget<TextFormField>(
+                      find.byKey(ValueKey('$prefix-item-amount-0')),
+                    )
+                    .controller!
+                    .text,
+                '10.00',
+              );
+            }
+            expect(repository.lastCreateDraft, isNull);
+            expect(provider.calls, 1);
+          },
+        );
+      }
+    }
+  }
+
+  for (final group in [false, true]) {
     for (final mode in [
       null,
       ReceiptOcrTaxReconciliationModeValues.addToBase,

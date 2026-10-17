@@ -77,6 +77,25 @@ Future<void> applyPreviewAndExpect(
 }
 
 void main() {
+  for (final row in ['Tea XL 1500', 'Tea XXL 1500', 'Widget CA 15000']) {
+    testWidgets('postal-shaped candidate stays editable without Apply: $row', (
+      tester,
+    ) async {
+      final total = row.startsWith('Widget') ? '15500' : '2000';
+      final preview = const ReceiptOcrParser().parse(
+        'TEST CAFE\n$row\nCoffee 500\nTotal JPY $total',
+      );
+      expect(
+        preview.items.first.description,
+        row.substring(0, row.lastIndexOf(' ')),
+      );
+      expect(preview.items.first.lineTotal, row.split(' ').last);
+      expect(preview.adjustmentsComplete, isFalse);
+      expect(preview.reviewHints, isNotEmpty);
+      await applyPreviewAndExpect(tester, preview, [], itemsAllowed: false);
+    });
+  }
+
   final cases = <({String product, String? contact})>[
     for (final product in receipts.contactProducts)
       (product: product, contact: null),

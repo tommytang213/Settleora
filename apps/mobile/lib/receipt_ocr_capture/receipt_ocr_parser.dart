@@ -3605,18 +3605,16 @@ class ReceiptOcrParser {
         continue;
       }
       // A bare city/region/postal shape can also be a description and price.
-      // Without a preceding street address, retain that ambiguity instead of
-      // silently discarding a potentially priced row as header metadata.
-      if (!nonItemEvidenceRows.contains(lineIndex) &&
+      // Without a printed street-address owner, preserve the editable priced
+      // candidate. Its unresolved role still prevents complete reconciliation.
+      final unownedPostalPricedRow =
+          !nonItemEvidenceRows.contains(lineIndex) &&
           _lineHasAmount(line) &&
           _isReceiptMetadataLine(line) &&
           !_isReceiptMetadataLine(line, allowBarePostal: false) &&
-          !_hasOwnedStreetAddressContext(lines, lineIndex)) {
+          !_hasOwnedStreetAddressContext(lines, lineIndex);
+      if (unownedPostalPricedRow) {
         unretainedPricedItem = true;
-        lineDecisions[lineIndex] =
-            ReceiptOcrItemLineDecision.unretainedPricedRow;
-        wrappedDescriptionLines.clear();
-        continue;
       }
       if (nonItemEvidenceRows.contains(lineIndex) ||
           _ownedTotalBesideContact(lines, layoutRows, lineIndex, currency) !=
@@ -3649,7 +3647,8 @@ class ReceiptOcrParser {
           (afterSubtotal &&
               !chargeTableRows.contains(lineIndex) &&
               _isAmbiguousParenthesizedTaxLine(line)) ||
-          _isContextualReceiptMetadataLine(lines, lineIndex) ||
+          (!unownedPostalPricedRow &&
+              _isContextualReceiptMetadataLine(lines, lineIndex)) ||
           _isSupportedChargeTableHeader(lines, lineIndex) ||
           detachedAmountSignRows.contains(lineIndex) ||
           merchantLineIndices.contains(lineIndex) ||

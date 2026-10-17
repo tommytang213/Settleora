@@ -257,6 +257,7 @@ BillDuplicateWarning? possibleReceiptDuplicateWarning({
 
 ReceiptOcrPreview _copyReceiptOcrPreview(
   ReceiptOcrPreview preview, {
+  required ReceiptOcrPreview sourcePreview,
   String? merchant,
   String? receiptDate,
   String? currency,
@@ -320,7 +321,8 @@ ReceiptOcrPreview _copyReceiptOcrPreview(
         retainDiscount && preview.discountHasExplicitCurrencyEvidence,
     discountBeforeSubtotal:
         retainSubtotal && retainDiscount && preview.discountBeforeSubtotal,
-    adjustmentsComplete: preview.adjustmentsComplete && !itemEvidenceChanged,
+    adjustmentsComplete:
+        sourcePreview.adjustmentsComplete && !itemEvidenceChanged,
     incompleteAdjustmentReasons: preview.incompleteAdjustmentReasons,
     total: clearHeaderMoney ? null : preview.total,
     rawTextLineCount: preview.rawTextLineCount,
@@ -3135,6 +3137,7 @@ class _ReceiptOcrPreviewPanel extends StatelessWidget {
             _ReceiptOcrEditableReviewForm(
               keyPrefix: keyPrefix,
               preview: preview,
+              sourcePreview: originalPreview ?? preview,
               enabled: !wasApplied,
               onChanged: onPreviewChanged,
               onReset: onResetCorrections,
@@ -3201,6 +3204,7 @@ class _ReceiptOcrEditableReviewForm extends StatefulWidget {
   const _ReceiptOcrEditableReviewForm({
     required this.keyPrefix,
     required this.preview,
+    required this.sourcePreview,
     required this.enabled,
     required this.onChanged,
     required this.onReset,
@@ -3209,6 +3213,7 @@ class _ReceiptOcrEditableReviewForm extends StatefulWidget {
 
   final String keyPrefix;
   final ReceiptOcrPreview preview;
+  final ReceiptOcrPreview sourcePreview;
   final bool enabled;
   final ValueChanged<ReceiptOcrPreview> onChanged;
   final VoidCallback onReset;
@@ -3381,13 +3386,17 @@ class _ReceiptOcrEditableReviewFormState
     widget.onChanged(
       _copyReceiptOcrPreview(
         widget.preview,
+        sourcePreview: widget.sourcePreview,
         merchant: _merchantController.text,
         receiptDate: _dateController.text,
         currency: _currencyController.text,
         currencyProvenance: currencyProvenance,
         clearHeaderMoney: clearHeaderMoney,
+        // Compare against the original source, not the preceding keystroke.
+        // Restoring unchanged money restores only the source's eligibility;
+        // an originally incomplete receipt cannot become complete by editing.
         itemEvidenceChanged: _itemsDiffer(
-          widget.preview.items,
+          widget.sourcePreview.items,
           _itemControllers,
           compareDecimalValues: true,
           // Corrected item text is retained in the draft but does not change
@@ -14888,6 +14897,7 @@ class _SavedReceiptOcrReviewEditContent extends StatelessWidget {
               _ReceiptOcrEditableReviewForm(
                 keyPrefix: 'saved-ocr-review',
                 preview: preview,
+                sourcePreview: _receiptOcrPreviewFromSavedReview(review),
                 enabled: enabled,
                 onChanged: onPreviewChanged,
                 onReset: onReset,

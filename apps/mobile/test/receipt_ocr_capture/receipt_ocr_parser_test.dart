@@ -8351,7 +8351,7 @@ Total USD 36.99
     ]);
   });
 
-  test('postal and registration headers do not become merchandise', () {
+  test('postal and registration ownership preserves unowned candidates', () {
     const parser = ReceiptOcrParser();
     final us = parser.parse('''
 Pike Street Deli
@@ -8383,7 +8383,12 @@ Subtotal \$9.00
 GST \$0.81
 Total \$9.81
 ''');
-    expect(us.items.map((item) => item.description), ['Sandwich', 'Coffee']);
+    expect(us.items.map((item) => item.description), [
+      'Seattle WA',
+      'Sandwich',
+      'Coffee',
+    ]);
+    expect(us.items.first.lineTotal, '98101');
     expect(us.tax, '1.70');
     // The bare postal row has no printed street-address owner, so its
     // possible priced-row interpretation remains visible for review.
@@ -8433,7 +8438,13 @@ Total \$145.00
       final preview = const ReceiptOcrParser().parse(
         'TEST CAFE\n$row\nCoffee 500\nTotal JPY $total',
       );
-      expect(preview.items.map((item) => item.description), ['Coffee']);
+      expect(preview.items.map((item) => item.description), [
+        row.substring(0, row.lastIndexOf(' ')),
+        'Coffee',
+      ]);
+      expect(preview.items.first.lineTotal, row.split(' ').last);
+      expect(preview.items.first.currency, 'JPY');
+      expect(preview.reviewHints, isNotEmpty);
       expect(preview.adjustmentsComplete, isFalse);
       expect(
         preview.incompleteAdjustmentReasons,
@@ -8441,7 +8452,7 @@ Total \$145.00
       );
       expect(
         preview.itemLineDecisions[1],
-        ReceiptOcrItemLineDecision.unretainedPricedRow,
+        ReceiptOcrItemLineDecision.pricedItemSelected,
       );
     });
   }
@@ -8466,10 +8477,11 @@ Total \$145.00
     final preview = const ReceiptOcrParser().parse(
       'Corner Cafe\n123 Main Street USD 15.00\nTea XL 1500\nCoffee 500\nTotal JPY 2000',
     );
+    expect(preview.items.map((item) => item.description), contains('Tea XL'));
     expect(preview.adjustmentsComplete, isFalse);
     expect(
       preview.itemLineDecisions[2],
-      ReceiptOcrItemLineDecision.unretainedPricedRow,
+      ReceiptOcrItemLineDecision.pricedItemSelected,
     );
     expect(
       preview.incompleteAdjustmentReasons,
