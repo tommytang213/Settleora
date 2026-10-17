@@ -14164,8 +14164,9 @@ bool _hasReceiptContactPriceConflict(String description, String monetaryText) =>
 
 // Decorations prove competing numeric evidence only. They cannot assign a sign
 // or expand the monetary values that an item selector is allowed to publish.
+// Printed separators also delimit a numeric cell from the contact field.
 final _contactAmountDecorationPattern =
-    '(?:[+−()\\[\\]-]|CREDIT|DEBIT|CR|DR|$_currencyTokenPattern)';
+    '(?:[+−()\\[\\]/|:;,-]|CREDIT|DEBIT|CR|DR|$_currencyTokenPattern)';
 final _leadingContactAmountPattern = RegExp(
   '^\\s*(?:$_contactAmountDecorationPattern\\s*)*$_amountTokenPattern'
   '(?:\\s*$_contactAmountDecorationPattern)*\\s+',

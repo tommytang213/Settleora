@@ -267,6 +267,11 @@ const signedContactPrefixes = [
   '- 123',
   'CR123',
   '123 DR',
+  '123 |',
+  '123 /',
+  '123 :',
+  '123 ;',
+  '123 ,',
 ];
 
 void main() {
