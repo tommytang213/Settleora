@@ -10951,18 +10951,28 @@ bool _isOwnedAdjacentFinancialAmount(
   // Rates are annotations, not an already-owned monetary amount; retain the
   // guard for every other numeric amount still present on that label.
   final labelWithoutPercentages = label.replaceAll(
-    RegExp(r'\b\d{1,3}(?:[.,]\d{1,2})?\s*%'),
+    RegExp(r'\b\d+(?:[.,]\d+)?\s*%'),
     '',
   );
   if (_lineHasAmount(labelWithoutPercentages)) return false;
   if (!_isPaymentMetadataLine(pair)) return true;
+  // These existing payment/tender forms already require a complete bounded
+  // monetary suffix, so their supported qualifiers need no new vocabulary.
+  final paymentPrefix = RegExp(
+    r'^(?:payment|tender)\b',
+    caseSensitive: false,
+  ).firstMatch(pair);
+  if (paymentPrefix != null &&
+      _hasCurrencyMetadataShape(pair.substring(paymentPrefix.end).trimLeft())) {
+    return true;
+  }
   // Payment metadata has permissive legacy prefix checks. Do not use those
   // checks alone to excuse unexplained money on a different OCR row.
   final paymentLabel = RegExp(
-    r'^(?:paid\s+(?:by\s+)?(?:cash|card|credit[ -]?card|debit[ -]?card|visa|mastercard|master card|amex|american express)|'
+    r'^(?:charged\s+(?:to\s+)?card|paid\s+(?:by\s+)?(?:cash|card|credit[ -]?card|debit[ -]?card|visa|mastercard|master card|amex|american express)|'
     r'(?:gift|prepaid)[ -]?card|payment\s+(?:coupon|information|summary)|remittance|deposit\s+paid|paid\s+deposit|'
     r'(?:cash|change|payment|tender|paid|card|credit[ -]?card|debit[ -]?card|visa|mastercard|master card|amex|american express)'
-    r'(?:\s+(?:tendered|paid|received|charged|payment|tender))?|'
+    r'(?:\s+(?:tendered|paid|received|charged|payment|tender|amount|total|due))*|'
     r'gotówka|reszta|nakit|para üstü|tiền mặt|tiền thừa|dinheiro|troco|espèces|monnaie|наличные|сдача|نقدا|نقداً|الباقي|現金|お釣り|现金|現金支付|找零|현금|거스름돈|เงินสด|เงินทอน|नकद|बाकी)(?=\s|[:：]|$)',
     caseSensitive: false,
   ).firstMatch(label);

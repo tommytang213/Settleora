@@ -65,6 +65,14 @@ void main() {
     'Cash Tendered',
     'Paid by card',
     'Payment summary',
+    'Charged to card',
+    'Charged card',
+    'Payment amount',
+    'Tender credit card',
+    'Cash amount',
+    'Credit card total',
+    'Change due',
+    'Card payment total',
     '現金',
   ]) {
     test('complete payment label owns its adjacent amount: $label', () {
@@ -114,7 +122,13 @@ void main() {
     );
   }
 
-  for (final rate in [('20', '2.00', '12.00'), ('7.5', '0.75', '10.75')]) {
+  for (final rate in [
+    ('20', '2.00', '12.00'),
+    ('7.5', '0.75', '10.75'),
+    ('7.125', '0.71', '10.71'),
+    ('8.875', '0.89', '10.89'),
+    ('20.000', '2.00', '12.00'),
+  ]) {
     test('rated tax label owns its adjacent monetary amount: ${rate.$1}%', () {
       final label = 'VAT ${rate.$1}%';
       final preview = const ReceiptOcrParser().parse(
