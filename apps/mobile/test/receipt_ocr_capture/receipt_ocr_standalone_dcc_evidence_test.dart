@@ -114,6 +114,49 @@ void main() {
     );
   }
 
+  for (final rate in [('20', '2.00', '12.00'), ('7.5', '0.75', '10.75')]) {
+    test('rated tax label owns its adjacent monetary amount: ${rate.$1}%', () {
+      final label = 'VAT ${rate.$1}%';
+      final preview = const ReceiptOcrParser().parse(
+        'Acme Market\nCoffee USD 10.00\nSubtotal USD 10.00\n'
+        '$label\nUSD ${rate.$2}\nTotal USD ${rate.$3}',
+        blocks: [
+          _layoutBlock('Acme Market', 0, 20, 220),
+          _layoutBlock('Coffee USD 10.00', 1, 20, 350),
+          _layoutBlock('Subtotal USD 10.00', 2, 20, 350),
+          _layoutBlock(label, 3, 20, 150),
+          _layoutBlock('USD ${rate.$2}', 4, 310, 350),
+          _layoutBlock('Total USD ${rate.$3}', 5, 20, 350),
+        ],
+      );
+      expect(preview.tax, rate.$2);
+      expect(preview.total, rate.$3);
+      expect(preview.adjustmentsComplete, isTrue);
+      expect(preview.incompleteAdjustmentReasons, isEmpty);
+    });
+  }
+
+  test('percentage does not erase a monetary amount already on the label', () {
+    const label = 'VAT 20% USD 2.00';
+    final preview = const ReceiptOcrParser().parse(
+      'Acme Market\nCoffee USD 10.00\nSubtotal USD 10.00\n'
+      '$label\nUSD 5.00\nTotal USD 12.00',
+      blocks: [
+        _layoutBlock('Acme Market', 0, 20, 220),
+        _layoutBlock('Coffee USD 10.00', 1, 20, 350),
+        _layoutBlock('Subtotal USD 10.00', 2, 20, 350),
+        _layoutBlock(label, 3, 20, 150),
+        _layoutBlock('USD 5.00', 4, 310, 350),
+        _layoutBlock('Total USD 12.00', 5, 20, 350),
+      ],
+    );
+    expect(preview.adjustmentsComplete, isFalse);
+    expect(
+      preview.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem),
+    );
+  });
+
   for (final pair in [
     ('12.34', '12.34'),
     ('0012.34', '12.34'),

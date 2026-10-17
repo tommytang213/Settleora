@@ -10929,7 +10929,6 @@ bool _isOwnedAdjacentFinancialAmount(
   int amountIndex,
 ) {
   if (amountIndex == 0 ||
-      _lineHasAmount(lines[amountIndex - 1]) ||
       !_isFinancialLabelWithAdjacentAmount(
         lines,
         layoutRows,
@@ -10941,6 +10940,14 @@ bool _isOwnedAdjacentFinancialAmount(
       .trim()
       .replaceFirst(RegExp(r'[:：]$'), '')
       .trim();
+  // A recognized financial pair can carry a printed percentage on its label.
+  // Rates are annotations, not an already-owned monetary amount; retain the
+  // guard for every other numeric amount still present on that label.
+  final labelWithoutPercentages = label.replaceAll(
+    RegExp(r'\b\d{1,3}(?:[.,]\d{1,2})?\s*%'),
+    '',
+  );
+  if (_lineHasAmount(labelWithoutPercentages)) return false;
   final pair = '$label ${lines[amountIndex]}';
   if (!_isPaymentMetadataLine(pair)) return true;
   // Payment metadata has permissive legacy prefix checks. Do not use those
