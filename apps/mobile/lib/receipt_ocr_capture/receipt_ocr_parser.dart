@@ -10955,7 +10955,28 @@ bool _isOwnedAdjacentFinancialAmount(
     '',
   );
   if (_lineHasAmount(labelWithoutPercentages)) return false;
-  if (!_isPaymentMetadataLine(pair)) return true;
+  if (!_isPaymentMetadataLine(pair)) {
+    // Reference/conversion metadata has a permissive legacy prefix check.
+    // A separate monetary cell needs a complete bounded label, just as a
+    // payment does; a product suffix must keep its unexplained evidence.
+    final metadataPrefix = RegExp(
+      r'^(?:reference|conversion|dcc)\b',
+      caseSensitive: false,
+    ).firstMatch(label);
+    if (metadataPrefix == null) return true;
+    final remainder = label
+        .substring(metadataPrefix.end)
+        .trim()
+        .replaceFirst(
+          RegExp(r'^(?:total|selected)\b', caseSensitive: false),
+          '',
+        )
+        .replaceFirst(RegExp(r'^\s*[:：]\s*'), '')
+        .trim();
+    final monetarySuffix = '$remainder ${lines[amountIndex]}'.trim();
+    return _isBoundedPaymentAmount(monetarySuffix) ||
+        _hasCurrencyMetadataShape(monetarySuffix);
+  }
   // These existing payment/tender forms already require a complete bounded
   // monetary suffix, so their supported qualifiers need no new vocabulary.
   final paymentPrefix = RegExp(

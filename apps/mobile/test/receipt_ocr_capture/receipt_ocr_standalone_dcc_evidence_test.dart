@@ -88,6 +88,13 @@ void main() {
     'Cash paid；',
     'Cash paid,',
     'Paid by cash total!',
+    'Reference amount',
+    'Reference total',
+    'Reference amount:',
+    'Conversion amount',
+    'Conversion rate',
+    'DCC total',
+    'DCC selected',
     'Payment amount',
     'Tender credit card',
     'Cash amount',
@@ -96,7 +103,7 @@ void main() {
     'Card payment total',
     '現金',
   ]) {
-    test('complete payment label owns its adjacent amount: $label', () {
+    test('complete financial label owns its adjacent amount: $label', () {
       final preview = const ReceiptOcrParser().parse(
         'Acme Market\nCoffee USD 10.00\nTotal USD 10.00\n$label\nUSD 20.00',
         blocks: [
@@ -130,9 +137,13 @@ void main() {
     'Cash Latte.',
     'Cash paid USD 20.',
     'Cash paid?',
+    'Reference amount Latte',
+    'Conversion total Latte',
+    'DCC amount Latte',
+    'Reference total USD 20.00',
   ]) {
     test(
-      'priced or descriptive payment row cannot own extra money: $label',
+      'priced or descriptive financial row cannot own extra money: $label',
       () {
         final preview = const ReceiptOcrParser().parse(
           'Acme Market\nCoffee USD 10.00\nTotal USD 10.00\n$label\nUSD 5.00',
