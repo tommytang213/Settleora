@@ -3636,13 +3636,11 @@ class ReceiptOcrParser {
         // as an adjacent item amount is consumed with its description. Other
         // summary/metadata roles were excluded above. Remaining money has no
         // established role and cannot count as complete evidence.
-        final ownedByFinancialLabel =
-            lineIndex > 0 &&
-            _isFinancialLabelWithAdjacentAmount(
-              lines,
-              layoutRows,
-              lineIndex - 1,
-            );
+        final ownedByFinancialLabel = _isOwnedAdjacentFinancialAmount(
+          lines,
+          layoutRows,
+          lineIndex,
+        );
         if (!ownedByFinancialLabel) unretainedPricedItem = true;
         lineDecisions[lineIndex] = ownedByFinancialLabel
             ? ReceiptOcrItemLineDecision.standaloneAmountSkipped
@@ -10921,6 +10919,46 @@ bool _isFinancialLabelWithAdjacentAmount(
   final printedPair = '${lines[labelIndex]} ${lines[labelIndex + 1]}';
   return _isAdministrativeLine(printedPair) ||
       _isPaymentMetadataLine(printedPair);
+}
+
+// A payment prefix can also begin a product name or an already-priced row.
+// Only a complete unpriced financial label can own a separate amount cell.
+bool _isOwnedAdjacentFinancialAmount(
+  List<String> lines,
+  List<List<ReceiptOcrBlockEvidence>> layoutRows,
+  int amountIndex,
+) {
+  if (amountIndex == 0 ||
+      _lineHasAmount(lines[amountIndex - 1]) ||
+      !_isFinancialLabelWithAdjacentAmount(
+        lines,
+        layoutRows,
+        amountIndex - 1,
+      )) {
+    return false;
+  }
+  final label = lines[amountIndex - 1]
+      .trim()
+      .replaceFirst(RegExp(r'[:：]$'), '')
+      .trim();
+  final pair = '$label ${lines[amountIndex]}';
+  if (!_isPaymentMetadataLine(pair)) return true;
+  // Payment metadata has permissive legacy prefix checks. Do not use those
+  // checks alone to excuse unexplained money on a different OCR row.
+  final paymentLabel = RegExp(
+    r'^(?:paid\s+(?:by\s+)?(?:cash|card|credit[ -]?card|debit[ -]?card|visa|mastercard|master card|amex|american express)|'
+    r'(?:gift|prepaid)[ -]?card|payment\s+(?:coupon|information|summary)|remittance|deposit\s+paid|paid\s+deposit|'
+    r'(?:cash|change|payment|tender|paid|card|credit[ -]?card|debit[ -]?card|visa|mastercard|master card|amex|american express)'
+    r'(?:\s+(?:tendered|paid|received|charged|payment|tender))?|'
+    r'gotówka|reszta|nakit|para üstü|tiền mặt|tiền thừa|dinheiro|troco|espèces|monnaie|наличные|сдача|نقدا|نقداً|الباقي|現金|お釣り|现金|現金支付|找零|현금|거스름돈|เงินสด|เงินทอน|नकद|बाकी)(?=\s|[:：]|$)',
+    caseSensitive: false,
+  ).firstMatch(label);
+  if (paymentLabel == null) return false;
+  final remainder = label
+      .substring(paymentLabel.end)
+      .replaceFirst(RegExp(r'^\s*[:：]\s*'), '')
+      .trim();
+  return _isBoundedPaymentAmount('$remainder ${lines[amountIndex]}'.trim());
 }
 
 // A printed charge table can contain usage and rate columns before its final

@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_parser.dart';
 import 'package:mobile/receipt_ocr_capture/receipt_ocr_preview.dart';
-import 'package:mobile/receipt_ocr_capture/receipt_ocr_provider.dart';
 
 void main() {
   for (final amount in ['USD 5.00', '5.00 USD', '105.00']) {
@@ -60,6 +59,60 @@ void main() {
       ),
     );
   });
+
+  for (final label in [
+    'Cash',
+    'Cash Tendered',
+    'Paid by card',
+    'Payment summary',
+    '現金',
+  ]) {
+    test('complete payment label owns its adjacent amount: $label', () {
+      final preview = const ReceiptOcrParser().parse(
+        'Acme Market\nCoffee USD 10.00\nTotal USD 10.00\n$label\nUSD 20.00',
+        blocks: [
+          _layoutBlock('Acme Market', 0, 20, 220),
+          _layoutBlock('Coffee USD 10.00', 1, 20, 350),
+          _layoutBlock('Total USD 10.00', 2, 20, 350),
+          _layoutBlock(label, 3, 20, 150),
+          _layoutBlock('USD 20.00', 4, 310, 350),
+        ],
+      );
+      expect(preview.total, '10.00');
+      expect(preview.items.single.lineTotal, '10.00');
+      expect(
+        preview.incompleteAdjustmentReasons,
+        isNot(
+          contains(ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem),
+        ),
+      );
+    });
+  }
+
+  for (final label in ['Cash USD 20.00', 'Cash Latte']) {
+    test(
+      'priced or descriptive payment row cannot own extra money: $label',
+      () {
+        final preview = const ReceiptOcrParser().parse(
+          'Acme Market\nCoffee USD 10.00\nTotal USD 10.00\n$label\nUSD 5.00',
+          blocks: [
+            _layoutBlock('Acme Market', 0, 20, 220),
+            _layoutBlock('Coffee USD 10.00', 1, 20, 350),
+            _layoutBlock('Total USD 10.00', 2, 20, 350),
+            _layoutBlock(label, 3, 20, 150),
+            _layoutBlock('USD 5.00', 4, 310, 350),
+          ],
+        );
+        expect(preview.total, '10.00');
+        expect(preview.adjustmentsComplete, isFalse);
+        expect(
+          preview.incompleteAdjustmentReasons,
+          contains(ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem),
+        );
+        expect(preview.reviewHints, isNotEmpty);
+      },
+    );
+  }
 
   for (final pair in [
     ('12.34', '12.34'),
