@@ -122,6 +122,8 @@ class ReceiptOcrParser {
       currency,
     );
     final ambiguousProjectionRows = <int>{};
+    final layoutDiscountLabels = <int, String>{};
+    final utilityDiscountLabels = <int, String>{};
     final layoutAdjustmentLines = {
       ..._layoutAdjustmentEvidenceLines(
         lines,
@@ -129,12 +131,14 @@ class ReceiptOcrParser {
         {...chargeTable.items, ...chargeTable.ambiguous},
         currency: currency,
         unresolvedRows: ambiguousProjectionRows,
+        discountLabels: layoutDiscountLabels,
       ),
     };
     final boundedUtility = _boundedUtilityColumnRecovery(
       lines,
       layoutRows,
       currency,
+      discountLabels: utilityDiscountLabels,
     );
     final utilityFinancial = _ownedUtilityFinancialRows(
       lines,
@@ -153,8 +157,18 @@ class ReceiptOcrParser {
           utilityFinancial.ambiguous.contains(index) ||
           utilityFinancial.reviewRows.contains(index),
     );
+    // Keep each printed identity attached only to the projection that owns it.
+    layoutDiscountLabels.removeWhere(
+      (index, _) =>
+          !layoutAdjustmentLines.containsKey(index) ||
+          boundedUtility.adjustments.containsKey(index),
+    );
     layoutAdjustmentLines.addAll(boundedUtility.adjustments);
+    layoutDiscountLabels.addAll(utilityDiscountLabels);
     layoutAdjustmentLines.addAll(utilityFinancial.adjustments);
+    layoutDiscountLabels.removeWhere(
+      (index, _) => utilityFinancial.adjustments.containsKey(index),
+    );
     final skewedSummaryLines = _skewedSummaryEvidenceLines(
       lines,
       layoutRows,
@@ -212,6 +226,7 @@ class ReceiptOcrParser {
       lines,
       layoutRows,
       ownedNameBlocks: ownedMerchantNameBlocks,
+      unresolvedFooterRows: ambiguousChargeRows,
     );
     final merchant = merchantDetection?.text;
     // Corroborating a split issuer owns only the actual name blocks. Keep
@@ -259,6 +274,7 @@ class ReceiptOcrParser {
       ambiguousChargeTableRows: ambiguousChargeRows,
       detachedAmountSignRows: detachedAmountSignRows,
       layoutAdjustmentLines: layoutAdjustmentLines,
+      layoutDiscountLabels: layoutDiscountLabels,
       utilityTaxComponents: utilityFinancial.taxComponents,
       retainedUtilityAdjustmentRows: utilityFinancial.reviewRows,
       ownedActivityFeeRows: ownedActivityFeeRows,
@@ -586,6 +602,7 @@ class ReceiptOcrParser {
     List<String> lines,
     List<List<ReceiptOcrBlockEvidence>> layoutRows, {
     Set<ReceiptOcrBlockEvidence>? ownedNameBlocks,
+    Set<int>? unresolvedFooterRows,
   }) {
     // Every issuer strategy uses the same ownership boundary. Typography or
     // a business suffix on a buyer cannot make that buyer the receipt issuer.
@@ -674,6 +691,23 @@ class ReceiptOcrParser {
               }
               if (repeatedNameBlocks.isNotEmpty) {
                 final nameBlocks = {first, block, ...repeatedNameBlocks};
+                // A corroborating issuer does not give an adjacent amount-only
+                // cell an item or summary role. Retain that money as unresolved.
+                for (
+                  var index = lastTotalRow + 1;
+                  index < layoutRows.length;
+                  index++
+                ) {
+                  final row = layoutRows[index];
+                  if (row.any(repeatedNameBlocks.contains) &&
+                      row.any(
+                        (neighbor) =>
+                            !repeatedNameBlocks.contains(neighbor) &&
+                            _isStandaloneAmountRow(neighbor.text),
+                      )) {
+                    unresolvedFooterRows?.add(index);
+                  }
+                }
                 // A row exemption requires complete ownership. Only validated
                 // nonfinancial name blocks may be removed from a mixed row;
                 // ambiguous geometry, currency and date evidence stay visible.
@@ -716,6 +750,16 @@ class ReceiptOcrParser {
                   lineIndices: {
                     for (final index in [0, rowIndex])
                       if (layoutRows[index].every(nameBlocks.contains)) index,
+                    for (
+                      var index = lastTotalRow + 1;
+                      index < layoutRows.length;
+                      index++
+                    )
+                      if (ownedNameBlocks != null &&
+                          layoutRows[index].isNotEmpty &&
+                          layoutRows[index].every(ownedNameBlocks.contains) &&
+                          layoutRows[index].any(repeatedNameBlocks.contains))
+                        index,
                   },
                 );
               }
@@ -2492,6 +2536,7 @@ class ReceiptOcrParser {
     Set<int> ambiguousChargeTableRows = const {},
     Set<int> detachedAmountSignRows = const {},
     Map<int, String> layoutAdjustmentLines = const {},
+    Map<int, String> layoutDiscountLabels = const {},
     Map<int, ({int table, String label})> utilityTaxComponents = const {},
     Set<int> retainedUtilityAdjustmentRows = const {},
     Set<int> ownedActivityFeeRows = const {},
@@ -2909,7 +2954,9 @@ class ReceiptOcrParser {
         if (amount.startsWith('-')) {
           discountComponents.add((
             amount: amount,
-            label: _originalReceiptAdjustmentLabel(line, fallback: 'Discount'),
+            label:
+                layoutDiscountLabels[lineIndex] ??
+                _originalReceiptAdjustmentLabel(line, fallback: 'Discount'),
             currency: printed.currency,
             explicit: printed.hasExplicitEvidence,
           ));
@@ -4476,8 +4523,9 @@ class ReceiptOcrParser {
   _boundedUtilityColumnRecovery(
     List<String> lines,
     List<List<ReceiptOcrBlockEvidence>> rows,
-    String? currency,
-  ) {
+    String? currency, {
+    required Map<int, String> discountLabels,
+  }) {
     final items = <int, ReceiptOcrItemCandidate>{};
     final adjustments = <int, String>{};
     final ambiguous = <int>{};
@@ -5243,7 +5291,12 @@ class ReceiptOcrParser {
           adjustments[rowIndex] = ownedText;
           continue;
         }
-        if (discountLabelPattern.hasMatch(normalizedDescription)) {
+        if (discountLabelPattern.hasMatch(normalizedDescription) ||
+            _isNegatedDiscountLabel(normalizedDescription)) {
+          if (_hasQualifiedDiscountTreatment(normalizedDescription)) {
+            ambiguous.add(rowIndex);
+            continue;
+          }
           if (_hasUnexplainedFinancialLabelNumber(normalizedDescription)) {
             continue;
           }
@@ -5253,6 +5306,7 @@ class ReceiptOcrParser {
             ' ${selectedAmount.group(0)!} ',
           );
           adjustments[rowIndex] = 'Discount ${separatedAmount.trim()}';
+          discountLabels[rowIndex] = normalizedDescription;
           continue;
         }
         // Established financial roles remain non-item evidence in this recovery
@@ -5877,6 +5931,7 @@ class ReceiptOcrParser {
     Set<int> ambiguousRows, {
     required String? currency,
     required Set<int> unresolvedRows,
+    required Map<int, String> discountLabels,
   }) {
     if (sourceLines.length != layoutRows.length) return const {};
     final lines = <int, String>{};
@@ -5886,7 +5941,8 @@ class ReceiptOcrParser {
     );
     bool isProjectionLabel(String description) {
       if (_hasUnexplainedFinancialLabelNumber(description)) return false;
-      return RegExp(
+      return _isNegatedDiscountLabel(description) ||
+          RegExp(
             r'^sub[\s-]?total$',
             caseSensitive: false,
           ).hasMatch(description) ||
@@ -6067,6 +6123,10 @@ class ReceiptOcrParser {
         descriptionBlocks.map((block) => block.text.trim()).join(' '),
       );
       if (!isProjectionLabel(label)) continue;
+      if (_hasQualifiedDiscountTreatment(label)) {
+        unresolvedRows.add(rowIndex);
+        continue;
+      }
       if (!_chargeTableCellsSharePrintedRow([
         amountBlock,
         ...currencyBlocks,
@@ -6268,6 +6328,9 @@ class ReceiptOcrParser {
           : serviceLabelPattern.hasMatch(label)
           ? 'Service Charge $monetaryText'
           : 'Discount $monetaryText';
+      if (lines[rowIndex] == 'Discount $monetaryText') {
+        discountLabels[rowIndex] = label;
+      }
     }
     return lines;
   }
@@ -15022,6 +15085,35 @@ String _withoutBoundedExplicitCurrencyCode(String line) {
       )
       .replaceAll(RegExp(r'(?<=\d)\s*([A-Z]{3})(?![A-Za-z])'), ' ');
 }
+
+// Treatment qualifiers make a printed discount's contribution uncertain.
+// Projection must retain that uncertainty even when its amount reconciles.
+bool _isNegatedDiscountLabel(String label) => RegExp(
+  r'^(?:no|not|non|without)[\s-]+(?:discounts?|coupons?|rebates?)(?:\s*\([\p{L}\p{N} %.-]+\))?$',
+  caseSensitive: false,
+  unicode: true,
+).hasMatch(label);
+
+bool _hasQualifiedDiscountTreatment(String label) =>
+    RegExp(
+      r'\b(?:discounts?|coupons?|rebates?)\b',
+      caseSensitive: false,
+    ).hasMatch(label) &&
+    (_isNegatedDiscountLabel(label) ||
+        RegExp(
+          r'\b(?:incl(?:uded|uding)?|excl(?:uded|uding)?|exempt|waived|withheld|refunded|reversed|credited)\b',
+          caseSensitive: false,
+        ).hasMatch(label) ||
+        RegExp(
+          r'\bpaid[\s-]+(?:discounts?|coupons?|rebates?)\b|\b(?:discounts?|coupons?|rebates?)\b.*\bpaid\b',
+          caseSensitive: false,
+        ).hasMatch(label) ||
+        // Negate the application status, not customer eligibility in names
+        // such as "Non Member Discount" or "No Contract Discount".
+        RegExp(
+          r'\bnot\s+(?:applied|available|eligible|deducted|granted|earned|redeemed)\b',
+          caseSensitive: false,
+        ).hasMatch(label));
 
 bool _hasDiscountLabel(String line, String normalized) {
   return _hasEnglishReceiptLabel(
