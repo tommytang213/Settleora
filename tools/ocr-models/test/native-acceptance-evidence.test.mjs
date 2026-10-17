@@ -1139,6 +1139,8 @@ test("rotation diagnostics reject arbitrary fields, malformed counts and unrelat
     { ...valid, fixtureId: manifestFixtureIds.find((id) => id !== valid.fixtureId) },
     ...[
       { mismatchCount: 1, fields: ["private_receipt_text"] },
+      { mismatchCount: 1, fields: ["normalization"] },
+      { mismatchCount: 1, fields: ["manifest_shape"] },
       { mismatchCount: 1, fields: ["items[1000].description"] },
       { mismatchCount: 1, fields: ["items[0].privateValue"] },
       { mismatchCount: -1, fields: [] },
@@ -1233,6 +1235,42 @@ test("isolation failure evidence retains only allowlisted probe outcomes", () =>
       assert.deepEqual(buildFailureEvidence(evidenceArgs(log), repoRoot).diagnostics, []);
     });
   }
+});
+
+test("corpus preprocessing failures retain fixed mismatch categories without granting acceptance", () => {
+  const acceptance = {
+    schemaVersion: 1, platform: "android", completed: true, networkIsolated: true,
+    fixtureCount: 101, passedFixtureCount: 98, mismatchCount: 3,
+    mismatches: [
+      { fixtureId: manifestFixtureIds[0], field: "normalization" },
+      { fixtureId: manifestFixtureIds[1], field: "manifest_shape" },
+      { fixtureId: manifestFixtureIds[2], field: "merchant" },
+    ],
+    runtime: "onnxruntime-android:1.21.1:cpu", coldLoadTimeMs: 25,
+    endToEndLatencyMs: { sampleCount: 101, cold: 30, warmP50: 20, warmP95: 24, max: 30 },
+    nativeLatencyMs: { sampleCount: 99, cold: 28, warmP50: 18, warmP95: 22, max: 28 },
+    peakRssBytes: 123456, perScript: { Latin: { total: 101, passed: 98 } },
+  };
+  const events = protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify(acceptance)}`)
+    .trimEnd().split("\n").map(JSON.parse);
+  const corpusTestId = events.find((event) =>
+    event.test?.name === "all 101 real images match complete preview truth").test.id;
+  events.find((event) => event.type === "testDone" && event.testID === corpusTestId).result = "failure";
+  events.at(-1).success = false;
+  withLog(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`, (log) => {
+    const args = { ...evidenceArgs(log), "test-status": "1" };
+    const evidence = buildEvidence(args, repoRoot);
+    assert.deepEqual(evidence.acceptance, acceptance);
+    assert.equal(evidence.execution.protocolSucceeded, false);
+    assert.equal(isCompleteEvidence(evidence), false);
+    // Exercise recovery after unrelated protocol rejection using synthetic output.
+    writeFileSync(log, `untrusted output\n${readFileSync(log, "utf8")}`);
+    assert.throws(() => buildEvidence(args, repoRoot));
+    const recovered = buildFailureEvidence(args, repoRoot);
+    assert.deepEqual(recovered.acceptance, acceptance);
+    assert.equal(isCompleteEvidence(recovered), false);
+    assert.equal(JSON.stringify(recovered).includes("untrusted output"), false);
+  });
 });
 
 test("acceptance and failure evidence reject private-looking field and script identities", () => {

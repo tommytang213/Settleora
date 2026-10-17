@@ -692,7 +692,9 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
       throw new Error("Acceptance mismatch fixture is outside the immutable corpus");
     }
     const field = boundedToken(entry.field, `mismatches[${index}].field`);
-    if (!isAllowedComparisonField(field)) {
+    // The corpus harness can fail before preview-field comparison begins.
+    const corpusPreprocessingFailure = field === "normalization" || field === "manifest_shape";
+    if (!corpusPreprocessingFailure && !isAllowedComparisonField(field)) {
       throw new Error("Acceptance mismatch field is outside fixed comparison diagnostics");
     }
     return { fixtureId, field };
