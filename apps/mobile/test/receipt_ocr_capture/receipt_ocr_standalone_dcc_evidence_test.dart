@@ -67,6 +67,14 @@ void main() {
     'Payment summary',
     'Charged to card',
     'Charged card',
+    'Charged to card amount',
+    'Charged card total',
+    'Charged to card: amount',
+    'Charged to card currency',
+    'Paid by card amount',
+    'Paid by cash total',
+    'Gift card amount',
+    'Prepaid card total',
     'Payment amount',
     'Tender credit card',
     'Cash amount',
@@ -97,7 +105,13 @@ void main() {
     });
   }
 
-  for (final label in ['Cash USD 20.00', 'Cash Latte']) {
+  for (final label in [
+    'Cash USD 20.00',
+    'Cash Latte',
+    'Charged to card Latte',
+    'Paid by card Latte',
+    'Charged to card amount USD 20.00',
+  ]) {
     test(
       'priced or descriptive payment row cannot own extra money: $label',
       () {

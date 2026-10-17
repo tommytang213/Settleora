@@ -10971,9 +10971,9 @@ bool _isOwnedAdjacentFinancialAmount(
   final paymentLabel = RegExp(
     r'^(?:charged\s+(?:to\s+)?card|paid\s+(?:by\s+)?(?:cash|card|credit[ -]?card|debit[ -]?card|visa|mastercard|master card|amex|american express)|'
     r'(?:gift|prepaid)[ -]?card|payment\s+(?:coupon|information|summary)|remittance|deposit\s+paid|paid\s+deposit|'
-    r'(?:cash|change|payment|tender|paid|card|credit[ -]?card|debit[ -]?card|visa|mastercard|master card|amex|american express)'
-    r'(?:\s+(?:tendered|paid|received|charged|payment|tender|amount|total|due))*|'
-    r'gotówka|reszta|nakit|para üstü|tiền mặt|tiền thừa|dinheiro|troco|espèces|monnaie|наличные|сдача|نقدا|نقداً|الباقي|現金|お釣り|现金|現金支付|找零|현금|거스름돈|เงินสด|เงินทอน|नकद|बाकी)(?=\s|[:：]|$)',
+    r'cash|change|payment|tender|paid|card|credit[ -]?card|debit[ -]?card|visa|mastercard|master card|amex|american express|'
+    r'gotówka|reszta|nakit|para üstü|tiền mặt|tiền thừa|dinheiro|troco|espèces|monnaie|наличные|сдача|نقدا|نقداً|الباقي|現金|お釣り|现金|現金支付|找零|현금|거스름돈|เงินสด|เงินทอน|नकद|बाकी)'
+    r'(?:\s+(?:tendered|paid|received|charged|payment|tender|amount|total|due))*(?=\s|[:：]|$)',
     caseSensitive: false,
   ).firstMatch(label);
   if (paymentLabel == null) return false;
@@ -10981,7 +10981,9 @@ bool _isOwnedAdjacentFinancialAmount(
       .substring(paymentLabel.end)
       .replaceFirst(RegExp(r'^\s*[:：]\s*'), '')
       .trim();
-  return _isBoundedPaymentAmount('$remainder ${lines[amountIndex]}'.trim());
+  final monetarySuffix = '$remainder ${lines[amountIndex]}'.trim();
+  return _isBoundedPaymentAmount(monetarySuffix) ||
+      _hasCurrencyMetadataShape(monetarySuffix);
 }
 
 // A printed charge table can contain usage and rate columns before its final
