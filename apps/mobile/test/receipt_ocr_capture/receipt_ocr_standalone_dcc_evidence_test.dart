@@ -157,6 +157,56 @@ void main() {
     );
   });
 
+  for (final label in [
+    'VISA ****1234',
+    'Paid with card ••••5678',
+    'Refund to debit ****2468',
+  ]) {
+    test('bounded card identity owns its adjacent payment amount: $label', () {
+      final preview = const ReceiptOcrParser().parse(
+        'Acme Market\nCoffee USD 10.00\nTotal USD 10.00\n$label\nUSD 10.00',
+        blocks: [
+          _layoutBlock('Acme Market', 0, 20, 220),
+          _layoutBlock('Coffee USD 10.00', 1, 20, 350),
+          _layoutBlock('Total USD 10.00', 2, 20, 350),
+          _layoutBlock(label, 3, 20, 150),
+          _layoutBlock('USD 10.00', 4, 310, 350),
+        ],
+      );
+      expect(preview.total, '10.00');
+      expect(preview.items.single.lineTotal, '10.00');
+      expect(preview.adjustmentsComplete, isTrue);
+      expect(preview.incompleteAdjustmentReasons, isEmpty);
+    });
+  }
+
+  for (final label in [
+    'VISA ****1234 USD 20.00',
+    'VISA 1234',
+    'VISA ****12345',
+  ]) {
+    test(
+      'card identifier or existing price cannot hide extra money: $label',
+      () {
+        final preview = const ReceiptOcrParser().parse(
+          'Acme Market\nCoffee USD 10.00\nTotal USD 10.00\n$label\nUSD 5.00',
+          blocks: [
+            _layoutBlock('Acme Market', 0, 20, 220),
+            _layoutBlock('Coffee USD 10.00', 1, 20, 350),
+            _layoutBlock('Total USD 10.00', 2, 20, 350),
+            _layoutBlock(label, 3, 20, 150),
+            _layoutBlock('USD 5.00', 4, 310, 350),
+          ],
+        );
+        expect(preview.adjustmentsComplete, isFalse);
+        expect(
+          preview.incompleteAdjustmentReasons,
+          contains(ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem),
+        );
+      },
+    );
+  }
+
   for (final pair in [
     ('12.34', '12.34'),
     ('0012.34', '12.34'),

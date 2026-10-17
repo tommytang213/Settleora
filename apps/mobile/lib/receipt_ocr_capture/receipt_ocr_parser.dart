@@ -10940,6 +10940,13 @@ bool _isOwnedAdjacentFinancialAmount(
       .trim()
       .replaceFirst(RegExp(r'[:：]$'), '')
       .trim();
+  final pair = '$label ${lines[amountIndex]}';
+  // The complete masked-card grammar distinguishes its last-four identifier
+  // from money, and rejects a second monetary cell if the label has one already.
+  if (_isBoundedPaymentIdentityLine(label) &&
+      _isBoundedPaymentIdentityLine(pair)) {
+    return true;
+  }
   // A recognized financial pair can carry a printed percentage on its label.
   // Rates are annotations, not an already-owned monetary amount; retain the
   // guard for every other numeric amount still present on that label.
@@ -10948,7 +10955,6 @@ bool _isOwnedAdjacentFinancialAmount(
     '',
   );
   if (_lineHasAmount(labelWithoutPercentages)) return false;
-  final pair = '$label ${lines[amountIndex]}';
   if (!_isPaymentMetadataLine(pair)) return true;
   // Payment metadata has permissive legacy prefix checks. Do not use those
   // checks alone to excuse unexplained money on a different OCR row.
