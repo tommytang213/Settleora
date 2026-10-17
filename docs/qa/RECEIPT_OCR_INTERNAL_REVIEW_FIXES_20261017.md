@@ -20,6 +20,6 @@ The form now compares financial fields with the original OCR preview. Exact nume
 
 Before repair, the focused regression set produced four passing guards and seven failures: three missing-item cases and four restoration cases across personal/group creation. After repair, all eleven passed. Additional adjacent parser and actual Apply guards cover the retained-candidate boundary. The local task report records exact commands, source hashes and broader validation outcomes.
 
-The catalog update changes only the parser source digest and its trusted canonical catalog digest. Model bytes, fixture truth/images, native implementation bindings and pending native acceptance status are unchanged.
+The catalog updates the parser and review-UI source digests plus the trusted canonical catalog digest. Model bytes, fixture truth/images, native engine/preprocessing bindings and pending native acceptance status are unchanged. The first frozen candidate was rejected by model verification for the stale review-UI digest; that source binding was corrected before broader validation.
 
 Static internal review and local regressions do not establish real native accuracy, the 101-image warning distribution, model acceptance, hosted package/CI qualification, external Grok review or merge readiness. The inherited APK verifier concern remains open separately; no synthetic APK operation was recreated. No deployment, access/security, schema, API or settlement authority change is included.
