@@ -194,22 +194,24 @@ void main() {
     });
   }
 
-  for (final label in [
-    'VISA ****1234 USD 20.00',
-    'VISA 1234',
-    'VISA ****12345',
+  for (final (label, amount) in [
+    ('VISA ****1234 USD 20.00', 'USD 5.00'),
+    ('VISA 1234', 'USD 5.00'),
+    ('VISA ****12345', 'USD 5.00'),
+    ('VISA ****1234 USD 20', '500 USD'),
+    ('Paid with card ••••5678 20', '500 USD'),
   ]) {
     test(
       'card identifier or existing price cannot hide extra money: $label',
       () {
         final preview = const ReceiptOcrParser().parse(
-          'Acme Market\nCoffee USD 10.00\nTotal USD 10.00\n$label\nUSD 5.00',
+          'Acme Market\nCoffee USD 10.00\nTotal USD 10.00\n$label\n$amount',
           blocks: [
             _layoutBlock('Acme Market', 0, 20, 220),
             _layoutBlock('Coffee USD 10.00', 1, 20, 350),
             _layoutBlock('Total USD 10.00', 2, 20, 350),
             _layoutBlock(label, 3, 20, 150),
-            _layoutBlock('USD 5.00', 4, 310, 350),
+            _layoutBlock(amount, 4, 310, 350),
           ],
         );
         expect(preview.adjustmentsComplete, isFalse);
@@ -220,6 +222,25 @@ void main() {
       },
     );
   }
+
+  test('unpriced card identity can own one space-grouped amount', () {
+    const label = 'VISA ****1234';
+    const amount = 'USD 20 500';
+    final preview = const ReceiptOcrParser().parse(
+      'Acme Market\nCoffee USD 20500.00\nTotal USD 20500.00\n'
+      '$label\n$amount',
+      blocks: [
+        _layoutBlock('Acme Market', 0, 20, 220),
+        _layoutBlock('Coffee USD 20500.00', 1, 20, 350),
+        _layoutBlock('Total USD 20500.00', 2, 20, 350),
+        _layoutBlock(label, 3, 20, 150),
+        _layoutBlock(amount, 4, 310, 350),
+      ],
+    );
+    expect(preview.total, '20500.00');
+    expect(preview.adjustmentsComplete, isTrue);
+    expect(preview.incompleteAdjustmentReasons, isEmpty);
+  });
 
   for (final pair in [
     ('12.34', '12.34'),

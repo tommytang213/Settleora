@@ -10941,9 +10941,9 @@ bool _isOwnedAdjacentFinancialAmount(
       .replaceFirst(RegExp(r'[:：]$'), '')
       .trim();
   final pair = '$label ${lines[amountIndex]}';
-  // The complete masked-card grammar distinguishes its last-four identifier
-  // from money, and rejects a second monetary cell if the label has one already.
-  if (_isBoundedPaymentIdentityLine(label) &&
+  // The label must contain only the masked identity. Otherwise two separate
+  // amounts can concatenate into a valid space-grouped payment amount.
+  if (_isBoundedPaymentIdentityLine(label, allowAmount: false) &&
       _isBoundedPaymentIdentityLine(pair)) {
     return true;
   }
@@ -12966,7 +12966,7 @@ bool _isExplicitNonItemFeeLine(String line) => _isLabeledStandaloneMoneyLine(
   ),
 );
 
-bool _isBoundedPaymentIdentityLine(String line) {
+bool _isBoundedPaymentIdentityLine(String line, {bool allowAmount = true}) {
   final normalized = line.toLowerCase().trim();
   // A masked last-four identifier is payment evidence, not a second item
   // amount. Require the whole row: arbitrary product suffixes, extra prices,
@@ -12979,7 +12979,10 @@ bool _isBoundedPaymentIdentityLine(String line) {
   ).firstMatch(normalized);
   if (maskedCard != null && RegExp(r'[*·•●]').hasMatch(maskedCard.group(1)!)) {
     final remainder = maskedCard.group(2)!.trim();
-    if (remainder.isEmpty || _isBoundedPaymentAmount(remainder)) return true;
+    if (remainder.isEmpty ||
+        (allowAmount && _isBoundedPaymentAmount(remainder))) {
+      return true;
+    }
   }
   if (RegExp(
     r'^approved\s+auth(?:orization)?(?=\s|[:#])\s*'
