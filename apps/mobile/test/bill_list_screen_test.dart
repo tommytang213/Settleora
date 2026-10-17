@@ -42,6 +42,111 @@ import 'package:mobile/ui/settleora_form_fields.dart';
 
 void main() {
   for (final group in [false, true]) {
+    for (final mode in [
+      null,
+      ReceiptOcrTaxReconciliationModeValues.addToBase,
+    ]) {
+      for (final roundTrip in [false, true]) {
+        testWidgets(
+          'saved OCR currency round trip retains scalar headers group=$group mode=$mode changed=$roundTrip',
+          (tester) async {
+            await useLargeSurface(tester);
+            final route = ReceiptOcrReviewRoute(
+              billId: _billId,
+              fileId: _uploadedFileId,
+              groupId: group ? _groupId : null,
+            );
+            final sample = sampleReceiptOcrReviewDetail(route);
+            final original = ReceiptOcrReviewDetail(
+              id: sample.id,
+              billId: route.billId,
+              fileId: route.fileId,
+              groupId: route.groupId,
+              status: ReceiptOcrReviewStatusValues.reviewed,
+              source: sample.source,
+              merchantText: sample.merchantText,
+              receiptIssuedAtUtc: sample.receiptIssuedAtUtc,
+              currency: 'USD',
+              subtotalAmount: '10.00',
+              taxAmount: '0.80',
+              serviceChargeAmount: '1.00',
+              discountAmount: '0.50',
+              grandTotalAmount: '11.30',
+              taxReconciliationMode: mode,
+              lines: sample.lines,
+              createdAtUtc: sample.createdAtUtc,
+              updatedAtUtc: sample.updatedAtUtc,
+            );
+            final receiptRepository = FakeReceiptOcrReviewRepository(
+              reviewDetail: original,
+            );
+            final handoff = ReceiptOcrReviewHandoff.saved(reviewRoute: route);
+            await tester.pumpWidget(
+              MaterialApp(
+                home: group
+                    ? SettleoraGroupBillDetailScreen(
+                        repository: FakeBillRepository(),
+                        groupId: _groupId,
+                        groupName: 'Books',
+                        billId: _billId,
+                        initialBill: sampleBillDetail(id: _billId),
+                        receiptOcrReviewRepository: receiptRepository,
+                        initialReceiptOcrReviewHandoff: handoff,
+                      )
+                    : SettleoraBillDetailScreen(
+                        repository: FakeBillRepository(),
+                        billId: _billId,
+                        initialBill: sampleBillDetail(id: _billId),
+                        receiptOcrReviewRepository: receiptRepository,
+                        initialReceiptOcrReviewHandoff: handoff,
+                      ),
+              ),
+            );
+            await tester.pumpAndSettle();
+            await tester.tap(
+              find.byKey(
+                Key('${group ? "group-bill" : "bill"}-detail-ocr-review-open'),
+              ),
+            );
+            await tester.pumpAndSettle();
+            await tester.tap(find.byKey(const Key('saved-ocr-review-edit')));
+            await tester.pumpAndSettle();
+            if (roundTrip) {
+              final selector = find.byKey(
+                const Key('saved-ocr-review-ocr-edit-currency'),
+              );
+              for (final currency in ['EUR', 'USD']) {
+                tester.widget<CurrencySelector>(selector).onChanged(currency);
+                await tester.pumpAndSettle();
+              }
+            }
+            await _scrollSavedOcrReviewEditActionsIntoView(tester);
+            await tester.tap(
+              find.byKey(const Key('saved-ocr-review-edit-save')),
+            );
+            await tester.pumpAndSettle();
+            expect(receiptRepository.saveCalls, 1);
+            final saved = receiptRepository.lastSaveRequest!;
+            expect(saved.status, original.status);
+            expect(saved.currency, original.currency);
+            expect(saved.subtotalAmount, original.subtotalAmount);
+            expect(saved.taxAmount, original.taxAmount);
+            expect(saved.serviceChargeAmount, original.serviceChargeAmount);
+            expect(saved.discountAmount, original.discountAmount);
+            expect(saved.grandTotalAmount, original.grandTotalAmount);
+            expect(saved.taxReconciliationMode, original.taxReconciliationMode);
+            expect(saved.headerEvidence, isEmpty);
+            expect(
+              saved.lines.single.lineTotalAmount,
+              original.lines.single.lineTotalAmount,
+            );
+          },
+        );
+      }
+    }
+  }
+
+  for (final group in [false, true]) {
     for (final scenario in [
       'lineTotal',
       'description',
@@ -49,6 +154,8 @@ void main() {
       'unitPrice',
       'quantity',
       'changed',
+      'restored',
+      'reset',
       'invalid',
       'overprecision',
     ]) {
@@ -135,17 +242,32 @@ void main() {
             'description' => 'Corrected Notebook',
             'emptyDescription' => '',
             'quantity' => '0.5',
-            'changed' => '11.99',
+            'changed' || 'restored' || 'reset' => '11.99',
             'invalid' => '12x',
             'overprecision' => '12.00000',
             _ => '12.0',
           });
           await tester.pumpAndSettle();
+          if (scenario == 'restored' || scenario == 'reset') {
+            // Retyping original money is still an edit, while Reset explicitly
+            // restores the original source preview and its provenance.
+            await tester.enterText(edited, '12.00');
+            await tester.pumpAndSettle();
+            expect(tester.widget<CheckboxListTile>(items).onChanged, isNull);
+            if (scenario == 'reset') {
+              final reset = find.byKey(Key('$prefix-ocr-reset-edits'));
+              await tester.ensureVisible(reset);
+              await tester.tap(reset);
+              await tester.pumpAndSettle();
+              await _setReceiptOcrSection(tester, prefix, 'items', true);
+            }
+          }
           final equivalent = [
             'description',
             'lineTotal',
             'unitPrice',
             'quantity',
+            'reset',
           ].contains(scenario);
           expect(
             tester.widget<CheckboxListTile>(items).onChanged,

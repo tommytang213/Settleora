@@ -17672,6 +17672,8 @@ ReceiptOcrReviewSaveRequest _receiptOcrReviewSaveRequestFromSavedEdit(
   final originalCurrency = _nullableUppercaseCurrency(review.currency);
   final preserveHeaderMoney =
       editedCurrency != null && editedCurrency == originalCurrency;
+  // Currency changes clear transient scalar suggestions. Returning to the
+  // saved currency can retain its original values under the same evidence guards.
   final candidate = ReceiptOcrReviewSaveRequest(
     status: review.status,
     source: review.source,
@@ -17687,7 +17689,7 @@ ReceiptOcrReviewSaveRequest _receiptOcrReviewSaveRequestFromSavedEdit(
               preview.subtotalHasExplicitCurrencyEvidence,
             )
         ? receiptOcrMoneyCandidateForSave(
-            preview.subtotal,
+            preview.subtotal ?? review.subtotalAmount,
             currency: editedCurrency,
           )
         : null,
@@ -17699,7 +17701,10 @@ ReceiptOcrReviewSaveRequest _receiptOcrReviewSaveRequestFromSavedEdit(
               preview.taxCurrency,
               preview.taxHasExplicitCurrencyEvidence,
             )
-        ? receiptOcrMoneyCandidateForSave(preview.tax, currency: editedCurrency)
+        ? receiptOcrMoneyCandidateForSave(
+            preview.tax ?? review.taxAmount,
+            currency: editedCurrency,
+          )
         : null,
     serviceChargeAmount:
         preserveHeaderMoney &&
@@ -17710,7 +17715,7 @@ ReceiptOcrReviewSaveRequest _receiptOcrReviewSaveRequestFromSavedEdit(
               preview.serviceHasExplicitCurrencyEvidence,
             )
         ? receiptOcrMoneyCandidateForSave(
-            preview.service,
+            preview.service ?? review.serviceChargeAmount,
             currency: editedCurrency,
           )
         : null,
@@ -17723,7 +17728,7 @@ ReceiptOcrReviewSaveRequest _receiptOcrReviewSaveRequestFromSavedEdit(
               preview.discountHasExplicitCurrencyEvidence,
             )
         ? _receiptOcrDiscountMagnitudeForSave(
-            preview.discount,
+            preview.discount ?? review.discountAmount,
             currency: editedCurrency,
           )
         : null,

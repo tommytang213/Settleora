@@ -3632,8 +3632,21 @@ class ReceiptOcrParser {
         continue;
       }
       if (_isStandaloneAmountRow(line)) {
-        lineDecisions[lineIndex] =
-            ReceiptOcrItemLineDecision.standaloneAmountSkipped;
+        // An adjacent financial label can own this right-column amount, just
+        // as an adjacent item amount is consumed with its description. Other
+        // summary/metadata roles were excluded above. Remaining money has no
+        // established role and cannot count as complete evidence.
+        final ownedByFinancialLabel =
+            lineIndex > 0 &&
+            _isFinancialLabelWithAdjacentAmount(
+              lines,
+              layoutRows,
+              lineIndex - 1,
+            );
+        if (!ownedByFinancialLabel) unretainedPricedItem = true;
+        lineDecisions[lineIndex] = ownedByFinancialLabel
+            ? ReceiptOcrItemLineDecision.standaloneAmountSkipped
+            : ReceiptOcrItemLineDecision.unretainedPricedRow;
         wrappedDescriptionLines.clear();
         continue;
       }
@@ -13082,9 +13095,8 @@ bool _isNonTransactionCurrencyMetadataLine(String line) {
     final fraction = parts.length == 2
         ? parts[1].replaceFirst(RegExp(r'0+$'), '')
         : '';
-    final canonicalAmount = fraction.isEmpty
-        ? parts[0]
-        : '${parts[0]}.$fraction';
+    final whole = parts[0].replaceFirst(RegExp(r'^0+(?=\d)'), '');
+    final canonicalAmount = fraction.isEmpty ? whole : '$whole.$fraction';
     final evidence = (
       currency: currency,
       amount: amount,
