@@ -372,11 +372,17 @@ void main() {
           });
           await tester.pumpAndSettle();
           if (scenario == 'restored' || scenario == 'reset') {
-            // Retyping original money is still an edit, while Reset explicitly
-            // restores the original source preview and its provenance.
+            // Changed money stays blocked. Restoring the original source
+            // amount recovers only that source's existing reconciliation.
+            expect(tester.widget<CheckboxListTile>(items).onChanged, isNull);
+            expect(tester.widget<CheckboxListTile>(currency).onChanged, isNull);
             await tester.enterText(edited, '12.00');
             await tester.pumpAndSettle();
-            expect(tester.widget<CheckboxListTile>(items).onChanged, isNull);
+            expect(tester.widget<CheckboxListTile>(items).onChanged, isNotNull);
+            expect(
+              tester.widget<CheckboxListTile>(currency).onChanged,
+              isNotNull,
+            );
             if (scenario == 'reset') {
               final reset = find.byKey(Key('$prefix-ocr-reset-edits'));
               await tester.ensureVisible(reset);
@@ -390,6 +396,7 @@ void main() {
             'lineTotal',
             'unitPrice',
             'quantity',
+            'restored',
             'reset',
           ].contains(scenario);
           expect(
@@ -2511,9 +2518,9 @@ void main() {
                 tester.widget<TextFormField>(billAmount).controller?.text,
                 isEmpty,
               );
-              // Keep corrections editable, but do not promote invalidated local
-              // source reconciliation by arithmetic alone. Saved review has the
-              // separate provenance-aware correction and server Apply path.
+              // Exact restoration recovers the original source contribution.
+              // Changing an originally net amount to match the gross total
+              // still cannot establish source reconciliation by arithmetic.
               await tester.ensureVisible(reviewedAmount);
               await tester.enterText(reviewedAmount, '24.00');
               await tester.pumpAndSettle();
@@ -2521,7 +2528,25 @@ void main() {
                 tester.widget<TextFormField>(reviewedAmount).controller?.text,
                 '24.00',
               );
-              expect(tester.widget<CheckboxListTile>(items).onChanged, isNull);
+              final restoredSource = scenario == 'edited';
+              expect(
+                tester.widget<CheckboxListTile>(items).onChanged,
+                restoredSource ? isNotNull : isNull,
+              );
+              if (restoredSource) {
+                await _setReceiptOcrSection(tester, prefix, 'items', true);
+                await _tapReceiptOcrApply(tester, prefix);
+                expect(
+                  tester.widget<TextFormField>(billAmount).controller?.text,
+                  '24.00',
+                );
+              } else {
+                await _tapReceiptOcrApply(tester, prefix);
+                expect(
+                  tester.widget<TextFormField>(billAmount).controller?.text,
+                  isEmpty,
+                );
+              }
             }
             expect(
               find.text('Tax suggested: USD 4.00 (review only)'),

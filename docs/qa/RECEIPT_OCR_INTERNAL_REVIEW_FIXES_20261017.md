@@ -6,15 +6,15 @@ Complete cumulative internal review of candidate e04568d17378d450c6ccf560e5867ea
 
 A bare row such as `Tea XL 1500` can match a city/region/postal pattern. Without a positively owned street-address context, that resemblance cannot establish a metadata role. The parser now retains the ordinary editable item candidate and exact printed amount while keeping the unresolved-role completeness warning.
 
-The same rule applies to `Tea XXL 1500`, `Widget CA 15000`, and an unowned `Seattle WA 98101` row. Established street-owned and explicit-comma postal metadata remain excluded. Existing Australian registration ownership and other positive metadata evidence remain effective. No merchant, fixture identifier or corpus score selects the behavior.
+The same rule applies to `Tea XXL 1500`, `Widget CA 15000`, and an unowned `Seattle WA 98101` row. Established street-owned and explicit-comma postal metadata remain excluded. A separate Australian registration header remains metadata but does not establish address ownership for a preceding bare postal-shaped row; that row stays editable under the same rule. Other positive metadata evidence remains effective. No merchant, fixture identifier or corpus score selects the behavior.
 
-The original test that required only Coffee from a matching JPY receipt contradicted the retention contract. Its assertion now requires both printed candidates. Two adjacent assertions were reconciled for the same source-bound reason; all uncertainty guards remain. Widget coverage checks that retaining these ambiguous candidates does not authorize Items Apply or alter the existing bill draft.
+The original test that required only Coffee from a matching JPY receipt contradicted the retention contract. Its assertion now requires both printed candidates. Three adjacent assertions were reconciled for the same source-bound reason; all uncertainty guards remain. Widget coverage checks that retaining these ambiguous candidates does not authorize Items Apply or alter the existing bill draft.
 
 ## Restore only the original financial eligibility
 
 The editable preview previously compared every amount edit with the preceding keystroke and permanently cleared adjustment completeness. Editing `10 -> 1 -> 10` or `10 -> 10. -> 10.0` therefore left an originally reconciled receipt unresolved.
 
-The form now compares financial fields with the original OCR preview. Exact numeric restoration restores only the original source's completeness. Description corrections survive. An originally incomplete source stays incomplete, and saved-review reconstruction retains its existing conservative completeness behavior. Apply predicates, save reconciliation rules, APIs and authoritative bill calculations are unchanged.
+The form now compares financial fields with the original OCR preview. Exact numeric restoration restores only the original source's completeness. Description corrections survive. An originally incomplete source stays incomplete, and saved-review reconstruction retains its existing conservative completeness behavior. Apply predicates, save reconciliation rules, APIs and authoritative bill calculations are unchanged. Existing tests now distinguish exact restoration from changing a net source amount to match a gross total: the latter remains blocked. They verify the intermediate changed amount is blocked and the final restored amount actually reaches the draft.
 
 ## Evidence and limits
 

@@ -8407,10 +8407,28 @@ Total \$9.81
       ),
     );
     expect(australia.items.map((item) => item.description), [
+      'Sydney NSW',
       'Flat White',
       'Toastie',
     ]);
+    expect(australia.items.first.lineTotal, '2000');
     expect(australia.tax, '1.68');
+    // A separate registration header does not own the preceding bare postal
+    // row as an address. The registration itself remains excluded.
+    expect(australia.adjustmentsComplete, isFalse);
+    expect(
+      australia.incompleteAdjustmentReasons,
+      contains(ReceiptOcrIncompleteAdjustmentReason.unretainedPricedItem),
+    );
+    expect(australia.reviewHints, isNotEmpty);
+    expect(
+      australia.itemLineDecisions[1],
+      ReceiptOcrItemLineDecision.pricedItemSelected,
+    );
+    expect(
+      australia.itemLineDecisions[2],
+      ReceiptOcrItemLineDecision.metadataOrHeaderSkipped,
+    );
     expect(singapore.items.map((item) => item.description), [
       'Kopi',
       'Toast Set',
