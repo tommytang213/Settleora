@@ -81,6 +81,13 @@ void main() {
     'Cash:paid',
     'Cash：paid',
     'Credit card: payment total',
+    'Cash paid.',
+    'Card payment.',
+    'Charged to card amount.',
+    'Cash paid。',
+    'Cash paid；',
+    'Cash paid,',
+    'Paid by cash total!',
     'Payment amount',
     'Tender credit card',
     'Cash amount',
@@ -120,6 +127,9 @@ void main() {
     'Cash: Latte',
     'Charged to card: Latte',
     'Cash: paid USD 20.00',
+    'Cash Latte.',
+    'Cash paid USD 20.',
+    'Cash paid?',
   ]) {
     test(
       'priced or descriptive payment row cannot own extra money: $label',

@@ -10938,7 +10938,7 @@ bool _isOwnedAdjacentFinancialAmount(
   }
   final label = lines[amountIndex - 1]
       .trim()
-      .replaceFirst(RegExp(r'[:：]$'), '')
+      .replaceFirst(RegExp(r'[:：.。．;；,，!！]+$'), '')
       .trim();
   final pair = '$label ${lines[amountIndex]}';
   // The label must contain only the masked identity. Otherwise two separate
