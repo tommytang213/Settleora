@@ -37,12 +37,13 @@ ReceiptOcrPreview _issuer({
   String second = 'Market',
   double scale = 1,
   String? neighbor,
+  String total = '5.00',
 }) => _parse([
   [(first, 20, 140), ('Receipt', 300, 650)],
   [(second, 20, 140)],
   [('Coffee USD 3.00', 300, 650)],
   [('Tea USD 2.00', 300, 650)],
-  [('Total USD 5.00', 20, 650)],
+  [('Total USD $total', 20, 650)],
   [('$first $second', 20, 220), if (neighbor != null) (neighbor, 300, 650)],
 ], scale: scale);
 
@@ -115,20 +116,67 @@ void main() {
   test('corroborating footer beside phone metadata remains complete', () {
     expect(_issuer(neighbor: 'Phone 123-456-7890').adjustmentsComplete, isTrue);
   });
-  for (final neighbor in [
-    'BOTTLED WATER',
-    'Glass',
-    'EUR 3.00',
-    'USD 3.00',
-    'USD -3.00',
-    '3.00',
-  ]) {
+  // Positive printed money beside an unowned name remains a candidate.
+  // Arithmetic agreement can corroborate it, but cannot delete its evidence.
+  for (final name in [('North', 'Market'), ('NORTH', 'MARKET')]) {
+    for (final scale in [.5, 1.0, 2.0]) {
+      for (final money in ['USD 3.00', '3.00', 'EUR 3.00']) {
+        for (final total in ['5.00', '8.00']) {
+          test('priced footer candidate $name $scale $money total=$total', () {
+            final p = _issuer(
+              first: name.$1,
+              second: name.$2,
+              scale: scale,
+              neighbor: money,
+              total: total,
+            );
+            expect(p.merchant, '${name.$1} ${name.$2}');
+            expect(p.total, total);
+            expect(
+              p.items.map((i) => [i.description, i.lineTotal, i.currency]),
+              [
+                ['Coffee', '3.00', 'USD'],
+                ['Tea', '2.00', 'USD'],
+                [
+                  '${name.$1} ${name.$2}',
+                  '3.00',
+                  money.startsWith('EUR') ? 'EUR' : 'USD',
+                ],
+              ],
+            );
+            if (total == '5.00' || money.startsWith('EUR')) {
+              expect(p.reviewHints, isNotEmpty);
+            }
+            expect(p.blocks.any((b) => b.text == money), isTrue);
+          });
+        }
+      }
+    }
+  }
+  for (final neighbor in ['BOTTLED WATER', 'Glass']) {
     test('corroborating footer cannot own independent $neighbor', () {
       final p = _issuer(neighbor: neighbor);
       expect(p.adjustmentsComplete, isFalse);
       expect(p.items.map((item) => item.description), ['Coffee', 'Tea']);
       expect(p.blocks.any((b) => b.text == neighbor), isTrue);
     });
+  }
+
+  for (final money in ['USD -3.00', '-3.00', 'EUR -3.00', 'USD −3.00']) {
+    for (final scale in [.5, 1.0, 2.0]) {
+      test('signed footer candidate remains reviewable $money $scale', () {
+        final p = _issuer(neighbor: money, scale: scale);
+        expect(p.reviewHints, isNotEmpty);
+        expect(p.discount, isNull);
+        expect(p.total, '5.00');
+        expect(p.items.map((i) => [i.description, i.lineTotal, i.currency]), [
+          ['Coffee', '3.00', 'USD'],
+          ['Tea', '2.00', 'USD'],
+          ['North Market', '-3.00', money.startsWith('EUR') ? 'EUR' : 'USD'],
+        ]);
+        expect(p.blocks.any((b) => b.text == money), isTrue);
+      });
+    }
   }
 
   for (final utility in [false, true]) {

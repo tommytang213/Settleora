@@ -128,6 +128,24 @@ void main() {
       );
     }
   }
+  for (final money in [
+    'EUR 3.00',
+    'USD -3.00',
+    '-3.00',
+    'EUR -3.00',
+    'USD −3.00',
+  ]) {
+    testWidgets('unresolved footer money cannot Apply items $money', (
+      tester,
+    ) async {
+      final preview = receipts.repeatedNameAmountPreview(
+        name: ('NORTH', 'MARKET'),
+        money: money,
+      );
+      expect(preview.reviewHints, isNotEmpty);
+      await applyPreviewAndExpect(tester, preview, [], itemsAllowed: false);
+    });
+  }
   for (final contact in receipts.unsupportedContactFields) {
     for (final layout in ['flat', 'split']) {
       testWidgets(

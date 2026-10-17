@@ -226,7 +226,6 @@ class ReceiptOcrParser {
       lines,
       layoutRows,
       ownedNameBlocks: ownedMerchantNameBlocks,
-      unresolvedFooterRows: ambiguousChargeRows,
     );
     final merchant = merchantDetection?.text;
     // Corroborating a split issuer owns only the actual name blocks. Keep
@@ -602,7 +601,6 @@ class ReceiptOcrParser {
     List<String> lines,
     List<List<ReceiptOcrBlockEvidence>> layoutRows, {
     Set<ReceiptOcrBlockEvidence>? ownedNameBlocks,
-    Set<int>? unresolvedFooterRows,
   }) {
     // Every issuer strategy uses the same ownership boundary. Typography or
     // a business suffix on a buyer cannot make that buyer the receipt issuer.
@@ -691,23 +689,8 @@ class ReceiptOcrParser {
               }
               if (repeatedNameBlocks.isNotEmpty) {
                 final nameBlocks = {first, block, ...repeatedNameBlocks};
-                // A corroborating issuer does not give an adjacent amount-only
-                // cell an item or summary role. Retain that money as unresolved.
-                for (
-                  var index = lastTotalRow + 1;
-                  index < layoutRows.length;
-                  index++
-                ) {
-                  final row = layoutRows[index];
-                  if (row.any(repeatedNameBlocks.contains) &&
-                      row.any(
-                        (neighbor) =>
-                            !repeatedNameBlocks.contains(neighbor) &&
-                            _isStandaloneAmountRow(neighbor.text),
-                      )) {
-                    unresolvedFooterRows?.add(index);
-                  }
-                }
+                // Repetition corroborates identity, not the role of adjacent
+                // money. Leave mixed priced rows to normal item classification.
                 // A row exemption requires complete ownership. Only validated
                 // nonfinancial name blocks may be removed from a mixed row;
                 // ambiguous geometry, currency and date evidence stay visible.
