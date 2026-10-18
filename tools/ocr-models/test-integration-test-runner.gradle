@@ -26,6 +26,11 @@ gradle.projectsEvaluated {
             }
             assert declaredVersion(plugin, 'api', 'androidx.test', 'runner') == '1.3.0' :
                 'integration_test runner declaration must match its existing runtime selection'
+            def runner = plugin.configurations.getByName('api').dependencies.find {
+                it.group == 'androidx.test' && it.name == 'runner'
+            }
+            assert runner.versionConstraint.strictVersion.empty && runner.versionConstraint.rejectedVersions.empty :
+                'The plugin requirement must permit the app to upgrade runner'
             assert declaredVersion(plugin, 'api', 'androidx.test', 'rules') == '1.2+'
             assert declaredVersion(plugin, 'api', 'androidx.test.espresso', 'espresso-core') == '3.3+'
             assert declaredVersion(app, 'debugImplementation', 'androidx.test', 'runner') == '1.7.0'
