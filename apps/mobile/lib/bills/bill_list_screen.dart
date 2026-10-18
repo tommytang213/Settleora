@@ -17695,8 +17695,9 @@ ReceiptOcrReviewSaveRequest _receiptOcrReviewSaveRequestFromSavedEdit(
       'service_charge': review.serviceChargeAmount,
       'discount': review.discountAmount,
     }.entries) {
-      if (headerEvidence.any((evidence) => evidence.role == entry.key))
+      if (headerEvidence.any((evidence) => evidence.role == entry.key)) {
         continue;
+      }
       final amount = entry.key == 'discount'
           ? _receiptOcrDiscountMagnitudeForSave(
               entry.value,
