@@ -279,6 +279,7 @@ class ReceiptOcrParser {
       ownedActivityFeeRows: ownedActivityFeeRows,
       ownedMerchantNameRows: headerRoles.names,
       ownedAccountSummaryRows: utilityAccountSummaryRows,
+      ownedSupportMetadataRows: supportHoursRows,
     );
     final localizedHeaderRows = _ownedLocalizedAddressRows(
       lines,
@@ -2533,6 +2534,7 @@ class ReceiptOcrParser {
     Set<int> ownedActivityFeeRows = const {},
     Set<int> ownedMerchantNameRows = const {},
     Set<int> ownedAccountSummaryRows = const {},
+    Set<int> ownedSupportMetadataRows = const {},
   }) {
     String? subtotal;
     int? selectedSubtotalRow;
@@ -2603,8 +2605,11 @@ class ReceiptOcrParser {
             printed.currency == currency);
 
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+      // Complete support panels already prove whole-row metadata ownership.
+      // Their service heading must not become an unresolved receipt charge.
       if (ownedMerchantNameRows.contains(lineIndex) ||
-          ownedAccountSummaryRows.contains(lineIndex)) {
+          ownedAccountSummaryRows.contains(lineIndex) ||
+          ownedSupportMetadataRows.contains(lineIndex)) {
         continue;
       }
       final subtotalEvidence =

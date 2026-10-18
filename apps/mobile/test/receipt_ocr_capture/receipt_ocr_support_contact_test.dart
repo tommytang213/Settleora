@@ -179,6 +179,91 @@ void main() {
       });
     }
   }
+  for (final scale in [0.5, 1.0, 2.0]) {
+    test('customer-service role stays metadata at scale $scale', () {
+      final blocks = panel(
+        heading: 'Customer Service',
+        supportedTax: true,
+        scale: scale,
+      );
+      final p = parseBlocks(blocks);
+      expect(p.items.single.lineTotal, '10.00');
+      expect(p.tax, '2.00');
+      expect(p.total, '12.00');
+      expect(p.service, isNull);
+      expect(p.adjustmentsComplete, isTrue);
+      expect(p.warnings, isEmpty);
+      expect(p.reviewHints, isEmpty);
+      expect(p.blocks, orderedEquals(blocks));
+    });
+  }
+  final unresolvedServicePanels = <String, List<ReceiptOcrBlockEvidence>>{
+    'missing phone': panel(
+      heading: 'Customer Service',
+      phone: 'Call us',
+      supportedTax: true,
+    ),
+    'missing hours': panel(
+      heading: 'Customer Service',
+      hours: 'Hours pending',
+      supportedTax: true,
+    ),
+    'missing geometry': panel(
+      heading: 'Customer Service',
+      missingGeometry: true,
+      supportedTax: true,
+    ),
+    'competing charge': panel(
+      heading: 'Customer Service',
+      gapText: true,
+      supportedTax: true,
+    ),
+    'heading charge': panel(
+      heading: 'Customer Service USD 3.00',
+      supportedTax: true,
+    ),
+    'phone charge': panel(
+      heading: 'Customer Service',
+      phone: 'Call us at 1-800-555-0100 USD 3.00',
+      supportedTax: true,
+    ),
+  };
+  for (final entry in unresolvedServicePanels.entries) {
+    test('customer-service role requires complete panel: ${entry.key}', () {
+      final p = parseBlocks(entry.value);
+      expect(p.adjustmentsComplete, isFalse);
+      expect(p.incompleteAdjustmentReasons, isNotEmpty);
+      expect(p.blocks, orderedEquals(entry.value));
+    });
+  }
+  test('customer-service panel keeps a shared phone-row charge unresolved', () {
+    final blocks = [
+      ...panel(heading: 'Customer Service', supportedTax: true),
+      cell('Service charge', 6, 20, 228, 300, 20),
+      cell('USD 1.00', 6, 650, 228, 100, 20),
+    ];
+    final p = parseBlocks(blocks);
+    expect(p.items.single.lineTotal, '10.00');
+    expect(p.tax, '2.00');
+    expect(p.total, '12.00');
+    expect(p.service, isNull);
+    expect(p.adjustmentsComplete, isFalse);
+    expect(p.incompleteAdjustmentReasons, isNotEmpty);
+    expect(p.blocks, orderedEquals(blocks));
+  });
+  test('customer-service role never owns a separate service charge', () {
+    final blocks = [
+      ...panel(heading: 'Customer Service', supportedTax: true),
+      cell('Service charge USD 1.00', 9, 20, 350, 300, 20),
+    ];
+    final p = parseBlocks(blocks);
+    expect(p.items.single.lineTotal, '10.00');
+    expect(p.tax, '2.00');
+    expect(p.total, '12.00');
+    expect(p.service, '1.00');
+    expect(p.reviewHints, isNotEmpty);
+    expect(p.blocks, orderedEquals(blocks));
+  });
   final exclusions = <String, List<ReceiptOcrBlockEvidence>>{
     'missing help role': panel(heading: 'Special offers'),
     'missing phone role': panel(phone: 'Plan for 1-800-555-0100'),
