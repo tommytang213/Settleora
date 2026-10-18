@@ -653,6 +653,69 @@ test("retains only the bounded native acceptance schema", () => {
     notInParserRows: 2, ambiguousParserRows: 0 };
   const withItemDecisions = withReviewDecisions.map((entry) => ({ ...entry,
     itemLineDecisionCounts, expectedDescriptionDecisionCounts }));
+  const unresolvedRoles = { nordicCourtesy: 0, other: 0 };
+  const nordicFailures = Object.fromEntries(["noTotal", "notLastRow", "notAfterTotal",
+    "layoutRowCountMismatch", "unownedFinancialEvidence", "missingBounds",
+    "overlapTransaction", "nonpositiveContentWidth", "footerTooWide", "footerOffCenter",
+    "other"].map((name) => [name, 0]));
+  const withUnresolvedOwnership = withItemDecisions.map((entry) => ({ ...entry,
+    unresolvedItemLikeCount: 0, unresolvedItemLikeRoleCounts: unresolvedRoles,
+    nordicFooterOwnershipFailureCounts: nordicFailures }));
+  for (const rows of [
+    withUnresolvedOwnership,
+    [{ ...withUnresolvedOwnership[0], unresolvedItemLikeCount: 8,
+      unresolvedItemLikeRoleCounts: { nordicCourtesy: 0, other: 8 },
+      incompleteAdjustmentReasons: ["unresolvedItemLikeLine"] }, ...withUnresolvedOwnership.slice(1)],
+    ...Object.keys(nordicFailures).map((reason) => [
+      { ...withUnresolvedOwnership[0], unresolvedItemLikeCount: 3,
+        unresolvedItemLikeRoleCounts: { nordicCourtesy: 2, other: 1 },
+        nordicFooterOwnershipFailureCounts: { ...nordicFailures, [reason]: 2 },
+        incompleteAdjustmentReasons: ["unresolvedItemLikeLine"] },
+      ...withUnresolvedOwnership.slice(1),
+    ]),
+  ]) {
+    withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...acceptance, recognitionCoverage: rows,
+    })}`), (log) => assert.deepEqual(
+      buildEvidence(evidenceArgs(log), repoRoot).acceptance.recognitionCoverage, rows));
+  }
+  for (const invalid of [
+    { unresolvedItemLikeCount: undefined },
+    { unresolvedItemLikeRoleCounts: undefined },
+    { nordicFooterOwnershipFailureCounts: undefined },
+    ...[-1, 0.5, "private-content", null, 9].map((value) => ({ unresolvedItemLikeCount: value })),
+    { unresolvedItemLikeRoleCounts: { ...unresolvedRoles, rawText: 0 } },
+    { nordicFooterOwnershipFailureCounts: { ...nordicFailures, coordinates: 0 } },
+    { unresolvedItemLikeRoleCounts: null },
+    { nordicFooterOwnershipFailureCounts: [] },
+    { unresolvedItemLikeRoleCounts: {} },
+    { nordicFooterOwnershipFailureCounts: {} },
+    ...[-1, 0.5, "private-content", null, 9].map((other) => ({
+      unresolvedItemLikeRoleCounts: { ...unresolvedRoles, other } })),
+    ...[-1, 0.5, "private-content", null, 9].map((other) => ({
+      nordicFooterOwnershipFailureCounts: { ...nordicFailures, other } })),
+    { unresolvedItemLikeCount: 1 },
+    { unresolvedItemLikeRoleCounts: { ...unresolvedRoles, other: 1 } },
+    { nordicFooterOwnershipFailureCounts: { ...nordicFailures, other: 1 } },
+    { incompleteAdjustmentReasons: ["unresolvedItemLikeLine"] },
+    { unresolvedItemLikeCount: 1, unresolvedItemLikeRoleCounts: { nordicCourtesy: 0, other: 1 } },
+    { unresolvedItemLikeCount: 9, unresolvedItemLikeRoleCounts: { nordicCourtesy: 0, other: 9 },
+      incompleteAdjustmentReasons: ["unresolvedItemLikeLine"] },
+    { unresolvedItemLikeCount: 1, unresolvedItemLikeRoleCounts: { nordicCourtesy: 1, other: 0 },
+      incompleteAdjustmentReasons: ["unresolvedItemLikeLine"] },
+    { unresolvedItemLikeCount: 1, unresolvedItemLikeRoleCounts: { nordicCourtesy: 0, other: 1 },
+      incompleteAdjustmentReasons: ["unresolvedItemLikeLine"], previewPresent: false,
+      previewWarningCount: 0, previewWarningCategoryCounts: warningCounts },
+  ]) {
+    withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+      ...acceptance, recognitionCoverage: [{ ...withUnresolvedOwnership[0], ...invalid },
+        ...withUnresolvedOwnership.slice(1)],
+    })}`), (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot)));
+  }
+  withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
+    ...acceptance, recognitionCoverage: [withItemDecisions[0], ...withUnresolvedOwnership.slice(1)],
+  })}`), (log) => assert.throws(() => buildEvidence(evidenceArgs(log), repoRoot),
+    /unresolved ownership is incomplete/));
   withLog(protocolLog(`SETTLEORA_OCR_ACCEPTANCE=${JSON.stringify({
     ...acceptance, recognitionCoverage: withItemDecisions,
   })}`), (log) => assert.deepEqual(

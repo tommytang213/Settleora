@@ -725,6 +725,9 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
     const hasRowShapes = rowShapeKeys.some((key) => Object.hasOwn(entry, key));
     const patternReasonKeys = ["expectedUnretainedPatternReasonCounts", "unmatchedDraftItemOriginCounts"];
     const hasPatternReasons = patternReasonKeys.some((key) => Object.hasOwn(entry, key));
+    const unresolvedKeys = ["unresolvedItemLikeCount", "unresolvedItemLikeRoleCounts",
+      "nordicFooterOwnershipFailureCounts"];
+    const hasUnresolvedOwnership = unresolvedKeys.some((key) => Object.hasOwn(entry, key));
     const draftKeys = ["expectedItemDescriptionsInDraft", "expectedItemPairsInDraft",
       "expectedDateTokenSeen", "expectedTaxTokenSeen", "expectedSubtotalTokenSeen"];
     const hasDraftCoverage = draftKeys.some((key) => Object.hasOwn(entry, key));
@@ -737,6 +740,7 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
       ...(hasItemDecisions ? itemDecisionKeys : []),
       ...(hasRowShapes ? rowShapeKeys : []),
       ...(hasPatternReasons ? patternReasonKeys : []),
+      ...(hasUnresolvedOwnership ? unresolvedKeys : []),
       ...(hasDraftCoverage ? draftKeys : [])],
     `recognitionCoverage[${index}]`);
     const fixtureId = boundedToken(entry.fixtureId, `recognitionCoverage[${index}].fixtureId`);
@@ -784,6 +788,33 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
       `recognitionCoverage[${index}].itemDescriptionsWithinAdjacentAmountRow`) : null;
     const parserLineCount = hasCellCoverage ? boundedInteger(entry.parserLineCount,
       `recognitionCoverage[${index}].parserLineCount`) : null;
+    let unresolvedOwnership = null;
+    if (hasUnresolvedOwnership) {
+      const roles = ["nordicCourtesy", "other"];
+      const failures = ["noTotal", "notLastRow", "notAfterTotal", "layoutRowCountMismatch",
+        "unownedFinancialEvidence", "missingBounds", "overlapTransaction",
+        "nonpositiveContentWidth", "footerTooWide", "footerOffCenter", "other"];
+      const label = `recognitionCoverage[${index}]`;
+      assertExactKeys(entry.unresolvedItemLikeRoleCounts, roles, label + ".unresolvedItemLikeRoleCounts");
+      assertExactKeys(entry.nordicFooterOwnershipFailureCounts, failures, label + ".nordicFooterOwnershipFailureCounts");
+      const unresolvedItemLikeCount = boundedInteger(entry.unresolvedItemLikeCount, label + ".unresolvedItemLikeCount");
+      const unresolvedItemLikeRoleCounts = Object.fromEntries(roles.map((role) => [role,
+        boundedInteger(entry.unresolvedItemLikeRoleCounts[role], label + ".unresolvedItemLikeRoleCounts." + role)]));
+      const nordicFooterOwnershipFailureCounts = Object.fromEntries(failures.map((reason) => [reason,
+        boundedInteger(entry.nordicFooterOwnershipFailureCounts[reason], label + ".nordicFooterOwnershipFailureCounts." + reason)]));
+      const roleCounts = Object.values(unresolvedItemLikeRoleCounts);
+      const failureCounts = Object.values(nordicFooterOwnershipFailureCounts);
+      if (!hasCellCoverage || !hasReviewDecision || unresolvedItemLikeCount > parserLineCount ||
+          [...roleCounts, ...failureCounts].some((count) => count > parserLineCount) ||
+          roleCounts.reduce((sum, count) => sum + count, 0) !== unresolvedItemLikeCount ||
+          failureCounts.reduce((sum, count) => sum + count, 0) !== unresolvedItemLikeRoleCounts.nordicCourtesy ||
+          !Array.isArray(entry.incompleteAdjustmentReasons) ||
+          (unresolvedItemLikeCount > 0) !== entry.incompleteAdjustmentReasons.includes("unresolvedItemLikeLine") ||
+          (hasPreviewWarnings && entry.previewPresent === false && unresolvedItemLikeCount !== 0)) {
+        throw new Error("Recognition coverage unresolved ownership is invalid");
+      }
+      unresolvedOwnership = { unresolvedItemLikeCount, unresolvedItemLikeRoleCounts, nordicFooterOwnershipFailureCounts };
+    }
     const sameBlockCount = hasCellCoverage ? boundedInteger(entry.itemDescriptionsSameBlockAsAmount,
       `recognitionCoverage[${index}].itemDescriptionsSameBlockAsAmount`) : null;
     const distinctBlockCount = hasCellCoverage ? boundedInteger(entry.itemDescriptionsWithDistinctAmountBlock,
@@ -895,6 +926,7 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
     }
     coverageFixtures.add(fixtureId);
     return { fixtureId, blockCount, merchantExactTextSeen: entry.merchantExactTextSeen,
+      ...(hasUnresolvedOwnership ? unresolvedOwnership : {}),
       totalExactTokenSeen: entry.totalExactTokenSeen, expectedItemCount, itemDescriptionsExactTextSeen,
       ...(hasLayoutCoverage ? { rowCount, actualItemCount,
         merchantExactTextInOneRow: entry.merchantExactTextInOneRow,
@@ -952,6 +984,10 @@ function sanitizeAcceptance(value, platform, expectedFixtureIds) {
   if (boundedRecognitionCoverage.some((entry) => Object.hasOwn(entry, "expectedItemPairsInDraft")) &&
       boundedRecognitionCoverage.some((entry) => !Object.hasOwn(entry, "expectedItemPairsInDraft"))) {
     throw new Error("Recognition coverage draft categories are incomplete");
+  }
+  if (boundedRecognitionCoverage.some((entry) => Object.hasOwn(entry, "unresolvedItemLikeCount")) &&
+      boundedRecognitionCoverage.some((entry) => !Object.hasOwn(entry, "unresolvedItemLikeCount"))) {
+    throw new Error("Recognition coverage unresolved ownership is incomplete");
   }
   if (Object.hasOwn(value, "recognitionCoverage") &&
       (boundedRecognitionCoverage.length !== expectedFixtureIds.size ||

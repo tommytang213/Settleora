@@ -32,6 +32,9 @@ class ReceiptOcrPreview {
     this.incompleteAdjustmentReasons = const [],
     this.itemLineDecisions = const [],
     this.itemSelectionDecisions = const [],
+    this.unresolvedItemLikeCount = 0,
+    this.unresolvedItemLikeRoleCounts = const {},
+    this.nordicFooterOwnershipFailureCounts = const {},
     this.total,
     this.rawTextLineCount = 0,
     this.confidence,
@@ -76,6 +79,11 @@ class ReceiptOcrPreview {
   final List<ReceiptOcrItemLineDecision> itemLineDecisions;
   // One fixed role per retained item, aligned with items for bounded tests.
   final List<ReceiptOcrItemLineDecision> itemSelectionDecisions;
+  // Fixed count vocabularies for native diagnostics; no row identity or text.
+  final int unresolvedItemLikeCount;
+  final Map<ReceiptOcrUnresolvedItemLikeRole, int> unresolvedItemLikeRoleCounts;
+  final Map<ReceiptOcrNordicFooterOwnershipFailure, int>
+  nordicFooterOwnershipFailureCounts;
   final String? total;
   final int rawTextLineCount;
   final double? confidence;
@@ -110,6 +118,22 @@ enum ReceiptOcrCurrencyProvenance {
   contextInferred,
   defaultFallback,
   unresolved,
+}
+
+enum ReceiptOcrUnresolvedItemLikeRole { nordicCourtesy, other }
+
+enum ReceiptOcrNordicFooterOwnershipFailure {
+  noTotal,
+  notLastRow,
+  notAfterTotal,
+  layoutRowCountMismatch,
+  unownedFinancialEvidence,
+  missingBounds,
+  overlapTransaction,
+  nonpositiveContentWidth,
+  footerTooWide,
+  footerOffCenter,
+  other,
 }
 
 enum ReceiptOcrReviewDecision {

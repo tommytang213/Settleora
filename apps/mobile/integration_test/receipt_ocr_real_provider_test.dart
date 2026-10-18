@@ -1629,6 +1629,16 @@ Map<String, Object> _boundedRecognitionCoverage(
     'selectedRowWithoutExpectedPairDecisionCounts':
         selectedRowWithoutExpectedPairDecisionCounts,
     'unmatchedDraftItemOriginCounts': unmatchedDraftItemOriginCounts,
+    'unresolvedItemLikeCount': result.preview?.unresolvedItemLikeCount ?? 0,
+    'unresolvedItemLikeRoleCounts': {
+      for (final role in ReceiptOcrUnresolvedItemLikeRole.values)
+        role.name: result.preview?.unresolvedItemLikeRoleCounts[role] ?? 0,
+    },
+    'nordicFooterOwnershipFailureCounts': {
+      for (final reason in ReceiptOcrNordicFooterOwnershipFailure.values)
+        reason.name:
+            result.preview?.nordicFooterOwnershipFailureCounts[reason] ?? 0,
+    },
     'reviewDecision':
         result.preview?.reviewHintDecision.name ??
         ReceiptOcrReviewDecision.none.name,

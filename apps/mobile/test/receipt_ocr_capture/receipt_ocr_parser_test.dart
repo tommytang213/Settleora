@@ -10780,11 +10780,215 @@ Total $145.00''',
         _layoutBlock('Total USD 45.00', 2, 2, 20, 350),
         _layoutBlock('Takk / Tack', 3, 3, left, right),
       ];
-      expect(parser.parse(text, blocks: blocks(150, 220)).reviewHints, isEmpty);
-      expect(
-        parser.parse(text, blocks: blocks(20, 100)).reviewHints,
-        isNotEmpty,
+      final centered = parser.parse(text, blocks: blocks(150, 220));
+      expect(centered.reviewHints, isEmpty);
+      expect(centered.unresolvedItemLikeCount, 0);
+      expect(centered.unresolvedItemLikeRoleCounts, isEmpty);
+      expect(centered.nordicFooterOwnershipFailureCounts, isEmpty);
+      for (final entry in [
+        (
+          left: 20.0,
+          right: 100.0,
+          reason: ReceiptOcrNordicFooterOwnershipFailure.footerOffCenter,
+        ),
+        (
+          left: 20.0,
+          right: 350.0,
+          reason: ReceiptOcrNordicFooterOwnershipFailure.footerTooWide,
+        ),
+      ]) {
+        final preview = parser.parse(
+          text,
+          blocks: blocks(entry.left, entry.right),
+        );
+        expect(preview.reviewHints, isNotEmpty);
+        expect(preview.unresolvedItemLikeCount, 1);
+        expect(preview.unresolvedItemLikeRoleCounts, {
+          ReceiptOcrUnresolvedItemLikeRole.nordicCourtesy: 1,
+        });
+        expect(preview.nordicFooterOwnershipFailureCounts, {entry.reason: 1});
+      }
+      for (final scale in [0.5, 3.0]) {
+        List<ReceiptOcrBlockEvidence> scaled(double left, double right) => [
+          for (final block in blocks(left, right))
+            ReceiptOcrBlockEvidence(
+              text: block.text,
+              order: block.order,
+              row: block.row,
+              points: [
+                for (final point in block.points)
+                  ReceiptOcrPoint(x: point.x * scale, y: point.y * scale),
+              ],
+            ),
+        ];
+        expect(
+          parser.parse(text, blocks: scaled(150, 220)).unresolvedItemLikeCount,
+          0,
+        );
+        final leftAligned = parser.parse(text, blocks: scaled(20, 100));
+        expect(leftAligned.reviewHints, isNotEmpty);
+        expect(leftAligned.nordicFooterOwnershipFailureCounts, {
+          ReceiptOcrNordicFooterOwnershipFailure.footerOffCenter: 1,
+        });
+      }
+    },
+  );
+
+  test(
+    'unresolved ownership diagnostics preserve mixed rows and ambiguous kr',
+    () {
+      const parser = ReceiptOcrParser();
+      List<ReceiptOcrBlockEvidence> evidence(
+        List<String> lines, {
+        double footerLeft = 150,
+      }) => [
+        for (var index = 0; index < lines.length; index++)
+          _layoutBlock(
+            lines[index],
+            index,
+            index,
+            lines[index] == 'Takk / Tack' ? footerLeft : 20,
+            lines[index] == 'Takk / Tack' ? footerLeft + 70 : 350,
+          ),
+      ];
+      final lines = [
+        'Cafe',
+        'Coffee USD 45.00',
+        'Mystery Snack',
+        'Total USD 45.00',
+        'Takk / Tack',
+      ];
+      final centered = parser.parse(lines.join('\n'), blocks: evidence(lines));
+      expect(centered.reviewHints, isNotEmpty);
+      expect(centered.unresolvedItemLikeCount, 1);
+      expect(centered.unresolvedItemLikeRoleCounts, {
+        ReceiptOcrUnresolvedItemLikeRole.other: 1,
+      });
+      expect(centered.nordicFooterOwnershipFailureCounts, isEmpty);
+      final leftAligned = parser.parse(
+        lines.join('\n'),
+        blocks: evidence(lines, footerLeft: 20),
       );
+      expect(leftAligned.unresolvedItemLikeCount, 2);
+      expect(leftAligned.unresolvedItemLikeRoleCounts, {
+        ReceiptOcrUnresolvedItemLikeRole.nordicCourtesy: 1,
+        ReceiptOcrUnresolvedItemLikeRole.other: 1,
+      });
+      expect(leftAligned.nordicFooterOwnershipFailureCounts, {
+        ReceiptOcrNordicFooterOwnershipFailure.footerOffCenter: 1,
+      });
+      final ambiguous = parser.parse(
+        'Nordic Shop\nCoffee 45 kr\nTotal 45 kr\nTakk / Tack',
+      );
+      expect(ambiguous.currency, isNull);
+      expect(
+        ambiguous.warnings,
+        contains(
+          'The receipt only shows a currency symbol. Choose the currency before applying.',
+        ),
+      );
+      final modifier = parser.parse(
+        'Cafe\nExtra shot\nCoffee USD 45.00\nTotal USD 45.00',
+      );
+      expect(modifier.unresolvedItemLikeCount, 1);
+      expect(modifier.unresolvedItemLikeRoleCounts, {
+        ReceiptOcrUnresolvedItemLikeRole.other: 1,
+      });
+      expect(modifier.nordicFooterOwnershipFailureCounts, isEmpty);
+      for (final preview in [centered, leftAligned, ambiguous, modifier]) {
+        expect(
+          preview.unresolvedItemLikeRoleCounts.values.fold(0, (a, b) => a + b),
+          preview.unresolvedItemLikeCount,
+        );
+        expect(
+          preview.nordicFooterOwnershipFailureCounts.values.fold(
+            0,
+            (a, b) => a + b,
+          ),
+          preview.unresolvedItemLikeRoleCounts[ReceiptOcrUnresolvedItemLikeRole
+                  .nordicCourtesy] ??
+              0,
+        );
+        expect(
+          preview.incompleteAdjustmentReasons.contains(
+            ReceiptOcrIncompleteAdjustmentReason.unresolvedItemLikeLine,
+          ),
+          preview.unresolvedItemLikeCount > 0,
+        );
+      }
+    },
+  );
+
+  test(
+    'Nordic diagnostics retain first ownership failure and unresolved products',
+    () {
+      const parser = ReceiptOcrParser();
+      for (final entry in [
+        (
+          lines: ['Cafe', 'Coffee USD 45.00', 'Takk / Tack'],
+          left: 150.0,
+          reason: ReceiptOcrNordicFooterOwnershipFailure.noTotal,
+          other: 0,
+        ),
+        (
+          lines: [
+            'Cafe',
+            'Coffee USD 45.00',
+            'Total USD 45.00',
+            'Extra charge USD 1.00',
+            'Takk / Tack',
+          ],
+          left: 150.0,
+          reason:
+              ReceiptOcrNordicFooterOwnershipFailure.unownedFinancialEvidence,
+          other: 0,
+        ),
+        (
+          lines: [
+            'Cafe',
+            'Coffee USD 45.00',
+            'Total USD 45.00',
+            'Takk / Tack',
+            'Mystery Snack',
+          ],
+          left: 150.0,
+          reason: ReceiptOcrNordicFooterOwnershipFailure.notLastRow,
+          other: 1,
+        ),
+        (
+          lines: [
+            'Cafe',
+            'Coffee USD 45.00',
+            'Total USD 45.00',
+            'Takk / Tack',
+            'Mystery Snack',
+          ],
+          left: 20.0,
+          reason: ReceiptOcrNordicFooterOwnershipFailure.footerOffCenter,
+          other: 1,
+        ),
+      ]) {
+        final blocks = [
+          for (var row = 0; row < entry.lines.length; row++)
+            _layoutBlock(
+              entry.lines[row],
+              row,
+              row,
+              entry.lines[row] == 'Takk / Tack' ? entry.left : 20,
+              entry.lines[row] == 'Takk / Tack' ? entry.left + 70 : 350,
+            ),
+        ];
+        final preview = parser.parse(entry.lines.join('\n'), blocks: blocks);
+        expect(preview.adjustmentsComplete, isFalse, reason: entry.reason.name);
+        expect(preview.nordicFooterOwnershipFailureCounts, {entry.reason: 1});
+        expect(preview.unresolvedItemLikeCount, entry.other + 1);
+        expect(
+          preview.unresolvedItemLikeRoleCounts[ReceiptOcrUnresolvedItemLikeRole
+                  .other] ??
+              0,
+          entry.other,
+        );
+      }
     },
   );
 

@@ -374,8 +374,14 @@ class ReceiptOcrParser {
       currency,
       hasCompletePricedItemEvidence: hasCompletePricedItemEvidence,
     );
+    final unresolvedItemLikeRoleCounts =
+        <ReceiptOcrUnresolvedItemLikeRole, int>{};
+    final nordicFooterOwnershipFailureCounts =
+        <ReceiptOcrNordicFooterOwnershipFailure, int>{};
     final unresolvedItemLines = _countUnresolvedItemLikeLines(
       itemLines,
+      unresolvedRoleCounts: unresolvedItemLikeRoleCounts,
+      nordicFailureCounts: nordicFooterOwnershipFailureCounts,
       merchantLineIndices: merchantDetection?.lineIndices ?? const {},
       merchantName: merchant,
       layoutRows: itemLayoutRows,
@@ -601,6 +607,13 @@ class ReceiptOcrParser {
       items: itemCandidates,
       itemLineDecisions: extractedItems.lineDecisions,
       itemSelectionDecisions: extractedItems.itemSelectionDecisions,
+      unresolvedItemLikeCount: unresolvedItemLines,
+      unresolvedItemLikeRoleCounts: Map.unmodifiable(
+        unresolvedItemLikeRoleCounts,
+      ),
+      nordicFooterOwnershipFailureCounts: Map.unmodifiable(
+        nordicFooterOwnershipFailureCounts,
+      ),
       blocks: blocks,
       runEvidence: runEvidence,
     );
@@ -7156,6 +7169,9 @@ class ReceiptOcrParser {
 
   int _countUnresolvedItemLikeLines(
     List<String> lines, {
+    required Map<ReceiptOcrUnresolvedItemLikeRole, int> unresolvedRoleCounts,
+    required Map<ReceiptOcrNordicFooterOwnershipFailure, int>
+    nordicFailureCounts,
     Set<int> merchantLineIndices = const {},
     String? merchantName,
     List<List<ReceiptOcrBlockEvidence>> layoutRows = const [],
@@ -7201,6 +7217,43 @@ class ReceiptOcrParser {
           );
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       final line = lines[lineIndex];
+      ReceiptOcrNordicFooterOwnershipFailure? nordicFailure;
+      void recordUnresolved() {
+        count += 1;
+        final nordic = _isNordicCourtesyFooterPhrase(line);
+        final role = nordic
+            ? ReceiptOcrUnresolvedItemLikeRole.nordicCourtesy
+            : ReceiptOcrUnresolvedItemLikeRole.other;
+        unresolvedRoleCounts.update(
+          role,
+          (value) => value + 1,
+          ifAbsent: () => 1,
+        );
+        if (!nordic) return;
+        // Report only a line the original pass actually counted. The helper
+        // runs before the final-row boundary, so retain its first rejection.
+        final failure =
+            nordicFailure ??
+            (lastPricedTotal < 0
+                ? ReceiptOcrNordicFooterOwnershipFailure.noTotal
+                : lineIndex != lines.length - 1
+                ? ReceiptOcrNordicFooterOwnershipFailure.notLastRow
+                : (layoutRows.isEmpty &&
+                          !_hasOnlyPaymentOrIncludedTaxOrSuggestedTipAmountsBeforeCourtesy(
+                            lines,
+                            lastPricedTotal,
+                            lineIndex,
+                          )
+                      ? ReceiptOcrNordicFooterOwnershipFailure
+                            .unownedFinancialEvidence
+                      : ReceiptOcrNordicFooterOwnershipFailure.other));
+        nordicFailureCounts.update(
+          failure,
+          (value) => value + 1,
+          ifAbsent: () => 1,
+        );
+      }
+
       if (merchantLineIndices.contains(lineIndex) ||
           ownedItemDescriptionRows.contains(lineIndex) ||
           nonItemSummaryRows.contains(lineIndex)) {
@@ -7268,6 +7321,7 @@ class ReceiptOcrParser {
                         lineIndex,
                         lastPricedTotal,
                         assumeCourtesy: true,
+                        onFailure: (reason) => nordicFailure = reason,
                       )))) &&
           lastPricedTotal >= 0 &&
           lineIndex == lines.length - 1 &&
@@ -7327,7 +7381,7 @@ class ReceiptOcrParser {
       // because its name contains a street/building number.
       if (_isPrintedModifierLine(line) && !_isPricedItemLine(line)) {
         if (ownedModifierRows.contains(lineIndex)) continue;
-        count += 1;
+        recordUnresolved();
         continue;
       }
       final courtesy = _isReceiptCourtesyLine(line);
@@ -7392,7 +7446,7 @@ class ReceiptOcrParser {
       final letterCount = _unicodeLetterPattern.allMatches(cleaned).length;
       if (letterCount >= 2 &&
           (courtesy || !_isLikelyNonItemDescription(cleaned))) {
-        count += 1;
+        recordUnresolved();
       }
     }
 
@@ -9285,18 +9339,36 @@ bool _isCenteredPostTotalFooter(
   int lastPricedTotal, {
   bool assumeCourtesy = false,
   Set<int> ownedSummaryAmountRows = const {},
+  void Function(ReceiptOcrNordicFooterOwnershipFailure)? onFailure,
 }) {
-  if (lastPricedTotal < 0 ||
-      lineIndex <= lastPricedTotal ||
-      layoutRows.length != lines.length ||
-      !_hasOnlyPaymentOrIncludedTaxOrSuggestedTipAmountsBeforeCourtesy(
-        lines,
-        lastPricedTotal,
-        lineIndex,
-        ownedSummaryAmountRows: ownedSummaryAmountRows,
-      ) ||
-      (!assumeCourtesy && !_isReceiptCourtesyLine(lines[lineIndex]))) {
+  bool reject(ReceiptOcrNordicFooterOwnershipFailure reason) {
+    onFailure?.call(reason);
     return false;
+  }
+
+  if (lastPricedTotal < 0) {
+    return reject(ReceiptOcrNordicFooterOwnershipFailure.noTotal);
+  }
+  if (lineIndex <= lastPricedTotal) {
+    return reject(ReceiptOcrNordicFooterOwnershipFailure.notAfterTotal);
+  }
+  if (layoutRows.length != lines.length) {
+    return reject(
+      ReceiptOcrNordicFooterOwnershipFailure.layoutRowCountMismatch,
+    );
+  }
+  if (!_hasOnlyPaymentOrIncludedTaxOrSuggestedTipAmountsBeforeCourtesy(
+    lines,
+    lastPricedTotal,
+    lineIndex,
+    ownedSummaryAmountRows: ownedSummaryAmountRows,
+  )) {
+    return reject(
+      ReceiptOcrNordicFooterOwnershipFailure.unownedFinancialEvidence,
+    );
+  }
+  if (!assumeCourtesy && !_isReceiptCourtesyLine(lines[lineIndex])) {
+    return reject(ReceiptOcrNordicFooterOwnershipFailure.other);
   }
   final contentPoints = layoutRows
       .take(lineIndex)
@@ -9314,7 +9386,7 @@ bool _isCenteredPostTotalFooter(
   if (contentPoints.isEmpty ||
       transactionPoints.isEmpty ||
       footerPoints.isEmpty) {
-    return false;
+    return reject(ReceiptOcrNordicFooterOwnershipFailure.missingBounds);
   }
   final contentLeft = contentPoints
       .map((point) => point.x)
@@ -9335,14 +9407,42 @@ bool _isCenteredPostTotalFooter(
       .map((point) => point.y)
       .reduce((a, b) => a < b ? a : b);
   final contentWidth = contentRight - contentLeft;
-  if (footerTop <= transactionBottom ||
-      contentWidth <= 0 ||
-      footerRight - footerLeft > contentWidth * 0.5) {
-    return false;
+  final finiteGeometry =
+      onFailure == null ||
+      [contentPoints, transactionPoints, footerPoints].every(
+        (points) =>
+            points.every((point) => point.x.isFinite && point.y.isFinite),
+      );
+  ReceiptOcrNordicFooterOwnershipFailure geometryFailure(
+    ReceiptOcrNordicFooterOwnershipFailure reason,
+  ) => finiteGeometry ? reason : ReceiptOcrNordicFooterOwnershipFailure.other;
+  if (footerTop <= transactionBottom) {
+    return reject(
+      geometryFailure(
+        ReceiptOcrNordicFooterOwnershipFailure.overlapTransaction,
+      ),
+    );
+  }
+  if (contentWidth <= 0) {
+    return reject(
+      geometryFailure(
+        ReceiptOcrNordicFooterOwnershipFailure.nonpositiveContentWidth,
+      ),
+    );
+  }
+  if (footerRight - footerLeft > contentWidth * 0.5) {
+    return reject(
+      geometryFailure(ReceiptOcrNordicFooterOwnershipFailure.footerTooWide),
+    );
   }
   final contentCenter = (contentLeft + contentRight) / 2;
   final footerCenter = (footerLeft + footerRight) / 2;
-  return (footerCenter - contentCenter).abs() <= contentWidth * 0.15;
+  if (!((footerCenter - contentCenter).abs() <= contentWidth * 0.15)) {
+    return reject(
+      geometryFailure(ReceiptOcrNordicFooterOwnershipFailure.footerOffCenter),
+    );
+  }
+  return true;
 }
 
 bool _hasOnlyPaymentOrIncludedTaxOrSuggestedTipAmountsBeforeCourtesy(
