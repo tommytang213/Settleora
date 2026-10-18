@@ -17682,6 +17682,41 @@ ReceiptOcrReviewSaveRequest _receiptOcrReviewSaveRequestFromSavedEdit(
   final originalCurrency = _nullableUppercaseCurrency(review.currency);
   final preserveHeaderMoney =
       editedCurrency != null && editedCurrency == originalCurrency;
+  final headerEvidence = _receiptOcrHeaderEvidenceFromPreview(
+    preview,
+    preserveMatchingEvidence: true,
+  );
+  if (!preserveHeaderMoney && originalCurrency != null) {
+    // Saved scalar headers are still printed evidence in their original
+    // currency. Preserve them before saving the cleared scalar suggestions.
+    for (final entry in {
+      'subtotal': review.subtotalAmount,
+      'tax': review.taxAmount,
+      'service_charge': review.serviceChargeAmount,
+      'discount': review.discountAmount,
+    }.entries) {
+      if (headerEvidence.any((evidence) => evidence.role == entry.key))
+        continue;
+      final amount = entry.key == 'discount'
+          ? _receiptOcrDiscountMagnitudeForSave(
+              entry.value,
+              currency: originalCurrency,
+            )
+          : receiptOcrMoneyCandidateForSave(
+              entry.value,
+              currency: originalCurrency,
+            );
+      if (amount != null) {
+        headerEvidence.add(
+          ReceiptOcrReviewHeaderEvidenceSaveRequest(
+            role: entry.key,
+            amount: amount,
+            currency: originalCurrency,
+          ),
+        );
+      }
+    }
+  }
   // Currency changes clear transient scalar suggestions. Returning to the
   // saved currency can retain its original values under the same evidence guards.
   final candidate = ReceiptOcrReviewSaveRequest(
@@ -17754,10 +17789,7 @@ ReceiptOcrReviewSaveRequest _receiptOcrReviewSaveRequestFromSavedEdit(
           direction: adjustment.direction,
         ),
     ],
-    headerEvidence: _receiptOcrHeaderEvidenceFromPreview(
-      preview,
-      preserveMatchingEvidence: true,
-    ),
+    headerEvidence: headerEvidence,
   );
   return candidate.withTaxReconciliationMode(
     receiptOcrTaxModeForSavedEdit(review, candidate),

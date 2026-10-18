@@ -327,7 +327,7 @@ enum ScriptRouteSelector {
 
   static func score(_ candidate: ScriptCandidate) -> Double {
     let strong = candidate.text.unicodeScalars
-      .filter { CharacterSet.letters.contains($0) }
+      .filter { CharacterSet.letters.contains($0) || CharacterSet.decimalDigits.contains($0) }
       .map { script(of: $0.value) }
       .filter { $0 != .neutral }
     let scripts = Set(strong)
