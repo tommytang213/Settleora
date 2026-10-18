@@ -38,8 +38,13 @@ function signingPair(id, value) {
 }
 
 function syntheticSigningBlock(extraPair = null, paddingLength = 2650) {
+  const signer = Buffer.from("synthetic-v2-signer");
+  const framedSigner = Buffer.alloc(8 + signer.length);
+  framedSigner.writeUInt32LE(4 + signer.length, 0);
+  framedSigner.writeUInt32LE(signer.length, 4);
+  signer.copy(framedSigner, 8);
   const pairs = Buffer.concat([
-    signingPair(0x7109871a, Buffer.from("synthetic-v2-signer")),
+    signingPair(0x7109871a, framedSigner),
     ...(extraPair == null ? [] : [extraPair]),
     signingPair(0x42726577, Buffer.alloc(paddingLength)),
   ]);
