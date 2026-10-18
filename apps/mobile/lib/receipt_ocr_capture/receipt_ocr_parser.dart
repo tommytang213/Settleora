@@ -6787,6 +6787,7 @@ class ReceiptOcrParser {
     String? unitPrice;
     final quantities = <BigInt?>{};
     final rates = <BigInt?>{};
+    final measurementUnits = <String>{};
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       if (merchantLineIndices.contains(lineIndex)) continue;
       final line = lines[lineIndex];
@@ -6806,6 +6807,11 @@ class ReceiptOcrParser {
         r'^(?:GALLONS?|LIT(?:ER|RE)S?)\b',
         caseSensitive: false,
       ).hasMatch(line)) {
+        measurementUnits.add(
+          RegExp(r'^GALLONS?\b', caseSensitive: false).hasMatch(line)
+              ? 'gal'
+              : 'l',
+        );
         quantity = _lastAmountInLine(line);
         quantities.add(
           quantity == null ? null : _ocrAmountScaledUnits(quantity, 3),
@@ -6828,6 +6834,11 @@ class ReceiptOcrParser {
         }
         // Per-unit fuel rates commonly carry three decimal places even when
         // the transaction currency has two minor digits.
+        final printedUnit = RegExp(
+          r'^PRICE\s*/\s*(GAL|L)\b',
+          caseSensitive: false,
+        ).firstMatch(line)?.group(1)?.toLowerCase();
+        if (printedUnit != null) measurementUnits.add(printedUnit);
         unitPrice = _lastAmountInLine(line);
         rates.add(
           unitPrice == null ? null : _ocrAmountScaledUnits(unitPrice, 3),
@@ -6865,7 +6876,10 @@ class ReceiptOcrParser {
     // Keep the provisional printed fields, but never let a later measurement
     // erase conflicting or unreadable evidence. Compare full printed precision
     // so equivalent forms such as 3.00 and 3.000 do not create false warnings.
-    if (quantities.length != 1 ||
+    // Explicit gallon/liter contradictions remain ambiguous without conversion;
+    // a generic UNIT PRICE label supplies no contradictory unit by itself.
+    if (measurementUnits.length > 1 ||
+        quantities.length != 1 ||
         rates.length != 1 ||
         quantities.contains(null) ||
         rates.contains(null)) {
