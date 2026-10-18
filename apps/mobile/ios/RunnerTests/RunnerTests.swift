@@ -556,6 +556,43 @@ class RunnerTests: XCTestCase {
     }
   }
 
+  func testSpecialistRoutingPreservesNumeralOnlyEvidence() {
+    let cases: [(ScriptEvidence, String)] = [
+      (.arabic, "١٢٫٥٠"),
+      (.arabic, "۱۲٫۵۰"),
+      (.devanagari, "१२.५०"),
+      (.thai, "๑๒.๕๐"),
+    ]
+    for (script, text) in cases {
+      let specialist = currencyCandidate("specialist", script, text, 0.99)
+      for commonText in ["12.50", ""] {
+        let common = currencyCandidate("common", .common, commonText, 0.80)
+        for candidates in [[common, specialist], [specialist, common]] {
+          let selected = ScriptRouteSelector.select(candidates)
+          XCTAssertEqual(selected?.text, text)
+          XCTAssertEqual(selected?.pack.modelPackID, specialist.pack.modelPackID)
+          XCTAssertEqual(selected?.confidence, specialist.confidence)
+        }
+      }
+    }
+  }
+
+  func testSpecialistRoutingKeepsNeutralAndIncompatibleNumeralsIneligible() {
+    let common = currencyCandidate("common", .common, "12.50", 0.80)
+    for (script, text) in [
+      (ScriptEvidence.arabic, "12.50"),
+      (.devanagari, "١٢٫٥٠"),
+      (.thai, "१२.५०"),
+      (.arabic, "$.,"),
+      (.devanagari, "TOTAL१"),
+    ] {
+      let specialist = currencyCandidate("specialist", script, text, 0.99)
+      XCTAssertFalse(ScriptRouteSelector.score(specialist).isFinite, text)
+      XCTAssertNil(ScriptRouteSelector.select([specialist]), text)
+      XCTAssertEqual(ScriptRouteSelector.select([common, specialist])?.text, common.text, text)
+    }
+  }
+
   func testConflictingCurrencyCandidatesRetainCalibratedWinner() {
     let common = currencyCandidate("common", .common, "₹8.50", 0.95)
     let specialist = currencyCandidate("specialist", .devanagari, "र8.50", 0.95)

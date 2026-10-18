@@ -270,6 +270,147 @@ void main() {
   }
 
   for (final group in [false, true]) {
+    for (final mode in [
+      null,
+      ReceiptOcrTaxReconciliationModeValues.addToBase,
+    ]) {
+      for (final targetCurrency in ['EUR']) {
+        testWidgets(
+          'saved OCR permanent currency change preserves scalar header evidence group=$group mode=$mode',
+          (tester) async {
+            await useLargeSurface(tester);
+            final route = ReceiptOcrReviewRoute(
+              billId: _billId,
+              fileId: _uploadedFileId,
+              groupId: group ? _groupId : null,
+            );
+            final sample = sampleReceiptOcrReviewDetail(route);
+            final original = ReceiptOcrReviewDetail(
+              id: sample.id,
+              billId: route.billId,
+              fileId: route.fileId,
+              groupId: route.groupId,
+              status: ReceiptOcrReviewStatusValues.reviewed,
+              source: sample.source,
+              merchantText: sample.merchantText,
+              receiptIssuedAtUtc: sample.receiptIssuedAtUtc,
+              currency: 'USD',
+              subtotalAmount: '10.00',
+              taxAmount: '0.80',
+              serviceChargeAmount: '1.00',
+              discountAmount: '0.50',
+              grandTotalAmount: '11.30',
+              taxReconciliationMode: mode,
+              lines: sample.lines,
+              createdAtUtc: sample.createdAtUtc,
+              updatedAtUtc: sample.updatedAtUtc,
+            );
+            final receiptRepository = FakeReceiptOcrReviewRepository(
+              reviewDetail: original,
+            );
+            final handoff = ReceiptOcrReviewHandoff.saved(reviewRoute: route);
+            await tester.pumpWidget(
+              MaterialApp(
+                home: group
+                    ? SettleoraGroupBillDetailScreen(
+                        repository: FakeBillRepository(),
+                        groupId: _groupId,
+                        groupName: 'Books',
+                        billId: _billId,
+                        initialBill: sampleBillDetail(id: _billId),
+                        receiptOcrReviewRepository: receiptRepository,
+                        initialReceiptOcrReviewHandoff: handoff,
+                      )
+                    : SettleoraBillDetailScreen(
+                        repository: FakeBillRepository(),
+                        billId: _billId,
+                        initialBill: sampleBillDetail(id: _billId),
+                        receiptOcrReviewRepository: receiptRepository,
+                        initialReceiptOcrReviewHandoff: handoff,
+                      ),
+              ),
+            );
+            await tester.pumpAndSettle();
+            await tester.tap(
+              find.byKey(
+                Key('${group ? "group-bill" : "bill"}-detail-ocr-review-open'),
+              ),
+            );
+            await tester.pumpAndSettle();
+            await tester.tap(find.byKey(const Key('saved-ocr-review-edit')));
+            await tester.pumpAndSettle();
+            {
+              final selector = find.byKey(
+                const Key('saved-ocr-review-ocr-edit-currency'),
+              );
+              for (final currency in [targetCurrency]) {
+                tester.widget<CurrencySelector>(selector).onChanged(currency);
+                await tester.pumpAndSettle();
+              }
+            }
+            await _scrollSavedOcrReviewEditActionsIntoView(tester);
+            await tester.tap(
+              find.byKey(const Key('saved-ocr-review-edit-save')),
+            );
+            await tester.pumpAndSettle();
+            expect(receiptRepository.saveCalls, 1);
+            final saved = receiptRepository.lastSaveRequest!;
+            expect(saved.status, original.status);
+            expect(saved.currency, targetCurrency);
+            expect(saved.subtotalAmount, isNull);
+            expect(saved.taxAmount, isNull);
+            expect(saved.serviceChargeAmount, isNull);
+            expect(saved.discountAmount, isNull);
+            expect(saved.grandTotalAmount, isNull);
+            final expectedEvidence = [
+              ('subtotal', '10.00', 'USD'),
+              ('tax', '0.80', 'USD'),
+              ('service_charge', '1.00', 'USD'),
+              ('discount', '0.50', 'USD'),
+            ];
+            expect(
+              saved.headerEvidence.map(
+                (entry) => (entry.role, entry.amount, entry.currency),
+              ),
+              expectedEvidence,
+            );
+            expect(
+              receiptRepository.reviewDetail!.headerEvidence.map(
+                (entry) => (entry.role, entry.amount, entry.currency),
+              ),
+              expectedEvidence,
+            );
+            // Reopen the persisted result, change currency again and save.
+            // Original evidence must survive without relabeling or duplication.
+            await tester.tap(find.byKey(const Key('saved-ocr-review-edit')));
+            await tester.pumpAndSettle();
+            tester
+                .widget<CurrencySelector>(
+                  find.byKey(const Key('saved-ocr-review-ocr-edit-currency')),
+                )
+                .onChanged('CAD');
+            await tester.pumpAndSettle();
+            await _scrollSavedOcrReviewEditActionsIntoView(tester);
+            await tester.tap(
+              find.byKey(const Key('saved-ocr-review-edit-save')),
+            );
+            await tester.pumpAndSettle();
+            expect(receiptRepository.saveCalls, 2);
+            expect(receiptRepository.lastSaveRequest!.currency, 'CAD');
+            expect(
+              receiptRepository.lastSaveRequest!.headerEvidence.map(
+                (entry) => (entry.role, entry.amount, entry.currency),
+              ),
+              expectedEvidence,
+            );
+            expect(receiptRepository.lastSaveRequest!.taxAmount, isNull);
+          },
+        );
+      }
+    }
+  }
+
+  for (final group in [false, true]) {
     for (final scenario in [
       'lineTotal',
       'description',
@@ -5176,30 +5317,16 @@ Total USD 9.00
     );
     expect(receiptRepository.lastSaveRequest?.currency, 'HKD');
     expect(receiptRepository.lastSaveRequest?.grandTotalAmount, isNull);
-    expect(receiptRepository.lastSaveRequest?.headerEvidence, hasLength(2));
     expect(
-      receiptRepository.lastSaveRequest?.headerEvidence.first.role,
-      'service_charge',
-    );
-    expect(
-      receiptRepository.lastSaveRequest?.headerEvidence.first.amount,
-      '2.50',
-    );
-    expect(
-      receiptRepository.lastSaveRequest?.headerEvidence.first.currency,
-      'EUR',
-    );
-    expect(
-      receiptRepository.lastSaveRequest?.headerEvidence.last.role,
-      'discount',
-    );
-    expect(
-      receiptRepository.lastSaveRequest?.headerEvidence.last.amount,
-      '1.00',
-    );
-    expect(
-      receiptRepository.lastSaveRequest?.headerEvidence.last.currency,
-      'EUR',
+      receiptRepository.lastSaveRequest?.headerEvidence.map(
+        (entry) => (entry.role, entry.amount, entry.currency),
+      ),
+      [
+        ('service_charge', '2.50', 'EUR'),
+        ('discount', '1.00', 'EUR'),
+        ('subtotal', '10.00', 'USD'),
+        ('tax', '0.80', 'USD'),
+      ],
     );
     expect(receiptRepository.lastSaveRequest?.adjustmentEvidence, hasLength(1));
     expect(
