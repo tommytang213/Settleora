@@ -16,6 +16,13 @@ import { buildProvenance } from "../write-ios-release-provenance.mjs";
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
+test("canonical iOS wrapper pins the committed pubspec lock identity", () => {
+  const script = readFileSync(path.join(repoRoot, "apps/mobile/tool/build-production-ios.sh"), "utf8");
+  const pins = [...script.matchAll(/^default_pubspec_lock_sha=([0-9a-f]{64})$/gm)];
+  assert.equal(pins.length, 1);
+  assert.equal(pins[0][1], sha256(readFileSync(path.join(repoRoot, "apps/mobile/pubspec.lock"))));
+});
+
 function verifyTestIpa(archivePath) {
   let fd;
   try {
@@ -759,7 +766,6 @@ test("canonical wrapper fails closed around projection, locks, package inspectio
     "Codemagic CLI tools contract is missing or changed",
     "pubspec.lock drifted during build",
     "pubspec.lock differs from the committed canonical source",
-    "065007a0c8b90d527aff6306936a02cd527d30f03800cc8e4229e8273d3afcc7",
     "a5b6068c71fe9b0a77743d5c639b5538dd2be10db7ddd4ecd9317fee03541903",
     "Podfile.lock does not match the approved identity",
     "Podfile.lock drifted during build",
