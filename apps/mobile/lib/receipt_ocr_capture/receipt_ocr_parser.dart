@@ -342,6 +342,7 @@ class ReceiptOcrParser {
     final hasCompletePricedItemEvidence =
         !extractedItems.truncated &&
         !extractedItems.unretainedPricedItem &&
+        !extractedItems.ambiguousFuelMeasurement &&
         extractedItems.uncertainSummaryAmountRows.isEmpty &&
         detachedAmountSignRows.isEmpty &&
         !ambiguousChargeRows.any(
@@ -472,6 +473,11 @@ class ReceiptOcrParser {
         'Some OCR lines need manual review because no traceable line amount was found.',
       );
     }
+    if (extractedItems.ambiguousFuelMeasurement) {
+      warnings.add(
+        'Fuel quantity or unit-price readings conflict or are incomplete. Review the fuel measurements.',
+      );
+    }
     if (extractedItems.uncertainSummaryAmountRows.isNotEmpty) {
       warnings.add(
         'A summary amount has conflicting nearby evidence. Review it before applying.',
@@ -499,7 +505,8 @@ class ReceiptOcrParser {
     // and its review warning without emitting duplicate protocol values.
     final incompleteAdjustmentReasons = <ReceiptOcrIncompleteAdjustmentReason>{
       if (!amounts.adjustmentsComplete ||
-          extractedItems.uncertainSummaryAmountRows.isNotEmpty)
+          extractedItems.uncertainSummaryAmountRows.isNotEmpty ||
+          extractedItems.ambiguousFuelMeasurement)
         ReceiptOcrIncompleteAdjustmentReason.labeledAmountEvidence,
       ...amounts.incompleteReasons,
       if (extractedItems.truncated)
@@ -575,6 +582,7 @@ class ReceiptOcrParser {
           ambiguousRatedTaxRows.isEmpty &&
           !extractedItems.truncated &&
           !extractedItems.unretainedPricedItem &&
+          !extractedItems.ambiguousFuelMeasurement &&
           extractedItems.uncertainSummaryAmountRows.isEmpty &&
           detachedAmountSignRows.isEmpty &&
           !ambiguousChargeRows.any(
@@ -3462,6 +3470,7 @@ class ReceiptOcrParser {
     bool truncated,
     bool unretainedPricedItem,
     bool unretainedCreditOrAccountingItem,
+    bool ambiguousFuelMeasurement,
     List<ReceiptOcrItemLineDecision> lineDecisions,
     List<ReceiptOcrItemLineDecision> itemSelectionDecisions,
     Set<int> nonItemSummaryRows,
@@ -3513,18 +3522,20 @@ class ReceiptOcrParser {
             caseSensitive: false,
           ).hasMatch(line),
         );
+    var ambiguousFuelMeasurement = false;
     final fuelItem = _extractFuelItem(
       lines,
       currency,
       selectedTotal: selectedTotal,
       merchantLineIndices: merchantLineIndices,
       detachedAmountSignRows: detachedAmountSignRows,
+      onAmbiguousMeasurement: () => ambiguousFuelMeasurement = true,
     );
     if (fuelItem != null) {
       items.add(fuelItem);
       itemSelectionDecisions.add(ReceiptOcrItemLineDecision.fuelItemSelected);
     }
-    final fuelPumpRows = fuelItem == null
+    final fuelPumpRows = fuelItem == null || ambiguousFuelMeasurement
         ? const <int>{}
         : _ownedFuelPumpRows(lines, layoutRows, fuelItem);
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
@@ -4012,7 +4023,9 @@ class ReceiptOcrParser {
       itemSelectionDecisions.removeAt(0);
       unretainedPricedItem = true;
     }
-    if (fuelItem != null && items.contains(fuelItem)) {
+    if (fuelItem != null &&
+        items.contains(fuelItem) &&
+        !ambiguousFuelMeasurement) {
       for (var index = 0; index < lines.length; index++) {
         if (merchantLineIndices.contains(index) ||
             _isPricedFuelLine(lines[index])) {
@@ -4036,6 +4049,7 @@ class ReceiptOcrParser {
       truncated: items.length > 40,
       unretainedPricedItem: unretainedPricedItem,
       unretainedCreditOrAccountingItem: unretainedCreditOrAccountingItem,
+      ambiguousFuelMeasurement: ambiguousFuelMeasurement,
       lineDecisions: lineDecisions,
       nonItemSummaryRows: nonItemSummaryRows,
       uncertainSummaryAmountRows: uncertainSummaryAmountRows,
@@ -6766,10 +6780,13 @@ class ReceiptOcrParser {
     String? selectedTotal,
     Set<int> merchantLineIndices = const {},
     Set<int> detachedAmountSignRows = const {},
+    required void Function() onAmbiguousMeasurement,
   }) {
     String? description;
     String? quantity;
     String? unitPrice;
+    final quantities = <BigInt?>{};
+    final rates = <BigInt?>{};
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       if (merchantLineIndices.contains(lineIndex)) continue;
       final line = lines[lineIndex];
@@ -6790,6 +6807,9 @@ class ReceiptOcrParser {
         caseSensitive: false,
       ).hasMatch(line)) {
         quantity = _lastAmountInLine(line);
+        quantities.add(
+          quantity == null ? null : _ocrAmountScaledUnits(quantity, 3),
+        );
         continue;
       }
       if (RegExp(
@@ -6809,6 +6829,9 @@ class ReceiptOcrParser {
         // Per-unit fuel rates commonly carry three decimal places even when
         // the transaction currency has two minor digits.
         unitPrice = _lastAmountInLine(line);
+        rates.add(
+          unitPrice == null ? null : _ocrAmountScaledUnits(unitPrice, 3),
+        );
         continue;
       }
     }
@@ -6838,6 +6861,15 @@ class ReceiptOcrParser {
         unitPrice == null ||
         !hasSelectedTransactionTotal) {
       return null;
+    }
+    // Keep the provisional printed fields, but never let a later measurement
+    // erase conflicting or unreadable evidence. Compare full printed precision
+    // so equivalent forms such as 3.00 and 3.000 do not create false warnings.
+    if (quantities.length != 1 ||
+        rates.length != 1 ||
+        quantities.contains(null) ||
+        rates.contains(null)) {
+      onAmbiguousMeasurement();
     }
     return ReceiptOcrItemCandidate(
       description: description,

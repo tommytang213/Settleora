@@ -475,7 +475,12 @@ export function verifyCanonicalIpa({ reviewedDigests = null, canonicalizeExportM
   let copiedFd;
   const snapshot = path.join(ipaDirectory, ".settleora-verified-ipa");
   const canonicalIpa = path.join(ipaDirectory, candidates[0]);
+  let inspectionCreated = false;
   try {
+    // Reserve a new inspection directory before changing the canonical IPA.
+    // EEXIST rejects any prior file, directory or symlink without owning it.
+    mkdirSync(inspectionRoot, { mode: 0o700 });
+    inspectionCreated = true;
     const archiveStat = fstatSync(fd);
     let digest, metadata;
     if (canonicalizeExportMetadata) {
@@ -488,7 +493,6 @@ export function verifyCanonicalIpa({ reviewedDigests = null, canonicalizeExportM
       copiedFd = copyOpenedIpa(fd, snapshot, archiveStat.size, digest, reviewedDigests);
     }
     renameSync(snapshot, canonicalIpa);
-    mkdirSync(inspectionRoot, { mode: 0o700 });
     const integrity = spawnSync("unzip", ["-tqq", "/dev/fd/3"], {
       stdio: ["ignore", "ignore", "ignore", copiedFd],
     });
@@ -499,9 +503,11 @@ export function verifyCanonicalIpa({ reviewedDigests = null, canonicalizeExportM
     if (extraction.status !== 0) fail("descriptor-backed IPA extraction failed");
     return metadata ?? digest;
   } catch (error) {
-    try {
-      rmSync(inspectionRoot, { recursive: true, force: true });
-    } catch {}
+    if (inspectionCreated) {
+      try {
+        rmSync(inspectionRoot, { recursive: true, force: true });
+      } catch {}
+    }
     throw error;
   } finally {
     if (copiedFd !== undefined) closeSync(copiedFd);

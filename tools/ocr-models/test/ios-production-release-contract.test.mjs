@@ -1745,3 +1745,29 @@ for (const canonicalizeExportMetadata of [false, true]) {
     }
   });
 }
+
+test("IPA inspection ownership removes only its new directory after archive rejection", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-ipa-owned-failure-"));
+  const previousDirectory = process.cwd();
+  const ipaDirectory = path.join(root, "build/ios/ipa");
+  const archive = path.join(ipaDirectory, "Runner.ipa");
+  const inspection = path.join(root, "build/ios/.settleora-ipa-inspection");
+  try {
+    mkdirSync(ipaDirectory, { recursive: true });
+    writeFileSync(archive, "invalid test-only IPA");
+    const archiveIdentity = lstatSync(archive);
+    const sibling = path.join(root, "build/ios/retained-evidence.txt");
+    writeFileSync(sibling, "retain sibling evidence");
+    process.chdir(root);
+    for (const canonicalizeExportMetadata of [false, true]) {
+      assert.throws(() => verifyCanonicalIpa({ canonicalizeExportMetadata }), /Unsafe IPA archive/);
+      assert.equal(existsSync(inspection), false);
+      assert.equal(readFileSync(archive, "utf8"), "invalid test-only IPA");
+      assert.equal(lstatSync(archive).ino, archiveIdentity.ino);
+      assert.equal(readFileSync(sibling, "utf8"), "retain sibling evidence");
+    }
+  } finally {
+    process.chdir(previousDirectory);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
