@@ -1,0 +1,54 @@
+// Run from apps/mobile/android with Gradle offline and strict verification:
+// ./gradlew --offline -PsettleoraReleaseEvidence=true -PsettleoraReleaseOffline=true \
+//   --init-script ../../../tools/ocr-models/test-integration-test-runner.gradle \
+//   verifyIntegrationTestRunnerAlignment
+// Resolves metadata only; does not compile, package, install, or modify dependencies.
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import org.gradle.api.artifacts.result.UnresolvedDependencyResult
+import org.gradle.api.artifacts.verification.DependencyVerificationMode
+
+gradle.projectsEvaluated {
+    gradle.rootProject.tasks.register('verifyIntegrationTestRunnerAlignment') {
+        group = 'verification'
+        description = 'Checks the real integration_test runner declaration and offline graph.'
+        doLast {
+            assert gradle.startParameter.offline : 'Regression check requires offline mode'
+            assert gradle.startParameter.dependencyVerificationMode == DependencyVerificationMode.STRICT :
+                'Regression check requires strict dependency verification'
+            def plugin = gradle.rootProject.project(':integration_test')
+            def app = gradle.rootProject.project(':app')
+            def declaredVersion = { project, configuration, group, name ->
+                def matches = project.configurations.getByName(configuration).dependencies.findAll {
+                    it.group == group && it.name == name
+                }
+                assert matches.size() == 1 : "Expected one ${group}:${name} in ${project.path}:${configuration}"
+                matches.first().version
+            }
+            assert declaredVersion(plugin, 'api', 'androidx.test', 'runner') == '1.3.0' :
+                'integration_test runner declaration must match its existing runtime selection'
+            assert declaredVersion(plugin, 'api', 'androidx.test', 'rules') == '1.2+'
+            assert declaredVersion(plugin, 'api', 'androidx.test.espresso', 'espresso-core') == '3.3+'
+            assert declaredVersion(app, 'debugImplementation', 'androidx.test', 'runner') == '1.7.0'
+            assert declaredVersion(app, 'androidTestImplementation', 'androidx.test', 'runner') == '1.7.0'
+
+            ['debugCompileClasspath', 'debugRuntimeClasspath'].each { name ->
+                def configuration = plugin.configurations.getByName(name)
+                assert !configuration.resolutionStrategy.forcedModules.any {
+                    it.group == 'androidx.test' && it.name == 'runner'
+                } : 'The runner must not be globally forced'
+                def graph = configuration.incoming.resolutionResult
+                def unresolved = graph.allDependencies.findAll { it instanceof UnresolvedDependencyResult }
+                assert unresolved.empty :
+                    "${plugin.path}:${name} has unresolved dependencies: ${unresolved.collect { it.attempted }}"
+                def versions = graph.allComponents.findAll {
+                    it.id instanceof ModuleComponentIdentifier &&
+                        it.id.group == 'androidx.test' && it.id.module == 'runner'
+                }.collect { it.id.version }
+                assert versions == ['1.3.0'] : "${plugin.path}:${name} runner versions: ${versions}"
+                println("PASS ${plugin.path}:${name}: runner 1.3.0, no unresolved dependencies")
+            }
+            println('PASS declarations: plugin rules/espresso and app runner versions preserved')
+            println('PASS strict verification and offline mode')
+        }
+    }
+}

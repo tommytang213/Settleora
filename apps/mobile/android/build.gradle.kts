@@ -5,6 +5,22 @@ allprojects {
     }
 }
 
+// Flutter integration_test requests runner 1.2+, but Espresso 3.3.0 already
+// selects runner 1.3.0 at runtime. Align only that legacy API declaration so
+// compile/runtime consistency also resolves offline; allow the app to upgrade it.
+// Register before evaluationDependsOn(":app") can evaluate Flutter plugins.
+subprojects {
+    if (name == "integration_test") {
+        configurations.matching { it.name == "api" }.configureEach {
+            dependencies.withType<ExternalModuleDependency>().configureEach {
+                if (group == "androidx.test" && name == "runner" && version == "1.2+") {
+                    version { require("1.3.0") }
+                }
+            }
+        }
+    }
+}
+
 val newBuildDir: Directory =
     rootProject.layout.buildDirectory
         .dir("../../build")
