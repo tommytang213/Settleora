@@ -362,6 +362,10 @@ void main() {
             expect(saved.serviceChargeAmount, isNull);
             expect(saved.discountAmount, isNull);
             expect(saved.grandTotalAmount, isNull);
+            expect(
+              saved.taxReconciliationMode,
+              ReceiptOcrTaxReconciliationModeValues.unresolved,
+            );
             final expectedEvidence = [
               ('subtotal', '10.00', 'USD'),
               ('tax', '0.80', 'USD'),
@@ -388,7 +392,7 @@ void main() {
                 .widget<CurrencySelector>(
                   find.byKey(const Key('saved-ocr-review-ocr-edit-currency')),
                 )
-                .onChanged('CAD');
+                .onChanged('HKD');
             await tester.pumpAndSettle();
             await _scrollSavedOcrReviewEditActionsIntoView(tester);
             await tester.tap(
@@ -396,7 +400,7 @@ void main() {
             );
             await tester.pumpAndSettle();
             expect(receiptRepository.saveCalls, 2);
-            expect(receiptRepository.lastSaveRequest!.currency, 'CAD');
+            expect(receiptRepository.lastSaveRequest!.currency, 'HKD');
             expect(
               receiptRepository.lastSaveRequest!.headerEvidence.map(
                 (entry) => (entry.role, entry.amount, entry.currency),
