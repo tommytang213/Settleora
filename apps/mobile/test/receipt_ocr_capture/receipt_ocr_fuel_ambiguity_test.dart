@@ -105,4 +105,35 @@ void main() {
       },
     );
   }
+  for (final measurements in [
+    ['GALLONS 5', 'LITERS 5', 'PRICE/GAL USD 3.00'],
+    ['LITERS 5', 'GALLONS 5', 'PRICE/GAL USD 3.00'],
+    ['GALLONS 5', 'PRICE/GAL USD 3.00', 'PRICE/L USD 3.00'],
+    ['GALLONS 5', 'PRICE/L USD 3.00', 'PRICE/GAL USD 3.00'],
+    ['GALLONS 5', 'PRICE/L USD 3.00'],
+    ['LITRES 5', 'PRICE/GAL USD 3.00'],
+  ]) {
+    test('conflicting printed fuel units remain reviewable: $measurements', () {
+      final p = _parse(measurements, '15.00');
+      expect(p.items.single.quantity, '5');
+      expect(p.items.single.unitPrice, '3.00');
+      expect(p.adjustmentsComplete, isFalse);
+      expect(p.reviewHints, isNotEmpty);
+      expect(p.warnings.any((w) => w.toLowerCase().contains('fuel')), isTrue);
+    });
+  }
+
+  for (final measurements in [
+    ['LITERS 5', 'LITRES 5.00', 'PRICE/L USD 3.00'],
+    ['GALLONS 5', 'UNIT PRICE USD 3.00'],
+    ['LITRES 5', 'UNIT PRICE USD 3.00'],
+    ['GALLONS 5', 'UNIT PRICE USD 3.00', 'PRICE/GAL USD 3.000'],
+  ]) {
+    test('compatible printed fuel units remain confident: $measurements', () {
+      final p = _parse(measurements, '15.00');
+      expect(p.adjustmentsComplete, isTrue);
+      expect(p.reviewHints, isEmpty);
+      expect(p.warnings, isEmpty);
+    });
+  }
 }
