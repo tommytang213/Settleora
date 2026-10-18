@@ -3,6 +3,14 @@
 // circular commitment when adding a newly reviewed package representation.
 // An older package digest is never accepted for a changed source tree.
 export const expectedAndroidPackageDigestsBySource = Object.freeze({
+  // #1309 reviewed support-panel ownership and pinned MLKit types at 841cc25c.
+  // One strict offline Flutter 3.44.8 Release build verified 2742 tracked blobs.
+  // Independent review approved this exact source/representation pair.
+  // Real signature and complete v2 structure passed; prior APKs retained.
+  // Native/iOS/hosted and merge gates remain separate.
+  "b312080260f5524e0c91b140c73532f109106c56c5e815552efb576b815e219a": Object.freeze([
+    "8bcfe3a76b6169fb655a795ad83b135f97045ede16e82ac45c5583719e3f71cf",
+  ]),
   // #1309 reviewed full v2 structure at bf659030. The final strict offline
   // Flutter 3.44.8 Release build verified all 2717 tracked blobs; retained
   // history records two earlier offline cache failures and a warm build.
