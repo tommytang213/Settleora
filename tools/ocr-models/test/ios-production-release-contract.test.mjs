@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { constants, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { constants, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -1671,3 +1671,77 @@ test('signed artifact retention occurs only after package, archive and provenanc
   assert.match(script.slice(script.lastIndexOf('  if [[ "$mode" == signed ]]; then', boundary), boundary),
     /IPA changed while provenance was generated/);
 });
+
+for (const canonicalizeExportMetadata of [false, true]) {
+  for (const validArchive of [false, true]) {
+    for (const kind of ["directory", "file", "symlink"]) {
+      test(`IPA inspection ownership preserves existing ${kind}: valid=${validArchive} canonicalize=${canonicalizeExportMetadata}`, () => {
+        const root = mkdtempSync(path.join(os.tmpdir(), "settleora-ipa-ownership-"));
+        const ipaDirectory = path.join(root, "build/ios/ipa");
+        const archive = path.join(ipaDirectory, "Runner.ipa");
+        const inspection = path.join(root, "build/ios/.settleora-ipa-inspection");
+        const target = path.join(root, "retained-evidence");
+        const previousDirectory = process.cwd();
+        try {
+          mkdirSync(ipaDirectory, { recursive: true });
+          const bytes = validArchive
+            ? makeStoredZip([{ name: "Payload/Runner.app/Info.plist", data: "test-only plist" }])
+            : Buffer.from("invalid test-only IPA");
+          writeFileSync(archive, bytes);
+          let sentinel;
+          if (kind === "file") {
+            writeFileSync(inspection, "prior inspection evidence");
+            sentinel = inspection;
+          } else {
+            const directory = kind === "symlink" ? target : inspection;
+            mkdirSync(directory);
+            sentinel = path.join(directory, "sentinel.txt");
+            writeFileSync(sentinel, "prior inspection evidence");
+            if (kind === "symlink") symlinkSync(target, inspection);
+          }
+          const originalIdentity = lstatSync(inspection);
+          const originalArchiveIdentity = lstatSync(archive);
+          process.chdir(root);
+          assert.throws(() => verifyCanonicalIpa({ canonicalizeExportMetadata }));
+          assert.equal(readFileSync(sentinel, "utf8"), "prior inspection evidence");
+          assert.equal(lstatSync(inspection).ino, originalIdentity.ino);
+          assert.equal(lstatSync(inspection).isSymbolicLink(), kind === "symlink");
+          assert.equal(lstatSync(archive).ino, originalArchiveIdentity.ino);
+          assert.deepEqual(readFileSync(archive), bytes);
+          assert.equal(existsSync(path.join(ipaDirectory, ".settleora-verified-ipa")), false);
+        } finally {
+          process.chdir(previousDirectory);
+          // Only remove this test's freshly created temporary fixture.
+          rmSync(root, { recursive: true, force: true });
+        }
+      });
+    }
+  }
+
+  test(`IPA inspection ownership preserves a successful prior inspection on repeat: canonicalize=${canonicalizeExportMetadata}`, () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "settleora-ipa-repeat-"));
+    const previousDirectory = process.cwd();
+    const ipaDirectory = path.join(root, "build/ios/ipa");
+    const archive = path.join(ipaDirectory, "Runner.ipa");
+    const inspection = path.join(root, "build/ios/.settleora-ipa-inspection");
+    try {
+      mkdirSync(ipaDirectory, { recursive: true });
+      writeFileSync(archive, makeStoredZip([
+        { name: "Payload/Runner.app/Info.plist", data: "test-only plist" },
+      ]));
+      process.chdir(root);
+      verifyCanonicalIpa({ canonicalizeExportMetadata });
+      const plist = path.join(inspection, "Payload/Runner.app/Info.plist");
+      const priorIdentity = lstatSync(inspection);
+      const archiveIdentity = lstatSync(archive);
+      assert.equal(readFileSync(plist, "utf8"), "test-only plist");
+      assert.throws(() => verifyCanonicalIpa({ canonicalizeExportMetadata }));
+      assert.equal(readFileSync(plist, "utf8"), "test-only plist");
+      assert.equal(lstatSync(inspection).ino, priorIdentity.ino);
+      assert.equal(lstatSync(archive).ino, archiveIdentity.ino);
+    } finally {
+      process.chdir(previousDirectory);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
